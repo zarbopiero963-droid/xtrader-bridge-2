@@ -21,14 +21,20 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Simula merge con main (nessun merge reale)
+      - name: Simula merge con la base della PR (nessun merge reale)
         shell: bash
         run: |
           git config user.email "merge-simulation-hard@example.invalid"
           git config user.name "merge-simulation-hard"
-          git fetch origin main
-          git merge --no-commit --no-ff origin/main \
-            || { echo "::error::Conflitto di merge con main"; exit 1; }
+          # Base reale della PR (gestisce master); manuale/schedulata → default branch.
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ]; then
+            def="${{ github.event.repository.default_branch }}"
+            git fetch origin "${def:-main}"
+            base=FETCH_HEAD
+          fi
+          git merge --no-commit --no-ff "$base" \
+            || { echo "::error::Conflitto di merge con la base della PR"; exit 1; }
 
       - uses: actions/setup-python@v5
         with:
@@ -69,7 +75,9 @@ jobs:
         run: |
           bad=$(git ls-files | grep -iE '(^|/)\.env$|(^|/)config\.json$|\.(exe|zip|log|spec|secret|bak)$|(^|/)(build|dist|logs|history)/' || true)
           csv=$(git ls-files | grep -iE '\.csv$' | grep -vx 'data/dizionario_xtrader.csv' || true)
-          if [ -n "$bad$csv" ]; then
-            echo "::error::File vietati tracciati nel repo:"; echo "$bad"; echo "$csv"; exit 1
+          tok=$(git ls-files | xargs -r grep -IlE '[0-9]{8,10}:[A-Za-z0-9_-]{35}' 2>/dev/null || true)
+          if [ -n "$bad$csv$tok" ]; then
+            echo "::error::File vietati o token in chiaro tracciati nel repo (token redatto):"
+            echo "$bad"; echo "$csv"; echo "$tok"; exit 1
           fi
-          echo "OK: nessun file vietato tracciato."
+          echo "OK: nessun file vietato e nessun token in chiaro."

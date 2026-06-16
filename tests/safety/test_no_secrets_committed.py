@@ -6,12 +6,15 @@ Mirror del workflow `forbidden-files` come test, così la regola gira anche nel
 """
 
 import os
+import re
 import subprocess
 
 import pytest
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _ALLOWED_CSV = {"data/dizionario_xtrader.csv"}
+# Token bot Telegram: "<id 8-10 cifre>:<35 caratteri>".
+_TELEGRAM_TOKEN = re.compile(r'[0-9]{8,10}:[A-Za-z0-9_-]{35}')
 
 
 def _tracked_files():
@@ -40,3 +43,17 @@ def test_nessun_file_vietato_tracciato():
         elif low.endswith(".csv") and f not in _ALLOWED_CSV:
             bad.append(f)
     assert not bad, f"File vietati tracciati nel repo: {bad}"
+
+
+def test_nessun_token_telegram_in_chiaro():
+    # Scansione contenuti: nessun token bot Telegram in chiaro nei file tracciati.
+    # Il token NON viene stampato (solo il path), per non riesporlo nei log.
+    offenders = []
+    for f in _tracked_files():
+        try:
+            with open(os.path.join(_REPO_ROOT, f), "r", encoding="utf-8", errors="ignore") as fh:
+                if _TELEGRAM_TOKEN.search(fh.read()):
+                    offenders.append(f)
+        except OSError:  # pragma: no cover - file illeggibile
+            continue
+    assert not offenders, f"Possibile token Telegram in chiaro in: {offenders}"

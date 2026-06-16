@@ -19,13 +19,21 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Simula merge con main (nessun merge reale)
+      - name: Simula merge con la base della PR (nessun merge reale)
         run: |
           git config user.email "merge-simulation@example.invalid"
           git config user.name "merge-simulation"
-          git fetch origin main
-          git merge --no-commit --no-ff origin/main \
-            || { echo "::error::Conflitto di merge con main"; exit 1; }
+          # Usa la BASE reale della PR (gestisce anche PR verso master). La base
+          # SHA è già nello storico locale (checkout fetch-depth:0), quindi niente
+          # fetch → nessun problema di credenziali con persist-credentials:false.
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ]; then
+            def="${{ github.event.repository.default_branch }}"
+            git fetch origin "${def:-main}"
+            base=FETCH_HEAD
+          fi
+          git merge --no-commit --no-ff "$base" \
+            || { echo "::error::Conflitto di merge con la base della PR"; exit 1; }
 
       - uses: actions/setup-python@v5
         with:

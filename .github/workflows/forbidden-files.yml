@@ -34,4 +34,11 @@ jobs:
             [ -n "$csv" ] && { echo "CSV non ammessi (solo data/dizionario_xtrader.csv è consentito):"; echo "$csv"; }
             exit 1
           fi
-          echo "OK: nessun file vietato tracciato."
+          # Scansione CONTENUTI: nessun token Telegram (formato bot "<id>:<35 char>")
+          # in chiaro nei file tracciati. -Il elenca solo i path (token NON stampato).
+          tok=$(git ls-files | xargs -r grep -IlE '[0-9]{8,10}:[A-Za-z0-9_-]{35}' 2>/dev/null || true)
+          if [ -n "$tok" ]; then
+            echo "::error::Possibile token Telegram in chiaro nei file tracciati (redatto):"
+            echo "$tok"; exit 1
+          fi
+          echo "OK: nessun file vietato e nessun token in chiaro."
