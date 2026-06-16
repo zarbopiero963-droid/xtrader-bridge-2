@@ -45,6 +45,26 @@ def test_load_config_json_malformato_usa_default_e_backup(tmp_path):
     assert not os.path.exists(str(p))             # originale rimosso
 
 
+def test_load_config_json_non_dict_usa_default_e_backup(tmp_path):
+    # JSON valido ma non dizionario (es. lista): trattato come corrotto.
+    p = tmp_path / "config.json"
+    p.write_text("[]")
+    cfg = config_store.load_config(str(p))
+    assert cfg["provider"] == config_store.DEFAULTS["provider"]
+    assert os.path.exists(str(p) + ".bak")        # backup creato
+    assert not os.path.exists(str(p))             # originale rimosso
+
+
+def test_backup_sovrascrive_bak_preesistente(tmp_path):
+    # Se esiste già un .bak, il backup non deve fallire (robustezza Windows).
+    p = tmp_path / "config.json"
+    p.write_text("non json {")
+    (tmp_path / "config.json.bak").write_text("vecchio backup")
+    config_store.load_config(str(p))              # non deve sollevare
+    assert os.path.exists(str(p) + ".bak")
+    assert not os.path.exists(str(p))
+
+
 def test_save_then_load_roundtrip(tmp_path):
     p = str(tmp_path / "config.json")
     data = {"bot_token": "X", "chat_id": "-1", "csv_path": "/tmp/s.csv",
@@ -76,6 +96,25 @@ def test_config_path_dentro_config_dir(monkeypatch, tmp_path):
 def test_config_version_presente_nei_default():
     cfg = config_store.load_config(str("/percorso/inesistente/config.json"))
     assert cfg["config_version"] == config_store.CONFIG_VERSION
+
+
+def test_config_version_aggiunto_e_persistito_da_config_legacy(tmp_path):
+    # Config legacy senza config_version: load lo aggiunge, save lo persiste.
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"provider": "TG_PRE", "csv_path": "x.csv"}))
+    cfg = config_store.load_config(str(p))
+    assert cfg["config_version"] == config_store.CONFIG_VERSION
+    config_store.save_config(cfg, str(p))
+    on_disk = json.loads(p.read_text())
+    assert on_disk["config_version"] == config_store.CONFIG_VERSION
+
+
+def test_config_version_su_disco_preservato(tmp_path):
+    # Se il file porta un config_version diverso (futuro v2), NON viene sovrascritto.
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"config_version": 99, "provider": "X"}))
+    cfg = config_store.load_config(str(p))
+    assert cfg["config_version"] == 99            # skew su disco preservato
 
 
 def test_migrate_legacy_copia_quando_nuovo_assente(tmp_path):

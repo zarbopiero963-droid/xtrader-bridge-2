@@ -91,7 +91,8 @@ def load_config(path: str = CONFIG_FILE) -> dict:
                 _backup_corrupted(path)
         except (json.JSONDecodeError, ValueError, OSError):
             _backup_corrupted(path)
-    cfg["config_version"] = CONFIG_VERSION
+    # `config_version` è già garantito dai DEFAULTS; se il file ne porta uno
+    # (futuro schema v2+) viene preservato così non perdiamo lo skew su disco.
     return cfg
 
 
@@ -109,8 +110,12 @@ def save_config(cfg: dict, path: str = CONFIG_FILE) -> dict:
 
 
 def _backup_corrupted(path: str) -> None:
-    """Sposta una config illeggibile in `<path>.bak` (best-effort)."""
+    """Sposta una config illeggibile in `<path>.bak` (best-effort).
+
+    Usa os.replace così sovrascrive un eventuale `.bak` preesistente in modo
+    atomico e cross-platform (su Windows shutil.move fallirebbe se esiste già).
+    """
     try:
-        shutil.move(path, path + ".bak")
-    except Exception:
+        os.replace(path, path + ".bak")
+    except OSError:
         pass
