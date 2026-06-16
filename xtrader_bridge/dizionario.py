@@ -10,11 +10,20 @@ proprio (alias → riga) e l'integrazione in `build_csv_row` sono PR-08.
 
 import csv
 import os
+import sys
 
-_DATA_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data"
-)
-DIZIONARIO_PATH = os.path.join(_DATA_DIR, "dizionario_xtrader.csv")
+
+def _data_dir() -> str:
+    """Cartella `data/`. Nell'EXE PyInstaller i dati stanno in sys._MEIPASS
+    (vedi --add-data nel workflow), non accanto a __file__ (bundle temporaneo)."""
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+    else:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, "data")
+
+
+DIZIONARIO_PATH = os.path.join(_data_dir(), "dizionario_xtrader.csv")
 
 EXPECTED_COLUMNS = [
     "Sport", "Periodo", "MarketAliasTelegram", "SelectionAliasTelegram",

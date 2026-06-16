@@ -11,6 +11,8 @@ import tempfile
 import threading
 import time
 
+from . import mapping
+
 # Lock condiviso: serializza scrittura segnale e svuotamento, eliminando la
 # race tra il thread del bot (write_csv) e il timer di auto-clear (init_csv).
 _write_lock = threading.Lock()
@@ -50,18 +52,16 @@ MARKET_MAPPING = {
 
 
 def build_csv_row(parsed: dict, provider: str) -> dict:
-    """Converte i dati parsati in una riga XTrader."""
-    market_type = "MATCH_ODDS"
-    signal_upper = parsed['signal_type'].upper()
-    for key, val in MARKET_MAPPING.items():
-        if key in signal_upper:
-            market_type = val
-            break
+    """Converte i dati parsati in una riga XTrader.
 
+    Se l'alias del segnale è riconosciuto nel dizionario (PR-07/08) usa i valori
+    italiani ufficiali (MarketType/MarketName/SelectionName); altrimenti ricade
+    sul mapping legacy. Il `bet_type` viene sempre dal segnale (PUNTA/BANCA).
+    """
     teams = parsed['teams']
-    home = teams.split(' v ')[0] if ' v ' in teams else teams
-    is_goals = any(k in signal_upper for k in ["GOL", "OVER", "GOAL"])
-    selection = "Over 0.5 Goals" if is_goals else home
+    parts = teams.split(' v ')
+    home = parts[0].strip() if parts else teams
+    away = parts[1].strip() if len(parts) > 1 else ""
 
     # XTrader usa PUNTA/BANCA; il segnale interno resta BACK/LAY (default BACK).
     # Un bet_type sconosciuto NON deve essere mappato silenziosamente: piazzerebbe
@@ -71,6 +71,38 @@ def build_csv_row(parsed: dict, provider: str) -> dict:
         raise ValueError(f"bet_type non supportato: {raw_bet_type!r} (atteso BACK o LAY)")
     bet_type = BETTYPE_MAP[raw_bet_type]
 
+    resolved = mapping.resolve_shorthand(parsed['signal_type'], home=home, away=away)
+    if resolved:
+        market_type = resolved["MarketType"]
+        market_name = resolved["MarketName"]
+        selection = resolved["SelectionName"]
+        handicap = resolved["Handicap"]   # già normalizzato in mapping.resolve()
+    elif mapping.is_known_shorthand(parsed['signal_type']):
+        # Alias noto ma non risolvibile (es. nome squadra mancante per 1/2):
+        # NON ripiegare su una selezione errata né scrivere il placeholder.
+        # SelectionName vuoto → il riconoscimento (PR-06) scarta la riga.
+        market_type = ""
+        market_name = parsed['signal_type']
+        selection = ""
+        handicap = DEFAULT_HANDICAP
+    else:
+        # Fallback legacy: mapping inglese del tipo segnale.
+        signal_upper = parsed['signal_type'].upper()
+        market_name = parsed['signal_type']
+        handicap = DEFAULT_HANDICAP
+        market_type = ""
+        for key, val in MARKET_MAPPING.items():
+            if key in signal_upper:
+                market_type = val
+                break
+        if not market_type:
+            # Segnale non supportato: NON fabbricare una riga usabile-ma-sbagliata.
+            # SelectionName vuoto → scartato dal riconoscimento (PR-06).
+            selection = ""
+        else:
+            is_goals = any(k in signal_upper for k in ["GOL", "OVER", "UNDER", "GOAL"])
+            selection = "Over 0.5 Goals" if is_goals else home
+
     # Gli ID (EventId/MarketId/SelectionId) non sono presenti nel messaggio
     # Telegram: restano vuoti. XTrader valida via EventName+MarketType+SelectionName.
     return {
@@ -78,11 +110,11 @@ def build_csv_row(parsed: dict, provider: str) -> dict:
         'EventId':       '',
         'EventName':     teams,
         'MarketId':      '',
-        'MarketName':    parsed['signal_type'],
+        'MarketName':    market_name,
         'MarketType':    market_type,
         'SelectionId':   '',
         'SelectionName': selection,
-        'Handicap':      DEFAULT_HANDICAP,
+        'Handicap':      handicap,
         'Price':         parsed.get('quota', ''),
         'MinPrice':      '',
         'MaxPrice':      '',

@@ -68,6 +68,13 @@ def test_first_half_goals_05_15_25():
         assert mt in mts
 
 
+def test_data_dir_da_meipass_se_frozen(monkeypatch, tmp_path):
+    import os
+    monkeypatch.setattr(dz.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(dz.sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert dz._data_dir() == os.path.join(str(tmp_path), "data")
+
+
 def test_alias_key_normalizza():
     assert dz.alias_key("  Over 0.5 HT ", "OVER 0.5 HT") == ("over 0.5 ht", "over 0.5 ht")
 
