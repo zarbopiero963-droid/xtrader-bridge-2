@@ -65,7 +65,7 @@ Il sistema è progettato per ridurre il rischio di piazzare due volte la stessa 
 **Q: Cosa succede se perdo la connessione internet?**Il bridge si riconnette automaticamente. Nessun segnale va perso durante la riconnessione.
 **Q: Posso usarlo con più canali Telegram?**Attualmente supporta un canale alla volta. Per più canali, contatta lo sviluppatore.
 **Q: XTrader continua a fare scommesse vecchie?**No — grazie al timeout e al clear automatico del CSV, XTrader vede sempre solo il segnale più recente o nessun segnale se il timeout è scaduto.
-**Q: Dove vengono salvate le impostazioni?**In un file `config.json` nella stessa cartella dell'EXE. Vengono caricate automaticamente al prossimo avvio.
+**Q: Dove vengono salvate le impostazioni?**In un file `config.json` nella cartella utente `%APPDATA%\XTraderBridge\` (es. `C:\Users\TuoNome\AppData\Roaming\XTraderBridge\config.json`). Così le impostazioni sopravvivono a spostamenti e aggiornamenti dell'EXE. Al primo avvio, un eventuale `config.json` accanto al vecchio EXE viene migrato automaticamente. Vengono caricate al prossimo avvio.
 ---
 ## Struttura del progetto
 ```xtrader-bridge/├── main.py                    ← Codice sorgente principale├── requirements.txt           ← Dipendenze Python├── README.md                  ← Questo file└── .github/    └── workflows/        └── build.yml          ← GitHub Actions: compila l'EXE su Windows```

@@ -10,7 +10,12 @@ from datetime import datetime
 
 import customtkinter as ctk
 
-from .config_store import CONFIG_FILE, load_config, save_config
+from .config_store import (
+    CONFIG_FILE,
+    load_config,
+    migrate_legacy_config,
+    save_config,
+)
 from .csv_writer import build_csv_row, init_csv, write_csv
 from .parser import parse_message
 
@@ -44,6 +49,9 @@ class App(ctk.CTk):
 
     # ── CONFIG ────────────────────────────────
     def _load_config(self) -> dict:
+        # Migra il vecchio config.json (accanto all'EXE) la prima volta, poi carica
+        # dalla cartella utente persistente (%APPDATA%\XTraderBridge).
+        migrate_legacy_config(CONFIG_FILE)
         return load_config(CONFIG_FILE)
 
     def _save_config(self) -> dict:

@@ -1,7 +1,8 @@
-"""Test baseline della configurazione (PR-02, aggiornato PR-03).
+"""Test della configurazione (PR-02 → PR-04).
 
-Dopo il refactor, load/save sono funzioni pure in `xtrader_bridge.config_store`,
-testabili headless con path temporanei. Lo spostamento in `%APPDATA%` è PR-04.
+`load`/`save`/`migrate` sono funzioni pure in `xtrader_bridge.config_store`,
+testabili headless con path temporanei. PR-04: cartella utente persistente
+(`%APPDATA%`), migrazione del config legacy, backup di config corrotta.
 """
 
 import json
@@ -32,14 +33,16 @@ def test_load_config_merge_con_file(tmp_path):
     assert "csv_path" in cfg                      # default preservato
 
 
-def test_load_config_json_malformato_usa_default(tmp_path):
-    # File presente ma JSON non valido: best-effort -> nessuna eccezione, default preservati.
+def test_load_config_json_malformato_usa_default_e_backup(tmp_path):
+    # File presente ma JSON non valido: nessuna eccezione, default preservati,
+    # e il file corrotto viene messo da parte come .bak.
     p = tmp_path / "config.json"
     p.write_text("{ questo non e' json valido ,,, ")
     cfg = config_store.load_config(str(p))
     assert cfg["csv_path"] == config_store.DEFAULTS["csv_path"]
     assert cfg["provider"] == config_store.DEFAULTS["provider"]
-    assert cfg["clear_delay"] == config_store.DEFAULTS["clear_delay"]
+    assert os.path.exists(str(p) + ".bak")        # backup creato
+    assert not os.path.exists(str(p))             # originale rimosso
 
 
 def test_save_then_load_roundtrip(tmp_path):
@@ -51,6 +54,55 @@ def test_save_then_load_roundtrip(tmp_path):
 
 
 def test_defaults_non_contengono_segreti():
-    # I default non devono contenere token o chat reali.
     assert config_store.DEFAULTS["bot_token"] == ""
     assert config_store.DEFAULTS["chat_id"] == ""
+
+
+# ── PR-04: cartella utente, migrazione, versione ──
+
+def test_config_dir_usa_appdata(monkeypatch):
+    monkeypatch.setenv("APPDATA", os.path.join("X", "Roaming"))
+    d = config_store.config_dir()
+    assert d.endswith(config_store.APP_DIR_NAME)
+    assert os.path.join("X", "Roaming") in d
+
+
+def test_config_path_dentro_config_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    p = config_store.config_path()
+    assert p == os.path.join(str(tmp_path), config_store.APP_DIR_NAME, "config.json")
+
+
+def test_config_version_presente_nei_default():
+    cfg = config_store.load_config(str("/percorso/inesistente/config.json"))
+    assert cfg["config_version"] == config_store.CONFIG_VERSION
+
+
+def test_migrate_legacy_copia_quando_nuovo_assente(tmp_path):
+    legacy = tmp_path / "legacy" / "config.json"
+    legacy.parent.mkdir()
+    legacy.write_text(json.dumps({"provider": "VECCHIO"}))
+    new = tmp_path / "appdata" / "XTraderBridge" / "config.json"
+
+    migrated = config_store.migrate_legacy_config(str(new), str(legacy))
+    assert migrated is True
+    assert new.exists()                           # creato nella nuova posizione
+    assert legacy.exists()                        # legacy NON rimosso (non distruttivo)
+    assert config_store.load_config(str(new))["provider"] == "VECCHIO"
+
+
+def test_migrate_legacy_skip_se_nuovo_esiste(tmp_path):
+    legacy = tmp_path / "legacy.json"
+    legacy.write_text(json.dumps({"provider": "VECCHIO"}))
+    new = tmp_path / "config.json"
+    new.write_text(json.dumps({"provider": "NUOVO"}))
+
+    migrated = config_store.migrate_legacy_config(str(new), str(legacy))
+    assert migrated is False
+    assert config_store.load_config(str(new))["provider"] == "NUOVO"  # non sovrascritto
+
+
+def test_migrate_legacy_skip_se_nessun_legacy(tmp_path):
+    new = tmp_path / "config.json"
+    assert config_store.migrate_legacy_config(str(new), str(tmp_path / "assente.json")) is False
+    assert not new.exists()
