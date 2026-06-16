@@ -76,4 +76,35 @@ def test_shorthand_sconosciuto_none():
 
 
 def test_bettype_dal_dizionario_e_punta():
-    assert mapping.resolve("esito_finale", "1")["BetType"] == "PUNTA"
+    # Selezione statica (no placeholder) per testare il BetType senza squadre.
+    assert mapping.resolve("esito_finale", "x")["BetType"] == "PUNTA"
+
+
+def test_shorthand_suffisso_ft_ignorato():
+    # "OVER 2.5 FT" deve mappare come "OVER 2.5" (FT è il default).
+    r = mapping.resolve_shorthand("OVER 2.5 FT")
+    assert r["MarketType"] == "OVER_UNDER_25"
+    assert r["SelectionName"] == "Over 2,5 goal"
+
+
+def test_shorthand_over_45_coperto():
+    r = mapping.resolve_shorthand("OVER 4.5")
+    assert r["MarketType"] == "OVER_UNDER_45"
+    assert r["SelectionName"] == "Over 4,5 goal"
+
+
+def test_shorthand_ht_primo_tempo():
+    r = mapping.resolve_shorthand("OVER 0.5 HT")
+    assert r["MarketType"] == "FIRST_HALF_GOALS_05"
+    assert r["SelectionName"] == "Over 0,5 goal"
+
+
+def test_resolve_placeholder_non_risolto_torna_none():
+    # away shorthand senza nome squadra ospite -> placeholder non risolto -> None.
+    assert mapping.resolve("esito_finale", "2", home="Inter") is None
+
+
+def test_is_known_shorthand():
+    assert mapping.is_known_shorthand("OVER 2.5") is True
+    assert mapping.is_known_shorthand("2") is True
+    assert mapping.is_known_shorthand("scommessa strana") is False

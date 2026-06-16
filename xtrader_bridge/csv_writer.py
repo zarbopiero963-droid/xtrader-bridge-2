@@ -77,6 +77,14 @@ def build_csv_row(parsed: dict, provider: str) -> dict:
         market_name = resolved["MarketName"]
         selection = resolved["SelectionName"]
         handicap = resolved["Handicap"]   # già normalizzato in mapping.resolve()
+    elif mapping.is_known_shorthand(parsed['signal_type']):
+        # Alias noto ma non risolvibile (es. nome squadra mancante per 1/2):
+        # NON ripiegare su una selezione errata né scrivere il placeholder.
+        # SelectionName vuoto → il riconoscimento (PR-06) scarta la riga.
+        market_type = ""
+        market_name = parsed['signal_type']
+        selection = ""
+        handicap = DEFAULT_HANDICAP
     else:
         # Fallback legacy: mapping inglese del tipo segnale.
         signal_upper = parsed['signal_type'].upper()

@@ -37,6 +37,7 @@ jobs:
         --name "XTrader-Signal-Bridge"
         --paths .
         --collect-submodules xtrader_bridge
+        --add-data "data/dizionario_xtrader.csv;data"
         --collect-all customtkinter
         --hidden-import=telegram
         --hidden-import=telegram.ext

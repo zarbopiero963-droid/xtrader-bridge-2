@@ -14,26 +14,39 @@ Alias sconosciuto → None (il chiamante decide; il blocco duro è PR-10).
 
 from .dizionario import alias_key, load_dizionario
 
-# Forme brevi dei messaggi Telegram → (MarketAliasTelegram, SelectionAliasTelegram)
-# del dizionario. Le chiavi sono già normalizzate (minuscolo, spazi singoli,
-# virgola→punto). Set iniziale: il parser robusto (PR-09) ne amplierà la copertura.
+
+def _ou(line: str, half: bool):
+    """Genera le voci over/under per una linea ("0.5".."8.5").
+
+    Ritorna coppie (chiave_shorthand_normalizzata) -> (market_alias, selection_alias)
+    per FT (suffisso eliminato in normalizzazione) o HT (suffisso "ht" esplicito).
+    """
+    code = line[0] + line[2]               # "2.5" -> "25"
+    suffix = "ht" if half else "ft"
+    market = f"over_under_{line}_{suffix}"
+    out = {}
+    for side in ("over", "under"):
+        # FT: chiave senza suffisso (la normalizzazione toglie " ft").
+        # HT: chiave con " ht" (non rimosso, cambia mercato).
+        key = f"{side} {line} ht" if half else f"{side} {line}"
+        out[key] = (market, f"{side} {line} {suffix}")
+    return out
+
+
+# Forme brevi Telegram (chiavi già normalizzate) → (MarketAliasTelegram, SelectionAliasTelegram).
 SYNONYMS = {
-    "1":          ("esito_finale", "1"),
-    "x":          ("esito_finale", "x"),
-    "2":          ("esito_finale", "2"),
-    "gg":         ("goal_no_goal", "goal"),
-    "goal":       ("goal_no_goal", "goal"),
-    "ng":         ("goal_no_goal", "no goal"),
-    "no goal":    ("goal_no_goal", "no goal"),
-    "over 0.5":   ("over_under_0.5_ft", "over 0.5 ft"),
-    "under 0.5":  ("over_under_0.5_ft", "under 0.5 ft"),
-    "over 1.5":   ("over_under_1.5_ft", "over 1.5 ft"),
-    "under 1.5":  ("over_under_1.5_ft", "under 1.5 ft"),
-    "over 2.5":   ("over_under_2.5_ft", "over 2.5 ft"),
-    "under 2.5":  ("over_under_2.5_ft", "under 2.5 ft"),
-    "over 3.5":   ("over_under_3.5_ft", "over 3.5 ft"),
-    "under 3.5":  ("over_under_3.5_ft", "under 3.5 ft"),
+    "1":       ("esito_finale", "1"),
+    "x":       ("esito_finale", "x"),
+    "2":       ("esito_finale", "2"),
+    "gg":      ("goal_no_goal", "goal"),
+    "goal":    ("goal_no_goal", "goal"),
+    "ng":      ("goal_no_goal", "no goal"),
+    "no goal": ("goal_no_goal", "no goal"),
 }
+for _line in ("0.5", "1.5", "2.5", "3.5", "4.5", "5.5", "6.5", "7.5", "8.5"):
+    SYNONYMS.update(_ou(_line, half=False))     # FT 0.5–8.5
+for _line in ("0.5", "1.5", "2.5"):
+    SYNONYMS.update(_ou(_line, half=True))      # HT 0.5/1.5/2.5
 
 _INDEX = None
 
@@ -49,8 +62,11 @@ def _index() -> dict:
 
 
 def _norm_shorthand(text: str) -> str:
-    # minuscolo, spazi singoli, virgola→punto (decimali "2,5" -> "2.5").
-    return " ".join(str(text).strip().lower().replace(",", ".").split())
+    # minuscolo, spazi singoli, virgola→punto, e suffisso FT rimosso ("over 2.5 ft" -> "over 2.5").
+    s = " ".join(str(text).strip().lower().replace(",", ".").split())
+    if s.endswith(" ft"):
+        s = s[:-3].strip()
+    return s
 
 
 def _subst(value: str, home: str, away: str) -> str:
@@ -66,24 +82,36 @@ def resolve(market_alias: str, selection_alias: str, home: str = "", away: str =
     """Risolve una coppia di alias del dizionario in una selezione XTrader.
 
     Ritorna un dict (MarketType/MarketName/SelectionName/Handicap/BetType) con i
-    placeholder sostituiti, oppure None se la coppia non è nel dizionario.
+    placeholder sostituiti, oppure None se la coppia non è nel dizionario **o**
+    se rimane un placeholder non sostituito (es. squadra mancante): in quel caso
+    la selezione non è utilizzabile e non va scritta.
     """
     row = _index().get(alias_key(market_alias, selection_alias))
     if not row:
         return None
+    market_name = _subst(row["MarketName_XTrader"], home, away)
+    selection_name = _subst(row["SelectionName_XTrader"], home, away)
+    if "{" in selection_name or "{" in market_name:
+        return None     # placeholder non risolto (dati squadra incompleti)
     return {
         "MarketType":    row["MarketType_XTrader"],
-        "MarketName":    _subst(row["MarketName_XTrader"], home, away),
-        "SelectionName": _subst(row["SelectionName_XTrader"], home, away),
+        "MarketName":    market_name,
+        "SelectionName": selection_name,
         "Handicap":      row["Handicap"] or "0",
         "BetType":       row["BetType_XTrader"],
     }
 
 
+def is_known_shorthand(text: str) -> bool:
+    """True se la forma breve è mappata (a prescindere dalla risoluzione squadre)."""
+    return _norm_shorthand(text) in SYNONYMS
+
+
 def resolve_shorthand(text: str, home: str = "", away: str = ""):
     """Risolve una forma breve Telegram (es. "OVER 2.5", "GG", "1") via SYNONYMS.
 
-    Ritorna lo stesso dict di `resolve()`, oppure None se la forma non è mappata.
+    Ritorna lo stesso dict di `resolve()`, oppure None se la forma non è mappata
+    o se i placeholder non sono risolvibili.
     """
     pair = SYNONYMS.get(_norm_shorthand(text))
     if not pair:

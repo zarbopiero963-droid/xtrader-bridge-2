@@ -43,6 +43,15 @@ def test_lay_resta_banca_anche_con_mapping():
     assert row["BetType"] == "BANCA"
 
 
+def test_away_shorthand_senza_squadra_ospite_e_scartabile():
+    # teams senza " v " -> away vuoto. "2" (ospite) non risolvibile:
+    # SelectionName vuoto -> NON valido (verrà scartato dal bridge), niente placeholder.
+    row = build_csv_row(_parsed("2", teams="Inter - Milan"), "PBet")
+    assert row["SelectionName"] == ""
+    assert "{" not in row["SelectionName"]
+    assert recognition.is_valid(row, "NAME_ONLY") is False
+
+
 def test_segnale_non_mappato_usa_fallback():
     # "MATCH ODDS" non è una forma breve mappata: fallback legacy, selezione = casa.
     row = build_csv_row(_parsed("MATCH ODDS", teams="Inter v Milan"), "PBet")
