@@ -66,7 +66,7 @@ Provider,EventId,EventName,MarketId,MarketName,MarketType,SelectionId,SelectionN
 | #9 TELEGRAM_OK | PR-03, PR-11 |
 | #6 scrittura atomica, #2 race | PR-05, PR-16 |
 | #1 validazione | PR-01, PR-06, PR-10 |
-| #3 parser | PR-09 |
+| #3 parser | PR-09 → **superseduto da CP-01…CP-10** (builder configurabile) |
 | #5 dedup/timestamp | PR-15 |
 | #8 chat_id, #11 errori silenziati | PR-11, PR-12, PR-14 |
 | #10 validazione GUI | PR-13 |
@@ -200,6 +200,204 @@ invalido; `Points` vuoto **resta vuoto** (è il default del contratto, NON va no
 
 ---
 
+# PHASE 3-bis — Parser Personalizzato (builder GUI configurabile)
+
+> **Decisione del proprietario (2026-06-16).** Il **builder GUI** del parser
+> personalizzato **sostituisce** il parser hardcoded (PR-09): il parsing diventa
+> configurabile dall'utente, **riga per riga**, al 100%. Il dizionario
+> (`data/dizionario_xtrader.csv`) **non** viene buttato: diventa una **tabella di
+> mappatura** selezionabile da **menu a tendina** dentro le trasformazioni del
+> builder (valore Telegram → valore XTrader).
+>
+> **Quando:** parte **dopo PR-10** (validazione). PR-09 (#11) e PR-10 si chiudono
+> prima; `xtrader_bridge/parser.py` hardcoded viene **ritirato** quando atterra il
+> runtime del builder (**CP-09**), che ne prende il posto nel flusso reale.
+>
+> **Numerazione:** prefisso **CP-xx** per non collidere con le PR-xx esistenti.
+> Una PR per volta, branch dedicato `claude/cp-NN-<nome>`, **merge sempre manuale**.
+
+## Invariante CSV (NON negoziabile)
+
+Il CSV verso XTrader resta conforme al contratto a **14 colonne** (ordine fisso,
+vedi sopra). Nel builder l'utente mappa verso le **14 colonne del contratto** +
+eventuali **campi personalizzati di metadato** (es. `TelegramChannel`,
+`OriginalMessage`, `Minute`, `Score`, `CustomNote`):
+
+- i campi metadato sono **salvati/loggati** ma **non** entrano nel CSV XTrader
+  finché il proprietario non **estende esplicitamente** il contratto;
+- **campo obbligatorio** mancante → segnale **non** scritto (parser "Non pronto");
+- **campo opzionale** vuoto → colonna **vuota** (NON blocca).
+
+Campi obbligatori (default, configurabili): `Provider`, `EventName`,
+`SelectionName`, `BetType`, e `MarketName` **oppure** `MarketType`.
+Campi opzionali: `Price`, `MinPrice`, `MaxPrice`, `Points`, `Stake`,
+`Competition`, `Minute`, `Score`, `TelegramChannel`, `OriginalMessage`, `CustomNote`.
+
+## Modello regola (riferimento per CP-04/05/06)
+
+Ogni riga del builder è una regola. Campi della regola:
+
+```json
+{
+  "csv_field": "EventName",
+  "source_type": "line_contains | line_starts_with | line_after | fixed | regex | full_message | empty",
+  "contains": "🆚",
+  "start_after": "🆚",
+  "end_before": "",
+  "include_start_marker": false,
+  "include_end_marker": false,
+  "value": "",
+  "transformations": [],
+  "optional": false
+}
+```
+
+- **`start_after` / `end_before`** ("Inizia dopo" / "Finisce prima di"): testo libero
+  per saltare emoji/simboli/trattini/testo sporco **prima** e **dopo** il dato vero.
+  Risolve il caso reale `🆚Yangon City v Silver Stars FC` senza far indovinare il
+  parser (lo configura l'utente).
+- **`optional`**: opzionale vuoto non blocca; obbligatorio vuoto → parser "Non pronto".
+
+Builder EventName (squadra casa/fuori):
+
+```json
+"event_name_builder": {
+  "enabled": true,
+  "home_field": "HomeTeam",
+  "away_field": "AwayTeam",
+  "source_separator": " v ",
+  "output_separator": " v ",
+  "target_csv_field": "EventName"
+}
+```
+
+## Persistenza
+
+Ogni parser è salvato su disco in `data/parsers/<nome>.json` (sotto AppData utente,
+coerente con PR-04). Tutto sopravvive a chiusura/riapertura: regole,
+`start_after`/`end_before`, separatori, campi personalizzati, trasformazioni, stato
+`active`. Un parser corrotto **non** deve bloccare gli altri.
+
+---
+
+## CP-01 — custom-parser/data-model
+**Obiettivo:** modello dati interno dei parser (no GUI ancora).
+**Tecnico:** `xtrader_bridge/custom_parser/model.py` (dataclass/serializzazione JSON):
+`name`, `description`, `sample_message`, `csv_fields[]`, `rules[]`, campi personalizzati,
+`event_name_builder`, `active`, `created_at`, `updated_at`.
+**Test hard:** crea parser vuoto; salva→ricarica JSON identico; campi CSV standard
+disponibili; campi personalizzati mantenuti; parser senza `name` rifiutato; file
+mancante/JSON corrotto → niente crash (errore controllato).
+**Micro-audit:** nessun parser perso al riavvio; JSON leggibile; nessun path hardcoded
+non portabile; nessun token/segreto nel modello.
+**Audit totale:** base dati del builder pronta e serializzabile.
+
+## CP-02 — custom-parser/builder-tab
+**Obiettivo:** tab GUI "Parser Personalizzato" (schermata base).
+**Tecnico:** nuova tab: nome parser, textarea messaggio Telegram, tabella regole,
+pulsanti aggiungi/rimuovi riga, Test parser, Anteprima CSV, Salva, lista parser salvati.
+**Test hard:** la tab si apre; messaggio incollabile; aggiungi/rimuovi riga; layout
+regge messaggi lunghi; Salva presente senza operazioni incomplete.
+**Micro-audit:** non rompe le tab esistenti; nessun errore customtkinter; usabile su
+schermi piccoli; non blocca i thread Telegram.
+**Audit totale:** scheletro del builder utilizzabile. **(assorbe la tab "Mapping"/
+"Test Parser" prevista in PR-13)**
+
+## CP-03 — custom-parser/csv-field-dropdown
+**Obiettivo:** menu a tendina del campo CSV XTrader per ogni riga.
+**Tecnico:** dropdown con le **14 colonne del contratto** + `Stake`/`Competition`/
+`StartTime` + voce **"+ Aggiungi campo personalizzato"** (campi liberi di metadato).
+**Test hard:** dropdown mostra i campi standard; ogni riga sceglie un campo diverso;
+campi personalizzati salvati e ricaricati dopo riavvio.
+**Micro-audit:** niente colonne duplicate; nomi vuoti rifiutati; caratteri pericolosi
+rifiutati; **ordine colonne CSV stabile** (contratto a 14 colonne preservato).
+**Audit totale:** mappatura campo↔colonna configurabile.
+
+## CP-04 — custom-parser/row-mapping-rules
+**Obiettivo:** regole di estrazione per riga, incl. **`start_after`/`end_before`**.
+**Tecnico:** `source_type` ∈ {valore fisso, riga contiene, riga inizia con, riga dopo
+parola/emoji, regex, copia messaggio, vuoto}; più `contains`, `start_after`,
+`end_before`, `include_start_marker`, `include_end_marker`, `optional`.
+**Test hard:** riga `🆚` estratta con `start_after:🆚`; riga `🏆` estratta; valore fisso
+scritto; riga mancante → niente crash; regex errata → errore leggibile in preview.
+**Micro-audit:** il parser **non inventa** dati mancanti; ogni regola → al massimo un
+valore chiaro; errori visibili in preview; messaggio Telegram originale non modificato.
+**Audit totale:** estrazione configurabile che gestisce emoji/simboli in testa/coda.
+
+## CP-05 — custom-parser/transformations
+**Obiettivo:** trasformazioni sui valori estratti (ordinate).
+**Tecnico:** rimuovi emoji, rimuovi testo, sostituisci testo, trim, collassa spazi,
+maiuscolo/minuscolo/title, virgola→punto, e **mappa valore Telegram→XTrader tramite il
+dizionario** (`data/dizionario_xtrader.csv`) **selezionabile a tendina**.
+**Test hard:** emoji rimosse; spazi multipli normalizzati; `0,5`→`0.5`; sostituzioni ok;
+trasformazioni applicate **nell'ordine salvato**; mappa dizionario risolve un alias reale.
+**Micro-audit:** le trasformazioni non cancellano dati importanti; mostra valore prima/
+dopo; trasformazione vuota non rompe; risultato finale è stringa **CSV-safe**.
+**Audit totale:** il dizionario diventa una trasformazione del builder (non più hardcoded).
+
+## CP-06 — custom-parser/eventname-team-builder
+**Obiettivo:** builder HomeTeam + separatore + AwayTeam → EventName.
+**Tecnico:** estrai `HomeTeam`/`AwayTeam` via `start_after`/`end_before` (es. `🆚`…` v `);
+separatore sorgente e **separatore output** configurabili, con spaziatura prima/dopo;
+template finale `{HOME_TEAM}{sep}{AWAY_TEAM}`.
+**Test hard:** `Yangon City v Silver Stars FC` diviso bene; separatori ` v `/` vs `/` - `;
+separatore personalizzato salvato; EventName ricostruito == preview.
+**Micro-audit:** nomi con spazi non tagliati; la `v` dentro un nome non confonde; spaziatura
+del CSV esattamente quella scelta; placeholder non risolto → campo NON scritto (no `{...}`).
+**Audit totale:** EventName preciso e configurabile (caso reale risolto).
+
+## CP-07 — custom-parser/preview-and-csv-output
+**Obiettivo:** anteprima completa del CSV generato + errori leggibili.
+**Tecnico:** preview header+riga (contratto 14 col, `QUOTE_ALL`+BOM); elenco errori
+(campo obbligatorio mancante, regex invalida, separatore squadre non trovato).
+**Test hard:** header corretto e ordine colonne stabile; campi vuoti mantenuti; valori con
+virgole quotati; emoji/caratteri speciali non rompono il CSV; preview == file reale.
+**Micro-audit:** CSV leggibile standard; niente colonne duplicate; niente righe spezzate.
+**Audit totale:** l'utente vede esattamente cosa riceverà XTrader.
+
+## CP-08 — custom-parser/save-load-management
+**Obiettivo:** gestione multipla parser: nuovo/salva/carica/duplica/elimina/attiva.
+**Tecnico:** CRUD su `data/parsers/*.json`; flag `active`; duplica con nuovo nome.
+**Test hard:** parser salvato compare in lista; caricato mostra tutte le regole; duplicato
+ha nuovo nome; eliminato sparisce; disattivato non usato; **chiudo/riapro → tutto resta**
+(regole, start_after/end_before, separatori, campi personalizzati, `active`).
+**Micro-audit:** eliminazione con conferma; niente sovrascrittura silenziosa; parser attivo
+ben visibile; **un parser corrotto non blocca gli altri**.
+**Audit totale:** persistenza completa e gestione sicura dei parser.
+
+## CP-09 — custom-parser/runtime-integration
+**Obiettivo:** collegare i parser personalizzati al flusso reale Telegram → CSV
+(**sostituisce** `xtrader_bridge/parser.py` hardcoded).
+**Tecnico:** alla ricezione: scegli i parser **attivi** compatibili → applica regole →
+costruisci riga → scrittura CSV **atomica** (PR-05). Nessuna scommessa diretta: solo CSV.
+**Test hard:** messaggio compatibile trasformato; non compatibile ignorato; più parser
+attivi non creano doppioni non voluti; riga scritta **una sola volta**; errori loggati
+senza bloccare; il listener Telegram non si blocca.
+**Micro-audit:** un errore in un parser non ferma gli altri; scrittura atomica; niente righe
+duplicate; log dice quale parser ha lavorato; parser hardcoded **ritirato**.
+**Audit totale:** il builder guida il flusso reale. **(supersede PR-09; si appoggia al
+listener di PR-11/PR-12)**
+
+## CP-10 — custom-parser/validation-and-safety
+**Obiettivo:** validazione prima dell'uso reale del parser.
+**Tecnico:** controllo campi **obbligatori** vs **opzionali** (vedi invariante CSV);
+parser senza campi minimi/regole → stato **"Non pronto"**; integra gli stati di PR-10.
+**Test hard:** parser senza `EventName` non attivabile; senza `BetType` segnalato; senza
+regole segnalato; parser valido → "Pronto"; opzionale vuoto **non** blocca; obbligatorio
+vuoto **blocca l'invio CSV reale**; errori chiari.
+**Micro-audit:** niente CSV incompleti per errore; parser "Non pronti" non usati a runtime;
+campi obbligatori configurabili; validazione **non aggirabile** dalla GUI.
+**Audit totale:** solo parser pronti e completi scrivono verso XTrader.
+
+## Audit finale modulo — CUSTOM_PARSER_READY
+Flusso end-to-end: nuovo parser → incolla messaggio → mapping riga per riga → campi da
+tendina → campo personalizzato → separatore Home/Away → EventName → trasformazioni →
+anteprima CSV → salva → **riavvio** → ricarica → messaggio reale → CSV → XTrader legge.
+Verdetto richiesto: **`CUSTOM_PARSER_READY=YES|NO|PARTIAL`** con motivazione (cosa funziona,
+cosa no, quali parser pronti/non pronti, quali errori bloccano l'uso reale).
+
+---
+
 # PHASE 4 — Telegram
 
 ## PR-11 — phase-4/telegram-listener-hardening
@@ -329,6 +527,9 @@ PHASE 0  PR-00 baseline · PR-01 csv-contract · PR-02 test-suite
 PHASE 1  PR-03 refactor · PR-04 config-appdata · PR-05 atomic-csv
 PHASE 2  PR-06 recognition · PR-07 markettype · PR-08 selectionname
 PHASE 3  PR-09 parser · PR-10 validation
+PHASE 3-bis  CP-01 data-model · CP-02 builder-tab · CP-03 field-dropdown · CP-04 rules
+             CP-05 transformations · CP-06 eventname-builder · CP-07 preview
+             CP-08 save/load · CP-09 runtime (supersede PR-09) · CP-10 validation
 PHASE 4  PR-11 listener · PR-12 multi-chat
 PHASE 5  PR-13 settings-ui · PR-14 dashboard
 PHASE 6  PR-15 dedupe · PR-16 csv-queue
