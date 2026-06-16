@@ -32,6 +32,16 @@ def test_load_config_merge_con_file(tmp_path):
     assert "csv_path" in cfg                      # default preservato
 
 
+def test_load_config_json_malformato_usa_default(tmp_path):
+    # File presente ma JSON non valido: best-effort -> nessuna eccezione, default preservati.
+    p = tmp_path / "config.json"
+    p.write_text("{ questo non e' json valido ,,, ")
+    cfg = config_store.load_config(str(p))
+    assert cfg["csv_path"] == config_store.DEFAULTS["csv_path"]
+    assert cfg["provider"] == config_store.DEFAULTS["provider"]
+    assert cfg["clear_delay"] == config_store.DEFAULTS["clear_delay"]
+
+
 def test_save_then_load_roundtrip(tmp_path):
     p = str(tmp_path / "config.json")
     data = {"bot_token": "X", "chat_id": "-1", "csv_path": "/tmp/s.csv",
