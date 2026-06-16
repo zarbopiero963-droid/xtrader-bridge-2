@@ -52,11 +52,42 @@ rischio** (non uno per singolo file di test):
 
 Il check `contract` (`tests/unit/test_csv_contract.py`) è la barriera che diventa
 rossa se cambiano: header/ordine/numero colonne, encoding `utf-8-sig`, `QUOTE_ALL`,
-`BetType` (PUNTA/BANCA), `Points` vuoto, `Handicap` 0, o rientrano `Stake`/`Timestamp`.
+`BetType` (PUNTA/BANCA), `Points` vuoto, `Handicap` 0, o se rientrano `Stake`/`Timestamp`.
 
 > **Branch protection (consigliata, da impostare lato GitHub dal proprietario):**
 > rendere *required* almeno `compile`, `contract`, `unit`, `safety`, `integration`,
-> `merge-simulation`, `forbidden-files`. `merge-simulation-hard` resta manuale/notturna.
+> `merge-simulation`, `forbidden-files`, `commit-gate`. `merge-simulation-hard`
+> resta manuale/notturna.
+
+### Commit gate (ad ogni commit/push) e profili
+
+Le invarianti principali devono girare **ad ogni commit**, non solo in PR. Il
+workflow `commit-gate.yml` (su **ogni push**, qualsiasi branch) esegue:
+
+```bash
+python -m py_compile main.py
+python -m pytest -q -m "not slow and not manual and not e2e"
+```
+
+così un push fallisce se: `main.py` non compila, i test falliscono, il contratto
+CSV cambia per errore, un segnale invalido può arrivare al CSV, una chat non
+autorizzata può scrivere, un duplicato/stale-clear può corrompere il CSV, o
+finiscono segreti/artefatti nel repo (`tests/safety/test_no_secrets_committed.py`).
+
+**Marcatori pytest** (in `pytest.ini`) applicati **automaticamente** per cartella
+(`tests/<categoria>/`) via `tests/conftest.py`:
+`unit` · `integration` · `safety` · `smoke` · `e2e` · `slow` · `manual`.
+
+**Profili:**
+
+| Profilo | Quando | Selettore |
+|---|---|---|
+| commit | ogni push | `pytest -m "not slow and not manual and not e2e"` (unit+safety+smoke+integration veloci) |
+| pr | ogni PR | `pytest -q` (tutto tranne live/manuali) + merge-simulation |
+| release | pre-release / PR-20 | `pytest -m "not manual"` + `tests/e2e` + stress + build EXE (merge-simulation-hard) |
+
+I test pesanti (stress/chaos/e2e completo/recovery) restano su PR/release; tutto
+ciò che può causare una **riga CSV sbagliata o duplicata** sta nel gate di ogni commit.
 
 ---
 
