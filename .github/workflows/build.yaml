@@ -26,7 +26,7 @@ jobs:
         pip install -r requirements-dev.txt pyinstaller httpx
 
     - name: Verifica compilazione (compileall)
-      run: python -m compileall main.py tests
+      run: python -m compileall main.py xtrader_bridge tests
 
     - name: Esegui i test (bloccante)
       run: python -m pytest
@@ -35,6 +35,8 @@ jobs:
       run: >
         pyinstaller --onefile --windowed
         --name "XTrader-Signal-Bridge"
+        --paths .
+        --collect-submodules xtrader_bridge
         --collect-all customtkinter
         --hidden-import=telegram
         --hidden-import=telegram.ext
