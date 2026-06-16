@@ -18,8 +18,19 @@ Il bridge estrae automaticamente:
 | Dato | Estratto da ||------|------------|| **Campionato** | riga con || **Squadre** | riga con || **Mercato** | prima riga del messaggio (es. GOL SECONDO TEMPO) || **Quota** | riga con || **Punteggio live** | riga con || **Minuto** | riga con |
 ---
 ## Formato CSV generato per XTrader
-Il CSV viene scritto esattamente nel formato richiesto da XTrader per i segnali esterni:
-```csvProvider,EventName,MarketType,BetType,Price,Stake,MinPrice,MaxPrice,TimestampPBet,Yangon City v Silver Stars FC,MATCH_ODDS,BACK,1.85,10,1.50,3.00,2026-06-15T08:32:00```
+Il CSV viene scritto nel formato richiesto da XTrader per i segnali esterni. L'header ufficiale ha **12 colonne** (vedi `docs/xtrader_csv_contract.md`):
+
+```csv
+Provider,SelectionId,MarketId,SelectionName,MarketName,EventName,MarketType,BetType,Price,MinPrice,MaxPrice,Points
+PBet,,,Inter,MATCH ODDS,Inter v Milan,MATCH_ODDS,BACK,1.85,,,1
+```
+
+Note:
+- **`Stake`** non è una colonna del CSV: è gestito in XTrader nell'azione "Piazza Scommessa su Segnali".
+- Non esiste una colonna `Timestamp`: la protezione anti-duplicato è interna al bridge.
+- **`Points`** è il moltiplicatore dello stake (default `1`).
+- XTrader può validare il segnale tramite `MarketId + SelectionId` **oppure** `EventName + MarketType + SelectionName`; usando i nomi, la lingua del CSV deve coincidere con quella della fonte Segnali di XTrader.
+
 > **Il CSV contiene sempre un solo segnale alla volta.** Dopo il timeout viene svuotato e XTrader non rischia di ripetere scommesse vecchie.
 ---
 ## L'interfaccia grafica

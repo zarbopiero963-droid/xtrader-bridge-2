@@ -27,11 +27,16 @@ except ImportError:
 # ─────────────────────────────────────────────
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
+# Contratto CSV XTrader (vedi docs/xtrader_csv_contract.md).
+# "Points" è il moltiplicatore dello stake usato da XTrader: per ora valore
+# fisso DEFAULT_POINTS; la configurabilità è prevista in una PR GUI dedicata.
 CSV_HEADER = [
     "Provider", "SelectionId", "MarketId", "SelectionName",
     "MarketName", "EventName", "MarketType", "BetType", "Price",
-    "MinPrice", "MaxPrice"
+    "MinPrice", "MaxPrice", "Points"
 ]
+
+DEFAULT_POINTS = "1"
 
 MARKET_MAPPING = {
     "GOL SECONDO TEMPO": "NEXT_GOAL",
@@ -119,6 +124,7 @@ def build_csv_row(parsed: dict, provider: str) -> dict:
         'Price':         parsed.get('quota', ''),
         'MinPrice':      '',
         'MaxPrice':      '',
+        'Points':        DEFAULT_POINTS,
     }
 
 
