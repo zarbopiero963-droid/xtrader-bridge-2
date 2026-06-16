@@ -192,9 +192,9 @@ OVER 2.5 e GG mappati; senza squadre/quota → errore controllato.
 **Tecnico:** `validator.py` con stati VALID / INVALID_MISSING_EVENT /
 INVALID_MISSING_PRICE / INVALID_UNKNOWN_MARKET / INVALID_UNKNOWN_SELECTION /
 INVALID_BETTYPE / DUPLICATE.
-**Test hard:** BetType ≠ BACK/LAY → invalido; Price non numerico → invalido; MarketType
+**Test hard:** BetType ≠ PUNTA/BANCA → invalido; Price non numerico → invalido; MarketType
 assente → invalido; SelectionName mancante → invalido; EventName mancante (NAME_ONLY) →
-invalido; Points vuoto → default 1.
+invalido; `Points` vuoto **resta vuoto** (è il default del contratto, NON va normalizzato a "1").
 **Micro-audit:** nessun segnale invalido arriva al CSV.
 **Audit totale:** CSV solo con segnali coerenti. **(chiude #1)**
 

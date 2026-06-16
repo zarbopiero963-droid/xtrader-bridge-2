@@ -22,7 +22,7 @@ Il CSV viene scritto nel formato richiesto da XTrader per i segnali esterni. L'h
 
 ```text
 Provider,EventId,EventName,MarketId,MarketName,MarketType,SelectionId,SelectionName,Handicap,Price,MinPrice,MaxPrice,BetType,Points
-"PBet","","Inter v Milan","","Match Odds","MATCH_ODDS","","Inter","0","1.85","","","PUNTA",""
+"PBet","","Inter v Milan","","MATCH ODDS","MATCH_ODDS","","Inter","0","1.85","","","PUNTA",""
 ```
 
 Note:
