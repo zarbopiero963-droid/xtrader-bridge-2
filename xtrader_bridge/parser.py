@@ -43,9 +43,16 @@ def _is_odds(value: str) -> bool:
 
 
 def _extract_quota(line: str):
-    """Quota da "Quota X" / "@X" (virgola→punto), solo se è una quota valida (≥1)
-    e ben delimitata (rifiuta token malformati come "1.2.3")."""
-    m = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?![\d.,])', line, re.IGNORECASE)
+    """Quota reale da una riga.
+
+    Nel formato P.Bet "Quota X,Y HT/FT Prematch:Z" il numero X,Y è la **linea**
+    del mercato (non una quota): la quota offerta è il valore dopo "Prematch:".
+    Altrove è "Quota X" / "@X". Solo quote valide: ≥ 1, ben delimitate (no "1.2.3").
+    """
+    if re.search(r'\b(?:ht|ft|prematch)\b', line.lower()):
+        m = re.search(r'prematch[:\s]*(' + _NUM + r')(?![\d.,])', line, re.IGNORECASE)
+    else:
+        m = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?![\d.,])', line, re.IGNORECASE)
     if not m:
         return None
     val = m.group(1).replace(',', '.')
@@ -80,6 +87,8 @@ def _teams_from(line: str, sep: re.Pattern):
     if _looks_like_label(line) or any(e in line for e in _EMOJI_MARKERS):
         return None
     cleaned = _SCORE_TAIL.sub('', line).strip()
+    # togli anche un'eventuale coda quota/@ sulla stessa riga ("Inter v Milan Quota 1,85").
+    cleaned = re.sub(r'\s+(?:quota|@)\b.*$', '', cleaned, flags=re.IGNORECASE).strip()
     m = sep.match(cleaned)
     if m and _HAS_ALPHA.search(m.group(1)) and _HAS_ALPHA.search(m.group(2)):
         return f"{m.group(1).strip()} v {m.group(2).strip()}"
@@ -161,9 +170,12 @@ def parse_message(text: str) -> dict:
                 if not result['probability']:
                     result['probability'] = prob
             elif '📈' in line and not result['quota']:
-                n = _bare_number(line)
-                if n and _is_odds(n):     # niente "0,5" (linea) come quota
-                    result['quota'] = n
+                q = _extract_quota(line)
+                if q is None and not re.search(r'\b(?:ht|ft|prematch|quota)\b', line.lower()):
+                    n = _bare_number(line)
+                    q = n if (n and _is_odds(n)) else None
+                if q:
+                    result['quota'] = q
             continue
 
         # ── righe in testo semplice (senza emoji) ──

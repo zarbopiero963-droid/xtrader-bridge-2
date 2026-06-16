@@ -57,6 +57,20 @@ def test_quota_malformata_rifiutata():
     assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1.2.3")["quota"] == ""
 
 
+def test_linea_ht_non_e_quota():
+    # "Quota 1,5 HT" -> 1,5 è la LINEA, non una quota (anche se ≥ 1).
+    assert parse_message("P.Bet. OVER 1.5\nInter v Milan\nQuota 1,5 HT")["quota"] == ""
+    assert parse_message("📈Quota 1,5 HT Prematch:0")["quota"] == ""
+    # Se invece c'è una quota prematch valida, quella sì.
+    assert parse_message("📈Quota 2,5 FT Prematch:1,90")["quota"] == "1.90"
+
+
+def test_coda_quota_stessa_riga_non_finisce_in_eventname():
+    p = parse_message("P.Bet. OVER 2.5\nInter v Milan Quota 1,85")
+    assert p["teams"] == "Inter v Milan"
+    assert p["quota"] == "1.85"
+
+
 def test_competizione_e_fixture_trattino_non_scrivono_evento():
     # Entrambe con "-" in testo libero: nessuna squadra (safe), niente evento errato.
     assert parse_message("P.Bet. GG\nItaly - Serie A\nInter - Milan\nQuota 1,85")["teams"] == ""
