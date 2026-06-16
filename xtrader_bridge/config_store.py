@@ -10,6 +10,7 @@ Un file corrotto viene messo da parte (`.bak`) e si riparte dai default.
 import json
 import os
 import shutil
+import sys
 
 APP_DIR_NAME = "XTraderBridge"
 CONFIG_VERSION = 1
@@ -42,11 +43,24 @@ def config_path() -> str:
     return os.path.join(config_dir(), "config.json")
 
 
-# Posizione persistente (nuova) e posizione legacy (accanto a main.py/EXE).
+def legacy_config_path() -> str:
+    """Vecchia posizione del config: accanto all'EXE/script.
+
+    Nell'EXE PyInstaller (`--onefile`) `__file__` punta al bundle temporaneo,
+    quindi quando l'app è "frozen" usiamo la cartella di `sys.executable` (dove
+    sta davvero `XTrader-Signal-Bridge.exe`), così la migrazione trova il
+    vecchio `config.json` accanto all'eseguibile.
+    """
+    if getattr(sys, "frozen", False):
+        base = os.path.dirname(os.path.abspath(sys.executable))
+    else:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, "config.json")
+
+
+# Posizione persistente (nuova) e posizione legacy (accanto all'EXE/script).
 CONFIG_FILE = config_path()
-LEGACY_CONFIG_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json"
-)
+LEGACY_CONFIG_FILE = legacy_config_path()
 
 
 def _ensure_dir(path: str) -> None:
