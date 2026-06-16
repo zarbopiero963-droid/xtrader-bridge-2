@@ -82,6 +82,15 @@ def test_default_recognition_mode_name_only():
     assert config_store.DEFAULTS["recognition_mode"] == "NAME_ONLY"
 
 
+def test_require_price_default_true_e_roundtrip(tmp_path):
+    # Default sicuro: il gate prezzo è attivo.
+    assert config_store.DEFAULTS["require_price"] is True
+    # L'opt-out require_price=False deve sopravvivere a save→load (non riazzerato).
+    p = str(tmp_path / "config.json")
+    config_store.save_config({"provider": "TG", "require_price": False}, p)
+    assert config_store.load_config(p)["require_price"] is False
+
+
 # ── PR-04: cartella utente, migrazione, versione ──
 
 def test_config_dir_usa_appdata(monkeypatch):

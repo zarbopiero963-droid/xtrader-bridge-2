@@ -54,14 +54,15 @@ def _extract_quota(line: str):
     oppure `Prematch:` con valore — così "Quota 1,85 Prematch" (status senza
     valore) NON perde la quota e ricade nell'estrazione normale.
     Altrove è "Quota X" / "@X". Solo quote valide: > 1, ben delimitate (no "1.2.3").
-    Il boundary `(?![.,]\\d)` rifiuta i decimali multipli ("1.2.3") ma ammette la
-    punteggiatura finale di frase ("Quota 1,85." → 1.85).
+    Il boundary `(?!\\d|[.,]\\d)` rifiuta sia una cifra successiva sia un separatore
+    decimale seguito da cifra — così "1.85.3"/"1,85,3" non vengono troncati a un
+    prefisso ("1.8") — ma ammette la punteggiatura finale di frase ("Quota 1,85." → 1.85).
     """
     low = line.lower()
     if re.search(r'\b(?:ht|ft)\b', low) or re.search(r'prematch\s*:', low):
-        m = re.search(r'prematch[:\s]*(' + _NUM + r')(?![.,]\d)', line, re.IGNORECASE)
+        m = re.search(r'prematch[:\s]*(' + _NUM + r')(?!\d|[.,]\d)', line, re.IGNORECASE)
     else:
-        m = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?![.,]\d)', line, re.IGNORECASE)
+        m = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?!\d|[.,]\d)', line, re.IGNORECASE)
     if not m:
         return None
     val = m.group(1).replace(',', '.')

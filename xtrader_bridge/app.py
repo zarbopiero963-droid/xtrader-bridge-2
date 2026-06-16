@@ -65,8 +65,10 @@ class App(ctk.CTk):
             "csv_path":    self._e_csv.get().strip(),
             "clear_delay": int(self._e_delay.get().strip() or 90),
             "provider":    self._e_provider.get().strip() or "TelegramBot",
-            # Preservato finché non c'è un campo GUI dedicato (PR-13).
+            # Preservati finché non c'è un campo GUI dedicato (PR-13): senza questo
+            # un salvataggio (anche all'avvio) cancellerebbe l'opt-out require_price.
             "recognition_mode": self._config.get("recognition_mode", "NAME_ONLY"),
+            "require_price":    self._config.get("require_price", True),
         }
         return save_config(cfg, CONFIG_FILE)
 
