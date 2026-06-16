@@ -52,6 +52,14 @@ def test_away_shorthand_senza_squadra_ospite_e_scartabile():
     assert recognition.is_valid(row, "NAME_ONLY") is False
 
 
+def test_segnale_non_supportato_e_scartabile():
+    # Nessun mapping (né dizionario né legacy): non fabbricare MATCH_ODDS/home.
+    row = build_csv_row(_parsed("MERCATO INESISTENTE", teams="Inter v Milan"), "PBet")
+    assert row["MarketType"] == ""
+    assert row["SelectionName"] == ""
+    assert recognition.is_valid(row, "NAME_ONLY") is False
+
+
 def test_segnale_non_mappato_usa_fallback():
     # "MATCH ODDS" non è una forma breve mappata: fallback legacy, selezione = casa.
     row = build_csv_row(_parsed("MATCH ODDS", teams="Inter v Milan"), "PBet")
