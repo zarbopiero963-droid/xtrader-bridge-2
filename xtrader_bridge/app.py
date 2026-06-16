@@ -18,6 +18,7 @@ from .config_store import (
 )
 from .csv_writer import build_csv_row, init_csv, write_csv
 from .parser import parse_message
+from . import recognition
 from .signal_gate import SignalGate
 
 try:
@@ -63,6 +64,8 @@ class App(ctk.CTk):
             "csv_path":    self._e_csv.get().strip(),
             "clear_delay": int(self._e_delay.get().strip() or 90),
             "provider":    self._e_provider.get().strip() or "TelegramBot",
+            # Preservato finché non c'è un campo GUI dedicato (PR-13).
+            "recognition_mode": self._config.get("recognition_mode", "NAME_ONLY"),
         }
         return save_config(cfg, CONFIG_FILE)
 
@@ -251,6 +254,16 @@ class App(ctk.CTk):
     def _process(self, text: str, cfg: dict):
         parsed = parse_message(text)
         row    = build_csv_row(parsed, cfg["provider"])
+
+        # Non scrivere righe non riconoscibili da XTrader nella modalità scelta:
+        # meglio scartare un segnale incompleto che generare una riga ambigua.
+        mode = recognition.normalize_mode(cfg.get("recognition_mode", "NAME_ONLY"))
+        missing = recognition.missing_fields(row, mode)
+        if missing:
+            self.after(0, lambda: self._log(
+                f"⚠️ Segnale scartato (modalità {mode}): campi mancanti {missing}"))
+            return
+
         # Registra la generazione PRIMA di scrivere: invalida eventuali clear in
         # coda di segnali precedenti, così non cancellano questo nuovo segnale.
         gen = self._gate.begin()

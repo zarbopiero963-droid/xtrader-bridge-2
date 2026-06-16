@@ -16,12 +16,15 @@ APP_DIR_NAME = "XTraderBridge"
 CONFIG_VERSION = 1
 
 DEFAULTS = {
-    "config_version": CONFIG_VERSION,
-    "bot_token":   "",
-    "chat_id":     "",
-    "csv_path":    r"C:\XTrader\segnali.csv",
-    "clear_delay": 90,
-    "provider":    "TelegramBot",
+    "config_version":   CONFIG_VERSION,
+    "bot_token":        "",
+    "chat_id":          "",
+    "csv_path":         r"C:\XTrader\segnali.csv",
+    "clear_delay":      90,
+    "provider":         "TelegramBot",
+    # Modalità di riconoscimento XTrader: ID_ONLY / NAME_ONLY / BOTH.
+    # Default NAME_ONLY: oggi il bridge non ricava gli ID dal messaggio Telegram.
+    "recognition_mode": "NAME_ONLY",
 }
 
 

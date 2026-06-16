@@ -78,6 +78,10 @@ def test_defaults_non_contengono_segreti():
     assert config_store.DEFAULTS["chat_id"] == ""
 
 
+def test_default_recognition_mode_name_only():
+    assert config_store.DEFAULTS["recognition_mode"] == "NAME_ONLY"
+
+
 # ── PR-04: cartella utente, migrazione, versione ──
 
 def test_config_dir_usa_appdata(monkeypatch):
