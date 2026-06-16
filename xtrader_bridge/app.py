@@ -18,6 +18,7 @@ from .config_store import (
 )
 from .csv_writer import build_csv_row, init_csv, write_csv
 from .parser import parse_message
+from .signal_gate import SignalGate
 
 try:
     from telegram import Update
@@ -43,6 +44,7 @@ class App(ctk.CTk):
         self._clear_timer = None
         self._tg_app = None
         self._loop = None
+        self._gate = SignalGate()   # evita che un clear obsoleto cancelli un nuovo segnale
 
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -249,6 +251,9 @@ class App(ctk.CTk):
     def _process(self, text: str, cfg: dict):
         parsed = parse_message(text)
         row    = build_csv_row(parsed, cfg["provider"])
+        # Registra la generazione PRIMA di scrivere: invalida eventuali clear in
+        # coda di segnali precedenti, così non cancellano questo nuovo segnale.
+        gen = self._gate.begin()
         write_csv(row, cfg["csv_path"])
 
         info = (f"🏆 {parsed['teams']}  |  "
@@ -266,16 +271,21 @@ class App(ctk.CTk):
         if self._clear_timer:
             self._clear_timer.cancel()
         self._clear_timer = threading.Timer(
-            delay, lambda: self._do_clear(cfg["csv_path"]))
+            delay, lambda g=gen: self._do_clear(cfg["csv_path"], g))
         self._clear_timer.start()
         self.after(0, lambda: self._log(f"⏱️  CSV verrà svuotato tra {delay}s"))
 
-    def _do_clear(self, path: str):
-        init_csv(path)
-        self.after(0, lambda: self._log("🗑️  CSV svuotato → pronto per il prossimo segnale"))
+    def _do_clear(self, path: str, gen: int):
+        # Svuota solo se nessun segnale più recente è arrivato nel frattempo.
+        if self._gate.clear_if_current(gen, lambda: init_csv(path)):
+            self.after(0, lambda: self._log("🗑️  CSV svuotato → pronto per il prossimo segnale"))
+        else:
+            self.after(0, lambda: self._log("⏭️  Clear obsoleto ignorato (segnale più recente presente)"))
 
     def _manual_clear(self):
         path = self._e_csv.get().strip()
         if path:
+            # begin() invalida eventuali timer pendenti, poi svuota subito.
+            self._gate.begin()
             init_csv(path)
             self._log("🗑️  CSV svuotato manualmente")
