@@ -159,11 +159,26 @@ def test_quota_testo_su_riga_emoji_probabilita():
     assert p["quota"] == "1.85"
 
 
+def test_numero_nudo_su_riga_emoji_senza_marker_non_e_quota():
+    # "📊72% 1,85" senza "Quota"/@: nessun prezzo inventato dal numero nudo.
+    p = parse_message("P.Bet. OVER 2.5\nInter v Milan\n📊72% 1,85")
+    assert p["probability"] == "72"
+    assert p["quota"] == ""
+
+
 def test_quota_con_punto_finale_di_frase():
     # "Quota 1,85." (punto finale): il prezzo reale non va perso.
     assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1,85.")["quota"] == "1.85"
     # ma "1.2.3" (decimali multipli) resta rifiutato.
     assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1.2.3")["quota"] == ""
+
+
+def test_quota_prematch_con_punto_finale_di_frase():
+    # Stesso boundary (?![.,]\d) anche nel branch Prematch: il punto finale è ammesso,
+    # i decimali multipli no. (NB: "HT Quota 1,85" resta "" per design: la riga HT è la
+    # linea del mercato, la quota arriva solo da "Prematch:".)
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nPrematch: 1,85.")["quota"] == "1.85"
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nPrematch: 1.2.3")["quota"] == ""
 
 
 def test_quota_uno_punto_zero_non_e_quota():

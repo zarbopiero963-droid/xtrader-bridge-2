@@ -26,7 +26,12 @@ _VALID_BETTYPES = ("PUNTA", "BANCA")
 
 
 def _price_status(value) -> str:
-    """VALID se `value` è una quota valida (> 1.0); altrimenti il codice di errore."""
+    """VALID se `value` è una quota valida (> 1.0); altrimenti il codice di errore.
+
+    `None` e stringa vuota contano come **prezzo mancante** (non malformato).
+    """
+    if value is None:
+        return INVALID_MISSING_PRICE
     s = str(value).strip()
     if not s:
         return INVALID_MISSING_PRICE

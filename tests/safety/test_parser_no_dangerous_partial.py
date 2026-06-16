@@ -48,3 +48,12 @@ def test_segnale_senza_prezzo_non_piazzabile():
 def test_segnale_completo_e_piazzabile():
     text = "P.Bet. OVER 2.5\nInter v Milan\nQuota 1,85"
     assert _is_placeable(text) is True
+
+
+def test_prezzo_non_valido_non_piazzabile():
+    # Prezzo 1,00 (non piazzabile) e prezzo non numerico: riga riconoscibile ma
+    # NON piazzabile (il parser scarta la quota → prezzo mancante → validatore blocca).
+    for text in ("P.Bet. OVER 2.5\nInter v Milan\nQuota 1,00",
+                 "P.Bet. OVER 2.5\nInter v Milan\nQuota abc"):
+        assert _is_writable(text) is True
+        assert _is_placeable(text) is False
