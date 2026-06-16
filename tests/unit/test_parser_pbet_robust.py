@@ -57,6 +57,34 @@ def test_quota_malformata_rifiutata():
     assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1.2.3")["quota"] == ""
 
 
+def test_quota_emoji_nuda_non_inventata():
+    # "📈 1.2.3" senza marker "Quota": niente numero nudo inventato come prezzo.
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\n📈 1.2.3")["quota"] == ""
+    # Anche un numero nudo ben formato senza "Quota"/"@" non è una quota (conservativo).
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\n📈 1.85")["quota"] == ""
+
+
+def test_riga_lato_solo_token_esatto():
+    # "Lay Cup"/"Banca League" (lega/nota) NON devono forzare il lato (P1 wrong-side).
+    assert parse_message("P.Bet. OVER 2.5\nLay Cup\nInter v Milan\nQuota 1,85")["bet_type"] == "BACK"
+    assert parse_message("P.Bet. OVER 2.5\nBanca League\nInter v Milan\nQuota 1,85")["bet_type"] == "BACK"
+    # La riga-lato esatta (una sola parola) continua a funzionare.
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nBanca")["bet_type"] == "LAY"
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nPunta")["bet_type"] == "BACK"
+
+
+def test_prematch_status_senza_valore_non_scarta_quota():
+    # "Quota 1,85 Prematch" (status senza valore, niente HT/FT): la quota resta 1.85.
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1,85 Prematch")["quota"] == "1.85"
+
+
+def test_riga_emoji_mista_estrae_quota_e_probabilita():
+    # "📈Quota 1,85 📊72%": deve estrarre sia la quota sia la probabilità.
+    p = parse_message("P.Bet. OVER 2.5\nInter v Milan\n📈Quota 1,85 📊72%")
+    assert p["quota"] == "1.85"
+    assert p["probability"] == "72"
+
+
 def test_linea_ht_non_e_quota():
     # "Quota 1,5 HT" -> 1,5 è la LINEA, non una quota (anche se ≥ 1).
     assert parse_message("P.Bet. OVER 1.5\nInter v Milan\nQuota 1,5 HT")["quota"] == ""

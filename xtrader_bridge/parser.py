@@ -47,9 +47,13 @@ def _extract_quota(line: str):
 
     Nel formato P.Bet "Quota X,Y HT/FT Prematch:Z" il numero X,Y è la **linea**
     del mercato (non una quota): la quota offerta è il valore dopo "Prematch:".
+    Questa forma è riconosciuta SOLO da un marker di linea reale — `HT`/`FT`,
+    oppure `Prematch:` con valore — così "Quota 1,85 Prematch" (status senza
+    valore) NON perde la quota e ricade nell'estrazione normale.
     Altrove è "Quota X" / "@X". Solo quote valide: ≥ 1, ben delimitate (no "1.2.3").
     """
-    if re.search(r'\b(?:ht|ft|prematch)\b', line.lower()):
+    low = line.lower()
+    if re.search(r'\b(?:ht|ft)\b', low) or re.search(r'prematch\s*:', low):
         m = re.search(r'prematch[:\s]*(' + _NUM + r')(?![\d.,])', line, re.IGNORECASE)
     else:
         m = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?![\d.,])', line, re.IGNORECASE)
@@ -63,12 +67,6 @@ def _extract_probability(line: str):
     """Probabilità da "...X%" (numero ben formato)."""
     m = re.search(r'(' + _NUM + r')\s*%', line)
     return m.group(1) if m else None
-
-
-def _bare_number(line: str):
-    """Primo numero ben formato della riga (per linee quota con sola emoji)."""
-    m = re.search(r'(' + _NUM + r')', line)
-    return m.group(1).replace(',', '.') if m else None
 
 
 def _looks_like_label(line: str) -> bool:
@@ -125,12 +123,13 @@ def parse_message(text: str) -> dict:
     if re.search(r'\blive\b', text.lower()):
         result['live'] = True
 
-    # bet_type SOLO da una riga-lato dedicata (riga corta che è essenzialmente
-    # "Punta"/"Banca"/"Back"/"Lay"), NON da testo libero: così un nome squadra
-    # come "Lay Town" non forza il lato sbagliato (BANCA). Default: BACK.
+    # bet_type SOLO da una riga-lato dedicata che contiene ESATTAMENTE un token
+    # "Punta"/"Banca"/"Back"/"Lay" (una sola parola), NON da testo libero: così
+    # né "Lay Town" (squadra) né "Lay Cup"/"Banca League" (lega/nota) forzano il
+    # lato sbagliato (BANCA). Default: BACK.
     for raw in lines:
         toks = re.findall(r'[a-zàèéìòùA-Z]+', raw.lower())
-        if not toks or len(toks) > 2:
+        if len(toks) != 1:
             continue
         if toks[0] in ('banca', 'lay'):
             result['bet_type'] = 'LAY'
@@ -165,15 +164,15 @@ def parse_message(text: str) -> dict:
             result['time_'] = re.sub(r'[⌚\s]+', ' ', line).strip()
             continue
         if '📊' in line or '📈' in line:
+            # Riga mista (es. "📈Quota 1,85 📊72%"): estrai sia probabilità sia quota,
+            # non fermarti alla prima trovata.
             prob = _extract_probability(line)
-            if prob:
-                if not result['probability']:
-                    result['probability'] = prob
-            elif '📈' in line and not result['quota']:
+            if prob and not result['probability']:
+                result['probability'] = prob
+            if '📈' in line and not result['quota']:
+                # Quota SOLO da marker espliciti (Quota/@ o HT/FT-Prematch): niente
+                # numero "nudo" inventato (un "📈 1.2.3" non deve produrre un prezzo).
                 q = _extract_quota(line)
-                if q is None and not re.search(r'\b(?:ht|ft|prematch|quota)\b', line.lower()):
-                    n = _bare_number(line)
-                    q = n if (n and _is_odds(n)) else None
                 if q:
                     result['quota'] = q
             continue
