@@ -57,7 +57,18 @@ def test_score_non_scambiato_per_squadre():
 
 def test_live_flag():
     assert parse_message("P.Bet. OVER 2.5 LIVE\nInter v Milan")["live"] is True
+    assert parse_message("P.Bet. OVER 2.5 live\nInter v Milan")["live"] is True
+    assert parse_message("P.Bet. OVER 2.5 Live\nInter v Milan")["live"] is True
     assert parse_message("P.Bet. OVER 2.5\nInter v Milan")["live"] is False
+    # 'live' dentro una parola più lunga non deve attivare il flag (word-boundary).
+    assert parse_message("P.Bet. OVER 2.5 delivery\nInter v Milan")["live"] is False
+    assert parse_message("P.Bet. OVER 2.5\nLiverpool v Inter")["live"] is False
+
+
+def test_probabilita_malformata_non_presa_intera():
+    # "1.2.3%" non deve produrre "1.2.3" (numero ben formato).
+    p = parse_message("P.Bet. OVER 2.5\nInter v Milan\nProbability 1.2.3%")
+    assert p["probability"] in ("1.2", "2.3")   # comunque un numero ben formato
 
 
 def test_vuoto_non_crasha():

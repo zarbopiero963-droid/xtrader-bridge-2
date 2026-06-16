@@ -14,12 +14,33 @@ _TEAM_SEP = re.compile(r'^(.+?)\s+(?:vs|v|-)\s+(.+)$', re.IGNORECASE)
 _HAS_ALPHA = re.compile(r'[A-Za-zÀ-ÿ]')
 _EMOJI_MARKERS = ('🏆', '🆚', '⚽', '⌚', '📊', '📈')
 
+# Numero ben formato (no "1.2.3"): intero con al più una parte decimale.
+_NUM = r'\d+(?:[.,]\d+)?'
+
 # Prefissi di riga che NON sono squadre (per non scambiare "Score: 1 - 0" per teams).
 _LABEL_PREFIXES = (
-    'quota', '@', 'time', 'tempo', 'minuto', 'score', 'risultato', 'prob',
+    'quota', 'time', 'tempo', 'minuto', 'score', 'risultato', 'prob',
     'probabilit', 'probability', 'lega', 'campionato', 'competition', 'p.bet',
     'live', 'pre', 'punta', 'banca', 'back', 'lay',
 )
+
+
+def _extract_quota(line: str):
+    """Quota da "Quota X" / "@X" (virgola→punto), numero ben formato."""
+    m = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')', line, re.IGNORECASE)
+    return m.group(1).replace(',', '.') if m else None
+
+
+def _extract_probability(line: str):
+    """Probabilità da "...X%" (numero ben formato)."""
+    m = re.search(r'(' + _NUM + r')\s*%', line)
+    return m.group(1) if m else None
+
+
+def _bare_number(line: str):
+    """Primo numero ben formato della riga (per linee quota con sola emoji)."""
+    m = re.search(r'(' + _NUM + r')', line)
+    return m.group(1).replace(',', '.') if m else None
 
 
 def _looks_like_label(line: str) -> bool:
@@ -94,19 +115,20 @@ def parse_message(text: str) -> dict:
             result['time_'] = re.sub(r'[⌚\s]+', ' ', line).strip()
             continue
         if '📊' in line or '📈' in line:
-            mm = re.search(r'([\d.]+)\s*%', line)
-            if mm:
-                result['probability'] = mm.group(1)
-            else:
-                mq = re.search(r'([\d]+[.,]\d+)', line)
-                if mq and not result['quota']:
-                    result['quota'] = mq.group(1).replace(',', '.')
+            prob = _extract_probability(line)
+            if prob:
+                if not result['probability']:
+                    result['probability'] = prob
+            elif '📈' in line and not result['quota']:
+                n = _bare_number(line)
+                if n:
+                    result['quota'] = n
             continue
 
         # ── righe in testo semplice (senza emoji) ──
-        mq = re.search(r'(?:quota|@)[:\s]*([\d]+(?:[.,]\d+)?)', line, re.IGNORECASE)
-        if mq and not result['quota']:
-            result['quota'] = mq.group(1).replace(',', '.')
+        q = _extract_quota(line)
+        if q and not result['quota']:
+            result['quota'] = q
             continue
         ms = re.search(r'(?:score|risultato)[:\s]+(.+)$', line, re.IGNORECASE)
         if ms:
@@ -116,9 +138,9 @@ def parse_message(text: str) -> dict:
         if mt:
             result['time_'] = mt.group(1).strip()
             continue
-        mp = re.search(r'([\d.]+)\s*%', line)
-        if mp and not result['probability']:
-            result['probability'] = mp.group(1)
+        prob = _extract_probability(line)
+        if prob and not result['probability']:
+            result['probability'] = prob
             continue
         if not result['teams']:
             t = _extract_teams(line)
