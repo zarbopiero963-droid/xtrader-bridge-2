@@ -23,7 +23,13 @@ jobs:
     - name: Installa Dipendenze
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller customtkinter python-telegram-bot httpx
+        pip install pyinstaller customtkinter python-telegram-bot httpx pytest
+
+    - name: Verifica compilazione (py_compile)
+      run: python -m py_compile main.py
+
+    - name: Esegui i test (bloccante)
+      run: python -m pytest -q
 
     - name: Compila EXE con PyInstaller
       run: >

@@ -1,0 +1,3 @@
+# Dipendenze di sviluppo/test (non necessarie a runtime).
+-r requirements.txt
+pytest>=7.0
