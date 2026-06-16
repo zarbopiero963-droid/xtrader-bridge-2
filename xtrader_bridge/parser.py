@@ -28,6 +28,8 @@ _LABEL_WORDS = frozenset({
 
 # Coda con punteggio/tempo da rimuovere prima di leggere le squadre
 # (es. "Silver Stars FC 6 - 0 46m" → "Silver Stars FC").
+# La classe [-–:] include di proposito sia il trattino ASCII "-" sia l'EN DASH "–"
+# (e i due punti) perché i punteggi reali usano l'uno o l'altro carattere.
 _SCORE_TAIL = re.compile(r'\s+\d+\s*[-–:]\s*\d+(?:\s.*)?$')
 # Token di stato da togliere dal signal_type (LIVE/PRE) prima del mapping.
 _STATUS_TAIL = re.compile(r'\s+\b(?:live|pre|prematch)\b.*$', re.IGNORECASE)
@@ -64,12 +66,18 @@ def _extract_quota(line: str):
 
 
 def _extract_probability(line: str):
-    """Probabilità da "...X%" (numero ben formato)."""
-    m = re.search(r'(' + _NUM + r')\s*%', line)
+    """Probabilità da "...X%" (numero ben formato e ben delimitato).
+
+    Il lookbehind `(?<![\\d.,])` evita di prendere un frammento di un token
+    malformato: "1.2.3%" non deve dare "2.3" — viene rifiutato (None).
+    """
+    m = re.search(r'(?<![\d.,])(' + _NUM + r')\s*%', line)
     return m.group(1) if m else None
 
 
 def _looks_like_label(line: str) -> bool:
+    """True se la riga è un'etichetta (Quota/Score/Time/...) e non una coppia di
+    squadre: confronto per TOKEN intero (così "Preston" ≠ "pre")."""
     low = line.lower()
     if 'p.bet' in low:
         return True
@@ -85,8 +93,11 @@ def _teams_from(line: str, sep: re.Pattern):
     if _looks_like_label(line) or any(e in line for e in _EMOJI_MARKERS):
         return None
     cleaned = _SCORE_TAIL.sub('', line).strip()
-    # togli anche un'eventuale coda quota/@ sulla stessa riga ("Inter v Milan Quota 1,85").
-    cleaned = re.sub(r'\s+(?:quota|@)\b.*$', '', cleaned, flags=re.IGNORECASE).strip()
+    # togli un'eventuale coda quota/@/probabilità sulla stessa riga, così non finisce
+    # nell'EventName: "Inter v Milan Quota 1,85" / "... @ 1,85" / "... Probability 72%".
+    # NB: "@" senza "\b" per coprire anche la forma spaziata "@ 1,85".
+    cleaned = re.sub(r'\s+(?:quota\b|@|probability\b|prob\b).*$', '', cleaned,
+                     flags=re.IGNORECASE).strip()
     m = sep.match(cleaned)
     if m and _HAS_ALPHA.search(m.group(1)) and _HAS_ALPHA.search(m.group(2)):
         return f"{m.group(1).strip()} v {m.group(2).strip()}"
@@ -128,7 +139,7 @@ def parse_message(text: str) -> dict:
     # né "Lay Town" (squadra) né "Lay Cup"/"Banca League" (lega/nota) forzano il
     # lato sbagliato (BANCA). Default: BACK.
     for raw in lines:
-        toks = re.findall(r'[a-zàèéìòùA-Z]+', raw.lower())
+        toks = re.findall(r'[a-zàèéìòù]+', raw.lower())
         if len(toks) != 1:
             continue
         if toks[0] in ('banca', 'lay'):

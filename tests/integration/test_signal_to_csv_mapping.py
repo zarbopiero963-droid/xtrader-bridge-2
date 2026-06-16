@@ -55,7 +55,7 @@ def test_away_shorthand_senza_squadra_ospite_e_scartabile():
 def test_over25_live_mappa_selezione_corretta():
     # Con LIVE nel testo, la selezione deve restare "Over 2,5 goal", non quella legacy.
     from xtrader_bridge.parser import parse_message
-    row = build_csv_row(parse_message("P.Bet. OVER 2.5 LIVE\nInter v Milan"), "PBet")
+    row = build_csv_row(parse_message("P.Bet. OVER 2.5 LIVE\nInter v Milan\nQuota 1,85"), "PBet")
     assert row["MarketType"] == "OVER_UNDER_25"
     assert row["SelectionName"] == "Over 2,5 goal"
 

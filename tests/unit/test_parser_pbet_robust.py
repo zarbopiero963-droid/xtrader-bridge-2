@@ -126,10 +126,22 @@ def test_live_flag():
     assert parse_message("P.Bet. OVER 2.5\nLiverpool v Inter")["live"] is False
 
 
-def test_probabilita_malformata_non_presa_intera():
-    # "1.2.3%" non deve produrre "1.2.3" (numero ben formato).
+def test_probabilita_malformata_rifiutata():
+    # "1.2.3%" è malformato: niente frammento ("1.2"/"2.3") -> probabilità vuota.
     p = parse_message("P.Bet. OVER 2.5\nInter v Milan\nProbability 1.2.3%")
-    assert p["probability"] in ("1.2", "2.3")   # comunque un numero ben formato
+    assert p["probability"] == ""
+
+
+def test_coda_at_spaziato_e_probabilita_non_finiscono_in_eventname():
+    # "@ 1,85" (con spazio) e "Probability 72%" sulla riga squadre non devono
+    # entrare nell'EventName; quota/probabilità restano estratte a parte.
+    p = parse_message("P.Bet. OVER 2.5\nInter v Milan @ 1,85")
+    assert p["teams"] == "Inter v Milan"
+    assert p["quota"] == "1.85"
+    p2 = parse_message("P.Bet. OVER 2.5\nInter v Milan Probability 72%\nQuota 1,85")
+    assert p2["teams"] == "Inter v Milan"
+    assert p2["probability"] == "72"
+    assert p2["quota"] == "1.85"
 
 
 def test_vuoto_non_crasha():
