@@ -28,15 +28,25 @@ except ImportError:
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
 # Contratto CSV XTrader (vedi docs/xtrader_csv_contract.md).
-# "Points" è il moltiplicatore dello stake usato da XTrader: per ora valore
-# fisso DEFAULT_POINTS; la configurabilità è prevista in una PR GUI dedicata.
+# Header reale a 14 colonne, basato sui CSV di esempio forniti dal team XTrader.
+# Scrittura: UTF-8 con BOM (utf-8-sig) e tutti i campi tra virgolette (QUOTE_ALL).
 CSV_HEADER = [
-    "Provider", "SelectionId", "MarketId", "SelectionName",
-    "MarketName", "EventName", "MarketType", "BetType", "Price",
-    "MinPrice", "MaxPrice", "Points"
+    "Provider", "EventId", "EventName", "MarketId", "MarketName",
+    "MarketType", "SelectionId", "SelectionName", "Handicap", "Price",
+    "MinPrice", "MaxPrice", "BetType", "Points"
 ]
 
-DEFAULT_POINTS = "1"
+# Valori di default coerenti con gli esempi reali XTrader.
+DEFAULT_POINTS = ""      # Points lasciato vuoto: lo stake/moltiplicatore lo gestisce XTrader.
+DEFAULT_HANDICAP = "0"   # Handicap "0" come negli esempi reali.
+
+# BetType nel CSV XTrader è in italiano: PUNTA (back) / BANCA (lay).
+BETTYPE_MAP = {
+    "BACK": "PUNTA",
+    "LAY":  "BANCA",
+}
+
+CSV_ENCODING = "utf-8-sig"  # BOM richiesto dagli esempi XTrader.
 
 MARKET_MAPPING = {
     "GOL SECONDO TEMPO": "NEXT_GOAL",
@@ -112,18 +122,25 @@ def build_csv_row(parsed: dict, provider: str) -> dict:
     is_goals = any(k in signal_upper for k in ["GOL", "OVER", "GOAL"])
     selection = "Over 0.5 Goals" if is_goals else home
 
+    # XTrader usa PUNTA/BANCA; il segnale interno resta BACK/LAY (default BACK).
+    bet_type = BETTYPE_MAP.get(parsed.get('bet_type', 'BACK'), "PUNTA")
+
+    # Gli ID (EventId/MarketId/SelectionId) non sono presenti nel messaggio
+    # Telegram: restano vuoti. XTrader valida via EventName+MarketType+SelectionName.
     return {
         'Provider':      provider,
-        'SelectionId':   '',
-        'MarketId':      '',
-        'SelectionName': selection,
-        'MarketName':    parsed['signal_type'],
+        'EventId':       '',
         'EventName':     teams,
+        'MarketId':      '',
+        'MarketName':    parsed['signal_type'],
         'MarketType':    market_type,
-        'BetType':       parsed['bet_type'],
+        'SelectionId':   '',
+        'SelectionName': selection,
+        'Handicap':      DEFAULT_HANDICAP,
         'Price':         parsed.get('quota', ''),
         'MinPrice':      '',
         'MaxPrice':      '',
+        'BetType':       bet_type,
         'Points':        DEFAULT_POINTS,
     }
 
@@ -131,16 +148,16 @@ def build_csv_row(parsed: dict, provider: str) -> dict:
 def init_csv(path: str):
     """Crea/svuota il CSV lasciando solo l'header."""
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_HEADER)
+    with open(path, 'w', newline='', encoding=CSV_ENCODING) as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_HEADER, quoting=csv.QUOTE_ALL)
         writer.writeheader()
 
 
 def write_csv(row: dict, path: str):
     """Scrive un segnale nel CSV (sovrascrive)."""
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_HEADER)
+    with open(path, 'w', newline='', encoding=CSV_ENCODING) as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_HEADER, quoting=csv.QUOTE_ALL)
         writer.writeheader()
         writer.writerow(row)
 

@@ -5,6 +5,10 @@ Esercita le funzioni reali di `main.py` (`CSV_HEADER`, `build_csv_row`).
 installata nell'ambiente di test, qui ne forniamo uno stub minimo così che i test
 restino eseguibili senza GUI e senza token Telegram. Il runner pytest e la CI sono
 configurati in PR-02.
+
+Il contratto a 14 colonne è basato sui CSV di esempio reali forniti dal team XTrader.
+`CONTRACT_HEADER` è volutamente un letterale indipendente da `main.CSV_HEADER`: è la
+guardia che fa fallire il test se l'header di produzione cambia per errore.
 """
 
 import os
@@ -33,21 +37,33 @@ def _import_main():
     return main
 
 
+# Contratto ufficiale a 14 colonne (vedi docs/xtrader_csv_contract.md).
 CONTRACT_HEADER = [
-    "Provider", "SelectionId", "MarketId", "SelectionName", "MarketName",
-    "EventName", "MarketType", "BetType", "Price", "MinPrice", "MaxPrice",
-    "Points",
+    "Provider", "EventId", "EventName", "MarketId", "MarketName",
+    "MarketType", "SelectionId", "SelectionName", "Handicap", "Price",
+    "MinPrice", "MaxPrice", "BetType", "Points",
 ]
 
 
-def test_header_matches_contract():
+def _row(**overrides):
+    main = _import_main()
+    parsed = {
+        "signal_type": "MATCH ODDS", "competition": "Serie A",
+        "teams": "Inter v Milan", "score": "1 - 0", "time_": "67m",
+        "quota": "1.85", "probability": "72.5", "bet_type": "BACK",
+    }
+    parsed.update(overrides)
+    return main.build_csv_row(parsed, "PBet")
+
+
+def test_header_matches_contract_in_order():
     main = _import_main()
     assert main.CSV_HEADER == CONTRACT_HEADER
 
 
-def test_points_is_last_column():
+def test_header_has_14_columns():
     main = _import_main()
-    assert main.CSV_HEADER[-1] == "Points"
+    assert len(main.CSV_HEADER) == 14
 
 
 def test_header_has_no_stake_or_timestamp():
@@ -56,35 +72,41 @@ def test_header_has_no_stake_or_timestamp():
     assert "Timestamp" not in main.CSV_HEADER
 
 
-def test_build_csv_row_emits_points_default():
+def test_id_columns_present():
     main = _import_main()
-    parsed = {
-        "signal_type": "MATCH ODDS", "competition": "Serie A",
-        "teams": "Inter v Milan", "score": "1 - 0", "time_": "67m",
-        "quota": "1.85", "probability": "72.5", "bet_type": "BACK",
-    }
-    row = main.build_csv_row(parsed, "PBet")
-    assert row["Points"] == main.DEFAULT_POINTS == "1"
+    for col in ("EventId", "MarketId", "SelectionId", "Handicap"):
+        assert col in main.CSV_HEADER
 
 
-def test_build_csv_row_keys_match_header():
+def test_build_csv_row_keys_match_header_order():
+    # Assert order-sensitive: cattura regressioni nell'ordine delle colonne.
     main = _import_main()
-    parsed = {
-        "signal_type": "OVER 2.5", "competition": "", "teams": "A v B",
-        "score": "", "time_": "", "quota": "2,10", "probability": "",
-        "bet_type": "BACK",
-    }
-    row = main.build_csv_row(parsed, "PBet")
-    assert sorted(row.keys()) == sorted(CONTRACT_HEADER)
+    row = _row()
+    assert list(row.keys()) == CONTRACT_HEADER
 
 
-def test_bettype_default_is_back_or_lay():
+def test_bettype_back_maps_to_punta():
+    row = _row(bet_type="BACK")
+    assert row["BetType"] == "PUNTA"
+
+
+def test_bettype_lay_maps_to_banca():
+    row = _row(bet_type="LAY")
+    assert row["BetType"] == "BANCA"
+
+
+def test_points_is_empty_by_default():
     main = _import_main()
-    row = main.build_csv_row({
-        "signal_type": "MATCH ODDS", "teams": "A v B", "quota": "1.5",
-        "bet_type": "BACK",
-    }, "PBet")
-    assert row["BetType"] in ("BACK", "LAY")
+    assert _row()["Points"] == main.DEFAULT_POINTS == ""
+
+
+def test_handicap_default_is_zero():
+    assert _row()["Handicap"] == "0"
+
+
+def test_ids_empty_when_absent_from_signal():
+    row = _row()
+    assert row["EventId"] == "" and row["MarketId"] == "" and row["SelectionId"] == ""
 
 
 if __name__ == "__main__":

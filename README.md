@@ -18,18 +18,20 @@ Il bridge estrae automaticamente:
 | Dato | Estratto da ||------|------------|| **Campionato** | riga con || **Squadre** | riga con || **Mercato** | prima riga del messaggio (es. GOL SECONDO TEMPO) || **Quota** | riga con || **Punteggio live** | riga con || **Minuto** | riga con |
 ---
 ## Formato CSV generato per XTrader
-Il CSV viene scritto nel formato richiesto da XTrader per i segnali esterni. L'header ufficiale ha **12 colonne** (vedi `docs/xtrader_csv_contract.md`):
+Il CSV viene scritto nel formato richiesto da XTrader per i segnali esterni. L'header ufficiale ha **14 colonne** ed è basato sui CSV di esempio reali del team XTrader (vedi `docs/xtrader_csv_contract.md`):
 
-```csv
-Provider,SelectionId,MarketId,SelectionName,MarketName,EventName,MarketType,BetType,Price,MinPrice,MaxPrice,Points
-PBet,,,Inter,MATCH ODDS,Inter v Milan,MATCH_ODDS,BACK,1.85,,,1
+```text
+Provider,EventId,EventName,MarketId,MarketName,MarketType,SelectionId,SelectionName,Handicap,Price,MinPrice,MaxPrice,BetType,Points
+"PBet","","Inter v Milan","","Match Odds","MATCH_ODDS","","Inter","0","1.85","","","PUNTA",""
 ```
 
 Note:
+- **`BetType`** è in italiano: **`PUNTA`** (punta/back) o **`BANCA`** (banca/lay).
 - **`Stake`** non è una colonna del CSV: è gestito in XTrader nell'azione "Piazza Scommessa su Segnali".
 - Non esiste una colonna `Timestamp`: la protezione anti-duplicato è interna al bridge.
-- **`Points`** è il moltiplicatore dello stake (default `1`).
-- XTrader può validare il segnale tramite `MarketId + SelectionId` **oppure** `EventName + MarketType + SelectionName`; usando i nomi, la lingua del CSV deve coincidere con quella della fonte Segnali di XTrader.
+- **`Points`** è lasciato vuoto (lo stake/moltiplicatore lo gestisce XTrader); **`Handicap`** vale `0`.
+- Encoding **UTF-8 con BOM**, tutti i valori tra virgolette.
+- XTrader può validare il segnale tramite `MarketId + SelectionId` **oppure** `EventName + MarketType + SelectionName`; usando i nomi, la lingua del CSV deve coincidere con quella della fonte Segnali di XTrader. Gli ID non arrivano dal messaggio Telegram, quindi oggi restano vuoti.
 
 > **Il CSV contiene sempre un solo segnale alla volta.** Dopo il timeout viene svuotato e XTrader non rischia di ripetere scommesse vecchie.
 ---
@@ -45,8 +47,15 @@ Il programma si apre come una normale finestra Windows con:
 ### Passo 5 — Avvia il Bridge1. Apri `XTrader-Signal-Bridge.exe`2. Inserisci Token, Chat ID e percorso CSV3. Clicca ** START**4. Da questo momento tutto è automatico!
 ---
 ## Sicurezza anti-scommessa doppia
-Il sistema è progettato per **non rischiare mai** di piazzare due volte la stessa scommessa:
-1. **Un segnale alla volta** — il CSV viene svuotato prima di scrivere un nuovo segnale2. **Timeout automatico** — anche se XTrader non legge il CSV, dopo N secondi viene comunque svuotato3. **Timestamp univoco** — ogni segnale ha un timestamp che XTrader usa per verificare i duplicati4. **Lock file** — durante la scrittura del CSV viene usato un lock per evitare scritture concorrenti
+Il sistema è progettato per ridurre il rischio di piazzare due volte la stessa scommessa.
+
+**Implementato oggi:**
+1. **Un segnale alla volta** — il CSV viene sovrascritto a ogni nuovo segnale.
+2. **Timeout automatico** — anche se XTrader non legge il CSV, dopo N secondi viene comunque svuotato.
+
+**Pianificato (non ancora implementato):**
+3. **Deduplica interna** — riconoscimento dei segnali duplicati tramite hash del messaggio (roadmap PR-15). *Nota: non esiste una colonna `Timestamp` nel CSV.*
+4. **Scrittura atomica** — file temporaneo + rename per evitare letture parziali da parte di XTrader (roadmap PR-05).
 ---
 ## Requisiti di sistema
 | Requisito | Dettaglio ||-----------|-----------|| **Sistema operativo** | Windows 10 / 11 (64-bit) || **XTrader** | Versione con supporto Segnali CSV esterni || **Connessione internet** | Necessaria per ricevere i messaggi Telegram || **Bot Telegram** | Creato tramite @BotFather con token valido || **Dipendenze Python** | Già incluse nell'EXE — non serve installare nulla |
