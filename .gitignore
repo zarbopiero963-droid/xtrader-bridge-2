@@ -1,0 +1,42 @@
+# ──────────────────────────────────────────────
+# XTrader Signal Bridge — file da NON committare mai
+# (token, dati personali, artefatti generati)
+# ──────────────────────────────────────────────
+
+# Configurazione reale e segreti
+config.json
+.env
+*.secret
+
+# CSV generati dal bridge
+*.csv
+segnali.csv
+
+# Log e cache locali
+logs/
+*.log
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Cartelle dati utente locali (history, backup)
+history/
+*.bak
+
+# Artefatti build / PyInstaller
+build/
+dist/
+*.spec
+*.exe
+*.zip
+
+# Ambienti virtuali
+.venv/
+venv/
+env/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
