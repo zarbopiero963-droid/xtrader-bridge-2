@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Controllo file vietati tracciati
         run: |
           # .env, config.json (ovunque), .exe/.zip/.log tracciati = vietati.
