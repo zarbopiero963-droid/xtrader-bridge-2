@@ -7,6 +7,13 @@ Vedi docs/xtrader_csv_contract.md.
 
 import csv
 import os
+import tempfile
+import threading
+import time
+
+# Lock condiviso: serializza scrittura segnale e svuotamento, eliminando la
+# race tra il thread del bot (write_csv) e il timer di auto-clear (init_csv).
+_write_lock = threading.Lock()
 
 CSV_HEADER = [
     "Provider", "EventId", "EventName", "MarketId", "MarketName",
@@ -84,18 +91,52 @@ def build_csv_row(parsed: dict, provider: str) -> dict:
     }
 
 
+def _replace_with_retry(src: str, dst: str, attempts: int = 3, delay: float = 0.1) -> None:
+    """`os.replace` con qualche retry: su Windows il file può essere
+    momentaneamente bloccato da XTrader che lo sta leggendo."""
+    for i in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except OSError:
+            if i == attempts - 1:
+                raise
+            time.sleep(delay)
+
+
+def _atomic_write(path: str, write_rows) -> None:
+    """Scrive il CSV in modo atomico: file temporaneo nella stessa cartella,
+    flush + fsync, poi rename atomico (`os.replace`) sul file finale.
+
+    Così XTrader non legge mai un file parziale. In caso di errore il file
+    temporaneo viene rimosso e l'eccezione propagata (il CSV esistente resta
+    intatto). Tutto sotto `_write_lock` per serializzare write/clear.
+    """
+    d = os.path.dirname(os.path.abspath(path)) or "."
+    os.makedirs(d, exist_ok=True)
+    with _write_lock:
+        fd, tmp = tempfile.mkstemp(dir=d, prefix=".segnali_", suffix=".tmp")
+        try:
+            with os.fdopen(fd, 'w', newline='', encoding=CSV_ENCODING) as f:
+                writer = csv.DictWriter(f, fieldnames=CSV_HEADER, quoting=csv.QUOTE_ALL)
+                writer.writeheader()
+                write_rows(writer)
+                f.flush()
+                os.fsync(f.fileno())
+            _replace_with_retry(tmp, path)
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
+
+
 def init_csv(path: str):
-    """Crea/svuota il CSV lasciando solo l'header."""
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, 'w', newline='', encoding=CSV_ENCODING) as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_HEADER, quoting=csv.QUOTE_ALL)
-        writer.writeheader()
+    """Crea/svuota il CSV lasciando solo l'header (scrittura atomica)."""
+    _atomic_write(path, lambda writer: None)
 
 
 def write_csv(row: dict, path: str):
-    """Scrive un segnale nel CSV (sovrascrive)."""
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, 'w', newline='', encoding=CSV_ENCODING) as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_HEADER, quoting=csv.QUOTE_ALL)
-        writer.writeheader()
-        writer.writerow(row)
+    """Scrive un segnale nel CSV, sovrascrivendo (scrittura atomica)."""
+    _atomic_write(path, lambda writer: writer.writerow(row))
