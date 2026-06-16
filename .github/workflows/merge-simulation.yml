@@ -1,0 +1,35 @@
+name: Merge Simulation
+
+# Risponde a: "se questa PR venisse mergiata ORA su main, i test passerebbero
+# ancora?". Fonde main nel branch della PR (senza commit/push reali) e rilancia
+# compile + l'intera suite. Rileva anche i conflitti di merge con main.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  merge-simulation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Simula merge con main (nessun merge reale)
+        run: |
+          git config user.email "merge-simulation@example.invalid"
+          git config user.name "merge-simulation"
+          git fetch origin main
+          git merge --no-commit --no-ff origin/main \
+            || { echo "::error::Conflitto di merge con main"; exit 1; }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements-dev.txt
+      - run: python -m compileall main.py xtrader_bridge tests
+      - run: python -m pytest -q

@@ -1,0 +1,67 @@
+name: Merge Simulation Hard
+
+# Verifica "dura" su Windows (target reale): merge con main, suite completa,
+# safety/integration con stop al primo errore, build EXE e controllo file vietati.
+# NON è eseguita su ogni push (sarebbe lenta): solo manuale o schedulata di notte,
+# oppure prima di PR grosse/safety-critical/release.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  hard:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Simula merge con main (nessun merge reale)
+        shell: bash
+        run: |
+          git config user.email "merge-simulation-hard@example.invalid"
+          git config user.name "merge-simulation-hard"
+          git fetch origin main
+          git merge --no-commit --no-ff origin/main \
+            || { echo "::error::Conflitto di merge con main"; exit 1; }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements-dev.txt pyinstaller httpx
+
+      - run: python -m compileall main.py xtrader_bridge tests
+      - run: python -m pytest -q
+      - run: python -m pytest tests/safety -q --maxfail=1
+      - run: python -m pytest tests/integration -q --maxfail=1
+
+      - name: Build EXE
+        run: >
+          pyinstaller --onefile --windowed
+          --name "XTrader-Signal-Bridge"
+          --paths .
+          --collect-submodules xtrader_bridge
+          --add-data "data/dizionario_xtrader.csv;data"
+          --collect-all customtkinter
+          --hidden-import=telegram
+          --hidden-import=telegram.ext
+          --hidden-import=telegram.ext._application
+          --hidden-import=telegram.ext._updater
+          --hidden-import=httpx
+          --hidden-import=httpcore
+          main.py
+
+      - name: Controllo file vietati tracciati
+        shell: bash
+        run: |
+          bad=$(git ls-files | grep -E '(^|/)\.env$|(^|/)config\.json$|\.(exe|zip|log)$' || true)
+          csv=$(git ls-files '*.csv' | grep -vx 'data/dizionario_xtrader.csv' || true)
+          if [ -n "$bad$csv" ]; then
+            echo "::error::File vietati tracciati nel repo:"; echo "$bad"; echo "$csv"; exit 1
+          fi
+          echo "OK: nessun file vietato tracciato."

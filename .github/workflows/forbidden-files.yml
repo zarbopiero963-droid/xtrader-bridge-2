@@ -1,0 +1,32 @@
+name: Forbidden Files
+
+# Impedisce che finiscano nel repository segreti/artefatti: token o config reali,
+# .env, CSV generati (eccetto il dizionario ufficiale), log, EXE, ZIP.
+# Vedi le regole in CLAUDE.md / .gitignore.
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  forbidden-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Controllo file vietati tracciati
+        run: |
+          # .env, config.json (ovunque), .exe/.zip/.log tracciati = vietati.
+          bad=$(git ls-files | grep -E '(^|/)\.env$|(^|/)config\.json$|\.(exe|zip|log)$' || true)
+          # CSV: ammesso SOLO il dizionario ufficiale; ogni altro .csv è vietato.
+          csv=$(git ls-files '*.csv' | grep -vx 'data/dizionario_xtrader.csv' || true)
+          if [ -n "$bad" ] || [ -n "$csv" ]; then
+            echo "::error::File vietati tracciati nel repository:"
+            [ -n "$bad" ] && echo "$bad"
+            [ -n "$csv" ] && { echo "CSV non ammessi (solo data/dizionario_xtrader.csv è consentito):"; echo "$csv"; }
+            exit 1
+          fi
+          echo "OK: nessun file vietato tracciato."

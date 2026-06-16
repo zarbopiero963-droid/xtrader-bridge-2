@@ -36,6 +36,30 @@ tutti i check verdi.
 
 ---
 
+## CI / Check per categoria (GitHub Actions)
+
+I check si attivano su **ogni pull request** (non solo su `main`), così una PR che
+rompe contratto/logica si vede **prima** del merge. Workflow per **categoria di
+rischio** (non uno per singolo file di test):
+
+| Workflow | Trigger | Cosa fa |
+|---|---|---|
+| `pr-checks.yml` | PR · push main · manuale | job separati: `compile`, `contract`, `unit`, `safety`, `integration`, `smoke` |
+| `merge-simulation.yml` | PR · manuale | fonde `main` nel branch PR (no merge reale) → `compileall` + `pytest`; rileva conflitti |
+| `merge-simulation-hard.yml` | manuale · schedulata (notte) | Windows: merge + suite completa + `safety`/`integration` + build EXE + controllo file vietati |
+| `forbidden-files.yml` | PR · push main · manuale | blocca `.env`/`config.json`/`*.exe`/`*.zip`/`*.log` e CSV (eccetto `data/dizionario_xtrader.csv`) |
+| `build.yaml` | push main · tag `v*` · manuale | build EXE Windows + artifact; release solo su tag |
+
+Il check `contract` (`tests/unit/test_csv_contract.py`) è la barriera che diventa
+rossa se cambiano: header/ordine/numero colonne, encoding `utf-8-sig`, `QUOTE_ALL`,
+`BetType` (PUNTA/BANCA), `Points` vuoto, `Handicap` 0, o rientrano `Stake`/`Timestamp`.
+
+> **Branch protection (consigliata, da impostare lato GitHub dal proprietario):**
+> rendere *required* almeno `compile`, `contract`, `unit`, `safety`, `integration`,
+> `merge-simulation`, `forbidden-files`. `merge-simulation-hard` resta manuale/notturna.
+
+---
+
 ## Contratto CSV XTrader (riferimento per tutte le PR)
 
 > Fonte di verità: **`docs/xtrader_csv_contract.md`** (aggiornato in PR-01 sui CSV di
