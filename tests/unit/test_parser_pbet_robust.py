@@ -144,6 +144,34 @@ def test_coda_at_spaziato_e_probabilita_non_finiscono_in_eventname():
     assert p2["quota"] == "1.85"
 
 
+def test_coda_probabilita_italiana_non_finisce_in_eventname():
+    # Etichetta italiana "Probabilità" sulla riga squadre: EventName resta pulito.
+    p = parse_message("P.Bet. OVER 2.5\nInter v Milan Probabilità 72%\nQuota 1,85")
+    assert p["teams"] == "Inter v Milan"
+    assert p["probability"] == "72"
+    assert p["quota"] == "1.85"
+
+
+def test_quota_testo_su_riga_emoji_probabilita():
+    # "📊72% Quota 1,85": la quota in testo va estratta anche senza 📈.
+    p = parse_message("P.Bet. OVER 2.5\nInter v Milan\n📊72% Quota 1,85")
+    assert p["probability"] == "72"
+    assert p["quota"] == "1.85"
+
+
+def test_quota_con_punto_finale_di_frase():
+    # "Quota 1,85." (punto finale): il prezzo reale non va perso.
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1,85.")["quota"] == "1.85"
+    # ma "1.2.3" (decimali multipli) resta rifiutato.
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1.2.3")["quota"] == ""
+
+
+def test_quota_uno_punto_zero_non_e_quota():
+    # 1,00 non è una quota piazzabile: scartata a livello di parsing.
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1,00")["quota"] == ""
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1,01")["quota"] == "1.01"
+
+
 def test_vuoto_non_crasha():
     p = parse_message("")
     assert p["signal_type"] == "" and p["teams"] == "" and p["quota"] == ""

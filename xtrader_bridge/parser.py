@@ -36,10 +36,11 @@ _STATUS_TAIL = re.compile(r'\s+\b(?:live|pre|prematch)\b.*$', re.IGNORECASE)
 
 
 def _is_odds(value: str) -> bool:
-    """Una quota decimale è sempre ≥ 1.0: così "0,5" (linea del mercato, es.
-    "Quota 0,5 HT") non viene scambiato per una quota reale."""
+    """Una quota decimale offerta è sempre **> 1.0**: così "0,5" (linea del mercato,
+    es. "Quota 0,5 HT") non viene scambiato per una quota, e nemmeno "1,00" (che a
+    quota piena non dà guadagno e non è un prezzo piazzabile)."""
     try:
-        return float(value) >= 1.0
+        return float(value) > 1.0
     except (TypeError, ValueError):
         return False
 
@@ -52,13 +53,15 @@ def _extract_quota(line: str):
     Questa forma è riconosciuta SOLO da un marker di linea reale — `HT`/`FT`,
     oppure `Prematch:` con valore — così "Quota 1,85 Prematch" (status senza
     valore) NON perde la quota e ricade nell'estrazione normale.
-    Altrove è "Quota X" / "@X". Solo quote valide: ≥ 1, ben delimitate (no "1.2.3").
+    Altrove è "Quota X" / "@X". Solo quote valide: > 1, ben delimitate (no "1.2.3").
+    Il boundary `(?![.,]\\d)` rifiuta i decimali multipli ("1.2.3") ma ammette la
+    punteggiatura finale di frase ("Quota 1,85." → 1.85).
     """
     low = line.lower()
     if re.search(r'\b(?:ht|ft)\b', low) or re.search(r'prematch\s*:', low):
-        m = re.search(r'prematch[:\s]*(' + _NUM + r')(?![\d.,])', line, re.IGNORECASE)
+        m = re.search(r'prematch[:\s]*(' + _NUM + r')(?![.,]\d)', line, re.IGNORECASE)
     else:
-        m = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?![\d.,])', line, re.IGNORECASE)
+        m = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?![.,]\d)', line, re.IGNORECASE)
     if not m:
         return None
     val = m.group(1).replace(',', '.')
@@ -94,10 +97,11 @@ def _teams_from(line: str, sep: re.Pattern):
         return None
     cleaned = _SCORE_TAIL.sub('', line).strip()
     # togli un'eventuale coda quota/@/probabilità sulla stessa riga, così non finisce
-    # nell'EventName: "Inter v Milan Quota 1,85" / "... @ 1,85" / "... Probability 72%".
-    # NB: "@" senza "\b" per coprire anche la forma spaziata "@ 1,85".
-    cleaned = re.sub(r'\s+(?:quota\b|@|probability\b|prob\b).*$', '', cleaned,
-                     flags=re.IGNORECASE).strip()
+    # nell'EventName: "Inter v Milan Quota 1,85" / "... @ 1,85" / "... Probabilità 72%".
+    # NB: "@" senza "\b" per coprire anche la forma spaziata "@ 1,85"; coperte sia le
+    # etichette inglesi (probability/prob) sia quelle italiane (probabilità/probabilita).
+    cleaned = re.sub(r'\s+(?:quota\b|@|probabilit[àa]\b|probability\b|prob\b).*$', '',
+                     cleaned, flags=re.IGNORECASE).strip()
     m = sep.match(cleaned)
     if m and _HAS_ALPHA.search(m.group(1)) and _HAS_ALPHA.search(m.group(2)):
         return f"{m.group(1).strip()} v {m.group(2).strip()}"
@@ -180,9 +184,10 @@ def parse_message(text: str) -> dict:
             prob = _extract_probability(line)
             if prob and not result['probability']:
                 result['probability'] = prob
-            if '📈' in line and not result['quota']:
+            if not result['quota']:
                 # Quota SOLO da marker espliciti (Quota/@ o HT/FT-Prematch): niente
                 # numero "nudo" inventato (un "📈 1.2.3" non deve produrre un prezzo).
+                # Anche su riga con sola 📊 ("📊72% Quota 1,85") la quota testo va presa.
                 q = _extract_quota(line)
                 if q:
                     result['quota'] = q
