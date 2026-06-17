@@ -306,7 +306,7 @@ obbligatori vuoti; opzionale vuoto non blocca; riga a 14 colonne; testo vuoto.
 **Obiettivo:** tradurre il valore grezzo estratto nel valore esatto XTrader.
 **Tecnico:** `xtrader_bridge/value_maps.py` — built-in `bettype` (BACK/LAY +
 sinonimi → PUNTA/BANCA), `value_map_from_pairs` (lookup normalizzato, alias
-ambiguo scartato), `dizionario_value_maps` (mappe `markettype`/`marketname`/
+ambigui scartati), `dizionario_value_maps` (mappe `markettype`/`marketname`/
 `selectionname` dal dizionario), `registry(include_dizionario=)`,
 `resolve(value, map_name, reg)`. `apply_parser` (CP-02) ora applica la value-map
 della regola. Sicuro: mappa sconosciuta / valore non mappato → vuoto → "Non

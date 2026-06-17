@@ -22,7 +22,9 @@ Regole di sicurezza:
 from . import dizionario
 
 # Lookup normalizzato coerente col dizionario (minuscolo, trim, spazi collassati).
-_norm = dizionario._norm
+# Usa la funzione pubblica del dizionario: fonte unica, niente accoppiamento a
+# un helper privato.
+_norm = dizionario.normalize
 
 
 # ── built-in: BetType (lato scommessa) ─────────────────────────────────────

@@ -107,9 +107,11 @@ def apply_parser(defn: CustomParserDef, text: str, value_maps_registry: dict = N
     sconosciuta o un valore non mappato → vuoto (→ "Non pronto" se obbligatorio),
     così non si scrive mai una riga CSV con un valore tradotto a caso.
 
-    `value_maps_registry` (nome → mappa) è opzionale: di default usa i soli
-    built-in (es. `bettype`); passa `value_maps.registry(include_dizionario=True)`
-    per abilitare anche le mappe derivate dal dizionario.
+    `value_maps_registry` (nome → mappa) è opzionale: se `None` usa i soli
+    built-in (es. `bettype`) — registro costruito UNA volta qui, senza alcuna
+    lettura del dizionario (nessun I/O nascosto). Passa
+    `value_maps.registry(include_dizionario=True)` per abilitare anche le mappe
+    derivate dal dizionario.
 
     Ritorna lo stato di "piazzabilità": `ready=False` con `missing_required` se
     un campo obbligatorio è vuoto (gate "Non pronto").
@@ -117,6 +119,8 @@ def apply_parser(defn: CustomParserDef, text: str, value_maps_registry: dict = N
     `validate_parser_def` (CP-01) vieta già i target duplicati; qui il motore è
     comunque robusto: per ogni target vince l'ultima regola e `missing_required`
     è calcolato sul valore FINALE (dedup, niente doppioni o falsi mancanti)."""
+    if value_maps_registry is None:
+        value_maps_registry = value_maps.registry()  # built-in, costruito una volta
     values = {}
     required_targets = []
     for rule in defn.rules:
