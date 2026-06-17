@@ -1,5 +1,7 @@
 """Test della coda dei segnali attivi (PR-16/#2 residuo): modalità + timeout."""
 
+import pytest
+
 from xtrader_bridge import signal_queue as sq
 
 
@@ -80,6 +82,32 @@ def test_add_stesso_id_aggiorna_non_duplica():
 
 
 # ── sicurezza: copie difensive ───────────────────────────────────────────────
+
+def test_id_generato_non_collide_con_id_esplicito():
+    # Un id esplicito "s1" non deve essere sovrascritto dal primo id auto-generato.
+    q = sq.SignalQueue(mode=sq.APPEND_ACTIVE)
+    q.add(_row("A"), signal_id="s1", now=1000)
+    gen = q.add(_row("B"), now=1001)              # auto-generato: deve evitare "s1"
+    assert gen != "s1"
+    assert [r["EventName"] for r in q.active_rows()] == ["A", "B"]
+
+
+# ── validazione timeout (no segnali "immortali") ─────────────────────────────
+
+def test_timeout_invalido_rifiutato():
+    q = sq.SignalQueue(mode=sq.APPEND_ACTIVE)
+    for bad in (0, -5, float("nan"), float("inf"), "abc", None):
+        if bad is None:
+            continue  # None significa "usa default", non è invalido
+        with pytest.raises(ValueError):
+            q.add(_row("A"), now=1000, timeout=bad)
+
+
+def test_default_timeout_invalido_rifiutato_alla_costruzione():
+    for bad in (0, -1, float("nan")):
+        with pytest.raises(ValueError):
+            sq.SignalQueue(default_timeout=bad)
+
 
 def test_active_rows_sono_copie():
     q = sq.SignalQueue(mode=sq.APPEND_ACTIVE)

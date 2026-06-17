@@ -20,6 +20,7 @@ Invarianti di sicurezza preservate:
 Modulo puro: nessuna dipendenza da GUI/CSV/Telegram, interamente testabile.
 """
 
+import math
 import time
 from dataclasses import dataclass, field
 
@@ -62,6 +63,22 @@ class SignalQueue:
 
     def __post_init__(self):
         self.mode = normalize_mode(self.mode)
+        self.default_timeout = self._validate_timeout(self.default_timeout)
+
+    @staticmethod
+    def _validate_timeout(value) -> float:
+        """Un timeout deve essere un numero FINITO e > 0. Un valore non valido
+        (None già gestito a monte, ma anche `NaN`/`inf`/negativo/non numerico)
+        romperebbe l'invariante "nessun vecchio segnale resta attivo per sempre":
+        es. con `NaN`, `expires_at()` non è mai `<= now` e il segnale non
+        scadrebbe MAI. Quindi si fallisce subito (fail-fast)."""
+        try:
+            t = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"timeout non valido: {value!r}")
+        if not math.isfinite(t) or t <= 0:
+            raise ValueError(f"timeout deve essere un numero finito > 0 (ricevuto {value!r})")
+        return t
 
     def add(self, row: dict, *, signal_id: str = None, now: float = None,
             timeout: float = None) -> str:
@@ -73,9 +90,15 @@ class SignalQueue:
         `signal_id` assente → generato automaticamente. `timeout` assente →
         `default_timeout`."""
         now = time.time() if now is None else now
-        timeout = self.default_timeout if timeout is None else timeout
+        timeout = self.default_timeout if timeout is None else self._validate_timeout(timeout)
         if signal_id is None:
+            # Id auto-generato che NON collide con un id fornito dal chiamante:
+            # altrimenti un "s1" esplicito verrebbe sovrascritto dal primo add()
+            # senza id (stesso "s1") e una riga ancora attiva sparirebbe.
+            existing = {a.signal_id for a in self._active}
             self._counter += 1
+            while f"s{self._counter}" in existing:
+                self._counter += 1
             signal_id = f"s{self._counter}"
         sig = ActiveSignal(signal_id, dict(row), now, timeout)
         if self.mode == OVERWRITE_LAST:
