@@ -67,6 +67,8 @@ def test_filter_by_level():
     ]
     assert el.filter_by_level(lines, "ERROR") == ["[09:05:04] [ERROR] parser fallito"]
     assert el.filter_by_level(lines, "INFO") == ["[09:05:03] [INFO] avvio"]
+    # il livello passato viene normalizzato (case-insensitive)
+    assert el.filter_by_level(lines, "error") == ["[09:05:04] [ERROR] parser fallito"]
 
 
 def test_filter_non_confonde_messaggio_con_livello():
