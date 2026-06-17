@@ -192,7 +192,7 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
 - Merge sempre **manuale** del proprietario; nessun auto-merge.
 
 **Implementato come logica pura ma NON ancora attivo a runtime** (§4): multi-chat
-provider/mode. **Non va considerato garanzia operativa** finché non è agganciato.
+provider/mode. **Non va considerato una garanzia operativa** finché non è agganciato.
 
 ---
 
