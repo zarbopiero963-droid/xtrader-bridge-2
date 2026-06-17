@@ -140,6 +140,26 @@ def test_required_soddisfatto_da_fixed_value():
     assert res.values["Provider"] == "TG_CUSTOM"
 
 
+def test_matches_message_solo_fixed_mai_corrisponde():
+    # Parser a soli valori fissi: nessuna estrazione → non corrisponde a nessun
+    # messaggio (gate di contenuto del live, anti-segnale-fantasma).
+    defn = cp.CustomParserDef(name="X", rules=[
+        cp.FieldRule(target="Provider", fixed_value="TG"),
+        cp.FieldRule(target="Price", fixed_value="2.0", required=True),
+    ])
+    assert eng.matches_message(defn, "qualsiasi cosa") is False
+    assert eng.matches_message(defn, "") is False
+
+
+def test_matches_message_estrazione_dipende_dal_testo():
+    defn = cp.CustomParserDef(name="X", rules=[
+        cp.FieldRule(target="EventName", start_after="Match:", end_before="\n", required=True),
+        cp.FieldRule(target="Price", fixed_value="2.0", required=True),
+    ])
+    assert eng.matches_message(defn, "Match: Inter v Milan\n") is True   # delimitatore presente
+    assert eng.matches_message(defn, "nessun delimitatore") is False     # assente → no match
+
+
 def test_apply_parser_target_duplicato_ultimo_vince_senza_doppioni():
     # Difesa: due regole stesso target (vietate da validate, ma il motore non
     # deve produrre stati incoerenti). L'ultima vince; missing_required dedup.

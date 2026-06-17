@@ -69,6 +69,60 @@ def test_chat_non_approvata_non_usa_parser_globale(tmp_path):
     assert res.source == signal_router.HARDCODED
 
 
+def test_custom_solo_fixed_non_scrive_su_messaggio_arbitrario(tmp_path):
+    # Parser con TUTTI gli obbligatori a fixed_value: build_validated_row sarebbe
+    # piazzabile su qualsiasi testo. Il gate di contenuto lo scarta: senza
+    # estrazione dal messaggio non è un segnale → niente riga (anti doppia scommessa).
+    defn = cp.CustomParserDef(name="SoloFissi", rules=[
+        cp.FieldRule(target="Provider", fixed_value="TG"),
+        cp.FieldRule(target="EventName", fixed_value="Inter v Milan", required=True),
+        cp.FieldRule(target="MarketType", fixed_value="BOTH_TEAMS_TO_SCORE", required=True),
+        cp.FieldRule(target="SelectionName", fixed_value="Sì", required=True),
+        cp.FieldRule(target="Price", fixed_value="2.0", required=True),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
+    ])
+    cp.save_parser(defn, str(tmp_path))
+    cfg = {"provider": "TG", "active_parser": "SoloFissi", "chat_id": "42",
+           "recognition_mode": "NAME_ONLY"}
+    # messaggio non pertinente e messaggio vuoto: entrambi scartati, NON piazzabili.
+    for text in ("ciao come stai", ""):
+        res = signal_router.resolve_row(text, cfg, chat_id="42", parsers_dir=str(tmp_path))
+        assert res.source == signal_router.CUSTOM
+        assert res.placeable is False
+        assert res.status == signal_router.NO_CONTENT_MATCH
+
+
+def test_custom_fixed_con_estrazione_attiva_scrive_solo_se_match(tmp_path):
+    # Obbligatori tutti fissi (riga sempre piazzabile) + un'estrazione OPZIONALE:
+    # è il gate di contenuto a decidere. La riga si scrive SOLO se il messaggio
+    # contiene il delimitatore dell'estrazione opzionale (contenuto che attiva
+    # davvero il parser); altrimenti → NO_CONTENT_MATCH, niente scrittura.
+    defn = cp.CustomParserDef(name="FissiPiuEstrazione", rules=[
+        cp.FieldRule(target="Provider", fixed_value="TG"),
+        cp.FieldRule(target="EventName", fixed_value="Inter v Milan", required=True),
+        cp.FieldRule(target="MarketType", fixed_value="BOTH_TEAMS_TO_SCORE", required=True),
+        cp.FieldRule(target="SelectionName", fixed_value="Sì", required=True),
+        cp.FieldRule(target="Price", fixed_value="2.0", required=True),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
+        cp.FieldRule(target="MarketName", start_after="Mkt:", end_before="\n"),  # opzionale
+    ])
+    cp.save_parser(defn, str(tmp_path))
+    cfg = {"provider": "TG", "active_parser": "FissiPiuEstrazione", "chat_id": "42",
+           "recognition_mode": "NAME_ONLY"}
+    # messaggio con il delimitatore "Mkt:" → estrazione opzionale attiva → piazzabile
+    ok = signal_router.resolve_row("Mkt: 1X2\n", cfg,
+                                   chat_id="42", parsers_dir=str(tmp_path))
+    assert ok.source == signal_router.CUSTOM
+    assert ok.placeable is True
+    assert ok.row["EventName"] == "Inter v Milan"
+    # messaggio senza "Mkt:" → nessuna estrazione attivata → scartato dal gate
+    ko = signal_router.resolve_row("messaggio qualsiasi", cfg,
+                                   chat_id="42", parsers_dir=str(tmp_path))
+    assert ko.source == signal_router.CUSTOM
+    assert ko.placeable is False
+    assert ko.status == signal_router.NO_CONTENT_MATCH
+
+
 def test_custom_inesistente_ripiega_su_hardcoded(tmp_path):
     # active_parser punta a un parser non salvato → load_active None → hardcoded.
     cfg = {"provider": "TG", "active_parser": "NonEsiste", "recognition_mode": "NAME_ONLY"}

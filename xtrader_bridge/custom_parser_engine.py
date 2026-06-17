@@ -79,6 +79,23 @@ def extract_value(text: str, rule: FieldRule) -> str:
     return text[start:end].strip()
 
 
+def matches_message(defn: CustomParserDef, text: str) -> bool:
+    """True se almeno una regola di **estrazione** (`start_after`/`end_before`,
+    non `fixed_value`) ha trovato un valore non vuoto in `text`.
+
+    Gate di "contenuto" per il live (CP-09): un parser i cui obbligatori sono
+    tutti `fixed_value` produrrebbe una riga piazzabile per QUALSIASI messaggio
+    (anche vuoto o non pertinente). Siccome il live bypassa il prefiltro marker
+    per i parser custom attivi, senza questo gate si scriverebbe lo stesso bet
+    fisso su ogni messaggio della chat (rischio doppia/spuria scommessa). Qui si
+    richiede che il messaggio abbia davvero attivato almeno un'estrazione: se non
+    corrisponde a niente, non è un segnale. NON tocca la pipeline/validator."""
+    for rule in defn.rules:
+        if rule.has_extraction() and not rule.is_fixed() and extract_value(text, rule) != "":
+            return True
+    return False
+
+
 @dataclass
 class ExtractionResult:
     """Esito dell'applicazione di un parser a un messaggio."""

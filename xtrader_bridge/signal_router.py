@@ -15,12 +15,16 @@ scrivere il CSV. Così l'instradamento è interamente testabile.
 
 from dataclasses import dataclass, field
 
-from . import custom_pipeline, parser_manager, recognition, validator
+from . import custom_parser_engine, custom_pipeline, parser_manager, recognition, validator
 from .csv_writer import build_csv_row
 from .parser import parse_message
 
 CUSTOM = "custom"
 HARDCODED = "hardcoded"
+
+# Gate di contenuto: il custom è piazzabile ma non ha estratto nulla dal messaggio
+# (parser a soli valori fissi su testo arbitrario) → scartato, niente scrittura.
+NO_CONTENT_MATCH = "NO_CONTENT_MATCH"
 
 
 def _chat_approved_for_custom(cfg: dict, chat: str) -> bool:
@@ -88,12 +92,18 @@ def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str =
 
     defn = active_custom_parser(cfg, chat, parsers_dir)
     if defn is not None:
-        # Parser Personalizzato attivo: autoritativo.
+        # Parser Personalizzato attivo: autoritativo (nessun fallback hardcoded).
         res = custom_pipeline.build_validated_row(
             defn, text, provider=provider, mode=mode, require_price=require_price)
-        if res.placeable:
-            return RouteResult(res.row, validator.VALID, CUSTOM)
-        return RouteResult(None, res.status, CUSTOM, res.detail, list(res.missing_required))
+        if not res.placeable:
+            return RouteResult(None, res.status, CUSTOM, res.detail, list(res.missing_required))
+        # Gate di contenuto: la riga è piazzabile, ma il parser deve aver estratto
+        # qualcosa DA QUESTO messaggio. Un parser a soli valori fissi sarebbe
+        # piazzabile su qualsiasi testo (anche vuoto): nel live, che bypassa il
+        # prefiltro marker, scriverebbe lo stesso bet su ogni messaggio. Scartiamo.
+        if not custom_parser_engine.matches_message(defn, text):
+            return RouteResult(None, NO_CONTENT_MATCH, CUSTOM, "no_content_match")
+        return RouteResult(res.row, validator.VALID, CUSTOM)
 
     # Fallback: parser hardcoded storico.
     parsed = parse_message(text)
