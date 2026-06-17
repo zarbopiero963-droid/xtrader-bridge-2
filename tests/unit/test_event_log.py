@@ -21,6 +21,20 @@ def test_normalize_level():
     assert el.normalize_level(None) == "INFO"
 
 
+def test_redact_secrets_maschera_token():
+    # Un bot token incorporato nel messaggio (es. eccezione) non resta in chiaro.
+    token = "123456789:AAExampleSecretTokenValue_abcdef"
+    out = el.redact_secrets(f"❌ Errore bot: {token} - fine")
+    assert token not in out
+    assert "[REDACTED_TOKEN]" in out
+    assert out.startswith("❌ Errore bot:")     # resto del messaggio preservato
+
+
+def test_redact_secrets_lascia_testo_normale():
+    assert el.redact_secrets("Inter v Milan q.1.85") == "Inter v Milan q.1.85"
+    assert el.redact_secrets("") == ""
+
+
 def test_classify_dal_marker():
     # Lo storico distingue errori/segnali derivando il livello dal marker (#11).
     assert el.classify("❌ CSV non scrivibile") == "ERROR"

@@ -31,6 +31,20 @@ def normalize_level(level) -> str:
     return lvl if lvl in LEVELS else DEFAULT_LEVEL
 
 
+# Pattern di un bot token Telegram: <id numerico>:<~35 caratteri>. Va mascherato
+# ovunque possa finire in un log (es. un'eccezione che incorpora il token), per
+# rispettare l'invariante "mai token in chiaro nei log".
+_TELEGRAM_TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{20,}")
+_REDACTED = "[REDACTED_TOKEN]"
+
+
+def redact_secrets(text: str) -> str:
+    """Maschera valori che assomigliano a un bot token Telegram. Difesa unica per
+    i log (GUI e file): un token incorporato per sbaglio (es. nel testo di
+    un'eccezione) non viene mai scritto in chiaro."""
+    return _TELEGRAM_TOKEN_RE.sub(_REDACTED, str(text or ""))
+
+
 # Marker emoji con cui la GUI prefissa i messaggi → livello di log. Serve a
 # derivare automaticamente il livello quando il chiamante non lo passa, così lo
 # storico persistente distingue errori/segnali e `filter_by_level` è utile (#11).

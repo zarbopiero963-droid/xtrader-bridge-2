@@ -186,14 +186,18 @@ class App(ctk.CTk):
 
     # ── LOG ───────────────────────────────────
     def _log(self, msg: str, level: str = None):
+        # Redazione unica nel sink condiviso: un token incorporato per sbaglio
+        # (es. nel testo di un'eccezione del bot) non finisce mai nel log, né a
+        # schermo né su file (invariante: mai token nei log).
+        safe = event_log.redact_secrets(msg)
         ts = datetime.now().strftime("%H:%M:%S")
-        self._log_box.insert("end", f"[{ts}] {msg}\n")
+        self._log_box.insert("end", f"[{ts}] {safe}\n")
         self._log_box.see("end")
         # Storico persistente in AppData (#11): sopravvive al riavvio. Il livello,
         # se non passato, è derivato dal marker del messaggio (❌/⚠️/📱) così lo
         # storico distingue errori/segnali. Best-effort: un errore di filesystem
         # non deve interrompere la GUI.
-        event_log.append_entry(msg, level or event_log.classify(msg))
+        event_log.append_entry(safe, level or event_log.classify(safe))
 
     # ── START / STOP ──────────────────────────
     def _start(self):
