@@ -37,7 +37,11 @@ jobs:
       run: |
         # Versione dall'UNICA fonte di verità (xtrader_bridge/__init__.py); fail
         # se manca, così l'artifact non finisce mai senza versione.
-        ver=$(python -c "import xtrader_bridge as p; print(p.__version__)")
+        # `sys.stdout.write` (niente newline) + `tr -d '\r\n'`: su windows-latest il
+        # print() di Python emette CRLF e $(...) toglie solo \n, lasciando un \r che
+        # renderebbe il nome artifact malformato (`...v0.1.0\r-<data>`). Stripping
+        # difensivo di CR/LF così il nome resta pulito su ogni runner.
+        ver=$(python -c "import sys, xtrader_bridge as p; sys.stdout.write(p.__version__)" | tr -d '\r\n')
         [ -n "$ver" ] || { echo "::error::__version__ mancante"; exit 1; }
         date=$(date -u +%Y%m%d)
         echo "version=$ver"          >> "$GITHUB_OUTPUT"

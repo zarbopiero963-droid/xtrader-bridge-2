@@ -19,8 +19,12 @@ def test_build_workflow_usa_la_versione_dal_package():
     # (così cambia in un solo posto). Verifichiamo che il workflow la estragga di lì.
     wf = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "build.yaml"
     text = wf.read_text(encoding="utf-8")
-    assert "import xtrader_bridge" in text and "__version__" in text
+    assert "xtrader_bridge" in text and "__version__" in text
     # L'artifact è nominato dallo step meta (versionato), non con un nome fisso.
     assert "steps.meta.outputs.artifact" in text
     # Il file .exe interno resta a nome stabile.
     assert "XTrader-Signal-Bridge.exe" in text
+    # Su windows-latest il print() di Python emette CRLF e $(...) lascia un \r:
+    # la versione DEVE essere ripulita da CR/LF, altrimenti il nome artifact è
+    # malformato (`...v0.1.0\r-<data>`). Verifichiamo lo strip difensivo.
+    assert "tr -d '\\r\\n'" in text
