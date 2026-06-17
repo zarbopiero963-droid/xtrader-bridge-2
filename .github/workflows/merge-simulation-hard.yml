@@ -74,7 +74,7 @@ jobs:
         shell: bash
         run: |
           bad=$(git ls-files | grep -iE '(^|/)\.env$|(^|/)config\.json$|\.(exe|zip|log|spec|secret|bak)$|(^|/)(build|dist|logs|history)/' || true)
-          csv=$(git ls-files | grep -iE '\.csv$' | grep -vx 'data/dizionario_xtrader.csv' || true)
+          csv=$(git ls-files | grep -iE '\.csv$' | grep -ivx 'data/dizionario_xtrader.csv' || true)
           tok=$(git grep -lIE '[0-9]{8,10}:[A-Za-z0-9_-]{35}' -- . 2>/dev/null || true)
           if [ -n "$bad$csv$tok" ]; then
             echo "::error::File vietati o token in chiaro tracciati nel repo (token redatto):"

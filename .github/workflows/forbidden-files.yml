@@ -27,7 +27,7 @@ jobs:
           # Match case-insensitive (-i): blocca anche Config.json, .ENV, secret.EXE...
           bad=$(git ls-files | grep -iE '(^|/)\.env$|(^|/)config\.json$|\.(exe|zip|log|spec|secret|bak)$|(^|/)(build|dist|logs|history)/' || true)
           # CSV (estensione case-insensitive): ammesso SOLO il dizionario ufficiale.
-          csv=$(git ls-files | grep -iE '\.csv$' | grep -vx 'data/dizionario_xtrader.csv' || true)
+          csv=$(git ls-files | grep -iE '\.csv$' | grep -ivx 'data/dizionario_xtrader.csv' || true)
           if [ -n "$bad" ] || [ -n "$csv" ]; then
             echo "::error::File vietati tracciati nel repository:"
             [ -n "$bad" ] && echo "$bad"

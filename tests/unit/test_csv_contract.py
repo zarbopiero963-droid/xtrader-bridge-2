@@ -89,7 +89,8 @@ def test_file_scritto_ha_bom_utf8_e_quote_all(tmp_path):
     # (gli altri test leggono via csv.reader e NON distinguono QUOTE_ALL da MINIMAL).
     path = str(tmp_path / "segnali.csv")
     csv_writer.write_csv(_row(), path)
-    raw = open(path, "rb").read()
+    with open(path, "rb") as f:
+        raw = f.read()
 
     # BOM UTF-8 in testa (utf-8-sig).
     assert raw.startswith(b"\xef\xbb\xbf")
