@@ -14,6 +14,8 @@ Un file corrotto o invalido → `ValueError` (niente salvataggi parziali).
 """
 
 import json
+import os
+import tempfile
 
 from . import custom_parser
 from .custom_parser import CustomParserDef, FieldRule
@@ -21,12 +23,28 @@ from .custom_parser import CustomParserDef, FieldRule
 
 def export_parser(defn: CustomParserDef, dest_path: str) -> str:
     """Scrive il parser (validato) come JSON in `dest_path`. Solleva ValueError
-    se la definizione non è valida (non si esporta un parser rotto)."""
+    se la definizione non è valida (non si esporta un parser rotto).
+
+    Scrittura atomica (tempfile + fsync + os.replace, come `save_parser`): un
+    export interrotto non lascia un file parziale al posto di uno esistente."""
     errors = custom_parser.validate_parser_def(defn)
     if errors:
         raise ValueError("Parser non valido, non esportato:\n- " + "\n- ".join(errors))
-    with open(dest_path, "w", encoding="utf-8") as f:
-        f.write(defn.to_json())
+    payload = defn.to_json()
+    dest_dir = os.path.dirname(os.path.abspath(dest_path))
+    fd, tmp = tempfile.mkstemp(prefix=".export_", suffix=".json", dir=dest_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, dest_path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
     return dest_path
 
 

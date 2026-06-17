@@ -73,10 +73,15 @@ def test_example_parser_e_valido():
 
 
 def test_example_parser_produce_riga_piazzabile():
-    res = build_validated_row(pio.example_parser(), pio.fixture_message())
+    defn = pio.example_parser()
+    assert defn.description.strip() != ""          # esempio documentato
+    res = build_validated_row(defn, pio.fixture_message())
     assert res.status == validator.VALID
     assert res.placeable is True
     assert res.row["EventName"] == "Inter v Milan"
     assert res.row["SelectionName"] == "Sì"       # "GG" via value-map dizionario
     assert res.row["BetType"] == "PUNTA"          # "BACK" via value-map bettype
     assert res.row["Price"] == "1.85"             # virgola → punto
+    assert res.row["Provider"] == "TG_CUSTOM"      # fixed value
+    assert res.row["MarketType"] == "BOTH_TEAMS_TO_SCORE"  # fixed value
+    assert res.row["Handicap"] == "0"              # default contratto
