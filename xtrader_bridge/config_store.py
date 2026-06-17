@@ -35,6 +35,12 @@ DEFAULTS = {
     # Chat sorgente multiple (PR-12): lista di {name, chat_id, enabled, provider,
     # mode PRE/LIVE}. Vuoto = setup mono-chat classico (chat_id + provider globali).
     "source_chats":     [],
+    # Conferme XTrader (PR-17): chat SEPARATA dalle sorgenti su cui XTrader notifica
+    # l'esito; timeout senza conferma; keyword (vuote = usa i default del modulo).
+    "xtrader_notification_chat_id": "",
+    "confirmation_timeout":         120,
+    "confirmation_keywords":        [],
+    "rejection_keywords":           [],
 }
 
 

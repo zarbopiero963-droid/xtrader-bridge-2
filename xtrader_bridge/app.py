@@ -63,21 +63,19 @@ class App(ctk.CTk):
         if delay_err:
             delay = settings_validation.DEFAULT_TIMEOUT
             self._log(f"⚠️ {delay_err} Uso {delay}s.")
-        cfg = {
+        # Si parte dalla config CARICATA e si sovrascrivono solo i campi del form:
+        # così ogni impostazione senza campo GUI (recognition_mode, require_price,
+        # active_parser, parser_by_chat, source_chats, le chiavi delle conferme
+        # XTrader, ecc.) viene PRESERVATA e non si perde al salvataggio — niente
+        # drift quando si aggiungono nuove chiavi.
+        cfg = dict(self._config) if isinstance(self._config, dict) else {}
+        cfg.update({
             "bot_token":   self._e_token.get().strip(),
             "chat_id":     self._e_chat.get().strip(),
             "csv_path":    self._e_csv.get().strip(),
             "clear_delay": delay,
             "provider":    self._e_provider.get().strip() or "TelegramBot",
-            # Preservati finché non c'è un campo GUI dedicato (PR-13): senza questo
-            # un salvataggio (anche all'avvio) cancellerebbe l'opt-out require_price.
-            "recognition_mode": self._config.get("recognition_mode", "NAME_ONLY"),
-            "require_price":    self._config.get("require_price", True),
-            # Preservati come sopra (nessun campo GUI dedicato qui): la scelta del
-            # Parser Personalizzato attivo (CP-07) non va persa al salvataggio.
-            "active_parser":    self._config.get("active_parser", ""),
-            "parser_by_chat":   self._config.get("parser_by_chat", {}),
-        }
+        })
         return save_config(cfg, CONFIG_FILE)
 
     # ── UI ────────────────────────────────────
