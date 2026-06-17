@@ -166,3 +166,14 @@ def test_restore_state_malformato_ignorato():
     for bad in (None, [{}], [{"signal_id": "x"}], [{"row": {}, "added_at": "n"}]):
         q.restore_state(bad)                         # non deve sollevare
     assert q.is_empty()
+
+
+def test_pending_formato_per_confirmation_reader():
+    # PR-23: pending() espone signal_id + i campi della riga, copie difensive.
+    q = sq.SignalQueue(mode=sq.APPEND_ACTIVE)
+    sid = q.add(_row("Inter v Milan"), now=1000)
+    pend = q.pending()
+    assert pend[0]["signal_id"] == sid
+    assert pend[0]["EventName"] == "Inter v Milan"
+    pend[0]["EventName"] = "HACK"                    # mutazione esterna
+    assert q.active_rows()[0]["EventName"] == "Inter v Milan"   # interno intatto

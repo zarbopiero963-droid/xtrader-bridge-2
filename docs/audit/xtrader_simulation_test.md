@@ -19,10 +19,9 @@
 
 > **Cosa è agganciato al runtime oggi** (vedi `final_audit.md` §4). **Attivi:** filtro
 > chat (solo con `chat_id` configurato), parsing+validazione, **anti-duplicato +
-> limite/minuto + limite/giorno + DRY_RUN** (PR-21), scrittura/svuotamento CSV.
-> **NON ancora agganciati** (logica pura testata): **conferma XTrader** (Caso F), coda
-> multi-segnale, **multi-chat** provider/mode — passi marcati `TODO(wiring)`, oggi
-> attesi come falliti.
+> limite/minuto + limite/giorno + DRY_RUN** (PR-21), **coda multi-segnale** (PR-22),
+> **conferma XTrader** (PR-23), scrittura/svuotamento CSV. **NON ancora agganciato**
+> (logica pura testata): **multi-chat** provider/mode — passi marcati `TODO(wiring)`.
 
 ## 1. Setup
 
@@ -87,18 +86,18 @@
 4. **Atteso:** oltre il limite/minuto → log "🚦 Limite al minuto raggiunto"; oltre
    `max_per_day` → log "🚦 Limite giornaliero raggiunto". I segnali in eccesso non scrivono.
 
-## 7. Caso F — `TODO(wiring)` conferma XTrader (NON ancora attivo)
+## 7. Caso F — conferma XTrader (ora attivo, PR-23)
 
-> `confirmation_reader`/`signal_queue` non sono usati da `app` (vedi `final_audit.md`
-> §4 punti 3–4): **oggi una notifica XTrader non marca alcun segnale**. Caso
-> descrittivo del comportamento desiderato dopo il wiring; oggi **fallisce**.
+> Richiede `xtrader_notification_chat_id` configurato (chat **separata** dalle sorgenti).
 
-1. Con XTrader configurato per notificare l'esito su una chat **separata**
-   (`xtrader_notification_chat_id`), lascia che XTrader elabori il segnale in
-   simulazione.
-2. **Atteso (dopo wiring):** il bridge interpreta la notifica e marca il segnale
-   CONFIRMED / REJECTED / (TIMEOUT se nessuna conferma entro il tempo). La conferma
-   **non** genera una nuova scommessa.
+1. Con XTrader configurato per notificare l'esito su quella chat, lascia che XTrader
+   elabori un segnale attivo in simulazione e invii la notifica.
+2. **Atteso:** il bridge interpreta la notifica; su **CONFIRMED** o **REJECTED** rimuove
+   il segnale dalla coda → la sua riga sparisce dal CSV (log "✅ XTrader: segnale
+   confermato/rifiutato → rimosso dal CSV"). Una notifica non associata (UNMATCHED) o
+   senza esito chiaro (UNKNOWN) è solo loggata, **nessuna** riga toccata. La conferma
+   **non** genera una nuova scommessa. (Il TIMEOUT senza conferma è coperto dalla
+   scadenza per-segnale della coda.)
 
 ## 8. Caso G — riavvio
 
@@ -109,9 +108,9 @@
 
 ## 9. Esito
 
-- [ ] Casi **attivi** con esito atteso: A1, A2, B, C (con `chat_id`), D, E, G.
-- [ ] Caso `TODO(wiring)` rimasto (F — conferma XTrader): verificarlo **dopo**
-      l'aggancio del listener conferme; oggi atteso come non applicabile.
+- [ ] Casi **attivi** con esito atteso: A1, A2, B, C (con `chat_id`), D, E, F
+      (con `xtrader_notification_chat_id`), G.
+- [ ] Multi-chat provider/mode resta `TODO(wiring)` (PR-24): non ancora verificabile.
 - [ ] Nessun token nei log; nessun CSV corrotto/parziale; header sempre presente.
 - [ ] Registrare versione testata, data, ambiente (Windows/XTrader) e note.
 

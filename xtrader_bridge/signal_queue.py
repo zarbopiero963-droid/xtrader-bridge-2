@@ -154,6 +154,12 @@ class SignalQueue:
     def is_empty(self) -> bool:
         return not self._active
 
+    def pending(self) -> list:
+        """Segnali attivi nel formato atteso da `confirmation_reader.interpret`:
+        ogni voce è `{"signal_id": id, ...campi della riga}` (copia difensiva). Serve
+        ad associare una notifica XTrader a un segnale in attesa (PR-23)."""
+        return [{"signal_id": a.signal_id, **dict(a.row)} for a in self._active]
+
     def next_expiry(self, default=None):
         """L'istante di scadenza (`expires_at`) più vicino fra i segnali attivi, o
         `default` se la coda è vuota. Serve a programmare il prossimo controllo di

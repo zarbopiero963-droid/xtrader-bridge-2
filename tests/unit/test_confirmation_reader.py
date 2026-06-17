@@ -14,6 +14,21 @@ def _pending():
     ]
 
 
+# ── normalize_keywords ───────────────────────────────────────────────────────
+
+def test_normalize_keywords():
+    # Stringa singola → UNA keyword (non scandita char-by-char: eviterebbe falsi esiti).
+    assert cr.normalize_keywords("piazzata") == ["piazzata"]
+    # con la stringa avvolta, una "a" da sola NON è una conferma
+    assert cr.classify_outcome("esito a", confirm_keywords=cr.normalize_keywords("piazzata")) is None
+    # lista pulita; vuoti scartati; None/vuoto/tipo inatteso → None
+    assert cr.normalize_keywords(["ok", " done ", ""]) == ["ok", "done"]
+    assert cr.normalize_keywords(None) is None
+    assert cr.normalize_keywords("") is None
+    assert cr.normalize_keywords([]) is None
+    assert cr.normalize_keywords(123) is None
+
+
 # ── classify_outcome ─────────────────────────────────────────────────────────
 
 def test_classify_confermato_e_rifiutato():

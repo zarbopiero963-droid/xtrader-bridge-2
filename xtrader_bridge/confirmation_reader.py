@@ -44,6 +44,26 @@ DEFAULT_REJECT_KEYWORDS = (
 )
 
 
+def normalize_keywords(value):
+    """Normalizza le keyword di conferma/rifiuto (dalla config) a **lista** o None.
+
+    Una **stringa** singola (es. un `config.json` scritto a mano con `"piazzata"`
+    invece di `["piazzata"]`) NON va passata così a `classify_outcome`: essendo
+    iterabile verrebbe scandita **carattere per carattere** e una notifica con una
+    lettera comune (es. "a") risulterebbe CONFIRMED/REJECTED per sbaglio. Quindi una
+    stringa è avvolta come **singola** keyword. Lista/tupla → stringhe non vuote.
+    Vuoto/None/tipo inatteso → None (usa i default del modulo)."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        v = value.strip()
+        return [v] if v else None
+    if isinstance(value, (list, tuple)):
+        kws = [str(x).strip() for x in value if str(x).strip()]
+        return kws or None
+    return None
+
+
 def _norm(s) -> str:
     return str(s or "").lower()
 

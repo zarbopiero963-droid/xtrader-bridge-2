@@ -26,7 +26,7 @@
 | Anti-duplicato + limite/minuto + limite/giorno | ✅ **Agganciati al runtime** (PR-21) | `live_guard` in `app._process` (dedup+rate `signal_dedupe`, giorno `safety_guard`) |
 | DRY_RUN (simulazione) | ✅ **Agganciato al runtime** (PR-21) | in DRY_RUN il CSV operativo NON viene scritto |
 | Coda multi-segnale | ✅ **Agganciata al runtime** (PR-22) | `signal_queue` in `app._process` + scrittura CSV multi-riga; default OVERWRITE_LAST |
-| Conferma XTrader | ⚠️ Logica pura testata, **non agganciata** | `confirmation_reader` non ancora usato da `app` — vedi §4 |
+| Conferma XTrader | ✅ **Agganciata al runtime** (PR-23) | `confirmation_reader` in `app._process_confirmation`; chat notifiche → CONFIRMED/REJECTED rimuove il segnale |
 | Build EXE Windows (versionata) | ⚠️ Workflow pronto, build non eseguita qui | verifica manuale |
 | Supply-chain (action SHA-pinned) | ✅ Implementato | test di enforcement |
 | Test automatici | ✅ 536 passed, 2 skipped | vedi §3 |
@@ -60,9 +60,9 @@ manuali su Windows/XTrader e l'attivazione esplicita della modalità reale.
 
 > **Nota:** "Chiuso da" indica la PR che ha implementato la logica. Anti-duplicato (#5)
 > e DRY_RUN/limiti sono ora **agganciati al runtime** (PR-21), così come la coda
-> multi-segnale (#2 residuo, PR-22). Restano logiche pure non ancora collegate:
-> conferma XTrader, multi-chat; il filtro chat (#8) è effettivo solo con `chat_id`
-> configurato — vedi §4.
+> multi-segnale (#2 residuo, PR-22) e la conferma XTrader (PR-23). Resta logica pura
+> non ancora collegata: il multi-chat; il filtro chat (#8) è effettivo solo con
+> `chat_id` configurato — vedi §4.
 
 ---
 
@@ -117,10 +117,13 @@ manuali su Windows/XTrader e l'attivazione esplicita della modalità reale.
   rimuove i segnali scaduti e riscrive le righe rimaste (o svuota il CSV). Su scrittura
   fallita il segnale viene tolto dalla coda (riprovabile).
 
-### Conferma XTrader (logica pura, NON ancora agganciata)
-- `confirmation_reader`: **modulo puro testato ma non usato da `app`** → una notifica
-  XTrader **non** marca ancora alcun segnale CONFIRMED/REJECTED/TIMEOUT
-  (`TODO(wiring)`, §4). È il prossimo slice (PR-23).
+### Conferma XTrader — AGGANCIATA (PR-23)
+- `app._handle` instrada i messaggi dalla chat `xtrader_notification_chat_id`
+  (separata dalle sorgenti) a `_process_confirmation`, che costruisce i `pending`
+  dalla coda (`SignalQueue.pending()`) e chiama `confirmation_reader.interpret`.
+  **CONFIRMED/REJECTED** → il segnale è rimosso dalla coda e dal CSV; UNKNOWN/UNMATCHED
+  → solo log; il TIMEOUT è coperto dalla scadenza coda. Attiva solo se la chat
+  notifiche è configurata. Match per nomi (la riga CSV non ha un SignalRef).
 
 ### Build / supply-chain
 - `build.yaml`: test → compile → PyInstaller `--windowed` → artifact **versionato**
@@ -149,20 +152,17 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
 > **Cosa è agganciato al runtime oggi** (`app` → `signal_router`/`live_guard`): filtro
 > chat (se `chat_id` configurato), parsing (hardcoded + Parser Personalizzato per chat),
 > validazione contratto, **anti-duplicato + limite/minuto + limite/giorno + DRY_RUN**
-> (PR-21), **coda multi-segnale + scrittura CSV multi-riga** (PR-22),
-> scrittura/svuotamento CSV atomici, log con redazione. Quanto resta sotto è
-> **logica pura testata ma non ancora collegata** al bot live.
+> (PR-21), **coda multi-segnale + scrittura CSV multi-riga** (PR-22), **conferma
+> XTrader** (PR-23), scrittura/svuotamento CSV atomici, log con redazione. Quanto resta
+> sotto è **logica pura testata ma non ancora collegata** al bot live.
 >
 > ✅ **Agganciati**: DRY_RUN, anti-duplicato, limite/minuto, limite/giorno (PR-21);
-> coda multi-segnale + timeout per-segnale (PR-22). La protezione doppia-scommessa
-> è attiva a runtime.
+> coda multi-segnale + timeout per-segnale (PR-22); conferma XTrader (PR-23). La
+> protezione doppia-scommessa è attiva a runtime.
 
-1. **`TODO(wiring)` — Conferma XTrader (PR-17)**: `confirmation_reader` non è usato da
-   `app` → una notifica XTrader **non** marca alcun segnale CONFIRMED/REJECTED/TIMEOUT
-   (richiede un listener sulla chat notifiche + coda dei pending). Prossimo slice (PR-23).
-2. **`TODO(wiring)` — Multi-chat (PR-12)**: `source_manager`/`source_chats` non letti a
+1. **`TODO(wiring)` — Multi-chat (PR-12)**: `source_manager`/`source_chats` non letti a
    runtime → chat disattivate e provider/mode per-chat sono **ignorati** (PR-24).
-4. **`TODO(filter)` — Filtro chat aperto di default**: con `chat_id` e `parser_by_chat`
+2. **`TODO(filter)` — Filtro chat aperto di default**: con `chat_id` e `parser_by_chat`
    vuoti, `is_chat_allowed` ammette **tutte** le chat. Mitigazione attuale: la release
    checklist **richiede** un `chat_id` esplicito prima dell'uso (in alternativa, irrigidire
    `is_chat_allowed`/`_start` per esigere una chat).
@@ -182,16 +182,17 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
   un duplicato/raffica/over-quota o la simulazione **sopprimono la scrittura**.
 - **Coda dei segnali attivi** (PR-22, `signal_queue`): default OVERWRITE_LAST (un solo
   segnale attivo); timeout per-segnale rimuove gli scaduti e riscrive le righe rimaste.
+- **Conferma XTrader** (PR-23, `confirmation_reader`): una notifica CONFIRMED/REJECTED
+  dalla chat notifiche rimuove il segnale dalla coda e dal CSV (se la chat è configurata).
 - Scrittura/svuotamento CSV atomici (incl. multi-riga `write_rows`); header sempre presente.
 - Filtro chat effettivo **quando `chat_id` è configurato** (con config vuota ammette
-  tutte — vedi §4 punto 4; la checklist richiede un `chat_id`).
+  tutte — vedi §4 punto 2; la checklist richiede un `chat_id`).
 - Nessun token/segreto nei log (redazione) né nel repo (`forbidden-files` + test).
 - Contratto CSV invariato dalle PR successive a PR-01 (barriera `contract`).
 - Merge sempre **manuale** del proprietario; nessun auto-merge.
 
-**Implementate come logica pura ma NON ancora attive a runtime** (§4): conferma
-XTrader, multi-chat provider/mode. **Non vanno considerate garanzie operative**
-finché non sono agganciate.
+**Implementato come logica pura ma NON ancora attivo a runtime** (§4): multi-chat
+provider/mode. **Non va considerato una garanzia operativa** finché non è agganciato.
 
 ---
 
