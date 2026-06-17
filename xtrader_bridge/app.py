@@ -197,18 +197,25 @@ class App(ctk.CTk):
             # silenzioso nel thread del bot (PR-11, #11).
             self._log("❌ python-telegram-bot non disponibile: impossibile avviare il listener.")
             return
-        cfg = self._save_config()
-        if not cfg["bot_token"]:
+        # Validazione sui valori GREZZI dei campi PRIMA del salvataggio
+        # (PR-13/#10): _save_config normalizza il timeout invalido al default,
+        # quindi validare la cfg dopo il save non vedrebbe più l'errore e il
+        # bridge partirebbe a 90s ignorando l'input dell'utente.
+        raw = {
+            "bot_token":   self._e_token.get().strip(),
+            "csv_path":    self._e_csv.get().strip(),
+            "clear_delay": self._e_delay.get().strip(),
+        }
+        if not raw["bot_token"]:
             self._log("❌ Inserisci il Bot Token prima di avviare!")
             return
-        # Validazione impostazioni critiche (PR-13/#10): CSV path e timeout.
-        # Non si avvia con una config che genererebbe CSV in un path mancante.
-        errors = settings_validation.validate_settings(cfg)
+        errors = settings_validation.validate_settings(raw)
         if errors:
             for err in errors:
                 self._log(f"❌ {err}")
             return
 
+        cfg = self._save_config()
         self._running = True
         self._status_lbl.configure(text="⬤  ATTIVO", text_color="#66bb6a")
         self._btn_start.configure(state="disabled")

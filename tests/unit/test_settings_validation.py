@@ -21,6 +21,15 @@ def test_timeout_non_numerico_errore():
     assert "non valido" in err
 
 
+def test_timeout_non_numerico_non_espone_il_valore():
+    # Se l'utente incolla per sbaglio un bot token nel campo timeout, NON deve
+    # finire nel messaggio d'errore (invariante: mai token nei log).
+    token = "123456789:AAExampleSecretTokenValue_nonReale"
+    value, err = sv.parse_timeout(token)
+    assert value is None
+    assert token not in err
+
+
 def test_timeout_non_positivo_errore():
     assert sv.parse_timeout("0")[0] is None
     assert sv.parse_timeout("-5")[0] is None

@@ -26,7 +26,10 @@ def parse_timeout(raw, default: int = DEFAULT_TIMEOUT):
     try:
         value = int(s)
     except (TypeError, ValueError):
-        return None, f"Timeout non valido: {s!r} (inserisci un numero intero di secondi)."
+        # NON includere il valore grezzo nel messaggio: se l'utente incolla per
+        # sbaglio un bot token nel campo timeout, finirebbe nel log GUI (invariante:
+        # mai token nei log). Messaggio generico.
+        return None, "Timeout non valido: inserisci un numero intero di secondi."
     if value <= 0:
         return None, f"Timeout deve essere maggiore di 0 (ricevuto {value})."
     return value, None
