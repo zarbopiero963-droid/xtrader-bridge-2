@@ -23,6 +23,26 @@ CUSTOM = "custom"
 HARDCODED = "hardcoded"
 
 
+def _chat_approved_for_custom(cfg: dict, chat: str) -> bool:
+    """Una chat è approvata per il parsing custom solo se è quella CONFIGURATA
+    (`chat_id`) o ha una voce esplicita in `parser_by_chat`. Un `active_parser`
+    GLOBALE non deve quindi far scommettere chat non autorizzate (con `chat_id`
+    vuoto in un bot multi-chat sarebbe un buco): non si indebolisce il filtro chat."""
+    chat = str(chat or "")
+    if chat and chat in parser_manager.parser_by_chat(cfg):
+        return True
+    configured = str(cfg.get("chat_id", "") or "").strip()
+    return bool(configured) and chat == configured
+
+
+def active_custom_parser(cfg: dict, chat: str, parsers_dir: str = None):
+    """Parser custom da usare per `chat`, oppure None se la chat non è approvata
+    o nessun parser è attivo. Usato sia dal router sia dal prefiltro live."""
+    if not _chat_approved_for_custom(cfg, chat):
+        return None
+    return parser_manager.load_active(cfg, chat, parsers_dir)
+
+
 @dataclass
 class RouteResult:
     """Esito dell'instradamento. `row` è valorizzata SOLO se piazzabile."""
@@ -49,7 +69,7 @@ def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str =
     provider = str(cfg.get("provider", "") or "")
     chat = str((chat_id if chat_id is not None else cfg.get("chat_id", "")) or "")
 
-    defn = parser_manager.load_active(cfg, chat, parsers_dir)
+    defn = active_custom_parser(cfg, chat, parsers_dir)
     if defn is not None:
         # Parser Personalizzato attivo: autoritativo.
         res = custom_pipeline.build_validated_row(

@@ -36,8 +36,11 @@ def test_hardcoded_scarta_messaggio_non_valido():
 
 def test_custom_attivo_produce_riga(tmp_path):
     _save_example(str(tmp_path), "Yangon")
-    cfg = {"provider": "TG", "active_parser": "Yangon", "recognition_mode": "NAME_ONLY"}
-    res = signal_router.resolve_row(parser_io.fixture_message(), cfg, parsers_dir=str(tmp_path))
+    # chat_id configurato e combaciante: chat approvata per il custom globale.
+    cfg = {"provider": "TG", "active_parser": "Yangon", "chat_id": "42",
+           "recognition_mode": "NAME_ONLY"}
+    res = signal_router.resolve_row(parser_io.fixture_message(), cfg,
+                                    chat_id="42", parsers_dir=str(tmp_path))
     assert res.source == signal_router.CUSTOM
     assert res.placeable is True
     assert res.row["SelectionName"] == "Sì"
@@ -48,10 +51,22 @@ def test_custom_attivo_produce_riga(tmp_path):
 def test_custom_attivo_non_pronto_scarta_senza_fallback(tmp_path):
     # Custom attivo ma messaggio incompleto: scarto, NON si ripiega sull'hardcoded.
     _save_example(str(tmp_path), "Yangon")
-    cfg = {"provider": "TG", "active_parser": "Yangon", "recognition_mode": "NAME_ONLY"}
-    res = signal_router.resolve_row("Match: solo questo", cfg, parsers_dir=str(tmp_path))
+    cfg = {"provider": "TG", "active_parser": "Yangon", "chat_id": "42",
+           "recognition_mode": "NAME_ONLY"}
+    res = signal_router.resolve_row("Match: solo questo", cfg,
+                                    chat_id="42", parsers_dir=str(tmp_path))
     assert res.source == signal_router.CUSTOM
     assert res.placeable is False
+
+
+def test_chat_non_approvata_non_usa_parser_globale(tmp_path):
+    # active_parser globale ma chat_id vuoto: una chat arbitraria NON deve usare
+    # il parser globale (sicurezza: niente scommesse per chat non approvate).
+    _save_example(str(tmp_path), "Yangon")
+    cfg = {"provider": "TG", "active_parser": "Yangon", "recognition_mode": "NAME_ONLY"}
+    res = signal_router.resolve_row(parser_io.fixture_message(), cfg,
+                                    chat_id="999", parsers_dir=str(tmp_path))
+    assert res.source == signal_router.HARDCODED
 
 
 def test_custom_inesistente_ripiega_su_hardcoded(tmp_path):
