@@ -20,6 +20,7 @@ solo uno stato. L'aggancio al runtime (leggere la chat notifiche, confermare il
 segnale nella coda) è un passo successivo. Modulo puro, interamente testabile.
 """
 
+import math
 import re
 from dataclasses import dataclass
 
@@ -57,6 +58,17 @@ def _has_keyword(text: str, keyword: str) -> bool:
     return re.search(r"\b" + re.escape(kw) + r"\b", text) is not None
 
 
+def _has_ref_token(text: str, ref: str) -> bool:
+    """True se `ref` compare come **token intero** in `text`, delimitato da inizio/
+    fine o da un carattere che NON prosegue il token (`[\\w-]`). Più stretto di
+    `\\b`: un ref `"ABC123"` non combacia dentro `"ABC123-4"` (ref diverso con
+    suffisso), evitando di associare il segnale sbagliato."""
+    r = _norm(ref).strip()
+    if not r:
+        return False
+    return re.search(r"(?<![\w-])" + re.escape(r) + r"(?![\w-])", text) is not None
+
+
 @dataclass
 class ConfirmationResult:
     """Esito dell'interpretazione di una notifica XTrader."""
@@ -88,26 +100,37 @@ def match_pending(text: str, pending):
     testo (più affidabile); altrimenti per tutti i campi nome presenti. Se più di
     un candidato combacia → None (ambiguo: non si associa a caso)."""
     t = _norm(text)
-    # Match per ref come PAROLA INTERA: un ref "123" non deve combaciare dentro
-    # "ABC1234" (associerebbe il segnale sbagliato).
+    # Match per ref come TOKEN intero: un ref "123" non combacia dentro "ABC1234"
+    # né "ABC123" dentro "ABC123-4" (ref diverso): non si associa il segnale sbagliato.
     by_ref = [p for p in pending
-              if _norm(p.get("ref")).strip() and _has_keyword(t, p.get("ref"))]
+              if _norm(p.get("ref")).strip() and _has_ref_token(t, p.get("ref"))]
     if len(by_ref) == 1:
         return by_ref[0]
     if len(by_ref) > 1:
         return None
 
+    def _remove_first(text: str, phrase: str) -> str:
+        """Rimuove la prima occorrenza (parola intera) di `phrase` da `text`."""
+        return re.sub(r"\b" + re.escape(phrase) + r"\b", " ", text, count=1)
+
     def all_name_fields_present(p) -> bool:
         # Fallback: servono TUTTI E TRE i campi identità, non vuoti e presenti nel
-        # testo come PAROLE INTERE (una selezione corta come "No"/"Sì" non deve
-        # combaciare dentro "non"). Un sottoinsieme NON basta a identificare il
-        # segnale: meglio nessun match che il segnale sbagliato.
+        # testo come PAROLE INTERE e su porzioni DISTINTE: si consuma il testo via
+        # via, così una selezione contenuta nell'evento (es. "Inter" dentro
+        # "Inter v Milan") non viene contata due volte. Un sottoinsieme NON basta:
+        # meglio nessun match che il segnale sbagliato.
         ev = _norm(p.get("EventName")).strip()
         mk = _norm(p.get("MarketName")).strip()
         sel = _norm(p.get("SelectionName")).strip()
         if not (ev and mk and sel):
             return False
-        return _has_keyword(t, ev) and _has_keyword(t, mk) and _has_keyword(t, sel)
+        if not _has_keyword(t, ev):
+            return False
+        rest = _remove_first(t, ev)
+        if not _has_keyword(rest, mk):
+            return False
+        rest = _remove_first(rest, mk)
+        return _has_keyword(rest, sel)
 
     # Il fallback per nomi vale SOLO per i segnali SENZA ref: se un segnale ha un
     # SignalRef, va confermato solo via quel ref. Così una notifica con un ref
@@ -138,5 +161,15 @@ def interpret(text: str, pending, *, confirm_keywords=None,
 
 def timed_out(added_at: float, now: float, timeout: float) -> bool:
     """True se è trascorso almeno `timeout` dalla creazione del segnale senza
-    conferma: il chiamante può marcarlo TIMEOUT."""
-    return (now - added_at) >= timeout
+    conferma: il chiamante può marcarlo TIMEOUT.
+
+    `timeout` deve essere finito e > 0: un valore `NaN` (accettato da `json.load`)
+    renderebbe il confronto sempre falso → il segnale non scadrebbe MAI; uno `<= 0`
+    scadrebbe sempre. Fail-fast con ValueError (come la coda dei segnali)."""
+    try:
+        t = float(timeout)
+    except (TypeError, ValueError):
+        raise ValueError(f"timeout non valido: {timeout!r}")
+    if not math.isfinite(t) or t <= 0:
+        raise ValueError(f"timeout deve essere un numero finito > 0 (ricevuto {timeout!r})")
+    return (now - added_at) >= t

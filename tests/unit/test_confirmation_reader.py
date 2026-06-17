@@ -139,3 +139,30 @@ def test_ref_ambiguo_non_associa():
 def test_timed_out():
     assert cr.timed_out(added_at=1000, now=1000 + 120, timeout=120) is True
     assert cr.timed_out(added_at=1000, now=1000 + 119, timeout=120) is False
+
+
+def test_timed_out_timeout_invalido_rifiutato():
+    import pytest
+    for bad in (float("nan"), float("inf"), 0, -5, "abc"):
+        with pytest.raises(ValueError):
+            cr.timed_out(added_at=1000, now=2000, timeout=bad)
+
+
+def test_ref_con_suffisso_punteggiato_non_combacia():
+    # ref "ABC123" non deve combaciare dentro "ABC123-4" (ref diverso col suffisso).
+    pending = [{"signal_id": "x", "ref": "ABC123"}]
+    assert cr.match_pending("Ref ABC123-4 piazzata", pending) is None
+    assert cr.match_pending("Ref ABC123 piazzata", pending) is not None
+
+
+def test_fallback_selezione_dentro_evento_non_basta():
+    # Selection "Inter" è dentro EventName "Inter v Milan": la notifica non nomina
+    # la selezione separatamente → niente match (porzioni distinte).
+    pending = [{"signal_id": "x", "ref": "",
+                "EventName": "Inter v Milan", "MarketName": "Esito finale",
+                "SelectionName": "Inter"}]
+    res = cr.interpret("Inter v Milan - Esito finale piazzata", pending)
+    assert res.status == cr.UNMATCHED
+    # se la selezione è nominata separatamente, allora combacia
+    ok = cr.interpret("Inter v Milan - Esito finale - Inter piazzata", pending)
+    assert ok.status == cr.CONFIRMED
