@@ -25,6 +25,11 @@ __pycache__/
 history/
 *.bak
 
+# Parser Personalizzati definiti dall'utente (CP-01): salvati a runtime in
+# data/parsers/<nome>.json. Sono configurazione utente, non vanno committati
+# (lo skeleton di default è in codice, vedi xtrader_bridge/custom_parser.py).
+data/parsers/
+
 # Artefatti build / PyInstaller
 build/
 dist/

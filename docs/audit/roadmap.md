@@ -255,6 +255,58 @@ invalido; `Points` vuoto **resta vuoto** (è il default del contratto, NON va no
 
 ---
 
+# PHASE 3-bis — Parser Personalizzato (Custom Parser)
+
+> **Pivot deciso dal proprietario:** un costruttore di parser configurabile dalla
+> GUI **supera** il parser hardcoded (PR-09). L'utente definisce *come* estrarre
+> ogni colonna del contratto CSV da un messaggio Telegram, senza modificare il
+> codice. Il parser hardcoded resta come fallback/legacy.
+>
+> **Principi (validi per tutta la fase):**
+> - Ogni regola ha **"Inizia dopo" (`start_after`)** e **"Finisce prima di"
+>   (`end_before`)**: testo libero (anche emoji/simboli) che delimita il valore.
+> - Campi **obbligatori vs opzionali**: opzionale vuoto → colonna CSV vuota (NON
+>   blocca); obbligatorio vuoto → parser **"Non pronto"** → nessuna riga CSV.
+> - Il **dizionario** (`data/dizionario_xtrader.csv`) diventa una **value-map
+>   selezionabile** da menu a tendina dentro il costruttore.
+> - Persistenza **per-parser** in `data/parsers/<nome>.json` (in `.gitignore`:
+>   sono configurazione utente, non si committano).
+> - La regola **somma-gol → Over (somma).5** diventa una **trasformazione
+>   configurabile** (CP-05), NON è hardcoded.
+> - Le colonne ammesse come `target` sono **esattamente** quelle del contratto a
+>   14 colonne (fonte unica: `csv_writer.CSV_HEADER`).
+
+## CP-01 — custom-parser/data-model ✅ (consegnato)
+**Obiettivo:** modello dati + persistenza del Parser Personalizzato.
+**Tecnico:** `xtrader_bridge/custom_parser.py` — `FieldRule` (target, start_after,
+end_before, fixed_value, value_map, required) e `CustomParserDef` (name,
+description, version, rules); (de)serializzazione JSON; `validate_parser_def`;
+`skeleton()`; save/load in `data/parsers/<nome>.json`. `.gitignore`: `data/parsers/`.
+**Test hard:** `tests/unit/test_custom_parser_model.py` — round-trip dict/JSON,
+validazione (nome vuoto, target sconosciuto/duplicato, `fixed_value`+estrazione,
+versione, nessuna regola), skeleton valido, save/load tmp, filename anti-traversal.
+**Micro-audit:** nessun runtime/GUI/contratto toccato; `target` ⊆ `CSV_HEADER`.
+**Audit totale:** base dati pronta; nessun rischio CSV/Telegram/doppia-scommessa.
+
+## CP-02..CP-10 (pianificate, da affinare con il proprietario)
+- **CP-02** — motore di estrazione: applica le regole a un messaggio
+  (`start_after`/`end_before`), gestisce "Non pronto" sugli obbligatori vuoti.
+- **CP-03** — value-map: dizionario selezionabile → traduce valore estratto →
+  valore esatto XTrader.
+- **CP-04** — integrazione con `validator.py` (PR-10) e `build_csv_row` prima
+  della scrittura CSV.
+- **CP-05** — trasformazioni configurabili (es. somma-gol → Over (somma).5,
+  normalizzazione quota).
+- **CP-06** — costruttore GUI (Inizia dopo / Finisce prima di / obbligatorio /
+  value-map a tendina / test live su messaggio incollato).
+- **CP-07** — gestione parser: selezione/attivazione per chat sorgente, default.
+- **CP-08** — import/export + fixture di test su messaggi reali (skeleton di esempio).
+- **CP-09** — il Parser Personalizzato diventa il percorso principale; hardcoded
+  come fallback.
+- **CP-10** — `CUSTOM_PARSER_READY`: audit completo, test hard, documentazione.
+
+---
+
 # PHASE 4 — Telegram
 
 ## PR-11 — phase-4/telegram-listener-hardening
