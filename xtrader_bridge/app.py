@@ -240,9 +240,13 @@ class App(ctk.CTk):
                 if not msg:
                     return
                 text = msg.text or msg.caption or ''
-                cid = cfg.get("chat_id", "").strip()
                 runtime_chat = str(msg.chat_id)
-                if cid and runtime_chat != cid:
+                # Guardia unica delle chat ammesse (CP-09): chat configurata
+                # (`chat_id`) ∪ chiavi `parser_by_chat`. Gatea sia il percorso
+                # custom sia l'hardcoded, così un override per-chat è ammesso
+                # anche con `chat_id` singolo impostato, e nessuna chat non
+                # autorizzata può scrivere. Se nulla è configurato → legacy.
+                if not signal_router.is_chat_allowed(cfg, runtime_chat):
                     return
                 # Il prefiltro legacy (P.Bet./📊) vale SOLO per il parser hardcoded.
                 # Se per la chat di origine (approvata) è attivo un Parser

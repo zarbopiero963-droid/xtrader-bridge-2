@@ -35,6 +35,23 @@ def _chat_approved_for_custom(cfg: dict, chat: str) -> bool:
     return bool(configured) and chat == configured
 
 
+def is_chat_allowed(cfg: dict, chat: str) -> bool:
+    """Chat che il bridge può processare nel live: quella CONFIGURATA (`chat_id`)
+    e le chiavi `parser_by_chat`. Se NULLA è configurato (chat_id vuoto e mappa
+    vuota) → comportamento legacy: tutte ammesse (responsabilità dell'utente).
+    Gatea sia il percorso custom sia l'hardcoded: nessuna scrittura per chat non
+    autorizzate."""
+    chat = str(chat or "")
+    configured = str(cfg.get("chat_id", "") or "").strip()
+    per_chat = parser_manager.parser_by_chat(cfg)
+    if not configured and not per_chat:
+        return True
+    allowed = set(per_chat.keys())
+    if configured:
+        allowed.add(configured)
+    return chat in allowed
+
+
 def active_custom_parser(cfg: dict, chat: str, parsers_dir: str = None):
     """Parser custom da usare per `chat`, oppure None se la chat non è approvata
     o nessun parser è attivo. Usato sia dal router sia dal prefiltro live."""

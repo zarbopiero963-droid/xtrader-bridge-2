@@ -98,3 +98,36 @@ def test_override_per_chat(tmp_path):
     res = signal_router.resolve_row(parser_io.fixture_message(), cfg, parsers_dir=str(tmp_path))
     assert res.source == signal_router.CUSTOM
     assert res.placeable is True
+
+
+# ── is_chat_allowed: guardia unica live (CP-09) ─────────────────────────────
+
+def test_is_chat_allowed_nulla_configurato_tutte_ammesse():
+    # Nessun chat_id e nessuna mappa → comportamento legacy: tutte ammesse.
+    cfg = {"provider": "TG"}
+    assert signal_router.is_chat_allowed(cfg, "42") is True
+    assert signal_router.is_chat_allowed(cfg, "999") is True
+
+
+def test_is_chat_allowed_solo_chat_configurata():
+    # chat_id impostato → solo quella chat è ammessa.
+    cfg = {"provider": "TG", "chat_id": "42"}
+    assert signal_router.is_chat_allowed(cfg, "42") is True
+    assert signal_router.is_chat_allowed(cfg, "999") is False
+
+
+def test_is_chat_allowed_override_per_chat_ammesso_anche_con_chat_id():
+    # Con chat_id singolo impostato, le voci parser_by_chat restano ammesse
+    # (l'override per-chat non deve essere bloccato dalla guardia).
+    cfg = {"provider": "TG", "chat_id": "42",
+           "parser_by_chat": {"123": "PerChat"}}
+    assert signal_router.is_chat_allowed(cfg, "42") is True
+    assert signal_router.is_chat_allowed(cfg, "123") is True
+    assert signal_router.is_chat_allowed(cfg, "999") is False
+
+
+def test_is_chat_allowed_solo_mappa_per_chat():
+    # Solo parser_by_chat (nessun chat_id): ammesse solo le chat mappate.
+    cfg = {"provider": "TG", "parser_by_chat": {"123": "PerChat"}}
+    assert signal_router.is_chat_allowed(cfg, "123") is True
+    assert signal_router.is_chat_allowed(cfg, "42") is False
