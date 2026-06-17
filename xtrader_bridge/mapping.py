@@ -61,12 +61,19 @@ def _index() -> dict:
     return _INDEX
 
 
-def _norm_shorthand(text: str) -> str:
-    # minuscolo, spazi singoli, virgola→punto, e suffisso FT rimosso ("over 2.5 ft" -> "over 2.5").
+def normalize_shorthand(text: str) -> str:
+    """Normalizza una forma breve Telegram: minuscolo, spazi singoli,
+    virgola→punto, e suffisso FT rimosso ("over 2.5 ft" / "OVER 2,5" -> "over 2.5").
+
+    Funzione pubblica: fonte unica della normalizzazione shorthand, riusata anche
+    dalle value-map (CP-03) così le grafie comuni dei messaggi combaciano."""
     s = " ".join(str(text).strip().lower().replace(",", ".").split())
     if s.endswith(" ft"):
         s = s[:-3].strip()
     return s
+
+
+_norm_shorthand = normalize_shorthand  # alias interno storico
 
 
 def _subst(value: str, home: str, away: str) -> str:

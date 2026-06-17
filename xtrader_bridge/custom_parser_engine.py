@@ -3,8 +3,10 @@
 Applica le regole di un `CustomParserDef` (CP-01) al testo di un messaggio
 Telegram e produce i valori per le colonne del contratto CSV XTrader.
 
-Scope di CP-02 (volutamente stretto):
-- NON risolve le value-map (è CP-03);
+Scope (estrazione CP-02 + applicazione value-map CP-03):
+- `extract_value` estrae il valore GREZZO (nessuna traduzione);
+- `apply_parser` applica poi la value-map della regola (CP-03), producendo il
+  valore XTrader; un valore non mappato resta vuoto (→ "Non pronto");
 - NON applica trasformazioni configurabili, es. somma-gol → Over (somma).5 (CP-05);
 - NON scrive il CSV (CP-04);
 - NON tocca la GUI (CP-06).
@@ -31,6 +33,7 @@ Semantica di una regola (`FieldRule`):
 
 from dataclasses import dataclass, field
 
+from . import value_maps
 from .csv_writer import CSV_HEADER
 from .custom_parser import CustomParserDef, FieldRule
 
@@ -88,8 +91,8 @@ class ExtractionResult:
         """Riga completa a 14 colonne: le colonne senza regola restano vuote.
 
         Le colonne sono quelle del contratto (`csv_writer.CSV_HEADER`, fonte
-        unica) per evitare drift. NB: i valori sono quelli grezzi estratti
-        (nessuna value-map/trasformazione, quelle arrivano in CP-03/CP-05).
+        unica) per evitare drift. NB: i valori riflettono l'output di
+        `apply_parser` (value-map CP-03 già applicata; trasformazioni CP-05 no).
         Usare solo a parser `ready`."""
         row = {col: "" for col in CSV_HEADER}
         for target, value in self.values.items():
@@ -98,20 +101,35 @@ class ExtractionResult:
         return row
 
 
-def apply_parser(defn: CustomParserDef, text: str) -> ExtractionResult:
+def apply_parser(defn: CustomParserDef, text: str, value_maps_registry: dict = None) -> ExtractionResult:
     """Applica tutte le regole del parser al messaggio.
 
-    Ritorna i valori estratti per ogni regola e lo stato di "piazzabilità":
-    `ready=False` con l'elenco `missing_required` se un campo obbligatorio è
-    risultato vuoto (→ niente CSV, è il gate "Non pronto").
+    Per ogni regola: estrae il valore grezzo (CP-02) e, se la regola indica una
+    `value_map`, lo traduce nel valore esatto XTrader (CP-03). Una value-map
+    sconosciuta o un valore non mappato → vuoto (→ "Non pronto" se obbligatorio),
+    così non si scrive mai una riga CSV con un valore tradotto a caso.
+
+    `value_maps_registry` (nome → mappa) è opzionale: se `None` usa i soli
+    built-in (es. `bettype`) — registro costruito UNA volta qui, senza alcuna
+    lettura del dizionario (nessun I/O nascosto). Passa
+    `value_maps.registry(include_dizionario=True)` per abilitare anche le mappe
+    derivate dal dizionario.
+
+    Ritorna lo stato di "piazzabilità": `ready=False` con `missing_required` se
+    un campo obbligatorio è vuoto (gate "Non pronto").
 
     `validate_parser_def` (CP-01) vieta già i target duplicati; qui il motore è
     comunque robusto: per ogni target vince l'ultima regola e `missing_required`
     è calcolato sul valore FINALE (dedup, niente doppioni o falsi mancanti)."""
+    if value_maps_registry is None:
+        value_maps_registry = value_maps.registry()  # built-in, costruito una volta
     values = {}
     required_targets = []
     for rule in defn.rules:
-        values[rule.target] = extract_value(text, rule)
+        value = extract_value(text, rule)
+        if rule.value_map:
+            value = value_maps.resolve(value, rule.value_map, value_maps_registry)
+        values[rule.target] = value
         if rule.required and rule.target not in required_targets:
             required_targets.append(rule.target)
     missing = [t for t in required_targets if values.get(t, "") == ""]

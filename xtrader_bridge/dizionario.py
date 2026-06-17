@@ -41,9 +41,16 @@ def load_dizionario(path: str = DIZIONARIO_PATH) -> list:
         return list(csv.DictReader(f))
 
 
-def _norm(s: str) -> str:
-    # minuscolo, trim e collasso degli spazi interni (es. "Over  0.5  HT" -> "over 0.5 ht").
+def normalize(s: str) -> str:
+    """Normalizzazione per il lookup (case/space-insensitive): minuscolo, trim e
+    collasso degli spazi interni (es. "Over  0.5  HT" -> "over 0.5 ht").
+
+    Funzione pubblica: fonte unica della normalizzazione, riusata anche dalle
+    value-map (CP-03) per evitare implementazioni divergenti."""
     return " ".join(str(s).strip().lower().split())
+
+
+_norm = normalize  # alias interno storico
 
 
 def alias_key(market_alias: str, selection_alias: str) -> tuple:
