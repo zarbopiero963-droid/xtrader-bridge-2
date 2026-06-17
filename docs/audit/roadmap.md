@@ -398,9 +398,26 @@ produce una riga **piazzabile** end-to-end ("GG"→"Sì", "BACK"→PUNTA, 1,85�
 **Micro-audit:** nessuna scrittura CSV; solo file parser; runtime invariato.
 **Audit totale:** import/export sicuri + esempio che prova l'intera catena.
 
-## CP-09..CP-10 (pianificate, da affinare con il proprietario)
-- **CP-09** — il Parser Personalizzato diventa il percorso principale; hardcoded
-  come fallback.
+## CP-09 — custom-parser/live-routing ✅ (consegnato)
+**Obiettivo:** il Parser Personalizzato attivo diventa il percorso di parsing
+live; hardcoded come fallback.
+**Tecnico:** `xtrader_bridge/signal_router.py` — `resolve_row(text, cfg, *,
+parsers_dir)` → `RouteResult(row, status, source, detail, missing_required)`.
+Se per la chat è attivo un parser (CP-07, `parser_manager.load_active`) è
+**autoritativo**: produce la riga via `custom_pipeline.build_validated_row`; se
+non piazzabile il segnale è scartato (niente ripiego sull'hardcoded). Se nessun
+custom è attivo → parser hardcoded storico (`parse_message`→`build_csv_row`→
+`validator`). `app._process` ora chiama il router (logica fuori dalla GUI).
+**Test hard:** `tests/unit/test_signal_router.py` — fallback hardcoded;
+scarto messaggio non valido; custom attivo piazzabile; custom "Non pronto" →
+scarto senza fallback; custom inesistente → hardcoded; override per chat.
+**GUI/runtime:** `app._process` rifattorizzato (py_compile + test del router);
+**flusso live da verificare a mano su Windows**.
+**Micro-audit:** custom autoritativo (no doppio parsing); contratto CSV/gate
+invariati; nessun segnale scritto se non piazzabile.
+**Audit totale:** il Parser Personalizzato guida davvero la scrittura CSV.
+
+## CP-10 (pianificata)
 - **CP-10** — `CUSTOM_PARSER_READY`: audit completo, test hard, documentazione.
 
 ---

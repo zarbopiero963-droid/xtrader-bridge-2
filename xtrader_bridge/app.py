@@ -16,10 +16,8 @@ from .config_store import (
     migrate_legacy_config,
     save_config,
 )
-from .csv_writer import build_csv_row, init_csv, write_csv
-from .parser import parse_message
-from . import recognition
-from . import validator
+from .csv_writer import init_csv, write_csv
+from . import signal_router
 from .signal_gate import SignalGate
 
 try:
@@ -267,33 +265,30 @@ class App(ctk.CTk):
 
     # ── PROCESS SIGNAL ────────────────────────
     def _process(self, text: str, cfg: dict):
-        parsed = parse_message(text)
-        row    = build_csv_row(parsed, cfg["provider"])
-
-        # Non scrivere righe non riconoscibili o non piazzabili da XTrader:
-        # meglio scartare un segnale incompleto che generare una riga ambigua.
-        # Il validatore controlla campi-nome (modalità), BetType e prezzo (> 1.0).
-        mode = recognition.normalize_mode(cfg.get("recognition_mode", "NAME_ONLY"))
-        require_price = validator.require_price_enabled(cfg)
-        status, detail = validator.validate(row, mode, require_price=require_price)
-        if status != validator.VALID:
+        # CP-09: instrada al Parser Personalizzato attivo (autoritativo) o, in
+        # assenza, al parser hardcoded. Non scrive righe non piazzabili: meglio
+        # scartare un segnale incompleto che generare una riga ambigua.
+        result = signal_router.resolve_row(text, cfg)
+        if not result.placeable:
+            detail = result.missing_required or result.detail
             self.after(0, lambda: self._log(
-                f"⚠️ Segnale scartato ({status}, modalità {mode}): {detail}"))
+                f"⚠️ Segnale scartato ({result.source}/{result.status}): {detail}"))
             return
 
+        row = result.row
         # Registra la generazione PRIMA di scrivere: invalida eventuali clear in
         # coda di segnali precedenti, così non cancellano questo nuovo segnale.
         gen = self._gate.begin()
         write_csv(row, cfg["csv_path"])
 
-        info = (f"🏆 {parsed['teams']}  |  "
-                f"{parsed['signal_type']}  |  "
-                f"q.{parsed['quota']}  |  "
-                f"{parsed['probability']}%")
+        info = (f"🏆 {row.get('EventName', '')}  |  "
+                f"{row.get('SelectionName', '')}  |  "
+                f"q.{row.get('Price', '')}")
 
         self.after(0, lambda: self._sig_lbl.configure(text=info, text_color="white"))
-        self.after(0, lambda: self._log(f"📱 Segnale ricevuto: {parsed['teams']}"))
-        self.after(0, lambda: self._log(f"   Mercato: {parsed['signal_type']}  Quota: {parsed['quota']}"))
+        self.after(0, lambda: self._log(
+            f"📱 Segnale ({result.source}): {row.get('EventName', '')}  |  "
+            f"{row.get('SelectionName', '')}  q.{row.get('Price', '')}"))
         self.after(0, lambda: self._log("✅ CSV aggiornato → XTrader può piazzare la scommessa"))
 
         # Auto-clear
