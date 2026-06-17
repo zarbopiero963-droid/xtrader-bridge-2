@@ -19,6 +19,7 @@ from .config_store import (
 from .csv_writer import build_csv_row, init_csv, write_csv
 from .parser import parse_message
 from . import recognition
+from . import validator
 from .signal_gate import SignalGate
 
 try:
@@ -64,8 +65,10 @@ class App(ctk.CTk):
             "csv_path":    self._e_csv.get().strip(),
             "clear_delay": int(self._e_delay.get().strip() or 90),
             "provider":    self._e_provider.get().strip() or "TelegramBot",
-            # Preservato finché non c'è un campo GUI dedicato (PR-13).
+            # Preservati finché non c'è un campo GUI dedicato (PR-13): senza questo
+            # un salvataggio (anche all'avvio) cancellerebbe l'opt-out require_price.
             "recognition_mode": self._config.get("recognition_mode", "NAME_ONLY"),
+            "require_price":    self._config.get("require_price", True),
         }
         return save_config(cfg, CONFIG_FILE)
 
@@ -255,13 +258,15 @@ class App(ctk.CTk):
         parsed = parse_message(text)
         row    = build_csv_row(parsed, cfg["provider"])
 
-        # Non scrivere righe non riconoscibili da XTrader nella modalità scelta:
+        # Non scrivere righe non riconoscibili o non piazzabili da XTrader:
         # meglio scartare un segnale incompleto che generare una riga ambigua.
+        # Il validatore controlla campi-nome (modalità), BetType e prezzo (> 1.0).
         mode = recognition.normalize_mode(cfg.get("recognition_mode", "NAME_ONLY"))
-        missing = recognition.missing_fields(row, mode)
-        if missing:
+        require_price = validator.require_price_enabled(cfg)
+        status, detail = validator.validate(row, mode, require_price=require_price)
+        if status != validator.VALID:
             self.after(0, lambda: self._log(
-                f"⚠️ Segnale scartato (modalità {mode}): campi mancanti {missing}"))
+                f"⚠️ Segnale scartato ({status}, modalità {mode}): {detail}"))
             return
 
         # Registra la generazione PRIMA di scrivere: invalida eventuali clear in

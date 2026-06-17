@@ -25,6 +25,8 @@ DEFAULTS = {
     # Modalità di riconoscimento XTrader: ID_ONLY / NAME_ONLY / BOTH.
     # Default NAME_ONLY: oggi il bridge non ricava gli ID dal messaggio Telegram.
     "recognition_mode": "NAME_ONLY",
+    # Se True (default sicuro) un segnale senza quota valida (> 1.0) viene scartato.
+    "require_price":     True,
 }
 
 
