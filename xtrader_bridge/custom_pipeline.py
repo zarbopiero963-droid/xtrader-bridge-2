@@ -16,6 +16,7 @@ La riga viene comunque costruita (a 14 colonne) per diagnostica, ma va scritta
 SOLO se `result.placeable` è True (status VALID).
 """
 
+import re
 from dataclasses import dataclass, field
 
 from . import recognition, validator, value_maps
@@ -37,6 +38,10 @@ def _default_registry() -> dict:
 
 NOT_READY = "NOT_READY"   # gate parser: manca un campo obbligatorio della regola
 INVALID_MISSING_PROVIDER = "INVALID_MISSING_PROVIDER"  # Provider assente (contratto)
+INVALID_HANDICAP = "INVALID_HANDICAP"  # Handicap valorizzato ma non numerico
+
+# Handicap: numero con segno opzionale (es. "0", "-1", "0.5", "+1,5").
+_HANDICAP_RE = re.compile(r"^[+-]?\d+(?:[.,]\d+)?$")
 
 # Colonne quota: il contratto XTrader usa il punto decimale (es. "1.85").
 _PRICE_COLS = ("Price", "MinPrice", "MaxPrice")
@@ -115,6 +120,12 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
     if not str(row.get("Provider", "")).strip():
         # Provider è obbligatorio per il contratto; il runtime lo passa da config.
         return PipelineResult(INVALID_MISSING_PROVIDER, row, list(res.missing_required))
+
+    # Handicap valorizzato dal parser ma non numerico: scartato (il default "0"
+    # e i valori del dizionario sono sempre numerici).
+    hcap = str(row.get("Handicap", "")).strip()
+    if hcap and not _HANDICAP_RE.match(hcap):
+        return PipelineResult(INVALID_HANDICAP, row, list(res.missing_required))
 
     status, detail = validator.validate(row, mode, require_price)
     return PipelineResult(status, row, list(res.missing_required), detail)

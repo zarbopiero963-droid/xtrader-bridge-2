@@ -211,6 +211,66 @@ def test_value_map_dizionario_di_default():
     assert res.row["SelectionName"] == "Sì"
 
 
+def test_prezzo_esponente_rifiutato():
+    defn = cp.CustomParserDef(name="X", rules=[
+        cp.FieldRule(target="Provider", fixed_value="TG"),
+        cp.FieldRule(target="EventName", fixed_value="Inter v Milan", required=True),
+        cp.FieldRule(target="MarketType", fixed_value="BOTH_TEAMS_TO_SCORE", required=True),
+        cp.FieldRule(target="SelectionName", fixed_value="Sì", required=True),
+        cp.FieldRule(target="Price", fixed_value="1e2", required=True),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
+    ])
+    res = pipe.build_validated_row(defn, "x")
+    assert res.status == validator.INVALID_PRICE
+    assert res.placeable is False
+
+
+def test_require_price_false_ma_prezzo_malformato_rifiutato():
+    # require_price=False ammette il prezzo ASSENTE, ma un Price presente e
+    # malformato va comunque scartato.
+    defn = cp.CustomParserDef(name="X", rules=[
+        cp.FieldRule(target="Provider", fixed_value="TG"),
+        cp.FieldRule(target="EventName", fixed_value="Inter v Milan", required=True),
+        cp.FieldRule(target="MarketType", fixed_value="BOTH_TEAMS_TO_SCORE", required=True),
+        cp.FieldRule(target="SelectionName", fixed_value="Sì", required=True),
+        cp.FieldRule(target="Price", fixed_value="abc"),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
+    ])
+    res = pipe.build_validated_row(defn, "x", require_price=False)
+    assert res.status == validator.INVALID_PRICE
+    assert res.placeable is False
+
+
+def test_handicap_malformato_rifiutato():
+    defn = cp.CustomParserDef(name="X", rules=[
+        cp.FieldRule(target="Provider", fixed_value="TG"),
+        cp.FieldRule(target="EventName", fixed_value="Inter v Milan", required=True),
+        cp.FieldRule(target="MarketType", fixed_value="BOTH_TEAMS_TO_SCORE", required=True),
+        cp.FieldRule(target="SelectionName", fixed_value="Sì", required=True),
+        cp.FieldRule(target="Price", fixed_value="2.0", required=True),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
+        cp.FieldRule(target="Handicap", fixed_value="abc"),
+    ])
+    res = pipe.build_validated_row(defn, "x")
+    assert res.status == pipe.INVALID_HANDICAP
+    assert res.placeable is False
+
+
+def test_handicap_negativo_decimale_ok():
+    defn = cp.CustomParserDef(name="X", rules=[
+        cp.FieldRule(target="Provider", fixed_value="TG"),
+        cp.FieldRule(target="EventName", fixed_value="Inter v Milan", required=True),
+        cp.FieldRule(target="MarketType", fixed_value="BOTH_TEAMS_TO_SCORE", required=True),
+        cp.FieldRule(target="SelectionName", fixed_value="Sì", required=True),
+        cp.FieldRule(target="Price", fixed_value="2.0", required=True),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
+        cp.FieldRule(target="Handicap", fixed_value="-0.5"),
+    ])
+    res = pipe.build_validated_row(defn, "x")
+    assert res.status == validator.VALID
+    assert res.row["Handicap"] == "-0.5"
+
+
 def test_is_placeable_scorciatoia():
     assert pipe.is_placeable(_full_parser(), _MSG_OK) is True
     assert pipe.is_placeable(_full_parser(), "vuoto") is False
