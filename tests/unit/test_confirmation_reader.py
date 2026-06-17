@@ -108,6 +108,24 @@ def test_fallback_richiede_tutti_e_tre_i_campi():
     assert res.status == cr.UNMATCHED
 
 
+def test_fallback_selezione_corta_non_combacia_dentro_parola():
+    # SelectionName "No" non deve combaciare dentro "non" (match a parola intera).
+    pending = [{"signal_id": "x", "ref": "",
+                "EventName": "Roma v Lazio", "MarketName": "Both Teams To Score",
+                "SelectionName": "No"}]
+    res = cr.interpret("Roma v Lazio Both Teams To Score non piazzata", pending)
+    assert res.status == cr.UNMATCHED
+
+
+def test_ref_estraneo_non_fa_scattare_il_fallback_nomi():
+    # Notifica con un ref ESTRANEO (XYZ999) ma con i nomi di un nostro segnale
+    # CHE HA un ref (ABC123): non deve associarsi per nomi (solo per ref).
+    text = ("Ref XYZ999: Inter v Milan - Over/Under 2,5 gol - Over 2,5 goal "
+            "piazzata")
+    res = cr.interpret(text, _pending())
+    assert res.status == cr.UNMATCHED
+
+
 def test_ref_ambiguo_non_associa():
     pending = [
         {"signal_id": "a", "ref": "REF"},

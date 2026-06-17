@@ -99,16 +99,23 @@ def match_pending(text: str, pending):
 
     def all_name_fields_present(p) -> bool:
         # Fallback: servono TUTTI E TRE i campi identità, non vuoti e presenti nel
-        # testo. Un sottoinsieme (es. solo EventName, con MarketName vuoto) NON basta
-        # a identificare il segnale: meglio nessun match che il segnale sbagliato.
+        # testo come PAROLE INTERE (una selezione corta come "No"/"Sì" non deve
+        # combaciare dentro "non"). Un sottoinsieme NON basta a identificare il
+        # segnale: meglio nessun match che il segnale sbagliato.
         ev = _norm(p.get("EventName")).strip()
         mk = _norm(p.get("MarketName")).strip()
         sel = _norm(p.get("SelectionName")).strip()
         if not (ev and mk and sel):
             return False
-        return ev in t and mk in t and sel in t
+        return _has_keyword(t, ev) and _has_keyword(t, mk) and _has_keyword(t, sel)
 
-    by_fields = [p for p in pending if all_name_fields_present(p)]
+    # Il fallback per nomi vale SOLO per i segnali SENZA ref: se un segnale ha un
+    # SignalRef, va confermato solo via quel ref. Così una notifica con un ref
+    # ESTRANEO (es. "Ref XYZ999 ...") non associa per nomi un nostro segnale con
+    # ref diverso, anche se i nomi coincidono (es. scommesse ripetute sullo stesso
+    # mercato).
+    by_fields = [p for p in pending
+                 if not _norm(p.get("ref")).strip() and all_name_fields_present(p)]
     return by_fields[0] if len(by_fields) == 1 else None
 
 
