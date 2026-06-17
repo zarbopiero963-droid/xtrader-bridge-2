@@ -31,6 +31,15 @@ def test_keyword_personalizzate():
     assert cr.classify_outcome("BET DONE", confirm_keywords=["bet done"]) == cr.CONFIRMED
 
 
+def test_keyword_match_parola_intera_no_falsi_positivi():
+    # "ok" non deve scattare dentro parole più lunghe (token/stock/Oklahoma):
+    # eviterebbe un falso CONFIRMED su un messaggio neutro.
+    assert cr.classify_outcome("nuovo token generato") is None
+    assert cr.classify_outcome("stock aggiornato") is None
+    # ma "ok" come parola intera è una conferma
+    assert cr.classify_outcome("ok, fatto") == cr.CONFIRMED
+
+
 # ── match per SignalRef ──────────────────────────────────────────────────────
 
 def test_conferma_con_signalref():

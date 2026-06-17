@@ -20,6 +20,7 @@ solo uno stato. L'aggancio al runtime (leggere la chat notifiche, confermare il
 segnale nella coda) è un passo successivo. Modulo puro, interamente testabile.
 """
 
+import re
 from dataclasses import dataclass
 
 CONFIRMED = "CONFIRMED"
@@ -42,6 +43,16 @@ def _norm(s) -> str:
     return str(s or "").lower()
 
 
+def _has_keyword(text: str, keyword: str) -> bool:
+    """True se `keyword` compare come **parola intera** in `text` (confine `\\b`).
+    Evita i falsi positivi del match a sottostringa: es. "ok" NON deve scattare
+    dentro "token"/"stock", causando un falso CONFIRMED."""
+    kw = _norm(keyword).strip()
+    if not kw:
+        return False
+    return re.search(r"\b" + re.escape(kw) + r"\b", text) is not None
+
+
 @dataclass
 class ConfirmationResult:
     """Esito dell'interpretazione di una notifica XTrader."""
@@ -58,9 +69,9 @@ def classify_outcome(text: str, confirm_keywords=None, reject_keywords=None):
     t = _norm(text)
     rej = reject_keywords or DEFAULT_REJECT_KEYWORDS
     con = confirm_keywords or DEFAULT_CONFIRM_KEYWORDS
-    if any(_norm(k) in t for k in rej):
+    if any(_has_keyword(t, k) for k in rej):
         return REJECTED
-    if any(_norm(k) in t for k in con):
+    if any(_has_keyword(t, k) for k in con):
         return CONFIRMED
     return None
 
@@ -74,7 +85,7 @@ def match_pending(text: str, pending):
     un candidato combacia → None (ambiguo: non si associa a caso)."""
     t = _norm(text)
     by_ref = [p for p in pending
-              if str(p.get("ref", "") or "").strip() and _norm(p["ref"]) in t]
+              if _norm(p.get("ref")).strip() and _norm(p.get("ref")) in t]
     if len(by_ref) == 1:
         return by_ref[0]
     if len(by_ref) > 1:
