@@ -153,3 +153,31 @@ class SignalQueue:
 
     def is_empty(self) -> bool:
         return not self._active
+
+    def next_expiry(self, default=None):
+        """L'istante di scadenza (`expires_at`) più vicino fra i segnali attivi, o
+        `default` se la coda è vuota. Serve a programmare il prossimo controllo di
+        scadenza al momento giusto invece che con un ritardo fisso (così un segnale
+        più vecchio non resta oltre il suo timeout quando ne arrivano di nuovi)."""
+        return min((a.expires_at() for a in self._active), default=default)
+
+    def state(self) -> list:
+        """Stato serializzabile (snapshot per rollback / persistenza): lista di dict
+        con `signal_id`, `row`, `added_at`, `timeout`."""
+        return [{"signal_id": a.signal_id, "row": dict(a.row),
+                 "added_at": a.added_at, "timeout": a.timeout} for a in self._active]
+
+    def restore_state(self, data) -> None:
+        """Ripristina gli attivi da `state()` (tollerante a voci malformate). Usato
+        per annullare un add quando la scrittura del CSV fallisce, riportando la coda
+        allo stato precedente (allineato a ciò che è ancora su disco)."""
+        restored = []
+        for item in data or []:
+            try:
+                restored.append(ActiveSignal(
+                    str(item["signal_id"]), dict(item["row"]),
+                    self._resolve_now(item["added_at"]),
+                    self._validate_timeout(item["timeout"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+        self._active = restored

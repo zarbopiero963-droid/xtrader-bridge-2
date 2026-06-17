@@ -124,3 +124,45 @@ def test_active_rows_sono_copie():
     q.add(_row("A"), now=1000)
     q.active_rows()[0]["EventName"] = "HACK"
     assert q.active_rows()[0]["EventName"] == "A"   # interno non mutato
+
+
+# ── next_expiry / state / restore_state (PR-22 wiring) ───────────────────────
+
+def test_next_expiry_e_la_scadenza_piu_vicina():
+    q = sq.SignalQueue(mode=sq.APPEND_ACTIVE, default_timeout=90)
+    assert q.next_expiry() is None                  # vuota → default None
+    q.add(_row("A"), now=1000)                       # scade a 1090
+    q.add(_row("B"), now=1080)                       # scade a 1170
+    assert q.next_expiry() == 1090                   # la più vicina, non l'ultima
+
+
+def test_state_restore_roundtrip_e_scadenza_preservata():
+    q = sq.SignalQueue(mode=sq.APPEND_ACTIVE, default_timeout=90)
+    q.add(_row("A"), now=1000)
+    q.add(_row("B"), now=1010)
+    snap = q.state()
+    q2 = sq.SignalQueue(mode=sq.APPEND_ACTIVE, default_timeout=90)
+    q2.restore_state(snap)
+    assert [r["EventName"] for r in q2.active_rows()] == ["A", "B"]
+    assert q2.next_expiry() == 1090
+    assert q2.expire(now=1095) and [r["EventName"] for r in q2.active_rows()] == ["B"]
+
+
+def test_restore_state_rollback_overwrite_last():
+    # Caso reale (Codex #4): in OVERWRITE_LAST un add sostituisce il precedente; se la
+    # scrittura fallisce, ripristinare lo snapshot riporta il segnale precedente.
+    q = sq.SignalQueue(mode=sq.OVERWRITE_LAST, default_timeout=90)
+    q.add(_row("VECCHIO"), now=1000)
+    snap = q.state()
+    q.add(_row("NUOVO"), now=1005)
+    assert [r["EventName"] for r in q.active_rows()] == ["NUOVO"]
+    q.restore_state(snap)
+    assert [r["EventName"] for r in q.active_rows()] == ["VECCHIO"]
+    assert q.next_expiry() == 1090                   # scadenza del precedente preservata
+
+
+def test_restore_state_malformato_ignorato():
+    q = sq.SignalQueue(mode=sq.APPEND_ACTIVE)
+    for bad in (None, [{}], [{"signal_id": "x"}], [{"row": {}, "added_at": "n"}]):
+        q.restore_state(bad)                         # non deve sollevare
+    assert q.is_empty()

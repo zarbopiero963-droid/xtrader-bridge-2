@@ -48,6 +48,10 @@ DEFAULTS = {
     # Tetto di segnali nuovi accettati in un giorno (UTC), complementare al
     # limite/minuto di signal_dedupe (PR-15).
     "max_per_day":                  200,
+    # Coda dei segnali attivi (PR-22): OVERWRITE_LAST (default sicuro: un solo segnale
+    # attivo alla volta) / APPEND_ACTIVE / QUEUE_UNTIL_CONFIRMED. Le ultime due
+    # producono PIÙ righe attive nel CSV (più scommesse simultanee).
+    "queue_mode":                   "OVERWRITE_LAST",
 }
 
 

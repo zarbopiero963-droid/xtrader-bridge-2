@@ -169,6 +169,20 @@ def init_csv(path: str):
     _atomic_write(path, lambda writer: None)
 
 
+def write_rows(rows, path: str):
+    """Scrive PIÙ segnali nel CSV (header + una riga per ciascuno), sovrascrivendo
+    in modo atomico. `rows` vuota → solo header (equivale a `init_csv`). Usato dalla
+    coda dei segnali attivi (PR-22): in OVERWRITE_LAST è una sola riga, in
+    APPEND_ACTIVE/QUEUE_UNTIL_CONFIRMED sono i segnali attivi correnti."""
+    rows = list(rows or [])
+
+    def _emit(writer):
+        for r in rows:
+            writer.writerow(r)
+
+    _atomic_write(path, _emit)
+
+
 def write_csv(row: dict, path: str):
-    """Scrive un segnale nel CSV, sovrascrivendo (scrittura atomica)."""
-    _atomic_write(path, lambda writer: writer.writerow(row))
+    """Scrive un singolo segnale nel CSV, sovrascrivendo (scrittura atomica)."""
+    write_rows([row], path)

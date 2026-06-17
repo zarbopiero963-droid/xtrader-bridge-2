@@ -25,7 +25,8 @@
 | Scrittura CSV atomica + svuotamento | ✅ Implementata | tmp+rename, header sempre presente |
 | Anti-duplicato + limite/minuto + limite/giorno | ✅ **Agganciati al runtime** (PR-21) | `live_guard` in `app._process` (dedup+rate `signal_dedupe`, giorno `safety_guard`) |
 | DRY_RUN (simulazione) | ✅ **Agganciato al runtime** (PR-21) | in DRY_RUN il CSV operativo NON viene scritto |
-| Coda multi-segnale / conferma XTrader | ⚠️ Logica pura testata, **non agganciata** | `signal_queue`/`confirmation_reader` non usati da `app` — vedi §4 |
+| Coda multi-segnale | ✅ **Agganciata al runtime** (PR-22) | `signal_queue` in `app._process` + scrittura CSV multi-riga; default OVERWRITE_LAST |
+| Conferma XTrader | ⚠️ Logica pura testata, **non agganciata** | `confirmation_reader` non ancora usato da `app` — vedi §4 |
 | Build EXE Windows (versionata) | ⚠️ Workflow pronto, build non eseguita qui | verifica manuale |
 | Supply-chain (action SHA-pinned) | ✅ Implementato | test di enforcement |
 | Test automatici | ✅ 536 passed, 2 skipped | vedi §3 |
@@ -58,9 +59,10 @@ manuali su Windows/XTrader e l'attivazione esplicita della modalità reale.
 | 15 | Build EXE | PR-18 | ⚠️ workflow pronto, build manuale |
 
 > **Nota:** "Chiuso da" indica la PR che ha implementato la logica. Anti-duplicato (#5)
-> e DRY_RUN/limiti sono ora **agganciati al runtime** (PR-21). Restano logiche pure non
-> ancora collegate: coda (#2 residuo), conferma XTrader, multi-chat; il filtro chat (#8)
-> è effettivo solo con `chat_id` configurato — vedi §4.
+> e DRY_RUN/limiti sono ora **agganciati al runtime** (PR-21), così come la coda
+> multi-segnale (#2 residuo, PR-22). Restano logiche pure non ancora collegate:
+> conferma XTrader, multi-chat; il filtro chat (#8) è effettivo solo con `chat_id`
+> configurato — vedi §4.
 
 ---
 
@@ -108,11 +110,17 @@ manuali su Windows/XTrader e l'attivazione esplicita della modalità reale.
   `DailyLimiter` (PR-19) usa `max_per_day` dalla config. La protezione
   doppia-scommessa è **attiva** a runtime.
 
-### Coda / conferma (logica pura, NON ancora agganciata)
-- `signal_queue` (coda multi-segnale + timeout) e `confirmation_reader` (lettura
-  conferme XTrader): **moduli puri testati ma non usati da `app`** → una notifica
+### Coda multi-segnale — AGGANCIATA (PR-22)
+- `app._process` usa `signal_queue.SignalQueue` (modalità da `queue_mode`, default
+  **OVERWRITE_LAST** = un solo segnale attivo) e scrive **tutte** le righe attive con
+  `csv_writer.write_rows`. Timeout per-segnale = `clear_delay`; un tick di scadenza
+  rimuove i segnali scaduti e riscrive le righe rimaste (o svuota il CSV). Su scrittura
+  fallita il segnale viene tolto dalla coda (riprovabile).
+
+### Conferma XTrader (logica pura, NON ancora agganciata)
+- `confirmation_reader`: **modulo puro testato ma non usato da `app`** → una notifica
   XTrader **non** marca ancora alcun segnale CONFIRMED/REJECTED/TIMEOUT
-  (`TODO(wiring)`, §4).
+  (`TODO(wiring)`, §4). È il prossimo slice (PR-23).
 
 ### Build / supply-chain
 - `build.yaml`: test → compile → PyInstaller `--windowed` → artifact **versionato**
@@ -141,19 +149,19 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
 > **Cosa è agganciato al runtime oggi** (`app` → `signal_router`/`live_guard`): filtro
 > chat (se `chat_id` configurato), parsing (hardcoded + Parser Personalizzato per chat),
 > validazione contratto, **anti-duplicato + limite/minuto + limite/giorno + DRY_RUN**
-> (PR-21), scrittura/svuotamento CSV atomici, log con redazione. Quanto resta sotto è
+> (PR-21), **coda multi-segnale + scrittura CSV multi-riga** (PR-22),
+> scrittura/svuotamento CSV atomici, log con redazione. Quanto resta sotto è
 > **logica pura testata ma non ancora collegata** al bot live.
 >
-> ✅ **Agganciati in PR-21** (non più TODO): DRY_RUN, anti-duplicato, limite/minuto,
-> limite/giorno. La protezione doppia-scommessa è ora attiva a runtime.
+> ✅ **Agganciati**: DRY_RUN, anti-duplicato, limite/minuto, limite/giorno (PR-21);
+> coda multi-segnale + timeout per-segnale (PR-22). La protezione doppia-scommessa
+> è attiva a runtime.
 
-1. **`TODO(wiring)` — Coda multi-segnale (PR-16)**: `signal_queue` (modalità + timeout per
-   segnale) non è collegato al flusso live.
-2. **`TODO(wiring)` — Conferma XTrader (PR-17)**: `confirmation_reader` non è usato da
+1. **`TODO(wiring)` — Conferma XTrader (PR-17)**: `confirmation_reader` non è usato da
    `app` → una notifica XTrader **non** marca alcun segnale CONFIRMED/REJECTED/TIMEOUT
-   (richiede un listener sulla chat notifiche + coda dei pending).
-3. **`TODO(wiring)` — Multi-chat (PR-12)**: `source_manager`/`source_chats` non letti a
-   runtime → chat disattivate e provider/mode per-chat sono **ignorati**.
+   (richiede un listener sulla chat notifiche + coda dei pending). Prossimo slice (PR-23).
+2. **`TODO(wiring)` — Multi-chat (PR-12)**: `source_manager`/`source_chats` non letti a
+   runtime → chat disattivate e provider/mode per-chat sono **ignorati** (PR-24).
 4. **`TODO(filter)` — Filtro chat aperto di default**: con `chat_id` e `parser_by_chat`
    vuoti, `is_chat_allowed` ammette **tutte** le chat. Mitigazione attuale: la release
    checklist **richiede** un `chat_id` esplicito prima dell'uso (in alternativa, irrigidire
@@ -172,16 +180,18 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
 - Nessun segnale invalido raggiunge il CSV (validator + gate nel percorso `resolve_row`).
 - **Anti-duplicato + limite/minuto + limite/giorno + DRY_RUN** (PR-21, `live_guard`):
   un duplicato/raffica/over-quota o la simulazione **sopprimono la scrittura**.
-- Scrittura/svuotamento CSV atomici; header sempre presente.
+- **Coda dei segnali attivi** (PR-22, `signal_queue`): default OVERWRITE_LAST (un solo
+  segnale attivo); timeout per-segnale rimuove gli scaduti e riscrive le righe rimaste.
+- Scrittura/svuotamento CSV atomici (incl. multi-riga `write_rows`); header sempre presente.
 - Filtro chat effettivo **quando `chat_id` è configurato** (con config vuota ammette
   tutte — vedi §4 punto 4; la checklist richiede un `chat_id`).
 - Nessun token/segreto nei log (redazione) né nel repo (`forbidden-files` + test).
 - Contratto CSV invariato dalle PR successive a PR-01 (barriera `contract`).
 - Merge sempre **manuale** del proprietario; nessun auto-merge.
 
-**Implementate come logica pura ma NON ancora attive a runtime** (§4): coda
-multi-segnale, conferma XTrader, multi-chat provider/mode. **Non vanno considerate
-garanzie operative** finché non sono agganciate.
+**Implementate come logica pura ma NON ancora attive a runtime** (§4): conferma
+XTrader, multi-chat provider/mode. **Non vanno considerate garanzie operative**
+finché non sono agganciate.
 
 ---
 

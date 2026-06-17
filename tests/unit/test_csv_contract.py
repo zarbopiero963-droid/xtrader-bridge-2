@@ -102,3 +102,39 @@ def test_file_scritto_ha_bom_utf8_e_quote_all(tmp_path):
         assert f'"{col}"' in header_line
     # Controprova MINIMAL: con QUOTE_MINIMAL i nomi colonna NON sarebbero quotati.
     assert "Provider" not in header_line.replace('"Provider"', "")
+
+
+def _read_data_lines(path):
+    with open(path, encoding="utf-8-sig") as f:
+        return [ln for ln in f.read().splitlines() if ln.strip()]
+
+
+def test_write_rows_scrive_piu_righe_attive(tmp_path):
+    # PR-22: la coda multi-segnale scrive header + una riga per ogni segnale attivo.
+    path = str(tmp_path / "segnali.csv")
+    rows = [_row(teams="Inter v Milan"), _row(teams="Roma v Lazio"),
+            _row(teams="Napoli v Juve")]
+    csv_writer.write_rows(rows, path)
+    lines = _read_data_lines(path)
+    assert len(lines) == 1 + 3                      # header + 3 segnali
+    assert lines[0].count('"Provider"') == 1        # header in testa
+    assert "Inter v Milan" in lines[1]
+    assert "Napoli v Juve" in lines[3]
+
+
+def test_write_rows_vuoto_lascia_solo_header(tmp_path):
+    # rows vuota → solo header (equivale a svuotamento del CSV).
+    path = str(tmp_path / "segnali.csv")
+    csv_writer.write_rows([_row()], path)           # prima una riga
+    csv_writer.write_rows([], path)                 # poi svuota
+    lines = _read_data_lines(path)
+    assert len(lines) == 1                          # solo header
+    for col in csv_writer.CSV_HEADER:
+        assert f'"{col}"' in lines[0]
+
+
+def test_write_csv_delega_a_write_rows(tmp_path):
+    # write_csv resta retro-compatibile: una sola riga.
+    path = str(tmp_path / "segnali.csv")
+    csv_writer.write_csv(_row(), path)
+    assert len(_read_data_lines(path)) == 2         # header + 1
