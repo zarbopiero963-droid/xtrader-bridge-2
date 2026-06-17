@@ -59,6 +59,17 @@ def test_import_parser_invalido_solleva_e_non_salva(tmp_path):
     assert cp.list_parser_files(str(parsers_dir)) == []
 
 
+def test_import_non_sovrascrive_senza_overwrite(tmp_path):
+    parsers_dir = str(tmp_path / "parsers")
+    src = tmp_path / "src.json"
+    src.write_text(_valid_defn("Dup").to_json(), encoding="utf-8")
+    pio.import_parser(str(src), parsers_dir)              # prima importazione ok
+    with pytest.raises(ValueError):
+        pio.import_parser(str(src), parsers_dir)          # seconda → bloccata
+    # con overwrite esplicito si può sostituire
+    assert pio.import_parser(str(src), parsers_dir, overwrite=True).name == "Dup"
+
+
 def test_export_import_round_trip(tmp_path):
     dest = str(tmp_path / "shared.json")
     pio.export_parser(_valid_defn("Giro"), dest)

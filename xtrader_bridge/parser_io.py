@@ -48,14 +48,24 @@ def export_parser(defn: CustomParserDef, dest_path: str) -> str:
     return dest_path
 
 
-def import_parser(src_path: str, dir_path: str = None) -> CustomParserDef:
+def import_parser(src_path: str, dir_path: str = None, overwrite: bool = False) -> CustomParserDef:
     """Importa un parser da `src_path`: legge, valida e lo salva nella cartella
     dei parser (con collisione/atomicità gestite da `save_parser`). Ritorna la
-    definizione importata. Solleva ValueError se il file è corrotto o invalido."""
+    definizione importata. Solleva ValueError se il file è corrotto o invalido.
+
+    Se esiste già un parser con lo stesso nome, NON lo sovrascrive a meno che
+    `overwrite=True`: importare un parser condiviso chiamato come uno locale/attivo
+    cambierebbe di nascosto le regole che il live caricherà."""
     defn = custom_parser.load_parser(src_path)   # OSError/ValueError su file rotto
     errors = custom_parser.validate_parser_def(defn)
     if errors:
         raise ValueError("Parser non valido, non importato:\n- " + "\n- ".join(errors))
+    target = custom_parser.parser_path(defn.name, dir_path)
+    if not overwrite and os.path.exists(target):
+        raise ValueError(
+            f"Esiste già un parser di nome {defn.name!r}: importazione annullata "
+            "(usa overwrite=True per sostituirlo)."
+        )
     custom_parser.save_parser(defn, dir_path)
     return defn
 
