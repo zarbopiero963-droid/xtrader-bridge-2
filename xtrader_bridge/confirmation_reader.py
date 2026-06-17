@@ -48,14 +48,25 @@ def _norm(s) -> str:
     return str(s or "").lower()
 
 
+_NEGATION_WORDS = ("non", "not", "nessun", "nessuna", "mai")
+
+
 def _has_keyword(text: str, keyword: str) -> bool:
-    """True se `keyword` compare come **parola intera** in `text` (confine `\\b`).
-    Evita i falsi positivi del match a sottostringa: es. "ok" NON deve scattare
-    dentro "token"/"stock", causando un falso CONFIRMED."""
+    """True se `keyword` compare delimitata in `text`. Su un bordo **alfanumerico**
+    si richiede un confine di parola (es. "ok" non scatta dentro "token"); su un
+    bordo **non alfanumerico** (es. una keyword-simbolo come "✅") il confine `\\b`
+    non esiste, quindi lì si fa match diretto — così le keyword simbolo funzionano."""
     kw = _norm(keyword).strip()
     if not kw:
         return False
-    return re.search(r"\b" + re.escape(kw) + r"\b", text) is not None
+    left = r"(?<!\w)" if (kw[0].isalnum() or kw[0] == "_") else ""
+    right = r"(?!\w)" if (kw[-1].isalnum() or kw[-1] == "_") else ""
+    return re.search(left + re.escape(kw) + right, text) is not None
+
+
+def _has_negation(text: str) -> bool:
+    """True se nel testo compare una parola di negazione (non/not/nessun/mai)."""
+    return any(_has_keyword(text, w) for w in _NEGATION_WORDS)
 
 
 # Ref ETICHETTATO nel testo: "Ref ABC123", "Rif: 123", "ID-9", "#ABC". Serve a
@@ -78,7 +89,9 @@ def _has_ref_token(text: str, ref: str) -> bool:
     r = _norm(ref).strip()
     if not r:
         return False
-    return re.search(r"(?<![\w-])" + re.escape(r) + r"(?![\w-])", text) is not None
+    # Continuazione del token: oltre a word/`-`, anche `/` e `.` (suffissi comuni
+    # nei ref), così "ABC123" non combacia dentro "ABC123-4"/"ABC123/4"/"ABC123.4".
+    return re.search(r"(?<![\w/.-])" + re.escape(r) + r"(?![\w/.-])", text) is not None
 
 
 @dataclass
@@ -100,7 +113,11 @@ def classify_outcome(text: str, confirm_keywords=None, reject_keywords=None):
     if any(_has_keyword(t, k) for k in rej):
         return REJECTED
     if any(_has_keyword(t, k) for k in con):
-        return CONFIRMED
+        # Guardia negazione: una keyword di conferma con una negazione nel testo
+        # (es. "non è stata piazzata", "not successfully placed") NON è una
+        # conferma. Fail-safe: nel dubbio si rifiuta, mai un falso CONFIRMED su una
+        # scommessa non piazzata.
+        return REJECTED if _has_negation(t) else CONFIRMED
     return None
 
 
@@ -178,17 +195,29 @@ def interpret(text: str, pending, *, confirm_keywords=None,
     return ConfirmationResult(outcome, sid)
 
 
+def _require_finite(value, name: str) -> float:
+    """`value` come float finito, altrimenti ValueError. Un `NaN`/`inf` (accettato
+    da `json.load` su stato persistito) romperebbe i confronti temporali."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} non valido: {value!r}")
+    if not math.isfinite(f):
+        raise ValueError(f"{name} deve essere un numero finito (ricevuto {value!r})")
+    return f
+
+
 def timed_out(added_at: float, now: float, timeout: float) -> bool:
     """True se è trascorso almeno `timeout` dalla creazione del segnale senza
     conferma: il chiamante può marcarlo TIMEOUT.
 
-    `timeout` deve essere finito e > 0: un valore `NaN` (accettato da `json.load`)
-    renderebbe il confronto sempre falso → il segnale non scadrebbe MAI; uno `<= 0`
-    scadrebbe sempre. Fail-fast con ValueError (come la coda dei segnali)."""
-    try:
-        t = float(timeout)
-    except (TypeError, ValueError):
-        raise ValueError(f"timeout non valido: {timeout!r}")
-    if not math.isfinite(t) or t <= 0:
-        raise ValueError(f"timeout deve essere un numero finito > 0 (ricevuto {timeout!r})")
-    return (now - added_at) >= t
+    Tutti i valori devono essere finiti e `timeout > 0`: un `NaN` (anche in
+    `added_at`/`now`, da stato persistito via `json.load`) renderebbe il confronto
+    sempre falso → segnale mai in TIMEOUT; `now=inf` scadrebbe sempre; `timeout<=0`
+    scadrebbe subito. Fail-fast con ValueError (come la coda dei segnali)."""
+    a = _require_finite(added_at, "added_at")
+    n = _require_finite(now, "now")
+    t = _require_finite(timeout, "timeout")
+    if t <= 0:
+        raise ValueError(f"timeout deve essere > 0 (ricevuto {timeout!r})")
+    return (n - a) >= t

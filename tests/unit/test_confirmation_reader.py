@@ -31,6 +31,35 @@ def test_keyword_personalizzate():
     assert cr.classify_outcome("BET DONE", confirm_keywords=["bet done"]) == cr.CONFIRMED
 
 
+def test_negazione_separata_non_e_conferma():
+    # Negazione non adiacente alla keyword positiva → NON è conferma (fail-safe).
+    assert cr.classify_outcome("scommessa non è stata piazzata") == cr.REJECTED
+    assert cr.classify_outcome("bet not successfully placed") == cr.REJECTED
+    # senza negazione resta conferma
+    assert cr.classify_outcome("scommessa piazzata con successo") == cr.CONFIRMED
+
+
+def test_keyword_simbolo():
+    # Keyword-simbolo (✅/❌) devono funzionare nonostante \b non si applichi.
+    assert cr.classify_outcome("esito: ✅", confirm_keywords=["✅"]) == cr.CONFIRMED
+    assert cr.classify_outcome("esito: ❌", reject_keywords=["❌"]) == cr.REJECTED
+
+
+def test_ref_con_slash_o_punto_non_combacia():
+    pending = [{"signal_id": "x", "ref": "ABC123"}]
+    assert cr.match_pending("Ref ABC123/4 piazzata", pending) is None
+    assert cr.match_pending("Ref ABC123.4 piazzata", pending) is None
+    assert cr.match_pending("Ref ABC123 piazzata", pending) is not None
+
+
+def test_timed_out_timestamp_non_finiti_rifiutati():
+    import pytest
+    with pytest.raises(ValueError):
+        cr.timed_out(added_at=float("nan"), now=2000, timeout=120)
+    with pytest.raises(ValueError):
+        cr.timed_out(added_at=1000, now=float("inf"), timeout=120)
+
+
 def test_keyword_match_parola_intera_no_falsi_positivi():
     # "ok" non deve scattare dentro parole più lunghe (token/stock/Oklahoma):
     # eviterebbe un falso CONFIRMED su un messaggio neutro.
