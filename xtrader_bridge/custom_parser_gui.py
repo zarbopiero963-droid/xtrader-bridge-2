@@ -12,6 +12,7 @@ coperta da `tests/unit/test_parser_builder.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
+from . import recognition
 from .parser_builder import ParserBuilder
 
 
@@ -43,7 +44,11 @@ class CustomParserWindow(ctk.CTkToplevel):
         self._name_var = ctk.StringVar(value=self.builder.name)
         ctk.CTkEntry(top, textvariable=self._name_var, width=240).pack(side="left", padx=6)
         ctk.CTkLabel(top, text="Modalità:").pack(side="left", padx=6)
-        self._mode_var = ctk.StringVar(value=self._modes[0] if self._modes else "NAME_ONLY")
+        # Default = modalità di default del riconoscimento (NAME_ONLY), non il
+        # primo elemento di VALID_MODES (che è ID_ONLY).
+        default_mode = recognition.DEFAULT_MODE if recognition.DEFAULT_MODE in self._modes \
+            else (self._modes[0] if self._modes else recognition.DEFAULT_MODE)
+        self._mode_var = ctk.StringVar(value=default_mode)
         ctk.CTkOptionMenu(top, variable=self._mode_var, values=self._modes, width=140).pack(side="left", padx=6)
 
         # intestazione colonne
@@ -145,7 +150,7 @@ class CustomParserWindow(ctk.CTkToplevel):
         message = self._msg_box.get("1.0", "end").rstrip("\n")
         res = self.builder.test_message(message, provider=self._provider, mode=self._mode_var.get())
         if res.placeable:
-            riga = ", ".join(f"{k}={v}" for k, v in res.row.items() if v)
+            riga = ", ".join(f"{k}={v}" for k, v in res.row.items() if v != "")
             self._result.configure(text=f"✅ Pronto · {riga}")
         else:
             extra = f" · mancanti: {', '.join(res.missing_required)}" if res.missing_required else ""
