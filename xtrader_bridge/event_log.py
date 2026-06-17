@@ -15,6 +15,7 @@ redazione di eventuali segreti resta responsabilità del chiamante (cfr.
 """
 
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -52,9 +53,16 @@ def classify(message: str) -> str:
 
 
 def format_entry(message: str, level=DEFAULT_LEVEL, when: datetime = None) -> str:
-    """Riga di log formattata: ``[HH:MM:SS] [LEVEL] messaggio``."""
+    """Riga di log formattata: ``[HH:MM:SS] [LEVEL] messaggio``.
+
+    Il messaggio è ridotto a **una sola riga fisica**: CR/LF vengono sostituiti da
+    uno spazio. Senza questo, un messaggio multiriga (es. un EventName estratto su
+    più righe da un parser custom) spezzerebbe la entry e `read_entries` vedrebbe
+    le continuazioni come entry separate, o un messaggio potrebbe forgiare un
+    header di livello falso."""
     when = when or datetime.now()
-    return f"[{when:%H:%M:%S}] [{normalize_level(level)}] {message}"
+    safe = str(message).replace("\r", " ").replace("\n", " ")
+    return f"[{when:%H:%M:%S}] [{normalize_level(level)}] {safe}"
 
 
 def log_dir(base: str = None) -> str:
@@ -94,10 +102,23 @@ def read_entries(base: str = None, when: datetime = None) -> list:
         return []
 
 
+# Header di una entry: ``[HH:MM:SS] [LEVEL] ...``. Si estrae il livello SOLO da
+# questo campo strutturale, non cercandolo in tutta la riga: un ``[ERROR]`` nel
+# testo del messaggio non deve far classificare la entry come ERROR.
+_ENTRY_RE = re.compile(r"^\[\d{2}:\d{2}:\d{2}\] \[([A-Z]+)\] ")
+
+
+def entry_level(line: str):
+    """Livello di una riga formattata (dal campo header), o None se non combacia."""
+    m = _ENTRY_RE.match(str(line or ""))
+    return m.group(1) if m else None
+
+
 def filter_by_level(lines, level) -> list:
-    """Filtra righe formattate (`format_entry`) per livello."""
-    tag = f" [{normalize_level(level)}] "
-    return [line for line in lines if tag in line]
+    """Filtra righe formattate (`format_entry`) per livello, leggendo SOLO il
+    campo livello dell'header (non il testo del messaggio)."""
+    lvl = normalize_level(level)
+    return [line for line in lines if entry_level(line) == lvl]
 
 
 @dataclass

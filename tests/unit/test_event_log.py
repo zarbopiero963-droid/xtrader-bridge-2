@@ -87,6 +87,35 @@ def test_filter_non_confonde_messaggio_con_livello():
     assert el.filter_by_level(lines, "ERROR") == []
 
 
+def test_filter_legge_solo_campo_header_non_il_testo():
+    # Un tag di livello LETTERALE nel testo non deve far classificare la entry:
+    # conta solo il campo header (secondo gruppo tra parentesi dopo il timestamp).
+    lines = ["[09:05:03] [INFO] dettaglio: [ERROR] dentro al messaggio"]
+    assert el.filter_by_level(lines, "ERROR") == []
+    assert el.filter_by_level(lines, "INFO") == lines
+
+
+def test_entry_level():
+    assert el.entry_level("[09:05:03] [SIGNAL] x") == "SIGNAL"
+    assert el.entry_level("riga non formattata") is None
+
+
+def test_format_entry_neutralizza_newline():
+    # Un messaggio multiriga deve restare UNA riga fisica (niente entry spezzate
+    # né header forgiati).
+    line = el.format_entry("Inter v Milan\n[00:00:00] [ERROR] forgiato", "INFO", WHEN)
+    assert "\n" not in line
+    assert line == "[09:05:03] [INFO] Inter v Milan [00:00:00] [ERROR] forgiato"
+
+
+def test_append_messaggio_multiriga_resta_una_entry(tmp_path):
+    base = str(tmp_path)
+    el.append_entry("riga1\nriga2", "INFO", base=base, when=WHEN)
+    righe = el.read_entries(base=base, when=WHEN)
+    assert len(righe) == 1
+    assert righe[0] == "[09:05:03] [INFO] riga1 riga2"
+
+
 # ── contatori ────────────────────────────────────────────────────────────────
 
 def test_counters():
