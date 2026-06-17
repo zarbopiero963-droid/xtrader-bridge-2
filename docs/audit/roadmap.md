@@ -36,6 +36,61 @@ tutti i check verdi.
 
 ---
 
+## CI / Check per categoria (GitHub Actions)
+
+I check si attivano su **ogni pull request** (non solo su `main`), così una PR che
+rompe contratto/logica si vede **prima** del merge. Workflow per **categoria di
+rischio** (non uno per singolo file di test):
+
+| Workflow | Trigger | Cosa fa |
+|---|---|---|
+| `pr-checks.yml` | PR · push main · manuale | job separati: `compile`, `contract`, `unit`, `safety`, `integration`, `smoke` |
+| `merge-simulation.yml` | PR · manuale | fonde `main` nel branch PR (no merge reale) → `compileall` + `pytest`; rileva conflitti |
+| `merge-simulation-hard.yml` | manuale · schedulata (notte) | Windows: merge + suite completa + `safety`/`integration` + build EXE + controllo file vietati |
+| `forbidden-files.yml` | PR · push main · manuale | blocca `.env`/`config.json`/`*.exe`/`*.zip`/`*.log` e CSV (eccetto `data/dizionario_xtrader.csv`) |
+| `build.yaml` | push main · tag `v*` · manuale | build EXE Windows + artifact; release solo su tag |
+
+Il check `contract` (`tests/unit/test_csv_contract.py`) è la barriera che diventa
+rossa se cambiano: header/ordine/numero colonne, encoding `utf-8-sig`, `QUOTE_ALL`,
+`BetType` (PUNTA/BANCA), `Points` vuoto, `Handicap` 0, o se rientrano `Stake`/`Timestamp`.
+
+> **Branch protection (consigliata, da impostare lato GitHub dal proprietario):**
+> rendere *required* almeno `compile`, `contract`, `unit`, `safety`, `integration`,
+> `merge-simulation`, `forbidden-files`, `commit-gate`. `merge-simulation-hard`
+> resta manuale/notturna.
+
+### Commit gate (ad ogni commit/push) e profili
+
+Le invarianti principali devono girare **ad ogni commit**, non solo in PR. Il
+workflow `commit-gate.yml` (su **ogni push**, qualsiasi branch) esegue:
+
+```bash
+python -m py_compile main.py
+python -m pytest -q -m "not slow and not manual and not e2e"
+```
+
+così un push fallisce se: `main.py` non compila, i test falliscono, il contratto
+CSV cambia per errore, un segnale invalido può arrivare al CSV, una chat non
+autorizzata può scrivere, un duplicato/stale-clear può corrompere il CSV, o
+finiscono segreti/artefatti nel repo (`tests/safety/test_no_secrets_committed.py`).
+
+**Marcatori pytest** (in `pytest.ini`) applicati **automaticamente** per cartella
+(`tests/<categoria>/`) via `tests/conftest.py`:
+`unit` · `integration` · `safety` · `smoke` · `e2e` · `slow` · `manual`.
+
+**Profili:**
+
+| Profilo | Quando | Selettore |
+|---|---|---|
+| commit | ogni push | `pytest -m "not slow and not manual and not e2e"` (unit+safety+smoke+integration veloci) |
+| pr | ogni PR | `pytest -m "not manual"` (tutta la suite offline, esclusi i live/manuali) + merge-simulation |
+| release | pre-release / PR-20 | `pytest -m "not manual"` + `tests/e2e` + stress + build EXE (merge-simulation-hard) |
+
+I test pesanti (stress/chaos/e2e completo/recovery) restano su PR/release; tutto
+ciò che può causare una **riga CSV sbagliata o duplicata** sta nel gate di ogni commit.
+
+---
+
 ## Contratto CSV XTrader (riferimento per tutte le PR)
 
 > Fonte di verità: **`docs/xtrader_csv_contract.md`** (aggiornato in PR-01 sui CSV di

@@ -82,3 +82,23 @@ def test_handicap_default_is_zero():
 def test_ids_empty_when_absent_from_signal():
     row = _row()
     assert row["EventId"] == "" and row["MarketId"] == "" and row["SelectionId"] == ""
+
+
+def test_file_scritto_ha_bom_utf8_e_quote_all(tmp_path):
+    # Verifica byte-level del formato reale: BOM utf-8-sig + QUOTE_ALL.
+    # (gli altri test leggono via csv.reader e NON distinguono QUOTE_ALL da MINIMAL).
+    path = str(tmp_path / "segnali.csv")
+    csv_writer.write_csv(_row(), path)
+    with open(path, "rb") as f:
+        raw = f.read()
+
+    # BOM UTF-8 in testa (utf-8-sig).
+    assert raw.startswith(b"\xef\xbb\xbf")
+
+    header_line = raw.decode("utf-8-sig").splitlines()[0]
+    # QUOTE_ALL: ogni campo dell'header è racchiuso tra virgolette, niente campo "nudo".
+    assert header_line.startswith('"') and header_line.endswith('"')
+    for col in csv_writer.CSV_HEADER:
+        assert f'"{col}"' in header_line
+    # Controprova MINIMAL: con QUOTE_MINIMAL i nomi colonna NON sarebbero quotati.
+    assert "Provider" not in header_line.replace('"Provider"', "")

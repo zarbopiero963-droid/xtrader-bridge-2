@@ -1,0 +1,112 @@
+name: PR Checks
+
+# Check per categoria di rischio, eseguiti su OGNI pull request (oltre che su
+# push verso main/master). Ogni job è un check GitHub separato e leggibile:
+# se fallisce "safety" sai che è un rischio operativo, non uno stile/refactor.
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements-dev.txt
+      - run: python -m compileall main.py xtrader_bridge tests
+
+  contract:
+    # Barriera più importante: rompe se cambia il contratto CSV XTrader
+    # (14 colonne in ordine fisso, BetType PUNTA/BANCA, Points vuoto, Handicap 0,
+    # utf-8-sig + QUOTE_ALL). Vedi docs/xtrader_csv_contract.md.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest tests/unit/test_csv_contract.py -q -m "not manual"
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements-dev.txt
+      # Esclude il contract test: quella barriera è coperta dal job dedicato `contract`.
+      - run: python -m pytest tests/unit --ignore=tests/unit/test_csv_contract.py -q -m "not manual"
+
+  safety:
+    # Invarianti operative: niente riga pericolosa, niente stale signal,
+    # scrittura atomica, gate del segnale coerente.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest tests/safety -q -m "not manual"
+
+  integration:
+    # Segnale → parser → mapping → riga CSV → file reale temporaneo.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest tests/integration -q -m "not manual"
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements-dev.txt
+      - run: python -m py_compile main.py
+      - run: python -m pytest tests/smoke -q -m "not manual"

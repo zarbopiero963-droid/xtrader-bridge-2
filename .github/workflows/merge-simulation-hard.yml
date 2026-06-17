@@ -1,0 +1,86 @@
+name: Merge Simulation Hard
+
+# Verifica "dura" su Windows (target reale): merge con main, suite completa,
+# safety/integration con stop al primo errore, build EXE e controllo file vietati.
+# NON è eseguita su ogni push (sarebbe lenta): solo manuale o schedulata di notte,
+# oppure prima di PR grosse/safety-critical/release.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  hard:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Simula merge con la base della PR (nessun merge reale)
+        shell: bash
+        run: |
+          git config user.email "merge-simulation-hard@example.invalid"
+          git config user.name "merge-simulation-hard"
+          # Base reale della PR (gestisce master); manuale/schedulata → default branch.
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ]; then
+            def="${{ github.event.repository.default_branch }}"
+            git fetch origin "${def:-main}"
+            base=FETCH_HEAD
+          fi
+          git merge --no-commit --no-ff "$base" \
+            || { echo "::error::Conflitto di merge con la base della PR"; exit 1; }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements-dev.txt pyinstaller httpx
+
+      - run: python -m compileall main.py xtrader_bridge tests
+      # Prima le categorie critiche con stop al primo errore (early-fail reale),
+      # poi la suite restante: niente doppia esecuzione di safety/integration.
+      # Profilo release: esclusi i soli test live/manuali.
+      - run: python -m pytest tests/safety -q --maxfail=1 -m "not manual"
+      - run: python -m pytest tests/integration -q --maxfail=1 -m "not manual"
+      # Tutto il resto (unit, smoke, e2e, slow/stress quando esisteranno), escluse
+      # le categorie già girate sopra e i soli test live/manuali (profilo release).
+      - run: python -m pytest -q -m "not manual" --ignore=tests/safety --ignore=tests/integration --ignore=tests/manual
+
+      - name: Build EXE
+        run: >
+          pyinstaller --onefile --windowed
+          --name "XTrader-Signal-Bridge"
+          --paths .
+          --collect-submodules xtrader_bridge
+          --add-data "data/dizionario_xtrader.csv;data"
+          --collect-all customtkinter
+          --hidden-import=telegram
+          --hidden-import=telegram.ext
+          --hidden-import=telegram.ext._application
+          --hidden-import=telegram.ext._updater
+          --hidden-import=httpx
+          --hidden-import=httpcore
+          main.py
+
+      - name: Controllo file vietati tracciati
+        shell: bash
+        run: |
+          # Fonte di verità: .gitignore. File tracciati ma ignorati (eccezione
+          # !data/dizionario_xtrader.csv onorata da git) + token Telegram in chiaro.
+          ignored=$(git ls-files -i -c --exclude-standard)
+          ci=$(git ls-files | grep -iE '(^|/)\.env$|(^|/)config\.json$|\.(exe|zip|log|spec|secret|bak)$' || true)
+          csv=$(git ls-files | grep -iE '\.csv$' | grep -vx 'data/dizionario_xtrader.csv' || true)
+          tok=$(git grep -lIE '[0-9]{8,10}:[A-Za-z0-9_-]{35}' -- . 2>/dev/null || true)
+          if [ -n "$ignored$ci$csv$tok" ]; then
+            echo "::error::File vietati o token in chiaro tracciati nel repo (token redatto):"
+            echo "$ignored"; echo "$ci"; echo "$csv"; echo "$tok"; exit 1
+          fi
+          echo "OK: nessun file vietato e nessun token in chiaro."

@@ -1,0 +1,48 @@
+name: Forbidden Files
+
+# Impedisce che finiscano nel repository segreti/artefatti: token o config reali,
+# .env, CSV generati (eccetto il dizionario ufficiale), log, EXE, ZIP.
+# Vedi le regole in CLAUDE.md / .gitignore.
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  forbidden-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Controllo file vietati tracciati
+        run: |
+          # Fonte di verità unica: .gitignore. Elenca i file TRACCIATI che .gitignore
+          # direbbe di ignorare (segreti, config reali, CSV generati, log, EXE/ZIP,
+          # cache __pycache__, venv, IDE/OS, build/dist, ...). L'eccezione
+          # `!data/dizionario_xtrader.csv` è onorata da git, quindi il dizionario NON
+          # compare. Niente regex da mantenere e nessun problema di maiuscole/minuscole.
+          ignored=$(git ls-files -i -c --exclude-standard)
+          # Rete case-insensitive: su Linux .gitignore è case-sensitive, quindi
+          # git ls-files -i NON cattura le varianti Windows (Config.json/.ENV/
+          # secret.EXE/signals.CSV). Qui i basename/estensioni critici a prescindere
+          # dalle maiuscole; CSV ammesso SOLO l'esatto dizionario (esclusione esatta).
+          ci=$(git ls-files | grep -iE '(^|/)\.env$|(^|/)config\.json$|\.(exe|zip|log|spec|secret|bak)$' || true)
+          csv=$(git ls-files | grep -iE '\.csv$' | grep -vx 'data/dizionario_xtrader.csv' || true)
+          # Scansione CONTENUTI: nessun token Telegram (formato bot "<id>:<35 char>")
+          # in chiaro nei file tracciati. `git grep -l` stampa solo i path (token NON
+          # stampato) e gestisce i nomi con spazi (no xargs).
+          tok=$(git grep -lIE '[0-9]{8,10}:[A-Za-z0-9_-]{35}' -- . 2>/dev/null || true)
+          if [ -n "$ignored$ci$csv$tok" ]; then
+            echo "::error::File vietati o token in chiaro tracciati nel repository:"
+            [ -n "$ignored" ] && { echo "Ignorati da .gitignore ma tracciati:"; echo "$ignored"; }
+            [ -n "$ci" ] && { echo "Config/segreti/artefatti (qualsiasi maiuscola):"; echo "$ci"; }
+            [ -n "$csv" ] && { echo "CSV non ammessi (solo data/dizionario_xtrader.csv):"; echo "$csv"; }
+            [ -n "$tok" ] && { echo "Possibile token Telegram in chiaro (redatto):"; echo "$tok"; }
+            exit 1
+          fi
+          echo "OK: nessun file vietato e nessun token in chiaro."

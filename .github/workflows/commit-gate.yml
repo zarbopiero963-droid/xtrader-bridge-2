@@ -1,0 +1,32 @@
+name: Commit Gate
+
+# Gate veloce su OGNI push (qualsiasi branch): compile + suite veloce offline.
+# Le invarianti principali (contratto CSV, parser, safety, no-secrets) sono
+# protette ad ogni commit, non solo nelle PR. I test lenti/manuali/e2e sono
+# esclusi e restano per i workflow di PR/release.
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  commit-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements-dev.txt
+      - run: python -m py_compile main.py
+      # --ignore: i moduli manual/slow/e2e non vengono nemmeno importati (un loro
+      # import-time error non deve bloccare il gate); il marker fa il resto.
+      - run: python -m pytest -q -m "not slow and not manual and not e2e"
+             --ignore=tests/manual --ignore=tests/slow --ignore=tests/e2e
