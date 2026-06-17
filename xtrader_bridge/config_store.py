@@ -27,6 +27,10 @@ DEFAULTS = {
     "recognition_mode": "NAME_ONLY",
     # Se True (default sicuro) un segnale senza quota valida (> 1.0) viene scartato.
     "require_price":     True,
+    # Parser Personalizzato attivo (nome; "" = usa il parser hardcoded). CP-07.
+    "active_parser":    "",
+    # Override per chat sorgente: {chat_id: nome_parser}. Vuoto = usa active_parser.
+    "parser_by_chat":   {},
 }
 
 

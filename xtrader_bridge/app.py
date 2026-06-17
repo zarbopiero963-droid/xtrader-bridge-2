@@ -69,6 +69,10 @@ class App(ctk.CTk):
             # un salvataggio (anche all'avvio) cancellerebbe l'opt-out require_price.
             "recognition_mode": self._config.get("recognition_mode", "NAME_ONLY"),
             "require_price":    self._config.get("require_price", True),
+            # Preservati come sopra (nessun campo GUI dedicato qui): la scelta del
+            # Parser Personalizzato attivo (CP-07) non va persa al salvataggio.
+            "active_parser":    self._config.get("active_parser", ""),
+            "parser_by_chat":   self._config.get("parser_by_chat", {}),
         }
         return save_config(cfg, CONFIG_FILE)
 

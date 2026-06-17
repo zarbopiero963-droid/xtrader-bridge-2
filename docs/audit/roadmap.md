@@ -371,8 +371,21 @@ validazione, save/load tmp, test-live piazzabile/non-pronto, copia difensiva);
 toccano il contratto; bridge avviabile invariato.
 **Audit totale:** l'utente costruisce/prova un parser dalla GUI; merge manuale.
 
-## CP-07..CP-10 (pianificate, da affinare con il proprietario)
-- **CP-07** — gestione parser: selezione/attivazione per chat sorgente, default.
+## CP-07 — custom-parser/parser-manager ✅ (consegnato)
+**Obiettivo:** decidere quale Parser Personalizzato è attivo, con override per chat.
+**Tecnico:** `xtrader_bridge/parser_manager.py` — funzioni pure su config:
+`active_parser_name`, `parser_by_chat`, `resolve_parser_name(cfg, chat_id)`
+(override per chat → attivo globale → ""), `set_active`/`set_for_chat`
+(immutabili), `available_parser_names`, `load_active(cfg, chat_id, dir)` (→
+`CustomParserDef` o None = parser hardcoded). Config: `active_parser` (""),
+`parser_by_chat` ({}) in DEFAULTS; `app._save_config` li preserva.
+**Test hard:** `tests/unit/test_parser_manager.py` — default, risoluzione
+globale/override-chat, set immutabili, elenco nomi, load none/mancante/ok/override.
+**Micro-audit:** nessuna scrittura CSV; runtime live non ancora agganciato (CP-09);
+nessun campo GUI dedicato (selezione UI in CP-09/affinamento).
+**Audit totale:** base per attivare un parser per chat; merge manuale.
+
+## CP-08..CP-10 (pianificate, da affinare con il proprietario)
 - **CP-08** — import/export + fixture di test su messaggi reali (skeleton di esempio).
 - **CP-09** — il Parser Personalizzato diventa il percorso principale; hardcoded
   come fallback.
