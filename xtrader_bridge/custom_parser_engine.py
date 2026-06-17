@@ -31,6 +31,7 @@ Semantica di una regola (`FieldRule`):
 
 from dataclasses import dataclass, field
 
+from . import value_maps
 from .csv_writer import CSV_HEADER
 from .custom_parser import CustomParserDef, FieldRule
 
@@ -98,12 +99,20 @@ class ExtractionResult:
         return row
 
 
-def apply_parser(defn: CustomParserDef, text: str) -> ExtractionResult:
+def apply_parser(defn: CustomParserDef, text: str, value_maps_registry: dict = None) -> ExtractionResult:
     """Applica tutte le regole del parser al messaggio.
 
-    Ritorna i valori estratti per ogni regola e lo stato di "piazzabilità":
-    `ready=False` con l'elenco `missing_required` se un campo obbligatorio è
-    risultato vuoto (→ niente CSV, è il gate "Non pronto").
+    Per ogni regola: estrae il valore grezzo (CP-02) e, se la regola indica una
+    `value_map`, lo traduce nel valore esatto XTrader (CP-03). Una value-map
+    sconosciuta o un valore non mappato → vuoto (→ "Non pronto" se obbligatorio),
+    così non si scrive mai una riga CSV con un valore tradotto a caso.
+
+    `value_maps_registry` (nome → mappa) è opzionale: di default usa i soli
+    built-in (es. `bettype`); passa `value_maps.registry(include_dizionario=True)`
+    per abilitare anche le mappe derivate dal dizionario.
+
+    Ritorna lo stato di "piazzabilità": `ready=False` con `missing_required` se
+    un campo obbligatorio è vuoto (gate "Non pronto").
 
     `validate_parser_def` (CP-01) vieta già i target duplicati; qui il motore è
     comunque robusto: per ogni target vince l'ultima regola e `missing_required`
@@ -111,7 +120,10 @@ def apply_parser(defn: CustomParserDef, text: str) -> ExtractionResult:
     values = {}
     required_targets = []
     for rule in defn.rules:
-        values[rule.target] = extract_value(text, rule)
+        value = extract_value(text, rule)
+        if rule.value_map:
+            value = value_maps.resolve(value, rule.value_map, value_maps_registry)
+        values[rule.target] = value
         if rule.required and rule.target not in required_targets:
             required_targets.append(rule.target)
     missing = [t for t in required_targets if values.get(t, "") == ""]

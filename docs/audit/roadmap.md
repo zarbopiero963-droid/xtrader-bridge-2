@@ -302,9 +302,24 @@ obbligatori vuoti; opzionale vuoto non blocca; riga a 14 colonne; testo vuoto.
 **Micro-audit:** nessun runtime/GUI/contratto toccato; `as_csv_row` ⊆ `CSV_HEADER`.
 **Audit totale:** estrazione configurabile pronta; valore grezzo (no value-map).
 
-## CP-03..CP-10 (pianificate, da affinare con il proprietario)
-- **CP-03** — value-map: dizionario selezionabile → traduce valore estratto →
-  valore esatto XTrader.
+## CP-03 — custom-parser/value-map ✅ (consegnato)
+**Obiettivo:** tradurre il valore grezzo estratto nel valore esatto XTrader.
+**Tecnico:** `xtrader_bridge/value_maps.py` — built-in `bettype` (BACK/LAY +
+sinonimi → PUNTA/BANCA), `value_map_from_pairs` (lookup normalizzato, alias
+ambiguo scartato), `dizionario_value_maps` (mappe `markettype`/`marketname`/
+`selectionname` dal dizionario), `registry(include_dizionario=)`,
+`resolve(value, map_name, reg)`. `apply_parser` (CP-02) ora applica la value-map
+della regola. Sicuro: mappa sconosciuta / valore non mappato → vuoto → "Non
+pronto" (mai un lato/selezione tradotto a caso).
+**Test hard:** `tests/unit/test_value_maps.py` — bettype sinonimi/sconosciuto;
+costruzione da coppie + ambiguità scartata; mappe da dizionario (fake + reale);
+integrazione `apply_parser` (bettype tradotto, lato sconosciuto → "Non pronto",
+selezione dal dizionario).
+**Micro-audit:** nessun runtime/GUI/contratto toccato; nessun pass-through di
+valori non riconosciuti.
+**Audit totale:** traduzione alias → valore XTrader pronta e safe.
+
+## CP-04..CP-10 (pianificate, da affinare con il proprietario)
 - **CP-04** — integrazione con `validator.py` (PR-10) e `build_csv_row` prima
   della scrittura CSV.
 - **CP-05** — trasformazioni configurabili (es. somma-gol → Over (somma).5,
