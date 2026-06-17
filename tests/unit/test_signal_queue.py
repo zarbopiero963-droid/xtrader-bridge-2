@@ -1,0 +1,88 @@
+"""Test della coda dei segnali attivi (PR-16/#2 residuo): modalità + timeout."""
+
+from xtrader_bridge import signal_queue as sq
+
+
+def _row(name):
+    return {"EventName": name, "SelectionName": "Sì", "Price": "1.85", "BetType": "PUNTA"}
+
+
+# ── modalità ─────────────────────────────────────────────────────────────────
+
+def test_default_mode_overwrite_last():
+    q = sq.SignalQueue()              # default OVERWRITE_LAST
+    q.add(_row("A"), now=1000)
+    q.add(_row("B"), now=1001)
+    q.add(_row("C"), now=1002)
+    rows = q.active_rows()
+    assert len(rows) == 1             # un solo segnale attivo
+    assert rows[0]["EventName"] == "C"
+
+
+def test_append_active_tre_segnali_tre_righe():
+    q = sq.SignalQueue(mode=sq.APPEND_ACTIVE)
+    q.add(_row("A"), now=1000)
+    q.add(_row("B"), now=1001)
+    q.add(_row("C"), now=1002)
+    rows = q.active_rows()
+    assert [r["EventName"] for r in rows] == ["A", "B", "C"]    # 3 righe, in ordine
+
+
+def test_mode_ignota_usa_default():
+    assert sq.SignalQueue(mode="boh").mode == sq.OVERWRITE_LAST
+    assert sq.normalize_mode("append_active") == sq.APPEND_ACTIVE
+
+
+# ── timeout per singolo segnale ──────────────────────────────────────────────
+
+def test_timeout_rimuove_solo_il_segnale_scaduto():
+    q = sq.SignalQueue(mode=sq.APPEND_ACTIVE, default_timeout=90)
+    id1 = q.add(_row("A"), now=1000)            # scade a 1090
+    q.add(_row("B"), now=1050)                  # scade a 1140
+    expired = q.expire(now=1100)                # solo A è scaduto
+    assert expired == [id1]
+    assert [r["EventName"] for r in q.active_rows()] == ["B"]
+
+
+def test_timeout_per_segnale_personalizzato():
+    q = sq.SignalQueue(mode=sq.APPEND_ACTIVE)
+    q.add(_row("A"), now=1000, timeout=10)      # scade a 1010
+    q.add(_row("B"), now=1000, timeout=300)     # scade a 1300
+    assert q.expire(now=1011) and [r["EventName"] for r in q.active_rows()] == ["B"]
+
+
+def test_nessun_segnale_scaduto_resta_attivo_per_sempre():
+    # Anche QUEUE_UNTIL_CONFIRMED, se mai confermato, scade per timeout.
+    q = sq.SignalQueue(mode=sq.QUEUE_UNTIL_CONFIRMED, default_timeout=90)
+    q.add(_row("A"), now=1000)
+    assert q.expire(now=1091) != []
+    assert q.is_empty() is True
+
+
+# ── conferma / rimozione ─────────────────────────────────────────────────────
+
+def test_confirm_rimuove_solo_quel_segnale():
+    q = sq.SignalQueue(mode=sq.QUEUE_UNTIL_CONFIRMED)
+    id1 = q.add(_row("A"), now=1000)
+    q.add(_row("B"), now=1001)
+    assert q.confirm(id1) is True
+    assert [r["EventName"] for r in q.active_rows()] == ["B"]
+    assert q.confirm("inesistente") is False
+
+
+def test_add_stesso_id_aggiorna_non_duplica():
+    q = sq.SignalQueue(mode=sq.APPEND_ACTIVE)
+    q.add(_row("A"), signal_id="x", now=1000)
+    q.add(_row("A2"), signal_id="x", now=1001)   # stesso id → aggiorna
+    rows = q.active_rows()
+    assert len(rows) == 1
+    assert rows[0]["EventName"] == "A2"
+
+
+# ── sicurezza: copie difensive ───────────────────────────────────────────────
+
+def test_active_rows_sono_copie():
+    q = sq.SignalQueue(mode=sq.APPEND_ACTIVE)
+    q.add(_row("A"), now=1000)
+    q.active_rows()[0]["EventName"] = "HACK"
+    assert q.active_rows()[0]["EventName"] == "A"   # interno non mutato
