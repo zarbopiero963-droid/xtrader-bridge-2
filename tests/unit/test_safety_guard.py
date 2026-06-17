@@ -20,12 +20,22 @@ def test_dry_run_bool_esplicito():
 
 
 def test_dry_run_da_stringa_robusto():
-    # Valori "spenti" da campo testuale GUI / config scritta a mano.
-    for off in ("false", "False", "0", "no", "off", "", "none"):
+    # Solo valori OFF ESPLICITI → modalità reale.
+    for off in ("false", "False", "0", "no", "off", "n"):
         assert sg.is_dry_run({"dry_run": off}) is False, off
     # qualsiasi altra stringa non vuota → simulazione (default sicuro)
     for on in ("true", "1", "yes", "boh"):
         assert sg.is_dry_run({"dry_run": on}) is True, on
+
+
+def test_dry_run_vuoto_o_null_fallisce_chiuso_in_simulazione():
+    # Vuoto / None / "none" sono valori NON impostati o malformati: devono fallire
+    # CHIUSI in simulazione (mai abilitare la scrittura del CSV reale per sbaglio).
+    assert sg.is_dry_run({"dry_run": ""}) is True
+    assert sg.is_dry_run({"dry_run": None}) is True
+    assert sg.is_dry_run({"dry_run": "none"}) is True
+    assert sg.should_write_operational_csv({"dry_run": ""}) is False
+    assert sg.should_write_operational_csv({"dry_run": None}) is False
 
 
 def test_dry_run_input_non_dict():
@@ -60,7 +70,8 @@ def test_reset_al_cambio_giorno():
 
 
 def test_max_per_day_invalido_rifiutato():
-    for bad in (0, -1, 2.5, float("nan"), float("inf"), "abc"):
+    # bool incluso: max_per_day=True da JSON verrebbe coercito a 1 (cap=1/giorno).
+    for bad in (0, -1, 2.5, float("nan"), float("inf"), "abc", True, False):
         with pytest.raises(ValueError):
             sg.DailyLimiter(max_per_day=bad)
 

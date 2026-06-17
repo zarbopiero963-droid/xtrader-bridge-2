@@ -23,9 +23,12 @@ from dataclasses import dataclass, field
 
 DEFAULT_MAX_PER_DAY = 200      # tetto di segnali nuovi accettati in un giorno (UTC)
 
-# Valori stringa interpretati come "spento" (per config che arrivano da campi
-# testuali GUI o da un vecchio config.json scritto a mano).
-_FALSEY = {"0", "false", "no", "off", "n", "", "none"}
+# Valori stringa interpretati come "spento" = modalità REALE (per config che
+# arrivano da campi testuali GUI o da un vecchio config.json scritto a mano).
+# NB: solo valori OFF **espliciti**. Vuoto / `None` / `"none"` NON sono qui: un
+# valore non impostato o malformato deve fallire **chiuso** in simulazione, mai
+# abilitare la scrittura del CSV reale (fail-safe).
+_FALSEY = {"0", "false", "no", "off", "n"}
 
 
 def is_dry_run(cfg) -> bool:
@@ -61,7 +64,13 @@ def real_mode_warning(cfg) -> str:
 
 def _require_positive_int(value, name: str) -> int:
     """`value` come int finito e > 0, altrimenti ValueError. Un `NaN`/`inf`/`<=0`
-    renderebbe il limite inefficace o sempre bloccante."""
+    renderebbe il limite inefficace o sempre bloccante.
+
+    Rifiuta esplicitamente `bool`: `True`/`False` da JSON verrebbero coerciti a
+    `1`/`0` e `max_per_day=True` capperebbe l'app a 1 segnale/giorno invece di
+    essere trattato come config malformata."""
+    if isinstance(value, bool):
+        raise ValueError(f"{name} non valido: {value!r}")
     try:
         f = float(value)
     except (TypeError, ValueError):
