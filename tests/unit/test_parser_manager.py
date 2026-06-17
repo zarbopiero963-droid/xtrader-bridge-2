@@ -63,6 +63,25 @@ def test_available_parser_names(tmp_path):
     assert pm.available_parser_names(str(tmp_path)) == ["Alfa", "Beta"]
 
 
+def test_available_parser_names_esclude_invalidi(tmp_path):
+    import json
+    _save_parser("Buono", str(tmp_path))
+    # File deserializzabile ma invalido (target duplicato): non deve comparire.
+    bad = {"name": "Cattivo", "rules": [
+        {"target": "BetType", "fixed_value": "PUNTA"},
+        {"target": "BetType", "fixed_value": "BANCA"},
+    ]}
+    (tmp_path / "Cattivo.json").write_text(json.dumps(bad), encoding="utf-8")
+    assert pm.available_parser_names(str(tmp_path)) == ["Buono"]
+
+
+def test_set_active_copia_parser_by_chat():
+    cfg = {"active_parser": "", "parser_by_chat": {"123": "X"}}
+    out = pm.set_active(cfg, "Nuovo")
+    out["parser_by_chat"]["999"] = "Y"          # muto la copia
+    assert cfg["parser_by_chat"] == {"123": "X"}  # originale invariato
+
+
 def test_load_active_none_se_non_selezionato(tmp_path):
     assert pm.load_active({}, dir_path=str(tmp_path)) is None
 

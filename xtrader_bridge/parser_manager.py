@@ -37,6 +37,7 @@ def set_active(cfg: dict, name: str) -> dict:
     """Ritorna una COPIA della config con il parser attivo impostato."""
     out = dict(cfg or {})
     out["active_parser"] = str(name or "").strip()
+    out["parser_by_chat"] = parser_by_chat(out)  # copia: non condividere la mappa
     return out
 
 
@@ -62,9 +63,13 @@ def available_parser_names(dir_path: str = None) -> list:
     names = []
     for path in custom_parser.list_parser_files(dir_path):
         try:
-            names.append(custom_parser.load_parser(path).name)
+            defn = custom_parser.load_parser(path)
         except (OSError, ValueError):
             continue
+        # Elenca solo i parser che load_active accetterebbe (validi): un nome
+        # invalido nel menu porterebbe altrimenti a un fallback silenzioso.
+        if custom_parser.is_valid(defn):
+            names.append(defn.name)
     return sorted(names)
 
 
