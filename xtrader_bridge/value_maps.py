@@ -19,7 +19,7 @@ Regole di sicurezza:
   lato di scommessa (PUNTA/BANCA) o una selezione.
 """
 
-from . import dizionario
+from . import dizionario, mapping
 
 # Lookup normalizzato coerente col dizionario (minuscolo, trim, spazi collassati).
 # Usa la funzione pubblica del dizionario: fonte unica, niente accoppiamento a
@@ -79,24 +79,48 @@ _DIZIONARIO_MAPS = {
 }
 
 
+def _shorthand_rows(rows) -> list:
+    """Per ogni forma breve Telegram (`mapping.SYNONYMS`, es. "gg", "over 2.5",
+    "1") trova la riga corrispondente del dizionario. Così le value-map
+    riconoscono anche gli shorthand dei messaggi, non solo gli alias interni del
+    dizionario. Ritorna coppie (shorthand_normalizzato, riga_dizionario)."""
+    index = {
+        dizionario.alias_key(r.get("MarketAliasTelegram", ""), r.get("SelectionAliasTelegram", "")): r
+        for r in rows
+    }
+    out = []
+    for short_key, (market_alias, selection_alias) in mapping.SYNONYMS.items():
+        row = index.get(dizionario.alias_key(market_alias, selection_alias))
+        if row is not None:
+            out.append((short_key, row))
+    return out
+
+
 def dizionario_value_maps(rows=None) -> dict:
     """Costruisce le value-map derivate dal dizionario (una per colonna utile).
 
+    Le mappe sono chiavate sia sugli **alias interni** del dizionario sia sugli
+    **shorthand Telegram** (`mapping.SYNONYMS`), così un parser che estrae "GG" o
+    "OVER 2.5" da un messaggio trova comunque il valore XTrader.
+
     `rows` opzionale (lista di dict come da `dizionario.load_dizionario`); se
-    assente carica il dizionario ufficiale. Alias ambigui scartati."""
+    assente carica il dizionario ufficiale. Alias ambigui scartati; valori
+    placeholder dinamici ("{HOME_TEAM}"...) esclusi (→ "Non pronto" finché non
+    sostituiti col match)."""
     if rows is None:
         rows = dizionario.load_dizionario()
+    shorthand = _shorthand_rows(rows)
     maps = {}
     for name, (alias_col, value_col) in _DIZIONARIO_MAPS.items():
-        # Salta i valori placeholder dinamici (es. "{HOME_TEAM}", "{AWAY_TEAM}"):
-        # richiedono la sostituzione con le squadre del match, che qui non c'è.
-        # Mapparli darebbe un SelectionName non valido per XTrader → meglio
-        # lasciarli non mappati (→ "Non pronto" finché non risolti altrove).
-        pairs = (
-            (r.get(alias_col, ""), r.get(value_col, ""))
-            for r in rows
-            if not _is_placeholder(r.get(value_col, ""))
-        )
+        pairs = []
+        for r in rows:
+            v = r.get(value_col, "")
+            if not _is_placeholder(v):
+                pairs.append((r.get(alias_col, ""), v))
+        for short_key, row in shorthand:
+            v = row.get(value_col, "")
+            if not _is_placeholder(v):
+                pairs.append((short_key, v))
         maps[name] = value_map_from_pairs(pairs)
     return maps
 

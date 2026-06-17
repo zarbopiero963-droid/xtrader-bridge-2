@@ -93,6 +93,33 @@ def test_dizionario_value_maps_esclude_placeholder():
     assert vm.resolve("x", "selectionname", reg) == "Pareggio"  # valore reale ok
 
 
+def test_value_map_riconosce_shorthand_telegram():
+    # Le mappe riconoscono sia l'alias interno ("goal") sia lo shorthand ("GG").
+    rows = [{"MarketAliasTelegram": "goal_no_goal", "SelectionAliasTelegram": "goal",
+             "MarketType_XTrader": "BOTH_TEAMS_TO_SCORE",
+             "MarketName_XTrader": "Entrambe le squadre a segno", "SelectionName_XTrader": "Sì"}]
+    reg = vm.registry(include_dizionario=True, rows=rows)
+    assert vm.resolve("GG", "selectionname", reg) == "Sì"      # shorthand Telegram
+    assert vm.resolve("goal", "selectionname", reg) == "Sì"    # alias interno
+    assert vm.resolve("gg", "marketname", reg) == "Entrambe le squadre a segno"
+
+
+def test_shorthand_con_placeholder_resta_non_mappato():
+    # "1" (esito_finale) → SelectionName {HOME_TEAM}: placeholder → non mappato.
+    rows = [{"MarketAliasTelegram": "esito_finale", "SelectionAliasTelegram": "1",
+             "MarketType_XTrader": "MATCH_ODDS", "MarketName_XTrader": "Esito finale",
+             "SelectionName_XTrader": "{HOME_TEAM}"}]
+    reg = vm.registry(include_dizionario=True, rows=rows)
+    assert vm.resolve("1", "selectionname", reg) == ""
+    assert vm.resolve("1", "marketname", reg) == "Esito finale"  # MarketName non è placeholder
+
+
+def test_shorthand_su_dizionario_reale():
+    # Smoke sul dizionario ufficiale: "GG" → selezione "Sì".
+    reg = vm.registry(include_dizionario=True)
+    assert vm.resolve("GG", "selectionname", reg) == "Sì"
+
+
 def test_dizionario_value_maps_carica_il_dizionario_reale():
     # Smoke: il dizionario ufficiale produce mappe non vuote (file dati versionato).
     maps = vm.dizionario_value_maps()

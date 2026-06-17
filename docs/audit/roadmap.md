@@ -307,7 +307,10 @@ obbligatori vuoti; opzionale vuoto non blocca; riga a 14 colonne; testo vuoto.
 **Tecnico:** `xtrader_bridge/value_maps.py` — built-in `bettype` (BACK/LAY +
 sinonimi → PUNTA/BANCA), `value_map_from_pairs` (lookup normalizzato, alias
 ambigui scartati), `dizionario_value_maps` (mappe `markettype`/`marketname`/
-`selectionname` dal dizionario), `registry(include_dizionario=)`,
+`selectionname` dal dizionario, chiavate sia sugli alias interni sia sugli
+**shorthand Telegram** via `mapping.SYNONYMS` — "GG"/"OVER 2.5" risolvono;
+valori placeholder `{HOME_TEAM}` esclusi; lato scommessa solo non ambiguo),
+`registry(include_dizionario=)`,
 `resolve(value, map_name, reg)`. `apply_parser` (CP-02) ora applica la value-map
 della regola. Sicuro: mappa sconosciuta / valore non mappato → vuoto → "Non
 pronto" (mai un lato/selezione tradotto a caso).
