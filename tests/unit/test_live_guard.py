@@ -64,6 +64,22 @@ def test_daily_none_nessun_limite_giorno():
     assert lg.evaluate(_real_cfg(), t, None, "x", now=1000) == lg.WRITE
 
 
+def test_rollback_dopo_write_fallita_consente_il_retry():
+    # Semantica usata da app._process: si fa lo snapshot PRIMA di evaluate; se la
+    # scrittura CSV fallisce si ripristina, così lo stesso segnale non resta
+    # soppresso come DUPLICATE e il tetto giornaliero non viene consumato.
+    t = _tracker()
+    d = safety_guard.DailyLimiter(max_per_day=1)
+    snap_t, snap_d = t.state(), d.state()
+    assert lg.evaluate(_real_cfg(), t, d, "sig", now=1000) == lg.WRITE   # consuma
+    # simula write fallita → rollback
+    t.restore_state(snap_t)
+    d.restore_state(snap_d)
+    # retry dello stesso segnale: di nuovo WRITE (non DUPLICATE) e tetto disponibile
+    assert lg.evaluate(_real_cfg(), t, d, "sig", now=1001) == lg.WRITE
+    assert d.remaining(now=1001) == 0
+
+
 def test_duplicato_non_consuma_la_slot_giornaliera():
     t = _tracker()
     d = safety_guard.DailyLimiter(max_per_day=1)

@@ -143,7 +143,7 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
 > validazione contratto, **anti-duplicato + limite/minuto + limite/giorno + DRY_RUN**
 > (PR-21), scrittura/svuotamento CSV atomici, log con redazione. Quanto resta sotto è
 > **logica pura testata ma non ancora collegata** al bot live.
-
+>
 > ✅ **Agganciati in PR-21** (non più TODO): DRY_RUN, anti-duplicato, limite/minuto,
 > limite/giorno. La protezione doppia-scommessa è ora attiva a runtime.
 
