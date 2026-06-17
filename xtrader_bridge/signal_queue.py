@@ -80,6 +80,21 @@ class SignalQueue:
             raise ValueError(f"timeout deve essere un numero finito > 0 (ricevuto {value!r})")
         return t
 
+    @staticmethod
+    def _resolve_now(now) -> float:
+        """`now` corrente se assente; altrimenti il valore fornito, che deve essere
+        FINITO. Un `now` `NaN`/`inf` salvato in `added_at` renderebbe `expires_at()`
+        mai `<= now` → segnale immortale: stessa ragione per cui si valida il timeout."""
+        if now is None:
+            return time.time()
+        try:
+            t = float(now)
+        except (TypeError, ValueError):
+            raise ValueError(f"now non valido: {now!r}")
+        if not math.isfinite(t):
+            raise ValueError(f"now deve essere un numero finito (ricevuto {now!r})")
+        return t
+
     def add(self, row: dict, *, signal_id: str = None, now: float = None,
             timeout: float = None) -> str:
         """Aggiunge un segnale e ritorna il suo `signal_id`.
@@ -89,7 +104,7 @@ class SignalQueue:
 
         `signal_id` assente → generato automaticamente. `timeout` assente →
         `default_timeout`."""
-        now = time.time() if now is None else now
+        now = self._resolve_now(now)
         timeout = self.default_timeout if timeout is None else self._validate_timeout(timeout)
         if signal_id is None:
             # Id auto-generato che NON collide con un id fornito dal chiamante:
@@ -111,7 +126,7 @@ class SignalQueue:
     def expire(self, now: float = None) -> list:
         """Rimuove i segnali scaduti (timeout raggiunto) e ne ritorna gli id.
         Garantisce che nessun vecchio segnale resti attivo per sempre."""
-        now = time.time() if now is None else now
+        now = self._resolve_now(now)
         expired = [a.signal_id for a in self._active if a.expires_at() <= now]
         if expired:
             self._active = [a for a in self._active if a.expires_at() > now]

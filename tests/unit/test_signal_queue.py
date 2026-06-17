@@ -109,6 +109,16 @@ def test_default_timeout_invalido_rifiutato_alla_costruzione():
             sq.SignalQueue(default_timeout=bad)
 
 
+def test_now_non_finito_rifiutato():
+    # Un now NaN/inf salvato in added_at renderebbe il segnale "immortale".
+    q = sq.SignalQueue(mode=sq.APPEND_ACTIVE)
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError):
+            q.add(_row("A"), now=bad)
+    with pytest.raises(ValueError):
+        q.expire(now=float("nan"))
+
+
 def test_active_rows_sono_copie():
     q = sq.SignalQueue(mode=sq.APPEND_ACTIVE)
     q.add(_row("A"), now=1000)
