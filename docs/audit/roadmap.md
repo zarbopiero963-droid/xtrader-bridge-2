@@ -385,8 +385,20 @@ globale/override-chat, set immutabili, elenco nomi, load none/mancante/ok/overri
 nessun campo GUI dedicato (selezione UI in CP-09/affinamento).
 **Audit totale:** base per attivare un parser per chat; merge manuale.
 
-## CP-08..CP-10 (pianificate, da affinare con il proprietario)
-- **CP-08** — import/export + fixture di test su messaggi reali (skeleton di esempio).
+## CP-08 — custom-parser/import-export ✅ (consegnato)
+**Obiettivo:** condividere i parser come file + un parser d'esempio funzionante.
+**Tecnico:** `xtrader_bridge/parser_io.py` — `export_parser(defn, dest)` (valida
+poi scrive il JSON), `import_parser(src, dir)` (legge/valida/salva via
+`save_parser`, fail su corrotto/invalido), `example_parser()` + `fixture_message()`
+(parser realistico Match/Esito/Quota/Lato con value-map dizionario+bettype).
+**Test hard:** `tests/unit/test_parser_io.py` — export caricabile / rifiuto
+invalido (niente file); import valido salva+ricaricabile / corrotto→ValueError /
+invalido→ValueError senza salvare / round-trip; example_parser valido e che
+produce una riga **piazzabile** end-to-end ("GG"→"Sì", "BACK"→PUNTA, 1,85→1.85).
+**Micro-audit:** nessuna scrittura CSV; solo file parser; runtime invariato.
+**Audit totale:** import/export sicuri + esempio che prova l'intera catena.
+
+## CP-09..CP-10 (pianificate, da affinare con il proprietario)
 - **CP-09** — il Parser Personalizzato diventa il percorso principale; hardcoded
   come fallback.
 - **CP-10** — `CUSTOM_PARSER_READY`: audit completo, test hard, documentazione.
