@@ -39,6 +39,24 @@ def test_riga_valida_piazzabile():
     assert res.row["Points"] == ""                     # default contratto (vuoto)
 
 
+def test_handicap_points_non_sovrascritti_se_impostati():
+    # Se il parser valorizza Handicap/Points, i default del contratto NON devono
+    # sovrascriverli (guardia anti-regressione su _with_contract_defaults).
+    defn = cp.CustomParserDef(name="X", rules=[
+        cp.FieldRule(target="EventName", fixed_value="Inter v Milan", required=True),
+        cp.FieldRule(target="MarketType", fixed_value="BOTH_TEAMS_TO_SCORE", required=True),
+        cp.FieldRule(target="SelectionName", fixed_value="Sì", required=True),
+        cp.FieldRule(target="Price", fixed_value="2.0", required=True),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
+        cp.FieldRule(target="Handicap", fixed_value="-1"),
+        cp.FieldRule(target="Points", fixed_value="3"),
+    ])
+    res = pipe.build_validated_row(defn, "qualsiasi")
+    assert res.status == validator.VALID
+    assert res.row["Handicap"] == "-1"   # non sovrascritto dal default "0"
+    assert res.row["Points"] == "3"      # non sovrascritto dal default ""
+
+
 def test_non_pronto_se_manca_obbligatorio():
     msg = "Match: Inter v Milan\nSel: Sì\nLato: BACK"   # manca Quota (Price)
     res = pipe.build_validated_row(_full_parser(), msg)

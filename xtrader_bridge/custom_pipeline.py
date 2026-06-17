@@ -46,9 +46,14 @@ def _with_contract_defaults(row: dict) -> dict:
     `Handicap` = "0" (come negli esempi XTrader), `Points` resta vuoto. Non tocca
     i valori già impostati."""
     out = dict(row)
-    if not str(out.get("Handicap", "")).strip():
+    hcap = out.get("Handicap")
+    # None o stringa vuota → default; evita str(None)=="None" (truthy) che
+    # impedirebbe l'applicazione del default.
+    if hcap is None or not str(hcap).strip():
         out["Handicap"] = DEFAULT_HANDICAP
-    out.setdefault("Points", DEFAULT_POINTS)
+    # Points: default solo se assente o None; un valore esplicito (anche "") resta.
+    if out.get("Points") is None:
+        out["Points"] = DEFAULT_POINTS
     return out
 
 
