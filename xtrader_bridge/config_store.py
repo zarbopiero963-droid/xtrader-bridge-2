@@ -32,6 +32,9 @@ DEFAULTS = {
     "active_parser":    "",
     # Override per chat sorgente: {chat_id: nome_parser}. Vuoto = usa active_parser.
     "parser_by_chat":   {},
+    # Chat sorgente multiple (PR-12): lista di {name, chat_id, enabled, provider,
+    # mode PRE/LIVE}. Vuoto = setup mono-chat classico (chat_id + provider globali).
+    "source_chats":     [],
 }
 
 
