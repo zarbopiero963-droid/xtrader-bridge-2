@@ -43,5 +43,6 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements-dev.txt
       - run: python -m compileall main.py xtrader_bridge tests
-      # Profilo PR: tutta la suite offline ESCLUSI i test live/manuali.
-      - run: python -m pytest -q -m "not manual"
+      # Profilo PR: tutta la suite offline ESCLUSI i test live/manuali (anche a
+      # livello di collection, così un import-time error in tests/manual non blocca).
+      - run: python -m pytest -q -m "not manual" --ignore=tests/manual
