@@ -15,7 +15,14 @@ scrivere il CSV. Così l'instradamento è interamente testabile.
 
 from dataclasses import dataclass, field
 
-from . import custom_parser_engine, custom_pipeline, parser_manager, recognition, validator
+from . import (
+    custom_parser_engine,
+    custom_pipeline,
+    parser_manager,
+    recognition,
+    source_manager,
+    validator,
+)
 from .csv_writer import build_csv_row
 from .parser import parse_message
 
@@ -40,17 +47,19 @@ def _chat_approved_for_custom(cfg: dict, chat: str) -> bool:
 
 
 def is_chat_allowed(cfg: dict, chat: str) -> bool:
-    """Chat che il bridge può processare nel live: quella CONFIGURATA (`chat_id`)
-    e le chiavi `parser_by_chat`. Se NULLA è configurato (chat_id vuoto e mappa
-    vuota) → comportamento legacy: tutte ammesse (responsabilità dell'utente).
-    Gatea sia il percorso custom sia l'hardcoded: nessuna scrittura per chat non
-    autorizzate."""
+    """Chat che il bridge può processare nel live: quella CONFIGURATA (`chat_id`),
+    le chiavi `parser_by_chat` e le **sorgenti multi-chat ATTIVE** (`source_chats`
+    con `enabled=True`, PR-24). Una sorgente disattivata NON è ammessa. Se NULLA è
+    configurato (chat_id vuoto, mappa vuota, nessuna sorgente attiva) → comportamento
+    legacy: tutte ammesse (responsabilità dell'utente). Gatea sia il percorso custom
+    sia l'hardcoded: nessuna scrittura per chat non autorizzate."""
     chat = str(chat or "")
     configured = str(cfg.get("chat_id", "") or "").strip()
     per_chat = parser_manager.parser_by_chat(cfg)
-    if not configured and not per_chat:
+    source_ids = source_manager.enabled_chat_ids(cfg)
+    if not configured and not per_chat and not source_ids:
         return True
-    allowed = set(per_chat.keys())
+    allowed = set(per_chat.keys()) | set(source_ids)
     if configured:
         allowed.add(configured)
     return chat in allowed
@@ -109,8 +118,12 @@ def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str =
     anche in setup multi-chat dove il singolo `chat_id` non è impostato."""
     mode = recognition.normalize_mode(cfg.get("recognition_mode", "NAME_ONLY"))
     require_price = validator.require_price_enabled(cfg)
-    provider = str(cfg.get("provider", "") or "")
     chat = str((chat_id if chat_id is not None else cfg.get("chat_id", "")) or "")
+    # Provider PER-CHAT (PR-24): per una sorgente multi-chat attiva usa il suo provider
+    # (esplicito, o derivato dalla modalità PRE→TG_PRE / LIVE→TG_LIVE); altrimenti il
+    # provider globale di config (retro-compatibilità mono-chat).
+    provider = source_manager.provider_for_chat(
+        cfg, chat, default=str(cfg.get("provider", "") or ""))
 
     defn = active_custom_parser(cfg, chat, parsers_dir)
     if defn is not None:

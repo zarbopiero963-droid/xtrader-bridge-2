@@ -18,10 +18,11 @@
 - Usare un bot Telegram e una chat **di test**, non quelli di produzione.
 
 > **Cosa è agganciato al runtime oggi** (vedi `final_audit.md` §4). **Attivi:** filtro
-> chat (solo con `chat_id` configurato), parsing+validazione, **anti-duplicato +
+> chat (solo con `chat_id`/sorgente configurato), parsing+validazione, **anti-duplicato +
 > limite/minuto + limite/giorno + DRY_RUN** (PR-21), **coda multi-segnale** (PR-22),
-> **conferma XTrader** (PR-23), scrittura/svuotamento CSV. **NON ancora agganciato**
-> (logica pura testata): **multi-chat** provider/mode — passi marcati `TODO(wiring)`.
+> **conferma XTrader** (PR-23), **multi-chat provider/mode** (PR-24), scrittura/
+> svuotamento CSV. Tutta la logica di sicurezza è agganciata; restano solo verifiche
+> manuali (GUI/EXE/XTrader live).
 
 ## 1. Setup
 
@@ -110,7 +111,8 @@
 
 - [ ] Casi **attivi** con esito atteso: A1, A2, B, C (con `chat_id`), D, E, F
       (con `xtrader_notification_chat_id`), G.
-- [ ] Multi-chat provider/mode resta `TODO(wiring)` (PR-24): non ancora verificabile.
+- [ ] Multi-chat (PR-24): con più `source_chats` attive, ogni chat scrive con il proprio
+      Provider (PRE→TG_PRE/LIVE→TG_LIVE o esplicito); una sorgente disattivata è ignorata.
 - [ ] Nessun token nei log; nessun CSV corrotto/parziale; header sempre presente.
 - [ ] Registrare versione testata, data, ambiente (Windows/XTrader) e note.
 

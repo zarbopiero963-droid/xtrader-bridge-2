@@ -187,6 +187,50 @@ def test_is_chat_allowed_solo_mappa_per_chat():
     assert signal_router.is_chat_allowed(cfg, "42") is False
 
 
+# ── multi-chat (PR-24): source_chats attive ammesse, disattivate ignorate ────
+
+def test_is_chat_allowed_sorgenti_multichat():
+    cfg = {"source_chats": [
+        {"chat_id": "111", "enabled": True,  "mode": "PRE"},
+        {"chat_id": "222", "enabled": False, "mode": "LIVE"},   # disattivata
+    ]}
+    assert signal_router.is_chat_allowed(cfg, "111") is True    # attiva → ammessa
+    assert signal_router.is_chat_allowed(cfg, "222") is False   # disattivata → no
+    assert signal_router.is_chat_allowed(cfg, "999") is False   # non configurata → no
+
+
+def test_is_chat_allowed_union_chatid_e_sorgenti():
+    # chat_id globale + una sorgente attiva: ammesse entrambe (retro-compatibile).
+    cfg = {"chat_id": "42", "source_chats": [{"chat_id": "111", "enabled": True}]}
+    assert signal_router.is_chat_allowed(cfg, "42") is True
+    assert signal_router.is_chat_allowed(cfg, "111") is True
+    assert signal_router.is_chat_allowed(cfg, "999") is False
+
+
+def test_resolve_row_provider_per_chat_da_modalita(tmp_path):
+    # La riga di una sorgente LIVE (senza provider esplicito) usa TG_LIVE; una con
+    # provider esplicito quello; una chat senza sorgente attiva usa il provider globale.
+    # Si parte dal parser d'esempio SENZA la sua regola Provider, così il provider
+    # per-chat (provider_for_chat) finisce davvero nella colonna Provider.
+    defn = parser_io.example_parser()
+    defn.name = "NoProv"
+    defn.rules = [r for r in defn.rules if r.target != "Provider"]
+    cp.save_parser(defn, str(tmp_path))
+    cfg = {"provider": "GLOBAL",
+           "parser_by_chat": {"111": "NoProv", "222": "NoProv", "333": "NoProv"},
+           "source_chats": [
+               {"chat_id": "111", "enabled": True, "mode": "LIVE"},
+               {"chat_id": "222", "enabled": True, "mode": "PRE", "provider": "MioProv"},
+           ]}
+    msg = parser_io.fixture_message()
+    r1 = signal_router.resolve_row(msg, cfg, chat_id="111", parsers_dir=str(tmp_path))
+    assert r1.placeable and r1.row["Provider"] == "TG_LIVE"     # da modalità LIVE
+    r2 = signal_router.resolve_row(msg, cfg, chat_id="222", parsers_dir=str(tmp_path))
+    assert r2.placeable and r2.row["Provider"] == "MioProv"     # provider esplicito
+    r3 = signal_router.resolve_row(msg, cfg, chat_id="333", parsers_dir=str(tmp_path))
+    assert r3.placeable and r3.row["Provider"] == "GLOBAL"      # nessuna sorgente → globale
+
+
 # ── should_process: gate di instradamento live (PR-11) ──────────────────────
 
 def test_should_process_chat_non_ammessa_mai():
