@@ -74,6 +74,49 @@ def test_value_map_non_applicata_in_cp02():
     assert eng.extract_value("Lato: BACK", r) == "BACK"
 
 
+# ── extract_value: tolleranza agli spazi nei delimitatori ───────────────────
+
+def test_delim_spazi_ai_bordi_del_campo_ignorati():
+    # Spazio iniziale/finale digitato per errore nel campo: non rompe il match.
+    r = cp.FieldRule(target="Price", start_after=" Quota: ")
+    assert eng.extract_value("Quota: 1,85", r) == "1,85"
+    r2 = cp.FieldRule(target="EventName", start_after="Match:", end_before=" | ")
+    assert eng.extract_value("Match: Inter v Milan | resto", r2) == "Inter v Milan"
+
+
+def test_delim_spazi_interni_flessibili():
+    # "Esito :" (campo con spazio) combacia con "Esito :" e "Esito  :" nel msg.
+    r = cp.FieldRule(target="SelectionName", start_after="Esito :", end_before="\n")
+    assert eng.extract_value("Esito : GG\n", r) == "GG"
+    assert eng.extract_value("Esito  : GG\n", r) == "GG"
+    assert eng.extract_value("Esito : GG\n", cp.FieldRule(
+        target="SelectionName", start_after="Esito  :", end_before="\n")) == "GG"
+
+
+def test_delim_parole_ed_emoji_restano_letterali():
+    # Le parole devono restare uguali: un delimitatore diverso non combacia.
+    r = cp.FieldRule(target="Price", start_after="Quota:")
+    assert eng.extract_value("Quotaz: 1,85", r) == ""        # parola diversa → no match
+    e = cp.FieldRule(target="Price", start_after="📊", end_before="%")
+    assert eng.extract_value("📊72%", e) == "72"             # emoji letterale, ok
+    assert eng.extract_value("📈72%", e) == ""               # emoji diversa → no match
+
+
+def test_delim_valore_con_spazi_interni_preservato():
+    # Gli spazi DENTRO il valore non vengono toccati (solo bordi rifilati).
+    r = cp.FieldRule(target="EventName", start_after="Match:", end_before="\n")
+    assert eng.extract_value("Match:   Inter  v  Milan  \n", r) == "Inter  v  Milan"
+
+
+def test_delim_newline_resta_letterale():
+    # end_before "\n" non è "spazio": resta letterale → se manca l'a-capo e c'è
+    # solo quella riga... il default (end_before vuoto) va a fine stringa, ma un
+    # "\n" esplicito richiede l'a-capo (comportamento invariato, niente regressioni).
+    r = cp.FieldRule(target="EventName", start_after="Match:", end_before="\n")
+    assert eng.extract_value("Match: Inter v Milan\nAltro", r) == "Inter v Milan"
+    assert eng.extract_value("Match: Inter v Milan", r) == ""   # nessun "\n" → fallisce
+
+
 # ── apply_parser: gate "Non pronto" ────────────────────────────────────────
 
 def _parser():

@@ -17,12 +17,17 @@ Semantica di una regola (`FieldRule`):
 - `start_after` ("Inizia dopo"): se valorizzato, l'estrazione parte subito DOPO
   la prima occorrenza di questo testo (match case-sensitive, utile per
   emoji/simboli); se il testo non è presente nel messaggio → valore vuoto; se
-  `start_after == ""` → si parte dall'inizio del messaggio.
+  vuoto (o solo spazi/tab) → si parte dall'inizio del messaggio.
 - `end_before` ("Finisce prima di"): l'estrazione termina PRIMA della prima
   occorrenza di questo testo trovata dopo il punto di inizio; se il delimitatore
   è configurato ma NON è presente → estrazione **fallita** (valore vuoto): un
-  messaggio non conforme non deve passare il gate. Se `end_before == ""` →
+  messaggio non conforme non deve passare il gate. Se vuoto (o solo spazi/tab) →
   fino a fine RIGA (primo a-capo dopo l'inizio), per non "ingoiare" il resto.
+- match dei delimitatori **tollerante agli spazi**: spazi/tab ai bordi del
+  delimitatore vengono ignorati e i run di spazi/tab interni sono flessibili
+  (uno o più), così uno spazio digitato per errore non rompe l'estrazione;
+  parole, simboli ed emoji restano invece uguali. I newline NON sono toccati,
+  quindi un delimitatore "\n" resta letterale ("fino a fine riga").
 - una regola **senza estrazione configurata** (né `fixed_value`, né `start_after`,
   né `end_before`) restituisce vuoto: non sappiamo dove prendere il valore, quindi
   resta "mancante" finché non viene configurata (es. le regole di `skeleton()`).
@@ -31,46 +36,73 @@ Semantica di una regola (`FieldRule`):
   CSV); se opzionale e vuoto → colonna vuota (non blocca).
 """
 
+import re
 from dataclasses import dataclass, field
 
 from . import transforms, value_maps
 from .csv_writer import CSV_HEADER
 from .custom_parser import CustomParserDef, FieldRule
 
+# Match dei delimitatori tollerante agli spazi: spazi/tab ai bordi del
+# delimitatore vengono ignorati e ogni run di spazi/tab INTERNO diventa flessibile
+# (uno o più). Parole, simboli ed emoji restano LETTERALI. NB: si toccano solo
+# spazi e tab (NON i newline), così un delimitatore strutturale come "\n"
+# (usato per `end_before` = "fino a fine riga") resta letterale e invariato.
+_EDGE_WS = " \t"
+_INNER_WS = re.compile(r"[ \t]+")
+
+
+def _delim_pattern(delim: str):
+    """Compila il delimitatore in una regex tollerante agli spazi (vedi nota in
+    testa al modulo) o ritorna ``None`` se, tolti spazi/tab ai bordi, è vuoto
+    (nessun ancoraggio → si comporta come delimitatore non configurato)."""
+    trimmed = delim.strip(_EDGE_WS)
+    if trimmed == "":
+        return None
+    parts = _INNER_WS.split(trimmed)
+    return re.compile(r"[ \t]+".join(re.escape(p) for p in parts))
+
 
 def extract_value(text: str, rule: FieldRule) -> str:
     """Estrae il valore di UNA regola dal testo (vedi semantica nel docstring
     del modulo). Non solleva eccezioni: un delimitatore mancante → valore vuoto.
 
+    Il match dei delimitatori è tollerante agli spazi (`_delim_pattern`): uno
+    spazio in più/in meno ai bordi o tra le parole non rompe l'estrazione, mentre
+    parole/simboli/emoji devono restare uguali. Il valore estratto è preso dal
+    testo ORIGINALE (spazi/accenti interni preservati), poi `.strip()`ato.
+
     I campi della regola sono normalizzati con `or ""`: anche se costruita a mano
-    con `None` (la persistenza JSON forza già `str`), `.find()` non esplode."""
+    con `None` (la persistenza JSON forza già `str`), il match non esplode."""
     fixed = rule.fixed_value or ""
     if fixed != "":
         return fixed
 
-    start_after = rule.start_after or ""
-    end_before = rule.end_before or ""
+    start_pat = _delim_pattern(rule.start_after or "")
+    end_pat = _delim_pattern(rule.end_before or "")
 
-    # Regola senza estrazione configurata: nessun modo di localizzare il valore
-    # → vuoto (resta "mancante" se obbligatoria, es. le regole di skeleton()).
-    if start_after == "" and end_before == "":
+    # Regola senza estrazione configurata (anche dopo aver tolto spazi/tab ai
+    # bordi): nessun ancoraggio → vuoto (resta "mancante" se obbligatoria, es. le
+    # regole di skeleton()).
+    if start_pat is None and end_pat is None:
         return ""
     if not text:
         return ""
 
     start = 0
-    if start_after != "":
-        idx = text.find(start_after)
-        if idx == -1:
+    if start_pat is not None:
+        m = start_pat.search(text)
+        if m is None:
             return ""
-        start = idx + len(start_after)
+        start = m.end()
 
-    if end_before != "":
+    if end_pat is not None:
         # Delimitatore di fine configurato ma assente → messaggio non conforme:
         # estrazione fallita (vuoto), così un obbligatorio resta "Non pronto".
-        end = text.find(end_before, start)
-        if end == -1:
+        m = end_pat.search(text, start)
+        if m is None:
             return ""
+        end = m.start()
     else:
         # Nessun end_before: fino a fine riga (non "ingoia" il resto del messaggio).
         nl = text.find("\n", start)
