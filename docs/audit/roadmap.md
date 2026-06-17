@@ -353,9 +353,25 @@ integrazione `apply_parser` (punteggio → "Over 6,5"; input non valido → "Non
 **Micro-audit:** nessuna scrittura CSV/GUI; fail-closed; contratto invariato.
 **Audit totale:** linea Over calcolata dalla somma gol, senza hardcoding nel parser.
 
-## CP-06..CP-10 (pianificate, da affinare con il proprietario)
-- **CP-06** — costruttore GUI (Inizia dopo / Finisce prima di / obbligatorio /
-  value-map a tendina / test live su messaggio incollato).
+## CP-06 — custom-parser/builder-gui ✅ (consegnato)
+**Obiettivo:** costruttore del Parser Personalizzato dalla GUI.
+**Tecnico:** **controller puro** `xtrader_bridge/parser_builder.py`
+(`ParserBuilder`: opzioni a tendina target/transform/value-map/modalità, gestione
+regole add/update/remove/move, validazione, save/load, **test-live** via
+`custom_pipeline`) — interamente testato in CI. **Vista sottile**
+`xtrader_bridge/custom_parser_gui.py` (customtkinter `CTkToplevel`): per-regola
+"Inizia dopo"/"Finisce prima di"/valore fisso/trasformazione/value-map/obbligatorio,
+aggiungi/rimuovi, salva, prova messaggio. Pulsante "🧩 Parser Personalizzato" in
+`app.App`.
+**Test hard:** `tests/unit/test_parser_builder.py` (controller: opzioni, regole,
+validazione, save/load tmp, test-live piazzabile/non-pronto, copia difensiva);
+`py_compile` su app/gui; smoke import GUI con `importorskip(customtkinter)`.
+**GUI non avviata in questo ambiente (headless): verifica manuale su Windows.**
+**Micro-audit:** logica nel controller testato; i widget non scrivono CSV e non
+toccano il contratto; bridge avviabile invariato.
+**Audit totale:** l'utente costruisce/prova un parser dalla GUI; merge manuale.
+
+## CP-07..CP-10 (pianificate, da affinare con il proprietario)
 - **CP-07** — gestione parser: selezione/attivazione per chat sorgente, default.
 - **CP-08** — import/export + fixture di test su messaggi reali (skeleton di esempio).
 - **CP-09** — il Parser Personalizzato diventa il percorso principale; hardcoded

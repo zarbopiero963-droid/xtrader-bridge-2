@@ -142,6 +142,11 @@ class App(ctk.CTk):
         self._btn_clear.pack(side="left", padx=5)
 
         ctk.CTkButton(
+            btn_frame, text="🧩  Parser Personalizzato", width=200, height=42,
+            fg_color="#4527a0", hover_color="#311b92",
+            command=self._open_parser_builder).pack(side="left", padx=5)
+
+        ctk.CTkButton(
             btn_frame, text="💾  Salva Config", width=140, height=42,
             fg_color="#37474f", hover_color="#263238",
             command=lambda: [self._save_config(), self._log("💾 Configurazione salvata")],
@@ -307,3 +312,12 @@ class App(ctk.CTk):
             self._gate.begin()
             init_csv(path)
             self._log("🗑️  CSV svuotato manualmente")
+
+    def _open_parser_builder(self):
+        """Apre la finestra del costruttore di Parser Personalizzati (CP-06).
+
+        Import lazy: la GUI del costruttore non serve all'avvio del bridge."""
+        from .custom_parser_gui import CustomParserWindow
+        provider = str(self._load_config().get("provider", "")).strip()
+        win = CustomParserWindow(self, provider=provider)
+        win.focus()

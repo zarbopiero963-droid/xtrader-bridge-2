@@ -14,7 +14,7 @@ import pytest
 import xtrader_bridge
 
 # Moduli con side-effect all'import (GUI/servizi): testati separatamente.
-_IMPURE = {"xtrader_bridge.app"}
+_IMPURE = {"xtrader_bridge.app", "xtrader_bridge.custom_parser_gui"}
 
 # Moduli core che DEVONO sempre essere presenti (guardia contro discovery rotta).
 _CORE = {
@@ -54,3 +54,9 @@ def test_app_import_opzionale():
     # app dipende da customtkinter: se assente nell'ambiente, lo skippiamo.
     pytest.importorskip("customtkinter")
     assert importlib.import_module("xtrader_bridge.app") is not None
+
+
+def test_custom_parser_gui_import_opzionale():
+    # La GUI del costruttore dipende da customtkinter: skip se assente.
+    pytest.importorskip("customtkinter")
+    assert importlib.import_module("xtrader_bridge.custom_parser_gui") is not None
