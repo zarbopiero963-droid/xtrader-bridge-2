@@ -288,9 +288,21 @@ versione, nessuna regola), skeleton valido, save/load tmp, filename anti-travers
 **Micro-audit:** nessun runtime/GUI/contratto toccato; `target` ⊆ `CSV_HEADER`.
 **Audit totale:** base dati pronta; nessun rischio CSV/Telegram/doppia-scommessa.
 
-## CP-02..CP-10 (pianificate, da affinare con il proprietario)
-- **CP-02** — motore di estrazione: applica le regole a un messaggio
-  (`start_after`/`end_before`), gestisce "Non pronto" sugli obbligatori vuoti.
+## CP-02 — custom-parser/extraction-engine ✅ (consegnato)
+**Obiettivo:** applicare le regole di un `CustomParserDef` a un messaggio.
+**Tecnico:** `xtrader_bridge/custom_parser_engine.py` — `extract_value(text, rule)`
+(fixed/`start_after`/`end_before`, fine-riga su `end_before` vuoto, match
+case-sensitive per emoji/simboli) e `apply_parser(defn, text) → ExtractionResult`
+(`ready`, `values`, `missing_required`); `ExtractionResult.as_csv_row()` produce
+la riga a 14 colonne. NON risolve value-map (CP-03), NON trasforma (CP-05), NON
+scrive CSV (CP-04), NON tocca la GUI (CP-06).
+**Test hard:** `tests/unit/test_custom_parser_engine.py` — estrazione
+fixed/start/end/emoji/multiriga/non-trovato/rifilatura; gate "Non pronto" sugli
+obbligatori vuoti; opzionale vuoto non blocca; riga a 14 colonne; testo vuoto.
+**Micro-audit:** nessun runtime/GUI/contratto toccato; `as_csv_row` ⊆ `CSV_HEADER`.
+**Audit totale:** estrazione configurabile pronta; valore grezzo (no value-map).
+
+## CP-03..CP-10 (pianificate, da affinare con il proprietario)
 - **CP-03** — value-map: dizionario selezionabile → traduce valore estratto →
   valore esatto XTrader.
 - **CP-04** — integrazione con `validator.py` (PR-10) e `build_csv_row` prima
