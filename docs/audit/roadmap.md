@@ -417,8 +417,23 @@ scarto senza fallback; custom inesistente → hardcoded; override per chat.
 invariati; nessun segnale scritto se non piazzabile.
 **Audit totale:** il Parser Personalizzato guida davvero la scrittura CSV.
 
-## CP-10 (pianificata)
-- **CP-10** — `CUSTOM_PARSER_READY`: audit completo, test hard, documentazione.
+## CP-10 — custom-parser/ready ✅ (consegnato)
+**Obiettivo:** `CUSTOM_PARSER_READY` — audit end-to-end + documentazione della
+PHASE 3-bis (CP-01…CP-09 + tolleranza spazi nei delimitatori).
+**Tecnico:** `docs/custom_parser.md` — guida al comportamento reale: regola
+(`FieldRule`), estrazione con delimitatori tolleranti agli spazi, trasformazioni,
+value-map (bettype + dizionario), gate di sicurezza ("Non pronto", validazione
+contratto, gate di contenuto `NO_CONTENT_MATCH`, approvazione chat, parser
+autoritativo), routing/override per chat, persistenza per-parser e import/export.
+**Test hard:** `tests/integration/test_custom_parser_end_to_end.py` — catena
+completa via `signal_router.resolve_row` con funzioni reali: parser d'esempio →
+riga a 14 colonne (value-map dizionario+bettype, virgola→punto, default
+contratto); tolleranza spazi nei delimitatori fino al router; `score_to_over`
+end-to-end; gate "Non pronto" senza fallback; gate di contenuto su parser a soli
+valori fissi; chat non approvata → hardcoded; override per-chat.
+**Micro-audit:** solo documentazione + test (nessun runtime/GUI/contratto toccato).
+**Audit totale:** PHASE 3-bis chiusa; Parser Personalizzato documentato e provato
+end-to-end. GUI builder e flusso live restano da verificare a mano su Windows.
 
 ---
 
