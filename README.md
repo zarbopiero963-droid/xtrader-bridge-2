@@ -68,11 +68,26 @@ Il sistema è progettato per ridurre il rischio di piazzare due volte la stessa 
 **Q: Dove vengono salvate le impostazioni?**In un file `config.json` nella cartella utente `%APPDATA%\XTraderBridge\` (es. `C:\Users\TuoNome\AppData\Roaming\XTraderBridge\config.json`). Così le impostazioni sopravvivono a spostamenti e aggiornamenti dell'EXE. Al primo avvio, un eventuale `config.json` accanto al vecchio EXE viene migrato automaticamente. Vengono caricate al prossimo avvio.
 ---
 ## Struttura del progetto
-```xtrader-bridge/├── main.py                    ← Codice sorgente principale├── requirements.txt           ← Dipendenze Python├── README.md                  ← Questo file└── .github/    └── workflows/        └── build.yml          ← GitHub Actions: compila l'EXE su Windows```
+```
+xtrader-bridge/
+├── main.py            ← Entrypoint (avvia la GUI)
+├── xtrader_bridge/     ← Pacchetto Python (parser, CSV, config, GUI)
+├── tests/             ← Test automatici (pytest)
+├── data/              ← Dizionario XTrader
+├── requirements.txt   ← Dipendenze Python
+├── README.md          ← Questo file
+└── .github/
+    └── workflows/
+        └── build.yaml ← GitHub Actions: compila l'EXE su Windows
+```
 ---
 ## Come compilare l'EXE (sviluppatori)
 Il progetto usa **GitHub Actions** per compilare automaticamente l'EXE su Windows:
-1. Fai un push sul branch `main`2. GitHub Actions avvia automaticamente la build3. Vai su **Actions → ultima run → Artifacts**4. Scarica `XTrader-Signal-Bridge-Windows.zip`5. Dentro trovi `XTrader-Signal-Bridge.exe` pronto all'uso
+1. Fai un push sul branch `main` (oppure crea un tag `v*` per una release)
+2. GitHub Actions esegue i test, poi compila l'EXE su Windows
+3. Vai su **Actions → ultima run → Artifacts**
+4. Scarica l'artifact versionato `XTrader-Signal-Bridge-Windows-v<versione>-<data>.zip`
+5. Dentro trovi `XTrader-Signal-Bridge.exe` (nome stabile) pronto all'uso
 ---
 ## Autore
 Sviluppato su misura per l'utilizzo con **XTrader** di [TradingSportivo.club](https://assistenza.tradingsportivo.club/)

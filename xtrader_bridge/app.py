@@ -10,6 +10,7 @@ from datetime import datetime
 
 import customtkinter as ctk
 
+from . import __version__
 from .config_store import (
     CONFIG_FILE,
     load_config,
@@ -34,7 +35,7 @@ ctk.set_default_color_theme("blue")
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("XTrader Signal Bridge")
+        self.title(f"XTrader Signal Bridge v{__version__}")
         self.geometry("720x700")
         self.resizable(False, False)
 

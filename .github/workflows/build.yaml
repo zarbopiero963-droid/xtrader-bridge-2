@@ -31,6 +31,19 @@ jobs:
     - name: Esegui i test (bloccante)
       run: python -m pytest -m "not manual"
 
+    - name: Versione app + data build (nome artifact)
+      id: meta
+      shell: bash
+      run: |
+        # Versione dall'UNICA fonte di verità (xtrader_bridge/__init__.py); fail
+        # se manca, così l'artifact non finisce mai senza versione.
+        ver=$(python -c "import xtrader_bridge as p; print(p.__version__)")
+        [ -n "$ver" ] || { echo "::error::__version__ mancante"; exit 1; }
+        date=$(date -u +%Y%m%d)
+        echo "version=$ver"          >> "$GITHUB_OUTPUT"
+        echo "build_date=$date"      >> "$GITHUB_OUTPUT"
+        echo "artifact=XTrader-Signal-Bridge-Windows-v${ver}-${date}" >> "$GITHUB_OUTPUT"
+
     - name: Compila EXE con PyInstaller
       run: >
         pyinstaller --onefile --windowed
@@ -48,9 +61,11 @@ jobs:
         main.py
 
     - name: Carica EXE come Artifact (sempre scaricabile)
+      # Nome artifact versionato (versione + data build) per tracciabilità; il file
+      # .exe interno resta `XTrader-Signal-Bridge.exe` così l'utente lo ritrova uguale.
       uses: actions/upload-artifact@v4
       with:
-        name: XTrader-Signal-Bridge-Windows
+        name: ${{ steps.meta.outputs.artifact }}
         path: dist/XTrader-Signal-Bridge.exe
         retention-days: 30
 
