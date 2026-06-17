@@ -17,7 +17,7 @@ from .config_store import (
     save_config,
 )
 from .csv_writer import init_csv, write_csv
-from . import signal_router
+from . import parser_manager, signal_router
 from .signal_gate import SignalGate
 
 try:
@@ -243,8 +243,12 @@ class App(ctk.CTk):
                 cid = cfg.get("chat_id", "").strip()
                 if cid and str(msg.chat_id) != cid:
                     return
-                if 'P.Bet.' not in text and '📊' not in text:
-                    return
+                # Il prefiltro legacy (P.Bet./📊) vale SOLO per il parser hardcoded.
+                # Se per la chat è attivo un Parser Personalizzato (CP-09), deve
+                # ricevere ogni messaggio (i formati custom non hanno quei marker).
+                if parser_manager.load_active(cfg, cid) is None:
+                    if 'P.Bet.' not in text and '📊' not in text:
+                        return
                 self._process(text, cfg)
 
             self._tg_app.add_handler(MessageHandler(filters.ALL, _handle))
