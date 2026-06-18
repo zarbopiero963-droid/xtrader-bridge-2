@@ -29,6 +29,7 @@ from . import (
     signal_dedupe,
     signal_queue,
     signal_router,
+    source_manager,
 )
 
 try:
@@ -331,13 +332,24 @@ class App(ctk.CTk):
             return
 
         cfg = self._save_config()
-        # Fail-fast (PR-23): la chat notifiche XTrader NON deve coincidere con una chat
-        # sorgente (chat_id o un override parser_by_chat); altrimenti i segnali di quella
-        # chat finirebbero nel percorso di conferma e verrebbero ignorati silenziosamente.
+        # Fail-fast (PR-24): sorgenti multi-chat malformate (chat_id mancante,
+        # DUPLICATO con provider ambiguo, modalità non valida) bloccano l'avvio,
+        # altrimenti provider_for_chat sceglierebbe a caso la prima sorgente.
+        src_errors = source_manager.validate_sources(cfg.get("source_chats"))
+        if src_errors:
+            for err in src_errors:
+                self._log(f"❌ Sorgenti multi-chat: {err}")
+            self._log("Avvio annullato: correggi le sorgenti.")
+            return
+        # Fail-fast (PR-23/PR-24): la chat notifiche XTrader NON deve coincidere con una
+        # chat sorgente (chat_id, override parser_by_chat o sorgente multi-chat ATTIVA);
+        # altrimenti i segnali di quella chat finirebbero nel percorso di conferma e
+        # verrebbero ignorati silenziosamente.
         notif = str(cfg.get("xtrader_notification_chat_id", "") or "").strip()
         if notif:
             sources = {str(cfg.get("chat_id", "") or "").strip()}
             sources.update(str(k).strip() for k in (cfg.get("parser_by_chat") or {}))
+            sources.update(str(s).strip() for s in source_manager.enabled_chat_ids(cfg))
             sources.discard("")
             if notif in sources:
                 self._log("❌ La Chat notifiche XTrader coincide con una chat sorgente: "

@@ -15,7 +15,14 @@ scrivere il CSV. Così l'instradamento è interamente testabile.
 
 from dataclasses import dataclass, field
 
-from . import custom_parser_engine, custom_pipeline, parser_manager, recognition, validator
+from . import (
+    custom_parser_engine,
+    custom_pipeline,
+    parser_manager,
+    recognition,
+    source_manager,
+    validator,
+)
 from .csv_writer import build_csv_row
 from .parser import parse_message
 
@@ -27,32 +34,56 @@ HARDCODED = "hardcoded"
 NO_CONTENT_MATCH = "NO_CONTENT_MATCH"
 
 
+def _disabled_source_ids(cfg: dict) -> set:
+    """Chat di sorgenti `source_chats` **disattivate** (deny-list): disattivare una
+    sorgente deve fermarla DAVVERO, anche se la stessa chat ha un override
+    `parser_by_chat` o coincide con `chat_id` (PR-24, finding Codex)."""
+    return {s["chat_id"] for s in source_manager.source_chats(cfg)
+            if not s["enabled"] and s["chat_id"]}
+
+
 def _chat_approved_for_custom(cfg: dict, chat: str) -> bool:
-    """Una chat è approvata per il parsing custom solo se è quella CONFIGURATA
-    (`chat_id`) o ha una voce esplicita in `parser_by_chat`. Un `active_parser`
-    GLOBALE non deve quindi far scommettere chat non autorizzate (con `chat_id`
-    vuoto in un bot multi-chat sarebbe un buco): non si indebolisce il filtro chat."""
+    """Una chat è approvata per il parsing custom se è quella CONFIGURATA
+    (`chat_id`), ha una voce esplicita in `parser_by_chat`, o è una **sorgente
+    multi-chat ATTIVA** (`source_chats`, PR-24): così un `active_parser` GLOBALE
+    funziona anche per le sorgenti, senza far scommettere chat non autorizzate.
+    Una sorgente **disattivata** non è mai approvata, nemmeno con un override."""
     chat = str(chat or "")
+    if chat in _disabled_source_ids(cfg):
+        return False
     if chat and chat in parser_manager.parser_by_chat(cfg):
+        return True
+    if chat and chat in set(map(str, source_manager.enabled_chat_ids(cfg))):
         return True
     configured = str(cfg.get("chat_id", "") or "").strip()
     return bool(configured) and chat == configured
 
 
 def is_chat_allowed(cfg: dict, chat: str) -> bool:
-    """Chat che il bridge può processare nel live: quella CONFIGURATA (`chat_id`)
-    e le chiavi `parser_by_chat`. Se NULLA è configurato (chat_id vuoto e mappa
-    vuota) → comportamento legacy: tutte ammesse (responsabilità dell'utente).
+    """Chat che il bridge può processare nel live: quella CONFIGURATA (`chat_id`),
+    le chiavi `parser_by_chat` e le **sorgenti multi-chat ATTIVE** (`source_chats`
+    con `enabled=True`, PR-24). Una sorgente disattivata NON è ammessa.
+
+    Comportamento legacy "tutte ammesse" SOLO se NULLA è configurato: `chat_id` vuoto,
+    `parser_by_chat` vuota e **nessuna** `source_chats` (anche disattivata). Così
+    disattivare tutte le sorgenti **blocca tutte** le chat, non riapre il gate.
     Gatea sia il percorso custom sia l'hardcoded: nessuna scrittura per chat non
     autorizzate."""
     chat = str(chat or "")
     configured = str(cfg.get("chat_id", "") or "").strip()
     per_chat = parser_manager.parser_by_chat(cfg)
-    if not configured and not per_chat:
+    # `has_sources`: esiste ALMENO una sorgente configurata (anche disattivata) →
+    # l'utente ha definito un set di sorgenti, quindi NON si torna a "ammetti tutte".
+    has_sources = bool(source_manager.source_chats(cfg))
+    source_ids = set(map(str, source_manager.enabled_chat_ids(cfg)))   # solo le attive
+    if not configured and not per_chat and not has_sources:
         return True
-    allowed = set(per_chat.keys())
+    allowed = set(per_chat.keys()) | source_ids
     if configured:
         allowed.add(configured)
+    # Una sorgente DISATTIVATA è deny-list: vince su parser_by_chat/chat_id, così
+    # disattivarla la ferma davvero (PR-24, finding Codex).
+    allowed -= _disabled_source_ids(cfg)
     return chat in allowed
 
 
@@ -109,8 +140,12 @@ def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str =
     anche in setup multi-chat dove il singolo `chat_id` non è impostato."""
     mode = recognition.normalize_mode(cfg.get("recognition_mode", "NAME_ONLY"))
     require_price = validator.require_price_enabled(cfg)
-    provider = str(cfg.get("provider", "") or "")
     chat = str((chat_id if chat_id is not None else cfg.get("chat_id", "")) or "")
+    # Provider PER-CHAT (PR-24): per una sorgente multi-chat attiva usa il suo provider
+    # (esplicito, o derivato dalla modalità PRE→TG_PRE / LIVE→TG_LIVE); altrimenti il
+    # provider globale di config (retro-compatibilità mono-chat).
+    provider = source_manager.provider_for_chat(
+        cfg, chat, default=str(cfg.get("provider", "") or ""))
 
     defn = active_custom_parser(cfg, chat, parsers_dir)
     if defn is not None:
@@ -125,7 +160,15 @@ def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str =
         # prefiltro marker, scriverebbe lo stesso bet su ogni messaggio. Scartiamo.
         if not custom_parser_engine.matches_message(defn, text):
             return RouteResult(None, NO_CONTENT_MATCH, CUSTOM, "no_content_match")
-        return RouteResult(res.row, validator.VALID, CUSTOM)
+        row = res.row
+        # PR-24: per una chat che è una **sorgente attiva**, il provider della
+        # sorgente (esplicito o PRE/LIVE) VINCE sull'eventuale Provider fisso del
+        # parser custom — così il routing per-chat del Provider vale anche per i
+        # formati custom. Per le chat non-sorgente il Provider del parser resta.
+        if source_manager.source_for_chat(cfg, chat) is not None:
+            row = dict(row)
+            row["Provider"] = provider
+        return RouteResult(row, validator.VALID, CUSTOM)
 
     # Fallback: parser hardcoded storico.
     parsed = parse_message(text)
