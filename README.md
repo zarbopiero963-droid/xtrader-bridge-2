@@ -141,10 +141,14 @@ Pulsanti aggiuntivi:
 
 ## Configurazione avanzata (`config.json`)
 
-Alcune impostazioni **non hanno un campo nella GUI**: si modificano a mano nel file
-`config.json` (chiudi prima il bridge, poi riaprilo). Queste chiavi vengono
-**preservate** quando salvi dalla GUI, quindi non si perdono. Path del file:
-`%APPDATA%\XTraderBridge\config.json`.
+Queste impostazioni vivono in `config.json` (`%APPDATA%\XTraderBridge\config.json`).
+**Diverse sono ora modificabili anche dalla GUI**, nelle tab *Riconoscimento /
+Sicurezza / Conferme XTrader*: `recognition_mode`, `require_price`, `dry_run`,
+`max_per_day`, `queue_mode`, `xtrader_notification_chat_id`. Le restanti
+(`active_parser`, `parser_by_chat`, `source_chats`, `confirmation_keywords`,
+`rejection_keywords`) si modificano ancora **a mano** nel file (chiudi prima il
+bridge, poi riaprilo). Ogni chiave è comunque **preservata** quando salvi dalla GUI,
+quindi non si perde.
 
 | Chiave | Default | Valori | A cosa serve |
 |---|---|---|---|
