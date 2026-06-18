@@ -93,13 +93,21 @@ class SourceEditor:
         errors, warnings = self.validate()
         if errors:
             return base, errors, warnings
+        # Chat "gestite" dall'editor: le sorgenti GIÀ in config (prima di questo
+        # salvataggio) PIÙ le righe correnti. Si azzerano TUTTI i loro override e si
+        # ri-aggiungono solo quelli delle righe attuali. Così l'override di una sorgente
+        # RIMOSSA viene tolto — altrimenti la chat resterebbe autorizzata via
+        # parser_by_chat (`is_chat_allowed`) e potrebbe ancora scrivere (finding Codex
+        # P1) — mentre gli override di chat NON gestite qui (es. `chat_id` globale o
+        # voci manuali) sono preservati.
+        managed = {s["chat_id"] for s in source_manager.source_chats(base)}
+        managed |= {s["chat_id"] for s in self.sources}
         base["source_chats"] = [self._source_only(s) for s in self.sources]
-        # Override parser per chat: preserva le voci orfane, aggiorna/azzera le righe.
         by_chat = parser_manager.parser_by_chat(base)
-        for s in self.sources:
-            chat = s["chat_id"]
+        for chat in managed:
             by_chat.pop(chat, None)
+        for s in self.sources:
             if s["parser"]:
-                by_chat[chat] = s["parser"]
+                by_chat[s["chat_id"]] = s["parser"]
         base["parser_by_chat"] = by_chat
         return base, [], warnings

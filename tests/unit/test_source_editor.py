@@ -130,3 +130,29 @@ def test_apply_errore_non_tocca_parser_by_chat():
     new_cfg, errors, _ = ed.apply(cfg)
     assert errors
     assert new_cfg["parser_by_chat"] == {"111": "X"}   # invariato
+
+
+def test_apply_rimuove_override_di_sorgente_eliminata():
+    # Safety (Codex P1 / CodeRabbit): se rimuovo una sorgente che aveva un override,
+    # la sua voce parser_by_chat va eliminata, altrimenti la chat resterebbe
+    # autorizzata via is_chat_allowed. Le voci NON-sorgente restano.
+    cfg = {
+        "source_chats": [{"chat_id": "111"}],          # 111 era una sorgente...
+        "parser_by_chat": {"111": "X", "999": "Manuale"},
+    }
+    ed = SourceEditor()                                 # ...ora NESSUNA riga (111 rimossa)
+    new_cfg, errors, _ = ed.apply(cfg)
+    assert errors == []
+    assert "111" not in new_cfg["parser_by_chat"]       # override della sorgente rimossa eliminato
+    assert new_cfg["parser_by_chat"]["999"] == "Manuale"  # voce non-sorgente preservata
+
+
+def test_apply_rinomina_chat_id_sposta_override():
+    # Rename: la vecchia chat (sorgente) sparisce dagli override, la nuova li riceve.
+    cfg = {"source_chats": [{"chat_id": "111"}], "parser_by_chat": {"111": "X"}}
+    ed = SourceEditor()
+    ed.add_source(chat_id="222", parser="X")            # 111 -> 222 (con stesso parser)
+    new_cfg, errors, _ = ed.apply(cfg)
+    assert errors == []
+    assert "111" not in new_cfg["parser_by_chat"]       # vecchia chat non più autorizzata
+    assert new_cfg["parser_by_chat"]["222"] == "X"
