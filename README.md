@@ -174,9 +174,9 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 ## Più chat sorgenti (multi-chat)
 
 Per ricevere segnali da **più chat/canali**, usa il pulsante **"📡 Chat sorgenti"**
-nella finestra principale (aggiungi/rimuovi righe, imposta nome, chat_id, attiva,
-modalità PRE/LIVE, provider, e — colonna **Parser** — un Parser Personalizzato
-dedicato per quella chat, salvato in `parser_by_chat`) — oppure, in alternativa,
+nella finestra principale: aggiungi/rimuovi righe e imposta per ciascuna nome,
+chat_id, attiva, modalità PRE/LIVE, provider e — colonna **Parser** — un Parser
+Personalizzato dedicato per quella chat (salvato in `parser_by_chat`). In alternativa
 valorizza a mano `source_chats` in `config.json`. È una lista di oggetti:
 
 ```json
