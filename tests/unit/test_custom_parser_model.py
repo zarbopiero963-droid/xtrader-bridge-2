@@ -229,6 +229,26 @@ def test_save_atomico_non_lascia_tmp_residui(tmp_path):
     assert leftovers == []
 
 
+def test_delete_parser_rimuove_per_nome_idempotente(tmp_path):
+    d = _valid_def()
+    d.name = "DaCancellare"
+    cp.save_parser(d, str(tmp_path))
+    assert cp.delete_parser("DaCancellare", str(tmp_path)) is True
+    assert cp.list_parser_files(str(tmp_path)) == []
+    # File già assente → False, nessuna eccezione.
+    assert cp.delete_parser("DaCancellare", str(tmp_path)) is False
+
+
+def test_delete_parser_anti_traversal(tmp_path):
+    # Un name con ".." è sanificato da _safe_filename e non esce dalla cartella.
+    outside = tmp_path / "vittima.json"
+    outside.write_text("{}", encoding="utf-8")
+    base = tmp_path / "parsers"
+    base.mkdir()
+    cp.delete_parser("../vittima", str(base))
+    assert outside.exists()
+
+
 def test_list_parser_files_ignora_tmp_atomici(tmp_path):
     # Un temp atomico residuo (crash a metà save) NON deve apparire come parser.
     p = cp.save_parser(_valid_def(), str(tmp_path))

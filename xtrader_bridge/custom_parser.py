@@ -327,3 +327,17 @@ def list_parser_files(dir_path: str = None) -> list:
         for f in os.listdir(base)
         if f.endswith(".json") and not f.startswith(".")
     )
+
+
+def delete_parser(name: str, dir_path: str = None) -> bool:
+    """Elimina il file di un parser salvato, risolvendo il path **per nome** con
+    `_safe_filename` (anti path-traversal: un `name` con `..`/separatori non può
+    puntare fuori dalla cartella parser). Ritorna `True` se un file è stato
+    rimosso, `False` se non esisteva (idempotente, nessuna eccezione)."""
+    path = parser_path(name, dir_path)
+    try:
+        os.remove(path)
+        return True
+    except FileNotFoundError:
+        return False
+

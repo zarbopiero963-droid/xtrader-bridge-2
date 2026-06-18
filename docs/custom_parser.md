@@ -158,6 +158,13 @@ comportamento legacy (tutte le chat ammesse — responsabilità dell'utente).
 - `parser_io.example_parser()` + `fixture_message()`: un parser realistico
   (Match/Esito/Quota/Lato) che produce una riga piazzabile end-to-end, usato anche
   nei test.
+- **Gestione dalla finestra builder (CP-11):** la tendina "Parser salvati" elenca i
+  parser nella cartella utente, con **🆕 Nuovo / 📂 Carica / 📑 Duplica / 🗑 Elimina**.
+  La duplica chiede un nuovo nome e **rifiuta** un nome già esistente (non
+  sovrascrive); l'eliminazione rimuove il file per nome (anti path-traversal). Un
+  file corrotto compare in lista col nome del file, senza nascondere gli altri.
+  L'**attivazione** resta nella finestra "📡 Chat sorgenti" (parser globale o
+  per-chat); la finestra builder serve a creare/modificare/gestire le definizioni.
 
 ---
 

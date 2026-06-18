@@ -435,6 +435,23 @@ valori fissi; chat non approvata → hardcoded; override per-chat.
 **Audit totale:** PHASE 3-bis chiusa; Parser Personalizzato documentato e provato
 end-to-end. GUI builder e flusso live restano da verificare a mano su Windows.
 
+## CP-11 — custom-parser/builder-management-gui ✅ (consegnato)
+**Obiettivo:** gestire i parser salvati dalla finestra builder, senza editare i
+file JSON a mano (lista + nuovo / carica / duplica / elimina).
+**Tecnico:** `custom_parser.delete_parser(name, dir_path)` (rimozione per nome,
+anti path-traversal via `_safe_filename`, idempotente). Controller puro
+`parser_builder.ParserBuilder`: `saved_parsers()` (lista `{name, path}` ordinata,
+fallback al nome-file su JSON corrotto), `delete_saved()`, `duplicate_saved()`
+(crea una copia **nuova**: rifiuta un nome già esistente, non sovrascrive).
+Vista sottile `custom_parser_gui.py`: tendina "Parser salvati" + pulsanti
+🆕/📂/📑/🗑 (la duplica chiede il nome con `CTkInputDialog`).
+**Test hard:** `tests/unit/test_custom_parser_model.py` (delete per nome,
+idempotenza, anti-traversal) e `tests/unit/test_parser_builder.py` (lista
+ordinata, cartella assente/vuota, file corrotto, delete, duplica + collisione).
+**Micro-audit:** nessun cambio a estrazione/validazione/contratto CSV/routing/chat.
+**Audit totale:** la finestra builder ora crea, modifica **e gestisce** i parser;
+l'attivazione resta in "📡 Chat sorgenti". GUI da verificare a mano su Windows.
+
 ---
 
 # PHASE 4 — Telegram
