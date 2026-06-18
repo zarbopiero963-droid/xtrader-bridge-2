@@ -34,13 +34,23 @@ HARDCODED = "hardcoded"
 NO_CONTENT_MATCH = "NO_CONTENT_MATCH"
 
 
+def _disabled_source_ids(cfg: dict) -> set:
+    """Chat di sorgenti `source_chats` **disattivate** (deny-list): disattivare una
+    sorgente deve fermarla DAVVERO, anche se la stessa chat ha un override
+    `parser_by_chat` o coincide con `chat_id` (PR-24, finding Codex)."""
+    return {s["chat_id"] for s in source_manager.source_chats(cfg)
+            if not s["enabled"] and s["chat_id"]}
+
+
 def _chat_approved_for_custom(cfg: dict, chat: str) -> bool:
     """Una chat è approvata per il parsing custom se è quella CONFIGURATA
     (`chat_id`), ha una voce esplicita in `parser_by_chat`, o è una **sorgente
     multi-chat ATTIVA** (`source_chats`, PR-24): così un `active_parser` GLOBALE
-    funziona anche per le sorgenti, senza far scommettere chat non autorizzate
-    (non si indebolisce il filtro chat)."""
+    funziona anche per le sorgenti, senza far scommettere chat non autorizzate.
+    Una sorgente **disattivata** non è mai approvata, nemmeno con un override."""
     chat = str(chat or "")
+    if chat in _disabled_source_ids(cfg):
+        return False
     if chat and chat in parser_manager.parser_by_chat(cfg):
         return True
     if chat and chat in set(map(str, source_manager.enabled_chat_ids(cfg))):
@@ -71,6 +81,9 @@ def is_chat_allowed(cfg: dict, chat: str) -> bool:
     allowed = set(per_chat.keys()) | source_ids
     if configured:
         allowed.add(configured)
+    # Una sorgente DISATTIVATA è deny-list: vince su parser_by_chat/chat_id, così
+    # disattivarla la ferma davvero (PR-24, finding Codex).
+    allowed -= _disabled_source_ids(cfg)
     return chat in allowed
 
 
