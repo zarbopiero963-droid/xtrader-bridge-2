@@ -711,6 +711,7 @@ class App(ctk.CTk):
                 # Il segnale è già rimosso dalla coda ma il CSV (write fallita) ha
                 # ancora la riga: riprova PRESTO (non a timeout pieno, che terrebbe la
                 # riga stantia un intero intervallo) così la riga sparisce in fretta.
+                self.after(0, lambda: self._bump("errors"))
                 self.after(0, lambda e=write_error: self._log(
                     f"❌ Aggiornamento CSV dopo conferma fallito: {e}. Riprovo a breve."))
                 self._schedule_expiry(path, delay=_WRITE_RETRY_DELAY)
@@ -765,6 +766,7 @@ class App(ctk.CTk):
             # RIPROVA con un ritardo limitato (non a scadenza, che sarebbe nel passato
             # → busy-loop), così il disco converge allo stato della coda. Riprogramma
             # anche a coda vuota (un segnale scaduto non deve restare nel CSV).
+            self.after(0, lambda: self._bump("errors"))
             self.after(0, lambda e=write_error: self._log(
                 f"❌ Aggiornamento CSV alla scadenza fallito: {e}. Riprovo a breve."))
             self._schedule_expiry(path, delay=_WRITE_RETRY_DELAY)
