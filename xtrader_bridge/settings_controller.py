@@ -14,11 +14,8 @@ Impostazioni gestite (tutte già presenti in `config_store.DEFAULTS`):
 - `dry_run`           (bool, simulazione)                  — riusa `safety_guard`
 - `max_per_day`       (intero > 0)                         — riusa `safety_guard`
 - `xtrader_notification_chat_id` (str, chat conferme XTrader)
-
-> `confirmation_timeout` NON è gestito da questo controller: è collegato al runtime
-> (PR-17b) come timeout per-segnale della coda in `QUEUE_UNTIL_CONFIRMED`
-> (`signal_queue.timeout_from_config`), ma resta modificabile solo in `config.json`
-> (non esposto in questa tab).
+- `confirmation_timeout`  (intero > 0, secondi)            — collegato al runtime (PR-17b)
+- `confirmation_keywords` / `rejection_keywords` (liste)   — parole conferma/rifiuto XTrader
 
 Il merge parte SEMPRE da una copia della config caricata e tocca solo queste
 chiavi: ogni altra impostazione (token, chat, sorgenti, parser, ecc.) è preservata.
@@ -26,7 +23,10 @@ chiavi: ogni altra impostazione (token, chat, sorgenti, parser, ecc.) è preserv
 
 import copy
 
-from . import recognition, safety_guard, signal_queue, validator
+from . import config_store, recognition, safety_guard, signal_queue, validator
+
+# Default del timeout conferme: fonte unica = config_store.DEFAULTS.
+DEFAULT_CONFIRMATION_TIMEOUT = config_store.DEFAULTS["confirmation_timeout"]
 
 # Le chiavi gestite da questo controller (per documentazione/test).
 MANAGED_KEYS = (
@@ -36,7 +36,22 @@ MANAGED_KEYS = (
     "dry_run",
     "max_per_day",
     "xtrader_notification_chat_id",
+    "confirmation_timeout",
+    "confirmation_keywords",
+    "rejection_keywords",
 )
+
+
+def _keyword_list(value) -> list:
+    """Normalizza le keyword a lista di stringhe non vuote. Accetta sia la **stringa
+    CSV** dal campo GUI (`"piazzata, ok"`) sia una **lista** dalla config. Vuoto → []."""
+    if isinstance(value, str):
+        parts = value.split(",")
+    elif isinstance(value, (list, tuple)):
+        parts = value
+    else:
+        parts = []
+    return [str(p).strip() for p in parts if str(p).strip()]
 
 
 # ── opzioni per i menu a tendina della GUI ─────────────────────────────────
@@ -67,6 +82,11 @@ def current_values(cfg: dict) -> dict:
         "dry_run": safety_guard.is_dry_run(cfg),
         "max_per_day": _coerce_int_display(cfg.get("max_per_day"), safety_guard.DEFAULT_MAX_PER_DAY),
         "xtrader_notification_chat_id": str(cfg.get("xtrader_notification_chat_id", "") or "").strip(),
+        "confirmation_timeout": _coerce_int_display(
+            cfg.get("confirmation_timeout"), DEFAULT_CONFIRMATION_TIMEOUT),
+        # Keyword come stringa CSV per il campo di testo della GUI ("kw1, kw2").
+        "confirmation_keywords": ", ".join(_keyword_list(cfg.get("confirmation_keywords"))),
+        "rejection_keywords": ", ".join(_keyword_list(cfg.get("rejection_keywords"))),
     }
 
 
@@ -133,6 +153,19 @@ def apply_advanced(cfg: dict, form: dict) -> tuple:
     # La chat notifiche è testo libero: stringa vuota = conferme disattivate.
     updates["xtrader_notification_chat_id"] = str(
         form.get("xtrader_notification_chat_id", "") or "").strip()
+
+    timeout, err = _parse_positive_int(
+        form.get("confirmation_timeout"), "Timeout conferme XTrader")
+    if err:
+        errors.append(err)
+    else:
+        updates["confirmation_timeout"] = timeout
+
+    # Keyword: il campo GUI è una stringa CSV → lista di parole non vuote (vuoto = []
+    # → a runtime normalize_keywords ricade sui default del modulo). Testo libero,
+    # nessun errore bloccante.
+    updates["confirmation_keywords"] = _keyword_list(form.get("confirmation_keywords"))
+    updates["rejection_keywords"] = _keyword_list(form.get("rejection_keywords"))
 
     if errors:
         return base, errors
