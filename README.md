@@ -162,7 +162,7 @@ Sicurezza / Conferme XTrader*: `recognition_mode`, `require_price`, `dry_run`,
 | `parser_by_chat` | `{}` | `{chat_id: nome_parser}` | Override del parser per singola chat. |
 | `source_chats` | `[]` | lista | Più chat sorgente (vedi sotto). |
 | `xtrader_notification_chat_id` | `""` | chat id | Chat **separata** su cui XTrader notifica l'esito (vedi [Conferma da XTrader](#conferma-da-xtrader)). |
-| `confirmation_timeout` | `120` | secondi | Riservato: presente in config ma **non ancora collegato al runtime** (la coda usa `clear_delay`). Impostarlo oggi non ha effetto. |
+| `confirmation_timeout` | `120` | secondi | **In `QUEUE_UNTIL_CONFIRMED`**: per quanti secondi un segnale resta in attesa della conferma XTrader prima di scadere (timeout per-segnale della coda). Nelle altre modalità coda non si applica: vale `clear_delay`. |
 | `confirmation_keywords` | `[]` | lista | Parole che indicano conferma (vuoto = default del modulo). |
 | `rejection_keywords` | `[]` | lista | Parole che indicano rifiuto (vuoto = default del modulo). |
 
@@ -237,7 +237,8 @@ può leggerla e togliere dal CSV il segnale confermato/rifiutato.
 - Una notifica non associabile o ambigua viene solo loggata; la conferma **non**
   genera mai una nuova scommessa.
 - `confirmation_keywords`, `rejection_keywords` regolano l'interpretazione delle
-  notifiche. (`confirmation_timeout` è riservato e non ancora collegato — vedi tabella.)
+  notifiche; `confirmation_timeout` è il timeout del segnale in `QUEUE_UNTIL_CONFIRMED`
+  (vedi tabella della configurazione avanzata).
 
 ---
 

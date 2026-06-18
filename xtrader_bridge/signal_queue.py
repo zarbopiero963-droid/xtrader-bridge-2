@@ -29,6 +29,10 @@ APPEND_ACTIVE = "APPEND_ACTIVE"
 QUEUE_UNTIL_CONFIRMED = "QUEUE_UNTIL_CONFIRMED"
 MODES = (OVERWRITE_LAST, APPEND_ACTIVE, QUEUE_UNTIL_CONFIRMED)
 DEFAULT_MODE = OVERWRITE_LAST
+# Fail-safe del timeout per-segnale quando il config non fornisce un valore valido.
+# Coincide *intenzionalmente* con il default dell'auto-clear (settings_validation.
+# DEFAULT_TIMEOUT = 90): è lo stesso "default timeout" del bridge. Resta una costante
+# PROPRIA di questo modulo (pura, autocontenuta) per non dipendere dal layer settings.
 DEFAULT_TIMEOUT = 90        # secondi di vita di un segnale se non confermato/sostituito
 
 
@@ -37,6 +41,32 @@ def normalize_mode(mode) -> str:
     (il default conservativo: un solo segnale attivo)."""
     m = str(mode or "").strip().upper()
     return m if m in MODES else DEFAULT_MODE
+
+
+def timeout_from_config(cfg) -> float:
+    """Timeout per-segnale della coda ricavato dal config (PR-17b).
+
+    - In ``QUEUE_UNTIL_CONFIRMED`` il timeout è ``confirmation_timeout`` (per quanto
+      tempo un segnale resta in attesa della conferma XTrader prima di scadere);
+    - nelle altre modalità (``OVERWRITE_LAST``/``APPEND_ACTIVE``) è ``clear_delay``
+      (auto-clear), come storicamente.
+
+    Fail-safe: un valore mancante/non valido (non numerico, ``NaN``/``inf``, ``<=0``)
+    ricade su ``DEFAULT_TIMEOUT`` — un segnale deve scadere COMUNQUE (mai immortale)."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    key = "confirmation_timeout" if normalize_mode(cfg.get("queue_mode")) == QUEUE_UNTIL_CONFIRMED \
+        else "clear_delay"
+    raw = cfg.get(key)
+    # Rifiuta i bool PRIMA di float(): `float(True)` è `1.0` e bypasserebbe il
+    # fail-safe → ogni segnale scadrebbe dopo 1s (la riga sparirebbe prima che XTrader
+    # la legga, polling 10–15s). `True`/`False` da JSON = config malformata → default.
+    if isinstance(raw, bool):
+        return DEFAULT_TIMEOUT
+    try:
+        t = float(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_TIMEOUT
+    return t if math.isfinite(t) and t > 0 else DEFAULT_TIMEOUT
 
 
 @dataclass

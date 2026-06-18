@@ -409,10 +409,14 @@ class App(ctk.CTk):
                       f"{safety_guard.DEFAULT_MAX_PER_DAY}.")
         self._load_daily_state()
         # Coda dei segnali attivi (PR-22): il timeout per-segnale è `clear_delay`
-        # (stesso valore dell'auto-clear), così OVERWRITE_LAST replica il
-        # comportamento storico (un segnale, svuotato dopo il timeout).
+        # (auto-clear) per OVERWRITE_LAST/APPEND_ACTIVE — così OVERWRITE_LAST replica
+        # il comportamento storico — e `confirmation_timeout` per QUEUE_UNTIL_CONFIRMED
+        # (PR-17b, vedi sotto).
         mode = signal_queue.normalize_mode(cfg.get("queue_mode"))
-        delay = cfg.get("clear_delay", settings_validation.DEFAULT_TIMEOUT)
+        # PR-17b: in QUEUE_UNTIL_CONFIRMED il timeout per-segnale è confirmation_timeout
+        # (attesa della conferma XTrader); nelle altre modalità resta clear_delay
+        # (auto-clear). timeout_from_config gestisce il fallback fail-safe.
+        delay = signal_queue.timeout_from_config(cfg)
         try:
             self._queue = signal_queue.SignalQueue(mode=mode, default_timeout=delay)
         except ValueError:
