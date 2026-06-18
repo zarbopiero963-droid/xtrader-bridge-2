@@ -180,7 +180,10 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
    `dashboard_stats` testato in CI; agganciati in `_process`/`_after_non_write`).
    ✅ **PR-14b**: **filtro del log per livello** (Tutti/INFO/WARNING/ERROR/SIGNAL)
    nel riquadro log (logica pura `log_view` su `event_log.filter_by_level`, testata
-   in CI). ✅ **PR-13b**: editor delle **sorgenti multi-chat** (`source_chats`) in GUI
+   in CI). ✅ **PR-14c**: **diagnostica** — pannello STATO con ultimo messaggio/segnale/
+   CSV/errore + pulsanti "📂 Apri cartella log" e "📋 Copia diagnostica" (report puro
+   `diagnostics`, segreti redatti, testato in CI). ✅ **PR-13b**: editor delle
+   **sorgenti multi-chat** (`source_chats`) in GUI
    (pulsante "📡 Chat sorgenti": nome/chat_id/attiva/modalità/provider, validazione via
    `source_editor`/`source_manager`, salvataggio in `config.json`) — non serve più
    editare il file a mano per il supporto multi-chat. ✅ **PR-13c**: override **parser
