@@ -173,8 +173,9 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
    le impostazioni avanzate (`recognition_mode`, `require_price`, `dry_run`,
    `max_per_day`, `queue_mode`, chat notifiche XTrader) sono ora esposte in GUI a
    **tab** (logica in `settings_controller`, testata in CI); START si **blocca** se
-   un'impostazione avanzata è invalida. `confirmation_timeout` NON è esposto: non è
-   collegato a runtime (no-op). ✅ **PR-14**: dashboard con **contatori di sessione**
+   un'impostazione avanzata è invalida. `confirmation_timeout` non è esposto in GUI ma
+   è **collegato al runtime** (PR-17b: timeout per-segnale in `QUEUE_UNTIL_CONFIRMED`).
+   ✅ **PR-14**: dashboard con **contatori di sessione**
    (ricevuti/scritti/scartati/duplicati/limitati/simulati/errori, modulo puro
    `dashboard_stats` testato in CI; agganciati in `_process`/`_after_non_write`).
    ✅ **PR-14b**: **filtro del log per livello** (Tutti/INFO/WARNING/ERROR/SIGNAL)

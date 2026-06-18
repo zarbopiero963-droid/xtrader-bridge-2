@@ -15,9 +15,10 @@ Impostazioni gestite (tutte già presenti in `config_store.DEFAULTS`):
 - `max_per_day`       (intero > 0)                         — riusa `safety_guard`
 - `xtrader_notification_chat_id` (str, chat conferme XTrader)
 
-> `confirmation_timeout` NON è gestito qui: oggi non è collegato ad alcun percorso
-> runtime (la coda usa `clear_delay`), quindi esporlo sarebbe un controllo no-op
-> fuorviante (finding Codex). Wirarlo è un follow-up dedicato fuori dallo scope di PR-13.
+> `confirmation_timeout` NON è gestito da questo controller: è collegato al runtime
+> (PR-17b) come timeout per-segnale della coda in `QUEUE_UNTIL_CONFIRMED`
+> (`signal_queue.timeout_from_config`), ma resta modificabile solo in `config.json`
+> (non esposto in questa tab).
 
 Il merge parte SEMPRE da una copia della config caricata e tocca solo queste
 chiavi: ogni altra impostazione (token, chat, sorgenti, parser, ecc.) è preservata.

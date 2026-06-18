@@ -177,3 +177,33 @@ def test_pending_formato_per_confirmation_reader():
     assert pend[0]["EventName"] == "Inter v Milan"
     pend[0]["EventName"] = "HACK"                    # mutazione esterna
     assert q.active_rows()[0]["EventName"] == "Inter v Milan"   # interno intatto
+
+
+def test_timeout_from_config_queue_until_confirmed_usa_confirmation_timeout():
+    # PR-17b: solo in QUEUE_UNTIL_CONFIRMED il timeout per-segnale è confirmation_timeout.
+    cfg = {"queue_mode": "QUEUE_UNTIL_CONFIRMED", "clear_delay": 90, "confirmation_timeout": 120}
+    assert sq.timeout_from_config(cfg) == 120
+
+
+def test_timeout_from_config_altre_modalita_usano_clear_delay():
+    for mode in ("OVERWRITE_LAST", "APPEND_ACTIVE", "", "PINCO"):
+        cfg = {"queue_mode": mode, "clear_delay": 75, "confirmation_timeout": 120}
+        assert sq.timeout_from_config(cfg) == 75, mode
+
+
+def test_timeout_from_config_valore_invalido_ricade_su_default():
+    # Fail-safe: un timeout mancante/non valido NON deve rendere il segnale immortale.
+    base = {"queue_mode": "QUEUE_UNTIL_CONFIRMED"}
+    for bad in (None, "abc", 0, -5, float("inf"), float("nan")):
+        cfg = dict(base, confirmation_timeout=bad)
+        assert sq.timeout_from_config(cfg) == sq.DEFAULT_TIMEOUT, bad
+    # Stessa cosa per clear_delay nelle altre modalità.
+    assert sq.timeout_from_config({"queue_mode": "OVERWRITE_LAST", "clear_delay": "x"}) == sq.DEFAULT_TIMEOUT
+    # Config vuota / non-dict → default.
+    assert sq.timeout_from_config({}) == sq.DEFAULT_TIMEOUT
+    assert sq.timeout_from_config(None) == sq.DEFAULT_TIMEOUT
+
+
+def test_timeout_from_config_accetta_stringhe_numeriche():
+    cfg = {"queue_mode": "QUEUE_UNTIL_CONFIRMED", "confirmation_timeout": "150"}
+    assert sq.timeout_from_config(cfg) == 150

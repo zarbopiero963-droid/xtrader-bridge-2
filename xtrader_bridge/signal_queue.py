@@ -39,6 +39,26 @@ def normalize_mode(mode) -> str:
     return m if m in MODES else DEFAULT_MODE
 
 
+def timeout_from_config(cfg) -> float:
+    """Timeout per-segnale della coda ricavato dal config (PR-17b).
+
+    - In ``QUEUE_UNTIL_CONFIRMED`` il timeout è ``confirmation_timeout`` (per quanto
+      tempo un segnale resta in attesa della conferma XTrader prima di scadere);
+    - nelle altre modalità (``OVERWRITE_LAST``/``APPEND_ACTIVE``) è ``clear_delay``
+      (auto-clear), come storicamente.
+
+    Fail-safe: un valore mancante/non valido (non numerico, ``NaN``/``inf``, ``<=0``)
+    ricade su ``DEFAULT_TIMEOUT`` — un segnale deve scadere COMUNQUE (mai immortale)."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    key = "confirmation_timeout" if normalize_mode(cfg.get("queue_mode")) == QUEUE_UNTIL_CONFIRMED \
+        else "clear_delay"
+    try:
+        t = float(cfg.get(key))
+    except (TypeError, ValueError):
+        return DEFAULT_TIMEOUT
+    return t if math.isfinite(t) and t > 0 else DEFAULT_TIMEOUT
+
+
 @dataclass
 class ActiveSignal:
     """Un segnale attualmente attivo nella coda."""
