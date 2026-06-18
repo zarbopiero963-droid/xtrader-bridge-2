@@ -59,24 +59,37 @@ def _chat_approved_for_custom(cfg: dict, chat: str) -> bool:
     return bool(configured) and chat == configured
 
 
+def has_chat_filter(cfg: dict) -> bool:
+    """True se la config definisce ALMENO un criterio di ammissione chat: `chat_id`,
+    una voce `parser_by_chat`, o una `source_chats` (anche **disattivata**).
+
+    Unica fonte di verità della condizione "ammetti tutte": `is_chat_allowed` la usa
+    per il ramo legacy e `app._start` per il fail-fast d'avvio, così le due non
+    possono divergere (finding Sourcery). Quando ritorna False il bridge accetterebbe
+    segnali da **qualsiasi** chat → `app._start` annulla l'avvio."""
+    configured = str(cfg.get("chat_id", "") or "").strip()
+    per_chat = parser_manager.parser_by_chat(cfg)
+    has_sources = bool(source_manager.source_chats(cfg))
+    return bool(configured or per_chat or has_sources)
+
+
 def is_chat_allowed(cfg: dict, chat: str) -> bool:
     """Chat che il bridge può processare nel live: quella CONFIGURATA (`chat_id`),
     le chiavi `parser_by_chat` e le **sorgenti multi-chat ATTIVE** (`source_chats`
     con `enabled=True`, PR-24). Una sorgente disattivata NON è ammessa.
 
-    Comportamento legacy "tutte ammesse" SOLO se NULLA è configurato: `chat_id` vuoto,
-    `parser_by_chat` vuota e **nessuna** `source_chats` (anche disattivata). Così
-    disattivare tutte le sorgenti **blocca tutte** le chat, non riapre il gate.
-    Gatea sia il percorso custom sia l'hardcoded: nessuna scrittura per chat non
-    autorizzate."""
+    Comportamento legacy "tutte ammesse" SOLO se NULLA è configurato (`not
+    has_chat_filter`): `chat_id` vuoto, `parser_by_chat` vuota e **nessuna**
+    `source_chats` (anche disattivata). Così disattivare tutte le sorgenti **blocca
+    tutte** le chat, non riapre il gate. Gatea sia il percorso custom sia l'hardcoded:
+    nessuna scrittura per chat non autorizzate."""
     chat = str(chat or "")
     configured = str(cfg.get("chat_id", "") or "").strip()
     per_chat = parser_manager.parser_by_chat(cfg)
-    # `has_sources`: esiste ALMENO una sorgente configurata (anche disattivata) →
-    # l'utente ha definito un set di sorgenti, quindi NON si torna a "ammetti tutte".
-    has_sources = bool(source_manager.source_chats(cfg))
     source_ids = set(map(str, source_manager.enabled_chat_ids(cfg)))   # solo le attive
-    if not configured and not per_chat and not has_sources:
+    # Ramo legacy "ammetti tutte" = stessa identica condizione di `has_chat_filter`
+    # (unica fonte di verità → niente drift tra filtro live e fail-fast d'avvio).
+    if not has_chat_filter(cfg):
         return True
     allowed = set(per_chat.keys()) | source_ids
     if configured:

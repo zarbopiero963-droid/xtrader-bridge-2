@@ -63,8 +63,9 @@
 ## 4. Caso C — chat non autorizzata (deve essere ignorata)
 
 > **Pre-requisito:** in config deve esserci un `chat_id` esplicito (o un override
-> `parser_by_chat`). Con config vuota il filtro ammette **tutte** le chat (vedi
-> `final_audit.md` §4 punto 6) e questo caso non è valido.
+> `parser_by_chat`/una sorgente). Con config **completamente vuota** il bridge ora
+> **non parte** (PR-25): `app._start` annulla l'avvio finché non configuri almeno una
+> chat/sorgente (vedi `final_audit.md` §4 punto 1).
 
 1. Con un `chat_id` configurato, invia un messaggio da una chat **diversa**.
 2. **Atteso:** messaggio ignorato; nessuna scrittura; log coerente.
