@@ -109,6 +109,49 @@ def test_transform_score_to_over_end_to_end(tmp_path):
     assert res.row["Price"] == "1.85"
 
 
+# ── caso reale: provider P.Bet con emoji 🆚 e quota assente ─────────────────
+
+def test_pbet_gol_secondo_tempo_yangon_end_to_end(tmp_path):
+    """Messaggio reale di un provider 'P.Bet' (emoji 🆚 davanti alle squadre, nessuna
+    quota di puntata). Regressione: la catena attuale lo gestisce senza modifiche —
+    EventName estratto **dopo 🆚** fino a fine riga; mercato/selezione tradotti dal
+    dizionario via fixed_value+value_map; Price assente AMMESSO con require_price=False
+    (il messaggio non porta una quota piazzabile). Nessun campo inventato."""
+    defn = cp.CustomParserDef(name="PBetGol2T", rules=[
+        cp.FieldRule(target="Provider", fixed_value="P.Bet"),
+        # "🆚Yangon City v Silver Stars FC" → tutto dopo 🆚 fino a fine riga.
+        cp.FieldRule(target="EventName", start_after="\U0001F19A", end_before="\n", required=True),
+        # Mercato/selezione scelti dall'utente (Over 0.5 HT) e tradotti dal dizionario.
+        cp.FieldRule(target="MarketType", fixed_value="over 0.5 ht", value_map="markettype", required=True),
+        cp.FieldRule(target="MarketName", fixed_value="over 0.5 ht", value_map="marketname"),
+        cp.FieldRule(target="SelectionName", fixed_value="over 0.5 ht", value_map="selectionname", required=True),
+        cp.FieldRule(target="BetType", fixed_value="BACK", value_map="bettype", required=True),
+        cp.FieldRule(target="Handicap", fixed_value="0"),
+    ])
+    cp.save_parser(defn, str(tmp_path))
+    msg = (
+        "P.Bet. GOL SECONDO TEMPO LIVE \U0001F4E3✔️\n\n"
+        "\U0001F3C6 Myanmar National League 2 League\n"
+        "\U0001F19AYangon City v Silver Stars FC\n"
+        "⚽ 6 - 0\n"
+        "⏱ 46m\n"
+        "\U0001F4C8Quota 0,5 HT\n"
+        "Prematch:0"
+    )
+    res = signal_router.resolve_row(msg, _cfg("PBetGol2T", require_price=False),
+                                    chat_id="42", parsers_dir=str(tmp_path))
+    assert res.source == signal_router.CUSTOM
+    assert res.placeable is True
+    assert list(res.row.keys()) == CSV_HEADER
+    assert res.row["EventName"] == "Yangon City v Silver Stars FC"
+    assert res.row["MarketType"] == "FIRST_HALF_GOALS_05"
+    assert res.row["MarketName"] == "1º tempo - Totale goal 0,5"
+    assert res.row["SelectionName"] == "Over 0,5 goal"
+    assert res.row["BetType"] == "PUNTA"            # "BACK" via value-map bettype
+    assert res.row["Price"] == ""                   # quota assente ammessa (Price opzionale)
+    assert res.row["Handicap"] == "0"
+
+
 # ── invarianti di sicurezza ─────────────────────────────────────────────────
 
 def test_non_pronto_scarta_senza_fallback(tmp_path):
