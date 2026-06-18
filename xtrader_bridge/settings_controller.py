@@ -39,6 +39,7 @@ MANAGED_KEYS = (
     "confirmation_timeout",
     "confirmation_keywords",
     "rejection_keywords",
+    "auto_start_listener",
 )
 
 
@@ -87,6 +88,7 @@ def current_values(cfg: dict) -> dict:
         # Keyword come stringa CSV per il campo di testo della GUI ("kw1, kw2").
         "confirmation_keywords": ", ".join(_keyword_list(cfg.get("confirmation_keywords"))),
         "rejection_keywords": ", ".join(_keyword_list(cfg.get("rejection_keywords"))),
+        "auto_start_listener": _as_bool(cfg.get("auto_start_listener", False)),
     }
 
 
@@ -143,6 +145,8 @@ def apply_advanced(cfg: dict, form: dict) -> tuple:
 
     updates["require_price"] = _as_bool(form.get("require_price", True))
     updates["dry_run"] = _as_bool(form.get("dry_run", True))
+    # Avvio automatico del listener: default sicuro False (parte solo con START).
+    updates["auto_start_listener"] = _as_bool(form.get("auto_start_listener", False))
 
     max_day, err = _parse_positive_int(form.get("max_per_day"), "Limite giornaliero")
     if err:

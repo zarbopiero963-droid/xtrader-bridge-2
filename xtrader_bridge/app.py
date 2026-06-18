@@ -23,6 +23,7 @@ from .config_store import (
 )
 from .csv_writer import clear_stale_csv, init_csv, write_rows
 from . import (
+    autostart,
     confirmation_reader,
     dashboard_stats,
     diagnostics,
@@ -132,6 +133,32 @@ class App(ctk.CTk):
         # spento, quindi una riga nel CSV è per forza orfana di una sessione morta
         # → riportiamo il CSV a solo header PRIMA di un eventuale START.
         self._clear_stale_csv("all'avvio")
+        # Avvio automatico del listener (se abilitato e config minima presente): dopo
+        # che la UI è pronta, così log/stato sono visibili. Default OFF.
+        self.after(400, self._maybe_auto_start)
+
+    def _maybe_auto_start(self) -> None:
+        """Avvia il listener all'apertura se `auto_start_listener` è attivo e la config
+        minima c'è. In modalità REALE chiede conferma esplicita (niente scommesse
+        automatiche senza consenso)."""
+        ok, reason = autostart.can_auto_start(self._config)
+        if not ok:
+            if autostart._as_bool(self._config.get("auto_start_listener", False)):
+                # Abilitato ma non avviabile: spiega perché, non avviare.
+                self._log(f"▶️ Avvio automatico non eseguito: {reason}.")
+            return
+        if autostart.needs_real_mode_confirmation(self._config):
+            from tkinter import messagebox
+            conferma = messagebox.askyesno(
+                "Avvio automatico — MODALITÀ REALE",
+                "L'avvio automatico è attivo in MODALITÀ REALE: il bridge inizierà a "
+                "scrivere i segnali nel CSV (scommesse reali) appena ricevuti.\n\n"
+                "Avviare ora il listener?")
+            if not conferma:
+                self._log("⏸️ Avvio automatico in modalità reale annullato.")
+                return
+        self._log("▶️ Avvio automatico del listener (auto_start_listener attivo).")
+        self._start()
 
     def _clear_stale_csv(self, quando: str, path: str = None) -> None:
         """Riporta il CSV a solo header se è un CSV del bridge (difesa
@@ -255,6 +282,9 @@ class App(ctk.CTk):
         self._adv["queue_mode"] = self._add_option(
             tab_safe, "🧮 Modalità coda segnali",
             settings_controller.queue_mode_options(), adv["queue_mode"], 2)
+        self._adv["auto_start_listener"] = self._add_check(
+            tab_safe, "▶️ Avvio automatico all'apertura (in modalità REALE chiede conferma)",
+            adv["auto_start_listener"], 3)
 
         # Conferme XTrader: chat notifiche + timeout conferma (PR-17b, attivo in
         # QUEUE_UNTIL_CONFIRMED) + parole chiave conferma/rifiuto come stringa CSV.
