@@ -7,6 +7,7 @@ config) vive in moduli separati ed è testabile headless.
 import asyncio
 import threading
 import time
+import tkinter as tk
 from datetime import datetime
 
 import customtkinter as ctk
@@ -25,6 +26,7 @@ from . import (
     event_log,
     live_guard,
     safety_guard,
+    settings_controller,
     settings_validation,
     signal_dedupe,
     signal_queue,
@@ -52,7 +54,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title(f"XTrader Signal Bridge v{__version__}")
-        self.geometry("720x700")
+        self.geometry("720x780")
         self.resizable(False, False)
 
         self._config = self._load_config()
@@ -70,6 +72,9 @@ class App(ctk.CTk):
         self._queue = None
         self._queue_lock = threading.Lock()
         self._expire_timer = None
+        # Errori di validazione delle impostazioni avanzate dall'ultimo _save_config:
+        # se non vuoto, _start si rifiuta di avviare (PR-13, finding Codex P1).
+        self._adv_errors = []
 
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -101,7 +106,17 @@ class App(ctk.CTk):
             "clear_delay": delay,
             "provider":    self._e_provider.get().strip() or "TelegramBot",
         })
-        return save_config(cfg, CONFIG_FILE)
+        # Impostazioni avanzate (PR-13): valida e fonde tramite il controller puro.
+        # Se un valore è invalido viene loggato e NON applicato: le chiavi avanzate
+        # mantengono l'ultimo valore valido (così un errore di battitura non spegne
+        # per sbaglio la simulazione o azzera un limite).
+        adv_form = {key: w.get() for key, w in self._adv.items()}
+        cfg, self._adv_errors = settings_controller.apply_advanced(cfg, adv_form)
+        for err in self._adv_errors:
+            self._log(f"⚠️ Impostazioni avanzate: {err}")
+        saved = save_config(cfg, CONFIG_FILE)
+        self._config = saved
+        return saved
 
     # ── UI ────────────────────────────────────
     def _build_ui(self):
@@ -118,35 +133,63 @@ class App(ctk.CTk):
                                          text_color="#ef5350")
         self._status_lbl.pack(side="right", padx=15)
 
-        # Config
-        cfg_frame = ctk.CTkFrame(self, corner_radius=10)
-        cfg_frame.pack(fill="x", padx=15, pady=5)
+        # Config a tab (PR-13): impostazioni base + avanzate. Le avanzate erano prima
+        # modificabili solo a mano in config.json; la logica vive nel controller puro
+        # `settings_controller` (testato in CI), qui solo i widget.
+        tabs = ctk.CTkTabview(self, height=240)
+        tabs.pack(fill="x", padx=15, pady=5)
+        tab_gen = tabs.add("⚙️ Generale")
+        tab_rec = tabs.add("🎯 Riconoscimento")
+        tab_safe = tabs.add("🛡️ Sicurezza")
+        tab_conf = tabs.add("✅ Conferme XTrader")
 
-        ctk.CTkLabel(cfg_frame, text="⚙️  CONFIGURAZIONE",
-                     font=ctk.CTkFont(size=12, weight="bold")).grid(
-            row=0, column=0, columnspan=4, sticky="w", padx=15, pady=(10, 4))
-
-        fields = [
-            ("🔑 Bot Token",     "bot_token",   True,  0, 0),
-            ("💬 Chat ID",       "chat_id",     False, 1, 0),
-            ("📄 CSV Path",      "csv_path",    False, 2, 0),
-            ("⏱️ Timeout (sec)", "clear_delay", False, 3, 0),
-            ("🏷️ Provider",     "provider",    False, 4, 0),
-        ]
+        # — Generale: i campi storici (token, chat, CSV, timeout, provider) —
         self._entries = {}
-        for label, key, is_pwd, row, col in fields:
-            ctk.CTkLabel(cfg_frame, text=label, width=140, anchor="w").grid(
-                row=row+1, column=col, padx=(15, 5), pady=3, sticky="w")
-            e = ctk.CTkEntry(cfg_frame, width=510, show="●" if is_pwd else "")
+        gen_fields = [
+            ("🔑 Bot Token",     "bot_token",   True),
+            ("💬 Chat ID",       "chat_id",     False),
+            ("📄 CSV Path",      "csv_path",    False),
+            ("⏱️ Timeout (sec)", "clear_delay", False),
+            ("🏷️ Provider",     "provider",    False),
+        ]
+        for r, (label, key, is_pwd) in enumerate(gen_fields):
+            ctk.CTkLabel(tab_gen, text=label, width=140, anchor="w").grid(
+                row=r, column=0, padx=(10, 5), pady=4, sticky="w")
+            e = ctk.CTkEntry(tab_gen, width=470, show="●" if is_pwd else "")
             e.insert(0, str(self._config.get(key, "")))
-            e.grid(row=row+1, column=col+1, padx=(0, 15), pady=3, sticky="w")
+            e.grid(row=r, column=1, padx=(0, 10), pady=4, sticky="w")
             self._entries[key] = e
-
         self._e_token    = self._entries["bot_token"]
         self._e_chat     = self._entries["chat_id"]
         self._e_csv      = self._entries["csv_path"]
         self._e_delay    = self._entries["clear_delay"]
         self._e_provider = self._entries["provider"]
+
+        # — Impostazioni avanzate: valori correnti dal controller (default sicuri) —
+        adv = settings_controller.current_values(self._config)
+        self._adv = {}
+
+        # Riconoscimento
+        self._adv["recognition_mode"] = self._add_option(
+            tab_rec, "🎯 Modalità riconoscimento",
+            settings_controller.recognition_mode_options(), adv["recognition_mode"], 0)
+        self._adv["require_price"] = self._add_check(
+            tab_rec, "Richiedi una quota valida (> 1.0)", adv["require_price"], 1)
+
+        # Sicurezza
+        self._adv["dry_run"] = self._add_check(
+            tab_safe, "🧪 Simulazione (DRY_RUN): NON scrive il CSV operativo",
+            adv["dry_run"], 0)
+        self._adv["max_per_day"] = self._add_entry(
+            tab_safe, "📅 Limite segnali al giorno", str(adv["max_per_day"]), 1)
+        self._adv["queue_mode"] = self._add_option(
+            tab_safe, "🧮 Modalità coda segnali",
+            settings_controller.queue_mode_options(), adv["queue_mode"], 2)
+
+        # Conferme XTrader (solo la chat notifiche: è l'unico controllo collegato al
+        # runtime; `confirmation_timeout` non è ancora wirato e non va esposto come no-op).
+        self._adv["xtrader_notification_chat_id"] = self._add_entry(
+            tab_conf, "💬 Chat notifiche XTrader", adv["xtrader_notification_chat_id"], 0)
 
         # Buttons
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -206,6 +249,32 @@ class App(ctk.CTk):
         self._log_box = ctk.CTkTextbox(
             log_frame, font=ctk.CTkFont(size=11, family="Courier"), height=160)
         self._log_box.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+
+    # ── widget helper per le impostazioni avanzate (PR-13) ────────────────
+    def _add_entry(self, parent, label, value, row):
+        """Campo di testo etichettato; ritorna l'Entry (si legge con `.get()`)."""
+        ctk.CTkLabel(parent, text=label, width=240, anchor="w").grid(
+            row=row, column=0, padx=(10, 5), pady=5, sticky="w")
+        e = ctk.CTkEntry(parent, width=360)
+        e.insert(0, str(value))
+        e.grid(row=row, column=1, padx=(0, 10), pady=5, sticky="w")
+        return e
+
+    def _add_option(self, parent, label, options, value, row):
+        """Menu a tendina etichettato; ritorna la StringVar (`.get()`)."""
+        ctk.CTkLabel(parent, text=label, width=240, anchor="w").grid(
+            row=row, column=0, padx=(10, 5), pady=5, sticky="w")
+        var = tk.StringVar(master=self, value=value)
+        ctk.CTkOptionMenu(parent, values=options, variable=var, width=360).grid(
+            row=row, column=1, padx=(0, 10), pady=5, sticky="w")
+        return var
+
+    def _add_check(self, parent, label, value, row):
+        """Checkbox; ritorna la BooleanVar (`.get()`)."""
+        var = tk.BooleanVar(master=self, value=bool(value))
+        ctk.CTkCheckBox(parent, text=label, variable=var).grid(
+            row=row, column=0, columnspan=2, padx=10, pady=8, sticky="w")
+        return var
 
     # ── LOG ───────────────────────────────────
     def _log(self, msg: str, level: str = None):
@@ -332,6 +401,14 @@ class App(ctk.CTk):
             return
 
         cfg = self._save_config()
+        # Fail-fast (PR-13, finding Codex P1): se le impostazioni avanzate non sono
+        # valide, apply_advanced le ha RIFIUTATE in blocco e cfg ha ancora i vecchi
+        # valori. Avviare ignorerebbe una modifica safety-critical (es. riattivare
+        # DRY_RUN o passare a OVERWRITE_LAST): meglio bloccare e far correggere.
+        if self._adv_errors:
+            self._log("❌ Impostazioni avanzate non valide (vedi avvisi sopra): "
+                      "correggile prima di avviare. Avvio annullato.")
+            return
         # Fail-fast (PR-25): senza NESSUNA chat configurata (chat_id, parser_by_chat
         # o sorgente source_chats anche disattivata) is_chat_allowed ammetterebbe
         # TUTTE le chat: il bridge accetterebbe segnali da chat arbitrarie. Blocco

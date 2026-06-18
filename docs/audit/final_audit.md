@@ -169,7 +169,14 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
    `is_chat_allowed` conserva la semantica legacy (utile a test/funzioni pure), ma il
    bridge non parte senza un criterio di ammissione chat.
 2. **GUI**: i controller sono testati headless, ma avvio GUI, START/STOP, salvataggio e
-   builder del Parser Personalizzato vanno verificati a mano su Windows.
+   builder del Parser Personalizzato vanno verificati a mano su Windows. ✅ **PR-13**:
+   le impostazioni avanzate (`recognition_mode`, `require_price`, `dry_run`,
+   `max_per_day`, `queue_mode`, chat notifiche XTrader) sono ora esposte in GUI a
+   **tab** (logica in `settings_controller`, testata in CI); START si **blocca** se
+   un'impostazione avanzata è invalida. `confirmation_timeout` NON è esposto: non è
+   wirato a runtime (no-op). Restano da verificare a mano i widget su Windows.
+   **Dashboard contatori (PR-14)**: ancora da fare (oggi: log persistente + ultimo
+   segnale, senza contatori/filtri).
 3. **Build EXE**: workflow pronto, build reale non eseguibile qui.
 4. **XTrader live**: lettura CSV, segnale verde, conferma Telegram sono passi manuali in
    **simulazione** (vedi `xtrader_simulation_test.md`).
