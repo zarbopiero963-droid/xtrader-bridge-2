@@ -183,9 +183,10 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
    in CI). ✅ **PR-13b**: editor delle **sorgenti multi-chat** (`source_chats`) in GUI
    (pulsante "📡 Chat sorgenti": nome/chat_id/attiva/modalità/provider, validazione via
    `source_editor`/`source_manager`, salvataggio in `config.json`) — non serve più
-   editare il file a mano per il supporto multi-chat. Restano da verificare a mano i
-   widget su Windows. Restano solo-config: `parser_by_chat`, `confirmation_keywords`,
-   `rejection_keywords`.
+   editare il file a mano per il supporto multi-chat. ✅ **PR-13c**: override **parser
+   per chat** (`parser_by_chat`) editabile dalla stessa finestra (colonna Parser per
+   sorgente; le voci di chat non mostrate sono preservate). Restano da verificare a mano
+   i widget su Windows. Restano solo-config: `confirmation_keywords`, `rejection_keywords`.
 3. **Build EXE**: workflow pronto, build reale non eseguibile qui.
 4. **XTrader live**: lettura CSV, segnale verde, conferma Telegram sono passi manuali in
    **simulazione** (vedi `xtrader_simulation_test.md`).

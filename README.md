@@ -145,11 +145,11 @@ Queste impostazioni vivono in `config.json` (`%APPDATA%\XTraderBridge\config.jso
 **Diverse sono ora modificabili anche dalla GUI**, nelle tab *Riconoscimento /
 Sicurezza / Conferme XTrader*: `recognition_mode`, `require_price`, `dry_run`,
 `max_per_day`, `queue_mode`, `xtrader_notification_chat_id`. Le **chat sorgente**
-(`source_chats`) si modificano dal pulsante **"📡 Chat sorgenti"** (vedi
-[Più chat sorgenti](#più-chat-sorgenti-multi-chat)). Le restanti (`active_parser`,
-`parser_by_chat`, `confirmation_keywords`, `rejection_keywords`) si modificano ancora
-**a mano** nel file (chiudi prima il bridge, poi riaprilo). Ogni chiave è comunque
-**preservata** quando salvi dalla GUI, quindi non si perde.
+(`source_chats`) **e** l'override parser per chat (`parser_by_chat`) si modificano dal
+pulsante **"📡 Chat sorgenti"** (vedi [Più chat sorgenti](#più-chat-sorgenti-multi-chat)).
+Le restanti (`active_parser`, `confirmation_keywords`, `rejection_keywords`) si
+modificano ancora **a mano** nel file (chiudi prima il bridge, poi riaprilo). Ogni
+chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 
 | Chiave | Default | Valori | A cosa serve |
 |---|---|---|---|
@@ -159,7 +159,7 @@ Sicurezza / Conferme XTrader*: `recognition_mode`, `require_price`, `dry_run`,
 | `max_per_day` | `200` | intero | Tetto di segnali nuovi accettati in un giorno (UTC). Oltre, i segnali in eccesso non scrivono. |
 | `queue_mode` | `OVERWRITE_LAST` | `OVERWRITE_LAST`, `APPEND_ACTIVE`, `QUEUE_UNTIL_CONFIRMED` | Quanti segnali attivi tenere nel CSV. `OVERWRITE_LAST` = uno solo (sicuro). Le altre due scrivono **più righe** = più scommesse simultanee. |
 | `active_parser` | `""` | nome parser | Parser Personalizzato attivo globalmente (`""` = parser hardcoded). Di norma si imposta dalla GUI. |
-| `parser_by_chat` | `{}` | `{chat_id: nome_parser}` | Override del parser per singola chat. |
+| `parser_by_chat` | `{}` | `{chat_id: nome_parser}` | Override del parser per singola chat. Modificabile dal pulsante **"📡 Chat sorgenti"** (colonna Parser di ogni sorgente). |
 | `source_chats` | `[]` | lista | Più chat sorgente (vedi sotto). |
 | `xtrader_notification_chat_id` | `""` | chat id | Chat **separata** su cui XTrader notifica l'esito (vedi [Conferma da XTrader](#conferma-da-xtrader)). |
 | `confirmation_timeout` | `120` | secondi | **In `QUEUE_UNTIL_CONFIRMED`**: per quanti secondi un segnale resta in attesa della conferma XTrader prima di scadere (timeout per-segnale della coda). Nelle altre modalità coda non si applica: vale `clear_delay`. |
@@ -174,9 +174,10 @@ Sicurezza / Conferme XTrader*: `recognition_mode`, `require_price`, `dry_run`,
 ## Più chat sorgenti (multi-chat)
 
 Per ricevere segnali da **più chat/canali**, usa il pulsante **"📡 Chat sorgenti"**
-nella finestra principale (aggiungi/rimuovi righe, imposta nome, chat_id, attiva,
-modalità PRE/LIVE, provider, e salva) — oppure, in alternativa, valorizza a mano
-`source_chats` in `config.json`. È una lista di oggetti:
+nella finestra principale: aggiungi/rimuovi righe e imposta per ciascuna nome,
+chat_id, attiva, modalità PRE/LIVE, provider e — colonna **Parser** — un Parser
+Personalizzato dedicato per quella chat (salvato in `parser_by_chat`). In alternativa
+valorizza a mano `source_chats` in `config.json`. È una lista di oggetti:
 
 ```json
 {
