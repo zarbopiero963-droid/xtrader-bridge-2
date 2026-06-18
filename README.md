@@ -19,6 +19,7 @@
 - [Sicurezza: simulazione, duplicati e limiti](#sicurezza-simulazione-duplicati-e-limiti)
 - [Formato CSV generato](#formato-csv-generato)
 - [Dove vengono salvati i file](#dove-vengono-salvati-i-file)
+- [Avvio automatico con Windows](#avvio-automatico-con-windows)
 - [Domande frequenti](#domande-frequenti)
 - [Build dell'EXE (sviluppatori)](#build-dellexe-sviluppatori)
 - [Struttura del progetto](#struttura-del-progetto)
@@ -319,6 +320,50 @@ aggiornamenti dell'EXE):
 > Al primo avvio, un vecchio `config.json` accanto all'EXE viene **migrato**
 > automaticamente nella nuova posizione (l'originale non viene cancellato).
 > Su Linux/macOS (dev/CI) si usa `~/.config/XTraderBridge/`.
+
+---
+
+## Avvio automatico con Windows
+
+Vuoi che il bridge **riparta da solo dopo un riavvio del PC** (es. dopo un blackout)?
+Il bridge **non** si registra da solo nell'avvio di Windows (scelta voluta: niente
+modifiche di sistema a sorpresa). Lo configuri **a mano** in pochi secondi, con uno
+dei due metodi qui sotto. Poi, per far partire **anche l'ascolto** senza premere
+AVVIA, abbina l'opzione **`auto_start_listener`** (tab *Sicurezza*).
+
+> ⚠️ **Sicurezza:** in **modalità reale** (DRY_RUN disattivato) l'avvio automatico del
+> listener chiede comunque **conferma** prima di iniziare a scrivere segnali. Se vuoi
+> che il PC operi davvero da solo senza nessuno davanti, valuta bene il rischio: con
+> `auto_start_listener` attivo + DRY_RUN off + XTrader in reale, il sistema piazza
+> scommesse senza intervento. Per le prove tieni **XTrader in simulazione**.
+
+### Metodo 1 — Cartella «Esecuzione automatica» (semplice)
+1. Premi `Win + R`, scrivi `shell:startup` e premi Invio: si apre la cartella di avvio.
+2. Trascina lì un **collegamento** all'eseguibile del bridge (`XTraderBridge.exe`):
+   tasto destro sull'EXE → *Crea collegamento* → sposta il collegamento nella cartella.
+3. Al prossimo avvio di Windows l'app si apre da sola. La configurazione viene letta
+   da `%APPDATA%\XTraderBridge\config.json` (vedi
+   [Dove vengono salvati i file](#dove-vengono-salvati-i-file)), quindi token, chat e
+   impostazioni sono già a posto: **non devi reinserire il token**.
+
+### Metodo 2 — Utilità di pianificazione (più robusto)
+Utile se vuoi che parta **all'accesso** anche in scenari in cui la cartella Startup
+non basta.
+1. Apri **Utilità di pianificazione** (*Task Scheduler*).
+2. *Crea attività di base…* → nome a piacere (es. «XTrader Bridge»).
+3. **Attivazione**: «All'accesso» (o «All'avvio del computer»).
+4. **Azione**: «Avvia programma» → seleziona `XTraderBridge.exe`.
+5. Fine. Opzionale: nelle proprietà dell'attività spunta «Esegui con i privilegi più
+   elevati» solo se necessario.
+
+### Far partire anche l'ascolto da solo
+Dopo che l'app si apre (uno dei due metodi sopra), attiva **`auto_start_listener`**
+nella tab *Sicurezza*: all'apertura il bridge **avvia il listener** senza premere
+AVVIA — ma solo se **token e chat** sono configurati, e in **modalità reale** chiede
+**conferma** (vedi sopra). Di default è disattivato.
+
+> Nota: questa guida non è verificata automaticamente in CI (riguarda passi di
+> Windows). I percorsi/menu possono variare leggermente tra le versioni di Windows.
 
 ---
 
