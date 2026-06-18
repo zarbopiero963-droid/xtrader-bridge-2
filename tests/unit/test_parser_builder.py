@@ -105,6 +105,76 @@ def test_save_parser_invalido_solleva(tmp_path):
         b.save(str(tmp_path))
 
 
+# ── gestione parser salvati (CP-11: lista / carica / duplica / elimina) ──────
+
+def _save_parser(name, dir_path):
+    b = pb.ParserBuilder()
+    b.name = name
+    b.add_rule("Price", start_after="Quota:", required=True)
+    return b.save(dir_path)
+
+
+def test_saved_parsers_lista_nome_e_path_ordinata(tmp_path):
+    d = str(tmp_path)
+    p_b = _save_parser("Beta", d)
+    p_a = _save_parser("Alfa", d)
+    saved = pb.ParserBuilder.saved_parsers(d)
+    # Ordine per nome case-insensitive: Alfa prima di Beta.
+    assert [it["name"] for it in saved] == ["Alfa", "Beta"]
+    assert {it["path"] for it in saved} == {p_a, p_b}
+
+
+def test_saved_parsers_cartella_assente_e_vuota(tmp_path):
+    assert pb.ParserBuilder.saved_parsers(str(tmp_path / "non_esiste")) == []
+    assert pb.ParserBuilder.saved_parsers(str(tmp_path)) == []
+
+
+def test_saved_parsers_file_corrotto_usa_stem_senza_crash(tmp_path):
+    _save_parser("Buono", str(tmp_path))
+    (tmp_path / "rotto.json").write_text("{ non json", encoding="utf-8")
+    nomi = [it["name"] for it in pb.ParserBuilder.saved_parsers(str(tmp_path))]
+    # Il file corrotto compare col nome del file (stem), senza nascondere gli altri.
+    assert "Buono" in nomi and "rotto" in nomi
+
+
+def test_delete_saved_rimuove_e_idempotente(tmp_path):
+    d = str(tmp_path)
+    _save_parser("DaCancellare", d)
+    assert len(pb.ParserBuilder.saved_parsers(d)) == 1
+    assert pb.ParserBuilder.delete_saved("DaCancellare", d) is True
+    assert pb.ParserBuilder.saved_parsers(d) == []
+    # Seconda cancellazione: nessun errore, ritorna False.
+    assert pb.ParserBuilder.delete_saved("DaCancellare", d) is False
+
+
+def test_delete_saved_non_esce_dalla_cartella(tmp_path):
+    # Anti path-traversal: un name "ostile" non cancella file fuori dalla cartella.
+    outside = tmp_path / "vittima.json"
+    outside.write_text("{}", encoding="utf-8")
+    pb.ParserBuilder.delete_saved("../vittima", str(tmp_path / "parsers"))
+    assert outside.exists()
+
+
+def test_duplicate_saved_crea_copia_senza_toccare_originale(tmp_path):
+    d = str(tmp_path)
+    src = _save_parser("Originale", d)
+    new_path = pb.ParserBuilder.duplicate_saved(src, "Copia", d)
+    assert new_path != src
+    nomi = {it["name"] for it in pb.ParserBuilder.saved_parsers(d)}
+    assert nomi == {"Originale", "Copia"}
+    # L'originale è intatto.
+    assert pb.ParserBuilder.load(src).name == "Originale"
+
+
+def test_duplicate_saved_nome_in_collisione_solleva(tmp_path):
+    d = str(tmp_path)
+    src = _save_parser("Uno", d)
+    _save_parser("Due", d)
+    # Duplicare "Uno" col nome "Due" collide con un parser diverso → rifiutato.
+    with pytest.raises(ValueError):
+        pb.ParserBuilder.duplicate_saved(src, "Due", d)
+
+
 # ── test-live ────────────────────────────────────────────────────────────────
 
 def test_test_message_riga_piazzabile():

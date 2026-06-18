@@ -10,6 +10,9 @@ Riusa i moduli già testati: `custom_parser` (modello/validazione/persistenza),
 `recognition` (modalità).
 """
 
+import json
+import os
+
 from . import custom_parser, recognition, transforms, value_maps
 from .custom_parser import CustomParserDef, FieldRule
 from .custom_pipeline import build_validated_row
@@ -90,6 +93,44 @@ class ParserBuilder:
     @staticmethod
     def list_saved(dir_path: str = None) -> list:
         return custom_parser.list_parser_files(dir_path)
+
+    # ── gestione dei parser salvati (per la GUI: lista/carica/duplica/elimina) ─
+    @staticmethod
+    def saved_parsers(dir_path: str = None) -> list:
+        """Elenco dei parser salvati come `[{"name", "path"}]`, ordinato per nome
+        (case-insensitive). `name` è il nome **dentro** il file; se un file è
+        illeggibile/corrotto si usa il nome del file (stem) come fallback, senza
+        far fallire l'intera lista (un parser rotto non deve nascondere gli altri)."""
+        items = []
+        for path in custom_parser.list_parser_files(dir_path):
+            try:
+                name = custom_parser.load_parser(path).name
+            except (OSError, ValueError, json.JSONDecodeError):
+                name = os.path.splitext(os.path.basename(path))[0]
+            items.append({"name": name, "path": path})
+        items.sort(key=lambda it: it["name"].lower())
+        return items
+
+    @staticmethod
+    def delete_saved(name: str, dir_path: str = None) -> bool:
+        """Elimina un parser salvato per nome. Ritorna `True` se rimosso."""
+        return custom_parser.delete_parser(name, dir_path)
+
+    @staticmethod
+    def duplicate_saved(src_path: str, new_name: str, dir_path: str = None) -> str:
+        """Duplica un parser salvato sotto `new_name` e salva la copia.
+
+        Una duplica crea un parser **nuovo**: se esiste già un file per `new_name`
+        viene rifiutata con `ValueError`, così non si sovrascrive in silenzio un
+        parser esistente (`save_parser` con lo stesso nome sarebbe invece un
+        *update*). Ritorna il path della copia; l'originale non è modificato."""
+        new_name = str(new_name).strip()
+        if os.path.exists(custom_parser.parser_path(new_name, dir_path)):
+            raise ValueError(
+                f"Esiste già un parser con nome {new_name!r}: scegli un altro nome.")
+        builder = ParserBuilder.load(src_path)
+        builder.name = new_name
+        return builder.save(dir_path)
 
     # ── test-live ────────────────────────────────────────────────────────────
     def test_message(self, message: str, *, provider: str = "",

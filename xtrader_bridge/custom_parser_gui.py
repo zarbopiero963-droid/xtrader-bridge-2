@@ -20,6 +20,9 @@ class CustomParserWindow(ctk.CTkToplevel):
     """Finestra del costruttore. `on_message` opzionale non usato: l'anteprima
     è interna (test-live)."""
 
+    # Etichetta-sentinella quando non c'è nessun parser salvato.
+    _NONE_SAVED = "(nessuno)"
+
     def __init__(self, master=None, builder: ParserBuilder = None, provider: str = ""):
         super().__init__(master)
         self.title("Parser Personalizzato")
@@ -27,6 +30,7 @@ class CustomParserWindow(ctk.CTkToplevel):
         self.builder = builder or ParserBuilder()
         self._provider = provider
         self._rows = []  # widget refs per regola
+        self._saved_map = {}  # etichetta menu → path file parser
 
         self._targets = self.builder.target_options()
         self._transforms = self.builder.transform_options()
@@ -35,6 +39,7 @@ class CustomParserWindow(ctk.CTkToplevel):
 
         self._build_ui()
         self._reload_rows_from_builder()
+        self._refresh_saved()
 
     # ── costruzione UI ─────────────────────────────────────────────────────
     def _build_ui(self):
@@ -50,6 +55,20 @@ class CustomParserWindow(ctk.CTkToplevel):
             else (self._modes[0] if self._modes else recognition.DEFAULT_MODE)
         self._mode_var = ctk.StringVar(value=default_mode)
         ctk.CTkOptionMenu(top, variable=self._mode_var, values=self._modes, width=140).pack(side="left", padx=6)
+
+        # gestione parser salvati: lista + nuovo / carica / duplica / elimina
+        manage = ctk.CTkFrame(self)
+        manage.pack(fill="x", padx=10, pady=(0, 6))
+        ctk.CTkLabel(manage, text="Parser salvati:").pack(side="left", padx=6)
+        self._saved_var = ctk.StringVar(value=self._NONE_SAVED)
+        self._saved_menu = ctk.CTkOptionMenu(
+            manage, variable=self._saved_var, values=[self._NONE_SAVED], width=220)
+        self._saved_menu.pack(side="left", padx=6)
+        ctk.CTkButton(manage, text="🆕 Nuovo", width=90, command=self._new).pack(side="left", padx=3)
+        ctk.CTkButton(manage, text="📂 Carica", width=90, command=self._load_selected).pack(side="left", padx=3)
+        ctk.CTkButton(manage, text="📑 Duplica", width=90, command=self._duplicate_selected).pack(side="left", padx=3)
+        ctk.CTkButton(manage, text="🗑 Elimina", width=90, fg_color="#7f0000",
+                      command=self._delete_selected).pack(side="left", padx=3)
 
         # intestazione colonne
         head = ctk.CTkFrame(self)
@@ -143,7 +162,81 @@ class CustomParserWindow(ctk.CTkToplevel):
         except (OSError, ValueError) as exc:
             self._result.configure(text=f"❌ Errore salvataggio: {exc}")
             return
+        self._refresh_saved()
         self._result.configure(text=f"💾 Salvato in {path}")
+
+    # ── gestione parser salvati (lista / nuovo / carica / duplica / elimina) ─
+    def _refresh_saved(self):
+        """Ricarica la tendina dei parser salvati dalla cartella utente."""
+        items = ParserBuilder.saved_parsers()
+        self._saved_map = {it["name"]: it["path"] for it in items}
+        labels = list(self._saved_map) or [self._NONE_SAVED]
+        self._saved_menu.configure(values=labels)
+        # Mantieni la selezione se ancora valida, altrimenti vai sul primo.
+        if self._saved_var.get() not in labels:
+            self._saved_var.set(labels[0])
+
+    def _selected_path(self):
+        """Path del parser selezionato, o None se non c'è selezione valida."""
+        return self._saved_map.get(self._saved_var.get())
+
+    def _new(self):
+        """Svuota il costruttore per un nuovo parser (non tocca i file salvati)."""
+        self.builder = ParserBuilder()
+        self._name_var.set("")
+        self._reload_rows_from_builder()
+        self._result.configure(text="🆕 Nuovo parser (non ancora salvato).")
+
+    def _load_selected(self):
+        path = self._selected_path()
+        if not path:
+            self._result.configure(text="⛔ Nessun parser selezionato.")
+            return
+        try:
+            self.builder = ParserBuilder.load(path)
+        except (OSError, ValueError) as exc:
+            self._result.configure(text=f"❌ Errore caricamento: {exc}")
+            return
+        self._name_var.set(self.builder.name)
+        self._reload_rows_from_builder()
+        self._result.configure(text=f"📂 Caricato {self.builder.name!r}.")
+
+    def _duplicate_selected(self):
+        path = self._selected_path()
+        if not path:
+            self._result.configure(text="⛔ Nessun parser selezionato.")
+            return
+        src_name = self._saved_var.get()
+        dialog = ctk.CTkInputDialog(
+            text=f"Nuovo nome per la copia di {src_name!r}:", title="Duplica parser")
+        new_name = (dialog.get_input() or "").strip()
+        if not new_name:
+            self._result.configure(text="⛔ Duplica annullata (nome vuoto).")
+            return
+        try:
+            ParserBuilder.duplicate_saved(path, new_name)
+        except (OSError, ValueError) as exc:
+            self._result.configure(text=f"❌ Errore duplica: {exc}")
+            return
+        self._refresh_saved()
+        self._saved_var.set(new_name if new_name in self._saved_map else self._saved_var.get())
+        self._result.configure(text=f"📑 Duplicato in {new_name!r}.")
+
+    def _delete_selected(self):
+        name = self._saved_var.get()
+        if name == self._NONE_SAVED or name not in self._saved_map:
+            self._result.configure(text="⛔ Nessun parser selezionato.")
+            return
+        try:
+            removed = ParserBuilder.delete_saved(name)
+        except OSError as exc:
+            # Permessi / filesystem: mostra un errore pulito invece di crashare il
+            # callback (stesso pattern di _save/_load/_duplicate_selected).
+            self._result.configure(text=f"❌ Errore eliminazione: {exc}")
+            return
+        self._refresh_saved()
+        self._result.configure(
+            text=f"🗑 Eliminato {name!r}." if removed else f"⛔ {name!r} non trovato.")
 
     def _test(self):
         self._sync_to_builder()
