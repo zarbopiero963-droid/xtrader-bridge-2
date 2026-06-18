@@ -13,8 +13,11 @@ Impostazioni gestite (tutte già presenti in `config_store.DEFAULTS`):
 - `require_price`     (bool)                               — riusa `validator`
 - `dry_run`           (bool, simulazione)                  — riusa `safety_guard`
 - `max_per_day`       (intero > 0)                         — riusa `safety_guard`
-- `xtrader_notification_chat_id` (str, conferme XTrader)
-- `confirmation_timeout`         (intero > 0, secondi)
+- `xtrader_notification_chat_id` (str, chat conferme XTrader)
+
+> `confirmation_timeout` NON è gestito qui: oggi non è collegato ad alcun percorso
+> runtime (la coda usa `clear_delay`), quindi esporlo sarebbe un controllo no-op
+> fuorviante (finding Codex). Wirarlo è un follow-up dedicato fuori dallo scope di PR-13.
 
 Il merge parte SEMPRE da una copia della config caricata e tocca solo queste
 chiavi: ogni altra impostazione (token, chat, sorgenti, parser, ecc.) è preservata.
@@ -22,11 +25,7 @@ chiavi: ogni altra impostazione (token, chat, sorgenti, parser, ecc.) è preserv
 
 import copy
 
-from . import config_store, recognition, safety_guard, signal_queue, validator
-
-# Default del timeout conferme: fonte UNICA = config_store.DEFAULTS (niente 120
-# hard-coded sparso, così cambiarlo in un posto solo basta — finding Sourcery).
-DEFAULT_CONFIRMATION_TIMEOUT = config_store.DEFAULTS["confirmation_timeout"]
+from . import recognition, safety_guard, signal_queue, validator
 
 # Le chiavi gestite da questo controller (per documentazione/test).
 MANAGED_KEYS = (
@@ -36,7 +35,6 @@ MANAGED_KEYS = (
     "dry_run",
     "max_per_day",
     "xtrader_notification_chat_id",
-    "confirmation_timeout",
 )
 
 
@@ -68,22 +66,26 @@ def current_values(cfg: dict) -> dict:
         "dry_run": safety_guard.is_dry_run(cfg),
         "max_per_day": _coerce_int_display(cfg.get("max_per_day"), safety_guard.DEFAULT_MAX_PER_DAY),
         "xtrader_notification_chat_id": str(cfg.get("xtrader_notification_chat_id", "") or "").strip(),
-        "confirmation_timeout": _coerce_int_display(
-            cfg.get("confirmation_timeout"), DEFAULT_CONFIRMATION_TIMEOUT),
     }
 
 
 def _coerce_int_display(value, default: int) -> int:
     """Intero > 0 per la visualizzazione: un valore non valido/assente in config
     ricade sul default, così il campo mostra sempre un numero sensato. Rifiuta i
-    bool (un `True`/`False` da JSON non è un conteggio)."""
+    bool (un `True`/`False` da JSON non è un conteggio).
+
+    NON tronca: un numero non intero (es. `1.5`) o `<= 0` ricade sul default invece
+    di diventare un limite valido diverso (`1`), allineandosi a come il
+    `DailyLimiter` runtime tratta i valori malformati (finding Codex P2)."""
     if isinstance(value, bool):
         return default
     try:
-        n = int(value)
+        f = float(value)
     except (TypeError, ValueError):
         return default
-    return n if n > 0 else default
+    if not f.is_integer() or f <= 0:
+        return default
+    return int(f)
 
 
 # ── validazione + merge ────────────────────────────────────────────────────
@@ -94,7 +96,7 @@ def apply_advanced(cfg: dict, form: dict) -> tuple:
 
     - `recognition_mode` / `queue_mode`: devono stare tra le opzioni ammesse;
     - `require_price` / `dry_run`: bool (o stringa truthy/falsey);
-    - `max_per_day` / `confirmation_timeout`: interi > 0;
+    - `max_per_day`: intero > 0;
     - `xtrader_notification_chat_id`: stringa (vuota = conferme disattivate).
 
     Ritorna `(nuova_cfg, errori)`. Se `errori` non è vuoto, `nuova_cfg` è la config
@@ -126,13 +128,6 @@ def apply_advanced(cfg: dict, form: dict) -> tuple:
         errors.append(err)
     else:
         updates["max_per_day"] = max_day
-
-    timeout, err = _parse_positive_int(
-        form.get("confirmation_timeout"), "Timeout conferme XTrader")
-    if err:
-        errors.append(err)
-    else:
-        updates["confirmation_timeout"] = timeout
 
     # La chat notifiche è testo libero: stringa vuota = conferme disattivate.
     updates["xtrader_notification_chat_id"] = str(

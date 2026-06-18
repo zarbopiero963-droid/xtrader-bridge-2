@@ -72,6 +72,9 @@ class App(ctk.CTk):
         self._queue = None
         self._queue_lock = threading.Lock()
         self._expire_timer = None
+        # Errori di validazione delle impostazioni avanzate dall'ultimo _save_config:
+        # se non vuoto, _start si rifiuta di avviare (PR-13, finding Codex P1).
+        self._adv_errors = []
 
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -108,8 +111,8 @@ class App(ctk.CTk):
         # mantengono l'ultimo valore valido (così un errore di battitura non spegne
         # per sbaglio la simulazione o azzera un limite).
         adv_form = {key: w.get() for key, w in self._adv.items()}
-        cfg, adv_errors = settings_controller.apply_advanced(cfg, adv_form)
-        for err in adv_errors:
+        cfg, self._adv_errors = settings_controller.apply_advanced(cfg, adv_form)
+        for err in self._adv_errors:
             self._log(f"⚠️ Impostazioni avanzate: {err}")
         saved = save_config(cfg, CONFIG_FILE)
         self._config = saved
@@ -183,11 +186,10 @@ class App(ctk.CTk):
             tab_safe, "🧮 Modalità coda segnali",
             settings_controller.queue_mode_options(), adv["queue_mode"], 2)
 
-        # Conferme XTrader
+        # Conferme XTrader (solo la chat notifiche: è l'unico controllo collegato al
+        # runtime; `confirmation_timeout` non è ancora wirato e non va esposto come no-op).
         self._adv["xtrader_notification_chat_id"] = self._add_entry(
             tab_conf, "💬 Chat notifiche XTrader", adv["xtrader_notification_chat_id"], 0)
-        self._adv["confirmation_timeout"] = self._add_entry(
-            tab_conf, "⏳ Timeout conferme (sec)", str(adv["confirmation_timeout"]), 1)
 
         # Buttons
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -399,6 +401,14 @@ class App(ctk.CTk):
             return
 
         cfg = self._save_config()
+        # Fail-fast (PR-13, finding Codex P1): se le impostazioni avanzate non sono
+        # valide, apply_advanced le ha RIFIUTATE in blocco e cfg ha ancora i vecchi
+        # valori. Avviare ignorerebbe una modifica safety-critical (es. riattivare
+        # DRY_RUN o passare a OVERWRITE_LAST): meglio bloccare e far correggere.
+        if self._adv_errors:
+            self._log("❌ Impostazioni avanzate non valide (vedi avvisi sopra): "
+                      "correggile prima di avviare. Avvio annullato.")
+            return
         # Fail-fast (PR-25): senza NESSUNA chat configurata (chat_id, parser_by_chat
         # o sorgente source_chats anche disattivata) is_chat_allowed ammetterebbe
         # TUTTE le chat: il bridge accetterebbe segnali da chat arbitrarie. Blocco
