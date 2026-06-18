@@ -23,6 +23,7 @@ from .config_store import (
 from .csv_writer import init_csv, write_rows
 from . import (
     confirmation_reader,
+    dashboard_stats,
     event_log,
     live_guard,
     safety_guard,
@@ -54,8 +55,14 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title(f"XTrader Signal Bridge v{__version__}")
-        self.geometry("720x780")
-        self.resizable(False, False)
+        # Altezza contenuta + altezza RIDIMENSIONABILE (larghezza fissa: il layout è
+        # tarato in larghezza). Su schermi bassi (768/800px) il log — unico widget che
+        # si espande — si riduce e nulla finisce fuori schermo; i comandi (START/STOP,
+        # config) stanno sopra e restano sempre visibili (finding Codex). minsize evita
+        # un collasso eccessivo.
+        self.geometry("720x740")
+        self.resizable(False, True)
+        self.minsize(720, 560)
 
         self._config = self._load_config()
         self._running = False
@@ -75,6 +82,8 @@ class App(ctk.CTk):
         # Errori di validazione delle impostazioni avanzate dall'ultimo _save_config:
         # se non vuoto, _start si rifiuta di avviare (PR-13, finding Codex P1).
         self._adv_errors = []
+        # Contatori di sessione per la dashboard (PR-14): azzerati a ogni START.
+        self._stats = dashboard_stats.DashboardStats()
 
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -136,7 +145,7 @@ class App(ctk.CTk):
         # Config a tab (PR-13): impostazioni base + avanzate. Le avanzate erano prima
         # modificabili solo a mano in config.json; la logica vive nel controller puro
         # `settings_controller` (testato in CI), qui solo i widget.
-        tabs = ctk.CTkTabview(self, height=240)
+        tabs = ctk.CTkTabview(self, height=210)
         tabs.pack(fill="x", padx=15, pady=5)
         tab_gen = tabs.add("⚙️ Generale")
         tab_rec = tabs.add("🎯 Riconoscimento")
@@ -240,6 +249,23 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=11), text_color="gray", wraplength=680, anchor="w")
         self._sig_lbl.pack(anchor="w", padx=12, pady=(0, 8))
 
+        # Dashboard contatori di sessione (PR-14): esiti del flusso dall'ultimo START.
+        dash_frame = ctk.CTkFrame(self, corner_radius=10)
+        dash_frame.pack(fill="x", padx=15, pady=5)
+        ctk.CTkLabel(dash_frame, text="📊  DASHBOARD (dall'avvio)",
+                     font=ctk.CTkFont(size=12, weight="bold")).grid(
+            row=0, column=0, columnspan=len(dashboard_stats.COUNTERS),
+            sticky="w", padx=12, pady=(8, 2))
+        self._stat_lbls = {}
+        for col, (name, label) in enumerate(dashboard_stats.COUNTERS):
+            cell = ctk.CTkFrame(dash_frame, fg_color="transparent")
+            cell.grid(row=1, column=col, padx=8, pady=(0, 8), sticky="w")
+            ctk.CTkLabel(cell, text=label, font=ctk.CTkFont(size=10),
+                         text_color="gray").pack(anchor="w")
+            val = ctk.CTkLabel(cell, text="0", font=ctk.CTkFont(size=16, weight="bold"))
+            val.pack(anchor="w")
+            self._stat_lbls[name] = val
+
         # Log
         log_frame = ctk.CTkFrame(self, corner_radius=10)
         log_frame.pack(fill="both", expand=True, padx=15, pady=(5, 12))
@@ -247,7 +273,7 @@ class App(ctk.CTk):
                      font=ctk.CTkFont(size=12, weight="bold")).pack(
             anchor="w", padx=12, pady=(8, 2))
         self._log_box = ctk.CTkTextbox(
-            log_frame, font=ctk.CTkFont(size=11, family="Courier"), height=160)
+            log_frame, font=ctk.CTkFont(size=11, family="Courier"), height=130)
         self._log_box.pack(fill="both", expand=True, padx=12, pady=(0, 10))
 
     # ── widget helper per le impostazioni avanzate (PR-13) ────────────────
@@ -275,6 +301,19 @@ class App(ctk.CTk):
         ctk.CTkCheckBox(parent, text=label, variable=var).grid(
             row=row, column=0, columnspan=2, padx=10, pady=8, sticky="w")
         return var
+
+    # ── DASHBOARD (PR-14) ─────────────────────
+    def _refresh_dashboard(self) -> None:
+        """Aggiorna le label dei contatori dai valori correnti. Thread Tk."""
+        counts = self._stats.as_dict()
+        for name, lbl in self._stat_lbls.items():
+            lbl.configure(text=str(counts[name]))
+
+    def _bump(self, name: str) -> None:
+        """Incrementa un contatore della dashboard e rinfresca le label. DEVE girare
+        sul thread Tk: dal thread del bot va chiamato via `self.after(0, ...)`."""
+        self._stats.bump(name)
+        self._refresh_dashboard()
 
     # ── LOG ───────────────────────────────────
     def _log(self, msg: str, level: str = None):
@@ -449,6 +488,8 @@ class App(ctk.CTk):
 
         init_csv(cfg["csv_path"])
         self._init_guards(cfg)
+        self._stats.reset()           # contatori di sessione azzerati a ogni START (PR-14)
+        self._refresh_dashboard()
         self._log("🚀 Bridge avviato!")
         self._log(f"📄 CSV: {cfg['csv_path']}")
         self._log(f"⏱️  Auto-clear dopo: {cfg['clear_delay']}s")
@@ -535,10 +576,12 @@ class App(ctk.CTk):
         # CP-09: instrada al Parser Personalizzato attivo (autoritativo) o, in
         # assenza, al parser hardcoded. Non scrive righe non piazzabili: meglio
         # scartare un segnale incompleto che generare una riga ambigua.
+        self.after(0, lambda: self._bump("received"))   # PR-14: candidato instradato
         result = signal_router.resolve_row(text, cfg, chat_id=chat_id)
         if not result.placeable:
             detail = (", ".join(result.missing_required)
                       if result.missing_required else result.detail)
+            self.after(0, lambda: self._bump("discarded"))
             self.after(0, lambda: self._log(
                 f"⚠️ Segnale scartato ({result.source}/{result.status}): {detail}"))
             return
@@ -588,6 +631,7 @@ class App(ctk.CTk):
                 self._tracker.restore_state(tracker_snap)
                 if self._daily is not None and daily_snap is not None:
                     self._daily.restore_state(daily_snap)
+            self.after(0, lambda: self._bump("errors"))
             self.after(0, lambda e=write_error: self._log(
                 f"❌ Scrittura CSV fallita: {e}. Segnale non registrato (riprovabile)."))
             self._schedule_expiry(path)           # i segnali ripristinati devono comunque scadere
@@ -595,6 +639,7 @@ class App(ctk.CTk):
         # Scrittura riuscita: ora è sicuro persistere lo stato dei guardrail.
         if self._tracker is not None:
             self._save_guard_state()
+        self.after(0, lambda: self._bump("written"))   # PR-14: riga scritta nel CSV
 
         info = (f"🏆 {row.get('EventName', '')}  |  "
                 f"{row.get('SelectionName', '')}  |  "
@@ -619,17 +664,21 @@ class App(ctk.CTk):
         sel = row.get("SelectionName", "")
         if decision == live_guard.DRY_RUN:
             info = f"🧪 DRY_RUN — {ev}  |  {sel}  q.{row.get('Price', '')}"
+            self.after(0, lambda: self._bump("dry_run"))
             self.after(0, lambda: self._sig_lbl.configure(text=info, text_color="#ffb74d"))
             self.after(0, lambda: self._log(
                 f"🧪 DRY_RUN: segnale riconosciuto ma CSV NON scritto (simulazione): "
                 f"{ev} | {sel}"))
         elif decision == live_guard.DUPLICATE:
+            self.after(0, lambda: self._bump("duplicate"))
             self.after(0, lambda: self._log(
                 f"♻️ Duplicato ignorato (nessuna doppia scommessa): {ev} | {sel}"))
         elif decision == live_guard.RATE_LIMITED:
+            self.after(0, lambda: self._bump("limited"))
             self.after(0, lambda: self._log(
                 "🚦 Limite al minuto raggiunto: segnale ignorato."))
         elif decision == live_guard.DAILY_LIMITED:
+            self.after(0, lambda: self._bump("limited"))
             self.after(0, lambda: self._log(
                 "🚦 Limite giornaliero raggiunto: segnale ignorato."))
 
@@ -668,6 +717,7 @@ class App(ctk.CTk):
                 # Il segnale è già rimosso dalla coda ma il CSV (write fallita) ha
                 # ancora la riga: riprova PRESTO (non a timeout pieno, che terrebbe la
                 # riga stantia un intero intervallo) così la riga sparisce in fretta.
+                self.after(0, lambda: self._bump("errors"))
                 self.after(0, lambda e=write_error: self._log(
                     f"❌ Aggiornamento CSV dopo conferma fallito: {e}. Riprovo a breve."))
                 self._schedule_expiry(path, delay=_WRITE_RETRY_DELAY)
@@ -722,6 +772,7 @@ class App(ctk.CTk):
             # RIPROVA con un ritardo limitato (non a scadenza, che sarebbe nel passato
             # → busy-loop), così il disco converge allo stato della coda. Riprogramma
             # anche a coda vuota (un segnale scaduto non deve restare nel CSV).
+            self.after(0, lambda: self._bump("errors"))
             self.after(0, lambda e=write_error: self._log(
                 f"❌ Aggiornamento CSV alla scadenza fallito: {e}. Riprovo a breve."))
             self._schedule_expiry(path, delay=_WRITE_RETRY_DELAY)
