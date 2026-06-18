@@ -172,6 +172,7 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | `xtrader_notification_chat_id` | `""` | chat id | Chat **separata** su cui XTrader notifica l'esito (vedi [Conferma da XTrader](#conferma-da-xtrader)). |
 | `confirmation_timeout` | `120` | secondi | **In `QUEUE_UNTIL_CONFIRMED`**: per quanti secondi un segnale resta in attesa della conferma XTrader prima di scadere (timeout per-segnale della coda). Nelle altre modalità coda non si applica: vale `clear_delay`. |
 | `max_signal_age` | `120` | secondi | Un messaggio Telegram più vecchio di così viene **ignorato** all'arrivo (anti-segnale-stantio: evita che gli arretrati rifetchati dopo una disconnessione diventino scommesse vecchie). `0` = filtro disattivato. |
+| `auto_start_listener` | `false` | `true`/`false` | Se `true`, all'apertura l'app **avvia da sola** il listener — ma solo se token e chat sono configurati; in **modalità reale** chiede conferma prima di partire. Default `false`: il bridge parte solo con **AVVIA**. Attivabile dalla tab *Sicurezza*. |
 | `confirmation_keywords` | `[]` | lista | Parole che indicano conferma (vuoto = default del modulo). Dalla GUI: stringa separata da virgola. |
 | `rejection_keywords` | `[]` | lista | Parole che indicano rifiuto (vuoto = default del modulo). Dalla GUI: stringa separata da virgola. |
 
@@ -325,6 +326,11 @@ aggiornamenti dell'EXE):
 
 **Devo tenere il programma aperto?** Sì, deve girare in background mentre vuoi
 ricevere segnali. Puoi minimizzarlo.
+
+**Può partire da solo all'apertura?** Sì, attivando `auto_start_listener` (tab
+*Sicurezza*): all'apertura il bridge avvia il listener senza premere AVVIA, ma solo
+se token e chat sono configurati. In **modalità reale** chiede prima conferma, così
+non inizia a scommettere da solo per sbaglio. Di default è disattivato.
 
 **Cosa succede se cade la connessione?** Il listener **si riconnette da solo** con
 attese crescenti (backoff: 2s, 4s, 8s… fino a 60s) finché resta avviato; durante

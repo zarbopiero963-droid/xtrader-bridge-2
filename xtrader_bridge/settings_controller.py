@@ -23,7 +23,7 @@ chiavi: ogni altra impostazione (token, chat, sorgenti, parser, ecc.) è preserv
 
 import copy
 
-from . import config_store, recognition, safety_guard, signal_queue, validator
+from . import autostart, config_store, recognition, safety_guard, signal_queue, validator
 
 # Default del timeout conferme: fonte unica = config_store.DEFAULTS.
 DEFAULT_CONFIRMATION_TIMEOUT = config_store.DEFAULTS["confirmation_timeout"]
@@ -39,6 +39,7 @@ MANAGED_KEYS = (
     "confirmation_timeout",
     "confirmation_keywords",
     "rejection_keywords",
+    "auto_start_listener",
 )
 
 
@@ -87,6 +88,9 @@ def current_values(cfg: dict) -> dict:
         # Keyword come stringa CSV per il campo di testo della GUI ("kw1, kw2").
         "confirmation_keywords": ", ".join(_keyword_list(cfg.get("confirmation_keywords"))),
         "rejection_keywords": ", ".join(_keyword_list(cfg.get("rejection_keywords"))),
+        # Coerente col runtime: stessa logica fail-closed di autostart (un valore
+        # malformato/None NON deve mostrare il toggle come attivo).
+        "auto_start_listener": autostart.is_enabled(cfg),
     }
 
 
@@ -143,6 +147,8 @@ def apply_advanced(cfg: dict, form: dict) -> tuple:
 
     updates["require_price"] = _as_bool(form.get("require_price", True))
     updates["dry_run"] = _as_bool(form.get("dry_run", True))
+    # Avvio automatico del listener: default sicuro False (parte solo con START).
+    updates["auto_start_listener"] = _as_bool(form.get("auto_start_listener", False))
 
     max_day, err = _parse_positive_int(form.get("max_per_day"), "Limite giornaliero")
     if err:
@@ -173,13 +179,9 @@ def apply_advanced(cfg: dict, form: dict) -> tuple:
     return base, []
 
 
-def _as_bool(value) -> bool:
-    """Coercizione robusta a bool (i checkbox danno bool; JSON/stringhe variano)."""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value != 0
-    return str(value).strip().lower() not in ("", "0", "false", "no", "off")
+# Coercizione robusta a bool: fonte unica condivisa (config_store), per non avere
+# versioni divergenti dello stesso helper (feedback Sourcery).
+_as_bool = config_store.as_bool
 
 
 def _parse_positive_int(value, label: str):

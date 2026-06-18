@@ -56,7 +56,23 @@ DEFAULTS = {
     # secondi viene SCARTATO all'arrivo (probabile recupero dopo una disconnessione,
     # quando la connessione torna e arretrati vengono rifetchati). 0 = filtro disattivo.
     "max_signal_age":               120,
+    # Avvio automatico del listener all'apertura dell'app. Default sicuro False: il
+    # bridge parte solo con START manuale. Se True parte da solo SOLO se token e chat
+    # sono configurati; in modalità REALE chiede comunque conferma prima di avviare.
+    "auto_start_listener":          False,
 }
+
+
+def as_bool(value) -> bool:
+    """Coercizione robusta a bool, condivisa dai vari moduli (config da JSON o stringhe
+    truthy/falsey). `bool`→sé; numeri→`!= 0`; stringa→False solo se vuota o in
+    ``{"0","false","no","off"}`` (case-insensitive). Unica fonte per evitare versioni
+    divergenti dello stesso helper."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() not in ("", "0", "false", "no", "off")
 
 
 def config_dir() -> str:

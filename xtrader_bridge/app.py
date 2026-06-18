@@ -23,6 +23,7 @@ from .config_store import (
 )
 from .csv_writer import clear_stale_csv, init_csv, write_rows
 from . import (
+    autostart,
     confirmation_reader,
     dashboard_stats,
     diagnostics,
@@ -94,6 +95,13 @@ class App(ctk.CTk):
         # Contatore dei tentativi di riconnessione (supervisor del listener): cresce
         # ad ogni caduta di rete e si azzera a connessione stabilita.
         self._reconnect_attempt = 0
+        # Chiusura in corso: impedisce all'auto-start ritardato di avviare il listener
+        # dopo che la finestra è stata chiusa (Codex P2).
+        self._closing = False
+        # Id del callback ritardato di auto-start: tracciato per poterlo ANNULLARE su
+        # qualsiasi azione manuale (AVVIA/STOP/chiusura), così un'azione dell'utente
+        # nella finestra dei 400 ms non viene scavalcata dall'auto-start (Codex P2).
+        self._autostart_after_id = None
         # Segnale di STOP per interrompere SUBITO l'attesa del backoff (senza
         # busy-poll): impostato in _stop, azzerato a ogni START.
         self._stop_event = threading.Event()
@@ -132,6 +140,33 @@ class App(ctk.CTk):
         # spento, quindi una riga nel CSV è per forza orfana di una sessione morta
         # → riportiamo il CSV a solo header PRIMA di un eventuale START.
         self._clear_stale_csv("all'avvio")
+        # Avvio automatico del listener (se abilitato e config minima presente): dopo
+        # che la UI è pronta, così log/stato sono visibili. Default OFF.
+        self._autostart_after_id = self.after(400, self._maybe_auto_start)
+
+    def _maybe_auto_start(self) -> None:
+        """Avvia il listener all'apertura se `auto_start_listener` è attivo e la config
+        minima c'è. La decisione fine (config valida, conferma in modalità REALE) è in
+        `_start(auto=True)`, basata sulla STESSA config che `_start` userà (Codex P2)."""
+        self._autostart_after_id = None    # callback consumato
+        # Un'azione manuale (AVVIA/STOP/chiusura) ha la precedenza sull'auto-start.
+        if self._running or self._closing:
+            return
+        # Gate grezzo sulla config caricata: l'auto-start è una proprietà dell'apertura.
+        # Se non era richiesto, non tocchiamo nulla (niente _save_config inutile).
+        if not autostart.is_enabled(self._config):
+            return
+        self._start(auto=True)
+
+    def _cancel_pending_autostart(self) -> None:
+        """Annulla un auto-start ritardato ancora pendente (Codex P2): qualunque
+        azione manuale dell'utente non deve essere scavalcata dal callback."""
+        if self._autostart_after_id is not None:
+            try:
+                self.after_cancel(self._autostart_after_id)
+            except Exception:        # noqa: BLE001 — id già scaduto/invalid: ininfluente
+                pass
+            self._autostart_after_id = None
 
     def _clear_stale_csv(self, quando: str, path: str = None) -> None:
         """Riporta il CSV a solo header se è un CSV del bridge (difesa
@@ -255,6 +290,9 @@ class App(ctk.CTk):
         self._adv["queue_mode"] = self._add_option(
             tab_safe, "🧮 Modalità coda segnali",
             settings_controller.queue_mode_options(), adv["queue_mode"], 2)
+        self._adv["auto_start_listener"] = self._add_check(
+            tab_safe, "▶️ Avvio automatico all'apertura (in modalità REALE chiede conferma)",
+            adv["auto_start_listener"], 3)
 
         # Conferme XTrader: chat notifiche + timeout conferma (PR-17b, attivo in
         # QUEUE_UNTIL_CONFIRMED) + parole chiave conferma/rifiuto come stringa CSV.
@@ -597,7 +635,10 @@ class App(ctk.CTk):
                 pass
 
     # ── START / STOP ──────────────────────────
-    def _start(self):
+    def _start(self, auto: bool = False):
+        # Un AVVIA (manuale o automatico) consuma l'auto-start pendente: dopo questo
+        # nessun callback ritardato deve (ri)avviare il listener (Codex P2).
+        self._cancel_pending_autostart()
         if not TELEGRAM_OK:
             # Libreria python-telegram-bot assente: errore chiaro, niente crash
             # silenzioso nel thread del bot (PR-11, #11).
@@ -663,6 +704,24 @@ class App(ctk.CTk):
                           "cambiala (i segnali verrebbero scambiati per conferme). Avvio annullato.")
                 return
 
+        # Avvio AUTOMATICO: la decisione si basa sulla config APPENA salvata (cfg),
+        # cioè i valori correnti dei widget — non su quelli caricati all'apertura
+        # (Codex P2). Se l'utente ha disattivato l'auto-start nel frattempo non si
+        # parte; in modalità REALE si chiede conferma esplicita prima di scommettere.
+        if auto:
+            if not autostart.is_enabled(cfg):
+                return
+            if autostart.needs_real_mode_confirmation(cfg):
+                from tkinter import messagebox
+                if not messagebox.askyesno(
+                        "Avvio automatico — MODALITÀ REALE",
+                        "L'avvio automatico è attivo in MODALITÀ REALE: il bridge "
+                        "inizierà a scrivere i segnali nel CSV (scommesse reali) "
+                        "appena ricevuti.\n\nAvviare ora il listener?"):
+                    self._log("⏸️ Avvio automatico in modalità reale annullato.")
+                    return
+            self._log("▶️ Avvio automatico del listener (auto_start_listener attivo).")
+
         self._running = True
         self._stop_event.clear()      # nuova sessione: riarma l'attesa del backoff
         self._status_lbl.configure(text="⬤  ATTIVO", text_color="#66bb6a")
@@ -698,6 +757,7 @@ class App(ctk.CTk):
 
     def _stop(self):
         self._running = False
+        self._cancel_pending_autostart()   # uno STOP non deve essere annullato da un auto-start pendente (Codex P2)
         self._stop_event.set()        # sveglia subito un'eventuale attesa del backoff
         if self._loop and self._tg_app:
             try:
@@ -729,6 +789,7 @@ class App(ctk.CTk):
         self._log("🛑 Bridge fermato.")
 
     def _on_close(self):
+        self._closing = True   # blocca un auto-start ritardato ancora pendente (Codex P2)
         self._stop()
         self.after(500, self.destroy)
 
