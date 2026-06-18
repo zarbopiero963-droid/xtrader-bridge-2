@@ -227,7 +227,13 @@ class CustomParserWindow(ctk.CTkToplevel):
         if name == self._NONE_SAVED or name not in self._saved_map:
             self._result.configure(text="⛔ Nessun parser selezionato.")
             return
-        removed = ParserBuilder.delete_saved(name)
+        try:
+            removed = ParserBuilder.delete_saved(name)
+        except OSError as exc:
+            # Permessi / filesystem: mostra un errore pulito invece di crashare il
+            # callback (stesso pattern di _save/_load/_duplicate_selected).
+            self._result.configure(text=f"❌ Errore eliminazione: {exc}")
+            return
         self._refresh_saved()
         self._result.configure(
             text=f"🗑 Eliminato {name!r}." if removed else f"⛔ {name!r} non trovato.")

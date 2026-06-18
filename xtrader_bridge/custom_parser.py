@@ -332,8 +332,14 @@ def list_parser_files(dir_path: str = None) -> list:
 def delete_parser(name: str, dir_path: str = None) -> bool:
     """Elimina il file di un parser salvato, risolvendo il path **per nome** con
     `_safe_filename` (anti path-traversal: un `name` con `..`/separatori non può
-    puntare fuori dalla cartella parser). Ritorna `True` se un file è stato
-    rimosso, `False` se non esisteva (idempotente, nessuna eccezione)."""
+    puntare fuori dalla cartella parser).
+
+    Contratto: ritorna `True` se un file è stato rimosso, `False` se non esisteva
+    (idempotente). La **non-esistenza** è il solo caso reso silenzioso; ogni altro
+    `OSError` (permessi, filesystem in sola lettura, IO transitorio) **si propaga**
+    al chiamante invece di essere nascosto come un finto "non trovato" — così un
+    problema reale non passa inosservato. Il chiamante GUI lo gestisce e lo mostra
+    (`custom_parser_gui._delete_selected`), come già fa per salva/carica."""
     path = parser_path(name, dir_path)
     try:
         os.remove(path)

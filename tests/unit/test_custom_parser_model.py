@@ -249,6 +249,21 @@ def test_delete_parser_anti_traversal(tmp_path):
     assert outside.exists()
 
 
+def test_delete_parser_propaga_oserror_non_filenotfound(tmp_path, monkeypatch):
+    # Contratto (finding Sourcery): solo la NON-esistenza è silenziosa (→ False);
+    # un altro OSError (es. permessi) si PROPAGA, non viene mascherato da "non trovato".
+    d = _valid_def()
+    d.name = "Bloccato"
+    cp.save_parser(d, str(tmp_path))
+
+    def _boom(_path):
+        raise PermissionError("permesso negato")
+
+    monkeypatch.setattr(cp.os, "remove", _boom)
+    with pytest.raises(PermissionError):
+        cp.delete_parser("Bloccato", str(tmp_path))
+
+
 def test_list_parser_files_ignora_tmp_atomici(tmp_path):
     # Un temp atomico residuo (crash a metà save) NON deve apparire come parser.
     p = cp.save_parser(_valid_def(), str(tmp_path))
