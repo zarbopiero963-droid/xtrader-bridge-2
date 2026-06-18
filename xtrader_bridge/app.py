@@ -20,7 +20,7 @@ from .config_store import (
     migrate_legacy_config,
     save_config,
 )
-from .csv_writer import init_csv, write_rows
+from .csv_writer import clear_stale_csv, init_csv, write_rows
 from . import (
     confirmation_reader,
     dashboard_stats,
@@ -110,6 +110,21 @@ class App(ctk.CTk):
 
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        # Anti-segnale-stantio (blackout/crash): all'avvio il listener è ancora
+        # spento, quindi una riga nel CSV è per forza orfana di una sessione morta
+        # → riportiamo il CSV a solo header PRIMA di un eventuale START.
+        self._clear_stale_csv("all'avvio")
+
+    def _clear_stale_csv(self, quando: str) -> None:
+        """Riporta il CSV a solo header se esiste (difesa anti-segnale-stantio).
+        Best-effort: un errore di I/O non deve impedire avvio/chiusura."""
+        path = str((self._config or {}).get("csv_path", "") or "").strip()
+        try:
+            if clear_stale_csv(path):
+                self._log(f"🧹 CSV riportato a solo header {quando} "
+                          f"(rimossa una riga di una sessione precedente): {path}")
+        except OSError as exc:
+            self._log(f"⚠️ Impossibile ripulire il CSV {quando}: {exc}")
 
     # ── CONFIG ────────────────────────────────
     def _load_config(self) -> dict:
@@ -664,6 +679,9 @@ class App(ctk.CTk):
                 pass
         if self._expire_timer:
             self._expire_timer.cancel()
+        # Anti-segnale-stantio: una chiusura/STOP normale non deve lasciare una riga
+        # attiva nel CSV (il timer di auto-clear è appena stato cancellato).
+        self._clear_stale_csv("allo stop")
         self._status_lbl.configure(text="⬤  OFFLINE", text_color="#ef5350")
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")

@@ -68,6 +68,12 @@ dopo N secondi (timeout configurabile, default 90s) il CSV viene svuotato
 CSV con solo l'header → pronto per il prossimo segnale
 ```
 
+> **Recupero dopo crash/blackout:** il CSV viene riportato a **solo header** anche
+> allo STOP/chiusura dell'app **e all'avvio** dell'app. Così, se il PC si spegne di
+> colpo mentre nel CSV c'è una riga attiva (il timer di auto-clear non può girare),
+> alla riapertura dell'app — prima ancora di premere AVVIA — il segnale orfano della
+> sessione morta viene rimosso e XTrader non lo rilegge.
+
 ---
 
 ## Guida rapida (5 passi)

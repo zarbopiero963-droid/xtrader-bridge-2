@@ -169,6 +169,24 @@ def init_csv(path: str):
     _atomic_write(path, lambda writer: None)
 
 
+def clear_stale_csv(path: str) -> bool:
+    """Svuota il CSV (solo header) **se il file esiste già**: rimuove una riga
+    lasciata da una sessione precedente terminata male (crash, blackout, chiusura).
+
+    Ritorna ``True`` se ha ripulito un file esistente, ``False`` se non c'era nulla
+    da fare (``path`` vuoto o file assente). **Non crea** il file se manca: all'avvio
+    non si tocca un path non ancora usato.
+
+    Difesa anti-segnale-stantio: se il processo muore mentre nel CSV c'è una riga
+    attiva, il timer di auto-clear non può girare. Richiamando questa funzione
+    all'avvio dell'app (prima che il listener riparta) e alla chiusura/STOP, il CSV
+    torna a solo header, così XTrader non legge un segnale orfano."""
+    if path and os.path.exists(path):
+        init_csv(path)
+        return True
+    return False
+
+
 def write_rows(rows, path: str):
     """Scrive PIÙ segnali nel CSV (header + una riga per ciascuno), sovrascrivendo
     in modo atomico. `rows` vuota → solo header (equivale a `init_csv`). Usato dalla

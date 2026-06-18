@@ -69,6 +69,41 @@ def test_clear_dopo_write_lascia_solo_header(tmp_path):
     assert _read(str(p)) == [csv_writer.CSV_HEADER]
 
 
+# ── anti-segnale-stantio: clear_stale_csv (recovery dopo crash/blackout) ─────
+
+def test_clear_stale_csv_rimuove_riga_orfana(tmp_path):
+    # Scenario blackout: una sessione precedente ha lasciato una riga attiva nel CSV.
+    # All'avvio/STOP la riga orfana deve sparire (resta solo header).
+    p = tmp_path / "segnali.csv"
+    csv_writer.write_csv(ROW, str(p))                 # riga "stantia" lasciata sul disco
+    assert len(_read(str(p))) == 2
+    assert csv_writer.clear_stale_csv(str(p)) is True
+    assert _read(str(p)) == [csv_writer.CSV_HEADER]   # solo header
+    assert _no_tmp_left(str(tmp_path))
+
+
+def test_clear_stale_csv_non_crea_file_assente(tmp_path):
+    # Se il CSV non esiste ancora (primo avvio), NON va creato a sproposito.
+    p = tmp_path / "mai_esistito.csv"
+    assert csv_writer.clear_stale_csv(str(p)) is False
+    assert not p.exists()
+
+
+def test_clear_stale_csv_path_vuoto(tmp_path):
+    # Path vuoto/None: nessuna operazione, nessun errore.
+    assert csv_writer.clear_stale_csv("") is False
+    assert csv_writer.clear_stale_csv(None) is False
+
+
+def test_clear_stale_csv_idempotente_su_header(tmp_path):
+    # Un CSV già a solo header resta valido (idempotente) e non lascia .tmp.
+    p = tmp_path / "segnali.csv"
+    csv_writer.init_csv(str(p))
+    assert csv_writer.clear_stale_csv(str(p)) is True
+    assert _read(str(p)) == [csv_writer.CSV_HEADER]
+    assert _no_tmp_left(str(tmp_path))
+
+
 def test_concorrenza_write_clear_non_corrompe(tmp_path):
     # Stress: write e clear concorrenti. Il file deve restare sempre valido
     # (header presente, 1 o 2 righe), nessun .tmp residuo, nessuna eccezione.
