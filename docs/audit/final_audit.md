@@ -29,7 +29,7 @@
 | Conferma XTrader | ✅ **Agganciata al runtime** (PR-23) | `confirmation_reader` in `app._process_confirmation`; chat notifiche → CONFIRMED/REJECTED rimuove il segnale |
 | Build EXE Windows (versionata) | ⚠️ Workflow pronto, build non eseguita qui | verifica manuale |
 | Supply-chain (action SHA-pinned) | ✅ Implementato | test di enforcement |
-| Test automatici | ✅ 536 passed, 2 skipped | vedi §3 |
+| Test automatici | ✅ 628 passed, 3 skipped | vedi §3 |
 | Segreti nel repo | ✅ Nessuno | `forbidden-files` + test no-secrets |
 
 **Stato complessivo:** RELEASE CANDIDATE per i test in **simulazione**. Non è un via
@@ -132,14 +132,14 @@ manuali su Windows/XTrader e l'attivazione esplicita della modalità reale.
 - Tutte le action dei workflow sono **fissate a SHA** (hardening) con test di enforcement.
 
 ### Test / coverage
-- Vedi sotto — 536 passed, 2 skipped (offline). I test live/manuali sono marcati `manual`.
+- Vedi sotto — 628 passed, 3 skipped (offline). I test live/manuali sono marcati `manual`.
 
 ```
-unit         471 test
-integration   17 test
+unit         553 test
+integration   21 test
 safety        22 test
-smoke         28 test
-TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
+smoke         35 test
+TOTALE       628 passed, 3 skipped (marcatore "manual" escluso)
 ```
 
 ---
@@ -173,8 +173,8 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
    le impostazioni avanzate (`recognition_mode`, `require_price`, `dry_run`,
    `max_per_day`, `queue_mode`, chat notifiche XTrader) sono ora esposte in GUI a
    **tab** (logica in `settings_controller`, testata in CI); START si **blocca** se
-   un'impostazione avanzata è invalida. `confirmation_timeout` non è esposto in GUI ma
-   è **collegato al runtime** (PR-17b: timeout per-segnale in `QUEUE_UNTIL_CONFIRMED`).
+   un'impostazione avanzata è invalida. `confirmation_timeout` è **collegato al
+   runtime** (PR-17b: timeout per-segnale in `QUEUE_UNTIL_CONFIRMED`).
    ✅ **PR-14**: dashboard con **contatori di sessione**
    (ricevuti/scritti/scartati/duplicati/limitati/simulati/errori, modulo puro
    `dashboard_stats` testato in CI; agganciati in `_process`/`_after_non_write`).
@@ -188,8 +188,11 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
    `source_editor`/`source_manager`, salvataggio in `config.json`) — non serve più
    editare il file a mano per il supporto multi-chat. ✅ **PR-13c**: override **parser
    per chat** (`parser_by_chat`) editabile dalla stessa finestra (colonna Parser per
-   sorgente; le voci di chat non mostrate sono preservate). Restano da verificare a mano
-   i widget su Windows. Restano solo-config: `confirmation_keywords`, `rejection_keywords`.
+   sorgente; le voci di chat non mostrate sono preservate). ✅ **PR-17c**: la tab
+   *Conferme XTrader* espone ora anche `confirmation_timeout` (validato come intero > 0)
+   e le parole chiave `confirmation_keywords` / `rejection_keywords` come **stringa CSV**
+   (round-trip lista↔stringa in `settings_controller`, testato in CI). Restano da
+   verificare a mano i widget su Windows.
 3. **Build EXE**: workflow pronto, build reale non eseguibile qui.
 4. **XTrader live**: lettura CSV, segnale verde, conferma Telegram sono passi manuali in
    **simulazione** (vedi `xtrader_simulation_test.md`).

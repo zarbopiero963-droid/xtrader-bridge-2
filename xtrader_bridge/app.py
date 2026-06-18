@@ -218,10 +218,18 @@ class App(ctk.CTk):
             tab_safe, "🧮 Modalità coda segnali",
             settings_controller.queue_mode_options(), adv["queue_mode"], 2)
 
-        # Conferme XTrader (solo la chat notifiche: è l'unico controllo collegato al
-        # runtime; `confirmation_timeout` non è ancora wirato e non va esposto come no-op).
+        # Conferme XTrader: chat notifiche + timeout conferma (PR-17b, attivo in
+        # QUEUE_UNTIL_CONFIRMED) + parole chiave conferma/rifiuto come stringa CSV.
         self._adv["xtrader_notification_chat_id"] = self._add_entry(
             tab_conf, "💬 Chat notifiche XTrader", adv["xtrader_notification_chat_id"], 0)
+        self._adv["confirmation_timeout"] = self._add_entry(
+            tab_conf, "⏳ Timeout conferma (sec)", str(adv["confirmation_timeout"]), 1)
+        self._adv["confirmation_keywords"] = self._add_entry(
+            tab_conf, "✅ Parole conferma (separate da virgola)",
+            adv["confirmation_keywords"], 2)
+        self._adv["rejection_keywords"] = self._add_entry(
+            tab_conf, "❌ Parole rifiuto (separate da virgola)",
+            adv["rejection_keywords"], 3)
 
         # Buttons
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")

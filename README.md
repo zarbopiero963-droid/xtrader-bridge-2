@@ -144,11 +144,13 @@ Pulsanti aggiuntivi:
 Queste impostazioni vivono in `config.json` (`%APPDATA%\XTraderBridge\config.json`).
 **Diverse sono ora modificabili anche dalla GUI**, nelle tab *Riconoscimento /
 Sicurezza / Conferme XTrader*: `recognition_mode`, `require_price`, `dry_run`,
-`max_per_day`, `queue_mode`, `xtrader_notification_chat_id`. Le **chat sorgente**
+`max_per_day`, `queue_mode`, `xtrader_notification_chat_id`, `confirmation_timeout`,
+`confirmation_keywords`, `rejection_keywords`. Le **chat sorgente**
 (`source_chats`) **e** l'override parser per chat (`parser_by_chat`) si modificano dal
 pulsante **"📡 Chat sorgenti"** (vedi [Più chat sorgenti](#più-chat-sorgenti-multi-chat)).
-Le restanti (`active_parser`, `confirmation_keywords`, `rejection_keywords`) si
-modificano ancora **a mano** nel file (chiudi prima il bridge, poi riaprilo). Ogni
+Nella tab *Conferme XTrader* le parole chiave si scrivono **separate da virgola**
+(es. `piazzata, ok, matchata`); il campo vuoto lascia i default del modulo. La sola
+chiave `active_parser` si imposta di norma dalla GUI del Parser Personalizzato. Ogni
 chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 
 | Chiave | Default | Valori | A cosa serve |
@@ -163,8 +165,8 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | `source_chats` | `[]` | lista | Più chat sorgente (vedi sotto). |
 | `xtrader_notification_chat_id` | `""` | chat id | Chat **separata** su cui XTrader notifica l'esito (vedi [Conferma da XTrader](#conferma-da-xtrader)). |
 | `confirmation_timeout` | `120` | secondi | **In `QUEUE_UNTIL_CONFIRMED`**: per quanti secondi un segnale resta in attesa della conferma XTrader prima di scadere (timeout per-segnale della coda). Nelle altre modalità coda non si applica: vale `clear_delay`. |
-| `confirmation_keywords` | `[]` | lista | Parole che indicano conferma (vuoto = default del modulo). |
-| `rejection_keywords` | `[]` | lista | Parole che indicano rifiuto (vuoto = default del modulo). |
+| `confirmation_keywords` | `[]` | lista | Parole che indicano conferma (vuoto = default del modulo). Dalla GUI: stringa separata da virgola. |
+| `rejection_keywords` | `[]` | lista | Parole che indicano rifiuto (vuoto = default del modulo). Dalla GUI: stringa separata da virgola. |
 
 > Una `config.json` corrotta viene messa da parte come `.bak` e il bridge riparte
 > dai default sicuri. Le chiavi mancanti ereditano sempre il default.
