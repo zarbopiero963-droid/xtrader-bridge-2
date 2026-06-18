@@ -24,6 +24,7 @@ from .csv_writer import init_csv, write_rows
 from . import (
     confirmation_reader,
     dashboard_stats,
+    diagnostics,
     event_log,
     live_guard,
     log_view,
@@ -57,6 +58,17 @@ _WRITE_RETRY_DELAY = 5
 _LOG_MAX = 1000
 _LOG_TRIM_AT = 1200
 
+# Campi "ultimo …" del pannello STATO (PR-14c): chiave interna → prefisso etichetta.
+# Fonte UNICA: usata sia per creare le label sia da `_set_last`/diagnostica (niente
+# prefissi duplicati che possono divergere). L'ordine è quello di visualizzazione.
+_LAST_FIELDS = (
+    ("signal", "Ultimo segnale"),
+    ("message", "Ultimo messaggio"),
+    ("csv", "Ultimo CSV"),
+    ("error", "Ultimo errore"),
+)
+_LAST_PREFIX = dict(_LAST_FIELDS)
+
 
 class App(ctk.CTk):
     def __init__(self):
@@ -67,9 +79,9 @@ class App(ctk.CTk):
         # si espande — si riduce e nulla finisce fuori schermo; i comandi (START/STOP,
         # config) stanno sopra e restano sempre visibili (finding Codex). minsize evita
         # un collasso eccessivo.
-        self.geometry("720x740")
+        self.geometry("720x760")
         self.resizable(False, True)
-        self.minsize(720, 560)
+        self.minsize(720, 600)
 
         self._config = self._load_config()
         self._running = False
@@ -93,6 +105,8 @@ class App(ctk.CTk):
         self._stats = dashboard_stats.DashboardStats()
         # Righe di log formattate tenute in memoria, per il filtro per livello (PR-14b).
         self._log_entries = []
+        # Ultimi eventi per la diagnostica (PR-14c), per chiave. Aggiornati sul thread Tk.
+        self._last_vals = {k: "" for k, _ in _LAST_FIELDS}
 
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -251,16 +265,30 @@ class App(ctk.CTk):
             fg_color="#00695c", hover_color="#004d40",
             command=self._open_source_chats).pack(side="left", padx=5)
 
-        # Ultimo segnale
+        # Stato + diagnostica (PR-14c): ultimo segnale/messaggio/CSV/errore + pulsanti
+        # "Apri cartella log" e "Copia diagnostica" (per il supporto).
         sig_frame = ctk.CTkFrame(self, corner_radius=10)
         sig_frame.pack(fill="x", padx=15, pady=5)
-        ctk.CTkLabel(sig_frame, text="📡  ULTIMO SEGNALE",
-                     font=ctk.CTkFont(size=12, weight="bold")).pack(
-            anchor="w", padx=12, pady=(8, 2))
-        self._sig_lbl = ctk.CTkLabel(
-            sig_frame, text="Nessun segnale ricevuto ancora",
-            font=ctk.CTkFont(size=11), text_color="gray", wraplength=680, anchor="w")
-        self._sig_lbl.pack(anchor="w", padx=12, pady=(0, 8))
+        sig_hdr = ctk.CTkFrame(sig_frame, fg_color="transparent")
+        sig_hdr.pack(fill="x", padx=12, pady=(8, 2))
+        ctk.CTkLabel(sig_hdr, text="📡  STATO",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+        ctk.CTkButton(sig_hdr, text="📋 Copia diagnostica", width=160, height=28,
+                      fg_color="#37474f", hover_color="#263238",
+                      command=self._copy_diagnostics).pack(side="right", padx=(6, 0))
+        ctk.CTkButton(sig_hdr, text="📂 Apri cartella log", width=160, height=28,
+                      fg_color="#37474f", hover_color="#263238",
+                      command=self._open_log_folder).pack(side="right", padx=(6, 0))
+        _sty = dict(font=ctk.CTkFont(size=11), text_color="gray",
+                    wraplength=680, anchor="w", justify="left")
+        # Una label per campo, creata dalla fonte unica _LAST_FIELDS (niente prefissi
+        # duplicati a mano). _set_last le aggiorna usando lo stesso prefisso.
+        self._last_lbls = {}
+        for i, (kind, prefix) in enumerate(_LAST_FIELDS):
+            lbl = ctk.CTkLabel(sig_frame, text=f"{prefix}: —", **_sty)
+            pady = (0, 1) if i == 0 else ((1, 8) if i == len(_LAST_FIELDS) - 1 else 1)
+            lbl.pack(anchor="w", padx=12, pady=pady)
+            self._last_lbls[kind] = lbl
 
         # Dashboard contatori di sessione (PR-14): esiti del flusso dall'ultimo START.
         dash_frame = ctk.CTkFrame(self, corner_radius=10)
@@ -334,6 +362,65 @@ class App(ctk.CTk):
         sul thread Tk: dal thread del bot va chiamato via `self.after(0, ...)`."""
         self._stats.bump(name)
         self._refresh_dashboard()
+
+    # ── DIAGNOSTICA (PR-14c) ──────────────────
+    def _set_last(self, kind: str, value: str, color: str = "gray") -> None:
+        """Aggiorna un campo "ultimo …" della diagnostica (signal/message/csv/error):
+        memorizza il valore (redatto, mai token) e la label, col prefisso UNICO di
+        `_LAST_PREFIX`. Thread Tk (dal bot via `self.after`)."""
+        safe = event_log.redact_secrets(str(value or ""))
+        self._last_vals[kind] = safe
+        self._last_lbls[kind].configure(
+            text=f"{_LAST_PREFIX[kind]}: {safe or '—'}", text_color=color)
+
+    def _note_csv(self, path: str, n: int) -> None:
+        """Aggiorna il campo "Ultimo CSV" con path, righe attive e ora. Va chiamato su
+        OGNI riscrittura/svuotamento riuscito (scrittura, conferma, scadenza, clear
+        manuale) così il pannello/diagnostica riflette lo stato reale del CSV (Codex)."""
+        state = "svuotato" if n == 0 else f"{n} attiv{'o' if n == 1 else 'i'}"
+        self._set_last("csv", f"{path} ({state}) @ {datetime.now():%H:%M:%S}")
+
+    def _open_log_folder(self):
+        """Apre nel file manager la cartella dei log persistenti (PR-14c)."""
+        import os
+        import subprocess
+        import sys
+        folder = event_log.log_dir()
+        try:
+            os.makedirs(folder, exist_ok=True)
+            if sys.platform.startswith("win"):
+                os.startfile(folder)            # noqa: S606 — apertura cartella utente
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", folder])
+            else:
+                subprocess.Popen(["xdg-open", folder])
+            self._log(f"📂 Cartella log: {folder}")
+        except Exception as ex:                 # noqa: BLE001 — esito a log, no crash
+            self._log(f"❌ Impossibile aprire la cartella log: {ex}")
+
+    def _copy_diagnostics(self):
+        """Copia negli appunti un report diagnostico (stato, contatori, ultimi eventi,
+        percorsi), già redatto dei segreti — utile per il supporto (PR-14c)."""
+        cfg = self._config if isinstance(self._config, dict) else {}
+        info = [
+            ("Stato listener", "ATTIVO" if self._running else "OFFLINE"),
+            ("Modalità", "DRY_RUN (simulazione)"
+                if safety_guard.is_dry_run(cfg) else "REALE"),
+            ("CSV path", cfg.get("csv_path", "")),
+            ("Modalità coda", signal_queue.normalize_mode(cfg.get("queue_mode"))),
+        ]
+        info += [(label, self._stats.get(name)) for name, label in dashboard_stats.COUNTERS]
+        # Ultimi eventi: il valore grezzo memorizzato (la label aggiunge il prefisso,
+        # qui lo aggiunge il report → niente prefisso duplicato).
+        info += [(prefix, self._last_vals.get(kind, "")) for kind, prefix in _LAST_FIELDS]
+        info.append(("Cartella log", event_log.log_dir()))
+        report = diagnostics.build_report(info)
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(report)
+            self._log("📋 Diagnostica copiata negli appunti.")
+        except Exception as ex:                 # noqa: BLE001
+            self._log(f"❌ Copia diagnostica fallita: {ex}")
 
     # ── LOG ───────────────────────────────────
     def _log(self, msg: str, level: str = None):
@@ -539,6 +626,11 @@ class App(ctk.CTk):
         self._init_guards(cfg)
         self._stats.reset()           # contatori di sessione azzerati a ogni START (PR-14)
         self._refresh_dashboard()
+        # Nuova sessione: azzera i campi "ultimo …" (stantii dalla sessione precedente)
+        # e registra che lo START ha SVUOTATO il CSV (init_csv) — Codex (PR-14c).
+        for kind, _ in _LAST_FIELDS:
+            self._set_last(kind, "")
+        self._note_csv(cfg["csv_path"], 0)
         self._log("🚀 Bridge avviato!")
         self._log(f"📄 CSV: {cfg['csv_path']}")
         self._log(f"⏱️  Auto-clear dopo: {cfg['clear_delay']}s")
@@ -599,6 +691,10 @@ class App(ctk.CTk):
                 # una chat non ammessa o un messaggio non pertinente non scrive.
                 if not signal_router.should_process(cfg, runtime_chat, text):
                     return
+                # PR-14c: traccia l'ultimo messaggio pertinente ricevuto (diagnostica).
+                clean = (text or "").strip()
+                first_line = clean.splitlines()[0] if clean else ""
+                self.after(0, lambda m=first_line[:120]: self._set_last("message", m))
                 self._process(text, cfg, chat_id=runtime_chat)
 
             self._tg_app.add_handler(MessageHandler(filters.ALL, _handle))
@@ -617,6 +713,7 @@ class App(ctk.CTk):
         try:
             self._loop.run_until_complete(_async_run())
         except Exception as ex:
+            self.after(0, lambda e=ex: self._set_last("error", f"bot: {e}"))
             self.after(0, lambda: self._log(f"❌ Errore bot: {ex}"))
             self.after(0, self._stop)
 
@@ -681,6 +778,7 @@ class App(ctk.CTk):
                 if self._daily is not None and daily_snap is not None:
                     self._daily.restore_state(daily_snap)
             self.after(0, lambda: self._bump("errors"))
+            self.after(0, lambda e=write_error: self._set_last("error", f"scrittura CSV: {e}"))
             self.after(0, lambda e=write_error: self._log(
                 f"❌ Scrittura CSV fallita: {e}. Segnale non registrato (riprovabile)."))
             self._schedule_expiry(path)           # i segnali ripristinati devono comunque scadere
@@ -689,12 +787,13 @@ class App(ctk.CTk):
         if self._tracker is not None:
             self._save_guard_state()
         self.after(0, lambda: self._bump("written"))   # PR-14: riga scritta nel CSV
+        self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
 
         info = (f"🏆 {row.get('EventName', '')}  |  "
                 f"{row.get('SelectionName', '')}  |  "
                 f"q.{row.get('Price', '')}")
 
-        self.after(0, lambda: self._sig_lbl.configure(text=info, text_color="white"))
+        self.after(0, lambda i=info: self._set_last("signal", i, "white"))
         self.after(0, lambda: self._log(
             f"📱 Segnale ({result.source}): {row.get('EventName', '')}  |  "
             f"{row.get('SelectionName', '')}  q.{row.get('Price', '')}"))
@@ -714,7 +813,7 @@ class App(ctk.CTk):
         if decision == live_guard.DRY_RUN:
             info = f"🧪 DRY_RUN — {ev}  |  {sel}  q.{row.get('Price', '')}"
             self.after(0, lambda: self._bump("dry_run"))
-            self.after(0, lambda: self._sig_lbl.configure(text=info, text_color="#ffb74d"))
+            self.after(0, lambda i=info: self._set_last("signal", i, "#ffb74d"))
             self.after(0, lambda: self._log(
                 f"🧪 DRY_RUN: segnale riconosciuto ma CSV NON scritto (simulazione): "
                 f"{ev} | {sel}"))
@@ -767,12 +866,14 @@ class App(ctk.CTk):
                 # ancora la riga: riprova PRESTO (non a timeout pieno, che terrebbe la
                 # riga stantia un intero intervallo) così la riga sparisce in fretta.
                 self.after(0, lambda: self._bump("errors"))
+                self.after(0, lambda e=write_error: self._set_last("error", f"CSV dopo conferma: {e}"))
                 self.after(0, lambda e=write_error: self._log(
                     f"❌ Aggiornamento CSV dopo conferma fallito: {e}. Riprovo a breve."))
                 self._schedule_expiry(path, delay=_WRITE_RETRY_DELAY)
                 return
             self.after(0, lambda v=esito: self._log(
                 f"✅ XTrader: segnale {v} → rimosso dal CSV"))
+            self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
             self._schedule_expiry(path)   # riprogramma per i segnali eventualmente rimasti
         elif result.status == confirmation_reader.UNKNOWN:
             self.after(0, lambda: self._log(
@@ -822,11 +923,13 @@ class App(ctk.CTk):
             # → busy-loop), così il disco converge allo stato della coda. Riprogramma
             # anche a coda vuota (un segnale scaduto non deve restare nel CSV).
             self.after(0, lambda: self._bump("errors"))
+            self.after(0, lambda e=write_error: self._set_last("error", f"CSV alla scadenza: {e}"))
             self.after(0, lambda e=write_error: self._log(
                 f"❌ Aggiornamento CSV alla scadenza fallito: {e}. Riprovo a breve."))
             self._schedule_expiry(path, delay=_WRITE_RETRY_DELAY)
             return
         if expired:
+            self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
             self.after(0, lambda n=len(expired): self._log(
                 f"🗑️  {n} segnale/i scaduto/i rimosso/i dal CSV"))
         if not empty:
@@ -844,6 +947,7 @@ class App(ctk.CTk):
                 for sid in self._queue.active_ids():
                     self._queue.remove(sid)
         init_csv(path)
+        self._note_csv(path, 0)
         self._log("🗑️  CSV svuotato manualmente")
 
     def _open_parser_builder(self):
