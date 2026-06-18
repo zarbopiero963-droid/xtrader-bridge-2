@@ -56,8 +56,14 @@ def timeout_from_config(cfg) -> float:
     cfg = cfg if isinstance(cfg, dict) else {}
     key = "confirmation_timeout" if normalize_mode(cfg.get("queue_mode")) == QUEUE_UNTIL_CONFIRMED \
         else "clear_delay"
+    raw = cfg.get(key)
+    # Rifiuta i bool PRIMA di float(): `float(True)` è `1.0` e bypasserebbe il
+    # fail-safe → ogni segnale scadrebbe dopo 1s (la riga sparirebbe prima che XTrader
+    # la legga, polling 10–15s). `True`/`False` da JSON = config malformata → default.
+    if isinstance(raw, bool):
+        return DEFAULT_TIMEOUT
     try:
-        t = float(cfg.get(key))
+        t = float(raw)
     except (TypeError, ValueError):
         return DEFAULT_TIMEOUT
     return t if math.isfinite(t) and t > 0 else DEFAULT_TIMEOUT

@@ -194,7 +194,8 @@ def test_timeout_from_config_altre_modalita_usano_clear_delay():
 def test_timeout_from_config_valore_invalido_ricade_su_default():
     # Fail-safe: un timeout mancante/non valido NON deve rendere il segnale immortale.
     base = {"queue_mode": "QUEUE_UNTIL_CONFIRMED"}
-    for bad in (None, "abc", 0, -5, float("inf"), float("nan")):
+    # True/False inclusi: float(True)==1.0 bypasserebbe il fail-safe (finding Codex P2).
+    for bad in (None, "abc", 0, -5, float("inf"), float("nan"), True, False):
         cfg = dict(base, confirmation_timeout=bad)
         assert sq.timeout_from_config(cfg) == sq.DEFAULT_TIMEOUT, bad
     # Stessa cosa per clear_delay nelle altre modalità.
