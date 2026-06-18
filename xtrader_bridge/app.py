@@ -626,6 +626,11 @@ class App(ctk.CTk):
         self._init_guards(cfg)
         self._stats.reset()           # contatori di sessione azzerati a ogni START (PR-14)
         self._refresh_dashboard()
+        # Nuova sessione: azzera i campi "ultimo …" (stantii dalla sessione precedente)
+        # e registra che lo START ha SVUOTATO il CSV (init_csv) — Codex (PR-14c).
+        for kind, _ in _LAST_FIELDS:
+            self._set_last(kind, "")
+        self._note_csv(cfg["csv_path"], 0)
         self._log("🚀 Bridge avviato!")
         self._log(f"📄 CSV: {cfg['csv_path']}")
         self._log(f"⏱️  Auto-clear dopo: {cfg['clear_delay']}s")
