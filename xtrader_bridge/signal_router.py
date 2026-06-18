@@ -87,6 +87,20 @@ def is_chat_allowed(cfg: dict, chat: str) -> bool:
     return chat in allowed
 
 
+def has_chat_filter(cfg: dict) -> bool:
+    """True se la config definisce ALMENO un criterio di ammissione chat: `chat_id`,
+    una voce `parser_by_chat`, o una `source_chats` (anche **disattivata**).
+
+    È l'inverso esatto della condizione "ammetti tutte" di `is_chat_allowed`
+    (`not configured and not per_chat and not has_sources`). Quando ritorna False,
+    il bridge accetterebbe segnali da **qualsiasi** chat: `app._start` lo usa per
+    bloccare l'avvio finché l'utente non configura una chat/sorgente."""
+    configured = str(cfg.get("chat_id", "") or "").strip()
+    per_chat = parser_manager.parser_by_chat(cfg)
+    has_sources = bool(source_manager.source_chats(cfg))
+    return bool(configured or per_chat or has_sources)
+
+
 def active_custom_parser(cfg: dict, chat: str, parsers_dir: str = None):
     """Parser custom da usare per `chat`, oppure None se la chat non è approvata
     o nessun parser è attivo. Usato sia dal router sia dal prefiltro live."""

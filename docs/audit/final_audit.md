@@ -19,7 +19,7 @@
 | Contratto CSV XTrader (14 col) | ✅ Conforme | barriera di test `contract`; `utf-8-sig` + `QUOTE_ALL` |
 | Parser (hardcoded + Parser Personalizzato) | ✅ Coperto da test | catena Telegram→riga validata, fail-closed |
 | Validazione pre-scrittura | ✅ Implementata | nessun segnale invalido raggiunge il CSV |
-| Telegram — filtro chat (single) | ⚠️ Attivo **solo se `chat_id` configurato** | con `chat_id`/`parser_by_chat` vuoti il default è "ammetti tutte" (legacy) — vedi §4 |
+| Telegram — filtro chat (single) | ✅ **Richiesto allo START** (PR-25) | `app._start` annulla l'avvio se non c'è `chat_id`/`parser_by_chat`/sorgente (`has_chat_filter`) — vedi §4 |
 | Telegram — multi-chat (provider/mode) | ✅ **Agganciata al runtime** (PR-24) | `signal_router` ammette le sorgenti attive e usa il provider per-chat (PRE→TG_PRE/LIVE→TG_LIVE) |
 | Config persistente (`%APPDATA%`) | ✅ Implementata | migrazione legacy + backup config corrotta |
 | Scrittura CSV atomica + svuotamento | ✅ Implementata | tmp+rename, header sempre presente |
@@ -162,10 +162,12 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
 > coda multi-segnale + timeout per-segnale (PR-22); conferma XTrader (PR-23);
 > multi-chat provider/mode (PR-24). La protezione doppia-scommessa è attiva a runtime.
 
-1. **`TODO(filter)` — Filtro chat aperto di default**: con `chat_id`, `parser_by_chat`
-   e `source_chats` tutti vuoti, `is_chat_allowed` ammette **tutte** le chat. Mitigazione
-   attuale: la release checklist **richiede** un `chat_id`/sorgente esplicito prima
-   dell'uso (in alternativa, irrigidire `is_chat_allowed`/`_start` per esigere una chat).
+1. ✅ **Filtro chat richiesto allo START (PR-25)**: il caso "config vuota → ammetti
+   tutte" non è più raggiungibile a runtime. `app._start` chiama
+   `signal_router.has_chat_filter(cfg)` e **annulla l'avvio** se non c'è almeno un
+   `chat_id`, un `parser_by_chat` o una `source_chats` (anche disattivata).
+   `is_chat_allowed` conserva la semantica legacy (utile a test/funzioni pure), ma il
+   bridge non parte senza un criterio di ammissione chat.
 2. **GUI**: i controller sono testati headless, ma avvio GUI, START/STOP, salvataggio e
    builder del Parser Personalizzato vanno verificati a mano su Windows.
 3. **Build EXE**: workflow pronto, build reale non eseguibile qui.
@@ -187,16 +189,17 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
 - **Multi-chat** (PR-24, `source_manager`): solo le sorgenti **attive** sono ammesse
   (disattivate ignorate); provider per-chat (PRE→TG_PRE/LIVE→TG_LIVE) nella riga CSV.
 - Scrittura/svuotamento CSV atomici (incl. multi-riga `write_rows`); header sempre presente.
-- Filtro chat effettivo **quando `chat_id`/sorgente è configurato** (con config vuota
-  ammette tutte — vedi §4 punto 1; la checklist richiede un `chat_id`/sorgente).
+- Filtro chat **richiesto allo START** (PR-25, `has_chat_filter`): il bridge non parte
+  senza almeno un `chat_id`/`parser_by_chat`/sorgente, quindi il caso "config vuota →
+  ammetti tutte" non è raggiungibile a runtime (vedi §4 punto 1).
 - Nessun token/segreto nei log (redazione) né nel repo (`forbidden-files` + test).
 - Contratto CSV invariato dalle PR successive a PR-01 (barriera `contract`).
 - Merge sempre **manuale** del proprietario; nessun auto-merge.
 
 **Tutta la logica di sicurezza è ora agganciata al runtime** (PR-21→PR-24): non
-restano moduli "puri ma non collegati". Restano solo le verifiche **manuali** su
-Windows/XTrader (GUI, build EXE, simulazione end-to-end) e l'avvertenza sul filtro
-chat aperto con config vuota (§4).
+restano moduli "puri ma non collegati". Il filtro chat è ora **richiesto allo START**
+(PR-25). Restano solo le verifiche **manuali** su Windows/XTrader (GUI, build EXE,
+simulazione end-to-end).
 
 ---
 

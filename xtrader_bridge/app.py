@@ -332,6 +332,15 @@ class App(ctk.CTk):
             return
 
         cfg = self._save_config()
+        # Fail-fast (PR-25): senza NESSUNA chat configurata (chat_id, parser_by_chat
+        # o sorgente source_chats anche disattivata) is_chat_allowed ammetterebbe
+        # TUTTE le chat: il bridge accetterebbe segnali da chat arbitrarie. Blocco
+        # l'avvio finché l'utente non configura almeno una chat/sorgente.
+        if not signal_router.has_chat_filter(cfg):
+            self._log("❌ Nessuna chat configurata (Chat ID, parser per-chat o sorgente): "
+                      "il bridge accetterebbe segnali da QUALSIASI chat. Configura almeno "
+                      "una chat/sorgente. Avvio annullato.")
+            return
         # Fail-fast (PR-24): sorgenti multi-chat malformate (chat_id mancante,
         # DUPLICATO con provider ambiguo, modalità non valida) bloccano l'avvio,
         # altrimenti provider_for_chat sceglierebbe a caso la prima sorgente.

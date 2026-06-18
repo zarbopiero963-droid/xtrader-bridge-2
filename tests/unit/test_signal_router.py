@@ -253,6 +253,23 @@ def test_is_chat_allowed_union_chatid_e_sorgenti():
     assert signal_router.is_chat_allowed(cfg, "999") is False
 
 
+def test_has_chat_filter_config_vuota_e_falso():
+    # PR-25: nessun criterio di ammissione → has_chat_filter False (e is_chat_allowed
+    # ammetterebbe TUTTE le chat). app._start blocca l'avvio in questo caso.
+    assert signal_router.has_chat_filter({}) is False
+    assert signal_router.has_chat_filter({"chat_id": "", "parser_by_chat": {},
+                                          "source_chats": []}) is False
+    assert signal_router.is_chat_allowed({}, "qualsiasi") is True  # coerenza: aperto
+
+
+def test_has_chat_filter_vero_con_chatid_parser_o_sorgente():
+    # Basta UNO dei tre criteri (anche una sorgente DISATTIVATA) per attivare il filtro.
+    assert signal_router.has_chat_filter({"chat_id": "42"}) is True
+    assert signal_router.has_chat_filter({"parser_by_chat": {"111": "X"}}) is True
+    assert signal_router.has_chat_filter(
+        {"source_chats": [{"chat_id": "111", "enabled": False}]}) is True
+
+
 def test_resolve_row_provider_per_chat_da_modalita(tmp_path):
     # La riga di una sorgente LIVE (senza provider esplicito) usa TG_LIVE; una con
     # provider esplicito quello; una chat senza sorgente attiva usa il provider globale.
