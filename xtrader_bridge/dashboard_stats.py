@@ -3,9 +3,11 @@
 Tiene i conteggi **di sessione** (dall'ultimo START) degli esiti del flusso live —
 segnali ricevuti, scritti nel CSV, scartati, duplicati, soppressi dai limiti, in
 simulazione (DRY_RUN), errori di scrittura — e li espone come righe etichettate
-per la dashboard GUI. Nessun widget: la vista (`app`) crea le label e le aggiorna
-da `summary()`. Sul modello del controller del Parser Personalizzato (CP-06) e di
-`settings_controller` (PR-13): tutta la logica qui, testabile headless.
+per la dashboard GUI. Nessun widget: la vista (`app`) crea una label per contatore
+da `COUNTERS` e le aggiorna leggendo `as_dict()` (chiavi = nomi dei contatori);
+`summary()` è una comodità di presentazione `(etichetta, valore)` per chi vuole
+già l'ordine + le etichette. Sul modello del controller del Parser Personalizzato
+(CP-06) e di `settings_controller` (PR-13): tutta la logica qui, testabile headless.
 """
 
 # Nome interno → etichetta GUI, nell'ordine di visualizzazione (fonte UNICA: la
@@ -48,10 +50,13 @@ class DashboardStats:
             raise KeyError(f"contatore sconosciuto: {name!r}")
         return self._counts[name]
 
-    def summary(self) -> list:
-        """Lista `(etichetta, valore)` nell'ordine di `COUNTERS`, per la GUI."""
-        return [(label, self._counts[name]) for name, label in COUNTERS]
-
     def as_dict(self) -> dict:
-        """Copia dei contatori (mutarla non altera lo stato interno)."""
+        """Copia dei contatori correnti (mutarla non altera lo stato interno).
+        È l'accessor principale: la GUI legge da qui per nome."""
         return dict(self._counts)
+
+    def summary(self) -> list:
+        """Comodità di presentazione: lista `(etichetta, valore)` nell'ordine di
+        `COUNTERS`. Deriva da `as_dict()` (fonte unica), così resta allineata."""
+        counts = self.as_dict()
+        return [(label, counts[name]) for name, label in COUNTERS]
