@@ -220,4 +220,5 @@ def test_auto_start_listener_default_off_e_round_trip():
     assert errors == []
     assert new_cfg["auto_start_listener"] is True
     new_cfg, errors = sc.apply_advanced({}, _valid_form())
+    assert errors == []
     assert new_cfg["auto_start_listener"] is False

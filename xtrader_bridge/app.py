@@ -141,9 +141,13 @@ class App(ctk.CTk):
         """Avvia il listener all'apertura se `auto_start_listener` è attivo e la config
         minima c'è. In modalità REALE chiede conferma esplicita (niente scommesse
         automatiche senza consenso)."""
+        # Il callback è ritardato: se nel frattempo l'utente ha già premuto AVVIA,
+        # non avviare una seconda sessione (Codex P2: niente doppio polling).
+        if self._running:
+            return
         ok, reason = autostart.can_auto_start(self._config)
         if not ok:
-            if autostart._as_bool(self._config.get("auto_start_listener", False)):
+            if autostart.is_enabled(self._config):
                 # Abilitato ma non avviabile: spiega perché, non avviare.
                 self._log(f"▶️ Avvio automatico non eseguito: {reason}.")
             return

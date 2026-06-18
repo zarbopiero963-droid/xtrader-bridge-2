@@ -177,13 +177,9 @@ def apply_advanced(cfg: dict, form: dict) -> tuple:
     return base, []
 
 
-def _as_bool(value) -> bool:
-    """Coercizione robusta a bool (i checkbox danno bool; JSON/stringhe variano)."""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value != 0
-    return str(value).strip().lower() not in ("", "0", "false", "no", "off")
+# Coercizione robusta a bool: fonte unica condivisa (config_store), per non avere
+# versioni divergenti dello stesso helper (feedback Sourcery).
+_as_bool = config_store.as_bool
 
 
 def _parse_positive_int(value, label: str):

@@ -63,6 +63,18 @@ DEFAULTS = {
 }
 
 
+def as_bool(value) -> bool:
+    """Coercizione robusta a bool, condivisa dai vari moduli (config da JSON o stringhe
+    truthy/falsey). `bool`→sé; numeri→`!= 0`; stringa→False solo se vuota o in
+    ``{"0","false","no","off"}`` (case-insensitive). Unica fonte per evitare versioni
+    divergenti dello stesso helper."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() not in ("", "0", "false", "no", "off")
+
+
 def config_dir() -> str:
     """Cartella utente per i dati dell'app.
 

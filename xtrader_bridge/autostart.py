@@ -7,15 +7,14 @@ conferma esplicita dell'utente: il bridge non deve mettersi a scrivere scommesse
 solo senza consenso. Qui solo la decisione; il dialog e l'avvio vivono in `app`.
 """
 
-from . import safety_guard
+from . import config_store, safety_guard
 
 
-def _as_bool(value) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value != 0
-    return str(value).strip().lower() not in ("", "0", "false", "no", "off")
+def is_enabled(cfg: dict) -> bool:
+    """`True` se l'avvio automatico è attivo in config (helper pubblico, così la GUI
+    non deve reimplementare la coercizione né toccare interni)."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    return config_store.as_bool(cfg.get("auto_start_listener", False))
 
 
 def _has_admitted_chat(cfg: dict) -> bool:
@@ -36,7 +35,7 @@ def can_auto_start(cfg: dict) -> tuple:
     altrimenti `(False, motivo)`. Le guardie evitano che l'app provi ad avviarsi da
     sola con un setup incompleto (token o chat mancanti)."""
     cfg = cfg if isinstance(cfg, dict) else {}
-    if not _as_bool(cfg.get("auto_start_listener", False)):
+    if not is_enabled(cfg):
         return False, "auto-start disattivato"
     if not str(cfg.get("bot_token", "") or "").strip():
         return False, "token Telegram mancante"
