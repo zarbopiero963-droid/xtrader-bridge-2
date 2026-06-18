@@ -8,6 +8,7 @@ import asyncio
 import threading
 import time
 import tkinter as tk
+import traceback
 from datetime import datetime
 
 import customtkinter as ctk
@@ -92,6 +93,9 @@ class App(ctk.CTk):
         # Contatore dei tentativi di riconnessione (supervisor del listener): cresce
         # ad ogni caduta di rete e si azzera a connessione stabilita.
         self._reconnect_attempt = 0
+        # Segnale di STOP per interrompere SUBITO l'attesa del backoff (senza
+        # busy-poll): impostato in _stop, azzerato a ogni START.
+        self._stop_event = threading.Event()
         # CSV effettivamente scritto nella sessione corrente, catturato a START: lo
         # STOP pulisce QUESTO, non un csv_path eventualmente cambiato in GUI dopo
         # l'avvio (Codex P1). None = nessuna sessione attiva.
@@ -654,6 +658,7 @@ class App(ctk.CTk):
                 return
 
         self._running = True
+        self._stop_event.clear()      # nuova sessione: riarma l'attesa del backoff
         self._status_lbl.configure(text="⬤  ATTIVO", text_color="#66bb6a")
         self._btn_start.configure(state="disabled")
         self._btn_stop.configure(state="normal")
@@ -684,6 +689,7 @@ class App(ctk.CTk):
 
     def _stop(self):
         self._running = False
+        self._stop_event.set()        # sveglia subito un'eventuale attesa del backoff
         if self._loop and self._tg_app:
             try:
                 asyncio.run_coroutine_threadsafe(
@@ -780,9 +786,13 @@ class App(ctk.CTk):
                 self._safe_shutdown_tg()   # chiude il vecchio updater prima di ritentare
                 if not reconnect_policy.should_reconnect(self._running, ex):
                     if self._running:      # errore non recuperabile mentre eravamo attivi
+                        tb = traceback.format_exc()
                         self.after(0, lambda e=ex: self._set_last("error", f"bot: {e}"))
                         self.after(0, lambda e=ex: self._log(
                             f"❌ Errore non recuperabile del listener: {e}. Bridge fermato."))
+                        # Traceback completo nel log per la diagnostica (redatto dal
+                        # log handler): aiuta a capire un errore inatteso.
+                        self.after(0, lambda t=tb: self._log(t))
                         self.after(0, self._stop)
                     break
                 self._reconnect_attempt += 1
@@ -815,11 +825,10 @@ class App(ctk.CTk):
         self._tg_app = None
 
     def _reconnect_wait(self, delay: float) -> None:
-        """Attesa del backoff interrompibile: se arriva uno STOP (`_running=False`)
-        durante l'attesa, esce subito senza ritardare la chiusura."""
-        end = time.time() + delay
-        while self._running and time.time() < end:
-            time.sleep(0.2)
+        """Attesa del backoff interrompibile, senza busy-poll: `Event.wait` dorme fino
+        allo scadere del `delay` e si sblocca **subito** se arriva uno STOP (che
+        imposta `_stop_event`)."""
+        self._stop_event.wait(delay)
 
     def _set_status_reconnecting(self) -> None:
         self._status_lbl.configure(text="⬤  RICONNESSIONE…", text_color="#ffa726")

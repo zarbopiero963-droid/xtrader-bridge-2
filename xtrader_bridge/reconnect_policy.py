@@ -43,7 +43,14 @@ def backoff_delay(attempt: int, base: float = DEFAULT_BASE_DELAY,
 def is_transient_error(exc: BaseException) -> bool:
     """`True` se l'eccezione è un errore transitorio noto (rete/timeout) per cui ha
     senso riconnettersi. Riconosce i tipi per nome lungo tutta la gerarchia, così un
-    `TimedOut(NetworkError)` è transitorio mentre `InvalidToken`/`ValueError` no."""
+    `TimedOut(NetworkError)` è transitorio mentre `InvalidToken`/`ValueError` no.
+
+    Nota: il match è per **nome di classe** (per non importare `telegram` e restare
+    testabile). In teoria un'altra dipendenza potrebbe definire un'eccezione omonima
+    non di rete (es. un `NetworkError` con altro significato) e dare un falso
+    positivo; nel flusso del listener, però, le eccezioni provengono da
+    `python-telegram-bot`, dove questi nomi indicano davvero problemi di rete. Il
+    rischio è quindi al più un retry in più, mai uno mancato su un errore reale."""
     names = {cls.__name__ for cls in type(exc).__mro__}
     return bool(names & TRANSIENT_ERROR_NAMES)
 
