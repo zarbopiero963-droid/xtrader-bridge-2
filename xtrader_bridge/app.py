@@ -58,6 +58,17 @@ _WRITE_RETRY_DELAY = 5
 _LOG_MAX = 1000
 _LOG_TRIM_AT = 1200
 
+# Campi "ultimo …" del pannello STATO (PR-14c): chiave interna → prefisso etichetta.
+# Fonte UNICA: usata sia per creare le label sia da `_set_last`/diagnostica (niente
+# prefissi duplicati che possono divergere). L'ordine è quello di visualizzazione.
+_LAST_FIELDS = (
+    ("signal", "Ultimo segnale"),
+    ("message", "Ultimo messaggio"),
+    ("csv", "Ultimo CSV"),
+    ("error", "Ultimo errore"),
+)
+_LAST_PREFIX = dict(_LAST_FIELDS)
+
 
 class App(ctk.CTk):
     def __init__(self):
@@ -94,10 +105,8 @@ class App(ctk.CTk):
         self._stats = dashboard_stats.DashboardStats()
         # Righe di log formattate tenute in memoria, per il filtro per livello (PR-14b).
         self._log_entries = []
-        # Ultimi eventi per la diagnostica (PR-14c). Aggiornati sul thread Tk.
-        self._last_message = ""
-        self._last_csv = ""
-        self._last_error = ""
+        # Ultimi eventi per la diagnostica (PR-14c), per chiave. Aggiornati sul thread Tk.
+        self._last_vals = {k: "" for k, _ in _LAST_FIELDS}
 
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -272,14 +281,14 @@ class App(ctk.CTk):
                       command=self._open_log_folder).pack(side="right", padx=(6, 0))
         _sty = dict(font=ctk.CTkFont(size=11), text_color="gray",
                     wraplength=680, anchor="w", justify="left")
-        self._sig_lbl = ctk.CTkLabel(sig_frame, text="Ultimo segnale: —", **_sty)
-        self._sig_lbl.pack(anchor="w", padx=12, pady=(0, 1))
-        self._last_msg_lbl = ctk.CTkLabel(sig_frame, text="Ultimo messaggio: —", **_sty)
-        self._last_msg_lbl.pack(anchor="w", padx=12, pady=1)
-        self._last_csv_lbl = ctk.CTkLabel(sig_frame, text="Ultimo CSV: —", **_sty)
-        self._last_csv_lbl.pack(anchor="w", padx=12, pady=1)
-        self._last_err_lbl = ctk.CTkLabel(sig_frame, text="Ultimo errore: —", **_sty)
-        self._last_err_lbl.pack(anchor="w", padx=12, pady=(1, 8))
+        # Una label per campo, creata dalla fonte unica _LAST_FIELDS (niente prefissi
+        # duplicati a mano). _set_last le aggiorna usando lo stesso prefisso.
+        self._last_lbls = {}
+        for i, (kind, prefix) in enumerate(_LAST_FIELDS):
+            lbl = ctk.CTkLabel(sig_frame, text=f"{prefix}: —", **_sty)
+            pady = (0, 1) if i == 0 else ((1, 8) if i == len(_LAST_FIELDS) - 1 else 1)
+            lbl.pack(anchor="w", padx=12, pady=pady)
+            self._last_lbls[kind] = lbl
 
         # Dashboard contatori di sessione (PR-14): esiti del flusso dall'ultimo START.
         dash_frame = ctk.CTkFrame(self, corner_radius=10)
@@ -355,18 +364,14 @@ class App(ctk.CTk):
         self._refresh_dashboard()
 
     # ── DIAGNOSTICA (PR-14c) ──────────────────
-    def _set_last(self, kind: str, value: str) -> None:
-        """Aggiorna un campo "ultimo …" della diagnostica (message/csv/error) e la sua
-        label. Thread Tk (dal bot via `self.after`). Il valore è redatto (mai token)."""
+    def _set_last(self, kind: str, value: str, color: str = "gray") -> None:
+        """Aggiorna un campo "ultimo …" della diagnostica (signal/message/csv/error):
+        memorizza il valore (redatto, mai token) e la label, col prefisso UNICO di
+        `_LAST_PREFIX`. Thread Tk (dal bot via `self.after`)."""
         safe = event_log.redact_secrets(str(value or ""))
-        lbl, prefix = {
-            "message": (self._last_msg_lbl, "Ultimo messaggio"),
-            "csv": (self._last_csv_lbl, "Ultimo CSV"),
-            "error": (self._last_err_lbl, "Ultimo errore"),
-        }[kind]
-        setattr(self, {"message": "_last_message", "csv": "_last_csv",
-                       "error": "_last_error"}[kind], safe)
-        lbl.configure(text=f"{prefix}: {safe or '—'}")
+        self._last_vals[kind] = safe
+        self._last_lbls[kind].configure(
+            text=f"{_LAST_PREFIX[kind]}: {safe or '—'}", text_color=color)
 
     def _open_log_folder(self):
         """Apre nel file manager la cartella dei log persistenti (PR-14c)."""
@@ -398,13 +403,10 @@ class App(ctk.CTk):
             ("Modalità coda", signal_queue.normalize_mode(cfg.get("queue_mode"))),
         ]
         info += [(label, self._stats.get(name)) for name, label in dashboard_stats.COUNTERS]
-        info += [
-            ("Ultimo messaggio", self._last_message),
-            ("Ultimo segnale", self._sig_lbl.cget("text")),
-            ("Ultimo CSV", self._last_csv),
-            ("Ultimo errore", self._last_error),
-            ("Cartella log", event_log.log_dir()),
-        ]
+        # Ultimi eventi: il valore grezzo memorizzato (la label aggiunge il prefisso,
+        # qui lo aggiunge il report → niente prefisso duplicato).
+        info += [(prefix, self._last_vals.get(kind, "")) for kind, prefix in _LAST_FIELDS]
+        info.append(("Cartella log", event_log.log_dir()))
         report = diagnostics.build_report(info)
         try:
             self.clipboard_clear()
@@ -678,7 +680,8 @@ class App(ctk.CTk):
                 if not signal_router.should_process(cfg, runtime_chat, text):
                     return
                 # PR-14c: traccia l'ultimo messaggio pertinente ricevuto (diagnostica).
-                first_line = (text or "").strip().splitlines()[0] if text.strip() else ""
+                clean = (text or "").strip()
+                first_line = clean.splitlines()[0] if clean else ""
                 self.after(0, lambda m=first_line[:120]: self._set_last("message", m))
                 self._process(text, cfg, chat_id=runtime_chat)
 
@@ -779,7 +782,7 @@ class App(ctk.CTk):
                 f"{row.get('SelectionName', '')}  |  "
                 f"q.{row.get('Price', '')}")
 
-        self.after(0, lambda: self._sig_lbl.configure(text=info, text_color="white"))
+        self.after(0, lambda i=info: self._set_last("signal", i, "white"))
         self.after(0, lambda: self._log(
             f"📱 Segnale ({result.source}): {row.get('EventName', '')}  |  "
             f"{row.get('SelectionName', '')}  q.{row.get('Price', '')}"))
@@ -799,7 +802,7 @@ class App(ctk.CTk):
         if decision == live_guard.DRY_RUN:
             info = f"🧪 DRY_RUN — {ev}  |  {sel}  q.{row.get('Price', '')}"
             self.after(0, lambda: self._bump("dry_run"))
-            self.after(0, lambda: self._sig_lbl.configure(text=info, text_color="#ffb74d"))
+            self.after(0, lambda i=info: self._set_last("signal", i, "#ffb74d"))
             self.after(0, lambda: self._log(
                 f"🧪 DRY_RUN: segnale riconosciuto ma CSV NON scritto (simulazione): "
                 f"{ev} | {sel}"))
