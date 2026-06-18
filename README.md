@@ -144,11 +144,12 @@ Pulsanti aggiuntivi:
 Queste impostazioni vivono in `config.json` (`%APPDATA%\XTraderBridge\config.json`).
 **Diverse sono ora modificabili anche dalla GUI**, nelle tab *Riconoscimento /
 Sicurezza / Conferme XTrader*: `recognition_mode`, `require_price`, `dry_run`,
-`max_per_day`, `queue_mode`, `xtrader_notification_chat_id`. Le restanti
-(`active_parser`, `parser_by_chat`, `source_chats`, `confirmation_keywords`,
-`rejection_keywords`) si modificano ancora **a mano** nel file (chiudi prima il
-bridge, poi riaprilo). Ogni chiave è comunque **preservata** quando salvi dalla GUI,
-quindi non si perde.
+`max_per_day`, `queue_mode`, `xtrader_notification_chat_id`. Le **chat sorgente**
+(`source_chats`) si modificano dal pulsante **"📡 Chat sorgenti"** (vedi
+[Più chat sorgente](#più-chat-sorgente-multi-chat)). Le restanti (`active_parser`,
+`parser_by_chat`, `confirmation_keywords`, `rejection_keywords`) si modificano ancora
+**a mano** nel file (chiudi prima il bridge, poi riaprilo). Ogni chiave è comunque
+**preservata** quando salvi dalla GUI, quindi non si perde.
 
 | Chiave | Default | Valori | A cosa serve |
 |---|---|---|---|
@@ -172,8 +173,10 @@ quindi non si perde.
 
 ## Più chat sorgente (multi-chat)
 
-Per ricevere segnali da **più chat/canali**, valorizza `source_chats` in
-`config.json`. È una lista di oggetti:
+Per ricevere segnali da **più chat/canali**, usa il pulsante **"📡 Chat sorgenti"**
+nella finestra principale (aggiungi/rimuovi righe, imposta nome, chat_id, attiva,
+modalità PRE/LIVE, provider, e salva) — oppure, in alternativa, valorizza a mano
+`source_chats` in `config.json`. È una lista di oggetti:
 
 ```json
 {

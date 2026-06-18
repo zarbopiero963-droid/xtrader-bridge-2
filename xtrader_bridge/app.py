@@ -246,6 +246,10 @@ class App(ctk.CTk):
             tools_frame, text="🧩  Parser Personalizzato", width=220, height=38,
             fg_color="#4527a0", hover_color="#311b92",
             command=self._open_parser_builder).pack(side="left", padx=5)
+        ctk.CTkButton(
+            tools_frame, text="📡  Chat sorgenti", width=180, height=38,
+            fg_color="#00695c", hover_color="#004d40",
+            command=self._open_source_chats).pack(side="left", padx=5)
 
         # Ultimo segnale
         sig_frame = ctk.CTkFrame(self, corner_radius=10)
@@ -845,4 +849,17 @@ class App(ctk.CTk):
         from .custom_parser_gui import CustomParserWindow
         provider = str(self._load_config().get("provider", "")).strip()
         win = CustomParserWindow(self, provider=provider)
+        win.focus()
+
+    def _open_source_chats(self):
+        """Apre l'editor delle sorgenti multi-chat (PR-13b). Import lazy: la GUI
+        dell'editor non serve all'avvio del bridge. Al salvataggio aggiorna la
+        config in memoria, così START usa subito le sorgenti modificate."""
+        from .source_chats_gui import SourceChatsWindow
+
+        def _on_saved(new_cfg):
+            self._config = new_cfg
+            self._log(f"📡 Sorgenti multi-chat aggiornate ({len(new_cfg.get('source_chats', []))}).")
+
+        win = SourceChatsWindow(self, on_saved=_on_saved)
         win.focus()

@@ -179,7 +179,12 @@ TOTALE       536 passed, 2 skipped (marcatore "manual" escluso)
    `dashboard_stats` testato in CI; agganciati in `_process`/`_after_non_write`).
    ✅ **PR-14b**: **filtro del log per livello** (Tutti/INFO/WARNING/ERROR/SIGNAL)
    nel riquadro log (logica pura `log_view` su `event_log.filter_by_level`, testata
-   in CI). Restano da verificare a mano i widget su Windows.
+   in CI). ✅ **PR-13b**: editor delle **sorgenti multi-chat** (`source_chats`) in GUI
+   (pulsante "📡 Chat sorgenti": nome/chat_id/attiva/modalità/provider, validazione via
+   `source_editor`/`source_manager`, salvataggio in `config.json`) — non serve più
+   editare il file a mano per il multi-chat. Restano da verificare a mano i widget su
+   Windows. Restano solo-config: `parser_by_chat`, `confirmation_keywords`,
+   `rejection_keywords`.
 3. **Build EXE**: workflow pronto, build reale non eseguibile qui.
 4. **XTrader live**: lettura CSV, segnale verde, conferma Telegram sono passi manuali in
    **simulazione** (vedi `xtrader_simulation_test.md`).
