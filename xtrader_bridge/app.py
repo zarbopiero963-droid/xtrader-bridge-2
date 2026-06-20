@@ -1171,20 +1171,29 @@ class App(ctk.CTk):
         path = self._e_csv.get().strip()
         if not path:
             return
-        # Ferma il tick di scadenza, svuota la coda e il CSV subito (PR-22).
+        # Ferma il tick di scadenza così non riscrive il CSV mentre lo svuotiamo (PR-22).
         if self._expire_timer:
             self._expire_timer.cancel()
+        # Svuota PRIMA il CSV su disco. Se l'I/O fallisce (file lockato da XTrader,
+        # path non scrivibile) NON azzeriamo la coda e RIPROGRAMMIAMO la scadenza:
+        # così la riga attiva rimasta sul disco viene comunque ripulita più tardi
+        # (o riprovata) invece di restare nel CSV per sempre senza tracciamento
+        # (P1 audit). In più non crasha il callback della GUI (come _save/_load).
+        try:
+            init_csv(path)
+        except OSError as exc:
+            # Path + tipo eccezione aiutano a diagnosticare lock/permessi.
+            self._log(
+                f"❌ Svuotamento CSV fallito ({path}): "
+                f"{type(exc).__name__}: {exc}"
+            )
+            self._schedule_expiry(path)
+            return
+        # Scrittura riuscita: ora è sicuro azzerare la coda in memoria.
         with self._queue_lock:
             if self._queue is not None:
                 for sid in self._queue.active_ids():
                     self._queue.remove(sid)
-        # Errore I/O (file lockato da XTrader, path non scrivibile): mostra un errore
-        # pulito invece di far crashare il callback della GUI (come _save/_load).
-        try:
-            init_csv(path)
-        except OSError as exc:
-            self._log(f"❌ Svuotamento CSV fallito: {exc}")
-            return
         self._note_csv(path, 0)
         self._log("🗑️  CSV svuotato manualmente")
 
