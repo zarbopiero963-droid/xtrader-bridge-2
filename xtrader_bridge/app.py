@@ -1178,7 +1178,13 @@ class App(ctk.CTk):
             if self._queue is not None:
                 for sid in self._queue.active_ids():
                     self._queue.remove(sid)
-        init_csv(path)
+        # Errore I/O (file lockato da XTrader, path non scrivibile): mostra un errore
+        # pulito invece di far crashare il callback della GUI (come _save/_load).
+        try:
+            init_csv(path)
+        except OSError as exc:
+            self._log(f"❌ Svuotamento CSV fallito: {exc}")
+            return
         self._note_csv(path, 0)
         self._log("🗑️  CSV svuotato manualmente")
 

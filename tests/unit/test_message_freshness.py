@@ -36,3 +36,16 @@ def test_timestamp_illeggibile_fail_open():
     # Meglio processare un segnale buono che scartarlo per un timestamp illeggibile.
     assert mf.is_stale(None, now, max_age=120) is False
     assert mf.is_stale("boh", now, max_age=120) is False
+
+
+def test_max_age_malformato_non_crasha():
+    # Audit (P1): un max_signal_age non numerico in config NON deve sollevare
+    # TypeError nell'handler Telegram. Una stringa numerica funziona; il resto
+    # disattiva il filtro (fail-safe), senza eccezioni.
+    now = 1_000_000.0
+    # Stringa numerica: si comporta come il numero (utile per config a mano).
+    assert mf.is_stale(now - 200, now, max_age="120") is True
+    assert mf.is_stale(now - 5, now, max_age="120") is False
+    # Non numerico / bool / non finiti → filtro disattivato, niente crash.
+    for bad in ("abc", True, False, float("nan"), float("inf"), [], {}, object()):
+        assert mf.is_stale(now - 99999, now, max_age=bad) is False, bad
