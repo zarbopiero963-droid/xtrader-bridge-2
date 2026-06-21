@@ -9,6 +9,7 @@ proprio (alias → riga) e l'integrazione in `build_csv_row` sono PR-08.
 """
 
 import csv
+import functools
 import os
 import re
 import sys
@@ -87,20 +88,20 @@ def market_types(rows: list) -> set:
 # conosca il formato del CSV/del dizionario. Mercati e selezioni sono restituiti
 # nell'ordine del file: stabile e prevedibile per l'utente.
 
-_ROWS_CACHE = None
 _PLACEHOLDER_RE = re.compile(r"\{[A-Z_]+\}")
 
 
-def _rows(rows=None) -> list:
-    """Righe del dizionario: quelle passate, oppure il file reale caricato UNA
-    volta e tenuto in cache (il catalogo non cambia a runtime). Passare `rows`
-    espliciti mantiene le funzioni pure/testabili senza toccare il disco."""
-    global _ROWS_CACHE
-    if rows is not None:
-        return rows
-    if _ROWS_CACHE is None:
-        _ROWS_CACHE = load_dizionario()
-    return _ROWS_CACHE
+@functools.lru_cache(maxsize=1)
+def _cached_rows() -> tuple:
+    """Dizionario reale caricato UNA volta (il catalogo non cambia a runtime).
+    `lru_cache` gestisce la cache, evitando stato mutabile a livello di modulo."""
+    return tuple(load_dizionario())
+
+
+def _rows(rows=None):
+    """Righe del dizionario: quelle passate (mantiene le funzioni pure/testabili
+    senza toccare il disco), oppure il file reale tenuto in cache."""
+    return rows if rows is not None else _cached_rows()
 
 
 def market_catalog(rows=None) -> list:
