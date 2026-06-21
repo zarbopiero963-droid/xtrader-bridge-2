@@ -138,7 +138,16 @@ class SourceChatsWindow(ctk.CTkToplevel):
                 text="❌ " + "  ·  ".join(errors) + "\nNiente salvato: correggi gli errori.",
                 text_color="#ef5350")
             return
-        config_store.save_config(new_cfg, config_store.CONFIG_FILE)
+        # Esito reale della persistenza (A1): se la scrittura su disco fallisce NON si
+        # deve mostrare "Salvate". Queste sorgenti definiscono le chat ascoltate: un falso
+        # "salvato" le farebbe sparire al riavvio cambiando di nascosto il filtro chat.
+        _, ok = config_store.save_config(new_cfg, config_store.CONFIG_FILE)
+        if not ok:
+            self._status.configure(
+                text="❌ Salvataggio su disco FALLITO: sorgenti NON salvate (andrebbero "
+                     "perse al riavvio). Controlla permessi/spazio del file config.",
+                text_color="#ef5350")
+            return
         if self._on_saved:
             self._on_saved(new_cfg)
         msg = f"✅ Salvate {len(self._rows)} sorgenti in config.json."

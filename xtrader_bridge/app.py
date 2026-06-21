@@ -94,6 +94,9 @@ class App(ctk.CTk):
 
         self._config = self._load_config()
         self._running = False
+        # Esito dell'ultimo salvataggio config su disco (A1): il bottone "Salva Config"
+        # conferma "salvato" solo se True. Default True finché non si salva davvero.
+        self._save_ok = True
         self._bot_thread = None
         self._tg_app = None
         self._loop = None
@@ -224,12 +227,27 @@ class App(ctk.CTk):
         cfg, self._adv_errors = settings_controller.apply_advanced(cfg, adv_form)
         for err in self._adv_errors:
             self._log(f"⚠️ Impostazioni avanzate: {err}")
-        saved = save_config(cfg, CONFIG_FILE)
+        saved, ok = save_config(cfg, CONFIG_FILE)
         self._config = saved
+        # Esito reale della persistenza (A1): se il disco ha fallito lo si SEGNALA sempre
+        # (a ogni save point), così l'utente non resta con l'illusione di aver salvato.
+        # `_save_ok` lascia decidere al bottone se loggare il "salvato" di conferma.
+        self._save_ok = ok
+        if not ok:
+            self._log("❌ Salvataggio config FALLITO su disco: le impostazioni sono attive "
+                      "solo in memoria. Controlla permessi/spazio del percorso config.")
         # Mantiene il pannello "Chat ascoltate" allineato alla config salvata: unico
         # punto, così non va ripetuto a ogni call site (bottone Salva, AVVIA, ...).
         self._refresh_listened_chats()
         return saved
+
+    def _on_save_clicked(self) -> None:
+        """Bottone 'Salva Config': persiste il form e conferma "salvato" SOLO se la
+        scrittura su disco è andata a buon fine (A1). Un eventuale fallimento è già
+        segnalato da `_save_config`, quindi qui non si ripete l'errore."""
+        self._save_config()
+        if self._save_ok:
+            self._log("💾 Configurazione salvata")
 
     # ── UI ────────────────────────────────────
     def _build_ui(self):
@@ -342,7 +360,7 @@ class App(ctk.CTk):
         ctk.CTkButton(
             btn_frame, text="💾  Salva Config", width=140, height=42,
             fg_color="#37474f", hover_color="#263238",
-            command=lambda: [self._save_config(), self._log("💾 Configurazione salvata")],
+            command=self._on_save_clicked,
         ).pack(side="right", padx=5)
 
         # Riga propria: la finestra è a larghezza fissa, non far sforare i pulsanti.
@@ -1286,11 +1304,16 @@ class App(ctk.CTk):
         from .profiles_gui import ProfilesWindow
 
         def _on_loaded(new_cfg):
-            saved = save_config(new_cfg, CONFIG_FILE)
+            saved, ok = save_config(new_cfg, CONFIG_FILE)
             self._config = saved
+            self._save_ok = ok
             self._populate_form(saved)
             self._refresh_listened_chats()
-            self._log("📁 Profilo caricato e applicato (token invariato).")
+            if ok:
+                self._log("📁 Profilo caricato e applicato (token invariato).")
+            else:
+                self._log("⚠️ Profilo applicato in memoria, ma salvataggio su disco "
+                          "FALLITO (token invariato). Controlla permessi/spazio.")
 
         win = ProfilesWindow(self, get_current_cfg=self._save_config, on_loaded=_on_loaded,
                              is_running=lambda: self._running)
