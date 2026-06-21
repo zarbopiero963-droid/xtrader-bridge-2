@@ -73,6 +73,28 @@ def has_chat_filter(cfg: dict) -> bool:
     return bool(configured or per_chat or has_sources)
 
 
+def allowed_chats(cfg: dict) -> set:
+    """Insieme ESPLICITO dei `chat_id` che il listener processerà: unione di
+    `chat_id` configurato, chiavi `parser_by_chat` e sorgenti `source_chats`
+    **attive**, MENO le sorgenti **disattivate** (deny-list). È il modello "ascolta
+    solo queste chat, mai tutte": la GUI può mostrarlo all'utente ("ascolto queste N
+    chat") e il listener processa esattamente questo insieme.
+
+    Fonte unica della allowlist: `is_chat_allowed` la riusa, così filtro live e
+    visualizzazione non possono divergere. ATTENZIONE: un set **vuoto** NON significa
+    "ammetti tutte". Quando non c'è alcun criterio (`not has_chat_filter`) il
+    comportamento legacy sarebbe "ammetti tutte" (vedi `is_chat_allowed`), ma è
+    bloccato dal fail-fast d'avvio; distinguere i due casi con `has_chat_filter`."""
+    configured = str(cfg.get("chat_id", "") or "").strip()
+    allowed = set(parser_manager.parser_by_chat(cfg).keys())
+    allowed |= set(map(str, source_manager.enabled_chat_ids(cfg)))   # solo le attive
+    if configured:
+        allowed.add(configured)
+    # Una sorgente DISATTIVATA è deny-list: vince su parser_by_chat/chat_id.
+    allowed -= _disabled_source_ids(cfg)
+    return allowed
+
+
 def is_chat_allowed(cfg: dict, chat: str) -> bool:
     """Chat che il bridge può processare nel live: quella CONFIGURATA (`chat_id`),
     le chiavi `parser_by_chat` e le **sorgenti multi-chat ATTIVE** (`source_chats`
@@ -82,22 +104,11 @@ def is_chat_allowed(cfg: dict, chat: str) -> bool:
     has_chat_filter`): `chat_id` vuoto, `parser_by_chat` vuota e **nessuna**
     `source_chats` (anche disattivata). Così disattivare tutte le sorgenti **blocca
     tutte** le chat, non riapre il gate. Gatea sia il percorso custom sia l'hardcoded:
-    nessuna scrittura per chat non autorizzate."""
-    chat = str(chat or "")
-    configured = str(cfg.get("chat_id", "") or "").strip()
-    per_chat = parser_manager.parser_by_chat(cfg)
-    source_ids = set(map(str, source_manager.enabled_chat_ids(cfg)))   # solo le attive
-    # Ramo legacy "ammetti tutte" = stessa identica condizione di `has_chat_filter`
-    # (unica fonte di verità → niente drift tra filtro live e fail-fast d'avvio).
+    nessuna scrittura per chat non autorizzate. L'allowlist esplicita è calcolata da
+    `allowed_chats` (fonte unica)."""
     if not has_chat_filter(cfg):
         return True
-    allowed = set(per_chat.keys()) | source_ids
-    if configured:
-        allowed.add(configured)
-    # Una sorgente DISATTIVATA è deny-list: vince su parser_by_chat/chat_id, così
-    # disattivarla la ferma davvero (PR-24, finding Codex).
-    allowed -= _disabled_source_ids(cfg)
-    return chat in allowed
+    return str(chat or "") in allowed_chats(cfg)
 
 
 def active_custom_parser(cfg: dict, chat: str, parsers_dir: str = None):

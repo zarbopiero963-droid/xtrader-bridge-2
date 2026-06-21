@@ -268,6 +268,44 @@ def test_has_chat_filter_vero_con_chatid_parser_o_sorgente():
         {"source_chats": [{"chat_id": "111", "enabled": False}]}) is True
 
 
+# ── allowed_chats: allowlist esplicita (A2, modello "solo queste chat") ──────
+
+def test_allowed_chats_unione_chatid_parser_sorgenti_attive():
+    cfg = {"chat_id": "42",
+           "parser_by_chat": {"123": "PerChat"},
+           "source_chats": [
+               {"chat_id": "111", "enabled": True},
+               {"chat_id": "222", "enabled": False},   # disattivata → esclusa
+           ]}
+    assert signal_router.allowed_chats(cfg) == {"42", "123", "111"}
+
+
+def test_allowed_chats_sorgente_disattivata_e_denylist():
+    # La sorgente disattivata vince su chat_id/parser_by_chat coincidenti → esclusa.
+    cfg = {"chat_id": "111", "parser_by_chat": {"111": "X"},
+           "source_chats": [{"chat_id": "111", "enabled": False}]}
+    assert signal_router.allowed_chats(cfg) == set()
+
+
+def test_allowed_chats_vuoto_se_nulla_configurato():
+    # Senza criteri l'allowlist è vuota (NON significa "tutte": vedi has_chat_filter).
+    assert signal_router.allowed_chats({}) == set()
+    assert signal_router.has_chat_filter({}) is False
+
+
+def test_allowed_chats_coerente_con_is_chat_allowed():
+    # Invariante: con un filtro attivo, is_chat_allowed(cfg, c) ⇔ c ∈ allowed_chats(cfg).
+    cfg = {"chat_id": "42",
+           "parser_by_chat": {"123": "PerChat"},
+           "source_chats": [
+               {"chat_id": "111", "enabled": True},
+               {"chat_id": "222", "enabled": False},
+           ]}
+    allow = signal_router.allowed_chats(cfg)
+    for chat in ("42", "123", "111", "222", "999", ""):
+        assert signal_router.is_chat_allowed(cfg, chat) is (chat in allow), chat
+
+
 def test_resolve_row_provider_per_chat_da_modalita(tmp_path):
     # La riga di una sorgente LIVE (senza provider esplicito) usa TG_LIVE; una con
     # provider esplicito quello; una chat senza sorgente attiva usa il provider globale.
