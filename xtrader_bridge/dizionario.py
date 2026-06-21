@@ -138,9 +138,19 @@ def market_is_dynamic(market, rows=None) -> bool:
     return False
 
 
-def market_names(rows=None) -> list:
-    """Solo i MarketName (per popolare direttamente una tendina)."""
-    return [m["MarketName"] for m in market_catalog(rows)]
+def market_names(rows=None, fixed_only=False) -> list:
+    """I MarketName per una tendina.
+
+    Con ``fixed_only=True`` esclude i mercati **dinamici** (MarketName con placeholder
+    squadra, es. handicap ``"{HOME_TEAM} +1"``), lasciando solo nomi usabili come
+    valore **fisso** — utile per una tendina che salva il nome così com'è. Con il
+    default (``fixed_only=False``) li include **tutti**: i mercati handicap sono
+    scommesse legittime, ma il loro nome va completato con Home/Away
+    (`fill_placeholders`), non persistito grezzo — il flag `dynamic` lo segnala in
+    `market_catalog()`, e `has_placeholder` impedisce a un nome non risolto di finire
+    nel CSV a valle (Codex P2)."""
+    return [m["MarketName"] for m in market_catalog(rows)
+            if not (fixed_only and m["dynamic"])]
 
 
 def market_name_for_type(market_type, rows=None):

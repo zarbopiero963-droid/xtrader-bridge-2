@@ -128,6 +128,22 @@ def test_market_catalog_flag_dynamic_sui_mercati_handicap():
     assert dz.market_is_dynamic("") is False
 
 
+def test_market_names_fixed_only_esclude_i_dinamici():
+    # Codex P2: il helper documentato per la tendina deve poter escludere i mercati
+    # dinamici (MarketName con placeholder), così non vengono offerti come valore fisso.
+    all_names = dz.market_names()
+    fixed = dz.market_names(fixed_only=True)
+    # nel default ci sono anche i nomi handicap con placeholder…
+    assert "{HOME_TEAM} +1" in all_names
+    assert "{AWAY_TEAM} +1" in all_names
+    # …in fixed_only no: nessun nome con placeholder.
+    assert not any(dz.has_placeholder(n) for n in fixed)
+    assert "{HOME_TEAM} +1" not in fixed and "{AWAY_TEAM} +1" not in fixed
+    # i mercati normali restano in entrambi.
+    assert "Esito Finale" in fixed and "Esito Finale" in all_names
+    assert len(fixed) == len(all_names) - 2     # esclusi solo TEAM_A_1/TEAM_B_1
+
+
 def test_market_name_type_roundtrip():
     assert dz.market_name_for_type("MATCH_ODDS") == "Esito Finale"
     assert dz.market_type_for_name("Esito Finale") == "MATCH_ODDS"
