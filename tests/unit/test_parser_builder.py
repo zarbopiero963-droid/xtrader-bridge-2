@@ -67,6 +67,17 @@ def test_set_fixed_market_aggiorna_senza_duplicare_target():
     assert not b.errors()                                        # parser valido (no target dup)
 
 
+def test_set_fixed_market_persiste_valori_canonici_da_input_non_canonico():
+    # CodeRabbit (CSV-safety): un input con case/spazi diversi NON deve finire grezzo nel
+    # CSV — si persistono SEMPRE i nomi canonici del catalogo (XTrader-compatibili).
+    b = pb.ParserBuilder()
+    b.set_fixed_market("  esito finale ", " x ", rows=_CATALOG_ROWS)
+    by_target = {r.target: r.fixed_value for r in b.rules}
+    assert by_target["MarketName"] == "Esito finale"      # non "esito finale"
+    assert by_target["SelectionName"] == "X"              # non "x"
+    assert by_target["MarketType"] == "MATCH_ODDS"
+
+
 def test_set_fixed_market_rifiuta_mercato_o_selezione_non_validi():
     b = pb.ParserBuilder()
     with pytest.raises(ValueError, match="non nel catalogo"):

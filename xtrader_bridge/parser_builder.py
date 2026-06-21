@@ -67,20 +67,29 @@ class ParserBuilder:
         (`fixed_value`), azzerando estrazione/transform/value-map così il valore resta
         ESATTAMENTE quello del catalogo. Non tocca le altre regole.
 
-        Validazione CSV-safe: solleva `ValueError` se il mercato non è nel catalogo o se
-        la selezione non è tra quelle **non dinamiche** del mercato — così non si
-        persiste mai un nome non canonico o un placeholder non risolto."""
-        market = str(market or "").strip()
-        selection = str(selection or "").strip()
-        market_type = dizionario.market_type_for_name(market, rows)
-        if not market_type:
+        CSV-safe: l'input è confrontato in modo case/spazio-insensitive col catalogo ma
+        nel CSV si persistono **sempre i nomi CANONICI** del dizionario (non l'input
+        grezzo), così un `"esito finale"` non diventa una riga non-canonica che romperebbe
+        il match XTrader. `ValueError` se il mercato non è nel catalogo (fixed-only) o la
+        selezione non è tra quelle **non dinamiche** del mercato."""
+        market_key = str(market or "").strip().casefold()
+        selection_key = str(selection or "").strip().casefold()
+        # Risolve il nome CANONICO del mercato (solo fixed-only: niente dinamici).
+        canonical_market = next(
+            (m for m in self.market_options(rows=rows)
+             if m.strip().casefold() == market_key), None)
+        if not canonical_market:
             raise ValueError(f"Mercato non nel catalogo XTrader: {market!r}")
-        if selection not in self.selection_options(market, rows):
+        canonical_selection = next(
+            (s for s in self.selection_options(canonical_market, rows)
+             if s.strip().casefold() == selection_key), None)
+        if not canonical_selection:
             raise ValueError(
                 f"Selezione non valida o dinamica per {market!r}: {selection!r}")
+        market_type = dizionario.market_type_for_name(canonical_market, rows)
         for target, value in (("MarketType", market_type),
-                              ("MarketName", market),
-                              ("SelectionName", selection)):
+                              ("MarketName", canonical_market),
+                              ("SelectionName", canonical_selection)):
             self._upsert_fixed_rule(target, value)
 
     def _upsert_fixed_rule(self, target: str, value: str) -> None:
