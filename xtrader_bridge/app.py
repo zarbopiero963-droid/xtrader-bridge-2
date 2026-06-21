@@ -79,10 +79,10 @@ class App(ctk.CTk):
         super().__init__()
         self.title(f"XTrader Signal Bridge v{__version__}")
         # Altezza contenuta + altezza RIDIMENSIONABILE (larghezza fissa: il layout è
-        # tarato in larghezza). Su schermi bassi (768/800px) il log — unico widget che
-        # si espande — si riduce e nulla finisce fuori schermo; i comandi (START/STOP,
-        # config) stanno sopra e restano sempre visibili (finding Codex). minsize evita
-        # un collasso eccessivo.
+        # tarato in larghezza). Su schermi bassi (768/800px) il pannello monitoraggio a
+        # schede — unico widget che si espande — si riduce e nulla finisce fuori schermo;
+        # i comandi (START/STOP, config) stanno sopra e restano sempre visibili (finding
+        # Codex). minsize evita un collasso eccessivo.
         self.geometry("720x760")
         self.resizable(False, True)
         self.minsize(720, 600)
@@ -356,28 +356,32 @@ class App(ctk.CTk):
             fg_color="#5d4037", hover_color="#3e2723",
             command=self._open_profiles).pack(side="left", padx=5)
 
-        # Chat ascoltate (B1): vista READ-ONLY delle chat che il listener processerà,
+        # Monitoraggio a schede (B3): Chat ascoltate / Stato / Dashboard / Log erano
+        # quattro pannelli impilati che allungavano molto la finestra. Ora vivono in un
+        # solo Tabview (una scheda per volta): stessi widget e stessi riferimenti, nessun
+        # campo rimosso — solo meno clutter verticale. Config e pulsanti restano sopra,
+        # sempre visibili. I titoli interni ridondanti sono rimossi (li porta la scheda).
+        mon = ctk.CTkTabview(self)
+        mon.pack(fill="both", expand=True, padx=15, pady=(5, 12))
+        tab_chats = mon.add("📡 Chat ascoltate")
+        tab_stato = mon.add("📡 Stato")
+        tab_dash = mon.add("📊 Dashboard")
+        tab_log = mon.add("📋 Log")
+
+        # — Chat ascoltate (B1): vista READ-ONLY delle chat che il listener processerà,
         # coi nomi leggibili (da source_chats) quando disponibili. Aggiornata a Salva
         # Config e al caricamento di un profilo. Rende visibile il modello "ascolta solo
         # queste chat, mai tutte" (allowed_chats, A2).
-        chats_frame = ctk.CTkFrame(self, corner_radius=10)
-        chats_frame.pack(fill="x", padx=15, pady=5)
-        ctk.CTkLabel(chats_frame, text="📡  CHAT ASCOLTATE",
-                     font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=12, pady=(8, 2))
         self._chats_lbl = ctk.CTkLabel(
-            chats_frame, text="", font=ctk.CTkFont(size=11), text_color="gray",
-            wraplength=680, anchor="w", justify="left")
-        self._chats_lbl.pack(anchor="w", padx=12, pady=(0, 8))
+            tab_chats, text="", font=ctk.CTkFont(size=11), text_color="gray",
+            wraplength=660, anchor="w", justify="left")
+        self._chats_lbl.pack(anchor="w", padx=12, pady=8)
         self._refresh_listened_chats()
 
-        # Stato + diagnostica (PR-14c): ultimo segnale/messaggio/CSV/errore + pulsanti
-        # "Apri cartella log" e "Copia diagnostica" (per il supporto).
-        sig_frame = ctk.CTkFrame(self, corner_radius=10)
-        sig_frame.pack(fill="x", padx=15, pady=5)
-        sig_hdr = ctk.CTkFrame(sig_frame, fg_color="transparent")
-        sig_hdr.pack(fill="x", padx=12, pady=(8, 2))
-        ctk.CTkLabel(sig_hdr, text="📡  STATO",
-                     font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+        # — Stato + diagnostica (PR-14c): ultimo segnale/messaggio/CSV/errore + pulsanti
+        # "Apri cartella log" e "Copia diagnostica" (per il supporto). —
+        sig_hdr = ctk.CTkFrame(tab_stato, fg_color="transparent")
+        sig_hdr.pack(fill="x", padx=12, pady=(8, 4))
         ctk.CTkButton(sig_hdr, text="📋 Copia diagnostica", width=160, height=28,
                       fg_color="#37474f", hover_color="#263238",
                       command=self._copy_diagnostics).pack(side="right", padx=(6, 0))
@@ -385,26 +389,24 @@ class App(ctk.CTk):
                       fg_color="#37474f", hover_color="#263238",
                       command=self._open_log_folder).pack(side="right", padx=(6, 0))
         _sty = dict(font=ctk.CTkFont(size=11), text_color="gray",
-                    wraplength=680, anchor="w", justify="left")
+                    wraplength=660, anchor="w", justify="left")
         # Una label per campo, creata dalla fonte unica _LAST_FIELDS (niente prefissi
         # duplicati a mano). _set_last le aggiorna usando lo stesso prefisso.
         self._last_lbls = {}
         for i, (kind, prefix) in enumerate(_LAST_FIELDS):
-            lbl = ctk.CTkLabel(sig_frame, text=f"{prefix}: —", **_sty)
+            lbl = ctk.CTkLabel(tab_stato, text=f"{prefix}: —", **_sty)
             pady = (0, 1) if i == 0 else ((1, 8) if i == len(_LAST_FIELDS) - 1 else 1)
             lbl.pack(anchor="w", padx=12, pady=pady)
             self._last_lbls[kind] = lbl
 
-        # Dashboard contatori di sessione (PR-14): esiti del flusso dall'ultimo START.
-        dash_frame = ctk.CTkFrame(self, corner_radius=10)
-        dash_frame.pack(fill="x", padx=15, pady=5)
-        ctk.CTkLabel(dash_frame, text="📊  DASHBOARD (dall'avvio)",
-                     font=ctk.CTkFont(size=12, weight="bold")).grid(
+        # — Dashboard contatori di sessione (PR-14): esiti del flusso dall'ultimo START. —
+        ctk.CTkLabel(tab_dash, text="Contatori dall'avvio", font=ctk.CTkFont(size=11),
+                     text_color="gray").grid(
             row=0, column=0, columnspan=len(dashboard_stats.COUNTERS),
             sticky="w", padx=12, pady=(8, 2))
         self._stat_lbls = {}
         for col, (name, label) in enumerate(dashboard_stats.COUNTERS):
-            cell = ctk.CTkFrame(dash_frame, fg_color="transparent")
+            cell = ctk.CTkFrame(tab_dash, fg_color="transparent")
             cell.grid(row=1, column=col, padx=8, pady=(0, 8), sticky="w")
             ctk.CTkLabel(cell, text=label, font=ctk.CTkFont(size=10),
                          text_color="gray").pack(anchor="w")
@@ -412,21 +414,17 @@ class App(ctk.CTk):
             val.pack(anchor="w")
             self._stat_lbls[name] = val
 
-        # Log + filtro per livello (PR-14b)
-        log_frame = ctk.CTkFrame(self, corner_radius=10)
-        log_frame.pack(fill="both", expand=True, padx=15, pady=(5, 12))
-        log_hdr = ctk.CTkFrame(log_frame, fg_color="transparent")
+        # — Log + filtro per livello (PR-14b) —
+        log_hdr = ctk.CTkFrame(tab_log, fg_color="transparent")
         log_hdr.pack(fill="x", padx=12, pady=(8, 2))
-        ctk.CTkLabel(log_hdr, text="📋  LOG",
-                     font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
         ctk.CTkLabel(log_hdr, text="Mostra:", font=ctk.CTkFont(size=11),
-                     text_color="gray").pack(side="left", padx=(12, 4))
+                     text_color="gray").pack(side="left", padx=(0, 4))
         self._log_filter = tk.StringVar(master=self, value=log_view.ALL)
         ctk.CTkOptionMenu(log_hdr, values=list(log_view.OPTIONS), width=130,
                           variable=self._log_filter,
                           command=lambda _v: self._render_log()).pack(side="left")
         self._log_box = ctk.CTkTextbox(
-            log_frame, font=ctk.CTkFont(size=11, family="Courier"), height=130)
+            tab_log, font=ctk.CTkFont(size=11, family="Courier"))
         self._log_box.pack(fill="both", expand=True, padx=12, pady=(0, 10))
 
     # ── widget helper per le impostazioni avanzate (PR-13) ────────────────
