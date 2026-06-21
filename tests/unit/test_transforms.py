@@ -99,8 +99,16 @@ def test_score_to_over_punteggio_implausibile_vuoto(score):
     assert tr.apply(score, "score_to_over") == ""
 
 
+@pytest.mark.parametrize("score", ["30-30", "20-20", "16-15", "25-10"])
+def test_score_to_over_somma_implausibile_vuoto(score):
+    # Codex: anche se ogni lato è ≤30, una SOMMA oltre 30 dà un totale assurdo
+    # ("30-30" → "Over 60,5"); deve fallire chiuso → "".
+    assert tr.apply(score, "score_to_over") == ""
+
+
 def test_score_to_over_cap_al_limite():
-    # A5: 30 gol per lato è ancora ammesso; 31 è oltre il cap.
+    # A5: 30 gol per lato è ancora ammesso; 31 è oltre il cap. La somma 30 è al limite.
     assert tr.apply("30-0", "score_to_over") == "Over 30,5"
     assert tr.apply("0-30", "score_to_over") == "Over 30,5"
+    assert tr.apply("15-15", "score_to_over") == "Over 30,5"
     assert tr.apply("31-0", "score_to_over") == ""

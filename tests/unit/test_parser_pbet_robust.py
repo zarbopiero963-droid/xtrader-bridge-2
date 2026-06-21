@@ -294,19 +294,16 @@ def test_quota_linea_mezzo_punto_resta_linea():
 
 def test_quota_ft_prematch_malformato_fail_closed():
     # Codex P1: se un marker "Prematch:" è presente ma il suo valore è malformato, la
-    # quota era lì ed è invalida → fail-closed (None). Il fallback A3 NON deve promuovere
+    # quota era lì ed è invalida → fail-closed (""). Il fallback A3 NON deve promuovere
     # il numero pre-Prematch (la LINEA) a prezzo. Vale per linea .5 e non-.5.
     assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1,90 FT Prematch:1,85,3")["quota"] == ""
     assert parse_message("📈Quota 2,5 FT Prematch:1,85,3")["quota"] == ""
 
 
-# ── A4: riga di nota/competizione con " v " non diventa squadre ──
-
-def test_note_line_non_diventa_squadre():
-    # A4: "Real v Society league note" contiene una parola-nota ("league"/"note") →
-    # NON è una coppia di squadre, così non si scrive un EventName inventato.
-    p = parse_message("P.Bet. OVER 2.5\nReal v Society league note\nQuota 1,90")
-    assert p["teams"] == ""
-    # Una vera riga squadre in testo libero resta riconosciuta.
-    p2 = parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1,90")
-    assert p2["teams"] == "Inter v Milan"
+def test_quota_prematch_su_riga_successiva():
+    # Codex P1 (multi-line): il "Prematch:" reale è sulla riga DOPO. Il recupero A3 è
+    # whole-message: vede il Prematch e usa 1,85 (la quota vera), NON promuove 1,90 (la
+    # linea) della prima riga. Senza Prematch da nessuna parte, invece, 1,90 è la quota.
+    assert parse_message("Quota 1,90 FT\nPrematch:1,85")["quota"] == "1.85"
+    assert parse_message("Quota 1,90 FT\nPrematch:1,85,3")["quota"] == ""   # malformato → fail-closed
+    assert parse_message("Quota 1,90 FT")["quota"] == "1.90"                # nessun Prematch → A3

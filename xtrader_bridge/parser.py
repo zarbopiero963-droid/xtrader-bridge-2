@@ -26,25 +26,6 @@ _LABEL_WORDS = frozenset({
     'competition', 'live', 'pre', 'prematch', 'punta', 'banca', 'back', 'lay',
 })
 
-# Parole di NOTA/COMPETIZIONE che non compaiono in un nome-squadra: una riga in testo
-# semplice che le contiene (come token intero) NON è una coppia di squadre, anche se ha
-# un " v " per caso — es. "Real v Society league note" (A4). Usate SOLO nel percorso
-# testo-libero (`_find_teams`); le righe 🆚 con emoji sono già confermate e non passano qui.
-_NOTE_WORDS = frozenset({
-    'league', 'lega', 'campionato', 'competition', 'cup', 'coppa', 'final', 'finale',
-    'semifinale', 'semifinal', 'quarti', 'quarterfinal', 'round', 'turno', 'group',
-    'girone', 'note', 'nota', 'matchday', 'giornata', 'friendly', 'amichevole',
-    'playoff', 'serie', 'division',
-})
-_TOKEN_RE = re.compile(r'[A-Za-zÀ-ÿ]+')
-
-
-def _has_note_word(text: str) -> bool:
-    """True se `text` contiene una parola di nota/competizione (`_NOTE_WORDS`) come
-    token intero (case-insensitive). Difende `_find_teams` dallo scambiare una riga di
-    nota con le squadre (A4)."""
-    return any(tok.lower() in _NOTE_WORDS for tok in _TOKEN_RE.findall(text))
-
 # Coda con punteggio/tempo da rimuovere prima di leggere le squadre
 # (es. "Silver Stars FC 6 - 0 46m" → "Silver Stars FC").
 # La classe [-–:] include di proposito sia il trattino ASCII "-" sia l'EN DASH "–"
@@ -80,36 +61,42 @@ def _is_half_line(value: str) -> bool:
 def _extract_quota(line: str):
     """Quota reale da una riga.
 
-    Nel formato P.Bet "Quota X,Y HT/FT Prematch:Z" il numero X,Y è di norma la
-    **linea** del mercato e la quota offerta è il valore dopo "Prematch:". Quando però
-    NON c'è un "Prematch:<valore>" si applica la regola universale (A3): il numero dopo
-    "Quota" è una LINEA solo se è un valore `.5` (`_is_half_line`: 0.5/1.5/2.5…),
-    altrimenti è la **quota** stessa e non va persa (es. "Quota 1,90 FT" → 1.90).
-    Così "Quota 1,5 HT" resta una linea (→ nessuna quota), mentre una quota non-`.5`
-    senza Prematch viene recuperata.
+    Nel formato P.Bet "Quota X,Y HT/FT Prematch:Z" il numero X,Y è la **linea** del
+    mercato (non una quota): la quota offerta è il valore dopo "Prematch:". Questa forma
+    è riconosciuta da un marker di linea — `HT`/`FT` oppure `Prematch:` — così non si
+    scambia la linea per il prezzo. Il recupero della quota quando "Quota X HT/FT" non ha
+    alcun `Prematch:` nell'intero messaggio (A3) è gestito a parte da
+    `_extract_ft_line_quota` in `parse_message`, che vede tutte le righe.
     Altrove è "Quota X" / "@X". Solo quote valide: > 1, ben delimitate (no "1.2.3").
     Il boundary `(?!\\d|[.,]\\d)` rifiuta sia una cifra successiva sia un separatore
     decimale seguito da cifra — così "1.85.3"/"1,85,3" non vengono troncati a un
     prefisso ("1.8") — ma ammette la punteggiatura finale di frase ("Quota 1,85." → 1.85).
     """
     low = line.lower()
-    has_prematch = re.search(r'prematch\s*:', low) is not None
-    if re.search(r'\b(?:ht|ft)\b', low) or has_prematch:
+    if re.search(r'\b(?:ht|ft)\b', low) or re.search(r'prematch\s*:', low):
         m = re.search(r'prematch[:\s]*(' + _NUM + r')(?!\d|[.,]\d)', line, re.IGNORECASE)
-        if m is None and not has_prematch:
-            # SOLO HT/FT senza alcun marker "Prematch:": il numero dopo "Quota" è la
-            # quota a meno che non sia un valore .5 (linea over/under). Recupera
-            # "Quota 1,90 FT" (A3) senza scambiare "Quota 1,5 HT" (linea) per una quota.
-            # Se invece un marker "Prematch:" c'è ma il suo valore è malformato, la quota
-            # era lì ed è invalida → si FALLISCE CHIUSI (None), NON si promuove la linea
-            # pre-Prematch a prezzo (Codex P1).
-            cand = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?!\d|[.,]\d)',
-                             line, re.IGNORECASE)
-            if cand is not None and not _is_half_line(cand.group(1)):
-                m = cand
     else:
         m = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?!\d|[.,]\d)', line, re.IGNORECASE)
     if not m:
+        return None
+    val = m.group(1).replace(',', '.')
+    return val if _is_odds(val) else None
+
+
+def _extract_ft_line_quota(line: str):
+    """Recupero A3: su una riga "Quota X HT/FT" il numero X è una LINEA over/under solo
+    se è un valore `.5` (`_is_half_line`: 0.5/1.5/2.5…); altrimenti è la **quota** offerta
+    (es. "Quota 1,90 FT" → 1.90) e non va persa.
+
+    Va usato SOLO come fallback whole-message (vedi `parse_message`): si applica quando in
+    TUTTO il messaggio non c'è alcun `Prematch:`. Se un `Prematch:` esiste (anche su una
+    riga diversa, o malformato) la quota vera è lì e non si promuove la linea a prezzo —
+    nel dubbio si fallisce chiusi. Residuo noto: una quota esattamente `.5` (es. 1,50) è
+    indistinguibile da una linea e resta persa (fail-safe: meglio persa che sbagliata)."""
+    if not re.search(r'\b(?:ht|ft)\b', line.lower()):
+        return None
+    m = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?!\d|[.,]\d)', line, re.IGNORECASE)
+    if m is None or _is_half_line(m.group(1)):
         return None
     val = m.group(1).replace(',', '.')
     return val if _is_odds(val) else None
@@ -158,16 +145,9 @@ def _teams_from(line: str, sep: re.Pattern):
 def _find_teams(lines) -> str:
     """Cerca la riga squadre in testo semplice: SOLO " v "/" vs " (cue forte).
     Il separatore " - " è ammesso solo nelle righe 🆚 (l'emoji conferma le squadre):
-    in testo libero è troppo ambiguo (competizioni come "Italy - Serie A", punteggi).
-
-    (A4) Una riga di nota/competizione che contiene " v " per caso (es. "Real v Society
-    league note") viene SCARTATA se ha una parola-nota (`_has_note_word`): meglio nessuna
-    squadra (segnale incompleto → scartato a valle) che un EventName inventato nel CSV."""
+    in testo libero è troppo ambiguo (competizioni come "Italy - Serie A", punteggi)."""
     for raw in lines:
-        line = raw.strip()
-        if _has_note_word(line):
-            continue
-        t = _teams_from(line, _SEP_VVS)
+        t = _teams_from(raw.strip(), _SEP_VVS)
         if t:
             return t
     return ""
@@ -264,6 +244,17 @@ def parse_message(text: str) -> dict:
         if prob and not result['probability']:
             result['probability'] = prob
             continue
+
+    # A3: quota su riga "Quota X HT/FT" quando l'INTERO messaggio non ha alcun
+    # "Prematch:". Solo allora X (se non è una linea .5) è la quota: se un "Prematch:"
+    # esiste — anche su un'altra riga o malformato — la quota vera è lì e non si promuove
+    # la linea a prezzo (fail-closed). Eseguito dopo il loop per vedere tutte le righe.
+    if not result['quota'] and not re.search(r'prematch\s*:', text.lower()):
+        for raw in lines:
+            q = _extract_ft_line_quota(raw.strip())
+            if q:
+                result['quota'] = q
+                break
 
     # Squadre da testo semplice (solo se non già trovate via 🆚): v/vs preferito su -.
     if not result['teams']:
