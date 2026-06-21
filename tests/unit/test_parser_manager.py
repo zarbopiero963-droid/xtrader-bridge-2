@@ -17,6 +17,16 @@ def test_defaults_hanno_le_chiavi():
     assert DEFAULTS["parser_by_chat"] == {}
 
 
+def test_parser_by_chat_normalizza_chiavi_a_str():
+    # Codex P2: una chiave non-stringa (es. int da config a mano) è normalizzata a str
+    # ALLA FONTE, così il lookup per-chat è coerente con is_chat_allowed (che ammette
+    # str(chat)) e il messaggio custom non viene perso/degradato all'hardcoded.
+    cfg = {"parser_by_chat": {123: "PerChat"}}
+    assert pm.parser_by_chat(cfg) == {"123": "PerChat"}
+    assert pm.resolve_parser_name(cfg, "123") == "PerChat"   # lookup trova l'override
+    assert pm.parser_by_chat({"parser_by_chat": "non-dict"}) == {}
+
+
 # ── risoluzione del nome ─────────────────────────────────────────────────────
 
 def test_resolve_nessuno_di_default():

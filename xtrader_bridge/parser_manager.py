@@ -19,7 +19,14 @@ def active_parser_name(cfg: dict) -> str:
 
 def parser_by_chat(cfg: dict) -> dict:
     value = (cfg or {}).get("parser_by_chat", {})
-    return dict(value) if isinstance(value, dict) else {}
+    if not isinstance(value, dict):
+        return {}
+    # Chiavi normalizzate a str ALLA FONTE: i chat_id arrivano come stringhe nel live e
+    # tutti i consumatori (is_chat_allowed/allowed_chats, _chat_approved_for_custom,
+    # resolve_parser_name) confrontano `str(chat)`. Una chiave non-stringa (es. int da
+    # config editata a mano) darebbe lookup incoerenti: la chat verrebbe ammessa ma il
+    # parser per-chat non trovato (Codex P2). Normalizzare qui allinea tutti i percorsi.
+    return {str(k): v for k, v in value.items()}
 
 
 def resolve_parser_name(cfg: dict, chat_id: str = "") -> str:
