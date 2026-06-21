@@ -98,3 +98,81 @@ def test_duplicate_rileva_veri_duplicati():
         {"MarketAliasTelegram": "Esito_Finale", "SelectionAliasTelegram": " 1 "},
     ]
     assert dz.duplicate_alias_pairs(rows) == [("esito_finale", "1")]
+
+
+# ── Catalogo per le tendine (A1) ────────────────────────────────────────────
+
+def test_market_catalog_22_mercati_senza_duplicati():
+    cat = dz.market_catalog()
+    assert len(cat) == 22                              # 22 MarketType distinti
+    types = [m["MarketType"] for m in cat]
+    assert len(types) == len(set(types))               # nessun duplicato
+    assert all(m["MarketType"] and m["MarketName"] for m in cat)  # mai vuoti
+
+
+def test_market_name_type_roundtrip():
+    assert dz.market_name_for_type("MATCH_ODDS") == "Esito Finale"
+    assert dz.market_type_for_name("Esito Finale") == "MATCH_ODDS"
+    # case/space-insensitive sul nome
+    assert dz.market_type_for_name("  over/under 2,5 gol ") == "OVER_UNDER_25"
+    # sconosciuti → None (niente eccezioni)
+    assert dz.market_name_for_type("INESISTENTE") is None
+    assert dz.market_type_for_name("Mercato che non esiste") is None
+
+
+def test_selections_for_market_match_odds():
+    # match per MarketType e per MarketName danno lo stesso insieme.
+    by_type = dz.selections_for_market("MATCH_ODDS")
+    by_name = dz.selections_for_market("Esito Finale")
+    assert {s["SelectionName"] for s in by_type} == {s["SelectionName"] for s in by_name}
+    names = {s["SelectionName"] for s in by_type}
+    assert names == {"{HOME_TEAM}", "{AWAY_TEAM}", "Pareggio"}
+    # Home/Away sono dinamiche (placeholder squadra), Pareggio no.
+    dyn = {s["SelectionName"]: s["dynamic"] for s in by_type}
+    assert dyn["{HOME_TEAM}"] is True
+    assert dyn["{AWAY_TEAM}"] is True
+    assert dyn["Pareggio"] is False
+
+
+def test_selections_for_market_over_under_porta_la_linea():
+    ou = dz.selections_for_market("OVER_UNDER_25")
+    assert {s["SelectionName"] for s in ou} == {"Over 2,5 goal", "Under 2,5 goal"}
+    assert all(s["Linea"] == "2.5" and s["dynamic"] is False for s in ou)
+
+
+def test_selections_for_market_correct_score_19_non_dinamiche():
+    cs = dz.selections_for_market("CORRECT_SCORE")
+    assert len(cs) == 19
+    assert not any(s["dynamic"] for s in cs)
+
+
+def test_selections_for_market_mercato_ignoto_o_vuoto():
+    assert dz.selections_for_market("INESISTENTE") == []
+    assert dz.selections_for_market("") == []
+    assert dz.selections_for_market(None) == []
+
+
+def test_has_placeholder():
+    assert dz.has_placeholder("{HOME_TEAM}") is True
+    assert dz.has_placeholder("{HOME_TEAM} +1") is True
+    assert dz.has_placeholder("Pareggio") is False
+    assert dz.has_placeholder("Over 2,5 goal") is False
+
+
+def test_compose_event_name():
+    assert dz.compose_event_name("Portogallo", "R.D. Congo") == "Portogallo - R.D. Congo"
+    assert dz.compose_event_name("  Inter ", " Milan ") == "Inter - Milan"
+    # squadra mancante → l'altra, senza separatore penzolante
+    assert dz.compose_event_name("Inter", "") == "Inter"
+    assert dz.compose_event_name("", "Milan") == "Milan"
+    assert dz.compose_event_name("", "") == ""
+
+
+def test_fill_placeholders():
+    assert dz.fill_placeholders("{HOME_TEAM} +1", home="Inter") == "Inter +1"
+    assert dz.fill_placeholders("{AWAY_TEAM}", away="Milan") == "Milan"
+    assert dz.fill_placeholders("{EVENT_NAME}", home="Inter", away="Milan") == "Inter - Milan"
+    # placeholder senza valore resta invariato (selezione non completabile)
+    out = dz.fill_placeholders("{HOME_TEAM}", away="Milan")
+    assert out == "{HOME_TEAM}"
+    assert dz.has_placeholder(out) is True
