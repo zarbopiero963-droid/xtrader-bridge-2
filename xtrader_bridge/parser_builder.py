@@ -13,7 +13,7 @@ Riusa i moduli già testati: `custom_parser` (modello/validazione/persistenza),
 import json
 import os
 
-from . import custom_parser, recognition, transforms, value_maps
+from . import custom_parser, dizionario, recognition, transforms, value_maps
 from .custom_parser import CustomParserDef, FieldRule
 from .custom_pipeline import build_validated_row
 
@@ -45,6 +45,54 @@ class ParserBuilder:
 
     def mode_options(self) -> list:
         return list(recognition.VALID_MODES)
+
+    # ── catalogo XTrader: Mercato → Selezione FISSI (B2) ───────────────────
+    def market_options(self, rows=None) -> list:
+        """MarketName selezionabili come valore **fisso** per la tendina Mercato del
+        catalogo: esclude i mercati **dinamici** (MarketName con placeholder squadra,
+        es. handicap `"{HOME_TEAM} +1"`), che non sono valori fissi sicuri."""
+        return dizionario.market_names(rows=rows, fixed_only=True)
+
+    def selection_options(self, market: str, rows=None) -> list:
+        """SelectionName **non dinamici** del mercato dato, per la tendina Selezione.
+        Esclude le selezioni con placeholder squadra (vanno risolte a runtime da
+        Home/Away, quindi non usabili come valore fisso)."""
+        return [s["SelectionName"]
+                for s in dizionario.selections_for_market(market, rows)
+                if not s["dynamic"] and s["SelectionName"]]
+
+    def set_fixed_market(self, market: str, selection: str, rows=None) -> None:
+        """Imposta Mercato+Selezione **fissi** dal catalogo XTrader (B2): crea/aggiorna
+        le regole `MarketType`, `MarketName`, `SelectionName` coi valori canonici scelti
+        (`fixed_value`), azzerando estrazione/transform/value-map così il valore resta
+        ESATTAMENTE quello del catalogo. Non tocca le altre regole.
+
+        Validazione CSV-safe: solleva `ValueError` se il mercato non è nel catalogo o se
+        la selezione non è tra quelle **non dinamiche** del mercato — così non si
+        persiste mai un nome non canonico o un placeholder non risolto."""
+        market = str(market or "").strip()
+        selection = str(selection or "").strip()
+        market_type = dizionario.market_type_for_name(market, rows)
+        if not market_type:
+            raise ValueError(f"Mercato non nel catalogo XTrader: {market!r}")
+        if selection not in self.selection_options(market, rows):
+            raise ValueError(
+                f"Selezione non valida o dinamica per {market!r}: {selection!r}")
+        for target, value in (("MarketType", market_type),
+                              ("MarketName", market),
+                              ("SelectionName", selection)):
+            self._upsert_fixed_rule(target, value)
+
+    def _upsert_fixed_rule(self, target: str, value: str) -> None:
+        """Imposta una regola a valore FISSO per `target`: aggiorna quella esistente (o
+        ne aggiunge una nuova), azzerando i campi di estrazione/traduzione così resta un
+        valore costante. Evita target duplicati (vietati dalla validazione)."""
+        for rule in self.rules:
+            if rule.target == target:
+                rule.fixed_value = value
+                rule.start_after = rule.end_before = rule.transform = rule.value_map = ""
+                return
+        self.rules.append(FieldRule(target=target, fixed_value=value))
 
     # ── gestione regole ────────────────────────────────────────────────────
     def add_rule(self, target: str = "EventName", **kwargs) -> FieldRule:
