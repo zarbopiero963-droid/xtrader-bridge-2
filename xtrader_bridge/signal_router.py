@@ -113,6 +113,26 @@ def is_chat_allowed(cfg: dict, chat: str) -> bool:
     return str(chat or "") in allowed_chats(cfg)
 
 
+def listened_chats(cfg: dict) -> list:
+    """Vista LEGGIBILE delle chat che il listener processerà, per la GUI (B1).
+
+    Per ogni `chat_id` in `allowed_chats(cfg)` ritorna `{"chat_id", "name"}`: il nome è
+    quello della `source_chats` corrispondente (se presente), altrimenti "" (chat da
+    `chat_id`/`parser_by_chat` senza voce sorgente → solo l'ID). Ordinata per nome
+    (case-insensitive), poi per ID; le chat senza nome vanno in fondo. Solo
+    presentazione: nessuna decisione di routing qui, l'allowlist resta `allowed_chats`."""
+    names = {}
+    for src in source_manager.source_chats(cfg):
+        cid = str(src.get("chat_id", "") or "").strip()
+        nm = str(src.get("name", "") or "").strip()
+        if cid and nm:
+            names[cid] = nm
+    rows = [{"chat_id": cid, "name": names.get(cid, "")} for cid in allowed_chats(cfg)]
+    # Prima le chat con nome (False ordina prima di True), per nome case-insensitive,
+    # poi per chat_id; quelle senza nome finiscono in fondo, ordinate per ID.
+    return sorted(rows, key=lambda r: (r["name"] == "", r["name"].lower(), r["chat_id"]))
+
+
 def active_custom_parser(cfg: dict, chat: str, parsers_dir: str = None):
     """Parser custom da usare per `chat`, oppure None se la chat non è approvata
     o nessun parser è attivo. Usato sia dal router sia dal prefiltro live."""

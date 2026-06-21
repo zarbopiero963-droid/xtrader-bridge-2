@@ -302,6 +302,53 @@ def test_allowed_chats_normalizza_chiavi_non_stringa():
     assert signal_router.is_chat_allowed(cfg, "999") is False
 
 
+def test_listened_chats_nomi_da_source_chats_e_ordine():
+    # Vista leggibile (B1): nome da source_chats quando c'è, altrimenti ""; i nomi
+    # vuoti vanno in fondo, gli altri ordinati case-insensitive per nome.
+    cfg = {"chat_id": "42",
+           "source_chats": [
+               {"chat_id": "111", "enabled": True, "name": "Zeta Tips"},
+               {"chat_id": "222", "enabled": True, "name": "alfa tips"},
+               {"chat_id": "333", "enabled": False, "name": "Disattivata"},  # esclusa
+           ]}
+    rows = signal_router.listened_chats(cfg)
+    assert rows == [
+        {"chat_id": "222", "name": "alfa tips"},
+        {"chat_id": "111", "name": "Zeta Tips"},
+        {"chat_id": "42", "name": ""},          # senza nome → in fondo
+    ]
+
+
+def test_listened_chats_tiebreak_nome_uguale_case_e_senza_nome():
+    # Nomi uguali a meno del case → tiebreak per chat_id; due chat senza nome →
+    # ordinate per chat_id e sempre DOPO quelle con nome.
+    cfg = {"parser_by_chat": {"900": "X", "800": "Y"},          # senza nome
+           "source_chats": [
+               {"chat_id": "111", "enabled": True, "name": "Tips"},
+               {"chat_id": "222", "enabled": True, "name": "tips"},   # stesso nome, case diverso
+           ]}
+    assert signal_router.listened_chats(cfg) == [
+        {"chat_id": "111", "name": "Tips"},
+        {"chat_id": "222", "name": "tips"},
+        {"chat_id": "800", "name": ""},
+        {"chat_id": "900", "name": ""},
+    ]
+
+
+def test_listened_chats_coerente_con_allowed_chats():
+    # L'insieme degli ID mostrati == allowed_chats (nessuna chat in più o in meno).
+    cfg = {"chat_id": "42",
+           "parser_by_chat": {"123": "X"},
+           "source_chats": [{"chat_id": "111", "enabled": True, "name": "A"},
+                            {"chat_id": "222", "enabled": False, "name": "B"}]}
+    ids = {r["chat_id"] for r in signal_router.listened_chats(cfg)}
+    assert ids == signal_router.allowed_chats(cfg) == {"42", "123", "111"}
+
+
+def test_listened_chats_vuoto_se_niente_configurato():
+    assert signal_router.listened_chats({}) == []
+
+
 def test_allowed_chats_coerente_con_is_chat_allowed():
     # Invariante: con un filtro attivo, is_chat_allowed(cfg, c) ⇔ c ∈ allowed_chats(cfg).
     cfg = {"chat_id": "42",
