@@ -99,6 +99,17 @@ def test_load_profile_inesistente_solleva(tmp_path):
         ps.load_profile("NonEsiste", str(tmp_path))
 
 
+@pytest.mark.parametrize("bad", ["", "   ", "!!!"])
+def test_load_e_delete_con_nome_non_valido_non_toccano_file(tmp_path, bad):
+    # Un nome vuoto/non valido non deve mai mappare sul file ".json" (Sourcery):
+    # load solleva ValueError, delete ritorna False senza rimuovere nulla.
+    open(tmp_path / ".json", "w", encoding="utf-8").write("non-toccare")
+    with pytest.raises(ValueError):
+        ps.load_profile(bad, str(tmp_path))
+    assert ps.delete_profile(bad, str(tmp_path)) is False
+    assert (tmp_path / ".json").exists()   # file non voluto NON rimosso
+
+
 def test_load_profile_corrotto_solleva_valueerror(tmp_path):
     path = ps.profile_path("Rotto", str(tmp_path))
     open(path, "w", encoding="utf-8").write("{ non json")

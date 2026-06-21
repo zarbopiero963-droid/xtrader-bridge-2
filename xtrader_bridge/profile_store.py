@@ -55,6 +55,16 @@ def _strip_secrets(cfg: dict) -> dict:
     return {k: v for k, v in (cfg or {}).items() if k not in SECRET_KEYS}
 
 
+def _clean_name_or_raise(name: str) -> str:
+    """Nome profilo non vuoto dopo la sanitizzazione, o `ValueError`. Fonte unica usata
+    da save/load così un nome vuoto/non valido NON viene mai mappato sul file `.json`
+    (che colpirebbe un file non voluto, finding Sourcery)."""
+    clean = str(name or "").strip()
+    if not _safe_filename(clean):
+        raise ValueError("Nome profilo non valido (vuoto dopo la sanitizzazione).")
+    return clean
+
+
 def _read_profile_name(path: str):
     """Nome reale salvato dentro il file profilo, o None se illeggibile/corrotto."""
     try:
@@ -75,9 +85,7 @@ def save_profile(name: str, cfg: dict, dir_path: str = None) -> str:
     *diversi* (es. "Live!" e "Live"): sovrascrivere è consentito solo per lo *stesso*
     profilo (update). Scrittura atomica (tmp + fsync + rename): un crash a metà non
     lascia un JSON parziale e non distrugge il profilo esistente."""
-    clean_name = str(name or "").strip()
-    if not _safe_filename(clean_name):
-        raise ValueError("Nome profilo non valido (vuoto dopo la sanitizzazione).")
+    clean_name = _clean_name_or_raise(name)
     base = dir_path if dir_path is not None else profiles_dir()
     os.makedirs(base, exist_ok=True)
     path = profile_path(clean_name, base)
@@ -111,9 +119,9 @@ def save_profile(name: str, cfg: dict, dir_path: str = None) -> str:
 def load_profile(name: str, dir_path: str = None) -> dict:
     """Config (SENZA segreti) salvata nel profilo `name`.
 
-    Solleva `FileNotFoundError` se non esiste, `ValueError` se il file è
-    corrotto/non nel formato atteso."""
-    path = profile_path(name, dir_path)
+    Solleva `ValueError` se il nome è vuoto/non valido o il file è corrotto/non nel
+    formato atteso, `FileNotFoundError` se il profilo non esiste."""
+    path = profile_path(_clean_name_or_raise(name), dir_path)
     if not os.path.exists(path):
         raise FileNotFoundError(f"Profilo non trovato: {name!r}")
     with open(path, encoding="utf-8") as f:
@@ -145,7 +153,10 @@ def list_profiles(dir_path: str = None) -> list:
 
 
 def delete_profile(name: str, dir_path: str = None) -> bool:
-    """Elimina il file del profilo. True se rimosso, False se non esisteva."""
+    """Elimina il file del profilo. True se rimosso, False se non esisteva (o nome non
+    valido: non si tenta mai di rimuovere un `.json` derivato da nome vuoto)."""
+    if not _safe_filename(str(name or "").strip()):
+        return False
     try:
         os.remove(profile_path(name, dir_path))
         return True

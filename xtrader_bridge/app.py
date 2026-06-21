@@ -1257,6 +1257,8 @@ class App(ctk.CTk):
             entry.insert(0, str(cfg.get(key, "")))
         adv = settings_controller.current_values(cfg)
         for key, widget in self._adv.items():
+            if key not in adv:   # robusto se current_values evolve e omette una chiave
+                continue
             value = adv[key]
             if isinstance(widget, tk.Variable):
                 widget.set(value)

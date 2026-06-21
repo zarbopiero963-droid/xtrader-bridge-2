@@ -87,10 +87,12 @@ class ProfilesWindow(ctk.CTkToplevel):
     # ── azioni ─────────────────────────────────────────────────────────────
     def _save(self):
         name = self._name.get().strip()
+        # get_current_cfg persiste il form e ritorna la config viva (con token); lo
+        # chiamiamo UNA sola volta per evitare doppia persistenza/snapshot divergenti.
+        cfg = self._get_current_cfg()
         try:
-            # get_current_cfg persiste il form e ritorna la config viva (con token);
             # save_profile rimuove i segreti prima di scrivere il profilo.
-            profile_store.save_profile(name, self._get_current_cfg())
+            profile_store.save_profile(name, cfg)
         except ValueError as exc:
             self._status.configure(text=f"❌ {exc}", text_color="#ef5350")
             return
@@ -99,7 +101,7 @@ class ProfilesWindow(ctk.CTkToplevel):
         self._status.configure(text=f"✅ Profilo {name!r} salvato (senza token).",
                                text_color="#66bb6a")
         if self._on_saved:
-            self._on_saved(self._get_current_cfg())
+            self._on_saved(cfg)
 
     def _load(self, name: str):
         try:
