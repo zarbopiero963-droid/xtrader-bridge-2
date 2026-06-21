@@ -93,12 +93,16 @@ def _extract_quota(line: str):
     prefisso ("1.8") — ma ammette la punteggiatura finale di frase ("Quota 1,85." → 1.85).
     """
     low = line.lower()
-    if re.search(r'\b(?:ht|ft)\b', low) or re.search(r'prematch\s*:', low):
+    has_prematch = re.search(r'prematch\s*:', low) is not None
+    if re.search(r'\b(?:ht|ft)\b', low) or has_prematch:
         m = re.search(r'prematch[:\s]*(' + _NUM + r')(?!\d|[.,]\d)', line, re.IGNORECASE)
-        if m is None:
-            # Niente "Prematch:<valore>": il numero dopo "Quota" è la quota a meno che
-            # non sia un valore .5 (linea over/under). Recupera "Quota 1,90 FT" (A3)
-            # senza scambiare "Quota 1,5 HT" (linea) per una quota.
+        if m is None and not has_prematch:
+            # SOLO HT/FT senza alcun marker "Prematch:": il numero dopo "Quota" è la
+            # quota a meno che non sia un valore .5 (linea over/under). Recupera
+            # "Quota 1,90 FT" (A3) senza scambiare "Quota 1,5 HT" (linea) per una quota.
+            # Se invece un marker "Prematch:" c'è ma il suo valore è malformato, la quota
+            # era lì ed è invalida → si FALLISCE CHIUSI (None), NON si promuove la linea
+            # pre-Prematch a prezzo (Codex P1).
             cand = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?!\d|[.,]\d)',
                              line, re.IGNORECASE)
             if cand is not None and not _is_half_line(cand.group(1)):

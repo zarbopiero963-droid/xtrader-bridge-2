@@ -292,6 +292,14 @@ def test_quota_linea_mezzo_punto_resta_linea():
     assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 2,5 FT")["quota"] == ""
 
 
+def test_quota_ft_prematch_malformato_fail_closed():
+    # Codex P1: se un marker "Prematch:" è presente ma il suo valore è malformato, la
+    # quota era lì ed è invalida → fail-closed (None). Il fallback A3 NON deve promuovere
+    # il numero pre-Prematch (la LINEA) a prezzo. Vale per linea .5 e non-.5.
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1,90 FT Prematch:1,85,3")["quota"] == ""
+    assert parse_message("📈Quota 2,5 FT Prematch:1,85,3")["quota"] == ""
+
+
 # ── A4: riga di nota/competizione con " v " non diventa squadre ──
 
 def test_note_line_non_diventa_squadre():
