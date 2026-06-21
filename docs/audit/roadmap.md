@@ -607,10 +607,12 @@ PHASE 9  PR-20 release-candidate
 > - **Codex** — audit read-only con focus su svuotamento CSV manuale, persistenza
 >   config, path conferme XTrader, segreti, dipendenze.
 >
-> Verdetto generale: **codebase robusto e fortemente difensivo** (scritture atomiche,
+> Verdetto generale: **codebase robusta e fortemente difensiva** (scritture atomiche,
 > rollback completi, fail-safe su bool/NaN/inf, redazione token al sink unico).
-> **Nessun rischio di doppia scommessa.** I difetti trovati sono pochi e puntuali; i
-> due bug di parsing causano *perdita* di un segnale, non una scommessa doppia.
+> **Nessun bug duplica un segnale** (nessuna doppia scommessa per duplicazione). L'unico
+> rischio di "scommessa indesiderata" è la **riga orfana** di A2 (un segnale stantio resta
+> nel CSV operativo se si cambia il path da running): è tracciato come finding 🟠, non un
+> rischio residuo accettato. I due bug di parsing causano invece *perdita* di un segnale.
 
 Legenda severità: 🔴 critico · 🟠 medio-alto/alto · 🟡 medio/basso.
 
@@ -618,18 +620,23 @@ Legenda severità: 🔴 critico · 🟠 medio-alto/alto · 🟡 medio/basso.
 
 | # | Finding | Fonte | Verifica | Severità | Chiusa da |
 |---|---|---|---|---|---|
-| A1 | `config_store.save_config` **non atomico** (`open(path,'w')`) **e** riporta successo anche se la scrittura fallisce (GUI logga sempre "Configurazione salvata") | Claude + Codex | ✅ Confermato | 🟠 Medio | PR-A1 |
-| A2 | `_manual_clear` (`app.py:1222`) usa il path del **campo GUI**, non `_active_csv_path`: cambiando il path da running e premendo "Svuota CSV ora" resta una **riga orfana** nel CSV operativo reale | Codex | ✅ Confermato | 🟠 Medio | PR-A2 |
-| A3 | `_extract_quota` (`parser.py:62`): `"Quota X,Y FT"` senza `Prematch:` → quota persa (segnale non scritto) | Claude | ✅ Confermato* | 🟠 Medio/Alto* | PR-A3 |
-| A4 | `_find_teams` (`parser.py:112`): riga con `" v "` in testo libero (senza emoji) scambiata per squadre | Claude | ✅ Confermato | 🟡 Basso | PR-A3 |
-| A5 | `_score_to_over` (`transforms.py:18`): nessun cap sulla somma gol (`999-999` → `Over 1998,5`) | Claude | ✅ Confermato | 🟡 Basso | PR-A3 |
+| A1 | `xtrader_bridge/config_store.py` · `save_config()` **non atomico** (`open(path,'w')`) **e** riporta successo anche se la scrittura fallisce (la GUI logga sempre "Configurazione salvata") | Claude + Codex | ✅ Confermato | 🟠 Medio | PR-A1 |
+| A2 | `xtrader_bridge/app.py` · `_manual_clear()` usa il path del **campo GUI**, non `_active_csv_path`: cambiando il path da running e premendo "Svuota CSV ora" resta una **riga orfana** nel CSV operativo reale | Codex | ✅ Confermato | 🟠 Medio | PR-A2 |
+| A3 | `xtrader_bridge/parser.py` · `_extract_quota()`: `"Quota X,Y FT"` senza `Prematch:` → quota persa (segnale non scritto) | Claude | ✅ Confermato* | 🟠 Alto* | PR-A3 |
+| A4 | `xtrader_bridge/parser.py` · `_find_teams()`: riga con `" v "` in testo libero (senza emoji) scambiata per squadre | Claude | ✅ Confermato | 🟡 Basso | PR-A3 |
+| A5 | `xtrader_bridge/transforms.py` · `_score_to_over()`: nessun cap sulla somma gol (`999-999` → `Over 1998,5`) | Claude | ✅ Confermato | 🟡 Basso | PR-A3 |
 | A6 | Token Telegram persistito in `config.json` in chiaro (da documentare) | Claude + Codex | ✅ Fatto (tradeoff accettato) | 🟡 Basso | PR-A4 |
 | A7 | Dipendenze runtime non pinnate (`requirements.txt` usa `>=`) | Codex | ✅ Confermato | 🟡 Basso | PR-A4 |
-| A8 | Cache globale lazy `_INDEX`/`_DEFAULT_REGISTRY` non sotto lock (doppia costruzione possibile al primo uso concorrente) | Claude | ✅ Confermato (benigno) | 🟡 Basso | PR-A4 (opz.) |
+| A8 | `xtrader_bridge/mapping.py` · `_index()` e `xtrader_bridge/custom_pipeline.py` · `_default_registry()`: cache globale lazy non sotto lock (doppia costruzione possibile al primo uso concorrente) | Claude | ✅ Confermato (benigno) | 🟡 Basso | PR-A4 (opz.) |
+| A9 | `xtrader_bridge/app.py` · `_start()` imposta `_running=True` e mette la GUI in stato ATTIVO **prima** di `init_csv(csv_path)`, senza catturare `OSError`: con un path CSV non scrivibile/lockato l'avvio si interrompe ma la UI resta "attiva" fino allo STOP manuale (listener non partito) | Codex | ✅ Confermato | 🟠 Medio | PR-A2 |
 
-\* **A3** — severità **Alta** se nei messaggi reali può arrivare `"Quota <quota> FT"` **senza**
-`"Prematch:"`; **Bassa** (difesa in profondità) se i messaggi hanno sempre `Prematch:`.
-**Richiede conferma del proprietario sul formato dei messaggi reali.**
+> **Nota sui riferimenti**: i finding puntano a `file` · `funzione()` (simbolo **stabile**),
+> non a numeri di riga, così la roadmap resta valida anche se il codice si sposta.
+
+\* **A3** — il proprietario ha **confermato** che può arrivare `"Quota <quota> FT"` **senza**
+`"Prematch:"`: oggi quella quota viene **persa** → severità **Alta**. Il fix (fallback
+all'estrazione normale quando manca `Prematch:`, senza alterare il caso con `Prematch:`) è
+necessario, con test per entrambi i casi.
 
 ## Refutati / non-finding (con motivazione — NESSUNA modifica)
 
@@ -643,8 +650,10 @@ Legenda severità: 🔴 critico · 🟠 medio-alto/alto · 🟡 medio/basso.
 `csv_writer` · `mapping` · `signal_dedupe` · `signal_gate` · `signal_router` · `signal_queue`
 · `validator` · `live_guard` · `safety_guard` · `custom_pipeline` · `custom_parser_engine`
 · `confirmation_reader` · `source_manager` · `profile_store` · `parser_io` · `event_log`
-· `diagnostics` · `recognition` · `value_maps` · `message_freshness` · `app.py` (lifecycle
-START/STOP/close, `_process`/rollback, `_log` con redazione token).
+· `diagnostics` · `recognition` · `value_maps` · `message_freshness` · `app.py`
+(`_process`/rollback, `_stop`/`_on_close`, `_log` con redazione token, `_expire_tick`,
+`_process_confirmation`). **Eccezioni in `app.py` — NON clean**: `_start` (A9: `init_csv`
+senza guard `OSError`) e `_manual_clear` (A2: path del campo GUI).
 
 **Non-finding chiusi durante l'audit:** token nel log persistente → già redatto al sink
 `_log`; `SignalTracker.register` senza lock → sicuro (solo il thread listener lo chiama);
@@ -661,8 +670,10 @@ warning CodeRabbit "Docstring coverage" → advisory, non bloccante.
 PR-A0  audit-roadmap          → questa sezione (documentazione)                 [questa PR]
 PR-A1  config-atomic-save     → save_config atomico (tmp+fsync+os.replace) +    [da fare]
                                  ritorna esito; GUI logga "salvata" solo se ok   (A1)
-PR-A2  manual-clear-active    → _manual_clear usa _active_csv_path se running    (A2)  [da fare]
-PR-A3  parser-hardening       → quota FT fallback (A3, se confermato) + guard    [da fare]
+PR-A2  lifecycle-csv-safety   → _manual_clear usa _active_csv_path se running    [da fare]
+                                 (A2) + _start guarda init_csv/OSError senza
+                                 lasciare la UI in stato ATTIVO (A9)
+PR-A3  parser-hardening       → quota FT fallback (A3, confermato Alto) + guard   [da fare]
                                  " v " (A4) + cap somma gol (A5) + test mirati
 PR-A4  hardening-minori       → doc token plaintext (A6) + pin deps (A7) +       [da fare]
                                  lock cache lazy (A8, opzionale)
