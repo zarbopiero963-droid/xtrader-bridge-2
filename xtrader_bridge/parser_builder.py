@@ -13,7 +13,7 @@ Riusa i moduli già testati: `custom_parser` (modello/validazione/persistenza),
 import json
 import os
 
-from . import custom_parser, recognition, transforms, value_maps
+from . import custom_parser, dizionario, recognition, transforms, value_maps
 from .custom_parser import CustomParserDef, FieldRule
 from .custom_pipeline import build_validated_row
 
@@ -45,6 +45,63 @@ class ParserBuilder:
 
     def mode_options(self) -> list:
         return list(recognition.VALID_MODES)
+
+    # ── catalogo XTrader: Mercato → Selezione FISSI (B2) ───────────────────
+    def market_options(self, rows=None) -> list:
+        """MarketName selezionabili come valore **fisso** per la tendina Mercato del
+        catalogo: esclude i mercati **dinamici** (MarketName con placeholder squadra,
+        es. handicap `"{HOME_TEAM} +1"`), che non sono valori fissi sicuri."""
+        return dizionario.market_names(rows=rows, fixed_only=True)
+
+    def selection_options(self, market: str, rows=None) -> list:
+        """SelectionName **non dinamici** del mercato dato, per la tendina Selezione.
+        Esclude le selezioni con placeholder squadra (vanno risolte a runtime da
+        Home/Away, quindi non usabili come valore fisso)."""
+        return [s["SelectionName"]
+                for s in dizionario.selections_for_market(market, rows)
+                if not s["dynamic"] and s["SelectionName"]]
+
+    def set_fixed_market(self, market: str, selection: str, rows=None) -> None:
+        """Imposta Mercato+Selezione **fissi** dal catalogo XTrader (B2): crea/aggiorna
+        le regole `MarketType`, `MarketName`, `SelectionName` coi valori canonici scelti
+        (`fixed_value`), azzerando estrazione/transform/value-map così il valore resta
+        ESATTAMENTE quello del catalogo. Non tocca le altre regole.
+
+        CSV-safe: l'input è confrontato in modo case/spazio-insensitive col catalogo ma
+        nel CSV si persistono **sempre i nomi CANONICI** del dizionario (non l'input
+        grezzo), così un `"esito finale"` non diventa una riga non-canonica che romperebbe
+        il match XTrader. `ValueError` se il mercato non è nel catalogo (fixed-only) o la
+        selezione non è tra quelle **non dinamiche** del mercato."""
+        market_key = str(market or "").strip().casefold()
+        selection_key = str(selection or "").strip().casefold()
+        # Risolve il nome CANONICO del mercato (solo fixed-only: niente dinamici).
+        canonical_market = next(
+            (m for m in self.market_options(rows=rows)
+             if m.strip().casefold() == market_key), None)
+        if not canonical_market:
+            raise ValueError(f"Mercato non nel catalogo XTrader: {market!r}")
+        canonical_selection = next(
+            (s for s in self.selection_options(canonical_market, rows)
+             if s.strip().casefold() == selection_key), None)
+        if not canonical_selection:
+            raise ValueError(
+                f"Selezione non valida o dinamica per {market!r}: {selection!r}")
+        market_type = dizionario.market_type_for_name(canonical_market, rows)
+        for target, value in (("MarketType", market_type),
+                              ("MarketName", canonical_market),
+                              ("SelectionName", canonical_selection)):
+            self._upsert_fixed_rule(target, value)
+
+    def _upsert_fixed_rule(self, target: str, value: str) -> None:
+        """Imposta una regola a valore FISSO per `target`: aggiorna quella esistente (o
+        ne aggiunge una nuova), azzerando i campi di estrazione/traduzione così resta un
+        valore costante. Evita target duplicati (vietati dalla validazione)."""
+        for rule in self.rules:
+            if rule.target == target:
+                rule.fixed_value = value
+                rule.start_after = rule.end_before = rule.transform = rule.value_map = ""
+                return
+        self.rules.append(FieldRule(target=target, fixed_value=value))
 
     # ── gestione regole ────────────────────────────────────────────────────
     def add_rule(self, target: str = "EventName", **kwargs) -> FieldRule:

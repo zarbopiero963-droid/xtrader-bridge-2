@@ -70,6 +70,25 @@ class CustomParserWindow(ctk.CTkToplevel):
         ctk.CTkButton(manage, text="🗑 Elimina", width=90, fg_color="#7f0000",
                       command=self._delete_selected).pack(side="left", padx=3)
 
+        # Catalogo XTrader (B2): scegli Mercato → Selezione (solo NON dinamici) e
+        # inseriscili come regole FISSE, senza digitare i nomi canonici a mano.
+        cat = ctk.CTkFrame(self)
+        cat.pack(fill="x", padx=10, pady=(0, 6))
+        ctk.CTkLabel(cat, text="Catalogo XTrader:").pack(side="left", padx=6)
+        self._markets = self.builder.market_options()
+        self._cat_market = ctk.StringVar(value=self._markets[0] if self._markets else "")
+        self._cat_market_menu = ctk.CTkOptionMenu(
+            cat, variable=self._cat_market, values=self._markets or [""],
+            width=240, command=self._on_market_change)
+        self._cat_market_menu.pack(side="left", padx=4)
+        self._cat_selection = ctk.StringVar(value="")
+        self._cat_selection_menu = ctk.CTkOptionMenu(
+            cat, variable=self._cat_selection, values=[""], width=240)
+        self._cat_selection_menu.pack(side="left", padx=4)
+        ctk.CTkButton(cat, text="➕ Inserisci regole fisse", width=180,
+                      command=self._insert_fixed_market).pack(side="left", padx=4)
+        self._refresh_selection_menu()   # popola le selezioni del mercato iniziale
+
         # intestazione colonne
         head = ctk.CTkFrame(self)
         head.pack(fill="x", padx=10)
@@ -164,6 +183,31 @@ class CustomParserWindow(ctk.CTkToplevel):
             return
         self._refresh_saved()
         self._result.configure(text=f"💾 Salvato in {path}")
+
+    # ── catalogo XTrader (B2) ───────────────────────────────────────────────
+    def _on_market_change(self, _value=None):
+        """Cambiato il mercato → rinfresca la tendina delle selezioni (solo fisse)."""
+        self._refresh_selection_menu()
+
+    def _refresh_selection_menu(self):
+        market = self._cat_market.get()
+        sels = self.builder.selection_options(market) if market else []
+        self._cat_selection_menu.configure(values=sels or [""])
+        self._cat_selection.set(sels[0] if sels else "")
+
+    def _insert_fixed_market(self):
+        """Inserisce Mercato+Selezione scelti come regole FISSE (MarketType/MarketName/
+        SelectionName), preservando le altre regole già impostate nei widget."""
+        market = self._cat_market.get()
+        selection = self._cat_selection.get()
+        self._sync_to_builder()          # cattura le regole correnti dai widget
+        try:
+            self.builder.set_fixed_market(market, selection)
+        except ValueError as exc:
+            self._result.configure(text=f"⛔ {exc}")
+            return
+        self._reload_rows_from_builder()
+        self._result.configure(text=f"➕ Regole fisse inserite: {market} · {selection}")
 
     # ── gestione parser salvati (lista / nuovo / carica / duplica / elimina) ─
     def _refresh_saved(self):

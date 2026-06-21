@@ -12,6 +12,81 @@ from xtrader_bridge import validator
 from xtrader_bridge.csv_writer import CSV_HEADER
 
 
+# Righe-dizionario sintetiche per il catalogo (B2): un mercato statico con due
+# selezioni statiche, un mercato DINAMICO (placeholder nel MarketName) e un mercato
+# statico con selezione DINAMICA (placeholder/flag nella selezione).
+_CATALOG_ROWS = [
+    {"MarketType_XTrader": "MATCH_ODDS", "MarketName_XTrader": "Esito finale",
+     "SelectionName_XTrader": "1", "SelezioneDinamica": ""},
+    {"MarketType_XTrader": "MATCH_ODDS", "MarketName_XTrader": "Esito finale",
+     "SelectionName_XTrader": "X", "SelezioneDinamica": ""},
+    {"MarketType_XTrader": "HANDICAP", "MarketName_XTrader": "{HOME_TEAM} +1",
+     "SelectionName_XTrader": "Vince", "SelezioneDinamica": ""},          # mercato dinamico
+    {"MarketType_XTrader": "CORRECT_SCORE", "MarketName_XTrader": "Risultato esatto",
+     "SelectionName_XTrader": "{HOME_TEAM} 1-0", "SelezioneDinamica": "Sì"},  # selezione dinamica
+]
+
+
+# ── catalogo XTrader: Mercato → Selezione fissi (B2) ───────────────────────
+
+def test_market_options_esclude_i_mercati_dinamici():
+    b = pb.ParserBuilder()
+    assert b.market_options(rows=_CATALOG_ROWS) == ["Esito finale", "Risultato esatto"]
+
+
+def test_selection_options_solo_non_dinamiche():
+    b = pb.ParserBuilder()
+    assert b.selection_options("Esito finale", rows=_CATALOG_ROWS) == ["1", "X"]
+    # mercato statico ma con selezione dinamica → nessuna selezione fissa offerta
+    assert b.selection_options("Risultato esatto", rows=_CATALOG_ROWS) == []
+    assert b.selection_options("Inesistente", rows=_CATALOG_ROWS) == []
+
+
+def test_set_fixed_market_crea_le_tre_regole_fisse():
+    b = pb.ParserBuilder()
+    b.add_rule(target="Price", required=True)        # regola preesistente: non va toccata
+    b.set_fixed_market("Esito finale", "1", rows=_CATALOG_ROWS)
+    by_target = {r.target: r for r in b.rules}
+    assert by_target["MarketType"].fixed_value == "MATCH_ODDS"
+    assert by_target["MarketName"].fixed_value == "Esito finale"
+    assert by_target["SelectionName"].fixed_value == "1"
+    # valori canonici fissi: niente estrazione/value-map che li altererebbe
+    for t in ("MarketType", "MarketName", "SelectionName"):
+        assert by_target[t].value_map == "" and by_target[t].start_after == ""
+    assert "Price" in by_target                       # regola preesistente preservata
+
+
+def test_set_fixed_market_aggiorna_senza_duplicare_target():
+    b = pb.ParserBuilder()
+    b.name = "Test"
+    b.set_fixed_market("Esito finale", "1", rows=_CATALOG_ROWS)
+    b.set_fixed_market("Esito finale", "X", rows=_CATALOG_ROWS)   # update
+    targets = [r.target for r in b.rules]
+    assert targets.count("SelectionName") == 1                   # nessun duplicato
+    assert {r.target: r.fixed_value for r in b.rules}["SelectionName"] == "X"
+    assert not b.errors()                                        # parser valido (no target dup)
+
+
+def test_set_fixed_market_persiste_valori_canonici_da_input_non_canonico():
+    # CodeRabbit (CSV-safety): un input con case/spazi diversi NON deve finire grezzo nel
+    # CSV — si persistono SEMPRE i nomi canonici del catalogo (XTrader-compatibili).
+    b = pb.ParserBuilder()
+    b.set_fixed_market("  esito finale ", " x ", rows=_CATALOG_ROWS)
+    by_target = {r.target: r.fixed_value for r in b.rules}
+    assert by_target["MarketName"] == "Esito finale"      # non "esito finale"
+    assert by_target["SelectionName"] == "X"              # non "x"
+    assert by_target["MarketType"] == "MATCH_ODDS"
+
+
+def test_set_fixed_market_rifiuta_mercato_o_selezione_non_validi():
+    b = pb.ParserBuilder()
+    with pytest.raises(ValueError, match="non nel catalogo"):
+        b.set_fixed_market("Inesistente", "1", rows=_CATALOG_ROWS)
+    with pytest.raises(ValueError, match="dinamica"):
+        # selezione dinamica (placeholder) NON ammessa come valore fisso
+        b.set_fixed_market("Risultato esatto", "{HOME_TEAM} 1-0", rows=_CATALOG_ROWS)
+
+
 # ── opzioni per i menu a tendina ───────────────────────────────────────────
 
 def test_target_options_sono_le_14_colonne():
