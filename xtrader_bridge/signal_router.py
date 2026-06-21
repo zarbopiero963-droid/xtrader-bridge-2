@@ -86,7 +86,9 @@ def allowed_chats(cfg: dict) -> set:
     comportamento legacy sarebbe "ammetti tutte" (vedi `is_chat_allowed`), ma è
     bloccato dal fail-fast d'avvio; distinguere i due casi con `has_chat_filter`."""
     configured = str(cfg.get("chat_id", "") or "").strip()
-    allowed = set(parser_manager.parser_by_chat(cfg).keys())
+    # Tutti gli ID normalizzati a str: is_chat_allowed confronta str(chat), quindi una
+    # chiave parser_by_chat non-stringa (es. int) darebbe un mismatch silenzioso.
+    allowed = set(map(str, parser_manager.parser_by_chat(cfg).keys()))
     allowed |= set(map(str, source_manager.enabled_chat_ids(cfg)))   # solo le attive
     if configured:
         allowed.add(configured)

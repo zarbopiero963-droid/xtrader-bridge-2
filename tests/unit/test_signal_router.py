@@ -293,6 +293,15 @@ def test_allowed_chats_vuoto_se_nulla_configurato():
     assert signal_router.has_chat_filter({}) is False
 
 
+def test_allowed_chats_normalizza_chiavi_non_stringa():
+    # bug_risk (Sourcery): una chiave parser_by_chat int non deve dare mismatch con
+    # il confronto str(chat) di is_chat_allowed → normalizzata a str nell'allowlist.
+    cfg = {"parser_by_chat": {123: "PerChat"}}
+    assert signal_router.allowed_chats(cfg) == {"123"}
+    assert signal_router.is_chat_allowed(cfg, "123") is True
+    assert signal_router.is_chat_allowed(cfg, "999") is False
+
+
 def test_allowed_chats_coerente_con_is_chat_allowed():
     # Invariante: con un filtro attivo, is_chat_allowed(cfg, c) ⇔ c ∈ allowed_chats(cfg).
     cfg = {"chat_id": "42",
