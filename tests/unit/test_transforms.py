@@ -90,3 +90,17 @@ def test_apply_parser_transform_input_non_valido_non_pronto():
     assert res.values["SelectionName"] == ""
     assert res.ready is False
     assert res.missing_required == ["SelectionName"]
+
+
+@pytest.mark.parametrize("score", ["999-999", "31-0", "0-31", "100-2", "50:50"])
+def test_score_to_over_punteggio_implausibile_vuoto(score):
+    # A5: un punteggio assurdo (un lato oltre 30 gol) NON deve generare una linea Over
+    # inventata; fail-closed → "".
+    assert tr.apply(score, "score_to_over") == ""
+
+
+def test_score_to_over_cap_al_limite():
+    # A5: 30 gol per lato è ancora ammesso; 31 è oltre il cap.
+    assert tr.apply("30-0", "score_to_over") == "Over 30,5"
+    assert tr.apply("0-30", "score_to_over") == "Over 30,5"
+    assert tr.apply("31-0", "score_to_over") == ""

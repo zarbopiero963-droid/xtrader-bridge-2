@@ -273,3 +273,32 @@ def test_tutte_le_chiavi_presenti():
     for k in ("signal_type", "competition", "teams", "score", "time_",
               "quota", "probability", "bet_type", "live"):
         assert k in p
+
+
+# ── A3: quota con HT/FT senza Prematch (regola universale del valore .5) ──
+
+def test_quota_ft_senza_prematch_recuperata():
+    # A3: "Quota 1,90 FT" senza "Prematch:" → 1.90 è la QUOTA (non è un valore .5),
+    # prima veniva persa. Vale anche con HT e altri decimali non-.5.
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1,90 FT")["quota"] == "1.90"
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 2,05 HT")["quota"] == "2.05"
+    assert parse_message("📈Quota 1,90 FT")["quota"] == "1.90"
+
+
+def test_quota_linea_mezzo_punto_resta_linea():
+    # A3: un valore .5 con HT/FT e senza Prematch resta una LINEA over/under → nessuna
+    # quota (comportamento storico preservato: niente prezzo errato a XTrader).
+    assert parse_message("P.Bet. OVER 1.5\nInter v Milan\nQuota 1,5 HT")["quota"] == ""
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 2,5 FT")["quota"] == ""
+
+
+# ── A4: riga di nota/competizione con " v " non diventa squadre ──
+
+def test_note_line_non_diventa_squadre():
+    # A4: "Real v Society league note" contiene una parola-nota ("league"/"note") →
+    # NON è una coppia di squadre, così non si scrive un EventName inventato.
+    p = parse_message("P.Bet. OVER 2.5\nReal v Society league note\nQuota 1,90")
+    assert p["teams"] == ""
+    # Una vera riga squadre in testo libero resta riconosciuta.
+    p2 = parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1,90")
+    assert p2["teams"] == "Inter v Milan"

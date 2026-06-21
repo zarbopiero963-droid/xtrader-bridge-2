@@ -26,6 +26,25 @@ _LABEL_WORDS = frozenset({
     'competition', 'live', 'pre', 'prematch', 'punta', 'banca', 'back', 'lay',
 })
 
+# Parole di NOTA/COMPETIZIONE che non compaiono in un nome-squadra: una riga in testo
+# semplice che le contiene (come token intero) NON è una coppia di squadre, anche se ha
+# un " v " per caso — es. "Real v Society league note" (A4). Usate SOLO nel percorso
+# testo-libero (`_find_teams`); le righe 🆚 con emoji sono già confermate e non passano qui.
+_NOTE_WORDS = frozenset({
+    'league', 'lega', 'campionato', 'competition', 'cup', 'coppa', 'final', 'finale',
+    'semifinale', 'semifinal', 'quarti', 'quarterfinal', 'round', 'turno', 'group',
+    'girone', 'note', 'nota', 'matchday', 'giornata', 'friendly', 'amichevole',
+    'playoff', 'serie', 'division',
+})
+_TOKEN_RE = re.compile(r'[A-Za-zÀ-ÿ]+')
+
+
+def _has_note_word(text: str) -> bool:
+    """True se `text` contiene una parola di nota/competizione (`_NOTE_WORDS`) come
+    token intero (case-insensitive). Difende `_find_teams` dallo scambiare una riga di
+    nota con le squadre (A4)."""
+    return any(tok.lower() in _NOTE_WORDS for tok in _TOKEN_RE.findall(text))
+
 # Coda con punteggio/tempo da rimuovere prima di leggere le squadre
 # (es. "Silver Stars FC 6 - 0 46m" → "Silver Stars FC").
 # La classe [-–:] include di proposito sia il trattino ASCII "-" sia l'EN DASH "–"
@@ -45,14 +64,29 @@ def _is_odds(value: str) -> bool:
         return False
 
 
+def _is_half_line(value: str) -> bool:
+    """True se `value` è una linea over/under a mezzo punto (X.5: 0.5, 1.5, 2.5…),
+    convenzione universale con cui i mercati esprimono le linee. Serve a distinguere,
+    in "Quota X HT/FT" SENZA "Prematch:", una LINEA (X.5 → da ignorare) da una QUOTA
+    (qualsiasi altro valore → la quota offerta, A3). Indipendente dal layout del
+    messaggio: guarda solo il valore."""
+    try:
+        f = float(str(value).replace(',', '.'))
+    except (TypeError, ValueError):
+        return False
+    return abs((f % 1.0) - 0.5) < 1e-9
+
+
 def _extract_quota(line: str):
     """Quota reale da una riga.
 
-    Nel formato P.Bet "Quota X,Y HT/FT Prematch:Z" il numero X,Y è la **linea**
-    del mercato (non una quota): la quota offerta è il valore dopo "Prematch:".
-    Questa forma è riconosciuta SOLO da un marker di linea reale — `HT`/`FT`,
-    oppure `Prematch:` con valore — così "Quota 1,85 Prematch" (status senza
-    valore) NON perde la quota e ricade nell'estrazione normale.
+    Nel formato P.Bet "Quota X,Y HT/FT Prematch:Z" il numero X,Y è di norma la
+    **linea** del mercato e la quota offerta è il valore dopo "Prematch:". Quando però
+    NON c'è un "Prematch:<valore>" si applica la regola universale (A3): il numero dopo
+    "Quota" è una LINEA solo se è un valore `.5` (`_is_half_line`: 0.5/1.5/2.5…),
+    altrimenti è la **quota** stessa e non va persa (es. "Quota 1,90 FT" → 1.90).
+    Così "Quota 1,5 HT" resta una linea (→ nessuna quota), mentre una quota non-`.5`
+    senza Prematch viene recuperata.
     Altrove è "Quota X" / "@X". Solo quote valide: > 1, ben delimitate (no "1.2.3").
     Il boundary `(?!\\d|[.,]\\d)` rifiuta sia una cifra successiva sia un separatore
     decimale seguito da cifra — così "1.85.3"/"1,85,3" non vengono troncati a un
@@ -61,6 +95,14 @@ def _extract_quota(line: str):
     low = line.lower()
     if re.search(r'\b(?:ht|ft)\b', low) or re.search(r'prematch\s*:', low):
         m = re.search(r'prematch[:\s]*(' + _NUM + r')(?!\d|[.,]\d)', line, re.IGNORECASE)
+        if m is None:
+            # Niente "Prematch:<valore>": il numero dopo "Quota" è la quota a meno che
+            # non sia un valore .5 (linea over/under). Recupera "Quota 1,90 FT" (A3)
+            # senza scambiare "Quota 1,5 HT" (linea) per una quota.
+            cand = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?!\d|[.,]\d)',
+                             line, re.IGNORECASE)
+            if cand is not None and not _is_half_line(cand.group(1)):
+                m = cand
     else:
         m = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?!\d|[.,]\d)', line, re.IGNORECASE)
     if not m:
@@ -112,9 +154,16 @@ def _teams_from(line: str, sep: re.Pattern):
 def _find_teams(lines) -> str:
     """Cerca la riga squadre in testo semplice: SOLO " v "/" vs " (cue forte).
     Il separatore " - " è ammesso solo nelle righe 🆚 (l'emoji conferma le squadre):
-    in testo libero è troppo ambiguo (competizioni come "Italy - Serie A", punteggi)."""
+    in testo libero è troppo ambiguo (competizioni come "Italy - Serie A", punteggi).
+
+    (A4) Una riga di nota/competizione che contiene " v " per caso (es. "Real v Society
+    league note") viene SCARTATA se ha una parola-nota (`_has_note_word`): meglio nessuna
+    squadra (segnale incompleto → scartato a valle) che un EventName inventato nel CSV."""
     for raw in lines:
-        t = _teams_from(raw.strip(), _SEP_VVS)
+        line = raw.strip()
+        if _has_note_word(line):
+            continue
+        t = _teams_from(line, _SEP_VVS)
         if t:
             return t
     return ""

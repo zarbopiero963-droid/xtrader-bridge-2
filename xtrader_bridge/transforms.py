@@ -17,16 +17,24 @@ import re
 # Punteggio "X-Y" / "X:Y" / "X x Y" (con spazi opzionali).
 _SCORE_RE = re.compile(r"^\s*(\d{1,3})\s*[-:x]\s*(\d{1,3})\s*$", re.IGNORECASE)
 
+# Gol per lato oltre cui il punteggio è implausibile per una partita reale: un input
+# come "999-999" (ben formato ma assurdo) non deve generare una linea Over inventata (A5).
+_MAX_GOALS_PER_SIDE = 30
+
 
 def _score_to_over(value: str) -> str:
     """Punteggio → linea Over della somma gol: "6-0" → "Over 6,5", "2-3" → "Over 5,5".
 
-    Input non interpretabile come punteggio → "" (fail-closed)."""
+    Input non interpretabile come punteggio → "" (fail-closed). Anche un punteggio ben
+    formato ma **implausibile** (un lato oltre `_MAX_GOALS_PER_SIDE`, es. "999-999") → ""
+    invece di una linea Over assurda (A5)."""
     m = _SCORE_RE.match(value or "")
     if not m:
         return ""
-    total = int(m.group(1)) + int(m.group(2))
-    return f"Over {total},5"
+    home, away = int(m.group(1)), int(m.group(2))
+    if home > _MAX_GOALS_PER_SIDE or away > _MAX_GOALS_PER_SIDE:
+        return ""
+    return f"Over {home + away},5"
 
 
 # Registro delle trasformazioni disponibili (per il menu del costruttore, CP-06).
