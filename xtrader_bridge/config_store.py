@@ -13,6 +13,7 @@ import logging
 import os
 import shutil
 import sys
+import tempfile
 
 APP_DIR_NAME = "XTraderBridge"
 CONFIG_VERSION = 1
@@ -171,20 +172,46 @@ def load_config(path: str = CONFIG_FILE) -> dict:
     return cfg
 
 
-def save_config(cfg: dict, path: str = CONFIG_FILE) -> dict:
-    """Salva la configurazione su file (best-effort) e la ritorna."""
+def save_config(cfg: dict, path: str = CONFIG_FILE):
+    """Salva la configurazione su file (best-effort) in modo **atomico**.
+
+    Ritorna una tupla ``(config_salvata, ok)``:
+    - ``config_salvata``: la config effettivamente serializzata (con `config_version`),
+      sempre restituita così il chiamante può tenerla in memoria anche se il disco fallisce;
+    - ``ok``: ``True`` se la scrittura su disco è riuscita, ``False`` altrimenti — così la
+      GUI non può più segnalare "salvato" quando in realtà non lo è (finding A1).
+
+    Scrittura **atomica** (tempfile nella stessa cartella + `flush`+`fsync` + `os.replace`,
+    lo stesso schema di `csv_writer`/`signal_dedupe`/`profile_store`): un'interruzione a
+    metà (crash, blackout, disco pieno) NON lascia un `config.json` troncato — o resta
+    quello vecchio intatto, o c'è quello nuovo completo. Niente più reset ai default per
+    una scrittura interrotta."""
     to_save = dict(cfg)
     to_save.setdefault("config_version", CONFIG_VERSION)
     try:
         _ensure_dir(path)
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(to_save, f, indent=2)
+        d = os.path.dirname(os.path.abspath(path)) or "."
+        fd, tmp = tempfile.mkstemp(dir=d, prefix=".config_", suffix=".tmp")
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(to_save, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except BaseException:
+            # Scrittura/rename falliti: rimuovi il temporaneo, non lasciare residui.
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
     except OSError as exc:
         # Persistenza fallita (disco pieno, permessi, path non scrivibile): l'app
         # continua con la config in memoria, ma l'utente deve poterlo sapere.
         # exc_info=True: traceback completo per il post-mortem (più save point, stesso path).
         logger.error("Salvataggio config fallito (%s): %s", path, exc, exc_info=True)
-    return to_save
+        return to_save, False
+    return to_save, True
 
 
 def _backup_corrupted(path: str) -> None:

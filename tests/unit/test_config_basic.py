@@ -176,15 +176,49 @@ def test_migrate_legacy_skip_se_nessun_legacy(tmp_path):
 
 
 def test_save_config_logga_errore_io_ma_resta_best_effort(tmp_path, caplog):
-    # Persistenza fallita (qui il path è una DIRECTORY → open('w') solleva OSError):
+    # Persistenza fallita (qui il path è una DIRECTORY → os.replace solleva OSError):
     # l'app prosegue (ritorna la config in memoria) MA ora l'errore è LOGGATO,
-    # non più silenzioso (`except: pass`).
+    # non più silenzioso (`except: pass`), e `ok` è False (A1: niente falso "salvato").
     target = tmp_path / "sono_una_cartella"
     target.mkdir()
     with caplog.at_level("ERROR", logger="xtrader_bridge.config_store"):
-        out = config_store.save_config({"provider": "X"}, str(target))
+        out, ok = config_store.save_config({"provider": "X"}, str(target))
     assert out["provider"] == "X"                  # best-effort preservato
+    assert ok is False                             # A1: la GUI non deve dire "salvato"
     assert any("Salvataggio config fallito" in r.getMessage() for r in caplog.records)
+    # Nessun temporaneo lasciato in giro dopo il fallimento.
+    assert not [f for f in os.listdir(target.parent) if f.startswith(".config_")]
+
+
+def test_save_config_successo_ritorna_ok_e_persiste(tmp_path):
+    # Percorso normale: ritorna ok=True, il file è rileggibile con i valori salvati e
+    # non resta alcun temporaneo `.config_*` (scrittura atomica completata).
+    p = tmp_path / "cfg" / "config.json"
+    out, ok = config_store.save_config({"provider": "TG", "chat_id": "123"}, str(p))
+    assert ok is True
+    assert out["provider"] == "TG"
+    reread = config_store.load_config(str(p))
+    assert reread["provider"] == "TG" and reread["chat_id"] == "123"
+    assert not [f for f in os.listdir(p.parent) if f.startswith(".config_")]
+
+
+def test_save_config_atomico_non_distrugge_il_file_esistente_su_errore(tmp_path, monkeypatch):
+    # Una scrittura interrotta (os.replace fallisce) NON deve troncare/cancellare il
+    # config già presente: il vecchio file resta intatto (invariante 7).
+    p = tmp_path / "config.json"
+    config_store.save_config({"provider": "BUONO"}, str(p))     # stato valido iniziale
+
+    real_replace = os.replace
+    def _boom(src, dst):
+        raise OSError("rename interrotto")
+    monkeypatch.setattr(config_store.os, "replace", _boom)
+    out, ok = config_store.save_config({"provider": "NUOVO"}, str(p))
+    monkeypatch.setattr(config_store.os, "replace", real_replace)
+
+    assert ok is False
+    # Il file su disco è ancora quello valido precedente, non corrotto/troncato.
+    assert config_store.load_config(str(p))["provider"] == "BUONO"
+    assert not [f for f in os.listdir(p.parent) if f.startswith(".config_")]
 
 
 def test_migrate_legacy_logga_errore_ma_non_crasha(tmp_path, caplog):
