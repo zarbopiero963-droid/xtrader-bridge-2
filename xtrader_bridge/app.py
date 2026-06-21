@@ -62,6 +62,11 @@ _WRITE_RETRY_DELAY = 5
 _LOG_MAX = 1000
 _LOG_TRIM_AT = 1200
 
+# Larghezza di wrap per le label di contenuto del monitoraggio (Chat ascoltate /
+# Stato): unica fonte, così i pannelli a schede restano coerenti e si regola in un
+# punto solo. Tarata sulla larghezza fissa della finestra (720px) meno i margini.
+_CONTENT_WRAP = 660
+
 # Campi "ultimo …" del pannello STATO (PR-14c): chiave interna → prefisso etichetta.
 # Fonte UNICA: usata sia per creare le label sia da `_set_last`/diagnostica (niente
 # prefissi duplicati che possono divergere). L'ordine è quello di visualizzazione.
@@ -361,6 +366,9 @@ class App(ctk.CTk):
         # solo Tabview (una scheda per volta): stessi widget e stessi riferimenti, nessun
         # campo rimosso — solo meno clutter verticale. Config e pulsanti restano sopra,
         # sempre visibili. I titoli interni ridondanti sono rimossi (li porta la scheda).
+        # Le etichette delle schede sono solo per la UI: nessun altro punto del codice
+        # dipende dai nomi o dall'ordine (i widget si referenziano via attributi self._*),
+        # quindi rinominarle/riordinarle è sicuro.
         mon = ctk.CTkTabview(self)
         mon.pack(fill="both", expand=True, padx=15, pady=(5, 12))
         tab_chats = mon.add("📡 Chat ascoltate")
@@ -374,7 +382,7 @@ class App(ctk.CTk):
         # queste chat, mai tutte" (allowed_chats, A2).
         self._chats_lbl = ctk.CTkLabel(
             tab_chats, text="", font=ctk.CTkFont(size=11), text_color="gray",
-            wraplength=660, anchor="w", justify="left")
+            wraplength=_CONTENT_WRAP, anchor="w", justify="left")
         self._chats_lbl.pack(anchor="w", padx=12, pady=8)
         self._refresh_listened_chats()
 
@@ -389,7 +397,7 @@ class App(ctk.CTk):
                       fg_color="#37474f", hover_color="#263238",
                       command=self._open_log_folder).pack(side="right", padx=(6, 0))
         _sty = dict(font=ctk.CTkFont(size=11), text_color="gray",
-                    wraplength=660, anchor="w", justify="left")
+                    wraplength=_CONTENT_WRAP, anchor="w", justify="left")
         # Una label per campo, creata dalla fonte unica _LAST_FIELDS (niente prefissi
         # duplicati a mano). _set_last le aggiorna usando lo stesso prefisso.
         self._last_lbls = {}
