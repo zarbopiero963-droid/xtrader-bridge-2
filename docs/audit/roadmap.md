@@ -612,7 +612,10 @@ PHASE 9  PR-20 release-candidate
 > **Nessun bug duplica un segnale** (nessuna doppia scommessa per duplicazione). L'unico
 > rischio di "scommessa indesiderata" è la **riga orfana** di A2 (un segnale stantio resta
 > nel CSV operativo se si cambia il path da running): è tracciato come finding 🟠, non un
-> rischio residuo accettato. I due bug di parsing causano invece *perdita* di un segnale.
+> rischio residuo accettato. Sui bug di parsing l'impatto **non è solo perdita**: **A3**
+> perde un segnale, ma **A4** può scrivere una riga con **EventName errato** (riga sbagliata,
+> non solo persa) e il percorso custom ha **A10** (bet fisso scritto su un messaggio
+> non-segnale). Tutti tracciati sotto, da chiudere nelle PR-A3/PR-A5.
 
 Legenda severità: 🔴 critico · 🟠 medio-alto/alto · 🟡 medio/basso.
 
@@ -623,12 +626,13 @@ Legenda severità: 🔴 critico · 🟠 medio-alto/alto · 🟡 medio/basso.
 | A1 | `xtrader_bridge/config_store.py` · `save_config()` **non atomico** (`open(path,'w')`) **e** riporta successo anche se la scrittura fallisce (la GUI logga sempre "Configurazione salvata") | Claude + Codex | ✅ Confermato | 🟠 Medio | PR-A1 |
 | A2 | `xtrader_bridge/app.py` · `_manual_clear()` usa il path del **campo GUI**, non `_active_csv_path`: cambiando il path da running e premendo "Svuota CSV ora" resta una **riga orfana** nel CSV operativo reale | Codex | ✅ Confermato | 🟠 Medio | PR-A2 |
 | A3 | `xtrader_bridge/parser.py` · `_extract_quota()`: `"Quota X,Y FT"` senza `Prematch:` → quota persa (segnale non scritto) | Claude | ✅ Confermato* | 🟠 Alto* | PR-A3 |
-| A4 | `xtrader_bridge/parser.py` · `_find_teams()`: riga con `" v "` in testo libero (senza emoji) scambiata per squadre | Claude | ✅ Confermato | 🟡 Basso | PR-A3 |
+| A4 | `xtrader_bridge/parser.py` · `_find_teams()`: riga con `" v "` in testo libero (senza emoji) scambiata per squadre → **EventName errato scritto nel CSV** (riga sbagliata, non solo perdita: con prezzo/mercato validi `resolve_row()` ritorna VALID per l'evento sbagliato) | Claude + Codex | ✅ Confermato | 🟠 Medio | PR-A3 |
 | A5 | `xtrader_bridge/transforms.py` · `_score_to_over()`: nessun cap sulla somma gol (`999-999` → `Over 1998,5`) | Claude | ✅ Confermato | 🟡 Basso | PR-A3 |
 | A6 | Token Telegram persistito in `config.json` in chiaro (da documentare) | Claude + Codex | ✅ Fatto (tradeoff accettato) | 🟡 Basso | PR-A4 |
 | A7 | Dipendenze runtime non pinnate (`requirements.txt` usa `>=`) | Codex | ✅ Confermato | 🟡 Basso | PR-A4 |
 | A8 | `xtrader_bridge/mapping.py` · `_index()` e `xtrader_bridge/custom_pipeline.py` · `_default_registry()`: cache globale lazy non sotto lock (doppia costruzione possibile al primo uso concorrente) | Claude | ✅ Confermato (benigno) | 🟡 Basso | PR-A4 (opz.) |
 | A9 | `xtrader_bridge/app.py` · `_start()` imposta `_running=True` e mette la GUI in stato ATTIVO **prima** di `init_csv(csv_path)`, senza catturare `OSError`: con un path CSV non scrivibile/lockato l'avvio si interrompe ma la UI resta "attiva" fino allo STOP manuale (listener non partito) | Codex | ✅ Confermato | 🟠 Medio | PR-A2 |
+| A10 | `xtrader_bridge/custom_parser_engine.py` · `matches_message()`: il gate di contenuto accetta **qualsiasi** regola di estrazione non-fissa, anche **opzionale** (non solo i campi-segnale obbligatori). Un parser coi campi scommessa **fissi** + una regola di estrazione opzionale "larga" produce una riga piazzabile su un messaggio **non-segnale** che attiva quella regola → **bet fisso scritto per un messaggio non pertinente** (scommessa spuria, in chat ammessa) | Codex | ✅ Confermato | 🟠 Medio | PR-A5 |
 
 > **Nota sui riferimenti**: i finding puntano a `file` · `funzione()` (simbolo **stabile**),
 > non a numeri di riga, così la roadmap resta valida anche se il codice si sposta.
@@ -648,12 +652,17 @@ necessario, con test per entrambi i casi.
 ## Moduli verificati PULITI (line-by-line, nessun bug)
 
 `csv_writer` · `mapping` · `signal_dedupe` · `signal_gate` · `signal_router` · `signal_queue`
-· `validator` · `live_guard` · `safety_guard` · `custom_pipeline` · `custom_parser_engine`
+· `validator` · `live_guard` · `safety_guard` · `custom_pipeline`
 · `confirmation_reader` · `source_manager` · `profile_store` · `parser_io` · `event_log`
 · `diagnostics` · `recognition` · `value_maps` · `message_freshness` · `app.py`
 (`_process`/rollback, `_stop`/`_on_close`, `_log` con redazione token, `_expire_tick`,
-`_process_confirmation`). **Eccezioni in `app.py` — NON clean**: `_start` (A9: `init_csv`
-senza guard `OSError`) e `_manual_clear` (A2: path del campo GUI).
+`_process_confirmation`).
+
+**Eccezioni — NON clean:** in `app.py`, `_start` (A9: `init_csv` senza guard `OSError`) e
+`_manual_clear` (A2: path del campo GUI); nel percorso custom, `custom_parser_engine` ·
+`matches_message()` (A10: gate di contenuto troppo permissivo — accetta estrazioni
+opzionali). Il resto di `custom_pipeline`/`custom_parser_engine` (estrazione, gate
+NOT_READY/Provider/Handicap, ordine transform→value-map) resta verificato pulito.
 
 **Non-finding chiusi durante l'audit:** token nel log persistente → già redatto al sink
 `_log`; `SignalTracker.register` senza lock → sicuro (solo il thread listener lo chiama);
@@ -677,6 +686,10 @@ PR-A3  parser-hardening       → quota FT fallback (A3, confermato Alto) + guar
                                  " v " (A4) + cap somma gol (A5) + test mirati
 PR-A4  hardening-minori       → doc token plaintext (A6) + pin deps (A7) +       [da fare]
                                  lock cache lazy (A8, opzionale)
+PR-A5  custom-content-gate    → matches_message() richiede una regola di          [da fare]
+                                 estrazione OBBLIGATORIA non-fissa (non solo
+                                 opzionale): un parser a campi fissi non scrive su
+                                 messaggi non-segnale (A10) + test mirato
 ```
 
 Ogni PR-Ax: branch dedicato, Phase 0, patch stretta, micro-audit, test hard veritieri,
