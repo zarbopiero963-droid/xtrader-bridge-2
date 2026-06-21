@@ -91,6 +91,14 @@ class ProfilesWindow(ctk.CTkToplevel):
     # ── azioni ─────────────────────────────────────────────────────────────
     def _save(self):
         name = self._name.get().strip()
+        # Valida il nome PRIMA di persistere il form (Codex): un nome vuoto/non valido o
+        # collidente verrebbe rifiutato da save_profile, ma get_current_cfg avrebbe già
+        # committato impostazioni safety-critical (dry_run/csv_path/chat). Pre-check puro.
+        try:
+            profile_store.ensure_valid_new_name(name)
+        except ValueError as exc:
+            self._status.configure(text=f"❌ {exc}", text_color="#ef5350")
+            return
         # get_current_cfg persiste il form e ritorna la config viva (con token); lo
         # chiamiamo UNA sola volta per evitare doppia persistenza/snapshot divergenti.
         cfg = self._get_current_cfg()
@@ -126,7 +134,9 @@ class ProfilesWindow(ctk.CTkToplevel):
             return
         try:
             profile = profile_store.load_profile(name)
-        except (FileNotFoundError, ValueError) as exc:
+        except (ValueError, OSError) as exc:
+            # OSError copre file mancante (FileNotFoundError) e illeggibile (ACL/lock):
+            # mostra l'errore senza far crashare la callback Tk (Codex P2).
             self._status.configure(text=f"❌ {exc}", text_color="#ef5350")
             self._refresh_list()
             return
@@ -140,7 +150,13 @@ class ProfilesWindow(ctk.CTkToplevel):
             text_color="#66bb6a")
 
     def _delete(self, name: str):
-        removed = profile_store.delete_profile(name)
+        try:
+            removed = profile_store.delete_profile(name)
+        except OSError as exc:
+            # Rimozione fallita (permessi, cartella read-only, lock Windows): mostra
+            # l'errore senza far crashare la callback Tk (Codex P2).
+            self._status.configure(text=f"❌ Eliminazione fallita: {exc}", text_color="#ef5350")
+            return
         self._refresh_list()
         if removed:
             self._status.configure(text=f"🗑 Profilo {name!r} eliminato.", text_color="gray")

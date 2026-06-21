@@ -77,25 +77,35 @@ def _read_profile_name(path: str):
     return None
 
 
+def ensure_valid_new_name(name: str, dir_path: str = None) -> str:
+    """Valida il nome profilo SENZA scrivere nulla: ritorna il nome pulito o solleva
+    `ValueError` se è vuoto/non valido oppure se **collide** col filename di un profilo
+    *diverso* (es. "Live!" vs "Live"). Fonte unica usata sia da `save_profile` sia dalla
+    GUI per validare PRIMA di persistere il form (così un nome cattivo non commette mai
+    impostazioni safety-critical, finding Codex)."""
+    clean = _clean_name_or_raise(name)
+    path = profile_path(clean, dir_path)
+    if os.path.exists(path):
+        existing = _read_profile_name(path)
+        if existing is not None and existing != clean:
+            raise ValueError(
+                f"Il nome {clean!r} collide con il profilo {existing!r} "
+                f"(stesso file {os.path.basename(path)}): scegli un nome diverso."
+            )
+    return clean
+
+
 def save_profile(name: str, cfg: dict, dir_path: str = None) -> str:
     """Salva la config (SENZA segreti) come profilo `<dir>/<nome>.json`.
 
-    Rifiuta un nome che si riduce a vuoto dopo la sanitizzazione. Come
-    `custom_parser.save_parser`, rifiuta la collisione di filename tra due nomi
-    *diversi* (es. "Live!" e "Live"): sovrascrivere è consentito solo per lo *stesso*
-    profilo (update). Scrittura atomica (tmp + fsync + rename): un crash a metà non
-    lascia un JSON parziale e non distrugge il profilo esistente."""
-    clean_name = _clean_name_or_raise(name)
+    Rifiuta un nome che si riduce a vuoto dopo la sanitizzazione o che collide col
+    filename di un profilo diverso (`ensure_valid_new_name`): sovrascrivere è consentito
+    solo per lo *stesso* profilo (update). Scrittura atomica (tmp + fsync + rename): un
+    crash a metà non lascia un JSON parziale e non distrugge il profilo esistente."""
     base = dir_path if dir_path is not None else profiles_dir()
+    clean_name = ensure_valid_new_name(name, base)
     os.makedirs(base, exist_ok=True)
     path = profile_path(clean_name, base)
-    if os.path.exists(path):
-        existing_name = _read_profile_name(path)
-        if existing_name is not None and existing_name != clean_name:
-            raise ValueError(
-                f"Il nome {clean_name!r} collide con il profilo {existing_name!r} "
-                f"(stesso file {os.path.basename(path)}): scegli un nome diverso."
-            )
     payload = json.dumps(
         {"name": clean_name, "config": _strip_secrets(cfg)},
         ensure_ascii=False, indent=2,

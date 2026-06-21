@@ -85,6 +85,19 @@ def test_nome_vuoto_o_non_valido_rifiutato(tmp_path, bad):
         ps.save_profile(bad, {"chat_id": "1"}, dir_path=str(tmp_path))
 
 
+def test_ensure_valid_new_name_precheck_senza_scrivere(tmp_path):
+    # La GUI valida il nome PRIMA di persistere il form: nome valido → ritorna il nome
+    # pulito senza creare file; nome vuoto/collidente → ValueError (niente file scritto).
+    assert ps.ensure_valid_new_name("Prematch", str(tmp_path)) == "Prematch"
+    assert ps.list_profiles(str(tmp_path)) == []          # pre-check non scrive nulla
+    with pytest.raises(ValueError):
+        ps.ensure_valid_new_name("   ", str(tmp_path))
+    ps.save_profile("Live", {"chat_id": "1"}, dir_path=str(tmp_path))
+    with pytest.raises(ValueError, match="collide"):
+        ps.ensure_valid_new_name("Live!", str(tmp_path))   # collisione filename
+    assert ps.ensure_valid_new_name("Live", str(tmp_path)) == "Live"   # stesso = update ok
+
+
 # ── delete / errori di load ──────────────────────────────────────────────────
 
 def test_delete_profile(tmp_path):
