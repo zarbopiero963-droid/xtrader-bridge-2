@@ -1243,7 +1243,8 @@ class App(ctk.CTk):
             self._populate_form(saved)
             self._log("📁 Profilo caricato e applicato (token invariato).")
 
-        win = ProfilesWindow(self, get_current_cfg=self._save_config, on_loaded=_on_loaded)
+        win = ProfilesWindow(self, get_current_cfg=self._save_config, on_loaded=_on_loaded,
+                             is_running=lambda: self._running)
         win.focus()
 
     def _populate_form(self, cfg: dict) -> None:

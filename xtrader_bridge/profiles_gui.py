@@ -24,15 +24,19 @@ class ProfilesWindow(ctk.CTkToplevel):
     come base per il salvataggio sia per preservare il token al caricamento.
     `on_loaded(new_cfg)`: callback chiamata dopo un caricamento riuscito, così la GUI
     principale aggiorna la config in memoria e ripopola i campi del form.
-    `on_saved(new_cfg)`: callback opzionale chiamata dopo il salvataggio (persistenza)."""
+    `on_saved(new_cfg)`: callback opzionale chiamata dopo il salvataggio (persistenza).
+    `is_running()`: callback opzionale che dice se il bridge è ATTIVO; in quel caso il
+    caricamento di un profilo è bloccato (vedi `_load`)."""
 
-    def __init__(self, master=None, get_current_cfg=None, on_loaded=None, on_saved=None):
+    def __init__(self, master=None, get_current_cfg=None, on_loaded=None, on_saved=None,
+                 is_running=None):
         super().__init__(master)
         self.title("Profili impostazioni")
         self.geometry("560x520")
         self._get_current_cfg = get_current_cfg or (lambda: {})
         self._on_loaded = on_loaded
         self._on_saved = on_saved
+        self._is_running = is_running or (lambda: False)
         self._build_ui()
         self._refresh_list()
 
@@ -96,6 +100,12 @@ class ProfilesWindow(ctk.CTkToplevel):
         except ValueError as exc:
             self._status.configure(text=f"❌ {exc}", text_color="#ef5350")
             return
+        except OSError as exc:
+            # Persistenza fallita (permessi AppData, disco pieno, nome riservato su
+            # Windows): mostra l'errore senza far crashare la callback Tk (Codex P2).
+            self._status.configure(text=f"❌ Salvataggio profilo fallito: {exc}",
+                                   text_color="#ef5350")
+            return
         self._name.delete(0, "end")
         self._refresh_list()
         self._status.configure(text=f"✅ Profilo {name!r} salvato (senza token).",
@@ -104,6 +114,16 @@ class ProfilesWindow(ctk.CTkToplevel):
             self._on_saved(cfg)
 
     def _load(self, name: str):
+        # SICUREZZA (Codex P1): col bridge ATTIVO il thread live usa lo snapshot config
+        # preso a START; applicare un profilo cambierebbe config/form senza toccare il
+        # runtime → l'utente vedrebbe "applicato" mentre dry_run/chat/queue/csv_path
+        # restano quelli vecchi. Blocca il caricamento finché il bridge gira.
+        if self._is_running():
+            self._status.configure(
+                text="⚠️ Ferma il bridge (STOP) prima di caricare un profilo: "
+                     "le impostazioni live cambiano solo al prossimo AVVIA.",
+                text_color="#ffa726")
+            return
         try:
             profile = profile_store.load_profile(name)
         except (FileNotFoundError, ValueError) as exc:
