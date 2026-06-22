@@ -133,6 +133,22 @@ def test_custom_inesistente_ignora_il_messaggio(tmp_path):
     assert res.placeable is False
 
 
+def test_parser_configurato_ma_mancante_non_sparisce_in_silenzio(tmp_path):
+    # Codex P2: una chat APPROVATA con un parser CONFIGURATO il cui file è mancante
+    # non deve far sparire i segnali senza traccia. should_process resta True (così
+    # resolve_row gira) e resolve_row segnala il fallimento col nome del parser, invece
+    # di un drop silenzioso prima del log.
+    cfg = {"provider": "TG", "active_parser": "Mancante", "chat_id": "42",
+           "recognition_mode": "NAME_ONLY"}
+    assert signal_router.should_process(
+        cfg, "42", "qualsiasi", parsers_dir=str(tmp_path)) is True
+    res = signal_router.resolve_row("qualsiasi", cfg, chat_id="42",
+                                    parsers_dir=str(tmp_path))
+    assert res.source == signal_router.NO_PARSER
+    assert res.placeable is False
+    assert "Mancante" in str(res.detail)
+
+
 def test_chat_id_esplicito_attiva_override(tmp_path):
     # parser_by_chat senza chat_id singolo in config: il chat id del messaggio
     # (passato esplicitamente, come fa il live) attiva l'override per-chat.

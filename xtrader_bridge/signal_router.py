@@ -150,14 +150,21 @@ def should_process(cfg: dict, chat: str, text: str, parsers_dir: str = None) -> 
     (CP-09b) una chat viene processata SOLO se:
 
     - è ammessa (`is_chat_allowed`) → altrimenti mai (non si indebolisce il filtro chat);
-    - **e** ha un Parser Personalizzato attivo (globale o per-chat).
+    - è approvata per il custom **e** ha un parser **configurato** (nome non vuoto,
+      globale o per-chat).
 
-    Una chat ammessa ma senza parser custom NON viene più processata: prima la
-    gestiva il parser hardcoded col prefiltro marker `P.Bet.`/📊, ora rimosso dal
-    percorso live. (`text` non è più usato: la decisione non dipende dal contenuto.)"""
+    Si guarda il NOME configurato (`resolve_parser_name`), non il caricamento: se il
+    file è mancante/invalido la chat viene comunque processata, così `resolve_row`
+    gira e LOGGA il fallimento (NO_PARSER) invece di far sparire i segnali in silenzio
+    (Codex P2). Senza alcun parser configurato non c'è nulla da processare. Una chat
+    ammessa ma senza parser custom NON viene più processata: prima la gestiva il parser
+    hardcoded col prefiltro marker `P.Bet.`/📊, ora rimosso dal percorso live. (`text`
+    non è più usato: la decisione non dipende dal contenuto.)"""
     if not is_chat_allowed(cfg, chat):
         return False
-    return active_custom_parser(cfg, chat, parsers_dir) is not None
+    if not _chat_approved_for_custom(cfg, chat):
+        return False
+    return bool(parser_manager.resolve_parser_name(cfg, chat))
 
 
 @dataclass
@@ -213,8 +220,11 @@ def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str =
             row["Provider"] = provider
         return RouteResult(row, validator.VALID, CUSTOM)
 
-    # Nessun Parser Personalizzato attivo: il parser automatico P.Bet è DISATTIVATO
-    # (CP-09b). Il messaggio è ignorato (riga non piazzabile, nessuna scrittura)
-    # invece di affidarsi a un'interpretazione automatica non voluta. Per processare
-    # una chat serve un Parser Personalizzato attivo (globale o per-chat).
-    return RouteResult(None, NO_PARSER, NO_PARSER, "no_active_parser")
+    # Nessun Parser Personalizzato caricato: il parser automatico P.Bet è DISATTIVATO
+    # (CP-09b), quindi il messaggio è ignorato (riga non piazzabile, nessuna scrittura).
+    # Distinguo i due casi per l'operatore (Codex P2): nessun parser configurato vs un
+    # parser configurato ma con file mancante/invalido (selezione stantia) — quest'ultimo
+    # va segnalato col nome, così non sparisce in silenzio.
+    configured = parser_manager.resolve_parser_name(cfg, chat)
+    detail = f"parser_non_caricabile:{configured}" if configured else "no_active_parser"
+    return RouteResult(None, NO_PARSER, NO_PARSER, detail)
