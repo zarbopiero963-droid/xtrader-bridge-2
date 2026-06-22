@@ -10,23 +10,24 @@ def _save_example(dir_path, name="Esempio P.Bet."):
     return cp.save_parser(defn, dir_path)
 
 
-# ── fallback hardcoded (nessun custom attivo) ───────────────────────────────
+# ── nessun custom attivo: parser automatico DISATTIVATO (CP-09b) ─────────────
 
-def test_nessun_custom_usa_hardcoded():
-    # Config senza active_parser → percorso hardcoded; messaggio P.Bet. valido.
+def test_nessun_custom_ignora_il_messaggio():
+    # Config senza active_parser → nessun parser custom → il messaggio è ignorato
+    # (parser automatico P.Bet disattivato), anche un P.Bet. perfettamente valido.
     cfg = {"provider": "TG", "recognition_mode": "NAME_ONLY"}
     text = ("🔔 P.Bet.\nYangon City v Rakhine\nMercato: 1X2\nEsito: 1\n"
             "Quota 1,85\nProbabilità 72%")
     res = signal_router.resolve_row(text, cfg)
-    # Il parser hardcoded può non riconoscere ogni formato: verifichiamo solo che
-    # la sorgente sia hardcoded e che lo stato sia coerente (placeable o scarto).
-    assert res.source == signal_router.HARDCODED
+    assert res.source == signal_router.NO_PARSER
+    assert res.status == signal_router.NO_PARSER
+    assert res.placeable is False
 
 
-def test_hardcoded_scarta_messaggio_non_valido():
+def test_senza_custom_scarta_messaggio_non_valido():
     cfg = {"provider": "TG", "recognition_mode": "NAME_ONLY"}
     res = signal_router.resolve_row("ciao non sono un segnale", cfg)
-    assert res.source == signal_router.HARDCODED
+    assert res.source == signal_router.NO_PARSER
     assert res.placeable is False
 
 
@@ -59,12 +60,14 @@ def test_custom_attivo_non_pronto_scarta_senza_fallback(tmp_path):
 
 def test_chat_non_approvata_non_usa_parser_globale(tmp_path):
     # active_parser globale ma chat_id vuoto: una chat arbitraria NON deve usare
-    # il parser globale (sicurezza: niente scommesse per chat non approvate).
+    # il parser globale (sicurezza: niente scommesse per chat non approvate). Senza
+    # parser approvato il messaggio è ignorato (parser automatico disattivato).
     _save_example(str(tmp_path), "Yangon")
     cfg = {"provider": "TG", "active_parser": "Yangon", "recognition_mode": "NAME_ONLY"}
     res = signal_router.resolve_row(parser_io.fixture_message(), cfg,
                                     chat_id="999", parsers_dir=str(tmp_path))
-    assert res.source == signal_router.HARDCODED
+    assert res.source == signal_router.NO_PARSER
+    assert res.placeable is False
 
 
 def test_custom_solo_fixed_non_scrive_su_messaggio_arbitrario(tmp_path):
@@ -121,11 +124,42 @@ def test_custom_fixed_con_estrazione_attiva_scrive_solo_se_match(tmp_path):
     assert ko.status == signal_router.NO_CONTENT_MATCH
 
 
-def test_custom_inesistente_ripiega_su_hardcoded(tmp_path):
-    # active_parser punta a un parser non salvato → load_active None → hardcoded.
+def test_custom_inesistente_ignora_il_messaggio(tmp_path):
+    # active_parser punta a un parser non salvato → load_active None → nessun parser
+    # custom → messaggio ignorato (niente fallback automatico).
     cfg = {"provider": "TG", "active_parser": "NonEsiste", "recognition_mode": "NAME_ONLY"}
     res = signal_router.resolve_row("qualsiasi", cfg, parsers_dir=str(tmp_path))
-    assert res.source == signal_router.HARDCODED
+    assert res.source == signal_router.NO_PARSER
+    assert res.placeable is False
+
+
+def test_has_active_parser_config():
+    # Codex P2: rileva se è configurato almeno un parser (per l'avviso di avvio).
+    assert signal_router.has_active_parser_config({}) is False
+    assert signal_router.has_active_parser_config({"chat_id": "42"}) is False  # chat, ma 0 parser
+    assert signal_router.has_active_parser_config({"active_parser": "X"}) is True
+    assert signal_router.has_active_parser_config(
+        {"active_parser": "   "}) is False                                     # solo spazi → vuoto
+    assert signal_router.has_active_parser_config(
+        {"parser_by_chat": {"1": "X"}}) is True
+    assert signal_router.has_active_parser_config(
+        {"parser_by_chat": {"1": ""}}) is False                                # override vuoto
+
+
+def test_parser_configurato_ma_mancante_non_sparisce_in_silenzio(tmp_path):
+    # Codex P2: una chat APPROVATA con un parser CONFIGURATO il cui file è mancante
+    # non deve far sparire i segnali senza traccia. should_process resta True (così
+    # resolve_row gira) e resolve_row segnala il fallimento col nome del parser, invece
+    # di un drop silenzioso prima del log.
+    cfg = {"provider": "TG", "active_parser": "Mancante", "chat_id": "42",
+           "recognition_mode": "NAME_ONLY"}
+    assert signal_router.should_process(
+        cfg, "42", "qualsiasi", parsers_dir=str(tmp_path)) is True
+    res = signal_router.resolve_row("qualsiasi", cfg, chat_id="42",
+                                    parsers_dir=str(tmp_path))
+    assert res.source == signal_router.NO_PARSER
+    assert res.placeable is False
+    assert "Mancante" in str(res.detail)
 
 
 def test_chat_id_esplicito_attiva_override(tmp_path):
@@ -138,9 +172,10 @@ def test_chat_id_esplicito_attiva_override(tmp_path):
                                     chat_id="123", parsers_dir=str(tmp_path))
     assert res.source == signal_router.CUSTOM
     assert res.placeable is True
-    # senza chat id → nessun override → hardcoded
+    # senza chat id → nessun override → nessun parser → messaggio ignorato
     res2 = signal_router.resolve_row("qualsiasi", cfg, parsers_dir=str(tmp_path))
-    assert res2.source == signal_router.HARDCODED
+    assert res2.source == signal_router.NO_PARSER
+    assert res2.placeable is False
 
 
 def test_override_per_chat(tmp_path):
@@ -395,11 +430,12 @@ def test_should_process_chat_non_ammessa_mai():
     assert signal_router.should_process(cfg, "999", "🔔 P.Bet. ...") is False
 
 
-def test_should_process_hardcoded_richiede_marker():
-    # chat ammessa, nessun custom: passa solo se c'è un marker legacy.
+def test_should_process_senza_custom_mai():
+    # chat ammessa ma nessun parser custom attivo: non si processa più nulla, nemmeno
+    # con un marker legacy P.Bet./📊 (parser automatico disattivato, CP-09b).
     cfg = {"provider": "TG", "chat_id": "42"}
-    assert signal_router.should_process(cfg, "42", "P.Bet. OVER 2.5") is True
-    assert signal_router.should_process(cfg, "42", "📊 segnale") is True
+    assert signal_router.should_process(cfg, "42", "P.Bet. OVER 2.5") is False
+    assert signal_router.should_process(cfg, "42", "📊 segnale") is False
     assert signal_router.should_process(cfg, "42", "messaggio qualsiasi") is False
     assert signal_router.should_process(cfg, "42", "") is False
 
@@ -413,9 +449,9 @@ def test_should_process_custom_attivo_passa_qualsiasi_testo(tmp_path):
         cfg, "42", "Match: Inter v Milan", parsers_dir=str(tmp_path)) is True
 
 
-def test_should_process_legacy_nessuna_config_richiede_marker():
-    # Nessun chat_id e nessuna mappa → tutte le chat ammesse (legacy), ma senza
-    # custom resta il prefiltro marker per il parser hardcoded.
+def test_should_process_senza_config_e_senza_custom_mai():
+    # Nessun chat_id e nessuna mappa → tutte le chat ammesse (legacy), ma senza un
+    # Parser Personalizzato attivo nulla viene processato (parser automatico off).
     cfg = {"provider": "TG"}
-    assert signal_router.should_process(cfg, "777", "P.Bet. ...") is True
+    assert signal_router.should_process(cfg, "777", "P.Bet. ...") is False
     assert signal_router.should_process(cfg, "777", "ciao") is False

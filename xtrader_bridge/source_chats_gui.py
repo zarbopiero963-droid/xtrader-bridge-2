@@ -16,13 +16,17 @@ import customtkinter as ctk
 from . import config_store
 from .source_editor import SourceEditor
 
-# Etichetta base della voce "nessun override" (= "" = parser hardcoded/attivo).
-_NO_PARSER_BASE = "(nessuno)"
+# Etichetta base della voce "nessun override per-chat" (= "" in parser_by_chat): la
+# chat usa il parser GLOBALE (`active_parser`, via resolve_parser_name), da cui
+# "(predefinito)". NON significa "nessun parser": se un parser globale è attivo, la chat
+# è comunque parsata da quello (Codex). Se nemmeno il globale è impostato, allora — col
+# parser automatico P.Bet disattivato (CP-09b) — la chat non viene processata.
+_NO_PARSER_BASE = "(predefinito)"
 
 
 def _none_sentinel(names) -> str:
     """Sentinella "nessuno" GARANTITA diversa da ogni nome di parser reale: se per
-    assurdo un parser si chiama "(nessuno)", aggiunge spazi finché è unica. Evita la
+    assurdo un parser si chiama "(predefinito)", aggiunge spazi finché è unica. Evita la
     collisione che renderebbe ambiguo "nessun override" vs il parser omonimo (Codex)."""
     existing = set(names or [])
     label = _NO_PARSER_BASE
@@ -104,7 +108,7 @@ class SourceChatsWindow(ctk.CTkToplevel):
         provider = ctk.CTkEntry(row, width=150)
         provider.insert(0, str(source.get("provider", "")))
         provider.pack(side="left", padx=3)
-        # Parser override per questa chat: "" → voce "nessuno"; un nome reale resta tale.
+        # Parser per questa chat: "" → voce "(predefinito)" (usa il globale); un nome reale resta tale.
         parser = ctk.StringVar(value=str(source.get("parser", "")) or self._no_parser)
         ctk.CTkOptionMenu(row, width=160, values=self._parser_options,
                           variable=parser).pack(side="left", padx=3)
@@ -123,9 +127,10 @@ class SourceChatsWindow(ctk.CTkToplevel):
         # Ricostruisce l'editor dallo stato corrente dei widget (niente sync per-campo).
         editor = SourceEditor()
         for r in self._rows:
-            # Solo la sentinella unica significa "nessun override" → ""; qualsiasi
-            # altra voce è un nome di parser reale (anche un parser chiamato "(nessuno)",
-            # perché la sentinella in quel caso è diversa: "(nessuno) ").
+            # Solo la sentinella unica significa "nessun override → globale" → "";
+            # qualsiasi altra voce è un nome di parser reale (anche un parser chiamato
+            # "(predefinito)", perché la sentinella in quel caso è diversa: con uno
+            # spazio in più).
             parser = r["parser"].get()
             editor.add_source(name=r["name"].get(), chat_id=r["chat_id"].get(),
                               enabled=r["enabled"].get(), mode=r["mode"].get(),

@@ -184,14 +184,16 @@ def test_parser_solo_fissi_non_scrive_su_messaggio_arbitrario(tmp_path):
 
 
 def test_chat_non_approvata_non_usa_parser_globale(tmp_path):
-    # active_parser globale ma chat_id vuoto: una chat arbitraria NON usa il custom.
+    # active_parser globale ma chat_id vuoto: una chat arbitraria NON usa il custom e,
+    # col parser automatico disattivato (CP-09b), il messaggio è ignorato.
     defn = parser_io.example_parser()
     defn.name = "Esempio"
     cp.save_parser(defn, str(tmp_path))
     cfg = {"provider": "TG", "active_parser": "Esempio", "recognition_mode": "NAME_ONLY"}
     res = signal_router.resolve_row(parser_io.fixture_message(), cfg,
                                     chat_id="999", parsers_dir=str(tmp_path))
-    assert res.source == signal_router.HARDCODED
+    assert res.source == signal_router.NO_PARSER
+    assert res.placeable is False
 
 
 def test_override_per_chat_end_to_end(tmp_path):
