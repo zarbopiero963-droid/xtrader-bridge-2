@@ -12,7 +12,7 @@ coperta da `tests/unit/test_parser_builder.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import parser_diagnostics
+from . import config_store, parser_diagnostics, provider_store
 from .parser_builder import ParserBuilder
 
 
@@ -32,6 +32,38 @@ class CustomParserWindow(ctk.CTkToplevel):
     def _label_to_mode(self, label: str) -> str:
         return "" if label == self._MODE_INHERIT else label
 
+    # ── anagrafica Provider (PR-5) ─────────────────────────────────────────
+    @staticmethod
+    def _load_providers() -> list:
+        """Nomi provider salvati (best-effort: una config illeggibile → lista vuota)."""
+        try:
+            cfg = config_store.load_config(config_store.CONFIG_FILE)
+        except Exception:                       # noqa: BLE001 — fallback sicuro
+            return []
+        return provider_store.provider_names(cfg)
+
+    def _add_provider(self):
+        """Chiede un nome, lo salva nell'anagrafica (config) e aggiorna le tendine
+        Provider. Persistenza indipendente come per la finestra Sorgenti."""
+        dialog = ctk.CTkInputDialog(text="Nome del nuovo Provider:", title="Provider")
+        name = (dialog.get_input() or "").strip()
+        if not name:
+            self._result.configure(text="⛔ Provider non aggiunto (nome vuoto).")
+            return
+        try:
+            cfg = config_store.load_config(config_store.CONFIG_FILE)
+            cfg = provider_store.add_provider(cfg, name)
+            _saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
+        except Exception as exc:                 # noqa: BLE001
+            self._result.configure(text=f"❌ Errore salvataggio provider: {exc}")
+            return
+        self._providers = provider_store.provider_names(cfg)
+        self._sync_to_builder()                  # non perdere le modifiche correnti
+        self._reload_rows_from_builder()         # ridisegna con la tendina aggiornata
+        self._result.configure(
+            text=f"➕ Provider «{name}» salvato." if ok
+            else f"⚠️ Provider «{name}» aggiunto solo in memoria (salvataggio fallito).")
+
     def __init__(self, master=None, builder: ParserBuilder = None, provider: str = "",
                  global_mode: str = ""):
         super().__init__(master)
@@ -49,6 +81,7 @@ class CustomParserWindow(ctk.CTkToplevel):
         self._transforms = self.builder.transform_options()
         self._value_maps = self.builder.value_map_options(include_dizionario=True)
         self._modes = self.builder.mode_options()
+        self._providers = self._load_providers()   # anagrafica Provider (PR-5)
 
         # Parser NUOVO: applica l'auto-Obblig. della modalità di default UNA volta (per i
         # parser caricati invece si preservano i flag salvati: niente set_mode al reload).
@@ -73,6 +106,10 @@ class CustomParserWindow(ctk.CTkToplevel):
         ctk.CTkOptionMenu(top, variable=self._mode_var,
                           values=[self._MODE_INHERIT, *self._modes], width=160,
                           command=self._on_mode_change).pack(side="left", padx=6)
+        # Anagrafica Provider (PR-5): aggiungi un nome riusabile nella tendina della
+        # colonna Provider (sotto). I provider salvati valgono per tutti i parser.
+        ctk.CTkButton(top, text="➕ Provider", width=110,
+                      command=self._add_provider).pack(side="left", padx=6)
 
         # gestione parser salvati: lista + nuovo / carica / duplica / elimina
         manage = ctk.CTkFrame(self)
@@ -149,13 +186,24 @@ class CustomParserWindow(ctk.CTkToplevel):
         ctk.CTkLabel(row, text=rule.target, width=150, anchor="w").pack(side="left", padx=2)
         refs["start_after"] = ctk.CTkEntry(row, width=150)
         refs["end_before"] = ctk.CTkEntry(row, width=150)
-        refs["fixed_value"] = ctk.CTkEntry(row, width=130)
         refs["start_after"].insert(0, rule.start_after)
         refs["end_before"].insert(0, rule.end_before)
-        refs["fixed_value"].insert(0, rule.fixed_value)
         refs["start_after"].pack(side="left", padx=2)
         refs["end_before"].pack(side="left", padx=2)
-        refs["fixed_value"].pack(side="left", padx=2)
+        # Valore fisso: per la colonna Provider è un MENU dall'anagrafica (PR-5), così si
+        # sceglie un provider salvato invece di digitarlo; per le altre colonne è testo.
+        # In entrambi i casi `_sync_to_builder` legge `.get()` (StringVar o Entry).
+        if rule.target == "Provider":
+            refs["fixed_value"] = ctk.StringVar(value=rule.fixed_value)
+            vals = ["", *self._providers]
+            if rule.fixed_value and rule.fixed_value not in vals:
+                vals.append(rule.fixed_value)   # preserva un provider non (più) in anagrafica
+            ctk.CTkOptionMenu(row, variable=refs["fixed_value"], width=130,
+                              values=vals).pack(side="left", padx=2)
+        else:
+            refs["fixed_value"] = ctk.CTkEntry(row, width=130)
+            refs["fixed_value"].insert(0, rule.fixed_value)
+            refs["fixed_value"].pack(side="left", padx=2)
         refs["transform"] = ctk.StringVar(value=rule.transform)
         ctk.CTkOptionMenu(row, variable=refs["transform"], values=self._transforms, width=150).pack(side="left", padx=2)
         refs["value_map"] = ctk.StringVar(value=rule.value_map)

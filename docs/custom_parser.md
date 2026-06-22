@@ -123,6 +123,15 @@ runtime **eredita la modalità globale** `recognition_mode`, così i parser vecc
 cambiano comportamento. I parser creati/salvati dalla GUI hanno sempre una modalità
 esplicita (incl. la voce «(eredita globale)» se la scegli apposta).
 
+### Anagrafica Provider
+
+La colonna **`Provider`** si compila da un **menu a tendina** con i nomi provider salvati
+(invece di digitarli ogni volta): così eviti errori di battitura — il Provider deve
+combaciare col filtro Provider dell'azione XTrader — e riusi gli stessi nomi su più
+parser. Il pulsante **«➕ Provider»** aggiunge un nuovo nome all'anagrafica (salvato in
+`config.json` sotto `providers`, condiviso fra tutti i parser). Un valore Provider già
+presente nel parser ma non (più) in anagrafica resta selezionato e non si perde.
+
 ---
 
 ## 3. Gate di sicurezza (perché non scrive righe sbagliate)
