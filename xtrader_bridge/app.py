@@ -78,6 +78,17 @@ _LAST_FIELDS = (
 )
 _LAST_PREFIX = dict(_LAST_FIELDS)
 
+# Retention log (PR-3): etichetta a tendina → giorni (0 = "Mai", conserva tutto).
+_RETENTION_LABELS = {"Mai": 0, "5 giorni": 5, "15 giorni": 15, "30 giorni": 30}
+
+
+def _retention_label(days: int) -> str:
+    """Etichetta della tendina per i giorni di retention (default «Mai» se ignoto)."""
+    for label, value in _RETENTION_LABELS.items():
+        if value == days:
+            return label
+    return "Mai"
+
 
 class App(ctk.CTk):
     def __init__(self):
@@ -239,6 +250,9 @@ class App(ctk.CTk):
         # Mantiene il pannello "Chat ascoltate" allineato alla config salvata: unico
         # punto, così non va ripetuto a ogni call site (bottone Salva, AVVIA, ...).
         self._refresh_listened_chats()
+        self._dbg(f"CONFIG salvata (ok={ok}): csv={cfg.get('csv_path', '')}, "
+                  f"provider={cfg.get('provider', '')}, "
+                  f"dry_run={safety_guard.is_dry_run(cfg)}")
         return saved
 
     def _on_save_clicked(self) -> None:
@@ -449,6 +463,21 @@ class App(ctk.CTk):
         ctk.CTkOptionMenu(log_hdr, values=list(log_view.OPTIONS), width=130,
                           variable=self._log_filter,
                           command=lambda _v: self._render_log()).pack(side="left")
+        # Retention + Debug (PR-3): conserva log per N giorni (auto-pulizia), svuota
+        # adesso, e modalità Debug (log dettagliato del percorso).
+        self._retention_var = tk.StringVar(
+            master=self, value=_retention_label(event_log.retention_days(self._config)))
+        ctk.CTkLabel(log_hdr, text="Conserva:", font=ctk.CTkFont(size=11),
+                     text_color="gray").pack(side="left", padx=(12, 4))
+        ctk.CTkOptionMenu(log_hdr, values=list(_RETENTION_LABELS), width=110,
+                          variable=self._retention_var,
+                          command=self._on_retention_change).pack(side="left")
+        ctk.CTkButton(log_hdr, text="🧹 Svuota log", width=110, height=28,
+                      fg_color="#37474f", hover_color="#263238",
+                      command=self._clear_logs_now).pack(side="left", padx=(8, 0))
+        self._debug_var = tk.BooleanVar(master=self, value=bool(self._config.get("debug_log")))
+        ctk.CTkCheckBox(log_hdr, text="🐞 Debug", variable=self._debug_var,
+                        command=self._on_debug_toggle).pack(side="left", padx=(12, 0))
         self._log_box = ctk.CTkTextbox(
             tab_log, font=ctk.CTkFont(size=11, family="Courier"))
         self._log_box.pack(fill="both", expand=True, padx=12, pady=(0, 10))
@@ -574,6 +603,41 @@ class App(ctk.CTk):
             self._log("📋 Diagnostica copiata negli appunti.")
         except Exception as ex:                 # noqa: BLE001
             self._log(f"❌ Copia diagnostica fallita: {ex}")
+
+    def _on_retention_change(self, label: str):
+        """Imposta i giorni di conservazione log, persiste e pulisce subito (PR-3)."""
+        days = _RETENTION_LABELS.get(label, 0)
+        self._config["log_retention_days"] = days
+        saved, ok = save_config(self._config, CONFIG_FILE)
+        self._config = saved
+        if not ok:
+            self._log("❌ Salvataggio impostazione retention FALLITO su disco.")
+            return
+        if days:
+            removed = event_log.purge_old_logs(days)
+            self._log(f"🧹 Retention log: {days} giorni · {len(removed)} file vecchi rimossi.")
+        else:
+            self._log("🧹 Retention log: conservo tutto (nessuna pulizia automatica).")
+
+    def _clear_logs_now(self):
+        """«Svuota log adesso»: rimuove tutti i file di log su disco (PR-3)."""
+        removed = event_log.clear_all_logs()
+        self._log(f"🧹 Log su disco svuotati: {len(removed)} file rimossi.")
+
+    def _on_debug_toggle(self):
+        """Attiva/disattiva la modalità Debug (log dettagliato del percorso) e persiste."""
+        on = bool(self._debug_var.get())
+        self._config["debug_log"] = on
+        saved, ok = save_config(self._config, CONFIG_FILE)
+        self._config = saved
+        self._log(f"🐞 Modalità Debug log: {'ON' if on else 'OFF'}"
+                  f"{'' if ok else ' (salvataggio fallito su disco)'}.")
+
+    def _dbg(self, msg: str):
+        """Log di percorso dettagliato, scritto SOLO se la modalità Debug è attiva
+        (PR-3): avvii/stop, salvataggi, selezioni, stadi del segnale + warning."""
+        if (self._config or {}).get("debug_log"):
+            self._log(f"🐞 {msg}")
 
     # ── LOG ───────────────────────────────────
     def _log(self, msg: str, level: str = None):
@@ -826,9 +890,19 @@ class App(ctk.CTk):
         for kind, _ in _LAST_FIELDS:
             self._set_last(kind, "")
         self._note_csv(cfg["csv_path"], 0)
+        # Retention (PR-3): all'avvio pulisce i log più vecchi del limite impostato
+        # (best-effort, mai bloccante). 0 = "Mai" → nessuna pulizia.
+        _ret = event_log.retention_days(cfg)
+        if _ret:
+            _removed = event_log.purge_old_logs(_ret)
+            if _removed:
+                self._log(f"🧹 Retention log ({_ret}g): {len(_removed)} file vecchi rimossi.")
         self._log("🚀 Bridge avviato!")
         self._log(f"📄 CSV: {cfg['csv_path']}")
         self._log(f"⏱️  Auto-clear dopo: {cfg['clear_delay']}s")
+        self._dbg(f"START: chat ascoltate, provider={cfg.get('provider', '')}, "
+                  f"modalità={'DRY_RUN' if safety_guard.is_dry_run(cfg) else 'REALE'}, "
+                  f"debug ON")
         if safety_guard.is_dry_run(cfg):
             self._log("🧪 DRY_RUN attivo (simulazione): il CSV operativo NON verrà scritto.")
         else:
@@ -874,6 +948,7 @@ class App(ctk.CTk):
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")
         self._log("🛑 Bridge fermato.")
+        self._dbg("STOP: listener fermato, coda/CSV gestiti dal ciclo di stop.")
 
     def _on_close(self):
         self._closing = True   # blocca un auto-start ritardato ancora pendente (Codex P2)
@@ -1031,6 +1106,9 @@ class App(ctk.CTk):
         # assenza, al parser hardcoded. Non scrive righe non piazzabili: meglio
         # scartare un segnale incompleto che generare una riga ambigua.
         self.after(0, lambda: self._bump("received"))   # PR-14: candidato instradato
+        # Debug (PR-3): traccia il messaggio in ingresso e la chat di origine. `_dbg`
+        # va sul main thread (`_process` gira sul thread del listener Telegram).
+        self.after(0, lambda t=text, c=chat_id: self._dbg(f"IN (chat {c or '?'}): {t}"))
         result = signal_router.resolve_row(text, cfg, chat_id=chat_id)
         if not result.placeable:
             detail = (", ".join(result.missing_required)
@@ -1111,6 +1189,13 @@ class App(ctk.CTk):
             f"{row.get('SelectionName', '')}  q.{row.get('Price', '')}"))
         self.after(0, lambda n=len(rows): self._log(
             f"✅ CSV aggiornato ({n} attiv{'o' if n == 1 else 'i'}) → XTrader può piazzare"))
+        # Tracciabilità (PR-3): messaggio Telegram ↔ riga CSV scritta (data+ora già
+        # nell'header `[HH:MM:SS]` della entry e nel nome file `bridge-AAAA-MM-GG.log`).
+        # Una sola riga (gli a-capo del messaggio sono compressi da `format_entry`);
+        # i token sono comunque redatti dal sink.
+        self.after(0, lambda t=text, r=dict(row): self._log(
+            "🧾 Messaggio→CSV  |  msg: " + t + "  |  riga: "
+            + ", ".join(f"{k}={v}" for k, v in r.items() if v != "")))
 
         # Scadenza per-segnale: (ri)programma il tick alla scadenza più vicina (non un
         # ritardo fisso, così un segnale più vecchio non resta oltre il suo timeout).

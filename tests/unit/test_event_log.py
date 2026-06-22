@@ -1,8 +1,62 @@
 """Test del log persistente e dei contatori di stato (PR-14/#11)."""
 
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
 
 from xtrader_bridge import event_log as el
+
+
+# ── retention: pulizia log vecchi (PR-3) ─────────────────────────────────────
+
+def _write_day(base, when):
+    el.append_entry("riga", base=str(base), when=when)
+
+
+def test_retention_days_normalizza():
+    assert el.retention_days({}) == 0                          # assente → conserva tutto
+    assert el.retention_days({"log_retention_days": 5}) == 5
+    assert el.retention_days({"log_retention_days": "15"}) == 15
+    assert el.retention_days({"log_retention_days": 0}) == 0
+    assert el.retention_days({"log_retention_days": -3}) == 0  # negativo → 0
+    assert el.retention_days({"log_retention_days": "boh"}) == 0
+
+
+def test_purge_old_logs_rimuove_solo_i_vecchi(tmp_path):
+    now = datetime(2026, 6, 22, 12, 0, 0)
+    for delta in (0, 3, 6, 20):                # 06-22, 06-19, 06-16, 06-02
+        _write_day(tmp_path, now - timedelta(days=delta))
+    removed = el.purge_old_logs(5, base=str(tmp_path), when=now)   # cutoff 06-17
+    assert removed == ["bridge-2026-06-02.log", "bridge-2026-06-16.log"]
+    # i recenti restano leggibili
+    assert el.read_entries(base=str(tmp_path), when=now) == ["[12:00:00] [INFO] riga"]
+    for name in removed:
+        assert not os.path.exists(os.path.join(el.log_dir(str(tmp_path)), name))
+
+
+def test_purge_zero_o_negativo_no_op(tmp_path):
+    now = datetime(2026, 6, 22)
+    _write_day(tmp_path, now - timedelta(days=100))
+    assert el.purge_old_logs(0, base=str(tmp_path), when=now) == []
+    assert el.purge_old_logs(-5, base=str(tmp_path), when=now) == []
+
+
+def test_purge_non_tocca_file_non_log(tmp_path):
+    folder = el.log_dir(str(tmp_path))
+    os.makedirs(folder, exist_ok=True)
+    keep = os.path.join(folder, "appunti.txt")
+    with open(keep, "w") as f:
+        f.write("non un log")
+    _write_day(tmp_path, datetime(2020, 1, 1))
+    el.purge_old_logs(5, base=str(tmp_path), when=datetime(2026, 6, 22))
+    assert os.path.exists(keep)                # mai cancellati file non-log
+
+
+def test_clear_all_logs(tmp_path):
+    for d in (datetime(2026, 6, 22), datetime(2026, 6, 1)):
+        _write_day(tmp_path, d)
+    removed = el.clear_all_logs(str(tmp_path))
+    assert removed == ["bridge-2026-06-01.log", "bridge-2026-06-22.log"]
+    assert el.read_entries(base=str(tmp_path), when=datetime(2026, 6, 22)) == []
 
 
 WHEN = datetime(2026, 6, 17, 9, 5, 3)

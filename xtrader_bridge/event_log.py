@@ -17,7 +17,7 @@ redazione di eventuali segreti resta responsabilità del chiamante (cfr.
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from . import config_store
 
@@ -114,6 +114,80 @@ def read_entries(base: str = None, when: datetime = None) -> list:
             return [line.rstrip("\n") for line in f]
     except OSError:
         return []
+
+
+# ── Retention: pulizia automatica dei log vecchi (#11) ──────────────────────
+# Opzioni offerte dalla GUI (giorni). 0 = "Mai" (conserva tutto).
+RETENTION_OPTIONS = (5, 15, 30)
+
+# Nome esatto di un file di log giornaliero: SOLO questi vengono mai cancellati
+# (mai altri file nella cartella) — `bridge-AAAA-MM-GG.log`.
+_LOG_FILE_RE = re.compile(r"^bridge-(\d{4})-(\d{2})-(\d{2})\.log$")
+
+
+def retention_days(cfg: dict) -> int:
+    """Giorni di conservazione dei log dalla config (`log_retention_days`),
+    normalizzati: intero ≥ 1 → quel valore; tutto il resto (assente, 0, negativo,
+    non numerico) → 0 = conserva tutto (default sicuro: nessuna cancellazione)."""
+    raw = (cfg or {}).get("log_retention_days", 0)
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return n if n >= 1 else 0
+
+
+def purge_old_logs(days: int, *, base: str = None, when: datetime = None) -> list:
+    """Cancella i file di log **più vecchi di `days` giorni** (best-effort).
+
+    Sicuro: `days <= 0` → no-op; tocca SOLO i file `bridge-AAAA-MM-GG.log` (mai la
+    cartella né altri file); un nome non conforme o un errore filesystem viene
+    saltato. Ritorna la lista (ordinata) dei nomi rimossi."""
+    if not days or days <= 0:
+        return []
+    when = when or datetime.now()
+    cutoff = (when - timedelta(days=int(days))).date()
+    folder = log_dir(base)
+    removed = []
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    for name in names:
+        m = _LOG_FILE_RE.match(name)
+        if not m:
+            continue
+        try:
+            file_date = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            continue
+        if file_date < cutoff:
+            try:
+                os.remove(os.path.join(folder, name))
+                removed.append(name)
+            except OSError:
+                pass
+    return sorted(removed)
+
+
+def clear_all_logs(base: str = None) -> list:
+    """Rimuove TUTTI i file di log `bridge-*.log` ("Svuota log adesso", best-effort).
+    Come `purge_old_logs`, tocca solo i file di log conformi. Ritorna i nomi rimossi."""
+    folder = log_dir(base)
+    removed = []
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    for name in names:
+        if not _LOG_FILE_RE.match(name):
+            continue
+        try:
+            os.remove(os.path.join(folder, name))
+            removed.append(name)
+        except OSError:
+            pass
+    return sorted(removed)
 
 
 # Header di una entry: ``[HH:MM:SS] [LEVEL] ...``. Si estrae il livello SOLO da

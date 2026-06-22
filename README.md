@@ -176,6 +176,8 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | `auto_start_listener` | `false` | `true`/`false` | Se `true`, all'apertura l'app **avvia da sola** il listener — ma solo se token e chat sono configurati; in **modalità reale** chiede conferma prima di partire. Default `false`: il bridge parte solo con **AVVIA**. Attivabile dalla tab *Sicurezza*. |
 | `confirmation_keywords` | `[]` | lista | Parole che indicano conferma (vuoto = default del modulo). Dalla GUI: stringa separata da virgola. |
 | `rejection_keywords` | `[]` | lista | Parole che indicano rifiuto (vuoto = default del modulo). Dalla GUI: stringa separata da virgola. |
+| `log_retention_days` | `0` | `0`/`5`/`15`/`30`… | Giorni di conservazione dei log: oltre il limite i file `bridge-AAAA-MM-GG.log` più vecchi vengono **cancellati** all'avvio del bridge (e quando cambi l'opzione). `0` = "Mai" (conserva tutto). Dalla tab *Log*: tendina **Conserva** + pulsante **🧹 Svuota log**. |
+| `debug_log` | `false` | `true`/`false` | Modalità **Debug**: log dettagliato del percorso (avvio/stop, salvataggi, messaggio in ingresso, stadi del segnale) + warning, per capire "cosa è rotto". Attivabile dalla tab *Log* (checkbox **🐞 Debug**). |
 
 > Una `config.json` corrotta viene messa da parte come `.bak` e il bridge riparte
 > dai default sicuri. Le chiavi mancanti ereditano sempre il default.
