@@ -74,9 +74,25 @@ def extract_value(text: str, rule: FieldRule) -> str:
 
     I campi della regola sono normalizzati con `or ""`: anche se costruita a mano
     con `None` (la persistenza JSON forza già `str`), il match non esplode."""
+    return extract_value_traced(text, rule)[0]
+
+
+# Motivi dell'estrazione, per la diagnostica del builder (`parser_diagnostics`).
+EXTRACT_FIXED = "FIXED"                  # valore da `fixed_value`
+EXTRACT_OK = "OK"                        # estratto un valore (anche vuoto se la riga lo è)
+EXTRACT_NO_RULE = "NO_EXTRACTION"        # né fixed né start/end → niente da estrarre
+EXTRACT_START_NOT_FOUND = "START_NOT_FOUND"   # "Inizia dopo" non presente nel testo
+EXTRACT_END_NOT_FOUND = "END_NOT_FOUND"       # "Finisce prima" non presente dopo l'inizio
+
+
+def extract_value_traced(text: str, rule: FieldRule):
+    """Come `extract_value` ma ritorna `(valore, motivo)` dove `motivo` è uno dei
+    codici `EXTRACT_*`. Serve alla diagnostica per distinguere "inizio non trovato"
+    da "fine non trovata" (entrambi danno valore vuoto). FONTE UNICA: `extract_value`
+    delega qui, così il comportamento del runtime resta identico."""
     fixed = rule.fixed_value or ""
     if fixed != "":
-        return fixed
+        return fixed, EXTRACT_FIXED
 
     start_pat = _delim_pattern(rule.start_after or "")
     end_pat = _delim_pattern(rule.end_before or "")
@@ -85,15 +101,17 @@ def extract_value(text: str, rule: FieldRule) -> str:
     # bordi): nessun ancoraggio → vuoto (resta "mancante" se obbligatoria, es. le
     # regole di skeleton()).
     if start_pat is None and end_pat is None:
-        return ""
+        return "", EXTRACT_NO_RULE
     if not text:
-        return ""
+        # Delimitatori configurati ma testo vuoto: l'ancoraggio non c'è.
+        return "", (EXTRACT_START_NOT_FOUND if start_pat is not None
+                    else EXTRACT_END_NOT_FOUND)
 
     start = 0
     if start_pat is not None:
         m = start_pat.search(text)
         if m is None:
-            return ""
+            return "", EXTRACT_START_NOT_FOUND
         start = m.end()
 
     if end_pat is not None:
@@ -101,14 +119,14 @@ def extract_value(text: str, rule: FieldRule) -> str:
         # estrazione fallita (vuoto), così un obbligatorio resta "Non pronto".
         m = end_pat.search(text, start)
         if m is None:
-            return ""
+            return "", EXTRACT_END_NOT_FOUND
         end = m.start()
     else:
         # Nessun end_before: fino a fine riga (non "ingoia" il resto del messaggio).
         nl = text.find("\n", start)
         end = nl if nl != -1 else len(text)
 
-    return text[start:end].strip()
+    return text[start:end].strip(), EXTRACT_OK
 
 
 def matches_message(defn: CustomParserDef, text: str) -> bool:

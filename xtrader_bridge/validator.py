@@ -50,6 +50,13 @@ def _price_status(value) -> str:
     return VALID if price > 1.0 else INVALID_PRICE
 
 
+def price_status(value) -> str:
+    """Pubblico: `VALID` se `value` è una quota valida (> 1.0), altrimenti il codice
+    di errore (`INVALID_MISSING_PRICE`/`INVALID_PRICE`). Usato dalla diagnostica per
+    attribuire un errore prezzo alla colonna giusta (Price vs Min/MaxPrice)."""
+    return _price_status(value)
+
+
 def validate(row: dict, mode: str, require_price: bool = True):
     """Valuta una riga CSV già costruita.
 

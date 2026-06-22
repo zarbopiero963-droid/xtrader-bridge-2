@@ -1,0 +1,213 @@
+"""CP-08b: diagnostica del Parser Personalizzato per "Prova messaggio".
+
+Spiega, **campo per campo**, perché un messaggio produce (o no) una riga
+piazzabile per XTrader, seguendo la stessa catena del runtime:
+
+    estrazione (CP-02) → trasformazione (CP-05) → value-map (CP-03) → validazione (PR-10)
+
+Quando il builder dice solo "Non pronto" non si capisce QUALE campo ha fallito né
+PERCHÉ; questo modulo produce un esito strutturato (codici errore per colonna) di
+cui la GUI (`custom_parser_gui`) è solo una vista. Logica pura, testabile in CI:
+nessun widget, nessun I/O nascosto oltre al registro value-map condiviso del pipeline.
+"""
+
+from dataclasses import dataclass, field
+
+from . import custom_pipeline, recognition, transforms, validator, value_maps
+from .custom_parser import CustomParserDef
+from .custom_parser_engine import (
+    EXTRACT_END_NOT_FOUND,
+    EXTRACT_START_NOT_FOUND,
+    extract_value_traced,
+    matches_message,
+)
+
+# ── Codici di stato per campo ───────────────────────────────────────────────
+OK = "OK"                                # valore finale presente e valido
+EMPTY_OPTIONAL = "EMPTY_OPTIONAL"        # vuoto ma non obbligatorio → non blocca
+START_NOT_FOUND = "START_NOT_FOUND"      # "Inizia dopo" non trovato nel messaggio
+END_NOT_FOUND = "END_NOT_FOUND"          # "Finisce prima" non trovato dopo l'inizio
+REQUIRED_EMPTY = "REQUIRED_EMPTY"        # obbligatorio ma vuoto (nessuna estrazione)
+TRANSFORM_FAILED = "TRANSFORM_FAILED"    # la trasformazione ha svuotato il valore
+VALUE_MAP_MISS = "VALUE_MAP_MISS"        # la value-map non ha trovato il valore
+INVALID_PRICE = "INVALID_PRICE"          # Price non numerico o ≤ 1.0
+INVALID_BETTYPE = "INVALID_BETTYPE"      # BetType non PUNTA/BANCA
+INVALID_HANDICAP = "INVALID_HANDICAP"    # Handicap valorizzato ma non numerico
+MISSING_PROVIDER = "MISSING_PROVIDER"    # Provider assente (contratto)
+MODE_REQUIRED_MISSING = "MODE_REQUIRED_MISSING"  # campo richiesto dalla Modalità mancante
+
+# ── Codice a livello messaggio ──────────────────────────────────────────────
+NO_CONTENT_MATCH = "NO_CONTENT_MATCH"    # niente estratto: solo valori fissi / nessun match
+
+_OK_CODES = (OK, EMPTY_OPTIONAL)
+
+# Spiegazioni leggibili dei codici (per il report).
+_EXPLAIN = {
+    OK: "",
+    EMPTY_OPTIONAL: "vuoto ma facoltativo",
+    START_NOT_FOUND: "delimitatore «Inizia dopo» non trovato nel messaggio",
+    END_NOT_FOUND: "delimitatore «Finisce prima» non trovato dopo l'inizio",
+    REQUIRED_EMPTY: "obbligatorio ma vuoto (nessuna estrazione/valore)",
+    TRANSFORM_FAILED: "la trasformazione non ha prodotto un valore",
+    VALUE_MAP_MISS: "value-map: valore non presente nel dizionario",
+    INVALID_PRICE: "quota non numerica o ≤ 1.0",
+    INVALID_BETTYPE: "BetType non è PUNTA/BANCA",
+    INVALID_HANDICAP: "Handicap valorizzato ma non numerico",
+    MISSING_PROVIDER: "Provider mancante (richiesto dal contratto)",
+    MODE_REQUIRED_MISSING: "campo richiesto dalla Modalità di riconoscimento",
+    NO_CONTENT_MATCH: "nessun contenuto estratto dal messaggio (solo valori fissi / nessun match)",
+}
+
+
+def explain(code: str) -> str:
+    """Spiegazione leggibile di un codice di stato/errore (stringa vuota se OK)."""
+    return _EXPLAIN.get(code, code)
+
+
+@dataclass
+class FieldDiagnostic:
+    """Esito della catena per UNA colonna."""
+
+    target: str
+    raw: str = ""                 # valore grezzo estratto (CP-02)
+    after_transform: str = ""     # dopo la trasformazione (CP-05)
+    final: str = ""               # dopo la value-map (CP-03) — valore XTrader
+    required: bool = False
+    error: str = OK               # uno dei codici sopra
+
+    @property
+    def ok(self) -> bool:
+        return self.error in _OK_CODES
+
+
+@dataclass
+class Diagnosis:
+    """Esito complessivo della diagnostica."""
+
+    placeable: bool
+    status: str                                  # status del pipeline (VALID/INVALID_*/NOT_READY)
+    fields: "list[FieldDiagnostic]" = field(default_factory=list)
+    message_error: str = ""                      # NO_CONTENT_MATCH o ""
+
+
+def _classify_extraction(rule, raw, reason, after, final) -> str:
+    """Codice per UN campo guardando SOLO estrazione→transform→value-map.
+    Gli errori del validator (prezzo/bettype/modalità) sono sovrapposti dopo."""
+    if final != "":
+        return OK
+    # final vuoto → individua lo stadio che l'ha svuotato (dal più "a monte").
+    if reason == EXTRACT_START_NOT_FOUND:
+        return START_NOT_FOUND
+    if reason == EXTRACT_END_NOT_FOUND:
+        return END_NOT_FOUND
+    if rule.transform and raw != "" and after == "":
+        return TRANSFORM_FAILED
+    if rule.value_map and after != "" and final == "":
+        return VALUE_MAP_MISS
+    return REQUIRED_EMPTY if rule.required else EMPTY_OPTIONAL
+
+
+def _field_diag(rule, text, registry) -> FieldDiagnostic:
+    raw, reason = extract_value_traced(text, rule)
+    after = transforms.apply(raw, rule.transform) if rule.transform else raw
+    final = value_maps.resolve(after, rule.value_map, registry) if rule.value_map else after
+    return FieldDiagnostic(
+        target=rule.target, raw=raw, after_transform=after, final=final,
+        required=bool(rule.required),
+        error=_classify_extraction(rule, raw, reason, after, final),
+    )
+
+
+def _mark(by_target, fields, target, error, *, required=False) -> None:
+    """Imposta/sovrascrive il codice errore su una colonna (la crea se assente:
+    es. un campo richiesto dalla Modalità per cui non esiste alcuna regola)."""
+    fd = by_target.get(target)
+    if fd is None:
+        fd = FieldDiagnostic(target=target, required=required, error=error)
+        fields.append(fd)
+        by_target[target] = fd
+    else:
+        fd.error = error
+        if required:
+            fd.required = True
+
+
+def _overlay_validator(result, by_target, fields) -> None:
+    """Sovrappone gli errori del validator/pipeline (prezzo, bettype, modalità,
+    provider, handicap) ai campi: catturano i casi in cui il valore FINALE non è
+    vuoto ma è invalido (es. Price "1.60 Stake")."""
+    status = result.status
+    if status == validator.INVALID_MISSING_FIELDS:
+        for col in (result.detail or []):
+            _mark(by_target, fields, col, MODE_REQUIRED_MISSING, required=True)
+    elif status == validator.INVALID_BETTYPE:
+        _mark(by_target, fields, "BetType", INVALID_BETTYPE)
+    elif status == validator.INVALID_PRICE:
+        # `validator` ritorna INVALID_PRICE anche per `MinPrice`/`MaxPrice`: attribuisci
+        # l'errore alla colonna che fallisce DAVVERO, non sempre a `Price` (Codex).
+        row = result.row
+        for col in ("Price", "MinPrice", "MaxPrice"):
+            v = str(row.get(col, "")).strip()
+            if v and validator.price_status(v) != validator.VALID:
+                _mark(by_target, fields, col, INVALID_PRICE)
+    elif status == validator.INVALID_MISSING_PRICE:
+        _mark(by_target, fields, "Price", REQUIRED_EMPTY, required=True)
+    elif status == custom_pipeline.INVALID_MISSING_PROVIDER:
+        _mark(by_target, fields, "Provider", MISSING_PROVIDER, required=True)
+    elif status == custom_pipeline.INVALID_HANDICAP:
+        _mark(by_target, fields, "Handicap", INVALID_HANDICAP)
+
+
+def diagnose(defn: CustomParserDef, text: str, *, value_maps_registry: dict = None,
+             provider: str = "", mode: str = recognition.DEFAULT_MODE,
+             require_price: bool = True) -> Diagnosis:
+    """Diagnostica completa di `text` col parser `defn`.
+
+    Per ogni regola traccia grezzo→transform→value-map→finale e ne classifica
+    l'esito; poi esegue la stessa pipeline del runtime (`build_validated_row`) e
+    sovrappone gli errori del validator alle colonne giuste. Il verdetto
+    (`placeable`) coincide con quello del runtime, così "Prova messaggio" non mente
+    mai rispetto a ciò che il bridge scriverebbe."""
+    registry = (value_maps_registry if value_maps_registry is not None
+                else custom_pipeline._default_registry())
+    fields = [_field_diag(rule, text, registry) for rule in defn.rules]
+    # Ultima regola vince per target (come `apply_parser`): allinea l'overlay.
+    by_target = {}
+    for fd in fields:
+        by_target[fd.target] = fd
+
+    result = custom_pipeline.build_validated_row(
+        defn, text, value_maps_registry=registry, provider=provider,
+        mode=mode, require_price=require_price)
+    _overlay_validator(result, by_target, fields)
+
+    # Il runtime (`signal_router.resolve_row`) scrive SOLO se la riga è piazzabile
+    # **e** qualcosa è stato estratto dal messaggio (gate di contenuto
+    # `matches_message`, altrimenti `NO_CONTENT_MATCH`). Riflettiamolo nel verdetto,
+    # così un parser a soli valori fissi che "validerebbe" non risulta PRONTO quando
+    # il bridge in realtà lo scarterebbe (Codex).
+    message_error = "" if matches_message(defn, text) else NO_CONTENT_MATCH
+    placeable = result.placeable and not message_error
+    status = message_error if (message_error and result.placeable) else result.status
+    return Diagnosis(placeable=placeable, status=status,
+                     fields=fields, message_error=message_error)
+
+
+def format_report(diag: Diagnosis) -> str:
+    """Report testuale leggibile della diagnostica (per la GUI / copia negli appunti)."""
+    head = "PRONTO ✅" if diag.placeable else f"NON PRONTO ⛔  (status: {diag.status})"
+    lines = [head]
+    if diag.message_error:
+        lines.append(f"• {diag.message_error} — {explain(diag.message_error)}")
+    for fd in diag.fields:
+        flag = "OK " if fd.ok else "ERR"
+        kind = "obbl" if fd.required else "opz "
+        chain = f"grezzo={fd.raw!r}"
+        if fd.after_transform != fd.raw:
+            chain += f" →tr={fd.after_transform!r}"
+        if fd.final != fd.after_transform:
+            chain += f" →map={fd.final!r}"
+        why = explain(fd.error)
+        reason = f" — {why}" if (why and not fd.ok) else ""
+        lines.append(f"[{flag}] {fd.target} ({kind}): {fd.error}{reason}  |  {chain}")
+    return "\n".join(lines)

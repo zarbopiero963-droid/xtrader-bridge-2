@@ -12,7 +12,7 @@ coperta da `tests/unit/test_parser_builder.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import recognition
+from . import parser_diagnostics, recognition
 from .parser_builder import ParserBuilder
 
 
@@ -105,6 +105,7 @@ class CustomParserWindow(ctk.CTkToplevel):
         ctk.CTkButton(actions, text="➕ Aggiungi regola", command=self._add_row).pack(side="left", padx=4)
         ctk.CTkButton(actions, text="💾 Salva", command=self._save).pack(side="left", padx=4)
         ctk.CTkButton(actions, text="🧪 Prova messaggio", command=self._test).pack(side="left", padx=4)
+        ctk.CTkButton(actions, text="📋 Copia diagnostica", command=self._copy_diag).pack(side="left", padx=4)
 
         # test-live
         test = ctk.CTkFrame(self)
@@ -114,6 +115,11 @@ class CustomParserWindow(ctk.CTkToplevel):
         self._msg_box.pack(fill="both", expand=True, padx=6, pady=4)
         self._result = ctk.CTkLabel(test, text="", anchor="w", justify="left")
         self._result.pack(fill="x", padx=6, pady=4)
+        # Diagnostica per-campo (CP-08b): perché "Non pronto", colonna per colonna.
+        ctk.CTkLabel(test, text="Diagnostica:").pack(anchor="w", padx=6)
+        self._diag_box = ctk.CTkTextbox(test, height=160)
+        self._diag_box.pack(fill="both", expand=True, padx=6, pady=(0, 4))
+        self._last_report = ""   # testo per "Copia diagnostica"
 
     # ── righe regola ──────────────────────────────────────────────────────
     def _add_row(self, rule=None):
@@ -285,10 +291,30 @@ class CustomParserWindow(ctk.CTkToplevel):
     def _test(self):
         self._sync_to_builder()
         message = self._msg_box.get("1.0", "end").rstrip("\n")
-        res = self.builder.test_message(message, provider=self._provider, mode=self._mode_var.get())
+        mode = self._mode_var.get()
+        # Verdetto sintetico (riga risultante) + diagnostica per-campo (CP-08b).
+        res = self.builder.test_message(message, provider=self._provider, mode=mode)
         if res.placeable:
             riga = ", ".join(f"{k}={v}" for k, v in res.row.items() if v != "")
             self._result.configure(text=f"✅ Pronto · {riga}")
         else:
             extra = f" · mancanti: {', '.join(res.missing_required)}" if res.missing_required else ""
             self._result.configure(text=f"⛔ Non pronto ({res.status}){extra}")
+        diag = parser_diagnostics.diagnose(
+            self.builder.to_def(), message, provider=self._provider, mode=mode)
+        self._last_report = parser_diagnostics.format_report(diag)
+        self._diag_box.delete("1.0", "end")
+        self._diag_box.insert("1.0", self._last_report)
+
+    def _copy_diag(self):
+        """Copia l'ultimo report di diagnostica negli appunti (per incollarlo)."""
+        if not self._last_report:
+            self._result.configure(text="⛔ Premi prima «Prova messaggio».")
+            return
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(self._last_report)
+        except Exception:                       # noqa: BLE001 — clipboard non disponibile
+            self._result.configure(text="❌ Copia non riuscita (appunti non disponibili).")
+            return
+        self._result.configure(text="📋 Diagnostica copiata negli appunti.")

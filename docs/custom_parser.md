@@ -122,6 +122,36 @@ Tutti questi gate devono passare perché una riga venga scritta:
 
 ---
 
+## 3bis. Diagnostica «Prova messaggio» (perché "Non pronto")
+
+Nel builder, **«Prova messaggio»** non dà più solo il verdetto: mostra una
+**diagnostica per ogni colonna** lungo la catena
+`estrazione → trasformazione → value-map → validazione`, così si capisce *quale*
+campo ha fallito e *perché*. Il pulsante **«📋 Copia diagnostica»** copia il report
+negli appunti (utile per condividerlo).
+
+Per ogni colonna il report mostra il valore `grezzo` estratto, `→tr` (dopo
+trasformazione) e `→map` (dopo value-map), più un codice di stato:
+
+| Codice | Significato |
+|---|---|
+| `OK` / `EMPTY_OPTIONAL` | valore valido / vuoto ma facoltativo (non blocca) |
+| `START_NOT_FOUND` | il delimitatore «Inizia dopo» non è nel messaggio |
+| `END_NOT_FOUND` | «Finisce prima» non trovato dopo l'inizio |
+| `REQUIRED_EMPTY` | campo obbligatorio rimasto vuoto |
+| `TRANSFORM_FAILED` | la trasformazione non ha prodotto un valore |
+| `VALUE_MAP_MISS` | la value-map non ha trovato il valore (→ vuoto) |
+| `INVALID_PRICE` | `Price` non numerico o ≤ 1.0 |
+| `INVALID_BETTYPE` | `BetType` non è `PUNTA`/`BANCA` |
+| `MODE_REQUIRED_MISSING` | campo richiesto dalla Modalità di riconoscimento mancante |
+| `NO_CONTENT_MATCH` (messaggio) | nessuna estrazione ha trovato nulla: solo valori fissi / nessun match |
+
+Il verdetto della diagnostica **coincide** con ciò che il bridge scriverebbe a
+runtime (stessa pipeline `build_validated_row`): se "Prova messaggio" dice pronto,
+il live scrive; se dice "Non pronto", il live scarta — col motivo per colonna.
+
+---
+
 ## 4. Quale parser è attivo (routing)
 
 Risoluzione (in `parser_manager` / `signal_router`):
@@ -177,6 +207,7 @@ comportamento legacy (tutte le chat ammesse — responsabilità dell'utente).
 | Value-map (bettype + dizionario) | `value_maps.py` | `tests/unit/test_value_maps.py` |
 | Trasformazioni | `transforms.py` | `tests/unit/test_transforms.py` |
 | Riga validata col contratto | `custom_pipeline.py` | `tests/unit/test_custom_pipeline.py` |
+| Diagnostica «Prova messaggio» (per-campo) | `parser_diagnostics.py` | `tests/unit/test_parser_diagnostics.py` |
 | Builder GUI (controller + vista) | `parser_builder.py`, `custom_parser_gui.py` | `tests/unit/test_parser_builder.py` |
 | Parser attivo / override per chat | `parser_manager.py` | `tests/unit/test_parser_manager.py` |
 | Import/export + esempio | `parser_io.py` | `tests/unit/test_parser_io.py` |
