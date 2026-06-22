@@ -116,12 +116,13 @@ class CustomParserDef:
     name: str
     description: str = ""
     version: int = SCHEMA_VERSION
-    # Modalità di riconoscimento del parser (CP: per-parser, non più solo globale):
-    # decide quali colonne servono per riconoscere il segnale (ID vs Nomi vs Both) e
-    # guida l'auto-obbligatorietà nel builder. `""` = NON impostata → eredita la
-    # modalità globale `recognition_mode` (retro-compat coi file salvati prima di
-    # questa feature). I parser creati/salvati dalla GUI hanno sempre un valore esplicito.
-    mode: str = ""
+    # Modalità di riconoscimento del parser (per-parser): decide quali colonne servono
+    # per riconoscere il segnale (ID vs Nomi vs Both) e guida l'auto-obbligatorietà nel
+    # builder. Default `NAME_ONLY` per costruzione diretta/template (skeleton, example):
+    # un parser nuovo porta una modalità esplicita. Il sentinella `""` (= eredita la
+    # modalità globale `recognition_mode`) è prodotto SOLO da `from_dict` per i file
+    # salvati PRIMA di questa feature (campo `mode` assente), per retro-compatibilità.
+    mode: str = recognition.DEFAULT_MODE
     rules: "list[FieldRule]" = field(default_factory=list)
 
     def to_dict(self) -> dict:

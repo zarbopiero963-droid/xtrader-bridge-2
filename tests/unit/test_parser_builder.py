@@ -289,25 +289,29 @@ def test_init_da_definizione_copia_le_regole():
 _RECOG = ("EventName", "MarketType", "SelectionName", "MarketId", "SelectionId")
 
 
-def test_set_mode_auto_obbligatori():
+def test_set_mode_aggiunge_obbligatori_della_modalita():
     b = pb.ParserBuilder()
     for t in (*_RECOG, "Price"):
         b.add_rule(target=t)
     b.set_mode("ID_ONLY")
     assert b.mode == "ID_ONLY"
-    assert {r.target for r in b.rules if r.required} == {"MarketId", "SelectionId"}
-    b.set_mode("NAME_ONLY")               # cambio: ID sbloccati, NAME obbligatori
-    assert {r.target for r in b.rules if r.required} == {"EventName", "MarketType", "SelectionName"}
-    # Price NON è un campo di riconoscimento: la modalità non lo tocca.
+    assert {"MarketId", "SelectionId"} <= {r.target for r in b.rules if r.required}
+    b.set_mode("NAME_ONLY")               # aggiunge il set NAME (add-only)
+    req = {r.target for r in b.rules if r.required}
+    assert {"EventName", "MarketType", "SelectionName"} <= req
+    # Price NON è un campo di riconoscimento: la modalità non lo tocca mai.
     assert next(r for r in b.rules if r.target == "Price").required is False
 
 
-def test_set_mode_both_non_forza_nessun_set():
+def test_set_mode_add_only_non_rilassa_required():
+    # Add-only (Codex): BOTH (set vuoto) o un cambio modalità NON rimuove mai un
+    # required già impostato (manuale o di un altro set). Mai più permissivi.
     b = pb.ParserBuilder()
-    for t in _RECOG:
-        b.add_rule(target=t, required=True)
+    b.add_rule(target="EventName", required=True)   # gate di contenuto manuale
+    b.add_rule(target="MarketId", required=True)
     b.set_mode("BOTH")
-    assert all(not r.required for r in b.rules if r.target in _RECOG)
+    assert next(r for r in b.rules if r.target == "EventName").required is True
+    assert next(r for r in b.rules if r.target == "MarketId").required is True
 
 
 def test_ensure_all_columns_14_in_ordine_preserva_esistenti():

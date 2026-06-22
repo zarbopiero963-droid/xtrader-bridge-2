@@ -30,7 +30,10 @@ class ParserBuilder:
         else:
             self.name = defn.name
             self.description = defn.description
-            self.mode = recognition.normalize_mode(getattr(defn, "mode", recognition.DEFAULT_MODE))
+            # Preserva la modalità COM'È, incl. "" (legacy = eredita il globale): NON
+            # normalizzare "" → NAME_ONLY, altrimenti aprire/salvare/duplicare un parser
+            # legacy ne scriverebbe NAME_ONLY perdendo l'ereditarietà (Codex).
+            self.mode = getattr(defn, "mode", recognition.DEFAULT_MODE)
             self.rules = [FieldRule.from_dict(r.to_dict()) for r in defn.rules]  # copia
 
     # ── opzioni per i menu a tendina della GUI ─────────────────────────────
@@ -136,17 +139,18 @@ class ParserBuilder:
 
     # ── Modalità di riconoscimento (per-parser) ────────────────────────────
     def set_mode(self, mode: str) -> None:
-        """Imposta la Modalità del parser e **guida l'obbligatorietà** delle colonne di
-        riconoscimento (auto-Obblig.): i campi del set della modalità diventano
-        `required=True`, gli altri campi di riconoscimento `required=False`. Così
-        selezionando la modalità non serve spuntare a mano "Obblig." (Codex/utente).
-        Price/BetType/Provider NON sono toccati (non dipendono dalla modalità).
-        `BOTH` non forza alcun set (basta ID **oppure** nomi): l'utente decide."""
+        """Imposta la Modalità del parser e **aggiunge** l'obbligatorietà ai campi del suo
+        set (auto-Obblig.), così selezionandola non serve spuntare "Obblig." a mano.
+
+        **Add-only**: marca `required=True` i campi del set, ma NON rimuove mai un
+        `required` già impostato (di un altro set o messo a mano). Così non si rilassa
+        silenziosamente un gate di contenuto cambiando/riselezionando modalità (Codex):
+        al massimo si è più stretti, mai più permissivi. `BOTH` (set vuoto) non tocca
+        nulla. Price/BetType/Provider non dipendono dalla modalità."""
         self.mode = recognition.normalize_mode(mode)
-        required = set(recognition.required_targets(self.mode))
         for rule in self.rules:
-            if rule.target in recognition.RECOGNITION_FIELDS:
-                rule.required = rule.target in required
+            if rule.target in recognition.required_targets(self.mode):
+                rule.required = True
 
     def ensure_all_columns(self) -> None:
         """Garantisce una riga per OGNI colonna del contratto (14), nell'ordine di

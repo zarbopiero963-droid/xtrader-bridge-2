@@ -12,7 +12,7 @@ coperta da `tests/unit/test_parser_builder.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import parser_diagnostics, recognition
+from . import parser_diagnostics
 from .parser_builder import ParserBuilder
 
 
@@ -22,6 +22,15 @@ class CustomParserWindow(ctk.CTkToplevel):
 
     # Etichetta-sentinella quando non c'è nessun parser salvato.
     _NONE_SAVED = "(nessuno)"
+    # Voce della tendina Modalità per il sentinella "" (parser legacy = eredita la
+    # modalità globale). Mostrarla evita di convertire "" in NAME_ONLY salvando (Codex).
+    _MODE_INHERIT = "(eredita globale)"
+
+    def _mode_to_label(self, mode: str) -> str:
+        return self._MODE_INHERIT if not mode else mode
+
+    def _label_to_mode(self, label: str) -> str:
+        return "" if label == self._MODE_INHERIT else label
 
     def __init__(self, master=None, builder: ParserBuilder = None, provider: str = ""):
         super().__init__(master)
@@ -48,10 +57,12 @@ class CustomParserWindow(ctk.CTkToplevel):
         self._name_var = ctk.StringVar(value=self.builder.name)
         ctk.CTkEntry(top, textvariable=self._name_var, width=240).pack(side="left", padx=6)
         ctk.CTkLabel(top, text="Modalità:").pack(side="left", padx=6)
-        # Modalità DEL PARSER (per-parser): scegliendola, i campi di riconoscimento
-        # diventano obbligatori da soli (set_mode → auto-Obblig.), niente spunte a mano.
-        self._mode_var = ctk.StringVar(value=recognition.normalize_mode(self.builder.mode))
-        ctk.CTkOptionMenu(top, variable=self._mode_var, values=self._modes, width=140,
+        # Modalità DEL PARSER (per-parser): scegliendola, i campi di riconoscimento del
+        # set diventano obbligatori da soli (set_mode → auto-Obblig.). La voce
+        # "(eredita globale)" rappresenta "" (parser legacy): usa la modalità globale.
+        self._mode_var = ctk.StringVar(value=self._mode_to_label(self.builder.mode))
+        ctk.CTkOptionMenu(top, variable=self._mode_var,
+                          values=[self._MODE_INHERIT] + self._modes, width=160,
                           command=self._on_mode_change).pack(side="left", padx=6)
 
         # gestione parser salvati: lista + nuovo / carica / duplica / elimina
@@ -151,26 +162,33 @@ class CustomParserWindow(ctk.CTkToplevel):
         self._rows = []
         # Griglia fissa: garantisce una riga per ognuna delle 14 colonne, in ordine.
         self.builder.ensure_all_columns()
-        # Applica l'auto-obbligatorietà della modalità corrente GIÀ all'apertura/Nuovo
-        # (non solo al cambio menu), così le checkbox "Obblig." sono coerenti col menu
-        # fin da subito e non si salva un parser incoerente (Codex P2). `set_mode`
-        # normalizza anche "" (legacy) → default GUI.
-        self.builder.set_mode(self.builder.mode or recognition.DEFAULT_MODE)
-        self._mode_var.set(recognition.normalize_mode(self.builder.mode))
+        # Auto-obbligatorietà coerente col menu già all'apertura/Nuovo: SOLO per modalità
+        # concrete (set_mode è add-only → non rilassa mai un required manuale, Codex P2/3).
+        # Per "" (legacy = eredita globale) NON si chiama set_mode, così "" è preservato.
+        if self.builder.mode:
+            self.builder.set_mode(self.builder.mode)
+        self._mode_var.set(self._mode_to_label(self.builder.mode))
         for rule in self.builder.rules:
             self._add_row(rule)
 
     def _on_mode_change(self, _value=None):
-        """Modalità cambiata → set_mode applica l'auto-obbligatorietà ai campi del set,
-        poi si ricaricano le righe così le checkbox 'Obblig.' si aggiornano da sole."""
+        """Modalità cambiata dal menu. Se concreta → set_mode (auto-Obblig. add-only);
+        se "(eredita globale)" → mode "" (nessuna auto-Obblig.: la decide il globale a
+        runtime). Poi ricarica le righe."""
         self._sync_to_builder()
-        self.builder.set_mode(self._mode_var.get())
+        mode = self._label_to_mode(self._mode_var.get())
+        if mode:
+            self.builder.set_mode(mode)
+        else:
+            self.builder.mode = ""
         self._reload_rows_from_builder()
 
     def _sync_to_builder(self):
-        """Riporta i valori dei widget nel controller (colonne fisse + Modalità)."""
+        """Riporta i valori dei widget nel controller (colonne fisse + Modalità).
+        La modalità è preservata com'è (incl. "" = eredita globale): non si normalizza,
+        così aprire/salvare un parser legacy non lo converte a NAME_ONLY (Codex)."""
         self.builder.name = self._name_var.get().strip()
-        self.builder.mode = recognition.normalize_mode(self._mode_var.get())
+        self.builder.mode = self._label_to_mode(self._mode_var.get())
         self.builder.rules = []
         for refs in self._rows:
             self.builder.add_rule(

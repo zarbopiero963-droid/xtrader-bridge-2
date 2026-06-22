@@ -275,19 +275,24 @@ def test_list_parser_files_ignora_tmp_atomici(tmp_path):
 
 # ── Modalità per-parser (PR-4) ───────────────────────────────────────────────
 
-def test_mode_default_vuoto_e_roundtrip_esplicito():
-    # Default "" = non impostata (eredita il globale a runtime). Un valore esplicito
-    # valido fa roundtrip su dict.
+def test_mode_default_costruzione_e_roundtrip():
+    # Costruzione diretta/template → default NAME_ONLY (esplicito, non sentinella ""),
+    # così skeleton/example non ereditano per sbaglio il globale (Codex).
     d = cp.CustomParserDef(name="P", rules=[cp.FieldRule(target="Provider", fixed_value="X")])
-    assert d.mode == ""                                       # non impostata → eredita
+    assert d.mode == "NAME_ONLY"
     d.mode = "ID_ONLY"
     again = cp.CustomParserDef.from_dict(d.to_dict())
     assert again.mode == "ID_ONLY"
     assert d.to_dict()["mode"] == "ID_ONLY"
 
 
-def test_mode_assente_o_invalido_eredita_vuoto():
-    # File vecchio senza 'mode', o valore non valido → "" (eredita il globale, non
-    # forza NAME_ONLY: i parser legacy non cambiano comportamento dopo l'upgrade).
+def test_skeleton_e_example_hanno_mode_esplicito():
+    # I template NON devono avere "" (che a runtime erediterebbe il globale).
+    assert cp.skeleton("X").mode == "NAME_ONLY"
+
+
+def test_mode_assente_da_json_eredita_vuoto():
+    # SOLO un file legacy (JSON senza 'mode') → "" = eredita il globale; idem valore
+    # non valido. I parser nuovi/template hanno invece un mode esplicito (sopra).
     assert cp.CustomParserDef.from_dict({"name": "P", "rules": []}).mode == ""
     assert cp.CustomParserDef.from_dict({"name": "P", "mode": "boh", "rules": []}).mode == ""
