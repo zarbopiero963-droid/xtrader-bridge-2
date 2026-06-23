@@ -1003,6 +1003,18 @@ class App(ctk.CTk):
                     return
                 text = msg.text or msg.caption or ''
                 runtime_chat = str(msg.chat_id)
+                # Live-reload del routing (issue #82): le decisioni di INSTRADAMENTO e
+                # PARSING (chat ammesse, parser attivo, provider, mappature nomi) usano la
+                # config VIVA (`self._config`, aggiornata a ogni salvataggio), non lo
+                # snapshot catturato a START. Così rinominare/modificare un profilo del
+                # Dizionario nomi, aggiungere un parser o una sorgente ha effetto SUBITO,
+                # senza Stop/Start. Snapshot per-messaggio (una sola lettura del riferimento,
+                # atomica): un salvataggio sostituisce `self._config` con un nuovo dict, mai
+                # mutato a metà. Fallback allo snapshot di sessione se non è un dict.
+                # NB: l'ESECUZIONE resta bloccata alla sessione di proposito — DRY_RUN/limiti
+                # (`live_guard`), path CSV e token NON cambiano a metà sessione (richiedono
+                # riavvio), per non far scattare una scommessa reale o un CSV stantio per sbaglio.
+                route = self._config if isinstance(self._config, dict) else cfg
                 # PR-23: la chat notifiche XTrader (SEPARATA dalle sorgenti) porta
                 # ESITI, non segnali → percorso di conferma, non di scrittura.
                 notif = str(cfg.get("xtrader_notification_chat_id", "") or "").strip()
@@ -1013,13 +1025,13 @@ class App(ctk.CTk):
                 # Gatea il filtro chat (CP-09, chat configurata ∪ parser_by_chat)
                 # e il prefiltro legacy P.Bet./📊 (solo per il parser hardcoded):
                 # una chat non ammessa o un messaggio non pertinente non scrive.
-                if not signal_router.should_process(cfg, runtime_chat, text):
+                if not signal_router.should_process(route, runtime_chat, text):
                     return
                 # PR-14c: traccia l'ultimo messaggio pertinente ricevuto (diagnostica).
                 clean = (text or "").strip()
                 first_line = clean.splitlines()[0] if clean else ""
                 self.after(0, lambda m=first_line[:120]: self._set_last("message", m))
-                self._process(text, cfg, chat_id=runtime_chat)
+                self._process(text, cfg, chat_id=runtime_chat, route_cfg=route)
 
             self._tg_app.add_handler(MessageHandler(filters.ALL, _handle))
             await self._tg_app.initialize()
@@ -1115,7 +1127,13 @@ class App(ctk.CTk):
             self._log("✅ Connesso a Telegram.")
 
     # ── PROCESS SIGNAL ────────────────────────
-    def _process(self, text: str, cfg: dict, chat_id: str = None):
+    def _process(self, text: str, cfg: dict, chat_id: str = None, route_cfg: dict = None):
+        # `cfg` è la config di SESSIONE (snapshot a START): governa l'ESECUZIONE
+        # (guardrail `live_guard`: DRY_RUN/limiti, e il path CSV), che NON deve cambiare a
+        # metà sessione. `route_cfg` è la config VIVA per il ROUTING/PARSING (issue #82):
+        # parser/provider/mappature nomi aggiornati applicati subito. Default a `cfg` per
+        # retro-compatibilità (chiamanti senza routing live).
+        route = route_cfg if route_cfg is not None else cfg
         # Stop in corso: non processare/consumare stato né scrivere (Codex P2). Il
         # check definitivo anti-race con il clear è dentro il queue_lock, sotto.
         if not self._running:
@@ -1127,7 +1145,7 @@ class App(ctk.CTk):
         # Debug (PR-3): traccia il messaggio in ingresso e la chat di origine. `_dbg`
         # va sul main thread (`_process` gira sul thread del listener Telegram).
         self.after(0, lambda t=text, c=chat_id: self._dbg(f"IN (chat {c or '?'}): {t}"))
-        result = signal_router.resolve_row(text, cfg, chat_id=chat_id)
+        result = signal_router.resolve_row(text, route, chat_id=chat_id)
         if not result.placeable:
             detail = (", ".join(result.missing_required)
                       if result.missing_required else result.detail)
