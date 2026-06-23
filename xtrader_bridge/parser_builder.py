@@ -27,6 +27,11 @@ class ParserBuilder:
             self.description = ""
             self.mode = recognition.DEFAULT_MODE
             self.rules = []
+            # Mappatura nomi squadra (name_mapping_store): vanno preservati nel
+            # round-trip del builder, altrimenti load+save/duplica azzererebbe la
+            # mappatura in silenzio (live scriverebbe l'EventName provider grezzo).
+            self.name_mapping_profiles = []
+            self.team_separator = ""
         else:
             self.name = defn.name
             self.description = defn.description
@@ -35,6 +40,11 @@ class ParserBuilder:
             # legacy ne scriverebbe NAME_ONLY perdendo l'ereditarietà (Codex).
             self.mode = getattr(defn, "mode", recognition.DEFAULT_MODE)
             self.rules = [FieldRule.from_dict(r.to_dict()) for r in defn.rules]  # copia
+            # Campi mappatura nomi: copiati (lista nuova) così il builder non perde i
+            # profili/separatore di un parser caricato (Codex). `getattr` per tollerare
+            # def costruite prima dei campi.
+            self.name_mapping_profiles = list(getattr(defn, "name_mapping_profiles", []) or [])
+            self.team_separator = getattr(defn, "team_separator", "") or ""
 
     # ── opzioni per i menu a tendina della GUI ─────────────────────────────
     def target_options(self) -> list:
@@ -134,8 +144,10 @@ class ParserBuilder:
 
     # ── modello / validazione ──────────────────────────────────────────────
     def to_def(self) -> CustomParserDef:
-        return CustomParserDef(name=self.name, description=self.description,
-                               mode=self.mode, rules=list(self.rules))
+        return CustomParserDef(
+            name=self.name, description=self.description, mode=self.mode,
+            name_mapping_profiles=list(self.name_mapping_profiles),
+            team_separator=self.team_separator, rules=list(self.rules))
 
     # ── Modalità di riconoscimento (per-parser) ────────────────────────────
     def set_mode(self, mode: str) -> None:

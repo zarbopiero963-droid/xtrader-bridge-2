@@ -103,6 +103,20 @@ def test_resolve_team_multi_profilo_prima_corrispondenza_vince():
     assert nm.resolve_team("ACM", nm.entries_for_profiles(cfg, ["B", "A"])) == "AC Milan"
 
 
+def test_resolve_team_canonico_del_primo_profilo_batte_alias_del_secondo():
+    # Codex: "il primo profilo vince" → alias+canonico del profilo A si esauriscono
+    # PRIMA di passare a B. A ha il canonico "Rangers"; B ha l'alias "Rangers"→QPR.
+    cfg = {"name_mappings": {
+        "A": [{"betfair": "Rangers", "provider": ""}],
+        "B": [{"betfair": "Queens Park Rangers", "provider": "Rangers"}],
+    }}
+    assert nm.resolve_team("Rangers", nm.entries_for_profiles(cfg, ["A", "B"])) == "Rangers"
+    # Ordine inverso: nessun match in B (canonico "Queens Park Rangers", alias "Rangers"),
+    # quindi vince l'alias di B che ora è il primo profilo.
+    assert nm.resolve_team(
+        "Rangers", nm.entries_for_profiles(cfg, ["B", "A"])) == "Queens Park Rangers"
+
+
 # ── split_event / resolve_event_name ────────────────────────────────────────
 
 def test_split_event_separatori_liberi():
@@ -207,3 +221,15 @@ def test_custom_parser_default_retrocompatibile():
     back = cp.CustomParserDef.from_dict({"name": "X", "rules": [{"target": "EventName"}]})
     assert back.name_mapping_profiles == []
     assert back.team_separator == ""
+
+
+def test_parser_builder_preserva_campi_mappatura_nel_roundtrip():
+    # Codex: aprire un parser nel builder e ri-salvarlo NON deve azzerare la mappatura.
+    from xtrader_bridge.parser_builder import ParserBuilder
+    defn = _mapping_parser(profiles=("Premier", "Serie A"), separator="vs")
+    out = ParserBuilder(defn).to_def()
+    assert out.name_mapping_profiles == ["Premier", "Serie A"]
+    assert out.team_separator == "vs"
+    # builder vuoto: default sicuri (nessuna mappatura).
+    empty = ParserBuilder().to_def()
+    assert empty.name_mapping_profiles == [] and empty.team_separator == ""

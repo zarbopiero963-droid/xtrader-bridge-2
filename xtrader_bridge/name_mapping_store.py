@@ -141,13 +141,18 @@ def resolve_team(team: str, profiles) -> str:
     """Traduce un nome squadra grezzo nel nome Betfair/XTrader, o ``None`` se ignoto.
 
     ``profiles`` è una lista di liste-di-righe (vedi `entries_for_profiles`), nell'
-    ordine di selezione. Strategia (deterministica, fail-closed):
+    ordine di selezione. Strategia (deterministica, fail-closed): **il primo profilo
+    vince**. Per ogni profilo, nell'ordine, si prova prima l'alias e poi il canonico,
+    e solo se nessuno dei due combacia si passa al profilo successivo:
 
-    1. **alias provider**: prima riga il cui ``provider`` combacia (normalizzato) →
-       ritorna il suo ``betfair``. Vince la prima corrispondenza fra i profili.
-    2. **nome canonico**: se nessun alias combacia, prima riga il cui ``betfair``
-       combacia (il provider ha già mandato il nome canonico, o la riga non ha alias).
-    3. altrimenti ``None`` (non si indovina mai un nome squadra)."""
+    1. **alias provider**: riga del profilo il cui ``provider`` combacia (normalizzato)
+       → ritorna il suo ``betfair``;
+    2. **nome canonico**: altrimenti riga del profilo il cui ``betfair`` combacia (il
+       provider ha già mandato il nome canonico, o la riga non ha alias);
+    3. nessun match in TUTTI i profili → ``None`` (non si indovina mai un nome squadra).
+
+    L'esaurire alias+canonico di un profilo prima del successivo evita che l'alias di
+    un profilo più in basso scavalchi il canonico di uno più in alto (Codex)."""
     nt = normalize(team)
     if not nt:
         return None
@@ -157,7 +162,6 @@ def resolve_team(team: str, profiles) -> str:
             betfair = e.get("betfair", "")
             if alias and betfair and normalize(alias) == nt:
                 return betfair
-    for entries in profiles:
         for e in entries:
             betfair = e.get("betfair", "")
             if betfair and normalize(betfair) == nt:
