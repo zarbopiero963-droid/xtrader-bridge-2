@@ -17,6 +17,7 @@ SOLO se `result.placeable` è True (status VALID).
 """
 
 import re
+import threading
 from dataclasses import dataclass, field
 
 from . import recognition, validator, value_maps
@@ -28,12 +29,21 @@ from .custom_parser_engine import apply_parser
 # markettype/marketname/selectionname usate dallo skeleton e dai parser reali).
 # Costruito una volta (legge il CSV una sola volta), poi riusato.
 _DEFAULT_REGISTRY = None
+# Lock per l'init lazy: senza, due thread al primo uso concorrente potrebbero
+# costruire il registro due volte, leggendo il CSV due volte (A8). La build è
+# idempotente, quindi era benigno; il lock garantisce una sola costruzione.
+_REGISTRY_LOCK = threading.Lock()
 
 
 def _default_registry() -> dict:
+    """Registro value-map di default (lazy, in cache). Double-checked locking (A8):
+    `value_maps.registry` ritorna un dict già completo, quindi l'assegnazione di
+    `_DEFAULT_REGISTRY` pubblica direttamente il valore finito."""
     global _DEFAULT_REGISTRY
     if _DEFAULT_REGISTRY is None:
-        _DEFAULT_REGISTRY = value_maps.registry(include_dizionario=True)
+        with _REGISTRY_LOCK:
+            if _DEFAULT_REGISTRY is None:
+                _DEFAULT_REGISTRY = value_maps.registry(include_dizionario=True)
     return _DEFAULT_REGISTRY
 
 NOT_READY = "NOT_READY"   # gate parser: manca un campo obbligatorio della regola

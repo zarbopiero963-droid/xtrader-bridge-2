@@ -12,6 +12,8 @@ riconosciuto.
 Alias sconosciuto → None (il chiamante decide; il blocco duro è PR-10).
 """
 
+import threading
+
 from .dizionario import alias_key, load_dizionario
 
 
@@ -48,15 +50,27 @@ for _line in ("0.5", "1.5", "2.5"):
     SYNONYMS.update(_ou(_line, half=True))      # HT 0.5/1.5/2.5
 
 _INDEX = None
+# Lock per l'init lazy: senza, due thread al primo uso concorrente potrebbero
+# costruire l'indice due volte (A8). La build è idempotente (stesso CSV → stesso
+# dict), quindi era benigno; il lock lo rende comunque un'unica costruzione.
+_INDEX_LOCK = threading.Lock()
 
 
 def _index() -> dict:
-    """Indice (lazy, in cache) del dizionario per chiave alias normalizzata."""
+    """Indice (lazy, in cache) del dizionario per chiave alias normalizzata.
+
+    Double-checked locking (A8): si costruisce in un dict LOCALE e lo si pubblica
+    in `_INDEX` solo a costruzione finita, così il check esterno (fuori dal lock)
+    non vede mai un indice parzialmente popolato."""
     global _INDEX
     if _INDEX is None:
-        _INDEX = {}
-        for row in load_dizionario():
-            _INDEX[alias_key(row["MarketAliasTelegram"], row["SelectionAliasTelegram"])] = row
+        with _INDEX_LOCK:
+            if _INDEX is None:
+                idx = {}
+                for row in load_dizionario():
+                    idx[alias_key(row["MarketAliasTelegram"],
+                                  row["SelectionAliasTelegram"])] = row
+                _INDEX = idx
     return _INDEX
 
 
