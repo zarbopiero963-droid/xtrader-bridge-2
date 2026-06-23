@@ -378,7 +378,9 @@ class App(ctk.CTk):
             command=self._on_save_clicked,
         ).pack(side="right", padx=5)
 
-        # Riga propria: la finestra è a larghezza fissa, non far sforare i pulsanti.
+        # Tool su DUE righe: la finestra è a larghezza fissa (720px) e i quattro
+        # pulsanti non entrano in una riga sola senza tagliare l'ultimo (Codex). Due
+        # righe da due tengono tutto visibile e non dipendono dal fit del testo.
         tools_frame = ctk.CTkFrame(self, fg_color="transparent")
         tools_frame.pack(fill="x", padx=15, pady=(0, 4))
         ctk.CTkButton(
@@ -389,8 +391,14 @@ class App(ctk.CTk):
             tools_frame, text="📡  Chat sorgenti", width=180, height=38,
             fg_color="#00695c", hover_color="#004d40",
             command=self._open_source_chats).pack(side="left", padx=5)
+        tools_frame2 = ctk.CTkFrame(self, fg_color="transparent")
+        tools_frame2.pack(fill="x", padx=15, pady=(0, 4))
         ctk.CTkButton(
-            tools_frame, text="📁  Profili", width=140, height=38,
+            tools_frame2, text="📇  Provider", width=220, height=38,
+            fg_color="#00838f", hover_color="#006064",
+            command=self._open_provider_manager).pack(side="left", padx=5)
+        ctk.CTkButton(
+            tools_frame2, text="📁  Profili", width=180, height=38,
             fg_color="#5d4037", hover_color="#3e2723",
             command=self._open_profiles).pack(side="left", padx=5)
 
@@ -1423,6 +1431,19 @@ class App(ctk.CTk):
             self._log(f"📡 Sorgenti multi-chat aggiornate ({len(new_cfg.get('source_chats', []))}).")
 
         win = SourceChatsWindow(self, on_saved=_on_saved)
+        win.focus()
+
+    def _open_provider_manager(self):
+        """Apre l'anagrafica Provider (aggiungi/rimuovi nomi riusabili nella colonna
+        Provider del Parser Personalizzato). Import lazy: la GUI non serve all'avvio.
+        Al salvataggio aggiorna la config in memoria, così un successivo Salva/Avvia
+        non riscrive il file perdendo i provider (stesso pattern delle Sorgenti)."""
+        from .provider_gui import ProviderWindow
+
+        def _on_saved(new_cfg):
+            self._config = new_cfg
+
+        win = ProviderWindow(self, on_saved=_on_saved)
         win.focus()
 
     def _open_profiles(self):

@@ -132,6 +132,11 @@ parser. Il pulsante **«➕ Provider»** aggiunge un nuovo nome all'anagrafica (
 `config.json` sotto `providers`, condiviso fra tutti i parser). Un valore Provider già
 presente nel parser ma non (più) in anagrafica resta selezionato e non si perde.
 
+Per una gestione completa dell'anagrafica c'è il pulsante **«📇 Provider»** nella GUI
+principale: apre una finestra dedicata dove **vedere**, **aggiungere** e **rimuovere** i
+nomi provider salvati, senza dover aprire il builder. Le modifiche persistono subito in
+`config.json` (chiave `providers`) e si riflettono nelle tendine della colonna Provider.
+
 ---
 
 ## 3. Gate di sicurezza (perché non scrive righe sbagliate)
