@@ -268,6 +268,32 @@ def test_test_message_riga_piazzabile():
     assert res.row["Price"] == "1.85"
 
 
+def test_test_message_inoltra_name_mapping_profiles():
+    # L'anteprima deve tradurre l'EventName quando il parser usa la mappatura nomi e i
+    # profili risolti sono passati (come fa la GUI risolvendoli da config).
+    b = pb.ParserBuilder()
+    b.name = "Map"
+    b.name_mapping_profiles = ["Premier"]
+    b.team_separator = "v"
+    b.add_rule("Provider", fixed_value="TG_CUSTOM")
+    b.add_rule("EventName", start_after="Match:", end_before="\n", required=True)
+    b.add_rule("MarketType", fixed_value="BOTH_TEAMS_TO_SCORE", required=True)
+    b.add_rule("SelectionName", start_after="Sel:", end_before="\n", required=True)
+    b.add_rule("Price", start_after="Quota:", end_before="\n", required=True)
+    b.add_rule("BetType", start_after="Lato:", value_map="bettype", required=True)
+    msg = "Match: Liverpool FC v Leeds Utd\nSel: Sì\nQuota: 1,85\nLato: BACK"
+    profiles = [[
+        {"country": "", "betfair": "Liverpool", "provider": "Liverpool FC"},
+        {"country": "", "betfair": "Leeds", "provider": "Leeds Utd"},
+    ]]
+    res = b.test_message(msg, name_mapping_profiles=profiles)
+    assert res.status == validator.VALID
+    assert res.row["EventName"] == "Liverpool - Leeds"     # tradotto come il runtime
+    # Senza profili risolti (None) la mappatura richiesta fa fail-closed in anteprima.
+    res_none = b.test_message(msg, name_mapping_profiles=None)
+    assert res_none.placeable is False
+
+
 def test_test_message_non_pronto():
     b = pb.ParserBuilder()
     b.name = "X"

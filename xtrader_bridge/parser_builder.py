@@ -240,17 +240,23 @@ class ParserBuilder:
 
     # ── test-live ────────────────────────────────────────────────────────────
     def test_message(self, message: str, *, provider: str = "",
-                     mode: str = None, require_price: bool = None):
+                     mode: str = None, require_price: bool = None,
+                     name_mapping_profiles=None):
         """Applica il parser corrente a un messaggio e ritorna il `PipelineResult`
         (status + riga + piazzabilità), per l'anteprima del costruttore. La modalità
         usata è quella DEL PARSER (`self.mode`) salvo override esplicito.
 
         `require_price` di default (None) deriva dalla riga Price del parser
         (`price_required()`): l'anteprima riflette così l'unico comando della quota,
-        coerente col runtime."""
+        coerente col runtime.
+
+        `name_mapping_profiles` (righe dei profili risolte da config) è inoltrato al
+        pipeline: se il parser usa la mappatura nomi, l'anteprima traduce l'EventName
+        come il runtime (o fa fail-closed con MAPPING_MISSING)."""
         defn = self.to_def()
         if require_price is None:
             require_price = defn.price_required()
         return build_validated_row(defn, message, provider=provider,
                                    mode=self.mode if mode is None else mode,
-                                   require_price=require_price)
+                                   require_price=require_price,
+                                   name_mapping_profiles=name_mapping_profiles)

@@ -12,7 +12,7 @@ coperta da `tests/unit/test_parser_builder.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import config_store, parser_diagnostics, provider_store
+from . import config_store, name_mapping_store, parser_diagnostics, provider_store
 from .parser_builder import ParserBuilder
 
 
@@ -66,6 +66,97 @@ class CustomParserWindow(ctk.CTkToplevel):
         self._result.configure(
             text=f"➕ Provider «{name}» salvato." if ok
             else f"⚠️ Provider «{name}» aggiunto solo in memoria (salvataggio fallito).")
+
+    # ── mappatura nomi squadra (profili) ───────────────────────────────────
+    @staticmethod
+    def _load_name_mapping_profiles() -> list:
+        """Nomi dei profili di mappatura salvati (best-effort: config illeggibile → [])."""
+        try:
+            cfg = config_store.load_config(config_store.CONFIG_FILE)
+        except Exception:                       # noqa: BLE001 — fallback sicuro
+            return []
+        return name_mapping_store.profile_names(cfg)
+
+    def _reload_profile_checks(self, use_builder=False):
+        """Ridisegna le checkbox dei profili. La selezione spuntata viene da
+        `builder.name_mapping_profiles` (su `use_builder`, es. caricamento di un parser)
+        oppure dalle checkbox correnti (refresh dopo aver modificato il dizionario).
+
+        Mostra i profili **esistenti** in config e, in più, i profili **selezionati ma non
+        più esistenti** (rinominati/eliminati nel dizionario) come voci ⚠ **fantasma**:
+        restano una checkbox così l'utente PUÒ togliere la spunta, e `_unresolved_selected`
+        le intercetta per bloccare save/preview finché non sono risolte — niente
+        riferimenti morti riscritti in silenzio né blocchi senza via d'uscita (Codex)."""
+        if use_builder or not self._profile_checks:
+            selected = list(self.builder.name_mapping_profiles)
+        else:
+            selected = self._selected_profiles()
+        selected_set = set(selected)
+        for child in self._profiles_box.winfo_children():
+            child.destroy()
+        self._profile_checks = {}
+        existing = list(self._load_name_mapping_profiles())
+        self._existing_profiles = set(existing)
+        missing = [n for n in selected if n not in self._existing_profiles]
+        names = existing + [n for n in missing if n not in existing]
+        if not names:
+            ctk.CTkLabel(self._profiles_box, text="(nessun profilo)",
+                         text_color="gray").pack(side="left", padx=4)
+            return
+        for name in names:
+            present = name in self._existing_profiles
+            var = ctk.BooleanVar(value=name in selected_set)
+            kw = {} if present else {"text_color": "#ffa726"}   # ⚠ profilo mancante
+            ctk.CTkCheckBox(self._profiles_box, text=name if present else f"⚠ {name}",
+                            variable=var, width=20, **kw).pack(side="left", padx=4)
+            self._profile_checks[name] = var
+
+    def _selected_profiles(self) -> list:
+        """Profili spuntati, **preservando l'ordine** scelto nel parser: l'ordine dei
+        profili è significativo (in `resolve_team` vince la prima corrispondenza), quindi
+        i profili già presenti in `builder.name_mapping_profiles` mantengono la loro
+        posizione; gli eventuali profili appena spuntati si aggiungono in coda (ordine di
+        visualizzazione). Così aprire e ri-salvare un parser con profili ['B','A'] NON li
+        riordina alfabeticamente cambiando la precedenza (Codex P1). I profili mancanti
+        (⚠) selezionati restano inclusi: hanno una checkbox e `_unresolved_selected` li
+        blocca finché non sono risolti."""
+        checked = {name for name, var in self._profile_checks.items() if var.get()}
+        ordered = [n for n in self.builder.name_mapping_profiles if n in checked]
+        ordered += [n for n in self._profile_checks if n in checked and n not in ordered]
+        return ordered
+
+    def _unresolved_selected(self) -> list:
+        """Profili selezionati che non corrispondono a un profilo ESISTENTE (voci ⚠
+        fantasma). Finché ce ne sono spuntati, `_save`/`_test` si bloccano: una mappatura
+        richiesta ma non risolvibile non deve diventare in silenzio «nessuna mappatura»."""
+        return [n for n in self._selected_profiles() if n not in self._existing_profiles]
+
+    @staticmethod
+    def _resolve_mapping_profiles(defn):
+        """Righe dei profili del parser risolte dalla config (per l'anteprima), o None
+        se il parser non usa la mappatura. Best-effort: config illeggibile → lista vuota
+        (mappatura richiesta ma irrisolvibile → l'anteprima farà fail-closed)."""
+        if not defn.name_mapping_profiles:
+            return None
+        try:
+            cfg = config_store.load_config(config_store.CONFIG_FILE)
+        except Exception:                       # noqa: BLE001 — fallback sicuro
+            cfg = {}
+        return name_mapping_store.entries_for_profiles(cfg, defn.name_mapping_profiles)
+
+    def _open_name_mapping(self):
+        """Apre il Dizionario nomi (finestra separata). Alla chiusura/salvataggio
+        ricarica le checkbox dei profili così le nuove voci compaiono subito."""
+        self._sync_to_builder()              # non perdere selezione/separatore correnti
+        from .name_mapping_gui import NameMappingWindow
+
+        def _on_saved(new_cfg):
+            if callable(self._on_saved):
+                self._on_saved(new_cfg)
+            self._reload_profile_checks()
+
+        win = NameMappingWindow(self, on_saved=_on_saved)
+        win.focus()
 
     def __init__(self, master=None, builder: ParserBuilder = None, provider: str = "",
                  global_mode: str = "", on_saved=None):
@@ -151,6 +242,23 @@ class CustomParserWindow(ctk.CTkToplevel):
                       command=self._insert_fixed_market).pack(side="left", padx=4)
         self._refresh_selection_menu()   # popola le selezioni del mercato iniziale
 
+        # Mappatura nomi squadra: separatore casa/trasferta del canale + profili
+        # (checkbox multi-selezione) che traducono l'EventName provider → Betfair/XTrader.
+        nm = ctk.CTkFrame(self)
+        nm.pack(fill="x", padx=10, pady=(0, 6))
+        ctk.CTkLabel(nm, text="Mappatura nomi · separatore:").pack(side="left", padx=6)
+        self._separator_var = ctk.StringVar(value=self.builder.team_separator)
+        ctk.CTkEntry(nm, textvariable=self._separator_var, width=70,
+                     placeholder_text="v").pack(side="left", padx=2)
+        ctk.CTkButton(nm, text="🗺️ Dizionario nomi", width=160,
+                      command=self._open_name_mapping).pack(side="left", padx=6)
+        ctk.CTkLabel(nm, text="Profili:").pack(side="left", padx=(8, 2))
+        self._profiles_box = ctk.CTkScrollableFrame(nm, height=42, orientation="horizontal")
+        self._profiles_box.pack(side="left", fill="x", expand=True, padx=4)
+        self._profile_checks = {}        # nome profilo → BooleanVar
+        self._existing_profiles = set()  # profili realmente presenti in config (non ⚠)
+        self._reload_profile_checks()
+
         # intestazione colonne
         head = ctk.CTkFrame(self)
         head.pack(fill="x", padx=10)
@@ -233,6 +341,9 @@ class CustomParserWindow(ctk.CTkToplevel):
         # correnti, preservando i required salvati a mano di un parser caricato (Codex).
         # L'auto-Obblig. si applica su azione esplicita (_on_mode_change) o su parser nuovo.
         self._mode_var.set(self._mode_to_label(self.builder.mode))
+        # Mappatura nomi: ripristina separatore + checkbox profili dal builder.
+        self._separator_var.set(self.builder.team_separator)
+        self._reload_profile_checks(use_builder=True)
         for rule in self.builder.rules:
             self._add_row(rule)
 
@@ -254,6 +365,9 @@ class CustomParserWindow(ctk.CTkToplevel):
         così aprire/salvare un parser legacy non lo converte a NAME_ONLY (Codex)."""
         self.builder.name = self._name_var.get().strip()
         self.builder.mode = self._label_to_mode(self._mode_var.get())
+        # Mappatura nomi: separatore (testo libero) + profili spuntati.
+        self.builder.team_separator = self._separator_var.get().strip()
+        self.builder.name_mapping_profiles = self._selected_profiles()
         self.builder.rules = []
         for refs in self._rows:
             self.builder.add_rule(
@@ -268,7 +382,18 @@ class CustomParserWindow(ctk.CTkToplevel):
 
     # ── azioni ────────────────────────────────────────────────────────────
     def _save(self):
+        # Rinfresca le checkbox dal config: una modifica del dizionario fatta altrove
+        # (es. rinomina dal pulsante della finestra principale) deve riflettersi qui,
+        # così un profilo mancante diventa ⚠ e blocca il salvataggio invece di riscrivere
+        # un riferimento morto nel parser (Codex).
+        self._reload_profile_checks()
         self._sync_to_builder()
+        unresolved = self._unresolved_selected()
+        if unresolved:
+            self._result.configure(
+                text=f"⛔ Non salvato: profili di mappatura mancanti ({', '.join(unresolved)}). "
+                     "Ricreali nel «Dizionario nomi» o togli la spunta prima di salvare.")
+            return
         errors = self.builder.errors()
         if errors:
             self._result.configure(text="❌ Non salvato:\n- " + "\n- ".join(errors))
@@ -383,7 +508,16 @@ class CustomParserWindow(ctk.CTkToplevel):
             text=f"🗑 Eliminato {name!r}." if removed else f"⛔ {name!r} non trovato.")
 
     def _test(self):
+        self._reload_profile_checks()   # rifletti modifiche al dizionario fatte altrove (Codex)
         self._sync_to_builder()
+        unresolved = self._unresolved_selected()
+        if unresolved:
+            # Mappatura richiesta ma con profili non risolvibili: non mostrare un'anteprima
+            # fuorviante (col rischio di EventName grezzo). Blocca con spiegazione (Codex).
+            self._result.configure(
+                text=f"⛔ Non pronto: profili di mappatura mancanti ({', '.join(unresolved)}). "
+                     "Ricreali nel «Dizionario nomi» o togli la spunta.")
+            return
         message = self._msg_box.get("1.0", "end").rstrip("\n")
         # Modalità EFFETTIVA per l'anteprima: quella scelta; se "(eredita globale)" ("")
         # usa la modalità globale, così "Prova messaggio" combacia col runtime (Codex).
@@ -397,10 +531,16 @@ class CustomParserWindow(ctk.CTkToplevel):
         # "Prova messaggio" combacia col runtime.
         defn = self.builder.to_def()
         require_price = defn.price_required()
+        # Mappatura nomi: risolvi i profili selezionati dalla config, così l'anteprima
+        # traduce l'EventName come il runtime (e fa fail-closed se non mappabile) invece
+        # di mostrare un falso "Pronto" col nome grezzo.
+        name_mapping_profiles = self._resolve_mapping_profiles(defn)
         res = self.builder.test_message(message, provider=self._provider, mode=mode,
-                                        require_price=require_price)
+                                        require_price=require_price,
+                                        name_mapping_profiles=name_mapping_profiles)
         diag = parser_diagnostics.diagnose(
-            defn, message, provider=self._provider, mode=mode, require_price=require_price)
+            defn, message, provider=self._provider, mode=mode, require_price=require_price,
+            name_mapping_profiles=name_mapping_profiles)
         if diag.placeable:
             riga = ", ".join(f"{k}={v}" for k, v in res.row.items() if v != "")
             self._result.configure(text=f"✅ Pronto · {riga}")

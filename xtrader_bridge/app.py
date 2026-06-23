@@ -401,6 +401,10 @@ class App(ctk.CTk):
             tools_frame2, text="📁  Profili", width=180, height=38,
             fg_color="#5d4037", hover_color="#3e2723",
             command=self._open_profiles).pack(side="left", padx=5)
+        ctk.CTkButton(
+            tools_frame2, text="🗺️  Dizionario nomi", width=200, height=38,
+            fg_color="#37474f", hover_color="#263238",
+            command=self._open_name_mapping).pack(side="left", padx=5)
 
         # Monitoraggio a schede (B3): Chat ascoltate / Stato / Dashboard / Log erano
         # quattro pannelli impilati che allungavano molto la finestra. Ora vivono in un
@@ -1444,6 +1448,19 @@ class App(ctk.CTk):
             self._config = new_cfg
 
         win = ProviderWindow(self, on_saved=_on_saved)
+        win.focus()
+
+    def _open_name_mapping(self):
+        """Apre il Dizionario nomi squadra (profili di mappatura provider → Betfair/
+        XTrader). Import lazy: la GUI non serve all'avvio. Al salvataggio aggiorna la
+        config in memoria, così un successivo Salva/Avvia non riscrive il file perdendo
+        le mappature (stesso pattern di Provider/Sorgenti)."""
+        from .name_mapping_gui import NameMappingWindow
+
+        def _on_saved(new_cfg):
+            self._config = new_cfg
+
+        win = NameMappingWindow(self, on_saved=_on_saved)
         win.focus()
 
     def _open_profiles(self):
