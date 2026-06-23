@@ -97,3 +97,13 @@ def test_required_targets_per_modalita():
     assert rec.required_targets("boh") == ("EventName", "MarketType", "SelectionName")  # default
     for f in rec.required_targets("ID_ONLY") + rec.required_targets("NAME_ONLY"):
         assert f in rec.RECOGNITION_FIELDS
+
+
+def test_recognition_fields_for_mode():
+    # Content-gate A10 (Codex P2): campi di riconoscimento RILEVANTI per la modalità.
+    assert rec.recognition_fields_for_mode("NAME_ONLY") == ("EventName", "MarketType", "SelectionName")
+    assert rec.recognition_fields_for_mode("ID_ONLY") == ("MarketId", "SelectionId")
+    # BOTH → entrambi i set (basta un set, quindi ognuno conta come segnale).
+    assert rec.recognition_fields_for_mode("BOTH") == rec.RECOGNITION_FIELDS
+    # Modalità sconosciuta → default sicuro (NAME_ONLY).
+    assert rec.recognition_fields_for_mode("boh") == ("EventName", "MarketType", "SelectionName")

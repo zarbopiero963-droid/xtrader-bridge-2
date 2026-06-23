@@ -231,6 +231,27 @@ def test_matches_message_campo_riconoscimento_estratto_anche_se_opzionale():
     assert eng.matches_message(defn, "nessuna squadra") is False        # niente contenuto
 
 
+def test_matches_message_campo_riconoscimento_fuori_modalita_non_basta():
+    # Codex P2 (A10): i campi di riconoscimento contano SOLO se rilevanti per la
+    # modalità. Un parser NAME_ONLY con nome/price/bet FISSI + un'estrazione OPZIONALE
+    # su un campo ID (MarketId, non usato da NAME_ONLY) NON deve far passare un
+    # messaggio non-segnale solo perché quell'ID combacia con testo arbitrario.
+    defn = cp.CustomParserDef(name="NameOnly", mode="NAME_ONLY", rules=[
+        cp.FieldRule(target="EventName", fixed_value="Inter v Milan", required=True),
+        cp.FieldRule(target="MarketType", fixed_value="OU", required=True),
+        cp.FieldRule(target="SelectionName", fixed_value="Over 2.5", required=True),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
+        # ID opzionale "largo": estrae da qualsiasi riga, ma è fuori dalla modalità.
+        cp.FieldRule(target="MarketId", start_after="x", end_before="\n", required=False),
+    ])
+    assert eng.matches_message(defn, "xyz roba a caso\n") is False
+    # In BOTH lo stesso ID estratto torna a contare come contenuto di segnale.
+    assert eng.matches_message(defn, "xyz roba a caso\n", "BOTH") is True
+    # Anche `defn.mode` BOTH (senza override) deve contare.
+    defn.mode = "BOTH"
+    assert eng.matches_message(defn, "xyz roba a caso\n") is True
+
+
 def test_apply_parser_target_duplicato_ultimo_vince_senza_doppioni():
     # Difesa: due regole stesso target (vietate da validate, ma il motore non
     # deve produrre stati incoerenti). L'ultima vince; missing_required dedup.

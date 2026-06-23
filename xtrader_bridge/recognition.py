@@ -23,6 +23,25 @@ _NAME_FIELDS = ("EventName", "MarketType", "SelectionName")
 RECOGNITION_FIELDS = _ID_FIELDS + _NAME_FIELDS
 
 
+def recognition_fields_for_mode(mode: str) -> tuple:
+    """Campi di riconoscimento RILEVANTI per la modalità (per il content-gate A10):
+
+    - `ID_ONLY`   → solo i campi ID (`MarketId`+`SelectionId`);
+    - `NAME_ONLY` → solo i campi nome (`EventName`+`MarketType`+`SelectionName`);
+    - `BOTH`      → entrambi i set (basta un set, quindi ognuno è "di segnale").
+
+    Differisce da `RECOGNITION_FIELDS` (insieme totale, mode-agnostico): qui un
+    campo ID opzionale NON conta come "contenuto di segnale" per un parser
+    `NAME_ONLY`, così un'estrazione ID casuale non fa passare un non-segnale (A10).
+    """
+    mode = normalize_mode(mode)
+    if mode == ID_ONLY:
+        return _ID_FIELDS
+    if mode == NAME_ONLY:
+        return _NAME_FIELDS
+    return RECOGNITION_FIELDS
+
+
 def required_targets(mode: str) -> tuple:
     """Colonne che la Modalità rende obbligatorie nel builder (auto-Obblig.):
 

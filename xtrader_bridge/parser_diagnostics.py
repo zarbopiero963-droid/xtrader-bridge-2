@@ -186,7 +186,7 @@ def diagnose(defn: CustomParserDef, text: str, *, value_maps_registry: dict = No
     # `matches_message`, altrimenti `NO_CONTENT_MATCH`). Riflettiamolo nel verdetto,
     # così un parser a soli valori fissi che "validerebbe" non risulta PRONTO quando
     # il bridge in realtà lo scarterebbe (Codex).
-    message_error = "" if matches_message(defn, text) else NO_CONTENT_MATCH
+    message_error = "" if matches_message(defn, text, mode) else NO_CONTENT_MATCH
     placeable = result.placeable and not message_error
     status = message_error if (message_error and result.placeable) else result.status
     return Diagnosis(placeable=placeable, status=status,

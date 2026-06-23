@@ -129,12 +129,11 @@ def extract_value_traced(text: str, rule: FieldRule):
     return text[start:end].strip(), EXTRACT_OK
 
 
-def matches_message(defn: CustomParserDef, text: str) -> bool:
+def matches_message(defn: CustomParserDef, text: str, mode: str = None) -> bool:
     """True se il messaggio ha attivato un'estrazione che rappresenta **contenuto di
     segnale**: una regola con `start_after`/`end_before` (non `fixed_value`) che ha
     trovato un valore non vuoto **e** è o **obbligatoria** (`required`) o su un **campo
-    di riconoscimento** (`recognition.RECOGNITION_FIELDS`: EventName/MarketType/
-    SelectionName/MarketId/SelectionId).
+    di riconoscimento rilevante per la modalità** (`recognition.recognition_fields_for_mode`).
 
     Gate di "contenuto" per il live (CP-09): un parser i cui obbligatori sono
     tutti `fixed_value` produrrebbe una riga piazzabile per QUALSIASI messaggio. Siccome
@@ -143,11 +142,15 @@ def matches_message(defn: CustomParserDef, text: str) -> bool:
 
     Non basta UN'estrazione qualsiasi: un'estrazione **opzionale** su un campo NON di
     riconoscimento (es. una nota "larga") non deve far passare un messaggio non-segnale
-    (A10). Ma i campi di riconoscimento ESTRATTI contano anche se non `required`: in
-    modalità `BOTH` la GUI lascia opzionali i campi nome/ID (basta un set), e un parser
-    BOTH che estrae il set nomi è un segnale legittimo (Codex). NON tocca pipeline/validator."""
+    (A10). I campi di riconoscimento ESTRATTI contano anche se non `required`, ma SOLO se
+    rilevanti per la modalità (`mode`): in `BOTH` la GUI lascia opzionali nome/ID (basta un
+    set), quindi entrambi i set contano; ma in `NAME_ONLY` un'estrazione opzionale su un
+    campo ID (non usato da quella modalità) NON deve far passare un non-segnale (Codex P2,
+    A10). Se `mode` è `None` si usa `defn.mode`. NON tocca pipeline/validator."""
+    relevant = recognition.recognition_fields_for_mode(
+        defn.mode if mode is None else mode)
     for rule in defn.rules:
-        signal_field = rule.required or rule.target in recognition.RECOGNITION_FIELDS
+        signal_field = rule.required or rule.target in relevant
         if (signal_field and rule.has_extraction() and not rule.is_fixed()
                 and extract_value(text, rule) != ""):
             return True

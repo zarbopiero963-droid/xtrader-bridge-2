@@ -226,7 +226,7 @@ def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str =
         # qualcosa DA QUESTO messaggio. Un parser a soli valori fissi sarebbe
         # piazzabile su qualsiasi testo (anche vuoto): nel live, che bypassa il
         # prefiltro marker, scriverebbe lo stesso bet su ogni messaggio. Scartiamo.
-        if not custom_parser_engine.matches_message(defn, text):
+        if not custom_parser_engine.matches_message(defn, text, mode):
             return RouteResult(None, NO_CONTENT_MATCH, CUSTOM, "no_content_match")
         row = res.row
         # PR-24: per una chat che è una **sorgente attiva**, il provider della
