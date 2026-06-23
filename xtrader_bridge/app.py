@@ -390,6 +390,10 @@ class App(ctk.CTk):
             fg_color="#00695c", hover_color="#004d40",
             command=self._open_source_chats).pack(side="left", padx=5)
         ctk.CTkButton(
+            tools_frame, text="📇  Provider", width=140, height=38,
+            fg_color="#00838f", hover_color="#006064",
+            command=self._open_provider_manager).pack(side="left", padx=5)
+        ctk.CTkButton(
             tools_frame, text="📁  Profili", width=140, height=38,
             fg_color="#5d4037", hover_color="#3e2723",
             command=self._open_profiles).pack(side="left", padx=5)
@@ -1423,6 +1427,19 @@ class App(ctk.CTk):
             self._log(f"📡 Sorgenti multi-chat aggiornate ({len(new_cfg.get('source_chats', []))}).")
 
         win = SourceChatsWindow(self, on_saved=_on_saved)
+        win.focus()
+
+    def _open_provider_manager(self):
+        """Apre l'anagrafica Provider (aggiungi/rimuovi nomi riusabili nella colonna
+        Provider del Parser Personalizzato). Import lazy: la GUI non serve all'avvio.
+        Al salvataggio aggiorna la config in memoria, così un successivo Salva/Avvia
+        non riscrive il file perdendo i provider (stesso pattern delle Sorgenti)."""
+        from .provider_gui import ProviderWindow
+
+        def _on_saved(new_cfg):
+            self._config = new_cfg
+
+        win = ProviderWindow(self, on_saved=_on_saved)
         win.focus()
 
     def _open_profiles(self):
