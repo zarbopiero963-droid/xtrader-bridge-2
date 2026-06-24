@@ -21,7 +21,14 @@ on:
         default: false
   pull_request:
     paths:
+      # Tutta la catena single-source del lock: una modifica a QUALSIASI di questi file può
+      # cambiare il set bloccato, quindi il lock va rigenerato/riconfrontato. `requirements.txt`
+      # e `requirements-dev.txt` sono inclusi perché `requirements-build.in` ora deriva da
+      # `-r requirements-dev.txt` (→ requirements.txt → requirements.in): aggiungere una
+      # dipendenza di test lì DEVE ritriggerare la rigenerazione del lock.
       - "requirements.in"
+      - "requirements.txt"
+      - "requirements-dev.txt"
       - "requirements-build.in"
       - "requirements-build.lock"
       - ".github/workflows/generate-lockfile.yaml"

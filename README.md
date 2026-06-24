@@ -458,7 +458,7 @@ sono espresse come file sorgente `.in` (vincoli "morbidi" top-level) da cui si g
 | File | Cos'è | Si modifica a mano? |
 |---|---|---|
 | `requirements.in` | **sorgente unica** delle dipendenze **runtime** top-level (FLOOR `>=`, con la motivazione di sicurezza) | sì |
-| `requirements-build.in` | tutto ciò che la **build Windows** installa: `-r requirements.in` + `pytest` + `pyinstaller` + `httpx` | sì |
+| `requirements-build.in` | tutto ciò che la **build Windows** installa: `-r requirements-dev.txt` (runtime + `pytest`, single-source) + `pyinstaller` + `httpx` | sì |
 | `requirements-build.lock` | **lockfile completo con hash** (versioni esatte di TUTTE le transitive) generato su **Windows + Python 3.11** | **NO** — si rigenera dal workflow |
 | `requirements.txt` | install "soft" della CI di test/dev: ora **richiama `requirements.in`** (`-r requirements.in`), quindi una dipendenza runtime ha **un solo posto** dove cambiare ed è la stessa sorgente del lock (niente drift) | sì |
 | `requirements-dev.txt` | `-r requirements.txt` + `pytest` (test) | sì |

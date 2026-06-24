@@ -1,16 +1,22 @@
 # Dipendenze necessarie alla BUILD Windows dell'EXE — SORGENTE del lock di build.
 #
 # Rappresenta TUTTO ciò che il job `build.yaml` installa su windows-latest:
-# - `-r requirements.in`  → le dipendenze runtime top-level (vedi quel file);
-# - pytest                → il job esegue i test (`pytest`) PRIMA di compilare l'EXE;
-# - pyinstaller           → compila l'EXE (`pyinstaller --onefile ...`);
-# - httpx                 → richiesto da python-telegram-bot a runtime ed esplicitato
-#                           come hidden-import per PyInstaller.
+# - `-r requirements-dev.txt` → runtime + test (pytest) dalla SORGENTE UNICA delle
+#                               dipendenze di test, cioè la catena
+#                               requirements-dev.txt → requirements.txt → requirements.in.
+#                               Così una dipendenza di TEST aggiunta a `requirements-dev.txt`
+#                               (es. un plugin pytest) entra automaticamente nel lock e non
+#                               manca nella build di release (niente più `pytest` duplicato
+#                               qui e in `requirements-dev.txt`, che potevano divergere).
+# - pyinstaller              → compila l'EXE (`pyinstaller --onefile ...`);
+# - httpx                    → richiesto da python-telegram-bot a runtime ed esplicitato
+#                              come hidden-import per PyInstaller.
 #
+# Catena single-source:
+#   requirements.in → requirements.txt → requirements-dev.txt → requirements-build.in → lock
 # Da questo file si genera il lock completo con hash `requirements-build.lock` su
 # Windows + Python 3.11 (workflow "Generate Windows Lockfile"). NON modificare il lock
-# a mano: si rigenera dal workflow. `pytest>=7.0` rispecchia `requirements-dev.txt`.
--r requirements.in
-pytest>=7.0
+# a mano: si rigenera dal workflow.
+-r requirements-dev.txt
 pyinstaller
 httpx
