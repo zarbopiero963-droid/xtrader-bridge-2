@@ -268,6 +268,44 @@ def test_router_ambiguo_scarta(tmp_path):
     assert res.status == pipe.MARKET_MAPPING_MISSING
 
 
+# ── helper sui file dei parser (rename/uso profili mercati) ──────────────────
+
+def test_rename_market_mapping_profile_in_files_aggiorna_riferimenti(tmp_path):
+    # Rinominare un profilo mercati deve aggiornare i parser che lo selezionano,
+    # preservando ordine e senza duplicati; chi non lo usa resta intatto.
+    d = str(tmp_path)
+    using = cp.CustomParserDef(name="Using", mode="NAME_ONLY",
+                               market_mapping_profiles=["B", "Pandora"],
+                               rules=[cp.FieldRule(target="EventName")])
+    cp.save_parser(using, d)
+    other = cp.CustomParserDef(name="Other", mode="NAME_ONLY",
+                               market_mapping_profiles=["Altro"],
+                               rules=[cp.FieldRule(target="EventName")])
+    cp.save_parser(other, d)
+
+    updated, failed = cp.rename_market_mapping_profile_in_files("Pandora", "Pan2", d)
+    assert updated == ["Using"] and failed == []
+    reloaded = cp.load_parser(cp.parser_path("Using", d))
+    assert reloaded.market_mapping_profiles == ["B", "Pan2"]      # ordine preservato
+    assert cp.load_parser(cp.parser_path("Other", d)).market_mapping_profiles == ["Altro"]
+    # No-op: nuovo nome vuoto / uguale al vecchio.
+    assert cp.rename_market_mapping_profile_in_files("Pan2", "Pan2", d) == ([], [])
+    assert cp.rename_market_mapping_profile_in_files("Pan2", "", d) == ([], [])
+
+
+def test_parsers_using_market_mapping_profile(tmp_path):
+    d = str(tmp_path)
+    a = cp.CustomParserDef(name="A", mode="NAME_ONLY", market_mapping_profiles=["Pandora"],
+                           rules=[cp.FieldRule(target="EventName")])
+    b = cp.CustomParserDef(name="B", mode="NAME_ONLY", market_mapping_profiles=[],
+                           rules=[cp.FieldRule(target="EventName")])
+    cp.save_parser(a, d)
+    cp.save_parser(b, d)
+    assert cp.parsers_using_market_mapping_profile("Pandora", d) == ["A"]
+    assert cp.parsers_using_market_mapping_profile("manca", d) == []
+    assert cp.parsers_using_market_mapping_profile("", d) == []
+
+
 def test_router_nessuna_frase_usa_colonna(tmp_path):
     # Nessuna frase nel messaggio: il router tiene la Selezione estratta dalla colonna.
     cp.save_parser(_router_parser(), str(tmp_path))

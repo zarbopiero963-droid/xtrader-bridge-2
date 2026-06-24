@@ -161,7 +161,25 @@ nomi squadra, così al parsing si traducono **sia** i nomi **sia** i mercati.
    (dizionario vince; ambiguo → niente riga; nessun match → fallback colonna; nessun match e
    nessun mercato → niente riga; voce incoerente ignorata; match sul messaggio grezzo;
    round-trip modello/builder; instradamento reale `signal_router`).
-3. **GUI** — area 🎯 Mercati + selettore nel Parser. Verifica manuale su Windows.
+3. **GUI** — in due PR piccole:
+   - **3a (FATTO)** — area **🎯 Mercati** della scheda Mapping (`MarketMappingPanel` in
+     `name_mapping_gui.py`): profilo (nuovo/rinomina/elimina) + tabella `Frase | Mercato ▾ |
+     Selezione ▾` dai menù del Catalogo (Selezione dipende dal Mercato, `MarketType` derivato);
+     persiste in `market_mappings`. Helper parser generalizzati
+     (`rename_market_mapping_profile_in_files`, `parsers_using_market_mapping_profile`) per
+     aggiornare/avvisare i parser al rename/delete del profilo. Non testato in CI (display);
+     logica pura coperta da `market_mapping_store`/`dizionario` + test helper. Verifica manuale
+     su Windows.
+   - **3b (DA FARE)** — selettore dei **profili mercati dentro il Parser Personalizzato**
+     (checkbox multi-selezione come per i nomi) + anteprima «Prova messaggio» che risolve i
+     profili mercati dalla config. **Deve includere** lo stesso meccanismo dei nomi:
+     profili **⚠ fantasma** (selezionati ma non più esistenti in config) che **bloccano il
+     salvataggio** del parser (`_unresolved_selected`) e refresh delle checkbox su
+     `refresh_options`. Questo chiude il rilievo **Codex P2** della PR 3a: dopo un rename/
+     delete di un profilo mercati, un `CustomParserPanel` aperto che teneva il vecchio nome
+     in `builder.market_mapping_profiles` non deve riscriverlo stantio (→
+     `MARKET_MAPPING_MISSING`). In 3a il path è raggiungibile solo via JSON editato a mano
+     (nessun selettore mercati nel parser), quindi il fix completo vive qui in 3b.
 
 Ogni passo: Phase 0, micro-audit, test hard veritieri, una PR, merge manuale.
 

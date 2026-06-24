@@ -414,6 +414,22 @@ def rename_mapping_profile_in_files(old: str, new: str, dir_path: str = None) ->
     risolto esatto dal `signal_router`. I file non caricabili/non validi vengono saltati
     (non referenziano in modo affidabile ``old``); i parser che non usano ``old`` non
     vengono toccati."""
+    return _rename_profile_in_files("name_mapping_profiles", old, new, dir_path)
+
+
+def rename_market_mapping_profile_in_files(old: str, new: str, dir_path: str = None) -> tuple:
+    """Come :func:`rename_mapping_profile_in_files` ma per i profili **mercati**
+    (``market_mapping_profiles``): rinominare un profilo mercati nel Dizionario deve
+    aggiornare i parser che lo selezionano, altrimenti resterebbero a chiedere un profilo
+    inesistente → ``MARKET_MAPPING_MISSING`` (segnali scartati). Stessa semantica di
+    ritorno ``(updated, failed)``."""
+    return _rename_profile_in_files("market_mapping_profiles", old, new, dir_path)
+
+
+def _rename_profile_in_files(attr: str, old: str, new: str, dir_path: str = None) -> tuple:
+    """Nucleo condiviso di rinomina di un profilo (``attr`` = ``name_mapping_profiles`` o
+    ``market_mapping_profiles``) nei file dei parser. Vedi i wrapper pubblici per la
+    semantica. Preserva ordine e unicità; ritorna ``(updated, failed)``."""
     o = str(old or "").strip()
     n = str(new or "").strip()
     if not o or not n or o == n:
@@ -424,15 +440,18 @@ def rename_mapping_profile_in_files(old: str, new: str, dir_path: str = None) ->
             defn = load_parser(path)
         except (OSError, ValueError, json.JSONDecodeError):
             continue
-        if o not in defn.name_mapping_profiles:
+        # default [] per robustezza sullo scan dell'intera cartella: un parser vecchio/
+        # parziale privo dell'attributo non deve abortire la sincronizzazione (Sourcery).
+        profiles = getattr(defn, attr, []) or []
+        if o not in profiles:
             continue
         seen, newlist = set(), []
-        for p in defn.name_mapping_profiles:
+        for p in profiles:
             p2 = n if p == o else p
             if p2 not in seen:
                 seen.add(p2)
                 newlist.append(p2)
-        defn.name_mapping_profiles = newlist
+        setattr(defn, attr, newlist)
         try:
             save_parser(defn, dir_path)
             updated.append(defn.name)
@@ -447,6 +466,19 @@ def parsers_using_mapping_profile(name: str, dir_path: str = None) -> list:
     uso: cancellarlo lascerebbe quei parser a chiedere un profilo inesistente → ogni
     segnale mappato diventa ``MAPPING_MISSING`` (scartato). Best-effort: i file non
     caricabili vengono saltati."""
+    return _parsers_using_profile("name_mapping_profiles", name, dir_path)
+
+
+def parsers_using_market_mapping_profile(name: str, dir_path: str = None) -> list:
+    """Come :func:`parsers_using_mapping_profile` ma per i profili **mercati**
+    (``market_mapping_profiles``): avvisa prima di eliminare un profilo mercati ancora
+    selezionato in qualche parser (→ ``MARKET_MAPPING_MISSING``)."""
+    return _parsers_using_profile("market_mapping_profiles", name, dir_path)
+
+
+def _parsers_using_profile(attr: str, name: str, dir_path: str = None) -> list:
+    """Nucleo condiviso: nomi dei parser salvati che referenziano ``name`` nell'attributo
+    ``attr`` (``name_mapping_profiles`` o ``market_mapping_profiles``). Best-effort."""
     n = str(name or "").strip()
     if not n:
         return []
@@ -456,7 +488,7 @@ def parsers_using_mapping_profile(name: str, dir_path: str = None) -> list:
             defn = load_parser(path)
         except (OSError, ValueError, json.JSONDecodeError):
             continue
-        if n in defn.name_mapping_profiles:
+        if n in (getattr(defn, attr, []) or []):    # default [] per robustezza (Sourcery)
             out.append(defn.name)
     return out
 

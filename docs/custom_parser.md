@@ -165,10 +165,16 @@ validazione (gli ID azzerati mancano) — è una combinazione incoerente e non d
 una scommessa su ID che contraddicono la frase. In **BOTH** la coppia a nome basta, quindi
 la riga resta valida senza ID stantii.
 
-**GUI**: l'area **🎯 Mercati** della scheda **Mapping** è predisposta ma ancora **vuota**;
-il selettore dei profili mercati nel Parser Personalizzato arriva nel passo 3 (vedi
-`docs/audit/mercati_mapping_design.md` §6-§7). Il modello (`market_mapping_profiles`), lo
-store e l'aggancio runtime/anteprima sono già attivi.
+**GUI**: l'area **🎯 Mercati** della scheda **Mapping** (`MarketMappingPanel`) è ora
+**funzionante**: selettore profilo (nuovo/rinomina/elimina) + tabella `Frase provider |
+Mercato (catalogo ▾) | Selezione (catalogo ▾)`, dove Mercato/Selezione si scelgono dai menù
+del Catalogo XTrader (la Selezione dipende dal Mercato) e `MarketType` è derivato dal
+Catalogo. I profili persistono in `config.json` → `market_mappings`. Rinominare/eliminare un
+profilo aggiorna/avvisa i parser che lo selezionano
+(`rename_market_mapping_profile_in_files` / `parsers_using_market_mapping_profile`). Il
+**selettore dei profili mercati dentro il Parser Personalizzato** (checkbox come per i nomi)
+arriva nel passo successivo (vedi `docs/audit/mercati_mapping_design.md` §6-§7). Il modello
+(`market_mapping_profiles`), lo store e l'aggancio runtime/anteprima sono già attivi.
 
 ---
 

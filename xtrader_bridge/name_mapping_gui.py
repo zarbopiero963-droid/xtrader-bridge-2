@@ -19,7 +19,14 @@ coperta da `tests/unit/test_name_mapping.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import config_store, custom_parser, gui_utils, name_mapping_store
+from . import (
+    config_store,
+    custom_parser,
+    dizionario,
+    gui_utils,
+    market_mapping_store,
+    name_mapping_store,
+)
 
 
 class NameMappingPanel(ctk.CTkFrame):
@@ -321,7 +328,9 @@ class NameMappingPanel(ctk.CTkFrame):
         except Exception:                        # noqa: BLE001 — l'avviso è best-effort
             affected = []
         cfg = name_mapping_store.delete_profile(cfg, name)
-        self._current = None
+        # NON azzerare `_current` prima del salvataggio: su fallimento `_persist` non ricarica
+        # e la UI mostrerebbe "nessun profilo" col profilo ancora su disco (desync, Sourcery).
+        # Su successo è `_reload_profiles` a portarlo a None; su fallimento resta coerente.
         ok = self._persist(cfg, ok_msg=f"🗑 Profilo «{name}» eliminato.",
                            fail_msg=f"❌ Salvataggio FALLITO: «{name}» non eliminato.")
         if ok and affected:
@@ -332,16 +341,345 @@ class NameMappingPanel(ctk.CTkFrame):
                 text_color="#ffa726")
 
 
+class MarketMappingPanel(ctk.CTkFrame):
+    """Pannello del Dizionario MERCATI (area "🎯 Mercati" del Mapping) — incassabile come
+    area della scheda "Mapping" della finestra "🧰 Strumenti".
+
+    Gestisce profili (`market_mapping_store`, config ``market_mappings``) di regole
+    ``frase provider → Mercato/Selezione XTrader``: ogni riga è ``Frase | Mercato ▾ |
+    Selezione ▾``, con Mercato/Selezione scelti dai menù del **Catalogo XTrader** (la
+    Selezione dipende dal Mercato), così il valore scritto nel CSV è sempre **canonico**.
+    I profili si selezionano poi nel Parser Personalizzato (passo successivo) per tradurre
+    una frase-mercato del canale nel mercato XTrader.
+
+    Tutta la logica pura sta in `market_mapping_store`/`dizionario` (testate in CI); qui
+    SOLO widget + persistenza (`config_store.save_config`). Non testato in CI (display).
+
+    `on_saved(new_cfg)`: callback opzionale dopo ogni salvataggio riuscito (la GUI
+    principale aggiorna la config in memoria — pattern anti-stale)."""
+
+    _NO_PROFILE = "(nessun profilo)"
+
+    def __init__(self, master=None, on_saved=None):
+        super().__init__(master)
+        self._on_saved = on_saved
+        self._current = None
+        self._row_widgets = []           # [{frame, phrase, market, market_menu, selection, selection_menu}, ...]
+        # Mercati FISSI del Catalogo (esclusi i dinamici con placeholder squadra), come nel
+        # Parser Personalizzato: sono gli unici valori-mercato sicuri da scrivere.
+        self._markets = dizionario.market_names(fixed_only=True)
+        self._build_ui()
+        self._reload_profiles(select_first=True)
+
+    def refresh(self):
+        """Ricarica profili e righe dei mercati dalla config su disco (anti-stale)."""
+        self._reload_profiles(select_first=True)
+
+    @staticmethod
+    def _selections_for(market: str) -> list:
+        """SelectionName **non dinamici** del mercato dato (per la tendina Selezione)."""
+        if not market:
+            return []
+        return [s["SelectionName"] for s in dizionario.selections_for_market(market)
+                if not s.get("dynamic") and s.get("SelectionName")]
+
+    # ── costruzione UI ─────────────────────────────────────────────────────
+    def _build_ui(self):
+        ctk.CTkLabel(
+            self, text="🎯  Dizionario mercati (a frase)",
+            font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
+        ctk.CTkLabel(
+            self, text="Traduce una frase-mercato del canale (es. «goal prima di 70») nel "
+                       "Mercato/Selezione XTrader scelti dal Catalogo. Seleziona i profili nel "
+                       "Parser Personalizzato.",
+            font=ctk.CTkFont(size=11), text_color="gray", wraplength=720,
+            anchor="w", justify="left").pack(anchor="w", padx=12, pady=(0, 6))
+
+        prof = ctk.CTkFrame(self, fg_color="transparent")
+        prof.pack(fill="x", padx=12, pady=(0, 6))
+        ctk.CTkLabel(prof, text="Profilo:").pack(side="left", padx=(6, 4))
+        self._profile_var = ctk.StringVar(value=self._NO_PROFILE)
+        self._profile_menu = ctk.CTkOptionMenu(
+            prof, variable=self._profile_var, values=[self._NO_PROFILE], width=220,
+            command=self._on_profile_change)
+        self._profile_menu.pack(side="left", padx=4)
+        ctk.CTkButton(prof, text="🆕 Nuovo", width=84, command=self._new_profile).pack(side="left", padx=3)
+        ctk.CTkButton(prof, text="✏️ Rinomina", width=96, command=self._rename_profile).pack(side="left", padx=3)
+        ctk.CTkButton(prof, text="🗑 Elimina", width=90, fg_color="#7f0000",
+                      hover_color="#5a0000", command=self._delete_profile).pack(side="left", padx=3)
+
+        head = ctk.CTkFrame(self, fg_color="transparent")
+        head.pack(fill="x", padx=12, pady=(4, 0))
+        for text, w in (("Frase provider", 240), ("Mercato (catalogo)", 240),
+                        ("Selezione (catalogo)", 240)):
+            ctk.CTkLabel(head, text=text, width=w, anchor="w",
+                         font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
+
+        self._rows_frame = ctk.CTkScrollableFrame(self, height=360, label_text="Righe del profilo")
+        self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
+
+        actions = ctk.CTkFrame(self, fg_color="transparent")
+        actions.pack(fill="x", padx=12, pady=(0, 4))
+        ctk.CTkButton(actions, text="➕ Aggiungi riga", width=140,
+                      command=self._add_row).pack(side="left", padx=3)
+        ctk.CTkButton(actions, text="💾 Salva profilo", width=140, fg_color="#2e7d32",
+                      hover_color="#1b5e20", command=self._save).pack(side="left", padx=3)
+
+        self._status = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=11),
+                                    text_color="gray", wraplength=720, anchor="w", justify="left")
+        self._status.pack(fill="x", padx=12, pady=(0, 10))
+
+    # ── stato/config ─────────────────────────────────────────────────────────
+    def _load_cfg(self):
+        try:
+            return config_store.load_config(config_store.CONFIG_FILE)
+        except Exception as exc:                 # noqa: BLE001 — fallback con messaggio
+            self._status.configure(text=f"❌ Config illeggibile: {exc}", text_color="#ef5350")
+            return None
+
+    def _reload_profiles(self, select=None, select_first=False):
+        cfg = self._load_cfg()
+        names = market_mapping_store.profile_names(cfg) if cfg is not None else []
+        self._profile_menu.configure(values=names or [self._NO_PROFILE])
+        if select and select in names:
+            target = select
+        elif self._current in names:
+            target = self._current
+        elif select_first and names:
+            target = names[0]
+        else:
+            target = None
+        self._current = target
+        self._profile_var.set(target or self._NO_PROFILE)
+        self._reload_rows()
+
+    def _reload_rows(self):
+        for child in self._rows_frame.winfo_children():
+            child.destroy()
+        self._row_widgets = []
+        if not self._current:
+            ctk.CTkLabel(self._rows_frame, text="Nessun profilo. Crea un profilo con «Nuovo».",
+                         text_color="gray").pack(anchor="w", padx=6, pady=4)
+            return
+        cfg = self._load_cfg()
+        entries = market_mapping_store.get_entries(cfg, self._current) if cfg is not None else []
+        for e in entries:
+            self._append_row_widget(e.get("phrase", ""), e.get("market_name", ""),
+                                    e.get("selection_name", ""))
+        if not entries:
+            self._append_row_widget("", "", "")
+
+    def _append_row_widget(self, phrase="", market="", selection=""):
+        """Aggiunge una riga: Frase (Entry) + Mercato (menu catalogo) + Selezione (menu
+        dipendente dal Mercato) + elimina."""
+        row = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
+        row.pack(fill="x", pady=2)
+        e_phrase = ctk.CTkEntry(row, width=240)
+        e_phrase.insert(0, phrase)
+        e_phrase.pack(side="left", padx=3)
+
+        # Mercato VUOTO di default su una riga nuova: l'utente deve sceglierlo esplicitamente.
+        # Un mercato preselezionato a caso rischierebbe di salvare la frase sul mercato
+        # SBAGLIATO (= scommessa sbagliata); una riga senza mercato è poi scartata da
+        # `set_entries` (incompleta), quindi non si crea mai una mappatura involontaria (Sourcery).
+        market_var = ctk.StringVar(value=market or "")
+        market_menu = ctk.CTkOptionMenu(row, variable=market_var, width=240,
+                                        values=["", *self._markets])
+        market_menu.pack(side="left", padx=3)
+
+        sels = self._selections_for(market_var.get())
+        selection_var = ctk.StringVar(value=selection or (sels[0] if sels else ""))
+        selection_menu = ctk.CTkOptionMenu(row, variable=selection_var, width=240,
+                                           values=sels or [""])
+        selection_menu.pack(side="left", padx=3)
+        # Una selezione salvata ma non più nel mercato (catalogo cambiato): preservala come
+        # opzione così non si perde silenziosamente scegliendo il primo valore.
+        if selection and selection not in (sels or []):
+            selection_menu.configure(values=[*(sels or []), selection])
+
+        refs = {"frame": row, "phrase": e_phrase, "market": market_var,
+                "market_menu": market_menu, "selection": selection_var,
+                "selection_menu": selection_menu}
+        market_menu.configure(command=lambda _v, r=refs: self._on_row_market_change(r))
+        ctk.CTkButton(row, text="🗑", width=36, fg_color="#c62828", hover_color="#7f0000",
+                      command=lambda r=refs: self._delete_row(r)).pack(side="left", padx=3)
+        self._row_widgets.append(refs)
+
+    def _on_row_market_change(self, refs):
+        """Mercato di una riga cambiato → ripopola la sua Selezione (solo non dinamiche) e
+        seleziona la prima: la Selezione deve sempre appartenere al Mercato (coerenza)."""
+        sels = self._selections_for(refs["market"].get())
+        refs["selection_menu"].configure(values=sels or [""])
+        refs["selection"].set(sels[0] if sels else "")
+
+    def _collect_rows(self) -> list:
+        """Righe correnti dai widget come voci ``{phrase, market_type, market_name,
+        selection_name}``. ``market_type`` derivato dal Catalogo (D4); la pulizia delle
+        righe incomplete la fa `market_mapping_store.set_entries`."""
+        out = []
+        for r in self._row_widgets:
+            market = r["market"].get()
+            out.append({
+                "phrase": r["phrase"].get(),
+                "market_type": dizionario.market_type_for_name(market) or "",
+                "market_name": market,
+                "selection_name": r["selection"].get(),
+            })
+        return out
+
+    # ── azioni righe ─────────────────────────────────────────────────────────
+    def _add_row(self):
+        if not self._current:
+            self._status.configure(text="⛔ Crea prima un profilo con «Nuovo».",
+                                   text_color="#ef5350")
+            return
+        self._append_row_widget("", "", "")
+
+    def _delete_row(self, refs):
+        refs["frame"].destroy()
+        self._row_widgets = [r for r in self._row_widgets if r is not refs]
+
+    # ── azioni profilo (persistono subito) ───────────────────────────────────
+    def _persist(self, cfg: dict, ok_msg: str, fail_msg: str, select=None) -> bool:
+        saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
+        if ok:
+            if callable(self._on_saved):
+                self._on_saved(saved)
+            self._reload_profiles(select=select)
+        self._status.configure(text=ok_msg if ok else fail_msg,
+                               text_color="#66bb6a" if ok else "#ef5350")
+        return ok
+
+    def _save(self):
+        if not self._current:
+            self._status.configure(text="⛔ Nessun profilo selezionato.", text_color="#ef5350")
+            return
+        cfg = self._load_cfg()
+        if cfg is None:
+            return
+        cfg = market_mapping_store.set_entries(cfg, self._current, self._collect_rows())
+        n = len(market_mapping_store.get_entries(cfg, self._current))
+        self._persist(
+            cfg,
+            ok_msg=f"💾 Profilo «{self._current}» salvato ({n} regole valide).",
+            fail_msg=f"❌ Salvataggio FALLITO: «{self._current}» non salvato (andrebbe perso al "
+                     "riavvio). Controlla permessi/spazio del file config.",
+            select=self._current)
+
+    def _on_profile_change(self, value):
+        new = value if value != self._NO_PROFILE else None
+        if new == self._current:
+            return
+        if self._current:                          # auto-salva il profilo che stai lasciando
+            cfg = self._load_cfg()
+            if cfg is not None:
+                cfg = market_mapping_store.set_entries(cfg, self._current, self._collect_rows())
+                saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
+                if not ok:
+                    self._profile_var.set(self._current)
+                    self._status.configure(
+                        text="❌ Salvataggio FALLITO: cambio profilo annullato, modifiche "
+                             "mantenute a schermo. Controlla permessi/spazio del file config.",
+                        text_color="#ef5350")
+                    return
+                if callable(self._on_saved):
+                    self._on_saved(saved)
+        self._current = new
+        self._profile_var.set(new or self._NO_PROFILE)
+        self._reload_rows()
+
+    def _new_profile(self):
+        dialog = ctk.CTkInputDialog(text="Nome del nuovo profilo mercati:", title="Nuovo profilo")
+        name = (dialog.get_input() or "").strip()
+        if not name:
+            self._status.configure(text="⛔ Profilo non creato (nome vuoto).", text_color="#ef5350")
+            return
+        cfg = self._load_cfg()
+        if cfg is None:
+            return
+        if name in market_mapping_store.profile_names(cfg):
+            self._status.configure(text=f"ℹ️ Il profilo «{name}» esiste già.", text_color="gray")
+            return
+        if self._current:
+            cfg = market_mapping_store.set_entries(cfg, self._current, self._collect_rows())
+        cfg = market_mapping_store.add_profile(cfg, name)
+        self._persist(cfg, ok_msg=f"🆕 Profilo «{name}» creato.",
+                      fail_msg=f"❌ Salvataggio FALLITO: «{name}» non creato.", select=name)
+
+    def _rename_profile(self):
+        if not self._current:
+            self._status.configure(text="⛔ Nessun profilo selezionato.", text_color="#ef5350")
+            return
+        dialog = ctk.CTkInputDialog(text=f"Nuovo nome per «{self._current}»:", title="Rinomina profilo")
+        new = (dialog.get_input() or "").strip()
+        if not new:
+            self._status.configure(text="⛔ Rinomina annullata (nome vuoto).", text_color="#ef5350")
+            return
+        cfg = self._load_cfg()
+        if cfg is None:
+            return
+        if new in market_mapping_store.profile_names(cfg):
+            self._status.configure(text=f"ℹ️ Il profilo «{new}» esiste già.", text_color="gray")
+            return
+        old = self._current
+        cfg = market_mapping_store.set_entries(cfg, old, self._collect_rows())
+        cfg = market_mapping_store.rename_profile(cfg, old, new)
+        ok = self._persist(cfg, ok_msg=f"✏️ Profilo rinominato «{old}» → «{new}».",
+                           fail_msg="❌ Salvataggio FALLITO: rinomina non applicata.", select=new)
+        if ok:
+            # Aggiorna i parser salvati che selezionano il vecchio nome, così non restano a
+            # chiedere un profilo inesistente (→ MARKET_MAPPING_MISSING silenzioso).
+            try:
+                updated, failed = custom_parser.rename_market_mapping_profile_in_files(old, new)
+            except Exception:                    # noqa: BLE001 — il rename del profilo resta valido
+                updated, failed = [], []
+            if failed:
+                self._status.configure(
+                    text=f"⚠️ Profilo rinominato «{old}» → «{new}», ma {len(failed)} parser "
+                         f"NON aggiornati ({', '.join(failed)}): correggili a mano o quei "
+                         "segnali verranno scartati (MARKET_MAPPING_MISSING).",
+                    text_color="#ffa726")
+            elif updated:
+                self._status.configure(
+                    text=f"✏️ Profilo rinominato «{old}» → «{new}» · {len(updated)} parser aggiornati.",
+                    text_color="#66bb6a")
+
+    def _delete_profile(self):
+        if not self._current:
+            self._status.configure(text="⛔ Nessun profilo selezionato.", text_color="#ef5350")
+            return
+        cfg = self._load_cfg()
+        if cfg is None:
+            return
+        name = self._current
+        try:
+            affected = custom_parser.parsers_using_market_mapping_profile(name)
+        except Exception:                        # noqa: BLE001 — l'avviso è best-effort
+            affected = []
+        cfg = market_mapping_store.delete_profile(cfg, name)
+        # NON azzerare `_current` prima del salvataggio: se `_persist` fallisce non ricarica,
+        # e la UI mostrerebbe "nessun profilo" mentre il profilo è ancora su disco (desync,
+        # Sourcery). Su successo è `_reload_profiles` a portarlo a None (il profilo non c'è
+        # più); su fallimento resta selezionato il profilo tuttora esistente (coerente).
+        ok = self._persist(cfg, ok_msg=f"🗑 Profilo «{name}» eliminato.",
+                           fail_msg=f"❌ Salvataggio FALLITO: «{name}» non eliminato.")
+        if ok and affected:
+            self._status.configure(
+                text=f"⚠️ «{name}» eliminato, ma è ancora selezionato in {len(affected)} parser "
+                     f"({', '.join(affected)}): quei segnali verranno scartati "
+                     "(MARKET_MAPPING_MISSING) finché non togli il profilo da quei parser.",
+                text_color="#ffa726")
+
+
 class MappingPanel(ctk.CTkFrame):
     """Scheda "Mapping" della finestra "🧰 Strumenti": raccoglie i dizionari di
     traduzione provider → XTrader in DUE aree (sotto-schede):
 
-    - **⚽ Calcio**: nomi squadre/campionati (`NameMappingPanel`, già funzionante);
-    - **🎯 Mercati**: traduzione frase-mercato → mercato/selezione XTrader. Area
-      PREDISPOSTA ma ancora vuota: la logica di riconoscimento mercati (a frase) è una
-      fase a sé (vedi `docs/audit/roadmap.md`, FASE 2) perché tocca CSV → scommessa.
+    - **⚽ Calcio**: nomi squadre/campionati (`NameMappingPanel`);
+    - **🎯 Mercati**: traduzione frase-mercato → mercato/selezione XTrader
+      (`MarketMappingPanel`, config ``market_mappings``).
 
-    `on_saved(new_cfg)`: inoltrata all'area Calcio (il dizionario nomi persiste su config)."""
+    `on_saved(new_cfg)`: inoltrata a entrambe le aree (i dizionari persistono su config)."""
 
     def __init__(self, master=None, on_saved=None):
         super().__init__(master)
@@ -353,19 +691,14 @@ class MappingPanel(ctk.CTkFrame):
         self._calcio.pack(fill="both", expand=True)
 
         mercati = self._tabs.add("🎯 Mercati")
-        ctk.CTkLabel(
-            mercati,
-            text="🎯 Mappatura Mercati — in arrivo.\n\n"
-                 "Qui potrai definire regole frase → mercato/selezione XTrader\n"
-                 "(es. «goal prima di 70» ⇒ Over 2.5), scelti dal Catalogo XTrader\n"
-                 "come nel Parser Personalizzato. È una fase a sé perché incide\n"
-                 "sul CSV (scommessa): vedi la roadmap.",
-            justify="left", anchor="w", text_color="gray").pack(padx=16, pady=16, anchor="w")
+        self._mercati = MarketMappingPanel(mercati, on_saved=on_saved)
+        self._mercati.pack(fill="both", expand=True)
 
     def refresh(self):
-        """Ricarica l'area Calcio (dizionario nomi) dalla config su disco. L'area Mercati
-        è un placeholder senza stato, niente da ricaricare."""
+        """Ricarica entrambe le aree (dizionari nomi e mercati) dalla config su disco
+        (anti-stale: un profilo applicato altrove non deve restare stantio qui)."""
         self._calcio.refresh()
+        self._mercati.refresh()
 
 
 class NameMappingWindow(ctk.CTkToplevel):
