@@ -12,6 +12,7 @@ on:
     paths:
       - "requirements.in"
       - "requirements-build.in"
+      - "requirements-build.lock"
       - ".github/workflows/generate-lockfile.yaml"
 
 permissions:
@@ -24,6 +25,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          # Job di sola lettura (legge i .in, carica il lock): non serve il GITHUB_TOKEN
+          # nel git config del worktree → difesa-in-profondità (chiude il finding zizmor
+          # `artipacked`). NB: NON disabilitarlo in build.yaml, dove la release usa il token.
+          persist-credentials: false
 
       - name: Set up Python 3.11
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
@@ -32,14 +38,33 @@ jobs:
           cache: "pip"
 
       - name: Upgrade pip and install pip-tools
+        # Pin del generatore per output deterministico: il formato del lock e la
+        # risoluzione dipendono da pip-tools (e da pip). Senza pin, rigenerare dagli
+        # stessi `.in` con un pip-tools più nuovo potrebbe cambiare l'output. Si pinna al
+        # MAJOR stabile corrente (7.x); aggiorna il pin quando validi una nuova major.
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pip-tools
+          python -m pip install --upgrade "pip>=24,<26"
+          python -m pip install "pip-tools==7.*"
+
+      - name: Validate COMMITTED lockfile install (se presente)
+        # Una PR che committa SOLO `requirements-build.lock` (il passo "scarica artifact e
+        # committa") deve essere validata su Windows PRIMA del merge: `build.yaml` gira solo
+        # su push a main/tag, quindi senza questo step un lock malformato romperebbe la
+        # release dopo il merge. Qui si valida il lock COMMITTATO così com'è, prima di
+        # rigenerarlo sotto (Codex). Se il lock non c'è ancora, si salta.
+        shell: pwsh
+        run: |
+          if (Test-Path "requirements-build.lock") {
+            Write-Host "Valido il lockfile committato con --require-hashes."
+            python -m pip install --require-hashes -r requirements-build.lock
+          } else {
+            Write-Host "requirements-build.lock non ancora committato: validazione saltata (verra' generato sotto)."
+          }
 
       - name: Generate hashed Windows build lockfile
         run: pip-compile --generate-hashes --output-file requirements-build.lock requirements-build.in
 
-      - name: Validate hashed lockfile install
+      - name: Validate REGENERATED lockfile install
         run: python -m pip install --require-hashes -r requirements-build.lock
 
       - name: Upload generated lockfile
