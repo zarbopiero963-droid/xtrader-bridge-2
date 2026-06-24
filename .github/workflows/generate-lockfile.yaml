@@ -30,12 +30,31 @@ jobs:
           # nel git config del worktree → difesa-in-profondità (chiude il finding zizmor
           # `artipacked`). NB: NON disabilitarlo in build.yaml, dove la release usa il token.
           persist-credentials: false
+          # Storia completa: serve a confrontare col commit base (guard anti-eliminazione).
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.11"
           cache: "pip"
+
+      - name: Rifiuta l'ELIMINAZIONE del lock una volta adottato
+        # Se `requirements-build.lock` esiste sul branch base (è "adottato") ma è ASSENTE in
+        # questa PR, è stato eliminato: il check anti-stantio sotto NON lo intercetta (pip-compile
+        # lo ricrea come untracked e `git diff --exit-code` esce 0 sui file non tracciati, Codex).
+        # Senza questo guard la PR mergerebbe senza lock e `build.yaml` tornerebbe all'install
+        # legacy non bloccato. Su workflow_dispatch non c'è base PR → si salta.
+        shell: pwsh
+        run: |
+          $base = "${{ github.event.pull_request.base.sha }}"
+          if ($base) {
+            git cat-file -e "${base}:requirements-build.lock" 2>$null
+            if (($LASTEXITCODE -eq 0) -and -not (Test-Path "requirements-build.lock")) {
+              Write-Error "requirements-build.lock è adottato sul branch base ma ASSENTE in questa PR: non eliminarlo (la build perderebbe il lock e tornerebbe all'install legacy non bloccato)."
+              exit 1
+            }
+          }
 
       - name: Install pip-tools (versione ESATTA per output deterministico)
         # Pin ESATTO del generatore: lo stesso `.in` deve produrre lo stesso lock. Una
@@ -63,15 +82,19 @@ jobs:
             exit 1
           }
 
-      - name: Valida il lock in un venv PULITO (--require-hashes)
-        # Validazione in un venv NUOVO, isolato da pip-tools e dalle sue transitive: così un
-        # lock che ometta una dipendenza già presente nell'ambiente non passa qui per poi
-        # fallire nell'install "pulito" di build.yaml. Vale sia per il lock committato (dopo
-        # il check anti-stantio è identico al rigenerato) sia per il primo lock (Codex).
+      - name: Valida ed ESERCITA il lock in un venv PULITO
+        # 1) Install in un venv NUOVO, isolato da pip-tools e dalle sue transitive: così un
+        #    lock che ometta una dipendenza già presente nell'ambiente non passa qui per poi
+        #    fallire nell'install "pulito" di build.yaml (Codex).
+        # 2) ESERCITA il set bloccato eseguendo i test (come build.yaml): per i PR che toccano
+        #    i `.in`/lock, intercetta un eventuale "API drift" di una dipendenza pinnata PRIMA
+        #    del merge, invece di scoprirlo solo nella build di release post-merge (Codex).
+        #    (Copertura completa su OGNI PR = job Windows separato: follow-up, vedi thread.)
         shell: pwsh
         run: |
           python -m venv .lockcheck
           & ".lockcheck\Scripts\python.exe" -m pip install --require-hashes -r requirements-build.lock
+          & ".lockcheck\Scripts\python.exe" -m pytest -m "not manual" -q
 
       - name: Upload generated lockfile
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
