@@ -172,7 +172,14 @@ nomi squadra, così al parsing si traducono **sia** i nomi **sia** i mercati.
      su Windows.
    - **3b (DA FARE)** — selettore dei **profili mercati dentro il Parser Personalizzato**
      (checkbox multi-selezione come per i nomi) + anteprima «Prova messaggio» che risolve i
-     profili mercati dalla config.
+     profili mercati dalla config. **Deve includere** lo stesso meccanismo dei nomi:
+     profili **⚠ fantasma** (selezionati ma non più esistenti in config) che **bloccano il
+     salvataggio** del parser (`_unresolved_selected`) e refresh delle checkbox su
+     `refresh_options`. Questo chiude il rilievo **Codex P2** della PR 3a: dopo un rename/
+     delete di un profilo mercati, un `CustomParserPanel` aperto che teneva il vecchio nome
+     in `builder.market_mapping_profiles` non deve riscriverlo stantio (→
+     `MARKET_MAPPING_MISSING`). In 3a il path è raggiungibile solo via JSON editato a mano
+     (nessun selettore mercati nel parser), quindi il fix completo vive qui in 3b.
 
 Ogni passo: Phase 0, micro-audit, test hard veritieri, una PR, merge manuale.
 
