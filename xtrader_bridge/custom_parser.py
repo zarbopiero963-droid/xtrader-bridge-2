@@ -147,6 +147,11 @@ class CustomParserDef:
     # nei messaggi del canale (testo libero: "v"/"vs"/"-"/"/"); vuoto = default "v".
     name_mapping_profiles: "list[str]" = field(default_factory=list)
     team_separator: str = ""
+    # Mappatura mercati a frase (market_mapping_store, FASE 2): profili selezionati per
+    # tradurre una frase-mercato del provider ("goal prima di 70") nel Mercato/Selezione
+    # XTrader canonici. Vuoto = nessuna mappatura mercati (colonne MarketName/SelectionName
+    # restano quelle delle regole, retro-compatibile). Vedi docs/audit/mercati_mapping_design.md.
+    market_mapping_profiles: "list[str]" = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -156,6 +161,7 @@ class CustomParserDef:
             "mode": self.mode,
             "name_mapping_profiles": list(self.name_mapping_profiles),
             "team_separator": self.team_separator,
+            "market_mapping_profiles": list(self.market_mapping_profiles),
             "rules": [r.to_dict() for r in self.rules],
         }
 
@@ -180,12 +186,19 @@ class CustomParserDef:
         if not isinstance(raw_profiles, list):
             raw_profiles = []
         profiles = [str(p).strip() for p in raw_profiles if str(p or "").strip()]
+        # Profili mappatura mercati: stessa pulizia dei nomi (chiave assente/malformata →
+        # nessun profilo = nessuna mappatura mercati, retro-compatibile con file pre-FASE 2).
+        raw_market = data.get("market_mapping_profiles", [])
+        if not isinstance(raw_market, list):
+            raw_market = []
+        market_profiles = [str(p).strip() for p in raw_market if str(p or "").strip()]
         return cls(
             name=str(data.get("name", "")),
             description=str(data.get("description", "")),
             version=version,
             name_mapping_profiles=profiles,
             team_separator=str(data.get("team_separator", "") or ""),
+            market_mapping_profiles=market_profiles,
             # Modalità: SOLO la chiave assente/null (file legacy pre-feature) → "" =
             # eredita il globale. Un `mode` ESPLICITO valido è tenuto; `""` esplicito è
             # l'eredità scelta dalla GUI; un valore malformato (typo, file corrotto) →

@@ -122,13 +122,53 @@ retro-compatibile).
 **GUI**: i profili si gestiscono nella scheda **Mapping** della finestra «🧰 Strumenti»
 (pulsante «🗺️ Mapping» nella finestra principale → `name_mapping_gui.MappingPanel`),
 **area ⚽ Calcio** (`NameMappingPanel`): selettore profilo (nuovo/rinomina/elimina) e
-tabella `Country | Betfair/XTrader | Provider`. L'area **🎯 Mercati** è predisposta ma
-vuota (riconoscimento mercati a frase: vedi `docs/audit/roadmap.md`, FASE 2). La classe
+tabella `Country | Betfair/XTrader | Provider`. La classe
 `NameMappingWindow` resta come finestra standalone (compatibilità). Nel **Parser
 Personalizzato** scegli
 il **separatore** squadre e spunti i **profili** da usare (checkbox multi-selezione);
 «Prova messaggio» risolve i profili dalla config e mostra l'`EventName` tradotto (o
 `MAPPING_MISSING` se non mappabile), coerente col runtime.
+
+### Mappatura mercati a frase (`market_mapping_profiles`)
+
+Alcuni canali scrivono il **mercato a parole** ("goal prima di 70") invece che in un
+campo strutturato. I **profili di mappatura mercati** (`market_mapping_store`, config
+`market_mappings`) traducono una **frase del provider** nel **Mercato + Selezione
+XTrader** canonici (gli stessi del Catalogo già usati nel builder):
+
+- ogni **voce** è `frase → (MarketType, MarketName, SelectionName)`; mercato e selezione
+  **non** sono testo libero, vanno scelti dal Catalogo XTrader, così il valore scritto nel
+  CSV è sempre canonico (no typo, no mercato inesistente);
+- il parser seleziona uno o più profili (`market_mapping_profiles`); al parsing la frase
+  si cerca nel **messaggio grezzo** (case-insensitive, su confini di parola: "over" non
+  combacia dentro "overflow", "x" non dentro "1/x");
+- **precedenza (D1): il dizionario VINCE.** Se una frase combacia in modo univoco, imposta
+  `MarketType`/`MarketName`/`SelectionName` **sovrascrivendo** quelli eventualmente estratti
+  dalle regole-colonna. Se **nessuna** frase combacia, restano i valori delle regole-colonna.
+
+**Sicuro (fail-closed)**: match **ambiguo** (più frasi → mercati diversi) → stato
+`MARKET_MAPPING_MISSING`, **nessuna riga CSV** (un mercato sbagliato = scommessa
+sbagliata). Se nessuna frase combacia **e** le regole-colonna non hanno prodotto un
+mercato per la modalità di riconoscimento → ancora `MARKET_MAPPING_MISSING` (mai un
+mercato inventato). Una voce con coppia Mercato/Selezione **non nel Catalogo** viene
+ignorata (mai scritta); una valida ma non-canonica (case/spazi, `market_type` stantio) è
+riportata ai valori canonici del catalogo. Un parser **senza profili mercati** non applica
+alcuna mappatura (colonne invariate, retro-compatibile).
+
+La mappatura mercati è **basata sui nomi** (imposta `MarketType`/`MarketName`/
+`SelectionName`; il Catalogo non ha gli ID). Per evitare una riga con **identificatori
+contraddittori**, quando il dizionario vince la coppia `MarketId`/`SelectionId`
+eventualmente estratta dalle regole-colonna viene **azzerata**: il mercato della riga è
+univocamente la tupla a nome del dizionario. Conseguenza voluta: un parser in modalità
+**ID_ONLY** che usa anche la mappatura mercati a frase, al match, fa **fail-closed** in
+validazione (gli ID azzerati mancano) — è una combinazione incoerente e non deve produrre
+una scommessa su ID che contraddicono la frase. In **BOTH** la coppia a nome basta, quindi
+la riga resta valida senza ID stantii.
+
+**GUI**: l'area **🎯 Mercati** della scheda **Mapping** è predisposta ma ancora **vuota**;
+il selettore dei profili mercati nel Parser Personalizzato arriva nel passo 3 (vedi
+`docs/audit/mercati_mapping_design.md` §6-§7). Il modello (`market_mapping_profiles`), lo
+store e l'aggancio runtime/anteprima sono già attivi.
 
 ---
 

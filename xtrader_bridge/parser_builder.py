@@ -32,6 +32,9 @@ class ParserBuilder:
             # mappatura in silenzio (live scriverebbe l'EventName provider grezzo).
             self.name_mapping_profiles = []
             self.team_separator = ""
+            # Mappatura mercati a frase (market_mapping_store): preservata nel round-trip
+            # del builder come i profili nomi, così load+save/duplica non l'azzera in silenzio.
+            self.market_mapping_profiles = []
         else:
             self.name = defn.name
             self.description = defn.description
@@ -45,6 +48,7 @@ class ParserBuilder:
             # def costruite prima dei campi.
             self.name_mapping_profiles = list(getattr(defn, "name_mapping_profiles", []) or [])
             self.team_separator = getattr(defn, "team_separator", "") or ""
+            self.market_mapping_profiles = list(getattr(defn, "market_mapping_profiles", []) or [])
 
     # ── opzioni per i menu a tendina della GUI ─────────────────────────────
     def target_options(self) -> list:
@@ -147,7 +151,9 @@ class ParserBuilder:
         return CustomParserDef(
             name=self.name, description=self.description, mode=self.mode,
             name_mapping_profiles=list(self.name_mapping_profiles),
-            team_separator=self.team_separator, rules=list(self.rules))
+            team_separator=self.team_separator,
+            market_mapping_profiles=list(self.market_mapping_profiles),
+            rules=list(self.rules))
 
     # ── Modalità di riconoscimento (per-parser) ────────────────────────────
     def set_mode(self, mode: str) -> None:
@@ -241,7 +247,7 @@ class ParserBuilder:
     # ── test-live ────────────────────────────────────────────────────────────
     def test_message(self, message: str, *, provider: str = "",
                      mode: str = None, require_price: bool = None,
-                     name_mapping_profiles=None):
+                     name_mapping_profiles=None, market_mapping_profiles=None):
         """Applica il parser corrente a un messaggio e ritorna il `PipelineResult`
         (status + riga + piazzabilità), per l'anteprima del costruttore. La modalità
         usata è quella DEL PARSER (`self.mode`) salvo override esplicito.
@@ -252,11 +258,15 @@ class ParserBuilder:
 
         `name_mapping_profiles` (righe dei profili risolte da config) è inoltrato al
         pipeline: se il parser usa la mappatura nomi, l'anteprima traduce l'EventName
-        come il runtime (o fa fail-closed con MAPPING_MISSING)."""
+        come il runtime (o fa fail-closed con MAPPING_MISSING). `market_mapping_profiles`
+        (voci dei profili mercati risolte da config) è inoltrato allo stesso modo: se il
+        parser usa la mappatura mercati, l'anteprima imposta Mercato/Selezione come il
+        runtime (o fa fail-closed con MARKET_MAPPING_MISSING)."""
         defn = self.to_def()
         if require_price is None:
             require_price = defn.price_required()
         return build_validated_row(defn, message, provider=provider,
                                    mode=self.mode if mode is None else mode,
                                    require_price=require_price,
-                                   name_mapping_profiles=name_mapping_profiles)
+                                   name_mapping_profiles=name_mapping_profiles,
+                                   market_mapping_profiles=market_mapping_profiles)

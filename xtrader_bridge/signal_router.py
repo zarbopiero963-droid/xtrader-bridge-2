@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from . import (
     custom_parser_engine,
     custom_pipeline,
+    market_mapping_store,
     name_mapping_store,
     parser_manager,
     recognition,
@@ -229,9 +230,17 @@ def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str =
         name_mapping_profiles = (
             name_mapping_store.entries_for_profiles(cfg, defn.name_mapping_profiles)
             if defn.name_mapping_profiles else None)
+        # Mappatura mercati a frase (FASE 2): se il parser seleziona dei profili mercati,
+        # risolvi le loro voci da config e passale al pipeline, che imposterà Mercato/
+        # Selezione canonici (D1 dizionario vince) o scarterà con MARKET_MAPPING_MISSING.
+        # Nessun profilo → None → colonne mercato invariate (retro-compatibile).
+        market_mapping_profiles = (
+            market_mapping_store.entries_for_profiles(cfg, defn.market_mapping_profiles)
+            if defn.market_mapping_profiles else None)
         res = custom_pipeline.build_validated_row(
             defn, text, provider=provider, mode=mode, require_price=require_price,
-            name_mapping_profiles=name_mapping_profiles)
+            name_mapping_profiles=name_mapping_profiles,
+            market_mapping_profiles=market_mapping_profiles)
         if not res.placeable:
             return RouteResult(None, res.status, CUSTOM, res.detail, list(res.missing_required))
         # Gate di contenuto: la riga è piazzabile, ma il parser deve aver estratto

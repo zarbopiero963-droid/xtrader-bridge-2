@@ -36,6 +36,7 @@ INVALID_HANDICAP = "INVALID_HANDICAP"    # Handicap valorizzato ma non numerico
 MISSING_PROVIDER = "MISSING_PROVIDER"    # Provider assente (contratto)
 MODE_REQUIRED_MISSING = "MODE_REQUIRED_MISSING"  # campo richiesto dalla Modalità mancante
 MAPPING_MISSING = "MAPPING_MISSING"      # EventName non traducibile coi profili di mappatura nomi
+MARKET_MAPPING_MISSING = "MARKET_MAPPING_MISSING"  # mercato non risolvibile (ambiguo o nessun match)
 
 # ── Codice a livello messaggio ──────────────────────────────────────────────
 NO_CONTENT_MATCH = "NO_CONTENT_MATCH"    # niente estratto: solo valori fissi / nessun match
@@ -57,6 +58,7 @@ _EXPLAIN = {
     MISSING_PROVIDER: "Provider mancante (richiesto dal contratto)",
     MODE_REQUIRED_MISSING: "campo richiesto dalla Modalità di riconoscimento",
     MAPPING_MISSING: "EventName non traducibile: separatore non trovato o squadra non nei profili di mappatura nomi",
+    MARKET_MAPPING_MISSING: "mercato non risolvibile: frasi ambigue, o nessuna frase combacia e nessun mercato dalle regole",
     NO_CONTENT_MATCH: "nessun contenuto estratto dal messaggio (solo valori fissi / nessun match)",
 }
 
@@ -160,11 +162,17 @@ def _overlay_validator(result, by_target, fields) -> None:
         _mark(by_target, fields, "Handicap", INVALID_HANDICAP)
     elif status == custom_pipeline.MAPPING_MISSING:
         _mark(by_target, fields, "EventName", MAPPING_MISSING, required=True)
+    elif status == custom_pipeline.MARKET_MAPPING_MISSING:
+        # Il mercato non è risolvibile: segnala su Mercato e Selezione (le due colonne
+        # che la mappatura mercati avrebbe dovuto impostare).
+        _mark(by_target, fields, "MarketName", MARKET_MAPPING_MISSING, required=True)
+        _mark(by_target, fields, "SelectionName", MARKET_MAPPING_MISSING, required=True)
 
 
 def diagnose(defn: CustomParserDef, text: str, *, value_maps_registry: dict = None,
              provider: str = "", mode: str = recognition.DEFAULT_MODE,
-             require_price: bool = True, name_mapping_profiles=None) -> Diagnosis:
+             require_price: bool = True, name_mapping_profiles=None,
+             market_mapping_profiles=None) -> Diagnosis:
     """Diagnostica completa di `text` col parser `defn`.
 
     Per ogni regola traccia grezzo→transform→value-map→finale e ne classifica
@@ -183,7 +191,8 @@ def diagnose(defn: CustomParserDef, text: str, *, value_maps_registry: dict = No
     result = custom_pipeline.build_validated_row(
         defn, text, value_maps_registry=registry, provider=provider,
         mode=mode, require_price=require_price,
-        name_mapping_profiles=name_mapping_profiles)
+        name_mapping_profiles=name_mapping_profiles,
+        market_mapping_profiles=market_mapping_profiles)
     _overlay_validator(result, by_target, fields)
 
     # Il runtime (`signal_router.resolve_row`) scrive SOLO se la riga è piazzabile

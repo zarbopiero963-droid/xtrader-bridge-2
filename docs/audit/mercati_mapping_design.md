@@ -101,6 +101,15 @@ regole-colonna restano per gli altri campi e come fallback quando nessuna frase 
    Se due voci diverse combaciano e indicano Mercato/Selezione **diversi**, è ambiguo →
    `MARKET_MAPPING_MISSING` (non si tira a indovinare). *Alternativa* (se preferisci):
    match della frase **più lunga/più specifica**. Default proposto: **fail-closed**.
+3bis. **Niente ID stantii quando il dizionario vince.** La mappatura mercati è *name-based*
+   (`resolve_market` non risolve `MarketId`/`SelectionId`: non sono nel Catalogo). Se le
+   regole-colonna hanno estratto una coppia ID e poi il dizionario vince, lasciare quegli ID
+   nella riga darebbe identificatori **contraddittori** (nel CSV, o in validazione ID/BOTH
+   gli ID vecchi "vincerebbero" ignorando la frase). Perciò, al match univoco, `MarketId`/
+   `SelectionId` vengono **azzerati**: la riga ha un solo mercato, la tupla a nome del
+   dizionario. In **ID_ONLY** ciò comporta fail-closed in validazione (combinazione
+   incoerente: phrase-mapping + riconoscimento a ID); in **BOTH** la coppia a nome basta e la
+   riga resta valida (CodeRabbit).
 3. **Coerenza + canonicalizzazione Mercato/Selezione.** La selezione deve appartenere al
    mercato scelto (garantito già in fase di GUI: la tendina Selezione dipende dal Mercato).
    In più **`resolve_market` risolve ogni voce nella tupla CANONICA del Catalogo XTrader**
@@ -140,10 +149,18 @@ nomi squadra, così al parsing si traducono **sia** i nomi **sia** i mercati.
    logica + test hard** (`tests/unit/test_market_mapping.py`, 18 test): match univoco,
    nessun match, ambiguità fail-closed (D2), confini di parola (D3), CRUD profili,
    immutabilità. Nessuna GUI, nessun runtime.
-2. **Aggancio runtime** in `custom_pipeline` con la regola di precedenza §4 e
-   `MARKET_MAPPING_MISSING`, + `defn.market_mapping_profiles` nel modello parser. Test hard
-   end-to-end (frase → riga CSV corretta; nessun match → niente riga; ambiguo → niente
-   riga; regola-colonna vince).
+2. **Aggancio runtime** — ✅ **FATTO** — hook in `custom_pipeline.build_validated_row()`
+   con la regola di precedenza §4 e `MARKET_MAPPING_MISSING`; campo
+   `CustomParserDef.market_mapping_profiles` (modello + `to_dict`/`from_dict`); wiring
+   `signal_router` (risolve le voci da config), `parser_builder` (round-trip + anteprima
+   `test_message`), `parser_diagnostics` (overlay su Mercato/Selezione). Fallback **mode-aware**
+   (`_row_has_market`): in assenza di match a frase il fail-closed scatta solo se le
+   regole-colonna non hanno prodotto un mercato **per la modalità di riconoscimento** (NAME →
+   MarketType+SelectionName; ID → MarketId+SelectionId), così una riga ID valida non viene
+   scartata per errore. Test hard end-to-end in `tests/unit/test_market_mapping_runtime.py`
+   (dizionario vince; ambiguo → niente riga; nessun match → fallback colonna; nessun match e
+   nessun mercato → niente riga; voce incoerente ignorata; match sul messaggio grezzo;
+   round-trip modello/builder; instradamento reale `signal_router`).
 3. **GUI** — area 🎯 Mercati + selettore nel Parser. Verifica manuale su Windows.
 
 Ogni passo: Phase 0, micro-audit, test hard veritieri, una PR, merge manuale.

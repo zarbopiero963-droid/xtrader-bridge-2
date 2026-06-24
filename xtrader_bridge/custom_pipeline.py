@@ -20,7 +20,13 @@ import re
 import threading
 from dataclasses import dataclass, field
 
-from . import name_mapping_store, recognition, validator, value_maps
+from . import (
+    market_mapping_store,
+    name_mapping_store,
+    recognition,
+    validator,
+    value_maps,
+)
 from .csv_writer import DEFAULT_HANDICAP, DEFAULT_POINTS
 from .custom_parser import CustomParserDef
 from .custom_parser_engine import apply_parser
@@ -56,6 +62,11 @@ INVALID_HANDICAP = "INVALID_HANDICAP"  # Handicap valorizzato ma non numerico
 # Mappatura nomi richiesta ma EventName non traducibile (separatore non trovato o una
 # squadra non nei profili): fail-closed, nessuna riga (un evento sbagliato = bet sbagliato).
 MAPPING_MISSING = "MAPPING_MISSING"
+# Mappatura mercati richiesta ma il mercato non è risolvibile: o due frasi indicano mercati
+# DIVERSI (ambiguo, D2 fail-closed), oppure nessuna frase combacia e nemmeno le regole-colonna
+# hanno estratto un mercato. Fail-closed: nessuna riga (un mercato sbagliato/inventato = bet
+# sbagliato). Vedi docs/audit/mercati_mapping_design.md §4-§5.
+MARKET_MAPPING_MISSING = "MARKET_MAPPING_MISSING"
 
 # Handicap: numero con segno opzionale (es. "0", "-1", "0.5", "+1,5").
 _HANDICAP_RE = re.compile(r"^[+-]?\d+(?:[.,]\d+)?$")
@@ -77,6 +88,25 @@ class PipelineResult:
     def placeable(self) -> bool:
         """True solo se la riga ha passato entrambi i gate (status VALID)."""
         return self.status == validator.VALID
+
+
+def _row_has_market(row: dict, mode: str) -> bool:
+    """True se la riga ha già un mercato sufficiente per la **modalità di riconoscimento**:
+    NAME → `MarketType`+`SelectionName`; ID → `MarketId`+`SelectionId`; BOTH → almeno una
+    delle due coppie. Usato dal fallback della mappatura mercati per decidere, quando
+    NESSUNA frase combacia, se le regole-colonna hanno comunque prodotto un mercato (così
+    non si fa fail-closed su una riga che — secondo la sua modalità — il mercato ce l'ha già,
+    evitando di scartare per errore una riga ID valida)."""
+    m = recognition.normalize_mode(mode)
+
+    def _present(*cols):
+        return all(str(row.get(c, "")).strip() for c in cols)
+
+    if m == recognition.ID_ONLY:
+        return _present("MarketId", "SelectionId")
+    if m == recognition.NAME_ONLY:
+        return _present("MarketType", "SelectionName")
+    return _present("MarketId", "SelectionId") or _present("MarketType", "SelectionName")
 
 
 def _normalize_to_contract(row: dict, provider: str) -> dict:
@@ -112,7 +142,8 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
                         provider: str = "",
                         mode: str = recognition.DEFAULT_MODE,
                         require_price: bool = True,
-                        name_mapping_profiles=None) -> PipelineResult:
+                        name_mapping_profiles=None,
+                        market_mapping_profiles=None) -> PipelineResult:
     """Applica il parser al messaggio e valida la riga risultante.
 
     `provider` è fornito dal runtime/config (come per il parser hardcoded) e
@@ -129,6 +160,15 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
     nessuna riga). La mappatura è **obbligatoria** quando richiesta: profili assenti
     (`None`) sono trattati come lista vuota → `MAPPING_MISSING` (l'anteprima senza
     config non deve mostrare "Pronto" per un evento che il runtime scarterebbe).
+
+    `market_mapping_profiles` (lista di liste-di-voci, vedi `market_mapping_store`):
+    se il parser seleziona dei profili mercati (`defn.market_mapping_profiles` non vuoto),
+    una frase-mercato del provider nel **messaggio grezzo** (D3) imposta
+    `MarketType`/`MarketName`/`SelectionName` CANONICI dal Catalogo XTrader. Precedenza D1:
+    il dizionario **vince** sulle regole-colonna quando una frase combacia in modo univoco;
+    ambiguità → `MARKET_MAPPING_MISSING` (fail-closed, D2); nessun match → restano i valori
+    delle regole-colonna, ma se nemmeno quelle hanno un mercato → `MARKET_MAPPING_MISSING`
+    (mai un mercato inventato). Profili `None` (anteprima senza config) = lista vuota.
 
     Ritorna un `PipelineResult`: `placeable` True solo se supera il gate "Non
     pronto" del parser, ha un `Provider` E passa la validazione (modalità +
@@ -166,6 +206,39 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
             return PipelineResult(MAPPING_MISSING, row, list(res.missing_required))
         row = dict(row)
         row["EventName"] = mapped
+
+    # Mappatura mercati a frase (market_mapping_store, FASE 2). Solo se il parser seleziona
+    # dei profili mercati. Regola di precedenza D1 (design §4): il DIZIONARIO VINCE sulle
+    # regole-colonna quando una frase combacia in modo univoco; ambiguità → fail-closed (D2).
+    # Profili None (anteprima senza config) = lista vuota → si valuta come "nessun match".
+    if defn.market_mapping_profiles:
+        resm = market_mapping_store.resolve_market(text, market_mapping_profiles or [])
+        if resm.status == "ambiguous":
+            # Due frasi indicano mercati diversi: niente riga, mai tirare a indovinare.
+            return PipelineResult(MARKET_MAPPING_MISSING, row, list(res.missing_required))
+        if resm.status == "ok":
+            # Il dizionario vince: sovrascrive Type/Mercato/Selezione con i valori CANONICI
+            # del catalogo (resolve_market li ha già canonicalizzati).
+            row = dict(row)
+            row["MarketType"] = resm.market["market_type"]
+            row["MarketName"] = resm.market["market_name"]
+            row["SelectionName"] = resm.market["selection_name"]
+            # La mappatura mercati è NAME-based (resolve_market non risolve gli ID, non sono
+            # nel catalogo): azzera la coppia ID quando il dizionario vince, così la riga non
+            # porta un MarketId/SelectionId STANTIO (estratto dalle regole-colonna) che
+            # contraddirebbe il mercato a nome — nel CSV identificatori incoerenti, o in
+            # validazione ID/BOTH gli ID vecchi "vincerebbero" ignorando la frase. Così il
+            # mercato della riga è univocamente la tupla a nome del dizionario; se la modalità
+            # richiedeva gli ID (ID_ONLY), la riga fa fail-closed in validazione — niente
+            # scommessa su un mercato ambiguo (CodeRabbit).
+            row["MarketId"] = ""
+            row["SelectionId"] = ""
+        elif not _row_has_market(row, mode):
+            # status "none": nessuna frase combacia. Si tengono i valori della regola-colonna
+            # SE costituiscono già un mercato per la modalità; altrimenti il mercato resterebbe
+            # assente → fail-closed (niente mercato inventato), invece di lasciar passare una
+            # riga senza mercato. Controllo mode-aware per non scartare per errore una riga ID.
+            return PipelineResult(MARKET_MAPPING_MISSING, row, list(res.missing_required))
 
     status, detail = validator.validate(row, mode, require_price)
     return PipelineResult(status, row, list(res.missing_required), detail)
