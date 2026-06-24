@@ -66,12 +66,21 @@ jobs:
         # si pinnano ENTRAMBI come COPPIA compatibile (pip-tools usa l'internals di pip:
         # versioni disallineate danno errori tipo `make_resolver() ... use_pep517`).
         # Aggiorna questi pin DELIBERATAMENTE, validando la coppia, quando vuoi salire.
+        # NB pwsh: la step riporta solo l'ULTIMO $LASTEXITCODE → controllo esplicito dopo
+        # OGNI install, altrimenti un pin fallito ma seguito da un successo passerebbe (Codex).
+        shell: pwsh
         run: |
           python -m pip install "pip==24.3.1"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           python -m pip install "pip-tools==7.4.1"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Genera il lockfile con hash (in place)
-        run: pip-compile --generate-hashes --output-file requirements-build.lock requirements-build.in
+        # `--allow-unsafe`: include nel lock anche pip/setuptools/wheel (che pip-compile
+        # altrimenti OMETTE), così l'ambiente di build è davvero completo e con hash —
+        # PyInstaller richiede setuptools a runtime, e setup-python/venv ne seminano una
+        # versione non pinnata che maschererebbe l'assenza dal lock (Codex).
+        run: pip-compile --generate-hashes --allow-unsafe --output-file requirements-build.lock requirements-build.in
 
       - name: Upload generated lockfile
         # Caricato SUBITO dopo la generazione, PRIMA dei gate anti-stantio/validazione: così
@@ -109,5 +118,9 @@ jobs:
         shell: pwsh
         run: |
           python -m venv .lockcheck
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           & ".lockcheck\Scripts\python.exe" -m pip install --require-hashes -r requirements-build.lock
+          # Controllo esplicito: senza, un install fallito seguito da un pytest che esce 0
+          # mascherebbe la validazione del lock (pwsh riporta solo l'ultimo exit code, Codex).
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           & ".lockcheck\Scripts\python.exe" -m pytest -m "not manual" -q
