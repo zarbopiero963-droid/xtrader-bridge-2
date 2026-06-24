@@ -39,6 +39,29 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
+      - name: (dispatch) Testa il lock COMMITTATO così com'è, prima di rigenerarlo
+        # Opzione "C": su esecuzione MANUALE (workflow_dispatch, es. prima di una release)
+        # valida il `requirements-build.lock` ESATTAMENTE com'è committato nel repo — lo
+        # stesso file che `build.yaml` installerà — in un venv PULITO con `--require-hashes`,
+        # poi esegue i test. Sta QUI di proposito, PRIMA dello step "Genera il lockfile" che
+        # sovrascrive il file in place: dopo la rigenerazione si validerebbe il lock rigenerato,
+        # non quello committato. Così un "API drift" di una dipendenza pinnata si scopre
+        # on-demand invece che solo nella build di release post-merge.
+        #   - Solo su workflow_dispatch: sulle PR la validazione del lock RIGENERATO (in fondo)
+        #     copre già il caso, e questo step sarebbe ridondante.
+        #   - `hashFiles(...) != ''`: salta se il lock non è ancora committato (niente da testare).
+        if: github.event_name == 'workflow_dispatch' && hashFiles('requirements-build.lock') != ''
+        shell: pwsh
+        run: |
+          python -m venv .lockcommitted
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & ".lockcommitted\Scripts\python.exe" -m pip install --require-hashes -r requirements-build.lock
+          # Controllo esplicito dell'install PRIMA dei test: senza, un install fallito seguito
+          # da un pytest che esce 0 mascherebbe la validazione (pwsh riporta solo l'ultimo
+          # exit code). Stessa logica della validazione del lock rigenerato più sotto.
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & ".lockcommitted\Scripts\python.exe" -m pytest -m "not manual" -q
+
       - name: Rifiuta l'ELIMINAZIONE del lock una volta adottato
         # Se `requirements-build.lock` esiste sul branch base (è "adottato") ma è ASSENTE in
         # questa PR, è stato eliminato: il check anti-stantio sotto NON lo intercetta (pip-compile
