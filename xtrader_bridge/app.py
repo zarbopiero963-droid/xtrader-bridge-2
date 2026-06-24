@@ -1483,10 +1483,26 @@ class App(ctk.CTk):
         from .provider_gui import ProviderPanel
         from .profiles_gui import ProfilesPanel
 
+        # UNA sola finestra hub: se è già aperta, si cambia scheda e la si porta in primo
+        # piano invece di aprirne una seconda identica (CodeRabbit). `winfo_exists` è 0 se
+        # è stata chiusa → in quel caso se ne crea una nuova.
+        existing = getattr(self, "_tools_win", None)
+        try:
+            alive = existing is not None and existing.winfo_exists()
+        except Exception:               # noqa: BLE001 — widget Tk distrutto: tratta come assente
+            alive = False
+        if alive:
+            existing.select_tab(initial)
+            existing.lift()
+            existing.focus()
+            return
+
         def _provider_saved(new_cfg):
+            """Provider salvato: aggiorna la config in memoria (anti-stale)."""
             self._config = new_cfg
 
         def _profiles_loaded(new_cfg):
+            """Profilo caricato: persiste su disco, aggiorna config+form e le chat."""
             saved, ok = save_config(new_cfg, CONFIG_FILE)
             self._config = saved
             self._save_ok = ok
@@ -1506,8 +1522,8 @@ class App(ctk.CTk):
                  parent, get_current_cfg=self._save_config, on_loaded=_profiles_loaded,
                  is_running=lambda: self._running)),
         ]
-        win = ToolsWindow(self, panels=panels, initial=initial)
-        win.focus()
+        self._tools_win = ToolsWindow(self, panels=panels, initial=initial)
+        self._tools_win.focus()
 
     def _open_name_mapping(self):
         """Apre il Dizionario nomi squadra (profili di mappatura provider → Betfair/

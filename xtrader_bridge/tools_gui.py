@@ -37,9 +37,29 @@ class ToolsWindow(ctk.CTkToplevel):
         self._tabs.pack(fill="both", expand=True, padx=8, pady=8)
         for tab_title, factory in (panels or []):
             container = self._tabs.add(tab_title)
-            factory(container).pack(fill="both", expand=True, padx=4, pady=4)
-        if initial:
             try:
-                self._tabs.set(initial)
-            except Exception:               # noqa: BLE001 — titolo non valido: resta la 1ª scheda
-                pass
+                factory(container).pack(fill="both", expand=True, padx=4, pady=4)
+            except Exception as exc:        # noqa: BLE001 — isolamento per-scheda
+                # Un pannello che fallisce la COSTRUZIONE (es. cartella profili illeggibile
+                # → OSError da list_profiles) non deve impedire l'apertura degli ALTRI
+                # strumenti: prima della consolidazione erano finestre separate, quindi un
+                # guasto non bloccava gli altri. Qui si preserva quell'isolamento mostrando
+                # l'errore NELLA sua scheda e proseguendo con le altre (Codex).
+                ctk.CTkLabel(
+                    container,
+                    text=f"⚠️ Impossibile aprire questo strumento:\n{exc}",
+                    text_color="#ef5350", wraplength=600, justify="left",
+                    anchor="w").pack(padx=12, pady=12, fill="x")
+        self.select_tab(initial)
+
+    def select_tab(self, title):
+        """Seleziona la scheda `title` (no-op se vuoto o titolo non valido).
+
+        Usata sia all'apertura sia quando si riapre la hub già viva su un'altra scheda
+        (vedi `App._open_tools`: una sola finestra hub, si cambia scheda)."""
+        if not title:
+            return
+        try:
+            self._tabs.set(title)
+        except Exception:                   # noqa: BLE001 — titolo non valido: resta la scheda corrente
+            pass
