@@ -86,7 +86,11 @@ def build_csv_row(parsed: dict, provider: str) -> dict:
         selection = ""
         handicap = DEFAULT_HANDICAP
     else:
-        # Fallback legacy: mapping inglese del tipo segnale.
+        # Fallback legacy: mapping inglese del SOLO tipo mercato. La **selezione NON va
+        # inventata** (A1): "OVER 2.5" non è "Over 0.5 Goals" (mercato/linea diversi) e un
+        # MATCH ODDS non è sempre l'home (può essere away/pareggio). Sintetizzarla
+        # piazzerebbe la selezione SBAGLIATA. SelectionName vuoto → scartato dal
+        # riconoscimento (PR-06), fail-closed: meglio nessuna riga che una riga sbagliata.
         signal_upper = parsed['signal_type'].upper()
         market_name = parsed['signal_type']
         handicap = DEFAULT_HANDICAP
@@ -95,13 +99,7 @@ def build_csv_row(parsed: dict, provider: str) -> dict:
             if key in signal_upper:
                 market_type = val
                 break
-        if not market_type:
-            # Segnale non supportato: NON fabbricare una riga usabile-ma-sbagliata.
-            # SelectionName vuoto → scartato dal riconoscimento (PR-06).
-            selection = ""
-        else:
-            is_goals = any(k in signal_upper for k in ["GOL", "OVER", "UNDER", "GOAL"])
-            selection = "Over 0.5 Goals" if is_goals else home
+        selection = ""
 
     # Gli ID (EventId/MarketId/SelectionId) non sono presenti nel messaggio
     # Telegram: restano vuoti. XTrader valida via EventName+MarketType+SelectionName.

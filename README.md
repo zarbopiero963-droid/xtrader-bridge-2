@@ -300,7 +300,7 @@ Header ufficiale a **14 colonne** (vedi **[`docs/xtrader_csv_contract.md`](docs/
 
 ```text
 Provider,EventId,EventName,MarketId,MarketName,MarketType,SelectionId,SelectionName,Handicap,Price,MinPrice,MaxPrice,BetType,Points
-"TelegramBot","","Inter v Milan","","MATCH ODDS","MATCH_ODDS","","Inter","0","1.85","","","PUNTA",""
+"TelegramBot","","Inter v Milan","","Over/Under 2,5 gol","OVER_UNDER_25","","Over 2,5 goal","0","1.85","","","PUNTA",""
 ```
 
 Note:

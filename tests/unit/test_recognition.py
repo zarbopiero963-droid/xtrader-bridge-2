@@ -72,11 +72,13 @@ def test_modalita_sconosciuta_tratta_come_name_only():
 
 
 def test_segnale_reale_costruito_e_valido_name_only():
-    # Un segnale emoji valido costruito da build_csv_row NON deve essere scartato.
+    # Un segnale RICONOSCIUTO dal dizionario costruito da build_csv_row NON deve essere
+    # scartato: la selezione viene dal dizionario (reale), non inventata dal fallback (A1).
     from xtrader_bridge.csv_writer import build_csv_row
-    parsed = {"signal_type": "MATCH ODDS", "teams": "Inter v Milan",
+    parsed = {"signal_type": "GG", "teams": "Inter v Milan",
               "quota": "1.85", "bet_type": "BACK"}
     row = build_csv_row(parsed, "PBet")
+    assert row["SelectionName"] == "Sì"
     assert rec.is_valid(row, "NAME_ONLY") is True
 
 

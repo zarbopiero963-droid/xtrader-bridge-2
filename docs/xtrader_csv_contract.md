@@ -107,8 +107,11 @@ obbligatoria** (casella «Obblig.» spenta). Non esiste più un interruttore glo
 
 ### Rimandato (fuori scope PR-01)
 
-- **`SelectionName` in italiano** (es. `Over 2,5 gol`, `Sì`/`No`, `Pareggio`): oggi
-  `build_csv_row()` può emettere stringhe come `Over 0.5 Goals` in inglese. La
-  localizzazione è prevista in **PR-08** (selection mapping IT).
+- **`SelectionName` in italiano** (es. `Over 2,5 gol`, `Sì`/`No`, `Pareggio`): localizzato
+  in **PR-08** (selection mapping IT). Nota storica: in PR-01 il fallback legacy poteva
+  emettere stringhe inglesi come `Over 0.5 Goals`. Oggi quel fallback **non sintetizza più**
+  la selezione (audit #104 A1): se l'alias non è risolto dal dizionario, `SelectionName`
+  resta `""` e la riga è scartata dal riconoscimento (fail-closed), invece di una selezione
+  inglese/sbagliata.
 - Scrittura **atomica** (tmp + fsync + rename): **PR-05**.
 - Validazione bloccante del segnale: **PR-10**; modalità riconoscimento: **PR-06**.

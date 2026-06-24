@@ -68,9 +68,22 @@ def test_segnale_non_supportato_e_scartabile():
     assert recognition.is_valid(row, "NAME_ONLY") is False
 
 
-def test_segnale_non_mappato_usa_fallback():
-    # "MATCH ODDS" non è una forma breve mappata: fallback legacy, selezione = casa.
+def test_fallback_goals_non_inventa_over_05():
+    # Regressione A1: un segnale "goals" che cade nel fallback legacy (NEXT_GOAL) NON deve
+    # ricevere la vecchia selezione inventata "Over 0.5 Goals" (mercato/linea diversi).
+    row = build_csv_row(_parsed("GOL SECONDO TEMPO", teams="Inter v Milan"), "PBet")
+    assert row["MarketType"] == "NEXT_GOAL"
+    assert row["SelectionName"] == ""
+    assert recognition.is_valid(row, "NAME_ONLY") is False
+
+
+def test_segnale_non_mappato_non_inventa_selezione():
+    # "MATCH ODDS" non è una forma breve mappata: il fallback legacy riconosce il MERCATO
+    # ma NON inventa la selezione (A1) — un MATCH ODDS non è sempre l'home. SelectionName
+    # vuoto → riga scartata dal riconoscimento (fail-closed), niente bet sulla selezione
+    # sbagliata.
     row = build_csv_row(_parsed("MATCH ODDS", teams="Inter v Milan"), "PBet")
     assert row["MarketType"] == "MATCH_ODDS"
-    assert row["SelectionName"] == "Inter"
     assert row["MarketName"] == "MATCH ODDS"
+    assert row["SelectionName"] == ""
+    assert recognition.is_valid(row, "NAME_ONLY") is False
