@@ -381,33 +381,15 @@ class App(ctk.CTk):
             command=self._on_save_clicked,
         ).pack(side="right", padx=5)
 
-        # Tool su DUE righe: la finestra è a larghezza fissa (720px) e i quattro
-        # pulsanti non entrano in una riga sola senza tagliare l'ultimo (Codex). Due
-        # righe da due tengono tutto visibile e non dipendono dal fit del testo.
+        # Consolidazione GUI (roadmap, Tappa 3): tutti gli strumenti vivono come schede di
+        # un'unica finestra "🧰 Strumenti" (Parser, Chat sorgenti, Provider, Profili,
+        # Mapping). Un solo pulsante al posto dei cinque precedenti.
         tools_frame = ctk.CTkFrame(self, fg_color="transparent")
         tools_frame.pack(fill="x", padx=15, pady=(0, 4))
         ctk.CTkButton(
-            tools_frame, text="🧩  Parser Personalizzato", width=220, height=38,
+            tools_frame, text="🧰  Strumenti", width=220, height=40,
             fg_color="#4527a0", hover_color="#311b92",
-            command=self._open_parser_builder).pack(side="left", padx=5)
-        ctk.CTkButton(
-            tools_frame, text="📡  Chat sorgenti", width=180, height=38,
-            fg_color="#00695c", hover_color="#004d40",
-            command=lambda: self._open_tools("📡 Chat sorgenti")).pack(side="left", padx=5)
-        tools_frame2 = ctk.CTkFrame(self, fg_color="transparent")
-        tools_frame2.pack(fill="x", padx=15, pady=(0, 4))
-        ctk.CTkButton(
-            tools_frame2, text="📇  Provider", width=220, height=38,
-            fg_color="#00838f", hover_color="#006064",
-            command=lambda: self._open_tools("📇 Provider")).pack(side="left", padx=5)
-        ctk.CTkButton(
-            tools_frame2, text="📁  Profili", width=180, height=38,
-            fg_color="#5d4037", hover_color="#3e2723",
-            command=lambda: self._open_tools("📁 Profili")).pack(side="left", padx=5)
-        ctk.CTkButton(
-            tools_frame2, text="🗺️  Mapping", width=200, height=38,
-            fg_color="#37474f", hover_color="#263238",
-            command=lambda: self._open_tools("🗺️ Mapping")).pack(side="left", padx=5)
+            command=self._open_tools).pack(side="left", padx=5)
 
         # Monitoraggio a schede (B3): Chat ascoltate / Stato / Dashboard / Log erano
         # quattro pannelli impilati che allungavano molto la finestra. Ora vivono in un
@@ -1435,28 +1417,6 @@ class App(ctk.CTk):
         self._note_csv(path, 0)
         self._log("🗑️  CSV svuotato manualmente")
 
-    def _open_parser_builder(self):
-        """Apre la finestra del costruttore di Parser Personalizzati (CP-06).
-
-        Import lazy: la GUI del costruttore non serve all'avvio del bridge."""
-        from .custom_parser_gui import CustomParserWindow
-        cfg = self._load_config()
-        provider = str(cfg.get("provider", "")).strip()
-        # Modalità globale: serve solo all'anteprima di un parser legacy a eredità (""),
-        # così "Prova messaggio" usa la stessa modalità del runtime.
-        global_mode = str(cfg.get("recognition_mode", "")).strip()
-
-        def _on_saved(new_cfg):
-            # L'anagrafica Provider salva su config.json: sincronizza la config in
-            # memoria, altrimenti un successivo "Salva Config"/"Avvia" la riscriverebbe
-            # dalla copia stantia perdendo i provider aggiunti (Codex). Stesso pattern
-            # della finestra Sorgenti.
-            self._config = new_cfg
-
-        win = CustomParserWindow(self, provider=provider, global_mode=global_mode,
-                                 on_saved=_on_saved)
-        win.focus()
-
     def _open_tools(self, initial=None):
         """Apre la finestra hub "🧰 Strumenti" a schede (consolidazione GUI, roadmap).
         Import lazy: le GUI degli strumenti non servono all'avvio del bridge. Qui si
@@ -1470,6 +1430,7 @@ class App(ctk.CTk):
         from .profiles_gui import ProfilesPanel
         from .source_chats_gui import SourceChatsPanel
         from .name_mapping_gui import MappingPanel
+        from .custom_parser_gui import CustomParserPanel
 
         # UNA sola finestra hub: se è già aperta, si cambia scheda e la si porta in primo
         # piano invece di aprirne una seconda identica (CodeRabbit). `winfo_exists` è 0 se
@@ -1530,10 +1491,26 @@ class App(ctk.CTk):
             memoria (anti-stale, stesso pattern di Provider/Sorgenti)."""
             self._config = new_cfg
 
+        def _parser_saved(new_cfg):
+            """Anagrafica Provider salvata dal builder: aggiorna la config in memoria,
+            così un successivo Salva/Avvia non riscrive il file perdendo i provider."""
+            self._config = new_cfg
+
+        # Parametri del builder dal config corrente: `provider` precompila la colonna
+        # Provider; `recognition_mode` serve all'anteprima di un parser legacy a eredità.
+        _cfg = self._load_config()
+        _parser_provider = str(_cfg.get("provider", "")).strip()
+        _parser_global_mode = str(_cfg.get("recognition_mode", "")).strip()
+
         def _make_provider(parent):
             """Crea il pannello Provider e ne tiene il riferimento per il refresh."""
             panel_refs["provider"] = ProviderPanel(parent, on_saved=_provider_saved)
             return panel_refs["provider"]
+
+        def _make_parser(parent):
+            """Crea il pannello Parser Personalizzato (scheda 🧩 Parser)."""
+            return CustomParserPanel(parent, provider=_parser_provider,
+                                     global_mode=_parser_global_mode, on_saved=_parser_saved)
 
         def _make_sources(parent):
             """Crea il pannello Chat sorgenti e ne tiene il riferimento per il refresh."""
@@ -1546,12 +1523,13 @@ class App(ctk.CTk):
             return panel_refs["mapping"]
 
         panels = [
+            ("🧩 Parser", _make_parser),
+            ("📡 Chat sorgenti", _make_sources),
             ("📇 Provider", _make_provider),
             ("📁 Profili",
              lambda parent: ProfilesPanel(
                  parent, get_current_cfg=self._save_config, on_loaded=_profiles_loaded,
                  is_running=lambda: self._running)),
-            ("📡 Chat sorgenti", _make_sources),
             ("🗺️ Mapping", _make_mapping),
         ]
         self._tools_win = ToolsWindow(self, panels=panels, initial=initial)

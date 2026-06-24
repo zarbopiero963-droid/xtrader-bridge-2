@@ -301,7 +301,7 @@ comportamento legacy (tutte le chat ammesse — responsabilità dell'utente).
 | Trasformazioni | `transforms.py` | `tests/unit/test_transforms.py` |
 | Riga validata col contratto | `custom_pipeline.py` | `tests/unit/test_custom_pipeline.py` |
 | Diagnostica «Prova messaggio» (per-campo) | `parser_diagnostics.py` | `tests/unit/test_parser_diagnostics.py` |
-| Builder GUI (controller + vista) | `parser_builder.py`, `custom_parser_gui.py` | `tests/unit/test_parser_builder.py` |
+| Builder GUI (controller + vista) — scheda 🧩 Parser di "🧰 Strumenti" | `parser_builder.py`, `custom_parser_gui.py` (`CustomParserPanel`) | `tests/unit/test_parser_builder.py` |
 | Adattamento finestre allo schermo (clamp altezza + minsize) | `gui_utils.py` | `tests/smoke/test_imports.py` |
 | Finestra hub "🧰 Strumenti" a schede (consolidazione GUI) | `tools_gui.py` | `tests/smoke/test_imports.py` |
 | Parser attivo / override per chat | `parser_manager.py` | `tests/unit/test_parser_manager.py` |

@@ -16,9 +16,10 @@ from . import config_store, gui_utils, name_mapping_store, parser_diagnostics, p
 from .parser_builder import ParserBuilder
 
 
-class CustomParserWindow(ctk.CTkToplevel):
-    """Finestra del costruttore. `on_message` opzionale non usato: l'anteprima
-    è interna (test-live)."""
+class CustomParserPanel(ctk.CTkFrame):
+    """Pannello del costruttore di Parser Personalizzati — incassabile in finestra
+    standalone (`CustomParserWindow`) o come scheda "🧩 Parser" di "🧰 Strumenti".
+    `on_message` opzionale non usato: l'anteprima è interna (test-live)."""
 
     # Etichetta-sentinella quando non c'è nessun parser salvato.
     _NONE_SAVED = "(nessuno)"
@@ -161,11 +162,6 @@ class CustomParserWindow(ctk.CTkToplevel):
     def __init__(self, master=None, builder: ParserBuilder = None, provider: str = "",
                  global_mode: str = "", on_saved=None):
         super().__init__(master)
-        self.title("Parser Personalizzato")
-        # Apri entro lo schermo (clamp altezza) + minsize: su portatili l'altezza piena
-        # sforerebbe sotto la taskbar; il contenuto resta comunque tutto raggiungibile
-        # grazie al contenitore scrollabile in `_build_ui`.
-        gui_utils.fit_to_screen(self, 1024, 720, 760, 480)
         is_new = builder is None
         self.builder = builder or ParserBuilder()
         self._provider = provider
@@ -596,3 +592,19 @@ class CustomParserWindow(ctk.CTkToplevel):
             self._result.configure(text="❌ Copia non riuscita (appunti non disponibili).")
             return
         self._result.configure(text="📋 Diagnostica copiata negli appunti.")
+
+
+class CustomParserWindow(ctk.CTkToplevel):
+    """Finestra standalone che ospita `CustomParserPanel` a tutta finestra.
+
+    Mantenuta per compatibilità; la stessa `CustomParserPanel` vive anche come scheda
+    "🧩 Parser" della finestra "🧰 Strumenti"."""
+
+    def __init__(self, master=None, builder: ParserBuilder = None, provider: str = "",
+                 global_mode: str = "", on_saved=None):
+        super().__init__(master)
+        self.title("Parser Personalizzato")
+        gui_utils.fit_to_screen(self, 1024, 720, 760, 480)
+        CustomParserPanel(self, builder=builder, provider=provider,
+                          global_mode=global_mode, on_saved=on_saved).pack(
+                              fill="both", expand=True)
