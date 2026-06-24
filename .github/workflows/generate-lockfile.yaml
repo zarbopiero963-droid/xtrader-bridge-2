@@ -50,11 +50,15 @@ jobs:
           $base = "${{ github.event.pull_request.base.sha }}"
           if ($base) {
             git cat-file -e "${base}:requirements-build.lock" 2>$null
-            if (($LASTEXITCODE -eq 0) -and -not (Test-Path "requirements-build.lock")) {
+            # `git cat-file -e` esce 1 se il file NON è sul base: è il caso normale (lock non
+            # ancora adottato) e NON deve far fallire la step → catturo l'esito e poi `exit 0`.
+            $onBase = ($LASTEXITCODE -eq 0)
+            if ($onBase -and -not (Test-Path "requirements-build.lock")) {
               Write-Error "requirements-build.lock è adottato sul branch base ma ASSENTE in questa PR: non eliminarlo (la build perderebbe il lock e tornerebbe all'install legacy non bloccato)."
               exit 1
             }
           }
+          exit 0
 
       - name: Install pip-tools (versione ESATTA per output deterministico)
         # Pin ESATTO del generatore: lo stesso `.in` deve produrre lo stesso lock. Una
