@@ -156,6 +156,23 @@ def test_entries_for_profiles():
     assert lol[2] == []   # profilo mancante → lista vuota
 
 
+def test_chiavi_profilo_con_spazi_legacy():
+    # config.json editata a mano: chiave con spazi attorno. profile_names la mostra
+    # ripulita e get/add/delete/rename/set la ritrovano (no mappatura persa, no doppioni).
+    cfg = {"market_mappings": {"  Pandorabet  ": [_entry("goal prima di 70")]}}
+    assert mms.profile_names(cfg) == ["Pandorabet"]
+    assert len(mms.get_entries(cfg, "Pandorabet")) == 1
+    # add con nome normalizzato NON crea un doppione
+    assert mms.profile_names(mms.add_profile(cfg, "Pandorabet")) == ["Pandorabet"]
+    # rename/delete ritrovano la chiave legacy
+    cfg_r = mms.rename_profile(cfg, "Pandorabet", "Nuovo")
+    assert mms.profile_names(cfg_r) == ["Nuovo"] and len(mms.get_entries(cfg_r, "Nuovo")) == 1
+    assert mms.profile_names(mms.delete_profile(cfg, "Pandorabet")) == []
+    # set_entries migra la chiave legacy al nome normalizzato (una sola chiave)
+    cfg_s = mms.set_entries(cfg, "Pandorabet", [_entry("over")])
+    assert list(cfg_s["market_mappings"].keys()) == ["Pandorabet"]
+
+
 def test_immutabilita_config_originale():
     cfg = {"market_mappings": {"P": [_entry("p")]}}
     snapshot = {"market_mappings": {"P": [dict(_entry("p"))]}}

@@ -63,6 +63,26 @@ def _store(cfg: dict) -> dict:
     return raw if isinstance(raw, dict) else {}
 
 
+def _norm_profile_name(name) -> str:
+    """Nome profilo normalizzato per il confronto: stringa ripulita (strip)."""
+    return str(name or "").strip()
+
+
+def _find_store_key(store: dict, name: str):
+    """Chiave REALE in ``store`` che corrisponde a ``name`` una volta normalizzata, o
+    ``None``. Serve a ritrovare profili salvati con spazi attorno al nome (``config.json``
+    legacy/editato a mano), che ``profile_names`` mostra già ripuliti: senza, lookup/CRUD
+    mancherebbero il profilo o creerebbero un doppione, disabilitando in silenzio la
+    mappatura per quel profilo (CodeRabbit). Compatibilità con vecchie config preservata."""
+    target = _norm_profile_name(name)
+    if not target:
+        return None
+    for k in store:
+        if _norm_profile_name(k) == target:
+            return k
+    return None
+
+
 def _clean_entry(entry) -> dict:
     """Normalizza una voce in ``{phrase, market_type, market_name, selection_name}``
     (stringhe ripulite), o ``None`` se inutile. Una voce serve solo se ha **frase**,
@@ -89,7 +109,9 @@ def profile_names(cfg: dict) -> list:
 def get_entries(cfg: dict, name: str) -> list:
     """Voci (ripulite) di un profilo, nell'ordine salvato. Profilo assente → ``[]``.
     Le voci vuote/incomplete vengono filtrate, così il resolver non itera su rumore."""
-    rows = _store(cfg).get(str(name), [])
+    store = _store(cfg)
+    key = _find_store_key(store, name)
+    rows = store.get(key, []) if key is not None else []
     if not isinstance(rows, (list, tuple)):
         return []
     out = []
@@ -110,10 +132,13 @@ def set_entries(cfg: dict, name: str, entries) -> dict:
     """Copia di ``cfg`` con il profilo ``name`` impostato/sostituito da ``entries``
     (ripulite). Nome vuoto → config invariata. Crea il profilo se non esiste."""
     out = dict(cfg or {})
-    nm = str(name or "").strip()
+    nm = _norm_profile_name(name)
     if not nm:
         return out
     store = dict(_store(out))
+    existing = _find_store_key(store, nm)
+    if existing is not None and existing != nm:
+        store.pop(existing)   # migra una chiave legacy con spazi al nome normalizzato (no doppioni)
     store[nm] = [ce for ce in (_clean_entry(e) for e in (entries or [])) if ce is not None]
     out[_STORE_KEY] = store
     return out
@@ -123,9 +148,9 @@ def add_profile(cfg: dict, name: str) -> dict:
     """Copia di ``cfg`` con un profilo vuoto ``name`` (no-op se esiste già o nome
     vuoto): la creazione non deve mai cancellare le voci di un profilo omonimo."""
     out = dict(cfg or {})
-    nm = str(name or "").strip()
+    nm = _norm_profile_name(name)
     store = dict(_store(out))
-    if nm and nm not in store:
+    if nm and _find_store_key(store, nm) is None:
         store[nm] = []
     out[_STORE_KEY] = store
     return out
@@ -134,8 +159,8 @@ def add_profile(cfg: dict, name: str) -> dict:
 def delete_profile(cfg: dict, name: str) -> dict:
     """Copia di ``cfg`` senza il profilo ``name`` (idempotente)."""
     out = dict(cfg or {})
-    nm = str(name or "").strip()
-    store = {k: v for k, v in _store(out).items() if str(k) != nm}
+    nm = _norm_profile_name(name)
+    store = {k: v for k, v in _store(out).items() if _norm_profile_name(k) != nm}
     out[_STORE_KEY] = store
     return out
 
@@ -145,12 +170,14 @@ def rename_profile(cfg: dict, old: str, new: str) -> dict:
     No-op se ``old`` non esiste, ``new`` è vuoto, o ``new`` esiste già (non si
     sovrascrive in silenzio un altro profilo)."""
     out = dict(cfg or {})
-    o = str(old or "").strip()
-    n = str(new or "").strip()
+    o = _norm_profile_name(old)
+    n = _norm_profile_name(new)
     store = dict(_store(out))
-    if o == n or o not in store or not n or n in store:
+    old_key = _find_store_key(store, o)
+    new_key = _find_store_key(store, n)
+    if o == n or old_key is None or not n or new_key is not None:
         return out
-    store[n] = store.pop(o)
+    store[n] = store.pop(old_key)
     out[_STORE_KEY] = store
     return out
 
