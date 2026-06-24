@@ -205,7 +205,7 @@ class CustomParserWindow(ctk.CTkToplevel):
         outer.pack(fill="both", expand=True)
         self._outer = outer
 
-        top = ctk.CTkFrame(outer)
+        top = ctk.CTkFrame(outer, fg_color="transparent")
         top.pack(fill="x", padx=10, pady=8)
         ctk.CTkLabel(top, text="Nome parser:").pack(side="left", padx=6)
         self._name_var = ctk.StringVar(value=self.builder.name)
@@ -224,7 +224,7 @@ class CustomParserWindow(ctk.CTkToplevel):
                       command=self._add_provider).pack(side="left", padx=6)
 
         # gestione parser salvati: lista + nuovo / carica / duplica / elimina
-        manage = ctk.CTkFrame(outer)
+        manage = ctk.CTkFrame(outer, fg_color="transparent")
         manage.pack(fill="x", padx=10, pady=(0, 6))
         ctk.CTkLabel(manage, text="Parser salvati:").pack(side="left", padx=6)
         self._saved_var = ctk.StringVar(value=self._NONE_SAVED)
@@ -239,7 +239,7 @@ class CustomParserWindow(ctk.CTkToplevel):
 
         # Catalogo XTrader (B2): scegli Mercato → Selezione (solo NON dinamici) e
         # inseriscili come regole FISSE, senza digitare i nomi canonici a mano.
-        cat = ctk.CTkFrame(outer)
+        cat = ctk.CTkFrame(outer, fg_color="transparent")
         cat.pack(fill="x", padx=10, pady=(0, 6))
         ctk.CTkLabel(cat, text="Catalogo XTrader:").pack(side="left", padx=6)
         self._markets = self.builder.market_options()
@@ -258,7 +258,7 @@ class CustomParserWindow(ctk.CTkToplevel):
 
         # Mappatura nomi squadra: separatore casa/trasferta del canale + profili
         # (checkbox multi-selezione) che traducono l'EventName provider → Betfair/XTrader.
-        nm = ctk.CTkFrame(outer)
+        nm = ctk.CTkFrame(outer, fg_color="transparent")
         nm.pack(fill="x", padx=10, pady=(0, 6))
         ctk.CTkLabel(nm, text="Mappatura nomi · separatore:").pack(side="left", padx=6)
         self._separator_var = ctk.StringVar(value=self.builder.team_separator)
@@ -274,14 +274,14 @@ class CustomParserWindow(ctk.CTkToplevel):
         self._reload_profile_checks()
 
         # intestazione colonne
-        head = ctk.CTkFrame(outer)
+        head = ctk.CTkFrame(outer, fg_color="transparent")
         head.pack(fill="x", padx=10)
         for txt, w in (("Colonna", 150), ("Inizia dopo", 150), ("Finisce prima", 150),
                        ("Valore fisso", 130), ("Trasformazione", 150), ("Value-map", 150),
                        ("Obblig.", 60), ("", 70)):
             ctk.CTkLabel(head, text=txt, width=w, anchor="w").pack(side="left", padx=2)
 
-        self._rows_frame = ctk.CTkFrame(outer)
+        self._rows_frame = ctk.CTkFrame(outer, fg_color="transparent")
         self._rows_frame.pack(fill="x", padx=10, pady=6)
 
         actions = ctk.CTkFrame(outer, fg_color="transparent")
@@ -291,7 +291,7 @@ class CustomParserWindow(ctk.CTkToplevel):
         ctk.CTkButton(actions, text="📋 Copia diagnostica", command=self._copy_diag).pack(side="left", padx=4)
 
         # test-live
-        test = ctk.CTkFrame(outer)
+        test = ctk.CTkFrame(outer, fg_color="transparent")
         test.pack(fill="x", padx=10, pady=6)
         ctk.CTkLabel(test, text="Messaggio di prova:").pack(anchor="w", padx=6)
         self._msg_box = ctk.CTkTextbox(test, height=120)
@@ -300,7 +300,7 @@ class CustomParserWindow(ctk.CTkToplevel):
         self._result.pack(fill="x", padx=6, pady=4)
         # Diagnostica per-campo (CP-08b): TABELLA — perché "Non pronto", colonna per colonna.
         ctk.CTkLabel(test, text="Diagnostica (una riga per colonna):").pack(anchor="w", padx=6)
-        self._diag_table = ctk.CTkFrame(test)
+        self._diag_table = ctk.CTkFrame(test, fg_color="transparent")
         self._diag_table.pack(fill="x", padx=6, pady=(0, 4))
         # Larghezze colonne della tabella diagnostica (px), in ordine.
         self._diag_cols = (("Colonna", 110), ("Stato", 64), ("Motivo", 280),
@@ -312,7 +312,7 @@ class CustomParserWindow(ctk.CTkToplevel):
         """Una riga = UNA colonna del contratto (griglia fissa a 14, PR-4): la colonna
         è una Label fissa (non più una tendina), così l'ordine resta quello del contratto
         e non si possono creare doppioni o dimenticare colonne."""
-        row = ctk.CTkFrame(self._rows_frame)
+        row = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
         row.pack(fill="x", pady=2)
         refs = {"target": rule.target}     # colonna FISSA: stringa, non un widget
         ctk.CTkLabel(row, text=rule.target, width=150, anchor="w").pack(side="left", padx=2)
