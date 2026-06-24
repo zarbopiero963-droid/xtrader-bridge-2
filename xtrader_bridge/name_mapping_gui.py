@@ -40,6 +40,14 @@ class NameMappingPanel(ctk.CTkFrame):
         self._build_ui()
         self._reload_profiles(select_first=True)
 
+    def refresh(self):
+        """Ricarica profili e righe del dizionario nomi dalla config su disco.
+
+        Da chiamare quando la config cambia da FUORI (es. un profilo applicato nella
+        stessa finestra "🧰 Strumenti"): senza, un Salva successivo riscriverebbe il
+        dizionario nomi stantio sopra il profilo (Codex)."""
+        self._reload_profiles(select_first=True)
+
     # ── costruzione UI ─────────────────────────────────────────────────────
     def _build_ui(self):
         ctk.CTkLabel(
@@ -341,7 +349,8 @@ class MappingPanel(ctk.CTkFrame):
         self._tabs.pack(fill="both", expand=True, padx=4, pady=4)
 
         calcio = self._tabs.add("⚽ Calcio")
-        NameMappingPanel(calcio, on_saved=on_saved).pack(fill="both", expand=True)
+        self._calcio = NameMappingPanel(calcio, on_saved=on_saved)
+        self._calcio.pack(fill="both", expand=True)
 
         mercati = self._tabs.add("🎯 Mercati")
         ctk.CTkLabel(
@@ -352,6 +361,11 @@ class MappingPanel(ctk.CTkFrame):
                  "come nel Parser Personalizzato. È una fase a sé perché incide\n"
                  "sul CSV (scommessa): vedi la roadmap.",
             justify="left", anchor="w", text_color="gray").pack(padx=16, pady=16, anchor="w")
+
+    def refresh(self):
+        """Ricarica l'area Calcio (dizionario nomi) dalla config su disco. L'area Mercati
+        è un placeholder senza stato, niente da ricaricare."""
+        self._calcio.refresh()
 
 
 class NameMappingWindow(ctk.CTkToplevel):

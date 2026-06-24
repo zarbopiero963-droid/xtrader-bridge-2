@@ -1498,16 +1498,20 @@ class App(ctk.CTk):
             self._save_ok = ok
             self._populate_form(saved)
             self._refresh_listened_chats()
-            # Un profilo applicato può sostituire la lista `providers`: nella stessa hub
-            # il pannello Provider è già costruito e mostrerebbe nomi STANTII finché non lo
-            # si modifica → lo si ricarica dal disco appena salvato (Codex). Best-effort:
-            # un errore di refresh non deve far fallire il caricamento del profilo.
-            pv = panel_refs.get("provider")
-            if pv is not None:
-                try:
-                    pv.refresh()
-                except Exception:           # noqa: BLE001
-                    pass
+            # Un profilo applicato cambia config.json: TUTTI i pannelli editabili già
+            # costruiti nella stessa hub (Provider, Chat sorgenti, Mapping) hanno stato
+            # STANTIO in memoria. Senza refresh, un loro Salva successivo riscriverebbe il
+            # vecchio stato sopra il profilo — per Chat sorgenti significa riscrivere
+            # `source_chats` vecchie e INDEBOLIRE il filtro chat (Codex P1). Si ricaricano
+            # tutti dal disco appena salvato. Best-effort: un refresh fallito non blocca il
+            # caricamento del profilo.
+            for _key in ("provider", "sources", "mapping"):
+                _panel = panel_refs.get(_key)
+                if _panel is not None:
+                    try:
+                        _panel.refresh()
+                    except Exception:       # noqa: BLE001
+                        pass
             if ok:
                 self._log("📁 Profilo caricato e applicato (token invariato).")
             else:
@@ -1531,16 +1535,24 @@ class App(ctk.CTk):
             panel_refs["provider"] = ProviderPanel(parent, on_saved=_provider_saved)
             return panel_refs["provider"]
 
+        def _make_sources(parent):
+            """Crea il pannello Chat sorgenti e ne tiene il riferimento per il refresh."""
+            panel_refs["sources"] = SourceChatsPanel(parent, on_saved=_sources_saved)
+            return panel_refs["sources"]
+
+        def _make_mapping(parent):
+            """Crea il pannello Mapping e ne tiene il riferimento per il refresh."""
+            panel_refs["mapping"] = MappingPanel(parent, on_saved=_mapping_saved)
+            return panel_refs["mapping"]
+
         panels = [
             ("📇 Provider", _make_provider),
             ("📁 Profili",
              lambda parent: ProfilesPanel(
                  parent, get_current_cfg=self._save_config, on_loaded=_profiles_loaded,
                  is_running=lambda: self._running)),
-            ("📡 Chat sorgenti",
-             lambda parent: SourceChatsPanel(parent, on_saved=_sources_saved)),
-            ("🗺️ Mapping",
-             lambda parent: MappingPanel(parent, on_saved=_mapping_saved)),
+            ("📡 Chat sorgenti", _make_sources),
+            ("🗺️ Mapping", _make_mapping),
         ]
         self._tools_win = ToolsWindow(self, panels=panels, initial=initial)
         self._tools_win.focus()
