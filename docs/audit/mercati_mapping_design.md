@@ -101,9 +101,16 @@ regole-colonna restano per gli altri campi e come fallback quando nessuna frase 
    Se due voci diverse combaciano e indicano Mercato/Selezione **diversi**, è ambiguo →
    `MARKET_MAPPING_MISSING` (non si tira a indovinare). *Alternativa* (se preferisci):
    match della frase **più lunga/più specifica**. Default proposto: **fail-closed**.
-3. **Coerenza Mercato↔Selezione.** La selezione deve appartenere al mercato scelto
-   (garantito già in fase di GUI: la tendina Selezione dipende dal Mercato). Lo store
-   rifiuta voci incoerenti.
+3. **Coerenza + canonicalizzazione Mercato/Selezione.** La selezione deve appartenere al
+   mercato scelto (garantito già in fase di GUI: la tendina Selezione dipende dal Mercato).
+   In più **`resolve_market` risolve ogni voce nella tupla CANONICA del Catalogo XTrader**
+   (`_canonical_market`): il match è case/spazio-insensitive, ma ciò che si ritorna — e che
+   il runtime scriverà nel CSV — sono **sempre** i valori canonici del catalogo
+   (`MarketType`, `MarketName`, `SelectionName`), **non** i valori grezzi del config. Una
+   coppia non nel catalogo → **ignorata** (mai scritta); una valida ma non-canonica
+   (case/spazi diversi, `market_type` stantio) → valori canonici. Così anche un bypass della
+   GUI o una config a mano restano fail-safe e producono sempre una tupla che XTrader
+   riconosce (Codex).
 4. **Una sola riga attiva.** Invariato: il CSV resta one-signal-at-a-time, svuotato dopo
    il timeout. La mappatura mercati non cambia questa catena.
 5. **Match su che testo? — DA CONFERMARE (default: testo grezzo del messaggio).** La frase
@@ -128,9 +135,11 @@ nomi squadra, così al parsing si traducono **sia** i nomi **sia** i mercati.
 
 ## 7. Piano di implementazione (PR piccole, una alla volta)
 
-1. **`market_mapping_store.py`** — funzioni pure + `resolve_market(text, profiles)` che
-   ritorna `(market_type, market_name, selection_name)` o `None`/ambiguo. **Solo logica +
-   test hard** (nessuna GUI, nessun runtime). Tutti i casi di §5 coperti da test.
+1. **`market_mapping_store.py`** — ✅ **FATTO** — funzioni pure + `resolve_market(text,
+   profiles)` → `MarketResolution(status, market)` con status `ok`/`ambiguous`/`none`. **Solo
+   logica + test hard** (`tests/unit/test_market_mapping.py`, 18 test): match univoco,
+   nessun match, ambiguità fail-closed (D2), confini di parola (D3), CRUD profili,
+   immutabilità. Nessuna GUI, nessun runtime.
 2. **Aggancio runtime** in `custom_pipeline` con la regola di precedenza §4 e
    `MARKET_MAPPING_MISSING`, + `defn.market_mapping_profiles` nel modello parser. Test hard
    end-to-end (frase → riga CSV corretta; nessun match → niente riga; ambiguo → niente
