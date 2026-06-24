@@ -478,6 +478,21 @@ Il job *Generate Windows Lockfile* (su `windows-latest` + Python 3.11):
   dalle dipendenze del generatore), così un lock incompleto non passa per poi rompere la
   build "pulita".
 
+### Verifica manuale del lock committato (prima di una release)
+
+Quando avvii il workflow **a mano** (*Actions → "Generate Windows Lockfile" → Run
+workflow*) puoi spuntare l'opzione **"Collauda il requirements-build.lock committato"**
+(input `verify_committed_lock`): un primo step testa il lock **già committato così com'è**
+— lo stesso file che `build.yaml` installerà — in un venv pulito con `--require-hashes` +
+test, **prima** di rigenerarlo. Serve a scoprire on-demand un eventuale "API drift" di una
+dipendenza pinnata **prima di pubblicare una release**.
+
+> ⚠️ Lascia l'opzione **OFF** (default) quando avvii il workflow per **rigenerare** un lock
+> rotto o stantio: con l'opzione attiva, il collaudo del vecchio lock fallirebbe e
+> impedirebbe la generazione/upload del nuovo lock — cioè proprio l'artifact che ti serve
+> per sistemarlo. Sulle PR lo step è sempre saltato (lì basta la validazione del lock
+> rigenerato).
+
 ### Come (ri)generare il lockfile
 
 1. Modifica `requirements.in` e/o `requirements-build.in` se cambi le dipendenze.

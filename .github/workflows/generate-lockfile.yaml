@@ -8,6 +8,17 @@ name: Generate Windows Lockfile
 
 on:
   workflow_dispatch:
+    inputs:
+      verify_committed_lock:
+        # Interruttore ESPLICITO per la verifica pre-release del lock committato (opzione "C").
+        # DEFAULT off di proposito: l'altro caso d'uso del dispatch è RIgenerare un lock
+        # rotto/stantio (vedi README), e in quel caso testare il vecchio lock lo farebbe
+        # fallire PRIMA di generare/caricare il nuovo artifact — bloccando proprio il file
+        # che serve per sistemarlo (Codex). Spunta questo SOLO quando il lock committato è
+        # buono e vuoi collaudarlo prima di una release.
+        description: "Collauda il requirements-build.lock committato com'è prima di rigenerarlo (verifica pre-release). LASCIA OFF se stai RIgenerando un lock rotto/stantio."
+        type: boolean
+        default: false
   pull_request:
     paths:
       - "requirements.in"
@@ -38,6 +49,30 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+
+      - name: (dispatch) Testa il lock COMMITTATO così com'è, prima di rigenerarlo
+        # Opzione "C": su esecuzione MANUALE valida il `requirements-build.lock` ESATTAMENTE
+        # com'è committato nel repo — lo stesso file che `build.yaml` installerà — in un venv
+        # PULITO con `--require-hashes`, poi esegue i test. Sta QUI di proposito, PRIMA dello
+        # step "Genera il lockfile" che sovrascrive il file in place: dopo la rigenerazione si
+        # validerebbe il lock rigenerato, non quello committato. Così un "API drift" di una
+        # dipendenza pinnata si scopre on-demand invece che solo nella build di release.
+        #   - Dietro l'input ESPLICITO `verify_committed_lock` (default off): l'ALTRO caso d'uso
+        #     del dispatch è RIgenerare un lock rotto/stantio, e lì testare il vecchio lock lo
+        #     farebbe fallire PRIMA di generare/caricare il nuovo artifact, bloccando proprio il
+        #     file che serve per sistemarlo (Codex). Lo si attiva solo per il collaudo pre-release.
+        #   - `hashFiles(...) != ''`: salta se il lock non è ancora committato (niente da testare).
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_committed_lock && hashFiles('requirements-build.lock') != ''
+        shell: pwsh
+        run: |
+          python -m venv .lockcommitted
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & ".lockcommitted\Scripts\python.exe" -m pip install --require-hashes -r requirements-build.lock
+          # Controllo esplicito dell'install PRIMA dei test: senza, un install fallito seguito
+          # da un pytest che esce 0 mascherebbe la validazione (pwsh riporta solo l'ultimo
+          # exit code). Stessa logica della validazione del lock rigenerato più sotto.
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & ".lockcommitted\Scripts\python.exe" -m pytest -m "not manual" -q
 
       - name: Rifiuta l'ELIMINAZIONE del lock una volta adottato
         # Se `requirements-build.lock` esiste sul branch base (è "adottato") ma è ASSENTE in
