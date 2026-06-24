@@ -12,9 +12,9 @@ Legenda stato: ⬜ da fare · 🔧 in PR aperta · ✅ mergiato.
 | ID | Finding | File | PR | Stato |
 |----|---------|------|----|-------|
 | A1 | SelectionName inventata nel fallback legacy (`"Over 0.5 Goals"`/`home`) | `csv_writer.py` | #107 | ✅ |
-| A2 | Boundary del lock: `live_guard.evaluate` fuori da `_queue_lock` | `live_guard.py`, `app.py` | `fix/audit-104-a2` | 🔧 |
-| A3 | Timing su wallclock invece di monotonic | `signal_dedupe.py`, `signal_queue.py`, `message_freshness.py`, `app.py` | — | ⬜ |
-| A4 | Freshness fail-OPEN su timestamp mancante | `message_freshness.py` | — | ⬜ |
+| A2 | Boundary del lock: `live_guard.evaluate` fuori da `_queue_lock` | `live_guard.py`, `app.py` | #111 | ✅ |
+| A4 | Freshness fail-OPEN su timestamp mancante | `message_freshness.py` | `fix/audit-104-a4` | 🔧 |
+| A3 | Timing su wallclock invece di monotonic (scorporato da A4: cambio delicato e coordinato) | `signal_dedupe.py`, `signal_queue.py`, `app.py` | — | ⬜ |
 
 ### 🟠 HIGH
 | ID | Finding | File | PR | Stato |
