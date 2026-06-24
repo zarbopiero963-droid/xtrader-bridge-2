@@ -294,6 +294,27 @@ def test_test_message_inoltra_name_mapping_profiles():
     assert res_none.placeable is False
 
 
+def test_test_message_inoltra_market_mapping_profiles():
+    # L'anteprima deve impostare Mercato/Selezione quando il parser usa la mappatura mercati
+    # e i profili risolti sono passati (come fa la GUI risolvendoli da config).
+    b = pb.ParserBuilder()
+    b.name = "Mkt"
+    b.mode = "NAME_ONLY"
+    b.market_mapping_profiles = ["Pandora"]
+    b.add_rule("Provider", fixed_value="TG")
+    b.add_rule("EventName", fixed_value="Inter v Milan", required=True)
+    b.add_rule("MarketType", fixed_value="BOTH_TEAMS_TO_SCORE", required=True)
+    b.add_rule("SelectionName", fixed_value="No", required=True)
+    b.add_rule("Price", fixed_value="1.85", required=True)
+    b.add_rule("BetType", fixed_value="PUNTA", required=True)
+    # Coppia reale del Catalogo XTrader; la frase combacia nel messaggio grezzo.
+    profiles = [[{"phrase": "gol gol", "market_type": "",
+                  "market_name": "Entrambe le squadre a segno", "selection_name": "Sì"}]]
+    res = b.test_message("consiglio: gol gol", market_mapping_profiles=profiles)
+    assert res.status == validator.VALID
+    assert res.row["SelectionName"] == "Sì"        # dizionario vince sul "No" della colonna
+
+
 def test_test_message_non_pronto():
     b = pb.ParserBuilder()
     b.name = "X"

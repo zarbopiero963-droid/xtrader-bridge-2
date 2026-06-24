@@ -170,16 +170,17 @@ nomi squadra, così al parsing si traducono **sia** i nomi **sia** i mercati.
      aggiornare/avvisare i parser al rename/delete del profilo. Non testato in CI (display);
      logica pura coperta da `market_mapping_store`/`dizionario` + test helper. Verifica manuale
      su Windows.
-   - **3b (DA FARE)** — selettore dei **profili mercati dentro il Parser Personalizzato**
-     (checkbox multi-selezione come per i nomi) + anteprima «Prova messaggio» che risolve i
-     profili mercati dalla config. **Deve includere** lo stesso meccanismo dei nomi:
-     profili **⚠ fantasma** (selezionati ma non più esistenti in config) che **bloccano il
-     salvataggio** del parser (`_unresolved_selected`) e refresh delle checkbox su
-     `refresh_options`. Questo chiude il rilievo **Codex P2** della PR 3a: dopo un rename/
-     delete di un profilo mercati, un `CustomParserPanel` aperto che teneva il vecchio nome
-     in `builder.market_mapping_profiles` non deve riscriverlo stantio (→
-     `MARKET_MAPPING_MISSING`). In 3a il path è raggiungibile solo via JSON editato a mano
-     (nessun selettore mercati nel parser), quindi il fix completo vive qui in 3b.
+   - **3b (FATTO)** — selettore dei **profili mercati dentro il Parser Personalizzato**
+     (`custom_parser_gui`): riga «Mappatura mercati» con pulsante «🎯 Dizionario mercati»
+     (`MarketMappingWindow`) + checkbox multi-selezione, accanto ai nomi. Sync a
+     `builder.market_mapping_profiles`; «Prova messaggio» risolve i profili mercati dalla
+     config (anteprima coerente col runtime). Include lo stesso meccanismo dei nomi: profili
+     **⚠ fantasma** (selezionati ma non più esistenti) che **bloccano salvataggio e
+     anteprima** (`_unresolved_market_selected`) + refresh su `refresh_options`. Questo
+     **chiude il rilievo Codex P2** della PR 3a: un `CustomParserPanel` aperto non riscrive
+     più un profilo mercati stantio dopo un rename/delete. Test: round-trip builder +
+     forward `market_mapping_profiles` in `test_message`. GUI non testata in CI (display):
+     verifica manuale su Windows.
 
 Ogni passo: Phase 0, micro-audit, test hard veritieri, una PR, merge manuale.
 

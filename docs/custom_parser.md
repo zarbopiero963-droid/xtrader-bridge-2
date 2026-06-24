@@ -171,10 +171,17 @@ Mercato (catalogo ▾) | Selezione (catalogo ▾)`, dove Mercato/Selezione si sc
 del Catalogo XTrader (la Selezione dipende dal Mercato) e `MarketType` è derivato dal
 Catalogo. I profili persistono in `config.json` → `market_mappings`. Rinominare/eliminare un
 profilo aggiorna/avvisa i parser che lo selezionano
-(`rename_market_mapping_profile_in_files` / `parsers_using_market_mapping_profile`). Il
-**selettore dei profili mercati dentro il Parser Personalizzato** (checkbox come per i nomi)
-arriva nel passo successivo (vedi `docs/audit/mercati_mapping_design.md` §6-§7). Il modello
-(`market_mapping_profiles`), lo store e l'aggancio runtime/anteprima sono già attivi.
+(`rename_market_mapping_profile_in_files` / `parsers_using_market_mapping_profile`).
+
+Nel **Parser Personalizzato** (`CustomParserPanel`) c'è ora la riga **«Mappatura mercati»**:
+un pulsante **«🎯 Dizionario mercati»** (apre `MarketMappingWindow`) e le **checkbox dei
+profili mercati** (multi-selezione), accanto a quelle dei nomi squadra. Al salvataggio del
+parser i profili spuntati finiscono in `market_mapping_profiles`. Come per i nomi, un profilo
+selezionato ma **non più esistente** in config compare come voce **⚠ fantasma** che **blocca
+il salvataggio** (e l'anteprima) finché non lo si ricrea o si toglie la spunta — così un
+profilo rinominato/eliminato non viene mai riscritto stantio nel parser (niente
+`MARKET_MAPPING_MISSING` silenzioso). «Prova messaggio» risolve i profili mercati dalla config
+e imposta Mercato/Selezione come il runtime (o fa fail-closed con `MARKET_MAPPING_MISSING`).
 
 ---
 

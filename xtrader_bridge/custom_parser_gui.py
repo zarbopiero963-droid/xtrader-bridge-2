@@ -12,7 +12,14 @@ coperta da `tests/unit/test_parser_builder.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import config_store, gui_utils, name_mapping_store, parser_diagnostics, provider_store
+from . import (
+    config_store,
+    gui_utils,
+    market_mapping_store,
+    name_mapping_store,
+    parser_diagnostics,
+    provider_store,
+)
 from .parser_builder import ParserBuilder
 
 
@@ -159,6 +166,95 @@ class CustomParserPanel(ctk.CTkFrame):
         win = NameMappingWindow(self, on_saved=_on_saved)
         win.focus()
 
+    # ── mappatura mercati (profili) ────────────────────────────────────────
+    # Speculare alla mappatura nomi sopra, ma su `market_mapping_profiles` /
+    # `market_mapping_store` (config `market_mappings`). Metodi PARALLELI dedicati (non un
+    # refactor di quelli nomi) per non rischiare regressioni sul path nomi già collaudato.
+    @staticmethod
+    def _load_market_mapping_profiles() -> list:
+        """Nomi dei profili mercati salvati (best-effort: config illeggibile → [])."""
+        try:
+            cfg = config_store.load_config(config_store.CONFIG_FILE)
+        except Exception:                       # noqa: BLE001 — fallback sicuro
+            return []
+        return market_mapping_store.profile_names(cfg)
+
+    def _reload_market_profile_checks(self, use_builder=False):
+        """Ridisegna le checkbox dei profili MERCATI. La selezione viene da
+        `builder.market_mapping_profiles` (su `use_builder`) o dalle checkbox correnti.
+
+        Come per i nomi, mostra i profili esistenti + i selezionati ma non più esistenti
+        come voci ⚠ **fantasma**: restano una checkbox da togliere e `_unresolved_market_selected`
+        le intercetta per bloccare save/preview, così un profilo mercati rinominato/eliminato
+        non viene riscritto stantio nel parser (→ MARKET_MAPPING_MISSING, Codex P2)."""
+        if use_builder or not self._market_profile_checks:
+            selected = list(self.builder.market_mapping_profiles)
+        else:
+            selected = self._selected_market_profiles()
+        selected_set = set(selected)
+        for child in self._market_profiles_box.winfo_children():
+            child.destroy()
+        self._market_profile_checks = {}
+        existing = list(self._load_market_mapping_profiles())
+        self._existing_market_profiles = set(existing)
+        missing = [n for n in selected if n not in self._existing_market_profiles]
+        names = existing + [n for n in missing if n not in existing]
+        if not names:
+            ctk.CTkLabel(self._market_profiles_box, text="(nessun profilo)",
+                         text_color="gray").pack(side="left", padx=4)
+            return
+        for name in names:
+            present = name in self._existing_market_profiles
+            var = ctk.BooleanVar(value=name in selected_set)
+            kw = {} if present else {"text_color": "#ffa726"}   # ⚠ profilo mancante
+            ctk.CTkCheckBox(self._market_profiles_box, text=name if present else f"⚠ {name}",
+                            variable=var, width=20, **kw).pack(side="left", padx=4)
+            self._market_profile_checks[name] = var
+
+    def _selected_market_profiles(self) -> list:
+        """Profili mercati spuntati, preservando l'ordine scelto nel parser (come i nomi):
+        i profili già in `builder.market_mapping_profiles` mantengono la posizione, i nuovi
+        si aggiungono in coda. I profili ⚠ mancanti selezionati restano inclusi (li blocca
+        `_unresolved_market_selected`)."""
+        checked = {name for name, var in self._market_profile_checks.items() if var.get()}
+        ordered = [n for n in self.builder.market_mapping_profiles if n in checked]
+        ordered += [n for n in self._market_profile_checks if n in checked and n not in ordered]
+        return ordered
+
+    def _unresolved_market_selected(self) -> list:
+        """Profili mercati selezionati che non esistono più (voci ⚠ fantasma): finché ce ne
+        sono spuntati, `_save`/`_test` si bloccano — una mappatura mercati richiesta ma non
+        risolvibile non deve diventare in silenzio «nessuna mappatura»."""
+        return [n for n in self._selected_market_profiles()
+                if n not in self._existing_market_profiles]
+
+    @staticmethod
+    def _resolve_market_mapping_profiles(defn):
+        """Voci dei profili mercati del parser risolte dalla config (per l'anteprima), o
+        None se il parser non usa la mappatura mercati. Best-effort: config illeggibile →
+        lista vuota (mappatura richiesta ma irrisolvibile → l'anteprima fa fail-closed)."""
+        if not defn.market_mapping_profiles:
+            return None
+        try:
+            cfg = config_store.load_config(config_store.CONFIG_FILE)
+        except Exception:                       # noqa: BLE001 — fallback sicuro
+            cfg = {}
+        return market_mapping_store.entries_for_profiles(cfg, defn.market_mapping_profiles)
+
+    def _open_market_mapping(self):
+        """Apre il Dizionario mercati (finestra separata). Alla chiusura/salvataggio
+        ricarica le checkbox dei profili mercati così le nuove voci compaiono subito."""
+        self._sync_to_builder()              # non perdere selezione corrente
+        from .name_mapping_gui import MarketMappingWindow
+
+        def _on_saved(new_cfg):
+            if callable(self._on_saved):
+                self._on_saved(new_cfg)
+            self._reload_market_profile_checks()
+
+        win = MarketMappingWindow(self, on_saved=_on_saved)
+        win.focus()
+
     def __init__(self, master=None, builder: ParserBuilder = None, provider: str = "",
                  global_mode: str = "", on_saved=None):
         super().__init__(master)
@@ -215,6 +311,7 @@ class CustomParserPanel(ctk.CTkFrame):
                     vals.append(cur)        # preserva la selezione anche se rimossa dall'anagrafica
                 menu.configure(values=vals)
         self._reload_profile_checks()       # ricarica i profili mapping dal disco (spunte preservate)
+        self._reload_market_profile_checks()  # idem per i profili mercati
 
     # ── costruzione UI ─────────────────────────────────────────────────────
     def _build_ui(self):
@@ -296,6 +393,20 @@ class CustomParserPanel(ctk.CTkFrame):
         self._profile_checks = {}        # nome profilo → BooleanVar
         self._existing_profiles = set()  # profili realmente presenti in config (non ⚠)
         self._reload_profile_checks()
+
+        # Mappatura mercati a frase: profili (checkbox multi-selezione) che traducono una
+        # frase-mercato del messaggio nel Mercato/Selezione XTrader (market_mapping_store).
+        mm = ctk.CTkFrame(outer, fg_color="transparent")
+        mm.pack(fill="x", padx=10, pady=(0, 6))
+        ctk.CTkLabel(mm, text="Mappatura mercati:").pack(side="left", padx=6)
+        ctk.CTkButton(mm, text="🎯 Dizionario mercati", width=170,
+                      command=self._open_market_mapping).pack(side="left", padx=6)
+        ctk.CTkLabel(mm, text="Profili:").pack(side="left", padx=(8, 2))
+        self._market_profiles_box = ctk.CTkScrollableFrame(mm, height=42, orientation="horizontal")
+        self._market_profiles_box.pack(side="left", fill="x", expand=True, padx=4)
+        self._market_profile_checks = {}        # nome profilo mercati → BooleanVar
+        self._existing_market_profiles = set()  # profili mercati realmente in config (non ⚠)
+        self._reload_market_profile_checks()
 
         # intestazione colonne
         head = ctk.CTkFrame(outer, fg_color="transparent")
@@ -384,6 +495,8 @@ class CustomParserPanel(ctk.CTkFrame):
         # Mappatura nomi: ripristina separatore + checkbox profili dal builder.
         self._separator_var.set(self.builder.team_separator)
         self._reload_profile_checks(use_builder=True)
+        # Mappatura mercati: checkbox profili mercati dal builder.
+        self._reload_market_profile_checks(use_builder=True)
         for rule in self.builder.rules:
             self._add_row(rule)
 
@@ -408,6 +521,8 @@ class CustomParserPanel(ctk.CTkFrame):
         # Mappatura nomi: separatore (testo libero) + profili spuntati.
         self.builder.team_separator = self._separator_var.get().strip()
         self.builder.name_mapping_profiles = self._selected_profiles()
+        # Mappatura mercati: profili mercati spuntati.
+        self.builder.market_mapping_profiles = self._selected_market_profiles()
         self.builder.rules = []
         for refs in self._rows:
             self.builder.add_rule(
@@ -427,12 +542,21 @@ class CustomParserPanel(ctk.CTkFrame):
         # così un profilo mancante diventa ⚠ e blocca il salvataggio invece di riscrivere
         # un riferimento morto nel parser (Codex).
         self._reload_profile_checks()
+        self._reload_market_profile_checks()   # idem per i profili mercati (Codex P2)
         self._sync_to_builder()
         unresolved = self._unresolved_selected()
         if unresolved:
             self._result.configure(
-                text=f"⛔ Non salvato: profili di mappatura mancanti ({', '.join(unresolved)}). "
+                text=f"⛔ Non salvato: profili di mappatura nomi mancanti ({', '.join(unresolved)}). "
                      "Ricreali nel «Dizionario nomi» o togli la spunta prima di salvare.")
+            return
+        unresolved_mkt = self._unresolved_market_selected()
+        if unresolved_mkt:
+            # Stesso fail-closed dei nomi: un profilo mercati rinominato/eliminato non deve
+            # essere riscritto stantio nel parser (→ MARKET_MAPPING_MISSING a runtime, Codex P2).
+            self._result.configure(
+                text=f"⛔ Non salvato: profili di mappatura mercati mancanti ({', '.join(unresolved_mkt)}). "
+                     "Ricreali nel «Dizionario mercati» o togli la spunta prima di salvare.")
             return
         errors = self.builder.errors()
         if errors:
@@ -549,14 +673,21 @@ class CustomParserPanel(ctk.CTkFrame):
 
     def _test(self):
         self._reload_profile_checks()   # rifletti modifiche al dizionario fatte altrove (Codex)
+        self._reload_market_profile_checks()
         self._sync_to_builder()
         unresolved = self._unresolved_selected()
         if unresolved:
             # Mappatura richiesta ma con profili non risolvibili: non mostrare un'anteprima
             # fuorviante (col rischio di EventName grezzo). Blocca con spiegazione (Codex).
             self._result.configure(
-                text=f"⛔ Non pronto: profili di mappatura mancanti ({', '.join(unresolved)}). "
+                text=f"⛔ Non pronto: profili di mappatura nomi mancanti ({', '.join(unresolved)}). "
                      "Ricreali nel «Dizionario nomi» o togli la spunta.")
+            return
+        unresolved_mkt = self._unresolved_market_selected()
+        if unresolved_mkt:
+            self._result.configure(
+                text=f"⛔ Non pronto: profili di mappatura mercati mancanti ({', '.join(unresolved_mkt)}). "
+                     "Ricreali nel «Dizionario mercati» o togli la spunta.")
             return
         message = self._msg_box.get("1.0", "end").rstrip("\n")
         # Modalità EFFETTIVA per l'anteprima: quella scelta; se "(eredita globale)" ("")
@@ -575,12 +706,17 @@ class CustomParserPanel(ctk.CTkFrame):
         # traduce l'EventName come il runtime (e fa fail-closed se non mappabile) invece
         # di mostrare un falso "Pronto" col nome grezzo.
         name_mapping_profiles = self._resolve_mapping_profiles(defn)
+        # Mappatura mercati: risolvi i profili mercati dalla config così l'anteprima imposta
+        # Mercato/Selezione come il runtime (o fa fail-closed con MARKET_MAPPING_MISSING).
+        market_mapping_profiles = self._resolve_market_mapping_profiles(defn)
         res = self.builder.test_message(message, provider=self._provider, mode=mode,
                                         require_price=require_price,
-                                        name_mapping_profiles=name_mapping_profiles)
+                                        name_mapping_profiles=name_mapping_profiles,
+                                        market_mapping_profiles=market_mapping_profiles)
         diag = parser_diagnostics.diagnose(
             defn, message, provider=self._provider, mode=mode, require_price=require_price,
-            name_mapping_profiles=name_mapping_profiles)
+            name_mapping_profiles=name_mapping_profiles,
+            market_mapping_profiles=market_mapping_profiles)
         if diag.placeable:
             riga = ", ".join(f"{k}={v}" for k, v in res.row.items() if v != "")
             self._result.configure(text=f"✅ Pronto · {riga}")
