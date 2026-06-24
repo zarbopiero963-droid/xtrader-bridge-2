@@ -11,8 +11,8 @@ Legenda stato: ⬜ da fare · 🔧 in PR aperta · ✅ mergiato.
 ### 🔴 Critici (rischio doppia/errata scommessa)
 | ID | Finding | File | PR | Stato |
 |----|---------|------|----|-------|
-| A1 | SelectionName inventata nel fallback legacy (`"Over 0.5 Goals"`/`home`) | `csv_writer.py` | PR `fix/audit-104-a1` | 🔧 |
-| A2 | Boundary del lock: `live_guard.evaluate` fuori da `_queue_lock` | `live_guard.py`, `app.py` | — | ⬜ |
+| A1 | SelectionName inventata nel fallback legacy (`"Over 0.5 Goals"`/`home`) | `csv_writer.py` | #107 | ✅ |
+| A2 | Boundary del lock: `live_guard.evaluate` fuori da `_queue_lock` | `live_guard.py`, `app.py` | `fix/audit-104-a2` | 🔧 |
 | A3 | Timing su wallclock invece di monotonic | `signal_dedupe.py`, `signal_queue.py`, `message_freshness.py`, `app.py` | — | ⬜ |
 | A4 | Freshness fail-OPEN su timestamp mancante | `message_freshness.py` | — | ⬜ |
 

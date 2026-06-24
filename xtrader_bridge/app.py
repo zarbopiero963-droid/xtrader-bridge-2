@@ -1156,51 +1156,56 @@ class App(ctk.CTk):
 
         # Guardrail del percorso di scrittura (PR-21): dedup + limite/minuto +
         # limite/giorno + DRY_RUN. Solo WRITE autorizza la scrittura; ogni altro
-        # esito la sopprime (anti-doppia-scommessa / simulazione). `evaluate`
-        # consuma lo stato (registra il messaggio, scala il tetto): si fa uno
-        # snapshot per poterlo annullare se la scrittura del CSV poi fallisce.
-        tracker_snap = daily_snap = None
-        if self._tracker is not None:
-            tracker_snap = self._tracker.state()
-            daily_snap = self._daily.state() if self._daily is not None else None
-            decision = live_guard.evaluate(cfg, self._tracker, self._daily, text)
-            if decision != live_guard.WRITE:
-                self._save_guard_state()
-                self._after_non_write(decision, row)
-                return
-
-        # Coda dei segnali attivi (PR-22): aggiunge il segnale (OVERWRITE_LAST
-        # sostituisce l'attivo; APPEND_ACTIVE/QUEUE_UNTIL_CONFIRMED accodano) e
-        # riscrive TUTTE le righe attive in modo atomico. `expire` prima dell'add
-        # rimuove i segnali già scaduti.
+        # esito la sopprime (anti-doppia-scommessa / simulazione).
         path = cfg["csv_path"]
         now = time.time()
-        # Lock tenuto ATTRAVERSO la scrittura: stato della coda e contenuto del CSV
-        # evolvono in modo monotòno (nessuna corsa con il tick di scadenza).
         write_error = None
+        decision = live_guard.WRITE
+        tracker_snap = daily_snap = None
+        rows = []
+        # UN SOLO lock attorno a "valuta guardrail → aggiorna coda → scrivi CSV" (audit A2).
+        # `SignalTracker`/`DailyLimiter` non hanno lock interno: consumarli FUORI dal
+        # `_queue_lock` (com'era) lasciava una finestra tra `evaluate` e la scrittura in cui
+        # due callback interlacciati (seconda sorgente, reconnect) potevano passare entrambi
+        # il dedup → doppia scommessa. Tenendo evaluate+write sotto lo STESSO lock, "deciso
+        # e scritto" è atomico. Snapshot dello stato per rollback se la scrittura fallisce.
         with self._queue_lock:
-            # Anti-race con il clear allo stop (Codex P2): se nel frattempo è stato
-            # premuto STOP, non scrivere — il clear ha (o sta per) svuotare il CSV.
+            # Anti-race con il clear allo stop (Codex P2): se nel frattempo è stato premuto
+            # STOP, non valutare né scrivere — il clear ha (o sta per) svuotare il CSV.
             if not self._running:
                 return
-            queue_snap = self._queue.state()      # snapshot per rollback su write fallita
-            self._queue.expire(now=now)
-            self._queue.add(row, now=now)
-            rows = self._queue.active_rows()
-            try:
-                write_rows(rows, path)
-            except Exception as ex:   # noqa: BLE001 — esito riportato a log, no crash
-                # Scrittura fallita: RIPRISTINA la coda allo stato precedente (allineato
-                # al CSV ancora su disco). In OVERWRITE_LAST il segnale precedente NON
-                # va perso e il nuovo è riprovabile.
-                self._queue.restore_state(queue_snap)
-                write_error = ex
-        if write_error is not None:
-            # Annulla anche il consumo dei guardrail → il segnale non resta soppresso.
             if self._tracker is not None:
-                self._tracker.restore_state(tracker_snap)
-                if self._daily is not None and daily_snap is not None:
-                    self._daily.restore_state(daily_snap)
+                tracker_snap = self._tracker.state()
+                daily_snap = self._daily.state() if self._daily is not None else None
+                decision = live_guard.evaluate(cfg, self._tracker, self._daily, text)
+            if decision == live_guard.WRITE:
+                # Coda dei segnali attivi (PR-22): expire dei già scaduti, add del nuovo,
+                # riscrittura atomica di TUTTE le righe attive.
+                queue_snap = self._queue.state()      # snapshot per rollback su write fallita
+                self._queue.expire(now=now)
+                self._queue.add(row, now=now)
+                rows = self._queue.active_rows()
+                try:
+                    write_rows(rows, path)
+                except Exception as ex:   # noqa: BLE001 — esito riportato a log, no crash
+                    # Scrittura fallita: RIPRISTINA coda E guardrail allo stato precedente
+                    # (allineati al CSV ancora su disco). Il segnale NON resta consumato dal
+                    # dedup/tetto ed è riprovabile; in OVERWRITE_LAST il precedente non va perso.
+                    self._queue.restore_state(queue_snap)
+                    if self._tracker is not None:
+                        self._tracker.restore_state(tracker_snap)
+                        if self._daily is not None and daily_snap is not None:
+                            self._daily.restore_state(daily_snap)
+                    write_error = ex
+        # ── fuori dal lock: side-effect (persistenza guard state, GUI, log) ──
+        if decision != live_guard.WRITE:
+            # Esito non-WRITE (dup/rate/daily/dry-run): lo stato è già consumato sotto lock;
+            # persisti e notifica.
+            if self._tracker is not None:
+                self._save_guard_state()
+            self._after_non_write(decision, row)
+            return
+        if write_error is not None:
             self.after(0, lambda: self._bump("errors"))
             self.after(0, lambda e=write_error: self._set_last("error", f"scrittura CSV: {e}"))
             self.after(0, lambda e=write_error: self._log(
