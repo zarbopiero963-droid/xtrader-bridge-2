@@ -232,7 +232,19 @@ class CustomParserPanel(ctk.CTkFrame):
     def _resolve_market_mapping_profiles(defn):
         """Voci dei profili mercati del parser risolte dalla config (per l'anteprima), o
         None se il parser non usa la mappatura mercati. Best-effort: config illeggibile →
-        lista vuota (mappatura richiesta ma irrisolvibile → l'anteprima fa fail-closed)."""
+        lista vuota.
+
+        Semantica `None` vs `[]` (Sourcery): per i mercati la distinzione NON è significativa
+        a valle. Il runtime (`custom_pipeline.build_validated_row`) attiva l'hook in base a
+        `defn.market_mapping_profiles` (i NOMI dei profili scelti nel parser) e coalizza
+        l'argomento con `market_mapping_profiles or []`: quindi `None` e `[]` producono lo
+        stesso percorso (`resolve_market(text, [])` → stato "none"). Il fail-closed dei
+        mercati è «nessuna frase combacia **e** nessun mercato dalle regole-colonna →
+        `MARKET_MAPPING_MISSING`» (mode-aware), valido in entrambi i casi. È un'asimmetria
+        VOLUTA rispetto ai nomi: i nomi DEVONO essere tradotti (config illeggibile ⇒
+        `MAPPING_MISSING`, fail-closed), i mercati invece ripiegano sulla regola-colonna
+        quando nessuna frase combacia (precedenza D1). `entries_for_profiles` ignora da sé i
+        profili assenti, quindi una config illeggibile non scrive mai un mercato a caso."""
         if not defn.market_mapping_profiles:
             return None
         try:
