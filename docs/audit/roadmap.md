@@ -734,6 +734,8 @@ finestra hub `tools_gui.ToolsWindow`. La hub è disaccoppiata: riceve `(titolo, 
   posto dei cinque.
 
 ### FASE 2 — mappatura mercati (sensibile: CSV → scommessa)
+> **Design doc:** [`docs/audit/mercati_mapping_design.md`](mercati_mapping_design.md) — da
+> approvare (domande aperte D1–D4) PRIMA di scrivere codice.
 - **Design doc** del riconoscimento mercati **a frase**: modello dati, persistenza
   per-profilo, punto di intervento nel runtime (nel router, **prima** del CSV), **regola
   di precedenza** (regola-colonna del parser **vince** sul dizionario; il dizionario riempie
