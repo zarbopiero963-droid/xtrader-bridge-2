@@ -1497,6 +1497,8 @@ class App(ctk.CTk):
             existing.focus()
             return
 
+        panel_refs = {}        # riferimenti ai pannelli vivi (per refresh cross-scheda)
+
         def _provider_saved(new_cfg):
             """Provider salvato: aggiorna la config in memoria (anti-stale)."""
             self._config = new_cfg
@@ -1508,15 +1510,29 @@ class App(ctk.CTk):
             self._save_ok = ok
             self._populate_form(saved)
             self._refresh_listened_chats()
+            # Un profilo applicato può sostituire la lista `providers`: nella stessa hub
+            # il pannello Provider è già costruito e mostrerebbe nomi STANTII finché non lo
+            # si modifica → lo si ricarica dal disco appena salvato (Codex). Best-effort:
+            # un errore di refresh non deve far fallire il caricamento del profilo.
+            pv = panel_refs.get("provider")
+            if pv is not None:
+                try:
+                    pv.refresh()
+                except Exception:           # noqa: BLE001
+                    pass
             if ok:
                 self._log("📁 Profilo caricato e applicato (token invariato).")
             else:
                 self._log("⚠️ Profilo applicato in memoria, ma salvataggio su disco "
                           "FALLITO (token invariato). Controlla permessi/spazio.")
 
+        def _make_provider(parent):
+            """Crea il pannello Provider e ne tiene il riferimento per il refresh."""
+            panel_refs["provider"] = ProviderPanel(parent, on_saved=_provider_saved)
+            return panel_refs["provider"]
+
         panels = [
-            ("📇 Provider",
-             lambda parent: ProviderPanel(parent, on_saved=_provider_saved)),
+            ("📇 Provider", _make_provider),
             ("📁 Profili",
              lambda parent: ProfilesPanel(
                  parent, get_current_cfg=self._save_config, on_loaded=_profiles_loaded,

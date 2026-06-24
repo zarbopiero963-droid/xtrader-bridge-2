@@ -34,6 +34,14 @@ class ProviderPanel(ctk.CTkFrame):
         self._build_ui()
         self._reload()
 
+    def refresh(self):
+        """Ricarica la lista dei provider dal disco.
+
+        Usato quando la config cambia da FUORI questo pannello (es. l'applicazione di
+        un profilo nella stessa finestra "🧰 Strumenti" può sostituire la lista
+        `providers`): senza, il pannello mostrerebbe nomi stantii (Codex)."""
+        self._reload()
+
     # ── costruzione UI ─────────────────────────────────────────────────────
     def _build_ui(self):
         ctk.CTkLabel(
