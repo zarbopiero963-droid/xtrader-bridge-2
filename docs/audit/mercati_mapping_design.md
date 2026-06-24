@@ -70,16 +70,26 @@ Hook in `custom_pipeline.build_validated_row()`, **dopo** l'estrazione dei campi
 messaggio e **prima** della validazione/scrittura, **solo** se il parser ha un profilo
 mercati selezionato (`defn.market_mapping_profiles`).
 
-**Regola di precedenza — DA CONFERMARE (raccomandazione di default):**
+**Regola di precedenza — CONFERMATA (D1): il DIZIONARIO mercati VINCE.**
 
-> Le **regole a colonne del Parser vincono** sul dizionario mercati. Il dizionario
-> riempie `MarketName`/`SelectionName`/`MarketType` **solo se** il parser **non** li ha già
-> estratti (campo vuoto). Così chi ha già una regola esplicita per il mercato non viene
-> mai sovrascritto da un match di frase.
+> Quando il parser ha un profilo mercati selezionato e una frase **combacia in modo
+> univoco**, i campi `MarketType`/`MarketName`/`SelectionName` del **dizionario
+> sovrascrivono** quelli eventualmente estratti dalle regole-colonna. Se **nessuna** frase
+> combacia, restano i valori delle regole-colonna (se presenti). In caso di **ambiguità**
+> vale il fail-closed (§5.2). Se il mercato resta comunque assente → `MARKET_MAPPING_MISSING`.
 
-Motivazione: una regola esplicita è un'intenzione precisa dell'utente; il dizionario è un
-aiuto "best-effort" per i provider che scrivono i mercati a parole. Evita doppie verità
-contrastanti sullo stesso campo.
+Riepilogo decisione per `MarketName`/`SelectionName`/`MarketType`:
+
+| Situazione | Risultato |
+|---|---|
+| Frase del dizionario combacia (univoca) | **valore del dizionario** (vince sulla regola-colonna) |
+| Più frasi combaciano con mercati diversi | `MARKET_MAPPING_MISSING` (niente riga) |
+| Nessuna frase combacia, ma la regola-colonna ha estratto il mercato | valore della regola-colonna |
+| Nessuna frase combacia e nessuna regola-colonna | `MARKET_MAPPING_MISSING` (niente mercato inventato) |
+
+Motivazione della scelta del proprietario: per i provider che scrivono i mercati **a
+parole** ("goal prima di 70"), il dizionario è la sorgente autorevole del mercato; le
+regole-colonna restano per gli altri campi e come fallback quando nessuna frase combacia.
 
 ## 5. Sicurezza / fail-safe (NON negoziabile)
 
@@ -129,15 +139,13 @@ nomi squadra, così al parsing si traducono **sia** i nomi **sia** i mercati.
 
 Ogni passo: Phase 0, micro-audit, test hard veritieri, una PR, merge manuale.
 
-## 8. Domande aperte (servono decisione del proprietario)
+## 8. Decisioni del proprietario (CONFERMATE)
 
-- **D1 — Precedenza** (§4): regola-colonna del parser vince sul dizionario? *(default: sì)*
-- **D2 — Ambiguità** (§5.2): match ambiguo ⇒ fail-closed, oppure frase più lunga vince?
-  *(default: fail-closed)*
-- **D3 — Testo di match** (§5.5): messaggio grezzo, oppure un campo estratto dal parser?
-  *(default: messaggio grezzo)*
-- **D4 — `MarketType`**: serve mapparlo (oltre a MarketName/SelectionName) per il contratto
-  CSV XTrader? *(default: sì, lo prendiamo dal catalogo insieme a Mercato/Selezione)*
+- **D1 — Precedenza** (§4): **il DIZIONARIO vince** sulla regola-colonna quando una frase
+  combacia (univoca). *(scelta dal proprietario; non il default proposto)*
+- **D2 — Ambiguità** (§5.2): **fail-closed** — match ambiguo ⇒ `MARKET_MAPPING_MISSING`.
+- **D3 — Testo di match** (§5.5): **messaggio grezzo** (case-insensitive, confini di parola).
+- **D4 — `MarketType`**: **sì**, mappato dal Catalogo XTrader insieme a Mercato/Selezione.
 
-Confermando D1–D4 (o accettando i default), parto dal passo 1 (store + test), senza
-toccare GUI/runtime finché lo store non è solido.
+Design **approvato** con queste decisioni → si procede dal passo 1 (`market_mapping_store.py`
++ test hard), senza toccare GUI/runtime finché lo store non è solido.
