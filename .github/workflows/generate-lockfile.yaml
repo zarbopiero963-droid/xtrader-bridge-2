@@ -73,6 +73,18 @@ jobs:
       - name: Genera il lockfile con hash (in place)
         run: pip-compile --generate-hashes --output-file requirements-build.lock requirements-build.in
 
+      - name: Upload generated lockfile
+        # Caricato SUBITO dopo la generazione, PRIMA dei gate anti-stantio/validazione: così
+        # il lock rigenerato è SEMPRE scaricabile come artifact anche quando il gate fallisce
+        # (es. lock committato stantio) — è proprio quello che il messaggio d'errore e il README
+        # dicono di scaricare e ricommittare (CodeRabbit). Il deletion-guard sopra resta un hard
+        # stop prima della generazione, quindi qui un lock c'è sempre.
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: requirements-build-lock-windows-py311
+          path: requirements-build.lock
+          retention-days: 30
+
       - name: Fallisci se il lock committato è STANTIO
         # Se la PR ha committato un `requirements-build.lock`, la rigenerazione qui sopra
         # deve coincidere: altrimenti il repo conterrebbe un lock che NON corrisponde più ai
@@ -99,10 +111,3 @@ jobs:
           python -m venv .lockcheck
           & ".lockcheck\Scripts\python.exe" -m pip install --require-hashes -r requirements-build.lock
           & ".lockcheck\Scripts\python.exe" -m pytest -m "not manual" -q
-
-      - name: Upload generated lockfile
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: requirements-build-lock-windows-py311
-          path: requirements-build.lock
-          retention-days: 30
