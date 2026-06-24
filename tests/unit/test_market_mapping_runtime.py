@@ -17,9 +17,12 @@ from xtrader_bridge import parser_builder, signal_router, validator
 
 # ── parser/voci di supporto ──────────────────────────────────────────────────
 
-def _entry(phrase, market="Entrambe le squadre a segno", selection="Sì"):
-    return {"phrase": phrase, "market_type": "", "market_name": market,
-            "selection_name": selection}
+def _entry(phrase, start_after="Mercato:", end_before="\n",
+           market="Entrambe le squadre a segno", selection="Sì"):
+    # Il mercato si legge dal campo delimitato (start_after/end_before), non da tutto il
+    # messaggio: i messaggi di test includono quindi "Mercato: <testo>\n".
+    return {"start_after": start_after, "end_before": end_before, "phrase": phrase,
+            "market_type": "", "market_name": market, "selection_name": selection}
 
 
 def _market_parser(profiles=("Pandora",), *, with_market_cols=True,
@@ -48,7 +51,7 @@ def test_pipeline_dizionario_vince_sulla_colonna():
     # D1: la colonna dice Selezione "No"; una frase combacia e dice "Sì" → vince il dizionario.
     profiles = [[_entry("gol gol", selection="Sì")]]
     res = pipe.build_validated_row(_market_parser(col_selection="No"),
-                                   "Consiglio: gol gol, quota 1.85",
+                                   "Consiglio\nMercato: gol gol\nquota 1.85",
                                    market_mapping_profiles=profiles)
     assert res.status == validator.VALID and res.placeable is True
     # valori CANONICI del catalogo (non quelli grezzi del config: market_type era "")
@@ -61,7 +64,7 @@ def test_pipeline_ambiguo_market_mapping_missing():
     # D2: due frasi combaciano e indicano selezioni DIVERSE → fail-closed, niente riga.
     profiles = [[_entry("gol gol", selection="Sì"), _entry("no gol", selection="No")]]
     res = pipe.build_validated_row(_market_parser(),
-                                   "scommetti gol gol e no gol",
+                                   "scommetti\nMercato: gol gol e no gol\nquota",
                                    market_mapping_profiles=profiles)
     assert res.status == pipe.MARKET_MAPPING_MISSING
     assert res.placeable is False
@@ -94,7 +97,7 @@ def test_pipeline_voce_incoerente_col_catalogo_ignorata_fallback():
     # ignora → "none" → fallback alla regola-colonna (mai scrivere un mercato non canonico).
     profiles = [[_entry("gol gol", market="Mercato Inventato", selection="Sel X")]]
     res = pipe.build_validated_row(_market_parser(col_selection="No"),
-                                   "gol gol, quota 1.85",
+                                   "Mercato: gol gol\nquota 1.85",
                                    market_mapping_profiles=profiles)
     assert res.status == validator.VALID
     assert res.row["SelectionName"] == "No"          # colonna, non la voce incoerente
@@ -148,7 +151,7 @@ def test_pipeline_override_azzera_id_stantii_both():
             cp.FieldRule(target="SelectionId", fixed_value="999"),      # ID stantio
         ])
     profiles = [[_entry("gol gol", selection="Sì")]]
-    res = pipe.build_validated_row(defn, "gol gol, quota 1.85",
+    res = pipe.build_validated_row(defn, "Mercato: gol gol\nquota 1.85",
                                    market_mapping_profiles=profiles)
     assert res.status == validator.VALID and res.placeable is True
     assert res.row["SelectionName"] == "Sì"          # mercato a nome dal dizionario
@@ -170,21 +173,29 @@ def test_pipeline_override_id_only_failclosed():
             cp.FieldRule(target="SelectionId", fixed_value="999", required=True),
         ])
     profiles = [[_entry("gol gol", selection="Sì")]]
-    res = pipe.build_validated_row(defn, "gol gol, quota 1.85",
+    res = pipe.build_validated_row(defn, "Mercato: gol gol\nquota 1.85",
                                    market_mapping_profiles=profiles)
     assert res.placeable is False                     # ID azzerati → ID_ONLY senza mercato
     assert res.row["MarketId"] == "" and res.row["SelectionId"] == ""
 
 
-def test_pipeline_match_sul_messaggio_grezzo_non_su_campo():
-    # D3: la frase si cerca nel MESSAGGIO grezzo, non in EventName (qui "Inter v Milan",
-    # che non contiene la frase). Il match avviene comunque → override.
-    profiles = [[_entry("gol gol", selection="Sì")]]
-    res = pipe.build_validated_row(_market_parser(),
-                                   "Match Inter-Milan: gol gol consigliato, quota 1.85",
-                                   market_mapping_profiles=profiles)
-    assert res.status == validator.VALID
-    assert res.row["SelectionName"] == "Sì"
+def test_pipeline_match_solo_dentro_il_campo_delimitato():
+    # D3 (nuova semantica): il mercato si legge SOLO dal campo delimitato. La stessa frase
+    # FUORI dal campo (qui nella riga "Match …") NON deve combaciare; dentro «Mercato:» sì.
+    profiles = [[_entry("gol gol", start_after="Mercato:", end_before="\n", selection="Sì")]]
+    # "gol gol" compare nella riga Match (fuori campo) ma il campo Mercato dice "pareggio":
+    # niente match → fallback colonna (No), non l'override del dizionario.
+    fuori = pipe.build_validated_row(
+        _market_parser(col_selection="No"),
+        "Match: gol gol consigliato\nMercato: pareggio\nquota 1.85",
+        market_mapping_profiles=profiles)
+    assert fuori.row["SelectionName"] == "No"
+    # Stessa frase DENTRO il campo delimitato → override a "Sì".
+    dentro = pipe.build_validated_row(
+        _market_parser(col_selection="No"),
+        "Match: niente\nMercato: gol gol\nquota 1.85",
+        market_mapping_profiles=profiles)
+    assert dentro.row["SelectionName"] == "Sì"
 
 
 # ── serializzazione del nuovo campo del parser ───────────────────────────────
@@ -246,7 +257,7 @@ def _router_cfg(name="MktR", entries=None):
             "market_mappings": {"Pandora": entries}}
 
 
-_ROUTER_MSG = "gol gol\nMatch: Inter v Milan\nSel: No\nQuota: 1,85\nLato: BACK"
+_ROUTER_MSG = "Match: Inter v Milan\nMercato: gol gol\nSel: No\nQuota: 1,85\nLato: BACK"
 
 
 def test_router_applica_mappatura_mercati(tmp_path):
@@ -261,7 +272,7 @@ def test_router_applica_mappatura_mercati(tmp_path):
 def test_router_ambiguo_scarta(tmp_path):
     cp.save_parser(_router_parser(), str(tmp_path))
     entries = [_entry("gol gol", selection="Sì"), _entry("no gol", selection="No")]
-    msg = "gol gol no gol\nMatch: Inter v Milan\nSel: Sì\nQuota: 1,85\nLato: BACK"
+    msg = "Match: Inter v Milan\nMercato: gol gol no gol\nSel: Sì\nQuota: 1,85\nLato: BACK"
     res = signal_router.resolve_row(msg, _router_cfg(entries=entries),
                                     chat_id="42", parsers_dir=str(tmp_path))
     assert res.placeable is False                     # fail-closed: niente riga CSV

@@ -131,24 +131,31 @@ il **separatore** squadre e spunti i **profili** da usare (checkbox multi-selezi
 
 ### Mappatura mercati a frase (`market_mapping_profiles`)
 
-Alcuni canali scrivono il **mercato a parole** ("goal prima di 70") invece che in un
-campo strutturato. I **profili di mappatura mercati** (`market_mapping_store`, config
-`market_mappings`) traducono una **frase del provider** nel **Mercato + Selezione
-XTrader** canonici (gli stessi del Catalogo già usati nel builder):
+Alcuni canali scrivono il **mercato a parole** dentro il messaggio (es. `Quota 0,5 HT
+Prematch`). I **profili di mappatura mercati** (`market_mapping_store`, config
+`market_mappings`) leggono il mercato **da una posizione precisa** del messaggio e lo
+traducono nel **Mercato + Selezione XTrader** canonici (gli stessi del Catalogo del builder):
 
-- ogni **voce** è `frase → (MarketType, MarketName, SelectionName)`; mercato e selezione
-  **non** sono testo libero, vanno scelti dal Catalogo XTrader, così il valore scritto nel
-  CSV è sempre canonico (no typo, no mercato inesistente);
-- il parser seleziona uno o più profili (`market_mapping_profiles`); al parsing la frase
-  si cerca nel **messaggio grezzo** (case-insensitive, su confini di parola: "over" non
-  combacia dentro "overflow", "x" non dentro "1/x");
-- **precedenza (D1): il dizionario VINCE.** Se una frase combacia in modo univoco, imposta
+- ogni **voce** è `(Inizia dopo, Finisce prima, Testo mercato) → (MarketType, MarketName,
+  SelectionName)`. I delimitatori **Inizia dopo / Finisce prima** funzionano **come nel
+  Parser** (match tollerante agli spazi; se *Finisce prima* è vuoto → fino a fine riga). Si
+  estrae il campo, e se vi compare il **Testo mercato** (case-insensitive, su confini di
+  token) la voce scatta. Mercato e selezione **non** sono testo libero: si scelgono dal
+  Catalogo XTrader, così il CSV è sempre canonico;
+- **perché a delimitatori e non "frase su tutto il messaggio"**: molti provider mettono in
+  testa un **banner/menu** con più mercati (es. `P.Bet. 30/0,5HT/1,5HT/1 ASIATICO`); cercare
+  la frase nell'intero testo darebbe falsi match/ambiguità. Leggendo **solo** il campo
+  delimitato (es. fra `Quota` e `Prematch`) si prende il mercato vero e si ignora il banner.
+  Una voce **senza** delimitatori è **preservata** in config (le mappature vecchie non si
+  perdono) ma **non applicata** dal bridge finché non aggiungi i delimitatori — la modalità
+  "frase su tutto il messaggio" è rimossa, ma senza cancellare dati;
+- **precedenza (D1): il dizionario VINCE.** Se una voce combacia in modo univoco, imposta
   `MarketType`/`MarketName`/`SelectionName` **sovrascrivendo** quelli eventualmente estratti
-  dalle regole-colonna. Se **nessuna** frase combacia, restano i valori delle regole-colonna.
+  dalle regole-colonna. Se **nessuna** voce combacia, restano i valori delle regole-colonna.
 
-**Sicuro (fail-closed)**: match **ambiguo** (più frasi → mercati diversi) → stato
-`MARKET_MAPPING_MISSING`, **nessuna riga CSV** (un mercato sbagliato = scommessa
-sbagliata). Se nessuna frase combacia **e** le regole-colonna non hanno prodotto un
+**Sicuro (fail-closed)**: match **ambiguo** (più voci → mercati diversi nello stesso campo)
+→ stato `MARKET_MAPPING_MISSING`, **nessuna riga CSV** (un mercato sbagliato = scommessa
+sbagliata). Se nessuna voce combacia **e** le regole-colonna non hanno prodotto un
 mercato per la modalità di riconoscimento → ancora `MARKET_MAPPING_MISSING` (mai un
 mercato inventato). Una voce con coppia Mercato/Selezione **non nel Catalogo** viene
 ignorata (mai scritta); una valida ma non-canonica (case/spazi, `market_type` stantio) è
@@ -166,10 +173,11 @@ una scommessa su ID che contraddicono la frase. In **BOTH** la coppia a nome bas
 la riga resta valida senza ID stantii.
 
 **GUI**: l'area **🎯 Mercati** della scheda **Mapping** (`MarketMappingPanel`) è ora
-**funzionante**: selettore profilo (nuovo/rinomina/elimina) + tabella `Frase provider |
-Mercato (catalogo ▾) | Selezione (catalogo ▾)`, dove Mercato/Selezione si scelgono dai menù
-del Catalogo XTrader (la Selezione dipende dal Mercato) e `MarketType` è derivato dal
-Catalogo. I profili persistono in `config.json` → `market_mappings`. Rinominare/eliminare un
+**funzionante**: selettore profilo (nuovo/rinomina/elimina) + tabella `Inizia dopo |
+Finisce prima | Testo mercato | Mercato (catalogo ▾) | Selezione (catalogo ▾)`, dove i
+delimitatori ritagliano il campo del messaggio, il Testo mercato lo riconosce, e
+Mercato/Selezione si scelgono dai menù del Catalogo XTrader (la Selezione dipende dal
+Mercato) con `MarketType` derivato dal Catalogo. I profili persistono in `config.json` → `market_mappings`. Rinominare/eliminare un
 profilo aggiorna/avvisa i parser che lo selezionano
 (`rename_market_mapping_profile_in_files` / `parsers_using_market_mapping_profile`).
 

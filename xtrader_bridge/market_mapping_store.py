@@ -1,20 +1,27 @@
 """Dizionario di mappatura mercati: frase del provider → Mercato/Selezione XTrader.
 
-Alcuni provider (canali Telegram) scrivono il mercato **a parole** ("goal prima di
-70") invece che in un campo strutturato. Questo modulo tiene **profili** di regole
-``frase → (MarketType, MarketName, SelectionName)`` e, dato il testo di un messaggio,
-risolve il mercato canonico XTrader. I valori di mercato/selezione **non** sono testo
-libero: vanno scelti dal **Catalogo XTrader** (vedi GUI), così ciò che finisce nel CSV
-è sempre canonico.
+Alcuni provider (canali Telegram) scrivono il mercato **a parole** ("0,5 HT") dentro il
+messaggio. Questo modulo tiene **profili** di regole che leggono il mercato **da una
+posizione precisa** del messaggio — tra i delimitatori ``Inizia dopo``/``Finisce prima``,
+come una regola del Parser Personalizzato — e lo traducono nel Mercato/Selezione canonici
+del **Catalogo XTrader**. I valori di mercato/selezione **non** sono testo libero: vanno
+scelti dal Catalogo (vedi GUI), così ciò che finisce nel CSV è sempre canonico.
+
+Perché a delimitatori e non "frase su tutto il messaggio": molti provider mettono in testa
+un **banner/menu** con più mercati (es. ``P.Bet. 30/0,5HT/1,5HT/1 ASIATICO``); cercare la
+frase nell'intero testo darebbe falsi match/ambiguità. Leggendo SOLO il campo delimitato
+(es. fra «Quota» e «Prematch») si prende il mercato vero del segnale e si ignora il banner.
 
 Modello dati (config, chiave ``market_mappings``)::
 
     cfg["market_mappings"] = {
         "<nome profilo>": [
-            {"phrase": "goal prima di 70",
-             "market_type": "OVER_UNDER",
-             "market_name": "Over/Under 2.5",
-             "selection_name": "Over 2.5"},
+            {"start_after": "Quota",      # "Inizia dopo": delimitatore sinistro
+             "end_before": "Prematch",    # "Finisce prima": delimitatore destro ("" = fine riga)
+             "phrase": "0,5 HT",          # testo mercato da riconoscere nel campo estratto
+             "market_type": "FIRST_HALF_GOALS_05",
+             "market_name": "1º tempo - Totale goal 0,5",
+             "selection_name": "Over 0,5 goal"},
             ...
         ],
         ...
@@ -29,9 +36,12 @@ del proprietario, vedi ``docs/audit/mercati_mapping_design.md``:
 - **D2 fail-closed sull'ambiguità**: se più frasi combaciano e indicano mercati
   **diversi**, ``resolve_market`` ritorna stato ``"ambiguous"`` → il chiamante NON
   scrive nulla (niente mercato "a caso");
-- **D3 match sul testo grezzo**: la frase si cerca nel messaggio originale,
-  case-insensitive e su **confini di parola** (no falsi positivi tipo "over" dentro
-  "overflow");
+- **D3 match sul campo estratto**: il mercato si legge SOLO tra i delimitatori
+  ``Inizia dopo``/``Finisce prima`` (non su tutto il messaggio), poi il testo mercato si
+  confronta case-insensitive e su **confini di token** (no falsi positivi tipo "over" dentro
+  "overflow"). Una voce **senza delimitatori** è **preservata** in config ma **non
+  applicata** (``resolve_market`` la salta, fail-closed): la modalità "frase su tutto il
+  messaggio" è rimossa, ma le voci vecchie non vengono cancellate (no perdita dati);
 - nessun match → stato ``"none"`` (il chiamante decide il fallback, vedi precedenza D1
   nel runtime). ``resolve_market`` non inventa mai un mercato.
 
@@ -43,6 +53,7 @@ import re
 from collections import namedtuple
 
 from . import dizionario
+from .custom_parser_engine import extract_between
 
 # Chiave di config che ospita i profili di mappatura mercati.
 _STORE_KEY = "market_mappings"
@@ -86,20 +97,31 @@ def _find_store_key(store: dict, name: str):
 
 
 def _clean_entry(entry) -> dict:
-    """Normalizza una voce in ``{phrase, market_type, market_name, selection_name}``
-    (stringhe ripulite), o ``None`` se inutile. Una voce serve solo se ha **frase**,
-    **market_name** e **selection_name**: senza, non potrebbe impostare un mercato
-    valido. ``market_type`` può essere vuoto (alcuni mercati non lo usano)."""
+    """Normalizza una voce in ``{start_after, end_before, phrase, market_type, market_name,
+    selection_name}`` (stringhe ripulite), o ``None`` se inutile.
+
+    Una voce è valida se ha **testo mercato** (``phrase``), **market_name** e
+    **selection_name**: senza, non può formare un mercato. I delimitatori ``start_after``/
+    ``end_before`` sono **facoltativi a livello dati**: così una config vecchia senza
+    delimitatori NON viene cancellata al load/save (niente perdita dati, CodeRabbit). È
+    ``resolve_market`` a **non applicare** una voce senza delimitatori — la **salta**
+    (fail-closed) — invece di eliminarla. Dei delimitatori si tolgono **solo spazi/tab** ai
+    bordi (come ``_delim_pattern`` del Parser), **preservando i newline** (es. ``"\\nMercato:"``
+    resta ancorato a inizio riga, Codex). ``market_type`` può essere vuoto (lo ricava
+    ``_canonical_market`` dal catalogo)."""
     if not isinstance(entry, dict):
         return None
+    start_after = str(entry.get("start_after", "") or "").strip(" \t")
+    end_before = str(entry.get("end_before", "") or "").strip(" \t")
     phrase = str(entry.get("phrase", "") or "").strip()
     market_type = str(entry.get("market_type", "") or "").strip()
     market_name = str(entry.get("market_name", "") or "").strip()
     selection_name = str(entry.get("selection_name", "") or "").strip()
     if not phrase or not market_name or not selection_name:
         return None
-    return {"phrase": phrase, "market_type": market_type,
-            "market_name": market_name, "selection_name": selection_name}
+    return {"start_after": start_after, "end_before": end_before, "phrase": phrase,
+            "market_type": market_type, "market_name": market_name,
+            "selection_name": selection_name}
 
 
 def profile_names(cfg: dict) -> list:
@@ -231,13 +253,17 @@ def _phrase_in_text(phrase: str, text_norm: str) -> bool:
 
 
 def resolve_market(text: str, profiles, rows=None) -> MarketResolution:
-    """Risolve il mercato canonico XTrader dalla frase del provider nel ``text``.
+    """Risolve il mercato canonico XTrader dal mercato scritto dal provider nel ``text``.
 
-    ``profiles`` è una lista di liste-di-voci (vedi ``entries_for_profiles``). Si
-    raccolgono le voci la cui frase compare nel testo (D3: testo grezzo, case-insensitive,
-    confini di parola) **e** la cui coppia Mercato/Selezione è **coerente col Catalogo
-    XTrader** (``_coherent``, §5.3): una voce incoerente (config a mano/bug) viene ignorata,
-    mai scritta. ``rows`` inietta un catalogo nei test. Poi (D2):
+    Per ogni voce il mercato si legge **da una posizione precisa** del messaggio: si estrae
+    il testo tra i delimitatori ``start_after``/``end_before`` (stesso motore del Parser,
+    ``extract_between``) e si verifica che il **testo mercato** (``phrase``) compaia in
+    quel campo estratto (case-insensitive, a confini di token). Così un banner/menu altrove
+    nel messaggio non crea falsi match (es. ``30/0,5HT/1,5HT/1`` non viene letto se il
+    mercato vero sta tra «Quota» e «Prematch»). La coppia Mercato/Selezione dev'essere
+    **coerente col Catalogo XTrader** (``_canonical_market``, §5.3): una voce incoerente
+    (config a mano/bug) è ignorata, mai scritta. ``rows`` inietta un catalogo nei test.
+    Poi (D2):
 
     - 0 match → ``MarketResolution("none", None)``;
     - match che indicano **lo stesso** ``(market_type, market_name, selection_name)``
@@ -245,13 +271,29 @@ def resolve_market(text: str, profiles, rows=None) -> MarketResolution:
     - match che indicano mercati **diversi** → ``MarketResolution("ambiguous", None)``
       (fail-closed: il chiamante non scrive nulla, niente mercato a caso).
     """
-    t = _normalize_text(text)
-    if not t:
+    if not str(text or "").strip():
         return MarketResolution("none", None)
     found = []
     for entries in (profiles or []):
         for e in entries:
-            if not _phrase_in_text(e.get("phrase", ""), t):
+            sa = str(e.get("start_after", "") or "")
+            eb = str(e.get("end_before", "") or "")
+            ph = str(e.get("phrase", "") or "").strip()
+            # Difesa ANCHE sul percorso runtime (i profili possono arrivare grezzi, non solo
+            # ripuliti da _clean_entry): una voce senza testo mercato o senza alcun
+            # delimitatore è ignorata qui (non applicata, fail-closed), così non può MAI
+            # combaciare su tutto il messaggio (Sourcery/CodeRabbit). "Vuoto" = solo spazi/tab
+            # ai bordi, come `_delim_pattern`: un delimitatore di soli newline conta.
+            if not ph or (not sa.strip(" \t") and not eb.strip(" \t")):
+                continue
+            # Leggi il mercato SOLO dalla posizione delimitata (niente scansione dell'intero
+            # messaggio): i delimitatori RAW vanno a extract_between, che preserva i newline
+            # (ancoraggio a inizio riga, Codex); poi il testo mercato si confronta sul campo
+            # normalizzato. I delimitatori sono case-sensitive come nel Parser.
+            region = extract_between(text, sa, eb)
+            if not region:
+                continue
+            if not _phrase_in_text(e.get("phrase", ""), _normalize_text(region)):
                 continue
             # Risolvi nella tupla CANONICA del catalogo (type+nomi esatti, ignorando i
             # valori grezzi del config): una coppia incoerente → None → IGNORATA, mai

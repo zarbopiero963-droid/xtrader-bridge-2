@@ -307,10 +307,11 @@ def test_test_message_inoltra_market_mapping_profiles():
     b.add_rule("SelectionName", fixed_value="No", required=True)
     b.add_rule("Price", fixed_value="1.85", required=True)
     b.add_rule("BetType", fixed_value="PUNTA", required=True)
-    # Coppia reale del Catalogo XTrader; la frase combacia nel messaggio grezzo.
-    profiles = [[{"phrase": "gol gol", "market_type": "",
-                  "market_name": "Entrambe le squadre a segno", "selection_name": "Sì"}]]
-    res = b.test_message("consiglio: gol gol", market_mapping_profiles=profiles)
+    # Coppia reale del Catalogo XTrader; il mercato si legge dal campo delimitato.
+    profiles = [[{"start_after": "Mercato:", "end_before": "\n", "phrase": "gol gol",
+                  "market_type": "", "market_name": "Entrambe le squadre a segno",
+                  "selection_name": "Sì"}]]
+    res = b.test_message("consiglio\nMercato: gol gol\n", market_mapping_profiles=profiles)
     assert res.status == validator.VALID
     assert res.row["SelectionName"] == "Sì"        # dizionario vince sul "No" della colonna
 

@@ -163,9 +163,10 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
 
     `market_mapping_profiles` (lista di liste-di-voci, vedi `market_mapping_store`):
     se il parser seleziona dei profili mercati (`defn.market_mapping_profiles` non vuoto),
-    una frase-mercato del provider nel **messaggio grezzo** (D3) imposta
-    `MarketType`/`MarketName`/`SelectionName` CANONICI dal Catalogo XTrader. Precedenza D1:
-    il dizionario **vince** sulle regole-colonna quando una frase combacia in modo univoco;
+    il mercato letto da una **posizione delimitata** del messaggio (D3: `resolve_market`
+    estrae tra `Inizia dopo`/`Finisce prima`) imposta `MarketType`/`MarketName`/
+    `SelectionName` CANONICI dal Catalogo XTrader. Precedenza D1:
+    il dizionario **vince** sulle regole-colonna quando una voce combacia in modo univoco;
     ambiguità → `MARKET_MAPPING_MISSING` (fail-closed, D2); nessun match → restano i valori
     delle regole-colonna, ma se nemmeno quelle hanno un mercato → `MARKET_MAPPING_MISSING`
     (mai un mercato inventato). Profili `None` (anteprima senza config) = lista vuota.

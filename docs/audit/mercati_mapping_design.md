@@ -1,10 +1,16 @@
-# Design — Mappatura Mercati a frase (FASE 2)
+# Design — Mappatura Mercati (FASE 2)
 
-> **Stato: DESIGN / PROPOSTA.** Nessun codice ancora. Questo documento va letto e
-> approvato dal proprietario PRIMA dell'implementazione, perché la mappatura mercati
-> incide su **CSV → scommessa**: un mercato sbagliato = scommessa sbagliata. Le scelte
-> marcate **DA CONFERMARE** aspettano una decisione del proprietario (sono evidenziate
-> con una raccomandazione di default).
+> **Stato: IMPLEMENTATO** (store + runtime + GUI + selettore nel Parser).
+>
+> **Revisione (post-merge):** la modalità di match è cambiata da **"frase su tutto il
+> messaggio" (D3 originale)** a **estrazione da campo delimitato** (`Inizia dopo` /
+> `Finisce prima`, come una regola del Parser). Motivo: i provider con un banner/menu di
+> mercati in testa (es. `P.Bet. 30/0,5HT/1,5HT/1 ASIATICO`) producevano falsi match e
+> ambiguità con la ricerca su tutto il testo. Leggendo solo il campo delimitato (es. fra
+> «Quota» e «Prematch») si prende il mercato vero del segnale. Tutto il resto del design
+> (precedenza D1, ambiguità fail-closed D2, canonicalizzazione dal Catalogo, no ID
+> contraddittori) resta valido. Dove sotto si legge "frase", intendi ora "Testo mercato
+> riconosciuto nel campo estratto".
 
 ## 1. Obiettivo
 
@@ -122,11 +128,15 @@ regole-colonna restano per gli altri campi e come fallback quando nessuna frase 
    riconosce (Codex).
 4. **Una sola riga attiva.** Invariato: il CSV resta one-signal-at-a-time, svuotato dopo
    il timeout. La mappatura mercati non cambia questa catena.
-5. **Match su che testo? — DA CONFERMARE (default: testo grezzo del messaggio).** La frase
-   si cerca nel **messaggio originale** (case-insensitive, match di sottostringa su confini
-   di parola per evitare falsi positivi). *Alternativa*: su un campo già estratto dal
-   parser. Default proposto: **messaggio grezzo**, perché il caso d'uso ("goal prima di 70"
-   nel testo libero del canale) non è un campo strutturato.
+5. **Match su che testo? — RIVISTO (vedi nota di revisione in testa): campo DELIMITATO.**
+   Il mercato si legge **solo** dal campo ritagliato dai delimitatori ``Inizia dopo`` /
+   ``Finisce prima`` della voce (stesso motore del Parser, ``custom_parser_engine.extract_between``);
+   poi il **Testo mercato** della voce si confronta in quel campo (case-insensitive, confini
+   di token). Una voce **senza** delimitatori è **preservata** in config (no perdita dati) ma
+   **non applicata** (il resolver la salta, fail-closed). *Motivo del cambio*: molti provider
+   mettono in testa un banner/menu con più mercati (es. ``30/0,5HT/1,5HT/1``); cercare la frase
+   in **tutto** il messaggio dava falsi match/ambiguità. Leggendo solo il campo delimitato
+   (es. fra «Quota» e «Prematch») si prende il mercato vero e si ignora il banner.
 
 ## 6. GUI (area 🎯 Mercati della scheda Mapping)
 
@@ -189,7 +199,9 @@ Ogni passo: Phase 0, micro-audit, test hard veritieri, una PR, merge manuale.
 - **D1 — Precedenza** (§4): **il DIZIONARIO vince** sulla regola-colonna quando una frase
   combacia (univoca). *(scelta dal proprietario; non il default proposto)*
 - **D2 — Ambiguità** (§5.2): **fail-closed** — match ambiguo ⇒ `MARKET_MAPPING_MISSING`.
-- **D3 — Testo di match** (§5.5): **messaggio grezzo** (case-insensitive, confini di parola).
+- **D3 — Testo di match** (§5.5): **RIVISTO → campo delimitato** (`Inizia dopo`/`Finisce
+  prima`, poi Testo mercato nel campo estratto, case-insensitive, confini di token). Sostituisce
+  il "messaggio grezzo" originale per non farsi ingannare dai banner/menu del provider.
 - **D4 — `MarketType`**: **sì**, mappato dal Catalogo XTrader insieme a Mercato/Selezione.
 
 Design **approvato** con queste decisioni → si procede dal passo 1 (`market_mapping_store.py`

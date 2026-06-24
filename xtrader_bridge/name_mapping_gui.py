@@ -345,12 +345,12 @@ class MarketMappingPanel(ctk.CTkFrame):
     """Pannello del Dizionario MERCATI (area "🎯 Mercati" del Mapping) — incassabile come
     area della scheda "Mapping" della finestra "🧰 Strumenti".
 
-    Gestisce profili (`market_mapping_store`, config ``market_mappings``) di regole
-    ``frase provider → Mercato/Selezione XTrader``: ogni riga è ``Frase | Mercato ▾ |
-    Selezione ▾``, con Mercato/Selezione scelti dai menù del **Catalogo XTrader** (la
-    Selezione dipende dal Mercato), così il valore scritto nel CSV è sempre **canonico**.
-    I profili si selezionano poi nel Parser Personalizzato (passo successivo) per tradurre
-    una frase-mercato del canale nel mercato XTrader.
+    Gestisce profili (`market_mapping_store`, config ``market_mappings``) di regole che
+    leggono il mercato da una **posizione precisa** del messaggio: ogni riga è ``Inizia dopo
+    | Finisce prima | Testo mercato | Mercato ▾ | Selezione ▾``. I delimitatori ritagliano il
+    campo (come nel Parser); se vi compare il «Testo mercato» la voce imposta Mercato/Selezione
+    scelti dai menù del **Catalogo XTrader** (la Selezione dipende dal Mercato), così il valore
+    nel CSV è sempre **canonico**. I profili si selezionano poi nel Parser Personalizzato.
 
     Tutta la logica pura sta in `market_mapping_store`/`dizionario` (testate in CI); qui
     SOLO widget + persistenza (`config_store.save_config`). Non testato in CI (display).
@@ -386,11 +386,13 @@ class MarketMappingPanel(ctk.CTkFrame):
     # ── costruzione UI ─────────────────────────────────────────────────────
     def _build_ui(self):
         ctk.CTkLabel(
-            self, text="🎯  Dizionario mercati (a frase)",
+            self, text="🎯  Dizionario mercati",
             font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
         ctk.CTkLabel(
-            self, text="Traduce una frase-mercato del canale (es. «goal prima di 70») nel "
-                       "Mercato/Selezione XTrader scelti dal Catalogo. Seleziona i profili nel "
+            self, text="Legge il mercato da una posizione precisa del messaggio: «Inizia dopo» / "
+                       "«Finisce prima» (come nel Parser) ritagliano il campo, e se vi compare il "
+                       "«Testo mercato» imposta Mercato/Selezione dal Catalogo. Es.: Inizia dopo "
+                       "«Quota», Finisce prima «Prematch», Testo «0,5 HT». Seleziona i profili nel "
                        "Parser Personalizzato.",
             font=ctk.CTkFont(size=11), text_color="gray", wraplength=720,
             anchor="w", justify="left").pack(anchor="w", padx=12, pady=(0, 6))
@@ -410,8 +412,8 @@ class MarketMappingPanel(ctk.CTkFrame):
 
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=12, pady=(4, 0))
-        for text, w in (("Frase provider", 240), ("Mercato (catalogo)", 240),
-                        ("Selezione (catalogo)", 240)):
+        for text, w in (("Inizia dopo", 120), ("Finisce prima", 120), ("Testo mercato", 140),
+                        ("Mercato (catalogo)", 200), ("Selezione (catalogo)", 200)):
             ctk.CTkLabel(head, text=text, width=w, anchor="w",
                          font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
 
@@ -464,17 +466,25 @@ class MarketMappingPanel(ctk.CTkFrame):
         cfg = self._load_cfg()
         entries = market_mapping_store.get_entries(cfg, self._current) if cfg is not None else []
         for e in entries:
-            self._append_row_widget(e.get("phrase", ""), e.get("market_name", ""),
+            self._append_row_widget(e.get("start_after", ""), e.get("end_before", ""),
+                                    e.get("phrase", ""), e.get("market_name", ""),
                                     e.get("selection_name", ""))
         if not entries:
-            self._append_row_widget("", "", "")
+            self._append_row_widget("", "", "", "", "")
 
-    def _append_row_widget(self, phrase="", market="", selection=""):
-        """Aggiunge una riga: Frase (Entry) + Mercato (menu catalogo) + Selezione (menu
-        dipendente dal Mercato) + elimina."""
+    def _append_row_widget(self, start_after="", end_before="", phrase="",
+                           market="", selection=""):
+        """Aggiunge una riga: Inizia dopo + Finisce prima (Entry) + Testo mercato (Entry) +
+        Mercato (menu catalogo) + Selezione (menu dipendente dal Mercato) + elimina."""
         row = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
         row.pack(fill="x", pady=2)
-        e_phrase = ctk.CTkEntry(row, width=240)
+        e_start = ctk.CTkEntry(row, width=120, placeholder_text="es. Quota")
+        e_start.insert(0, start_after)
+        e_start.pack(side="left", padx=3)
+        e_end = ctk.CTkEntry(row, width=120, placeholder_text="es. Prematch")
+        e_end.insert(0, end_before)
+        e_end.pack(side="left", padx=3)
+        e_phrase = ctk.CTkEntry(row, width=140, placeholder_text="es. 0,5 HT")
         e_phrase.insert(0, phrase)
         e_phrase.pack(side="left", padx=3)
 
@@ -483,13 +493,13 @@ class MarketMappingPanel(ctk.CTkFrame):
         # SBAGLIATO (= scommessa sbagliata); una riga senza mercato è poi scartata da
         # `set_entries` (incompleta), quindi non si crea mai una mappatura involontaria (Sourcery).
         market_var = ctk.StringVar(value=market or "")
-        market_menu = ctk.CTkOptionMenu(row, variable=market_var, width=240,
+        market_menu = ctk.CTkOptionMenu(row, variable=market_var, width=200,
                                         values=["", *self._markets])
         market_menu.pack(side="left", padx=3)
 
         sels = self._selections_for(market_var.get())
         selection_var = ctk.StringVar(value=selection or (sels[0] if sels else ""))
-        selection_menu = ctk.CTkOptionMenu(row, variable=selection_var, width=240,
+        selection_menu = ctk.CTkOptionMenu(row, variable=selection_var, width=200,
                                            values=sels or [""])
         selection_menu.pack(side="left", padx=3)
         # Una selezione salvata ma non più nel mercato (catalogo cambiato): preservala come
@@ -497,8 +507,8 @@ class MarketMappingPanel(ctk.CTkFrame):
         if selection and selection not in (sels or []):
             selection_menu.configure(values=[*(sels or []), selection])
 
-        refs = {"frame": row, "phrase": e_phrase, "market": market_var,
-                "market_menu": market_menu, "selection": selection_var,
+        refs = {"frame": row, "start_after": e_start, "end_before": e_end, "phrase": e_phrase,
+                "market": market_var, "market_menu": market_menu, "selection": selection_var,
                 "selection_menu": selection_menu}
         market_menu.configure(command=lambda _v, r=refs: self._on_row_market_change(r))
         ctk.CTkButton(row, text="🗑", width=36, fg_color="#c62828", hover_color="#7f0000",
@@ -513,13 +523,16 @@ class MarketMappingPanel(ctk.CTkFrame):
         refs["selection"].set(sels[0] if sels else "")
 
     def _collect_rows(self) -> list:
-        """Righe correnti dai widget come voci ``{phrase, market_type, market_name,
-        selection_name}``. ``market_type`` derivato dal Catalogo (D4); la pulizia delle
-        righe incomplete la fa `market_mapping_store.set_entries`."""
+        """Righe correnti dai widget come voci ``{start_after, end_before, phrase,
+        market_type, market_name, selection_name}``. ``market_type`` derivato dal Catalogo
+        (D4); la pulizia delle righe incomplete (senza delimitatori/mercato) la fa
+        `market_mapping_store.set_entries`."""
         out = []
         for r in self._row_widgets:
             market = r["market"].get()
             out.append({
+                "start_after": r["start_after"].get(),
+                "end_before": r["end_before"].get(),
                 "phrase": r["phrase"].get(),
                 "market_type": dizionario.market_type_for_name(market) or "",
                 "market_name": market,
@@ -533,7 +546,7 @@ class MarketMappingPanel(ctk.CTkFrame):
             self._status.configure(text="⛔ Crea prima un profilo con «Nuovo».",
                                    text_color="#ef5350")
             return
-        self._append_row_widget("", "", "")
+        self._append_row_widget("", "", "", "", "")
 
     def _delete_row(self, refs):
         refs["frame"].destroy()
@@ -557,11 +570,29 @@ class MarketMappingPanel(ctk.CTkFrame):
         cfg = self._load_cfg()
         if cfg is None:
             return
-        cfg = market_mapping_store.set_entries(cfg, self._current, self._collect_rows())
-        n = len(market_mapping_store.get_entries(cfg, self._current))
+        rows = self._collect_rows()
+        cfg = market_mapping_store.set_entries(cfg, self._current, rows)
+        saved = market_mapping_store.get_entries(cfg, self._current)
+        n = len(saved)
+        ok_msg = f"💾 Profilo «{self._current}» salvato ({n} regole valide)."
+        # Avvisa se righe NON vuote sono state scartate perché incomplete (serve Testo
+        # mercato + Mercato + Selezione): non devono sparire in silenzio.
+        nonempty = sum(1 for r in rows if any(str(r.get(k, "")).strip() for k in
+                       ("start_after", "end_before", "phrase", "market_name", "selection_name")))
+        if nonempty - n > 0:
+            ok_msg += (f"  ⚠️ {nonempty - n} riga/e ignorata/e perché incomplete: servono "
+                       "Testo mercato, Mercato e Selezione.")
+        # Hint di migrazione: le voci SENZA delimitatori restano salvate (no perdita dati) ma
+        # NON verranno applicate dal bridge finché non aggiungi Inizia/Finisce (CodeRabbit).
+        senza_delim = sum(1 for e in saved
+                          if not e.get("start_after", "").strip(" \t")
+                          and not e.get("end_before", "").strip(" \t"))
+        if senza_delim > 0:
+            ok_msg += (f"  ⚠️ {senza_delim} regola/e SENZA delimitatori: salvata/e ma non "
+                       "applicata/e finché non compili «Inizia dopo»/«Finisce prima».")
         self._persist(
             cfg,
-            ok_msg=f"💾 Profilo «{self._current}» salvato ({n} regole valide).",
+            ok_msg=ok_msg,
             fail_msg=f"❌ Salvataggio FALLITO: «{self._current}» non salvato (andrebbe perso al "
                      "riavvio). Controlla permessi/spazio del file config.",
             select=self._current)
@@ -723,6 +754,8 @@ class MarketMappingWindow(ctk.CTkToplevel):
 
     def __init__(self, master=None, on_saved=None):
         super().__init__(master)
-        self.title("Dizionario mercati (a frase)")
-        gui_utils.fit_to_screen(self, 820, 620, 720, 460)
+        self.title("Dizionario mercati")
+        # Largo abbastanza per le 5 colonne (Inizia/Finisce/Testo/Mercato/Selezione) + 🗑,
+        # così a dimensione di default nulla resta tagliato (Codex).
+        gui_utils.fit_to_screen(self, 980, 640, 900, 460)
         MarketMappingPanel(self, on_saved=on_saved).pack(fill="both", expand=True)

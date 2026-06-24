@@ -129,6 +129,15 @@ def extract_value_traced(text: str, rule: FieldRule):
     return text[start:end].strip(), EXTRACT_OK
 
 
+def extract_between(text: str, start_after: str = "", end_before: str = "") -> str:
+    """Estrae il testo tra i delimitatori riusando la STESSA logica delle regole del Parser
+    (`extract_value`): match tollerante agli spazi, fino a fine riga se manca `end_before`,
+    stringa vuota se l'ancoraggio non si trova. Usato dal **dizionario mercati** per leggere
+    il mercato da una posizione precisa del messaggio (es. fra «Quota» e «Prematch») invece
+    di cercarlo in tutto il testo — così un banner/menu nel messaggio non crea falsi match."""
+    return extract_value(text, FieldRule(target="", start_after=start_after, end_before=end_before))
+
+
 def matches_message(defn: CustomParserDef, text: str, mode: str = None) -> bool:
     """True se il messaggio ha attivato un'estrazione che rappresenta **contenuto di
     segnale**: una regola con `start_after`/`end_before` (non `fixed_value`) che ha
