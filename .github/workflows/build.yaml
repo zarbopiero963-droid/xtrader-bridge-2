@@ -29,11 +29,18 @@ jobs:
       # copre anche lo step dei test e la compilazione dell'EXE.
       shell: pwsh
       run: |
-        python -m pip install --upgrade pip
         if (Test-Path "requirements-build.lock") {
+          # Ramo riproducibile: NON aggiornare pip a "latest" qui. Un `pip install --upgrade pip`
+          # tirerebbe la pip piu' recente da PyPI al momento della build, re-introducendo un
+          # componente NON deterministico proprio nel ramo che vuole essere riproducibile. Si usa
+          # invece la pip gia' inclusa nel Python 3.11 pinnato da setup-python (versione fissa),
+          # che installa benissimo il set con `--require-hashes` (Codex).
           Write-Host "requirements-build.lock trovato: install riproducibile con --require-hashes."
           python -m pip install --require-hashes -r requirements-build.lock
         } else {
+          # Ramo legacy (lock non ancora committato): qui l'aggiornamento di pip è utile e
+          # innocuo perché l'install non è comunque bloccato.
+          python -m pip install --upgrade pip
           Write-Warning "requirements-build.lock assente: install legacy (passera' a --require-hashes appena il lock generato dalla CI Windows sara' committato)."
           python -m pip install -r requirements-dev.txt pyinstaller httpx
         }
