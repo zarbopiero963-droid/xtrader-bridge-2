@@ -13,7 +13,7 @@ coperta da `tests/unit/test_source_editor.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import config_store
+from . import config_store, gui_utils
 from .source_editor import SourceEditor
 
 # Etichetta base della voce "nessun override per-chat" (= "" in parser_by_chat): la
@@ -44,7 +44,7 @@ class SourceChatsWindow(ctk.CTkToplevel):
     def __init__(self, master=None, on_saved=None):
         super().__init__(master)
         self.title("Chat sorgenti (multi-chat)")
-        self.geometry("1080x560")
+        gui_utils.fit_to_screen(self, 1080, 560, 820, 460)
         self._on_saved = on_saved
         self._editor = SourceEditor(config_store.load_config(config_store.CONFIG_FILE))
         self._modes = self._editor.mode_options()

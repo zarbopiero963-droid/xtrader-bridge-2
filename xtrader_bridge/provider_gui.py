@@ -18,7 +18,7 @@ coperta da `tests/unit/test_provider_store.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import config_store, provider_store
+from . import config_store, gui_utils, provider_store
 
 
 class ProviderWindow(ctk.CTkToplevel):
@@ -30,7 +30,7 @@ class ProviderWindow(ctk.CTkToplevel):
     def __init__(self, master=None, on_saved=None):
         super().__init__(master)
         self.title("Anagrafica Provider")
-        self.geometry("520x520")
+        gui_utils.fit_to_screen(self, 520, 520, 460, 420)
         self._on_saved = on_saved
         self._build_ui()
         self._reload()

@@ -14,7 +14,7 @@ coperta da `tests/unit/test_profile_store.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import profile_store
+from . import gui_utils, profile_store
 
 
 class ProfilesWindow(ctk.CTkToplevel):
@@ -32,7 +32,7 @@ class ProfilesWindow(ctk.CTkToplevel):
                  is_running=None):
         super().__init__(master)
         self.title("Profili impostazioni")
-        self.geometry("560x520")
+        gui_utils.fit_to_screen(self, 560, 520, 480, 420)
         self._get_current_cfg = get_current_cfg or (lambda: {})
         self._on_loaded = on_loaded
         self._on_saved = on_saved

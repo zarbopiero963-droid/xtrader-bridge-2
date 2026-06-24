@@ -29,6 +29,7 @@ from . import (
     dashboard_stats,
     diagnostics,
     event_log,
+    gui_utils,
     live_guard,
     log_view,
     message_freshness,
@@ -100,9 +101,11 @@ class App(ctk.CTk):
         # schede — unico widget che si espande — si riduce e nulla finisce fuori schermo;
         # i comandi (START/STOP, config) stanno sopra e restano sempre visibili (finding
         # Codex). minsize evita un collasso eccessivo.
-        self.geometry("720x760")
+        # Clamp dell'altezza allo schermo (720x760 può sforare su display da 768px) +
+        # minsize; la larghezza resta fissa (resizable solo in altezza, layout tarato
+        # in larghezza). Il pannello monitoraggio espandibile assorbe la riduzione.
+        gui_utils.fit_to_screen(self, 720, 760, 720, 600)
         self.resizable(False, True)
-        self.minsize(720, 600)
 
         self._config = self._load_config()
         self._running = False

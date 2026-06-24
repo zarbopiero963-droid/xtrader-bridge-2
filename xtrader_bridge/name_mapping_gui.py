@@ -19,7 +19,7 @@ coperta da `tests/unit/test_name_mapping.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import config_store, custom_parser, name_mapping_store
+from . import config_store, custom_parser, gui_utils, name_mapping_store
 
 
 class NameMappingWindow(ctk.CTkToplevel):
@@ -33,7 +33,7 @@ class NameMappingWindow(ctk.CTkToplevel):
     def __init__(self, master=None, on_saved=None):
         super().__init__(master)
         self.title("Dizionario nomi squadra")
-        self.geometry("760x620")
+        gui_utils.fit_to_screen(self, 760, 620, 680, 460)
         self._on_saved = on_saved
         self._current = None              # nome profilo selezionato
         self._row_widgets = []            # [{frame, country, betfair, provider}, ...]

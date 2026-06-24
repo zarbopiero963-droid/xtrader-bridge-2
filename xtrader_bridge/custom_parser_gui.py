@@ -12,7 +12,7 @@ coperta da `tests/unit/test_parser_builder.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import config_store, name_mapping_store, parser_diagnostics, provider_store
+from . import config_store, gui_utils, name_mapping_store, parser_diagnostics, provider_store
 from .parser_builder import ParserBuilder
 
 
@@ -162,18 +162,10 @@ class CustomParserWindow(ctk.CTkToplevel):
                  global_mode: str = "", on_saved=None):
         super().__init__(master)
         self.title("Parser Personalizzato")
-        # Apri entro lo schermo: su portatili l'altezza piena (720) può sforare sotto la
-        # taskbar lasciando la parte bassa (Prova messaggio + diagnostica) fuori vista.
-        # Si clampa l'altezza all'area disponibile; il contenuto resta comunque tutto
-        # raggiungibile grazie al contenitore scrollabile in `_build_ui`.
-        try:
-            avail_h = max(480, self.winfo_screenheight() - 80)
-        except Exception:
-            avail_h = 720
-        self.geometry(f"1024x{min(720, avail_h)}")
-        # Resizable (default) + minsize: la finestra si può rimpicciolire e restare usabile
-        # su schermi piccoli, perché tutto scorre nel contenitore interno.
-        self.minsize(760, 480)
+        # Apri entro lo schermo (clamp altezza) + minsize: su portatili l'altezza piena
+        # sforerebbe sotto la taskbar; il contenuto resta comunque tutto raggiungibile
+        # grazie al contenitore scrollabile in `_build_ui`.
+        gui_utils.fit_to_screen(self, 1024, 720, 760, 480)
         is_new = builder is None
         self.builder = builder or ParserBuilder()
         self._provider = provider
