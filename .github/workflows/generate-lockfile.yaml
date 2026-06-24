@@ -37,35 +37,39 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Upgrade pip and install pip-tools
-        # Pin del generatore per output deterministico: il formato del lock e la
-        # risoluzione dipendono da pip-tools (e da pip). Senza pin, rigenerare dagli
-        # stessi `.in` con un pip-tools più nuovo potrebbe cambiare l'output. Si pinna al
-        # MAJOR stabile corrente (7.x); aggiorna il pin quando validi una nuova major.
+      - name: Install pip-tools (versione ESATTA per output deterministico)
+        # Pin ESATTO del generatore: lo stesso `.in` deve produrre lo stesso lock. Una
+        # patch/minor di pip-tools potrebbe cambiare l'output, quindi NIENTE range (`7.*`).
+        # Aggiorna questo pin DELIBERATAMENTE quando vuoi una nuova versione (Codex).
         run: |
           python -m pip install --upgrade "pip>=24,<26"
-          python -m pip install "pip-tools==7.*"
+          python -m pip install "pip-tools==7.4.1"
 
-      - name: Validate COMMITTED lockfile install (se presente)
-        # Una PR che committa SOLO `requirements-build.lock` (il passo "scarica artifact e
-        # committa") deve essere validata su Windows PRIMA del merge: `build.yaml` gira solo
-        # su push a main/tag, quindi senza questo step un lock malformato romperebbe la
-        # release dopo il merge. Qui si valida il lock COMMITTATO così com'è, prima di
-        # rigenerarlo sotto (Codex). Se il lock non c'è ancora, si salta.
-        shell: pwsh
-        run: |
-          if (Test-Path "requirements-build.lock") {
-            Write-Host "Valido il lockfile committato con --require-hashes."
-            python -m pip install --require-hashes -r requirements-build.lock
-          } else {
-            Write-Host "requirements-build.lock non ancora committato: validazione saltata (verra' generato sotto)."
-          }
-
-      - name: Generate hashed Windows build lockfile
+      - name: Genera il lockfile con hash (in place)
         run: pip-compile --generate-hashes --output-file requirements-build.lock requirements-build.in
 
-      - name: Validate REGENERATED lockfile install
-        run: python -m pip install --require-hashes -r requirements-build.lock
+      - name: Fallisci se il lock committato è STANTIO
+        # Se la PR ha committato un `requirements-build.lock`, la rigenerazione qui sopra
+        # deve coincidere: altrimenti il repo conterrebbe un lock che NON corrisponde più ai
+        # `.in`, e `build.yaml` lo userebbe dopo il merge (Codex). `git diff` confronta col
+        # file committato; su un lock non ancora tracciato (prima volta) non c'è diff → passa.
+        shell: pwsh
+        run: |
+          git diff --exit-code -- requirements-build.lock
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "requirements-build.lock NON corrisponde alla rigenerazione dai .in (lock stantio, o un upstream ha rilasciato una nuova versione). Riavvia 'Generate Windows Lockfile', scarica l'artifact e ricommitta il lock."
+            exit 1
+          }
+
+      - name: Valida il lock in un venv PULITO (--require-hashes)
+        # Validazione in un venv NUOVO, isolato da pip-tools e dalle sue transitive: così un
+        # lock che ometta una dipendenza già presente nell'ambiente non passa qui per poi
+        # fallire nell'install "pulito" di build.yaml. Vale sia per il lock committato (dopo
+        # il check anti-stantio è identico al rigenerato) sia per il primo lock (Codex).
+        shell: pwsh
+        run: |
+          python -m venv .lockcheck
+          & ".lockcheck\Scripts\python.exe" -m pip install --require-hashes -r requirements-build.lock
 
       - name: Upload generated lockfile
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2

@@ -457,13 +457,26 @@ sono espresse come file sorgente `.in` (vincoli "morbidi" top-level) da cui si g
 
 | File | Cos'è | Si modifica a mano? |
 |---|---|---|
-| `requirements.in` | dipendenze **runtime** top-level (FLOOR `>=`, con la motivazione di sicurezza) | sì |
+| `requirements.in` | **sorgente unica** delle dipendenze **runtime** top-level (FLOOR `>=`, con la motivazione di sicurezza) | sì |
 | `requirements-build.in` | tutto ciò che la **build Windows** installa: `-r requirements.in` + `pytest` + `pyinstaller` + `httpx` | sì |
 | `requirements-build.lock` | **lockfile completo con hash** (versioni esatte di TUTTE le transitive) generato su **Windows + Python 3.11** | **NO** — si rigenera dal workflow |
-| `requirements.txt` / `requirements-dev.txt` | install "soft" usato dalla CI di test e dagli sviluppatori (stessi vincoli runtime) | sì |
+| `requirements.txt` | install "soft" della CI di test/dev: ora **richiama `requirements.in`** (`-r requirements.in`), quindi una dipendenza runtime ha **un solo posto** dove cambiare ed è la stessa sorgente del lock (niente drift) | sì |
+| `requirements-dev.txt` | `-r requirements.txt` + `pytest` (test) | sì |
 
 > ⚠️ Il lockfile **non va generato da Linux**: gli hash e le wheel devono corrispondere a
 > quelli che la build Windows installa davvero. Per questo si genera in CI su Windows.
+
+### Garanzie del workflow di generazione
+
+Il job *Generate Windows Lockfile* (su `windows-latest` + Python 3.11):
+
+- usa una **versione ESATTA** di `pip-tools` (pinnata nel workflow) → stesso `.in` →
+  stesso lock (output deterministico);
+- **fallisce se il lock committato è stantio** rispetto ai `.in` (rigenera e confronta:
+  un lock che non corrisponde più va rigenerato e ricommittato);
+- **valida** il lock con `pip install --require-hashes` in un **venv pulito** (isolato
+  dalle dipendenze del generatore), così un lock incompleto non passa per poi rompere la
+  build "pulita".
 
 ### Come (ri)generare il lockfile
 

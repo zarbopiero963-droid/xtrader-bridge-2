@@ -1,19 +1,9 @@
-# Dipendenze runtime — vincoli di SICUREZZA e COMPATIBILITÀ (audit A7, parziale).
+# Dipendenze runtime (install "soft" usato dalla CI di test e dagli sviluppatori).
 #
-# NB: questi sono FLOOR (>=), NON un lock riproducibile. Pinnare i soli pacchetti
-# top-level non rende la build riproducibile: pip risolve comunque le transitive da
-# range aperti (Codex). Un lock completo (pip-compile/constraints con hash) richiede
-# una macchina con rete e build su Windows → resta un follow-up.
-#
-# Vincoli applicati:
-# - customtkinter >=5.2.2: la 5.2.0 importa `distutils` (rimosso in Python 3.12) → si
-#   rompe all'avvio su 3.12+. Le 5.2.x successive usano `packaging` (compatibili).
-# - python-telegram-bot >=21.0: la 20.0 trascina `h11 0.14` (CVE GHSA-vqfr-h8mv-ghfj,
-#   request smuggling). API usate dal bridge (ApplicationBuilder/Update/MessageHandler/
-#   filters/ContextTypes) stabili dalla 20.x → upgrade a basso rischio per il codice.
-# - h11 >=0.16.0: esclude la CVE (dipendenza transitiva via httpx→httpcore).
-#
-# Verifica la GUI/integrazione Telegram su Windows (non girano in CI).
-customtkinter>=5.2.2
-python-telegram-bot>=21.0
-h11>=0.16.0
+# SORGENTE UNICA dei vincoli runtime: `requirements.in`. Questo file la richiama con
+# `-r` così c'è UN solo posto dove aggiungere/cambiare un dipendenza runtime, e quel
+# posto è anche la sorgente del lockfile riproducibile (`requirements-build.lock`,
+# generato su Windows). Niente più drift tra requirements.txt e il lock: una nuova
+# dipendenza runtime DEVE entrare in `requirements.in` (vedi README, "Dependency
+# lockfile / build EXE riproducibile").
+-r requirements.in
