@@ -712,3 +712,17 @@ class NameMappingWindow(ctk.CTkToplevel):
         self.title("Dizionario nomi squadra")
         gui_utils.fit_to_screen(self, 760, 620, 680, 460)
         NameMappingPanel(self, on_saved=on_saved).pack(fill="both", expand=True)
+
+
+class MarketMappingWindow(ctk.CTkToplevel):
+    """Finestra standalone che ospita `MarketMappingPanel` a tutta finestra.
+
+    Usata dal pulsante «🎯 Dizionario mercati» del Parser Personalizzato (parità col
+    «🗺️ Dizionario nomi»); la stessa `MarketMappingPanel` vive anche come area "🎯 Mercati"
+    della scheda "Mapping" (`MappingPanel`) in "🧰 Strumenti"."""
+
+    def __init__(self, master=None, on_saved=None):
+        super().__init__(master)
+        self.title("Dizionario mercati (a frase)")
+        gui_utils.fit_to_screen(self, 820, 620, 720, 460)
+        MarketMappingPanel(self, on_saved=on_saved).pack(fill="both", expand=True)
