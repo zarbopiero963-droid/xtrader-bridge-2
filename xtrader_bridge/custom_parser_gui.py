@@ -188,6 +188,34 @@ class CustomParserPanel(ctk.CTkFrame):
         self._reload_rows_from_builder()
         self._refresh_saved()
 
+    def refresh_options(self):
+        """Aggiorna le LISTE-OPZIONI derivate dal config SENZA toccare il parser in
+        costruzione (preserva le modifiche): provider del menu colonna Provider, modalità
+        globale per l'anteprima, checkbox dei profili di mappatura (le spunte restano).
+
+        Chiamato quando questa scheda torna attiva nella hub "🧰 Strumenti": un provider o
+        un profilo aggiunto/rimosso in un'altra scheda, o un cambio profilo, si riflette
+        subito senza riaprire Strumenti (Codex). Best-effort: config illeggibile → no-op."""
+        try:
+            cfg = config_store.load_config(config_store.CONFIG_FILE)
+        except Exception:               # noqa: BLE001 — config illeggibile: niente refresh
+            return
+        self._providers = provider_store.provider_names(cfg)
+        self._global_mode = str(cfg.get("recognition_mode", "")).strip()
+        # Anche il provider per l'anteprima: `_test()` passa `self._provider` a
+        # test_message()/diagnose(); senza aggiornarlo, un parser con colonna Provider non
+        # fissa verrebbe provato col provider VECCHIO dopo un cambio profilo (Codex).
+        self._provider = str(cfg.get("provider", "")).strip()
+        for refs in self._rows:
+            menu = refs.get("provider_menu")
+            if menu is not None:
+                cur = refs["fixed_value"].get()
+                vals = ["", *self._providers]
+                if cur and cur not in vals:
+                    vals.append(cur)        # preserva la selezione anche se rimossa dall'anagrafica
+                menu.configure(values=vals)
+        self._reload_profile_checks()       # ricarica i profili mapping dal disco (spunte preservate)
+
     # ── costruzione UI ─────────────────────────────────────────────────────
     def _build_ui(self):
         # TUTTA la finestra dentro UN solo contenitore scrollabile: il contenuto è alto
@@ -326,8 +354,10 @@ class CustomParserPanel(ctk.CTkFrame):
             vals = ["", *self._providers]
             if rule.fixed_value and rule.fixed_value not in vals:
                 vals.append(rule.fixed_value)   # preserva un provider non (più) in anagrafica
-            ctk.CTkOptionMenu(row, variable=refs["fixed_value"], width=130,
-                              values=vals).pack(side="left", padx=2)
+            provider_menu = ctk.CTkOptionMenu(row, variable=refs["fixed_value"], width=130,
+                                              values=vals)
+            provider_menu.pack(side="left", padx=2)
+            refs["provider_menu"] = provider_menu   # per refresh_options (hub)
         else:
             refs["fixed_value"] = ctk.CTkEntry(row, width=130)
             refs["fixed_value"].insert(0, rule.fixed_value)

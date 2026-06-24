@@ -33,12 +33,18 @@ class ToolsWindow(ctk.CTkToplevel):
         super().__init__(master)
         self.title(title)
         gui_utils.fit_to_screen(self, 1040, 720, 780, 480)
-        self._tabs = ctk.CTkTabview(self)
+        # `command`: a ogni cambio scheda si aggiornano le liste-opzioni del pannello
+        # mostrato (vedi `_on_tab_change`), così le scelte derivate dal config restano
+        # fresche senza riaprire la finestra (Codex).
+        self._tabs = ctk.CTkTabview(self, command=self._on_tab_change)
         self._tabs.pack(fill="both", expand=True, padx=8, pady=8)
+        self._panels = {}      # titolo scheda → pannello vivo (per refresh_options)
         for tab_title, factory in (panels or []):
             container = self._tabs.add(tab_title)
             try:
-                factory(container).pack(fill="both", expand=True, padx=4, pady=4)
+                panel = factory(container)
+                panel.pack(fill="both", expand=True, padx=4, pady=4)
+                self._panels[tab_title] = panel
             except Exception as exc:        # noqa: BLE001 — isolamento per-scheda
                 # Un pannello che fallisce la COSTRUZIONE (es. cartella profili illeggibile
                 # → OSError da list_profiles) non deve impedire l'apertura degli ALTRI
@@ -51,6 +57,18 @@ class ToolsWindow(ctk.CTkToplevel):
                     text_color="#ef5350", wraplength=600, justify="left",
                     anchor="w").pack(padx=12, pady=12, fill="x")
         self.select_tab(initial)
+
+    def _on_tab_change(self):
+        """Al cambio scheda, aggiorna le liste-opzioni del pannello mostrato se le supporta
+        (`refresh_options`), così provider/parser/profili modificati in un'altra scheda si
+        riflettono subito, senza scartare le modifiche in corso. Best-effort: un refresh
+        fallito non rompe il cambio scheda (Codex)."""
+        panel = self._panels.get(self._tabs.get())
+        if panel is not None and hasattr(panel, "refresh_options"):
+            try:
+                panel.refresh_options()
+            except Exception:               # noqa: BLE001 — refresh best-effort
+                pass
 
     def select_tab(self, title):
         """Seleziona la scheda `title` (no-op se vuoto o titolo non valido).

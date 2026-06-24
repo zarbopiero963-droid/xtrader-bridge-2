@@ -76,6 +76,36 @@ class SourceChatsPanel(ctk.CTkFrame):
         for src in self._editor.sources:
             self._add_row(src)
 
+    def refresh_options(self):
+        """Aggiorna SOLO le liste-opzioni dei dropdown (i parser disponibili) sulle righe
+        esistenti, SENZA ricostruirle: le modifiche in corso restano. Chiamato quando questa
+        scheda torna attiva nella hub, così un parser appena creato nella scheda Parser
+        compare subito nel menu Parser di ogni riga (Codex). Best-effort."""
+        try:
+            editor = SourceEditor(config_store.load_config(config_store.CONFIG_FILE))
+        except Exception:               # noqa: BLE001 — config illeggibile: niente refresh
+            return
+        old_no_parser = self._no_parser
+        self._parser_names = editor.parser_options()
+        self._no_parser = _none_sentinel(self._parser_names)
+        self._parser_options = [self._no_parser] + self._parser_names
+        for refs in self._rows:
+            var = refs["parser"]
+            # Se il sentinella "nessun override" è cambiato (es. è stato creato un parser
+            # con lo stesso nome del vecchio sentinella, e `_none_sentinel` lo disambigua),
+            # migra le righe che erano su "no override" al NUOVO sentinella: senza, un Save
+            # le salverebbe come override al parser reale omonimo, cambiando in silenzio il
+            # parser usato per quelle chat (Codex).
+            if old_no_parser != self._no_parser and var.get() == old_no_parser:
+                var.set(self._no_parser)
+            menu = refs.get("parser_menu")
+            if menu is not None:
+                cur = var.get()
+                vals = list(self._parser_options)
+                if cur and cur not in vals:
+                    vals.append(cur)        # preserva la selezione anche se il parser è sparito
+                menu.configure(values=vals)
+
     # ── costruzione UI ─────────────────────────────────────────────────────
     def _build_ui(self):
         ctk.CTkLabel(
@@ -128,10 +158,12 @@ class SourceChatsPanel(ctk.CTkFrame):
         provider.pack(side="left", padx=3)
         # Parser per questa chat: "" → voce "(predefinito)" (usa il globale); un nome reale resta tale.
         parser = ctk.StringVar(value=str(source.get("parser", "")) or self._no_parser)
-        ctk.CTkOptionMenu(row, width=160, values=self._parser_options,
-                          variable=parser).pack(side="left", padx=3)
+        parser_menu = ctk.CTkOptionMenu(row, width=160, values=self._parser_options,
+                                        variable=parser)
+        parser_menu.pack(side="left", padx=3)
         refs = {"frame": row, "enabled": enabled, "name": name,
-                "chat_id": chat_id, "mode": mode, "provider": provider, "parser": parser}
+                "chat_id": chat_id, "mode": mode, "provider": provider, "parser": parser,
+                "parser_menu": parser_menu}
         ctk.CTkButton(row, text="✕", width=40, fg_color="#c62828", hover_color="#7f0000",
                       command=lambda r=refs: self._remove_row(r)).pack(side="left", padx=3)
         self._rows.append(refs)

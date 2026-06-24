@@ -709,14 +709,14 @@ della GUI a carico del proprietario su Windows (l'ambiente CI è headless).
 > rinomina Mapping con aree Calcio/Mercati) e Tappa 3 (Parser nella hub + unico pulsante
 > "🧰 Strumenti") implementate e mergiate. Resta la **FASE 2** (mappatura mercati).
 >
-> **Follow-up noto (P2 UX, da Codex su #96) — refresh cross-scheda della hub:** poiché la
-> hub costruisce tutte le schede subito, alcune liste-opzioni derivate dal config restano
-> stantie finché non si riapre Strumenti. Casi: (a) un parser appena salvato non compare nel
-> dropdown "Parser" di Chat sorgenti; (b) dopo il caricamento di un profilo, la scheda Parser
-> mantiene `provider`/`recognition_mode`/opzioni vecchie. **Non è un rischio CSV/scommessa**
-> (il preview non scrive; la definizione del parser non dipende dal profilo). Fix proposto:
-> aggiornare le liste-opzioni dei pannelli all'attivazione della scheda (o dopo un salvataggio
-> parser), **senza** scartare le modifiche in corso. Da fare come PR dedicata.
+> **Follow-up (P2 UX, da Codex su #96) — refresh cross-scheda della hub: ✅ FATTO.** Al
+> cambio scheda, `ToolsWindow` chiama `refresh_options()` sul pannello mostrato (se lo
+> supporta), aggiornando **solo** le liste-opzioni derivate dal config **senza** scartare le
+> modifiche in corso: `SourceChatsPanel.refresh_options()` aggiorna il dropdown "Parser" di
+> ogni riga (parser appena creato subito visibile); `CustomParserPanel.refresh_options()`
+> aggiorna provider del menu colonna Provider, `recognition_mode` per l'anteprima e le
+> checkbox dei profili mapping (provider/profilo aggiunto altrove, o cambio profilo, riflessi
+> subito). Non era un rischio CSV/scommessa.
 
 ### FASE 1 — consolidazione finestra "🧰 Strumenti" a schede
 Pattern: il contenuto di ogni finestra-strumento diventa un **Pannello** (`CTkFrame`)
