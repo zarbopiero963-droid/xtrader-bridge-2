@@ -1158,7 +1158,7 @@ class App(ctk.CTk):
         # limite/giorno + DRY_RUN. Solo WRITE autorizza la scrittura; ogni altro
         # esito la sopprime (anti-doppia-scommessa / simulazione).
         path = cfg["csv_path"]
-        now = time.time()
+        now = time.monotonic()   # scadenza coda = tempo trascorso, su clock monotòno (audit A3)
         write_error = None
         decision = live_guard.WRITE
         tracker_snap = daily_snap = None
@@ -1331,7 +1331,9 @@ class App(ctk.CTk):
                 nxt = self._queue.next_expiry() if self._queue is not None else None
             if nxt is None:
                 return                       # niente di attivo: nessun tick da programmare
-            delay = max(0.0, nxt - time.time())
+            # `nxt` è un expires_at su clock monotòno (audit A3): il ritardo va calcolato
+            # con lo stesso clock, altrimenti un salto del wallclock falserebbe il tick.
+            delay = max(0.0, nxt - time.monotonic())
         if self._expire_timer:
             self._expire_timer.cancel()
         self._expire_timer = threading.Timer(delay, lambda: self._expire_tick(path))
@@ -1343,7 +1345,7 @@ class App(ctk.CTk):
         se non ne resta nessuno). La scadenza è basata sul tempo della coda: non
         cancella mai un segnale ancora valido. Si riprogramma alla scadenza più
         vicina finché la coda non è vuota."""
-        now = time.time()
+        now = time.monotonic()   # stesso clock monotòno della coda/_process (audit A3)
         # Lock tenuto ATTRAVERSO la scrittura (monotòno con _process).
         write_error = None
         with self._queue_lock:

@@ -13,8 +13,8 @@ Legenda stato: ⬜ da fare · 🔧 in PR aperta · ✅ mergiato.
 |----|---------|------|----|-------|
 | A1 | SelectionName inventata nel fallback legacy (`"Over 0.5 Goals"`/`home`) | `csv_writer.py` | #107 | ✅ |
 | A2 | Boundary del lock: `live_guard.evaluate` fuori da `_queue_lock` | `live_guard.py`, `app.py` | #111 | ✅ |
-| A4 | Freshness fail-OPEN su timestamp mancante | `message_freshness.py` | `fix/audit-104-a4` | 🔧 |
-| A3 | Timing su wallclock invece di monotonic (scorporato da A4: cambio delicato e coordinato) | `signal_dedupe.py`, `signal_queue.py`, `app.py` | — | ⬜ |
+| A4 | Freshness fail-OPEN su timestamp mancante | `message_freshness.py` | #113 | ✅ |
+| A3 | Timing scadenza coda su `time.monotonic()` (coda in-memory). `signal_dedupe` resta wallclock (PERSISTITO tra riavvii) e `message_freshness` resta wallclock (epoch assoluto Telegram) — carve-out dell'audit | `signal_queue.py`, `app.py` | `fix/audit-104-a3` | 🔧 |
 
 ### 🟠 HIGH
 | ID | Finding | File | PR | Stato |
