@@ -107,26 +107,32 @@ def test_clear_stale_csv_non_tocca_file_non_bridge(tmp_path):
 
 def test_clear_stale_csv_logga_avviso_su_header_diverso(tmp_path, caplog):
     # audit #105 P2: un file esistente con header diverso NON viene ripulito (anti
-    # data-loss) MA non più in silenzio: si logga un avviso diagnostico (con anteprima
-    # TRONCATA dell'header) così l'utente capisce perché il file non è stato toccato.
+    # data-loss) MA non più in silenzio: si logga un avviso diagnostico con METADATI
+    # strutturali (path + numero colonne) così l'utente capisce perché il file non è stato
+    # toccato (es. csv_path sbagliato).
     p = tmp_path / "documento_utente.csv"
     p.write_text("colonnaA,colonnaB\nvalore1,valore2\n", encoding="utf-8")
     with caplog.at_level("WARNING", logger="xtrader_bridge.csv_writer"):
         assert csv_writer.clear_stale_csv(str(p)) is False
     msgs = [r.getMessage() for r in caplog.records]
     assert any("non è un CSV del bridge" in m and str(p) in m for m in msgs)
-    # L'anteprima dell'header rilevato è inclusa (per la diagnosi), troncata se lunga.
-    assert any("colonnaA" in m for m in msgs)
+    # Riporta i metadati strutturali (2 colonne rilevate vs le 14 attese), non il contenuto.
+    assert any("2 colonne" in m for m in msgs)
+    assert any(str(len(csv_writer.CSV_HEADER)) in m for m in msgs)
 
 
-def test_clear_stale_csv_avviso_tronca_header_lungo(tmp_path, caplog):
-    # L'anteprima non deve riversare contenuti enormi nel log: header lungo → troncato con "…".
-    p = tmp_path / "grosso.csv"
-    header = ",".join(f"colonna_molto_lunga_{i}" for i in range(50))
-    p.write_text(header + "\nx\n", encoding="utf-8")
+def test_clear_stale_csv_avviso_non_logga_il_contenuto_header(tmp_path, caplog):
+    # Codex P2 (sicurezza): se per errore csv_path punta a un file con un SEGRETO nella prima
+    # riga (es. un token), l'avviso NON deve loggarlo verbatim (questo sink non passa per la
+    # redazione di event_log). Si verifica che il segreto non compaia in ALCUN messaggio.
+    secret = "123456789:AAEdummyBotTokenSecretValue_abcDEF"   # forma di un bot token
+    p = tmp_path / "config_per_errore.csv"
+    p.write_text(secret + ",altro\nx,y\n", encoding="utf-8")
     with caplog.at_level("WARNING", logger="xtrader_bridge.csv_writer"):
         assert csv_writer.clear_stale_csv(str(p)) is False
-    assert any("…" in r.getMessage() for r in caplog.records)
+    joined = "\n".join(r.getMessage() for r in caplog.records)
+    assert "non è un CSV del bridge" in joined        # l'avviso c'è...
+    assert secret not in joined                        # ...ma il segreto NON è loggato
 
 
 def test_clear_stale_csv_file_non_decodificabile_non_bridge(tmp_path):

@@ -242,15 +242,16 @@ def clear_stale_csv(path: str) -> bool:
     if first_row != CSV_HEADER:
         # File esistente e decodificabile ma con header diverso da CSV_HEADER: NON è un CSV
         # del bridge → non si tocca (anti data-loss). Prima il return era SILENZIOSO: ora si
-        # logga un avviso con un'anteprima TRONCATA dell'header rilevato, così l'utente capisce
-        # PERCHÉ il file non è stato ripulito (es. csv_path che punta per errore a un file
-        # non-bridge) senza riversare contenuti lunghi/sensibili nel log (audit #105 P2).
-        preview = ",".join("" if c is None else str(c) for c in (first_row or []))
-        if len(preview) > 80:
-            preview = preview[:80] + "…"
-        logger.warning("CSV non ripulito: %s non è un CSV del bridge (header atteso: %d "
-                       "colonne; rilevato: %r). Controlla csv_path.",
-                       path, len(CSV_HEADER), preview)
+        # logga un avviso per la diagnosi, ma **senza il contenuto** dell'header. Se per
+        # errore `csv_path` punta a un file con un segreto (es. un token nella prima riga, più
+        # corto di una troncatura) NON deve finire nei log, e questo sink non passa per la
+        # redazione di `event_log` (Codex P2). Si riportano solo METADATI strutturali (numero
+        # colonne e lunghezza), che bastano a capire che è il file sbagliato.
+        n_cols = len(first_row or [])
+        n_chars = sum(len(str(c)) for c in (first_row or []))
+        logger.warning("CSV non ripulito: %s non è un CSV del bridge (header atteso %d "
+                       "colonne; rilevate %d colonne, %d caratteri — contenuto non loggato). "
+                       "Controlla csv_path.", path, len(CSV_HEADER), n_cols, n_chars)
         return False   # non è un CSV del bridge → non sovrascrivere
     init_csv(path)
     return True
