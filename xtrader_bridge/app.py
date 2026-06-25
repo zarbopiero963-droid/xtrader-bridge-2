@@ -1397,10 +1397,15 @@ class App(ctk.CTk):
             commit = write_path.commit_signal(
                 self._tracker, self._daily, self._queue,
                 cfg, text, row, path, now, write_rows)
+            # #153 H2: registra l'esito del lock CSV mentre la scrittura è ancora serializzata
+            # (Codex #156). Solo il ramo WRITE scrive davvero su disco.
+            csv_lock_event = self._record_csv_lock(
+                commit.decision == live_guard.WRITE, commit.write_error)
         decision = commit.decision
         blocked_by_cap = commit.blocked_by_cap
         rows = commit.rows
         write_error = commit.write_error
+        self._apply_csv_lock_event(csv_lock_event)   # #153 H2: GUI fuori dal lock
         # ── fuori dal lock: side-effect (persistenza guard state, GUI, log) ──
         if decision != live_guard.WRITE:
             # Esito non-WRITE (dup/rate/daily/dry-run): lo stato è già consumato sotto lock;
@@ -1414,7 +1419,6 @@ class App(ctk.CTk):
             self.after(0, lambda e=write_error: self._set_last("error", f"scrittura CSV: {e}"))
             self.after(0, lambda e=write_error: self._log(
                 f"❌ Scrittura CSV fallita: {e}. Segnale non registrato (riprovabile)."))
-            self._csv_write_failed(write_error)   # #153 H2: escalation se il lock persiste
             self._schedule_expiry(path)           # i segnali ripristinati devono comunque scadere
             return
         if blocked_by_cap:
@@ -1423,7 +1427,6 @@ class App(ctk.CTk):
             # la scadenza così una riga si libera e il segnale potrà passare.
             if self._tracker is not None:
                 self._save_guard_state()
-            self._csv_write_ok()                  # #153 H2: write_rows è riuscita → recovery
             self.after(0, lambda: self._bump("discarded"))
             self.after(0, lambda m=multi_signal.blocked_message(self._queue.max_active):
                        self._log(m))
@@ -1431,10 +1434,10 @@ class App(ctk.CTk):
             self.after(0, lambda n=len(rows): self._update_active_indicator(n))
             self._schedule_expiry(path)
             return
-        # Scrittura riuscita: ora è sicuro persistere lo stato dei guardrail.
+        # Scrittura riuscita: ora è sicuro persistere lo stato dei guardrail. Il recovery
+        # del CSV-lock è già stato applicato sopra (`_apply_csv_lock_event`).
         if self._tracker is not None:
             self._save_guard_state()
-        self._csv_write_ok()                            # #153 H2: lock rientrato → recovery
         self.after(0, lambda: self._bump("written"))   # PR-14: riga scritta nel CSV
         self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
         self.after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5 indicatore
@@ -1474,20 +1477,26 @@ class App(ctk.CTk):
                        self._set_last("signal", s, col))
         self.after(0, lambda m=outcome.log: self._log(m))
 
-    def _csv_write_failed(self, write_error) -> None:
-        """Registra un fallimento di scrittura CSV (#153 H2). Se i fallimenti consecutivi
-        raggiungono la soglia, ESCALA con uno stato visibile «CSV bloccato». La decisione è
-        pura in `csv_lock_escalation`; qui solo i side-effect GUI. NON tocca scrittura/coda,
-        quindi non altera retry né rollback (nessun rischio di doppia scrittura)."""
-        if self._csv_lock.record_failure():
+    def _record_csv_lock(self, wrote: bool, write_error) -> str:
+        """Registra l'esito di scrittura nel contatore CSV-lock (#153 H2) MENTRE si è ancora
+        sotto `_queue_lock` (review Codex #156): così l'ordine dei conteggi rispecchia quello
+        reale dei write su disco, anche con expiry su `Timer` e conferme concorrenti. Conta
+        solo i rami che hanno **scritto** (`wrote`): dup/dry-run no. NON tocca scrittura/coda/
+        rollback. Ritorna l'evento GUI da applicare fuori dal lock: `"escalate"`, `"recover"`
+        o `""` (nulla)."""
+        if not wrote:
+            return ""
+        if write_error is not None:
+            return "escalate" if self._csv_lock.record_failure() else ""
+        return "recover" if self._csv_lock.record_success() else ""
+
+    def _apply_csv_lock_event(self, event: str) -> None:
+        """Applica FUORI dal lock l'evento del contatore CSV-lock (#153 H2): stato «CSV
+        bloccato» all'escalation, oppure recovery (log + campo «Ultimo errore» verde)."""
+        if event == "escalate":
             self.after(0, lambda: self._set_last("error", "🔒 CSV bloccato da XTrader"))
             self.after(0, lambda m=self._csv_lock.text(): self._log(m))
-
-    def _csv_write_ok(self) -> None:
-        """Scrittura CSV riuscita: azzera il contatore di lock; se eravamo in escalation,
-        notifica il recovery una sola volta E aggiorna il pannello stato (#153 H2), così il
-        campo «Ultimo errore» non resta su «CSV bloccato» dopo lo sblocco (review Codex #156)."""
-        if self._csv_lock.record_success():
+        elif event == "recover":
             msg = self._csv_lock.recovery_text()
             self.after(0, lambda m=msg: self._log(m))
             self.after(0, lambda m=msg: self._set_last("error", m, "#66bb6a"))
@@ -1530,6 +1539,9 @@ class App(ctk.CTk):
                     write_rows(rows, path)
                 except Exception as ex:   # noqa: BLE001 — esito a log, no crash
                     write_error = ex
+                # #153 H2: esito lock CSV serializzato con la scrittura (Codex #156).
+                csv_lock_event = self._record_csv_lock(True, write_error)
+            self._apply_csv_lock_event(csv_lock_event)
             if write_error is not None:
                 # Il segnale è già rimosso dalla coda ma il CSV (write fallita) ha
                 # ancora la riga: riprova PRESTO (non a timeout pieno, che terrebbe la
@@ -1538,10 +1550,8 @@ class App(ctk.CTk):
                 self.after(0, lambda e=write_error: self._set_last("error", f"CSV dopo conferma: {e}"))
                 self.after(0, lambda e=write_error: self._log(
                     f"❌ Aggiornamento CSV dopo conferma fallito: {e}. Riprovo a breve."))
-                self._csv_write_failed(write_error)   # #153 H2: escalation se il lock persiste
                 self._schedule_expiry(path, delay=_WRITE_RETRY_DELAY)
                 return
-            self._csv_write_ok()                  # #153 H2: scrittura riuscita → recovery
             # Guard su None (review Sourcery): se in futuro si aggiungono status
             # terminali senza messaggio, non si logga `None`.
             removed_log = signal_outcome.confirmation_removed_log(result.status)
@@ -1600,6 +1610,9 @@ class App(ctk.CTk):
                 write_rows(rows, path)    # rows vuota → solo header (CSV svuotato)
             except Exception as ex:       # noqa: BLE001 — esito riportato a log, no crash
                 write_error = ex
+            # #153 H2: esito lock CSV serializzato con la scrittura (Codex #156).
+            csv_lock_event = self._record_csv_lock(True, write_error)
+        self._apply_csv_lock_event(csv_lock_event)
         if write_error is not None:
             # La coda (memoria) ha già rimosso gli scaduti ma il CSV è rimasto indietro:
             # RIPROVA con un ritardo limitato (non a scadenza, che sarebbe nel passato
@@ -1609,10 +1622,8 @@ class App(ctk.CTk):
             self.after(0, lambda e=write_error: self._set_last("error", f"CSV alla scadenza: {e}"))
             self.after(0, lambda e=write_error: self._log(
                 f"❌ Aggiornamento CSV alla scadenza fallito: {e}. Riprovo a breve."))
-            self._csv_write_failed(write_error)   # #153 H2: escalation se il lock persiste
             self._schedule_expiry(path, delay=_WRITE_RETRY_DELAY)
             return
-        self._csv_write_ok()                      # #153 H2: scrittura riuscita → recovery
         if expired:
             self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
             self.after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5
@@ -1654,6 +1665,12 @@ class App(ctk.CTk):
                 if self._queue is not None:
                     for sid in self._queue.active_ids():
                         self._queue.remove(sid)
+            # #153 H2 (Codex #156): anche lo svuotamento manuale è una scrittura su disco.
+            # Registra l'esito sotto lock, così un clear riuscito dopo lo sblocco esce
+            # dallo stato «CSV bloccato» (altrimenti, cancellando il timer, nessun
+            # `_apply_csv_lock_event` successivo lo farebbe).
+            csv_lock_event = self._record_csv_lock(True, write_error)
+        self._apply_csv_lock_event(csv_lock_event)
         if write_error is not None:
             # Path + tipo eccezione aiutano a diagnosticare lock/permessi.
             self._log(
