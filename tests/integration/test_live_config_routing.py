@@ -97,9 +97,10 @@ def test_is_notification_chat_dalla_config_viva():
 
 def test_notif_chat_in_conflitto_con_sorgente_e_rilevabile(tmp_path):
     # Codex P2: con la config VIVA l'utente può salvare una notif-chat che COINCIDE con una
-    # sorgente ammessa (a START `_start` blocca l'avvio). Il listener rileva l'ambiguità con
-    # `is_notification_chat AND is_chat_allowed` e dà precedenza al percorso SEGNALE (non
-    # dirotta in conferma → niente bet mancata). Qui verifichiamo l'invariante su cui poggia.
+    # sorgente ammessa (a START `_start` rifiuta l'avvio). Il listener rileva l'ambiguità con
+    # `is_notification_chat AND is_chat_allowed` e va FAIL-CLOSED: ignora il messaggio (né
+    # segnale né conferma) con avviso, perché ogni interpretazione è pericolosa (bet mancata
+    # o bet errata). Qui verifichiamo l'invariante su cui poggia la decisione del listener.
     cp.save_parser(_mapping_parser(), str(tmp_path))
     # Caso normale: notif-chat SEPARATA dalle sorgenti → notifica sì, sorgente no.
     ok = {"xtrader_notification_chat_id": "555", "chat_id": "42", "active_parser": "Map"}
@@ -108,7 +109,7 @@ def test_notif_chat_in_conflitto_con_sorgente_e_rilevabile(tmp_path):
     # Caso conflitto: notif-chat == una sorgente ammessa → ENTRAMBI True (ambiguo).
     clash = {"xtrader_notification_chat_id": "42", "chat_id": "42", "active_parser": "Map"}
     assert signal_router.is_notification_chat(clash, "42") is True
-    assert signal_router.is_chat_allowed(clash, "42") is True       # il listener: tratta come SEGNALE
+    assert signal_router.is_chat_allowed(clash, "42") is True       # il listener: FAIL-CLOSED (ignora)
 
 
 def test_should_process_riflette_chat_aggiunta_senza_riavvio(tmp_path):

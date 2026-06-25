@@ -1048,21 +1048,22 @@ class App(ctk.CTk):
                 # ESECUZIONE che non cambiano a metà sessione.
                 if signal_router.is_notification_chat(route, runtime_chat):
                     # Codex P2: con la config VIVA l'utente può salvare a metà sessione una
-                    # notif-chat che COINCIDE con una sorgente ammessa (a START `_start` blocca
-                    # l'avvio proprio per questo). Chat ambigua: se la dirottassimo in conferma,
-                    # i SEGNALI di quella sorgente verrebbero ingoiati come notifica non
-                    # associata → bet mancata silenziosa. Diamo quindi precedenza al percorso
-                    # SEGNALE (un testo di conferma di norma non passa il parser → nessuna
-                    # scrittura) e avvisiamo di correggere la config; stessa logica del gate di
-                    # `_start` (`notif in sources` ≡ `is_chat_allowed`), qui sulla config viva.
+                    # notif-chat che COINCIDE con una sorgente ammessa (a START `_start` rifiuta
+                    # l'avvio proprio per questo). La chat sarebbe AMBIGUA — sia sorgente di
+                    # segnali sia canale di esiti — e ogni scelta è pericolosa: trattarla come
+                    # conferma ingoia i segnali (bet mancata), trattarla come segnale può
+                    # scrivere una riga da un testo di conferma (bet errata). Quindi FAIL-CLOSED,
+                    # come `_start`: il messaggio è IGNORATO (né segnale né conferma) con avviso.
+                    # Una eventuale riga attiva resta protetta dal timeout finché l'utente non
+                    # separa la notif-chat dalle sorgenti (poi il live-reload riprende normale).
                     if signal_router.is_chat_allowed(route, runtime_chat):
                         self.after(0, lambda: self._log(
-                            "⚠️ La Chat notifiche XTrader coincide con una sorgente ammessa: "
-                            "config ambigua, tratto il messaggio come SEGNALE. Correggi "
-                            "xtrader_notification_chat_id (dev'essere una chat separata)."))
-                    else:
-                        self._process_confirmation(text, cfg, route_cfg=route)
+                            "❌ La Chat notifiche XTrader coincide con una sorgente ammessa: "
+                            "config ambigua, messaggio IGNORATO (né segnale né conferma). "
+                            "Correggi xtrader_notification_chat_id (dev'essere una chat separata)."))
                         return
+                    self._process_confirmation(text, cfg, route_cfg=route)
+                    return
                 # PR-11: decisione di instradamento estratta e testabile.
                 # Gatea il filtro chat (CP-09, chat configurata ∪ parser_by_chat)
                 # e il prefiltro legacy P.Bet./📊 (solo per il parser hardcoded):
