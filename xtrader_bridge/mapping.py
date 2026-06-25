@@ -14,7 +14,7 @@ Alias sconosciuto → None (il chiamante decide; il blocco duro è PR-10).
 
 import threading
 
-from .dizionario import alias_key, load_dizionario
+from .dizionario import alias_key, duplicate_alias_pairs, load_dizionario
 
 
 def _ou(line: str, half: bool):
@@ -66,8 +66,21 @@ def _index() -> dict:
     if _INDEX is None:
         with _INDEX_LOCK:
             if _INDEX is None:
+                rows = load_dizionario()
+                # Alias (Market, Selection) duplicato → lookup AMBIGUO: senza controllo
+                # `idx[k] = row` farebbe vincere in silenzio l'ULTIMA riga, instradando
+                # verso la selezione SBAGLIATA (= scommessa sbagliata). Il dizionario
+                # shippato ha 0 duplicati; un doppione arriva solo da un CSV editato/corrotto.
+                # Fail-closed e RUMOROSO (audit B3): meglio un errore chiaro che un bet errato.
+                dups = duplicate_alias_pairs(rows)
+                if dups:
+                    raise ValueError(
+                        "Dizionario alias ambiguo: coppie (MarketAlias, SelectionAlias) "
+                        "duplicate, il lookup non è deterministico → "
+                        + ", ".join(str(k) for k in sorted(set(map(str, dups))))
+                        + ". Correggi il CSV del dizionario (una sola riga per coppia).")
                 idx = {}
-                for row in load_dizionario():
+                for row in rows:
                     idx[alias_key(row["MarketAliasTelegram"],
                                   row["SelectionAliasTelegram"])] = row
                 _INDEX = idx
