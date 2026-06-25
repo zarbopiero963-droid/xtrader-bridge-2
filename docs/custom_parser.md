@@ -3,8 +3,9 @@
 > Stato: **pronto** (PHASE 3-bis, CP-01…CP-10). Il Parser Personalizzato permette
 > di definire dalla GUI *come* estrarre ogni colonna del contratto CSV XTrader da
 > un messaggio Telegram, **senza modificare il codice**. Quando è attivo per una
-> chat è **autoritativo**; il parser hardcoded storico resta come fallback quando
-> nessun parser personalizzato è attivo.
+> chat è **autoritativo**. Nel percorso **live** NON c'è fallback al parser hardcoded
+> storico (CP-09b): se per la chat non è attivo alcun parser personalizzato il messaggio
+> è **ignorato**. Il parser hardcoded P.Bet resta nel repo solo per **compatibilità/test**.
 
 Questo documento descrive il comportamento reale del codice (non promesse): come
 si definisce un parser, come vengono estratti e tradotti i valori, quali gate di
@@ -306,7 +307,8 @@ Risoluzione (in `parser_manager` / `signal_router`):
 1. se la chat di origine ha una voce in `parser_by_chat` → quel parser;
 2. altrimenti, se è la chat configurata (`chat_id`) e c'è un `active_parser`
    globale → quel parser;
-3. altrimenti → **parser hardcoded** storico.
+3. altrimenti → **nessun parser**: nel live il messaggio è **ignorato** (`NO_PARSER`,
+   CP-09b); il parser hardcoded **non** entra in gioco (resta solo per compatibilità/test).
 
 Nel live, il chat id usato è quello **reale del messaggio** (così l'override
 per-chat funziona anche con setup multi-chat dove `chat_id` singolo non è
