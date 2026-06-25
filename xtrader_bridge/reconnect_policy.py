@@ -16,16 +16,40 @@ La parte di I/O (ricostruire l'updater, attendere) vive nella vista sottile `app
 DEFAULT_BASE_DELAY = 2.0
 DEFAULT_MAX_DELAY = 60.0
 
-# Errori considerati **transitori** (rete/timeout): vale la pena riprovare. Match per
-# NOME di classe lungo l'intera gerarchia (MRO), così non serve importare telegram e
-# il test può usare classi finte con questi nomi. Tutto ciò che NON è in whitelist è
-# trattato come NON recuperabile (token invalido, bug, auth…) → niente retry: meglio
-# fermarsi e mostrare l'errore che ciclare a vuoto.
+# Errori considerati **transitori** (rete/timeout): vale la pena riprovare. La
+# classificazione preferisce `isinstance` sulle CLASSI REALI di `telegram.error` (vedi
+# `is_transient_error`); questi NOMI restano come **fallback** per gli ambienti dove
+# `python-telegram-bot` non è importabile (es. CI headless). Tutto ciò che NON è
+# transitorio è trattato come NON recuperabile (token invalido, bug, auth…) → niente
+# retry: meglio fermarsi e mostrare l'errore che ciclare a vuoto.
 TRANSIENT_ERROR_NAMES = frozenset({
     "NetworkError",      # telegram.error.NetworkError (base dei problemi di rete)
     "TimedOut",          # telegram.error.TimedOut
     "RetryAfter",        # flood control: riprovare più tardi
 })
+
+# Cache dei tipi transitori REALI di telegram.error, risolti al primo uso.
+# None = non ancora risolto; tupla (anche vuota) = risolto. Vuota → telegram non
+# importabile, si ricade sul match per nome.
+_TRANSIENT_TYPES_CACHE = None
+
+
+def _real_transient_types():
+    """Tupla delle classi transitorie reali di `telegram.error`
+    (`NetworkError`/`TimedOut`/`RetryAfter`), risolta e cache-ata al primo uso.
+
+    Tupla **vuota** se `telegram` non è importabile (es. CI/test headless dove la
+    dipendenza non è installata): in tal caso `is_transient_error` ricade sul match
+    per nome. L'import è lazy proprio per non richiedere `python-telegram-bot` al
+    semplice import del modulo (così la logica resta testabile senza la dipendenza)."""
+    global _TRANSIENT_TYPES_CACHE
+    if _TRANSIENT_TYPES_CACHE is None:
+        try:
+            from telegram.error import NetworkError, RetryAfter, TimedOut
+            _TRANSIENT_TYPES_CACHE = (NetworkError, TimedOut, RetryAfter)
+        except Exception:   # noqa: BLE001 — telegram assente/incompleto → fallback per nome
+            _TRANSIENT_TYPES_CACHE = ()
+    return _TRANSIENT_TYPES_CACHE
 
 
 def backoff_delay(attempt: int, base: float = DEFAULT_BASE_DELAY,
@@ -47,15 +71,23 @@ def backoff_delay(attempt: int, base: float = DEFAULT_BASE_DELAY,
 
 def is_transient_error(exc: BaseException) -> bool:
     """`True` se l'eccezione è un errore transitorio noto (rete/timeout) per cui ha
-    senso riconnettersi. Riconosce i tipi per nome lungo tutta la gerarchia, così un
-    `TimedOut(NetworkError)` è transitorio mentre `InvalidToken`/`ValueError` no.
+    senso riconnettersi. Un `TimedOut(NetworkError)` è transitorio mentre
+    `InvalidToken`/`ValueError` no.
 
-    Nota: il match è per **nome di classe** (per non importare `telegram` e restare
-    testabile). In teoria un'altra dipendenza potrebbe definire un'eccezione omonima
-    non di rete (es. un `NetworkError` con altro significato) e dare un falso
-    positivo; nel flusso del listener, però, le eccezioni provengono da
-    `python-telegram-bot`, dove questi nomi indicano davvero problemi di rete. Il
-    rischio è quindi al più un retry in più, mai uno mancato su un errore reale."""
+    Classificazione (audit C6): quando `python-telegram-bot` è importabile si usa
+    `isinstance` sulle CLASSI REALI di `telegram.error` — preciso. Il vecchio match per
+    **nome di classe** sull'MRO trattava come transitoria QUALSIASI eccezione che
+    condividesse solo il nome (es. un `NetworkError` permanente di un'altra libreria o
+    una sottoclasse omonima): un falso positivo che mandava il supervisor in un loop di
+    reconnect infinito ("running ma sordo"). Con `isinstance` un omonimo NON-telegram non
+    è istanza del tipo reale → trattato come NON transitorio.
+
+    Fallback: se `telegram` non è importabile (es. CI/test headless) si ricade sul match
+    per nome di prima, così la logica resta testabile senza la dipendenza."""
+    types = _real_transient_types()
+    if types:
+        return isinstance(exc, types)
+    # Fallback (telegram non importabile): match per nome lungo l'MRO come in precedenza.
     names = {cls.__name__ for cls in type(exc).__mro__}
     return bool(names & TRANSIENT_ERROR_NAMES)
 
