@@ -165,6 +165,13 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 >   (puro → `NonWriteOutcome`; `WRITE`/decisioni ignote → `None`). `App._after_non_write`
 >   ora applica solo i side-effect GUI nello stesso ordine. Nessun cambio di comportamento
 >   osservabile. Test: `tests/unit/test_signal_outcome.py`.
+> - **#105-P1 refactor `app.py` — slice 4/N** 🔧 — signal executor (ramo WRITE). La
+>   presentazione di una scrittura CSV **riuscita** (testo «ultimo segnale», log del segnale
+>   con sorgente, log di conferma con pluralizzazione «attivo»/«attivi») era inline in
+>   `_process`. Estratta in `signal_outcome.describe_write(row, source, n_active)` (puro →
+>   `WriteOutcome`). `_process` ora applica i side-effect GUI nello stesso ordine. Nessun
+>   cambio di comportamento osservabile. Il cuore di `_process` (lock/coda/scrittura/rollback)
+>   resta in `App`. Test: `tests/unit/test_signal_outcome.py`.
 
 I P3 restanti sono **giudizi positivi** (validazione prezzi/BetType, recognition mode,
 difesa CSV/chat) — nessuna azione.

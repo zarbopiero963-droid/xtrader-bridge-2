@@ -51,3 +51,41 @@ def test_campi_mancanti_nella_row_non_sollevano():
     assert o is not None
     assert "DRY_RUN" in o.log
     assert "q." in o.last_signal       # prezzo vuoto, ma il formato regge
+
+
+# ── describe_write: presentazione della scrittura CSV riuscita ────────────────
+
+def test_describe_write_contiene_evento_selezione_prezzo_e_sorgente():
+    o = signal_outcome.describe_write(ROW, "P.Bet", 1)
+    assert "Milan v Inter" in o.last_signal and "Milan" in o.last_signal
+    assert "1,85" in o.last_signal
+    assert "P.Bet" in o.signal_log and "Milan v Inter" in o.signal_log
+    assert "1,85" in o.signal_log
+
+
+def test_describe_write_pluralizza_una_riga_attiva():
+    o = signal_outcome.describe_write(ROW, "P.Bet", 1)
+    # singolare: "1 attivo"
+    assert "1 attivo)" in o.csv_log
+    assert "attivi" not in o.csv_log
+    assert "XTrader" in o.csv_log
+
+
+def test_describe_write_pluralizza_piu_righe_attive():
+    o = signal_outcome.describe_write(ROW, "Custom", 3)
+    # plurale: "3 attivi"
+    assert "3 attivi)" in o.csv_log
+
+
+def test_describe_write_campi_mancanti_non_sollevano():
+    o = signal_outcome.describe_write({}, "P.Bet", 0)
+    # n_active=0 → plurale "attivi"; nessun KeyError sui campi vuoti
+    assert "0 attivi)" in o.csv_log
+    assert "q." in o.last_signal
+
+
+def test_attivi_label_singolare_e_plurale():
+    # Fonte unica della pluralizzazione: solo n==1 è singolare.
+    assert signal_outcome._attivi_label(1) == "attivo"
+    assert signal_outcome._attivi_label(0) == "attivi"
+    assert signal_outcome._attivi_label(2) == "attivi"

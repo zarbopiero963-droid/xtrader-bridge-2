@@ -1458,16 +1458,12 @@ class App(ctk.CTk):
         self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
         self.after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5 indicatore
 
-        info = (f"🏆 {row.get('EventName', '')}  |  "
-                f"{row.get('SelectionName', '')}  |  "
-                f"q.{row.get('Price', '')}")
-
-        self.after(0, lambda i=info: self._set_last("signal", i, "white"))
-        self.after(0, lambda: self._log(
-            f"📱 Segnale ({result.source}): {row.get('EventName', '')}  |  "
-            f"{row.get('SelectionName', '')}  q.{row.get('Price', '')}"))
-        self.after(0, lambda n=len(rows): self._log(
-            f"✅ CSV aggiornato ({n} attiv{'o' if n == 1 else 'i'}) → XTrader può piazzare"))
+        # Presentazione della scrittura riuscita (pura, testata in `signal_outcome`):
+        # «ultimo segnale» + log segnale (con sorgente) + log aggiornamento CSV.
+        outcome = signal_outcome.describe_write(row, result.source, len(rows))
+        self.after(0, lambda i=outcome.last_signal: self._set_last("signal", i, "white"))
+        self.after(0, lambda m=outcome.signal_log: self._log(m))
+        self.after(0, lambda m=outcome.csv_log: self._log(m))
         # Tracciabilità (PR-3): messaggio Telegram ↔ riga CSV scritta (data+ora già
         # nell'header `[HH:MM:SS]` della entry e nel nome file `bridge-AAAA-MM-GG.log`).
         # Il MESSAGGIO è redatto di default (privacy, audit #105 P1): solo hash + 1ª riga
