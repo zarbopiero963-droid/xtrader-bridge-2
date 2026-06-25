@@ -93,6 +93,15 @@ def test_linea_ht_non_e_quota():
     assert parse_message("📈Quota 2,5 FT Prematch:1,90")["quota"] == "1.90"
 
 
+def test_token_htft_vagante_non_ribalta_la_quota():
+    # audit B2: un "ht"/"ft" NON adiacente al numero dopo Quota non deve ribaltare la
+    # modalità di estrazione (prima `\b(?:ht|ft)\b` sull'intera riga → quota persa). Qui
+    # 1,90 è la quota reale e va letta, nonostante un "ft" più avanti sulla riga.
+    assert parse_message("P.Bet. OVER 2.5\nInter v Milan\nQuota 1,90 nel match ft")["quota"] == "1.90"
+    # Il marker ADIACENTE invece continua a identificare la linea/quota a fine tempo.
+    assert parse_message("P.Bet. OVER 1.5\nInter v Milan\nQuota 1,5 HT")["quota"] == ""
+
+
 def test_coda_quota_stessa_riga_non_finisce_in_eventname():
     p = parse_message("P.Bet. OVER 2.5\nInter v Milan Quota 1,85")
     assert p["teams"] == "Inter v Milan"

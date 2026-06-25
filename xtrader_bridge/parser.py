@@ -73,7 +73,14 @@ def _extract_quota(line: str):
     prefisso ("1.8") — ma ammette la punteggiatura finale di frase ("Quota 1,85." → 1.85).
     """
     low = line.lower()
-    if re.search(r'\b(?:ht|ft)\b', low) or re.search(r'prematch\s*:', low):
+    # Modalità "linea" (il numero dopo Quota è la LINEA del mercato, la quota vera è dopo
+    # "Prematch:"): si attiva SOLO se il marker HT/FT è **adiacente** al numero dopo Quota
+    # (audit B2) oppure se c'è un "Prematch:". Prima si cercava `\b(?:ht|ft)\b` sull'INTERA
+    # riga: due token di 2 lettere comunissimi vaganti altrove ribaltavano la modalità e
+    # facevano perdere/promuovere male la quota.
+    line_marker = (re.search(r'(?:quota|@)[:\s]*' + _NUM + r'\s*(?:ht|ft)\b', line, re.IGNORECASE)
+                   or re.search(r'prematch\s*:', low))
+    if line_marker:
         m = re.search(r'prematch[:\s]*(' + _NUM + r')(?!\d|[.,]\d)', line, re.IGNORECASE)
     else:
         m = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?!\d|[.,]\d)', line, re.IGNORECASE)
@@ -93,9 +100,10 @@ def _extract_ft_line_quota(line: str):
     riga diversa, o malformato) la quota vera è lì e non si promuove la linea a prezzo —
     nel dubbio si fallisce chiusi. Residuo noto: una quota esattamente `.5` (es. 1,50) è
     indistinguibile da una linea e resta persa (fail-safe: meglio persa che sbagliata)."""
-    if not re.search(r'\b(?:ht|ft)\b', line.lower()):
-        return None
-    m = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')(?!\d|[.,]\d)', line, re.IGNORECASE)
+    # Il marker HT/FT dev'essere ADIACENTE al numero dopo Quota (audit B2), non un token
+    # vagante altrove sulla riga: solo così "Quota X HT/FT" identifica davvero una linea/quota
+    # a fine tempo. Il numero X è una LINEA se .5 (ignorato), altrimenti è la quota offerta.
+    m = re.search(r'(?:quota|@)[:\s]*(' + _NUM + r')\s*(?:ht|ft)\b', line, re.IGNORECASE)
     if m is None or _is_half_line(m.group(1)):
         return None
     val = m.group(1).replace(',', '.')
