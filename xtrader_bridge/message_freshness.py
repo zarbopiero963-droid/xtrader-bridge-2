@@ -24,8 +24,12 @@ def is_stale(message_epoch, now, max_age=DEFAULT_MAX_AGE) -> bool:
       ``<= 0``** disattiva il filtro (scelta dell'utente, documentata in config).
       Una stringa numerica (es. ``"120"`` editata a mano) funziona come il numero.
       Niente eccezioni: un valore rotto al più ricade sul default, non crasha l'handler;
-    - timestamp/now non interpretabili → **non** stantio (fail-open: meglio processare
-      un segnale buono che scartarlo per un timestamp illeggibile);
+    - **`message_epoch` mancante/illeggibile → STALE (fail-CLOSED, audit A4)**: un messaggio
+      di backlog recuperato senza data (`msg.date is None`) o con timestamp illeggibile NON
+      deve bypassare l'anti-stale — sarebbe esattamente ciò che il modulo deve impedire.
+      Viene quindi trattato come stantio e scartato;
+    - **`now` illeggibile → non stantio (fail-OPEN)**: il `now` è il TUO clock; se è
+      illeggibile meglio processare un segnale buono che scartarlo per un now rotto;
     - un messaggio dal **futuro** (clock skew) non è stantio.
     """
     # bool non è una soglia in secondi: un True/False trapelato da config ricade sul
@@ -42,8 +46,19 @@ def is_stale(message_epoch, now, max_age=DEFAULT_MAX_AGE) -> bool:
                 max_age = DEFAULT_MAX_AGE  # NaN/inf → default sicuro
     if max_age <= 0:
         return False                 # solo un valore esplicito <= 0 disattiva il filtro
+    # Timestamp del MESSAGGIO mancante/illeggibile → stantio (fail-closed, A4): un backlog
+    # senza data non deve passare l'anti-stale.
     try:
-        age = float(now) - float(message_epoch)
+        msg_epoch = float(message_epoch)
+    except (TypeError, ValueError, OverflowError):
+        return True
+    if not math.isfinite(msg_epoch):
+        return True                  # NaN/inf nel timestamp messaggio → stantio
+    # `now` (il TUO clock) illeggibile → fail-open: non scartare un segnale buono.
+    try:
+        now_f = float(now)
     except (TypeError, ValueError, OverflowError):
         return False
-    return age > max_age
+    if not math.isfinite(now_f):
+        return False
+    return (now_f - msg_epoch) > max_age

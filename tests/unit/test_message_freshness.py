@@ -32,11 +32,18 @@ def test_messaggio_dal_futuro_non_e_stantio():
     assert mf.is_stale(now + 30, now, max_age=120) is False     # clock skew
 
 
-def test_timestamp_illeggibile_fail_open():
+def test_timestamp_messaggio_illeggibile_fail_closed():
+    # Audit A4: un messaggio SENZA data (msg.date None) o con timestamp illeggibile NON deve
+    # bypassare l'anti-stale — verrebbe ripiazzato come bet live. Fail-CLOSED → stantio.
     now = 1_000_000.0
-    # Meglio processare un segnale buono che scartarlo per un timestamp illeggibile.
-    assert mf.is_stale(None, now, max_age=120) is False
-    assert mf.is_stale("boh", now, max_age=120) is False
+    assert mf.is_stale(None, now, max_age=120) is True
+    assert mf.is_stale("boh", now, max_age=120) is True
+
+
+def test_now_illeggibile_fail_open():
+    # Il `now` è il TUO clock: se illeggibile, fail-OPEN (non scartare un segnale buono).
+    assert mf.is_stale(900_000.0, None, max_age=120) is False
+    assert mf.is_stale(900_000.0, "boh", max_age=120) is False
 
 
 def test_max_age_malformato_usa_default_sicuro():
@@ -61,7 +68,7 @@ def test_timestamp_overflow_non_crasha():
     # sicuro — sempre senza crash.
     huge = 10 ** 400                 # int fuori dal range di un float → OverflowError
     now = 1_000_000.0
-    assert mf.is_stale(huge, now, max_age=120) is False          # epoch illeggibile → fail-open
+    assert mf.is_stale(huge, now, max_age=120) is True           # epoch messaggio illeggibile → fail-CLOSED (A4)
     assert mf.is_stale(now - 200, huge, max_age=120) is False    # now illeggibile → fail-open
     # max_age illeggibile → default 120s attivo: vecchio = stantio, recente = no.
     assert mf.is_stale(now - 200, now, max_age=huge) is True
