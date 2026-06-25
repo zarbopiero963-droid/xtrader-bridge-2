@@ -155,3 +155,36 @@ def test_register_rifiuta_now_non_finito_o_bool():
             t.register(MSG, now=bad)
     # now valido continua a funzionare.
     assert t.register(MSG, now=1000.0).status == sd.NEW
+
+
+# ── load_state su file corrotto/non valido (audit, issue #106) ─────────────────
+
+def test_load_state_json_malformato_ritorna_false(tmp_path):
+    """Un file di stato con JSON malformato non deve crashare: `load_state` → False
+    (lo stato resta vuoto, la protezione anti-duplicato riparte pulita)."""
+    p = tmp_path / "history.json"
+    p.write_text("{questo non e' json valido", encoding="utf-8")
+    t = sd.SignalTracker()
+    assert sd.load_state(t, str(p)) is False
+
+
+def test_load_state_contenuto_non_lista_ritorna_false(tmp_path):
+    """Stato valido come JSON ma del tipo sbagliato (oggetto/numero invece di lista)
+    → `load_state` rifiuta e ritorna False, senza popolare lo stato."""
+    for payload in ("{}", "123", '"stringa"', "null"):
+        p = tmp_path / "history.json"
+        p.write_text(payload, encoding="utf-8")
+        t = sd.SignalTracker()
+        assert sd.load_state(t, str(p)) is False, f"payload {payload!r} accettato per errore"
+
+
+def test_load_state_lista_valida_ripristina(tmp_path):
+    """Contro-prova: una lista valida salvata da `save_state` viene ricaricata (True)."""
+    t1 = sd.SignalTracker()
+    t1.register(MSG)
+    p = tmp_path / "history.json"
+    assert sd.save_state(t1, str(p)) is True
+    t2 = sd.SignalTracker()
+    assert sd.load_state(t2, str(p)) is True
+    # il duplicato è riconosciuto dopo il ricarico
+    assert t2.register(MSG).status == sd.DUPLICATE

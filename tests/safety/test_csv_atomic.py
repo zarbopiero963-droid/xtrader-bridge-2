@@ -264,3 +264,36 @@ def test_replace_with_retry_solleva_dopo_budget_esaurito(monkeypatch):
     monkeypatch.setattr(csv_writer.time, "sleep", lambda *_: None)
     with pytest.raises(OSError):
         csv_writer._replace_with_retry("src", "dst", attempts=4)
+
+
+# ── _replace_with_retry: lock Windows di XTrader (audit C3, issue #106) ─────────
+
+def test_replace_with_retry_riprova_e_poi_riesce(monkeypatch):
+    """`os.replace` bloccato (lock Windows) per N-1 volte, poi riesce: la funzione
+    riprova entro il budget e completa, senza propagare l'errore transitorio."""
+    calls = {"n": 0}
+
+    def flaky(src, dst):
+        calls["n"] += 1
+        if calls["n"] < 3:                 # fallisce 2 volte, poi "riesce"
+            raise OSError("file lockato (simulato)")
+        return None                        # successo: niente eccezione
+
+    monkeypatch.setattr(csv_writer.os, "replace", flaky)
+    csv_writer._replace_with_retry("src.tmp", "dst.csv", attempts=5, delay=0)
+    assert calls["n"] == 3                 # 2 fallimenti + 1 successo
+
+
+def test_replace_with_retry_esaurisce_gli_attempt_e_rilancia(monkeypatch):
+    """Se il lock persiste oltre il budget di retry, l'ultimo `os.replace` propaga
+    l'`OSError` (così il chiamante sa che la scrittura non è andata a buon fine)."""
+    calls = {"n": 0}
+
+    def always_fail(src, dst):
+        calls["n"] += 1
+        raise OSError("lock perenne (simulato)")
+
+    monkeypatch.setattr(csv_writer.os, "replace", always_fail)
+    with pytest.raises(OSError):
+        csv_writer._replace_with_retry("src.tmp", "dst.csv", attempts=4, delay=0)
+    assert calls["n"] == 4                 # ha provato esattamente `attempts` volte
