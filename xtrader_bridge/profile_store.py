@@ -20,10 +20,11 @@ import os
 
 from . import atomic_io, config_store, validators
 
-# Chiavi MAI salvate in un profilo: la credenziale Telegram. Un profilo deve poter
-# essere ripristinato/condiviso senza trascinarsi dietro il token; il token vive solo
-# nella config principale e `apply_profile` lo preserva.
-SECRET_KEYS = ("bot_token",)
+# Chiavi MAI salvate in un profilo: la credenziale Telegram e il sentinel di stato del
+# suo storage (`bot_token_storage`). Un profilo deve poter essere ripristinato/condiviso
+# senza trascinarsi dietro il token né lo stato del keyring (accoppiato alla macchina);
+# entrambi vivono solo nella config principale e `apply_profile` li preserva.
+SECRET_KEYS = ("bot_token", "bot_token_storage")
 
 
 def profiles_dir() -> str:

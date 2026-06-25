@@ -303,8 +303,9 @@ Tutte queste protezioni sono **attive a runtime**:
 > salvato nel **keyring del sistema operativo** (su Windows il **Credential Manager**
 > nativo) tramite la libreria `keyring`: in `%APPDATA%\XTraderBridge\config.json` la
 > chiave `bot_token` resta **vuota** e il segreto **non** è in chiaro su disco (audit
-> #105 P1). In memoria, a runtime, il token viene riletto dal keyring così il bridge
-> funziona come prima.
+> #105 P1). Un campo interno `bot_token_storage` (`keyring`/`plaintext`/`none`) registra
+> dove sta il token, così cancellarlo è definitivo (niente "resurrezioni" al riavvio). In
+> memoria, a runtime, il token viene riletto dal keyring così il bridge funziona come prima.
 >
 > **Fallback.** Se sul sistema non c'è un backend keyring utilizzabile (es. una build
 > senza `keyring`, o Linux senza Secret Service), il bridge **ripiega** sul vecchio
