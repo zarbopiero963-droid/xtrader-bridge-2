@@ -30,6 +30,7 @@ The repository is small, but runtime behavior is safety-critical because a wrong
 - Never execute multiple tasks in parallel.
 - Never expand scope beyond the current task, current PR, or provided handoff.
 - Never mark work complete while checks are pending, checks are failing, or blocking review comments remain unresolved.
+- Every task that modifies code MUST automatically add or update truthful hard tests that exercise the real behavior of the change — including, where relevant, resilience scenarios (crash/power-loss, reconnect, concurrency/race, START/STOP teardown, CSV/dedupe/daily recovery, write-failure with rollback): a code change without matching hard tests is an incomplete PR and cannot be declared `DONE`.
 - Never commit secrets, real Telegram tokens, real chat IDs, `.env`, local `config.json`, generated CSV files, build artifacts, logs, caches, EXE files, or ZIP artifacts unless explicitly requested.
 - Never add direct betting, browser automation, mouse/keyboard automation, Betfair login, XTrader login automation, or real-money execution beyond CSV output unless explicitly requested by the owner and protected by a dedicated safety plan.
 
@@ -465,6 +466,51 @@ Recommended test style:
 - Keep unit tests deterministic and offline.
 - If a live/manual test is needed, document it separately as manual verification.
 
+### Mandatory hard safety tests for critical runtime behavior
+
+For every change that touches runtime execution, START/STOP, Telegram listener,
+reconnect/backoff, auto-start, CSV writing/clearing, signal queue, dedupe,
+daily limits, confirmation handling, config persistence, parser routing, GUI
+state, or Windows build behavior, the agent must automatically add or update
+serious targeted tests before declaring the task complete.
+
+The tests must exercise the real project functions/classes and must cover the
+highest-risk failure modes that are practical to test offline:
+
+- power-loss / crash recovery: stale CSV row left on disk must be cleared on
+  next app start before any listener auto-start can write again;
+- connection loss: reconnect/backoff policy, STOP during backoff, no retry on
+  permanent errors, and stale Telegram messages older than `max_signal_age`
+  must not write CSV rows;
+- auto-start: default off, malformed values fail-closed, token/chat required,
+  real mode requires explicit confirmation, and manual START/STOP/close must
+  cancel pending auto-start;
+- CSV file safety: atomic write, no partial file, no uncontrolled append,
+  repeated writes do not duplicate stale signals, clear leaves only the header,
+  file-lock/permission failures do not corrupt the previous CSV;
+- signal lifecycle: dedupe survives restart, rate limits hold, queue timeouts
+  remove expired signals, write failures roll back queue/dedupe/daily state so
+  a signal can be retried safely;
+- confirmation handling: confirmed/rejected signals are removed from the active
+  queue/CSV, unmatched or unclear notifications do not remove anything, and CSV
+  write failure after confirmation schedules a safe retry without rewriting
+  after STOP;
+- config persistence: existing config survives failed saves, corrupted config
+  is backed up, defaults remain safe, no real token/chat ID/path is committed,
+  and `%APPDATA%`/user-data persistence remains compatible;
+- runtime race conditions: START failure must not leave the UI/session active,
+  STOP must clear the active session CSV path rather than a changed GUI field,
+  expiry/manual clear/process must be serialized, and no old Telegram poller may
+  survive a new START epoch.
+
+If a risk cannot be tested automatically because it requires real Windows,
+Telegram, XTrader, GUI, or hardware reboot behavior, the agent must add or
+update a deterministic offline unit/integration test for the pure logic and
+also document an explicit manual smoke test with exact steps, expected result,
+and what remains unverified. The agent must not claim the behavior is covered
+unless the automated or manual test was actually run and reported with real
+evidence.
+
 Required hard test report:
 
 ```text
@@ -742,6 +788,9 @@ Post-fix micro-audit:
 
 Hard truthful tests:
 - PASS / FAIL / SKIPPED with reason
+
+Hard tests created/updated for the change:
+- PASS / FAIL / N/A with reason
 
 GitHub checks completed:
 - YES / NO

@@ -50,6 +50,7 @@ Per domande, spiegazioni o analisi read-only non serve aprire PR.
 - Non risolvere review thread mentre i check sono ancora in corso.
 - Non dichiarare test passati se non sono stati realmente eseguiti.
 - Non creare test finti, decorativi o che non esercitano il codice reale.
+- Ogni task che modifica codice DEVE generare automaticamente test hard veritieri nuovi o aggiornati che esercitino il comportamento reale del cambiamento — inclusi, quando pertinenti, gli scenari resilienza (crash/power-loss, riconnessione, concorrenza/race, teardown START/STOP, recovery CSV/dedupe/daily, write-failure con rollback): un cambiamento di codice senza test hard corrispondenti è un PR incompleto e NON può dichiarare `DONE`.
 - Non dichiarare `READY_TO_MERGE`: il merge resta sempre manuale.
 
 ---
@@ -335,6 +336,51 @@ python -m pytest -q
 
 Se tocchi parser o CSV, aggiungi o aggiorna test mirati quando pratico.
 
+### Test hard obbligatori per comportamento runtime safety-critical
+
+Per ogni modifica che tocca esecuzione runtime, START/STOP, listener Telegram,
+riconnessione/backoff, auto-start, scrittura/svuotamento CSV, coda segnali,
+deduplica, limiti giornalieri, conferme XTrader, persistenza config, routing
+parser, stato GUI o build Windows, l'agente deve aggiungere o aggiornare
+automaticamente test seri, mirati e potenti prima di dichiarare il task completo.
+
+I test devono esercitare funzioni/classi reali del progetto e coprire, dove
+praticabile offline, i failure mode più pericolosi:
+
+- blackout/crash: una riga CSV stantia lasciata su disco deve essere rimossa al
+  successivo avvio dell'app prima che qualunque auto-start del listener possa
+  scrivere di nuovo;
+- perdita connessione: policy di reconnect/backoff, STOP durante backoff, nessun
+  retry su errori permanenti, e messaggi Telegram più vecchi di `max_signal_age`
+  non devono scrivere righe CSV;
+- auto-start: default spento, valori malformati fail-closed, token/chat
+  obbligatori, modalità reale con conferma esplicita, e START/STOP/chiusura
+  manuali devono annullare un auto-start pendente;
+- sicurezza CSV: scrittura atomica, nessun file parziale, nessun append
+  incontrollato, scritture ripetute senza duplicati/stale, clear a solo header,
+  errori di lock/permessi senza corrompere il CSV precedente;
+- ciclo vita segnale: deduplica persistente dopo riavvio, rate limit rispettati,
+  timeout coda che rimuove segnali scaduti, write failure con rollback di
+  queue/dedupe/daily così il segnale resta ritentabile in sicurezza;
+- conferme XTrader: confermato/rifiutato rimuove il segnale attivo da coda/CSV,
+  notifiche unmatched/unknown non rimuovono nulla, fallimento scrittura CSV dopo
+  conferma programma retry sicuro e non riscrive dopo STOP;
+- persistenza config: config esistente intatta dopo save fallito, config corrotta
+  messa in backup, default sicuri, nessun token/chat ID/path reale committato,
+  compatibilità con `%APPDATA%`/cartella utente preservata;
+- race runtime: fallimento START non lascia sessione/UI attiva, STOP pulisce il
+  CSV attivo della sessione e non un path GUI cambiato, expiry/manual clear/process
+  sono serializzati, nessun vecchio poller Telegram sopravvive a un nuovo epoch
+  di START.
+
+Se un rischio non è testabile automaticamente perché richiede Windows reale,
+Telegram live, XTrader, GUI o riavvio hardware, l'agente deve comunque aggiungere
+o aggiornare un test unitario/integration deterministico sulla logica pura e
+documentare anche uno smoke test manuale con passi esatti, risultato atteso e
+cosa resta non verificato. L'agente non deve dichiarare coperto un comportamento
+se il test automatico o manuale non è stato realmente eseguito e riportato con
+evidenza vera.
+
 I test hard dovrebbero esercitare funzioni reali, per esempio:
 
 - `parse_message()` con messaggio P.Bet. valido;
@@ -389,6 +435,46 @@ Required owner action:
 ```
 
 Se i test sono finti, non eseguiti o solo teorici, non dichiarare `DONE`.
+
+---
+
+## GENERAZIONE AUTOMATICA TEST HARD — OBBLIGATORIO
+
+Per ogni task che aggiunge, modifica o rimuove codice, la creazione di test hard
+veritieri NON è opzionale: è parte della patch. Non puoi dichiarare DONE se il
+comportamento toccato non è coperto da un test reale, eseguito e visto passare.
+
+Regole non negoziabili:
+- Ogni funzione/ramo nuovo o modificato DEVE avere un test mirato che chiama il
+  codice reale del progetto (niente assert True, niente mock-only, niente "dovrebbe
+  passare", niente || true).
+- Il test deve fallire se il bug torna (regressione bloccata), non solo "passare".
+- Per ogni fix che nasce da un finding/review/bug, scrivi PRIMA il test che riproduce
+  il problema (deve fallire sul vecchio codice), poi la patch che lo fa passare.
+
+Quando il cambiamento tocca aree safety-critical, DEVI aggiungere anche i test hard
+di resilienza pertinenti, scegliendo dalla matrice:
+- CSV: scrittura atomica, header esatto, una sola riga attiva, svuotamento, nessun
+  file parziale/append, rename fallita non corrompe, formula/control-char injection.
+- Parser/custom parser: messaggio valido/vuoto/non supportato, quota virgola/punto,
+  campi obbligatori mancanti → nessuna riga piazzabile, fuzz su delimitatori/quote.
+- Dedupe/daily/queue: duplicato bloccato, rate/daily limit, rollback su write fallita,
+  now non finito (NaN/inf) fail-closed, timeout per-segnale, restart riconosce duplicati.
+- Runtime/app glue: _start senza chat-filter bloccato, _process write-failure rollback,
+  STOP durante write non scrive, _manual_clear usa _active_csv_path, expire-tick retry.
+- Resilienza/crash: crash/power-loss tra write e replace (file vecchio intatto),
+  daily/dedupe/config atomici dopo kill, CSV stale ripulito all'avvio, reconnect con
+  drop_pending_updates, STOP durante backoff, nessun doppio poller (epoch).
+
+Limiti onesti: ciò che richiede ambiente live (GUI reale, Telegram live, Windows EXE,
+XTrader reale, file lock Windows reale) va scritto come smoke/manual checklist precisa
+e marcato `manual`, NON dichiarato come testato automaticamente.
+
+Il POST_FIX_MICRO_AUDIT e il FINAL_HARD_VERIFY devono includere il controllo
+"test hard creati/aggiornati per il cambiamento: PASS/FAIL". Se hai toccato il codice
+e non hai toccato nessun test, fermati e verifica: o aggiungi il test, o scrivi la
+nota tecnica precisa del perché non serviva (es. fix interno senza impatto su
+comportamento/API osservabile).
 
 ---
 
@@ -661,6 +747,9 @@ Post-fix micro-audit:
 
 Hard truthful tests:
 - PASS / FAIL / SKIPPED with reason
+
+Hard tests created/updated for the change:
+- PASS / FAIL / N/A con motivo
 
 GitHub checks completed:
 - YES / NO
