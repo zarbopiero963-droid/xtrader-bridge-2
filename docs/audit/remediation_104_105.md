@@ -158,6 +158,13 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 >   numerici ignorati). `App._run_bot` ora delega. Nessun cambio di comportamento
 >   osservabile. Test: `tests/unit/test_reconnect_policy.py` (retry_after più lungo vince /
 >   più corto non riduce / non numerico / bool ignorati).
+> - **#105-P1 refactor `app.py` — slice 3/N** 🔧 — signal executor. La mappatura di un esito
+>   guardrail **non-WRITE** (`DRY_RUN`/`DUPLICATE`/`RATE_LIMITED`/`DAILY_LIMITED`) nel
+>   contatore dashboard, nel testo di log e nell'eventuale «ultimo segnale» era inline in
+>   `App._after_non_write`, non testata. Estratta in `signal_outcome.describe_non_write`
+>   (puro → `NonWriteOutcome`; `WRITE`/decisioni ignote → `None`). `App._after_non_write`
+>   ora applica solo i side-effect GUI nello stesso ordine. Nessun cambio di comportamento
+>   osservabile. Test: `tests/unit/test_signal_outcome.py`.
 
 I P3 restanti sono **giudizi positivi** (validazione prezzi/BetType, recognition mode,
 difesa CSV/chat) — nessuna azione.
