@@ -10,10 +10,13 @@ Un file corrotto viene messo da parte (`.bak`) e si riparte dai default.
 import copy
 import json
 import logging
+import math
 import os
 import shutil
 import sys
 import tempfile
+
+from . import autostart, safety_guard
 
 APP_DIR_NAME = "XTraderBridge"
 CONFIG_VERSION = 1
@@ -162,7 +165,12 @@ def _coerce_int(value, default: int) -> int:
     if isinstance(value, int):
         return value
     if isinstance(value, float):
-        return int(value)
+        # Solo float FINITI e INTERI: un `max_signal_age: 0.5` NON deve troncare a 0
+        # (un valore <= 0 disattiva il filtro anti-stale → backlog vecchio passa,
+        # finding Codex P2); `inf`/`nan` da un JSON editato a mano → default sicuro.
+        if math.isfinite(value) and value.is_integer():
+            return int(value)
+        return default
     try:
         return int(str(value).strip())
     except (TypeError, ValueError):
@@ -185,7 +193,20 @@ def _migrate(cfg: dict) -> dict:
     """
     for key, default in DEFAULTS.items():
         if isinstance(default, bool):
-            cfg[key] = as_bool(cfg.get(key, default))
+            # Le bool di SICUREZZA hanno semantica per-chiave OPPOSTA e fail-closed che
+            # un coercitore generico fail-OPEN come `as_bool` falserebbe (finding Codex P1 /
+            # CodeRabbit): `dry_run` (default True) deve restare in simulazione su valore
+            # sporco/vuoto, `auto_start_listener` (default False) NON deve auto-avviarsi su
+            # un valore non esplicitamente truthy. Deleghiamo alla funzione CANONICA di
+            # ciascuna (single source of truth: stessi insiemi truthy/falsey dei consumer),
+            # così il valore migrato coincide esattamente con la decisione di sicurezza.
+            # Una eventuale bool futura senza semantica dedicata ricade su `as_bool`.
+            if key == "dry_run":
+                cfg[key] = safety_guard.is_dry_run(cfg)
+            elif key == "auto_start_listener":
+                cfg[key] = autostart.is_enabled(cfg)
+            else:
+                cfg[key] = as_bool(cfg.get(key, default))
         elif isinstance(default, int):
             cfg[key] = _coerce_int(cfg.get(key), default)
         elif isinstance(default, str):

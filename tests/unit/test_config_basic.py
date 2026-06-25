@@ -257,12 +257,48 @@ def test_load_config_intero_illeggibile_torna_al_default(tmp_path):
 def test_load_config_dry_run_resta_simulazione_su_valore_sporco(tmp_path):
     # Sicurezza: dry_run (simulazione) di default True. Un valore sporco non interpretabile
     # come falsey deve restare True (simulazione), MAI cadere a "scommetti davvero".
+    # La migrazione delega a safety_guard.is_dry_run (stessi insiemi falsey del consumer).
     p = tmp_path / "config.json"
     p.write_text(json.dumps({"dry_run": "boh"}))
+    assert config_store.load_config(str(p))["dry_run"] is True
+    # Stringa VUOTA (config editata a mano): fail-closed → simulazione (finding Codex P1).
+    # `as_bool("")` darebbe False (modalità reale!): la delega a is_dry_run lo impedisce.
+    p.write_text(json.dumps({"dry_run": ""}))
     assert config_store.load_config(str(p))["dry_run"] is True
     # Mentre un esplicito falsey (scelta dell'utente) viene onorato.
     p.write_text(json.dumps({"dry_run": "false"}))
     assert config_store.load_config(str(p))["dry_run"] is False
+
+
+def test_load_config_auto_start_listener_fail_closed_su_valore_sporco(tmp_path):
+    # Sicurezza speculare a dry_run (finding Codex P1 / CodeRabbit Major):
+    # auto_start_listener default False, semantica TRUTHY-only. Un valore sporco/vuoto
+    # NON deve auto-avviare il listener. `as_bool("boh")` darebbe True (auto-start!):
+    # la delega a autostart.is_enabled lo tiene a False.
+    p = tmp_path / "config.json"
+    for sporco in ("boh", "", "maybe"):
+        p.write_text(json.dumps({"auto_start_listener": sporco}))
+        assert config_store.load_config(str(p))["auto_start_listener"] is False
+    # Un esplicito truthy (scelta dell'utente) viene onorato.
+    for vero in ("true", "1", "si", "yes"):
+        p.write_text(json.dumps({"auto_start_listener": vero}))
+        assert config_store.load_config(str(p))["auto_start_listener"] is True
+
+
+def test_load_config_float_non_intero_torna_al_default(tmp_path):
+    # Finding Codex P2: un float NON intero su un campo intero di sicurezza non deve
+    # troncare. `max_signal_age: 0.5` → 0 disattiverebbe il filtro anti-stale: deve
+    # invece tornare al default. Un float INTERO (2.0) è accettato come 2.
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"max_signal_age": 0.5}))
+    cfg = config_store.load_config(str(p))
+    assert cfg["max_signal_age"] == config_store.DEFAULTS["max_signal_age"]
+    assert cfg["max_signal_age"] > 0                  # filtro anti-stale resta attivo
+    p.write_text(json.dumps({"clear_delay": 2.0}))    # float intero → accettato
+    assert config_store.load_config(str(p))["clear_delay"] == 2
+    # inf/nan (json Python li rilegge): non finiti → default, mai 0/troncamento.
+    p.write_text('{"max_signal_age": Infinity}')
+    assert config_store.load_config(str(p))["max_signal_age"] == config_store.DEFAULTS["max_signal_age"]
 
 
 def test_load_config_lista_e_dict_sbagliati_tornano_al_default(tmp_path):
