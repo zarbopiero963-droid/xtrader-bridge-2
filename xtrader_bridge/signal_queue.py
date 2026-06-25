@@ -88,12 +88,32 @@ class SignalQueue:
 
     mode: str = DEFAULT_MODE
     default_timeout: float = DEFAULT_TIMEOUT
+    # Tetto di righe attive simultanee (anti-overbetting nelle modalità multi-riga, #136
+    # punto 5). 0 = nessun tetto (default, retro-compatibile). Un NUOVO segnale oltre il
+    # tetto viene BLOCCATO (`add` ritorna None); un aggiornamento di un segnale già attivo
+    # non è bloccato. OVERWRITE_LAST tiene sempre una sola riga → il tetto è ininfluente.
+    max_active: int = 0
     _active: list = field(default_factory=list)   # ActiveSignal, in ordine d'arrivo
     _counter: int = 0
 
     def __post_init__(self):
         self.mode = normalize_mode(self.mode)
         self.default_timeout = self._validate_timeout(self.default_timeout)
+        self.max_active = self._validate_max_active(self.max_active)
+
+    @staticmethod
+    def _validate_max_active(value) -> int:
+        """Tetto come intero >= 0 (0 = illimitato). Un valore malformato (bool/NaN/inf/
+        negativo/non intero) → 0 (illimitato, fail-safe: non blocca segnali per sbaglio)."""
+        if isinstance(value, bool):
+            return 0
+        try:
+            f = float(value)
+        except (TypeError, ValueError):
+            return 0
+        if not math.isfinite(f) or f < 0 or f != int(f):
+            return 0
+        return int(f)
 
     @staticmethod
     def _validate_timeout(value) -> float:
@@ -132,11 +152,14 @@ class SignalQueue:
         return t
 
     def add(self, row: dict, *, signal_id: str = None, now: float = None,
-            timeout: float = None) -> str:
-        """Aggiunge un segnale e ritorna il suo `signal_id`.
+            timeout: float = None):
+        """Aggiunge un segnale e ritorna il suo `signal_id`, oppure ``None`` se è stato
+        BLOCCATO dal tetto `max_active` (#136 punto 5).
 
-        - ``OVERWRITE_LAST``: sostituisce tutti i segnali attivi con questo;
-        - altre modalità: aggiorna se `signal_id` è già presente, altrimenti accoda.
+        - ``OVERWRITE_LAST``: sostituisce tutti i segnali attivi con questo (mai bloccato);
+        - altre modalità: aggiorna se `signal_id` è già presente, altrimenti accoda — ma un
+          NUOVO segnale che porterebbe oltre `max_active` (se > 0) viene **bloccato**
+          (ritorna ``None``, coda invariata) così non si superano N scommesse simultanee.
 
         `signal_id` assente → generato automaticamente. `timeout` assente →
         `default_timeout`."""
@@ -154,9 +177,14 @@ class SignalQueue:
         sig = ActiveSignal(signal_id, dict(row), now, timeout)
         if self.mode == OVERWRITE_LAST:
             self._active = [sig]
-        else:
-            self._active = [a for a in self._active if a.signal_id != signal_id]
-            self._active.append(sig)
+            return signal_id
+        is_update = any(a.signal_id == signal_id for a in self._active)
+        # Tetto: blocca SOLO un nuovo segnale (non l'aggiornamento di uno già attivo) che
+        # porterebbe il numero di righe attive oltre `max_active` (#136 punto 5).
+        if not is_update and self.max_active and len(self._active) >= self.max_active:
+            return None
+        self._active = [a for a in self._active if a.signal_id != signal_id]
+        self._active.append(sig)
         return signal_id
 
     def expire(self, now: float = None) -> list:

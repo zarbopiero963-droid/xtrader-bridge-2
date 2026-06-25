@@ -66,6 +66,10 @@ DEFAULTS = {
     # attivo alla volta) / APPEND_ACTIVE / QUEUE_UNTIL_CONFIRMED. Le ultime due
     # producono PIÙ righe attive nel CSV (più scommesse simultanee).
     "queue_mode":                   "OVERWRITE_LAST",
+    # Tetto di righe/segnali attivi simultanei nelle modalità coda multi-riga (#136 p5):
+    # un nuovo segnale oltre il tetto viene BLOCCATO (ritentabile). Default basso (2) per
+    # limitare le scommesse simultanee; ininfluente in OVERWRITE_LAST (sempre 1 riga).
+    "max_active_signals":           2,
     # Anti-segnale-stantio (PR reconnect): un messaggio Telegram più vecchio di questi
     # secondi viene SCARTATO all'arrivo (probabile recupero dopo una disconnessione,
     # quando la connessione torna e arretrati vengono rifetchati). 0 = filtro disattivo.
@@ -259,6 +263,10 @@ def _migrate(cfg: dict) -> dict:
                 cfg[key] = as_bool(cfg.get(key, default))
         elif isinstance(default, int):
             cfg[key] = _coerce_int(cfg.get(key), default)
+            # Il tetto di righe attive deve essere >= 1 (un 0/negativo da config editata a
+            # mano disattiverebbe il limite di sicurezza): in tal caso torna al default (#136 p5).
+            if key == "max_active_signals" and cfg[key] < 1:
+                cfg[key] = default
         elif isinstance(default, str):
             val = cfg.get(key, default)
             cfg[key] = val if isinstance(val, str) else (default if val is None else str(val))

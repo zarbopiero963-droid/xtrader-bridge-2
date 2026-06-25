@@ -16,6 +16,7 @@ import customtkinter as ctk
 from . import __version__
 from .config_store import (
     CONFIG_FILE,
+    DEFAULTS,
     as_bool,
     as_bool_optin,
     config_dir,
@@ -35,6 +36,7 @@ from . import (
     log_privacy,
     log_view,
     message_freshness,
+    multi_signal,
     real_mode,
     reconnect_policy,
     safety_guard,
@@ -163,6 +165,7 @@ class App(ctk.CTk):
 
         self._build_ui()
         self._update_real_mode_banner(self._config)   # banner REALE all'avvio se persistito (#136 p4)
+        self._update_active_indicator(0)              # indicatore righe attive (#136 p5)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         # Anti-segnale-stantio (blackout/crash): all'avvio il listener è ancora
         # spento, quindi una riga nel CSV è per forza orfana di una sessione morta
@@ -266,9 +269,21 @@ class App(ctk.CTk):
                 if "dry_run" in self._adv:
                     self._adv["dry_run"].set(True)   # ri-spunta "🧪 Simulazione (DRY_RUN)"
                 self._log("↩️ Attivazione modalità REALE ANNULLATA: il bridge resta in simulazione.")
+        # UX multi-signal (#136 punto 5): attivare una modalità coda MULTI-riga (più scommesse
+        # simultanee) richiede una conferma; se rifiutata si torna a un solo segnale attivo.
+        if multi_signal.requires_warning(old_cfg, cfg):
+            if not self._confirm_multi_signal(
+                    cfg.get("max_active_signals", DEFAULTS["max_active_signals"])):
+                cfg["queue_mode"] = signal_queue.OVERWRITE_LAST
+                if "queue_mode" in self._adv:
+                    self._adv["queue_mode"].set(signal_queue.OVERWRITE_LAST)
+                self._log("↩️ Modalità coda multi-segnale ANNULLATA: resto a un solo segnale "
+                          "attivo (OVERWRITE_LAST).")
         saved, ok = save_config(cfg, CONFIG_FILE)
         self._config = saved
         self._update_real_mode_banner(saved)   # banner rosso persistente se in REALE (#136 p4)
+        if not self._running:
+            self._update_active_indicator(0)   # indicatore tetto aggiornato (#136 p5)
         # Esito reale della persistenza (A1): se il disco ha fallito lo si SEGNALA sempre
         # (a ogni save point), così l'utente non resta con l'illusione di aver salvato.
         # `_save_ok` lascia decidere al bottone se loggare il "salvato" di conferma.
@@ -306,6 +321,12 @@ class App(ctk.CTk):
                                          font=ctk.CTkFont(size=13, weight="bold"),
                                          text_color="#ef5350")
         self._status_lbl.pack(side="right", padx=15)
+
+        # Indicatore "righe attive" (#136 punto 5): quante righe/scommesse sono attive ora
+        # nel CSV. Aggiornato da `_update_active_indicator` su scrittura/scadenza/clear.
+        self._active_lbl = ctk.CTkLabel(hdr, text="", font=ctk.CTkFont(size=12),
+                                        text_color="#ffb74d")
+        self._active_lbl.pack(side="right", padx=(0, 6))
 
         # Banner ROSSO persistente quando il bridge è in modalità REALE (#136 punto 4).
         # Mostrato/nascosto da `_update_real_mode_banner` in base a `real_mode.banner_text`.
@@ -375,6 +396,9 @@ class App(ctk.CTk):
         self._adv["debug_message_payload"] = self._add_check(
             tab_safe, "🕵️ Logga il testo completo dei messaggi (debug; OFF = solo hash + 1ª riga)",
             adv["debug_message_payload"], 4)
+        self._adv["max_active_signals"] = self._add_entry(
+            tab_safe, "🔢 Max segnali attivi (modalità coda multi-riga)",
+            str(adv["max_active_signals"]), 5)
 
         # Conferme XTrader: chat notifiche + timeout conferma (PR-17b, attivo in
         # QUEUE_UNTIL_CONFIRMED) + parole chiave conferma/rifiuto come stringa CSV.
@@ -636,6 +660,34 @@ class App(ctk.CTk):
             return False
         return real_mode.confirmation_ok(typed)
 
+    def _confirm_multi_signal(self, max_active) -> bool:
+        """Conferma per attivare una modalità coda MULTI-segnale (#136 p5): True se confermato.
+        GUI (verifica manuale); il TESTO/decisione (`multi_signal`) è logica pura testata."""
+        from tkinter import messagebox
+        try:
+            return bool(messagebox.askyesno(
+                "Conferma modalità MULTI-segnale", multi_signal.warning_text(max_active)))
+        except Exception:   # noqa: BLE001 — su errore dialog → non confermare
+            return False
+
+    def _update_active_indicator(self, n=None) -> None:
+        """Aggiorna l'indicatore 'righe attive' (#136 p5). `n` esplicito (post-write) o
+        calcolato dalla coda; il tetto dalla coda se attiva, altrimenti dalla config.
+        Da chiamare sul MAIN thread (via `self.after` se invocato dal listener)."""
+        lbl = getattr(self, "_active_lbl", None)
+        if lbl is None:
+            return
+        q = self._queue
+        if n is None:
+            n = len(q.active_rows()) if q is not None else 0
+        if q is not None:
+            max_active = q.max_active
+        elif isinstance(self._config, dict):
+            max_active = self._config.get("max_active_signals", DEFAULTS["max_active_signals"])
+        else:
+            max_active = 0
+        lbl.configure(text=multi_signal.active_count_text(n, max_active))
+
     def _update_real_mode_banner(self, cfg=None) -> None:
         """Mostra/nasconde il banner rosso persistente in base alla modalità (#136 p4).
 
@@ -840,10 +892,14 @@ class App(ctk.CTk):
         # (attesa della conferma XTrader); nelle altre modalità resta clear_delay
         # (auto-clear). timeout_from_config gestisce il fallback fail-safe.
         delay = signal_queue.timeout_from_config(cfg)
+        # Tetto righe attive simultanee (#136 p5): un nuovo segnale oltre il tetto viene
+        # bloccato (vedi `_process`). Ininfluente in OVERWRITE_LAST (sempre 1 riga).
+        max_active = cfg.get("max_active_signals", DEFAULTS["max_active_signals"])
         try:
-            self._queue = signal_queue.SignalQueue(mode=mode, default_timeout=delay)
+            self._queue = signal_queue.SignalQueue(
+                mode=mode, default_timeout=delay, max_active=max_active)
         except ValueError:
-            self._queue = signal_queue.SignalQueue(mode=mode)
+            self._queue = signal_queue.SignalQueue(mode=mode, max_active=max_active)
             self._log("⚠️ clear_delay non valido per la coda: uso il default.")
         # Fonte UNICA del timeout (validata dalla coda): usata anche dai timer di
         # scadenza, così coda e timer condividono lo stesso valore valido.
@@ -1035,6 +1091,7 @@ class App(ctk.CTk):
         self._running = False
         self._session_real = False         # sessione finita: il banner torna a seguire la config viva
         self._update_real_mode_banner()
+        self._update_active_indicator(0)   # nessuna riga attiva dopo lo STOP (#136 p5)
         self._cancel_pending_autostart()   # uno STOP non deve essere annullato da un auto-start pendente (Codex P2)
         self._stop_event.set()        # sveglia subito un'eventuale attesa del backoff
         if self._loop and self._tg_app:
@@ -1334,6 +1391,7 @@ class App(ctk.CTk):
         path = cfg["csv_path"]
         now = time.monotonic()   # scadenza coda = tempo trascorso, su clock monotòno (audit A3)
         write_error = None
+        blocked_by_cap = False   # #136 p5: segnale bloccato dal tetto di righe attive
         decision = live_guard.WRITE
         tracker_snap = daily_snap = None
         rows = []
@@ -1357,7 +1415,11 @@ class App(ctk.CTk):
                 # riscrittura atomica di TUTTE le righe attive.
                 queue_snap = self._queue.state()      # snapshot per rollback su write fallita
                 self._queue.expire(now=now)
-                self._queue.add(row, now=now)
+                sid = self._queue.add(row, now=now)
+                # Tetto righe attive (#136 p5): `add` ritorna None se il NUOVO segnale è oltre
+                # il tetto → bloccato. Le righe attive restano quelle correnti (post-expire),
+                # il CSV viene comunque riscritto per riflettere l'eventuale expire.
+                blocked_by_cap = sid is None
                 rows = self._queue.active_rows()
                 try:
                     write_rows(rows, path)
@@ -1371,6 +1433,13 @@ class App(ctk.CTk):
                         if self._daily is not None and daily_snap is not None:
                             self._daily.restore_state(daily_snap)
                     write_error = ex
+                else:
+                    if blocked_by_cap and self._tracker is not None:
+                        # Bloccato dal tetto: il segnale NON è stato accodato → fai rollback dei
+                        # guardrail (dedup/daily) così resta RITENTABILE quando una riga si libera.
+                        self._tracker.restore_state(tracker_snap)
+                        if self._daily is not None and daily_snap is not None:
+                            self._daily.restore_state(daily_snap)
         # ── fuori dal lock: side-effect (persistenza guard state, GUI, log) ──
         if decision != live_guard.WRITE:
             # Esito non-WRITE (dup/rate/daily/dry-run): lo stato è già consumato sotto lock;
@@ -1386,11 +1455,25 @@ class App(ctk.CTk):
                 f"❌ Scrittura CSV fallita: {e}. Segnale non registrato (riprovabile)."))
             self._schedule_expiry(path)           # i segnali ripristinati devono comunque scadere
             return
+        if blocked_by_cap:
+            # Tetto di righe attive raggiunto (#136 p5): segnale NON aggiunto, guardrail già
+            # ripristinati sotto lock (ritentabile). Avvisa, aggiorna l'indicatore e riprogramma
+            # la scadenza così una riga si libera e il segnale potrà passare.
+            if self._tracker is not None:
+                self._save_guard_state()
+            self.after(0, lambda: self._bump("discarded"))
+            self.after(0, lambda m=multi_signal.blocked_message(self._queue.max_active):
+                       self._log(m))
+            self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
+            self.after(0, lambda n=len(rows): self._update_active_indicator(n))
+            self._schedule_expiry(path)
+            return
         # Scrittura riuscita: ora è sicuro persistere lo stato dei guardrail.
         if self._tracker is not None:
             self._save_guard_state()
         self.after(0, lambda: self._bump("written"))   # PR-14: riga scritta nel CSV
         self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
+        self.after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5 indicatore
 
         info = (f"🏆 {row.get('EventName', '')}  |  "
                 f"{row.get('SelectionName', '')}  |  "
@@ -1496,6 +1579,7 @@ class App(ctk.CTk):
             self.after(0, lambda v=esito: self._log(
                 f"✅ XTrader: segnale {v} → rimosso dal CSV"))
             self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
+            self.after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5
             self._schedule_expiry(path)   # riprogramma per i segnali eventualmente rimasti
         elif result.status == confirmation_reader.UNKNOWN:
             self.after(0, lambda: self._log(
@@ -1558,6 +1642,7 @@ class App(ctk.CTk):
             return
         if expired:
             self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
+            self.after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5
             self.after(0, lambda n=len(expired): self._log(
                 f"🗑️  {n} segnale/i scaduto/i rimosso/i dal CSV"))
         if not empty:

@@ -91,10 +91,18 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 | ID | Finding | Perché manuale |
 |----|---------|----------------|
 | #105-P1 `app.py` monolite | refactor runtime in moduli (`session`/`telegram_listener`/`signal_executor`/…) | refactor ampio multi-sprint, alto rischio di regressioni — richiede scope/approvazione |
-| #105-P2 multi-signal UX | warning modale, max active signals, indicatore righe attive | feature GUI/UX |
 
 > **Lavorazione issue #136 (chiusura "sul serio" dei NEEDS_MANUAL, una PR alla volta).**
 > I punti sopra vengono affrontati singolarmente. Già fatto:
+> - **#105-P2 UX multi-signal** ✅ — modulo puro `xtrader_bridge/multi_signal.py`
+>   (`is_multi_mode`, `requires_warning`, `warning_text`, `active_count_text`,
+>   `blocked_message`) + tetto `max_active` in `signal_queue.SignalQueue` (un nuovo segnale
+>   oltre il tetto è BLOCCATO, ritentabile; OVERWRITE_LAST ininfluente). Nuova chiave
+>   `max_active_signals` (default 2, ≥1) in `config_store`/`settings_controller`. In `app.py`:
+>   warning modale alla transizione a modalità multi-riga (con ripristino di OVERWRITE_LAST
+>   se rifiutata), blocco anti-overbetting in `_process` (rollback guardrail → ritentabile) e
+>   indicatore "Righe attive: N/M". Test: `test_multi_signal.py`, `test_signal_queue.py`,
+>   `test_config_basic.py`, `test_settings_controller.py`; wiring GUI = smoke manuale.
 > - **#105-P2 UX modalità reale** ✅ — modulo puro `xtrader_bridge/real_mode.py`
 >   (`requires_confirmation`, `CONFIRM_PHRASE`/`confirmation_ok`, `banner_text`,
 >   `enabled_message`, `extract_audit_lines`). In `app.py`: **doppia conferma** (frase

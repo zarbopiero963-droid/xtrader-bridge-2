@@ -79,6 +79,9 @@ def current_values(cfg: dict) -> dict:
         "queue_mode": signal_queue.normalize_mode(qm),
         "dry_run": safety_guard.is_dry_run(cfg),
         "max_per_day": _coerce_int_display(cfg.get("max_per_day"), safety_guard.DEFAULT_MAX_PER_DAY),
+        # Tetto righe attive simultanee (#136 p5): intero >= 1, default dai DEFAULTS.
+        "max_active_signals": _coerce_int_display(
+            cfg.get("max_active_signals"), config_store.DEFAULTS["max_active_signals"]),
         "xtrader_notification_chat_id": str(cfg.get("xtrader_notification_chat_id", "") or "").strip(),
         "confirmation_timeout": _coerce_int_display(
             cfg.get("confirmation_timeout"), DEFAULT_CONFIRMATION_TIMEOUT),
@@ -157,6 +160,15 @@ def apply_advanced(cfg: dict, form: dict) -> tuple:
         errors.append(err)
     else:
         updates["max_per_day"] = max_day
+
+    # Tetto righe attive simultanee (#136 p5): intero >= 1. Validato solo se il form lo
+    # porta (la GUI lo include sempre); assente → preserva il valore esistente.
+    if "max_active_signals" in form:
+        max_act, err = _parse_positive_int(form.get("max_active_signals"), "Max segnali attivi")
+        if err:
+            errors.append(err)
+        else:
+            updates["max_active_signals"] = max_act
 
     # La chat notifiche è testo libero: stringa vuota = conferme disattivate.
     updates["xtrader_notification_chat_id"] = str(
