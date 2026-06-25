@@ -128,7 +128,10 @@ def is_notification_chat(cfg: dict, chat: str) -> bool:
     ignorava la modifica (conferme mis-classificate). Fonte unica, così GUI/listener non
     la reimplementano."""
     notif = str((cfg or {}).get("xtrader_notification_chat_id", "") or "").strip()
-    return bool(notif) and str(chat or "") == notif
+    # `.strip()` su ENTRAMBI i lati: l'ID configurato e il chat runtime vanno confrontati
+    # in modo simmetrico, altrimenti un eventuale whitespace (config scritta a mano) farebbe
+    # fallire un match logicamente valido (Sourcery).
+    return bool(notif) and str(chat or "").strip() == notif
 
 
 def listened_chats(cfg: dict) -> list:

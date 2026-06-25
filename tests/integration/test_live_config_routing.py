@@ -88,6 +88,11 @@ def test_is_notification_chat_dalla_config_viva():
     # Vuoto/None robusti: niente notif-chat → mai (no falso positivo che dirotterebbe segnali).
     assert signal_router.is_notification_chat(cfg, "") is False
     assert signal_router.is_notification_chat({"xtrader_notification_chat_id": ""}, "999") is False
+    # Whitespace simmetrico (Sourcery): ID configurato e chat runtime sono entrambi trimmati,
+    # così un eventuale spazio (config a mano) non fa fallire un match logicamente valido.
+    ws = {"xtrader_notification_chat_id": "  777  "}
+    assert signal_router.is_notification_chat(ws, "777") is True
+    assert signal_router.is_notification_chat(cfg, " 777 ") is True
 
 
 def test_should_process_riflette_chat_aggiunta_senza_riavvio(tmp_path):
