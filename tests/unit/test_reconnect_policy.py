@@ -32,6 +32,39 @@ def test_backoff_attempt_enorme_non_va_in_overflow():
     assert rp.backoff_delay(10**9) == rp.DEFAULT_MAX_DELAY
 
 
+# ── delay effettivo: backoff + retry_after di Telegram (flood control) ────────
+
+def test_effective_delay_senza_retry_after_e_il_backoff():
+    # Nessun retry_after (o assente da getattr) → resta il puro backoff.
+    assert rp.effective_delay(1) == rp.backoff_delay(1)
+    assert rp.effective_delay(3, None) == rp.backoff_delay(3)
+
+
+def test_effective_delay_retry_after_piu_lungo_vince():
+    # Il server chiede di aspettare 50s al primo tentativo (backoff=2): si attende 50.
+    assert rp.effective_delay(1, 50) == 50.0
+    # retry_after frazionario rispettato (float).
+    assert rp.effective_delay(1, 3.5) == 3.5
+
+
+def test_effective_delay_retry_after_piu_corto_non_riduce_il_backoff():
+    # retry_after più breve del backoff non accorcia l'attesa (4° tentativo = 16s).
+    assert rp.effective_delay(4, 5) == rp.backoff_delay(4)
+    assert rp.effective_delay(4, 5) == 16.0
+
+
+def test_effective_delay_retry_after_non_numerico_ignorato():
+    # Stringa/None/oggetto non numerico → ignorato, resta il backoff.
+    assert rp.effective_delay(2, "nope") == rp.backoff_delay(2)
+    assert rp.effective_delay(2, object()) == rp.backoff_delay(2)
+
+
+def test_effective_delay_retry_after_bool_ignorato():
+    # True (==1) non è un retry_after valido: rifiutato come bool, resta il backoff.
+    assert rp.effective_delay(1, True) == rp.backoff_delay(1)
+    assert rp.effective_delay(1, False) == rp.backoff_delay(1)
+
+
 # ── classificazione errori (whitelist transitori) ────────────────────────────
 
 class NetworkError(Exception):

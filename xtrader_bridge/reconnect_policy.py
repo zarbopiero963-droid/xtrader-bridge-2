@@ -69,6 +69,28 @@ def backoff_delay(attempt: int, base: float = DEFAULT_BASE_DELAY,
     return float(min(delay, cap))
 
 
+def effective_delay(attempt: int, retry_after=None,
+                    base: float = DEFAULT_BASE_DELAY,
+                    cap: float = DEFAULT_MAX_DELAY) -> float:
+    """Ritardo effettivo (secondi) prima della riconnessione `attempt`, combinando il
+    backoff esponenziale con l'eventuale `retry_after` di Telegram (flood control).
+
+    Se l'eccezione porta un `retry_after` (es. `telegram.error.RetryAfter`) **più
+    lungo** del backoff locale, si attende QUELLO: il server ha chiesto esplicitamente
+    di non riprovare prima di quel tempo, quindi riconnettersi prima sarebbe inutile e
+    peggiorerebbe il flood control. Un `retry_after` assente, non numerico o non
+    maggiore del backoff non ha effetto (resta il backoff).
+
+    I `bool` sono rifiutati prima del confronto (come altrove nel progetto): `True`
+    non è un `retry_after` valido, solo un intero accidentale da `getattr`."""
+    delay = backoff_delay(attempt, base, cap)
+    if isinstance(retry_after, bool):
+        return delay
+    if isinstance(retry_after, (int, float)) and retry_after > delay:
+        return float(retry_after)
+    return delay
+
+
 def is_transient_error(exc: BaseException) -> bool:
     """`True` se l'eccezione è un errore transitorio noto (rete/timeout) per cui ha
     senso riconnettersi. Un `TimedOut(NetworkError)` è transitorio mentre

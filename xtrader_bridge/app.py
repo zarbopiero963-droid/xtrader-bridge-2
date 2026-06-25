@@ -1270,13 +1270,12 @@ class App(ctk.CTk):
                     self.after(0, self._stop)
                     break
                 self._reconnect_attempt += 1
-                delay = reconnect_policy.backoff_delay(self._reconnect_attempt)
-                # Rispetta il flood-control di Telegram: se l'errore porta un
-                # `retry_after` più lungo del backoff locale, attendi quello (Codex P2),
-                # così non si riprova prima del tempo richiesto dal server.
+                # Backoff + flood-control di Telegram (Codex P2): se l'errore porta un
+                # `retry_after` più lungo del backoff locale, attendi quello, così non si
+                # riprova prima del tempo richiesto dal server. Decisione pura e testata
+                # in `reconnect_policy.effective_delay`.
                 retry_after = getattr(ex, "retry_after", None)
-                if isinstance(retry_after, (int, float)) and retry_after > delay:
-                    delay = float(retry_after)
+                delay = reconnect_policy.effective_delay(self._reconnect_attempt, retry_after)
                 self.after(0, lambda e=ex: self._set_last("error", f"rete: {e}"))
                 self.after(0, lambda e=ex, d=delay, n=self._reconnect_attempt: self._log(
                     f"🔌 Connessione persa ({type(e).__name__}): riconnessione tra "

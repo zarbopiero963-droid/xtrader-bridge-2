@@ -150,6 +150,14 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 >   `GuardSet.warnings`). Nessun cambio di comportamento osservabile. Test:
 >   `tests/unit/test_runtime_state.py`. Gli slice successivi (session/telegram listener/
 >   signal executor) restano da fare, sempre una micro-PR alla volta.
+> - **#105-P1 refactor `app.py` — slice 2/N** 🔧 — supervisor di riconnessione. Il calcolo
+>   del **delay effettivo** (backoff esponenziale + override `retry_after` del flood-control
+>   Telegram) era logica pura ma **inline** in `App._run_bot`, non testata direttamente.
+>   Estratto in `reconnect_policy.effective_delay(attempt, retry_after)` (combina
+>   `backoff_delay` con l'attesa richiesta dal server quando è più lunga; `bool`/non
+>   numerici ignorati). `App._run_bot` ora delega. Nessun cambio di comportamento
+>   osservabile. Test: `tests/unit/test_reconnect_policy.py` (retry_after più lungo vince /
+>   più corto non riduce / non numerico / bool ignorati).
 
 I P3 restanti sono **giudizi positivi** (validazione prezzi/BetType, recognition mode,
 difesa CSV/chat) — nessuna azione.
