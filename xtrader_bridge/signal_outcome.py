@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import live_guard
+from . import confirmation_reader, live_guard
 
 
 def _attivi_label(n_active) -> str:
@@ -103,3 +103,29 @@ def describe_write(row, source, n_active):
         csv_log=f"✅ CSV aggiornato ({n_active} {_attivi_label(n_active)}) "
                 f"→ XTrader può piazzare",
     )
+
+
+def confirmation_removed_log(status):
+    """Log della rimozione dal CSV dopo una conferma XTrader **terminale**:
+    CONFIRMED → «confermato (CONFIRMED)», REJECTED → «rifiutato (REJECTED)».
+    Ritorna `None` per qualsiasi altro status (incluso ignoto): il chiamante non logga."""
+    if status == confirmation_reader.CONFIRMED:
+        esito = "confermato (CONFIRMED)"
+    elif status == confirmation_reader.REJECTED:
+        esito = "rifiutato (REJECTED)"
+    else:
+        return None
+    return f"✅ XTrader: segnale {esito} → rimosso dal CSV"
+
+
+def confirmation_ignored_log(status):
+    """Log per una notifica XTrader che NON rimuove nulla:
+    - UNKNOWN: associata a un segnale ma esito non riconoscibile;
+    - UNMATCHED: non associata ad alcun segnale attivo.
+    Ritorna `None` per qualsiasi altro status (terminali CONFIRMED/REJECTED o ignoti):
+    il chiamante non logga."""
+    if status == confirmation_reader.UNKNOWN:
+        return "ℹ️ Notifica XTrader associata a un segnale ma esito non chiaro: ignorata."
+    if status == confirmation_reader.UNMATCHED:
+        return "ℹ️ Notifica XTrader non associata ad alcun segnale attivo: ignorata."
+    return None

@@ -172,6 +172,13 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 >   `WriteOutcome`). `_process` ora applica i side-effect GUI nello stesso ordine. Nessun
 >   cambio di comportamento osservabile. Il cuore di `_process` (lock/coda/scrittura/rollback)
 >   resta in `App`. Test: `tests/unit/test_signal_outcome.py`.
+> - **#105-P1 refactor `app.py` — slice 5/N** 🔧 — conferme XTrader. I messaggi di esito di
+>   `_process_confirmation` (log di rimozione dal CSV per CONFIRMED/REJECTED; log informativo
+>   per UNKNOWN/UNMATCHED che non rimuovono nulla) erano inline. Estratti in
+>   `signal_outcome.confirmation_removed_log(status)` e `confirmation_ignored_log(status)`
+>   (puri; status non pertinente → `None`). `_process_confirmation` ora delega; i blocchi
+>   lock/scrittura/retry restano in `App`. Nessun cambio di comportamento osservabile. Test:
+>   `tests/unit/test_signal_outcome.py`.
 
 I P3 restanti sono **giudizi positivi** (validazione prezzi/BetType, recognition mode,
 difesa CSV/chat) — nessuna azione.

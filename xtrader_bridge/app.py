@@ -1531,9 +1531,6 @@ class App(ctk.CTk):
                     write_rows(rows, path)
                 except Exception as ex:   # noqa: BLE001 — esito a log, no crash
                     write_error = ex
-            esito = ("confermato (CONFIRMED)"
-                     if result.status == confirmation_reader.CONFIRMED
-                     else "rifiutato (REJECTED)")
             if write_error is not None:
                 # Il segnale è già rimosso dalla coda ma il CSV (write fallita) ha
                 # ancora la riga: riprova PRESTO (non a timeout pieno, che terrebbe la
@@ -1544,17 +1541,21 @@ class App(ctk.CTk):
                     f"❌ Aggiornamento CSV dopo conferma fallito: {e}. Riprovo a breve."))
                 self._schedule_expiry(path, delay=_WRITE_RETRY_DELAY)
                 return
-            self.after(0, lambda v=esito: self._log(
-                f"✅ XTrader: segnale {v} → rimosso dal CSV"))
+            # Guard su None (review Sourcery): se in futuro si aggiungono status
+            # terminali senza messaggio, non si logga `None`.
+            removed_log = signal_outcome.confirmation_removed_log(result.status)
+            if removed_log is not None:
+                self.after(0, lambda m=removed_log: self._log(m))
             self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
             self.after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5
             self._schedule_expiry(path)   # riprogramma per i segnali eventualmente rimasti
-        elif result.status == confirmation_reader.UNKNOWN:
-            self.after(0, lambda: self._log(
-                "ℹ️ Notifica XTrader associata a un segnale ma esito non chiaro: ignorata."))
-        else:  # UNMATCHED
-            self.after(0, lambda: self._log(
-                "ℹ️ Notifica XTrader non associata ad alcun segnale attivo: ignorata."))
+        else:
+            # UNKNOWN o UNMATCHED: notifica che NON rimuove nulla → solo log informativo.
+            # `confirmation_ignored_log` distingue i due casi; guard su None per status
+            # non enumerati (difesa, review Sourcery).
+            ignored_log = signal_outcome.confirmation_ignored_log(result.status)
+            if ignored_log is not None:
+                self.after(0, lambda m=ignored_log: self._log(m))
 
     def _schedule_expiry(self, path: str, delay=None) -> None:
         """(Ri)programma il tick di scadenza (PR-22). Con `delay=None` lo programma

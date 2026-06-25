@@ -4,7 +4,7 @@ Pura, headless: esercita `describe_non_write` con le decisioni reali di `live_gu
 verificando contatore, testo di log e aggiornamento «ultimo segnale» (solo DRY_RUN).
 """
 
-from xtrader_bridge import live_guard, signal_outcome
+from xtrader_bridge import confirmation_reader, live_guard, signal_outcome
 
 ROW = {"EventName": "Milan v Inter", "SelectionName": "Milan", "Price": "1,85"}
 
@@ -89,3 +89,35 @@ def test_attivi_label_singolare_e_plurale():
     assert signal_outcome._attivi_label(1) == "attivo"
     assert signal_outcome._attivi_label(0) == "attivi"
     assert signal_outcome._attivi_label(2) == "attivi"
+
+
+# ── conferma XTrader: log esito terminale e log ignorato ──────────────────────
+
+def test_confirmation_removed_log_terminali():
+    conf = signal_outcome.confirmation_removed_log(confirmation_reader.CONFIRMED)
+    rej = signal_outcome.confirmation_removed_log(confirmation_reader.REJECTED)
+    assert "confermato" in conf and "rimosso dal CSV" in conf
+    assert "rifiutato" in rej and "rimosso dal CSV" in rej
+    assert conf != rej
+
+
+def test_confirmation_removed_log_non_terminali_none():
+    # UNKNOWN/UNMATCHED non sono esiti terminali → nessun log di rimozione.
+    assert signal_outcome.confirmation_removed_log(confirmation_reader.UNKNOWN) is None
+    assert signal_outcome.confirmation_removed_log(confirmation_reader.UNMATCHED) is None
+    assert signal_outcome.confirmation_removed_log("BOH") is None
+
+
+def test_confirmation_ignored_log_unknown_e_unmatched():
+    unk = signal_outcome.confirmation_ignored_log(confirmation_reader.UNKNOWN)
+    unm = signal_outcome.confirmation_ignored_log(confirmation_reader.UNMATCHED)
+    assert "esito non chiaro" in unk
+    assert "non associata ad alcun segnale" in unm
+    assert unk != unm
+
+
+def test_confirmation_ignored_log_terminali_none():
+    # CONFIRMED/REJECTED rimuovono → non passano da qui (nessun log "ignorata").
+    assert signal_outcome.confirmation_ignored_log(confirmation_reader.CONFIRMED) is None
+    assert signal_outcome.confirmation_ignored_log(confirmation_reader.REJECTED) is None
+    assert signal_outcome.confirmation_ignored_log(None) is None
