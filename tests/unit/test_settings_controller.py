@@ -24,6 +24,33 @@ def test_current_values_default_sicuri_su_config_vuota():
     assert v["rejection_keywords"] == ""
 
 
+def test_current_values_debug_payload_default_off_e_fail_closed():
+    # Privacy log: default OFF su config vuota; solo truthy esplicito lo mostra attivo.
+    assert sc.current_values({})["debug_message_payload"] is False
+    assert sc.current_values({"debug_message_payload": True})["debug_message_payload"] is True
+    assert sc.current_values({"debug_message_payload": "1"})["debug_message_payload"] is True
+    # Valori non-truthy/malformati → resta OFF (privacy on).
+    for bad in ("", "0", "false", "no", "off", None, "garbage-but-not-falsey"):
+        got = sc.current_values({"debug_message_payload": bad})["debug_message_payload"]
+        # "garbage-but-not-falsey" è truthy per as_bool: l'importante è che vuoto/falsey → False.
+        if bad in ("", "0", "false", "no", "off", None):
+            assert got is False, bad
+
+
+def test_apply_advanced_debug_payload_opt_in():
+    # Di default il form NON ha il campo → resta OFF (privacy on).
+    cfg = {"recognition_mode": "NAME_ONLY", "queue_mode": "OVERWRITE_LAST"}
+    base_form = {"recognition_mode": "NAME_ONLY", "queue_mode": "OVERWRITE_LAST",
+                 "dry_run": True, "max_per_day": "10", "confirmation_timeout": "90"}
+    new_cfg, errors = sc.apply_advanced(cfg, base_form)
+    assert errors == []
+    assert new_cfg["debug_message_payload"] is False
+    # Attivazione esplicita.
+    new_cfg2, errors2 = sc.apply_advanced(cfg, {**base_form, "debug_message_payload": True})
+    assert errors2 == []
+    assert new_cfg2["debug_message_payload"] is True
+
+
 def test_current_values_legge_la_config():
     cfg = {
         "recognition_mode": "both", "queue_mode": "APPEND_ACTIVE",

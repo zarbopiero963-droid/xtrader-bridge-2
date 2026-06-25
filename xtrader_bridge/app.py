@@ -31,6 +31,7 @@ from . import (
     event_log,
     gui_utils,
     live_guard,
+    log_privacy,
     log_view,
     message_freshness,
     reconnect_policy,
@@ -342,6 +343,9 @@ class App(ctk.CTk):
         self._adv["auto_start_listener"] = self._add_check(
             tab_safe, "▶️ Avvio automatico all'apertura (in modalità REALE chiede conferma)",
             adv["auto_start_listener"], 3)
+        self._adv["debug_message_payload"] = self._add_check(
+            tab_safe, "🕵️ Logga il testo completo dei messaggi (debug; OFF = solo hash + 1ª riga)",
+            adv["debug_message_payload"], 4)
 
         # Conferme XTrader: chat notifiche + timeout conferma (PR-17b, attivo in
         # QUEUE_UNTIL_CONFIRMED) + parole chiave conferma/rifiuto come stringa CSV.
@@ -1189,9 +1193,14 @@ class App(ctk.CTk):
         # assenza, al parser hardcoded. Non scrive righe non piazzabili: meglio
         # scartare un segnale incompleto che generare una riga ambigua.
         self.after(0, lambda: self._bump("received"))   # PR-14: candidato instradato
+        # Privacy log (audit #105 P1): di default il TESTO del messaggio NON va in chiaro
+        # nei log — solo hash + lunghezza + prima riga troncata (`log_privacy.redact_message`).
+        # Il payload completo solo se l'utente attiva `debug_message_payload` (opt-in).
+        payload_full = as_bool(cfg.get("debug_message_payload") or False)
         # Debug (PR-3): traccia il messaggio in ingresso e la chat di origine. `_dbg`
         # va sul main thread (`_process` gira sul thread del listener Telegram).
-        self.after(0, lambda t=text, c=chat_id: self._dbg(f"IN (chat {c or '?'}): {t}"))
+        self.after(0, lambda m=log_privacy.redact_message(text, full=payload_full), c=chat_id:
+                   self._dbg(f"IN (chat {c or '?'}): {m}"))
         result = signal_router.resolve_row(text, route, chat_id=chat_id)
         if not result.placeable:
             detail = (", ".join(result.missing_required)
@@ -1279,10 +1288,12 @@ class App(ctk.CTk):
             f"✅ CSV aggiornato ({n} attiv{'o' if n == 1 else 'i'}) → XTrader può piazzare"))
         # Tracciabilità (PR-3): messaggio Telegram ↔ riga CSV scritta (data+ora già
         # nell'header `[HH:MM:SS]` della entry e nel nome file `bridge-AAAA-MM-GG.log`).
-        # Una sola riga (gli a-capo del messaggio sono compressi da `format_entry`);
-        # i token sono comunque redatti dal sink.
-        self.after(0, lambda t=text, r=dict(row): self._log(
-            "🧾 Messaggio→CSV  |  msg: " + t + "  |  riga: "
+        # Il MESSAGGIO è redatto di default (privacy, audit #105 P1): solo hash + 1ª riga
+        # troncata, payload completo solo con `debug_message_payload`. La RIGA CSV (dati
+        # operativi della scommessa) resta per la tracciabilità; i token sono redatti dal sink.
+        self.after(0, lambda m=log_privacy.redact_message(text, full=payload_full),
+                   r=dict(row): self._log(
+            "🧾 Messaggio→CSV  |  msg: " + m + "  |  riga: "
             + ", ".join(f"{k}={v}" for k, v in r.items() if v != "")))
 
         # Scadenza per-segnale: (ri)programma il tick alla scadenza più vicina (non un

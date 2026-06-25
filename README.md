@@ -180,6 +180,7 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | `rejection_keywords` | `[]` | lista | Parole che indicano rifiuto (vuoto = default del modulo). Dalla GUI: stringa separata da virgola. |
 | `log_retention_days` | `0` | `0`/`5`/`15`/`30`… | Giorni di conservazione dei log: oltre il limite i file `bridge-AAAA-MM-GG.log` più vecchi vengono **cancellati** all'avvio del bridge (e quando cambi l'opzione). `0` = "Mai" (conserva tutto). Dalla tab *Log*: tendina **Conserva** + pulsante **🧹 Svuota log**. |
 | `debug_log` | `false` | `true`/`false` | Modalità **Debug**: log dettagliato del percorso (avvio/stop, salvataggi, messaggio in ingresso, stadi del segnale) + warning, per capire "cosa è rotto". Attivabile dalla tab *Log* (checkbox **🐞 Debug**). |
+| `debug_message_payload` | `false` | `true`/`false` | **Privacy dei log.** Se `false` (default) il **testo** dei messaggi Telegram **non** viene scritto in chiaro nei log: solo impronta (`sha256` a 12 cifre) + lunghezza + **prima riga troncata**. Se `true`, logga il **payload completo** (debug consapevole). Attivabile dalla tab *Sicurezza* (checkbox **🕵️**). I token restano comunque sempre redatti. |
 | `providers` | `[]` | lista di nomi | **Anagrafica Provider**: nomi riutilizzabili nella colonna `Provider` del Parser Personalizzato (menu a tendina). Si gestisce dal pulsante **➕ Provider** nel costruttore; evita errori di battitura sul Provider (che deve combaciare col filtro dell'azione XTrader). |
 
 > Una `config.json` corrotta viene messa da parte come `.bak` e il bridge riparte
@@ -292,6 +293,11 @@ Tutte queste protezioni sono **attive a runtime**:
 6. **Scrittura atomica** — il CSV si scrive su file temporaneo e poi `rename`, così
    XTrader non legge mai un file parziale; l'header è sempre presente.
 7. **Nessun token nei log** — i segreti sono redatti sia a schermo sia su file.
+8. **Privacy del contenuto messaggi** — di default il **testo** dei messaggi Telegram
+   **non** viene scritto in chiaro nei log: solo impronta (`sha256`) + lunghezza + prima
+   riga troncata, abbastanza per diagnosticare senza conservare il contenuto di canali
+   privati. Per il debug puoi attivare `debug_message_payload` (tab *Sicurezza*) e loggare
+   il payload completo — è una scelta consapevole.
 
 > 🔑 **Dove sta il Bot Token (e perché).** Il token è salvato **in chiaro** in
 > `%APPDATA%\XTraderBridge\config.json`, nel profilo del **tuo** utente Windows. È una

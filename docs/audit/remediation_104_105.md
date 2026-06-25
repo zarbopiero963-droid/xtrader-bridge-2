@@ -92,12 +92,17 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 |----|---------|----------------|
 | #105-P1 `app.py` monolite | refactor runtime in moduli (`session`/`telegram_listener`/`signal_executor`/…) | refactor ampio multi-sprint, alto rischio di regressioni — richiede scope/approvazione |
 | #105-P1 token storage | DPAPI/Windows Credential Manager / keyring | scelta di sicurezza + dipendenze/piattaforma |
-| #105-P1 log payload privacy | privacy mode (hash+troncamento, full solo in debug) | scelta di policy + impatto UX/diagnostica |
 | #105-P2 dry-run real-mode UX | doppia conferma, banner rosso, evento `REAL_MODE_ENABLED`, armed-until-close | feature GUI/UX |
 | #105-P2 multi-signal UX | warning modale, max active signals, indicatore righe attive | feature GUI/UX |
 
 > **Lavorazione issue #136 (chiusura "sul serio" dei NEEDS_MANUAL, una PR alla volta).**
 > I punti sopra vengono affrontati singolarmente. Già fatto:
+> - **#105-P1 privacy mode dei log** ✅ — flag `debug_message_payload` (default OFF =
+>   privacy on) in `config_store`; modulo puro `xtrader_bridge/log_privacy.py`
+>   (`redact_message`: hash sha256 + lunghezza + prima riga troncata; payload completo
+>   solo con opt-in esplicito). Agganciato ai due log del runtime in `app.py` (`IN (chat …)`
+>   e `🧾 Messaggio→CSV`) + toggle GUI nella tab *Sicurezza* + `settings_controller`.
+>   Test: `tests/unit/test_log_privacy.py`, `test_settings_controller.py`, `test_config_basic.py`.
 > - **#105-P3 atomic helper unico** ✅ — centralizzato in `xtrader_bridge/atomic_io.py`
 >   (`atomic_write` + `atomic_write_text`/`atomic_write_json`): `mkstemp` nella stessa
 >   cartella → `flush`/`fsync` → `os.replace` (cleanup su errore, `replace` iniettabile per

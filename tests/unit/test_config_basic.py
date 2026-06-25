@@ -24,6 +24,27 @@ def test_load_config_default_senza_file(tmp_path):
     assert cfg["provider"]                       # default non vuoto
 
 
+def test_debug_message_payload_default_off_e_migrazione(tmp_path):
+    # Privacy log (audit #105 P1): chiave presente nei default e OFF (privacy on)
+    # quando il file non la contiene.
+    assert config_store.DEFAULTS["debug_message_payload"] is False
+    cfg = config_store.load_config(str(tmp_path / "assente.json"))
+    assert cfg["debug_message_payload"] is False
+    # Config che NON ha la chiave → resta OFF.
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"provider": "X"}))
+    assert config_store.load_config(str(p))["debug_message_payload"] is False
+    # Solo un valore truthy ESPLICITO attiva il log completo (coerce via as_bool).
+    p.write_text(json.dumps({"debug_message_payload": True}))
+    assert config_store.load_config(str(p))["debug_message_payload"] is True
+    p.write_text(json.dumps({"debug_message_payload": "1"}))
+    assert config_store.load_config(str(p))["debug_message_payload"] is True
+    # Valori falsey/malformati → fail-closed a False (privacy on).
+    for bad in ("", "0", "false", "no", "off"):
+        p.write_text(json.dumps({"debug_message_payload": bad}))
+        assert config_store.load_config(str(p))["debug_message_payload"] is False, bad
+
+
 def test_load_config_merge_con_file(tmp_path):
     p = tmp_path / "config.json"
     p.write_text(json.dumps({"provider": "TG_PRE", "chat_id": "-100123"}))

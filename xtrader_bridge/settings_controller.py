@@ -88,6 +88,10 @@ def current_values(cfg: dict) -> dict:
         # Coerente col runtime: stessa logica fail-closed di autostart (un valore
         # malformato/None NON deve mostrare il toggle come attivo).
         "auto_start_listener": autostart.is_enabled(cfg),
+        # Privacy log: default OFF (solo truthy esplicito mostra il toggle come attivo),
+        # così un valore malformato/None non finge che il log completo sia attivo
+        # (`... or False`: None/`null`/vuoto → False, fail-closed verso la privacy).
+        "debug_message_payload": _as_bool(cfg.get("debug_message_payload") or False),
     }
 
 
@@ -145,6 +149,9 @@ def apply_advanced(cfg: dict, form: dict) -> tuple:
     updates["dry_run"] = _as_bool(form.get("dry_run", True))
     # Avvio automatico del listener: default sicuro False (parte solo con START).
     updates["auto_start_listener"] = _as_bool(form.get("auto_start_listener", False))
+    # Privacy log: default sicuro False (payload NON loggato in chiaro; opt-in di debug).
+    # `... or False`: None/vuoto → False (fail-closed verso la privacy).
+    updates["debug_message_payload"] = _as_bool(form.get("debug_message_payload") or False)
 
     max_day, err = _parse_positive_int(form.get("max_per_day"), "Limite giornaliero")
     if err:

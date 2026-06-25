@@ -74,6 +74,11 @@ DEFAULTS = {
     # bridge parte solo con START manuale. Se True parte da solo SOLO se token e chat
     # sono configurati; in modalità REALE chiede comunque conferma prima di avviare.
     "auto_start_listener":          False,
+    # Privacy dei log (audit #105 P1): se False (default), il TESTO del messaggio
+    # Telegram NON viene loggato in chiaro — solo hash + lunghezza + prima riga
+    # troncata (vedi `log_privacy`). True logga il payload completo (opt-in di debug
+    # consapevole). Default OFF = privacy on; coerce via `as_bool` (solo truthy esplicito).
+    "debug_message_payload":        False,
 }
 
 
@@ -218,6 +223,11 @@ def _migrate(cfg: dict) -> dict:
                 cfg[key] = safety_guard.is_dry_run(cfg)
             elif key == "auto_start_listener":
                 cfg[key] = autostart.is_enabled(cfg)
+            elif key == "debug_message_payload":
+                # Privacy fail-closed: solo un truthy ESPLICITO attiva il log completo.
+                # `... or False` mappa None/`null`/vuoto a False (as_bool(None) sarebbe True
+                # perché stringa "none" non è falsey) → di default il payload resta redatto.
+                cfg[key] = as_bool(cfg.get(key) or False)
             else:
                 cfg[key] = as_bool(cfg.get(key, default))
         elif isinstance(default, int):
