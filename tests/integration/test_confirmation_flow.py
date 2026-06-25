@@ -25,11 +25,15 @@ def _confirm_against_queue(text, q):
 
 
 def _confirm_then_write(text, q, path, *, running=True, writer=None):
-    """Replica la SEQUENZA di app._process_confirmation includendo la scrittura CSV:
-    gate STOP → interpret → `confirm` (rimuove dalla coda PRIMA di scrivere) →
-    `write_rows(active_rows())`. `writer` può sollevare per simulare un CSV lockato da
-    XTrader (la write è atomica: se fallisce il CSV precedente resta intatto). Ritorna
-    il result, o ``None`` se STOP (running=False) → nessuna riscrittura (Codex P2)."""
+    """Modella i **blocchi puri** su cui poggia `app._process_confirmation` (interpret →
+    `confirm` che rimuove dalla coda PRIMA di scrivere → `write_rows(active_rows())`), con
+    il gate `running`. NON è la GUI reale: `app._process_confirmation` è un metodo
+    customtkinter NON importabile in CI (manca `tkinter`), quindi qui si verificano gli
+    **invariant dei blocchi** (coda + csv_writer), mentre la programmazione del retry
+    (`_schedule_expiry`) e lo svuotamento di `_stop` sono verificati a mano su Windows e
+    coperti dall'estrazione `confirmation_executor` (voce NEEDS_MANUAL della roadmap #105).
+    `writer` può sollevare `OSError` per simulare un CSV lockato (write atomica → file
+    precedente intatto)."""
     writer = writer or cw.write_rows
     if not running:
         return None
@@ -108,13 +112,15 @@ def test_keyword_conferma_dalla_config_viva_live_reload():
     assert q.is_empty()
 
 
-# ── audit #105 P2: conferma + fallimento scrittura CSV → retry converge ───────
+# ── audit #105 P2: invariant coda+CSV su cui poggia il retry di app ───────────
 
 def test_retry_dopo_write_fallita_converge_alle_righe_residue(tmp_path):
-    # Replica il percorso critico di app._process_confirmation (audit #105 P2):
-    # conferma ricevuta → segnale rimosso dalla coda → write_rows FALLISCE (CSV lockato) →
-    # il segnale è già fuori dalla coda ma la riga è ancora nel CSV → il RETRY riscrive le
-    # righe residue derivate dalla coda (già svuotata), facendo sparire il segnale confermato.
+    # audit #105 P2 — invariant dei BLOCCHI usati da app._process_confirmation (non la GUI):
+    # conferma → segnale rimosso dalla coda → write_rows FALLISCE (CSV lockato) → il segnale è
+    # già fuori dalla coda ma la riga resta nel CSV → riscrivendo le righe RESIDUE della coda
+    # (ciò che fa il retry di app via `_schedule_expiry`→`_expire_tick`) il segnale confermato
+    # sparisce: convergenza. NB: che app PROGRAMMI davvero il retry è glue GUI (verifica
+    # manuale Windows / estrazione confirmation_executor, roadmap #105), non testabile qui.
     p = str(tmp_path / "segnali.csv")
     q = sq.SignalQueue(mode=sq.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
     q.add(_row("Inter v Milan", "Esito finale", "Inter"), now=1000)
@@ -139,9 +145,11 @@ def test_retry_dopo_write_fallita_converge_alle_righe_residue(tmp_path):
     assert _events_in_csv(p) == ["Roma v Lazio"]
 
 
-def test_nessuna_riscrittura_dopo_stop(tmp_path):
-    # Codex P2 / audit #105: dopo lo STOP (running=False) una conferma NON deve riscrivere
-    # il CSV (che lo STOP ha già svuotato) né mutare la coda.
+def test_gate_running_false_rende_la_conferma_un_no_op(tmp_path):
+    # audit #105 P2 — il GATE `if not self._running: return` di app._process_confirmation:
+    # un callback di conferma in RITARDO che arriva mentre il bridge è fermo NON deve
+    # elaborare né mutare coda/CSV. (Lo SVUOTAMENTO di coda+CSV è responsabilità di `_stop`,
+    # non di questo gate: qui si verifica solo che il callback tardivo sia un no-op.)
     p = str(tmp_path / "segnali.csv")
     q = sq.SignalQueue(mode=sq.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
     q.add(_row("Roma v Lazio", "Both Teams To Score", "Sì"), now=1000)
@@ -150,6 +158,6 @@ def test_nessuna_riscrittura_dopo_stop(tmp_path):
 
     res = _confirm_then_write("Roma v Lazio - Both Teams To Score - Sì piazzata",
                               q, p, running=False)
-    assert res is None                                 # STOP: niente elaborazione
-    assert _events_in_csv(p) == snapshot               # CSV invariato
-    assert len(q.active_rows()) == 1                    # coda invariata
+    assert res is None                                 # gate: nessuna elaborazione
+    assert _events_in_csv(p) == snapshot               # CSV non mutato dal callback tardivo
+    assert len(q.active_rows()) == 1                    # coda non mutata dal callback tardivo
