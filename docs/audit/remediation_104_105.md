@@ -90,7 +90,7 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 ### NEEDS_MANUAL — decisione del proprietario (non auto-patchabili in sicurezza)
 | ID | Finding | Perché manuale |
 |----|---------|----------------|
-| #105-P1 `app.py` monolite | refactor runtime in moduli (`session`/`telegram_listener`/`signal_executor`/…) | refactor ampio multi-sprint, alto rischio di regressioni — richiede scope/approvazione |
+| #105-P1 `app.py` monolite | refactor runtime in moduli (`session`/`telegram_listener`/`signal_executor`/…) | 🔧 in lavorazione **incrementale** (#136 item 1): estrazione una micro-PR alla volta di sola logica pura, con test reali; `app.py` non è importabile in CI (no tkinter), quindi niente big-bang |
 
 > **Lavorazione issue #136 (chiusura "sul serio" dei NEEDS_MANUAL, una PR alla volta).**
 > I punti sopra vengono affrontati singolarmente. Già fatto:
@@ -140,6 +140,16 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 >   duplicati in `safety_guard` e `signal_dedupe`) e il nucleo `safe_filename_core` +
 >   `WIN_RESERVED` (condiviso da `custom_parser` e `profile_store`, che mantengono il
 >   PROPRIO fallback: `"parser"` vs `""`). Test: `tests/unit/test_validators.py`.
+> - **#105-P1 refactor `app.py` — slice 1/N** 🔧 — avvio dell'estrazione incrementale
+>   del monolite. Nuovo modulo puro `xtrader_bridge/runtime_state.py`: i path di stato
+>   runtime (`dedupe_state_path`/`daily_state_path`) e il **core di costruzione dei
+>   guardrail** (`build_guards` → `GuardSet`: `SignalTracker`/`DailyLimiter`/`SignalQueue`
+>   con i fallback fail-safe per `max_per_day`/`clear_delay`), prima annidati in
+>   `App._init_guards` e non testabili in CI. `App` ora delega e resta responsabile solo
+>   di load/save su disco e logging (gli avvisi di fallback sono restituiti in
+>   `GuardSet.warnings`). Nessun cambio di comportamento osservabile. Test:
+>   `tests/unit/test_runtime_state.py`. Gli slice successivi (session/telegram listener/
+>   signal executor) restano da fare, sempre una micro-PR alla volta.
 
 I P3 restanti sono **giudizi positivi** (validazione prezzi/BetType, recognition mode,
 difesa CSV/chat) — nessuna azione.

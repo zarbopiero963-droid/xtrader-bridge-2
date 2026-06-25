@@ -39,6 +39,7 @@ from . import (
     multi_signal,
     real_mode,
     reconnect_policy,
+    runtime_state,
     safety_guard,
     settings_controller,
     settings_validation,
@@ -852,59 +853,41 @@ class App(ctk.CTk):
     # ── GUARDRAIL (PR-21) ─────────────────────
     def _dedupe_state_path(self) -> str:
         # History anti-duplicato accanto al config (AppData): i duplicati recenti
-        # restano riconosciuti dopo un riavvio.
-        import os
-        return os.path.join(config_dir(), "dedupe_state.json")
+        # restano riconosciuti dopo un riavvio. Path puro in `runtime_state`.
+        return runtime_state.dedupe_state_path(config_dir())
 
     def _daily_state_path(self) -> str:
         # Conteggio giornaliero persistito: stop/start nello stesso giorno (UTC)
         # NON deve azzerare il tetto (altrimenti il limite/giorno è aggirabile).
-        import os
-        return os.path.join(config_dir(), "daily_state.json")
+        return runtime_state.daily_state_path(config_dir())
 
     def _init_guards(self, cfg: dict) -> None:
         """Crea i guardrail del percorso di scrittura dalla config (chiamato allo
-        START). `max_per_day` invalido in config → default sicuro con avviso."""
+        START). La costruzione pura (tracker/daily/coda + fallback fail-safe) è in
+        `runtime_state.build_guards`; qui restano il load da disco e il logging.
+        `max_per_day`/`clear_delay` invalidi → default sicuro con avviso."""
         import os
         self._dedupe_save_warned = False
         self._daily_save_warned = False
-        self._tracker = signal_dedupe.SignalTracker()
+        guards = runtime_state.build_guards(cfg)
+        self._tracker = guards.tracker
         # Avvisa solo se lo stato ESISTE ma non è caricabile (corrotto/illeggibile):
         # l'assenza al primo avvio è normale, non un degrado.
         dpath = self._dedupe_state_path()
         if os.path.exists(dpath) and not signal_dedupe.load_state(self._tracker, dpath):
             self._log("⚠️ Stato anti-duplicato presente ma illeggibile: "
                       "protezione dopo riavvio non garantita.")
-        try:
-            self._daily = safety_guard.DailyLimiter(
-                max_per_day=cfg.get("max_per_day", safety_guard.DEFAULT_MAX_PER_DAY))
-        except ValueError:
-            self._daily = safety_guard.DailyLimiter()
-            self._log(f"⚠️ max_per_day non valido in config: uso "
-                      f"{safety_guard.DEFAULT_MAX_PER_DAY}.")
+        self._daily = guards.daily
         self._load_daily_state()
-        # Coda dei segnali attivi (PR-22): il timeout per-segnale è `clear_delay`
-        # (auto-clear) per OVERWRITE_LAST/APPEND_ACTIVE — così OVERWRITE_LAST replica
-        # il comportamento storico — e `confirmation_timeout` per QUEUE_UNTIL_CONFIRMED
-        # (PR-17b, vedi sotto).
-        mode = signal_queue.normalize_mode(cfg.get("queue_mode"))
-        # PR-17b: in QUEUE_UNTIL_CONFIRMED il timeout per-segnale è confirmation_timeout
-        # (attesa della conferma XTrader); nelle altre modalità resta clear_delay
-        # (auto-clear). timeout_from_config gestisce il fallback fail-safe.
-        delay = signal_queue.timeout_from_config(cfg)
-        # Tetto righe attive simultanee (#136 p5): un nuovo segnale oltre il tetto viene
-        # bloccato (vedi `_process`). Ininfluente in OVERWRITE_LAST (sempre 1 riga).
-        max_active = cfg.get("max_active_signals", DEFAULTS["max_active_signals"])
-        try:
-            self._queue = signal_queue.SignalQueue(
-                mode=mode, default_timeout=delay, max_active=max_active)
-        except ValueError:
-            self._queue = signal_queue.SignalQueue(mode=mode, max_active=max_active)
-            self._log("⚠️ clear_delay non valido per la coda: uso il default.")
+        self._queue = guards.queue
         # Fonte UNICA del timeout (validata dalla coda): usata anche dai timer di
         # scadenza, così coda e timer condividono lo stesso valore valido.
-        self._queue_timeout = self._queue.default_timeout
-        self._log(f"🧮 Modalità coda: {mode}")
+        self._queue_timeout = guards.queue_timeout
+        # Avvisi di fallback fail-safe (max_per_day/clear_delay invalidi): loggati
+        # qui perché `build_guards` resti puro e testabile senza GUI.
+        for warning in guards.warnings:
+            self._log(warning)
+        self._log(f"🧮 Modalità coda: {guards.mode}")
 
     def _load_daily_state(self) -> None:
         """Ripristina il conteggio giornaliero (persistenza same-day tra START/STOP).
