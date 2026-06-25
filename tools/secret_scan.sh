@@ -42,9 +42,18 @@ if [ "${#files[@]}" -eq 0 ]; then
 fi
 
 found=0
+scan_error=0
 for i in "${!PATTERNS[@]}"; do
   # -I salta i binari; -l stampa SOLO i path (segreto mai stampato); -E ERE; -- fine opzioni.
-  hits=$(grep -lIE -- "${PATTERNS[$i]}" "${files[@]}" 2>/dev/null || true)
+  hits=$(grep -lIE -- "${PATTERNS[$i]}" "${files[@]}" 2>/dev/null)
+  rc=$?
+  # grep: 0 = match, 1 = nessun match, >=2 = ERRORE reale (file illeggibile, encoding, ...).
+  # Un errore NON deve passare per "pulito": un gate di sicurezza fa FAIL-CLOSED (review
+  # CodeRabbit #155), altrimenti un segreto potrebbe sfuggire silenziosamente.
+  if [ "$rc" -ge 2 ]; then
+    scan_error=1
+    echo "::error::grep ha fallito (rc=$rc) sul pattern ${NAMES[$i]}: scan non affidabile." >&2
+  fi
   if [ -n "$hits" ]; then
     found=1
     echo "::error::Possibile segreto (${NAMES[$i]}) in file tracciati (valore redatto):"
@@ -52,7 +61,7 @@ for i in "${!PATTERNS[@]}"; do
   fi
 done
 
-if [ "$found" -ne 0 ]; then
+if [ "$found" -ne 0 ] || [ "$scan_error" -ne 0 ]; then
   exit 1
 fi
 echo "OK: nessun segreto noto rilevato."

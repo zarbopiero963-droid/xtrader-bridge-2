@@ -15,4 +15,25 @@ if [ "${#staged[@]}" -eq 0 ]; then
   exit 0
 fi
 
-exec "$root/tools/secret_scan.sh" "${staged[@]}"
+# Scansiona il CONTENUTO IN STAGING (il blob dell'index), NON il working tree: con lo
+# staging parziale (`git add -p`) o un working tree modificato dopo l'add, un segreto
+# presente nel blob in staging ma assente dal file su disco sfuggirebbe (review CodeRabbit
+# #155). Si estraggono i blob in un albero temporaneo che rispecchia i path, così il path
+# segnalato resta riconoscibile. Cleanup garantito da `trap`.
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+copies=()
+for path in "${staged[@]}"; do
+  dest="$tmpdir/$path"
+  mkdir -p "$(dirname "$dest")"
+  # `:path` = versione in staging (index). Estrazione fallita → salta quel file.
+  if git show ":$path" > "$dest" 2>/dev/null; then
+    copies+=("$dest")
+  fi
+done
+
+if [ "${#copies[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+"$root/tools/secret_scan.sh" "${copies[@]}"
