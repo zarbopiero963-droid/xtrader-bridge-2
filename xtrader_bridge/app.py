@@ -49,6 +49,7 @@ from . import (
     signal_queue,
     signal_router,
     source_manager,
+    telegram_dispatch,
     write_path,
 )
 
@@ -1165,70 +1166,51 @@ class App(ctk.CTk):
                 msg_date = getattr(msg, "date", None)
                 msg_epoch = msg_date.timestamp() if msg_date is not None else None
                 max_age = cfg.get("max_signal_age", message_freshness.DEFAULT_MAX_AGE)
-                if message_freshness.is_stale(msg_epoch, time.time(), max_age):
+                text = msg.text or msg.caption or ''
+                runtime_chat = str(msg.chat_id)
+                # Live-reload del routing (issue #82): INSTRADAMENTO e PARSING (chat ammesse,
+                # parser attivo, provider, mappature, chat-notifiche, keyword) usano la config
+                # VIVA (`self._config`, aggiornata a ogni salvataggio), non lo snapshot a START
+                # — così rinominare un profilo o aggiungere un parser/sorgente ha effetto SUBITO.
+                # Snapshot per-messaggio (lettura atomica del riferimento). L'ESECUZIONE resta
+                # invece legata alla sessione (`cfg`): DRY_RUN/limiti, path CSV e token NON
+                # cambiano a metà sessione, per non far scattare una bet reale o un CSV stantio.
+                route = self._config if isinstance(self._config, dict) else cfg
+                # Decisione di instradamento ESTRATTA e testabile in CI (#108): freschezza →
+                # filtro chat (fail-closed) → chat-notifiche (conferma o conflitto) →
+                # should_process. La glue qui resta solo dispatch + log.
+                decision = telegram_dispatch.decide(
+                    route, runtime_chat, text, msg_epoch, time.time(), max_age)
+                if decision == telegram_dispatch.IGNORE_STALE:
+                    # Anti-segnale-stantio (Codex P1): un arretrato recuperato da PTB dopo una
+                    # disconnessione non è un segnale "live".
                     self.after(0, lambda: self._log(
                         "⏳ Messaggio ignorato: troppo vecchio (probabile arretrato "
                         "dopo una disconnessione)."))
                     return
-                text = msg.text or msg.caption or ''
-                runtime_chat = str(msg.chat_id)
-                # Live-reload del routing (issue #82): le decisioni di INSTRADAMENTO e
-                # PARSING (chat ammesse, parser attivo, provider, mappature nomi) usano la
-                # config VIVA (`self._config`, aggiornata a ogni salvataggio), non lo
-                # snapshot catturato a START. Così rinominare/modificare un profilo del
-                # Dizionario nomi, aggiungere un parser o una sorgente ha effetto SUBITO,
-                # senza Stop/Start. Snapshot per-messaggio (una sola lettura del riferimento,
-                # atomica): un salvataggio sostituisce `self._config` con un nuovo dict, mai
-                # mutato a metà. Fallback allo snapshot di sessione se non è un dict.
-                # NB: l'ESECUZIONE resta bloccata alla sessione di proposito — DRY_RUN/limiti
-                # (`live_guard`), path CSV e token NON cambiano a metà sessione (richiedono
-                # riavvio), per non far scattare una scommessa reale o un CSV stantio per sbaglio.
-                route = self._config if isinstance(self._config, dict) else cfg
-                # Difesa-in-profondità sul filtro chat (CodeRabbit): `_start` rifiuta
-                # l'avvio se la config NON ha alcun criterio chat (`has_chat_filter`),
-                # perché "nessun filtro" significherebbe "ammetti ogni chat". Col
-                # live-reload quel fail-fast d'avvio non protegge più il runtime, quindi
-                # ripetiamo qui lo stesso gate sulla config VIVA: se l'utente azzera chat_id,
-                # parser_by_chat e sorgenti mentre il bridge gira, il messaggio è ignorato
-                # (fail-closed). (`should_process` è già stretto via `_chat_approved_for_custom`,
-                # ma questo guard rende esplicito l'invariante "solo chat configurate".)
-                if not signal_router.has_chat_filter(route):
+                if decision == telegram_dispatch.IGNORE_NO_FILTER:
+                    # Difesa-in-profondità (CodeRabbit): con la config viva azzerata di
+                    # chat_id/parser_by_chat/sorgenti, "nessun filtro" è fail-closed.
                     self.after(0, lambda: self._log(
                         "⚠️ Config live senza filtro chat: messaggio ignorato per sicurezza "
                         "(configura chat/sorgenti, poi salva)."))
                     return
-                # PR-23 + audit C8: la chat notifiche XTrader (SEPARATA dalle sorgenti)
-                # porta ESITI, non segnali → percorso di conferma, non di scrittura. La
-                # chat-notifiche e le keyword conferma/rifiuto sono lette dalla config VIVA
-                # (`route`), come il resto dell'instradamento: cambiarle a runtime ha effetto
-                # SUBITO. Col vecchio snapshot a START un loro cambiamento era ignorato fino al
-                # riavvio (conferme mis-classificate, riga CSV non rimossa). Il `csv_path` resta
-                # invece legato alla sessione (passato come `cfg`), come gli altri parametri di
-                # ESECUZIONE che non cambiano a metà sessione.
-                if signal_router.is_notification_chat(route, runtime_chat):
-                    # Codex P2: con la config VIVA l'utente può salvare a metà sessione una
-                    # notif-chat che COINCIDE con una sorgente ammessa (a START `_start` rifiuta
-                    # l'avvio proprio per questo). La chat sarebbe AMBIGUA — sia sorgente di
-                    # segnali sia canale di esiti — e ogni scelta è pericolosa: trattarla come
-                    # conferma ingoia i segnali (bet mancata), trattarla come segnale può
-                    # scrivere una riga da un testo di conferma (bet errata). Quindi FAIL-CLOSED,
-                    # come `_start`: il messaggio è IGNORATO (né segnale né conferma) con avviso.
-                    # Una eventuale riga attiva resta protetta dal timeout finché l'utente non
-                    # separa la notif-chat dalle sorgenti (poi il live-reload riprende normale).
-                    if signal_router.is_chat_allowed(route, runtime_chat):
-                        self.after(0, lambda: self._log(
-                            "❌ La Chat notifiche XTrader coincide con una sorgente ammessa: "
-                            "config ambigua, messaggio IGNORATO (né segnale né conferma). "
-                            "Correggi xtrader_notification_chat_id (dev'essere una chat separata)."))
-                        return
+                if decision == telegram_dispatch.IGNORE_CONFLICT:
+                    # Codex P2: notif-chat che COINCIDE con una sorgente ammessa è AMBIGUA
+                    # (segnale o esito?) → fail-closed, né scrittura né conferma.
+                    self.after(0, lambda: self._log(
+                        "❌ La Chat notifiche XTrader coincide con una sorgente ammessa: "
+                        "config ambigua, messaggio IGNORATO (né segnale né conferma). "
+                        "Correggi xtrader_notification_chat_id (dev'essere una chat separata)."))
+                    return
+                if decision == telegram_dispatch.CONFIRM:
+                    # PR-23 + audit C8: la chat notifiche XTrader porta ESITI → percorso conferma.
                     self._process_confirmation(text, cfg, route_cfg=route)
                     return
-                # PR-11: decisione di instradamento estratta e testabile.
-                # Gatea il filtro chat (CP-09, chat configurata ∪ parser_by_chat)
-                # e il prefiltro legacy P.Bet./📊 (solo per il parser hardcoded):
-                # una chat non ammessa o un messaggio non pertinente non scrive.
-                if not signal_router.should_process(route, runtime_chat, text):
+                if decision == telegram_dispatch.IGNORE_NOT_RELEVANT:
+                    # Chat non ammessa o messaggio non pertinente: non scrive.
                     return
+                # decision == PROCESS
                 # PR-14c: traccia l'ultimo messaggio pertinente ricevuto (diagnostica).
                 clean = (text or "").strip()
                 first_line = clean.splitlines()[0] if clean else ""
