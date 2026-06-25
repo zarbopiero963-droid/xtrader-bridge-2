@@ -33,7 +33,7 @@ import json
 import os
 from dataclasses import dataclass, field
 
-from . import atomic_io, config_store, recognition, transforms
+from . import atomic_io, config_store, recognition, transforms, validators
 from .csv_writer import CSV_HEADER
 
 # Versione dello schema del file parser: serve a gestire migrazioni future
@@ -319,24 +319,13 @@ def default_parsers_dir() -> str:
     return os.path.join(config_store.config_dir(), "parsers")
 
 
-# Nomi device riservati di Windows: un file con questo nome-base (anche con estensione,
-# es. "con.json") non è creabile e l'I/O fallisce/va al device. Vanno "mangled" (audit L2).
-_WIN_RESERVED = frozenset(
-    {"con", "prn", "aux", "nul"}
-    | {f"com{i}" for i in range(1, 10)}
-    | {f"lpt{i}" for i in range(1, 10)}
-)
-
-
 def _safe_filename(name: str) -> str:
-    """Nome file sicuro dal nome del parser: solo alfanumerici, '-', '_' e spazi
-    (poi spazi → '_'). Evita path traversal, caratteri non validi e i NOMI DEVICE
-    RISERVATI di Windows (``con``/``nul``/``com1``… → prefissati con ``_``)."""
-    cleaned = "".join(c for c in str(name).strip() if c.isalnum() or c in " -_")
-    cleaned = "_".join(cleaned.split())
-    if cleaned.casefold() in _WIN_RESERVED:
-        cleaned = "_" + cleaned
-    return cleaned or "parser"
+    """Nome file sicuro dal nome del parser (nucleo condiviso `validators`): solo
+    alfanumerici, '-', '_' e spazi (poi spazi → '_'); path traversal e NOMI DEVICE
+    RISERVATI Windows gestiti. Fallback su ``"parser"`` se il nome si pulisce a vuoto,
+    così un parser senza nome valido ottiene comunque un file (diverso da
+    `profile_store`, che invece RIFIUTA il nome vuoto)."""
+    return validators.safe_filename_core(name) or "parser"
 
 
 def parser_path(name: str, dir_path: str = None) -> str:
