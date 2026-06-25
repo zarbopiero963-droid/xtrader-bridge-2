@@ -122,9 +122,12 @@ def build_csv_row(parsed: dict, provider: str) -> dict:
     }
 
 
-def _replace_with_retry(src: str, dst: str, attempts: int = 3, delay: float = 0.1) -> None:
-    """`os.replace` con qualche retry: su Windows il file può essere
-    momentaneamente bloccato da XTrader che lo sta leggendo."""
+def _replace_with_retry(src: str, dst: str, attempts: int = 10, delay: float = 0.1) -> None:
+    """`os.replace` con retry: su Windows il file può essere momentaneamente bloccato da
+    XTrader che lo sta leggendo. Budget ~1s (10×0.1s, audit C3): 3×0.1s (~0.3s) erano troppo
+    pochi — se XTrader teneva il lock più a lungo lo svuotamento/scrittura falliva e poteva
+    lasciare un segnale stale attivo nel CSV. ~1s copre la contesa tipica del lock di lettura
+    senza ritardare troppo il percorso live in caso di contesa."""
     for i in range(attempts):
         try:
             os.replace(src, dst)

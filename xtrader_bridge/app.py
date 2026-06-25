@@ -205,7 +205,12 @@ class App(ctk.CTk):
                 # file esistente, anche se era già a solo header (niente riga rimossa).
                 self._log(f"🧹 CSV riportato a solo header {quando}: {path}")
         except OSError as exc:
-            self._log(f"⚠️ Impossibile ripulire il CSV {quando}: {exc}")
+            # Lo svuotamento ha esaurito il budget di retry (XTrader tiene il lock a lungo):
+            # un segnale potrebbe restare ATTIVO nel CSV. Avviso esplicito sulla conseguenza
+            # (audit C3), così l'utente può chiudere XTrader / ripulire a mano e l'auto-clear
+            # alla scadenza (con retry) riproverà comunque.
+            self._log(f"⚠️ Impossibile ripulire il CSV {quando} ({exc}): un segnale potrebbe "
+                      "restare attivo nel CSV finché XTrader non rilascia il file.")
 
     # ── CONFIG ────────────────────────────────
     def _load_config(self) -> dict:

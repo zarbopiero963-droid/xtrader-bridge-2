@@ -204,3 +204,33 @@ def test_errore_permessi_non_lascia_tmp(tmp_path, monkeypatch):
         pass
     assert open(p, "rb").read() == contenuto_prima    # file finale intatto
     assert _no_tmp_left(str(tmp_path))                # tmp rimosso anche su errore
+
+
+def test_replace_with_retry_riprova_oltre_il_vecchio_budget(monkeypatch):
+    # audit C3: il budget di retry deve essere ampio (~1s, non 0.3s) così un lock di XTrader
+    # un po' più lungo non fa fallire lo svuotamento/scrittura. Qui os.replace fallisce 5
+    # volte (più dei vecchi 3 tentativi) e poi riesce: con il budget nuovo deve convergere.
+    calls = {"n": 0}
+
+    def flaky_replace(src, dst):
+        calls["n"] += 1
+        if calls["n"] <= 5:
+            raise OSError("lock XTrader (simulato)")
+        # all'ultimo tentativo simula il successo senza toccare il filesystem reale
+        return None
+
+    monkeypatch.setattr(csv_writer.os, "replace", flaky_replace)
+    monkeypatch.setattr(csv_writer.time, "sleep", lambda *_: None)   # niente attese vere
+    csv_writer._replace_with_retry("src", "dst")                    # non deve sollevare
+    assert calls["n"] == 6                                          # 5 fallimenti + 1 successo
+
+
+def test_replace_with_retry_solleva_dopo_budget_esaurito(monkeypatch):
+    # Esaurito il budget, l'errore si propaga (il chiamante lo gestisce/logga, audit C3).
+    def always_fail(src, dst):
+        raise OSError("lock permanente (simulato)")
+
+    monkeypatch.setattr(csv_writer.os, "replace", always_fail)
+    monkeypatch.setattr(csv_writer.time, "sleep", lambda *_: None)
+    with pytest.raises(OSError):
+        csv_writer._replace_with_retry("src", "dst", attempts=4)

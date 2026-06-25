@@ -26,9 +26,9 @@ Legenda stato: ⬜ da fare · 🔧 in PR aperta · ✅ mergiato.
 ### 🟡 MEDIUM
 | ID | Finding | File | PR | Stato |
 |----|---------|------|----|-------|
-| C1 | Event loop mai chiuso + thread mai joinato su STOP/close | `app.py` | `fix/audit-104-c1-c2` | 🔧 |
-| C2 | STOP fire-and-forget con `except: pass` | `app.py` | `fix/audit-104-c1-c2` | 🔧 |
-| C3 | `init_csv`/clear può sollevare se XTrader tiene il lock | `csv_writer.py` | — | ⬜ |
+| C1 | Event loop mai chiuso + thread mai joinato su STOP/close | `app.py` | #118 | ✅ |
+| C2 | STOP fire-and-forget con `except: pass` | `app.py` | #118 | ✅ |
+| C3 | `init_csv`/clear può sollevare se XTrader tiene il lock (budget retry ~0.3s→~1s) | `csv_writer.py`, `app.py` | `fix/audit-104-c3` | 🔧 |
 | C4 | `load_dizionario` senza validazione header + lru-cache a vita | `dizionario.py` | — | ⬜ |
 | C5 | `load_config` senza migrazione/schema | `config_store.py` | — | ⬜ |
 | C6 | `should_reconnect` classifica per nome classe sull'MRO | `reconnect_policy.py` | — | ⬜ |
