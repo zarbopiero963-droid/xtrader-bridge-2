@@ -1210,6 +1210,13 @@ class App(ctk.CTk):
                 if decision == telegram_dispatch.IGNORE_NOT_RELEVANT:
                     # Chat non ammessa o messaggio non pertinente: non scrive.
                     return
+                if decision != telegram_dispatch.PROCESS:
+                    # Esito non riconosciuto (refuso / drift futuro del contratto di
+                    # `decide`): FAIL-CLOSED — non instradare a `_process` (che scrive), ma
+                    # ignorare con avviso (review CodeRabbit #158).
+                    self.after(0, lambda d=decision: self._log(
+                        f"⚠️ Esito instradamento sconosciuto ({d}): messaggio ignorato per sicurezza."))
+                    return
                 # decision == PROCESS
                 # PR-14c: traccia l'ultimo messaggio pertinente ricevuto (diagnostica).
                 clean = (text or "").strip()

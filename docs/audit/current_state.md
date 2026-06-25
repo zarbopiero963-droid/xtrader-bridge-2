@@ -34,7 +34,6 @@ moduli separati, configurazione linter/formatter/type-checker.
 | GUI desktop (CustomTkinter) | `App` in `main.py` | Presente |
 | Config locale JSON | `_load_config` / `_save_config` | Presente (accanto all'EXE) |
 | Listener Telegram | `_run_bot` / `_handle` | Presente |
-| Decisione di instradamento del listener | `telegram_dispatch.decide()` | Presente (puro, testato in CI — #108): freschezza → filtro chat → chat-notifiche/conferma → `should_process`; `_handle` resta thin (dispatch + log) |
 | Parser segnali P.Bet. | `parse_message()` | Presente, fragile |
 | Costruzione riga CSV | `build_csv_row()` | Presente |
 | Scrittura/svuotamento CSV | `init_csv()` / `write_csv()` | Presente, non atomico |
