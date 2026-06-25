@@ -338,5 +338,5 @@ def _backup_corrupted(path: str) -> None:
         # (permessi/lock), config corrotta + backup mancato = perdita di evidenza e l'utente
         # non capisce perché è tornato ai default. Si logga path + tipo errore (nessun
         # contenuto della config → niente leak). exc_info per il traceback in diagnosi.
-        logger.warning("Backup della config corrotta fallito (%s → %s.bak): %s",
-                       path, path, exc, exc_info=True)
+        logger.warning("Backup della config corrotta fallito (%s → %s): %s",
+                       path, path + ".bak", exc, exc_info=True)
