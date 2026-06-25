@@ -169,7 +169,7 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | `dry_run` | `true` | `true`/`false` | **Simulazione**: se `true`, il CSV operativo **non** viene scritto. Mettilo a `false` solo per l'uso reale, consapevolmente. |
 | `max_per_day` | `200` | intero | Tetto di segnali nuovi accettati in un giorno (UTC). Oltre, i segnali in eccesso non scrivono. |
 | `queue_mode` | `OVERWRITE_LAST` | `OVERWRITE_LAST`, `APPEND_ACTIVE`, `QUEUE_UNTIL_CONFIRMED` | Quanti segnali attivi tenere nel CSV. `OVERWRITE_LAST` = uno solo (sicuro). Le altre due scrivono **più righe** = più scommesse simultanee. |
-| `active_parser` | `""` | nome parser | Parser Personalizzato attivo globalmente (`""` = parser hardcoded). Di norma si imposta dalla GUI. |
+| `active_parser` | `""` | nome parser | Parser Personalizzato attivo globalmente. Di norma si imposta dalla GUI. **`""` (vuoto) = nessun parser custom → in live il messaggio è IGNORATO** (il parser hardcoded P.Bet **non** gira live, vedi nota sotto): per processare segnali serve un Parser Personalizzato attivo. |
 | `parser_by_chat` | `{}` | `{chat_id: nome_parser}` | Override del parser per singola chat. Modificabile dal pulsante **"📡 Chat sorgenti"** (colonna Parser di ogni sorgente). |
 | `source_chats` | `[]` | lista | Più chat sorgente (vedi sotto). |
 | `xtrader_notification_chat_id` | `""` | chat id | Chat **separata** su cui XTrader notifica l'esito (vedi [Conferma da XTrader](#conferma-da-xtrader)). |
@@ -239,6 +239,13 @@ In breve, ogni colonna ha una **regola** con:
 Quando un Parser Personalizzato è attivo per una chat è **autoritativo** (niente
 fallback all'hardcoded). I parser si salvano/condividono come file in
 `data/parsers/<nome>.json`. Guida completa: **[`docs/custom_parser.md`](docs/custom_parser.md)**.
+
+> ⚠️ **Il parser integrato P.Bet è solo compatibilità/test, NON è attivo nel live.** Nel
+> percorso live (`signal_router`, CP-09b), se per una chat **non** c'è un Parser
+> Personalizzato attivo, il messaggio viene **ignorato** (nessuna riga CSV) — il parser
+> hardcoded `parse_message` **non** entra in gioco. Resta nel repo (e nei test) solo per
+> retro-compatibilità: **per processare segnali live serve sempre un Parser Personalizzato
+> attivo** sulla chat sorgente.
 
 ---
 
