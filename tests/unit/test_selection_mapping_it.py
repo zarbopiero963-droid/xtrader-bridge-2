@@ -8,6 +8,23 @@ import pytest
 from xtrader_bridge import mapping
 
 
+def test_index_alias_duplicato_fallisce_rumorosamente(monkeypatch):
+    # audit B3: un dizionario con coppia (MarketAlias, SelectionAlias) DUPLICATA renderebbe
+    # il lookup ambiguo (l'ultima riga vincerebbe in silenzio → selezione sbagliata = bet
+    # sbagliato). `_index()` deve FALLIRE forte invece di costruire un indice ambiguo.
+    dup = [
+        {"MarketAliasTelegram": "over 2.5", "SelectionAliasTelegram": "over",
+         "MarketType_XTrader": "OVER_UNDER_25", "SelectionName_XTrader": "Over 2,5 goal"},
+        {"MarketAliasTelegram": "over 2.5", "SelectionAliasTelegram": "over",
+         "MarketType_XTrader": "OVER_UNDER_25", "SelectionName_XTrader": "ALTRA (doppione)"},
+    ]
+    monkeypatch.setattr(mapping, "_INDEX", None)
+    monkeypatch.setattr(mapping, "load_dizionario", lambda *a, **k: dup)
+    with pytest.raises(ValueError, match="ambiguo"):
+        mapping._index()
+    monkeypatch.setattr(mapping, "_INDEX", None)   # ricostruzione pulita per gli altri test
+
+
 def test_resolve_esito_1_sostituisce_home():
     r = mapping.resolve("esito_finale", "1", home="Inter", away="Milan")
     assert r["MarketType"] == "MATCH_ODDS"

@@ -78,6 +78,24 @@ def duplicate_alias_pairs(rows: list) -> list:
     return dups
 
 
+def assert_no_duplicate_aliases(rows: list) -> None:
+    """Solleva ``ValueError`` se ci sono coppie (MarketAlias, SelectionAlias) **duplicate**.
+
+    Il lookup alias→riga sarebbe AMBIGUO: ogni consumer (indice o dict) terrebbe in silenzio
+    l'ULTIMA riga → mercato/selezione SBAGLIATI = scommessa sbagliata. Guardia **condivisa**
+    chiamata da TUTTI i percorsi che costruiscono un indice alias — `mapping._index` (legacy)
+    **e** `value_maps.dizionario_value_maps` (live, custom parser) — così entrambi falliscono
+    chiusi e rumorosi su un dizionario editato/corrotto (audit B3 / Codex). Il dizionario
+    shippato ha 0 duplicati, quindi la produzione non cambia."""
+    dups = duplicate_alias_pairs(rows)
+    if dups:
+        raise ValueError(
+            "Dizionario alias ambiguo: coppie (MarketAlias, SelectionAlias) duplicate, "
+            "lookup non deterministico → "
+            + ", ".join(str(k) for k in sorted(set(map(str, dups))))
+            + ". Correggi il CSV del dizionario (una sola riga per coppia).")
+
+
 def market_types(rows: list) -> set:
     return {row["MarketType_XTrader"] for row in rows}
 

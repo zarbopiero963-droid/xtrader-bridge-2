@@ -14,7 +14,7 @@ Alias sconosciuto → None (il chiamante decide; il blocco duro è PR-10).
 
 import threading
 
-from .dizionario import alias_key, load_dizionario
+from .dizionario import alias_key, assert_no_duplicate_aliases, load_dizionario
 
 
 def _ou(line: str, half: bool):
@@ -66,8 +66,13 @@ def _index() -> dict:
     if _INDEX is None:
         with _INDEX_LOCK:
             if _INDEX is None:
+                rows = load_dizionario()
+                # Alias (Market, Selection) duplicato → lookup AMBIGUO: `idx[k]=row` farebbe
+                # vincere in silenzio l'ULTIMA riga → selezione sbagliata = bet sbagliato.
+                # Guardia condivisa col percorso live (value_maps), fail-closed (audit B3/Codex).
+                assert_no_duplicate_aliases(rows)
                 idx = {}
-                for row in load_dizionario():
+                for row in rows:
                     idx[alias_key(row["MarketAliasTelegram"],
                                   row["SelectionAliasTelegram"])] = row
                 _INDEX = idx

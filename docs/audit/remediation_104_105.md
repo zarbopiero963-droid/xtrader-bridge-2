@@ -20,8 +20,8 @@ Legenda stato: ⬜ da fare · 🔧 in PR aperta · ✅ mergiato.
 | ID | Finding | File | PR | Stato |
 |----|---------|------|----|-------|
 | B1 | CSV formula/control-char injection (no `'`-prefix) | `csv_writer.py` | #115 | ✅ |
-| B2 | Quota HT/FT/Prematch decisa sull'intera riga (marker adiacente al numero) | `parser.py` | `fix/audit-104-b2` | 🔧 |
-| B3 | Alias duplicato: ultimo vince in silenzio | `mapping.py` | — | ⬜ |
+| B2 | Quota HT/FT/Prematch decisa sull'intera riga (marker adiacente al numero) | `parser.py` | #116 | ✅ |
+| B3 | Alias duplicato: ultimo vince in silenzio | `mapping.py` | `fix/audit-104-b3` | 🔧 |
 
 ### 🟡 MEDIUM
 | ID | Finding | File | PR | Stato |
