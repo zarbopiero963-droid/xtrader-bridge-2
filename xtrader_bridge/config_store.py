@@ -14,9 +14,8 @@ import math
 import os
 import shutil
 import sys
-import tempfile
 
-from . import autostart, confirmation_reader, safety_guard
+from . import atomic_io, autostart, confirmation_reader, safety_guard
 
 APP_DIR_NAME = "XTraderBridge"
 CONFIG_VERSION = 1
@@ -149,21 +148,13 @@ def migrate_legacy_config(new_path: str = CONFIG_FILE,
             # Copia ATOMICA (audit L3): file temporaneo nella stessa cartella + flush/fsync +
             # `os.replace`, come `save_config`. `shutil.copyfile` non è atomico: un'interruzione
             # a metà (crash/blackout) lascerebbe un `config.json` troncato nella posizione nuova
-            # alla prima esecuzione, costringendo a ripartire dai default.
-            d = os.path.dirname(os.path.abspath(new_path)) or "."
-            fd, tmp = tempfile.mkstemp(dir=d, prefix=TMP_PREFIX, suffix=TMP_SUFFIX)
-            try:
-                with os.fdopen(fd, "wb") as f, open(legacy_path, "rb") as src:
+            # alla prima esecuzione, costringendo a ripartire dai default. Copia BINARIA byte-per-byte
+            # (modalità "wb"): il legacy può non essere UTF-8 valido, non va re-decodificato.
+            def _copy_legacy(f):
+                with open(legacy_path, "rb") as src:
                     shutil.copyfileobj(src, f)
-                    f.flush()
-                    os.fsync(f.fileno())
-                os.replace(tmp, new_path)
-            except BaseException:
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
-                raise
+            atomic_io.atomic_write(new_path, _copy_legacy, prefix=TMP_PREFIX, suffix=TMP_SUFFIX,
+                                   mode="wb", encoding=None)
             return True
     except Exception as exc:   # noqa: BLE001 — best-effort, ma ora loggato (non silenzioso)
         # exc_info=True: l'except è ampio, il traceback aiuta a capire la causa.
@@ -301,21 +292,9 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
     to_save.setdefault("config_version", CONFIG_VERSION)
     try:
         _ensure_dir(path)
-        d = os.path.dirname(os.path.abspath(path)) or "."
-        fd, tmp = tempfile.mkstemp(dir=d, prefix=TMP_PREFIX, suffix=TMP_SUFFIX)
-        try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                json.dump(to_save, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, path)
-        except BaseException:
-            # Scrittura/rename falliti: rimuovi il temporaneo, non lasciare residui.
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
-            raise
+        # Scrittura atomica condivisa (tmp + flush/fsync + os.replace, cleanup su errore).
+        atomic_io.atomic_write_json(path, to_save, prefix=TMP_PREFIX, suffix=TMP_SUFFIX,
+                                    indent=2)
     except OSError as exc:
         # Persistenza fallita (disco pieno, permessi, path non scrivibile): l'app
         # continua con la config in memoria, ma l'utente deve poterlo sapere.

@@ -17,9 +17,8 @@ alla config viva è uno step esplicito del chiamante (`apply_profile` +
 
 import json
 import os
-import tempfile
 
-from . import config_store
+from . import atomic_io, config_store
 
 # Chiavi MAI salvate in un profilo: la credenziale Telegram. Un profilo deve poter
 # essere ripristinato/condiviso senza trascinarsi dietro il token; il token vive solo
@@ -124,19 +123,7 @@ def save_profile(name: str, cfg: dict, dir_path: str = None) -> str:
         {"name": clean_name, "config": _strip_secrets(cfg)},
         ensure_ascii=False, indent=2,
     )
-    fd, tmp = tempfile.mkstemp(prefix=".profile_", suffix=".json", dir=base)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(payload)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
-        raise
+    atomic_io.atomic_write_text(path, payload, prefix=".profile_", suffix=".json")
     return path
 
 

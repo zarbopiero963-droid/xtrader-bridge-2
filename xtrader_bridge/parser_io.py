@@ -14,9 +14,8 @@ Un file corrotto o invalido → `ValueError` (niente salvataggi parziali).
 """
 
 import os
-import tempfile
 
-from . import custom_parser
+from . import atomic_io, custom_parser
 from .custom_parser import CustomParserDef, FieldRule
 
 
@@ -30,20 +29,7 @@ def export_parser(defn: CustomParserDef, dest_path: str) -> str:
     if errors:
         raise ValueError("Parser non valido, non esportato:\n- " + "\n- ".join(errors))
     payload = defn.to_json()
-    dest_dir = os.path.dirname(os.path.abspath(dest_path))
-    fd, tmp = tempfile.mkstemp(prefix=".export_", suffix=".json", dir=dest_dir)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(payload)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, dest_path)
-    except BaseException:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
-        raise
+    atomic_io.atomic_write_text(dest_path, payload, prefix=".export_", suffix=".json")
     return dest_path
 
 

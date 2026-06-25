@@ -31,10 +31,9 @@ Semantica delle regole (interpretata dal motore runtime, NON qui):
 import dataclasses
 import json
 import os
-import tempfile
 from dataclasses import dataclass, field
 
-from . import config_store, recognition, transforms
+from . import atomic_io, config_store, recognition, transforms
 from .csv_writer import CSV_HEADER
 
 # Versione dello schema del file parser: serve a gestire migrazioni future
@@ -371,19 +370,7 @@ def save_parser(defn: CustomParserDef, dir_path: str = None) -> str:
     # così un crash a metà scrittura non lascia un JSON parziale/corrotto (il
     # file esistente resta intatto finché il rename non riesce).
     payload = defn.to_json()
-    fd, tmp = tempfile.mkstemp(prefix=".parser_", suffix=".json", dir=base)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(payload)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
-        raise
+    atomic_io.atomic_write_text(path, payload, prefix=".parser_", suffix=".json")
     return path
 
 

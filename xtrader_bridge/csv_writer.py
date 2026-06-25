@@ -9,11 +9,10 @@ import csv
 import logging
 import os
 import re
-import tempfile
 import threading
 import time
 
-from . import mapping, numbers_re
+from . import atomic_io, mapping, numbers_re
 
 # Logger di modulo: un file esistente che NON è un CSV del bridge non viene ripulito;
 # prima era un return silenzioso, ora si logga il motivo per la diagnosi (audit #105 P2).
@@ -177,31 +176,22 @@ def _sanitize_row(row: dict) -> dict:
 
 
 def _atomic_write(path: str, write_rows) -> None:
-    """Scrive il CSV in modo atomico: file temporaneo nella stessa cartella,
-    flush + fsync, poi rename atomico (`os.replace`) sul file finale.
+    """Scrive il CSV in modo atomico (helper condiviso `atomic_io.atomic_write`): file
+    temporaneo nella stessa cartella, flush + fsync, poi rename atomico sul file finale.
 
-    Così XTrader non legge mai un file parziale. In caso di errore il file
-    temporaneo viene rimosso e l'eccezione propagata (il CSV esistente resta
-    intatto). Tutto sotto `_write_lock` per serializzare write/clear.
+    Così XTrader non legge mai un file parziale. In caso di errore il file temporaneo
+    viene rimosso e l'eccezione propagata (il CSV esistente resta intatto). Il rename usa
+    `_replace_with_retry` (retry su lock Windows). Tutto sotto `_write_lock` per
+    serializzare write/clear.
     """
-    d = os.path.dirname(os.path.abspath(path)) or "."
-    os.makedirs(d, exist_ok=True)
+    def _write_csv(f):
+        writer = csv.DictWriter(f, fieldnames=CSV_HEADER, quoting=csv.QUOTE_ALL)
+        writer.writeheader()
+        write_rows(writer)
+
     with _write_lock:
-        fd, tmp = tempfile.mkstemp(dir=d, prefix=".segnali_", suffix=".tmp")
-        try:
-            with os.fdopen(fd, 'w', newline='', encoding=CSV_ENCODING) as f:
-                writer = csv.DictWriter(f, fieldnames=CSV_HEADER, quoting=csv.QUOTE_ALL)
-                writer.writeheader()
-                write_rows(writer)
-                f.flush()
-                os.fsync(f.fileno())
-            _replace_with_retry(tmp, path)
-        except BaseException:
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
-            raise
+        atomic_io.atomic_write(path, _write_csv, prefix=".segnali_", suffix=".tmp",
+                               encoding=CSV_ENCODING, newline="", replace=_replace_with_retry)
 
 
 def init_csv(path: str):

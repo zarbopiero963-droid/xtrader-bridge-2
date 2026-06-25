@@ -1,7 +1,10 @@
 """Test dei guardrail di sicurezza (PR-19/PHASE 8): DRY_RUN + limite giornaliero."""
 
+import os
+
 import pytest
 
+from xtrader_bridge import atomic_io
 from xtrader_bridge import safety_guard as sg
 
 
@@ -135,14 +138,16 @@ def test_save_state_atomico_non_distrugge_il_file_su_errore(tmp_path, monkeypatc
     def boom(src, dst):
         raise OSError("rename interrotto (simulato)")
 
-    monkeypatch.setattr(sg.os, "replace", boom)
+    # Il rename atomico vive ora in `atomic_io` (helper condiviso): si patcha lì.
+    monkeypatch.setattr(atomic_io.os, "replace", boom)
     assert sg.save_state(sg.DailyLimiter(max_per_day=5), str(p)) is False
     monkeypatch.undo()
-    # Il file su disco è ancora quello valido precedente; nessun .tmp lasciato.
+    # Il file su disco è ancora quello valido precedente; nessun temporaneo lasciato.
     lim2 = sg.DailyLimiter(max_per_day=5)
     assert sg.load_state(lim2, str(p)) is True
     assert lim2.remaining(now=t) == 4                        # 5 - 1 (lo stato "good")
     assert not (tmp_path / "daily.json.tmp").exists()
+    assert not [f for f in os.listdir(tmp_path) if f.startswith(".guard_")]
 
 
 def test_load_state_file_assente_o_corrotto_ritorna_false(tmp_path):

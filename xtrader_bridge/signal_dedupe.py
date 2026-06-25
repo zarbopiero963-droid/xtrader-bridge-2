@@ -22,10 +22,11 @@ successive (PR-16 coda, PR-17 conferma XTrader); l'aggancio al runtime è separa
 import hashlib
 import json
 import math
-import os
 import re
 import time
 from dataclasses import dataclass, field
+
+from . import atomic_io
 
 # Stati del ciclo di vita del segnale (vocabolario condiviso; usati appieno in
 # PR-16/PR-17). DUPLICATE/RATE_LIMITED sono gli esiti decisi qui.
@@ -160,26 +161,14 @@ class SignalTracker:
 
 
 def save_state(tracker: SignalTracker, path: str) -> bool:
-    """Salva lo stato del tracker su file JSON **atomicamente** (best-effort): si
-    scrive un `.tmp` e poi `os.replace`. Così un'interruzione/errore lascia la
-    history precedente intatta, invece di troncarla e perdere la protezione
-    anti-duplicato dopo un riavvio. True se riuscito."""
-    tmp = path + ".tmp"
+    """Salva lo stato del tracker su file JSON **atomicamente** (best-effort) via
+    `atomic_io.atomic_write_json`: si scrive un temporaneo e poi `os.replace`. Così
+    un'interruzione/errore lascia la history precedente intatta, invece di troncarla
+    e perdere la protezione anti-duplicato dopo un riavvio. True se riuscito."""
     try:
-        d = os.path.dirname(os.path.abspath(path))
-        if d:
-            os.makedirs(d, exist_ok=True)
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(tracker.state(), f)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
+        atomic_io.atomic_write_json(path, tracker.state(), prefix=".dedupe_", suffix=".tmp")
         return True
     except OSError:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
         return False
 
 

@@ -19,9 +19,10 @@ wiring GUI/runtime (toggle, banner, blocco START) è un passo successivo.
 
 import json
 import math
-import os
 import time
 from dataclasses import dataclass
+
+from . import atomic_io
 
 DEFAULT_MAX_PER_DAY = 200      # tetto di segnali nuovi accettati in un giorno (UTC)
 
@@ -163,27 +164,16 @@ class DailyLimiter:
 
 
 def save_state(daily: DailyLimiter, path: str) -> bool:
-    """Salva lo stato del DailyLimiter su file JSON **atomicamente** (audit #105 P2): `.tmp`
-    nella stessa cartella + ``flush`` + ``os.fsync`` + ``os.replace``, con rimozione del
-    temporaneo su errore — esattamente come `signal_dedupe.save_state`. Prima il salvataggio
-    era best-effort SENZA fsync: in crash/blackout l'ultimo conteggio giornaliero poteva
-    perdersi, riducendo la protezione anti-overtrading dopo un riavvio. True se riuscito."""
-    tmp = path + ".tmp"
+    """Salva lo stato del DailyLimiter su file JSON **atomicamente** (audit #105 P2): via
+    `atomic_io.atomic_write_json` (`.tmp` nella stessa cartella + ``flush`` + ``os.fsync`` +
+    ``os.replace``, con rimozione del temporaneo su errore) — esattamente come
+    `signal_dedupe.save_state`. Prima il salvataggio era best-effort SENZA fsync: in
+    crash/blackout l'ultimo conteggio giornaliero poteva perdersi, riducendo la protezione
+    anti-overtrading dopo un riavvio. True se riuscito, False su errore di I/O."""
     try:
-        d = os.path.dirname(os.path.abspath(path))
-        if d:
-            os.makedirs(d, exist_ok=True)
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(daily.state(), f)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
+        atomic_io.atomic_write_json(path, daily.state(), prefix=".guard_", suffix=".tmp")
         return True
     except OSError:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
         return False
 
 

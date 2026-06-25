@@ -95,7 +95,15 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 | #105-P1 log payload privacy | privacy mode (hash+troncamento, full solo in debug) | scelta di policy + impatto UX/diagnostica |
 | #105-P2 dry-run real-mode UX | doppia conferma, banner rosso, evento `REAL_MODE_ENABLED`, armed-until-close | feature GUI/UX |
 | #105-P2 multi-signal UX | warning modale, max active signals, indicatore righe attive | feature GUI/UX |
-| #105-P3 atomic helper unico | `atomic_write_text/json/csv` condiviso | refactor trasversale (rivedibile) |
+
+> **Lavorazione issue #136 (chiusura "sul serio" dei NEEDS_MANUAL, una PR alla volta).**
+> I punti sopra vengono affrontati singolarmente. Già fatto:
+> - **#105-P3 atomic helper unico** ✅ — centralizzato in `xtrader_bridge/atomic_io.py`
+>   (`atomic_write` + `atomic_write_text`/`atomic_write_json`): `mkstemp` nella stessa
+>   cartella → `flush`/`fsync` → `os.replace` (cleanup su errore, `replace` iniettabile per
+>   il retry su lock Windows). Vi delegano `config_store`, `csv_writer`, `safety_guard`,
+>   `signal_dedupe`, `custom_parser`, `profile_store`, `parser_io` (niente più 7 copie a
+>   rischio drift). Test: `tests/safety/test_atomic_io.py`.
 
 I P3 restanti sono **giudizi positivi** (validazione prezzi/BetType, recognition mode,
 difesa CSV/chat) — nessuna azione.
