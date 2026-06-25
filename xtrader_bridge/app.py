@@ -1047,8 +1047,22 @@ class App(ctk.CTk):
                 # invece legato alla sessione (passato come `cfg`), come gli altri parametri di
                 # ESECUZIONE che non cambiano a metà sessione.
                 if signal_router.is_notification_chat(route, runtime_chat):
-                    self._process_confirmation(text, cfg, route_cfg=route)
-                    return
+                    # Codex P2: con la config VIVA l'utente può salvare a metà sessione una
+                    # notif-chat che COINCIDE con una sorgente ammessa (a START `_start` blocca
+                    # l'avvio proprio per questo). Chat ambigua: se la dirottassimo in conferma,
+                    # i SEGNALI di quella sorgente verrebbero ingoiati come notifica non
+                    # associata → bet mancata silenziosa. Diamo quindi precedenza al percorso
+                    # SEGNALE (un testo di conferma di norma non passa il parser → nessuna
+                    # scrittura) e avvisiamo di correggere la config; stessa logica del gate di
+                    # `_start` (`notif in sources` ≡ `is_chat_allowed`), qui sulla config viva.
+                    if signal_router.is_chat_allowed(route, runtime_chat):
+                        self.after(0, lambda: self._log(
+                            "⚠️ La Chat notifiche XTrader coincide con una sorgente ammessa: "
+                            "config ambigua, tratto il messaggio come SEGNALE. Correggi "
+                            "xtrader_notification_chat_id (dev'essere una chat separata)."))
+                    else:
+                        self._process_confirmation(text, cfg, route_cfg=route)
+                        return
                 # PR-11: decisione di instradamento estratta e testabile.
                 # Gatea il filtro chat (CP-09, chat configurata ∪ parser_by_chat)
                 # e il prefiltro legacy P.Bet./📊 (solo per il parser hardcoded):
