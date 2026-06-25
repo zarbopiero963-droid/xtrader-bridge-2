@@ -82,3 +82,10 @@ def test_describe_write_campi_mancanti_non_sollevano():
     # n_active=0 → plurale "attivi"; nessun KeyError sui campi vuoti
     assert "0 attivi)" in o.csv_log
     assert "q." in o.last_signal
+
+
+def test_attivi_label_singolare_e_plurale():
+    # Fonte unica della pluralizzazione: solo n==1 è singolare.
+    assert signal_outcome._attivi_label(1) == "attivo"
+    assert signal_outcome._attivi_label(0) == "attivi"
+    assert signal_outcome._attivi_label(2) == "attivi"

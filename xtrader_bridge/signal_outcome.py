@@ -1,18 +1,28 @@
-"""Mappatura PURA degli esiti guardrail non-WRITE → presentazione.
+"""Mappatura PURA degli esiti guardrail → presentazione.
 
-Estratto da `App._after_non_write` (#136 item 1, refactor incrementale di `app.py`):
-la traduzione di una decisione `live_guard` (DRY_RUN / DUPLICATE / RATE_LIMITED /
-DAILY_LIMITED) nel testo di log, nel contatore della dashboard e nell'eventuale
-aggiornamento «ultimo segnale» è qui, testabile headless.
+Estratto da `App._after_non_write` / `_process` (#136 item 1, refactor incrementale
+di `app.py`): la traduzione di una decisione `live_guard` (DRY_RUN / DUPLICATE /
+RATE_LIMITED / DAILY_LIMITED) e di una scrittura CSV riuscita nel testo di log, nel
+contatore della dashboard e nell'eventuale «ultimo segnale» è qui, testabile headless.
 
 `App` applica il risultato via GUI (`_bump` / `_log` / `_set_last`): qui dentro NON si
-tocca tkinter e non si scrive nulla. Un esito di SCRITTURA (`live_guard.WRITE`) non
-passa da qui — ha il suo percorso in `_process`.
+tocca tkinter e non si scrive nulla.
 """
+
+from __future__ import annotations
+
+from dataclasses import dataclass
 
 from . import live_guard
 
 
+def _attivi_label(n_active) -> str:
+    """Pluralizzazione delle righe attive: «attivo» se `n_active == 1`, altrimenti
+    «attivi». Fonte UNICA, così la dicitura non diverge tra log e test."""
+    return "attivo" if n_active == 1 else "attivi"
+
+
+@dataclass(frozen=True)
 class NonWriteOutcome:
     """Descrizione di presentazione per un esito che NON scrive il CSV.
 
@@ -23,13 +33,25 @@ class NonWriteOutcome:
     - `last_color`: colore per «ultimo segnale» (significativo solo se `last_signal`).
     """
 
-    __slots__ = ("counter", "log", "last_signal", "last_color")
+    counter: str
+    log: str
+    last_signal: str | None = None
+    last_color: str | None = None
 
-    def __init__(self, counter, log, last_signal=None, last_color=None):
-        self.counter = counter
-        self.log = log
-        self.last_signal = last_signal
-        self.last_color = last_color
+
+@dataclass(frozen=True)
+class WriteOutcome:
+    """Descrizione di presentazione per una scrittura CSV RIUSCITA.
+
+    - `last_signal`: testo «ultimo segnale» (bianco) da `_set_last`;
+    - `signal_log`: riga di log del segnale scritto (con la sorgente del parser);
+    - `csv_log`: riga di log di conferma aggiornamento CSV (pluralizzazione
+      «attivo»/«attivi» secondo il numero di righe attive).
+    """
+
+    last_signal: str
+    signal_log: str
+    csv_log: str
 
 
 def describe_non_write(decision, row):
@@ -67,23 +89,6 @@ def describe_non_write(decision, row):
     return None
 
 
-class WriteOutcome:
-    """Descrizione di presentazione per una scrittura CSV RIUSCITA.
-
-    - `last_signal`: testo «ultimo segnale» (bianco) da `_set_last`;
-    - `signal_log`: riga di log del segnale scritto (con la sorgente del parser);
-    - `csv_log`: riga di log di conferma aggiornamento CSV (pluralizzazione
-      «attivo»/«attivi» secondo il numero di righe attive).
-    """
-
-    __slots__ = ("last_signal", "signal_log", "csv_log")
-
-    def __init__(self, last_signal, signal_log, csv_log):
-        self.last_signal = last_signal
-        self.signal_log = signal_log
-        self.csv_log = csv_log
-
-
 def describe_write(row, source, n_active):
     """Presentazione di una scrittura CSV riuscita per `row` (riga parsata),
     `source` (sorgente del parser) e `n_active` (righe attive nel CSV dopo la
@@ -92,9 +97,9 @@ def describe_write(row, source, n_active):
     ev = row.get("EventName", "")
     sel = row.get("SelectionName", "")
     price = row.get("Price", "")
-    plural = "o" if n_active == 1 else "i"
     return WriteOutcome(
         last_signal=f"🏆 {ev}  |  {sel}  |  q.{price}",
         signal_log=f"📱 Segnale ({source}): {ev}  |  {sel}  q.{price}",
-        csv_log=f"✅ CSV aggiornato ({n_active} attiv{plural}) → XTrader può piazzare",
+        csv_log=f"✅ CSV aggiornato ({n_active} {_attivi_label(n_active)}) "
+                f"→ XTrader può piazzare",
     )
