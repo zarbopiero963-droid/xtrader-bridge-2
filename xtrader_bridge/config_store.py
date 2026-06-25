@@ -388,26 +388,48 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
                 to_save["bot_token_storage"] = "plaintext"
                 logger.warning("Keyring non disponibile: il bot token resta in chiaro in %s. "
                                "Installa un backend keyring per cifrarlo.", path)
-        else:
-            # Clear (chiave presente e vuota).
+        elif token_store.available():
+            # Clear (chiave presente e vuota) col keyring LEGGIBILE: l'ambiguità
+            # "clear vs miss transiente" non c'è (se ci fosse un token, al load sarebbe
+            # stato reidratato e il campo non sarebbe vuoto). È un clear REALE.
             stored = token_store.load_token()
             if stored is not None:
-                # C'è un token leggibile → clear REALE: rimuovi dal keyring.
+                # C'è ancora un token nel keyring → rimuovilo.
                 prior_keyring = stored
                 if token_store.delete_token():
                     keyring_changed = True
-                to_save["bot_token_storage"] = "none"
-                if not keyring_changed:
+                elif not keyring_changed:
                     # delete fallito: il sentinel "none" evita che il bridge riusi il token
                     # (niente clear "finto"), ma il segreto resta orfano nel keyring → avviso.
                     logger.warning("Impossibile rimuovere il bot token dal keyring: potrebbe "
                                    "restare memorizzato. Rimuovilo dal Credential Manager di sistema.")
+            to_save["bot_token_storage"] = "none"   # keyring leggibile e svuotato → niente reidratazione
+        else:
+            # Clear/empty col keyring NON leggibile: non posso né confermare un clear né
+            # cancellare. Se lo stato era "keyring", PRESERVALO (un token ancora memorizzato
+            # non va perso quando il keyring torna — MISS TRANSIENTE), ma se l'utente INTENDEVA
+            # cancellarlo non è stato possibile ora → avviso (Codex P2). Altrimenti è "none".
+            if prior_sentinel == "keyring":
+                to_save["bot_token_storage"] = "keyring"
+                logger.warning("Keyring non disponibile: impossibile rimuovere/azzerare il bot "
+                               "token ora. Se volevi cancellarlo, riprova quando il keyring è "
+                               "disponibile; il token memorizzato resta valido nel frattempo.")
             else:
-                # Nessun token leggibile: NON declassare un "keyring" preesistente — può essere
-                # un MISS TRANSIENTE del keyring al load (token non reidratato ma ancora memorizzato).
-                # Preservarlo evita di perdere la credenziale quando il keyring torna (Codex P2).
-                to_save["bot_token_storage"] = "keyring" if prior_sentinel == "keyring" else "none"
-    # Chiave `bot_token` assente → save PARZIALE: keyring e sentinel invariati.
+                to_save["bot_token_storage"] = "none"
+    else:
+        # Chiave `bot_token` ASSENTE → save PARZIALE: preserva i campi del token già su disco
+        # (token + sentinel), così un save di sole altre impostazioni non perde il puntatore al
+        # keyring e `load_config` continua a reidratare (Codex P2). Il keyring non viene toccato.
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+            except (OSError, json.JSONDecodeError, ValueError):
+                existing = None
+            if isinstance(existing, dict):
+                for _k in ("bot_token", "bot_token_storage"):
+                    if _k in existing and _k not in to_save:
+                        to_save[_k] = existing[_k]
     try:
         _ensure_dir(path)
         # Scrittura atomica condivisa (tmp + flush/fsync + os.replace, cleanup su errore).

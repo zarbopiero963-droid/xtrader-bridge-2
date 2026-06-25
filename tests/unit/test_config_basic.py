@@ -130,18 +130,50 @@ def test_save_config_keyring_first_token_nel_keyring_prima_del_disco(tmp_path, m
     assert order == ["keyring", "disk"]                     # keyring prima del disco
 
 
-def test_save_config_miss_transiente_keyring_non_declassa_il_sentinel(tmp_path, monkeypatch):
-    # Codex P2: se al load il keyring era TEMPORANEAMENTE non disponibile, la config in
-    # memoria ha bot_token="" ma bot_token_storage="keyring". Salvare un'altra impostazione
-    # NON deve declassare il sentinel a "none" (altrimenti, tornato il keyring, il token non
-    # verrebbe più reidratato e andrebbe perso).
-    store = {}   # load_token() → None (miss transiente)
-    _fake_keyring(monkeypatch, store)
+def test_save_config_miss_transiente_keyring_non_declassa_il_sentinel(tmp_path, monkeypatch, caplog):
+    # Codex P2: se al load il keyring era TEMPORANEAMENTE non disponibile (available() False),
+    # la config in memoria ha bot_token="" ma bot_token_storage="keyring". Salvare un'altra
+    # impostazione NON deve declassare il sentinel a "none" (altrimenti, tornato il keyring,
+    # il token non verrebbe più reidratato e andrebbe perso). Si avvisa che un eventuale clear
+    # è differito.
+    store = {"t": "STILL:THERE"}   # token ancora memorizzato, ma keyring non leggibile ora
+    _fake_keyring(monkeypatch, store, available=False)
     p = tmp_path / "config.json"
-    config_store.save_config(
-        {"bot_token": "", "bot_token_storage": "keyring", "provider": "X"}, str(p))
+    import logging
+    with caplog.at_level(logging.WARNING):
+        config_store.save_config(
+            {"bot_token": "", "bot_token_storage": "keyring", "provider": "X"}, str(p))
     on_disk = json.loads(p.read_text(encoding="utf-8"))
     assert on_disk["bot_token_storage"] == "keyring"        # sentinel PRESERVATO
+    assert store["t"] == "STILL:THERE"                      # keyring non toccato
+    assert any("keyring" in r.message.lower() for r in caplog.records)
+
+
+def test_save_config_clear_reale_con_keyring_disponibile(tmp_path, monkeypatch):
+    # Keyring LEGGIBILE + campo vuoto = clear reale (se ci fosse un token sarebbe stato
+    # reidratato al load). Il sentinel diventa "none" e il token viene rimosso.
+    store = {"t": "OLD:TOKEN"}
+    _fake_keyring(monkeypatch, store, available=True)
+    p = tmp_path / "config.json"
+    config_store.save_config({"bot_token": "", "bot_token_storage": "keyring"}, str(p))
+    assert json.loads(p.read_text(encoding="utf-8"))["bot_token_storage"] == "none"
+    assert "t" not in store                                 # token rimosso dal keyring
+
+
+def test_save_config_parziale_preserva_il_sentinel_dal_disco(tmp_path, monkeypatch):
+    # Codex P2: un save PARZIALE (senza bot_token) dopo che il token è stato migrato deve
+    # preservare bot_token/bot_token_storage già su disco, così il load continua a reidratare.
+    store = {}
+    _fake_keyring(monkeypatch, store, available=True)
+    p = tmp_path / "config.json"
+    config_store.save_config({"bot_token": "123:SECRET"}, str(p))   # migra: disco ha storage=keyring
+    # Save parziale: solo provider, niente bot_token.
+    config_store.save_config({"provider": "X"}, str(p))
+    on_disk = json.loads(p.read_text(encoding="utf-8"))
+    assert on_disk["bot_token_storage"] == "keyring"        # sentinel preservato
+    assert on_disk["bot_token"] == ""                       # ancora nel keyring, non in chiaro
+    assert on_disk["provider"] == "X"                       # l'impostazione parziale è salvata
+    assert config_store.load_config(str(p))["bot_token"] == "123:SECRET"   # reidrata ancora
 
 
 def test_save_config_fallback_write_fallita_ritorna_ok_false(tmp_path, monkeypatch):
