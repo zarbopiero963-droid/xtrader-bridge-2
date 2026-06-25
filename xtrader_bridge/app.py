@@ -705,6 +705,7 @@ class App(ctk.CTk):
         START). `max_per_day` invalido in config → default sicuro con avviso."""
         import os
         self._dedupe_save_warned = False
+        self._daily_save_warned = False
         self._tracker = signal_dedupe.SignalTracker()
         # Avvisa solo se lo stato ESISTE ma non è caricabile (corrotto/illeggibile):
         # l'assenza al primo avvio è normale, non un degrado.
@@ -742,38 +743,28 @@ class App(ctk.CTk):
     def _load_daily_state(self) -> None:
         """Ripristina il conteggio giornaliero (persistenza same-day tra START/STOP).
         Best-effort: file assente/illeggibile → si riparte da 0 per oggi."""
-        import json
         if self._daily is None:
             return
-        try:
-            with open(self._daily_state_path(), encoding="utf-8") as f:
-                self._daily.restore_state(json.load(f))
-        except (OSError, json.JSONDecodeError, ValueError):
-            pass
+        safety_guard.load_state(self._daily, self._daily_state_path())
 
     def _save_guard_state(self) -> None:
         """Persiste lo stato dei guardrail su disco DOPO una decisione/scrittura.
         Dedupe: atomico, con avviso (una sola volta) se fallisce. Daily: best-effort."""
-        import json
-        import os
         if (not signal_dedupe.save_state(self._tracker, self._dedupe_state_path())
                 and not self._dedupe_save_warned):
             self._dedupe_save_warned = True
             self.after(0, lambda: self._log(
                 "⚠️ Impossibile salvare lo stato anti-duplicato su disco: "
                 "protezione dopo riavvio degradata."))
-        if self._daily is not None:
-            try:
-                path = self._daily_state_path()
-                d = os.path.dirname(os.path.abspath(path))
-                if d:
-                    os.makedirs(d, exist_ok=True)
-                tmp = path + ".tmp"
-                with open(tmp, "w", encoding="utf-8") as f:
-                    json.dump(self._daily.state(), f)
-                os.replace(tmp, path)
-            except OSError:
-                pass
+        # Daily: salvataggio ATOMICO+fsync (audit #105 P2), allineato a signal_dedupe; un
+        # fallimento è segnalato una sola volta (non più silenzioso come `except OSError: pass`).
+        if (self._daily is not None
+                and not safety_guard.save_state(self._daily, self._daily_state_path())
+                and not self._daily_save_warned):
+            self._daily_save_warned = True
+            self.after(0, lambda: self._log(
+                "⚠️ Impossibile salvare lo stato del limite giornaliero su disco: "
+                "protezione anti-overtrading dopo riavvio degradata."))
 
     # ── START / STOP ──────────────────────────
     def _start(self, auto: bool = False):

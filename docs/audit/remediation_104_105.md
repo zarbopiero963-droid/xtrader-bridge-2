@@ -62,5 +62,34 @@ Legenda stato: ⬜ da fare · 🔧 in PR aperta · ✅ mergiato.
 12. **C8** (keyword live-reload)
 13. **LOW/NIT** (cluster)
 
-## Issue #105 — *(da leggere quando #104 è interamente chiusa)*
-Roadmap da compilare dopo la lettura.
+## Issue #105 — audit Codex (CTO/hedge-fund, read-only)
+
+L'audit #105 è stato scritto **prima** della remediation #104: alcune voci sono **già
+risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX/security**
+(non bug concreti). Triage: ✅ già fatto · 🔧 fix concreto in PR · ⬜ da fare ·
+🧑‍⚖️ NEEDS_MANUAL (decisione del proprietario: refactor ampio / feature UX / scelta security).
+
+### Fix concreti (safe, mirati — una PR per voce)
+| ID | Finding | Esito |
+|----|---------|-------|
+| #105-P1 notif-chat live drift | chat-notifiche/keyword lette da snapshot mentre routing è live | ✅ **già risolto da #104 C8** (#123 live-reload + #124 fail-closed sul conflitto) |
+| #105-P2 daily fsync | `_save_guard_state` salva il daily state senza `flush`/`fsync` (perdita conteggio in crash) | 🔧 `safety_guard.save_state/load_state` atomici+fsync (questa PR) |
+| #105-P2 SignalTracker validation | `SignalTracker.register()` non valida `now`/`dedupe_window`/`max_per_minute` come `DailyLimiter` | ⬜ |
+| #105-P2 confirm CSV retry | manca test: conferma → `write_rows` fallisce → coda già svuotata → retry riscrive → niente riscrittura dopo STOP | ⬜ (TEST_REQUIRED) |
+| #105-P2 clear_stale diagnostica | `clear_stale_csv` strict-header senza warning su mismatch | ⬜ |
+| #105-P2 backup_corrupted logging | `_backup_corrupted()` silenzia `OSError` (niente diagnosi) | ⬜ |
+| #105-P1 token plain JSON (short-term) | documentare che `bot_token` è in JSON plain nel profilo utente | ⬜ (doc) |
+| #105-P2 P.Bet hardcoded (doc) | documentare che il parser P.Bet è solo compat/test, non live | ⬜ (doc) |
+
+### NEEDS_MANUAL — decisione del proprietario (non auto-patchabili in sicurezza)
+| ID | Finding | Perché manuale |
+|----|---------|----------------|
+| #105-P1 `app.py` monolite | refactor runtime in moduli (`session`/`telegram_listener`/`signal_executor`/…) | refactor ampio multi-sprint, alto rischio regressioni — richiede scope/approvazione |
+| #105-P1 token storage | DPAPI/Windows Credential Manager / keyring | scelta di sicurezza + dipendenze/piattaforma |
+| #105-P1 log payload privacy | privacy mode (hash+troncamento, full solo in debug) | scelta di policy + impatto UX/diagnostica |
+| #105-P2 dry-run real-mode UX | doppia conferma, banner rosso, evento `REAL_MODE_ENABLED`, armed-until-close | feature GUI/UX |
+| #105-P2 multi-signal UX | warning modale, max active signals, indicatore righe attive | feature GUI/UX |
+| #105-P3 atomic helper unico | `atomic_write_text/json/csv` condiviso | refactor trasversale (rivedibile) |
+
+I P3 restanti sono **giudizi positivi** (validazione prezzi/BetType, recognition mode,
+difesa CSV/chat) — nessuna azione.
