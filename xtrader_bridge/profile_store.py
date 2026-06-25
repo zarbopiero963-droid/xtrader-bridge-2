@@ -18,7 +18,7 @@ alla config viva è uno step esplicito del chiamante (`apply_profile` +
 import json
 import os
 
-from . import atomic_io, config_store
+from . import atomic_io, config_store, validators
 
 # Chiavi MAI salvate in un profilo: la credenziale Telegram. Un profilo deve poter
 # essere ripristinato/condiviso senza trascinarsi dietro il token; il token vive solo
@@ -35,27 +35,13 @@ def profiles_dir() -> str:
     return os.path.join(config_store.config_dir(), "profiles")
 
 
-# Nomi device riservati di Windows (vedi `custom_parser._safe_filename`): un file con
-# questo nome-base non è creabile. Costante locale: i due `_safe_filename` restano
-# volutamente indipendenti (policy che può divergere). Audit L2.
-_WIN_RESERVED = frozenset(
-    {"con", "prn", "aux", "nul"}
-    | {f"com{i}" for i in range(1, 10)}
-    | {f"lpt{i}" for i in range(1, 10)}
-)
-
-
 def _safe_filename(name: str) -> str:
-    """Nome file sicuro dal nome profilo: solo alfanumerici, '-', '_' e spazi (poi
-    spazi → '_'). Evita path traversal, caratteri non validi su Windows e i NOMI DEVICE
-    RISERVATI (``con``/``nul``/``com1``… → prefissati con ``_``). "" se il nome è
-    vuoto/non valido dopo la pulizia (così `save_profile` lo rifiuta). Volutamente
-    indipendente dall'omonimo di `custom_parser`: domini diversi, policy che può divergere."""
-    cleaned = "".join(c for c in str(name).strip() if c.isalnum() or c in " -_")
-    cleaned = "_".join(cleaned.split())
-    if cleaned.casefold() in _WIN_RESERVED:
-        cleaned = "_" + cleaned
-    return cleaned
+    """Nome file sicuro dal nome profilo (nucleo condiviso `validators`): solo
+    alfanumerici, '-', '_' e spazi (poi spazi → '_'); path traversal e NOMI DEVICE
+    RISERVATI Windows gestiti. Ritorna ``""`` se il nome si pulisce a vuoto, così
+    `save_profile` lo RIFIUTA (diverso da `custom_parser`, che ripiega su un default):
+    fallback per-dominio voluto, ma il nucleo di sanitizzazione è unico (anti-drift)."""
+    return validators.safe_filename_core(name)
 
 
 def profile_path(name: str, dir_path: str = None) -> str:

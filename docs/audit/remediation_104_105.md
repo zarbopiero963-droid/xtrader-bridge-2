@@ -109,6 +109,11 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 >   il retry su lock Windows). Vi delegano `config_store`, `csv_writer`, `safety_guard`,
 >   `signal_dedupe`, `custom_parser`, `profile_store`, `parser_io` (niente più 7 copie a
 >   rischio drift). Test: `tests/safety/test_atomic_io.py`.
+> - **#105-P3 / #133 item 6 — validatori condivisi** ✅ — nuovo modulo
+>   `xtrader_bridge/validators.py`: `require_positive_int`/`require_finite_now` (erano
+>   duplicati in `safety_guard` e `signal_dedupe`) e il nucleo `safe_filename_core` +
+>   `WIN_RESERVED` (condiviso da `custom_parser` e `profile_store`, che mantengono il
+>   PROPRIO fallback: `"parser"` vs `""`). Test: `tests/unit/test_validators.py`.
 
 I P3 restanti sono **giudizi positivi** (validazione prezzi/BetType, recognition mode,
 difesa CSV/chat) — nessuna azione.

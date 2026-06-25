@@ -18,11 +18,10 @@ wiring GUI/runtime (toggle, banner, blocco START) è un passo successivo.
 """
 
 import json
-import math
 import time
 from dataclasses import dataclass
 
-from . import atomic_io
+from . import atomic_io, validators
 
 DEFAULT_MAX_PER_DAY = 200      # tetto di segnali nuovi accettati in un giorno (UTC)
 
@@ -65,39 +64,6 @@ def real_mode_warning(cfg) -> str:
             "(DRY_RUN) per i test.")
 
 
-def _require_positive_int(value, name: str) -> int:
-    """`value` come int finito e > 0, altrimenti ValueError. Un `NaN`/`inf`/`<=0`
-    renderebbe il limite inefficace o sempre bloccante.
-
-    Rifiuta esplicitamente `bool`: `True`/`False` da JSON verrebbero coerciti a
-    `1`/`0` e `max_per_day=True` capperebbe l'app a 1 segnale/giorno invece di
-    essere trattato come config malformata."""
-    if isinstance(value, bool):
-        raise ValueError(f"{name} non valido: {value!r}")
-    try:
-        f = float(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{name} non valido: {value!r}") from None
-    if not math.isfinite(f) or f <= 0 or f != int(f):
-        raise ValueError(f"{name} deve essere un intero > 0 (ricevuto {value!r})")
-    return int(f)
-
-
-def _require_finite_now(now) -> float:
-    """`now` (epoch) come float finito, altrimenti ValueError. Rifiuta `bool`
-    (``True``/``False`` non sono timestamp) e `NaN`/`inf`, che renderebbero il
-    giorno indefinito e il reset inaffidabile."""
-    if isinstance(now, bool):
-        raise ValueError(f"now non valido: {now!r}")
-    try:
-        f = float(now)
-    except (TypeError, ValueError):
-        raise ValueError(f"now non valido: {now!r}") from None
-    if not math.isfinite(f):
-        raise ValueError(f"now deve essere finito (ricevuto {now!r})")
-    return f
-
-
 def _day_key(now: float) -> str:
     """Chiave del giorno (UTC) ``YYYY-MM-DD`` per `now` (epoch). UTC per evitare
     salti di fuso/ora legale che falserebbero il reset giornaliero."""
@@ -119,7 +85,7 @@ class DailyLimiter:
     _count: int = 0
 
     def __post_init__(self):
-        self.max_per_day = _require_positive_int(self.max_per_day, "max_per_day")
+        self.max_per_day = validators.require_positive_int(self.max_per_day, "max_per_day")
 
     def _roll(self, now: float) -> None:
         key = _day_key(now)
@@ -130,7 +96,7 @@ class DailyLimiter:
     def allow(self, *, now: float = None) -> bool:
         """True se il segnale è ammesso oggi (e lo conta); False se tetto raggiunto."""
         now = time.time() if now is None else now
-        now = _require_finite_now(now)
+        now = validators.require_finite_now(now)
         self._roll(now)
         if self._count >= self.max_per_day:
             return False
@@ -140,7 +106,7 @@ class DailyLimiter:
     def remaining(self, *, now: float = None) -> int:
         """Segnali ancora ammessi nel giorno corrente (senza consumarne)."""
         now = time.time() if now is None else now
-        now = _require_finite_now(now)
+        now = validators.require_finite_now(now)
         self._roll(now)
         return max(0, self.max_per_day - self._count)
 

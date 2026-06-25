@@ -21,12 +21,11 @@ successive (PR-16 coda, PR-17 conferma XTrader); l'aggancio al runtime è separa
 
 import hashlib
 import json
-import math
 import re
 import time
 from dataclasses import dataclass, field
 
-from . import atomic_io
+from . import atomic_io, validators
 
 # Stati del ciclo di vita del segnale (vocabolario condiviso; usati appieno in
 # PR-16/PR-17). DUPLICATE/RATE_LIMITED sono gli esiti decisi qui.
@@ -47,35 +46,8 @@ _WS = re.compile(r"\s+")
 
 # Validatori difensivi (audit #105 P2): allineano `SignalTracker` allo stile di
 # `safety_guard.DailyLimiter` — un parametro/timestamp malformato non deve rendere
-# la deduplica/limite inefficaci o sempre bloccanti. Speculari ai `_require_*` di
-# safety_guard (tenuti locali: moduli indipendenti; la futura unificazione è la voce
-# P3 "atomic/validators helper" della roadmap #105).
-def _require_positive_int(value, name: str) -> int:
-    """`value` come int finito e > 0, altrimenti ValueError. Rifiuta `bool` (``True``/
-    ``False`` da JSON verrebbero coerciti a 1/0) e `NaN`/`inf`/`<=0`/non-interi."""
-    if isinstance(value, bool):
-        raise ValueError(f"{name} non valido: {value!r}")
-    try:
-        f = float(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{name} non valido: {value!r}") from None
-    if not math.isfinite(f) or f <= 0 or f != int(f):
-        raise ValueError(f"{name} deve essere un intero > 0 (ricevuto {value!r})")
-    return int(f)
-
-
-def _require_finite_now(now) -> float:
-    """`now` (epoch) come float finito, altrimenti ValueError. Rifiuta `bool` e
-    `NaN`/`inf`, che falserebbero finestra di deduplica e conteggio al minuto."""
-    if isinstance(now, bool):
-        raise ValueError(f"now non valido: {now!r}")
-    try:
-        f = float(now)
-    except (TypeError, ValueError):
-        raise ValueError(f"now non valido: {now!r}") from None
-    if not math.isfinite(f):
-        raise ValueError(f"now deve essere finito (ricevuto {now!r})")
-    return f
+# la deduplica/limite inefficaci o sempre bloccanti. Fonte UNICA condivisa in
+# `validators` (era duplicato qui e in safety_guard, #133 item 6, parte "validatori").
 
 
 def message_hash(text: str) -> str:
@@ -109,8 +81,8 @@ class SignalTracker:
     def __post_init__(self):
         # Parametri validati come in DailyLimiter (audit #105 P2): una finestra/limite
         # malformato (bool/NaN/<=0) renderebbe la protezione inefficace o sempre bloccante.
-        self.dedupe_window = _require_positive_int(self.dedupe_window, "dedupe_window")
-        self.max_per_minute = _require_positive_int(self.max_per_minute, "max_per_minute")
+        self.dedupe_window = validators.require_positive_int(self.dedupe_window, "dedupe_window")
+        self.max_per_minute = validators.require_positive_int(self.max_per_minute, "max_per_minute")
 
     def _prune(self, now: float) -> None:
         # Si conserva la storia per il MASSIMO tra finestra dedup e 60s: altrimenti
@@ -127,7 +99,7 @@ class SignalTracker:
         - **NEW**: accettato (e memorizzato).
 
         Un DUPLICATE o un RATE_LIMITED NON vengono memorizzati come nuovi."""
-        now = time.time() if now is None else _require_finite_now(now)
+        now = time.time() if now is None else validators.require_finite_now(now)
         self._prune(now)
         h = message_hash(text)
         # Duplicato: stesso hash entro la finestra di deduplica (NON l'intera
