@@ -221,3 +221,54 @@ def test_timeout_from_config_valore_invalido_ricade_su_default():
 def test_timeout_from_config_accetta_stringhe_numeriche():
     cfg = {"queue_mode": "QUEUE_UNTIL_CONFIRMED", "confirmation_timeout": "150"}
     assert sq.timeout_from_config(cfg) == 150
+
+
+# ── Tetto righe attive simultanee (#136 punto 5) ──────────────────────────────
+
+def test_max_active_blocca_il_nuovo_segnale_oltre_il_tetto():
+    # APPEND con tetto 2: i primi due passano, il terzo NUOVO è bloccato (add → None).
+    q = sq.SignalQueue(mode="APPEND_ACTIVE", default_timeout=60, max_active=2)
+    assert q.add(_row("a"), now=1000) is not None
+    assert q.add(_row("b"), now=1000) is not None
+    assert q.add(_row("c"), now=1000) is None          # bloccato dal tetto
+    assert len(q.active_rows()) == 2                    # coda invariata, solo 2 attivi
+
+
+def test_max_active_non_blocca_l_aggiornamento_di_un_segnale_attivo():
+    # Aggiornare un signal_id GIÀ attivo non conta come nuovo: non viene bloccato.
+    q = sq.SignalQueue(mode="APPEND_ACTIVE", default_timeout=60, max_active=2)
+    q.add(_row("a"), signal_id="s1", now=1000)
+    q.add(_row("b"), signal_id="s2", now=1000)          # ora pieno (2/2)
+    assert q.add(_row("a2"), signal_id="s1", now=1000) == "s1"   # update, non bloccato
+    names = [r["EventName"] for r in q.active_rows()]
+    assert len(names) == 2 and "a2" in names and "b" in names    # s1 aggiornato ad "a2"
+    assert "a" not in names                                      # vecchio valore sostituito
+
+
+def test_max_active_si_libera_dopo_expire():
+    q = sq.SignalQueue(mode="APPEND_ACTIVE", default_timeout=60, max_active=1)
+    assert q.add(_row("a"), now=1000) is not None
+    assert q.add(_row("b"), now=1000) is None           # pieno (1/1)
+    q.expire(now=1100)                                  # 'a' scade (1000+60 < 1100)
+    assert q.add(_row("c"), now=1100) is not None       # slot liberato → passa
+    assert len(q.active_rows()) == 1
+
+
+def test_max_active_ininfluente_in_overwrite_last():
+    # OVERWRITE_LAST tiene sempre 1 riga: il tetto non blocca mai (sostituisce).
+    q = sq.SignalQueue(mode="OVERWRITE_LAST", default_timeout=60, max_active=1)
+    assert q.add(_row("a"), now=1000) is not None
+    assert q.add(_row("b"), now=1000) is not None       # sostituisce, non bloccato
+    assert len(q.active_rows()) == 1
+    assert q.active_rows()[0]["EventName"] == "b"
+
+
+def test_max_active_zero_e_malformato_significano_illimitato():
+    q0 = sq.SignalQueue(mode="APPEND_ACTIVE", default_timeout=60, max_active=0)
+    for i in range(5):
+        assert q0.add(_row(f"s{i}"), now=1000) is not None   # 0 = nessun tetto
+    assert len(q0.active_rows()) == 5
+    # Valori malformati → 0 (illimitato, fail-safe: non blocca per sbaglio).
+    for bad in (-1, 1.5, float("nan"), float("inf"), True, "x", None):
+        q = sq.SignalQueue(mode="APPEND_ACTIVE", default_timeout=60, max_active=bad)
+        assert q.max_active == 0

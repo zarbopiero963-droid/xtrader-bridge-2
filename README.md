@@ -168,7 +168,8 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | *(quota obbligatoria)* | — | — | NON è più una chiave globale: la comanda la casella **«Obblig.» sulla riga `Price`** di ogni Parser Personalizzato. `Price` obbligatorio → segnale senza quota valida (> 1.0) **scartato**; non obbligatorio → quota opzionale. |
 | `dry_run` | `true` | `true`/`false` | **Simulazione**: se `true`, il CSV operativo **non** viene scritto. Mettilo a `false` solo per l'uso reale, consapevolmente. |
 | `max_per_day` | `200` | intero | Tetto di segnali nuovi accettati in un giorno (UTC). Oltre, i segnali in eccesso non scrivono. |
-| `queue_mode` | `OVERWRITE_LAST` | `OVERWRITE_LAST`, `APPEND_ACTIVE`, `QUEUE_UNTIL_CONFIRMED` | Quanti segnali attivi tenere nel CSV. `OVERWRITE_LAST` = uno solo (sicuro). Le altre due scrivono **più righe** = più scommesse simultanee. |
+| `queue_mode` | `OVERWRITE_LAST` | `OVERWRITE_LAST`, `APPEND_ACTIVE`, `QUEUE_UNTIL_CONFIRMED` | Quanti segnali attivi tenere nel CSV. `OVERWRITE_LAST` = uno solo (sicuro). Le altre due scrivono **più righe** = più scommesse simultanee. Attivare una modalità multi-riga dalla GUI chiede una **conferma**. |
+| `max_active_signals` | `2` | intero ≥ 1 | **Tetto di righe/scommesse attive** simultanee nelle modalità multi-riga (#136 p5): un nuovo segnale oltre il tetto viene **bloccato** (ritentabile quando una riga scade/è confermata). Default basso (2). Ininfluente in `OVERWRITE_LAST` (sempre 1 riga). La GUI mostra un indicatore **"Righe attive: N/M"**. |
 | `active_parser` | `""` | nome parser | Parser Personalizzato attivo **globalmente**. Di norma si imposta dalla GUI. **`""` (vuoto) = nessun parser custom globale.** Una chat con un parser **dedicato** in `parser_by_chat` funziona comunque; una chat **senza** né `active_parser` né voce in `parser_by_chat` viene **IGNORATA** in live (il parser hardcoded P.Bet **non** gira live, vedi nota sotto). |
 | `parser_by_chat` | `{}` | `{chat_id: nome_parser}` | Override del parser per singola chat. Modificabile dal pulsante **"📡 Chat sorgenti"** (colonna Parser di ogni sorgente). |
 | `source_chats` | `[]` | lista | Più chat sorgente (vedi sotto). |
@@ -294,6 +295,11 @@ Tutte queste protezioni sono **attive a runtime**:
    configurata, così non accetta segnali da chat arbitrarie.
 3. **Un segnale alla volta** — con `queue_mode=OVERWRITE_LAST` il CSV contiene un
    solo segnale attivo; il timeout lo svuota.
+   - **Modalità multi-segnale "frictionful" (audit #105 P2).** Attivare `APPEND_ACTIVE`
+     o `QUEUE_UNTIL_CONFIRMED` (più righe/scommesse insieme) richiede una **conferma**.
+     Un **tetto** `max_active_signals` (default **2**) **blocca** i segnali oltre N righe
+     attive (ritentabili quando una si libera), e un indicatore **"Righe attive: N/M"** in
+     alto mostra quante scommesse sono attive ora.
 4. **Anti-duplicato** — lo stesso messaggio ravvicinato non viene riscritto. Lo
    stato persiste in `dedupe_state.json`, quindi i duplicati recenti restano
    riconosciuti anche dopo un riavvio.

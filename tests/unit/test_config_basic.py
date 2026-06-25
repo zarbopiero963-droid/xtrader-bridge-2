@@ -720,3 +720,16 @@ def test_migrate_legacy_logga_errore_ma_non_crasha(tmp_path, caplog):
         migrated = config_store.migrate_legacy_config(str(new), str(legacy))
     assert migrated is False
     assert any("Migrazione config legacy fallita" in r.getMessage() for r in caplog.records)
+
+
+def test_max_active_signals_default_e_floor(tmp_path):
+    # #136 p5: tetto presente nei default (2) e forzato a >= 1 in migrazione.
+    assert config_store.DEFAULTS["max_active_signals"] == 2
+    assert config_store.load_config(str(tmp_path / "assente.json"))["max_active_signals"] == 2
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"max_active_signals": 5}))
+    assert config_store.load_config(str(p))["max_active_signals"] == 5
+    # 0 / negativo / malformato → torna al default (niente tetto disattivato per sbaglio).
+    for bad in (0, -3, "abc"):
+        p.write_text(json.dumps({"max_active_signals": bad}))
+        assert config_store.load_config(str(p))["max_active_signals"] == 2, bad

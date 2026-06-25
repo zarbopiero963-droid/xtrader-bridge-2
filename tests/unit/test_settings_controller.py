@@ -252,3 +252,18 @@ def test_auto_start_listener_default_off_e_round_trip():
     new_cfg, errors = sc.apply_advanced({}, _valid_form())
     assert errors == []
     assert new_cfg["auto_start_listener"] is False
+
+
+def test_max_active_signals_current_values_e_apply():
+    # #136 p5: display dal default e validazione >= 1 in apply.
+    assert sc.current_values({})["max_active_signals"] == config_store.DEFAULTS["max_active_signals"]
+    assert sc.current_values({"max_active_signals": 3})["max_active_signals"] == 3
+    # apply con valore valido aggiorna; assente → non tocca; invalido → errore.
+    base = {"recognition_mode": "NAME_ONLY", "queue_mode": "OVERWRITE_LAST",
+            "dry_run": True, "max_per_day": "10", "confirmation_timeout": "90"}
+    cfg, err = sc.apply_advanced({}, {**base, "max_active_signals": "4"})
+    assert err == [] and cfg["max_active_signals"] == 4
+    cfg2, err2 = sc.apply_advanced({"max_active_signals": 2}, base)   # assente nel form
+    assert err2 == [] and cfg2.get("max_active_signals", 2) == 2
+    _, err3 = sc.apply_advanced({}, {**base, "max_active_signals": "0"})
+    assert err3   # 0 non è > 0 → errore
