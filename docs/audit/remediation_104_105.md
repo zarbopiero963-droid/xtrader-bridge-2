@@ -73,8 +73,8 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 | ID | Finding | Esito |
 |----|---------|-------|
 | #105-P1 notif-chat live drift | chat-notifiche/keyword lette da snapshot mentre routing è live | ✅ **già risolto da #104 C8** (#123 live-reload + #124 fail-closed sul conflitto) |
-| #105-P2 daily fsync | `_save_guard_state` salva il daily state senza `flush`/`fsync` (perdita conteggio in crash) | 🔧 `safety_guard.save_state/load_state` atomici+fsync (questa PR) |
-| #105-P2 SignalTracker validation | `SignalTracker.register()` non valida `now`/`dedupe_window`/`max_per_minute` come `DailyLimiter` | ⬜ |
+| #105-P2 daily fsync | `_save_guard_state` salva il daily state senza `flush`/`fsync` (perdita conteggio in crash) | ✅ #126 (`safety_guard.save_state/load_state` atomici+fsync) |
+| #105-P2 SignalTracker validation | `SignalTracker.register()` non valida `now`/`dedupe_window`/`max_per_minute` come `DailyLimiter` | 🔧 `_require_positive_int`/`_require_finite_now` in `signal_dedupe` (questa PR) |
 | #105-P2 confirm CSV retry | manca test: conferma → `write_rows` fallisce → coda già svuotata → retry riscrive → niente riscrittura dopo STOP | ⬜ (TEST_REQUIRED) |
 | #105-P2 clear_stale diagnostica | `clear_stale_csv` strict-header senza warning su mismatch | ⬜ |
 | #105-P2 backup_corrupted logging | `_backup_corrupted()` silenzia `OSError` (niente diagnosi) | ⬜ |

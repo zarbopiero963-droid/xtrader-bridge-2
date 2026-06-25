@@ -21,6 +21,7 @@ successive (PR-16 coda, PR-17 conferma XTrader); l'aggancio al runtime è separa
 
 import hashlib
 import json
+import math
 import os
 import re
 import time
@@ -41,6 +42,39 @@ DEFAULT_DEDUPE_WINDOW = 300     # secondi: finestra entro cui un messaggio è "l
 DEFAULT_MAX_PER_MINUTE = 20     # segnali nuovi ammessi al minuto
 
 _WS = re.compile(r"\s+")
+
+
+# Validatori difensivi (audit #105 P2): allineano `SignalTracker` allo stile di
+# `safety_guard.DailyLimiter` — un parametro/timestamp malformato non deve rendere
+# la deduplica/limite inefficaci o sempre bloccanti. Speculari ai `_require_*` di
+# safety_guard (tenuti locali: moduli indipendenti; la futura unificazione è la voce
+# P3 "atomic/validators helper" della roadmap #105).
+def _require_positive_int(value, name: str) -> int:
+    """`value` come int finito e > 0, altrimenti ValueError. Rifiuta `bool` (``True``/
+    ``False`` da JSON verrebbero coerciti a 1/0) e `NaN`/`inf`/`<=0`/non-interi."""
+    if isinstance(value, bool):
+        raise ValueError(f"{name} non valido: {value!r}")
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} non valido: {value!r}") from None
+    if not math.isfinite(f) or f <= 0 or f != int(f):
+        raise ValueError(f"{name} deve essere un intero > 0 (ricevuto {value!r})")
+    return int(f)
+
+
+def _require_finite_now(now) -> float:
+    """`now` (epoch) come float finito, altrimenti ValueError. Rifiuta `bool` e
+    `NaN`/`inf`, che falserebbero finestra di deduplica e conteggio al minuto."""
+    if isinstance(now, bool):
+        raise ValueError(f"now non valido: {now!r}")
+    try:
+        f = float(now)
+    except (TypeError, ValueError):
+        raise ValueError(f"now non valido: {now!r}") from None
+    if not math.isfinite(f):
+        raise ValueError(f"now deve essere finito (ricevuto {now!r})")
+    return f
 
 
 def message_hash(text: str) -> str:
@@ -71,6 +105,12 @@ class SignalTracker:
     max_per_minute: int = DEFAULT_MAX_PER_MINUTE
     _seen: list = field(default_factory=list)   # (hash, epoch_seconds)
 
+    def __post_init__(self):
+        # Parametri validati come in DailyLimiter (audit #105 P2): una finestra/limite
+        # malformato (bool/NaN/<=0) renderebbe la protezione inefficace o sempre bloccante.
+        self.dedupe_window = _require_positive_int(self.dedupe_window, "dedupe_window")
+        self.max_per_minute = _require_positive_int(self.max_per_minute, "max_per_minute")
+
     def _prune(self, now: float) -> None:
         # Si conserva la storia per il MASSIMO tra finestra dedup e 60s: altrimenti
         # con una finestra dedup < 60s il conteggio al minuto verrebbe falsato
@@ -86,7 +126,7 @@ class SignalTracker:
         - **NEW**: accettato (e memorizzato).
 
         Un DUPLICATE o un RATE_LIMITED NON vengono memorizzati come nuovi."""
-        now = time.time() if now is None else now
+        now = time.time() if now is None else _require_finite_now(now)
         self._prune(now)
         h = message_hash(text)
         # Duplicato: stesso hash entro la finestra di deduplica (NON l'intera

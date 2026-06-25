@@ -1,5 +1,7 @@
 """Test della deduplica e del limite/minuto del segnale (PR-15/#5)."""
 
+import pytest
+
 from xtrader_bridge import signal_dedupe as sd
 
 
@@ -129,3 +131,27 @@ def test_restore_state_tollera_voci_malformate():
     t.restore_state([["hashvalido", 1000], "rotta", [1, 2, 3], ["altro", "nan?"]])
     # solo la voce valida viene ripristinata
     assert t.state() == [["hashvalido", 1000.0]]
+
+
+# ── audit #105 P2: validazione difensiva di parametri e timestamp ─────────────
+
+def test_costruzione_rifiuta_parametri_non_validi():
+    # dedupe_window / max_per_minute: bool, <=0, non-finiti, non-interi → ValueError
+    # (un parametro malformato renderebbe deduplica/limite inefficaci o sempre bloccanti).
+    for bad in (0, -1, True, False, 2.5, float("nan"), float("inf"), "x", None):
+        with pytest.raises(ValueError):
+            sd.SignalTracker(dedupe_window=bad)
+        with pytest.raises(ValueError):
+            sd.SignalTracker(max_per_minute=bad)
+    # un float INTERO positivo è accettato (coerciti a int).
+    t = sd.SignalTracker(dedupe_window=300.0, max_per_minute=20.0)
+    assert t.dedupe_window == 300 and t.max_per_minute == 20
+
+
+def test_register_rifiuta_now_non_finito_o_bool():
+    t = sd.SignalTracker()
+    for bad in (float("nan"), float("inf"), True, False, "x"):
+        with pytest.raises(ValueError):
+            t.register(MSG, now=bad)
+    # now valido continua a funzionare.
+    assert t.register(MSG, now=1000.0).status == sd.NEW
