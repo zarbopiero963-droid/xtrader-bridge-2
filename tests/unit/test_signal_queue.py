@@ -149,6 +149,22 @@ def test_next_expiry_e_la_scadenza_piu_vicina():
     assert q.next_expiry() == 1090                   # la più vicina, non l'ultima
 
 
+def test_delay_until_futuro_passato_e_adesso():
+    # scadenza nel futuro → ritardo positivo
+    assert sq.delay_until(1090, 1000) == 90
+    assert sq.delay_until(1000.5, 1000) == 0.5
+    # scadenza esatta o già passata → 0.0 (mai negativo: niente busy-loop / tick nel passato)
+    assert sq.delay_until(1000, 1000) == 0.0
+    assert sq.delay_until(990, 1000) == 0.0
+
+
+def test_delay_until_si_compone_con_next_expiry():
+    # uso reale: ritardo del prossimo tick = delay_until(next_expiry, now)
+    q = sq.SignalQueue(mode=sq.APPEND_ACTIVE, default_timeout=90)
+    q.add(_row("A"), now=1000)                       # scade a 1090
+    assert sq.delay_until(q.next_expiry(), 1030) == 60
+
+
 def test_state_restore_roundtrip_e_scadenza_preservata():
     q = sq.SignalQueue(mode=sq.APPEND_ACTIVE, default_timeout=90)
     q.add(_row("A"), now=1000)

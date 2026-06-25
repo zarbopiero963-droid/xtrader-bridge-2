@@ -69,6 +69,16 @@ def timeout_from_config(cfg) -> float:
     return t if math.isfinite(t) and t > 0 else DEFAULT_TIMEOUT
 
 
+def delay_until(expires_at: float, now: float) -> float:
+    """Ritardo (secondi, mai negativo) prima di `expires_at` rispetto a `now`, sullo
+    STESSO clock monotòno della coda (audit A3).
+
+    Una scadenza già passata (`expires_at <= now`) → `0.0`: il tick di scadenza parte
+    subito, senza un ritardo negativo che manderebbe il timer in busy-loop o lo farebbe
+    scattare nel passato. Usata da `App._schedule_expiry` con `next_expiry()`."""
+    return max(0.0, expires_at - now)
+
+
 @dataclass
 class ActiveSignal:
     """Un segnale attualmente attivo nella coda."""

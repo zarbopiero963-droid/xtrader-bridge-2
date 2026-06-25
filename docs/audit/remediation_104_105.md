@@ -190,6 +190,12 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 >   ritentabile) e il blocco dal tetto sono **testati in CI con collaboratori reali**. Test:
 >   `tests/unit/test_write_path.py` (write riuscita / write fallita+rollback+ritentabile /
 >   blocco tetto+rollback guardrail / duplicato non scrive / dry-run / tracker=None).
+> - **#105-P1 refactor `app.py` — slice 7/N** 🔧 — timing scadenza. Il calcolo del ritardo
+>   del prossimo tick di scadenza (`max(0.0, next_expiry − now)`, clamp a 0 di una scadenza
+>   già passata per non avere ritardi negativi/busy-loop) era inline in `App._schedule_expiry`.
+>   Estratto in `signal_queue.delay_until(expires_at, now)` (puro, clock monotòno audit A3),
+>   accanto a `next_expiry()`. Nessun cambio di comportamento osservabile. Test:
+>   `tests/unit/test_signal_queue.py` (futuro/adesso/passato + composizione con `next_expiry`).
 
 I P3 restanti sono **giudizi positivi** (validazione prezzi/BetType, recognition mode,
 difesa CSV/chat) — nessuna azione.

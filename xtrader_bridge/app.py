@@ -1539,7 +1539,8 @@ class App(ctk.CTk):
                 return                       # niente di attivo: nessun tick da programmare
             # `nxt` è un expires_at su clock monotòno (audit A3): il ritardo va calcolato
             # con lo stesso clock, altrimenti un salto del wallclock falserebbe il tick.
-            delay = max(0.0, nxt - time.monotonic())
+            # `delay_until` clampa a 0 una scadenza già passata (no ritardo negativo).
+            delay = signal_queue.delay_until(nxt, time.monotonic())
         if self._expire_timer:
             self._expire_timer.cancel()
         self._expire_timer = threading.Timer(delay, lambda: self._expire_tick(path))
