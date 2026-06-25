@@ -229,6 +229,92 @@ def test_save_config_atomico_non_distrugge_il_file_esistente_su_errore(tmp_path,
     assert not [f for f in os.listdir(p.parent) if f.startswith(config_store.TMP_PREFIX)]
 
 
+# ── audit C5: migrazione/coercizione tipi noti su load ──
+
+def test_load_config_coerce_intero_da_stringa(tmp_path):
+    # Config editata a mano: "90" stringa dove serve un intero (clear_delay/timeout).
+    # _migrate deve riportarlo a int, non propagare la stringa ai consumer (audit C5).
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"clear_delay": "30", "confirmation_timeout": "45",
+                             "max_per_day": "10", "max_signal_age": "60"}))
+    cfg = config_store.load_config(str(p))
+    assert cfg["clear_delay"] == 30 and isinstance(cfg["clear_delay"], int)
+    assert cfg["confirmation_timeout"] == 45 and isinstance(cfg["confirmation_timeout"], int)
+    assert cfg["max_per_day"] == 10 and isinstance(cfg["max_per_day"], int)
+    assert cfg["max_signal_age"] == 60 and isinstance(cfg["max_signal_age"], int)
+
+
+def test_load_config_intero_illeggibile_torna_al_default(tmp_path):
+    # Valore non interpretabile come intero → default sicuro, niente crash/typo runtime.
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"clear_delay": "non-un-numero", "max_signal_age": True}))
+    cfg = config_store.load_config(str(p))
+    assert cfg["clear_delay"] == config_store.DEFAULTS["clear_delay"]
+    # `True` (JSON true) NON deve diventare 1 secondo di età massima: torna al default.
+    assert cfg["max_signal_age"] == config_store.DEFAULTS["max_signal_age"]
+
+
+def test_load_config_dry_run_resta_simulazione_su_valore_sporco(tmp_path):
+    # Sicurezza: dry_run (simulazione) di default True. Un valore sporco non interpretabile
+    # come falsey deve restare True (simulazione), MAI cadere a "scommetti davvero".
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"dry_run": "boh"}))
+    assert config_store.load_config(str(p))["dry_run"] is True
+    # Mentre un esplicito falsey (scelta dell'utente) viene onorato.
+    p.write_text(json.dumps({"dry_run": "false"}))
+    assert config_store.load_config(str(p))["dry_run"] is False
+
+
+def test_load_config_lista_e_dict_sbagliati_tornano_al_default(tmp_path):
+    # source_chats/keywords devono essere liste e parser_by_chat un dict: un tipo
+    # sbagliato (file editato male) viene riportato al default sicuro, non propagato.
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"source_chats": "non-una-lista",
+                             "confirmation_keywords": 5,
+                             "parser_by_chat": ["non", "un", "dict"]}))
+    cfg = config_store.load_config(str(p))
+    assert cfg["source_chats"] == config_store.DEFAULTS["source_chats"]
+    assert cfg["confirmation_keywords"] == config_store.DEFAULTS["confirmation_keywords"]
+    assert cfg["parser_by_chat"] == config_store.DEFAULTS["parser_by_chat"]
+
+
+def test_load_config_lista_valida_preservata(tmp_path):
+    # Una lista già del tipo giusto NON va toccata (no falsi reset).
+    p = tmp_path / "config.json"
+    chats = [{"name": "A", "chat_id": "-100", "enabled": True}]
+    p.write_text(json.dumps({"source_chats": chats}))
+    assert config_store.load_config(str(p))["source_chats"] == chats
+
+
+def test_load_config_chiavi_sconosciute_non_toccate_da_migrate(tmp_path):
+    # _migrate itera solo le chiavi note (DEFAULTS): una chiave futura/legacy con
+    # qualunque tipo sopravvive intatta (forward-compat).
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"chiave_ignota": {"nested": [1, 2]}, "config_version": 99}))
+    cfg = config_store.load_config(str(p))
+    assert cfg["chiave_ignota"] == {"nested": [1, 2]}
+    assert cfg["config_version"] == 99    # skew su disco preservato come intero
+
+
+# ── audit C7: save_config ritorna una copia profonda (no aliasing nested) ──
+
+def test_save_config_ritorna_deepcopy_senza_aliasing(tmp_path):
+    # La config restituita non deve condividere i nested mutabili con quella passata:
+    # mutare uno NON deve alterare l'altro (audit C7). Il chiamante fa self._config=saved.
+    p = str(tmp_path / "config.json")
+    cfg_in = {"provider": "TG", "source_chats": [{"name": "A"}], "parser_by_chat": {"-1": "px"}}
+    saved, ok = config_store.save_config(cfg_in, p)
+    assert ok is True
+    # Muto la copia restituita: l'input originale resta invariato.
+    saved["source_chats"].append({"name": "B"})
+    saved["parser_by_chat"]["-2"] = "py"
+    assert cfg_in["source_chats"] == [{"name": "A"}]
+    assert cfg_in["parser_by_chat"] == {"-1": "px"}
+    # E viceversa: muto l'input dopo il save, la copia salvata non cambia.
+    cfg_in["source_chats"].append({"name": "C"})
+    assert saved["source_chats"] == [{"name": "A"}, {"name": "B"}]
+
+
 def test_migrate_legacy_logga_errore_ma_non_crasha(tmp_path, caplog):
     # Migrazione fallita (la dir di destinazione è in realtà un FILE → makedirs
     # solleva): ritorna False senza crashare, e ora logga il motivo.
