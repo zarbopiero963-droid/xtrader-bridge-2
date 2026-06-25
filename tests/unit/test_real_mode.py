@@ -39,6 +39,33 @@ def test_banner_text_solo_in_reale():
     assert txt is not None and "REALE" in txt.upper()
 
 
+def test_banner_active_segue_config_viva_e_sessione():
+    # Config viva in reale → banner attivo (a prescindere dalla sessione).
+    assert rm.banner_active(REAL) is True
+    assert rm.banner_active(REAL, session_active=False, session_real=False) is True
+    # Config viva in simulazione e nessuna sessione reale → niente banner.
+    assert rm.banner_active(SIM) is False
+    assert rm.banner_active(SIM, session_active=True, session_real=False) is False
+    # Codex P1: config viva tornata in simulazione MA sessione partita in reale e ancora
+    # attiva → il banner DEVE restare (il betting reale è ancora in corso fino a STOP).
+    assert rm.banner_active(SIM, session_active=True, session_real=True) is True
+    # Sessione reale ma non più attiva (STOP) → segue la config viva (sim) → niente banner.
+    assert rm.banner_active(SIM, session_active=False, session_real=True) is False
+
+
+def test_audit_lines_with_date_antepone_la_data_dal_nome_file():
+    log = (f"[10:00:01] {rm.AUDIT_MARKER}: attivata ...\n"
+           "[10:01:00] altro\n"
+           f"[11:00:00] {rm.AUDIT_MARKER}: attivata ...\n")
+    out = rm.audit_lines_with_date("bridge-2026-06-25.log", log)
+    assert len(out) == 2
+    assert all(ln.startswith("[2026-06-25] ") for ln in out)   # data dal nome file
+    assert all(rm.AUDIT_MARKER in ln for ln in out)
+    # Nome senza data riconoscibile → usa il nome file come prefisso (non crasha).
+    out2 = rm.audit_lines_with_date("strano.log", log)
+    assert out2 and out2[0].startswith("[strano.log] ")
+
+
 def test_enabled_message_contiene_marker():
     msg = rm.enabled_message()
     assert rm.AUDIT_MARKER in msg
