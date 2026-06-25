@@ -333,5 +333,10 @@ def _backup_corrupted(path: str) -> None:
     """
     try:
         os.replace(path, path + ".bak")
-    except OSError:
-        pass
+    except OSError as exc:
+        # Best-effort, ma non più SILENZIOSO (audit #105 P2): se anche il backup fallisce
+        # (permessi/lock), config corrotta + backup mancato = perdita di evidenza e l'utente
+        # non capisce perché è tornato ai default. Si logga path + tipo errore (nessun
+        # contenuto della config → niente leak). exc_info per il traceback in diagnosi.
+        logger.warning("Backup della config corrotta fallito (%s → %s): %s",
+                       path, path + ".bak", exc, exc_info=True)

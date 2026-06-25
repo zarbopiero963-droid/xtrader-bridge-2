@@ -65,6 +65,24 @@ def test_backup_sovrascrive_bak_preesistente(tmp_path):
     assert not os.path.exists(str(p))
 
 
+def test_backup_corrotto_fallito_logga_warning(tmp_path, caplog, monkeypatch):
+    # audit #105 P2: se il backup di una config corrotta fallisce (permessi/lock), prima era
+    # un `except OSError: pass` SILENZIOSO → ora si logga un warning con path+errore (niente
+    # contenuto della config). L'app resta best-effort: load_config ritorna comunque i default.
+    p = tmp_path / "config.json"
+    p.write_text("{ json corrotto ,,,")
+
+    def boom(src, dst):
+        raise OSError("rename del backup non permessa (simulato)")
+
+    monkeypatch.setattr(config_store.os, "replace", boom)
+    with caplog.at_level("WARNING", logger="xtrader_bridge.config_store"):
+        cfg = config_store.load_config(str(p))    # non deve sollevare
+    assert cfg["provider"] == config_store.DEFAULTS["provider"]   # best-effort: default
+    assert any("Backup della config corrotta fallito" in r.getMessage() and str(p) in r.getMessage()
+               for r in caplog.records)
+
+
 def test_save_then_load_roundtrip(tmp_path):
     p = str(tmp_path / "config.json")
     data = {"bot_token": "X", "chat_id": "-1", "csv_path": "/tmp/s.csv",
