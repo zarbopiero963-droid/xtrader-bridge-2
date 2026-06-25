@@ -111,6 +111,10 @@ def dizionario_value_maps(rows=None) -> dict:
     sostituiti col match)."""
     if rows is None:
         rows = dizionario.load_dizionario()
+    # Stessa guardia fail-closed del path legacy (audit B3/Codex): un dizionario con coppie
+    # (MarketAlias, SelectionAlias) duplicate renderebbe ambiguo anche `_shorthand_rows`
+    # (last-wins), mappando uno shorthand al mercato/selezione SBAGLIATI sul percorso LIVE.
+    dizionario.assert_no_duplicate_aliases(rows)
     shorthand = _shorthand_rows(rows)
     maps = {}
     for name, (alias_col, value_col) in _DIZIONARIO_MAPS.items():

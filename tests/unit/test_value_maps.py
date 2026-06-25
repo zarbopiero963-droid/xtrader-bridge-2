@@ -66,6 +66,21 @@ def test_dizionario_value_maps_per_colonna():
     assert vm.resolve("gg", "marketname", reg) == "Goal/NoGoal"
 
 
+def test_dizionario_value_maps_fail_closed_su_alias_duplicato():
+    # audit B3/Codex P1: il percorso LIVE (custom parser → value_maps) deve fallire chiuso
+    # come quello legacy se il dizionario ha coppie (MarketAlias, SelectionAlias) duplicate
+    # (last-wins → mercato/selezione sbagliati). Non deve costruire mappe ambigue in silenzio.
+    dup = _FAKE_ROWS + [
+        {"MarketAliasTelegram": "OVER 2.5", "SelectionAliasTelegram": "OVER",
+         "MarketType_XTrader": "OVER_UNDER_25", "MarketName_XTrader": "Over/Under 2.5",
+         "SelectionName_XTrader": "ALTRA (doppione)"},
+    ]
+    with pytest.raises(ValueError, match="ambiguo"):
+        vm.dizionario_value_maps(rows=dup)
+    with pytest.raises(ValueError, match="ambiguo"):
+        vm.registry(include_dizionario=True, rows=dup)
+
+
 def test_registry_default_solo_builtin():
     reg = vm.registry()
     assert "bettype" in reg
