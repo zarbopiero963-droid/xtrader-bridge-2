@@ -12,6 +12,11 @@
 # - python-telegram-bot >=21.0: la 20.0 trascina `h11 0.14` (CVE GHSA-vqfr-h8mv-ghfj,
 #   request smuggling). API usate dal bridge stabili dalla 20.x → upgrade a basso rischio.
 # - h11 >=0.16.0: esclude la CVE (dipendenza transitiva via httpx→httpcore).
+# - keyring >=24.0: storage sicuro del bot token (audit #105 P1). Su Windows usa il
+#   Credential Manager nativo (nessun servizio esterno). Dipendenza "soft" lato codice
+#   (import protetto in `token_store`): se manca o non ha backend, il bridge ripiega sul
+#   token in chiaro nel config con un avviso, senza crash.
 customtkinter>=5.2.2
 python-telegram-bot>=21.0
 h11>=0.16.0
+keyring>=24.0

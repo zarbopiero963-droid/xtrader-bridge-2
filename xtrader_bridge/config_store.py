@@ -15,7 +15,7 @@ import os
 import shutil
 import sys
 
-from . import atomic_io, autostart, confirmation_reader, safety_guard
+from . import atomic_io, autostart, confirmation_reader, safety_guard, token_store
 
 APP_DIR_NAME = "XTraderBridge"
 CONFIG_VERSION = 1
@@ -304,17 +304,34 @@ def load_config(path: str = CONFIG_FILE) -> dict:
             _backup_corrupted(path)
     # `config_version` è già garantito dai DEFAULTS; se il file ne porta uno
     # (futuro schema v2+) viene preservato così non perdiamo lo skew su disco.
-    return _migrate(cfg)
+    cfg = _migrate(cfg)
+    # Token storage sicuro (audit #105 P1): se su disco la chiave è vuota ma il keyring
+    # ha un token, lo iniettiamo in memoria così il runtime lo trova in `cfg["bot_token"]`
+    # come prima. Se invece il config porta ancora un token in chiaro (config vecchia o
+    # fallback), lo si usa com'è e verrà migrato nel keyring al prossimo salvataggio.
+    if not str(cfg.get("bot_token", "") or ""):
+        stored = token_store.load_token()
+        if stored:
+            cfg["bot_token"] = stored
+    return cfg
 
 
 def save_config(cfg: dict, path: str = CONFIG_FILE):
     """Salva la configurazione su file (best-effort) in modo **atomico**.
 
     Ritorna una tupla ``(config_salvata, ok)``:
-    - ``config_salvata``: la config effettivamente serializzata (con `config_version`),
-      sempre restituita così il chiamante può tenerla in memoria anche se il disco fallisce;
+    - ``config_salvata``: la config tenuta IN MEMORIA (con `config_version` e, se presente,
+      il `bot_token` per il runtime), sempre restituita così il chiamante può tenerla anche
+      se il disco fallisce;
     - ``ok``: ``True`` se la scrittura su disco è riuscita, ``False`` altrimenti — così la
       GUI non può più segnalare "salvato" quando in realtà non lo è (finding A1).
+
+    **Token storage sicuro (audit #105 P1).** Il `bot_token` è una credenziale: se è
+    presente e c'è un keyring di sistema, viene salvato lì (`token_store`) e su disco la
+    chiave resta **vuota** (niente segreto in chiaro nel `config.json`). Se il keyring non
+    è disponibile si RIPIEGA sul comportamento storico (token in chiaro) con un avviso. La
+    config restituita in memoria mantiene comunque il token, così il runtime (`_start`) non
+    cambia.
 
     Scrittura **atomica** (tempfile nella stessa cartella + `flush`+`fsync` + `os.replace`,
     lo stesso schema di `csv_writer`/`signal_dedupe`/`profile_store`): un'interruzione a
@@ -325,8 +342,23 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
     # come source_chats, parser_by_chat) tra lo snapshot restituito e il `cfg` del chiamante.
     # Il chiamante fa `self._config = saved`: con l'aliasing una mutazione successiva di uno
     # avrebbe alterato silenziosamente l'altro. Con la copia profonda i due sono indipendenti.
-    to_save = copy.deepcopy(cfg)
-    to_save.setdefault("config_version", CONFIG_VERSION)
+    in_memory = copy.deepcopy(cfg)
+    in_memory.setdefault("config_version", CONFIG_VERSION)
+    # Copia separata per il DISCO: il token sicuro non va scritto in chiaro (vedi sotto),
+    # ma `in_memory` lo conserva per il runtime.
+    to_save = copy.deepcopy(in_memory)
+    token = str(to_save.get("bot_token", "") or "")
+    if token:
+        if token_store.save_token(token):
+            to_save["bot_token"] = ""     # segreto nel keyring → niente plaintext su disco
+            logger.info("Bot token salvato nel keyring di sistema (non in chiaro nel config).")
+        else:
+            # Nessun backend keyring: si scrive in chiaro (comportamento storico), ma avvisato.
+            logger.warning("Keyring non disponibile: il bot token resta in chiaro in %s. "
+                           "Installa un backend keyring per cifrarlo.", path)
+    else:
+        # Token assente/azzerato: rimuovi un eventuale valore residuo nel keyring.
+        token_store.delete_token()
     try:
         _ensure_dir(path)
         # Scrittura atomica condivisa (tmp + flush/fsync + os.replace, cleanup su errore).
@@ -337,8 +369,8 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
         # continua con la config in memoria, ma l'utente deve poterlo sapere.
         # exc_info=True: traceback completo per il post-mortem (più save point, stesso path).
         logger.error("Salvataggio config fallito (%s): %s", path, exc, exc_info=True)
-        return to_save, False
-    return to_save, True
+        return in_memory, False
+    return in_memory, True
 
 
 def _backup_corrupted(path: str) -> None:

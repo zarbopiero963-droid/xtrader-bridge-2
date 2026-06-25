@@ -11,6 +11,71 @@ import os
 from xtrader_bridge import config_store
 
 
+def _fake_keyring(monkeypatch, store):
+    """Sostituisce le 3 funzioni keyring di token_store con un dizionario in memoria,
+    così i test del routing del token sono deterministici e offline."""
+    monkeypatch.setattr(config_store.token_store, "save_token",
+                        lambda t: bool(t) and (store.__setitem__("t", t) or True))
+    monkeypatch.setattr(config_store.token_store, "load_token", lambda: store.get("t"))
+
+    def _del():
+        store.pop("t", None)
+        return True
+    monkeypatch.setattr(config_store.token_store, "delete_token", _del)
+
+
+def test_save_config_token_va_nel_keyring_non_in_chiaro(tmp_path, monkeypatch):
+    # Audit #105 P1: con keyring disponibile il bot_token NON va in chiaro sul disco,
+    # ma resta nella config in memoria (per il runtime) e viene re-iniettato al load.
+    store = {}
+    _fake_keyring(monkeypatch, store)
+    p = tmp_path / "config.json"
+    saved, ok = config_store.save_config({"bot_token": "123:SECRET", "provider": "X"}, str(p))
+    assert ok is True
+    assert saved["bot_token"] == "123:SECRET"               # in memoria: presente (runtime)
+    on_disk = json.loads(p.read_text(encoding="utf-8"))
+    assert on_disk["bot_token"] == ""                       # su disco: NON in chiaro
+    assert store["t"] == "123:SECRET"                       # nel keyring
+    # load: la chiave su disco è vuota → re-iniezione dal keyring.
+    loaded = config_store.load_config(str(p))
+    assert loaded["bot_token"] == "123:SECRET"
+
+
+def test_save_config_fallback_plaintext_se_keyring_assente(tmp_path, monkeypatch):
+    # Senza backend keyring (save_token → False) si RIPIEGA sul comportamento storico:
+    # token in chiaro nel config (il bridge resta usabile), nessun crash.
+    monkeypatch.setattr(config_store.token_store, "save_token", lambda t: False)
+    monkeypatch.setattr(config_store.token_store, "load_token", lambda: None)
+    monkeypatch.setattr(config_store.token_store, "delete_token", lambda: False)
+    p = tmp_path / "config.json"
+    saved, ok = config_store.save_config({"bot_token": "123:SECRET"}, str(p))
+    assert ok is True
+    on_disk = json.loads(p.read_text(encoding="utf-8"))
+    assert on_disk["bot_token"] == "123:SECRET"             # fallback: plaintext
+    assert saved["bot_token"] == "123:SECRET"
+
+
+def test_save_config_token_vuoto_rimuove_dal_keyring(tmp_path, monkeypatch):
+    # Azzerare il token (es. l'utente lo cancella) deve rimuovere anche la voce keyring.
+    store = {"t": "OLD:TOKEN"}
+    _fake_keyring(monkeypatch, store)
+    p = tmp_path / "config.json"
+    config_store.save_config({"bot_token": "", "provider": "X"}, str(p))
+    assert "t" not in store                                 # voce keyring rimossa
+    assert json.loads(p.read_text(encoding="utf-8"))["bot_token"] == ""
+
+
+def test_load_config_token_in_chiaro_preesistente_resta(tmp_path, monkeypatch):
+    # Config vecchia con token in chiaro e keyring vuoto: il token si usa com'è
+    # (verrà migrato nel keyring al prossimo save). Nessuna re-iniezione che lo sovrascrive.
+    store = {}
+    _fake_keyring(monkeypatch, store)
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"bot_token": "PLAIN:TOKEN", "provider": "X"}), encoding="utf-8")
+    loaded = config_store.load_config(str(p))
+    assert loaded["bot_token"] == "PLAIN:TOKEN"
+
+
 def test_config_file_e_config_json():
     assert config_store.CONFIG_FILE.endswith("config.json")
     assert os.path.isabs(config_store.CONFIG_FILE)

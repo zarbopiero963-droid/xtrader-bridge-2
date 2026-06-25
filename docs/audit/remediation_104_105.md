@@ -91,12 +91,19 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 | ID | Finding | Perché manuale |
 |----|---------|----------------|
 | #105-P1 `app.py` monolite | refactor runtime in moduli (`session`/`telegram_listener`/`signal_executor`/…) | refactor ampio multi-sprint, alto rischio di regressioni — richiede scope/approvazione |
-| #105-P1 token storage | DPAPI/Windows Credential Manager / keyring | scelta di sicurezza + dipendenze/piattaforma |
 | #105-P2 dry-run real-mode UX | doppia conferma, banner rosso, evento `REAL_MODE_ENABLED`, armed-until-close | feature GUI/UX |
 | #105-P2 multi-signal UX | warning modale, max active signals, indicatore righe attive | feature GUI/UX |
 
 > **Lavorazione issue #136 (chiusura "sul serio" dei NEEDS_MANUAL, una PR alla volta).**
 > I punti sopra vengono affrontati singolarmente. Già fatto:
+> - **#105-P1 token storage sicuro** ✅ — nuovo modulo `xtrader_bridge/token_store.py`
+>   (wrapper `keyring`: Windows Credential Manager / macOS Keychain / Secret Service).
+>   `config_store.save_config` salva il `bot_token` nel keyring e lascia la chiave **vuota**
+>   sul disco; `load_config` lo re-inietta in memoria per il runtime. **Fallback** esplicito
+>   al token in chiaro (con avviso) se non c'è un backend. Dipendenza `keyring>=24.0` in
+>   `requirements.in`. Test: `tests/unit/test_token_store.py`, `test_config_basic.py`.
+>   **Nota manuale:** aggiungendo una dipendenza runtime, il `requirements-build.lock` va
+>   **rigenerato su Windows** (workflow *Generate Windows Lockfile*) prima della build EXE.
 > - **#105-P1 privacy mode dei log** ✅ — flag `debug_message_payload` (default OFF =
 >   privacy on) in `config_store`; modulo puro `xtrader_bridge/log_privacy.py`
 >   (`redact_message`: hash sha256 + lunghezza + prima riga troncata; payload completo

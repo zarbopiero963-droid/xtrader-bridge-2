@@ -299,13 +299,23 @@ Tutte queste protezioni sono **attive a runtime**:
    privati. Per il debug puoi attivare `debug_message_payload` (tab *Sicurezza*) e loggare
    il payload completo — è una scelta consapevole.
 
-> 🔑 **Dove sta il Bot Token (e perché).** Il token è salvato **in chiaro** in
-> `%APPDATA%\XTraderBridge\config.json`, nel profilo del **tuo** utente Windows. È una
-> scelta consapevole (tradeoff accettato, audit A6): nessun "vault"/cifratura, ma il
-> file **non** è nel repository (è in `.gitignore`), **non** finisce nei log (redazione
-> attiva) e **non** è incluso nell'EXE/artifact. Conseguenze pratiche: proteggi il tuo
-> profilo Windows e **non condividere** `config.json`; se il token trapela, **rigeneralo**
-> da @BotFather (`/revoke`).
+> 🔑 **Dove sta il Bot Token (e perché).** Per impostazione predefinita il token viene
+> salvato nel **keyring del sistema operativo** (su Windows il **Credential Manager**
+> nativo) tramite la libreria `keyring`: in `%APPDATA%\XTraderBridge\config.json` la
+> chiave `bot_token` resta **vuota** e il segreto **non** è in chiaro su disco (audit
+> #105 P1). In memoria, a runtime, il token viene riletto dal keyring così il bridge
+> funziona come prima.
+>
+> **Fallback.** Se sul sistema non c'è un backend keyring utilizzabile (es. una build
+> senza `keyring`, o Linux senza Secret Service), il bridge **ripiega** sul vecchio
+> comportamento — token in chiaro nel `config.json` — scrivendo un **avviso** nel log
+> (nessun crash). In ogni caso il file **non** è nel repository (è in `.gitignore`),
+> **non** finisce nei log (redazione attiva) e **non** è incluso nell'EXE/artifact.
+>
+> Conseguenze pratiche: proteggi comunque il tuo profilo Windows e **non condividere**
+> `config.json`; se il token trapela, **rigeneralo** da @BotFather (`/revoke`). Una
+> config vecchia con il token in chiaro viene **migrata** nel keyring al primo
+> salvataggio (la chiave su disco torna vuota).
 
 > Prima dell'uso reale, segui la procedura **`docs/audit/xtrader_simulation_test.md`**
 > con XTrader in Modalità Simulazione, stake basso e limiti chiari. Nessuna promessa
