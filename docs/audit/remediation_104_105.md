@@ -179,6 +179,17 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 >   (puri; status non pertinente → `None`). `_process_confirmation` ora delega; i blocchi
 >   lock/scrittura/retry restano in `App`. Nessun cambio di comportamento osservabile. Test:
 >   `tests/unit/test_signal_outcome.py`.
+> - **#105-P1 refactor `app.py` — slice 6/N (core)** 🔧 — sezione critica del percorso di
+>   scrittura. La sequenza **valuta-guardrail → coda → scrittura CSV → rollback** (il cuore
+>   anti-doppia-scommessa) era annidata in `App._process`, non esercitabile in CI. Estratta in
+>   `write_path.commit_signal(...)` → `CommitResult` (decision/blocked_by_cap/rows/write_error),
+>   con `write_rows` **iniettabile**. `App._process` mantiene il **lock** (`_queue_lock`) e
+>   l'anti-race con lo stop, e chiama l'orchestratore sotto lock; tutti i side-effect
+>   (persistenza guardrail, GUI, log, schedule) restano in `App`. Nessun cambio di
+>   comportamento osservabile. Ora il ROLLBACK su write fallita (coda+dedup+daily → segnale
+>   ritentabile) e il blocco dal tetto sono **testati in CI con collaboratori reali**. Test:
+>   `tests/unit/test_write_path.py` (write riuscita / write fallita+rollback+ritentabile /
+>   blocco tetto+rollback guardrail / duplicato non scrive / dry-run / tracker=None).
 
 I P3 restanti sono **giudizi positivi** (validazione prezzi/BetType, recognition mode,
 difesa CSV/chat) — nessuna azione.
