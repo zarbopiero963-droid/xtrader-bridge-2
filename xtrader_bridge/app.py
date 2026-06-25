@@ -44,6 +44,7 @@ from . import (
     settings_controller,
     settings_validation,
     signal_dedupe,
+    signal_outcome,
     signal_queue,
     signal_router,
     source_manager,
@@ -1484,28 +1485,17 @@ class App(ctk.CTk):
 
     def _after_non_write(self, decision: str, row: dict) -> None:
         """Gestisce gli esiti che NON scrivono il CSV (PR-21): log chiaro e, in
-        DRY_RUN, aggiorna comunque l'ultimo segnale riconosciuto."""
-        ev = row.get("EventName", "")
-        sel = row.get("SelectionName", "")
-        if decision == live_guard.DRY_RUN:
-            info = f"🧪 DRY_RUN — {ev}  |  {sel}  q.{row.get('Price', '')}"
-            self.after(0, lambda: self._bump("dry_run"))
-            self.after(0, lambda i=info: self._set_last("signal", i, "#ffb74d"))
-            self.after(0, lambda: self._log(
-                f"🧪 DRY_RUN: segnale riconosciuto ma CSV NON scritto (simulazione): "
-                f"{ev} | {sel}"))
-        elif decision == live_guard.DUPLICATE:
-            self.after(0, lambda: self._bump("duplicate"))
-            self.after(0, lambda: self._log(
-                f"♻️ Duplicato ignorato (nessuna doppia scommessa): {ev} | {sel}"))
-        elif decision == live_guard.RATE_LIMITED:
-            self.after(0, lambda: self._bump("limited"))
-            self.after(0, lambda: self._log(
-                "🚦 Limite al minuto raggiunto: segnale ignorato."))
-        elif decision == live_guard.DAILY_LIMITED:
-            self.after(0, lambda: self._bump("limited"))
-            self.after(0, lambda: self._log(
-                "🚦 Limite giornaliero raggiunto: segnale ignorato."))
+        DRY_RUN, aggiorna comunque l'ultimo segnale riconosciuto. La mappatura
+        decisione→presentazione è pura in `signal_outcome.describe_non_write`; qui
+        si applicano solo i side-effect GUI (bump/set_last/log) nello stesso ordine."""
+        outcome = signal_outcome.describe_non_write(decision, row)
+        if outcome is None:
+            return
+        self.after(0, lambda c=outcome.counter: self._bump(c))
+        if outcome.last_signal is not None:
+            self.after(0, lambda s=outcome.last_signal, col=outcome.last_color:
+                       self._set_last("signal", s, col))
+        self.after(0, lambda m=outcome.log: self._log(m))
 
     def _process_confirmation(self, text: str, cfg: dict, route_cfg: dict = None) -> None:
         """Interpreta una notifica XTrader (PR-23) rispetto ai segnali in attesa e,
