@@ -85,7 +85,7 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 | #105-P2 clear_stale diagnostica | `clear_stale_csv` strict-header senza warning su mismatch | ✅ #129 (`logging.warning` con soli metadati strutturali, no contenuto — Codex P2) |
 | #105-P2 backup_corrupted logging | `_backup_corrupted()` silenzia `OSError` (niente diagnosi) | ✅ #130 (`logging.warning` con path+errore) |
 | #105-P1 token storage | `bot_token` non più in chiaro: salvato nel **keyring** di sistema | ✅ risolto (vedi sotto, sezione lavorazione #136 — `token_store` + `config_store`; fallback documentato in README "Dove sta il Bot Token") |
-| #105-P2 P.Bet hardcoded (doc) | documentare che il parser P.Bet è solo compat/test, non live | 🔧 README: nota "non attivo nel live" + chiarito `active_parser=""` (questa PR) |
+| #105-P2 P.Bet hardcoded (doc) | documentare che il parser P.Bet è solo compat/test, non live | ✅ #131 — README: nota "non attivo nel live" + chiarito `active_parser=""`; doc allineata in `docs/custom_parser.md` |
 
 ### NEEDS_MANUAL — decisione del proprietario (non auto-patchabili in sicurezza)
 | ID | Finding | Esito |
@@ -140,7 +140,7 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 >   duplicati in `safety_guard` e `signal_dedupe`) e il nucleo `safe_filename_core` +
 >   `WIN_RESERVED` (condiviso da `custom_parser` e `profile_store`, che mantengono il
 >   PROPRIO fallback: `"parser"` vs `""`). Test: `tests/unit/test_validators.py`.
-> - **#105-P1 refactor `app.py` — slice 1/N** 🔧 — avvio dell'estrazione incrementale
+> - **#105-P1 refactor `app.py` — slice 1/N** ✅ — avvio dell'estrazione incrementale
 >   del monolite. Nuovo modulo puro `xtrader_bridge/runtime_state.py`: i path di stato
 >   runtime (`dedupe_state_path`/`daily_state_path`) e il **core di costruzione dei
 >   guardrail** (`build_guards` → `GuardSet`: `SignalTracker`/`DailyLimiter`/`SignalQueue`
@@ -150,7 +150,7 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 >   `GuardSet.warnings`). Nessun cambio di comportamento osservabile. Test:
 >   `tests/unit/test_runtime_state.py`. Gli slice successivi (session/telegram listener/
 >   signal executor) restano da fare, sempre una micro-PR alla volta.
-> - **#105-P1 refactor `app.py` — slice 2/N** 🔧 — supervisor di riconnessione. Il calcolo
+> - **#105-P1 refactor `app.py` — slice 2/N** ✅ — supervisor di riconnessione. Il calcolo
 >   del **delay effettivo** (backoff esponenziale + override `retry_after` del flood-control
 >   Telegram) era logica pura ma **inline** in `App._run_bot`, non testata direttamente.
 >   Estratto in `reconnect_policy.effective_delay(attempt, retry_after)` (combina
@@ -158,28 +158,28 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 >   numerici ignorati). `App._run_bot` ora delega. Nessun cambio di comportamento
 >   osservabile. Test: `tests/unit/test_reconnect_policy.py` (retry_after più lungo vince /
 >   più corto non riduce / non numerico / bool ignorati).
-> - **#105-P1 refactor `app.py` — slice 3/N** 🔧 — signal executor. La mappatura di un esito
+> - **#105-P1 refactor `app.py` — slice 3/N** ✅ — signal executor. La mappatura di un esito
 >   guardrail **non-WRITE** (`DRY_RUN`/`DUPLICATE`/`RATE_LIMITED`/`DAILY_LIMITED`) nel
 >   contatore dashboard, nel testo di log e nell'eventuale «ultimo segnale» era inline in
 >   `App._after_non_write`, non testata. Estratta in `signal_outcome.describe_non_write`
 >   (puro → `NonWriteOutcome`; `WRITE`/decisioni ignote → `None`). `App._after_non_write`
 >   ora applica solo i side-effect GUI nello stesso ordine. Nessun cambio di comportamento
 >   osservabile. Test: `tests/unit/test_signal_outcome.py`.
-> - **#105-P1 refactor `app.py` — slice 4/N** 🔧 — signal executor (ramo WRITE). La
+> - **#105-P1 refactor `app.py` — slice 4/N** ✅ — signal executor (ramo WRITE). La
 >   presentazione di una scrittura CSV **riuscita** (testo «ultimo segnale», log del segnale
 >   con sorgente, log di conferma con pluralizzazione «attivo»/«attivi») era inline in
 >   `_process`. Estratta in `signal_outcome.describe_write(row, source, n_active)` (puro →
 >   `WriteOutcome`). `_process` ora applica i side-effect GUI nello stesso ordine. Nessun
 >   cambio di comportamento osservabile. Il cuore di `_process` (lock/coda/scrittura/rollback)
 >   resta in `App`. Test: `tests/unit/test_signal_outcome.py`.
-> - **#105-P1 refactor `app.py` — slice 5/N** 🔧 — conferme XTrader. I messaggi di esito di
+> - **#105-P1 refactor `app.py` — slice 5/N** ✅ — conferme XTrader. I messaggi di esito di
 >   `_process_confirmation` (log di rimozione dal CSV per CONFIRMED/REJECTED; log informativo
 >   per UNKNOWN/UNMATCHED che non rimuovono nulla) erano inline. Estratti in
 >   `signal_outcome.confirmation_removed_log(status)` e `confirmation_ignored_log(status)`
 >   (puri; status non pertinente → `None`). `_process_confirmation` ora delega; i blocchi
 >   lock/scrittura/retry restano in `App`. Nessun cambio di comportamento osservabile. Test:
 >   `tests/unit/test_signal_outcome.py`.
-> - **#105-P1 refactor `app.py` — slice 6/N (core)** 🔧 — sezione critica del percorso di
+> - **#105-P1 refactor `app.py` — slice 6/N (core)** ✅ — sezione critica del percorso di
 >   scrittura. La sequenza **valuta-guardrail → coda → scrittura CSV → rollback** (il cuore
 >   anti-doppia-scommessa) era annidata in `App._process`, non esercitabile in CI. Estratta in
 >   `write_path.commit_signal(...)` → `CommitResult` (decision/blocked_by_cap/rows/write_error),
@@ -190,7 +190,7 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 >   ritentabile) e il blocco dal tetto sono **testati in CI con collaboratori reali**. Test:
 >   `tests/unit/test_write_path.py` (write riuscita / write fallita+rollback+ritentabile /
 >   blocco tetto+rollback guardrail / duplicato non scrive / dry-run / tracker=None).
-> - **#105-P1 refactor `app.py` — slice 7/N** 🔧 — timing scadenza. Il calcolo del ritardo
+> - **#105-P1 refactor `app.py` — slice 7/N** ✅ — timing scadenza. Il calcolo del ritardo
 >   del prossimo tick di scadenza (`max(0.0, next_expiry − now)`, clamp a 0 di una scadenza
 >   già passata per non avere ritardi negativi/busy-loop) era inline in `App._schedule_expiry`.
 >   Estratto in `signal_queue.delay_until(expires_at, now)` (puro, clock monotòno audit A3),
