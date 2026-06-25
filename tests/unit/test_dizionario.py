@@ -223,3 +223,31 @@ def test_fill_placeholders():
     out = dz.fill_placeholders("{HOME_TEAM}", away="Milan")
     assert out == "{HOME_TEAM}"
     assert dz.has_placeholder(out) is True
+
+
+def test_load_dizionario_header_valido_si_carica(tmp_path):
+    # Un CSV con tutte le colonne attese (anche con colonne EXTRA) si carica.
+    import csv as _csv
+    p = tmp_path / "d.csv"
+    cols = dz.EXPECTED_COLUMNS + ["ColonnaExtra"]
+    with open(p, "w", newline="", encoding="utf-8") as f:
+        w = _csv.DictWriter(f, fieldnames=cols)
+        w.writeheader()
+        w.writerow({c: "x" for c in cols})
+    assert len(dz.load_dizionario(str(p))) == 1
+
+
+def test_load_dizionario_colonna_mancante_fallisce_chiaramente(tmp_path):
+    # audit C4: una colonna ATTESA mancante/rinominata → ValueError chiaro al load, invece
+    # di mapping silenziosamente vuoti (alias→"" → nessun match) o KeyError al primo accesso.
+    import csv as _csv
+
+    import pytest
+    p = tmp_path / "d.csv"
+    cols = [c for c in dz.EXPECTED_COLUMNS if c != "MarketType_XTrader"] + ["MarketType_RINOMINATA"]
+    with open(p, "w", newline="", encoding="utf-8") as f:
+        w = _csv.DictWriter(f, fieldnames=cols)
+        w.writeheader()
+        w.writerow({c: "x" for c in cols})
+    with pytest.raises(ValueError, match="MarketType_XTrader"):
+        dz.load_dizionario(str(p))

@@ -38,9 +38,24 @@ EXPECTED_COLUMNS = [
 
 
 def load_dizionario(path: str = DIZIONARIO_PATH) -> list:
-    """Carica il dizionario come lista di dict (una per riga)."""
+    """Carica il dizionario come lista di dict (una per riga).
+
+    Valida l'header contro ``EXPECTED_COLUMNS`` (audit C4): una colonna **rinominata o
+    mancante** farebbe fallire in SILENZIO ogni mapping mercato (un `.get(col, "")` darebbe
+    `""` → nessun match → segnali scartati senza spiegazione) oppure crashare con `KeyError`
+    al primo `row[col]`. Il dizionario è la sorgente di verità di mercati/selezioni: un
+    header sbagliato rende il bridge inutilizzabile, quindi va detto con un errore CHIARO al
+    load invece di degradare di nascosto. Colonne EXTRA sono tollerate (forward-compat); solo
+    quelle attese mancanti sono fatali."""
     with open(path, newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+        reader = csv.DictReader(f)
+        header = reader.fieldnames or []
+        missing = [c for c in EXPECTED_COLUMNS if c not in header]
+        if missing:
+            raise ValueError(
+                f"Dizionario XTrader con header non valido in {path}: colonne attese mancanti "
+                f"{missing}. Ripristina/correggi l'intestazione del CSV (attese: {EXPECTED_COLUMNS}).")
+        return list(reader)
 
 
 def normalize(s: str) -> str:
