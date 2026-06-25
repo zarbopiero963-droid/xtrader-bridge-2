@@ -929,8 +929,13 @@ class App(ctk.CTk):
                     self._tg_app.updater.stop(), self._loop)
                 asyncio.run_coroutine_threadsafe(
                     self._tg_app.stop(), self._loop)
-            except Exception:
-                pass
+            except Exception as ex:   # noqa: BLE001 — NON silenziare (audit C2): un arresto
+                # fallito può lasciare vivo un poller vecchio; lo si segnala (il log handler
+                # redige i token) e ci si affida a `_is_current()`/epoch per invalidare la
+                # sessione, così un AVVIA successivo non si ritrova due poller attivi.
+                self._log(f"⚠️ Arresto listener non pulito ({type(ex).__name__}): "
+                          "la sessione è invalidata, ma controlla i log se l'AVVIA successivo "
+                          "segnala anomalie.")
         if self._expire_timer:
             self._expire_timer.cancel()
         # Anti-segnale-stantio: una chiusura/STOP normale non deve lasciare una riga
@@ -956,12 +961,27 @@ class App(ctk.CTk):
     def _on_close(self):
         self._closing = True   # blocca un auto-start ritardato ancora pendente (Codex P2)
         self._stop()
-        self.after(500, self.destroy)
+        # Teardown DETERMINISTICO (audit C1): cancella il timer di scadenza e ASPETTA che il
+        # thread del bot termini (join con timeout) prima di distruggere la finestra, invece
+        # di indovinare con `after(500, destroy)`. Così il thread non chiama più `self.after()`
+        # su una root Tk già distrutta (niente Tcl/RuntimeError) e l'event loop viene chiuso
+        # (no leak di selector/fd). Il thread è daemon: se non termina entro il timeout si
+        # procede comunque, senza bloccare la chiusura del processo.
+        if self._expire_timer:
+            self._expire_timer.cancel()
+        t = self._bot_thread
+        if t is not None and t.is_alive():
+            t.join(timeout=5.0)
+        self.destroy()
 
     # ── BOT TELEGRAM ──────────────────────────
     def _run_bot(self, cfg: dict, epoch: int):
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
+        # Riferimento LOCALE al loop di QUESTA sessione: la chiusura nel finally deve
+        # toccare solo questo loop, non un eventuale loop di un nuovo START che nel
+        # frattempo abbia riassegnato `self._loop` (audit C1).
+        loop = asyncio.new_event_loop()
+        self._loop = loop
+        asyncio.set_event_loop(loop)
 
         def _is_current():
             # Sessione ancora valida: bridge attivo E nessun nuovo START intervenuto.
@@ -1056,7 +1076,7 @@ class App(ctk.CTk):
         # polling) e attesa interrompibile.
         while _is_current():
             try:
-                self._loop.run_until_complete(_async_run())
+                loop.run_until_complete(_async_run())
                 break                      # uscita pulita: STOP richiesto
             except Exception as ex:        # noqa: BLE001 — gestito sotto
                 self._safe_shutdown_tg()   # chiude il vecchio updater prima di ritentare
@@ -1089,6 +1109,18 @@ class App(ctk.CTk):
                     f"{d:.0f}s (tentativo {n})…"))
                 self.after(0, self._set_status_reconnecting)
                 self._reconnect_wait(delay)
+        # Sessione finita (STOP / nuovo START / errore non recuperabile): CHIUDI l'event
+        # loop di QUESTA sessione, così selector/fd vengono rilasciati e non si accumula un
+        # leak per ogni ciclo START/STOP (audit C1). Si chiude `loop` (riferimento locale),
+        # non `self._loop`, che un nuovo START potrebbe aver già riassegnato; `self._loop`
+        # si azzera solo se punta ancora a QUESTO loop. Il while gestisce già le sue
+        # eccezioni, quindi qui siamo a loop fermo.
+        try:
+            loop.close()
+        except Exception:                    # noqa: BLE001 — chiusura best-effort
+            pass
+        if self._loop is loop:
+            self._loop = None
 
     def _safe_shutdown_tg(self) -> None:
         """Chiude in modo best-effort l'app Telegram fallita prima di un nuovo

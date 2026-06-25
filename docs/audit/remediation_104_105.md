@@ -21,13 +21,13 @@ Legenda stato: ⬜ da fare · 🔧 in PR aperta · ✅ mergiato.
 |----|---------|------|----|-------|
 | B1 | CSV formula/control-char injection (no `'`-prefix) | `csv_writer.py` | #115 | ✅ |
 | B2 | Quota HT/FT/Prematch decisa sull'intera riga (marker adiacente al numero) | `parser.py` | #116 | ✅ |
-| B3 | Alias duplicato: ultimo vince in silenzio | `mapping.py` | `fix/audit-104-b3` | 🔧 |
+| B3 | Alias duplicato: ultimo vince in silenzio (legacy + percorso live, Codex P1) | `mapping.py`, `value_maps.py`, `dizionario.py` | #117 | ✅ |
 
 ### 🟡 MEDIUM
 | ID | Finding | File | PR | Stato |
 |----|---------|------|----|-------|
-| C1 | Event loop mai chiuso + thread mai joinato su STOP/close | `app.py` | — | ⬜ |
-| C2 | STOP fire-and-forget con `except: pass` | `app.py` | — | ⬜ |
+| C1 | Event loop mai chiuso + thread mai joinato su STOP/close | `app.py` | `fix/audit-104-c1-c2` | 🔧 |
+| C2 | STOP fire-and-forget con `except: pass` | `app.py` | `fix/audit-104-c1-c2` | 🔧 |
 | C3 | `init_csv`/clear può sollevare se XTrader tiene il lock | `csv_writer.py` | — | ⬜ |
 | C4 | `load_dizionario` senza validazione header + lru-cache a vita | `dizionario.py` | — | ⬜ |
 | C5 | `load_config` senza migrazione/schema | `config_store.py` | — | ⬜ |
