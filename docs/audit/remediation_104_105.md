@@ -75,8 +75,8 @@ risolte** da #104. Il resto è in gran parte **raccomandazioni architetturali/UX
 | #105-P1 notif-chat live drift | chat-notifiche/keyword lette da snapshot mentre routing è live | ✅ **già risolto da #104 C8** (#123 live-reload + #124 fail-closed sul conflitto) |
 | #105-P2 daily fsync | `_save_guard_state` salva il daily state senza `flush`/`fsync` (perdita conteggio in crash) | ✅ #126 (`safety_guard.save_state/load_state` atomici+fsync) |
 | #105-P2 SignalTracker validation | `SignalTracker.register()` non valida `now`/`dedupe_window`/`max_per_minute` come `DailyLimiter` | ✅ #127 (`_require_positive_int`/`_require_finite_now` in `signal_dedupe`) |
-| #105-P2 confirm CSV retry | mancava il test: conferma → `write_rows` fallisce → coda già svuotata → retry riscrive → niente riscrittura dopo STOP | 🔧 test in `test_confirmation_flow.py` (questa PR; comportamento già corretto) |
-| #105-P2 clear_stale diagnostica | `clear_stale_csv` strict-header senza warning su mismatch | ⬜ |
+| #105-P2 confirm CSV retry | mancava il test: conferma → `write_rows` fallisce → coda già svuotata → retry riscrive → niente riscrittura dopo STOP | ✅ #128 (test in `test_confirmation_flow.py`; comportamento già corretto) |
+| #105-P2 clear_stale diagnostica | `clear_stale_csv` strict-header senza warning su mismatch | 🔧 `logging.warning` con anteprima troncata dell'header (questa PR) |
 | #105-P2 backup_corrupted logging | `_backup_corrupted()` silenzia `OSError` (niente diagnosi) | ⬜ |
 | #105-P1 token plain JSON (short-term) | documentare che `bot_token` è in JSON plain nel profilo utente | ⬜ (doc) |
 | #105-P2 P.Bet hardcoded (doc) | documentare che il parser P.Bet è solo compat/test, non live | ⬜ (doc) |

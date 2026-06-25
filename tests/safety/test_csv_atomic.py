@@ -105,6 +105,30 @@ def test_clear_stale_csv_non_tocca_file_non_bridge(tmp_path):
     assert q.read_text(encoding="utf-8") == "appunti importanti"
 
 
+def test_clear_stale_csv_logga_avviso_su_header_diverso(tmp_path, caplog):
+    # audit #105 P2: un file esistente con header diverso NON viene ripulito (anti
+    # data-loss) MA non più in silenzio: si logga un avviso diagnostico (con anteprima
+    # TRONCATA dell'header) così l'utente capisce perché il file non è stato toccato.
+    p = tmp_path / "documento_utente.csv"
+    p.write_text("colonnaA,colonnaB\nvalore1,valore2\n", encoding="utf-8")
+    with caplog.at_level("WARNING", logger="xtrader_bridge.csv_writer"):
+        assert csv_writer.clear_stale_csv(str(p)) is False
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("non è un CSV del bridge" in m and str(p) in m for m in msgs)
+    # L'anteprima dell'header rilevato è inclusa (per la diagnosi), troncata se lunga.
+    assert any("colonnaA" in m for m in msgs)
+
+
+def test_clear_stale_csv_avviso_tronca_header_lungo(tmp_path, caplog):
+    # L'anteprima non deve riversare contenuti enormi nel log: header lungo → troncato con "…".
+    p = tmp_path / "grosso.csv"
+    header = ",".join(f"colonna_molto_lunga_{i}" for i in range(50))
+    p.write_text(header + "\nx\n", encoding="utf-8")
+    with caplog.at_level("WARNING", logger="xtrader_bridge.csv_writer"):
+        assert csv_writer.clear_stale_csv(str(p)) is False
+    assert any("…" in r.getMessage() for r in caplog.records)
+
+
 def test_clear_stale_csv_file_non_decodificabile_non_bridge(tmp_path):
     # Codex P2: un file esistente non-UTF8 (CSV ANSI, binario scelto per errore)
     # non deve far crashare l'avvio: trattato come non-bridge e lasciato intatto.
