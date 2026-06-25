@@ -1038,12 +1038,31 @@ class App(ctk.CTk):
                         "⚠️ Config live senza filtro chat: messaggio ignorato per sicurezza "
                         "(configura chat/sorgenti, poi salva)."))
                     return
-                # PR-23: la chat notifiche XTrader (SEPARATA dalle sorgenti) porta
-                # ESITI, non segnali → percorso di conferma, non di scrittura.
-                notif = str(cfg.get("xtrader_notification_chat_id", "") or "").strip()
-                if notif and runtime_chat == notif:
-                    self._process_confirmation(text, cfg)
-                    return
+                # PR-23 + audit C8: la chat notifiche XTrader (SEPARATA dalle sorgenti)
+                # porta ESITI, non segnali → percorso di conferma, non di scrittura. La
+                # chat-notifiche e le keyword conferma/rifiuto sono lette dalla config VIVA
+                # (`route`), come il resto dell'instradamento: cambiarle a runtime ha effetto
+                # SUBITO. Col vecchio snapshot a START un loro cambiamento era ignorato fino al
+                # riavvio (conferme mis-classificate, riga CSV non rimossa). Il `csv_path` resta
+                # invece legato alla sessione (passato come `cfg`), come gli altri parametri di
+                # ESECUZIONE che non cambiano a metà sessione.
+                if signal_router.is_notification_chat(route, runtime_chat):
+                    # Codex P2: con la config VIVA l'utente può salvare a metà sessione una
+                    # notif-chat che COINCIDE con una sorgente ammessa (a START `_start` blocca
+                    # l'avvio proprio per questo). Chat ambigua: se la dirottassimo in conferma,
+                    # i SEGNALI di quella sorgente verrebbero ingoiati come notifica non
+                    # associata → bet mancata silenziosa. Diamo quindi precedenza al percorso
+                    # SEGNALE (un testo di conferma di norma non passa il parser → nessuna
+                    # scrittura) e avvisiamo di correggere la config; stessa logica del gate di
+                    # `_start` (`notif in sources` ≡ `is_chat_allowed`), qui sulla config viva.
+                    if signal_router.is_chat_allowed(route, runtime_chat):
+                        self.after(0, lambda: self._log(
+                            "⚠️ La Chat notifiche XTrader coincide con una sorgente ammessa: "
+                            "config ambigua, tratto il messaggio come SEGNALE. Correggi "
+                            "xtrader_notification_chat_id (dev'essere una chat separata)."))
+                    else:
+                        self._process_confirmation(text, cfg, route_cfg=route)
+                        return
                 # PR-11: decisione di instradamento estratta e testabile.
                 # Gatea il filtro chat (CP-09, chat configurata ∪ parser_by_chat)
                 # e il prefiltro legacy P.Bet./📊 (solo per il parser hardcoded):
@@ -1303,7 +1322,7 @@ class App(ctk.CTk):
             self.after(0, lambda: self._log(
                 "🚦 Limite giornaliero raggiunto: segnale ignorato."))
 
-    def _process_confirmation(self, text: str, cfg: dict) -> None:
+    def _process_confirmation(self, text: str, cfg: dict, route_cfg: dict = None) -> None:
         """Interpreta una notifica XTrader (PR-23) rispetto ai segnali in attesa e,
         se associata, marca l'esito rimuovendo il segnale dalla coda + CSV.
 
@@ -1312,12 +1331,19 @@ class App(ctk.CTk):
           resta nel CSV);
         - UNKNOWN (associato ma esito non chiaro) / UNMATCHED (di un'altra scommessa)
           → solo log, nessuna modifica. Il TIMEOUT è già coperto dalla scadenza coda.
+
+        Le KEYWORD di conferma/rifiuto sono lette dalla config VIVA (`route_cfg`,
+        default = `cfg`): cambiarle a runtime ha effetto SUBITO, coerentemente col
+        live-reload del routing (audit C8). Il `csv_path` resta invece legato allo
+        snapshot di sessione (`cfg`), come gli altri parametri di ESECUZIONE
+        (DRY_RUN/limiti/token), che non cambiano a metà sessione.
         """
         # Stop in corso: non riscrivere il CSV dopo che lo STOP l'ha svuotato (Codex P2).
         if not self._running:
             return
-        confirm_kw = confirmation_reader.normalize_keywords(cfg.get("confirmation_keywords"))
-        reject_kw = confirmation_reader.normalize_keywords(cfg.get("rejection_keywords"))
+        live = route_cfg if isinstance(route_cfg, dict) else cfg
+        confirm_kw = confirmation_reader.normalize_keywords(live.get("confirmation_keywords"))
+        reject_kw = confirmation_reader.normalize_keywords(live.get("rejection_keywords"))
         with self._queue_lock:
             pending = self._queue.pending() if self._queue is not None else []
         # interpret è puro: lo si chiama fuori dal lock (nessuna mutazione qui).

@@ -256,6 +256,12 @@ può leggerla e togliere dal CSV il segnale confermato/rifiutato.
 - `confirmation_keywords`, `rejection_keywords` regolano l'interpretazione delle
   notifiche; `confirmation_timeout` è il timeout del segnale in `QUEUE_UNTIL_CONFIRMED`
   (vedi tabella della configurazione avanzata).
+- La **chat-notifiche** (`xtrader_notification_chat_id`), `confirmation_keywords` e
+  `rejection_keywords` sono lette dalla **config viva**: modificarle e salvarle ha effetto
+  **subito**, senza Stop/Start (come il routing). Restano invece legati alla sessione — e
+  richiedono un riavvio — i parametri di **esecuzione** (`dry_run`, limiti, `csv_path`,
+  token), per non far scattare per sbaglio una scommessa reale o un CSV stantio a metà
+  sessione.
 
 ---
 

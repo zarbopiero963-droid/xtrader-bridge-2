@@ -55,3 +55,26 @@ def test_esito_non_chiaro_non_rimuove():
     res = _confirm_against_queue("Roma v Lazio Both Teams To Score Sì", q)
     assert res.status == cr.UNKNOWN
     assert len(q.active_rows()) == 1
+
+
+def test_keyword_conferma_dalla_config_viva_live_reload():
+    # audit C8: le keyword conferma/rifiuto sono lette dalla config VIVA (in app:
+    # `_process_confirmation(..., route_cfg=route)`). Una parola d'esito PERSONALIZZATA
+    # classifica come CONFIRMED solo se la config la fornisce: cambiandola a runtime
+    # l'effetto è immediato, senza Stop/Start.
+    q = sq.SignalQueue(mode=sq.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
+    q.add(_row("Roma v Lazio", "Both Teams To Score", "Sì"), now=1000)
+    text = "Roma v Lazio Both Teams To Score Sì swishato"
+
+    # Config "vecchia" senza la parola custom → esito non chiaro (UNKNOWN), niente rimozione.
+    kw_old = cr.normalize_keywords(None)
+    res_old = cr.interpret(text, q.pending(), confirm_keywords=kw_old)
+    assert res_old.status == cr.UNKNOWN
+    assert len(q.active_rows()) == 1
+
+    # Config "viva": l'utente aggiunge "swishato" alle keyword di conferma → CONFIRMED subito.
+    kw_live = cr.normalize_keywords(["swishato"])
+    res_live = cr.interpret(text, q.pending(), confirm_keywords=kw_live)
+    assert res_live.status == cr.CONFIRMED
+    q.confirm(res_live.signal_id)
+    assert q.is_empty()

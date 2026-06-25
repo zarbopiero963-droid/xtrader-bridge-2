@@ -31,9 +31,9 @@ Legenda stato: ⬜ da fare · 🔧 in PR aperta · ✅ mergiato.
 | C3 | `init_csv`/clear può sollevare se XTrader tiene il lock (budget retry ~0.3s→~1s) | `csv_writer.py`, `app.py` | #119 | ✅ |
 | C4 | `load_dizionario` senza validazione header (colonna rinominata → fail silenzioso/crash) | `dizionario.py` | #120 | ✅ |
 | C5 | `load_config` senza migrazione/schema (tipi noti coerciti via `_migrate`) | `config_store.py` | #121 | ✅ |
-| C6 | `should_reconnect` classifica per nome classe sull'MRO (ora `isinstance` sui tipi reali di `telegram.error`, fallback per nome) | `reconnect_policy.py` | `fix/audit-104-c6` | 🔧 |
+| C6 | `should_reconnect` classifica per nome classe sull'MRO (ora `isinstance` sui tipi reali di `telegram.error`, fallback per nome) | `reconnect_policy.py` | #122 | ✅ |
 | C7 | `save_config` ritorna shallow-copy con nested condivisi (ora `deepcopy`) | `config_store.py` | #121 | ✅ |
-| C8 | Keyword conferma/notif lette da snapshot mentre routing è live | `app.py` | — | ⬜ |
+| C8 | Keyword conferma/notif-chat lette da snapshot mentre routing è live (ora config viva: `is_notification_chat` + keyword via `route_cfg`; `csv_path` resta di sessione) | `app.py`, `signal_router.py` | `fix/audit-104-c8` | 🔧 |
 
 ### 🟢 LOW / NIT
 | ID | Finding | Stato |

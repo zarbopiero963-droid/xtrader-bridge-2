@@ -118,6 +118,22 @@ def is_chat_allowed(cfg: dict, chat: str) -> bool:
     return str(chat or "") in allowed_chats(cfg)
 
 
+def is_notification_chat(cfg: dict, chat: str) -> bool:
+    """`True` se `chat` è la chat-notifiche XTrader configurata
+    (`xtrader_notification_chat_id`): una chat SEPARATA dalle sorgenti che porta gli
+    ESITI (conferma/rifiuto), non segnali. Confronto stringa-vs-stringa; vuoto → mai.
+
+    Letta dalla config VIVA dal listener (audit C8): cambiarla a runtime ha effetto
+    SUBITO, coerentemente col live-reload del routing — niente più snapshot a START che
+    ignorava la modifica (conferme mis-classificate). Fonte unica, così GUI/listener non
+    la reimplementano."""
+    notif = str((cfg or {}).get("xtrader_notification_chat_id", "") or "").strip()
+    # `.strip()` su ENTRAMBI i lati: l'ID configurato e il chat runtime vanno confrontati
+    # in modo simmetrico, altrimenti un eventuale whitespace (config scritta a mano) farebbe
+    # fallire un match logicamente valido (Sourcery).
+    return bool(notif) and str(chat or "").strip() == notif
+
+
 def listened_chats(cfg: dict) -> list:
     """Vista LEGGIBILE delle chat che il listener processerà, per la GUI (B1).
 
