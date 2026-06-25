@@ -46,3 +46,8 @@ jobs:
             exit 1
           fi
           echo "OK: nessun file vietato e nessun token in chiaro."
+      - name: Secret scan esteso (token/chiavi/AWS)
+        # Difesa-in-profondità (#153 H3): scanner condiviso con l'hook pre-commit, fonte
+        # unica dei pattern. Estende lo scan del token Telegram con chiavi private PEM e
+        # AWS key id. Stampa SOLO i path (mai il valore).
+        run: bash tools/secret_scan.sh

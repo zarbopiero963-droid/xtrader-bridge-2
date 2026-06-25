@@ -337,6 +337,16 @@ Tutte queste protezioni sono **attive a runtime**:
 > con XTrader in Modalità Simulazione, stake basso e limiti chiari. Nessuna promessa
 > di profitto.
 
+> 🧰 **Per chi sviluppa — hook pre-commit anti-segreti (opzionale).** Oltre al check CI
+> *Forbidden Files* (che blocca config reali/`.env`/CSV generati/EXE e fa lo *scan dei
+> segreti* — token Telegram, chiavi private PEM, AWS key id), puoi attivare lo stesso
+> scan **prima di ogni commit** in locale:
+> ```bash
+> git config core.hooksPath .githooks
+> ```
+> L'hook usa `tools/secret_scan.sh` (la stessa fonte di pattern del CI) e blocca il commit
+> se un file in staging contiene un segreto noto — stampando **solo il path**, mai il valore.
+
 ---
 
 ## Formato CSV generato
