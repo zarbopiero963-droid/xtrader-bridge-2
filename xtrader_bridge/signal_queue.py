@@ -114,9 +114,15 @@ class SignalQueue:
     def _resolve_now(now) -> float:
         """`now` corrente se assente; altrimenti il valore fornito, che deve essere
         FINITO. Un `now` `NaN`/`inf` salvato in `added_at` renderebbe `expires_at()`
-        mai `<= now` → segnale immortale: stessa ragione per cui si valida il timeout."""
+        mai `<= now` → segnale immortale: stessa ragione per cui si valida il timeout.
+
+        Il default usa **`time.monotonic()`** (audit A3): la scadenza è una decisione su
+        TEMPO TRASCORSO e la coda è **in-memory** (non persistita su disco), quindi un salto
+        del wallclock (NTP/VM-pause) NON deve far scadere in anticipo un segnale ancora valido
+        (riga rimossa dal CSV → bet mancata) né tenerne uno scaduto. Il chiamante (`app`) passa
+        coerentemente `time.monotonic()` per `expire`/`add` e per programmare il tick."""
         if now is None:
-            return time.time()
+            return time.monotonic()
         try:
             t = float(now)
         except (TypeError, ValueError):

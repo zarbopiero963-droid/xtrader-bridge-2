@@ -9,6 +9,19 @@ def _row(name):
     return {"EventName": name, "SelectionName": "Sì", "Price": "1.85", "BetType": "PUNTA"}
 
 
+def test_default_now_usa_monotonic():
+    # audit A3: la scadenza coda è una decisione su TEMPO TRASCORSO e la coda è in-memory
+    # (non persistita): il default `now` deve venire da time.monotonic(), NON dal wallclock,
+    # così un salto NTP/VM-pause non fa scadere in anticipo un segnale ancora valido.
+    import time
+    q = sq.SignalQueue(default_timeout=60)
+    q.add(_row("x"))
+    added = q._active[0].added_at
+    # monotonic (uptime, ~<10^7s) è enormemente più piccolo dell'epoch wallclock (~1.7e9).
+    assert added < time.time() - 1_000_000
+    assert abs(added - time.monotonic()) < 5
+
+
 # ── modalità ─────────────────────────────────────────────────────────────────
 
 def test_default_mode_overwrite_last():
