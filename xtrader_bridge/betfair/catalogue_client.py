@@ -34,13 +34,17 @@ SPORTS_EVENT_TYPE = {
 NAVIGATION_OP = "navigationMenu"
 CATALOGUE_OP = "listMarketCatalogue"
 
-# Host/locale ITALIANI dell'Exchange (questo è il flusso Betfair.it): la Delayed Key
-# e la sessione .it devono colpire l'host italiano, non quello UK/EN.
+# Flusso Betfair.it: il navigation menu sta sull'host ITALIANO (.it, locale /it/),
+# ma — come da docs Betfair Italy — dopo il login .it le chiamate betting JSON-RPC
+# (es. listMarketCatalogue) vanno all'host api.betfair.com e ritornano comunque i
+# mercati dell'Exchange italiano. Quindi NAV su .it, CATALOGUE su .com.
 _NAV_URL = "https://api.betfair.it/exchange/betting/rest/v1/it/navigation/menu.json"
-_CATALOGUE_URL = "https://api.betfair.it/exchange/betting/json-rpc/v1"
+_CATALOGUE_URL = "https://api.betfair.com/exchange/betting/json-rpc/v1"
 _HTTP_TIMEOUT = 30
-# Quante selezioni richiedere per market nel catalogue (RUNNER_METADATA dà i runner).
-_CATALOGUE_MAX_RESULTS = 1000
+# Quanti market per chiamata listMarketCatalogue: `maxResults` è un CAP sul totale
+# restituito, quindi i market vanno spezzati in chunk (oltre il cap non tornerebbero
+# i runner e la deattivazione li marcherebbe stantii per errore).
+_CATALOGUE_BATCH = 100
 
 
 def _http_post_json(url, payload_dict, session_token, app_key):
@@ -74,22 +78,53 @@ def _http_navigation(session_token, app_key):
         return _json.loads(resp.read().decode("utf-8", "replace"))
 
 
-def _http_catalogue(market_ids, session_token, app_key):
-    """Default transport di listMarketCatalogue (.it), via JSON-RPC read-only."""
-    payload = {
-        "jsonrpc": "2.0",
-        "method": "SportsAPING/v1.0/listMarketCatalogue",
-        "params": {
-            "filter": {"marketIds": list(market_ids)},
-            "marketProjection": ["EVENT", "MARKET_DESCRIPTION", "RUNNER_DESCRIPTION"],
-            "maxResults": _CATALOGUE_MAX_RESULTS,
-        },
-        "id": 1,
-    }
-    data = _http_post_json(_CATALOGUE_URL, payload, session_token, app_key)
-    if isinstance(data, dict):
-        return data.get("result") or []
-    return []
+def _jsonrpc_result(data):
+    """Estrae `result` da una risposta JSON-RPC, **sollevando** su `error` o su
+    `result` mancante (es. sessione scaduta, app key errata, `TOO_MUCH_DATA`).
+
+    Trattare l'errore come catalogue vuoto sarebbe pericoloso: la sync registrerebbe
+    un run OK e poi disattiverebbe le selezioni perché «non riviste» (Codex). Il
+    messaggio riporta solo il codice di errore, mai contenuti sensibili."""
+    if not isinstance(data, dict):
+        raise RuntimeError("Risposta listMarketCatalogue non valida (formato).")
+    err = data.get("error")
+    if err:
+        code = err.get("code") if isinstance(err, dict) else err
+        detail = ""
+        if isinstance(err, dict):
+            aping = (err.get("data") or {}).get("APINGException") or {}
+            detail = aping.get("errorCode") or ""
+        raise RuntimeError(
+            f"Errore listMarketCatalogue dall'Exchange (code={code} {detail}).".strip())
+    if "result" not in data:
+        raise RuntimeError("Risposta listMarketCatalogue priva di 'result'.")
+    return data["result"] or []
+
+
+def _http_catalogue(market_ids, session_token, app_key, *, _poster=None):
+    """Default transport di listMarketCatalogue via JSON-RPC read-only (host .com).
+
+    Spezza i market in chunk da `_CATALOGUE_BATCH` (`maxResults` è un cap sul totale)
+    e aggrega i risultati; solleva su errore dell'API (`_jsonrpc_result`). `_poster`
+    è iniettabile per i test (default: chiamata HTTP reale)."""
+    poster = _poster or _http_post_json
+    ids = [str(m) for m in market_ids]
+    results = []
+    for i in range(0, len(ids), _CATALOGUE_BATCH):
+        chunk = ids[i:i + _CATALOGUE_BATCH]
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "SportsAPING/v1.0/listMarketCatalogue",
+            "params": {
+                "filter": {"marketIds": chunk},
+                "marketProjection": ["EVENT", "MARKET_DESCRIPTION", "RUNNER_DESCRIPTION"],
+                "maxResults": len(chunk),
+            },
+            "id": 1,
+        }
+        data = poster(_CATALOGUE_URL, payload, session_token, app_key)
+        results.extend(_jsonrpc_result(data))
+    return results
 
 
 def event_type_ids_for(sports) -> set:

@@ -246,7 +246,48 @@ def test_market_type_dal_catalogue_persistito(db):
 
 # ── endpoint italiani (Codex) ─────────────────────────────────────────────────
 
-def test_endpoint_italiani():
+def test_endpoint_navigation_it_catalogue_com():
+    # NAV sull'host .it; CATALOGUE su api.betfair.com (docs Betfair Italy).
     from xtrader_bridge.betfair import catalogue_client as cc
     assert "api.betfair.it" in cc._NAV_URL and "/it/" in cc._NAV_URL
-    assert "api.betfair.it" in cc._CATALOGUE_URL
+    assert cc._CATALOGUE_URL == "https://api.betfair.com/exchange/betting/json-rpc/v1"
+
+
+# ── default transport catalogue: errori e chunking (Codex) ────────────────────
+
+def test_jsonrpc_result_solleva_su_errore_e_result_mancante():
+    from xtrader_bridge.betfair import catalogue_client as cc
+    with pytest.raises(RuntimeError):
+        cc._jsonrpc_result({"error": {"code": -32099,
+                                      "data": {"APINGException": {"errorCode": "TOO_MUCH_DATA"}}}})
+    with pytest.raises(RuntimeError):
+        cc._jsonrpc_result({})                      # niente result
+    with pytest.raises(RuntimeError):
+        cc._jsonrpc_result("non un dict")
+    assert cc._jsonrpc_result({"result": [{"marketId": "1.1"}]}) == [{"marketId": "1.1"}]
+
+
+def test_http_catalogue_chunk_e_aggrega():
+    from xtrader_bridge.betfair import catalogue_client as cc
+    calls = []
+
+    def _poster(url, payload, token, app_key):
+        chunk = payload["params"]["filter"]["marketIds"]
+        calls.append(len(chunk))
+        # ogni market torna un item con quel marketId
+        return {"result": [{"marketId": m} for m in chunk]}
+
+    ids = [f"1.{i}" for i in range(250)]            # 250 market → 3 chunk (100,100,50)
+    out = cc._http_catalogue(ids, "tok", "key", _poster=_poster)
+    assert calls == [100, 100, 50]
+    assert len(out) == 250
+
+
+def test_http_catalogue_solleva_su_errore_api():
+    from xtrader_bridge.betfair import catalogue_client as cc
+
+    def _poster(url, payload, token, app_key):
+        return {"error": {"code": -32099}}
+
+    with pytest.raises(RuntimeError):
+        cc._http_catalogue(["1.1"], "tok", "key", _poster=_poster)
