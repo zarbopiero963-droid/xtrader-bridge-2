@@ -54,7 +54,10 @@ def _redact(value):
     if isinstance(value, str):
         return event_log.redact_secrets(value)
     if isinstance(value, dict):
-        return {k: _redact(v) for k, v in value.items()}
+        # Redatte anche le CHIAVI stringa: un token usato come chiave non deve restare
+        # in chiaro né nell'evento ritornato né nella riga persistita (review Codex).
+        return {(event_log.redact_secrets(k) if isinstance(k, str) else k): _redact(v)
+                for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_redact(v) for v in value]
     return value
@@ -76,13 +79,34 @@ def make_event(event_type, data=None, *, now=None, event_id=None) -> dict:
     return {"id": eid, "ts": float(ts), "type": event_type, "data": payload}
 
 
+def _ends_without_newline(path: str) -> bool:
+    """`True` se il file esiste, è non vuoto e NON termina con `\\n` (cioè l'ultima
+    riga è troncata, es. da un crash a metà append)."""
+    try:
+        if os.path.getsize(path) == 0:
+            return False
+        with open(path, "rb") as f:
+            f.seek(-1, os.SEEK_END)
+            return f.read(1) != b"\n"
+    except OSError:
+        return False
+
+
 def _append_line(path: str, line: str) -> None:
-    """Appende UNA riga al file (creando la cartella se serve) con `flush`+`fsync`,
-    così l'evento è su disco prima del ritorno."""
+    """Appende UNA riga al file (creando la cartella se serve) con `flush`+`fsync`.
+
+    Se l'ultima riga esistente è TRONCATA (nessun `\\n` finale, es. crash a metà
+    append), inserisce prima un `\\n` separatore: così la riga troncata resta isolata
+    sulla sua riga (verrà saltata da `read_events`) e il NUOVO evento finisce su una
+    riga pulita — senza questo, l'append si concatenerebbe alla riga parziale e anche
+    il nuovo evento andrebbe perso (review Codex P1)."""
     directory = os.path.dirname(path)
     if directory:
         os.makedirs(directory, exist_ok=True)
+    needs_separator = _ends_without_newline(path)
     with open(path, "a", encoding="utf-8") as f:
+        if needs_separator:
+            f.write("\n")
         f.write(line + "\n")
         f.flush()
         os.fsync(f.fileno())

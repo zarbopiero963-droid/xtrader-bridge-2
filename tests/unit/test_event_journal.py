@@ -41,9 +41,15 @@ def test_now_non_finito_rifiutato(tmp_path):
     assert ej.read_events(p) == []
 
 
+# Token finto COSTRUITO PER CONCATENAZIONE: il sorgente non contiene una stringa
+# token-shaped contigua (così non fa scattare il secret-scan del repo), ma a runtime
+# forma un valore che matcha la regex di redazione (`\d{6,}:[A-Za-z0-9_-]{20,}`).
+_FAKE_TOKEN = "1234567890" + ":" + ("A" * 35)
+
+
 def test_token_telegram_redatto(tmp_path):
     p = str(tmp_path / "journal.jsonl")
-    token = "123456789:AAEjklReAl_Tok3n_xxxxxxxxxxxxxxxxxxx"
+    token = _FAKE_TOKEN
     ej.append_event(p, "RECONNECT", {"err": f"bot {token} giù", "nested": {"t": token}},
                     now=1.0, event_id="z")
     raw = (tmp_path / "journal.jsonl").read_text(encoding="utf-8")
@@ -51,6 +57,34 @@ def test_token_telegram_redatto(tmp_path):
     assert "[REDACTED_TOKEN]" in raw
     ev = ej.read_events(p)[0]
     assert token not in json.dumps(ev)                        # redatto anche nel payload nidificato
+
+
+def test_token_redatto_anche_nelle_chiavi(tmp_path):
+    # review Codex: un token usato come CHIAVE del payload non deve restare in chiaro
+    # né nell'evento ritornato né sulla riga persistita.
+    p = str(tmp_path / "journal.jsonl")
+    ev = ej.append_event(p, "RECONNECT", {_FAKE_TOKEN: "x"}, now=1.0, event_id="k")
+    assert _FAKE_TOKEN not in json.dumps(ev)                  # redatto nell'evento ritornato
+    raw = (tmp_path / "journal.jsonl").read_text(encoding="utf-8")
+    assert _FAKE_TOKEN not in raw                             # redatto sulla riga persistita
+    assert "[REDACTED_TOKEN]" in next(iter(ej.read_events(p)[0]["data"].keys()))
+
+
+def test_evento_dopo_coda_troncata_non_va_perso(tmp_path):
+    # review Codex P1: una riga finale TRONCATA (crash a metà append, niente \n finale)
+    # non deve far perdere il PROSSIMO evento appeso. Il separatore in _append_line isola
+    # la riga parziale (saltata) e mette il nuovo evento su una riga pulita.
+    p = tmp_path / "journal.jsonl"
+    good = json.dumps({"id": "1", "ts": 1.0, "type": "START", "data": {}})
+    # riga valida + riga parziale SENZA newline finale (come dopo un crash)
+    p.write_text(good + "\n" + '{"id": "2", "ts": 2.0, "type": "CSV_WR', encoding="utf-8")
+
+    ej.append_event(str(p), "CSV_WRITTEN", {"rows": 1}, now=3.0, event_id="3")
+
+    events = ej.read_events(str(p))
+    ids = [e["id"] for e in events]
+    assert "1" in ids and "3" in ids        # vecchio valido + nuovo evento PRESERVATI
+    assert "2" not in ids                    # la riga troncata resta saltata (non corrompe)
 
 
 def test_append_only_preserva_ordine_e_id_univoci(tmp_path):
