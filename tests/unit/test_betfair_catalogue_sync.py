@@ -176,3 +176,77 @@ def test_sync_passa_dal_guard_read_only(db, monkeypatch):
     monkeypatch.setattr(safety, "is_forbidden_betting_op", lambda op: True)
     with pytest.raises(safety.ReadOnlyViolation):
         _sync(db).sync(["Calcio"])
+
+
+# ── selezioni di un mercato sparito vengono disattivate (Codex) ───────────────
+
+def test_selezioni_di_mercato_sparito_disattivate(db):
+    _sync(db).sync(["Calcio"])
+    assert db.count_active("betfair_selections") == 3
+    # seconda sync: il mercato 1.101 non c'è più nel menu
+    empty = CatalogueSync(db, navigation_transport=lambda: {"type": "GROUP", "children": [
+        {"type": "EVENT_TYPE", "id": "1", "name": "Soccer", "children": []}]},
+        catalogue_transport=lambda mids: [])
+    empty.sync(["Calcio"])
+    assert db.count_active("betfair_markets") == 0
+    assert db.count_active("betfair_selections") == 0   # niente SelectionId stantii
+
+
+# ── transport di default: niente sync "a vuoto" (Codex) ───────────────────────
+
+def test_sync_senza_transport_ne_sessione_fallisce(db):
+    # Nessun transport iniettato e nessuna sessione/app_key → errore esplicito.
+    with pytest.raises(RuntimeError):
+        CatalogueSync(db).sync(["Calcio"])
+
+
+# ── rollback su fallimento del catalogue (Codex) ──────────────────────────────
+
+def test_catalogue_fallito_fa_rollback(db):
+    _sync(db).sync(["Calcio"])                       # stato iniziale: e1 attivo
+    before_events = {e["event_id"] for e in db.get_events()}
+
+    def _boom(mids):
+        raise RuntimeError("catalogue di rete fallito (simulato)")
+
+    # nuova sync con un EVENTO NUOVO ma catalogue che esplode a metà
+    menu2 = {"type": "GROUP", "children": [
+        {"type": "EVENT_TYPE", "id": "1", "name": "Soccer", "children": [
+            {"type": "EVENT", "id": "e_new", "name": "Roma v Lazio", "children": [
+                {"type": "MARKET", "id": "1.999", "name": "Match Odds",
+                 "marketType": "MATCH_ODDS"}]}]}]}
+    failing = CatalogueSync(db, navigation_transport=lambda: menu2,
+                            catalogue_transport=_boom)
+    with pytest.raises(RuntimeError):
+        failing.sync(["Calcio"])
+    # rollback: l'evento nuovo NON è stato scritto e quello vecchio resta com'era
+    after_events = {e["event_id"] for e in db.get_events()}
+    assert after_events == before_events
+    assert "e_new" not in after_events
+    assert db.count_active("betfair_events") == 1   # e1 ancora attivo (non disattivato)
+
+
+# ── metadati mercato dal catalogue persistiti (Codex) ─────────────────────────
+
+def test_market_type_dal_catalogue_persistito(db):
+    # Il menu non porta marketType; il catalogue sì → deve finire nel DB.
+    menu = {"type": "GROUP", "children": [
+        {"type": "EVENT_TYPE", "id": "1", "name": "Soccer", "children": [
+            {"type": "EVENT", "id": "e1", "name": "Inter v Milan", "children": [
+                {"type": "MARKET", "id": "1.101", "name": "Match Odds"}]}]}]}  # niente marketType
+    cat = [{"marketId": "1.101", "marketName": "Match Odds",
+            "description": {"marketType": "MATCH_ODDS"},
+            "event": {"id": "e1", "name": "Inter v Milan"},
+            "runners": [{"selectionId": 1, "runnerName": "Inter", "handicap": 0}]}]
+    CatalogueSync(db, navigation_transport=lambda: menu,
+                  catalogue_transport=lambda mids: cat).sync(["Calcio"])
+    market = db.fetchall("betfair_markets")[0]
+    assert market["market_type"] == "MATCH_ODDS"
+
+
+# ── endpoint italiani (Codex) ─────────────────────────────────────────────────
+
+def test_endpoint_italiani():
+    from xtrader_bridge.betfair import catalogue_client as cc
+    assert "api.betfair.it" in cc._NAV_URL and "/it/" in cc._NAV_URL
+    assert "api.betfair.it" in cc._CATALOGUE_URL

@@ -132,11 +132,46 @@ class BetfairLocalDB:
         # serializzate dal lock sottostante.
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._lock = threading.Lock()
+        # RLock (rientrante): `transaction()` tiene il lock mentre i metodi di scrittura
+        # lo riacquisiscono. `_tx_depth>0` differisce i commit fino a fine transazione.
+        self._lock = threading.RLock()
+        self._tx_depth = 0
         with self._lock:
             self._conn.executescript(_SCHEMA)
             self._migrate()
             self._conn.commit()
+
+    def _commit_if_needed(self) -> None:
+        """Commit solo se NON siamo dentro una `transaction()` (altrimenti il commit
+        è rimandato alla fine, così un fallimento a metà sync fa rollback di tutto)."""
+        if self._tx_depth == 0:
+            self._conn.commit()
+
+    def transaction(self):
+        """Context manager: raggruppa più scritture in UNA transazione. Se il blocco
+        solleva, fa `rollback` (il dizionario non resta in uno stato parziale); se
+        completa, fa `commit`. Rientrante (nesting → un solo commit esterno)."""
+        db = self
+
+        class _Tx:
+            def __enter__(self_):
+                db._lock.acquire()
+                db._tx_depth += 1
+                return db
+
+            def __exit__(self_, exc_type, exc, tb):
+                try:
+                    if db._tx_depth == 1:
+                        if exc_type is None:
+                            db._conn.commit()
+                        else:
+                            db._conn.rollback()
+                finally:
+                    db._tx_depth -= 1
+                    db._lock.release()
+                return False
+
+        return _Tx()
 
     def _migrate(self) -> None:
         """Migrazioni idempotenti per DB creati da versioni precedenti dello schema.
@@ -253,7 +288,7 @@ class BetfairLocalDB:
                 "UPDATE betfair_meta SET value = value + 1 WHERE key='run_counter'")
             row = self._conn.execute(
                 "SELECT value FROM betfair_meta WHERE key='run_counter'").fetchone()
-            self._conn.commit()
+            self._commit_if_needed()
             return int(row["value"])
 
     # ── sync run ─────────────────────────────────────────────────────────────
@@ -265,7 +300,7 @@ class BetfairLocalDB:
                 """INSERT INTO betfair_sync_runs (started_at, finished_at, status, summary)
                    VALUES (?, ?, ?, ?)""",
                 (started_at, finished_at, status, summary))
-            self._conn.commit()
+            self._commit_if_needed()
             return cur.lastrowid
 
     # ── deattivazione dei record non più visti ───────────────────────────────
@@ -295,7 +330,7 @@ class BetfairLocalDB:
             params.append(str(scope_value))
         with self._lock:
             cur = self._conn.execute(sql, params)
-            self._conn.commit()
+            self._commit_if_needed()
             return cur.rowcount
 
     # ── letture (per viewer/test) ────────────────────────────────────────────
@@ -307,6 +342,20 @@ class BetfairLocalDB:
             row = self._conn.execute(
                 f"SELECT COUNT(*) AS n FROM {table} WHERE active=1").fetchone()
             return int(row["n"])
+
+    def market_ids_for_sports(self, event_type_ids):
+        """Tutti i `market_id` (anche inattivi) dei mercati che appartengono agli
+        sport dati: serve al sync per disattivare le selezioni dei mercati spariti,
+        non solo di quelli rivisti (Codex)."""
+        ids = [str(x) for x in (event_type_ids or ())]
+        if not ids:
+            return []
+        placeholders = ",".join("?" * len(ids))
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT market_id FROM betfair_markets WHERE event_type_id IN ({placeholders})",
+                ids).fetchall()
+            return [r["market_id"] for r in rows]
 
     def get_selections(self, market_id):
         with self._lock:
@@ -336,4 +385,4 @@ class BetfairLocalDB:
     def _exec(self, sql, params):
         with self._lock:
             self._conn.execute(sql, params)
-            self._conn.commit()
+            self._commit_if_needed()
