@@ -19,6 +19,7 @@ qui `should_reconnect` è forzato per pilotare DETERMINISTICAMENTE il ramo di re
 indipendentemente da `python-telegram-bot` (presente o meno nell'ambiente).
 """
 
+import inspect
 import threading
 import time
 
@@ -152,21 +153,43 @@ def test_stop_durante_backoff_vivo_interrompe_subito(make_app, app_mod, monkeypa
     # polling SEMPRE fallito → il supervisor resta nel ciclo di backoff.
     _install_builder(monkeypatch, app_mod, apps, lambda index: _TgApp(fail=True, on_success=lambda: None))
 
+    stop_at = {}
+
     def _stopper():
         # attende che il supervisor sia ENTRATO nel backoff (attempt incrementato
-        # subito prima di `_reconnect_wait`), poi simula lo STOP (come `_stop`).
+        # subito prima di `_reconnect_wait`), poi simula lo STOP (come `_stop`) e
+        # registra l'ISTANTE dello stop per misurare la latenza di sblocco.
         deadline = time.monotonic() + 5.0
         while a._reconnect_attempt < 1 and time.monotonic() < deadline:
             time.sleep(0.005)
         a._running = False
+        stop_at["t"] = time.monotonic()
         a._stop_event.set()
 
     th = threading.Thread(target=_stopper)
     th.start()
-    t0 = time.monotonic()
     app_mod.App._run_bot(a, {"bot_token": "x"}, 4)
-    elapsed = time.monotonic() - t0
+    returned_at = time.monotonic()
     th.join()
 
     assert a._reconnect_attempt >= 1     # è davvero entrato nel backoff del supervisor
-    assert elapsed < 5.0                  # lo STOP ha sbloccato un'attesa da 30s → interrompibile
+    assert "t" in stop_at                # lo STOP è scattato mentre era in backoff
+    # latenza di sblocco misurata DALLO STOP: deve essere quasi immediata (≪ 30s di
+    # backoff). Soglia stretta: un'attesa ininterrompibile (anche di pochi secondi)
+    # farebbe fallire il test (review Codex: "sblocca SUBITO", non "entro 5s").
+    assert returned_at - stop_at["t"] < 1.0
+
+
+def test_boot_clear_stale_csv_precede_lo_scheduling_auto_start(app_mod):
+    """#110/1: guardia di REGRESSIONE sull'ordine in `App.__init__` — la pulizia del CSV
+    stantio all'avvio (`_clear_stale_csv("all'avvio")`) deve precedere lo scheduling
+    dell'auto-start (`_maybe_auto_start`). `__init__` non è istanziabile headless (apre
+    Tk), quindi si ispeziona il SORGENTE reale del metodo: se un domani qualcuno
+    schedulasse l'auto-start prima del cleanup, una riga stantia potrebbe sopravvivere
+    fino all'auto-start e questo test fallirebbe (la matrice non resterebbe verde a torto)."""
+    src = inspect.getsource(app_mod.App.__init__)
+    i_clear = src.find('_clear_stale_csv("all')
+    i_auto = src.find("_maybe_auto_start")
+    assert i_clear != -1, "chiamata _clear_stale_csv(\"all'avvio\") non trovata in __init__"
+    assert i_auto != -1, "scheduling _maybe_auto_start non trovato in __init__"
+    assert i_clear < i_auto, "il cleanup del CSV all'avvio deve precedere l'auto-start"

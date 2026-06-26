@@ -10,7 +10,7 @@ funzionalità (decisione del proprietario).
 
 | # | Voce | Stato | Evidenza |
 |---|---|---|---|
-| 1 | App boot crash recovery: CSV con riga → cleanup prima di auto-start | COVERED* | `tests/safety/test_csv_atomic.py::test_clear_stale_csv_rimuove_riga_orfana` (funzione) · ordine `__init__` = smoke manuale (GUI non istanziabile headless) |
+| 1 | App boot crash recovery: CSV con riga → cleanup prima di auto-start | COVERED | funzione: `tests/safety/test_csv_atomic.py::test_clear_stale_csv_rimuove_riga_orfana` · ordine `__init__` (cleanup PRIMA dell'auto-start): guardia di regressione `tests/integration/test_reconnect_110.py::test_boot_clear_stale_csv_precede_lo_scheduling_auto_start` |
 | 2 | App auto-start dry-run: parte solo se token/chat ok | COVERED | `tests/unit/test_autostart.py` (decisione) |
 | 3 | App auto-start real: chiede conferma; se no non parte | COVERED* | `tests/unit/test_autostart.py::*needs_real_mode_confirmation* ` (decisione) · `messagebox` GUI = manuale |
 | 4 | Mock Telegram `drop_pending_updates=True` (+allowed_updates) | COVERED | `tests/integration/test_listener_dispatch.py::test_start_polling_scarta_arretrati_e_ammette_channel_post` (#161) |

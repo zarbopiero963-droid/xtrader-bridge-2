@@ -68,27 +68,33 @@
 ## I. Disaster recovery / resilienza (#109 · #110) — manuale Windows
 
 Passi **manuali** non automatizzabili in CI, riferiti dalla matrice
-`resilience_110_matrix.md` (voci 16-19). Eseguire in **DRY_RUN**, stake basso.
+`resilience_110_matrix.md` (voci 16-19). **Attenzione alla modalità**: in **DRY_RUN**
+il CSV operativo NON viene scritto (`live_guard` → `DRY_RUN`), quindi gli scenari che
+devono produrre una riga attiva (power-cut, XTrader) vanno eseguiti in **modalità REALE
+con XTrader in *Modalità Simulazione*** e stake basso/limiti chiari; gli scenari di sola
+rete/auto-start possono restare in DRY_RUN.
 
-- [ ] **#110/17 — Power-cut con CSV attivo.** Avvia in DRY_RUN, fai scrivere un
-      segnale nel CSV, poi spegni brutalmente VM/PC (o `kill -9`). Riapri l'app.
-      Atteso: CSV a **solo header** PRIMA di START (nessuna riga orfana); il log
-      segnala il cleanup all'avvio; il dedupe riconosce un duplicato recente; il
-      daily count non si azzera se era stato salvato.
-- [ ] **#110/18 — Telegram live outage / reconnect.** Avvia il listener, stacca la
-      rete ~5 min e invia segnali nel canale mentre è offline; riattacca la rete.
-      Atteso: stato **RICONNESSIONE…** con backoff; i messaggi vecchi (oltre
-      `max_signal_age`) NON vengono scritti; solo i nuovi entro soglia sono processati.
+- [ ] **#110/17 — Power-cut con CSV attivo.** *(modalità REALE + XTrader in Simulazione,
+      stake basso — in DRY_RUN il CSV non verrebbe scritto e lo scenario non sarebbe
+      esercitato.)* Fai scrivere un segnale nel CSV, poi spegni brutalmente VM/PC (o
+      `kill -9`). Riapri l'app. Atteso: CSV a **solo header** PRIMA di START (nessuna riga
+      orfana); il log segnala il cleanup all'avvio; il dedupe riconosce un duplicato
+      recente; il daily count non si azzera se era stato salvato.
+- [ ] **#110/18 — Telegram live outage / reconnect.** *(DRY_RUN va bene: non serve
+      scrivere il CSV.)* Avvia il listener, stacca la rete ~5 min e invia segnali nel
+      canale mentre è offline; riattacca la rete. Atteso: stato **RICONNESSIONE…** con
+      backoff; i messaggi vecchi (oltre `max_signal_age`) NON vengono processati; solo i
+      nuovi entro soglia passano.
 - [ ] **#110/16 — Windows reboot + auto-start.** Configura l'app in Startup
       folder / Task Scheduler con `auto_start_listener=true`. Caso **DRY_RUN**:
       riavvia il PC → l'app parte, il listener parte da solo, il CSV è pulito.
       Caso **REALE**: riavvia → l'app parte e **chiede conferma**; senza click non
       scrive nulla.
-- [ ] **#110/19 — XTrader sandbox (lettura singola).** XTrader aperto in
-      **Modalità Simulazione** con refresh automatico, CSV path reale. Fai arrivare
-      un segnale valido: XTrader lo legge **una sola volta**; allo scadere del timeout
-      il CSV torna a solo header; riavviando XTrader non rilegge segnali vecchi; il
-      file non resta lockato.
+- [ ] **#110/19 — XTrader sandbox (lettura singola).** *(modalità REALE + XTrader in
+      *Modalità Simulazione*, stake basso: serve una riga reale nel CSV perché XTrader la
+      legga.)* Refresh automatico attivo, CSV path reale. Fai arrivare un segnale valido:
+      XTrader lo legge **una sola volta**; allo scadere del timeout il CSV torna a solo
+      header; riavviando XTrader non rilegge segnali vecchi; il file non resta lockato.
 
 ## H. Rilascio
 
