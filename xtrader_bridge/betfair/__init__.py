@@ -15,20 +15,29 @@ e il motore di sync. Vincoli **non negoziabili**, validi per ogni modulo qui den
   private key, headers e payload/response di login non vanno mai nei log. Il
   `sessionToken` vive **solo in RAM** (mai su disco).
 
-PR-P1 introduce solo lo scheletro e il guard read-only; i moduli funzionali
-arrivano nelle PR successive (vedi `docs/audit/blocco1_personale_roadmap.md`).
+PR-P1 ha introdotto lo scheletro e il guard read-only; PR-P2 aggiunge lo storage
+locale sicuro delle credenziali, la sessione RAM-only e la redazione dei log. I
+moduli funzionali (auth, dizionario, sync) arrivano nelle PR successive (vedi
+`docs/audit/blocco1_personale_roadmap.md`).
 """
 
+from . import credential_store, log_safety
+from .credential_store import BetfairCredentials
 from .safety import (
     FORBIDDEN_BETTING_OPS,
     ReadOnlyViolation,
     assert_read_only,
     is_forbidden_betting_op,
 )
+from .session import BetfairSession
 
 __all__ = [
     "FORBIDDEN_BETTING_OPS",
     "ReadOnlyViolation",
     "assert_read_only",
     "is_forbidden_betting_op",
+    "BetfairCredentials",
+    "BetfairSession",
+    "credential_store",
+    "log_safety",
 ]

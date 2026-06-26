@@ -37,8 +37,8 @@ non vengono duplicate.
 
 | PR     | Obiettivo                                   | Aree principali                                                        | Stato |
 |--------|---------------------------------------------|-----------------------------------------------------------------------|-------|
-| PR-P1  | Repository Foundation solo Bridge           | `betfair/` skeleton, guard read-only, hygiene test, questa roadmap     | in corso |
-| PR-P2  | Safe Logging + Secure Local Storage         | storage cifrato credenziali, sessionToken RAM-only, redaction filter   | TODO  |
+| PR-P1  | Repository Foundation solo Bridge           | `betfair/` skeleton, guard read-only, hygiene test, questa roadmap     | merged (#165) |
+| PR-P2  | Safe Logging + Secure Local Storage         | storage cifrato credenziali, sessionToken RAM-only, redaction filter   | in corso |
 | PR-P3  | Tab Betfair Sync locale (GUI)               | tab GUI credenziali/sport/giorni/stato, pulsanti                       | TODO  |
 | PR-P4  | Betfair Auth Client Italia                  | login/logout cert + Delayed App Key, token in RAM                      | TODO  |
 | PR-P5  | Database Locale Betfair Multi-sport         | tabelle locali sport/comp/event/market/selection/sync/mapping         | TODO  |
@@ -50,6 +50,28 @@ non vengono duplicate.
 | PR-P11 | Dictionary Viewer Locale                    | viewer sola-lettura del dizionario Betfair                           | TODO  |
 | PR-P12 | Telegram → Parser → Mapping → CSV XTrader   | integrazione flusso con fallback nomi                                 | TODO  |
 | PR-P13 | Build EXE Personale                         | solo `XTraderBridge.exe`, nessun segreto/cert incluso                 | TODO  |
+
+## Moduli implementati
+
+### PR-P1 — `xtrader_bridge/betfair/`
+- `safety.py`: guard read-only (`FORBIDDEN_BETTING_OPS`, `assert_read_only`,
+  `is_forbidden_betting_op`, `ReadOnlyViolation`). Unico punto autorizzato a nominare
+  le operazioni di scommessa vietate.
+
+### PR-P2 — Safe Logging + Secure Local Storage
+- `log_safety.py`: redazione dei log Betfair. `redact()` maschera header sensibili
+  (`X-Authentication`, `X-Application`), `sessionToken`/`session_token` e qualsiasi
+  segreto registrato via `register_secret()`/`unregister_secret()`.
+  `SecretRedactionFilter` (logging.Filter) applica la redazione a ogni record;
+  `quiet_http_libraries()` alza a WARNING i logger `requests`/`urllib3` (che a DEBUG
+  riversano header/payload); `install_global_log_redaction()` installa il tutto.
+- `session.py`: `BetfairSession` custodisce il `sessionToken` **solo in RAM** (mai su
+  disco), non lo espone in `repr`/`str`, e lo registra/de-registra dai log a
+  `set_token`/`clear`.
+- `credential_store.py`: storage locale sicuro delle credenziali Betfair (Delayed App
+  Key, username, password, percorsi cert/key) nel **keyring di sistema** (stesso
+  pattern fail-safe di `token_store`). `masked()` mostra i segreti come `••••••` alla
+  riapertura; i percorsi file restano in chiaro. Il `sessionToken` non è mai salvato.
 
 ## Definition of Done (blocco personale)
 
