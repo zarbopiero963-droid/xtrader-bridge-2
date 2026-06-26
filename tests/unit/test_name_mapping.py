@@ -33,7 +33,9 @@ def test_get_entries_pulisce_righe_vuote():
         "non-un-dict",                              # rumore → scartato
     ]}}
     entries = nm.get_entries(cfg, "P")
-    assert entries == [{"country": "", "betfair": "Inter", "provider": "Internazionale"}]
+    # PR-P10: la riga ripulita include ora `sport` (""=agnostico, retro-compatibile).
+    assert entries == [{"country": "", "betfair": "Inter", "provider": "Internazionale",
+                        "sport": ""}]
 
 
 def test_profili_assenti_o_malformati_non_esplodono():
@@ -51,7 +53,7 @@ def test_set_entries_immutabile_e_pulisce():
     ])
     assert cfg == {}                                    # originale invariato
     assert nm.get_entries(out, "Liga") == [
-        {"country": "", "betfair": "Real", "provider": "Real Madrid"}]
+        {"country": "", "betfair": "Real", "provider": "Real Madrid", "sport": ""}]
 
 
 def test_add_profile_non_sovrascrive_esistente():
@@ -331,3 +333,78 @@ def test_parser_builder_preserva_campi_mappatura_nel_roundtrip():
     # builder vuoto: default sicuri (nessuna mappatura).
     empty = ParserBuilder().to_def()
     assert empty.name_mapping_profiles == [] and empty.team_separator == ""
+
+
+# ── PR-P10: scoping per sport (multi-sport) ─────────────────────────────────────
+
+def test_get_entries_normalizza_sport():
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter", "provider": "Internazionale", "sport": "calcio"},   # case-insens.
+        {"betfair": "Sinner", "provider": "J. Sinner", "sport": "Cricket"},       # ignoto → ""
+        {"betfair": "Roma", "provider": "AS Roma"},                               # assente → ""
+    ]}}
+    entries = nm.get_entries(cfg, "P")
+    assert entries[0]["sport"] == "Calcio"     # canonicalizzato
+    assert entries[1]["sport"] == ""           # sport ignoto → agnostico (no nuovo failure mode)
+    assert entries[2]["sport"] == ""           # assente → agnostico
+
+
+def _sport_cfg():
+    return {"name_mappings": {"Multi": [
+        {"betfair": "Inter", "provider": "Internazionale", "sport": "Calcio"},
+        {"betfair": "Sinner", "provider": "Sinner T", "sport": "Tennis"},
+        {"betfair": "Milan", "provider": "ACM"},                       # agnostico
+    ]}}
+
+
+def test_resolve_team_scoping_per_sport():
+    profs = nm.entries_for_profiles(_sport_cfg(), ["Multi"])
+    # sport=Calcio: trova la voce Calcio e l'agnostica, NON la voce Tennis.
+    assert nm.resolve_team("Internazionale", profs, sport="Calcio") == "Inter"
+    assert nm.resolve_team("ACM", profs, sport="Calcio") == "Milan"           # agnostica vale
+    assert nm.resolve_team("Sinner T", profs, sport="Calcio") is None         # altro sport → saltata
+    # sport=Tennis: trova la voce Tennis e l'agnostica, NON la voce Calcio.
+    assert nm.resolve_team("Sinner T", profs, sport="Tennis") == "Sinner"
+    assert nm.resolve_team("Internazionale", profs, sport="Tennis") is None
+
+
+def test_resolve_team_senza_sport_nessun_filtro():
+    # sport assente/None/"" → comportamento legacy: tutte le righe considerate.
+    profs = nm.entries_for_profiles(_sport_cfg(), ["Multi"])
+    assert nm.resolve_team("Sinner T", profs) == "Sinner"
+    assert nm.resolve_team("Internazionale", profs, sport="") == "Inter"
+    assert nm.resolve_team("Internazionale", profs, sport=None) == "Inter"
+
+
+def test_resolve_event_name_scoping_per_sport():
+    cfg = {"name_mappings": {"M": [
+        {"betfair": "Inter", "provider": "Internazionale", "sport": "Calcio"},
+        {"betfair": "Milan", "provider": "ACM", "sport": "Calcio"},
+        {"betfair": "Inter", "provider": "Internazionale", "sport": "Basket"},   # altro sport
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["M"])
+    assert nm.resolve_event_name("Internazionale v ACM", "v", profs, sport="Calcio") == "Inter - Milan"
+    # con sport=Tennis nessuna voce combacia → fail-closed (None).
+    assert nm.resolve_event_name("Internazionale v ACM", "v", profs, sport="Tennis") is None
+
+
+def _sport_mapping_parser(sport):
+    defn = _mapping_parser(profiles=("Multi",), separator="v")
+    defn.sport = sport
+    return defn
+
+
+def test_pipeline_usa_lo_sport_del_parser_per_la_mappatura():
+    cfg = {"name_mappings": {"Multi": [
+        {"betfair": "Liverpool", "provider": "Liverpool FC", "sport": "Calcio"},
+        {"betfair": "Leeds", "provider": "Leeds Utd", "sport": "Calcio"},
+        {"betfair": "Liverpool", "provider": "Liverpool FC", "sport": "Tennis"},  # rumore altro sport
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["Multi"])
+    # Parser sport=Calcio → mappa con le voci Calcio.
+    res = pipe.build_validated_row(_sport_mapping_parser("Calcio"), _MSG, name_mapping_profiles=profs)
+    assert res.status == validator.VALID
+    assert res.row["EventName"] == "Liverpool - Leeds"
+    # Parser sport=Basket → nessuna voce Basket/agnostica per queste squadre → MAPPING_MISSING.
+    res2 = pipe.build_validated_row(_sport_mapping_parser("Basket"), _MSG, name_mapping_profiles=profs)
+    assert res2.status == pipe.MAPPING_MISSING

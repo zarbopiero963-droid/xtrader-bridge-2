@@ -45,8 +45,8 @@ non vengono duplicate.
 | PR-P6  | Betfair Navigation + Catalogue Sync         | navigation menu + listMarketCatalogue, upsert read-only               | merged (#170) |
 | PR-P7  | Sync Engine Manuale                         | motore unico sync manuale + riepilogo safe                            | merged (#171) |
 | PR-P8  | Betfair Auto Sync Scheduler locale          | scheduler locale auto login→sync→auto logout                          | merged (#172) |
-| PR-P9  | Parser Personalizzato Multi-sport / profilo | sport nel parser, fonte unica sport, campi core generici             | in corso |
-| PR-P10 | Name Mapping Multi-sport Locale             | tab mapping per sport/profilo, locale                                 | TODO  |
+| PR-P9  | Parser Personalizzato Multi-sport / profilo | sport nel parser, fonte unica sport, campi core generici             | merged (#173) |
+| PR-P10 | Name Mapping Multi-sport Locale             | sport per riga di mappatura, scoping in resolve_team                  | in corso |
 | PR-P11 | Dictionary Viewer Locale                    | viewer sola-lettura del dizionario Betfair                           | TODO  |
 | PR-P12 | Telegram → Parser → Mapping → CSV XTrader   | integrazione flusso con fallback nomi                                 | TODO  |
 | PR-P13 | Build EXE Personale                         | solo `XTraderBridge.exe`, nessun segreto/cert incluso                 | TODO  |
@@ -257,6 +257,28 @@ reale (i punti 5–6 sono coperti da smoke manuale; la logica pura è in unit te
 3. La logica (round-trip, validazione sport ignoto, builder, fonte unica) è coperta da
    unit test (`test_sports.py`, `test_parser_sport.py`); la sola resa dei widget Tk è
    verificata a mano.
+
+### PR-P10 — Name Mapping Multi-sport Locale
+- `name_mapping_store.py`: ogni riga di mappatura porta ora un campo **`sport`** opzionale
+  (uno fra `sports.SPORTS` o `""` = agnostica). `_clean_entry` lo normalizza
+  (case-insensitive; vuoto/ignoto → `""` agnostico, retro-compatibile). `resolve_team`
+  e `resolve_event_name` accettano un parametro **`sport`**: con sport valorizzato
+  considerano SOLO le righe di quello sport o agnostiche (helper `_entry_in_sport`),
+  saltando le righe taggate per un altro sport; sport assente/None/"" → nessun filtro
+  (comportamento legacy). Fonte sport unica: `xtrader_bridge/sports.py` (PR-P9).
+- `custom_pipeline.build_validated_row`: passa `defn.sport` a `resolve_event_name`, così
+  la mappatura nomi runtime è ristretta allo sport del parser (un nome non viene tradotto
+  con la voce di uno sport diverso → CSV corretto, fail-closed se non mappabile).
+- `name_mapping_gui.py`: la tabella del profilo ha una colonna **Sport** per riga
+  (tendina «(tutti gli sport)» + i 4 sport), letta/salvata in `_collect_rows`.
+- Nessun cambio del formato di config `name_mappings` (resta `{profilo: [righe]}`): il
+  campo `sport` è una chiave opzionale della riga → file pre-P10 restano validi e agnostici.
+
+#### Smoke test manuale PR-P10 (GUI)
+1. «🗺️ Mapping» → area Calcio: aggiungi una riga con Sport = Tennis, una con «(tutti gli
+   sport)»; salva e riapri: lo Sport per riga è persistito.
+2. La logica (normalizzazione sport, scoping resolve_team/resolve_event_name, pipeline per
+   sport) è coperta da unit test (`test_name_mapping.py`); la sola resa Tk è manuale.
 
 ## Definition of Done (blocco personale)
 

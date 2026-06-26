@@ -202,8 +202,11 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
     # runtime scarterebbe (Codex). Senza profili richiesti l'EventName resta invariato.
     if defn.name_mapping_profiles:
         sep = (defn.team_separator or "").strip() or _DEFAULT_TEAM_SEPARATOR
+        # Sport del parser (PR-P10): restringe la mappatura nomi alle righe di quello sport
+        # o agnostiche, così un nome non viene tradotto con la voce di uno sport diverso.
         mapped = name_mapping_store.resolve_event_name(
-            row.get("EventName", ""), sep, name_mapping_profiles or [])
+            row.get("EventName", ""), sep, name_mapping_profiles or [],
+            sport=getattr(defn, "sport", ""))
         if mapped is None:
             return PipelineResult(MAPPING_MISSING, row, list(res.missing_required))
         row = dict(row)

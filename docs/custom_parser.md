@@ -112,19 +112,28 @@ provider nei nomi Betfair/XTrader **prima** della scrittura:
 - l'`EventName` viene diviso, casa e trasferta tradotte e ricomposte nel formato
   XTrader `Casa - Trasferta` (`dizionario.compose_event_name`);
 - **multi-profilo**: i profili selezionati si applicano nell'ordine dato; in caso di
-  conflitto vince la **prima** corrispondenza (deterministico).
+  conflitto vince la **prima** corrispondenza (deterministico);
+- **multi-sport (PR-P10)**: ogni riga di mappatura ha una colonna **Sport** opzionale
+  (`Calcio`/`Tennis`/`Basket`/`Rugby Union` o **«(tutti gli sport)»** = agnostica). Se il
+  parser ha uno **Sport** impostato, la mappatura considera SOLO le righe di quello sport o
+  agnostiche, **saltando** le righe taggate per un altro sport: così un nome non viene
+  tradotto con una voce pensata per uno sport diverso (es. un "Milan" del basket non mappa
+  un evento di calcio). Parser senza sport / righe agnostiche → comportamento legacy
+  (nessun filtro), retro-compatibile.
 
 **Sicuro (fail-closed)**: se il separatore non si trova **o** una squadra non è nei
-profili, lo stato è `MAPPING_MISSING` → **nessuna riga CSV** (un evento sbagliato =
-scommessa sbagliata). Nessun nome squadra viene mai tradotto "a caso". Un parser
-**senza profili** non applica alcuna mappatura (`EventName` invariato,
+profili (per lo sport del parser), lo stato è `MAPPING_MISSING` → **nessuna riga CSV** (un
+evento sbagliato = scommessa sbagliata). Nessun nome squadra viene mai tradotto "a caso".
+Un parser **senza profili** non applica alcuna mappatura (`EventName` invariato,
 retro-compatibile).
 
 **GUI**: i profili si gestiscono nella scheda **Mapping** della finestra «🧰 Strumenti»
 (pulsante «🗺️ Mapping» nella finestra principale → `name_mapping_gui.MappingPanel`),
 **area ⚽ Calcio** (`NameMappingPanel`): selettore profilo (nuovo/rinomina/elimina) e
 tabella `Country | Betfair/XTrader | Provider`. La classe
-`NameMappingWindow` resta come finestra standalone (compatibilità). Nel **Parser
+`NameMappingWindow` resta come finestra standalone (compatibilità). La tabella ha ora
+una colonna **Sport** per riga (PR-P10: «(tutti gli sport)» = agnostica, oppure uno sport
+specifico). Nel **Parser
 Personalizzato** scegli
 il **separatore** squadre e spunti i **profili** da usare (checkbox multi-selezione);
 «Prova messaggio» risolve i profili dalla config e mostra l'`EventName` tradotto (o
