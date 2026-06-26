@@ -153,18 +153,28 @@ def test_stop_durante_backoff_vivo_interrompe_subito(make_app, app_mod, monkeypa
     # polling SEMPRE fallito → il supervisor resta nel ciclo di backoff.
     _install_builder(monkeypatch, app_mod, apps, lambda index: _TgApp(fail=True, on_success=lambda: None))
 
+    # Gate dello STOP sull'INGRESSO EFFETTIVO nel wait reale (review Codex): si avvolge
+    # il VERO `_reconnect_wait` con un segnale `entered` emesso un attimo prima di
+    # chiamarlo, così lo stopper attende di essere DENTRO il wait reale prima di settare
+    # `_stop_event`. Senza questo, il gate su `_reconnect_attempt>=1` (incrementato PRIMA
+    # del wait) potrebbe far settare lo STOP prima dell'attesa: una sleep ininterrompibile
+    # che controlla l'evento una sola volta passerebbe lo stesso.
+    real_wait = app_mod.App._reconnect_wait
+    entered = threading.Event()
+
+    def _wrapped_wait(delay):
+        entered.set()
+        return real_wait(a, delay)       # attesa REALE: `self._stop_event.wait(delay)`
+
+    a._reconnect_wait = _wrapped_wait
+
     stop_at = {}
 
     def _stopper():
-        # attende che il supervisor sia ENTRATO nel backoff (attempt incrementato
-        # subito prima di `_reconnect_wait`), poi simula lo STOP (come `_stop`) e
-        # registra l'ISTANTE dello stop per misurare la latenza di sblocco.
-        deadline = time.monotonic() + 5.0
-        while a._reconnect_attempt < 1 and time.monotonic() < deadline:
-            time.sleep(0.005)
-        a._running = False
-        stop_at["t"] = time.monotonic()
-        a._stop_event.set()
+        if entered.wait(5.0):            # attende l'ingresso nel wait REALE
+            a._running = False
+            stop_at["t"] = time.monotonic()
+            a._stop_event.set()
 
     th = threading.Thread(target=_stopper)
     th.start()
@@ -172,11 +182,10 @@ def test_stop_durante_backoff_vivo_interrompe_subito(make_app, app_mod, monkeypa
     returned_at = time.monotonic()
     th.join()
 
-    assert a._reconnect_attempt >= 1     # è davvero entrato nel backoff del supervisor
-    assert "t" in stop_at                # lo STOP è scattato mentre era in backoff
+    assert entered.is_set()              # è davvero entrato nel `_reconnect_wait` reale
+    assert "t" in stop_at                # lo STOP è scattato mentre era DENTRO il wait
     # latenza di sblocco misurata DALLO STOP: deve essere quasi immediata (≪ 30s di
-    # backoff). Soglia stretta: un'attesa ininterrompibile (anche di pochi secondi)
-    # farebbe fallire il test (review Codex: "sblocca SUBITO", non "entro 5s").
+    # backoff). Soglia stretta: un'attesa ininterrompibile farebbe fallire il test.
     assert returned_at - stop_at["t"] < 1.0
 
 

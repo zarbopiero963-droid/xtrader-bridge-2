@@ -15,11 +15,11 @@ funzionalità (decisione del proprietario).
 | 3 | App auto-start real: chiede conferma; se no non parte | COVERED* | `tests/unit/test_autostart.py::*needs_real_mode_confirmation* ` (decisione) · `messagebox` GUI = manuale |
 | 4 | Mock Telegram `drop_pending_updates=True` (+allowed_updates) | COVERED | `tests/integration/test_listener_dispatch.py::test_start_polling_scarta_arretrati_e_ammette_channel_post` (#161) |
 | 5 | Mock Telegram stale update → `_process` non chiamato | COVERED | `tests/integration/test_listener_dispatch.py::test_messaggio_vecchio_ignorato` (#161) |
-| 6 | Reconnect lifecycle: errore transitorio → shutdown → backoff → retry → reset | **NEW** | `tests/integration/test_reconnect_110.py::test_reconnect_lifecycle_errore_transitorio_ritenta_e_resetta` |
-| 7 | STOP durante backoff interrompe subito | **NEW** | `tests/integration/test_reconnect_110.py::test_stop_durante_backoff_interrompe_subito` |
+| 6 | Reconnect lifecycle: errore transitorio → shutdown → backoff → retry → reset | **NEW** | `tests/integration/test_reconnect_110.py::test_reconnect_lifecycle_chiude_il_vecchio_updater_e_ritenta` |
+| 7 | STOP durante backoff interrompe subito | **NEW** | `tests/integration/test_reconnect_110.py::test_stop_durante_backoff_vivo_interrompe_subito` |
 | 8 | No double poller: nuovo START invalida vecchio epoch | COVERED | `tests/integration/test_resilience_109.py::test_epoch_stale_non_avvia_un_secondo_poller` (#162) |
 | 9 | `_process` write failure rollback: queue/tracker/daily ripristinati | COVERED | `tests/integration/test_app_runtime_glue.py::test_process_write_failure_rollback_e_ritentabile` (#161) |
-| 10 | Crash dopo CSV write prima di guard save | COVERED* | `_save_guard_state` chiamato SOLO dopo write riuscita (`test_process_write_success_accoda_e_scrive`); su write fallita rollback (`test_process_write_failure_...`). Fail-safe: a restart CSV ripulito + coda non persistita |
+| 10 | Crash dopo CSV write prima di guard save | PARTIAL | Coperto: success-path (`test_process_write_success_accoda_e_scrive`) + rollback su write fallita (`test_process_write_failure_rollback_e_ritentabile`). NON simulata la finestra esatta "write riuscita → crash → prima di `_save_guard_state`": è un tradeoff fail-safe noto (issue #110 §4.4) — a restart il CSV è ripulito (niente riga orfana) e lo stato guard è best-effort persistito DOPO la write, quindi un crash in quella finestra può far "dimenticare" al dedupe/daily un segnale già scritto. Da blindare con un test mirato sul boundary, o accettato come design |
 | 11 | Daily state atomico: fsync / replace failure / corrupt | COVERED | `tests/unit/test_safety_guard.py::test_save_load_state_round_trip_senza_temporanei`, `::test_save_state_atomico_non_distrugge_il_file_su_errore`, `::test_load_state_file_assente_o_corrotto_ritorna_false` |
 | 12 | `_process_confirmation` write failure → retry breve | COVERED | `tests/integration/test_app_runtime_glue.py::test_confirmation_write_failure_segnale_rimosso_e_retry_breve` (#161) |
 | 13 | STOP durante confirmation retry: non riscrive dopo clear | COVERED | gate `_running`: `..._confirmation_gate_running_false_e_no_op` + `..._expire_tick_gate_running_false_non_riscrive` (#161) |
@@ -36,7 +36,8 @@ end-to-end su GUI reale / Windows / XTrader resta nella checklist manuale.
 
 ## Riepilogo
 - **NEW (questa PR):** 6, 7
-- **COVERED (esistenti, molti da #160/#161/#162):** 1,2,3,4,5,8,9,10,11,12,13,14,15
+- **COVERED (esistenti, molti da #160/#161/#162):** 1,2,3,4,5,8,9,11,12,13,14,15
+- **PARTIAL:** 10 — finestra di crash post-write/pre-guard-save non simulata (tradeoff fail-safe noto, vedi riga)
 - **MANUAL_ONLY (checklist release):** 16,17,18,19 — passi esatti in `docs/audit/release_checklist.md` §I
 - **FEATURE (decisione proprietario):** 20 — event journal transaction-grade
 
