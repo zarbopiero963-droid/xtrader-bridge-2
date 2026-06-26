@@ -899,6 +899,17 @@ class App(ctk.CTk):
             self._betfair_engine_obj = SyncEngine(db, self._betfair_session_obj())
         return self._betfair_engine_obj
 
+    def _betfair_id_resolver(self):
+        """Risolutore ID del dizionario Betfair locale per il flusso live (PR-P12),
+        **best-effort**: ritorna un `DictionaryResolver` sul DB locale, o `None` se il
+        dizionario non è disponibile (in tal caso il flusso resta a nomi: fallback nomi,
+        nessun blocco). Sola lettura: non scrive nulla e non fa rete."""
+        try:
+            from .betfair.dictionary_resolver import DictionaryResolver
+            return DictionaryResolver(self._betfair_sync_engine().db)
+        except Exception:   # noqa: BLE001 — best-effort: il flusso live non deve crashare
+            return None
+
     def _betfair_autosync_tick(self):
         """Tick periodico (mentre il bridge è APERTO) dell'auto-sync Betfair. La
         decisione e il ciclo (auto login→sync→auto logout) sono in `auto_sync`; qui
@@ -1519,7 +1530,11 @@ class App(ctk.CTk):
         # va sul main thread (`_process` gira sul thread del listener Telegram).
         self.after(0, lambda m=log_privacy.redact_message(text, full=payload_full), c=chat_id:
                    self._dbg(f"IN (chat {c or '?'}): {m}"))
-        result = signal_router.resolve_row(text, route, chat_id=chat_id)
+        # PR-P12: passa il risolutore ID del dizionario Betfair locale, così — dopo le
+        # mappature a nomi — la riga viene arricchita con EventId/MarketId/SelectionId se
+        # il dizionario trova un match univoco; altrimenti resta a nomi (fallback nomi).
+        result = signal_router.resolve_row(text, route, chat_id=chat_id,
+                                           id_resolver=self._betfair_id_resolver())
         if not result.placeable:
             detail = (", ".join(result.missing_required)
                       if result.missing_required else result.detail)

@@ -25,12 +25,14 @@ from . import (
     auth_client,
     catalogue_client,
     credential_store,
+    dictionary_resolver,
     dictionary_viewer,
     local_db,
     log_safety,
     sync_tab_controller,
 )
 from . import auto_sync, sync_engine
+from .dictionary_resolver import DictionaryResolver
 from .dictionary_viewer import DictionaryViewerController
 from .auth_client import BetfairAuthClient, CertificateError, LoginError
 from .auto_sync import AutoSyncScheduler, should_run as auto_sync_should_run
@@ -64,6 +66,8 @@ __all__ = [
     "BetfairLocalDB",
     "DictionaryViewerController",
     "dictionary_viewer",
+    "DictionaryResolver",
+    "dictionary_resolver",
     "CatalogueSync",
     "SyncEngine",
     "SyncResult",
