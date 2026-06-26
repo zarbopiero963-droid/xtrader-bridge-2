@@ -16,6 +16,7 @@ import customtkinter as ctk
 
 from .credential_store import BetfairCredentials
 from .session import BetfairSession
+from .auto_sync import normalize_hour
 from .sync_tab_controller import SPORTS, BetfairSyncController, normalize_days_ahead
 
 
@@ -27,11 +28,13 @@ class BetfairSyncPanel(ctk.CTkFrame):
     assenti, i pulsanti relativi restano comunque governati dal controller."""
 
     def __init__(self, master=None, session: BetfairSession = None,
-                 on_login=None, on_sync=None):
+                 on_login=None, on_sync=None, autosync=None, on_autosync_change=None):
         super().__init__(master)
         self.controller = BetfairSyncController(session=session)
         self._on_login = on_login
         self._on_sync = on_sync
+        self._autosync = autosync or {}
+        self._on_autosync_change = on_autosync_change
         self._sync_in_progress = False
         self._build_ui()
         self._reload()
@@ -65,15 +68,42 @@ class BetfairSyncPanel(ctk.CTkFrame):
         opts = ctk.CTkFrame(self)
         opts.pack(fill="x", padx=12, pady=6)
         ctk.CTkLabel(opts, text="Sport").grid(row=0, column=0, sticky="w", padx=8, pady=4)
+        # Stato iniziale delle checkbox: dagli sport salvati (auto-sync) se presenti,
+        # così riaprendo la tab NON si riselezionano tutti gli sport sovrascrivendo la
+        # lista ristretta scelta dall'utente (Codex). Lista assente → tutti attivi.
+        _saved_sports = self._autosync.get("sports")
         self._sport_vars = {}
         for j, sport in enumerate(SPORTS):
-            var = ctk.BooleanVar(value=True)
-            ctk.CTkCheckBox(opts, text=sport, variable=var).grid(
+            checked = True if _saved_sports is None else (sport in _saved_sports)
+            var = ctk.BooleanVar(value=checked)
+            ctk.CTkCheckBox(opts, text=sport, variable=var,
+                            command=self._autosync_changed).grid(
                 row=0, column=1 + j, sticky="w", padx=6, pady=4)
             self._sport_vars[sport] = var
         ctk.CTkLabel(opts, text="Giorni avanti").grid(row=1, column=0, sticky="w", padx=8, pady=4)
         self._days_entry = ctk.CTkEntry(opts, width=60)
         self._days_entry.grid(row=1, column=1, sticky="w", padx=6, pady=4)
+
+        # Auto Sync (issue #86 PR-P8): checkbox + orario HH; lo scheduling vero è
+        # nell'app (tick mentre il bridge è aperto). Qui solo i controlli + stato.
+        auto = ctk.CTkFrame(self)
+        auto.pack(fill="x", padx=12, pady=6)
+        self._autosync_var = ctk.BooleanVar(value=bool(self._autosync.get("enabled", False)))
+        ctk.CTkCheckBox(auto, text="Auto sincronizza dizionario",
+                        variable=self._autosync_var,
+                        command=self._autosync_changed).grid(
+            row=0, column=0, sticky="w", padx=8, pady=4)
+        ctk.CTkLabel(auto, text="Orario (HH)").grid(row=0, column=1, sticky="e", padx=8, pady=4)
+        self._autosync_hour = ctk.CTkEntry(auto, width=50)
+        self._autosync_hour.insert(0, str(normalize_hour(self._autosync.get("hour", 23))))
+        self._autosync_hour.grid(row=0, column=2, sticky="w", padx=6, pady=4)
+        self._autosync_hour.bind("<FocusOut>", lambda _e: self._autosync_changed())
+        self._last_auto_sync = ctk.CTkLabel(auto, text="Ultima auto sync: —")
+        self._last_auto_sync.grid(row=1, column=0, columnspan=3, sticky="w", padx=8, pady=2)
+        self._next_auto_sync = ctk.CTkLabel(auto, text="Prossima auto sync: —")
+        self._next_auto_sync.grid(row=2, column=0, columnspan=3, sticky="w", padx=8, pady=2)
+        self._auto_sync_state = ctk.CTkLabel(auto, text="Stato auto sync: —")
+        self._auto_sync_state.grid(row=3, column=0, columnspan=3, sticky="w", padx=8, pady=2)
 
         # Stato.
         status = ctk.CTkFrame(self)
@@ -152,6 +182,44 @@ class BetfairSyncPanel(ctk.CTkFrame):
             # Passa le credenziali REALI risolte, mai la maschera.
             self._on_login(self.controller.resolve_credentials(self._form_credentials()))
         self._refresh_buttons()
+
+    def _autosync_changed(self):
+        """Checkbox/orario/sport auto-sync cambiati: notifica l'app per persistere in
+        config. Passa anche gli sport selezionati, così l'auto-sync usa quelli scelti
+        (non la lista di default) — Codex."""
+        if self._on_autosync_change:
+            # Normalizza l'ora e riscrivila nel campo: se l'utente digita "99" salviamo
+            # 23, e il campo deve mostrare 23 (non restare su "99") fino al prossimo
+            # refresh, così ciò che si vede coincide con ciò che è salvato (CodeRabbit).
+            hour = normalize_hour(self._autosync_hour.get())
+            self._autosync_hour.delete(0, "end")
+            self._autosync_hour.insert(0, str(hour))
+            self._on_autosync_change(bool(self._autosync_var.get()), hour,
+                                     self._selected_sports())
+
+    def refresh_autosync(self, enabled, hour, sports):
+        """Ricarica i controlli auto-sync da una config aggiornata (es. dopo aver
+        applicato un profilo, così la tab non sovrascrive i valori del profilo con
+        quelli stantii — Codex). Aggiorna anche le credenziali mascherate."""
+        self._autosync_var.set(bool(enabled))
+        self._autosync_hour.delete(0, "end")
+        self._autosync_hour.insert(0, str(normalize_hour(hour)))
+        # Lista assente (config/profilo senza `betfair_sync_sports`) = «tutti gli sport»,
+        # coerente con `_build_ui` (Codex/CodeRabbit): altrimenti il pannello terrebbe il
+        # sottoinsieme vecchio e il prossimo save lo riscriverebbe in config.
+        for sport, var in self._sport_vars.items():
+            var.set(True if sports is None else sport in sports)
+        self._reload()
+        self._refresh_buttons()
+
+    def set_autosync_status(self, last=None, next_=None, state=None):
+        """Aggiorna le etichette di stato auto-sync (chiamato dall'app dopo un run)."""
+        if last is not None:
+            self._last_auto_sync.configure(text=f"Ultima auto sync: {last}")
+        if next_ is not None:
+            self._next_auto_sync.configure(text=f"Prossima auto sync: {next_}")
+        if state is not None:
+            self._auto_sync_state.configure(text=f"Stato auto sync: {state}")
 
     def _selected_sports(self):
         """Gli sport con checkbox selezionata (per la sync)."""

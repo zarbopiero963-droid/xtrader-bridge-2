@@ -43,8 +43,8 @@ non vengono duplicate.
 | PR-P4  | Betfair Auth Client Italia                  | login/logout cert + Delayed App Key, token in RAM                      | merged (#168) |
 | PR-P5  | Database Locale Betfair Multi-sport         | tabelle locali sport/comp/event/market/selection/sync/mapping         | merged (#169) |
 | PR-P6  | Betfair Navigation + Catalogue Sync         | navigation menu + listMarketCatalogue, upsert read-only               | merged (#170) |
-| PR-P7  | Sync Engine Manuale                         | motore unico sync manuale + riepilogo safe                            | in corso |
-| PR-P8  | Betfair Auto Sync Scheduler locale          | scheduler locale auto login→sync→auto logout                          | TODO  |
+| PR-P7  | Sync Engine Manuale                         | motore unico sync manuale + riepilogo safe                            | merged (#171) |
+| PR-P8  | Betfair Auto Sync Scheduler locale          | scheduler locale auto login→sync→auto logout                          | in corso |
 | PR-P9  | Parser Personalizzato Multi-sport / profilo | sport nel parser, campi core generici                                 | TODO  |
 | PR-P10 | Name Mapping Multi-sport Locale             | tab mapping per sport/profilo, locale                                 | TODO  |
 | PR-P11 | Dictionary Viewer Locale                    | viewer sola-lettura del dizionario Betfair                           | TODO  |
@@ -173,6 +173,62 @@ Non verificato in automatico: la chiamata di rete reale a navigation/catalogue.
    riepilogo (eventi/mercati/selezioni/disattivati); nessuna chiamata betting.
 2. Premi due volte «Sincronizza ora» in rapida successione: la seconda risulta
    «già in corso» (nessuna run sovrapposta). Niente duplicati nel dizionario.
+
+### PR-P8 — Betfair Auto Sync Scheduler locale
+- `auto_sync.py`: `should_run(now, ...)` (decisione **pura**: attiva + ora corrente ==
+  HH + non già eseguita oggi a quell'ora + nessuna sync in corso → niente recupero
+  delle sync perse; l'ora viene **normalizzata una volta** e riusata anche per la
+  `run_key`, così un HH non numerico non crasha né sbaglia la dedupe-key) e
+  `AutoSyncScheduler.maybe_run(now)` che esegue il ciclo **auto login → sync → auto
+  logout** con dipendenze iniettate; prenota il lock del motore PRIMA del login
+  (sync manuale in corso → `BUSY`, senza toccare la sessione condivisa); il **logout
+  è eseguito solo se il login è riuscito** (`logged_in`), così un auto-login fallito
+  non slogga una eventuale sessione manuale; non scatta due volte lo stesso
+  giorno/orario (`last_run_key`, persistito); `normalize_hour` (0–23, default 23).
+  Il riepilogo `on_summary` è **best-effort** (`_safe_summary`): se solleva non fa
+  propagare l'errore da `_cycle`, così una run riuscita viene comunque registrata.
+- `get_config()` ritorna solo config **leggera** `(enabled, hour, sports)`; le
+  credenziali si leggono via `get_credentials()` **solo quando la run è dovuta**
+  (dentro `_cycle`, dopo il gate), così il keyring non viene colpito a ogni tick.
+- `config_store.py`: nuove chiavi `betfair_auto_sync` (default False, opt-in
+  fail-closed via `as_bool_optin`), `betfair_auto_sync_hour` (default 23),
+  `betfair_sync_sports`.
+- `sync_tab_gui.py`: checkbox «Auto sincronizza dizionario» + orario HH + etichette
+  Ultima/Prossima/Stato auto sync; le modifiche persistono in config. L'orario viene
+  **riscritto normalizzato** nel campo dopo il salvataggio (ciò che si vede = ciò che
+  è salvato); `refresh_autosync(..., sports=None)` rimette **tutti gli sport** (come
+  `_build_ui`), così un profilo senza lista non lascia un sottoinsieme stantio.
+- `app.py`: tick periodico (primo ~2s dopo l'avvio, poi ogni 60s, mentre il bridge è
+  aperto) che costruisce lo scheduler una volta e chiama `maybe_run(now)` su un worker
+  thread (la rete non blocca la GUI); sessione/auth/engine Betfair estratti in metodi
+  condivisi lazy. I callback `on_summary`/`on_state_error` rientrano nella UI **solo se
+  il bridge non si sta chiudendo** (flag `_closing`, `winfo_exists` sul main thread) e
+  `_on_close` **cancella il tick pendente** (`after_cancel`), così nessun callback gira
+  su una root distrutta. Il tick e `_get_config` leggono la **config LIVE in memoria**
+  (`self._config`), non una rilettura da disco: dopo un save fallito lo scheduler usa ciò
+  che l'utente ha impostato, non valori stantii (CodeRabbit). `is_bridge_open` è legato a
+  `not self._closing` (fail-closed: un worker lanciato a ridosso della chiusura non parte).
+  `maybe_run` normalizza l'ora una volta e la usa anche per la `run_key` di successo, così
+  un `hour` non numerico non crasha DOPO una sync riuscita (CodeRabbit). Se la sessione
+  condivisa è **già loggata** (login manuale idle), `_cycle` NON fa login/logout e riusa la
+  sessione esistente: non slogga l'utente quando nessuna sync manuale è in corso (Codex).
+  Cambiare/abilitare l'auto-sync fa un **kick immediato** del tick (cancellando quello
+  pendente, chain unica), così abilitarla a cavallo dell'ora non perde la finestra; il
+  callback parte dalla config **live** e sovrappone solo le chiavi auto-sync, senza
+  riscrivere impostazioni in memoria con uno snapshot di disco stantio (Codex).
+
+#### Smoke test manuale PR-P8 (Windows)
+1. Attiva «Auto sincronizza dizionario», imposta l'orario all'ora corrente: entro un
+   minuto parte auto login → sync → auto logout; il log mostra l'esito.
+2. Disattiva la checkbox: non parte. Riapri il bridge dopo l'orario: non recupera.
+3. Con una sync manuale in corso, l'auto-sync non parte (BUSY).
+4. Login manuale attivo + auto-sync con cert mancante all'orario: l'auto-login
+   fallisce ma la sessione manuale resta connessa (nessun logout indebito).
+5. Digita `99` nel campo orario e applica: il campo mostra `23` (valore salvato).
+6. Chiudi la finestra mentre un auto-sync è in corso: nessun errore Tcl/log su root
+   distrutta (il tick è cancellato e i callback sono guardati da `_closing`).
+Non verificato in automatico: il tempo reale del tick, la rete Betfair e la GUI Tk
+reale (i punti 5–6 sono coperti da smoke manuale; la logica pura è in unit test).
 
 ## Definition of Done (blocco personale)
 

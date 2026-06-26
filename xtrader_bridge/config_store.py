@@ -84,6 +84,13 @@ DEFAULTS = {
     # consapevole). Default OFF = privacy on; coerce via `as_bool_optin` (ALLOWLIST
     # fail-closed: solo un "sì" esplicito riconosciuto attiva, refusi/sconosciuti → OFF).
     "debug_message_payload":        False,
+    # Auto Sync del dizionario Betfair (issue #86 PR-P8). Default OFF: l'auto-sync
+    # parte solo se l'utente la attiva esplicitamente. `betfair_auto_sync_hour` è
+    # l'ora locale (HH, 0-23) in cui scatta una volta al giorno; default 23.
+    # `betfair_sync_sports` è la lista degli sport da sincronizzare.
+    "betfair_auto_sync":            False,
+    "betfair_auto_sync_hour":       23,
+    "betfair_sync_sports":          ["Calcio", "Tennis", "Basket", "Rugby Union"],
 }
 
 
@@ -258,6 +265,11 @@ def _migrate(cfg: dict) -> dict:
             elif key == "debug_message_payload":
                 # Privacy fail-closed (helper unico): solo un truthy ESPLICITO attiva il log
                 # completo; None/`null`/vuoto → False (il payload resta redatto di default).
+                cfg[key] = as_bool_optin(cfg.get(key))
+            elif key == "betfair_auto_sync":
+                # Auto-sync Betfair = opt-in fail-closed (issue #86 PR-P8): un valore
+                # sporco/typo (`"flase"`, `"disabled"`) NON deve attivare il ciclo
+                # automatico login→sync→logout. Solo un truthy esplicito accende.
                 cfg[key] = as_bool_optin(cfg.get(key))
             else:
                 cfg[key] = as_bool(cfg.get(key, default))

@@ -61,6 +61,17 @@ class SyncEngine:
         credenziali NON ancora salvate, così la sync non dipende dal keyring)."""
         self._sync.app_key = app_key
 
+    def reserve(self, blocking: bool = False) -> bool:
+        """Prenota il lock della sync PRIMA del ciclo (auto login→sync→logout), così
+        un percorso che muta la sessione condivisa non parte mentre un'altra sync è in
+        corso (Codex). Ritorna `True` se prenotato. Va rilasciato con `release()`; la
+        `run(..., locked=True)` non riacquisisce il lock già prenotato."""
+        return self._lock.acquire(blocking=blocking)
+
+    def release(self) -> None:
+        """Rilascia il lock prenotato con `reserve()`."""
+        self._lock.release()
+
     @property
     def is_syncing(self) -> bool:
         """`True` se una sync è in corso (lock preso)."""
@@ -69,20 +80,26 @@ class SyncEngine:
             return False
         return True
 
-    def run(self, sports) -> SyncResult:
+    def run(self, sports, *, locked: bool = False) -> SyncResult:
         """Esegue una sync manuale e ritorna un `SyncResult` safe.
 
         - login non attivo → `NOT_LOGGED_IN` (non parte);
         - una sync già in corso → `BUSY` (non parte una seconda);
         - errore durante la sync → `FAILED` con messaggio safe (solo tipo errore);
-        - altrimenti `OK` con i conteggi (variazione dei record attivi + disattivati)."""
+        - altrimenti `OK` con i conteggi (variazione dei record attivi + disattivati).
+
+        `locked=True`: il chiamante ha già prenotato il lock con `reserve()` (auto-sync),
+        quindi `run` NON lo riacquisisce/rilascia."""
         if not (self.session and self.session.is_logged_in):
             return SyncResult(status=NOT_LOGGED_IN,
                               errors=["Login Betfair non attivo: accedi prima di sincronizzare."])
 
-        if not self._lock.acquire(blocking=False):
-            return SyncResult(status=BUSY,
-                              errors=["Sincronizzazione già in corso: attendi il termine."])
+        acquired = False
+        if not locked:
+            if not self._lock.acquire(blocking=False):
+                return SyncResult(status=BUSY,
+                                  errors=["Sincronizzazione già in corso: attendi il termine."])
+            acquired = True
         try:
             # Anche le letture dei conteggi (count_active) devono stare nel percorso
             # safe: se il DB è chiuso/locked NON deve crashare la GUI (CodeRabbit/Codex).
@@ -105,7 +122,8 @@ class SyncEngine:
                 deactivated=int(summary.get("deactivated", 0)),
             )
         finally:
-            self._lock.release()
+            if acquired:
+                self._lock.release()
 
     def _active_counts(self) -> dict:
         return {

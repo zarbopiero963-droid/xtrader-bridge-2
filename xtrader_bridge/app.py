@@ -27,6 +27,7 @@ from .config_store import (
 from .csv_writer import clear_stale_csv, init_csv, write_rows
 from . import (
     autostart,
+    config_store,
     confirmation_reader,
     csv_lock_escalation,
     dashboard_stats,
@@ -182,6 +183,11 @@ class App(ctk.CTk):
         # Avvio automatico del listener (se abilitato e config minima presente): dopo
         # che la UI è pronta, così log/stato sono visibili. Default OFF.
         self._autostart_after_id = self.after(400, self._maybe_auto_start)
+        # Tick auto-sync Betfair (issue #86 PR-P8): parte mentre il bridge è aperto;
+        # internamente scatta solo se l'auto-sync è attiva e all'orario impostato. Il
+        # PRIMO check è quasi subito (non +60s) così aprire il bridge DENTRO l'ora
+        # configurata non manca la run; poi si ri-arma ogni 60s.
+        self._autosync_after_id = self.after(2_000, self._betfair_autosync_tick)
 
     def _maybe_auto_start(self) -> None:
         """Avvia il listener all'apertura se `auto_start_listener` è attivo e la config
@@ -868,6 +874,155 @@ class App(ctk.CTk):
         # NON deve azzerare il tetto (altrimenti il limite/giorno è aggirabile).
         return runtime_state.daily_state_path(config_dir())
 
+    # ── Betfair (issue #86): sessione/auth/engine condivisi (lazy) ────────────
+    def _betfair_session_obj(self):
+        """Sessione Betfair condivisa (sessionToken solo in RAM): UNA per processo."""
+        from .betfair.session import BetfairSession
+        if getattr(self, "_betfair_session", None) is None:
+            self._betfair_session = BetfairSession()
+        return self._betfair_session
+
+    def _betfair_auth_client(self):
+        """Client di login Betfair (read-only) condiviso, sulla sessione del bridge."""
+        from .betfair.auth_client import BetfairAuthClient
+        if getattr(self, "_betfair_auth_obj", None) is None:
+            self._betfair_auth_obj = BetfairAuthClient(session=self._betfair_session_obj())
+        return self._betfair_auth_obj
+
+    def _betfair_sync_engine(self):
+        """Motore di sync Betfair condiviso (apre il DB locale in AppData). UNA
+        istanza: il lock anti-doppia-sync e il marker devono persistere."""
+        from .betfair.local_db import BetfairLocalDB
+        from .betfair.sync_engine import SyncEngine
+        if getattr(self, "_betfair_engine_obj", None) is None:
+            db = BetfairLocalDB(runtime_state.betfair_db_path(config_dir()))
+            self._betfair_engine_obj = SyncEngine(db, self._betfair_session_obj())
+        return self._betfair_engine_obj
+
+    def _betfair_autosync_tick(self):
+        """Tick periodico (mentre il bridge è APERTO) dell'auto-sync Betfair. La
+        decisione e il ciclo (auto login→sync→auto logout) sono in `auto_sync`; qui
+        si legge la config, si costruisce lo scheduler una volta e si esegue il
+        `maybe_run` su un worker thread (la rete non deve bloccare la GUI). Best-effort:
+        un errore non interrompe il loop dei tick. Si ri-arma ogni 60s."""
+        try:
+            # winfo_exists() qui gira sul MAIN thread (il tick è schedulato con after);
+            # il worker NON deve toccare Tk (Codex). Lo scheduler usa is_bridge_open legato
+            # a `_closing`, così un worker lanciato a ridosso della chiusura fallisce chiuso.
+            if self.winfo_exists():
+                # Config LIVE in memoria (non rilettura da disco): dopo un save fallito
+                # `self._config` riflette ciò che l'utente ha impostato, mentre il disco
+                # avrebbe valori stantii (CodeRabbit). Stessa semantica del resto di App.
+                cfg = dict(self._config) if isinstance(self._config, dict) else self._load_config()
+                if config_store.as_bool_optin(cfg.get("betfair_auto_sync", False)):
+                    try:
+                        sched = self._betfair_autosync_scheduler()
+                    except Exception as ex:   # noqa: BLE001 — costruzione scheduler (es. DB non apribile)
+                        # Non restare silenziosi: l'utente crede l'auto-sync attiva ma
+                        # non partirà mai in questo ambiente. Avvisa UNA volta (Codex).
+                        if not getattr(self, "_autosync_build_warned", False):
+                            self._autosync_build_warned = True
+                            self._log(f"⚠️ Auto-sync Betfair non avviabile ({type(ex).__name__}): "
+                                      "controlla la cartella dati / il dizionario locale.")
+                        sched = None
+                    if sched is not None:
+                        import datetime
+                        now = datetime.datetime.now()
+                        threading.Thread(target=lambda: sched.maybe_run(now),
+                                         daemon=True, name="betfair-autosync").start()
+        except Exception:               # noqa: BLE001 — il tick non deve mai crashare
+            pass
+        finally:
+            # Ri-arma solo se il bridge non si sta chiudendo: dopo `_on_close`
+            # `self.after` su una root distrutta solleverebbe (CodeRabbit).
+            if not self._closing:
+                self._autosync_after_id = self.after(60_000, self._betfair_autosync_tick)
+
+    def _betfair_autosync_scheduler(self):
+        """Scheduler auto-sync condiviso (lazy). `get_config` legge enabled/hour/sports
+        dalla config e le credenziali locali per l'auto login; `on_summary` logga
+        l'esito safe sul main thread e aggiorna le etichette della tab se aperta."""
+        from . import atomic_io
+        from .betfair import auto_sync, credential_store
+        if getattr(self, "_betfair_autosync_obj", None) is not None:
+            return self._betfair_autosync_obj
+
+        def _get_config():
+            # Config LEGGERA (no keyring): lo scheduler la legge a ogni tick (anche fuori
+            # orario o a run già fatta), quindi NON deve leggere le credenziali qui — il
+            # keyring si tocca solo quando la run è dovuta, in `_get_credentials` (CodeRabbit).
+            # Config LIVE in memoria, non rilettura da disco: dopo un save fallito riflette
+            # ciò che l'utente ha impostato, non valori stantii su disco (CodeRabbit).
+            cfg = dict(self._config) if isinstance(self._config, dict) else self._load_config()
+            enabled = config_store.as_bool_optin(cfg.get("betfair_auto_sync", False))
+            hour = auto_sync.normalize_hour(cfg.get("betfair_auto_sync_hour", 23))
+            sports = cfg.get("betfair_sync_sports") or []
+            return enabled, hour, sports
+
+        def _get_credentials():
+            # Letto SOLO quando l'auto-sync è davvero dovuta (dentro `_cycle`), non a ogni tick.
+            return credential_store.load_credentials()
+
+        _state_path = runtime_state.betfair_autosync_state_path(config_dir())
+
+        def _load_state():
+            try:
+                import json
+                with open(_state_path, "r", encoding="utf-8") as fh:
+                    return json.load(fh)
+            except Exception:   # noqa: BLE001 — assente/corrotto → nessuna run nota
+                return None
+
+        def _save_state(key):
+            atomic_io.atomic_write_json(_state_path, key)   # scrittura atomica
+
+        def _on_state_error(_ex):
+            # Invocato dal worker auto-sync: qui NIENTE chiamate Tk (winfo_exists) — solo
+            # il flag `_closing` (lettura semplice, thread-safe). La winfo_exists vera la
+            # fa il callback schedulato, che gira sul main thread (CodeRabbit).
+            if self._closing:
+                return
+
+            def _report():
+                if self._closing or not self.winfo_exists():
+                    return
+                self._log(
+                    "⚠️ Auto-sync Betfair: impossibile salvare lo stato (la guardia "
+                    "'una volta al giorno' potrebbe non valere dopo un riavvio).")
+            self.after(0, _report)
+
+        def _on_summary(res):
+            # Invocato dal worker auto-sync (può finire DOPO `_on_close`): qui solo il flag
+            # `_closing`, nessuna chiamata Tk dal worker; la winfo_exists la fa `_report`
+            # sul main thread (CodeRabbit).
+            if self._closing:
+                return
+
+            def _report():
+                if self._closing or not self.winfo_exists():
+                    return
+                ok = getattr(res, "ok", False)
+                self._log("🔄 Auto-sync Betfair OK." if ok
+                          else "⚠️ Auto-sync Betfair non riuscita: "
+                          + ("; ".join(res.errors) if res and res.errors else "—"))
+                panel = getattr(self, "_betfair_panel", None)
+                if panel is not None:
+                    try:
+                        panel.set_autosync_status(state=("OK" if ok else "errore"))
+                    except Exception:   # noqa: BLE001
+                        pass
+            self.after(0, _report)
+
+        self._betfair_autosync_obj = auto_sync.AutoSyncScheduler(
+            auth=self._betfair_auth_client(), engine=self._betfair_sync_engine(),
+            get_config=_get_config, get_credentials=_get_credentials,
+            # Fail-closed in chiusura: se `_on_close` setta `_closing` dopo lo spawn del
+            # worker ma prima che entri in maybe_run, il ciclo non parte (CodeRabbit).
+            is_bridge_open=lambda: not self._closing,
+            on_summary=_on_summary, load_state=_load_state, save_state=_save_state,
+            on_state_error=_on_state_error)
+        return self._betfair_autosync_obj
+
     def _init_guards(self, cfg: dict) -> None:
         """Crea i guardrail del percorso di scrittura dalla config (chiamato allo
         START). La costruzione pura (tracker/daily/coda + fallback fail-safe) è in
@@ -1134,6 +1289,15 @@ class App(ctk.CTk):
         # procede comunque, senza bloccare la chiusura del processo.
         if self._expire_timer:
             self._expire_timer.cancel()
+        # Cancella il tick auto-sync ancora pendente: dopo destroy non deve rifirare
+        # né ri-armarsi su una root distrutta (CodeRabbit).
+        _autosync_after = getattr(self, "_autosync_after_id", None)
+        if _autosync_after is not None:
+            try:
+                self.after_cancel(_autosync_after)
+            except Exception:   # noqa: BLE001 — id già scaduto/invalido: best-effort
+                pass
+            self._autosync_after_id = None
         t = self._bot_thread
         if t is not None and t.is_alive():
             t.join(timeout=5.0)
@@ -1686,10 +1850,8 @@ class App(ctk.CTk):
         from .name_mapping_gui import MappingPanel
         from .custom_parser_gui import CustomParserPanel
         from .betfair.sync_tab_gui import BetfairSyncPanel
-        from .betfair.session import BetfairSession
-        from .betfair.auth_client import BetfairAuthClient, LoginError
-        from .betfair.local_db import BetfairLocalDB
-        from .betfair.sync_engine import SyncEngine, OK as _SYNC_OK
+        from .betfair.auth_client import LoginError
+        from .betfair.sync_engine import OK as _SYNC_OK
 
         # UNA sola finestra hub: se è già aperta, si cambia scheda e la si porta in primo
         # piano invece di aprirne una seconda identica (CodeRabbit). `winfo_exists` è 0 se
@@ -1732,6 +1894,18 @@ class App(ctk.CTk):
                         _panel.refresh()
                     except Exception:       # noqa: BLE001
                         pass
+            # La tab Betfair ha controlli auto-sync (enabled/hour/sport) caricati dalla
+            # config: dopo un profilo va ricaricata, altrimenti un suo Salva riscrive i
+            # valori vecchi sopra il profilo (Codex).
+            _bf_panel = getattr(self, "_betfair_panel", None)
+            if _bf_panel is not None:
+                try:
+                    _bf_panel.refresh_autosync(
+                        config_store.as_bool_optin(saved.get("betfair_auto_sync", False)),
+                        saved.get("betfair_auto_sync_hour", 23),
+                        saved.get("betfair_sync_sports"))
+                except Exception:           # noqa: BLE001
+                    pass
             if ok:
                 self._log("📁 Profilo caricato e applicato (token invariato).")
             else:
@@ -1781,33 +1955,15 @@ class App(ctk.CTk):
             panel_refs["mapping"] = MappingPanel(parent, on_saved=_mapping_saved)
             return panel_refs["mapping"]
 
-        # Sessione Betfair (sessionToken solo in RAM): UNA per processo, così resta
-        # viva alla chiusura/riapertura della finestra Strumenti (login persistente).
-        if getattr(self, "_betfair_session", None) is None:
-            self._betfair_session = BetfairSession()
-
-        # Client di login Betfair (read-only): condivide la sessione (token in RAM).
-        _betfair_auth = BetfairAuthClient(session=self._betfair_session)
-
-        def _betfair_engine():
-            """Motore di sync Betfair: UNA istanza per processo (il lock anti-doppia
-            sync deve persistere). Il DB locale viene aperto QUI (non a livello di
-            `_open_tools`) così un errore del DB rompe solo la tab Betfair e non le
-            altre schede, che hanno la loro isolazione per-pannello (Codex)."""
-            if getattr(self, "_betfair_engine_obj", None) is None:
-                _bf_db = BetfairLocalDB(runtime_state.betfair_db_path(config_dir()))
-                self._betfair_engine_obj = SyncEngine(_bf_db, self._betfair_session)
-            return self._betfair_engine_obj
-
         def _betfair_login(creds):
             """Callback «Accedi» della tab Betfair: login con certificato. L'esito va
             nel log (redatto): mai token/segreti in chiaro."""
             try:
-                _betfair_auth.login(creds)
+                self._betfair_auth_client().login(creds)
                 # Porta la App Key del login nell'engine: così la sync funziona anche
                 # dopo un login con credenziali NON ancora salvate nel keyring (Codex).
                 try:
-                    _betfair_engine().set_app_key(creds.app_key)
+                    self._betfair_sync_engine().set_app_key(creds.app_key)
                 except Exception:           # noqa: BLE001 — l'engine può mancare se il DB fallisce
                     pass
                 self._log("🔵 Login Betfair riuscito (sessione in memoria).")
@@ -1818,7 +1974,7 @@ class App(ctk.CTk):
             """Callback «Sincronizza ora»: la sync (rete) gira su un WORKER THREAD per
             non bloccare la GUI Tk; l'esito è marshalato sul main thread con
             `after(0, ...)` e loggato in forma safe (CodeRabbit/Codex)."""
-            engine = _betfair_engine()
+            engine = self._betfair_sync_engine()
 
             def _report(res):
                 if res.status == _SYNC_OK:
@@ -1835,12 +1991,55 @@ class App(ctk.CTk):
 
             threading.Thread(target=_worker, daemon=True, name="betfair-sync").start()
 
+        def _betfair_autosync_change(enabled, hour, sports):
+            """Checkbox/orario/sport auto-sync cambiati nel pannello: persiste in config.
+            Gli sport selezionati vengono salvati con i flag, così l'auto-sync usa
+            esattamente quelli scelti (Codex). Un salvataggio fallito è segnalato come
+            tale invece di dichiarare ON (Codex)."""
+            # Parti dalla config LIVE in memoria (non da una rilettura del disco): se un
+            # save precedente è fallito, il disco è stantio e ne riscriveremmo sopra le
+            # impostazioni attive (source_chats/dry_run/…) sovrascrivendo `self._config`
+            # con uno snapshot vecchio. Sovrapponi SOLO le chiavi auto-sync (Codex).
+            cfg = dict(self._config) if isinstance(self._config, dict) else self._load_config()
+            cfg["betfair_auto_sync"] = bool(enabled)
+            cfg["betfair_auto_sync_hour"] = int(hour)
+            if sports is not None:
+                cfg["betfair_sync_sports"] = list(sports)
+            saved, ok = save_config(cfg, CONFIG_FILE)
+            self._config = saved
+            self._save_ok = ok
+            if ok:
+                self._log(f"🔵 Auto-sync Betfair {'ON' if enabled else 'OFF'} (orario {hour:02d}).")
+                # Kick immediato: abilitando o portando l'ora a quella corrente subito dopo
+                # un tick a 60s, si perderebbe la finestra a cavallo dell'ora (es. 23:59:30
+                # → prossimo check dopo mezzanotte, ora 00 ≠ 23). Cancella il tick pendente
+                # e rilancia subito; il tick si ri-arma da solo, così la chain resta unica
+                # (niente doppio timer) — Codex.
+                if not self._closing:
+                    _prev = getattr(self, "_autosync_after_id", None)
+                    if _prev is not None:
+                        try:
+                            self.after_cancel(_prev)
+                        except Exception:   # noqa: BLE001 — id già scaduto/invalido
+                            pass
+                    self._autosync_after_id = self.after(0, self._betfair_autosync_tick)
+            else:
+                self._log("⚠️ Auto-sync Betfair: salvataggio config FALLITO "
+                          "(impostazione NON persistita). Controlla permessi/spazio.")
+
         def _make_betfair(parent):
-            """Crea la tab Betfair Sync (credenziali locali + stato login/sync).
+            """Crea la tab Betfair Sync (credenziali locali + stato login/sync + auto).
             Apre qui il DB/engine, così un suo errore resta isolato a questa scheda."""
-            _betfair_engine()      # forza la creazione del DB nel try/except del pannello
-            return BetfairSyncPanel(parent, session=self._betfair_session,
-                                    on_login=_betfair_login, on_sync=_betfair_sync)
+            self._betfair_sync_engine()    # forza la creazione del DB nel try/except del pannello
+            _cfg_bf = self._load_config()
+            self._betfair_panel = BetfairSyncPanel(
+                parent, session=self._betfair_session_obj(),
+                on_login=_betfair_login, on_sync=_betfair_sync,
+                autosync={"enabled": config_store.as_bool_optin(_cfg_bf.get("betfair_auto_sync", False)),
+                          "hour": _cfg_bf.get("betfair_auto_sync_hour", 23),
+                          "sports": _cfg_bf.get("betfair_sync_sports")},
+                on_autosync_change=_betfair_autosync_change)
+            return self._betfair_panel
 
         panels = [
             ("🧩 Parser", _make_parser),

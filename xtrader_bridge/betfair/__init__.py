@@ -29,8 +29,9 @@ from . import (
     log_safety,
     sync_tab_controller,
 )
-from . import sync_engine
+from . import auto_sync, sync_engine
 from .auth_client import BetfairAuthClient, CertificateError, LoginError
+from .auto_sync import AutoSyncScheduler, should_run as auto_sync_should_run
 from .catalogue_client import CatalogueSync
 from .local_db import BetfairLocalDB
 from .sync_engine import SyncEngine, SyncResult
@@ -62,6 +63,9 @@ __all__ = [
     "CatalogueSync",
     "SyncEngine",
     "SyncResult",
+    "AutoSyncScheduler",
+    "auto_sync_should_run",
+    "auto_sync",
     "auth_client",
     "catalogue_client",
     "local_db",
