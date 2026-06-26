@@ -54,6 +54,28 @@ def test_sport_from_dict_strippa_spazi():
     assert CustomParserDef.from_dict(data).sport == "Calcio"
 
 
+def test_sport_null_o_assente_o_vuoto_agnostico():
+    base = {"name": "P", "rules": [{"target": "Provider", "fixed_value": "X"}]}
+    assert CustomParserDef.from_dict(base).sport == ""                       # assente
+    assert CustomParserDef.from_dict({**base, "sport": None}).sport == ""    # null
+    assert CustomParserDef.from_dict({**base, "sport": ""}).sport == ""      # vuoto
+    assert CustomParserDef.from_dict({**base, "sport": "   "}).sport == ""   # soli spazi
+    # tutti agnostici e quindi validi
+    for v in (None, "", "   "):
+        assert cp.is_valid(CustomParserDef.from_dict({**base, "sport": v}))
+
+
+def test_sport_falsey_malformato_preservato_e_bloccato():
+    # Valori PRESENTI ma malformati e falsey (false/0/[]/{}) NON devono diventare
+    # agnostici in silenzio: vanno preservati non-vuoti e bloccati dalla validazione (Codex).
+    base = {"name": "P", "rules": [{"target": "Provider", "fixed_value": "X"}]}
+    for bad in (False, 0, [], {}):
+        d = CustomParserDef.from_dict({**base, "sport": bad})
+        assert d.sport != ""                       # preservato (non azzerato)
+        assert not cp.is_valid(d)                   # validazione fail-closed
+        assert any("Sport non valido" in e for e in cp.validate_parser_def(d))
+
+
 # ── validazione ─────────────────────────────────────────────────────────────────
 
 def test_validazione_sport_vuoto_ok():

@@ -203,10 +203,21 @@ class CustomParserDef:
         if not isinstance(raw_market, list):
             raw_market = []
         market_profiles = [str(p).strip() for p in raw_market if str(p or "").strip()]
-        # Sport (PR-P9): chiave assente/null/"" → "" (agnostico, retro-compatibile). Un
-        # valore valorizzato è strippato e tenuto COM'È; se non è uno sport supportato la
-        # validazione (validate_parser_def) lo segnala, invece di sceglierne uno a caso.
-        sport = str(data.get("sport", "") or "").strip()
+        # Sport (PR-P9): distingui «non specificato» da «valore malformato presente».
+        # - chiave assente / null / stringa vuota o di soli spazi → "" (agnostico,
+        #   retro-compatibile con i file pre-P9);
+        # - stringa valorizzata → strippata e tenuta COM'È (un eventuale typo lo segnala
+        #   la validazione, non lo si sceglie a caso);
+        # - tipo NON stringa presente (false/0/[]/{}): NON è uno sport → preserva una
+        #   rappresentazione NON vuota così `validate_parser_def` fa fail-closed
+        #   ("Sport non valido") invece di convertirlo in silenzio in agnostico (Codex).
+        raw_sport = data.get("sport", "")
+        if raw_sport is None:
+            sport = ""
+        elif isinstance(raw_sport, str):
+            sport = raw_sport.strip()
+        else:
+            sport = str(raw_sport)
         return cls(
             name=str(data.get("name", "")),
             description=str(data.get("description", "")),
