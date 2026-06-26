@@ -47,8 +47,8 @@ non vengono duplicate.
 | PR-P8  | Betfair Auto Sync Scheduler locale          | scheduler locale auto login→sync→auto logout                          | merged (#172) |
 | PR-P9  | Parser Personalizzato Multi-sport / profilo | sport nel parser, fonte unica sport, campi core generici             | merged (#173) |
 | PR-P10 | Name Mapping Multi-sport Locale             | sport per riga di mappatura, scoping in resolve_team                  | merged (#174) |
-| PR-P11 | Dictionary Viewer Locale                    | viewer sola-lettura del dizionario Betfair (per livello + sport)     | in corso |
-| PR-P12 | Telegram → Parser → Mapping → CSV XTrader   | integrazione flusso con fallback nomi                                 | TODO  |
+| PR-P11 | Dictionary Viewer Locale                    | viewer sola-lettura del dizionario Betfair (per livello + sport)     | merged (#175) |
+| PR-P12 | Telegram → Parser → Mapping → CSV XTrader   | risoluzione ID dal dizionario + fallback nomi nel flusso live        | in corso |
 | PR-P13 | Build EXE Personale                         | solo `XTraderBridge.exe`, nessun segreto/cert incluso                 | TODO  |
 
 ## Moduli implementati
@@ -305,6 +305,43 @@ reale (i punti 5–6 sono coperti da smoke manuale; la logica pura è in unit te
 2. La logica (vista per livello, scoping per sport incl. selezioni via market_id, solo-attivi,
    conteggi, livello non valido) è coperta da unit test (`test_betfair_dictionary_viewer.py`);
    la sola resa Tk è manuale.
+
+### PR-P12 — Telegram → Parser → Mapping → CSV XTrader (risoluzione ID + fallback nomi)
+- `betfair/dictionary_resolver.py` (controller **puro**, sola lettura): `DictionaryResolver`
+  cerca nel dizionario Betfair locale gli ID (`EventId`/`MarketId`/`SelectionId`) per la riga
+  a nomi, **ristretti allo sport** del parser (event_type_id, `xtrader_bridge/sports.py`).
+  `resolve_ids(sport, event_name, market_type, market_name, selection_name, handicap)` è
+  **all-or-nothing e conservativo**: ritorna gli ID solo se l'intera catena evento→mercato→
+  selezione è **univoca** (evento per nome o per partecipanti in qualunque ordine; mercato per
+  market_type o, in mancanza, market_name; selezione per runner_name, disambiguata
+  dall'handicap se omonima); qualunque assenza/ambiguità/record inattivo → `{}` (fallback nomi).
+  Solo `SELECT`, nessuna rete, nessuna scrittura, nessuna operazione di scommessa.
+- `custom_pipeline.build_validated_row(..., id_resolver=None)`: dopo le mappature a nomi e
+  PRIMA della validazione, se è fornito un `id_resolver` e il parser ha uno sport, arricchisce
+  la riga con gli ID risolti. È **additivo e fail-open**: niente match univoco o errore di
+  lettura → la riga resta a nomi (fallback), il segnale NON viene bloccato.
+- `signal_router.resolve_row(..., id_resolver=None)`: inoltra il risolutore al pipeline.
+- `app.py`: `_betfair_id_resolver()` (best-effort) costruisce un `DictionaryResolver` sul DB
+  del motore Betfair e lo passa a `resolve_row` nel flusso live (`_process`); se il dizionario
+  non è disponibile → `None` → flusso a nomi (nessun blocco).
+- Il flusso Telegram→parser→mapping→CSV era già cablato (PR-CP + PR-P9/P10): PR-P12 aggiunge
+  SOLO l'identificazione precisa dal dizionario con fallback nomi, senza toccare il gate
+  chat_id, dedup, max_signal_age, dry_run, scrittura CSV atomica o one-signal-at-a-time.
+
+#### Test hard PR-P12
+- `tests/unit/test_betfair_dictionary_resolver.py` (11): catena completa, match per nome/
+  partecipanti, scoping sport, mercato/selezione per nome, ambiguità→{}, inattivi ignorati,
+  handicap, sport assente/ignoto→{}.
+- `tests/integration/test_dictionary_id_fallback.py` (6): pipeline arricchisce ID se trova;
+  fallback nomi se non trova; resolver che solleva non blocca; parser agnostico non chiama il
+  resolver; end-to-end `signal_router` con DB reale (ID riempiti) e con dizionario vuoto
+  (fallback nomi, riga VALID).
+
+#### Smoke manuale PR-P12
+1. Con dizionario sincronizzato, invia un segnale il cui evento/mercato/selezione esistono:
+   il CSV riporta EventId/MarketId/SelectionId valorizzati (oltre ai nomi).
+2. Con evento non in dizionario: il CSV riporta solo i nomi (fallback), segnale non bloccato.
+   La rete Telegram/XTrader live non è in CI.
 
 ## Definition of Done (blocco personale)
 

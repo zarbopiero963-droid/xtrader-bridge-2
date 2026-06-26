@@ -65,9 +65,30 @@ un set, l'altro **può restare vuoto**.
 > **almeno uno** dei due set (non servono entrambi).
 
 Con i nomi (`NAME_ONLY`/`BOTH`), la **lingua** del CSV deve coincidere con quella della
-fonte Segnali di XTrader (italiano). **Nota:** il messaggio Telegram P.Bet non contiene
-gli ID (`EventId`/`MarketId`/`SelectionId`), quindi oggi restano vuoti e il bridge punta
-sulla modalità a nomi.
+fonte Segnali di XTrader (italiano). **Nota:** il messaggio Telegram non contiene gli ID
+(`EventId`/`MarketId`/`SelectionId`); il bridge punta sulla modalità a nomi e, quando
+possibile, li **arricchisce dal dizionario Betfair locale** (vedi sotto).
+
+### Identificazione precisa dal dizionario + fallback nomi (PR-P12)
+
+Dopo parser e mappature a nomi, il bridge prova a riempire `EventId`/`MarketId`/`SelectionId`
+cercando nel **dizionario Betfair locale** la catena evento→mercato→selezione per lo **sport**
+del parser (`betfair/dictionary_resolver.py`). La risoluzione è **additiva, conservativa e
+fail-open**: gli ID si scrivono SOLO se il match è **univoco** a tutti i livelli; in caso di
+assenza/ambiguità (o se il dizionario non è disponibile) la riga resta a **nomi**
+(*fallback nomi*) e il segnale **non viene bloccato**. Così, se il dizionario conosce
+l'evento, il CSV porta l'identificazione precisa; altrimenti XTrader usa i nomi.
+
+Note operative:
+- gli **ID forniti dal parser** (modalità ID/BOTH) NON vengono mai sovrascritti: se sono in
+  conflitto con la tripla del dizionario, l'arricchimento si annulla del tutto (vince il
+  parser); altrimenti si riempiono solo i campi ID vuoti con la tripla coerente del dizionario;
+- per il comportamento "ID se trovato, **altrimenti nomi**" la modalità del parser deve essere
+  **`NAME_ONLY` o `BOTH`** (con `BOTH` la riga è valida sia con la tripla ID sia coi soli nomi);
+  un parser `ID_ONLY` che si affida al dizionario per gli ID resta fail-closed su un miss;
+- le **selezioni** si risolvono per `runner_name` Betfair: per le selezioni-squadra coincide
+  coi nomi mappati, mentre selezioni generiche con nome XTrader diverso dal runner Betfair
+  possono non risolvere gli ID e restare a nomi (mai un ID errato).
 
 ## Campi sempre opzionali e gate del prezzo
 

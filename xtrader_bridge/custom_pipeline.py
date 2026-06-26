@@ -144,7 +144,8 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
                         mode: str = recognition.DEFAULT_MODE,
                         require_price: bool = True,
                         name_mapping_profiles=None,
-                        market_mapping_profiles=None) -> PipelineResult:
+                        market_mapping_profiles=None,
+                        id_resolver=None) -> PipelineResult:
     """Applica il parser al messaggio e valida la riga risultante.
 
     `provider` è fornito dal runtime/config (come per il parser hardcoded) e
@@ -244,6 +245,41 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
             # assente → fail-closed (niente mercato inventato), invece di lasciar passare una
             # riga senza mercato. Controllo mode-aware per non scartare per errore una riga ID.
             return PipelineResult(MARKET_MAPPING_MISSING, row, list(res.missing_required))
+
+    # Identificazione precisa dal dizionario Betfair locale (PR-P12): dopo le mappature
+    # a nomi, prova a riempire EventId/MarketId/SelectionId dalla catena evento→mercato→
+    # selezione del dizionario, ristretta allo sport del parser. È **additiva e fail-open**:
+    # se il dizionario non trova un match univoco la riga resta a nomi (fallback nomi), non
+    # si blocca il segnale; un errore di lettura non deve mai interrompere il flusso.
+    if id_resolver is not None and getattr(defn, "sport", ""):
+        try:
+            ids = id_resolver.resolve_ids(
+                sport=defn.sport,
+                event_name=row.get("EventName", ""),
+                market_type=row.get("MarketType", ""),
+                market_name=row.get("MarketName", ""),
+                selection_name=row.get("SelectionName", ""),
+                handicap=row.get("Handicap", ""))
+        except Exception:   # noqa: BLE001 — risoluzione best-effort: niente blocco del flusso
+            ids = None
+        if ids:
+            # Additivo e NON distruttivo (Codex P1): se il parser ha già fornito un ID
+            # esplicito (ID/BOTH) NON lo si sovrascrive con quello del dizionario — un
+            # dizionario stantio/diverso scriverebbe un mercato/selezione sbagliato. Se un
+            # ID del parser è in CONFLITTO con la tripla risolta, si scarta del tutto
+            # l'arricchimento (resta la riga del parser); altrimenti si riempiono SOLO i
+            # campi ID vuoti con la tripla coerente del dizionario.
+            _keys = ("EventId", "MarketId", "SelectionId")
+            _conflict = any(
+                str(row.get(_k, "")).strip()
+                and ids.get(_k) and str(row.get(_k, "")).strip() != str(ids[_k])
+                for _k in _keys)
+            if not _conflict:
+                row = dict(row)
+                for _k in _keys:
+                    _v = ids.get(_k)
+                    if _v and not str(row.get(_k, "")).strip():
+                        row[_k] = str(_v)
 
     status, detail = validator.validate(row, mode, require_price)
     return PipelineResult(status, row, list(res.missing_required), detail)

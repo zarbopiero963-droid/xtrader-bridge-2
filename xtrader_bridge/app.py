@@ -133,6 +133,12 @@ class App(ctk.CTk):
         # Chiusura in corso: impedisce all'auto-start ritardato di avviare il listener
         # dopo che la finestra è stata chiusa (Codex P2).
         self._closing = False
+        # Lock per la creazione lazy degli oggetti Betfair condivisi (sessione/auth/engine):
+        # ora il flusso live (thread listener Telegram) può costruire l'engine mentre il main
+        # thread lo crea per la tab/auto-sync. Senza lock si creerebbero due engine e la
+        # guardia "una sync per volta" (lock sull'istanza) verrebbe aggirata (Codex). RLock:
+        # `_betfair_sync_engine` chiama `_betfair_session_obj` mentre tiene il lock.
+        self._betfair_lock = threading.RLock()
         # Id del callback ritardato di auto-start: tracciato per poterlo ANNULLARE su
         # qualsiasi azione manuale (AVVIA/STOP/chiusura), così un'azione dell'utente
         # nella finestra dei 400 ms non viene scavalcata dall'auto-start (Codex P2).
@@ -876,28 +882,51 @@ class App(ctk.CTk):
 
     # ── Betfair (issue #86): sessione/auth/engine condivisi (lazy) ────────────
     def _betfair_session_obj(self):
-        """Sessione Betfair condivisa (sessionToken solo in RAM): UNA per processo."""
+        """Sessione Betfair condivisa (sessionToken solo in RAM): UNA per processo.
+        Creazione lazy sotto `_betfair_lock` (doppio controllo): il flusso live e il main
+        thread possono richiederla in concorrenza (Codex)."""
         from .betfair.session import BetfairSession
         if getattr(self, "_betfair_session", None) is None:
-            self._betfair_session = BetfairSession()
+            with self._betfair_lock:
+                if getattr(self, "_betfair_session", None) is None:
+                    self._betfair_session = BetfairSession()
         return self._betfair_session
 
     def _betfair_auth_client(self):
-        """Client di login Betfair (read-only) condiviso, sulla sessione del bridge."""
+        """Client di login Betfair (read-only) condiviso, sulla sessione del bridge.
+        Creazione lazy sotto `_betfair_lock` (doppio controllo)."""
         from .betfair.auth_client import BetfairAuthClient
         if getattr(self, "_betfair_auth_obj", None) is None:
-            self._betfair_auth_obj = BetfairAuthClient(session=self._betfair_session_obj())
+            with self._betfair_lock:
+                if getattr(self, "_betfair_auth_obj", None) is None:
+                    self._betfair_auth_obj = BetfairAuthClient(session=self._betfair_session_obj())
         return self._betfair_auth_obj
 
     def _betfair_sync_engine(self):
         """Motore di sync Betfair condiviso (apre il DB locale in AppData). UNA
-        istanza: il lock anti-doppia-sync e il marker devono persistere."""
+        istanza: il lock anti-doppia-sync e il marker devono persistere. Creazione lazy
+        **sincronizzata** (`_betfair_lock`, doppio controllo): senza, una chiamata dal
+        thread listener (flusso live PR-P12) e una dal main thread (tab/auto-sync)
+        creerebbero DUE engine, aggirando la guardia 'una sync per volta' (Codex)."""
         from .betfair.local_db import BetfairLocalDB
         from .betfair.sync_engine import SyncEngine
         if getattr(self, "_betfair_engine_obj", None) is None:
-            db = BetfairLocalDB(runtime_state.betfair_db_path(config_dir()))
-            self._betfair_engine_obj = SyncEngine(db, self._betfair_session_obj())
+            with self._betfair_lock:
+                if getattr(self, "_betfair_engine_obj", None) is None:
+                    db = BetfairLocalDB(runtime_state.betfair_db_path(config_dir()))
+                    self._betfair_engine_obj = SyncEngine(db, self._betfair_session_obj())
         return self._betfair_engine_obj
+
+    def _betfair_id_resolver(self):
+        """Risolutore ID del dizionario Betfair locale per il flusso live (PR-P12),
+        **best-effort**: ritorna un `DictionaryResolver` sul DB locale, o `None` se il
+        dizionario non è disponibile (in tal caso il flusso resta a nomi: fallback nomi,
+        nessun blocco). Sola lettura: non scrive nulla e non fa rete."""
+        try:
+            from .betfair.dictionary_resolver import DictionaryResolver
+            return DictionaryResolver(self._betfair_sync_engine().db)
+        except Exception:   # noqa: BLE001 — best-effort: il flusso live non deve crashare
+            return None
 
     def _betfair_autosync_tick(self):
         """Tick periodico (mentre il bridge è APERTO) dell'auto-sync Betfair. La
@@ -1519,7 +1548,11 @@ class App(ctk.CTk):
         # va sul main thread (`_process` gira sul thread del listener Telegram).
         self.after(0, lambda m=log_privacy.redact_message(text, full=payload_full), c=chat_id:
                    self._dbg(f"IN (chat {c or '?'}): {m}"))
-        result = signal_router.resolve_row(text, route, chat_id=chat_id)
+        # PR-P12: passa il risolutore ID del dizionario Betfair locale, così — dopo le
+        # mappature a nomi — la riga viene arricchita con EventId/MarketId/SelectionId se
+        # il dizionario trova un match univoco; altrimenti resta a nomi (fallback nomi).
+        result = signal_router.resolve_row(text, route, chat_id=chat_id,
+                                           id_resolver=self._betfair_id_resolver())
         if not result.placeable:
             detail = (", ".join(result.missing_required)
                       if result.missing_required else result.detail)

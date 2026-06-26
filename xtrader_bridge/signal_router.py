@@ -213,12 +213,18 @@ class RouteResult:
         return self.row is not None
 
 
-def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str = None) -> RouteResult:
+def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str = None,
+                id_resolver=None) -> RouteResult:
     """Sceglie il parser e ritorna la riga da scrivere (o `row=None` se scartata).
 
     `chat_id` è la chat di ORIGINE del messaggio (dal live): se passato ha la
     precedenza sul `chat_id` di config, così l'override `parser_by_chat` funziona
-    anche in setup multi-chat dove il singolo `chat_id` non è impostato."""
+    anche in setup multi-chat dove il singolo `chat_id` non è impostato.
+
+    `id_resolver` (opzionale, PR-P12): se fornito (es. `DictionaryResolver` sul dizionario
+    Betfair locale), il pipeline prova a riempire EventId/MarketId/SelectionId dalla catena
+    del dizionario per lo sport del parser — **additivo e fail-open**: se non trova un match
+    univoco la riga resta a nomi (fallback nomi), senza bloccare il segnale."""
     chat = str((chat_id if chat_id is not None else cfg.get("chat_id", "")) or "")
     # Provider PER-CHAT (PR-24): per una sorgente multi-chat attiva usa il suo provider
     # (esplicito, o derivato dalla modalità PRE→TG_PRE / LIVE→TG_LIVE); altrimenti il
@@ -256,7 +262,8 @@ def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str =
         res = custom_pipeline.build_validated_row(
             defn, text, provider=provider, mode=mode, require_price=require_price,
             name_mapping_profiles=name_mapping_profiles,
-            market_mapping_profiles=market_mapping_profiles)
+            market_mapping_profiles=market_mapping_profiles,
+            id_resolver=id_resolver)
         if not res.placeable:
             return RouteResult(None, res.status, CUSTOM, res.detail, list(res.missing_required))
         # Gate di contenuto: la riga è piazzabile, ma il parser deve aver estratto

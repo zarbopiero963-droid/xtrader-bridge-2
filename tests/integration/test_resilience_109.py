@@ -131,7 +131,7 @@ def test_expire_tick_vs_process_concorrenti_non_corrompono_csv(make_app, app_mod
                  daily=safety_guard.DailyLimiter(max_per_day=100000))
     # resolve_row reale isolato: ogni messaggio è piazzabile (varia per non duplicare).
     monkeypatch.setattr(app_mod.signal_router, "resolve_row",
-                        lambda text, route, chat_id=None: app_mod.signal_router.RouteResult(row=_row(text)))
+                        lambda text, route, chat_id=None, **kw: app_mod.signal_router.RouteResult(row=_row(text)))
 
     errors = []
 
