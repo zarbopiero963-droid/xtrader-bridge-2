@@ -64,6 +64,24 @@ def _account(field: str) -> str:
     return _ACCOUNT_PREFIX + field
 
 
+def _delete_one(kr, account) -> bool:
+    """Cancella una voce e VERIFICA l'esito leggendola di nuovo.
+
+    `keyring.delete_password` solleva sia quando la voce non esiste (caso benigno:
+    niente da cancellare) sia su un errore reale del backend (permessi/transitorio):
+    ingoiare l'eccezione e dichiarare successo è il bug segnalato da Codex. Qui, dopo
+    il tentativo, si ricontrolla con `get_password`: la voce è considerata cancellata
+    **solo** se non è più presente. Se è ancora lì (o non è verificabile) → `False`."""
+    try:
+        kr.delete_password(SERVICE, account)
+    except Exception:
+        pass  # potrebbe essere "voce inesistente" (ok) o un errore reale: si verifica
+    try:
+        return kr.get_password(SERVICE, account) in (None, "")
+    except Exception:
+        return False  # impossibile verificare → fail-safe: non dichiarare cancellato
+
+
 def available() -> bool:
     """``True`` se esiste un backend keyring usabile (vedi `token_store.available`)."""
     return token_store.available()
@@ -87,18 +105,19 @@ def save_credentials(creds: BetfairCredentials) -> bool:
     for field in FIELDS:
         value = (getattr(creds, field) or "").strip()
         acct = _account(field)
-        try:
-            if value:
+        if value:
+            try:
                 kr.set_password(SERVICE, acct, value)
                 if field in SECRET_FIELDS:
                     log_safety.register_secret(value)
-            else:
-                try:
-                    kr.delete_password(SERVICE, acct)
-                except Exception:
-                    pass  # voce già assente: non è un errore
-        except Exception:
-            ok = False
+            except Exception:
+                ok = False
+        else:
+            # Svuotare un campo deve cancellarlo davvero: una cancellazione fallita
+            # (vecchio segreto ancora presente) è un FALLIMENTO del save, non un
+            # successo silenzioso (Codex) — altrimenti il segreto resterebbe.
+            if not _delete_one(kr, acct):
+                ok = False
     return ok
 
 
@@ -122,17 +141,19 @@ def load_credentials() -> BetfairCredentials:
 
 
 def delete_credentials() -> bool:
-    """Elimina tutte le credenziali Betfair dal keyring (best-effort). Ritorna
-    `True` se il backend è disponibile (anche se alcune voci erano già assenti)."""
+    """Elimina tutte le credenziali Betfair dal keyring. Ritorna `True` solo se,
+    dopo l'operazione, **nessuna** voce è più presente (verifica per ri-lettura,
+    vedi `_delete_one`). Se il backend manca o una voce resta memorizzata (errore
+    reale), ritorna `False`: la GUI deve segnalare il fallimento e non far credere
+    che i segreti siano stati rimossi (Codex)."""
     kr = _kr()
     if kr is None:
         return False
+    ok = True
     for field in FIELDS:
-        try:
-            kr.delete_password(SERVICE, _account(field))
-        except Exception:
-            pass
-    return True
+        if not _delete_one(kr, _account(field)):
+            ok = False
+    return ok
 
 
 def masked(creds: BetfairCredentials) -> dict:
