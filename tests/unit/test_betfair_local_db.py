@@ -111,6 +111,28 @@ def test_deactivate_unseen_tabella_non_valida(db):
         db.deactivate_unseen("sqlite_master", seen_at=1)
 
 
+def test_deactivate_sports_scoped_non_tocca_altri_sport(db):
+    # Sync del solo Calcio (event_type_id=1) non deve disattivare il Tennis (2).
+    db.upsert_sport("1", "Calcio", seen_at=10)
+    db.upsert_sport("2", "Tennis", seen_at=10)
+    m = db.new_sync_marker()
+    db.upsert_sport("1", "Calcio", seen_at=m)          # solo Calcio rivisto
+    db.deactivate_unseen("betfair_sports", seen_at=m, scope_value="1")
+    rows = {r["event_type_id"]: r["active"] for r in db.fetchall("betfair_sports")}
+    assert rows["1"] == 1     # rivisto nello scope → resta attivo
+    assert rows["2"] == 1     # altro sport fuori scope → intatto (non disattivato)
+
+
+def test_deactivate_sports_scoped_disattiva_lo_sport_stantio(db):
+    # Se lo sport nello scope NON viene rivisto, va disattivato (solo lui).
+    db.upsert_sport("1", "Calcio", seen_at=10)
+    db.upsert_sport("2", "Tennis", seen_at=10)
+    db.deactivate_unseen("betfair_sports", seen_at=20, scope_value="1")
+    rows = {r["event_type_id"]: r["active"] for r in db.fetchall("betfair_sports")}
+    assert rows["1"] == 0     # Calcio non rivisto nello scope → inattivo
+    assert rows["2"] == 1     # Tennis intatto
+
+
 # ── sync run + name mapping locali ────────────────────────────────────────────
 
 def test_record_sync_run(db):

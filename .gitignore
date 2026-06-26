@@ -26,9 +26,13 @@ history/
 *.bak
 
 # Dizionario Betfair locale (SQLite, issue #86): dati locali del PC, mai committati.
+# Inclusi i file "sidecar" di SQLite (WAL/SHM/journal) che NON finiscono in *.db.
 *.db
 *.sqlite
 *.sqlite3
+*.db-*
+*.sqlite-*
+*.sqlite3-*
 betfair_dictionary.db
 
 # Parser Personalizzati definiti dall'utente (CP-01): salvati a runtime in

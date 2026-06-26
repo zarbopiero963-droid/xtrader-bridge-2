@@ -27,8 +27,11 @@ import threading
 # Whitelist delle tabelle che espongono active/last_seen_at e la loro colonna di
 # scoping opzionale (per deactivate_unseen). Fonte unica: evita SQL costruito da
 # input non controllato (i nomi tabella/colonna passano SOLO da qui).
+# NB: anche `betfair_sports` è scopabile per `event_type_id` (la sua stessa PK), così
+# una sync di un solo sport può ripulire SOLO quel record e non disattivare gli altri
+# sport visti in precedenti sync (invariante multi-sport, Codex).
 _SCOPED = {
-    "betfair_sports": None,
+    "betfair_sports": "event_type_id",
     "betfair_competitions": "event_type_id",
     "betfair_events": "event_type_id",
     "betfair_markets": "event_id",
