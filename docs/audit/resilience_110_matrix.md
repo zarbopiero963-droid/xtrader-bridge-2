@@ -11,7 +11,7 @@ funzionalità (decisione del proprietario).
 | # | Voce | Stato | Evidenza |
 |---|---|---|---|
 | 1 | App boot crash recovery: CSV con riga → cleanup prima di auto-start | COVERED | funzione: `tests/safety/test_csv_atomic.py::test_clear_stale_csv_rimuove_riga_orfana` · ordine `__init__` (cleanup PRIMA dell'auto-start): guardia di regressione `tests/integration/test_reconnect_110.py::test_boot_clear_stale_csv_precede_lo_scheduling_auto_start` |
-| 2 | App auto-start dry-run: parte solo se token/chat ok | COVERED | `tests/unit/test_autostart.py` (decisione) |
+| 2 | App auto-start dry-run: parte solo se token/chat ok | PARTIAL | decisione pura: `tests/unit/test_autostart.py` (`can_auto_start`/`is_enabled`) · gating runtime di `App._maybe_auto_start` (disabilitato/`_closing`/`_running` → non chiama `_start`): `tests/integration/test_reconnect_110.py::test_maybe_auto_start_gating_non_parte_se_disabilitato_chiusura_o_running` · gate fine token/chat dentro `_start` = GUI, non headless |
 | 3 | App auto-start real: chiede conferma; se no non parte | COVERED* | `tests/unit/test_autostart.py::test_conferma_richiesta_solo_in_modalita_reale` (decisione) · `messagebox` GUI = manuale |
 | 4 | Mock Telegram `drop_pending_updates=True` (+allowed_updates) | COVERED | `tests/integration/test_listener_dispatch.py::test_start_polling_scarta_arretrati_e_ammette_channel_post` (#161) |
 | 5 | Mock Telegram stale update → `_process` non chiamato | COVERED | `tests/integration/test_listener_dispatch.py::test_messaggio_vecchio_ignorato` (#161) |
@@ -36,8 +36,8 @@ end-to-end su GUI reale / Windows / XTrader resta nella checklist manuale.
 
 ## Riepilogo
 - **NEW (questa PR):** 6, 7
-- **COVERED (esistenti, molti da #160/#161/#162):** 1,2,3,4,5,8,9,11,12,13,14
-- **PARTIAL:** 10 (finestra crash post-write/pre-guard-save non simulata) · 15 (`App._start()` con `init_csv` fallito non testabile headless) — vedi righe
+- **COVERED (esistenti, molti da #160/#161/#162):** 1,3,4,5,8,9,11,12,13,14
+- **PARTIAL:** 2 (gate token/chat dentro `_start` GUI, ma gating `_maybe_auto_start` testato) · 10 (finestra crash post-write/pre-guard-save non simulata) · 15 (`App._start()` con `init_csv` fallito non testabile headless) — vedi righe
 - **MANUAL_ONLY (checklist release):** 16,17,18,19 — passi esatti in `docs/audit/release_checklist.md` §I
 - **FEATURE (decisione proprietario):** 20 — event journal transaction-grade
 

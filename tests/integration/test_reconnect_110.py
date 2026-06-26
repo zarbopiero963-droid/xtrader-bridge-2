@@ -234,6 +234,38 @@ def test_stop_reale_sveglia_il_backoff(make_app, app_mod):
     assert a._active_csv_path is None
 
 
+def test_maybe_auto_start_gating_non_parte_se_disabilitato_chiusura_o_running(make_app, app_mod):
+    """#110/2 (glue runtime): il VERO `App._maybe_auto_start` NON chiama `_start` quando
+    l'auto-start è disabilitato in config, o quando la finestra si sta chiudendo
+    (`_closing`), o se il bridge è già `_running`. Esercita il gating reale del callback
+    (consumato a ogni tick: `_autostart_after_id` torna None). NB: il gate fine token/chat
+    vive dentro `_start` (fortemente accoppiato alla GUI) → vedi #110/2 PARTIAL + autostart unit."""
+    a = make_app()
+    started = []
+    a._start = lambda auto=False: started.append(auto)
+
+    # 1) config senza auto-start abilitato → non parte
+    a._config = {}
+    a._running = False
+    a._closing = False
+    a._autostart_after_id = "AFTER-1"
+    app_mod.App._maybe_auto_start(a)
+    assert started == []
+    assert a._autostart_after_id is None      # callback consumato
+
+    # 2) auto-start abilitato ma finestra in chiusura → non parte (gate `_closing`)
+    a._config = {"auto_start_listener": True}
+    a._closing = True
+    app_mod.App._maybe_auto_start(a)
+    assert started == []
+
+    # 3) auto-start abilitato ma bridge già attivo → non parte (gate `_running`)
+    a._closing = False
+    a._running = True
+    app_mod.App._maybe_auto_start(a)
+    assert started == []
+
+
 def test_epoch_cambiato_dopo_fallimento_non_ritenta(make_app, app_mod, monkeypatch):
     """#110/8/14: un nuovo START (epoch che CAMBIA) mentre un vecchio supervisor è in
     backoff dopo un fallimento del poller → il vecchio supervisor NON deve ritentare
