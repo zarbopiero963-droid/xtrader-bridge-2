@@ -21,7 +21,7 @@ moduli funzionali (auth, dizionario, sync) arrivano nelle PR successive (vedi
 `docs/audit/blocco1_personale_roadmap.md`).
 """
 
-from . import credential_store, log_safety
+from . import credential_store, log_safety, sync_tab_controller
 from .credential_store import BetfairCredentials
 from .safety import (
     FORBIDDEN_BETTING_OPS,
@@ -30,6 +30,10 @@ from .safety import (
     is_forbidden_betting_op,
 )
 from .session import BetfairSession
+from .sync_tab_controller import BetfairSyncController
+
+# NB: `sync_tab_gui` (widget customtkinter) NON è importato qui: l'import del package
+# non deve richiedere un display/customtkinter. La GUI si importa esplicitamente.
 
 __all__ = [
     "FORBIDDEN_BETTING_OPS",
@@ -38,6 +42,8 @@ __all__ = [
     "is_forbidden_betting_op",
     "BetfairCredentials",
     "BetfairSession",
+    "BetfairSyncController",
     "credential_store",
     "log_safety",
+    "sync_tab_controller",
 ]

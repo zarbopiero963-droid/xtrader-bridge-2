@@ -13,10 +13,14 @@ from xtrader_bridge.betfair import log_safety
 
 
 class FakeKeyring:
-    """Keyring in memoria che imita l'API set/get/delete_password di `keyring`."""
+    """Keyring in memoria che imita l'API set/get/delete_password di `keyring`.
 
-    def __init__(self):
+    `fail_delete`: insieme di account il cui `delete_password` solleva e **lascia la
+    voce** (simula un errore reale del backend: la cancellazione non avviene)."""
+
+    def __init__(self, fail_delete=None):
         self.store = {}
+        self.fail_delete = set(fail_delete or ())
 
     def set_password(self, service, account, password):
         self.store[(service, account)] = password
@@ -25,6 +29,8 @@ class FakeKeyring:
         return self.store.get((service, account))
 
     def delete_password(self, service, account):
+        if account in self.fail_delete:
+            raise RuntimeError("delete fallita (backend, simulato)")  # voce resta
         if (service, account) not in self.store:
             raise KeyError("voce inesistente")
         del self.store[(service, account)]
@@ -111,6 +117,38 @@ def test_campo_svuotato_viene_cancellato_dal_keyring(monkeypatch):
     assert cs.save_credentials(creds) is True
     assert (cs.SERVICE, "betfair_password") not in fake.store
     assert (cs.SERVICE, "betfair_app_key") in fake.store     # gli altri restano
+
+
+# ── cancellazione fallita NON deve sembrare riuscita (Codex P2) ───────────────
+
+def test_delete_fallita_ritorna_false_e_lascia_la_voce(monkeypatch):
+    # Il backend fallisce la delete dell'app_key e la voce resta memorizzata.
+    fake = FakeKeyring(fail_delete={"betfair_app_key"})
+    monkeypatch.setattr(token_store, "_keyring", lambda: fake)
+    cs.save_credentials(_sample())
+    assert cs.delete_credentials() is False               # non dichiara successo
+    # il segreto è ancora lì: la GUI deve segnalare il fallimento
+    assert fake.store.get((cs.SERVICE, "betfair_app_key")) == "DelayedAppKey123"
+
+
+def test_save_con_clear_fallito_ritorna_false(monkeypatch):
+    # L'utente svuota la password ma la delete del backend fallisce: il vecchio
+    # segreto resta → il save deve risultare FALLITO, non riuscito.
+    fake = FakeKeyring(fail_delete={"betfair_password"})
+    monkeypatch.setattr(token_store, "_keyring", lambda: fake)
+    cs.save_credentials(_sample())
+    creds = _sample()
+    creds.password = ""                                   # clear del campo password
+    assert cs.save_credentials(creds) is False
+    # la vecchia password è ancora memorizzata (clear non avvenuto)
+    assert fake.store.get((cs.SERVICE, "betfair_password")) == "PasswordSegreta!"
+
+
+def test_delete_di_voce_assente_e_successo(monkeypatch):
+    # Cancellare quando non c'è nulla NON è un errore: ritorna True (niente da fare).
+    fake = FakeKeyring()
+    monkeypatch.setattr(token_store, "_keyring", lambda: fake)
+    assert cs.delete_credentials() is True
 
 
 # ── fail-safe: backend keyring assente ────────────────────────────────────────

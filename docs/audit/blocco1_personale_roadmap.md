@@ -38,8 +38,8 @@ non vengono duplicate.
 | PR     | Obiettivo                                   | Aree principali                                                        | Stato |
 |--------|---------------------------------------------|-----------------------------------------------------------------------|-------|
 | PR-P1  | Repository Foundation solo Bridge           | `betfair/` skeleton, guard read-only, hygiene test, questa roadmap     | merged (#165) |
-| PR-P2  | Safe Logging + Secure Local Storage         | storage cifrato credenziali, sessionToken RAM-only, redaction filter   | in corso |
-| PR-P3  | Tab Betfair Sync locale (GUI)               | tab GUI credenziali/sport/giorni/stato, pulsanti                       | TODO  |
+| PR-P2  | Safe Logging + Secure Local Storage         | storage cifrato credenziali, sessionToken RAM-only, redaction filter   | merged (#166) |
+| PR-P3  | Tab Betfair Sync locale (GUI)               | tab GUI credenziali/sport/giorni/stato, pulsanti                       | in corso |
 | PR-P4  | Betfair Auth Client Italia                  | login/logout cert + Delayed App Key, token in RAM                      | TODO  |
 | PR-P5  | Database Locale Betfair Multi-sport         | tabelle locali sport/comp/event/market/selection/sync/mapping         | TODO  |
 | PR-P6  | Betfair Navigation + Catalogue Sync         | navigation menu + listMarketCatalogue, upsert read-only               | TODO  |
@@ -72,6 +72,35 @@ non vengono duplicate.
   Key, username, password, percorsi cert/key) nel **keyring di sistema** (stesso
   pattern fail-safe di `token_store`). `masked()` mostra i segreti come `••••••` alla
   riapertura; i percorsi file restano in chiaro. Il `sessionToken` non è mai salvato.
+
+### PR-P3 — Tab Betfair Sync locale (GUI)
+- `sync_tab_controller.py`: logica pura della tab (testata in CI). `SPORTS`
+  (Calcio/Tennis/Basket/Rugby Union), `normalize_days_ahead`/`normalize_sport`,
+  `BetfairSyncController` con `button_states()` (login solo con credenziali complete;
+  «Sincronizza» solo dopo login e senza sync in corso; logout/cancella governati
+  dallo stato), `save/delete_credentials`, `logout` che **cancella solo la sessione**
+  (non le credenziali), `load_masked`.
+- `sync_tab_gui.py`: widget customtkinter `BetfairSyncPanel` (campi credenziali,
+  sport, giorni avanti, stato login/ultima sync/stato sync, pulsanti). **Non testato
+  in CI** (richiede display): la logica è nel controller; widget = verifica manuale.
+  La tab è **registrata nella finestra «🧰 Strumenti»** (`App._open_tools`, scheda
+  «🔵 Betfair Sync») con una `BetfairSession` unica per processo (token in RAM
+  persistente tra aperture). I campi segreti mostrano `••••••` come sentinella: al
+  Salva/Accedi il controller li **risolve** ai valori reali salvati
+  (`resolve_credentials`), così un segreto non ridigitato non sovrascrive il keyring.
+  Salva/Cancella **segnalano i fallimenti** del keyring senza ricaricare il form
+  (un errore non sembra un successo).
+
+#### Smoke test manuale PR-P3 (Windows, da eseguire dal proprietario)
+1. Apri il bridge, vai alla tab «Betfair Sync». Atteso: campi vuoti, solo «Salva
+   credenziali» attivo; «Accedi»/«Sincronizza»/«Logout»/«Cancella» disabilitati.
+2. Inserisci App Key, username, password, percorsi cert/key → «Accedi» si abilita.
+3. Premi «Salva credenziali», chiudi e riapri il bridge → i campi segreti appaiono
+   mascherati (`••••••`), i percorsi file in chiaro.
+4. (Dopo PR-P4) login → «Sincronizza ora» e «Logout» si abilitano.
+5. «Logout» → torna «non connesso», ma le credenziali restano salvate.
+6. «Cancella credenziali salvate» → campi vuoti, login disabilitato.
+Risultato atteso: nessun token nei log, nessuna chiamata betting, nessun dato fuori dal PC.
 
 ## Definition of Done (blocco personale)
 
