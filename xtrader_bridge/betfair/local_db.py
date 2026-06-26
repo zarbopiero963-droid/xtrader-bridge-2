@@ -20,6 +20,7 @@ per la tripla), e i record non più visti in una sync vengono marcati
 dipendenza. Nessun dato sensibile/credenziale finisce qui.
 """
 
+import os
 import sqlite3
 import threading
 
@@ -91,6 +92,10 @@ CREATE TABLE IF NOT EXISTS betfair_sync_runs (
     status     TEXT,
     summary    TEXT
 );
+CREATE TABLE IF NOT EXISTS betfair_meta (
+    key   TEXT PRIMARY KEY,
+    value INTEGER NOT NULL
+);
 """
 
 
@@ -111,6 +116,13 @@ class BetfairLocalDB:
 
     def __init__(self, db_path: str = ":memory:"):
         self.db_path = db_path
+        # Su un'installazione nuova la cartella AppData potrebbe non esistere ancora:
+        # crearla PRIMA di connettere, altrimenti sqlite solleva "unable to open
+        # database file" al primo uso del dizionario (Codex). Non per ":memory:".
+        if db_path and db_path != ":memory:":
+            parent = os.path.dirname(db_path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
         # check_same_thread=False: la sync può girare in un worker; le scritture sono
         # serializzate dal lock sottostante.
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -202,6 +214,27 @@ class BetfairLocalDB:
                  active=1, last_seen_at=excluded.last_seen_at""",
             (str(sport), str(normalized_name), mapped_name, entity_type, int(seen_at)))
 
+    # ── marker di sync (unico e monotòno, persistito) ────────────────────────
+
+    def new_sync_marker(self) -> int:
+        """Ritorna un marker di sync **strettamente crescente** e persistito.
+
+        I chiamanti DEVONO usare questo valore come `seen_at` degli upsert di una
+        sync (NON il wall-clock): due run non condivideranno mai lo stesso marker —
+        nemmeno un retry nello stesso secondo — quindi `deactivate_unseen` distingue
+        sempre le righe della run corrente da quelle delle run precedenti (Codex).
+        Il contatore vive in `betfair_meta` e sopravvive ai riavvii."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO betfair_meta(key, value) VALUES('run_counter', 0) "
+                "ON CONFLICT(key) DO NOTHING")
+            self._conn.execute(
+                "UPDATE betfair_meta SET value = value + 1 WHERE key='run_counter'")
+            row = self._conn.execute(
+                "SELECT value FROM betfair_meta WHERE key='run_counter'").fetchone()
+            self._conn.commit()
+            return int(row["value"])
+
     # ── sync run ─────────────────────────────────────────────────────────────
 
     def record_sync_run(self, started_at, finished_at, status, summary="") -> int:
@@ -219,6 +252,11 @@ class BetfairLocalDB:
     def deactivate_unseen(self, table, seen_at: int, *, scope_value=None) -> int:
         """Marca `active=0` i record della tabella **non visti** in questa sync, cioè
         con `last_seen_at < seen_at`. Ritorna il numero di righe disattivate.
+
+        `seen_at` DEVE essere il marker della sync corrente ottenuto da
+        `new_sync_marker()` (strettamente crescente): così i record stampati da run
+        precedenti hanno `last_seen_at < seen_at` e vengono disattivati, mentre quelli
+        rivisti in questa run (stampati con `seen_at`) restano attivi.
 
         `scope_value` (opzionale) restringe alla colonna di scoping della tabella
         (es. `event_type_id` per eventi/competizioni, `event_id` per i mercati,

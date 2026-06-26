@@ -121,6 +121,54 @@ def test_record_sync_run(db):
     assert len(runs) == 1 and runs[0]["status"] == "OK"
 
 
+# ── marker di sync unico/monotòno (Codex P2) ──────────────────────────────────
+
+def test_new_sync_marker_strettamente_crescente(db):
+    m1 = db.new_sync_marker()
+    m2 = db.new_sync_marker()
+    m3 = db.new_sync_marker()
+    assert m1 < m2 < m3
+
+
+def test_marker_unico_disattiva_run_precedente_anche_stesso_istante(db):
+    # Regressione Codex: due run "nello stesso secondo" non devono condividere il
+    # marker. Usando new_sync_marker() i marker sono distinti → la deattivazione
+    # dei non-rivisti funziona comunque.
+    m1 = db.new_sync_marker()
+    db.upsert_event("ev1", "1", "c", "A v B", seen_at=m1)
+    db.upsert_event("ev2", "1", "c", "C v D", seen_at=m1)
+    m2 = db.new_sync_marker()
+    assert m2 > m1
+    db.upsert_event("ev1", "1", "c", "A v B", seen_at=m2)   # solo ev1 rivisto
+    db.deactivate_unseen("betfair_events", seen_at=m2)
+    rows = {e["event_id"]: e["active"] for e in db.get_events()}
+    assert rows["ev1"] == 1
+    assert rows["ev2"] == 0                                   # run precedente disattivata
+
+
+def test_marker_persiste_dopo_riapertura(tmp_path):
+    path = str(tmp_path / "sub" / "betfair.db")   # sub/ non esiste ancora
+    d1 = BetfairLocalDB(path)
+    m1 = d1.new_sync_marker()
+    d1.close()
+    d2 = BetfairLocalDB(path)        # riapertura
+    m2 = d2.new_sync_marker()
+    d2.close()
+    assert m2 > m1                   # il contatore è persistito
+
+
+# ── apertura su cartella AppData inesistente (Codex P2) ───────────────────────
+
+def test_apertura_crea_la_cartella_padre(tmp_path):
+    # La cartella padre NON esiste: l'init deve crearla, non sollevare.
+    path = str(tmp_path / "non" / "ancora" / "betfair.db")
+    d = BetfairLocalDB(path)
+    d.upsert_sport("1", "Calcio", seen_at=d.new_sync_marker())
+    assert d.count_active("betfair_sports") == 1
+    d.close()
+    assert (tmp_path / "non" / "ancora" / "betfair.db").exists()
+
+
 def test_name_mapping_per_sport_non_duplica(db):
     db.upsert_name_mapping("Calcio", "juve", "Juventus", "team", seen_at=1)
     db.upsert_name_mapping("Calcio", "juve", "Juventus FC", "team", seen_at=2)
