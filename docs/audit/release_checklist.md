@@ -78,8 +78,14 @@ rete/auto-start possono restare in DRY_RUN.
       stake basso — in DRY_RUN il CSV non verrebbe scritto e lo scenario non sarebbe
       esercitato.)* Fai scrivere un segnale nel CSV, poi spegni brutalmente VM/PC (o
       `kill -9`). Riapri l'app. Atteso: CSV a **solo header** PRIMA di START (nessuna riga
-      orfana); il log segnala il cleanup all'avvio; il dedupe riconosce un duplicato
-      recente; il daily count non si azzera se era stato salvato.
+      orfana); il log segnala il cleanup all'avvio. **Dedupe/daily dopo il crash sono
+      best-effort**: il duplicato recente è riconosciuto e il daily count è preservato
+      **solo se lo stato guard era stato persistito prima del crash**; un crash nella
+      finestra stretta "write CSV riuscita → prima di `_save_guard_state`" può far
+      dimenticare quel segnale (vedi `resilience_110_matrix.md` #110/10) — è un fail-safe
+      accettato, non una garanzia di "exactly-once". Per un check deterministico del
+      dedupe, fai prima arrivare un 2° segnale (così lo stato viene salvato) e poi togli
+      la corrente.
 - [ ] **#110/18 — Telegram live outage / reconnect.** *(DRY_RUN va bene: non serve
       scrivere il CSV.)* Avvia il listener, stacca la rete ~5 min e invia segnali nel
       canale mentre è offline; riattacca la rete. Atteso: stato **RICONNESSIONE…** con

@@ -51,9 +51,10 @@ class _TgApp:
     """App Telegram finta che registra initialize/start/stop/shutdown reali, così
     il test può verificare il CONTRATTO di teardown invece di uno stub no-op."""
 
-    def __init__(self, *, fail, on_success):
+    def __init__(self, *, fail, on_success, on_shutdown=None):
         self.updater = _Updater(self, fail=fail)
         self.on_success = on_success
+        self._on_shutdown = on_shutdown
         self.init_calls = 0
         self.start_calls = 0
         self.stop_calls = 0
@@ -75,8 +76,10 @@ class _TgApp:
         self.stop_calls += 1
 
     async def shutdown(self):
-        """Registra lo shutdown dell'app (teardown)."""
+        """Registra lo shutdown dell'app (teardown) ed emette l'evento d'ordine."""
         self.shutdown_calls += 1
+        if self._on_shutdown is not None:
+            self._on_shutdown()
 
 
 def _install_builder(monkeypatch, app_mod, apps, make_tg):
@@ -109,16 +112,25 @@ def test_reconnect_lifecycle_chiude_il_vecchio_updater_e_ritenta(make_app, app_m
     a._reconnect_attempt = 0
     # ramo "transitorio → riconnetti" forzato (classificazione testata altrove)
     monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
-    # niente sleep reale: il backoff non è il focus di questo test (lo è in #110/7)
+    # Traccia l'ORDINE degli eventi: lo shutdown del vecchio updater DEVE precedere il
+    # backoff (review Codex), altrimenti il vecchio poller resterebbe vivo durante l'attesa.
+    order = []
     waits = []
-    a._reconnect_wait = lambda delay: waits.append(delay)
+
+    def _wait(delay):
+        order.append("wait")
+        waits.append(delay)
+
+    a._reconnect_wait = _wait
 
     apps = []
 
     def _make_tg(index):
-        # 1ª app: polling fallisce; 2ª app: polling ok → ferma il supervisor.
+        # 1ª app: polling fallisce e registra il proprio shutdown nell'ordine; 2ª app:
+        # polling ok → ferma il supervisor.
         return _TgApp(fail=(index == 0),
-                      on_success=lambda: setattr(a, "_running", False))
+                      on_success=lambda: setattr(a, "_running", False),
+                      on_shutdown=(lambda: order.append("shutdown")) if index == 0 else None)
 
     _install_builder(monkeypatch, app_mod, apps, _make_tg)
 
@@ -130,6 +142,7 @@ def test_reconnect_lifecycle_chiude_il_vecchio_updater_e_ritenta(make_app, app_m
     # teardown REALE del vecchio updater prima del retry (no doppio poller):
     assert tg1.updater.stop_calls >= 1
     assert tg1.stop_calls >= 1 and tg1.shutdown_calls >= 1
+    assert order[:2] == ["shutdown", "wait"]           # shutdown PRIMA del backoff
     assert a._tg_app is apps[1]                        # `_tg_app` rimpiazzato (vecchio azzerato)
     assert len(waits) == 1 and waits[0] > 0            # ha atteso il backoff una volta
     assert a._reconnect_attempt == 0                   # reset dopo la riconnessione riuscita
@@ -202,3 +215,46 @@ def test_boot_clear_stale_csv_precede_lo_scheduling_auto_start(app_mod):
     assert i_clear != -1, "chiamata _clear_stale_csv(\"all'avvio\") non trovata in __init__"
     assert i_auto != -1, "scheduling _maybe_auto_start non trovato in __init__"
     assert i_clear < i_auto, "il cleanup del CSV all'avvio deve precedere l'auto-start"
+
+
+def test_stop_reale_sveglia_il_backoff(make_app, app_mod):
+    """#110/7 (complemento): il VERO `App._stop` imposta `_stop_event` (oltre a `_running=False`).
+    Insieme a `test_stop_durante_backoff_vivo_interrompe_subito` (che prova che il wait reale si
+    sblocca su `_stop_event`), questo blinda l'intera catena: se una regressione togliesse
+    `_stop_event.set()` da `_stop`, la STOP della GUI resterebbe appesa fino a fine backoff e
+    questo test fallirebbe. Eseguito sul metodo reale, senza loop/coda attivi."""
+    a = make_app()                       # _loop=None, _tg_app=None, _queue=None, _active_csv_path=None
+    a._running = True
+    a._stop_event = threading.Event()
+
+    app_mod.App._stop(a)
+
+    assert a._stop_event.is_set()        # _stop sveglia un eventuale `_reconnect_wait`
+    assert a._running is False
+    assert a._active_csv_path is None
+
+
+def test_epoch_cambiato_dopo_fallimento_non_ritenta(make_app, app_mod, monkeypatch):
+    """#110/8/14: un nuovo START (epoch che CAMBIA) mentre un vecchio supervisor è in
+    backoff dopo un fallimento del poller → il vecchio supervisor NON deve ritentare
+    (niente doppio poller). Si guida `_run_bot` con epoch 9: il primo polling fallisce,
+    poi durante il backoff l'epoch corrente diventa 99 (nuovo START) → `_is_current()` è
+    falso e il supervisor esce senza costruire un secondo poller."""
+    a = make_app()
+    a._running = True
+    a._listener_epoch = 9
+    a._reconnect_attempt = 0
+    monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
+
+    apps = []
+    _install_builder(monkeypatch, app_mod, apps,
+                     lambda index: _TgApp(fail=True, on_success=lambda: None))
+
+    # Durante il backoff "arriva" un nuovo START: l'epoch corrente cambia rispetto a
+    # quello (9) con cui gira questo supervisor.
+    a._reconnect_wait = lambda delay: setattr(a, "_listener_epoch", 99)
+
+    app_mod.App._run_bot(a, {"bot_token": "x"}, 9)
+
+    assert len(apps) == 1                 # nessun secondo poller costruito dal vecchio supervisor
+    assert a._listener_epoch == 99        # l'epoch è stato invalidato da un nuovo START
