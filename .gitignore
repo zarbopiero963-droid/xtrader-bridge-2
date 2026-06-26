@@ -25,6 +25,12 @@ __pycache__/
 history/
 *.bak
 
+# Dizionario Betfair locale (SQLite, issue #86): dati locali del PC, mai committati.
+*.db
+*.sqlite
+*.sqlite3
+betfair_dictionary.db
+
 # Parser Personalizzati definiti dall'utente (CP-01): salvati a runtime in
 # data/parsers/<nome>.json. Sono configurazione utente, non vanno committati
 # (lo skeleton di default è in codice, vedi xtrader_bridge/custom_parser.py).

@@ -24,6 +24,14 @@ from .config_store import DEFAULTS
 DEDUPE_STATE_FILE = "dedupe_state.json"
 DAILY_STATE_FILE = "daily_state.json"
 EVENT_JOURNAL_FILE = "event_journal.jsonl"
+BETFAIR_DB_FILE = "betfair_dictionary.db"
+
+
+def betfair_db_path(config_dir_path: str) -> str:
+    """Path del dizionario Betfair locale (SQLite), accanto al config (AppData):
+    sport/eventi/mercati/selezioni sincronizzati restano SOLO sul PC (issue #86).
+    Nessun cloud, nessun export/import."""
+    return os.path.join(config_dir_path, BETFAIR_DB_FILE)
 
 
 def event_journal_path(config_dir_path: str) -> str:

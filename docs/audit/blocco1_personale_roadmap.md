@@ -40,8 +40,8 @@ non vengono duplicate.
 | PR-P1  | Repository Foundation solo Bridge           | `betfair/` skeleton, guard read-only, hygiene test, questa roadmap     | merged (#165) |
 | PR-P2  | Safe Logging + Secure Local Storage         | storage cifrato credenziali, sessionToken RAM-only, redaction filter   | merged (#166) |
 | PR-P3  | Tab Betfair Sync locale (GUI)               | tab GUI credenziali/sport/giorni/stato, pulsanti                       | merged (#167) |
-| PR-P4  | Betfair Auth Client Italia                  | login/logout cert + Delayed App Key, token in RAM                      | in corso |
-| PR-P5  | Database Locale Betfair Multi-sport         | tabelle locali sport/comp/event/market/selection/sync/mapping         | TODO  |
+| PR-P4  | Betfair Auth Client Italia                  | login/logout cert + Delayed App Key, token in RAM                      | merged (#168) |
+| PR-P5  | Database Locale Betfair Multi-sport         | tabelle locali sport/comp/event/market/selection/sync/mapping         | in corso |
 | PR-P6  | Betfair Navigation + Catalogue Sync         | navigation menu + listMarketCatalogue, upsert read-only               | TODO  |
 | PR-P7  | Sync Engine Manuale                         | motore unico sync manuale + riepilogo safe                            | TODO  |
 | PR-P8  | Betfair Auto Sync Scheduler locale          | scheduler locale auto login→sync→auto logout                          | TODO  |
@@ -120,6 +120,19 @@ Risultato atteso: nessun token nei log, nessuna chiamata betting, nessun dato fu
    «Logout» si abilitano. Con credenziali errate: log "❌ Login Betfair fallito: <status>".
 3. «Logout» → stato "non connesso"; nessun token su disco, nessun token nei log.
 Non verificato in automatico: la chiamata di rete reale e il certificato vero.
+
+### PR-P5 — Database Locale Betfair Multi-sport
+- `local_db.py`: `BetfairLocalDB` su **SQLite stdlib** (nessuna nuova dipendenza),
+  path in AppData (`runtime_state.betfair_db_path`). Tabelle: `betfair_sports`,
+  `betfair_competitions`, `betfair_events`, `betfair_markets`, `betfair_selections`,
+  `betfair_local_name_mappings`, `betfair_sync_runs`. Chiavi corrette: sport=
+  `event_type_id`, competizione=`competition_id`, evento=`event_id`, mercato=
+  `market_id`, selezione=(`market_id`,`selection_id`,`handicap`), mapping=
+  (`sport`,`normalized_name`). Gli `upsert_*` non duplicano (ON CONFLICT sulla chiave
+  naturale, `active=1` + `last_seen_at`); `deactivate_unseen(table, seen_at, scope_value=)`
+  marca `active=0` i record non rivisti nella sync (scope per sport/evento/mercato così
+  sincronizzare un solo sport non disattiva gli altri). Solo locale: nessun cloud,
+  nessun export/import; il file `.db` è in `.gitignore`.
 
 ## Definition of Done (blocco personale)
 
