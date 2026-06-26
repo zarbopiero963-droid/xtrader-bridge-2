@@ -1,0 +1,109 @@
+"""Pannello «Dizionario Betfair» — SOLA LETTURA (issue #86 PR-P11).
+
+Vista di consultazione del dizionario Betfair locale: l'utente sceglie un livello
+(Sport/Competizioni/Eventi/Mercati/Selezioni) e un filtro sport, e vede le righe
+sincronizzate sul PC. **Non** modifica nulla (nessuna Entry, nessun pulsante di
+scrittura), non fa rete e non muta il DB: tutta la logica sta in
+`DictionaryViewerController` (testata in CI). Questo modulo è solo widget/wiring e NON
+è testato in CI (richiede un display): verifica manuale (vedi roadmap PR-P11).
+"""
+
+import customtkinter as ctk
+
+from .. import sports
+from .dictionary_viewer import LEVEL_LABELS, LEVELS
+
+# Voce «tutti gli sport» del filtro (= nessun filtro).
+_SPORT_ALL = "(tutti gli sport)"
+# Larghezza uniforme di colonna (sola lettura: etichette).
+_COL_WIDTH = 150
+
+
+class DictionaryViewerPanel(ctk.CTkFrame):
+    """Pannello di sola consultazione del dizionario locale.
+
+    `controller` è un `DictionaryViewerController` (sola lettura). Se assente (es. DB non
+    apribile), il pannello mostra un avviso invece di una tabella vuota ambigua."""
+
+    def __init__(self, master=None, controller=None):
+        super().__init__(master)
+        self.controller = controller
+        self._level_label = ctk.StringVar(value=LEVEL_LABELS[LEVELS[0]])
+        self._sport = ctk.StringVar(value=_SPORT_ALL)
+        self._active_only = ctk.BooleanVar(value=False)
+        self._build_ui()
+        self._refresh()
+
+    # ── costruzione UI ────────────────────────────────────────────────────────
+    def _build_ui(self):
+        ctk.CTkLabel(
+            self, text="🔵  Dizionario Betfair (locale, sola lettura)",
+            font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
+
+        bar = ctk.CTkFrame(self)
+        bar.pack(fill="x", padx=12, pady=6)
+        ctk.CTkLabel(bar, text="Livello").pack(side="left", padx=(8, 4))
+        ctk.CTkOptionMenu(bar, variable=self._level_label, width=150,
+                          values=[LEVEL_LABELS[lv] for lv in LEVELS],
+                          command=lambda _v: self._refresh()).pack(side="left", padx=4)
+        ctk.CTkLabel(bar, text="Sport").pack(side="left", padx=(12, 4))
+        ctk.CTkOptionMenu(bar, variable=self._sport, width=160,
+                          values=[_SPORT_ALL, *sports.SPORTS],
+                          command=lambda _v: self._refresh()).pack(side="left", padx=4)
+        ctk.CTkCheckBox(bar, text="Solo attivi", variable=self._active_only,
+                        command=self._refresh).pack(side="left", padx=12)
+        ctk.CTkButton(bar, text="🔄 Aggiorna", width=110,
+                      command=self._refresh).pack(side="left", padx=4)
+
+        self._counts = ctk.CTkLabel(self, text="", anchor="w")
+        self._counts.pack(fill="x", padx=14, pady=(0, 4))
+
+        self._header = ctk.CTkFrame(self, fg_color="transparent")
+        self._header.pack(fill="x", padx=12)
+        self._rows_frame = ctk.CTkScrollableFrame(self, height=400,
+                                                  label_text="Righe del dizionario")
+        self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
+
+    # ── dati ──────────────────────────────────────────────────────────────────
+    def _selected_level(self) -> str:
+        label = self._level_label.get()
+        for lv in LEVELS:
+            if LEVEL_LABELS[lv] == label:
+                return lv
+        return LEVELS[0]
+
+    def _selected_sport(self):
+        s = self._sport.get()
+        return "" if s == _SPORT_ALL else s
+
+    def _clear(self, frame):
+        for w in frame.winfo_children():
+            w.destroy()
+
+    def _refresh(self):
+        """Ricarica la tabella dal controller (sola lettura). Best-effort: un errore di
+        lettura mostra un avviso invece di far crashare la finestra Strumenti."""
+        self._clear(self._header)
+        self._clear(self._rows_frame)
+        if self.controller is None:
+            self._counts.configure(
+                text="⚠️ Dizionario non disponibile (DB locale non apribile).")
+            return
+        level = self._selected_level()
+        try:
+            data = self.controller.view(level, sport=self._selected_sport(),
+                                        active_only=bool(self._active_only.get()))
+        except Exception as exc:   # noqa: BLE001 — lettura best-effort, niente crash GUI
+            self._counts.configure(text=f"⚠️ Errore lettura dizionario: {type(exc).__name__}")
+            return
+        self._counts.configure(
+            text=f"{LEVEL_LABELS[level]}: {data['total']} totali, {data['active']} attivi "
+                 f"(mostrate {len(data['rows'])} righe).")
+        for col in data["columns"]:
+            ctk.CTkLabel(self._header, text=col, width=_COL_WIDTH, anchor="w",
+                         font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
+        for row in data["rows"]:
+            rf = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
+            rf.pack(fill="x", pady=1)
+            for cell in row:
+                ctk.CTkLabel(rf, text=cell, width=_COL_WIDTH, anchor="w").pack(side="left", padx=3)

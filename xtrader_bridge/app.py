@@ -2041,6 +2041,15 @@ class App(ctk.CTk):
                 on_autosync_change=_betfair_autosync_change)
             return self._betfair_panel
 
+        def _make_dictionary(parent):
+            """Crea la tab «Dizionario Betfair» (SOLA LETTURA): consulta sport/eventi/
+            mercati/selezioni sincronizzati localmente. Riusa il DB del motore Betfair
+            (stessa istanza), senza scrivere nulla."""
+            from .betfair.dictionary_viewer import DictionaryViewerController
+            from .betfair.dictionary_viewer_gui import DictionaryViewerPanel
+            controller = DictionaryViewerController(self._betfair_sync_engine().db)
+            return DictionaryViewerPanel(parent, controller=controller)
+
         panels = [
             ("🧩 Parser", _make_parser),
             ("📡 Chat sorgenti", _make_sources),
@@ -2051,6 +2060,7 @@ class App(ctk.CTk):
                  is_running=lambda: self._running)),
             ("🗺️ Mapping", _make_mapping),
             ("🔵 Betfair Sync", _make_betfair),
+            ("📖 Dizionario Betfair", _make_dictionary),
         ]
         self._tools_win = ToolsWindow(self, panels=panels, initial=initial)
         self._tools_win.focus()

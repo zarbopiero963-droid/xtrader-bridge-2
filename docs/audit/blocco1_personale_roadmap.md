@@ -46,8 +46,8 @@ non vengono duplicate.
 | PR-P7  | Sync Engine Manuale                         | motore unico sync manuale + riepilogo safe                            | merged (#171) |
 | PR-P8  | Betfair Auto Sync Scheduler locale          | scheduler locale auto login→sync→auto logout                          | merged (#172) |
 | PR-P9  | Parser Personalizzato Multi-sport / profilo | sport nel parser, fonte unica sport, campi core generici             | merged (#173) |
-| PR-P10 | Name Mapping Multi-sport Locale             | sport per riga di mappatura, scoping in resolve_team                  | in corso |
-| PR-P11 | Dictionary Viewer Locale                    | viewer sola-lettura del dizionario Betfair                           | TODO  |
+| PR-P10 | Name Mapping Multi-sport Locale             | sport per riga di mappatura, scoping in resolve_team                  | merged (#174) |
+| PR-P11 | Dictionary Viewer Locale                    | viewer sola-lettura del dizionario Betfair (per livello + sport)     | in corso |
 | PR-P12 | Telegram → Parser → Mapping → CSV XTrader   | integrazione flusso con fallback nomi                                 | TODO  |
 | PR-P13 | Build EXE Personale                         | solo `XTraderBridge.exe`, nessun segreto/cert incluso                 | TODO  |
 
@@ -281,6 +281,30 @@ reale (i punti 5–6 sono coperti da smoke manuale; la logica pura è in unit te
    sport)»; salva e riapri: lo Sport per riga è persistito.
 2. La logica (normalizzazione sport, scoping resolve_team/resolve_event_name, pipeline per
    sport) è coperta da unit test (`test_name_mapping.py`); la sola resa Tk è manuale.
+
+### PR-P11 — Dictionary Viewer Locale (sola lettura)
+- `betfair/dictionary_viewer.py` (controller **puro**, sola lettura): `DictionaryViewerController`
+  interroga il dizionario locale (`BetfairLocalDB`) per livello — `sports`/`competitions`/
+  `events`/`markets`/`selections` — e ritorna una vista tabellare `{"columns","rows","total",
+  "active"}` pronta per la GUI, con celle già formattate (`active` 0/1 → "sì"/"no"). Scoping per
+  **sport** via `xtrader_bridge/sports.py` (event_type_id per sport/competizioni/eventi/mercati;
+  per le selezioni, che non hanno event_type_id, via i `market_id` dello sport,
+  `market_ids_for_sports`). Sport non valido/non specificato → nessun filtro. `counts(sport)`
+  per il riepilogo, `view(level, sport, active_only)` per la tabella. **Niente rete, niente
+  scrittura DB, niente operazioni di scommessa** (solo `SELECT` via i metodi di lettura del DB).
+- `betfair/dictionary_viewer_gui.py`: `DictionaryViewerPanel` (solo widget/wiring, non testato
+  in CI): tendina Livello + tendina Sport + «Solo attivi» + «🔄 Aggiorna»; tabella di **sole
+  etichette** (nessuna Entry/azione di scrittura). Un controller assente (DB non apribile) o un
+  errore di lettura mostra un avviso, non crasha.
+- `app.py`: nuova scheda «📖 Dizionario Betfair» nella finestra «🧰 Strumenti», che riusa il DB
+  del motore Betfair (stessa istanza, sola lettura).
+
+#### Smoke test manuale PR-P11 (GUI)
+1. «📖 Dizionario Betfair»: scegli Livello = Eventi e Sport = Calcio → vedi solo gli eventi di
+   calcio; «Solo attivi» nasconde i record disattivati; «Aggiorna» ricarica.
+2. La logica (vista per livello, scoping per sport incl. selezioni via market_id, solo-attivi,
+   conteggi, livello non valido) è coperta da unit test (`test_betfair_dictionary_viewer.py`);
+   la sola resa Tk è manuale.
 
 ## Definition of Done (blocco personale)
 
