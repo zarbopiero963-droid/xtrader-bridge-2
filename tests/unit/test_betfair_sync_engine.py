@@ -135,8 +135,9 @@ def test_due_volte_non_duplica(db):
     assert db.count_active("betfair_events") == 1
     assert db.count_active("betfair_markets") == 1
     assert db.count_active("betfair_selections") == 2
-    # alla seconda run niente di nuovo (delta 0)
+    # alla seconda run niente di nuovo (delta 0), selezioni incluse (CodeRabbit)
     assert res2.new_events == 0 and res2.new_markets == 0
+    assert res2.new_selections == 0
 
 
 # ── sport vuoti propagati come FAILED safe ────────────────────────────────────
@@ -145,3 +146,28 @@ def test_run_sport_vuoti_e_failed(db):
     res = _engine(db).run([])      # CatalogueSync alza ValueError → FAILED safe
     assert res.status == se.FAILED
     assert res.errors and "ValueError" in res.errors[0]
+
+
+# ── errore di lettura conteggi DB → FAILED safe (Codex) ───────────────────────
+
+def test_errore_count_active_e_failed():
+    class _FakeDB:
+        def count_active(self, table):
+            raise RuntimeError("db locked")
+
+    class _OkSync:
+        def sync(self, sports):
+            return {"sports": ["1"], "selections": 0, "deactivated": 0}
+
+    eng = SyncEngine(_FakeDB(), _logged_session(), catalogue_sync=_OkSync())
+    res = eng.run(["Calcio"])
+    assert res.status == se.FAILED      # niente crash: count_active dentro il path safe
+    assert res.errors and "RuntimeError" in res.errors[0]
+
+
+# ── set_app_key (login non salvato) ───────────────────────────────────────────
+
+def test_set_app_key(db):
+    eng = SyncEngine(db, _logged_session())   # CatalogueSync di default
+    eng.set_app_key("DelayedKeyDalLogin")
+    assert eng._sync.app_key == "DelayedKeyDalLogin"

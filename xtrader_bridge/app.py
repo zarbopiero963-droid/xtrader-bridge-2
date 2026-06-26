@@ -1789,34 +1789,56 @@ class App(ctk.CTk):
         # Client di login Betfair (read-only): condivide la sessione (token in RAM).
         _betfair_auth = BetfairAuthClient(session=self._betfair_session)
 
+        def _betfair_engine():
+            """Motore di sync Betfair: UNA istanza per processo (il lock anti-doppia
+            sync deve persistere). Il DB locale viene aperto QUI (non a livello di
+            `_open_tools`) così un errore del DB rompe solo la tab Betfair e non le
+            altre schede, che hanno la loro isolazione per-pannello (Codex)."""
+            if getattr(self, "_betfair_engine_obj", None) is None:
+                _bf_db = BetfairLocalDB(runtime_state.betfair_db_path(config_dir()))
+                self._betfair_engine_obj = SyncEngine(_bf_db, self._betfair_session)
+            return self._betfair_engine_obj
+
         def _betfair_login(creds):
             """Callback «Accedi» della tab Betfair: login con certificato. L'esito va
             nel log (redatto): mai token/segreti in chiaro."""
             try:
                 _betfair_auth.login(creds)
+                # Porta la App Key del login nell'engine: così la sync funziona anche
+                # dopo un login con credenziali NON ancora salvate nel keyring (Codex).
+                try:
+                    _betfair_engine().set_app_key(creds.app_key)
+                except Exception:           # noqa: BLE001 — l'engine può mancare se il DB fallisce
+                    pass
                 self._log("🔵 Login Betfair riuscito (sessione in memoria).")
             except LoginError as ex:        # messaggio già safe (nessun segreto)
                 self._log(f"❌ Login Betfair fallito: {ex}")
 
-        # DB locale + motore di sync (UNA istanza per processo: il lock anti-doppia
-        # sync deve persistere tra le aperture della finestra Strumenti).
-        if getattr(self, "_betfair_engine", None) is None:
-            _bf_db = BetfairLocalDB(runtime_state.betfair_db_path(config_dir()))
-            self._betfair_engine = SyncEngine(_bf_db, self._betfair_session)
-
         def _betfair_sync(sports):
-            """Callback «Sincronizza ora»: esegue il motore e logga il riepilogo safe."""
-            res = self._betfair_engine.run(sports)
-            if res.status == _SYNC_OK:
-                self._log(f"🔄 Sync Betfair OK — sport {res.sports}: "
-                          f"+{res.new_events} eventi, +{res.new_markets} mercati, "
-                          f"+{res.new_selections} selezioni, {res.deactivated} disattivati.")
-            else:
-                self._log("⚠️ Sync Betfair non eseguita: "
-                          + ("; ".join(res.errors) if res.errors else res.status))
+            """Callback «Sincronizza ora»: la sync (rete) gira su un WORKER THREAD per
+            non bloccare la GUI Tk; l'esito è marshalato sul main thread con
+            `after(0, ...)` e loggato in forma safe (CodeRabbit/Codex)."""
+            engine = _betfair_engine()
+
+            def _report(res):
+                if res.status == _SYNC_OK:
+                    self._log(f"🔄 Sync Betfair OK — sport {res.sports}: "
+                              f"+{res.new_events} eventi, +{res.new_markets} mercati, "
+                              f"+{res.new_selections} selezioni, {res.deactivated} disattivati.")
+                else:
+                    self._log("⚠️ Sync Betfair non eseguita: "
+                              + ("; ".join(res.errors) if res.errors else res.status))
+
+            def _worker():
+                res = engine.run(sports)
+                self.after(0, lambda: _report(res))
+
+            threading.Thread(target=_worker, daemon=True, name="betfair-sync").start()
 
         def _make_betfair(parent):
-            """Crea la tab Betfair Sync (credenziali locali + stato login/sync)."""
+            """Crea la tab Betfair Sync (credenziali locali + stato login/sync).
+            Apre qui il DB/engine, così un suo errore resta isolato a questa scheda."""
+            _betfair_engine()      # forza la creazione del DB nel try/except del pannello
             return BetfairSyncPanel(parent, session=self._betfair_session,
                                     on_login=_betfair_login, on_sync=_betfair_sync)
 

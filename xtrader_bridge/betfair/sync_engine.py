@@ -56,6 +56,11 @@ class SyncEngine:
         self._sync = catalogue_sync or CatalogueSync(db, session=session, app_key=app_key)
         self._lock = threading.Lock()
 
+    def set_app_key(self, app_key) -> None:
+        """Imposta la Delayed App Key da usare per la sync (es. dopo un login con
+        credenziali NON ancora salvate, così la sync non dipende dal keyring)."""
+        self._sync.app_key = app_key
+
     @property
     def is_syncing(self) -> bool:
         """`True` se una sync è in corso (lock preso)."""
@@ -79,19 +84,24 @@ class SyncEngine:
             return SyncResult(status=BUSY,
                               errors=["Sincronizzazione già in corso: attendi il termine."])
         try:
-            before = self._active_counts()
+            # Anche le letture dei conteggi (count_active) devono stare nel percorso
+            # safe: se il DB è chiuso/locked NON deve crashare la GUI (CodeRabbit/Codex).
             try:
+                before = self._active_counts()
                 summary = self._sync.sync(sports)
+                after = self._active_counts()
             except Exception as ex:   # noqa: BLE001 — fallimento safe, niente crash/segreti
                 return SyncResult(status=FAILED,
                                   errors=[f"Sync fallita ({type(ex).__name__})."])
-            after = self._active_counts()
+            # Tutti i "nuovi" sono variazioni dei record ATTIVI (before→after), così
+            # una seconda sync identica riporta +0 ovunque (coerenza, CodeRabbit):
+            # `summary["selections"]` è il totale upsertato nella run, non i nuovi.
             return SyncResult(
                 status=OK,
                 sports=list(summary.get("sports", [])),
                 new_events=max(0, after["events"] - before["events"]),
                 new_markets=max(0, after["markets"] - before["markets"]),
-                new_selections=int(summary.get("selections", 0)),
+                new_selections=max(0, after["selections"] - before["selections"]),
                 deactivated=int(summary.get("deactivated", 0)),
             )
         finally:
