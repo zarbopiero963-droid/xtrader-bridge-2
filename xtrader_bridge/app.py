@@ -1687,6 +1687,7 @@ class App(ctk.CTk):
         from .custom_parser_gui import CustomParserPanel
         from .betfair.sync_tab_gui import BetfairSyncPanel
         from .betfair.session import BetfairSession
+        from .betfair.auth_client import BetfairAuthClient, LoginError
 
         # UNA sola finestra hub: se è già aperta, si cambia scheda e la si porta in primo
         # piano invece di aprirne una seconda identica (CodeRabbit). `winfo_exists` è 0 se
@@ -1783,9 +1784,22 @@ class App(ctk.CTk):
         if getattr(self, "_betfair_session", None) is None:
             self._betfair_session = BetfairSession()
 
+        # Client di login Betfair (read-only): condivide la sessione (token in RAM).
+        _betfair_auth = BetfairAuthClient(session=self._betfair_session)
+
+        def _betfair_login(creds):
+            """Callback «Accedi» della tab Betfair: login con certificato. L'esito va
+            nel log (redatto): mai token/segreti in chiaro."""
+            try:
+                _betfair_auth.login(creds)
+                self._log("🔵 Login Betfair riuscito (sessione in memoria).")
+            except LoginError as ex:        # messaggio già safe (nessun segreto)
+                self._log(f"❌ Login Betfair fallito: {ex}")
+
         def _make_betfair(parent):
             """Crea la tab Betfair Sync (credenziali locali + stato login/sync)."""
-            return BetfairSyncPanel(parent, session=self._betfair_session)
+            return BetfairSyncPanel(parent, session=self._betfair_session,
+                                    on_login=_betfair_login)
 
         panels = [
             ("🧩 Parser", _make_parser),
