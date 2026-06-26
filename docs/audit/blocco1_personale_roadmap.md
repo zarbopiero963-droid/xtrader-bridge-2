@@ -44,8 +44,8 @@ non vengono duplicate.
 | PR-P5  | Database Locale Betfair Multi-sport         | tabelle locali sport/comp/event/market/selection/sync/mapping         | merged (#169) |
 | PR-P6  | Betfair Navigation + Catalogue Sync         | navigation menu + listMarketCatalogue, upsert read-only               | merged (#170) |
 | PR-P7  | Sync Engine Manuale                         | motore unico sync manuale + riepilogo safe                            | merged (#171) |
-| PR-P8  | Betfair Auto Sync Scheduler locale          | scheduler locale auto login→sync→auto logout                          | in corso |
-| PR-P9  | Parser Personalizzato Multi-sport / profilo | sport nel parser, campi core generici                                 | TODO  |
+| PR-P8  | Betfair Auto Sync Scheduler locale          | scheduler locale auto login→sync→auto logout                          | merged (#172) |
+| PR-P9  | Parser Personalizzato Multi-sport / profilo | sport nel parser, fonte unica sport, campi core generici             | in corso |
 | PR-P10 | Name Mapping Multi-sport Locale             | tab mapping per sport/profilo, locale                                 | TODO  |
 | PR-P11 | Dictionary Viewer Locale                    | viewer sola-lettura del dizionario Betfair                           | TODO  |
 | PR-P12 | Telegram → Parser → Mapping → CSV XTrader   | integrazione flusso con fallback nomi                                 | TODO  |
@@ -229,6 +229,34 @@ Non verificato in automatico: la chiamata di rete reale a navigation/catalogue.
    distrutta (il tick è cancellato e i callback sono guardati da `_closing`).
 Non verificato in automatico: il tempo reale del tick, la rete Betfair e la GUI Tk
 reale (i punti 5–6 sono coperti da smoke manuale; la logica pura è in unit test).
+
+### PR-P9 — Parser Personalizzato Multi-sport per profilo
+- `sports.py` (**nuovo, fonte UNICA**): `SPORTS_EVENT_TYPE` (Calcio=1, Tennis=2,
+  Basket=7522, Rugby Union=5), `SPORTS`, `SPORT_UNSPECIFIED`, `normalize_sport`
+  (case-insensitive), `is_supported_sport`, `event_type_id_for_sport`. `betfair/
+  catalogue_client.py` e `betfair/sync_tab_controller.py` ora **riusano** questa fonte
+  (ri-export, API invariata): niente più drift della mappa sport fra i moduli.
+- `custom_parser.py`: nuovo campo `CustomParserDef.sport` (uno fra `sports.SPORTS`
+  oppure `""` = **non specificato/agnostico**, retro-compatibile coi parser pre-P9).
+  Round-trip JSON (`to_dict`/`from_dict`/`to_json`), helper `event_type_id()`, e
+  validazione: `""` ammesso, uno sport valorizzato deve essere supportato (un valore
+  ignoto/manomesso è **bloccato**, non sceglie un event_type_id a caso). Lo sport NON
+  cambia le colonne CSV (sempre generiche: Provider/EventId/EventName/MarketId/…); nelle
+  PR successive restringerà la risoluzione ID Betfair all'`event_type_id` corretto.
+- `parser_builder.py`: `sport` preservato nel round-trip (load+save/duplica non lo
+  azzera), `set_sport` (canonicalizza, ignoto→agnostico), `sport_options`.
+- `custom_parser_gui.py`: tendina **Sport** accanto a Modalità («(non specificato)» +
+  i 4 sport); sincronizzata col builder in `_sync_to_builder`/`_reload_rows_from_builder`.
+- Parser **per profilo**: invariato dall'esistente — i profili snapshottano `active_parser`
+  e `parser_by_chat`, quindi cambiare profilo cambia già il parser attivo (e ora il suo sport).
+
+#### Smoke test manuale PR-P9 (Windows / GUI)
+1. Apri «🧩 Parser», scegli Sport = Tennis, salva: riaprendo/ricaricando il parser lo
+   Sport resta Tennis (round-trip). Duplica: lo Sport è copiato.
+2. Lascia Sport = «(non specificato)»: il parser resta agnostico (nessun blocco).
+3. La logica (round-trip, validazione sport ignoto, builder, fonte unica) è coperta da
+   unit test (`test_sports.py`, `test_parser_sport.py`); la sola resa dei widget Tk è
+   verificata a mano.
 
 ## Definition of Done (blocco personale)
 

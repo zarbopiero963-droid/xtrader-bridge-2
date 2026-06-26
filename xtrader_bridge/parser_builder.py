@@ -13,7 +13,7 @@ Riusa i moduli già testati: `custom_parser` (modello/validazione/persistenza),
 import json
 import os
 
-from . import custom_parser, dizionario, recognition, transforms, value_maps
+from . import custom_parser, dizionario, recognition, sports, transforms, value_maps
 from .custom_parser import CustomParserDef, FieldRule
 from .custom_pipeline import build_validated_row
 
@@ -26,6 +26,9 @@ class ParserBuilder:
             self.name = ""
             self.description = ""
             self.mode = recognition.DEFAULT_MODE
+            # Sport del parser (PR-P9): "" = non specificato (agnostico). Preservato nel
+            # round-trip come gli altri campi, così load+save/duplica non lo azzera.
+            self.sport = ""
             self.rules = []
             # Mappatura nomi squadra (name_mapping_store): vanno preservati nel
             # round-trip del builder, altrimenti load+save/duplica azzererebbe la
@@ -42,6 +45,8 @@ class ParserBuilder:
             # normalizzare "" → NAME_ONLY, altrimenti aprire/salvare/duplicare un parser
             # legacy ne scriverebbe NAME_ONLY perdendo l'ereditarietà (Codex).
             self.mode = getattr(defn, "mode", recognition.DEFAULT_MODE)
+            # Sport COM'È (incl. "" agnostico): `getattr` tollera def costruite prima del campo.
+            self.sport = getattr(defn, "sport", "") or ""
             self.rules = [FieldRule.from_dict(r.to_dict()) for r in defn.rules]  # copia
             # Campi mappatura nomi: copiati (lista nuova) così il builder non perde i
             # profili/separatore di un parser caricato (Codex). `getattr` per tollerare
@@ -64,6 +69,16 @@ class ParserBuilder:
 
     def mode_options(self) -> list:
         return list(recognition.VALID_MODES)
+
+    def sport_options(self) -> list:
+        """Opzioni della tendina Sport: "" (= non specificato/agnostico) + gli sport
+        supportati (PR-P9). L'ordine segue `sports.SPORTS` (Calcio/Tennis/Basket/Rugby)."""
+        return [""] + list(sports.SPORTS)
+
+    def set_sport(self, sport: str) -> None:
+        """Imposta lo sport del parser: canonicalizza un valore noto (case-insensitive);
+        vuoto/None/ignoto → "" (non specificato, agnostico)."""
+        self.sport = sports.normalize_sport(sport) or ""
 
     # ── catalogo XTrader: Mercato → Selezione FISSI (B2) ───────────────────
     def market_options(self, rows=None) -> list:
@@ -150,6 +165,7 @@ class ParserBuilder:
     def to_def(self) -> CustomParserDef:
         return CustomParserDef(
             name=self.name, description=self.description, mode=self.mode,
+            sport=self.sport,
             name_mapping_profiles=list(self.name_mapping_profiles),
             team_separator=self.team_separator,
             market_mapping_profiles=list(self.market_mapping_profiles),

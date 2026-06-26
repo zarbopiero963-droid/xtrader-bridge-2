@@ -33,7 +33,7 @@ import json
 import os
 from dataclasses import dataclass, field
 
-from . import atomic_io, config_store, recognition, transforms, validators
+from . import atomic_io, config_store, recognition, sports, transforms, validators
 from .csv_writer import CSV_HEADER
 
 # Versione dello schema del file parser: serve a gestire migrazioni future
@@ -151,6 +151,12 @@ class CustomParserDef:
     # XTrader canonici. Vuoto = nessuna mappatura mercati (colonne MarketName/SelectionName
     # restano quelle delle regole, retro-compatibile). Vedi docs/audit/mercati_mapping_design.md.
     market_mapping_profiles: "list[str]" = field(default_factory=list)
+    # Sport del parser (PR-P9): uno fra `sports.SPORTS` (Calcio/Tennis/Basket/Rugby
+    # Union) oppure `""` = non specificato (parser **agnostico**, retro-compatibile con
+    # i file salvati prima di PR-P9). Lo sport non cambia le colonne CSV (sempre generiche)
+    # ma — nelle PR successive — restringe la risoluzione degli ID Betfair all'event_type_id
+    # corretto. Il parser per-profilo cambia con il profilo (active_parser nello snapshot).
+    sport: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -158,11 +164,17 @@ class CustomParserDef:
             "description": self.description,
             "version": self.version,
             "mode": self.mode,
+            "sport": self.sport,
             "name_mapping_profiles": list(self.name_mapping_profiles),
             "team_separator": self.team_separator,
             "market_mapping_profiles": list(self.market_mapping_profiles),
             "rules": [r.to_dict() for r in self.rules],
         }
+
+    def event_type_id(self):
+        """`event_type_id` Betfair dello sport del parser, o ``None`` se lo sport non è
+        specificato/supportato (i chiamati gestiscono ``None`` fail-closed)."""
+        return sports.event_type_id_for_sport(self.sport)
 
     @classmethod
     def from_dict(cls, data: dict) -> "CustomParserDef":
@@ -191,10 +203,15 @@ class CustomParserDef:
         if not isinstance(raw_market, list):
             raw_market = []
         market_profiles = [str(p).strip() for p in raw_market if str(p or "").strip()]
+        # Sport (PR-P9): chiave assente/null/"" → "" (agnostico, retro-compatibile). Un
+        # valore valorizzato è strippato e tenuto COM'È; se non è uno sport supportato la
+        # validazione (validate_parser_def) lo segnala, invece di sceglierne uno a caso.
+        sport = str(data.get("sport", "") or "").strip()
         return cls(
             name=str(data.get("name", "")),
             description=str(data.get("description", "")),
             version=version,
+            sport=sport,
             name_mapping_profiles=profiles,
             team_separator=str(data.get("team_separator", "") or ""),
             market_mapping_profiles=market_profiles,
@@ -247,6 +264,15 @@ def validate_parser_def(defn: CustomParserDef) -> list:
 
     if not defn.rules:
         errors.append("Il parser deve avere almeno una regola.")
+
+    # Sport (PR-P9): "" = non specificato (agnostico, ammesso). Se valorizzato deve essere
+    # uno sport supportato: un valore ignoto (typo, file manomesso) NON deve passare,
+    # altrimenti la risoluzione ID Betfair userebbe l'event_type_id sbagliato (o nessuno).
+    if defn.sport and not sports.is_supported_sport(defn.sport):
+        errors.append(
+            f"Sport non valido: {defn.sport!r}; ammessi {', '.join(sports.SPORTS)} "
+            "(oppure vuoto = non specificato)."
+        )
 
     seen_targets = set()
     for i, rule in enumerate(defn.rules):

@@ -21,14 +21,10 @@ import json
 
 from . import credential_store, safety
 from .local_db import BetfairLocalDB
-
-# Sport del blocco personale → event_type_id ufficiale Betfair.
-SPORTS_EVENT_TYPE = {
-    "Calcio": "1",
-    "Tennis": "2",
-    "Basket": "7522",
-    "Rugby Union": "5",
-}
+# Sport del blocco personale → event_type_id ufficiale Betfair. Fonte UNICA in
+# `xtrader_bridge.sports` (riusata anche dal parser personalizzato, PR-P9); qui la
+# ri-esportiamo per non spezzare l'API pubblica di questo client.
+from ..sports import SPORTS_EVENT_TYPE
 
 # Operazioni Betfair usate da questo client: SOLO lettura (nomi per il guard/log).
 NAVIGATION_OP = "navigationMenu"

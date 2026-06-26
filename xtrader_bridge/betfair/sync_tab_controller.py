@@ -20,8 +20,10 @@ from . import credential_store
 from .credential_store import BetfairCredentials
 from .session import BetfairSession
 
-# Sport supportati dal blocco personale (ordine di visualizzazione in GUI).
-SPORTS = ("Calcio", "Tennis", "Basket", "Rugby Union")
+# Sport supportati dal blocco personale (ordine di visualizzazione in GUI). Fonte
+# UNICA in `xtrader_bridge.sports` (riusata da parser personalizzato e catalogue
+# client, PR-P9): ri-esportata qui per non spezzare l'API di questo controller.
+from ..sports import SPORTS, normalize_sport
 
 # Giorni avanti di default per lo scarico del palinsesto (campo «Giorni avanti»).
 DEFAULT_DAYS_AHEAD = 3
@@ -42,15 +44,6 @@ def normalize_days_ahead(value, default: int = DEFAULT_DAYS_AHEAD) -> int:
     if n < 1:
         return default
     return min(n, _MAX_DAYS_AHEAD)
-
-
-def normalize_sport(name):
-    """Ritorna lo sport canonico (match case-insensitive) o ``None`` se non supportato."""
-    key = str(name or "").strip().casefold()
-    for sport in SPORTS:
-        if sport.casefold() == key:
-            return sport
-    return None
 
 
 class BetfairSyncController:

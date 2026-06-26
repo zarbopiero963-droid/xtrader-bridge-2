@@ -223,6 +223,24 @@ runtime **eredita la modalità globale** `recognition_mode`, così i parser vecc
 cambiano comportamento. I parser creati/salvati dalla GUI hanno sempre una modalità
 esplicita (incl. la voce «(eredita globale)» se la scegli apposta).
 
+### Sport del parser (multi-sport)
+
+Ogni parser può dichiarare uno **Sport** (menu a tendina accanto a «Modalità»): uno fra
+**Calcio / Tennis / Basket / Rugby Union**, oppure **«(non specificato)»** = parser
+**agnostico**. È salvato nel file del parser (campo `sport`; vuoto = non specificato) ed è
+la fonte unica degli sport (`xtrader_bridge/sports.py`), la stessa usata dalla tab Betfair
+Sync e dal catalogue client, con la mappa allo `event_type_id` ufficiale Betfair
+(Calcio=1, Tennis=2, Basket=7522, Rugby Union=5).
+
+Lo Sport **non cambia le colonne CSV** (restano le 14 generiche): serve a indicare a quale
+sport appartiene il segnale così che — nelle versioni successive — la risoluzione degli ID
+Betfair (`EventId`/`MarketId`/`SelectionId`) dal dizionario locale possa restringersi
+all'`event_type_id` corretto. Uno Sport non riconosciuto (file manomesso) **blocca** la
+validazione invece di scegliere un event_type_id a caso; un parser salvato *prima* di questa
+feature non ha il campo `sport` e resta **agnostico** (retro-compatibile). Poiché il parser
+attivo è per profilo (`active_parser`/`parser_by_chat` nello snapshot del profilo), cambiando
+profilo cambia anche lo Sport del parser usato.
+
 ### Anagrafica Provider
 
 La colonna **`Provider`** si compila da un **menu a tendina** con i nomi provider salvati
