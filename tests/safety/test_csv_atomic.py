@@ -218,6 +218,42 @@ def test_concorrenza_write_clear_non_corrompe(tmp_path):
     assert _no_tmp_left(str(tmp_path))                # nessun temporaneo residuo
 
 
+@pytest.mark.slow
+def test_stress_write_clear_500_iterazioni_non_corrompe(tmp_path):
+    # #109/18: stress più alto (500 iter per thread) di write/clear concorrenti — marcato
+    # `slow`, escluso dai profili commit/pr (-m "not slow"). Stesso invariante del test base:
+    # il CSV resta SEMPRE valido (header integro, 0/1 righe), nessun .tmp, nessuna eccezione.
+    p = str(tmp_path / "segnali.csv")
+    csv_writer.init_csv(p)
+    errors = []
+
+    def writer_loop():
+        for _ in range(500):
+            try:
+                csv_writer.write_csv(ROW, p)
+            except Exception as e:  # noqa: BLE001
+                errors.append(e)
+
+    def clear_loop():
+        for _ in range(500):
+            try:
+                csv_writer.init_csv(p)
+            except Exception as e:  # noqa: BLE001
+                errors.append(e)
+
+    threads = [threading.Thread(target=writer_loop), threading.Thread(target=clear_loop)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, f"eccezioni durante lo stress: {errors}"
+    rows = _read(p)
+    assert rows[0] == csv_writer.CSV_HEADER
+    assert len(rows) in (1, 2)
+    assert _no_tmp_left(str(tmp_path))
+
+
 def test_errore_permessi_non_lascia_tmp(tmp_path, monkeypatch):
     # Se la rename atomica fallisce, il file finale resta intatto e nessun .tmp resta.
     p = tmp_path / "segnali.csv"

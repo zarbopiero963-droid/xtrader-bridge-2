@@ -397,6 +397,19 @@ def test_save_then_load_roundtrip(tmp_path, monkeypatch):
                                            "bot_token_storage": "plaintext"}
 
 
+def test_roundtrip_csv_path_windows_backslash_spazi_unicode(tmp_path, monkeypatch):
+    # #109/28: un csv_path "Windows-like" (backslash, spazi, unicode) deve sopravvivere
+    # al round-trip save→load senza alterazioni. Keyring assente per determinismo.
+    monkeypatch.setattr(config_store.token_store, "available", lambda: False)
+    p = str(tmp_path / "config.json")
+    win_path = r"C:\Users\Pippo Baudo\Segnàli XTrader\bridge.csv"
+    data = {"bot_token": "X", "chat_id": "-1", "csv_path": win_path,
+            "clear_delay": 30, "provider": "TG_LIVE"}
+    config_store.save_config(data, p)
+    loaded = config_store.load_config(p)
+    assert loaded["csv_path"] == win_path        # backslash/spazi/unicode intatti
+
+
 def test_defaults_non_contengono_segreti():
     assert config_store.DEFAULTS["bot_token"] == ""
     assert config_store.DEFAULTS["chat_id"] == ""
