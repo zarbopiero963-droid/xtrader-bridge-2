@@ -153,9 +153,13 @@ class BetfairSyncPanel(ctk.CTkFrame):
             self._on_login(self.controller.resolve_credentials(self._form_credentials()))
         self._refresh_buttons()
 
+    def _selected_sports(self):
+        """Gli sport con checkbox selezionata (per la sync)."""
+        return [sport for sport, var in self._sport_vars.items() if var.get()]
+
     def _sync(self):
         if self._on_sync:
-            self._on_sync()
+            self._on_sync(self._selected_sports())
         self._refresh_buttons()
 
     def _logout(self):

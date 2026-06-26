@@ -19,7 +19,7 @@ a mano. Il parsing del menu/catalogue è puro e testato.
 
 import json
 
-from . import safety
+from . import credential_store, safety
 from .local_db import BetfairLocalDB
 
 # Sport del blocco personale → event_type_id ufficiale Betfair.
@@ -244,14 +244,17 @@ class CatalogueSync:
         if nav is not None and cat is not None:
             return nav, cat
         token = getattr(self.session, "token", None) if self.session else None
-        if not token or not self.app_key:
+        # App key: quella passata o, in mancanza, la Delayed App Key salvata localmente
+        # (così l'engine può essere costruito una volta e prendere la chiave corrente).
+        app_key = self.app_key or credential_store.load_credentials().app_key
+        if not token or not app_key:
             raise RuntimeError(
                 "CatalogueSync non configurato: inietta i transport nei test, "
                 "oppure fornisci una sessione Betfair loggata + Delayed App Key.")
         if nav is None:
-            nav = lambda: _http_navigation(token, self.app_key)          # noqa: E731
+            nav = lambda: _http_navigation(token, app_key)          # noqa: E731
         if cat is None:
-            cat = lambda mids: _http_catalogue(mids, token, self.app_key)  # noqa: E731
+            cat = lambda mids: _http_catalogue(mids, token, app_key)  # noqa: E731
         return nav, cat
 
     def sync(self, sports) -> dict:
@@ -344,19 +347,21 @@ class CatalogueSync:
             # per sport (event_type_id). Le selezioni vanno disattivate per TUTTI i
             # mercati degli sport sincronizzati (anche quelli SPARITI dal menu), non
             # solo quelli rivisti: altrimenti resterebbero SelectionId stantii attivi.
+            deactivated = 0
             for etid in etids:
-                self.db.deactivate_unseen("betfair_sports", marker, scope_value=etid)
-                self.db.deactivate_unseen("betfair_competitions", marker, scope_value=etid)
-                self.db.deactivate_unseen("betfair_events", marker, scope_value=etid)
-                self.db.deactivate_unseen("betfair_markets", marker, scope_value=etid)
+                deactivated += self.db.deactivate_unseen("betfair_sports", marker, scope_value=etid)
+                deactivated += self.db.deactivate_unseen("betfair_competitions", marker, scope_value=etid)
+                deactivated += self.db.deactivate_unseen("betfair_events", marker, scope_value=etid)
+                deactivated += self.db.deactivate_unseen("betfair_markets", marker, scope_value=etid)
             for market_id in self.db.market_ids_for_sports(etids):
-                self.db.deactivate_unseen("betfair_selections", marker,
-                                          scope_value=market_id)
+                deactivated += self.db.deactivate_unseen("betfair_selections", marker,
+                                                         scope_value=market_id)
 
             summary = {
                 "sports": sorted(etids),
                 "markets": len(market_ids),
                 "selections": new_selections,
+                "deactivated": deactivated,
                 "active_events": self.db.count_active("betfair_events"),
                 "active_markets": self.db.count_active("betfair_markets"),
             }

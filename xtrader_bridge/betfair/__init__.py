@@ -29,9 +29,11 @@ from . import (
     log_safety,
     sync_tab_controller,
 )
+from . import sync_engine
 from .auth_client import BetfairAuthClient, CertificateError, LoginError
 from .catalogue_client import CatalogueSync
 from .local_db import BetfairLocalDB
+from .sync_engine import SyncEngine, SyncResult
 from .credential_store import BetfairCredentials
 from .safety import (
     FORBIDDEN_BETTING_OPS,
@@ -58,9 +60,12 @@ __all__ = [
     "CertificateError",
     "BetfairLocalDB",
     "CatalogueSync",
+    "SyncEngine",
+    "SyncResult",
     "auth_client",
     "catalogue_client",
     "local_db",
+    "sync_engine",
     "credential_store",
     "log_safety",
     "sync_tab_controller",

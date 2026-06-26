@@ -42,8 +42,8 @@ non vengono duplicate.
 | PR-P3  | Tab Betfair Sync locale (GUI)               | tab GUI credenziali/sport/giorni/stato, pulsanti                       | merged (#167) |
 | PR-P4  | Betfair Auth Client Italia                  | login/logout cert + Delayed App Key, token in RAM                      | merged (#168) |
 | PR-P5  | Database Locale Betfair Multi-sport         | tabelle locali sport/comp/event/market/selection/sync/mapping         | merged (#169) |
-| PR-P6  | Betfair Navigation + Catalogue Sync         | navigation menu + listMarketCatalogue, upsert read-only               | in corso |
-| PR-P7  | Sync Engine Manuale                         | motore unico sync manuale + riepilogo safe                            | TODO  |
+| PR-P6  | Betfair Navigation + Catalogue Sync         | navigation menu + listMarketCatalogue, upsert read-only               | merged (#170) |
+| PR-P7  | Sync Engine Manuale                         | motore unico sync manuale + riepilogo safe                            | in corso |
 | PR-P8  | Betfair Auto Sync Scheduler locale          | scheduler locale auto login→sync→auto logout                          | TODO  |
 | PR-P9  | Parser Personalizzato Multi-sport / profilo | sport nel parser, campi core generici                                 | TODO  |
 | PR-P10 | Name Mapping Multi-sport Locale             | tab mapping per sport/profilo, locale                                 | TODO  |
@@ -154,6 +154,25 @@ Non verificato in automatico: la chiamata di rete reale e il certificato vero.
    si popola di sport/competizioni/eventi/mercati/selezioni; nessuna chiamata betting.
 2. Riesegui il sync: i conteggi restano stabili (nessun duplicato).
 Non verificato in automatico: la chiamata di rete reale a navigation/catalogue.
+
+### PR-P7 — Sync Engine Manuale
+- `sync_engine.py`: `SyncEngine` orchestra `CatalogueSync` aggiungendo le garanzie del
+  «Sincronizza ora»: **verifica login attivo** (sessionToken in RAM), **lock non
+  bloccante** che ritorna `BUSY` se una sync è già in corso (niente run sovrapposte),
+  **fallimenti safe** (`SyncResult` con stato + errori senza segreti, niente crash) e
+  **riepilogo safe** (sport, +eventi/+mercati/+selezioni come variazione dei record
+  attivi, record disattivati). `SyncResult` con stati `OK`/`FAILED`/`BUSY`/
+  `NOT_LOGGED_IN`. `CatalogueSync.sync` ora riporta anche `deactivated` nel summary.
+- `catalogue_client.py`: `_resolve_transports` usa la Delayed App Key salvata se non
+  passata (così l'engine si costruisce una volta e prende la chiave corrente).
+- `app.py`: «Sincronizza ora» della tab Betfair è agganciato all'engine (una istanza
+  per processo, con DB locale in AppData); l'esito va nel log redatto.
+
+#### Smoke test manuale PR-P7 (Windows, login reale)
+1. Dopo login, seleziona gli sport e premi «Sincronizza ora». Atteso: log con il
+   riepilogo (eventi/mercati/selezioni/disattivati); nessuna chiamata betting.
+2. Premi due volte «Sincronizza ora» in rapida successione: la seconda risulta
+   «già in corso» (nessuna run sovrapposta). Niente duplicati nel dizionario.
 
 ## Definition of Done (blocco personale)
 
