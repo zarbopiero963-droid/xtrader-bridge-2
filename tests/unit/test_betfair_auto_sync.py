@@ -296,6 +296,28 @@ def test_reserve_ok_login_sync_logout_e_release():
     assert eng.events == ["reserve", "run(locked=True)", "release"]
 
 
+def test_on_summary_che_solleva_non_perde_la_run_riuscita():
+    # Se on_summary solleva (es. Tk `after` su finestra in chiusura) dopo una sync OK,
+    # la run DEVE comunque essere registrata/persistita: altrimenti la stessa ora
+    # rieseguirebbe al tick successivo (Codex). Il riepilogo è best-effort.
+    store = {"key": None}
+
+    def _boom(_res):
+        raise RuntimeError("Tk after su root distrutta")
+
+    auth, eng = _Auth(), _Engine(SyncResult(status=OK))
+    sched = AutoSyncScheduler(auth=auth, engine=eng, get_config=_cfg(),
+                              on_summary=_boom,
+                              load_state=lambda: store["key"],
+                              save_state=lambda k: store.__setitem__("key", k))
+    res = sched.maybe_run(_NOW_23)
+    assert res is not None and res.status == OK     # _cycle NON propaga l'errore di summary
+    assert auth.calls == ["login", "logout"]
+    assert store["key"] == run_key(_NOW_23, 23)     # run riuscita registrata/persistita
+    # Secondo tick stessa ora: non riparte (la finestra è stata consumata).
+    assert sched.maybe_run(datetime(2026, 7, 1, 23, 40, 0)) is None
+
+
 def test_on_state_error_invocato_se_save_fallisce():
     errors = []
 

@@ -181,8 +181,7 @@ class AutoSyncScheduler:
             if not reserve():     # sync manuale già in corso: non toccare la sessione
                 result = SyncResult(status="BUSY",
                                     errors=["Sync manuale in corso: auto-sync rimandata."])
-                if self.on_summary:
-                    self.on_summary(result)
+                self._safe_summary(result)
                 return result
             reserved = True
 
@@ -209,6 +208,16 @@ class AutoSyncScheduler:
                     pass
             if reserved:
                 release()
-        if self.on_summary:
-            self.on_summary(result)
+        self._safe_summary(result)
         return result
+
+    def _safe_summary(self, result):
+        """Riepilogo **best-effort**: un `on_summary` che solleva (es. l'app schedula un
+        Tk `after` su una finestra in chiusura) NON deve far propagare l'eccezione da
+        `_cycle` e impedire a `maybe_run` di registrare una run riuscita — la stessa ora
+        verrebbe poi rieseguita al tick/riavvio successivo (Codex)."""
+        if self.on_summary:
+            try:
+                self.on_summary(result)
+            except Exception:   # noqa: BLE001 — il reporting non è critico
+                pass

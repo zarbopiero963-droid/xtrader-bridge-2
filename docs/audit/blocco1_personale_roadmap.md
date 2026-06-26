@@ -185,6 +185,8 @@ Non verificato in automatico: la chiamata di rete reale a navigation/catalogue.
   è eseguito solo se il login è riuscito** (`logged_in`), così un auto-login fallito
   non slogga una eventuale sessione manuale; non scatta due volte lo stesso
   giorno/orario (`last_run_key`, persistito); `normalize_hour` (0–23, default 23).
+  Il riepilogo `on_summary` è **best-effort** (`_safe_summary`): se solleva non fa
+  propagare l'errore da `_cycle`, così una run riuscita viene comunque registrata.
 - `get_config()` ritorna solo config **leggera** `(enabled, hour, sports)`; le
   credenziali si leggono via `get_credentials()` **solo quando la run è dovuta**
   (dentro `_cycle`, dopo il gate), così il keyring non viene colpito a ogni tick.
