@@ -106,6 +106,18 @@ def test_riga_finale_troncata_viene_saltata(tmp_path):
     assert len(events) == 1 and events[0]["id"] == "1"        # la riga troncata è saltata, no crash
 
 
+def test_coda_utf8_troncata_non_rompe_il_replay(tmp_path):
+    # review Codex: un crash a metà di un carattere non-ASCII lascia una coda di byte
+    # UTF-8 INVALIDA. read_events deve comunque restituire gli eventi validi precedenti
+    # (errors="replace") invece di sollevare UnicodeDecodeError su tutto il file.
+    p = tmp_path / "journal.jsonl"
+    good = json.dumps({"id": "1", "ts": 1.0, "type": "START", "data": {}})
+    # riga valida + coda troncata a metà di "è" (\xc3\xa8): solo il primo byte \xc3
+    p.write_bytes(good.encode("utf-8") + b"\n" + b'{"id":"2","data":"caff\xc3')
+    events = ej.read_events(str(p))                     # non deve sollevare
+    assert [e["id"] for e in events] == ["1"]           # l'evento valido è preservato
+
+
 def test_read_file_assente_ritorna_vuoto(tmp_path):
     assert ej.read_events(str(tmp_path / "manca.jsonl")) == []
 

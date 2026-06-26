@@ -132,9 +132,16 @@ def read_events(path: str) -> list:
 
     Tollerante e fail-safe: file assente → `[]`; righe vuote ignorate; una riga
     **malformata** (es. l'ultima troncata da un crash a metà append) viene **saltata**
-    senza crashare, così il resto dello storico resta leggibile."""
+    senza crashare, così il resto dello storico resta leggibile.
+
+    `errors="replace"` (review Codex): un crash a metà di un carattere NON-ASCII (le
+    scritture usano `ensure_ascii=False`, quindi accenti & co. finiscono come byte UTF-8)
+    lascerebbe una coda di byte UTF-8 INVALIDA; con la decodifica stretta `readlines()`
+    solleverebbe `UnicodeDecodeError` PRIMA del filtro per-riga, facendo fallire il replay
+    anche degli eventi validi precedenti. Con `replace` i byte rotti diventano `�` su QUELLA
+    riga (che resta JSON malformato → saltata), mentre le righe valide si decodificano."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
             raw_lines = f.readlines()
     except OSError:
         return []
