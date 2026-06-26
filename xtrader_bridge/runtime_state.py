@@ -23,6 +23,13 @@ from .config_store import DEFAULTS
 # usati sia per costruire i path sia, indirettamente, dai test.
 DEDUPE_STATE_FILE = "dedupe_state.json"
 DAILY_STATE_FILE = "daily_state.json"
+EVENT_JOURNAL_FILE = "event_journal.jsonl"
+
+
+def event_journal_path(config_dir_path: str) -> str:
+    """Path del ledger eventi append-only (issue #110 voce 20), accanto al config
+    (AppData): lo storico strutturato di «cosa ha fatto» sopravvive ai riavvii."""
+    return os.path.join(config_dir_path, EVENT_JOURNAL_FILE)
 
 
 def dedupe_state_path(config_dir_path: str) -> str:
