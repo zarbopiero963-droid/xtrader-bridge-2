@@ -19,9 +19,22 @@ qui `should_reconnect` è forzato per pilotare DETERMINISTICAMENTE il ramo di re
 indipendentemente da `python-telegram-bot` (presente o meno nell'ambiente).
 """
 
-import inspect
 import threading
 import time
+
+
+class _SignalingEvent(threading.Event):
+    """`threading.Event` che segnala `entered` DALL'INTERNO di `wait()` (prima riga),
+    così un test può sapere che il wait reale ha COMINCIATO a bloccare prima di settare
+    lo STOP — senza la finestra di race del "set appena prima di chiamare il wait"."""
+
+    def __init__(self):
+        super().__init__()
+        self.entered = threading.Event()
+
+    def wait(self, timeout=None):
+        self.entered.set()
+        return super().wait(timeout)
 
 
 class _Updater:
@@ -112,25 +125,27 @@ def test_reconnect_lifecycle_chiude_il_vecchio_updater_e_ritenta(make_app, app_m
     a._reconnect_attempt = 0
     # ramo "transitorio → riconnetti" forzato (classificazione testata altrove)
     monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
-    # Traccia l'ORDINE degli eventi: lo shutdown del vecchio updater DEVE precedere il
-    # backoff (review Codex), altrimenti il vecchio poller resterebbe vivo durante l'attesa.
-    order = []
+    # Cattura lo SNAPSHOT del teardown NEL MOMENTO in cui inizia il backoff (review Codex):
+    # quando `_reconnect_wait` viene chiamato, il vecchio updater/app DEVE essere GIÀ stato
+    # chiuso (updater.stop + app.stop + app.shutdown), altrimenti il vecchio poller resterebbe
+    # vivo durante l'attesa. Verificare i contatori solo a fine run non lo garantirebbe.
     waits = []
+    teardown_at_backoff = {}
+    apps = []
 
     def _wait(delay):
-        order.append("wait")
+        tg1 = apps[0]
+        teardown_at_backoff["updater_stop"] = tg1.updater.stop_calls
+        teardown_at_backoff["app_stop"] = tg1.stop_calls
+        teardown_at_backoff["app_shutdown"] = tg1.shutdown_calls
         waits.append(delay)
 
     a._reconnect_wait = _wait
 
-    apps = []
-
     def _make_tg(index):
-        # 1ª app: polling fallisce e registra il proprio shutdown nell'ordine; 2ª app:
-        # polling ok → ferma il supervisor.
+        # 1ª app: polling fallisce; 2ª app: polling ok → ferma il supervisor.
         return _TgApp(fail=(index == 0),
-                      on_success=lambda: setattr(a, "_running", False),
-                      on_shutdown=(lambda: order.append("shutdown")) if index == 0 else None)
+                      on_success=lambda: setattr(a, "_running", False))
 
     _install_builder(monkeypatch, app_mod, apps, _make_tg)
 
@@ -139,10 +154,9 @@ def test_reconnect_lifecycle_chiude_il_vecchio_updater_e_ritenta(make_app, app_m
     assert len(apps) == 2                              # ha ritentato dopo l'errore
     tg1 = apps[0]
     assert tg1.updater.start_polling_calls == 1        # l'errore è arrivato DAL polling
-    # teardown REALE del vecchio updater prima del retry (no doppio poller):
-    assert tg1.updater.stop_calls >= 1
-    assert tg1.stop_calls >= 1 and tg1.shutdown_calls >= 1
-    assert order[:2] == ["shutdown", "wait"]           # shutdown PRIMA del backoff
+    # AL MOMENTO del backoff il vecchio updater/app era GIÀ stato chiuso (no doppio poller
+    # durante l'attesa): updater.stop + app.stop + app.shutdown già avvenuti PRIMA del wait.
+    assert teardown_at_backoff == {"updater_stop": 1, "app_stop": 1, "app_shutdown": 1}
     assert a._tg_app is apps[1]                        # `_tg_app` rimpiazzato (vecchio azzerato)
     assert len(waits) == 1 and waits[0] > 0            # ha atteso il backoff una volta
     assert a._reconnect_attempt == 0                   # reset dopo la riconnessione riuscita
@@ -157,7 +171,10 @@ def test_stop_durante_backoff_vivo_interrompe_subito(make_app, app_mod, monkeypa
     a._running = True
     a._listener_epoch = 4
     a._reconnect_attempt = 0
-    a._stop_event = threading.Event()
+    # `_stop_event` che segnala `entered` DALL'INTERNO di `wait()` (review Codex): lo
+    # stopper attende che la wait REALE abbia COMINCIATO a bloccare prima di settare lo
+    # STOP, eliminando la finestra di race del "set appena prima del wait".
+    a._stop_event = _SignalingEvent()
     monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
     # backoff lungo: senza STOP, `_reconnect_wait` (REALE) bloccherebbe 30s.
     monkeypatch.setattr(app_mod.reconnect_policy, "effective_delay", lambda *a_, **k: 30.0)
@@ -166,25 +183,12 @@ def test_stop_durante_backoff_vivo_interrompe_subito(make_app, app_mod, monkeypa
     # polling SEMPRE fallito → il supervisor resta nel ciclo di backoff.
     _install_builder(monkeypatch, app_mod, apps, lambda index: _TgApp(fail=True, on_success=lambda: None))
 
-    # Gate dello STOP sull'INGRESSO EFFETTIVO nel wait reale (review Codex): si avvolge
-    # il VERO `_reconnect_wait` con un segnale `entered` emesso un attimo prima di
-    # chiamarlo, così lo stopper attende di essere DENTRO il wait reale prima di settare
-    # `_stop_event`. Senza questo, il gate su `_reconnect_attempt>=1` (incrementato PRIMA
-    # del wait) potrebbe far settare lo STOP prima dell'attesa: una sleep ininterrompibile
-    # che controlla l'evento una sola volta passerebbe lo stesso.
-    real_wait = app_mod.App._reconnect_wait
-    entered = threading.Event()
-
-    def _wrapped_wait(delay):
-        entered.set()
-        return real_wait(a, delay)       # attesa REALE: `self._stop_event.wait(delay)`
-
-    a._reconnect_wait = _wrapped_wait
-
+    # NB: NON si stubba `_reconnect_wait` → si usa il VERO, che chiama
+    # `self._stop_event.wait(delay)` (cioè `_SignalingEvent.wait`).
     stop_at = {}
 
     def _stopper():
-        if entered.wait(5.0):            # attende l'ingresso nel wait REALE
+        if a._stop_event.entered.wait(5.0):   # attende che la wait REALE stia bloccando
             a._running = False
             stop_at["t"] = time.monotonic()
             a._stop_event.set()
@@ -195,26 +199,11 @@ def test_stop_durante_backoff_vivo_interrompe_subito(make_app, app_mod, monkeypa
     returned_at = time.monotonic()
     th.join()
 
-    assert entered.is_set()              # è davvero entrato nel `_reconnect_wait` reale
-    assert "t" in stop_at                # lo STOP è scattato mentre era DENTRO il wait
+    assert a._stop_event.entered.is_set()   # la wait REALE ha cominciato a bloccare
+    assert "t" in stop_at                   # lo STOP è scattato mentre era DENTRO il wait
     # latenza di sblocco misurata DALLO STOP: deve essere quasi immediata (≪ 30s di
     # backoff). Soglia stretta: un'attesa ininterrompibile farebbe fallire il test.
     assert returned_at - stop_at["t"] < 1.0
-
-
-def test_boot_clear_stale_csv_precede_lo_scheduling_auto_start(app_mod):
-    """#110/1: guardia di REGRESSIONE sull'ordine in `App.__init__` — la pulizia del CSV
-    stantio all'avvio (`_clear_stale_csv("all'avvio")`) deve precedere lo scheduling
-    dell'auto-start (`_maybe_auto_start`). `__init__` non è istanziabile headless (apre
-    Tk), quindi si ispeziona il SORGENTE reale del metodo: se un domani qualcuno
-    schedulasse l'auto-start prima del cleanup, una riga stantia potrebbe sopravvivere
-    fino all'auto-start e questo test fallirebbe (la matrice non resterebbe verde a torto)."""
-    src = inspect.getsource(app_mod.App.__init__)
-    i_clear = src.find('_clear_stale_csv("all')
-    i_auto = src.find("_maybe_auto_start")
-    assert i_clear != -1, "chiamata _clear_stale_csv(\"all'avvio\") non trovata in __init__"
-    assert i_auto != -1, "scheduling _maybe_auto_start non trovato in __init__"
-    assert i_clear < i_auto, "il cleanup del CSV all'avvio deve precedere l'auto-start"
 
 
 def test_stop_reale_sveglia_il_backoff(make_app, app_mod):

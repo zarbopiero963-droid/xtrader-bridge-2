@@ -10,7 +10,7 @@ funzionalità (decisione del proprietario).
 
 | # | Voce | Stato | Evidenza |
 |---|---|---|---|
-| 1 | App boot crash recovery: CSV con riga → cleanup prima di auto-start | COVERED | funzione: `tests/safety/test_csv_atomic.py::test_clear_stale_csv_rimuove_riga_orfana` · ordine `__init__` (cleanup PRIMA dell'auto-start): guardia di regressione `tests/integration/test_reconnect_110.py::test_boot_clear_stale_csv_precede_lo_scheduling_auto_start` |
+| 1 | App boot crash recovery: CSV con riga → cleanup prima di auto-start | PARTIAL | funzione coperta: `tests/safety/test_csv_atomic.py::test_clear_stale_csv_rimuove_riga_orfana`. L'ORDINE in `App.__init__` (cleanup PRIMA dell'auto-start) NON è testato a runtime headless (`__init__` apre Tk; un test sul solo sorgente sarebbe decorativo) → smoke manuale §F. Difesa runtime aggiuntiva: anche `_start` chiama `init_csv` (svuota il CSV) prima di attivarsi, quindi una riga stantia non sopravvive comunque a un avvio |
 | 2 | App auto-start dry-run: parte solo se token/chat ok | PARTIAL | decisione pura: `tests/unit/test_autostart.py` (`can_auto_start`/`is_enabled`) · gating runtime di `App._maybe_auto_start` (disabilitato/`_closing`/`_running` → non chiama `_start`): `tests/integration/test_reconnect_110.py::test_maybe_auto_start_gating_non_parte_se_disabilitato_chiusura_o_running` · gate fine token/chat dentro `_start` = GUI, non headless |
 | 3 | App auto-start real: chiede conferma; se no non parte | PARTIAL | decisione pura: `tests/unit/test_autostart.py::test_conferma_richiesta_solo_in_modalita_reale` (`needs_real_mode_confirmation`) · il branch runtime `App._start(auto=True)` che onora un `messagebox.askyesno` NEGATO è dentro `_start` (GUI-coupled), NON testato headless → smoke manuale Windows (§F) |
 | 4 | Mock Telegram `drop_pending_updates=True` (+allowed_updates) | COVERED | `tests/integration/test_listener_dispatch.py::test_start_polling_scarta_arretrati_e_ammette_channel_post` (#161) |
@@ -36,8 +36,8 @@ end-to-end su GUI reale / Windows / XTrader resta nella checklist manuale.
 
 ## Riepilogo
 - **NEW (questa PR):** 6, 7
-- **COVERED (esistenti, molti da #160/#161/#162):** 1,4,5,8,9,11,12,13,14
-- **PARTIAL:** 2 (gate token/chat dentro `_start` GUI, ma gating `_maybe_auto_start` testato) · 3 (branch `_start(auto=True)` con `askyesno` negato = GUI, ma decisione pura testata) · 10 (finestra crash post-write/pre-guard-save non simulata) · 15 (`App._start()` con `init_csv` fallito non testabile headless) — vedi righe
+- **COVERED (esistenti, molti da #160/#161/#162):** 4,5,8,9,11,12,13,14
+- **PARTIAL:** 1 (ordine `__init__` non testabile headless; funzione coperta + difesa `_start`/`init_csv`) · 2 (gate token/chat dentro `_start` GUI, ma gating `_maybe_auto_start` testato) · 3 (branch `_start(auto=True)` con `askyesno` negato = GUI, ma decisione pura testata) · 10 (finestra crash post-write/pre-guard-save non simulata) · 15 (`App._start()` con `init_csv` fallito non testabile headless) — vedi righe
 - **MANUAL_ONLY (checklist release):** 16,17,18,19 — passi esatti in `docs/audit/release_checklist.md` §I
 - **FEATURE (decisione proprietario):** 20 — event journal transaction-grade
 
