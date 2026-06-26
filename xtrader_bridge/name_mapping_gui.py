@@ -761,7 +761,10 @@ class NameMappingWindow(ctk.CTkToplevel):
     def __init__(self, master=None, on_saved=None):
         super().__init__(master)
         self.title("Dizionario nomi squadra")
-        gui_utils.fit_to_screen(self, 760, 620, 680, 460)
+        # Larghezza aumentata per la colonna Sport (PR-P10): la riga è
+        # Country(180)+Betfair(240)+Provider(240)+Sport(150)+elimina(36) ≈ 846 px più
+        # padding; a 760 px Sport/elimina venivano tagliati (no scroll orizzontale) — Codex.
+        gui_utils.fit_to_screen(self, 940, 620, 860, 460)
         NameMappingPanel(self, on_saved=on_saved).pack(fill="both", expand=True)
 
 
