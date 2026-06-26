@@ -190,16 +190,9 @@ def test_load_state_lista_valida_ripristina(tmp_path):
     assert t2.register(MSG).status == sd.DUPLICATE
 
 
-# ── resilienza (#109): clock all'indietro + validazione now in register ────────
-
-def test_register_now_non_finito_fail_closed():
-    """#109 item 30: register(now=...) valida il timestamp come DailyLimiter — NaN/inf,
-    bool e non numerici sono rifiutati (un now corrotto renderebbe dedup/limite inaffidabili)."""
-    t = sd.SignalTracker()
-    for bad in (float("nan"), float("inf"), float("-inf"), True, False, "x"):
-        with pytest.raises(ValueError):
-            t.register("m", now=bad)
-
+# ── resilienza (#109 item 9): dedupe robusto al clock all'indietro (NTP step / VM resume) ──
+# NB: la validazione di `now` (NaN/inf/bool/non-numerico, #109 item 30) è già coperta da
+# `test_register_rifiuta_now_non_finito_o_bool` qui sopra — niente test duplicato.
 
 def test_dedupe_robusto_a_clock_all_indietro():
     """#109 item 9: se il wallclock va INDIETRO (NTP step / VM resume), lo stesso messaggio
