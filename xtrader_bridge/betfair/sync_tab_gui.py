@@ -84,6 +84,10 @@ class BetfairSyncPanel(ctk.CTkFrame):
         self._last_sync.pack(anchor="w", padx=8, pady=2)
         self._sync_status = ctk.CTkLabel(status, text="Stato sync: —")
         self._sync_status.pack(anchor="w", padx=8, pady=2)
+        # Esito dell'ultima azione su credenziali (salva/cancella): un fallimento del
+        # keyring NON deve sembrare un successo (Codex). Vuoto = nessun messaggio.
+        self._action_status = ctk.CTkLabel(status, text="")
+        self._action_status.pack(anchor="w", padx=8, pady=2)
 
         # Pulsanti.
         btns = ctk.CTkFrame(self)
@@ -115,7 +119,10 @@ class BetfairSyncPanel(ctk.CTkFrame):
         self._days_entry.insert(0, str(normalize_days_ahead(self._days_entry.get())))
 
     def _refresh_buttons(self):
-        complete = self._form_credentials().is_complete()
+        # Completezza valutata sulle credenziali REALI (i segreti mascherati ma
+        # presenti contano come valorizzati), non sulla maschera mostrata.
+        complete = self.controller.resolve_credentials(
+            self._form_credentials()).is_complete()
         states = self.controller.button_states(
             credentials_complete=complete, sync_in_progress=self._sync_in_progress)
         for key, enabled in states.items():
@@ -126,13 +133,24 @@ class BetfairSyncPanel(ctk.CTkFrame):
 
     # ── azioni ────────────────────────────────────────────────────────────────
     def _save(self):
-        self.controller.save_credentials(self._form_credentials())
-        self._reload()
+        # Risolvi i campi mascherati nei valori reali PRIMA di salvare: un segreto non
+        # ridigitato non deve sovrascrivere il keyring con la maschera (Codex).
+        resolved = self.controller.resolve_credentials(self._form_credentials())
+        if self.controller.save_credentials(resolved):
+            self._action_status.configure(text="✅ Credenziali salvate.")
+            self._reload()                  # solo dopo un salvataggio riuscito
+        else:
+            # Fallimento keyring: NON ricaricare (non perdere ciò che l'utente ha
+            # digitato) e segnalare l'errore invece di farlo sembrare un successo.
+            self._action_status.configure(
+                text="⚠️ Salvataggio credenziali FALLITO (keyring non disponibile). "
+                     "Riprova; i dati nel form non sono stati persi.")
         self._refresh_buttons()
 
     def _login(self):
         if self._on_login:
-            self._on_login(self._form_credentials())
+            # Passa le credenziali REALI risolte, mai la maschera.
+            self._on_login(self.controller.resolve_credentials(self._form_credentials()))
         self._refresh_buttons()
 
     def _sync(self):
@@ -142,9 +160,15 @@ class BetfairSyncPanel(ctk.CTkFrame):
 
     def _logout(self):
         self.controller.logout()
+        self._action_status.configure(text="")
         self._refresh_buttons()
 
     def _delete(self):
-        self.controller.delete_saved_credentials()
-        self._reload()
+        if self.controller.delete_saved_credentials():
+            self._action_status.configure(text="🗑️ Credenziali cancellate.")
+            self._reload()                  # solo dopo una cancellazione riuscita
+        else:
+            self._action_status.configure(
+                text="⚠️ Cancellazione credenziali FALLITA (keyring non disponibile). "
+                     "Le credenziali potrebbero essere ancora memorizzate.")
         self._refresh_buttons()

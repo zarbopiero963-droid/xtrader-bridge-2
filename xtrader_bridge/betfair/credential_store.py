@@ -29,10 +29,13 @@ _ACCOUNT_PREFIX = "betfair_"
 
 # Quali campi sono SEGRETI (da mascherare in GUI e da registrare per i log) e quali
 # sono semplici percorsi file (mostrabili in chiaro per far vedere quale file è scelto).
-_SECRET_FIELDS = ("app_key", "username", "password")
-_PATH_FIELDS = ("cert_path", "key_path")
+SECRET_FIELDS = ("app_key", "username", "password")
+PATH_FIELDS = ("cert_path", "key_path")
 
-_MASK = "••••••"
+# Sentinella di mascheramento mostrata in GUI per un segreto presente. È pubblica
+# così controller/GUI possono riconoscerla come "campo non modificato" (non come
+# valore reale da salvare/loggare).
+MASK = "••••••"
 
 
 @dataclass
@@ -51,7 +54,7 @@ class BetfairCredentials:
     def is_complete(self) -> bool:
         """``True`` se tutti i campi necessari al login con certificato sono presenti."""
         return all(getattr(self, f).strip() for f in
-                   (*_SECRET_FIELDS, *_PATH_FIELDS))
+                   (*SECRET_FIELDS, *PATH_FIELDS))
 
 
 FIELDS = tuple(f.name for f in _dc_fields(BetfairCredentials))
@@ -87,7 +90,7 @@ def save_credentials(creds: BetfairCredentials) -> bool:
         try:
             if value:
                 kr.set_password(SERVICE, acct, value)
-                if field in _SECRET_FIELDS:
+                if field in SECRET_FIELDS:
                     log_safety.register_secret(value)
             else:
                 try:
@@ -113,7 +116,7 @@ def load_credentials() -> BetfairCredentials:
             value = None
         if value:
             setattr(creds, field, value)
-            if field in _SECRET_FIELDS:
+            if field in SECRET_FIELDS:
                 log_safety.register_secret(value)
     return creds
 
@@ -141,8 +144,8 @@ def masked(creds: BetfairCredentials) -> dict:
     out = {}
     for field in FIELDS:
         value = getattr(creds, field) or ""
-        if field in _SECRET_FIELDS:
-            out[field] = _MASK if value.strip() else ""
+        if field in SECRET_FIELDS:
+            out[field] = MASK if value.strip() else ""
         else:
             out[field] = value
     return out

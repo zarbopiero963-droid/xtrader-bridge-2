@@ -83,6 +83,13 @@ non vengono duplicate.
 - `sync_tab_gui.py`: widget customtkinter `BetfairSyncPanel` (campi credenziali,
   sport, giorni avanti, stato login/ultima sync/stato sync, pulsanti). **Non testato
   in CI** (richiede display): la logica è nel controller; widget = verifica manuale.
+  La tab è **registrata nella finestra «🧰 Strumenti»** (`App._open_tools`, scheda
+  «🔵 Betfair Sync») con una `BetfairSession` unica per processo (token in RAM
+  persistente tra aperture). I campi segreti mostrano `••••••` come sentinella: al
+  Salva/Accedi il controller li **risolve** ai valori reali salvati
+  (`resolve_credentials`), così un segreto non ridigitato non sovrascrive il keyring.
+  Salva/Cancella **segnalano i fallimenti** del keyring senza ricaricare il form
+  (un errore non sembra un successo).
 
 #### Smoke test manuale PR-P3 (Windows, da eseguire dal proprietario)
 1. Apri il bridge, vai alla tab «Betfair Sync». Atteso: campi vuoti, solo «Salva

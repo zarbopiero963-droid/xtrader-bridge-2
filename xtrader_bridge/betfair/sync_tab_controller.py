@@ -73,8 +73,31 @@ class BetfairSyncController:
         creds = credential_store.load_credentials()
         return bool(creds.app_key or creds.username or creds.password)
 
+    def resolve_credentials(self, form_creds: BetfairCredentials) -> BetfairCredentials:
+        """Risolve i valori del form in credenziali REALI da salvare/usare al login.
+
+        Un campo segreto lasciato com'era mostra la sentinella di mascheramento
+        (`credential_store.MASK`): NON è il valore reale. Qui, per ogni campo segreto
+        ancora uguale alla maschera, si sostituisce il valore reale salvato nel
+        keyring (campo non modificato dall'utente); i campi digitati o svuotati e i
+        percorsi file restano come nel form.
+
+        Così «Accedi»/«Salva» non inviano mai la maschera al posto del segreto e un
+        Salva senza ridigitare non sovrascrive il keyring con `••••••`."""
+        stored = credential_store.load_credentials()
+        resolved = BetfairCredentials()
+        for field in credential_store.FIELDS:
+            value = getattr(form_creds, field)
+            if field in credential_store.SECRET_FIELDS and value == credential_store.MASK:
+                value = getattr(stored, field)   # campo non modificato → valore reale
+            setattr(resolved, field, value)
+        return resolved
+
     def save_credentials(self, creds: BetfairCredentials) -> bool:
-        """Salva le credenziali (delego a `credential_store`). ``True`` se riuscito."""
+        """Salva le credenziali (delego a `credential_store`). ``True`` se riuscito.
+
+        Il chiamante GUI passa già le credenziali risolte (vedi `resolve_credentials`)
+        così un campo mascherato non sovrascrive il segreto reale."""
         return credential_store.save_credentials(creds)
 
     def delete_saved_credentials(self) -> bool:

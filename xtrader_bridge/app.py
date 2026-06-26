@@ -1685,6 +1685,8 @@ class App(ctk.CTk):
         from .source_chats_gui import SourceChatsPanel
         from .name_mapping_gui import MappingPanel
         from .custom_parser_gui import CustomParserPanel
+        from .betfair.sync_tab_gui import BetfairSyncPanel
+        from .betfair.session import BetfairSession
 
         # UNA sola finestra hub: se è già aperta, si cambia scheda e la si porta in primo
         # piano invece di aprirne una seconda identica (CodeRabbit). `winfo_exists` è 0 se
@@ -1776,6 +1778,15 @@ class App(ctk.CTk):
             panel_refs["mapping"] = MappingPanel(parent, on_saved=_mapping_saved)
             return panel_refs["mapping"]
 
+        # Sessione Betfair (sessionToken solo in RAM): UNA per processo, così resta
+        # viva alla chiusura/riapertura della finestra Strumenti (login persistente).
+        if getattr(self, "_betfair_session", None) is None:
+            self._betfair_session = BetfairSession()
+
+        def _make_betfair(parent):
+            """Crea la tab Betfair Sync (credenziali locali + stato login/sync)."""
+            return BetfairSyncPanel(parent, session=self._betfair_session)
+
         panels = [
             ("🧩 Parser", _make_parser),
             ("📡 Chat sorgenti", _make_sources),
@@ -1785,6 +1796,7 @@ class App(ctk.CTk):
                  parent, get_current_cfg=self._save_config, on_loaded=_profiles_loaded,
                  is_running=lambda: self._running)),
             ("🗺️ Mapping", _make_mapping),
+            ("🔵 Betfair Sync", _make_betfair),
         ]
         self._tools_win = ToolsWindow(self, panels=panels, initial=initial)
         self._tools_win.focus()

@@ -145,3 +145,50 @@ def test_load_masked_nasconde_segreti():
     assert view["app_key"] == "••••••"
     assert view["password"] == "••••••"
     assert view["cert_path"] == "/c/cert.crt"
+
+
+# ── resolve_credentials: la maschera non sovrascrive i segreti (Codex P2) ──────
+
+def test_resolve_segreto_mascherato_usa_il_valore_reale_salvato():
+    c = BetfairSyncController(session=BetfairSession())
+    c.save_credentials(_creds())
+    # il form alla riapertura mostra la maschera nei campi segreti
+    form = BetfairCredentials(app_key=cs.MASK, username=cs.MASK, password=cs.MASK,
+                              cert_path="/c/cert.crt", key_path="/c/cert.key")
+    resolved = c.resolve_credentials(form)
+    # i segreti tornano ai valori reali, non alla maschera
+    assert resolved == _creds()
+
+
+def test_resolve_segreto_ridigitato_usa_il_nuovo_valore():
+    c = BetfairSyncController(session=BetfairSession())
+    c.save_credentials(_creds())
+    form = BetfairCredentials(app_key="NuovaKey999", username=cs.MASK,
+                              password=cs.MASK, cert_path="/c/cert.crt",
+                              key_path="/c/cert.key")
+    resolved = c.resolve_credentials(form)
+    assert resolved.app_key == "NuovaKey999"      # nuovo valore digitato
+    assert resolved.username == "utente"          # mascherato → reale
+    assert resolved.password == "PwSegreta!"
+
+
+def test_resolve_segreto_svuotato_resta_vuoto():
+    # Svuotare un campo (non mascherato, stringa vuota) deve restare vuoto → su save
+    # cancella la voce. La maschera non è una stringa vuota, quindi è distinta.
+    c = BetfairSyncController(session=BetfairSession())
+    c.save_credentials(_creds())
+    form = BetfairCredentials(app_key="", username=cs.MASK, password=cs.MASK,
+                              cert_path="/c/cert.crt", key_path="/c/cert.key")
+    resolved = c.resolve_credentials(form)
+    assert resolved.app_key == ""
+
+
+def test_save_di_form_mascherato_non_corrompe_il_keyring():
+    # Regressione del bug Codex: Salva senza ridigitare NON deve scrivere ••••••.
+    c = BetfairSyncController(session=BetfairSession())
+    c.save_credentials(_creds())
+    view = c.load_masked()                          # come lo vede la GUI alla riapertura
+    form = BetfairCredentials(**view)              # i segreti sono "••••••"
+    c.save_credentials(c.resolve_credentials(form))  # salva risolto, come fa la GUI
+    # il keyring conserva i valori reali, non la maschera
+    assert cs.load_credentials() == _creds()
