@@ -63,7 +63,11 @@ def test_adddata_non_include_segreti_o_certificati():
     entries = re.findall(r'--add-data\s+"([^"]+)"', text)
     assert entries, "atteso almeno un --add-data (il dizionario)"
     for entry in entries:
-        src = entry.split(";", 1)[0].split(":", 1)[0].strip()
+        # Split SOLO sul separatore PyInstaller usato da questo workflow Windows (`;`):
+        # NON splittare su `:`, altrimenti una sorgente assoluta Windows tipo
+        # `C:\secrets\client.pem;certs` verrebbe troncata a "C" e l'estensione segreta non
+        # verrebbe mai rilevata (Codex). Su Windows il separatore SORG/DEST è sempre `;`.
+        src = entry.split(";", 1)[0].strip()
         assert not _FORBIDDEN_BUNDLE.search(src), f"--add-data include un file vietato: {src!r}"
         # CSV ammesso SOLO il dizionario ufficiale.
         if src.lower().endswith(".csv"):
@@ -80,29 +84,55 @@ def test_nessun_add_binary_di_certificati():
 
 def test_test_eseguiti_prima_della_build():
     # I test (pytest) devono precedere la compilazione dell'EXE: una build non deve
-    # partire su codice non testato.
+    # partire su codice non testato. Si confronta lo step REALE `python -m pytest` con la
+    # REALE invocazione di build (riga che inizia con `pyinstaller`), NON un semplice
+    # substring "pytest"/"pyinstaller": un commento che cita entrambe le parole (es. il
+    # commento sul lockfile) soddisferebbe falsamente il gate anche se lo step dei test
+    # fosse rimosso o spostato dopo la build (Codex).
     text = _build_yaml()
-    i_pytest = text.find("pytest")
-    i_build = text.find("pyinstaller")
-    assert i_pytest != -1 and i_build != -1
-    assert i_pytest < i_build, "i test devono girare PRIMA della build dell'EXE"
+    i_pytest = text.find("python -m pytest")
+    m_build = re.search(r"(?m)^\s*pyinstaller\b", text)
+    assert i_pytest != -1, "manca lo step reale dei test (`python -m pytest`)"
+    assert m_build is not None, "manca la reale invocazione `pyinstaller`"
+    assert i_pytest < m_build.start(), "i test devono girare PRIMA della build dell'EXE"
 
 
 def test_data_dir_senza_file_sensibili():
     # La cartella bundle-abile `data/` non deve contenere segreti/cert/DB (li includerebbe
-    # --add-data/--collect-all). Deve esserci il dizionario ufficiale.
+    # --add-data/--collect-all). Deve esserci il dizionario ufficiale. La scansione è
+    # RICORSIVA (os.walk): un file annidato come `data/certs/client.key` o
+    # `data/parsers/.env` finirebbe nel bundle se `data/` venisse impacchettata come
+    # cartella, e `os.listdir` sul solo primo livello non lo vedrebbe (Codex).
     assert os.path.isdir(_DATA_DIR)
-    names = os.listdir(_DATA_DIR)
-    assert "dizionario_xtrader.csv" in names
-    for n in names:
-        assert not _FORBIDDEN_BUNDLE.search(n), f"file sensibile in data/: {n!r}"
+    found_dizionario = False
+    for root, _dirs, files in os.walk(_DATA_DIR):
+        for n in files:
+            if n == "dizionario_xtrader.csv":
+                found_dizionario = True
+            rel = os.path.relpath(os.path.join(root, n), _DATA_DIR)
+            assert not _FORBIDDEN_BUNDLE.search(n), f"file sensibile in data/: {rel!r}"
+    assert found_dizionario, "manca data/dizionario_xtrader.csv"
 
 
 def test_artifact_e_release_solo_un_exe():
-    # L'upload artifact e la release pubblicano un singolo .exe da dist/, non cartelle.
+    # L'upload artifact (`path:`) E la release (`files:`, softprops/action-gh-release)
+    # devono pubblicare ESATTAMENTE un singolo .exe da dist/, non cartelle e non un secondo
+    # eseguibile. Si controllano ENTRAMBI i canali: prima il gate leggeva solo `path:`,
+    # lasciando il lato release non verificato; e accettava "almeno un" exe, così un
+    # secondo `dist/Admin.exe` sarebbe passato (Codex).
     text = _build_yaml()
-    paths = re.findall(r"(?m)^\s*path:\s*(\S+)", text)
-    exe_paths = [p for p in paths if p.lower().endswith(".exe")]
-    assert exe_paths, "atteso un path .exe nell'upload artifact"
-    for p in exe_paths:
+    artifact_exes = [p for p in re.findall(r"(?m)^\s*path:\s*(\S+)", text)
+                     if p.lower().endswith(".exe")]
+    release_exes = [p for p in re.findall(r"(?m)^\s*files:\s*(\S+)", text)
+                    if p.lower().endswith(".exe")]
+    assert len(artifact_exes) == 1, \
+        f"atteso ESATTAMENTE un EXE nell'upload artifact, trovati {artifact_exes}"
+    assert len(release_exes) == 1, \
+        f"atteso ESATTAMENTE un EXE nella release, trovati {release_exes}"
+    for p in artifact_exes + release_exes:
         assert p.startswith("dist/"), f"path EXE inatteso: {p!r}"
+    # Difesa in profondità: nessun secondo eseguibile (es. dist/Admin.exe) referenziato da
+    # NESSUNA parte del workflow — l'unico EXE pubblicabile è quello personale del bridge.
+    all_exe = re.findall(r"dist/(\S+\.exe)", text)
+    assert all_exe and all(e == "XTrader-Signal-Bridge.exe" for e in all_exe), \
+        f"pubblicato un secondo EXE inatteso: {all_exe}"
