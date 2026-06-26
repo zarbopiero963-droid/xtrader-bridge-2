@@ -12,7 +12,7 @@ funzionalità (decisione del proprietario).
 |---|---|---|---|
 | 1 | App boot crash recovery: CSV con riga → cleanup prima di auto-start | COVERED | funzione: `tests/safety/test_csv_atomic.py::test_clear_stale_csv_rimuove_riga_orfana` · ordine `__init__` (cleanup PRIMA dell'auto-start): guardia di regressione `tests/integration/test_reconnect_110.py::test_boot_clear_stale_csv_precede_lo_scheduling_auto_start` |
 | 2 | App auto-start dry-run: parte solo se token/chat ok | COVERED | `tests/unit/test_autostart.py` (decisione) |
-| 3 | App auto-start real: chiede conferma; se no non parte | COVERED* | `tests/unit/test_autostart.py::*needs_real_mode_confirmation* ` (decisione) · `messagebox` GUI = manuale |
+| 3 | App auto-start real: chiede conferma; se no non parte | COVERED* | `tests/unit/test_autostart.py::test_conferma_richiesta_solo_in_modalita_reale` (decisione) · `messagebox` GUI = manuale |
 | 4 | Mock Telegram `drop_pending_updates=True` (+allowed_updates) | COVERED | `tests/integration/test_listener_dispatch.py::test_start_polling_scarta_arretrati_e_ammette_channel_post` (#161) |
 | 5 | Mock Telegram stale update → `_process` non chiamato | COVERED | `tests/integration/test_listener_dispatch.py::test_messaggio_vecchio_ignorato` (#161) |
 | 6 | Reconnect lifecycle: errore transitorio → shutdown → backoff → retry → reset | **NEW** | `tests/integration/test_reconnect_110.py::test_reconnect_lifecycle_chiude_il_vecchio_updater_e_ritenta` |
@@ -24,7 +24,7 @@ funzionalità (decisione del proprietario).
 | 12 | `_process_confirmation` write failure → retry breve | COVERED | `tests/integration/test_app_runtime_glue.py::test_confirmation_write_failure_segnale_rimosso_e_retry_breve` (#161) |
 | 13 | STOP durante confirmation retry: non riscrive dopo clear | COVERED | gate `_running`: `..._confirmation_gate_running_false_e_no_op` + `..._expire_tick_gate_running_false_non_riscrive` (#161) |
 | 14 | Manual clear running usa `_active_csv_path`, non il campo GUI | COVERED | `tests/integration/test_app_runtime_glue.py::test_manual_clear_running_usa_active_path_non_gui` (#161) |
-| 15 | XTrader file lock Windows: START fallisce pulito, runtime retry | PARTIAL | logica low-level: `tests/safety/test_csv_atomic.py` (`_replace_with_retry`, `errore_permessi`) + `_manual_clear` su I/O fallito (`test_manual_clear_write_failure_non_svuota_coda`, #161). NON testato headless `App._start()` con `init_csv` che solleva → `_running` resta False (`_start` è fortemente accoppiato alla GUI, non istanziabile headless) · lock Windows reale = manuale (§I) |
+| 15 | XTrader file lock Windows: START fallisce pulito, runtime retry | PARTIAL | logica low-level: `tests/safety/test_csv_atomic.py` (`_replace_with_retry`, `errore_permessi`) + `_manual_clear` su I/O fallito (`test_manual_clear_write_failure_non_svuota_coda`, #161). NON testato headless `App._start()` con `init_csv` che solleva → `_running` resta False (`_start` è fortemente accoppiato alla GUI, non istanziabile headless) · lock Windows reale + START fallito = manuale (`release_checklist.md` §I, #110/15) |
 | 16 | Windows reboot manuale: Startup/Task Scheduler + auto_start | MANUAL_ONLY | `release_checklist.md` §I (#110/16) |
 | 17 | Power-cut manuale: VM kill con CSV attivo | MANUAL_ONLY | `release_checklist.md` §I (#110/17) |
 | 18 | Telegram live outage manuale: rete giù, backlog, reconnect | MANUAL_ONLY | `release_checklist.md` §I (#110/18) |

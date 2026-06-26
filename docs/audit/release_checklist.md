@@ -86,11 +86,20 @@ rete/auto-start possono restare in DRY_RUN.
       accettato, non una garanzia di "exactly-once". Per un check deterministico del
       dedupe, fai prima arrivare un 2° segnale (così lo stato viene salvato) e poi togli
       la corrente.
+- [ ] **#110/15 — START con CSV lockato (file-lock).** *(modalità REALE o DRY_RUN: serve
+      solo che `init_csv` non possa scrivere.)* Apri il CSV in Excel/XTrader in modo
+      **lockante** (o togli i permessi di scrittura), poi premi **AVVIA**. Atteso: l'avvio
+      **fallisce in modo pulito** (log con l'errore di `init_csv`), lo stato resta
+      **OFFLINE** e il listener NON parte (nessuna sessione "attiva" falsa). Se il lock
+      arriva a runtime, il log segnala l'errore e l'auto-clear riprova (retry).
 - [ ] **#110/18 — Telegram live outage / reconnect.** *(DRY_RUN va bene: non serve
       scrivere il CSV.)* Avvia il listener, stacca la rete ~5 min e invia segnali nel
       canale mentre è offline; riattacca la rete. Atteso: stato **RICONNESSIONE…** con
-      backoff; i messaggi vecchi (oltre `max_signal_age`) NON vengono processati; solo i
-      nuovi entro soglia passano.
+      backoff. Nota: a ogni riconnessione il polling usa `drop_pending_updates=True`,
+      quindi **l'intero backlog accumulato offline viene SCARTATO** (non filtrato per età):
+      i messaggi inviati mentre la rete era giù **non** vengono processati. Solo i
+      messaggi inviati **dopo** la riconnessione (e comunque entro `max_signal_age`)
+      passano.
 - [ ] **#110/16 — Windows reboot + auto-start.** Configura l'app in Startup
       folder / Task Scheduler con `auto_start_listener=true`. Caso **DRY_RUN**:
       riavvia il PC → l'app parte, il listener parte da solo, il CSV è pulito.
