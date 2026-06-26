@@ -21,8 +21,16 @@ moduli funzionali (auth, dizionario, sync) arrivano nelle PR successive (vedi
 `docs/audit/blocco1_personale_roadmap.md`).
 """
 
-from . import auth_client, credential_store, local_db, log_safety, sync_tab_controller
+from . import (
+    auth_client,
+    catalogue_client,
+    credential_store,
+    local_db,
+    log_safety,
+    sync_tab_controller,
+)
 from .auth_client import BetfairAuthClient, CertificateError, LoginError
+from .catalogue_client import CatalogueSync
 from .local_db import BetfairLocalDB
 from .credential_store import BetfairCredentials
 from .safety import (
@@ -49,7 +57,9 @@ __all__ = [
     "LoginError",
     "CertificateError",
     "BetfairLocalDB",
+    "CatalogueSync",
     "auth_client",
+    "catalogue_client",
     "local_db",
     "credential_store",
     "log_safety",

@@ -41,8 +41,8 @@ non vengono duplicate.
 | PR-P2  | Safe Logging + Secure Local Storage         | storage cifrato credenziali, sessionToken RAM-only, redaction filter   | merged (#166) |
 | PR-P3  | Tab Betfair Sync locale (GUI)               | tab GUI credenziali/sport/giorni/stato, pulsanti                       | merged (#167) |
 | PR-P4  | Betfair Auth Client Italia                  | login/logout cert + Delayed App Key, token in RAM                      | merged (#168) |
-| PR-P5  | Database Locale Betfair Multi-sport         | tabelle locali sport/comp/event/market/selection/sync/mapping         | in corso |
-| PR-P6  | Betfair Navigation + Catalogue Sync         | navigation menu + listMarketCatalogue, upsert read-only               | TODO  |
+| PR-P5  | Database Locale Betfair Multi-sport         | tabelle locali sport/comp/event/market/selection/sync/mapping         | merged (#169) |
+| PR-P6  | Betfair Navigation + Catalogue Sync         | navigation menu + listMarketCatalogue, upsert read-only               | in corso |
 | PR-P7  | Sync Engine Manuale                         | motore unico sync manuale + riepilogo safe                            | TODO  |
 | PR-P8  | Betfair Auto Sync Scheduler locale          | scheduler locale auto login→sync→auto logout                          | TODO  |
 | PR-P9  | Parser Personalizzato Multi-sport / profilo | sport nel parser, campi core generici                                 | TODO  |
@@ -133,6 +133,27 @@ Non verificato in automatico: la chiamata di rete reale e il certificato vero.
   marca `active=0` i record non rivisti nella sync (scope per sport/evento/mercato così
   sincronizzare un solo sport non disattiva gli altri). Solo locale: nessun cloud,
   nessun export/import; il file `.db` è in `.gitignore`.
+
+### PR-P6 — Betfair Navigation + Catalogue Sync
+- `catalogue_client.py`: scarica il navigation menu Betfair (read-only) filtrando gli
+  sport del blocco (`SPORTS_EVENT_TYPE`: Calcio=1, Tennis=2, Basket=7522, Rugby Union=5),
+  poi arricchisce con `listMarketCatalogue`. `parse_navigation` (cammino ricorsivo
+  EVENT_TYPE→COMPETITION?→EVENT→MARKET, salta i sport non scelti), `parse_market_catalogue`
+  (MarketId/SelectionId/runner/handicap/market type/event), `split_participants`
+  («Home v Away»). `CatalogueSync.sync(sports)` upserta sport/competizioni/eventi
+  (con participant_1/2)/mercati/selezioni nel `BetfairLocalDB` con un `new_sync_marker`
+  unico, poi `deactivate_unseen` scoped per sport (e per mercato sulle selezioni):
+  rieseguire non duplica e i record spariti diventano inattivi senza toccare gli altri
+  sport. Ogni operazione passa dal guard `safety.assert_read_only` (nessuna scommessa);
+  Delayed Key; transport HTTP iniettabili (test offline), default stdlib `urllib`.
+- `local_db.py`: eventi estesi con `participant_1`/`participant_2` (+ migrazione
+  idempotente `ALTER TABLE`); markets scopabili per `event_type_id`.
+
+#### Smoke test manuale PR-P6 (Windows, login reale)
+1. Dopo login (PR-P4), esegui un sync degli sport scelti. Atteso: il dizionario locale
+   si popola di sport/competizioni/eventi/mercati/selezioni; nessuna chiamata betting.
+2. Riesegui il sync: i conteggi restano stabili (nessun duplicato).
+Non verificato in automatico: la chiamata di rete reale a navigation/catalogue.
 
 ## Definition of Done (blocco personale)
 
