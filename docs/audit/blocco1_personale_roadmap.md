@@ -39,8 +39,8 @@ non vengono duplicate.
 |--------|---------------------------------------------|-----------------------------------------------------------------------|-------|
 | PR-P1  | Repository Foundation solo Bridge           | `betfair/` skeleton, guard read-only, hygiene test, questa roadmap     | merged (#165) |
 | PR-P2  | Safe Logging + Secure Local Storage         | storage cifrato credenziali, sessionToken RAM-only, redaction filter   | merged (#166) |
-| PR-P3  | Tab Betfair Sync locale (GUI)               | tab GUI credenziali/sport/giorni/stato, pulsanti                       | in corso |
-| PR-P4  | Betfair Auth Client Italia                  | login/logout cert + Delayed App Key, token in RAM                      | TODO  |
+| PR-P3  | Tab Betfair Sync locale (GUI)               | tab GUI credenziali/sport/giorni/stato, pulsanti                       | merged (#167) |
+| PR-P4  | Betfair Auth Client Italia                  | login/logout cert + Delayed App Key, token in RAM                      | in corso |
 | PR-P5  | Database Locale Betfair Multi-sport         | tabelle locali sport/comp/event/market/selection/sync/mapping         | TODO  |
 | PR-P6  | Betfair Navigation + Catalogue Sync         | navigation menu + listMarketCatalogue, upsert read-only               | TODO  |
 | PR-P7  | Sync Engine Manuale                         | motore unico sync manuale + riepilogo safe                            | TODO  |
@@ -101,6 +101,25 @@ non vengono duplicate.
 5. «Logout» → torna «non connesso», ma le credenziali restano salvate.
 6. «Cancella credenziali salvate» → campi vuoti, login disabilitato.
 Risultato atteso: nessun token nei log, nessuna chiamata betting, nessun dato fuori dal PC.
+
+### PR-P4 — Betfair Auth Client Italia
+- `auth_client.py`: `BetfairAuthClient` esegue il login **non-interattivo** Betfair.it
+  con certificato (`identitysso-cert.betfair.it/api/certlogin`) e Delayed App Key.
+  Il `sessionToken` va **solo in RAM** (`BetfairSession`), mai su disco; `logout()`
+  lo cancella. Errori **safe**: `LoginError`/`CertificateError` senza response grezza
+  né segreti nel messaggio. Il login passa dal guard `safety.assert_read_only` (non è
+  un'operazione di scommessa). La chiamata HTTP reale usa solo la **stdlib**
+  (`urllib` + `ssl.load_cert_chain`, nessuna nuova dipendenza) ed è **iniettabile**
+  (`transport=`) così i test girano offline. La tab «🔵 Betfair Sync» è agganciata
+  al client (pulsante «Accedi» → `App._open_tools` → `BetfairAuthClient.login`).
+
+#### Smoke test manuale PR-P4 (Windows, certificato vero)
+1. Configura/salva credenziali Betfair (App Key delayed, username, password,
+   cert .crt/.pem, key .key) nella tab Betfair Sync, poi «Accedi».
+2. Atteso con credenziali valide: log "🔵 Login Betfair riuscito"; «Sincronizza»/
+   «Logout» si abilitano. Con credenziali errate: log "❌ Login Betfair fallito: <status>".
+3. «Logout» → stato "non connesso"; nessun token su disco, nessun token nei log.
+Non verificato in automatico: la chiamata di rete reale e il certificato vero.
 
 ## Definition of Done (blocco personale)
 
