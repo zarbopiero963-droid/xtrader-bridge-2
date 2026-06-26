@@ -25,10 +25,10 @@ funzionalità (decisione del proprietario).
 | 13 | STOP durante confirmation retry: non riscrive dopo clear | COVERED | gate `_running`: `..._confirmation_gate_running_false_e_no_op` + `..._expire_tick_gate_running_false_non_riscrive` (#161) |
 | 14 | Manual clear running usa `_active_csv_path`, non il campo GUI | COVERED | `tests/integration/test_app_runtime_glue.py::test_manual_clear_running_usa_active_path_non_gui` (#161) |
 | 15 | XTrader file lock Windows: START fallisce pulito, runtime retry | COVERED* | logica: `tests/safety/test_csv_atomic.py` (`_replace_with_retry`, `errore_permessi`) + `test_manual_clear_write_failure_non_svuota_coda` (#161) · lock Windows reale = manuale |
-| 16 | Windows reboot manuale: Startup/Task Scheduler + auto_start | MANUAL_ONLY | checklist release |
-| 17 | Power-cut manuale: VM kill con CSV attivo | MANUAL_ONLY | checklist release |
-| 18 | Telegram live outage manuale: rete giù, backlog, reconnect | MANUAL_ONLY | checklist release |
-| 19 | XTrader sandbox: CSV reale letto una volta, clear, no duplicate | MANUAL_ONLY | checklist release |
+| 16 | Windows reboot manuale: Startup/Task Scheduler + auto_start | MANUAL_ONLY | `release_checklist.md` §I (#110/16) |
+| 17 | Power-cut manuale: VM kill con CSV attivo | MANUAL_ONLY | `release_checklist.md` §I (#110/17) |
+| 18 | Telegram live outage manuale: rete giù, backlog, reconnect | MANUAL_ONLY | `release_checklist.md` §I (#110/18) |
+| 19 | XTrader sandbox: CSV reale letto una volta, clear, no duplicate | MANUAL_ONLY | `release_checklist.md` §I (#110/19) |
 | 20 | Transaction/event journal strutturato ("cosa aveva fatto") | **FEATURE** | non presente: è una nuova funzionalità di persistenza (event ledger append-only), non un test. Richiede decisione del proprietario prima di implementarla. Oggi esiste solo `event_log` testuale (`tests/unit/test_event_log.py`) |
 
 \* COVERED a livello di funzione/logica e (dove possibile) di glue headless; la verifica
@@ -37,7 +37,7 @@ end-to-end su GUI reale / Windows / XTrader resta nella checklist manuale.
 ## Riepilogo
 - **NEW (questa PR):** 6, 7
 - **COVERED (esistenti, molti da #160/#161/#162):** 1,2,3,4,5,8,9,10,11,12,13,14,15
-- **MANUAL_ONLY (checklist release):** 16,17,18,19 — vedi `docs/audit/release_checklist.md`
+- **MANUAL_ONLY (checklist release):** 16,17,18,19 — passi esatti in `docs/audit/release_checklist.md` §I
 - **FEATURE (decisione proprietario):** 20 — event journal transaction-grade
 
 I due punti "deboli" segnalati dalla baseline #110 — daily_state senza fsync e listener
