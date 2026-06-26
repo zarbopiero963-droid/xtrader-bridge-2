@@ -18,6 +18,8 @@ senza tempo reale; il ciclo (`AutoSyncScheduler.maybe_run`) usa dipendenze iniet
 nessuna operazione di scommessa (ereditata dal motore read-only).
 """
 
+import threading
+
 from .sync_engine import FAILED, SyncResult
 
 
@@ -78,6 +80,10 @@ class AutoSyncScheduler:
         self._save_state = save_state
         self._last_run_key = None
         self._loaded = False
+        # Gate in-flight: impedisce due cicli sovrapposti nella finestra di login (prima
+        # che `engine.is_syncing` diventi vero). Thread-safe per i tick su worker.
+        self._gate = threading.Lock()
+        self._running = False
 
     @property
     def last_run_key(self):
@@ -99,30 +105,51 @@ class AutoSyncScheduler:
         """Valuta la decisione e, se è ora, esegue il ciclo auto login→sync→logout.
 
         Ritorna il `SyncResult` se la sync è partita, altrimenti `None` (bridge chiuso,
-        auto-sync spenta, fuori orario, già eseguita, o sync già in corso)."""
+        auto-sync spenta, fuori orario, già eseguita, sync in corso o ciclo già attivo).
+
+        La run viene marcata «eseguita oggi» (e persistita) **solo se ha SUCCESSO**:
+        un tentativo fallito (cert mancante, rete giù, sport vuoti) NON consuma la
+        finestra, così i tick successivi della stessa ora **ritentano** (Codex)."""
         if not self.is_bridge_open():
             return None
         self._ensure_loaded()
         enabled, hour, sports, creds = self.get_config()
-        if not should_run(now, enabled=enabled, hour=hour,
-                          last_run_key=self._last_run_key,
-                          sync_in_progress=self.engine.is_syncing):
-            return None
-        # Segna PRIMA di partire: un tick successivo nello stesso orario non ri-scatta;
-        # e persiste, così un riavvio nella stessa ora non rilancia l'auto-sync.
-        self._last_run_key = run_key(now, hour)
-        if self._save_state:
-            try:
-                self._save_state(self._last_run_key)
-            except Exception:   # noqa: BLE001 — persistenza best-effort, non blocca la sync
-                pass
-        return self._cycle(sports, creds)
+        # Check-and-set atomico: niente cicli sovrapposti (gate) + decisione pura.
+        with self._gate:
+            if self._running:
+                return None
+            if not should_run(now, enabled=enabled, hour=hour,
+                              last_run_key=self._last_run_key,
+                              sync_in_progress=self.engine.is_syncing):
+                return None
+            self._running = True
+        try:
+            result = self._cycle(sports, creds)
+            if getattr(result, "ok", False):
+                # Solo su successo: marca e persiste, così non ri-scatta oggi/ora.
+                self._last_run_key = run_key(now, hour)
+                if self._save_state:
+                    try:
+                        self._save_state(self._last_run_key)
+                    except Exception:   # noqa: BLE001 — persistenza best-effort
+                        pass
+            return result
+        finally:
+            with self._gate:
+                self._running = False
 
     def _cycle(self, sports, creds):
-        """Auto login → sync → auto logout. Il logout è SEMPRE in `finally`."""
+        """Auto login → sync → auto logout. Il logout è SEMPRE in `finally`.
+
+        Dopo il login aggiorna la App Key del motore con quella delle credenziali
+        appena usate (`set_app_key`), così la sync non invia una App Key vecchia in
+        cache da un login manuale precedente (Codex)."""
         result = None
         try:
             self.auth.login(creds)
+            set_app_key = getattr(self.engine, "set_app_key", None)
+            if set_app_key:
+                set_app_key(getattr(creds, "app_key", None))
             result = self.engine.run(sports)
         except Exception as ex:   # noqa: BLE001 — fallimento safe, niente crash/segreti
             result = SyncResult(status=FAILED,

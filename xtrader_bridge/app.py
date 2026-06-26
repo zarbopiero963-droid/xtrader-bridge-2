@@ -910,11 +910,21 @@ class App(ctk.CTk):
             if self.winfo_exists():
                 cfg = self._load_config()
                 if config_store.as_bool_optin(cfg.get("betfair_auto_sync", False)):
-                    sched = self._betfair_autosync_scheduler()
-                    import datetime
-                    now = datetime.datetime.now()
-                    threading.Thread(target=lambda: sched.maybe_run(now),
-                                     daemon=True, name="betfair-autosync").start()
+                    try:
+                        sched = self._betfair_autosync_scheduler()
+                    except Exception as ex:   # noqa: BLE001 — costruzione scheduler (es. DB non apribile)
+                        # Non restare silenziosi: l'utente crede l'auto-sync attiva ma
+                        # non partirà mai in questo ambiente. Avvisa UNA volta (Codex).
+                        if not getattr(self, "_autosync_build_warned", False):
+                            self._autosync_build_warned = True
+                            self._log(f"⚠️ Auto-sync Betfair non avviabile ({type(ex).__name__}): "
+                                      "controlla la cartella dati / il dizionario locale.")
+                        sched = None
+                    if sched is not None:
+                        import datetime
+                        now = datetime.datetime.now()
+                        threading.Thread(target=lambda: sched.maybe_run(now),
+                                         daemon=True, name="betfair-autosync").start()
         except Exception:               # noqa: BLE001 — il tick non deve mai crashare
             pass
         finally:
@@ -1945,7 +1955,8 @@ class App(ctk.CTk):
                 parent, session=self._betfair_session_obj(),
                 on_login=_betfair_login, on_sync=_betfair_sync,
                 autosync={"enabled": config_store.as_bool_optin(_cfg_bf.get("betfair_auto_sync", False)),
-                          "hour": _cfg_bf.get("betfair_auto_sync_hour", 23)},
+                          "hour": _cfg_bf.get("betfair_auto_sync_hour", 23),
+                          "sports": _cfg_bf.get("betfair_sync_sports")},
                 on_autosync_change=_betfair_autosync_change)
             return self._betfair_panel
 

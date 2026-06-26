@@ -68,10 +68,16 @@ class BetfairSyncPanel(ctk.CTkFrame):
         opts = ctk.CTkFrame(self)
         opts.pack(fill="x", padx=12, pady=6)
         ctk.CTkLabel(opts, text="Sport").grid(row=0, column=0, sticky="w", padx=8, pady=4)
+        # Stato iniziale delle checkbox: dagli sport salvati (auto-sync) se presenti,
+        # così riaprendo la tab NON si riselezionano tutti gli sport sovrascrivendo la
+        # lista ristretta scelta dall'utente (Codex). Lista assente → tutti attivi.
+        _saved_sports = self._autosync.get("sports")
         self._sport_vars = {}
         for j, sport in enumerate(SPORTS):
-            var = ctk.BooleanVar(value=True)
-            ctk.CTkCheckBox(opts, text=sport, variable=var).grid(
+            checked = True if _saved_sports is None else (sport in _saved_sports)
+            var = ctk.BooleanVar(value=checked)
+            ctk.CTkCheckBox(opts, text=sport, variable=var,
+                            command=self._autosync_changed).grid(
                 row=0, column=1 + j, sticky="w", padx=6, pady=4)
             self._sport_vars[sport] = var
         ctk.CTkLabel(opts, text="Giorni avanti").grid(row=1, column=0, sticky="w", padx=8, pady=4)

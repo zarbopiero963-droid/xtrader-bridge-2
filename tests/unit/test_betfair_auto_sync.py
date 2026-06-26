@@ -170,6 +170,46 @@ def test_last_run_persistito_evita_doppio_dopo_riavvio():
     assert auth2.calls == []
 
 
+def test_run_fallita_non_consuma_la_finestra_ritenta():
+    # Un tentativo fallito NON deve marcare la run come fatta: il tick successivo
+    # nella stessa ora ritenta (Codex).
+    store = {"key": None}
+    auth = _Auth()
+    eng = _Engine(raise_on_run=True)            # la sync fallisce
+    sched = AutoSyncScheduler(auth=auth, engine=eng, get_config=_cfg(),
+                              load_state=lambda: store["key"],
+                              save_state=lambda k: store.__setitem__("key", k))
+    res1 = sched.maybe_run(_NOW_23)
+    assert res1.status == FAILED
+    assert store["key"] is None                 # NON persistito (può ritentare)
+    assert sched.last_run_key is None
+    # ora "il problema è risolto": un nuovo tentativo nella stessa ora parte e riesce
+    sched.engine = _Engine()                    # engine che riesce
+    res2 = sched.maybe_run(datetime(2026, 7, 1, 23, 9, 0))
+    assert res2.status == OK
+    assert store["key"] == run_key(_NOW_23, 23)  # ora marcato
+
+
+def test_cycle_aggiorna_app_key_engine():
+    # Dopo il login, l'engine riceve la App Key delle credenziali correnti (Codex).
+    class _Creds:
+        app_key = "KeyCorrente"
+
+    class _EngineKey(_Engine):
+        def __init__(self):
+            super().__init__()
+            self.app_key_set = None
+
+        def set_app_key(self, k):
+            self.app_key_set = k
+
+    auth, eng = _Auth(), _EngineKey()
+    sched = AutoSyncScheduler(auth=auth, engine=eng,
+                              get_config=lambda: (True, 23, ["Calcio"], _Creds()))
+    sched.maybe_run(_NOW_23)
+    assert eng.app_key_set == "KeyCorrente"
+
+
 def test_logout_chiamato_anche_se_login_fallisce():
     class _BadAuth(_Auth):
         def login(self, creds):
