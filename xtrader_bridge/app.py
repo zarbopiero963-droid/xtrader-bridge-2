@@ -930,7 +930,10 @@ class App(ctk.CTk):
         except Exception:               # noqa: BLE001 — il tick non deve mai crashare
             pass
         finally:
-            self._autosync_after_id = self.after(60_000, self._betfair_autosync_tick)
+            # Ri-arma solo se il bridge non si sta chiudendo: dopo `_on_close`
+            # `self.after` su una root distrutta solleverebbe (CodeRabbit).
+            if not self._closing:
+                self._autosync_after_id = self.after(60_000, self._betfair_autosync_tick)
 
     def _betfair_autosync_scheduler(self):
         """Scheduler auto-sync condiviso (lazy). `get_config` legge enabled/hour/sports
@@ -942,12 +945,18 @@ class App(ctk.CTk):
             return self._betfair_autosync_obj
 
         def _get_config():
+            # Config LEGGERA (no keyring): lo scheduler la legge a ogni tick (anche fuori
+            # orario o a run già fatta), quindi NON deve leggere le credenziali qui — il
+            # keyring si tocca solo quando la run è dovuta, in `_get_credentials` (CodeRabbit).
             cfg = self._load_config()
             enabled = config_store.as_bool_optin(cfg.get("betfair_auto_sync", False))
             hour = auto_sync.normalize_hour(cfg.get("betfair_auto_sync_hour", 23))
             sports = cfg.get("betfair_sync_sports") or []
-            creds = credential_store.load_credentials()
-            return enabled, hour, sports, creds
+            return enabled, hour, sports
+
+        def _get_credentials():
+            # Letto SOLO quando l'auto-sync è davvero dovuta (dentro `_cycle`), non a ogni tick.
+            return credential_store.load_credentials()
 
         _state_path = runtime_state.betfair_autosync_state_path(config_dir())
 
@@ -963,14 +972,30 @@ class App(ctk.CTk):
             atomic_io.atomic_write_json(_state_path, key)   # scrittura atomica
 
         def _on_state_error(_ex):
-            # Stato auto-sync non persistito: avvisa (un riavvio nella stessa ora
-            # potrebbe ri-eseguire). Sul main thread, una volta.
-            self.after(0, lambda: self._log(
-                "⚠️ Auto-sync Betfair: impossibile salvare lo stato (la guardia "
-                "'una volta al giorno' potrebbe non valere dopo un riavvio)."))
+            # Invocato dal worker auto-sync: qui NIENTE chiamate Tk (winfo_exists) — solo
+            # il flag `_closing` (lettura semplice, thread-safe). La winfo_exists vera la
+            # fa il callback schedulato, che gira sul main thread (CodeRabbit).
+            if self._closing:
+                return
+
+            def _report():
+                if self._closing or not self.winfo_exists():
+                    return
+                self._log(
+                    "⚠️ Auto-sync Betfair: impossibile salvare lo stato (la guardia "
+                    "'una volta al giorno' potrebbe non valere dopo un riavvio).")
+            self.after(0, _report)
 
         def _on_summary(res):
+            # Invocato dal worker auto-sync (può finire DOPO `_on_close`): qui solo il flag
+            # `_closing`, nessuna chiamata Tk dal worker; la winfo_exists la fa `_report`
+            # sul main thread (CodeRabbit).
+            if self._closing:
+                return
+
             def _report():
+                if self._closing or not self.winfo_exists():
+                    return
                 ok = getattr(res, "ok", False)
                 self._log("🔄 Auto-sync Betfair OK." if ok
                           else "⚠️ Auto-sync Betfair non riuscita: "
@@ -985,7 +1010,8 @@ class App(ctk.CTk):
 
         self._betfair_autosync_obj = auto_sync.AutoSyncScheduler(
             auth=self._betfair_auth_client(), engine=self._betfair_sync_engine(),
-            get_config=_get_config, is_bridge_open=lambda: True,
+            get_config=_get_config, get_credentials=_get_credentials,
+            is_bridge_open=lambda: True,
             on_summary=_on_summary, load_state=_load_state, save_state=_save_state,
             on_state_error=_on_state_error)
         return self._betfair_autosync_obj
@@ -1256,6 +1282,15 @@ class App(ctk.CTk):
         # procede comunque, senza bloccare la chiusura del processo.
         if self._expire_timer:
             self._expire_timer.cancel()
+        # Cancella il tick auto-sync ancora pendente: dopo destroy non deve rifirare
+        # né ri-armarsi su una root distrutta (CodeRabbit).
+        _autosync_after = getattr(self, "_autosync_after_id", None)
+        if _autosync_after is not None:
+            try:
+                self.after_cancel(_autosync_after)
+            except Exception:   # noqa: BLE001 — id già scaduto/invalido: best-effort
+                pass
+            self._autosync_after_id = None
         t = self._bot_thread
         if t is not None and t.is_alive():
             t.join(timeout=5.0)

@@ -65,6 +65,23 @@ def test_should_run_giorno_diverso_riscatta():
                       last_run_key=ieri, sync_in_progress=False) is True
 
 
+def test_should_run_hour_non_numerico_non_crasha():
+    # Ora non numerica/bool → normalize_hour ripiega su 23 e DEVE essere riusata anche
+    # per run_key: non deve crashare (int("x")) né produrre una dedupe-key sbagliata
+    # (CodeRabbit). Con now alle 23 e hour="x" (→23) deve scattare.
+    assert should_run(_NOW_23, enabled=True, hour="x",
+                      last_run_key=None, sync_in_progress=False) is True
+    assert should_run(_NOW_23, enabled=True, hour=True,
+                      last_run_key=None, sync_in_progress=False) is True
+    # E la dedupe-key è quella normalizzata (23): seconda valutazione non riscatta.
+    key = run_key(_NOW_23, normalize_hour("x"))
+    assert should_run(_NOW_23, enabled=True, hour="x",
+                      last_run_key=key, sync_in_progress=False) is False
+    # Fuori orario con hour invalido non scatta (now 22 != 23 normalizzato).
+    assert should_run(_NOW_22, enabled=True, hour="x",
+                      last_run_key=None, sync_in_progress=False) is False
+
+
 # ── ciclo auto login → sync → logout ──────────────────────────────────────────
 
 class _Auth:
@@ -92,8 +109,10 @@ class _Engine:
         return self._result
 
 
-def _cfg(enabled=True, hour=23, sports=("Calcio",), creds="CREDS"):
-    return lambda: (enabled, hour, list(sports), creds)
+def _cfg(enabled=True, hour=23, sports=("Calcio",)):
+    """Config LEGGERA dello scheduler: (enabled, hour, sports). Le credenziali NON
+    stanno più qui (si leggono lazy in `_cycle` via `get_credentials`)."""
+    return lambda: (enabled, hour, list(sports))
 
 
 def test_maybe_run_esegue_login_sync_logout():
@@ -205,9 +224,33 @@ def test_cycle_aggiorna_app_key_engine():
 
     auth, eng = _Auth(), _EngineKey()
     sched = AutoSyncScheduler(auth=auth, engine=eng,
-                              get_config=lambda: (True, 23, ["Calcio"], _Creds()))
+                              get_config=lambda: (True, 23, ["Calcio"]),
+                              get_credentials=lambda: _Creds())
     sched.maybe_run(_NOW_23)
     assert eng.app_key_set == "KeyCorrente"
+
+
+def test_credenziali_lette_solo_quando_la_run_e_dovuta():
+    # Il keyring (get_credentials) NON deve essere toccato a ogni tick: solo quando la
+    # run è davvero dovuta, dentro `_cycle`, dopo il gate (CodeRabbit).
+    calls = {"creds": 0}
+
+    def _creds():
+        calls["creds"] += 1
+        return "CREDS"
+
+    auth, eng = _Auth(), _Engine()
+    sched = AutoSyncScheduler(auth=auth, engine=eng, get_config=_cfg(hour=23),
+                              get_credentials=_creds)
+    # Tick fuori orario: decisione pura, NESSUNA lettura credenziali.
+    assert sched.maybe_run(_NOW_22) is None
+    assert calls["creds"] == 0
+    # Tick nell'orario: la run parte e le credenziali vengono lette UNA volta.
+    assert sched.maybe_run(_NOW_23) is not None
+    assert calls["creds"] == 1
+    # Secondo tick stessa ora (già fatta): niente nuova lettura del keyring.
+    assert sched.maybe_run(datetime(2026, 7, 1, 23, 30, 0)) is None
+    assert calls["creds"] == 1
 
 
 def test_reserve_fallita_non_logga_e_ritorna_busy():
@@ -268,7 +311,10 @@ def test_on_state_error_invocato_se_save_fallisce():
     assert errors == ["OSError"]             # …ma il fallimento di save è segnalato
 
 
-def test_logout_chiamato_anche_se_login_fallisce():
+def test_login_fallito_non_chiama_logout_preserva_sessione():
+    # Se l'auto-login FALLISCE non ha stabilito/sostituito alcun token: un logout
+    # incondizionato sloggherebbe una eventuale sessione manuale condivisa (Codex).
+    # Quindi logout NON deve essere chiamato quando login solleva.
     class _BadAuth(_Auth):
         def login(self, creds):
             self.calls.append("login")
@@ -278,5 +324,5 @@ def test_logout_chiamato_anche_se_login_fallisce():
     sched = AutoSyncScheduler(auth=auth, engine=eng, get_config=_cfg())
     res = sched.maybe_run(_NOW_23)
     assert res.status == FAILED
-    assert auth.calls == ["login", "logout"]     # logout sempre eseguito
+    assert auth.calls == ["login"]                # NESSUN logout: sessione preservata
     assert eng.ran is False                       # sync non raggiunta

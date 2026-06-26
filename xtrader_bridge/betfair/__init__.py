@@ -64,6 +64,7 @@ __all__ = [
     "SyncEngine",
     "SyncResult",
     "AutoSyncScheduler",
+    "auto_sync_should_run",
     "auto_sync",
     "auth_client",
     "catalogue_client",

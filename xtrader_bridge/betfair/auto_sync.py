@@ -51,9 +51,13 @@ def should_run(now, *, enabled, hour, last_run_key, sync_in_progress) -> bool:
     - non deve essere già stata eseguita oggi a quell'ora (`last_run_key`)."""
     if not enabled or sync_in_progress:
         return False
-    if now.hour != normalize_hour(hour):
+    # Normalizza l'ora UNA volta e riusala sia per il confronto sull'orologio sia per
+    # la run_key: passare l'ora grezza a run_key (che fa int(hour)) potrebbe crashare
+    # su "x" o produrre una chiave sbagliata su valori non numerici (CodeRabbit).
+    normalized_hour = normalize_hour(hour)
+    if now.hour != normalized_hour:
         return False
-    return last_run_key != run_key(now, hour)
+    return last_run_key != run_key(now, normalized_hour)
 
 
 class AutoSyncScheduler:
@@ -63,15 +67,20 @@ class AutoSyncScheduler:
     Dipendenze iniettate (testabili offline):
     - `auth`: client con `login(creds)` / `logout()`;
     - `engine`: `SyncEngine` (espone `is_syncing` e `run(sports)`);
-    - `get_config()`: ritorna `(enabled, hour, sports, creds)` correnti;
+    - `get_config()`: ritorna `(enabled, hour, sports)` correnti — config LEGGERA, niente
+      credenziali (così non si colpisce il keyring a ogni tick, CodeRabbit);
+    - `get_credentials()`: ritorna le credenziali per l'auto-login, lette **solo** quando
+      la run è dovuta (dentro `_cycle`), non a ogni tick;
     - `is_bridge_open()`: `True` se la finestra è aperta (default: sempre);
     - `on_summary(result)`: callback opzionale per il riepilogo safe in GUI/log."""
 
-    def __init__(self, *, auth, engine, get_config, is_bridge_open=None,
-                 on_summary=None, load_state=None, save_state=None, on_state_error=None):
+    def __init__(self, *, auth, engine, get_config, get_credentials=None,
+                 is_bridge_open=None, on_summary=None, load_state=None,
+                 save_state=None, on_state_error=None):
         self.auth = auth
         self.engine = engine
         self.get_config = get_config
+        self.get_credentials = get_credentials or (lambda: None)
         self.is_bridge_open = is_bridge_open or (lambda: True)
         self.on_summary = on_summary
         # Persistenza opzionale dell'ultima run (giorno+ora): senza, lo stato vive solo
@@ -116,7 +125,11 @@ class AutoSyncScheduler:
         if not self.is_bridge_open():
             return None
         self._ensure_loaded()
-        enabled, hour, sports, creds = self.get_config()
+        # SOLO config leggera qui (enabled/hour/sports): le credenziali (keyring) NON
+        # vanno lette a ogni tick (anche fuori orario o a run già fatta), né prima del
+        # gate _running, altrimenti un keyring lento accatasta worker thread (CodeRabbit).
+        # Le credenziali si caricano dentro `_cycle`, solo quando la run è davvero dovuta.
+        enabled, hour, sports = self.get_config()
         # Check-and-set atomico: niente cicli sovrapposti (gate) + decisione pura.
         with self._gate:
             if self._running:
@@ -127,7 +140,7 @@ class AutoSyncScheduler:
                 return None
             self._running = True
         try:
-            result = self._cycle(sports, creds)
+            result = self._cycle(sports)
             if getattr(result, "ok", False):
                 # Solo su successo: marca e persiste, così non ri-scatta oggi/ora.
                 self._last_run_key = run_key(now, hour)
@@ -147,14 +160,20 @@ class AutoSyncScheduler:
             with self._gate:
                 self._running = False
 
-    def _cycle(self, sports, creds):
-        """Auto login → sync → auto logout. Il logout è SEMPRE in `finally`.
+    def _cycle(self, sports):
+        """Auto login → sync → auto logout.
 
         Prenota il lock del motore PRIMA del login (se il motore lo supporta): se una
         sync manuale è in corso, NON esegue login/logout sulla sessione condivisa
-        (eviterebbe di sloggare la tab manuale) e ritorna `BUSY` (Codex). Dopo il login
-        aggiorna la App Key del motore con quella delle credenziali appena usate, così
-        la sync non invia una App Key vecchia in cache (Codex)."""
+        (eviterebbe di sloggare la tab manuale) e ritorna `BUSY` (Codex). Le credenziali
+        si leggono SOLO ora (job dovuto, gate impostato, lock preso), non a ogni tick
+        (CodeRabbit). Dopo il login aggiorna la App Key del motore con quella delle
+        credenziali appena usate, così la sync non invia una App Key vecchia (Codex).
+
+        Il logout viene eseguito **solo se il login è riuscito** (`logged_in`): se
+        `auth.login` fallisce (cert mancante, credenziali stantie) NON ha sostituito il
+        token di un'eventuale sessione manuale, quindi un logout incondizionato
+        sloggherebbe l'utente nonostante l'auto-login non abbia stabilito nulla (Codex)."""
         reserve = getattr(self.engine, "reserve", None)
         release = getattr(self.engine, "release", None)
         reserved = False
@@ -167,9 +186,12 @@ class AutoSyncScheduler:
                 return result
             reserved = True
 
+        creds = self.get_credentials()
+        logged_in = False
         result = None
         try:
             self.auth.login(creds)
+            logged_in = True
             set_app_key = getattr(self.engine, "set_app_key", None)
             if set_app_key:
                 set_app_key(getattr(creds, "app_key", None))
@@ -180,10 +202,11 @@ class AutoSyncScheduler:
             result = SyncResult(status=FAILED,
                                 errors=[f"Auto-sync fallita ({type(ex).__name__})."])
         finally:
-            try:
-                self.auth.logout()
-            except Exception:     # noqa: BLE001 — il logout best-effort non deve propagare
-                pass
+            if logged_in:
+                try:
+                    self.auth.logout()
+                except Exception:     # noqa: BLE001 — il logout best-effort non deve propagare
+                    pass
             if reserved:
                 release()
         if self.on_summary:

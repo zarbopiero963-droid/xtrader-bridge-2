@@ -188,8 +188,13 @@ class BetfairSyncPanel(ctk.CTkFrame):
         config. Passa anche gli sport selezionati, così l'auto-sync usa quelli scelti
         (non la lista di default) — Codex."""
         if self._on_autosync_change:
-            self._on_autosync_change(bool(self._autosync_var.get()),
-                                     normalize_hour(self._autosync_hour.get()),
+            # Normalizza l'ora e riscrivila nel campo: se l'utente digita "99" salviamo
+            # 23, e il campo deve mostrare 23 (non restare su "99") fino al prossimo
+            # refresh, così ciò che si vede coincide con ciò che è salvato (CodeRabbit).
+            hour = normalize_hour(self._autosync_hour.get())
+            self._autosync_hour.delete(0, "end")
+            self._autosync_hour.insert(0, str(hour))
+            self._on_autosync_change(bool(self._autosync_var.get()), hour,
                                      self._selected_sports())
 
     def refresh_autosync(self, enabled, hour, sports):
@@ -199,9 +204,11 @@ class BetfairSyncPanel(ctk.CTkFrame):
         self._autosync_var.set(bool(enabled))
         self._autosync_hour.delete(0, "end")
         self._autosync_hour.insert(0, str(normalize_hour(hour)))
-        if sports is not None:
-            for sport, var in self._sport_vars.items():
-                var.set(sport in sports)
+        # Lista assente (config/profilo senza `betfair_sync_sports`) = «tutti gli sport»,
+        # coerente con `_build_ui` (Codex/CodeRabbit): altrimenti il pannello terrebbe il
+        # sottoinsieme vecchio e il prossimo save lo riscriverebbe in config.
+        for sport, var in self._sport_vars.items():
+            var.set(True if sports is None else sport in sports)
         self._reload()
         self._refresh_buttons()
 
