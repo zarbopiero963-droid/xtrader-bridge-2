@@ -167,7 +167,7 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 
 | Chiave | Default | Valori | A cosa serve |
 |---|---|---|---|
-| `recognition_mode` | `NAME_ONLY` | `ID_ONLY`, `NAME_ONLY`, `BOTH` | Come XTrader riconosce il segnale. Oggi gli ID non arrivano dal messaggio Telegram, quindi `NAME_ONLY` (nomi) è il default. `ID_ONLY` richiede `MarketId`/`SelectionId`; `BOTH` entrambi. |
+| `recognition_mode` | `NAME_ONLY` | `ID_ONLY`, `NAME_ONLY`, `BOTH` | Come XTrader riconosce il segnale. Gli ID non arrivano dal messaggio Telegram, ma il flusso del Parser Personalizzato (PR-P12) li **arricchisce dal dizionario Betfair locale** quando trova un match univoco; in mancanza la riga resta a nomi (*fallback*). `NAME_ONLY` (nomi) è il default. `ID_ONLY` richiede `MarketId`/`SelectionId`; `BOTH` entrambi. |
 | *(quota obbligatoria)* | — | — | NON è più una chiave globale: la comanda la casella **«Obblig.» sulla riga `Price`** di ogni Parser Personalizzato. `Price` obbligatorio → segnale senza quota valida (> 1.0) **scartato**; non obbligatorio → quota opzionale. |
 | `dry_run` | `true` | `true`/`false` | **Simulazione**: se `true`, il CSV operativo **non** viene scritto. Mettilo a `false` solo per l'uso reale, consapevolmente. |
 | `max_per_day` | `200` | intero | Tetto di segnali nuovi accettati in un giorno (UTC). Oltre, i segnali in eccesso non scrivono. |
@@ -384,8 +384,11 @@ Note:
 - Encoding **UTF-8 con BOM**, tutti i valori tra virgolette (`QUOTE_ALL`).
 - XTrader valida con `MarketId + SelectionId` **oppure** `EventName + MarketType +
   SelectionName`. Usando i nomi, la lingua del CSV deve coincidere con quella della
-  fonte Segnali di XTrader. Gli ID non arrivano dal messaggio Telegram, quindi oggi
-  restano vuoti (`recognition_mode=NAME_ONLY`).
+  fonte Segnali di XTrader. Gli ID non arrivano dal messaggio Telegram: con il parser
+  legacy (`build_csv_row`) restano vuoti, mentre il flusso del Parser Personalizzato
+  (PR-P12) li **arricchisce dal dizionario Betfair locale** se trova un match univoco,
+  altrimenti resta a nomi (*fallback*, `recognition_mode=NAME_ONLY`). Dettagli in
+  [`docs/xtrader_csv_contract.md`](docs/xtrader_csv_contract.md).
 
 ---
 
