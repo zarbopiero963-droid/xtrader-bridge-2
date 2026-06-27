@@ -10,7 +10,8 @@ Modello dati (config, chiave ``name_mappings``)::
 
     cfg["name_mappings"] = {
         "<nome profilo>": [
-            {"country": "Inghilterra", "betfair": "Liverpool", "provider": "Liverpool FC"},
+            {"country": "Inghilterra", "betfair": "Liverpool", "provider": "Liverpool FC",
+             "sport": "Calcio", "entity_type": "team"},
             ...
         ],
         ...
@@ -19,6 +20,9 @@ Modello dati (config, chiave ``name_mappings``)::
 Entrambe le colonne sono **campo libero** (le riempie l'utente): ``betfair`` è il
 nome canonico XTrader/Betfair (anche l'output della mappatura), ``provider`` è
 l'alias usato nei messaggi del canale. ``country`` è solo organizzativo (opz.).
+``sport`` (PR-P10) ed ``entity_type`` (PR-P10 / #178 §2) sono filtri opzionali per
+riga (vedi `ENTITY_TYPES`): vuoti = agnostici, così le config salvate prima di questi
+campi restano valide.
 
 Logica PURA su un ``dict`` di config: nessuna GUI, nessun I/O — la persistenza è
 del chiamante (``config_store.save_config``), come per ``provider_store``. Le
@@ -39,6 +43,20 @@ from .dizionario import compose_event_name, normalize
 
 # Chiave di config che ospita i profili di mappatura.
 _STORE_KEY = "name_mappings"
+
+# Tassonomia del tipo di entità mappata (issue #86 PR-P10 / #178 §2). Una riga può
+# dichiarare COSA mappa, così un alias di "competition" non scavalca un nome squadra e
+# si possono esprimere anche player/competition (non solo team/event). "" = agnostico
+# (vale per ogni tipo), retro-compatibile con le righe salvate prima di questo campo.
+ENTITY_TYPES = ("participant", "team", "player", "competition", "market", "selection")
+
+
+def normalize_entity_type(value) -> str:
+    """Normalizza un tipo di entità a uno di ``ENTITY_TYPES`` (case-insensitive) oppure
+    ``""`` (agnostico) se vuoto/ignoto. Fail-safe: un valore non riconosciuto NON sceglie
+    un tipo a caso, diventa agnostico."""
+    v = str(value or "").strip().casefold()
+    return v if v in ENTITY_TYPES else ""
 
 
 def _store(cfg: dict) -> dict:
@@ -69,14 +87,17 @@ def _find_store_key(store: dict, name: str):
 
 
 def _clean_entry(entry) -> dict:
-    """Normalizza una riga di mappatura in ``{country, betfair, provider, sport}``
-    (stringhe ripulite), oppure ``None`` se la riga è vuota/non valida. Una riga senza
-    né ``betfair`` né ``provider`` è inutile (non mappa nulla) e viene scartata.
+    """Normalizza una riga di mappatura in
+    ``{country, betfair, provider, sport, entity_type}`` (stringhe ripulite), oppure
+    ``None`` se la riga è vuota/non valida. Una riga senza né ``betfair`` né ``provider``
+    è inutile (non mappa nulla) e viene scartata.
 
     ``sport`` (PR-P10) restringe la riga a uno sport (``sports.SPORTS``); vuoto/ignoto →
     ``""`` = **agnostico** (vale per tutti gli sport, retro-compatibile con le righe
-    salvate prima di P10). Lo scoping per sport è solo un filtro AGGIUNTIVO in
-    `resolve_team`: non cambia il comportamento delle righe agnostiche."""
+    salvate prima di P10). ``entity_type`` (PR-P10 / #178 §2) restringe la riga a un tipo
+    di entità (``ENTITY_TYPES``); vuoto/ignoto → ``""`` = agnostico. Entrambi sono filtri
+    AGGIUNTIVI in `resolve_team`: non cambiano il comportamento delle righe agnostiche
+    (file pre-esistenti restano validi e agnostici)."""
     if not isinstance(entry, dict):
         return None
     country = str(entry.get("country", "") or "").strip()
@@ -85,7 +106,9 @@ def _clean_entry(entry) -> dict:
     if not betfair and not provider:
         return None
     sport = sports.normalize_sport(entry.get("sport")) or ""
-    return {"country": country, "betfair": betfair, "provider": provider, "sport": sport}
+    entity_type = normalize_entity_type(entry.get("entity_type"))
+    return {"country": country, "betfair": betfair, "provider": provider,
+            "sport": sport, "entity_type": entity_type}
 
 
 def profile_names(cfg: dict) -> list:
@@ -172,30 +195,42 @@ def rename_profile(cfg: dict, old: str, new: str) -> dict:
     return out
 
 
-def _iter_entries_for_sport(entries, want):
-    """Itera le righe eleggibili per lo sport richiesto, **dando priorità allo sport
-    esatto** sulle righe agnostiche (PR-P10, CodeRabbit).
+def _entity_eligible(entry, want_entity) -> bool:
+    """Una riga è eleggibile per il tipo di entità richiesto se ne combacia, oppure se è
+    **agnostica** (``entity_type`` vuoto, vale per ogni tipo). ``want_entity`` falsy →
+    nessun filtro (tutte eleggibili)."""
+    if not want_entity:
+        return True
+    et = str(entry.get("entity_type", "") or "")
+    return et == want_entity or et == ""
 
-    - ``want`` falsy (nessun filtro) → tutte le righe nell'ordine salvato (legacy);
-    - ``want`` valorizzato → PRIMA le righe con ``sport == want`` (override per-sport),
-      POI le righe agnostiche (``sport`` vuoto) come fallback; le righe taggate per un
-      ALTRO sport sono escluse.
+
+def _iter_entries_for_scope(entries, want_sport, want_entity=None):
+    """Itera le righe eleggibili per lo scope richiesto (sport + tipo di entità), **dando
+    priorità allo sport esatto** sulle righe agnostiche (PR-P10, CodeRabbit).
+
+    - prima si scartano le righe di un ALTRO ``entity_type`` (le agnostiche restano);
+    - poi, se ``want_sport`` è valorizzato → PRIMA le righe con ``sport == want_sport``
+      (override per-sport), POI le righe agnostiche (``sport`` vuoto) come fallback; le
+      righe taggate per un ALTRO sport sono escluse. ``want_sport`` falsy → ordine salvato.
 
     Così una riga agnostica salvata PRIMA non scavalca un override per-sport salvato dopo
     (la GUI fa solo append): l'override per-sport ha sempre la precedenza, e l'agnostica
-    resta un fallback se non c'è un match esatto per quello sport."""
-    if not want:
-        yield from entries
+    resta un fallback se non c'è un match esatto. Il filtro ``entity_type`` è additivo:
+    senza ``want_entity`` il comportamento è identico al solo scoping per sport (legacy)."""
+    pool = [e for e in entries if _entity_eligible(e, want_entity)]
+    if not want_sport:
+        yield from pool
         return
-    for e in entries:
-        if str(e.get("sport", "") or "") == want:
+    for e in pool:
+        if str(e.get("sport", "") or "") == want_sport:
             yield e
-    for e in entries:
+    for e in pool:
         if not str(e.get("sport", "") or ""):
             yield e
 
 
-def resolve_team(team: str, profiles, sport=None) -> str:
+def resolve_team(team: str, profiles, sport=None, entity_type=None) -> str:
     """Traduce un nome squadra grezzo nel nome Betfair/XTrader, o ``None`` se ignoto.
 
     ``profiles`` è una lista di liste-di-righe (vedi `entries_for_profiles`), nell'
@@ -211,9 +246,14 @@ def resolve_team(team: str, profiles, sport=None) -> str:
 
     ``sport`` (PR-P10): se valorizzato (uno fra ``sports.SPORTS``), si considerano SOLO
     le righe di quello sport o **agnostiche** (sport vuoto), con **priorità allo sport
-    esatto** sulle agnostiche (vedi `_iter_entries_for_sport`): un override per-sport non
+    esatto** sulle agnostiche (vedi `_iter_entries_for_scope`): un override per-sport non
     viene mai scavalcato da una riga agnostica salvata prima. Le righe taggate per un altro
     sport sono saltate. Sport assente/ignoto → nessun filtro (comportamento legacy).
+
+    ``entity_type`` (PR-P10 / #178 §2): se valorizzato (uno fra ``ENTITY_TYPES``), si
+    considerano SOLO le righe di quel tipo o agnostiche, saltando quelle di un altro tipo
+    (così l'alias di una "competition" non traduce un nome squadra). Assente/ignoto →
+    nessun filtro. È additivo allo scoping per sport.
 
     L'esaurire alias+canonico di un profilo prima del successivo evita che l'alias di
     un profilo più in basso scavalchi il canonico di uno più in alto (Codex)."""
@@ -221,13 +261,14 @@ def resolve_team(team: str, profiles, sport=None) -> str:
     if not nt:
         return None
     want = sports.normalize_sport(sport)
+    want_entity = normalize_entity_type(entity_type) if entity_type else None
     for entries in profiles:
-        for e in _iter_entries_for_sport(entries, want):
+        for e in _iter_entries_for_scope(entries, want, want_entity):
             alias = e.get("provider", "")
             betfair = e.get("betfair", "")
             if alias and betfair and normalize(alias) == nt:
                 return betfair
-        for e in _iter_entries_for_sport(entries, want):
+        for e in _iter_entries_for_scope(entries, want, want_entity):
             betfair = e.get("betfair", "")
             if betfair and normalize(betfair) == nt:
                 return betfair
@@ -263,7 +304,8 @@ def split_event(event_name: str, separator: str):
     return home, away
 
 
-def resolve_event_name(event_name: str, separator: str, profiles, sport=None) -> str:
+def resolve_event_name(event_name: str, separator: str, profiles, sport=None,
+                       entity_type=None) -> str:
     """Traduce un ``EventName`` provider in ``EventName`` Betfair/XTrader, o ``None``.
 
     Divide su ``separator``, mappa casa e trasferta coi ``profiles`` e ricompone nel
@@ -271,14 +313,16 @@ def resolve_event_name(event_name: str, separator: str, profiles, sport=None) ->
     ``None`` (fail-closed: niente riga CSV) se non si riesce a dividere **o** se una
     delle due squadre non è mappabile.
 
-    ``sport`` (PR-P10) è inoltrato a `resolve_team` per restringere la mappatura alle
-    righe di quello sport o agnostiche (vedi `resolve_team`)."""
+    ``sport`` (PR-P10) ed ``entity_type`` (#178 §2) sono inoltrati a `resolve_team` per
+    restringere la mappatura alle righe di quello sport/tipo o agnostiche. Le squadre di un
+    evento sono partecipanti: il chiamante può passare ``entity_type`` per usare solo le
+    righe pertinenti (default ``None`` = nessun filtro, comportamento legacy)."""
     split = split_event(event_name, separator)
     if split is None:
         return None
     home, away = split
-    h = resolve_team(home, profiles, sport=sport)
-    a = resolve_team(away, profiles, sport=sport)
+    h = resolve_team(home, profiles, sport=sport, entity_type=entity_type)
+    a = resolve_team(away, profiles, sport=sport, entity_type=entity_type)
     if not h or not a:
         return None
     return compose_event_name(h, a)

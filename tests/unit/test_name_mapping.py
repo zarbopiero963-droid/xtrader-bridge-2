@@ -33,9 +33,10 @@ def test_get_entries_pulisce_righe_vuote():
         "non-un-dict",                              # rumore → scartato
     ]}}
     entries = nm.get_entries(cfg, "P")
-    # PR-P10: la riga ripulita include ora `sport` (""=agnostico, retro-compatibile).
+    # PR-P10: la riga ripulita include ora `sport` e `entity_type` (""=agnostici,
+    # retro-compatibili con le config salvate prima di questi campi).
     assert entries == [{"country": "", "betfair": "Inter", "provider": "Internazionale",
-                        "sport": ""}]
+                        "sport": "", "entity_type": ""}]
 
 
 def test_profili_assenti_o_malformati_non_esplodono():
@@ -53,7 +54,8 @@ def test_set_entries_immutabile_e_pulisce():
     ])
     assert cfg == {}                                    # originale invariato
     assert nm.get_entries(out, "Liga") == [
-        {"country": "", "betfair": "Real", "provider": "Real Madrid", "sport": ""}]
+        {"country": "", "betfair": "Real", "provider": "Real Madrid",
+         "sport": "", "entity_type": ""}]
 
 
 def test_add_profile_non_sovrascrive_esistente():
@@ -431,3 +433,91 @@ def test_resolve_team_fallback_agnostico_se_nessun_match_esatto():
     ]}}
     profs = nm.entries_for_profiles(cfg, ["P"])
     assert nm.resolve_team("ACM", profs, sport="Calcio") == "Milan"           # agnostica usata
+
+
+# ── entity_type: tassonomia unificata (issue #178 §2 / PR-P10) ────────────────
+
+def test_normalize_entity_type():
+    assert nm.normalize_entity_type("Team") == "team"          # case-insensitive
+    assert nm.normalize_entity_type(" PLAYER ") == "player"    # strip
+    assert nm.normalize_entity_type("competition") == "competition"
+    assert nm.normalize_entity_type("") == ""                  # vuoto → agnostico
+    assert nm.normalize_entity_type("squadra") == ""           # ignoto → agnostico
+    assert nm.normalize_entity_type(None) == ""
+    # tutti i tipi richiesti dall'issue sono ammessi
+    for t in ("participant", "team", "player", "competition", "market", "selection"):
+        assert nm.normalize_entity_type(t) == t
+
+
+def test_clean_entry_normalizza_entity_type():
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Juventus", "provider": "Juve", "entity_type": "Team"},
+        {"betfair": "Jannik Sinner", "provider": "Sinner", "entity_type": "PLAYER"},
+        {"betfair": "Serie A", "provider": "SerieA", "entity_type": "boh"},   # ignoto → ""
+    ]}}
+    ents = nm.get_entries(cfg, "P")
+    assert ents[0]["entity_type"] == "team"
+    assert ents[1]["entity_type"] == "player"
+    assert ents[2]["entity_type"] == ""
+
+
+def test_entity_type_competition_e_player_rappresentabili():
+    # I tipi che PRIMA mancavano (player, competition) ora si esprimono e si risolvono.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Jannik Sinner", "provider": "Sinner", "entity_type": "player"},
+        {"betfair": "Serie A", "provider": "SerieA", "entity_type": "competition"},
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Sinner", profs, entity_type="player") == "Jannik Sinner"
+    assert nm.resolve_team("SerieA", profs, entity_type="competition") == "Serie A"
+
+
+def test_resolve_team_scoping_per_entity_type():
+    # Stesso alias "Inter" taggato come team e come competition: filtrando per tipo si
+    # prende SOLO quello giusto (un alias di competition non traduce un nome squadra).
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter FC", "provider": "Inter", "entity_type": "team"},
+        {"betfair": "Inter Cup", "provider": "Inter", "entity_type": "competition"},
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Inter", profs, entity_type="team") == "Inter FC"
+    assert nm.resolve_team("Inter", profs, entity_type="competition") == "Inter Cup"
+
+
+def test_resolve_team_entity_agnostica_sempre_eleggibile():
+    # Una riga senza entity_type (agnostica) si applica anche quando si filtra per tipo.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Milan", "provider": "ACM"},                          # agnostica
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("ACM", profs, entity_type="team") == "Milan"
+
+
+def test_resolve_team_entity_altro_tipo_saltato():
+    # Una riga taggata "competition" NON traduce se si chiede "team" e non c'è agnostica.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Liga", "provider": "LaLiga", "entity_type": "competition"},
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("LaLiga", profs, entity_type="team") is None
+    assert nm.resolve_team("LaLiga", profs) == "Liga"          # senza filtro: applicata
+
+
+def test_resolve_team_senza_entity_nessun_filtro_legacy():
+    # entity_type assente/None → comportamento legacy: si considerano tutte le righe.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter FC", "provider": "Inter", "entity_type": "team"},
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Inter", profs) == "Inter FC"
+
+
+def test_entity_type_e_sport_combinati():
+    # I due filtri sono additivi: serve match di sport (o agnostico) E di tipo (o agnostico).
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter FC", "provider": "Inter", "sport": "Calcio", "entity_type": "team"},
+        {"betfair": "Inter Tennis", "provider": "Inter", "sport": "Tennis", "entity_type": "team"},
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Inter", profs, sport="Calcio", entity_type="team") == "Inter FC"
+    assert nm.resolve_team("Inter", profs, sport="Tennis", entity_type="team") == "Inter Tennis"

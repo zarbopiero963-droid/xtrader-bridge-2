@@ -31,6 +31,8 @@ from . import (
 
 # Etichetta della tendina Sport per la riga agnostica ("" = vale per tutti gli sport).
 _SPORT_ALL = "(tutti gli sport)"
+# Etichetta della tendina Tipo entità per la riga agnostica ("" = qualsiasi tipo).
+_ENTITY_ALL = "(qualsiasi tipo)"
 
 
 def _sport_to_label(sport: str) -> str:
@@ -39,6 +41,14 @@ def _sport_to_label(sport: str) -> str:
 
 def _label_to_sport(label: str) -> str:
     return "" if label == _SPORT_ALL else label
+
+
+def _entity_to_label(entity_type: str) -> str:
+    return _ENTITY_ALL if not entity_type else entity_type
+
+
+def _label_to_entity(label: str) -> str:
+    return "" if label == _ENTITY_ALL else label
 
 
 class NameMappingPanel(ctk.CTkFrame):
@@ -96,7 +106,7 @@ class NameMappingPanel(ctk.CTkFrame):
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=12, pady=(4, 0))
         for text, w in (("Country (opz.)", 180), ("Betfair / XTrader", 240), ("Provider", 240),
-                        ("Sport", 150)):
+                        ("Sport", 150), ("Tipo", 150)):
             ctk.CTkLabel(head, text=text, width=w, anchor="w",
                          font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
 
@@ -153,12 +163,14 @@ class NameMappingPanel(ctk.CTkFrame):
         entries = name_mapping_store.get_entries(cfg, self._current) if cfg is not None else []
         for e in entries:
             self._append_row_widget(e.get("country", ""), e.get("betfair", ""),
-                                    e.get("provider", ""), e.get("sport", ""))
+                                    e.get("provider", ""), e.get("sport", ""),
+                                    e.get("entity_type", ""))
         if not entries:
-            self._append_row_widget("", "", "", "")     # una riga vuota pronta da compilare
+            self._append_row_widget()                   # una riga vuota pronta da compilare
 
-    def _append_row_widget(self, country="", betfair="", provider="", sport=""):
-        """Aggiunge una riga di widget (3 Entry + tendina Sport + elimina) alla tabella."""
+    def _append_row_widget(self, country="", betfair="", provider="", sport="",
+                           entity_type=""):
+        """Aggiunge una riga di widget (3 Entry + tendina Sport + tendina Tipo + elimina)."""
         row = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
         row.pack(fill="x", pady=2)
         e_country = ctk.CTkEntry(row, width=180)
@@ -175,18 +187,25 @@ class NameMappingPanel(ctk.CTkFrame):
         sport_var = ctk.StringVar(value=_sport_to_label(sport))
         ctk.CTkOptionMenu(row, variable=sport_var, width=150,
                           values=[_SPORT_ALL, *sports.SPORTS]).pack(side="left", padx=3)
+        # Tipo entità (PR-P10 / #178 §2): «(qualsiasi tipo)» = agnostico; altrimenti
+        # restringe la riga a participant/team/player/competition/market/selection.
+        entity_var = ctk.StringVar(value=_entity_to_label(entity_type))
+        ctk.CTkOptionMenu(row, variable=entity_var, width=150,
+                          values=[_ENTITY_ALL, *name_mapping_store.ENTITY_TYPES]
+                          ).pack(side="left", padx=3)
         refs = {"frame": row, "country": e_country, "betfair": e_betfair,
-                "provider": e_provider, "sport": sport_var}
+                "provider": e_provider, "sport": sport_var, "entity_type": entity_var}
         ctk.CTkButton(row, text="🗑", width=36, fg_color="#c62828", hover_color="#7f0000",
                       command=lambda r=refs: self._delete_row(r)).pack(side="left", padx=3)
         self._row_widgets.append(refs)
 
     def _collect_rows(self) -> list:
-        """Righe correnti dai widget come dict {country, betfair, provider, sport} (la
-        pulizia delle righe vuote la fa `name_mapping_store.set_entries`)."""
+        """Righe correnti dai widget come dict {country, betfair, provider, sport,
+        entity_type} (la pulizia delle righe vuote la fa `name_mapping_store.set_entries`)."""
         return [
             {"country": r["country"].get(), "betfair": r["betfair"].get(),
-             "provider": r["provider"].get(), "sport": _label_to_sport(r["sport"].get())}
+             "provider": r["provider"].get(), "sport": _label_to_sport(r["sport"].get()),
+             "entity_type": _label_to_entity(r["entity_type"].get())}
             for r in self._row_widgets
         ]
 
