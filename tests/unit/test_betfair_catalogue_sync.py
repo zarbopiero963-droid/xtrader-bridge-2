@@ -156,34 +156,78 @@ def _menu_basket_rugby():
         ]}
 
 
+# Catalogue keyed sui market_id richiesti: così i test esercitano DAVVERO la fase
+# listMarketCatalogue (mercati/selezioni persistiti), non solo la navigation (Codex #178 §3).
+_BR_CATALOGUE = {
+    "1.700": {"marketId": "1.700", "marketName": "Moneyline",
+              "description": {"marketType": "MATCH_ODDS"},
+              "event": {"id": "eb", "name": "Lakers v Celtics"},
+              "runners": [{"selectionId": 700001, "runnerName": "Lakers", "handicap": 0},
+                          {"selectionId": 700002, "runnerName": "Celtics", "handicap": 0}]},
+    "1.500": {"marketId": "1.500", "marketName": "Match Odds",
+              "description": {"marketType": "MATCH_ODDS"},
+              "event": {"id": "er", "name": "England v Wales"},
+              "runners": [{"selectionId": 500001, "runnerName": "England", "handicap": 0},
+                          {"selectionId": 500002, "runnerName": "Wales", "handicap": 0}]},
+}
+
+
+def _catalogue_br(mids):
+    return [_BR_CATALOGUE[m] for m in mids if m in _BR_CATALOGUE]
+
+
+def _sync_br(db):
+    return CatalogueSync(db, navigation_transport=lambda: _menu_basket_rugby(),
+                         catalogue_transport=_catalogue_br)
+
+
 def test_sync_basket(db):
-    # Solo Basket (7522): persiste sport/evento/mercato; lo split partecipanti funziona.
-    CatalogueSync(db, navigation_transport=lambda: _menu_basket_rugby(),
-                  catalogue_transport=lambda mids: []).sync(["Basket"])
+    # Solo Basket (7522): persiste sport/evento E mercato/selezioni dal catalogue.
+    _sync_br(db).sync(["Basket"])
     assert db.count_active("betfair_sports") == 1
     ids = {e["event_id"] for e in db.get_events()}
     assert ids == {"eb"}                       # niente Rugby (fuori scope)
     ev = db.get_events()[0]
     assert ev["event_type_id"] == "7522"
     assert ev["participant_1"] == "Lakers" and ev["participant_2"] == "Celtics"
+    # fase catalogue esercitata: mercato 1.700 e le sue 2 selezioni persistiti
+    assert db.count_active("betfair_markets") == 1
+    assert db.count_active("betfair_selections") == 2
+    assert {s["runner_name"] for s in db.get_selections("1.700")} == {"Lakers", "Celtics"}
 
 
 def test_sync_rugby(db):
-    # Solo Rugby Union (5).
-    CatalogueSync(db, navigation_transport=lambda: _menu_basket_rugby(),
-                  catalogue_transport=lambda mids: []).sync(["Rugby Union"])
+    # Solo Rugby Union (5): evento + mercato/selezioni dal catalogue.
+    _sync_br(db).sync(["Rugby Union"])
     ids = {e["event_id"] for e in db.get_events()}
     assert ids == {"er"}                        # niente Basket (fuori scope)
     assert db.get_events()[0]["event_type_id"] == "5"
+    assert db.count_active("betfair_markets") == 1
+    assert {s["runner_name"] for s in db.get_selections("1.500")} == {"England", "Wales"}
 
 
 def test_sync_basket_rugby_insieme_non_interferiscono(db):
     # Sincronizzare entrambi mantiene entrambi attivi (scope per event_type_id).
-    CatalogueSync(db, navigation_transport=lambda: _menu_basket_rugby(),
-                  catalogue_transport=lambda mids: []).sync(["Basket", "Rugby Union"])
+    _sync_br(db).sync(["Basket", "Rugby Union"])
     ids = {e["event_id"] for e in db.get_events()}
     assert ids == {"eb", "er"}
     assert db.count_active("betfair_events") == 2
+    assert db.count_active("betfair_markets") == 2
+    assert db.count_active("betfair_selections") == 4
+
+
+def test_sync_un_solo_sport_non_disattiva_altro_basket_rugby(db):
+    # Esercita la DEACTIVATION-SCOPING (deactivate_unseen scoped per event_type_id) sui due
+    # nuovi sport: sync entrambi, poi solo Basket → il Rugby resta attivo (CodeRabbit #178 §3).
+    s = _sync_br(db)
+    s.sync(["Basket", "Rugby Union"])
+    assert db.count_active("betfair_events") == 2
+    s.sync(["Basket"])                          # ri-sincronizza SOLO Basket
+    by_id = {e["event_id"]: e["active"] for e in db.get_events()}
+    assert by_id["eb"] == 1                     # Basket rivisto → attivo
+    assert by_id["er"] == 1                     # Rugby NON toccato (fuori scope) → ancora attivo
+    # e le selezioni del Rugby (mercato 1.500) restano attive (scope per market_id)
+    assert all(s_["active"] == 1 for s_ in db.get_selections("1.500"))
 
 
 def test_sync_marker_avanza_e_disattiva_record_spariti(db):

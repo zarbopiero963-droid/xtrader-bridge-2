@@ -39,15 +39,25 @@ _PAYMENT_TERMS = (
     "payment_intent", "checkout_session", "billing_portal",
 )
 
-# Backup/import/export/cloud del dizionario Betfair: vietati (issue #86: niente
-# backup/import/export Betfair, niente cloud sync). Cerco nomi di FUNZIONE che
-# implicherebbero lo spostamento del dizionario fuori dal PC, più host cloud noti.
 import re  # noqa: E402
 
-_BETFAIR_FORBIDDEN_PATTERNS = (
-    re.compile(r"def\s+(export|backup|upload|import)_", re.IGNORECASE),
-    re.compile(r"\b(dropbox|s3\.amazonaws|googleapis|gcs_bucket|onedrive|firebase)\b",
-               re.IGNORECASE),
+# Funzioni di backup/import/export del dizionario nel subpackage Betfair: vietate
+# (issue #86: niente backup/import/export Betfair). Cattura sia il nome **nudo**
+# (`def export(`) sia con suffisso (`def export_dictionary(`) — l'underscore dopo il
+# verbo è opzionale (CodeRabbit/Codex su #178 §3: prima `def export(` sfuggiva). Resta
+# scoped a `betfair/`: nel package esistono `export_parser`/`import_parser` LEGITTIMI
+# (import/export di un PARSER su file locale, non il dizionario Betfair, non cloud).
+_BETFAIR_EXPORT_RE = re.compile(
+    r"def\s+(export|backup|upload|import|dump)[a-z0-9_]*\s*\(", re.IGNORECASE)
+
+# SDK / host / forme "cloud": vietati in TUTTO il package (niente cloud sync; un export
+# del dizionario verso il cloud da QUALSIASI modulo sarebbe una violazione, non solo da
+# `betfair/`). Nessun uso legittimo nel bridge personale (verificato con grep).
+_CLOUD_PATTERNS = (
+    re.compile(r"\b(boto3?|botocore|google\.cloud|googleapis|dropbox|onedrive|"
+               r"firebase|azure\.storage|gcs_bucket|smart_open)\b", re.IGNORECASE),
+    re.compile(r"s3[._]amazonaws|\bto_s3\b|\bto_gcs\b|\bto_cloud\b|upload_to_|"
+               r"save_\w*_to_(?:s3|cloud|gcs|dropbox)", re.IGNORECASE),
 )
 
 
@@ -109,15 +119,24 @@ def test_nessun_provider_di_pagamento_nel_package():
     assert not offenders, f"Riferimenti a provider di pagamento nel codice: {offenders}"
 
 
-def test_nessun_backup_import_export_o_cloud_betfair():
-    # DoD issue #86: niente backup/import/export Betfair, niente cloud sync. Nessuna
-    # funzione di export/backup/upload/import del dizionario né host cloud in betfair/.
+def test_nessun_backup_import_export_dizionario_betfair():
+    # DoD issue #86: niente backup/import/export del dizionario Betfair. Nessuna funzione
+    # export/backup/upload/import/dump (nuda o con suffisso) nel subpackage betfair/.
     offenders = []
     for path in _py_files(_BETFAIR_DIR):
-        text = _read(path)
-        hits = [p.pattern for p in _BETFAIR_FORBIDDEN_PATTERNS if p.search(text)]
-        if hits:
-            rel = os.path.relpath(path, _REPO_ROOT)
-            offenders.append((rel, hits))
+        if _BETFAIR_EXPORT_RE.search(_read(path)):
+            offenders.append(os.path.relpath(path, _REPO_ROOT))
     assert not offenders, (
-        f"Funzioni di backup/import/export o host cloud nel subpackage Betfair: {offenders}")
+        f"Funzioni di backup/import/export del dizionario Betfair: {offenders}")
+
+
+def test_nessun_sdk_o_host_cloud_nel_package():
+    # DoD issue #86: niente cloud sync / dati fuori dal PC. Nessun SDK o host cloud in
+    # NESSUN modulo del package (scope ampio: un export remoto da qualsiasi modulo è vietato).
+    offenders = []
+    for path in _py_files(_PKG_DIR):
+        text = _read(path)
+        hits = [p.pattern for p in _CLOUD_PATTERNS if p.search(text)]
+        if hits:
+            offenders.append((os.path.relpath(path, _REPO_ROOT), hits))
+    assert not offenders, f"SDK/host cloud nel package: {offenders}"
