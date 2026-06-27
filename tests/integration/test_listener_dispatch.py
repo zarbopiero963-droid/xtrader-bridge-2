@@ -110,6 +110,12 @@ def _drive_run_bot(make_app, app_mod, monkeypatch, config):
     a._process_confirmation = lambda *args, **kw: a.confirmations.append((args, kw))
 
     app_mod.App._run_bot(a, {"bot_token": "x"}, 1)
+    # `_on_poll` ha messo `_running=False` solo per far uscire `_run_bot` (no hang). Per
+    # esercitare `_handle` nella condizione REALE — sessione attiva e CORRENTE (stesso epoch
+    # con cui `_run_bot` è stato avviato) — si ripristina lo stato attivo. Senza, il gate
+    # fail-closed `if not _is_current()` (Codex #191 P1) bloccherebbe ogni dispatch.
+    a._running = True
+    a._listener_epoch = 1
     return a, captured["tg"]
 
 
@@ -188,6 +194,42 @@ def test_messaggio_vecchio_ignorato(make_app, app_mod, monkeypatch):
 
     # ts molto nel passato → oltre max_signal_age → IGNORE_STALE.
     asyncio.run(handle(_update(_msg("111", "arretrato", time.time() - 10_000_000)), None))
+
+    assert a.processed == []
+    assert a.confirmations == []
+
+
+# ── Codex #191 P1: il vecchio updater NON deve scrivere dopo STOP / nuovo START ──────
+
+def test_handle_superato_da_nuovo_epoch_non_instrada(make_app, app_mod, monkeypatch):
+    """Codex #191 P1: dopo uno STOP→START rapido il vecchio updater può ancora consegnare
+    un update a QUESTA `_handle` (epoch della VECCHIA sessione). Con `_running=True`
+    (rimesso dal nuovo START) ma epoch CORRENTE diverso, `_handle` deve NON instradare:
+    altrimenti scriverebbe con la cfg della vecchia sessione (segnale doppio/stantio).
+
+    Fail-first: sul vecchio codice (gate solo su `_running` dentro `_process`, non su epoch
+    in `_handle`) l'update verrebbe instradato a `_process`."""
+    monkeypatch.setattr(app_mod.signal_router, "should_process", lambda *a, **k: True)
+    a, tg = _drive_run_bot(make_app, app_mod, monkeypatch, CFG)
+    handle = _handle_of(tg)            # closure con epoch=1 (vecchia sessione)
+    # Un nuovo START: sessione attiva (_running=True) ma epoch avanzato → la closure è superata.
+    a._running = True
+    a._listener_epoch = 2
+
+    asyncio.run(handle(_update(_msg("111", "P.Bet. segnale", time.time())), None))
+
+    assert a.processed == []           # gate epoch fail-closed: nessuna scrittura del vecchio poller
+    assert a.confirmations == []
+
+
+def test_handle_dopo_stop_non_instrada(make_app, app_mod, monkeypatch):
+    """Variante: durante lo STOP (prima che l'updater sia fermato) `_running=False`.
+    Anche una chat notifiche XTrader non deve essere instradata a conferma."""
+    a, tg = _drive_run_bot(make_app, app_mod, monkeypatch, CFG)
+    handle = _handle_of(tg)
+    a._running = False                 # STOP in corso: la sessione non è più corrente
+
+    asyncio.run(handle(_update(_msg("999", "Inter v Milan Inter piazzata", time.time())), None))
 
     assert a.processed == []
     assert a.confirmations == []

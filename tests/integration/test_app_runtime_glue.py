@@ -332,3 +332,46 @@ def test_stop_non_sottomette_coroutine_fire_and_forget_al_loop(
     assert a._running is False
     assert q.is_empty()               # coda/CSV gestiti come sempre
     assert _events_in_csv(active) == []
+
+
+def test_stop_sveglia_attesa_in_loop_via_call_soon_threadsafe(make_app, app_mod, tmp_path):
+    """#184 H5 / Codex #191: con una sessione viva `_stop` sveglia SUBITO l'attesa in-loop di
+    `_async_run` settando `_async_stop_event` tramite `call_soon_threadsafe` (dal thread GUI).
+    Così l'updater viene fermato promptamente — niente finestra di ~1s in cui il vecchio poller
+    resta attivo — restando un percorso atteso in-loop (no coroutine scartate da `loop.close`).
+
+    Fail-first: sul vecchio codice `_stop` non tocca alcun evento in-loop (`scheduled` resta vuoto)."""
+    from xtrader_bridge import csv_writer
+
+    active = str(tmp_path / "attivo.csv")
+    q = _queue_with(_row("Inter v Milan"))
+    csv_writer.write_rows(q.active_rows(), active)
+    a = make_app(csv_path=active, queue=q, capture_schedule=False)
+    a._expire_timer = None
+
+    scheduled = []
+
+    class _FakeLoop:
+        def call_soon_threadsafe(self, fn, *args):
+            scheduled.append(fn)
+            fn(*args)                 # il loop processa subito il callback (simulazione)
+
+    class _Evt:
+        def __init__(self):
+            self._set = False
+
+        def set(self):
+            self._set = True
+
+        def is_set(self):
+            return self._set
+
+    evt = _Evt()
+    a._loop = _FakeLoop()
+    a._async_stop_event = evt
+
+    app_mod.App._stop(a)
+
+    assert len(scheduled) == 1        # svegliato via call_soon_threadsafe (thread-safe dal GUI)
+    assert evt.is_set()               # l'attesa in-loop di _async_run è stata svegliata
+    assert a._running is False

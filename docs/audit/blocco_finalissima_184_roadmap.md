@@ -84,3 +84,19 @@ prima dello stop in-loop (`_process` scrive solo se `_running`), e `_is_current(
 invalidano comunque la vecchia sessione (nessun doppio poller a un AVVIA successivo).
 Questo rende anche `_on_close` più deterministico: il join del thread del bot non corre
 più con coroutine fire-and-forget scartate da `loop.close()`.
+
+**Hardening review Codex #191 (P1) — STOP→START rapido.** Togliere il fire-and-forget
+da solo allargava la finestra di arresto: l'attesa in-loop era un `asyncio.sleep(1)` non
+interrompibile, quindi il vecchio updater poteva restare attivo fino a ~1s mentre il
+pulsante AVVIA era già riabilitato. Due correzioni complementari:
+
+1. **Arresto prompt e interrompibile.** L'attesa in-loop ora è
+   `await asyncio.wait_for(self._async_stop_event.wait(), timeout=1)`; `_stop`, dal thread
+   GUI, sveglia subito quell'`asyncio.Event` con `loop.call_soon_threadsafe(evt.set)`. Lo
+   shutdown resta atteso in-loop (nessuna coroutine scartata, obiettivo H5) ma senza la
+   finestra di ~1s con il vecchio poller attivo.
+2. **Gate fail-closed per epoch in `_handle`.** `_process` faceva gate solo su `_running`:
+   dopo uno STOP→START rapido un update consegnato dal vecchio updater poteva passare
+   (`_running` rimesso True dal nuovo START) e scrivere con la cfg della VECCHIA sessione
+   (CSV/DRY_RUN/limiti) → rischio segnale doppio/stantio. Ora `_handle` ritorna subito se
+   `not _is_current()` (running **e** stesso epoch), indipendente dal timing dell'arresto.

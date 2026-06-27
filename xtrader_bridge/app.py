@@ -111,6 +111,7 @@ class App(ctk.CTk):
     _betfair_login_busy = False     # True mentre un login Betfair è in corso (anti-rientro)
     _betfair_login_epoch = 0        # epoch del login: logout/delete lo bumpa → scarta i completamenti stantii
     _betfair_panel = None           # pannello tab Betfair, valorizzato in `_open_tools`
+    _async_stop_event = None        # asyncio.Event della sessione listener: STOP la sveglia (#184 H5/Codex #191)
 
     def __init__(self):
         super().__init__()
@@ -1383,7 +1384,17 @@ class App(ctk.CTk):
         # già False impedisce ogni scrittura CSV nella finestra di ≤1s prima dello stop
         # in-loop (_process scrive solo se `_running`); `_is_current()`/epoch invalidano
         # comunque la vecchia sessione, quindi un AVVIA successivo non trova due poller.
-        self._stop_event.set()        # sveglia subito un'eventuale attesa del backoff
+        self._stop_event.set()        # sveglia subito un'eventuale attesa del backoff (riconnessione)
+        # Sveglia SUBITO anche l'attesa in-loop di `_async_run`: l'updater viene fermato
+        # promptamente (no finestra ~1s con il vecchio poller attivo, Codex #191), restando
+        # un percorso atteso in-loop (#184 H5). `call_soon_threadsafe` perché siamo sul thread
+        # GUI, non su quello del loop; se il loop è già chiuso si ignora (shutdown già fatto).
+        loop, evt = self._loop, self._async_stop_event
+        if loop is not None and evt is not None:
+            try:
+                loop.call_soon_threadsafe(evt.set)
+            except RuntimeError:
+                pass                  # loop già chiuso/non più in esecuzione: nulla da svegliare
         if self._expire_timer:
             self._expire_timer.cancel()
         # Anti-segnale-stantio: una chiusura/STOP normale non deve lasciare una riga
@@ -1445,9 +1456,24 @@ class App(ctk.CTk):
             return self._running and self._listener_epoch == epoch
 
         async def _async_run():
+            # Evento di stop IN-loop (#184 H5 / Codex #191): `_stop`, dal thread GUI, lo sveglia
+            # con `call_soon_threadsafe` così il supervisor esce SUBITO dall'attesa e ferma
+            # l'updater promptamente (niente finestra di ~1s con il vecchio poller ancora
+            # attivo), restando un percorso atteso in-loop (nessuna coroutine scartata da
+            # `loop.close`). Ricreato a ogni (ri)connessione: appartiene a QUESTO loop.
+            self._async_stop_event = asyncio.Event()
             self._tg_app = ApplicationBuilder().token(cfg["bot_token"]).build()
 
             async def _handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+                # Gate fail-closed per epoch (Codex #191 P1): finché il vecchio updater non
+                # è fermato, può ancora consegnare un update a QUESTA closure anche dopo uno
+                # STOP o un nuovo START (epoch cambiato). `_process` gating solo su `_running`
+                # NON basta: un AVVIA rapido lo rimette True e un update del vecchio poller
+                # scriverebbe con la cfg della VECCHIA sessione (CSV/DRY_RUN/limiti) →
+                # segnale doppio/stantio. `_is_current()` (running E stesso epoch) blocca qui,
+                # indipendentemente dal timing dell'arresto dell'updater.
+                if not _is_current():
+                    return
                 msg = update.message or update.channel_post
                 if not msg:
                     return
@@ -1528,8 +1554,17 @@ class App(ctk.CTk):
             # i messaggi accumulati mentre eravamo offline → niente segnali vecchi.
             self._reconnect_attempt = 0
             self.after(0, self._set_status_connected)
+            # Attesa INTERROMPIBILE: si sveglia subito quando `_stop` setta `_async_stop_event`
+            # (via `call_soon_threadsafe`), oppure ogni secondo per ricontrollare `_is_current()`
+            # (nuovo START/STOP da altri percorsi). Così l'updater viene fermato senza la
+            # finestra di ~1s che lascerebbe vivo il vecchio poller (Codex #191).
             while _is_current():
-                await asyncio.sleep(1)
+                try:
+                    await asyncio.wait_for(self._async_stop_event.wait(), timeout=1)
+                except asyncio.TimeoutError:
+                    pass
+                if self._async_stop_event.is_set():
+                    break
             await self._tg_app.updater.stop()
             await self._tg_app.stop()
             await self._tg_app.shutdown()
