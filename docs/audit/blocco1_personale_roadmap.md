@@ -349,12 +349,13 @@ reale (i punti 5–6 sono coperti da smoke manuale; la logica pura è in unit te
   compilazione, upload artifact + release su tag). PR-P13 aggiunge il **gate di sicurezza**
   che blinda le regole non negoziabili dell'issue, verificabile in CI **senza** compilare
   (la build vera gira solo su Windows).
-- `tests/safety/test_build_exe_safety.py` (8): **una sola** compilazione PyInstaller (nessun
-  Admin/secondo EXE); nessun `--add-data`/`--add-binary` con cert/chiavi/`.env`/`config.json`/
-  DB/token (nel bundle è ammesso **solo** il dizionario ufficiale); i **test girano prima**
-  della build; `data/` non contiene file sensibili; artifact/release pubblicano un singolo
-  `.exe` da `dist/`. Completa i controlli già esistenti (`test_no_secrets_committed`,
-  `test_secret_scan`, workflow `forbidden-files`).
+- `tests/safety/test_build_exe_safety.py`: **una sola** compilazione PyInstaller (nessun
+  Admin/secondo EXE), nella forma canonica CLI `pyinstaller … main.py` (spec/modulo/API
+  rifiutati, fail-closed); nessun `--add-data`/`--add-binary`/`--collect-*` con
+  cert/chiavi/`.env`/`config.json`/DB/token (nel bundle è ammesso **solo** il dizionario
+  ufficiale); i **test girano prima** della build; `data/` non contiene file sensibili;
+  artifact/release pubblicano un singolo `.exe` da `dist/`. Completa i controlli già esistenti
+  (`test_no_secrets_committed`, `test_secret_scan`, workflow `forbidden-files`).
 - Config **locale esterna** (`config_store.config_dir()` → `%APPDATA%\XTraderBridge`), non
   inclusa nell'EXE; log safe (redaction PR-P2); `sessionToken` solo in RAM; **nessun
   certificato** incluso nel build.
