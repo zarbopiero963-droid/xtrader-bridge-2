@@ -16,8 +16,8 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 |----|------|-----------------|-------|
 | H1 | h1-login-thread | `app.py`, `betfair/sync_tab_gui.py` | merged (#187) |
 | H2 | h2-fsync-dir | `atomic_io.py` | merged (#188) |
-| H3 | h3-clear-toctou | `csv_writer.py` | in PR |
-| H4 | h4-dedupe-finite | `signal_dedupe.py` | da fare |
+| H3 | h3-clear-toctou | `csv_writer.py` | merged (#189) |
+| H4 | h4-dedupe-finite | `signal_dedupe.py` | in PR |
 | H5 | h5-stop-futures | `app.py` | da fare |
 | M1 | m1-migrate-strip | `config_store.py` | da fare |
 | M2 | m2-chat-strip | `signal_router.py` | da fare |

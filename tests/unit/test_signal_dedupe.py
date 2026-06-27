@@ -133,6 +133,37 @@ def test_restore_state_tollera_voci_malformate():
     assert t.state() == [["hashvalido", 1000.0]]
 
 
+def test_restore_state_scarta_timestamp_non_finiti():
+    # #184 H4: un timestamp NON finito (NaN/inf, da state corrotto/manomesso) deve essere
+    # scartato — altrimenti `inf >= cutoff` bloccherebbe l'hash come DUPLICATE per sempre,
+    # e `-inf` indebolirebbe il rate-limit. Le voci valide restano.
+    t = sd.SignalTracker()
+    t.restore_state([
+        ["buono", 1000],
+        ["inf", float("inf")],
+        ["ninf", float("-inf")],
+        ["nan", float("nan")],
+        ["buono2", 1001.5],
+    ])
+    assert t.state() == [["buono", 1000.0], ["buono2", 1001.5]]   # solo i finiti
+
+
+def test_load_state_con_infinity_non_blocca_il_messaggio_per_sempre(tmp_path):
+    # End-to-end: un dedupe_state.json manomesso con Infinity sull'hash di un messaggio
+    # NON deve renderlo DUPLICATE per sempre. json.load accetta Infinity di default → la
+    # voce arriva a restore_state come float('inf') e va scartata.
+    import json
+    p = tmp_path / "dedupe_state.json"
+    h = sd.message_hash(MSG)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump([[h, float("inf")]], f)        # scrive "Infinity" (allow_nan default)
+    t = sd.SignalTracker()
+    assert sd.load_state(t, str(p)) is True       # file è una lista valida → caricato
+    assert t.state() == []                        # la voce inf è stata scartata
+    # quindi il messaggio NON è bloccato come duplicato stantio
+    assert t.register(MSG, now=1000.0).status == sd.NEW
+
+
 # ── audit #105 P2: validazione difensiva di parametri e timestamp ─────────────
 
 def test_costruzione_rifiuta_parametri_non_validi():

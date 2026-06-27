@@ -21,6 +21,7 @@ successive (PR-16 coda, PR-17 conferma XTrader); l'aggancio al runtime è separa
 
 import hashlib
 import json
+import math
 import re
 import time
 from dataclasses import dataclass, field
@@ -121,14 +122,24 @@ class SignalTracker:
         return [[h, t] for (h, t) in self._seen]
 
     def restore_state(self, data) -> None:
-        """Ripristina lo stato da `state()` (tollerante a voci malformate)."""
+        """Ripristina lo stato da `state()` (tollerante a voci malformate).
+
+        Scarta le voci con timestamp NON FINITO (NaN/inf): `json.load` accetta di default
+        `Infinity`/`NaN`, e uno `dedupe_state.json` corrotto/manomesso con `inf`
+        bloccherebbe per sempre quell'hash come DUPLICATE attraverso i riavvii
+        (`inf >= qualsiasi cutoff`), mentre con `-inf` indebolirebbe il rate-limit. È il
+        layer di persistenza dell'anti-doppia-scommessa, quindi fail-closed: voce non finita
+        → scartata (mirror di `validators.require_finite_now`), issue #184 H4."""
         restored = []
         for item in data or []:
             try:
                 h, t = item
-                restored.append((str(h), float(t)))
+                tf = float(t)
             except (ValueError, TypeError):
                 continue
+            if not math.isfinite(tf):
+                continue                    # NaN/inf da state corrotto/manomesso → scartato
+            restored.append((str(h), tf))
         self._seen = restored
 
 
