@@ -111,6 +111,7 @@ class App(ctk.CTk):
     _betfair_login_busy = False     # True mentre un login Betfair è in corso (anti-rientro)
     _betfair_login_epoch = 0        # epoch del login: logout/delete lo bumpa → scarta i completamenti stantii
     _betfair_panel = None           # pannello tab Betfair, valorizzato in `_open_tools`
+    _async_stop_event = None        # asyncio.Event della sessione listener: STOP la sveglia (#184 H5/Codex #191)
 
     def __init__(self):
         super().__init__()
@@ -1372,20 +1373,28 @@ class App(ctk.CTk):
         self._update_real_mode_banner()
         self._update_active_indicator(0)   # nessuna riga attiva dopo lo STOP (#136 p5)
         self._cancel_pending_autostart()   # uno STOP non deve essere annullato da un auto-start pendente (Codex P2)
-        self._stop_event.set()        # sveglia subito un'eventuale attesa del backoff
-        if self._loop and self._tg_app:
+        # Arresto del listener: un SOLO percorso autorevole, IN-loop. Impostare
+        # `_running=False` (sopra) e svegliare il backoff con `_stop_event` fa uscire il
+        # supervisor dal suo `while _is_current()` e gli fa eseguire, NELLO STESSO event
+        # loop, `await updater.stop(); app.stop(); app.shutdown()` prima di `loop.close()`
+        # (#184 H5). NON si sottomettono qui coroutine fire-and-forget con
+        # `run_coroutine_threadsafe`: non venendo mai attese, sarebbero scartate da
+        # `loop.close()` ("Event loop is closed", eccezioni silenziate, doppio stop
+        # dell'updater) e darebbero la falsa impressione di un arresto gestito. `_running`
+        # già False impedisce ogni scrittura CSV nella finestra di ≤1s prima dello stop
+        # in-loop (_process scrive solo se `_running`); `_is_current()`/epoch invalidano
+        # comunque la vecchia sessione, quindi un AVVIA successivo non trova due poller.
+        self._stop_event.set()        # sveglia subito un'eventuale attesa del backoff (riconnessione)
+        # Sveglia SUBITO anche l'attesa in-loop di `_async_run`: l'updater viene fermato
+        # promptamente (no finestra ~1s con il vecchio poller attivo, Codex #191), restando
+        # un percorso atteso in-loop (#184 H5). `call_soon_threadsafe` perché siamo sul thread
+        # GUI, non su quello del loop; se il loop è già chiuso si ignora (shutdown già fatto).
+        loop, evt = self._loop, self._async_stop_event
+        if loop is not None and evt is not None:
             try:
-                asyncio.run_coroutine_threadsafe(
-                    self._tg_app.updater.stop(), self._loop)
-                asyncio.run_coroutine_threadsafe(
-                    self._tg_app.stop(), self._loop)
-            except Exception as ex:   # noqa: BLE001 — NON silenziare (audit C2): un arresto
-                # fallito può lasciare vivo un poller vecchio; lo si segnala (il log handler
-                # redige i token) e ci si affida a `_is_current()`/epoch per invalidare la
-                # sessione, così un AVVIA successivo non si ritrova due poller attivi.
-                self._log(f"⚠️ Arresto listener non pulito ({type(ex).__name__}): "
-                          "la sessione è invalidata, ma controlla i log se l'AVVIA successivo "
-                          "segnala anomalie.")
+                loop.call_soon_threadsafe(evt.set)
+            except RuntimeError:
+                pass                  # loop già chiuso/non più in esecuzione: nulla da svegliare
         if self._expire_timer:
             self._expire_timer.cancel()
         # Anti-segnale-stantio: una chiusura/STOP normale non deve lasciare una riga
@@ -1441,15 +1450,42 @@ class App(ctk.CTk):
         loop = asyncio.new_event_loop()
         self._loop = loop
         asyncio.set_event_loop(loop)
+        # App Telegram di QUESTA sessione tenuta in un riferimento LOCALE, non solo in
+        # `self._tg_app` (condiviso e sovrascrivibile da un nuovo START). Lo shutdown in-loop
+        # e quello d'errore devono fermare l'app COSTRUITA da questa sessione, mai quella di un
+        # successore: in uno STOP→START rapido il vecchio loop, leggendo `self._tg_app`,
+        # fermerebbe l'app NUOVA e lascerebbe il proprio updater a fare polling (Codex #191).
+        session_app = None
 
         def _is_current():
             # Sessione ancora valida: bridge attivo E nessun nuovo START intervenuto.
             return self._running and self._listener_epoch == epoch
 
         async def _async_run():
-            self._tg_app = ApplicationBuilder().token(cfg["bot_token"]).build()
+            nonlocal session_app
+            # Evento di stop IN-loop (#184 H5 / Codex #191): `_stop`, dal thread GUI, lo sveglia
+            # con `call_soon_threadsafe` così il supervisor esce SUBITO dall'attesa e ferma
+            # l'updater promptamente (niente finestra di ~1s con il vecchio poller ancora
+            # attivo), restando un percorso atteso in-loop (nessuna coroutine scartata da
+            # `loop.close`). LOCALE alla coroutine (l'attesa sotto ci si aggancia direttamente),
+            # con `self._async_stop_event` solo come handle per `_stop`: un nuovo START che
+            # riassegna l'attributo non dirotta l'attesa di QUESTA sessione.
+            stop_evt = asyncio.Event()
+            self._async_stop_event = stop_evt
+            app = ApplicationBuilder().token(cfg["bot_token"]).build()
+            session_app = app
+            self._tg_app = app          # handle per lettori esterni; un START successivo lo rimpiazza
 
             async def _handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+                # Gate fail-closed per epoch (Codex #191 P1): finché il vecchio updater non
+                # è fermato, può ancora consegnare un update a QUESTA closure anche dopo uno
+                # STOP o un nuovo START (epoch cambiato). `_process` gating solo su `_running`
+                # NON basta: un AVVIA rapido lo rimette True e un update del vecchio poller
+                # scriverebbe con la cfg della VECCHIA sessione (CSV/DRY_RUN/limiti) →
+                # segnale doppio/stantio. `_is_current()` (running E stesso epoch) blocca qui,
+                # indipendentemente dal timing dell'arresto dell'updater.
+                if not _is_current():
+                    return
                 msg = update.message or update.channel_post
                 if not msg:
                     return
@@ -1499,7 +1535,7 @@ class App(ctk.CTk):
                     return
                 if decision == telegram_dispatch.CONFIRM:
                     # PR-23 + audit C8: la chat notifiche XTrader porta ESITI → percorso conferma.
-                    self._process_confirmation(text, cfg, route_cfg=route)
+                    self._process_confirmation(text, cfg, route_cfg=route, epoch=epoch)
                     return
                 if decision == telegram_dispatch.IGNORE_NOT_RELEVANT:
                     # Chat non ammessa o messaggio non pertinente: non scrive.
@@ -1516,25 +1552,36 @@ class App(ctk.CTk):
                 clean = (text or "").strip()
                 first_line = clean.splitlines()[0] if clean else ""
                 self.after(0, lambda m=first_line[:120]: self._set_last("message", m))
-                self._process(text, cfg, chat_id=runtime_chat, route_cfg=route)
+                self._process(text, cfg, chat_id=runtime_chat, route_cfg=route, epoch=epoch)
 
-            self._tg_app.add_handler(MessageHandler(filters.ALL, _handle))
-            await self._tg_app.initialize()
-            await self._tg_app.start()
+            app.add_handler(MessageHandler(filters.ALL, _handle))
+            await app.initialize()
+            await app.start()
             # drop_pending_updates: scarta i messaggi accodati mentre il bridge era
             # offline, così all'avvio non si processano segnali vecchi (PR-11, #9).
-            await self._tg_app.updater.start_polling(
+            await app.updater.start_polling(
                 allowed_updates=["message", "channel_post"], drop_pending_updates=True)
             # Connessione stabilita: azzera il backoff e segnala (utile dopo una
             # riconnessione). drop_pending_updates=True a OGNI (ri)connessione scarta
             # i messaggi accumulati mentre eravamo offline → niente segnali vecchi.
             self._reconnect_attempt = 0
             self.after(0, self._set_status_connected)
+            # Attesa INTERROMPIBILE: si sveglia subito quando `_stop` setta `_async_stop_event`
+            # (via `call_soon_threadsafe`), oppure ogni secondo per ricontrollare `_is_current()`
+            # (nuovo START/STOP da altri percorsi). Così l'updater viene fermato senza la
+            # finestra di ~1s che lascerebbe vivo il vecchio poller (Codex #191).
             while _is_current():
-                await asyncio.sleep(1)
-            await self._tg_app.updater.stop()
-            await self._tg_app.stop()
-            await self._tg_app.shutdown()
+                try:
+                    await asyncio.wait_for(stop_evt.wait(), timeout=1)
+                except asyncio.TimeoutError:
+                    pass
+                if stop_evt.is_set():
+                    break
+            # Shutdown sull'app LOCALE di questa sessione (non `self._tg_app`, che un nuovo
+            # START può aver già rimpiazzato): si ferma SEMPRE il proprio updater (Codex #191).
+            await app.updater.stop()
+            await app.stop()
+            await app.shutdown()
 
         # Supervisor con backoff: riprova le cadute di rete (errori transitori) finché
         # il bridge è in esecuzione; non ritenta dopo uno STOP manuale né su un errore
@@ -1546,7 +1593,7 @@ class App(ctk.CTk):
                 loop.run_until_complete(_async_run())
                 break                      # uscita pulita: STOP richiesto
             except Exception as ex:        # noqa: BLE001 — gestito sotto
-                self._safe_shutdown_tg()   # chiude il vecchio updater prima di ritentare
+                self._safe_shutdown_tg(session_app, loop)   # chiude l'app DI QUESTA sessione prima di ritentare
                 # Un nuovo START (epoch cambiato) o uno STOP invalidano QUESTA
                 # sessione: esci senza ritentare (Codex P1, niente doppio poller).
                 if not _is_current():
@@ -1588,10 +1635,11 @@ class App(ctk.CTk):
         if self._loop is loop:
             self._loop = None
 
-    def _safe_shutdown_tg(self) -> None:
-        """Chiude in modo best-effort l'app Telegram fallita prima di un nuovo
-        tentativo, così non restano due updater/polling attivi insieme."""
-        app = self._tg_app
+    def _safe_shutdown_tg(self, app, loop) -> None:
+        """Chiude in modo best-effort l'app Telegram di QUESTA sessione (riferimento LOCALE
+        `app`, sul `loop` di questa sessione) prima di un nuovo tentativo, così non restano due
+        updater/polling attivi insieme. NON usa `self._tg_app`/`self._loop`: un nuovo START
+        concorrente li avrebbe già rimpiazzati e si fermerebbe l'app/loop sbagliati (Codex #191)."""
         if app is None:
             return
 
@@ -1603,10 +1651,13 @@ class App(ctk.CTk):
                     pass
 
         try:
-            self._loop.run_until_complete(_shutdown())
+            loop.run_until_complete(_shutdown())
         except Exception:                # noqa: BLE001
             pass
-        self._tg_app = None
+        # Azzera l'handle SOLO se punta ancora alla nostra app: non clobberare il `_tg_app`
+        # di un nuovo START intervenuto nel frattempo (Codex #191).
+        if self._tg_app is app:
+            self._tg_app = None
 
     def _reconnect_wait(self, delay: float) -> None:
         """Attesa del backoff interrompibile, senza busy-poll: `Event.wait` dorme fino
@@ -1623,16 +1674,30 @@ class App(ctk.CTk):
             self._log("✅ Connesso a Telegram.")
 
     # ── PROCESS SIGNAL ────────────────────────
-    def _process(self, text: str, cfg: dict, chat_id: str = None, route_cfg: dict = None):
+    def _epoch_current(self, epoch=None) -> bool:
+        """Sessione listener ancora attiva: `_running` E (se `epoch` è fornito) stesso
+        `_listener_epoch`. Da ricontrollare al PUNTO di scrittura/consumo, sotto `_queue_lock`
+        (Codex #191): tra l'ingresso di un callback del vecchio updater e la scrittura, un
+        STOP→START può rimettere `_running=True` con un epoch NUOVO; un gate solo su `_running`
+        lascerebbe scrivere quel callback con la cfg della VECCHIA sessione (CSV/DRY_RUN/limiti)
+        → segnale doppio/stantio. `epoch=None` (chiamanti legacy/test) → solo `_running`."""
+        if epoch is None:
+            return self._running
+        return self._running and self._listener_epoch == epoch
+
+    def _process(self, text: str, cfg: dict, chat_id: str = None, route_cfg: dict = None,
+                 epoch=None):
         # `cfg` è la config di SESSIONE (snapshot a START): governa l'ESECUZIONE
         # (guardrail `live_guard`: DRY_RUN/limiti, e il path CSV), che NON deve cambiare a
         # metà sessione. `route_cfg` è la config VIVA per il ROUTING/PARSING (issue #82):
         # parser/provider/mappature nomi aggiornati applicati subito. Default a `cfg` per
-        # retro-compatibilità (chiamanti senza routing live).
+        # retro-compatibilità (chiamanti senza routing live). `epoch` lega la scrittura alla
+        # SESSIONE listener: un callback del vecchio updater non scrive dopo uno STOP→START.
         route = route_cfg if route_cfg is not None else cfg
-        # Stop in corso: non processare/consumare stato né scrivere (Codex P2). Il
-        # check definitivo anti-race con il clear è dentro il queue_lock, sotto.
-        if not self._running:
+        # Stop/sessione superata: non processare/consumare stato né scrivere (Codex P2/#191).
+        # Il check DEFINITIVO anti-race (con il clear allo stop E con un nuovo START) è dentro
+        # il queue_lock, sotto, al punto di scrittura.
+        if not self._epoch_current(epoch):
             return
         # CP-09: instrada al Parser Personalizzato attivo (autoritativo) o, in
         # assenza, al parser hardcoded. Non scrive righe non piazzabili: meglio
@@ -1677,9 +1742,11 @@ class App(ctk.CTk):
         # fail-safe) è in `write_path.commit_signal`, esercitabile in CI; qui resta solo il
         # LOCK e l'anti-race con il clear allo stop.
         with self._queue_lock:
-            # Anti-race con il clear allo stop (Codex P2): se nel frattempo è stato premuto
-            # STOP, non valutare né scrivere — il clear ha (o sta per) svuotare il CSV.
-            if not self._running:
+            # Anti-race DEFINITIVO al punto di scrittura (Codex P2/#191): se nel frattempo è
+            # stato premuto STOP (clear in corso) O è intervenuto un nuovo START (epoch diverso,
+            # `_running` rimesso True), NON valutare né scrivere — sarebbe la cfg di una sessione
+            # superata. Ricontrollo sotto LO STESSO lock della scrittura, non solo all'ingresso.
+            if not self._epoch_current(epoch):
                 return
             commit = write_path.commit_signal(
                 self._tracker, self._daily, self._queue,
@@ -1788,7 +1855,8 @@ class App(ctk.CTk):
             self.after(0, lambda m=msg: self._log(m))
             self.after(0, lambda m=msg: self._set_last("error", m, "#66bb6a"))
 
-    def _process_confirmation(self, text: str, cfg: dict, route_cfg: dict = None) -> None:
+    def _process_confirmation(self, text: str, cfg: dict, route_cfg: dict = None,
+                              epoch=None) -> None:
         """Interpreta una notifica XTrader (PR-23) rispetto ai segnali in attesa e,
         se associata, marca l'esito rimuovendo il segnale dalla coda + CSV.
 
@@ -1804,8 +1872,9 @@ class App(ctk.CTk):
         snapshot di sessione (`cfg`), come gli altri parametri di ESECUZIONE
         (DRY_RUN/limiti/token), che non cambiano a metà sessione.
         """
-        # Stop in corso: non riscrivere il CSV dopo che lo STOP l'ha svuotato (Codex P2).
-        if not self._running:
+        # Stop/sessione superata: non riscrivere il CSV dopo che lo STOP l'ha svuotato
+        # (Codex P2) né con la cfg di una sessione precedente dopo un nuovo START (#191).
+        if not self._epoch_current(epoch):
             return
         live = route_cfg if isinstance(route_cfg, dict) else cfg
         confirm_kw = confirmation_reader.normalize_keywords(live.get("confirmation_keywords"))
@@ -1820,6 +1889,11 @@ class App(ctk.CTk):
             path = cfg["csv_path"]
             write_error = None
             with self._queue_lock:
+                # Ricontrollo DEFINITIVO sotto il lock di scrittura (Codex #191): uno STOP→START
+                # tra l'ingresso e qui non deve far riscrivere il CSV con la cfg della vecchia
+                # sessione. Il segnale NON è ancora stato rimosso, quindi resta ritentabile.
+                if not self._epoch_current(epoch):
+                    return
                 self._queue.confirm(result.signal_id)   # rimuove il segnale dalla coda
                 rows = self._queue.active_rows()
                 try:
