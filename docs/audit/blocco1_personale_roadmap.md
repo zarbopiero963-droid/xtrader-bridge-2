@@ -48,8 +48,8 @@ non vengono duplicate.
 | PR-P9  | Parser Personalizzato Multi-sport / profilo | sport nel parser, fonte unica sport, campi core generici             | merged (#173) |
 | PR-P10 | Name Mapping Multi-sport Locale             | sport per riga di mappatura, scoping in resolve_team                  | merged (#174) |
 | PR-P11 | Dictionary Viewer Locale                    | viewer sola-lettura del dizionario Betfair (per livello + sport)     | merged (#175) |
-| PR-P12 | Telegram → Parser → Mapping → CSV XTrader   | risoluzione ID dal dizionario + fallback nomi nel flusso live        | in corso |
-| PR-P13 | Build EXE Personale                         | solo `XTraderBridge.exe`, nessun segreto/cert incluso                 | TODO  |
+| PR-P12 | Telegram → Parser → Mapping → CSV XTrader   | risoluzione ID dal dizionario + fallback nomi nel flusso live        | merged (#176) |
+| PR-P13 | Build EXE Personale                         | gate di sicurezza build: solo EXE personale, nessun segreto/cert     | in corso |
 
 ## Moduli implementati
 
@@ -342,6 +342,30 @@ reale (i punti 5–6 sono coperti da smoke manuale; la logica pura è in unit te
    il CSV riporta EventId/MarketId/SelectionId valorizzati (oltre ai nomi).
 2. Con evento non in dizionario: il CSV riporta solo i nomi (fallback), segnale non bloccato.
    La rete Telegram/XTrader live non è in CI.
+
+### PR-P13 — Build EXE Personale
+- La build Windows esisteva già (`.github/workflows/build.yaml`, PyInstaller `--onefile
+  --windowed`, EXE singolo, bundle del solo `data/dizionario_xtrader.csv`, test prima della
+  compilazione, upload artifact + release su tag). PR-P13 aggiunge il **gate di sicurezza**
+  che blinda le regole non negoziabili dell'issue, verificabile in CI **senza** compilare
+  (la build vera gira solo su Windows).
+- `tests/safety/test_build_exe_safety.py`: **una sola** compilazione PyInstaller (nessun
+  Admin/secondo EXE), nella forma canonica CLI `pyinstaller … main.py` (spec/modulo/API
+  rifiutati, fail-closed); nessun `--add-data`/`--add-binary`/`--collect-*` con
+  cert/chiavi/`.env`/`config.json`/DB/token (nel bundle è ammesso **solo** il dizionario
+  ufficiale); i **test girano prima** della build; `data/` non contiene file sensibili;
+  artifact/release pubblicano un singolo `.exe` da `dist/`. Completa i controlli già esistenti
+  (`test_no_secrets_committed`, `test_secret_scan`, workflow `forbidden-files`).
+- Config **locale esterna** (`config_store.config_dir()` → `%APPDATA%\XTraderBridge`), non
+  inclusa nell'EXE; log safe (redaction PR-P2); `sessionToken` solo in RAM; **nessun
+  certificato** incluso nel build.
+
+#### Smoke test manuale PR-P13 (Windows — non in CI)
+La compilazione e l'avvio dell'EXE NON sono eseguibili in questa CI Linux: **Build not run
+in this environment.** Checklist manuale sull'EXE prodotto da `build.yaml` su Windows:
+avvio senza crash; tab Betfair (login mock/reale, sync dizionario); Parser; Mapping; flusso
+Telegram→CSV; Auto Sync. Verificare che l'EXE NON contenga `.env`/chiavi/certificati e che
+la config sia letta da `%APPDATA%`.
 
 ## Definition of Done (blocco personale)
 
