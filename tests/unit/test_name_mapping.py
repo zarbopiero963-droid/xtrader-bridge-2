@@ -604,3 +604,18 @@ def test_pipeline_eventname_agnostiche_restano_valide():
     res = pipe.build_validated_row(_mapping_parser(), _MSG, name_mapping_profiles=profiles)
     assert res.status == validator.VALID
     assert res.row["EventName"] == "Liverpool - Leeds"
+
+
+def test_resolve_team_tipo_esatto_vince_su_riga_sport_legacy_senza_tipo():
+    # Codex (2° giro): una riga legacy sport-specifica MA senza tipo salvata PRIMA non deve
+    # scavalcare un override tipizzato (sport-agnostico) salvato dopo, quando si chiede
+    # sport+participante. Il tipo è la dimensione PRIMARIA del ranking.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter legacy", "provider": "Inter", "sport": "Calcio"},   # sport-specifica, senza tipo
+        {"betfair": "Inter FC", "provider": "Inter", "entity_type": "team"},   # override tipizzato (agnostico di sport)
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Inter", profs, sport="Calcio",
+                           entity_type=nm.PARTICIPANT_ENTITY_TYPES) == "Inter FC"
+    # Senza filtro tipo: lo scoping per sport resta legacy (vince la riga sport-specifica salvata prima).
+    assert nm.resolve_team("Inter", profs, sport="Calcio") == "Inter legacy"

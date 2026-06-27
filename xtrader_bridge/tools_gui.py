@@ -32,7 +32,10 @@ class ToolsWindow(ctk.CTkToplevel):
     def __init__(self, master=None, panels=None, initial=None, title="🧰 Strumenti"):
         super().__init__(master)
         self.title(title)
-        gui_utils.fit_to_screen(self, 1040, 720, 780, 480)
+        # Larghezza default 1140 (era 1040): la scheda Mapping ha righe con 5 colonne +
+        # elimina (Country|Betfair|Provider|Sport|Tipo|🗑 ≈ 1032 px) e lo scroll è solo
+        # verticale; a 1040 Tipo/elimina venivano tagliati nel tab Strumenti (Codex #178 §2).
+        gui_utils.fit_to_screen(self, 1140, 720, 780, 480)
         # `command`: a ogni cambio scheda si aggiornano le liste-opzioni del pannello
         # mostrato (vedi `_on_tab_change`), così le scelte derivate dal config restano
         # fresche senza riaprire la finestra (Codex).

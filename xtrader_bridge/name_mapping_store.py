@@ -232,15 +232,19 @@ def _iter_entries_for_scope(entries, want_sport, want_entity=None):
 
     - si scartano le righe di un ALTRO ``entity_type`` (le agnostiche restano) e di un
       ALTRO sport (le agnostiche restano);
-    - le rimanenti si ordinano per priorità: PRIMA sport esatto sull'agnostico, e a parità
-      PRIMA tipo esatto sull'agnostico; a parità di rango l'ordine salvato è preservato
-      (sort stabile). ``want_sport``/``want_entity`` assenti → quella dimensione non
-      influenza l'ordine.
+    - le rimanenti si ordinano per priorità: PRIMA il **tipo esatto** sull'agnostico, e a
+      parità PRIMA lo sport esatto sull'agnostico; a parità di rango l'ordine salvato è
+      preservato (sort stabile). ``want_sport``/``want_entity`` assenti → quella dimensione
+      non influenza l'ordine.
 
-    Così una riga agnostica salvata PRIMA non scavalca un override esatto (per sport o per
-    tipo) salvato dopo (la GUI fa solo append): l'override esatto ha sempre la precedenza,
-    e l'agnostica resta un fallback. Senza alcun filtro il comportamento è l'ordine salvato
-    (legacy)."""
+    Il **tipo** è la dimensione PRIMARIA (Codex): un override tipizzato (`entity_type`
+    valorizzato) vince anche su una riga legacy **sport-specifica ma senza tipo** salvata
+    prima — es. `sport="Calcio", entity_type=""` non scavalca `sport="", entity_type="team"`
+    quando si chiede Calcio+participante. Senza filtro tipo (`allowed is None`) il tipo non
+    influenza l'ordine, quindi lo scoping per sport resta identico al comportamento legacy.
+
+    Così una riga agnostica salvata PRIMA non scavalca un override esatto salvato dopo (la
+    GUI fa solo append). Senza alcun filtro il comportamento è l'ordine salvato (legacy)."""
     want = want_sport or ""
     allowed = _entity_filter(want_entity)
     pool = [e for e in entries
@@ -251,10 +255,10 @@ def _iter_entries_for_scope(entries, want_sport, want_entity=None):
         return
 
     def _rank(e):
-        sport_rank = 0 if (not want or str(e.get("sport", "") or "") == want) else 1
         entity_rank = 0 if (allowed is None
                             or str(e.get("entity_type", "") or "") in allowed) else 1
-        return (sport_rank, entity_rank)
+        sport_rank = 0 if (not want or str(e.get("sport", "") or "") == want) else 1
+        return (entity_rank, sport_rank)      # tipo PRIMARIO, poi sport (Codex)
 
     yield from sorted(pool, key=_rank)        # sort STABILE: ordine salvato a parità di rango
 
