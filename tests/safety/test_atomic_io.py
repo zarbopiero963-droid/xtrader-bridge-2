@@ -144,3 +144,65 @@ def test_temporaneo_nella_stessa_cartella(tmp_path, monkeypatch):
     monkeypatch.setattr(atomic_io.os, "replace", spy_replace)
     atomic_io.atomic_write_text(str(p), "x", prefix=".t_", suffix=".tmp")
     assert visti["src_dir"] == os.path.dirname(os.path.abspath(str(p)))
+
+
+# ── H2 (#184): fsync della DIRECTORY dopo il rename (durabilità del crash) ────
+
+def test_fsync_della_directory_dopo_il_replace(tmp_path, monkeypatch):
+    # Dopo `os.replace`, la directory padre deve essere fsync'd: altrimenti un
+    # power-loss subito dopo il rename può far ricomparire il contenuto precedente.
+    order = []
+    real_replace = os.replace
+    real_fsync_dir = atomic_io._fsync_dir
+
+    def spy_replace(src, dst):
+        order.append("replace")
+        return real_replace(src, dst)
+
+    def spy_fsync_dir(d):
+        order.append(("fsync_dir", os.path.abspath(d)))
+        return real_fsync_dir(d)
+
+    monkeypatch.setattr(atomic_io.os, "replace", spy_replace)
+    monkeypatch.setattr(atomic_io, "_fsync_dir", spy_fsync_dir)
+
+    p = tmp_path / "out.txt"
+    atomic_io.atomic_write_text(str(p), "x", prefix=".t_", suffix=".tmp")
+
+    assert p.read_text(encoding="utf-8") == "x"
+    # il fsync della dir avviene DOPO il replace, sulla cartella giusta
+    assert order[0] == "replace"
+    assert order[1] == ("fsync_dir", os.path.dirname(os.path.abspath(str(p))))
+
+
+def test_fsync_dir_e_no_op_su_dir_non_apribile(tmp_path):
+    # Su Windows (o dir inesistente) non si può aprire la dir come fd: deve essere un
+    # no-op silenzioso, mai un'eccezione.
+    atomic_io._fsync_dir(str(tmp_path / "non_esiste"))     # non deve sollevare
+
+
+def test_fsync_dir_errore_di_fsync_non_propaga(tmp_path, monkeypatch):
+    # Un filesystem che rifiuta l'fsync di una directory non deve far fallire la scrittura.
+    def boom_fsync(fd):
+        raise OSError("EINVAL: fsync su directory non supportato")
+
+    monkeypatch.setattr(atomic_io.os, "fsync", boom_fsync)
+    atomic_io._fsync_dir(str(tmp_path))                    # OSError swallowed, niente raise
+
+
+def test_dir_fsync_fallito_non_perde_il_file(tmp_path, monkeypatch):
+    # Il fsync della dir è chiamato DOPO un replace già riuscito: anche se _fsync_dir
+    # avesse un problema interno, il file resta scritto (l'API non deve perderlo).
+    calls = {"n": 0}
+    real = atomic_io._fsync_dir
+
+    def flaky(d):
+        calls["n"] += 1
+        return real(d)                                     # qui ok; il punto è l'ordine/robustezza
+
+    monkeypatch.setattr(atomic_io, "_fsync_dir", flaky)
+    p = tmp_path / "out.txt"
+    atomic_io.atomic_write_text(str(p), "NUOVO", prefix=".t_", suffix=".tmp")
+    assert p.read_text(encoding="utf-8") == "NUOVO"
+    assert calls["n"] == 1                                 # chiamato una volta, dopo il replace
+    assert _leftovers(tmp_path, ".t_") == []               # nessun temporaneo residuo
