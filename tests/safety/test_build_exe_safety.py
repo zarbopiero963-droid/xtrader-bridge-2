@@ -3,23 +3,33 @@
 La build Windows deve produrre **solo** l'EXE personale del bridge, senza includere segreti
 né certificati e senza un secondo «Admin EXE». La compilazione vera (PyInstaller su Windows)
 NON gira in questa CI Linux: qui si verifica in modo deterministico e offline che i
-**workflow** rispettino le regole non negoziabili dell'issue:
+**workflow** rispettino le regole non negoziabili dell'issue.
 
-- una sola compilazione PyInstaller per workflow (nessun Admin/secondo EXE), con nome EXE
-  esattamente quello personale;
-- nessun `--add-data`/`--add-binary` che includa certificati, chiavi, `.env`, `config.json`,
-  DB locale o token: nel bundle è ammesso **solo** `data/dizionario_xtrader.csv`, con
-  sorgente esatta e destinazione `data` (il loader runtime cerca `_MEIPASS/data/...`);
-- i test girano PRIMA di compilare l'EXE (una build non parte su codice rotto);
-- `data/` non contiene file sensibili che `--collect-all`/`--add-data` potrebbero includere.
+Posizione di sicurezza: **fail-closed**. Il gate sa analizzare la forma *canonica* della
+build — l'eseguibile CLI `pyinstaller … main.py` con opzioni sulla riga di comando — e su
+quella applica tutti i controlli. Qualunque forma che *non* sa analizzare in modo affidabile
+(uno **spec file**, `python -m PyInstaller`, l'**API Python** `PyInstaller.__main__.run`, …)
+viene **rifiutata**, non ignorata: con uno spec o con l'API le opzioni CLI sono inaffidabili
+(lo spec può rinominare l'EXE in «Admin» o includere certificati) e una verifica statica non
+darebbe garanzie. Restando fail-closed, il proprietario deve mantenere la forma canonica che
+il gate controlla davvero — che è esattamente quella usata da `build.yaml` e
+`merge-simulation-hard.yml`.
 
-Per non dipendere da come è scritto il YAML, i comandi di build vengono **estratti** dai
-passi `run:` di ogni workflow — sia in forma *folded* (`run: >` / `run: |` su più righe) sia
-*inline* (`- run: pyinstaller ...`) — e poi tokenizzati ignorando lo stile di quoting
-(`"..."`, `'...'`, nudo). I controlli si applicano a **ogni** workflow che invoca
-`pyinstaller`, non solo `build.yaml`, e automaticamente a qualunque nuovo build futuro
-(findings Codex). Restiamo *dependency-free*: nessun parser YAML esterno, così il gate gira
-identico anche quando i workflow di build eseguono i test sotto il lockfile riproducibile.
+Controlli (su OGNI workflow che invoca PyInstaller, oggi `build.yaml` e
+`merge-simulation-hard.yml`, e automaticamente ogni nuovo build):
+
+- forma canonica CLI `pyinstaller … main.py`, niente `.spec`/modulo/API;
+- una sola build per workflow, `--onefile` come opzione reale (EXE singolo personale);
+- nome EXE (`--name`/`-n`, anche `--opt=value`) esattamente quello personale (no «Admin»);
+- nel bundle solo `data/dizionario_xtrader.csv` → `data`: nessun `--add-data`/`--add-binary`
+  con cert/chiavi/`.env`/`config.json`/DB/token (qualsiasi quoting, anche `--opt=value`);
+- `--collect-*` solo su pacchetti in allowlist (niente raccolta dati fuori dal dizionario);
+- i test (TUTTI gli step `python -m pytest`) girano PRIMA della build;
+- artifact/release pubblicano un solo `.exe` da dist/; nessun secondo EXE altrove;
+- `data/` non contiene file/percorsi sensibili (scansione ricorsiva).
+
+Resta *dependency-free* (nessun parser YAML esterno) così gira identico anche quando i
+workflow di build eseguono i test sotto il lockfile riproducibile.
 """
 
 import os
@@ -30,22 +40,37 @@ _BUILD_YAML = os.path.join(_REPO_ROOT, ".github", "workflows", "build.yaml")
 _WORKFLOWS_DIR = os.path.join(_REPO_ROOT, ".github", "workflows")
 _DATA_DIR = os.path.join(_REPO_ROOT, "data")
 
-# Nome EXE / sorgente-bundle ammessi: gli UNICI consentiti dall'invariante personale.
+# Invarianti dell'EXE personale.
 _ALLOWED_EXE_NAME = "XTrader-Signal-Bridge"
 _ALLOWED_BUNDLE_SRC = "data/dizionario_xtrader.csv"
 _ALLOWED_BUNDLE_DEST = "data"
+_ALLOWED_SCRIPT = "main.py"
+# Pacchetti per cui è ammessa la raccolta dati/sottomoduli (GUI di terze parti + il package
+# del bridge stesso, che non contiene segreti committati). Tutto il resto è rifiutato.
+_ALLOWED_COLLECT = {"customtkinter", "xtrader_bridge"}
 
-# Estensioni/nomi vietati nel bundle dell'EXE (segreti, credenziali, artefatti locali).
+# Estensioni/nomi/segmenti vietati nel bundle dell'EXE (segreti, credenziali, certificati,
+# artefatti locali). Include formati certificato comuni (.cer/.der/.crt/.pem/.p12/.pfx) e un
+# segmento di percorso `cert`/`certs` (Codex).
 _FORBIDDEN_BUNDLE = re.compile(
-    r"\.(crt|pem|key|env|p12|pfx|db|sqlite|sqlite3|log|zip)\b|config\.json|secret|token",
+    r"\.(crt|cer|der|pem|key|env|p12|pfx|db|sqlite|sqlite3|log|zip)\b"
+    r"|config\.json|secret|token|\bcerts?\b",
     re.IGNORECASE)
 
-# Indicatori di block scalar YAML per `run:` (folded `>` / literal `|`, con chomping/indent).
+# Rileva un'invocazione PyInstaller in QUALSIASI forma, così nessuna sfugge al gate: CLI
+# (inizio comando o dopo `;`/`&&`/`||`), modulo `-m PyInstaller`, o API Python
+# (`PyInstaller.__main__` / `import PyInstaller`). NON combacia con `pip install … pyinstaller`
+# (lì è un argomento di pip, preceduto da una parola).
+_PYINSTALLER_DETECT = re.compile(
+    r"(?:^|;|&&|\|\|)\s*pyinstaller\b"
+    r"|-m\s+pyinstaller\b"
+    r"|pyinstaller\.__main__"
+    r"|import\s+pyinstaller\b",
+    re.IGNORECASE)
+# Forma canonica analizzabile: il comando È l'eseguibile CLI `pyinstaller …`.
+_PYINSTALLER_CLI = re.compile(r"^\s*pyinstaller\b")
+# Indicatori di block scalar YAML per `run:` (folded `>` / literal `|`).
 _BLOCK_SCALAR = re.compile(r"^[|>][+-]?\d*$")
-# `pyinstaller` INVOCATO come programma: a inizio comando o dopo un separatore di shell
-# (`;`/`&&`/`||`). NON deve combaciare con `pip install ... pyinstaller httpx`, dove
-# pyinstaller è un argomento di pip (preceduto da una parola, non da un separatore).
-_PYINSTALLER_CMD = re.compile(r"(?:^|;|&&|\|\|)\s*pyinstaller\b")
 
 
 def _norm(p: str) -> str:
@@ -63,10 +88,9 @@ def _read(path: str) -> str:
 
 
 def _run_commands(text: str):
-    """Estrae, **in ordine**, il testo di ogni passo `run:` di un workflow, gestendo sia la
-    forma inline (`run: cmd`) sia i block scalar folded/literal (`run: >` / `run: |` seguiti
-    da righe più indentate). I block vengono uniti con spazi così un comando PyInstaller
-    spezzato su più righe (`--name` su una riga successiva) torna un'unica stringa."""
+    """Estrae, **in ordine**, il testo di ogni passo `run:` (inline o block scalar
+    folded/literal). I block vengono uniti con spazi così un comando spezzato su più righe
+    torna un'unica stringa."""
     lines = text.splitlines()
     cmds = []
     i, n = 0, len(lines)
@@ -95,21 +119,31 @@ def _run_commands(text: str):
     return cmds
 
 
-def _opt_values(cmd: str, opt: str):
-    """Tutti i valori dell'opzione `opt` (es. ``--add-data``) nel comando, qualunque sia lo
-    stile di quoting: ``"..."``, ``'...'`` o nudo."""
+def _opt_values(cmd: str, *opts):
+    """Tutti i valori delle opzioni date nel comando, robusto a: quoting `"…"`/`'…'`/nudo,
+    forma `--opt value` E `--opt=value`, e alias corti (`-n`). Il boundary `(?<![\\w-])` evita
+    che `-n` combaci dentro `--name`."""
     out = []
-    for mm in re.finditer(re.escape(opt) + r"""\s+(?:"([^"]*)"|'([^']*)'|(\S+))""", cmd):
-        out.append(next(g for g in mm.groups() if g is not None))
+    for opt in opts:
+        pat = (r"(?<![\w-])" + re.escape(opt)
+               + r"""(?:=|\s+)(?:"([^"]*)"|'([^']*)'|([^\s]+))""")
+        for mm in re.finditer(pat, cmd):
+            out.append(next(g for g in mm.groups() if g is not None))
     return out
 
 
+def _has_flag(cmd: str, flag: str) -> bool:
+    """Vero se `flag` compare come opzione reale (token isolato), non come sottostringa."""
+    return re.search(r"(?<![\w-])" + re.escape(flag) + r"(?![\w-])", cmd) is not None
+
+
 def _build_commands():
-    """``(workflow_name, command)`` per OGNI passo run che invoca ``pyinstaller``."""
+    """``(workflow_name, command)`` per OGNI passo run che invoca PyInstaller (qualsiasi
+    forma)."""
     out = []
     for path in _workflow_files():
         for cmd in _run_commands(_read(path)):
-            if _PYINSTALLER_CMD.search(cmd):
+            if _PYINSTALLER_DETECT.search(cmd):
                 out.append((os.path.basename(path), cmd))
     return out
 
@@ -119,44 +153,54 @@ def test_build_yaml_esiste():
 
 
 def test_build_commands_rilevati():
-    # La scoperta automatica deve trovare (almeno) i due build noti, così un nuovo workflow
-    # di build — folded o inline — non sfugge ai controlli sotto.
     names = {name for name, _ in _build_commands()}
-    assert "build.yaml" in names, "build.yaml: comando pyinstaller non rilevato"
+    assert "build.yaml" in names, "build.yaml: invocazione pyinstaller non rilevata"
     assert "merge-simulation-hard.yml" in names, \
         "merge-simulation-hard.yml: pyinstaller non coperto dal gate"
 
 
-def test_un_solo_build_e_onefile_per_workflow():
-    # Per OGNI workflow che compila: un solo comando di build, una sola invocazione
-    # PyInstaller in esso, e `--onefile` (EXE singolo personale; niente secondo EXE).
+def test_forma_build_canonica():
+    # Fail-closed: ogni build deve essere la forma CLI analizzabile `pyinstaller … main.py`.
+    # Spec file / `python -m PyInstaller` / API Python rendono inaffidabili le opzioni CLI
+    # (lo spec può rinominare l'EXE o includere certificati) → vengono RIFIUTATE (Codex).
     builds = _build_commands()
-    assert builds, "nessun comando di build trovato"
+    assert builds, "nessuna build trovata"
+    for name, cmd in builds:
+        assert _PYINSTALLER_CLI.match(cmd), \
+            f"{name}: forma di build non analizzabile (spec/modulo/API): {cmd!r}"
+        assert ".spec" not in cmd.lower(), f"{name}: build da spec file non ammessa: {cmd!r}"
+        assert re.search(r"(?<!\S)" + re.escape(_ALLOWED_SCRIPT) + r"(?!\S)", cmd), \
+            f"{name}: la build deve targettare {_ALLOWED_SCRIPT}, non altro: {cmd!r}"
+
+
+def test_un_solo_build_e_onefile_per_workflow():
+    builds = _build_commands()
+    assert builds, "nessuna build trovata"
     per_wf = {}
     for name, cmd in builds:
         per_wf.setdefault(name, []).append(cmd)
     for name, cmds in per_wf.items():
-        assert len(cmds) == 1, f"{name}: atteso UN solo comando di build, trovati {len(cmds)}"
+        assert len(cmds) == 1, f"{name}: attesa UNA sola build, trovate {len(cmds)}"
         cmd = cmds[0]
-        assert len(re.findall(r"\bpyinstaller\b", cmd)) == 1, \
+        assert len(re.findall(r"(?<![\w-])pyinstaller\b", cmd)) == 1, \
             f"{name}: attesa UNA sola invocazione pyinstaller nel comando"
-        assert "--onefile" in cmd, f"{name}: build non --onefile"
+        assert _has_flag(cmd, "--onefile"), \
+            f"{name}: build non --onefile (EXE singolo personale)"
 
 
 def test_nome_exe_solo_quello_personale():
-    # Il `--name` (anche se su una riga successiva del comando folded) deve essere ESATTAMENTE
-    # l'EXE personale: blocca un `--name "Admin"` che costruirebbe un Admin EXE pur senza
-    # pubblicare dist/Admin.exe (Codex).
+    # `--name`/`-n` (anche `--name=…`, anche su riga folded) devono essere esattamente l'EXE
+    # personale: blocca un `--name "Admin"` o un alias `-n Admin` (Codex).
     for name, cmd in _build_commands():
-        names = _opt_values(cmd, "--name")
+        names = _opt_values(cmd, "--name", "-n")
         assert names, f"{name}: build senza --name (nome EXE ambiguo)"
         for got in names:
             assert _norm(got) == _ALLOWED_EXE_NAME, \
-                f"{name}: --name dev'essere {_ALLOWED_EXE_NAME!r}, non {got!r}"
+                f"{name}: nome EXE dev'essere {_ALLOWED_EXE_NAME!r}, non {got!r}"
 
 
 def test_nessun_admin_exe():
-    # Nessun riferimento a una build/EXE «Admin» in alcun workflow (rete di sicurezza extra).
+    # Rete di sicurezza extra: nessun riferimento testuale a un EXE «Admin» in alcun workflow.
     for path in _workflow_files():
         low = _read(path).casefold()
         assert "admin exe" not in low
@@ -165,19 +209,15 @@ def test_nessun_admin_exe():
 
 
 def test_adddata_solo_il_dizionario():
-    # In OGNI comando di build, ogni --add-data deve avere SORGENTE == dizionario ufficiale e
-    # DESTINAZIONE == `data`. Tokenizzazione quote-agnostica (`"..."`/`'...'`/nudo) così un
-    # secondo `--add-data` con quote diverse non sfugge; il check del dest evita che il CSV
-    # finisca alla radice del bundle (il loader cerca `_MEIPASS/data/...`). Findings Codex.
+    # Ogni --add-data (qualsiasi quoting, anche `--add-data=…`) deve avere SORGENTE ==
+    # dizionario e DESTINAZIONE == `data` (il loader cerca `_MEIPASS/data/…`).
     builds = _build_commands()
-    assert builds, "nessun comando di build trovato"
+    assert builds, "nessuna build trovata"
     for name, cmd in builds:
         entries = _opt_values(cmd, "--add-data")
         assert entries, f"{name}: atteso almeno un --add-data (il dizionario)"
         for entry in entries:
-            # Separatore PyInstaller su Windows = `;` (NON splittare su `:`, troncherebbe un
-            # path con drive letter `C:\...`).
-            parts = entry.split(";")
+            parts = entry.split(";")   # separatore Windows; NON `:` (drive letter)
             src = _norm(parts[0])
             dest = _norm(parts[1]) if len(parts) > 1 else ""
             assert not _FORBIDDEN_BUNDLE.search(src), \
@@ -189,17 +229,30 @@ def test_adddata_solo_il_dizionario():
 
 
 def test_nessun_add_binary_di_certificati():
-    # In OGNI comando di build: nessun --add-binary (qualsiasi quoting) con cert/chiavi.
     for name, cmd in _build_commands():
         for entry in _opt_values(cmd, "--add-binary"):
             assert not _FORBIDDEN_BUNDLE.search(entry), \
                 f"{name}: --add-binary include un file vietato: {entry!r}"
 
 
+def test_collect_solo_pacchetti_in_allowlist():
+    # `--collect-all`/`--collect-data`/`--collect-binaries`/`--collect-submodules` possono
+    # impacchettare dati/binari di un pacchetto: ammessi solo quelli noti-sicuri (GUI di terze
+    # parti + il package del bridge), altrimenti si bundlerebbero dati fuori dal dizionario
+    # (Codex).
+    collect_opts = ("--collect-all", "--collect-data", "--collect-binaries",
+                    "--collect-submodules")
+    for name, cmd in _build_commands():
+        for pkg in _opt_values(cmd, *collect_opts):
+            base = _norm(pkg).split(":", 1)[0].split("=", 1)[0]
+            assert base in _ALLOWED_COLLECT, \
+                f"{name}: --collect su pacchetto non in allowlist: {pkg!r}"
+
+
 def test_test_eseguiti_prima_della_build():
-    # In OGNI workflow che compila, uno step `python -m pytest` deve precedere il comando di
-    # build (una build non parte su codice non testato). Si confrontano gli step REALI in
-    # ordine, non un substring che un commento potrebbe soddisfare.
+    # In OGNI workflow che compila, TUTTI gli step `python -m pytest` devono precedere la
+    # build (non basta il primo: spostare unit/integration dopo la build lascerebbe l'EXE
+    # compilato prima della suite completa). Codex.
     build_names = {name for name, _ in _build_commands()}
     assert build_names, "nessun workflow di build trovato"
     for path in _workflow_files():
@@ -207,18 +260,18 @@ def test_test_eseguiti_prima_della_build():
         if name not in build_names:
             continue
         cmds = _run_commands(_read(path))
-        i_pytest = next((k for k, c in enumerate(cmds) if "python -m pytest" in c), None)
-        i_build = next((k for k, c in enumerate(cmds) if _PYINSTALLER_CMD.search(c)), None)
-        assert i_pytest is not None, f"{name}: manca lo step reale `python -m pytest`"
-        assert i_build is not None, f"{name}: manca il comando pyinstaller"
-        assert i_pytest < i_build, f"{name}: i test devono girare PRIMA della build dell'EXE"
+        pytest_idx = [k for k, c in enumerate(cmds) if "python -m pytest" in c]
+        i_build = next((k for k, c in enumerate(cmds) if _PYINSTALLER_DETECT.search(c)), None)
+        assert pytest_idx, f"{name}: manca uno step reale `python -m pytest`"
+        assert i_build is not None, f"{name}: manca l'invocazione pyinstaller"
+        assert max(pytest_idx) < i_build, \
+            f"{name}: TUTTI i test devono girare PRIMA della build dell'EXE"
 
 
 def test_data_dir_senza_file_sensibili():
-    # `data/` (bundle-abile) non deve contenere segreti/cert/DB. Scansione RICORSIVA e il
-    # pattern vietato è applicato al PATH RELATIVO completo (non solo al basename), così anche
-    # un segmento di cartella sensibile — es. `data/secret/x.txt` o `data/token/c.txt` — viene
-    # intercettato se `data/` venisse bundlata come cartella (Codex).
+    # `data/` (bundle-abile) non deve contenere segreti/cert/DB. Scansione RICORSIVA e pattern
+    # vietato applicato al PATH RELATIVO completo (anche un segmento di cartella sensibile come
+    # `data/secret/x.txt` o `data/certs/y.txt` viene intercettato). Codex.
     assert os.path.isdir(_DATA_DIR)
     found_dizionario = False
     for root, _dirs, files in os.walk(_DATA_DIR):
@@ -231,9 +284,8 @@ def test_data_dir_senza_file_sensibili():
 
 
 def test_artifact_e_release_solo_un_exe():
-    # L'upload artifact (`path:`) E la release (`files:`) di build.yaml pubblicano ESATTAMENTE
-    # un singolo .exe da dist/. In più, su TUTTI i workflow di build, nessun `dist/*.exe`
-    # estraneo (es. dist/Admin.exe) referenziato da nessuna parte.
+    # build.yaml: l'upload artifact (`path:`) E la release (`files:`) pubblicano ESATTAMENTE
+    # un .exe da dist/. Su TUTTI i workflow: nessun `dist/*.exe` estraneo (es. dist/Admin.exe).
     text = _read(_BUILD_YAML)
     artifact_exes = [p for p in re.findall(r"(?m)^\s*path:\s*(\S+)", text)
                      if p.lower().endswith(".exe")]
@@ -246,7 +298,6 @@ def test_artifact_e_release_solo_un_exe():
     for p in artifact_exes + release_exes:
         assert p.startswith("dist/"), f"path EXE inatteso: {p!r}"
     for path in _workflow_files():
-        wf_text = _read(path)
-        foreign = [e for e in re.findall(r"dist/(\S+\.exe)", wf_text)
+        foreign = [e for e in re.findall(r"dist/(\S+\.exe)", _read(path))
                    if e != _ALLOWED_EXE_NAME + ".exe"]
         assert not foreign, f"{os.path.basename(path)}: secondo EXE inatteso: {foreign}"
