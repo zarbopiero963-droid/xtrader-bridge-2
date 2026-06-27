@@ -49,7 +49,7 @@ non vengono duplicate.
 | PR-P10 | Name Mapping Multi-sport Locale             | sport per riga di mappatura, scoping in resolve_team                  | merged (#174) |
 | PR-P11 | Dictionary Viewer Locale                    | viewer sola-lettura del dizionario Betfair (per livello + sport)     | merged (#175) |
 | PR-P12 | Telegram → Parser → Mapping → CSV XTrader   | risoluzione ID dal dizionario + fallback nomi nel flusso live        | merged (#176) |
-| PR-P13 | Build EXE Personale                         | gate di sicurezza build: solo EXE personale, nessun segreto/cert     | in corso |
+| PR-P13 | Build EXE Personale                         | gate di sicurezza build: solo EXE personale, nessun segreto/cert     | merged (#177) |
 
 ## Moduli implementati
 
@@ -369,7 +369,9 @@ la config sia letta da `%APPDATA%`.
 
 ## Definition of Done (blocco personale)
 
-Il blocco è completo quando esiste `XTraderBridge.exe` personale; non esistono Admin
+Il blocco è completo quando esiste l'EXE personale `XTrader-Signal-Bridge.exe` (nome
+stabile prodotto da `build.yaml`; l'issue #86 lo chiama `XTraderBridge.exe` — stesso
+artefatto, nome del file allineato a quello reale del workflow); non esistono Admin
 EXE/Supabase/licenza/pagamento; Betfair Sync usa la Delayed Key ed è read-only; le
 credenziali Betfair sono locali e cifrate; il sessionToken resta in RAM; il dizionario
 è locale; sono supportati Calcio/Tennis/Basket/Rugby Union; vengono salvati
