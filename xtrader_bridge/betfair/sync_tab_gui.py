@@ -28,11 +28,16 @@ class BetfairSyncPanel(ctk.CTkFrame):
     assenti, i pulsanti relativi restano comunque governati dal controller."""
 
     def __init__(self, master=None, session: BetfairSession = None,
-                 on_login=None, on_sync=None, autosync=None, on_autosync_change=None):
+                 on_login=None, on_sync=None, autosync=None, on_autosync_change=None,
+                 on_invalidate=None):
         super().__init__(master)
         self.controller = BetfairSyncController(session=session)
         self._on_login = on_login
         self._on_sync = on_sync
+        # Invalidazione del login in volo (logout/«Cancella credenziali»): così il
+        # completamento di un login partito PRIMA non riporta la sessione a «connesso»
+        # dopo l'azione utente (Codex su #184 H1).
+        self._on_invalidate = on_invalidate
         self._autosync = autosync or {}
         self._on_autosync_change = on_autosync_change
         self._sync_in_progress = False
@@ -232,11 +237,15 @@ class BetfairSyncPanel(ctk.CTkFrame):
 
     def _logout(self):
         self.controller.logout()
+        if self._on_invalidate:             # invalida un login in volo (no sessione stantia)
+            self._on_invalidate()
         self._action_status.configure(text="")
         self._refresh_buttons()
 
     def _delete(self):
         if self.controller.delete_saved_credentials():
+            if self._on_invalidate:         # invalida un login in volo (no sessione stantia)
+                self._on_invalidate()
             self._action_status.configure(text="🗑️ Credenziali cancellate.")
             self._reload()                  # solo dopo una cancellazione riuscita
         else:
