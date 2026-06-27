@@ -31,6 +31,7 @@ class DictionaryViewerPanel(ctk.CTkFrame):
         self._level_label = ctk.StringVar(value=LEVEL_LABELS[LEVELS[0]])
         self._sport = ctk.StringVar(value=_SPORT_ALL)
         self._active_only = ctk.BooleanVar(value=False)
+        self._search = ctk.StringVar(value="")
         self._build_ui()
         self._refresh()
 
@@ -55,6 +56,20 @@ class DictionaryViewerPanel(ctk.CTkFrame):
         ctk.CTkButton(bar, text="🔄 Aggiorna", width=110,
                       command=self._refresh).pack(side="left", padx=4)
 
+        # Riga di ricerca: testo cercato come sottostringa su tutte le colonne (nomi
+        # partecipante/selezione/evento/mercato/competizione **e** gli ID), così la stessa
+        # casella copre sia la "ricerca" sia il "filtro per id" del livello corrente.
+        sbar = ctk.CTkFrame(self)
+        sbar.pack(fill="x", padx=12, pady=(0, 4))
+        ctk.CTkLabel(sbar, text="Cerca").pack(side="left", padx=(8, 4))
+        entry = ctk.CTkEntry(sbar, textvariable=self._search, width=260,
+                             placeholder_text="partecipante, selezione, evento, ID…")
+        entry.pack(side="left", padx=4)
+        entry.bind("<Return>", lambda _e: self._refresh())
+        entry.bind("<KeyRelease>", lambda _e: self._refresh())
+        ctk.CTkButton(sbar, text="Pulisci", width=80,
+                      command=self._clear_search).pack(side="left", padx=4)
+
         self._counts = ctk.CTkLabel(self, text="", anchor="w")
         self._counts.pack(fill="x", padx=14, pady=(0, 4))
 
@@ -76,6 +91,10 @@ class DictionaryViewerPanel(ctk.CTkFrame):
         s = self._sport.get()
         return "" if s == _SPORT_ALL else s
 
+    def _clear_search(self):
+        self._search.set("")
+        self._refresh()
+
     def _clear(self, frame):
         for w in frame.winfo_children():
             w.destroy()
@@ -92,7 +111,8 @@ class DictionaryViewerPanel(ctk.CTkFrame):
         level = self._selected_level()
         try:
             data = self.controller.view(level, sport=self._selected_sport(),
-                                        active_only=bool(self._active_only.get()))
+                                        active_only=bool(self._active_only.get()),
+                                        search=self._search.get())
         except Exception as exc:   # noqa: BLE001 — lettura best-effort, niente crash GUI
             self._counts.configure(text=f"⚠️ Errore lettura dizionario: {type(exc).__name__}")
             return

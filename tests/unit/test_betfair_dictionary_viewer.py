@@ -138,3 +138,110 @@ def test_db_vuoto_nessuna_riga(db):
     ctrl = DictionaryViewerController(db)
     v = ctrl.view("events")
     assert v["total"] == 0 and v["active"] == 0 and v["rows"] == []
+
+
+# ── Ricerca testuale (issue #178 §1: "Ricerca partecipante" / "Ricerca selection") ──
+
+def test_view_ricerca_evento(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    v = ctrl.view("events", search="inter")          # case-insensitive, sottostringa
+    assert v["total"] == 1
+    assert v["rows"][0][1] == "Inter v Milan"
+
+
+def test_view_ricerca_partecipante(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    # cerca su participant_1/participant_2: "Sinner" è un partecipante dell'evento tennis.
+    v = ctrl.view("events", search="alcaraz")
+    assert v["total"] == 1
+    assert v["rows"][0][1] == "Sinner v Alcaraz"
+
+
+def test_view_ricerca_selezione(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    v = ctrl.view("selections", search="sinner")     # runner_name
+    assert v["total"] == 1
+    assert v["rows"][0][2] == "Sinner"
+
+
+def test_view_ricerca_nessun_match(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    assert ctrl.view("events", search="zzz-non-esiste")["total"] == 0
+
+
+def test_view_ricerca_vuota_o_none_nessun_filtro(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    assert ctrl.view("events", search="")["total"] == 2
+    assert ctrl.view("events", search=None)["total"] == 2
+
+
+def test_view_ricerca_e_sport_combinati(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    # "v" è in entrambi i nomi evento ma lo sport restringe a Calcio.
+    v = ctrl.view("events", sport="Calcio", search="v ")
+    assert v["total"] == 1 and v["rows"][0][1] == "Inter v Milan"
+
+
+# ── Filtri drill-down (issue #178 §1: "Filtro competizione / evento / mercato") ──
+
+def test_filtro_competizione_su_eventi(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    v = ctrl.view("events", filters={"competition_id": "c1"})
+    assert v["total"] == 1 and v["rows"][0][1] == "Inter v Milan"
+
+
+def test_filtro_evento_su_mercati(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    v = ctrl.view("markets", filters={"event_id": "e2"})
+    assert v["total"] == 1
+    # colonna Event ID è la seconda del livello markets
+    assert v["rows"][0][1] == "e2"
+
+
+def test_filtro_mercato_su_selezioni(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    v = ctrl.view("selections", filters={"market_id": "m1"})
+    assert v["total"] == 1 and v["rows"][0][2] == "Inter"
+
+
+def test_filtro_chiave_inesistente_ignorata(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    # una chiave non colonna del livello non azzera la vista (fail-open per il viewer)
+    assert ctrl.view("events", filters={"non_esiste": "x"})["total"] == 2
+
+
+def test_filtro_e_ricerca_combinati(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    v = ctrl.view("markets", filters={"event_id": "e1"}, search="match")
+    assert v["total"] == 1 and v["rows"][0][1] == "e1"
+
+
+# ── Colonna last_seen_at (issue #178 §1: "last_seen_at non mostrato") ──
+
+def test_last_seen_at_in_colonne_di_ogni_livello(db):
+    ctrl = DictionaryViewerController(db)
+    for lvl in LEVELS:
+        assert "Ultima sync" in ctrl.columns(lvl)
+    # "Attivo" resta l'ultima colonna (i test esistenti usano r[-1] per l'attivo)
+    assert ctrl.columns("events")[-1] == "Attivo"
+
+
+def test_last_seen_at_valorizzato_nelle_righe(db):
+    m = _seed(db)
+    ctrl = DictionaryViewerController(db)
+    v = ctrl.view("events")
+    cols = v["columns"]
+    idx = cols.index("Ultima sync")
+    # il marker della sync è > 0 e viene mostrato come stringa non vuota
+    assert all(r[idx] == str(m) for r in v["rows"])

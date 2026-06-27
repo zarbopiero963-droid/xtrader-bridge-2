@@ -290,21 +290,30 @@ reale (i punti 5–6 sono coperti da smoke manuale; la logica pura è in unit te
   **sport** via `xtrader_bridge/sports.py` (event_type_id per sport/competizioni/eventi/mercati;
   per le selezioni, che non hanno event_type_id, via i `market_id` dello sport,
   `market_ids_for_sports`). Sport non valido/non specificato → nessun filtro. `counts(sport)`
-  per il riepilogo, `view(level, sport, active_only)` per la tabella. **Niente rete, niente
-  scrittura DB, niente operazioni di scommessa** (solo `SELECT` via i metodi di lettura del DB).
+  per il riepilogo, `view(level, sport, active_only, search=None, filters=None)` per la tabella.
+  **Ricerca** (`search`, issue #178 §1): sottostringa case-insensitive sui campi testuali del
+  livello — nomi partecipante/selezione/evento/mercato/competizione **e** gli ID — così copre sia
+  "Ricerca partecipante/selezione" sia il filtro per ID. **Filtri drill-down** (`filters`, dict
+  `{colonna: valore}` a corrispondenza esatta): competizione/evento/mercato, con chiavi non
+  pertinenti al livello ignorate (fail-open). Ogni livello mostra ora la colonna **`Ultima sync`**
+  (`last_seen_at`, 0/None → vuoto). `total`/`active` riflettono la query (scope+filtri+ricerca)
+  prima di `active_only`. **Niente rete, niente scrittura DB, niente operazioni di scommessa**
+  (solo `SELECT` via i metodi di lettura del DB).
 - `betfair/dictionary_viewer_gui.py`: `DictionaryViewerPanel` (solo widget/wiring, non testato
-  in CI): tendina Livello + tendina Sport + «Solo attivi» + «🔄 Aggiorna»; tabella di **sole
-  etichette** (nessuna Entry/azione di scrittura). Un controller assente (DB non apribile) o un
-  errore di lettura mostra un avviso, non crasha.
+  in CI): tendina Livello + tendina Sport + «Solo attivi» + casella **«Cerca»** (con «Pulisci»)
+  + «🔄 Aggiorna»; tabella di **sole etichette** (nessuna Entry di scrittura). Un controller
+  assente (DB non apribile) o un errore di lettura mostra un avviso, non crasha.
 - `app.py`: nuova scheda «📖 Dizionario Betfair» nella finestra «🧰 Strumenti», che riusa il DB
   del motore Betfair (stessa istanza, sola lettura).
 
 #### Smoke test manuale PR-P11 (GUI)
 1. «📖 Dizionario Betfair»: scegli Livello = Eventi e Sport = Calcio → vedi solo gli eventi di
    calcio; «Solo attivi» nasconde i record disattivati; «Aggiorna» ricarica.
-2. La logica (vista per livello, scoping per sport incl. selezioni via market_id, solo-attivi,
-   conteggi, livello non valido) è coperta da unit test (`test_betfair_dictionary_viewer.py`);
-   la sola resa Tk è manuale.
+2. Digita nel campo «Cerca» un nome partecipante/selezione o un ID → la tabella si restringe alle
+   righe che lo contengono; «Pulisci» azzera la ricerca. La colonna «Ultima sync» mostra il marker.
+3. La logica (vista per livello, scoping per sport incl. selezioni via market_id, ricerca testuale,
+   filtri drill-down, colonna last_seen_at, solo-attivi, conteggi, livello non valido) è coperta da
+   unit test (`test_betfair_dictionary_viewer.py`); la sola resa Tk è manuale.
 
 ### PR-P12 — Telegram → Parser → Mapping → CSV XTrader (risoluzione ID + fallback nomi)
 - `betfair/dictionary_resolver.py` (controller **puro**, sola lettura): `DictionaryResolver`
