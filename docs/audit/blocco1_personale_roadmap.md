@@ -268,19 +268,35 @@ reale (i punti 5–6 sono coperti da smoke manuale; la logica pura è in unit te
   agnostiche come fallback), saltando le righe di un altro sport; sport assente/None/"" →
   nessun filtro (legacy). Così un override per-sport non viene scavalcato da una riga
   agnostica salvata prima (la GUI fa append). Fonte sport unica: `xtrader_bridge/sports.py`.
+- **`entity_type` unificato** (issue #178 §2): ogni riga porta anche un campo opzionale
+  **`entity_type`** fra `ENTITY_TYPES` = `participant/team/player/competition/market/selection`
+  (vuoto/ignoto → `""` agnostico, `normalize_entity_type`). `resolve_team`/`resolve_event_name`
+  accettano un parametro **`entity_type`**: filtro AGGIUNTIVO allo sport (helper
+  `_iter_entries_for_scope` + `_entity_eligible`), con le righe agnostiche sempre eleggibili e
+  quelle di un ALTRO tipo saltate (un alias di "competition" non traduce un nome squadra). Così
+  diventano esprimibili anche i tipi che prima mancavano (**player**, **competition**). La
+  priorità è ai **match esatti** sulle righe agnostiche su entrambe le dimensioni (sport e
+  tipo), come per lo sport (Codex). `entity_type` accetta un singolo tipo **o un insieme**.
+  Sicurezza (Codex P1): il pipeline live (`custom_pipeline`) risolve l'**EventName** solo con
+  l'insieme `PARTICIPANT_ENTITY_TYPES` (`participant`/`team`/`player`) + le righe agnostiche,
+  così una riga `competition`/`market`/`selection` con un alias che collide **non** traduce
+  un partecipante dell'evento (niente `EventName` CSV sbagliato). Gli altri tipi restano
+  disponibili per la risoluzione su richiesta esplicita del chiamante.
 - `custom_pipeline.build_validated_row`: passa `defn.sport` a `resolve_event_name`, così
   la mappatura nomi runtime è ristretta allo sport del parser (un nome non viene tradotto
   con la voce di uno sport diverso → CSV corretto, fail-closed se non mappabile).
-- `name_mapping_gui.py`: la tabella del profilo ha una colonna **Sport** per riga
-  (tendina «(tutti gli sport)» + i 4 sport), letta/salvata in `_collect_rows`.
-- Nessun cambio del formato di config `name_mappings` (resta `{profilo: [righe]}`): il
-  campo `sport` è una chiave opzionale della riga → file pre-P10 restano validi e agnostici.
+- `name_mapping_gui.py`: la tabella del profilo ha una colonna **Sport** e una colonna **Tipo**
+  per riga (tendine «(tutti gli sport)»/«(qualsiasi tipo)» + i valori validi), lette/salvate in
+  `_collect_rows`.
+- Nessun cambio del formato di config `name_mappings` (resta `{profilo: [righe]}`): `sport` ed
+  `entity_type` sono chiavi opzionali della riga → file pre-P10 restano validi e agnostici.
 
 #### Smoke test manuale PR-P10 (GUI)
-1. «🗺️ Mapping» → area Calcio: aggiungi una riga con Sport = Tennis, una con «(tutti gli
-   sport)»; salva e riapri: lo Sport per riga è persistito.
-2. La logica (normalizzazione sport, scoping resolve_team/resolve_event_name, pipeline per
-   sport) è coperta da unit test (`test_name_mapping.py`); la sola resa Tk è manuale.
+1. «🗺️ Mapping» → area Calcio: aggiungi una riga con Sport = Tennis e Tipo = player, una con
+   «(tutti gli sport)»/«(qualsiasi tipo)»; salva e riapri: Sport e Tipo per riga sono persistiti.
+2. La logica (normalizzazione sport ed entity_type, scoping resolve_team/resolve_event_name,
+   pipeline per sport, tipi player/competition rappresentabili) è coperta da unit test
+   (`test_name_mapping.py`); la sola resa Tk è manuale.
 
 ### PR-P11 — Dictionary Viewer Locale (sola lettura)
 - `betfair/dictionary_viewer.py` (controller **puro**, sola lettura): `DictionaryViewerController`

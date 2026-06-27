@@ -122,6 +122,17 @@ provider nei nomi Betfair/XTrader **prima** della scrittura:
   tradotto con una voce pensata per uno sport diverso (es. un "Milan" del basket non mappa
   un evento di calcio). Parser senza sport / righe agnostiche → comportamento legacy
   (nessun filtro), retro-compatibile.
+- **tipo entità (`entity_type`, #178 §2)**: ogni riga ha anche una colonna **Tipo**
+  opzionale con i valori `participant`, `team`, `player`, `competition`, `market`,
+  `selection` o **«(qualsiasi tipo)»** = agnostica (chiave di config `entity_type`; vuoto/
+  ignoto → agnostica, retro-compatibile con le config salvate prima del campo). Serve a
+  dichiarare COSA mappa una riga, così un alias di un altro tipo non scavalca un nome
+  squadra; come per lo sport, il **tipo esatto** ha priorità sull'agnostico. **Nel flusso
+  live l'`EventName` (i partecipanti dell'evento) è tradotto SOLO dalle righe
+  `participant`/`team`/`player` e dalle agnostiche**: le righe `competition`/`market`/
+  `selection`, anche con un alias che collide, **non** traducono un partecipante (evita un
+  `EventName` CSV sbagliato). Gli altri tipi restano disponibili per la risoluzione quando
+  il chiamante li richiede esplicitamente.
 
 **Sicuro (fail-closed)**: se il separatore non si trova **o** una squadra non è nei
 profili (per lo sport del parser), lo stato è `MAPPING_MISSING` → **nessuna riga CSV** (un
@@ -132,10 +143,11 @@ retro-compatibile).
 **GUI**: i profili si gestiscono nella scheda **Mapping** della finestra «🧰 Strumenti»
 (pulsante «🗺️ Mapping» nella finestra principale → `name_mapping_gui.MappingPanel`),
 **area ⚽ Calcio** (`NameMappingPanel`): selettore profilo (nuovo/rinomina/elimina) e
-tabella `Country | Betfair/XTrader | Provider`. La classe
-`NameMappingWindow` resta come finestra standalone (compatibilità). La tabella ha ora
-una colonna **Sport** per riga (PR-P10: «(tutti gli sport)» = agnostica, oppure uno sport
-specifico). Nel **Parser
+tabella `Country | Betfair/XTrader | Provider | Sport | Tipo`. La classe
+`NameMappingWindow` resta come finestra standalone (compatibilità). La tabella ha una
+colonna **Sport** per riga (PR-P10: «(tutti gli sport)» = agnostica, oppure uno sport
+specifico) e una colonna **Tipo** (#178 §2: «(qualsiasi tipo)» = agnostica, oppure
+`participant`/`team`/`player`/`competition`/`market`/`selection`). Nel **Parser
 Personalizzato** scegli
 il **separatore** squadre e spunti i **profili** da usare (checkbox multi-selezione);
 «Prova messaggio» risolve i profili dalla config e mostra l'`EventName` tradotto (o
