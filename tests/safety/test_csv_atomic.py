@@ -333,3 +333,67 @@ def test_replace_with_retry_esaurisce_gli_attempt_e_rilancia(monkeypatch):
     with pytest.raises(OSError):
         csv_writer._replace_with_retry("src.tmp", "dst.csv", attempts=4, delay=0)
     assert calls["n"] == 4                 # ha provato esattamente `attempts` volte
+
+
+# ── H3 (#184): check-then-clear di clear_stale_csv ATOMICO sotto _write_lock ──
+
+def test_clear_stale_csv_legge_header_sotto_il_lock(tmp_path, monkeypatch):
+    # Il bug H3: la lettura dell'header avveniva FUORI dal _write_lock e il clear lo
+    # riprendeva → una write concorrente poteva inserirsi tra check e clear e perdere un
+    # segnale. Verifica deterministica: durante la lettura dell'header il _write_lock è GIÀ
+    # tenuto (una acquire non-bloccante fallisce), quindi nessuna write può intromettersi.
+    p = tmp_path / "segnali.csv"
+    csv_writer.write_csv(ROW, str(p))                     # un segnale "stantio" sul disco
+    held = {}
+    real_reader = csv.reader
+
+    def spy_reader(f, *a, **k):
+        got = csv_writer._write_lock.acquire(blocking=False)
+        held["locked_during_read"] = not got              # non acquisibile = già tenuto
+        if got:
+            csv_writer._write_lock.release()
+        return real_reader(f, *a, **k)
+
+    monkeypatch.setattr(csv_writer.csv, "reader", spy_reader)
+    assert csv_writer.clear_stale_csv(str(p)) is True
+    assert held["locked_during_read"] is True             # check sotto lock (assert PRIMA di _read)
+    monkeypatch.undo()                                    # ripristina csv.reader per _read
+    assert _read(str(p)) == [csv_writer.CSV_HEADER]       # svuotato a solo header
+
+
+def test_clear_e_write_concorrenti_non_corrompono(tmp_path):
+    # Resilienza concorrenza: write_csv e clear_stale_csv in parallelo da più thread non
+    # devono mai lasciare un file torn/perso: header sempre integro, 0 o 1 riga dati,
+    # nessun temporaneo residuo (scrittura atomica + serializzazione sotto _write_lock).
+    p = str(tmp_path / "segnali.csv")
+    csv_writer.write_csv(ROW, p)
+    errors = []
+
+    def writer_t():
+        for _ in range(50):
+            try:
+                csv_writer.write_csv(ROW, p)
+            except Exception as e:                        # noqa: BLE001 — raccolto per l'assert
+                errors.append(e)
+
+    def clearer_t():
+        for _ in range(50):
+            try:
+                csv_writer.clear_stale_csv(p)
+            except Exception as e:                        # noqa: BLE001
+                errors.append(e)
+
+    threads = ([threading.Thread(target=writer_t) for _ in range(2)]
+               + [threading.Thread(target=clearer_t) for _ in range(2)])
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+    rows = _read(p)
+    assert rows[0] == csv_writer.CSV_HEADER                # header sempre presente e integro
+    assert len(rows) in (1, 2)                             # solo header, o header + 1 riga
+    if len(rows) == 2:
+        assert rows[1] == [ROW[c] for c in csv_writer.CSV_HEADER]
+    assert _no_tmp_left(str(tmp_path))                     # nessun temporaneo residuo

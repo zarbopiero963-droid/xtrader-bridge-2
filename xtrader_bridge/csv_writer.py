@@ -184,14 +184,25 @@ def _atomic_write(path: str, write_rows) -> None:
     `_replace_with_retry` (retry su lock Windows). Tutto sotto `_write_lock` per
     serializzare write/clear.
     """
+    with _write_lock:
+        _atomic_write_locked(path, write_rows)
+
+
+def _atomic_write_locked(path: str, write_rows) -> None:
+    """Come `_atomic_write` ma **assume che `_write_lock` sia GIÀ tenuto dal chiamante**.
+
+    Serve a chi deve fare un'operazione composita atomica sotto lo stesso lock — es.
+    `clear_stale_csv` legge l'header e poi svuota: il check-then-clear dev'essere un blocco
+    unico, senza che una `write_csv` concorrente si inserisca in mezzo (issue #184 H3). NON
+    riacquisisce `_write_lock` (che è un `threading.Lock` non rientrante: riacquisirlo dallo
+    stesso thread sarebbe un deadlock)."""
     def _write_csv(f):
         writer = csv.DictWriter(f, fieldnames=CSV_HEADER, quoting=csv.QUOTE_ALL)
         writer.writeheader()
         write_rows(writer)
 
-    with _write_lock:
-        atomic_io.atomic_write(path, _write_csv, prefix=".segnali_", suffix=".tmp",
-                               encoding=CSV_ENCODING, newline="", replace=_replace_with_retry)
+    atomic_io.atomic_write(path, _write_csv, prefix=".segnali_", suffix=".tmp",
+                           encoding=CSV_ENCODING, newline="", replace=_replace_with_retry)
 
 
 def init_csv(path: str):
@@ -216,35 +227,46 @@ def clear_stale_csv(path: str) -> bool:
     bridge, cioè la cui prima riga è esattamente `CSV_HEADER`. Se `csv_path` punta
     per errore a un file NON-bridge (typo/path riusato in config), il file **non**
     viene toccato: aprire/chiudere l'app non deve poter distruggere un file
-    arbitrario dell'utente."""
-    if not path or not os.path.exists(path):
+    arbitrario dell'utente.
+
+    **Atomicità check-then-clear (issue #184 H3):** la lettura dell'header E il successivo
+    svuotamento avvengono SOTTO lo stesso `_write_lock`. Prima il check era fuori dal lock
+    e lo svuotamento (`init_csv`) lo riprendeva: una `write_csv` concorrente dal thread del
+    bot poteva inserirsi TRA la lettura dell'header e il clear, e un segnale appena scritto
+    veniva azzerato a solo-header. Ora la sequenza è un blocco unico serializzato con le
+    scritture."""
+    if not path:
         return False
-    try:
-        with open(path, newline="", encoding="utf-8-sig") as f:
-            first_row = next(csv.reader(f), None)
-    except (UnicodeDecodeError, csv.Error):
-        # File non decodificabile/non parsabile (CSV ANSI, binario scelto per
-        # errore…) → non è un CSV del bridge: non toccarlo (e niente crash).
-        return False
-    # NB: un OSError (permessi/lock di Windows, es. file tenuto aperto) NON è
-    # catturato qui: si propaga al chiamante, che lo segnala come cleanup fallito
-    # invece di silenziarlo come se il file fosse assente/non-bridge.
-    if first_row != CSV_HEADER:
-        # File esistente e decodificabile ma con header diverso da CSV_HEADER: NON è un CSV
-        # del bridge → non si tocca (anti data-loss). Prima il return era SILENZIOSO: ora si
-        # logga un avviso per la diagnosi, ma **senza il contenuto** dell'header. Se per
-        # errore `csv_path` punta a un file con un segreto (es. un token nella prima riga, più
-        # corto di una troncatura) NON deve finire nei log, e questo sink non passa per la
-        # redazione di `event_log` (Codex P2). Si riportano solo METADATI strutturali (numero
-        # colonne e lunghezza), che bastano a capire che è il file sbagliato.
-        n_cols = len(first_row or [])
-        n_chars = sum(len(str(c)) for c in (first_row or []))
-        logger.warning("CSV non ripulito: %s non è un CSV del bridge (header atteso %d "
-                       "colonne; rilevate %d colonne, %d caratteri — contenuto non loggato). "
-                       "Controlla csv_path.", path, len(CSV_HEADER), n_cols, n_chars)
-        return False   # non è un CSV del bridge → non sovrascrivere
-    init_csv(path)
-    return True
+    with _write_lock:
+        if not os.path.exists(path):
+            return False
+        try:
+            with open(path, newline="", encoding="utf-8-sig") as f:
+                first_row = next(csv.reader(f), None)
+        except (UnicodeDecodeError, csv.Error):
+            # File non decodificabile/non parsabile (CSV ANSI, binario scelto per
+            # errore…) → non è un CSV del bridge: non toccarlo (e niente crash).
+            return False
+        # NB: un OSError (permessi/lock di Windows, es. file tenuto aperto) NON è
+        # catturato qui: si propaga al chiamante, che lo segnala come cleanup fallito
+        # invece di silenziarlo come se il file fosse assente/non-bridge.
+        if first_row != CSV_HEADER:
+            # File esistente e decodificabile ma con header diverso da CSV_HEADER: NON è un CSV
+            # del bridge → non si tocca (anti data-loss). Prima il return era SILENZIOSO: ora si
+            # logga un avviso per la diagnosi, ma **senza il contenuto** dell'header. Se per
+            # errore `csv_path` punta a un file con un segreto (es. un token nella prima riga, più
+            # corto di una troncatura) NON deve finire nei log, e questo sink non passa per la
+            # redazione di `event_log` (Codex P2). Si riportano solo METADATI strutturali (numero
+            # colonne e lunghezza), che bastano a capire che è il file sbagliato.
+            n_cols = len(first_row or [])
+            n_chars = sum(len(str(c)) for c in (first_row or []))
+            logger.warning("CSV non ripulito: %s non è un CSV del bridge (header atteso %d "
+                           "colonne; rilevate %d colonne, %d caratteri — contenuto non loggato). "
+                           "Controlla csv_path.", path, len(CSV_HEADER), n_cols, n_chars)
+            return False   # non è un CSV del bridge → non sovrascrivere
+        # svuotamento SOTTO lo stesso lock (no init_csv: riacquisirebbe _write_lock → deadlock)
+        _atomic_write_locked(path, lambda writer: None)
+        return True
 
 
 def write_rows(rows, path: str):
