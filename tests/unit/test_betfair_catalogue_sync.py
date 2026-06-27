@@ -140,6 +140,52 @@ def test_sync_tennis(db):
     assert ids == {"e2"}
 
 
+def _menu_basket_rugby():
+    """Menu con Basket (event_type 7522) e Rugby Union (5), per i due sport del
+    blocco che mancavano di un test di sync end-to-end (issue #178 §3)."""
+    return {
+        "type": "GROUP", "name": "ROOT", "children": [
+            {"type": "EVENT_TYPE", "id": "7522", "name": "Basketball", "children": [
+                {"type": "EVENT", "id": "eb", "name": "Lakers v Celtics", "children": [
+                    {"type": "MARKET", "id": "1.700", "name": "Moneyline",
+                     "marketType": "MATCH_ODDS"}]}]},
+            {"type": "EVENT_TYPE", "id": "5", "name": "Rugby Union", "children": [
+                {"type": "EVENT", "id": "er", "name": "England v Wales", "children": [
+                    {"type": "MARKET", "id": "1.500", "name": "Match Odds",
+                     "marketType": "MATCH_ODDS"}]}]},
+        ]}
+
+
+def test_sync_basket(db):
+    # Solo Basket (7522): persiste sport/evento/mercato; lo split partecipanti funziona.
+    CatalogueSync(db, navigation_transport=lambda: _menu_basket_rugby(),
+                  catalogue_transport=lambda mids: []).sync(["Basket"])
+    assert db.count_active("betfair_sports") == 1
+    ids = {e["event_id"] for e in db.get_events()}
+    assert ids == {"eb"}                       # niente Rugby (fuori scope)
+    ev = db.get_events()[0]
+    assert ev["event_type_id"] == "7522"
+    assert ev["participant_1"] == "Lakers" and ev["participant_2"] == "Celtics"
+
+
+def test_sync_rugby(db):
+    # Solo Rugby Union (5).
+    CatalogueSync(db, navigation_transport=lambda: _menu_basket_rugby(),
+                  catalogue_transport=lambda mids: []).sync(["Rugby Union"])
+    ids = {e["event_id"] for e in db.get_events()}
+    assert ids == {"er"}                        # niente Basket (fuori scope)
+    assert db.get_events()[0]["event_type_id"] == "5"
+
+
+def test_sync_basket_rugby_insieme_non_interferiscono(db):
+    # Sincronizzare entrambi mantiene entrambi attivi (scope per event_type_id).
+    CatalogueSync(db, navigation_transport=lambda: _menu_basket_rugby(),
+                  catalogue_transport=lambda mids: []).sync(["Basket", "Rugby Union"])
+    ids = {e["event_id"] for e in db.get_events()}
+    assert ids == {"eb", "er"}
+    assert db.count_active("betfair_events") == 2
+
+
 def test_sync_marker_avanza_e_disattiva_record_spariti(db):
     s = _sync(db)
     s.sync(["Calcio"])

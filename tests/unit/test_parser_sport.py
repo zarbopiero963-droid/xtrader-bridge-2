@@ -29,6 +29,35 @@ def test_event_type_id_per_sport_noto():
     assert _valid_def(sport="Rugby Union").event_type_id() == "5"
 
 
+# ── parser PER PROFILO: cambiare profilo cambia il parser attivo (issue #178 §3) ──
+
+def test_cambio_profilo_cambia_parser_attivo(tmp_path):
+    """Bullet PR-P9 "Cambio profilo cambia parser" asserito direttamente: due profili
+    con `active_parser` diverso risolvono a due parser (e due sport) diversi via le
+    funzioni reali `profile_store.apply_profile` + `parser_manager.load_active`."""
+    from xtrader_bridge import parser_manager as pm
+    from xtrader_bridge import profile_store as ps
+
+    d = str(tmp_path)
+    cp.save_parser(CustomParserDef(
+        name="CalcioP", sport="Calcio",
+        rules=[FieldRule(target="Provider", fixed_value="X")]), dir_path=d)
+    cp.save_parser(CustomParserDef(
+        name="TennisP", sport="Tennis",
+        rules=[FieldRule(target="Provider", fixed_value="X")]), dir_path=d)
+
+    base = {"bot_token": "SEGRETO"}                 # segreto della config viva
+    cfg_a = ps.apply_profile(base, {"active_parser": "CalcioP"})
+    cfg_b = ps.apply_profile(base, {"active_parser": "TennisP"})
+
+    defn_a = pm.load_active(cfg_a, dir_path=d)
+    defn_b = pm.load_active(cfg_b, dir_path=d)
+    assert defn_a.name == "CalcioP" and defn_a.sport == "Calcio"
+    assert defn_b.name == "TennisP" and defn_b.sport == "Tennis"
+    # cambiare profilo non perde il segreto della config viva (apply_profile lo preserva)
+    assert cfg_a["bot_token"] == "SEGRETO" and cfg_b["bot_token"] == "SEGRETO"
+
+
 # ── round-trip JSON ─────────────────────────────────────────────────────────────
 
 def test_sport_roundtrip_to_from_dict():

@@ -31,6 +31,25 @@ _FORBIDDEN_TERMS = (
 # Le 4 operazioni di scommessa: vietate nei moduli betfair/ tranne il guard.
 _BETTING_OPS = ("placeorders", "cancelorders", "replaceorders", "updateorders")
 
+# Provider di pagamento: nomi non ambigui che NON devono mai comparire nel codice del
+# bridge personale (issue #86: niente pagamenti). Non includo la parola generica
+# "payment"/"pagamento" perché può comparire legittimamente in un commento di divieto.
+_PAYMENT_TERMS = (
+    "stripe", "paypal", "braintree", "razorpay", "adyen",
+    "payment_intent", "checkout_session", "billing_portal",
+)
+
+# Backup/import/export/cloud del dizionario Betfair: vietati (issue #86: niente
+# backup/import/export Betfair, niente cloud sync). Cerco nomi di FUNZIONE che
+# implicherebbero lo spostamento del dizionario fuori dal PC, più host cloud noti.
+import re  # noqa: E402
+
+_BETFAIR_FORBIDDEN_PATTERNS = (
+    re.compile(r"def\s+(export|backup|upload|import)_", re.IGNORECASE),
+    re.compile(r"\b(dropbox|s3\.amazonaws|googleapis|gcs_bucket|onedrive|firebase)\b",
+               re.IGNORECASE),
+)
+
 
 def _py_files(root):
     for dirpath, dirnames, filenames in os.walk(root):
@@ -76,3 +95,29 @@ def test_nessuna_operazione_di_scommessa_fuori_dal_guard():
             offenders.append((rel, hits))
     assert not offenders, (
         f"Operazioni di scommessa nominate fuori dal guard read-only: {offenders}")
+
+
+def test_nessun_provider_di_pagamento_nel_package():
+    # DoD issue #86: niente pagamenti. Nessun nome di payment provider nel codice.
+    offenders = []
+    for path in _py_files(_PKG_DIR):
+        low = _read(path).casefold()
+        hits = [term for term in _PAYMENT_TERMS if term in low]
+        if hits:
+            rel = os.path.relpath(path, _REPO_ROOT)
+            offenders.append((rel, hits))
+    assert not offenders, f"Riferimenti a provider di pagamento nel codice: {offenders}"
+
+
+def test_nessun_backup_import_export_o_cloud_betfair():
+    # DoD issue #86: niente backup/import/export Betfair, niente cloud sync. Nessuna
+    # funzione di export/backup/upload/import del dizionario né host cloud in betfair/.
+    offenders = []
+    for path in _py_files(_BETFAIR_DIR):
+        text = _read(path)
+        hits = [p.pattern for p in _BETFAIR_FORBIDDEN_PATTERNS if p.search(text)]
+        if hits:
+            rel = os.path.relpath(path, _REPO_ROOT)
+            offenders.append((rel, hits))
+    assert not offenders, (
+        f"Funzioni di backup/import/export o host cloud nel subpackage Betfair: {offenders}")

@@ -165,3 +165,39 @@ def test_id_parser_coerente_riempie_solo_i_vuoti():
     out = pipe.build_validated_row(_parser_with_fixed_marketid("PARSER_MK"), _MSG, id_resolver=res)
     assert out.row["MarketId"] == "PARSER_MK"
     assert out.row["EventId"] == "ev1" and out.row["SelectionId"] == "s1"
+
+
+# ── glue di app.py: _betfair_id_resolver best-effort (issue #178 §3) ──────────
+
+def test_app_betfair_id_resolver_costruito_sul_db_del_motore():
+    """`App._betfair_id_resolver` (chiamato come funzione unbound su un self minimale)
+    ritorna un `DictionaryResolver` agganciato al DB del motore Betfair."""
+    from xtrader_bridge.app import App
+
+    db = BetfairLocalDB(":memory:")
+
+    class _Engine:
+        pass
+
+    class _Self:
+        def _betfair_sync_engine(self):
+            eng = _Engine()
+            eng.db = db
+            return eng
+
+    resolver = App._betfair_id_resolver(_Self())
+    assert isinstance(resolver, DictionaryResolver)
+    assert resolver.db is db
+    db.close()
+
+
+def test_app_betfair_id_resolver_fail_open_ritorna_none():
+    """Se il dizionario non è disponibile (engine che solleva), il glue ritorna None
+    → flusso live a NOMI (fallback), nessun crash, nessun blocco del segnale."""
+    from xtrader_bridge.app import App
+
+    class _Self:
+        def _betfair_sync_engine(self):
+            raise RuntimeError("DB locale non apribile (simulato)")
+
+    assert App._betfair_id_resolver(_Self()) is None
