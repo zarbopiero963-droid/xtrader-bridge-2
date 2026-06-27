@@ -50,6 +50,12 @@ _STORE_KEY = "name_mappings"
 # (vale per ogni tipo), retro-compatibile con le righe salvate prima di questo campo.
 ENTITY_TYPES = ("participant", "team", "player", "competition", "market", "selection")
 
+# Tipi "partecipante" usati per risolvere un nome di squadra/giocatore nell'EventName.
+# Il flusso live (custom_pipeline) restringe la mappatura dell'EventName a QUESTI tipi (più
+# le righe agnostiche), così una riga di tipo competition/market/selection con un alias
+# che collide NON traduce un partecipante dell'evento (issue #178 §2, Codex P1).
+PARTICIPANT_ENTITY_TYPES = ("participant", "team", "player")
+
 
 def normalize_entity_type(value) -> str:
     """Normalizza un tipo di entità a uno di ``ENTITY_TYPES`` (case-insensitive) oppure
@@ -57,6 +63,20 @@ def normalize_entity_type(value) -> str:
     un tipo a caso, diventa agnostico."""
     v = str(value or "").strip().casefold()
     return v if v in ENTITY_TYPES else ""
+
+
+def _entity_filter(want_entity):
+    """Normalizza ``want_entity`` (str, iterabile di str, o falsy) nell'insieme dei tipi
+    AMMESSI (frozenset) oppure ``None`` = nessun filtro. I valori ignoti sono scartati;
+    un insieme che si svuota → ``None`` (nessun filtro, non un filtro che blocca tutto)."""
+    if not want_entity:
+        return None
+    if isinstance(want_entity, str):
+        v = normalize_entity_type(want_entity)
+        return frozenset({v}) if v else None
+    allowed = {normalize_entity_type(x) for x in want_entity}
+    allowed.discard("")
+    return frozenset(allowed) if allowed else None
 
 
 def _store(cfg: dict) -> dict:
@@ -195,39 +215,48 @@ def rename_profile(cfg: dict, old: str, new: str) -> dict:
     return out
 
 
-def _entity_eligible(entry, want_entity) -> bool:
-    """Una riga è eleggibile per il tipo di entità richiesto se ne combacia, oppure se è
-    **agnostica** (``entity_type`` vuoto, vale per ogni tipo). ``want_entity`` falsy →
-    nessun filtro (tutte eleggibili)."""
-    if not want_entity:
+def _entity_eligible(entry, allowed) -> bool:
+    """Una riga è eleggibile se il suo ``entity_type`` è fra quelli ``allowed`` (insieme
+    dei tipi richiesti) oppure se è **agnostica** (``entity_type`` vuoto, vale per ogni
+    tipo). ``allowed`` ``None`` → nessun filtro (tutte eleggibili)."""
+    if allowed is None:
         return True
     et = str(entry.get("entity_type", "") or "")
-    return et == want_entity or et == ""
+    return et in allowed or et == ""
 
 
 def _iter_entries_for_scope(entries, want_sport, want_entity=None):
     """Itera le righe eleggibili per lo scope richiesto (sport + tipo di entità), **dando
-    priorità allo sport esatto** sulle righe agnostiche (PR-P10, CodeRabbit).
+    priorità ai match esatti** sulle righe agnostiche, su ENTRAMBE le dimensioni (PR-P10,
+    CodeRabbit + Codex).
 
-    - prima si scartano le righe di un ALTRO ``entity_type`` (le agnostiche restano);
-    - poi, se ``want_sport`` è valorizzato → PRIMA le righe con ``sport == want_sport``
-      (override per-sport), POI le righe agnostiche (``sport`` vuoto) come fallback; le
-      righe taggate per un ALTRO sport sono escluse. ``want_sport`` falsy → ordine salvato.
+    - si scartano le righe di un ALTRO ``entity_type`` (le agnostiche restano) e di un
+      ALTRO sport (le agnostiche restano);
+    - le rimanenti si ordinano per priorità: PRIMA sport esatto sull'agnostico, e a parità
+      PRIMA tipo esatto sull'agnostico; a parità di rango l'ordine salvato è preservato
+      (sort stabile). ``want_sport``/``want_entity`` assenti → quella dimensione non
+      influenza l'ordine.
 
-    Così una riga agnostica salvata PRIMA non scavalca un override per-sport salvato dopo
-    (la GUI fa solo append): l'override per-sport ha sempre la precedenza, e l'agnostica
-    resta un fallback se non c'è un match esatto. Il filtro ``entity_type`` è additivo:
-    senza ``want_entity`` il comportamento è identico al solo scoping per sport (legacy)."""
-    pool = [e for e in entries if _entity_eligible(e, want_entity)]
-    if not want_sport:
-        yield from pool
+    Così una riga agnostica salvata PRIMA non scavalca un override esatto (per sport o per
+    tipo) salvato dopo (la GUI fa solo append): l'override esatto ha sempre la precedenza,
+    e l'agnostica resta un fallback. Senza alcun filtro il comportamento è l'ordine salvato
+    (legacy)."""
+    want = want_sport or ""
+    allowed = _entity_filter(want_entity)
+    pool = [e for e in entries
+            if _entity_eligible(e, allowed)
+            and (not want or str(e.get("sport", "") or "") in (want, ""))]
+    if not want and allowed is None:
+        yield from pool                       # nessun filtro → ordine salvato (legacy)
         return
-    for e in pool:
-        if str(e.get("sport", "") or "") == want_sport:
-            yield e
-    for e in pool:
-        if not str(e.get("sport", "") or ""):
-            yield e
+
+    def _rank(e):
+        sport_rank = 0 if (not want or str(e.get("sport", "") or "") == want) else 1
+        entity_rank = 0 if (allowed is None
+                            or str(e.get("entity_type", "") or "") in allowed) else 1
+        return (sport_rank, entity_rank)
+
+    yield from sorted(pool, key=_rank)        # sort STABILE: ordine salvato a parità di rango
 
 
 def resolve_team(team: str, profiles, sport=None, entity_type=None) -> str:
@@ -250,10 +279,11 @@ def resolve_team(team: str, profiles, sport=None, entity_type=None) -> str:
     viene mai scavalcato da una riga agnostica salvata prima. Le righe taggate per un altro
     sport sono saltate. Sport assente/ignoto → nessun filtro (comportamento legacy).
 
-    ``entity_type`` (PR-P10 / #178 §2): se valorizzato (uno fra ``ENTITY_TYPES``), si
-    considerano SOLO le righe di quel tipo o agnostiche, saltando quelle di un altro tipo
-    (così l'alias di una "competition" non traduce un nome squadra). Assente/ignoto →
-    nessun filtro. È additivo allo scoping per sport.
+    ``entity_type`` (PR-P10 / #178 §2): un singolo tipo (``ENTITY_TYPES``) **oppure un
+    insieme** di tipi ammessi (es. ``PARTICIPANT_ENTITY_TYPES``). Si considerano SOLO le
+    righe di quei tipi o agnostiche, saltando quelle di un altro tipo (così l'alias di una
+    "competition" non traduce un nome squadra), con **priorità al tipo esatto** sulle
+    agnostiche. Assente/ignoto → nessun filtro. È additivo allo scoping per sport.
 
     L'esaurire alias+canonico di un profilo prima del successivo evita che l'alias di
     un profilo più in basso scavalchi il canonico di uno più in alto (Codex)."""
@@ -261,14 +291,13 @@ def resolve_team(team: str, profiles, sport=None, entity_type=None) -> str:
     if not nt:
         return None
     want = sports.normalize_sport(sport)
-    want_entity = normalize_entity_type(entity_type) if entity_type else None
     for entries in profiles:
-        for e in _iter_entries_for_scope(entries, want, want_entity):
+        for e in _iter_entries_for_scope(entries, want, entity_type):
             alias = e.get("provider", "")
             betfair = e.get("betfair", "")
             if alias and betfair and normalize(alias) == nt:
                 return betfair
-        for e in _iter_entries_for_scope(entries, want, want_entity):
+        for e in _iter_entries_for_scope(entries, want, entity_type):
             betfair = e.get("betfair", "")
             if betfair and normalize(betfair) == nt:
                 return betfair

@@ -205,9 +205,13 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
         sep = (defn.team_separator or "").strip() or _DEFAULT_TEAM_SEPARATOR
         # Sport del parser (PR-P10): restringe la mappatura nomi alle righe di quello sport
         # o agnostiche, così un nome non viene tradotto con la voce di uno sport diverso.
+        # entity_type (#178 §2, Codex P1): i partecipanti di un evento sono squadre/giocatori
+        # → si usano SOLO le righe participant/team/player (più le agnostiche), escludendo le
+        # righe competition/market/selection con alias che collide (no EventName sbagliato).
         mapped = name_mapping_store.resolve_event_name(
             row.get("EventName", ""), sep, name_mapping_profiles or [],
-            sport=getattr(defn, "sport", ""))
+            sport=getattr(defn, "sport", ""),
+            entity_type=name_mapping_store.PARTICIPANT_ENTITY_TYPES)
         if mapped is None:
             return PipelineResult(MAPPING_MISSING, row, list(res.missing_required))
         row = dict(row)

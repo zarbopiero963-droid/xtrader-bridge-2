@@ -274,10 +274,14 @@ reale (i punti 5–6 sono coperti da smoke manuale; la logica pura è in unit te
   accettano un parametro **`entity_type`**: filtro AGGIUNTIVO allo sport (helper
   `_iter_entries_for_scope` + `_entity_eligible`), con le righe agnostiche sempre eleggibili e
   quelle di un ALTRO tipo saltate (un alias di "competition" non traduce un nome squadra). Così
-  diventano esprimibili anche i tipi che prima mancavano (**player**, **competition**). Scelta
-  di sicurezza: il pipeline live NON passa `entity_type` (i partecipanti di un evento possono
-  essere team/player/participant: un singolo tipo escluderebbe gli altri) — il campo è
-  memorizzato, editabile in GUI e onorato dalla risoluzione quando il chiamante lo passa.
+  diventano esprimibili anche i tipi che prima mancavano (**player**, **competition**). La
+  priorità è ai **match esatti** sulle righe agnostiche su entrambe le dimensioni (sport e
+  tipo), come per lo sport (Codex). `entity_type` accetta un singolo tipo **o un insieme**.
+  Sicurezza (Codex P1): il pipeline live (`custom_pipeline`) risolve l'**EventName** solo con
+  l'insieme `PARTICIPANT_ENTITY_TYPES` (`participant`/`team`/`player`) + le righe agnostiche,
+  così una riga `competition`/`market`/`selection` con un alias che collide **non** traduce
+  un partecipante dell'evento (niente `EventName` CSV sbagliato). Gli altri tipi restano
+  disponibili per la risoluzione su richiesta esplicita del chiamante.
 - `custom_pipeline.build_validated_row`: passa `defn.sport` a `resolve_event_name`, così
   la mappatura nomi runtime è ristretta allo sport del parser (un nome non viene tradotto
   con la voce di uno sport diverso → CSV corretto, fail-closed se non mappabile).

@@ -521,3 +521,86 @@ def test_entity_type_e_sport_combinati():
     profs = nm.entries_for_profiles(cfg, ["P"])
     assert nm.resolve_team("Inter", profs, sport="Calcio", entity_type="team") == "Inter FC"
     assert nm.resolve_team("Inter", profs, sport="Tennis", entity_type="team") == "Inter Tennis"
+
+
+# ── Codex review su PR #182: priorità tipo esatto + esclusione non-participant ──
+
+def test_resolve_team_tipo_esatto_vince_su_agnostico_precedente():
+    # P2 Codex: una riga agnostica legacy salvata PRIMA non deve scavalcare un override
+    # tipizzato per lo stesso alias (la GUI fa solo append). Con entity_type="team" vince
+    # l'override tipizzato; senza filtro tipo resta l'ordine salvato (legacy invariato).
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter generico", "provider": "Inter"},                   # agnostica (prima)
+        {"betfair": "Inter FC", "provider": "Inter", "entity_type": "team"},  # override tipizzato (dopo)
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Inter", profs, entity_type="team") == "Inter FC"
+    assert nm.resolve_team("Inter", profs) == "Inter generico"
+
+
+def test_resolve_team_entity_type_accetta_insieme_di_tipi():
+    # entity_type può essere un INSIEME di tipi ammessi (es. PARTICIPANT_ENTITY_TYPES).
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Giocatore A", "provider": "x", "entity_type": "player"},
+        {"betfair": "Mercato B", "provider": "y", "entity_type": "market"},
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("x", profs, entity_type=nm.PARTICIPANT_ENTITY_TYPES) == "Giocatore A"
+    assert nm.resolve_team("y", profs, entity_type=nm.PARTICIPANT_ENTITY_TYPES) is None  # market escluso
+
+
+def test_resolve_event_name_esclude_tipi_non_participant():
+    # P1 Codex: una riga "competition" con alias che collide NON traduce un partecipante
+    # quando si passa l'insieme participant/team/player.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Coppa Reds", "provider": "Reds", "entity_type": "competition"},
+        {"betfair": "Leeds", "provider": "Leeds Utd", "entity_type": "team"},
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_event_name("Reds v Leeds Utd", "v", profs,
+                                 entity_type=nm.PARTICIPANT_ENTITY_TYPES) is None
+    # con righe participant/team/player (e agnostiche) la traduzione avviene
+    cfg2 = {"name_mappings": {"P": [
+        {"betfair": "Liverpool", "provider": "Reds", "entity_type": "team"},
+        {"betfair": "Leeds", "provider": "Leeds Utd", "entity_type": "player"},
+    ]}}
+    profs2 = nm.entries_for_profiles(cfg2, ["P"])
+    assert nm.resolve_event_name("Reds v Leeds Utd", "v", profs2,
+                                 entity_type=nm.PARTICIPANT_ENTITY_TYPES) == "Liverpool - Leeds"
+
+
+def test_pipeline_eventname_ignora_righe_non_participant():
+    # P1 Codex end-to-end: nel flusso live una riga competition/market/selection con alias
+    # che collide NON traduce un partecipante → fail-closed (nessun EventName sbagliato).
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Coppa Reds", "provider": "Reds", "entity_type": "competition"},
+        {"betfair": "Leeds", "provider": "Leeds Utd", "entity_type": "team"},
+    ]}}
+    profiles = nm.entries_for_profiles(cfg, ["P"])
+    msg = "Match: Reds v Leeds Utd\nSel: Sì\nQuota: 1,85\nLato: BACK"
+    res = pipe.build_validated_row(_mapping_parser(profiles=("P",)), msg,
+                                   name_mapping_profiles=profiles)
+    assert res.status == pipe.MAPPING_MISSING
+    assert res.placeable is False
+
+
+def test_pipeline_eventname_usa_team_e_participant():
+    # Controprova: righe team/participant traducono regolarmente nel flusso live.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Liverpool", "provider": "Reds", "entity_type": "team"},
+        {"betfair": "Leeds", "provider": "Leeds Utd", "entity_type": "participant"},
+    ]}}
+    profiles = nm.entries_for_profiles(cfg, ["P"])
+    msg = "Match: Reds v Leeds Utd\nSel: Sì\nQuota: 1,85\nLato: BACK"
+    res = pipe.build_validated_row(_mapping_parser(profiles=("P",)), msg,
+                                   name_mapping_profiles=profiles)
+    assert res.status == validator.VALID
+    assert res.row["EventName"] == "Liverpool - Leeds"
+
+
+def test_pipeline_eventname_agnostiche_restano_valide():
+    # Retro-compatibilità: righe SENZA entity_type (agnostiche) traducono ancora l'EventName.
+    profiles = nm.entries_for_profiles(_cfg(), ["Premier"])
+    res = pipe.build_validated_row(_mapping_parser(), _MSG, name_mapping_profiles=profiles)
+    assert res.status == validator.VALID
+    assert res.row["EventName"] == "Liverpool - Leeds"
