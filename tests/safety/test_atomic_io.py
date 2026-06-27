@@ -144,3 +144,66 @@ def test_temporaneo_nella_stessa_cartella(tmp_path, monkeypatch):
     monkeypatch.setattr(atomic_io.os, "replace", spy_replace)
     atomic_io.atomic_write_text(str(p), "x", prefix=".t_", suffix=".tmp")
     assert visti["src_dir"] == os.path.dirname(os.path.abspath(str(p)))
+
+
+# ── H2 (#184): fsync della DIRECTORY dopo il rename (durabilità del crash) ────
+
+def test_fsync_della_directory_dopo_il_replace(tmp_path, monkeypatch):
+    # Dopo `os.replace`, la directory padre deve essere fsync'd: altrimenti un
+    # power-loss subito dopo il rename può far ricomparire il contenuto precedente.
+    order = []
+    real_replace = os.replace
+    real_fsync_dir = atomic_io._fsync_dir
+
+    def spy_replace(src, dst):
+        order.append("replace")
+        return real_replace(src, dst)
+
+    def spy_fsync_dir(d):
+        order.append(("fsync_dir", os.path.abspath(d)))
+        return real_fsync_dir(d)
+
+    monkeypatch.setattr(atomic_io.os, "replace", spy_replace)
+    monkeypatch.setattr(atomic_io, "_fsync_dir", spy_fsync_dir)
+
+    p = tmp_path / "out.txt"
+    atomic_io.atomic_write_text(str(p), "x", prefix=".t_", suffix=".tmp")
+
+    assert p.read_text(encoding="utf-8") == "x"
+    # il fsync della dir avviene DOPO il replace, sulla cartella giusta
+    assert order[0] == "replace"
+    assert order[1] == ("fsync_dir", os.path.dirname(os.path.abspath(str(p))))
+
+
+def test_fsync_dir_e_no_op_su_dir_non_apribile(tmp_path):
+    # Su Windows (o dir inesistente) non si può aprire la dir come fd: deve essere un
+    # no-op silenzioso, mai un'eccezione.
+    atomic_io._fsync_dir(str(tmp_path / "non_esiste"))     # non deve sollevare
+
+
+def test_fsync_dir_errore_di_fsync_non_propaga(tmp_path, monkeypatch):
+    # Un filesystem che rifiuta l'fsync di una directory non deve far fallire la scrittura.
+    def boom_fsync(fd):
+        raise OSError("EINVAL: fsync su directory non supportato")
+
+    monkeypatch.setattr(atomic_io.os, "fsync", boom_fsync)
+    atomic_io._fsync_dir(str(tmp_path))                    # OSError swallowed, niente raise
+
+
+def test_dir_fsync_fallito_non_perde_il_file(tmp_path, monkeypatch):
+    # Esercita il path di FALLIMENTO del fsync della dir attraverso il codice reale: si
+    # forza `os.close(dir_fd)` (nel finally di `_fsync_dir`) a sollevare, DOPO un replace
+    # già riuscito. Il contratto best-effort/non-raising deve reggere: il file resta
+    # scritto e non c'è temporaneo residuo (CodeRabbit). In atomic_write l'unico `os.close`
+    # è quello di `_fsync_dir` (il temporaneo è chiuso dal `with os.fdopen`).
+    real_close = os.close
+
+    def boom_close(fd):
+        real_close(fd)                                     # chiudi davvero il fd (no leak)…
+        raise OSError("EIO: close della directory fallita")  # …poi simula l'errore
+
+    monkeypatch.setattr(atomic_io.os, "close", boom_close)
+    p = tmp_path / "out.txt"
+    atomic_io.atomic_write_text(str(p), "NUOVO", prefix=".t_", suffix=".tmp")
+    assert p.read_text(encoding="utf-8") == "NUOVO"        # file integro nonostante il close fallito
+    assert _leftovers(tmp_path, ".t_") == []               # nessun temporaneo residuo

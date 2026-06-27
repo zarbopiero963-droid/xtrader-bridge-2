@@ -26,6 +26,35 @@ import os
 import tempfile
 
 
+def _fsync_dir(d):
+    """fsync della DIRECTORY contenitore dopo ``os.replace`` (issue #184 H2).
+
+    I dati del file sono già fsync'd, ma POSIX **non** garantisce che la voce di
+    directory creata dal rename sia durabile finché non si fsync-a anche la directory:
+    su power-loss/crash subito dopo ``os.replace`` il file può tornare al contenuto
+    precedente (CSV stantio, stato dedupe/daily/config vecchio). Qui si rende durabile
+    anche il rename.
+
+    **Best-effort e non solleva mai**: dove non è supportato (Windows non permette di
+    aprire una directory come fd; alcuni filesystem rifiutano l'fsync di una dir) è un
+    no-op silenzioso. Importante: viene chiamato DOPO un ``replace`` già riuscito, quindi
+    un suo errore non deve propagare né rimuovere il file appena scritto."""
+    try:
+        dir_fd = os.open(d, os.O_RDONLY)
+    except OSError:
+        return                              # es. Windows: dir non apribile come fd → no-op
+    try:
+        os.fsync(dir_fd)
+    except OSError:
+        pass                                # fs che non supporta l'fsync di una dir → no-op
+    finally:
+        try:
+            os.close(dir_fd)
+        except OSError:
+            pass                            # anche il close è best-effort: mai propagare
+                                            # un errore DOPO un replace già riuscito (CodeRabbit)
+
+
 def atomic_write(path, write_fn, *, prefix="tmp_", suffix=".tmp", mode="w",
                  encoding="utf-8", newline=None, replace=None):
     """Scrive `path` in modo atomico eseguendo ``write_fn(f)`` su un file
@@ -64,6 +93,9 @@ def atomic_write(path, write_fn, *, prefix="tmp_", suffix=".tmp", mode="w",
             f.flush()
             os.fsync(f.fileno())
         replace(tmp, path)
+        # Rende DURABILE anche la voce di directory del rename (H2). Best-effort e non
+        # solleva: il file è già al suo posto, un fallimento qui non deve perderlo.
+        _fsync_dir(d)
     except BaseException:
         try:
             os.remove(tmp)
