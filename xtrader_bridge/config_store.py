@@ -471,6 +471,7 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
         # Chiave `bot_token` ASSENTE → save PARZIALE: preserva i campi del token già su disco
         # (token + sentinel), così un save di sole altre impostazioni non perde il puntatore al
         # keyring e `load_config` continua a reidratare (Codex P2). Il keyring non viene toccato.
+        reread_failed = False
         if os.path.exists(path):
             try:
                 with open(path, "r", encoding="utf-8") as f:
@@ -481,6 +482,26 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
                 for _k in ("bot_token", "bot_token_storage"):
                     if _k in existing and _k not in to_save:
                         to_save[_k] = existing[_k]
+            else:
+                # File presente ma ILLEGGIBILE (JSON corrotto / non-dict / IO error): non si
+                # possono recuperare i campi del token dal disco.
+                reread_failed = True
+        # M3 (#184): se il re-read è fallito e NON abbiamo già il puntatore in memoria
+        # (`bot_token_storage` in `to_save`, es. da `self._config`), scrivere ora cancellerebbe
+        # il sentinel → token ORFANO nel keyring (`load_config` non reidrata più, il bridge
+        # crede di non avere token mentre il segreto resta nel keyring). Si RECUPERA il puntatore
+        # dalla FONTE DI VERITÀ — il keyring stesso — invece di affidarsi al disco corrotto: se
+        # un token è memorizzato, si riscrive `bot_token_storage="keyring"` (chiave vuota su
+        # disco) così il save parziale prosegue E `load_config` continua a reidratare. Il keyring
+        # NON viene toccato. (Un eventuale token solo-plaintext non è recuperabile: era unicamente
+        # sul disco ora illeggibile, quindi già perso con la corruzione — nessun orfano keyring.)
+        if (reread_failed and "bot_token_storage" not in to_save
+                and token_store.available() and token_store.load_token()):
+            to_save["bot_token"] = ""
+            to_save["bot_token_storage"] = "keyring"
+            logger.warning("Config su disco illeggibile durante un salvataggio parziale: il "
+                           "puntatore keyring del bot token è stato ripristinato dal keyring "
+                           "(il token resta valido).")
     try:
         _ensure_dir(path)
         # Scrittura atomica condivisa (tmp + flush/fsync + os.replace, cleanup su errore).

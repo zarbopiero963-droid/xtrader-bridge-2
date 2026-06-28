@@ -20,8 +20,8 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | H4 | h4-dedupe-finite | `signal_dedupe.py` | merged (#190) |
 | H5 | h5-stop-futures | `app.py` | merged (#191) |
 | M1 | m1-migrate-strip | `config_store.py` | merged (#196) |
-| M2 | m2-chat-strip | `signal_router.py` | in PR |
-| M3 | m3-partial-save | `config_store.py` | da fare |
+| M2 | m2-chat-strip | `signal_router.py` | merged (#197) |
+| M3 | m3-partial-save | `config_store.py` | in PR |
 | M4 | m4-day-format | `safety_guard.py` | da fare |
 | M5 | m5-retry-errno | `csv_writer.py` | da fare |
 | M6 | m6-journal-atomic | `event_journal.py` | da fare |
@@ -73,6 +73,18 @@ padding sarebbe ammessa da `is_chat_allowed` ma poi scartata (IGNORE_NOT_RELEVAN
 il fix monco. Ora tutti i comparatori del chat runtime nel percorso live
 (`is_chat_allowed`, `_chat_approved_for_custom`, `resolve_parser_name`, `is_notification_chat`)
 normalizzano simmetricamente; fail-closed preservato e deny-list sorgenti rafforzata.
+
+## M3 — partial-save non orfana il token keyring su config corrotto
+
+Nel save PARZIALE (chiave `bot_token` assente) i campi del token venivano ripresi dal
+`config.json` su disco; se il file era **corrotto** (`existing=None`) non venivano riportati e
+la scrittura atomica cancellava `bot_token_storage` → token **orfano** nel keyring
+(`load_config` non reidratava più, il bridge credeva di non avere token mentre il segreto
+restava nel keyring). Fix: quando il re-read fallisce e il puntatore non è già in memoria, lo
+si **recupera dalla fonte di verità — il keyring stesso** — riscrivendo `bot_token_storage="keyring"`
+(chiave vuota su disco) così il save parziale prosegue e il token resta reidratabile. Il
+keyring non viene toccato. Un token solo-plaintext su disco corrotto è già perso con la
+corruzione (non è un orfano keyring), quindi nessun sentinel fasullo viene inventato.
 
 ## Decisioni del proprietario (NON implementare senza conferma)
 

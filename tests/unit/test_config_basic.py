@@ -228,6 +228,50 @@ def test_save_config_parziale_preserva_il_sentinel_dal_disco(tmp_path, monkeypat
     assert config_store.load_config(str(p))["bot_token"] == "123:SECRET"   # reidrata ancora
 
 
+def test_save_config_parziale_su_disco_corrotto_non_orfana_il_token_keyring(tmp_path, monkeypatch):
+    """#184 M3: un save PARZIALE (senza bot_token) quando il `config.json` su disco è CORROTTO
+    non deve perdere il puntatore keyring. Prima il re-read falliva (`existing=None`), i campi
+    token non venivano riportati e la scrittura cancellava `bot_token_storage` → token ORFANO
+    nel keyring (`load_config` non reidratava più). Ora il puntatore viene recuperato dalla
+    fonte di verità (il keyring): il save parziale prosegue e il token resta reidratabile.
+
+    Fail-first: sul vecchio codice `on_disk` non aveva `bot_token_storage` e il load NON
+    reidratava (token perso)."""
+    store = {"t": "123:SECRET"}                       # token già nel keyring
+    _fake_keyring(monkeypatch, store, available=True)
+    p = tmp_path / "config.json"
+    # Il config su disco è CORROTTO (JSON non valido) ma il token è nel keyring.
+    p.write_text("{ questo non e' json valido ,,, ", encoding="utf-8")
+
+    out, ok = config_store.save_config({"provider": "X"}, str(p))   # save parziale, niente bot_token
+
+    assert ok is True                                            # il save parziale prosegue
+    on_disk = json.loads(p.read_text(encoding="utf-8"))
+    assert on_disk["provider"] == "X"                           # impostazione parziale salvata
+    assert on_disk["bot_token_storage"] == "keyring"           # puntatore RECUPERATO dal keyring
+    assert on_disk["bot_token"] == ""                          # niente segreto in chiaro su disco
+    assert store.get("t") == "123:SECRET"                      # keyring NON toccato
+    # E il token è di nuovo reidratabile: non è rimasto orfano.
+    assert config_store.load_config(str(p))["bot_token"] == "123:SECRET"
+
+
+def test_save_config_parziale_disco_corrotto_senza_token_keyring_prosegue(tmp_path, monkeypatch):
+    """#184 M3 — controprova: se il disco è corrotto MA non c'è alcun token nel keyring, non
+    c'è nulla da orfanare: il save parziale prosegue normalmente, senza inventare un sentinel
+    `keyring` fasullo (così `load_config` non tenta una reidratazione inesistente)."""
+    store = {}                                                  # keyring vuoto
+    _fake_keyring(monkeypatch, store, available=True)
+    p = tmp_path / "config.json"
+    p.write_text("{ corrotto ,,, ", encoding="utf-8")
+
+    out, ok = config_store.save_config({"provider": "Y"}, str(p))
+
+    assert ok is True
+    on_disk = json.loads(p.read_text(encoding="utf-8"))
+    assert on_disk["provider"] == "Y"
+    assert on_disk.get("bot_token_storage") != "keyring"        # nessun sentinel keyring fasullo
+
+
 def test_save_config_fallback_write_fallita_ritorna_ok_false(tmp_path, monkeypatch):
     # Codex P2: keyring `available()` ma `save_token` fallisce → fallback plaintext in UNA
     # sola scrittura; se ANCHE quella fallisce, deve ritornare ok=False (niente falso "salvato").
