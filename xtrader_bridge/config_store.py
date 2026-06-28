@@ -486,22 +486,24 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
                 # File presente ma ILLEGGIBILE (JSON corrotto / non-dict / IO error): non si
                 # possono recuperare i campi del token dal disco.
                 reread_failed = True
-        # M3 (#184): se il re-read è fallito e NON abbiamo già il puntatore in memoria
-        # (`bot_token_storage` in `to_save`, es. da `self._config`), scrivere ora cancellerebbe
-        # il sentinel → token ORFANO nel keyring (`load_config` non reidrata più, il bridge
-        # crede di non avere token mentre il segreto resta nel keyring). Si RECUPERA il puntatore
-        # dalla FONTE DI VERITÀ — il keyring stesso — invece di affidarsi al disco corrotto: se
-        # un token è memorizzato, si riscrive `bot_token_storage="keyring"` (chiave vuota su
-        # disco) così il save parziale prosegue E `load_config` continua a reidratare. Il keyring
-        # NON viene toccato. (Un eventuale token solo-plaintext non è recuperabile: era unicamente
-        # sul disco ora illeggibile, quindi già perso con la corruzione — nessun orfano keyring.)
-        if (reread_failed and "bot_token_storage" not in to_save
-                and token_store.available() and token_store.load_token()):
-            to_save["bot_token"] = ""
-            to_save["bot_token_storage"] = "keyring"
-            logger.warning("Config su disco illeggibile durante un salvataggio parziale: il "
-                           "puntatore keyring del bot token è stato ripristinato dal keyring "
-                           "(il token resta valido).")
+        # M3 (#184): se il re-read di un FILE config esistente fallisce (JSON corrotto / non-dict
+        # / IO error) e il puntatore NON è già in memoria (`bot_token_storage` in `to_save`, es.
+        # da `self._config`), si FAIL-CLOSED: NON si scrive. Scrivere ora cancellerebbe il sentinel
+        # → token ORFANO nel keyring. Ma NON si tenta nemmeno di "recuperare" il sentinel dal
+        # keyring: il keyring da solo è AMBIGUO — un valore rimasto dopo un clear con `delete`
+        # fallito (sentinel `none`, ora perso col file corrotto) verrebbe RESUSCITATO come token
+        # attivo (Codex P1). Si re-linka SOLO se c'è evidenza IN MEMORIA (sentinel in `to_save`,
+        # ramo sopra); altrimenti si aborta lasciando intatti disco (corrotto) e keyring, così
+        # `load_config` può fare il backup `.bak` e l'utente reinserisce il token in sicurezza.
+        # Il gate `isfile` evita di abortire quando il path NON è un file (es. una directory):
+        # in quel caso si lascia proseguire e fallire la `os.replace` con l'errore atteso.
+        if reread_failed and os.path.isfile(path) and "bot_token_storage" not in to_save:
+            logger.warning("Salvataggio parziale annullato: config su disco corrotto/illeggibile e "
+                           "puntatore keyring del bot token non disponibile in memoria. Non si "
+                           "sovrascrive (eviterebbe di orfanare il token, ma il keyring da solo è "
+                           "ambiguo e potrebbe resuscitare un token già cancellato). Ripristina o "
+                           "rimuovi il config.json corrotto e riprova.")
+            return in_memory, False
     try:
         _ensure_dir(path)
         # Scrittura atomica condivisa (tmp + flush/fsync + os.replace, cleanup su errore).

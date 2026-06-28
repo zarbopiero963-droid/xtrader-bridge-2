@@ -80,11 +80,19 @@ Nel save PARZIALE (chiave `bot_token` assente) i campi del token venivano ripres
 `config.json` su disco; se il file era **corrotto** (`existing=None`) non venivano riportati e
 la scrittura atomica cancellava `bot_token_storage` → token **orfano** nel keyring
 (`load_config` non reidratava più, il bridge credeva di non avere token mentre il segreto
-restava nel keyring). Fix: quando il re-read fallisce e il puntatore non è già in memoria, lo
-si **recupera dalla fonte di verità — il keyring stesso** — riscrivendo `bot_token_storage="keyring"`
-(chiave vuota su disco) così il save parziale prosegue e il token resta reidratabile. Il
-keyring non viene toccato. Un token solo-plaintext su disco corrotto è già perso con la
-corruzione (non è un orfano keyring), quindi nessun sentinel fasullo viene inventato.
+restava nel keyring). Fix **fail-closed** (rivisto dopo Codex P1): quando il re-read di un FILE
+config esistente fallisce e il puntatore NON è già in memoria, si **aborta** il save senza
+toccare disco né keyring (`ok=False`). NON si "recupera" il sentinel dal keyring: il keyring da
+solo è **ambiguo** — un valore rimasto dopo un clear con `delete` fallito (sentinel `none`, ora
+perso col file corrotto) verrebbe **resuscitato** come token attivo. Si re-linka SOLO con
+evidenza IN MEMORIA (`bot_token_storage` nel cfg passato, es. `self._config` reidratato), che è
+il ramo che preserva il sentinel dalla RAM. Così: niente orfano, niente resurrezione, e il
+config corrotto resta intatto per il backup `.bak` di `load_config` + reinserimento utente.
+
+> **Nota (Codex P2, pre-esistente, fuori dallo scope di M3):** nel flusso GUI reale
+> `load_config()` fa il backup del file corrotto e ritorna `bot_token=""`; il save successivo
+> prende il ramo CLEAR e **cancella** il token keyring valido. Stessa ambiguità di fondo
+> (stato del token perso con la corruzione). Decisione di policy in sospeso col proprietario.
 
 ## Decisioni del proprietario (NON implementare senza conferma)
 
