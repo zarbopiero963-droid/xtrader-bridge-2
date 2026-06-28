@@ -419,6 +419,96 @@ def test_default_recognition_mode_name_only():
     assert config_store.DEFAULTS["recognition_mode"] == "NAME_ONLY"
 
 
+# ── #184 M1: _migrate strippa i campi stringa noti (filtro chat non "diventa sordo") ──
+
+def test_migrate_strip_chat_id_evita_filtro_sordo():
+    """#184 M1: un `chat_id` con whitespace/newline (config editata a mano o copia-incolla
+    da Telegram) deve essere strippato in `_migrate`. Altrimenti `signal_router` confronta
+    col valore strippato in ingresso e il filtro single-chat non matcha più → il bridge
+    "diventa sordo" su quella chat (fail-closed: nessuna bet sbagliata, ma smette di
+    ascoltare). Fail-first: il vecchio `_migrate` salvava il valore non strippato."""
+    assert config_store._migrate({"chat_id": "  -100123\n"})["chat_id"] == "-100123"
+    assert config_store._migrate({"chat_id": "\t999 "})["chat_id"] == "999"
+    # Boundary fail-closed (review Sourcery/CodeRabbit): un chat_id di SOLI whitespace/newline
+    # si normalizza a "" — cioè "nessun filtro configurato", non un filtro-fantasma che
+    # matcherebbe nulla mascherato da valore valido. Vedi il lock-in a valle qui sotto.
+    assert config_store._migrate({"chat_id": " \n\t "})["chat_id"] == ""
+
+
+def test_migrate_chat_id_solo_whitespace_resta_fail_closed_a_valle():
+    """#184 M1 (review Sourcery/CodeRabbit): un `chat_id` di soli whitespace, dopo `_migrate`,
+    è `""` e a valle vale "NESSUN filtro configurato" (`has_chat_filter` False), NON un percorso
+    "admit-all" nascosto. L'admit-all legacy resta comunque bloccato dal fail-fast d'avvio
+    (`app._start`) e dal dispatch `IGNORE_NO_FILTER`. Un id reale (anche con padding), invece,
+    resta un filtro valido che ammette SOLO quella chat."""
+    from xtrader_bridge import signal_router
+
+    # Soli whitespace → "" → nessun filtro configurato (non un filtro-fantasma).
+    vuoto = config_store._migrate({"chat_id": " \n\t "})
+    assert vuoto["chat_id"] == ""
+    assert signal_router.has_chat_filter(vuoto) is False
+
+    # Id reale con padding → normalizzato → filtro valido che ammette SOLO quella chat.
+    reale = config_store._migrate({"chat_id": "  -100123  "})
+    assert reale["chat_id"] == "-100123"
+    assert signal_router.has_chat_filter(reale) is True
+    assert signal_router.is_chat_allowed(reale, "-100123") is True   # la chat configurata passa
+    assert signal_router.is_chat_allowed(reale, "-999") is False     # nessun'altra è ammessa
+
+
+def test_migrate_strip_campi_stringa_noti():
+    """#184 M1: tutta l'allowlist `_STRIP_STR_KEYS` viene normalizzata (no padding ai bordi),
+    così i valori-modalità e i chat-id combaciano col valore atteso a valle."""
+    cfg = config_store._migrate({
+        "provider": " TelegramBot ",
+        "recognition_mode": "NAME_ONLY\n",
+        "queue_mode": "\tOVERWRITE_LAST",
+        "active_parser": "  MioParser  ",
+        "xtrader_notification_chat_id": " 999 ",
+    })
+    assert cfg["provider"] == "TelegramBot"
+    assert cfg["recognition_mode"] == "NAME_ONLY"
+    assert cfg["queue_mode"] == "OVERWRITE_LAST"
+    assert cfg["active_parser"] == "MioParser"
+    assert cfg["xtrader_notification_chat_id"] == "999"
+
+
+def test_migrate_strip_e_allowlist_non_tocca_csv_path_ne_bot_token():
+    """#184 M1: la strip è una ALLOWLIST mirata. `csv_path` (un path può legittimamente
+    contenere spazi; la validazione è un finding separato) e `bot_token` (segreto, gestito
+    da `token_store`/keyring, fuori scope) NON vengono toccati da `_migrate`."""
+    cfg = config_store._migrate({"csv_path": r"  C:\X T\s.csv  ", "bot_token": "  tok  "})
+    assert cfg["csv_path"] == r"  C:\X T\s.csv  "     # path invariato (spazi preservati)
+    assert cfg["bot_token"] == "  tok  "              # segreto invariato (gestito altrove)
+
+
+def test_migrate_strip_dopo_coercizione_di_un_valore_non_stringa():
+    """#184 M1: un `chat_id` numerico (JSON `-100123`) viene prima coerciti a stringa e poi
+    strippato, senza crash (la strip si applica dopo `str(val)`)."""
+    assert config_store._migrate({"chat_id": -100123})["chat_id"] == "-100123"
+
+
+def test_load_config_strippa_chat_id_da_file(tmp_path):
+    """#184 M1 end-to-end: un `config.json` con `chat_id`/`provider` con padding viene
+    normalizzato al caricamento (path reale `load_config` → `_migrate`)."""
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"chat_id": " -100999\n", "provider": "TG_PRE "}))
+    cfg = config_store.load_config(str(p))
+    assert cfg["chat_id"] == "-100999"
+    assert cfg["provider"] == "TG_PRE"
+
+
+def test_load_config_coercisce_e_strippa_chat_id_numerico_da_file(tmp_path):
+    """#184 M1 end-to-end (review Sourcery): un `config.json` con `chat_id` NUMERICO
+    (`-100123` come numero JSON, input malformato ma realistico) viene coerciuto a stringa e
+    normalizzato via `load_config` → `_migrate`, senza crash."""
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"chat_id": -100123, "provider": "TG_PRE "}))
+    cfg = config_store.load_config(str(p))
+    assert cfg["chat_id"] == "-100123"
+    assert cfg["provider"] == "TG_PRE"
+
+
 def test_require_price_non_e_piu_chiave_globale(tmp_path):
     # La quota obbligatoria sì/no NON è più un default globale: la governa la riga
     # Price di ogni Parser Personalizzato (CustomParserDef.price_required).

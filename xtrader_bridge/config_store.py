@@ -211,6 +211,19 @@ def migrate_legacy_config(new_path: str = CONFIG_FILE,
 # conferma/rifiuto XTrader): vanno normalizzate, non azzerate (finding Codex P2).
 _KEYWORD_KEYS = ("confirmation_keywords", "rejection_keywords")
 
+# Chiavi STRINGA note per cui spazi/newline ai bordi non sono mai significativi e
+# falserebbero il confronto a valle: vanno strippate in `_migrate` (issue #184 M1). In
+# particolare un `chat_id`/notifiche con whitespace o newline (config editata a mano,
+# copia-incolla da Telegram) renderebbe "sordo" il filtro chat — fail-closed: nessuna bet
+# sbagliata, ma il bridge SMETTE di ascoltare quella chat — e un `recognition_mode`/
+# `queue_mode`/`active_parser`/`provider` con padding non matcherebbe il valore atteso.
+# Esclusi di proposito: `bot_token` (segreto, gestito da `token_store`/keyring, fuori scope)
+# e `csv_path` (path: la validazione è un finding separato).
+_STRIP_STR_KEYS = frozenset({
+    "chat_id", "xtrader_notification_chat_id", "provider",
+    "recognition_mode", "queue_mode", "active_parser",
+})
+
 
 def _coerce_int(value, default: int) -> int:
     """int robusto per la migrazione config (audit C5): accetta int/float e stringhe
@@ -281,7 +294,13 @@ def _migrate(cfg: dict) -> dict:
                 cfg[key] = default
         elif isinstance(default, str):
             val = cfg.get(key, default)
-            cfg[key] = val if isinstance(val, str) else (default if val is None else str(val))
+            val = val if isinstance(val, str) else (default if val is None else str(val))
+            # M1 (#184): normalizza i campi stringa noti togliendo spazi/newline ai bordi, così
+            # un `chat_id` con padding non rende "sordo" il filtro chat e i valori-modalità
+            # combaciano. Solo l'allowlist `_STRIP_STR_KEYS`; gli altri str restano invariati.
+            if key in _STRIP_STR_KEYS:
+                val = val.strip()
+            cfg[key] = val
         elif isinstance(default, list):
             if key in _KEYWORD_KEYS:
                 # Una STRINGA singola è un formato SUPPORTATO per le keyword di conferma/
