@@ -57,12 +57,12 @@ il bridge smette di ascoltare). Esclusi di proposito: `bot_token` (segreto, gest
 `token_store`/keyring) e `csv_path` (un path può contenere spazi; la validazione è un finding
 separato). Normalizzazione di chiavi ESISTENTI: nessun cambio di contratto/colonne CSV.
 
-## M2 — `is_chat_allowed` strip simmetrico sul chat runtime
+## M2 — `is_chat_allowed` strip simmetrico sulla chat runtime
 
-`signal_router.is_chat_allowed` confrontava il chat in ingresso grezzo (`str(chat or "")`),
-mentre `allowed_chats` strippa l'ID configurato: un chat con whitespace ai bordi non
+`signal_router.is_chat_allowed` confrontava la chat in ingresso grezza (`str(chat or "")`),
+mentre `allowed_chats` strippa l'ID configurato: una chat con whitespace ai bordi non
 matchava un'allow logicamente valida → segnale scartato (fail-closed, non un bypass). Ora
-il chat runtime è `.strip()`-ato prima del confronto, in modo SIMMETRICO all'allowlist e
+la chat runtime è `.strip()`-ata prima del confronto, in modo SIMMETRICO all'allowlist e
 coerente con `is_notification_chat` (che già strippa entrambi i lati). Non è un over-admit:
 il confronto resta esatto dopo lo strip (un id diverso resta NON ammesso) e `has_chat_filter`
 è invariato. Complemento di M1 sul lato confronto in ingresso.

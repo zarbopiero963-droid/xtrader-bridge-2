@@ -314,6 +314,9 @@ def test_is_chat_allowed_strip_simmetrico_sul_chat_runtime():
     assert signal_router.is_chat_allowed(cfg, "\t42\n") is True     # tab/newline → match
     # Lo strip NON è un over-admit: un altro chat resta NON ammesso.
     assert signal_router.is_chat_allowed(cfg, " 999 ") is False
+    # Né un chat di SOLI whitespace diventa ammesso (strip → "" non è in nessuna allowlist):
+    # niente percorso "admit-all" mascherato dallo strip (review Sourcery).
+    assert signal_router.is_chat_allowed(cfg, "   \n\t") is False
     # Coerenza con la mappa per-chat: anche una chiave parser_by_chat matcha con padding.
     cfg2 = {"provider": "TG", "parser_by_chat": {"123": "PerChat"}}
     assert signal_router.is_chat_allowed(cfg2, "  123  ") is True
