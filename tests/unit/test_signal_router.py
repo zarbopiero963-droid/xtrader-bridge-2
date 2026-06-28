@@ -300,6 +300,26 @@ def test_is_chat_allowed_solo_mappa_per_chat():
     assert signal_router.is_chat_allowed(cfg, "42") is False
 
 
+def test_is_chat_allowed_strip_simmetrico_sul_chat_runtime():
+    """#184 M2: il chat in ingresso va confrontato in modo SIMMETRICO all'allowlist
+    (`allowed_chats` strippa l'ID configurato). Un chat con whitespace/newline ai bordi
+    (es. una sorgente che lo formatta con padding) deve comunque matchare la chat
+    configurata — prima era confrontato grezzo e veniva scartato (fail-closed, non un
+    bypass). Stesso confronto di `is_notification_chat`.
+
+    Fail-first: sul vecchio `is_chat_allowed` (`str(chat or "")` senza `.strip()`) un chat
+    con padding NON matchava la chat ammessa."""
+    cfg = {"provider": "TG", "chat_id": "42"}
+    assert signal_router.is_chat_allowed(cfg, " 42 ") is True       # padding ai bordi → match
+    assert signal_router.is_chat_allowed(cfg, "\t42\n") is True     # tab/newline → match
+    # Lo strip NON è un over-admit: un altro chat resta NON ammesso.
+    assert signal_router.is_chat_allowed(cfg, " 999 ") is False
+    # Coerenza con la mappa per-chat: anche una chiave parser_by_chat matcha con padding.
+    cfg2 = {"provider": "TG", "parser_by_chat": {"123": "PerChat"}}
+    assert signal_router.is_chat_allowed(cfg2, "  123  ") is True
+    assert signal_router.is_chat_allowed(cfg2, "  124  ") is False
+
+
 # ── multi-chat (PR-24): source_chats attive ammesse, disattivate ignorate ────
 
 def test_is_chat_allowed_sorgenti_multichat():

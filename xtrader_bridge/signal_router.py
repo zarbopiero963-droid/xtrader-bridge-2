@@ -115,7 +115,12 @@ def is_chat_allowed(cfg: dict, chat: str) -> bool:
     `allowed_chats` (fonte unica)."""
     if not has_chat_filter(cfg):
         return True
-    return str(chat or "") in allowed_chats(cfg)
+    # `.strip()` sul chat runtime per SIMMETRIA con l'allowlist (#184 M2): `allowed_chats`
+    # strippa l'ID configurato (e M1 normalizza `chat_id` già a monte), mentre qui il chat in
+    # ingresso era confrontato grezzo. Senza, un chat con whitespace (es. da una sorgente che
+    # lo formatta con padding) farebbe fallire un match logicamente valido → segnale scartato
+    # (fail-closed, non un bypass). Stesso confronto simmetrico di `is_notification_chat`.
+    return str(chat or "").strip() in allowed_chats(cfg)
 
 
 def is_notification_chat(cfg: dict, chat: str) -> bool:

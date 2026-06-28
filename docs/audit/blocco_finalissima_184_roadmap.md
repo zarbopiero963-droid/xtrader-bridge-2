@@ -19,8 +19,8 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | H3 | h3-clear-toctou | `csv_writer.py` | merged (#189) |
 | H4 | h4-dedupe-finite | `signal_dedupe.py` | merged (#190) |
 | H5 | h5-stop-futures | `app.py` | merged (#191) |
-| M1 | m1-migrate-strip | `config_store.py` | in PR |
-| M2 | m2-chat-strip | `signal_router.py` | da fare |
+| M1 | m1-migrate-strip | `config_store.py` | merged (#196) |
+| M2 | m2-chat-strip | `signal_router.py` | in PR |
 | M3 | m3-partial-save | `config_store.py` | da fare |
 | M4 | m4-day-format | `safety_guard.py` | da fare |
 | M5 | m5-retry-errno | `csv_writer.py` | da fare |
@@ -56,6 +56,16 @@ valle e renderebbe "sordo" il filtro single-chat (fail-closed: nessuna bet sbagl
 il bridge smette di ascoltare). Esclusi di proposito: `bot_token` (segreto, gestito da
 `token_store`/keyring) e `csv_path` (un path può contenere spazi; la validazione è un finding
 separato). Normalizzazione di chiavi ESISTENTI: nessun cambio di contratto/colonne CSV.
+
+## M2 — `is_chat_allowed` strip simmetrico sul chat runtime
+
+`signal_router.is_chat_allowed` confrontava il chat in ingresso grezzo (`str(chat or "")`),
+mentre `allowed_chats` strippa l'ID configurato: un chat con whitespace ai bordi non
+matchava un'allow logicamente valida → segnale scartato (fail-closed, non un bypass). Ora
+il chat runtime è `.strip()`-ato prima del confronto, in modo SIMMETRICO all'allowlist e
+coerente con `is_notification_chat` (che già strippa entrambi i lati). Non è un over-admit:
+il confronto resta esatto dopo lo strip (un id diverso resta NON ammesso) e `has_chat_filter`
+è invariato. Complemento di M1 sul lato confronto in ingresso.
 
 ## Decisioni del proprietario (NON implementare senza conferma)
 
