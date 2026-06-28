@@ -110,6 +110,45 @@ def test_restore_state_malformato_ignorato():
     assert lim.restore_state({"day": "2026-01-01", "count": 2}) is True
 
 
+def test_restore_state_day_malformato_non_azzera_il_conteggio():
+    """#184 M4: uno stato corrotto con `day` MALFORMATO (non `YYYY-MM-DD`) ma `count` valido
+    NON deve concedere un cap giornaliero PIENO. Prima `_roll`, vedendo `day` diverso da oggi,
+    azzerava il conteggio → overtrading (fail-open). Ora il conteggio viene CONSERVATO e
+    attribuito al giorno corrente (fail-closed): il tetto residuo riflette i segnali già usati.
+
+    Fail-first: sul vecchio codice `_roll` azzerava → `remaining` tornava al massimo (5)."""
+    t = 1_000_000.0
+    lim = sg.DailyLimiter(max_per_day=5)
+    # `day` malformato (es. file corrotto/manomesso) ma 4 segnali già consumati.
+    assert lim.restore_state({"day": "non-una-data", "count": 4}) is True
+    assert lim.remaining(now=t) == 1            # conteggio conservato (NON un cap pieno)
+    assert lim.allow(now=t) is True             # l'ultimo ammesso
+    assert lim.allow(now=t) is False            # tetto raggiunto: niente overtrading
+
+
+def test_restore_state_day_valido_giorno_diverso_azzera_normalmente():
+    """#184 M4 (contro-prova): un `day` VALIDO ma di un GIORNO DIVERSO da oggi deve continuare
+    ad azzerare il conteggio (è un nuovo giorno reale, reset legittimo). La protezione M4 vale
+    SOLO per i `day` malformati, non cambia il rollover quotidiano normale."""
+    ieri = 1_000_000.0                          # _day_key ≈ 1970-01-12
+    oggi = ieri + 86_400.0                       # +1 giorno → chiave diversa ma VALIDA
+    lim = sg.DailyLimiter(max_per_day=5)
+    assert lim.restore_state({"day": sg._day_key(ieri), "count": 4}) is True
+    assert lim.remaining(now=oggi) == 5         # nuovo giorno valido → reset al cap pieno
+
+
+def test_restore_state_day_non_stringa_conserva_count_fail_closed():
+    """#184 M4: anche un `day` non-stringa (es. `null`/numero da JSON manomesso) con `count`
+    valido non scarta il conteggio: `day` → "" (unknown) e il conteggio resta del giorno
+    corrente (fail-closed)."""
+    t = 1_000_000.0
+    lim = sg.DailyLimiter(max_per_day=3)
+    assert lim.restore_state({"day": None, "count": 2}) is True   # day non-stringa accettato come unknown
+    assert lim.remaining(now=t) == 1
+    assert lim.allow(now=t) is True
+    assert lim.allow(now=t) is False
+
+
 # ── audit #105 P2: persistenza daily state atomica + fsync ────────────────────
 
 def test_save_load_state_round_trip_senza_temporanei(tmp_path):

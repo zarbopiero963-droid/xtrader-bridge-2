@@ -21,8 +21,8 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | H5 | h5-stop-futures | `app.py` | merged (#191) |
 | M1 | m1-migrate-strip | `config_store.py` | merged (#196) |
 | M2 | m2-chat-strip | `signal_router.py` | merged (#197) |
-| M3 | m3-partial-save | `config_store.py` | in PR |
-| M4 | m4-day-format | `safety_guard.py` | da fare |
+| M3 | m3-partial-save | `config_store.py` | merged (#198) |
+| M4 | m4-day-format | `safety_guard.py` | in PR |
 | M5 | m5-retry-errno | `csv_writer.py` | da fare |
 | M6 | m6-journal-atomic | `event_journal.py` | da fare |
 | M7 | m7-token-redact | `event_log.py` | da fare |
@@ -95,6 +95,17 @@ config corrotto resta intatto per il backup `.bak` di `load_config` + reinserime
 > (stato del token perso con la corruzione). **Decisione del proprietario: follow-up separato**
 > — tracciato in **issue #199**, da affrontare in una PR dedicata con i suoi test hard (questo
 > PR resta limitato al fix P1 fail-closed del ramo partial-save).
+
+## M4 — `DailyLimiter`: `day` malformato non azzera il cap (anti-overtrading)
+
+`restore_state` accettava qualsiasi stringa come `day`; uno stato corrotto con `day`
+malformato + `count` alto faceva sì che al primo `allow` il `_roll` (vedendo `day` ≠ oggi)
+**azzerasse** il conteggio → cap giornaliero pieno = **overtrading** (fail-open di un giorno).
+Fix: `_roll` azzera SOLO se `_day` è una data VALIDA (`YYYY-MM-DD`) diversa da oggi (nuovo
+giorno reale); se è malformato/vuoto adotta il giorno corrente **conservando** il conteggio
+(fail-closed). `restore_state` normalizza un `day` non valido/non-stringa a `""` (UNKNOWN) ma
+NON scarta il `count`. Il rollover quotidiano normale (giorno valido diverso → reset) è
+invariato; al più si è più restrittivi oggi su uno stato corrotto, mai più permissivi.
 
 ## Decisioni del proprietario (NON implementare senza conferma)
 

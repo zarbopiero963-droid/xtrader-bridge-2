@@ -18,12 +18,18 @@ wiring GUI/runtime (toggle, banner, blocco START) è un passo successivo.
 """
 
 import json
+import re
 import time
 from dataclasses import dataclass
 
 from . import atomic_io, validators
 
 DEFAULT_MAX_PER_DAY = 200      # tetto di segnali nuovi accettati in un giorno (UTC)
+
+# Forma canonica della chiave giorno prodotta da `_day_key` (UTC). Serve a distinguere un
+# giorno VALIDO diverso da oggi (→ nuovo giorno, reset legittimo) da un `day` MALFORMATO
+# arrivato da uno stato corrotto (→ NON azzerare: vedi `DailyLimiter._roll`, issue #184 M4).
+_DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # Valori stringa interpretati come "spento" = modalità REALE (per config che
 # arrivano da campi testuali GUI o da un vecchio config.json scritto a mano).
@@ -89,9 +95,17 @@ class DailyLimiter:
 
     def _roll(self, now: float) -> None:
         key = _day_key(now)
-        if key != self._day:
-            self._day = key
+        if key == self._day:
+            return
+        # Giorno diverso da oggi. Se `_day` è una data VALIDA (YYYY-MM-DD) → è un nuovo giorno:
+        # reset del conteggio (comportamento normale). Se invece è MALFORMATO/vuoto — stato
+        # corrotto o manomesso (M4 #184) — NON si azzera: non si sa a quale giorno appartenga il
+        # conteggio e fidarsi darebbe un cap PIENO oggi (overtrading, fail-OPEN). Si adotta il
+        # giorno corrente CONSERVANDO il conteggio (fail-CLOSED): al più si è più restrittivi
+        # oggi, mai più permissivi; al prossimo giorno reale (con `_day` valido) si azzererà.
+        if _DAY_RE.match(self._day or ""):
             self._count = 0
+        self._day = key
 
     def allow(self, *, now: float = None) -> bool:
         """True se il segnale è ammesso oggi (e lo conta); False se tetto raggiunto."""
@@ -122,8 +136,12 @@ class DailyLimiter:
             return False
         day = data.get("day")
         count = data.get("count")
-        if isinstance(day, str) and isinstance(count, int) and count >= 0:
-            self._day = day
+        if isinstance(count, int) and count >= 0:
+            # `day` valido `YYYY-MM-DD` → usato così com'è; malformato/non-stringa → "" (UNKNOWN,
+            # M4 #184). Il conteggio NON viene scartato (sarebbe un cap pieno = overtrading): è
+            # attribuito al giorno corrente da `_roll` (fail-closed). `day == ""` è la forma
+            # canonica "sconosciuto" già usata dal limiter fresco.
+            self._day = day if isinstance(day, str) and _DAY_RE.match(day) else ""
             self._count = count
             return True
         return False
