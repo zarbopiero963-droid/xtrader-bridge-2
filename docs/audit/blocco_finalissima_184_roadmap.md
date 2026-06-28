@@ -92,7 +92,9 @@ config corrotto resta intatto per il backup `.bak` di `load_config` + reinserime
 > **Nota (Codex P2, pre-esistente, fuori dallo scope di M3):** nel flusso GUI reale
 > `load_config()` fa il backup del file corrotto e ritorna `bot_token=""`; il save successivo
 > prende il ramo CLEAR e **cancella** il token keyring valido. Stessa ambiguità di fondo
-> (stato del token perso con la corruzione). Decisione di policy in sospeso col proprietario.
+> (stato del token perso con la corruzione). **Decisione del proprietario: follow-up separato**
+> — tracciato in **issue #199**, da affrontare in una PR dedicata con i suoi test hard (questo
+> PR resta limitato al fix P1 fail-closed del ramo partial-save).
 
 ## Decisioni del proprietario (NON implementare senza conferma)
 
