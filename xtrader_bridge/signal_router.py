@@ -53,7 +53,13 @@ def _chat_approved_for_custom(cfg: dict, chat: str) -> bool:
     multi-chat ATTIVA** (`source_chats`, PR-24): così un `active_parser` GLOBALE
     funziona anche per le sorgenti, senza far scommettere chat non autorizzate.
     Una sorgente **disattivata** non è mai approvata, nemmeno con un override."""
-    chat = str(chat or "")
+    # `.strip()` sul chat runtime per SIMMETRIA con gli altri comparatori (#184 M2, Codex P2):
+    # `is_chat_allowed`/`resolve_parser_name`/`is_notification_chat` normalizzano già il chat,
+    # ma il gate live `should_process` chiama ANCHE questa funzione — se restasse grezza, un
+    # chat con padding sarebbe ammesso da `is_chat_allowed` ma poi scartato qui
+    # (IGNORE_NOT_RELEVANT), lasciando il fix M2 monco. Lo strip rende il gate coerente; resta
+    # fail-closed (un id diverso non è approvato) e rafforza anche la deny-list sorgenti.
+    chat = str(chat or "").strip()
     if chat in _disabled_source_ids(cfg):
         return False
     if chat and chat in parser_manager.parser_by_chat(cfg):

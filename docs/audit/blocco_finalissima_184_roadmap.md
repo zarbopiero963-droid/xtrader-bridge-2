@@ -67,6 +67,13 @@ coerente con `is_notification_chat` (che già strippa entrambi i lati). Non è u
 il confronto resta esatto dopo lo strip (un id diverso resta NON ammesso) e `has_chat_filter`
 è invariato. Complemento di M1 sul lato confronto in ingresso.
 
+Lo stesso strip è applicato a `_chat_approved_for_custom` (review Codex P2): il gate live
+`should_process` chiama ANCHE quell'approvazione custom, e se restasse grezza una chat con
+padding sarebbe ammessa da `is_chat_allowed` ma poi scartata (IGNORE_NOT_RELEVANT), lasciando
+il fix monco. Ora tutti i comparatori del chat runtime nel percorso live
+(`is_chat_allowed`, `_chat_approved_for_custom`, `resolve_parser_name`, `is_notification_chat`)
+normalizzano simmetricamente; fail-closed preservato e deny-list sorgenti rafforzata.
+
 ## Decisioni del proprietario (NON implementare senza conferma)
 
 - **low-tracker-nonwrite**: il tracker dedupe trattiene l'hash anche sui path **non-WRITE**
