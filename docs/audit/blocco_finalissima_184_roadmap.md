@@ -101,11 +101,16 @@ config corrotto resta intatto per il backup `.bak` di `load_config` + reinserime
 `restore_state` accettava qualsiasi stringa come `day`; uno stato corrotto con `day`
 malformato + `count` alto faceva sì che al primo `allow` il `_roll` (vedendo `day` ≠ oggi)
 **azzerasse** il conteggio → cap giornaliero pieno = **overtrading** (fail-open di un giorno).
-Fix: `_roll` azzera SOLO se `_day` è una data VALIDA (`YYYY-MM-DD`) diversa da oggi (nuovo
-giorno reale); se è malformato/vuoto adotta il giorno corrente **conservando** il conteggio
-(fail-closed). `restore_state` normalizza un `day` non valido/non-stringa a `""` (UNKNOWN) ma
-NON scarta il `count`. Il rollover quotidiano normale (giorno valido diverso → reset) è
-invariato; al più si è più restrittivi oggi su uno stato corrotto, mai più permissivi.
+Fix: `_roll` azzera SOLO se `_day` è una data **di calendario reale** in forma canonica
+diversa da oggi (nuovo giorno reale); se è malformato/vuoto adotta il giorno corrente
+**conservando** il conteggio (fail-closed). `restore_state` normalizza un `day` non valido a
+`_UNKNOWN_DAY` (`""`) ma NON scarta il `count`. La validità è verificata da `_is_valid_day`
+(Codex P1 / Sourcery): non basta il formato — una data **impossibile** come `2026-99-99`
+supererebbe un controllo solo-regex e, differendo da oggi, farebbe azzerare il conteggio
+(overtrading). `_is_valid_day` usa `time.strptime` (range mese/giorno) + confronto con la
+forma canonica zero-padded di `_day_key` (`_fmt_day`, fonte unica). Il rollover quotidiano
+normale (giorno valido diverso → reset) è invariato; al più si è più restrittivi oggi su uno
+stato corrotto, mai più permissivi.
 
 ## Decisioni del proprietario (NON implementare senza conferma)
 
