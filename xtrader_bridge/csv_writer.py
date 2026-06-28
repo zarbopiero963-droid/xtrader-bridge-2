@@ -141,9 +141,14 @@ _PERMANENT_REPLACE_ERRNOS = frozenset(
     ) if e is not None
 )
 # Windows: codici `winerror` che indicano una contesa TRANSITORIA del file (XTrader lo tiene
-# aperto in lettura) e quindi vanno ritentati. ERROR_SHARING_VIOLATION=32, ERROR_LOCK_VIOLATION=33.
-# Un ERROR_ACCESS_DENIED=5 (es. directory read-only) è invece strutturale → niente retry.
-_RETRYABLE_REPLACE_WINERRORS = frozenset({32, 33})
+# aperto in lettura) e quindi vanno ritentati. ERROR_SHARING_VIOLATION=32, ERROR_LOCK_VIOLATION=33
+# e — soprattutto — ERROR_ACCESS_DENIED=5: il read-lock di XTrader fa fallire `MoveFileEx`/
+# `os.replace` proprio con ACCESS_DENIED quando la destinazione è aperta in lettura (è il caso
+# PIÙ comune, Codex #201 P1). Un read-only/ACL permanente surfacerebbe anch'esso come 5 — i due
+# non sono distinguibili dall'errore — ma poiché il lock è la causa tipica si preferisce ritentare
+# (al più ~1s sprecato su un raro read-only Windows) piuttosto che perdere il retry sul lock vero.
+# Su POSIX, dove il rename atomico NON ha contese di lock, l'`EACCES` resta invece permanente.
+_RETRYABLE_REPLACE_WINERRORS = frozenset({5, 32, 33})
 
 
 def _is_retryable_replace_error(exc: OSError) -> bool:
@@ -151,8 +156,9 @@ def _is_retryable_replace_error(exc: OSError) -> bool:
     (lock di lettura di XTrader su Windows); False se è strutturale/permanente (escalation
     immediata, M5 #184).
 
-    - Su **Windows** (`winerror` valorizzato) si ritenta SOLO le violazioni di sharing/lock
-      (`32`/`33`); un access-denied (`5`) o altro è strutturale.
+    - Su **Windows** (`winerror` valorizzato) si ritenta le contese di lock/condivisione
+      `32`/`33` E l'access-denied `5` (il read-lock di XTrader surfacea tipicamente come
+      ACCESS_DENIED, Codex #201 P1); gli altri `winerror` sono strutturali.
     - Su **POSIX**/errore generico (niente `winerror`) il rename atomico non ha contese di lock
       transitorie: si ritenta solo se l'`errno` NON è chiaramente permanente — così un errore
       SENZA `errno` (es. il lock simulato nei test/edge inattesi) resta ritentabile, mentre

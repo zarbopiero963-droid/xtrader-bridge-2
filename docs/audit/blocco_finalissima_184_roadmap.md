@@ -117,9 +117,11 @@ stato corrotto, mai più permissivi.
 `_replace_with_retry` catturava OGNI `OSError` e ritentava 10×0.1s (~1s) a prescindere dalla
 causa: un errore strutturale (dir read-only/`EACCES`, `EISDIR`, `ENOENT`, cross-device)
 sprecava ~1s per ogni segnale prima dell'escalation. Fix: `_is_retryable_replace_error`
-distingue le contese TRANSITORIE (Windows sharing/lock violation `winerror` 32/33 — XTrader
-tiene il CSV aperto in lettura) dagli errori STRUTTURALI, che ora si propagano subito. Su
-POSIX/errore generico si ritenta solo se l'`errno` non è nel denylist permanente
+distingue le contese TRANSITORIE (Windows sharing/lock violation `winerror` 32/33 **e**
+ACCESS_DENIED `5` — il read-lock di XTrader surfacea tipicamente come ACCESS_DENIED, Codex
+#201 P1) dagli errori STRUTTURALI, che ora si propagano subito. Su POSIX, dove il rename
+atomico non ha contese di lock, l'`EACCES` resta permanente. Su POSIX/errore generico si
+ritenta solo se l'`errno` non è nel denylist permanente
 (`ENOENT`/`EISDIR`/`ENOTDIR`/`EXDEV`/`EROFS`/`EACCES`/`EPERM`/`ENAMETOOLONG`), così un errore
 SENZA `errno` (lock simulato/edge) resta ritentabile mentre i permanenti escalano. Il budget
 ~1s per il vero lock di lettura di XTrader (audit C3) è invariato.
