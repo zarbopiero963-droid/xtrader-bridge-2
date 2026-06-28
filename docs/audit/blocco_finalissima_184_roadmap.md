@@ -18,8 +18,8 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | H2 | h2-fsync-dir | `atomic_io.py` | merged (#188) |
 | H3 | h3-clear-toctou | `csv_writer.py` | merged (#189) |
 | H4 | h4-dedupe-finite | `signal_dedupe.py` | merged (#190) |
-| H5 | h5-stop-futures | `app.py` | in PR |
-| M1 | m1-migrate-strip | `config_store.py` | da fare |
+| H5 | h5-stop-futures | `app.py` | merged (#191) |
+| M1 | m1-migrate-strip | `config_store.py` | in PR |
 | M2 | m2-chat-strip | `signal_router.py` | da fare |
 | M3 | m3-partial-save | `config_store.py` | da fare |
 | M4 | m4-day-format | `safety_guard.py` | da fare |
@@ -45,6 +45,17 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | LOW | low-namemap-underfill | `name_mapping_gui.py` (under-fill posizionale) | da fare |
 | LOW | low-diagnostics-ws | `diagnostics.py` (whitespace → `—`) | da fare |
 | LOW | low-dedupe-skew | `signal_dedupe.py` (non pruneare entry con `t>now` + doc) | da fare |
+
+## M1 — `_migrate` strippa i campi stringa noti (filtro chat non "sordo")
+
+`config_store._migrate` ora toglie spazi/newline ai bordi delle chiavi stringa
+dell'allowlist `_STRIP_STR_KEYS` (`chat_id`, `xtrader_notification_chat_id`, `provider`,
+`recognition_mode`, `queue_mode`, `active_parser`). Un `chat_id` con whitespace (config
+editata a mano / copia-incolla da Telegram) altrimenti non matcherebbe il confronto a
+valle e renderebbe "sordo" il filtro single-chat (fail-closed: nessuna bet sbagliata, ma
+il bridge smette di ascoltare). Esclusi di proposito: `bot_token` (segreto, gestito da
+`token_store`/keyring) e `csv_path` (un path può contenere spazi; validazione è un finding
+separato). Normalizzazione di chiavi ESISTENTI: nessun cambio di contratto/colonne CSV.
 
 ## Decisioni del proprietario (NON implementare senza conferma)
 
