@@ -24,6 +24,13 @@ import os
 import sqlite3
 import threading
 
+# Busy timeout della connessione SQLite (secondi). Il default di sqlite3 è 5s: un
+# accesso concorrente al file (es. il viewer del dizionario aperto mentre una sync
+# scrive, o un secondo processo) può sbattere su "database is locked" troppo presto.
+# Con 30s la connessione ASPETTA che il lock si liberi invece di fallire subito
+# (#184 LOW). Applicato sia via `timeout=` (copre l'apertura) sia via PRAGMA esplicito.
+_BUSY_TIMEOUT_S = 30
+
 # Whitelist delle tabelle che espongono active/last_seen_at e la loro colonna di
 # scoping opzionale (per deactivate_unseen). Fonte unica: evita SQL costruito da
 # input non controllato (i nomi tabella/colonna passano SOLO da qui).
@@ -129,9 +136,15 @@ class BetfairLocalDB:
             if parent:
                 os.makedirs(parent, exist_ok=True)
         # check_same_thread=False: la sync può girare in un worker; le scritture sono
-        # serializzate dal lock sottostante.
-        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        # serializzate dal lock sottostante. `timeout`: busy timeout esteso (vedi
+        # `_BUSY_TIMEOUT_S`) per non fallire subito su "database is locked" concorrente.
+        self._conn = sqlite3.connect(db_path, check_same_thread=False,
+                                     timeout=_BUSY_TIMEOUT_S)
         self._conn.row_factory = sqlite3.Row
+        # PRAGMA busy_timeout esplicito (ms): ridondante con `timeout=` ma rende l'intento
+        # durevole e ispezionabile, e copre il caso in cui il valore venga reimpostato
+        # da un PRAGMA successivo (#184 LOW).
+        self._conn.execute(f"PRAGMA busy_timeout = {_BUSY_TIMEOUT_S * 1000}")
         # RLock (rientrante): `transaction()` tiene il lock mentre i metodi di scrittura
         # lo riacquisiscono. `_tx_depth>0` differisce i commit fino a fine transazione.
         self._lock = threading.RLock()

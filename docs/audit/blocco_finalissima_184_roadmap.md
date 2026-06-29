@@ -41,7 +41,7 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | LOW | low-tmp-sweep | `atomic_io.py` (sweep `.tmp` orfani allo startup) | in PR |
 | LOW | low-session-expiry | `betfair/session.py` (pulisce su errore scadenza) | in PR |
 | LOW | low-autosync-release | `betfair/auto_sync.py` (`release()` in finally guardato) | in PR |
-| LOW | low-localdb-timeout | `betfair/local_db.py` (`timeout=30`/PRAGMA) | da fare |
+| LOW | low-localdb-timeout | `betfair/local_db.py` (`timeout=30`/PRAGMA) | in PR |
 | LOW | low-syncruns-prune | `betfair/local_db.py` (prune `betfair_sync_runs`) | da fare |
 | LOW | low-namemap-underfill | `name_mapping_gui.py` (under-fill posizionale) | da fare |
 | LOW | low-diagnostics-ws | `diagnostics.py` (whitespace → `—`) | da fare |
@@ -188,6 +188,18 @@ del disco: il CSV finale era già intatto. Test fail-first: orfani rimossi / fil
 os.remove flaky saltato senza fermare lo sweep / orfano CSV reale rimosso senza toccare il CSV. **Smoke
 manuale** (Windows reale, non in CI): killare il processo durante una scrittura CSV lascia un
 `.segnali_*.tmp`; al riavvio dell'app sparisce e il CSV resta valido.
+
+## low-localdb-timeout — busy timeout SQLite esteso a 30s
+
+`BetfairLocalDB` apriva la connessione con `sqlite3.connect(..., check_same_thread=False)` senza
+`timeout`: il default è **5s**, così un accesso concorrente al file (es. il viewer del dizionario
+aperto mentre una sync scrive, o un secondo processo) può sbattere su `database is locked` troppo
+presto. Fix: `timeout=_BUSY_TIMEOUT_S` (30) sulla `connect` **e** `PRAGMA busy_timeout = 30000`
+esplicito (ridondante ma durevole/ispezionabile): la connessione **aspetta** che il lock si liberi
+invece di fallire subito. Nessun cambio di schema/dati, nessun bet. Test: il PRAGMA è 30000 (in
+memoria e su file; fail-first: il vecchio codice dava 5000) + test di **concorrenza reale** (una
+seconda connessione tiene il write-lock con `BEGIN IMMEDIATE`, la scrittura `BetfairLocalDB` aspetta
+e riesce, nessun `database is locked`).
 
 ## low-autosync-release — `release()` del lock motore best-effort nel `finally`
 

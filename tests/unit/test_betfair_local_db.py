@@ -198,3 +198,62 @@ def test_name_mapping_per_sport_non_duplica(db):
     db.upsert_name_mapping("Tennis", "juve", "Juve Tennis", "player", seen_at=1)
     rows = db.fetchall("betfair_local_name_mappings")
     assert len(rows) == 2
+
+
+# ── #184 LOW: busy timeout esteso (no "database is locked" prematuro) ──────────
+
+def test_busy_timeout_impostato_a_30s(db):
+    # La connessione deve avere busy_timeout = 30000 ms (non i 5000 di default sqlite):
+    # un accesso concorrente aspetta invece di fallire subito con "database is locked".
+    from xtrader_bridge.betfair.local_db import _BUSY_TIMEOUT_S
+    got = db._conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    assert got == _BUSY_TIMEOUT_S * 1000 == 30000
+
+
+def test_busy_timeout_anche_su_db_su_file(tmp_path):
+    # Il PRAGMA vale anche per un DB su file reale (il caso d'uso multi-accesso).
+    path = str(tmp_path / "betfair.db")
+    d = BetfairLocalDB(path)
+    try:
+        assert d._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30000
+    finally:
+        d.close()
+
+
+def test_scrittura_concorrente_aspetta_il_lock_e_non_fallisce(tmp_path):
+    # Un'ALTRA connessione tiene il write-lock del file per un istante: grazie al busy
+    # timeout la BetfairLocalDB ASPETTA che si liberi e la scrittura RIESCE, invece di
+    # sollevare "database is locked". Esercita il lock reale tra due connessioni su file.
+    import sqlite3
+    import threading
+    import time
+
+    path = str(tmp_path / "betfair.db")
+    d = BetfairLocalDB(path)            # crea schema + busy_timeout=30s
+
+    blocker = sqlite3.connect(path)
+    blocker.execute("BEGIN IMMEDIATE")  # acquisisce il write-lock del file
+    blocker.execute(
+        "INSERT INTO betfair_meta(key, value) VALUES('x', 1)")
+
+    done = {"ok": False, "err": None}
+
+    def _writer():
+        try:
+            # Deve BLOCCARSI sul lock del blocker, poi riuscire quando viene rilasciato.
+            d.upsert_sport("1", "Calcio", seen_at=d.new_sync_marker())
+            done["ok"] = True
+        except Exception as ex:          # noqa: BLE001 — raccolto per l'assert
+            done["err"] = ex
+
+    t = threading.Thread(target=_writer)
+    t.start()
+    time.sleep(0.2)                      # il writer è in attesa sul lock
+    blocker.commit()                     # rilascia il write-lock
+    blocker.close()
+    t.join(timeout=10)
+
+    assert done["err"] is None, f"scrittura concorrente fallita: {done['err']}"
+    assert done["ok"] is True
+    assert d.count_active("betfair_sports") == 1
+    d.close()
