@@ -134,6 +134,7 @@ def make_app():
         a._daily = daily
         a._csv_lock = _app_mod.csv_lock_escalation.CsvLockEscalation()
         a._expire_timer = None
+        a._timer_lock = threading.Lock()   # #184 low-timer-lock: replace/cancel timer sotto lock
         a._stop_event = threading.Event()
         a._loop = None
         a._tg_app = None

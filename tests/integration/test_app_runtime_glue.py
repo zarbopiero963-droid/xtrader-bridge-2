@@ -530,3 +530,67 @@ def test_stop_sveglia_attesa_in_loop_via_call_soon_threadsafe(make_app, app_mod,
     assert len(scheduled) == 1        # svegliato via call_soon_threadsafe (thread-safe dal GUI)
     assert evt.is_set()               # l'attesa in-loop di _async_run è stata svegliata
     assert a._running is False
+
+
+# ── #184 low-timer-lock: replace/cancel del timer di scadenza atomico sotto lock ──
+
+def test_schedule_expiry_concorrente_non_lascia_timer_orfani(make_app, app_mod, monkeypatch):
+    """#184 low-timer-lock: due caller concorrenti di `_schedule_expiry` non devono avviare un
+    secondo `threading.Timer` che resta poi non referenziato (leak, double-fire idempotente). Il
+    replace (cancel+create+assign+start) è atomico sotto `_timer_lock`.
+
+    Fail-first: senza il lock, l'interleaving cancel→assign lascia DUE timer vivi (started e mai
+    cancellati) invece di uno."""
+    import threading as _t
+
+    rec_lock = _t.Lock()
+    started, cancelled = [], []
+    proceed_b = _t.Event()       # A→B: il secondo caller può procedere
+    b_done = _t.Event()          # B→A: il secondo caller ha finito il replace
+    first_cancel = {"done": False}
+
+    class _FakeTimer:
+        def __init__(self, delay, fn):
+            self.fn = fn
+            self.daemon = False
+
+        def start(self):
+            with rec_lock:
+                started.append(self)
+
+        def cancel(self):
+            with rec_lock:
+                cancelled.append(self)
+                is_first = not first_cancel["done"]
+                first_cancel["done"] = True
+            if is_first:
+                # Forza l'interleaving: lascia correre il caller B e aspettalo. Nel caso CON lock,
+                # B resta bloccato sull'acquisizione di `_timer_lock` → qui si esce per timeout.
+                proceed_b.set()
+                b_done.wait(timeout=0.5)
+
+    monkeypatch.setattr(app_mod.threading, "Timer", _FakeTimer)
+    a = make_app(capture_schedule=False)      # usa il `_schedule_expiry` REALE
+    a._timer_lock = _t.Lock()                 # __init__ non è girato (object.__new__): lo creiamo
+    a._expire_timer = None
+
+    path = "out.csv"
+    a._schedule_expiry(path, delay=60)        # pre-seed: T0 (nessun cancel: era None)
+
+    def _caller_b():
+        proceed_b.wait(timeout=1.0)
+        a._schedule_expiry(path, delay=60)    # caller B
+        b_done.set()
+
+    tb = _t.Thread(target=_caller_b)
+    tb.start()
+    a._schedule_expiry(path, delay=60)        # caller A: cancella T0 → handoff verso B
+    tb.join(timeout=2.0)
+    assert not tb.is_alive()
+
+    # Esattamente UN timer vivo (avviato e non cancellato): nessun orfano.
+    live = [t for t in started if t not in cancelled]
+    assert len(live) == 1
+    # Il cancel di teardown (sotto lock) lo ferma: nessun timer vivo residuo.
+    a._cancel_expiry_timer()
+    assert [t for t in started if t not in cancelled] == []

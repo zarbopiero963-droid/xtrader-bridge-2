@@ -32,7 +32,7 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | M11 | m11-tls-context | `betfair/catalogue_client.py` | merged (#207) |
 | M12 | m12-viewer-debounce | `betfair/dictionary_viewer_gui.py` | in PR |
 | LOW | low-tracker-nonwrite | `write_path.py` (rollback guardrail su non-WRITE) | in PR |
-| LOW | low-timer-lock | `app.py` (`_schedule_expiry` sotto lock) | da fare |
+| LOW | low-timer-lock | `app.py` (`_schedule_expiry` sotto lock) | in PR |
 | LOW | low-bool-count | `safety_guard.py` (`isinstance` bool) | da fare |
 | LOW | low-parser-emoji | `parser.py:215` (strip trailing emoji) | da fare |
 | LOW | low-isodds-inf | `parser.py` (`_is_odds` `math.isfinite`) | da fare |
@@ -138,6 +138,23 @@ corruttivo) e il docstring "atomicità della singola riga" sovrastimava la garan
 (un crash kernel→disco può lasciare una coda parziale, dipende da fs/hardware), ma quella è già
 gestita: `read_events` salta la riga troncata e il prossimo append antepone un separatore.
 Output invariato; cambia solo il numero di write (1 invece di 2 nel caso separatore).
+
+## low-timer-lock — replace/cancel del timer di scadenza atomico sotto lock
+
+`_schedule_expiry` faceva `cancel` del timer precedente, poi creava un nuovo `threading.Timer`, lo
+assegnava a `self._expire_timer` e lo avviava — **senza lock**. Due caller concorrenti (es. il
+bot-thread via `_process`, un retry, o il thread GUI) potevano leggere lo stesso `_expire_timer`,
+avviare entrambi un nuovo Timer e lasciarne uno **non referenziato** ma comunque avviato → fira lo
+stesso (double-fire idempotente, ma è un leak di thread/timer). Fix: lock DEDICATO `_timer_lock`
+che serializza il replace (cancel+create+assign+start atomico) e un punto unico
+`_cancel_expiry_timer()` (cancel+azzeramento sotto lock) usato da STOP/chiusura/`_manual_clear`,
+così un cancel non si interlaccia con un replace. Il lock è **mai annidato** nel `_queue_lock` (i
+caller rilasciano il queue_lock prima; il callback del timer usa solo il queue_lock) → niente
+deadlock. L'harness dei test (`conftest`) aggiunge `_timer_lock` come gli altri attributi di stato.
+
+Test (fail-first, due thread reali con handoff a eventi): un interleaving cancel→assign lasciava
+DUE timer vivi (avviati e mai cancellati); col lock ne resta esattamente UNO, e
+`_cancel_expiry_timer` lo ferma (zero residui).
 
 ## low-tracker-nonwrite — i guardrail riflettono SOLO i WRITE reali
 
