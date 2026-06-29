@@ -51,15 +51,30 @@ _ALLOWLIST = {
 }
 
 
+def _is_broad_name(node) -> bool:
+    return isinstance(node, ast.Name) and node.id in ("Exception", "BaseException")
+
+
+def _handler_is_blind(node: ast.ExceptHandler) -> bool:
+    """``True`` se l'handler cattura in modo "cieco": bare ``except:``, ``except Exception``/
+    ``except BaseException``, oppure un handler a **tupla** che include uno di quei due
+    (``except (Exception, X):``) — altrimenti il blind-catch sfuggirebbe (Codex P2 su #232)."""
+    t = node.type
+    if t is None:                                       # bare `except:`
+        return True
+    if _is_broad_name(t):                               # except Exception / BaseException
+        return True
+    if isinstance(t, ast.Tuple):                        # except (Exception, X) / (BaseException, …)
+        return any(_is_broad_name(e) for e in t.elts)
+    return False
+
+
 class _BlindExceptVisitor(ast.NodeVisitor):
     def __init__(self):
         self.count = 0
 
     def visit_ExceptHandler(self, node):
-        t = node.type
-        if t is None:                                   # bare `except:`
-            self.count += 1
-        elif isinstance(t, ast.Name) and t.id in ("Exception", "BaseException"):
+        if _handler_is_blind(node):
             self.count += 1
         self.generic_visit(node)
 
@@ -106,6 +121,25 @@ def test_allowlist_totale_coerente():
     # Il totale dell'allowlist deve coincidere con la somma per-file (nessun refuso nel baseline).
     actual = _scan_blind_excepts()
     assert sum(actual.values()) == sum(v[0] for v in _ALLOWLIST.values())
+
+
+def _count_in_snippet(code: str) -> int:
+    v = _BlindExceptVisitor()
+    v.visit(ast.parse(code))
+    return v.count
+
+
+def test_rileva_handler_a_tupla_che_include_exception():
+    # Codex P2 (#232): un handler a TUPLA che include Exception/BaseException è un blind-catch
+    # e va contato — altrimenti `except (Exception, X):` sfuggirebbe alla guardia.
+    assert _count_in_snippet("try:\n pass\nexcept (Exception, ValueError):\n pass\n") == 1
+    assert _count_in_snippet("try:\n pass\nexcept (ValueError, BaseException):\n pass\n") == 1
+    # bare / nome singolo restano contati
+    assert _count_in_snippet("try:\n pass\nexcept Exception:\n pass\n") == 1
+    assert _count_in_snippet("try:\n pass\nexcept:\n pass\n") == 1
+    # tuple SOLO di eccezioni specifiche NON è cieco → non contato
+    assert _count_in_snippet("try:\n pass\nexcept (ValueError, KeyError):\n pass\n") == 0
+    assert _count_in_snippet("try:\n pass\nexcept ValueError:\n pass\n") == 0
 
 
 def test_ogni_voce_allowlist_ha_un_motivo():
