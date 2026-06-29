@@ -131,8 +131,16 @@ obbligatoria** (casella «Obblig.» spenta). Non esiste più un interruttore glo
     **malformato** (es. `1.2,3`, gruppo non da 3 cifre) NON viene "aggiustato": resta invalido ed è
     **scartato** (`INVALID_PRICE`), per non scrivere nel CSV un prezzo sbagliato ma plausibile.
 - Header sempre presente, anche su CSV "vuoto" (solo header).
-- Un solo segnale attivo alla volta (riscrittura del file) finché la coda multi-segnale
-  (PR-16) non sarà introdotta.
+- **Righe attive e modalità coda (`queue_mode`).** Quante righe segnale possono coesistere nel
+  CSV dipende dalla modalità coda configurata (vedi README → `queue_mode`/`max_active_signals`):
+  - **`OVERWRITE_LAST`** (default sicuro): **una sola riga attiva** alla volta — ogni nuovo
+    segnale **riscrive** il file (header + 1 riga). È il comportamento storico "one signal at a
+    time";
+  - **`APPEND_ACTIVE`** / **`QUEUE_UNTIL_CONFIRMED`**: **più righe attive** (multi-segnale), con
+    tetto `max_active_signals` e i guardrail anti-doppia-scommessa (dedupe persistente, limite
+    giornaliero, scadenza per-segnale). Il file resta sempre scritto **atomicamente** (header +
+    N righe) e svuotato a solo header quando la coda si svuota.
+  In tutte le modalità la scrittura è atomica e una riga non valida non viene mai scritta.
 
 ### Fallimento di scrittura e CSV-lock (audit #105 H2)
 

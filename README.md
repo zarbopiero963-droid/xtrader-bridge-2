@@ -55,7 +55,9 @@ XTrader Signal Bridge (gira sul tuo PC)
    • DECIDE come instradarlo (`telegram_dispatch.decide`): scarta gli arretrati
      troppo vecchi, ignora se manca un filtro chat, manda gli ESITI della chat
      notifiche XTrader al percorso di conferma, e processa solo le chat configurate
-   • lo analizza: parser hardcoded P.Bet. o Parser Personalizzato
+   • lo analizza con il **Parser Personalizzato** configurato per la chat (il parser
+     hardcoded P.Bet. resta solo per compatibilità/test: NON gira nel flusso live —
+     una chat senza Parser Personalizzato viene ignorata)
    • estrae i campi e li traduce nei valori XTrader (dizionario)
    • valida (quota, mercato, tipo scommessa)
         │
@@ -129,7 +131,7 @@ La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Co
 
 | Campo GUI | Chiave config | Default | A cosa serve |
 |---|---|---|---|
-| 🔑 **Bot Token** | `bot_token` | *(vuoto)* | Token del bot Telegram (@BotFather). Senza, START è bloccato. Mai mostrato nei log. |
+| 🔑 **Bot Token** | `bot_token` | *(vuoto)* | Token del bot Telegram (@BotFather). Senza, START è bloccato. Mai mostrato nei log. Salvato nel **keyring del sistema** (Windows Credential Manager); **senza un backend keyring** ripiega sul token **in chiaro** in `config.json` con avviso nel log — vedi [Sicurezza](#sicurezza-simulazione-duplicati-e-limiti). |
 | 💬 **Chat ID** | `chat_id` | *(vuoto)* | ID della chat/canale sorgente. Definisce quali messaggi vengono accettati. |
 | 📄 **CSV Path** | `csv_path` | `C:\XTrader\segnali.csv` | File CSV che XTrader monitora. Obbligatorio. |
 | ⏱️ **Timeout (sec)** | `clear_delay` | `90` | Dopo quanti secondi un segnale scade e il CSV viene svuotato. Deve essere un intero > 0. |
