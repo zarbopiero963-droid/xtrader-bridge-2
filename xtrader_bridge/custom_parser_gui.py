@@ -548,7 +548,11 @@ class CustomParserPanel(ctk.CTkFrame):
         """Disegna UNA riga multi editabile (campi `_MULTI_FIELDS` + abilitata + Rimuovi)."""
         row = ctk.CTkFrame(container, fg_color="transparent")
         row.pack(fill="x", pady=2)
-        refs = {"frame": row}
+        # Conserva la regola SORGENTE: i campi NON esposti nella GUI (start_after/end_before/
+        # min_price/max_price/points) vanno PRESERVATI al salvataggio, altrimenti aprire+salvare
+        # un parser azzererebbe in silenzio quei vincoli per-riga cambiando le righe CSV emesse
+        # (Codex P1). `_multi_rule_from_refs` riparte da una copia di questa regola.
+        refs = {"frame": row, "_rule": rule}
         for attr, label, w in self._MULTI_FIELDS:
             cell = ctk.CTkFrame(row, fg_color="transparent")
             cell.pack(side="left", padx=2)
@@ -619,9 +623,13 @@ class CustomParserPanel(ctk.CTkFrame):
             self._multi_rule_from_refs(r) for r in self._multi_selection_rows]
 
     def _multi_rule_from_refs(self, refs) -> "MultiRowRule":
-        kwargs = {attr: refs[attr].get().strip() for attr, _, _ in self._MULTI_FIELDS}
-        kwargs["enabled"] = bool(refs["enabled"].get())
-        return MultiRowRule(**kwargs)
+        """Ricostruisce la `MultiRowRule` da una riga: parte dalla regola SORGENTE e applica
+        SOLO gli override visibili (`_MULTI_FIELDS`) + Attiva, preservando i campi non esposti
+        (logica in `ParserBuilder.merge_multi_rule_overrides`, testata in CI; Codex P1)."""
+        overrides = {attr: refs[attr].get().strip() for attr, _, _ in self._MULTI_FIELDS}
+        return ParserBuilder.merge_multi_rule_overrides(
+            refs.get("_rule") or MultiRowRule(), overrides,
+            enabled=bool(refs["enabled"].get()))
 
     def _refresh_multi_warnings(self):
         """Aggiorna il banner avvisi dal controller (sincronizza prima i widget)."""
@@ -918,7 +926,19 @@ class CustomParserPanel(ctk.CTkFrame):
             defn, message, provider=self._provider, mode=mode, require_price=require_price,
             name_mapping_profiles=name_mapping_profiles,
             market_mapping_profiles=market_mapping_profiles)
-        if diag.placeable:
+        # Anteprima multi-riga (#192): tutte le righe generate (base o MultiMarket/
+        # MultiSelection), col verdetto per-riga. Stesso motore del runtime.
+        preview = self.builder.preview_rows(
+            message, provider=self._provider, mode=mode, require_price=require_price,
+            name_mapping_profiles=name_mapping_profiles,
+            market_mapping_profiles=market_mapping_profiles)
+        # Verdetto sintetico. Con output multi-riga attivo si basa sulle RIGHE GENERATE
+        # (non sulla sola base, che può mancare di MarketType/SelectionName di proposito),
+        # così il titolo non contraddice la tabella (Codex P2). Single-row → verdetto diag.
+        multi_active = any(p.kind != "base" for p in preview)
+        if multi_active:
+            self._result.configure(text=ParserBuilder.preview_summary(preview))
+        elif diag.placeable:
             riga = ", ".join(f"{k}={v}" for k, v in res.row.items() if v != "")
             self._result.configure(text=f"✅ Pronto · {riga}")
         else:
@@ -926,12 +946,6 @@ class CustomParserPanel(ctk.CTkFrame):
             self._result.configure(text=f"⛔ Non pronto ({diag.status}){extra}")
         self._last_report = parser_diagnostics.format_report(diag)
         self._render_diag_table(parser_diagnostics.diagnostic_table(diag, defn))
-        # Anteprima multi-riga (#192): tutte le righe generate (base o MultiMarket/
-        # MultiSelection), col verdetto per-riga. Stesso motore del runtime.
-        preview = self.builder.preview_rows(
-            message, provider=self._provider, mode=mode, require_price=require_price,
-            name_mapping_profiles=name_mapping_profiles,
-            market_mapping_profiles=market_mapping_profiles)
         self._render_preview_table(preview)
 
     _MULTI_KIND_LABEL = {"base": "Base", "market": "Mercato", "selection": "Selezione"}

@@ -10,7 +10,10 @@ Regressione bloccata: prima di PR2 `to_def()` SCARTAVA i campi multi, quindi un 
 MultiMarket configurato via builder generava 1 sola riga; questi test falliscono su quel codice.
 """
 
+import importlib
 import os
+import sys
+import types
 
 from xtrader_bridge import custom_parser as cp
 from xtrader_bridge import parser_builder as pb
@@ -218,3 +221,113 @@ def test_save_load_roundtrip_preserves_multi(tmp_path):
     # E l'anteprima dal parser ricaricato genera ancora le 2 righe mercato.
     rows = b2.preview_rows(MSG, mode="NAME_ONLY")
     assert len(rows) == 2 and all(r.placeable for r in rows)
+
+
+# ── verdetto sintetico multi-riga (`preview_summary`, Codex P2) ───────────────
+
+def _pr(**kw):
+    """PreviewRow di comodo per i test del verdetto sintetico."""
+    base = dict(index=0, kind="market", placeable=True, status=validator.VALID,
+                missing_required=[], row={}, summary="")
+    base.update(kw)
+    return pb.PreviewRow(**base)
+
+
+def test_preview_summary_all_placeable():
+    rows = [_pr(index=0), _pr(index=1)]
+    msg = pb.ParserBuilder.preview_summary(rows)
+    assert msg.startswith("✅ Pronto") and "2 righe" in msg
+
+
+def test_preview_summary_none_placeable_lists_status():
+    rows = [_pr(placeable=False, status="INVALID_MISSING_FIELDS")]
+    msg = pb.ParserBuilder.preview_summary(rows)
+    assert msg.startswith("⛔") and "INVALID_MISSING_FIELDS" in msg
+
+
+def test_preview_summary_partial():
+    rows = [_pr(index=0, placeable=True),
+            _pr(index=1, placeable=False, status="INVALID_MISSING_FIELDS")]
+    msg = pb.ParserBuilder.preview_summary(rows)
+    assert msg.startswith("⚠") and "1/2" in msg
+
+
+def test_preview_summary_empty():
+    assert pb.ParserBuilder.preview_summary([]).startswith("⛔")
+
+
+# ── il salvataggio NON azzera i campi multi non esposti (Codex P1) ────────────
+# La GUI espone solo `_MULTI_FIELDS`: i campi min_price/max_price/points/start_after/
+# end_before di una regola CARICATA devono sopravvivere al salvataggio. La logica vive nel
+# controller (`merge_multi_rule_overrides`, pura) ed è qui testata direttamente; più sotto
+# si esercita anche il VERO metodo della vista (stub di customtkinter) per coprire il wrapper.
+
+def test_merge_multi_rule_overrides_preserves_hidden_fields():
+    source = cp.MultiRowRule(
+        market_type="OLD_MT", selection_name="OLD_SEL",
+        min_price="1.20", max_price="3.50", points="2", start_after="[", end_before="]")
+    rule = pb.ParserBuilder.merge_multi_rule_overrides(
+        source, {"market_type": "NEW_MT", "market_name": "", "selection_name": "Over 0,5",
+                 "price": "", "bet_type": "", "handicap": ""}, enabled=True)
+    # Campi NON esposti: PRESERVATI dalla sorgente.
+    assert rule.min_price == "1.20" and rule.max_price == "3.50" and rule.points == "2"
+    assert rule.start_after == "[" and rule.end_before == "]"
+    # Override visibili: APPLICATI; sorgente NON mutata (copia difensiva).
+    assert rule.market_type == "NEW_MT" and rule.selection_name == "Over 0,5"
+    assert rule.enabled is True and source.market_type == "OLD_MT"
+
+
+def test_merge_multi_rule_overrides_new_row_no_hidden_values():
+    rule = pb.ParserBuilder.merge_multi_rule_overrides(
+        cp.MultiRowRule(), {"market_type": "", "market_name": "", "selection_name": "1 - 0",
+                            "price": "", "bet_type": "", "handicap": ""}, enabled=True)
+    assert rule.selection_name == "1 - 0"
+    assert rule.min_price == "" and rule.max_price == "" and rule.points == ""
+
+
+# ── vista: il VERO `_multi_rule_from_refs` preserva i campi nascosti (stub Tk) ─
+
+class _FakeVar:
+    """Stub di StringVar/BooleanVar: espone solo `.get()` (niente display Tk)."""
+
+    def __init__(self, value):
+        self._value = value
+
+    def get(self):
+        return self._value
+
+
+class _FakeCtkModule(types.ModuleType):
+    """Finto `customtkinter`: ogni attributo è una classe reale vuota, così il modulo GUI
+    si importa headless e si può esercitare il vero metodo su un `self` finto."""
+
+    def __getattr__(self, name):
+        cls = type(name, (object,), {"__init__": lambda self, *a, **k: None})
+        setattr(self, name, cls)
+        return cls
+
+
+def test_gui_multi_rule_from_refs_preserves_hidden_fields(monkeypatch):
+    # Esercita il VERO metodo della vista `CustomParserPanel._multi_rule_from_refs` (che
+    # delega al controller), stubbando customtkinter SOLO se assente (in CI lo è).
+    try:
+        import customtkinter  # noqa: F401
+    except ModuleNotFoundError:
+        monkeypatch.setitem(sys.modules, "customtkinter", _FakeCtkModule("customtkinter"))
+    monkeypatch.delitem(sys.modules, "xtrader_bridge.custom_parser_gui", raising=False)
+    gui = importlib.import_module("xtrader_bridge.custom_parser_gui")
+
+    source = cp.MultiRowRule(market_type="OLD_MT", min_price="1.20", points="2",
+                             start_after="[", end_before="]")
+    refs = {
+        "_rule": source,
+        "market_type": _FakeVar("NEW_MT"), "market_name": _FakeVar(""),
+        "selection_name": _FakeVar("Over 0,5"), "price": _FakeVar(""),
+        "bet_type": _FakeVar(""), "handicap": _FakeVar(""), "enabled": _FakeVar(True),
+    }
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)   # no __init__: nessun widget
+    rule = panel._multi_rule_from_refs(refs)
+    assert rule.min_price == "1.20" and rule.points == "2"          # preservati
+    assert rule.start_after == "[" and rule.end_before == "]"
+    assert rule.market_type == "NEW_MT" and rule.selection_name == "Over 0,5"   # applicati
+    assert rule.enabled is True

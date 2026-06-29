@@ -374,6 +374,39 @@ class ParserBuilder:
                                    name_mapping_profiles=name_mapping_profiles,
                                    market_mapping_profiles=market_mapping_profiles)
 
+    @staticmethod
+    def merge_multi_rule_overrides(base: MultiRowRule, overrides: dict,
+                                   *, enabled: bool) -> MultiRowRule:
+        """Applica gli override VISIBILI della GUI su una COPIA della riga multi `base`,
+        PRESERVANDO i campi non esposti (start_after/end_before/min_price/max_price/points):
+        salvare un parser caricato dalla GUI non deve azzerarli in silenzio, perché sono
+        consumati dagli override multi-riga del runtime e cambiano le righe CSV emesse
+        (Codex P1). `overrides` mappa attributo→valore (stringhe già strippate); `enabled`
+        è lo stato della casella «Attiva». Logica pura, testata in CI."""
+        rule = MultiRowRule.from_dict(base.to_dict())   # copia: non muta la sorgente
+        for key, val in overrides.items():
+            setattr(rule, key, val)
+        rule.enabled = bool(enabled)
+        return rule
+
+    @staticmethod
+    def preview_summary(preview_rows: list) -> str:
+        """Verdetto sintetico per «Prova messaggio» quando l'output MULTI-RIGA è attivo (#192):
+        si basa sulle RIGHE GENERATE, non sulla sola riga base. Necessario perché in un parser
+        MultiMarket la base può mancare di MarketType/SelectionName di proposito (li fornisce
+        ogni riga mercato): il verdetto single-row direbbe «Non pronto» mentre le righe generate
+        sono valide e il runtime le scriverebbe (Codex P2). Logica pura, testata in CI."""
+        total = len(preview_rows)
+        if total == 0:
+            return "⛔ Nessuna riga generata."
+        placeable = sum(1 for p in preview_rows if p.placeable)
+        if placeable == total:
+            return f"✅ Pronto · {total} righe generate, tutte piazzabili."
+        if placeable == 0:
+            statuses = ", ".join(sorted({p.status for p in preview_rows}))
+            return f"⛔ Nessuna delle {total} righe è piazzabile ({statuses})."
+        return f"⚠ {placeable}/{total} righe piazzabili (le altre verranno scartate)."
+
     def preview_rows(self, message: str, *, provider: str = "",
                      mode: str = None, require_price: bool = None,
                      name_mapping_profiles=None, market_mapping_profiles=None) -> list:

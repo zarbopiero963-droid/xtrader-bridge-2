@@ -454,11 +454,18 @@ retro-compatibile).
 con un pulsante **`➕ Aggiungi`** che inserisce una **riga dinamica** editabile (Tipo mercato,
 Mercato, Selezione, Quota, BetType, Handicap) con casella **Attiva** e pulsante **`🗑 Rimuovi`**.
 Un **banner ⚠** avvisa quando entrambi gli interruttori sono attivi (righe **separate**, non
-cartesiane) o quando un interruttore è acceso senza righe abilitate. **«Prova messaggio»** mostra,
-oltre al verdetto della riga base, una **tabella «Anteprima righe generate»** con **una riga per
-ogni riga CSV** che il messaggio produrrebbe (Base / Mercato / Selezione), col **verdetto
-per-riga** (✅ piazzabile · ⛔ + motivo): usa lo **stesso motore del runtime**
-(`build_validated_rows`), quindi non mente.
+cartesiane) o quando un interruttore è acceso senza righe abilitate. **«Prova messaggio»** mostra
+una **tabella «Anteprima righe generate»** con **una riga per ogni riga CSV** che il messaggio
+produrrebbe (Base / Mercato / Selezione), col **verdetto per-riga** (✅ piazzabile · ⛔ + motivo):
+usa lo **stesso motore del runtime** (`build_validated_rows`), quindi non mente. Quando l'output
+multi-riga è attivo, anche il **verdetto sintetico** in cima si basa sulle **righe generate** (es.
+«✅ Pronto · N righe generate, tutte piazzabili»), non sulla sola riga base — che in un parser
+MultiMarket può mancare di MarketType/SelectionName **di proposito** (li fornisce ogni riga
+mercato), e altrimenti farebbe apparire un falso «Non pronto».
+
+I campi per-riga **non esposti** nella griglia GUI (`min_price`, `max_price`, `points`,
+`start_after`, `end_before` di `MultiRowRule`) sono **preservati** quando si modifica e salva un
+parser caricato: la GUI applica solo gli override visibili senza azzerare i vincoli nascosti.
 
 La logica che la GUI usa (round-trip dei campi multi in `to_def()`, gestione righe, avvisi,
 anteprima `ParserBuilder.preview_rows`) vive nel **controller** ed è coperta in CI da
