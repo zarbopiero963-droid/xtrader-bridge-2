@@ -18,6 +18,10 @@ def build_report(info) -> str:
     items = info.items() if isinstance(info, dict) else list(info or [])
     lines = [_TITLE, f"versione: {__version__}", "-" * len(_TITLE)]
     for label, value in items:
-        text = str(value).strip() if value not in (None, "") else "—"
+        # Normalizza PRIMA di decidere: un valore di soli spazi (es. "   ", "\t") va
+        # mostrato come "—", non come stringa vuota. Strippare e poi fare il fallback
+        # copre None/""/whitespace-only con un unico controllo (#184 LOW).
+        text = str(value).strip() if value is not None else ""
+        text = text or "—"
         lines.append(f"{label}: {text}")
     return event_log.redact_secrets("\n".join(lines))

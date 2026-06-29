@@ -44,7 +44,7 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | LOW | low-localdb-timeout | `betfair/local_db.py` (`timeout=30`/PRAGMA) | in PR |
 | LOW | low-syncruns-prune | `betfair/local_db.py` (prune `betfair_sync_runs`) | in PR |
 | LOW | low-namemap-underfill | `name_mapping_gui.py` (under-fill posizionale) | in PR |
-| LOW | low-diagnostics-ws | `diagnostics.py` (whitespace → `—`) | da fare |
+| LOW | low-diagnostics-ws | `diagnostics.py` (whitespace → `—`) | in PR |
 | LOW | low-dedupe-skew | `signal_dedupe.py` (non pruneare entry con `t>now` + doc) | da fare |
 
 ## M1 — `_migrate` strippa i campi stringa noti (filtro chat non "sordo")
@@ -188,6 +188,16 @@ del disco: il CSV finale era già intatto. Test fail-first: orfani rimossi / fil
 os.remove flaky saltato senza fermare lo sweep / orfano CSV reale rimosso senza toccare il CSV. **Smoke
 manuale** (Windows reale, non in CI): killare il processo durante una scrittura CSV lascia un
 `.segnali_*.tmp`; al riavvio dell'app sparisce e il CSV resta valido.
+
+## low-diagnostics-ws — valore di soli spazi reso come `—`
+
+`build_report` faceva `text = str(value).strip() if value not in (None, "") else "—"`: un valore
+**whitespace-only** (`"   "`, `"\t"`) NON è in `(None, "")`, quindi prendeva il ramo `.strip()` →
+stringa vuota → campo mostrato vuoto (`label: `) invece di `—`. Fix: normalizza PRIMA di decidere —
+`text = str(value).strip() if value is not None else ""` poi `text = text or "—"`: un solo controllo
+copre `None`/`""`/whitespace-only → `—`, mentre `0` (numerico) resta `"0"` (valore reale, non vuoto) e
+i valori normali restano strippati. Test fail-first: soli spazi/tab/newline → `—` (il vecchio codice
+lasciava il campo vuoto); più i guard `0`→`"0"` e strip dei valori con spazi attorno.
 
 ## low-namemap-underfill — `_add_row` aggiunge la riga vuota senza under-fill posizionale
 

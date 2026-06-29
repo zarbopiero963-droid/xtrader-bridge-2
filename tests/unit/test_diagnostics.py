@@ -22,6 +22,31 @@ def test_valori_vuoti_mostrati_come_trattino():
     assert "Ultimo segnale: —" in report
 
 
+def test_valori_di_soli_spazi_mostrati_come_trattino():
+    # #184 LOW: un valore whitespace-only (spazi/tab) NON deve apparire come campo
+    # vuoto (`label: `) ma come `—`, come un valore assente.
+    report = diagnostics.build_report([
+        ("Spazi", "   "), ("Tab", "\t"), ("Newline", "\n  ")])
+    assert "Spazi: —" in report
+    assert "Tab: —" in report
+    assert "Newline: —" in report
+    # nessun campo deve restare con valore vuoto dopo i due punti
+    for label in ("Spazi", "Tab", "Newline"):
+        assert f"{label}: \n" not in report and not report.endswith(f"{label}: ")
+
+
+def test_zero_non_e_trattato_come_vuoto():
+    # Lo `0` (numerico) è un valore reale, non "vuoto": deve restare "0", non "—".
+    report = diagnostics.build_report([("Ricevuti", 0), ("Scartati", 0)])
+    assert "Ricevuti: 0" in report
+    assert "Scartati: 0" in report
+
+
+def test_valore_con_spazi_attorno_viene_strippato():
+    report = diagnostics.build_report([("Stato", "  ATTIVO  ")])
+    assert "Stato: ATTIVO" in report
+
+
 def test_accetta_anche_un_dict_in_ordine():
     report = diagnostics.build_report({"A": "1", "B": "2"})
     # L'ordine di inserimento del dict è preservato.
