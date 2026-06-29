@@ -25,6 +25,12 @@ CONFIG_VERSION = 1
 TMP_PREFIX = ".config_"
 TMP_SUFFIX = ".tmp"
 
+# Marker SOLO-IN-RAM (mai su disco) che `load_config` mette nella config quando il file
+# era corrotto ed è stato messo da parte come `.bak` (issue #199). Segnala a `save_config`
+# che un `bot_token` vuoto è il RESIDUO della corruzione (sentinel perso), non un clear
+# voluto: il ramo CLEAR allora PRESERVA il token nel keyring invece di cancellarlo.
+POST_CORRUPTION_KEY = "_post_corruption"
+
 # Logger di modulo: un salvataggio/migrazione config fallito NON deve restare
 # silenzioso (prima era `except: pass`). Resta comunque best-effort — l'app non
 # crasha e prosegue dai default — ma l'errore diventa visibile per la diagnosi.
@@ -353,6 +359,7 @@ def load_config(path: str = CONFIG_FILE) -> dict:
     # {}); una copia shallow li condividerebbe con DEFAULTS e una mutazione
     # in-place della config restituita corromperebbe i load successivi.
     cfg = copy.deepcopy(DEFAULTS)
+    corrupted = False
     if os.path.exists(path):
         try:
             with open(path, 'r', encoding='utf-8') as f:
@@ -361,8 +368,10 @@ def load_config(path: str = CONFIG_FILE) -> dict:
                 cfg.update(data)
             else:
                 _backup_corrupted(path)
+                corrupted = True
         except (json.JSONDecodeError, ValueError, OSError):
             _backup_corrupted(path)
+            corrupted = True
     # `config_version` è già garantito dai DEFAULTS; se il file ne porta uno
     # (futuro schema v2+) viene preservato così non perdiamo lo skew su disco.
     cfg = _migrate(cfg)
@@ -376,6 +385,11 @@ def load_config(path: str = CONFIG_FILE) -> dict:
         stored = token_store.load_token()
         if stored:
             cfg["bot_token"] = stored
+    # Marker SOLO-IN-RAM (issue #199): se il file era corrotto, il sentinel del token è andato
+    # perso col `.bak` e un eventuale `bot_token=""` al save successivo NON è un clear voluto.
+    # `save_config` lo legge e, nel ramo CLEAR, preserva il token keyring invece di cancellarlo.
+    if corrupted:
+        cfg[POST_CORRUPTION_KEY] = True
     return cfg
 
 
@@ -401,6 +415,14 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
     incoerenti. Un sentinel `bot_token_storage` (`keyring`/`plaintext`/`none`) registra dove
     sta il token e `load_config` reidrata solo se vale "keyring".
 
+    **Post-corruzione (issue #199).** Se `load_config` ha appena messo da parte un config
+    corrotto (`.bak`), il `bot_token` torna vuoto e il sentinel è perso: un `bot_token=""` al
+    save successivo è il RESIDUO della corruzione, non un clear voluto. `load_config` marca
+    questo stato in RAM (`POST_CORRUPTION_KEY`, mai su disco); in quel caso il ramo CLEAR
+    **PRESERVA** il token nel keyring (sentinel "keyring", reidratazione) invece di cancellarlo,
+    così una corruzione recuperabile non distrugge la credenziale. Il marker è consumato dal
+    primo save: un clear DELIBERATO a config integro cancella di nuovo, come prima.
+
     Scrittura **atomica** (tempfile nella stessa cartella + `flush`+`fsync` + `os.replace`,
     lo stesso schema di `csv_writer`/`signal_dedupe`/`profile_store`): un'interruzione a
     metà (crash, blackout, disco pieno) NON lascia un `config.json` troncato — o resta
@@ -415,6 +437,11 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
     # Copia separata per il DISCO: il token sicuro non va scritto in chiaro (vedi sotto),
     # ma `in_memory` lo conserva per il runtime.
     to_save = copy.deepcopy(in_memory)
+    # Marker post-corruzione (issue #199): SOLO-IN-RAM. Lo si CONSUMA qui — rimosso sia da
+    # `to_save` (mai su disco) sia da `in_memory` (così un save riuscito risana lo stato e i
+    # save successivi tornano normali). Il suo valore guida solo il ramo CLEAR qui sotto.
+    post_corruption = bool(in_memory.pop(POST_CORRUPTION_KEY, False))
+    to_save.pop(POST_CORRUPTION_KEY, None)
 
     # ── Routing del bot_token (audit #105 P1) ─────────────────────────────────────
     # Casi DISTINTI: chiave `bot_token` ASSENTE = save PARZIALE → keyring e sentinel NON
@@ -461,6 +488,24 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
                 to_save["bot_token_storage"] = "plaintext"
                 logger.warning("Keyring non disponibile: il bot token resta in chiaro in %s. "
                                "Installa un backend keyring per cifrarlo.", path)
+        elif post_corruption:
+            # #199: `bot_token` vuoto che NON è un clear voluto, ma il RESIDUO di un load
+            # POST-CORRUZIONE (config illeggibile → backup `.bak` → default con `bot_token=""`
+            # e sentinel perso). Cancellare ora il token keyring distruggerebbe una credenziale
+            # VALIDA per una corruzione recuperabile (perdita definitiva). Si PRESERVA, fail-safe:
+            # niente `delete_token`. Sentinel "keyring" così `load_config` reidrata; il token reale
+            # torna in `in_memory` per il runtime. Trade-off accettato (issue #199): si privilegia
+            # NON perdere un token valido rispetto al rischio raro di "resuscitare" un token già
+            # cancellato il cui sentinel "none" è andato perso con la corruzione. Un clear
+            # DELIBERATO resta possibile rifacendolo a config integro (marker consumato).
+            stored = token_store.load_token() if token_store.available() else None
+            if stored:
+                in_memory["bot_token"] = stored
+            to_save["bot_token"] = ""
+            to_save["bot_token_storage"] = "keyring"
+            logger.warning("Bot token NON cancellato: il campo vuoto deriva da un config corrotto "
+                           "appena ripristinato, non da un clear voluto. Il token nel keyring è "
+                           "stato preservato; per cancellarlo davvero rifallo a config integro.")
         elif token_store.available():
             # Clear (chiave presente e vuota) col keyring LEGGIBILE: l'ambiguità
             # "clear vs miss transiente" non c'è (se ci fosse un token, al load sarebbe

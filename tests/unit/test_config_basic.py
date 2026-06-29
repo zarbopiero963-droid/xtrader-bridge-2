@@ -919,3 +919,72 @@ def test_csv_path_problem(tmp_path):
     # non ha creato nulla (diagnostica pura)
     assert not os.path.exists(missing)
     assert not (tmp_path / "non_esiste").exists()
+
+
+# ── #199 (M3 P2 follow-up): config corrotto NON deve cancellare il token keyring ──
+
+def test_clear_post_corruzione_non_cancella_il_token_keyring(tmp_path, monkeypatch):
+    # Scenario data-loss: config.json corrotto → load fa il .bak e torna bot_token="" (sentinel
+    # perso) ma il keyring ha ancora il token valido. La GUI ripopola il campo con "" e salva
+    # → ramo CLEAR. Il token NON deve essere cancellato: deriva dalla corruzione, non da un clear.
+    store = {"t": "VALID:TOKEN"}
+    _fake_keyring(monkeypatch, store)
+    p = tmp_path / "config.json"
+    p.write_text("{ questo non è json valido ", encoding="utf-8")     # config corrotto
+
+    loaded = config_store.load_config(str(p))
+    assert loaded.get(config_store.POST_CORRUPTION_KEY) is True        # marker post-corruzione (RAM)
+    assert (tmp_path / "config.json.bak").exists()                     # corrotto messo da parte
+
+    loaded["bot_token"] = ""                                           # la GUI ha il campo vuoto
+    saved, ok = config_store.save_config(loaded, str(p))
+    assert ok is True
+    assert store["t"] == "VALID:TOKEN"                                 # KEYRING PRESERVATO (no delete)
+    assert saved["bot_token"] == "VALID:TOKEN"                         # runtime riusa il token reale
+    on_disk = json.loads(p.read_text(encoding="utf-8"))
+    assert on_disk["bot_token_storage"] == "keyring"                   # sentinel → reidratazione
+    assert config_store.POST_CORRUPTION_KEY not in on_disk             # marker MAI su disco
+    assert config_store.POST_CORRUPTION_KEY not in saved              # marker consumato in memoria
+    # load successivo: il token valido viene reidratato dal keyring
+    assert config_store.load_config(str(p))["bot_token"] == "VALID:TOKEN"
+
+
+def test_clear_deliberato_dopo_config_risanato_cancella_ancora(tmp_path, monkeypatch):
+    # Dopo che un save post-corruzione ha risanato il config (marker consumato), un clear
+    # DELIBERATO (bot_token="" senza marker) deve ancora cancellare il token dal keyring.
+    store = {"t": "VALID:TOKEN"}
+    _fake_keyring(monkeypatch, store)
+    p = tmp_path / "config.json"
+    p.write_text("{ corrotto ", encoding="utf-8")
+
+    loaded = config_store.load_config(str(p))
+    loaded["bot_token"] = ""
+    saved, _ = config_store.save_config(loaded, str(p))                # 1° save: preserva (post-corruzione)
+    assert store["t"] == "VALID:TOKEN"
+    assert config_store.POST_CORRUPTION_KEY not in saved              # marker consumato
+
+    # 2° save: clear DELIBERATO su config ora integro → cancella davvero
+    saved["bot_token"] = ""
+    config_store.save_config(saved, str(p))
+    assert "t" not in store                                            # token cancellato dal keyring
+    on_disk = json.loads(p.read_text(encoding="utf-8"))
+    assert on_disk["bot_token_storage"] == "none"
+    assert config_store.load_config(str(p))["bot_token"] == ""         # non risorge
+
+
+def test_post_corruzione_con_token_reinserito_lo_salva_normalmente(tmp_path, monkeypatch):
+    # Se dopo la corruzione l'utente RE-INSERISCE un token (campo non vuoto), il marker non
+    # interferisce: il token nuovo va nel keyring come un set normale.
+    store = {"t": "OLD:TOKEN"}
+    _fake_keyring(monkeypatch, store)
+    p = tmp_path / "config.json"
+    p.write_text("xxx non json", encoding="utf-8")
+    loaded = config_store.load_config(str(p))
+    assert loaded.get(config_store.POST_CORRUPTION_KEY) is True
+    loaded["bot_token"] = "NEW:TOKEN"
+    saved, ok = config_store.save_config(loaded, str(p))
+    assert ok is True
+    assert store["t"] == "NEW:TOKEN"                                   # token nuovo salvato
+    on_disk = json.loads(p.read_text(encoding="utf-8"))
+    assert on_disk["bot_token"] == ""                                  # non in chiaro
+    assert on_disk["bot_token_storage"] == "keyring"
