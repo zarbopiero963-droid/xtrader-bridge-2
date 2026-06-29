@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-# Hook pre-commit OPZIONALE (audit #105 / roadmap #153 — voce H3): blocca il commit se i
-# file in STAGING contengono segreti noti (token Telegram, chiavi private PEM, AWS key id).
+# Hook pre-commit OPZIONALE (audit #105 / roadmap #153 — voce H3): blocca il commit se i BLOB
+# in STAGING contengono segreti noti (token Telegram, chiavi private PEM, AWS key id).
 # Difesa-in-profondità locale, oltre al gate CI `forbidden-files`.
+#
+# Delega allo scanner cross-platform `tools/secret_scan.py --staged`, così la logica (estrazione
+# dei blob in staging + pattern) è UNICA e testata, e funziona anche dove `bash` non risolve uno
+# scanner POSIX (es. Windows). L'hook estrae il CONTENUTO IN STAGING (l'index), non il working
+# tree: con `git add -p` o un file modificato dopo l'add, un segreto nel blob in staging ma
+# assente dal disco verrebbe comunque intercettato (review CodeRabbit #155).
 #
 # Abilita una volta sola con:
 #   git config core.hooksPath .githooks
@@ -9,31 +15,15 @@ set -u
 
 root="$(git rev-parse --show-toplevel)"
 
-# Solo i file Aggiunti/Copiati/Modificati in staging (non i deleted/renamed-via).
-mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACM)
-if [ "${#staged[@]}" -eq 0 ]; then
-  exit 0
+# Preferisci python3, fallback python (Windows/Git-Bash espone "python"). Se manca Python,
+# fail-closed: meglio bloccare il commit che lasciar passare un segreto senza scansione.
+if command -v python3 >/dev/null 2>&1; then
+  PY=python3
+elif command -v python >/dev/null 2>&1; then
+  PY=python
+else
+  echo "::error::python non trovato: impossibile eseguire il secret scan (fail-closed)." >&2
+  exit 1
 fi
 
-# Scansiona il CONTENUTO IN STAGING (il blob dell'index), NON il working tree: con lo
-# staging parziale (`git add -p`) o un working tree modificato dopo l'add, un segreto
-# presente nel blob in staging ma assente dal file su disco sfuggirebbe (review CodeRabbit
-# #155). Si estraggono i blob in un albero temporaneo che rispecchia i path, così il path
-# segnalato resta riconoscibile. Cleanup garantito da `trap`.
-tmpdir="$(mktemp -d)"
-trap 'rm -rf "$tmpdir"' EXIT
-copies=()
-for path in "${staged[@]}"; do
-  dest="$tmpdir/$path"
-  mkdir -p "$(dirname "$dest")"
-  # `:path` = versione in staging (index). Estrazione fallita → salta quel file.
-  if git show ":$path" > "$dest" 2>/dev/null; then
-    copies+=("$dest")
-  fi
-done
-
-if [ "${#copies[@]}" -eq 0 ]; then
-  exit 0
-fi
-
-"$root/tools/secret_scan.sh" "${copies[@]}"
+exec "$PY" "$root/tools/secret_scan.py" --staged

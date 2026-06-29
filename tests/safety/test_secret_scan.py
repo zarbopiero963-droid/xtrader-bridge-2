@@ -1,7 +1,11 @@
-"""Test hard dello scanner segreti condiviso (`tools/secret_scan.sh`) — audit #105 / #153 H3.
+"""Test hard dello scanner segreti condiviso (`tools/secret_scan.py`) — audit #105 / #153 H3.
 
-Esercita lo script reale via subprocess: deve uscire 1 sui segreti noti (token Telegram,
+Esercita lo scanner REALE via subprocess: deve uscire 1 sui segreti noti (token Telegram,
 chiave privata PEM, AWS key id) stampando SOLO il path (mai il valore), e 0 su file puliti.
+
+Lo scanner è invocato con `sys.executable` (Python corrente), NON con `bash`: sul runner
+**Windows GitHub Actions** `bash` veniva risolto come `wsl bash` (senza distro) e faceva fallire
+i test safety. Lo scanner Python gira identico su Linux/macOS/Windows.
 
 I segreti fittizi sono costruiti per **concatenazione** così il sorgente di questo test NON
 contiene il pattern in chiaro (altrimenti il gate `forbidden-files` lo segnalerebbe).
@@ -9,29 +13,30 @@ contiene il pattern in chiaro (altrimenti il gate `forbidden-files` lo segnalere
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCANNER = REPO_ROOT / "tools" / "secret_scan.sh"
+SCANNER = REPO_ROOT / "tools" / "secret_scan.py"
 
 # Segreti fittizi spezzati: a runtime sono validi per il pattern, in sorgente no.
 FAKE_TELEGRAM = "123456789" + ":" + ("A" * 35)
 FAKE_PEM = "-----BEGIN " + "RSA PRIVATE " + "KEY-----"
 FAKE_AWS = "AKI" + "A" + ("0" * 16)
 
+# Niente più dipendenza da `bash`: si salta solo se manca lo scanner stesso.
 pytestmark = pytest.mark.skipif(
-    shutil.which("bash") is None or not SCANNER.exists(),
-    reason="bash o tools/secret_scan.sh non disponibili",
+    not SCANNER.exists(), reason="tools/secret_scan.py non disponibile",
 )
 
 
-def _run(*paths):
-    """Esegue lo scanner sui path dati e cattura stdout/stderr/returncode."""
+def _run(*args, cwd=None):
+    """Esegue lo scanner Python (sys.executable) sugli argomenti dati."""
     return subprocess.run(
-        ["bash", str(SCANNER), *map(str, paths)],
-        capture_output=True, text=True,
+        [sys.executable, str(SCANNER), *map(str, args)],
+        capture_output=True, text=True, cwd=cwd,
     )
 
 
@@ -69,37 +74,36 @@ def test_misto_pulito_e_segreto_fallisce(tmp_path):
     assert FAKE_TELEGRAM not in (r.stdout + r.stderr)
 
 
-def test_nessun_argomento_su_repo_pulito_esce_zero():
-    """Senza argomenti scansiona i file tracciati: il repo non contiene segreti noti → exit 0."""
-    # Senza argomenti scansiona i file tracciati: il repo non contiene segreti noti.
-    r = subprocess.run(
-        ["bash", str(SCANNER)], cwd=str(REPO_ROOT), capture_output=True, text=True,
-    )
+def test_file_binario_viene_saltato(tmp_path):
+    """Un file binario (byte NUL) che contiene la sequenza di un pattern viene SALTATO
+    (come `grep -I`): niente falso positivo sui binari."""
+    f = tmp_path / "blob.bin"
+    f.write_bytes(b"\x00\x01" + FAKE_AWS.encode() + b"\x00")
+    r = _run(f)
     assert r.returncode == 0, r.stdout + r.stderr
 
 
-def test_errore_grep_fa_fail_closed(tmp_path):
-    """Un errore di scan (file inesistente → grep rc>=2) NON passa per pulito: fail-closed."""
+def test_nessun_argomento_su_repo_pulito_esce_zero():
+    """Senza argomenti scansiona i file tracciati: il repo non contiene segreti noti → exit 0."""
+    r = _run(cwd=str(REPO_ROOT))
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_file_inesistente_fa_fail_closed(tmp_path):
+    """Un errore di scan (file inesistente/illeggibile) NON passa per pulito: fail-closed."""
     r = _run(tmp_path / "non_esiste.txt")
-    assert r.returncode == 1, "un errore di grep deve fallire chiuso, non aprire"
+    assert r.returncode == 1, "un file non leggibile deve fallire chiuso, non aprire"
     assert "scan non affidabile" in (r.stdout + r.stderr)
 
 
-HOOK = REPO_ROOT / ".githooks" / "pre-commit"
-
-
-@pytest.mark.skipif(
-    shutil.which("git") is None or not HOOK.exists(),
-    reason="git o .githooks/pre-commit non disponibili",
-)
-def test_pre_commit_hook_scansiona_il_blob_in_staging(tmp_path):
-    """L'hook blocca un segreto presente nel BLOB in staging anche se rimosso dal working tree
-    (staging parziale / file modificato dopo l'add); con blob pulito invece passa."""
+@pytest.mark.skipif(shutil.which("git") is None, reason="git non disponibile")
+def test_staged_scan_intercetta_il_blob_in_staging(tmp_path):
+    """Modo `--staged` (usato da `.githooks/pre-commit`): blocca un segreto presente nel BLOB
+    in staging anche se rimosso dal working tree (staging parziale / file modificato dopo l'add);
+    con blob pulito invece passa. Eseguito via Python (sys.executable), niente `bash`."""
     repo = tmp_path / "repo"
     (repo / "tools").mkdir(parents=True)
-    (repo / ".githooks").mkdir()
-    shutil.copy(SCANNER, repo / "tools" / "secret_scan.sh")
-    shutil.copy(HOOK, repo / ".githooks" / "pre-commit")
+    shutil.copy(SCANNER, repo / "tools" / "secret_scan.py")
 
     def git(*args):
         return subprocess.run(["git", *args], cwd=str(repo),
@@ -107,24 +111,37 @@ def test_pre_commit_hook_scansiona_il_blob_in_staging(tmp_path):
 
     git("init", "-q")
 
-    def run_hook():
-        return subprocess.run(["bash", str(repo / ".githooks" / "pre-commit")],
-                              cwd=str(repo), capture_output=True, text=True)
+    def run_staged():
+        return subprocess.run(
+            [sys.executable, str(repo / "tools" / "secret_scan.py"), "--staged"],
+            cwd=str(repo), capture_output=True, text=True,
+        )
 
     # Caso 1: segreto nel blob in staging, working tree ripulito DOPO l'add → deve bloccare.
     secret_file = repo / "leak.txt"
     secret_file.write_text(f"token={FAKE_TELEGRAM}\n")
     git("add", "leak.txt")
     secret_file.write_text("ora sono pulito\n")     # working tree pulito, index ancora sporco
-    r = run_hook()
+    r = run_staged()
     assert r.returncode == 1, "il segreto nel blob in staging deve essere intercettato"
+    assert "leak.txt" in (r.stdout + r.stderr)
     assert FAKE_TELEGRAM not in (r.stdout + r.stderr)   # valore mai stampato
 
-    # Caso 2: blob in staging pulito → l'hook non blocca.
+    # Caso 2: blob in staging pulito → non blocca.
     clean_file = repo / "ok.txt"
     clean_file.write_text("nessun segreto\n")
     git("add", "ok.txt")
-    # rimuovo dallo staging il file sporco così resta solo quello pulito
-    git("reset", "-q", "leak.txt")
-    r2 = run_hook()
+    git("reset", "-q", "leak.txt")   # tolgo dallo staging il file sporco
+    r2 = run_staged()
     assert r2.returncode == 0, r2.stdout + r2.stderr
+
+
+def test_hook_pre_commit_delega_allo_scanner_staged():
+    """Sanity: l'hook `.githooks/pre-commit` deve delegare allo scanner Python in modo `--staged`
+    (è il punto che garantisce il controllo dei blob in staging). Controllo statico del wiring,
+    senza eseguire `bash` (cross-platform)."""
+    hook = REPO_ROOT / ".githooks" / "pre-commit"
+    if not hook.exists():
+        pytest.skip(".githooks/pre-commit non presente")
+    text = hook.read_text(encoding="utf-8")
+    assert "secret_scan.py" in text and "--staged" in text

@@ -371,8 +371,9 @@ Tutte queste protezioni sono **attive a runtime**:
 > ```bash
 > git config core.hooksPath .githooks
 > ```
-> L'hook usa `tools/secret_scan.sh` (la stessa fonte di pattern del CI) e blocca il commit
-> se un file in staging contiene un segreto noto — stampando **solo il path**, mai il valore.
+> L'hook usa `tools/secret_scan.py` (scanner **cross-platform**, la stessa fonte di pattern
+> del CI; `tools/secret_scan.sh` resta come wrapper di compatibilità) e blocca il commit se un
+> file in staging contiene un segreto noto — stampando **solo il path**, mai il valore.
 
 ---
 
