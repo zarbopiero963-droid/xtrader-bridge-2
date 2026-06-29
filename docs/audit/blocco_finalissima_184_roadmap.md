@@ -42,7 +42,7 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | LOW | low-session-expiry | `betfair/session.py` (pulisce su errore scadenza) | in PR |
 | LOW | low-autosync-release | `betfair/auto_sync.py` (`release()` in finally guardato) | in PR |
 | LOW | low-localdb-timeout | `betfair/local_db.py` (`timeout=30`/PRAGMA) | in PR |
-| LOW | low-syncruns-prune | `betfair/local_db.py` (prune `betfair_sync_runs`) | da fare |
+| LOW | low-syncruns-prune | `betfair/local_db.py` (prune `betfair_sync_runs`) | in PR |
 | LOW | low-namemap-underfill | `name_mapping_gui.py` (under-fill posizionale) | da fare |
 | LOW | low-diagnostics-ws | `diagnostics.py` (whitespace → `—`) | da fare |
 | LOW | low-dedupe-skew | `signal_dedupe.py` (non pruneare entry con `t>now` + doc) | da fare |
@@ -188,6 +188,17 @@ del disco: il CSV finale era già intatto. Test fail-first: orfani rimossi / fil
 os.remove flaky saltato senza fermare lo sweep / orfano CSV reale rimosso senza toccare il CSV. **Smoke
 manuale** (Windows reale, non in CI): killare il processo durante una scrittura CSV lascia un
 `.segnali_*.tmp`; al riavvio dell'app sparisce e il CSV resta valido.
+
+## low-syncruns-prune — `betfair_sync_runs` limitata (prune delle run vecchie)
+
+`betfair_sync_runs` registra ~1 riga per sync (storico) ma non veniva mai potata: ~365 righe/anno,
+crescita illimitata. Fix: `record_sync_run` dopo l'INSERT chiama `_prune_sync_runs_locked(_SYNC_RUNS_KEEP)`
+(cap `200` ≈ 6+ mesi a una sync/giorno), eliminando le run più vecchie e tenendo solo le più recenti
+per `run_id` (AUTOINCREMENT monotòno). Insert+prune stanno sotto lo **stesso lock e commit**: dentro una
+`transaction()` vengono committati/rollbackati con essa (atomici). Aggiunto anche un `prune_sync_runs(keep)`
+pubblico (guardia `keep<=0` → non svuota). Nessun cambio di schema, nessun bet. Test fail-first: oltre il
+cap la tabella resta a `_SYNC_RUNS_KEEP` tenendo le run recenti; `prune_sync_runs(keep=5)` tiene le 5 più
+nuove; `keep<=0` non svuota; prune dentro una transazione che fa rollback è annullato (atomicità).
 
 ## low-localdb-timeout — busy timeout SQLite esteso a 30s
 
