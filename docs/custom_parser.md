@@ -434,10 +434,20 @@ retro-compatibile).
   messaggio con `Provider+EventName+MarketType+SelectionName+BetType`, così righe diverse
   dello **stesso** messaggio non si auto-dedupano, ma una riga **identica** reinviata resta un
   duplicato.
-- **Coda/CSV**: `write_path.commit_signals` accoda tutte le righe `WRITE` e riscrive il CSV in
-  modo **atomico** (rollback completo se la scrittura fallisce; in DRY_RUN non scrive nulla).
-  Con `APPEND_ACTIVE`/`QUEUE_UNTIL_CONFIRMED` configurare **`max_active` ≥ numero di righe**
-  attese; in `OVERWRITE_LAST` resta attivo solo l'ultimo blocco.
+- **Coda/CSV**: `write_path.commit_signals` valuta ogni riga (dedup per-riga + limiti), accoda
+  le righe `WRITE` e riscrive il CSV in modo **atomico** (rollback completo se la scrittura
+  fallisce). Garanzie allineate al single-row: in **DRY_RUN** non scrive nulla; se **tutte** le
+  righe sono soppresse (duplicati/limiti) il CSV **non viene riscritto** (XTrader non riconsuma
+  righe identiche); una riga `DAILY_LIMITED` o oltre il tetto `max_active` **non** è scritta e il
+  suo consumo dedup/daily è **annullato** (ritentabile).
+  - In `APPEND_ACTIVE`/`QUEUE_UNTIL_CONFIRMED` configurare **`max_active` ≥ numero di righe** del
+    messaggio (le righe oltre il tetto sono bloccate, non scritte).
+  - In `OVERWRITE_LAST` l'«ultima istruzione» è il **blocco intero** del messaggio: tutte le
+    righe generate restano attive insieme (sostituiscono il blocco precedente), via
+    `signal_queue.replace_block`.
+- **ID coerenti**: quando una riga multi cambia `MarketType`/`MarketName`/`SelectionName`/
+  `Handicap`, gli eventuali `MarketId`/`SelectionId` ereditati dalla base vengono **azzerati**
+  (una riga non può nominare un mercato e identificarne un altro per ID).
 
 **GUI:** i checkbox MultiMarket/MultiSelection, le righe dinamiche `[+]/[Rimuovi]` e la
 preview tabellare multi-riga arrivano in una **PR successiva** (non collaudabili headless); il

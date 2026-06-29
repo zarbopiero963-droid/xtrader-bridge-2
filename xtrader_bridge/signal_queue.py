@@ -197,6 +197,21 @@ class SignalQueue:
         self._active.append(sig)
         return signal_id
 
+    def replace_block(self, rows, *, now: float = None, timeout: float = None) -> list:
+        """Sostituisce TUTTI i segnali attivi con il BLOCCO `rows`: un'unica «ultima istruzione»
+        composta da più righe (#192). Usato dal commit MULTI-RIGA in `OVERWRITE_LAST`, dove un
+        messaggio che genera N righe le tiene TUTTE attive sostituendo il blocco precedente (l'add
+        per-riga, invece, ne lascerebbe attiva una sola). Ogni riga riceve un `signal_id` proprio.
+        Ritorna la lista degli id (vuota se `rows` è vuota → coda svuotata)."""
+        now = self._resolve_now(now)
+        timeout = self.default_timeout if timeout is None else self._validate_timeout(timeout)
+        sigs = []
+        for row in (rows or []):
+            self._counter += 1
+            sigs.append(ActiveSignal(f"s{self._counter}", dict(row), now, timeout))
+        self._active = list(sigs)
+        return [s.signal_id for s in sigs]
+
     def expire(self, now: float = None) -> list:
         """Rimuove i segnali scaduti (timeout raggiunto) e ne ritorna gli id.
         Garantisce che nessun vecchio segnale resti attivo per sempre."""

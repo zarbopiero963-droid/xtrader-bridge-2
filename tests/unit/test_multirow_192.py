@@ -10,6 +10,7 @@ Copre i 7 test richiesti dalla issue: backward-compat, MultiMarket (2 righe), Mu
 """
 
 import csv
+import os
 
 from xtrader_bridge import (
     custom_parser as cp,
@@ -304,3 +305,104 @@ def test_commit_signals_dry_run_non_scrive(tmp_path):
                                     write_rows=csv_writer.write_rows)
     assert res.decision == "DRY_RUN"
     assert res.rows == [] and q.active_rows() == []     # simulazione: niente CSV operativo
+    assert not os.path.exists(path)                     # il file CSV non viene neppure creato
+
+
+# ── review #239 (Codex/CodeRabbit): correzioni del commit multi-riga ───────────
+
+def test_both_multi_active_righe_separate_non_cartesiane():
+    # MultiMarket + MultiSelection insieme → righe SEPARATE (prima i mercati, poi le selezioni),
+    # MAI il prodotto cartesiano (2 mercati + 3 selezioni = 5 righe, non 6).
+    defn = _multiselection_parser()
+    defn.multi_market_enabled = True
+    defn.multi_markets = [
+        cp.MultiRowRule(market_type="FIRST_HALF_GOALS_05",
+                        market_name="1º tempo - Totale goal 0,5",
+                        selection_name="Over 0,5", points="1"),
+        cp.MultiRowRule(market_type="OVER_UNDER_15", market_name="Totale goal 1,5",
+                        selection_name="Over 1,5", points="1"),
+    ]
+    assert pipe.both_multi_active(defn) is True
+    rows = _rows(pipe.build_validated_rows(defn, MSG, mode="NAME_ONLY"))
+    assert len(rows) == 5
+    assert [r["MarketType"] for r in rows] == [
+        "FIRST_HALF_GOALS_05", "OVER_UNDER_15", "CORRECT_SCORE", "CORRECT_SCORE", "CORRECT_SCORE"]
+    assert [r["SelectionName"] for r in rows] == [
+        "Over 0,5", "Over 1,5", "1 - 0", "2 - 1", "1 - 2"]
+
+
+def test_multi_rule_azzera_id_stantii_su_cambio_mercato():
+    # Se la base porta MarketId/SelectionId (regola ID/dizionario) e la regola multi cambia
+    # mercato/selezione, gli ID stantii vanno AZZERATI (CSV non incoerente); l'evento resta.
+    base = {col: "" for col in CSV_HEADER}
+    base.update({"Provider": "PBet", "EventName": EVENT, "EventId": "42",
+                 "MarketType": "OLD_MKT", "MarketName": "Vecchio", "MarketId": "1.111",
+                 "SelectionName": "Vecchia", "SelectionId": "999",
+                 "Price": "1.50", "BetType": "PUNTA"})
+    derived = pipe._apply_multi_rule(base, cp.MultiRowRule(
+        market_type="CORRECT_SCORE", market_name="Risultato esatto", selection_name="1 - 0"))
+    assert derived["MarketType"] == "CORRECT_SCORE" and derived["SelectionName"] == "1 - 0"
+    assert derived["MarketId"] == "" and derived["SelectionId"] == ""   # ID stantii azzerati
+    assert derived["EventId"] == "42"                                   # evento invariato
+
+
+def test_dedup_handicap_diverso_non_e_duplicato():
+    # Due righe identiche ma con Handicap diverso sono scommesse DIVERSE → chiavi diverse.
+    r1 = {"Provider": "PBet", "EventName": EVENT, "MarketType": "ASIAN_HANDICAP",
+          "SelectionName": "Casa", "BetType": "PUNTA", "Handicap": "-0.5"}
+    r2 = dict(r1, Handicap="-1.0")
+    assert signal_dedupe.row_dedup_key(MSG, r1) != signal_dedupe.row_dedup_key(MSG, r2)
+
+
+def test_overwrite_last_tiene_tutto_il_blocco(tmp_path):
+    # In OVERWRITE_LAST l'«ultima istruzione» è il BLOCCO del messaggio: tutte e 3 le righe
+    # restano attive (l'add per-riga ne avrebbe lasciata solo l'ultima).
+    path = str(tmp_path / "segnali.csv")
+    rows = _rows(pipe.build_validated_rows(_multiselection_parser(), MSG, mode="NAME_ONLY"))
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    tracker = signal_dedupe.SignalTracker()
+    res = write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows, path, now=0,
+                                    write_rows=csv_writer.write_rows)
+    assert res.write_error is None and len(res.rows) == 3
+    assert [r["SelectionName"] for r in q.active_rows()] == ["1 - 0", "2 - 1", "1 - 2"]
+
+
+def test_commit_signals_tutte_duplicate_non_riscrive_csv(tmp_path):
+    # Se TUTTE le righe sono duplicate, il CSV operativo NON deve essere riscritto (XTrader non
+    # deve riconsumare righe identiche), come nel single-row su DUPLICATE.
+    path = str(tmp_path / "segnali.csv")
+    rows = _rows(pipe.build_validated_rows(_multiselection_parser(), MSG, mode="NAME_ONLY"))
+    tracker = signal_dedupe.SignalTracker()
+    q1 = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
+    write_path.commit_signals(tracker, None, q1, _cfg(path), MSG, rows, path, now=0,
+                              write_rows=csv_writer.write_rows)
+    q2 = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
+    calls = []
+
+    def _spy(rows_, path_):
+        calls.append(list(rows_))
+        csv_writer.write_rows(rows_, path_)
+
+    res = write_path.commit_signals(tracker, None, q2, _cfg(path), MSG, rows, path, now=1,
+                                    write_rows=_spy)
+    assert res.decision == "DUPLICATE"
+    assert calls == []                              # write_rows NON chiamata sui duplicati
+
+
+def test_commit_signals_cap_blocca_e_ripristina_guardrail(tmp_path):
+    # Una riga bloccata dal tetto max_active NON è scritta E non deve restare "vista" nel dedupe:
+    # con un tetto più alto, al retry quella riga passa (non è un duplicato).
+    path = str(tmp_path / "segnali.csv")
+    rows = _rows(pipe.build_validated_rows(_multiselection_parser(), MSG, mode="NAME_ONLY"))
+    tracker = signal_dedupe.SignalTracker()
+    q = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED,
+                                 default_timeout=120, max_active=2)
+    res = write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows, path, now=0,
+                                    write_rows=csv_writer.write_rows)
+    assert len(res.rows) == 2                       # solo 2 righe entrano (tetto)
+    # La 3ª, bloccata dal tetto, non ha consumato il dedupe → ora passa.
+    q2 = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED,
+                                  default_timeout=120, max_active=10)
+    res2 = write_path.commit_signals(tracker, None, q2, _cfg(path), MSG, [rows[2]], path, now=1,
+                                     write_rows=csv_writer.write_rows)
+    assert len(res2.rows) == 1 and res2.rows[0]["SelectionName"] == "1 - 2"

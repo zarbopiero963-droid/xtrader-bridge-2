@@ -77,7 +77,7 @@ def message_hash(text: str) -> str:
 # Campi identificativi della riga per la deduplica PER-RIGA (#192). Provider+evento+mercato+
 # selezione+lato individuano univocamente una scommessa: due righe dello stesso messaggio che
 # differiscono in uno di questi campi NON sono duplicati, mentre una riga identica reinviata sì.
-_ROW_KEY_FIELDS = ("Provider", "EventName", "MarketType", "SelectionName", "BetType")
+_ROW_KEY_FIELDS = ("Provider", "EventName", "MarketType", "SelectionName", "BetType", "Handicap")
 
 
 def row_dedup_key(text: str, row: dict) -> str:

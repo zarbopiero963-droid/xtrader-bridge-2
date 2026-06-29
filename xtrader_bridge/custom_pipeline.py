@@ -339,10 +339,20 @@ def _apply_multi_rule(base_row: dict, rule) -> dict:
     multi (#192); i campi vuoti ereditano dalla base. La riga risultante è normalizzata al
     contratto (virgola→punto sulle quote, BetType maiuscolo, Handicap default)."""
     row = dict(base_row)
+    clear_ids = False
     for col, attr in _MULTI_OVERRIDE:
         val = getattr(rule, attr, "")
         if str(val).strip():
             row[col] = val
+            # Identità del mercato/selezione cambiata: gli ID risolti per la riga BASE (da regola
+            # ID/BOTH o dal dizionario Betfair) non valgono più → vanno azzerati, altrimenti la riga
+            # nominerebbe un mercato/selezione ma lo identificherebbe con l'ID di un altro (CSV
+            # incoerente, bet sbagliato in ID/BOTH). Stessa regola del market-mapping (Codex/CodeRabbit).
+            if col in ("MarketType", "MarketName", "SelectionName", "Handicap"):
+                clear_ids = True
+    if clear_ids:
+        row["MarketId"] = ""
+        row["SelectionId"] = ""
     return _normalize_to_contract(row, str(row.get("Provider", "") or ""))
 
 
