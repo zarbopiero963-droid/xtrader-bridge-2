@@ -385,3 +385,68 @@ def test_login_fallito_non_chiama_logout_preserva_sessione():
     assert res.status == FAILED
     assert auth.calls == ["login"]                # NESSUN logout: sessione preservata
     assert eng.ran is False                       # sync non raggiunta
+
+
+# ── #184 LOW: release() in finally best-effort (no lock bloccato / risultato mascherato) ──
+
+def test_release_che_solleva_non_propaga_e_non_maschera_il_risultato():
+    # Se engine.release() solleva nel finally di _cycle, l'eccezione NON deve propagare
+    # fino al worker del tick: mascherebbe il SyncResult già calcolato e lascerebbe la run
+    # riuscita NON registrata (la stessa ora rieseguirebbe). Logout deve comunque avvenire.
+    class _EngineReleaseBoom(_Engine):
+        def __init__(self):
+            super().__init__(SyncResult(status=OK, new_events=2))
+            self.events = []
+
+        def reserve(self, blocking=False):
+            self.events.append("reserve")
+            return True
+
+        def release(self):
+            self.events.append("release")
+            raise RuntimeError("release unlocked lock (simulato)")
+
+        def run(self, sports, *, locked=False):
+            self.events.append(f"run(locked={locked})")
+            return super().run(sports)
+
+    store = {"key": None}
+    auth, eng = _Auth(), _EngineReleaseBoom()
+    sched = AutoSyncScheduler(auth=auth, engine=eng, get_config=_cfg(),
+                              save_state=lambda k: store.__setitem__("key", k))
+    res = sched.maybe_run(_NOW_23)                      # NON deve sollevare nonostante release()
+    assert res is not None and res.status == OK and res.new_events == 2
+    assert "release" in eng.events                     # il release è stato tentato
+    assert auth.calls == ["login", "logout"]           # logout comunque eseguito
+    assert sched.last_run_key == run_key(_NOW_23, 23)  # run marcata (non mascherata)
+    assert store["key"] == run_key(_NOW_23, 23)        # e persistita
+
+
+def test_logout_che_solleva_non_impedisce_il_release():
+    # Logout e release sono indipendenti: un logout che solleva (già best-effort) non deve
+    # impedire il release del lock del motore. Regressione: il lock va sempre rilasciato.
+    class _AuthLogoutBoom(_Auth):
+        def logout(self):
+            self.calls.append("logout")
+            raise RuntimeError("logout fallito (simulato)")
+
+    class _EngineRel(_Engine):
+        def __init__(self):
+            super().__init__(SyncResult(status=OK))
+            self.events = []
+
+        def reserve(self, blocking=False):
+            return True
+
+        def release(self):
+            self.events.append("release")
+
+        def run(self, sports, *, locked=False):
+            return super().run(sports)
+
+    auth, eng = _AuthLogoutBoom(), _EngineRel()
+    sched = AutoSyncScheduler(auth=auth, engine=eng, get_config=_cfg())
+    res = sched.maybe_run(_NOW_23)
+    assert res is not None and res.status == OK
+    assert "logout" in auth.calls
+    assert eng.events == ["release"]                    # release eseguito nonostante logout boom

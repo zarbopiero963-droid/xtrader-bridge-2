@@ -220,7 +220,15 @@ class AutoSyncScheduler:
                 except Exception:     # noqa: BLE001 — il logout best-effort non deve propagare
                     pass
             if reserved:
-                release()
+                # Anche il release è best-effort (#184 LOW): un'eccezione qui propagherebbe
+                # dal `finally` di `_cycle` fino al worker del tick GUI, mascherando il
+                # `result` già calcolato e NON registrando una run riuscita (la stessa ora
+                # verrebbe rieseguita). Logout e release sono indipendenti: il fallimento
+                # dell'uno non deve impedire l'altro.
+                try:
+                    release()
+                except Exception:     # noqa: BLE001 — il release best-effort non deve propagare
+                    pass
         self._safe_summary(result)
         return result
 

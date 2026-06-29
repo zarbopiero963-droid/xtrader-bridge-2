@@ -40,7 +40,7 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | LOW | low-csvpath-validate | `config_store.py` (valida dir `csv_path` a START) | in PR |
 | LOW | low-tmp-sweep | `atomic_io.py` (sweep `.tmp` orfani allo startup) | in PR |
 | LOW | low-session-expiry | `betfair/session.py` (pulisce su errore scadenza) | in PR |
-| LOW | low-autosync-release | `betfair/auto_sync.py` (`release()` in finally guardato) | da fare |
+| LOW | low-autosync-release | `betfair/auto_sync.py` (`release()` in finally guardato) | in PR |
 | LOW | low-localdb-timeout | `betfair/local_db.py` (`timeout=30`/PRAGMA) | da fare |
 | LOW | low-syncruns-prune | `betfair/local_db.py` (prune `betfair_sync_runs`) | da fare |
 | LOW | low-namemap-underfill | `name_mapping_gui.py` (under-fill posizionale) | da fare |
@@ -188,6 +188,19 @@ del disco: il CSV finale era già intatto. Test fail-first: orfani rimossi / fil
 os.remove flaky saltato senza fermare lo sweep / orfano CSV reale rimosso senza toccare il CSV. **Smoke
 manuale** (Windows reale, non in CI): killare il processo durante una scrittura CSV lascia un
 `.segnali_*.tmp`; al riavvio dell'app sparisce e il CSV resta valido.
+
+## low-autosync-release — `release()` del lock motore best-effort nel `finally`
+
+In `AutoSyncScheduler._cycle`, il `finally` faceva `release()` del lock del motore **senza
+guardia**, a differenza di `logout()` (già in `try/except`). Se `release()` sollevava (es.
+un motore che rilancia, o un `RuntimeError` di stato lock), l'eccezione **propagava** dal
+`finally` di `_cycle` fino al worker del tick GUI: mascherava il `SyncResult` già calcolato e
+lasciava una run riuscita **NON registrata** (la stessa ora rieseguirebbe al tick/riavvio), col
+rischio di lock motore bloccato (`is_syncing` permanentemente `True`). Fix: `release()` in
+`try/except` best-effort come `logout()`; logout e release sono **indipendenti** (il fallimento
+dell'uno non impedisce l'altro). Test fail-first: `release()` che solleva → `maybe_run` NON
+propaga, ritorna il `SyncResult`, fa logout e **marca/persiste** la run; e `logout()` che solleva
+non impedisce il `release`.
 
 ## low-session-expiry — pulizia della sessione Betfair sull'errore di scadenza
 
