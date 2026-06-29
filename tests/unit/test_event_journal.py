@@ -222,3 +222,61 @@ def test_tutti_i_tipi_di_evento_documentati_sono_validi(tmp_path):
     for i, t in enumerate(sorted(ej.EVENT_TYPES)):
         ej.append_event(p, t, {"i": i}, now=float(i))
     assert len(ej.read_events(p)) == len(ej.EVENT_TYPES)
+
+
+# ── prune_events: retention del ledger (#230) ────────────────────────────────
+
+def test_prune_tiene_solo_gli_ultimi_keep(tmp_path):
+    p = str(tmp_path / "j.jsonl")
+    for i in range(10):
+        ej.append_event(p, "CSV_WRITTEN", {"i": i}, now=1000.0 + i, event_id=f"e{i}")
+    removed = ej.prune_events(p, keep=3)
+    assert removed == 7
+    events = ej.read_events(p)
+    assert [e["data"]["i"] for e in events] == [7, 8, 9]      # solo gli ultimi 3, in ordine
+    assert [e["id"] for e in events] == ["e7", "e8", "e9"]
+
+
+def test_prune_sotto_il_cap_e_no_op(tmp_path):
+    p = str(tmp_path / "j.jsonl")
+    for i in range(3):
+        ej.append_event(p, "START", {"i": i}, now=1000.0 + i, event_id=f"s{i}")
+    assert ej.prune_events(p, keep=10) == 0
+    assert len(ej.read_events(p)) == 3
+
+
+def test_prune_keep_zero_o_negativo_non_svuota(tmp_path):
+    p = str(tmp_path / "j.jsonl")
+    ej.append_event(p, "STOP", {}, now=1000.0, event_id="x")
+    assert ej.prune_events(p, keep=0) == 0
+    assert ej.prune_events(p, keep=-1) == 0
+    assert len(ej.read_events(p)) == 1                        # non svuotato
+
+
+def test_prune_file_assente_non_solleva(tmp_path):
+    assert ej.prune_events(str(tmp_path / "nope.jsonl"), keep=5) == 0
+
+
+def test_prune_atomico_lascia_il_file_leggibile(tmp_path):
+    p = str(tmp_path / "j.jsonl")
+    for i in range(6):
+        ej.append_event(p, "RECONNECT", {"attempt": i}, now=1000.0 + i, event_id=f"r{i}")
+    ej.prune_events(p, keep=2)
+    # dopo il prune si può continuare ad appendere e rileggere (file integro)
+    ej.append_event(p, "STOP", {}, now=2000.0, event_id="z")
+    types = [e["type"] for e in ej.read_events(p)]
+    assert types == ["RECONNECT", "RECONNECT", "STOP"]
+
+
+def test_prune_non_solleva_su_evento_non_codificabile(tmp_path):
+    # Codex P2 (#233): un evento con stringa NON codificabile in UTF-8 (surrogato spaiato
+    # U+D800, es. da una riga corrotta) non deve far SOLLEVARE prune (chiamata unguarded da
+    # App.__init__ allo startup): best-effort, ritorna 0 senza crashare l'avvio.
+    p = str(tmp_path / "j.jsonl")
+    ej.append_event(p, "START", {"i": 0}, now=1000.0, event_id="a")
+    ej.append_event(p, "START", {"i": 1}, now=1001.0, event_id="b")
+    with open(p, "a", encoding="utf-8") as f:                 # riga "valida JSON" ma con surrogato
+        f.write('{"id":"s","ts":1002.0,"type":"START","data":{"k":"\\ud800"}}\n')
+    # keep=1 → terrebbe l'ultimo evento (surrogato): la riscrittura UTF-8 fallirebbe.
+    assert ej.prune_events(p, keep=1) == 0                    # NON solleva, best-effort
+    assert ej.read_events(p)                                  # ledger ancora leggibile

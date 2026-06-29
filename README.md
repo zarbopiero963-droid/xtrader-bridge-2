@@ -413,11 +413,21 @@ aggiornamenti dell'EXE):
 | Log giornalieri | `%APPDATA%\XTraderBridge\logs\bridge-AAAA-MM-GG.log` | Storico (senza token) |
 | Stato anti-duplicato | `%APPDATA%\XTraderBridge\dedupe_state.json` | Hash dei segnali recenti |
 | Stato limite giornaliero | `%APPDATA%\XTraderBridge\daily_state.json` | Contatori del giorno |
+| Diario eventi | `%APPDATA%\XTraderBridge\event_journal.jsonl` | Storico strutturato «cosa ha fatto» (vedi sotto) |
 | Parser Personalizzati | `data\parsers\<nome>.json` | Definizioni dei parser |
 
 > Al primo avvio, un vecchio `config.json` accanto all'EXE viene **migrato**
 > automaticamente nella nuova posizione (l'originale non viene cancellato).
 > Su Linux/macOS (dev/CI) si usa `~/.config/XTraderBridge/`.
+
+> 📒 **Diario eventi (`event_journal.jsonl`).** Un registro **append-only** strutturato
+> (una riga = un evento JSON) che ricostruisce «cosa ha fatto» il bridge, utile dopo un
+> crash/riavvio: avvio/arresto (`START`/`STOP`), segnale ricevuto/validato/scritto
+> (`SIGNAL_RECEIVED`/`SIGNAL_VALIDATED`/`CSV_WRITTEN`), esito XTrader
+> (`XTRADER_CONFIRMED`/`XTRADER_REJECTED`), riconnessioni (`RECONNECT`) e pulizia del CSV
+> all'avvio/stop (`CRASH_RECOVERY_CSV_CLEARED`/`CSV_CLEARED`). È **diagnostico e
+> best-effort**: non rallenta né blocca mai il trading, i **token sono redatti** (nessun
+> segreto), e lo storico è **limitato** (potato agli ultimi ~5000 eventi all'avvio).
 
 ---
 

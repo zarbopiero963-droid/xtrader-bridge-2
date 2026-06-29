@@ -284,3 +284,29 @@ def test_epoch_cambiato_dopo_fallimento_non_ritenta(make_app, app_mod, monkeypat
 
     assert len(apps) == 1                 # nessun secondo poller costruito dal vecchio supervisor
     assert a._listener_epoch == 99        # l'epoch è stato invalidato da un nuovo START
+
+
+def test_reconnect_journals_reconnect_event(make_app, app_mod, monkeypatch, tmp_path):
+    """#230 (CodeRabbit): ogni tentativo di riconnessione registra un evento `RECONNECT` nel
+    diario. Riusa il lifecycle #110/6 (1º polling fallisce → backoff → 2º ok) sul vero
+    `_run_bot` e verifica che il ledger contenga `RECONNECT` (best-effort, non blocca il
+    supervisor: il teardown/retry avviene comunque)."""
+    from xtrader_bridge import event_journal
+    a = make_app()
+    a._running = True
+    a._listener_epoch = 3
+    a._reconnect_attempt = 0
+    a._journal_path = str(tmp_path / "event_journal.jsonl")
+    monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
+    a._reconnect_wait = lambda delay: None          # niente attesa reale: il test resta rapido
+
+    apps = []
+    _install_builder(monkeypatch, app_mod, apps,
+                     lambda index: _TgApp(fail=(index == 0),
+                                          on_success=lambda: setattr(a, "_running", False)))
+
+    app_mod.App._run_bot(a, {"bot_token": "x"}, 3)
+
+    assert len(apps) == 2                            # ha ritentato dopo l'errore transitorio
+    types = [e["type"] for e in event_journal.read_events(a._journal_path)]
+    assert "RECONNECT" in types                      # il tentativo di riconnessione è nel diario

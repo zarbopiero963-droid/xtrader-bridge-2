@@ -20,9 +20,9 @@ Proprietà:
   (un refuso non finisce silenziosamente nel ledger).
 - **Modulo puro**: nessuna dipendenza da GUI/Telegram/CSV runtime → testabile headless.
 
-NB: l'AGGANCIO al runtime (chiamare `append_event` da `app._process`/`_run_bot`/…) è
-volutamente fuori da questo modulo e da questa PR: qui c'è solo il ledger e i suoi
-invarianti, testati. Il wiring (che tocca la glue GUI di `app.py`) sarà una PR separata.
+NB: l'AGGANCIO al runtime (chiamare `append_event` da `app._process`/`_process_confirmation`/
+`_run_bot`/`_clear_stale_csv`/`_expire_tick`) è in `app.py` (#230), best-effort e mai
+bloccante; questo modulo resta puro e testabile headless.
 """
 
 import json
@@ -175,3 +175,30 @@ def clear(path: str) -> bool:
         return True
     except OSError:
         return False
+
+
+def prune_events(path: str, keep: int) -> int:
+    """Mantiene solo gli ULTIMI `keep` eventi del ledger, riscrivendolo in modo ATOMICO
+    (tmp + `os.replace`). Retention: senza, il `.jsonl` crescerebbe all'infinito (#230).
+
+    Best-effort, **non solleva mai**: ritorna quanti eventi ha rimosso (`0` se non c'era
+    nulla da potare o su errore di I/O). `keep<=0` è un **no-op** (guardia: non svuota il
+    ledger per errore — per svuotarlo c'è `clear`). Le righe tenute sono ri-redatte come in
+    scrittura (mai token in chiaro)."""
+    if not keep or keep <= 0:
+        return 0
+    events = read_events(path)
+    if len(events) <= keep:
+        return 0
+    kept = events[len(events) - keep:]
+    try:
+        payload = "".join(
+            event_log.redact_secrets(json.dumps(e, ensure_ascii=False)) + "\n" for e in kept)
+        atomic_io.atomic_write_text(path, payload, prefix=".journal_", suffix=".tmp")
+    except (OSError, ValueError):
+        # Best-effort: oltre agli errori di I/O (OSError) cattura anche `UnicodeEncodeError`
+        # (⊂ ValueError) — un evento storico con un carattere non codificabile (es. surrogato
+        # spaiato letto da una riga corrotta) NON deve far esplodere la potatura allo startup
+        # (Codex P2 #233). La retention è una pulizia: meglio saltarla che crashare il boot.
+        return 0
+    return len(events) - keep

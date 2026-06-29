@@ -32,6 +32,7 @@ from . import (
     csv_lock_escalation,
     dashboard_stats,
     diagnostics,
+    event_journal,
     event_log,
     gui_utils,
     live_guard,
@@ -68,6 +69,10 @@ ctk.set_default_color_theme("blue")
 # XTrader oltre i retry atomici): breve, per non lasciare una riga stantia per un
 # intero intervallo di timeout (PR-23, finding Codex).
 _WRITE_RETRY_DELAY = 5
+
+# Quanti eventi tenere nel ledger append-only (#230): potato allo startup per non far
+# crescere `event_journal.jsonl` all'infinito (~uno-pochi eventi per segnale).
+_EVENT_JOURNAL_KEEP = 5000
 
 # Cap delle righe di log tenute in memoria per il filtro (PR-14b): una sessione
 # lunga non deve far crescere il log all'infinito. Si trima con isteresi (a
@@ -197,6 +202,11 @@ class App(ctk.CTk):
         self._log_entries = []
         # Ultimi eventi per la diagnostica (PR-14c), per chiave. Aggiornati sul thread Tk.
         self._last_vals = {k: "" for k, _ in _LAST_FIELDS}
+        # Event journal append-only (#230): ledger strutturato di "cosa ha fatto" il bridge,
+        # accanto al config (AppData), per ricostruzione/forense dopo un crash. Diagnostico e
+        # BEST-EFFORT (mai bloccante). Potato allo startup per non crescere all'infinito.
+        self._journal_path = runtime_state.event_journal_path(config_dir())
+        event_journal.prune_events(self._journal_path, _EVENT_JOURNAL_KEEP)
 
         self._build_ui()
         self._update_real_mode_banner(self._config)   # banner REALE all'avvio se persistito (#136 p4)
@@ -258,6 +268,11 @@ class App(ctk.CTk):
                 # Messaggio neutro: clear_stale_csv ripristina l'header per qualsiasi
                 # file esistente, anche se era già a solo header (niente riga rimossa).
                 self._log(f"🧹 CSV riportato a solo header {quando}: {path}")
+                # Event journal (#230): un clear all'avvio è un recovery anti-segnale-stantio
+                # (riga orfana di una sessione morta); negli altri casi è un clear normale.
+                self._journal(
+                    "CRASH_RECOVERY_CSV_CLEARED" if quando == "all'avvio" else "CSV_CLEARED",
+                    quando=quando, path=path)
         except OSError as exc:
             # Lo svuotamento ha esaurito il budget di retry (XTrader tiene il lock a lungo):
             # un segnale potrebbe restare ATTIVO nel CSV. Avviso esplicito sulla conseguenza
@@ -265,6 +280,21 @@ class App(ctk.CTk):
             # alla scadenza (con retry) riproverà comunque.
             self._log(f"⚠️ Impossibile ripulire il CSV {quando} ({exc}): un segnale potrebbe "
                       "restare attivo nel CSV finché XTrader non rilascia il file.")
+
+    def _journal(self, event_type: str, **data) -> None:
+        """Registra un evento nel ledger append-only (#230). **Best-effort/diagnostico**:
+        non solleva MAI e non altera il flusso di trading (il journal è uno strumento di
+        ricostruzione, non parte del percorso CSV/coda). No-op se il path non è impostato
+        (es. istanze headless di test che non chiamano `__init__`). Il payload è redatto da
+        `event_journal` (mai token in chiaro)."""
+        path = self.__dict__.get("_journal_path")
+        if not path:
+            return
+        try:
+            event_journal.append_event(path, event_type, data)
+        except Exception:   # noqa: BLE001,S110 — il journal è diagnostico: un suo errore non deve
+            pass            # mai propagare nel percorso di trading (best-effort, niente log: il
+            #                 sink di log potrebbe a sua volta fallire e il diario non è critico)
 
     def _sweep_orphan_csv_temps(self) -> None:
         """Rimuove i temporanei `.segnali_*.tmp` orfani nella cartella del CSV (#184 LOW).
@@ -1390,6 +1420,9 @@ class App(ctk.CTk):
 
         # Path attivo della sessione: lo STOP pulirà questo (Codex P1).
         self._active_csv_path = cfg["csv_path"]
+        # Event journal (#230): inizio sessione (modalità + path, niente segreti).
+        self._journal("START", dry_run=bool(safety_guard.is_dry_run(cfg)),
+                      csv_path=cfg["csv_path"], auto=bool(auto))
         self._init_guards(cfg)
         self._stats.reset()           # contatori di sessione azzerati a ogni START (PR-14)
         self._refresh_dashboard()
@@ -1425,7 +1458,14 @@ class App(ctk.CTk):
         self._bot_thread.start()
 
     def _stop(self):
+        was_running = self._running
         self._running = False
+        # Event journal (#230): registra STOP SOLO se una sessione era davvero attiva. `_on_close()`
+        # chiama `_stop()` anche a bridge mai avviato o già fermato: un append incondizionato
+        # produrrebbe uno STOP senza START corrispondente (sequenza impossibile nel diario forense,
+        # Codex P2). Lo STOP è il pendant del START loggato in `_start` (che imposta `_running=True`).
+        if was_running:
+            self._journal("STOP")
         self._session_real = False         # sessione finita: il banner torna a seguire la config viva
         self._csv_lock.reset()             # #153 H2: lo stato di lock non sopravvive alla sessione (Codex #156)
         self._update_real_mode_banner()
@@ -1666,6 +1706,9 @@ class App(ctk.CTk):
                     self.after(0, self._stop)
                     break
                 self._reconnect_attempt += 1
+                # Event journal (#230): tentativo di riconnessione (tipo errore + tentativo).
+                self._journal("RECONNECT", attempt=self._reconnect_attempt,
+                              error=type(ex).__name__)
                 # Backoff + flood-control di Telegram (Codex P2): se l'errore porta un
                 # `retry_after` più lungo del backoff locale, attendi quello, così non si
                 # riprova prima del tempo richiesto dal server. Decisione pura e testata
@@ -1759,6 +1802,9 @@ class App(ctk.CTk):
         # assenza, al parser hardcoded. Non scrive righe non piazzabili: meglio
         # scartare un segnale incompleto che generare una riga ambigua.
         self.after(0, lambda: self._bump("received"))   # PR-14: candidato instradato
+        # Event journal (#230): solo la chat (niente testo), e in forma REDATTA — il diario è un
+        # log DUREVOLE sotto AppData e il chat_id reale è sensibile (Telegram safety, Codex P2).
+        self._journal("SIGNAL_RECEIVED", chat=log_privacy.redact_chat_id(chat_id))
         # Privacy log (audit #105 P1): di default il TESTO del messaggio NON va in chiaro
         # nei log — solo hash + lunghezza + prima riga troncata (`log_privacy.redact_message`).
         # Il payload completo solo se l'utente attiva `debug_message_payload` (opt-in).
@@ -1775,6 +1821,12 @@ class App(ctk.CTk):
         # il dizionario trova un match univoco; altrimenti resta a nomi (fallback nomi).
         result = signal_router.resolve_row(text, route, chat_id=chat_id,
                                            id_resolver=self._betfair_id_resolver())
+        # Event journal (#230): il PARSER è girato (esito + sorgente), PRIMA del ramo
+        # piazzabile/scartato — così il diario distingue «parser eseguito ma segnale scartato»
+        # da «mai ricevuto» anche per i non piazzabili, completando la pipeline RECEIVED→PARSED→
+        # (VALIDATED|scarto) richiesta dal contratto (CodeRabbit). Niente dato del messaggio.
+        self._journal("SIGNAL_PARSED", status=result.status, source=result.source,
+                      placeable=result.placeable)
         if not result.placeable:
             detail = (", ".join(result.missing_required)
                       if result.missing_required else result.detail)
@@ -1784,6 +1836,9 @@ class App(ctk.CTk):
             return
 
         row = result.row
+        # Event journal (#230): segnale validato (piazzabile). Solo la sorgente del parser,
+        # nessun dato del messaggio.
+        self._journal("SIGNAL_VALIDATED", source=result.source)
 
         # Guardrail del percorso di scrittura (PR-21): dedup + limite/minuto +
         # limite/giorno + DRY_RUN. Solo WRITE autorizza la scrittura; ogni altro
@@ -1851,6 +1906,8 @@ class App(ctk.CTk):
         if self._tracker is not None:
             self._save_guard_state()
         self.after(0, lambda: self._bump("written"))   # PR-14: riga scritta nel CSV
+        # Event journal (#230): riga scritta nel CSV (numero righe attive + sorgente).
+        self._journal("CSV_WRITTEN", rows=len(rows), source=result.source)
         self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
         self.after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5 indicatore
 
@@ -1971,6 +2028,16 @@ class App(ctk.CTk):
                     f"❌ Aggiornamento CSV dopo conferma fallito: {e}. Riprovo a breve."))
                 self._schedule_expiry(path, delay=_WRITE_RETRY_DELAY)
                 return
+            # Event journal (#230): esito XTrader applicato (segnale rimosso da coda+CSV).
+            self._journal(
+                "XTRADER_CONFIRMED" if result.status == confirmation_reader.CONFIRMED
+                else "XTRADER_REJECTED",
+                signal_id=result.signal_id, remaining=len(rows))
+            # Se era l'ULTIMO segnale attivo, la riscrittura ha riportato il CSV a solo header:
+            # registra anche il clear, altrimenti il ciclo di vita avrebbe un CSV_WRITTEN senza il
+            # CSV_CLEARED corrispondente (Codex P2 #233). Best-effort, fuori dal lock.
+            if not rows:
+                self._journal("CSV_CLEARED", reason="confirmation")
             # Guard su None (review Sourcery): se in futuro si aggiungono status
             # terminali senza messaggio, non si logga `None`.
             removed_log = signal_outcome.confirmation_removed_log(result.status)
@@ -2062,6 +2129,11 @@ class App(ctk.CTk):
             self.after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5
             self.after(0, lambda n=len(expired): self._log(
                 f"🗑️  {n} segnale/i scaduto/i rimosso/i dal CSV"))
+            if empty:
+                # L'ULTIMA riga attiva è scaduta → il CSV è tornato a solo header: il diario
+                # deve registrare il clear, altrimenti resterebbe un CSV_WRITTEN senza il
+                # corrispondente CSV_CLEARED (Codex P2 #233). Best-effort, fuori dal lock.
+                self._journal("CSV_CLEARED", reason="expiry", expired=len(expired))
         if not empty:
             self._schedule_expiry(path)
 
@@ -2113,6 +2185,11 @@ class App(ctk.CTk):
             return
         self._note_csv(path, 0)
         self._log("🗑️  CSV svuotato manualmente")
+        # Event journal (#230): anche lo svuotamento MANUALE riporta il CSV a solo header →
+        # va registrato, altrimenti il diario avrebbe un CSV_WRITTEN senza il clear
+        # corrispondente (Codex P2 #233). Solo sul percorso riuscito (write_error già
+        # ritornato sopra). Best-effort, fuori dal lock.
+        self._journal("CSV_CLEARED", reason="manual")
 
     def _open_tools(self, initial=None):
         """Apre la finestra hub "🧰 Strumenti" a schede (consolidazione GUI, roadmap).
