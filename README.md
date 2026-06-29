@@ -345,6 +345,14 @@ Tutte queste protezioni sono **attive a runtime**:
 > (nessun crash). In ogni caso il file **non** è nel repository (è in `.gitignore`),
 > **non** finisce nei log (redazione attiva) e **non** è incluso nell'EXE/artifact.
 >
+> **Config corrotta e token (issue #199).** Se il `config.json` è **illeggibile** (JSON
+> rotto), all'avvio viene messo da parte come `.bak` e il bridge riparte dai default con la
+> chiave `bot_token` vuota e il sentinel perso. In quel caso il token nel keyring **NON
+> viene cancellato** al primo salvataggio: il campo vuoto è il residuo della corruzione, non
+> un azzeramento voluto, quindi il bridge **preserva** la credenziale (la rilegge dal keyring
+> e la reidrata). Per **cancellare davvero** il token, svuota il campo *Bot Token* e salva
+> quando il config è di nuovo integro (un clear deliberato resta definitivo, come prima).
+>
 > Conseguenze pratiche: proteggi comunque il tuo profilo Windows e **non condividere**
 > `config.json`; se il token trapela, **rigeneralo** da @BotFather (`/revoke`). Una
 > config vecchia con il token in chiaro viene **migrata** nel keyring al primo
