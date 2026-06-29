@@ -56,6 +56,20 @@ _META_TAIL = re.compile(r'(?:\s+' + _META_TOK + r')+\s*$', re.IGNORECASE)
 _META_ONLY = re.compile(r'^' + _META_TOK + r'$', re.IGNORECASE)
 # Token di stato da togliere dal signal_type (LIVE/PRE) prima del mapping.
 _STATUS_TAIL = re.compile(r'\s+\b(?:live|pre|prematch)\b.*$', re.IGNORECASE)
+# Emoji in CODA al signal_type da rimuovere prima del mapping (#184 low-parser-emoji): la cattura
+# di "P.Bet. <alias>" esclude solo i marker noti `🔊✅🔇`; un'ALTRA emoji finale (es. 🔥🚀⚽) resterebbe
+# nell'alias e non combacerebbe con la value-map (segnale scartato, fail-closed). Si tolgono SOLO le
+# emoji finali — i caratteri interni dell'alias (lettere/cifre/`.`/spazi) restano intatti. Copre i
+# blocchi emoji comuni e i marker già usati nel parser (🔊✅🔇🏆🆚⚽⌚📊📈).
+_EMOJI_CLASS = (
+    "\U0001F000-\U0001FAFF"   # pittografi/emoji (incl. 🔊🔇🔥🚀🏆🆚📊📈)
+    "\U00002600-\U000027BF"   # simboli vari + dingbats (✅⚽…)
+    "\U00002300-\U000023FF"   # technical (⌚⌛⏰…)
+    "\U00002B00-\U00002BFF"   # simboli e frecce vari (⭐…)
+    "\U00002190-\U000021FF"   # frecce
+    "\uFE0F"                 # variation selector (presentazione emoji)
+)
+_TRAILING_EMOJI = re.compile(r'(?:[' + _EMOJI_CLASS + r']\s*)+$')
 
 
 def _is_odds(value: str) -> bool:
@@ -266,8 +280,10 @@ def parse_message(text: str) -> dict:
         if 'P.Bet.' in line:
             m = re.search(r'P\.Bet\.\s+(.+?)(?:\s+[🔊✅🔇]|$)', line)
             if m:
-                # togli i token di stato (LIVE/PRE) così resta l'alias puro per il mapping.
-                result['signal_type'] = _STATUS_TAIL.sub('', m.group(1).strip()).strip()
+                # togli i token di stato (LIVE/PRE) e un'eventuale emoji in coda (#184
+                # low-parser-emoji) così resta l'alias puro per il mapping.
+                sig = _STATUS_TAIL.sub('', m.group(1).strip()).strip()
+                result['signal_type'] = _TRAILING_EMOJI.sub('', sig).strip()
             continue
         if '🏆' in line:
             result['competition'] = re.sub(r'[🏆\s]+', ' ', line).strip()

@@ -29,6 +29,31 @@ def test_testo_semplice_equivalente_a_emoji():
     assert p["probability"] == "72.5"
 
 
+def test_signal_type_emoji_in_coda_rimossa():
+    """#184 low-parser-emoji: un'emoji finale FUORI dal set noto `🔊✅🔇` (es. 🔥🚀⚽) restava nel
+    signal_type → l'alias non combaciava con la value-map (segnale scartato). Va rimossa, lasciando
+    l'alias pulito.
+
+    Fail-first: sul vecchio codice `signal_type` includeva l'emoji finale (es. 'OVER 2.5 🔥')."""
+    assert parse_message("P.Bet. OVER 2.5 🔥")["signal_type"] == "OVER 2.5"
+    assert parse_message("P.Bet. OVER 2.5 🚀")["signal_type"] == "OVER 2.5"
+    assert parse_message("P.Bet. GOL SECONDO TEMPO ⚽")["signal_type"] == "GOL SECONDO TEMPO"
+    # emoji + variation selector, e combinazione con un token di stato (in entrambi gli ordini).
+    assert parse_message("P.Bet. GG/NG ✅️")["signal_type"] == "GG/NG"
+    assert parse_message("P.Bet. OVER 2.5 LIVE 🔥")["signal_type"] == "OVER 2.5"
+    assert parse_message("P.Bet. OVER 2.5 🔥 LIVE")["signal_type"] == "OVER 2.5"
+
+
+def test_signal_type_senza_emoji_invariato():
+    """#184 low-parser-emoji: senza emoji finale il signal_type resta intatto (niente over-strip dei
+    caratteri legittimi dell'alias: lettere/cifre/`.`/`/`)."""
+    assert parse_message("P.Bet. OVER 2.5")["signal_type"] == "OVER 2.5"
+    assert parse_message("P.Bet. 1X2")["signal_type"] == "1X2"
+    assert parse_message("P.Bet. GG/NG")["signal_type"] == "GG/NG"
+    # marker noto già escluso dalla regex: comportamento invariato.
+    assert parse_message("P.Bet. OVER 2.5 🔊")["signal_type"] == "OVER 2.5"
+
+
 def test_plaintext_v_e_banca():
     p = parse_message(_fixture("valid_gg_text.txt"))
     assert p["signal_type"] == "GG"

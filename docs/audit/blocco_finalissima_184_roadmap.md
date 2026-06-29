@@ -34,7 +34,7 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | LOW | low-tracker-nonwrite | `write_path.py` (rollback guardrail su non-WRITE) | in PR |
 | LOW | low-timer-lock | `app.py` (`_schedule_expiry` sotto lock) | in PR |
 | LOW | low-bool-count | `safety_guard.py` (`isinstance` bool) | in PR |
-| LOW | low-parser-emoji | `parser.py:215` (strip trailing emoji) | da fare |
+| LOW | low-parser-emoji | `parser.py:215` (strip trailing emoji) | in PR |
 | LOW | low-isodds-inf | `parser.py` (`_is_odds` `math.isfinite`) | da fare |
 | LOW | low-pipeline-comma | `custom_pipeline.py` (replace virgola naive) | da fare |
 | LOW | low-csvpath-validate | `config_store.py` (valida dir `csv_path` a START) | da fare |
@@ -138,6 +138,17 @@ corruttivo) e il docstring "atomicità della singola riga" sovrastimava la garan
 (un crash kernel→disco può lasciare una coda parziale, dipende da fs/hardware), ma quella è già
 gestita: `read_events` salta la riga troncata e il prossimo append antepone un separatore.
 Output invariato; cambia solo il numero di write (1 invece di 2 nel caso separatore).
+
+## low-parser-emoji — rimuovi un'emoji in coda al `signal_type`
+
+La cattura `P.Bet.\s+(.+?)(?:\s+[🔊✅🔇]|$)` esclude solo i marker noti `🔊✅🔇`; un'ALTRA emoji finale
+(es. 🔥🚀⚽, o un marker senza spazio davanti) restava dentro l'alias del `signal_type`, che poi non
+combaciava con la value-map → segnale **scartato** (fail-closed). Fix: dopo aver tolto i token di
+stato (`_STATUS_TAIL`: LIVE/PRE), si rimuove anche una coda di emoji con `_TRAILING_EMOJI` (classe sui
+blocchi emoji comuni + variation selector). Solo le emoji **finali** vengono tolte: i caratteri
+interni dell'alias (lettere/cifre/`.`/`/`/spazi) restano intatti — niente over-strip. Test fail-first:
+`"P.Bet. OVER 2.5 🔥"` → `OVER 2.5` (prima `OVER 2.5 🔥`), incluse combinazioni con LIVE e variation
+selector; alias senza emoji invariati.
 
 ## low-bool-count — `DailyLimiter.restore_state` rifiuta un `count` booleano
 
