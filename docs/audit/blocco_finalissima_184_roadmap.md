@@ -39,7 +39,7 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | LOW | low-pipeline-comma | `custom_pipeline.py` (replace virgola naive) | in PR |
 | LOW | low-csvpath-validate | `config_store.py` (valida dir `csv_path` a START) | in PR |
 | LOW | low-tmp-sweep | `atomic_io.py` (sweep `.tmp` orfani allo startup) | in PR |
-| LOW | low-session-expiry | `betfair/session.py` (pulisce su errore scadenza) | da fare |
+| LOW | low-session-expiry | `betfair/session.py` (pulisce su errore scadenza) | in PR |
 | LOW | low-autosync-release | `betfair/auto_sync.py` (`release()` in finally guardato) | da fare |
 | LOW | low-localdb-timeout | `betfair/local_db.py` (`timeout=30`/PRAGMA) | da fare |
 | LOW | low-syncruns-prune | `betfair/local_db.py` (prune `betfair_sync_runs`) | da fare |
@@ -188,6 +188,30 @@ del disco: il CSV finale era già intatto. Test fail-first: orfani rimossi / fil
 os.remove flaky saltato senza fermare lo sweep / orfano CSV reale rimosso senza toccare il CSV. **Smoke
 manuale** (Windows reale, non in CI): killare il processo durante una scrittura CSV lascia un
 `.segnali_*.tmp`; al riavvio dell'app sparisce e il CSV resta valido.
+
+## low-session-expiry — pulizia della sessione Betfair sull'errore di scadenza
+
+`BetfairSession` non aveva keep-alive né rilevamento scadenza: a token scaduto `is_logged_in`
+restava `True` (GUI "connesso") ma ogni sync falliva — stato "fantasma" / UX stale. Fix in due
+pezzi minimi:
+- `betfair/session.py`: `SESSION_EXPIRED_ERROR_CODES` (`INVALID_SESSION_INFORMATION`,
+  `INVALID_SESSION_TOKEN`, `NO_SESSION`, `SESSION_EXPIRED`) + helper puro
+  `is_session_expired_error(code)` (case-insensitive, tollerante, `None`/parziale→`False`) +
+  metodo `BetfairSession.clear_if_expired(code)` che slogga (RAM + de-registra dal redattore log)
+  SOLO sui codici di scadenza e ritorna `True`/`False`.
+- `betfair/catalogue_client.py`: nuovo `BetfairApiError(RuntimeError)` con `error_code` (il codice
+  APING grezzo); `_jsonrpc_result` lo solleva al posto di `RuntimeError` puro (messaggio
+  invariato, è-un `RuntimeError` → i catcher esistenti non cambiano). `CatalogueSync.sync` cattura
+  `BetfairApiError`, chiama `session.clear_if_expired(ex.error_code)` e **ri-solleva**: solo i
+  codici di scadenza sloggano; gli altri errori API e gli errori di rete NON toccano la sessione.
+
+Niente bet, nessuna scrittura: il token resta solo-in-RAM, anzi viene PULITO prima. Test fail-first:
+helper riconosce/ignora i codici; `clear_if_expired` slogga solo su scadenza e de-registra il
+token; sync con `BetfairApiError` di scadenza → `is_logged_in=False` (e rollback, nessuna sync run);
+sync con `TOO_MUCH_DATA` o `RuntimeError` di rete → sessione invariata; `_jsonrpc_result` espone
+`error_code`. **Limite onesto** (non in CI): la scadenza a livello di trasporto HTTP (es. 401 sul
+navigation menu GET) non è classificata qui — il segnale strutturato di Betfair per token scaduto è
+l'`errorCode` APING della JSON-RPC, che è quello gestito; un 401 grezzo resta un errore generico.
 
 ## low-isodds-inf — `_is_odds` rifiuta i valori non finiti (`inf`/`nan`)
 

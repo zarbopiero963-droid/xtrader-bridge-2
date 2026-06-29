@@ -30,6 +30,20 @@ from ..sports import SPORTS_EVENT_TYPE
 NAVIGATION_OP = "navigationMenu"
 CATALOGUE_OP = "listMarketCatalogue"
 
+
+class BetfairApiError(RuntimeError):
+    """Errore applicativo dell'Exchange (campo ``error`` di una risposta JSON-RPC).
+
+    È un ``RuntimeError`` (i chiamanti che catturano `RuntimeError`/`Exception` non
+    cambiano comportamento), ma porta in più il **codice APING grezzo** in `error_code`,
+    così il livello sopra può fare triage — es. una sessione scaduta
+    (`INVALID_SESSION_INFORMATION`) → pulizia della sessione (#184 LOW). Il messaggio
+    resta safe (solo codici, mai contenuti sensibili)."""
+
+    def __init__(self, message, *, error_code=None):
+        super().__init__(message)
+        self.error_code = error_code
+
 # Flusso Betfair.it: il navigation menu sta sull'host ITALIANO (.it, locale /it/),
 # ma — come da docs Betfair Italy — dopo il login .it le chiamate betting JSON-RPC
 # (es. listMarketCatalogue) vanno all'host api.betfair.com e ritornano comunque i
@@ -99,8 +113,9 @@ def _jsonrpc_result(data):
         if isinstance(err, dict):
             aping = (err.get("data") or {}).get("APINGException") or {}
             detail = aping.get("errorCode") or ""
-        raise RuntimeError(
-            f"Errore listMarketCatalogue dall'Exchange (code={code} {detail}).".strip())
+        raise BetfairApiError(
+            f"Errore listMarketCatalogue dall'Exchange (code={code} {detail}).".strip(),
+            error_code=detail or None)
     if "result" not in data:
         raise RuntimeError("Risposta listMarketCatalogue priva di 'result'.")
     return data["result"] or []
@@ -286,6 +301,21 @@ class CatalogueSync:
         # QUI dentro serializza le sync concorrenti sullo stesso DB e garantisce che
         # l'ordine dei marker coincida con l'ordine di commit (Codex). Su rollback il
         # marker viene annullato con il resto: i marker committati restano monotòni.
+        try:
+            return self._sync_in_transaction(nav_transport, cat_transport, etids)
+        except BetfairApiError as ex:
+            # Token scaduto/invalido → pulisci la sessione così la GUI torna 'disconnesso'
+            # e l'utente rilogga, invece di restare loggati con un token morto (#184 LOW).
+            # Solo i codici di scadenza sloggano; gli altri errori API NON toccano la
+            # sessione. La sessione è opzionale (transport iniettati nei test).
+            if self.session is not None and hasattr(self.session, "clear_if_expired"):
+                self.session.clear_if_expired(ex.error_code)
+            raise
+
+    def _sync_in_transaction(self, nav_transport, cat_transport, etids) -> dict:
+        """Corpo transazionale della sync (estratto da `sync` per il triage degli errori
+        di scadenza sessione). Tutte le scritture stanno in UNA transazione: un fallimento
+        a metà NON lascia il dizionario parziale (rollback)."""
         with self.db.transaction():
             marker = self.db.new_sync_marker()
             menu = nav_transport()

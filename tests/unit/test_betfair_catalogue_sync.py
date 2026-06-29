@@ -491,3 +491,81 @@ def test_evento_arricchito_dal_catalogue(db):
     assert ev["name"] == "Inter v Milan"
     assert ev["participant_1"] == "Inter" and ev["participant_2"] == "Milan"
     assert ev["event_type_id"] == "1"        # sport preservato dal menu
+
+
+# ── #184 LOW: sync che incontra un token scaduto pulisce la sessione ──────────
+
+def _expired_apierror():
+    from xtrader_bridge.betfair.catalogue_client import BetfairApiError
+    return BetfairApiError("Errore listMarketCatalogue (code=-32099 INVALID_SESSION_INFORMATION).",
+                           error_code="INVALID_SESSION_INFORMATION")
+
+
+def test_sync_su_sessione_scaduta_slogga_la_sessione(db):
+    from xtrader_bridge.betfair.catalogue_client import BetfairApiError
+    from xtrader_bridge.betfair.session import BetfairSession
+
+    sess = BetfairSession()
+    sess.set_token("token-ancora-in-ram")
+    assert sess.is_logged_in is True
+
+    def _nav_scaduto():
+        raise _expired_apierror()
+
+    cs = CatalogueSync(db, session=sess, navigation_transport=_nav_scaduto,
+                       catalogue_transport=lambda mids: [])
+    with pytest.raises(BetfairApiError):
+        cs.sync(["Calcio"])
+    # la sessione è stata pulita: is_logged_in torna False (la GUI mostrerà 'disconnesso')
+    assert sess.is_logged_in is False
+    assert sess.token is None
+    # rollback: nessuna sync run registrata
+    assert db.fetchall("betfair_sync_runs") == []
+
+
+def test_sync_su_errore_api_non_di_scadenza_non_slogga(db):
+    from xtrader_bridge.betfair.catalogue_client import BetfairApiError
+    from xtrader_bridge.betfair.session import BetfairSession
+
+    sess = BetfairSession()
+    sess.set_token("token-vivo")
+
+    def _nav_too_much():
+        raise BetfairApiError("Errore (code=-32099 TOO_MUCH_DATA).", error_code="TOO_MUCH_DATA")
+
+    cs = CatalogueSync(db, session=sess, navigation_transport=_nav_too_much,
+                       catalogue_transport=lambda mids: [])
+    with pytest.raises(BetfairApiError):
+        cs.sync(["Calcio"])
+    # errore generico: la sessione NON va toccata (resta loggata)
+    assert sess.is_logged_in is True
+    assert sess.token == "token-vivo"
+
+
+def test_sync_errore_non_api_non_tocca_la_sessione(db):
+    # Un RuntimeError "puro" (non BetfairApiError, es. rete) non è un segnale di scadenza:
+    # la sessione resta invariata.
+    from xtrader_bridge.betfair.session import BetfairSession
+
+    sess = BetfairSession()
+    sess.set_token("token-vivo")
+
+    def _nav_rete():
+        raise RuntimeError("connessione interrotta (simulata)")
+
+    cs = CatalogueSync(db, session=sess, navigation_transport=_nav_rete,
+                       catalogue_transport=lambda mids: [])
+    with pytest.raises(RuntimeError):
+        cs.sync(["Calcio"])
+    assert sess.is_logged_in is True
+
+
+def test_jsonrpc_result_porta_lerror_code_su_scadenza():
+    # _jsonrpc_result solleva un BetfairApiError che ESPONE l'errorCode APING grezzo,
+    # così il livello sopra può riconoscere la scadenza.
+    from xtrader_bridge.betfair import catalogue_client as cc
+    with pytest.raises(cc.BetfairApiError) as ei:
+        cc._jsonrpc_result({"error": {"code": -32099,
+                                      "data": {"APINGException":
+                                               {"errorCode": "INVALID_SESSION_INFORMATION"}}}})
+    assert ei.value.error_code == "INVALID_SESSION_INFORMATION"

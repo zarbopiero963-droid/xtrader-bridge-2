@@ -67,7 +67,10 @@ non vengono duplicate.
   riversano header/payload); `install_global_log_redaction()` installa il tutto.
 - `session.py`: `BetfairSession` custodisce il `sessionToken` **solo in RAM** (mai su
   disco), non lo espone in `repr`/`str`, e lo registra/de-registra dai log a
-  `set_token`/`clear`.
+  `set_token`/`clear`. Su errore di **scadenza/invalidità** del token segnalato
+  dall'Exchange (`clear_if_expired`/`is_session_expired_error`, codici
+  `INVALID_SESSION_INFORMATION`/`NO_SESSION`/…, #184 LOW) la sessione viene **pulita**
+  così `is_logged_in` torna `False` e la GUI invita a riloggarsi (no stato "fantasma").
 - `credential_store.py`: storage locale sicuro delle credenziali Betfair (Delayed App
   Key, username, password, percorsi cert/key) nel **keyring di sistema** (stesso
   pattern fail-safe di `token_store`). `masked()` mostra i segreti come `••••••` alla

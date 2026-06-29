@@ -59,3 +59,49 @@ def test_nessun_attributo_extra_oltre_lo_slot():
     s = session.BetfairSession()
     with pytest.raises(AttributeError):
         s.persisted = "x"
+
+
+# ── #184 LOW: pulizia della sessione su errore di scadenza ────────────────────
+
+@pytest.mark.parametrize("code", [
+    "INVALID_SESSION_INFORMATION", "INVALID_SESSION_TOKEN", "NO_SESSION", "SESSION_EXPIRED",
+    "invalid_session_information", "  No_Session  ",        # case/spazi tollerati
+])
+def test_is_session_expired_error_riconosce_i_codici_di_scadenza(code):
+    assert session.is_session_expired_error(code) is True
+
+
+@pytest.mark.parametrize("code", [
+    "TOO_MUCH_DATA", "INVALID_APP_KEY", "", None, 0, "INVALID_SESSION",  # parziale ≠ scadenza
+])
+def test_is_session_expired_error_ignora_gli_altri(code):
+    assert session.is_session_expired_error(code) is False
+
+
+def test_clear_if_expired_slogga_solo_sui_codici_di_scadenza():
+    s = session.BetfairSession()
+    s.set_token("tok-vivo")
+    # codice di scadenza → slogga (is_logged_in torna False) e ritorna True
+    assert s.clear_if_expired("INVALID_SESSION_INFORMATION") is True
+    assert s.is_logged_in is False
+    assert s.token is None
+
+
+def test_clear_if_expired_non_slogga_su_errore_generico():
+    s = session.BetfairSession()
+    s.set_token("tok-vivo")
+    # un errore NON di scadenza non deve sloggare l'utente (resta connesso)
+    assert s.clear_if_expired("TOO_MUCH_DATA") is False
+    assert s.is_logged_in is True
+    assert s.token == "tok-vivo"
+    assert s.clear_if_expired(None) is False
+    assert s.is_logged_in is True
+
+
+def test_clear_if_expired_de_registra_il_token_dai_log():
+    s = session.BetfairSession()
+    s.set_token("tok-da-redigere-789")
+    assert "tok-da-redigere-789" not in log_safety.redact("x tok-da-redigere-789")
+    assert s.clear_if_expired("NO_SESSION") is True
+    # dopo lo slog su scadenza il token non è più mascherato (sparito dalla RAM e dal registro)
+    assert "tok-da-redigere-789" in log_safety.redact("x tok-da-redigere-789")
