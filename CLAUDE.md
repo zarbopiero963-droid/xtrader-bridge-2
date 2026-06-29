@@ -274,6 +274,11 @@ Duplicate-signal risk:
 Manual merge preserved:
 - PASS / FAIL
 
+Docs updated:
+- PASS / FAIL / N/A
+  (PASS = docs aggiornate nello stesso PR · FAIL = codice modificato ma docs mancanti ·
+   N/A = modifica puramente interna senza impatto documentale, con motivazione scritta)
+
 Result:
 - PASS / FAIL
 
@@ -621,29 +626,44 @@ gate, GUI), **DEVI aggiornare la documentazione corrispondente nello stesso PR**
 docs non devono mai restare disallineate dal codice: una funzione nuova senza doc, o una
 rimossa con la doc ancora presente, è un PR incompleto.
 
-In pratica, nello stesso PR:
+In pratica, nello stesso PR aggiorna, quando applicabile:
 
-- comportamento/uso → aggiorna `README.md` e i doc di dominio
-  (`docs/custom_parser.md`, `docs/xtrader_csv_contract.md`);
-- nuova/rimossa **funzione, classe o modulo** → aggiorna la documentazione delle funzioni
-  quando esiste (vedi sotto); finché non esiste il generatore, almeno descrivila nel doc
-  di dominio pertinente e mantieni il **docstring** in testa alla funzione/modulo;
+- **`README.md`** → cambiamenti visibili all'utente o al flusso principale;
+- **`docs/custom_parser.md`** → cambiamenti al parser personalizzato;
+- **`docs/xtrader_csv_contract.md`** → cambiamenti al contratto CSV, colonne, mapping o
+  compatibilità XTrader (se è un breaking change, segnalalo nel PR body);
+- **`docs/audit/roadmap.md`** → cambiamenti architetturali, roadmap, safety policy o debito
+  tecnico rilevante;
+- **docstring o commenti tecnici** → per funzioni pubbliche, servizi o moduli non banali
+  (nuova/rimossa funzione, classe o modulo: mantieni il docstring in testa e, finché non
+  esiste il generatore — vedi sotto — descrivila nel doc di dominio pertinente);
 - nuova/rimossa **chiave di config, colonna CSV, modalità di riconoscimento, gate** →
-  aggiorna i doc relativi e, se è un breaking change, segnalalo nel PR body;
-- scelte d'architettura/audit → `docs/audit/roadmap.md` se pertinente.
+  aggiorna i doc relativi;
+- **future guide utente con screenshot** → quando cambiano schermate, pulsanti, finestre o
+  flussi UI (obbligatorie appena verranno introdotte le cartelle `docs/user/` e
+  `docs/assets/screenshots/`, in una fase successiva).
 
 Il `POST_FIX_MICRO_AUDIT` e il `FINAL_HARD_VERIFY` devono includere il controllo
-**"docs aggiornate per il cambiamento": PASS/FAIL**. Se hai toccato il codice e non hai
-toccato nessuna doc, fermati e verifica se serve aggiornarne una; se davvero non serve
-(es. fix interno senza impatto su comportamento/API documentata), scrivilo come nota.
+**"docs aggiornate: PASS/FAIL/N/A"**, dove:
 
-**Obiettivo futuro (non ancora attivo).** Una documentazione delle funzioni
-**generata automaticamente** dal codice (moduli → classi → funzioni + firma + docstring),
-in formato **Markdown + JSONL**, da usare come knowledge base per un **assistente AI del
-bridge** (vector store OpenAI + screenshot). Quando il generatore (`tools/gen_api_docs.py`
-o equivalente) e il relativo **gate CI** esisteranno, **rigenerare le docs sarà parte
-obbligatoria** di ogni PR che tocca il codice (il gate CI fallisce se sono disallineate).
-Finché non esistono, vale la regola manuale qui sopra.
+- **PASS** = documentazione aggiornata nello stesso PR;
+- **FAIL** = codice modificato ma documentazione mancante;
+- **N/A** = modifica puramente interna senza impatto documentale, **con motivazione scritta**.
+
+Se hai toccato il codice e non hai toccato nessuna doc, fermati e verifica se serve
+aggiornarne una; se davvero non serve (es. fix interno senza impatto su comportamento/API
+documentata), dichiara `N/A` con il motivo. Non considerare completa una PR di codice senza
+questo controllo documentale.
+
+**Obiettivo futuro (non ancora attivo).** In una fase successiva saranno introdotte la
+cartella **`docs/api/`** e una **function-reference auto-generata** dal codice (moduli →
+classi → funzioni + firma + docstring) in formato **Markdown + JSONL**, utile sia per audit
+sia come base per un futuro **assistente AI interno** (vector store OpenAI + screenshot).
+Quando il generatore (`tools/gen_api_docs.py` o equivalente) e il relativo **gate CI**
+esisteranno, **rigenerare le docs sarà parte obbligatoria** di ogni PR che tocca il codice
+(il gate CI fallisce se sono disallineate). **Questa regola non richiede di implementare ora
+generatori, gate CI o integrazioni OpenAI**: finché non esistono, vale la regola manuale qui
+sopra.
 
 ---
 
@@ -749,6 +769,9 @@ Hard truthful tests:
 - PASS / FAIL / SKIPPED with reason
 
 Hard tests created/updated for the change:
+- PASS / FAIL / N/A con motivo
+
+Docs updated for the change:
 - PASS / FAIL / N/A con motivo
 
 GitHub checks completed:
