@@ -129,6 +129,11 @@ def _counting_open(monkeypatch):
         def __exit__(self, *a):
             return self._f.__exit__(*a)
 
+    # Si patcha `ej.open` (non `builtins.open`): `_append_line` chiama il nome libero `open`,
+    # che Python risolve via LEGB con i GLOBAL del modulo PRIMA dei builtins — quindi un
+    # `open` iniettato nel namespace di `event_journal` lo shadowa ed è effettivamente usato
+    # (più mirato che patchare l'`open` globale). Le assert su `writes` lo confermano: se la
+    # patch non avesse effetto, `writes` resterebbe `[]` e l'uguaglianza fallirebbe.
     monkeypatch.setattr(ej, "open", lambda *a, **k: _CountingFile(real_open(*a, **k)),
                         raising=False)
     return writes

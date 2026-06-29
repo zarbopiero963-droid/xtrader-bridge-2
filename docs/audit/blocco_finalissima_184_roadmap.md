@@ -132,9 +132,11 @@ Su troncamento rilevato (ultima riga senza `\n`, es. crash a metà append) `_app
 scriveva il separatore `"\n"` e la riga in DUE `f.write` separati prima di `flush`/`fsync`:
 un crash nel mezzo poteva lasciare solo il separatore senza l'evento (evento perso, non
 corruttivo) e il docstring "atomicità della singola riga" sovrastimava la garanzia. Fix:
-`prefix + line + "\n"` in UN SOLO `f.write`, così separatore+riga+newline raggiungono il
-buffer (e poi il disco col fsync) come unità indivisibile. Output invariato; cambia solo il
-numero di write (1 invece di 2 nel caso separatore).
+`prefix + line + "\n"` in UN SOLO `f.write`, che elimina la finestra a livello di PROCESSO
+(o tutta la riga o niente, mai "separatore sì, evento no"). NON è atomicità a livello di disco
+(un crash kernel→disco può lasciare una coda parziale, dipende da fs/hardware), ma quella è già
+gestita: `read_events` salta la riga troncata e il prossimo append antepone un separatore.
+Output invariato; cambia solo il numero di write (1 invece di 2 nel caso separatore).
 
 ## Decisioni del proprietario (NON implementare senza conferma)
 

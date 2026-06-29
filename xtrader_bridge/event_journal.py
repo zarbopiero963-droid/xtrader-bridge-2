@@ -102,10 +102,13 @@ def _append_line(path: str, line: str) -> None:
     nuovo evento andrebbe perso (review Codex P1).
 
     Separatore + riga + `\\n` vengono scritti in UN SOLO `f.write` (issue #184 M6): due
-    `write` separati prima del `flush`/`fsync` potevano lasciare, su un crash a metà,
-    solo il separatore senza l'evento — l'evento andava perso e l'"atomicità della
-    singola riga" promessa dal docstring era sovrastimata. Con una sola write il payload
-    raggiunge il buffer (e poi il disco col fsync) come unità indivisibile."""
+    `write` separati prima del `flush`/`fsync` potevano lasciare, su un crash a metà, solo il
+    separatore senza l'evento (evento perso). La singola write elimina QUESTA finestra a
+    livello di PROCESSO — o tutta la riga o niente, mai "separatore sì, evento no". NON è
+    atomicità a livello di disco: un crash durante il trasferimento kernel→disco può comunque
+    lasciare una riga finale parziale (dipende da filesystem/hardware), ma quella coda troncata
+    è già gestita — `read_events` la salta e il prossimo append vi antepone un separatore
+    (precisazione review Sourcery)."""
     directory = os.path.dirname(path)
     if directory:
         os.makedirs(directory, exist_ok=True)
