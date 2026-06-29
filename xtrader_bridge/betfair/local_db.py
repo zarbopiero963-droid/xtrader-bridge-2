@@ -24,6 +24,11 @@ import os
 import sqlite3
 import threading
 
+# Quante righe di `betfair_sync_runs` conservare: la tabella registra ~1 riga per
+# sync (storico) e altrimenti crescerebbe all'infinito (#184 LOW). 200 run = oltre
+# 6 mesi a una sync al giorno, abbastanza per lo storico ma con tabella limitata.
+_SYNC_RUNS_KEEP = 200
+
 # Busy timeout della connessione SQLite (secondi). Il default di sqlite3 è 5s: un
 # accesso concorrente al file (es. il viewer del dizionario aperto mentre una sync
 # scrive, o un secondo processo) può sbattere su "database is locked" troppo presto.
@@ -307,14 +312,41 @@ class BetfairLocalDB:
     # ── sync run ─────────────────────────────────────────────────────────────
 
     def record_sync_run(self, started_at, finished_at, status, summary="") -> int:
-        """Registra una sync run e ritorna il suo `run_id`."""
+        """Registra una sync run e ritorna il suo `run_id`. Subito dopo **pota** le run
+        più vecchie oltre il cap (`_SYNC_RUNS_KEEP`), così `betfair_sync_runs` non cresce
+        all'infinito (#184 LOW). Insert + prune stanno sotto lo stesso lock e nello stesso
+        commit (se dentro una `transaction()`, vengono committati/rollbackati con essa)."""
         with self._lock:
             cur = self._conn.execute(
                 """INSERT INTO betfair_sync_runs (started_at, finished_at, status, summary)
                    VALUES (?, ?, ?, ?)""",
                 (started_at, finished_at, status, summary))
+            run_id = cur.lastrowid
+            self._prune_sync_runs_locked(_SYNC_RUNS_KEEP)
             self._commit_if_needed()
-            return cur.lastrowid
+            return run_id
+
+    def prune_sync_runs(self, keep: int = _SYNC_RUNS_KEEP) -> int:
+        """Elimina le run più vecchie tenendo solo le `keep` più recenti (per `run_id`,
+        che è AUTOINCREMENT monotòno). Ritorna quante righe ha eliminato. `keep<=0` non
+        elimina nulla (guardia: non svuota la tabella per errore)."""
+        with self._lock:
+            n = self._prune_sync_runs_locked(keep)
+            self._commit_if_needed()
+            return n
+
+    def _prune_sync_runs_locked(self, keep: int) -> int:
+        """Prune di `betfair_sync_runs` assumendo il lock già tenuto (nessun commit qui:
+        lo fa il chiamante, così l'operazione resta atomica con l'insert/la transazione)."""
+        if keep is None or keep <= 0:
+            return 0
+        cur = self._conn.execute(
+            """DELETE FROM betfair_sync_runs
+               WHERE run_id NOT IN (
+                   SELECT run_id FROM betfair_sync_runs ORDER BY run_id DESC LIMIT ?
+               )""",
+            (int(keep),))
+        return cur.rowcount
 
     # ── deattivazione dei record non più visti ───────────────────────────────
 

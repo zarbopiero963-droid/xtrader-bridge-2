@@ -257,3 +257,64 @@ def test_scrittura_concorrente_aspetta_il_lock_e_non_fallisce(tmp_path):
     assert done["ok"] is True
     assert d.count_active("betfair_sports") == 1
     d.close()
+
+
+# ── #184 LOW: prune di betfair_sync_runs (no crescita illimitata) ─────────────
+
+def test_record_sync_run_pota_le_run_oltre_il_cap(db):
+    from xtrader_bridge.betfair.local_db import _SYNC_RUNS_KEEP
+    # Inserisce CAP+5 run: la tabella deve restare a CAP, tenendo le più recenti.
+    for i in range(_SYNC_RUNS_KEEP + 5):
+        db.record_sync_run(started_at=i, finished_at=i, status="OK", summary=f"run{i}")
+    rows = db.fetchall("betfair_sync_runs")
+    assert len(rows) == _SYNC_RUNS_KEEP                 # tabella limitata
+    ids = sorted(r["run_id"] for r in rows)
+    # le 5 più vecchie (run_id 1..5) sono state eliminate; restano le più recenti
+    assert ids[0] == 6
+    assert ids[-1] == _SYNC_RUNS_KEEP + 5
+
+
+def test_record_sync_run_sotto_il_cap_non_pota(db):
+    for i in range(10):
+        db.record_sync_run(started_at=i, finished_at=i, status="OK")
+    assert len(db.fetchall("betfair_sync_runs")) == 10   # nessuna potatura sotto il cap
+
+
+def test_prune_sync_runs_tiene_le_piu_recenti(db):
+    for i in range(20):
+        db.record_sync_run(started_at=i, finished_at=i, status="OK", summary=f"r{i}")
+    deleted = db.prune_sync_runs(keep=5)
+    assert deleted == 15
+    rows = db.fetchall("betfair_sync_runs")
+    assert len(rows) == 5
+    ids = sorted(r["run_id"] for r in rows)
+    assert ids == [16, 17, 18, 19, 20]                   # solo le 5 più recenti
+
+
+def test_prune_sync_runs_keep_zero_non_svuota(db):
+    # Guardia: keep<=0 NON deve svuotare la tabella per errore.
+    for i in range(3):
+        db.record_sync_run(started_at=i, finished_at=i, status="OK")
+    assert db.prune_sync_runs(keep=0) == 0
+    assert db.prune_sync_runs(keep=-1) == 0
+    assert len(db.fetchall("betfair_sync_runs")) == 3
+
+
+def test_prune_dentro_transazione_e_atomico(tmp_path):
+    # Se la transazione che contiene record_sync_run fa rollback, anche il prune viene
+    # annullato: la tabella resta com'era (atomicità insert+prune con la transazione).
+    path = str(tmp_path / "betfair.db")
+    d = BetfairLocalDB(path)
+    for i in range(5):
+        d.record_sync_run(started_at=i, finished_at=i, status="OK")
+    assert len(d.fetchall("betfair_sync_runs")) == 5
+    try:
+        with d.transaction():
+            d.record_sync_run(started_at=99, finished_at=99, status="OK")
+            d.prune_sync_runs(keep=1)             # proverebbe a tenere solo 1 riga
+            raise RuntimeError("boom: forza il rollback")
+    except RuntimeError:
+        pass
+    # rollback: né il nuovo insert né il prune sono stati applicati
+    assert len(d.fetchall("betfair_sync_runs")) == 5
+    d.close()
