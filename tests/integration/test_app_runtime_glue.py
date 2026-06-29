@@ -438,6 +438,31 @@ def test_register_secret_token_maschera_il_token_nei_log(make_app, app_mod):
         event_log.clear_secrets()
 
 
+def test_register_secret_token_non_passa_da_getattr_su_attr_assente(app_mod):
+    """#184 M7 regression (CI RecursionError): su un widget Tk un attributo ASSENTE fa ricorrere
+    `__getattr__` (e il default di `getattr` NON intercetta il RecursionError). La lettura di
+    `_registered_token` deve avvenire via `__dict__`, non via `getattr(self, ...)`.
+
+    Fail-first: col vecchio `getattr(self, "_registered_token", None)` questo solleva
+    RecursionError, esattamente come nel job `integration` su CI."""
+    from xtrader_bridge import event_log
+
+    class _TkLike:
+        # Imita tkinter.Misc.__getattr__: un attributo mancante delega a se stesso → ricorsione.
+        def __getattr__(self, name):
+            return getattr(self, name)
+
+    event_log.clear_secrets()
+    try:
+        obj = _TkLike()                              # nessun _registered_token in __dict__
+        tok = "123456789:RegressionTokenValue_abcd"
+        app_mod.App._register_secret_token(obj, {"bot_token": tok})   # non deve ricorrere
+        assert obj.__dict__.get("_registered_token") == tok
+        assert tok not in event_log.redact_secrets(f"err {tok} x")
+    finally:
+        event_log.clear_secrets()
+
+
 def test_register_secret_token_deregistra_il_precedente_quando_cambia(make_app, app_mod):
     """#184 M7 (Sourcery): quando il bot token CAMBIA, il precedente viene deregistrato, così il
     registro dei segreti non cresce all'infinito e un vecchio token non resta mascherato per

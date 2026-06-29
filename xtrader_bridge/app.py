@@ -265,7 +265,9 @@ class App(ctk.CTk):
         vecchio token non resta mascherato per sempre. Punto unico usato da
         `_load_config`/`_save_config`, così la deregistrazione vale per entrambi i percorsi."""
         new_token = cfg.get("bot_token") if isinstance(cfg, dict) else None
-        prev = getattr(self, "_registered_token", None)
+        # Lettura via __dict__ e NON getattr: su un widget Tk un attributo ASSENTE farebbe
+        # ricorrere `__getattr__` (→ RecursionError), e il default di getattr non lo intercetta.
+        prev = self.__dict__.get("_registered_token")
         if prev and prev != new_token:
             event_log.unregister_secret(prev)
             self._registered_token = None
