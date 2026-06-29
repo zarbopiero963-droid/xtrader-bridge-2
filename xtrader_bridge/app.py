@@ -292,8 +292,9 @@ class App(ctk.CTk):
             return
         try:
             event_journal.append_event(path, event_type, data)
-        except Exception:   # noqa: BLE001 — il journal è diagnostico: un suo errore non deve
-            pass            # mai propagare nel percorso di trading (best-effort)
+        except Exception:   # noqa: BLE001,S110 — il journal è diagnostico: un suo errore non deve
+            pass            # mai propagare nel percorso di trading (best-effort, niente log: il
+            #                 sink di log potrebbe a sua volta fallire e il diario non è critico)
 
     def _sweep_orphan_csv_temps(self) -> None:
         """Rimuove i temporanei `.segnali_*.tmp` orfani nella cartella del CSV (#184 LOW).
@@ -1457,8 +1458,14 @@ class App(ctk.CTk):
         self._bot_thread.start()
 
     def _stop(self):
+        was_running = self._running
         self._running = False
-        self._journal("STOP")              # event journal (#230): fine sessione
+        # Event journal (#230): registra STOP SOLO se una sessione era davvero attiva. `_on_close()`
+        # chiama `_stop()` anche a bridge mai avviato o già fermato: un append incondizionato
+        # produrrebbe uno STOP senza START corrispondente (sequenza impossibile nel diario forense,
+        # Codex P2). Lo STOP è il pendant del START loggato in `_start` (che imposta `_running=True`).
+        if was_running:
+            self._journal("STOP")
         self._session_real = False         # sessione finita: il banner torna a seguire la config viva
         self._csv_lock.reset()             # #153 H2: lo stato di lock non sopravvive alla sessione (Codex #156)
         self._update_real_mode_banner()
@@ -1795,7 +1802,9 @@ class App(ctk.CTk):
         # assenza, al parser hardcoded. Non scrive righe non piazzabili: meglio
         # scartare un segnale incompleto che generare una riga ambigua.
         self.after(0, lambda: self._bump("received"))   # PR-14: candidato instradato
-        self._journal("SIGNAL_RECEIVED", chat=chat_id)   # event journal (#230): solo la chat, niente testo
+        # Event journal (#230): solo la chat (niente testo), e in forma REDATTA — il diario è un
+        # log DUREVOLE sotto AppData e il chat_id reale è sensibile (Telegram safety, Codex P2).
+        self._journal("SIGNAL_RECEIVED", chat=log_privacy.redact_chat_id(chat_id))
         # Privacy log (audit #105 P1): di default il TESTO del messaggio NON va in chiaro
         # nei log — solo hash + lunghezza + prima riga troncata (`log_privacy.redact_message`).
         # Il payload completo solo se l'utente attiva `debug_message_payload` (opt-in).
@@ -1812,6 +1821,12 @@ class App(ctk.CTk):
         # il dizionario trova un match univoco; altrimenti resta a nomi (fallback nomi).
         result = signal_router.resolve_row(text, route, chat_id=chat_id,
                                            id_resolver=self._betfair_id_resolver())
+        # Event journal (#230): il PARSER è girato (esito + sorgente), PRIMA del ramo
+        # piazzabile/scartato — così il diario distingue «parser eseguito ma segnale scartato»
+        # da «mai ricevuto» anche per i non piazzabili, completando la pipeline RECEIVED→PARSED→
+        # (VALIDATED|scarto) richiesta dal contratto (CodeRabbit). Niente dato del messaggio.
+        self._journal("SIGNAL_PARSED", status=result.status, source=result.source,
+                      placeable=result.placeable)
         if not result.placeable:
             detail = (", ".join(result.missing_required)
                       if result.missing_required else result.detail)
@@ -1821,8 +1836,8 @@ class App(ctk.CTk):
             return
 
         row = result.row
-        # Event journal (#230): segnale parsato+validato (piazzabile). Solo la sorgente del
-        # parser, nessun dato del messaggio.
+        # Event journal (#230): segnale validato (piazzabile). Solo la sorgente del parser,
+        # nessun dato del messaggio.
         self._journal("SIGNAL_VALIDATED", source=result.source)
 
         # Guardrail del percorso di scrittura (PR-21): dedup + limite/minuto +
@@ -2018,6 +2033,11 @@ class App(ctk.CTk):
                 "XTRADER_CONFIRMED" if result.status == confirmation_reader.CONFIRMED
                 else "XTRADER_REJECTED",
                 signal_id=result.signal_id, remaining=len(rows))
+            # Se era l'ULTIMO segnale attivo, la riscrittura ha riportato il CSV a solo header:
+            # registra anche il clear, altrimenti il ciclo di vita avrebbe un CSV_WRITTEN senza il
+            # CSV_CLEARED corrispondente (Codex P2 #233). Best-effort, fuori dal lock.
+            if not rows:
+                self._journal("CSV_CLEARED", reason="confirmation")
             # Guard su None (review Sourcery): se in futuro si aggiungono status
             # terminali senza messaggio, non si logga `None`.
             removed_log = signal_outcome.confirmation_removed_log(result.status)

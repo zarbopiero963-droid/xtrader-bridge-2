@@ -57,3 +57,22 @@ def redact_message(text, *, full=False) -> str:
     preview = event_log.redact_preview(first, FIRSTLINE_CHARS)
     ellipsis = "…" if len(first) > FIRSTLINE_CHARS else ""
     return f"[redatto: {n} char, sha256:{digest}] {preview}{ellipsis}"
+
+
+def redact_chat_id(chat_id):
+    """Forma REDATTA di un `chat_id` Telegram per i log/ledger DUREVOLI.
+
+    Il chat_id reale è un dato sensibile (regole Telegram safety: non deve finire in chiaro
+    in un log persistente, come il diario eventi `event_journal.jsonl` sotto AppData). Ritorna
+    un'impronta STABILE ``chat:sha256:<12 hex>`` che correla gli eventi della STESSA chat senza
+    rivelare l'ID (lo sha256 è una via sola); ``None``/vuoto → ``None`` (campo omesso).
+
+    `chat_id` non stringa (es. int dell'API Telegram) è normalizzato a stringa prima dell'hash,
+    così lo stesso id come `int` o `str` produce la stessa impronta."""
+    if chat_id is None:
+        return None
+    s = str(chat_id).strip()
+    if not s:
+        return None
+    digest = hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
+    return f"chat:sha256:{digest}"

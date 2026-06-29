@@ -39,7 +39,9 @@ end-to-end su GUI reale / Windows / XTrader resta nella checklist manuale.
 - **COVERED (esistenti, molti da #160/#161/#162):** 4,5,8,9,11,12,13,14
 - **PARTIAL:** 1 (ordine `__init__` non testabile headless; funzione coperta + difesa `_start`/`init_csv`) · 2 (gate token/chat dentro `_start` GUI, ma gating `_maybe_auto_start` testato) · 3 (branch `_start(auto=True)` con `askyesno` negato = GUI, ma decisione pura testata) · 10 (finestra crash post-write/pre-guard-save non simulata) · 15 (`App._start()` con `init_csv` fallito non testabile headless) — vedi righe
 - **MANUAL_ONLY (checklist release):** 16,17,18,19 — passi esatti in `docs/audit/release_checklist.md` §I
-- **FEATURE (decisione proprietario):** 20 — event journal transaction-grade
+- **DONE (implementata in #230):** 20 — event journal transaction-grade, ora **agganciato al
+  runtime** (era una FEATURE su decisione del proprietario, adesso realizzata: vedi riga 20 e
+  `docs/event_journal.md`)
 
 I due punti "deboli" segnalati dalla baseline #110 — daily_state senza fsync e listener
 reale non testato — sono entrambi **chiusi**: il daily è atomico+fsync (#105 P2, testato) e

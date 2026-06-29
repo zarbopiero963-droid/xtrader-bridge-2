@@ -121,6 +121,28 @@ def test_token_lungo_non_trascina_contenuto_oltre_il_confine():
     assert "…" in out                             # la prima riga era più lunga del budget
 
 
+def test_redact_chat_id_impronta_stabile_mai_id_reale():
+    """`redact_chat_id` (Codex P2 #233): il chat_id reale è sensibile e il diario eventi è un log
+    DUREVOLE → mai l'ID in chiaro, ma un'impronta `chat:sha256:<12 hex>` STABILE e correlabile."""
+    cid = "-1001234567890"
+    out = lp.redact_chat_id(cid)
+    assert out is not None
+    assert cid not in out                                  # l'ID reale non trapela
+    assert out.startswith("chat:sha256:")
+    expected = hashlib.sha256(cid.encode("utf-8")).hexdigest()[:12]
+    assert out == f"chat:sha256:{expected}"
+    # Stabile (stessa chat → stessa impronta) e int/str equivalenti.
+    assert lp.redact_chat_id(cid) == out
+    assert lp.redact_chat_id(-1001234567890) == out        # int normalizzato a stringa
+
+
+def test_redact_chat_id_none_o_vuoto_ritorna_none():
+    # None/vuoto → None: il campo `chat` viene omesso, non scritto vuoto.
+    assert lp.redact_chat_id(None) is None
+    assert lp.redact_chat_id("") is None
+    assert lp.redact_chat_id("   ") is None
+
+
 def test_registrato_literal_non_canonico_redatto_nel_prefisso():
     """#184 M8 + M7: un token registrato in forma NON canonica (che la regex non prende) è comunque
     mascherato nel prefisso, perché redact_secrets usa anche il registro per-literal."""

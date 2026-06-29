@@ -48,15 +48,19 @@ journal non blocca mai il trading) tramite l'helper privato `App._journal(...)`:
 | Punto in `app.py` | Eventi registrati |
 |---|---|
 | `__init__` | `prune_events(...)` allo startup (retention, prima di qualunque auto-start) |
-| `_start` / `_stop` | `START` (con `dry_run`/`auto`) / `STOP` |
-| `_process` | `SIGNAL_RECEIVED` → `SIGNAL_VALIDATED` → `CSV_WRITTEN` |
-| `_process_confirmation` | `XTRADER_CONFIRMED` / `XTRADER_REJECTED` |
+| `_start` / `_stop` | `START` (con `dry_run`/`auto`) / `STOP` (solo se una sessione era attiva) |
+| `_process` | `SIGNAL_RECEIVED` → `SIGNAL_PARSED` → `SIGNAL_VALIDATED` → `CSV_WRITTEN` (un segnale scartato si ferma a `SIGNAL_PARSED`, `placeable=false`) |
+| `_process_confirmation` | `XTRADER_CONFIRMED` / `XTRADER_REJECTED` (+ `CSV_CLEARED` `reason="confirmation"` se era l'ultima riga) |
 | `_clear_stale_csv` | `CRASH_RECOVERY_CSV_CLEARED` (all'avvio) / `CSV_CLEARED` (allo stop) |
 | `_expire_tick` | `CSV_CLEARED` (`reason="expiry"`) quando l'ultima riga scade e il CSV torna a solo header |
 | `_manual_clear` | `CSV_CLEARED` (`reason="manual"`) sullo svuotamento manuale riuscito («Svuota CSV ora») |
 | `_run_bot` | `RECONNECT` a ogni tentativo di riconnessione |
 
 Garanzie del wiring: **mai bloccante** (path assente → no-op; qualunque eccezione di
-`append_event` è ingoiata), **redatto** (nessun token), **bounded** (`prune_events` allo
-startup). Test: `tests/unit/test_event_journal.py` (modulo + retention) e
+`append_event` è ingoiata), **redatto** (nessun token; il `chat_id` Telegram è registrato come
+impronta `chat:sha256:<12 hex>` via `log_privacy.redact_chat_id`, mai l'ID reale — il diario è
+un log durevole sotto AppData), **bounded** (`prune_events` allo startup). Ogni evento ha un
+timestamp `ts` (epoch) e un `id` univoco, quindi l'ordine reale è ricostruibile ordinando per
+`ts` anche se due append concorrenti finissero sfuori ordine sul file. Test:
+`tests/unit/test_event_journal.py` (modulo + retention) e
 `tests/integration/test_event_journal_wiring.py` (wiring sui metodi reali di `App`).
