@@ -35,7 +35,9 @@ import sys
 PATTERNS = [
     ("Telegram bot token", re.compile(rb"[0-9]{8,10}:[A-Za-z0-9_-]{35}")),
     ("PEM private key", re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
-    ("AWS access key id", re.compile(rb"AKIA[0-9A-Z]{16}")),
+    # AKIA = chiave permanente; ASIA = credenziale TEMPORANEA STS (entrambe sono AWS access
+    # key id valide e vanno intercettate — review CodeRabbit).
+    ("AWS access key id", re.compile(rb"(?:AKIA|ASIA)[0-9A-Z]{16}")),
 ]
 
 _UNRELIABLE = "scan non affidabile"
@@ -70,6 +72,8 @@ def _report(path: str) -> None:
 
 
 def _scan_given_files(files: list) -> int:
+    """Scansiona una lista esplicita di path. Ritorna 1 se trova un segreto O se un file è
+    illeggibile/assente (fail-closed), 0 se tutti puliti. Lista vuota → 0."""
     found = error = False
     for path in files:
         hits, ferr = _scan_path(path)
@@ -85,6 +89,7 @@ def _scan_given_files(files: list) -> int:
 
 
 def _scan_tracked() -> int:
+    """Scansiona tutti i file TRACCIATI (`git ls-files`). Fail-closed se git fallisce."""
     r = _git(["ls-files"])
     if r.returncode != 0:
         print(f"::error::git ls-files fallito ({_UNRELIABLE}).", file=sys.stderr)
@@ -97,7 +102,12 @@ def _scan_staged() -> int:
     """Scansiona il CONTENUTO IN STAGING (i blob dell'index), non il working tree: con lo
     staging parziale (`git add -p`) o un file modificato dopo l'add, un segreto presente nel
     blob in staging ma assente dal disco sfuggirebbe (review CodeRabbit #155)."""
-    r = _git(["diff", "--cached", "--name-only", "--diff-filter=ACM"])
+    # ACM**R**: includere anche i RINOMINATI (`git mv` + modifica). Con il rilevamento rename
+    # attivo (default di `git diff`), un rename è uno stato `R` che `ACM` escluderebbe → un
+    # `git mv` seguito da una piccola modifica con un segreto sfuggirebbe allo scan (review
+    # CodeRabbit). `--name-only` su un rename elenca il path NUOVO, su cui `git show :path` legge
+    # il blob in staging.
+    r = _git(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
     if r.returncode != 0:
         print(f"::error::git diff --cached fallito ({_UNRELIABLE}).", file=sys.stderr)
         return 1
@@ -121,6 +131,8 @@ def _scan_staged() -> int:
 
 
 def main(argv) -> int:
+    """Entry point: instrada su `--staged` / file espliciti / file tracciati e ritorna l'exit
+    code (1 = segreto o scan non affidabile, 0 = pulito). Stampa l'OK finale solo se pulito."""
     args = argv[1:]
     if "--staged" in args:
         code = _scan_staged()

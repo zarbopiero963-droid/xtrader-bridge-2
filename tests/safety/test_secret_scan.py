@@ -24,12 +24,13 @@ SCANNER = REPO_ROOT / "tools" / "secret_scan.py"
 # Segreti fittizi spezzati: a runtime sono validi per il pattern, in sorgente no.
 FAKE_TELEGRAM = "123456789" + ":" + ("A" * 35)
 FAKE_PEM = "-----BEGIN " + "RSA PRIVATE " + "KEY-----"
-FAKE_AWS = "AKI" + "A" + ("0" * 16)
+FAKE_AWS = "AKI" + "A" + ("0" * 16)          # AKIA = chiave permanente
+FAKE_AWS_STS = "ASI" + "A" + ("0" * 16)      # ASIA = credenziale temporanea STS
 
-# Niente più dipendenza da `bash`: si salta solo se manca lo scanner stesso.
-pytestmark = pytest.mark.skipif(
-    not SCANNER.exists(), reason="tools/secret_scan.py non disponibile",
-)
+# `tools/secret_scan.py` fa parte del repo: se manca, i test NON devono passare in silenzio
+# saltando (sarebbe l'opposto del fail-closed che questi test garantiscono) → fallire (review
+# CodeRabbit).
+assert SCANNER.exists(), "tools/secret_scan.py non disponibile (lo scanner canonico deve esistere)"
 
 
 def _run(*args, cwd=None):
@@ -49,7 +50,7 @@ def test_file_pulito_esce_zero(tmp_path):
     assert "OK" in r.stdout
 
 
-@pytest.mark.parametrize("secret", [FAKE_TELEGRAM, FAKE_PEM, FAKE_AWS])
+@pytest.mark.parametrize("secret", [FAKE_TELEGRAM, FAKE_PEM, FAKE_AWS, FAKE_AWS_STS])
 def test_segreto_noto_esce_uno_e_non_stampa_il_valore(tmp_path, secret):
     """Ogni segreto noto → exit 1 col solo path; il valore non compare mai nell'output."""
     f = tmp_path / "leak.txt"
@@ -134,6 +135,46 @@ def test_staged_scan_intercetta_il_blob_in_staging(tmp_path):
     git("reset", "-q", "leak.txt")   # tolgo dallo staging il file sporco
     r2 = run_staged()
     assert r2.returncode == 0, r2.stdout + r2.stderr
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git non disponibile")
+def test_staged_scan_intercetta_un_rename_con_segreto(tmp_path):
+    """Un `git mv` + piccola modifica che inietta un segreto produce uno stato `R` (rename
+    rilevato): il vecchio filtro `--diff-filter=ACM` lo escludeva → bypass. Con `ACMR` il file
+    rinominato viene scansionato (review CodeRabbit). Via Python (sys.executable), niente bash."""
+    repo = tmp_path / "repo"
+    (repo / "tools").mkdir(parents=True)
+    shutil.copy(SCANNER, repo / "tools" / "secret_scan.py")
+
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=str(repo),
+                              capture_output=True, text=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    # File "grande" committato: dopo il rename + APPEND del segreto la similarità resta alta →
+    # git lo rileva come rename (stato R), che è il caso che ACM escludeva.
+    big = repo / "big.txt"
+    big.write_text("".join(f"line {i}\n" for i in range(20)))
+    git("add", "big.txt")
+    git("commit", "-qm", "init")
+    git("mv", "big.txt", "moved.txt")
+    (repo / "moved.txt").write_text(
+        "".join(f"line {i}\n" for i in range(20)) + f"tok={FAKE_TELEGRAM}\n")
+    git("add", "-A")
+
+    # Sanity: lo stato in staging è davvero un rename (R), non Add+Delete.
+    status = git("diff", "--cached", "--name-status").stdout
+    assert status.startswith("R"), f"atteso un rename (R), ottenuto: {status!r}"
+
+    r = subprocess.run(
+        [sys.executable, str(repo / "tools" / "secret_scan.py"), "--staged"],
+        cwd=str(repo), capture_output=True, text=True,
+    )
+    assert r.returncode == 1, "il segreto nel file RINOMINATO in staging deve essere intercettato"
+    assert "moved.txt" in (r.stdout + r.stderr)
+    assert FAKE_TELEGRAM not in (r.stdout + r.stderr)
 
 
 def test_hook_pre_commit_delega_allo_scanner_staged():
