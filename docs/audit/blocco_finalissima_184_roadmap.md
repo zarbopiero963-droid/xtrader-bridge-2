@@ -25,8 +25,8 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | M4 | m4-day-format | `safety_guard.py` | merged (#200) |
 | M5 | m5-retry-errno | `csv_writer.py` | merged (#201) |
 | M6 | m6-journal-atomic | `event_journal.py` | merged (#202) |
-| M7 | m7-token-redact | `event_log.py` | in PR |
-| M8 | m8-privacy-prefix | `log_privacy.py` | da fare |
+| M7 | m7-token-redact | `event_log.py` | merged (#203) |
+| M8 | m8-privacy-prefix | `log_privacy.py` | in PR |
 | M9 | m9-market-types-get | `dizionario.py` | da fare |
 | M10 | m10-score-tail | `parser.py` | da fare |
 | M11 | m11-tls-context | `betfair/catalogue_client.py` | da fare |
@@ -137,6 +137,19 @@ corruttivo) e il docstring "atomicità della singola riga" sovrastimava la garan
 (un crash kernel→disco può lasciare una coda parziale, dipende da fs/hardware), ma quella è già
 gestita: `read_events` salta la riga troncata e il prossimo append antepone un separatore.
 Output invariato; cambia solo il numero di write (1 invece di 2 nel caso separatore).
+
+## M8 — `log_privacy.redact_message`: prefisso e payload passano da `redact_secrets`
+
+La forma "privacy on" ritornava i primi `FIRSTLINE_CHARS` (40) char della prima riga **grezzi**,
+senza `redact_secrets`: un token a inizio messaggio finiva in chiaro nel log nonostante la
+privacy (era il path di leak più concreto dell'audit). Anche la forma `full=True` (payload di
+debug) non era redatta. Fix: `redact_message` ora passa sia il payload completo sia la prima riga
+per `event_log.redact_secrets`. La redazione avviene **prima** del troncamento, così un token a
+cavallo del confine dei 40 char non trapela tagliato a metà. Hash sha256 e lunghezza restano sul
+testo grezzo (lo sha256 è una via sola e serve solo a correlare messaggi identici; la lunghezza
+non rivela contenuto). Difesa-in-profondità: i due call-site (`_dbg`→`_log`) già ripassano da
+`redact_secrets`, ma ora la funzione mantiene il proprio contratto a prescindere dal chiamante.
+Nessun cambio di formato/colonne CSV; copre anche i literal registrati non canonici (M7).
 
 ## M7 — redazione token: per-literal del token registrato, non solo la regex
 

@@ -7,6 +7,7 @@ con `full=True` il payload completo torna su una sola riga.
 
 import hashlib
 
+from xtrader_bridge import event_log
 from xtrader_bridge import log_privacy as lp
 
 
@@ -63,3 +64,55 @@ def test_none_e_vuoto():
 def test_non_stringa_trattata_come_stringa():
     out = lp.redact_message(12345)
     assert "char" in out                         # non solleva, coerce a str
+
+
+# ── #184 M8: il prefisso/payload passano da redact_secrets (no token in chiaro) ──────
+
+def test_token_a_inizio_messaggio_non_in_chiaro_nel_prefisso():
+    """#184 M8: un bot token nei primi caratteri della prima riga NON deve finire in chiaro nel
+    prefisso "privacy on". Era il path di leak più concreto dell'audit.
+
+    Fail-first: prima il prefisso era `first[:40]` grezzo → il token compariva in chiaro."""
+    token = "123456789:AAExampleSecretTokenValue_abcdef"   # shape canonico → redact_secrets lo prende
+    out = lp.redact_message(f"{token} resto del messaggio")
+    assert token not in out
+    assert "[REDACTED_TOKEN]" in out
+    assert out.startswith("[redatto:")            # forma redatta preservata
+
+
+def test_token_full_true_non_in_chiaro():
+    """#184 M8: anche il payload completo di debug (`full=True`) passa da redact_secrets."""
+    token = "987654321:AAanotherSecretTokenValue_xyz123"
+    out = lp.redact_message(f"errore bot: {token}", full=True)
+    assert token not in out and "[REDACTED_TOKEN]" in out
+    assert "\n" not in out                        # resta una sola riga
+
+
+def test_token_sul_confine_del_troncamento_non_trapela_a_meta():
+    """#184 M8: un token che attraversa il confine dei FIRSTLINE_CHARS non deve trapelare tagliato
+    a metà. Si redige PRIMA di troncare, quindi nessun frammento del token resta visibile.
+
+    Fail-first: troncando prima di redarre, `first[:40]` conteneva una porzione grezza del token."""
+    prefix = "X" * 30                              # spinge il token a cavallo del 40° char
+    token = "123456789:AAExampleSecretTokenValue_abcdef"
+    out = lp.redact_message(f"{prefix}{token} coda")
+    # Nessuna porzione del segreto deve restare visibile (né la fetta a cavallo del confine).
+    assert token not in out
+    for start in range(0, len(token) - 7):         # nessun run contiguo di >= 8 char del token
+        assert token[start:start + 8] not in out
+    # La redazione è avvenuta sul confine: appare (anche solo l'inizio del) marker, mai il token.
+    assert "[REDACT" in out
+
+
+def test_registrato_literal_non_canonico_redatto_nel_prefisso():
+    """#184 M8 + M7: un token registrato in forma NON canonica (che la regex non prende) è comunque
+    mascherato nel prefisso, perché redact_secrets usa anche il registro per-literal."""
+    short = "555:shortSecret"                       # porzione < 20 → la regex NON matcha
+    event_log.clear_secrets()
+    try:
+        assert short in lp.redact_message(f"{short} testo")          # baseline: non registrato → resta
+        event_log.register_secret(short)
+        out = lp.redact_message(f"{short} testo")
+        assert short not in out and "[REDACTED_TOKEN]" in out
+    finally:
+        event_log.clear_secrets()
