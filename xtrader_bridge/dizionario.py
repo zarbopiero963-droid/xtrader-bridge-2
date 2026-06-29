@@ -112,7 +112,19 @@ def assert_no_duplicate_aliases(rows: list) -> None:
 
 
 def market_types(rows: list) -> set:
-    return {row["MarketType_XTrader"] for row in rows}
+    """Insieme dei ``MarketType_XTrader`` presenti nelle righe.
+
+    Usa ``.get(...)`` come i fratelli del modulo (``market_catalog``, ``selections_for_market``):
+    una riga **senza** la colonna (dizionario non validato, o un dict parziale passato dai test)
+    degrada a valore assente invece di sollevare ``KeyError`` (#184 M9). I valori vuoti sono
+    **esclusi**: non sono MarketType reali (coerente con ``market_catalog``, che salta un ``mt``
+    vuoto). I valori sono strippati come negli altri lettori del dizionario."""
+    out = set()
+    for row in rows:
+        mt = (row.get("MarketType_XTrader") or "").strip()
+        if mt:
+            out.add(mt)
+    return out
 
 
 # ── Catalogo per le tendine della GUI (A1) ──────────────────────────────────

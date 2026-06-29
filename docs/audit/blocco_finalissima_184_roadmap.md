@@ -26,8 +26,8 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | M5 | m5-retry-errno | `csv_writer.py` | merged (#201) |
 | M6 | m6-journal-atomic | `event_journal.py` | merged (#202) |
 | M7 | m7-token-redact | `event_log.py` | merged (#203) |
-| M8 | m8-privacy-prefix | `log_privacy.py` | in PR |
-| M9 | m9-market-types-get | `dizionario.py` | da fare |
+| M8 | m8-privacy-prefix | `log_privacy.py` | merged (#204) |
+| M9 | m9-market-types-get | `dizionario.py` | in PR |
 | M10 | m10-score-tail | `parser.py` | da fare |
 | M11 | m11-tls-context | `betfair/catalogue_client.py` | da fare |
 | M12 | m12-viewer-debounce | `betfair/dictionary_viewer_gui.py` | da fare |
@@ -137,6 +137,16 @@ corruttivo) e il docstring "atomicità della singola riga" sovrastimava la garan
 (un crash kernel→disco può lasciare una coda parziale, dipende da fs/hardware), ma quella è già
 gestita: `read_events` salta la riga troncata e il prossimo append antepone un separatore.
 Output invariato; cambia solo il numero di write (1 invece di 2 nel caso separatore).
+
+## M9 — `dizionario.market_types()` degrada con `.get()` invece di `KeyError`
+
+`market_types(rows)` indicizzava diretto `row["MarketType_XTrader"]` mentre tutti i fratelli del
+modulo (`market_catalog`, `selections_for_market`, …) usano `row.get(...) or ""`: una riga senza
+quella colonna (dizionario non validato a monte, o un dict parziale) sollevava `KeyError` invece
+di degradare. Fix: usa `.get(...)`, strippa il valore e **esclude** i vuoti (coerente con
+`market_catalog`, che salta un `mt` vuoto). Sul dizionario reale l'output non cambia (ogni riga ha
+un MarketType non vuoto): un test lo verifica confrontando con i MarketType di `market_catalog`.
+Nessun impatto su CSV/parser/Telegram; nessun cambio di contratto del dizionario.
 
 ## M8 — `log_privacy.redact_message`: prefisso e payload passano da `redact_secrets`
 

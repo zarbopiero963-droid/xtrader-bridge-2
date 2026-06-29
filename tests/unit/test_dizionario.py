@@ -68,6 +68,30 @@ def test_first_half_goals_05_15_25():
         assert mt in mts
 
 
+def test_market_types_riga_senza_colonna_non_solleva():
+    """#184 M9: una riga senza `MarketType_XTrader` (dizionario non validato / dict parziale) NON
+    deve sollevare `KeyError`; degrada come i fratelli che usano `.get()`. Valori vuoti/assenti
+    esclusi, valori presenti inclusi (con strip).
+
+    Fail-first: col vecchio `row["MarketType_XTrader"]` la riga `{}` sollevava `KeyError`."""
+    rows = [
+        {"MarketType_XTrader": "OVER_UNDER_05"},
+        {},                                          # riga senza la colonna → niente KeyError
+        {"MarketType_XTrader": ""},                  # vuoto → escluso
+        {"MarketType_XTrader": "  CORRECT_SCORE  "},  # strippato come gli altri lettori
+        {"Sport": "Calcio"},                         # altra colonna, nessun MarketType
+    ]
+    mts = dz.market_types(rows)
+    assert mts == {"OVER_UNDER_05", "CORRECT_SCORE"}
+
+
+def test_market_types_reali_coerenti_con_market_catalog():
+    """#184 M9: sul dizionario reale `market_types` coincide con i MarketType di `market_catalog`
+    (stessa fonte/normalizzazione), così il fix non cambia l'output in produzione."""
+    rows = _rows()
+    assert dz.market_types(rows) == {m["MarketType"] for m in dz.market_catalog(rows)}
+
+
 def test_data_dir_da_meipass_se_frozen(monkeypatch, tmp_path):
     import os
     monkeypatch.setattr(dz.sys, "frozen", True, raising=False)
