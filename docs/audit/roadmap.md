@@ -786,3 +786,16 @@ Vedi `docs/audit/release_checklist.md` e `docs/audit/xtrader_simulation_test.md`
 **Micro-audit:** nessun file di produzione modificato; nessun token/chat reale; CSV/contratto
 invariati; gli stub si installano solo se i moduli reali sono assenti (su Windows i test
 usano comunque `object.__new__` + sink shadowati, non aprono finestre). `pytest`: 1104 passed.
+
+---
+
+## Spike / esperimenti (non di rilascio)
+
+- **PoC Nuitka — offuscamento via compilazione nativa** → vedi
+  [`docs/nuitka_poc.md`](../nuitka_poc.md). Esperimento per valutare Nuitka (codice
+  `.py` → C nativo, niente bytecode decompilabile) come alternativa a PyInstaller per
+  proteggere il codice. Stato: PoC, **non adottato**. Verificata in locale la
+  compilazione della logica core (output identico all'interpretato, nessun `.pyc`
+  recuperabile); workflow manuale `nuitka-poc.yaml` per l'EXE Windows. Finding aperto:
+  `data/` è risolto con `sys.frozen`/`sys._MEIPASS` (PyInstaller-only), da rendere
+  Nuitka-aware prima di una eventuale adozione. La build di rilascio resta `build.yaml`.

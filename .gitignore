@@ -47,6 +47,14 @@ dist/
 *.exe
 *.zip
 
+# Artefatti build / Nuitka (PoC compilazione nativa)
+*.bin
+*.build/
+*.dist/
+*.onefile-build/
+nuitka_core/
+nuitka_out/
+
 # Ambienti virtuali
 .venv/
 venv/

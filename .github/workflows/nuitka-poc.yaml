@@ -1,0 +1,103 @@
+name: Nuitka PoC (manuale)
+
+# PROOF OF CONCEPT — NON è la build di release.
+#
+# Obiettivo: vedere "cosa succede" compilando il bridge con Nuitka invece di
+# PyInstaller, per valutare l'offuscamento (codice → C nativo). NON sostituisce il
+# workflow ufficiale `build.yaml` (PyInstaller), che resta la build di rilascio.
+#
+# Caratteristiche di sicurezza di questo PoC:
+# - trigger SOLO manuale (`workflow_dispatch`): non parte mai su push/PR/tag, quindi
+#   non interferisce con la CI esistente né con le release;
+# - non crea release, non fa push, non abilita auto-merge;
+# - install "legacy" (no --require-hashes): Nuitka NON è nel lockfile riproducibile
+#   `requirements-build.lock`, quindi il PoC usa un install non bloccato. Se Nuitka
+#   verrà adottato, andrà aggiunto alla catena single-source dei requirements e al lock.
+#
+# Findings noti (vedi docs/nuitka_poc.md): sotto Nuitka `sys.frozen`/`sys._MEIPASS`
+# (specifici PyInstaller) NON esistono → la risoluzione dei path `data/` va validata.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # (A) Verifica AUTOMATICA: compila ed esegue la logica CORE compilata da Nuitka.
+  # Headless, niente GUI/Telegram: prova che parser+value-map compilati danno lo
+  # stesso risultato dell'interpretato. Se la logica diverge, il job fallisce.
+  core-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.11'
+
+      - name: Installa dipendenze (PoC, non bloccato)
+        run: python -m pip install -r requirements-dev.txt nuitka httpx
+
+      - name: Compila la logica core con Nuitka
+        run: >
+          python -m nuitka --standalone --assume-yes-for-downloads
+          --include-package=xtrader_bridge
+          --output-dir=nuitka_core
+          tools/nuitka_poc_core.py
+
+      - name: Esegui il binario compilato e verifica l'output
+        shell: pwsh
+        run: |
+          # Nuitka standalone mette l'eseguibile nella cartella "<script>.dist": risolvo
+          # il path a runtime (niente literal del binario nel workflow).
+          $bin = Get-ChildItem -Path nuitka_core -Recurse -Filter nuitka_poc_core.exe |
+                 Select-Object -First 1
+          if (-not $bin) { Write-Error "Binario Nuitka core non trovato"; exit 1 }
+          $out = & $bin.FullName
+          $out | ForEach-Object { Write-Host $_ }
+          if ($LASTEXITCODE -ne 0) { Write-Error "Binario Nuitka exit $LASTEXITCODE"; exit 1 }
+          if ($out -notcontains "PoC_OK") { Write-Error "Manca PoC_OK nell'output"; exit 1 }
+          if (-not ($out -match "COMPILED\s+=\s+True")) { Write-Error "Atteso COMPILED=True"; exit 1 }
+          Write-Host "core-smoke PASS: logica compilata equivalente all'interpretata."
+
+  # (B) Artifact: compila l'EXE COMPLETO (GUI inclusa) con Nuitka e lo carica.
+  # La GUI non si avvia headless in CI: l'EXE va testato manualmente dal proprietario
+  # (START/STOP, scrittura/svuotamento CSV, lettura data/dizionario_xtrader.csv).
+  full-exe:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.11'
+
+      - name: Installa dipendenze (PoC, non bloccato)
+        run: python -m pip install -r requirements-dev.txt nuitka httpx
+
+      - name: Compila EXE completo con Nuitka (onefile, windowed)
+        # Equivalenti Nuitka delle opzioni PyInstaller di build.yaml:
+        # --onefile (=--onefile), --windows-console-mode=disable (=--windowed),
+        # --enable-plugin=tk-inter (tkinter/customtkinter), --include-data-dir (=--add-data),
+        # --include-package-data=customtkinter (temi/asset JSON di customtkinter).
+        run: >
+          python -m nuitka --onefile --assume-yes-for-downloads
+          --windows-console-mode=disable
+          --enable-plugin=tk-inter
+          --include-package=xtrader_bridge
+          --include-package-data=customtkinter
+          --include-data-dir=data=data
+          --output-dir=nuitka_out
+          --output-filename=XTrader-Signal-Bridge.exe
+          main.py
+
+      - name: Carica EXE Nuitka come artifact (PoC)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: XTrader-Signal-Bridge-NuitkaPoC-Windows
+          path: nuitka_out/XTrader-Signal-Bridge.exe
+          retention-days: 14
+          if-no-files-found: error
