@@ -6,6 +6,7 @@ Vedi docs/xtrader_csv_contract.md.
 """
 
 import csv
+import errno
 import logging
 import os
 import re
@@ -126,18 +127,64 @@ def build_csv_row(parsed: dict, provider: str) -> dict:
     }
 
 
+# errno STRUTTURALI/permanenti per `os.replace`: ritentarli è inutile e ritarda solo
+# l'escalation di ~1s a ogni segnale (audit/M5 #184). Non sono contese transitorie del lock
+# di lettura di XTrader: src inesistente, destinazione che è una directory, componente di
+# percorso non-directory, rename cross-device, filesystem/destinazione di sola lettura,
+# permesso negato (es. dir read-only), nome troppo lungo. Si rilanciano SUBITO.
+_PERMANENT_REPLACE_ERRNOS = frozenset(
+    e for e in (
+        getattr(errno, "ENOENT", None), getattr(errno, "EISDIR", None),
+        getattr(errno, "ENOTDIR", None), getattr(errno, "EXDEV", None),
+        getattr(errno, "EROFS", None), getattr(errno, "EACCES", None),
+        getattr(errno, "EPERM", None), getattr(errno, "ENAMETOOLONG", None),
+    ) if e is not None
+)
+# Windows: codici `winerror` che indicano una contesa TRANSITORIA del file (XTrader lo tiene
+# aperto in lettura) e quindi vanno ritentati. ERROR_SHARING_VIOLATION=32, ERROR_LOCK_VIOLATION=33
+# e — soprattutto — ERROR_ACCESS_DENIED=5: il read-lock di XTrader fa fallire `MoveFileEx`/
+# `os.replace` proprio con ACCESS_DENIED quando la destinazione è aperta in lettura (è il caso
+# PIÙ comune, Codex #201 P1). Un read-only/ACL permanente surfacerebbe anch'esso come 5 — i due
+# non sono distinguibili dall'errore — ma poiché il lock è la causa tipica si preferisce ritentare
+# (al più ~1s sprecato su un raro read-only Windows) piuttosto che perdere il retry sul lock vero.
+# Su POSIX, dove il rename atomico NON ha contese di lock, l'`EACCES` resta invece permanente.
+_RETRYABLE_REPLACE_WINERRORS = frozenset({5, 32, 33})
+
+
+def _is_retryable_replace_error(exc: OSError) -> bool:
+    """True se l'errore di `os.replace` è una contesa TRANSITORIA che vale la pena ritentare
+    (lock di lettura di XTrader su Windows); False se è strutturale/permanente (escalation
+    immediata, M5 #184).
+
+    - Su **Windows** (`winerror` valorizzato) si ritenta le contese di lock/condivisione
+      `32`/`33` E l'access-denied `5` (il read-lock di XTrader surfacea tipicamente come
+      ACCESS_DENIED, Codex #201 P1); gli altri `winerror` sono strutturali.
+    - Su **POSIX**/errore generico (niente `winerror`) il rename atomico non ha contese di lock
+      transitorie: si ritenta solo se l'`errno` NON è chiaramente permanente — così un errore
+      SENZA `errno` (es. il lock simulato nei test/edge inattesi) resta ritentabile, mentre
+      ENOENT/EISDIR/EACCES/EXDEV/... escalano subito invece di sprecare ~1s."""
+    winerror = getattr(exc, "winerror", None)
+    if winerror is not None:
+        return winerror in _RETRYABLE_REPLACE_WINERRORS
+    return exc.errno not in _PERMANENT_REPLACE_ERRNOS
+
+
 def _replace_with_retry(src: str, dst: str, attempts: int = 10, delay: float = 0.1) -> None:
     """`os.replace` con retry: su Windows il file può essere momentaneamente bloccato da
     XTrader che lo sta leggendo. Budget ~1s (10×0.1s, audit C3): 3×0.1s (~0.3s) erano troppo
     pochi — se XTrader teneva il lock più a lungo lo svuotamento/scrittura falliva e poteva
     lasciare un segnale stale attivo nel CSV. ~1s copre la contesa tipica del lock di lettura
-    senza ritardare troppo il percorso live in caso di contesa."""
+    senza ritardare troppo il percorso live in caso di contesa.
+
+    Solo gli errori TRANSITORI vengono ritentati (`_is_retryable_replace_error`, M5 #184): un
+    errore strutturale (dir read-only/EACCES, EISDIR, ENOENT, cross-device) si propaga SUBITO,
+    senza sprecare ~1s per ogni segnale prima dell'escalation."""
     for i in range(attempts):
         try:
             os.replace(src, dst)
             return
-        except OSError:
-            if i == attempts - 1:
+        except OSError as exc:
+            if i == attempts - 1 or not _is_retryable_replace_error(exc):
                 raise
             time.sleep(delay)
 
