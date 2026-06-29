@@ -179,6 +179,12 @@ class App(ctk.CTk):
         self._queue = None
         self._queue_lock = threading.Lock()
         self._expire_timer = None
+        # Replace/cancel del timer di scadenza serializzati (#184 low-timer-lock): senza, due
+        # caller concorrenti di `_schedule_expiry` potrebbero avviare due `threading.Timer` mentre
+        # solo uno resta referenziato in `self._expire_timer` → l'altro fira lo stesso (leak,
+        # double-fire idempotente). Lock DEDICATO, mai annidato nel `_queue_lock`: i caller
+        # rilasciano il queue_lock prima, e il callback del timer usa solo il queue_lock.
+        self._timer_lock = threading.Lock()
         # Escalation visibile su CSV-lock persistente (#153 H2): conta i fallimenti di
         # scrittura consecutivi e, oltre la soglia, segnala «CSV bloccato» (logica pura).
         self._csv_lock = csv_lock_escalation.CsvLockEscalation()
@@ -1422,8 +1428,7 @@ class App(ctk.CTk):
                 loop.call_soon_threadsafe(evt.set)
             except RuntimeError:
                 pass                  # loop già chiuso/non più in esecuzione: nulla da svegliare
-        if self._expire_timer:
-            self._expire_timer.cancel()
+        self._cancel_expiry_timer()
         # Anti-segnale-stantio: una chiusura/STOP normale non deve lasciare una riga
         # attiva nel CSV (il timer di auto-clear è appena stato cancellato). Si pulisce
         # il CSV della SESSIONE (catturato a START, Codex P1) sotto il queue_lock, così
@@ -1453,8 +1458,7 @@ class App(ctk.CTk):
         # su una root Tk già distrutta (niente Tcl/RuntimeError) e l'event loop viene chiuso
         # (no leak di selector/fd). Il thread è daemon: se non termina entro il timeout si
         # procede comunque, senza bloccare la chiusura del processo.
-        if self._expire_timer:
-            self._expire_timer.cancel()
+        self._cancel_expiry_timer()
         # Cancella il tick auto-sync ancora pendente: dopo destroy non deve rifirare
         # né ri-armarsi su una root distrutta (CodeRabbit).
         _autosync_after = getattr(self, "_autosync_after_id", None)
@@ -1972,11 +1976,25 @@ class App(ctk.CTk):
             # con lo stesso clock, altrimenti un salto del wallclock falserebbe il tick.
             # `delay_until` clampa a 0 una scadenza già passata (no ritardo negativo).
             delay = signal_queue.delay_until(nxt, time.monotonic())
-        if self._expire_timer:
-            self._expire_timer.cancel()
-        self._expire_timer = threading.Timer(delay, lambda: self._expire_tick(path))
-        self._expire_timer.daemon = True
-        self._expire_timer.start()
+        # Replace ATOMICO sotto `_timer_lock` (#184 low-timer-lock): cancel del precedente +
+        # creazione + assegnazione + start in un'unica sezione critica, così due caller concorrenti
+        # non lasciano un secondo Timer avviato ma non referenziato.
+        with self._timer_lock:
+            if self._expire_timer is not None:
+                self._expire_timer.cancel()
+            timer = threading.Timer(delay, lambda: self._expire_tick(path))
+            timer.daemon = True
+            self._expire_timer = timer
+            timer.start()
+
+    def _cancel_expiry_timer(self) -> None:
+        """Cancella il timer di scadenza (se presente) sotto `_timer_lock` e azzera il riferimento.
+        Punto unico usato da STOP/chiusura/clear, così un cancel non si interlaccia con un replace
+        di `_schedule_expiry` (#184 low-timer-lock)."""
+        with self._timer_lock:
+            if self._expire_timer is not None:
+                self._expire_timer.cancel()
+                self._expire_timer = None
 
     def _expire_tick(self, path: str) -> None:
         """Rimuove i segnali scaduti e riscrive le righe rimaste (o svuota il CSV
@@ -2034,8 +2052,7 @@ class App(ctk.CTk):
         if not path:
             return
         # Ferma il tick di scadenza così non riscrive il CSV mentre lo svuotiamo (PR-22).
-        if self._expire_timer:
-            self._expire_timer.cancel()
+        self._cancel_expiry_timer()
         # Svuotamento ATOMICO rispetto a _process: teniamo `_queue_lock` ATTRAVERSO sia
         # la scrittura del CSV (init_csv) sia l'azzeramento della coda (come _process
         # tiene il lock attraverso write_rows). Così un segnale che arriva in
