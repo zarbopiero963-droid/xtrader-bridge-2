@@ -169,6 +169,25 @@ def test_register_grezzo_maschera_la_forma_url_encoded():
     assert enc not in out and "[REDACTED_TOKEN]" in out
 
 
+def test_redact_preview_budget_grezzo_e_segreto_sul_confine():
+    """#184 M8 P2 (Codex): `redact_preview` rivela al più `budget` char GREZZI, ma maschera per
+    intero un segreto che attraversa il confine senza trascinare contenuto oltre il budget."""
+    # Segreto fully-in-window: redatto, resto entro budget mostrato.
+    assert el.redact_preview("ciao mondo", 40) == "ciao mondo"        # nessun segreto, nessun taglio
+    # Token (canonico) di 42 char a inizio + testo privato dopo il confine.
+    token = "123456789:AAExampleSecretTokenValue_abcdef"
+    out = el.redact_preview(f"{token} SEGRETO_DOPO", 40)
+    assert token not in out and "SEGRETO_DOPO" not in out
+    assert out == "[REDACTED_TOKEN]"             # solo il placeholder, niente oltre il confine
+
+
+def test_redact_preview_taglia_a_budget_senza_segreti():
+    """#184 M8 P2: senza segreti, `redact_preview` si comporta come un semplice taglio a `budget`
+    (comportamento di troncamento originale preservato)."""
+    assert el.redact_preview("A" * 60, 40) == "A" * 40
+    assert el.redact_preview("breve", 40) == "breve"
+
+
 def test_redact_secrets_literal_piu_lungo_prima():
     """#184 M7: i literal più LUNGHI vengono sostituiti prima, così un segreto contenuto in un
     altro non lascia frammenti dell'altro in chiaro."""

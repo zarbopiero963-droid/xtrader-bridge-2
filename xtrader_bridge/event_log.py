@@ -124,6 +124,53 @@ def redact_secrets(text: str) -> str:
     return s
 
 
+def _secret_spans(text: str):
+    """Span `(start, end)` di tutti i segreti in `text`: regex del token canonico + literal
+    registrati nelle loro forme derivate (`_secret_forms`). Usato da `redact_preview` per sapere
+    se un segreto attraversa il confine del budget."""
+    spans = []
+    for m in _TELEGRAM_TOKEN_RE.finditer(text):
+        spans.append((m.start(), m.end()))
+    with _secret_lock:
+        literals = list(_secret_literals)
+    forms = set()
+    for sec in literals:
+        forms.update(_secret_forms(sec))
+    for sec in forms:
+        if not sec:
+            continue
+        start = text.find(sec)
+        while start != -1:
+            spans.append((start, start + len(sec)))
+            start = text.find(sec, start + 1)
+    return spans
+
+
+def redact_preview(text: str, budget: int) -> str:
+    """Come `redact_secrets`, ma rivela al più `budget` caratteri **grezzi** di `text` (issue #184
+    M8, P2 Codex). Serve all'anteprima privacy di `log_privacy`: redarre l'intera riga PRIMA di
+    tagliare trascinerebbe nell'anteprima testo oltre il confine originale dei `budget` char
+    (un token lungo si accorcia a `[REDACTED_TOKEN]` e fa salire del testo che la privacy non
+    doveva mostrare); tagliare PRIMA di redarre lascerebbe un token a metà sul confine.
+
+    Regola: un segreto che **inizia entro** il budget è mascherato per intero anche se lo sfora,
+    ma **nessun contenuto non-segreto che inizia oltre** il budget viene mostrato."""
+    s = str(text or "")
+    budget = max(0, int(budget))
+    cut = min(budget, len(s))
+    # Estende il taglio per includere INTERAMENTE ogni segreto che attraversa il confine. Fixpoint:
+    # estendere può portare il confine dentro lo span di un altro segreto sovrapposto. Si estende
+    # solo fino alla FINE dei segreti coinvolti → nessun contenuto non-segreto oltre il budget.
+    changed = True
+    while changed:
+        changed = False
+        for start, end in _secret_spans(s):
+            if start < cut < end:
+                cut = end
+                changed = True
+    return redact_secrets(s[:cut])
+
+
 # Marker emoji con cui la GUI prefissa i messaggi → livello di log. Serve a
 # derivare automaticamente il livello quando il chiamante non lo passa, così lo
 # storico persistente distingue errori/segnali e `filter_by_level` è utile (#11).
