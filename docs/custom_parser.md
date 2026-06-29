@@ -288,7 +288,11 @@ Tutti questi gate devono passare perché una riga venga scritta:
    estrazione/trasformazione/value-map → nessuna riga CSV.
 2. **Validazione contratto**: `Price` deve essere numerico `> 1.0`,
    `BetType ∈ {PUNTA, BANCA}`, e i campi richiesti dalla modalità di
-   riconoscimento (`ID_ONLY`/`NAME_ONLY`/`BOTH`) devono esserci.
+   riconoscimento (`ID_ONLY`/`NAME_ONLY`/`BOTH`) devono esserci. Il separatore
+   decimale di `Price`/`MinPrice`/`MaxPrice` è normalizzato a `.` (es. `1,85`→`1.85`;
+   `1.234,56`→`1234.56` con raggruppamento migliaia valido). Un doppio separatore
+   **malformato** (es. `1.2,3`) NON viene aggiustato: resta invalido → `INVALID_PRICE`
+   (fail-closed, niente prezzo sbagliato nel CSV).
 3. **Gate di contenuto**: un parser i cui obbligatori sono **tutti `fixed_value`**
    sarebbe "piazzabile" su qualsiasi testo (anche vuoto). Nel live, che bypassa il
    prefiltro marker per i parser custom attivi, questo scriverebbe lo stesso bet

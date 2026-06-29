@@ -30,7 +30,7 @@ Esempi reali (dal team XTrader):
 | 7 | `SelectionId` | modalità ID | ID selezione; vuoto se assente |
 | 8 | `SelectionName` | modalità NAME | nome selezione (vedi nota lingua) |
 | 9 | `Handicap` | sì | default `0` |
-| 10 | `Price` | no | quota; può essere vuota; virgola → punto |
+| 10 | `Price` | no | quota; può essere vuota; separatore decimale → punto (vedi nota separatori) |
 | 11 | `MinPrice` | no | può essere vuota |
 | 12 | `MaxPrice` | no | può essere vuota |
 | 13 | `BetType` | sì | **`PUNTA`** (punta/back) o **`BANCA`** (banca/lay) |
@@ -122,6 +122,14 @@ obbligatoria** (casella «Obblig.» spenta). Non esiste più un interruttore glo
   **e non è un numero** viene prefissata con un apice singolo (`'`) — mitigazione standard.
   I **numeri** del contratto (es. `Handicap` `-1`/`+1,5`, `Price` `1.85`) **non** vengono
   toccati, così restano valori numerici validi per XTrader.
+- **Separatore decimale del prezzo** (`Price`/`MinPrice`/`MaxPrice`). Il bridge normalizza il
+  separatore decimale a `.`:
+  - solo virgola → decimale: `1,85` → `1.85`;
+  - solo punto: invariato (`1.85`);
+  - **entrambi** i separatori: l'**ultimo** è il decimale e l'altro le **migliaia**, ma SOLO se il
+    raggruppamento è valido (`1.234,56` → `1234.56`, `1,234.56` → `1234.56`). Un doppio separatore
+    **malformato** (es. `1.2,3`, gruppo non da 3 cifre) NON viene "aggiustato": resta invalido ed è
+    **scartato** (`INVALID_PRICE`), per non scrivere nel CSV un prezzo sbagliato ma plausibile.
 - Header sempre presente, anche su CSV "vuoto" (solo header).
 - Un solo segnale attivo alla volta (riscrittura del file) finché la coda multi-segnale
   (PR-16) non sarà introdotta.
