@@ -11,12 +11,15 @@ scrittura), non fa rete e non muta il DB: tutta la logica sta in
 import customtkinter as ctk
 
 from .. import sports
-from .dictionary_viewer import LEVEL_LABELS, LEVELS
+from .dictionary_viewer import LEVEL_LABELS, LEVELS, Debouncer
 
 # Voce «tutti gli sport» del filtro (= nessun filtro).
 _SPORT_ALL = "(tutti gli sport)"
 # Larghezza uniforme di colonna (sola lettura: etichette).
 _COL_WIDTH = 150
+# Ritardo del debounce della casella «Cerca» (#184 M12): una raffica di keystroke collassa in una
+# sola query DB + rebuild tabella a fine digitazione, evitando il lag con dizionari grandi.
+_SEARCH_DEBOUNCE_MS = 250
 
 
 class DictionaryViewerPanel(ctk.CTkFrame):
@@ -32,8 +35,23 @@ class DictionaryViewerPanel(ctk.CTkFrame):
         self._sport = ctk.StringVar(value=_SPORT_ALL)
         self._active_only = ctk.BooleanVar(value=False)
         self._search = ctk.StringVar(value="")
+        # Debounce della ricerca (#184 M12): rimanda il refresh durante la digitazione veloce,
+        # usando l'after/after_cancel del widget come scheduler.
+        self._search_debouncer = Debouncer(
+            _SEARCH_DEBOUNCE_MS, self._refresh, schedule=self.after, cancel=self.after_cancel)
         self._build_ui()
         self._refresh()
+
+    def destroy(self):
+        """Teardown (#184 M12, Codex P2): annulla un eventuale refresh in debounce PRIMA che i
+        widget vengano distrutti. Senza, un timer `after` ancora pendente (l'utente digita e chiude
+        la finestra Strumenti entro 250 ms) scatterebbe contro un pannello già distrutto, con un Tcl
+        background error sul normale percorso di chiusura. Tkinter, distruggendo i widget, NON
+        annulla gli `after` pendenti: vanno annullati a mano qui."""
+        deb = getattr(self, "_search_debouncer", None)
+        if deb is not None:
+            deb.cancel_pending()
+        super().destroy()
 
     # ── costruzione UI ────────────────────────────────────────────────────────
     def _build_ui(self):
@@ -46,15 +64,15 @@ class DictionaryViewerPanel(ctk.CTkFrame):
         ctk.CTkLabel(bar, text="Livello").pack(side="left", padx=(8, 4))
         ctk.CTkOptionMenu(bar, variable=self._level_label, width=150,
                           values=[LEVEL_LABELS[lv] for lv in LEVELS],
-                          command=lambda _v: self._refresh()).pack(side="left", padx=4)
+                          command=lambda _v: self._refresh_now()).pack(side="left", padx=4)
         ctk.CTkLabel(bar, text="Sport").pack(side="left", padx=(12, 4))
         ctk.CTkOptionMenu(bar, variable=self._sport, width=160,
                           values=[_SPORT_ALL, *sports.SPORTS],
-                          command=lambda _v: self._refresh()).pack(side="left", padx=4)
+                          command=lambda _v: self._refresh_now()).pack(side="left", padx=4)
         ctk.CTkCheckBox(bar, text="Solo attivi", variable=self._active_only,
-                        command=self._refresh).pack(side="left", padx=12)
+                        command=self._refresh_now).pack(side="left", padx=12)
         ctk.CTkButton(bar, text="🔄 Aggiorna", width=110,
-                      command=self._refresh).pack(side="left", padx=4)
+                      command=self._refresh_now).pack(side="left", padx=4)
 
         # Riga di ricerca: testo cercato come sottostringa su tutte le colonne (nomi
         # partecipante/selezione/evento/mercato/competizione **e** gli ID), così la stessa
@@ -65,8 +83,9 @@ class DictionaryViewerPanel(ctk.CTkFrame):
         entry = ctk.CTkEntry(sbar, textvariable=self._search, width=260,
                              placeholder_text="partecipante, selezione, evento, ID…")
         entry.pack(side="left", padx=4)
-        entry.bind("<Return>", lambda _e: self._refresh())
-        entry.bind("<KeyRelease>", lambda _e: self._refresh())
+        # Invio = refresh IMMEDIATO; ogni altra digitazione passa dal debounce (#184 M12).
+        entry.bind("<Return>", lambda _e: self._refresh_now())
+        entry.bind("<KeyRelease>", self._on_search_key)
         ctk.CTkButton(sbar, text="Pulisci", width=80,
                       command=self._clear_search).pack(side="left", padx=4)
 
@@ -93,6 +112,19 @@ class DictionaryViewerPanel(ctk.CTkFrame):
 
     def _clear_search(self):
         self._search.set("")
+        self._refresh_now()
+
+    def _on_search_key(self, event):
+        """KeyRelease nella casella «Cerca»: rimanda il refresh col debounce (#184 M12). Invio è
+        gestito a parte come refresh immediato, quindi qui lo si ignora (niente doppio refresh)."""
+        if getattr(event, "keysym", "") in ("Return", "KP_Enter"):
+            return
+        self._search_debouncer.trigger()
+
+    def _refresh_now(self):
+        """Refresh IMMEDIATO per le azioni discrete (Invio, menu, checkbox, pulsanti): annulla un
+        eventuale refresh in debounce così non parte una seconda query/rebuild subito dopo."""
+        self._search_debouncer.cancel_pending()
         self._refresh()
 
     def _clear(self, frame):
