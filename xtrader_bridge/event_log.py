@@ -16,6 +16,7 @@ redazione di eventuali segreti resta responsabilità del chiamante (cfr.
 
 import os
 import re
+import threading
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
@@ -37,12 +38,67 @@ def normalize_level(level) -> str:
 _TELEGRAM_TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{20,}")
 _REDACTED = "[REDACTED_TOKEN]"
 
+# Registro di segreti ESATTI da mascherare per-literal, OLTRE alla regex (issue #184 M7).
+# La regex copre solo lo shape CANONICO del token (<id>:<20+ char>): una forma non-standard
+# (porzione segreta < 20 char, URL-encoded, spezzata su righe) le sfuggirebbe. Registrando il
+# token VIVO da config (`register_secret`), lo si maschera comunque ovunque compaia, in
+# qualunque forma. Soglia minima di lunghezza per non mascherare frammenti banali. Thread-safe
+# (additivo). Mirror della stessa idea in `betfair/log_safety`.
+_MIN_SECRET_LEN = 8
+_secret_lock = threading.Lock()
+_secret_literals: set = set()
+
+
+def register_secret(value) -> bool:
+    """Registra un valore segreto (es. il bot token da config) da mascherare per-literal in
+    `redact_secrets`, ovunque compaia e in QUALSIASI forma. Ritorna `True` se registrato.
+    Valori vuoti/non-stringa o troppo corti (< 8 char) sono ignorati (`False`): meglio non
+    mascherare un frammento banale che inquinerebbe i log."""
+    if not value:
+        return False
+    s = str(value)
+    if len(s) < _MIN_SECRET_LEN:
+        return False
+    with _secret_lock:
+        _secret_literals.add(s)
+    return True
+
+
+def unregister_secret(value) -> None:
+    """Rimuove un segreto dal registro (es. quando il token cambia)."""
+    if not value:
+        return
+    with _secret_lock:
+        _secret_literals.discard(str(value))
+
+
+def clear_secrets() -> None:
+    """Svuota il registro dei segreti (utile nei test e in un reset completo)."""
+    with _secret_lock:
+        _secret_literals.clear()
+
 
 def redact_secrets(text: str) -> str:
-    """Maschera valori che assomigliano a un bot token Telegram. Difesa unica per
-    i log (GUI e file): un token incorporato per sbaglio (es. nel testo di
-    un'eccezione) non viene mai scritto in chiaro."""
-    return _TELEGRAM_TOKEN_RE.sub(_REDACTED, str(text or ""))
+    """Maschera i segreti nei log (GUI e file): un token incorporato per sbaglio (es. nel testo
+    di un'eccezione) non viene mai scritto in chiaro.
+
+    Due livelli (issue #184 M7):
+    1. **regex** sullo shape CANONICO del bot token Telegram (`<id>:<20+ char>`) — euristica che
+       intercetta anche token NON registrati (es. di un'altra fonte);
+    2. **per-literal** dei segreti registrati con `register_secret` (es. il token VIVO da
+       config), mascherati per esatta corrispondenza — così sono coperte anche le forme
+       NON canoniche che la regex non riconosce (porzione corta, URL-encoded, spezzata).
+
+    Limite residuo onesto: un segreto MAI registrato e in forma non-canonica può ancora
+    sfuggire; per questo il token di config va registrato (lo fa `app` a load/save)."""
+    s = _TELEGRAM_TOKEN_RE.sub(_REDACTED, str(text or ""))
+    # Sostituzione dei literal più LUNGHI prima: evita che un segreto contenuto in un altro
+    # venga mascherato a metà lasciando un frammento dell'altro in chiaro.
+    with _secret_lock:
+        literals = sorted(_secret_literals, key=len, reverse=True)
+    for sec in literals:
+        s = s.replace(sec, _REDACTED)
+    return s
 
 
 # Marker emoji con cui la GUI prefissa i messaggi → livello di log. Serve a

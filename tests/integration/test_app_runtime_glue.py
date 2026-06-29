@@ -413,6 +413,27 @@ def test_stop_non_sottomette_coroutine_fire_and_forget_al_loop(
     assert _events_in_csv(active) == []
 
 
+def test_register_secret_token_maschera_il_token_nei_log(make_app, app_mod):
+    """#184 M7: `_register_secret_token` registra il bot token nel redattore di `event_log`,
+    così `redact_secrets` lo maschera per-literal in QUALSIASI forma finisca in un log (anche
+    non-canonica). Glue chiamata da `_load_config`/`_save_config`.
+
+    Fail-first: senza la registrazione il token in forma non-canonica resta in chiaro."""
+    from xtrader_bridge import event_log
+    event_log.clear_secrets()
+    try:
+        a = make_app()
+        token = "555:shortSecret_nonCanonico"      # porzione < 20 → la regex NON lo prende
+        assert token in event_log.redact_secrets(f"x {token} y")   # baseline: non mascherato
+        app_mod.App._register_secret_token(a, {"bot_token": token})
+        assert token not in event_log.redact_secrets(f"❌ {token} fine")   # ora mascherato
+        # cfg senza token o non-dict → no-op senza crash
+        app_mod.App._register_secret_token(a, {})
+        app_mod.App._register_secret_token(a, None)
+    finally:
+        event_log.clear_secrets()
+
+
 def test_stop_sveglia_attesa_in_loop_via_call_soon_threadsafe(make_app, app_mod, tmp_path):
     """#184 H5 / Codex #191: con una sessione viva `_stop` sveglia SUBITO l'attesa in-loop di
     `_async_run` settando `_async_stop_event` tramite `call_soon_threadsafe` (dal thread GUI).

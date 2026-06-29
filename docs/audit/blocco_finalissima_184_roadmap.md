@@ -24,8 +24,8 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | M3 | m3-partial-save | `config_store.py` | merged (#198) |
 | M4 | m4-day-format | `safety_guard.py` | merged (#200) |
 | M5 | m5-retry-errno | `csv_writer.py` | merged (#201) |
-| M6 | m6-journal-atomic | `event_journal.py` | in PR |
-| M7 | m7-token-redact | `event_log.py` | da fare |
+| M6 | m6-journal-atomic | `event_journal.py` | merged (#202) |
+| M7 | m7-token-redact | `event_log.py` | in PR |
 | M8 | m8-privacy-prefix | `log_privacy.py` | da fare |
 | M9 | m9-market-types-get | `dizionario.py` | da fare |
 | M10 | m10-score-tail | `parser.py` | da fare |
@@ -137,6 +137,19 @@ corruttivo) e il docstring "atomicità della singola riga" sovrastimava la garan
 (un crash kernel→disco può lasciare una coda parziale, dipende da fs/hardware), ma quella è già
 gestita: `read_events` salta la riga troncata e il prossimo append antepone un separatore.
 Output invariato; cambia solo il numero di write (1 invece di 2 nel caso separatore).
+
+## M7 — redazione token: per-literal del token registrato, non solo la regex
+
+`event_log.redact_secrets` mascherava solo lo shape CANONICO del bot token Telegram
+(`\d{6,}:[A-Za-z0-9_-]{20,}`): una forma NON standard (porzione segreta < 20 char,
+URL-encoded coi `:`→`%3A`, spezzata su righe) le sfuggiva e il docstring "mai token in chiaro"
+sovrastimava la garanzia. Fix: aggiunto un registro di segreti ESATTI (`register_secret`/
+`unregister_secret`/`clear_secrets`, thread-safe, soglia minima 8 char) — mirror di
+`betfair/log_safety` — e `redact_secrets` ora maschera per-literal i segreti registrati
+(più lunghi prima) OLTRE alla regex. `app` registra il bot token VIVO a load e a save
+(`_register_secret_token`), così è mascherato in qualunque forma finisca in un log
+(`_log`/`_set_last`/`diagnostics`/`event_journal` passano tutti da `redact_secrets`). Limite
+residuo documentato: un segreto MAI registrato e non canonico può ancora sfuggire.
 
 ## Decisioni del proprietario (NON implementare senza conferma)
 

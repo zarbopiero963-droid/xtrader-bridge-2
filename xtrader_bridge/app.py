@@ -250,11 +250,20 @@ class App(ctk.CTk):
                       "restare attivo nel CSV finché XTrader non rilascia il file.")
 
     # ── CONFIG ────────────────────────────────
+    def _register_secret_token(self, cfg) -> None:
+        """Registra il bot token corrente nel redattore dei log (#184 M7): così viene
+        mascherato per-literal in QUALSIASI forma finisca in un log (anche non-canonica,
+        che la regex di `redact_secrets` non riconoscerebbe). No-op se non c'è token."""
+        if isinstance(cfg, dict):
+            event_log.register_secret(cfg.get("bot_token"))
+
     def _load_config(self) -> dict:
         # Migra il vecchio config.json (accanto all'EXE) la prima volta, poi carica
         # dalla cartella utente persistente (%APPDATA%\XTraderBridge).
         migrate_legacy_config(CONFIG_FILE)
-        return load_config(CONFIG_FILE)
+        cfg = load_config(CONFIG_FILE)
+        self._register_secret_token(cfg)   # #184 M7: token noto → mascherato nei log
+        return cfg
 
     def _save_config(self) -> dict:
         # Timeout robusto: un valore non numerico non deve crashare il salvataggio
@@ -310,6 +319,7 @@ class App(ctk.CTk):
                           "attivo (OVERWRITE_LAST).")
         saved, ok = save_config(cfg, CONFIG_FILE)
         self._config = saved
+        self._register_secret_token(saved)     # #184 M7: aggiorna il token mascherato nei log
         self._update_real_mode_banner(saved)   # banner rosso persistente se in REALE (#136 p4)
         if not self._running:
             self._update_active_indicator(0)   # indicatore tetto aggiornato (#136 p5)
