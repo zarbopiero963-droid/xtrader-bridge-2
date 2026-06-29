@@ -142,7 +142,7 @@ Output invariato; cambia solo il numero di write (1 invece di 2 nel caso separat
 
 `_http_post_json` e `_http_navigation` chiamavano `urlopen` SENZA `context=` esplicito, a differenza
 di `auth_client` che costruisce `ssl.create_default_context()`. La verifica TLS di default è attiva
-(quindi non era un leak attuale), ma una posa di verifica IMPLICITA è sovrascrivibile da un futuro
+(quindi non era un leak attuale), ma un'impostazione di verifica IMPLICITA è sovrascrivibile da un futuro
 override globale (`ssl._create_default_https_context`) che indebolirebbe in silenzio chiamate che
 portano credenziali (`X-Authentication`/app key). Fix: nuovo helper `_tls_context()` =
 `ssl.create_default_context()` (CERT_REQUIRED + check_hostname), passato esplicito a entrambe le
