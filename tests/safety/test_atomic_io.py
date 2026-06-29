@@ -190,6 +190,67 @@ def test_fsync_dir_errore_di_fsync_non_propaga(tmp_path, monkeypatch):
     atomic_io._fsync_dir(str(tmp_path))                    # OSError swallowed, niente raise
 
 
+# ── LOW (#184): sweep dei temporanei orfani allo startup ─────────────────────
+
+def test_sweep_rimuove_solo_i_temporanei_combacianti(tmp_path):
+    # Orfani `{prefix}…{suffix}` lasciati da un crash tra mkstemp e replace: rimossi.
+    # Il file finale e altri file NON combacianti restano intatti.
+    (tmp_path / ".segnali_aaa.tmp").write_text("orfano1")
+    (tmp_path / ".segnali_bbb.tmp").write_text("orfano2")
+    (tmp_path / "segnali.csv").write_text("CSV REALE")          # file finale: non combacia
+    (tmp_path / ".dedupe_x.tmp").write_text("altro prefix")     # prefisso diverso
+    (tmp_path / ".segnali_keep.json").write_text("suffix div")  # suffisso diverso
+
+    removed = atomic_io.sweep_orphan_temps(str(tmp_path), ".segnali_", ".tmp")
+
+    assert removed == 2
+    assert not (tmp_path / ".segnali_aaa.tmp").exists()
+    assert not (tmp_path / ".segnali_bbb.tmp").exists()
+    assert (tmp_path / "segnali.csv").read_text() == "CSV REALE"   # CSV reale intatto
+    assert (tmp_path / ".dedupe_x.tmp").exists()                   # altro prefix non toccato
+    assert (tmp_path / ".segnali_keep.json").exists()              # altro suffix non toccato
+
+
+def test_sweep_prefix_vuoto_e_no_op(tmp_path):
+    # Prefisso vuoto: rifiuto di spazzare un'intera cartella per solo suffisso.
+    (tmp_path / "qualsiasi.tmp").write_text("x")
+    assert atomic_io.sweep_orphan_temps(str(tmp_path), "", ".tmp") == 0
+    assert (tmp_path / "qualsiasi.tmp").exists()
+
+
+def test_sweep_cartella_inesistente_non_solleva(tmp_path):
+    # Cartella assente/non listabile → 0, mai un'eccezione (best-effort allo startup).
+    assert atomic_io.sweep_orphan_temps(str(tmp_path / "non_esiste"), ".segnali_") == 0
+    assert atomic_io.sweep_orphan_temps("", ".segnali_") == 0
+
+
+def test_sweep_non_rimuove_una_sottocartella_omonima(tmp_path):
+    # Una *cartella* che combacia col pattern non deve essere rimossa (solo file).
+    d = tmp_path / ".segnali_dir.tmp"
+    d.mkdir()
+    assert atomic_io.sweep_orphan_temps(str(tmp_path), ".segnali_", ".tmp") == 0
+    assert d.is_dir()
+
+
+def test_sweep_salta_il_file_non_rimovibile_e_continua(tmp_path, monkeypatch):
+    # Un os.remove che fallisce (file in uso/permessi) non deve fermare lo sweep:
+    # gli altri orfani vengono comunque rimossi, nessuna eccezione propaga.
+    (tmp_path / ".segnali_a.tmp").write_text("1")
+    (tmp_path / ".segnali_b.tmp").write_text("2")
+    real_remove = os.remove
+
+    def flaky_remove(p):
+        if p.endswith(".segnali_a.tmp"):
+            raise OSError("file in uso (XTrader)")
+        return real_remove(p)
+
+    monkeypatch.setattr(atomic_io.os, "remove", flaky_remove)
+    removed = atomic_io.sweep_orphan_temps(str(tmp_path), ".segnali_", ".tmp")
+    assert removed == 1                                  # solo b rimosso, a saltato
+    assert (tmp_path / ".segnali_a.tmp").exists()        # non rimovibile: resta
+    assert not (tmp_path / ".segnali_b.tmp").exists()
+
+
 def test_dir_fsync_fallito_non_perde_il_file(tmp_path, monkeypatch):
     # Esercita il path di FALLIMENTO del fsync della dir attraverso il codice reale: si
     # forza `os.close(dir_fd)` (nel finally di `_fsync_dir`) a sollevare, DOPO un replace

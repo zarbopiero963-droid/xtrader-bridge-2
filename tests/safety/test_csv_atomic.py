@@ -494,3 +494,28 @@ def test_clear_e_write_concorrenti_non_corrompono(tmp_path):
     if len(rows) == 2:
         assert rows[1] == [ROW[c] for c in csv_writer.CSV_HEADER]
     assert _no_tmp_left(str(tmp_path))                     # nessun temporaneo residuo
+
+
+# ── LOW (#184): sweep degli orfani `.segnali_*.tmp` lasciati da un crash ──────
+
+def test_sweep_orphan_temps_rimuove_il_tmp_lasciato_da_un_crash(tmp_path):
+    # Un crash DURO del processo (kill/power-loss) tra mkstemp e replace salta il cleanup
+    # di atomic_write e lascia un `.segnali_*.tmp` orfano: il CSV finale è intatto (il
+    # rename non è avvenuto). Lo riproduciamo creando a mano l'orfano col vero prefisso/
+    # suffisso del CSV; lo sweep allo startup deve rimuoverlo senza toccare il CSV reale.
+    p = str(tmp_path / "segnali.csv")
+    csv_writer.write_csv(ROW, p)                           # CSV reale valido
+    (tmp_path / ".segnali_orfano.tmp").write_text("RESIDUO PARZIALE")
+    assert glob.glob(os.path.join(str(tmp_path), ".segnali_*.tmp"))   # orfano presente
+
+    removed = csv_writer.sweep_orphan_temps(p)
+    assert removed == 1
+    assert _no_tmp_left(str(tmp_path))                     # orfano rimosso
+    rows = _read(p)
+    assert rows[0] == csv_writer.CSV_HEADER                # CSV reale ancora intatto
+    assert rows[1] == [ROW[c] for c in csv_writer.CSV_HEADER]
+
+
+def test_sweep_orphan_temps_path_vuoto_e_no_op(tmp_path):
+    assert csv_writer.sweep_orphan_temps("") == 0
+    assert csv_writer.sweep_orphan_temps("   ") == 0

@@ -41,6 +41,12 @@ BETTYPE_MAP = {
 
 CSV_ENCODING = "utf-8-sig"  # BOM richiesto dagli esempi XTrader.
 
+# Nome del temporaneo della scrittura atomica del CSV: fonte unica di verità, usata sia
+# per scrivere (`_atomic_write_locked`) sia per spazzare gli orfani allo startup
+# (`sweep_orphan_temps`), così i due non possono divergere.
+_CSV_TMP_PREFIX = ".segnali_"
+_CSV_TMP_SUFFIX = ".tmp"
+
 MARKET_MAPPING = {
     "GOL SECONDO TEMPO": "NEXT_GOAL",
     "OVER 0.5":          "OVER_UNDER_05",
@@ -248,8 +254,24 @@ def _atomic_write_locked(path: str, write_rows) -> None:
         writer.writeheader()
         write_rows(writer)
 
-    atomic_io.atomic_write(path, _write_csv, prefix=".segnali_", suffix=".tmp",
+    atomic_io.atomic_write(path, _write_csv, prefix=_CSV_TMP_PREFIX, suffix=_CSV_TMP_SUFFIX,
                            encoding=CSV_ENCODING, newline="", replace=_replace_with_retry)
+
+
+def sweep_orphan_temps(path: str) -> int:
+    """Rimuove i temporanei orfani del CSV (`.segnali_…​.tmp`) nella cartella di `path`,
+    lasciati da un crash/blackout TRA la creazione del tmp e il rename (issue #184 LOW).
+
+    Va chiamata **allo startup**, quando il listener è ancora spento: nessuna scrittura è
+    in volo, quindi ogni `.segnali_*.tmp` è orfano di un processo morto. Best-effort: non
+    solleva mai e non tocca il CSV reale (nome senza prefisso/suffisso). Ritorna quanti ne
+    ha rimossi. È solo igiene del disco: il CSV finale era già intatto (il rename, se non
+    avvenuto, non lo ha mai sovrascritto)."""
+    p = str(path or "").strip()
+    if not p:
+        return 0
+    d = os.path.dirname(os.path.abspath(p)) or "."
+    return atomic_io.sweep_orphan_temps(d, _CSV_TMP_PREFIX, _CSV_TMP_SUFFIX)
 
 
 def init_csv(path: str):

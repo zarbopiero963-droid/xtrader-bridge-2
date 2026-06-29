@@ -24,7 +24,7 @@ from .config_store import (
     migrate_legacy_config,
     save_config,
 )
-from .csv_writer import clear_stale_csv, init_csv, write_rows
+from .csv_writer import clear_stale_csv, init_csv, sweep_orphan_temps, write_rows
 from . import (
     autostart,
     config_store,
@@ -206,6 +206,12 @@ class App(ctk.CTk):
         # spento, quindi una riga nel CSV è per forza orfana di una sessione morta
         # → riportiamo il CSV a solo header PRIMA di un eventuale START.
         self._clear_stale_csv("all'avvio")
+        # Igiene del disco (#184 LOW): rimuove i temporanei `.segnali_*.tmp` orfani
+        # lasciati da un crash/blackout TRA la creazione del tmp e il rename atomico.
+        # Il CSV reale era già intatto; qui si evita solo che gli orfani si accumulino
+        # riavvio dopo riavvio. Best-effort, mai bloccante. Il listener è ancora spento,
+        # quindi nessuna scrittura è in volo: ogni tmp che combacia è orfano.
+        self._sweep_orphan_csv_temps()
         # Avvio automatico del listener (se abilitato e config minima presente): dopo
         # che la UI è pronta, così log/stato sono visibili. Default OFF.
         self._autostart_after_id = self.after(400, self._maybe_auto_start)
@@ -259,6 +265,17 @@ class App(ctk.CTk):
             # alla scadenza (con retry) riproverà comunque.
             self._log(f"⚠️ Impossibile ripulire il CSV {quando} ({exc}): un segnale potrebbe "
                       "restare attivo nel CSV finché XTrader non rilascia il file.")
+
+    def _sweep_orphan_csv_temps(self) -> None:
+        """Rimuove i temporanei `.segnali_*.tmp` orfani nella cartella del CSV (#184 LOW).
+        Best-effort: delega a `csv_writer.sweep_orphan_temps` (non solleva mai). Logga solo
+        se ne ha rimossi davvero, per non rumoreggiare a ogni avvio pulito."""
+        path = str((self._config or {}).get("csv_path", "") or "").strip()
+        if not path:
+            return
+        removed = sweep_orphan_temps(path)
+        if removed:
+            self._log(f"🧹 Rimossi {removed} file temporanei CSV orfani all'avvio.")
 
     # ── CONFIG ────────────────────────────────
     def _register_secret_token(self, cfg) -> None:

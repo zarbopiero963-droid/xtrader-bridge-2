@@ -104,6 +104,51 @@ def atomic_write(path, write_fn, *, prefix="tmp_", suffix=".tmp", mode="w",
         raise
 
 
+def sweep_orphan_temps(directory, prefix, suffix=".tmp"):
+    """Rimuove i temporanei ORFANI (`{prefix}…{suffix}`) lasciati in `directory`
+    da una scrittura atomica interrotta da crash/blackout TRA ``mkstemp`` e
+    ``os.replace`` (issue #184 LOW — `atomic_io.py`).
+
+    ``atomic_write`` rimuove il proprio temporaneo su qualsiasi eccezione *gestita*,
+    ma un crash duro del processo (power-loss, kill) tra la creazione del tmp e il
+    rename salta quel cleanup: il file FINALE resta intatto (il rename non è ancora
+    avvenuto) ma il temporaneo resta su disco e si accumula riavvio dopo riavvio.
+    Va chiamata **allo startup**, quando non c'è alcuna scrittura in volo: ogni file
+    che combacia con `prefix`+`suffix` è per forza orfano di un processo morto.
+
+    Sicurezza:
+    - rimuove SOLO i nomi che iniziano con `prefix` **e** finiscono con `suffix`: i
+      file finali (es. il CSV reale, `config.json`) non hanno quel prefisso/suffisso
+      e non vengono mai toccati;
+    - `prefix` vuoto è un **no-op** (rifiuto di spazzare un'intera cartella per suffisso);
+    - **best-effort e non solleva mai**: cartella inesistente/non listabile → 0; un
+      singolo `os.remove` fallito (file in uso, permessi) viene saltato. Non deve mai
+      impedire l'avvio dell'app.
+
+    Ritorna il numero di temporanei effettivamente rimossi (utile per il log)."""
+    if not prefix:
+        return 0                                # guardia: mai spazzare per solo suffisso
+    d = str(directory or "").strip()
+    if not d:
+        return 0
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return 0                                # cartella assente/non listabile → niente da fare
+    removed = 0
+    for name in names:
+        if not (name.startswith(prefix) and name.endswith(suffix)):
+            continue
+        full = os.path.join(d, name)
+        try:
+            if os.path.isfile(full):            # mai rimuovere una sottocartella omonima
+                os.remove(full)
+                removed += 1
+        except OSError:
+            pass                                # file in uso/permessi: salta, best-effort
+    return removed
+
+
 def atomic_write_text(path, text, *, prefix="tmp_", suffix=".tmp",
                       encoding="utf-8", newline=None, replace=None):
     """Scrive la stringa `text` su `path` in modo atomico (vedi `atomic_write`)."""

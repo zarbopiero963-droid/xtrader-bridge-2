@@ -38,7 +38,7 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | LOW | low-isodds-inf | `parser.py` (`_is_odds` `math.isfinite`) | in PR |
 | LOW | low-pipeline-comma | `custom_pipeline.py` (replace virgola naive) | in PR |
 | LOW | low-csvpath-validate | `config_store.py` (valida dir `csv_path` a START) | in PR |
-| LOW | low-tmp-sweep | `atomic_io.py` (sweep `.tmp` orfani allo startup) | da fare |
+| LOW | low-tmp-sweep | `atomic_io.py` (sweep `.tmp` orfani allo startup) | in PR |
 | LOW | low-session-expiry | `betfair/session.py` (pulisce su errore scadenza) | da fare |
 | LOW | low-autosync-release | `betfair/auto_sync.py` (`release()` in finally guardato) | da fare |
 | LOW | low-localdb-timeout | `betfair/local_db.py` (`timeout=30`/PRAGMA) | da fare |
@@ -168,6 +168,26 @@ VALIDO (`\d{1,3}(<sep>\d{3})+` + decimali = sole cifre). Un doppio separatore MA
 `1.2,3`, gruppo non da 3 cifre) NON viene "aggiustato" a `12.3` (prezzo sbagliato ma valido nel CSV
 scommessa): resta invariato → scartato (`INVALID_PRICE`, fail-closed). Docs di dominio aggiornate
 (`docs/xtrader_csv_contract.md`, `docs/custom_parser.md`) come richiesto da AGENTS.md (Codex P1#2).
+
+## low-tmp-sweep — sweep dei temporanei `.segnali_*.tmp` orfani allo startup
+
+`atomic_write` rimuove il proprio temporaneo su qualsiasi eccezione **gestita**, ma un crash
+DURO del processo (power-loss, kill) ESATTAMENTE tra `tempfile.mkstemp` e `os.replace` salta quel
+cleanup: il file FINALE resta intatto (il rename non è ancora avvenuto), ma il `.segnali_*.tmp`
+resta su disco e si accumula riavvio dopo riavvio. Fix: nuovo `atomic_io.sweep_orphan_temps(directory,
+prefix, suffix=".tmp")` — **best-effort, non solleva mai**: rimuove SOLO i file il cui nome inizia con
+`prefix` E finisce con `suffix` (il CSV reale/`config.json`, senza quel prefisso+suffisso, non sono mai
+toccati); `prefix` vuoto è un no-op (mai spazzare per solo suffisso); cartella assente/non listabile →
+0; una sottocartella omonima non viene rimossa; un singolo `os.remove` fallito (file in uso) viene
+saltato. `csv_writer` espone `sweep_orphan_temps(path)` con la **fonte unica** del nome tmp del CSV
+(`_CSV_TMP_PREFIX`/`_CSV_TMP_SUFFIX`, usata anche per scrivere, così non possono divergere). L'app la
+chiama allo startup subito dopo `_clear_stale_csv("all'avvio")` (listener ancora spento → nessuna
+scrittura in volo → ogni tmp combaciante è orfano), loggando solo se ne rimuove davvero. È pura igiene
+del disco: il CSV finale era già intatto. Test fail-first: orfani rimossi / file non combacianti
+(prefisso/suffisso diverso, CSV reale, sottocartella) intatti / no-op su prefisso vuoto e dir assente /
+os.remove flaky saltato senza fermare lo sweep / orfano CSV reale rimosso senza toccare il CSV. **Smoke
+manuale** (Windows reale, non in CI): killare il processo durante una scrittura CSV lascia un
+`.segnali_*.tmp`; al riavvio dell'app sparisce e il CSV resta valido.
 
 ## low-isodds-inf — `_is_odds` rifiuta i valori non finiti (`inf`/`nan`)
 
