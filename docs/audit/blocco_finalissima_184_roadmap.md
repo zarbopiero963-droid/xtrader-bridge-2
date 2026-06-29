@@ -37,7 +37,7 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | LOW | low-parser-emoji | `parser.py:215` (strip trailing emoji) | in PR |
 | LOW | low-isodds-inf | `parser.py` (`_is_odds` `math.isfinite`) | in PR |
 | LOW | low-pipeline-comma | `custom_pipeline.py` (replace virgola naive) | in PR |
-| LOW | low-csvpath-validate | `config_store.py` (valida dir `csv_path` a START) | da fare |
+| LOW | low-csvpath-validate | `config_store.py` (valida dir `csv_path` a START) | in PR |
 | LOW | low-tmp-sweep | `atomic_io.py` (sweep `.tmp` orfani allo startup) | da fare |
 | LOW | low-session-expiry | `betfair/session.py` (pulisce su errore scadenza) | da fare |
 | LOW | low-autosync-release | `betfair/auto_sync.py` (`release()` in finally guardato) | da fare |
@@ -138,6 +138,19 @@ corruttivo) e il docstring "atomicità della singola riga" sovrastimava la garan
 (un crash kernel→disco può lasciare una coda parziale, dipende da fs/hardware), ma quella è già
 gestita: `read_events` salta la riga troncata e il prossimo append antepone un separatore.
 Output invariato; cambia solo il numero di write (1 invece di 2 nel caso separatore).
+
+## low-csvpath-validate — pre-flight del `csv_path` a START
+
+A START `init_csv(csv_path)` falliva già su una **cartella mancante** (`FileNotFoundError` → avvio
+annullato), ma con un messaggio generico. Aggiunto `config_store.csv_path_problem(path)` (PURO,
+nessun I/O): segnala con un messaggio AZIONABILE un percorso vuoto, una cartella padre inesistente
+(es. il default `C:\XTrader\` assente) o un path che è esso stesso una cartella; `""` se è
+plausibilmente usabile. `_start` lo chiama PRIMA di `init_csv` e, se c'è un problema, logga
+"❌ <problema> Avvio annullato." e non avvia. Gli errori di lock/permessi restano gestiti
+dall'`except OSError` di `init_csv`. Test: unit puro su `csv_path_problem` (cartella mancante/vuoto/
+è-cartella/ok, e non crea nulla). **Smoke test manuale** (GUI reale, non in CI): imposta un CSV path
+con cartella inesistente e premi AVVIA → messaggio chiaro "La cartella del CSV non esiste: …",
+nessun avvio; correggi il path → avvio regolare.
 
 ## low-pipeline-comma — separatore decimale del prezzo interpretato, non `replace` naive
 

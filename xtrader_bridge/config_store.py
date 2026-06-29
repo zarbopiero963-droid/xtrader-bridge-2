@@ -171,6 +171,28 @@ CONFIG_FILE = config_path()
 LEGACY_CONFIG_FILE = legacy_config_path()
 
 
+def csv_path_problem(path) -> str:
+    """Diagnostica PURA del `csv_path` da fare a START (#184 low-csvpath-validate): ritorna una
+    stringa col problema (messaggio per l'utente) oppure `""` se il path è plausibilmente usabile.
+
+    Controlla (senza creare nulla né aprire il file — l'I/O reale e gli errori di lock/permessi
+    restano a `csv_writer.init_csv`): path non vuoto, la **cartella padre esiste** ed è una
+    directory, e il path non è esso stesso una cartella. Serve a dare un errore CHIARO e azionabile
+    a START (es. default `C:\\XTrader\\segnali.csv` con la cartella mancante) invece di un generico
+    `FileNotFoundError` dall'inizializzazione del CSV."""
+    p = str(path or "").strip()
+    if not p:
+        return "Percorso CSV vuoto: imposta un file .csv valido."
+    if os.path.isdir(p):
+        return f"Il percorso CSV punta a una cartella, non a un file: {p}"
+    d = os.path.dirname(p) or "."
+    if not os.path.exists(d):
+        return f"La cartella del CSV non esiste: {d}. Crea la cartella o correggi il percorso CSV."
+    if not os.path.isdir(d):
+        return f"Il percorso del CSV non è dentro una cartella valida: {d}"
+    return ""
+
+
 def _ensure_dir(path: str) -> None:
     d = os.path.dirname(os.path.abspath(path))
     if d:

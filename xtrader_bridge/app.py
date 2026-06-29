@@ -1338,6 +1338,14 @@ class App(ctk.CTk):
                     return
             self._log("▶️ Avvio automatico del listener (auto_start_listener attivo).")
 
+        # Pre-flight del csv_path (#184 low-csvpath-validate): un problema di percorso (cartella
+        # mancante, es. il default C:\XTrader\, o path vuoto/è una cartella) dà un messaggio CHIARO
+        # e azionabile e annulla l'avvio, invece di un generico FileNotFoundError da init_csv. Gli
+        # errori di lock/permessi restano gestiti dall'except OSError sotto.
+        csv_problem = config_store.csv_path_problem(cfg["csv_path"])
+        if csv_problem:
+            self._log(f"❌ {csv_problem} Avvio annullato.")
+            return
         # Svuota il CSV operativo PRIMA di mettere la sessione in stato ATTIVO: se il path
         # non è scrivibile (lockato da XTrader, permessi, disco pieno) l'avvio va annullato
         # SENZA lasciare la UI "attiva" col listener mai partito (A9). init_csv è l'unico
