@@ -267,6 +267,41 @@ def test_coda_punteggio_rimossa_dalle_squadre():
     assert p["teams"] == "Yangon City v Silver Stars FC"
 
 
+def test_vs_line_punteggio_in_mezzo_recupera_le_squadre():
+    """#184 M10: su una riga 🆚 col punteggio IN MEZZO ("Real Madrid 2 - 1 Barcelona") il
+    punteggio fa da separatore tra le squadre. Prima `_SCORE_TAIL` divorava " 2 - 1 Barcelona"
+    lasciando solo "Real Madrid" → nessun separatore → squadre PERSE.
+
+    Fail-first: sul vecchio codice `teams` restava vuoto."""
+    assert parse_message("P.Bet. 1\n🆚 Real Madrid 2 - 1 Barcelona")["teams"] == \
+        "Real Madrid v Barcelona"
+    # varianti del separatore-punteggio: en-dash, due punti, senza spazi.
+    assert parse_message("P.Bet. 1\n🆚 Real Madrid 2 – 1 Barcelona")["teams"] == \
+        "Real Madrid v Barcelona"
+    assert parse_message("P.Bet. 1\n🆚 Real Madrid 2:1 Barcelona")["teams"] == \
+        "Real Madrid v Barcelona"
+    assert parse_message("P.Bet. 1\n🆚 Real Madrid 2-1 Barcelona")["teams"] == \
+        "Real Madrid v Barcelona"
+
+
+def test_vs_line_punteggio_senza_away_non_inventa_squadra():
+    """#184 M10: "🆚 Real Madrid 2 - 1 46m" (punteggio + minuto, NESSUNA squadra away) non deve
+    produrre squadre fasulle: il lato dopo il punteggio inizia con una cifra (tempo) → fail-closed."""
+    assert parse_message("P.Bet. 1\n🆚 Real Madrid 2 - 1 46m")["teams"] == ""
+
+
+def test_vs_line_separatore_v_vince_sul_punteggio_in_coda():
+    """#184 M10: se c'è un separatore `v` esplicito, il punteggio resta una CODA da rimuovere
+    (non un separatore): "Inter v Milan 2 - 1 46m" → "Inter v Milan", non "Inter v Milan 2 - 1 46m"."""
+    assert parse_message("P.Bet. 1\n🆚 Inter v Milan 2 - 1 46m")["teams"] == "Inter v Milan"
+
+
+def test_testo_libero_punteggio_in_mezzo_non_diventa_squadre():
+    """#184 M10: il recupero score-come-separatore vale SOLO per le righe 🆚. In testo libero uno
+    score in mezzo è troppo ambiguo e NON deve produrre squadre ("Italy 2 - 1 Serie A")."""
+    assert parse_message("P.Bet. GG\nItaly 2 - 1 Serie A")["teams"] == ""
+
+
 def test_competizione_non_scambiata_per_squadre():
     # "Italy - Serie A" (trattino) non deve vincere sul fixture "Inter v Milan" (v).
     p = parse_message("P.Bet. GG\nItaly - Serie A\nInter v Milan")

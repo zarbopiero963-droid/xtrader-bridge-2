@@ -39,6 +39,14 @@ _LABEL_WORDS = frozenset({
 # La classe [-–:] include di proposito sia il trattino ASCII "-" sia l'EN DASH "–"
 # (e i due punti) perché i punteggi reali usano l'uno o l'altro carattere.
 _SCORE_TAIL = re.compile(r'\s+\d+\s*[-–:]\s*\d+(?:\s.*)?$')
+# Punteggio che fa da SEPARATORE tra due squadre su una riga 🆚 ("Real Madrid 2 - 1 Barcelona"):
+# cattura home (prima del punteggio) e away (dopo). Diverso da _SCORE_TAIL, che rimuove un
+# punteggio a FINE riga (e divorerebbe la squadra away di una riga con score in mezzo, #184 M10).
+_SCORE_SEP = re.compile(r'^(.+?)\s+\d+\s*[-–:]\s*\d+\s+(.+)$')
+# Inizia con una LETTERA Unicode: distingue una squadra reale ("Barcelona") da un tempo/minuto
+# ("46m", che inizia con una cifra) sul lato away — così "Home 2 - 1 46m" non produce squadre
+# fasulle (fail-closed: meglio nessuna squadra che una sbagliata).
+_STARTS_ALPHA = re.compile(r'^[^\W\d_]')
 # Token di stato da togliere dal signal_type (LIVE/PRE) prima del mapping.
 _STATUS_TAIL = re.compile(r'\s+\b(?:live|pre|prematch)\b.*$', re.IGNORECASE)
 
@@ -157,6 +165,28 @@ def _teams_from(line: str, sep: re.Pattern):
     return None
 
 
+def _teams_from_score(line: str):
+    """Fallback per le righe 🆚 dove il PUNTEGGIO fa da separatore tra le squadre
+    ("Real Madrid 2 - 1 Barcelona" → "Real Madrid v Barcelona"): senza, `_SCORE_TAIL`
+    rimuoverebbe il punteggio E la squadra in trasferta, perdendo il segnale (#184 M10).
+
+    Si applica SOLO alle righe 🆚 (l'emoji conferma che è una coppia di squadre), MAI al testo
+    libero, dove uno score in mezzo è troppo ambiguo ("Italy 2 - 1 Serie A"). Il lato away deve
+    iniziare con una lettera: così un tempo/minuto ("46m") non viene scambiato per squadra."""
+    if _looks_like_label(line) or any(e in line for e in _EMOJI_MARKERS):
+        return None
+    # togli un'eventuale coda quota/@/probabilità sulla stessa riga (come in `_teams_from`).
+    cleaned = re.sub(r'\s+(?:quota\b|@|probabilit[àa]\b|probability\b|prob\b).*$', '',
+                     line, flags=re.IGNORECASE).strip()
+    m = _SCORE_SEP.match(cleaned)
+    if not m:
+        return None
+    home, away = m.group(1).strip(), m.group(2).strip()
+    if not _HAS_ALPHA.search(home) or not _STARTS_ALPHA.match(away):
+        return None
+    return f"{home} v {away}"
+
+
 def _find_teams(lines) -> str:
     """Cerca la riga squadre in testo semplice: SOLO " v "/" vs " (cue forte).
     Il separatore " - " è ammesso solo nelle righe 🆚 (l'emoji conferma le squadre):
@@ -221,8 +251,12 @@ def parse_message(text: str) -> dict:
             result['competition'] = re.sub(r'[🏆\s]+', ' ', line).strip()
             continue
         if '🆚' in line:
-            t = _teams_from(re.sub(r'[🆚]', ' ', line).strip(), _SEP_VVS) \
-                or _teams_from(re.sub(r'[🆚]', ' ', line).strip(), _SEP_DASH)
+            base = re.sub(r'[🆚]', ' ', line).strip()
+            # v/vs (forte) → " - " (debole, ammesso perché l'emoji conferma) → punteggio come
+            # separatore ("Real Madrid 2 - 1 Barcelona", #184 M10) come ultimo fallback.
+            t = _teams_from(base, _SEP_VVS) \
+                or _teams_from(base, _SEP_DASH) \
+                or _teams_from_score(base)
             result['teams'] = t or result['teams']
             continue
         if '⚽' in line:
