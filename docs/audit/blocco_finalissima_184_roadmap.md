@@ -45,7 +45,7 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | LOW | low-syncruns-prune | `betfair/local_db.py` (prune `betfair_sync_runs`) | in PR |
 | LOW | low-namemap-underfill | `name_mapping_gui.py` (under-fill posizionale) | in PR |
 | LOW | low-diagnostics-ws | `diagnostics.py` (whitespace → `—`) | in PR |
-| LOW | low-dedupe-skew | `signal_dedupe.py` (non pruneare entry con `t>now` + doc) | da fare |
+| LOW | low-dedupe-skew | `signal_dedupe.py` (non pruneare entry con `t>now` + doc) | in PR |
 
 ## M1 — `_migrate` strippa i campi stringa noti (filtro chat non "sordo")
 
@@ -188,6 +188,25 @@ del disco: il CSV finale era già intatto. Test fail-first: orfani rimossi / fil
 os.remove flaky saltato senza fermare lo sweep / orfano CSV reale rimosso senza toccare il CSV. **Smoke
 manuale** (Windows reale, non in CI): killare il processo durante una scrittura CSV lascia un
 `.segnali_*.tmp`; al riavvio dell'app sparisce e il CSV resta valido.
+
+## low-dedupe-skew — clock-skew: voci future preservate + limite forward documentato
+
+La deduplica è su **wall-clock** e persistita: un salto dell'orologio sposta il riferimento.
+Fix: in `_prune` la condizione di conservazione diventa `t >= cutoff or t > now` — **codifica
+esplicitamente** che una voce datata nel FUTURO rispetto a `now` (salto INDIETRO dell'orologio,
+NTP/cambio manuale/fuso) NON va mai eliminata: resta valida e continua a bloccare i duplicati
+(nessuna doppia scommessa). **Nota tecnica sul test fail-first:** col cutoff attuale quelle voci
+erano *già* conservate (`t > now >= cutoff`), quindi la guardia è una **codificazione difensiva
+senza delta osservabile** sul codice attuale — un classico fix interno (l'audit stesso lo
+classifica «inerente alla persistenza; documentare»). Per questo non esiste un fail-first per
+stash: lo abbiamo verificato (stash della guardia → i nuovi test passano comunque) e abbiamo
+invece dimostrato che il test invariante **ha i denti** (rompendo `_prune` con un limite superiore
+`t <= now` il test fallisce). Il caso opposto — salto in **avanti** che invecchia di colpo le voci
+e può far sfuggire un duplicato — è **inerente** alla persistenza wall-clock (non distinguibile da
+un idle lungo) e quindi **documentato** (docstring del modulo) e **caratterizzato** da un test, non
+"corretto": la protezione forte anti-doppia-scommessa resta il rollback atomico di coda/CSV a valle.
+Test: voce futura non pruneata; dopo salto indietro il duplicato resta bloccato; salto in avanti
+riaccetta come NEW (limite documentato).
 
 ## low-diagnostics-ws — valore di soli spazi reso come `—`
 
