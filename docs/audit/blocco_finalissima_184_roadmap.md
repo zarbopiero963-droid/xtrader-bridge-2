@@ -30,22 +30,22 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | M9 | m9-market-types-get | `dizionario.py` | merged (#205) |
 | M10 | m10-score-tail | `parser.py` | merged (#206) |
 | M11 | m11-tls-context | `betfair/catalogue_client.py` | merged (#207) |
-| M12 | m12-viewer-debounce | `betfair/dictionary_viewer_gui.py` | in PR |
-| LOW | low-tracker-nonwrite | `write_path.py` (rollback guardrail su non-WRITE) | in PR |
-| LOW | low-timer-lock | `app.py` (`_schedule_expiry` sotto lock) | in PR |
-| LOW | low-bool-count | `safety_guard.py` (`isinstance` bool) | in PR |
-| LOW | low-parser-emoji | `parser.py:215` (strip trailing emoji) | in PR |
-| LOW | low-isodds-inf | `parser.py` (`_is_odds` `math.isfinite`) | in PR |
-| LOW | low-pipeline-comma | `custom_pipeline.py` (replace virgola naive) | in PR |
-| LOW | low-csvpath-validate | `config_store.py` (valida dir `csv_path` a START) | in PR |
-| LOW | low-tmp-sweep | `atomic_io.py` (sweep `.tmp` orfani allo startup) | in PR |
-| LOW | low-session-expiry | `betfair/session.py` (pulisce su errore scadenza) | in PR |
-| LOW | low-autosync-release | `betfair/auto_sync.py` (`release()` in finally guardato) | in PR |
-| LOW | low-localdb-timeout | `betfair/local_db.py` (`timeout=30`/PRAGMA) | in PR |
-| LOW | low-syncruns-prune | `betfair/local_db.py` (prune `betfair_sync_runs`) | in PR |
-| LOW | low-namemap-underfill | `name_mapping_gui.py` (under-fill posizionale) | in PR |
-| LOW | low-diagnostics-ws | `diagnostics.py` (whitespace → `—`) | in PR |
-| LOW | low-dedupe-skew | `signal_dedupe.py` (non pruneare entry con `t>now` + doc) | in PR |
+| M12 | m12-viewer-debounce | `betfair/dictionary_viewer_gui.py` | merged (#208) |
+| LOW | low-tracker-nonwrite | `write_path.py` (rollback guardrail su non-WRITE) | merged (#209) |
+| LOW | low-timer-lock | `app.py` (`_schedule_expiry` sotto lock) | merged (#210) |
+| LOW | low-bool-count | `safety_guard.py` (`isinstance` bool) | merged (#211) |
+| LOW | low-parser-emoji | `parser.py:215` (strip trailing emoji) | merged (#212) |
+| LOW | low-isodds-inf | `parser.py` (`_is_odds` `math.isfinite`) | merged (#213) |
+| LOW | low-pipeline-comma | `custom_pipeline.py` (replace virgola naive) | merged (#214) |
+| LOW | low-csvpath-validate | `config_store.py` (valida dir `csv_path` a START) | merged (#215) |
+| LOW | low-tmp-sweep | `atomic_io.py` (sweep `.tmp` orfani allo startup) | merged (#216) |
+| LOW | low-session-expiry | `betfair/session.py` (pulisce su errore scadenza) | merged (#219) |
+| LOW | low-autosync-release | `betfair/auto_sync.py` (`release()` in finally guardato) | merged (#220) |
+| LOW | low-localdb-timeout | `betfair/local_db.py` (`timeout=30`/PRAGMA) | merged (#221) |
+| LOW | low-syncruns-prune | `betfair/local_db.py` (prune `betfair_sync_runs`) | merged (#222) |
+| LOW | low-namemap-underfill | `name_mapping_gui.py` (under-fill posizionale) | merged (#223) |
+| LOW | low-diagnostics-ws | `diagnostics.py` (whitespace → `—`) | merged (#224) |
+| LOW | low-dedupe-skew | `signal_dedupe.py` (non pruneare entry con `t>now` + doc) | merged (#225) |
 
 ## M1 — `_migrate` strippa i campi stringa noti (filtro chat non "sordo")
 
@@ -96,6 +96,11 @@ config corrotto resta intatto per il backup `.bak` di `load_config` + reinserime
 > (stato del token perso con la corruzione). **Decisione del proprietario: follow-up separato**
 > — tracciato in **issue #199**, da affrontare in una PR dedicata con i suoi test hard (questo
 > PR resta limitato al fix P1 fail-closed del ramo partial-save).
+>
+> **Risolto (#199 → PR #226, merged):** `load_config` marca lo stato post-corruzione SOLO IN RAM
+> (`POST_CORRUPTION_KEY`, mai su disco); `save_config` lo consuma e nel ramo CLEAR **preserva** il
+> token nel keyring (niente `delete`, sentinel "keyring", reidratazione) invece di cancellarlo. Un
+> clear DELIBERATO a config integro cancella ancora (marker consumato dal primo save).
 
 ## M4 — `DailyLimiter`: `day` malformato non azzera il cap (anti-overtrading)
 
