@@ -104,6 +104,23 @@ def test_token_sul_confine_del_troncamento_non_trapela_a_meta():
     assert "[REDACT" in out
 
 
+def test_token_lungo_non_trascina_contenuto_oltre_il_confine():
+    """#184 M8 (Codex P2): un token più lungo di FIRSTLINE_CHARS a inizio riga si accorcia a
+    `[REDACTED_TOKEN]`; redarre l'INTERA riga prima di tagliare trascinerebbe nell'anteprima il
+    testo privato che stava OLTRE il confine grezzo dei 40 char. Il budget grezzo deve restare
+    legato alla finestra originale.
+
+    Fail-first: con la redazione-prima-del-troncamento, `VERY_PRIVATE_AFTER_BOUNDARY` (oltre il 40°
+    char grezzo) compariva nell'anteprima."""
+    token = "123456789:AAExampleSecretTokenValue_abcdef"   # 42 char > FIRSTLINE_CHARS (40)
+    assert len(token) > lp.FIRSTLINE_CHARS
+    out = lp.redact_message(f"{token} VERY_PRIVATE_AFTER_BOUNDARY")
+    assert token not in out                       # il token non trapela
+    assert "VERY_PRIVATE" not in out              # né il contenuto oltre il confine grezzo
+    assert "[REDACTED_TOKEN]" in out
+    assert "…" in out                             # la prima riga era più lunga del budget
+
+
 def test_registrato_literal_non_canonico_redatto_nel_prefisso():
     """#184 M8 + M7: un token registrato in forma NON canonica (che la regex non prende) è comunque
     mascherato nel prefisso, perché redact_secrets usa anche il registro per-literal."""

@@ -48,11 +48,12 @@ def redact_message(text, *, full=False) -> str:
     n = len(s)
     digest = hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
     first = s.splitlines()[0] if s else ""
-    # Redazione PRIMA del troncamento (#184 M8): redarre DOPO lascerebbe sfuggire un token
-    # tagliato a metà sul confine dei FIRSTLINE_CHARS. L'ellissi riflette la riga effettivamente
-    # mostrata (redatta). hash e lunghezza restano sul testo grezzo (lo sha256 è una via sola e
-    # serve a correlare messaggi identici; la lunghezza non rivela contenuto).
-    redacted_first = event_log.redact_secrets(first)
-    truncated = redacted_first[:FIRSTLINE_CHARS]
-    ellipsis = "…" if len(redacted_first) > FIRSTLINE_CHARS else ""
-    return f"[redatto: {n} char, sha256:{digest}] {truncated}{ellipsis}"
+    # Anteprima redatta con budget grezzo (#184 M8 + P2 Codex): mostra al più FIRSTLINE_CHARS char
+    # GREZZI della prima riga, mascherando per intero un token che attraversa il confine senza
+    # trascinare nell'anteprima testo oltre quel confine. L'ellissi resta legata al budget ORIGINALE
+    # (la prima riga grezza superava i FIRSTLINE_CHARS). hash e lunghezza restano sul testo grezzo
+    # (lo sha256 è una via sola e serve a correlare messaggi identici; la lunghezza non rivela
+    # contenuto).
+    preview = event_log.redact_preview(first, FIRSTLINE_CHARS)
+    ellipsis = "…" if len(first) > FIRSTLINE_CHARS else ""
+    return f"[redatto: {n} char, sha256:{digest}] {preview}{ellipsis}"

@@ -151,6 +151,15 @@ non rivela contenuto). Difesa-in-profondità: i due call-site (`_dbg`→`_log`) 
 `redact_secrets`, ma ora la funzione mantiene il proprio contratto a prescindere dal chiamante.
 Nessun cambio di formato/colonne CSV; copre anche i literal registrati non canonici (M7).
 
+Refinement (Codex P2): redarre l'INTERA prima riga prima di tagliare trascinava nell'anteprima
+testo che stava OLTRE il confine grezzo dei 40 char (un token lungo si accorcia a
+`[REDACTED_TOKEN]` e fa salire contenuto privato che la privacy non doveva mostrare). Introdotto
+`event_log.redact_preview(text, budget)`: rivela al più `budget` char GREZZI, mascherando per
+intero un segreto che attraversa il confine (fixpoint sugli span dei segreti) ma SENZA mostrare
+contenuto non-segreto oltre il budget. `log_privacy` usa `redact_preview(first, FIRSTLINE_CHARS)`;
+l'ellissi resta legata al budget originale. Senza segreti è un semplice taglio a `budget` (il
+troncamento originale è preservato).
+
 ## M7 — redazione token: per-literal del token registrato, non solo la regex
 
 `event_log.redact_secrets` mascherava solo lo shape CANONICO del bot token Telegram
