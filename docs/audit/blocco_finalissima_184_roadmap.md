@@ -29,8 +29,8 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | M8 | m8-privacy-prefix | `log_privacy.py` | merged (#204) |
 | M9 | m9-market-types-get | `dizionario.py` | merged (#205) |
 | M10 | m10-score-tail | `parser.py` | merged (#206) |
-| M11 | m11-tls-context | `betfair/catalogue_client.py` | in PR |
-| M12 | m12-viewer-debounce | `betfair/dictionary_viewer_gui.py` | da fare |
+| M11 | m11-tls-context | `betfair/catalogue_client.py` | merged (#207) |
+| M12 | m12-viewer-debounce | `betfair/dictionary_viewer_gui.py` | in PR |
 | LOW | low-timer-lock | `app.py` (`_schedule_expiry` sotto lock) | da fare |
 | LOW | low-bool-count | `safety_guard.py` (`isinstance` bool) | da fare |
 | LOW | low-parser-emoji | `parser.py:215` (strip trailing emoji) | da fare |
@@ -137,6 +137,25 @@ corruttivo) e il docstring "atomicità della singola riga" sovrastimava la garan
 (un crash kernel→disco può lasciare una coda parziale, dipende da fs/hardware), ma quella è già
 gestita: `read_events` salta la riga troncata e il prossimo append antepone un separatore.
 Output invariato; cambia solo il numero di write (1 invece di 2 nel caso separatore).
+
+## M12 — viewer dizionario: debounce della ricerca (no query+rebuild per keystroke)
+
+Nel pannello «Dizionario Betfair» ogni `<KeyRelease>` nella casella «Cerca» chiamava `_refresh()`,
+che interroga il DB e **ricostruisce l'intera tabella** (centinaia di widget) → lag visibile con
+dizionari grandi. Fix: estratto un `Debouncer` **puro e testabile** in `dictionary_viewer.py`
+(coalescente: `trigger()` annulla il pending e riprogramma; `cancel_pending()` per le azioni
+immediate), usato dalla GUI con `widget.after`/`after_cancel` (250 ms). La digitazione veloce
+collassa in UNA sola query/rebuild a fine battitura; Invio, menu, checkbox e i pulsanti restano
+refresh **immediati** (`_refresh_now` annulla un eventuale debounce pendente). Nessun cambio alla
+logica di lettura (`DictionaryViewerController`), al DB o al contenuto mostrato.
+
+Test (CI, headless): `Debouncer` con scheduler finto — coalescing di una raffica in una sola
+azione, `cancel_pending`, riprogrammazione dopo lo scatto (fail-first: la classe non esisteva).
+**Smoke test manuale** (GUI reale, non in CI): apri Strumenti → Dizionario Betfair; digita
+rapidamente nella casella «Cerca» → la tabella si aggiorna UNA sola volta a fine digitazione (non a
+ogni tasto); premi Invio → aggiornamento immediato; cambia Livello/Sport/«Solo attivi»/«🔄 Aggiorna»
+→ aggiornamento immediato. Atteso: nessun lag percepibile su un dizionario grande. Resta non
+verificato in automatico il rendering reale dei widget (richiede display).
 
 ## M11 — `catalogue_client`: contesto TLS esplicito sulle chiamate read-only
 

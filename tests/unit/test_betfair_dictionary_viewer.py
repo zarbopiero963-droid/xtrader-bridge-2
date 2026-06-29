@@ -9,10 +9,84 @@ Nessuna GUI, nessuna rete: DB in memoria.
 import pytest
 
 from xtrader_bridge.betfair.dictionary_viewer import (
+    Debouncer,
     DictionaryViewerController,
     LEVELS,
     LEVEL_LABELS,
 )
+
+
+# ── #184 M12: debouncer coalescente per la ricerca del viewer ─────────────────
+
+class _FakeScheduler:
+    """Scheduler finto (al posto di tkinter `after`/`after_cancel`): registra i job programmati
+    e permette di farli scattare a mano, così il debounce è testabile headless."""
+
+    def __init__(self):
+        self.scheduled = []      # (handle, delay, fn)
+        self.cancelled = []      # handle
+        self._next = 0
+
+    def schedule(self, delay, fn):
+        handle = self._next
+        self._next += 1
+        self.scheduled.append((handle, delay, fn))
+        return handle
+
+    def cancel(self, handle):
+        self.cancelled.append(handle)
+
+    def fire_last(self):
+        """Esegue l'ultima callback programmata (simula lo scadere del timer)."""
+        self.scheduled[-1][2]()
+
+
+def test_debouncer_coalesce_una_raffica_in_una_sola_azione():
+    """#184 M12: una raffica di trigger ravvicinati (keystroke) deve collassare in UNA sola
+    esecuzione dell'azione, annullando ogni pending precedente. Senza, ogni keystroke rifarebbe
+    query DB + rebuild tabella."""
+    sch = _FakeScheduler()
+    runs = []
+    d = Debouncer(250, lambda: runs.append(1), schedule=sch.schedule, cancel=sch.cancel)
+    d.trigger(); d.trigger(); d.trigger()           # 3 keystroke ravvicinati
+    assert d.pending
+    assert runs == []                                # niente azione finché il timer non scatta
+    assert sch.cancelled == [0, 1]                   # i due pending precedenti annullati
+    assert [delay for _h, delay, _fn in sch.scheduled] == [250, 250, 250]
+    sch.fire_last()                                  # scade il timer dell'ultimo trigger
+    assert runs == [1]                               # UNA sola esecuzione
+    assert not d.pending
+
+
+def test_debouncer_cancel_pending_evita_l_azione():
+    """#184 M12: `cancel_pending` (usato dalle azioni immediate) annulla il refresh in debounce, così
+    non parte una seconda query subito dopo un refresh immediato."""
+    sch = _FakeScheduler()
+    runs = []
+    d = Debouncer(250, lambda: runs.append(1), schedule=sch.schedule, cancel=sch.cancel)
+    d.trigger()
+    assert d.pending
+    d.cancel_pending()
+    assert not d.pending
+    assert sch.cancelled == [0]
+    # un secondo cancel è un no-op sicuro
+    d.cancel_pending()
+    assert runs == []
+
+
+def test_debouncer_trigger_dopo_fire_riprogramma():
+    """#184 M12: dopo che il timer è scattato, un nuovo trigger riparte da capo (nessun handle
+    stantio da annullare)."""
+    sch = _FakeScheduler()
+    runs = []
+    d = Debouncer(200, lambda: runs.append(len(runs) + 1), schedule=sch.schedule, cancel=sch.cancel)
+    d.trigger()
+    sch.fire_last()
+    assert runs == [1] and not d.pending
+    d.trigger()                                      # nuova raffica: non annulla nulla (handle None)
+    assert sch.cancelled == []                       # nessun cancel: il precedente era già scattato
+    sch.fire_last()
+    assert runs == [1, 2]
 from xtrader_bridge.betfair.local_db import BetfairLocalDB
 
 

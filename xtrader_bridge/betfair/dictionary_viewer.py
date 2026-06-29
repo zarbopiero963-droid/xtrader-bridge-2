@@ -201,6 +201,45 @@ class DictionaryViewerController:
         return out
 
 
+class Debouncer:
+    """Debouncer **coalescente** e PURO (testabile headless): più trigger ravvicinati producono
+    UNA sola esecuzione dell'azione, ritardata di `delay_ms`; ogni nuovo trigger annulla il pending
+    precedente. Indipendente dalla GUI — riceve `schedule(ms, fn) -> handle` e `cancel(handle)`
+    (nella GUI: `widget.after`/`widget.after_cancel`).
+
+    Serve al viewer del dizionario (#184 M12): senza, ogni keystroke nella casella «Cerca» rifaceva
+    query DB + rebuild dell'intera tabella, con lag su dizionari grandi. Col debounce parte UNA sola
+    query/rebuild a fine digitazione."""
+
+    def __init__(self, delay_ms, action, *, schedule, cancel):
+        self._delay = int(delay_ms)
+        self._action = action
+        self._schedule = schedule
+        self._cancel = cancel
+        self._handle = None
+
+    @property
+    def pending(self) -> bool:
+        """True se c'è un'esecuzione programmata non ancora scattata."""
+        return self._handle is not None
+
+    def trigger(self):
+        """Programma (o RIprogramma) l'azione: annulla il pending precedente, così una raffica di
+        trigger collassa in una sola esecuzione ritardata."""
+        self.cancel_pending()
+        self._handle = self._schedule(self._delay, self._fire)
+
+    def cancel_pending(self):
+        """Annulla un'eventuale esecuzione programmata (es. un'azione immediata la supera)."""
+        if self._handle is not None:
+            self._cancel(self._handle)
+            self._handle = None
+
+    def _fire(self):
+        self._handle = None
+        self._action()
+
+
 def _is_active(row) -> bool:
     try:
         return int(row.get("active", 0)) == 1
