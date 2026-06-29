@@ -236,3 +236,38 @@ def test_dedupe_robusto_a_clock_all_indietro():
     assert t.register(MSG, now=500).status == sd.DUPLICATE
     # un messaggio DIVERSO dopo lo step indietro è invece accettato
     assert t.register("altro segnale", now=900).status == sd.NEW
+
+
+# ── #184 LOW: clock-skew — voci future preservate, limite forward documentato ──
+
+def test_prune_non_elimina_le_voci_datate_nel_futuro():
+    """#184 LOW: una voce con timestamp NEL FUTURO rispetto a `now` (clock saltato
+    indietro) NON deve essere eliminata da `_prune`: è valida e protegge dai duplicati.
+    Avrebbe i denti — se `_prune` aggiungesse un limite superiore `t <= now`, fallirebbe."""
+    t = sd.SignalTracker(dedupe_window=300, max_per_minute=100)
+    # voce registrata "nel futuro" (now più piccolo per skew all'indietro)
+    t._seen = [("hash_futuro", 5000.0)]
+    t._prune(now=1000.0)                       # now << timestamp memorizzato
+    assert ("hash_futuro", 5000.0) in t._seen   # NON pruneata
+
+
+def test_clock_indietro_voce_futura_blocca_ancora_il_duplicato():
+    """Scenario reale: segnale registrato a now=5000, poi l'orologio salta INDIETRO a
+    now=1000; la voce (futura rispetto al nuovo now) resta e il duplicato è bloccato —
+    nessuna doppia scommessa."""
+    t = sd.SignalTracker(dedupe_window=300, max_per_minute=100)
+    assert t.register(MSG, now=5000).status == sd.NEW
+    # un altro register fa scattare _prune col now più piccolo: la voce futura sopravvive
+    assert t.register("altro", now=1000).status == sd.NEW
+    assert t.register(MSG, now=1001).status == sd.DUPLICATE      # duplicato ancora bloccato
+
+
+def test_clock_in_avanti_e_finestra_transitoria_documentata():
+    """Caratterizza il LIMITE INERENTE documentato: un salto in AVANTI invecchia di colpo
+    le voci, che escono dalla finestra; un duplicato dopo il salto è riaccettato come NEW.
+    Non è un fix (inerente alla persistenza wall-clock), ma il comportamento è fissato qui
+    così un'eventuale modifica futura è intenzionale e non silenziosa."""
+    t = sd.SignalTracker(dedupe_window=300, max_per_minute=100)
+    assert t.register(MSG, now=1000).status == sd.NEW
+    # salto in avanti molto oltre la finestra (300s): la voce è invecchiata ed esce
+    assert t.register(MSG, now=1000 + 10_000).status == sd.NEW

@@ -17,6 +17,22 @@ Componenti:
 
 Il vocabolario del ciclo di vita (`STATES`) è qui come riferimento per le fasi
 successive (PR-16 coda, PR-17 conferma XTrader); l'aggancio al runtime è separato.
+
+**Clock-skew e wall-clock (issue #184 LOW).** Sia la finestra di deduplica sia il limite
+al minuto usano l'orologio di sistema (`time.time()`), e lo stato è PERSISTITO su disco:
+un salto dell'orologio (correzione NTP, cambio manuale, fuso) sposta il riferimento
+temporale. Comportamento garantito:
+
+- salto **indietro** (now diventa più piccolo): le voci già memorizzate risultano nel
+  futuro (`t > now`) ma restano **valide** e NON vengono mai eliminate da `_prune`
+  (vedi la condizione `t > now`), quindi i duplicati continuano a essere bloccati — nessuna
+  doppia scommessa;
+- salto **in avanti** (now diventa più grande): le voci invecchiano di colpo e possono
+  uscire dalla finestra prima del previsto; un duplicato ravvicinato potrebbe essere
+  riaccettato come `NEW`. È una **finestra transitoria inerente** alla persistenza
+  wall-clock: non è distinguibile dal normale scorrere del tempo (idle lungo) e quindi
+  non si "corregge" senza un orologio monotòno (che però non sopravvive ai riavvii). La
+  protezione forte anti-doppia-scommessa resta a valle (rollback atomico di coda/CSV).
 """
 
 import hashlib
@@ -90,7 +106,16 @@ class SignalTracker:
         # con una finestra dedup < 60s il conteggio al minuto verrebbe falsato
         # (voci rimosse prima di contarle) e il limite sarebbe aggirabile.
         cutoff = now - max(self.dedupe_window, 60)
-        self._seen = [(h, t) for (h, t) in self._seen if t >= cutoff]
+        # Clock-skew (issue #184 LOW). La deduplica è su WALL-CLOCK e persistita: un salto
+        # INDIETRO dell'orologio (correzione NTP, cambio manuale, fuso) rende `now` più
+        # PICCOLO dei timestamp già memorizzati, che risultano quindi nel FUTURO (t > now).
+        # Quelle voci sono VALIDE e devono restare a proteggere dai duplicati: non vanno mai
+        # scartate. Col cutoff attuale sono già conservate (t > now >= cutoff); la condizione
+        # esplicita `t > now` codifica la garanzia e la rende robusta a futuri refactor della
+        # finestra. (Il caso opposto — un salto in AVANTI che invecchia di colpo le voci e
+        # potrebbe far sfuggire un duplicato — è inerente alla persistenza wall-clock e non
+        # distinguibile dal normale scorrere del tempo: vedi nota nel docstring del modulo.)
+        self._seen = [(h, t) for (h, t) in self._seen if t >= cutoff or t > now]
 
     def register(self, text: str, *, now: float = None) -> RegisterResult:
         """Registra un messaggio e decide il suo esito (senza scrivere nulla):
