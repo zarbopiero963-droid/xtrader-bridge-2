@@ -895,3 +895,27 @@ def test_max_active_signals_default_e_floor(tmp_path):
     for bad in (0, -3, "abc"):
         p.write_text(json.dumps({"max_active_signals": bad}))
         assert config_store.load_config(str(p))["max_active_signals"] == 2, bad
+
+
+# ── #184 low-csvpath-validate: diagnostica del csv_path a START ───────────────
+
+def test_csv_path_problem(tmp_path):
+    """#184 low-csvpath-validate: `csv_path_problem` segnala (con messaggio) una cartella mancante,
+    un path vuoto o un path che è una cartella; ritorna "" se il file è plausibilmente scrivibile.
+    Non crea nulla e non apre il file (l'I/O reale resta a `init_csv`)."""
+    # path valido: cartella esistente + nome file → nessun problema
+    ok = str(tmp_path / "segnali.csv")
+    assert config_store.csv_path_problem(ok) == ""
+    # path vuoto / solo spazi → problema
+    assert config_store.csv_path_problem("") != ""
+    assert config_store.csv_path_problem("   ") != ""
+    assert config_store.csv_path_problem(None) != ""
+    # cartella padre INESISTENTE (es. il default C:\XTrader\ assente) → problema
+    missing = str(tmp_path / "non_esiste" / "segnali.csv")
+    prob = config_store.csv_path_problem(missing)
+    assert prob and "non esiste" in prob
+    # il path è esso stesso una cartella → problema
+    assert config_store.csv_path_problem(str(tmp_path)) != ""
+    # non ha creato nulla (diagnostica pura)
+    assert not os.path.exists(missing)
+    assert not (tmp_path / "non_esiste").exists()
