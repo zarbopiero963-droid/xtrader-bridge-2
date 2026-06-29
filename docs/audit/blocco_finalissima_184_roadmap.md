@@ -35,7 +35,7 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | LOW | low-timer-lock | `app.py` (`_schedule_expiry` sotto lock) | in PR |
 | LOW | low-bool-count | `safety_guard.py` (`isinstance` bool) | in PR |
 | LOW | low-parser-emoji | `parser.py:215` (strip trailing emoji) | in PR |
-| LOW | low-isodds-inf | `parser.py` (`_is_odds` `math.isfinite`) | da fare |
+| LOW | low-isodds-inf | `parser.py` (`_is_odds` `math.isfinite`) | in PR |
 | LOW | low-pipeline-comma | `custom_pipeline.py` (replace virgola naive) | da fare |
 | LOW | low-csvpath-validate | `config_store.py` (valida dir `csv_path` a START) | da fare |
 | LOW | low-tmp-sweep | `atomic_io.py` (sweep `.tmp` orfani allo startup) | da fare |
@@ -138,6 +138,14 @@ corruttivo) e il docstring "atomicità della singola riga" sovrastimava la garan
 (un crash kernel→disco può lasciare una coda parziale, dipende da fs/hardware), ma quella è già
 gestita: `read_events` salta la riga troncata e il prossimo append antepone un separatore.
 Output invariato; cambia solo il numero di write (1 invece di 2 nel caso separatore).
+
+## low-isodds-inf — `_is_odds` rifiuta i valori non finiti (`inf`/`nan`)
+
+`_is_odds` faceva `float(value) > 1.0`: `float("inf") > 1.0` è `True`, quindi un valore non finito
+sarebbe stato scambiato per una quota valida. Oggi è **latente** (il token quota è numerico `_NUM`,
+non può essere `inf`), ma è una difesa in profondità a costo nullo. Fix: `math.isfinite(f) and f > 1.0`.
+Test fail-first: `_is_odds("inf"/"-inf"/"nan"/…)` → `False`; quote reali invariate (`1.85`→True,
+`1.0`/`0.5`→False).
 
 ## low-parser-emoji — rimuovi un'emoji in coda al `signal_type`
 

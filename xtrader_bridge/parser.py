@@ -7,6 +7,7 @@ NON inventa dati: i campi non presenti restano vuoti (il blocco dei segnali
 incompleti — incl. quota mancante — è di recognition/validazione, PR-10).
 """
 
+import math
 import re
 
 from . import numbers_re
@@ -75,11 +76,16 @@ _TRAILING_EMOJI = re.compile(r'(?:[' + _EMOJI_CLASS + r']\s*)+$')
 def _is_odds(value: str) -> bool:
     """Una quota decimale offerta è sempre **> 1.0**: così "0,5" (linea del mercato,
     es. "Quota 0,5 HT") non viene scambiato per una quota, e nemmeno "1,00" (che a
-    quota piena non dà guadagno e non è un prezzo piazzabile)."""
+    quota piena non dà guadagno e non è un prezzo piazzabile).
+
+    `math.isfinite` (#184 low-isodds-inf): `float("inf") > 1.0` è True, quindi senza il guard un
+    valore non finito (`inf`/`nan` da input anomalo) verrebbe scambiato per una quota valida. Oggi
+    il token quota è numerico (`_NUM`), quindi è latente, ma è una difesa in profondità a costo nullo."""
     try:
-        return float(value) > 1.0
+        f = float(value)
     except (TypeError, ValueError):
         return False
+    return math.isfinite(f) and f > 1.0
 
 
 def _is_half_line(value: str) -> bool:

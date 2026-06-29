@@ -2,7 +2,22 @@
 
 import os
 
-from xtrader_bridge.parser import parse_message
+from xtrader_bridge.parser import _is_odds, parse_message
+
+
+def test_is_odds_rifiuta_inf_e_nan():
+    """#184 low-isodds-inf: `float("inf") > 1.0` è True, quindi senza `math.isfinite` un valore non
+    finito verrebbe scambiato per una quota valida. inf/nan → False; quote normali invariate.
+
+    Fail-first: sul vecchio codice `_is_odds("inf")` ritornava True."""
+    for bad in ("inf", "-inf", "Infinity", "nan", "NaN"):
+        assert _is_odds(bad) is False
+    # comportamento invariato sui valori reali: quota > 1.0 True, linea/quota piena False.
+    assert _is_odds("1.85") is True
+    assert _is_odds("2") is True
+    assert _is_odds("1.0") is False
+    assert _is_odds("0.5") is False
+    assert _is_odds("abc") is False
 
 _FIX = os.path.join(os.path.dirname(__file__), "..", "fixtures", "pbet_messages")
 
