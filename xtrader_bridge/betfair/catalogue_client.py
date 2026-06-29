@@ -43,6 +43,15 @@ _HTTP_TIMEOUT = 30
 _CATALOGUE_BATCH = 100
 
 
+def _tls_context():
+    """Contesto TLS ESPLICITO per le chiamate read-only all'Exchange (#184 M11): verifica del
+    certificato server attiva (CERT_REQUIRED + check_hostname). Come in `auth_client`, passarlo
+    esplicito a `urlopen` evita che un eventuale override globale del default
+    (`ssl._create_default_https_context`) indebolisca in silenzio queste chiamate con credenziali."""
+    import ssl
+    return ssl.create_default_context()
+
+
 def _http_post_json(url, payload_dict, session_token, app_key):
     """POST JSON read-only verso l'Exchange .it con gli header Betfair. Solo stdlib;
     non logga nulla. Ritorna il JSON decodificato."""
@@ -56,7 +65,7 @@ def _http_post_json(url, payload_dict, session_token, app_key):
         "Content-Type": "application/json",
         "Accept": "application/json",
     })
-    with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
+    with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT, context=_tls_context()) as resp:
         return _json.loads(resp.read().decode("utf-8", "replace"))
 
 
@@ -70,7 +79,7 @@ def _http_navigation(session_token, app_key):
         "X-Authentication": session_token,
         "Accept": "application/json",
     })
-    with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
+    with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT, context=_tls_context()) as resp:
         return _json.loads(resp.read().decode("utf-8", "replace"))
 
 

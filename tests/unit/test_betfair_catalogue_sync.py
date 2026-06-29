@@ -343,6 +343,70 @@ def test_endpoint_navigation_it_catalogue_com():
     assert cc._CATALOGUE_URL == "https://api.betfair.com/exchange/betting/json-rpc/v1"
 
 
+# ── #184 M11: contesto TLS esplicito sui transport di default ─────────────────
+
+class _FakeResp:
+    """Risposta fittizia per urlopen nei test (context manager)."""
+
+    def __init__(self, body=b'{"ok": true}'):
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self._body
+
+
+def _patch_urlopen(monkeypatch):
+    """Patcha urllib.request.urlopen catturando i kwargs (context/timeout)."""
+    import urllib.request
+    captured = {}
+
+    def _fake_urlopen(req, timeout=None, context=None):
+        captured["context"] = context
+        captured["timeout"] = timeout
+        return _FakeResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+    return captured
+
+
+def _assert_verified_tls(ctx):
+    import ssl
+    assert isinstance(ctx, ssl.SSLContext)
+    assert ctx.verify_mode == ssl.CERT_REQUIRED      # verifica certificato server attiva
+    assert ctx.check_hostname is True                # hostname verificato
+
+
+def test_http_post_json_usa_tls_context_esplicito(monkeypatch):
+    """#184 M11: il POST read-only passa un `ssl.SSLContext` ESPLICITO (verificato) a urlopen, così
+    un eventuale override globale del default non indebolisce la chiamata con credenziali.
+
+    Fail-first: senza `context=`, urlopen riceveva None."""
+    from xtrader_bridge.betfair import catalogue_client as cc
+    captured = _patch_urlopen(monkeypatch)
+    out = cc._http_post_json("https://api.betfair.it/x", {"a": 1}, "tok", "key")
+    assert out == {"ok": True}
+    assert captured["timeout"] == cc._HTTP_TIMEOUT
+    _assert_verified_tls(captured["context"])
+
+
+def test_http_navigation_usa_tls_context_esplicito(monkeypatch):
+    """#184 M11: anche il GET del navigation menu passa un `ssl.SSLContext` esplicito (verificato).
+
+    Fail-first: senza `context=`, urlopen riceveva None."""
+    from xtrader_bridge.betfair import catalogue_client as cc
+    captured = _patch_urlopen(monkeypatch)
+    out = cc._http_navigation("tok", "key")
+    assert out == {"ok": True}
+    assert captured["timeout"] == cc._HTTP_TIMEOUT
+    _assert_verified_tls(captured["context"])
+
+
 # ── default transport catalogue: errori e chunking (Codex) ────────────────────
 
 def test_jsonrpc_result_solleva_su_errore_e_result_mancante():

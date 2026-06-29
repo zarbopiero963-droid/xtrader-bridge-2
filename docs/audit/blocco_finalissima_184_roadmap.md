@@ -28,8 +28,8 @@ branch dedicato off `main` aggiornato, **test hard di resilienza** (fail-first),
 | M7 | m7-token-redact | `event_log.py` | merged (#203) |
 | M8 | m8-privacy-prefix | `log_privacy.py` | merged (#204) |
 | M9 | m9-market-types-get | `dizionario.py` | merged (#205) |
-| M10 | m10-score-tail | `parser.py` | in PR |
-| M11 | m11-tls-context | `betfair/catalogue_client.py` | da fare |
+| M10 | m10-score-tail | `parser.py` | merged (#206) |
+| M11 | m11-tls-context | `betfair/catalogue_client.py` | in PR |
 | M12 | m12-viewer-debounce | `betfair/dictionary_viewer_gui.py` | da fare |
 | LOW | low-timer-lock | `app.py` (`_schedule_expiry` sotto lock) | da fare |
 | LOW | low-bool-count | `safety_guard.py` (`isinstance` bool) | da fare |
@@ -137,6 +137,18 @@ corruttivo) e il docstring "atomicità della singola riga" sovrastimava la garan
 (un crash kernel→disco può lasciare una coda parziale, dipende da fs/hardware), ma quella è già
 gestita: `read_events` salta la riga troncata e il prossimo append antepone un separatore.
 Output invariato; cambia solo il numero di write (1 invece di 2 nel caso separatore).
+
+## M11 — `catalogue_client`: contesto TLS esplicito sulle chiamate read-only
+
+`_http_post_json` e `_http_navigation` chiamavano `urlopen` SENZA `context=` esplicito, a differenza
+di `auth_client` che costruisce `ssl.create_default_context()`. La verifica TLS di default è attiva
+(quindi non era un leak attuale), ma una posa di verifica IMPLICITA è sovrascrivibile da un futuro
+override globale (`ssl._create_default_https_context`) che indebolirebbe in silenzio chiamate che
+portano credenziali (`X-Authentication`/app key). Fix: nuovo helper `_tls_context()` =
+`ssl.create_default_context()` (CERT_REQUIRED + check_hostname), passato esplicito a entrambe le
+`urlopen`. Nessun cambio funzionale, nessun client-cert (queste sono read-only con session token, non
+il cert-login). Test: due test catturano il `context` passato a `urlopen` e ne verificano
+`verify_mode`/`check_hostname` (fail-first: prima era `None`).
 
 ## M10 — `parser`: punteggio in mezzo come separatore squadre sulle righe 🆚
 
