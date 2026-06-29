@@ -151,6 +151,10 @@ sovrastimava la garanzia. Fix: aggiunto un registro di segreti ESATTI (`register
 (`_log`/`_set_last`/`diagnostics`/`event_journal` passano tutti da `redact_secrets`). Limite
 residuo documentato: un segreto MAI registrato e non canonico può ancora sfuggire.
 
+Refinement (Sourcery): `_register_secret_token` è il punto UNICO di load/save e deregistra il
+token precedente quando cambia o viene rimosso (traccia `self._registered_token`), così il
+registro dei segreti non cresce all'infinito e un vecchio token non resta mascherato per sempre.
+
 ## Decisioni del proprietario (NON implementare senza conferma)
 
 - **low-tracker-nonwrite**: il tracker dedupe trattiene l'hash anche sui path **non-WRITE**

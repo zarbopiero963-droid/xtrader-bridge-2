@@ -434,6 +434,32 @@ def test_register_secret_token_maschera_il_token_nei_log(make_app, app_mod):
         event_log.clear_secrets()
 
 
+def test_register_secret_token_deregistra_il_precedente_quando_cambia(make_app, app_mod):
+    """#184 M7 (Sourcery): quando il bot token CAMBIA, il precedente viene deregistrato, così il
+    registro dei segreti non cresce all'infinito e un vecchio token non resta mascherato per
+    sempre. Quando viene RIMOSSO (cfg senza token), idem.
+
+    Fail-first: sul vecchio codice `_register_secret_token` registrava soltanto, senza mai
+    deregistrare → il vecchio token restava mascherato per sempre."""
+    from xtrader_bridge import event_log
+    event_log.clear_secrets()
+    try:
+        a = make_app()
+        old = "111:oldSecret_nonCanonico"          # porzioni < 20 → la regex non li prende
+        new = "222:newSecret_nonCanonico"
+        app_mod.App._register_secret_token(a, {"bot_token": old})
+        assert old not in event_log.redact_secrets(f"x {old} y")   # vecchio mascherato
+        # cambio token → il vecchio NON deve più essere mascherato, il nuovo sì
+        app_mod.App._register_secret_token(a, {"bot_token": new})
+        assert old in event_log.redact_secrets(f"x {old} y")       # vecchio NON più mascherato
+        assert new not in event_log.redact_secrets(f"x {new} y")   # nuovo mascherato
+        # rimozione token (cfg senza token) → anche il nuovo viene deregistrato
+        app_mod.App._register_secret_token(a, {})
+        assert new in event_log.redact_secrets(f"x {new} y")       # non più mascherato
+    finally:
+        event_log.clear_secrets()
+
+
 def test_stop_sveglia_attesa_in_loop_via_call_soon_threadsafe(make_app, app_mod, tmp_path):
     """#184 H5 / Codex #191: con una sessione viva `_stop` sveglia SUBITO l'attesa in-loop di
     `_async_run` settando `_async_stop_event` tramite `call_soon_threadsafe` (dal thread GUI).
