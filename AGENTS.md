@@ -299,28 +299,41 @@ key, CSV column, parser rule, value-map, recognition mode, gate, GUI), you **mus
 the corresponding documentation in the same PR**. Docs must never drift from code: a new
 function with no doc, or a removed one whose doc still lingers, is an incomplete PR.
 
-In the same PR:
+A code PR is **not complete without the documentation check**. In the same PR, update — when
+applicable:
 
-- behavior/usage → update `README.md` and the domain docs (`docs/custom_parser.md`,
-  `docs/xtrader_csv_contract.md`);
-- new/removed **function, class, or module** → update the function reference docs when
-  they exist (see below); until then, describe it in the relevant domain doc and keep the
-  **docstring** at the top of the function/module;
-- new/removed **config key, CSV column, recognition mode, gate** → update the related docs
-  and flag breaking changes in the PR body;
-- architecture/audit decisions → `docs/audit/roadmap.md` when relevant.
+- **`README.md`** → user-visible changes or main flow;
+- **`docs/custom_parser.md`** → changes to the custom parser;
+- **`docs/xtrader_csv_contract.md`** → changes to the CSV contract, columns, mapping or
+  XTrader compatibility (flag breaking changes in the PR body);
+- **`docs/audit/roadmap.md`** → architecture, roadmap, safety policy or relevant tech-debt
+  decisions;
+- **docstrings or technical comments** → for public functions, services or non-trivial
+  modules (new/removed function, class or module: keep the docstring at the top and, until
+  the generator below exists, describe it in the relevant domain doc);
+- new/removed **config key, CSV column, recognition mode, gate** → update the related docs;
+- **future user guides with screenshots** → when UI screens, buttons, windows or visual
+  flows change (mandatory once the `docs/user/` and `docs/assets/screenshots/` folders are
+  introduced in a later phase).
 
-The post-fix micro-audit and final hard verify must include a **"docs updated for the
-change: PASS/FAIL"** check. If you touched code and touched no docs, confirm whether a doc
-needs updating; if it genuinely does not (e.g. an internal fix with no impact on documented
-behavior/API), state that as a note.
+The post-fix micro-audit and final hard verify must include a **"docs updated: PASS/FAIL/N/A"**
+check, where:
 
-**Future goal (not active yet).** An **auto-generated** function reference (modules →
-classes → functions + signature + docstring) in **Markdown + JSONL**, used as the knowledge
-base for an in-bridge **AI assistant** (OpenAI vector store + screenshots). Once the
-generator (`tools/gen_api_docs.py` or equivalent) and its **CI gate** exist, regenerating
-the docs becomes a **mandatory part** of every PR that touches code (the CI gate fails if
-they are out of date). Until then, the manual rule above applies.
+- **PASS** = documentation updated in the same PR;
+- **FAIL** = code changed but documentation missing;
+- **N/A** = purely internal change with no documentation impact — **you must explain why**.
+
+If you touched code and touched no docs, confirm whether a doc needs updating; if it
+genuinely does not, declare `N/A` with the reason.
+
+**Future goal (not active yet).** A later phase will introduce the **`docs/api/`** folder and
+an **auto-generated** function reference (modules → classes → functions + signature +
+docstring) in **Markdown + JSONL**, useful both for audit and as the knowledge base for a
+future in-bridge **AI assistant** (OpenAI vector store + screenshots). Once the generator
+(`tools/gen_api_docs.py` or equivalent) and its **CI gate** exist, regenerating the docs
+becomes a **mandatory part** of every PR that touches code (the CI gate fails if they are out
+of date). **This rule does not require implementing generators, CI gates or OpenAI
+integrations now**: until they exist, the manual rule above applies.
 
 ---
 
@@ -382,6 +395,11 @@ Duplicate-signal risk:
 
 Auto-merge/manual merge:
 - PASS / FAIL
+
+Docs updated:
+- PASS / FAIL / N/A
+  (PASS = docs updated in the same PR · FAIL = code changed but docs missing ·
+   N/A = purely internal change with no documentation impact, with a written reason)
 
 Result:
 - PASS / FAIL
@@ -790,6 +808,9 @@ Hard truthful tests:
 - PASS / FAIL / SKIPPED with reason
 
 Hard tests created/updated for the change:
+- PASS / FAIL / N/A with reason
+
+Docs updated for the change:
 - PASS / FAIL / N/A with reason
 
 GitHub checks completed:
