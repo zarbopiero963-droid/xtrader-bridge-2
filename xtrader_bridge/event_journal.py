@@ -175,3 +175,26 @@ def clear(path: str) -> bool:
         return True
     except OSError:
         return False
+
+
+def prune_events(path: str, keep: int) -> int:
+    """Mantiene solo gli ULTIMI `keep` eventi del ledger, riscrivendolo in modo ATOMICO
+    (tmp + `os.replace`). Retention: senza, il `.jsonl` crescerebbe all'infinito (#230).
+
+    Best-effort, **non solleva mai**: ritorna quanti eventi ha rimosso (`0` se non c'era
+    nulla da potare o su errore di I/O). `keep<=0` è un **no-op** (guardia: non svuota il
+    ledger per errore — per svuotarlo c'è `clear`). Le righe tenute sono ri-redatte come in
+    scrittura (mai token in chiaro)."""
+    if not keep or keep <= 0:
+        return 0
+    events = read_events(path)
+    if len(events) <= keep:
+        return 0
+    kept = events[len(events) - keep:]
+    payload = "".join(
+        event_log.redact_secrets(json.dumps(e, ensure_ascii=False)) + "\n" for e in kept)
+    try:
+        atomic_io.atomic_write_text(path, payload, prefix=".journal_", suffix=".tmp")
+    except OSError:
+        return 0
+    return len(events) - keep

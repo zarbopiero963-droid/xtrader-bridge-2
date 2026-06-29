@@ -29,7 +29,7 @@ funzionalità (decisione del proprietario).
 | 17 | Power-cut manuale: VM kill con CSV attivo | MANUAL_ONLY | `release_checklist.md` §I (#110/17) |
 | 18 | Telegram live outage manuale: rete giù, backlog, reconnect | MANUAL_ONLY | `release_checklist.md` §I (#110/18) |
 | 19 | XTrader sandbox: CSV reale letto una volta, clear, no duplicate | MANUAL_ONLY | `release_checklist.md` §I (#110/19) |
-| 20 | Transaction/event journal strutturato ("cosa aveva fatto") | **FEATURE** | non presente: è una nuova funzionalità di persistenza (event ledger append-only), non un test. Richiede decisione del proprietario prima di implementarla. Oggi esiste solo `event_log` testuale (`tests/unit/test_event_log.py`) |
+| 20 | Transaction/event journal strutturato ("cosa aveva fatto") | **DONE** | implementato (#230): ledger append-only `event_journal.py` **agganciato al runtime** (`app.py`) — `START`/`STOP`/`RECONNECT`/`SIGNAL_RECEIVED`/`SIGNAL_VALIDATED`/`CSV_WRITTEN`/`XTRADER_CONFIRMED`/`XTRADER_REJECTED`/`CRASH_RECOVERY_CSV_CLEARED`/`CSV_CLEARED`. Best-effort (mai bloccante), redatto, bounded (`prune_events` allo startup). Test: `tests/unit/test_event_journal.py` (modulo+retention) + `tests/integration/test_event_journal_wiring.py` (wiring) |
 
 \* COVERED a livello di funzione/logica e (dove possibile) di glue headless; la verifica
 end-to-end su GUI reale / Windows / XTrader resta nella checklist manuale.
