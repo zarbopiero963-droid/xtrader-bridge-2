@@ -213,6 +213,69 @@ def test_ref_con_suffisso_punteggiato_non_combacia():
     assert cr.match_pending("Ref ABC123 piazzata", pending) is not None
 
 
+# ── #31: robustezza parsing conferme (3 finding Codex post-merge) ────────────
+
+def test_ref_suffisso_estraneo_sopprime_fallback_nomi():
+    # Finding 1: una notifica con ref ETICHETTATO e suffisso ("ABC123/4", scommessa di
+    # un'altra leg) NON deve confermare un nostro segnale SENZA ref con i nomi coincidenti,
+    # nemmeno se esiste anche un segnale con ref "ABC123". L'estrattore ora cattura il ref
+    # completo "abc123/4" (≠ "abc123"), così la guardia anti-ref-estraneo sopprime il fallback.
+    pending = [
+        {"signal_id": "s1", "ref": "ABC123",
+         "EventName": "Inter v Milan", "MarketName": "Esito", "SelectionName": "1"},
+        {"signal_id": "s2", "ref": "",
+         "EventName": "Roma v Lazio", "MarketName": "Both Teams To Score",
+         "SelectionName": "Sì"},
+    ]
+    text = "Ref ABC123/4: Roma v Lazio - Both Teams To Score - Sì piazzata"
+    assert cr.interpret(text, pending).status == cr.UNMATCHED
+    # Controprova: lo STESSO messaggio senza etichetta di ref si associa per nomi a s2.
+    ok = cr.interpret("Roma v Lazio - Both Teams To Score - Sì piazzata", pending)
+    assert ok.status == cr.CONFIRMED and ok.signal_id == "s2"
+
+
+def test_errore_negato_e_conferma():
+    # Finding 2: "no error"/"nessun errore" indica SUCCESSO, non rifiuto.
+    assert cr.classify_outcome("No error, bet placed") == cr.CONFIRMED
+    assert cr.classify_outcome("Nessun errore, scommessa piazzata") == cr.CONFIRMED
+    # ma un errore NON negato resta un rifiuto, e una negazione su 'piazzata' pure
+    assert cr.classify_outcome("Errore di piazzamento") == cr.REJECTED
+    assert cr.classify_outcome("No error ma scommessa non piazzata") == cr.REJECTED
+
+
+def test_negazione_in_clausola_separata_resta_conferma():
+    # Finding 3: una negazione in una proposizione SEPARATA non ribalta la conferma.
+    assert cr.classify_outcome("non serve altro, scommessa piazzata") == cr.CONFIRMED
+    res = cr.interpret("Ref ABC123: non serve altro, scommessa piazzata", _pending())
+    assert res.status == cr.CONFIRMED and res.signal_id == "s1"
+    # ma una negazione ADIACENTE (stessa proposizione) resta un rifiuto (fail-safe invariato)
+    assert cr.classify_outcome("scommessa non è stata piazzata") == cr.REJECTED
+
+
+# ── #31 review (Codex/CodeRabbit su PR-01): chiusura buchi del fail-safe ──────
+
+def test_errore_reale_non_mascherato_da_errore_negato():
+    # Review finding: un errore NEGATO non deve sopprimere un errore REALE più avanti.
+    # "no error but error occurred" / "nessun errore iniziale, errore piazzamento" → REJECTED.
+    assert cr.classify_outcome("no error but error occurred") == cr.REJECTED
+    assert cr.classify_outcome(
+        "Nessun errore iniziale, errore piazzamento scommessa piazzata") == cr.REJECTED
+
+
+def test_negazione_conferma_oltre_quattro_parole_resta_rifiuto():
+    # Review finding: una negazione adiacente nella STESSA clausola, anche distante >4 parole,
+    # resta un rifiuto (fail-safe). Prima la finestra fissa a 4 la lasciava passare.
+    assert cr.classify_outcome(
+        "scommessa non risulta essere stata ancora piazzata") == cr.REJECTED
+
+
+def test_senza_errori_e_conferma_non_rifiuto():
+    # Review finding: "senza"/"without" è un qualificatore di SUCCESSO, non una negazione del
+    # piazzamento: "senza errori scommessa piazzata" → CONFIRMED (non REJECTED).
+    assert cr.classify_outcome("senza errori scommessa piazzata") == cr.CONFIRMED
+    assert cr.classify_outcome("senza problemi scommessa piazzata") == cr.CONFIRMED
+
+
 def test_fallback_selezione_dentro_evento_non_basta():
     # Selection "Inter" è dentro EventName "Inter v Milan": la notifica non nomina
     # la selezione separatamente → niente match (porzioni distinte).
