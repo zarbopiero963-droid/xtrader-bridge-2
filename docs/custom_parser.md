@@ -305,6 +305,14 @@ Tutti questi gate devono passare perché una riga venga scritta:
    (es. una nota) non basta: non deve far passare un messaggio non-segnale che la attiva
    per caso (A10). Per usare un campo non di riconoscimento come "trigger" di contenuto,
    marcalo **obbligatorio**.
+   - **Set di riconoscimento già FISSO-completo (#74).** Se i **soli valori fissi** completano
+     già un set di riconoscimento per la modalità (es. `MarketId`+`SelectionId` fissi in
+     `BOTH`, oppure il set nomi tutto fisso), la riga sarebbe piazzabile per **qualsiasi**
+     messaggio: in quel caso un'estrazione **opzionale** — anche su un campo di riconoscimento
+     — **non** basta come contenuto (eviterebbe altrimenti un bet spurio su un non-segnale).
+     Serve un'estrazione **obbligatoria**. Quando invece il riconoscimento **non** è già
+     completo coi soli fissi, l'estrazione di un campo di riconoscimento conta come prima
+     (così i parser basati su **mappatura mercati**, che estraggono solo l'evento, restano validi).
 4. **Approvazione chat**: un parser è usato solo per la chat **configurata**
    (`chat_id`) o per le chat con voce esplicita in `parser_by_chat`. Un
    `active_parser` globale **non** fa scommettere chat non approvate.
