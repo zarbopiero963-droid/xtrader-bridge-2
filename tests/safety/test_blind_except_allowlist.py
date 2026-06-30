@@ -49,7 +49,9 @@ _ALLOWLIST = {
     "betfair/auto_sync.py": (7, "ciclo auto login→sync→logout best-effort: logout/release/summary/state"),
     "betfair/credential_store.py": (4, "soft-import/fallback keyring credenziali Betfair"),
     "betfair/dictionary_viewer_gui.py": (1, "GUI Tk viewer dizionario best-effort"),
-    "betfair/log_safety.py": (1, "redazione log best-effort"),
+    "betfair/log_safety.py": (2, "redazione log best-effort: il filtro non deve mai crashare il "
+                                 "logging, e agganciare il filtro a un handler (anche via hook su "
+                                 "addHandler) è best-effort (#166)"),
     "betfair/sync_engine.py": (1, "fallimento sync safe: SyncResult FAILED, niente crash/segreti"),
 }
 

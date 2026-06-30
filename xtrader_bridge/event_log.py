@@ -14,6 +14,7 @@ redazione di eventuali segreti resta responsabilità del chiamante (cfr.
 `settings_validation`, che non mette mai il valore grezzo nei messaggi).
 """
 
+import functools
 import os
 import re
 import threading
@@ -71,12 +72,15 @@ def unregister_secret(value) -> None:
         return
     with _secret_lock:
         _secret_literals.discard(str(value))
+    # Non trattenere il segreto nella cache delle regex CR/LF oltre la sua registrazione.
+    _crlf_tolerant_re.cache_clear()
 
 
 def clear_secrets() -> None:
     """Svuota il registro dei segreti (utile nei test e in un reset completo)."""
     with _secret_lock:
         _secret_literals.clear()
+    _crlf_tolerant_re.cache_clear()    # nessun segreto deve sopravvivere nella cache regex
 
 
 def _secret_forms(secret: str):
@@ -95,6 +99,19 @@ def _secret_forms(secret: str):
     return forms
 
 
+@functools.lru_cache(maxsize=256)
+def _crlf_tolerant_re(sec: str):
+    """Regex che matcha `sec` anche se spezzato da CR/LF tra i caratteri (#203).
+
+    Un token registrato può finire **wrappato** su più righe in un log/traceback
+    (`123456789:\\nSecret…`): un `str.replace` esatto non lo riconoscerebbe e lo scriverebbe in
+    chiaro. Inserendo `[\\r\\n]*` tra ogni carattere si maschera anche quella forma, restando
+    retro-compatibile con le occorrenze su singola riga (zero newline → match identico). Si
+    tollerano solo CR/LF (non spazi generici) per non sovra-redarre testo non correlato. Cache
+    per non ricompilare lo stesso pattern a ogni redazione."""
+    return re.compile(r"[\r\n]*".join(re.escape(ch) for ch in sec))
+
+
 def redact_secrets(text: str) -> str:
     """Maschera i segreti nei log (GUI e file): un token incorporato per sbaglio (es. nel testo
     di un'eccezione) non viene mai scritto in chiaro.
@@ -103,24 +120,28 @@ def redact_secrets(text: str) -> str:
     1. **regex** sullo shape CANONICO del bot token Telegram (`<id>:<20+ char>`) — euristica che
        intercetta anche token NON registrati (es. di un'altra fonte);
     2. **per-literal** dei segreti registrati con `register_secret` (es. il token VIVO da
-       config), mascherati per esatta corrispondenza E nelle loro forme derivate
-       (`_secret_forms`: grezzo + URL-encoded) — così è coperta anche la forma encoded che la
-       regex non riconosce, registrando solo il token GREZZO (Codex #184 M7).
+       config), mascherati nelle loro forme derivate (`_secret_forms`: grezzo + URL-encoded) E
+       tolleranti ai CR/LF inseriti tra i caratteri (`_crlf_tolerant_re`, #203) — così è coperta
+       sia la forma encoded che la regex non riconosce (registrando solo il token GREZZO, Codex
+       #184 M7), sia il token **spezzato su più righe** dal wrapping di un log/traceback.
 
     Limite residuo onesto: un segreto MAI registrato, o in una forma derivata non prevista
-    (es. spezzato su righe, doppia codifica), può ancora sfuggire; per questo il token di config
-    va registrato (lo fa `app` a load/save)."""
+    (es. doppia codifica, separatori diversi da CR/LF), può ancora sfuggire; per questo il token
+    di config va registrato (lo fa `app` a load/save)."""
     s = _TELEGRAM_TOKEN_RE.sub(_REDACTED, str(text or ""))
     # Espande ogni literal registrato nelle sue forme derivate (grezzo + URL-encoded), poi
     # sostituisce le più LUNGHE prima: evita che un segreto contenuto in un altro venga
-    # mascherato a metà lasciando un frammento dell'altro in chiaro.
+    # mascherato a metà lasciando un frammento dell'altro in chiaro. Ogni forma è matchata in
+    # modo CR/LF-tollerante così un token wrappato su più righe non sfugge.
     with _secret_lock:
         literals = list(_secret_literals)
     forms = set()
     for sec in literals:
         forms.update(_secret_forms(sec))
     for sec in sorted(forms, key=len, reverse=True):
-        s = s.replace(sec, _REDACTED)
+        if not sec:
+            continue
+        s = _crlf_tolerant_re(sec).sub(_REDACTED, s)
     return s
 
 
