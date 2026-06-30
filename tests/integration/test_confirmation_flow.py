@@ -53,26 +53,6 @@ def _events_in_csv(path):
     return [r["EventName"] for r in rows]
 
 
-def test_conferma_non_riscrive_un_fratello_scaduto(tmp_path):
-    # #30 (Codex): all'arrivo di una conferma, un FRATELLO già scaduto (ma non ancora rimosso
-    # dal tick di scadenza) NON deve essere ri-scritto nel CSV. `app._process_confirmation`
-    # passa ora `now=time.monotonic()` a `active_rows()`; qui si verifica l'invariante del
-    # blocco puro: dopo `confirm`, `active_rows(now=...)` esclude lo scaduto.
-    path = str(tmp_path / "segnali.csv")
-    q = sq.SignalQueue(mode=sq.QUEUE_UNTIL_CONFIRMED, default_timeout=10)
-    q.add(_row("Inter v Milan", "Esito finale", "Inter"), signal_id="vecchio", now=0)  # scade a 10
-    q.add(_row("Roma v Lazio", "Both Teams To Score", "Sì"),
-          signal_id="nuovo", now=5, timeout=100)
-    cw.write_rows(q.active_rows(), path)                     # CSV iniziale: entrambi
-    assert sorted(_events_in_csv(path)) == ["Inter v Milan", "Roma v Lazio"]
-    # now=20: "vecchio" è scaduto. Arriva la conferma del "nuovo".
-    result = cr.interpret("Roma v Lazio - Both Teams To Score - Sì piazzata", q.pending())
-    assert result.status == cr.CONFIRMED
-    q.confirm(result.signal_id)                             # rimuove il confermato dalla coda
-    cw.write_rows(q.active_rows(now=20), path)              # come il codice reale: esclude lo scaduto
-    assert _events_in_csv(path) == []                       # né il confermato né il fratello scaduto
-
-
 def test_conferma_rimuove_il_segnale_associato():
     q = sq.SignalQueue(mode=sq.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
     q.add(_row("Inter v Milan", "Esito finale", "Inter"), now=1000)

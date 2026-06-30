@@ -203,19 +203,44 @@ def _queue_with(*rows):
     return q
 
 
-def test_confirmation_conferma_rimuove_e_riscrive(make_app, app_mod, tmp_path):
+def test_confirmation_conferma_rimuove_e_riscrive(make_app, app_mod, monkeypatch, tmp_path):
     from xtrader_bridge import csv_writer
     path = str(tmp_path / "segnali.csv")
-    q = _queue_with(_row("Inter v Milan"), _row("Roma v Lazio"))
+    q = _queue_with(_row("Inter v Milan"), _row("Roma v Lazio"))   # now=1000/1001, timeout=120
     csv_writer.write_rows(q.active_rows(), path)
     a = make_app(csv_path=path, queue=q)
+    # `_process_confirmation` riscrive con `active_rows(now=time.monotonic())` (#30): fissa il
+    # clock COERENTE con la coda (now=1005, fratelli ancora validi fino a 1120/1121), così il
+    # test è deterministico e non dipende dall'uptime reale del processo (Codex P1 su #265).
+    monkeypatch.setattr(app_mod.time, "monotonic", lambda: 1005.0)
 
     app_mod.App._process_confirmation(a, "Inter v Milan Esito finale Inter piazzata",
                                       {"csv_path": path})
 
     assert [r["EventName"] for r in q.active_rows()] == ["Roma v Lazio"]
-    assert _events_in_csv(path) == ["Roma v Lazio"]
+    assert _events_in_csv(path) == ["Roma v Lazio"]    # il fratello valido resta sul CSV
     assert a.expiry_calls and a.expiry_calls[-1][0] == path
+
+
+def test_confirmation_non_riscrive_fratello_scaduto(make_app, app_mod, monkeypatch, tmp_path):
+    # #30 (Codex): all'arrivo di una conferma, un FRATELLO già scaduto (ma non ancora rimosso
+    # dal tick di scadenza) NON deve essere ri-scritto nel CSV. `_process_confirmation` passa
+    # `now=time.monotonic()` ad `active_rows()`: qui il clock (1200) è oltre la scadenza di
+    # entrambi (1120/1121) → il confermato è rimosso e l'altro è escluso perché scaduto.
+    from xtrader_bridge import csv_writer
+    path = str(tmp_path / "segnali.csv")
+    q = _queue_with(_row("Inter v Milan"), _row("Roma v Lazio"))   # now=1000/1001, scadono 1120/1121
+    csv_writer.write_rows(q.active_rows(), path)
+    a = make_app(csv_path=path, queue=q)
+    monkeypatch.setattr(app_mod.time, "monotonic", lambda: 1200.0)   # entrambi oltre la scadenza
+
+    app_mod.App._process_confirmation(a, "Roma v Lazio Esito finale Roma piazzata",
+                                      {"csv_path": path})
+
+    # Roma confermato (rimosso dalla coda); Inter già scaduto → escluso da active_rows(now):
+    # il CSV NON deve contenere il fratello scaduto.
+    assert _events_in_csv(path) == []
+    assert "Inter v Milan" not in _events_in_csv(path)
 
 
 def test_confirmation_write_failure_segnale_rimosso_e_retry_breve(make_app, app_mod, monkeypatch, tmp_path):
