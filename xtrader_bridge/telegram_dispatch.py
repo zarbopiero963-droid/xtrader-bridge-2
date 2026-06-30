@@ -24,30 +24,35 @@ IGNORE_NOT_RELEVANT = "IGNORE_NOT_RELEVANT"  # chat non ammessa o messaggio non 
 def decide(route, runtime_chat, text, msg_epoch, now, max_age, *, parsers_dir=None) -> str:
     """Decide l'esito per un messaggio in arrivo:
 
-    1. **chat notifiche XTrader** — se `runtime_chat` è la notif-chat:
+    1. **filtro chat** — config viva (`route`) senza alcun criterio chat → `IGNORE_NO_FILTER`
+       (difesa-in-profondità: "nessun filtro" non deve voler dire "ammetti ogni chat").
+       Valutato **per primo**, PRIMA dell'instradamento conferme: se la config viva viene
+       salvata azzerando tutti i filtri sorgente mentre il listener gira ma
+       `xtrader_notification_chat_id` resta impostato, l'instradamento conferma rimuoverebbe
+       righe attive di coda e svuoterebbe il CSV partendo da uno stato prima fail-closed (#53,
+       Codex). Il guard "nessun filtro" deve quindi precedere le conferme;
+    2. **chat notifiche XTrader** — se `runtime_chat` è la notif-chat:
        - se coincide anche con una sorgente ammessa → `IGNORE_CONFLICT` (ambigua, fail-closed),
-       - altrimenti → `CONFIRM` (percorso esiti, non scrittura). Valutata **per prima**, PRIMA
-         della freschezza: una conferma XTrader **ritardata** (oltre `max_age`) deve comunque
+       - altrimenti → `CONFIRM` (percorso esiti, non scrittura). Valutata PRIMA della
+         freschezza: una conferma XTrader **ritardata** (oltre `max_age`) deve comunque
          rimuovere il segnale attivo, non essere scartata come stantia (#53). Le conferme sono
          esiti, non nuovi segnali, quindi il filtro anti-backlog non le riguarda;
-    2. **freschezza** — un nuovo segnale più vecchio di `max_age` (rispetto a `now`) →
+    3. **freschezza** — un nuovo segnale più vecchio di `max_age` (rispetto a `now`) →
        `IGNORE_STALE` (arretrato post-outage, non un segnale "live");
-    3. **filtro chat** — config viva (`route`) senza alcun criterio chat → `IGNORE_NO_FILTER`
-       (difesa-in-profondità: "nessun filtro" non deve voler dire "ammetti ogni chat");
     4. **instradabilità** — chat non ammessa o messaggio non pertinente → `IGNORE_NOT_RELEVANT`;
     5. altrimenti → `PROCESS`.
 
     `parsers_dir` è inoltrato a `should_process` (default `None` = store reale, come nel
     runtime); i test lo iniettano per pilotare il ramo `PROCESS` con un parser su disco.
     """
+    if not signal_router.has_chat_filter(route):
+        return IGNORE_NO_FILTER
     if signal_router.is_notification_chat(route, runtime_chat):
         if signal_router.is_chat_allowed(route, runtime_chat):
             return IGNORE_CONFLICT
         return CONFIRM
     if message_freshness.is_stale(msg_epoch, now, max_age):
         return IGNORE_STALE
-    if not signal_router.has_chat_filter(route):
-        return IGNORE_NO_FILTER
     if not signal_router.should_process(route, runtime_chat, text, parsers_dir=parsers_dir):
         return IGNORE_NOT_RELEVANT
     return PROCESS

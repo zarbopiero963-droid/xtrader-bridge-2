@@ -76,8 +76,12 @@ def _update(msg, *, channel=False):
     return types.SimpleNamespace(message=msg, channel_post=None)
 
 
-def _drive_run_bot(make_app, app_mod, monkeypatch, config):
-    """Esegue il VERO `_run_bot` con un builder finto; ritorna (app, fake_tg_app)."""
+def _drive_run_bot(make_app, app_mod, monkeypatch, config, session_cfg=None):
+    """Esegue il VERO `_run_bot` con un builder finto; ritorna (app, fake_tg_app).
+
+    `config` è la config VIVA (`self._config`, usata per instradamento/parsing); `session_cfg`
+    è lo SNAPSHOT a START (2º arg di `_run_bot`, usato per ESECUZIONE: freschezza, coda, CSV).
+    Di default lo snapshot porta solo il token (max_signal_age/clear_delay assenti → default)."""
     a = make_app(config=config)
     a._running = True
     a._listener_epoch = 1
@@ -109,7 +113,7 @@ def _drive_run_bot(make_app, app_mod, monkeypatch, config):
     a._process = lambda *args, **kw: a.processed.append((args, kw))
     a._process_confirmation = lambda *args, **kw: a.confirmations.append((args, kw))
 
-    app_mod.App._run_bot(a, {"bot_token": "x"}, 1)
+    app_mod.App._run_bot(a, session_cfg or {"bot_token": "x"}, 1)
     # `_on_poll` ha messo `_running=False` solo per far uscire `_run_bot` (no hang). Per
     # esercitare `_handle` nella condizione REALE — sessione attiva e CORRENTE (stesso epoch
     # con cui `_run_bot` è stato avviato) — si ripristina lo stato attivo. Senza, il gate
@@ -194,6 +198,61 @@ def test_messaggio_vecchio_ignorato(make_app, app_mod, monkeypatch):
 
     # ts molto nel passato → oltre max_signal_age → IGNORE_STALE.
     asyncio.run(handle(_update(_msg("111", "arretrato", time.time() - 10_000_000)), None))
+
+    assert a.processed == []
+    assert a.confirmations == []
+
+
+# ── Codex #250: il clamp di freschezza usa il timeout della coda ATTIVA ──────────────
+
+def test_clamp_freschezza_usa_confirmation_timeout_in_modalita_coda(
+        make_app, app_mod, monkeypatch):
+    """Codex #250: in QUEUE_UNTIL_CONFIRMED la vita della riga è `confirmation_timeout`
+    (non `clear_delay`). Il clamp del filtro freschezza deve usare la STESSA sorgente di
+    timeout della coda (`signal_queue.timeout_from_config`), altrimenti un messaggio più
+    vecchio di `clear_delay` ma entro `confirmation_timeout` verrebbe scartato come stantio
+    pur avendo ancora vita utile.
+
+    Setup: confirmation_timeout=120 > clear_delay=90, max_signal_age=120, messaggio di 100s.
+    - Nuovo codice (clamp a timeout_from_config=120): 100 < 120 → fresco → PROCESS.
+    - Vecchio codice (clamp a clear_delay=90): 100 > 90 → IGNORE_STALE → niente PROCESS.
+    """
+    monkeypatch.setattr(app_mod.signal_router, "should_process", lambda *a, **k: True)
+    # Freschezza/coda leggono lo SNAPSHOT a START (session_cfg), non la config viva.
+    session_cfg = {
+        "bot_token": "x",
+        "queue_mode": app_mod.signal_queue.QUEUE_UNTIL_CONFIRMED,
+        "confirmation_timeout": 120,
+        "clear_delay": 90,
+        "max_signal_age": 120,
+    }
+    a, tg = _drive_run_bot(make_app, app_mod, monkeypatch, CFG, session_cfg=session_cfg)
+    handle = _handle_of(tg)
+
+    # 100s nel passato: oltre clear_delay (90) ma entro confirmation_timeout (120).
+    asyncio.run(handle(_update(_msg("111", "P.Bet. segnale", time.time() - 100)), None))
+
+    assert len(a.processed) == 1       # entro la vita reale della riga → processato
+    assert a.confirmations == []
+
+
+def test_clamp_freschezza_oltre_confirmation_timeout_resta_stantio(
+        make_app, app_mod, monkeypatch):
+    """Contro-prova: un messaggio oltre ANCHE `confirmation_timeout` resta stantio.
+    Senza questo, il test sopra passerebbe anche se il filtro freschezza fosse rotto/disattivo."""
+    monkeypatch.setattr(app_mod.signal_router, "should_process", lambda *a, **k: True)
+    session_cfg = {
+        "bot_token": "x",
+        "queue_mode": app_mod.signal_queue.QUEUE_UNTIL_CONFIRMED,
+        "confirmation_timeout": 120,
+        "clear_delay": 90,
+        "max_signal_age": 120,
+    }
+    a, tg = _drive_run_bot(make_app, app_mod, monkeypatch, CFG, session_cfg=session_cfg)
+    handle = _handle_of(tg)
+
+    # 200s nel passato: oltre confirmation_timeout (120) → stantio.
+    asyncio.run(handle(_update(_msg("111", "P.Bet. segnale", time.time() - 200)), None))
 
     assert a.processed == []
     assert a.confirmations == []

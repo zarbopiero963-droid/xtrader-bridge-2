@@ -1654,11 +1654,15 @@ class App(ctk.CTk):
                 # un segnale "live" ma un arretrato dell'outage.
                 msg_date = getattr(msg, "date", None)
                 msg_epoch = msg_date.timestamp() if msg_date is not None else None
-                # #53: il max_age effettivo non supera `clear_delay` (vita della riga CSV): un
-                # messaggio già più vecchio della vita CSV è trattato come stantio, non scritto.
+                # #53: il max_age effettivo non supera la vita della riga CSV per la modalità
+                # coda attiva — `signal_queue.timeout_from_config(cfg)`, cioè `confirmation_timeout`
+                # in QUEUE_UNTIL_CONFIRMED, altrimenti `clear_delay` (Codex): usare la STESSA
+                # sorgente di timeout della coda evita di clampare a `clear_delay` quando la riga
+                # vive in realtà più a lungo (default 120s conferma vs 90s clear). Un messaggio già
+                # più vecchio della vita CSV è trattato come stantio, non scritto.
                 max_age = message_freshness.effective_max_age(
                     cfg.get("max_signal_age", message_freshness.DEFAULT_MAX_AGE),
-                    cfg.get("clear_delay"))
+                    signal_queue.timeout_from_config(cfg))
                 text = msg.text or msg.caption or ''
                 runtime_chat = str(msg.chat_id)
                 # Live-reload del routing (issue #82): INSTRADAMENTO e PARSING (chat ammesse,
@@ -1669,11 +1673,13 @@ class App(ctk.CTk):
                 # invece legata alla sessione (`cfg`): DRY_RUN/limiti, path CSV e token NON
                 # cambiano a metà sessione, per non far scattare una bet reale o un CSV stantio.
                 route = self._config if isinstance(self._config, dict) else cfg
-                # Decisione di instradamento ESTRATTA e testabile in CI (#108): chat-notifiche
-                # (conferma o conflitto) → freschezza → filtro chat (fail-closed) →
-                # should_process. La chat-notifiche è valutata PRIMA della freschezza così una
-                # conferma ritardata non è scartata come stantia (#53). La glue qui resta solo
-                # dispatch + log.
+                # Decisione di instradamento ESTRATTA e testabile in CI (#108): filtro chat
+                # (fail-closed) → chat-notifiche (conferma o conflitto) → freschezza →
+                # should_process. Il guard "nessun filtro" è PRIMO (Codex): se la config viva
+                # azzera i filtri sorgente ma resta la notif-chat, l'instradamento conferma non
+                # deve partire da uno stato prima fail-closed. La chat-notifiche resta PRIMA della
+                # freschezza così una conferma ritardata non è scartata come stantia (#53). La
+                # glue qui resta solo dispatch + log.
                 decision = telegram_dispatch.decide(
                     route, runtime_chat, text, msg_epoch, time.time(), max_age)
                 if decision == telegram_dispatch.IGNORE_STALE:

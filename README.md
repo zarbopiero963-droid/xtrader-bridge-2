@@ -180,7 +180,7 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | `source_chats` | `[]` | lista | Più chat sorgente (vedi sotto). |
 | `xtrader_notification_chat_id` | `""` | chat id | Chat **separata** su cui XTrader notifica l'esito (vedi [Conferma da XTrader](#conferma-da-xtrader)). |
 | `confirmation_timeout` | `120` | secondi | **In `QUEUE_UNTIL_CONFIRMED`**: per quanti secondi un segnale resta in attesa della conferma XTrader prima di scadere (timeout per-segnale della coda). Nelle altre modalità coda non si applica: vale `clear_delay`. |
-| `max_signal_age` | `120` | secondi | Un messaggio Telegram più vecchio di così viene **ignorato** all'arrivo (anti-segnale-stantio: evita che gli arretrati rifetchati dopo una disconnessione diventino scommesse vecchie). Il valore **effettivo non supera `clear_delay`** (la vita della riga CSV): un segnale già più vecchio della sua durata sul CSV è trattato come stantio. `0` = filtro disattivato. Le **conferme XTrader** (chat notifiche) **non** sono soggette a questo filtro. |
+| `max_signal_age` | `120` | secondi | Un messaggio Telegram più vecchio di così viene **ignorato** all'arrivo (anti-segnale-stantio: evita che gli arretrati rifetchati dopo una disconnessione diventino scommesse vecchie). Il valore **effettivo non supera la vita della riga CSV per la modalità coda attiva** — `confirmation_timeout` in `QUEUE_UNTIL_CONFIRMED`, altrimenti `clear_delay`: un segnale già più vecchio della sua durata sul CSV è trattato come stantio. `0` = filtro disattivato. Le **conferme XTrader** (chat notifiche) **non** sono soggette a questo filtro. |
 | `auto_start_listener` | `false` | `true`/`false` | Se `true`, all'apertura l'app **avvia da sola** il listener — ma solo se token e chat sono configurati; in **modalità reale** chiede conferma prima di partire. Default `false`: il bridge parte solo con **AVVIA**. Attivabile dalla tab *Sicurezza*. |
 | `confirmation_keywords` | `[]` | lista | Parole che indicano conferma (vuoto = default del modulo). Dalla GUI: stringa separata da virgola. |
 | `rejection_keywords` | `[]` | lista | Parole che indicano rifiuto (vuoto = default del modulo). Dalla GUI: stringa separata da virgola. |
@@ -509,8 +509,10 @@ attese crescenti (backoff: 2s, 4s, 8s… fino a 60s) finché resta avviato; dura
 l'attesa lo stato mostra **RICONNESSIONE…**, poi torna **ATTIVO**. All'avvio i
 messaggi accumulati mentre era offline vengono **scartati** (`drop_pending_updates`).
 Inoltre, **a prescindere** da come avviene la riconnessione, un messaggio Telegram
-**più vecchio di `max_signal_age` secondi** (default 120s, comunque non oltre
-`clear_delay`) viene **ignorato** all'arrivo: così, se la rete è mancata a lungo, gli
+**più vecchio di `max_signal_age` secondi** (default 120s, comunque non oltre la vita
+della riga CSV per la modalità coda attiva — `confirmation_timeout` in
+`QUEUE_UNTIL_CONFIRMED`, altrimenti `clear_delay`) viene **ignorato** all'arrivo: così,
+se la rete è mancata a lungo, gli
 arretrati rifetchati non diventano scommesse vecchie. Le **conferme XTrader** dalla
 chat notifiche, invece, **non** vengono filtrate per età: un esito ritardato deve
 comunque rimuovere il segnale attivo. Un errore **non** recuperabile (es. **token non valido**)

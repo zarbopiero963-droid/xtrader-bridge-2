@@ -1,6 +1,6 @@
 """Test della decisione di instradamento del listener Telegram (`telegram_dispatch.decide`).
 
-Audit #108: la glue di `App._run_bot._handle` (freschezza → filtro chat → chat-notifiche →
+Audit #108: la glue di `App._run_bot._handle` (filtro chat → chat-notifiche → freschezza →
 should_process) era non testabile in CI. Qui se ne esercita la semantica headless, con i
 moduli reali `signal_router`/`message_freshness`, su tutti gli esiti.
 """
@@ -79,11 +79,24 @@ def test_chat_sorgente_ammessa_con_parser_va_a_process():
     assert _decide(ROUTE, "42") == td.PROCESS
 
 
-def test_ordine_freschezza_prima_del_filtro_chat():
-    """Lo stale vince anche su una config senza filtro: stesso ordine di _handle."""
-    # Un messaggio stantio è ignorato PRIMA di valutare il filtro chat: anche con config
-    # senza filtro, lo stale vince (stesso ordine di _handle).
-    assert _decide({}, "42", epoch=STALE) == td.IGNORE_STALE
+def test_ordine_filtro_chat_prima_di_conferma_e_freschezza():
+    """Il guard "nessun filtro" (fail-closed) precede conferma E freschezza (Codex #250).
+
+    Se la config viva azzera tutti i filtri sorgente mentre resta una notif-chat, una
+    conferma NON deve partire da uno stato prima fail-closed: l'instradamento conferma
+    rimuoverebbe righe attive e svuoterebbe il CSV. Il guard `IGNORE_NO_FILTER` è quindi
+    valutato per primo. Sull'ordine precedente questo caso (route vuota, notif-chat = "42",
+    stantio) usciva come `IGNORE_STALE`; ora — fail-closed prima — esce come
+    `IGNORE_NO_FILTER`. Entrambi ignorano: cambia solo l'etichetta, ma la difesa-in-profondità
+    è più forte perché il no-filter precede anche il ramo conferma.
+    """
+    # Route senza alcun filtro chat, anche se la chat runtime coincide con una notif-chat:
+    # il no-filter fail-closed vince su conferma e su freschezza.
+    no_filter_notif = {"xtrader_notification_chat_id": "42"}
+    assert _decide(no_filter_notif, "42", epoch=STALE) == td.IGNORE_NO_FILTER
+    assert _decide(no_filter_notif, "42", epoch=FRESH) == td.IGNORE_NO_FILTER
+    # Anche senza notif-chat, una route vuota resta IGNORE_NO_FILTER a prescindere dall'età.
+    assert _decide({}, "42", epoch=STALE) == td.IGNORE_NO_FILTER
 
 
 def test_conferma_xtrader_ritardata_non_filtrata_per_eta():
