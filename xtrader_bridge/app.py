@@ -426,6 +426,14 @@ class App(ctk.CTk):
         entry.insert(0, token)
         self._register_secret_token({"bot_token": token})
         if isinstance(self._config, dict):
+            # Specchia il token reidratato nella config viva PRIMA di consumare il marker (Codex
+            # #257): se un path che NON rilegge il campo gira dopo che il marker è stato consumato
+            # ma prima di un `_save_config` (es. START reidrata dal keyring poi ABORTA per csv/timeout
+            # invalidi, e poi scatta un save non-GUI debug/retention/auto-sync che usa `self._config`
+            # direttamente), deve trovare il token in `self._config["bot_token"]`. Senza questo mirror
+            # vedrebbe `bot_token=""` senza marker → ramo clear REALE → `delete_token` cancellerebbe
+            # la credenziale appena reidratata nel campo.
+            self._config["bot_token"] = token
             self._config.pop(config_store.TOKEN_LOAD_INCOMPLETE_KEY, None)
 
     def _load_config(self) -> dict:
@@ -491,6 +499,9 @@ class App(ctk.CTk):
         return saved, ok
 
     def _save_config(self) -> dict:
+        # Cattura il marker PRIMA di qualsiasi consumo (sia il refill pre-lettura qui sotto sia
+        # `save_config` possono consumarlo): serve per il refill POST-save (Codex #257).
+        had_incomplete = self._had_incomplete_token_load()
         # Reidratazione del campo token PRIMA di leggere il form (PR-08c): se il keyring era
         # illeggibile al load (marker `_token_load_incomplete`) il campo è vuoto pur esistendo
         # una credenziale; ripopolarlo ora evita che il `bot_token` vuoto del form venga letto
@@ -532,6 +543,12 @@ class App(ctk.CTk):
         cfg = self._gate_dangerous_transitions(old_cfg, cfg)
         saved, ok = save_config(cfg, CONFIG_FILE)
         self._config = saved
+        # Refill POST-save (Codex #257): se il refill pre-lettura aveva MANCATO (keyring giù in quel
+        # momento) ma `save_config` ha poi reidratato il token (keyring rientrato a metà chiamata)
+        # consumando il marker, il campo è ancora vuoto e un save successivo lo scambierebbe per un
+        # clear cancellando la credenziale. Risincronizza ora col token reidratato. No-op se il campo
+        # è già pieno (refill pre-lettura riuscito) o se non c'era un load incompleto.
+        self._resync_token_field(had_incomplete)
         self._register_secret_token(saved)     # #184 M7: aggiorna il token mascherato nei log
         self._update_real_mode_banner(saved)   # banner rosso persistente se in REALE (#136 p4)
         if not self._running:

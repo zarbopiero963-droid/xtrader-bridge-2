@@ -689,21 +689,33 @@ class _FakeKeyring:
     """Backend keyring simulato per `config_store.token_store` (monkeypatch): `readable`/
     `writable`/`available` controllabili per riprodurre un outage e il suo rientro."""
 
-    def __init__(self, stored=None, available=True, readable=True, writable=True):
+    def __init__(self, stored=None, available=True, readable=True, writable=True,
+                 become_readable_at=None):
         self.stored = stored
         self._available = available
         self.readable = readable
         self.writable = writable
         self.deleted = 0
+        # `become_readable_at`: numero della lettura a partire dalla quale il keyring diventa
+        # leggibile (per simulare un keyring che torna su a metà di un `_save_config`: la
+        # lettura pre-save MANCA, quella interna a `save_config` RIESCE). None = usa `readable`.
+        self.become_readable_at = become_readable_at
+        self.reads = 0
 
     def available(self):
         return self._available
 
+    def _readable_now(self):
+        self.reads += 1
+        if self.become_readable_at is None:
+            return self.readable
+        return self.reads >= self.become_readable_at
+
     def load_token(self):
-        return self.stored if self.readable else None
+        return self.stored if self._readable_now() else None
 
     def load_token_status(self):
-        return (self.stored, True) if self.readable else (None, False)
+        return (self.stored, True) if self._readable_now() else (None, False)
 
     def save_token(self, tok):
         if not self.writable:
@@ -864,3 +876,97 @@ def test_provider_saved_risincronizza_il_campo_token(make_app, app_mod):
     a._config = new_cfg
     app_mod.App._resync_token_field(a, had)
     assert a._e_token.get() == "777:FROMPANEL"              # campo allineato al token del pannello
+
+
+def test_resync_specchia_il_token_reidratato_in_config(make_app, app_mod, monkeypatch):
+    """Codex #257 (P2, finding 1): quando il refill reidrata dal keyring deve SPECCHIARE il
+    token anche in `self._config["bot_token"]`, non solo nel campo GUI. Senza, un path che usa
+    `self._config` direttamente (save non-GUI) dopo che il marker è stato consumato vedrebbe un
+    token vuoto e cancellerebbe la credenziale.
+
+    Fail-first: sul codice senza il mirror `self._config["bot_token"]` resta "" dopo il refill."""
+    from xtrader_bridge import config_store, event_log
+    fake = _FakeKeyring(stored="123:KEYRING", readable=True)
+    monkeypatch.setattr(config_store, "token_store", fake)
+    event_log.clear_secrets()
+    try:
+        a = make_app(config={"bot_token": "", "bot_token_storage": "keyring", _token_marker(): True})
+        a._e_token = _FakeTokenEntry("")
+        app_mod.App._resync_token_field(a)
+        assert a._e_token.get() == "123:KEYRING"
+        assert a._config["bot_token"] == "123:KEYRING"        # MIRROR in config (fail-first)
+        assert _token_marker() not in a._config
+    finally:
+        event_log.clear_secrets()
+
+
+def test_start_refill_poi_abort_poi_save_non_gui_non_cancella(make_app, app_mod, monkeypatch, tmp_path):
+    """Codex #257 (P2, finding 1) END-TO-END: START reidrata il campo dal keyring e consuma il
+    marker, poi ABORTA (es. csv invalido) prima di `_save_config`; in seguito un save non-GUI
+    (`_on_debug_toggle`) usa `self._config` direttamente. Col mirror del token in config il save
+    non-GUI vede un token presente → ramo SET, NON cancella la credenziale.
+
+    Fail-first: senza il mirror, `self._config['bot_token']` resta "" senza marker → il save
+    non-GUI entra nel ramo clear REALE e `delete_token` cancella il token (`deleted==1`)."""
+    from xtrader_bridge import config_store, event_log
+    cfgfile = tmp_path / "config.json"
+    fake = _FakeKeyring(stored="999:REALTOKEN", readable=True)
+    monkeypatch.setattr(config_store, "token_store", fake)
+    monkeypatch.setattr(app_mod, "CONFIG_FILE", str(cfgfile))
+    event_log.clear_secrets()
+    try:
+        a = make_app(running=False, config={
+            "bot_token": "", "bot_token_storage": "keyring", _token_marker(): True,
+        })
+        a._e_token = _FakeTokenEntry("")
+        a._debug_var = _FakeTokenEntry(True)
+        # START-like: reidrata il campo + specchia in config + consuma il marker, poi "aborta".
+        app_mod.App._resync_token_field(a)
+        assert a._e_token.get() == "999:REALTOKEN"
+        assert a._config["bot_token"] == "999:REALTOKEN"
+
+        # Save non-GUI successivo: usa self._config direttamente. Non deve cancellare il token.
+        app_mod.App._on_debug_toggle(a)
+        assert fake.stored == "999:REALTOKEN"                 # token PRESERVATO
+        assert fake.deleted == 0                              # delete_token MAI chiamato
+    finally:
+        event_log.clear_secrets()
+
+
+def test_save_config_refill_post_save_se_keyring_torna_durante_il_save(
+        make_app, app_mod, monkeypatch, tmp_path):
+    """Codex #257 (P2, finding 2): il keyring è illeggibile al refill PRE-lettura di `_save_config`
+    ma torna leggibile DENTRO `save_config` (race): `save_config` reidrata e consuma il marker
+    lasciando il campo vuoto. Il refill POST-save deve ripopolare il campo, così un save successivo
+    non lo scambia per un clear.
+
+    Fail-first: senza il refill post-save il campo resta vuoto dopo `_save_config` (e un save
+    successivo cancellerebbe il token)."""
+    from xtrader_bridge import config_store, event_log
+    cfgfile = tmp_path / "config.json"
+    # become_readable_at=2: lettura 1 (pre-save refill) FALLISCE, lettura 2 (dentro save_config) RIESCE.
+    fake = _FakeKeyring(stored="999:REALTOKEN", become_readable_at=2)
+    monkeypatch.setattr(config_store, "token_store", fake)
+    monkeypatch.setattr(app_mod, "CONFIG_FILE", str(cfgfile))
+    event_log.clear_secrets()
+    try:
+        a = make_app(running=False, config={
+            "bot_token": "", "bot_token_storage": "keyring", _token_marker(): True,
+            "chat_id": "123456", "csv_path": str(tmp_path / "segnali.csv"),
+            "provider": "TelegramBot", "dry_run": True,
+        })
+        a._e_token = _FakeTokenEntry("")
+        a._e_chat = _FakeTokenEntry("123456")
+        a._e_csv = _FakeTokenEntry(str(tmp_path / "segnali.csv"))
+        a._e_provider = _FakeTokenEntry("TelegramBot")
+        a._e_delay = _FakeTokenEntry("90")
+        a._adv = {}
+        a._save_ok = True
+        a._refresh_listened_chats = lambda *x, **k: None
+
+        app_mod.App._save_config(a)
+        assert a._e_token.get() == "999:REALTOKEN"            # campo risincronizzato post-save
+        assert fake.stored == "999:REALTOKEN"                 # token NON cancellato
+        assert fake.deleted == 0
+    finally:
+        event_log.clear_secrets()
