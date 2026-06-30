@@ -198,6 +198,52 @@ def test_save_token_fallito_senza_stato_keyring_resta_plaintext(tmp_path, monkey
     assert on_disk["bot_token"] == "NEW:TOKEN"
 
 
+def test_keyring_non_disponibile_con_stato_keyring_segnala_save_non_riuscito(tmp_path, monkeypatch):
+    """#140 (PR-08a, Codex P2 / CodeRabbit Major): stato precedente "keyring" + keyring NON
+    disponibile ORA (outage transitorio) — il token NUOVO non può essere persistito né nel keyring
+    né (per non esporlo) in chiaro. Il save deve riportare `ok=False`: la GUI non deve mostrare
+    "salvato" mentre il token nuovo è fuori sia da keyring sia da disco. Il vecchio token resta
+    reidratabile (sentinel "keyring", nessun declassamento a plaintext).
+
+    Fail-first: prima questo ramo NON impostava `token_not_persisted`, quindi ritornava `ok=True`
+    pur avendo scartato il token nuovo."""
+    _fake_keyring(monkeypatch, {"t": "OLD:KEYRING:TOKEN"}, available=False)   # keyring giù ORA
+    p = tmp_path / "config.json"
+    saved, ok = config_store.save_config(
+        {"bot_token": "NEW:TOKEN", "bot_token_storage": "keyring", "provider": "X"}, str(p))
+    raw = p.read_text(encoding="utf-8")
+    on_disk = json.loads(raw)
+    assert ok is False                                      # token non persistito → save NON riuscito
+    assert on_disk["bot_token_storage"] == "keyring"        # NON declassato a plaintext
+    assert on_disk["bot_token"] == ""                       # nessun segreto in chiaro su disco
+    assert "NEW:TOKEN" not in raw                           # il token nuovo non finisce in chiaro
+    assert saved["bot_token"] == "NEW:TOKEN"                # in memoria resta (runtime), ma non persistito
+
+
+def test_pre_read_fallita_su_install_plaintext_non_perde_il_token_in_chiaro(tmp_path, monkeypatch):
+    """#140 (PR-08a, Codex P2 line 478): install PLAINTEXT (`bot_token_storage="plaintext"`) +
+    keyring probe OK ma `load_token_status` fallita (read_ok False). Non c'è alcuna credenziale
+    migrata nel keyring da proteggere e il token è già su disco in chiaro: azzerarlo lo
+    CANCELLEREBBE (una GUI re-invia sempre il campo token, anche cambiando un'altra impostazione).
+    Si deve PRESERVARE il token in chiaro, sentinel "plaintext", save RIUSCITO.
+
+    Fail-first: prima questo ramo scriveva `bot_token=""` + sentinel "none" → token in chiaro
+    perso dopo il riavvio."""
+    monkeypatch.setattr(config_store.token_store, "available", lambda: True)
+    monkeypatch.setattr(config_store.token_store, "save_token", lambda t: True)
+    monkeypatch.setattr(config_store.token_store, "load_token", lambda: None)
+    monkeypatch.setattr(config_store.token_store, "load_token_status", lambda: (None, False))  # read FALLITA
+    monkeypatch.setattr(config_store.token_store, "delete_token", lambda: True)
+    p = tmp_path / "config.json"
+    saved, ok = config_store.save_config(
+        {"bot_token": "PLAIN:TOKEN", "bot_token_storage": "plaintext", "provider": "X"}, str(p))
+    on_disk = json.loads(p.read_text(encoding="utf-8"))
+    assert ok is True                                       # token già su disco → save riuscito
+    assert on_disk["bot_token"] == "PLAIN:TOKEN"            # token in chiaro PRESERVATO (non cancellato)
+    assert on_disk["bot_token_storage"] == "plaintext"     # resta plaintext (nessun "none")
+    assert config_store.load_config(str(p))["bot_token"] == "PLAIN:TOKEN"   # riavvio: ancora presente
+
+
 def test_save_config_keyring_first_token_nel_keyring_prima_del_disco(tmp_path, monkeypatch):
     # Codex P2 (crash-safe): `save_token` deve avvenire PRIMA della scrittura su disco, così
     # un crash tra le due non perde il token (il keyring ha già il valore quando il disco

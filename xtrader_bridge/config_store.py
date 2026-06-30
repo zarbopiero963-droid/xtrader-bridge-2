@@ -466,19 +466,30 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
                 # Snapshot del valore PRECEDENTE distinguendo "assente" da "lettura fallita"
                 # (#140): serve come base per il rollback su disco-fallito.
                 prior_keyring, prior_read_ok = token_store.load_token_status()
-                if not prior_read_ok:
-                    # Pre-lettura del keyring FALLITA (Codex): non conosciamo il valore precedente,
-                    # quindi un rollback dopo disco-fallito non potrebbe ripristinarlo. NON
-                    # sovrascrivere il keyring (un save fallito cambierebbe la credenziale in modo
-                    # IRREVERSIBILE) e NON esporre il segreto in chiaro. Si DIFFERISCE l'aggiornamento
-                    # del token e il save è segnalato come NON riuscito (il token già memorizzato,
-                    # se c'è, resta valido e verrà reidratato).
+                if not prior_read_ok and prior_sentinel == "keyring":
+                    # Pre-lettura del keyring FALLITA con stato precedente "keyring" (Codex): non
+                    # conosciamo il valore migrato, quindi un rollback dopo disco-fallito non potrebbe
+                    # ripristinarlo. NON sovrascrivere il keyring (un save fallito cambierebbe la
+                    # credenziale in modo IRREVERSIBILE) e NON esporre il segreto in chiaro. Si
+                    # DIFFERISCE l'aggiornamento del token e il save è segnalato come NON riuscito (il
+                    # token già nel keyring resta valido e verrà reidratato).
                     to_save["bot_token"] = ""
-                    to_save["bot_token_storage"] = "keyring" if prior_sentinel == "keyring" else "none"
+                    to_save["bot_token_storage"] = "keyring"
                     token_not_persisted = True
                     logger.warning("Keyring illeggibile ora: il bot token NON è stato aggiornato "
                                    "(impossibile garantire un rollback sicuro né esporlo in chiaro). "
                                    "Riprova quando il keyring è stabile; il token memorizzato resta valido.")
+                elif not prior_read_ok:
+                    # Pre-lettura fallita ma lo stato precedente NON è "keyring" (install in chiaro o
+                    # prima installazione): NON c'è alcuna credenziale migrata nel keyring da proteggere
+                    # e il token è già/sta per essere su disco in chiaro. Azzerarlo CANCELLEREBBE il
+                    # token in chiaro esistente — una GUI re-invia SEMPRE il campo token, quindi anche
+                    # cambiare un'altra impostazione durante questo guasto transitorio perderebbe la
+                    # credenziale (Codex P2). Si PRESERVA il comportamento storico: token in chiaro su
+                    # disco, sentinel "plaintext", save RIUSCITO (il token resta persistito).
+                    to_save["bot_token_storage"] = "plaintext"
+                    logger.warning("Keyring illeggibile ora: il bot token resta in chiaro in %s "
+                                   "(nessuna credenziale migrata da proteggere).", path)
                 elif token_store.save_token(token):
                     keyring_changed = True
                     to_save["bot_token"] = ""                # niente segreto in chiaro su disco
@@ -505,9 +516,11 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
                 # (Codex P2). NON declassare a plaintext: esporrebbe il segreto su disco per un
                 # guasto temporaneo. Preserva "keyring" e NON scrivere il token in chiaro; il
                 # keyring conserva (ancora) il valore. Un eventuale token NUOVO non può essere
-                # salvato ora → save differito, con avviso.
+                # salvato ora → save DIFFERITO e segnalato NON riuscito (Codex/CodeRabbit): la GUI
+                # non deve mostrare "salvato" mentre il token nuovo è fuori sia da keyring sia da disco.
                 to_save["bot_token"] = ""
                 to_save["bot_token_storage"] = "keyring"
+                token_not_persisted = True
                 logger.warning("Keyring non disponibile: il bot token NON è stato aggiornato ora "
                                "(per non esporlo in chiaro nel config). Riprova quando il keyring "
                                "è disponibile; il token già memorizzato resta valido.")
@@ -609,11 +622,13 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
         # Disco fallito → ROLLBACK del keyring allo stato precedente, così keyring e disco
         # restano coerenti (la credenziale non cambia se la config non è stata salvata).
         if keyring_changed:
-            # Si arriva qui solo dopo un `save_token` riuscito, e quello avviene SOLO quando la
-            # pre-lettura era riuscita (`prior_read_ok`): quindi `prior_keyring` è o un valore reale
-            # (da ripristinare) o `None` perché GENUINAMENTE assente (da cancellare). Se la
-            # pre-lettura fosse fallita, il keyring non sarebbe stato toccato (ramo `not
-            # prior_read_ok` sopra), quindi qui non c'è il caso ambiguo "cancella su lettura fallita".
+            # `keyring_changed` è True dopo una modifica keyring RIUSCITA: `save_token` nel ramo SET
+            # (token nuovo) oppure `delete_token` nel ramo CLEAR (rimozione). In entrambi i casi
+            # `prior_keyring` è lo stato da ripristinare — il valore precedente nel SET, o il token
+            # appena cancellato nel CLEAR. Entrambi i rami partono da una lettura keyring RIUSCITA
+            # (SET: `prior_read_ok`; CLEAR: `load_token()` non-None), quindi `prior_keyring` è o un
+            # valore reale (da ri-salvare) o `None` perché GENUINAMENTE assente (da cancellare): mai
+            # il caso ambiguo "cancella su lettura fallita" (quel ramo non tocca il keyring).
             try:
                 if prior_keyring is not None:
                     rolled_back = token_store.save_token(prior_keyring)
