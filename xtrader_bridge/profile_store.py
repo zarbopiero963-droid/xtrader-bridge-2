@@ -51,8 +51,17 @@ def profile_path(name: str, dir_path: str = None) -> str:
 
 
 def _strip_secrets(cfg: dict) -> dict:
-    """Copia della config senza le chiavi segrete (`SECRET_KEYS`)."""
-    return {k: v for k, v in (cfg or {}).items() if k not in SECRET_KEYS}
+    """Copia della config senza le chiavi segrete (`SECRET_KEYS`) né i marker SOLO-IN-RAM
+    (`config_store.RAM_ONLY_KEYS`, es. `_post_corruption`/`_token_load_incomplete`).
+
+    I marker RAM-only sono flag interni che `load_config` può mettere nella config viva: non
+    devono mai finire nel JSON di un profilo (Codex #256). Caricati in un secondo momento su uno
+    stato diverso del token falserebbero la logica clear/preserve (es. far preservare/resuscitare
+    un token che la config corrente — sentinel "none" — teneva cancellato). Usato sia in scrittura
+    (`save_profile`) sia in lettura/merge (`apply_profile`), così anche un profilo VECCHIO che già
+    contenesse il flag viene ripulito al caricamento."""
+    drop = set(SECRET_KEYS) | set(config_store.RAM_ONLY_KEYS)
+    return {k: v for k, v in (cfg or {}).items() if k not in drop}
 
 
 def _clean_name_or_raise(name: str) -> str:

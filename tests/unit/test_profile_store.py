@@ -75,6 +75,34 @@ def test_apply_profile_ignora_token_in_un_profilo_manomesso():
     assert merged["bot_token"] == "LIVE:TOKEN"        # il token vivo vince sempre
 
 
+def test_save_profile_non_scrive_i_marker_ram_only(tmp_path):
+    """#256 (Codex): i marker SOLO-IN-RAM (`_post_corruption`, `_token_load_incomplete`) NON
+    devono finire nel JSON del profilo: sono flag interni dello stato del token, non impostazioni.
+
+    Fail-first: prima `_strip_secrets` toglieva solo `bot_token`/`bot_token_storage` e i marker
+    venivano serializzati nel profilo."""
+    cfg = {"chat_id": "42",
+           "_post_corruption": True,
+           "_token_load_incomplete": True}
+    path = ps.save_profile("ConMarker", cfg, dir_path=str(tmp_path))
+    raw = json.loads(open(path, encoding="utf-8").read())
+    assert raw["config"] == {"chat_id": "42"}          # solo l'impostazione reale, niente marker
+    assert "_post_corruption" not in raw["config"]
+    assert "_token_load_incomplete" not in raw["config"]
+
+
+def test_apply_profile_ignora_marker_ram_only_in_profilo_vecchio(tmp_path):
+    """#256 (Codex), difesa in profondità: un profilo VECCHIO che già contiene un marker RAM-only
+    non deve applicarlo allo stato corrente del token (falserebbe la logica clear/preserve)."""
+    current = {"bot_token": "LIVE:TOKEN", "bot_token_storage": "none", "chat_id": "1"}
+    old_profile = {"chat_id": "2", "_token_load_incomplete": True, "_post_corruption": True}
+    merged = ps.apply_profile(current, old_profile)
+    assert merged["chat_id"] == "2"                    # impostazione applicata
+    assert "_token_load_incomplete" not in merged      # marker NON propagato
+    assert "_post_corruption" not in merged
+    assert merged["bot_token_storage"] == "none"       # stato token corrente intatto
+
+
 # ── collisioni / nomi non validi ─────────────────────────────────────────────
 
 def test_collisione_filename_tra_nomi_diversi_rifiutata(tmp_path):

@@ -39,6 +39,12 @@ POST_CORRUPTION_KEY = "_post_corruption"
 # (un delete distruggerebbe un token che l'utente non ha mai chiesto di rimuovere).
 TOKEN_LOAD_INCOMPLETE_KEY = "_token_load_incomplete"
 
+# Tutti i marker SOLO-IN-RAM: flag interni che `load_config` può mettere nella config viva ma che
+# NON devono MAI finire su disco né, soprattutto, in un PROFILO (Codex #256). `profile_store` li
+# rimuove insieme ai segreti: caricati su uno stato diverso falserebbero la logica clear/preserve
+# del token (es. preservare/resuscitare un token che lo stato corrente teneva cancellato).
+RAM_ONLY_KEYS = (POST_CORRUPTION_KEY, TOKEN_LOAD_INCOMPLETE_KEY)
+
 # Logger di modulo: un salvataggio/migrazione config fallito NON deve restare
 # silenzioso (prima era `except: pass`). Resta comunque best-effort — l'app non
 # crasha e prosegue dai default — ma l'errore diventa visibile per la diagnosi.
