@@ -638,7 +638,7 @@ The final review pass must happen in this order:
 9. run hard truthful local validation;
 10. push if needed;
 11. wait again for all checks to finish;
-12. only then decide `DONE`, `PARTIAL`, `NOT DONE`, `CHECKS_PENDING`, or `NEEDS_MANUAL`.
+12. only then decide `DONE`, `PARTIAL`, `NOT DONE`, `CHECKS_PENDING`, `REVIEW_WINDOW_PENDING`, or `NEEDS_MANUAL`.
 
 A PR is not ready while checks are pending, even if local tests pass.
 
@@ -661,8 +661,18 @@ it is **added after** it.
 ### The 16-minute gate
 
 When work is "ready for merge" (checks green + local final hard verify done), you must **not**
-declare final `DONE`/`READY` until at least **16 minutes have passed since the LAST commit
-pushed to the PR head**. The 16-minute window covers the maximum observed AI-reviewer delay.
+declare final `DONE`/`READY` until at least **16 minutes have passed since the LAST push that
+updated the PR head** (use the PR head push/update time, **not** the local git commit/author
+timestamp — bots react when the commit is attached to the PR, which can be much later than when
+it was authored locally). The 16-minute window covers the **typical** inline-review delay
+(Codex, non-rate-limited CodeRabbit).
+
+A reviewer known to be **rate-limited** is a longer tail the 16-minute window does **not**
+cover: CodeRabbit can be delayed 39–50 min (it posts a "review limit reached" notice with the
+next-available time). When a current-head reviewer is still pending/rate-limited at window
+close, **do not** declare final `DONE`: keep watching (extend the wait to the announced
+availability, or hand off to the post-merge tracking below) until that reviewer posts or its
+own delay elapses. The last-5 sweep and post-merge Issue tracking are the backstop.
 
 During the window you must:
 
@@ -672,10 +682,17 @@ During the window you must:
   re-read the PR;
 - report status `REVIEW_WINDOW_PENDING` with the window-close time, instead of `DONE`.
 
+Tooling fallback: the gate is fundamentally about **waiting and then re-reading**, not about a
+specific tool. `subscribe_pr_activity` + `send_later`/`ScheduleWakeup` are the **preferred**
+mechanism. If they are unavailable (e.g. a runner with only git/GitHub CLI/API polling), still
+satisfy the gate by polling: re-read checks, reviews, **PR conversation comments**, inline
+comments and unresolved threads at/after window close via the CLI/API. Missing wake-up tooling never authorizes an early
+`DONE` and never blocks the PR — it only changes how you wait.
+
 Rules:
 
-- **every new pushed commit RESETS the timer** to 16 minutes from that commit (bots re-review
-  the new head);
+- **every new push to the PR head RESETS the timer** to 16 minutes from that push (bots
+  re-review the new head);
 - do not declare `DONE`/`READY`/`READY_TO_MERGE` and do not resolve threads "with the window
   open" before re-reading the PR at window close;
 - do not make random patches just because you are waiting.
@@ -709,7 +726,11 @@ so the fix PR is the legitimate continuation, not a second parallel PR.
 Safety net for anything that slipped through before this rule existed or while no agent was
 active. **At the start of every task (inside Phase 0) and before final `DONE`**, inspect the
 **last 5 closed and merged PRs** and look for unresolved or post-merge AI findings that were
-never addressed. Whatever you find is tracked in an Issue (+ fix PR if actionable), as above.
+never addressed. Whatever you find is **recorded and de-duplicated** into an Issue. **Fix-PR
+creation is deferred** when another task/PR is already active: the one-active-task /
+one-open-PR rule wins, so the sweep never spawns a second parallel PR or derails the current
+task. Open the fix PR for swept findings **only** once no other PR/task is active; until then
+the Issue holds them.
 
 Mandatory dedup: **before opening an Issue, search existing Issues** (open and closed) for that
 finding/PR and **do not duplicate**; if one already exists, link the comment to the existing
@@ -723,11 +744,11 @@ REVIEW_WINDOW_PENDING
 PR:
 - <number / head SHA>
 
-Last commit:
-- <SHA> @ <timestamp>
+Last push to PR head:
+- <SHA> @ <PR-head push/update timestamp>
 
 Window closes:
-- <last-commit timestamp + 16 min>
+- <PR-head push timestamp + 16 min>
 
 Merge:
 - MANUAL (not blocked by this gate)
@@ -926,7 +947,7 @@ Inline comments checked:
 Unresolved threads checked:
 - YES / NO
 
-Review window (16 min since last commit) honored:
+Review window (16 min since last push to PR head) honored:
 - YES / NO / RUNNING (closes at <timestamp>)
 
 Last-5 PR post-merge sweep:
@@ -1082,7 +1103,7 @@ Do not mark work complete with fake, assumed, or decorative tests.
 ## Required response format after creating a new PR
 
 ```text
-DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
+DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
 
 Summary:
 - <what was changed>
@@ -1121,7 +1142,7 @@ Files created:
 - <file path>
 
 Final hard verify:
-- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
+- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
 
 Notes:
 - <anything the repository owner must know>
@@ -1140,7 +1161,7 @@ and explain why.
 ## Required response format after fixing current PR
 
 ```text
-DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
+DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
 
 Summary:
 - <what was changed>
@@ -1175,7 +1196,7 @@ Files changed:
 - <file path>
 
 Final hard verify:
-- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
+- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
 
 Notes:
 - <anything the repository owner must know>

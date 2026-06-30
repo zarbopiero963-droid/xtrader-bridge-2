@@ -178,8 +178,19 @@ gate **non** merga, non blocca il proprietario, e non sostituisce il check compl
 
 Quando il lavoro è «pronto per merge» (check verdi + final hard verify locale fatto), **non**
 puoi ancora dichiarare `DONE`/`READY` finale finché non sono passati **almeno 16 minuti
-dall'ULTIMO commit pushato sul head della PR**. La finestra dei 16 minuti copre il ritardo
-massimo osservato dei reviewer AI.
+dall'ULTIMO push che ha aggiornato il head della PR** (usa l'orario di **push/aggiornamento
+del head della PR**, **non** il timestamp del commit git locale: i bot reagiscono quando il
+commit viene attaccato alla PR, che può essere molto più tardi di quando è stato creato in
+locale). La finestra dei 16 minuti copre il ritardo **tipico** della review inline (Codex,
+CodeRabbit non rate-limited).
+
+Un reviewer **rate-limited** è una coda più lunga che i 16 minuti **non** coprono: CodeRabbit
+può ritardare di 39–50 min (pubblica un avviso «review limit reached» con l'orario di prossima
+disponibilità). Se a fine finestra un reviewer del current-head è ancora pending/rate-limited,
+**non** dichiarare `DONE`: continua a sorvegliare (estendi l'attesa fino all'orario annunciato,
+oppure passa il testimone al tracciamento post-merge qui sotto) finché quel reviewer non
+pubblica o il suo ritardo non è trascorso. Lo sweep ultime 5 PR e la Issue post-merge sono la
+rete di sicurezza.
 
 Durante la finestra devi:
 
@@ -190,9 +201,17 @@ Durante la finestra devi:
 - riportare lo stato `REVIEW_WINDOW_PENDING` con l'orario di chiusura della finestra, invece
   di `DONE`.
 
+Fallback strumenti: il gate è essenzialmente **attendere e poi rileggere**, non uno strumento
+specifico. `subscribe_pr_activity` + `send_later`/`ScheduleWakeup` sono il meccanismo
+**preferito**. Se non sono disponibili (es. un runner con solo polling git/GitHub CLI/API),
+soddisfa comunque il gate con il **polling**: rileggi check, review, **commenti di
+conversazione della PR**, inline e thread non risolti a/dopo la chiusura della finestra via
+CLI/API. La mancanza degli strumenti di wake-up
+non autorizza mai un `DONE` anticipato e non blocca mai la PR: cambia solo *come* aspetti.
+
 Regole:
 
-- **ogni nuovo commit pushato RESETTA il timer** a 16 minuti da quel commit (i bot rivedono
+- **ogni nuovo push sul head PR RESETTA il timer** a 16 minuti da quel push (i bot rivedono
   il nuovo head);
 - non dichiarare `DONE`, `READY`, `READY_TO_MERGE`, non risolvere thread «a finestra aperta»
   prima di aver riletto la PR a fine finestra;
@@ -228,8 +247,11 @@ mergiata/chiusa, quindi la fix PR è la legittima continuazione, non una seconda
 Rete di sicurezza per ciò che fosse sfuggito prima che questa regola esistesse o mentre
 nessun agente era attivo. **All'inizio di ogni task (dentro Phase 0) e prima del `DONE`
 finale**, ispeziona le **ultime 5 PR chiuse e mergiate** e cerca finding AI non risolti o
-post-merge mai indirizzati. Quello che trovi va tracciato in Issue (+ fix PR se azionabile),
-come sopra.
+post-merge mai indirizzati. Quello che trovi viene **registrato e deduplicato** in una Issue.
+**L'apertura della fix PR è differita** se un altro task/PR è già attivo: vincono le regole
+«un solo task attivo» / «una sola PR aperta», quindi lo sweep non apre mai una seconda PR
+parallela né devia il task corrente. La fix PR per i finding dello sweep si apre **solo**
+quando nessun altro PR/task è attivo; fino ad allora la Issue li trattiene.
 
 Deduplica obbligatoria: **prima di aprire una Issue cerca le Issue esistenti** (aperte e
 chiuse) per quel finding/PR e **non duplicare**; se esiste già, collega il commento alla
@@ -243,11 +265,11 @@ REVIEW_WINDOW_PENDING
 PR:
 - <numero / head SHA>
 
-Ultimo commit:
-- <SHA> @ <timestamp>
+Ultimo push sul head PR:
+- <SHA> @ <timestamp push/aggiornamento head PR>
 
 Finestra chiude:
-- <timestamp ultimo commit + 16 min>
+- <timestamp push sul head PR + 16 min>
 
 Merge:
 - MANUALE (non bloccato da questo gate)
@@ -891,7 +913,7 @@ Inline comments checked:
 Unresolved threads checked:
 - YES / NO
 
-Review window (16 min dall'ultimo commit) rispettata:
+Review window (16 min dall'ultimo push sul head PR) rispettata:
 - YES / NO / RUNNING (chiude a <timestamp>)
 
 Last-5 PR post-merge sweep:
@@ -960,7 +982,7 @@ NEEDS_MANUAL_UPDATE_BRANCH
 Per nuovo task o PR:
 
 ```text
-DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
+DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
 
 Summary:
 - <cosa è stato cambiato>
@@ -996,7 +1018,7 @@ Files changed:
 - <file>
 
 Final hard verify:
-- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
+- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
 
 Notes:
 - <limiti, test manuali, cose da sapere>
