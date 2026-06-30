@@ -1271,7 +1271,10 @@ def test_clear_dopo_load_keyring_illeggibile_non_cancella_il_token(tmp_path, mon
     on_disk = json.loads(p.read_text(encoding="utf-8"))
     assert on_disk["bot_token_storage"] == "keyring"        # niente "none": reidrata ancora
     assert saved["bot_token"] == "LIVE:TOKEN"               # reidratato in memoria (runtime)
-    assert config_store.TOKEN_LOAD_INCOMPLETE_KEY not in saved   # marker consumato (load ora completo)
+    # Il marker è MANTENUTO in memoria dopo la reidratazione: segnala al consumer GUI che il campo
+    # token va risincronizzato (la GUI lo consuma poi). Su disco non finisce MAI.
+    assert saved.get(config_store.TOKEN_LOAD_INCOMPLETE_KEY) is True
+    assert config_store.TOKEN_LOAD_INCOMPLETE_KEY not in on_disk
 
 
 def test_load_incompleto_persiste_se_keyring_ancora_giu(tmp_path, monkeypatch):
@@ -1307,8 +1310,12 @@ def test_load_incompleto_persiste_se_keyring_ancora_giu(tmp_path, monkeypatch):
     assert ok2 is True
     assert deleted["n"] == 0
     assert state["token"] == "LIVE:TOKEN"
-    assert saved2["bot_token"] == "LIVE:TOKEN"              # reidratato, marker ora consumato
-    assert config_store.TOKEN_LOAD_INCOMPLETE_KEY not in saved2
+    assert saved2["bot_token"] == "LIVE:TOKEN"              # reidratato (runtime)
+    # Dopo la reidratazione il marker è MANTENUTO in memoria per il refresh del campo GUI (consumato
+    # poi dalla GUI); resta comunque fuori dal disco.
+    assert saved2.get(config_store.TOKEN_LOAD_INCOMPLETE_KEY) is True
+    on_disk2 = json.loads(p.read_text(encoding="utf-8"))
+    assert config_store.TOKEN_LOAD_INCOMPLETE_KEY not in on_disk2
 
 
 def test_clear_reale_con_keyring_leggibile_cancella(tmp_path, monkeypatch):
@@ -1375,5 +1382,8 @@ def test_save_parziale_non_consuma_il_marker_load_incompleto(tmp_path, monkeypat
     saved, ok = config_store.save_config(cfg, str(p))
     assert ok is True
     assert saved.get(config_store.TOKEN_LOAD_INCOMPLETE_KEY) is True   # marker PRESERVATO in memoria
+    assert saved["bot_token_storage"] == "keyring"                    # puntatore keyring preservato (runtime)
     on_disk = json.loads(p.read_text(encoding="utf-8"))
+    assert on_disk["bot_token"] == ""                                 # token migrato resta fuori dal disco
+    assert on_disk["bot_token_storage"] == "keyring"                  # ...ma il puntatore keyring è preservato
     assert config_store.TOKEN_LOAD_INCOMPLETE_KEY not in on_disk       # ma MAI su disco

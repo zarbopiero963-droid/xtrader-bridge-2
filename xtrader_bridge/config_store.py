@@ -591,9 +591,18 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
             stored, read_ok = token_store.load_token_status()
             to_save["bot_token"] = ""
             if stored:
-                # Keyring leggibile e col valore → reidrata: il load è ora completo, il token reale
-                # torna in `in_memory` per il runtime e i save successivi sono normali. Si PRESERVA.
+                # Keyring leggibile e col valore → reidrata: il token reale torna in `in_memory` per il
+                # runtime. Si PRESERVA. Il marker `_token_load_incomplete` viene MANTENUTO in `in_memory`
+                # (mai su disco): segnala al CONSUMER GUI che il campo token è ancora vuoto e va
+                # ripopolato col token reidratato (Codex/CodeRabbit). La GUI lo consuma dopo aver
+                # risincronizzato il campo, così un clear DELIBERATO successivo (campo svuotato a mano,
+                # marker assente) non viene scambiato per uno stato da reidratare. Resta comunque
+                # consumato da config_store su un save normale con token presente (ramo SET).
                 in_memory["bot_token"] = stored
+                if load_incomplete:
+                    # SOLO #140 (non #199 post-corruzione, che ha la sua semantica di healing): mantieni
+                    # il marker così la GUI ripopola il campo token rimasto vuoto e poi lo consuma.
+                    in_memory[TOKEN_LOAD_INCOMPLETE_KEY] = True
                 to_save["bot_token_storage"] = "keyring"
                 logger.warning("Bot token NON cancellato: il campo vuoto deriva da un load incompleto "
                                "(config corrotto o keyring illeggibile al caricamento), non da un clear "

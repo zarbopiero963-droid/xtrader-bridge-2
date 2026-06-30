@@ -24,7 +24,7 @@ import csv
 
 import pytest
 
-from xtrader_bridge import safety_guard, signal_dedupe, signal_queue
+from xtrader_bridge import config_store, safety_guard, signal_dedupe, signal_queue
 
 
 # ── helper ────────────────────────────────────────────────────────────────────
@@ -677,32 +677,52 @@ class _FakeTokenEntry:
         self._v = text
 
 
+_MARK = config_store.TOKEN_LOAD_INCOMPLETE_KEY
+
+
 def test_refill_token_entry_dopo_reidratazione(make_app):
-    """#140/#256 (Codex): dopo che un save ha reidratato il token in `self._config` ma il campo
-    GUI è rimasto vuoto (keyring illeggibile al load), `_refill_token_entry_after_rehydrate`
-    ripopola il campo. Senza, il save/AVVIO successivo ricostruirebbe un token vuoto e
-    `save_config` lo cancellerebbe dal keyring (perdita-token al 2° save).
+    """#140/#256 (Codex/CodeRabbit): dopo che un save ha reidratato il token in `self._config`
+    (marker `_token_load_incomplete` presente) ma il campo GUI è rimasto vuoto,
+    `_refill_token_entry_after_rehydrate` ripopola il campo e CONSUMA il marker. Senza, il
+    save/AVVIO successivo ricostruirebbe un token vuoto e `save_config` lo cancellerebbe (perdita
+    al 2° save).
 
     Fail-first: prima il metodo non esisteva (AttributeError) e il campo restava vuoto."""
-    a = make_app(config={"bot_token": "LIVE:TOKEN", "bot_token_storage": "keyring"})
+    a = make_app(config={"bot_token": "LIVE:TOKEN", "bot_token_storage": "keyring", _MARK: True})
     a._e_token = _FakeTokenEntry("")                 # campo vuoto dopo l'outage al load
     a._refill_token_entry_after_rehydrate()
     assert a._e_token.get() == "LIVE:TOKEN"          # ripopolato dal token reidratato
+    assert _MARK not in a._config                    # marker CONSUMATO (campo ora sincronizzato)
 
 
 def test_refill_non_sovrascrive_campo_gia_pieno(make_app):
-    """Contro-prova: se il campo è già pieno (token digitato dall'utente) NON viene sovrascritto
-    dal valore in config — l'input dell'utente vince."""
-    a = make_app(config={"bot_token": "OLD:CONFIG:TOKEN"})
+    """Contro-prova: col marker presente ma il campo già pieno (token digitato dall'utente) NON
+    viene sovrascritto dal valore in config — l'input dell'utente vince; il marker è comunque consumato."""
+    a = make_app(config={"bot_token": "OLD:CONFIG:TOKEN", "bot_token_storage": "keyring", _MARK: True})
     a._e_token = _FakeTokenEntry("USER:TYPED:TOKEN")
     a._refill_token_entry_after_rehydrate()
     assert a._e_token.get() == "USER:TYPED:TOKEN"    # input utente preservato
+    assert _MARK not in a._config                    # marker consumato
 
 
-def test_refill_no_op_su_clear_deliberato(make_app):
-    """Se in config non c'è token (clear deliberato), il campo vuoto resta vuoto: nessuna
-    resurrezione, il clear deliberato non viene annullato."""
-    a = make_app(config={"bot_token": "", "bot_token_storage": "none"})
+def test_refill_no_op_senza_marker_clear_deliberato(make_app):
+    """#256 (CodeRabbit Major / Codex P2): il caso REALE di clear deliberato — la config ha ANCORA
+    il vecchio token (non ancora salvato) ma NON ha il marker e l'utente ha svuotato il campo a
+    mano → il refill NON deve ripopolare (gate sul marker). Senza il gate, il vecchio token sarebbe
+    resuscitato e il clear/delete non verrebbe mai eseguito.
+
+    Fail-first: prima (refill incondizionato) il campo veniva ripopolato con 'ABC'."""
+    a = make_app(config={"bot_token": "ABC", "bot_token_storage": "keyring"})   # NESSUN marker
+    a._e_token = _FakeTokenEntry("")                 # campo svuotato a mano per cancellare
+    a._refill_token_entry_after_rehydrate()
+    assert a._e_token.get() == ""                    # resta vuoto: clear deliberato preservato
+
+
+def test_refill_no_op_se_token_non_ancora_reidratato(make_app):
+    """Col marker presente ma il token NON ancora reidratato (keyring ancora giù, config token
+    vuoto), il refill non fa nulla e MANTIENE il marker (la protezione deve sopravvivere)."""
+    a = make_app(config={"bot_token": "", "bot_token_storage": "keyring", _MARK: True})
     a._e_token = _FakeTokenEntry("")
     a._refill_token_entry_after_rehydrate()
-    assert a._e_token.get() == ""                    # resta vuoto (clear preservato)
+    assert a._e_token.get() == ""                    # niente da ripopolare
+    assert a._config.get(_MARK) is True              # marker MANTENUTO (load ancora incompleto)

@@ -422,20 +422,29 @@ class App(ctk.CTk):
         return saved, ok
 
     def _refill_token_entry_after_rehydrate(self) -> None:
-        """Risincronizza il campo password del bot token dalla config viva quando un save ha
-        REIDRATATO il token dal keyring (es. keyring illeggibile al load, #140) ma il campo GUI è
-        rimasto vuoto. Senza, il save/AVVIO successivo leggerebbe il campo vuoto e ricostruirebbe
-        la config azzerando il token → `save_config` lo cancellerebbe dal keyring (Codex #256).
+        """Risincronizza il campo password del bot token dalla config viva DOPO una reidratazione
+        dal keyring (es. keyring illeggibile al load, #140), quando il campo GUI è rimasto vuoto.
+        Senza, il save/AVVIO successivo leggerebbe il campo vuoto e ricostruirebbe la config
+        azzerando il token → `save_config` lo cancellerebbe dal keyring (Codex/CodeRabbit #256).
 
-        Agisce SOLO quando c'è un token in config e il campo è vuoto: non sovrascrive mai un valore
-        digitato dall'utente né un campo già pieno, quindi un clear DELIBERATO (campo svuotato a
-        mano) resta tale."""
+        GATE sul marker `_token_load_incomplete` (Codex/CodeRabbit): agisce SOLO quando la config
+        porta quel marker, cioè il campo è vuoto perché il token NON è stato reidratato al load — MAI
+        per un campo svuotato a mano dall'utente (clear DELIBERATO: nessun marker). Il marker è
+        `config_store`-mantenuto attraverso la reidratazione apposta per questo refresh, e qui lo si
+        CONSUMA una volta che il campo riflette lo stato del token, così un clear deliberato
+        successivo non viene scambiato per uno stato da reidratare."""
         cfg = self._config if isinstance(self._config, dict) else {}
+        if not cfg.get(config_store.TOKEN_LOAD_INCOMPLETE_KEY):
+            return                                  # nessun load-incompleto → non toccare il campo
         tok = str(cfg.get("bot_token") or "")
+        if not tok:
+            return                                  # token non ancora reidratato → mantieni il marker
         entry = getattr(self, "_e_token", None)
-        if tok and entry is not None and not entry.get().strip():
+        if entry is not None and not entry.get().strip():
             entry.delete(0, "end")
             entry.insert(0, tok)
+        # Token reidratato e riflesso nel campo → consuma il marker (a livello GUI).
+        cfg.pop(config_store.TOKEN_LOAD_INCOMPLETE_KEY, None)
 
     def _save_config(self) -> dict:
         # Prima di leggere il campo token, risincronizzalo se un save precedente ha reidratato il
@@ -477,6 +486,9 @@ class App(ctk.CTk):
         cfg = self._gate_dangerous_transitions(old_cfg, cfg)
         saved, ok = save_config(cfg, CONFIG_FILE)
         self._config = saved
+        # Se QUESTO save ha reidratato il token (load-incompleto risolto), ripopola subito il campo e
+        # consuma il marker: così il save successivo legge il token e non lo cancella (#140/#256).
+        self._refill_token_entry_after_rehydrate()
         self._register_secret_token(saved)     # #184 M7: aggiorna il token mascherato nei log
         self._update_real_mode_banner(saved)   # banner rosso persistente se in REALE (#136 p4)
         if not self._running:
