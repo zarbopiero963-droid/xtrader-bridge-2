@@ -1669,9 +1669,11 @@ class App(ctk.CTk):
                 # invece legata alla sessione (`cfg`): DRY_RUN/limiti, path CSV e token NON
                 # cambiano a metà sessione, per non far scattare una bet reale o un CSV stantio.
                 route = self._config if isinstance(self._config, dict) else cfg
-                # Decisione di instradamento ESTRATTA e testabile in CI (#108): freschezza →
-                # filtro chat (fail-closed) → chat-notifiche (conferma o conflitto) →
-                # should_process. La glue qui resta solo dispatch + log.
+                # Decisione di instradamento ESTRATTA e testabile in CI (#108): chat-notifiche
+                # (conferma o conflitto) → freschezza → filtro chat (fail-closed) →
+                # should_process. La chat-notifiche è valutata PRIMA della freschezza così una
+                # conferma ritardata non è scartata come stantia (#53). La glue qui resta solo
+                # dispatch + log.
                 decision = telegram_dispatch.decide(
                     route, runtime_chat, text, msg_epoch, time.time(), max_age)
                 if decision == telegram_dispatch.IGNORE_STALE:
