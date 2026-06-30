@@ -160,6 +160,105 @@ Una PR non è pronta se i check sono ancora in corso, anche se `python -m py_com
 
 ---
 
+## FINESTRA DI REVIEW POST-COMMIT — 16 MIN GATE & SWEEP ULTIME 5 PR — OBBLIGATORIO
+
+Motivo: i reviewer AI **non** pubblicano subito. Misurato sulle PR reali del repo, dopo
+ogni push gli inline comment arrivano con ritardo: **Codex** tipicamente **+7–12 min**,
+**CodeRabbit** **+1–10 min** (e spesso rate-limited di 39–50 min), **Sourcery** in pochi
+secondi ma quasi sempre rate-limited. Se la PR viene mergiata troppo presto, quei commenti
+(anche P1) **atterrano dopo il merge** e finiscono sepolti in una PR chiusa che nessuno
+riguarda. Caso reale: PR #239 mergiata a +9 min, review Codex arrivata **+3 min dopo il
+merge** con **2 P1 + 4 P2 mai indirizzati**.
+
+Questa sezione vale per ogni PR. Il merge resta **sempre manuale del proprietario**: questo
+gate **non** merga, non blocca il proprietario, e non sostituisce il check completion gate —
+**si aggiunge dopo** di esso.
+
+### Gate dei 16 minuti
+
+Quando il lavoro è «pronto per merge» (check verdi + final hard verify locale fatto), **non**
+puoi ancora dichiarare `DONE`/`READY` finale finché non sono passati **almeno 16 minuti
+dall'ULTIMO commit pushato sul head della PR**. La finestra dei 16 minuti copre il ritardo
+massimo osservato dei reviewer AI.
+
+Durante la finestra devi:
+
+- mantenere **attiva la subscription** agli eventi della PR (`subscribe_pr_activity`) così
+  intercetti i commenti AI man mano che arrivano;
+- programmare un **self check-in** (es. `send_later`/`ScheduleWakeup`) alla scadenza della
+  finestra per rileggere la PR;
+- riportare lo stato `REVIEW_WINDOW_PENDING` con l'orario di chiusura della finestra, invece
+  di `DONE`.
+
+Regole:
+
+- **ogni nuovo commit pushato RESETTA il timer** a 16 minuti da quel commit (i bot rivedono
+  il nuovo head);
+- non dichiarare `DONE`, `READY`, `READY_TO_MERGE`, non risolvere thread «a finestra aperta»
+  prima di aver riletto la PR a fine finestra;
+- non fare patch casuali solo perché stai aspettando.
+
+### Persistenza anche se il proprietario merga in anticipo
+
+Il proprietario può mergiare a mano in qualsiasi momento. **Il merge NON chiude la finestra
+di review.** Devi comunque completare il watch dei 16 minuti su quella PR, **anche se ora è
+mergiata/chiusa**, e a fine finestra rileggerla:
+
+- inline comment / review bodies con `submitted_at` **successivo all'ultimo push**;
+- thread **non risolti**;
+- soprattutto i commenti con `submitted_at` **successivo al `merged_at`** (i «fantasmi
+  post-merge»);
+- annotazioni dei check, Codacy/DeepSource/CodeRabbit/Sourcery/Codex se presenti.
+
+Esito a fine finestra:
+
+- **nulla di non risolto** → chiudi: nessuna azione, dichiara lo stato finale.
+- **rilevato qualcosa** → va **tracciato**: apri **SEMPRE una Issue GitHub** che registra
+  ogni finding (numero PR, head SHA, file:riga, bot, severità P1/P2/nitpick, link al
+  commento) così nulla si perde in una PR chiusa; e per i finding **reali/azionabili** apri
+  una **nuova PR dedicata** col fix. La PR mergiata **non** si riusa e non ci si stacca sopra:
+  la fix PR parte dall'ultimo `main`, cita la Issue, e segue tutto l'ordine operativo (Phase 0,
+  micro-audit, test hard veritieri). Una sola Issue può aggregare più finding della stessa PR.
+
+Questo **non** viola «una sola PR aperta alla volta»: la PR precedente è ormai
+mergiata/chiusa, quindi la fix PR è la legittima continuazione, non una seconda PR parallela.
+
+### Sweep delle ultime 5 PR chiuse+mergiate
+
+Rete di sicurezza per ciò che fosse sfuggito prima che questa regola esistesse o mentre
+nessun agente era attivo. **All'inizio di ogni task (dentro Phase 0) e prima del `DONE`
+finale**, ispeziona le **ultime 5 PR chiuse e mergiate** e cerca finding AI non risolti o
+post-merge mai indirizzati. Quello che trovi va tracciato in Issue (+ fix PR se azionabile),
+come sopra.
+
+Deduplica obbligatoria: **prima di aprire una Issue cerca le Issue esistenti** (aperte e
+chiuse) per quel finding/PR e **non duplicare**; se esiste già, collega il commento alla
+Issue esistente invece di crearne una nuova.
+
+### Stato dedicato
+
+```text
+REVIEW_WINDOW_PENDING
+
+PR:
+- <numero / head SHA>
+
+Ultimo commit:
+- <SHA> @ <timestamp>
+
+Finestra chiude:
+- <timestamp ultimo commit + 16 min>
+
+Merge:
+- MANUALE (non bloccato da questo gate)
+
+Next allowed action:
+- Alla scadenza: rileggere check, review bodies, inline, thread non risolti e
+  commenti con submitted_at > merged_at; tracciare in Issue + fix PR se serve.
+```
+
+---
+
 ## MINI PHASE 0 OBBLIGATORIA
 
 Prima di patchare un task che tocca parser, CSV, Telegram, config, GUI, build o PR, devi fare Phase 0 read-only.
@@ -792,6 +891,12 @@ Inline comments checked:
 Unresolved threads checked:
 - YES / NO
 
+Review window (16 min dall'ultimo commit) rispettata:
+- YES / NO / RUNNING (chiude a <timestamp>)
+
+Last-5 PR post-merge sweep:
+- YES / NO
+
 Safety invariants:
 - PASS / FAIL
 
@@ -799,7 +904,7 @@ Merge:
 - MANUAL ONLY
 
 Final status:
-- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
+- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
 ```
 
 Se anche uno solo di questi punti manca, non dichiarare `DONE`.
