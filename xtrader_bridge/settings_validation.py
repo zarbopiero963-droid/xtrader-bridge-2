@@ -19,7 +19,12 @@ def parse_timeout(raw, default: int = DEFAULT_TIMEOUT):
     Ritorna ``(valore, errore)``: con `errore=None` `valore` è un int valido;
     altrimenti `valore` è ``None`` ed `errore` è un messaggio. Vuoto → `default`
     (comodo all'avvio). Non numerico o ``<= 0`` → errore (un timeout nullo o
-    negativo svuoterebbe il CSV in modo imprevedibile)."""
+    negativo svuoterebbe il CSV in modo imprevedibile).
+
+    SICUREZZA LOG: i messaggi d'errore sono SEMPRE generici e NON includono mai il valore
+    grezzo — la GUI li scrive nel log, e l'utente potrebbe aver incollato per sbaglio nel
+    campo un bot token (caso non numerico) o un chat ID negativo (caso ``<= 0``), che non
+    devono finire in chiaro nei log (Codex #27)."""
     s = str(raw if raw is not None else "").strip()
     if s == "":
         return default, None
@@ -31,7 +36,12 @@ def parse_timeout(raw, default: int = DEFAULT_TIMEOUT):
         # mai token nei log). Messaggio generico.
         return None, "Timeout non valido: inserisci un numero intero di secondi."
     if value <= 0:
-        return None, f"Timeout deve essere maggiore di 0 (ricevuto {value})."
+        # NON includere il valore nel messaggio: un chat ID NEGATIVO (forma comune di
+        # gruppi/canali Telegram, es. -1001234567890) incollato per sbaglio nel campo
+        # timeout è numerico, supera `int(...)`, e finirebbe nel log GUI tramite questo
+        # ramo. Messaggio generico come per il caso non numerico (invariante: mai
+        # identificatori/segreti nei log) — Codex #27.
+        return None, "Timeout deve essere un numero intero maggiore di 0 (secondi)."
     return value, None
 
 

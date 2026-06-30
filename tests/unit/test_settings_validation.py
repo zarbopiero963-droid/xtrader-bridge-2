@@ -36,6 +36,18 @@ def test_timeout_non_positivo_errore():
     assert "maggiore di 0" in sv.parse_timeout("0")[1]
 
 
+def test_timeout_non_positivo_non_espone_il_valore():
+    # Un chat ID NEGATIVO Telegram (gruppi/canali, es. -1001234567890) incollato per
+    # sbaglio nel campo timeout è numerico e <= 0: il messaggio NON deve contenerlo
+    # (invariante: mai identificatori/segreti nei log) — Codex #27.
+    chat_id = "-1001234567890"
+    value, err = sv.parse_timeout(chat_id)
+    assert value is None
+    assert chat_id not in err
+    # Anche un negativo "corto" non deve comparire (nessun valore grezzo nel messaggio).
+    assert "-5" not in sv.parse_timeout("-5")[1]
+
+
 # ── validate_settings ────────────────────────────────────────────────────────
 
 def test_settings_valide_nessun_errore():
