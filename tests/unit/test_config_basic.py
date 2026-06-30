@@ -1181,3 +1181,29 @@ def test_post_corruzione_pre_read_fallita_non_declassa_a_plaintext(tmp_path, mon
     assert saved_calls["n"] == 0                            # keyring NON sovrascritto (nessun downgrade)
     assert not p.exists()                                   # abort atomico: nessuna scrittura su disco
     assert saved["bot_token"] == "NEW:TOKEN"                # in memoria resta (runtime), ma non persistito
+
+
+def test_post_corruzione_retry_keyring_giu_non_declassa_a_plaintext(tmp_path, monkeypatch):
+    """#140 (PR-08a, Codex P2 line 638 / CodeRabbit Major): il path differito deve MIRRORARE il
+    sentinel "keyring" in `in_memory`. Il chiamante fa `self._config = saved` anche su `ok=False`
+    e `POST_CORRUPTION_KEY` è già consumato: senza il mirror, un SECONDO save col keyring ancora
+    giù vedrebbe `prior_sentinel` vuoto e ripiegherebbe sul plaintext, scrivendo il token in
+    chiaro. Col mirror la protezione "stato keyring/ignoto -> differisci" sopravvive ai retry.
+
+    Fail-first: senza il mirror il 2° save tornava `ok=True` scrivendo il token in chiaro su disco."""
+    _fake_keyring(monkeypatch, {}, available=False)        # keyring giù
+    p = tmp_path / "config.json"
+    p.write_text("xxx non json", encoding="utf-8")
+    loaded = config_store.load_config(str(p))              # corrotto -> marker, sentinel perso, p->.bak
+    assert loaded.get(config_store.POST_CORRUPTION_KEY) is True
+    loaded["bot_token"] = "NEW:TOKEN"                       # utente re-inserisce il token
+    saved1, ok1 = config_store.save_config(loaded, str(p))  # 1° save: differito (keyring giù)
+    assert ok1 is False
+    assert saved1.get("bot_token_storage") == "keyring"     # sentinel fail-safe MIRRORATO in memoria
+    assert config_store.POST_CORRUPTION_KEY not in saved1   # marker consumato
+    # 2° save col config restituito (come fa `self._config = saved`), keyring ANCORA giù:
+    saved2, ok2 = config_store.save_config(saved1, str(p))
+    assert ok2 is False                                     # ancora differito (nessun downgrade a plaintext)
+    raw = p.read_text(encoding="utf-8") if p.exists() else ""
+    assert "NEW:TOKEN" not in raw                           # token MAI in chiaro su disco
+    assert "plaintext" not in raw

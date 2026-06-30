@@ -632,6 +632,15 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
         # vecchio token reidrata), le modifiche restano in memoria, l'utente riprova quando il
         # keyring è stabile. Nessun `keyring_changed` qui (i rami differiti non toccano il keyring),
         # quindi non serve rollback.
+        #
+        # MIRROR del sentinel fail-safe in memoria (Codex/CodeRabbit, post-#199): i rami differiti
+        # hanno impostato `to_save["bot_token_storage"] = "keyring"`. Il chiamante fa
+        # `self._config = saved` ANCHE su `ok=False`, e `POST_CORRUPTION_KEY` è già stato consumato:
+        # senza questo mirror un secondo save (keyring ancora giù) vedrebbe `prior_sentinel` vuoto e
+        # ripiegherebbe sul plaintext, scrivendo il token in chiaro. Riportando "keyring" in
+        # `in_memory`, la protezione "stato keyring/ignoto → differisci" sopravvive ai retry.
+        if "bot_token_storage" in to_save:
+            in_memory["bot_token_storage"] = to_save["bot_token_storage"]
         logger.warning("Salvataggio NON eseguito su disco: il bot token non è persistibile ora "
                        "(keyring non disponibile/illeggibile). Per non dare un esito ambiguo non è "
                        "stata scritta alcuna impostazione; riprova quando il keyring è stabile.")
