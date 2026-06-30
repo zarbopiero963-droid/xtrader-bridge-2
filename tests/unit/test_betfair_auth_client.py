@@ -289,11 +289,15 @@ def test_logout_non_cancella_un_token_piu_recente(tmp_path):
         sess.set_token("NEW-TOKEN")
         return {"status": "SUCCESS"}
 
+    creds = _creds(tmp_path)
     client = BetfairAuthClient(session=sess, transport=_login_ok, logout_transport=_slow_logout)
-    client.login(_creds(tmp_path))                  # token "tok"
+    client.login(creds)                             # token "tok"
     client.logout()
     assert sess.token == "NEW-TOKEN"                # il token PIÙ RECENTE non è stato cancellato
     assert client.is_logged_in is True
+    # E nemmeno l'App Key va azzerata se il clear NON è avvenuto (token cambiato): un logout
+    # successivo deve poter ancora invalidare lato server (CodeRabbit #262).
+    assert client._app_key == creds.app_key.strip()
 
 
 def test_default_logout_transport_usa_context_tls_esplicito(monkeypatch):
@@ -319,6 +323,7 @@ def test_default_logout_transport_usa_context_tls_esplicito(monkeypatch):
 
     def _fake_urlopen(req, *a, **k):
         captured["context"] = k.get("context")
+        captured["timeout"] = k.get("timeout")
         captured["url"] = req.full_url
         captured["x_auth"] = req.headers.get("X-authentication")
         return _Resp()
@@ -326,6 +331,20 @@ def test_default_logout_transport_usa_context_tls_esplicito(monkeypatch):
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
     data = auth_client._default_logout_transport("tok-SECRET", "DelayedKey")
     assert isinstance(captured["context"], ssl.SSLContext)   # context TLS ESPLICITO
+    assert captured["timeout"] == auth_client.LOGOUT_TIMEOUT  # timeout passato a urlopen
     assert captured["url"] == auth_client.LOGOUT_URL
     assert captured["x_auth"] == "tok-SECRET"               # token nell'header, non in URL/body
     assert data == {"status": "SUCCESS"}
+
+
+def test_session_clear_if_token_e_atomico_sul_match(tmp_path):
+    """#262 (Codex/CodeRabbit): `BetfairSession.clear_if_token` cancella SOLO se il token corrente
+    coincide; se è cambiato (login concorrente) NON tocca la sessione nuova. È il primitivo atomico
+    (sotto lock) che `logout` usa per non sloggare un token più recente."""
+    sess = BetfairSession()
+    sess.set_token("A")
+    assert sess.clear_if_token("B") is False        # token diverso → non cancella
+    assert sess.token == "A"
+    assert sess.clear_if_token("A") is True          # token coincide → cancella
+    assert sess.token is None
+    assert sess.clear_if_token(None) is True         # idempotente: None == None → no-op "riuscito"

@@ -10,6 +10,8 @@ verrebbe mascherato; al `clear()` (logout) viene de-registrato. `__repr__`/`__st
 non espongono mai il token: mostrano solo se la sessione è attiva.
 """
 
+import threading
+
 from . import log_safety
 
 # Codici di errore APING dell'Exchange che indicano un sessionToken SCADUTO o INVALIDO
@@ -37,10 +39,16 @@ def is_session_expired_error(error_code) -> bool:
 class BetfairSession:
     """Custode in-RAM del sessionToken Betfair. Nessuna persistenza su disco."""
 
-    __slots__ = ("_token",)
+    __slots__ = ("_token", "_lock")
 
     def __init__(self):
         self._token = None
+        # Lock REENTRANT (#262, Codex/CodeRabbit): la sessione è CONDIVISA tra più path che la
+        # mutano (login worker-thread / auto-sync vs logout GUI/controller). Serializza
+        # set_token/clear/clear_if_token così un check-then-clear non-atomico non può cancellare
+        # un token più recente impostato da un login concorrente. Reentrant perché `set_token`
+        # (token vuoto) e `clear_if_token` chiamano `clear()` mentre tengono già il lock.
+        self._lock = threading.RLock()
 
     @property
     def token(self):
@@ -65,18 +73,35 @@ class BetfairSession:
             self.clear()
             return
         new = str(token)
-        prev = self._token
-        if prev is not None and prev != new:
-            log_safety.unregister_secret(prev)   # il vecchio token non serve più: de-registralo
-        self._token = new
-        log_safety.register_secret(new)
+        with self._lock:
+            prev = self._token
+            if prev is not None and prev != new:
+                log_safety.unregister_secret(prev)   # il vecchio token non serve più: de-registralo
+            self._token = new
+            log_safety.register_secret(new)
 
     def clear(self) -> None:
         """Cancella il sessionToken (logout): lo de-registra dai log e azzera la RAM.
         Idempotente: chiamarlo senza sessione attiva non fa nulla di dannoso."""
-        if self._token:
-            log_safety.unregister_secret(self._token)
-        self._token = None
+        with self._lock:
+            if self._token:
+                log_safety.unregister_secret(self._token)
+            self._token = None
+
+    def clear_if_token(self, expected) -> bool:
+        """Clear ATOMICO: cancella la sessione SOLO se il token corrente è ESATTAMENTE `expected`
+        (#262, Codex/CodeRabbit). Evita la race *check-then-clear* in cui un login concorrente
+        sostituisce il token tra il confronto e il `clear`, facendo sloggare per sbaglio una
+        sessione PIÙ RECENTE. Confronto e `clear` avvengono sotto lo stesso lock (atomici).
+
+        Ritorna ``True`` se ha cancellato (token coincideva), ``False`` se nel frattempo il token
+        è cambiato (sessione nuova lasciata intatta). Usato da `auth_client.logout` per azzerare
+        anche l'App Key solo quando il clear è davvero avvenuto."""
+        with self._lock:
+            if self._token == expected:
+                self.clear()
+                return True
+            return False
 
     def clear_if_expired(self, error_code) -> bool:
         """Se `error_code` indica una sessione scaduta/invalida (vedi

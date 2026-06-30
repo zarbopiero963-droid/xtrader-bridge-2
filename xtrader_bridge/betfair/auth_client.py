@@ -216,12 +216,12 @@ class BetfairAuthClient:
                     logger.warning("Logout Betfair lato server: stato %s. La sessione potrebbe "
                                    "restare valida fino alla scadenza. Token locale cancellato.",
                                    status or "risposta non valida")
-        # Clear locale SOLO se la sessione tiene ANCORA il token appena sloggato (Codex): durante
-        # la POST (rete, lenta) un altro path può aver fatto un re-login sulla sessione CONDIVISA
-        # (clear manuale + re-login, o un worker che completa un login). Cancellare comunque
-        # spazzerebbe il token NUOVO, sloggando silenziosamente una sessione fresca. Se il token è
-        # cambiato, lascio intatti sessione e `_app_key` (appartengono al login più recente). Il
-        # confronto vale anche per il logout idempotente (token `None` == `None` → clear no-op).
-        if self.session.token == token:
-            self.session.clear()
+        # Clear locale ATOMICO solo se la sessione tiene ANCORA il token appena sloggato (Codex/
+        # CodeRabbit #262): durante la POST (rete, lenta) un altro path può fare un re-login sulla
+        # sessione CONDIVISA (clear manuale + re-login, o un worker che completa un login).
+        # `clear_if_token` fa il confronto e il `clear` SOTTO LOCK (niente race check-then-clear):
+        # se il token è cambiato non cancella nulla e lascia intatta la sessione nuova. Il reset di
+        # `_app_key` segue SOLO se il clear è avvenuto (token coincidente, anche `None`==`None` per il
+        # logout idempotente), così non si spazza l'App Key del login più recente.
+        if self.session.clear_if_token(token):
             self._app_key = None
