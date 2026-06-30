@@ -62,15 +62,30 @@ def save_token(token: str) -> bool:
         return False
 
 
-def load_token():
-    """Il token dal keyring, oppure ``None`` se assente o backend non disponibile."""
+def load_token_status():
+    """Come `load_token` ma **distingue assente da lettura fallita** (#140).
+
+    Ritorna `(token, read_ok)`:
+    - `read_ok=True`, `token` = valore (str) → c'è un token;
+    - `read_ok=True`, `token=None` → il keyring è leggibile e NON c'è alcun token (assente);
+    - `read_ok=False`, `token=None` → il backend manca o ha **sollevato**: non sappiamo se un
+      token esista (lettura fallita). Il chiamante NON deve trattarlo come "assente" (es. nel
+      rollback: cancellare distruggerebbe un token preesistente illeggibile)."""
     kr = _keyring()
     if kr is None:
-        return None
+        return None, False
     try:
-        return kr.get_password(SERVICE, ACCOUNT)
+        return kr.get_password(SERVICE, ACCOUNT), True
     except Exception:
-        return None
+        return None, False
+
+
+def load_token():
+    """Il token dal keyring, oppure ``None`` se assente o backend non disponibile.
+
+    Non distingue "assente" da "lettura fallita": per quel caso usa `load_token_status`."""
+    token, _ = load_token_status()
+    return token
 
 
 def delete_token() -> bool:
