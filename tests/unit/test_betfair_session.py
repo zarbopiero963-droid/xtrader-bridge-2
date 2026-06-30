@@ -54,6 +54,32 @@ def test_set_token_registra_per_redazione_clear_de_registra():
     assert "ram-only-token-xyz" in log_safety.redact("debug: ram-only-token-xyz")
 
 
+def test_set_token_de_registra_il_vecchio_su_re_login():
+    """#166 (Codex): in un re-login `set_token` deve de-registrare il token PRECEDENTE, altrimenti
+    resterebbe per sempre nel registro dei segreti (il `clear` futuro de-registra solo il nuovo).
+
+    Fail-first: senza la de-registrazione, il vecchio token restava mascherato anche dopo il
+    re-login e sopravviveva a `clear`."""
+    s = session.BetfairSession()
+    s.set_token("vecchio-token-AAA")
+    s.set_token("nuovo-token-BBB")          # re-login: il vecchio non serve più
+    # il vecchio token NON è più registrato (de-registrato al re-set)
+    assert "vecchio-token-AAA" in log_safety.redact("x vecchio-token-AAA")
+    # il nuovo token è registrato e mascherato
+    assert "nuovo-token-BBB" not in log_safety.redact("x nuovo-token-BBB")
+    # dopo il clear nemmeno il nuovo resta registrato
+    s.clear()
+    assert "nuovo-token-BBB" in log_safety.redact("x nuovo-token-BBB")
+
+
+def test_set_token_stesso_valore_resta_registrato():
+    # Re-impostare lo STESSO token non lo de-registra (niente churn che lo lascerebbe scoperto).
+    s = session.BetfairSession()
+    s.set_token("token-uguale")
+    s.set_token("token-uguale")
+    assert "token-uguale" not in log_safety.redact("x token-uguale")   # ancora mascherato
+
+
 def test_nessun_attributo_extra_oltre_lo_slot():
     # __slots__ impedisce di attaccare per errore il token ad altri attributi.
     s = session.BetfairSession()

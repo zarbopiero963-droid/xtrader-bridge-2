@@ -83,6 +83,10 @@ def test_login_errore_di_rete_e_safe(tmp_path):
     assert "pw" not in str(ei.value)
     assert "RuntimeError" in str(ei.value)
     assert client.is_logged_in is False
+    # #168 (Codex): la causa grezza è SOPPRESSA (`from None`) — un traceback / exc_info non
+    # può ri-stampare l'eccezione originale del trasporto (che incorpora la password).
+    assert ei.value.__cause__ is None
+    assert ei.value.__suppress_context__ is True
 
 
 def test_login_credenziali_incomplete(tmp_path):

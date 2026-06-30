@@ -56,12 +56,20 @@ class BetfairSession:
     def set_token(self, token) -> None:
         """Imposta il sessionToken (in RAM) e lo registra per la redazione dei log.
 
+        De-registra **prima** il token PRECEDENTE (#166, Codex): in un re-login il vecchio token
+        resterebbe altrimenti in `_secret_literals` per sempre (il `clear` futuro de-registrerebbe
+        solo il NUOVO), facendo crescere il registro dei segreti con valori ormai morti.
+
         Un token vuoto/``None`` equivale a non loggati (come `clear`)."""
         if not token:
             self.clear()
             return
-        self._token = str(token)
-        log_safety.register_secret(self._token)
+        new = str(token)
+        prev = self._token
+        if prev is not None and prev != new:
+            log_safety.unregister_secret(prev)   # il vecchio token non serve più: de-registralo
+        self._token = new
+        log_safety.register_secret(new)
 
     def clear(self) -> None:
         """Cancella il sessionToken (logout): lo de-registra dai log e azzera la RAM.

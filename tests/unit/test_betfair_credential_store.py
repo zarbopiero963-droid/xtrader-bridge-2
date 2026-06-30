@@ -161,6 +161,61 @@ def test_backend_assente_non_crasha(monkeypatch):
     assert cs.load_credentials() == cs.BetfairCredentials()
 
 
+# ── #166: repr SAFE (mai segreti in chiaro) ───────────────────────────────────
+
+def test_repr_non_espone_i_segreti():
+    """#166 (Codex): `repr(BetfairCredentials(...))` non deve rivelare App Key/username/password.
+    Fail-first: con il repr generato dal dataclass i valori segreti comparivano in chiaro."""
+    creds = _sample()
+    r = repr(creds)
+    assert "DelayedAppKey123" not in r
+    assert "utenteBetfair" not in r
+    assert "PasswordSegreta!" not in r
+    # i segreti presenti sono mostrati mascherati, i percorsi file in chiaro.
+    assert cs.MASK in r
+    assert "/c/cert.crt" in r and "/c/cert.key" in r
+    # str() (che ricade su __repr__ per un dataclass) è altrettanto safe.
+    assert "PasswordSegreta!" not in str(creds)
+
+
+def test_repr_campi_segreti_vuoti_non_mascherati():
+    # Un segreto ASSENTE non mostra la maschera (niente falso "presente").
+    creds = cs.BetfairCredentials(cert_path="/c/x.crt")
+    r = repr(creds)
+    assert "app_key=''" in r and cs.MASK not in r
+    assert "/c/x.crt" in r
+
+
+# ── #166: il valore salvato è ESATTO (niente strip che altera la password) ─────
+
+def test_save_preserva_il_valore_esatto_con_spazi(monkeypatch):
+    """#166 (Codex): una password con spazi iniziali/finali intenzionali deve essere salvata
+    INALTERATA. Fail-first: `save_credentials` applicava `.strip()` al valore scritto."""
+    fake = FakeKeyring()
+    _use(monkeypatch, fake)
+    creds = _sample()
+    creds.password = "  pw con spazi  "                     # spazi intenzionali
+    assert cs.save_credentials(creds) is True
+    # il keyring contiene il valore ESATTO, non strippato
+    assert fake.store[(cs.SERVICE, "betfair_password")] == "  pw con spazi  "
+    # ricaricata, la password è identica (round-trip senza alterazioni)
+    assert cs.load_credentials().password == "  pw con spazi  "
+    # il valore esatto (con spazi) è registrato per la redazione log
+    assert "  pw con spazi  " not in log_safety.redact("dbg   pw con spazi  ")
+
+
+def test_save_campo_di_soli_spazi_e_trattato_come_vuoto(monkeypatch):
+    # Un campo di SOLI spazi non è una credenziale: è trattato come vuoto (voce cancellata),
+    # coerente con `is_complete`/`masked` che usano `.strip()` per decidere la presenza.
+    fake = FakeKeyring()
+    _use(monkeypatch, fake)
+    cs.save_credentials(_sample())
+    creds = _sample()
+    creds.password = "   "                                  # solo spazi → vuoto
+    assert cs.save_credentials(creds) is True
+    assert (cs.SERVICE, "betfair_password") not in fake.store
+
+
 # ── completezza ───────────────────────────────────────────────────────────────
 
 def test_is_complete():

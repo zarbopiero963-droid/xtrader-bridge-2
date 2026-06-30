@@ -38,12 +38,16 @@ PATH_FIELDS = ("cert_path", "key_path")
 MASK = "••••••"
 
 
-@dataclass
+@dataclass(repr=False)
 class BetfairCredentials:
     """Credenziali Betfair locali. I tre campi segreti + i due percorsi file.
 
     `app_key` è la **Delayed** App Key (read-only). Nessun campo è obbligatorio a
-    livello di storage: la validazione di completezza è del chiamante (GUI/auth)."""
+    livello di storage: la validazione di completezza è del chiamante (GUI/auth).
+
+    Il `__repr__` è **safe** (`repr=False` sul dataclass + override sotto): mai i valori segreti
+    in chiaro, così `repr()`/`logger.debug(creds)`/un traceback non rivelano App Key/username/
+    password (#166)."""
 
     app_key: str = ""
     username: str = ""
@@ -55,6 +59,17 @@ class BetfairCredentials:
         """``True`` se tutti i campi necessari al login con certificato sono presenti."""
         return all(getattr(self, f).strip() for f in
                    (*SECRET_FIELDS, *PATH_FIELDS))
+
+    def __repr__(self) -> str:
+        """Repr SAFE: i campi segreti sono mostrati mascherati (``••••••`` se presenti, vuoto se
+        assenti), i percorsi file in chiaro. Mai il valore reale di App Key/username/password —
+        è la stessa prudenza di `masked()`, applicata a `repr()`/`str()` (#166, Codex)."""
+        parts = []
+        for f in FIELDS:
+            val = getattr(self, f) or ""
+            shown = (MASK if val.strip() else "") if f in SECRET_FIELDS else val
+            parts.append(f"{f}={shown!r}")
+        return f"BetfairCredentials({', '.join(parts)})"
 
 
 FIELDS = tuple(f.name for f in _dc_fields(BetfairCredentials))
@@ -103,13 +118,16 @@ def save_credentials(creds: BetfairCredentials) -> bool:
         return False
     ok = True
     for field in FIELDS:
-        value = (getattr(creds, field) or "").strip()
+        raw = getattr(creds, field) or ""
         acct = _account(field)
-        if value:
+        # `.strip()` solo per DECIDERE se il campo è vuoto: il valore SCRITTO è quello ESATTO
+        # (con eventuali spazi iniziali/finali intenzionali in una password). Strippare il valore
+        # salvato altererebbe la credenziale e farebbe fallire il login (Codex #166).
+        if raw.strip():
             try:
-                kr.set_password(SERVICE, acct, value)
+                kr.set_password(SERVICE, acct, raw)
                 if field in SECRET_FIELDS:
-                    log_safety.register_secret(value)
+                    log_safety.register_secret(raw)
             except Exception:
                 ok = False
         else:

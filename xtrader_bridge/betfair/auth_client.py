@@ -112,9 +112,12 @@ class BetfairAuthClient:
         except CertificateError:
             raise
         except Exception as ex:   # noqa: BLE001 — errore safe: niente response/segreti nel messaggio
-            # Solo il TIPO dell'errore, mai il contenuto (può includere body/header).
+            # Solo il TIPO dell'errore, mai il contenuto (può includere body/header). `from None`
+            # SOPPRIME la causa (#168, Codex): con `from ex` l'eccezione originale del trasporto
+            # resterebbe in `__cause__` e un traceback / `logger.exception(exc_info=True)`
+            # stamperebbe il suo messaggio grezzo (potenzialmente body/segreti del login).
             raise LoginError(
-                f"Login Betfair fallito ({type(ex).__name__}).") from ex
+                f"Login Betfair fallito ({type(ex).__name__}).") from None
 
         status = (data or {}).get("loginStatus")
         token = (data or {}).get("sessionToken")
@@ -127,5 +130,10 @@ class BetfairAuthClient:
 
     def logout(self) -> None:
         """Logout: cancella il `sessionToken` dalla RAM (idempotente). Le credenziali
-        salvate non vengono toccate."""
+        salvate non vengono toccate.
+
+        NOTA (#168): l'invalidazione **lato server** della sessione (POST al logout endpoint
+        Betfair) è rimandata a una PR dedicata, perché coinvolge il wiring del logout MANUALE
+        della tab (il controller ha solo una `session`, non un auth client), l'endpoint corretto
+        e il caching dell'App Key. Qui il logout resta locale (RAM)."""
         self.session.clear()
