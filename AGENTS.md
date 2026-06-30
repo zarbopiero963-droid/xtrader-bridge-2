@@ -644,6 +644,101 @@ A PR is not ready while checks are pending, even if local tests pass.
 
 ---
 
+## Post-commit review window — 16 min gate & last-5 PR sweep — required
+
+Reason: AI reviewers do **not** comment immediately. Measured on this repo's real PRs, after
+each push the inline comments land late: **Codex** typically **+7–12 min**, **CodeRabbit**
+**+1–10 min** (often rate-limited for 39–50 min), **Sourcery** within seconds but almost
+always rate-limited. If a PR is merged too early those comments — including P1 — **arrive
+after the merge** and get buried in a closed PR nobody reopens. Real case: PR #239 merged at
++9 min, the Codex review landed **+3 min after the merge** with **2 P1 + 4 P2 never
+addressed**.
+
+This section applies to every PR. Merge stays **always manual and owner-only**: this gate
+does **not** merge, does not block the owner, and does not replace the check completion gate —
+it is **added after** it.
+
+### The 16-minute gate
+
+When work is "ready for merge" (checks green + local final hard verify done), you must **not**
+declare final `DONE`/`READY` until at least **16 minutes have passed since the LAST commit
+pushed to the PR head**. The 16-minute window covers the maximum observed AI-reviewer delay.
+
+During the window you must:
+
+- keep the **PR-activity subscription active** (`subscribe_pr_activity`) so AI comments are
+  intercepted as they arrive;
+- schedule a **self check-in** (e.g. `send_later`/`ScheduleWakeup`) at the window's close to
+  re-read the PR;
+- report status `REVIEW_WINDOW_PENDING` with the window-close time, instead of `DONE`.
+
+Rules:
+
+- **every new pushed commit RESETS the timer** to 16 minutes from that commit (bots re-review
+  the new head);
+- do not declare `DONE`/`READY`/`READY_TO_MERGE` and do not resolve threads "with the window
+  open" before re-reading the PR at window close;
+- do not make random patches just because you are waiting.
+
+### Persistence even if the owner merges early
+
+The owner may merge manually at any time. **Merging does NOT close the review window.** You
+must still complete the 16-minute watch on that PR, **even if it is now merged/closed**, and
+re-read it at window close:
+
+- inline comments / review bodies with `submitted_at` **after the last push**;
+- **unresolved** threads;
+- above all, comments with `submitted_at` **after `merged_at`** (the "post-merge ghosts");
+- check annotations, Codacy/DeepSource/CodeRabbit/Sourcery/Codex if present.
+
+Outcome at window close:
+
+- **nothing unresolved** → close out: no action, declare the final status.
+- **something detected** → it must be **tracked**: always open a **GitHub Issue** recording
+  each finding (PR number, head SHA, file:line, bot, severity P1/P2/nitpick, comment link) so
+  nothing is lost in a closed PR; and for **real/actionable** findings open a **new dedicated
+  fix PR**. The merged PR must **not** be reused or stacked on: the fix PR branches from the
+  latest `main`, references the Issue, and follows the full execution sequence (Phase 0,
+  micro-audit, hard truthful tests). One Issue may aggregate multiple findings from the same PR.
+
+This does **not** violate "only one open PR at a time": the previous PR is now merged/closed,
+so the fix PR is the legitimate continuation, not a second parallel PR.
+
+### Last-5 closed+merged PR sweep
+
+Safety net for anything that slipped through before this rule existed or while no agent was
+active. **At the start of every task (inside Phase 0) and before final `DONE`**, inspect the
+**last 5 closed and merged PRs** and look for unresolved or post-merge AI findings that were
+never addressed. Whatever you find is tracked in an Issue (+ fix PR if actionable), as above.
+
+Mandatory dedup: **before opening an Issue, search existing Issues** (open and closed) for that
+finding/PR and **do not duplicate**; if one already exists, link the comment to the existing
+Issue instead of creating a new one.
+
+### Dedicated status
+
+```text
+REVIEW_WINDOW_PENDING
+
+PR:
+- <number / head SHA>
+
+Last commit:
+- <SHA> @ <timestamp>
+
+Window closes:
+- <last-commit timestamp + 16 min>
+
+Merge:
+- MANUAL (not blocked by this gate)
+
+Next allowed action:
+- At close: re-read checks, review bodies, inline comments, unresolved threads, and
+  comments with submitted_at > merged_at; track in Issue + fix PR if needed.
+```
+
+---
+
 ## PR review, inline comments, and evidence resolve
 
 When working on an existing PR, the agent must inspect all current PR feedback sources before deciding that no work is needed.
@@ -831,6 +926,12 @@ Inline comments checked:
 Unresolved threads checked:
 - YES / NO
 
+Review window (16 min since last commit) honored:
+- YES / NO / RUNNING (closes at <timestamp>)
+
+Last-5 PR post-merge sweep:
+- YES / NO
+
 Safety invariants:
 - PASS / FAIL
 
@@ -838,7 +939,7 @@ Merge:
 - MANUAL ONLY
 
 Final status:
-- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
+- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
 ```
 
 If any required final hard verify item is missing, do not declare `DONE`.
