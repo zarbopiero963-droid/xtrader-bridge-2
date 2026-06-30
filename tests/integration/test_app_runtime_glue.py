@@ -441,10 +441,10 @@ def test_register_secret_token_maschera_il_token_nei_log(make_app, app_mod):
 def test_register_secret_token_non_passa_da_getattr_su_attr_assente(app_mod):
     """#184 M7 regression (CI RecursionError): su un widget Tk un attributo ASSENTE fa ricorrere
     `__getattr__` (e il default di `getattr` NON intercetta il RecursionError). La lettura di
-    `_registered_token` deve avvenire via `__dict__`, non via `getattr(self, ...)`.
+    `_registered_tokens`/`_running` deve avvenire via `__dict__`, non via `getattr(self, ...)`.
 
-    Fail-first: col vecchio `getattr(self, "_registered_token", None)` questo solleva
-    RecursionError, esattamente come nel job `integration` su CI."""
+    Fail-first: col vecchio `getattr(self, ...)` questo solleva RecursionError, esattamente come
+    nel job `integration` su CI."""
     from xtrader_bridge import event_log
 
     class _TkLike:
@@ -454,10 +454,10 @@ def test_register_secret_token_non_passa_da_getattr_su_attr_assente(app_mod):
 
     event_log.clear_secrets()
     try:
-        obj = _TkLike()                              # nessun _registered_token in __dict__
+        obj = _TkLike()                              # nessun _registered_tokens/_running in __dict__
         tok = "123456789:RegressionTokenValue_abcd"
         app_mod.App._register_secret_token(obj, {"bot_token": tok})   # non deve ricorrere
-        assert obj.__dict__.get("_registered_token") == tok
+        assert tok in obj.__dict__.get("_registered_tokens", set())
         assert tok not in event_log.redact_secrets(f"err {tok} x")
     finally:
         event_log.clear_secrets()
@@ -473,7 +473,7 @@ def test_register_secret_token_deregistra_il_precedente_quando_cambia(make_app, 
     from xtrader_bridge import event_log
     event_log.clear_secrets()
     try:
-        a = make_app()
+        a = make_app(running=False)                # listener fermo: la de-registrazione è permessa (#203)
         old = "111:oldSecret_nonCanonico"          # porzioni < 20 → la regex non li prende
         new = "222:newSecret_nonCanonico"
         app_mod.App._register_secret_token(a, {"bot_token": old})
@@ -485,6 +485,35 @@ def test_register_secret_token_deregistra_il_precedente_quando_cambia(make_app, 
         # rimozione token (cfg senza token) → anche il nuovo viene deregistrato
         app_mod.App._register_secret_token(a, {})
         assert new in event_log.redact_secrets(f"x {new} y")       # non più mascherato
+    finally:
+        event_log.clear_secrets()
+
+
+def test_register_secret_token_non_deregistra_il_vecchio_mentre_attivo(make_app, app_mod):
+    """#203 (Codex): se il bot token cambia mentre il listener è ATTIVO, il vecchio token NON va
+    de-registrato: il poller in esecuzione lo usa ancora (snapshot a START) e de-registrarlo lo
+    scriverebbe in chiaro se finisse in un log. Resta mascherato finché la sessione è attiva; la
+    pulizia avviene al primo register a listener fermo (bound).
+
+    Fail-first: senza il guard su `_running`, il cambio token de-registrava subito il vecchio →
+    un'eccezione del poller con quel token l'avrebbe scritto in chiaro."""
+    from xtrader_bridge import event_log
+    event_log.clear_secrets()
+    try:
+        a = make_app()
+        a._running = True                          # listener ATTIVO
+        old = "111:oldSecret_nonCanonico"
+        new = "222:newSecret_nonCanonico"
+        app_mod.App._register_secret_token(a, {"bot_token": old})
+        app_mod.App._register_secret_token(a, {"bot_token": new})   # cambio token a sessione attiva
+        # ENTRAMBI restano mascherati: il vecchio è ancora in uso dal poller della sessione
+        assert old not in event_log.redact_secrets(f"x {old} y")
+        assert new not in event_log.redact_secrets(f"x {new} y")
+        # a listener fermo, un nuovo register ripulisce i token non più correnti (bound)
+        a._running = False
+        app_mod.App._register_secret_token(a, {"bot_token": new})
+        assert old in event_log.redact_secrets(f"x {old} y")        # ora de-registrato
+        assert new not in event_log.redact_secrets(f"x {new} y")    # il corrente resta mascherato
     finally:
         event_log.clear_secrets()
 

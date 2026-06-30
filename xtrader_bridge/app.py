@@ -132,11 +132,13 @@ class App(ctk.CTk):
         gui_utils.fit_to_screen(self, 720, 760, 720, 600)
         self.resizable(False, True)
 
-        # Ultimo bot token registrato nel redattore dei log (#184 M7): serve a deregistrare
-        # il precedente quando il token cambia, così il registro non cresce all'infinito e un
-        # vecchio token non resta mascherato per sempre. Inizializzato PRIMA di _load_config,
-        # che chiama _register_secret_token.
-        self._registered_token = None
+        # Bot token registrati nel redattore dei log (#184 M7 + #203): un INSIEME, non un singolo
+        # valore. Serve a deregistrare i token non più necessari quando il token cambia (così il
+        # registro non cresce all'infinito), MA tenendo registrato il token ancora in uso da un
+        # listener attivo (#203): il poller in esecuzione usa lo snapshot a START e de-registrare
+        # il suo token a metà sessione lo scriverebbe in chiaro. Inizializzato PRIMA di
+        # _load_config, che chiama _register_secret_token.
+        self._registered_tokens = set()
         self._config = self._load_config()
         self._running = False
         self._session_real = False   # la sessione attiva è partita in modalità reale? (#136 p4 banner)
@@ -334,19 +336,26 @@ class App(ctk.CTk):
         mascherato per-literal in QUALSIASI forma finisca in un log (anche non-canonica,
         che la regex di `redact_secrets` non riconoscerebbe). No-op se non c'è token.
 
-        Se il token è CAMBIATO rispetto all'ultimo registrato (o è stato rimosso), deregistra
-        il precedente (Sourcery): così il registro dei segreti non cresce all'infinito e un
-        vecchio token non resta mascherato per sempre. Punto unico usato da
-        `_load_config`/`_save_config`, così la deregistrazione vale per entrambi i percorsi."""
+        De-registra i token non più necessari quando il token cambia (Sourcery): così il registro
+        non cresce all'infinito e un vecchio token non resta mascherato per sempre. **Eccezione
+        (#203, Codex):** mentre il listener è ATTIVO (`_running`) NON si de-registra nulla — il
+        poller in esecuzione usa ancora il token della sessione (snapshot a START) e
+        de-registrarlo a metà sessione lo scriverebbe in chiaro se finisse in un log. Il registro
+        cresce al più di un token per cambio durante una sessione attiva e si ripulisce al primo
+        save/reload a listener fermo. Punto unico usato da `_load_config`/`_save_config`."""
         new_token = cfg.get("bot_token") if isinstance(cfg, dict) else None
         # Lettura via __dict__ e NON getattr: su un widget Tk un attributo ASSENTE farebbe
         # ricorrere `__getattr__` (→ RecursionError), e il default di getattr non lo intercetta.
-        prev = self.__dict__.get("_registered_token")
-        if prev and prev != new_token:
-            event_log.unregister_secret(prev)
-            self._registered_token = None
+        registered = self.__dict__.setdefault("_registered_tokens", set())
         if new_token and event_log.register_secret(new_token):
-            self._registered_token = new_token
+            registered.add(new_token)
+        # Cleanup SOLO a listener fermo (#203): se è attivo, il vecchio token può essere ancora
+        # in uso dal poller della sessione → tenerlo registrato (over-masking sicuro).
+        if not self.__dict__.get("_running"):
+            for tok in list(registered):
+                if tok != new_token:
+                    event_log.unregister_secret(tok)
+                    registered.discard(tok)
 
     def _load_config(self) -> dict:
         # Migra il vecchio config.json (accanto all'EXE) la prima volta, poi carica
