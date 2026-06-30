@@ -389,6 +389,22 @@ class App(ctk.CTk):
                           "attivo (OVERWRITE_LAST).")
         return cfg
 
+    def _persist_loaded_profile(self, new_cfg):
+        """Persiste un profilo CARICATO applicando gli STESSI gate di sicurezza del bottone
+        Salva (#141/#142) e aggiornando il banner reale (#141, Codex review), poi ritorna
+        `(saved, ok)`. La parte di refresh dei pannelli/form resta nel chiamante (è solo
+        presentazione). Estratto per essere testabile headless (la closure `_profiles_loaded`
+        non lo è)."""
+        old_cfg = self._config if isinstance(self._config, dict) else {}
+        cfg = self._gate_dangerous_transitions(old_cfg, dict(new_cfg))
+        saved, ok = save_config(cfg, CONFIG_FILE)
+        self._config = saved
+        self._save_ok = ok
+        # Banner rosso persistente se il profilo ha attivato il REALE: senza questo il reale
+        # resterebbe attivo senza warning visibile fino al successivo save/start/riavvio.
+        self._update_real_mode_banner(saved)
+        return saved, ok
+
     def _save_config(self) -> dict:
         # Timeout robusto: un valore non numerico non deve crashare il salvataggio
         # (PR-13/#10). Se invalido, si tiene il default e si avvisa nel log.
@@ -2291,15 +2307,8 @@ class App(ctk.CTk):
             self._config = new_cfg
 
         def _profiles_loaded(new_cfg):
-            """Profilo caricato: persiste su disco, aggiorna config+form e le chat."""
-            # Gate di sicurezza (#141/#142): un profilo può portare `dry_run:false` (modalità
-            # REALE) o una coda multi-segnale → applica le STESSE conferme del bottone Salva,
-            # così il caricamento profilo non attiva reale/multi senza conferma esplicita.
-            old_cfg = self._config if isinstance(self._config, dict) else {}
-            new_cfg = self._gate_dangerous_transitions(old_cfg, dict(new_cfg))
-            saved, ok = save_config(new_cfg, CONFIG_FILE)
-            self._config = saved
-            self._save_ok = ok
+            """Profilo caricato: persiste (con gate sicurezza + banner), aggiorna form/chat."""
+            saved, ok = self._persist_loaded_profile(new_cfg)
             self._populate_form(saved)
             self._refresh_listened_chats()
             # Un profilo applicato cambia config.json: TUTTI i pannelli editabili già

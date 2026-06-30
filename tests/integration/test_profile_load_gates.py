@@ -76,6 +76,34 @@ def test_profilo_multi_segnale_confermato_resta_append(make_app):
     assert "multi" in a._confirms
 
 
+# ── persist del profilo: gate + banner reale (Codex review su PR-02) ─────────
+
+def test_persist_profilo_reale_confermato_aggiorna_banner(make_app, app_mod, monkeypatch):
+    # Caricare un profilo che attiva il REALE (conferma accettata) deve persistere reale E
+    # aggiornare il banner rosso — come il bottone Salva. Prima il path profilo non lo faceva.
+    a = _gate_app(make_app, real_ok=True, multi_ok=True)
+    a._config = {"dry_run": True}
+    a._banner = []
+    a._update_real_mode_banner = a._banner.append
+    monkeypatch.setattr(app_mod, "save_config", lambda cfg, path: (dict(cfg), True))
+    saved, ok = a._persist_loaded_profile({"dry_run": False})
+    assert ok is True and saved["dry_run"] is False        # reale attivo
+    assert a._banner == [saved]                            # banner aggiornato col cfg salvato (#141)
+
+
+def test_persist_profilo_reale_rifiutato_resta_sim_e_banner(make_app, app_mod, monkeypatch):
+    # Conferma RIFIUTATA: si persiste la simulazione e il banner viene comunque aggiornato
+    # (così mostra lo stato corretto "non reale"), invece di restare stantio.
+    a = _gate_app(make_app, real_ok=False, multi_ok=True)
+    a._config = {"dry_run": True}
+    a._banner = []
+    a._update_real_mode_banner = a._banner.append
+    monkeypatch.setattr(app_mod, "save_config", lambda cfg, path: (dict(cfg), True))
+    saved, ok = a._persist_loaded_profile({"dry_run": False})
+    assert saved["dry_run"] is True                        # reale annullato → simulazione
+    assert a._banner == [saved]
+
+
 def test_profilo_combinato_reale_e_multi_entrambi_rifiutati(make_app):
     # Un profilo che attiva ENTRAMBI (reale + multi) con ENTRAMBE le conferme rifiutate
     # → la cfg salvata è sicura su entrambi i fronti.
