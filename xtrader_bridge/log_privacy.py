@@ -43,8 +43,11 @@ def redact_message(text, *, full=False) -> str:
     `text` non stringa/``None`` è trattato come stringa (``None`` → vuoto)."""
     s = "" if text is None else str(text)
     if full:
-        # Una sola riga (a-capo compressi come fa il sink), E redatta dai segreti.
-        return event_log.redact_secrets(" ".join(s.splitlines()))
+        # Redige PRIMA di appiattire (Codex #251): se si comprimessero gli a-capo per primi, un
+        # token registrato spezzato da CR/LF diventerebbe separato da SPAZI (es. "…LiveBotT oken"),
+        # che né il match esatto né quello CR/LF-tollerante riconoscono → frammento persistente nel
+        # log di debug. Redatto sul grezzo (CR/LF-tollerante), poi appiattito su una sola riga.
+        return " ".join(event_log.redact_secrets(s).splitlines())
     n = len(s)
     digest = hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
     first = s.splitlines()[0] if s else ""

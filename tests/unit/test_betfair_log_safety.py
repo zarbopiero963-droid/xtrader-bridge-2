@@ -4,6 +4,7 @@ Esercita le funzioni reali di `xtrader_bridge.betfair.log_safety`: nessun header
 sensibile, sessionToken o segreto registrato deve sopravvivere nel log.
 """
 
+import io
 import logging
 
 import pytest
@@ -100,9 +101,146 @@ def test_install_global_redaction_idempotente_e_installa_filtro():
     before = [f for f in root.filters if isinstance(f, log_safety.SecretRedactionFilter)]
     for f in before:
         root.removeFilter(f)
-    f1 = log_safety.install_global_log_redaction()
-    f2 = log_safety.install_global_log_redaction()
-    installed = [f for f in root.filters if isinstance(f, log_safety.SecretRedactionFilter)]
-    assert len(installed) == 1          # idempotente: un solo filtro
-    assert f1 is f2
-    root.removeFilter(f1)               # cleanup: non lasciare stato globale
+    try:
+        f1 = log_safety.install_global_log_redaction()
+        f2 = log_safety.install_global_log_redaction()
+        installed = [f for f in root.filters if isinstance(f, log_safety.SecretRedactionFilter)]
+        assert len(installed) == 1          # idempotente: un solo filtro
+        assert f1 is f2
+    finally:
+        root.removeFilter(f1)               # cleanup: non lasciare stato globale
+        log_safety._uninstall_addhandler_hook()
+
+
+# ── #166: traceback dell'eccezione redatto prima della formattazione ──────────
+
+def test_filter_redige_il_traceback_di_un_eccezione():
+    # Un segreto che compare nel MESSAGGIO dell'eccezione finirebbe nel traceback formattato dal
+    # Formatter a valle del filtro. Il filtro deve redarre anche exc_text/exc_info.
+    log_safety.register_secret("sessionTok-SEGRETO-123")
+    try:
+        raise ValueError("login fallito con token sessionTok-SEGRETO-123")
+    except ValueError:
+        import sys
+        exc_info = sys.exc_info()
+    rec = logging.LogRecord("n", logging.ERROR, __file__, 1, "errore di login", None, exc_info)
+    flt = log_safety.SecretRedactionFilter()
+    assert flt.filter(rec) is True
+    # Il Formatter standard userebbe exc_text (cache redatta) e non ri-espande exc_info grezzo.
+    formatted = logging.Formatter("%(message)s").format(rec)
+    assert "sessionTok-SEGRETO-123" not in formatted
+    assert "[REDACTED]" in formatted
+
+
+def test_filter_redige_lo_stack_info():
+    log_safety.register_secret("App-Key-SEGRETISSIMA")
+    rec = logging.LogRecord("n", logging.INFO, __file__, 1, "ciao", None, None)
+    rec.stack_info = "Stack (most recent call last):\n  App-Key-SEGRETISSIMA usata qui"
+    log_safety.SecretRedactionFilter().filter(rec)
+    assert "App-Key-SEGRETISSIMA" not in rec.stack_info
+    assert "[REDACTED]" in rec.stack_info
+
+
+# ── #166: il filtro copre gli handler aggiunti DOPO l'install ─────────────────
+
+def test_handler_aggiunto_dopo_install_viene_redatto():
+    # Fail-first: prima dell'hook su addHandler, un handler aggiunto a root DOPO l'install non
+    # riceveva il filtro e scriveva il segreto in chiaro (anche per record propagati dai figli).
+    root = logging.getLogger()
+    pre = [f for f in root.filters if isinstance(f, log_safety.SecretRedactionFilter)]
+    for f in pre:
+        root.removeFilter(f)
+    log_safety.register_secret("token-RAM-vivo-9999")
+    buf = io.StringIO()
+    late = logging.StreamHandler(buf)
+    late.setFormatter(logging.Formatter("%(message)s"))
+    child = logging.getLogger("xtrader_bridge.test.late_handler")
+    child.setLevel(logging.INFO)
+    try:
+        flt = log_safety.install_global_log_redaction()
+        root.addHandler(late)               # aggiunto DOPO l'install → coperto dall'hook
+        assert any(isinstance(f, log_safety.SecretRedactionFilter) for f in late.filters)
+        child.info("connessione con token-RAM-vivo-9999")   # record propagato verso root
+        out = buf.getvalue()
+        assert "token-RAM-vivo-9999" not in out
+        assert "[REDACTED]" in out
+    finally:
+        root.removeHandler(late)
+        root.removeFilter(flt)
+        log_safety._uninstall_addhandler_hook()
+
+
+def test_install_aggancia_hook_prima_dello_sweep(monkeypatch):
+    # Codex #251: l'hook su addHandler va installato PRIMA dello sweep degli handler di root,
+    # altrimenti un handler aggiunto nella finestra tra sweep e install dell'hook resta scoperto.
+    # Test deterministico dell'ORDINE: si registra la sequenza delle chiamate.
+    root = logging.getLogger()
+    calls = []
+    monkeypatch.setattr(log_safety, "_install_addhandler_hook",
+                        lambda flt: calls.append("hook"))
+    monkeypatch.setattr(log_safety, "_ensure_filter_on_handler",
+                        lambda h, flt: calls.append("sweep"))
+    pre = [f for f in root.filters if isinstance(f, log_safety.SecretRedactionFilter)]
+    for f in pre:
+        root.removeFilter(f)
+    sentinel = logging.StreamHandler(io.StringIO())     # garantisce ≥1 handler → almeno uno "sweep"
+    root.addHandler(sentinel)
+    try:
+        log_safety.install_global_log_redaction()
+        assert "hook" in calls and "sweep" in calls
+        assert calls.index("hook") < calls.index("sweep")   # hook PRIMA dello sweep
+    finally:
+        # Cleanup exception-safe (CodeRabbit #251): non dipende da `flt` (install potrebbe
+        # sollevare prima di assegnarlo) e RIPRISTINA i filtri pre-esistenti del root logger.
+        root.removeHandler(sentinel)
+        for f in list(root.filters):
+            if isinstance(f, log_safety.SecretRedactionFilter) and f not in pre:
+                root.removeFilter(f)
+        for f in pre:
+            if f not in root.filters:
+                root.addFilter(f)
+        log_safety._uninstall_addhandler_hook()
+
+
+def test_uninstall_addhandler_hook_ripristina_originale():
+    orig = logging.Logger.addHandler
+    flt = log_safety.SecretRedactionFilter()
+    try:
+        log_safety._install_addhandler_hook(flt)
+        assert logging.Logger.addHandler is not orig    # avvolto
+    finally:
+        log_safety._uninstall_addhandler_hook()         # cleanup garantito anche se l'assert sopra fallisce
+    assert logging.Logger.addHandler is orig            # ripristinato
+
+
+def test_hook_aggancia_filtro_prima_di_pubblicare_handler():
+    # Codex/CodeRabbit #251: il filtro va attaccato PRIMA che l'handler sia visibile al logger,
+    # altrimenti un record loggato nella finestra tra pubblicazione e attach sfuggirebbe NON redatto.
+    # Test deterministico dell'ORDINE: un handler che, quando riceve il SecretRedactionFilter,
+    # registra se è già nei root.handlers. Con il fix, NON deve esserlo ancora.
+    root = logging.getLogger()
+
+    class _OrderSpy(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.published_when_filtered = None
+
+        def addFilter(self, f):
+            if isinstance(f, log_safety.SecretRedactionFilter):
+                self.published_when_filtered = self in root.handlers
+            super().addFilter(f)
+
+        def emit(self, record):
+            pass
+
+    spy = _OrderSpy()
+    try:
+        flt = log_safety.install_global_log_redaction()
+        root.addHandler(spy)
+        # il filtro è stato agganciato mentre l'handler NON era ancora pubblicato → nessuna finestra.
+        assert spy.published_when_filtered is False
+        assert any(isinstance(f, log_safety.SecretRedactionFilter) for f in spy.filters)
+    finally:
+        root.removeHandler(spy)
+        root.removeFilter(flt)
+        log_safety._uninstall_addhandler_hook()

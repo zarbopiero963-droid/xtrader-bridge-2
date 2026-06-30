@@ -121,6 +121,27 @@ def test_token_lungo_non_trascina_contenuto_oltre_il_confine():
     assert "…" in out                             # la prima riga era più lunga del budget
 
 
+def test_full_true_token_spezzato_da_newline_non_trapela():
+    """#251 (Codex P2): con `full=True` il payload viene appiattito (`splitlines`→spazi). Se il
+    flatten avvenisse PRIMA della redazione, un token registrato spezzato da CR/LF diventerebbe
+    separato da SPAZI e nessun pattern lo riconoscerebbe → frammento nel log di debug. La
+    redazione deve avvenire sul grezzo, prima del flatten.
+
+    Fail-first: con flatten-prima-di-redarre il frammento `LiveBotTokenSecretValue` trapelava."""
+    token = "123456789:LiveBotTokenSecretValue_xyz"
+    event_log.clear_secrets()
+    try:
+        event_log.register_secret(token)
+        wrapped = token[:18] + "\n" + token[18:]          # token spezzato da \n
+        out = lp.redact_message(f"riga1\n{wrapped}\nriga2", full=True)
+        assert token not in out
+        assert "LiveBotTokenSecretValue" not in out        # nessun frammento
+        assert "[REDACTED_TOKEN]" in out
+        assert "\n" not in out                             # resta una sola riga
+    finally:
+        event_log.clear_secrets()
+
+
 def test_redact_chat_id_impronta_stabile_mai_id_reale():
     """`redact_chat_id` (Codex P2 #233): il chat_id reale è sensibile e il diario eventi è un log
     DUREVOLE → mai l'ID in chiaro, ma un'impronta `chat:sha256:<12 hex>` STABILE e correlabile."""

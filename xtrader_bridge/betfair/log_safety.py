@@ -96,12 +96,28 @@ class SecretRedactionFilter(logging.Filter):
 
     Calcola il messaggio già formattato (`record.getMessage()`), lo redige e azzera
     `args`, così nessun segreto può sopravvivere nell'interpolazione successiva.
+
+    Redige anche il **traceback** di un `logger.exception()`/`exc_info=True` e l'eventuale
+    `stack_info` (#166): senza, il `Formatter` espanderebbe `record.exc_info` in chiaro a
+    valle del filtro, scrivendo sessionToken/App Key del corpo dell'eccezione. Il traceback
+    formattato viene redatto e messo in cache in `record.exc_text`, che il `Formatter`
+    standard riusa invece di ri-espandere `exc_info`.
+
     Non scarta mai record (ritorna sempre `True`): redige, non sopprime."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             record.msg = redact(record.getMessage())
             record.args = ()
+            # Traceback dell'eccezione: pre-formatta (se non già in cache), redige e cacha in
+            # exc_text così il Formatter usa la versione redatta e non ri-espande exc_info grezzo.
+            if record.exc_info and not record.exc_text:
+                record.exc_text = logging.Formatter().formatException(record.exc_info)
+            if record.exc_text:
+                record.exc_text = redact(record.exc_text)
+            # stack_info (stack_info=True): redige il dump dello stack che può contenere segreti.
+            if record.stack_info:
+                record.stack_info = redact(record.stack_info)
         except Exception:  # pragma: no cover - non far mai crashare il logging
             pass
         return True
@@ -115,19 +131,78 @@ def quiet_http_libraries(level: int = logging.WARNING):
     return NOISY_HTTP_LOGGERS
 
 
+def _ensure_filter_on_handler(handler, flt: SecretRedactionFilter) -> None:
+    """Aggiunge `flt` a `handler` se non ha già un `SecretRedactionFilter` (idempotente)."""
+    try:
+        if not any(isinstance(f, SecretRedactionFilter) for f in handler.filters):
+            handler.addFilter(flt)
+    except Exception:  # pragma: no cover - non far mai crashare la configurazione del logging
+        pass
+
+
+# Hook su `logging.Logger.addHandler`: ogni handler aggiunto DOPO l'install (a qualunque
+# logger) riceve automaticamente il filtro di redazione. Senza, un handler installato più tardi
+# (sink applicativo, handler di una libreria) scriverebbe in chiaro (#166). `_orig_addHandler`
+# conserva il metodo originale per `_uninstall_addhandler_hook` (reset/test).
+_hook_lock = threading.Lock()
+_orig_addHandler = None
+
+
+def _install_addhandler_hook(flt: SecretRedactionFilter) -> None:
+    """Avvolge `logging.Logger.addHandler` (una sola volta) così ogni handler aggiunto in
+    seguito riceve `flt`. Idempotente: se già installato, non riavvolge."""
+    global _orig_addHandler
+    with _hook_lock:
+        if _orig_addHandler is not None:
+            return
+        _orig_addHandler = logging.Logger.addHandler
+        original = _orig_addHandler
+
+        def addHandler(self, hdlr):
+            # Aggancia il filtro PRIMA di pubblicare l'handler (Codex/CodeRabbit #251): l'addHandler
+            # originale rende l'handler visibile al logger; se un altro thread logga nella finestra
+            # tra la pubblicazione e l'attach del filtro, il record verrebbe gestito NON redatto —
+            # esattamente il leak che questo hook deve chiudere. Attaccando prima, nessuna finestra.
+            _ensure_filter_on_handler(hdlr, flt)
+            original(self, hdlr)
+
+        logging.Logger.addHandler = addHandler
+
+
+def _uninstall_addhandler_hook() -> None:
+    """Ripristina il `logging.Logger.addHandler` originale (reset completo/test)."""
+    global _orig_addHandler
+    with _hook_lock:
+        if _orig_addHandler is not None:
+            logging.Logger.addHandler = _orig_addHandler
+            _orig_addHandler = None
+
+
 def install_global_log_redaction() -> SecretRedactionFilter:
-    """Installa la difesa globale: aggiunge un `SecretRedactionFilter` al root logger
-    e a tutti i suoi handler (idempotente) e silenzia le librerie HTTP. Ritorna il
-    filtro installato. I sink applicativi (file di log) dovrebbero aggiungere lo
-    stesso filtro ai propri handler per coprire anche i record propagati."""
+    """Installa la difesa globale: un `SecretRedactionFilter` sul root logger e su TUTTI i suoi
+    handler — presenti **e futuri** — più il silenziamento delle librerie HTTP. Ritorna il
+    filtro installato (idempotente: un solo filtro, stesso oggetto a ogni chiamata).
+
+    Copertura completa (#166):
+    - i filtri su un *logger* NON vedono i record **propagati** dai logger figli: solo i filtri
+      sugli *handler* lo fanno. Per questo il filtro va su ogni handler di root, non solo sul
+      logger;
+    - gli handler aggiunti **dopo** l'install verrebbero scoperti: un hook su
+      `logging.Logger.addHandler` (`_install_addhandler_hook`) glielo aggiunge automaticamente,
+      a qualunque logger vengano agganciati."""
     root = logging.getLogger()
     existing = next(
         (f for f in root.filters if isinstance(f, SecretRedactionFilter)), None)
     flt = existing or SecretRedactionFilter()
     if existing is None:
         root.addFilter(flt)
+    # Installa l'hook PRIMA dello sweep (Codex #251): se lo sweep girasse per primo, un handler
+    # aggiunto nella finestra tra la fine del loop e l'install dell'hook passerebbe per
+    # l'`addHandler` originale, non sarebbe nella lista già spazzata e non verrebbe mai
+    # ri-visitato → scoperto. Con l'hook attivo prima, ogni handler aggiunto durante/dopo lo
+    # sweep è coperto; lo sweep copre quelli pre-esistenti (l'attach è idempotente).
+    _install_addhandler_hook(flt)
     for handler in root.handlers:
-        if not any(isinstance(f, SecretRedactionFilter) for f in handler.filters):
-            handler.addFilter(flt)
+        _ensure_filter_on_handler(handler, flt)
     quiet_http_libraries()
     return flt
