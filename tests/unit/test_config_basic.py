@@ -1265,6 +1265,7 @@ def test_clear_dopo_load_keyring_illeggibile_non_cancella_il_token(tmp_path, mon
     assert loaded["bot_token"] == ""
     state["readable"] = True                                # keyring TORNA leggibile
     saved, ok = config_store.save_config(loaded, str(p))    # save (campo token ancora vuoto)
+    assert ok is True                                       # save riuscito (esito GUI-visibile coperto)
     assert deleted["n"] == 0                                # il token NON è stato cancellato
     assert state["token"] == "LIVE:TOKEN"                   # ancora nel keyring
     on_disk = json.loads(p.read_text(encoding="utf-8"))
@@ -1297,11 +1298,13 @@ def test_load_incompleto_persiste_se_keyring_ancora_giu(tmp_path, monkeypatch):
     p.write_text(json.dumps({"bot_token": "", "bot_token_storage": "keyring"}), encoding="utf-8")
     loaded = config_store.load_config(str(p))               # keyring giù → marker
     assert loaded.get(config_store.TOKEN_LOAD_INCOMPLETE_KEY) is True
-    saved1, _ = config_store.save_config(loaded, str(p))    # keyring ANCORA giù
+    saved1, ok1 = config_store.save_config(loaded, str(p))  # keyring ANCORA giù
+    assert ok1 is True                                      # save riuscito (clear differito, non un fallimento)
     assert deleted["n"] == 0
     assert saved1.get(config_store.TOKEN_LOAD_INCOMPLETE_KEY) is True   # marker RE-MANTENUTO
     state["readable"] = True                                # keyring torna leggibile
-    saved2, _ = config_store.save_config(saved1, str(p))    # 2° save non deve cancellare
+    saved2, ok2 = config_store.save_config(saved1, str(p))  # 2° save non deve cancellare
+    assert ok2 is True
     assert deleted["n"] == 0
     assert state["token"] == "LIVE:TOKEN"
     assert saved2["bot_token"] == "LIVE:TOKEN"              # reidratato, marker ora consumato
@@ -1319,3 +1322,37 @@ def test_clear_reale_con_keyring_leggibile_cancella(tmp_path, monkeypatch):
     assert "t" not in store                                 # token cancellato (clear reale)
     on_disk = json.loads(p.read_text(encoding="utf-8"))
     assert on_disk["bot_token_storage"] == "none"           # niente reidratazione futura
+
+
+def test_load_incompleto_keyring_leggibile_vuoto_non_lascia_puntatore_stantio(tmp_path, monkeypatch):
+    """#140 (PR-08b, CodeRabbit Major): col marker load-incompleto attivo, se al save il keyring è
+    leggibile e GENUINAMENTE vuoto (load_token_status → (None, True)), NON c'è token da preservare:
+    il sentinel deve diventare "none", non "keyring". Un puntatore "keyring" stantio resusciterebbe
+    un eventuale orphan token futuro.
+
+    Fail-first: prima il ramo scriveva sempre "keyring", lasciando un puntatore di reidratazione."""
+    deleted = {"n": 0}
+    monkeypatch.setattr(config_store.token_store, "available", lambda: True)
+    monkeypatch.setattr(config_store.token_store, "load_token_status", lambda: (None, True))  # leggibile, VUOTO
+    monkeypatch.setattr(config_store.token_store, "load_token", lambda: None)
+    monkeypatch.setattr(config_store.token_store, "save_token", lambda t: True)
+
+    def _del():
+        deleted["n"] += 1
+        return True
+    monkeypatch.setattr(config_store.token_store, "delete_token", _del)
+
+    p = tmp_path / "config.json"
+    cfg = {"bot_token": "", "bot_token_storage": "keyring",
+           config_store.TOKEN_LOAD_INCOMPLETE_KEY: True}     # marker load-incompleto attivo
+    saved, ok = config_store.save_config(cfg, str(p))
+    assert ok is True
+    assert deleted["n"] == 0                                 # niente da cancellare (keyring già vuoto)
+    on_disk = json.loads(p.read_text(encoding="utf-8"))
+    assert on_disk["bot_token_storage"] == "none"           # sentinel "none": nessun puntatore stantio
+    assert on_disk["bot_token"] == ""
+    assert config_store.TOKEN_LOAD_INCOMPLETE_KEY not in on_disk   # marker MAI su disco
+    assert config_store.TOKEN_LOAD_INCOMPLETE_KEY not in saved     # consumato in memoria
+    # load successivo: sentinel "none" → niente reidratazione anche se un orphan comparisse nel keyring
+    monkeypatch.setattr(config_store.token_store, "load_token_status", lambda: ("ORPHAN:TOKEN", True))
+    assert config_store.load_config(str(p))["bot_token"] == ""     # NON resuscita l'orphan
