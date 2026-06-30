@@ -186,12 +186,19 @@ def test_install_aggancia_hook_prima_dello_sweep(monkeypatch):
     sentinel = logging.StreamHandler(io.StringIO())     # garantisce ≥1 handler → almeno uno "sweep"
     root.addHandler(sentinel)
     try:
-        flt = log_safety.install_global_log_redaction()
+        log_safety.install_global_log_redaction()
         assert "hook" in calls and "sweep" in calls
         assert calls.index("hook") < calls.index("sweep")   # hook PRIMA dello sweep
     finally:
+        # Cleanup exception-safe (CodeRabbit #251): non dipende da `flt` (install potrebbe
+        # sollevare prima di assegnarlo) e RIPRISTINA i filtri pre-esistenti del root logger.
         root.removeHandler(sentinel)
-        root.removeFilter(flt)
+        for f in list(root.filters):
+            if isinstance(f, log_safety.SecretRedactionFilter) and f not in pre:
+                root.removeFilter(f)
+        for f in pre:
+            if f not in root.filters:
+                root.addFilter(f)
         log_safety._uninstall_addhandler_hook()
 
 
