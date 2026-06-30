@@ -173,7 +173,42 @@ def test_handler_aggiunto_dopo_install_viene_redatto():
 def test_uninstall_addhandler_hook_ripristina_originale():
     orig = logging.Logger.addHandler
     flt = log_safety.SecretRedactionFilter()
-    log_safety._install_addhandler_hook(flt)
-    assert logging.Logger.addHandler is not orig    # avvolto
-    log_safety._uninstall_addhandler_hook()
-    assert logging.Logger.addHandler is orig        # ripristinato
+    try:
+        log_safety._install_addhandler_hook(flt)
+        assert logging.Logger.addHandler is not orig    # avvolto
+    finally:
+        log_safety._uninstall_addhandler_hook()         # cleanup garantito anche se l'assert sopra fallisce
+    assert logging.Logger.addHandler is orig            # ripristinato
+
+
+def test_hook_aggancia_filtro_prima_di_pubblicare_handler():
+    # Codex/CodeRabbit #251: il filtro va attaccato PRIMA che l'handler sia visibile al logger,
+    # altrimenti un record loggato nella finestra tra pubblicazione e attach sfuggirebbe NON redatto.
+    # Test deterministico dell'ORDINE: un handler che, quando riceve il SecretRedactionFilter,
+    # registra se è già nei root.handlers. Con il fix, NON deve esserlo ancora.
+    root = logging.getLogger()
+
+    class _OrderSpy(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.published_when_filtered = None
+
+        def addFilter(self, f):
+            if isinstance(f, log_safety.SecretRedactionFilter):
+                self.published_when_filtered = self in root.handlers
+            super().addFilter(f)
+
+        def emit(self, record):
+            pass
+
+    spy = _OrderSpy()
+    try:
+        flt = log_safety.install_global_log_redaction()
+        root.addHandler(spy)
+        # il filtro è stato agganciato mentre l'handler NON era ancora pubblicato → nessuna finestra.
+        assert spy.published_when_filtered is False
+        assert any(isinstance(f, log_safety.SecretRedactionFilter) for f in spy.filters)
+    finally:
+        root.removeHandler(spy)
+        root.removeFilter(flt)
+        log_safety._uninstall_addhandler_hook()

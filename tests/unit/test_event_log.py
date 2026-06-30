@@ -212,6 +212,34 @@ def test_clear_secrets_non_trattiene_il_segreto_nella_cache_regex():
     assert el.redact_secrets(f"x {tok} y") == f"x {tok} y"   # non più mascherato
 
 
+def test_unregister_secret_non_trattiene_il_segreto_nella_cache_regex():
+    """Anche `unregister_secret` (token cambiato) deve svuotare la cache CR/LF: il valore non
+    resta nelle chiavi della cache e non viene più mascherato (CodeRabbit #251)."""
+    tok = "AppKeySegretaNonCanonica123"
+    el.register_secret(tok)
+    el.redact_secrets(f"x {tok} y")
+    assert el._crlf_tolerant_re.cache_info().currsize >= 1
+    el.unregister_secret(tok)
+    assert el._crlf_tolerant_re.cache_info().currsize == 0
+    assert el.redact_secrets(f"x {tok} y") == f"x {tok} y"   # non più mascherato
+
+
+def test_redact_preview_token_registrato_spezzato_da_crlf_sul_confine():
+    """#203 (Codex P1): se un token registrato è wrappato da CR/LF e il budget cade dentro di
+    esso, `redact_preview` deve estendere il taglio sull'INTERO token (span CR/LF-tolleranti),
+    altrimenti taglierebbe a metà e il prefisso del token finirebbe nell'anteprima.
+
+    Fail-first: con `_secret_spans` basato su `find` esatto, lo span del token wrappato non era
+    rilevato → taglio a budget → frammento del token in chiaro nell'anteprima."""
+    tok = "123456789:LiveBotTokenSecretValue_xyz"
+    el.register_secret(tok)
+    wrapped = tok[:20] + "\n" + tok[20:]            # spezzato da \n a metà
+    out = el.redact_preview(f"p {wrapped}", 15)     # budget 15: cade DENTRO il token
+    assert "123456789:LiveBotTok" not in out        # nessun frammento del token
+    assert "LiveBot" not in out
+    assert "[REDACTED_TOKEN]" in out
+
+
 def test_redact_preview_budget_grezzo_e_segreto_sul_confine():
     """#184 M8 P2 (Codex): `redact_preview` rivela al più `budget` char GREZZI, ma maschera per
     intero un segreto che attraversa il confine senza trascinare contenuto oltre il budget."""

@@ -148,7 +148,12 @@ def redact_secrets(text: str) -> str:
 def _secret_spans(text: str):
     """Span `(start, end)` di tutti i segreti in `text`: regex del token canonico + literal
     registrati nelle loro forme derivate (`_secret_forms`). Usato da `redact_preview` per sapere
-    se un segreto attraversa il confine del budget."""
+    se un segreto attraversa il confine del budget.
+
+    I literal sono cercati con lo STESSO match CR/LF-tollerante di `redact_secrets`
+    (`_crlf_tolerant_re`, #203 Codex): se gli span usassero il `find` esatto mentre la redazione
+    è CR/LF-tollerante, `redact_preview` taglierebbe a metà un token wrappato — il prefisso
+    raggiungerebbe la sostituzione senza il resto del token e un frammento finirebbe nell'anteprima."""
     spans = []
     for m in _TELEGRAM_TOKEN_RE.finditer(text):
         spans.append((m.start(), m.end()))
@@ -160,10 +165,8 @@ def _secret_spans(text: str):
     for sec in forms:
         if not sec:
             continue
-        start = text.find(sec)
-        while start != -1:
-            spans.append((start, start + len(sec)))
-            start = text.find(sec, start + 1)
+        for m in _crlf_tolerant_re(sec).finditer(text):
+            spans.append((m.start(), m.end()))
     return spans
 
 

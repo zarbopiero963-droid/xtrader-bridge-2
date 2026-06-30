@@ -159,8 +159,12 @@ def _install_addhandler_hook(flt: SecretRedactionFilter) -> None:
         original = _orig_addHandler
 
         def addHandler(self, hdlr):
-            original(self, hdlr)
+            # Aggancia il filtro PRIMA di pubblicare l'handler (Codex/CodeRabbit #251): l'addHandler
+            # originale rende l'handler visibile al logger; se un altro thread logga nella finestra
+            # tra la pubblicazione e l'attach del filtro, il record verrebbe gestito NON redatto —
+            # esattamente il leak che questo hook deve chiudere. Attaccando prima, nessuna finestra.
             _ensure_filter_on_handler(hdlr, flt)
+            original(self, hdlr)
 
         logging.Logger.addHandler = addHandler
 
