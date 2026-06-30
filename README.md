@@ -298,6 +298,8 @@ Tutte queste protezioni sono **attive a runtime**:
    - **Attivazione "frictionful" (audit #105 P2).** Passare da simulazione a **REALE**
      richiede una **doppia conferma**: oltre alla spunta, devi **digitare** la parola
      `REALE` in una finestra di conferma. Se annulli, il bridge resta in simulazione.
+     La stessa conferma scatta anche **caricando un profilo** che porta `dry_run:false`
+     (il caricamento profilo non bypassa il gate): se annulli, resti in simulazione.
    - **Banner rosso persistente** in alto finché sei in modalità reale; l'attivazione
      viene **tracciata** nel log come evento `REAL_MODE_ENABLED`.
    - **Esporta audit reale** (pulsante 🧾 nella tab *Stato*): salva in un file le righe
@@ -309,8 +311,9 @@ Tutte queste protezioni sono **attive a runtime**:
 3. **Un segnale alla volta** — con `queue_mode=OVERWRITE_LAST` il CSV contiene un
    solo segnale attivo; il timeout lo svuota.
    - **Modalità multi-segnale "frictionful" (audit #105 P2).** Attivare `APPEND_ACTIVE`
-     o `QUEUE_UNTIL_CONFIRMED` (più righe/scommesse insieme) richiede una **conferma**.
-     Un **tetto** `max_active_signals` (default **2**) **blocca** i segnali oltre N righe
+     o `QUEUE_UNTIL_CONFIRMED` (più righe/scommesse insieme) richiede una **conferma**,
+     anche quando la modalità arriva da un **profilo caricato** (se rifiuti, resti a
+     `OVERWRITE_LAST`). Un **tetto** `max_active_signals` (default **2**) **blocca** i segnali oltre N righe
      attive (ritentabili quando una si libera), e un indicatore **"Righe attive: N/M"** in
      alto mostra quante scommesse sono attive ora.
 4. **Anti-duplicato** — lo stesso messaggio ravvicinato non viene riscritto. Lo
