@@ -85,3 +85,27 @@ def test_load_token_none_su_errore_backend(monkeypatch):
 def test_delete_token_false_se_voce_inesistente(monkeypatch):
     _use(monkeypatch, FakeKeyring())   # store vuoto → delete solleva KeyError → False
     assert ts.delete_token() is False
+
+
+# ── #140: load_token_status distingue ASSENTE da LETTURA FALLITA ───────────────
+
+def test_load_token_status_presente(monkeypatch):
+    fake = FakeKeyring()
+    _use(monkeypatch, fake)
+    ts.save_token("123:SEGRETO")
+    assert ts.load_token_status() == ("123:SEGRETO", True)   # valore + lettura riuscita
+
+
+def test_load_token_status_assente_ma_leggibile(monkeypatch):
+    _use(monkeypatch, FakeKeyring())                         # backend ok, nessun token
+    assert ts.load_token_status() == (None, True)            # None ma read_ok True (assente, non errore)
+
+
+def test_load_token_status_lettura_fallita(monkeypatch):
+    _use(monkeypatch, FakeKeyring(raise_on={"get"}))         # get solleva
+    assert ts.load_token_status() == (None, False)           # read_ok False: non sappiamo se esista
+
+
+def test_load_token_status_senza_backend(monkeypatch):
+    monkeypatch.setattr(ts, "_keyring", lambda: None)
+    assert ts.load_token_status() == (None, False)           # nessun backend → lettura non possibile

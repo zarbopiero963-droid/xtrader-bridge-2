@@ -459,16 +459,31 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
     prior_sentinel = str(in_memory.get("bot_token_storage") or "")
     keyring_changed = False        # se True, su disco-fallito va eseguito il rollback
     prior_keyring = None           # valore del keyring PRIMA della modifica (per il rollback)
+    prior_read_ok = False          # la lettura del valore precedente è riuscita? (#140 rollback)
     if token_present:
         if token:
             if token_store.available():
-                prior_keyring = token_store.load_token()
+                # Snapshot del valore PRECEDENTE distinguendo "assente" da "lettura fallita"
+                # (#140): se la pre-lettura fallisce, il rollback NON deve cancellare (cancellare
+                # distruggerebbe un token preesistente illeggibile).
+                prior_keyring, prior_read_ok = token_store.load_token_status()
                 if token_store.save_token(token):
                     keyring_changed = True
                     to_save["bot_token"] = ""                # niente segreto in chiaro su disco
                     to_save["bot_token_storage"] = "keyring"
+                elif prior_sentinel == "keyring":
+                    # `available()` True ma set fallito (raro) e lo stato precedente era "keyring"
+                    # (#140 Codex): NON declassare a plaintext — scriverebbe in chiaro un segreto
+                    # prima protetto. Preserva "keyring" (il valore già memorizzato resta valido)
+                    # e NON aggiornare il token ora; avvisa. Il token NUOVO non è persistito.
+                    to_save["bot_token"] = ""
+                    to_save["bot_token_storage"] = "keyring"
+                    logger.warning("Keyring non scrivibile ora: il bot token NON è stato aggiornato "
+                                   "(per non esporlo in chiaro nel config). Riprova; il token già "
+                                   "memorizzato nel keyring resta valido.")
                 else:
-                    # `available()` True ma set fallito (raro): fallback al token in chiaro.
+                    # `available()` True ma set fallito e nessuno stato keyring precedente:
+                    # fallback storico al token in chiaro (prima installazione/plaintext).
                     to_save["bot_token_storage"] = "plaintext"
                     logger.warning("Keyring non scrivibile: il bot token resta in chiaro in %s.", path)
             elif prior_sentinel == "keyring":
@@ -583,8 +598,22 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
             try:
                 if prior_keyring is not None:
                     rolled_back = token_store.save_token(prior_keyring)
-                else:
+                elif prior_read_ok:
+                    # Sappiamo che PRIMA non c'era token (lettura riuscita, valore None): il
+                    # rollback è cancellare il valore appena scritto.
                     rolled_back = token_store.delete_token()
+                else:
+                    # Pre-lettura del valore precedente FALLITA (#140): non sappiamo se un token
+                    # esistesse. Cancellare rischierebbe di distruggere un token preesistente
+                    # illeggibile → NON si cancella. Si lascia il keyring com'è (col valore nuovo):
+                    # il disco ha ancora il config VECCHIO (sentinel "keyring") che lo reidraterà,
+                    # quindi nessun token è perso. Le altre impostazioni non salvate sono già
+                    # segnalate da `ok=False`.
+                    rolled_back = True
+                    logger.warning("Config non salvata (%s): stato keyring precedente non "
+                                   "leggibile, il token NON è stato annullato per non rischiare di "
+                                   "perderne uno preesistente. Le altre impostazioni non sono state "
+                                   "salvate; riprova.", path)
             except Exception:   # noqa: BLE001 — rollback best-effort
                 rolled_back = False
             # `save_token`/`delete_token` segnalano il fallimento con False (non sollevano):
