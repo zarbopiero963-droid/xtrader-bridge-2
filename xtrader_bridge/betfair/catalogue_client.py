@@ -139,12 +139,29 @@ def _http_catalogue(market_ids, session_token, app_key, *, _poster=None):
                 "filter": {"marketIds": chunk},
                 "marketProjection": ["EVENT", "MARKET_DESCRIPTION", "RUNNER_DESCRIPTION"],
                 "maxResults": len(chunk),
+                # locale ITALIANO esplicito: senza, se la lingua di default dell'account
+                # non è l'italiano, listMarketCatalogue tornerebbe nomi mercato/runner in
+                # un'altra lingua (es. "The Draw") sovrascrivendo i nomi /it/ del navigation,
+                # e il name-mapping/CSV (che richiede nomi IT) si romperebbe (Codex).
+                "locale": "it",
             },
             "id": 1,
         }
         data = poster(_CATALOGUE_URL, payload, session_token, app_key)
         results.extend(_jsonrpc_result(data))
     return results
+
+
+def _node_id(node) -> str:
+    """ID di un nodo del navigation menu come stringa, o ``""`` se assente.
+
+    `str(node.get("id"))` darebbe il valore **truthy** ``"None"`` quando l'id manca
+    (payload navigation malformato/parziale): a valle ciò farebbe scrivere un record
+    fasullo (es. `market_id='None'`) nel dizionario o chiamare `listMarketCatalogue`
+    con un id inesistente (Codex). Un id mancante deve restare vuoto, così le guardie
+    `if mk.get("id")` / `if ev.get("id")` saltano quel record."""
+    v = node.get("id")
+    return str(v) if v is not None else ""
 
 
 def event_type_ids_for(sports) -> set:
@@ -187,19 +204,24 @@ def parse_navigation(menu, allowed_event_type_ids):
             return
         ntype = node.get("type")
         if ntype == "EVENT_TYPE":
-            if str(node.get("id")) not in allowed:
-                return  # sport non selezionato: salta tutto il sottoalbero
-            etype = {"id": str(node.get("id")), "name": node.get("name")}
+            if _node_id(node) not in allowed:
+                return  # sport non selezionato (o id assente): salta tutto il sottoalbero
+            etype = {"id": _node_id(node), "name": node.get("name")}
         elif ntype == "COMPETITION":
-            comp = {"id": str(node.get("id")), "name": node.get("name")}
+            comp = {"id": _node_id(node), "name": node.get("name")}
         elif ntype == "EVENT":
-            event = {"id": str(node.get("id")), "name": node.get("name"),
+            event = {"id": _node_id(node), "name": node.get("name"),
                      "openDate": node.get("openDate")}
         elif ntype == "MARKET":
-            if etype is not None:
+            mkid = _node_id(node)
+            # Solo un MARKET con id reale genera un record: un id mancante non deve
+            # lasciare un EVENTO/SPORT *orfano* attivo nel dizionario (Codex #263) — il
+            # loop di sync upserta sport/evento PRIMA del market, quindi se saltassimo
+            # solo il market a valle l'evento resterebbe attivo senza alcun mercato valido.
+            if etype is not None and mkid:
                 records.append({
                     "event_type": etype, "competition": comp, "event": event,
-                    "market": {"id": str(node.get("id")), "name": node.get("name"),
+                    "market": {"id": mkid, "name": node.get("name"),
                                "marketType": node.get("marketType")},
                 })
         for child in node.get("children") or ():
@@ -344,7 +366,11 @@ class CatalogueSync:
                     market_meta[mk["id"]] = {"event_id": ev_id, "event_type_id": et["id"],
                                              "competition_id": comp_id,
                                              "name": mk.get("name"),
-                                             "marketType": mk.get("marketType")}
+                                             "marketType": mk.get("marketType"),
+                                             # openDate dal MENU: serve come fallback se il
+                                             # catalogue ometterà l'orario (Codex), per non
+                                             # azzerarlo nel re-upsert dell'evento.
+                                             "open_date": ev.get("openDate") if ev else None}
 
             market_ids = list(market_meta.keys())
 
@@ -358,15 +384,21 @@ class CatalogueSync:
                 for market_id, info in catalogue.items():
                     meta = market_meta.get(market_id, {})
                     cat_ev = info.get("event") or {}
-                    ev_id = meta.get("event_id") or cat_ev.get("id")
+                    # event_id risolto: dal menu o, se il market non aveva un evento
+                    # parente, dall'evento del catalogue (Codex). `""` se nessuno dei due.
+                    ev_id = meta.get("event_id") or cat_ev.get("id") or ""
                     if ev_id and cat_ev.get("name"):
                         p1, p2 = split_participants(cat_ev.get("name"))
+                        # openDate: il catalogue può ometterlo (parse_market_catalogue lo
+                        # tollera); in quel caso NON sovrascrivere con None l'orario già
+                        # salvato dal navigation — fallback all'openDate del menu (Codex).
+                        open_date = cat_ev.get("openDate") or meta.get("open_date")
                         self.db.upsert_event(
                             ev_id, meta.get("event_type_id", ""),
                             meta.get("competition_id", ""), cat_ev.get("name"),
-                            cat_ev.get("openDate"), p1, p2, seen_at=marker)
+                            open_date, p1, p2, seen_at=marker)
                     self.db.upsert_market(
-                        market_id, meta.get("event_id", ""),
+                        market_id, ev_id,   # ev_id RISOLTO, non il solo event_id del menu (Codex)
                         meta.get("event_type_id", ""),
                         info.get("market_name") or meta.get("name"),
                         info.get("market_type") or meta.get("marketType"),

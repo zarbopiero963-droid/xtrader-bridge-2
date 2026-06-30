@@ -569,3 +569,88 @@ def test_jsonrpc_result_porta_lerror_code_su_scadenza():
                                       "data": {"APINGException":
                                                {"errorCode": "INVALID_SESSION_INFORMATION"}}}})
     assert ei.value.error_code == "INVALID_SESSION_INFORMATION"
+
+
+# ── audit #241 / PR #170: 4 finding Codex ancora validi su main ───────────────
+
+def test_navigation_market_senza_id_saltato(db):
+    # Codex (Mmmg7 + follow-up #263): un nodo MARKET privo di `id` non genera alcun record,
+    # così non viene persistito né un market fasullo ("None"/"") né un EVENTO orfano stantio.
+    menu = {"type": "GROUP", "children": [
+        {"type": "EVENT_TYPE", "id": "1", "name": "Soccer", "children": [
+            {"type": "EVENT", "id": "e1", "name": "Inter v Milan", "children": [
+                {"type": "MARKET", "name": "Match Odds",      # ← niente "id"
+                 "marketType": "MATCH_ODDS"}]}]}]}
+    recs = parse_navigation(menu, {"1"})
+    assert recs == []                                        # market id mancante → nessun record
+    CatalogueSync(db, navigation_transport=lambda: menu,
+                  catalogue_transport=lambda mids: []).sync(["Calcio"])
+    market_ids = {m["market_id"] for m in db.fetchall("betfair_markets")}
+    assert "None" not in market_ids and "" not in market_ids  # nessun market fasullo
+    assert db.count_active("betfair_markets") == 0
+    assert db.count_active("betfair_events") == 0            # nessun evento orfano stantio
+
+
+def test_navigation_market_valido_accanto_a_uno_senza_id(db):
+    # Guardia anti over-skip: un evento con un market VALIDO + uno senza id mantiene il
+    # record valido e l'evento resta persistito (solo il market id-less è saltato).
+    menu = {"type": "GROUP", "children": [
+        {"type": "EVENT_TYPE", "id": "1", "name": "Soccer", "children": [
+            {"type": "EVENT", "id": "e1", "name": "Inter v Milan", "children": [
+                {"type": "MARKET", "id": "1.101", "name": "Match Odds",
+                 "marketType": "MATCH_ODDS"},
+                {"type": "MARKET", "name": "Over/Under"}]}]}]}  # secondo market senza id
+    recs = parse_navigation(menu, {"1"})
+    assert [r["market"]["id"] for r in recs] == ["1.101"]    # solo il market valido
+    CatalogueSync(db, navigation_transport=lambda: menu,
+                  catalogue_transport=lambda mids: []).sync(["Calcio"])
+    assert db.count_active("betfair_events") == 1            # evento persistito dal market valido
+    assert {m["market_id"] for m in db.fetchall("betfair_markets")} == {"1.101"}
+
+
+def test_catalogue_richiede_locale_italiano():
+    # Codex (Mmmg-): listMarketCatalogue deve chiedere i nomi in italiano (locale="it"),
+    # altrimenti un account con lingua diversa restituirebbe nomi non-IT.
+    from xtrader_bridge.betfair import catalogue_client as cc
+    captured = {}
+
+    def _poster(url, payload, token, app_key):
+        captured["params"] = payload["params"]
+        return {"result": []}
+
+    cc._http_catalogue(["1.101"], "tok", "key", _poster=_poster)
+    assert captured["params"].get("locale") == "it"
+
+
+def test_market_event_id_dal_catalogue_quando_menu_non_ha_evento(db):
+    # Codex (Mmmg4): se il MARKET del menu non ha un evento parente ma il catalogue porta
+    # event.id, il market deve essere collegato a quell'evento (event_id risolto), non vuoto.
+    menu = {"type": "GROUP", "children": [
+        {"type": "EVENT_TYPE", "id": "1", "name": "Soccer", "children": [
+            {"type": "MARKET", "id": "1.101", "name": "Match Odds"}]}]}  # market diretto, niente EVENT
+    cat = [{"marketId": "1.101", "marketName": "Match Odds",
+            "description": {"marketType": "MATCH_ODDS"},
+            "event": {"id": "e1", "name": "Inter v Milan"},
+            "runners": [{"selectionId": 1, "runnerName": "Inter", "handicap": 0}]}]
+    CatalogueSync(db, navigation_transport=lambda: menu,
+                  catalogue_transport=lambda mids: cat).sync(["Calcio"])
+    market = db.fetchall("betfair_markets")[0]
+    assert market["event_id"] == "e1"                        # collegato all'evento del catalogue
+
+
+def test_openDate_del_menu_preservato_se_catalogue_lo_omette(db):
+    # Codex (Mmmg1): il catalogue può avere nome ma NON openDate; il re-upsert dell'evento
+    # NON deve azzerare l'orario già salvato dal navigation → fallback all'openDate del menu.
+    menu = {"type": "GROUP", "children": [
+        {"type": "EVENT_TYPE", "id": "1", "name": "Soccer", "children": [
+            {"type": "EVENT", "id": "e1", "name": "Inter v Milan",
+             "openDate": "2026-07-01T18:00:00Z", "children": [
+                {"type": "MARKET", "id": "1.101", "name": "Match Odds"}]}]}]}
+    cat = [{"marketId": "1.101", "marketName": "Match Odds",
+            "description": {"marketType": "MATCH_ODDS"},
+            "event": {"id": "e1", "name": "Inter v Milan"},  # ← niente openDate nel catalogue
+            "runners": [{"selectionId": 1, "runnerName": "Inter", "handicap": 0}]}]
+    CatalogueSync(db, navigation_transport=lambda: menu,
+                  catalogue_transport=lambda mids: cat).sync(["Calcio"])
+    ev = db.get_events()[0]
+    assert ev["open_date"] == "2026-07-01T18:00:00Z"         # preservato dal menu, non None

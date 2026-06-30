@@ -155,6 +155,12 @@ Non verificato in automatico: la chiamata di rete reale e il certificato vero.
   Delayed Key; transport HTTP iniettabili (test offline), default stdlib `urllib`.
 - `local_db.py`: eventi estesi con `participant_1`/`participant_2` (+ migrazione
   idempotente `ALTER TABLE`); markets scopabili per `event_type_id`.
+- Hardening audit #241 (finding Codex su PR #170): `listMarketCatalogue` chiede i nomi
+  in **italiano** (`locale: "it"`) per non sovrascrivere i nomi `/it/` del navigation con
+  un'altra lingua; un nodo `MARKET` privo di `id` viene **saltato** (niente più
+  `market_id='None'` nel dizionario); il mercato viene collegato all'evento **risolto**
+  (anche quando l'evento arriva solo dal catalogue); e l'`openDate` del navigation è
+  **preservato** se il catalogue lo omette (nessun azzeramento dell'orario evento).
 
 #### Smoke test manuale PR-P6 (Windows, login reale)
 1. Dopo login (PR-P4), esegui un sync degli sport scelti. Atteso: il dizionario locale
