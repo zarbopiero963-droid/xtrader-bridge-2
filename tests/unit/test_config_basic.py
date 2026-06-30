@@ -117,20 +117,26 @@ def test_save_config_disco_fallito_rollback_del_keyring(tmp_path, monkeypatch):
     assert saved["bot_token"] == "NEW:TOKEN"                # in memoria resta il nuovo
 
 
-def test_save_config_disco_fallito_pre_read_fallita_non_cancella_il_keyring(tmp_path, monkeypatch):
-    """#140 (PR-08a): se la PRE-LETTURA del keyring fallisce (`load_token_status` → read_ok False),
-    NON sappiamo se un token preesistente esista. Dopo un disco-fallito il rollback NON deve
-    cancellare il keyring — cancellare distruggerebbe un token preesistente illeggibile.
+def test_save_config_pre_read_keyring_fallita_non_sovrascrive_ne_perde(tmp_path, monkeypatch):
+    """#140 (PR-08a, Codex): se la PRE-LETTURA del keyring fallisce (`load_token_status` →
+    read_ok False) non si può garantire un rollback sicuro → NON si sovrascrive il keyring (un
+    save fallito cambierebbe la credenziale in modo irreversibile) e NON si cancella nulla. Il
+    token NON è persistito → il save è riportato NON riuscito (`ok=False`); il keyring resta intatto.
 
-    Fail-first: col vecchio `load_token()` (che ritorna None sia per assente sia per errore) il
-    rollback cadeva nel ramo `delete_token()` e svuotava il keyring."""
-    store = {}
-    monkeypatch.setattr(config_store.token_store, "available", lambda: True)
-    monkeypatch.setattr(config_store.token_store, "save_token",
-                        lambda t: bool(t) and (store.__setitem__("t", t) or True))
-    monkeypatch.setattr(config_store.token_store, "load_token", lambda: None)   # legacy: None su errore
-    monkeypatch.setattr(config_store.token_store, "load_token_status", lambda: (None, False))  # lettura FALLITA
+    Fail-first: prima si chiamava comunque `save_token` (sovrascrivendo il keyring) e si ritornava
+    `ok=True` pur senza un rollback possibile."""
+    store = {"t": "PREEXISTING:TOKEN"}      # c'è un token, ma non è leggibile ORA
+    saved_calls = {"n": 0}
     deleted = {"n": 0}
+    monkeypatch.setattr(config_store.token_store, "available", lambda: True)
+
+    def _save(t):
+        saved_calls["n"] += 1
+        store["t"] = t
+        return True
+    monkeypatch.setattr(config_store.token_store, "save_token", _save)
+    monkeypatch.setattr(config_store.token_store, "load_token", lambda: None)
+    monkeypatch.setattr(config_store.token_store, "load_token_status", lambda: (None, False))  # read FALLITA
 
     def _del():
         deleted["n"] += 1
@@ -138,23 +144,28 @@ def test_save_config_disco_fallito_pre_read_fallita_non_cancella_il_keyring(tmp_
         return True
     monkeypatch.setattr(config_store.token_store, "delete_token", _del)
 
-    def _boom(*a, **k):
-        raise OSError("disco pieno (simulato)")
-    monkeypatch.setattr(config_store.atomic_io, "atomic_write_json", _boom)
-
-    saved, ok = config_store.save_config({"bot_token": "NEW:TOKEN"}, str(tmp_path / "config.json"))
-    assert ok is False
-    assert deleted["n"] == 0                                 # rollback NON ha cancellato
-    assert store.get("t") == "NEW:TOKEN"                     # il token NON è perso
+    p = tmp_path / "config.json"
+    saved, ok = config_store.save_config(
+        {"bot_token": "NEW:TOKEN", "bot_token_storage": "keyring", "provider": "X"}, str(p))
+    assert ok is False                          # token non persistito → save NON riuscito
+    assert saved_calls["n"] == 0                # keyring NON sovrascritto (nessun rollback possibile)
+    assert deleted["n"] == 0                    # né cancellato
+    assert store["t"] == "PREEXISTING:TOKEN"    # token preesistente intatto
+    raw = p.read_text(encoding="utf-8")
+    on_disk = json.loads(raw)
+    assert on_disk["bot_token"] == ""           # niente segreto in chiaro su disco
+    assert on_disk["bot_token_storage"] == "keyring"   # preservato per la reidratazione
+    assert "NEW:TOKEN" not in raw
 
 
 def test_save_token_fallito_con_stato_keyring_non_declassa_a_plaintext(tmp_path, monkeypatch):
     """#140 (PR-08a, Codex): `available()` True ma `save_token` fallito e stato precedente
     "keyring": NON declassare a plaintext (esporrebbe in chiaro un segreto prima protetto).
-    Si preserva "keyring" e non si scrive alcun token in chiaro su disco.
+    Si preserva "keyring", non si scrive alcun token in chiaro su disco, e il save è riportato
+    NON riuscito (il token nuovo non è stato persistito).
 
     Fail-first: col vecchio fallback la chiave `bot_token` restava col valore in chiaro e il
-    sentinel diventava "plaintext"."""
+    sentinel diventava "plaintext"; e il save riportava successo."""
     store = {"t": "OLD:KEYRING:TOKEN"}
     monkeypatch.setattr(config_store.token_store, "available", lambda: True)
     monkeypatch.setattr(config_store.token_store, "save_token", lambda t: False)   # set FALLISCE
@@ -165,6 +176,7 @@ def test_save_token_fallito_con_stato_keyring_non_declassa_a_plaintext(tmp_path,
         {"bot_token": "NEW:TOKEN", "bot_token_storage": "keyring", "provider": "X"}, str(p))
     raw = p.read_text(encoding="utf-8")
     on_disk = json.loads(raw)
+    assert ok is False                                      # token non persistito → save NON riuscito
     assert on_disk["bot_token_storage"] == "keyring"        # NON declassato a plaintext
     assert on_disk["bot_token"] == ""                       # nessun segreto in chiaro su disco
     assert "NEW:TOKEN" not in raw                           # il token nuovo non finisce in chiaro
