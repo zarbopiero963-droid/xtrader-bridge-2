@@ -45,7 +45,8 @@ _ALLOWLIST = {
     "write_path.py": (2, "write-failure fail-safe: la scrittura CSV fallita non deve crashare → "
                          "rollback di coda/guardrail ed errore riportato, in commit_signal e "
                          "commit_signals (multi-riga #192)"),
-    "betfair/auth_client.py": (1, "errore login safe: niente response/segreti nel messaggio"),
+    "betfair/auth_client.py": (2, "errore login safe: niente response/segreti nel messaggio; "
+                                   "logout server-side best-effort: un fallimento non blocca il clear locale (#168)"),
     "betfair/auto_sync.py": (7, "ciclo auto login→sync→logout best-effort: logout/release/summary/state"),
     "betfair/credential_store.py": (4, "soft-import/fallback keyring credenziali Betfair"),
     "betfair/dictionary_viewer_gui.py": (1, "GUI Tk viewer dizionario best-effort"),

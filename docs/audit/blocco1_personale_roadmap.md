@@ -109,7 +109,11 @@ Risultato atteso: nessun token nei log, nessuna chiamata betting, nessun dato fu
 - `auth_client.py`: `BetfairAuthClient` esegue il login **non-interattivo** Betfair.it
   con certificato (`identitysso-cert.betfair.it/api/certlogin`) e Delayed App Key.
   Il `sessionToken` va **solo in RAM** (`BetfairSession`), mai su disco; `logout()`
-  lo cancella. Errori **safe**: `LoginError`/`CertificateError` senza response grezza
+  invalida la sessione **lato server** (POST best-effort a `identitysso.betfair.it/api/logout`
+  con `X-Authentication`/`X-Application`, #168) e poi cancella il token dalla RAM — così la
+  sessione non resta valida sul server fino alla scadenza; copre il flusso auto
+  login→sync→auto logout (il logout MANUALE della tab, che passa da `controller.session.clear()`,
+  resta un follow-up di wiring GUI). Errori **safe**: `LoginError`/`CertificateError` senza response grezza
   né segreti nel messaggio. Il login passa dal guard `safety.assert_read_only` (non è
   un'operazione di scommessa). La chiamata HTTP reale usa solo la **stdlib**
   (`urllib` + `ssl.load_cert_chain`, nessuna nuova dipendenza) ed è **iniettabile**

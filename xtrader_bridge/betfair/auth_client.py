@@ -17,20 +17,33 @@ rete reale resta una verifica manuale (Windows, certificato vero).
 """
 
 import json
+import logging
 import os
 
 from . import credential_store, safety
 from .credential_store import BetfairCredentials
 from .session import BetfairSession
 
+logger = logging.getLogger(__name__)
+
 # Endpoint di login con certificato del dominio italiano.
 CERTLOGIN_URL = "https://identitysso-cert.betfair.it/api/certlogin"
 
-# Nome "operazione" per il guard read-only (NON è un'operazione di scommessa).
+# Endpoint di LOGOUT (invalidazione della sessione lato server) del dominio italiano. NON è
+# l'endpoint cert: il logout autentica col solo `sessionToken` nell'header `X-Authentication`
+# (più l'App Key in `X-Application`), senza certificato client (#168).
+LOGOUT_URL = "https://identitysso.betfair.it/api/logout"
+
+# Nomi "operazione" per il guard read-only (NON sono operazioni di scommessa).
 LOGIN_OPERATION = "certlogin"
+LOGOUT_OPERATION = "logout"
 
 # Timeout della richiesta di login (secondi): un login non deve bloccare all'infinito.
 LOGIN_TIMEOUT = 20
+
+# Timeout del logout (secondi): più corto del login — è best-effort e non deve trattenere a
+# lungo il chiamante (es. il `finally` dell'auto-sync o la chiusura della tab).
+LOGOUT_TIMEOUT = 10
 
 
 class LoginError(RuntimeError):
@@ -70,16 +83,44 @@ def _default_transport(creds: BetfairCredentials) -> dict:
     return json.loads(raw)
 
 
+def _default_logout_transport(session_token, app_key) -> dict:
+    """Esegue il logout reale (invalidazione lato server) via stdlib e ritorna il JSON come dict.
+
+    POST a `LOGOUT_URL` con il `sessionToken` nell'header `X-Authentication` e l'App Key in
+    `X-Application` (NESSUN body, nessun segreto in URL/body). Niente certificato client (a
+    differenza del login). Non logga nulla; importata lazy come il transport di login."""
+    import urllib.request
+
+    req = urllib.request.Request(
+        LOGOUT_URL, data=b"", method="POST",
+        headers={
+            "X-Application": app_key,
+            "X-Authentication": session_token,
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=LOGOUT_TIMEOUT) as resp:
+        raw = resp.read().decode("utf-8", "replace")
+    return json.loads(raw)
+
+
 class BetfairAuthClient:
     """Login/logout Betfair.it con certificato. Custodisce il token in RAM.
 
     `session`: la `BetfairSession` condivisa col bridge. `transport`: callable
     `(BetfairCredentials) -> dict` per iniettare un trasporto finto nei test; se
-    ``None`` usa `_default_transport` (rete reale)."""
+    ``None`` usa `_default_transport` (rete reale). `logout_transport`: callable
+    `(session_token, app_key) -> dict` analogo per il logout server-side (#168)."""
 
-    def __init__(self, session: BetfairSession = None, transport=None):
+    def __init__(self, session: BetfairSession = None, transport=None,
+                 logout_transport=None):
         self.session = session if session is not None else BetfairSession()
         self._transport = transport
+        self._logout_transport = logout_transport
+        # App Key dell'ULTIMO login: serve a comporre l'header `X-Application` del logout
+        # server-side (#168). Vive solo in RAM, come il token; azzerata al logout. NON è un
+        # segreto come username/password ma resta in memoria e basta (mai loggata).
+        self._app_key = None
 
     @property
     def is_logged_in(self) -> bool:
@@ -126,14 +167,44 @@ class BetfairAuthClient:
             raise LoginError(f"Login Betfair non riuscito: {status or 'risposta non valida'}.")
 
         self.session.set_token(token)   # solo in RAM + registrato per la redazione log
+        self._app_key = creds.app_key.strip()   # cache per il logout server-side (#168)
         return token
 
     def logout(self) -> None:
-        """Logout: cancella il `sessionToken` dalla RAM (idempotente). Le credenziali
-        salvate non vengono toccate.
+        """Logout: invalida la sessione **lato server** (best-effort) e poi cancella il
+        `sessionToken` dalla RAM (idempotente). Le credenziali salvate non vengono toccate.
 
-        NOTA (#168): l'invalidazione **lato server** della sessione (POST al logout endpoint
-        Betfair) è rimandata a una PR dedicata, perché coinvolge il wiring del logout MANUALE
-        della tab (il controller ha solo una `session`, non un auth client), l'endpoint corretto
-        e il caching dell'App Key. Qui il logout resta locale (RAM)."""
+        Server-side (#168): se c'è un token attivo e l'App Key dell'ultimo login è nota, fa
+        un POST al logout endpoint Betfair.it (`identitysso.betfair.it/api/logout`) con
+        `X-Authentication`/`X-Application` PRIMA del clear locale, così la sessione non resta
+        valida sul server fino alla scadenza (il chiamante mostrava "disconnesso" mentre il
+        server restava loggato). È **best-effort**: un fallimento (rete/timeout/`status`!=SUCCESS)
+        NON impedisce il clear locale — la GUI deve comunque risultare disconnessa — e si logga
+        solo il TIPO dell'errore o lo `status`, MAI la response (che riecheggia il token).
+
+        Copre il flusso auto login→sync→auto logout (`auto_sync` chiama `auth.logout()`). Il
+        logout MANUALE della tab passa ancora da `controller.session.clear()` (il controller ha
+        solo una `session`, non un auth client): instradarlo qui è un follow-up di wiring GUI."""
+        token = self.session.token
+        app_key = self._app_key
+        if token and app_key:
+            # Contratto read-only: il logout NON è una operazione di scommessa.
+            safety.assert_read_only(LOGOUT_OPERATION)
+            transport = self._logout_transport or _default_logout_transport
+            try:
+                data = transport(token, app_key)
+            except Exception as ex:   # noqa: BLE001 — best-effort: mai response/segreti nel log
+                # Solo il TIPO dell'errore (es. URLError/timeout), mai il contenuto.
+                logger.warning("Logout Betfair lato server non riuscito (%s): la sessione "
+                               "potrebbe restare valida fino alla scadenza. Token locale "
+                               "cancellato comunque.", type(ex).__name__)
+            else:
+                # `status` è un codice safe (SUCCESS/FAIL); la response NON va loggata (il suo
+                # campo `token` riecheggia il sessionToken).
+                status = (data or {}).get("status")
+                if status != "SUCCESS":
+                    logger.warning("Logout Betfair lato server: stato %s. La sessione potrebbe "
+                                   "restare valida fino alla scadenza. Token locale cancellato.",
+                                   status or "sconosciuto")
         self.session.clear()
+        self._app_key = None

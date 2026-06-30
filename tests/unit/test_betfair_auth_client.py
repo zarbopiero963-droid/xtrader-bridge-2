@@ -115,17 +115,68 @@ def test_login_file_cert_inesistente(tmp_path):
 
 # ── logout ────────────────────────────────────────────────────────────────────
 
+def _login_ok(_c):
+    return {"loginStatus": "SUCCESS", "sessionToken": "tok"}
+
+
 def test_logout_pulisce_il_token(tmp_path):
     sess = BetfairSession()
-    client = BetfairAuthClient(session=sess, transport=lambda c: {
-        "loginStatus": "SUCCESS", "sessionToken": "tok"})
+    seen = []
+    client = BetfairAuthClient(session=sess, transport=_login_ok,
+                               logout_transport=lambda t, k: seen.append((t, k)) or {
+                                   "status": "SUCCESS"})
     client.login(_creds(tmp_path))
     assert client.is_logged_in is True
     client.logout()
     assert client.is_logged_in is False
     assert sess.token is None
-    # idempotente
+    # idempotente: una seconda logout senza sessione NON richiama il transport server-side
     client.logout()
+    assert client.is_logged_in is False
+    assert len(seen) == 1
+
+
+def test_logout_invalida_la_sessione_lato_server(tmp_path):
+    """#168 (Codex P2): il logout deve invalidare la sessione LATO SERVER (POST col
+    sessionToken in `X-Authentication` e l'App Key in `X-Application`) PRIMA del clear locale,
+    così la sessione non resta valida sul server fino alla scadenza.
+
+    Fail-first: sul vecchio `logout()` (solo `session.clear()`) il transport server-side NON
+    veniva mai chiamato."""
+    calls = []
+    client = BetfairAuthClient(session=BetfairSession(), transport=_login_ok,
+                               logout_transport=lambda token, app_key: calls.append(
+                                   {"token": token, "app_key": app_key}) or {"status": "SUCCESS"})
+    client.login(_creds(tmp_path))
+    client.logout()
+    assert len(calls) == 1                          # il logout server-side è stato chiamato
+    assert calls[0]["token"] == "tok"               # col sessionToken corrente
+    assert calls[0]["app_key"] == "DelayedKey"      # e l'App Key dell'ultimo login
+    assert client.is_logged_in is False             # poi il clear locale
+
+
+def test_logout_server_side_fallito_pulisce_comunque_il_token(tmp_path):
+    """Best-effort: un logout server-side che SOLLEVA (rete/timeout) non deve impedire il
+    clear locale né propagare l'eccezione (la GUI deve risultare disconnessa lo stesso)."""
+    def _boom(token, app_key):
+        raise RuntimeError("connessione fallita " + token)   # incorpora il token!
+
+    sess = BetfairSession()
+    client = BetfairAuthClient(session=sess, transport=_login_ok, logout_transport=_boom)
+    client.login(_creds(tmp_path))
+    client.logout()                                 # non solleva
+    assert client.is_logged_in is False
+    assert sess.token is None
+
+
+def test_logout_senza_login_non_chiama_il_server(tmp_path):
+    """Senza un login precedente (nessun token / App Key in RAM) il logout resta locale e
+    non tenta alcuna chiamata server-side (niente token da invalidare)."""
+    calls = []
+    client = BetfairAuthClient(session=BetfairSession(),
+                               logout_transport=lambda t, k: calls.append(1) or {"status": "SUCCESS"})
+    client.logout()
+    assert calls == []
     assert client.is_logged_in is False
 
 
