@@ -204,13 +204,14 @@ Durante la finestra devi:
 Fallback strumenti: il gate è essenzialmente **attendere e poi rileggere**, non uno strumento
 specifico. `subscribe_pr_activity` + `send_later`/`ScheduleWakeup` sono il meccanismo
 **preferito**. Se non sono disponibili (es. un runner con solo polling git/GitHub CLI/API),
-soddisfa comunque il gate con il **polling**: rileggi check, review, inline e thread non
-risolti a/dopo la chiusura della finestra via CLI/API. La mancanza degli strumenti di wake-up
+soddisfa comunque il gate con il **polling**: rileggi check, review, **commenti di
+conversazione della PR**, inline e thread non risolti a/dopo la chiusura della finestra via
+CLI/API. La mancanza degli strumenti di wake-up
 non autorizza mai un `DONE` anticipato e non blocca mai la PR: cambia solo *come* aspetti.
 
 Regole:
 
-- **ogni nuovo commit pushato RESETTA il timer** a 16 minuti da quel commit (i bot rivedono
+- **ogni nuovo push sul head PR RESETTA il timer** a 16 minuti da quel push (i bot rivedono
   il nuovo head);
 - non dichiarare `DONE`, `READY`, `READY_TO_MERGE`, non risolvere thread «a finestra aperta»
   prima di aver riletto la PR a fine finestra;
@@ -912,7 +913,7 @@ Inline comments checked:
 Unresolved threads checked:
 - YES / NO
 
-Review window (16 min dall'ultimo commit) rispettata:
+Review window (16 min dall'ultimo push sul head PR) rispettata:
 - YES / NO / RUNNING (chiude a <timestamp>)
 
 Last-5 PR post-merge sweep:

@@ -685,14 +685,14 @@ During the window you must:
 Tooling fallback: the gate is fundamentally about **waiting and then re-reading**, not about a
 specific tool. `subscribe_pr_activity` + `send_later`/`ScheduleWakeup` are the **preferred**
 mechanism. If they are unavailable (e.g. a runner with only git/GitHub CLI/API polling), still
-satisfy the gate by polling: re-read checks, reviews, inline comments and unresolved threads
-at/after window close via the CLI/API. Missing wake-up tooling never authorizes an early
+satisfy the gate by polling: re-read checks, reviews, **PR conversation comments**, inline
+comments and unresolved threads at/after window close via the CLI/API. Missing wake-up tooling never authorizes an early
 `DONE` and never blocks the PR — it only changes how you wait.
 
 Rules:
 
-- **every new pushed commit RESETS the timer** to 16 minutes from that commit (bots re-review
-  the new head);
+- **every new push to the PR head RESETS the timer** to 16 minutes from that push (bots
+  re-review the new head);
 - do not declare `DONE`/`READY`/`READY_TO_MERGE` and do not resolve threads "with the window
   open" before re-reading the PR at window close;
 - do not make random patches just because you are waiting.
@@ -947,7 +947,7 @@ Inline comments checked:
 Unresolved threads checked:
 - YES / NO
 
-Review window (16 min since last commit) honored:
+Review window (16 min since last push to PR head) honored:
 - YES / NO / RUNNING (closes at <timestamp>)
 
 Last-5 PR post-merge sweep:
