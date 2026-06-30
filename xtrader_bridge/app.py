@@ -421,7 +421,27 @@ class App(ctk.CTk):
         self._update_real_mode_banner(saved)
         return saved, ok
 
+    def _refill_token_entry_after_rehydrate(self) -> None:
+        """Risincronizza il campo password del bot token dalla config viva quando un save ha
+        REIDRATATO il token dal keyring (es. keyring illeggibile al load, #140) ma il campo GUI è
+        rimasto vuoto. Senza, il save/AVVIO successivo leggerebbe il campo vuoto e ricostruirebbe
+        la config azzerando il token → `save_config` lo cancellerebbe dal keyring (Codex #256).
+
+        Agisce SOLO quando c'è un token in config e il campo è vuoto: non sovrascrive mai un valore
+        digitato dall'utente né un campo già pieno, quindi un clear DELIBERATO (campo svuotato a
+        mano) resta tale."""
+        cfg = self._config if isinstance(self._config, dict) else {}
+        tok = str(cfg.get("bot_token") or "")
+        entry = getattr(self, "_e_token", None)
+        if tok and entry is not None and not entry.get().strip():
+            entry.delete(0, "end")
+            entry.insert(0, tok)
+
     def _save_config(self) -> dict:
+        # Prima di leggere il campo token, risincronizzalo se un save precedente ha reidratato il
+        # token dal keyring lasciando il campo vuoto (#140/Codex #256): evita che questo save lo
+        # ricostruisca vuoto e cancelli il token.
+        self._refill_token_entry_after_rehydrate()
         # Timeout robusto: un valore non numerico non deve crashare il salvataggio
         # (PR-13/#10). Se invalido, si tiene il default e si avvisa nel log.
         delay, delay_err = settings_validation.parse_timeout(self._e_delay.get())
@@ -1367,6 +1387,10 @@ class App(ctk.CTk):
             # silenzioso nel thread del bot (PR-11, #11).
             self._log("❌ python-telegram-bot non disponibile: impossibile avviare il listener.")
             return
+        # Risincronizza il campo token se reidratato dal keyring lasciando il campo vuoto
+        # (#140/Codex #256): senza, l'AVVIO leggerebbe un token vuoto e bloccherebbe (o, dopo il
+        # save interno, cancellerebbe il token).
+        self._refill_token_entry_after_rehydrate()
         # Validazione sui valori GREZZI dei campi PRIMA del salvataggio
         # (PR-13/#10): _save_config normalizza il timeout invalido al default,
         # quindi validare la cfg dopo il save non vedrebbe più l'errore e il

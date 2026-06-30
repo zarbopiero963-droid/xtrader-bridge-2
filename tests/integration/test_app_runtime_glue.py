@@ -657,3 +657,52 @@ def test_schedule_expiry_concorrente_non_lascia_timer_orfani(make_app, app_mod, 
     # Il cancel di teardown (sotto lock) lo ferma: nessun timer vivo residuo.
     a._cancel_expiry_timer()
     assert [t for t in started if t not in cancelled] == []
+
+
+# ── #140/#256: refresh del campo token GUI dopo reidratazione dal keyring ──────────
+
+class _FakeTokenEntry:
+    """Stand-in del campo password del bot token (`_e_token`): get/delete/insert minimi."""
+
+    def __init__(self, value=""):
+        self._v = value
+
+    def get(self):
+        return self._v
+
+    def delete(self, *a):
+        self._v = ""
+
+    def insert(self, idx, text):
+        self._v = text
+
+
+def test_refill_token_entry_dopo_reidratazione(make_app):
+    """#140/#256 (Codex): dopo che un save ha reidratato il token in `self._config` ma il campo
+    GUI è rimasto vuoto (keyring illeggibile al load), `_refill_token_entry_after_rehydrate`
+    ripopola il campo. Senza, il save/AVVIO successivo ricostruirebbe un token vuoto e
+    `save_config` lo cancellerebbe dal keyring (perdita-token al 2° save).
+
+    Fail-first: prima il metodo non esisteva (AttributeError) e il campo restava vuoto."""
+    a = make_app(config={"bot_token": "LIVE:TOKEN", "bot_token_storage": "keyring"})
+    a._e_token = _FakeTokenEntry("")                 # campo vuoto dopo l'outage al load
+    a._refill_token_entry_after_rehydrate()
+    assert a._e_token.get() == "LIVE:TOKEN"          # ripopolato dal token reidratato
+
+
+def test_refill_non_sovrascrive_campo_gia_pieno(make_app):
+    """Contro-prova: se il campo è già pieno (token digitato dall'utente) NON viene sovrascritto
+    dal valore in config — l'input dell'utente vince."""
+    a = make_app(config={"bot_token": "OLD:CONFIG:TOKEN"})
+    a._e_token = _FakeTokenEntry("USER:TYPED:TOKEN")
+    a._refill_token_entry_after_rehydrate()
+    assert a._e_token.get() == "USER:TYPED:TOKEN"    # input utente preservato
+
+
+def test_refill_no_op_su_clear_deliberato(make_app):
+    """Se in config non c'è token (clear deliberato), il campo vuoto resta vuoto: nessuna
+    resurrezione, il clear deliberato non viene annullato."""
+    a = make_app(config={"bot_token": "", "bot_token_storage": "none"})
+    a._e_token = _FakeTokenEntry("")
+    a._refill_token_entry_after_rehydrate()
+    assert a._e_token.get() == ""                    # resta vuoto (clear preservato)
