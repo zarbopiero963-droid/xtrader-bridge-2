@@ -241,6 +241,10 @@ def test_confirmation_non_riscrive_fratello_scaduto(make_app, app_mod, monkeypat
     # il CSV NON deve contenere il fratello scaduto.
     assert _events_in_csv(path) == []
     assert "Inter v Milan" not in _events_in_csv(path)
+    # `_process_confirmation` riprogramma sempre la scadenza su questo ramo (simmetria con
+    # `test_confirmation_conferma_rimuove_e_riscrive`): il fratello scaduto, ancora in coda,
+    # verrà rimosso dal tick.
+    assert a.expiry_calls and a.expiry_calls[-1][0] == path
 
 
 def test_confirmation_write_failure_segnale_rimosso_e_retry_breve(make_app, app_mod, monkeypatch, tmp_path):
