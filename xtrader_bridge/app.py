@@ -364,6 +364,70 @@ class App(ctk.CTk):
                     event_log.unregister_secret(tok)
                     registered.discard(tok)
 
+    def _had_incomplete_token_load(self) -> bool:
+        """True se la config viva porta il marker `_token_load_incomplete` (#140): il
+        `bot_token` è vuoto perché il keyring era ILLEGGIBILE al load (outage), non perché
+        l'utente l'abbia cancellato. Va letto PRIMA di un `save_config` (che CONSUMA il
+        marker reidratando il token) per sapere, DOPO il save, se il campo password va
+        risincronizzato col token reidratato (PR-08c). Lettura via `__dict__` per non
+        innescare `__getattr__` su un widget Tk (regressione #184 M7)."""
+        cfg = self.__dict__.get("_config")
+        return bool(isinstance(cfg, dict)
+                    and cfg.get(config_store.TOKEN_LOAD_INCOMPLETE_KEY))
+
+    def _resync_token_field(self, had_incomplete_load=None) -> None:
+        """Risincronizza il campo password del token con la credenziale REIDRATATA dal keyring
+        dopo un load incompleto (#140/#256, PR-08c), così un save successivo non scambia il
+        campo vuoto per un clear deliberato e non cancella il bot token dal keyring.
+
+        Senza questo, il difetto noto è la PERDITA AL 2° SAVE: dopo un outage del keyring al
+        load `save_config` reidrata `self._config["bot_token"]` e consuma il marker, ma il campo
+        GUI resta vuoto; il save normale successivo ricostruisce la config dal campo vuoto, entra
+        nel ramo clear REALE e cancella il token. Stessa lacuna per i save dei tab Tools, i save
+        non-GUI (debug/retention/auto-sync Betfair) e START (che valida il campo vuoto prima che
+        un save reidrati).
+
+        Agisce SOLO se: esiste il campo, è VUOTO, e il load era incompleto (`had_incomplete_load`;
+        se None lo deduce dal marker nella config viva). Un clear DELIBERATO (campo svuotato a mano
+        a load COMPLETO → nessun marker) NON viene mai resuscitato; un token appena DIGITATO (campo
+        non vuoto) non viene mai sovrascritto.
+
+        Sorgente del token: la config viva se già reidratata (post-save), altrimenti — quando la
+        config non ce l'ha ancora (es. START prima di qualsiasi save) — una lettura diretta del
+        keyring. Quando reidrata: ripopola il campo, REGISTRA il token nel redattore log (così non
+        finisce mai in chiaro anche fuori da `_save_config`) e CONSUMA il marker dalla config viva —
+        da quel momento il campo porta il token, la protezione non serve più e un clear deliberato
+        successivo resta valido anche se il save che avrebbe consumato il marker non è ancora
+        avvenuto (es. START che poi fallisce la validazione prima di `_save_config`) — Codex."""
+        entry = self.__dict__.get("_e_token")
+        if entry is None:
+            return
+        try:
+            if entry.get().strip():
+                return   # campo già pieno: non sovrascrivere (token digitato / clear deliberato)
+        except Exception:   # noqa: BLE001 — widget Tk distrutto: tratta come assente
+            return
+        cfg = self._config if isinstance(self._config, dict) else {}
+        if had_incomplete_load is None:
+            had_incomplete_load = bool(cfg.get(config_store.TOKEN_LOAD_INCOMPLETE_KEY))
+        if not had_incomplete_load:
+            return   # load completo: un campo vuoto è uno stato reale, niente reidratazione
+        token = str(cfg.get("bot_token") or "")
+        if not token:
+            # Config non ancora reidratata (es. START prima del save): leggi ORA dal keyring,
+            # distinguendo "assente" da "lettura fallita" così un keyring ancora giù non reidrata
+            # (il marker resta per il retry).
+            stored, read_ok = config_store.token_store.load_token_status()
+            if read_ok and stored:
+                token = stored
+        if not token:
+            return   # keyring ancora illeggibile/vuoto: niente da reidratare (marker preservato)
+        entry.delete(0, "end")
+        entry.insert(0, token)
+        self._register_secret_token({"bot_token": token})
+        if isinstance(self._config, dict):
+            self._config.pop(config_store.TOKEN_LOAD_INCOMPLETE_KEY, None)
+
     def _load_config(self) -> dict:
         # Migra il vecchio config.json (accanto all'EXE) la prima volta, poi carica
         # dalla cartella utente persistente (%APPDATA%\XTraderBridge).
@@ -415,6 +479,11 @@ class App(ctk.CTk):
         cfg = self._gate_dangerous_transitions(old_cfg, dict(new_cfg))
         saved, ok = save_config(cfg, CONFIG_FILE)
         self._config = saved
+        # PR-08c: se il save ha reidratato il token dal keyring (load era incompleto), registralo
+        # nel redattore log. Il campo password lo ripopola già `_populate_form(saved)` nel chiamante
+        # (`_profiles_loaded`), ma quel path NON passa da `_register_secret_token`, quindi senza
+        # questo il token reidratato resterebbe fuori dal registro e un log potrebbe esporlo.
+        self._register_secret_token(saved)
         self._save_ok = ok
         # Banner rosso persistente se il profilo ha attivato il REALE: senza questo il reale
         # resterebbe attivo senza warning visibile fino al successivo save/start/riavvio.
@@ -422,6 +491,12 @@ class App(ctk.CTk):
         return saved, ok
 
     def _save_config(self) -> dict:
+        # Reidratazione del campo token PRIMA di leggere il form (PR-08c): se il keyring era
+        # illeggibile al load (marker `_token_load_incomplete`) il campo è vuoto pur esistendo
+        # una credenziale; ripopolarlo ora evita che il `bot_token` vuoto del form venga letto
+        # come clear deliberato e cancelli il token (perdita al 2° save). No-op se il campo è
+        # già pieno, se non c'è marker (clear deliberato) o se il keyring è ancora giù.
+        self._resync_token_field()
         # Timeout robusto: un valore non numerico non deve crashare il salvataggio
         # (PR-13/#10). Se invalido, si tiene il default e si avvisa nel log.
         delay, delay_err = settings_validation.parse_timeout(self._e_delay.get())
@@ -950,8 +1025,13 @@ class App(ctk.CTk):
         """Imposta i giorni di conservazione log, persiste e pulisce subito (PR-3)."""
         days = _RETENTION_LABELS.get(label, 0)
         self._config["log_retention_days"] = days
+        had = self._had_incomplete_token_load()   # PR-08c: il save consuma il marker
         saved, ok = save_config(self._config, CONFIG_FILE)
         self._config = saved
+        # Reidratazione del campo token (PR-08c): un save non-GUI può aver reidratato il token
+        # dal keyring e consumato il marker lasciando il campo password vuoto → il save normale
+        # successivo lo scambierebbe per un clear. Risincronizza il campo col token reidratato.
+        self._resync_token_field(had)
         if not ok:
             self._log("❌ Salvataggio impostazione retention FALLITO su disco.")
             return
@@ -974,8 +1054,11 @@ class App(ctk.CTk):
         """Attiva/disattiva la modalità Debug (log dettagliato del percorso) e persiste."""
         on = bool(self._debug_var.get())
         self._config["debug_log"] = on
+        had = self._had_incomplete_token_load()   # PR-08c: il save consuma il marker
         saved, ok = save_config(self._config, CONFIG_FILE)
         self._config = saved
+        # Reidratazione del campo token dopo un save non-GUI (PR-08c): vedi _on_retention_change.
+        self._resync_token_field(had)
         self._log(f"🐞 Modalità Debug log: {'ON' if on else 'OFF'}"
                   f"{'' if ok else ' (salvataggio fallito su disco)'}.")
 
@@ -1367,6 +1450,12 @@ class App(ctk.CTk):
             # silenzioso nel thread del bot (PR-11, #11).
             self._log("❌ python-telegram-bot non disponibile: impossibile avviare il listener.")
             return
+        # Reidratazione del campo token PRIMA della validazione grezza (PR-08c): se il keyring
+        # era illeggibile al load (marker `_token_load_incomplete`) il campo è vuoto pur
+        # esistendo una credenziale, e la validazione qui sotto bloccherebbe START con "inserisci
+        # il Bot Token" anche a keyring rientrato. Il refill legge il token dal keyring e ripopola
+        # il campo, così START non chiede più il token a outage risolto. No-op senza marker.
+        self._resync_token_field()
         # Validazione sui valori GREZZI dei campi PRIMA del salvataggio
         # (PR-13/#10): _save_config normalizza il timeout invalido al default,
         # quindi validare la cfg dopo il save non vedrebbe più l'errore e il
@@ -2339,7 +2428,12 @@ class App(ctk.CTk):
 
         def _provider_saved(new_cfg):
             """Provider salvato: aggiorna la config in memoria (anti-stale)."""
+            had = self._had_incomplete_token_load()   # marker PRIMA di sostituire self._config
             self._config = new_cfg
+            # Il save del pannello può aver reidratato il token dal keyring lasciando il campo
+            # password vuoto (PR-08c): risincronizzalo così il Salva principale successivo non lo
+            # scambia per un clear e non cancella il token.
+            self._resync_token_field(had)
 
         def _profiles_loaded(new_cfg):
             """Profilo caricato: persiste (con gate sicurezza + banner), aggiorna form/chat."""
@@ -2381,19 +2475,25 @@ class App(ctk.CTk):
         def _sources_saved(new_cfg):
             """Sorgenti salvate: aggiorna config in memoria + chat ascoltate (START usa
             subito le sorgenti modificate)."""
+            had = self._had_incomplete_token_load()   # PR-08c: marker prima del replace
             self._config = new_cfg
+            self._resync_token_field(had)             # reidrata il campo token se serve (PR-08c)
             self._refresh_listened_chats()
             self._log(f"📡 Sorgenti multi-chat aggiornate ({len(new_cfg.get('source_chats', []))}).")
 
         def _mapping_saved(new_cfg):
             """Dizionario nomi (area Calcio del Mapping) salvato: aggiorna la config in
             memoria (anti-stale, stesso pattern di Provider/Sorgenti)."""
+            had = self._had_incomplete_token_load()   # PR-08c: marker prima del replace
             self._config = new_cfg
+            self._resync_token_field(had)             # reidrata il campo token se serve (PR-08c)
 
         def _parser_saved(new_cfg):
             """Anagrafica Provider salvata dal builder: aggiorna la config in memoria,
             così un successivo Salva/Avvia non riscrive il file perdendo i provider."""
+            had = self._had_incomplete_token_load()   # PR-08c: marker prima del replace
             self._config = new_cfg
+            self._resync_token_field(had)             # reidrata il campo token se serve (PR-08c)
 
         # Parametri del builder dal config corrente: `provider` precompila la colonna
         # Provider; `recognition_mode` serve all'anteprima di un parser legacy a eredità.
@@ -2456,8 +2556,11 @@ class App(ctk.CTk):
             cfg["betfair_auto_sync_hour"] = int(hour)
             if sports is not None:
                 cfg["betfair_sync_sports"] = list(sports)
+            had = self._had_incomplete_token_load()   # PR-08c: il save consuma il marker
             saved, ok = save_config(cfg, CONFIG_FILE)
             self._config = saved
+            # Reidratazione del campo token dopo un save non-GUI (PR-08c): vedi _on_retention_change.
+            self._resync_token_field(had)
             self._save_ok = ok
             if ok:
                 self._log(f"🔵 Auto-sync Betfair {'ON' if enabled else 'OFF'} (orario {hour:02d}).")

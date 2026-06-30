@@ -29,8 +29,8 @@ _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
-    "app.py": (27, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
-                   "event journal best-effort (#230)"),
+    "app.py": (28, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+                   "event journal best-effort (#230); refill campo token su widget Tk distrutto (PR-08c)"),
     "atomic_io.py": (1, "cleanup del temporaneo su QUALSIASI errore di scrittura/rename (BaseException)"),
     "config_store.py": (2, "backup config corrotta best-effort + rollback keyring best-effort"),
     "custom_parser_gui.py": (8, "GUI Tk del costruttore parser: render/azioni best-effort"),

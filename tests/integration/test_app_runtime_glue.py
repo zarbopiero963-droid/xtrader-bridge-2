@@ -657,3 +657,210 @@ def test_schedule_expiry_concorrente_non_lascia_timer_orfani(make_app, app_mod, 
     # Il cancel di teardown (sotto lock) lo ferma: nessun timer vivo residuo.
     a._cancel_expiry_timer()
     assert [t for t in started if t not in cancelled] == []
+
+
+# ── PR-08c: risincronizzazione del campo token dopo un load incompleto (#140/#256) ──
+#
+# Dopo un outage del keyring al load, `config_store` lascia il marker
+# `_token_load_incomplete` e `bot_token=""`: il campo password GUI resta vuoto pur
+# esistendo una credenziale. `save_config` reidrata il token e consuma il marker, ma il
+# campo restava vuoto → il save successivo lo scambiava per un clear e CANCELLAVA il token
+# (perdita al 2° save). PR-08c risincronizza il campo (`_resync_token_field`) su TUTTI i path
+# di save/START. Questi test esercitano i metodi REALI di `App`.
+
+class _FakeTokenEntry:
+    """Stand-in del campo password del token (`_e_token`): `get`/`delete`/`insert` con la
+    stessa semantica di un `CTkEntry` (insert appende; delete(0,'end') azzera)."""
+
+    def __init__(self, value=""):
+        self._v = value
+
+    def get(self):
+        return self._v
+
+    def delete(self, first, last=None):
+        self._v = ""
+
+    def insert(self, index, s):
+        self._v = (self._v or "") + str(s)
+
+
+class _FakeKeyring:
+    """Backend keyring simulato per `config_store.token_store` (monkeypatch): `readable`/
+    `writable`/`available` controllabili per riprodurre un outage e il suo rientro."""
+
+    def __init__(self, stored=None, available=True, readable=True, writable=True):
+        self.stored = stored
+        self._available = available
+        self.readable = readable
+        self.writable = writable
+        self.deleted = 0
+
+    def available(self):
+        return self._available
+
+    def load_token(self):
+        return self.stored if self.readable else None
+
+    def load_token_status(self):
+        return (self.stored, True) if self.readable else (None, False)
+
+    def save_token(self, tok):
+        if not self.writable:
+            return False
+        self.stored = tok
+        return True
+
+    def delete_token(self):
+        if not self.writable:
+            return False
+        self.stored = None
+        self.deleted += 1
+        return True
+
+
+def _token_marker():
+    from xtrader_bridge import config_store
+    return config_store.TOKEN_LOAD_INCOMPLETE_KEY
+
+
+def test_had_incomplete_token_load_riflette_il_marker(make_app, app_mod):
+    """`_had_incomplete_token_load` è True solo se la config viva porta il marker #140."""
+    a = make_app(config={"bot_token": "", _token_marker(): True})
+    assert app_mod.App._had_incomplete_token_load(a) is True
+    a._config = {"bot_token": "ABC"}                 # nessun marker
+    assert app_mod.App._had_incomplete_token_load(a) is False
+    a._config = "non-dict"                            # robusto su config non-dict
+    assert app_mod.App._had_incomplete_token_load(a) is False
+
+
+def test_resync_reidrata_dal_config_e_consuma_marker(make_app, app_mod):
+    """Post-save: la config è già stata reidratata (`bot_token` valorizzato) ma il campo è
+    vuoto → il refill ripopola il campo dal token in config, lo registra nel redattore e
+    consuma il marker. Caso dei save non-GUI / tab Tools (had passato esplicitamente)."""
+    from xtrader_bridge import event_log
+    event_log.clear_secrets()
+    try:
+        a = make_app(config={"bot_token": "999:REHYDRATED", "bot_token_storage": "keyring"})
+        a._e_token = _FakeTokenEntry("")
+        # had=True anche se il marker è già stato consumato da save_config (caso reale post-save).
+        app_mod.App._resync_token_field(a, True)
+        assert a._e_token.get() == "999:REHYDRATED"            # campo risincronizzato
+        assert _token_marker() not in a._config               # marker consumato (no-op se già assente)
+        assert "999:REHYDRATED" not in event_log.redact_secrets("log 999:REHYDRATED")  # registrato
+    finally:
+        event_log.clear_secrets()
+
+
+def test_resync_legge_il_keyring_quando_config_non_ancora_reidratata(make_app, app_mod, monkeypatch):
+    """START prima di qualunque save: la config ha il marker ma `bot_token=""` (non ancora
+    reidratato). Il refill legge DIRETTAMENTE dal keyring, ripopola il campo e consuma il marker."""
+    from xtrader_bridge import config_store, event_log
+    fake = _FakeKeyring(stored="123:FROMKEYRING", readable=True)
+    monkeypatch.setattr(config_store, "token_store", fake)
+    event_log.clear_secrets()
+    try:
+        a = make_app(config={"bot_token": "", "bot_token_storage": "keyring", _token_marker(): True})
+        a._e_token = _FakeTokenEntry("")
+        app_mod.App._resync_token_field(a)                    # had dedotto dal marker
+        assert a._e_token.get() == "123:FROMKEYRING"
+        assert _token_marker() not in a._config
+        assert "123:FROMKEYRING" not in event_log.redact_secrets("x 123:FROMKEYRING y")
+    finally:
+        event_log.clear_secrets()
+
+
+def test_resync_no_op_su_clear_deliberato_senza_marker(make_app, app_mod, monkeypatch):
+    """Clear DELIBERATO: load COMPLETO (nessun marker), l'utente ha svuotato il campo a mano.
+    Il refill NON deve reidratare nulla, altrimenti resusciterebbe un clear voluto (Codex)."""
+    from xtrader_bridge import config_store
+    fake = _FakeKeyring(stored="should:NOT:berestored", readable=True)
+    monkeypatch.setattr(config_store, "token_store", fake)
+    a = make_app(config={"bot_token": "OLD", "bot_token_storage": "keyring"})   # nessun marker
+    a._e_token = _FakeTokenEntry("")                          # campo svuotato a mano
+    app_mod.App._resync_token_field(a)
+    assert a._e_token.get() == ""                             # resta vuoto: clear preservato
+
+
+def test_resync_non_sovrascrive_un_token_digitato(make_app, app_mod, monkeypatch):
+    """Campo NON vuoto (token appena digitato dall'utente): il refill non deve mai
+    sovrascriverlo, anche se il marker è presente."""
+    from xtrader_bridge import config_store
+    fake = _FakeKeyring(stored="999:KEYRING", readable=True)
+    monkeypatch.setattr(config_store, "token_store", fake)
+    a = make_app(config={"bot_token": "", "bot_token_storage": "keyring", _token_marker(): True})
+    a._e_token = _FakeTokenEntry("888:TYPED_BY_USER")
+    app_mod.App._resync_token_field(a)
+    assert a._e_token.get() == "888:TYPED_BY_USER"            # input dell'utente intatto
+
+
+def test_resync_keyring_ancora_giu_mantiene_il_marker(make_app, app_mod, monkeypatch):
+    """Keyring ANCORA illeggibile al refill: niente token da reidratare → campo resta vuoto e
+    il marker NON viene consumato, così la protezione sopravvive per il retry successivo."""
+    from xtrader_bridge import config_store
+    fake = _FakeKeyring(stored="123:HIDDEN", readable=False)  # lettura fallita
+    monkeypatch.setattr(config_store, "token_store", fake)
+    a = make_app(config={"bot_token": "", "bot_token_storage": "keyring", _token_marker(): True})
+    a._e_token = _FakeTokenEntry("")
+    app_mod.App._resync_token_field(a)
+    assert a._e_token.get() == ""                             # niente reidratazione
+    assert a._config.get(_token_marker()) is True            # marker PRESERVATO per il retry
+
+
+def test_due_save_dopo_outage_keyring_non_perdono_il_token(make_app, app_mod, monkeypatch, tmp_path):
+    """REGRESSIONE END-TO-END (perdita al 2° save, Codex #256): outage del keyring al load →
+    marker + campo vuoto. Keyring rientrato. Un save non-GUI (`_on_debug_toggle`) reidrata la
+    config; senza PR-08c il campo restava vuoto e il Salva principale (`_save_config`) lo
+    cancellava. Con il fix il campo è risincronizzato e il 2° save NON cancella il token.
+
+    Fail-first: sul vecchio `app.py` (senza `_resync_token_field`) il primo assert sul campo
+    fallisce (resta vuoto) e il token verrebbe poi cancellato dal keyring."""
+    from xtrader_bridge import config_store, event_log
+    cfgfile = tmp_path / "config.json"
+    fake = _FakeKeyring(stored="999:REALTOKEN", readable=True)
+    monkeypatch.setattr(config_store, "token_store", fake)
+    monkeypatch.setattr(app_mod, "CONFIG_FILE", str(cfgfile))
+    event_log.clear_secrets()
+    try:
+        a = make_app(running=False, config={
+            "bot_token": "", "bot_token_storage": "keyring", _token_marker(): True,
+            "chat_id": "123456", "csv_path": str(tmp_path / "segnali.csv"),
+            "provider": "TelegramBot", "dry_run": True,
+        })
+        a._e_token = _FakeTokenEntry("")
+        a._e_chat = _FakeTokenEntry("123456")
+        a._e_csv = _FakeTokenEntry(str(tmp_path / "segnali.csv"))
+        a._e_provider = _FakeTokenEntry("TelegramBot")
+        a._e_delay = _FakeTokenEntry("90")
+        a._adv = {}
+        a._save_ok = True
+        a._debug_var = _FakeTokenEntry(True)                 # .get() → True
+        a._refresh_listened_chats = lambda *x, **k: None
+
+        # 1º save (non-GUI): reidrata la config e — con il fix — risincronizza il campo.
+        app_mod.App._on_debug_toggle(a)
+        assert a._e_token.get() == "999:REALTOKEN"           # campo risincronizzato (fail-first)
+
+        # 2º save (Salva principale): legge il campo ORA pieno → ramo SET, niente clear.
+        app_mod.App._save_config(a)
+        assert fake.stored == "999:REALTOKEN"                # token NON cancellato
+        assert fake.deleted == 0                             # delete_token MAI chiamato
+    finally:
+        event_log.clear_secrets()
+
+
+def test_provider_saved_risincronizza_il_campo_token(make_app, app_mod):
+    """Save da un tab Tools (Provider): il pannello reidrata la config e consuma il marker
+    lasciando il campo vuoto; il callback deve risincronizzarlo così il Salva principale
+    successivo non lo scambi per un clear (Codex tool-panel saves)."""
+    a = make_app(config={"bot_token": "", _token_marker(): True})   # stato pre-save (marker)
+    a._e_token = _FakeTokenEntry("")
+    a._refresh_listened_chats = lambda *x, **k: None
+    # new_cfg come lo restituisce il pannello dopo il suo save: token reidratato, marker consumato.
+    new_cfg = {"bot_token": "777:FROMPANEL", "bot_token_storage": "keyring", "provider": "X"}
+
+    # Riproduce il corpo del callback `_provider_saved` (closure non testabile direttamente):
+    had = app_mod.App._had_incomplete_token_load(a)
+    a._config = new_cfg
+    app_mod.App._resync_token_field(a, had)
+    assert a._e_token.get() == "777:FROMPANEL"              # campo allineato al token del pannello

@@ -358,6 +358,16 @@ Tutte queste protezioni sono **attive a runtime**:
 > e la reidrata). Per **cancellare davvero** il token, svuota il campo *Bot Token* e salva
 > quando il config è di nuovo integro (un clear deliberato resta definitivo, come prima).
 >
+> **Keyring illeggibile all'avvio (issue #140).** Se il keyring di sistema è
+> **temporaneamente illeggibile** quando l'app si apre (outage transitorio del Credential
+> Manager / Secret Service), il token non viene riletto e il campo *Bot Token* appare
+> **vuoto** pur esistendo la credenziale. Anche qui il bridge **non cancella** il token al
+> salvataggio successivo: il campo vuoto è il residuo di un caricamento incompleto, non un
+> azzeramento voluto. Appena il keyring torna leggibile, al primo **Salva** o **AVVIA** il
+> campo *Bot Token* viene **risincronizzato** automaticamente con la credenziale reidratata,
+> così non serve reinserire il token e un salvataggio successivo non lo scambia per un clear.
+> Un clear **deliberato** (campo svuotato a mano a keyring leggibile) resta definitivo.
+>
 > Conseguenze pratiche: proteggi comunque il tuo profilo Windows e **non condividere**
 > `config.json`; se il token trapela, **rigeneralo** da @BotFather (`/revoke`). Una
 > config vecchia con il token in chiaro viene **migrata** nel keyring al primo
