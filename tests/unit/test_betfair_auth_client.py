@@ -274,3 +274,58 @@ def test_login_usa_credenziali_dal_keyring(tmp_path, monkeypatch):
                                    "loginStatus": "SUCCESS", "sessionToken": "t"})
     client.login()                            # nessun creds passato → carica dal keyring
     assert got["app_key"] == "DelayedKey"
+
+
+def test_logout_non_cancella_un_token_piu_recente(tmp_path):
+    """Race (Codex P2): se durante la POST di logout un altro path fa un re-login sulla sessione
+    CONDIVISA (token cambiato), il clear locale NON deve cancellare il token NUOVO — altrimenti
+    una sessione fresca verrebbe sloggata silenziosamente.
+
+    Fail-first: col vecchio `self.session.clear()` incondizionato il token nuovo veniva cancellato."""
+    sess = BetfairSession()
+
+    def _slow_logout(token, app_key):
+        # Simula un re-login concorrente avvenuto MENTRE la POST di logout era in volo.
+        sess.set_token("NEW-TOKEN")
+        return {"status": "SUCCESS"}
+
+    client = BetfairAuthClient(session=sess, transport=_login_ok, logout_transport=_slow_logout)
+    client.login(_creds(tmp_path))                  # token "tok"
+    client.logout()
+    assert sess.token == "NEW-TOKEN"                # il token PIÙ RECENTE non è stato cancellato
+    assert client.is_logged_in is True
+
+
+def test_default_logout_transport_usa_context_tls_esplicito(monkeypatch):
+    """Sicurezza TLS (Codex P2): il transport reale di logout deve passare un `ssl.SSLContext`
+    ESPLICITO a `urlopen` (come il login), non affidarsi al default globale di processo (che un
+    ambiente potrebbe aver indebolito) mentre porta credenziali.
+
+    Fail-first: senza `context=...` il kwarg catturato sarebbe None."""
+    import ssl
+    import urllib.request
+
+    captured = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"status": "SUCCESS"}'
+
+    def _fake_urlopen(req, *a, **k):
+        captured["context"] = k.get("context")
+        captured["url"] = req.full_url
+        captured["x_auth"] = req.headers.get("X-authentication")
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+    data = auth_client._default_logout_transport("tok-SECRET", "DelayedKey")
+    assert isinstance(captured["context"], ssl.SSLContext)   # context TLS ESPLICITO
+    assert captured["url"] == auth_client.LOGOUT_URL
+    assert captured["x_auth"] == "tok-SECRET"               # token nell'header, non in URL/body
+    assert data == {"status": "SUCCESS"}

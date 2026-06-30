@@ -89,8 +89,14 @@ def _default_logout_transport(session_token, app_key) -> dict:
     POST a `LOGOUT_URL` con il `sessionToken` nell'header `X-Authentication` e l'App Key in
     `X-Application` (NESSUN body, nessun segreto in URL/body). Niente certificato client (a
     differenza del login). Non logga nulla; importata lazy come il transport di login."""
+    import ssl
     import urllib.request
 
+    # Context TLS ESPLICITO (come `_default_transport` del login): NON affidarsi al default
+    # globale di processo, che un ambiente potrebbe aver indebolito (override di
+    # `ssl._create_default_https_context`). Qui viaggiano credenziali (sessionToken + App Key),
+    # quindi la verifica del certificato server non deve poter essere abbassata da fuori (Codex).
+    ctx = ssl.create_default_context()
     req = urllib.request.Request(
         LOGOUT_URL, data=b"", method="POST",
         headers={
@@ -99,7 +105,7 @@ def _default_logout_transport(session_token, app_key) -> dict:
             "Accept": "application/json",
         },
     )
-    with urllib.request.urlopen(req, timeout=LOGOUT_TIMEOUT) as resp:
+    with urllib.request.urlopen(req, context=ctx, timeout=LOGOUT_TIMEOUT) as resp:
         raw = resp.read().decode("utf-8", "replace")
     return json.loads(raw)
 
@@ -210,5 +216,12 @@ class BetfairAuthClient:
                     logger.warning("Logout Betfair lato server: stato %s. La sessione potrebbe "
                                    "restare valida fino alla scadenza. Token locale cancellato.",
                                    status or "risposta non valida")
-        self.session.clear()
-        self._app_key = None
+        # Clear locale SOLO se la sessione tiene ANCORA il token appena sloggato (Codex): durante
+        # la POST (rete, lenta) un altro path può aver fatto un re-login sulla sessione CONDIVISA
+        # (clear manuale + re-login, o un worker che completa un login). Cancellare comunque
+        # spazzerebbe il token NUOVO, sloggando silenziosamente una sessione fresca. Se il token è
+        # cambiato, lascio intatti sessione e `_app_key` (appartengono al login più recente). Il
+        # confronto vale anche per il logout idempotente (token `None` == `None` → clear no-op).
+        if self.session.token == token:
+            self.session.clear()
+            self._app_key = None
