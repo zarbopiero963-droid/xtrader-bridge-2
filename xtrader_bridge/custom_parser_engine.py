@@ -155,14 +155,35 @@ def matches_message(defn: CustomParserDef, text: str, mode: str = None) -> bool:
     rilevanti per la modalità (`mode`): in `BOTH` la GUI lascia opzionali nome/ID (basta un
     set), quindi entrambi i set contano; ma in `NAME_ONLY` un'estrazione opzionale su un
     campo ID (non usato da quella modalità) NON deve far passare un non-segnale (Codex P2,
-    A10). Se `mode` è `None` si usa `defn.mode`. NON tocca pipeline/validator."""
-    relevant = recognition.recognition_fields_for_mode(
-        defn.mode if mode is None else mode)
+    A10). Se `mode` è `None` si usa `defn.mode`. NON tocca pipeline/validator.
+
+    **#74 (set di riconoscimento già FISSO-completo).** Se i soli valori FISSI completano già
+    un set di riconoscimento per la modalità, la riga è **piazzabile per QUALSIASI messaggio**
+    (es. `MarketId`+`SelectionId` fissi in `BOTH`): allora un'estrazione **opzionale** — anche
+    su un campo di riconoscimento — NON basta come contenuto, altrimenti una regola "larga"
+    farebbe scrivere un bet spurio su un non-segnale. In quel caso serve un'estrazione
+    **obbligatoria** (contenuto reale dichiarato dall'utente). Quando invece il riconoscimento
+    NON è già completo coi soli fissi, l'estrazione SERVE a riconoscere e continua a contare
+    (così i parser basati su mappatura mercati — che estraggono solo l'evento — restano validi)."""
+    mode = recognition.normalize_mode(defn.mode if mode is None else mode)
+    relevant = recognition.recognition_fields_for_mode(mode)
+    # I soli FISSI completano già un set di riconoscimento? → riga piazzabile per ogni messaggio.
+    fixed_targets = {r.target for r in defn.rules if r.is_fixed() and str(r.fixed_value).strip()}
+    # Una mappatura MERCATI selezionata può AZZERARE `MarketId`/`SelectionId` fissi (stale-ID,
+    # #192) e validare la riga sui nomi mappati: in quel caso gli ID fissi NON rendono il
+    # riconoscimento "completo a prescindere dal messaggio", quindi non vanno contati — altrimenti
+    # si bloccherebbe il path supportato «ID fissi + mappatura mercati + EventName estratto»
+    # restituendo NO_CONTENT_MATCH per una riga mappata valida (#74 review Codex).
+    if defn.market_mapping_profiles:
+        fixed_targets -= {"MarketId", "SelectionId"}
+    fixed_complete = recognition.is_valid({t: "x" for t in fixed_targets}, mode)
     for rule in defn.rules:
-        signal_field = rule.required or rule.target in relevant
-        if (signal_field and rule.has_extraction() and not rule.is_fixed()
-                and extract_value(text, rule) != ""):
-            return True
+        if not rule.has_extraction() or rule.is_fixed() or extract_value(text, rule) == "":
+            continue
+        if rule.required:
+            return True                                  # estrazione obbligatoria = contenuto reale
+        if rule.target in relevant and not fixed_complete:
+            return True                                  # recognition estratto NECESSARIO al set
     return False
 
 

@@ -245,11 +245,49 @@ def test_matches_message_campo_riconoscimento_fuori_modalita_non_basta():
         cp.FieldRule(target="MarketId", start_after="x", end_before="\n", required=False),
     ])
     assert eng.matches_message(defn, "xyz roba a caso\n") is False
-    # In BOTH lo stesso ID estratto torna a contare come contenuto di segnale.
-    assert eng.matches_message(defn, "xyz roba a caso\n", "BOTH") is True
-    # Anche `defn.mode` BOTH (senza override) deve contare.
+    # #74: anche in BOTH, se i SOLI valori fissi completano già un set di riconoscimento (qui
+    # il set NOMI è tutto fisso → riga piazzabile per QUALSIASI messaggio), un'estrazione
+    # OPZIONALE su un campo fuori da quel set (MarketId) NON deve far passare un non-segnale:
+    # altrimenti si scriverebbe un bet spurio. Prima questo ritornava True (bug A10).
+    assert eng.matches_message(defn, "xyz roba a caso\n", "BOTH") is False
     defn.mode = "BOTH"
-    assert eng.matches_message(defn, "xyz roba a caso\n") is True
+    assert eng.matches_message(defn, "xyz roba a caso\n") is False
+
+
+def test_matches_message_set_riconoscimento_fisso_completo_blocca_estrazione_opzionale():
+    # #74 (repro della issue): in BOTH un parser con ID FISSI completi (MarketId+SelectionId →
+    # riga piazzabile per QUALSIASI messaggio) + un'estrazione OPZIONALE "larga" su EventName
+    # NON deve far passare un messaggio non-segnale, altrimenti scrive un bet spurio coi fissi.
+    defn = cp.CustomParserDef(name="Both", mode="BOTH", rules=[
+        cp.FieldRule(target="MarketId", fixed_value="1.234"),
+        cp.FieldRule(target="SelectionId", fixed_value="5678"),
+        cp.FieldRule(target="Price", fixed_value="2.0"),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA"),
+        cp.FieldRule(target="EventName", start_after="", end_before="\n", required=False),
+    ])
+    assert eng.matches_message(defn, "Promo: scarica la nostra app gratis!\n") is False
+    # Rendendo OBBLIGATORIA l'estrazione, il match torna a dipendere dal contenuto reale.
+    defn.rules[4] = cp.FieldRule(target="EventName", start_after="🆚", end_before="\n", required=True)
+    assert eng.matches_message(defn, "🆚Inter v Milan\n") is True
+    assert eng.matches_message(defn, "Promo non pertinente\n") is False
+
+
+def test_matches_message_id_fissi_con_mappatura_mercati_non_e_fisso_completo():
+    # #74 review (Codex): una mappatura MERCATI può azzerare MarketId/SelectionId fissi (stale-ID)
+    # e validare la riga sui nomi mappati. Quindi ID fissi + `market_mapping_profiles` NON sono
+    # "fisso-completi": un parser BOTH che estrae EventName (setup normale) deve continuare a
+    # fare match, altrimenti il path supportato verrebbe scartato come NO_CONTENT_MATCH.
+    defn = cp.CustomParserDef(name="Both", mode="BOTH",
+                              market_mapping_profiles=["mercati"], rules=[
+        cp.FieldRule(target="MarketId", fixed_value="1.234"),
+        cp.FieldRule(target="SelectionId", fixed_value="5678"),
+        cp.FieldRule(target="EventName", start_after="🆚", end_before="\n", required=False),
+    ])
+    assert eng.matches_message(defn, "🆚Inter v Milan\n") is True
+    # Senza mappatura mercati gli stessi ID fissi tornano "fisso-completi": l'estrazione
+    # opzionale non basta più (comportamento #74).
+    defn.market_mapping_profiles = []
+    assert eng.matches_message(defn, "🆚Inter v Milan\n") is False
 
 
 def test_apply_parser_target_duplicato_ultimo_vince_senza_doppioni():
