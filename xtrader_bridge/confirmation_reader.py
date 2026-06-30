@@ -68,36 +68,71 @@ def _norm(s) -> str:
     return str(s or "").lower()
 
 
-_NEGATION_WORDS = ("non", "not", "nessun", "nessuna", "mai")
+# Negatori che, ADIACENTI a una keyword di conferma, la ribaltano in rifiuto
+# ("non/not ... piazzata"). E negatori che, davanti a un termine d'errore generico,
+# lo rendono un esito POSITIVO ("no error"/"nessun errore" = successo). Tenuti distinti
+# perché "no" nega "error" ma non è una negazione di conferma sensata da sola.
+_CONFIRM_NEGATORS = ("non", "not", "nessun", "nessuna", "nessuno", "mai", "senza", "without")
+_ERROR_NEGATORS = ("no", "non", "not", "nessun", "nessuna", "nessuno", "senza", "without", "zero")
+# Reject keyword generiche la cui negazione indica successo (vedi `classify_outcome`, #31).
+_NEGATABLE_REJECTS = ("error", "errore")
+# Confini di clausola: una negazione oltre uno di questi NON si riferisce alla keyword.
+_CLAUSE_SPLIT = re.compile(r"[,.;:!?]")
+# Parole prima della keyword entro cui una negazione la riguarda (stessa proposizione).
+_NEG_WINDOW = 4
+
+
+def _kw_pattern(keyword: str) -> str:
+    """Pattern regex di `keyword` con confini di parola **adattivi**: su un bordo
+    alfanumerico richiede un confine di parola (es. "ok" non scatta dentro "token"); su un
+    bordo simbolo (es. "✅") `\\b` non esiste, quindi match diretto. `""` se keyword vuota."""
+    kw = _norm(keyword).strip()
+    if not kw:
+        return ""
+    left = r"(?<!\w)" if (kw[0].isalnum() or kw[0] == "_") else ""
+    right = r"(?!\w)" if (kw[-1].isalnum() or kw[-1] == "_") else ""
+    return left + re.escape(kw) + right
 
 
 def _has_keyword(text: str, keyword: str) -> bool:
-    """True se `keyword` compare delimitata in `text`. Su un bordo **alfanumerico**
-    si richiede un confine di parola (es. "ok" non scatta dentro "token"); su un
-    bordo **non alfanumerico** (es. una keyword-simbolo come "✅") il confine `\\b`
-    non esiste, quindi lì si fa match diretto — così le keyword simbolo funzionano."""
-    kw = _norm(keyword).strip()
-    if not kw:
+    """True se `keyword` compare delimitata in `text` (confini adattivi, vedi `_kw_pattern`)."""
+    pat = _kw_pattern(keyword)
+    return bool(pat) and re.search(pat, text) is not None
+
+
+def _negation_near(text: str, keyword: str, negators) -> bool:
+    """True se una parola di `negators` precede `keyword` entro `_NEG_WINDOW` parole SENZA
+    un confine di clausola in mezzo. Così una negazione in una proposizione **separata**
+    ("non serve altro, scommessa piazzata") NON nega la keyword, mentre una **adiacente**
+    ("non è stata piazzata") sì. Sostituisce la vecchia negazione GLOBALE che rifiutava la
+    conferma per una negazione ovunque nel testo, anche fuori contesto (#31)."""
+    pat = _kw_pattern(keyword)
+    if not pat:
         return False
-    left = r"(?<!\w)" if (kw[0].isalnum() or kw[0] == "_") else ""
-    right = r"(?!\w)" if (kw[-1].isalnum() or kw[-1] == "_") else ""
-    return re.search(left + re.escape(kw) + right, text) is not None
-
-
-def _has_negation(text: str) -> bool:
-    """True se nel testo compare una parola di negazione (non/not/nessun/mai)."""
-    return any(_has_keyword(text, w) for w in _NEGATION_WORDS)
+    for m in re.finditer(pat, text):
+        clause = _CLAUSE_SPLIT.split(text[:m.start()])[-1]
+        words = re.findall(r"\w+", clause)[-_NEG_WINDOW:]
+        if any(w in negators for w in words):
+            return True
+    return False
 
 
 # Ref ETICHETTATO nel testo: "Ref ABC123", "Rif: 123", "ID-9", "#ABC". Serve a
 # capire se la notifica è esplicitamente per un certo ref. Copre le forme comuni;
 # il formato esatto di XTrader si fisserà al wiring reale.
+#
+# Il gruppo cattura il ref COMPLETO inclusi i suffissi `/` e `.` (`[\w/.-]`), allineato
+# alla continuazione di token di `_has_ref_token`: così "Ref ABC123/4" viene estratto come
+# "abc123/4" (ref di un'ALTRA scommessa), non troncato ad "abc123". Senza, la guardia
+# anti-ref-estraneo in `match_pending` lo confondeva con un nostro ref "ABC123" e lasciava
+# passare il fallback per nomi, confermando il segnale sbagliato (#31).
 _REF_LABEL_RE = re.compile(
-    r"(?:\b(?:ref|rif|reference|id)\b[^\w-]*|#)([0-9a-z][\w-]*)", re.IGNORECASE)
+    r"(?:\b(?:ref|rif|reference|id)\b[^\w-]*|#)([0-9a-z][\w/.-]*)", re.IGNORECASE)
 
 
 def _message_ref_tokens(text: str) -> list:
-    """Token di ref etichettati trovati nel testo (minuscoli). Vuoto se nessuno."""
+    """Token di ref etichettati trovati nel testo (minuscoli, ref completo coi suffissi).
+    Vuoto se nessuno."""
     return [m.group(1).lower() for m in _REF_LABEL_RE.finditer(text)]
 
 
@@ -130,14 +165,28 @@ def classify_outcome(text: str, confirm_keywords=None, reject_keywords=None):
     t = _norm(text)
     rej = reject_keywords or DEFAULT_REJECT_KEYWORDS
     con = confirm_keywords or DEFAULT_CONFIRM_KEYWORDS
-    if any(_has_keyword(t, k) for k in rej):
+    # I reject hanno la precedenza, MA un termine d'errore generico NEGATO ("no error",
+    # "nessun errore") indica SUCCESSO, non rifiuto: non conta come reject (#31). Gli altri
+    # reject (incl. le frasi negate esplicite come "non piazzata") restano hard-reject.
+    for k in rej:
+        if _has_keyword(t, k):
+            if _norm(k).strip() in _NEGATABLE_REJECTS and _negation_near(t, k, _ERROR_NEGATORS):
+                continue
+            return REJECTED
+    # Conferma: una keyword positiva conferma, salvo una negazione ADIACENTE (stessa
+    # proposizione) che la ribalta in rifiuto (fail-safe). Una negazione in una clausola
+    # SEPARATA non conta più (#31): "non serve altro, scommessa piazzata" è una conferma.
+    confirmed = negated = False
+    for k in con:
+        if _has_keyword(t, k):
+            if _negation_near(t, k, _CONFIRM_NEGATORS):
+                negated = True
+            else:
+                confirmed = True
+    if confirmed:
+        return CONFIRMED
+    if negated:
         return REJECTED
-    if any(_has_keyword(t, k) for k in con):
-        # Guardia negazione: una keyword di conferma con una negazione nel testo
-        # (es. "non è stata piazzata", "not successfully placed") NON è una
-        # conferma. Fail-safe: nel dubbio si rifiuta, mai un falso CONFIRMED su una
-        # scommessa non piazzata.
-        return REJECTED if _has_negation(t) else CONFIRMED
     return None
 
 
