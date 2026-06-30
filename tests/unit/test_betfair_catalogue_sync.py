@@ -574,20 +574,38 @@ def test_jsonrpc_result_porta_lerror_code_su_scadenza():
 # ── audit #241 / PR #170: 4 finding Codex ancora validi su main ───────────────
 
 def test_navigation_market_senza_id_saltato(db):
-    # Codex (Mmmg7): un nodo MARKET privo di `id` non deve diventare il market fasullo
-    # "None". parse_navigation lo lascia con id "" e la sync NON lo persiste.
+    # Codex (Mmmg7 + follow-up #263): un nodo MARKET privo di `id` non genera alcun record,
+    # così non viene persistito né un market fasullo ("None"/"") né un EVENTO orfano stantio.
     menu = {"type": "GROUP", "children": [
         {"type": "EVENT_TYPE", "id": "1", "name": "Soccer", "children": [
             {"type": "EVENT", "id": "e1", "name": "Inter v Milan", "children": [
                 {"type": "MARKET", "name": "Match Odds",      # ← niente "id"
                  "marketType": "MATCH_ODDS"}]}]}]}
     recs = parse_navigation(menu, {"1"})
-    assert all(r["market"]["id"] == "" for r in recs)        # id mancante → "", mai "None"
+    assert recs == []                                        # market id mancante → nessun record
     CatalogueSync(db, navigation_transport=lambda: menu,
                   catalogue_transport=lambda mids: []).sync(["Calcio"])
     market_ids = {m["market_id"] for m in db.fetchall("betfair_markets")}
-    assert "None" not in market_ids                          # nessun market_id='None'
-    assert db.count_active("betfair_markets") == 0           # market fasullo non persistito
+    assert "None" not in market_ids and "" not in market_ids  # nessun market fasullo
+    assert db.count_active("betfair_markets") == 0
+    assert db.count_active("betfair_events") == 0            # nessun evento orfano stantio
+
+
+def test_navigation_market_valido_accanto_a_uno_senza_id(db):
+    # Guardia anti over-skip: un evento con un market VALIDO + uno senza id mantiene il
+    # record valido e l'evento resta persistito (solo il market id-less è saltato).
+    menu = {"type": "GROUP", "children": [
+        {"type": "EVENT_TYPE", "id": "1", "name": "Soccer", "children": [
+            {"type": "EVENT", "id": "e1", "name": "Inter v Milan", "children": [
+                {"type": "MARKET", "id": "1.101", "name": "Match Odds",
+                 "marketType": "MATCH_ODDS"},
+                {"type": "MARKET", "name": "Over/Under"}]}]}]}  # secondo market senza id
+    recs = parse_navigation(menu, {"1"})
+    assert [r["market"]["id"] for r in recs] == ["1.101"]    # solo il market valido
+    CatalogueSync(db, navigation_transport=lambda: menu,
+                  catalogue_transport=lambda mids: []).sync(["Calcio"])
+    assert db.count_active("betfair_events") == 1            # evento persistito dal market valido
+    assert {m["market_id"] for m in db.fetchall("betfair_markets")} == {"1.101"}
 
 
 def test_catalogue_richiede_locale_italiano():

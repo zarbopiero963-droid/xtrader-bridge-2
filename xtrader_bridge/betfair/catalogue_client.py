@@ -213,10 +213,15 @@ def parse_navigation(menu, allowed_event_type_ids):
             event = {"id": _node_id(node), "name": node.get("name"),
                      "openDate": node.get("openDate")}
         elif ntype == "MARKET":
-            if etype is not None:
+            mkid = _node_id(node)
+            # Solo un MARKET con id reale genera un record: un id mancante non deve
+            # lasciare un EVENTO/SPORT *orfano* attivo nel dizionario (Codex #263) — il
+            # loop di sync upserta sport/evento PRIMA del market, quindi se saltassimo
+            # solo il market a valle l'evento resterebbe attivo senza alcun mercato valido.
+            if etype is not None and mkid:
                 records.append({
                     "event_type": etype, "competition": comp, "event": event,
-                    "market": {"id": _node_id(node), "name": node.get("name"),
+                    "market": {"id": mkid, "name": node.get("name"),
                                "marketType": node.get("marketType")},
                 })
         for child in node.get("children") or ():
