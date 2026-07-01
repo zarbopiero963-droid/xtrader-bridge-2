@@ -276,18 +276,35 @@ class ParserBuilder:
             if rule.target in recognition.RECOGNITION_FIELDS:
                 rule.required = rule.target in required
 
+    def apply_mode_defaults(self, mode: str) -> None:
+        """Prepara un parser **nuovo** per `mode`: garantisce le 14 colonne E POI allinea
+        l'auto-Obblig. (`set_mode`). L'ordine conta: chiamare `set_mode` su un builder ancora
+        SENZA regole (parser nuovo/«Nuovo», prima che la griglia crei le righe) non marcherebbe
+        nulla, così i campi del set della modalità resterebbero facoltativi (Codex #72). Da usare
+        SOLO su parser nuovo — non al reload di uno esistente (non deve rilassare i required
+        salvati a mano)."""
+        self.ensure_all_columns()
+        self.set_mode(mode)
+
     def ensure_all_columns(self) -> None:
         """Garantisce una riga per OGNI colonna del contratto (14), nell'ordine di
         `VALID_TARGETS`: le colonne non ancora presenti sono aggiunte come regole
         vuote (nessun valore → colonna CSV vuota se non configurata). Serve alla GUI a
         righe fisse: l'utente compila/lascia vuota ciascuna colonna senza aggiungerle
-        a mano. Mantiene le regole esistenti (valori/Obblig.), solo riordinate."""
-        by_target = {r.target: r for r in self.rules}
-        ordered = []
-        for target in custom_parser.VALID_TARGETS:
-            ordered.append(by_target.get(target) or FieldRule(target=target))
-        # Eventuali target non-standard (non dovrebbero esistere) restano in coda.
-        ordered.extend(r for r in self.rules if r.target not in custom_parser.VALID_TARGETS)
+        a mano. Mantiene le regole esistenti (valori/Obblig.), solo riordinate.
+
+        Le regole DUPLICATE (stessa colonna, es. da un JSON manomesso) NON vengono
+        droppate: la PRIMA occorrenza va nella griglia, le altre restano in CODA così
+        `validate_parser_def` le segnala e il salvataggio è bloccato — invece di perdere
+        in silenzio un'estrazione e persistere una definizione alterata (Codex #72)."""
+        first_by_target = {}
+        for r in self.rules:
+            first_by_target.setdefault(r.target, r)
+        ordered = [first_by_target.get(target) or FieldRule(target=target)
+                   for target in custom_parser.VALID_TARGETS]
+        placed = {id(r) for r in ordered}
+        # In coda: i duplicati di colonne standard e i target non-standard (preservati, non persi).
+        ordered.extend(r for r in self.rules if id(r) not in placed)
         self.rules = ordered
 
     def errors(self) -> list:

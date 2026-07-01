@@ -17,6 +17,7 @@ import types
 
 from xtrader_bridge import custom_parser as cp
 from xtrader_bridge import parser_builder as pb
+from xtrader_bridge import recognition
 from xtrader_bridge import validator
 from xtrader_bridge.csv_writer import CSV_HEADER
 
@@ -327,6 +328,34 @@ def test_test_verdict_multi_delega_a_preview_summary():
 # end_before di una regola CARICATA devono sopravvivere al salvataggio. La logica vive nel
 # controller (`merge_multi_rule_overrides`, pura) ed è qui testata direttamente; più sotto
 # si esercita anche il VERO metodo della vista (stub di customtkinter) per coprire il wrapper.
+
+def test_apply_mode_defaults_marca_obbligatori_su_parser_nuovo():
+    # #72 (Codex P2): un parser NUOVO deve avere i campi del set della modalità già
+    # "Obblig.". Le 14 colonne vanno create PRIMA di allineare la modalità: chiamare
+    # set_mode su un builder senza regole non marcherebbe nulla (auto-Obblig. non applicata).
+    b = pb.ParserBuilder()   # nuovo, senza regole
+    b.apply_mode_defaults(recognition.NAME_ONLY)
+    req = {r.target: r.required for r in b.rules}
+    assert req["EventName"] is True
+    assert req["MarketType"] is True
+    assert req["SelectionName"] is True
+    # un campo NON di riconoscimento resta facoltativo
+    assert req["MinPrice"] is False
+
+
+def test_ensure_all_columns_preserva_regole_duplicate():
+    # #72 (Codex P2): regole duplicate (JSON manomesso/corrotto) NON devono essere droppate
+    # in silenzio dalla griglia fissa: restano così che `validate_parser_def` le segnali e il
+    # salvataggio sia bloccato, invece di persistere una definizione alterata senza avviso.
+    b = pb.ParserBuilder()
+    b.rules = [cp.FieldRule(target="EventName", start_after="A", required=True),
+               cp.FieldRule(target="EventName", start_after="B", required=True),  # duplicato
+               cp.FieldRule(target="Price", fixed_value="1.85")]
+    b.ensure_all_columns()
+    ev = [r for r in b.rules if r.target == "EventName"]
+    assert len(ev) == 2                                    # entrambe le regole preservate
+    assert any("duplicat" in e.lower() for e in b.errors())   # validate le segnala
+
 
 def test_merge_multi_rule_overrides_preserves_hidden_fields():
     source = cp.MultiRowRule(
