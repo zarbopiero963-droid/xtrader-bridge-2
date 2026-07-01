@@ -272,7 +272,12 @@ class App(ctk.CTk):
         else:
             path = str(path or "").strip()
         try:
-            if clear_stale_csv(path):
+            # `on_mismatch`: se il file esiste ma NON è un CSV del bridge (header diverso),
+            # `clear_stale_csv` non lo tocca e prima restava silenzioso in GUI (il solo
+            # logging.warning non si vede in un EXE --windowed). Lo facciamo emergere nel log
+            # del bridge — visibile a schermo E nel file `bridge-*.log` — così l'utente capisce
+            # perché il CSV è rimasto intatto (es. `csv_path` sbagliato) (#105 P2, Codex).
+            if clear_stale_csv(path, on_mismatch=lambda m: self._log(f"⚠️ {m}")):
                 # Messaggio neutro: clear_stale_csv ripristina l'header per qualsiasi
                 # file esistente, anche se era già a solo header (niente riga rimossa).
                 self._log(f"🧹 CSV riportato a solo header {quando}: {path}")

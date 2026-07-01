@@ -34,6 +34,8 @@ _ALLOWLIST = {
                    "engine/DB non disponibile → login Betfair senza riserva del lock (#172 audit)"),
     "atomic_io.py": (1, "cleanup del temporaneo su QUALSIASI errore di scrittura/rename (BaseException)"),
     "config_store.py": (2, "backup config corrotta best-effort + rollback keyring best-effort"),
+    "csv_writer.py": (1, "callback diagnostico best-effort di clear_stale_csv: un sink log/GUI che "
+                         "solleva non deve rompere il cleanup anti-segnale-stantio all'avvio/STOP (#241)"),
     "custom_parser_gui.py": (8, "GUI Tk del costruttore parser: render/azioni best-effort"),
     "custom_pipeline.py": (1, "id_resolver iniettato: un resolver che solleva NON blocca la riga (fail-open)"),
     "gui_utils.py": (1, "helper GUI best-effort"),

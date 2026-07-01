@@ -154,6 +154,48 @@ def test_clear_stale_csv_avviso_non_logga_il_contenuto_header(tmp_path, caplog):
     assert secret not in joined                        # ...ma il segreto NON è loggato
 
 
+def test_clear_stale_csv_on_mismatch_riceve_metadati_non_contenuto(tmp_path):
+    # #105 P2 (Codex): `on_mismatch` fa emergere la diagnosi nel log del bridge/GUI (il solo
+    # logging.warning non si vede in un EXE --windowed). Riceve i METADATI strutturali, MAI il
+    # contenuto/segreto della prima riga.
+    secret = "123456789:AAEdummyBotTokenSecretValue_abcDEF"
+    p = tmp_path / "config_per_errore.csv"
+    p.write_text(secret + ",altro\nx,y\n", encoding="utf-8")
+    seen = []
+    assert csv_writer.clear_stale_csv(str(p), on_mismatch=seen.append) is False
+    assert seen, "on_mismatch deve essere invocato su header diverso"
+    assert "non è un CSV del bridge" in seen[0] and str(p) in seen[0]
+    assert "2 colonne" in seen[0]                       # metadati strutturali
+    assert secret not in seen[0]                        # nessun contenuto/segreto
+    assert p.read_text(encoding="utf-8").startswith(secret)   # file NON toccato (anti data-loss)
+
+
+def test_clear_stale_csv_on_mismatch_non_invocato_se_bridge_o_assente(tmp_path):
+    # Su un CSV del bridge (ripulito → True) o un file assente (→ False), `on_mismatch` NON va
+    # chiamato: è riservato al solo caso "file esistente ma non-bridge".
+    seen = []
+    assert csv_writer.clear_stale_csv(str(tmp_path / "manca.csv"),
+                                      on_mismatch=seen.append) is False   # assente
+    p = tmp_path / "segnali.csv"
+    csv_writer.init_csv(str(p))                          # CSV del bridge (solo header)
+    assert csv_writer.clear_stale_csv(str(p), on_mismatch=seen.append) is True
+    assert seen == []                                   # mai invocato
+
+
+def test_clear_stale_csv_on_mismatch_che_solleva_non_propaga(tmp_path):
+    # Codex P2 (#266): un `on_mismatch` che solleva (es. `_log` su una root Tk distrutta) è
+    # best-effort ENFORCED: NON deve propagare e rompere il cleanup anti-segnale-stantio.
+    # `clear_stale_csv` ritorna comunque `False` e il file non-bridge resta intatto.
+    p = tmp_path / "documento_utente.csv"
+    p.write_text("colonnaA,colonnaB\nv1,v2\n", encoding="utf-8")
+
+    def _boom(_msg):
+        raise RuntimeError("sink log/GUI fallito (simulato)")
+
+    assert csv_writer.clear_stale_csv(str(p), on_mismatch=_boom) is False   # nessuna propagazione
+    assert p.read_text(encoding="utf-8").startswith("colonnaA")             # file intatto
+
+
 def test_clear_stale_csv_file_non_decodificabile_non_bridge(tmp_path):
     # Codex P2: un file esistente non-UTF8 (CSV ANSI, binario scelto per errore)
     # non deve far crashare l'avvio: trattato come non-bridge e lasciato intatto.

@@ -202,6 +202,21 @@ def test_clear_stale_startup_journals_crash_recovery(make_app, app_mod, tmp_path
     assert _types(jpath) == ["CRASH_RECOVERY_CSV_CLEARED"]
 
 
+def test_clear_stale_csv_mismatch_emerso_nel_log_del_bridge(make_app, app_mod, tmp_path):
+    # #105 P2 (Codex): un file esistente NON-bridge (header diverso) non viene toccato (anti
+    # data-loss) MA la diagnosi deve EMERGERE nel log del bridge — visibile a schermo e nel file
+    # `bridge-*.log`, anche in un EXE --windowed dove lo stderr del logging.warning non c'è.
+    p = tmp_path / "documento_utente.csv"
+    p.write_text("colonnaA,colonnaB\nv1,v2\n", encoding="utf-8")
+    a = make_app(config={"csv_path": str(p)})
+
+    app_mod.App._clear_stale_csv(a, "all'avvio")
+
+    assert any("non è un CSV del bridge" in m and "⚠️" in m for m in a.logs)  # diagnosi a log
+    assert p.read_text(encoding="utf-8").startswith("colonnaA")               # file intatto
+    assert "v1,v2" in p.read_text(encoding="utf-8")                           # contenuto preservato
+
+
 def test_clear_stale_stop_journals_csv_cleared(make_app, app_mod, tmp_path):
     path = str(tmp_path / "segnali.csv")
     _stale_csv(path)
