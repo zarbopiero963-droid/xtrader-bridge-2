@@ -904,7 +904,8 @@ single-row» era **già risolto in #240**: `ParserBuilder.__init__` copia in pro
 (`to_dict`→`from_dict`), `to_def` li inoltra tutti, `MultiRowRule.to_dict` = `asdict` (tutti i
 campi) e `from_dict` è tollerante. Verificato su `main`. Mancava però un guard **end-to-end su
 disco** per i campi per-riga **non esposti** dalla GUI (`min_price`/`max_price`/`points`/
-`start_after`/`end_before`/`handicap`) e per il flag `enabled`: aggiunto
+`start_after`/`end_before`) — più `handicap` (esposto) e il flag `enabled` — che devono comunque
+sopravvivere al ciclo apri→salva→ricarica: aggiunto
 `tests/unit/test_parser_builder_multirow.py::test_kyb_full_disk_roundtrip_preserva_campi_multi_nascosti`
 che esercita la catena reale `ParserBuilder → to_def → save_parser (JSON) → load_parser →
 ParserBuilder → to_def` e fallisce se un anello scartasse i campi multi (dimostrato con un break

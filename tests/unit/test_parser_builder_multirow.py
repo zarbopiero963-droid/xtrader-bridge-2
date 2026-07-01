@@ -433,7 +433,7 @@ def test_gui_multi_rule_from_refs_preserves_hidden_fields(monkeypatch):
 def test_kyb_full_disk_roundtrip_preserva_campi_multi_nascosti(tmp_path):
     """kyb (#192): il ciclo COMPLETO apri→salva→ricarica di un parser multi NON deve azzerare
     in silenzio i campi per-riga NON esposti dalla GUI (`min_price`/`max_price`/`points`/
-    `start_after`/`end_before`/`handicap`) né il flag `enabled`. Esercita la catena REALE end-to-end:
+    `start_after`/`end_before`) — né `handicap` (esposto) né il flag `enabled`. Esercita la catena REALE end-to-end:
     `ParserBuilder → to_def → save_parser` (JSON su disco) `→ load_parser → ParserBuilder → to_def`.
 
     Regressione bloccata: se un qualsiasi anello del round-trip (`to_def`, `__init__`,
@@ -459,8 +459,9 @@ def test_kyb_full_disk_roundtrip_preserva_campi_multi_nascosti(tmp_path):
     assert len(reloaded.multi_selections) == 2
     r0, r1 = reloaded.multi_selections
     assert r0.selection_name == "1 - 0"
-    # campi NASCOSTI preservati end-to-end
+    # campi NASCOSTI (min_price/max_price/points/start_after/end_before) preservati end-to-end...
     assert r0.min_price == "1.20" and r0.max_price == "3.50" and r0.points == "2"
-    assert r0.start_after == "[" and r0.end_before == "]" and r0.handicap == "-0.5"
+    assert r0.start_after == "[" and r0.end_before == "]"
+    assert r0.handicap == "-0.5"      # ...e handicap (campo VISIBILE) round-trip completo
     # flag `enabled` preservato: una riga disabilitata non "resuscita" attiva
     assert r1.selection_name == "2 - 1" and r1.enabled is False
