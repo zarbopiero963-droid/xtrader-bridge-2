@@ -68,10 +68,27 @@ class ProfilesPanel(ctk.CTkFrame):
                                     text_color="gray", wraplength=520, anchor="w", justify="left")
         self._status.pack(fill="x", padx=12, pady=(0, 10))
 
+    @staticmethod
+    def _safe_list_profiles():
+        """`(names, err)`: elenco profili + eventuale messaggio d'errore, SENZA widget.
+        `profile_store.list_profiles()` (`os.listdir`) può sollevare `OSError` (ACL AppData,
+        errore FS transitorio); qui è catturato così la vista non crasha. `_refresh_list` gira
+        alla creazione finestra e dopo ogni save/delete, quindi un crash renderebbe la finestra
+        inusabile. Logica pura, testabile in CI senza display (Codex #60)."""
+        try:
+            return profile_store.list_profiles(), ""
+        except OSError as exc:
+            return [], f"❌ Elenco profili non leggibile: {exc}"
+
     def _refresh_list(self):
         for child in self._list_frame.winfo_children():
             child.destroy()
-        names = profile_store.list_profiles()
+        names, err = self._safe_list_profiles()
+        if err:
+            ctk.CTkLabel(self._list_frame, text="(impossibile elencare i profili)",
+                         text_color="#ef5350").pack(anchor="w", padx=6, pady=6)
+            self._status.configure(text=err, text_color="#ef5350")
+            return
         if not names:
             ctk.CTkLabel(self._list_frame, text="(nessun profilo salvato)",
                          text_color="gray").pack(anchor="w", padx=6, pady=6)
@@ -90,16 +107,17 @@ class ProfilesPanel(ctk.CTkFrame):
     # ── azioni ─────────────────────────────────────────────────────────────
     def _save(self):
         name = self._name.get().strip()
-        # Valida il nome PRIMA di persistere il form (Codex): un nome vuoto/non valido o
-        # collidente verrebbe rifiutato da save_profile, ma get_current_cfg avrebbe già
-        # committato impostazioni safety-critical (dry_run/csv_path/chat). Pre-check puro.
+        # Pre-check del nome (puro, NON scrive): un nome vuoto/non valido/collidente è rifiutato
+        # subito. `get_current_cfg` è ora uno SNAPSHOT NON persistente del form (Codex #60), quindi
+        # anche un fallimento TARDIVO di `save_profile` (nome riservato Windows, dir read-only,
+        # disco pieno) non committa più config.json coi valori safety-critical: nessun salvataggio
+        # parziale silenzioso. Il pre-check resta come guardia rapida.
         try:
             profile_store.ensure_valid_new_name(name)
         except ValueError as exc:
             self._status.configure(text=f"❌ {exc}", text_color="#ef5350")
             return
-        # get_current_cfg persiste il form e ritorna la config viva (con token); lo
-        # chiamiamo UNA sola volta per evitare doppia persistenza/snapshot divergenti.
+        # Snapshot della config viva (con token) senza persistere: base per il profilo.
         cfg = self._get_current_cfg()
         try:
             # save_profile rimuove i segreti prima di scrivere il profilo.
