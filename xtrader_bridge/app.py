@@ -98,6 +98,8 @@ _LAST_PREFIX = dict(_LAST_FIELDS)
 
 # Retention log (PR-3): etichetta a tendina → giorni (0 = "Mai", conserva tutto).
 _RETENTION_LABELS = {"Mai": 0, "5 giorni": 5, "15 giorni": 15, "30 giorni": 30}
+# Etichette utente delle schede Strumenti ricaricate dopo un profilo (per i log).
+_TOOL_PANEL_LABELS = {"provider": "Provider", "sources": "Chat sorgenti", "mapping": "Mapping"}
 
 
 def _retention_label(days: int) -> str:
@@ -2494,9 +2496,6 @@ class App(ctk.CTk):
         # percorso riuscito (write_error già ritornato sopra). Best-effort, fuori dal lock.
         self._journal_csv_cleared_if_had_row("CSV_CLEARED", reason="manual")
 
-    # Etichette utente delle schede Strumenti ricaricate dopo un profilo (per i log).
-    _TOOL_PANEL_LABELS = {"provider": "Provider", "sources": "Chat sorgenti", "mapping": "Mapping"}
-
     def _refresh_tool_panels_after_profile(self, panel_refs, saved) -> None:
         """Ricarica dal disco le schede Strumenti già costruite dopo l'applicazione di un
         profilo (Provider, Chat sorgenti, Mapping, Betfair Sync). Senza, un loro Salva
@@ -2514,7 +2513,7 @@ class App(ctk.CTk):
                 try:
                     _panel.refresh()
                 except Exception as ex:       # noqa: BLE001 — best-effort, ma non silenzioso
-                    self._log(f"⚠️ Scheda {self._TOOL_PANEL_LABELS[_key]} non aggiornata dal "
+                    self._log(f"⚠️ Scheda {_TOOL_PANEL_LABELS[_key]} non aggiornata dal "
                               f"profilo (mostra ancora i valori precedenti): {ex}")
         # La tab Betfair ha controlli auto-sync (enabled/hour/sport) caricati dalla config:
         # dopo un profilo va ricaricata, altrimenti un suo Salva riscrive i valori vecchi.
