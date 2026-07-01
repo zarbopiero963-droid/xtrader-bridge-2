@@ -292,7 +292,13 @@ Tutti questi gate devono passare perché una riga venga scritta:
    decimale di `Price`/`MinPrice`/`MaxPrice` è normalizzato a `.` (es. `1,85`→`1.85`;
    `1.234,56`→`1234.56` con raggruppamento migliaia valido). Un doppio separatore
    **malformato** (es. `1.2,3`) NON viene aggiustato: resta invalido → `INVALID_PRICE`
-   (fail-closed, niente prezzo sbagliato nel CSV).
+   (fail-closed, niente prezzo sbagliato nel CSV). I campi facoltativi, **se valorizzati**,
+   sono validati anch'essi (il percorso hardcoded li lascia vuoti):
+   - `MinPrice`/`MaxPrice` devono essere quote valide e **coerenti** — l'intervallo non può
+     essere invertito (`MinPrice > MaxPrice`) né escludere la quota (`MinPrice > Price`,
+     `MaxPrice < Price`); bordi inclusivi ammessi → altrimenti `INVALID_PRICE_BOUNDS`;
+   - `Points` (moltiplicatore stake), se valorizzato, deve essere un numero **positivo**
+     (`> 0`) → altrimenti `INVALID_POINTS`.
 3. **Gate di contenuto**: un parser i cui obbligatori sono **tutti `fixed_value`**
    sarebbe "piazzabile" su qualsiasi testo (anche vuoto). Nel live, che bypassa il
    prefiltro marker per i parser custom attivi, questo scriverebbe lo stesso bet
@@ -344,6 +350,8 @@ trasformazione) e `→map` (dopo value-map), più un codice di stato:
 | `VALUE_MAP_MISS` | la value-map non ha trovato il valore (→ vuoto) |
 | `INVALID_PRICE` | `Price` non numerico o ≤ 1.0 |
 | `INVALID_BETTYPE` | `BetType` non è `PUNTA`/`BANCA` |
+| `INVALID_POINTS` | `Points` valorizzato ma non un numero positivo (`> 0`) |
+| `INVALID_PRICE_BOUNDS` | limiti incoerenti: `Min > Max`, o l'intervallo esclude `Price` (segnalato solo sul limite che offende) |
 | `MODE_REQUIRED_MISSING` | campo richiesto dalla Modalità di riconoscimento mancante |
 | `NO_CONTENT_MATCH` (messaggio) | nessuna estrazione ha trovato nulla: solo valori fissi / nessun match |
 
