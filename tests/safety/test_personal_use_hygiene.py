@@ -42,13 +42,15 @@ _PAYMENT_TERMS = (
 import re  # noqa: E402
 
 # Funzioni di backup/import/export del dizionario nel subpackage Betfair: vietate
-# (issue #86: niente backup/import/export Betfair). Cattura sia il nome **nudo**
-# (`def export(`) sia con suffisso (`def export_dictionary(`) — l'underscore dopo il
-# verbo è opzionale (CodeRabbit/Codex su #178 §3: prima `def export(` sfuggiva). Resta
-# scoped a `betfair/`: nel package esistono `export_parser`/`import_parser` LEGITTIMI
-# (import/export di un PARSER su file locale, non il dizionario Betfair, non cloud).
+# (issue #86: niente backup/import/export Betfair). Cattura il nome **nudo** (`def export(`),
+# con **suffisso** (`def export_dictionary(`) E **privato** con underscore iniziale
+# (`def _export_dictionary(`, `def _backup(`): sia l'underscore dopo il verbo (`[a-z0-9_]*`)
+# sia quelli **prima** (`_*`) sono opzionali (CodeRabbit/Codex su #178 §3 / #183: prima
+# `def export(` e poi `def _export(` sfuggivano). Resta scoped a `betfair/`: nel package
+# esistono `export_parser`/`import_parser` LEGITTIMI (import/export di un PARSER su file
+# locale, non il dizionario Betfair, non cloud), fuori da questo subpackage.
 _BETFAIR_EXPORT_RE = re.compile(
-    r"def\s+(export|backup|upload|import|dump)[a-z0-9_]*\s*\(", re.IGNORECASE)
+    r"def\s+_*(export|backup|upload|import|dump)[a-z0-9_]*\s*\(", re.IGNORECASE)
 
 # SDK / host / forme "cloud": vietati in TUTTO il package (niente cloud sync; un export
 # del dizionario verso il cloud da QUALSIASI modulo sarebbe una violazione, non solo da
@@ -128,6 +130,34 @@ def test_nessun_backup_import_export_dizionario_betfair():
             offenders.append(os.path.relpath(path, _REPO_ROOT))
     assert not offenders, (
         f"Funzioni di backup/import/export del dizionario Betfair: {offenders}")
+
+
+def test_betfair_export_regex_copre_nudo_privato_e_suffisso():
+    """#183 (Codex P2): il guard DoD deve intercettare le funzioni backup/import/export/
+    upload/dump del dizionario Betfair anche quando sono **private** (underscore iniziale) —
+    `def _export_dictionary(`, `def _backup(` — non solo nude o con suffisso. Prima la regex
+    richiedeva il verbo subito dopo `def `, così un helper privato sfuggiva al controllo
+    (falso negativo). Questo test blocca quella regressione esercitando la regex reale."""
+    forbidden = [
+        "def export(",                         # nudo
+        "def backup ( ",                       # spazi
+        "def upload_to_x(",                    # suffisso
+        "def import_dictionary(self):",        # suffisso
+        "def dump_all(",                       # suffisso
+        "def _export_dictionary(self):",       # PRIVATO (prima sfuggiva)
+        "def _backup(x):",                     # PRIVATO
+        "def __upload(y):",                    # doppio underscore
+        "def _dump(",                          # privato nudo
+    ]
+    for snippet in forbidden:
+        assert _BETFAIR_EXPORT_RE.search(snippet), f"guard non intercetta: {snippet!r}"
+    # NON deve intercettare funzioni legittime che non sono backup/import/export.
+    legit = [
+        "def resolve_team(", "def _refresh(", "def market_ids_for_sports(",
+        "def transaction(", "def view(", "def report_status(", "def _reload(",
+    ]
+    for snippet in legit:
+        assert not _BETFAIR_EXPORT_RE.search(snippet), f"falso positivo del guard: {snippet!r}"
 
 
 def test_nessun_sdk_o_host_cloud_nel_package():
