@@ -13,6 +13,18 @@ import copy
 from . import parser_manager, source_manager
 
 
+def _disabled_overrides(container: dict) -> dict:
+    """Legge `parser_by_chat_disabled` in modo ROBUSTO: coerce a dict e normalizza le chiavi
+    a `str`. Una config manomessa può avere un valore non-dict (crash su `.get()`) o chiavi
+    non-stringa (che non combacerebbero mai col `chat_id` stringa di `source_chats`, perdendo
+    in silenzio la selezione parcheggiata). Ritorna sempre un dict nuovo con chiavi str
+    (CodeRabbit)."""
+    raw = (container or {}).get("parser_by_chat_disabled")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): v for k, v in raw.items()}
+
+
 class SourceEditor:
     """Stato e operazioni dell'editor delle sorgenti. Solo dati e logica.
 
@@ -22,11 +34,25 @@ class SourceEditor:
 
     def __init__(self, cfg: dict = None):
         cfg = cfg or {}
-        by_chat = parser_manager.parser_by_chat(cfg)   # {chat_id: nome_parser}
-        # Sorgenti normalizzate (copie) + prefill del parser per chat dalla mappa.
+        by_chat = parser_manager.parser_by_chat(cfg)   # {chat_id: nome_parser} — sorgenti ATTIVE
+        # Selezioni "parcheggiate" delle sorgenti DISATTIVATE: NON stanno in parser_by_chat
+        # (non autorizzano né bloccano l'avvio), ma vanno mostrate così riabilitando la
+        # sorgente non si perde il parser scelto (#47, Codex P2).
+        disabled_by_chat = _disabled_overrides(cfg)
+        # Sorgenti normalizzate (copie) + prefill del parser per chat: dalla mappa attiva;
+        # il parcheggio si consulta SOLO per le righe DISATTIVATE. Una voce parcheggiata
+        # stantia per una riga ora ATTIVA NON va promossa (al salvataggio finirebbe in
+        # parser_by_chat autorizzando un override "non-routing" per design, Codex P2): la
+        # riga attiva usa solo parser_by_chat, e `apply()` ripulisce lo stantio.
         self.sources = []
         for s in source_manager.source_chats(cfg):
-            s["parser"] = str(by_chat.get(s["chat_id"], "") or "").strip()
+            sel = by_chat.get(s["chat_id"], "")
+            if not sel and not s["enabled"]:
+                sel = disabled_by_chat.get(s["chat_id"], "")
+            # `or ""`: un valore FALSY (es. `null` da config editata a mano) va coerciato a ""
+            # e non stringificato a "None"/"0" — altrimenti verrebbe salvato come override
+            # attivo verso un parser inesistente (Codex P2). Come faceva il codice precedente.
+            s["parser"] = str(sel or "").strip()
             self.sources.append(s)
 
     # ── opzioni per i menu della GUI ───────────────────────────────────────
@@ -98,20 +124,35 @@ class SourceEditor:
         old_source_ids = {s["chat_id"] for s in source_manager.source_chats(base)}
         base["source_chats"] = [self._source_only(s) for s in self.sources]
         by_chat = parser_manager.parser_by_chat(base)
-        # Sorgenti RIMOSSE/rinominate: togli l'override, così la chat non resta
-        # autorizzata via parser_by_chat (`is_chat_allowed`) dopo la rimozione (Codex P1).
-        # MA conserva l'override della chat `chat_id` GLOBALE: resta autorizzata di suo,
-        # e il suo parser per-chat è ancora valido (Codex P2-a).
+        # Parcheggio delle selezioni delle sorgenti DISATTIVATE (persistite ma NON in
+        # parser_by_chat): così riabilitandole non si perde il parser scelto (#47, Codex P2).
+        disabled_by_chat = _disabled_overrides(base)
+        # Sorgenti RIMOSSE/rinominate: togli l'override da ENTRAMBE le mappe, così la chat non
+        # resta autorizzata via parser_by_chat (`is_chat_allowed`) dopo la rimozione (Codex P1)
+        # e non lascia una selezione parcheggiata orfana. MA conserva l'override della chat
+        # `chat_id` GLOBALE: resta autorizzata di suo, e il suo parser è ancora valido (P2-a).
         for chat in (old_source_ids - row_ids):
             if chat and chat != global_chat:
                 by_chat.pop(chat, None)
-        # Righe correnti: azzera il vecchio override e ri-impostalo SOLO per le righe
-        # ATTIVE. Una sorgente disattivata non deve lasciare una chiave parser_by_chat:
-        # il runtime la deny-lista comunque, ma il check chat-notifiche di `_start`
-        # conta ogni chiave come sorgente e bloccherebbe l'avvio (Codex P2-b).
+                disabled_by_chat.pop(chat, None)
+        # Righe correnti: azzera i vecchi override in entrambe le mappe, poi:
+        # - riga ATTIVA con parser → parser_by_chat (autorizza + routing);
+        # - riga DISATTIVATA con parser → SOLO parcheggio (non autorizza, non blocca `_start`,
+        #   ma conserva la selezione). Una sorgente disattivata non deve lasciare una chiave
+        #   parser_by_chat: il runtime la deny-lista comunque, ma il check chat-notifiche di
+        #   `_start` conta ogni chiave come sorgente e bloccherebbe l'avvio (Codex P2-b).
         for s in self.sources:
             by_chat.pop(s["chat_id"], None)
-            if s["parser"] and s["enabled"]:
-                by_chat[s["chat_id"]] = s["parser"]
+            disabled_by_chat.pop(s["chat_id"], None)
+            if s["parser"]:
+                if s["enabled"]:
+                    by_chat[s["chat_id"]] = s["parser"]
+                else:
+                    disabled_by_chat[s["chat_id"]] = s["parser"]
         base["parser_by_chat"] = by_chat
+        # Non lasciare una chiave vuota in config (config pulita).
+        if disabled_by_chat:
+            base["parser_by_chat_disabled"] = disabled_by_chat
+        else:
+            base.pop("parser_by_chat_disabled", None)
         return base, [], warnings

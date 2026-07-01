@@ -177,3 +177,77 @@ def test_apply_riga_disattivata_non_scrive_override():
     new_cfg, errors, _ = ed.apply({})
     assert errors == []
     assert "222" not in new_cfg.get("parser_by_chat", {})
+
+
+def test_apply_riga_disattivata_conserva_selezione_parser():
+    # #47 (Codex P2): la sorgente disattivata NON entra in parser_by_chat (P2-b: niente
+    # autorizzazione né blocco avvio), MA la selezione del parser va CONSERVATA a parte così
+    # riabilitandola in seguito non si perde (prefill al riapri).
+    ed = SourceEditor()
+    ed.add_source(chat_id="222", enabled=False, parser="X")
+    new_cfg, errors, _ = ed.apply({})
+    assert errors == []
+    assert "222" not in new_cfg.get("parser_by_chat", {})                 # non autorizzata
+    assert new_cfg.get("parser_by_chat_disabled", {}).get("222") == "X"   # selezione conservata
+    # round-trip: riaprendo l'editor la riga disattivata mostra ancora il suo parser
+    ed2 = SourceEditor(new_cfg)
+    row = next(s for s in ed2.sources if s["chat_id"] == "222")
+    assert row["parser"] == "X" and row["enabled"] is False
+
+
+def test_parser_by_chat_disabled_corrotto_non_crasha_e_normalizza_chiavi():
+    # #273 (CodeRabbit, Major): un `parser_by_chat_disabled` non-dict (config manomessa) non
+    # deve far crashare l'editor; chiavi non-stringa vanno normalizzate a str per combaciare
+    # col chat_id (altrimenti la selezione parcheggiata sparirebbe in silenzio).
+    # non-dict truthy → ignorato, nessun crash in __init__ né in apply
+    ed = SourceEditor({"source_chats": [{"chat_id": "222", "enabled": False, "mode": "PRE"}],
+                       "parser_by_chat_disabled": "oops"})
+    assert ed.sources[0]["parser"] == ""
+    new_cfg, errors, _ = ed.apply({"parser_by_chat_disabled": "oops"})
+    assert errors == []
+    assert "parser_by_chat_disabled" not in new_cfg      # valore corrotto ripulito
+    # chiave int → normalizzata a "222" → combacia col chat_id stringa
+    ed2 = SourceEditor({"source_chats": [{"chat_id": "222", "enabled": False, "mode": "PRE"}],
+                        "parser_by_chat_disabled": {222: "X"}})
+    assert ed2.sources[0]["parser"] == "X"
+
+
+def test_prefill_override_falsy_diventa_stringa_vuota():
+    # #273 (Codex P2): un override falsy (es. null da config editata a mano) NON deve diventare
+    # la stringa "None" al prefill — verrebbe salvato come override attivo verso un parser
+    # inesistente (resolve_parser_name non ripiegherebbe più su active_parser).
+    ed = SourceEditor({"source_chats": [{"chat_id": "111", "enabled": True, "mode": "PRE"}],
+                       "parser_by_chat": {"111": None}})
+    assert ed.sources[0]["parser"] == ""
+    # stesso caso dal parcheggio (riga disattivata con valore falsy)
+    ed2 = SourceEditor({"source_chats": [{"chat_id": "222", "enabled": False, "mode": "PRE"}],
+                        "parser_by_chat_disabled": {"222": None}})
+    assert ed2.sources[0]["parser"] == ""
+
+
+def test_parcheggio_ignorato_per_riga_attiva_non_promuove_override():
+    # #273 (Codex P2): una voce parcheggiata STALE per una sorgente ora ATTIVA (senza override
+    # attivo) NON deve pre-riempire la riga né essere promossa in parser_by_chat al salvataggio
+    # (il parcheggio è stato "non-routing" per design: va consultato SOLO per righe disattivate).
+    base = {"source_chats": [{"chat_id": "222", "enabled": True, "mode": "PRE"}],
+            "parser_by_chat_disabled": {"222": "X"}}
+    ed = SourceEditor(base)
+    assert ed.sources[0]["parser"] == ""       # NON pre-riempito dal parcheggio (riga attiva)
+    new_cfg, errors, _ = ed.apply(base)
+    assert errors == []
+    assert "222" not in new_cfg.get("parser_by_chat", {})            # non promosso a routing
+    assert "222" not in new_cfg.get("parser_by_chat_disabled", {})   # stale ripulito
+
+
+def test_apply_riabilitare_sorgente_ripristina_override_attivo():
+    # #47 (Codex P2): riabilitando una sorgente prima disattivata, la selezione parcheggiata
+    # torna in parser_by_chat (autorizza + routing) e sparisce dal parcheggio.
+    base = {"source_chats": [{"chat_id": "222", "enabled": False, "mode": "PRE"}],
+            "parser_by_chat_disabled": {"222": "X"}}
+    ed = SourceEditor(base)
+    assert ed.sources[0]["parser"] == "X"        # prefill dal parcheggio
+    ed.update_source(0, enabled=True)            # riabilita
+    new_cfg, errors, _ = ed.apply(base)
+    assert errors == []
+    assert new_cfg["parser_by_chat"].get("222") == "X"                   # ora attivo → autorizza
+    assert "222" not in new_cfg.get("parser_by_chat_disabled", {})       # tolto dal parcheggio
