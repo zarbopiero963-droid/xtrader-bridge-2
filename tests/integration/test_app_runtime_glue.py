@@ -65,6 +65,21 @@ def _spy_writer(monkeypatch, app_mod, *, fail=False):
     return calls
 
 
+def _spy_commit(monkeypatch, app_mod):
+    """Avvolge `write_path.commit_signal`/`commit_signals` per registrare QUALE percorso di
+    commit viene scelto (delegando alla funzione reale). Ritorna il contatore `called`
+    (`{"signal": n, "signals": n}`), così i test asseriscono solo l'instradamento."""
+    called = {"signal": 0, "signals": 0}
+    real_single, real_multi = app_mod.write_path.commit_signal, app_mod.write_path.commit_signals
+    monkeypatch.setattr(app_mod.write_path, "commit_signal",
+                        lambda *a, **k: (called.__setitem__("signal", called["signal"] + 1),
+                                         real_single(*a, **k))[1])
+    monkeypatch.setattr(app_mod.write_path, "commit_signals",
+                        lambda *a, **k: (called.__setitem__("signals", called["signals"] + 1),
+                                         real_multi(*a, **k))[1])
+    return called
+
+
 # ── _process ───────────────────────────────────────────────────────────────────
 
 def test_process_write_success_accoda_e_scrive(make_app, app_mod, monkeypatch, tmp_path):
@@ -97,14 +112,7 @@ def test_process_multi_una_riga_usa_commit_signals(make_app, app_mod, monkeypatc
     # RouteResult MULTI con UNA sola riga: `rows` valorizzato → provenienza multi preservata.
     rr = app_mod.signal_router.RouteResult(row=row, rows=[row])
     monkeypatch.setattr(app_mod.signal_router, "resolve_row", lambda *a, **k: rr)
-    called = {"signal": 0, "signals": 0}
-    real_single, real_multi = app_mod.write_path.commit_signal, app_mod.write_path.commit_signals
-    monkeypatch.setattr(app_mod.write_path, "commit_signal",
-                        lambda *a, **k: (called.__setitem__("signal", called["signal"] + 1),
-                                         real_single(*a, **k))[1])
-    monkeypatch.setattr(app_mod.write_path, "commit_signals",
-                        lambda *a, **k: (called.__setitem__("signals", called["signals"] + 1),
-                                         real_multi(*a, **k))[1])
+    called = _spy_commit(monkeypatch, app_mod)
 
     app_mod.App._process(a, "msg", {"csv_path": path, "dry_run": False}, chat_id="1")
 
@@ -120,14 +128,7 @@ def test_process_single_row_resta_su_commit_signal(make_app, app_mod, monkeypatc
     a = make_app(csv_path=path, queue=q, tracker=signal_dedupe.SignalTracker(),
                  daily=safety_guard.DailyLimiter(max_per_day=10))
     _patch_resolve(monkeypatch, app_mod, _row("Roma v Lazio"))   # RouteResult(row=...) → rows None
-    called = {"signal": 0, "signals": 0}
-    real_single, real_multi = app_mod.write_path.commit_signal, app_mod.write_path.commit_signals
-    monkeypatch.setattr(app_mod.write_path, "commit_signal",
-                        lambda *a, **k: (called.__setitem__("signal", called["signal"] + 1),
-                                         real_single(*a, **k))[1])
-    monkeypatch.setattr(app_mod.write_path, "commit_signals",
-                        lambda *a, **k: (called.__setitem__("signals", called["signals"] + 1),
-                                         real_multi(*a, **k))[1])
+    called = _spy_commit(monkeypatch, app_mod)
 
     app_mod.App._process(a, "msg", {"csv_path": path, "dry_run": False}, chat_id="1")
 
