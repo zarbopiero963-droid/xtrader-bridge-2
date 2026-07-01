@@ -305,8 +305,10 @@ class CustomParserPanel(ctk.CTkFrame):
 
         # Parser NUOVO: applica l'auto-Obblig. della modalità di default UNA volta (per i
         # parser caricati invece si preservano i flag salvati: niente set_mode al reload).
+        # `apply_mode_defaults` crea PRIMA le 14 colonne e POI allinea la modalità: senza,
+        # set_mode su un builder senza regole non marcherebbe i campi come Obblig. (Codex #72).
         if is_new and self.builder.mode:
-            self.builder.set_mode(self.builder.mode)
+            self.builder.apply_mode_defaults(self.builder.mode)
         self._build_ui()
         self._reload_rows_from_builder()
         self._refresh_saved()
@@ -822,9 +824,10 @@ class CustomParserPanel(ctk.CTkFrame):
     def _new(self):
         """Svuota il costruttore per un nuovo parser (non tocca i file salvati)."""
         self.builder = ParserBuilder()
-        # Parser nuovo: applica l'auto-Obblig. della modalità di default una volta.
+        # Parser nuovo: crea le 14 colonne e POI applica l'auto-Obblig. della modalità di
+        # default una volta (set_mode da solo, senza regole, non marcherebbe nulla — Codex #72).
         if self.builder.mode:
-            self.builder.set_mode(self.builder.mode)
+            self.builder.apply_mode_defaults(self.builder.mode)
         self._name_var.set("")
         self._reload_rows_from_builder()
         self._result.configure(text="🆕 Nuovo parser (non ancora salvato).")

@@ -226,8 +226,9 @@ nessuna.
 
 La **Modalità** di riconoscimento (`ID_ONLY` / `NAME_ONLY` / `BOTH`) è una proprietà
 **del parser** (salvata nel file, campo `mode`; default `NAME_ONLY`). Selezionandola dal
-menu, le colonne richieste da quel set diventano **obbligatorie in automatico** (auto
-«Obblig.»), senza spuntarle a mano:
+menu — **e già all'apertura di un parser nuovo** con la modalità di default — le colonne
+richieste da quel set diventano **obbligatorie in automatico** (auto «Obblig.»), senza
+spuntarle a mano:
 
 | Modalità | Colonne rese obbligatorie |
 |---|---|
