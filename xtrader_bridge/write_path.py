@@ -99,6 +99,13 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows):
                 tracker.restore_state(tracker_snap)
                 if daily is not None and daily_snap is not None:
                     daily.restore_state(daily_snap)
+            elif tracker is not None:
+                # Scrittura REALE riuscita (single-row, dedup a hash-messaggio): ombreggia ANCHE la
+                # chiave PER-RIGA di questa riga (#192 kyW). Così un retry dello STESSO messaggio dopo
+                # una transizione del parser a MULTI-riga riconosce la riga già scritta come duplicato
+                # (la chiave per-riga di quella riga è già "vista"), invece di riscriverla → doppia
+                # scommessa. Lo shadow non conta verso il rate-limit (`mark_seen`).
+                tracker.mark_seen(signal_dedupe.row_dedup_key(text, row))
     elif tracker is not None and decision == live_guard.DAILY_LIMITED:
         # `evaluate` aveva registrato l'hash nel tracker (segnale NEW) ma `daily.allow()` ha
         # RIFIUTATO **senza consumare** una slot — ha solo (eventualmente) normalizzato il giorno
@@ -307,5 +314,13 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
     # Si arriva qui solo dopo un CAMBIAMENTO reale (blocco OVERWRITE differente, o righe NUOVE in
     # append) e una scrittura riuscita → l'esito è WRITE (uno shrink OVERWRITE ha `new_rows` vuoto
     # ma HA scritto: non va riportato come DUPLICATE, altrimenti `_process` salterebbe il post-write).
+    if tracker is not None:
+        # Scrittura REALE riuscita (multi, dedup PER-RIGA): ombreggia ANCHE l'hash-messaggio (#192
+        # kyW). Così un retry dello STESSO messaggio dopo una transizione del parser a SINGLE-row —
+        # che deduplica sull'hash-messaggio, mai registrato dal percorso multi — riconosce il
+        # messaggio come già processato (DUPLICATE) invece di riscriverlo → doppia scommessa.
+        # Fail-closed a livello di messaggio: al più più restrittivo, mai una scommessa doppia. Lo
+        # shadow non conta verso il rate-limit (`mark_seen`).
+        tracker.mark_seen(signal_dedupe.message_hash(text))
     return CommitResult(decision=live_guard.WRITE,
                         blocked_by_cap=False, rows=active, write_error=None)

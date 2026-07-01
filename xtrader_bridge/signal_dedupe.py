@@ -10,7 +10,10 @@ Componenti:
   per riconoscere lo stesso messaggio anche con spaziatura diversa.
 - `SignalTracker`: ricorda gli hash recenti in una **finestra** temporale e
   applica un **limite al minuto**. `register(text)` ritorna NEW / DUPLICATE /
-  RATE_LIMITED senza scrivere nulla.
+  RATE_LIMITED senza scrivere nulla. `mark_seen(key)` (#192 kyW) registra un
+  marcatore di sola **deduplica** (voce *shadow*) che NON conta verso il limite/
+  minuto: serve alla riconciliazione **cross-namespace** hash-messaggio ↔ chiave
+  per-riga alla transizione di modalità del parser (anti-doppia-scommessa).
 - `state()` / `restore_state()` + `save_state`/`load_state` su file: gli hash
   recenti sopravvivono a un **riavvio** (history giornaliera), così un duplicato
   ravvicinato è riconosciuto anche dopo il restart.
@@ -110,7 +113,10 @@ class SignalTracker:
 
     dedupe_window: int = DEFAULT_DEDUPE_WINDOW
     max_per_minute: int = DEFAULT_MAX_PER_MINUTE
-    _seen: list = field(default_factory=list)   # (hash, epoch_seconds)
+    # Voci `(hash, epoch_seconds, real)`. `real=True` → registrazione di un segnale realmente
+    # processato (conta verso il limite/minuto). `real=False` → marcatore SHADOW di sola deduplica
+    # (`mark_seen`, riconciliazione cross-namespace #192 kyW): NON conta verso il rate-limit.
+    _seen: list = field(default_factory=list)
 
     def __post_init__(self):
         # Parametri validati come in DailyLimiter (audit #105 P2): una finestra/limite
@@ -132,7 +138,7 @@ class SignalTracker:
         # finestra. (Il caso opposto — un salto in AVANTI che invecchia di colpo le voci e
         # potrebbe far sfuggire un duplicato — è inerente alla persistenza wall-clock e non
         # distinguibile dal normale scorrere del tempo: vedi nota nel docstring del modulo.)
-        self._seen = [(h, t) for (h, t) in self._seen if t >= cutoff or t > now]
+        self._seen = [(h, t, r) for (h, t, r) in self._seen if t >= cutoff or t > now]
 
     def register(self, text: str, *, now: float = None, key: str = None) -> RegisterResult:
         """Registra un messaggio e decide il suo esito (senza scrivere nulla):
@@ -149,23 +155,41 @@ class SignalTracker:
         now = time.time() if now is None else validators.require_finite_now(now)
         self._prune(now)
         h = message_hash(text) if key is None else str(key)
-        # Duplicato: stesso hash entro la finestra di deduplica (NON l'intera
-        # storia conservata, che può essere più lunga per il conteggio al minuto).
+        # Duplicato: stesso hash entro la finestra di deduplica (NON l'intera storia conservata,
+        # che può essere più lunga per il conteggio al minuto). Vale sia per le voci REALI sia per
+        # i marcatori SHADOW (`mark_seen`): entrambi bloccano un duplicato cross-namespace (#192).
         dedupe_cutoff = now - self.dedupe_window
-        if any(hh == h and t >= dedupe_cutoff for (hh, t) in self._seen):
+        if any(hh == h and t >= dedupe_cutoff for (hh, t, _real) in self._seen):
             return RegisterResult(DUPLICATE, h)
         minute_ago = now - 60
-        recent = sum(1 for (_, t) in self._seen if t >= minute_ago)
+        # Rate-limit: conta SOLO le registrazioni REALI. I marcatori shadow di sola deduplica
+        # (mark_seen) non sono segnali processati e NON devono consumare capacità/minuto (#192 kyW).
+        recent = sum(1 for (_hh, t, real) in self._seen if real and t >= minute_ago)
         if recent >= self.max_per_minute:
             return RegisterResult(RATE_LIMITED, h)
-        self._seen.append((h, now))
+        self._seen.append((h, now, True))
         return RegisterResult(NEW, h)
+
+    def mark_seen(self, key: str, *, now: float = None) -> None:
+        """Marca `key` come GIÀ VISTA ai SOLI fini di deduplica (#192 kyW), senza contare verso il
+        limite/minuto e senza cambiare alcun esito. Serve alla riconciliazione **cross-namespace**
+        tra il percorso single-row (hash-messaggio) e multi-riga (chiave per-riga): dopo una
+        scrittura reale su un percorso si "ombreggia" la chiave dell'ALTRO percorso, così un retry
+        dello stesso messaggio DOPO un cambio di modalità del parser è riconosciuto come DUPLICATE
+        (anti-doppia-scommessa). No-op se la chiave è già presente (reale o shadow): non aggiunge
+        voci ridondanti né declassa una voce reale a shadow."""
+        now = time.time() if now is None else validators.require_finite_now(now)
+        self._prune(now)
+        key = str(key)
+        if any(hh == key for (hh, _t, _real) in self._seen):
+            return
+        self._seen.append((key, now, False))
 
     # ── persistenza (riconoscimento duplicati dopo un riavvio) ───────────────
 
     def state(self) -> list:
-        """Stato serializzabile: lista di [hash, timestamp]."""
-        return [[h, t] for (h, t) in self._seen]
+        """Stato serializzabile: lista di [hash, timestamp, real]."""
+        return [[h, t, r] for (h, t, r) in self._seen]
 
     def restore_state(self, data) -> None:
         """Ripristina lo stato da `state()` (tollerante a voci malformate).
@@ -179,13 +203,16 @@ class SignalTracker:
         restored = []
         for item in data or []:
             try:
-                h, t = item
+                h, t = item[0], item[1]
+                # `real` (#192 kyW): assente nei vecchi state a 2 elementi → True (fail-closed: una
+                # voce storica è una registrazione reale, conservativa per il rate-limit).
+                r = bool(item[2]) if len(item) >= 3 else True
                 tf = float(t)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, IndexError):
                 continue
             if not math.isfinite(tf):
                 continue                    # NaN/inf da state corrotto/manomesso → scartato
-            restored.append((str(h), tf))
+            restored.append((str(h), tf, r))
         self._seen = restored
 
 

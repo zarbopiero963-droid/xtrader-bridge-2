@@ -721,3 +721,52 @@ def test_commit_signals_cap_pieno_autoraise_aggiunge_il_blocco(tmp_path):
     assert len(q.active_rows()) == 4
 
 
+
+
+# ── #192 kyW: dedup cross-namespace alla transizione di modalità del parser ────
+
+def test_transizione_single_a_multi_blocca_riga_gia_scritta(tmp_path):
+    """#192 kyW: un messaggio prima scritto come SINGLE-row (dedup a hash-messaggio) e poi — dopo
+    che l'operatore abilita una riga multi — ritentato come MULTI non deve riscrivere la riga già
+    piazzata. Il commit single-row ombreggia la chiave PER-RIGA della sua riga (`mark_seen`), così
+    il commit multi la riconosce come duplicato e scrive solo le righe NUOVE."""
+    path = str(tmp_path / "s.csv")
+    rows = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0", "2 - 1"]), MSG, mode="NAME_ONLY"))
+    row_a, row_b = rows[0], rows[1]
+    tracker = signal_dedupe.SignalTracker()
+    q1 = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    r1 = write_path.commit_signal(tracker, None, q1, _cfg(path), MSG, row_a, path, now=0,
+                                  write_rows=csv_writer.write_rows)
+    assert r1.decision == live_guard.WRITE
+    # MULTI (stesso messaggio, ora row_a + row_b): row_a già vista (shadow per-riga) → solo row_b.
+    q2 = signal_queue.SignalQueue(mode=signal_queue.APPEND_ACTIVE, default_timeout=120)
+    write_path.commit_signals(tracker, None, q2, _cfg(path), MSG, [row_a, row_b], path, now=1,
+                              write_rows=csv_writer.write_rows)
+    assert [x["SelectionName"] for x in q2.active_rows()] == ["2 - 1"]   # solo la riga NUOVA
+
+
+def test_transizione_multi_a_single_blocca_messaggio_gia_processato(tmp_path):
+    """#192 kyW: un messaggio prima scritto come MULTI (dedup PER-RIGA) e poi ritentato come
+    SINGLE-row (dedup a hash-messaggio, MAI registrato dal percorso multi) non deve riscriverlo. Il
+    commit multi ombreggia l'hash-messaggio (`mark_seen`), così il single-row lo riconosce come
+    duplicato — anti-doppia-scommessa alla transizione di modalità."""
+    path = str(tmp_path / "s.csv")
+    rows = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0", "2 - 1"]), MSG, mode="NAME_ONLY"))
+    tracker = signal_dedupe.SignalTracker()
+    q1 = signal_queue.SignalQueue(mode=signal_queue.APPEND_ACTIVE, default_timeout=120)
+    r1 = write_path.commit_signals(tracker, None, q1, _cfg(path), MSG, rows, path, now=0,
+                                   write_rows=csv_writer.write_rows)
+    assert r1.decision == live_guard.WRITE and len(q1.active_rows()) == 2
+    q2 = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    calls = []
+
+    def _spy(rows_, path_):
+        calls.append(list(rows_))
+        csv_writer.write_rows(rows_, path_)
+
+    r2 = write_path.commit_signal(tracker, None, q2, _cfg(path), MSG, rows[0], path, now=1,
+                                  write_rows=_spy)
+    assert r2.decision == live_guard.DUPLICATE      # hash-messaggio ombreggiato dal commit multi
+    assert calls == []                              # nessuna riscrittura (niente doppia scommessa)
