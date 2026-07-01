@@ -71,7 +71,15 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows):
     if tracker is not None:
         tracker_snap = tracker.state()
         daily_snap = daily.state() if daily is not None else None
-        decision = live_guard.evaluate(cfg, tracker, daily, text)
+        # kyW #192: controllo cross-namespace PRE-scrittura. La dedup single-row è sull'hash-messaggio,
+        # ma la stessa riga può essere già stata scritta dal percorso MULTI (chiave per-riga) — anche
+        # da uno stato dedupe PERSISTITO da una versione precedente. Se la chiave per-riga è già vista,
+        # è un duplicato → non scrivere (fail-closed anti-doppia-scommessa), invece di controllare solo
+        # l'hash-messaggio che il percorso multi non registra.
+        if tracker.is_seen(signal_dedupe.row_dedup_key(text, row)):
+            decision = live_guard.DUPLICATE
+        else:
+            decision = live_guard.evaluate(cfg, tracker, daily, text)
 
     if decision == live_guard.WRITE:
         # Coda dei segnali attivi: expire dei già scaduti, add del nuovo, riscrittura
@@ -202,6 +210,19 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
     e i guardrail sono ripristinati. Se la scrittura fallisce, coda E guardrail tornano allo stato
     precedente. Per il single-row usare `commit_signal` (percorso legacy invariato)."""
     rows = list(rows or [])
+    # kyW #192: fallback cross-namespace PRE-scrittura per uno stato dedupe PERSISTITO da una versione
+    # precedente SOLO single-row (che ha registrato l'hash-messaggio ma NON le chiavi per-riga). Se
+    # l'hash-messaggio è già visto e NESSUNA delle chiavi per-riga di questo messaggio lo è, il
+    # messaggio è già stato processato come single-row → fail-closed: si sopprime l'intero blocco (non
+    # è possibile identificare quale riga corrispondesse), invece di riscriverlo → doppia scommessa. Se
+    # invece almeno una chiave per-riga è già vista, è un normale duplicato/espansione multi (gestito
+    # per-riga, così l'espansione A→A+B non viene soppressa).
+    if tracker is not None and rows:
+        row_keys = [signal_dedupe.row_dedup_key(text, r) for r in rows]
+        if tracker.is_seen(signal_dedupe.message_hash(text)) and \
+                not any(tracker.is_seen(k) for k in row_keys):
+            return CommitResult(decision=live_guard.DUPLICATE, blocked_by_cap=False,
+                                rows=[], write_error=None)
     tracker_snap = tracker.state() if tracker is not None else None
     daily_snap = (daily.state() if (tracker is not None and daily is not None) else None)
     queue_snap = queue.state()

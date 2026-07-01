@@ -192,6 +192,17 @@ class SignalTracker:
             return
         self._seen.append((key, now, False))
 
+    def is_seen(self, key: str, *, now: float = None) -> bool:
+        """True se `key` è già presente (reale o shadow) ENTRO la finestra di deduplica (#192 kyW).
+        Lettura PURA: non registra nulla e non conta verso il rate-limit. Serve ai commit per un
+        controllo cross-namespace PRE-scrittura, utile soprattutto con uno stato persistito da una
+        versione precedente che aveva un SOLO namespace di chiavi (solo hash-messaggio o solo
+        chiavi per-riga): fail-closed contro la doppia scommessa alla transizione di modalità."""
+        now = time.time() if now is None else validators.require_finite_now(now)
+        self._prune(now)
+        dedupe_cutoff = now - self.dedupe_window
+        return any(hh == str(key) and t >= dedupe_cutoff for (hh, t, _real) in self._seen)
+
     # ── persistenza (riconoscimento duplicati dopo un riavvio) ───────────────
 
     def state(self) -> list:

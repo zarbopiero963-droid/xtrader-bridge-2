@@ -791,3 +791,49 @@ def test_transizione_single_a_multi_overwrite_preserva_riga_attiva(tmp_path):
     write_path.commit_signals(tracker, None, q, _cfg(path), MSG, [row_a, row_b], path, now=1,
                               write_rows=csv_writer.write_rows)
     assert [x["SelectionName"] for x in q.active_rows()] == ["1 - 0", "2 - 1"]
+
+
+def test_transizione_stato_multi_persistito_blocca_single(tmp_path):
+    """#192 kyW (Codex): stato dedupe PERSISTITO dal percorso MULTI (solo chiavi per-riga). Dopo un
+    passaggio a single-row, un retry dello stesso segnale deve risultare DUPLICATE PRIMA della
+    scrittura (controllo cross-namespace sulla chiave per-riga), non essere riscritto → doppia
+    scommessa."""
+    path = str(tmp_path / "s.csv")
+    row_a = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0"]), MSG, mode="NAME_ONLY"))[0]
+    tracker = signal_dedupe.SignalTracker()
+    tracker.register(MSG, key=signal_dedupe.row_dedup_key(MSG, row_a))   # stato "persistito" dal multi
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    calls = []
+
+    def _spy(rows_, path_):
+        calls.append(list(rows_))
+        csv_writer.write_rows(rows_, path_)
+
+    res = write_path.commit_signal(tracker, None, q, _cfg(path), MSG, row_a, path, now=1,
+                                   write_rows=_spy)
+    assert res.decision == live_guard.DUPLICATE
+    assert calls == []                              # niente scrittura (niente doppia scommessa)
+
+
+def test_transizione_stato_single_persistito_blocca_multi(tmp_path):
+    """#192 kyW (Codex): stato dedupe PERSISTITO dal percorso SINGLE-row (solo hash-messaggio, tipico
+    di un upgrade da versione pre-kyW). Dopo un passaggio a multi-riga, un retry dello stesso
+    messaggio deve essere soppresso (fail-closed) PRIMA della scrittura, non riscritto → doppia
+    scommessa."""
+    path = str(tmp_path / "s.csv")
+    rows = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0", "2 - 1"]), MSG, mode="NAME_ONLY"))
+    tracker = signal_dedupe.SignalTracker()
+    tracker.register(MSG)                           # stato "persistito" dal single: solo hash-messaggio
+    q = signal_queue.SignalQueue(mode=signal_queue.APPEND_ACTIVE, default_timeout=120)
+    calls = []
+
+    def _spy(rows_, path_):
+        calls.append(list(rows_))
+        csv_writer.write_rows(rows_, path_)
+
+    res = write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows, path, now=1,
+                                    write_rows=_spy)
+    assert res.decision == live_guard.DUPLICATE
+    assert calls == [] and q.active_rows() == []    # blocco soppresso, nessuna scrittura
