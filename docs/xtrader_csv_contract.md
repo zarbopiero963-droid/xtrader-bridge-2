@@ -154,6 +154,22 @@ un parser custom può estrarre testo arbitrario):
     giornaliero, scadenza per-segnale). Il file resta sempre scritto **atomicamente** (header +
     N righe) e svuotato a solo header quando la coda si svuota.
   In tutte le modalità la scrittura è atomica e una riga non valida non viene mai scritta.
+- **Blocco multi-riga e tetto (#192, auto-raise).** Un singolo messaggio Telegram che genera **più
+  righe** (MultiMarket/MultiSelection) è trattato come **un unico blocco/istruzione coerente**: le
+  sue righe restano attive **insieme**. In `APPEND_ACTIVE`/`QUEUE_UNTIL_CONFIRMED` il tetto
+  `max_active_signals` **non spezza** il blocco di un singolo messaggio — se il messaggio ha più
+  righe dello spazio libero, il tetto viene **auto-alzato** per quel messaggio (tutte le righe
+  entrano) invece di scriverne solo alcune e troncare le altre in silenzio. Il tetto continua a
+  limitare l'accumulo **tra messaggi distinti**. In `OVERWRITE_LAST` (default) il blocco riscritto è
+  l'**istruzione corrente**: le righe nuove del messaggio **più** le righe duplicate che sono
+  **ancora attive con la stessa provenienza** (riconosciute per chiave memorizzata al piazzamento,
+  non ricalcolata), con i **valori del messaggio corrente**. Il CSV viene riscritto **solo se il
+  blocco differisce — per contenuto — dalle righe già attive**: un messaggio che si espande da `A` a
+  `A+B` **non perde** `A`; un duplicato **scaduto** **non** viene rivissuto (il clear-timeout resta
+  garantito dall'auto-svuotamento); due regole che danno la **stessa riga** non la scrivono due
+  volte; uno shrink `A+B→A` **rimuove** `B`; un reinvio **identico** — anche solo con le righe
+  **riordinate** (`A+B` vs `B+A`) — **non** riscrive il CSV (XTrader non riconsuma) e un blocco
+  vuoto **non** svuota il CSV.
 
 ### Fallimento di scrittura e CSV-lock (audit #105 H2)
 

@@ -65,6 +65,21 @@ def _spy_writer(monkeypatch, app_mod, *, fail=False):
     return calls
 
 
+def _spy_commit(monkeypatch, app_mod):
+    """Avvolge `write_path.commit_signal`/`commit_signals` per registrare QUALE percorso di
+    commit viene scelto (delegando alla funzione reale). Ritorna il contatore `called`
+    (`{"signal": n, "signals": n}`), così i test asseriscono solo l'instradamento."""
+    called = {"signal": 0, "signals": 0}
+    real_single, real_multi = app_mod.write_path.commit_signal, app_mod.write_path.commit_signals
+    monkeypatch.setattr(app_mod.write_path, "commit_signal",
+                        lambda *a, **k: (called.__setitem__("signal", called["signal"] + 1),
+                                         real_single(*a, **k))[1])
+    monkeypatch.setattr(app_mod.write_path, "commit_signals",
+                        lambda *a, **k: (called.__setitem__("signals", called["signals"] + 1),
+                                         real_multi(*a, **k))[1])
+    return called
+
+
 # ── _process ───────────────────────────────────────────────────────────────────
 
 def test_process_write_success_accoda_e_scrive(make_app, app_mod, monkeypatch, tmp_path):
@@ -81,6 +96,44 @@ def test_process_write_success_accoda_e_scrive(make_app, app_mod, monkeypatch, t
     assert [r["EventName"] for r in q.active_rows()] == ["Inter v Milan"]
     assert a.guard_saves                                      # stato guardrail persistito
     assert (path, None) in a.expiry_calls                     # scadenza programmata
+
+
+def test_process_multi_una_riga_usa_commit_signals(make_app, app_mod, monkeypatch, tmp_path):
+    """#239/#192 (Codex P1): un parser MULTI che ORA produce UNA sola riga piazzabile deve
+    passare da `commit_signals` (dedup PER-RIGA), NON da `commit_signal` (hash messaggio).
+    L'instradamento segue la **provenienza multi** (`result.rows` valorizzato), non il numero
+    di righe corrente: senza, una seconda generazione multi-riga dello stesso messaggio non
+    riconoscerebbe la riga già scritta → doppia scommessa."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    a = make_app(csv_path=path, queue=q, tracker=signal_dedupe.SignalTracker(),
+                 daily=safety_guard.DailyLimiter(max_per_day=10))
+    row = _row("Inter v Milan")
+    # RouteResult MULTI con UNA sola riga: `rows` valorizzato → provenienza multi preservata.
+    rr = app_mod.signal_router.RouteResult(row=row, rows=[row])
+    monkeypatch.setattr(app_mod.signal_router, "resolve_row", lambda *a, **k: rr)
+    called = _spy_commit(monkeypatch, app_mod)
+
+    app_mod.App._process(a, "msg", {"csv_path": path, "dry_run": False}, chat_id="1")
+
+    assert called == {"signal": 0, "signals": 1}              # provenienza multi → per-riga
+    assert _events_in_csv(path) == ["Inter v Milan"]          # e la riga è scritta
+
+
+def test_process_single_row_resta_su_commit_signal(make_app, app_mod, monkeypatch, tmp_path):
+    """Contro-prova: un parser single-row (`result.rows is None`) resta sul percorso legacy
+    `commit_signal` (dedup a hash-messaggio), bit-identico a prima."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    a = make_app(csv_path=path, queue=q, tracker=signal_dedupe.SignalTracker(),
+                 daily=safety_guard.DailyLimiter(max_per_day=10))
+    _patch_resolve(monkeypatch, app_mod, _row("Roma v Lazio"))   # RouteResult(row=...) → rows None
+    called = _spy_commit(monkeypatch, app_mod)
+
+    app_mod.App._process(a, "msg", {"csv_path": path, "dry_run": False}, chat_id="1")
+
+    assert called == {"signal": 1, "signals": 0}              # single-row → legacy
+    assert _events_in_csv(path) == ["Roma v Lazio"]
 
 
 def test_process_write_failure_rollback_e_ritentabile(make_app, app_mod, monkeypatch, tmp_path):

@@ -16,6 +16,7 @@ from xtrader_bridge import (
     custom_parser as cp,
     custom_pipeline as pipe,
     csv_writer,
+    live_guard,
     safety_guard,
     signal_dedupe,
     signal_queue,
@@ -60,20 +61,22 @@ def _multimarket_parser():
     return defn
 
 
-def _multiselection_parser():
-    # La base fornisce anche MarketType/MarketName: le selezioni ereditano il mercato.
+def _multiselection_parser_with(selections):
+    # La base fornisce anche MarketType/MarketName: le selezioni ereditano il mercato. Le
+    # selezioni sono parametriche per simulare un parser che, con lo STESSO testo, produce un
+    # numero DIVERSO di righe dopo un cambio di config a runtime (kyh #192).
     extra = [
         cp.FieldRule(target="MarketType", fixed_value="CORRECT_SCORE", required=True),
         cp.FieldRule(target="MarketName", fixed_value="Risultato esatto"),
     ]
     defn = cp.CustomParserDef(name="MS", mode="NAME_ONLY", rules=_base_rules(extra))
     defn.multi_selection_enabled = True
-    defn.multi_selections = [
-        cp.MultiRowRule(selection_name="1 - 0"),
-        cp.MultiRowRule(selection_name="2 - 1"),
-        cp.MultiRowRule(selection_name="1 - 2"),
-    ]
+    defn.multi_selections = [cp.MultiRowRule(selection_name=s) for s in selections]
     return defn
+
+
+def _multiselection_parser():
+    return _multiselection_parser_with(["1 - 0", "2 - 1", "1 - 2"])
 
 
 def _rows(results):
@@ -277,6 +280,53 @@ def test_resolve_row_multi_ritorna_rows(monkeypatch):
     assert res.row == res.all_rows()[0]
 
 
+def test_resolve_row_multi_una_riga_preserva_provenienza(monkeypatch):
+    """#239/#192 (Codex P1): un parser MULTI che ORA produce UNA sola riga piazzabile deve
+    comunque esporre `rows` (provenienza multi), così il commit usa la dedup PER-RIGA. Prima,
+    con una sola riga, `resolve_row` collassava a `rows=None` (single) → l'hash-messaggio
+    non riconosceva la riga se in seguito il messaggio ne generava di più (doppia scommessa)."""
+    from xtrader_bridge import signal_router
+    defn = _multiselection_parser()
+    defn.multi_selections = [cp.MultiRowRule(selection_name="1 - 0")]   # UNA sola selezione → 1 riga
+    assert defn.is_multi_row() is True
+    monkeypatch.setattr(signal_router, "active_custom_parser", lambda cfg, chat, pd=None: defn)
+    monkeypatch.setattr(signal_router.custom_parser_engine, "matches_message",
+                        lambda d, t, m: True)
+    monkeypatch.setattr(signal_router.source_manager, "source_for_chat", lambda cfg, chat: None)
+    res = signal_router.resolve_row(MSG, {"chat_id": "1", "recognition_mode": "NAME_ONLY"})
+    assert res.placeable
+    assert len(res.all_rows()) == 1                 # una sola riga ORA…
+    assert res.rows is not None                     # …ma provenienza MULTI preservata (non collassa a single)
+    assert res.rows[0]["SelectionName"] == "1 - 0"
+
+
+def test_is_multi_row_solo_con_righe_attive(monkeypatch):
+    """Codex #281: `is_multi_row` si basa sulle righe multi ATTIVE, non sul solo toggle. Una
+    modalità abilitata ma SENZA righe attive → single-row (base row), dedup legacy a
+    hash-messaggio; con almeno una riga attiva → multi (per-riga)."""
+    # toggle acceso ma nessuna riga attiva → NON multi (ripiega sulla riga base single-row).
+    defn = cp.CustomParserDef(name="MSempty", mode="NAME_ONLY", rules=_base_rules([
+        cp.FieldRule(target="MarketType", fixed_value="CORRECT_SCORE", required=True),
+        cp.FieldRule(target="SelectionName", fixed_value="1 - 0", required=True),
+    ]))
+    defn.multi_selection_enabled = True
+    defn.multi_selections = []                       # nessuna riga
+    assert defn.is_multi_row() is False
+    defn.multi_selections = [cp.MultiRowRule(selection_name="X", enabled=False)]  # solo disattivate
+    assert defn.is_multi_row() is False
+    defn.multi_selections = [cp.MultiRowRule(selection_name="1 - 0")]             # una attiva
+    assert defn.is_multi_row() is True
+    # e via resolve_row: toggle acceso senza righe attive → RouteResult single-row (rows None).
+    from xtrader_bridge import signal_router
+    defn.multi_selections = []
+    monkeypatch.setattr(signal_router, "active_custom_parser", lambda cfg, chat, pd=None: defn)
+    monkeypatch.setattr(signal_router.custom_parser_engine, "matches_message",
+                        lambda d, t, m: True)
+    monkeypatch.setattr(signal_router.source_manager, "source_for_chat", lambda cfg, chat: None)
+    res = signal_router.resolve_row(MSG, {"chat_id": "1", "recognition_mode": "NAME_ONLY"})
+    assert res.placeable and res.rows is None        # nessuna riga attiva → single-row legacy
+
+
 def test_resolve_row_single_resta_invariato(monkeypatch):
     # Un parser senza multi → RouteResult single-row classico: `rows` None, `row` valorizzata.
     from xtrader_bridge import signal_router
@@ -367,6 +417,245 @@ def test_overwrite_last_tiene_tutto_il_blocco(tmp_path):
     assert [r["SelectionName"] for r in q.active_rows()] == ["1 - 0", "2 - 1", "1 - 2"]
 
 
+def test_overwrite_last_preserva_riga_attiva_su_espansione(tmp_path):
+    """kyh #192 (Codex #281, app.py:2129): in OVERWRITE_LAST un parser multi che prima produce UNA
+    riga (A) e poi — STESSO testo, config espansa a runtime — produce A+B non deve PERDERE A. La
+    riga A è ora un duplicato ma è ANCORA attiva in coda: deve restare nel blocco riscritto (tutte
+    le righe dell'istruzione), non essere scartata lasciando solo la riga nuova B."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    tracker = signal_dedupe.SignalTracker()
+    # 1) stesso messaggio → una sola riga A ("1 - 0"): scritta e attiva.
+    rows1 = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0"]), MSG, mode="NAME_ONLY"))
+    write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows1, path, now=0,
+                              write_rows=csv_writer.write_rows)
+    assert [r["SelectionName"] for r in q.active_rows()] == ["1 - 0"]
+    # 2) stesso testo, ora il parser espande a A+B ("1 - 0" + "2 - 1"): A è duplicata ma ATTIVA.
+    rows2 = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0", "2 - 1"]), MSG, mode="NAME_ONLY"))
+    r2 = write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows2, path, now=1,
+                                   write_rows=csv_writer.write_rows)
+    assert r2.write_error is None
+    # A PRESERVATA: il blocco è A+B (istruzione voluta), non solo B (il bug kyh).
+    assert [r["SelectionName"] for r in q.active_rows()] == ["1 - 0", "2 - 1"]
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.reader(f)
+        next(reader)
+        data = list(reader)
+    sel = CSV_HEADER.index("SelectionName")
+    assert [d[sel] for d in data] == ["1 - 0", "2 - 1"]
+
+
+def test_overwrite_last_non_rivive_duplicato_scaduto(tmp_path):
+    """P1 (Codex #281, `write_path`:205): in OVERWRITE_LAST una riga già SCADUTA dalla coda (timeout)
+    ma ancora DUPLICATE nella finestra dedup NON deve essere rivissuta nel blocco (violerebbe il
+    clear-timeout: XTrader rivedrebbe un segnale stantio). Scenario: A scritta a now=0 (timeout 120),
+    reinvio a now=200 (A scaduta, 0+120<200) che ora espande ad A+B → si scrive SOLO B (A non rivive)."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    tracker = signal_dedupe.SignalTracker()               # dedupe_window default 300 > timeout 120
+    rows1 = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0"]), MSG, mode="NAME_ONLY"))
+    write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows1, path, now=0,
+                              write_rows=csv_writer.write_rows)
+    assert [r["SelectionName"] for r in q.active_rows()] == ["1 - 0"]
+    rows2 = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0", "2 - 1"]), MSG, mode="NAME_ONLY"))
+    res = write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows2, path, now=200,
+                                    write_rows=csv_writer.write_rows)
+    assert res.write_error is None
+    # A (scaduta) NON rivive: solo B è attiva/scritta.
+    assert [r["SelectionName"] for r in q.active_rows()] == ["2 - 1"]
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.reader(f)
+        next(reader)
+        data = list(reader)
+    sel = CSV_HEADER.index("SelectionName")
+    assert [d[sel] for d in data] == ["2 - 1"]
+
+
+def test_overwrite_last_due_regole_stessa_riga_non_duplica(tmp_path):
+    """P1 (Codex #281, `write_path`:205): due regole multi che risolvono alla STESSA riga in UN solo
+    messaggio non devono scrivere DUE righe identiche (doppia scommessa). La prima è WRITE, la
+    seconda è un duplicato intra-messaggio e va soppressa: nel CSV resta UNA sola riga."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    tracker = signal_dedupe.SignalTracker()
+    # Due selezioni IDENTICHE ("1 - 0" due volte) → stessa riga per-riga.
+    rows = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0", "1 - 0"]), MSG, mode="NAME_ONLY"))
+    assert len(rows) == 2                                  # il parser produce 2 righe identiche…
+    res = write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows, path, now=0,
+                                    write_rows=csv_writer.write_rows)
+    assert res.write_error is None
+    assert [r["SelectionName"] for r in q.active_rows()] == ["1 - 0"]   # …ma ne resta UNA sola
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.reader(f)
+        next(reader)
+        assert len(list(reader)) == 1                     # una sola riga dati (no doppia scommessa)
+
+
+def test_overwrite_last_noop_ripristina_guardrail(tmp_path):
+    """P2 (Codex #281, `write_path`:232): un commit OVERWRITE il cui blocco coincide già con l'attivo
+    è un no-op (nessuna riscrittura). Se la riga risulta `WRITE` (chiave dedup non presente nel
+    tracker — es. scaduta con `clear_delay` > finestra dedup) `evaluate` ha già registrato tracker e
+    consumato una slot daily: il no-op DEVE ripristinare i guardrail e NON risultare `WRITE`,
+    altrimenti un segnale reale successivo sarebbe limitato per errore e `_process` registrerebbe una
+    scrittura mai avvenuta. Deterministico: coda pre-popolata con A + tracker VUOTO → A è `WRITE`."""
+    from xtrader_bridge import safety_guard
+    path = str(tmp_path / "segnali.csv")
+    rows = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0"]), MSG, mode="NAME_ONLY"))
+    a_row = rows[0]
+    key = signal_dedupe.row_dedup_key(MSG, a_row)
+    # A è GIÀ attiva in coda (timeout ampio) con la sua chiave, ma il tracker è VUOTO → al commit A
+    # risulta WRITE (registra tracker + consuma daily), poi il blocco == attivo → no-op.
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=600)
+    q.replace_block([dict(a_row)], keys=[key], now=0)
+    tracker = signal_dedupe.SignalTracker()
+    daily = safety_guard.DailyLimiter(max_per_day=5)
+    calls = []
+
+    def _spy(rows_, path_):
+        calls.append(list(rows_))
+        csv_writer.write_rows(rows_, path_)
+
+    res = write_path.commit_signals(tracker, daily, q, _cfg(path), MSG, rows, path, now=1,
+                                    write_rows=_spy)
+    assert calls == []                                    # blocco == attivo → nessuna riscrittura
+    assert res.decision != live_guard.WRITE               # no-op: NON WRITE (percorso non-write)
+    assert [r["SelectionName"] for r in q.active_rows()] == ["1 - 0"]   # riga ancora attiva
+    # Guardrail RIPRISTINATI: la registrazione WRITE annullata (tracker vuoto, daily non consumato),
+    # così un non-write non intacca dedup/limiti giornalieri.
+    assert tracker.state() == []
+    assert daily.remaining() == 5
+
+
+def test_overwrite_last_riordino_e_noop(tmp_path):
+    """P2 (Codex #281, `write_path`:255): un reinvio OVERWRITE con le stesse righe **riordinate**
+    (`A+B` → `B+A`, tutte ancora attive) è semanticamente identico → NON deve riscrivere il CSV
+    (XTrader non deve riconsumare). Il confronto blocco/attivo è order-insensitive."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    tracker = signal_dedupe.SignalTracker()
+    rows_ab = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0", "2 - 1"]), MSG, mode="NAME_ONLY"))
+    write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows_ab, path, now=0,
+                              write_rows=csv_writer.write_rows)
+    calls = []
+
+    def _spy(rows_, path_):
+        calls.append(list(rows_))
+        csv_writer.write_rows(rows_, path_)
+
+    # stesso testo, righe RIORDINATE (2 - 1 prima di 1 - 0): stesse scommesse, solo ordine diverso.
+    rows_ba = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["2 - 1", "1 - 0"]), MSG, mode="NAME_ONLY"))
+    res = write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows_ba, path, now=1,
+                                    write_rows=_spy)
+    assert calls == []                                    # riordino ≡ no-op: nessuna riscrittura
+    assert res.decision != live_guard.WRITE
+    assert [r["SelectionName"] for r in q.active_rows()] == ["1 - 0", "2 - 1"]   # ordine invariato
+
+
+def _malformed_daily(count=2, max_per_day=5):
+    from xtrader_bridge import safety_guard
+    d = safety_guard.DailyLimiter(max_per_day=max_per_day)
+    d.restore_state({"day": "giorno-corrotto", "count": count})   # giorno malformato → _UNKNOWN_DAY
+    return d
+
+
+def test_overwrite_last_noop_preserva_giorno_normalizzato(tmp_path):
+    """P2 (Codex #281, `write_path`:264): sul no-op OVERWRITE il rollback daily deve **restituire la
+    slot** (`release`) mantenendo il giorno NORMALIZZATO da `allow`, non ripristinare lo snapshot che
+    reintrodurrebbe un giorno malformato (che poi `_process` ripersisterebbe, bloccando il giorno
+    reale successivo). Coda pre-popolata con A + tracker vuoto → A è WRITE → consuma daily → no-op."""
+    from xtrader_bridge import safety_guard
+    path = str(tmp_path / "segnali.csv")
+    rows = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0"]), MSG, mode="NAME_ONLY"))
+    a_row = rows[0]
+    key = signal_dedupe.row_dedup_key(MSG, a_row)
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=600)
+    q.replace_block([dict(a_row)], keys=[key], now=0)
+    tracker = signal_dedupe.SignalTracker()
+    daily = _malformed_daily(count=2)
+    res = write_path.commit_signals(tracker, daily, q, _cfg(path), MSG, rows, path, now=1,
+                                    write_rows=csv_writer.write_rows)
+    assert res.decision != live_guard.WRITE
+    # Giorno NORMALIZZATO (data reale valida), non il "giorno-corrotto"/_UNKNOWN_DAY dello snapshot;
+    # e la slot consumata dalla riga WRITE aged-out è stata restituita (count torna a 2).
+    st = daily.state()
+    assert safety_guard._is_valid_day(st["day"])
+    assert st["count"] == 2
+
+
+def test_commit_signals_dry_run_preserva_giorno_normalizzato(tmp_path):
+    """P2 (Codex #281, app.py:2163 / DRY_RUN): in DRY_RUN il rollback daily del commit multi deve
+    usare `release()` (giorno normalizzato mantenuto), non `restore_state` (che reintrodurrebbe il
+    giorno malformato dello snapshot)."""
+    from xtrader_bridge import safety_guard
+    path = str(tmp_path / "segnali.csv")
+    rows = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0"]), MSG, mode="NAME_ONLY"))
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    tracker = signal_dedupe.SignalTracker()
+    daily = _malformed_daily(count=2)
+    cfg = {"csv_path": path, "dry_run": True}
+    res = write_path.commit_signals(tracker, daily, q, cfg, MSG, rows, path, now=0,
+                                    write_rows=csv_writer.write_rows)
+    assert res.decision == live_guard.DRY_RUN
+    st = daily.state()
+    assert safety_guard._is_valid_day(st["day"])          # giorno normalizzato, non _UNKNOWN_DAY
+    assert st["count"] == 2                                # slot DRY_RUN restituita
+
+
+def test_overwrite_last_shrink_riscrive_e_segnala_write(tmp_path):
+    """OVERWRITE_LAST shrink: se l'istruzione corrente ha MENO righe della precedente (config
+    ridotta, stesso testo), il blocco si riduce e il CSV viene riscritto — anche se la riga rimasta
+    è un duplicato (nessuna riga NUOVA). L'esito deve essere `WRITE` (c'è stata una scrittura reale),
+    non `DUPLICATE`, così `_process` esegue il post-write (indicatore/note CSV)."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    tracker = signal_dedupe.SignalTracker()
+    rows_ab = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0", "2 - 1"]), MSG, mode="NAME_ONLY"))
+    write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows_ab, path, now=0,
+                              write_rows=csv_writer.write_rows)
+    assert [r["SelectionName"] for r in q.active_rows()] == ["1 - 0", "2 - 1"]
+    # stesso testo, config ridotta a solo "1 - 0": A è duplicata ma l'istruzione ora è solo A.
+    rows_a = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0"]), MSG, mode="NAME_ONLY"))
+    res = write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows_a, path, now=1,
+                                    write_rows=csv_writer.write_rows)
+    assert res.decision == live_guard.WRITE               # scrittura reale (shrink), non DUPLICATE
+    assert [r["SelectionName"] for r in q.active_rows()] == ["1 - 0"]   # B rimossa
+
+
+def test_overwrite_last_reinvio_identico_non_riscrive(tmp_path):
+    """OVERWRITE_LAST: un reinvio IDENTICO (stesso testo, stesse righe, tutte duplicate ma ancora
+    attive) NON deve riscrivere il CSV — XTrader non deve riconsumare righe identiche — e il blocco
+    attivo resta invariato (nessuna riga persa)."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    tracker = signal_dedupe.SignalTracker()
+    rows = _rows(pipe.build_validated_rows(_multiselection_parser(), MSG, mode="NAME_ONLY"))
+    write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows, path, now=0,
+                              write_rows=csv_writer.write_rows)
+    calls = []
+
+    def _spy(rows_, path_):
+        calls.append(list(rows_))
+        csv_writer.write_rows(rows_, path_)
+
+    res = write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows, path, now=1,
+                                    write_rows=_spy)
+    assert res.decision == "DUPLICATE"
+    assert calls == []                              # nessuna riscrittura sul reinvio identico
+    assert [r["SelectionName"] for r in q.active_rows()] == ["1 - 0", "2 - 1", "1 - 2"]
+
+
 def test_commit_signals_tutte_duplicate_non_riscrive_csv(tmp_path):
     # Se TUTTE le righe sono duplicate, il CSV operativo NON deve essere riscritto (XTrader non
     # deve riconsumare righe identiche), come nel single-row su DUPLICATE.
@@ -389,9 +678,11 @@ def test_commit_signals_tutte_duplicate_non_riscrive_csv(tmp_path):
     assert calls == []                              # write_rows NON chiamata sui duplicati
 
 
-def test_commit_signals_cap_blocca_e_ripristina_guardrail(tmp_path):
-    # Una riga bloccata dal tetto max_active NON è scritta E non deve restare "vista" nel dedupe:
-    # con un tetto più alto, al retry quella riga passa (non è un duplicato).
+def test_commit_signals_cap_autoraise_scrive_tutto_il_blocco(tmp_path):
+    """#192 (decisione proprietario): in APPEND/QUEUE il tetto `max_active` NON spezza il blocco di
+    UN messaggio multi. Con `max_active=2` e un messaggio da 3 righe, tutte e 3 entrano (auto-raise
+    del tetto tramite `queue.add(force=True)`), invece di scriverne 2 e troncare la 3ª in silenzio
+    (partial-drop). Elimina alla radice il partial cap-block non segnalato all'operatore."""
     path = str(tmp_path / "segnali.csv")
     rows = _rows(pipe.build_validated_rows(_multiselection_parser(), MSG, mode="NAME_ONLY"))
     tracker = signal_dedupe.SignalTracker()
@@ -399,10 +690,34 @@ def test_commit_signals_cap_blocca_e_ripristina_guardrail(tmp_path):
                                  default_timeout=120, max_active=2)
     res = write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows, path, now=0,
                                     write_rows=csv_writer.write_rows)
-    assert len(res.rows) == 2                       # solo 2 righe entrano (tetto)
-    # La 3ª, bloccata dal tetto, non ha consumato il dedupe → ora passa.
-    q2 = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED,
-                                  default_timeout=120, max_active=10)
-    res2 = write_path.commit_signals(tracker, None, q2, _cfg(path), MSG, [rows[2]], path, now=1,
-                                     write_rows=csv_writer.write_rows)
-    assert len(res2.rows) == 1 and res2.rows[0]["SelectionName"] == "1 - 2"
+    assert res.write_error is None and res.blocked_by_cap is False
+    assert len(res.rows) == 3                        # tutte e 3 (auto-raise: blocco non spezzato)
+    assert [r["SelectionName"] for r in q.active_rows()] == ["1 - 0", "2 - 1", "1 - 2"]
+
+
+# ── review #281 (Codex): cap-block reporting + shadow dedupe cross-schema ──────
+
+def _one_active_row():
+    return {"EventName": "Occupante v Altro", "MarketType": "X", "SelectionName": "Y",
+            "BetType": "PUNTA", "Provider": "P", "Price": "1.5"}
+
+
+def test_commit_signals_cap_pieno_autoraise_aggiunge_il_blocco(tmp_path):
+    """#192 (decisione proprietario, evoluzione del reporting cap di #281): anche con il tetto GIÀ
+    pieno da un segnale precedente, il blocco di un messaggio multi viene aggiunto per INTERO
+    (auto-raise), non bloccato. L'operatore vede una scrittura reale con tutte le righe, non un
+    WRITE a 0 righe né un cap-block: il blocco coerente dell'istruzione non è mai spezzato."""
+    path = str(tmp_path / "s.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.APPEND_ACTIVE, default_timeout=120, max_active=1)
+    q.add(_one_active_row(), now=0)                       # tetto pieno (1/1) da un segnale precedente
+    tracker = signal_dedupe.SignalTracker()
+    cfg = {"csv_path": path, "dry_run": False}
+    rows = _rows(pipe.build_validated_rows(_multiselection_parser(), MSG, mode="NAME_ONLY"))
+    res = write_path.commit_signals(tracker, None, q, cfg, MSG, rows, path, now=0,
+                                    write_rows=csv_writer.write_rows)
+    assert res.blocked_by_cap is False                    # niente cap-block: auto-raise del tetto
+    assert res.decision == live_guard.WRITE
+    assert len(res.rows) == 4                             # 1 precedente + 3 righe del blocco multi
+    assert len(q.active_rows()) == 4
+
+

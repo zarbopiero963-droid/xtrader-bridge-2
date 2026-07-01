@@ -2120,6 +2120,13 @@ class App(ctk.CTk):
         # usata per i log/diagnostica.
         rows_to_commit = result.all_rows()
         row = rows_to_commit[0]
+        # Provenienza MULTI (#192, Codex #239): un parser multi-riga espone `result.rows` (anche
+        # con UNA sola riga piazzabile). L'instradamento del commit usa QUESTA provenienza, non il
+        # numero di righe corrente: un parser multi che ora produce 1 riga deve comunque passare
+        # dalla deduplica PER-RIGA (`commit_signals`), altrimenti se lo stesso messaggio in seguito
+        # ne produce di più la riga già scritta (dedupata a hash-messaggio) sarebbe riscritta →
+        # doppia scommessa.
+        is_multi = result.rows is not None
         # Event journal (#230): segnale validato (piazzabile). Solo la sorgente del parser,
         # nessun dato del messaggio.
         self._journal("SIGNAL_VALIDATED", source=result.source)
@@ -2143,12 +2150,14 @@ class App(ctk.CTk):
             # superata. Ricontrollo sotto LO STESSO lock della scrittura, non solo all'ingresso.
             if not self._epoch_current(epoch):
                 return
-            if len(rows_to_commit) == 1:
+            if not is_multi:
+                # Parser single-row (legacy): dedup a hash-messaggio, comportamento bit-identico.
                 commit = write_path.commit_signal(
                     self._tracker, self._daily, self._queue,
                     cfg, text, row, path, now, write_rows)
             else:
-                # #192: dedup PER-RIGA + scrittura atomica di tutte le righe del messaggio.
+                # #192: parser multi-riga → dedup PER-RIGA + scrittura atomica di TUTTE le righe
+                # del messaggio (anche se ORA è una sola: provenienza multi preservata).
                 commit = write_path.commit_signals(
                     self._tracker, self._daily, self._queue,
                     cfg, text, rows_to_commit, path, now, write_rows)

@@ -310,7 +310,12 @@ def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str =
             placeable = [{**row, "Provider": provider} for row in placeable]
         # Single-row: `rows=None`, si usa `row` (comportamento invariato). Multi-row: `rows`
         # contiene tutte le righe; `row` resta la prima per retro-compatibilità.
-        if len(placeable) == 1:
+        # Un parser MULTI (`is_multi_row`) preserva SEMPRE la provenienza multi (`rows`
+        # valorizzato) anche quando ORA produce una sola riga piazzabile, così il commit usa
+        # la deduplica PER-RIGA e non l'hash del messaggio: senza, se lo stesso messaggio in
+        # seguito genera più righe la riga già scritta non verrebbe riconosciuta → doppia
+        # scommessa (Codex #239/#192). Un parser single-row resta sul percorso legacy invariato.
+        if len(placeable) == 1 and not defn.is_multi_row():
             return RouteResult(placeable[0], validator.VALID, CUSTOM)
         return RouteResult(placeable[0], validator.VALID, CUSTOM, rows=placeable)
 

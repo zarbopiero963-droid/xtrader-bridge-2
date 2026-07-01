@@ -306,3 +306,23 @@ def test_max_active_zero_e_malformato_significano_illimitato():
     for bad in (-1, 1.5, float("nan"), float("inf"), True, "x", None):
         q = sq.SignalQueue(mode="APPEND_ACTIVE", default_timeout=60, max_active=bad)
         assert q.max_active == 0
+
+
+def test_add_force_bypassa_il_tetto():
+    # #192 (auto-raise, decisione proprietario): `force=True` accoda anche oltre il tetto
+    # `max_active`, così il blocco coerente di un singolo messaggio multi non viene mai spezzato.
+    q = sq.SignalQueue(mode="APPEND_ACTIVE", default_timeout=60, max_active=1)
+    assert q.add(_row("a"), now=1000) is not None
+    assert q.add(_row("b"), now=1000) is None                # senza force: bloccato dal tetto (1/1)
+    assert q.add(_row("b"), now=1000, force=True) is not None  # con force: entra comunque
+    assert q.add(_row("c"), now=1000, force=True) is not None
+    names = [r["EventName"] for r in q.active_rows()]
+    assert names == ["a", "b", "c"]                          # tutte attive (tetto scavalcato)
+
+
+def test_add_force_in_overwrite_last_resta_una_sola_riga():
+    # In OVERWRITE_LAST il tetto è già ininfluente: `force` non cambia la semantica (sostituisce).
+    q = sq.SignalQueue(mode="OVERWRITE_LAST", default_timeout=60, max_active=1)
+    q.add(_row("a"), now=1000)
+    assert q.add(_row("b"), now=1000, force=True) is not None
+    assert [r["EventName"] for r in q.active_rows()] == ["b"]

@@ -201,7 +201,10 @@ altezza ridimensionabile, min 720×600.
 - ☐ **"▶️ Avvio automatico all'apertura (in modalità REALE chiede conferma)"** (`auto_start_listener`)
 - ☐ **"🕵️ Logga il testo completo dei messaggi (debug; OFF = solo hash + 1ª riga)"** (`debug_message_payload`)
 - Campo **"📅 Limite segnali al giorno"** (`max_per_day`)
-- Campo **"🔢 Max segnali attivi (modalità coda multi-riga)"** (`max_active_signals`)
+- Campo **"🔢 Max segnali attivi (modalità coda multi-riga)"** (`max_active_signals`) — tetto
+  sull'accumulo **tra messaggi**; il blocco di un **singolo** messaggio multi-riga non viene mai
+  spezzato da questo tetto (auto-raise, #192), quindi le righe attive possono superarlo per un
+  blocco intero.
 - Dropdown **"🧮 Modalità coda segnali"** (`queue_mode`): `OVERWRITE_LAST` / `APPEND_ACTIVE` / `QUEUE_UNTIL_CONFIRMED`
 
 **Tab ✅ Conferme XTrader** — 4 campi:
@@ -351,7 +354,11 @@ Il design deve rappresentare chiaramente questi stati (testi verbatim dal codice
 | Riconnessione | `⬜  RICONNESSIONE…` | arancione `#ffa726` |
 
 **Righe attive (header):** testo `N/M` in arancione (`#ffb74d`) — quante scommesse/righe
-sono attive ora sul massimo consentito. Rilevante nelle modalità coda multi-riga.
+sono attive ora sul massimo consentito. Rilevante nelle modalità coda multi-riga. Nota (#192,
+auto-raise): un **singolo messaggio multi-riga** è un blocco/istruzione **coerente** che non viene
+mai spezzato dal tetto — le sue righe entrano tutte insieme anche se superano `M`. Quindi `N` può
+temporaneamente **superare `M`** (es. `4/2`); il design non deve trattare `N>M` come errore ma
+come "blocco multi intero". Il tetto continua a limitare l'accumulo **tra messaggi distinti**.
 
 **CSV bloccato:** quando XTrader tiene lockato il file e le scritture falliscono più volte,
 compare **"🔒 CSV bloccato da XTrader"** (con numero tentativi), poi il recupero.

@@ -87,6 +87,11 @@ class ActiveSignal:
     row: dict
     added_at: float
     timeout: float
+    # Chiave di deduplica PER-RIGA (#192) con cui il segnale è stato piazzato: memorizzata al
+    # momento dell'add così il commit multi può riconoscere una riga duplicata che è ANCORA attiva
+    # con la PROVENIENZA esatta (stessa chiave = stesso messaggio/riga), invece di ricalcolarla dal
+    # testo corrente combinato con righe di altri messaggi (Codex #281). `""` se non fornita.
+    dedup_key: str = ""
 
     def expires_at(self) -> float:
         return self.added_at + self.timeout
@@ -162,7 +167,7 @@ class SignalQueue:
         return t
 
     def add(self, row: dict, *, signal_id: str = None, now: float = None,
-            timeout: float = None):
+            timeout: float = None, force: bool = False, dedup_key: str = None):
         """Aggiunge un segnale e ritorna il suo `signal_id`, oppure ``None`` se è stato
         BLOCCATO dal tetto `max_active` (#136 punto 5).
 
@@ -170,6 +175,16 @@ class SignalQueue:
         - altre modalità: aggiorna se `signal_id` è già presente, altrimenti accoda — ma un
           NUOVO segnale che porterebbe oltre `max_active` (se > 0) viene **bloccato**
           (ritorna ``None``, coda invariata) così non si superano N scommesse simultanee.
+
+        `force=True` (auto-raise del tetto, decisione proprietario #192): accoda il segnale
+        SENZA applicare il tetto `max_active`. Serve al commit MULTI-RIGA (`commit_signals`) per
+        NON spezzare mai il blocco coerente di UN singolo messaggio: tutte le righe di
+        quell'istruzione restano attive insieme invece di essere troncate al tetto (che
+        lascerebbe righe fuori in silenzio). Non incide sull'aggiornamento di un segnale già
+        attivo (mai bloccato comunque) né su `OVERWRITE_LAST`.
+
+        `dedup_key` (#192): chiave di deduplica per-riga con cui la riga è piazzata, memorizzata
+        sul segnale per il riconoscimento provenienza-esatta dei duplicati ancora attivi.
 
         `signal_id` assente → generato automaticamente. `timeout` assente →
         `default_timeout`."""
@@ -184,31 +199,40 @@ class SignalQueue:
             while f"s{self._counter}" in existing:
                 self._counter += 1
             signal_id = f"s{self._counter}"
-        sig = ActiveSignal(signal_id, dict(row), now, timeout)
+        sig = ActiveSignal(signal_id, dict(row), now, timeout, str(dedup_key or ""))
         if self.mode == OVERWRITE_LAST:
             self._active = [sig]
             return signal_id
         is_update = any(a.signal_id == signal_id for a in self._active)
         # Tetto: blocca SOLO un nuovo segnale (non l'aggiornamento di uno già attivo) che
-        # porterebbe il numero di righe attive oltre `max_active` (#136 punto 5).
-        if not is_update and self.max_active and len(self._active) >= self.max_active:
+        # porterebbe il numero di righe attive oltre `max_active` (#136 punto 5). `force=True`
+        # bypassa il tetto per NON spezzare il blocco di un singolo messaggio multi (#192).
+        if not force and not is_update and self.max_active and len(self._active) >= self.max_active:
             return None
         self._active = [a for a in self._active if a.signal_id != signal_id]
         self._active.append(sig)
         return signal_id
 
-    def replace_block(self, rows, *, now: float = None, timeout: float = None) -> list:
+    def replace_block(self, rows, *, now: float = None, timeout: float = None,
+                      keys=None) -> list:
         """Sostituisce TUTTI i segnali attivi con il BLOCCO `rows`: un'unica «ultima istruzione»
         composta da più righe (#192). Usato dal commit MULTI-RIGA in `OVERWRITE_LAST`, dove un
         messaggio che genera N righe le tiene TUTTE attive sostituendo il blocco precedente (l'add
         per-riga, invece, ne lascerebbe attiva una sola). Ogni riga riceve un `signal_id` proprio.
+
+        `keys` (#192): lista parallela a `rows` con le chiavi di deduplica per-riga, memorizzate sui
+        segnali per il riconoscimento provenienza-esatta dei duplicati ancora attivi al commit
+        successivo. Assente → chiavi vuote.
+
         Ritorna la lista degli id (vuota se `rows` è vuota → coda svuotata)."""
         now = self._resolve_now(now)
         timeout = self.default_timeout if timeout is None else self._validate_timeout(timeout)
+        keys = list(keys or [])
         sigs = []
-        for row in (rows or []):
+        for i, row in enumerate(rows or []):
             self._counter += 1
-            sigs.append(ActiveSignal(f"s{self._counter}", dict(row), now, timeout))
+            k = str(keys[i]) if i < len(keys) else ""
+            sigs.append(ActiveSignal(f"s{self._counter}", dict(row), now, timeout, k))
         self._active = list(sigs)
         return [s.signal_id for s in sigs]
 
@@ -234,6 +258,17 @@ class SignalQueue:
 
     def active_ids(self) -> list:
         return [a.signal_id for a in self._active]
+
+    def active_keys(self, now: float = None) -> list:
+        """Chiavi di deduplica per-riga dei segnali attualmente attivi (#192), nello stesso ordine
+        di `active_rows`. Con `now` le righe già scadute sono escluse (come `active_rows`). Serve al
+        commit MULTI-RIGA per riconoscere, con la PROVENIENZA esatta, una riga duplicata che è
+        ANCORA attiva (stessa chiave = stessa riga già piazzata), senza ricalcolare la chiave dal
+        testo corrente combinato con righe di altri messaggi (Codex #281)."""
+        if now is None:
+            return [a.dedup_key for a in self._active]
+        now = self._resolve_now(now)
+        return [a.dedup_key for a in self._active if a.expires_at() > now]
 
     def active_rows(self, now: float = None) -> list:
         """Righe attualmente attive (copie difensive), in ordine d'arrivo. È ciò
@@ -268,9 +303,10 @@ class SignalQueue:
 
     def state(self) -> list:
         """Stato serializzabile (snapshot per rollback / persistenza): lista di dict
-        con `signal_id`, `row`, `added_at`, `timeout`."""
+        con `signal_id`, `row`, `added_at`, `timeout`, `dedup_key`."""
         return [{"signal_id": a.signal_id, "row": dict(a.row),
-                 "added_at": a.added_at, "timeout": a.timeout} for a in self._active]
+                 "added_at": a.added_at, "timeout": a.timeout,
+                 "dedup_key": a.dedup_key} for a in self._active]
 
     def restore_state(self, data) -> None:
         """Ripristina gli attivi da `state()` (tollerante a voci malformate). Usato
@@ -282,7 +318,8 @@ class SignalQueue:
                 restored.append(ActiveSignal(
                     str(item["signal_id"]), dict(item["row"]),
                     self._resolve_now(item["added_at"]),
-                    self._validate_timeout(item["timeout"])))
+                    self._validate_timeout(item["timeout"]),
+                    str(item.get("dedup_key", "") or "")))
             except (KeyError, TypeError, ValueError):
                 continue
         self._active = restored
