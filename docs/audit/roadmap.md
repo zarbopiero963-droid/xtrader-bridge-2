@@ -900,7 +900,7 @@ dedicata. Test hard fail-first: `tests/unit/test_multirow_192.py`
 
 **kyb — round-trip del builder preserva i campi multi (VERIFICATO risolto; guard end-to-end
 aggiunto post-#290).** Il sospetto «aprire/salvare/duplicare un parser multi lo riverte a
-single-row» era **già risolto in #240**: `ParserBuilder.__init__` copia in profondo i campi multi
+single-row» era **già risolto in #240**: `ParserBuilder.__init__` copia in profondità i campi multi
 (`to_dict`→`from_dict`), `to_def` li inoltra tutti, `MultiRowRule.to_dict` = `asdict` (tutti i
 campi) e `from_dict` è tollerante. Verificato su `main`. Mancava però un guard **end-to-end su
 disco** per i campi per-riga **non esposti** dalla GUI (`min_price`/`max_price`/`points`/
