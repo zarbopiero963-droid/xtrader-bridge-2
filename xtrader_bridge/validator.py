@@ -65,6 +65,25 @@ def price_status(value) -> str:
     return _price_status(value)
 
 
+def bettype_status(value) -> str:
+    """Pubblico: `VALID` se `value` è un BetType valido (`PUNTA`/`BANCA`, case-insensitive),
+    altrimenti `INVALID_BETTYPE`. Vuoto/sconosciuto = non valido (il lato è obbligatorio).
+    Usato dalla diagnostica per segnalare la colonna BetType indipendentemente dagli altri."""
+    return VALID if str(value).strip().upper() in _VALID_BETTYPES else INVALID_BETTYPE
+
+
+def points_status(value) -> str:
+    """Pubblico: `VALID` se `value` è un Points valido — vuoto (facoltativo) oppure un numero
+    **positivo** (`> 0`) — altrimenti `INVALID_POINTS`. Usato dalla diagnostica per segnalare
+    la colonna Points indipendentemente dagli altri errori."""
+    s = str(value).strip()
+    if not s:
+        return VALID
+    if not _DECIMAL_PRICE.match(s) or float(s.replace(",", ".")) <= 0.0:
+        return INVALID_POINTS
+    return VALID
+
+
 def price_bounds_offenders(row: dict) -> tuple:
     """Colonne dei limiti che rendono l'intervallo Min/Max INCOERENTE (tupla vuota = coerente).
 
@@ -104,7 +123,7 @@ def validate(row: dict, mode: str, require_price: bool = True):
         return (INVALID_MISSING_FIELDS, missing)
 
     bet_type = str(row.get("BetType", "")).strip().upper()
-    if bet_type not in _VALID_BETTYPES:
+    if bettype_status(bet_type) != VALID:
         return (INVALID_BETTYPE, bet_type)
 
     # Un `Price` valorizzato va SEMPRE validato; `require_price` governa solo se
@@ -131,9 +150,8 @@ def validate(row: dict, mode: str, require_price: bool = True):
     # parser custom può estrarre testo arbitrario. Se valorizzato deve essere un
     # numero POSITIVO (> 0): "abc"/"-5"/"0"/"inf"/"1e2" non devono raggiungere XTrader.
     points_raw = str(row.get("Points", "")).strip()
-    if points_raw:
-        if not _DECIMAL_PRICE.match(points_raw) or float(points_raw.replace(",", ".")) <= 0.0:
-            return (INVALID_POINTS, points_raw)
+    if points_status(points_raw) != VALID:
+        return (INVALID_POINTS, points_raw)
 
     # Coerenza dei limiti di prezzo: oltre a essere singolarmente validi (sopra),
     # Min/Max non devono CONTRADDIRE loro stessi o `Price`. Un intervallo invertito

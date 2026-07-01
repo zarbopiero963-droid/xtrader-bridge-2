@@ -170,6 +170,38 @@ def test_points_malformato_attribuito_alla_colonna_points():
     assert diag.placeable is False
 
 
+def test_piu_colonne_invalide_segnalate_tutte():
+    # #70 (Codex P2): `validator.validate` si ferma al PRIMO errore (BetType), ma la
+    # diagnostica per-colonna deve segnalare TUTTE le colonne invalide, non solo la prima.
+    # Fail-first: prima l'overlay marcava solo BetType e lasciava Price a OK.
+    defn = _full_name_rules(
+        EventName=FieldRule(target="EventName", start_after="🆚", required=True),
+        BetType=FieldRule(target="BetType", fixed_value="BACK"),   # non PUNTA/BANCA
+        Price=FieldRule(target="Price", fixed_value="abc"))        # non numerico
+    diag = pd.diagnose(defn, "🆚Inter v Milan", mode=recognition.NAME_ONLY,
+                       provider="TG", value_maps_registry=_BUILTIN)
+    assert _f(diag, "BetType").error == pd.INVALID_BETTYPE
+    assert _f(diag, "Price").error == pd.INVALID_PRICE      # non più OK
+    assert diag.placeable is False
+
+
+def test_estrazione_fallita_preservata_per_campo_mode_required():
+    # #70 (Codex P2): un campo OPZIONALE nella regola ma richiesto dalla MODALITÀ, se
+    # l'estrazione fallisce (delimitatore non nel testo), deve mostrare il motivo AZIONABILE
+    # (START_NOT_FOUND), non il generico MODE_REQUIRED_MISSING che nasconde la causa.
+    # Fail-first: prima l'overlay INVALID_MISSING_FIELDS sovrascriveva START_NOT_FOUND.
+    defn = _full_name_rules(
+        EventName=FieldRule(target="EventName", start_after="🆚", required=True),
+        Price=FieldRule(target="Price", start_after="Quota", required=True),
+        MarketType=FieldRule(target="MarketType", start_after="Market:", required=False))
+    diag = pd.diagnose(defn, "🆚Inter v Milan\nQuota 1.85", mode=recognition.NAME_ONLY,
+                       provider="TG", value_maps_registry=_BUILTIN)
+    fd = _f(diag, "MarketType")
+    assert fd.error == pd.START_NOT_FOUND       # motivo azionabile preservato
+    assert fd.required is True                  # ma marcato come richiesto dalla modalità
+    assert diag.placeable is False
+
+
 def test_bounds_incoerenti_attribuiti_a_min_e_max():
     # #17 (Codex P2): limiti incoerenti (Min > Max) sono segnalati su MinPrice E MaxPrice,
     # non su Price (singolarmente ogni valore è una quota valida).

@@ -140,35 +140,39 @@ def _mark(by_target, fields, target, error, *, required=False) -> None:
             fd.required = True
 
 
+def _mark_mode_required(by_target, fields, col) -> None:
+    """Marca `col` come richiesta dalla MODALITÀ ma mancante. Se la colonna ha GIÀ un errore
+    di ESTRAZIONE azionabile (START_NOT_FOUND/END_NOT_FOUND/TRANSFORM_FAILED/VALUE_MAP_MISS/
+    REQUIRED_EMPTY) lo PRESERVA (solo `required=True`): sostituirlo col generico
+    MODE_REQUIRED_MISSING nasconderebbe il motivo utile — es. il delimitatore sbagliato
+    (Codex #70). Se la colonna è OK/vuota-facoltativa (o assente) usa MODE_REQUIRED_MISSING."""
+    fd = by_target.get(col)
+    if fd is not None and fd.error not in _OK_CODES:
+        fd.required = True
+        return
+    _mark(by_target, fields, col, MODE_REQUIRED_MISSING, required=True)
+
+
 def _overlay_validator(result, by_target, fields) -> None:
-    """Sovrappone gli errori del validator/pipeline (prezzo, bettype, modalità,
-    provider, handicap) ai campi: catturano i casi in cui il valore FINALE non è
-    vuoto ma è invalido (es. Price "1.60 Stake")."""
+    """Sovrappone gli errori del validator/pipeline ai campi. Due parti:
+
+    (A) i gate STRUTTURALI (dallo `status` del pipeline: modalità/prezzo mancante/provider/
+        handicap/mappature), e
+    (B) gli errori di VALORE per-colonna (BetType/prezzi/Points/limiti), controllati
+        INDIPENDENTEMENTE così un messaggio con PIÙ colonne invalide le mostra TUTTE —
+        `validator.validate` si ferma al primo errore (short-circuit), la diagnostica no
+        (Codex #70): es. `BetType=BACK` **e** `Price=abc` marca entrambe, non solo BetType.
+
+    (B) non cambia il verdetto (`placeable`), solo l'attribuzione per-colonna."""
     status = result.status
+    row = result.row
+
+    # (A) Gate strutturali: la riga non è abbastanza completa/coerente per il contratto.
     if status == validator.INVALID_MISSING_FIELDS:
         for col in (result.detail or []):
-            _mark(by_target, fields, col, MODE_REQUIRED_MISSING, required=True)
-    elif status == validator.INVALID_BETTYPE:
-        _mark(by_target, fields, "BetType", INVALID_BETTYPE)
-    elif status == validator.INVALID_PRICE:
-        # `validator` ritorna INVALID_PRICE anche per `MinPrice`/`MaxPrice`: attribuisci
-        # l'errore alla colonna che fallisce DAVVERO, non sempre a `Price` (Codex).
-        row = result.row
-        for col in ("Price", "MinPrice", "MaxPrice"):
-            v = str(row.get(col, "")).strip()
-            if v and validator.price_status(v) != validator.VALID:
-                _mark(by_target, fields, col, INVALID_PRICE)
+            _mark_mode_required(by_target, fields, col)
     elif status == validator.INVALID_MISSING_PRICE:
         _mark(by_target, fields, "Price", REQUIRED_EMPTY, required=True)
-    elif status == validator.INVALID_POINTS:
-        _mark(by_target, fields, "Points", INVALID_POINTS)
-    elif status == validator.INVALID_PRICE_BOUNDS:
-        # Limiti incoerenti: segnala SOLO il/i limite/i che offende/ono (dal detail del
-        # validator), così non si crea un errore su un limite opzionale ASSENTE (Codex).
-        # Fallback difensivo a entrambi se il detail non è la tupla attesa.
-        cols = result.detail if isinstance(result.detail, (list, tuple)) else ("MinPrice", "MaxPrice")
-        for col in cols:
-            _mark(by_target, fields, col, INVALID_PRICE_BOUNDS)
     elif status == custom_pipeline.INVALID_MISSING_PROVIDER:
         _mark(by_target, fields, "Provider", MISSING_PROVIDER, required=True)
     elif status == custom_pipeline.INVALID_HANDICAP:
@@ -180,6 +184,28 @@ def _overlay_validator(result, by_target, fields) -> None:
         # che la mappatura mercati avrebbe dovuto impostare).
         _mark(by_target, fields, "MarketName", MARKET_MAPPING_MISSING, required=True)
         _mark(by_target, fields, "SelectionName", MARKET_MAPPING_MISSING, required=True)
+
+    # (B) Errori di VALORE per-colonna, indipendenti dallo short-circuit del validator.
+    # Solo su valori NON vuoti (un campo vuoto è spiegato dall'estrazione, non "invalido").
+    if (str(row.get("BetType", "")).strip()
+            and validator.bettype_status(row.get("BetType", "")) != validator.VALID):
+        _mark(by_target, fields, "BetType", INVALID_BETTYPE)
+    for col in ("Price", "MinPrice", "MaxPrice"):
+        v = str(row.get(col, "")).strip()
+        if v and validator.price_status(v) != validator.VALID:
+            _mark(by_target, fields, col, INVALID_PRICE)
+    if (str(row.get("Points", "")).strip()
+            and validator.points_status(row.get("Points", "")) != validator.VALID):
+        _mark(by_target, fields, "Points", INVALID_POINTS)
+    # Limiti incoerenti: solo se ogni prezzo/limite PRESENTE è già una quota valida (altrimenti
+    # è già marcato INVALID_PRICE sopra, ed evita `float()` su valori malformati). Non sovrascrive
+    # un errore più specifico già presente sulla colonna.
+    if all(validator.price_status(str(row.get(c, "")).strip()) == validator.VALID
+           for c in ("Price", "MinPrice", "MaxPrice") if str(row.get(c, "")).strip()):
+        for col in validator.price_bounds_offenders(row):
+            fd = by_target.get(col)
+            if fd is None or fd.error in _OK_CODES:
+                _mark(by_target, fields, col, INVALID_PRICE_BOUNDS)
 
 
 def diagnose(defn: CustomParserDef, text: str, *, value_maps_registry: dict = None,

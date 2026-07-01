@@ -359,6 +359,12 @@ Il verdetto della diagnostica **coincide** con ciò che il bridge scriverebbe a
 runtime (stessa pipeline `build_validated_row`): se "Prova messaggio" dice pronto,
 il live scrive; se dice "Non pronto", il live scarta — col motivo per colonna.
 
+La diagnostica per-colonna segnala **tutte** le colonne invalide di un messaggio, non
+solo la prima (es. `BetType` sbagliato **e** `Price` non numerico vengono mostrati
+entrambi); e per un campo richiesto dalla **Modalità** ma con estrazione fallita
+mantiene il motivo azionabile (es. `START_NOT_FOUND` per un delimitatore non trovato)
+invece del generico `MODE_REQUIRED_MISSING`.
+
 Il **verdetto sintetico** in cima segue questa precedenza:
 - **⛔ Non salvabile**: il parser ha errori **strutturali** (gli stessi che bloccano
   «Salva», es. una regola con `fixed_value` **e** delimitatori insieme). In questo caso
