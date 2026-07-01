@@ -256,6 +256,72 @@ def test_preview_summary_empty():
     assert pb.ParserBuilder.preview_summary([]).startswith("⛔")
 
 
+# ── verdetto sintetico single-row (`test_verdict`, Codex #19) ─────────────────
+
+def _base_pr(**kw):
+    """PreviewRow single-row (kind='base') di comodo per i test del verdetto."""
+    base = dict(index=0, kind="base", placeable=True, status=validator.VALID,
+                missing_required=[], row={}, summary="")
+    base.update(kw)
+    return pb.PreviewRow(**base)
+
+
+def test_test_verdict_errori_strutturali_non_salvabile():
+    # #19 (Codex P2): un parser con errori STRUTTURALI (che Save rifiuterebbe) non deve mai
+    # risultare «Pronto», anche se per caso la pipeline produce una riga piazzabile.
+    errors = ["Regola #1 (Provider): ha sia 'fixed_value' sia 'start_after'/'end_before' (…)."]
+    msg = pb.ParserBuilder.test_verdict(
+        errors, [_base_pr(placeable=True)], diag_placeable=True, diag_status=validator.VALID,
+        res_row={"Provider": "TG"}, res_missing_required=[], res_detail=None)
+    assert msg.startswith("⛔ Non salvabile")
+    assert "fixed_value" in msg
+    assert "✅" not in msg
+
+
+def test_test_verdict_missing_recognition_fields_elencati():
+    # #19 (Codex P2): su INVALID_MISSING_FIELDS il verdetto deve dire QUALE campo di
+    # riconoscimento manca (in res.detail), non solo lo status. `missing_required` (gate
+    # parser) è vuoto in questo caso.
+    msg = pb.ParserBuilder.test_verdict(
+        [], [_base_pr(placeable=False, status=validator.INVALID_MISSING_FIELDS)],
+        diag_placeable=False, diag_status=validator.INVALID_MISSING_FIELDS,
+        res_row={"EventName": "Inter v Milan"}, res_missing_required=[], res_detail=["MarketType"])
+    assert msg.startswith("⛔ Non pronto")
+    assert "INVALID_MISSING_FIELDS" in msg
+    assert "mancanti: MarketType" in msg
+
+
+def test_test_verdict_bounds_detail_non_scambiato_per_mancanti():
+    # Il detail di INVALID_PRICE_BOUNDS è una TUPLA di colonne (Min/Max che offendono),
+    # NON campi mancanti: non deve diventare «mancanti: …».
+    msg = pb.ParserBuilder.test_verdict(
+        [], [_base_pr(placeable=False, status="INVALID_PRICE_BOUNDS")],
+        diag_placeable=False, diag_status="INVALID_PRICE_BOUNDS",
+        res_row={}, res_missing_required=[], res_detail=("MinPrice", "MaxPrice"))
+    assert "INVALID_PRICE_BOUNDS" in msg
+    assert "mancanti" not in msg
+
+
+def test_test_verdict_pronto_single_row():
+    msg = pb.ParserBuilder.test_verdict(
+        [], [_base_pr(placeable=True)], diag_placeable=True, diag_status=validator.VALID,
+        res_row={"EventName": "Inter v Milan", "Price": "1.85", "Handicap": ""},
+        res_missing_required=[], res_detail=None)
+    assert msg.startswith("✅ Pronto")
+    assert "EventName=Inter v Milan" in msg and "Price=1.85" in msg
+    assert "Handicap" not in msg              # i vuoti non compaiono
+
+
+def test_test_verdict_multi_delega_a_preview_summary():
+    # Con output multi-riga attivo il verdetto si basa sulle righe generate.
+    rows = [_pr(index=0, kind="market", placeable=True),
+            _pr(index=1, kind="market", placeable=False, status="INVALID_MISSING_FIELDS")]
+    msg = pb.ParserBuilder.test_verdict(
+        [], rows, diag_placeable=False, diag_status="X",
+        res_row={}, res_missing_required=[], res_detail=None)
+    assert msg == pb.ParserBuilder.preview_summary(rows)
+
+
 # ── il salvataggio NON azzera i campi multi non esposti (Codex P1) ────────────
 # La GUI espone solo `_MULTI_FIELDS`: i campi min_price/max_price/points/start_after/
 # end_before di una regola CARICATA devono sopravvivere al salvataggio. La logica vive nel

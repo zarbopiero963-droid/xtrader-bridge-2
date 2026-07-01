@@ -14,7 +14,7 @@ import json
 import os
 from dataclasses import dataclass, field
 
-from . import custom_parser, dizionario, recognition, sports, transforms, value_maps
+from . import custom_parser, dizionario, recognition, sports, transforms, validator, value_maps
 from .custom_parser import CustomParserDef, FieldRule, MultiRowRule
 from .custom_pipeline import both_multi_active, build_validated_row, build_validated_rows
 
@@ -388,6 +388,37 @@ class ParserBuilder:
             setattr(rule, key, val)
         rule.enabled = bool(enabled)
         return rule
+
+    @staticmethod
+    def test_verdict(errors: list, preview_rows: list, *, diag_placeable: bool,
+                     diag_status: str, res_row: dict, res_missing_required: list,
+                     res_detail) -> str:
+        """Verdetto sintetico di «Prova messaggio» (single + multi-riga). Logica pura, CI.
+
+        Precedenza (Codex #19):
+        1. **Errori STRUTTURALI** del parser (`errors()` = `validate_parser_def`): un parser
+           che Save rifiuterebbe NON deve mai risultare «Pronto», anche se per caso la
+           pipeline produce una riga (es. `fixed_value` + delimitatori sullo stesso campo).
+           Si mostra l'errore invece della piazzabilità.
+        2. **Output multi-riga** attivo → `preview_summary` (basato sulle righe generate).
+        3. **Single-row**: «Pronto» se piazzabile; altrimenti «Non pronto» col motivo e i
+           campi mancanti — sia il gate parser (`missing_required`) sia i campi di
+           RICONOSCIMENTO mancanti (in `res_detail` quando lo status è INVALID_MISSING_FIELDS),
+           così l'anteprima dice QUALE colonna aggiungere. Il `detail` di altri stati (es.
+           la tupla di INVALID_PRICE_BOUNDS) NON è trattato come «mancanti»."""
+        if errors:
+            return "⛔ Non salvabile: " + "; ".join(errors)
+        if any(getattr(p, "kind", "base") != "base" for p in preview_rows):
+            return ParserBuilder.preview_summary(preview_rows)
+        if diag_placeable:
+            riga = ", ".join(f"{k}={v}" for k, v in res_row.items() if v != "")
+            return f"✅ Pronto · {riga}"
+        missing = list(res_missing_required or [])
+        if (not missing and diag_status == validator.INVALID_MISSING_FIELDS
+                and isinstance(res_detail, (list, tuple))):
+            missing = [str(x) for x in res_detail]
+        extra = f" · mancanti: {', '.join(missing)}" if missing else ""
+        return f"⛔ Non pronto ({diag_status}){extra}"
 
     @staticmethod
     def preview_summary(preview_rows: list) -> str:
