@@ -759,6 +759,7 @@ def test_transizione_multi_a_single_blocca_messaggio_gia_processato(tmp_path):
     r1 = write_path.commit_signals(tracker, None, q1, _cfg(path), MSG, rows, path, now=0,
                                    write_rows=csv_writer.write_rows)
     assert r1.decision == live_guard.WRITE and len(q1.active_rows()) == 2
+    assert tracker.is_seen(signal_dedupe.message_hash(MSG))   # il multi ha ombreggiato l'hash-messaggio
     q2 = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
     calls = []
 
@@ -766,7 +767,12 @@ def test_transizione_multi_a_single_blocca_messaggio_gia_processato(tmp_path):
         calls.append(list(rows_))
         csv_writer.write_rows(rows_, path_)
 
-    r2 = write_path.commit_signal(tracker, None, q2, _cfg(path), MSG, rows[0], path, now=1,
+    # Retry single-row con una riga la cui CHIAVE PER-RIGA NON è stata registrata dal multi: così il
+    # blocco può venire SOLO dallo shadow dell'hash-messaggio (CodeRabbit), non dal precheck per-riga.
+    single_retry_row = dict(rows[0])
+    single_retry_row["SelectionName"] = "__retry_riga_non_ancora_vista__"
+    assert not tracker.is_seen(signal_dedupe.row_dedup_key(MSG, single_retry_row))
+    r2 = write_path.commit_signal(tracker, None, q2, _cfg(path), MSG, single_retry_row, path, now=1,
                                   write_rows=_spy)
     assert r2.decision == live_guard.DUPLICATE      # hash-messaggio ombreggiato dal commit multi
     assert calls == []                              # nessuna riscrittura (niente doppia scommessa)
