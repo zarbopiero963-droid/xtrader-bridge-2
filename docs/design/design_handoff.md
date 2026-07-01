@@ -286,6 +286,15 @@ con **"🗑 Rimuovi"** per riga. Anagrafica riusabile nella colonna Provider dei
 Titolo **"📁  Profili impostazioni"**. Salva/ricarica snapshot di configurazione (il **token
 NON** viene salvato nei profili). Campo nome + **"💾 Salva profilo"**; lista con **"↺ Carica"**
 (blu) e **"🗑 Elimina"**. Avviso: fermare il bridge (STOP) prima di caricare un profilo.
+- **Stati della lista profili** (riga di stato in fondo al pannello, `wraplength` 520):
+  - *lista vuota:* placeholder grigio **"(nessun profilo salvato)"**;
+  - *elenco non leggibile* (errore filesystem/ACL su `%APPDATA%`): placeholder rosso
+    **"(impossibile elencare i profili)"** nella lista **+** riga di stato rossa
+    **"❌ Elenco profili non leggibile: &lt;dettaglio&gt;"**. È uno stato d'errore *non
+    bloccante*: la finestra resta usabile, non crasha, e si aggiorna al successivo save/delete.
+- **Errori d'azione** (riga di stato rossa, non crash): salvataggio fallito
+  **"❌ Salvataggio profilo fallito: …"**, caricamento/eliminazione falliti con messaggio
+  analogo. Esiti positivi in verde (**"✅ Profilo … salvato/caricato"**).
 
 ### 7.5 🗺️ Mapping (`name_mapping_gui.py`) — 2 sotto-tab
 - **⚽ Calcio (Dizionario nomi squadra):** profilo (Nuovo/Rinomina/Elimina) + tabella

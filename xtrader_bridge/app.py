@@ -506,11 +506,14 @@ class App(ctk.CTk):
         return result
 
     def _save_config(self, persist: bool = True) -> dict:
-        # `persist=False`: SNAPSHOT puro del form (con gate) SENZA scrivere config.json né
-        # toccare banner/indicatori. Serve a chi ha solo bisogno della config corrente — es.
-        # salvare un profilo — così un salvataggio profilo che poi FALLISCE non ha già
-        # committato impostazioni safety-critical (dry_run/csv_path/chat) nel config vivo
-        # (Codex #60). La persistenza di config.json resta al percorso `persist=True`.
+        # `persist=False`: SNAPSHOT PURO del form SENZA effetti collaterali — non scrive
+        # config.json, non muta campi GUI/`self._adv_errors`, non logga, non esegue i gate
+        # di transizione pericolosa (che PROMPTano e scrivono audit `REAL_MODE_ENABLED`).
+        # Serve a chi ha solo bisogno della config corrente — es. salvare un profilo — così
+        # un salvataggio profilo che poi FALLISCE non ha già committato impostazioni
+        # safety-critical (dry_run/csv_path/chat) nel config vivo, né registrato "reale
+        # attivo" nell'audit mentre la config viva resta dry-run (Codex/CodeRabbit #60). La
+        # persistenza + i gate + il logging restano tutti sul percorso `persist=True`.
         # Cattura il marker PRIMA di qualsiasi consumo (sia il refill pre-lettura qui sotto sia
         # `save_config` possono consumarlo): serve per il refill POST-save (Codex #257).
         had_incomplete = self._had_incomplete_token_load()
@@ -519,13 +522,18 @@ class App(ctk.CTk):
         # una credenziale; ripopolarlo ora evita che il `bot_token` vuoto del form venga letto
         # come clear deliberato e cancelli il token (perdita al 2° save). No-op se il campo è
         # già pieno, se non c'è marker (clear deliberato) o se il keyring è ancora giù.
-        self._resync_token_field()
+        # Solo su `persist=True`: è una MUTAZIONE del campo GUI, non deve avvenire in uno
+        # snapshot puro (Codex/CodeRabbit #60).
+        if persist:
+            self._resync_token_field()
         # Timeout robusto: un valore non numerico non deve crashare il salvataggio
-        # (PR-13/#10). Se invalido, si tiene il default e si avvisa nel log.
+        # (PR-13/#10). Se invalido, si tiene il default e si avvisa nel log (solo persist:
+        # lo snapshot puro non deve loggare).
         delay, delay_err = settings_validation.parse_timeout(self._e_delay.get())
         if delay_err:
             delay = settings_validation.DEFAULT_TIMEOUT
-            self._log(f"⚠️ {delay_err} Uso {delay}s.")
+            if persist:
+                self._log(f"⚠️ {delay_err} Uso {delay}s.")
         # Si parte dalla config CARICATA e si sovrascrivono solo i campi del form:
         # così ogni impostazione senza campo GUI (recognition_mode, require_price,
         # active_parser, parser_by_chat, source_chats, le chiavi delle conferme
@@ -539,11 +547,21 @@ class App(ctk.CTk):
             "clear_delay": delay,
             "provider":    self._e_provider.get().strip() or "TelegramBot",
         })
+        adv_form = {key: w.get() for key, w in self._adv.items()}
+        if not persist:
+            # SNAPSHOT PURO (Codex/CodeRabbit #60): merge delle avanzate SENZA mutare
+            # `self._adv_errors`, SENZA loggare e SENZA i gate transizione (che PROMPTano
+            # e loggano audit `REAL_MODE_ENABLED`). Un salvataggio profilo non deve
+            # registrare "reale attivo" nell'audit mentre il config vivo resta dry-run,
+            # né far comparire prompt di conferma: profili e config sono gated a LOAD/START
+            # (#141/#142) e `save_profile` rimuove comunque i segreti. Ritorna la config
+            # del form senza alcun effetto collaterale su disco, stato o UI.
+            cfg, _ = settings_controller.apply_advanced(cfg, adv_form)
+            return cfg
         # Impostazioni avanzate (PR-13): valida e fonde tramite il controller puro.
         # Se un valore è invalido viene loggato e NON applicato: le chiavi avanzate
         # mantengono l'ultimo valore valido (così un errore di battitura non spegne
         # per sbaglio la simulazione o azzera un limite).
-        adv_form = {key: w.get() for key, w in self._adv.items()}
         cfg, self._adv_errors = settings_controller.apply_advanced(cfg, adv_form)
         for err in self._adv_errors:
             self._log(f"⚠️ Impostazioni avanzate: {err}")
@@ -553,10 +571,6 @@ class App(ctk.CTk):
         # `_gate_dangerous_transitions`.
         old_cfg = self._config if isinstance(self._config, dict) else {}
         cfg = self._gate_dangerous_transitions(old_cfg, cfg)
-        if not persist:
-            # Snapshot: ritorna la config del form (gated) senza persistere né aggiornare
-            # `self._config`/banner. Non deve avere effetti collaterali su disco (Codex #60).
-            return cfg
         saved, ok = result = save_config(cfg, CONFIG_FILE)
         self._config = saved
         # Refill POST-save (Codex #257): se il refill pre-lettura aveva MANCATO (keyring giù in quel
@@ -592,6 +606,14 @@ class App(ctk.CTk):
         self._save_config()
         if self._save_ok:
             self._log("💾 Configurazione salvata")
+
+    def _profiles_snapshot(self) -> dict:
+        """Config viva (con token) letta dal form SENZA persistere né effetti collaterali.
+        Passata come `get_current_cfg` al pannello Profili: la base per salvare un profilo
+        (i segreti vengono comunque rimossi da `save_profile`) e per preservare il token al
+        caricamento. È lo snapshot puro di `_save_config(persist=False)` — nessuna scrittura
+        su disco, nessun gate/prompt/audit, nessun log (Codex/CodeRabbit #60)."""
+        return self._save_config(persist=False)
 
     # ── UI ────────────────────────────────────
     def _build_ui(self):
@@ -2689,7 +2711,7 @@ class App(ctk.CTk):
             ("📇 Provider", _make_provider),
             ("📁 Profili",
              lambda parent: ProfilesPanel(
-                 parent, get_current_cfg=lambda: self._save_config(persist=False),
+                 parent, get_current_cfg=self._profiles_snapshot,
                  on_loaded=_profiles_loaded, is_running=lambda: self._running)),
             ("🗺️ Mapping", _make_mapping),
             ("🔵 Betfair Sync", _make_betfair),
