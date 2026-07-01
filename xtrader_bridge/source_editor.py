@@ -13,6 +13,18 @@ import copy
 from . import parser_manager, source_manager
 
 
+def _disabled_overrides(container: dict) -> dict:
+    """Legge `parser_by_chat_disabled` in modo ROBUSTO: coerce a dict e normalizza le chiavi
+    a `str`. Una config manomessa può avere un valore non-dict (crash su `.get()`) o chiavi
+    non-stringa (che non combacerebbero mai col `chat_id` stringa di `source_chats`, perdendo
+    in silenzio la selezione parcheggiata). Ritorna sempre un dict nuovo con chiavi str
+    (CodeRabbit)."""
+    raw = (container or {}).get("parser_by_chat_disabled")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): v for k, v in raw.items()}
+
+
 class SourceEditor:
     """Stato e operazioni dell'editor delle sorgenti. Solo dati e logica.
 
@@ -26,7 +38,7 @@ class SourceEditor:
         # Selezioni "parcheggiate" delle sorgenti DISATTIVATE: NON stanno in parser_by_chat
         # (non autorizzano né bloccano l'avvio), ma vanno mostrate così riabilitando la
         # sorgente non si perde il parser scelto (#47, Codex P2).
-        disabled_by_chat = cfg.get("parser_by_chat_disabled") or {}
+        disabled_by_chat = _disabled_overrides(cfg)
         # Sorgenti normalizzate (copie) + prefill del parser per chat: dalla mappa attiva
         # oppure, se assente, dal parcheggio delle disattivate.
         self.sources = []
@@ -106,7 +118,7 @@ class SourceEditor:
         by_chat = parser_manager.parser_by_chat(base)
         # Parcheggio delle selezioni delle sorgenti DISATTIVATE (persistite ma NON in
         # parser_by_chat): così riabilitandole non si perde il parser scelto (#47, Codex P2).
-        disabled_by_chat = dict(base.get("parser_by_chat_disabled") or {})
+        disabled_by_chat = _disabled_overrides(base)
         # Sorgenti RIMOSSE/rinominate: togli l'override da ENTRAMBE le mappe, così la chat non
         # resta autorizzata via parser_by_chat (`is_chat_allowed`) dopo la rimozione (Codex P1)
         # e non lascia una selezione parcheggiata orfana. MA conserva l'override della chat
