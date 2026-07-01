@@ -898,6 +898,18 @@ dedicata. Test hard fail-first: `tests/unit/test_multirow_192.py`
 `test_kyz_market_mapping_missing_risolto_dalle_selezioni`,
 `test_kyz_multi_supplied_gia_in_kwargs_non_crasha`).
 
+**kyb — round-trip del builder preserva i campi multi (VERIFICATO risolto; guard end-to-end
+aggiunto post-#290).** Il sospetto «aprire/salvare/duplicare un parser multi lo riverte a
+single-row» era **già risolto in #240**: `ParserBuilder.__init__` copia in profondo i campi multi
+(`to_dict`→`from_dict`), `to_def` li inoltra tutti, `MultiRowRule.to_dict` = `asdict` (tutti i
+campi) e `from_dict` è tollerante. Verificato su `main`. Mancava però un guard **end-to-end su
+disco** per i campi per-riga **non esposti** dalla GUI (`min_price`/`max_price`/`points`/
+`start_after`/`end_before`/`handicap`) e per il flag `enabled`: aggiunto
+`tests/unit/test_parser_builder_multirow.py::test_kyb_full_disk_roundtrip_preserva_campi_multi_nascosti`
+che esercita la catena reale `ParserBuilder → to_def → save_parser (JSON) → load_parser →
+ParserBuilder → to_def` e fallisce se un anello scartasse i campi multi (dimostrato con un break
+temporaneo di `to_def`). Nessuna modifica al codice di produzione (già corretto).
+
 **Test hard:** `tests/unit/test_multirow_192.py`
 (`test_overwrite_last_preserva_riga_attiva_su_espansione`,
 `test_overwrite_last_non_rivive_duplicato_scaduto`,
