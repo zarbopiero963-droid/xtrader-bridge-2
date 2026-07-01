@@ -181,7 +181,14 @@ class SignalTracker:
         now = time.time() if now is None else validators.require_finite_now(now)
         self._prune(now)
         key = str(key)
-        if any(hh == key for (hh, _t, _real) in self._seen):
+        # No-op SOLO se la chiave è già vista ENTRO la finestra di dedup (reale o shadow): allora
+        # blocca già i duplicati. Se invece esiste solo FUORI finestra — con `dedupe_window < 60s`
+        # `_prune` la conserva comunque per il conteggio al minuto — va RINFRESCATA con un marcatore
+        # a `now`, altrimenti una transizione di modalità subito dopo la vedrebbe come NEW e il
+        # duplicato sfuggirebbe (Codex #192 kyW). Non si tocca l'eventuale voce reale stantia (resta
+        # per il rate-limit): si aggiunge solo la shadow in-finestra.
+        dedupe_cutoff = now - self.dedupe_window
+        if any(hh == key and t >= dedupe_cutoff for (hh, t, _real) in self._seen):
             return
         self._seen.append((key, now, False))
 

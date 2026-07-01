@@ -318,3 +318,16 @@ def test_mark_seen_shadow_sopravvive_al_riavvio():
     assert t2.register("x", now=1001, key="shadow-persistita").status == sd.DUPLICATE
     # …ma non ha consumato il tetto/minuto: un segnale reale distinto passa (reali=0 <1)
     assert t2.register("reale-nuovo", now=1002).status == sd.NEW
+
+
+def test_mark_seen_rinfresca_marcatore_fuori_finestra():
+    """#192 kyW (Codex): con `dedupe_window < 60s` una chiave resta in `_seen` (conservata per il
+    rate-limit) anche dopo essere uscita dalla finestra di dedup. Una successiva `mark_seen` sulla
+    stessa chiave, ormai FUORI finestra, deve RINFRESCARLA — altrimenti una transizione di modalità
+    subito dopo la vedrebbe come NEW e il duplicato che questa patch blocca sfuggirebbe."""
+    t = sd.SignalTracker(dedupe_window=30, max_per_minute=100)
+    t.mark_seen("S", now=0)                          # primo shadow a t=0
+    # a t=40 "S" è fuori dalla finestra dedup (30) ma ancora presente in _seen (prune tiene 60s):
+    t.mark_seen("S", now=40)                         # deve RINFRESCARE, non essere un no-op
+    # ora "S" è di nuovo in finestra → un retry cross-namespace è DUPLICATE (niente doppia scommessa)
+    assert t.register("z", now=41, key="S").status == sd.DUPLICATE
