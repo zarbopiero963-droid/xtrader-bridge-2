@@ -1,7 +1,7 @@
 """Test dell'instradamento del segnale (CP-09): custom attivo vs hardcoded."""
 
 from xtrader_bridge import custom_parser as cp
-from xtrader_bridge import custom_pipeline, parser_io, signal_router
+from xtrader_bridge import custom_pipeline, parser_io, parser_manager, signal_router
 
 
 def _save_example(dir_path, name="Esempio P.Bet."):
@@ -66,6 +66,38 @@ def test_chat_non_approvata_non_usa_parser_globale(tmp_path):
     cfg = {"provider": "TG", "active_parser": "Yangon", "recognition_mode": "NAME_ONLY"}
     res = signal_router.resolve_row(parser_io.fixture_message(), cfg,
                                     chat_id="999", parsers_dir=str(tmp_path))
+    assert res.source == signal_router.NO_PARSER
+    assert res.placeable is False
+
+
+def test_sorgente_attiva_eredita_active_parser_globale(tmp_path):
+    """#131 (Codex P2 doc §4): una `source_chats` ATTIVA **senza** voce `parser_by_chat`, con
+    un `active_parser` GLOBALE, è APPROVATA ed **eredita** il parser globale → è PROCESSATA e
+    può scrivere il CSV, **non** è inerte. Blocca il drift della doc §4 di `custom_parser.md`,
+    che prima diceva erroneamente «altrimenti → nessun parser» per questo caso."""
+    _save_example(str(tmp_path), "Yangon")
+    cfg = {"provider": "TG", "active_parser": "Yangon", "recognition_mode": "NAME_ONLY",
+           "source_chats": [{"name": "S", "chat_id": "777", "enabled": True, "mode": "PRE"}]}
+    # A. approvazione: la sorgente ATTIVA è approvata (nessun parser_by_chat, nessun chat_id).
+    assert signal_router._chat_approved_for_custom(cfg, "777") is True
+    # B. scelta parser: fallback all'active_parser globale.
+    assert parser_manager.resolve_parser_name(cfg, "777") == "Yangon"
+    # End-to-end: il messaggio della sorgente è PROCESSATO e produce una riga piazzabile.
+    res = signal_router.resolve_row(parser_io.fixture_message(), cfg,
+                                    chat_id="777", parsers_dir=str(tmp_path))
+    assert res.source == signal_router.CUSTOM
+    assert res.placeable is True
+
+
+def test_sorgente_disattivata_non_processata_neanche_con_parser_globale(tmp_path):
+    """Contro-prova (deny-list): una `source_chats` DISATTIVATA resta esclusa anche con un
+    `active_parser` globale → messaggio ignorato, nessuna riga. Coerente con la doc §4."""
+    _save_example(str(tmp_path), "Yangon")
+    cfg = {"provider": "TG", "active_parser": "Yangon", "recognition_mode": "NAME_ONLY",
+           "source_chats": [{"name": "S", "chat_id": "777", "enabled": False}]}
+    assert signal_router._chat_approved_for_custom(cfg, "777") is False
+    res = signal_router.resolve_row(parser_io.fixture_message(), cfg,
+                                    chat_id="777", parsers_dir=str(tmp_path))
     assert res.source == signal_router.NO_PARSER
     assert res.placeable is False
 

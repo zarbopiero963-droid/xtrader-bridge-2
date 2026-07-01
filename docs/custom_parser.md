@@ -388,18 +388,32 @@ Il **verdetto sintetico** in cima segue questa precedenza:
 
 ## 4. Quale parser è attivo (routing)
 
-Risoluzione (in `parser_manager` / `signal_router`):
+La risoluzione avviene in **due passi** — prima l'**approvazione** della chat, poi la
+**scelta** del parser (`signal_router._chat_approved_for_custom` +
+`parser_manager.resolve_parser_name`):
 
-1. se la chat di origine ha una voce in `parser_by_chat` → quel parser;
-2. altrimenti, se è la chat configurata (`chat_id`) e c'è un `active_parser`
-   globale → quel parser;
-3. altrimenti → **nessun parser**: nel live il messaggio è **ignorato** (`NO_PARSER`,
-   CP-09b); il parser hardcoded **non** entra in gioco (resta solo per compatibilità/test).
+**A. La chat è approvata per il parsing?** Sì se è:
+- la chat configurata (`chat_id`), **oppure**
+- una chat con voce esplicita in `parser_by_chat`, **oppure**
+- una **sorgente `source_chats` ATTIVA**.
+
+Una sorgente **disattivata** è deny-list: **mai** approvata, nemmeno con un override. Una
+chat **non** approvata → messaggio **ignorato** (`IGNORE_NOT_RELEVANT`).
+
+**B. Quale parser usa una chat approvata?**
+1. se la chat ha una voce in `parser_by_chat` → quel parser (override per-chat);
+2. altrimenti → l'**`active_parser` globale**. ⚠️ Questo vale **anche per una sorgente
+   `source_chats` attiva senza voce `parser_by_chat`**: eredita il parser globale ed è
+   **processata** (può scrivere il CSV) — **non** è inerte. Perciò, con un `active_parser`
+   globale impostato, **tutte** le sorgenti attive senza override lo usano;
+3. se non c'è né override per-chat né `active_parser` globale → **nessun parser**: nel live
+   il messaggio è **ignorato** (`NO_PARSER`, CP-09b); il parser hardcoded **non** entra in
+   gioco (resta solo per compatibilità/test).
 
 Nel live, il chat id usato è quello **reale del messaggio** (così l'override
 per-chat funziona anche con setup multi-chat dove `chat_id` singolo non è
-impostato). Se né `chat_id` né `parser_by_chat` sono configurati, vale il
-comportamento legacy (tutte le chat ammesse — responsabilità dell'utente).
+impostato). Se né `chat_id`, né `parser_by_chat`, né alcuna `source_chats` sono configurati,
+vale il comportamento legacy (tutte le chat ammesse — responsabilità dell'utente).
 
 ---
 
