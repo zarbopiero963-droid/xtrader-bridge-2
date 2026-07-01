@@ -225,34 +225,38 @@ def _entity_eligible(entry, allowed) -> bool:
     return et in allowed or et == ""
 
 
-def _iter_entries_for_scope(entries, want_sport, want_entity=None):
-    """Itera le righe eleggibili per lo scope richiesto (sport + tipo di entità), **dando
-    priorità ai match esatti** sulle righe agnostiche, su ENTRAMBE le dimensioni (PR-P10,
-    CodeRabbit + Codex).
+def _scoped_entry_groups(entries, want_sport, want_entity=None):
+    """Righe eleggibili per lo scope richiesto (sport + tipo di entità) **raggruppate per
+    tier di priorità**, dal più specifico all'agnostico, dando priorità ai match esatti su
+    ENTRAMBE le dimensioni (PR-P10, CodeRabbit + Codex).
+
+    Ritorna una **lista di gruppi** (ogni gruppo = righe con lo stesso rango, nell'ordine
+    salvato), coi gruppi ordinati dal tier più specifico a quello più agnostico:
 
     - si scartano le righe di un ALTRO ``entity_type`` (le agnostiche restano) e di un
       ALTRO sport (le agnostiche restano);
-    - le rimanenti si ordinano per priorità: PRIMA il **tipo esatto** sull'agnostico, e a
+    - le rimanenti si raggruppano per rango: PRIMA il **tipo esatto** sull'agnostico, e a
       parità PRIMA lo sport esatto sull'agnostico; a parità di rango l'ordine salvato è
       preservato (sort stabile). ``want_sport``/``want_entity`` assenti → quella dimensione
-      non influenza l'ordine.
+      non influenza il rango.
 
     Il **tipo** è la dimensione PRIMARIA (Codex): un override tipizzato (`entity_type`
     valorizzato) vince anche su una riga legacy **sport-specifica ma senza tipo** salvata
-    prima — es. `sport="Calcio", entity_type=""` non scavalca `sport="", entity_type="team"`
-    quando si chiede Calcio+participante. Senza filtro tipo (`allowed is None`) il tipo non
-    influenza l'ordine, quindi lo scoping per sport resta identico al comportamento legacy.
+    prima. Senza filtro tipo (`allowed is None`) il tipo non influenza il rango, quindi lo
+    scoping per sport resta identico al comportamento legacy.
 
-    Così una riga agnostica salvata PRIMA non scavalca un override esatto salvato dopo (la
-    GUI fa solo append). Senza alcun filtro il comportamento è l'ordine salvato (legacy)."""
+    Il chiamante (`resolve_team`) esaurisce un tier — **alias E canonico** — prima di
+    scendere al successivo: così un alias **agnostico** non scavalca un canonico
+    **esatto-sport** dello stesso nome (Codex P2 #174), e una riga agnostica salvata PRIMA
+    non scavalca un override esatto salvato dopo (la GUI fa solo append). Senza alcun filtro
+    c'è **un solo gruppo** nell'ordine salvato (comportamento legacy invariato)."""
     want = want_sport or ""
     allowed = _entity_filter(want_entity)
     pool = [e for e in entries
             if _entity_eligible(e, allowed)
             and (not want or str(e.get("sport", "") or "") in (want, ""))]
     if not want and allowed is None:
-        yield from pool                       # nessun filtro → ordine salvato (legacy)
-        return
+        return [pool] if pool else []         # nessun filtro → un solo gruppo (ordine salvato, legacy)
 
     def _rank(e):
         entity_rank = 0 if (allowed is None
@@ -260,7 +264,10 @@ def _iter_entries_for_scope(entries, want_sport, want_entity=None):
         sport_rank = 0 if (not want or str(e.get("sport", "") or "") == want) else 1
         return (entity_rank, sport_rank)      # tipo PRIMARIO, poi sport (Codex)
 
-    yield from sorted(pool, key=_rank)        # sort STABILE: ordine salvato a parità di rango
+    groups = {}
+    for e in sorted(pool, key=_rank):         # sort STABILE: ordine salvato a parità di rango
+        groups.setdefault(_rank(e), []).append(e)
+    return [groups[rank] for rank in sorted(groups)]   # tier dal più specifico all'agnostico
 
 
 def resolve_team(team: str, profiles, sport=None, entity_type=None) -> str:
@@ -279,7 +286,7 @@ def resolve_team(team: str, profiles, sport=None, entity_type=None) -> str:
 
     ``sport`` (PR-P10): se valorizzato (uno fra ``sports.SPORTS``), si considerano SOLO
     le righe di quello sport o **agnostiche** (sport vuoto), con **priorità allo sport
-    esatto** sulle agnostiche (vedi `_iter_entries_for_scope`): un override per-sport non
+    esatto** sulle agnostiche (vedi `_scoped_entry_groups`): un override per-sport non
     viene mai scavalcato da una riga agnostica salvata prima. Le righe taggate per un altro
     sport sono saltate. Sport assente/ignoto → nessun filtro (comportamento legacy).
 
@@ -296,15 +303,20 @@ def resolve_team(team: str, profiles, sport=None, entity_type=None) -> str:
         return None
     want = sports.normalize_sport(sport)
     for entries in profiles:
-        for e in _iter_entries_for_scope(entries, want, entity_type):
-            alias = e.get("provider", "")
-            betfair = e.get("betfair", "")
-            if alias and betfair and normalize(alias) == nt:
-                return betfair
-        for e in _iter_entries_for_scope(entries, want, entity_type):
-            betfair = e.get("betfair", "")
-            if betfair and normalize(betfair) == nt:
-                return betfair
+        # Si esaurisce un TIER di priorità (alias, poi canonico) PRIMA di scendere al tier
+        # più agnostico: così un alias agnostico non scavalca un canonico esatto-sport dello
+        # stesso nome (Codex P2 #174). Dentro il tier resta alias→canonico (l'alias del
+        # provider ha precedenza sul nome canonico).
+        for group in _scoped_entry_groups(entries, want, entity_type):
+            for e in group:
+                alias = e.get("provider", "")
+                betfair = e.get("betfair", "")
+                if alias and betfair and normalize(alias) == nt:
+                    return betfair
+            for e in group:
+                betfair = e.get("betfair", "")
+                if betfair and normalize(betfair) == nt:
+                    return betfair
     return None
 
 

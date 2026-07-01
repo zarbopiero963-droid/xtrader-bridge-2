@@ -435,6 +435,36 @@ def test_resolve_team_fallback_agnostico_se_nessun_match_esatto():
     assert nm.resolve_team("ACM", profs, sport="Calcio") == "Milan"           # agnostica usata
 
 
+def test_resolve_team_canonico_esatto_sport_batte_alias_agnostico():
+    # P2 Codex #174: un ALIAS agnostico non deve scavalcare un CANONICO esatto-sport dello
+    # stesso nome. Con l'alias globale "Inter"→"Wrong" e la riga Calcio con canonico
+    # "Inter", chiedendo sport=Calcio deve vincere il canonico Calcio ("Inter"), non
+    # l'alias agnostico. Prima del fix i due passi (tutti-alias, poi tutti-canonici)
+    # facevano vincere l'alias agnostico.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Wrong", "provider": "Inter"},                    # agnostica, alias "Inter"
+        {"betfair": "Inter", "provider": "", "sport": "Calcio"},      # Calcio, canonico "Inter"
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Inter", profs, sport="Calcio") == "Inter"    # canonico esatto-sport vince
+    # Fallback: chiedendo un altro sport (nessuna riga esatta) resta valido l'alias agnostico.
+    assert nm.resolve_team("Inter", profs, sport="Tennis") == "Wrong"
+    # Senza sport: comportamento legacy (ordine salvato) → l'alias agnostico salvato prima vince.
+    assert nm.resolve_team("Inter", profs) == "Wrong"
+
+
+def test_resolve_team_canonico_esatto_tipo_batte_alias_agnostico():
+    # Stessa precedenza sulla dimensione TIPO: un alias agnostico non scavalca un canonico
+    # esatto-tipo dello stesso nome quando si filtra per entity_type.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Wrong", "provider": "Inter"},                          # agnostica, alias "Inter"
+        {"betfair": "Inter", "provider": "", "entity_type": "team"},        # team, canonico "Inter"
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Inter", profs, entity_type="team") == "Inter"   # canonico esatto-tipo vince
+    assert nm.resolve_team("Inter", profs) == "Wrong"                       # senza filtro: legacy
+
+
 # ── entity_type: tassonomia unificata (issue #178 §2 / PR-P10) ────────────────
 
 def test_normalize_entity_type():

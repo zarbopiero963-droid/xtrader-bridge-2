@@ -120,8 +120,11 @@ provider nei nomi Betfair/XTrader **prima** della scrittura:
   non viene scavalcato da una riga agnostica salvata prima) — e **salta** le righe taggate
   per un altro sport: così un nome non viene
   tradotto con una voce pensata per uno sport diverso (es. un "Milan" del basket non mappa
-  un evento di calcio). Parser senza sport / righe agnostiche → comportamento legacy
-  (nessun filtro), retro-compatibile.
+  un evento di calcio). La priorità vale su **entrambe** le forme di match: le righe dello
+  sport esatto sono provate del tutto — sia per **alias** (colonna Provider) sia per **nome
+  canonico** (colonna Betfair) — **prima** di ricadere sulle agnostiche, così un alias
+  agnostico non scavalca un canonico dello sport giusto con lo stesso nome (#174). Parser
+  senza sport / righe agnostiche → comportamento legacy (nessun filtro), retro-compatibile.
 - **tipo entità (`entity_type`, #178 §2)**: ogni riga ha anche una colonna **Tipo**
   opzionale con i valori `participant`, `team`, `player`, `competition`, `market`,
   `selection` o **«(qualsiasi tipo)»** = agnostica (chiave di config `entity_type`; vuoto/
