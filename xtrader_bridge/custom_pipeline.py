@@ -410,6 +410,14 @@ def _apply_multi_rule(base_row: dict, rule) -> dict:
 def _validated_multi_row(base_row: dict, rule, mode: str, require_price: bool) -> PipelineResult:
     """Costruisce e VALIDA una singola riga multi derivata dalla base."""
     row = _apply_multi_rule(base_row, rule)
+    # Handicap della riga DERIVATA (#192, Codex): l'override multi (`handicap`) NON passa dal gate
+    # `INVALID_HANDICAP` della base (che vede l'Handicap base, non l'override) e `validator.validate`
+    # non controlla l'Handicap → un override malformato (es. "abc") raggiungerebbe il CSV. Si applica
+    # QUI lo stesso controllo di formato della base, così ogni riga derivata è fail-closed come il
+    # single-row (vale sia col rilassamento kyZ sia nel percorso multi normale).
+    hcap = str(row.get("Handicap", "")).strip()
+    if hcap and not _HANDICAP_RE.match(hcap):
+        return PipelineResult(INVALID_HANDICAP, row, [])
     status, detail = validator.validate(row, mode, require_price)
     missing = list(detail) if isinstance(detail, (list, tuple)) else []
     return PipelineResult(status, row, missing, detail)
@@ -436,7 +444,13 @@ def build_validated_rows(defn: CustomParserDef, text: str, **kwargs) -> "list[Pi
     - MultiMarket e MultiSelection insieme → righe SEPARATE (prima i mercati, poi le selezioni
       sul mercato base), MAI il prodotto cartesiano (vedi `both_multi_active`).
     """
-    base = build_validated_row(defn, text, **kwargs)
+    # `multi_supplied` è un parametro INTERNO: si SCARTA qualsiasi valore passato dal chiamante
+    # (CodeRabbit, safety) così NON può rilassare i gate della PRIMA valutazione con colonne
+    # arbitrarie — sarà calcolato QUI sotto solo dalle regole multi realmente attive. Senza questo
+    # strip, un chiamante potrebbe far passare un obbligatorio che il validator non ri-controlla.
+    row_kwargs = dict(kwargs)
+    row_kwargs.pop("multi_supplied", None)
+    base = build_validated_row(defn, text, **row_kwargs)
     markets = defn.active_multi_markets()
     selections = defn.active_multi_selections()
     if not markets and not selections:
@@ -445,11 +459,10 @@ def build_validated_rows(defn: CustomParserDef, text: str, **kwargs) -> "list[Pi
     # (`NOT_READY`/`MARKET_MAPPING_MISSING`), si RI-valuta trattando come presenti SOLO le colonne
     # fornite da OGNI riga generata (`multi_supplied`) — così un obbligatorio NON coperto resta
     # bloccante (Codex P1) e la mappatura mercati non fa un falso fail-closed (Codex/CodeRabbit).
-    # `dict(kwargs)` evita il crash se un chiamante ha già passato `multi_supplied` (CodeRabbit).
     if base.status in _MULTI_RESOLVABLE:
         supplied = _multi_supplied_cols(list(markets) + list(selections))
         if supplied:
-            retry_kwargs = dict(kwargs)
+            retry_kwargs = dict(row_kwargs)     # `row_kwargs`: senza il `multi_supplied` del chiamante
             retry_kwargs["multi_supplied"] = supplied
             base = build_validated_row(defn, text, **retry_kwargs)
     if base.status in _BASE_BLOCKING:

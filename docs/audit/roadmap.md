@@ -878,7 +878,14 @@ sicurezza (Codex/CodeRabbit su #290):
   coperto;
 - gli **altri** stati (`INVALID_MISSING_PROVIDER`, `INVALID_HANDICAP`, `MAPPING_MISSING`) restano
   bloccanti (provider/handicap/evento mancante **non** è colmabile da una riga multi);
-- il re-run copia i kwargs prima di iniettare `multi_supplied` (nessun `TypeError` da chiave doppia).
+- il re-run copia i kwargs prima di iniettare `multi_supplied` (nessun `TypeError` da chiave doppia);
+- **`multi_supplied` è interno**: qualsiasi valore passato dal chiamante viene **scartato** prima
+  della prima valutazione (CodeRabbit Major) — solo le colonne calcolate dalle regole multi
+  realmente attive rilassano i gate, mai colonne arbitrarie del chiamante;
+- **Handicap per riga derivata** (Codex): un override `handicap` malformato non passa dal gate
+  `INVALID_HANDICAP` della base (che vede l'Handicap base, default "0") e `validator.validate` non
+  controlla l'Handicap → il formato è ora ri-verificato su **ogni riga derivata** in
+  `_validated_multi_row` (fail-closed, vale anche nel percorso multi normale).
 
 **Limite noto (follow-up):** in `ID_ONLY` con `id_resolver`, gli ID non vengono risolti **per riga
 derivata** (la base risolve con selezione vuota e `_apply_multi_rule` azzera comunque gli ID quando

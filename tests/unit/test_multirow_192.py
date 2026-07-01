@@ -367,12 +367,61 @@ def test_kyz_market_mapping_missing_risolto_dalle_selezioni():
 
 def test_kyz_multi_supplied_gia_in_kwargs_non_crasha():
     """kyZ / CodeRabbit: il re-run interno passa `multi_supplied`; se un chiamante l'ha GIÀ messo
-    nei kwargs, un merge naïf darebbe `TypeError: got multiple values`. Il fix copia i kwargs prima
-    di iniettare la chiave: la chiamata non deve sollevare e deve generare comunque le righe."""
+    nei kwargs, un merge naïf darebbe `TypeError: got multiple values`. Il fix copia/scarta i kwargs:
+    la chiamata non deve sollevare e deve generare comunque le righe."""
     defn = _multiselection_parser_selname_obbligatoria()      # base NOT_READY → attiva il re-run
     results = pipe.build_validated_rows(defn, MSG, mode="NAME_ONLY",
                                         multi_supplied=frozenset())   # kwarg che collide col re-run
     assert [r.row["SelectionName"] for r in results if r.placeable] == ["1 - 0", "2 - 1"]
+
+
+def test_kyz_multi_supplied_del_chiamante_ignorato_e_non_indebolisce_il_gate():
+    """kyZ / CodeRabbit (Major, safety): `multi_supplied` è INTERNO. Un chiamante che lo passa
+    NON deve poter rilassare i gate della prima valutazione: la copertura è ricalcolata SOLO dalle
+    regole multi realmente attive. Qui `MarketName` è obbligatorio, NON fornito da nessuna riga
+    multi, ma il chiamante finge che lo sia → deve restare `NOT_READY` (fail-closed).
+
+    Fail-first: se il primo `build_validated_row` onorasse il `multi_supplied` del chiamante, la
+    base verrebbe rilassata e le righe finirebbero nel CSV."""
+    extra = [
+        cp.FieldRule(target="MarketType", fixed_value="CORRECT_SCORE", required=True),
+        cp.FieldRule(target="SelectionName", start_after="SEL:", end_before="\n", required=True),
+        cp.FieldRule(target="MarketName", start_after="MKTNAME:", end_before="\n", required=True),
+    ]
+    defn = cp.CustomParserDef(name="MSspoof", mode="NAME_ONLY", rules=_base_rules(extra))
+    defn.multi_selection_enabled = True
+    defn.multi_selections = [cp.MultiRowRule(selection_name=s) for s in ("1 - 0", "2 - 1")]
+    # Il chiamante finge che MarketName+SelectionName siano forniti dal multi (non è vero per MarketName).
+    results = pipe.build_validated_rows(defn, MSG, mode="NAME_ONLY",
+                                        multi_supplied=frozenset({"MarketName", "SelectionName"}))
+    assert len(results) == 1                                   # gate NON indebolito: nessuna riga
+    assert results[0].status == pipe.NOT_READY and not results[0].placeable
+    assert "MarketName" in results[0].missing_required
+
+
+def test_kyz_handicap_multi_malformato_non_raggiunge_il_csv():
+    """kyZ / Codex (safety): un override `handicap` malformato in una riga multi NON deve
+    raggiungere il CSV. Il gate `INVALID_HANDICAP` della base vede l'Handicap BASE (default "0") e
+    `validator.validate` non controlla l'Handicap → serve un controllo di formato sulla riga
+    DERIVATA. Vale sia col rilassamento kyZ sia nel percorso multi normale.
+
+    Fail-first: prima del controllo per-riga la riga con `handicap="abc"` risultava `VALID`."""
+    extra = [
+        cp.FieldRule(target="MarketType", fixed_value="CORRECT_SCORE", required=True),
+        cp.FieldRule(target="MarketName", fixed_value="Risultato esatto"),
+    ]
+    defn = cp.CustomParserDef(name="MShcap", mode="NAME_ONLY", rules=_base_rules(extra))
+    defn.multi_selection_enabled = True
+    defn.multi_selections = [
+        cp.MultiRowRule(selection_name="1 - 0", handicap="abc"),   # malformato → scartato
+        cp.MultiRowRule(selection_name="2 - 1", handicap="0.5"),   # valido → piazzabile
+    ]
+    results = pipe.build_validated_rows(defn, MSG, mode="NAME_ONLY")
+    assert len(results) == 2
+    bad = next(r for r in results if r.row["SelectionName"] == "1 - 0")
+    good = next(r for r in results if r.row["SelectionName"] == "2 - 1")
+    assert bad.status == pipe.INVALID_HANDICAP and not bad.placeable   # fail-closed
+    assert good.status == validator.VALID and good.placeable
 
 
 # ── commit atomico multi-riga (coda + CSV + rollback) ─────────────────────────
