@@ -277,6 +277,26 @@ def test_resolve_row_multi_ritorna_rows(monkeypatch):
     assert res.row == res.all_rows()[0]
 
 
+def test_resolve_row_multi_una_riga_preserva_provenienza(monkeypatch):
+    """#239/#192 (Codex P1): un parser MULTI che ORA produce UNA sola riga piazzabile deve
+    comunque esporre `rows` (provenienza multi), così il commit usa la dedup PER-RIGA. Prima,
+    con una sola riga, `resolve_row` collassava a `rows=None` (single) → l'hash-messaggio
+    non riconosceva la riga se in seguito il messaggio ne generava di più (doppia scommessa)."""
+    from xtrader_bridge import signal_router
+    defn = _multiselection_parser()
+    defn.multi_selections = [cp.MultiRowRule(selection_name="1 - 0")]   # UNA sola selezione → 1 riga
+    assert defn.is_multi_row() is True
+    monkeypatch.setattr(signal_router, "active_custom_parser", lambda cfg, chat, pd=None: defn)
+    monkeypatch.setattr(signal_router.custom_parser_engine, "matches_message",
+                        lambda d, t, m: True)
+    monkeypatch.setattr(signal_router.source_manager, "source_for_chat", lambda cfg, chat: None)
+    res = signal_router.resolve_row(MSG, {"chat_id": "1", "recognition_mode": "NAME_ONLY"})
+    assert res.placeable
+    assert len(res.all_rows()) == 1                 # una sola riga ORA…
+    assert res.rows is not None                     # …ma provenienza MULTI preservata (non collassa a single)
+    assert res.rows[0]["SelectionName"] == "1 - 0"
+
+
 def test_resolve_row_single_resta_invariato(monkeypatch):
     # Un parser senza multi → RouteResult single-row classico: `rows` None, `row` valorizzata.
     from xtrader_bridge import signal_router
