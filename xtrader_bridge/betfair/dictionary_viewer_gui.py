@@ -11,7 +11,7 @@ scrittura), non fa rete e non muta il DB: tutta la logica sta in
 import customtkinter as ctk
 
 from .. import sports
-from .dictionary_viewer import LEVEL_LABELS, LEVELS, Debouncer
+from .dictionary_viewer import LEVEL_LABELS, LEVELS, Debouncer, DictionaryBusy
 
 # Voce «tutti gli sport» del filtro (= nessun filtro).
 _SPORT_ALL = "(tutti gli sport)"
@@ -142,9 +142,17 @@ class DictionaryViewerPanel(ctk.CTkFrame):
             return
         level = self._selected_level()
         try:
-            data = self.controller.view(level, sport=self._selected_sport(),
-                                        active_only=bool(self._active_only.get()),
-                                        search=self._search.get())
+            # `view_if_free` fa FAIL-FAST se una sync Betfair tiene ora il lock del DB
+            # (tenuto attraverso le chiamate di rete del catalogue): senza, la lettura sul
+            # thread Tk bloccherebbe e freezerebbe la GUI fino a fine sync (Codex #175).
+            data = self.controller.view_if_free(level, sport=self._selected_sport(),
+                                                active_only=bool(self._active_only.get()),
+                                                search=self._search.get())
+        except DictionaryBusy:
+            self._counts.configure(
+                text="⏳ Dizionario in aggiornamento (sincronizzazione Betfair in corso): "
+                     "premi 🔄 Aggiorna tra poco.")
+            return
         except Exception as exc:   # noqa: BLE001 — lettura best-effort, niente crash GUI
             self._counts.configure(text=f"⚠️ Errore lettura dizionario: {type(exc).__name__}")
             return
