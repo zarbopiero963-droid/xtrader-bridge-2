@@ -36,6 +36,11 @@ def _prep_form(a):
     a._e_delay = _E("30")
     a._e_provider = _E("TG")
     a._adv = {}
+    # Sentinella su `self._adv_errors`: `App` sottoclassa il vero `ctk.CTk` in CI, quindi
+    # `hasattr(a, "_adv_errors")` su un'istanza headless (senza `self.tk`) ricorre all'infinito
+    # nel `__getattr__` di tkinter. Presettiamo un valore-sentinella e asseriamo che lo snapshot
+    # NON lo tocchi (persist=False non deve mutare `self._adv_errors`), mentre persist=True sì.
+    a._adv_errors = "SENTINEL"
     a._had_incomplete_token_load = lambda *x, **k: False
     # Spie: registrano ogni chiamata così possiamo asserire NON-chiamata su persist=False.
     a.calls = {"resync": 0, "gate": 0}
@@ -73,7 +78,7 @@ def test_save_config_snapshot_non_persiste_e_senza_effetti(make_app, app_mod, mo
     assert a.calls["resync"] == 0                   # NESSUNA mutazione del campo token
     assert a.calls["gate"] == 0                     # NESSUN gate/prompt/audit REAL_MODE_ENABLED
     assert a.logs == []                             # NESSUN log dallo snapshot puro
-    assert not hasattr(a, "_adv_errors")            # NESSUNA mutazione di self._adv_errors
+    assert a._adv_errors == "SENTINEL"              # NESSUNA mutazione di self._adv_errors
 
     # PERSIST: ora scrive davvero, aggiorna self._config ED esegue i side-effect (gate+resync).
     saved = a._save_config(persist=True)
@@ -82,7 +87,8 @@ def test_save_config_snapshot_non_persiste_e_senza_effetti(make_app, app_mod, mo
     assert a._config == saved
     assert a.calls["gate"] == 1                      # il gate gira SOLO su persist=True
     assert a.calls["resync"] >= 1                    # il resync gira SOLO su persist=True
-    assert hasattr(a, "_adv_errors")                 # self._adv_errors popolato su persist=True
+    assert a._adv_errors != "SENTINEL"               # self._adv_errors ripopolato su persist=True
+    assert isinstance(a._adv_errors, list)
 
 
 def test_profiles_snapshot_delega_a_save_config_persist_false(make_app):
@@ -97,3 +103,19 @@ def test_profiles_snapshot_delega_a_save_config_persist_false(make_app):
     assert a._config == {}                           # nessuna mutazione
     assert a.calls == {"resync": 0, "gate": 0}       # nessun side-effect
     assert a.logs == []
+
+
+def test_profiles_tab_wiring_usa_snapshot_non_persistente(app_mod):
+    """Regressione (CodeRabbit #60): la scheda "📁 Profili" DEVE ricevere lo snapshot NON
+    persistente come `get_current_cfg`, non un salvataggio che scrive config.json. Costruire
+    la scheda richiede widget CTk reali (non headless), quindi si ispeziona la sorgente REALE
+    di `_open_tools`: deve cablare `_profiles_snapshot` e non un `_save_config()` persistente.
+    Combinato con i test sopra (che provano che `_profiles_snapshot` NON persiste), garantisce
+    che il pannello riceva un callback senza effetti su disco."""
+    import inspect
+
+    src = inspect.getsource(app_mod.App._open_tools)
+    assert "get_current_cfg=self._profiles_snapshot" in src   # cablato allo snapshot
+    # NON deve regredire a un salvataggio persistente (chiamata senza persist=False).
+    assert "get_current_cfg=lambda: self._save_config()" not in src
+    assert "get_current_cfg=self._save_config" not in src
