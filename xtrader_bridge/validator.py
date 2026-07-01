@@ -13,7 +13,10 @@ dalla modalità, verifica due cose safety-critical:
 
 Un segnale senza prezzo, con prezzo non valido o con lato sconosciuto NON deve
 raggiungere XTrader. Il validatore non modifica la riga: la accetta o la scarta.
-`Points` resta come arriva (vuoto di default): NON va normalizzato a "1".
+`Points` (moltiplicatore stake) NON va normalizzato a "1" e resta vuoto di default,
+ma se un parser custom lo valorizza deve essere un numero **positivo**; e i limiti
+`MinPrice`/`MaxPrice`, oltre a essere quote valide, non devono essere **incoerenti**
+(intervallo invertito o che esclude `Price`).
 """
 
 import re
@@ -31,6 +34,8 @@ INVALID_MISSING_FIELDS = "INVALID_MISSING_FIELDS"   # campi nome/ID per la modal
 INVALID_MISSING_PRICE = "INVALID_MISSING_PRICE"
 INVALID_PRICE = "INVALID_PRICE"
 INVALID_BETTYPE = "INVALID_BETTYPE"
+INVALID_POINTS = "INVALID_POINTS"           # Points valorizzato ma non un numero > 0
+INVALID_PRICE_BOUNDS = "INVALID_PRICE_BOUNDS"  # Min/Max incoerenti (invertiti o escludono Price)
 
 _VALID_BETTYPES = ("PUNTA", "BANCA")
 
@@ -58,6 +63,31 @@ def price_status(value) -> str:
     di errore (`INVALID_MISSING_PRICE`/`INVALID_PRICE`). Usato dalla diagnostica per
     attribuire un errore prezzo alla colonna giusta (Price vs Min/MaxPrice)."""
     return _price_status(value)
+
+
+def price_bounds_offenders(row: dict) -> tuple:
+    """Colonne dei limiti che rendono l'intervallo Min/Max INCOERENTE (tupla vuota = coerente).
+
+    Presuppone che i valori presenti siano già quote valide (validati a monte), quindi
+    `float(...)` è sicuro. Restituisce SOLO i limiti che offendono, così la diagnostica non
+    segnala un limite opzionale ASSENTE (Codex):
+    - `MinPrice > MaxPrice` → `("MinPrice", "MaxPrice")` (entrambi: la relazione è fra loro);
+    - `MinPrice > Price`     → `("MinPrice",)`;
+    - `MaxPrice < Price`     → `("MaxPrice",)`.
+    """
+    def _num(col):
+        v = str(row.get(col, "")).strip()
+        return float(v.replace(",", ".")) if v else None
+
+    price_v, min_v, max_v = _num("Price"), _num("MinPrice"), _num("MaxPrice")
+    if min_v is not None and max_v is not None and min_v > max_v:
+        return ("MinPrice", "MaxPrice")
+    if price_v is not None:
+        if min_v is not None and min_v > price_v:
+            return ("MinPrice",)
+        if max_v is not None and max_v < price_v:
+            return ("MaxPrice",)
+    return ()
 
 
 def validate(row: dict, mode: str, require_price: bool = True):
@@ -96,6 +126,23 @@ def validate(row: dict, mode: str, require_price: bool = True):
             status = _price_status(v)
             if status != VALID:
                 return (status, v)
+
+    # Points (moltiplicatore stake): il percorso hardcoded lo lascia vuoto, ma un
+    # parser custom può estrarre testo arbitrario. Se valorizzato deve essere un
+    # numero POSITIVO (> 0): "abc"/"-5"/"0"/"inf"/"1e2" non devono raggiungere XTrader.
+    points_raw = str(row.get("Points", "")).strip()
+    if points_raw:
+        if not _DECIMAL_PRICE.match(points_raw) or float(points_raw.replace(",", ".")) <= 0.0:
+            return (INVALID_POINTS, points_raw)
+
+    # Coerenza dei limiti di prezzo: oltre a essere singolarmente validi (sopra),
+    # Min/Max non devono CONTRADDIRE loro stessi o `Price`. Un intervallo invertito
+    # (Min > Max) o che ESCLUDE la quota selezionata (Min > Price, Max < Price) non
+    # è usabile da XTrader → fail-closed. Bordi inclusivi ok. `detail` è la tupla dei
+    # SOLI limiti che offendono, così la diagnostica non segnala un limite assente.
+    offenders = price_bounds_offenders(row)
+    if offenders:
+        return (INVALID_PRICE_BOUNDS, offenders)
 
     return (VALID, None)
 

@@ -110,6 +110,19 @@ obbligatoria** (casella «Obblig.» spenta). Non esiste più un interruttore glo
 `require_price`: la quota la comanda la riga `Price` di ogni parser.
 `MinPrice`/`MaxPrice`/`Points` si lasciano vuoti semplicemente non configurando la loro regola.
 
+**Se valorizzati** da un Parser Personalizzato, questi campi facoltativi vengono comunque
+validati prima di dichiarare la riga piazzabile (il percorso hardcoded li lascia vuoti, ma
+un parser custom può estrarre testo arbitrario):
+
+- **`MinPrice`/`MaxPrice`**: oltre a essere quote valide singolarmente (numeriche, > 1.0),
+  devono essere **coerenti** — l'intervallo non può essere invertito (`MinPrice > MaxPrice`)
+  né escludere la quota selezionata (`MinPrice > Price` o `MaxPrice < Price`). I bordi sono
+  inclusivi (`MinPrice == Price`/`MaxPrice == Price` sono validi). Un intervallo incoerente
+  viene scartato (stato `INVALID_PRICE_BOUNDS`, fail-closed): XTrader non potrebbe usarlo.
+- **`Points`** (moltiplicatore stake): se valorizzato deve essere un **numero positivo**
+  (`> 0`); testo non numerico, negativo o zero viene scartato (stato `INVALID_POINTS`).
+  `Points` non viene normalizzato a "1": resta com'è (vuoto di default).
+
 ## Regole di scrittura
 
 - Encoding **UTF-8 con BOM** (`utf-8-sig`), come negli esempi reali.

@@ -33,6 +33,8 @@ VALUE_MAP_MISS = "VALUE_MAP_MISS"        # la value-map non ha trovato il valore
 INVALID_PRICE = "INVALID_PRICE"          # Price non numerico o ≤ 1.0
 INVALID_BETTYPE = "INVALID_BETTYPE"      # BetType non PUNTA/BANCA
 INVALID_HANDICAP = "INVALID_HANDICAP"    # Handicap valorizzato ma non numerico
+INVALID_POINTS = "INVALID_POINTS"        # Points valorizzato ma non un numero > 0
+INVALID_PRICE_BOUNDS = "INVALID_PRICE_BOUNDS"  # Min/Max incoerenti (invertiti o escludono Price)
 MISSING_PROVIDER = "MISSING_PROVIDER"    # Provider assente (contratto)
 MODE_REQUIRED_MISSING = "MODE_REQUIRED_MISSING"  # campo richiesto dalla Modalità mancante
 MAPPING_MISSING = "MAPPING_MISSING"      # EventName non traducibile coi profili di mappatura nomi
@@ -55,6 +57,8 @@ _EXPLAIN = {
     INVALID_PRICE: "quota non numerica o ≤ 1.0",
     INVALID_BETTYPE: "BetType non è PUNTA/BANCA",
     INVALID_HANDICAP: "Handicap valorizzato ma non numerico",
+    INVALID_POINTS: "Points valorizzato ma non un numero positivo",
+    INVALID_PRICE_BOUNDS: "limiti di prezzo incoerenti (Min > Max o intervallo che esclude Price)",
     MISSING_PROVIDER: "Provider mancante (richiesto dal contratto)",
     MODE_REQUIRED_MISSING: "campo richiesto dalla Modalità di riconoscimento",
     MAPPING_MISSING: "EventName non traducibile: separatore non trovato o squadra non nei profili di mappatura nomi",
@@ -156,6 +160,15 @@ def _overlay_validator(result, by_target, fields) -> None:
                 _mark(by_target, fields, col, INVALID_PRICE)
     elif status == validator.INVALID_MISSING_PRICE:
         _mark(by_target, fields, "Price", REQUIRED_EMPTY, required=True)
+    elif status == validator.INVALID_POINTS:
+        _mark(by_target, fields, "Points", INVALID_POINTS)
+    elif status == validator.INVALID_PRICE_BOUNDS:
+        # Limiti incoerenti: segnala SOLO il/i limite/i che offende/ono (dal detail del
+        # validator), così non si crea un errore su un limite opzionale ASSENTE (Codex).
+        # Fallback difensivo a entrambi se il detail non è la tupla attesa.
+        cols = result.detail if isinstance(result.detail, (list, tuple)) else ("MinPrice", "MaxPrice")
+        for col in cols:
+            _mark(by_target, fields, col, INVALID_PRICE_BOUNDS)
     elif status == custom_pipeline.INVALID_MISSING_PROVIDER:
         _mark(by_target, fields, "Provider", MISSING_PROVIDER, required=True)
     elif status == custom_pipeline.INVALID_HANDICAP:
