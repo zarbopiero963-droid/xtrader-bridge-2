@@ -237,13 +237,15 @@ class CustomParserDef:
         return [r for r in self.multi_selections if r.enabled] if self.multi_selection_enabled else []
 
     def is_multi_row(self) -> bool:
-        """True se il parser è configurato come **multi-riga** (#192): MultiMarket o
-        MultiSelection abilitati. Vale a PRESCINDERE da quante righe produce ORA su un dato
-        messaggio: un parser multi che al momento genera **una sola** riga piazzabile deve
-        comunque usare la **deduplica PER-RIGA** (non l'hash del messaggio). Senza, se lo
-        stesso messaggio in seguito genera più righe, la riga già scritta non verrebbe
-        riconosciuta come duplicata → **doppia scommessa** (Codex #239/#192)."""
-        return bool(self.multi_market_enabled or self.multi_selection_enabled)
+        """True se il parser produce **multi-riga** (#192): ha almeno una riga MultiMarket o
+        MultiSelection **attiva** (modalità abilitata **e** riga `enabled`). Si basa sulle
+        righe ATTIVE, non sul solo toggle: se una modalità è accesa ma senza righe attive,
+        `build_validated_rows` ripiega sulla singola riga BASE → resta **single-row** con la
+        dedup legacy a hash-messaggio (Codex #281). Quando invece esistono righe attive, il
+        parser usa la **deduplica PER-RIGA** anche se ORA ne produce una sola piazzabile: così
+        una successiva generazione multi dello stesso messaggio non riscrive la riga già
+        scritta → niente **doppia scommessa** (Codex #239/#192)."""
+        return bool(self.active_multi_markets() or self.active_multi_selections())
 
     def event_type_id(self):
         """`event_type_id` Betfair dello sport del parser, o ``None`` se lo sport non è

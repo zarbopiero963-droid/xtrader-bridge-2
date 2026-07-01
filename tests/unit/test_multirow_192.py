@@ -297,6 +297,33 @@ def test_resolve_row_multi_una_riga_preserva_provenienza(monkeypatch):
     assert res.rows[0]["SelectionName"] == "1 - 0"
 
 
+def test_is_multi_row_solo_con_righe_attive(monkeypatch):
+    """Codex #281: `is_multi_row` si basa sulle righe multi ATTIVE, non sul solo toggle. Una
+    modalità abilitata ma SENZA righe attive → single-row (base row), dedup legacy a
+    hash-messaggio; con almeno una riga attiva → multi (per-riga)."""
+    # toggle acceso ma nessuna riga attiva → NON multi (ripiega sulla riga base single-row).
+    defn = cp.CustomParserDef(name="MSempty", mode="NAME_ONLY", rules=_base_rules([
+        cp.FieldRule(target="MarketType", fixed_value="CORRECT_SCORE", required=True),
+        cp.FieldRule(target="SelectionName", fixed_value="1 - 0", required=True),
+    ]))
+    defn.multi_selection_enabled = True
+    defn.multi_selections = []                       # nessuna riga
+    assert defn.is_multi_row() is False
+    defn.multi_selections = [cp.MultiRowRule(selection_name="X", enabled=False)]  # solo disattivate
+    assert defn.is_multi_row() is False
+    defn.multi_selections = [cp.MultiRowRule(selection_name="1 - 0")]             # una attiva
+    assert defn.is_multi_row() is True
+    # e via resolve_row: toggle acceso senza righe attive → RouteResult single-row (rows None).
+    from xtrader_bridge import signal_router
+    defn.multi_selections = []
+    monkeypatch.setattr(signal_router, "active_custom_parser", lambda cfg, chat, pd=None: defn)
+    monkeypatch.setattr(signal_router.custom_parser_engine, "matches_message",
+                        lambda d, t, m: True)
+    monkeypatch.setattr(signal_router.source_manager, "source_for_chat", lambda cfg, chat: None)
+    res = signal_router.resolve_row(MSG, {"chat_id": "1", "recognition_mode": "NAME_ONLY"})
+    assert res.placeable and res.rows is None        # nessuna riga attiva → single-row legacy
+
+
 def test_resolve_row_single_resta_invariato(monkeypatch):
     # Un parser senza multi → RouteResult single-row classico: `rows` None, `row` valorizzata.
     from xtrader_bridge import signal_router
