@@ -505,7 +505,12 @@ class App(ctk.CTk):
         # anche `.status` per il messaggio specifico in `_profiles_loaded`) — contratto #255 line-647.
         return result
 
-    def _save_config(self) -> dict:
+    def _save_config(self, persist: bool = True) -> dict:
+        # `persist=False`: SNAPSHOT puro del form (con gate) SENZA scrivere config.json né
+        # toccare banner/indicatori. Serve a chi ha solo bisogno della config corrente — es.
+        # salvare un profilo — così un salvataggio profilo che poi FALLISCE non ha già
+        # committato impostazioni safety-critical (dry_run/csv_path/chat) nel config vivo
+        # (Codex #60). La persistenza di config.json resta al percorso `persist=True`.
         # Cattura il marker PRIMA di qualsiasi consumo (sia il refill pre-lettura qui sotto sia
         # `save_config` possono consumarlo): serve per il refill POST-save (Codex #257).
         had_incomplete = self._had_incomplete_token_load()
@@ -548,6 +553,10 @@ class App(ctk.CTk):
         # `_gate_dangerous_transitions`.
         old_cfg = self._config if isinstance(self._config, dict) else {}
         cfg = self._gate_dangerous_transitions(old_cfg, cfg)
+        if not persist:
+            # Snapshot: ritorna la config del form (gated) senza persistere né aggiornare
+            # `self._config`/banner. Non deve avere effetti collaterali su disco (Codex #60).
+            return cfg
         saved, ok = result = save_config(cfg, CONFIG_FILE)
         self._config = saved
         # Refill POST-save (Codex #257): se il refill pre-lettura aveva MANCATO (keyring giù in quel
@@ -2680,8 +2689,8 @@ class App(ctk.CTk):
             ("📇 Provider", _make_provider),
             ("📁 Profili",
              lambda parent: ProfilesPanel(
-                 parent, get_current_cfg=self._save_config, on_loaded=_profiles_loaded,
-                 is_running=lambda: self._running)),
+                 parent, get_current_cfg=lambda: self._save_config(persist=False),
+                 on_loaded=_profiles_loaded, is_running=lambda: self._running)),
             ("🗺️ Mapping", _make_mapping),
             ("🔵 Betfair Sync", _make_betfair),
             ("📖 Dizionario Betfair", _make_dictionary),
