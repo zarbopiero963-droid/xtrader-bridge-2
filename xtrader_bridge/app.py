@@ -98,6 +98,8 @@ _LAST_PREFIX = dict(_LAST_FIELDS)
 
 # Retention log (PR-3): etichetta a tendina → giorni (0 = "Mai", conserva tutto).
 _RETENTION_LABELS = {"Mai": 0, "5 giorni": 5, "15 giorni": 15, "30 giorni": 30}
+# Etichette utente delle schede Strumenti ricaricate dopo un profilo (per i log).
+_TOOL_PANEL_LABELS = {"provider": "Provider", "sources": "Chat sorgenti", "mapping": "Mapping"}
 
 
 def _retention_label(days: int) -> str:
@@ -2494,6 +2496,38 @@ class App(ctk.CTk):
         # percorso riuscito (write_error già ritornato sopra). Best-effort, fuori dal lock.
         self._journal_csv_cleared_if_had_row("CSV_CLEARED", reason="manual")
 
+    def _refresh_tool_panels_after_profile(self, panel_refs, saved) -> None:
+        """Ricarica dal disco le schede Strumenti già costruite dopo l'applicazione di un
+        profilo (Provider, Chat sorgenti, Mapping, Betfair Sync). Senza, un loro Salva
+        successivo riscriverebbe lo stato vecchio sopra il profilo — per Chat sorgenti
+        significherebbe riscrivere `source_chats` vecchie e INDEBOLIRE il filtro chat
+        (Codex P1).
+
+        Best-effort: un refresh fallito NON blocca il caricamento del profilo, ma NON viene
+        più ingoiato in silenzio — si LOGGA quale scheda è rimasta stantia, così l'utente sa
+        che quella tab mostra ancora valori precedenti invece di credere tutto aggiornato
+        mentre il load segnala successo (Codex P2 #94)."""
+        for _key in ("provider", "sources", "mapping"):
+            _panel = panel_refs.get(_key)
+            if _panel is not None:
+                try:
+                    _panel.refresh()
+                except Exception as ex:       # noqa: BLE001 — best-effort, ma non silenzioso
+                    self._log(f"⚠️ Scheda {_TOOL_PANEL_LABELS[_key]} non aggiornata dal "
+                              f"profilo (mostra ancora i valori precedenti): {ex}")
+        # La tab Betfair ha controlli auto-sync (enabled/hour/sport) caricati dalla config:
+        # dopo un profilo va ricaricata, altrimenti un suo Salva riscrive i valori vecchi.
+        _bf_panel = getattr(self, "_betfair_panel", None)
+        if _bf_panel is not None:
+            try:
+                _bf_panel.refresh_autosync(
+                    config_store.as_bool_optin(saved.get("betfair_auto_sync", False)),
+                    saved.get("betfair_auto_sync_hour", 23),
+                    saved.get("betfair_sync_sports"))
+            except Exception as ex:           # noqa: BLE001 — best-effort, ma non silenzioso
+                self._log(f"⚠️ Scheda Betfair Sync non aggiornata dal profilo "
+                          f"(mostra ancora i valori precedenti): {ex}")
+
     def _open_tools(self, initial=None):
         """Apre la finestra hub "🧰 Strumenti" a schede (consolidazione GUI, roadmap).
         Import lazy: le GUI degli strumenti non servono all'avvio del bridge. Qui si
@@ -2541,32 +2575,10 @@ class App(ctk.CTk):
             saved, ok = result = self._persist_loaded_profile(new_cfg)
             self._populate_form(saved)
             self._refresh_listened_chats()
-            # Un profilo applicato cambia config.json: TUTTI i pannelli editabili già
-            # costruiti nella stessa hub (Provider, Chat sorgenti, Mapping) hanno stato
-            # STANTIO in memoria. Senza refresh, un loro Salva successivo riscriverebbe il
-            # vecchio stato sopra il profilo — per Chat sorgenti significa riscrivere
-            # `source_chats` vecchie e INDEBOLIRE il filtro chat (Codex P1). Si ricaricano
-            # tutti dal disco appena salvato. Best-effort: un refresh fallito non blocca il
-            # caricamento del profilo.
-            for _key in ("provider", "sources", "mapping"):
-                _panel = panel_refs.get(_key)
-                if _panel is not None:
-                    try:
-                        _panel.refresh()
-                    except Exception:       # noqa: BLE001
-                        pass
-            # La tab Betfair ha controlli auto-sync (enabled/hour/sport) caricati dalla
-            # config: dopo un profilo va ricaricata, altrimenti un suo Salva riscrive i
-            # valori vecchi sopra il profilo (Codex).
-            _bf_panel = getattr(self, "_betfair_panel", None)
-            if _bf_panel is not None:
-                try:
-                    _bf_panel.refresh_autosync(
-                        config_store.as_bool_optin(saved.get("betfair_auto_sync", False)),
-                        saved.get("betfair_auto_sync_hour", 23),
-                        saved.get("betfair_sync_sports"))
-                except Exception:           # noqa: BLE001
-                    pass
+            # Un profilo applicato cambia config.json: le schede Strumenti già costruite hanno
+            # stato STANTIO in memoria e vanno ricaricate dal disco (estratto per essere
+            # testabile headless — Codex #94).
+            self._refresh_tool_panels_after_profile(panel_refs, saved)
             if ok:
                 self._log("📁 Profilo caricato e applicato (token invariato).")
             else:
