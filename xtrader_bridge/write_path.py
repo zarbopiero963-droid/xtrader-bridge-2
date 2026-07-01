@@ -143,6 +143,18 @@ def _noop_decision(decisions: list) -> str:
     return live_guard.DUPLICATE
 
 
+def _same_rows_unordered(a: list, b: list) -> bool:
+    """True se `a` e `b` contengono lo **stesso multiset di righe** a PRESCINDERE dall'ordine. In
+    `OVERWRITE_LAST` un reinvio con le sole righe **riordinate** (`A+B` vs `B+A`) è semanticamente
+    identico: il CSV non va riscritto (XTrader non deve riconsumare un'istruzione uguale) — Codex
+    #281. Le righe sono dict con valori stringa (contratto CSV), quindi confrontabili per contenuto."""
+    if len(a) != len(b):
+        return False
+    ca = sorted(tuple(sorted(r.items())) for r in a)
+    cb = sorted(tuple(sorted(r.items())) for r in b)
+    return ca == cb
+
+
 def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows):
     """Commit MULTI-RIGA (#192): un singolo messaggio produce più righe (MultiMarket/
     MultiSelection). Valuta OGNI riga con **deduplica PER-RIGA** (`signal_dedupe.row_dedup_key`),
@@ -235,13 +247,17 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
             # annulla SOLO il tracker (come single-row), non il daily (giorno normalizzato).
             tracker.restore_state(row_tracker_snap)
 
-    # DRY_RUN: simulazione → NON scrivere il CSV operativo; ripristina coda E guardrail.
+    # DRY_RUN: simulazione → NON scrivere il CSV operativo; ripristina coda E tracker, e RESTITUISCI
+    # le slot daily consumate (una per riga passata a DRY_RUN) con `release()` invece di ripristinare
+    # lo snapshot: `release` mantiene il giorno già normalizzato da `allow`, mentre `restore_state`
+    # reintrodurrebbe un giorno malformato dello stato di partenza (allineato al single-row, Codex #281).
     if safety_guard.is_dry_run(cfg):
         queue.restore_state(queue_snap)
         if tracker is not None:
             tracker.restore_state(tracker_snap)
-            if daily is not None and daily_snap is not None:
-                daily.restore_state(daily_snap)
+            if daily is not None:
+                for _ in range(sum(1 for d in decisions if d == live_guard.DRY_RUN)):
+                    daily.release()
         return CommitResult(decision=live_guard.DRY_RUN, blocked_by_cap=False,
                             rows=[], write_error=None)
 
@@ -252,16 +268,19 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
         # shrink A+B→A → riscrive togliendo B. Un blocco vuoto (tutte soppresse/scadute) NON svuota
         # il CSV: lo svuotamento a timeout è compito dell'expire-tick, non di un reinvio.
         current_active = queue.active_rows(now=now)
-        if not block or block == current_active:
-            # NESSUN cambiamento reale → non riscrivere e RIPRISTINA anche i guardrail: una riga
-            # WRITE con chiave dedup SCADUTA (clear_delay > finestra dedup) ha già registrato
-            # tracker/daily pur non scrivendo nulla; senza rollback conterebbe un non-write contro i
-            # limiti e `_process` lo vedrebbe come WRITE riuscito (Codex #281 no-op).
+        if not block or _same_rows_unordered(block, current_active):
+            # NESSUN cambiamento reale (blocco == attivo, anche solo RIORDINATO) → non riscrivere e
+            # RIPRISTINA i guardrail: una riga WRITE con chiave dedup SCADUTA (clear_delay > finestra
+            # dedup) ha già registrato tracker/daily pur non scrivendo nulla; senza rollback conterebbe
+            # un non-write contro i limiti e `_process` lo vedrebbe come WRITE riuscito (Codex #281).
             queue.restore_state(queue_snap)
             if tracker is not None:
                 tracker.restore_state(tracker_snap)
-                if daily is not None and daily_snap is not None:
-                    daily.restore_state(daily_snap)
+                # daily: `release()` per ogni slot consumata dalle righe WRITE (aged-out), mantenendo
+                # il giorno normalizzato — non `restore_state` (reintrodurrebbe un giorno malformato).
+                if daily is not None:
+                    for _ in range(len(new_rows)):
+                        daily.release()
             return CommitResult(decision=_noop_decision(decisions), blocked_by_cap=False,
                                 rows=current_active, write_error=None)
         queue.replace_block(block, now=now, keys=block_keys)

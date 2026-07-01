@@ -532,6 +532,85 @@ def test_overwrite_last_noop_ripristina_guardrail(tmp_path):
     assert daily.remaining() == 5
 
 
+def test_overwrite_last_riordino_e_noop(tmp_path):
+    """P2 (Codex #281, `write_path`:255): un reinvio OVERWRITE con le stesse righe **riordinate**
+    (`A+B` → `B+A`, tutte ancora attive) è semanticamente identico → NON deve riscrivere il CSV
+    (XTrader non deve riconsumare). Il confronto blocco/attivo è order-insensitive."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    tracker = signal_dedupe.SignalTracker()
+    rows_ab = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0", "2 - 1"]), MSG, mode="NAME_ONLY"))
+    write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows_ab, path, now=0,
+                              write_rows=csv_writer.write_rows)
+    calls = []
+
+    def _spy(rows_, path_):
+        calls.append(list(rows_))
+        csv_writer.write_rows(rows_, path_)
+
+    # stesso testo, righe RIORDINATE (2 - 1 prima di 1 - 0): stesse scommesse, solo ordine diverso.
+    rows_ba = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["2 - 1", "1 - 0"]), MSG, mode="NAME_ONLY"))
+    res = write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows_ba, path, now=1,
+                                    write_rows=_spy)
+    assert calls == []                                    # riordino ≡ no-op: nessuna riscrittura
+    assert res.decision != live_guard.WRITE
+    assert [r["SelectionName"] for r in q.active_rows()] == ["1 - 0", "2 - 1"]   # ordine invariato
+
+
+def _malformed_daily(count=2, max_per_day=5):
+    from xtrader_bridge import safety_guard
+    d = safety_guard.DailyLimiter(max_per_day=max_per_day)
+    d.restore_state({"day": "giorno-corrotto", "count": count})   # giorno malformato → _UNKNOWN_DAY
+    return d
+
+
+def test_overwrite_last_noop_preserva_giorno_normalizzato(tmp_path):
+    """P2 (Codex #281, `write_path`:264): sul no-op OVERWRITE il rollback daily deve **restituire la
+    slot** (`release`) mantenendo il giorno NORMALIZZATO da `allow`, non ripristinare lo snapshot che
+    reintrodurrebbe un giorno malformato (che poi `_process` ripersisterebbe, bloccando il giorno
+    reale successivo). Coda pre-popolata con A + tracker vuoto → A è WRITE → consuma daily → no-op."""
+    from xtrader_bridge import safety_guard
+    path = str(tmp_path / "segnali.csv")
+    rows = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0"]), MSG, mode="NAME_ONLY"))
+    a_row = rows[0]
+    key = signal_dedupe.row_dedup_key(MSG, a_row)
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=600)
+    q.replace_block([dict(a_row)], keys=[key], now=0)
+    tracker = signal_dedupe.SignalTracker()
+    daily = _malformed_daily(count=2)
+    res = write_path.commit_signals(tracker, daily, q, _cfg(path), MSG, rows, path, now=1,
+                                    write_rows=csv_writer.write_rows)
+    assert res.decision != live_guard.WRITE
+    # Giorno NORMALIZZATO (data reale valida), non il "giorno-corrotto"/_UNKNOWN_DAY dello snapshot;
+    # e la slot consumata dalla riga WRITE aged-out è stata restituita (count torna a 2).
+    st = daily.state()
+    assert safety_guard._is_valid_day(st["day"])
+    assert st["count"] == 2
+
+
+def test_commit_signals_dry_run_preserva_giorno_normalizzato(tmp_path):
+    """P2 (Codex #281, app.py:2163 / DRY_RUN): in DRY_RUN il rollback daily del commit multi deve
+    usare `release()` (giorno normalizzato mantenuto), non `restore_state` (che reintrodurrebbe il
+    giorno malformato dello snapshot)."""
+    from xtrader_bridge import safety_guard
+    path = str(tmp_path / "segnali.csv")
+    rows = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0"]), MSG, mode="NAME_ONLY"))
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    tracker = signal_dedupe.SignalTracker()
+    daily = _malformed_daily(count=2)
+    cfg = {"csv_path": path, "dry_run": True}
+    res = write_path.commit_signals(tracker, daily, q, cfg, MSG, rows, path, now=0,
+                                    write_rows=csv_writer.write_rows)
+    assert res.decision == live_guard.DRY_RUN
+    st = daily.state()
+    assert safety_guard._is_valid_day(st["day"])          # giorno normalizzato, non _UNKNOWN_DAY
+    assert st["count"] == 2                                # slot DRY_RUN restituita
+
+
 def test_overwrite_last_shrink_riscrive_e_segnala_write(tmp_path):
     """OVERWRITE_LAST shrink: se l'istruzione corrente ha MENO righe della precedente (config
     ridotta, stesso testo), il blocco si riduce e il CSV viene riscritto — anche se la riga rimasta
