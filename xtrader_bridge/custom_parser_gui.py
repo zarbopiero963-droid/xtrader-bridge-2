@@ -939,8 +939,10 @@ class CustomParserPanel(ctk.CTkFrame):
         # infine single-row col motivo e i campi mancanti — sia il gate parser sia i campi di
         # RICONOSCIMENTO del validator (INVALID_MISSING_FIELDS), così si sa QUALE colonna aggiungere.
         self._result.configure(text=ParserBuilder.test_verdict(
-            self.builder.errors(), preview, diag.placeable, diag.status,
-            res.row, res.missing_required, res.detail))
+            self.builder.errors(), preview,
+            diag_placeable=diag.placeable, diag_status=diag.status,
+            res_row=res.row, res_missing_required=res.missing_required,
+            res_detail=res.detail))
         self._last_report = parser_diagnostics.format_report(diag)
         self._render_diag_table(parser_diagnostics.diagnostic_table(diag, defn))
         self._render_preview_table(preview)

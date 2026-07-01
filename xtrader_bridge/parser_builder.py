@@ -390,7 +390,7 @@ class ParserBuilder:
         return rule
 
     @staticmethod
-    def test_verdict(errors: list, preview_rows: list, diag_placeable: bool,
+    def test_verdict(errors: list, preview_rows: list, *, diag_placeable: bool,
                      diag_status: str, res_row: dict, res_missing_required: list,
                      res_detail) -> str:
         """Verdetto sintetico di «Prova messaggio» (single + multi-riga). Logica pura, CI.

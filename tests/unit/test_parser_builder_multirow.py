@@ -271,8 +271,8 @@ def test_test_verdict_errori_strutturali_non_salvabile():
     # risultare «Pronto», anche se per caso la pipeline produce una riga piazzabile.
     errors = ["Regola #1 (Provider): ha sia 'fixed_value' sia 'start_after'/'end_before' (…)."]
     msg = pb.ParserBuilder.test_verdict(
-        errors, [_base_pr(placeable=True)], True, validator.VALID,
-        {"Provider": "TG"}, [], None)
+        errors, [_base_pr(placeable=True)], diag_placeable=True, diag_status=validator.VALID,
+        res_row={"Provider": "TG"}, res_missing_required=[], res_detail=None)
     assert msg.startswith("⛔ Non salvabile")
     assert "fixed_value" in msg
     assert "✅" not in msg
@@ -284,8 +284,8 @@ def test_test_verdict_missing_recognition_fields_elencati():
     # parser) è vuoto in questo caso.
     msg = pb.ParserBuilder.test_verdict(
         [], [_base_pr(placeable=False, status=validator.INVALID_MISSING_FIELDS)],
-        False, validator.INVALID_MISSING_FIELDS,
-        {"EventName": "Inter v Milan"}, [], ["MarketType"])
+        diag_placeable=False, diag_status=validator.INVALID_MISSING_FIELDS,
+        res_row={"EventName": "Inter v Milan"}, res_missing_required=[], res_detail=["MarketType"])
     assert msg.startswith("⛔ Non pronto")
     assert "INVALID_MISSING_FIELDS" in msg
     assert "mancanti: MarketType" in msg
@@ -296,15 +296,17 @@ def test_test_verdict_bounds_detail_non_scambiato_per_mancanti():
     # NON campi mancanti: non deve diventare «mancanti: …».
     msg = pb.ParserBuilder.test_verdict(
         [], [_base_pr(placeable=False, status="INVALID_PRICE_BOUNDS")],
-        False, "INVALID_PRICE_BOUNDS", {}, [], ("MinPrice", "MaxPrice"))
+        diag_placeable=False, diag_status="INVALID_PRICE_BOUNDS",
+        res_row={}, res_missing_required=[], res_detail=("MinPrice", "MaxPrice"))
     assert "INVALID_PRICE_BOUNDS" in msg
     assert "mancanti" not in msg
 
 
 def test_test_verdict_pronto_single_row():
     msg = pb.ParserBuilder.test_verdict(
-        [], [_base_pr(placeable=True)], True, validator.VALID,
-        {"EventName": "Inter v Milan", "Price": "1.85", "Handicap": ""}, [], None)
+        [], [_base_pr(placeable=True)], diag_placeable=True, diag_status=validator.VALID,
+        res_row={"EventName": "Inter v Milan", "Price": "1.85", "Handicap": ""},
+        res_missing_required=[], res_detail=None)
     assert msg.startswith("✅ Pronto")
     assert "EventName=Inter v Milan" in msg and "Price=1.85" in msg
     assert "Handicap" not in msg              # i vuoti non compaiono
@@ -314,7 +316,9 @@ def test_test_verdict_multi_delega_a_preview_summary():
     # Con output multi-riga attivo il verdetto si basa sulle righe generate.
     rows = [_pr(index=0, kind="market", placeable=True),
             _pr(index=1, kind="market", placeable=False, status="INVALID_MISSING_FIELDS")]
-    msg = pb.ParserBuilder.test_verdict([], rows, False, "X", {}, [], None)
+    msg = pb.ParserBuilder.test_verdict(
+        [], rows, diag_placeable=False, diag_status="X",
+        res_row={}, res_missing_required=[], res_detail=None)
     assert msg == pb.ParserBuilder.preview_summary(rows)
 
 

@@ -364,7 +364,11 @@ Il **verdetto sintetico** in cima segue questa precedenza:
   «Salva», es. una regola con `fixed_value` **e** delimitatori insieme). In questo caso
   non viene mai mostrato «Pronto», anche se la pipeline per caso produce una riga — una
   definizione non salvabile non è «pronta».
-- **⛔ Non pronto (`STATO`)**: superata la struttura, la riga è scartata dalla pipeline.
+- **Output multi-riga attivo** (MultiMarket/MultiSelection): il verdetto si basa sulle
+  **righe generate**, non sulla sola base, e ha un formato diverso (es. «✅ Pronto · N righe
+  generate, tutte piazzabili.», «⚠ X/N righe piazzabili …» o «⛔ Nessuna delle N righe è
+  piazzabile …») — il dettaglio per-riga è nella tabella anteprima qui sotto.
+- **⛔ Non pronto (`STATO`)**: superata la struttura (single-row), la riga è scartata dalla pipeline.
   Oltre allo stato, il verdetto **elenca i campi mancanti** — sia gli obbligatori del parser
   sia i campi di **riconoscimento** richiesti dalla Modalità (`INVALID_MISSING_FIELDS`), così
   si sa quale colonna aggiungere.
