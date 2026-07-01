@@ -39,11 +39,16 @@ class SourceEditor:
         # (non autorizzano né bloccano l'avvio), ma vanno mostrate così riabilitando la
         # sorgente non si perde il parser scelto (#47, Codex P2).
         disabled_by_chat = _disabled_overrides(cfg)
-        # Sorgenti normalizzate (copie) + prefill del parser per chat: dalla mappa attiva
-        # oppure, se assente, dal parcheggio delle disattivate.
+        # Sorgenti normalizzate (copie) + prefill del parser per chat: dalla mappa attiva;
+        # il parcheggio si consulta SOLO per le righe DISATTIVATE. Una voce parcheggiata
+        # stantia per una riga ora ATTIVA NON va promossa (al salvataggio finirebbe in
+        # parser_by_chat autorizzando un override "non-routing" per design, Codex P2): la
+        # riga attiva usa solo parser_by_chat, e `apply()` ripulisce lo stantio.
         self.sources = []
         for s in source_manager.source_chats(cfg):
-            sel = by_chat.get(s["chat_id"]) or disabled_by_chat.get(s["chat_id"]) or ""
+            sel = by_chat.get(s["chat_id"], "")
+            if not sel and not s["enabled"]:
+                sel = disabled_by_chat.get(s["chat_id"], "")
             s["parser"] = str(sel).strip()
             self.sources.append(s)
 

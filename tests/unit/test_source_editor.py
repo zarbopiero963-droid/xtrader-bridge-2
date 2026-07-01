@@ -212,6 +212,20 @@ def test_parser_by_chat_disabled_corrotto_non_crasha_e_normalizza_chiavi():
     assert ed2.sources[0]["parser"] == "X"
 
 
+def test_parcheggio_ignorato_per_riga_attiva_non_promuove_override():
+    # #273 (Codex P2): una voce parcheggiata STALE per una sorgente ora ATTIVA (senza override
+    # attivo) NON deve pre-riempire la riga né essere promossa in parser_by_chat al salvataggio
+    # (il parcheggio è stato "non-routing" per design: va consultato SOLO per righe disattivate).
+    base = {"source_chats": [{"chat_id": "222", "enabled": True, "mode": "PRE"}],
+            "parser_by_chat_disabled": {"222": "X"}}
+    ed = SourceEditor(base)
+    assert ed.sources[0]["parser"] == ""       # NON pre-riempito dal parcheggio (riga attiva)
+    new_cfg, errors, _ = ed.apply(base)
+    assert errors == []
+    assert "222" not in new_cfg.get("parser_by_chat", {})            # non promosso a routing
+    assert "222" not in new_cfg.get("parser_by_chat_disabled", {})   # stale ripulito
+
+
 def test_apply_riabilitare_sorgente_ripristina_override_attivo():
     # #47 (Codex P2): riabilitando una sorgente prima disattivata, la selezione parcheggiata
     # torna in parser_by_chat (autorizza + routing) e sparisce dal parcheggio.
