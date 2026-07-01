@@ -1,6 +1,10 @@
-"""#60 (Codex P2): `ProfilesPanel._refresh_list` non deve far crashare la callback Tk se
-`profile_store.list_profiles()` solleva `OSError` (dir profili non elencabile: ACL AppData,
-errore FS). Test headless con customtkinter stubbato se assente."""
+"""#60 (Codex P2): l'elenco dei profili non deve far crashare la GUI se
+`profile_store.list_profiles()` solleva `OSError` (dir non elencabile: ACL AppData, errore FS).
+
+La logica I/O + gestione errore è estratta in `ProfilesPanel._safe_list_profiles` (PURA, senza
+widget) proprio per essere testabile in CI: `_refresh_list` crea widget CTk reali che
+richiederebbero un display, quindi si testa l'helper puro (non la creazione delle etichette).
+customtkinter è stubbato SOLO se assente (in CI è reale: l'import funziona, e l'helper puro no)."""
 
 import importlib
 import sys
@@ -10,26 +14,10 @@ import pytest
 
 
 class _FakeCtkModule(types.ModuleType):
-    """Finto `customtkinter`: ogni attributo è una classe vuota."""
-
     def __getattr__(self, name):
-        cls = type(name, (object,), {"__init__": lambda self, *a, **k: None,
-                                     "pack": lambda self, *a, **k: None})
+        cls = type(name, (object,), {"__init__": lambda self, *a, **k: None})
         setattr(self, name, cls)
         return cls
-
-
-class _FakeFrame:
-    def winfo_children(self):
-        return []
-
-
-class _FakeStatus:
-    def __init__(self):
-        self.text = ""
-
-    def configure(self, text="", **k):
-        self.text = text
 
 
 @pytest.fixture
@@ -42,22 +30,16 @@ def pg(monkeypatch):
     return importlib.import_module("xtrader_bridge.profiles_gui")
 
 
-def test_refresh_list_oserror_non_crasha(pg, monkeypatch):
-    panel = pg.ProfilesPanel.__new__(pg.ProfilesPanel)   # niente __init__/Tk
-    panel._list_frame = _FakeFrame()
-    panel._status = _FakeStatus()
+def test_safe_list_profiles_oserror_non_solleva(pg, monkeypatch):
     monkeypatch.setattr(pg.profile_store, "list_profiles",
                         lambda *a, **k: (_ for _ in ()).throw(OSError("acl negato")))
-    # Non deve sollevare: l'errore è mostrato nello status, la finestra resta usabile.
-    panel._refresh_list()
-    assert "non leggibile" in panel._status.text
-    assert "acl negato" in panel._status.text
+    names, err = pg.ProfilesPanel._safe_list_profiles()   # NON deve sollevare
+    assert names == []
+    assert "non leggibile" in err and "acl negato" in err
 
 
-def test_refresh_list_ok_elenca(pg, monkeypatch):
-    panel = pg.ProfilesPanel.__new__(pg.ProfilesPanel)
-    panel._list_frame = _FakeFrame()
-    panel._status = _FakeStatus()
-    monkeypatch.setattr(pg.profile_store, "list_profiles", lambda *a, **k: [])
-    panel._refresh_list()          # lista vuota: nessun errore, nessun crash
-    assert panel._status.text == ""
+def test_safe_list_profiles_ok(pg, monkeypatch):
+    monkeypatch.setattr(pg.profile_store, "list_profiles", lambda *a, **k: ["Prematch", "Live"])
+    names, err = pg.ProfilesPanel._safe_list_profiles()
+    assert names == ["Prematch", "Live"]
+    assert err == ""

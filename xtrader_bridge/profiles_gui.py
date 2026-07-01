@@ -68,20 +68,26 @@ class ProfilesPanel(ctk.CTkFrame):
                                     text_color="gray", wraplength=520, anchor="w", justify="left")
         self._status.pack(fill="x", padx=12, pady=(0, 10))
 
+    @staticmethod
+    def _safe_list_profiles():
+        """`(names, err)`: elenco profili + eventuale messaggio d'errore, SENZA widget.
+        `profile_store.list_profiles()` (`os.listdir`) può sollevare `OSError` (ACL AppData,
+        errore FS transitorio); qui è catturato così la vista non crasha. `_refresh_list` gira
+        alla creazione finestra e dopo ogni save/delete, quindi un crash renderebbe la finestra
+        inusabile. Logica pura, testabile in CI senza display (Codex #60)."""
+        try:
+            return profile_store.list_profiles(), ""
+        except OSError as exc:
+            return [], f"❌ Elenco profili non leggibile: {exc}"
+
     def _refresh_list(self):
         for child in self._list_frame.winfo_children():
             child.destroy()
-        try:
-            names = profile_store.list_profiles()
-        except OSError as exc:
-            # Directory profili non elencabile (ACL AppData, errore FS transitorio):
-            # `_refresh_list` gira alla creazione finestra e dopo ogni save/delete, quindi un
-            # `os.listdir` che solleva farebbe crashare la callback Tk. Mostra l'errore e
-            # lascia l'app usabile, coerente con save/load/delete (Codex P2).
+        names, err = self._safe_list_profiles()
+        if err:
             ctk.CTkLabel(self._list_frame, text="(impossibile elencare i profili)",
                          text_color="#ef5350").pack(anchor="w", padx=6, pady=6)
-            self._status.configure(text=f"❌ Elenco profili non leggibile: {exc}",
-                                   text_color="#ef5350")
+            self._status.configure(text=err, text_color="#ef5350")
             return
         if not names:
             ctk.CTkLabel(self._list_frame, text="(nessun profilo salvato)",
