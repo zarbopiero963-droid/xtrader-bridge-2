@@ -2116,8 +2116,10 @@ class App(ctk.CTk):
             return
 
         # #192: il parser può produrre PIÙ righe (MultiMarket/MultiSelection). Per il single-row
-        # `all_rows()` ne ritorna una sola → percorso legacy invariato. `row` resta la prima riga,
-        # usata per i log/diagnostica.
+        # `all_rows()` ne ritorna una sola → percorso legacy invariato. `row` è la prima riga
+        # candidata, usata per la diagnostica dei rami NON-write (scarto/DRY_RUN, dove nulla è
+        # scritto sul CSV operativo). La presentazione della scrittura RIUSCITA usa invece la
+        # riga davvero scritta (`written_row`, vedi kyX più sotto), non `rows_to_commit[0]`.
         rows_to_commit = result.all_rows()
         row = rows_to_commit[0]
         # Provenienza MULTI (#192, Codex #239): un parser multi-riga espone `result.rows` (anche
@@ -2215,7 +2217,16 @@ class App(ctk.CTk):
 
         # Presentazione della scrittura riuscita (pura, testata in `signal_outcome`):
         # «ultimo segnale» + log segnale (con sorgente) + log aggiornamento CSV.
-        outcome = signal_outcome.describe_write(row, result.source, len(rows))
+        # kyX #192 (PR #239, Codex): la presentazione deve riflettere una riga REALMENTE
+        # scritta su disco, non `rows_to_commit[0]`. In un commit MULTI-riga la prima riga
+        # candidata può essere soppressa (duplicato scaduto/rate/daily) mentre una riga
+        # successiva viene scritta: `row` (= `rows_to_commit[0]`) punterebbe a una riga NON
+        # scritta → «ultimo segnale»/log segnale/«Messaggio→CSV» fuorvianti. Si prende la
+        # PRIMA riga del messaggio effettivamente presente tra le righe attive scritte
+        # (`rows` = `commit.rows`); fallback a `row` (single-row: la riga coincide sempre,
+        # e il caso multi con TUTTE le righe scritte → written_row == row → invariato).
+        written_row = next((r for r in rows_to_commit if r in rows), row)
+        outcome = signal_outcome.describe_write(written_row, result.source, len(rows))
         self.after(0, lambda i=outcome.last_signal: self._set_last("signal", i, "white"))
         self.after(0, lambda m=outcome.signal_log: self._log(m))
         self.after(0, lambda m=outcome.csv_log: self._log(m))
@@ -2225,7 +2236,7 @@ class App(ctk.CTk):
         # troncata, payload completo solo con `debug_message_payload`. La RIGA CSV (dati
         # operativi della scommessa) resta per la tracciabilità; i token sono redatti dal sink.
         self.after(0, lambda m=log_privacy.redact_message(text, full=payload_full),
-                   r=dict(row): self._log(
+                   r=dict(written_row): self._log(
             "🧾 Messaggio→CSV  |  msg: " + m + "  |  riga: "
             + ", ".join(f"{k}={v}" for k, v in r.items() if v != "")))
 

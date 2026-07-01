@@ -136,6 +136,70 @@ def test_process_single_row_resta_su_commit_signal(make_app, app_mod, monkeypatc
     assert _events_in_csv(path) == ["Roma v Lazio"]
 
 
+def test_process_multi_display_riflette_riga_scritta_non_soppressa(
+        make_app, app_mod, monkeypatch, tmp_path):
+    """kyX #192 (PR #239, Codex): in un commit MULTI dove la PRIMA riga candidata è
+    SOPPRESSA (duplicato) ma una successiva è SCRITTA, «ultimo segnale» e l'audit
+    «Messaggio→CSV» devono riflettere la riga DAVVERO scritta (`commit.rows`), non
+    `rows_to_commit[0]`.
+
+    Fail-first: sul vecchio codice il display usa `row = rows_to_commit[0]` (row1, MAI
+    scritta) → mostra 'Inter v Milan' invece di 'Roma v Lazio' effettivamente sul CSV."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    tracker = signal_dedupe.SignalTracker()
+    a = make_app(csv_path=path, queue=q, tracker=tracker,
+                 daily=safety_guard.DailyLimiter(max_per_day=10))
+    row1 = _row("Inter v Milan")     # PRIMA candidata → sarà soppressa (duplicato per-riga)
+    row2 = _row("Roma v Lazio")      # riga realmente scritta sul CSV
+    text = "multi-msg"
+    # Pre-registra la CHIAVE PER-RIGA di row1 → in `commit_signals` row1 = DUPLICATE (coda
+    # vuota → non è tra `active_keys` → cade dal blocco); row2 (chiave nuova) resta WRITE.
+    tracker.register(text, key=signal_dedupe.row_dedup_key(text, row1))
+    rr = app_mod.signal_router.RouteResult(row=row1, rows=[row1, row2])
+    monkeypatch.setattr(app_mod.signal_router, "resolve_row", lambda *a_, **k: rr)
+    captured = []
+    a._set_last = lambda kind, txt, *rest: captured.append((kind, txt))
+
+    app_mod.App._process(a, text, {"csv_path": path, "dry_run": False}, chat_id="1")
+
+    # CSV: solo la riga davvero scritta (row2), row1 soppressa.
+    assert _events_in_csv(path) == ["Roma v Lazio"]
+    # Audit «Messaggio→CSV»: riflette row2 (scritta), NON row1 (soppressa).
+    audit = [m for m in a.logs if "Messaggio→CSV" in m]
+    assert len(audit) == 1
+    assert "Roma v Lazio" in audit[0] and "Inter v Milan" not in audit[0]
+    # «Ultimo segnale»: riflette row2, mai row1.
+    signal_last = [t for (kind, t) in captured if kind == "signal"]
+    assert signal_last and "Roma v Lazio" in signal_last[-1]
+    assert all("Inter v Milan" not in t for t in signal_last)
+
+
+def test_process_multi_tutte_scritte_display_resta_prima_riga(
+        make_app, app_mod, monkeypatch, tmp_path):
+    """Contro-prova kyX: se TUTTE le righe del messaggio sono scritte, `written_row`
+    coincide con `rows_to_commit[0]` → il display mostra la prima riga (comportamento
+    del caso comune invariato; nessuna regressione dal fix kyX)."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    a = make_app(csv_path=path, queue=q, tracker=signal_dedupe.SignalTracker(),
+                 daily=safety_guard.DailyLimiter(max_per_day=10))
+    row1 = _row("Inter v Milan")
+    row2 = _row("Roma v Lazio")
+    rr = app_mod.signal_router.RouteResult(row=row1, rows=[row1, row2])
+    monkeypatch.setattr(app_mod.signal_router, "resolve_row", lambda *a_, **k: rr)
+    captured = []
+    a._set_last = lambda kind, txt, *rest: captured.append((kind, txt))
+
+    app_mod.App._process(a, "multi-tutte", {"csv_path": path, "dry_run": False}, chat_id="1")
+
+    assert _events_in_csv(path) == ["Inter v Milan", "Roma v Lazio"]   # entrambe scritte
+    audit = [m for m in a.logs if "Messaggio→CSV" in m]
+    assert len(audit) == 1 and "Inter v Milan" in audit[0]             # display = prima riga
+    signal_last = [t for (kind, t) in captured if kind == "signal"]
+    assert signal_last and "Inter v Milan" in signal_last[-1]
+
+
 def test_process_write_failure_rollback_e_ritentabile(make_app, app_mod, monkeypatch, tmp_path):
     path = str(tmp_path / "segnali.csv")
     q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)

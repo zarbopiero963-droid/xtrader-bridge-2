@@ -843,6 +843,21 @@ dello stesso messaggio dopo un cambio di modalità è riconosciuto come `DUPLICA
 `tests/unit/test_multirow_192.py` (`test_transizione_single_a_multi_blocca_riga_gia_scritta`,
 `test_transizione_multi_a_single_blocca_messaggio_gia_processato`).
 
+**kyX — audit/display della scrittura riuscita riflette la riga DAVVERO scritta (RISOLTO, PR
+dedicata post-#287).** Nel ramo WRITE di `_process`, la presentazione «ultimo segnale» + log
+segnale + audit «Messaggio→CSV» usava `row = rows_to_commit[0]` (la **prima riga candidata**). In un
+commit **multi-riga** la prima riga può essere **soppressa** (duplicato scaduto/rate/daily) mentre
+una riga successiva è scritta: `rows_to_commit[0]` puntava a una riga **non scritta** → audit
+fuorviante (nessun impatto su CSV/coda/dedup — il file su disco era già corretto, solo la riga
+*mostrata* era sbagliata). **Fix:** si sceglie `written_row = next((r for r in rows_to_commit if r in
+commit.rows), row)` — la **prima riga del messaggio effettivamente presente tra le righe attive
+scritte** (`commit.rows`), con fallback a `row`. Single-row e multi con **tutte** le righe scritte →
+`written_row == row` (comportamento invariato). Il ramo NON-write (scarto/DRY_RUN, che non scrive il
+CSV operativo) resta su `row`: è diagnostica del «riconosciuto», non dello «scritto». Test hard
+fail-first: `tests/integration/test_app_runtime_glue.py`
+(`test_process_multi_display_riflette_riga_scritta_non_soppressa`,
+`test_process_multi_tutte_scritte_display_resta_prima_riga`).
+
 **Test hard:** `tests/unit/test_multirow_192.py`
 (`test_overwrite_last_preserva_riga_attiva_su_espansione`,
 `test_overwrite_last_non_rivive_duplicato_scaduto`,
