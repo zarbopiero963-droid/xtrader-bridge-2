@@ -295,6 +295,14 @@ NON** viene salvato nei profili). Campo nome + **"💾 Salva profilo"**; lista c
 - **Errori d'azione** (riga di stato rossa, non crash): salvataggio fallito
   **"❌ Salvataggio profilo fallito: …"**, caricamento/eliminazione falliti con messaggio
   analogo. Esiti positivi in verde (**"✅ Profilo … salvato/caricato"**).
+- **Refresh cross-scheda al caricamento profilo:** applicare un profilo cambia `config.json`,
+  quindi le altre schede Strumenti già aperte (Provider, Chat sorgenti, Mapping, Betfair Sync)
+  vengono **ricaricate dal disco** in automatico (`ProviderPanel.refresh()` e simili), così un
+  loro Salva successivo non riscrive lo stato vecchio sopra il profilo (per Chat sorgenti
+  eviterebbe di reindebolire il filtro chat). Se una scheda **non riesce** a ricaricarsi il
+  caricamento del profilo **non** viene bloccato, ma nel log dell'app compare l'avviso
+  **"⚠️ Scheda &lt;nome&gt; non aggiornata dal profilo (mostra ancora i valori precedenti): …"**
+  — l'utente sa che quella tab è stantia invece di crederla aggiornata.
 
 ### 7.5 🗺️ Mapping (`name_mapping_gui.py`) — 2 sotto-tab
 - **⚽ Calcio (Dizionario nomi squadra):** profilo (Nuovo/Rinomina/Elimina) + tabella
