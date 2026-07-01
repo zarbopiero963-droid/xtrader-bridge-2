@@ -99,6 +99,12 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows):
                 tracker.restore_state(tracker_snap)
                 if daily is not None and daily_snap is not None:
                     daily.restore_state(daily_snap)
+            elif tracker is not None:
+                # Shadow cross-schema (#281): oltre all'hash-messaggio (registrato da `evaluate`),
+                # segna anche la chiave PER-RIGA di questa riga. Così se il parser passa a
+                # multi-riga a runtime, un retry dello stesso segnale è riconosciuto come
+                # duplicato dal percorso multi (per-riga) → niente doppia scrittura al confine.
+                tracker.mark_seen(signal_dedupe.row_dedup_key(text, row))
     elif tracker is not None and decision == live_guard.DAILY_LIMITED:
         # `evaluate` aveva registrato l'hash nel tracker (segnale NEW) ma `daily.allow()` ha
         # RIFIUTATO **senza consumare** una slot — ha solo (eventualmente) normalizzato il giorno
@@ -162,6 +168,7 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
 
     decisions = []
     accepted_rows = []
+    cap_blocked_any = False               # almeno una riga WRITE respinta dal tetto max_active
     for row in rows:
         if tracker is None:
             # Chiamanti senza guardrail (test): accetta direttamente (cap rispettato in append).
@@ -170,6 +177,8 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
                 accepted_rows.append(row)
             elif queue.add(row, now=now) is not None:
                 accepted_rows.append(row)
+            else:
+                cap_blocked_any = True
             continue
         key = signal_dedupe.row_dedup_key(text, row)
         row_tracker_snap = tracker.state()
@@ -185,6 +194,7 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
                     accepted_rows.append(row)
                 else:
                     # Oltre max_active: riga NON accodata → rollback guardrail (ritentabile).
+                    cap_blocked_any = True
                     tracker.restore_state(row_tracker_snap)
                     if daily is not None and row_daily_snap is not None:
                         daily.restore_state(row_daily_snap)
@@ -203,17 +213,31 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
         return CommitResult(decision=live_guard.DRY_RUN, blocked_by_cap=False,
                             rows=[], write_error=None)
 
-    # Nessuna riga accettata (tutte soppresse): NON toccare il CSV operativo (come il single-row
-    # su DUPLICATE — XTrader non deve riconsumare righe identiche riscritte). Ripristina la coda
-    # (annulla l'expire) e riporta l'esito di soppressione.
+    # Nessuna riga accettata. Due sotto-casi (Codex #281):
     if not accepted_rows:
-        queue.restore_state(queue_snap)
+        queue.restore_state(queue_snap)          # CSV invariato: coda allineata al disco (annulla expire)
+        if cap_blocked_any:
+            # Almeno una riga era WRITE ma OLTRE il tetto `max_active` (append) e nessuna è
+            # stata scritta → SEGNALA il cap all'operatore (come il single-row), non un WRITE
+            # riuscito a 0 righe. `_process` mostra il percorso «tetto raggiunto» e riprogramma
+            # la scadenza così una riga si libera e il segnale potrà passare.
+            return CommitResult(decision=live_guard.WRITE, blocked_by_cap=True,
+                                rows=queue.active_rows(), write_error=None)
+        # Tutte soppresse (duplicati/limiti): NON toccare il CSV operativo (come il single-row su
+        # DUPLICATE — XTrader non deve riconsumare righe identiche riscritte).
         return CommitResult(decision=_summary_decision(decisions, 0), blocked_by_cap=False,
                             rows=[], write_error=None)
 
     # OVERWRITE_LAST: l'ultima istruzione è il BLOCCO intero del messaggio (tutte le righe).
     if overwrite:
         queue.replace_block(accepted_rows, now=now)
+
+    # Shadow cross-schema (#281): registra anche l'hash-messaggio accanto alle chiavi per-riga,
+    # così se il parser torna single-row a runtime un retry dello stesso messaggio è riconosciuto
+    # come duplicato dal percorso single (message-hash) → niente doppia scrittura al confine. Va
+    # PRIMA della write: se la scrittura fallisce, il rollback di `tracker_snap` lo annulla.
+    if tracker is not None:
+        tracker.mark_seen(signal_dedupe.message_hash(text))
 
     active = queue.active_rows()
     try:

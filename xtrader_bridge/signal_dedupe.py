@@ -161,6 +161,23 @@ class SignalTracker:
         self._seen.append((h, now))
         return RegisterResult(NEW, h)
 
+    def mark_seen(self, key: str, *, now: float = None) -> None:
+        """Registra `key` come 'vista' SENZA valutarne dedup/rate-limit né restituire un esito.
+
+        Serve a registrare una chiave **SHADOW** dell'ALTRO schema di deduplica (#192/#281):
+        un commit MULTI registra anche l'hash-messaggio, un commit SINGLE anche la chiave
+        PER-RIGA. Così se il parser cambia modalità a runtime (single↔multi) un retry dello
+        stesso segnale è riconosciuto come duplicato da ENTRAMBI gli schemi → niente doppia
+        scrittura al confine tra i due. No-op se la chiave è già nella finestra (non gonfia lo
+        stato) e NON conta verso il limite/minuto (è una registrazione ausiliaria, non un
+        nuovo segnale)."""
+        now = time.time() if now is None else validators.require_finite_now(now)
+        self._prune(now)
+        dedupe_cutoff = now - self.dedupe_window
+        if any(hh == str(key) and t >= dedupe_cutoff for (hh, t) in self._seen):
+            return
+        self._seen.append((str(key), now))
+
     # ── persistenza (riconoscimento duplicati dopo un riavvio) ───────────────
 
     def state(self) -> list:
