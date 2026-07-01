@@ -6,10 +6,13 @@ selezioni), filtro «solo attivi», conteggi, formattazione celle e livello non 
 Nessuna GUI, nessuna rete: DB in memoria.
 """
 
+import threading
+
 import pytest
 
 from xtrader_bridge.betfair.dictionary_viewer import (
     Debouncer,
+    DictionaryBusy,
     DictionaryViewerController,
     LEVELS,
     LEVEL_LABELS,
@@ -319,3 +322,72 @@ def test_last_seen_at_valorizzato_nelle_righe(db):
     idx = cols.index("Ultima sync")
     # il marker della sync è > 0 e viene mostrato come stringa non vuota
     assert all(r[idx] == str(m) for r in v["rows"])
+
+
+# ── #175 (Codex P2): fail-fast del viewer se una sync Betfair tiene il lock del DB ──────
+# La sync (`_sync_in_transaction`) tiene `db.transaction()` — quindi il lock del DB —
+# ATTRAVERSO le chiamate di rete del catalogue. Il viewer gira sul thread Tk: se leggesse
+# bloccando sul lock, la GUI freezerebbe fino a fine sync. `view_if_free` fa fail-fast.
+
+def test_view_if_free_uguale_a_view_quando_db_libero(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    # DB libero: stessa vista di `view` (nessun effetto collaterale, lock rilasciato).
+    assert ctrl.view_if_free("events") == ctrl.view("events")
+    # e resta richiamabile subito dopo (lock rilasciato correttamente).
+    assert ctrl.view_if_free("sports")["total"] == 2
+
+
+def test_view_if_free_fail_fast_se_sync_tiene_il_lock(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    holding = threading.Event()
+    release = threading.Event()
+
+    def _holder():
+        # Simula una sync che tiene il lock del DB attraverso una chiamata di rete lenta:
+        # `transaction()` acquisisce lo stesso RLock su cui il viewer bloccherebbe.
+        with db.transaction():
+            holding.set()
+            release.wait(2)
+
+    t = threading.Thread(target=_holder, name="fake-sync")
+    t.start()
+    try:
+        assert holding.wait(2)                       # la "sync" ora tiene il lock
+        # Il viewer NON deve bloccare: fail-fast con DictionaryBusy invece di attendere.
+        with pytest.raises(DictionaryBusy):
+            ctrl.view_if_free("events")
+    finally:
+        release.set()
+        t.join(2)
+    assert not t.is_alive()
+    # Rilasciato il lock, il viewer torna a leggere normalmente.
+    assert ctrl.view_if_free("events")["total"] == 2
+
+
+def test_acquire_read_non_bloccante_riflette_il_lock(db):
+    # Copertura diretta del primitivo: acquire_read(blocking=False) è False mentre un ALTRO
+    # thread tiene il lock, True quando è libero (e va bilanciato con release_read).
+    got = db.acquire_read(blocking=False)
+    assert got is True
+    db.release_read()
+
+    holding = threading.Event()
+    release = threading.Event()
+
+    def _holder():
+        with db.transaction():
+            holding.set()
+            release.wait(2)
+
+    t = threading.Thread(target=_holder, name="fake-sync2")
+    t.start()
+    try:
+        assert holding.wait(2)
+        assert db.acquire_read(blocking=False) is False   # occupato: non blocca, ritorna False
+    finally:
+        release.set()
+        t.join(2)
+    assert db.acquire_read(blocking=False) is True         # libero di nuovo
+    db.release_read()

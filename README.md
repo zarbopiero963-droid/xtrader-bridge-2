@@ -196,6 +196,17 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 > Una `config.json` corrotta viene messa da parte come `.bak` e il bridge riparte
 > dai default sicuri. Le chiavi mancanti ereditano sempre il default.
 
+### 📖 Dizionario Betfair (consultazione, sola lettura)
+
+Dalla finestra **"🧰 Strumenti" → scheda "📖 Dizionario Betfair"** puoi **consultare** il
+dizionario Betfair locale (Sport → Competizioni → Eventi → Mercati → Selezioni) sincronizzato
+sul PC. Scegli il **Livello** e il **Sport**, spunta **"Solo attivi"**, **cerca** per nome o
+ID e premi **"🔄 Aggiorna"**. È una vista **di sola lettura**: non modifica il dizionario,
+non piazza scommesse e non fa rete (la sincronizzazione avviene solo dalla scheda **🔵 Betfair
+Sync**). Se apri o aggiorni la scheda **mentre è in corso una sincronizzazione Betfair**, la
+riga conteggi mostra **"⏳ Dizionario in aggiornamento…"** e la GUI **non si blocca**: attendi
+la fine della sync e premi di nuovo **"🔄 Aggiorna"**.
+
 ---
 
 ## Più chat sorgenti (multi-chat)

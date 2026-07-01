@@ -191,6 +191,21 @@ class BetfairLocalDB:
 
         return _Tx()
 
+    def acquire_read(self, *, blocking: bool = False) -> bool:
+        """Acquisisce il lock del DB per una LETTURA di sola consultazione (viewer del
+        dizionario). Con ``blocking=False`` NON attende: ritorna ``False`` se una sync
+        Betfair tiene ora il lock — `transaction()` lo mantiene attraverso le chiamate di
+        rete del catalogue — invece di bloccare il chiamante. Il viewer gira sul thread Tk,
+        quindi bloccare freezerebbe la GUI finché la sync di rete non finisce (Codex #175).
+        Va SEMPRE bilanciato con `release_read()` (vedi
+        `DictionaryViewerController.view_if_free`)."""
+        return self._lock.acquire(blocking=blocking)
+
+    def release_read(self) -> None:
+        """Rilascia il lock preso da `acquire_read` (RLock rientrante: un release per ogni
+        acquire)."""
+        self._lock.release()
+
     def _migrate(self) -> None:
         """Migrazioni idempotenti per DB creati da versioni precedenti dello schema.
 

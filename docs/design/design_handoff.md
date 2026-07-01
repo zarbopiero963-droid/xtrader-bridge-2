@@ -329,6 +329,13 @@ Titolo **"🔵  Dizionario Betfair (locale, sola lettura)"**. Browser gerarchico
 Sport→Competizioni→Eventi→Mercati→Selezioni con filtro **Livello**, filtro **Sport**,
 checkbox **"Solo attivi"**, **"🔄 Aggiorna"**, ricerca (con **"Pulisci"**), riga conteggi,
 tabella risultati.
+- **Stati della riga conteggi** (label sopra la tabella):
+  - *normale:* `<Livello>: N totali, M attivi (mostrate K righe).`;
+  - *DB non disponibile:* **"⚠️ Dizionario non disponibile (DB locale non apribile)."**;
+  - *dizionario occupato* (una **sincronizzazione Betfair è in corso** e tiene il lock del DB):
+    **"⏳ Dizionario in aggiornamento (sincronizzazione Betfair in corso): premi 🔄 Aggiorna
+    tra poco."** — la vista fa **fail-fast** e **non** blocca/freeze la GUI durante la sync;
+  - *errore di lettura:* **"⚠️ Errore lettura dizionario: &lt;Tipo&gt;"**.
 
 ---
 

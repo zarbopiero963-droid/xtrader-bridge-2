@@ -94,6 +94,14 @@ def _format_cell(col: str, value) -> str:
     return str(value)
 
 
+class DictionaryBusy(Exception):
+    """Il dizionario è temporaneamente occupato da una sincronizzazione Betfair in corso.
+
+    Il viewer (sola lettura, thread Tk) fa **fail-fast** con questa eccezione invece di
+    bloccarsi sul lock del DB, che `transaction()` tiene attraverso le chiamate di rete del
+    catalogue: bloccare freezerebbe la GUI finché la sync non finisce/scade (Codex #175)."""
+
+
 class DictionaryViewerController:
     """Interroga il dizionario locale per la sola consultazione. `db` è un
     `BetfairLocalDB` (iniettabile nei test). Nessuna scrittura, nessuna rete."""
@@ -187,6 +195,26 @@ class DictionaryViewerController:
         rows = [[_format_cell(c, r.get(c)) for c, _ in cols] for r in shown]
         return {"columns": [h for _, h in cols], "rows": rows,
                 "total": total, "active": active}
+
+    def view_if_free(self, level: str, sport=None, active_only: bool = False,
+                     search=None, filters=None) -> dict:
+        """Come `view`, ma NON blocca il chiamante se una sync Betfair tiene ora il lock del
+        DB: prova ad acquisirlo **senza attesa** e, se è occupato, solleva `DictionaryBusy`
+        invece di bloccare. Se libero, tiene il lock per l'INTERA lettura (vista coerente,
+        nessuna sync può interlacciarsi) e lo rilascia all'uscita.
+
+        Serve al viewer del dizionario, che gira sul **thread Tk**: senza fail-fast, aprire o
+        aggiornare la scheda durante una sync bloccherebbe la GUI sul lock del DB — tenuto
+        attraverso le chiamate di rete del catalogue — finché la rete non finisce/scade
+        (Codex #175). L'RLock è rientrante, quindi i metodi di lettura interni (`view` →
+        `fetchall`/`market_ids_for_sports`) lo riacquisiscono senza deadlock."""
+        if not self.db.acquire_read(blocking=False):
+            raise DictionaryBusy()
+        try:
+            return self.view(level, sport=sport, active_only=active_only,
+                             search=search, filters=filters)
+        finally:
+            self.db.release_read()
 
     def counts(self, sport=None) -> dict:
         """Conteggi per livello (in scope sport): ``{level: {"total": n, "active": n}}``.
