@@ -71,14 +71,26 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows):
     if tracker is not None:
         tracker_snap = tracker.state()
         daily_snap = daily.state() if daily is not None else None
-        decision = live_guard.evaluate(cfg, tracker, daily, text)
+        # kyW #192: controllo cross-namespace PRE-scrittura. La dedup single-row è sull'hash-messaggio,
+        # ma la stessa riga può essere già stata scritta dal percorso MULTI (chiave per-riga) — anche
+        # da uno stato dedupe PERSISTITO da una versione precedente. Se la chiave per-riga è già vista,
+        # è un duplicato → non scrivere (fail-closed anti-doppia-scommessa), invece di controllare solo
+        # l'hash-messaggio che il percorso multi non registra.
+        if tracker.is_seen(signal_dedupe.row_dedup_key(text, row)):
+            decision = live_guard.DUPLICATE
+        else:
+            decision = live_guard.evaluate(cfg, tracker, daily, text)
 
     if decision == live_guard.WRITE:
         # Coda dei segnali attivi: expire dei già scaduti, add del nuovo, riscrittura
         # atomica di TUTTE le righe attive. Snapshot per il rollback su write fallita.
         queue_snap = queue.state()
         queue.expire(now=now)
-        sid = queue.add(row, now=now)
+        # Accoda la riga con la sua chiave PER-RIGA (provenienza): serve al commit MULTI di un
+        # eventuale passaggio di modalità a runtime (single→multi). In OVERWRITE_LAST `commit_signals`
+        # tiene una riga duplicata solo se la sua chiave è tra `queue.active_keys()`; senza questa
+        # chiave la riga già attiva verrebbe scartata dal blocco A+B (kyh + kyW #192, Codex).
+        sid = queue.add(row, now=now, dedup_key=signal_dedupe.row_dedup_key(text, row))
         # `add` ritorna None se il nuovo segnale è oltre il tetto (#136 p5): le righe
         # attive restano quelle correnti (post-expire), il CSV è comunque riscritto.
         blocked_by_cap = sid is None
@@ -99,6 +111,13 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows):
                 tracker.restore_state(tracker_snap)
                 if daily is not None and daily_snap is not None:
                     daily.restore_state(daily_snap)
+            elif tracker is not None:
+                # Scrittura REALE riuscita (single-row, dedup a hash-messaggio): ombreggia ANCHE la
+                # chiave PER-RIGA di questa riga (#192 kyW). Così un retry dello STESSO messaggio dopo
+                # una transizione del parser a MULTI-riga riconosce la riga già scritta come duplicato
+                # (la chiave per-riga di quella riga è già "vista"), invece di riscriverla → doppia
+                # scommessa. Lo shadow non conta verso il rate-limit (`mark_seen`).
+                tracker.mark_seen(signal_dedupe.row_dedup_key(text, row))
     elif tracker is not None and decision == live_guard.DAILY_LIMITED:
         # `evaluate` aveva registrato l'hash nel tracker (segnale NEW) ma `daily.allow()` ha
         # RIFIUTATO **senza consumare** una slot — ha solo (eventualmente) normalizzato il giorno
@@ -191,6 +210,19 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
     e i guardrail sono ripristinati. Se la scrittura fallisce, coda E guardrail tornano allo stato
     precedente. Per il single-row usare `commit_signal` (percorso legacy invariato)."""
     rows = list(rows or [])
+    # kyW #192: fallback cross-namespace PRE-scrittura per uno stato dedupe PERSISTITO da una versione
+    # precedente SOLO single-row (che ha registrato l'hash-messaggio ma NON le chiavi per-riga). Se
+    # l'hash-messaggio è già visto e NESSUNA delle chiavi per-riga di questo messaggio lo è, il
+    # messaggio è già stato processato come single-row → fail-closed: si sopprime l'intero blocco (non
+    # è possibile identificare quale riga corrispondesse), invece di riscriverlo → doppia scommessa. Se
+    # invece almeno una chiave per-riga è già vista, è un normale duplicato/espansione multi (gestito
+    # per-riga, così l'espansione A→A+B non viene soppressa).
+    if tracker is not None and rows:
+        row_keys = [signal_dedupe.row_dedup_key(text, r) for r in rows]
+        if tracker.is_seen(signal_dedupe.message_hash(text)) and \
+                not any(tracker.is_seen(k) for k in row_keys):
+            return CommitResult(decision=live_guard.DUPLICATE, blocked_by_cap=False,
+                                rows=[], write_error=None)
     tracker_snap = tracker.state() if tracker is not None else None
     daily_snap = (daily.state() if (tracker is not None and daily is not None) else None)
     queue_snap = queue.state()
@@ -307,5 +339,13 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
     # Si arriva qui solo dopo un CAMBIAMENTO reale (blocco OVERWRITE differente, o righe NUOVE in
     # append) e una scrittura riuscita → l'esito è WRITE (uno shrink OVERWRITE ha `new_rows` vuoto
     # ma HA scritto: non va riportato come DUPLICATE, altrimenti `_process` salterebbe il post-write).
+    if tracker is not None:
+        # Scrittura REALE riuscita (multi, dedup PER-RIGA): ombreggia ANCHE l'hash-messaggio (#192
+        # kyW). Così un retry dello STESSO messaggio dopo una transizione del parser a SINGLE-row —
+        # che deduplica sull'hash-messaggio, mai registrato dal percorso multi — riconosce il
+        # messaggio come già processato (DUPLICATE) invece di riscriverlo → doppia scommessa.
+        # Fail-closed a livello di messaggio: al più restrittivo, mai una scommessa doppia. Lo
+        # shadow non conta verso il rate-limit (`mark_seen`).
+        tracker.mark_seen(signal_dedupe.message_hash(text))
     return CommitResult(decision=live_guard.WRITE,
                         blocked_by_cap=False, rows=active, write_error=None)

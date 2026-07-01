@@ -128,9 +128,12 @@ def test_load_state_file_assente_lascia_invariato(tmp_path):
 
 def test_restore_state_tollera_voci_malformate():
     t = sd.SignalTracker()
-    t.restore_state([["hashvalido", 1000], "rotta", [1, 2, 3], ["altro", "nan?"]])
-    # solo la voce valida viene ripristinata
-    assert t.state() == [["hashvalido", 1000.0]]
+    # Voci: 2-elem legacy (→ real=True), stringa non-lista, lista troppo corta, timestamp non
+    # numerico, 3-elem nuovo formato con flag shadow esplicito.
+    t.restore_state([["hashvalido", 1000], "rotta", ["corta"], ["altro", "nan?"],
+                     ["shadow", 1002, False]])
+    # solo le voci valide vengono ripristinate (formato a 3 elementi [hash, ts, real])
+    assert t.state() == [["hashvalido", 1000.0, True], ["shadow", 1002.0, False]]
 
 
 def test_restore_state_scarta_timestamp_non_finiti():
@@ -145,7 +148,7 @@ def test_restore_state_scarta_timestamp_non_finiti():
         ["nan", float("nan")],
         ["buono2", 1001.5],
     ])
-    assert t.state() == [["buono", 1000.0], ["buono2", 1001.5]]   # solo i finiti
+    assert t.state() == [["buono", 1000.0, True], ["buono2", 1001.5, True]]   # solo i finiti
 
 
 def test_load_state_con_infinity_non_blocca_il_messaggio_per_sempre(tmp_path):
@@ -246,9 +249,9 @@ def test_prune_non_elimina_le_voci_datate_nel_futuro():
     Avrebbe i denti — se `_prune` aggiungesse un limite superiore `t <= now`, fallirebbe."""
     t = sd.SignalTracker(dedupe_window=300, max_per_minute=100)
     # voce registrata "nel futuro" (now più piccolo per skew all'indietro)
-    t._seen = [("hash_futuro", 5000.0)]
-    t._prune(now=1000.0)                       # now << timestamp memorizzato
-    assert ("hash_futuro", 5000.0) in t._seen   # NON pruneata
+    t._seen = [("hash_futuro", 5000.0, True)]
+    t._prune(now=1000.0)                          # now << timestamp memorizzato
+    assert ("hash_futuro", 5000.0, True) in t._seen   # NON pruneata
 
 
 def test_clock_indietro_voce_futura_blocca_ancora_il_duplicato():
@@ -271,3 +274,69 @@ def test_clock_in_avanti_e_finestra_transitoria_documentata():
     assert t.register(MSG, now=1000).status == sd.NEW
     # salto in avanti molto oltre la finestra (300s): la voce è invecchiata ed esce
     assert t.register(MSG, now=1000 + 10_000).status == sd.NEW
+
+
+# ── #192 kyW: mark_seen (dedup cross-namespace) ──────────────────────────────
+
+def test_mark_seen_blocca_duplicato_ma_non_conta_verso_il_rate_limit():
+    """#192 kyW: `mark_seen` marca una chiave come vista ai soli fini di dedup, SENZA consumare
+    capacità del limite/minuto. Con `max_per_minute=2`, un segnale reale + N marcatori shadow non
+    devono far scattare RATE_LIMITED su un secondo segnale reale distinto."""
+    t = sd.SignalTracker(dedupe_window=300, max_per_minute=2)
+    assert t.register("msg-reale-1", now=1000).status == sd.NEW      # 1 reale
+    for i in range(5):                                               # 5 shadow: NON contano
+        t.mark_seen(f"shadow-{i}", now=1000)
+    # secondo segnale reale distinto: reali nell'ultimo minuto = 1 (<2) → NEW, non RATE_LIMITED
+    assert t.register("msg-reale-2", now=1001).status == sd.NEW
+    # la chiave shadow è però riconosciuta come DUPLICATE (dedup cross-namespace)
+    assert t.register("qualsiasi", now=1002, key="shadow-3").status == sd.DUPLICATE
+
+
+def test_mark_seen_noop_se_gia_visto():
+    """`mark_seen` è idempotente e non declassa una registrazione reale a shadow."""
+    t = sd.SignalTracker()
+    t.register("m", now=1000)                                        # reale
+    real_key = sd.message_hash("m")
+    t.mark_seen(real_key, now=1001)                                  # già presente (reale) → no-op
+    t.mark_seen("nuova", now=1002)
+    t.mark_seen("nuova", now=1003)                                   # seconda volta → no-op
+    keys = [h for (h, _t, _r) in t._seen]
+    assert keys.count(real_key) == 1 and keys.count("nuova") == 1
+    # la voce reale resta reale (True), la shadow resta shadow (False)
+    flags = {h: r for (h, _t, r) in t._seen}
+    assert flags[real_key] is True and flags["nuova"] is False
+
+
+def test_mark_seen_shadow_sopravvive_al_riavvio():
+    """La distinzione reale/shadow è persistita: una shadow ripristinata da stato continua a
+    bloccare i duplicati (dedup) ma NON conta verso il rate-limit."""
+    t = sd.SignalTracker(dedupe_window=300, max_per_minute=1)
+    t.mark_seen("shadow-persistita", now=1000)
+    t2 = sd.SignalTracker(dedupe_window=300, max_per_minute=1)
+    t2.restore_state(t.state())
+    # dedup: la shadow blocca il duplicato…
+    assert t2.register("x", now=1001, key="shadow-persistita").status == sd.DUPLICATE
+    # …ma non ha consumato il tetto/minuto: un segnale reale distinto passa (reali=0 <1)
+    assert t2.register("reale-nuovo", now=1002).status == sd.NEW
+
+
+def test_mark_seen_rinfresca_marcatore_fuori_finestra():
+    """#192 kyW (Codex): con `dedupe_window < 60s` una chiave resta in `_seen` (conservata per il
+    rate-limit) anche dopo essere uscita dalla finestra di dedup. Una successiva `mark_seen` sulla
+    stessa chiave, ormai FUORI finestra, deve RINFRESCARLA — altrimenti una transizione di modalità
+    subito dopo la vedrebbe come NEW e il duplicato che questa patch blocca sfuggirebbe."""
+    t = sd.SignalTracker(dedupe_window=30, max_per_minute=100)
+    t.mark_seen("S", now=0)                          # primo shadow a t=0
+    # a t=40 "S" è fuori dalla finestra dedup (30) ma ancora presente in _seen (prune tiene 60s):
+    t.mark_seen("S", now=40)                         # deve RINFRESCARE, non essere un no-op
+    # ora "S" è di nuovo in finestra → un retry cross-namespace è DUPLICATE (niente doppia scommessa)
+    assert t.register("z", now=41, key="S").status == sd.DUPLICATE
+
+
+def test_restore_state_scarta_voce_dict_senza_crash():
+    """#192 kyW (Codex): una voce OGGETTO in `dedupe_state.json` (es. `[{}]` da manomissione) non
+    deve far crashare il ripristino (`item[0]` su un dict → KeyError). Va SCARTATA come le altre
+    voci malformate, lasciando il tracker con solo le voci valide — lo START non deve crashare."""
+    t = sd.SignalTracker()
+    t.restore_state([{}, {"x": 1}, ["buono", 1000], "rotta"])
+    assert t.state() == [["buono", 1000.0, True]]

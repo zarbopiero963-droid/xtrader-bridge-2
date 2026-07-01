@@ -721,3 +721,125 @@ def test_commit_signals_cap_pieno_autoraise_aggiunge_il_blocco(tmp_path):
     assert len(q.active_rows()) == 4
 
 
+
+
+# ── #192 kyW: dedup cross-namespace alla transizione di modalità del parser ────
+
+def test_transizione_single_a_multi_blocca_riga_gia_scritta(tmp_path):
+    """#192 kyW: un messaggio prima scritto come SINGLE-row (dedup a hash-messaggio) e poi — dopo
+    che l'operatore abilita una riga multi — ritentato come MULTI non deve riscrivere la riga già
+    piazzata. Il commit single-row ombreggia la chiave PER-RIGA della sua riga (`mark_seen`), così
+    il commit multi la riconosce come duplicato e scrive solo le righe NUOVE."""
+    path = str(tmp_path / "s.csv")
+    rows = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0", "2 - 1"]), MSG, mode="NAME_ONLY"))
+    row_a, row_b = rows[0], rows[1]
+    tracker = signal_dedupe.SignalTracker()
+    q1 = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    r1 = write_path.commit_signal(tracker, None, q1, _cfg(path), MSG, row_a, path, now=0,
+                                  write_rows=csv_writer.write_rows)
+    assert r1.decision == live_guard.WRITE
+    # MULTI (stesso messaggio, ora row_a + row_b): row_a già vista (shadow per-riga) → solo row_b.
+    q2 = signal_queue.SignalQueue(mode=signal_queue.APPEND_ACTIVE, default_timeout=120)
+    write_path.commit_signals(tracker, None, q2, _cfg(path), MSG, [row_a, row_b], path, now=1,
+                              write_rows=csv_writer.write_rows)
+    assert [x["SelectionName"] for x in q2.active_rows()] == ["2 - 1"]   # solo la riga NUOVA
+
+
+def test_transizione_multi_a_single_blocca_messaggio_gia_processato(tmp_path):
+    """#192 kyW: un messaggio prima scritto come MULTI (dedup PER-RIGA) e poi ritentato come
+    SINGLE-row (dedup a hash-messaggio, MAI registrato dal percorso multi) non deve riscriverlo. Il
+    commit multi ombreggia l'hash-messaggio (`mark_seen`), così il single-row lo riconosce come
+    duplicato — anti-doppia-scommessa alla transizione di modalità."""
+    path = str(tmp_path / "s.csv")
+    rows = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0", "2 - 1"]), MSG, mode="NAME_ONLY"))
+    tracker = signal_dedupe.SignalTracker()
+    q1 = signal_queue.SignalQueue(mode=signal_queue.APPEND_ACTIVE, default_timeout=120)
+    r1 = write_path.commit_signals(tracker, None, q1, _cfg(path), MSG, rows, path, now=0,
+                                   write_rows=csv_writer.write_rows)
+    assert r1.decision == live_guard.WRITE and len(q1.active_rows()) == 2
+    assert tracker.is_seen(signal_dedupe.message_hash(MSG))   # il multi ha ombreggiato l'hash-messaggio
+    q2 = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    calls = []
+
+    def _spy(rows_, path_):
+        calls.append(list(rows_))
+        csv_writer.write_rows(rows_, path_)
+
+    # Retry single-row con una riga la cui CHIAVE PER-RIGA NON è stata registrata dal multi: così il
+    # blocco può venire SOLO dallo shadow dell'hash-messaggio (CodeRabbit), non dal precheck per-riga.
+    single_retry_row = dict(rows[0])
+    single_retry_row["SelectionName"] = "__retry_riga_non_ancora_vista__"
+    assert not tracker.is_seen(signal_dedupe.row_dedup_key(MSG, single_retry_row))
+    r2 = write_path.commit_signal(tracker, None, q2, _cfg(path), MSG, single_retry_row, path, now=1,
+                                  write_rows=_spy)
+    assert r2.decision == live_guard.DUPLICATE      # hash-messaggio ombreggiato dal commit multi
+    assert calls == []                              # nessuna riscrittura (niente doppia scommessa)
+
+
+def test_transizione_single_a_multi_overwrite_preserva_riga_attiva(tmp_path):
+    """#192 kyW (Codex): in OVERWRITE_LAST, col bridge già in esecuzione, una riga scritta come
+    single-row resta in coda; abilitando il multi lo STESSO messaggio produce A+B. La riga A (ora
+    DUPLICATE per lo shadow kyW) deve restare ATTIVA nel blocco (A+B), non essere scartata lasciando
+    solo B — la single-row deve aver accodato A con la sua chiave per-riga (provenienza), così
+    `commit_signals` (kyh) la riconosce fra le righe ancora attive."""
+    path = str(tmp_path / "s.csv")
+    rows = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0", "2 - 1"]), MSG, mode="NAME_ONLY"))
+    row_a, row_b = rows[0], rows[1]
+    tracker = signal_dedupe.SignalTracker()
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    write_path.commit_signal(tracker, None, q, _cfg(path), MSG, row_a, path, now=0,
+                             write_rows=csv_writer.write_rows)
+    assert [x["SelectionName"] for x in q.active_rows()] == ["1 - 0"]
+    # MULTI sulla STESSA coda: A è duplicata (shadow) ma ancora attiva → blocco A+B, A NON scartata.
+    write_path.commit_signals(tracker, None, q, _cfg(path), MSG, [row_a, row_b], path, now=1,
+                              write_rows=csv_writer.write_rows)
+    assert [x["SelectionName"] for x in q.active_rows()] == ["1 - 0", "2 - 1"]
+
+
+def test_transizione_stato_multi_persistito_blocca_single(tmp_path):
+    """#192 kyW (Codex): stato dedupe PERSISTITO dal percorso MULTI (solo chiavi per-riga). Dopo un
+    passaggio a single-row, un retry dello stesso segnale deve risultare DUPLICATE PRIMA della
+    scrittura (controllo cross-namespace sulla chiave per-riga), non essere riscritto → doppia
+    scommessa."""
+    path = str(tmp_path / "s.csv")
+    row_a = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0"]), MSG, mode="NAME_ONLY"))[0]
+    tracker = signal_dedupe.SignalTracker()
+    tracker.register(MSG, key=signal_dedupe.row_dedup_key(MSG, row_a))   # stato "persistito" dal multi
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    calls = []
+
+    def _spy(rows_, path_):
+        calls.append(list(rows_))
+        csv_writer.write_rows(rows_, path_)
+
+    res = write_path.commit_signal(tracker, None, q, _cfg(path), MSG, row_a, path, now=1,
+                                   write_rows=_spy)
+    assert res.decision == live_guard.DUPLICATE
+    assert calls == []                              # niente scrittura (niente doppia scommessa)
+
+
+def test_transizione_stato_single_persistito_blocca_multi(tmp_path):
+    """#192 kyW (Codex): stato dedupe PERSISTITO dal percorso SINGLE-row (solo hash-messaggio, tipico
+    di un upgrade da versione pre-kyW). Dopo un passaggio a multi-riga, un retry dello stesso
+    messaggio deve essere soppresso (fail-closed) PRIMA della scrittura, non riscritto → doppia
+    scommessa."""
+    path = str(tmp_path / "s.csv")
+    rows = _rows(pipe.build_validated_rows(
+        _multiselection_parser_with(["1 - 0", "2 - 1"]), MSG, mode="NAME_ONLY"))
+    tracker = signal_dedupe.SignalTracker()
+    tracker.register(MSG)                           # stato "persistito" dal single: solo hash-messaggio
+    q = signal_queue.SignalQueue(mode=signal_queue.APPEND_ACTIVE, default_timeout=120)
+    calls = []
+
+    def _spy(rows_, path_):
+        calls.append(list(rows_))
+        csv_writer.write_rows(rows_, path_)
+
+    res = write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows, path, now=1,
+                                    write_rows=_spy)
+    assert res.decision == live_guard.DUPLICATE
+    assert calls == [] and q.active_rows() == []    # blocco soppresso, nessuna scrittura

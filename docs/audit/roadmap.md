@@ -826,11 +826,22 @@ dedupe/coda:
   intero; ogni riga scade comunque per timeout (nessun segnale immortale) e la modalità APPEND è
   un'opzione avanzata non-default (il default `OVERWRITE_LAST` tiene un solo blocco alla volta).
 
-**Deferito alla PR dedicata (kyW).** La riconciliazione **cross-namespace** della dedupe alla
-**transizione di modalità a runtime** (parser multi→single o single→multi: le due dedupe usano
-namespace diversi — hash-messaggio vs chiave per-riga — quindi un cambio di modalità può far
-sfuggire un duplicato). Il tentativo di shadow cross-registration su #281 è stato **revertato**
-perché inquinava il rate-limit; verrà rifatto in kyW senza contaminare il conteggio al minuto.
+**kyW — riconciliazione cross-namespace della dedupe alla transizione di modalità (RISOLTO, PR
+dedicata post-#281).** Le due dedupe usano namespace diversi — hash-messaggio (single-row) vs
+chiave per-riga (multi) — quindi un cambio di modalità del parser a runtime (multi→single o
+single→multi) poteva far sfuggire un duplicato → doppia scommessa. Il tentativo di shadow su #281
+era stato revertato perché inquinava il rate-limit. **Fix definitivo:** `SignalTracker` distingue
+ora voci **reali** (contano verso il limite/minuto) e **shadow** (solo dedup): il nuovo
+`mark_seen(key)` registra un marcatore shadow che **non** consuma capacità/minuto, ed è no-op se la
+chiave è già presente. Dopo una scrittura reale, `commit_signal` (single) ombreggia la **chiave
+per-riga** della riga, e `commit_signals` (multi) ombreggia l'**hash-messaggio**: così un retry
+dello stesso messaggio dopo un cambio di modalità è riconosciuto come `DUPLICATE`. Fail-closed
+(al più restrittivo, mai una doppia scommessa). Lo stato serializza il flag reale/shadow
+(retro-compatibile coi vecchi state a 2 elementi → reale). Test hard fail-first:
+`tests/unit/test_signal_dedupe.py` (`test_mark_seen_blocca_duplicato_ma_non_conta_verso_il_rate_limit`,
+`test_mark_seen_noop_se_gia_visto`, `test_mark_seen_shadow_sopravvive_al_riavvio`) e
+`tests/unit/test_multirow_192.py` (`test_transizione_single_a_multi_blocca_riga_gia_scritta`,
+`test_transizione_multi_a_single_blocca_messaggio_gia_processato`).
 
 **Test hard:** `tests/unit/test_multirow_192.py`
 (`test_overwrite_last_preserva_riga_attiva_su_espansione`,
