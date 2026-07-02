@@ -127,15 +127,20 @@ _WRAPPED_PREFIX = (
     r"|(?:^|[\s;&|(])(?:&\s*)?[\"']?(?:[^\s\"']*[\\/])?"
     # `cmd` può avere switch documentati PRIMA di /c (`/d /s /c`, `/v:on /c` — Codex P2,
     # 4° giro): gruppo `/x[:val]` ripetuto prima del /c|/k finale.
-    r"(?:cmd(?:\.exe)?[\"']?\s+(?:/\w+(?::\w+)?\s+)*/[ck]\s+"
+    # …e anche DOPO /c, prima del comando (`cmd /c /d pyinstaller` — Codex P2, 5° giro)
+    r"(?:cmd(?:\.exe)?[\"']?\s+(?:/\w+(?::\w+)?\s+)*/[ck]\s+(?:/\w+(?::\w+)?\s+)*"
     r"|(?:powershell|pwsh)(?:\.exe)?[\"']?\s+(?:-\w+(?:\s+[\w.:\\/-]+)?\s+)*"
     r"|(?:ba|z|da)?sh[\"']?\s+-c\s+)"
     r"""["']?\s*(?:&\s*)?["']?"""
     r"(?:(?:[^\s\"']*[\\/])?pyinstaller(?:\.exe)?\b"
-    r"|python(?:\.exe)?\s+-m\s+pyinstaller\b)")
+    # anche il python della forma modulo può essere qualificato/venv
+    # (`.venv\Scripts\python.exe -m PyInstaller` — Codex P2, 5° giro)
+    r"|(?:[^\s\"']*[\\/])?python(?:\.exe)?[\"']?\s+-m\s+pyinstaller\b)")
 _PYINSTALLER_DETECT = re.compile(
     _CLI_PREFIX
-    + r"""|^\s*&?\s*["']?python(?:\.exe)?["']?\s+-m\s+pyinstaller\b"""
+    # il python DIRETTO può essere qualificato/venv (stessa classe del 5° giro Codex,
+    # coperta d'anticipo): `& ".venv\Scripts\python.exe" -m PyInstaller …`
+    + r"""|^\s*&?\s*["']?(?:[^\s"']*[\\/])?python(?:\.exe)?["']?\s+-m\s+pyinstaller\b"""
     r"|pyinstaller\.__main__"
     r"|(?:^|\s)import\s+pyinstaller\b"
     r"|from\s+pyinstaller\s+import"
@@ -154,8 +159,10 @@ _PYTEST_ANY = re.compile(r"(?<![\w-])pytest\b", re.IGNORECASE)
 # grafia — Codex P2 su #297), variabile cmd (`%VAR%`) o SPLATTING PowerShell (`@extra`,
 # token che inietta parametri da una variabile — Codex P2, 2° giro). Un argomento
 # dinamico sfugge a ogni allowlist statica del gate (#296, audit #242/PR#177, Codex).
+# `%VAR%` copre anche le forme AVANZATE di cmd (`%VAR:~0,200%`, `%VAR:a=b%` — Codex P2,
+# 5° giro): dopo il nome è ammesso un suffisso `:…` qualsiasi fino al `%` di chiusura.
 _DYNAMIC_ARG = re.compile(
-    r"\$\{\{[^}]*\}\}|\$\([^)]*\)|\$\{?\w+\}?|%\w+%|!\w+!|(?:^|(?<=\s))@[\w.]+")
+    r"\$\{\{[^}]*\}\}|\$\([^)]*\)|\$\{?\w+\}?|%\w+(?::[^%\s]*)?%|!\w+!|(?:^|(?<=\s))@[\w.]+")
 # Comando che RESETTA l'exit code a successo: `exit 0` in QUALSIASI posizione a/da la
 # riga del pytest (anche condizionale, es. `if ($LASTEXITCODE -ne 0) { exit 0 }` — Codex
 # P2, 3° giro) o `true` come comando a sé/concatenato: renderebbe verde uno step coi
@@ -447,6 +454,9 @@ def test_argomenti_dinamici_rilevati():
     assert _dynamic_args("pyinstaller --onefile @extra main.py") == ["@extra"]
     # delayed expansion cmd `!FLAGS!` (Codex P2, 3° giro)
     assert _dynamic_args("pyinstaller --onefile !FLAGS! main.py") == ["!FLAGS!"]
+    # percent expansion AVANZATA di cmd (Codex P2, 5° giro)
+    assert _dynamic_args("pyinstaller %FLAGS:~0,200% main.py") == ["%FLAGS:~0,200%"]
+    assert _dynamic_args("pyinstaller %PATH:str1=str2% main.py")
     assert _dynamic_args("pyinstaller --onefile --paths . main.py") == []
 
 
@@ -474,6 +484,11 @@ def test_build_wrappate_rilevate_e_rifiutate():
         # switch di cmd PRIMA di /c (Codex P2, 4° giro)
         "cmd /d /s /c pyinstaller --onefile main.py",
         "cmd /v:on /c pyinstaller --onefile main.py",
+        # switch di cmd DOPO /c (Codex P2, 5° giro)
+        "cmd /c /d pyinstaller --onefile main.py",
+        # python QUALIFICATO/venv, wrappato e diretto (Codex P2, 5° giro)
+        'pwsh -Command "& .\\.venv\\Scripts\\python.exe -m PyInstaller --onefile main.py"',
+        '& ".venv\\Scripts\\python.exe" -m PyInstaller --onefile main.py',
         "sh -c 'pyinstaller --onefile main.py'",
         "bash -c 'pyinstaller --onefile main.py'",
     ]
