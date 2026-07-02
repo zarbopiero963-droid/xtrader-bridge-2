@@ -420,6 +420,12 @@ Note:
 - **`Stake`** **non** è una colonna del CSV: lo stake è gestito in XTrader.
 - **Non esiste** una colonna `Timestamp`: la deduplica è interna al bridge.
 - **`Points`** è lasciato vuoto; **`Handicap`** vale `0`.
+- **Separatore decimale del prezzo** (`Price`/`MinPrice`/`MaxPrice`): il bridge normalizza
+  sempre a **punto**. Quota con la **virgola** → convertita (`1,85` → `1.85`); col punto →
+  invariata. Con **entrambi** i separatori l'ultimo è il decimale e l'altro le migliaia,
+  ma **solo** se il raggruppamento è valido (`1.234,56` → `1234.56`); un doppio separatore
+  **malformato** (es. `1.2,3`) **non** viene "aggiustato": il segnale è **scartato**
+  (`INVALID_PRICE`), per non scrivere un prezzo sbagliato ma plausibile.
 - Encoding **UTF-8 con BOM**, tutti i valori tra virgolette (`QUOTE_ALL`).
 - XTrader valida con `MarketId + SelectionId` **oppure** `EventName + MarketType +
   SelectionName`. Usando i nomi, la lingua del CSV deve coincidere con quella della
