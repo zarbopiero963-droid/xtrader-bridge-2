@@ -217,6 +217,12 @@ class App(ctk.CTk):
         # crash-recovery (falso positivo), mentre una riga stantia reale di una sessione morta sì.
         self._csv_had_active_row = has_active_row(
             str((self._config or {}).get("csv_path", "") or "").strip())
+        # Codex P1 #300: True quando il CSV su disco può essere STANTIO rispetto alla coda
+        # (una riscrittura post-conferma/post-scadenza è fallita e il retry breve non è
+        # ancora riuscito). Finché è True, anche un segnale BLOCCATO dal tetto risincronizza
+        # il disco in `_process` (il ramo cap rimpiazza il timer del retry: senza questa
+        # risincronizzazione la riga confermata resterebbe su disco fino alla scadenza).
+        self._csv_dirty = False
 
         self._build_ui()
         self._update_real_mode_banner(self._config)   # banner REALE all'avvio se persistito (#136 p4)
@@ -1683,6 +1689,7 @@ class App(ctk.CTk):
         # perché XTrader teneva il file lockato), è QUESTO init_csv a rimuoverla → registra il clear
         # prima del START, altrimenti il diario avrebbe un CSV_WRITTEN senza il clear corrispondente.
         self._journal_csv_cleared_if_had_row("CSV_CLEARED", reason="start")
+        self._csv_dirty = False   # nuova sessione: CSV a solo header, allineato alla coda
 
         # Nuovo epoch PRIMA di marcare la sessione attiva (#53): un vecchio supervisor in backoff
         # (sessione precedente) valuta `_is_current()` = `_running and _listener_epoch == epoch`.
@@ -2173,9 +2180,13 @@ class App(ctk.CTk):
                 return
             if not is_multi:
                 # Parser single-row (legacy): dedup a hash-messaggio, comportamento bit-identico.
+                # `disk_dirty` (Codex P1 #300): se una riscrittura precedente è fallita (retry
+                # pendente), il ramo cap-senza-scaduti non deve saltare la risincronizzazione.
+                # `__dict__.get`: robusto per le istanze headless di test senza `__init__`.
                 commit = write_path.commit_signal(
                     self._tracker, self._daily, self._queue,
-                    cfg, text, row, path, now, write_rows)
+                    cfg, text, row, path, now, write_rows,
+                    disk_dirty=bool(self.__dict__.get("_csv_dirty")))
             else:
                 # #192: parser multi-riga → dedup PER-RIGA + scrittura atomica di TUTTE le righe
                 # del messaggio (anche se ORA è una sola: provenienza multi preservata).
@@ -2188,6 +2199,11 @@ class App(ctk.CTk):
             # falsificare il recovery di un CSV bloccato.
             csv_lock_event = self._record_csv_lock(
                 commit.write_attempted, commit.write_error)
+            if commit.write_attempted and commit.write_error is None:
+                # Scrittura riuscita → il disco è di nuovo allineato alla coda (Codex P1 #300).
+                # Su write fallita il commit ha fatto rollback (coda == disco com'era prima),
+                # quindi lo stato dirty precedente resta valido e non va toccato.
+                self._csv_dirty = False
         decision = commit.decision
         blocked_by_cap = commit.blocked_by_cap
         rows = commit.rows
@@ -2354,6 +2370,10 @@ class App(ctk.CTk):
                     write_error = ex
                 # #153 H2: esito lock CSV serializzato con la scrittura (Codex #156).
                 csv_lock_event = self._record_csv_lock(True, write_error)
+                # Codex P1 #300: write fallita → il disco è INDIETRO rispetto alla coda (la
+                # riga confermata è ancora nel CSV) finché un retry non riesce; riuscita →
+                # riallineato. Sotto lock, come la scrittura.
+                self._csv_dirty = write_error is not None
             self._apply_csv_lock_event(csv_lock_event)
             # Event journal (#230/#234 C): l'esito XTrader è GIÀ avvenuto (`queue.confirm` ha rimosso
             # il segnale dalla coda) → registralo SEMPRE, anche se la riscrittura CSV fallisce, prima
@@ -2455,6 +2475,9 @@ class App(ctk.CTk):
                 write_error = ex
             # #153 H2: esito lock CSV serializzato con la scrittura (Codex #156).
             csv_lock_event = self._record_csv_lock(True, write_error)
+            # Codex P1 #300: write fallita → disco indietro (gli scaduti rimossi dalla coda
+            # sono ancora nel CSV) finché il retry non riesce; riuscita → riallineato.
+            self._csv_dirty = write_error is not None
         self._apply_csv_lock_event(csv_lock_event)
         if write_error is not None:
             # La coda (memoria) ha già rimosso gli scaduti ma il CSV è rimasto indietro:
@@ -2516,6 +2539,8 @@ class App(ctk.CTk):
                 if self._queue is not None:
                     for sid in self._queue.active_ids():
                         self._queue.remove(sid)
+                # Header su disco + coda svuotata: riallineati (Codex P1 #300).
+                self._csv_dirty = False
             # #153 H2 (Codex #156): anche lo svuotamento manuale è una scrittura su disco.
             # Registra l'esito sotto lock, così un clear riuscito dopo lo sblocco esce
             # dallo stato «CSV bloccato» (altrimenti, cancellando il timer, nessun

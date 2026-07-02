@@ -64,9 +64,16 @@ class CommitResult:
     write_attempted: bool = False
 
 
-def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows):
+def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows,
+                  disk_dirty=False):
     """Esegue, SOTTO IL LOCK DEL CHIAMANTE, la sequenza valuta-guardrail → coda →
     scrittura con rollback fail-safe (vedi il docstring del modulo per le invarianti).
+
+    `disk_dirty` (Codex P1 #300): True se il chiamante sa che il CSV su disco può essere
+    STANTIO rispetto alla coda — una riscrittura precedente (post-conferma o post-scadenza)
+    è fallita e il suo retry non è ancora riuscito. In quel caso il ramo cap-senza-scaduti
+    NON salta la scrittura: il presupposto «disco già identico» non vale e il commit
+    riallinea il disco alle righe attive correnti.
 
     Ritorna una `CommitResult`. Non solleva mai per un fallimento di scrittura: ripristina
     coda E guardrail e riporta l'eccezione in `write_error`."""
@@ -74,7 +81,17 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows):
     blocked_by_cap = False
     rows = []
     write_error = None
+    write_attempted = False
     tracker_snap = daily_snap = None
+
+    def _restore_guards():
+        # Riporta tracker E daily allo snapshot pre-valutazione: il segnale torna
+        # RITENTABILE. Unico punto di rollback dei guardrail per tutti i rami
+        # (cap-senza-scaduti, cap-con-scaduti, write fallita): tenerli in lockstep.
+        if tracker is not None:
+            tracker.restore_state(tracker_snap)
+            if daily is not None and daily_snap is not None:
+                daily.restore_state(daily_snap)
 
     # `tracker is None` (test/chiamanti senza guardrail) → resta WRITE di default.
     if tracker is not None:
@@ -104,37 +121,31 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows):
         # attive restano quelle correnti (post-expire).
         blocked_by_cap = sid is None
         rows = queue.active_rows()
-        if blocked_by_cap and not expired:
+        if blocked_by_cap and not expired and not disk_dirty:
             # #259 C2: bloccato dal tetto E nessuna riga scaduta rimossa → il contenuto attivo
             # su disco è già identico a `rows` (l'unico altro mutatore, `add`, non ha accodato).
             # Riscrivere sarebbe un no-op che tocca mtime/inode del CSV e riapre la finestra di
-            # ri-lettura lato XTrader. Se invece `expire` HA rimosso righe (coda sovra-riempita
-            # via force=True dal percorso multi-row #192 che resta piena al tetto), il disco
-            # contiene ancora le righe scadute → si scrive comunque per sincronizzarlo.
-            if tracker is not None:
-                # Segnale NON accodato → rollback guardrail (ritentabile).
-                tracker.restore_state(tracker_snap)
-                if daily is not None and daily_snap is not None:
-                    daily.restore_state(daily_snap)
+            # ri-lettura lato XTrader. Si scrive comunque in DUE casi in cui il disco va
+            # riallineato: `expire` HA rimosso righe (coda sovra-riempita via force=True dal
+            # percorso multi-row #192 che resta piena al tetto → le scadute sono ancora su
+            # disco), oppure `disk_dirty` (una riscrittura precedente è fallita e il retry non
+            # è ancora riuscito: il disco è indietro rispetto alla coda — Codex P1 #300).
+            _restore_guards()   # segnale NON accodato → ritentabile
             return CommitResult(decision=decision, blocked_by_cap=True,
                                 rows=rows, write_error=None, write_attempted=False)
+        write_attempted = True   # unico punto in cui `write_rows` viene chiamata
         try:
             write_rows(rows, path)
         except Exception as ex:   # noqa: BLE001 — riportato al chiamante, no crash
             # Scrittura fallita: RIPRISTINA coda E guardrail (allineati al CSV su disco).
             queue.restore_state(queue_snap)
-            if tracker is not None:
-                tracker.restore_state(tracker_snap)
-                if daily is not None and daily_snap is not None:
-                    daily.restore_state(daily_snap)
+            _restore_guards()
             write_error = ex
         else:
-            if blocked_by_cap and tracker is not None:
+            if blocked_by_cap:
                 # Bloccato dal tetto (con righe scadute rimosse, vedi sopra): segnale NON
                 # accodato → rollback guardrail (ritentabile).
-                tracker.restore_state(tracker_snap)
-                if daily is not None and daily_snap is not None:
-                    daily.restore_state(daily_snap)
+                _restore_guards()
             elif tracker is not None:
                 # Scrittura REALE riuscita (single-row, dedup a hash-messaggio): ombreggia ANCHE la
                 # chiave PER-RIGA di questa riga (#192 kyW). Così un retry dello STESSO messaggio dopo
@@ -158,11 +169,9 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows):
         if daily is not None:
             daily.release()
 
-    # Qui `write_rows` è stata chiamata in ogni ramo WRITE (l'unico WRITE senza tentativo
-    # di scrittura è l'early-return cap-senza-scaduti qui sopra); gli esiti non-WRITE no.
     return CommitResult(decision=decision, blocked_by_cap=blocked_by_cap,
                         rows=rows, write_error=write_error,
-                        write_attempted=decision == live_guard.WRITE)
+                        write_attempted=write_attempted)
 
 
 def _summary_decision(decisions: list, accepted: int) -> str:

@@ -381,6 +381,49 @@ def test_confirmation_write_failure_segnale_rimosso_e_retry_breve(make_app, app_
     assert any("dopo conferma" in m for m in a.logs)
 
 
+def test_process_cap_block_dopo_conferma_write_failure_risincronizza_csv(
+        make_app, app_mod, monkeypatch, tmp_path):
+    """Codex P1 #300: conferma con write FALLITA → CSV stantio (riga confermata ancora
+    su disco) + retry breve programmato. Se PRIMA del retry arriva un segnale bloccato
+    dal tetto, il ramo cap di `_process` rimpiazza il timer del retry: senza la
+    risincronizzazione `disk_dirty`, la riga confermata resterebbe su disco fino alla
+    prossima scadenza naturale. Il commit bloccato dal tetto deve invece riallineare
+    il CSV alle attive correnti.
+
+    Fail-first: senza `disk_dirty`, il ramo cap-senza-scaduti saltava la scrittura →
+    la riga confermata (Inter) restava nel CSV."""
+    from xtrader_bridge import csv_writer
+    path = str(tmp_path / "segnali.csv")
+    # Tetto 1 con blocco multi auto-raise (#192): 2 righe attive con max_active=1.
+    q = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED,
+                                 default_timeout=120, max_active=1)
+    q.add(_row("Inter v Milan"), now=1000)
+    q.add(_row("Roma v Lazio"), now=1001, force=True)
+    csv_writer.write_rows(q.active_rows(), path)
+    a = make_app(csv_path=path, queue=q)
+    monkeypatch.setattr(app_mod.time, "monotonic", lambda: 1005.0)   # fratelli ancora validi
+
+    # 1) Conferma di Inter con write FALLITA: coda → [Roma], disco → [Inter, Roma] (stantio).
+    _spy_writer(monkeypatch, app_mod, fail=True)
+    app_mod.App._process_confirmation(a, "Inter v Milan Esito finale Inter piazzata",
+                                      {"csv_path": path})
+    assert [r["EventName"] for r in q.active_rows()] == ["Roma v Lazio"]
+    assert _events_in_csv(path) == ["Inter v Milan", "Roma v Lazio"]   # disco indietro
+    assert (path, app_mod._WRITE_RETRY_DELAY) in a.expiry_calls
+
+    # 2) PRIMA del retry arriva un nuovo segnale: bloccato dal tetto (1 attiva, cap 1),
+    #    nessuna scaduta — ma il disco è stantio → il commit deve risincronizzarlo.
+    calls = _spy_writer(monkeypatch, app_mod)                          # ora scrive davvero
+    _patch_resolve(monkeypatch, app_mod, _row("Napoli v Torino"))
+    app_mod.App._process(a, "nuovo segnale", {"csv_path": path, "dry_run": False},
+                         chat_id="1")
+
+    assert _events_in_csv(path) == ["Roma v Lazio"]    # riga confermata SPARITA dal disco
+    assert [r["EventName"] for r in q.active_rows()] == ["Roma v Lazio"]   # Napoli bloccata
+    assert calls["n"] == 1                              # una sola scrittura: la risincronizzazione
+    assert a._csv_dirty is False                        # disco di nuovo allineato alla coda
+
+
 def test_confirmation_gate_running_false_e_no_op(make_app, app_mod, tmp_path):
     from xtrader_bridge import csv_writer
     path = str(tmp_path / "segnali.csv")

@@ -139,6 +139,31 @@ def test_blocco_da_tetto_con_scaduti_sincronizza_il_csv():
     assert [r["EventName"] for r in queue.active_rows(now)] == ["B"]
 
 
+def test_blocco_da_tetto_disco_sporco_sincronizza_anche_senza_scaduti():
+    """Codex P1 #300: il salto della scrittura nel ramo cap-senza-scaduti presuppone
+    «disco già identico alla coda» — presupposto FALSO se una riscrittura precedente
+    (post-conferma/scadenza) è fallita e il retry non è ancora riuscito. Il chiamante
+    lo segnala con `disk_dirty=True`: in quel caso il commit bloccato dal tetto DEVE
+    comunque scrivere per riallineare il disco (la riga confermata non deve restarci).
+
+    Fail-first: senza il parametro, il ramo cap saltava la scrittura → disco stantio."""
+    tracker, daily, queue = _fresh(mode=signal_queue.APPEND_ACTIVE, max_active=1)
+    rowA, rowB = _row("A"), _row("B")
+    write_path.commit_signal(
+        tracker, daily, queue, CFG_REAL, "msgA", rowA, "out.csv", 100.0, _ok_writer([]))
+    written = []
+    res = write_path.commit_signal(
+        tracker, daily, queue, CFG_REAL, "msgB", rowB, "out.csv", 101.0, _ok_writer(written),
+        disk_dirty=True)
+    assert res.decision == live_guard.WRITE
+    assert res.blocked_by_cap is True
+    assert written == [[rowA]]           # disco stantio → riallineato alle attive correnti
+    assert res.write_attempted is True
+    # Guardrail rollback invariato: B resta RITENTABILE
+    reg = tracker.register("msgB")
+    assert reg.status != signal_dedupe.DUPLICATE
+
+
 def test_duplicato_non_scrive_e_non_tocca_la_coda():
     tracker, daily, queue = _fresh()
     row = _row("A")
