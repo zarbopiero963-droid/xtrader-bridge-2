@@ -171,7 +171,10 @@ def _resolve_ids_into(row: dict, *, sport: str, id_resolver) -> dict:
             handicap=row.get("Handicap", ""))
     except Exception:   # noqa: BLE001 — risoluzione best-effort: niente blocco del flusso
         ids = None
-    if not ids:
+    # Fail-open robusto (CodeRabbit): un resolver pluggable potrebbe ritornare un valore truthy
+    # NON dict (lista, oggetto…) → `ids.get`/`ids[_k]` solleverebbero FUORI dal try, violando la
+    # garanzia best-effort. Si accetta solo un dict non vuoto; altrimenti riga invariata (a nomi).
+    if not isinstance(ids, dict) or not ids:
         return row
 
     def _norm(v):   # normalizzazione condivisa dei valori di riga (Sourcery: no duplicazione)
@@ -485,10 +488,19 @@ def build_validated_rows(defn: CustomParserDef, text: str, **kwargs) -> "list[Pi
     # fornite da OGNI riga generata (`multi_supplied`) — così un obbligatorio NON coperto resta
     # bloccante (Codex P1) e la mappatura mercati non fa un falso fail-closed (Codex/CodeRabbit).
     if base.status in _MULTI_RESOLVABLE:
-        supplied = _multi_supplied_cols(list(markets) + list(selections))
+        supplied = set(_multi_supplied_cols(list(markets) + list(selections)))
+        # ID_ONLY con dizionario (Codex, follow-up #290): un parser creato dalla GUI marca
+        # `MarketId`/`SelectionId` come obbligatori per la modalità; se sono lasciati vuoti perché
+        # il resolver li riempie PER RIGA, la base sarebbe `NOT_READY` e la generazione non
+        # partirebbe mai. Quando c'è un `id_resolver` + sport (cioè `_resolve_ids_into` girerà su
+        # ogni riga derivata) si trattano gli ID come "forniti" per il solo gate della base: ogni
+        # riga è comunque ri-validata dopo la risoluzione (senza ID risolti → INVALID in ID_ONLY),
+        # quindi resta fail-closed PER RIGA come per kyZ.
+        if kwargs.get("id_resolver") is not None and getattr(defn, "sport", ""):
+            supplied |= {"EventId", "MarketId", "SelectionId"}
         if supplied:
             retry_kwargs = dict(row_kwargs)     # `row_kwargs`: senza il `multi_supplied` del chiamante
-            retry_kwargs["multi_supplied"] = supplied
+            retry_kwargs["multi_supplied"] = frozenset(supplied)
             base = build_validated_row(defn, text, **retry_kwargs)
     if base.status in _BASE_BLOCKING:
         return [base]

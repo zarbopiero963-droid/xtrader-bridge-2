@@ -300,3 +300,56 @@ def test_multi_id_per_riga_senza_resolver_resta_a_nomi():
     assert len(results) == 2
     assert all(r.placeable for r in results)
     assert all(r.row["SelectionId"] == "" for r in results)   # nessun ID, solo nomi
+
+
+def _multiselection_id_parser_gui_required_ids():
+    """Come `_multiselection_id_parser` ma con `MarketId`/`SelectionId` marcati OBBLIGATORI (come
+    fa la GUI per ID_ONLY) e lasciati vuoti: gli ID arrivano dal dizionario PER RIGA."""
+    defn = _multiselection_id_parser()
+    defn.rules.append(cp.FieldRule(target="MarketId", required=True))     # vuoto → dal resolver
+    defn.rules.append(cp.FieldRule(target="SelectionId", required=True))  # vuoto → dal resolver
+    return defn
+
+
+def test_multi_id_per_riga_id_only_obbligatori_riempiti_dal_resolver():
+    """Codex (follow-up #290): un parser ID_ONLY «da GUI» marca `MarketId`/`SelectionId`
+    OBBLIGATORI; se lasciati vuoti per farli riempire dal dizionario PER RIGA, la base è
+    `NOT_READY`. Con un `id_resolver` + sport gli ID sono trattati come «forniti» per il solo gate
+    della base → la generazione parte e ogni riga risolve i SUOI ID.
+
+    Fail-first: prima di questo fix la base restava `NOT_READY` (MarketId/SelectionId non coperti
+    da `multi_supplied`) → `[base]`, zero righe piazzabili."""
+    res = _PerSelectionResolver({
+        "Inter": {"EventId": "ev1", "MarketId": "mk1", "SelectionId": "sel_inter"},
+        "Milan": {"EventId": "ev1", "MarketId": "mk1", "SelectionId": "sel_milan"},
+    })
+    results = pipe.build_validated_rows(_multiselection_id_parser_gui_required_ids(), _MSG,
+                                        mode="ID_ONLY", id_resolver=res)
+    assert len(results) == 2
+    assert all(r.status == validator.VALID and r.placeable for r in results)
+    by_sel = {r.row["SelectionName"]: r.row for r in results}
+    assert by_sel["Inter"]["SelectionId"] == "sel_inter"
+    assert by_sel["Milan"]["SelectionId"] == "sel_milan"
+
+
+def test_multi_id_per_riga_id_only_obbligatori_senza_resolver_restano_bloccati():
+    """Contro-prova fail-closed: stesso parser (ID obbligatori vuoti) SENZA resolver → gli ID non
+    sono «forniti», la base resta `NOT_READY` e non si genera alcuna riga (mai una scommessa senza
+    ID in ID_ONLY)."""
+    results = pipe.build_validated_rows(_multiselection_id_parser_gui_required_ids(), _MSG,
+                                        mode="ID_ONLY", id_resolver=None)
+    assert len(results) == 1
+    assert results[0].status == pipe.NOT_READY and not results[0].placeable
+
+
+def test_multi_id_per_riga_resolver_non_dict_non_crasha():
+    """CodeRabbit: un resolver che ritorna un valore NON dict (truthy) non deve far crashare la
+    pipeline (fail-open). Le righe restano a nomi → in ID_ONLY non piazzabili, ma nessuna eccezione."""
+    class _BadResolver:
+        def resolve_ids(self, **kw):
+            return ["non", "un", "dict"]     # truthy ma non dict
+
+    results = pipe.build_validated_rows(_multiselection_id_parser(), _MSG, mode="ID_ONLY",
+                                        id_resolver=_BadResolver())
+    assert len(results) == 2
+    assert all(not r.placeable for r in results)

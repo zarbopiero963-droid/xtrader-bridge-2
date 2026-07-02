@@ -894,8 +894,20 @@ righe con ID. **Fix:** la risoluzione ID è estratta in `_resolve_ids_into` (add
 NON distruttiva — riempie solo gli ID vuoti, scarta l'arricchimento su conflitto, non blocca su
 errore) e applicata sia alla base sia a **ogni riga multi** in `_validated_multi_row`: così ogni
 selezione ri-risolve gli ID per sé e un MultiSelection in ID_ONLY è ora piazzabile. Base single-row
-bit-identica (stessa logica). Test hard fail-first: `tests/integration/test_dictionary_id_fallback.py`
+bit-identica (stessa logica). Robustezza fail-open (CodeRabbit): un resolver che ritorna un valore
+NON dict non fa crashare la pipeline (`isinstance(ids, dict)`). **Gate della base per i parser ID_ONLY
+«da GUI» (Codex):** la GUI marca `MarketId`/`SelectionId` obbligatori; se lasciati vuoti per il
+riempimento dal dizionario, la base sarebbe `NOT_READY` e la generazione non partirebbe. Quando c'è
+un `id_resolver` + sport, in `build_validated_rows` gli ID sono trattati come «forniti»
+(`multi_supplied`) per il **solo** gate della base — ogni riga è comunque ri-validata dopo la
+risoluzione (senza ID risolti → `INVALID` in ID_ONLY), quindi **fail-closed per riga** come kyZ; senza
+resolver la base resta bloccata (nessuna scommessa senza ID). Test hard fail-first:
+`tests/integration/test_dictionary_id_fallback.py`
 (`test_multi_id_per_riga_ogni_selezione_ottiene_i_suoi_id`,
+`test_multi_id_per_riga_risoluzione_mista_indipendente`,
+`test_multi_id_per_riga_id_only_obbligatori_riempiti_dal_resolver`,
+`test_multi_id_per_riga_id_only_obbligatori_senza_resolver_restano_bloccati`,
+`test_multi_id_per_riga_resolver_non_dict_non_crasha`,
 `test_multi_id_per_riga_fail_open_resolver_che_solleva`,
 `test_multi_id_per_riga_senza_resolver_resta_a_nomi`). Test hard fail-first (kyZ):
 `tests/unit/test_multirow_192.py`
