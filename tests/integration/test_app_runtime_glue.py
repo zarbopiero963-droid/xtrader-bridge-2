@@ -444,7 +444,7 @@ def test_process_write_failure_con_disco_sporco_riarma_retry_breve(
     monkeypatch.setattr(app_mod.time, "monotonic", lambda: 1005.0)
 
     # 1) Conferma con write FALLITA → disco stantio (dirty), retry breve programmato.
-    _spy_writer(monkeypatch, app_mod, fail=True)
+    calls = _spy_writer(monkeypatch, app_mod, fail=True)
     app_mod.App._process_confirmation(a, "Inter v Milan Esito finale Inter piazzata",
                                       {"csv_path": path})
     assert a._csv_dirty is True
@@ -459,6 +459,7 @@ def test_process_write_failure_con_disco_sporco_riarma_retry_breve(
     assert a._csv_dirty is True                                    # disco ancora stantio
     assert a.expiry_calls[-1] == (path, app_mod._WRITE_RETRY_DELAY)  # retry breve riarmato
     assert _events_in_csv(path) == ["Inter v Milan", "Roma v Lazio"]  # disco invariato (lock)
+    assert calls["n"] == 2   # esattamente: write conferma + write resync (CodeRabbit)
 
 
 def test_confirmation_gate_running_false_e_no_op(make_app, app_mod, tmp_path):
