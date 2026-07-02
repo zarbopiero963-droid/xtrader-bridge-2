@@ -36,7 +36,8 @@ _ALLOWLIST = {
     "config_store.py": (2, "backup config corrotta best-effort + rollback keyring best-effort"),
     "csv_writer.py": (1, "callback diagnostico best-effort di clear_stale_csv: un sink log/GUI che "
                          "solleva non deve rompere il cleanup anti-segnale-stantio all'avvio/STOP (#241)"),
-    "custom_parser_gui.py": (8, "GUI Tk del costruttore parser: render/azioni best-effort"),
+    "custom_parser_gui.py": (9, "GUI Tk del costruttore parser: render/azioni best-effort "
+                             "(incl. resolver ID anteprima fail-open, #192)"),
     "custom_pipeline.py": (1, "id_resolver iniettato: un resolver che solleva NON blocca la riga (fail-open)"),
     "gui_utils.py": (1, "helper GUI best-effort"),
     "name_mapping_gui.py": (6, "GUI Tk mapping: render/azioni best-effort"),

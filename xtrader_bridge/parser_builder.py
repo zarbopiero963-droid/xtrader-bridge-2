@@ -367,7 +367,8 @@ class ParserBuilder:
     # ── test-live ────────────────────────────────────────────────────────────
     def test_message(self, message: str, *, provider: str = "",
                      mode: str = None, require_price: bool = None,
-                     name_mapping_profiles=None, market_mapping_profiles=None):
+                     name_mapping_profiles=None, market_mapping_profiles=None,
+                     id_resolver=None):
         """Applica il parser corrente a un messaggio e ritorna il `PipelineResult`
         (status + riga + piazzabilità), per l'anteprima del costruttore. La modalità
         usata è quella DEL PARSER (`self.mode`) salvo override esplicito.
@@ -381,7 +382,11 @@ class ParserBuilder:
         come il runtime (o fa fail-closed con MAPPING_MISSING). `market_mapping_profiles`
         (voci dei profili mercati risolte da config) è inoltrato allo stesso modo: se il
         parser usa la mappatura mercati, l'anteprima imposta Mercato/Selezione come il
-        runtime (o fa fail-closed con MARKET_MAPPING_MISSING)."""
+        runtime (o fa fail-closed con MARKET_MAPPING_MISSING).
+
+        `id_resolver` (#192, Codex): opzionale, il dizionario Betfair locale per l'arricchimento
+        ID. Passandolo, l'anteprima risolve gli ID come il runtime; senza, resta conservativa
+        (vedi `preview_rows`)."""
         defn = self.to_def()
         if require_price is None:
             require_price = defn.price_required()
@@ -389,7 +394,8 @@ class ParserBuilder:
                                    mode=self.mode if mode is None else mode,
                                    require_price=require_price,
                                    name_mapping_profiles=name_mapping_profiles,
-                                   market_mapping_profiles=market_mapping_profiles)
+                                   market_mapping_profiles=market_mapping_profiles,
+                                   id_resolver=id_resolver)
 
     @staticmethod
     def merge_multi_rule_overrides(base: MultiRowRule, overrides: dict,

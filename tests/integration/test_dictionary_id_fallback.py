@@ -428,3 +428,64 @@ def test_preview_rows_id_only_multi_con_resolver_equivale_al_runtime():
     placeable = [r for r in equiv if r.placeable]
     assert {r.row["SelectionName"] for r in placeable} == {"Inter", "Milan"}
     assert {r.row["SelectionId"] for r in placeable} == {"sel_inter", "sel_milan"}
+
+
+# ── #192 (Codex): anche `test_message` e `diagnose` inoltrano `id_resolver` ────
+# La preview GUI («Prova messaggio») usa TRE motori: `ParserBuilder.test_message` (verdetto
+# sintetico single-row), `parser_diagnostics.diagnose` (diagnostica per-campo) e `preview_rows`
+# (tabella multi-riga). Perché l'anteprima sia DAVVERO equivalente al runtime tutti e tre devono
+# ricevere il resolver. `preview_rows` è già coperto sopra; qui i primi due.
+
+def _singlerow_id_only_parser():
+    """Parser ID_ONLY a riga singola. NON dichiara `MarketId`/`SelectionId` come regole (così il
+    gate «Non pronto» della base non scatta): in ID_ONLY il validator li ri-controlla comunque
+    (`recognition._ID_FIELDS`) → senza ID la riga è scartata, col dizionario è piazzabile. Sport
+    valorizzato per abilitare la risoluzione."""
+    return cp.CustomParserDef(
+        name="S1ID", mode="ID_ONLY", sport="Calcio",
+        rules=[
+            cp.FieldRule(target="Provider", fixed_value="TG_CUSTOM"),
+            cp.FieldRule(target="EventName", start_after="Match:", end_before="\n", required=True),
+            cp.FieldRule(target="MarketType", start_after="Merc:", end_before="\n", required=True),
+            cp.FieldRule(target="SelectionName", start_after="Sel:", end_before="\n", required=True),
+            cp.FieldRule(target="Price", start_after="Quota:", end_before="\n", required=True),
+            cp.FieldRule(target="BetType", start_after="Lato:", value_map="bettype", required=True),
+        ])
+
+
+def test_test_message_inoltra_id_resolver_equivale_al_runtime():
+    """Codex (#1, follow-up preview GUI): `ParserBuilder.test_message` con `id_resolver` deve
+    risolvere gli ID come il runtime — così il verdetto sintetico di «Prova messaggio» combacia.
+
+    Fail-first: senza inoltro del param, la riga resterebbe con ID vuoti → non piazzabile anche
+    quando il dizionario avrebbe risolto."""
+    from xtrader_bridge import parser_builder as pb
+    b = pb.ParserBuilder(_singlerow_id_only_parser())
+    res = _PerSelectionResolver({"Inter": {"EventId": "ev1", "MarketId": "mk1",
+                                           "SelectionId": "sel_inter"}})
+    # SENZA resolver: conservativa → ID vuoti → non piazzabile.
+    conservative = b.test_message(_MSG, mode="ID_ONLY")
+    assert not conservative.placeable
+    # CON resolver: equivalente al runtime → ID risolti → piazzabile.
+    equiv = b.test_message(_MSG, mode="ID_ONLY", id_resolver=res)
+    assert equiv.placeable and equiv.status == validator.VALID
+    assert equiv.row["MarketId"] == "mk1" and equiv.row["SelectionId"] == "sel_inter"
+
+
+def test_diagnose_inoltra_id_resolver_equivale_al_runtime():
+    """Codex (#1, follow-up preview GUI): `parser_diagnostics.diagnose` con `id_resolver` deve
+    risolvere gli ID come il runtime — così la diagnostica per-campo di «Prova messaggio» non
+    segnala falsamente ID mancanti quando il dizionario li risolverebbe.
+
+    Fail-first: senza inoltro del param, la diagnostica resterebbe `placeable=False` (ID vuoti)."""
+    from xtrader_bridge import parser_diagnostics
+    defn = _singlerow_id_only_parser()
+    res = _PerSelectionResolver({"Inter": {"EventId": "ev1", "MarketId": "mk1",
+                                           "SelectionId": "sel_inter"}})
+    # SENZA resolver: conservativa → non piazzabile.
+    conservative = parser_diagnostics.diagnose(defn, _MSG, mode="ID_ONLY", require_price=True)
+    assert not conservative.placeable
+    # CON resolver: equivalente al runtime → piazzabile.
+    equiv = parser_diagnostics.diagnose(defn, _MSG, mode="ID_ONLY", require_price=True,
+                                        id_resolver=res)
+    assert equiv.placeable

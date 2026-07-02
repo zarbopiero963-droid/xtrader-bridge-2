@@ -428,6 +428,53 @@ def test_gui_multi_rule_from_refs_preserves_hidden_fields(monkeypatch):
     assert rule.enabled is True
 
 
+# ── #192 (Codex): il resolver ID dell'anteprima è best-effort/fail-open ───────
+
+def _headless_panel(monkeypatch, factory):
+    """Costruisce un `CustomParserPanel` headless (no __init__/no widget) con la sola
+    factory del resolver impostata, per esercitare il VERO `_preview_id_resolver`."""
+    try:
+        import customtkinter  # noqa: F401
+    except ModuleNotFoundError:
+        monkeypatch.setitem(sys.modules, "customtkinter", _FakeCtkModule("customtkinter"))
+    monkeypatch.delitem(sys.modules, "xtrader_bridge.custom_parser_gui", raising=False)
+    gui = importlib.import_module("xtrader_bridge.custom_parser_gui")
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)   # no __init__: nessun widget
+    panel._id_resolver_factory = factory
+    return panel
+
+
+def test_preview_id_resolver_senza_factory_ritorna_none(monkeypatch):
+    """Senza factory (app non l'ha fornita) l'anteprima resta conservativa: `None`."""
+    panel = _headless_panel(monkeypatch, None)
+    assert panel._preview_id_resolver() is None
+
+
+def test_preview_id_resolver_invoca_la_factory(monkeypatch):
+    """Con factory presente ritorna il resolver che essa produce (così «Prova messaggio»
+    usa lo stesso dizionario del runtime)."""
+    sentinel = object()
+    calls = []
+
+    def factory():
+        calls.append(1)
+        return sentinel
+
+    panel = _headless_panel(monkeypatch, factory)
+    assert panel._preview_id_resolver() is sentinel
+    assert calls == [1]                                # la factory è stata invocata
+
+
+def test_preview_id_resolver_fail_open_su_eccezione(monkeypatch):
+    """Fail-open: una factory che solleva NON deve far crashare l'anteprima → `None`
+    (comportamento conservativo storico, nessun effetto sul runtime reale)."""
+    def boom():
+        raise RuntimeError("dizionario non disponibile")
+
+    panel = _headless_panel(monkeypatch, boom)
+    assert panel._preview_id_resolver() is None
+
+
 # ── kyb (#192): round-trip COMPLETO su disco preserva i campi multi nascosti ──
 
 def test_kyb_full_disk_roundtrip_preserva_campi_multi_nascosti(tmp_path):

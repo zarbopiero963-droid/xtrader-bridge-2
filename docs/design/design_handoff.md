@@ -267,7 +267,10 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
   colonna (label), 2 entry delimitatori, entry/dropdown valore fisso (dropdown Provider se
   colonna = Provider), dropdown Trasformazione, dropdown Value-map, checkbox **Obblig.**
 - **Azioni:** **"💾 Salva"**, **"🧪 Prova messaggio"**, **"📋 Copia diagnostica"**.
-- **Area di test:** textbox "Messaggio di prova" + verdetto (`✅ Pronto` / `⛔ …`).
+- **Area di test:** textbox "Messaggio di prova" + verdetto (`✅ Pronto` / `⛔ …`). L'anteprima
+  usa lo stesso motore del runtime e, quando il dizionario Betfair locale è disponibile, risolve
+  gli ID come il live (un parser `ID_ONLY` che prende `MarketId`/`SelectionId` dal dizionario può
+  quindi risultare `✅ Pronto`); se il dizionario manca resta conservativa (`⛔`), mai il contrario.
 - **Anteprima righe generate (#192):** tabella `# · Tipo (Base/Mercato/Selezione) · Esito ·
   Riga CSV`.
 - **Diagnostica per colonna:** tabella `Colonna · Stato (OK/MANCANTE) · Motivo · Inizia

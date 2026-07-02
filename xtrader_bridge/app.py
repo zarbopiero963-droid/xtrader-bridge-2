@@ -2642,8 +2642,12 @@ class App(ctk.CTk):
 
         def _make_parser(parent):
             """Crea il pannello Parser Personalizzato (scheda 🧩 Parser)."""
+            # Factory best-effort del dizionario Betfair (#192, Codex): rende «Prova
+            # messaggio» equivalente al runtime per i parser ID_ONLY dizionario-dipendenti
+            # (l'anteprima risolve gli ID come il live). Fail-open in `_betfair_id_resolver`.
             return CustomParserPanel(parent, provider=_parser_provider,
-                                     global_mode=_parser_global_mode, on_saved=_parser_saved)
+                                     global_mode=_parser_global_mode, on_saved=_parser_saved,
+                                     id_resolver_factory=self._betfair_id_resolver)
 
         def _make_sources(parent):
             """Crea il pannello Chat sorgenti e ne tiene il riferimento per il refresh."""
