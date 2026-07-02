@@ -302,6 +302,16 @@ def test_local_secret_scan_trova_token_finto_e_redige_l_evidenza(tmp_path, monke
         # L'evidenza NON deve contenere il valore del segreto.
         assert _fake_telegram_token() not in telegram[0]["evidence"], name
 
+        # PEM multi-riga (com'è nella realtà): il marker BEGIN deve produrre un
+        # finding critical anche se BEGIN/END stanno su righe diverse
+        # (regressione Codex P2 / CodeRabbit su PR #304: pattern multiline
+        # usato in un loop per-riga non matchava mai).
+        pem_findings = ns[fn_name]("secret.pem", _fake_private_key_block() + "\n")
+        pem = [f for f in pem_findings if f["title"].endswith("private_key_block")]
+        assert pem and pem[0]["severity"] == "critical", (
+            f"{name}: private key PEM multi-riga non rilevata dallo scan locale"
+        )
+
         assert ns[fn_name]("main.py", "print('ciao')\n") == [], f"{name}: falso positivo"
 
 
@@ -321,6 +331,11 @@ def test_normalize_finding_fail_closed_su_dati_del_modello(tmp_path, monkeypatch
         # Riga valida nel range → preservata.
         f = norm({"severity": "critical", "line_start": 12, "line_end": 15}, "main.py", 10, 20)
         assert f["severity"] == "critical" and f["line_start"] == 12 and f["line_end"] == 15, name
+
+        # Il modello non può attribuire il finding a un file MAI analizzato:
+        # il campo file è clampato al file del chunk (Codex P2 su PR #304).
+        f = norm({"severity": "high", "file": "altro/file_inventato.py"}, "main.py", 10, 20)
+        assert f["file"] == "main.py", f"{name}: file del finding non clampato al chunk"
 
 
 def test_iter_files_salta_binari_directory_generate_e_max_files(tmp_path, monkeypatch):
@@ -344,6 +359,46 @@ def test_iter_files_salta_binari_directory_generate_e_max_files(tmp_path, monkey
     assert "c_extra.txt" in skipped_names, "file oltre MAX_FILES non tracciato come saltato"
     # Ogni file saltato ha il motivo scritto (trasparenza: niente troncamenti silenziosi).
     assert all(item["reason"] for item in skipped)
+
+
+def test_iter_files_non_segue_symlink_fuori_dallo_snapshot(tmp_path, monkeypatch):
+    """Un symlink committato nel ref scansionato non deve far leggere file del
+    runner fuori da AUDIT_ROOT (Codex P2 su PR #304): va saltato, con motivo."""
+    fuori = tmp_path / "fuori-dallo-snapshot.txt"
+    fuori.write_text("contenuto del runner FUORI dal repo\n", encoding="utf-8")
+
+    for name, iter_name in (
+        ("manual-full-repo-ai-audit.yml", "iter_text_files"),
+        ("claude-fable-full-repo-audit.yml", "iter_files"),
+    ):
+        ns, root = _exec_audit_script(name, tmp_path, monkeypatch)
+        (root / "ok.py").write_text("print('ok')\n", encoding="utf-8")
+        link = root / "evil_link.txt"
+        if link.exists() or link.is_symlink():
+            link.unlink()
+        link.symlink_to(fuori)
+
+        files, skipped = ns[iter_name]()
+        scanned = [str(p.relative_to(root)) for p in files]
+        assert "evil_link.txt" not in scanned, f"{name}: symlink seguito fuori dallo snapshot"
+        assert any(item["file"] == "evil_link.txt" for item in skipped), (
+            f"{name}: symlink saltato ma non tracciato"
+        )
+
+
+def test_pr_review_upsert_paginato_e_ref_tarball_encodato():
+    """Invarianti statiche dei fix Codex/CodeRabbit su PR #304."""
+    for name, meta in _AI_WORKFLOWS.items():
+        if meta["kind"] == "pr_review":
+            src = _compiled_heredoc(name)
+            assert "per_page=100&page={page}" in src, (
+                f"{name}: upsert_comment deve paginare i commenti (marker oltre i primi 100)"
+            )
+        else:
+            text = _read(name)
+            assert "urllib.parse.quote" in text, (
+                f"{name}: TARGET_REF va URL-encodato prima dell'URL tarball (branch con '/')"
+            )
 
 
 def test_dedup_finding_stabile(tmp_path, monkeypatch):

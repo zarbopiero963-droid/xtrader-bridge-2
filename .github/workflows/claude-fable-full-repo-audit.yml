@@ -133,7 +133,10 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/repo"
           mkdir -p "$GITHUB_WORKSPACE/claude_audit_report"
 
-          ARCHIVE_URL="https://api.github.com/repos/${REPO}/tarball/${TARGET_REF}"
+          # I ref con '/' (es. feature/foo) vanno percent-encodati nel path REST.
+          ENCODED_REF=$(TARGET_REF="$TARGET_REF" python3 -c "import os, urllib.parse; print(urllib.parse.quote(os.environ['TARGET_REF'], safe=''))")
+
+          ARCHIVE_URL="https://api.github.com/repos/${REPO}/tarball/${ENCODED_REF}"
 
           echo "Downloading repository snapshot for ref: ${TARGET_REF}"
 
@@ -243,6 +246,11 @@ jobs:
           def should_skip(path: pathlib.Path) -> Tuple[bool, str]:
               rel_parts = path.relative_to(ROOT).parts
 
+              # Un symlink committato può puntare FUORI dallo snapshot (file del
+              # runner): non va mai seguito né letto.
+              if path.is_symlink():
+                  return True, "symlink (non seguito per sicurezza)"
+
               if any(part in SKIP_DIRS for part in rel_parts[:-1]):
                   return True, "directory ignorata/generata"
 
@@ -278,10 +286,10 @@ jobs:
               skipped = []
 
               for path in sorted(ROOT.rglob("*")):
-                  if not path.is_file():
+                  if not path.is_file() and not path.is_symlink():
                       continue
 
-                  rel = str(path.relative_to(ROOT)).replace("\\", "/")
+                  rel = redact(str(path.relative_to(ROOT)).replace("\\", "/"))
                   skip, reason = should_skip(path)
 
                   if skip:
@@ -293,7 +301,7 @@ jobs:
               if len(files) > MAX_FILES:
                   for p in files[MAX_FILES:]:
                       skipped.append({
-                          "file": str(p.relative_to(ROOT)).replace("\\", "/"),
+                          "file": redact(str(p.relative_to(ROOT)).replace("\\", "/")),
                           "reason": f"oltre MAX_FILES={MAX_FILES}",
                       })
 
@@ -448,7 +456,9 @@ jobs:
               return {
                   "severity": severity,
                   "category": str(raw.get("category") or "general")[:80],
-                  "file": str(raw.get("file") or file),
+                  # Clamp al file del chunk: il modello non può attribuire il
+                  # finding a un file mai analizzato.
+                  "file": file,
                   "line_start": line_start,
                   "line_end": line_end,
                   "title": str(raw.get("title") or "Finding senza titolo")[:220],
@@ -756,7 +766,8 @@ jobs:
               chunks_used = 0
 
               for path in files:
-                  path_str = str(path.relative_to(ROOT)).replace("\\", "/")
+                  # Anche il path può contenere un segreto (nome file = token).
+                  path_str = redact(str(path.relative_to(ROOT)).replace("\\", "/"))
                   text = safe_read(path)
 
                   if text is None:

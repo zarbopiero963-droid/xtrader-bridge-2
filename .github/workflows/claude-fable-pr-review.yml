@@ -242,7 +242,9 @@ jobs:
               total = 0
 
               for f in files:
-                  filename = f.get("filename", "")
+                  # Anche il nome file può contenere un segreto committato per
+                  # errore: va redatto prima di prompt/commenti/etichette.
+                  filename = redact(f.get("filename", ""))
                   status = f.get("status", "")
                   additions = f.get("additions", 0)
                   deletions = f.get("deletions", 0)
@@ -287,14 +289,30 @@ jobs:
                   print(f"::warning::Could not add label {MANUAL_REVIEW_LABEL}: {exc}")
 
           def upsert_comment(body: str):
-              comments = gh_request(
-                  "GET",
-                  f"/repos/{REPO}/issues/{PR_NUMBER}/comments?per_page=100",
-              )
+              # Paginazione completa: il commento-marker può stare oltre i primi
+              # 100 commenti; senza pagine successive si creerebbero duplicati.
+              comments = []
+              page = 1
+
+              while True:
+                  batch = gh_request(
+                      "GET",
+                      f"/repos/{REPO}/issues/{PR_NUMBER}/comments?per_page=100&page={page}",
+                  )
+
+                  if not batch:
+                      break
+
+                  comments.extend(batch)
+
+                  if len(batch) < 100:
+                      break
+
+                  page += 1
 
               existing = None
 
-              for c in comments or []:
+              for c in comments:
                   if MARKER in (c.get("body") or ""):
                       existing = c
                       break

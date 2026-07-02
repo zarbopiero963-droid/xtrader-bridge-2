@@ -33,11 +33,16 @@ vengono mai stampate.
 - **PR review diff-only**: il patch viene letto dalla GitHub API — **nessun
   checkout e nessuna esecuzione del codice della PR**.
 - **Audit read-only**: snapshot tarball del repo, nessun checkout scrivibile;
-  producono solo un artifact scaricabile.
+  producono solo un artifact scaricabile. I **symlink non vengono mai seguiti**
+  (un link committato non può far leggere file del runner fuori dallo
+  snapshot) e i finding del modello sono **clampati al file/chunk realmente
+  analizzato**.
 - **Redaction pre-invio**: possibili segreti (token Telegram, chiavi API,
   private key, assegnazioni `password=`/`token=` ecc.) vengono offuscati
-  **prima** di inviare qualsiasi contenuto ai modelli. Gli audit fanno anche un
-  secret-scan locale che finisce nel report come finding `critical`/`high`.
+  **prima** di inviare qualsiasi contenuto ai modelli — inclusi i **nomi
+  file/path**, che possono anch'essi contenere un segreto. Gli audit fanno
+  anche un secret-scan locale che finisce nel report come finding
+  `critical`/`high`.
 - **Prompt-injection hardening**: i prompt dichiarano il contenuto dei
   file/diff come non attendibile (il modello non deve seguire istruzioni
   scritte nel codice in analisi).
