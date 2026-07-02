@@ -426,3 +426,42 @@ def test_gui_multi_rule_from_refs_preserves_hidden_fields(monkeypatch):
     assert rule.start_after == "[" and rule.end_before == "]"
     assert rule.market_type == "NEW_MT" and rule.selection_name == "Over 0,5"   # applicati
     assert rule.enabled is True
+
+
+# ── kyb (#192): round-trip COMPLETO su disco preserva i campi multi nascosti ──
+
+def test_kyb_full_disk_roundtrip_preserva_campi_multi_nascosti(tmp_path):
+    """kyb (#192): il ciclo COMPLETO apri→salva→ricarica di un parser multi NON deve azzerare
+    in silenzio i campi per-riga NON esposti dalla GUI (`min_price`/`max_price`/`points`/
+    `start_after`/`end_before`) — né `handicap` (esposto) né il flag `enabled`. Esercita la catena REALE end-to-end:
+    `ParserBuilder → to_def → save_parser` (JSON su disco) `→ load_parser → ParserBuilder → to_def`.
+
+    Regressione bloccata: se un qualsiasi anello del round-trip (`to_def`, `__init__`,
+    `MultiRowRule.to_dict/from_dict`, `CustomParserDef.to_dict/from_dict`) tornasse a SCARTARE i
+    campi multi — com'era prima di #240 — questo test fallirebbe. È il guard end-to-end che
+    mancava (gli altri test coprono i singoli layer, non l'intero ciclo su disco coi campi nascosti)."""
+    b = _base_builder(extra_rules=[
+        cp.FieldRule(target="MarketType", fixed_value="CORRECT_SCORE", required=True),
+        cp.FieldRule(target="MarketName", fixed_value="Risultato esatto"),
+    ])
+    b.name = "MultiHidden"
+    b.multi_selection_enabled = True
+    # Riga con campi VISIBILI (selection_name) + NASCOSTI valorizzati.
+    b.add_multi_selection(selection_name="1 - 0", min_price="1.20", max_price="3.50",
+                          points="2", start_after="[", end_before="]", handicap="-0.5")
+    b.add_multi_selection(selection_name="2 - 1", enabled=False)   # anche il flag enabled
+
+    # apri→salva su DISCO (JSON) → ricarica → ri-costruisci il builder (come "Carica" in GUI) → to_def
+    path = cp.save_parser(b.to_def(), str(tmp_path))
+    reloaded = pb.ParserBuilder(cp.load_parser(path)).to_def()
+
+    assert reloaded.multi_selection_enabled is True
+    assert len(reloaded.multi_selections) == 2
+    r0, r1 = reloaded.multi_selections
+    assert r0.selection_name == "1 - 0"
+    # campi NASCOSTI (min_price/max_price/points/start_after/end_before) preservati end-to-end...
+    assert r0.min_price == "1.20" and r0.max_price == "3.50" and r0.points == "2"
+    assert r0.start_after == "[" and r0.end_before == "]"
+    assert r0.handicap == "-0.5"      # ...e handicap (campo VISIBILE) round-trip completo
+    # flag `enabled` preservato: una riga disabilitata non "resuscita" attiva
+    assert r1.selection_name == "2 - 1" and r1.enabled is False
