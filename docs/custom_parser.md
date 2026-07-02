@@ -538,13 +538,23 @@ multi-riga è attivo, anche il **verdetto sintetico** in cima si basa sulle **ri
 MultiMarket può mancare di MarketType/SelectionName **di proposito** (li fornisce ogni riga
 mercato), e altrimenti farebbe apparire un falso «Non pronto».
 
-> **Nota sull'arricchimento ID in anteprima (#192, Codex).** L'anteprima usa lo stesso motore ma,
-> se il chiamante non le passa un `id_resolver` (il dizionario Betfair locale), **non** risolve gli
-> ID: un parser `ID_ONLY` che si affida al dizionario per `MarketId`/`SelectionId` (lasciati vuoti)
-> appare **non pronto** in anteprima anche se a runtime — con il dizionario — verrebbe risolto e
-> scritto. È **conservativa e fail-closed** (mai il contrario). `preview_rows` accetta un parametro
-> `id_resolver` opzionale: la GUI può inoltrare il resolver dell'app per rendere l'anteprima
-> equivalente al runtime quando il dizionario è disponibile.
+> **Nota sull'arricchimento ID in anteprima (#192, Codex).** L'anteprima usa lo stesso motore del
+> runtime e, quando il dizionario Betfair locale è disponibile, **risolve gli ID come il live**: la
+> GUI inoltra a `test_message`, `diagnose` e `preview_rows` un `id_resolver` opzionale, ottenuto
+> best-effort dall'app (factory `id_resolver_factory` → `App._betfair_id_resolver`). Così un parser
+> `ID_ONLY` che si affida al dizionario per `MarketId`/`SelectionId` (lasciati vuoti) appare
+> **pronto** in «Prova messaggio» esattamente come verrebbe scritto a runtime. Se il resolver **non**
+> è disponibile (factory assente o che solleva → `None`), l'anteprima resta **conservativa e
+> fail-closed** (mostra «non pronto» invece di un falso «pronto»): fail-open sul lato comodità, mai
+> sul lato sicurezza. La risoluzione in anteprima è puramente di lettura e non ha alcun effetto sul
+> flusso reale.
+>
+> **Sync-safe (Codex P2).** La factory dell'anteprima (`App._preview_id_resolver_factory`) **salta**
+> il resolver mentre è in corso una **sync Betfair** (`engine.is_syncing`, probe non bloccante): il
+> resolver legge il DB sotto lo stesso lock che la sync tiene per l'intera durata, quindi invocarlo
+> sul thread GUI durante una sync congelerebbe la finestra. Durante la sync l'anteprima è quindi
+> conservativa (nessun arricchimento ID). Il flusso **live** non è toccato: usa il resolver
+> direttamente su un worker thread, dove l'attesa sul lock è accettabile.
 
 I campi per-riga **non esposti** nella griglia GUI (`min_price`, `max_price`, `points`,
 `start_after`, `end_before` di `MultiRowRule`) sono **preservati** quando si modifica e salva un

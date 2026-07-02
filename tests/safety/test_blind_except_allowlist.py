@@ -29,14 +29,16 @@ _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
-    "app.py": (29, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+    "app.py": (30, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
                    "event journal best-effort (#230); refill campo token su widget Tk distrutto (PR-08c); "
-                   "engine/DB non disponibile → login Betfair senza riserva del lock (#172 audit)"),
+                   "engine/DB non disponibile → login Betfair senza riserva del lock (#172 audit); "
+                   "probe is_syncing dell'anteprima ID fail-open (#192, Codex P2)"),
     "atomic_io.py": (1, "cleanup del temporaneo su QUALSIASI errore di scrittura/rename (BaseException)"),
     "config_store.py": (2, "backup config corrotta best-effort + rollback keyring best-effort"),
     "csv_writer.py": (1, "callback diagnostico best-effort di clear_stale_csv: un sink log/GUI che "
                          "solleva non deve rompere il cleanup anti-segnale-stantio all'avvio/STOP (#241)"),
-    "custom_parser_gui.py": (8, "GUI Tk del costruttore parser: render/azioni best-effort"),
+    "custom_parser_gui.py": (9, "GUI Tk del costruttore parser: render/azioni best-effort "
+                             "(incl. resolver ID anteprima fail-open, #192)"),
     "custom_pipeline.py": (1, "id_resolver iniettato: un resolver che solleva NON blocca la riga (fail-open)"),
     "gui_utils.py": (1, "helper GUI best-effort"),
     "name_mapping_gui.py": (6, "GUI Tk mapping: render/azioni best-effort"),

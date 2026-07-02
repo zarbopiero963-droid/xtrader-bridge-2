@@ -283,11 +283,16 @@ class CustomParserPanel(ctk.CTkFrame):
         win.focus()
 
     def __init__(self, master=None, builder: ParserBuilder = None, provider: str = "",
-                 global_mode: str = "", on_saved=None):
+                 global_mode: str = "", on_saved=None, id_resolver_factory=None):
         super().__init__(master)
         is_new = builder is None
         self.builder = builder or ParserBuilder()
         self._provider = provider
+        # Factory OPZIONALE del dizionario Betfair per l'anteprima (#192, Codex): un callable
+        # `() -> id_resolver | None` (l'app passa `App._betfair_id_resolver`). Serve a rendere
+        # «Prova messaggio» EQUIVALENTE al runtime per i parser ID_ONLY che risolvono gli ID dal
+        # dizionario; se assente/fallisce, l'anteprima resta conservativa/fail-closed (invariato).
+        self._id_resolver_factory = id_resolver_factory
         # Callback opzionale: dopo aver salvato l'anagrafica Provider su config.json,
         # sincronizza la config in memoria della GUI principale (vedi `app`), così un
         # successivo Salva/Avvia non riscrive il file perdendo i provider (Codex).
@@ -883,6 +888,23 @@ class CustomParserPanel(ctk.CTkFrame):
         self._result.configure(
             text=f"🗑 Eliminato {name!r}." if removed else f"⛔ {name!r} non trovato.")
 
+    def _preview_id_resolver(self):
+        """Resolver ID Betfair per l'anteprima (#192, Codex), best-effort/fail-open.
+
+        Se l'app ha fornito la factory `id_resolver_factory` (`() -> id_resolver | None`,
+        tipicamente `App._betfair_id_resolver`), invocala e ritorna il resolver così
+        «Prova messaggio» risolve gli ID come il runtime per i parser ID_ONLY che li
+        prendono dal dizionario. Qualsiasi assenza/eccezione → `None`: l'anteprima resta
+        conservativa/fail-closed (comportamento storico), MAI un crash della GUI e MAI
+        un effetto sul runtime reale."""
+        factory = self._id_resolver_factory
+        if factory is None:
+            return None
+        try:
+            return factory()
+        except Exception:
+            return None
+
     def _test(self):
         self._reload_profile_checks()   # rifletti modifiche al dizionario fatte altrove (Codex)
         self._reload_market_profile_checks()
@@ -921,20 +943,25 @@ class CustomParserPanel(ctk.CTkFrame):
         # Mappatura mercati: risolvi i profili mercati dalla config così l'anteprima imposta
         # Mercato/Selezione come il runtime (o fa fail-closed con MARKET_MAPPING_MISSING).
         market_mapping_profiles = self._resolve_market_mapping_profiles(defn)
+        # Dizionario Betfair per l'anteprima (#192, Codex): best-effort, così «Prova messaggio»
+        # risolve gli ID come il runtime per i parser ID_ONLY dizionario-dipendenti (o resta
+        # conservativa se il resolver non è disponibile).
+        id_resolver = self._preview_id_resolver()
         res = self.builder.test_message(message, provider=self._provider, mode=mode,
                                         require_price=require_price,
                                         name_mapping_profiles=name_mapping_profiles,
-                                        market_mapping_profiles=market_mapping_profiles)
+                                        market_mapping_profiles=market_mapping_profiles,
+                                        id_resolver=id_resolver)
         diag = parser_diagnostics.diagnose(
             defn, message, provider=self._provider, mode=mode, require_price=require_price,
             name_mapping_profiles=name_mapping_profiles,
-            market_mapping_profiles=market_mapping_profiles)
+            market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver)
         # Anteprima multi-riga (#192): tutte le righe generate (base o MultiMarket/
         # MultiSelection), col verdetto per-riga. Stesso motore del runtime.
         preview = self.builder.preview_rows(
             message, provider=self._provider, mode=mode, require_price=require_price,
             name_mapping_profiles=name_mapping_profiles,
-            market_mapping_profiles=market_mapping_profiles)
+            market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver)
         # Verdetto sintetico (logica pura testata in CI: `ParserBuilder.test_verdict`).
         # Precedenza: errori STRUTTURALI del parser (che Save rifiuterebbe) → «Non salvabile»,
         # così l'anteprima non dice «Pronto» per una definizione non salvabile (Codex #19);
@@ -1018,10 +1045,11 @@ class CustomParserWindow(ctk.CTkToplevel):
     "🧩 Parser" della finestra "🧰 Strumenti"."""
 
     def __init__(self, master=None, builder: ParserBuilder = None, provider: str = "",
-                 global_mode: str = "", on_saved=None):
+                 global_mode: str = "", on_saved=None, id_resolver_factory=None):
         super().__init__(master)
         self.title("Parser Personalizzato")
         gui_utils.fit_to_screen(self, 1024, 720, 760, 480)
         CustomParserPanel(self, builder=builder, provider=provider,
-                          global_mode=global_mode, on_saved=on_saved).pack(
+                          global_mode=global_mode, on_saved=on_saved,
+                          id_resolver_factory=id_resolver_factory).pack(
                               fill="both", expand=True)

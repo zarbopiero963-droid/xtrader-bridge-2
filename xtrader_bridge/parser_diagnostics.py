@@ -211,7 +211,7 @@ def _overlay_validator(result, by_target, fields) -> None:
 def diagnose(defn: CustomParserDef, text: str, *, value_maps_registry: dict = None,
              provider: str = "", mode: str = recognition.DEFAULT_MODE,
              require_price: bool = True, name_mapping_profiles=None,
-             market_mapping_profiles=None) -> Diagnosis:
+             market_mapping_profiles=None, id_resolver=None) -> Diagnosis:
     """Diagnostica completa di `text` col parser `defn`.
 
     Per ogni regola traccia grezzo→transform→value-map→finale e ne classifica
@@ -231,7 +231,7 @@ def diagnose(defn: CustomParserDef, text: str, *, value_maps_registry: dict = No
         defn, text, value_maps_registry=registry, provider=provider,
         mode=mode, require_price=require_price,
         name_mapping_profiles=name_mapping_profiles,
-        market_mapping_profiles=market_mapping_profiles)
+        market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver)
     _overlay_validator(result, by_target, fields)
 
     # Il runtime (`signal_router.resolve_row`) scrive SOLO se la riga è piazzabile

@@ -1148,3 +1148,46 @@ def test_on_debug_toggle_messaggio_specifico_per_stato_save(make_app, app_mod, m
     app_mod.App._on_debug_toggle(a)
     assert any("disco" in m.lower() for m in a.logs)       # messaggio disco presente
     assert not any("keyring" in m.lower() for m in a.logs) # NON il messaggio keyring
+
+
+# ── #192 (Codex P2): l'anteprima GUI salta il resolver ID durante una sync Betfair ──
+# `_preview_id_resolver_factory` è la factory passata al pannello «Prova messaggio». Il resolver
+# legge il DB sotto lo stesso RLock che una sync tiene per l'intera durata: invocarlo sul thread
+# Tk durante la sync congelerebbe la finestra. La factory deve quindi ritornare None se `is_syncing`,
+# senza toccare il flusso live (che usa `_betfair_id_resolver` su un worker thread).
+
+class _FakeSyncEngine:
+    def __init__(self, syncing):
+        self.is_syncing = syncing
+
+
+def test_preview_id_resolver_factory_salta_durante_sync(app_mod):
+    """Fail-first: durante una sync la factory dell'anteprima NON deve invocare il resolver
+    (che bloccherebbe sul lock DB) → ritorna None. Prima del fix l'anteprima usava
+    `_betfair_id_resolver` direttamente, senza guardia sync."""
+    a = object.__new__(app_mod.App)
+    a._betfair_sync_engine = lambda: _FakeSyncEngine(syncing=True)
+    called = []
+    a._betfair_id_resolver = lambda: called.append(1) or "RESOLVER"
+    assert app_mod.App._preview_id_resolver_factory(a) is None
+    assert called == []                     # il resolver NON è stato costruito/invocato
+
+
+def test_preview_id_resolver_factory_usa_resolver_senza_sync(app_mod):
+    """Senza sync in corso la factory ritorna il resolver reale, così «Prova messaggio»
+    risolve gli ID come il runtime."""
+    a = object.__new__(app_mod.App)
+    a._betfair_sync_engine = lambda: _FakeSyncEngine(syncing=False)
+    a._betfair_id_resolver = lambda: "RESOLVER"
+    assert app_mod.App._preview_id_resolver_factory(a) == "RESOLVER"
+
+
+def test_preview_id_resolver_factory_fail_open_su_eccezione(app_mod):
+    """Fail-open: se il probe `is_syncing`/engine solleva, la factory ritorna None (anteprima
+    conservativa), mai un crash/blocco della GUI."""
+    a = object.__new__(app_mod.App)
+    def _boom():
+        raise RuntimeError("engine non disponibile")
+    a._betfair_sync_engine = _boom
+    a._betfair_id_resolver = lambda: "RESOLVER"
+    assert app_mod.App._preview_id_resolver_factory(a) is None

@@ -1229,6 +1229,25 @@ class App(ctk.CTk):
         except Exception:   # noqa: BLE001 — best-effort: il flusso live non deve crashare
             return None
 
+    def _preview_id_resolver_factory(self):
+        """Factory del resolver ID per l'ANTEPRIMA GUI «Prova messaggio» (#192, Codex P2).
+
+        Come `_betfair_id_resolver`, MA **salta** (ritorna `None`) se una sync Betfair è in
+        corso. Il resolver legge il DB sotto lo stesso `RLock` che la sync tiene per l'INTERA
+        durata (incluse le chiamate di rete di navigazione/catalogo): invocarlo in modo sincrono
+        dal thread Tk dell'anteprima bloccherebbe la finestra fino a fine sync/timeout HTTP.
+        `is_syncing` è un probe **non bloccante** (acquire/release immediato). Durante una sync
+        l'anteprima resta quindi conservativa (nessun arricchimento ID), mai un freeze — fail-open.
+
+        Il flusso LIVE **non** è toccato: usa `_betfair_id_resolver` direttamente su un worker
+        thread (non sul thread GUI), dove un'attesa sul lock è accettabile."""
+        try:
+            if self._betfair_sync_engine().is_syncing:
+                return None
+        except Exception:   # noqa: BLE001 — probe best-effort: mai bloccare/crashare l'anteprima
+            return None
+        return self._betfair_id_resolver()
+
     def _betfair_autosync_seed(self) -> dict:
         """Valori auto-sync (enabled/hour/sports) per **seminare** il pannello Betfair.
 
@@ -2642,8 +2661,14 @@ class App(ctk.CTk):
 
         def _make_parser(parent):
             """Crea il pannello Parser Personalizzato (scheda 🧩 Parser)."""
+            # Factory best-effort del dizionario Betfair (#192, Codex): rende «Prova
+            # messaggio» equivalente al runtime per i parser ID_ONLY dizionario-dipendenti
+            # (l'anteprima risolve gli ID come il live). Usa `_preview_id_resolver_factory`
+            # (non `_betfair_id_resolver`): salta durante una sync per non congelare il thread
+            # GUI sul lock del DB (Codex P2). Fail-open: durante la sync l'anteprima è conservativa.
             return CustomParserPanel(parent, provider=_parser_provider,
-                                     global_mode=_parser_global_mode, on_saved=_parser_saved)
+                                     global_mode=_parser_global_mode, on_saved=_parser_saved,
+                                     id_resolver_factory=self._preview_id_resolver_factory)
 
         def _make_sources(parent):
             """Crea il pannello Chat sorgenti e ne tiene il riferimento per il refresh."""
