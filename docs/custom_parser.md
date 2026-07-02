@@ -486,10 +486,10 @@ retro-compatibile).
   **Fail-closed** restano: un obbligatorio **non** coperto dal multi (resta `NOT_READY`, così un
   messaggio dichiarato incompleto non raggiunge il CSV), un mercato non coperto, e gli altri gate
   (`Provider` mancante, `Handicap` non numerico, mappatura nomi non risolta).
-  - *Limite noto:* in `ID_ONLY` con dizionario Betfair gli ID **non** sono risolti per singola riga
-    derivata (una MultiSelection azzera comunque `SelectionId` al cambio selezione) → un
-    MultiSelection in ID_ONLY non produce righe con ID. Limite pre-esistente (fail-closed), da
-    affrontare con la risoluzione ID per-riga.
+  - *ID per riga (risolto):* in `ID_ONLY` con dizionario Betfair gli ID sono ora risolti **per
+    singola riga derivata** (`_resolve_ids_into` in `_validated_multi_row`) — una MultiSelection
+    azzera `SelectionId` al cambio selezione e subito dopo ri-risolve gli ID per quella selezione,
+    così l'ID_ONLY produce righe con gli ID corretti. Vedi «ID coerenti + risoluzione per riga».
 
 **Regole e limiti (v1):**
 
@@ -515,9 +515,14 @@ retro-compatibile).
   - In `OVERWRITE_LAST` l'«ultima istruzione» è il **blocco intero** del messaggio: tutte le
     righe generate restano attive insieme (sostituiscono il blocco precedente), via
     `signal_queue.replace_block`.
-- **ID coerenti**: quando una riga multi cambia `MarketType`/`MarketName`/`SelectionName`/
-  `Handicap`, gli eventuali `MarketId`/`SelectionId` ereditati dalla base vengono **azzerati**
-  (una riga non può nominare un mercato e identificarne un altro per ID).
+- **ID coerenti + risoluzione per riga**: quando una riga multi cambia `MarketType`/`MarketName`/
+  `SelectionName`/`Handicap`, gli eventuali `MarketId`/`SelectionId` ereditati dalla base vengono
+  **azzerati** (una riga non può nominare un mercato e identificarne un altro per ID); subito dopo,
+  se è disponibile il dizionario Betfair locale (`id_resolver` + sport del parser), gli ID vengono
+  **ri-risolti per la selezione/mercato di QUELLA riga** (`_resolve_ids_into`, additivo/fail-open/
+  non distruttivo). Così un **MultiSelection in `ID_ONLY`** produce righe con gli ID corretti per
+  ciascuna selezione; senza dizionario (o parser agnostico) le righe restano a **nomi** — in
+  `NAME_ONLY` piazzabili, in `ID_ONLY` scartate (fail-closed, nessun ID inventato).
 
 **GUI (scheda 🧩 Parser di «🧰 Strumenti»):** la sezione **«Output multi-riga»** sopra la griglia
 14 colonne offre due interruttori indipendenti — **MultiMarket** e **MultiSelection** — ciascuno
@@ -527,11 +532,19 @@ Un **banner ⚠** avvisa quando entrambi gli interruttori sono attivi (righe **s
 cartesiane) o quando un interruttore è acceso senza righe abilitate. **«Prova messaggio»** mostra
 una **tabella «Anteprima righe generate»** con **una riga per ogni riga CSV** che il messaggio
 produrrebbe (Base / Mercato / Selezione), col **verdetto per-riga** (✅ piazzabile · ⛔ + motivo):
-usa lo **stesso motore del runtime** (`build_validated_rows`), quindi non mente. Quando l'output
+usa lo **stesso motore del runtime** (`build_validated_rows`). Quando l'output
 multi-riga è attivo, anche il **verdetto sintetico** in cima si basa sulle **righe generate** (es.
 «✅ Pronto · N righe generate, tutte piazzabili»), non sulla sola riga base — che in un parser
 MultiMarket può mancare di MarketType/SelectionName **di proposito** (li fornisce ogni riga
 mercato), e altrimenti farebbe apparire un falso «Non pronto».
+
+> **Nota sull'arricchimento ID in anteprima (#192, Codex).** L'anteprima usa lo stesso motore ma,
+> se il chiamante non le passa un `id_resolver` (il dizionario Betfair locale), **non** risolve gli
+> ID: un parser `ID_ONLY` che si affida al dizionario per `MarketId`/`SelectionId` (lasciati vuoti)
+> appare **non pronto** in anteprima anche se a runtime — con il dizionario — verrebbe risolto e
+> scritto. È **conservativa e fail-closed** (mai il contrario). `preview_rows` accetta un parametro
+> `id_resolver` opzionale: la GUI può inoltrare il resolver dell'app per rendere l'anteprima
+> equivalente al runtime quando il dizionario è disponibile.
 
 I campi per-riga **non esposti** nella griglia GUI (`min_price`, `max_price`, `points`,
 `start_after`, `end_before` di `MultiRowRule`) sono **preservati** quando si modifica e salva un

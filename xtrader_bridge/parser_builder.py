@@ -457,16 +457,24 @@ class ParserBuilder:
 
     def preview_rows(self, message: str, *, provider: str = "",
                      mode: str = None, require_price: bool = None,
-                     name_mapping_profiles=None, market_mapping_profiles=None) -> list:
+                     name_mapping_profiles=None, market_mapping_profiles=None,
+                     id_resolver=None) -> list:
         """Anteprima MULTI-RIGA (#192, PR2): applica il parser e ritorna una lista di
         `PreviewRow` GIÀ pronte per la tabella della GUI «Prova messaggio».
 
-        Usa lo STESSO motore del runtime (`custom_pipeline.build_validated_rows`), così
-        l'anteprima non mente: ogni riga porta il suo verdetto (`placeable`/`status`) e una
-        riga non piazzabile NON blocca le altre. Quando MultiMarket/MultiSelection sono
-        disattivati ritorna UNA sola riga `kind="base"` (identico al single-row). Quando
-        sono attivi, le righe MultiMarket (`kind="market"`) precedono quelle MultiSelection
-        (`kind="selection"`), nello stesso ordine generato dal motore.
+        Usa lo STESSO motore del runtime (`custom_pipeline.build_validated_rows`): ogni riga porta
+        il suo verdetto (`placeable`/`status`) e una riga non piazzabile NON blocca le altre. Quando
+        MultiMarket/MultiSelection sono disattivati ritorna UNA sola riga `kind="base"` (identico al
+        single-row). Quando sono attivi, le righe MultiMarket (`kind="market"`) precedono quelle
+        MultiSelection (`kind="selection"`), nello stesso ordine generato dal motore.
+
+        `id_resolver` (#192, Codex): il dizionario Betfair locale per l'arricchimento ID. È
+        **opzionale** e va passato dal chiamante (la GUI inoltra il resolver dell'app quando il
+        dizionario è disponibile) perché il builder, da solo, non ha accesso al DB Betfair. **Senza
+        resolver l'anteprima è CONSERVATIVA**: un parser `ID_ONLY` che si affida al dizionario per
+        `MarketId`/`SelectionId` (lasciati vuoti) appare **non pronto** in anteprima anche se a
+        runtime — con il dizionario — verrebbe risolto e scritto. Fail-closed (mai il contrario:
+        l'anteprima non mostra piazzabile ciò che a runtime sarebbe scartato).
 
         Logica pura e testabile in CI (la GUI fa solo da vista): vedi `test_parser_builder`."""
         defn = self.to_def()
@@ -476,7 +484,7 @@ class ParserBuilder:
         results = build_validated_rows(
             defn, message, provider=provider, mode=eff_mode, require_price=require_price,
             name_mapping_profiles=name_mapping_profiles,
-            market_mapping_profiles=market_mapping_profiles)
+            market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver)
         n_markets = len(defn.active_multi_markets())
         n_selections = len(defn.active_multi_selections())
         multi_active = bool(n_markets or n_selections)

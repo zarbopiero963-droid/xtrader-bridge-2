@@ -144,6 +144,57 @@ def _row_has_market(row: dict, mode: str, supplied=()) -> bool:
     return _present("MarketId", "SelectionId") or _present("MarketType", "SelectionName")
 
 
+def _resolve_ids_into(row: dict, *, sport: str, id_resolver) -> dict:
+    """Arricchisce la riga con `EventId`/`MarketId`/`SelectionId` dal dizionario Betfair locale
+    (PR-P12), ristretto allo `sport` del parser. **Additivo, fail-open, NON distruttivo:**
+
+    - se `id_resolver` è assente o lo sport è vuoto (parser agnostico) → riga invariata;
+    - un errore del resolver non blocca il flusso (best-effort) → riga a nomi;
+    - se il parser ha già fornito un ID esplicito (ID/BOTH) NON lo si sovrascrive; se un ID del
+      parser è in **conflitto** con la tripla risolta si **scarta del tutto** l'arricchimento (un
+      dizionario stantio non deve scrivere un mercato/selezione sbagliato); altrimenti si riempiono
+      **solo** i campi ID vuoti con la tripla coerente del dizionario.
+
+    Condivisa tra la riga BASE (`build_validated_row`) e OGNI riga multi derivata
+    (`_validated_multi_row`, #192): una MultiSelection azzera gli ID al cambio selezione, quindi la
+    riga derivata deve ri-risolvere gli ID per la PROPRIA selezione, altrimenti in ID_ONLY resterebbe
+    senza ID e non piazzabile. Ritorna la riga (nuova se arricchita, altrimenti la stessa)."""
+    if id_resolver is None or not sport:
+        return row
+    try:
+        ids = id_resolver.resolve_ids(
+            sport=sport,
+            event_name=row.get("EventName", ""),
+            market_type=row.get("MarketType", ""),
+            market_name=row.get("MarketName", ""),
+            selection_name=row.get("SelectionName", ""),
+            handicap=row.get("Handicap", ""))
+    except Exception:   # noqa: BLE001 — risoluzione best-effort: niente blocco del flusso
+        ids = None
+    # Fail-open robusto (CodeRabbit): un resolver pluggable potrebbe ritornare un valore truthy
+    # NON dict (lista, oggetto…) → `ids.get`/`ids[_k]` solleverebbero FUORI dal try, violando la
+    # garanzia best-effort. Si accetta solo un dict non vuoto; altrimenti riga invariata (a nomi).
+    if not isinstance(ids, dict) or not ids:
+        return row
+
+    def _norm(v):   # normalizzazione condivisa dei valori di riga (Sourcery: no duplicazione)
+        return str(v).strip()
+
+    _keys = ("EventId", "MarketId", "SelectionId")
+    _conflict = any(
+        _norm(row.get(_k, ""))
+        and ids.get(_k) and _norm(row.get(_k, "")) != str(ids[_k])
+        for _k in _keys)
+    if _conflict:
+        return row
+    out = dict(row)
+    for _k in _keys:
+        _v = ids.get(_k)
+        if _v and not _norm(out.get(_k, "")):
+            out[_k] = str(_v)   # valore ID invariato (base bit-identica): niente strip sull'ID risolto
+    return out
+
+
 def _normalize_to_contract(row: dict, provider: str) -> dict:
     """Porta la riga al formato del contratto XTrader, senza sovrascrivere i
     valori già impostati dalle regole:
@@ -309,38 +360,9 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
 
     # Identificazione precisa dal dizionario Betfair locale (PR-P12): dopo le mappature
     # a nomi, prova a riempire EventId/MarketId/SelectionId dalla catena evento→mercato→
-    # selezione del dizionario, ristretta allo sport del parser. È **additiva e fail-open**:
-    # se il dizionario non trova un match univoco la riga resta a nomi (fallback nomi), non
-    # si blocca il segnale; un errore di lettura non deve mai interrompere il flusso.
-    if id_resolver is not None and getattr(defn, "sport", ""):
-        try:
-            ids = id_resolver.resolve_ids(
-                sport=defn.sport,
-                event_name=row.get("EventName", ""),
-                market_type=row.get("MarketType", ""),
-                market_name=row.get("MarketName", ""),
-                selection_name=row.get("SelectionName", ""),
-                handicap=row.get("Handicap", ""))
-        except Exception:   # noqa: BLE001 — risoluzione best-effort: niente blocco del flusso
-            ids = None
-        if ids:
-            # Additivo e NON distruttivo (Codex P1): se il parser ha già fornito un ID
-            # esplicito (ID/BOTH) NON lo si sovrascrive con quello del dizionario — un
-            # dizionario stantio/diverso scriverebbe un mercato/selezione sbagliato. Se un
-            # ID del parser è in CONFLITTO con la tripla risolta, si scarta del tutto
-            # l'arricchimento (resta la riga del parser); altrimenti si riempiono SOLO i
-            # campi ID vuoti con la tripla coerente del dizionario.
-            _keys = ("EventId", "MarketId", "SelectionId")
-            _conflict = any(
-                str(row.get(_k, "")).strip()
-                and ids.get(_k) and str(row.get(_k, "")).strip() != str(ids[_k])
-                for _k in _keys)
-            if not _conflict:
-                row = dict(row)
-                for _k in _keys:
-                    _v = ids.get(_k)
-                    if _v and not str(row.get(_k, "")).strip():
-                        row[_k] = str(_v)
+    # selezione del dizionario, ristretta allo sport del parser. Additiva/fail-open/NON
+    # distruttiva (vedi `_resolve_ids_into`): la logica è condivisa con le righe multi.
+    row = _resolve_ids_into(row, sport=getattr(defn, "sport", ""), id_resolver=id_resolver)
 
     status, detail = validator.validate(row, mode, require_price)
     return PipelineResult(status, row, list(res.missing_required), detail)
@@ -407,7 +429,8 @@ def _apply_multi_rule(base_row: dict, rule) -> dict:
     return _normalize_to_contract(row, str(row.get("Provider", "") or ""))
 
 
-def _validated_multi_row(base_row: dict, rule, mode: str, require_price: bool) -> PipelineResult:
+def _validated_multi_row(base_row: dict, rule, mode: str, require_price: bool,
+                         *, sport: str = "", id_resolver=None) -> PipelineResult:
     """Costruisce e VALIDA una singola riga multi derivata dalla base."""
     row = _apply_multi_rule(base_row, rule)
     # Handicap della riga DERIVATA (#192, Codex): l'override multi (`handicap`) NON passa dal gate
@@ -418,6 +441,11 @@ def _validated_multi_row(base_row: dict, rule, mode: str, require_price: bool) -
     hcap = str(row.get("Handicap", "")).strip()
     if hcap and not _HANDICAP_RE.match(hcap):
         return PipelineResult(INVALID_HANDICAP, row, [])
+    # Arricchimento ID PER RIGA DERIVATA (#192, follow-up review #290): `_apply_multi_rule` azzera
+    # gli ID quando la riga multi cambia mercato/selezione; senza ri-risolvere, un MultiSelection in
+    # ID_ONLY resterebbe senza ID → non piazzabile. Si risolvono gli ID per la selezione/mercato di
+    # QUESTA riga (additivo/fail-open/non-distruttivo, stessa logica della base).
+    row = _resolve_ids_into(row, sport=sport, id_resolver=id_resolver)
     status, detail = validator.validate(row, mode, require_price)
     missing = list(detail) if isinstance(detail, (list, tuple)) else []
     return PipelineResult(status, row, missing, detail)
@@ -460,17 +488,41 @@ def build_validated_rows(defn: CustomParserDef, text: str, **kwargs) -> "list[Pi
     # fornite da OGNI riga generata (`multi_supplied`) — così un obbligatorio NON coperto resta
     # bloccante (Codex P1) e la mappatura mercati non fa un falso fail-closed (Codex/CodeRabbit).
     if base.status in _MULTI_RESOLVABLE:
-        supplied = _multi_supplied_cols(list(markets) + list(selections))
+        supplied = set(_multi_supplied_cols(list(markets) + list(selections)))
+        # ID_ONLY con dizionario (Codex, follow-up #290): un parser creato dalla GUI marca
+        # `MarketId`/`SelectionId` come obbligatori per la modalità; se sono lasciati vuoti perché
+        # il resolver li riempie PER RIGA, la base sarebbe `NOT_READY` e la generazione non
+        # partirebbe mai. Quando c'è un `id_resolver` + sport (cioè `_resolve_ids_into` girerà su
+        # ogni riga derivata) si trattano gli ID come "forniti" per il solo gate della base: ogni
+        # riga è comunque ri-validata dopo la risoluzione (senza ID risolti → INVALID in ID_ONLY),
+        # quindi resta fail-closed PER RIGA come per kyZ.
+        # SOLO in ID_ONLY (Codex): lì il validator ri-controlla MarketId/SelectionId → se il resolver
+        # manca, la riga resta INVALID (fail-closed). In NAME_ONLY/BOTH il validator NON esige gli ID,
+        # quindi rilassare un ID obbligatorio lascerebbe passare una riga senza ID che il parser aveva
+        # dichiarato incompleta → NON si rilassa (resta bloccante).
+        # Solo i campi che il validator ID_ONLY RI-CONTROLLA (`MarketId`/`SelectionId`) — NON
+        # `EventId` (Codex): il validator ID_ONLY non esige `EventId`, quindi rilassarlo lascerebbe
+        # passare una riga con `EventId` obbligatorio vuoto (dichiarato incompleto dal parser).
+        _relax_mode = recognition.normalize_mode(kwargs.get("mode", recognition.DEFAULT_MODE))
+        if (_relax_mode == recognition.ID_ONLY
+                and kwargs.get("id_resolver") is not None and getattr(defn, "sport", "")):
+            supplied |= {"MarketId", "SelectionId"}
         if supplied:
             retry_kwargs = dict(row_kwargs)     # `row_kwargs`: senza il `multi_supplied` del chiamante
-            retry_kwargs["multi_supplied"] = supplied
+            retry_kwargs["multi_supplied"] = frozenset(supplied)
             base = build_validated_row(defn, text, **retry_kwargs)
     if base.status in _BASE_BLOCKING:
         return [base]
     mode = kwargs.get("mode", recognition.DEFAULT_MODE)
     require_price = kwargs.get("require_price", True)
-    out = [_validated_multi_row(base.row, r, mode, require_price) for r in markets]
-    out += [_validated_multi_row(base.row, r, mode, require_price) for r in selections]
+    # Provenienza per l'arricchimento ID per-riga (#192, follow-up #290): sport del parser +
+    # resolver dai kwargs, così ogni riga derivata ri-risolve gli ID per la propria selezione.
+    id_resolver = kwargs.get("id_resolver")
+    sport = getattr(defn, "sport", "")
+    out = [_validated_multi_row(base.row, r, mode, require_price, sport=sport,
+                                id_resolver=id_resolver) for r in markets]
+    out += [_validated_multi_row(base.row, r, mode, require_price, sport=sport,
+                                 id_resolver=id_resolver) for r in selections]
     return out
 
 
