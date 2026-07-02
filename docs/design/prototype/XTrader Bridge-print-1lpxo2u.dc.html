@@ -1,0 +1,1494 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style data-omelette-print-defaults>
+@media print {
+  @page { margin: 0.5in; }
+  h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+  figure, table, pre, blockquote, img, svg, tr, [class~="card" i] { break-inside: avoid; }
+  img, svg { max-width: 100%; }
+  p { orphans: 3; widows: 3; }
+}
+</style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  ::selection { background: color-mix(in srgb, var(--c-accent) 35%, transparent); }
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-thumb { background: var(--c-border); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--c-text3); background-clip: padding-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  :root {
+    --c-desk:#080b11; --c-win:#0e131c; --c-titlebar:#0b0f17; --c-surface:#131a25;
+    --c-surface2:#19212f; --c-surface3:#212b3c; --c-border:#28313f; --c-border2:#1c2431;
+    --c-text:#e7edf5; --c-text2:#93a1b4; --c-text3:#5d6a7b;
+    --c-accent:#3d8bff;
+    --c-accent-weak: color-mix(in srgb, var(--c-accent) 15%, transparent);
+    --c-accent-soft: color-mix(in srgb, var(--c-accent) 26%, transparent);
+    --c-purple:#7c5cff; --c-purple-weak: color-mix(in srgb, #7c5cff 16%, transparent);
+    --c-success:#2bcf86; --c-success-weak: color-mix(in srgb, #2bcf86 15%, transparent);
+    --c-danger:#ff5468; --c-danger-weak: color-mix(in srgb, #ff5468 15%, transparent);
+    --c-warn:#ffb02e; --c-warn-weak: color-mix(in srgb, #ffb02e 15%, transparent);
+    --c-info:#38bdf8; --c-info-weak: color-mix(in srgb, #38bdf8 15%, transparent);
+    --shadow: 0 32px 90px -20px rgba(0,0,0,.72), 0 8px 24px -8px rgba(0,0,0,.5);
+    --in-h:32px; --btn-h:34px; --pad:15px; --gap:9px;
+  }
+  :root[data-theme="light"] {
+    --c-desk:#c3ccd9; --c-win:#eef1f7; --c-titlebar:#e4e9f1; --c-surface:#ffffff;
+    --c-surface2:#f4f7fb; --c-surface3:#eaeff6; --c-border:#d6ddea; --c-border2:#e5eaf2;
+    --c-text:#172234; --c-text2:#586376; --c-text3:#8895a7;
+    --c-accent:#2563eb; --c-purple:#6d4aff; --c-purple-weak: color-mix(in srgb, #6d4aff 12%, transparent);
+    --c-success:#0ca678; --c-success-weak: color-mix(in srgb, #0ca678 13%, transparent);
+    --c-danger:#e03546; --c-danger-weak: color-mix(in srgb, #e03546 12%, transparent);
+    --c-warn:#dc8a06; --c-warn-weak: color-mix(in srgb, #dc8a06 14%, transparent);
+    --c-info:#0e9bd6; --c-info-weak: color-mix(in srgb, #0e9bd6 13%, transparent);
+    --shadow: 0 30px 70px -24px rgba(30,45,70,.4), 0 6px 18px -8px rgba(30,45,70,.22);
+  }
+  :root[data-density="comfortable"] { --in-h:36px; --btn-h:39px; --pad:20px; --gap:13px; }
+  @keyframes xb-pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+  @keyframes xb-in { from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
+  @keyframes xb-pop { from{opacity:0; transform:scale(.96)} to{opacity:1; transform:none} }
+</style>
+</helmet>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-bridge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6h11l-3-3M17 18H6l3 3"/><path d="M4 12h16"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 5.2v13.6a1 1 0 0 0 1.5.87l11-6.8a1 1 0 0 0 0-1.74l-11-6.8A1 1 0 0 0 7 5.2z"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
+  <symbol id="i-tools" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.9 2.9-2.4-2.4z"/></symbol>
+  <symbol id="i-broadcast" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 16.2a6 6 0 0 0 0-8.4M4.9 4.9a10 10 0 0 0 0 14.2M19.1 19.1a10 10 0 0 0 0-14.2"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 8L9 4l-3 8H2"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M8 17v-5M13 17V8M18 17v-3"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13.5 15h3.5"/></symbol>
+  <symbol id="i-puzzle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4a2 2 0 0 1 4 0c0 .5 0 1 .5 1H16a1 1 0 0 1 1 1v2.5c0 .5.5.5 1 .5a2 2 0 0 1 0 4c-.5 0-1 0-1 .5V17a1 1 0 0 1-1 1h-2.5c-.5 0-.5.5-.5 1a2 2 0 0 1-4 0c0-.5 0-1-.5-1H6a1 1 0 0 1-1-1v-2.5c0-.5-.5-.5-1-.5a2 2 0 0 1 0-4c.5 0 1 0 1-.5V6a1 1 0 0 1 1-1h2.5c.5 0 .5-.5.5-1z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 11 3.8V3H4v8h.8l9.6 9.6a2 2 0 0 0 2.8 0l3.4-3.4a2 2 0 0 0 0-2.8z"/><circle cx="7.5" cy="7.5" r="1.1"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3z"/><path d="M9 3v15M15 6v15"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.9-3.4L23 10M1 14l4.6 4.4A9 9 0 0 0 20.5 15"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M8 7h8M8 11h6"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></symbol>
+  <symbol id="i-square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-flask" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6l-5.2 9a2 2 0 0 0 1.7 3h11a2 2 0 0 0 1.7-3L14 9V3"/><path d="M7 15h10"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.8 12.2 21 2M16 7l3 3"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5z"/><path d="m2 12 10 5 10-5M2 17l10 5 10-5"/></symbol>
+</svg>
+
+<div style="min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;background:var(--c-desk);background-image:radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--c-accent) 9%, transparent), transparent 45%);font-family:'Hanken Grotesk',system-ui,sans-serif;color:var(--c-text);padding:22px;overflow:auto">
+
+  <div style="width:760px;max-width:100%;height:832px;max-height:calc(100vh - 44px);display:flex;flex-direction:column;background:var(--c-win);border:1px solid var(--c-border);border-radius:13px;box-shadow:var(--shadow);overflow:hidden;position:relative">
+
+    <!-- TITLE BAR -->
+    <div style="height:36px;flex:none;display:flex;align-items:center;background:var(--c-titlebar);border-bottom:1px solid var(--c-border2);padding:0 10px;gap:9px;user-select:none">
+      <div style="width:15px;height:15px;border-radius:4px;background:var(--c-accent);display:flex;align-items:center;justify-content:center;color:#fff"><svg viewBox="0 0 24 24" style="width:11px;height:11px"><use href="#i-bridge"></use></svg></div>
+      <span style="font-size:11.5px;color:var(--c-text2);font-weight:500">XTrader Signal Bridge v0.1.0</span>
+      <div style="flex:1"></div>
+      <div style="display:flex;gap:1px;margin-right:-4px">
+        <button style="width:30px;height:24px;border:none;background:transparent;color:var(--c-text3);border-radius:5px;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="background:var(--c-surface2);color:var(--c-text)"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-minus"></use></svg></button>
+        <button style="width:30px;height:24px;border:none;background:transparent;color:var(--c-text3);border-radius:5px;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="background:var(--c-surface2);color:var(--c-text)"><svg viewBox="0 0 24 24" style="width:12px;height:12px"><use href="#i-square"></use></svg></button>
+        <button style="width:30px;height:24px;border:none;background:transparent;color:var(--c-text3);border-radius:5px;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="background:var(--c-danger);color:#fff"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-x"></use></svg></button>
+      </div>
+    </div>
+
+    <!-- HERO HEADER -->
+    <div style="flex:none;display:flex;align-items:center;gap:12px;margin:12px var(--pad) 0;padding:13px 16px;border-radius:11px;background:linear-gradient(110deg, color-mix(in srgb, var(--c-accent) 22%, var(--c-surface)), var(--c-surface));border:1px solid var(--c-accent-soft)">
+      <div style="width:34px;height:34px;flex:none;border-radius:9px;background:var(--c-accent);display:flex;align-items:center;justify-content:center;color:#fff"><svg viewBox="0 0 24 24" style="width:20px;height:20px"><use href="#i-bridge"></use></svg></div>
+      <div style="font-size:17px;font-weight:800;letter-spacing:-.2px;color:var(--c-accent)">XTrader Signal Bridge</div>
+      <div style="flex:1"></div>
+      <div style="font-size:12px;color:var(--c-text2);font-weight:500">Righe attive: <span style="font-family:'IBM Plex Mono',monospace;color:var(--c-text);font-weight:600">{{ activeRowsLabel }}</span></div>
+      <div style="display:flex;align-items:center;gap:7px;height:28px;padding:0 12px;border-radius:20px;background:{{ statusBg }};color:{{ statusColor }};font-weight:700;font-size:11.5px;letter-spacing:.5px">
+        <span style="width:8px;height:8px;border-radius:50%;background:currentColor;animation:{{ statusPulse }}"></span>{{ statusLabel }}
+      </div>
+      <button onClick="{{ toggleTheme }}" title="Cambia tema" style="width:28px;height:28px;flex:none;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-text2);border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="color:var(--c-accent);border-color:var(--c-accent-soft)"><svg viewBox="0 0 24 24" style="width:15px;height:15px"><use href="{{ themeIcon }}"></use></svg></button>
+    </div>
+
+    <!-- REAL BANNER -->
+    <sc-if value="{{ isReal }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:none;display:flex;align-items:center;gap:9px;margin:9px var(--pad) 0;padding:9px 13px;border-radius:9px;background:var(--c-danger);color:#fff;font-size:12px;font-weight:700;animation:xb-in .25s ease">
+        <svg viewBox="0 0 24 24" style="width:16px;height:16px"><use href="#i-alert"></use></svg>
+        MODALITÀ REALE ATTIVA — i segnali diventano scommesse reali sul CSV operativo.
+      </div>
+    </sc-if>
+
+    <!-- BODY -->
+    <div style="flex:1;overflow-y:auto;padding:12px var(--pad) var(--pad);display:flex;flex-direction:column;gap:12px">
+
+      <!-- CONFIG CARD -->
+      <div style="flex:none;border:1px solid var(--c-border);border-radius:11px;background:var(--c-surface);overflow:hidden">
+        <div style="display:flex;justify-content:center;padding:10px 8px 0">
+          <div style="display:inline-flex;background:var(--c-titlebar);border:1px solid var(--c-border);border-radius:9px;padding:3px;gap:2px">
+            <sc-for list="{{ cfgTabs }}" as="tab" hint-placeholder-count="4">
+              <button onClick="{{ tab.onClick }}" style="{{ tab.style }}"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#{{ tab.icon }}"></use></svg>{{ tab.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="padding:16px var(--pad)">
+          <!-- GENERALE -->
+          <sc-if value="{{ tabGen }}" hint-placeholder-val="{{ true }}">
+            <div style="display:grid;grid-template-columns:150px 1fr;gap:10px 14px;align-items:center">
+              <sc-for list="{{ genFields }}" as="f" hint-placeholder-count="5">
+                <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--c-text2);font-weight:500"><svg viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--c-text3)"><use href="#{{ f.icon }}"></use></svg>{{ f.label }}</label>
+                <input type="{{ f.type }}" defaultValue="{{ f.val }}" placeholder="{{ f.ph }}" style="width:100%;height:var(--in-h);background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 11px;font-size:12.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="border-color:var(--c-accent)">
+              </sc-for>
+            </div>
+          </sc-if>
+          <!-- RICONOSCIMENTO -->
+          <sc-if value="{{ tabRec }}" hint-placeholder-val="{{ false }}">
+            <div style="display:grid;grid-template-columns:230px 1fr;gap:10px 14px;align-items:center">
+              <label style="font-size:12.5px;color:var(--c-text2);font-weight:500">Modalità riconoscimento</label>
+              <select style="width:100%;height:var(--in-h);background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 10px;font-size:12.5px;font-family:inherit;outline:none;cursor:pointer" style-focus="border-color:var(--c-accent)">
+                <option>NAME_ONLY — riconosci per nomi (Evento / Mercato / Selezione)</option>
+                <option>ID_ONLY — riconosci per ID Betfair</option>
+                <option>BOTH — nomi + ID</option>
+              </select>
+            </div>
+            <div style="margin-top:13px;display:flex;gap:9px;padding:11px 13px;border-radius:9px;background:var(--c-info-weak);border:1px solid color-mix(in srgb, var(--c-info) 30%, transparent)">
+              <svg viewBox="0 0 24 24" style="width:16px;height:16px;color:var(--c-info);flex:none;margin-top:1px"><use href="#i-target"></use></svg>
+              <div style="font-size:12px;color:var(--c-text2);line-height:1.5">La <strong style="color:var(--c-text)">quota obbligatoria</strong> è governata dalla casella «Obblig.» sulla riga <em>Price</em> di ogni Parser Personalizzato, non da un interruttore globale.</div>
+            </div>
+          </sc-if>
+          <!-- SICUREZZA -->
+          <sc-if value="{{ tabSafe }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:11px">
+              <label style="display:flex;align-items:flex-start;gap:11px;padding:11px 13px;border-radius:9px;border:1px solid {{ dryBorder }};background:{{ dryBg }};cursor:pointer">
+                <input type="checkbox" checked="{{ isSim }}" onChange="{{ toggleDry }}" style="width:17px;height:17px;margin-top:1px;accent-color:var(--c-warn);cursor:pointer">
+                <div style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600"><svg viewBox="0 0 24 24" style="width:15px;height:15px;color:var(--c-warn)"><use href="#i-flask"></use></svg>Simulazione (DRY_RUN): NON scrive il CSV operativo</div>
+              </label>
+              <div style="display:grid;grid-template-columns:230px 1fr;gap:10px 14px;align-items:center">
+                <label style="font-size:12.5px;color:var(--c-text2)">Limite segnali al giorno</label>
+                <input defaultValue="200" style="height:var(--in-h);background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 11px;font-size:12.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="border-color:var(--c-accent)">
+                <label style="font-size:12.5px;color:var(--c-text2)">Modalità coda segnali</label>
+                <select value="{{ queueMode }}" onChange="{{ onQueueChange }}" style="height:var(--in-h);background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 10px;font-size:12.5px;font-family:inherit;outline:none;cursor:pointer" style-focus="border-color:var(--c-accent)">
+                  <option value="OVERWRITE_LAST">OVERWRITE_LAST — tieni solo l'ultimo segnale</option>
+                  <option value="APPEND_ACTIVE">APPEND_ACTIVE — accoda i segnali attivi</option>
+                  <option value="QUEUE_UNTIL_CONFIRMED">QUEUE_UNTIL_CONFIRMED — attendi conferma XTrader</option>
+                </select>
+              </div>
+              <label style="display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--c-text2);cursor:pointer"><input type="checkbox" style="width:16px;height:16px;accent-color:var(--c-accent);cursor:pointer"><svg viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--c-text3)"><use href="#i-play"></use></svg> Avvio automatico all'apertura <span style="color:var(--c-text3);font-size:11px">(in modalità REALE chiede conferma)</span></label>
+              <label style="display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--c-text2);cursor:pointer"><input type="checkbox" style="width:16px;height:16px;accent-color:var(--c-accent);cursor:pointer"><svg viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--c-text3)"><use href="#i-list"></use></svg> Logga il testo completo dei messaggi <span style="color:var(--c-text3);font-size:11px">(debug; OFF = solo hash + 1ª riga)</span></label>
+              <div style="display:grid;grid-template-columns:230px 1fr;gap:10px 14px;align-items:center">
+                <label style="font-size:12.5px;color:var(--c-text2)">Max segnali attivi <span style="color:var(--c-text3);font-size:11px">(coda multi-riga)</span></label>
+                <input defaultValue="2" style="height:var(--in-h);background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 11px;font-size:12.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="border-color:var(--c-accent)">
+              </div>
+            </div>
+          </sc-if>
+          <!-- CONFERME -->
+          <sc-if value="{{ tabConf }}" hint-placeholder-val="{{ false }}">
+            <div style="display:grid;grid-template-columns:230px 1fr;gap:11px 14px;align-items:center">
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--c-text2)"><svg viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--c-text3)"><use href="#i-chat"></use></svg>Chat notifiche XTrader</label>
+              <input placeholder="es. -1001234567890" style="height:var(--in-h);background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 11px;font-size:12.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="border-color:var(--c-accent)">
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--c-text2)"><svg viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--c-text3)"><use href="#i-clock"></use></svg>Timeout conferma (sec)</label>
+              <input defaultValue="120" style="height:var(--in-h);background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 11px;font-size:12.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="border-color:var(--c-accent)">
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--c-text2)"><svg viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--c-success)"><use href="#i-check"></use></svg>Parole conferma <span style="color:var(--c-text3);font-size:11px">(sep. virgola)</span></label>
+              <input placeholder="confermato, ok, eseguito, piazzato" style="height:var(--in-h);background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 11px;font-size:12.5px;font-family:inherit;outline:none" style-focus="border-color:var(--c-accent)">
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--c-text2)"><svg viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--c-danger)"><use href="#i-x"></use></svg>Parole rifiuto <span style="color:var(--c-text3);font-size:11px">(sep. virgola)</span></label>
+              <input placeholder="rifiutato, annullato, errore, no" style="height:var(--in-h);background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 11px;font-size:12.5px;font-family:inherit;outline:none" style-focus="border-color:var(--c-accent)">
+            </div>
+          </sc-if>
+        </div>
+      </div>
+
+      <!-- ACTION BAR -->
+      <div style="flex:none;display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;gap:9px">
+          <button onClick="{{ start }}" style="{{ startStyle }}"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-play"></use></svg> AVVIA</button>
+          <button onClick="{{ stop }}" style="{{ stopStyle }}"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-stop"></use></svg> STOP</button>
+          <button onClick="{{ clearCsv }}" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:var(--btn-h);border:none;background:var(--c-accent);color:#fff;border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-trash"></use></svg> Svuota CSV ora</button>
+          <button onClick="{{ saveCfg }}" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:var(--btn-h);border:1px solid var(--c-border);background:var(--c-surface3);color:var(--c-text);border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="border-color:var(--c-text3)"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-save"></use></svg> Salva Config</button>
+        </div>
+        <button onClick="{{ openTools }}" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;height:var(--btn-h);border:none;background:var(--c-purple);color:#fff;border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:15px;height:15px"><use href="#i-tools"></use></svg> Strumenti</button>
+      </div>
+
+      <!-- WARNING BANNER (no chat) -->
+      <sc-if value="{{ noChats }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:none;display:flex;align-items:center;gap:9px;padding:10px 13px;border-radius:9px;background:var(--c-warn-weak);border:1px solid color-mix(in srgb, var(--c-warn) 35%, transparent);color:var(--c-warn);font-size:12px;font-weight:600">
+          <svg viewBox="0 0 24 24" style="width:16px;height:16px;flex:none"><use href="#i-alert"></use></svg>
+          Nessuna chat configurata — il bridge non si avvierà finché non imposti una Chat ID o una Chat sorgente.
+        </div>
+      </sc-if>
+
+      <!-- MONITOR CARD -->
+      <div style="flex:1;min-height:220px;border:1px solid var(--c-border);border-radius:11px;background:var(--c-surface);overflow:hidden;display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:center;padding:10px 8px 0">
+          <div style="display:inline-flex;background:var(--c-titlebar);border:1px solid var(--c-border);border-radius:9px;padding:3px;gap:2px">
+            <sc-for list="{{ monTabs }}" as="tab" hint-placeholder-count="4">
+              <button onClick="{{ tab.onClick }}" style="{{ tab.style }}"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#{{ tab.icon }}"></use></svg>{{ tab.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="flex:1;overflow:auto;padding:14px var(--pad)">
+          <!-- CHAT ASCOLTATE -->
+          <sc-if value="{{ monChats }}" hint-placeholder-val="{{ true }}">
+            <sc-if value="{{ noChats }}" hint-placeholder-val="{{ false }}">
+              <div style="text-align:center;padding:28px 12px;color:var(--c-text3);font-size:12.5px">Nessuna chat configurata. Aggiungine una da <strong style="color:var(--c-text2)">Strumenti › Chat sorgenti</strong>.</div>
+            </sc-if>
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <sc-for list="{{ chats }}" as="c" hint-placeholder-count="2">
+                <div style="display:flex;align-items:center;gap:11px;padding:9px 12px;border:1px solid var(--c-border);border-radius:9px;background:var(--c-win)">
+                  <svg viewBox="0 0 24 24" style="width:15px;height:15px;color:var(--c-accent);flex:none"><use href="#i-broadcast"></use></svg>
+                  <span style="font-size:13px;font-weight:600">{{ c.name }}</span>
+                  <span style="font-size:11.5px;color:var(--c-text3);font-family:'IBM Plex Mono',monospace">{{ c.id }}</span>
+                  <div style="flex:1"></div>
+                  <span style="font-size:10.5px;font-weight:600;color:var(--c-success);background:var(--c-success-weak);padding:3px 9px;border-radius:20px">attiva</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <!-- STATO -->
+          <sc-if value="{{ monStato }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px">
+              <button style="display:flex;align-items:center;gap:6px;height:28px;padding:0 11px;border:1px solid var(--c-border);background:var(--c-win);color:var(--c-text2);border-radius:7px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="color:var(--c-text)"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-download"></use></svg> Esporta audit reale</button>
+              <button style="display:flex;align-items:center;gap:6px;height:28px;padding:0 11px;border:1px solid var(--c-border);background:var(--c-win);color:var(--c-text2);border-radius:7px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="color:var(--c-text)"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-folder"></use></svg> Apri cartella log</button>
+              <button style="display:flex;align-items:center;gap:6px;height:28px;padding:0 11px;border:1px solid var(--c-border);background:var(--c-win);color:var(--c-text2);border-radius:7px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="color:var(--c-text)"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-copy"></use></svg> Copia diagnostica</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <sc-for list="{{ lastFields }}" as="lf" hint-placeholder-count="4">
+                <div style="display:grid;grid-template-columns:130px 1fr;gap:12px;align-items:baseline;padding:9px 12px;border-radius:8px;background:var(--c-win);border:1px solid var(--c-border2)">
+                  <span style="font-size:11.5px;color:var(--c-text3);font-weight:600">{{ lf.label }}</span>
+                  <span style="font-size:12.5px;color:{{ lf.color }};font-family:'IBM Plex Mono',monospace;word-break:break-all">{{ lf.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <!-- DASHBOARD -->
+          <sc-if value="{{ monDash }}" hint-placeholder-val="{{ false }}">
+            <div style="font-size:11.5px;color:var(--c-text3);margin-bottom:12px">Contatori di sessione — dall'ultimo AVVIO</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:10px">
+              <sc-for list="{{ counters }}" as="k" hint-placeholder-count="7">
+                <div style="padding:12px 13px;border-radius:11px;background:var(--c-win);border:1px solid var(--c-border);border-left:3px solid {{ k.color }}">
+                  <div style="font-size:10.5px;color:var(--c-text3);font-weight:600;text-transform:uppercase;letter-spacing:.5px">{{ k.label }}</div>
+                  <div style="font-size:26px;font-weight:700;color:{{ k.color }};font-family:'IBM Plex Mono',monospace;line-height:1.2;margin-top:3px">{{ k.value }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <!-- LOG -->
+          <sc-if value="{{ monLog }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:11px;flex-wrap:wrap">
+              <span style="font-size:11.5px;color:var(--c-text3)">Mostra</span>
+              <select style="height:28px;background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 8px;font-size:11.5px;font-family:inherit;outline:none;cursor:pointer"><option>Tutti</option><option>INFO</option><option>WARN</option><option>ERRORE</option></select>
+              <span style="font-size:11.5px;color:var(--c-text3);margin-left:6px">Conserva</span>
+              <select style="height:28px;background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 8px;font-size:11.5px;font-family:inherit;outline:none;cursor:pointer"><option>15 giorni</option><option>5 giorni</option><option>30 giorni</option><option>Mai</option></select>
+              <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--c-text2);cursor:pointer;margin-left:4px"><input type="checkbox" style="width:14px;height:14px;accent-color:var(--c-accent)"> Debug</label>
+              <div style="flex:1"></div>
+              <button style="display:flex;align-items:center;gap:6px;height:28px;padding:0 11px;border:1px solid var(--c-border);background:var(--c-win);color:var(--c-text2);border-radius:7px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="color:var(--c-text)"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-trash"></use></svg> Svuota log</button>
+            </div>
+            <div style="border:1px solid var(--c-border);border-radius:9px;background:var(--c-desk);padding:10px 12px;min-height:150px;max-height:250px;overflow:auto;display:flex;flex-direction:column;gap:3px;font-family:'IBM Plex Mono',monospace">
+              <sc-if value="{{ noLogs }}" hint-placeholder-val="{{ true }}"><div style="color:var(--c-text3);font-size:12px;padding:8px">Nessun evento. Premi AVVIA per iniziare ad ascoltare.</div></sc-if>
+              <sc-for list="{{ logs }}" as="l" hint-placeholder-count="0">
+                <div style="display:flex;gap:9px;font-size:11.5px;line-height:1.55">
+                  <span style="color:var(--c-text3);flex:none">{{ l.time }}</span>
+                  <span style="color:{{ l.color }};font-weight:600;flex:none;width:42px">{{ l.level }}</span>
+                  <span style="color:var(--c-text2)">{{ l.msg }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════ TOOLS WINDOW ══════ -->
+  <sc-if value="{{ toolsOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeTools }}" style="position:fixed;inset:0;background:rgba(4,7,12,.6);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;z-index:40;padding:24px">
+      <div onClick="{{ stopProp }}" style="width:1120px;max-width:100%;height:760px;max-height:100%;display:flex;flex-direction:column;background:var(--c-win);border:1px solid var(--c-border);border-radius:13px;box-shadow:var(--shadow);overflow:hidden;animation:xb-pop .2s ease">
+        <div style="height:40px;flex:none;display:flex;align-items:center;gap:9px;padding:0 8px 0 13px;background:var(--c-titlebar);border-bottom:1px solid var(--c-border)">
+          <svg viewBox="0 0 24 24" style="width:15px;height:15px;color:var(--c-purple)"><use href="#i-tools"></use></svg>
+          <span style="font-size:12.5px;font-weight:700">Strumenti</span>
+          <div style="flex:1"></div>
+          <button onClick="{{ closeTools }}" style="width:30px;height:28px;border:none;background:transparent;color:var(--c-text3);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="background:var(--c-danger);color:#fff"><svg viewBox="0 0 24 24" style="width:15px;height:15px"><use href="#i-x"></use></svg></button>
+        </div>
+        <!-- TOP TAB BAR -->
+        <div style="flex:none;display:flex;justify-content:center;padding:12px 8px 0;border-bottom:1px solid var(--c-border)">
+          <div style="display:inline-flex;background:var(--c-titlebar);border:1px solid var(--c-border);border-radius:9px;padding:3px;gap:2px;margin-bottom:12px;flex-wrap:wrap">
+            <sc-for list="{{ toolTabs }}" as="tab" hint-placeholder-count="7">
+              <button onClick="{{ tab.onClick }}" style="{{ tab.style }}"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#{{ tab.icon }}"></use></svg>{{ tab.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="flex:1;overflow-y:auto;background:var(--c-win)">
+
+          <!-- PARSER -->
+          <sc-if value="{{ tPar }}" hint-placeholder-val="{{ true }}">
+            <div style="padding:18px 20px;max-width:960px;margin:0 auto">
+              <div style="display:grid;grid-template-columns:auto 220px auto 190px auto 190px auto;gap:10px 12px;align-items:center;margin-bottom:12px">
+                <label style="font-size:12.5px;color:var(--c-text2)">Nome parser:</label>
+                <input value="{{ pName }}" onInput="{{ onPName }}" placeholder="es. VIP_Over_Live" style="height:var(--in-h);background:var(--c-surface);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 11px;font-size:12.5px;font-family:inherit;outline:none" style-focus="border-color:var(--c-accent)">
+                <label style="font-size:12.5px;color:var(--c-text2)">Modalità:</label>
+                <select value="{{ pMode }}" onChange="{{ onPMode }}" style="height:var(--in-h);background:var(--c-surface);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 9px;font-size:12px;font-family:inherit;outline:none;cursor:pointer"><option>NAME_ONLY</option><option>ID_ONLY</option><option>BOTH</option></select>
+                <label style="font-size:12.5px;color:var(--c-text2)">Sport:</label>
+                <select value="{{ pSport }}" onChange="{{ onPSport }}" style="height:var(--in-h);background:var(--c-surface);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 9px;font-size:12px;font-family:inherit;outline:none;cursor:pointer"><option>(non specificato)</option><option>Calcio</option><option>Tennis</option><option>Basket</option><option>Rugby Union</option></select>
+                <button onClick="{{ openProv }}" style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 13px;border:none;background:var(--c-accent);color:#fff;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-plus"></use></svg> Provider</button>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:14px;flex-wrap:wrap">
+                <label style="font-size:12.5px;color:var(--c-text2)">Parser salvati:</label>
+                <select value="{{ pSelected }}" onChange="{{ onPSelect }}" style="width:200px;height:var(--in-h);background:var(--c-surface);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 9px;font-size:12px;font-family:inherit;outline:none;cursor:pointer">
+                  <option value="">(nessuno)</option>
+                  <sc-for list="{{ savedParsers }}" as="sp" hint-placeholder-count="0"><option value="{{ sp }}">{{ sp }}</option></sc-for>
+                </select>
+                <button onClick="{{ pNew }}" style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 12px;border:none;background:var(--c-accent);color:#fff;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-plus"></use></svg> Nuovo</button>
+                <button onClick="{{ pLoad }}" style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 12px;border:none;background:var(--c-accent);color:#fff;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-folder"></use></svg> Carica</button>
+                <button onClick="{{ pDup }}" style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 12px;border:none;background:var(--c-accent);color:#fff;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-copy"></use></svg> Duplica</button>
+                <button onClick="{{ pDel }}" style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 12px;border:none;background:var(--c-danger);color:#fff;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-trash"></use></svg> Elimina</button>
+                <button onClick="{{ pSave }}" style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 12px;border:none;background:var(--c-success);color:#fff;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-save"></use></svg> Salva</button>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:14px;flex-wrap:wrap">
+                <label style="font-size:12.5px;color:var(--c-text2)">Catalogo XTrader:</label>
+                <select value="{{ catalogMarket }}" onChange="{{ onCatalog }}" style="width:230px;height:var(--in-h);background:var(--c-surface);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 9px;font-size:12px;font-family:inherit;outline:none;cursor:pointer"><option>Entrambe le squadre a segno</option><option>Esito finale 1X2</option><option>Under/Over 2.5</option><option>Prossimo goal</option></select>
+                <button onClick="{{ insertFixed }}" style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 13px;border:none;background:var(--c-accent);color:#fff;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-plus"></use></svg> Inserisci regole fisse</button>
+              </div>
+
+              <!-- GRIGLIA COLONNE CSV (14 righe fisse) -->
+              <div style="border:1px solid var(--c-border);border-radius:10px;background:var(--c-surface);overflow:hidden;margin-bottom:14px">
+                <div style="display:grid;grid-template-columns:120px 1fr 1fr 110px 128px 128px 56px;gap:1px;background:var(--c-border);font-size:10px;font-weight:700;color:var(--c-text3);text-transform:uppercase;letter-spacing:.4px">
+                  <div style="background:var(--c-titlebar);padding:8px 9px">Colonna</div><div style="background:var(--c-titlebar);padding:8px 9px">Inizia dopo</div><div style="background:var(--c-titlebar);padding:8px 9px">Finisce prima</div><div style="background:var(--c-titlebar);padding:8px 9px">Valore fisso</div><div style="background:var(--c-titlebar);padding:8px 9px">Trasformazione</div><div style="background:var(--c-titlebar);padding:8px 9px">Value-map</div><div style="background:var(--c-titlebar);padding:8px 9px;text-align:center">Obbl.</div>
+                </div>
+                <sc-for list="{{ ruleRows }}" as="r" hint-placeholder-count="14">
+                  <div style="display:grid;grid-template-columns:120px 1fr 1fr 110px 128px 128px 56px;gap:1px;background:var(--c-border2)">
+                    <div style="background:var(--c-win);padding:0 9px;display:flex;align-items:center;font-size:11.5px;font-family:'IBM Plex Mono',monospace;color:{{ r.colColor }};font-weight:{{ r.colWeight }}">{{ r.col }}</div>
+                    <input data-i="{{ r.i }}" data-f="sa" value="{{ r.sa }}" onInput="{{ onRuleInput }}" placeholder="—" style="background:var(--c-win);border:none;height:34px;padding:0 9px;color:var(--c-text);font-size:11.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="background:var(--c-surface2)">
+                    <input data-i="{{ r.i }}" data-f="eb" value="{{ r.eb }}" onInput="{{ onRuleInput }}" placeholder="—" style="background:var(--c-win);border:none;height:34px;padding:0 9px;color:var(--c-text);font-size:11.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="background:var(--c-surface2)">
+                    <input data-i="{{ r.i }}" data-f="fx" value="{{ r.fx }}" onInput="{{ onRuleInput }}" placeholder="—" style="background:var(--c-win);border:none;height:34px;padding:0 9px;color:var(--c-info);font-size:11.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="background:var(--c-surface2)">
+                    <select data-i="{{ r.i }}" data-f="tr" value="{{ r.tr }}" onChange="{{ onRuleSelect }}" style="background:var(--c-win);border:none;height:34px;padding:0 6px;color:var(--c-text2);font-size:11px;font-family:inherit;outline:none;cursor:pointer">
+                      <sc-for list="{{ transforms }}" as="t" hint-placeholder-count="0"><option value="{{ t.v }}">{{ t.label }}</option></sc-for>
+                    </select>
+                    <select data-i="{{ r.i }}" data-f="vm" value="{{ r.vm }}" onChange="{{ onRuleSelect }}" style="background:var(--c-win);border:none;height:34px;padding:0 6px;color:var(--c-text2);font-size:11px;font-family:inherit;outline:none;cursor:pointer">
+                      <sc-for list="{{ valuemaps }}" as="t" hint-placeholder-count="0"><option value="{{ t.v }}">{{ t.label }}</option></sc-for>
+                    </select>
+                    <label style="background:var(--c-win);display:flex;align-items:center;justify-content:center;cursor:pointer"><input type="checkbox" data-i="{{ r.i }}" checked="{{ r.req }}" onChange="{{ onRuleReq }}" style="width:15px;height:15px;accent-color:var(--c-accent);cursor:pointer"></label>
+                  </div>
+                </sc-for>
+              </div>
+
+              <!-- Mappatura nomi -->
+              <div style="display:grid;grid-template-columns:auto auto auto auto 1fr;gap:10px;align-items:center;margin-bottom:12px;padding:12px 14px;border:1px solid var(--c-border);border-radius:10px;background:var(--c-surface)">
+                <label style="font-size:12.5px;color:var(--c-text2)">Mappatura nomi · separatore:</label>
+                <input placeholder="v" style="width:56px;height:var(--in-h);text-align:center;background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);font-size:12.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="border-color:var(--c-accent)">
+                <button onClick="{{ openDictNames }}" style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 13px;border:none;background:var(--c-accent);color:#fff;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-book"></use></svg> Dizionario nomi</button>
+                <label style="font-size:12.5px;color:var(--c-text2)">Profili:</label>
+                <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--c-text);cursor:pointer;padding:0 12px;height:var(--in-h);border:1px solid var(--c-border);border-radius:7px;background:var(--c-win)"><input type="checkbox" style="width:15px;height:15px;accent-color:var(--c-accent)"> test</label>
+              </div>
+              <!-- Mappatura mercati -->
+              <div style="display:grid;grid-template-columns:auto auto auto 1fr;gap:10px;align-items:center;margin-bottom:16px;padding:12px 14px;border:1px solid var(--c-border);border-radius:10px;background:var(--c-surface)">
+                <label style="font-size:12.5px;color:var(--c-text2)">Mappatura mercati:</label>
+                <button onClick="{{ openDictMarkets }}" style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 13px;border:none;background:var(--c-accent);color:#fff;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-target"></use></svg> Dizionario mercati</button>
+                <label style="font-size:12.5px;color:var(--c-text2)">Profili:</label>
+                <span style="font-size:12px;color:var(--c-text3);font-style:italic">(nessun profilo)</span>
+              </div>
+
+              <!-- Output multi-riga -->
+              <div style="border:1px solid var(--c-border);border-radius:10px;background:var(--c-surface);padding:14px 16px">
+                <div style="font-size:13px;font-weight:700;margin-bottom:12px">Output multi-riga <span style="color:var(--c-text3);font-weight:500;font-size:11.5px">(un messaggio → più righe CSV)</span></div>
+                <!-- MultiMarket -->
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+                  <label style="display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--c-text);cursor:pointer;font-weight:500"><input type="checkbox" checked="{{ multiMarket }}" onChange="{{ toggleMM }}" style="width:16px;height:16px;accent-color:var(--c-accent)"><svg viewBox="0 0 24 24" style="width:15px;height:15px;color:var(--c-info)"><use href="#i-layers"></use></svg> MultiMarket (più mercati)</label>
+                  <button onClick="{{ addMarket }}" disabled="{{ mmOff }}" style="{{ mmBtnStyle }}"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-plus"></use></svg> Aggiungi mercato</button>
+                </div>
+                <sc-if value="{{ multiMarket }}" hint-placeholder-val="{{ false }}">
+                  <div style="border:1px solid var(--c-border);border-radius:9px;overflow:hidden;margin-bottom:14px">
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 40px;gap:1px;background:var(--c-border);font-size:10px;font-weight:700;color:var(--c-text3);text-transform:uppercase;letter-spacing:.4px">
+                      <div style="background:var(--c-titlebar);padding:7px 9px">Inizia dopo</div><div style="background:var(--c-titlebar);padding:7px 9px">Finisce prima</div><div style="background:var(--c-titlebar);padding:7px 9px">Testo mercato</div><div style="background:var(--c-titlebar);padding:7px 9px">Mercato (catalogo)</div><div style="background:var(--c-titlebar);padding:7px 9px"></div>
+                    </div>
+                    <sc-if value="{{ noMarkets }}" hint-placeholder-val="{{ true }}"><div style="padding:14px;text-align:center;color:var(--c-text3);font-size:11.5px;background:var(--c-win)">Nessun mercato. Premi «Aggiungi mercato».</div></sc-if>
+                    <sc-for list="{{ marketRows }}" as="m" hint-placeholder-count="0">
+                      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 40px;gap:1px;background:var(--c-border2)">
+                        <input data-i="{{ m.i }}" data-f="after" value="{{ m.after }}" onInput="{{ onMMInput }}" placeholder="—" style="background:var(--c-win);border:none;height:34px;padding:0 9px;color:var(--c-text);font-size:11.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="background:var(--c-surface2)">
+                        <input data-i="{{ m.i }}" data-f="before" value="{{ m.before }}" onInput="{{ onMMInput }}" placeholder="—" style="background:var(--c-win);border:none;height:34px;padding:0 9px;color:var(--c-text);font-size:11.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="background:var(--c-surface2)">
+                        <input data-i="{{ m.i }}" data-f="text" value="{{ m.text }}" onInput="{{ onMMInput }}" placeholder="—" style="background:var(--c-win);border:none;height:34px;padding:0 9px;color:var(--c-text);font-size:11.5px;font-family:inherit;outline:none" style-focus="background:var(--c-surface2)">
+                        <select data-i="{{ m.i }}" data-f="market" value="{{ m.market }}" onChange="{{ onMMSelect }}" style="background:var(--c-win);border:none;height:34px;padding:0 6px;color:var(--c-info);font-size:11px;font-family:'IBM Plex Mono',monospace;outline:none;cursor:pointer"><option value="MATCH_ODDS">MATCH_ODDS</option><option value="OVER_UNDER_25">OVER_UNDER_25</option><option value="BOTH_TEAMS_TO_SCORE">BOTH_TEAMS_TO_SCORE</option><option value="NEXT_GOAL">NEXT_GOAL</option></select>
+                        <label style="background:var(--c-win);display:flex;align-items:center;justify-content:center;cursor:pointer"><button onClick="{{ m.remove }}" style="width:24px;height:24px;border:none;background:transparent;color:var(--c-text3);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="color:var(--c-danger)"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-trash"></use></svg></button></label>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+                <!-- MultiSelection -->
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+                  <label style="display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--c-text);cursor:pointer;font-weight:500"><input type="checkbox" checked="{{ multiSelection }}" onChange="{{ toggleMS }}" style="width:16px;height:16px;accent-color:var(--c-accent)"><svg viewBox="0 0 24 24" style="width:15px;height:15px;color:var(--c-info)"><use href="#i-list"></use></svg> MultiSelection (più selezioni)</label>
+                  <button onClick="{{ addSelection }}" disabled="{{ msOff }}" style="{{ msBtnStyle }}"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-plus"></use></svg> Aggiungi selezione</button>
+                </div>
+                <sc-if value="{{ multiSelection }}" hint-placeholder-val="{{ false }}">
+                  <div style="border:1px solid var(--c-border);border-radius:9px;overflow:hidden">
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 40px;gap:1px;background:var(--c-border);font-size:10px;font-weight:700;color:var(--c-text3);text-transform:uppercase;letter-spacing:.4px">
+                      <div style="background:var(--c-titlebar);padding:7px 9px">Inizia dopo</div><div style="background:var(--c-titlebar);padding:7px 9px">Finisce prima</div><div style="background:var(--c-titlebar);padding:7px 9px">Selezione (catalogo)</div><div style="background:var(--c-titlebar);padding:7px 9px"></div>
+                    </div>
+                    <sc-if value="{{ noSelections }}" hint-placeholder-val="{{ true }}"><div style="padding:14px;text-align:center;color:var(--c-text3);font-size:11.5px;background:var(--c-win)">Nessuna selezione. Premi «Aggiungi selezione».</div></sc-if>
+                    <sc-for list="{{ selectionRows }}" as="m" hint-placeholder-count="0">
+                      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 40px;gap:1px;background:var(--c-border2)">
+                        <input data-i="{{ m.i }}" data-f="after" value="{{ m.after }}" onInput="{{ onMSInput }}" placeholder="—" style="background:var(--c-win);border:none;height:34px;padding:0 9px;color:var(--c-text);font-size:11.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="background:var(--c-surface2)">
+                        <input data-i="{{ m.i }}" data-f="before" value="{{ m.before }}" onInput="{{ onMSInput }}" placeholder="—" style="background:var(--c-win);border:none;height:34px;padding:0 9px;color:var(--c-text);font-size:11.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="background:var(--c-surface2)">
+                        <input data-i="{{ m.i }}" data-f="sel" value="{{ m.sel }}" onInput="{{ onMSInput }}" placeholder="es. Over 2.5 Goals" style="background:var(--c-win);border:none;height:34px;padding:0 9px;color:var(--c-text);font-size:11.5px;font-family:inherit;outline:none" style-focus="background:var(--c-surface2)">
+                        <label style="background:var(--c-win);display:flex;align-items:center;justify-content:center;cursor:pointer"><button onClick="{{ m.remove }}" style="width:24px;height:24px;border:none;background:transparent;color:var(--c-text3);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="color:var(--c-danger)"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-trash"></use></svg></button></label>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+
+              <!-- Prova messaggio (anteprima live) -->
+              <div style="margin-top:16px;border:1px solid var(--c-border);border-radius:10px;background:var(--c-surface);padding:14px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><svg viewBox="0 0 24 24" style="width:15px;height:15px;color:var(--c-accent)"><use href="#i-flask"></use></svg><span style="font-size:13px;font-weight:700">Messaggio di prova</span></div>
+                <textarea value="{{ parserMsg }}" onInput="{{ onMsgInput }}" spellcheck="false" style="width:100%;height:96px;background:var(--c-desk);border:1px solid var(--c-border);border-radius:9px;color:var(--c-text);padding:11px 13px;font-size:12px;font-family:'IBM Plex Mono',monospace;line-height:1.55;outline:none;resize:vertical" style-focus="border-color:var(--c-accent)"></textarea>
+                <div style="display:flex;gap:9px;margin-top:11px;flex-wrap:wrap">
+                  <button onClick="{{ pSave }}" style="display:flex;align-items:center;gap:7px;height:34px;padding:0 15px;border:none;background:var(--c-accent);color:#fff;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-save"></use></svg> Salva</button>
+                  <button onClick="{{ runTest }}" style="display:flex;align-items:center;gap:7px;height:34px;padding:0 15px;border:none;background:var(--c-accent);color:#fff;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-flask"></use></svg> Prova messaggio</button>
+                  <button onClick="{{ copyDiag }}" style="display:flex;align-items:center;gap:7px;height:34px;padding:0 15px;border:none;background:var(--c-accent);color:#fff;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-copy"></use></svg> Copia diagnostica</button>
+                </div>
+                <sc-if value="{{ hasVerdict }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex;align-items:center;gap:9px;margin-top:11px;padding:9px 13px;border-radius:9px;background:{{ verdictBg }};border:1px solid {{ verdictBorder }};color:{{ verdictColor }};font-size:12.5px;font-weight:700"><svg viewBox="0 0 24 24" style="width:16px;height:16px"><use href="{{ verdictIcon }}"></use></svg>{{ verdictText }}</div>
+                </sc-if>
+                <div style="font-size:11px;color:var(--c-text3);margin:12px 0 6px;font-weight:600">Anteprima righe generate <span style="color:var(--c-text2);font-family:'IBM Plex Mono',monospace">({{ rowCount }})</span></div>
+                <div style="border:1px solid var(--c-border);border-radius:9px;overflow:hidden">
+                  <div style="display:grid;grid-template-columns:34px 90px 1fr;gap:1px;background:var(--c-border);font-size:10px;font-weight:700;color:var(--c-text3);text-transform:uppercase;letter-spacing:.4px">
+                    <div style="background:var(--c-titlebar);padding:6px 9px">#</div><div style="background:var(--c-titlebar);padding:6px 9px">Esito</div><div style="background:var(--c-titlebar);padding:6px 9px">Campi valorizzati</div>
+                  </div>
+                  <sc-for list="{{ genRows }}" as="g" hint-placeholder-count="1">
+                    <div style="display:grid;grid-template-columns:34px 90px 1fr;gap:1px;background:var(--c-border2)">
+                      <div style="background:var(--c-win);padding:7px 9px;font-size:11px;color:var(--c-text3);font-family:'IBM Plex Mono',monospace">{{ g.idx }}</div>
+                      <div style="background:var(--c-win);padding:7px 9px;font-size:11px;font-weight:700;color:{{ g.color }}">{{ g.esito }}</div>
+                      <div style="background:var(--c-win);padding:7px 9px;font-size:11px;color:var(--c-text);font-family:'IBM Plex Mono',monospace;line-height:1.5;word-break:break-word">{{ g.summary }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="font-size:11px;color:var(--c-text3);margin:14px 0 6px;font-weight:600">Diagnostica <span style="color:var(--c-text2)">(una riga per colonna)</span></div>
+                <div style="border:1px solid var(--c-border);border-radius:9px;overflow:hidden">
+                  <div style="display:grid;grid-template-columns:120px 74px 1fr;gap:1px;background:var(--c-border);font-size:10px;font-weight:700;color:var(--c-text3);text-transform:uppercase;letter-spacing:.4px">
+                    <div style="background:var(--c-titlebar);padding:6px 9px">Colonna</div><div style="background:var(--c-titlebar);padding:6px 9px">Stato</div><div style="background:var(--c-titlebar);padding:6px 9px">Valore estratto</div>
+                  </div>
+                  <sc-for list="{{ diag }}" as="d" hint-placeholder-count="14">
+                    <div style="display:grid;grid-template-columns:120px 74px 1fr;gap:1px;background:var(--c-border2)">
+                      <div style="background:var(--c-win);padding:6px 9px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--c-text2)">{{ d.col }}</div>
+                      <div style="background:var(--c-win);padding:6px 9px;font-size:11px;font-weight:700;color:{{ d.color }}">{{ d.status }}</div>
+                      <div style="background:var(--c-win);padding:6px 9px;font-size:11px;color:var(--c-text);font-family:'IBM Plex Mono',monospace">{{ d.val }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- CHAT SORGENTI -->
+          <sc-if value="{{ tSrc }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:18px 20px">
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px"><svg viewBox="0 0 24 24" style="width:17px;height:17px;color:var(--c-accent)"><use href="#i-broadcast"></use></svg><div style="font-size:15px;font-weight:800">Chat sorgenti <span style="color:var(--c-text3);font-weight:500;font-size:12px">(multi-chat)</span></div></div>
+              <div style="font-size:11.5px;color:var(--c-text3);margin-bottom:13px">Ogni sorgente è una chat/canale da cui accettare segnali. chat_id obbligatorio e univoco; una sorgente disattivata viene ignorata.</div>
+              <div style="border:1px solid var(--c-border);border-radius:10px;overflow:hidden">
+                <div style="display:grid;grid-template-columns:56px 1fr 150px 120px 120px 130px 40px;gap:1px;background:var(--c-border);font-size:10.5px;font-weight:700;color:var(--c-text3);text-transform:uppercase;letter-spacing:.4px">
+                  <div style="background:var(--c-titlebar);padding:8px 10px;text-align:center">Attiva</div><div style="background:var(--c-titlebar);padding:8px 10px">Nome</div><div style="background:var(--c-titlebar);padding:8px 10px">Chat ID</div><div style="background:var(--c-titlebar);padding:8px 10px">Modalità</div><div style="background:var(--c-titlebar);padding:8px 10px">Provider</div><div style="background:var(--c-titlebar);padding:8px 10px">Parser</div><div style="background:var(--c-titlebar);padding:8px 10px"></div>
+                </div>
+                <sc-if value="{{ noChats }}" hint-placeholder-val="{{ false }}"><div style="padding:24px;text-align:center;color:var(--c-text3);font-size:12px;background:var(--c-surface)">Nessuna sorgente. Premi «Aggiungi sorgente».</div></sc-if>
+                <sc-for list="{{ chatRows }}" as="c" hint-placeholder-count="2">
+                  <div style="display:grid;grid-template-columns:56px 1fr 150px 120px 120px 130px 40px;gap:1px;background:var(--c-border2)">
+                    <label style="background:var(--c-surface);display:flex;align-items:center;justify-content:center;cursor:pointer"><input type="checkbox" checked style="width:15px;height:15px;accent-color:var(--c-accent);cursor:pointer"></label>
+                    <input defaultValue="{{ c.name }}" style="background:var(--c-surface);border:none;height:36px;padding:0 10px;color:var(--c-text);font-size:12px;font-family:inherit;outline:none" style-focus="background:var(--c-surface2)">
+                    <input defaultValue="{{ c.id }}" style="background:var(--c-surface);border:none;height:36px;padding:0 10px;color:var(--c-text2);font-size:11.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="background:var(--c-surface2)">
+                    <select style="background:var(--c-surface);border:none;height:36px;padding:0 6px;color:var(--c-text2);font-size:11px;font-family:inherit;outline:none;cursor:pointer"><option>NAME_ONLY</option><option>ID_ONLY</option><option>BOTH</option></select>
+                    <select style="background:var(--c-surface);border:none;height:36px;padding:0 6px;color:var(--c-text2);font-size:11px;font-family:inherit;outline:none;cursor:pointer"><option>TelegramBot</option><option>test</option></select>
+                    <select style="background:var(--c-surface);border:none;height:36px;padding:0 6px;color:var(--c-text2);font-size:11px;font-family:inherit;outline:none;cursor:pointer"><option>(auto)</option><option>VIP_Over</option></select>
+                    <label style="background:var(--c-surface);display:flex;align-items:center;justify-content:center;cursor:pointer"><button onClick="{{ c.remove }}" style="width:26px;height:26px;border:none;background:transparent;color:var(--c-text3);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="color:var(--c-danger)"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-trash"></use></svg></button></label>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display:flex;align-items:center;margin-top:13px"><button onClick="{{ addChat }}" style="display:flex;align-items:center;gap:7px;height:34px;padding:0 14px;border:none;background:var(--c-accent);color:#fff;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-plus"></use></svg> Aggiungi sorgente</button><div style="flex:1"></div><button onClick="{{ saveGeneric }}" style="display:flex;align-items:center;gap:7px;height:34px;padding:0 16px;border:none;background:var(--c-success);color:#fff;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-save"></use></svg> Salva</button></div>
+            </div>
+          </sc-if>
+
+          <!-- PROVIDER -->
+          <sc-if value="{{ tProv }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:18px 20px;max-width:800px">
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px"><svg viewBox="0 0 24 24" style="width:17px;height:17px;color:var(--c-accent)"><use href="#i-tag"></use></svg><div style="font-size:15px;font-weight:800">Anagrafica Provider</div></div>
+              <div style="font-size:11.5px;color:var(--c-text3);margin-bottom:14px">Nomi Provider riutilizzabili nel Parser Personalizzato (colonna Provider). Valgono per tutti i parser.</div>
+              <div style="display:flex;gap:10px;margin-bottom:16px">
+                <input value="{{ newProvider }}" onInput="{{ onNewProvider }}" placeholder="Nome del nuovo Provider" style="flex:1;height:36px;background:var(--c-surface);border:1px solid var(--c-border);border-radius:8px;color:var(--c-text);padding:0 12px;font-size:12.5px;font-family:inherit;outline:none" style-focus="border-color:var(--c-accent)">
+                <button onClick="{{ addProvider }}" style="display:flex;align-items:center;gap:7px;height:36px;padding:0 16px;border:none;background:var(--c-success);color:#fff;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-plus"></use></svg> Aggiungi</button>
+              </div>
+              <div style="border:1px solid var(--c-border);border-radius:10px;overflow:hidden">
+                <div style="padding:9px 14px;background:var(--c-titlebar);border-bottom:1px solid var(--c-border);font-size:11.5px;font-weight:700;color:var(--c-text2)">Provider salvati</div>
+                <sc-if value="{{ noProviders }}" hint-placeholder-val="{{ false }}"><div style="padding:20px;text-align:center;color:var(--c-text3);font-size:12px">Nessun provider.</div></sc-if>
+                <sc-for list="{{ providerRows }}" as="p" hint-placeholder-count="1">
+                  <div style="display:flex;align-items:center;padding:11px 14px;border-bottom:1px solid var(--c-border2)">
+                    <svg viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--c-accent);margin-right:10px"><use href="#i-tag"></use></svg>
+                    <span style="font-size:12.5px;font-weight:600;font-family:'IBM Plex Mono',monospace">{{ p.name }}</span>
+                    <div style="flex:1"></div>
+                    <button onClick="{{ p.remove }}" style="display:flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:none;background:var(--c-danger);color:#fff;border-radius:7px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-trash"></use></svg> Rimuovi</button>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- PROFILI -->
+          <sc-if value="{{ tProf }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:18px 20px;max-width:800px">
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px"><svg viewBox="0 0 24 24" style="width:17px;height:17px;color:var(--c-accent)"><use href="#i-folder"></use></svg><div style="font-size:15px;font-weight:800">Profili impostazioni</div></div>
+              <div style="font-size:11.5px;color:var(--c-text3);margin-bottom:14px;line-height:1.5">Salva la configurazione corrente come profilo con un nome e ricaricala quando vuoi. Il token Telegram NON viene salvato nei profili e resta invariato al caricamento.</div>
+              <div style="display:flex;gap:10px;margin-bottom:16px">
+                <input placeholder="Nome profilo (es. Prematch)" style="flex:1;height:36px;background:var(--c-surface);border:1px solid var(--c-border);border-radius:8px;color:var(--c-text);padding:0 12px;font-size:12.5px;font-family:inherit;outline:none" style-focus="border-color:var(--c-accent)">
+                <button onClick="{{ saveGeneric }}" style="display:flex;align-items:center;gap:7px;height:36px;padding:0 16px;border:none;background:var(--c-success);color:#fff;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-save"></use></svg> Salva profilo</button>
+              </div>
+              <div style="border:1px solid var(--c-border);border-radius:10px;overflow:hidden">
+                <div style="padding:9px 14px;background:var(--c-titlebar);border-bottom:1px solid var(--c-border);font-size:11.5px;font-weight:700;color:var(--c-text2)">Profili salvati</div>
+                <div style="padding:22px;text-align:center;color:var(--c-text3);font-size:12px">(nessun profilo salvato)</div>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- MAPPING -->
+          <sc-if value="{{ tMap }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:14px 20px 18px">
+              <div style="display:flex;justify-content:center;margin-bottom:14px">
+                <div style="display:inline-flex;background:var(--c-titlebar);border:1px solid var(--c-border);border-radius:9px;padding:3px;gap:2px">
+                  <button onClick="{{ setMapTeams }}" style="{{ mapTeamsStyle }}"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-users"></use></svg> Calcio</button>
+                  <button onClick="{{ setMapMarkets }}" style="{{ mapMarketsStyle }}"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-target"></use></svg> Mercati</button>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px"><svg viewBox="0 0 24 24" style="width:17px;height:17px;color:var(--c-accent)"><use href="#i-book"></use></svg><div style="font-size:15px;font-weight:800">{{ mapTitle }}</div></div>
+              <div style="font-size:11.5px;color:var(--c-text3);margin-bottom:13px">{{ mapDesc }}</div>
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:13px">
+                <label style="font-size:12.5px;color:var(--c-text2)">Profilo:</label>
+                <select style="width:190px;height:var(--in-h);background:var(--c-surface);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 9px;font-size:12px;font-family:inherit;outline:none;cursor:pointer"><option>test</option></select>
+                <button style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 12px;border:none;background:var(--c-accent);color:#fff;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-plus"></use></svg> Nuovo</button>
+                <button style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 12px;border:none;background:var(--c-accent);color:#fff;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-edit"></use></svg> Rinomina</button>
+                <button style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 12px;border:none;background:var(--c-danger);color:#fff;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-trash"></use></svg> Elimina</button>
+              </div>
+              <!-- teams -->
+              <sc-if value="{{ mapTeams }}" hint-placeholder-val="{{ true }}">
+                <div style="border:1px solid var(--c-border);border-radius:10px;overflow:hidden">
+                  <div style="display:grid;grid-template-columns:150px 1fr 1fr 150px 150px 40px;gap:1px;background:var(--c-border);font-size:10.5px;font-weight:700;color:var(--c-text3);text-transform:uppercase;letter-spacing:.4px">
+                    <div style="background:var(--c-titlebar);padding:8px 10px">Country (opz.)</div><div style="background:var(--c-titlebar);padding:8px 10px">Betfair / XTrader</div><div style="background:var(--c-titlebar);padding:8px 10px">Provider</div><div style="background:var(--c-titlebar);padding:8px 10px">Sport</div><div style="background:var(--c-titlebar);padding:8px 10px">Tipo</div><div style="background:var(--c-titlebar);padding:8px 10px"></div>
+                  </div>
+                  <sc-for list="{{ teamMapRows }}" as="m" hint-placeholder-count="3">
+                    <div style="display:grid;grid-template-columns:150px 1fr 1fr 150px 150px 40px;gap:1px;background:var(--c-border2)">
+                      <input defaultValue="{{ m.country }}" style="background:var(--c-surface);border:none;height:36px;padding:0 10px;color:var(--c-text);font-size:12px;font-family:inherit;outline:none" style-focus="background:var(--c-surface2)">
+                      <input defaultValue="{{ m.betfair }}" style="background:var(--c-surface);border:none;height:36px;padding:0 10px;color:var(--c-text);font-size:12px;font-family:inherit;outline:none" style-focus="background:var(--c-surface2)">
+                      <input defaultValue="{{ m.provider }}" style="background:var(--c-surface);border:none;height:36px;padding:0 10px;color:var(--c-text2);font-size:12px;font-family:inherit;outline:none" style-focus="background:var(--c-surface2)">
+                      <select style="background:var(--c-surface);border:none;height:36px;padding:0 6px;color:var(--c-text2);font-size:11px;font-family:inherit;outline:none;cursor:pointer"><option>(tutti gli sport)</option><option>Calcio</option><option>Tennis</option></select>
+                      <select style="background:var(--c-surface);border:none;height:36px;padding:0 6px;color:var(--c-text2);font-size:11px;font-family:inherit;outline:none;cursor:pointer"><option>(qualsiasi tipo)</option><option>Squadra</option><option>Giocatore</option></select>
+                      <label style="background:var(--c-surface);display:flex;align-items:center;justify-content:center;cursor:pointer"><button onClick="{{ m.remove }}" style="width:26px;height:26px;border:none;background:transparent;color:var(--c-text3);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="color:var(--c-danger)"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-trash"></use></svg></button></label>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <!-- markets -->
+              <sc-if value="{{ mapMkts }}" hint-placeholder-val="{{ false }}">
+                <div style="border:1px solid var(--c-border);border-radius:10px;overflow:hidden">
+                  <div style="display:grid;grid-template-columns:1fr 1fr 150px 40px;gap:1px;background:var(--c-border);font-size:10.5px;font-weight:700;color:var(--c-text3);text-transform:uppercase;letter-spacing:.4px">
+                    <div style="background:var(--c-titlebar);padding:8px 10px">Frase canale</div><div style="background:var(--c-titlebar);padding:8px 10px">Mercato XTrader</div><div style="background:var(--c-titlebar);padding:8px 10px">Sport</div><div style="background:var(--c-titlebar);padding:8px 10px"></div>
+                  </div>
+                  <sc-for list="{{ marketMapRows }}" as="m" hint-placeholder-count="3">
+                    <div style="display:grid;grid-template-columns:1fr 1fr 150px 40px;gap:1px;background:var(--c-border2)">
+                      <input defaultValue="{{ m.from }}" style="background:var(--c-surface);border:none;height:36px;padding:0 10px;color:var(--c-text);font-size:12px;font-family:inherit;outline:none" style-focus="background:var(--c-surface2)">
+                      <input defaultValue="{{ m.to }}" style="background:var(--c-surface);border:none;height:36px;padding:0 10px;color:var(--c-info);font-size:12px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="background:var(--c-surface2)">
+                      <select style="background:var(--c-surface);border:none;height:36px;padding:0 6px;color:var(--c-text2);font-size:11px;font-family:inherit;outline:none;cursor:pointer"><option>(tutti gli sport)</option><option>Calcio</option></select>
+                      <label style="background:var(--c-surface);display:flex;align-items:center;justify-content:center;cursor:pointer"><button onClick="{{ m.remove }}" style="width:26px;height:26px;border:none;background:transparent;color:var(--c-text3);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="color:var(--c-danger)"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-trash"></use></svg></button></label>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <div style="display:flex;margin-top:13px"><button onClick="{{ addMapRow }}" style="display:flex;align-items:center;gap:7px;height:34px;padding:0 14px;border:none;background:var(--c-accent);color:#fff;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-plus"></use></svg> Aggiungi riga</button><div style="flex:1"></div><button onClick="{{ saveGeneric }}" style="display:flex;align-items:center;gap:7px;height:34px;padding:0 16px;border:none;background:var(--c-success);color:#fff;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-save"></use></svg> Salva profilo</button></div>
+            </div>
+          </sc-if>
+
+          <!-- BETFAIR SYNC -->
+          <sc-if value="{{ tSync }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:18px 20px;max-width:720px">
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:14px"><svg viewBox="0 0 24 24" style="width:17px;height:17px;color:var(--c-accent)"><use href="#i-sync"></use></svg><div style="font-size:15px;font-weight:800">Betfair Sync</div><span style="font-size:10.5px;font-weight:600;color:var(--c-info);background:var(--c-info-weak);padding:3px 9px;border-radius:20px">locale · read-only</span></div>
+              <div style="border:1px solid var(--c-border);border-radius:10px;background:var(--c-surface);padding:14px 16px;margin-bottom:12px">
+                <div style="display:grid;grid-template-columns:150px 1fr;gap:9px 14px;align-items:center">
+                  <label style="font-size:12px;color:var(--c-text2)">Delayed App Key</label><input type="password" placeholder="chiave delayed" style="height:var(--in-h);background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 11px;font-size:12.5px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="border-color:var(--c-accent)">
+                  <label style="font-size:12px;color:var(--c-text2)">Username Betfair.it</label><input placeholder="username" style="height:var(--in-h);background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 11px;font-size:12.5px;font-family:inherit;outline:none" style-focus="border-color:var(--c-accent)">
+                  <label style="font-size:12px;color:var(--c-text2)">Password Betfair.it</label><input type="password" placeholder="password" style="height:var(--in-h);background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 11px;font-size:12.5px;font-family:inherit;outline:none" style-focus="border-color:var(--c-accent)">
+                  <label style="font-size:12px;color:var(--c-text2)">Certificato (.crt/.pem)</label><input placeholder="percorso certificato" style="height:var(--in-h);background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text2);padding:0 11px;font-size:12px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="border-color:var(--c-accent)">
+                  <label style="font-size:12px;color:var(--c-text2)">Private key (.key)</label><input placeholder="percorso chiave" style="height:var(--in-h);background:var(--c-win);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text2);padding:0 11px;font-size:12px;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="border-color:var(--c-accent)">
+                </div>
+              </div>
+              <div style="border:1px solid var(--c-border);border-radius:10px;background:var(--c-surface);padding:14px 16px;margin-bottom:12px;display:flex;flex-direction:column;gap:12px">
+                <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+                  <span style="font-size:12px;color:var(--c-text2);font-weight:500">Sport</span>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--c-text2);cursor:pointer"><input type="checkbox" checked style="accent-color:var(--c-accent);width:14px;height:14px"> Calcio</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--c-text2);cursor:pointer"><input type="checkbox" checked style="accent-color:var(--c-accent);width:14px;height:14px"> Tennis</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--c-text2);cursor:pointer"><input type="checkbox" checked style="accent-color:var(--c-accent);width:14px;height:14px"> Basket</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--c-text2);cursor:pointer"><input type="checkbox" checked style="accent-color:var(--c-accent);width:14px;height:14px"> Rugby Union</label>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;color:var(--c-text2)">Giorni avanti</span><input defaultValue="3" style="width:56px;height:28px;text-align:center;background:var(--c-win);border:1px solid var(--c-border);border-radius:6px;color:var(--c-text);font-size:12px;font-family:'IBM Plex Mono',monospace;outline:none"></div>
+              </div>
+              <div style="border:1px solid var(--c-border);border-radius:10px;background:var(--c-surface);padding:14px 16px;margin-bottom:14px">
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+                  <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--c-text);cursor:pointer;font-weight:500"><input type="checkbox" style="accent-color:var(--c-accent);width:15px;height:15px"> Auto sincronizza dizionario</label>
+                  <span style="font-size:11.5px;color:var(--c-text3)">Orario (HH)</span>
+                  <input defaultValue="23" style="width:52px;height:28px;text-align:center;background:var(--c-win);border:1px solid var(--c-border);border-radius:6px;color:var(--c-text);font-size:12px;font-family:'IBM Plex Mono',monospace;outline:none">
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--c-text2)">
+                  <div>Ultima auto sync: <span style="color:var(--c-text3);font-family:'IBM Plex Mono',monospace">—</span></div>
+                  <div>Prossima auto sync: <span style="color:var(--c-text3);font-family:'IBM Plex Mono',monospace">—</span></div>
+                  <div>Stato auto sync: <span style="color:var(--c-text3);font-family:'IBM Plex Mono',monospace">—</span></div>
+                </div>
+              </div>
+              <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:12px">
+                <button style="display:flex;align-items:center;gap:7px;height:34px;padding:0 14px;border:none;background:var(--c-accent);color:#fff;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-key"></use></svg> Accedi</button>
+                <button style="display:flex;align-items:center;gap:7px;height:34px;padding:0 14px;border:none;background:var(--c-accent);color:#fff;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-sync"></use></svg> Sincronizza ora</button>
+                <button style="display:flex;align-items:center;gap:7px;height:34px;padding:0 14px;border:none;background:var(--c-success);color:#fff;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-save"></use></svg> Salva credenziali</button>
+                <button style="display:flex;align-items:center;gap:7px;height:34px;padding:0 14px;border:1px solid var(--c-border);background:var(--c-win);color:var(--c-text2);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="color:var(--c-danger);border-color:var(--c-danger)"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-logout"></use></svg> Logout</button>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--c-text2)">
+                <div>Stato login: <span style="color:var(--c-text3)">— non connesso</span></div>
+                <div>Ultima sync: <span style="color:var(--c-text3);font-family:'IBM Plex Mono',monospace">—</span></div>
+                <div>Stato sync: <span style="color:var(--c-text3);font-family:'IBM Plex Mono',monospace">—</span></div>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- DIZIONARIO BETFAIR -->
+          <sc-if value="{{ tDiz }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:18px 20px">
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:14px"><svg viewBox="0 0 24 24" style="width:17px;height:17px;color:var(--c-accent)"><use href="#i-book"></use></svg><div style="font-size:15px;font-weight:800">Dizionario Betfair</div><span style="font-size:10.5px;font-weight:600;color:var(--c-text3);background:var(--c-surface2);padding:3px 9px;border-radius:20px">locale · sola lettura</span></div>
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:10px;flex-wrap:wrap">
+                <label style="font-size:12px;color:var(--c-text2)">Livello</label>
+                <select style="width:150px;height:var(--in-h);background:var(--c-surface);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 9px;font-size:12px;font-family:inherit;outline:none;cursor:pointer"><option>Sport</option><option>Competizioni</option><option>Eventi</option><option>Mercati</option><option>Selezioni</option></select>
+                <label style="font-size:12px;color:var(--c-text2)">Sport</label>
+                <select style="width:160px;height:var(--in-h);background:var(--c-surface);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 9px;font-size:12px;font-family:inherit;outline:none;cursor:pointer"><option>(tutti gli sport)</option><option>Calcio</option><option>Tennis</option></select>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--c-text2);cursor:pointer"><input type="checkbox" style="accent-color:var(--c-accent);width:14px;height:14px"> Solo attivi</label>
+                <button style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 13px;border:none;background:var(--c-accent);color:#fff;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-sync"></use></svg> Aggiorna</button>
+              </div>
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
+                <label style="font-size:12px;color:var(--c-text2)">Cerca</label>
+                <input placeholder="filtra righe…" style="flex:1;max-width:320px;height:var(--in-h);background:var(--c-surface);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 11px;font-size:12px;font-family:inherit;outline:none" style-focus="border-color:var(--c-accent)">
+                <button style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 13px;border:none;background:var(--c-accent);color:#fff;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9">Pulisci</button>
+              </div>
+              <div style="font-size:11.5px;color:var(--c-text3);margin-bottom:10px">Sport: 4 totali, 4 attivi (mostrate 4 righe).</div>
+              <div style="border:1px solid var(--c-border);border-radius:10px;overflow:hidden">
+                <div style="display:grid;grid-template-columns:130px 1fr 160px 80px;gap:1px;background:var(--c-border);font-size:10.5px;font-weight:700;color:var(--c-text3);text-transform:uppercase;letter-spacing:.4px">
+                  <div style="background:var(--c-titlebar);padding:8px 11px">Event Type ID</div><div style="background:var(--c-titlebar);padding:8px 11px">Sport</div><div style="background:var(--c-titlebar);padding:8px 11px">Ultima sync</div><div style="background:var(--c-titlebar);padding:8px 11px;text-align:center">Attivo</div>
+                </div>
+                <sc-for list="{{ dizRows }}" as="d" hint-placeholder-count="4">
+                  <div style="display:grid;grid-template-columns:130px 1fr 160px 80px;gap:1px;background:var(--c-border2)">
+                    <div style="background:var(--c-surface);padding:8px 11px;font-size:11.5px;color:var(--c-info);font-family:'IBM Plex Mono',monospace">{{ d.id }}</div>
+                    <div style="background:var(--c-surface);padding:8px 11px;font-size:12px;color:var(--c-text)">{{ d.sport }}</div>
+                    <div style="background:var(--c-surface);padding:8px 11px;font-size:11.5px;color:var(--c-text2);font-family:'IBM Plex Mono',monospace">{{ d.sync }}</div>
+                    <div style="background:var(--c-surface);padding:8px 11px;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" style="width:15px;height:15px;color:var(--c-success)"><use href="#i-check"></use></svg></div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ══════ DIZIONARIO MERCATI / NOMI (finestra separata) ══════ -->
+  <sc-if value="{{ dictOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeDict }}" style="position:fixed;inset:0;background:rgba(4,7,12,.62);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;z-index:55;padding:24px">
+      <div onClick="{{ stopProp }}" style="width:940px;max-width:100%;height:640px;max-height:100%;display:flex;flex-direction:column;background:var(--c-win);border:1px solid var(--c-border);border-radius:13px;box-shadow:var(--shadow);overflow:hidden;animation:xb-pop .2s ease">
+        <div style="height:40px;flex:none;display:flex;align-items:center;gap:9px;padding:0 8px 0 13px;background:var(--c-titlebar);border-bottom:1px solid var(--c-border)">
+          <svg viewBox="0 0 24 24" style="width:15px;height:15px;color:var(--c-accent)"><use href="{{ dictIcon }}"></use></svg>
+          <span style="font-size:12.5px;font-weight:700">{{ dictTitle }}</span>
+          <div style="flex:1"></div>
+          <button onClick="{{ closeDict }}" style="width:30px;height:28px;border:none;background:transparent;color:var(--c-text3);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="background:var(--c-danger);color:#fff"><svg viewBox="0 0 24 24" style="width:15px;height:15px"><use href="#i-x"></use></svg></button>
+        </div>
+        <div style="flex:1;overflow-y:auto;padding:18px 20px">
+          <div style="font-size:12px;color:var(--c-text3);line-height:1.55;margin-bottom:14px">{{ dictDesc }}</div>
+          <div style="display:flex;align-items:center;gap:9px;margin-bottom:14px">
+            <label style="font-size:12.5px;color:var(--c-text2)">Profilo:</label>
+            <select style="width:200px;height:var(--in-h);background:var(--c-surface);border:1px solid var(--c-border);border-radius:7px;color:var(--c-text);padding:0 9px;font-size:12px;font-family:inherit;outline:none;cursor:pointer"><option>(nessun profilo)</option></select>
+            <button style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 12px;border:none;background:var(--c-accent);color:#fff;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-plus"></use></svg> Nuovo</button>
+            <button style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 12px;border:none;background:var(--c-accent);color:#fff;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-edit"></use></svg> Rinomina</button>
+            <button style="display:flex;align-items:center;gap:6px;height:var(--in-h);padding:0 12px;border:none;background:var(--c-danger);color:#fff;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><use href="#i-trash"></use></svg> Elimina</button>
+          </div>
+          <div style="border:1px solid var(--c-border);border-radius:10px;overflow:hidden">
+            <div style="padding:9px 14px;background:var(--c-titlebar);border-bottom:1px solid var(--c-border);font-size:11.5px;font-weight:700;color:var(--c-text2);text-align:center">Righe del profilo</div>
+            <sc-if value="{{ dictMkt }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:1px;background:var(--c-border);font-size:10.5px;font-weight:700;color:var(--c-text3);text-transform:uppercase;letter-spacing:.4px">
+                <div style="background:var(--c-surface);padding:8px 10px">Inizia dopo</div><div style="background:var(--c-surface);padding:8px 10px">Finisce prima</div><div style="background:var(--c-surface);padding:8px 10px">Testo mercato</div><div style="background:var(--c-surface);padding:8px 10px">Mercato (catalogo)</div><div style="background:var(--c-surface);padding:8px 10px">Selezione (catalogo)</div>
+              </div>
+              <div style="padding:32px 16px;text-align:center;color:var(--c-text3);font-size:12.5px;background:var(--c-win)">Nessun profilo. Crea un profilo con «Nuovo».</div>
+            </sc-if>
+            <sc-if value="{{ dictNames }}" hint-placeholder-val="{{ false }}">
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--c-border);font-size:10.5px;font-weight:700;color:var(--c-text3);text-transform:uppercase;letter-spacing:.4px">
+                <div style="background:var(--c-surface);padding:8px 10px">Nome dal canale</div><div style="background:var(--c-surface);padding:8px 10px">Nome Betfair/XTrader</div><div style="background:var(--c-surface);padding:8px 10px">Provider</div>
+              </div>
+              <div style="padding:32px 16px;text-align:center;color:var(--c-text3);font-size:12.5px;background:var(--c-win)">Nessun profilo. Crea un profilo con «Nuovo».</div>
+            </sc-if>
+          </div>
+        </div>
+        <div style="flex:none;display:flex;gap:9px;padding:12px 20px;border-top:1px solid var(--c-border);background:var(--c-titlebar)">
+          <button style="display:flex;align-items:center;gap:7px;height:34px;padding:0 14px;border:none;background:var(--c-accent);color:#fff;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-plus"></use></svg> Aggiungi riga</button>
+          <div style="flex:1"></div>
+          <button style="display:flex;align-items:center;gap:7px;height:34px;padding:0 16px;border:none;background:var(--c-success);color:#fff;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit" style-hover="opacity:.9"><svg viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-save"></use></svg> Salva profilo</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- REAL CONFIRM (typed) -->
+  <sc-if value="{{ confirmOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;inset:0;background:rgba(4,7,12,.68);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:60;padding:24px">
+      <div style="width:440px;max-width:100%;background:var(--c-win);border:1px solid var(--c-danger);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;animation:xb-pop .2s ease">
+        <div style="padding:20px 22px 16px;border-bottom:1px solid var(--c-border2);display:flex;align-items:center;gap:11px">
+          <div style="width:38px;height:38px;flex:none;border-radius:10px;background:var(--c-danger-weak);color:var(--c-danger);display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" style="width:21px;height:21px"><use href="#i-alert"></use></svg></div>
+          <div><div style="font-size:15px;font-weight:700;color:var(--c-danger)">Attivare la modalità REALE?</div><div style="font-size:12px;color:var(--c-text3);margin-top:2px">Doppia conferma richiesta</div></div>
+        </div>
+        <div style="padding:18px 22px">
+          <p style="margin:0 0 14px;font-size:13px;color:var(--c-text2);line-height:1.6">Disattivando la simulazione, ogni segnale riconosciuto verrà <strong style="color:var(--c-text)">scritto nel CSV operativo</strong> e trasformato in una scommessa reale su XTrader.</p>
+          <div style="font-size:12px;color:var(--c-text3);margin-bottom:8px">Per confermare, digita la parola <strong style="color:var(--c-danger);font-family:'IBM Plex Mono',monospace;letter-spacing:2px">REALE</strong></div>
+          <input value="{{ confirmText }}" onInput="{{ onConfirmText }}" placeholder="Digita REALE" spellcheck="false" style="width:100%;height:40px;background:var(--c-surface);border:1px solid {{ ackBorder }};border-radius:9px;color:var(--c-text);padding:0 14px;font-size:15px;font-weight:700;letter-spacing:3px;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;outline:none" style-focus="border-color:var(--c-danger)">
+        </div>
+        <div style="display:flex;gap:10px;padding:0 22px 20px">
+          <button onClick="{{ cancelReal }}" style="flex:1;height:38px;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-text);border-radius:9px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="border-color:var(--c-text3)">Annulla</button>
+          <button onClick="{{ confirmReal }}" disabled="{{ notReale }}" style="{{ confirmBtnStyle }}"><svg viewBox="0 0 24 24" style="width:15px;height:15px"><use href="#i-power"></use></svg> Attiva REALE</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- MULTI CONFIRM -->
+  <sc-if value="{{ multiConfirmOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;inset:0;background:rgba(4,7,12,.68);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:60;padding:24px">
+      <div style="width:440px;max-width:100%;background:var(--c-win);border:1px solid var(--c-warn);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;animation:xb-pop .2s ease">
+        <div style="padding:20px 22px 16px;border-bottom:1px solid var(--c-border2);display:flex;align-items:center;gap:11px">
+          <div style="width:38px;height:38px;flex:none;border-radius:10px;background:var(--c-warn-weak);color:var(--c-warn);display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" style="width:21px;height:21px"><use href="#i-alert"></use></svg></div>
+          <div><div style="font-size:15px;font-weight:700;color:var(--c-warn)">Attivare la modalità MULTI-segnale?</div><div style="font-size:12px;color:var(--c-text3);margin-top:2px">Più scommesse attive insieme</div></div>
+        </div>
+        <div style="padding:18px 22px"><p style="margin:0;font-size:13px;color:var(--c-text2);line-height:1.6">Con <strong style="color:var(--c-text);font-family:'IBM Plex Mono',monospace">{{ pendingQueueLabel }}</strong> il bridge può tenere <strong style="color:var(--c-text)">attive più righe/scommesse contemporaneamente</strong>. Verifica il limite «Max segnali attivi».</p></div>
+        <div style="display:flex;gap:10px;padding:0 22px 20px">
+          <button onClick="{{ cancelMulti }}" style="flex:1;height:38px;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-text);border-radius:9px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="border-color:var(--c-text3)">No, resta a 1</button>
+          <button onClick="{{ confirmMulti }}" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:38px;border:none;border-radius:9px;font-size:12.5px;font-weight:700;font-family:inherit;background:var(--c-warn);color:#1a1204;cursor:pointer">Sì, attiva</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- TOAST -->
+  <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:80;display:flex;align-items:center;gap:9px;padding:11px 18px;border-radius:10px;background:var(--c-text);color:var(--c-win);font-size:12.5px;font-weight:600;box-shadow:0 12px 30px -8px rgba(0,0,0,.5);animation:xb-in .2s ease">
+      <svg viewBox="0 0 24 24" style="width:15px;height:15px;color:var(--c-success)"><use href="#i-check"></use></svg>{{ toast }}
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:&quot;100%&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#3d8bff&quot;,&quot;options&quot;:[&quot;#3d8bff&quot;,&quot;#2dd4bf&quot;,&quot;#a78bfa&quot;,&quot;#f0883e&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Aspetto&quot;},&quot;density&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;compact&quot;,&quot;comfortable&quot;],&quot;default&quot;:&quot;comfortable&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Aspetto&quot;}}">
+const DEFAULT_MSG = "SEGNALE LIVE\nPartita: Inter v Milan\nMercato: OVER 2.5\nSelezione: Over 2.5 Goals\nQuota: 1.85\nTipo: PUNTA\n";
+const COL = (n)=>`var(--c-${n})`;
+const CSV_COLS = ["Provider","EventId","EventName","MarketId","MarketName","MarketType","SelectionId","SelectionName","Handicap","Price","MinPrice","MaxPrice","BetType","Points"];
+const TRANSFORMS = ["","over_somma","upper","lower","strip","to_float"];
+const VALUEMAPS = ["","markettype","marketname","selectionname","bettype","dizionario"];
+// catalogo XTrader demo: label → {MarketType, SelectionName suggerita}
+const CATALOG = {
+  "Entrambe le squadre a segno": {market:"BOTH_TEAMS_TO_SCORE", sel:"Yes", bet:"PUNTA"},
+  "Esito finale 1X2": {market:"MATCH_ODDS", sel:"", bet:"PUNTA"},
+  "Under/Over 2.5": {market:"OVER_UNDER_25", sel:"Over 2.5 Goals", bet:"PUNTA"},
+  "Prossimo goal": {market:"NEXT_GOAL", sel:"", bet:"PUNTA"},
+};
+function defaultRules(){
+  const preset={
+    Provider:{fx:"TelegramBot"},
+    EventName:{sa:"Partita: ", eb:"\n", req:true},
+    MarketName:{sa:"Mercato: ", eb:"\n", vm:"marketname"},
+    MarketType:{sa:"Mercato: ", eb:"\n", vm:"markettype", req:true},
+    SelectionName:{sa:"Selezione: ", eb:"\n", vm:"selectionname", req:true},
+    Price:{sa:"Quota: ", eb:"\n", tr:"to_float"},
+    BetType:{sa:"Tipo: ", eb:"\n", vm:"bettype"},
+    Handicap:{fx:"0"},
+  };
+  return CSV_COLS.map(col=>({col, sa:"", eb:"", fx:"", tr:"", vm:"", req:false, ...(preset[col]||{})}));
+}
+
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    this._tick=null; this._toastT=null; this._reconT=null;
+    this.state={
+      status:"offline", mode:"sim", theme:"dark",
+      cfgTab:"gen", monTab:"chats",
+      toolsOpen:false, toolsTab:"parser", mapTab:"teams",
+      dictOpen:false, dictKind:"markets",
+      confirmOpen:false, confirmText:"",
+      multiConfirmOpen:false, pendingQueue:"", queueMode:"OVERWRITE_LAST",
+      maxActive:2, activeRows:0,
+      toast:"", newProvider:"",
+      counters:{received:0,written:0,discarded:0,duplicate:0,limited:0,dry_run:0,errors:0},
+      logs:[], parserMsg:DEFAULT_MSG, genRows:[], diag:[], verdict:null,
+      lastSignal:"—", lastMessage:"—", lastCsv:"—", lastError:"—",
+      // parser builder
+      pName:"", pMode:"NAME_ONLY", pSport:"(non specificato)", pSelected:"",
+      catalogMarket:"Under/Over 2.5", addColSel:"MarketType",
+      rules:defaultRules(),
+      multiMarket:false, marketRows:[],
+      multiSelection:false, selectionRows:[],
+      parsers:{},
+      chats:[
+        {name:"VIP Signals Calcio", id:"-1001234567890"},
+        {name:"Tennis Alerts", id:"-1005544332211"},
+      ],
+      providers:["test","TelegramBot"],
+      teamMap:[{country:"", betfair:"Inter Milan", provider:"Inter"},{country:"", betfair:"Juventus", provider:"Juve"},{country:"", betfair:"Manchester Utd", provider:"Man Utd"}],
+      marketMap:[{from:"over 2.5", to:"OVER_UNDER_25"},{from:"1x2", to:"MATCH_ODDS"},{from:"gg", to:"BOTH_TEAMS_TO_SCORE"}],
+    };
+  }
+  componentDidMount(){ this._applyChrome(); this._runTest(); }
+  componentDidUpdate(){ this._applyChrome(); }
+  componentWillUnmount(){ if(this._tick)clearInterval(this._tick); if(this._reconT)clearTimeout(this._reconT); }
+  _applyChrome(){ const r=document.documentElement; r.dataset.theme=this.state.theme; r.dataset.density=this.props.density||"compact"; if(this.props.accent) r.style.setProperty("--c-accent",this.props.accent); }
+  _now(){ return new Date().toTimeString().slice(0,8); }
+  _log(level,msg,color){ this.setState(s=>({logs:[{time:this._now(),level,msg,color},...s.logs].slice(0,80)})); }
+  _toast(t){ this.setState({toast:t}); if(this._toastT)clearTimeout(this._toastT); this._toastT=setTimeout(()=>this.setState({toast:""}),2400); }
+
+  start=()=>{
+    if(this.state.status!=="offline") return;
+    if(this.state.chats.length===0){ this._toast("Configura prima una Chat sorgente"); this._log("WARN","AVVIO bloccato: nessuna chat configurata", COL("warn")); return; }
+    this.setState({status:"active", counters:{received:0,written:0,discarded:0,duplicate:0,limited:0,dry_run:0,errors:0}, activeRows:0});
+    this._log("OK","Listener avviato — connesso a Telegram, in ascolto", COL("success"));
+    if(this._tick)clearInterval(this._tick);
+    this._tick=setInterval(()=>this._simEvent(),1600);
+  };
+  stop=()=>{
+    if(this.state.status==="offline") return;
+    if(this._tick){clearInterval(this._tick);this._tick=null;} if(this._reconT){clearTimeout(this._reconT);this._reconT=null;}
+    this.setState({status:"offline"}); this._log("INFO","Listener fermato",COL("text2"));
+  };
+  _simEvent(){
+    if(this.state.status==="reconnect") return;
+    if(Math.random()<0.07){
+      this.setState({status:"reconnect"});
+      this._log("WARN","Connessione persa: riconnessione in corso…",COL("warn"));
+      if(this._reconT)clearTimeout(this._reconT);
+      this._reconT=setTimeout(()=>{ if(this.state.status==="reconnect"){ this.setState({status:"active"}); this._log("OK","Riconnesso a Telegram.",COL("success")); } },2600);
+      return;
+    }
+    const teams=[["Inter","Milan"],["Roma","Lazio"],["Napoli","Juve"],["Atalanta","Torino"]][Math.floor(Math.random()*4)];
+    const mkt=["OVER 2.5","MATCH ODDS","GG","NEXT GOAL"][Math.floor(Math.random()*4)];
+    const bump=(k)=>this.setState(s=>({counters:{...s.counters,[k]:s.counters[k]+1}}));
+    bump("received");
+    this.setState({lastMessage:`${teams[0]} v ${teams[1]} · ${mkt} @ ${(1.4+Math.random()).toFixed(2)}`});
+    const r=Math.random();
+    if(this.state.mode==="sim"){ bump("dry_run"); this.setState({lastSignal:`${teams[0]} v ${teams[1]} — ${mkt}`}); this._log("INFO",`Segnale ${teams[0]}–${teams[1]} riconosciuto (DRY_RUN)`,COL("info")); }
+    else if(r<0.68){ bump("written"); this.setState(s=>({activeRows:Math.min(s.maxActive,s.activeRows+1), lastSignal:`${teams[0]} v ${teams[1]} — ${mkt}`, lastCsv:`segnali.csv @ ${this._now()}`})); this._log("OK",`Riga scritta: ${teams[0]} v ${teams[1]} — ${mkt}`,COL("success")); }
+    else if(r<0.80){ bump("duplicate"); this._log("WARN",`Duplicato ignorato: ${teams[0]} v ${teams[1]}`,COL("warn")); }
+    else if(r<0.92){ bump("discarded"); this._log("WARN",`Scartato: selezione non riconosciuta`,COL("warn")); }
+    else { bump("limited"); this._log("WARN","Limite raggiunto — segnale in coda",COL("warn")); }
+  }
+  clearCsv=()=>{ this.setState({activeRows:0,lastCsv:`segnali.csv (svuotato) @ ${this._now()}`}); this._log("INFO","CSV svuotato (solo intestazione)",COL("text2")); this._toast("CSV svuotato"); };
+  saveCfg=()=>{ this._toast("Configurazione salvata"); this._log("INFO","Configurazione salvata su config.json",COL("text2")); };
+  saveGeneric=()=>{ this._toast("Salvato"); };
+
+  toggleTheme=()=>this.setState(s=>({theme:s.theme==="dark"?"light":"dark"}));
+  openTools=()=>this.setState({toolsOpen:true});
+  closeTools=()=>this.setState({toolsOpen:false});
+  stopProp=(e)=>e.stopPropagation();
+  setMapTeams=()=>this.setState({mapTab:"teams"});
+  setMapMarkets=()=>this.setState({mapTab:"markets"});
+  openDictMarkets=()=>this.setState({dictOpen:true,dictKind:"markets"});
+  openDictNames=()=>this.setState({dictOpen:true,dictKind:"names"});
+  closeDict=()=>this.setState({dictOpen:false});
+
+  toggleDry=(e)=>{ if(e.target.checked){ this.setState({mode:"sim"}); this._log("INFO","Modalità SIMULAZIONE (DRY_RUN) attivata",COL("info")); } else { this.setState({confirmOpen:true,confirmText:""}); } };
+  onConfirmText=(e)=>this.setState({confirmText:e.target.value});
+  cancelReal=()=>{ this.setState({confirmOpen:false,confirmText:""}); this._log("INFO","Attivazione REALE annullata: resta in simulazione",COL("text2")); };
+  confirmReal=()=>{ if(this.state.confirmText.trim().toUpperCase()!=="REALE") return; this.setState({mode:"real",confirmOpen:false,confirmText:""}); this._log("WARN","REAL_MODE_ENABLED — modalità REALE attivata",COL("danger")); this._toast("Modalità REALE attiva"); };
+  onQueueChange=(e)=>{ const v=e.target.value; if(v==="APPEND_ACTIVE"||v==="QUEUE_UNTIL_CONFIRMED"){ this.setState({multiConfirmOpen:true,pendingQueue:v}); } else { this.setState({queueMode:v}); } };
+  confirmMulti=()=>{ this.setState(s=>({queueMode:s.pendingQueue,multiConfirmOpen:false,pendingQueue:""})); this._log("WARN","Modalità MULTI-segnale attivata",COL("warn")); };
+  cancelMulti=()=>this.setState({multiConfirmOpen:false,pendingQueue:""});
+
+  addChat=()=>this.setState(s=>({chats:[...s.chats,{name:"Nuova sorgente", id:""}]}));
+  removeChat=(i)=>this.setState(s=>({chats:s.chats.filter((_,j)=>j!==i)}));
+  onNewProvider=(e)=>this.setState({newProvider:e.target.value});
+  addProvider=()=>{ const n=this.state.newProvider.trim(); if(!n) return; this.setState(s=>({providers:[...s.providers,n],newProvider:""})); this._toast("Provider aggiunto"); };
+  removeProvider=(i)=>this.setState(s=>({providers:s.providers.filter((_,j)=>j!==i)}));
+  addMapRow=()=>{ if(this.state.mapTab==="teams") this.setState(s=>({teamMap:[...s.teamMap,{country:"",betfair:"",provider:""}]})); else this.setState(s=>({marketMap:[...s.marketMap,{from:"",to:""}]})); };
+  removeTeamMap=(i)=>this.setState(s=>({teamMap:s.teamMap.filter((_,j)=>j!==i)}));
+  removeMarketMap=(i)=>this.setState(s=>({marketMap:s.marketMap.filter((_,j)=>j!==i)}));
+
+  onMsgInput=(e)=>{ this.setState({parserMsg:e.target.value},()=>this._runTest()); };
+  // parser meta
+  onPName=(e)=>this.setState({pName:e.target.value});
+  onPMode=(e)=>this.setState({pMode:e.target.value});
+  onPSport=(e)=>this.setState({pSport:e.target.value});
+  onCatalog=(e)=>this.setState({catalogMarket:e.target.value});
+  openProv=()=>this.setState({toolsTab:"prov"});
+  // saved parsers
+  onPSelect=(e)=>this.setState({pSelected:e.target.value});
+  _snapshot(){ const s=this.state; return {mode:s.pMode,sport:s.pSport,rules:s.rules.map(r=>({...r})),multiMarket:s.multiMarket,marketRows:s.marketRows.map(r=>({...r})),multiSelection:s.multiSelection,selectionRows:s.selectionRows.map(r=>({...r}))}; }
+  pSave=()=>{ const n=this.state.pName.trim(); if(!n){ this._toast("Dai un nome al parser"); return; } this.setState(s=>({parsers:{...s.parsers,[n]:this._snapshot()},pSelected:n})); this._log("OK",`Parser «${n}» salvato`,COL("success")); this._toast(`Parser «${n}» salvato`); };
+  pNew=()=>{ this.setState({pName:"",pMode:"NAME_ONLY",pSport:"(non specificato)",pSelected:"",rules:defaultRules(),multiMarket:false,marketRows:[],multiSelection:false,selectionRows:[]},()=>this._runTest()); this._toast("Nuovo parser"); };
+  pLoad=()=>{ const n=this.state.pSelected; if(!n) { this._toast("Seleziona un parser salvato"); return; } const p=this.state.parsers[n]; if(!p) return; this.setState({pName:n,pMode:p.mode,pSport:p.sport,rules:p.rules.map(r=>({...r})),multiMarket:p.multiMarket,marketRows:p.marketRows.map(r=>({...r})),multiSelection:p.multiSelection,selectionRows:p.selectionRows.map(r=>({...r}))},()=>this._runTest()); this._log("INFO",`Parser «${n}» caricato`,COL("info")); this._toast(`Caricato «${n}»`); };
+  pDup=()=>{ const n=this.state.pName.trim()||this.state.pSelected; if(!n){ this._toast("Niente da duplicare"); return; } const copy=`${n}_copia`; this.setState(s=>({parsers:{...s.parsers,[copy]:this._snapshot()},pName:copy,pSelected:copy})); this._toast(`Duplicato in «${copy}»`); };
+  pDel=()=>{ const n=this.state.pSelected; if(!n){ this._toast("Seleziona un parser"); return; } this.setState(s=>{ const p={...s.parsers}; delete p[n]; return {parsers:p,pSelected:""}; }); this._log("WARN",`Parser «${n}» eliminato`,COL("warn")); this._toast(`Eliminato «${n}»`); };
+  // rules
+  insertFixed=()=>{ const c=CATALOG[this.state.catalogMarket]; if(!c) return; this.setState(s=>{ const rules=s.rules.filter(r=>r.col!=="MarketType"&&r.col!=="BetType"); rules.push({col:"MarketType",sa:"",eb:"",fx:c.market,req:true}); if(c.bet) rules.push({col:"BetType",sa:"",eb:"",fx:c.bet,req:false}); return {rules}; },()=>this._runTest()); this._log("INFO",`Regole fisse inserite da catalogo: ${this.state.catalogMarket}`,COL("info")); this._toast("Regole fisse inserite"); };
+  onRuleInput=(e)=>{ const i=+e.target.dataset.i,f=e.target.dataset.f,v=e.target.value; this.setState(s=>({rules:s.rules.map((r,j)=>j===i?{...r,[f]:v}:r)}),()=>this._runTest()); };
+  onRuleSelect=(e)=>{ const i=+e.target.dataset.i,f=e.target.dataset.f,v=e.target.value; this.setState(s=>({rules:s.rules.map((r,j)=>j===i?{...r,[f]:v}:r)}),()=>this._runTest()); };
+  onRuleReq=(e)=>{ const i=+e.target.dataset.i,v=e.target.checked; this.setState(s=>({rules:s.rules.map((r,j)=>j===i?{...r,req:v}:r)}),()=>this._runTest()); };
+  copyDiag=()=>{ this._toast("Diagnostica copiata"); };
+  _applyTransform(v,tr){ if(v==null) return v; switch(tr){ case "upper": return v.toUpperCase(); case "lower": return v.toLowerCase(); case "strip": return v.trim(); case "to_float": { const m=String(v).replace(",",".").match(/[0-9]+(\.[0-9]+)?/); return m?m[0]:v; } case "over_somma": { const n=(String(v).match(/[0-9]+([.,][0-9]+)?/g)||[]).map(x=>parseFloat(x.replace(",","."))); return n.length?String(n.reduce((a,b)=>a+b,0)):v; } default: return v; } }
+  // multimarket
+  toggleMM=(e)=>{ const on=e.target.checked; this.setState(s=>({multiMarket:on, marketRows: on&&s.marketRows.length===0?[{after:"Mercato: ",before:"\n",text:"",market:"MATCH_ODDS"}]:s.marketRows}),()=>this._runTest()); };
+  addMarket=()=>this.setState(s=>({marketRows:[...s.marketRows,{after:"",before:"",text:"",market:"MATCH_ODDS"}]}),()=>this._runTest());
+  onMMInput=(e)=>{ const i=+e.target.dataset.i,f=e.target.dataset.f,v=e.target.value; this.setState(s=>({marketRows:s.marketRows.map((r,j)=>j===i?{...r,[f]:v}:r)}),()=>this._runTest()); };
+  onMMSelect=(e)=>{ const i=+e.target.dataset.i,v=e.target.value; this.setState(s=>({marketRows:s.marketRows.map((r,j)=>j===i?{...r,market:v}:r)}),()=>this._runTest()); };
+  removeMarket=(i)=>this.setState(s=>({marketRows:s.marketRows.filter((_,j)=>j!==i)}),()=>this._runTest());
+  // multiselection
+  toggleMS=(e)=>{ const on=e.target.checked; this.setState(s=>({multiSelection:on, selectionRows: on&&s.selectionRows.length===0?[{after:"Selezione: ",before:"\n",sel:""}]:s.selectionRows}),()=>this._runTest()); };
+  addSelection=()=>this.setState(s=>({selectionRows:[...s.selectionRows,{after:"",before:"",sel:""}]}),()=>this._runTest());
+  onMSInput=(e)=>{ const i=+e.target.dataset.i,f=e.target.dataset.f,v=e.target.value; this.setState(s=>({selectionRows:s.selectionRows.map((r,j)=>j===i?{...r,[f]:v}:r)}),()=>this._runTest()); };
+  removeSelection=(i)=>this.setState(s=>({selectionRows:s.selectionRows.filter((_,j)=>j!==i)}),()=>this._runTest());
+
+  _extract(msg,r){ if(r.fx) return r.fx; const sa=r.sa,eb=r.eb; if(!sa&&!eb) return ""; let start=0; if(sa){ const i=msg.indexOf(sa); if(i<0) return null; start=i+sa.length; } let end=msg.length; if(eb){ const j=msg.indexOf(eb,start); if(j<0) return null; end=j; } return msg.slice(start,end).trim(); }
+  _extractCut(msg,after,before){ if(!after&&!before) return ""; let start=0; if(after){ const i=msg.indexOf(after); if(i<0) return null; start=i+after.length; } let end=msg.length; if(before){ const j=msg.indexOf(before,start); if(j<0) return null; end=j; } return msg.slice(start,end).trim(); }
+  _runTest=()=>{
+    const s=this.state; const msg=s.parserMsg;
+    // base row from rules
+    const base={}; const missing=[]; const diag=[];
+    for(const r of s.rules){
+      let v=this._extract(msg,r);
+      if(v!=null&&v!==""&&r.tr) v=this._applyTransform(v,r.tr);
+      const ok=v!=null&&v!==""; if(r.req&&!ok&&!missing.includes(r.col)) missing.push(r.col); base[r.col]=(v==null)?"":v;
+      let status,color;
+      if(v==null){ status=r.req?"Assente":"—"; color=r.req?COL("danger"):COL("text3"); }
+      else if(v===""){ status=r.req?"Vuoto":"—"; color=r.req?COL("danger"):COL("text3"); }
+      else { status="OK"; color=COL("success"); }
+      diag.push({col:r.col, status, color, val:(v==null||v==="")?"—":v});
+    }
+    // expand into multiple rows: markets × selections
+    let variants=[{}];
+    if(s.multiMarket&&s.marketRows.length){
+      variants=s.marketRows.map(m=>{ const cut=(m.after||m.before)?this._extractCut(msg,m.after,m.before):null; const match=(!m.text)|| (cut!=null&&cut.toLowerCase().includes(m.text.toLowerCase())); return {MarketType:m.market, _match:match}; });
+    }
+    let rows=[];
+    for(const v of variants){
+      if(s.multiSelection&&s.selectionRows.length){
+        for(const sel of s.selectionRows){ const sv=sel.sel|| (sel.after||sel.before?this._extractCut(msg,sel.after,sel.before):""); rows.push({...base,...v,SelectionName:sv||base.SelectionName}); }
+      } else rows.push({...base,...v});
+    }
+    if(rows.length===0) rows=[{...base}];
+    const genRows=rows.map((row,i)=>{
+      const rowMissing=s.rules.filter(r=>r.req&&!(row[r.col]&&String(row[r.col]).trim())).map(r=>r.col);
+      const ok=rowMissing.length===0;
+      const summary=CSV_COLS.filter(c=>row[c]&&String(row[c]).trim()).map(c=>`${c}=${row[c]}`).join("  ·  ")||"(nessun campo)";
+      return {idx:i+1, esito:ok?"Piazzabile":"Scartata", color:ok?COL("success"):COL("danger"), summary};
+    });
+    const okCount=genRows.filter(g=>g.esito==="Piazzabile").length;
+    const verdict = okCount===genRows.length && okCount>0
+      ? {text:`Pronto — ${genRows.length} riga/e generata/e, tutte piazzabili.`,color:COL("success"),bg:COL("success-weak"),border:"color-mix(in srgb,var(--c-success) 40%,transparent)",icon:"#i-check"}
+      : {text: missing.length?`Non pronto — mancano campi obbligatori: ${[...new Set(missing)].join(", ")}.`:`Attenzione — ${genRows.length-okCount} di ${genRows.length} righe non piazzabili.`,color:COL("danger"),bg:COL("danger-weak"),border:"color-mix(in srgb,var(--c-danger) 40%,transparent)",icon:"#i-alert"};
+    this.setState({genRows,verdict,diag});
+  };
+
+  _pill(active){ return `display:flex;align-items:center;gap:6px;padding:0 13px;height:30px;border:none;border-radius:7px;background:${active?"var(--c-accent)":"transparent"};color:${active?"#fff":"var(--c-text2)"};font-size:12px;font-weight:${active?"700":"500"};cursor:pointer;font-family:inherit;white-space:nowrap`; }
+  _railTab(active){ return `display:flex;align-items:center;gap:6px;padding:0 12px;height:30px;border:none;border-radius:7px;background:${active?"var(--c-accent)":"transparent"};color:${active?"#fff":"var(--c-text2)"};font-size:11.5px;font-weight:${active?"700":"500"};cursor:pointer;font-family:inherit;white-space:nowrap`; }
+  _tabset(list,cur,key){ return list.map(t=>({...t,active:cur===t.id,onClick:()=>this.setState({[key]:t.id}),style:this._pill(cur===t.id)})); }
+
+  renderVals(){
+    const s=this.state;
+    const running=s.status!=="offline", isReal=s.mode==="real", isSim=s.mode==="sim";
+    const STMAP={offline:{label:"OFFLINE",c:COL("danger"),bg:COL("danger-weak"),pulse:"none"},active:{label:"ATTIVO",c:COL("success"),bg:COL("success-weak"),pulse:"xb-pulse 1.6s ease-in-out infinite"},reconnect:{label:"RICONNESSIONE…",c:COL("warn"),bg:COL("warn-weak"),pulse:"xb-pulse .8s ease-in-out infinite"}};
+    const st=STMAP[s.status]||STMAP.offline;
+    const reale=s.confirmText.trim().toUpperCase()==="REALE";
+    const cntMeta=[["received","Ricevuti","info"],["written","Scritti","success"],["discarded","Scartati","warn"],["duplicate","Duplicati","text2"],["limited","Limitati","warn"],["dry_run","Simulati","info"],["errors","Errori","danger"]];
+    const mapTeams=s.mapTab==="teams";
+
+    return {
+      chromeWin:true,
+      running, isReal, isSim,
+      activeRowsLabel:`${s.activeRows}/${s.maxActive}`,
+      statusLabel:st.label, statusColor:st.c, statusBg:st.bg, statusPulse:st.pulse,
+      themeIcon:s.theme==="dark"?"#i-sun":"#i-moon", toggleTheme:this.toggleTheme,
+      noChats:s.chats.length===0,
+
+      startStyle:`flex:1;display:flex;align-items:center;justify-content:center;gap:8px;height:var(--btn-h);border:none;border-radius:9px;font-size:12.5px;font-weight:700;font-family:inherit;cursor:${running?"not-allowed":"pointer"};background:${running?"var(--c-surface2)":"var(--c-success)"};color:${running?"var(--c-text3)":"#fff"};opacity:${running?".6":"1"}`,
+      stopStyle:`flex:1;display:flex;align-items:center;justify-content:center;gap:8px;height:var(--btn-h);border:none;border-radius:9px;font-size:12.5px;font-weight:700;font-family:inherit;cursor:${running?"pointer":"not-allowed"};background:${running?"var(--c-danger)":"var(--c-surface2)"};color:${running?"#fff":"var(--c-text3)"};opacity:${running?"1":".6"}`,
+      start:this.start, stop:this.stop, clearCsv:this.clearCsv, saveCfg:this.saveCfg, openTools:this.openTools, saveGeneric:this.saveGeneric,
+
+      cfgTabs:this._tabset([{id:"gen",label:"Generale",icon:"i-gear"},{id:"rec",label:"Riconoscimento",icon:"i-target"},{id:"safe",label:"Sicurezza",icon:"i-shield"},{id:"conf",label:"Conferme XTrader",icon:"i-check"}],s.cfgTab,"cfgTab"),
+      tabGen:s.cfgTab==="gen", tabRec:s.cfgTab==="rec", tabSafe:s.cfgTab==="safe", tabConf:s.cfgTab==="conf",
+      genFields:[
+        {label:"Bot Token",icon:"i-key",type:"password",val:"",ph:"incolla il token del bot"},
+        {label:"Chat ID",icon:"i-chat",type:"text",val:"",ph:"es. -1001234567890"},
+        {label:"CSV Path",icon:"i-folder",type:"text",val:"C:\\XTrader\\segnali.csv",ph:""},
+        {label:"Timeout (sec)",icon:"i-clock",type:"text",val:"90",ph:""},
+        {label:"Provider",icon:"i-tag",type:"text",val:"TelegramBot",ph:""},
+      ],
+      dryBorder:isSim?"color-mix(in srgb,var(--c-warn) 45%,transparent)":"var(--c-danger)",
+      dryBg:isSim?COL("warn-weak"):COL("danger-weak"),
+      toggleDry:this.toggleDry, queueMode:s.queueMode, onQueueChange:this.onQueueChange,
+
+      monTabs:this._tabset([{id:"chats",label:"Chat ascoltate",icon:"i-broadcast"},{id:"stato",label:"Stato",icon:"i-activity"},{id:"dash",label:"Dashboard",icon:"i-chart"},{id:"log",label:"Log",icon:"i-terminal"}],s.monTab,"monTab"),
+      monChats:s.monTab==="chats", monStato:s.monTab==="stato", monDash:s.monTab==="dash", monLog:s.monTab==="log",
+      chats:s.chats,
+      lastFields:[{label:"Ultimo segnale",value:s.lastSignal,color:COL("text")},{label:"Ultimo messaggio",value:s.lastMessage,color:COL("text2")},{label:"Ultimo CSV",value:s.lastCsv,color:COL("success")},{label:"Ultimo errore",value:s.lastError,color:COL("text3")}],
+      counters:cntMeta.map(([k,label,c])=>({label,value:s.counters[k],color:COL(c)})),
+      logs:s.logs, noLogs:s.logs.length===0,
+
+      toolsOpen:s.toolsOpen, closeTools:this.closeTools, stopProp:this.stopProp,
+      toolTabs:this._tabset([{id:"parser",label:"Parser",icon:"i-puzzle"},{id:"src",label:"Chat sorgenti",icon:"i-chat"},{id:"prov",label:"Provider",icon:"i-tag"},{id:"prof",label:"Profili",icon:"i-folder"},{id:"map",label:"Mapping",icon:"i-map"},{id:"sync",label:"Betfair Sync",icon:"i-sync"},{id:"diz",label:"Dizionario Betfair",icon:"i-book"}],s.toolsTab,"toolsTab"),
+      tPar:s.toolsTab==="parser", tSrc:s.toolsTab==="src", tProv:s.toolsTab==="prov", tProf:s.toolsTab==="prof", tMap:s.toolsTab==="map", tSync:s.toolsTab==="sync", tDiz:s.toolsTab==="diz",
+
+      // parser test
+      parserMsg:s.parserMsg, onMsgInput:this.onMsgInput,
+      hasVerdict:!!s.verdict, verdictText:s.verdict?s.verdict.text:"", verdictColor:s.verdict?s.verdict.color:"", verdictBg:s.verdict?s.verdict.bg:"", verdictBorder:s.verdict?s.verdict.border:"", verdictIcon:s.verdict?s.verdict.icon:"#i-check",
+      genRows:s.genRows||[], rowCount:(s.genRows||[]).length, diag:s.diag||[],
+      runTest:this._runTest, copyDiag:this.copyDiag,
+      openDictMarkets:this.openDictMarkets, openDictNames:this.openDictNames, openProv:this.openProv,
+      // parser meta + saved
+      pName:s.pName, onPName:this.onPName, pMode:s.pMode, onPMode:this.onPMode, pSport:s.pSport, onPSport:this.onPSport,
+      pSelected:s.pSelected, onPSelect:this.onPSelect, savedParsers:Object.keys(s.parsers),
+      pNew:this.pNew, pLoad:this.pLoad, pDup:this.pDup, pDel:this.pDel, pSave:this.pSave,
+      catalogMarket:s.catalogMarket, onCatalog:this.onCatalog, insertFixed:this.insertFixed,
+      // rules (14 righe fisse)
+      ruleRows:s.rules.map((r,i)=>({...r,i,colColor:r.req?COL("text"):COL("text2"),colWeight:r.req?"600":"400"})),
+      onRuleInput:this.onRuleInput, onRuleReq:this.onRuleReq, onRuleSelect:this.onRuleSelect,
+      transforms:TRANSFORMS.map(v=>({v,label:v||"—"})), valuemaps:VALUEMAPS.map(v=>({v,label:v||"—"})),
+      // multimarket / multiselection
+      multiMarket:s.multiMarket, toggleMM:this.toggleMM, mmOff:!s.multiMarket, addMarket:this.addMarket,
+      mmBtnStyle:`display:flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:none;border-radius:7px;font-size:12px;font-weight:600;font-family:inherit;background:var(--c-accent);color:#fff;cursor:${s.multiMarket?"pointer":"not-allowed"};opacity:${s.multiMarket?"1":".45"}`,
+      marketRows:s.marketRows.map((m,i)=>({...m,i,remove:()=>this.removeMarket(i)})), noMarkets:s.marketRows.length===0,
+      onMMInput:this.onMMInput, onMMSelect:this.onMMSelect,
+      multiSelection:s.multiSelection, toggleMS:this.toggleMS, msOff:!s.multiSelection, addSelection:this.addSelection,
+      msBtnStyle:`display:flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:none;border-radius:7px;font-size:12px;font-weight:600;font-family:inherit;background:var(--c-accent);color:#fff;cursor:${s.multiSelection?"pointer":"not-allowed"};opacity:${s.multiSelection?"1":".45"}`,
+      selectionRows:s.selectionRows.map((m,i)=>({...m,i,remove:()=>this.removeSelection(i)})), noSelections:s.selectionRows.length===0,
+      onMSInput:this.onMSInput,
+
+      // chat sorgenti
+      chatRows:s.chats.map((c,i)=>({...c,remove:()=>this.removeChat(i)})),
+      addChat:this.addChat,
+
+      // provider
+      newProvider:s.newProvider, onNewProvider:this.onNewProvider, addProvider:this.addProvider,
+      providerRows:s.providers.map((name,i)=>({name,remove:()=>this.removeProvider(i)})),
+      noProviders:s.providers.length===0,
+
+      // mapping
+      setMapTeams:this.setMapTeams, setMapMarkets:this.setMapMarkets,
+      mapTeamsStyle:this._pill(mapTeams), mapMarketsStyle:this._pill(!mapTeams),
+      mapTeams, mapMkts:!mapTeams,
+      mapTitle:mapTeams?"Dizionario nomi squadra":"Dizionario mercati",
+      mapDesc:mapTeams?"Traduce i nomi squadra del canale (Provider) nel nome atteso da Betfair/XTrader. Seleziona i profili nel Parser Personalizzato.":"Traduce le frasi di mercato del canale nel mercato XTrader corrispondente.",
+      teamMapRows:s.teamMap.map((m,i)=>({...m,remove:()=>this.removeTeamMap(i)})),
+      marketMapRows:s.marketMap.map((m,i)=>({...m,remove:()=>this.removeMarketMap(i)})),
+      addMapRow:this.addMapRow,
+
+      // dizionario betfair
+      dizRows:[{id:"1",sport:"Calcio",sync:"oggi 06:00"},{id:"2",sport:"Tennis",sync:"oggi 06:00"},{id:"7522",sport:"Basket",sync:"oggi 06:00"},{id:"5",sport:"Rugby Union",sync:"oggi 06:00"}],
+
+      // dizionario finestra
+      dictOpen:s.dictOpen, closeDict:this.closeDict,
+      dictMkt:s.dictKind==="markets", dictNames:s.dictKind==="names",
+      dictIcon:s.dictKind==="markets"?"#i-target":"#i-book",
+      dictTitle:s.dictKind==="markets"?"Dizionario mercati":"Dizionario nomi",
+      dictDesc:s.dictKind==="markets"?"Legge il mercato da una posizione precisa del messaggio: «Inizia dopo» / «Finisce prima» (come nel Parser) ritagliano il campo, e se vi compare il «Testo mercato» imposta Mercato/Selezione dal Catalogo. Es.: Inizia dopo «Quota», Finisce prima «Prematch», Testo «0,5 HT». Seleziona i profili nel Parser Personalizzato.":"Associa i nomi squadra/selezione del canale al nome atteso da Betfair/XTrader per profilo. Seleziona i profili nel Parser Personalizzato.",
+
+      // confirm modals
+      confirmOpen:s.confirmOpen, confirmText:s.confirmText, notReale:!reale,
+      ackBorder:reale?"var(--c-danger)":"var(--c-border)",
+      onConfirmText:this.onConfirmText, cancelReal:this.cancelReal, confirmReal:this.confirmReal,
+      confirmBtnStyle:`flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:38px;border:none;border-radius:9px;font-size:12.5px;font-weight:700;font-family:inherit;background:var(--c-danger);color:#fff;cursor:${reale?"pointer":"not-allowed"};opacity:${reale?"1":".5"}`,
+      multiConfirmOpen:s.multiConfirmOpen, pendingQueueLabel:s.pendingQueue, confirmMulti:this.confirmMulti, cancelMulti:this.cancelMulti,
+
+      hasToast:!!s.toast, toast:s.toast,
+    };
+  }
+}
+</script>
+<script>
+(async () => {
+  if (!document.title || !document.title.trim()) document.title = "XTrader Bridge";
+  // Prepend so page-supplied @page / break rules (deck-stage's margin:0,
+  // author CSS) keep source-order precedence over the baseline.
+  const baseCss = document.createElement('style');
+  baseCss.textContent = "@media print {\n  figure, table { break-inside: avoid; }\n  *, *::before, *::after {\n    print-color-adjust: exact; -webkit-print-color-adjust: exact;\n    backdrop-filter: none !important; -webkit-backdrop-filter: none !important;\n    animation-delay: -99s !important; animation-duration: .001s !important;\n    animation-iteration-count: 1 !important; animation-fill-mode: both !important;\n    animation-play-state: running !important; transition-duration: 0s !important;\n  }\n}";
+  document.head.prepend(baseCss);
+  if (document.readyState === 'loading') {
+    await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
+  }
+  let ds = document.querySelector('deck-stage');
+  // whenDefined never resolves when nothing registers the element, so only
+  // await it when a <deck-stage> tag exists (and race a timeout regardless).
+  if (ds && !customElements.get('deck-stage')) {
+    try {
+      await Promise.race([
+        customElements.whenDefined('deck-stage'),
+        new Promise((r) => setTimeout(r, 3000)),
+      ]);
+    } catch (e) {}
+    ds = document.querySelector('deck-stage');
+  }
+  // dc-runtime assigns window.DCLogic at init and mounts into #dc-root on
+  // DOMContentLoaded; settle on that subtree so React has rendered before
+  // print(). Non-DC pages fall through to weighing body.
+  const isDc = !ds && 'DCLogic' in window;
+  const settleRoot = ds || (isDc ? document.getElementById('dc-root') : null) || document.body;
+  if (settleRoot) {
+    // Weigh only content children — skip script/style/template so inline
+    // Babel/CSS doesn't register as stable "content" before the framework
+    // has mounted anything.
+    const MEDIA = 'img,svg,canvas,video,picture,iframe,embed,object';
+    const weigh = () => {
+      let text = 0, media = 0;
+      for (const c of settleRoot.children) {
+        const t = c.tagName;
+        if (t === 'SCRIPT' || t === 'STYLE' || t === 'TEMPLATE') continue;
+        text += (c.textContent || '').trim().length;
+        media += c.querySelectorAll(MEDIA).length + (c.matches(MEDIA) ? 1 : 0);
+      }
+      return text + media * 100;
+    };
+    // "Non-zero and stable" alone is not sufficient to mean rendered: generic
+    // body can carry a static shell while async main content is pending, and
+    // #dc-root can carry the root DC's static text while child refs are still
+    // .sc-placeholder boxes. Gate generic on readyState 'complete', and never
+    // accept stability while a dc-runtime placeholder is present.
+    const isGeneric = settleRoot === document.body;
+    const deadline = Date.now() + 15000;
+    let last = -1, stable = 0;
+    while (Date.now() < deadline) {
+      const n = weigh();
+      const ready =
+        (!isGeneric || document.readyState === 'complete') &&
+        !settleRoot.querySelector('.sc-placeholder');
+      if (n > 0 && n === last && ready) { if (++stable >= 2) break; } else { stable = 0; }
+      last = n;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  // Project support.js may predate runtime default-seeding; push via bridge.
+  if (isDc && window.__dcSetProps && window.__dcRootName) {
+    try {
+      const dpEl = document.querySelector('script[data-dc-script]');
+      const meta = JSON.parse((dpEl && dpEl.getAttribute('data-props')) || '{}');
+      const bag = {};
+      for (const k in meta)
+        if (k[0] !== '$' && meta[k] && meta[k].default !== undefined)
+          bag[k] = meta[k].default;
+      if (Object.keys(bag).length) {
+        window.__dcSetProps(window.__dcRootName(), bag);
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    } catch (e) {}
+  }
+  // Reveal content gated on scroll or visibility before printing. Lazy <img>,
+  // IntersectionObserver fade-ins, and collapsed <details> don't render while
+  // off-screen, so a long page would print with them blank or closed. Open
+  // every <details>, force native-lazy images eager, and scroll the document
+  // through its full height to trip lazy-load + IO; then wait (bounded) for the
+  // newly-triggered images. Inert for deck-stage (slides aren't scroll-gated).
+  try {
+    for (const d of document.querySelectorAll('details')) d.open = true;
+    for (const img of document.querySelectorAll('img[loading="lazy"]'))
+      img.loading = 'eager';
+    const scroller = document.scrollingElement || document.documentElement;
+    const full = Math.max(scroller.scrollHeight, document.body.scrollHeight);
+    const step = window.innerHeight || 800;
+    for (let y = 0; y <= full; y += step) {
+      window.scrollTo(0, y);
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+    window.scrollTo(0, 0);
+    await Promise.race([
+      Promise.all(
+        [...document.images].map((img) =>
+          img.complete
+            ? null
+            : new Promise((res) => {
+                img.addEventListener('load', res, { once: true });
+                img.addEventListener('error', res, { once: true });
+              })
+        )
+      ),
+      new Promise((r) => setTimeout(r, 4000)),
+    ]);
+  } catch (e) {}
+  try { await document.fonts.ready; } catch (e) {}
+  // Jump every animation to its end state so print() never captures a slide
+  // mid-entrance. Ordering matters: the 0s-transition style must be live
+  // BEFORE data-deck-active is set so attribute-keyed transitions don't
+  // start a (now-0s) run from the pre-active base.
+  const st = document.createElement('style');
+  st.textContent = '*,*::before,*::after{animation-delay:-99s !important;animation-duration:.001s !important;animation-iteration-count:1 !important;animation-fill-mode:both !important;animation-play-state:running !important;transition-duration:0s !important}';
+  document.head.appendChild(st);
+  for (const d of document.querySelectorAll('deck-stage')) {
+    for (const c of d.children) {
+      const t = c.tagName;
+      if (t === 'SCRIPT' || t === 'STYLE' || t === 'TEMPLATE') continue;
+      c.setAttribute('data-deck-active', '');
+    }
+  }
+  // Re-append deck-stage's @page last so no author @page can add a margin and
+  // spill each full-bleed slide onto two sheets. Backstop for old copies.
+  if (ds) {
+    let pg = document.getElementById('deck-stage-print-page');
+    if (!pg) {
+      pg = document.createElement('style');
+      pg.textContent = '@page{size:' + (+ds.getAttribute('width') || 1920) +
+        'px ' + (+ds.getAttribute('height') || 1080) + 'px;margin:0}';
+    }
+    document.body.appendChild(pg);
+  }
+  try {
+    const sweep = () => {
+      for (const a of document.getAnimations()) {
+        try { a.finish(); } catch (e) {
+          try { a.currentTime = (a.effect && a.effect.getComputedTiming().duration) || 0; a.pause(); } catch (e2) {}
+        }
+      }
+    };
+    sweep();
+    await new Promise((r) => requestAnimationFrame(r));
+    sweep();
+    await new Promise((r) => requestAnimationFrame(r));
+  } catch (e) {}
+  // Size the PDF page to the rendered design unless the file opted into
+  // standard paper via @page{size:letter|A4|…}. Decks own their own @page.
+  // Wrappers (body, …) lose padding+margin so the frame sits at (0,0); the
+  // frame itself loses only margin — its padding is INSIDE the measured
+  // rect and must stay, or content shifts and leaves a gap at bottom/right.
+  var __m = null;
+  try { __m = (() => {
+  var STAMP = true;
+  var docEl = document.documentElement;
+  var doc = { width: docEl.scrollWidth, height: docEl.scrollHeight };
+
+  var ds = document.querySelector('deck-stage');
+  if (ds) {
+    var dw = Number(ds.getAttribute('width')) || 1920;
+    var dh = Number(ds.getAttribute('height')) || 1080;
+    var n = typeof ds.length === 'number' ? ds.length : ds.children.length;
+    var idx = typeof ds.index === 'number' ? ds.index : 0;
+    var frames = [];
+    for (var i = 0; i < n; i++) frames.push({ left: 0, top: 0, width: dw, height: dh });
+    return { kind: 'deck', source: 'declared', doc: doc, frames: frames,
+      authored: frames.map(function(){return{width:true,height:true}}),
+      deck: { width: dw, height: dh, slideCount: n, index: idx },
+      signals: { paperPage: false, pxPage: false } };
+  }
+
+  // Declared kind: a doc-page tag names the kind outright, so no signal
+  // heuristics run (like the deck branch above, signals report false —
+  // they describe inferred classifications only). The tag alone is not
+  // trusted: the element must have upgraded (shadowRoot present), so a
+  // leftover tag whose script was deleted falls through to the heuristics
+  // that handle plain markup.
+  var stageSx = window.scrollX || 0, stageSy = window.scrollY || 0;
+  var dp = document.querySelector('doc-page');
+  if (dp && dp.shadowRoot) {
+    // Crop to the sheet, not the host — the desk around it is screen-only
+    // chrome that must not land in PNG exports.
+    var sheet = dp.shadowRoot.querySelector('.sheet');
+    var sr = (sheet || dp).getBoundingClientRect();
+    return { kind: 'paper-doc', source: 'declared', doc: doc,
+      frames: [{ left: sr.left + stageSx, top: sr.top + stageSy,
+        width: sr.width, height: sr.height }],
+      authored: [{ width: false, height: false }],
+      signals: { paperPage: false, pxPage: false } };
+  }
+  var paperPage = false, pxPage = false;
+  var eachRule = function (fn) {
+    for (var s = 0; s < document.styleSheets.length; s++) {
+      var rs; try { rs = document.styleSheets[s].cssRules; } catch (e) { continue; }
+      for (var r = 0; r < rs.length; r++) {
+        fn(rs[r]);
+        if (rs[r].cssRules) for (var n = 0; n < rs[r].cssRules.length; n++) fn(rs[r].cssRules[n]);
+      }
+    }
+  };
+  eachRule(function (r) {
+    if (r.type !== 6) return;
+    var m = /\bsize\s*:\s*([^;}]+)/i.exec(r.cssText || '');
+    if (!m) return;
+    if (/\b(letter|a[3-5]|legal|ledger)\b/i.test(m[1])) paperPage = true;
+    if (/\d+(?:\.\d+)?px\b/i.test(m[1])) pxPage = true;
+  });
+  var signals = { paperPage: paperPage, pxPage: pxPage };
+
+  var pxVal = function (v) {
+    var m = /^(\d+(?:\.\d+)?)px$/.exec(v || ''); return m ? +m[1] : 0;
+  };
+  var authoredPx = function (el, prop) {
+    if (pxVal(el.style[prop])) return true;
+    var attr = el.getAttribute(prop);
+    if (attr && /^\d+$/.test(attr)) return true;
+    var hit = false;
+    eachRule(function (r) {
+      if (hit || r.type !== 1 || !r.style) return;
+      try { if (el.matches(r.selectorText) && pxVal(r.style[prop])) hit = true; } catch (e) {}
+    });
+    return hit;
+  };
+
+  var el = document.body, rootPxW = false;
+  for (;;) {
+    var kids = [];
+    for (var c = 0; c < el.children.length; c++) {
+      var t = el.children[c].tagName;
+      if (t !== 'SCRIPT' && t !== 'STYLE' && t !== 'TEMPLATE') kids.push(el.children[c]);
+    }
+    if (kids.length !== 1 || !(kids[0] instanceof HTMLElement)) break;
+    if (STAMP) el.setAttribute('data-om-frame-wrap', '');
+    el = kids[0];
+    rootPxW = authoredPx(el, 'width');
+    if (rootPxW) break;
+  }
+  if (!rootPxW) rootPxW = authoredPx(el, 'width');
+
+  // @page{size:letter} alone is a flowing doc; with a px-width root it's a
+  // fixed sheet pretending to be paper — fall through and size to render.
+  if (paperPage && !rootPxW) {
+    return { kind: 'paper-doc', source: 'inferred', doc: doc, signals: signals,
+      frames: [{ left: 0, top: 0, width: doc.width, height: doc.height }],
+      authored: [{ width: false, height: false }] };
+  }
+
+  var sx = window.scrollX || 0, sy = window.scrollY || 0;
+  var rectOf = function (e) {
+    var r = e.getBoundingClientRect();
+    var oy; try { oy = getComputedStyle(e).overflowY; } catch (err) {}
+    var h = oy === 'visible' ? Math.max(r.height, e.scrollHeight || 0) : r.height;
+    return { left: r.left + sx, top: r.top + sy, width: r.width, height: h };
+  };
+
+  // Multi-frame: ≥2 visible non-fixed children, each with authored px width
+  // AND height, all within ±2px of each other. Off unless the page opts in
+  // via data-om-multi-frame on the stop element — guards against card grids
+  // and pricing tables that match the geometry but aren't separate canvases.
+  if (el.hasAttribute('data-om-multi-frame')) {
+    var cands = [];
+    for (var k = 0; k < el.children.length; k++) {
+      var ch = el.children[k];
+      var cs; try { cs = getComputedStyle(ch); } catch (e) { continue; }
+      if (cs.display === 'none' || cs.visibility === 'hidden' || cs.position === 'fixed') continue;
+      var rc = rectOf(ch);
+      if (rc.width < 2 || rc.height < 2) continue;
+      if (!authoredPx(ch, 'width') || !authoredPx(ch, 'height')) continue;
+      cands.push(rc);
+    }
+    if (cands.length >= 2) {
+      var w0 = cands[0].width, h0 = cands[0].height, ok = true;
+      for (var q = 1; q < cands.length; q++)
+        if (Math.abs(cands[q].width - w0) > 2 || Math.abs(cands[q].height - h0) > 2) ok = false;
+      if (ok) return { kind: 'multi-frame', source: 'inferred', doc: doc, signals: signals,
+        frames: cands, authored: cands.map(function(){return{width:true,height:true}}) };
+    }
+  }
+
+  if (STAMP) el.setAttribute('data-om-frame', '');
+  return { kind: 'single-canvas', source: 'inferred', doc: doc, signals: signals,
+    frames: [rectOf(el)],
+    authored: [{ width: rootPxW, height: authoredPx(el, 'height') }] };
+})(); } catch (e) {}
+  var frame = null;
+  if (__m && __m.kind === 'single-canvas') {
+    var f = __m.frames && __m.frames[0];
+    if (f && f.width >= 200 && f.height >= 200) {
+      frame = f;
+      var fst = document.createElement('style');
+      fst.textContent = '@media print{@page{size:' + Math.ceil(f.width) + 'px ' +
+        Math.ceil(f.height) + 'px;margin:0}' +
+        'html,body,[data-om-frame-wrap]{padding:0!important;margin:0!important;background:none!important}' +
+        '[data-om-frame]{margin:0!important}}';
+      document.body.appendChild(fst);
+    }
+  }
+  // Relax break-inside on oversized elements. An element taller than a
+  // printable page can't honor break-inside: avoid — browsers either overflow
+  // it or push it whole to the next page, leaving a blank gap, then break it
+  // anyway at an arbitrary point. After the final layout (content revealed,
+  // animations jumped), find elements taller than a page that still compute
+  // break-inside: avoid and reset them to auto, so the browser breaks them at
+  // their children's boundaries instead (children keep their own avoid). PAGE_PX
+  // is a conservative portrait estimate at 96 CSS px/in — Letter/A4 usable
+  // height minus our 0.5in margins — so only clearly-oversized elements are
+  // touched and under-page elements still stay whole. Skipped for decks (slides
+  // are sized to the page) and for fixed-size canvases (frame set, or an author
+  // px-based @page) — runs as before for flowing docs on letter/A4.
+  try {
+    if (!ds && !frame && !(__m && __m.signals && __m.signals.pxPage)) {
+      const PAGE_PX = 1024;
+      // Our print defaults add a real @page margin only when the source has
+      // no @page of its own; computed style can't tell us (it reports screen
+      // media), so read the injected rule directly.
+      const defaults = document.querySelector('style[data-omelette-print-defaults]');
+      const pageInset = /@page\s*\{[^}]*margin/.test(defaults ? defaults.textContent || '' : '');
+      const SEL = 'section,article,figure,table,pre,blockquote,[class~="card" i],[class~="page" i],[class~="sheet" i]';
+      for (const el of document.body.querySelectorAll(SEL)) {
+        if (el instanceof HTMLElement && el.offsetHeight > PAGE_PX) {
+          el.setAttribute('data-om-oversized', '');
+          // Fake-paged docs simulate sheets with over-tall break-after:page
+          // boxes; honoring the break spills half-blank pages and ends a
+          // colored box mid-sheet. Flow them, and (only when we own the page
+          // inset) drop the redundant padding/background via the rule below.
+          const cs = getComputedStyle(el);
+          if (cs.breakAfter === 'page' || cs.pageBreakAfter === 'always') {
+            el.setAttribute('data-om-fakepage', '');
+          }
+        }
+      }
+      const ost = document.createElement('style');
+      ost.textContent = '@media print{' +
+        '[data-om-oversized]{break-inside:auto !important;page-break-inside:auto !important}' +
+        '[data-om-fakepage]{break-after:auto !important;page-break-after:auto !important}' +
+        (pageInset ? '[data-om-fakepage]{padding:0 !important;background:none !important}' : '') +
+        '}';
+      document.head.appendChild(ost);
+    }
+  } catch (e) {}
+  // macOS Preview renders Skia-PDF Luminosity soft-masks as opaque grey boxes;
+  // swap the CSS that triggers them for Preview-safe forms.
+  try {
+    for (const el of document.body.querySelectorAll('*')) {
+      const cs = getComputedStyle(el);
+
+      if (cs.boxShadow !== 'none' && cs.filter === 'none') {
+        const outs = [], kept = [];
+        for (const s of cs.boxShadow.split(/,(?![^(]*[)])/)) {
+          const t = s.trim();
+          const m = t.match(/^(rgba?[(][^)]+[)]) (-?[0-9.]+px) (-?[0-9.]+px) ([0-9.]+px) -?[0-9.]+px$/);
+          if (m && parseFloat(m[4]) > 0) outs.push('drop-shadow(' + m[2] + ' ' + m[3] + ' ' + m[4] + ' ' + m[1] + ')');
+          else kept.push(t);
+        }
+        if (outs.length) {
+          el.style.setProperty('filter', outs.join(' '), 'important');
+          el.style.setProperty('box-shadow', kept.join(', ') || 'none', 'important');
+        }
+      }
+
+      const mask = cs.maskImage && cs.maskImage !== 'none' ? cs.maskImage : cs.webkitMaskImage;
+      if (mask && mask !== 'none' && cs.filter === 'none') el.style.setProperty('filter', 'opacity(1)', 'important');
+    }
+  } catch (e) {}
+  setTimeout(() => { try { window.print(); } catch (e) {} }, 200);
+})();
+</script>
+</body>
+</html>

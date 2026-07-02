@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XTrader Bridge — Concept riordino UI</title>
+<style>
+  :root{
+    --bg:#12131a; --panel:#1a1c28; --panel2:#20233250; --card:#1e2130;
+    --line:#2b2f42; --txt:#e7e9f0; --muted:#9aa0b4; --blue:#4a9eff; --blue2:#2f6fd0;
+    --green:#37b26b; --red:#ef5350; --amber:#ffb74d; --violet:#7c5cff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.45}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 20px 60px}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:15px;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);
+    margin:34px 0 12px;border-bottom:1px solid var(--line);padding-bottom:8px}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 18px}
+  .win{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    overflow:hidden;box-shadow:0 8px 30px #0007}
+  .titlebar{display:flex;align-items:center;gap:8px;padding:9px 14px;background:#0f1017;
+    border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .content{padding:16px}
+  /* group nav */
+  .groups{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .group{flex:1;min-width:150px;background:var(--card);border:1px solid var(--line);
+    border-radius:11px;padding:12px 13px}
+  .group.active{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue) inset}
+  .group .n{font-weight:700;font-size:14px;margin-bottom:2px}
+  .group .k{color:var(--muted);font-size:12.5px}
+  .chip{display:inline-block;background:#2a2f45;border:1px solid var(--line);border-radius:999px;
+    padding:3px 10px;font-size:12px;margin:3px 4px 0 0;color:#cdd2e4}
+  .chip.on{background:#173a27;border-color:#2f7a4d;color:#8ff0b6}
+  .chip.off{color:#8b90a6}
+  /* generic pieces */
+  .row{display:flex;gap:14px;flex-wrap:wrap}
+  .col{flex:1;min-width:280px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:14px}
+  .card h3{margin:0 0 10px;font-size:14px}
+  .field{background:#0e0f16;border:1px solid var(--line);border-radius:8px;padding:8px 10px;
+    font-size:13px;color:#c7ccde;margin:6px 0}
+  .field .lbl{color:var(--muted);font-size:11.5px;display:block;margin-bottom:2px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.02em}
+  .pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600}
+  .pill.real{background:#3a1414;color:#ff8a8a;border:1px solid #7f1d1d}
+  .pill.sim{background:#14351f;color:#8ff0b6;border:1px solid #2f7a4d}
+  .btn{display:inline-block;background:var(--blue2);color:#fff;border-radius:8px;padding:7px 12px;
+    font-size:12.5px;font-weight:600;border:0}
+  .btn.g{background:var(--green)} .btn.v{background:var(--violet)} .btn.ghost{background:#242838;color:#c7ccde;border:1px solid var(--line)}
+  .note{background:#141a2b;border:1px dashed #35507e;border-radius:10px;padding:11px 13px;
+    font-size:13px;color:#bcd0f5;margin:10px 0}
+  .note b{color:#fff}
+  .old{color:#8b90a6;text-decoration:line-through}
+  .newlbl{color:var(--green);font-weight:700}
+  .tag{font-size:11px;color:#0c0d12;background:var(--amber);border-radius:6px;padding:2px 7px;font-weight:700}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12.5px;margin-top:8px}
+  .arrow{color:var(--blue);font-weight:700}
+  .smallmuted{color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>XTrader Bridge — Concept di riordino UI</h1>
+  <p class="sub">Idea di organizzazione (non è l'app vera): stesse funzioni, meno confusione, più ordine.
+  L'aspetto può cambiare — la logica resta la tua.</p>
+
+  <!-- 1. PRIMA / DOPO -->
+  <h2>1 · L'idea in una riga</h2>
+  <div class="note">
+    Oggi le schede sono organizzate <b>per oggetto</b> (Parser, Provider, Mapping, Chat…): per configurare
+    <b>un</b> canale salti tra 4 schede. Il concept le riorganizza <b>per "cosa vuoi fare"</b>, in 4 gruppi,
+    e mette le <b>mappature dentro il Parser</b> (dove si accendono).
+  </div>
+
+  <!-- 2. NUOVA HOME STRUMENTI -->
+  <h2>2 · Strumenti riorganizzati in 4 gruppi</h2>
+  <div class="win">
+    <div class="titlebar"><span class="dot" style="background:#ff5f57"></span>
+      <span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+      &nbsp;🧰 Strumenti</div>
+    <div class="content">
+      <div class="groups">
+        <div class="group active"><div class="n">① Sorgenti</div><div class="k">Chat sorgenti · Provider (etichette)</div></div>
+        <div class="group"><div class="n">② Lettura messaggi</div><div class="k">Parser · Mappature nomi/mercati</div></div>
+        <div class="group"><div class="n">③ Betfair</div><div class="k">Sync · Dizionario</div></div>
+        <div class="group"><div class="n">④ Impostazioni</div><div class="k">Profili · Riepilogo</div></div>
+      </div>
+      <div class="card">
+        <h3>① Sorgenti — le chat da cui arrivano i segnali</h3>
+        <table>
+          <tr><th>Attiva</th><th>Nome</th><th>Chat ID</th><th>Parser</th><th>Traduzioni</th></tr>
+          <tr><td>✅</td><td>PBet</td><td>-100123…</td><td>PBet_Live <span class="arrow">→</span></td>
+              <td><span class="chip on">nomi: PBet ✓</span><span class="chip off">mercati: —</span></td></tr>
+          <tr><td>✅</td><td>VIP Over</td><td>-100554…</td><td>VIP_Over <span class="arrow">→</span></td>
+              <td><span class="chip on">nomi ✓</span><span class="chip on">mercati ✓</span></td></tr>
+        </table>
+        <p class="smallmuted" style="margin-top:10px">Nuova colonna <b>«Traduzioni»</b>: vedi subito quali mappature sono attive per ogni canale, senza aprire altre schede.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. LETTURA MESSAGGI: parser + mappature insieme -->
+  <h2>3 · «② Lettura messaggi»: Parser + Mappature nello stesso posto</h2>
+  <div class="win">
+    <div class="titlebar">🧰 Strumenti · ② Lettura messaggi · Parser «PBet_Live»</div>
+    <div class="content">
+      <div class="row">
+        <div class="col">
+          <div class="card">
+            <h3>Regole colonne <span class="tag">Avanzate nascoste</span></h3>
+            <table>
+              <tr><th>Colonna</th><th>Inizia dopo</th><th>Finisce prima</th><th>Valore fisso</th><th>Obbl.</th></tr>
+              <tr><td>EventName</td><td>Match:</td><td>—</td><td>—</td><td>✅</td></tr>
+              <tr><td>MarketType</td><td>—</td><td>—</td><td class="smallmuted">▼ da Betfair Sync</td><td>✅</td></tr>
+              <tr><td>SelectionName</td><td>—</td><td>—</td><td class="smallmuted">▼ da Betfair Sync</td><td>✅</td></tr>
+              <tr><td>Price</td><td>Quota</td><td>@</td><td>—</td><td>☐</td></tr>
+            </table>
+            <p class="smallmuted" style="margin-top:8px">Di default solo le colonne essenziali. <b>Trasformazione</b> e <b>Value-map</b> compaiono col tasto «Avanzate».</p>
+            <div style="margin-top:10px"><span class="btn ghost">⚙️ Avanzate</span> <span class="btn">▶ Prova messaggio</span> <span class="btn g">💾 Salva</span></div>
+          </div>
+        </div>
+        <div class="col" style="max-width:340px">
+          <div class="card" style="border-color:#35507e">
+            <h3>🔗 Traduzioni attive per questo parser</h3>
+            <div class="field"><span class="lbl">Nomi squadra</span>
+              <span class="chip on">PBet ✓</span> <span class="btn ghost" style="padding:3px 8px">apri/modifica</span></div>
+            <div class="field"><span class="lbl">Mercati</span>
+              <span class="chip off">nessuno</span> <span class="btn" style="padding:3px 8px">➕ crea/collega</span></div>
+            <p class="smallmuted">Le mappature vivono qui, <b>accanto</b> al parser: le accendi/spegni senza cambiare scheda. (Prima erano in «Mapping», separate.)</p>
+          </div>
+          <div class="card" style="margin-top:12px">
+            <h3>Dizionario nomi squadra «PBet»</h3>
+            <table>
+              <tr><th>Betfair / XTrader</th><th><span class="old">Provider</span> <span class="newlbl">Come lo scrive il canale</span></th></tr>
+              <tr><td>Juventus</td><td>Juve</td></tr>
+              <tr><td>Internazionale</td><td>Inter</td></tr>
+            </table>
+            <p class="smallmuted" style="margin-top:8px">Colonna rinominata: <b>«Come lo scrive il canale»</b> invece di «Provider» → sparisce l'ambiguità coi due Provider.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Output multi-riga: MultiMarket / MultiSelection -->
+      <div class="card" style="margin-top:14px;border-color:#4a3a6e">
+        <h3>🧩 Output multi-riga — un messaggio → più righe CSV <span class="tag">preservato</span></h3>
+        <p class="smallmuted" style="margin:-4px 0 8px">Un solo messaggio con più mercati/selezioni genera <b>più righe</b> nel CSV. Funzione invariata (issue #192): solo posizionata in modo ordinato, dentro «② Lettura messaggi».</p>
+        <div class="row">
+          <div class="col">
+            <div class="field" style="background:#171a28">
+              <span class="lbl">☑ MultiMarket (più mercati) &nbsp;·&nbsp; <span class="btn ghost" style="padding:2px 8px">➕ Aggiungi mercato</span></span>
+              <table>
+                <tr><th>Inizia dopo</th><th>Finisce prima</th><th>Testo mercato</th><th>Mercato (catalogo)</th></tr>
+                <tr><td>Mercato:</td><td>@</td><td>Over 2.5</td><td>OVER_UNDER_25</td></tr>
+                <tr><td>Mercato:</td><td>@</td><td>Goal</td><td>BOTH_TEAMS_TO_SCORE</td></tr>
+              </table>
+            </div>
+          </div>
+          <div class="col">
+            <div class="field" style="background:#171a28">
+              <span class="lbl">☑ MultiSelection (più selezioni) &nbsp;·&nbsp; <span class="btn ghost" style="padding:2px 8px">➕ Aggiungi selezione</span></span>
+              <table>
+                <tr><th>Inizia dopo</th><th>Finisce prima</th><th>Selezione (catalogo)</th></tr>
+                <tr><td>Sel:</td><td>—</td><td>Over 2,5 gol</td></tr>
+                <tr><td>Sel:</td><td>—</td><td>Sì</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+        <p class="smallmuted" style="margin-top:8px">Il «Mercato/Selezione (catalogo)» si potrà popolare dai valori <b>Betfair Sync</b> (vedi #283). Fail-closed: combinazione ambigua → nessuna riga scritta.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. RIEPILOGO -->
+  <h2>4 · Schermata «Riepilogo configurazione» (colpo d'occhio)</h2>
+  <div class="win">
+    <div class="titlebar">🧰 Strumenti · ④ Impostazioni · Riepilogo</div>
+    <div class="content">
+      <div class="row">
+        <div class="col"><div class="card">
+          <h3>Stato</h3>
+          <p><span class="pill sim">🧪 SIMULAZIONE (DRY_RUN)</span></p>
+          <p class="smallmuted">Il CSV vero non viene scritto. Passa a <span class="pill real">REALE</span> solo quando sei pronto.</p>
+          <div class="field"><span class="lbl">CSV</span>C:\XTrader\segnali.csv · svuoto dopo 90s · <b>OVERWRITE_LAST</b> (1 riga)</div>
+        </div></div>
+        <div class="col"><div class="card">
+          <h3>Betfair</h3>
+          <p><span class="chip off">Login: non connesso</span></p>
+          <p class="smallmuted">Dizionario: 0 eventi · <b>mai sincronizzato</b> · auto-sync spento</p>
+          <span class="btn">🔄 Sincronizza ora</span>
+        </div></div>
+      </div>
+      <div class="card" style="margin-top:12px;border-color:#7f1d1d">
+        <h3>Stato — variante MODALITÀ REALE</h3>
+        <div style="background:#3a1414;border:1px solid #7f1d1d;border-radius:8px;padding:11px 13px;
+                    color:#ff8a8a;font-weight:700;text-align:center;font-size:14px">
+          🔴 MODALITÀ REALE ATTIVA — il CSV operativo VIENE scritto: XTrader può piazzare scommesse vere
+        </div>
+        <p class="smallmuted" style="margin:8px 0 0">Quando la sessione è REALE il banner è a <b>tutta
+        larghezza, persistente e impossibile da non vedere</b> (invariante di sicurezza del handoff:
+        mai ridotto a un semplice chip). La pill piccola nella card «Stato» qui sopra vale solo per la
+        SIMULAZIONE.</p>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <h3>Canali → Parser → Traduzioni</h3>
+        <table>
+          <tr><th>Canale</th><th>Parser</th><th>Nomi</th><th>Mercati</th><th>Pronto?</th></tr>
+          <tr><td>PBet</td><td>PBet_Live</td><td><span class="chip on">✓</span></td><td><span class="chip off">—</span></td><td>⚠️ collega i mercati</td></tr>
+          <tr><td>VIP Over</td><td>VIP_Over</td><td><span class="chip on">✓</span></td><td><span class="chip on">✓</span></td><td>✅ ok</td></tr>
+        </table>
+      </div>
+      <div class="note" style="margin-top:14px">Una sola schermata ti dice: <b>sei in simulazione o reale</b>, <b>Betfair è sincronizzato?</b>,
+      e per ogni canale <b>quale parser + quali traduzioni</b> e se è pronto. Niente più caccia tra le schede.</div>
+    </div>
+  </div>
+
+  <h2>5 · Cosa cambia in pratica (riassunto)</h2>
+  <div class="card">
+    <ul style="margin:0;padding-left:18px">
+      <li><b>Rinominata</b> la colonna «Provider» del dizionario nomi → «Come lo scrive il canale» (fine ambiguità).</li>
+      <li><b>Mappature dentro il Parser</b> (riquadro «Traduzioni attive»), non più in una scheda a parte.</li>
+      <li><b>4 gruppi per flusso</b> invece di 7 schede piatte.</li>
+      <li><b>Colonna «Traduzioni»</b> in Chat sorgenti + schermata <b>Riepilogo</b> per lo stato a colpo d'occhio.</li>
+      <li>Parser <b>meno denso</b>: avanzate (Trasformazione/Value-map) nascoste dietro un tasto.</li>
+      <li><b>MultiMarket / MultiSelection</b> (output multi-riga) <b>preservati</b>, dentro «② Lettura messaggi».</li>
+      <li>Le funzioni e le regole di sicurezza <b>restano identiche</b>: cambia solo l'organizzazione.</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>
