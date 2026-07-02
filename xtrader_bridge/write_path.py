@@ -43,16 +43,25 @@ class CommitResult:
 
     - `decision`: esito `live_guard` (WRITE o un esito che sopprime la scrittura);
     - `blocked_by_cap`: True se — pur essendo WRITE — il nuovo segnale è oltre il tetto
-      di righe attive (#136 p5): NON accodato, guardrail già ripristinati;
-    - `rows`: righe attive scritte (post-expire) nel ramo WRITE; `[]` altrimenti;
+      di righe attive (#136 p5): NON accodato, guardrail già ripristinati. Il CSV viene
+      riscritto SOLO se `expire` ha rimosso righe scadute (disco da sincronizzare);
+      altrimenti il contenuto attivo su disco è già identico e non si tocca (#259 C2);
+    - `rows`: righe attive (post-expire) nel ramo WRITE — scritte, salvo il caso
+      cap-senza-scaduti qui sopra dove sono riportate ma il CSV non è riscritto;
+      `[]` altrimenti;
     - `write_error`: l'eccezione se la scrittura CSV è fallita (con rollback completo),
-      altrimenti `None`.
+      altrimenti `None`;
+    - `write_attempted`: True se `write_rows` è stata CHIAMATA (riuscita o fallita).
+      Serve al contatore CSV-lock (#153 H2) del chiamante: un esito WRITE che NON ha
+      toccato il disco (cap-senza-scaduti, #259 C2) non deve contare come successo di
+      scrittura — falsificherebbe il recovery di un CSV bloccato.
     """
 
     decision: str
     blocked_by_cap: bool
     rows: list
     write_error: BaseException | None
+    write_attempted: bool = False
 
 
 def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows):
@@ -85,16 +94,30 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows):
         # Coda dei segnali attivi: expire dei già scaduti, add del nuovo, riscrittura
         # atomica di TUTTE le righe attive. Snapshot per il rollback su write fallita.
         queue_snap = queue.state()
-        queue.expire(now=now)
+        expired = queue.expire(now=now)
         # Accoda la riga con la sua chiave PER-RIGA (provenienza): serve al commit MULTI di un
         # eventuale passaggio di modalità a runtime (single→multi). In OVERWRITE_LAST `commit_signals`
         # tiene una riga duplicata solo se la sua chiave è tra `queue.active_keys()`; senza questa
         # chiave la riga già attiva verrebbe scartata dal blocco A+B (kyh + kyW #192, Codex).
         sid = queue.add(row, now=now, dedup_key=signal_dedupe.row_dedup_key(text, row))
         # `add` ritorna None se il nuovo segnale è oltre il tetto (#136 p5): le righe
-        # attive restano quelle correnti (post-expire), il CSV è comunque riscritto.
+        # attive restano quelle correnti (post-expire).
         blocked_by_cap = sid is None
         rows = queue.active_rows()
+        if blocked_by_cap and not expired:
+            # #259 C2: bloccato dal tetto E nessuna riga scaduta rimossa → il contenuto attivo
+            # su disco è già identico a `rows` (l'unico altro mutatore, `add`, non ha accodato).
+            # Riscrivere sarebbe un no-op che tocca mtime/inode del CSV e riapre la finestra di
+            # ri-lettura lato XTrader. Se invece `expire` HA rimosso righe (coda sovra-riempita
+            # via force=True dal percorso multi-row #192 che resta piena al tetto), il disco
+            # contiene ancora le righe scadute → si scrive comunque per sincronizzarlo.
+            if tracker is not None:
+                # Segnale NON accodato → rollback guardrail (ritentabile).
+                tracker.restore_state(tracker_snap)
+                if daily is not None and daily_snap is not None:
+                    daily.restore_state(daily_snap)
+            return CommitResult(decision=decision, blocked_by_cap=True,
+                                rows=rows, write_error=None, write_attempted=False)
         try:
             write_rows(rows, path)
         except Exception as ex:   # noqa: BLE001 — riportato al chiamante, no crash
@@ -107,7 +130,8 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows):
             write_error = ex
         else:
             if blocked_by_cap and tracker is not None:
-                # Bloccato dal tetto: segnale NON accodato → rollback guardrail (ritentabile).
+                # Bloccato dal tetto (con righe scadute rimosse, vedi sopra): segnale NON
+                # accodato → rollback guardrail (ritentabile).
                 tracker.restore_state(tracker_snap)
                 if daily is not None and daily_snap is not None:
                     daily.restore_state(daily_snap)
@@ -134,8 +158,11 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows):
         if daily is not None:
             daily.release()
 
+    # Qui `write_rows` è stata chiamata in ogni ramo WRITE (l'unico WRITE senza tentativo
+    # di scrittura è l'early-return cap-senza-scaduti qui sopra); gli esiti non-WRITE no.
     return CommitResult(decision=decision, blocked_by_cap=blocked_by_cap,
-                        rows=rows, write_error=write_error)
+                        rows=rows, write_error=write_error,
+                        write_attempted=decision == live_guard.WRITE)
 
 
 def _summary_decision(decisions: list, accepted: int) -> str:
@@ -334,7 +361,7 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
             if daily is not None and daily_snap is not None:
                 daily.restore_state(daily_snap)
         return CommitResult(decision=live_guard.WRITE, blocked_by_cap=False,
-                            rows=[], write_error=ex)
+                            rows=[], write_error=ex, write_attempted=True)
 
     # Si arriva qui solo dopo un CAMBIAMENTO reale (blocco OVERWRITE differente, o righe NUOVE in
     # append) e una scrittura riuscita → l'esito è WRITE (uno shrink OVERWRITE ha `new_rows` vuoto
@@ -347,5 +374,5 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
         # Fail-closed a livello di messaggio: al più restrittivo, mai una scommessa doppia. Lo
         # shadow non conta verso il rate-limit (`mark_seen`).
         tracker.mark_seen(signal_dedupe.message_hash(text))
-    return CommitResult(decision=live_guard.WRITE,
-                        blocked_by_cap=False, rows=active, write_error=None)
+    return CommitResult(decision=live_guard.WRITE, blocked_by_cap=False,
+                        rows=active, write_error=None, write_attempted=True)

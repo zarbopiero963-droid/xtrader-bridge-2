@@ -2183,9 +2183,11 @@ class App(ctk.CTk):
                     self._tracker, self._daily, self._queue,
                     cfg, text, rows_to_commit, path, now, write_rows)
             # #153 H2: registra l'esito del lock CSV mentre la scrittura è ancora serializzata
-            # (Codex #156). Solo il ramo WRITE scrive davvero su disco.
+            # (Codex #156). Conta solo se `write_rows` è stata davvero CHIAMATA: un WRITE
+            # bloccato dal tetto senza righe scadute non tocca il disco (#259 C2) e non deve
+            # falsificare il recovery di un CSV bloccato.
             csv_lock_event = self._record_csv_lock(
-                commit.decision == live_guard.WRITE, commit.write_error)
+                commit.write_attempted, commit.write_error)
         decision = commit.decision
         blocked_by_cap = commit.blocked_by_cap
         rows = commit.rows

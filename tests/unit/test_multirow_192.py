@@ -438,6 +438,7 @@ def test_commit_signals_scrive_tutte_e_dedupa(tmp_path):
     res = write_path.commit_signals(tracker, None, q, _cfg(path), MSG, rows, path, now=0,
                                     write_rows=csv_writer.write_rows)
     assert res.write_error is None
+    assert res.write_attempted is True              # #153 H2: la scrittura conta nel CSV-lock
     assert len(res.rows) == 3                       # 3 righe attive scritte
     assert len(q.active_rows()) == 3
     with open(path, newline="", encoding="utf-8-sig") as f:
@@ -448,6 +449,7 @@ def test_commit_signals_scrive_tutte_e_dedupa(tmp_path):
     res2 = write_path.commit_signals(tracker, None, q2, _cfg(path), MSG, rows, path, now=1,
                                      write_rows=csv_writer.write_rows)
     assert res2.decision == "DUPLICATE"
+    assert res2.write_attempted is False            # nessuna scrittura → CSV-lock non toccato
     assert q2.active_rows() == []
 
 

@@ -55,6 +55,7 @@ def test_write_riuscita_accoda_e_scrive():
     assert res.decision == live_guard.WRITE
     assert res.write_error is None
     assert res.blocked_by_cap is False
+    assert res.write_attempted is True   # #153 H2: la scrittura conta nel contatore CSV-lock
     assert res.rows == [row]
     assert written == [[row]]            # CSV scritto una volta con la riga
     assert queue.active_rows() == [row]  # segnale attivo in coda
@@ -68,6 +69,7 @@ def test_write_fallita_fa_rollback_completo_e_segnale_ritentabile():
     # Esito: errore riportato, NON sollevato
     assert isinstance(res.write_error, OSError)
     assert res.decision == live_guard.WRITE
+    assert res.write_attempted is True   # tentata e fallita → conta come failure CSV-lock
     # Coda ripristinata: la riga NON resta attiva (niente riga stantia se la write fallisce)
     assert queue.active_rows() == []
     # Dedup ripristinato: lo STESSO messaggio non è un duplicato → ritentabile come WRITE
@@ -79,7 +81,12 @@ def test_write_fallita_fa_rollback_completo_e_segnale_ritentabile():
     assert written == [[row]]
 
 
-def test_blocco_da_tetto_scrive_correnti_e_fa_rollback_guardrail():
+def test_blocco_da_tetto_senza_scaduti_non_riscrive_e_fa_rollback_guardrail():
+    """#259 C2: se il tetto blocca il nuovo segnale e NON è scaduto nulla, il contenuto
+    attivo su disco è già identico → riscrivere il CSV è inutile e riapre la finestra
+    di doppia lettura lato XTrader (il file cambia mtime/inode senza cambiare righe).
+
+    Fail-first: il vecchio codice chiamava comunque `write_rows` → `written == [[rowA]]`."""
     # tetto 1: A occupa la riga, B (diverso) è oltre il tetto → bloccato.
     tracker, daily, queue = _fresh(mode=signal_queue.APPEND_ACTIVE, max_active=1)
     rowA, rowB = _row("A"), _row("B")
@@ -90,13 +97,46 @@ def test_blocco_da_tetto_scrive_correnti_e_fa_rollback_guardrail():
         tracker, daily, queue, CFG_REAL, "msgB", rowB, "out.csv", 101.0, _ok_writer(written))
     assert res.decision == live_guard.WRITE
     assert res.blocked_by_cap is True
-    # Scrive le righe ATTIVE correnti (solo A): B non è accodato
+    # Le righe attive riportate restano quelle correnti (solo A), ma il CSV NON viene
+    # riscritto: su disco c'è già esattamente [A].
     assert res.rows == [rowA]
-    assert written == [[rowA]]
+    assert written == []
+    assert res.write_error is None
+    # #153 H2: nessuna scrittura tentata → il chiamante NON deve registrare un successo
+    # nel contatore CSV-lock (falsificherebbe il recovery di un CSV bloccato).
+    assert res.write_attempted is False
     assert [r["EventName"] for r in queue.active_rows()] == ["A"]
     # Guardrail rollback → B è RITENTABILE: registrarlo ora NON è un duplicato
     reg = tracker.register("msgB")
     assert reg.status != signal_dedupe.DUPLICATE
+
+
+def test_blocco_da_tetto_con_scaduti_sincronizza_il_csv():
+    """#259 C2 (ramo opposto): una coda sovra-riempita via `force=True` (blocchi multi-row
+    #192) può SCADERE una riga restando comunque piena al tetto. In quel caso il disco
+    contiene ancora la riga scaduta → anche se il nuovo segnale è bloccato dal tetto,
+    il CSV VA riscritto con le attive correnti, altrimenti resta una riga stantia.
+
+    Fail-first sul fix ingenuo «se blocked_by_cap non scrivere mai»: `written == []`
+    lascerebbe la riga scaduta A su disco."""
+    tracker, daily, queue = _fresh(mode=signal_queue.APPEND_ACTIVE, max_active=1)
+    rowA, rowB, rowC = _row("A"), _row("B"), _row("C")
+    # A entra normalmente a t=0; B entra con force=True (percorso multi-row) a t=50:
+    # la coda è ora OLTRE il tetto (2 attive con max_active=1).
+    assert queue.add(rowA, now=0.0) is not None
+    assert queue.add(rowB, now=50.0, force=True) is not None
+    # C arriva quando A è ormai SCADUTA: expire libera A ma la coda resta piena (B),
+    # quindi C è comunque bloccata dal tetto — però il disco va sincronizzato a [B].
+    now = 0.0 + queue.default_timeout + 1.0
+    written = []
+    res = write_path.commit_signal(
+        tracker, daily, queue, CFG_REAL, "msgC", rowC, "out.csv", now, _ok_writer(written))
+    assert res.decision == live_guard.WRITE
+    assert res.blocked_by_cap is True
+    assert res.rows == [rowB]
+    assert written == [[rowB]]           # CSV riscritto: la riga scaduta A non resta su disco
+    assert res.write_attempted is True   # scrittura reale → conta nel contatore CSV-lock
+    assert [r["EventName"] for r in queue.active_rows(now)] == ["B"]
 
 
 def test_duplicato_non_scrive_e_non_tocca_la_coda():
@@ -112,6 +152,7 @@ def test_duplicato_non_scrive_e_non_tocca_la_coda():
     assert res.blocked_by_cap is False
     assert res.rows == []
     assert written == []                 # nessuna scrittura tentata
+    assert res.write_attempted is False  # e il contatore CSV-lock non va toccato
     assert queue.active_rows() == before  # coda invariata
 
 

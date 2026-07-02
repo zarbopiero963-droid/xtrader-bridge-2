@@ -160,7 +160,12 @@ un parser custom può estrarre testo arbitrario):
   `max_active_signals` **non spezza** il blocco di un singolo messaggio — se il messaggio ha più
   righe dello spazio libero, il tetto viene **auto-alzato** per quel messaggio (tutte le righe
   entrano) invece di scriverne solo alcune e troncare le altre in silenzio. Il tetto continua a
-  limitare l'accumulo **tra messaggi distinti**. In `OVERWRITE_LAST` (default) il blocco riscritto è
+  limitare l'accumulo **tra messaggi distinti**. Un **nuovo segnale bloccato dal tetto** (#259 C2)
+  **non riscrive** il CSV se non è scaduto nulla: il contenuto attivo su disco è già identico e
+  riscriverlo farebbe solo ri-consumare il file a XTrader. Se invece nel frattempo **sono scadute**
+  righe (una coda sovra-riempita dall'auto-raise può scadere restando piena), il CSV viene
+  **riscritto** con le sole righe attive correnti, così nessuna riga scaduta resta su disco.
+  In `OVERWRITE_LAST` (default) il blocco riscritto è
   l'**istruzione corrente**: le righe nuove del messaggio **più** le righe duplicate che sono
   **ancora attive con la stessa provenienza** (riconosciute per chiave memorizzata al piazzamento,
   non ricalcolata), con i **valori del messaggio corrente**. Il CSV viene riscritto **solo se il
