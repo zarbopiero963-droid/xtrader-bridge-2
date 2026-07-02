@@ -35,6 +35,23 @@ Controlli (su OGNI workflow che invoca PyInstaller, oggi `build.yaml` e
 - nello stesso job, TUTTI i `python -m pytest` girano PRIMA della build;
 - artifact/release pubblicano esattamente il path `dist/XTrader-Signal-Bridge.exe`;
 - `data/` non contiene file/percorsi sensibili (scansione ricorsiva).
+
+Hardening #296 (residui audit #242/PR#177, Codex):
+- i VALORI di `--paths`/`--hidden-import` sono allowlistati (non solo il nome-opzione);
+- i comandi pytest non possono essere addolciti (`|| …`, `; exit 0`/`true` dopo pytest)
+  e `continue-on-error` è vietato in tutti i workflow (fail-closed sui gate di test);
+- il comando di build non può contenere argomenti DINAMICI (`$VAR`, `${{ … }}`,
+  `$( … )` — bash e PowerShell —, `%VAR%`, `!VAR!` delayed-expansion cmd, splatting
+  `@extra`);
+- le build WRAPPATE (`cmd /c pyinstaller …`, `powershell -Command "pyinstaller …"`,
+  `sh -c 'pyinstaller …'`, anche con wrapper quotato o con path completo) sono
+  rilevate dal detector e rifiutate come forma non canonica.
+
+Threat-model del gate (onestà sul perimetro): questo è un controllo ANTI-DRIFT contro
+modifiche accidentali/incaute dei workflow, non una difesa da un avversario con accesso
+in scrittura — chi può editare i workflow può editare anche QUESTO file di gate. La
+copertura dei pattern d'elusione è quindi best-effort fail-closed, non una garanzia
+di completezza.
 """
 
 import os
@@ -61,6 +78,17 @@ _ALLOWED_OPTS = {
     "--collect-submodules", "--collect-all", "--add-data", "--hidden-import",
 }
 
+# Valori ammessi per le opzioni di ESPANSIONE IMPORT (#296, da audit #242/PR#177, Codex):
+# `--paths` e `--hidden-import` erano allowlistate solo come NOME-opzione, coi VALORI liberi —
+# un `--paths`/`--hidden-import` arbitrario può trascinare nel bundle codice non previsto.
+# Come per `--add-data`/`--collect-*`, i valori sono ESATTI e fail-closed: la radice del
+# progetto per `--paths` e i soli moduli runtime reali (telegram/httpx) per `--hidden-import`.
+_ALLOWED_PATHS_VALUES = {"."}
+_ALLOWED_HIDDEN_IMPORTS = {
+    "telegram", "telegram.ext", "telegram.ext._application", "telegram.ext._updater",
+    "httpx", "httpcore",
+}
+
 # Coppie (opzione, pacchetto) di raccolta ammesse: ESATTE, non solo il nome del pacchetto.
 # Così `--collect-all xtrader_bridge` (che raccoglierebbe i DATI del package) resta vietato,
 # mentre `--collect-submodules xtrader_bridge` (solo codice) è ammesso (CodeRabbit).
@@ -81,18 +109,68 @@ _FORBIDDEN_BUNDLE = re.compile(
 # `python -m PyInstaller`, o API Python. Il prefisso `["']?(?:[^\s"']*[\\/])?` ammette
 # l'eventuale virgoletta del call-operator e un path completo (Codex).
 _CLI_PREFIX = r"""^\s*&?\s*["']?(?:[^\s"']*[\\/])?pyinstaller(?:\.exe)?\b"""
+# Wrapper di shell che rilanciano PyInstaller (`cmd /c pyinstaller …`, `powershell/pwsh
+# -Command "pyinstaller …"`, `sh/bash -c 'pyinstaller …'`): PRIMA sfuggivano DEL TUTTO al
+# gate perché il detector era ancorato all'invocazione diretta (#296, audit #242/PR#177,
+# Codex). Ora vengono RILEVATI — e quindi RIFIUTATI da `test_forma_build_canonica`, perché
+# la forma wrappata non è la CLI canonica analizzabile (fail-closed, nessun wrapper ammesso).
+# Gli switch PowerShell possono avere un VALORE senza trattino (`-ExecutionPolicy Bypass
+# -Command …`, Codex P2 su #297): il gruppo ammette `-Switch [valore]` ripetuti, così il
+# wrapper è rilevato anche con parametri valorizzati prima di `-Command`. Dopo il wrapper
+# sono rilevate TUTTE le forme d'invocazione (Codex P2, 2° giro): l'eseguibile CLI, il
+# call-operator pwsh `& pyinstaller` e la forma modulo `python -m PyInstaller` — un
+# wrapper non deve mai far uscire la build dal gate.
+# Il NOME del wrapper può a sua volta essere quotato o con path completo
+# (`& "C:/Windows/System32/cmd.exe" /c …`, `"pwsh.exe" -Command …` — Codex P2, 3° giro):
+# prefisso call-operator/quote/path opzionali anche davanti al wrapper.
+_WRAPPED_PREFIX = (
+    r"|(?:^|[\s;&|(])(?:&\s*)?[\"']?(?:[^\s\"']*[\\/])?"
+    # `cmd` può avere switch documentati PRIMA di /c (`/d /s /c`, `/v:on /c` — Codex P2,
+    # 4° giro): gruppo `/x[:val]` ripetuto prima del /c|/k finale.
+    # …e anche DOPO /c, prima del comando (`cmd /c /d pyinstaller` — Codex P2, 5° giro)
+    r"(?:cmd(?:\.exe)?[\"']?\s+(?:/\w+(?::\w+)?\s+)*/[ck]\s+(?:/\w+(?::\w+)?\s+)*"
+    r"|(?:powershell|pwsh)(?:\.exe)?[\"']?\s+(?:-\w+(?:\s+[\w.:\\/-]+)?\s+)*"
+    r"|(?:ba|z|da)?sh[\"']?\s+-c\s+)"
+    r"""["']?\s*(?:&\s*)?["']?"""
+    r"(?:(?:[^\s\"']*[\\/])?pyinstaller(?:\.exe)?\b"
+    # anche il python della forma modulo può essere qualificato/venv
+    # (`.venv\Scripts\python.exe -m PyInstaller` — Codex P2, 5° giro)
+    r"|(?:[^\s\"']*[\\/])?python(?:\.exe)?[\"']?\s+-m\s+pyinstaller\b)")
 _PYINSTALLER_DETECT = re.compile(
     _CLI_PREFIX
-    + r"""|^\s*&?\s*["']?python(?:\.exe)?["']?\s+-m\s+pyinstaller\b"""
+    # il python DIRETTO può essere qualificato/venv (stessa classe del 5° giro Codex,
+    # coperta d'anticipo): `& ".venv\Scripts\python.exe" -m PyInstaller …`
+    + r"""|^\s*&?\s*["']?(?:[^\s"']*[\\/])?python(?:\.exe)?["']?\s+-m\s+pyinstaller\b"""
     r"|pyinstaller\.__main__"
     r"|(?:^|\s)import\s+pyinstaller\b"
-    r"|from\s+pyinstaller\s+import",
+    r"|from\s+pyinstaller\s+import"
+    + _WRAPPED_PREFIX,
     re.IGNORECASE)
 # Forma canonica analizzabile: il comando È l'eseguibile CLI `pyinstaller …` (call-operator e
 # virgolette/percorso ammessi).
 _PYINSTALLER_CLI = re.compile(_CLI_PREFIX, re.IGNORECASE)
 # `python -m pytest …` come comando eseguibile (no echo/commenti), con `&` PowerShell opz.
 _PYTEST_CMD = re.compile(r"^\s*&?\s*python\s+-m\s+pytest\b", re.IGNORECASE)
+# QUALSIASI invocazione pytest (anche via venv pwsh `& ".venv\…\python.exe" -m pytest`):
+# serve al gate fail-closed #296, che deve vedere anche le forme che _PYTEST_CMD non copre.
+_PYTEST_ANY = re.compile(r"(?<![\w-])pytest\b", re.IGNORECASE)
+# Argomento DINAMICO in un comando: variabile shell (`$VAR`/`${VAR}`), expression GitHub
+# (`${{ … }}`), command/subexpression substitution `$( … )` (bash E PowerShell, stessa
+# grafia — Codex P2 su #297), variabile cmd (`%VAR%`) o SPLATTING PowerShell (`@extra`,
+# token che inietta parametri da una variabile — Codex P2, 2° giro). Un argomento
+# dinamico sfugge a ogni allowlist statica del gate (#296, audit #242/PR#177, Codex).
+# `%VAR%` copre anche le forme AVANZATE di cmd (`%VAR:~0,200%`, `%VAR:a=b%` — Codex P2,
+# 5° giro): dopo il nome è ammesso un suffisso `:…` qualsiasi fino al `%` di chiusura.
+_DYNAMIC_ARG = re.compile(
+    r"\$\{\{[^}]*\}\}|\$\([^)]*\)|\$\{?\w+\}?|%\w+(?::[^%\s]*)?%|!\w+!|(?:^|(?<=\s))@[\w.]+")
+# Comando che RESETTA l'exit code a successo: `exit 0` in QUALSIASI posizione a/da la
+# riga del pytest (anche condizionale, es. `if ($LASTEXITCODE -ne 0) { exit 0 }` — Codex
+# P2, 3° giro) o `true` come comando a sé/concatenato: renderebbe verde uno step coi
+# test rossi. `exit 1` e i reset PRIMA di pytest restano legittimi. Il lookbehind
+# esclude `$LASTEXITCODE`/`EXITCODE` (non sono il comando `exit`).
+_EXIT_OK_TOKEN = re.compile(r"(?<![\w$])exit\s+0(?!\d)", re.IGNORECASE)
+_EXIT_RESET_LINE = re.compile(r"^true\s*;?\s*$", re.IGNORECASE)
+_EXIT_RESET_SAMELINE = re.compile(r";\s*true\s*(?:;|$)", re.IGNORECASE)
 # Indicatori di block scalar YAML per `run:` (folded `>` / literal `|`).
 _BLOCK_SCALAR = re.compile(r"^[|>][+-]?\d*$")
 
@@ -261,6 +339,58 @@ def _option_tokens(cmd: str):
     return opts
 
 
+def _import_expansion_offenders(cmd: str):
+    """Coppie ``(opzione, valore)`` di `--paths`/`--hidden-import` con valore FUORI
+    allowlist nel comando dato (#296): vuoto = tutti i valori sono quelli ammessi."""
+    off = []
+    for val in _opt_values(cmd, "--paths"):
+        if _norm(val) not in _ALLOWED_PATHS_VALUES:
+            off.append(("--paths", val))
+    for val in _opt_values(cmd, "--hidden-import"):
+        if _norm(val) not in _ALLOWED_HIDDEN_IMPORTS:
+            off.append(("--hidden-import", val))
+    return off
+
+
+def _pytest_fail_open_lines(step: str):
+    """Righe di uno step `run:` in cui un'invocazione pytest è ADDOLCITA con `||`
+    (`pytest || true`, `|| exit 0`, …): il fallimento dei test non farebbe fallire lo
+    step (fail-open). Si scandisce il TESTO GREZZO per righe LOGICHE — non i comandi già
+    spezzati da `_split_shell`, che separerebbe `pytest` da `|| true` nascondendo il
+    pattern (#296, audit #242/PR#177, Codex). Le CONTINUAZIONI di riga (backslash bash o
+    backtick pwsh a fine riga) vengono ricongiunte prima del controllo: un pytest con
+    continuazione seguito da `|| true` sulla riga fisica successiva è UN solo comando
+    per la shell (Codex P2 su #297). Le righe
+    COMMENTATE (`#…`, vale per bash e pwsh) sono ignorate: non vengono eseguite,
+    flaggarle sarebbe un falso positivo (Sourcery su #297).
+
+    Oltre a `||`, è flaggato anche il RESET dell'exit code a successo (Codex P2, 2°-3°
+    giro): un `exit 0` in QUALSIASI posizione dalla riga del pytest in poi — anche
+    condizionale, es. `if ($LASTEXITCODE -ne 0) { exit 0 }` — oppure `true` concatenato
+    (`; true`) o standalone su riga successiva. In tutti i casi lo step riporterebbe
+    successo coi test rossi. `exit 1` e i reset PRIMA di pytest (es. guard di install)
+    restano legittimi."""
+    logical = re.sub(r"[\\`][ \t]*\n[ \t]*", " ", step)
+    out, seen_pytest = [], False
+    for ln in logical.splitlines():
+        if ln.lstrip().startswith("#"):
+            continue
+        has_pytest = bool(_PYTEST_ANY.search(ln))
+        if has_pytest and ("||" in ln or _EXIT_OK_TOKEN.search(ln)
+                           or _EXIT_RESET_SAMELINE.search(ln)):
+            out.append(ln.strip())
+        elif seen_pytest and (_EXIT_OK_TOKEN.search(ln)
+                              or _EXIT_RESET_LINE.match(ln.strip())):
+            out.append(ln.strip())
+        seen_pytest = seen_pytest or has_pytest
+    return out
+
+
+def _dynamic_args(cmd: str):
+    """Argomenti dinamici (`$VAR`, `${{ … }}`, `%VAR%`) presenti nel comando dato (#296)."""
+    return _DYNAMIC_ARG.findall(cmd)
+
+
 def _build_commands():
     """`(workflow_name, command)` per OGNI comando di shell che invoca PyInstaller (qualsiasi
     forma)."""
@@ -297,6 +427,79 @@ def test_forma_build_canonica():
         scripts = _py_scripts(cmd)
         assert scripts == [_ALLOWED_SCRIPT], \
             f"{name}: lo script di build dev'essere solo {_ALLOWED_SCRIPT}, trovati {scripts}"
+
+
+def test_nessun_argomento_dinamico_nella_build():
+    """(#296, audit #242/PR#177, Codex) Il comando PyInstaller non può contenere argomenti
+    DINAMICI (`$VAR`, `${{ … }}`, `%VAR%`): sfuggirebbero a ogni allowlist statica del
+    gate (es. `pyinstaller $ARGS main.py` con `$ARGS` deciso altrove)."""
+    builds = _build_commands()
+    assert builds, "nessuna build trovata"
+    for name, cmd in builds:
+        dyn = _dynamic_args(cmd)
+        assert not dyn, f"{name}: argomenti dinamici nella build: {dyn} ({cmd!r})"
+
+
+def test_argomenti_dinamici_rilevati():
+    """Regressione #296: PRIMA `pyinstaller $ARGS main.py` passava silenzioso (né opzione
+    `--…` né script `.py`)."""
+    assert _dynamic_args("pyinstaller $ARGS main.py") == ["$ARGS"]
+    assert _dynamic_args("pyinstaller ${{ inputs.flags }} main.py")
+    assert _dynamic_args("pyinstaller %FLAGS% main.py") == ["%FLAGS%"]
+    # command/subexpression substitution `$( … )` — bash e PowerShell (Codex P2 #297)
+    assert _dynamic_args("pyinstaller $(Get-Content flags.txt) --onefile main.py") == \
+        ["$(Get-Content flags.txt)"]
+    assert _dynamic_args("pyinstaller $(cat flags.txt) main.py")
+    # SPLATTING PowerShell `@extra` (Codex P2, 2° giro): inietta parametri da variabile
+    assert _dynamic_args("pyinstaller --onefile @extra main.py") == ["@extra"]
+    # delayed expansion cmd `!FLAGS!` (Codex P2, 3° giro)
+    assert _dynamic_args("pyinstaller --onefile !FLAGS! main.py") == ["!FLAGS!"]
+    # percent expansion AVANZATA di cmd (Codex P2, 5° giro)
+    assert _dynamic_args("pyinstaller %FLAGS:~0,200% main.py") == ["%FLAGS:~0,200%"]
+    assert _dynamic_args("pyinstaller %PATH:str1=str2% main.py")
+    assert _dynamic_args("pyinstaller --onefile --paths . main.py") == []
+
+
+def test_build_wrappate_rilevate_e_rifiutate():
+    """Regressione #296 (audit #242/PR#177, Codex): PRIMA `cmd /c pyinstaller …` sfuggiva
+    DEL TUTTO al detector (ancorato all'invocazione diretta). Ora le forme wrappate sono
+    RILEVATE — quindi entrano nel gate — e NON sono la forma CLI canonica, per cui
+    `test_forma_build_canonica` le rifiuta (fail-closed: nessun wrapper ammesso)."""
+    wrapped = [
+        "cmd /c pyinstaller --onefile main.py",
+        'cmd.exe /C "pyinstaller --onefile main.py"',
+        'powershell -Command "pyinstaller --onefile main.py"',
+        'pwsh -NoProfile -Command "pyinstaller --onefile main.py"',
+        # switch VALORIZZATI prima di -Command (Codex P2 #297)
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command "pyinstaller --onefile main.py"',
+        'pwsh -ExecutionPolicy RemoteSigned -Command "pyinstaller --onefile main.py"',
+        # forma MODULO e call-operator dentro il wrapper (Codex P2, 2° giro)
+        "cmd /c python -m PyInstaller --onefile main.py",
+        'pwsh -Command "python -m PyInstaller --onefile main.py"',
+        'pwsh -Command "& pyinstaller --onefile main.py"',
+        'powershell -NoProfile -Command "& pyinstaller --onefile main.py"',
+        # wrapper QUOTATO o con path completo (Codex P2, 3° giro)
+        '& "C:/Windows/System32/cmd.exe" /c pyinstaller --onefile main.py',
+        '"pwsh.exe" -Command "pyinstaller --onefile main.py"',
+        # switch di cmd PRIMA di /c (Codex P2, 4° giro)
+        "cmd /d /s /c pyinstaller --onefile main.py",
+        "cmd /v:on /c pyinstaller --onefile main.py",
+        # switch di cmd DOPO /c (Codex P2, 5° giro)
+        "cmd /c /d pyinstaller --onefile main.py",
+        # python QUALIFICATO/venv, wrappato e diretto (Codex P2, 5° giro)
+        'pwsh -Command "& .\\.venv\\Scripts\\python.exe -m PyInstaller --onefile main.py"',
+        '& ".venv\\Scripts\\python.exe" -m PyInstaller --onefile main.py',
+        "sh -c 'pyinstaller --onefile main.py'",
+        "bash -c 'pyinstaller --onefile main.py'",
+    ]
+    for cmd in wrapped:
+        assert _PYINSTALLER_DETECT.search(cmd), f"wrapper non rilevato: {cmd!r}"
+        assert not _PYINSTALLER_CLI.match(cmd), \
+            f"wrapper scambiato per forma canonica (verrebbe analizzato male): {cmd!r}"
+    # controcampo: la forma diretta resta canonica e una menzione innocua non è una build
+    assert _PYINSTALLER_CLI.match("pyinstaller --onefile main.py")
+    assert not _PYINSTALLER_DETECT.search(
+        "python -m pip install -r requirements-dev.txt pyinstaller httpx")
 
 
 def test_build_e_comando_isolato_nel_suo_step():
@@ -339,6 +542,34 @@ def test_solo_opzioni_note():
         for opt in _option_tokens(cmd):
             assert opt in _ALLOWED_OPTS, \
                 f"{name}: opzione PyInstaller non in allowlist: {opt!r} ({cmd!r})"
+
+
+def test_valori_paths_e_hidden_import_in_allowlist():
+    """(#296, audit #242/PR#177, Codex) Anche i VALORI di `--paths` e `--hidden-import`
+    devono stare nell'allowlist esatta (`.` e i soli moduli runtime reali): PRIMA era
+    controllato solo il nome-opzione, quindi `--hidden-import ctypes` o `--paths C:\\evil`
+    passavano il gate."""
+    builds = _build_commands()
+    assert builds, "nessuna build trovata"
+    for name, cmd in builds:
+        off = _import_expansion_offenders(cmd)
+        assert not off, \
+            f"{name}: valori import-expansion fuori allowlist: {off} ({cmd!r})"
+
+
+def test_valori_import_expansion_maligni_rifiutati():
+    """Regressione #296: i casi che PRIMA passavano ora sono flaggati; i valori reali no."""
+    assert _import_expansion_offenders(
+        "pyinstaller --onefile --hidden-import ctypes main.py") == \
+        [("--hidden-import", "ctypes")]
+    assert _import_expansion_offenders(
+        r"pyinstaller --onefile --paths C:\evil main.py") == [("--paths", r"C:\evil")]
+    # forma `--opt=value` e quoting coperti come per le altre opzioni
+    assert _import_expansion_offenders(
+        'pyinstaller --hidden-import="ctypes" main.py') == [("--hidden-import", "ctypes")]
+    # i valori realmente usati dai workflow restano ammessi
+    assert _import_expansion_offenders(
+        "pyinstaller --paths . --hidden-import=telegram --hidden-import=httpx main.py") == []
 
 
 def test_nome_exe_solo_quello_personale():
@@ -428,6 +659,60 @@ def test_test_eseguiti_prima_della_build():
             assert max(p_idx) < min(b_idx), \
                 f"{name}/{jobname}: TUTTI i test devono girare PRIMA della build dell'EXE"
     assert seen_build_job, "nessun job con build individuato"
+
+
+def test_pytest_fail_closed_nei_workflow():
+    """(#296, audit #242/PR#177, Codex) I gate di test non possono essere fail-open:
+    nessuna invocazione pytest addolcita con `||` (es. `pytest || true`) e nessun
+    `continue-on-error` in ALCUN workflow. Un pytest che non fa fallire lo step
+    maschererebbe regressioni prima della build. I `|| true` sui grep non-pytest
+    (forbidden-files) restano legittimi e non sono toccati.
+
+    Il divieto di `continue-on-error` è deliberatamente GLOBALE e non scopato ai soli
+    job di test/build (valutato su suggerimento Sourcery, #297): oggi NESSUN workflow
+    lo usa (costo zero) e un'euristica "solo job di test" lascerebbe scoperto un futuro
+    workflow di test non riconosciuto. Stesso stile fail-closed di `_ALLOWED_OPTS`: un
+    eventuale uso legittimo futuro dovrà emendare consapevolmente questo gate."""
+    for path in _workflow_files():
+        name = os.path.basename(path)
+        text = _read(path)
+        assert "continue-on-error" not in text, \
+            f"{name}: `continue-on-error` vietato (gate fail-open)"
+        for step in _run_steps(text):
+            bad = _pytest_fail_open_lines(step)
+            assert not bad, f"{name}: comando pytest addolcito (fail-open): {bad}"
+
+
+def test_pytest_addolcito_rilevato():
+    """Regressione #296: PRIMA `pytest || true` non faceva fallire il gate (lo split dei
+    comandi separava `pytest` da `|| true`); la scansione per riga lo becca."""
+    assert _pytest_fail_open_lines("python -m pytest -q || true")
+    assert _pytest_fail_open_lines('& ".venv\\Scripts\\python.exe" -m pytest -q || exit 0')
+    assert not _pytest_fail_open_lines('python -m pytest -q -m "not manual"')
+    # `|| true` su un comando NON-pytest (es. i grep di forbidden-files) resta ammesso
+    assert not _pytest_fail_open_lines("ci=$(git ls-files | grep -iE 'x' || true)")
+    # righe COMMENTATE non eseguite: niente falso positivo (Sourcery su #297)
+    assert not _pytest_fail_open_lines("# python -m pytest -q || true (esempio disattivato)")
+    assert not _pytest_fail_open_lines("  # nota: mai usare `pytest || true` nei gate")
+    # CONTINUAZIONI di riga: `pytest \` + `|| true` è UN comando per la shell (Codex P2 #297)
+    assert _pytest_fail_open_lines("python -m pytest -q \\\n  || true")
+    assert _pytest_fail_open_lines("python -m pytest -q `\n  || exit 0")   # backtick pwsh
+    assert not _pytest_fail_open_lines("python -m pytest -q \\\n  -m 'not manual'")
+    # RESET dell'exit code dopo pytest (Codex P2, 2° giro): stessa riga o riga successiva
+    assert _pytest_fail_open_lines("python -m pytest -q; exit 0")
+    assert _pytest_fail_open_lines("python -m pytest -q; true")
+    assert _pytest_fail_open_lines("python -m pytest -q\nexit 0")
+    assert _pytest_fail_open_lines("python -m pytest -q\ntrue")
+    # exit 0 CONDIZIONALE dopo pytest (Codex P2, 3° giro): stessa riga o riga successiva
+    assert _pytest_fail_open_lines(
+        "python -m pytest -q; if ($LASTEXITCODE -ne 0) { exit 0 }")
+    assert _pytest_fail_open_lines(
+        "python -m pytest -q\nif ($LASTEXITCODE -ne 0) { exit 0 }")
+    # `exit 1` (fail-closed) e i reset PRIMA di pytest (guard di install) restano legittimi
+    assert not _pytest_fail_open_lines(
+        "if ($LASTEXITCODE -ne 0) { exit 1 }\npython -m pytest -q")
+    assert not _pytest_fail_open_lines("exit 0\n# step senza pytest")
+    assert not _pytest_fail_open_lines("git cat-file -e x\nexit 0")   # step non-pytest
 
 
 def test_data_dir_senza_file_sensibili():
