@@ -41,9 +41,17 @@ Hardening #296 (residui audit #242/PR#177, Codex):
 - i comandi pytest non possono essere addolciti (`|| …`, `; exit 0`/`true` dopo pytest)
   e `continue-on-error` è vietato in tutti i workflow (fail-closed sui gate di test);
 - il comando di build non può contenere argomenti DINAMICI (`$VAR`, `${{ … }}`,
-  `$( … )` — bash e PowerShell —, `%VAR%`, splatting `@extra`);
+  `$( … )` — bash e PowerShell —, `%VAR%`, `!VAR!` delayed-expansion cmd, splatting
+  `@extra`);
 - le build WRAPPATE (`cmd /c pyinstaller …`, `powershell -Command "pyinstaller …"`,
-  `sh -c 'pyinstaller …'`) sono rilevate dal detector e rifiutate come forma non canonica.
+  `sh -c 'pyinstaller …'`, anche con wrapper quotato o con path completo) sono
+  rilevate dal detector e rifiutate come forma non canonica.
+
+Threat-model del gate (onestà sul perimetro): questo è un controllo ANTI-DRIFT contro
+modifiche accidentali/incaute dei workflow, non una difesa da un avversario con accesso
+in scrittura — chi può editare i workflow può editare anche QUESTO file di gate. La
+copertura dei pattern d'elusione è quindi best-effort fail-closed, non una garanzia
+di completezza.
 """
 
 import os
@@ -112,10 +120,14 @@ _CLI_PREFIX = r"""^\s*&?\s*["']?(?:[^\s"']*[\\/])?pyinstaller(?:\.exe)?\b"""
 # sono rilevate TUTTE le forme d'invocazione (Codex P2, 2° giro): l'eseguibile CLI, il
 # call-operator pwsh `& pyinstaller` e la forma modulo `python -m PyInstaller` — un
 # wrapper non deve mai far uscire la build dal gate.
+# Il NOME del wrapper può a sua volta essere quotato o con path completo
+# (`& "C:/Windows/System32/cmd.exe" /c …`, `"pwsh.exe" -Command …` — Codex P2, 3° giro):
+# prefisso call-operator/quote/path opzionali anche davanti al wrapper.
 _WRAPPED_PREFIX = (
-    r"|(?:^|[\s;&|(])(?:cmd(?:\.exe)?\s+/[ck]\s+"
-    r"|(?:powershell|pwsh)(?:\.exe)?\s+(?:-\w+(?:\s+[\w.:\\/-]+)?\s+)*"
-    r"|(?:ba|z|da)?sh\s+-c\s+)"
+    r"|(?:^|[\s;&|(])(?:&\s*)?[\"']?(?:[^\s\"']*[\\/])?"
+    r"(?:cmd(?:\.exe)?[\"']?\s+/[ck]\s+"
+    r"|(?:powershell|pwsh)(?:\.exe)?[\"']?\s+(?:-\w+(?:\s+[\w.:\\/-]+)?\s+)*"
+    r"|(?:ba|z|da)?sh[\"']?\s+-c\s+)"
     r"""["']?\s*(?:&\s*)?["']?"""
     r"(?:(?:[^\s\"']*[\\/])?pyinstaller(?:\.exe)?\b"
     r"|python(?:\.exe)?\s+-m\s+pyinstaller\b)")
@@ -141,12 +153,15 @@ _PYTEST_ANY = re.compile(r"(?<![\w-])pytest\b", re.IGNORECASE)
 # token che inietta parametri da una variabile — Codex P2, 2° giro). Un argomento
 # dinamico sfugge a ogni allowlist statica del gate (#296, audit #242/PR#177, Codex).
 _DYNAMIC_ARG = re.compile(
-    r"\$\{\{[^}]*\}\}|\$\([^)]*\)|\$\{?\w+\}?|%\w+%|(?:^|(?<=\s))@[\w.]+")
-# Comando che RESETTA l'exit code a successo (`exit 0` / `true` come comando a sé, o
-# concatenato con `;` dopo pytest): renderebbe verde uno step coi test rossi (Codex P2,
-# 2° giro). `exit 1` e i reset PRIMA di pytest restano legittimi.
-_EXIT_RESET_LINE = re.compile(r"^(?:exit\s+0|true)\s*;?\s*$", re.IGNORECASE)
-_EXIT_RESET_SAMELINE = re.compile(r";\s*(?:exit\s+0|true)\s*(?:;|$)", re.IGNORECASE)
+    r"\$\{\{[^}]*\}\}|\$\([^)]*\)|\$\{?\w+\}?|%\w+%|!\w+!|(?:^|(?<=\s))@[\w.]+")
+# Comando che RESETTA l'exit code a successo: `exit 0` in QUALSIASI posizione a/da la
+# riga del pytest (anche condizionale, es. `if ($LASTEXITCODE -ne 0) { exit 0 }` — Codex
+# P2, 3° giro) o `true` come comando a sé/concatenato: renderebbe verde uno step coi
+# test rossi. `exit 1` e i reset PRIMA di pytest restano legittimi. Il lookbehind
+# esclude `$LASTEXITCODE`/`EXITCODE` (non sono il comando `exit`).
+_EXIT_OK_TOKEN = re.compile(r"(?<![\w$])exit\s+0(?!\d)", re.IGNORECASE)
+_EXIT_RESET_LINE = re.compile(r"^true\s*;?\s*$", re.IGNORECASE)
+_EXIT_RESET_SAMELINE = re.compile(r";\s*true\s*(?:;|$)", re.IGNORECASE)
 # Indicatori di block scalar YAML per `run:` (folded `>` / literal `|`).
 _BLOCK_SCALAR = re.compile(r"^[|>][+-]?\d*$")
 
@@ -340,20 +355,23 @@ def _pytest_fail_open_lines(step: str):
     COMMENTATE (`#…`, vale per bash e pwsh) sono ignorate: non vengono eseguite,
     flaggarle sarebbe un falso positivo (Sourcery su #297).
 
-    Oltre a `||`, è flaggato anche il RESET dell'exit code a successo (Codex P2, 2°
-    giro): `pytest …; exit 0` sulla stessa riga logica, oppure un `exit 0`/`true`
-    standalone su una riga SUCCESSIVA al pytest nello stesso step — in entrambi i casi
-    lo step riporterebbe successo coi test rossi. `exit 1` e i reset PRIMA di pytest
-    (es. guard di install) restano legittimi."""
+    Oltre a `||`, è flaggato anche il RESET dell'exit code a successo (Codex P2, 2°-3°
+    giro): un `exit 0` in QUALSIASI posizione dalla riga del pytest in poi — anche
+    condizionale, es. `if ($LASTEXITCODE -ne 0) { exit 0 }` — oppure `true` concatenato
+    (`; true`) o standalone su riga successiva. In tutti i casi lo step riporterebbe
+    successo coi test rossi. `exit 1` e i reset PRIMA di pytest (es. guard di install)
+    restano legittimi."""
     logical = re.sub(r"[\\`][ \t]*\n[ \t]*", " ", step)
     out, seen_pytest = [], False
     for ln in logical.splitlines():
         if ln.lstrip().startswith("#"):
             continue
         has_pytest = bool(_PYTEST_ANY.search(ln))
-        if has_pytest and ("||" in ln or _EXIT_RESET_SAMELINE.search(ln)):
+        if has_pytest and ("||" in ln or _EXIT_OK_TOKEN.search(ln)
+                           or _EXIT_RESET_SAMELINE.search(ln)):
             out.append(ln.strip())
-        elif seen_pytest and _EXIT_RESET_LINE.match(ln.strip()):
+        elif seen_pytest and (_EXIT_OK_TOKEN.search(ln)
+                              or _EXIT_RESET_LINE.match(ln.strip())):
             out.append(ln.strip())
         seen_pytest = seen_pytest or has_pytest
     return out
@@ -425,6 +443,8 @@ def test_argomenti_dinamici_rilevati():
     assert _dynamic_args("pyinstaller $(cat flags.txt) main.py")
     # SPLATTING PowerShell `@extra` (Codex P2, 2° giro): inietta parametri da variabile
     assert _dynamic_args("pyinstaller --onefile @extra main.py") == ["@extra"]
+    # delayed expansion cmd `!FLAGS!` (Codex P2, 3° giro)
+    assert _dynamic_args("pyinstaller --onefile !FLAGS! main.py") == ["!FLAGS!"]
     assert _dynamic_args("pyinstaller --onefile --paths . main.py") == []
 
 
@@ -446,6 +466,9 @@ def test_build_wrappate_rilevate_e_rifiutate():
         'pwsh -Command "python -m PyInstaller --onefile main.py"',
         'pwsh -Command "& pyinstaller --onefile main.py"',
         'powershell -NoProfile -Command "& pyinstaller --onefile main.py"',
+        # wrapper QUOTATO o con path completo (Codex P2, 3° giro)
+        '& "C:/Windows/System32/cmd.exe" /c pyinstaller --onefile main.py',
+        '"pwsh.exe" -Command "pyinstaller --onefile main.py"',
         "sh -c 'pyinstaller --onefile main.py'",
         "bash -c 'pyinstaller --onefile main.py'",
     ]
@@ -660,6 +683,11 @@ def test_pytest_addolcito_rilevato():
     assert _pytest_fail_open_lines("python -m pytest -q; true")
     assert _pytest_fail_open_lines("python -m pytest -q\nexit 0")
     assert _pytest_fail_open_lines("python -m pytest -q\ntrue")
+    # exit 0 CONDIZIONALE dopo pytest (Codex P2, 3° giro): stessa riga o riga successiva
+    assert _pytest_fail_open_lines(
+        "python -m pytest -q; if ($LASTEXITCODE -ne 0) { exit 0 }")
+    assert _pytest_fail_open_lines(
+        "python -m pytest -q\nif ($LASTEXITCODE -ne 0) { exit 0 }")
     # `exit 1` (fail-closed) e i reset PRIMA di pytest (guard di install) restano legittimi
     assert not _pytest_fail_open_lines(
         "if ($LASTEXITCODE -ne 0) { exit 1 }\npython -m pytest -q")
