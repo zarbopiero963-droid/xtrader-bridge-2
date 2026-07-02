@@ -904,7 +904,11 @@ la risoluzione (senza ID risolti → `INVALID` in ID_ONLY), quindi **fail-closed
 senza resolver la base resta bloccata (nessuna scommessa senza ID). La restrizione a `ID_ONLY` è
 deliberata (Codex): lì il validator ri-controlla `MarketId`/`SelectionId`, mentre in `NAME_ONLY`/`BOTH`
 non li esige → rilassare un ID obbligatorio lascerebbe passare una riga senza ID dichiarata incompleta,
-quindi lì l'ID obbligatorio resta bloccante. Test hard fail-first:
+quindi lì l'ID obbligatorio resta bloccante. Per lo stesso motivo si rilassano **solo** `MarketId`/
+`SelectionId` (ri-controllati), **non** `EventId` (Codex): un `EventId` obbligatorio resta bloccante se
+il resolver non lo riempie. **Anteprima GUI:** `preview_rows` accetta un `id_resolver` opzionale
+inoltrato al motore; senza, l'anteprima è **conservativa/fail-closed** per i parser ID_ONLY che
+dipendono dal dizionario (vedi `docs/custom_parser.md` §5-bis). Test hard fail-first:
 `tests/integration/test_dictionary_id_fallback.py`
 (`test_multi_id_per_riga_ogni_selezione_ottiene_i_suoi_id`,
 `test_multi_id_per_riga_risoluzione_mista_indipendente`,

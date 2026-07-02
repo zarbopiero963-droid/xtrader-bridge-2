@@ -532,11 +532,19 @@ Un **banner ⚠** avvisa quando entrambi gli interruttori sono attivi (righe **s
 cartesiane) o quando un interruttore è acceso senza righe abilitate. **«Prova messaggio»** mostra
 una **tabella «Anteprima righe generate»** con **una riga per ogni riga CSV** che il messaggio
 produrrebbe (Base / Mercato / Selezione), col **verdetto per-riga** (✅ piazzabile · ⛔ + motivo):
-usa lo **stesso motore del runtime** (`build_validated_rows`), quindi non mente. Quando l'output
+usa lo **stesso motore del runtime** (`build_validated_rows`). Quando l'output
 multi-riga è attivo, anche il **verdetto sintetico** in cima si basa sulle **righe generate** (es.
 «✅ Pronto · N righe generate, tutte piazzabili»), non sulla sola riga base — che in un parser
 MultiMarket può mancare di MarketType/SelectionName **di proposito** (li fornisce ogni riga
 mercato), e altrimenti farebbe apparire un falso «Non pronto».
+
+> **Nota sull'arricchimento ID in anteprima (#192, Codex).** L'anteprima usa lo stesso motore ma,
+> se il chiamante non le passa un `id_resolver` (il dizionario Betfair locale), **non** risolve gli
+> ID: un parser `ID_ONLY` che si affida al dizionario per `MarketId`/`SelectionId` (lasciati vuoti)
+> appare **non pronto** in anteprima anche se a runtime — con il dizionario — verrebbe risolto e
+> scritto. È **conservativa e fail-closed** (mai il contrario). `preview_rows` accetta un parametro
+> `id_resolver` opzionale: la GUI può inoltrare il resolver dell'app per rendere l'anteprima
+> equivalente al runtime quando il dizionario è disponibile.
 
 I campi per-riga **non esposti** nella griglia GUI (`min_price`, `max_price`, `points`,
 `start_after`, `end_before` di `MultiRowRule`) sono **preservati** quando si modifica e salva un

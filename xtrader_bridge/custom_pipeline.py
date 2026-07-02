@@ -500,10 +500,13 @@ def build_validated_rows(defn: CustomParserDef, text: str, **kwargs) -> "list[Pi
         # manca, la riga resta INVALID (fail-closed). In NAME_ONLY/BOTH il validator NON esige gli ID,
         # quindi rilassare un ID obbligatorio lascerebbe passare una riga senza ID che il parser aveva
         # dichiarato incompleta → NON si rilassa (resta bloccante).
+        # Solo i campi che il validator ID_ONLY RI-CONTROLLA (`MarketId`/`SelectionId`) — NON
+        # `EventId` (Codex): il validator ID_ONLY non esige `EventId`, quindi rilassarlo lascerebbe
+        # passare una riga con `EventId` obbligatorio vuoto (dichiarato incompleto dal parser).
         _relax_mode = recognition.normalize_mode(kwargs.get("mode", recognition.DEFAULT_MODE))
         if (_relax_mode == recognition.ID_ONLY
                 and kwargs.get("id_resolver") is not None and getattr(defn, "sport", "")):
-            supplied |= {"EventId", "MarketId", "SelectionId"}
+            supplied |= {"MarketId", "SelectionId"}
         if supplied:
             retry_kwargs = dict(row_kwargs)     # `row_kwargs`: senza il `multi_supplied` del chiamante
             retry_kwargs["multi_supplied"] = frozenset(supplied)

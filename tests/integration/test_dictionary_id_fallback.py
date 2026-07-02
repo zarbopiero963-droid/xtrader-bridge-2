@@ -384,3 +384,47 @@ def test_multi_id_per_riga_name_only_id_obbligatori_non_rilassati():
     # ID obbligatori NON rilassati in NAME_ONLY → la base resta NOT_READY → nessuna riga.
     assert len(results) == 1
     assert results[0].status == pipe.NOT_READY and not results[0].placeable
+
+
+def test_multi_id_per_riga_eventid_obbligatorio_resta_bloccante():
+    """Codex (safety): il rilassamento tocca SOLO i campi che il validator ID_ONLY ri-controlla
+    (`MarketId`/`SelectionId`), NON `EventId`. Un parser ID_ONLY che marca `EventId` obbligatorio,
+    con un resolver che riempie market/selection ma NON `EventId`, NON deve produrre righe VALID
+    con `EventId` vuoto (il parser l'aveva dichiarato obbligatorio).
+
+    Fail-first: prima di questo fix `EventId` era nel set rilassato → la base passava e le righe
+    diventavano VALID con `EventId` vuoto (il validator ID_ONLY non ri-controlla `EventId`)."""
+    defn = _multiselection_id_parser()
+    defn.rules.append(cp.FieldRule(target="EventId", required=True))      # obbligatorio, vuoto
+    defn.rules.append(cp.FieldRule(target="MarketId", required=True))
+    defn.rules.append(cp.FieldRule(target="SelectionId", required=True))
+    # resolver che risolve market/selection ma NON EventId per ciascuna selezione.
+    res = _PerSelectionResolver({
+        "Inter": {"MarketId": "mk1", "SelectionId": "sel_inter"},
+        "Milan": {"MarketId": "mk1", "SelectionId": "sel_milan"},
+    })
+    results = pipe.build_validated_rows(defn, _MSG, mode="ID_ONLY", id_resolver=res)
+    assert len(results) == 1                              # EventId non rilassato → base NOT_READY
+    assert results[0].status == pipe.NOT_READY and not results[0].placeable
+    assert "EventId" in results[0].missing_required
+
+
+def test_preview_rows_id_only_multi_con_resolver_equivale_al_runtime():
+    """Codex (#1): passando `id_resolver` a `ParserBuilder.preview_rows`, l'anteprima di un parser
+    ID_ONLY MultiSelection (ID obbligatori vuoti, riempiti dal dizionario) mostra le righe come
+    RUNTIME (piazzabili con ID risolti). Senza resolver l'anteprima è conservativa (una sola riga
+    base non pronta). Verifica che il param sia inoltrato al motore."""
+    from xtrader_bridge import parser_builder as pb
+    b = pb.ParserBuilder(_multiselection_id_parser_gui_required_ids())
+    res = _PerSelectionResolver({
+        "Inter": {"EventId": "ev1", "MarketId": "mk1", "SelectionId": "sel_inter"},
+        "Milan": {"EventId": "ev1", "MarketId": "mk1", "SelectionId": "sel_milan"},
+    })
+    # SENZA resolver: conservativa → base non pronta, nessuna riga multi piazzabile.
+    conservative = b.preview_rows(_MSG, mode="ID_ONLY")
+    assert all(not r.placeable for r in conservative)
+    # CON resolver: equivalente al runtime → 2 righe selezione piazzabili con i loro ID.
+    equiv = b.preview_rows(_MSG, mode="ID_ONLY", id_resolver=res)
+    placeable = [r for r in equiv if r.placeable]
+    assert {r.row["SelectionName"] for r in placeable} == {"Inter", "Milan"}
+    assert {r.row["SelectionId"] for r in placeable} == {"sel_inter", "sel_milan"}
