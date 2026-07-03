@@ -90,6 +90,74 @@ def test_reset_al_cambio_giorno():
     assert lim.remaining(now=day2) == 1
 
 
+def test_salto_orologio_indietro_non_riapre_il_tetto():
+    """F3 #258: un salto dell'orologio all'INDIETRO (skew NTP/regolazione manuale) non deve
+    azzerare il conteggio: `_roll` vedeva un giorno «diverso» valido e resettava → il tetto
+    già consumato si RIAPRIVA (overtrading, fail-open). Ora il reset avviene SOLO se il
+    nuovo giorno è strettamente FUTURO; su salto indietro giorno e conteggio restano.
+
+    Fail-first: sul vecchio codice `allow(now=ieri)` tornava True (cap riaperto)."""
+    lim = sg.DailyLimiter(max_per_day=1)
+    today = 1_000_000.0                           # 1970-01-12 (UTC)
+    assert lim.allow(now=today) is True
+    assert lim.allow(now=today) is False          # tetto consumato oggi
+    yesterday = today - 86_400
+    assert lim.allow(now=yesterday) is False      # salto indietro: NON riapre il tetto
+    assert lim.state()["day"] == "1970-01-12"     # giorno NON retrocesso
+    assert lim.allow(now=today) is False          # tornati a oggi: ancora consumato
+    assert lim.allow(now=today + 86_400) is True  # il giorno DOPO si azzera normalmente
+
+
+def test_giorno_futuro_persistito_resta_fail_closed():
+    """F3 #258 (review GPT-5.5 su #306): uno stato persistito con `day` VALIDO ma nel FUTURO
+    (orologio avanti al salvataggio, poi corretto) non deve riaprire il tetto: il conteggio
+    resta attribuito a quel giorno e il limiter resta (più) restrittivo finché la data reale
+    non lo raggiunge — fail-closed documentato, mai più permissivo."""
+    lim = sg.DailyLimiter(max_per_day=1)
+    today = 1_000_000.0                            # 1970-01-12 (UTC, `_day_key` usa gmtime)
+    assert lim.restore_state({"day": "1970-01-13", "count": 1}) is True   # domani, cap pieno
+    assert lim.allow(now=today) is False           # oggi < _day: NON riapre né retrocede
+    assert lim.state() == {"day": "1970-01-13", "count": 1}
+    assert lim.allow(now=today + 86_400) is False  # raggiunto il giorno: conteggio suo, pieno
+    assert lim.allow(now=today + 2 * 86_400) is True   # il giorno DOPO: reset normale
+
+
+def test_salto_avanti_poi_correzione_indietro_resta_fail_closed():
+    """F3 #258 (review Fable su #306, gemello dello scenario base): orologio AVANTI di
+    giorni (BIOS/VM resume) → il limiter consuma sul giorno futuro; alla CORREZIONE
+    dell'orologio non retrocede né riapre: resta «stuck» fail-closed sul giorno futuro
+    finché la data reale non lo supera. Comportamento documentato in `_roll`: al più
+    più restrittivi, mai più permissivi."""
+    lim = sg.DailyLimiter(max_per_day=1)
+    today = 1_000_000.0                            # 1970-01-12 (UTC)
+    future = today + 5 * 86_400                    # orologio avanti di 5 giorni
+    assert lim.allow(now=future) is True           # consuma il giorno futuro
+    assert lim.allow(now=today) is False           # correzione indietro: NON riapre
+    assert lim.state()["day"] == "1970-01-17"      # giorno non retrocesso (stuck documentato)
+    assert lim.allow(now=future + 86_400) is True  # oltre il giorno futuro: reset normale
+
+
+def test_skew_avanti_oltre_mezzanotte_e_ritorno_non_riapre_il_cap_gia_speso():
+    """#306 Codex P1: con cap 2 GIÀ consumato oggi, uno skew avanti oltre mezzanotte fa un
+    reset legittimo (giorno nuovo) e consuma 1 sul budget di domani; alla correzione
+    dell'orologio a OGGI, il vecchio codice accettava un altro segnale (count=1 < 2 sul
+    budget di domani) → il cap di oggi, già pieno, si riapriva. Ora durante lo skew
+    all'indietro (giorno registrato ≠ oggi) il limiter è fail-closed DURO: nessun
+    segnale e capacità zero finché il tempo reale non raggiunge il giorno registrato.
+
+    Fail-first: sul codice precedente `allow(now=oggi)` dopo il ritorno tornava True."""
+    lim = sg.DailyLimiter(max_per_day=2)
+    today = 1_000_000.0                            # 1970-01-12 (UTC)
+    assert lim.allow(now=today) and lim.allow(now=today)
+    assert lim.allow(now=today) is False           # cap di oggi PIENO
+    assert lim.allow(now=today + 86_400) is True   # skew avanti: giorno nuovo, consuma 1
+    assert lim.allow(now=today) is False           # correzione a oggi: NON riapre
+    assert lim.remaining(now=today) == 0           # capacità zero durante lo skew indietro
+    assert lim.state()["day"] == "1970-01-13"      # giorno registrato non retrocesso
+    assert lim.allow(now=today + 86_400) is True   # raggiunto domani: 1 residuo del SUO budget
+    assert lim.allow(now=today + 86_400) is False  # e poi pieno
+
+
 def test_max_per_day_invalido_rifiutato():
     # bool incluso: max_per_day=True da JSON verrebbe coercito a 1 (cap=1/giorno).
     for bad in (0, -1, 2.5, float("nan"), float("inf"), "abc", True, False):

@@ -129,14 +129,36 @@ class DailyLimiter:
         # `_is_valid_day` valida il CALENDARIO, non solo il formato: una data impossibile
         # (`2026-99-99`) da stato corrotto è UNKNOWN, non un giorno valido → niente reset.
         if _is_valid_day(self._day):
-            self._count = 0
+            # F3 #258: reset SOLO se il nuovo giorno è strettamente FUTURO (le chiavi
+            # YYYY-MM-DD zero-padded ordinano cronologicamente). Un salto dell'orologio
+            # all'INDIETRO (skew NTP, regolazione manuale) non deve riaprire un tetto già
+            # consumato (fail-open): giorno e conteggio restano quelli correnti finché il
+            # tempo reale non raggiunge di nuovo `_day` — al più si è più restrittivi
+            # (anche se `_day` fosse finito nel futuro per un orologio poi corretto), mai
+            # più permissivi.
+            if key > self._day:
+                self._count = 0
+                self._day = key
+            return
         self._day = key
 
     def allow(self, *, now: float = None) -> bool:
-        """True se il segnale è ammesso oggi (e lo conta); False se tetto raggiunto."""
+        """True se il segnale è ammesso oggi (e lo conta); False se tetto raggiunto.
+
+        Durante uno skew dell'orologio all'INDIETRO (giorno registrato ancora nel futuro
+        rispetto a `now`) è sempre False: vedi il commento nel corpo (#306 Codex P1)."""
         now = time.time() if now is None else now
         now = validators.require_finite_now(now)
         self._roll(now)
+        # #306 Codex P1: se DOPO il roll il giorno registrato è ancora diverso da oggi,
+        # siamo in skew all'indietro (orologio corretto dopo un salto avanti oltre
+        # mezzanotte, o stato persistito con giorno futuro). Il conteggio in memoria
+        # appartiene a un ALTRO giorno: scalarlo qui riaprirebbe un cap già consumato —
+        # il salto avanti l'ha appena azzerato (es. cap 2 pieno oggi → skew a domani con
+        # reset+1 → correzione a oggi con count=1 < 2 → segnale accettato, fail-open).
+        # Fail-closed DURO: nessun segnale finché il tempo reale non raggiunge `_day`.
+        if self._day != _day_key(now):
+            return False
         if self._count >= self.max_per_day:
             return False
         self._count += 1
@@ -156,6 +178,9 @@ class DailyLimiter:
         now = time.time() if now is None else now
         now = validators.require_finite_now(now)
         self._roll(now)
+        # Skew all'indietro: capacità ZERO, coerente con `allow` (#306 Codex P1).
+        if self._day != _day_key(now):
+            return 0
         return max(0, self.max_per_day - self._count)
 
     def state(self) -> dict:
