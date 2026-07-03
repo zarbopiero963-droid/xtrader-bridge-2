@@ -248,11 +248,9 @@ def test_save_rollback_parziale_fallito_logga_warning(monkeypatch, caplog):
     incoerente non deve restare invisibile — un WARNING elenca i campi non
     ripristinati (solo i NOMI, mai i valori)."""
     import logging as _logging
-    # app_key scritta OK ma il suo restore (set) fallirà; password fa fallire il save.
-    fake = FailSetKeyring(fail_set={"betfair_password", "betfair_app_key_restore"})
-    # trucco: rendiamo il set di app_key ok al primo giro ma fallace al rollback →
-    # più semplice: fail_set su betfair_username per il save, e il restore di app_key
-    # fallisce perché fail_set lo include. Riscriviamo con un fake mirato:
+
+    # Fake mirato: `betfair_username` fa fallire il SAVE (fail_set), e il RESTORE di
+    # `betfair_app_key` fallisce (la 2ª scrittura di quel campo, cioè il ripristino).
     class RollbackFails(FailSetKeyring):
         def __init__(self):
             super().__init__(fail_set={"betfair_username"})

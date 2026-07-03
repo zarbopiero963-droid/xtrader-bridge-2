@@ -152,7 +152,8 @@ def save_credentials(creds: BetfairCredentials) -> bool:
     if kr is None:
         return False
     # Snapshot dello stato corrente PRIMA di toccare qualcosa: la base del rollback.
-    # Un campo non leggibile → None (trattato come "assente": il rollback lo cancella).
+    # Un campo non leggibile → sentinella `_UNREAD`: al rollback NON viene toccato
+    # (vedi `_restore_field`), per non cancellare un valore preesistente ignoto.
     snapshot = {}
     for field in FIELDS:
         try:
