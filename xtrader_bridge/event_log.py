@@ -9,9 +9,10 @@ Cuore di #11 (l'utente capisce sempre cosa succede), fuori dalla GUI:
 
 Nessuna dipendenza da GUI/Telegram/CSV. La scrittura è best-effort: un problema
 di filesystem non deve mai far crashare il bridge (si perde solo lo storico su
-disco, non il funzionamento). NB: questo modulo scrive ciò che riceve — la
-redazione di eventuali segreti resta responsabilità del chiamante (cfr.
-`settings_validation`, che non mette mai il valore grezzo nei messaggi).
+disco, non il funzionamento). NB: `append_entry` applica `redact_secrets` come
+**difesa in profondità** (audit #259 D4), oltre alla redazione che i chiamanti
+(`App._log`, `settings_validation`) già fanno a monte: nessun caller diretto può
+scrivere un segreto in chiaro nel log persistente.
 """
 
 import functools
@@ -244,9 +245,15 @@ def log_path(base: str = None, when: datetime = None) -> str:
 def append_entry(message: str, level=DEFAULT_LEVEL, *, base: str = None,
                  when: datetime = None) -> str:
     """Appende una riga formattata al log del giorno (best-effort, non solleva).
-    Ritorna la riga (anche se la scrittura su disco fallisce)."""
+    Ritorna la riga (anche se la scrittura su disco fallisce).
+
+    Difesa in profondità (audit #259 D4): il messaggio è ripassato da
+    `redact_secrets` **anche qui**, non solo nel chiamante. `App._log` già redige a
+    monte e la ri-redazione è idempotente (un token già `[REDACTED_TOKEN]` non
+    contiene più il segreto), ma così un eventuale caller diretto di `append_entry`
+    non può scrivere in chiaro un token nel log persistente."""
     when = when or datetime.now()
-    line = format_entry(message, level, when)
+    line = format_entry(redact_secrets(message), level, when)
     try:
         os.makedirs(log_dir(base), exist_ok=True)
         with open(log_path(base, when), "a", encoding="utf-8") as f:

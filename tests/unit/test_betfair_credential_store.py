@@ -144,6 +144,67 @@ def test_save_con_clear_fallito_ritorna_false(monkeypatch):
     assert fake.store.get((cs.SERVICE, "betfair_password")) == "PasswordSegreta!"
 
 
+class FailSetKeyring(FakeKeyring):
+    """Come FakeKeyring ma `set_password` solleva per gli account in `fail_set`
+    (simula un errore reale del backend a metà salvataggio)."""
+
+    def __init__(self, fail_set=None, **kw):
+        super().__init__(**kw)
+        self.fail_set = set(fail_set or ())
+
+    def set_password(self, service, account, password):
+        if account in self.fail_set:
+            raise RuntimeError("set fallita (backend, simulato)")
+        super().set_password(service, account, password)
+
+
+def test_save_rollback_su_scrittura_fallita_ripristina_lo_stato(monkeypatch):
+    """Audit #259 D2: se una scrittura fallisce a METÀ, i campi già scritti devono
+    tornare allo stato PRECEDENTE — niente keyring incoerente (App Key nuova +
+    username/password vecchi). Prima il save proseguiva lasciando lo stato misto.
+
+    Fail-first: sul vecchio codice `app_key` restava col valore NUOVO."""
+    # Stato iniziale coerente (credenziali vecchie).
+    fake = FailSetKeyring(fail_set={"betfair_password"})
+    fake.store = {
+        (cs.SERVICE, "betfair_app_key"): "OLD_APP",
+        (cs.SERVICE, "betfair_username"): "OLD_USER",
+        (cs.SERVICE, "betfair_password"): "OLD_PASS",
+        (cs.SERVICE, "betfair_cert_path"): "/old/cert.crt",
+        (cs.SERVICE, "betfair_key_path"): "/old/cert.key",
+    }
+    monkeypatch.setattr(token_store, "_keyring", lambda: fake)
+    nuove = cs.BetfairCredentials(
+        app_key="NEW_APP", username="NEW_USER", password="NEW_PASS",
+        cert_path="/new/cert.crt", key_path="/new/cert.key")
+    # app_key e username vengono scritti (NEW), poi password FALLISCE → rollback.
+    assert cs.save_credentials(nuove) is False
+    # Nessuno stato misto: i campi già toccati sono tornati ai valori VECCHI.
+    assert fake.store[(cs.SERVICE, "betfair_app_key")] == "OLD_APP"
+    assert fake.store[(cs.SERVICE, "betfair_username")] == "OLD_USER"
+    assert fake.store[(cs.SERVICE, "betfair_password")] == "OLD_PASS"
+
+
+def test_save_rollback_cancella_campo_prima_assente(monkeypatch):
+    """D2: se il campo toccato prima del fallimento NON esisteva, il rollback lo
+    CANCELLA (non lascia il valore nuovo orfano)."""
+    fake = FailSetKeyring(fail_set={"betfair_username"})
+    # keyring vuoto: nessun campo pre-esistente.
+    monkeypatch.setattr(token_store, "_keyring", lambda: fake)
+    nuove = cs.BetfairCredentials(app_key="NEW_APP", username="NEW_USER")
+    assert cs.save_credentials(nuove) is False
+    # app_key era assente e scritto come NEW → il rollback lo rimuove.
+    assert fake.store.get((cs.SERVICE, "betfair_app_key")) is None
+
+
+def test_save_riuscito_resta_true_e_atomico(monkeypatch):
+    """Contro-campo D2: senza fallimenti il save scrive tutto e ritorna True."""
+    fake = FailSetKeyring()                                # nessun fail
+    monkeypatch.setattr(token_store, "_keyring", lambda: fake)
+    assert cs.save_credentials(_sample()) is True
+    assert cs.load_credentials() == _sample()
+
+
 def test_delete_di_voce_assente_e_successo(monkeypatch):
     # Cancellare quando non c'è nulla NON è un errore: ritorna True (niente da fare).
     fake = FakeKeyring()

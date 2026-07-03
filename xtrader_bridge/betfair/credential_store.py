@@ -106,17 +106,45 @@ def _kr():
     return token_store._keyring()
 
 
+def _restore_field(kr, acct, previous) -> None:
+    """Rollback best-effort di un singolo campo al valore `previous` catturato prima
+    del save (audit #259 D2): se c'era un valore lo riscrive, se era assente lo
+    cancella. Non solleva mai: il rollback non deve peggiorare uno stato già rotto."""
+    try:
+        if previous in (None, ""):
+            _delete_one(kr, acct)
+        else:
+            kr.set_password(SERVICE, acct, previous)
+    except Exception:
+        pass
+
+
 def save_credentials(creds: BetfairCredentials) -> bool:
     """Salva le credenziali nel keyring. Campi non vuoti vengono scritti, campi
     vuoti vengono rimossi (così "svuotare un campo" lo cancella davvero).
 
     Ritorna `True` se il backend è disponibile e tutte le operazioni riescono,
     `False` altrimenti (il chiamante può avvisare l'utente). I valori segreti
-    salvati sono registrati per la redazione dei log."""
+    salvati sono registrati per la redazione dei log.
+
+    **Atomico best-effort (audit #259 D2):** prima di modificare si cattura lo stato
+    corrente di ogni campo; se una scrittura/cancellazione fallisce a metà, i campi
+    già toccati vengono **ripristinati** allo stato iniziale, così il keyring non
+    resta in un mix incoerente old/new (es. App Key nuova + username vecchio). In
+    caso di rollback la funzione ritorna comunque `False`: il chiamante avvisa e non
+    crede che il salvataggio sia riuscito."""
     kr = _kr()
     if kr is None:
         return False
-    ok = True
+    # Snapshot dello stato corrente PRIMA di toccare qualcosa: la base del rollback.
+    # Un campo non leggibile → None (trattato come "assente": il rollback lo cancella).
+    snapshot = {}
+    for field in FIELDS:
+        try:
+            snapshot[field] = kr.get_password(SERVICE, _account(field))
+        except Exception:
+            snapshot[field] = None
+    applied = []                       # campi effettivamente modificati (per il rollback)
     for field in FIELDS:
         raw = getattr(creds, field) or ""
         acct = _account(field)
@@ -126,17 +154,25 @@ def save_credentials(creds: BetfairCredentials) -> bool:
         if raw.strip():
             try:
                 kr.set_password(SERVICE, acct, raw)
+                applied.append(field)
                 if field in SECRET_FIELDS:
                     log_safety.register_secret(raw)
             except Exception:
-                ok = False
+                # Scrittura fallita a metà: annulla i campi già toccati e riporta lo
+                # stato iniziale, poi segnala il fallimento (niente stato misto).
+                for done in applied:
+                    _restore_field(kr, _account(done), snapshot[done])
+                return False
         else:
             # Svuotare un campo deve cancellarlo davvero: una cancellazione fallita
-            # (vecchio segreto ancora presente) è un FALLIMENTO del save, non un
-            # successo silenzioso (Codex) — altrimenti il segreto resterebbe.
-            if not _delete_one(kr, acct):
-                ok = False
-    return ok
+            # (vecchio segreto ancora presente) è un FALLIMENTO del save (Codex).
+            if _delete_one(kr, acct):
+                applied.append(field)
+            else:
+                for done in applied:
+                    _restore_field(kr, _account(done), snapshot[done])
+                return False
+    return True
 
 
 def load_credentials() -> BetfairCredentials:

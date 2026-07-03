@@ -56,3 +56,33 @@ def test_input_non_stringa_non_e_operazione_vietata():
     for bad in (None, 123, object()):
         assert safety.is_forbidden_betting_op(bad) is False
         assert safety.assert_read_only(bad) is bad
+
+
+def test_blocco_forma_jsonrpc_qualificata():
+    """Audit #259 D1: il guard non deve essere aggirabile passando il metodo nella
+    forma JSON-RPC completa dell'API Betting. Prima `_normalize` confrontava solo la
+    stringa INTERA: `SportsAPING/v1.0/placeOrders` non era tra i nomi corti vietati e
+    una scommessa sarebbe potuta partire. Ora si estrae anche il segmento finale.
+
+    Fail-first: sul vecchio codice queste forme qualificate NON sollevavano."""
+    for op in ("SportsAPING/v1.0/placeOrders",
+               "SportsAPING/v1.0/cancelOrders",
+               " sportsaping/v1.0/PLACEORDERS ",
+               "SportsAPING\\v1.0\\replaceOrders",     # separatore backslash
+               "SportsAPING.v1.0.updateOrders"):       # separatore punto
+        assert safety.is_forbidden_betting_op(op) is True, op
+        with pytest.raises(safety.ReadOnlyViolation):
+            safety.assert_read_only(op)
+
+
+def test_letture_qualificate_restano_consentite():
+    """Contro-campo D1: le letture nella stessa forma qualificata NON devono essere
+    bloccate (il segmento finale non è un'operazione di scommessa)."""
+    for op in ("SportsAPING/v1.0/listMarketCatalogue",
+               "SportsAPING/v1.0/listEventTypes",
+               "SportsAPING/v1.0/navigationMenu"):
+        assert safety.is_forbidden_betting_op(op) is False, op
+        assert safety.assert_read_only(op) == op
+    # Un nome che CONTIENE un'operazione vietata come sottostringa non è quel metodo:
+    # il confronto è sul segmento esatto, non su substring (nessun falso positivo).
+    assert safety.is_forbidden_betting_op("listPlaceOrdersReport") is False

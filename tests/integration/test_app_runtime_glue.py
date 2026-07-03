@@ -1606,3 +1606,14 @@ def test_same_csv_path_normalizzazione(monkeypatch):
     # identità, quindi si simula la variante Windows monkeypatchandola con lower().
     monkeypatch.setattr(app_mod.os.path, "normcase", lambda p: str(p).lower())
     assert same("C:/XTrader/OUT.CSV", "c:/xtrader/out.csv") is True
+
+
+def test_init_installa_redazione_log_globale_betfair(app_mod):
+    """Guardia sul wiring (audit #259 D3): `App.__init__` istanzia Tk (non headless),
+    ma il suo contributo nuovo è chiamare `install_global_log_redaction` all'avvio —
+    prima definita ma mai invocata in produzione, quindi un log Betfair di terze
+    parti/futuro poteva scrivere header/sessionToken in chiaro. Il comportamento del
+    filtro è coperto da test_betfair_log_safety; qui si blinda che l'avvio lo installi."""
+    import inspect
+    src = inspect.getsource(app_mod.App.__init__)
+    assert "install_global_log_redaction" in src
