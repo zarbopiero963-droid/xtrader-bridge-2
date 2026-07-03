@@ -167,17 +167,26 @@ def test_permessi_minimi_e_niente_scritture():
         text = _read(name)
         assert "permissions:\n  contents: read" in text, f"{name}: manca contents: read"
         assert "contents: write" not in text, f"{name}: contents: write vietato"
-        assert "pull-requests: write" not in text, f"{name}: pull-requests: write vietato"
         assert "actions: write" not in text, f"{name}: actions: write vietato"
         assert not re.search(r"(?m)^\s*pull_request_target:", text), (
             f"{name}: trigger pull_request_target vietato"
         )
 
         if meta["kind"] == "audit":
+            # Gli audit sono read-only puri: solo contents: read, nessuna write.
             assert "issues: write" not in text, f"{name}: audit deve restare senza issues: write"
+            assert "pull-requests: write" not in text, (
+                f"{name}: audit deve restare senza pull-requests: write"
+            )
         else:
-            assert "issues: write" in text, f"{name}: manca issues: write per il commento"
-            assert "pull-requests: read" in text, f"{name}: manca pull-requests: read"
+            # Per commentare SU una PR il GITHUB_TOKEN richiede pull-requests: write
+            # (l'endpoint POST /issues/{n}/comments su un pull request è gated da
+            # "Pull requests" write, non basta "Issues" write); issues: write serve
+            # per l'add/remove della label manual-review-required.
+            assert "issues: write" in text, f"{name}: manca issues: write per la label"
+            assert "pull-requests: write" in text, (
+                f"{name}: manca pull-requests: write per commentare la PR"
+            )
 
 
 def test_audit_solo_manuali_workflow_dispatch():

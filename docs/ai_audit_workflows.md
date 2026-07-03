@@ -50,13 +50,24 @@ Per far ripartire una review finale già eseguita, rimuovi e riaggiungi la label
 (GitHub non emette un nuovo evento `labeled` se la label è già presente).
 
 > ⚙️ **Permesso di scrittura richiesto per pubblicare i commenti.** Perché i
-> reviewer possano commentare la PR e aggiungere la label, il repository deve
-> avere *Settings → Actions → General → Workflow permissions* impostato su
-> **«Read and write permissions»**. Con il default read-only il `GITHUB_TOKEN`
-> resta in sola lettura anche col blocco `permissions: issues: write`, e la
-> pubblicazione del commento riceve un `403`. In quel caso i workflow **non
-> falliscono** la PR (degradano a warning nei log), ma il commento non compare
-> finché il permesso non viene abilitato.
+> reviewer possano commentare la PR e aggiungere la label servono **due** cose:
+> 1. i workflow PR review devono dichiarare `pull-requests: write` (per
+>    commentare *su una PR* l'endpoint `POST /issues/{n}/comments` è gated dal
+>    permesso **Pull requests** write, non basta **Issues** write) e
+>    `issues: write` (per aggiungere/togliere la label `manual-review-required`);
+> 2. il repository deve avere *Settings → Actions → General → Workflow
+>    permissions* impostato su **«Read and write permissions»**: il blocco
+>    `permissions:` del workflow non può **mai superare** questo tetto, quindi col
+>    default read-only il `GITHUB_TOKEN` resta in sola lettura anche se il
+>    workflow chiede `pull-requests: write`, e sia il commento sia la label
+>    ricevono un `403 Resource not accessible by integration`.
+>
+> Diagnosi rapida dai log: se **solo** il commento va in `403` ma la label passa,
+> manca `pull-requests: write` nel workflow; se va in `403` **anche** l'add-label
+> (che richiede solo `issues: write`, già dichiarato), allora il tetto del repo è
+> ancora read-only (o una policy di organizzazione lo forza). In ogni caso i
+> workflow **non falliscono** la PR (degradano a warning nei log), ma il commento
+> non compare finché i permessi non sono corretti.
 
 ## Novità: review sul range del push (non sul diff cumulativo)
 
@@ -74,8 +85,10 @@ mostra scope, range `base...head`, numero di commit e una stima del costo token.
 ## Postura di sicurezza (invarianti difese da `tests/safety/test_ai_audit_workflows.py`)
 
 - **Permessi minimi**: tutti hanno `contents: read`; i PR review aggiungono solo
-  `pull-requests: read` + `issues: write`. Nessuno ha `contents: write`,
-  `pull-requests: write` o `actions: write`.
+  `pull-requests: write` (commento sulla PR) + `issues: write` (label
+  `manual-review-required`). Nessuno ha `contents: write` o `actions: write`; gli
+  audit restano `contents: read` puri, senza `pull-requests: write` né
+  `issues: write`.
 - **Niente `pull_request_target`**, niente PR draft, niente PR da fork esterni.
 - **PR review diff-only**: il diff viene letto dalla GitHub API — **nessun
   checkout e nessuna esecuzione del codice della PR**.
