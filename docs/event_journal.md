@@ -78,3 +78,35 @@ univoco, quindi l'ordine reale è ricostruibile ordinando per `ts` anche se due 
 finissero sfuori ordine sul file. Test: `tests/unit/test_event_journal.py` (modulo + retention),
 `tests/integration/test_event_journal_wiring.py` (wiring sui metodi reali di `App`) e
 `tests/safety/test_csv_atomic.py` (`has_active_row`).
+
+## Consultare il diario — CLI `journal_view` (#236)
+Per leggere il ledger senza aprire il `.jsonl` a mano c'è una CLI **read-only**
+(`xtrader_bridge/journal_view.py`): non scrive né modifica **mai** il diario, riusa
+`event_journal.read_events` (tollerante alle righe troncate) e **non de-redige nulla**
+(mostra i valori esattamente come sono sul file, già redatti).
+
+```bash
+python -m xtrader_bridge.journal_view                      # tutti gli eventi, ordinati per ts
+python -m xtrader_bridge.journal_view --last 20            # solo gli ultimi 20
+python -m xtrader_bridge.journal_view --type CSV_WRITTEN --type CSV_CLEARED   # per tipo (ripetibile)
+python -m xtrader_bridge.journal_view --since 1751000000 --until 1751100000   # intervallo epoch
+python -m xtrader_bridge.journal_view --json               # output JSON (per script/pipe)
+python -m xtrader_bridge.journal_view --path /altro/journal.jsonl            # file alternativo
+```
+
+| Opzione | Effetto |
+|---|---|
+| `--path PATH` | Ledger da leggere (default: `runtime_state.event_journal_path(config_dir())`) |
+| `--type TYPE` | Filtra per tipo evento; **ripetibile** (unione). Tipi: gli 11 di `EVENT_TYPES` |
+| `--last N` | Solo gli ultimi N eventi dopo l'ordinamento per `ts` (`--last 0` = nessuno) |
+| `--since TS` / `--until TS` | Intervallo epoch **inclusivo** su `ts` |
+| `--json` | Output JSON indentato invece della tabella `ts leggibile · TYPE · data` |
+
+Gli eventi sono sempre **ordinati per `ts`** (ordine forense reale, ricostruito anche se
+due append concorrenti finissero fuori ordine sul file). Un file assente o illeggibile
+produce output vuoto, non un errore. La logica pura (`filter_events`/`format_table`/
+`format_json`/`render`) è separata dall'entrypoint ed è coperta da
+`tests/unit/test_journal_view.py` (ordinamento, filtri, riga malformata saltata, file
+assente, non-de-redazione + file non toccato, entrypoint `main`).
+
+> La **scheda GUI «📒 Diario»** che riusa questa stessa logica è tracciata a parte (issue #236).
