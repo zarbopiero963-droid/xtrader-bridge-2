@@ -709,9 +709,18 @@ def test_normalize_finding_redige_tutti_i_campi_del_modello(tmp_path, monkeypatc
             "evidence": f"ev {secret}",
             "impact": f"impact {secret}",
             "recommendation": f"fix {secret}",
+            "confidence": f"medium {secret}",  # confidence libero col segreto
         }, "main.py", 1, 10)
         for field in ("title", "evidence", "impact", "recommendation"):
             assert secret not in f[field], f"{name}: campo '{field}' del modello non redatto"
+        # confidence = enum con allowlist: un valore fuori lista (o col segreto)
+        # degrada a "medium", quindi il segreto non può finire nell'artifact.
+        assert f["confidence"] == "medium", f"{name}: confidence non ridotto all'allowlist"
+        assert secret not in f["confidence"], f"{name}: segreto trapelato in confidence"
+        # un valore valido resta
+        assert ns["normalize_finding"](
+            {"severity": "low", "confidence": "HIGH "}, "main.py", 1, 10
+        )["confidence"] == "high", f"{name}: confidence valido non preservato"
 
 
 def test_normalize_finding_strip_severity(tmp_path, monkeypatch):

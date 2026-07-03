@@ -141,10 +141,12 @@ mostra scope, range `base...head`, numero di commit e una stima del costo token.
   un finding critico (col path già redatto), così `fail_on_critical` scatta anche
   per un token path-embedded. Inoltre l'**output del modello** dei PR review passa
   da `redact()` prima della pubblicazione: se il modello ripetesse un valore
-  segreto non finirebbe in chiaro nel commento. Negli audit vale lo stesso per
-  **tutti** i campi testuali dei finding del modello (`title`, `evidence`,
-  `impact`, `recommendation`), redatti prima di finire nell'artifact e nel prompt
-  di summary. I nomi `.env`/`.env.*` e i file
+  segreto non finirebbe in chiaro nel commento. Negli audit i campi testuali
+  liberi dei finding del modello (`title`, `evidence`, `impact`, `recommendation`)
+  sono **redatti** prima di finire nell'artifact e nel prompt di summary, mentre i
+  campi enumerati (`severity`, `confidence`) sono validati con **allowlist**
+  (fuori lista → default `info`/`medium`), così nemmeno un valore libero del
+  modello può iniettare dati sensibili. I nomi `.env`/`.env.*` e i file
   chiave (`*.pem`/`*.key`/`id_rsa`…) sono trattati come **area critica**
   (`manual-review-required`) anche se binari/senza patch.
 - **Prompt-injection hardening**: i prompt dichiarano diff/file come non
