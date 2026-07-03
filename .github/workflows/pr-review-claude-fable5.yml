@@ -328,7 +328,9 @@ jobs:
                       parts = []
                       for item in body.get("content", []):
                           if item.get("type") == "text":
-                              parts.append(item.get("text", ""))
+                              # `or ""`: un blocco con "text": null darebbe None e
+                              # farebbe fallire "\n".join(parts) (TypeError).
+                              parts.append(item.get("text") or "")
 
                       text = "\n".join(parts).strip()
                       if not text:

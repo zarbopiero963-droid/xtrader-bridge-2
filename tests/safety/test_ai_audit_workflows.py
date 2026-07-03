@@ -315,6 +315,11 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
             assert 'msg.get("content") or ""' in text, (
                 f"{name}: content=None non normalizzato → rischio di pubblicare 'None'"
             )
+            # blocco con "text": null → None in "\n".join(...) = TypeError su una
+            # risposta valida (edge case GPT-5.5): il join va reso None-safe.
+            assert re.search(r'str\(part\.get\("text"\)\s*or\s*""\)', text), (
+                f"{name}: il join dei blocchi non è protetto da text=None (TypeError)"
+            )
 
         # Un reviewer reasoning (OpenAI gpt-5.5) con budget minuscolo produce 0
         # testo: il budget di output deve avere un minimo ragionevole.

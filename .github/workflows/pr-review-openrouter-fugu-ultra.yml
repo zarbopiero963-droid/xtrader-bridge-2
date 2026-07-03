@@ -334,7 +334,9 @@ jobs:
                       # non scatterebbe nemmeno con finish_reason=length (review GPT-5.5).
                       content = msg.get("content") or ""
                       if isinstance(content, list):
-                          content = "\n".join(part.get("text", "") for part in content if isinstance(part, dict))
+                          # str(... or ""): un blocco con "text": null darebbe None e
+                          # farebbe fallire "\n".join (TypeError) su una risposta valida.
+                          content = "\n".join(str(part.get("text") or "") for part in content if isinstance(part, dict))
 
                       text = str(content).strip()
                       if not text:
