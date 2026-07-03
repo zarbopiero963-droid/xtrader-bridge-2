@@ -2429,6 +2429,23 @@ class App(ctk.CTk):
         alla **scadenza più vicina** della coda (così un segnale più vecchio non
         resta oltre il suo timeout quando ne arrivano di nuovi); con un `delay`
         esplicito lo usa come ritardo (retry dopo un errore di scrittura)."""
+        # F1 #258 (review Fable): gate anche QUI, non solo nel tick. Un CALLER stantio
+        # (worker di una sessione superata de-schedulato prima di arrivare qui, ripreso
+        # dopo STOP→START) non deve CANCELLARE il timer legittimo della nuova sessione:
+        # il suo tick verrebbe neutralizzato dal gate epoch+path ma senza riprogrammarsi
+        # → la nuova sessione resterebbe senza timer di scadenza. Se il path non è quello
+        # attivo si esce SENZA toccare il timer esistente. Confronto di stringhe senza
+        # normalizzazione: caller e sessione usano la STESSA stringa `cfg["csv_path"]`
+        # catturata a START (stessa fonte, mai rappresentazioni alternative del path).
+        # A bridge fermo (`_active_csv_path` None) non si arma: il tick sarebbe comunque
+        # neutralizzato dal gate `_running`.
+        if path != self._active_csv_path:
+            return
+        # Epoch della sessione all'INGRESSO (review GPT-5.5 round-4): uno STOP→START verso
+        # la STESSA path tra qui e il lock passerebbe il solo gate path, ma il `delay`
+        # (calcolato sotto, dalla coda di allora) apparterrebbe alla sessione vecchia.
+        # L'epoch d'ingresso viene rivalidato sotto `_timer_lock`.
+        entry_epoch = self._listener_epoch
         if delay is None:
             with self._queue_lock:
                 nxt = self._queue.next_expiry() if self._queue is not None else None
@@ -2442,9 +2459,18 @@ class App(ctk.CTk):
         # creazione + assegnazione + start in un'unica sezione critica, così due caller concorrenti
         # non lasciano un secondo Timer avviato ma non referenziato.
         with self._timer_lock:
+            # F1 #258 (review GPT-5.5/Fable, TOCTOU): ricontrollo AUTORITATIVO di path
+            # ED epoch DENTRO il lock del replace — tra il gate d'ingresso e qui può
+            # completarsi uno STOP→START (anche verso la STESSA path: il solo path non
+            # identifica la sessione, e il `delay` è stato calcolato dalla coda di
+            # allora). Se path o epoch non sono più quelli d'ingresso, il worker è
+            # stantio: si esce SENZA toccare il timer legittimo della nuova sessione.
+            if path != self._active_csv_path or entry_epoch != self._listener_epoch:
+                return
+            epoch = entry_epoch
             if self._expire_timer is not None:
                 self._expire_timer.cancel()
-            timer = threading.Timer(delay, lambda: self._expire_tick(path))
+            timer = threading.Timer(delay, lambda: self._expire_tick(path, epoch))
             timer.daemon = True
             self._expire_timer = timer
             timer.start()
@@ -2458,11 +2484,14 @@ class App(ctk.CTk):
                 self._expire_timer.cancel()
                 self._expire_timer = None
 
-    def _expire_tick(self, path: str) -> None:
+    def _expire_tick(self, path: str, epoch: int | None = None) -> None:
         """Rimuove i segnali scaduti e riscrive le righe rimaste (o svuota il CSV
         se non ne resta nessuno). La scadenza è basata sul tempo della coda: non
         cancella mai un segnale ancora valido. Si riprogramma alla scadenza più
-        vicina finché la coda non è vuota."""
+        vicina finché la coda non è vuota.
+
+        `epoch` (F1 #258): epoch della sessione che ha ARMATO il tick (`None` =
+        chiamanti legacy/test: gate solo su `_running`, come `_epoch_current`)."""
         now = time.monotonic()   # stesso clock monotòno della coda/_process (audit A3)
         # Lock tenuto ATTRAVERSO la scrittura (monotòno con _process).
         write_error = None
@@ -2472,6 +2501,16 @@ class App(ctk.CTk):
             # Stop in corso: un tick già schedulato non deve riscrivere il CSV dopo
             # che lo STOP l'ha svuotato e azzerato la coda (Codex P2).
             if not self._running:
+                return
+            # F1 #258: gate epoch+path sotto LO STESSO lock della scrittura (come
+            # `_process`/`_process_confirmation`). Un tick stantio sopravvissuto a uno
+            # STOP→START (`Timer.cancel()` no-op a worker già avviato) troverebbe
+            # `_running=True` della nuova sessione e scriverebbe la CODA NUOVA sul
+            # PATH VECCHIO, rimpiazzando poi il timer legittimo della nuova sessione
+            # → segnale stantio mai ripulito dal CSV che XTrader legge davvero.
+            if not self._epoch_current(epoch):
+                return
+            if path != self._active_csv_path:
                 return
             expired = self._queue.expire(now=now)
             rows = self._queue.active_rows()

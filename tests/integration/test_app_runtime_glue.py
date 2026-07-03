@@ -533,6 +533,167 @@ def test_expire_tick_write_failure_schedula_retry(make_app, app_mod, monkeypatch
     assert any("scadenza" in m.lower() for m in a.logs)
 
 
+def test_expire_tick_stantio_di_sessione_superata_non_scrive_su_vecchio_path(
+        make_app, app_mod, monkeypatch, tmp_path):
+    """F1 #258 (CONFIRMED): un tick armato dalla sessione A (epoch 1, pathA) il cui worker
+    sopravvive a STOP→START (`Timer.cancel()` è no-op a worker già avviato) trovava
+    `_running=True` della sessione B e procedeva: scriveva la CODA DELLA SESSIONE B sul
+    PATH DELLA SESSIONE A e riprogrammava la scadenza su pathA, rimpiazzando il timer
+    legittimo di pathB → segnale stantio mai ripulito dal CSV che XTrader legge.
+    Ora il tick porta epoch+path della sessione che l'ha armato e, sotto `_queue_lock`,
+    esce se l'epoch è superato o il path non è più quello attivo (come `_process`/
+    `_process_confirmation`/`_manual_clear`).
+
+    Fail-first: sul vecchio codice il tick stantio rimuoveva la riga scaduta della coda B,
+    scriveva le righe di B su pathA e riprogrammava (pathA, None)."""
+    from xtrader_bridge import csv_writer
+    pathA = str(tmp_path / "vecchio.csv")          # CSV della sessione A (superata)
+    pathB = str(tmp_path / "nuovo.csv")            # CSV attivo della sessione B
+    csv_writer.init_csv(pathA)                     # pathA ripulito dallo STOP di A
+    # Coda della sessione B: una riga VALIDA e una già SCADUTA (il tick stantio la
+    # rimuoverebbe e scriverebbe il resto su pathA).
+    q = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
+    q.add(_row("Inter v Milan"), now=1000)                     # valida fino a 1120
+    q.add(_row("Roma v Lazio"), now=800, timeout=10)           # scaduta a 810
+    csv_writer.write_rows(q.active_rows(1005.0), pathB)
+    a = make_app(csv_path=pathB, queue=q)
+    a._listener_epoch = 2                          # la sessione B ha epoch 2
+    monkeypatch.setattr(app_mod.time, "monotonic", lambda: 1005.0)
+
+    # Tick STANTIO della sessione A: epoch=1 (superato), path=pathA (non più attivo).
+    app_mod.App._expire_tick(a, pathA, epoch=1)
+
+    assert _events_in_csv(pathA) == []             # pathA NON riscritto con la coda di B
+    # Coda di B INTATTA: il tick stantio non deve nemmeno espellere la riga scaduta
+    # (l'expire è compito del tick legittimo della sessione B).
+    assert [r["EventName"] for r in q.active_rows()] == ["Inter v Milan", "Roma v Lazio"]
+    assert a.expiry_calls == []                    # nessuna riprogrammazione su pathA
+    # Controcampo: il tick LEGITTIMO della sessione B (epoch e path correnti) funziona.
+    app_mod.App._expire_tick(a, pathB, epoch=2)
+    assert _events_in_csv(pathB) == ["Inter v Milan"]   # scaduta rimossa dal CSV attivo
+    assert [r["EventName"] for r in q.active_rows()] == ["Inter v Milan"]
+
+
+def test_expire_tick_path_non_attivo_scartato_anche_con_epoch_corrente(
+        make_app, app_mod, monkeypatch, tmp_path):
+    """F1 #258 (gate PATH isolato, review GLM su #307): un tick con epoch CORRENTE ma path
+    diverso da quello attivo della sessione va comunque scartato — il gate path non deve
+    dipendere dal gate epoch (rami indipendenti, entrambi coperti). I chiamanti legacy
+    con `epoch=None` (test esistenti) passano il gate epoch via `_epoch_current(None)` ma
+    restano soggetti a questo gate path."""
+    from xtrader_bridge import csv_writer
+    pathA = str(tmp_path / "vecchio.csv")
+    pathB = str(tmp_path / "nuovo.csv")
+    csv_writer.init_csv(pathA)
+    q = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
+    q.add(_row("Inter v Milan"), now=1000)
+    q.add(_row("Roma v Lazio"), now=800, timeout=10)           # scaduta a 810
+    csv_writer.write_rows(q.active_rows(1005.0), pathB)
+    a = make_app(csv_path=pathB, queue=q)
+    a._listener_epoch = 2
+    monkeypatch.setattr(app_mod.time, "monotonic", lambda: 1005.0)
+
+    app_mod.App._expire_tick(a, pathA, epoch=2)    # epoch CORRENTE, path NON attivo
+
+    assert _events_in_csv(pathA) == []             # pathA intatto
+    assert [r["EventName"] for r in q.active_rows()] == ["Inter v Milan", "Roma v Lazio"]
+    assert a.expiry_calls == []                    # nessuna riprogrammazione
+
+
+def test_schedule_expiry_stantia_non_cancella_il_timer_della_nuova_sessione(
+        make_app, app_mod, tmp_path):
+    """F1 #258 (review Fable su #307, race residua): un worker della sessione A
+    de-schedulato PRIMA di chiamare `_schedule_expiry(pathA)` che riprende dopo
+    STOP→START non deve CANCELLARE il timer legittimo della sessione B: il suo tick
+    verrebbe neutralizzato dal gate epoch+path ma senza riprogrammarsi → la sessione B
+    resterebbe SENZA timer di scadenza (segnale scaduto mai ripulito dal CSV attivo).
+    Ora `_schedule_expiry` esce senza toccare il timer se `path` non è quello attivo.
+
+    Fail-first: prima la chiamata stantia rimpiazzava il timer di B con uno su pathA."""
+    pathA = str(tmp_path / "vecchio.csv")
+    pathB = str(tmp_path / "nuovo.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
+    a = make_app(csv_path=pathB, queue=q, capture_schedule=False)   # scheduler REALE
+    a._listener_epoch = 2
+    try:
+        # Timer legittimo della sessione B.
+        app_mod.App._schedule_expiry(a, pathB, delay=60)
+        timer_b = a._expire_timer
+        assert timer_b is not None
+        # Chiamata STANTIA di un worker della sessione A (path non più attivo).
+        app_mod.App._schedule_expiry(a, pathA, delay=60)
+        assert a._expire_timer is timer_b      # timer B intatto, NON cancellato/rimpiazzato
+    finally:
+        a._cancel_expiry_timer()               # niente Timer vivi dopo il test
+
+
+def test_schedule_expiry_toctou_start_durante_la_chiamata_non_cancella_il_timer_nuovo(
+        make_app, app_mod, monkeypatch, tmp_path):
+    """F1 #258 (review GPT-5.5 su #307, TOCTOU residuo): se uno STOP→START verso la
+    sessione C si completa TRA il gate d'ingresso di `_schedule_expiry` (path ancora
+    attivo al check) e il replace sotto `_timer_lock`, il worker stantio cancellava
+    comunque il timer legittimo di C. Ora il ricontrollo AUTORITATIVO del path avviene
+    dentro `_timer_lock`. L'interleaving è simulato in modo deterministico agganciando
+    la transizione di sessione a `delay_until` (eseguita tra gate d'ingresso e lock).
+
+    Fail-first: prima il timer di C veniva cancellato e rimpiazzato da uno su pathB."""
+    import threading as _t
+    pathB = str(tmp_path / "B.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
+    q.add(_row("Inter v Milan"), now=1000)         # next_expiry non-None → delay=None percorribile
+    a = make_app(csv_path=pathB, queue=q, capture_schedule=False)   # scheduler REALE
+    timer_c = _t.Timer(60, lambda: None)           # timer già armato dalla sessione C
+    try:
+        def _flip(nxt, now):
+            # La transizione STOP→START verso C avviene QUI: dopo il gate d'ingresso
+            # (che ha visto pathB attivo), prima del `_timer_lock`.
+            a._active_csv_path = str(tmp_path / "C.csv")
+            a._expire_timer = timer_c
+            return 60
+        monkeypatch.setattr(app_mod.signal_queue, "delay_until", _flip)
+
+        app_mod.App._schedule_expiry(a, pathB)     # delay=None → passa da _flip
+
+        assert a._expire_timer is timer_c          # timer di C intatto, NON cancellato
+    finally:
+        timer_c.cancel()
+        a._cancel_expiry_timer()
+
+
+def test_schedule_expiry_restart_stessa_path_non_tocca_il_timer_nuovo(
+        make_app, app_mod, monkeypatch, tmp_path):
+    """F1 #258 (review GPT-5.5 round-4 su #307): STOP→START verso la STESSA path tra
+    l'ingresso di `_schedule_expiry` e il lock — il gate path passa (B→B) ma il worker
+    è di una sessione superata e il suo `delay` è stato calcolato dalla coda vecchia:
+    non deve rimpiazzare il timer legittimo della nuova sessione. Ora l'epoch è
+    catturato all'INGRESSO e validato sotto `_timer_lock`: se nel frattempo l'epoch è
+    cambiato, si esce senza toccare nulla.
+
+    Fail-first: prima il gate path passava (stessa stringa) e il timer nuovo veniva
+    cancellato e rimpiazzato da uno armato con il delay stantio."""
+    import threading as _t
+    pathB = str(tmp_path / "B.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
+    q.add(_row("Inter v Milan"), now=1000)
+    a = make_app(csv_path=pathB, queue=q, capture_schedule=False)   # scheduler REALE
+    a._listener_epoch = 2
+    timer_new = _t.Timer(60, lambda: None)         # timer della nuova sessione (epoch 3)
+    try:
+        def _flip(nxt, now):
+            # STOP→START verso la STESSA path: cambia solo l'epoch e il timer attivo.
+            a._listener_epoch = 3
+            a._expire_timer = timer_new
+            return 60
+        monkeypatch.setattr(app_mod.signal_queue, "delay_until", _flip)
+
+        app_mod.App._schedule_expiry(a, pathB)     # delay=None → passa da _flip
+
+        assert a._expire_timer is timer_new        # timer della nuova sessione intatto
+    finally:
+        timer_new.cancel()
+        a._cancel_expiry_timer()
+
+
 def test_expire_tick_gate_running_false_non_riscrive(make_app, app_mod, monkeypatch, tmp_path):
     from xtrader_bridge import csv_writer
     path = str(tmp_path / "segnali.csv")
@@ -860,7 +1021,9 @@ def test_schedule_expiry_concorrente_non_lascia_timer_orfani(make_app, app_mod, 
                 b_done.wait(timeout=0.5)
 
     monkeypatch.setattr(app_mod.threading, "Timer", _FakeTimer)
-    a = make_app(capture_schedule=False)      # usa il `_schedule_expiry` REALE
+    # `csv_path="out.csv"`: dal gate F1 #258 `_schedule_expiry` arma solo per il path
+    # ATTIVO della sessione — questo test esercita caller legittimi e concorrenti.
+    a = make_app(csv_path="out.csv", capture_schedule=False)   # `_schedule_expiry` REALE
     a._timer_lock = _t.Lock()                 # __init__ non è girato (object.__new__): lo creiamo
     a._expire_timer = None
 
