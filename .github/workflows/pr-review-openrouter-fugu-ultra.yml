@@ -66,7 +66,7 @@ jobs:
       MAX_PATCH_PER_FILE_CHARS: "4000"
       MAX_TOTAL_PATCH_CHARS: "14000"
       # Tetto duro anti-costo (Fugu è il più caro: output ~19k = ~0,70$/review).
-      # Prompt severo (max 10 finding, max 900 parole, niente diff/teoria) + 1000
+      # Prompt severo (max 10 finding, max 400 parole, niente diff/teoria) + 1000
       # token portano una review da ~0,70$ a ~0,13-0,25$.
       MAX_OUTPUT_TOKENS: "1000"
 

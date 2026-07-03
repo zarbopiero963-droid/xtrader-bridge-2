@@ -67,7 +67,7 @@ jobs:
       MAX_PATCH_PER_FILE_CHARS: "5000"
       MAX_TOTAL_PATCH_CHARS: "16000"
       # Tetto duro anti-costo: la review finale deve essere CORTA (prompt severo:
-      # max 10 finding, max 900 parole, niente diff/teoria). 1200 token bastano a
+      # max 10 finding, max 400 parole, niente diff/teoria). 1200 token bastano a
       # una review concisa e tagliano il costo (osservato: output ~19k = ~0,70$).
       MAX_OUTPUT_TOKENS: "1200"
 

@@ -45,10 +45,14 @@ _WF_DIR = os.path.join(_REPO_ROOT, ".github", "workflows")
 
 # kind: pr_review = automatico push-range (commenta) · audit = manuale read-only
 _AI_WORKFLOWS = {
-    "pr-review-gpt55.yml": {"kind": "pr_review", "provider": "openai", "trigger": "auto"},
-    "pr-review-claude-fable5.yml": {"kind": "pr_review", "provider": "anthropic", "trigger": "label", "label": "final-fable-review"},
-    "pr-review-openrouter-glm52.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "auto"},
-    "pr-review-openrouter-fugu-ultra.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "label", "label": "final-fugu-review"},
+    # reasoning: controllo del reasoning nel payload (modelli che ragionano bruciano
+    # il budget di output col tetto basso e troncano). "low" = effort ridotto,
+    # "disabled" = reasoning spento del tutto (GLM col tetto 700 ha ignorato "low" e
+    # troncava lo stesso, PR #310), None = provider senza campo reasoning (Anthropic).
+    "pr-review-gpt55.yml": {"kind": "pr_review", "provider": "openai", "trigger": "auto", "reasoning": "low"},
+    "pr-review-claude-fable5.yml": {"kind": "pr_review", "provider": "anthropic", "trigger": "label", "label": "final-fable-review", "reasoning": None},
+    "pr-review-openrouter-glm52.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "auto", "reasoning": "disabled"},
+    "pr-review-openrouter-fugu-ultra.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "label", "label": "final-fugu-review", "reasoning": "low"},
     "manual-full-repo-ai-audit.yml": {"kind": "audit", "provider": "openai"},
     "claude-fable-full-repo-audit.yml": {"kind": "audit", "provider": "anthropic"},
 }
@@ -244,7 +248,7 @@ def test_before_sha_vuoto_ripiega_su_intera_pr():
 
 def test_gate_finale_prompt_severo_budget_basso_e_troncamento():
     """Cost cap sui due gate finali (label): prompt SEVERO (max 10 finding, max
-    900 parole, niente diff/teoria) + tetto output BASSO + troncamento onesto.
+    400 parole, niente diff/teoria) + tetto output BASSO + troncamento onesto.
 
     Storia: prima si era alzato il budget a 6000 per evitare i troncamenti, ma
     Fugu arrivava a ~19k token di output (~0,70$/review). La scelta del
@@ -263,7 +267,7 @@ def test_gate_finale_prompt_severo_budget_basso_e_troncamento():
         )
         # prompt severo che rende sensato il budget basso
         assert "Vincolo costo/output" in text and "MASSIMO 10 finding" in text, (
-            f"{name}: manca il prompt severo (max 10 finding / max 900 parole)"
+            f"{name}: manca il prompt severo (max 10 finding / max 400 parole)"
         )
         assert "Output troncato" in text, (
             f"{name}: manca il ramo di troncamento onesto quando il modello "
@@ -347,7 +351,7 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
         # Il prompt severo è su TUTTI e 4: è ciò che rende utili i budget bassi
         # (senza, con 700/1000 token la review tronca invece di essere concisa).
         assert "Vincolo costo/output" in text, (
-            f"{name}: manca il prompt severo anti-costo (max 10 finding / max 900 parole)"
+            f"{name}: manca il prompt severo anti-costo (max 10 finding / max 400 parole)"
         )
         # Anti-doppia-review a pagamento: dedup sul marker prima della chiamata AI.
         src = _compiled_heredoc(name)
@@ -378,35 +382,31 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
         assert "done_line = " in src, (
             f"{name}: done_marker deve essere appeso al body solo quando la review è completa"
         )
-        # gpt-5.5 (openai) e GLM/Fugu (openrouter) sono modelli reasoning: col budget
-        # basso il reasoning nascosto esaurisce i token e la review tronca a 0 testo
-        # (GPT osservato PR #304, GLM PR #310). Serve un controllo esplicito del
-        # reasoning: effort 'low' (riduce) oppure enabled False (disabilita). GLM col
-        # tetto 700 ha IGNORATO effort='low' e ha comunque troncato, quindi lì il
-        # reasoning è disabilitato del tutto. Anthropic (Fable) non usa questo campo.
-        if meta["provider"] == "openai":
+        # Modelli reasoning: col budget basso il reasoning nascosto esaurisce i token
+        # e la review tronca a 0 testo (GPT osservato PR #304, GLM PR #310). Ogni
+        # reviewer dichiara nel metadata il controllo atteso — così il test non è
+        # legato al NOME FILE (fragilità segnalata da GPT-5.5 + GLM su #310) ma
+        # all'intento esplicito, ed è specifico per workflow:
+        #   "low"      → reasoning: {"effort": "low"}   (GPT-5.5, Fugu)
+        #   "disabled" → reasoning: {"enabled": False}  (GLM: col tetto 700 ha IGNORATO
+        #                effort='low' e troncava lo stesso → va spento del tutto;
+        #                verificato live, con enabled False ha prodotto 384 token < 700)
+        #   None       → nessun campo reasoning          (Anthropic/Fable)
+        # NB: il sorgente è Python embedded (heredoc), quindi la forma corretta è
+        # `False` Python, non `false` JSON/YAML — accettare `false` farebbe passare un
+        # workflow che va in NameError a runtime.
+        reasoning_mode = meta.get("reasoning")
+        if reasoning_mode == "low":
             assert re.search(r'"reasoning":\s*\{"effort":\s*"low"\}', src), (
-                f"{name}: gpt-5.5 (reasoning) deve usare reasoning effort 'low' col budget basso"
+                f"{name}: modello reasoning deve usare reasoning effort 'low' col budget "
+                "basso, altrimenti il reasoning nascosto tronca la review a 0 testo"
             )
-        elif meta["provider"] == "openrouter":
-            assert re.search(
-                r'"reasoning":\s*\{"effort":\s*"low"\}|"reasoning":\s*\{"enabled":\s*False\}',
-                src,
-            ), (
-                f"{name}: modello OpenRouter reasoning deve controllare il reasoning "
-                "(effort 'low' o enabled False) col budget basso, altrimenti tronca a 0 testo"
+        elif reasoning_mode == "disabled":
+            assert re.search(r'"reasoning":\s*\{"enabled":\s*False\}', src), (
+                f"{name}: col tetto basso effort='low' non basta (GLM troncava live su "
+                "#310) → il reasoning va disabilitato del tutto (enabled: False)"
             )
-            # Lock specifico GLM 5.2 (raccomandato da GPT-5.5 + GLM sulla review live
-            # di #310): col tetto 700 GLM ha IGNORATO effort='low' e ha comunque
-            # troncato a 0 testo, quindi per lei il reasoning va DISABILITATO del tutto,
-            # non solo abbassato. L'OR-regex qui sopra da solo non bloccherebbe una
-            # regressione a effort='low' su GLM, che rifarebbe troncare. Verificato dal
-            # vivo: con enabled False GLM ha prodotto una review reale (384 token < 700).
-            if name == "pr-review-openrouter-glm52.yml":
-                assert re.search(r'"reasoning":\s*\{"enabled":\s*False\}', src), (
-                    "GLM 5.2: col tetto basso effort='low' non basta (troncava live su "
-                    "#310) → il reasoning va disabilitato del tutto (enabled: False)"
-                )
+        # reasoning_mode None (Anthropic) → nessun campo reasoning richiesto.
 
 
 def test_audit_solo_manuali_workflow_dispatch():
