@@ -533,6 +533,47 @@ def test_expire_tick_write_failure_schedula_retry(make_app, app_mod, monkeypatch
     assert any("scadenza" in m.lower() for m in a.logs)
 
 
+def test_expire_tick_stantio_di_sessione_superata_non_scrive_su_vecchio_path(
+        make_app, app_mod, monkeypatch, tmp_path):
+    """F1 #258 (CONFIRMED): un tick armato dalla sessione A (epoch 1, pathA) il cui worker
+    sopravvive a STOP→START (`Timer.cancel()` è no-op a worker già avviato) trovava
+    `_running=True` della sessione B e procedeva: scriveva la CODA DELLA SESSIONE B sul
+    PATH DELLA SESSIONE A e riprogrammava la scadenza su pathA, rimpiazzando il timer
+    legittimo di pathB → segnale stantio mai ripulito dal CSV che XTrader legge.
+    Ora il tick porta epoch+path della sessione che l'ha armato e, sotto `_queue_lock`,
+    esce se l'epoch è superato o il path non è più quello attivo (come `_process`/
+    `_process_confirmation`/`_manual_clear`).
+
+    Fail-first: sul vecchio codice il tick stantio rimuoveva la riga scaduta della coda B,
+    scriveva le righe di B su pathA e riprogrammava (pathA, None)."""
+    from xtrader_bridge import csv_writer
+    pathA = str(tmp_path / "vecchio.csv")          # CSV della sessione A (superata)
+    pathB = str(tmp_path / "nuovo.csv")            # CSV attivo della sessione B
+    csv_writer.init_csv(pathA)                     # pathA ripulito dallo STOP di A
+    # Coda della sessione B: una riga VALIDA e una già SCADUTA (il tick stantio la
+    # rimuoverebbe e scriverebbe il resto su pathA).
+    q = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
+    q.add(_row("Inter v Milan"), now=1000)                     # valida fino a 1120
+    q.add(_row("Roma v Lazio"), now=800, timeout=10)           # scaduta a 810
+    csv_writer.write_rows(q.active_rows(1005.0), pathB)
+    a = make_app(csv_path=pathB, queue=q)
+    a._listener_epoch = 2                          # la sessione B ha epoch 2
+    monkeypatch.setattr(app_mod.time, "monotonic", lambda: 1005.0)
+
+    # Tick STANTIO della sessione A: epoch=1 (superato), path=pathA (non più attivo).
+    app_mod.App._expire_tick(a, pathA, epoch=1)
+
+    assert _events_in_csv(pathA) == []             # pathA NON riscritto con la coda di B
+    # Coda di B INTATTA: il tick stantio non deve nemmeno espellere la riga scaduta
+    # (l'expire è compito del tick legittimo della sessione B).
+    assert [r["EventName"] for r in q.active_rows()] == ["Inter v Milan", "Roma v Lazio"]
+    assert a.expiry_calls == []                    # nessuna riprogrammazione su pathA
+    # Controcampo: il tick LEGITTIMO della sessione B (epoch e path correnti) funziona.
+    app_mod.App._expire_tick(a, pathB, epoch=2)
+    assert _events_in_csv(pathB) == ["Inter v Milan"]   # scaduta rimossa dal CSV attivo
+    assert [r["EventName"] for r in q.active_rows()] == ["Inter v Milan"]
+
+
 def test_expire_tick_gate_running_false_non_riscrive(make_app, app_mod, monkeypatch, tmp_path):
     from xtrader_bridge import csv_writer
     path = str(tmp_path / "segnali.csv")
