@@ -73,6 +73,20 @@ stampate.
   rischi di sicurezza/CSV/Betfair/segreti ripiegati dentro `Bloccanti` — così la
   review completa sta nel budget senza troncarsi. La review resta concisa e utile
   ma costa una frazione.
+  **Budget patch adattivo a 2 livelli (solo gate finali Fable/Fugu).** Il tetto sul
+  diff *inviato* al modello (`MAX_TOTAL_PATCH_CHARS`: `16000` Fable, `14000` Fugu;
+  per-file `5000`/`4000`) è basso per costo, ma su una **PR grande** alcuni file non
+  ci stavano e venivano elencati sotto «File non inviati al modello» — il modello non
+  li vedeva e sollevava un falso blocco «file mancante». Ora, se col tetto basso il
+  diff risulta **troncato per budget** (patch tagliata o file interi saltati), il job
+  **ricostruisce l'input una volta** ai tetti alti `MAX_TOTAL_PATCH_CHARS_ESCALATED`
+  (`60000`) / `MAX_PATCH_PER_FILE_CHARS_ESCALATED` (`15000`) **prima** di chiamare il
+  modello, così vede l'intera PR. È **automatico** e chiama il modello **una sola
+  volta** (input dimensionato giusto, niente review troncata + ripetizione); su PR
+  piccole il tetto alto non serve mai → nessun costo extra. Un file binario/senza
+  patch resta «non inviato» ma **non** fa scattare l'escalation (non è recuperabile
+  alzando il budget). Il commento riporta il budget effettivamente usato e se è stato
+  «escalato».
   Se il modello si ferma comunque per limite di token, il commento **dichiara il
   troncamento** (col motivo del provider: `stop_reason=max_tokens` /
   `finish_reason=length` / `status=incomplete`) invece di sembrare che "non

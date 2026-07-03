@@ -304,6 +304,78 @@ def test_gate_finale_prompt_severo_budget_basso_e_troncamento():
         )
 
 
+def _extract_func(src, fname, stubs):
+    """Estrae UNA funzione dal sorgente heredoc dedentato ed esegue solo quel nodo,
+    in un namespace con gli stub passati (safe_display/redact/is_critical), così può
+    essere esercitata offline senza far girare il resto dello script (rete/API)."""
+    import ast
+    tree = ast.parse(src)
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == fname:
+            mod = ast.Module(body=[node], type_ignores=[])
+            ns = dict(stubs)
+            exec(compile(mod, "<heredoc>", "exec"), ns)  # noqa: S102 — sorgente del repo, test
+            return ns[fname]
+    raise AssertionError(f"{fname} non trovata nel sorgente di {src[:40]!r}…")
+
+
+def test_gate_finale_budget_patch_adattivo():
+    """I due gate finali (label) usano un budget patch a 2 livelli: partono col tetto
+    BASSO (economico) e, SOLO se il diff è stato troncato per budget, ricostruiscono
+    l'input al tetto ALTO PRIMA di chiamare il modello — così vedono l'intera PR e non
+    sollevano un falso "file non inviato" su PR grandi (regressione dall'altra PR).
+
+    Verifica STRUTTURALE (env/default escalati + la ri-build su budget_truncated) e
+    COMPORTAMENTALE (build_patch_payload reale: tier-1 tronca, tier-2 recupera il file).
+    """
+    finali = [n for n, m in _AI_WORKFLOWS.items() if m.get("trigger") == "label"]
+    assert finali, "atteso almeno un gate finale label-gated"
+    stubs = {
+        "safe_display": lambda s: str(s or ""),
+        "redact": lambda s: s,
+        "is_critical": lambda f: False,
+    }
+    for name in finali:
+        text = _read(name)
+        # env + default Python del tier-2
+        for key in ("MAX_TOTAL_PATCH_CHARS_ESCALATED", "MAX_PATCH_PER_FILE_CHARS_ESCALATED"):
+            assert re.search(rf'{key}:\s*"\d+"', text), f"{name}: manca l'env {key}"
+            assert key in _compiled_heredoc(name), f"{name}: manca il default Python {key}"
+
+        src = _compiled_heredoc(name)
+        # firma parametrizzata + ri-build condizionata al troncamento
+        assert "def build_patch_payload(files, max_per_file, max_total)" in src, (
+            f"{name}: build_patch_payload deve accettare i budget come parametri"
+        )
+        assert "if budget_truncated and (" in src, (
+            f"{name}: manca la ri-build al tetto alto quando il diff è troncato per budget"
+        )
+        assert "MAX_TOTAL_PATCH_CHARS_ESCALATED" in src and "MAX_PATCH_PER_FILE_CHARS_ESCALATED" in src
+
+        # --- comportamentale: esercita build_patch_payload reale del workflow ---
+        fn = _extract_func(src, "build_patch_payload", stubs)
+        # 10 file da 3000 char: superano il tetto totale basso (14-16k) ma entrano nei 60k alti
+        files = [
+            {"filename": f"f{i}.py", "status": "modified", "additions": 1,
+             "deletions": 0, "changes": 1, "patch": "X" * 3000}
+            for i in range(10)
+        ]
+        diff_lo, skip_lo, _crit_lo, trunc_lo = fn(files, 5000, 16000)
+        assert trunc_lo is True, f"{name}: tier-1 doveva troncare per budget totale"
+        assert skip_lo, f"{name}: tier-1 doveva lasciare dei file fuori (skipped)"
+        diff_hi, skip_hi, _crit_hi, trunc_hi = fn(files, 15000, 60000)
+        assert trunc_hi is False, f"{name}: tier-2 (60k) non doveva più troncare 10×3000 char"
+        assert not skip_hi, f"{name}: tier-2 doveva includere TUTTI i file (nessuno skipped)"
+        for i in range(10):
+            assert f"f{i}.py" in diff_hi, f"{name}: tier-2 doveva includere f{i}.py"
+        # un file binario/senza-patch resta skipped ma NON marca budget_truncated
+        _d, sk, _c, tr = fn([{"filename": "img.png", "status": "added", "patch": None,
+                              "additions": 0, "deletions": 0, "changes": 0}], 15000, 60000)
+        assert "img.png" in sk and tr is False, (
+            f"{name}: un file senza-patch non è un troncamento di budget (non deve escalare)"
+        )
+
+
 def test_tutti_i_pr_review_riportano_il_troncamento():
     """Ogni reviewer PR (anche gli automatici) deve dichiarare il troncamento.
 
