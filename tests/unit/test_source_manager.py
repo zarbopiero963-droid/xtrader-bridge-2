@@ -153,21 +153,55 @@ def test_enabled_malformato_fail_closed():
     assert sm.source_chats(_cfg({"chat_id": "777"}))[0]["enabled"] is True
 
 
+def _nostri(caplog):
+    """Solo i record del logger di source_manager (robustezza, review Fable: caplog
+    cattura dal root e un warning di una libreria terza non deve falsare gli assert)."""
+    return [r for r in caplog.records if r.name == "xtrader_bridge.source_manager"]
+
+
 def test_enabled_malformato_viene_segnalato_a_log(caplog):
     """Review Fable/Sourcery su #309: il flip fail-closed non deve essere silenzioso.
     Un `enabled` malformato produce un WARNING con chat_id e valore incriminato (mai
-    altri campi della config); un "no" ESPLICITO (False/"false"/0/"off") non logga."""
+    altri campi della config); un "no" ESPLICITO (False/"false"/0/"off"/-0.0) non
+    logga. Il messaggio è codificabile in cp1252 (handler Windows legacy, review GPT)."""
     import logging as _logging
+    sm._WARNED_ENABLED.clear()
     with caplog.at_level(_logging.WARNING, logger="xtrader_bridge.source_manager"):
-        sm.source_chats(_cfg({"chat_id": "777", "enabled": "flase"}))
-    assert any("flase" in r.message and "777" in r.message for r in caplog.records)
+        sm.source_chats(_cfg({"chat_id": "777", "enabled": "flase",
+                              "name": "RISERVATO", "provider": "PROV_X"}))
+    recs = _nostri(caplog)
+    assert len(recs) == 1
+    msg = recs[0].getMessage()
+    assert "flase" in msg and "777" in msg
+    assert "RISERVATO" not in msg and "PROV_X" not in msg  # mai altri campi della config
+    msg.encode("cp1252")                                   # niente char fuori codepage legacy
     caplog.clear()
     with caplog.at_level(_logging.WARNING, logger="xtrader_bridge.source_manager"):
-        for off in (False, "false", 0, "off", "", "0", "no"):
+        for off in (False, "false", 0, "off", "", "0", "no", -0.0):
             sm.source_chats(_cfg({"chat_id": "777", "enabled": off}))
         sm.source_chats(_cfg({"chat_id": "777"}))                    # default: nessun log
         sm.source_chats(_cfg({"chat_id": "777", "enabled": True}))   # sì esplicito: idem
-    assert caplog.records == []
+    assert _nostri(caplog) == []
+
+
+def test_enabled_malformato_logga_una_sola_volta_per_valore(caplog):
+    """Anti-flooding (review GLM/GPT/Fable su #309): `source_chats` può girare in hot
+    path — lo STESSO valore malformato per la stessa chat logga UNA volta sola; chat o
+    valore diversi loggano di nuovo; None e NaN sono malformati (warning); un valore
+    lunghissimo viene TRONCATO nel messaggio (niente righe giganti, niente leak)."""
+    import logging as _logging
+    sm._WARNED_ENABLED.clear()
+    with caplog.at_level(_logging.WARNING, logger="xtrader_bridge.source_manager"):
+        for _ in range(5):                                             # hot path simulato
+            sm.source_chats(_cfg({"chat_id": "777", "enabled": "flase"}))
+        sm.source_chats(_cfg({"chat_id": "778", "enabled": "flase"}))  # altra chat: logga
+        sm.source_chats(_cfg({"chat_id": "777", "enabled": None}))     # None: malformato
+        sm.source_chats(_cfg({"chat_id": "777", "enabled": float("nan")}))
+        sm.source_chats(_cfg({"chat_id": "777", "enabled": "x" * 500}))
+    recs = _nostri(caplog)
+    assert len(recs) == 5                                  # 1+1+1+1+1: niente spam
+    lungo = [r.getMessage() for r in recs if "xxx" in r.getMessage()]
+    assert lungo and len(lungo[0]) < 300                   # valore troncato nel log
 
 
 def test_vocabolario_si_allineato_con_autostart():

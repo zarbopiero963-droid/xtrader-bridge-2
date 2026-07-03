@@ -20,6 +20,8 @@ parte resta interamente testabile headless e a rischio zero per il CSV.
 import logging
 import math
 
+_LOG = logging.getLogger(__name__)
+
 MODES = ("PRE", "LIVE")
 DEFAULT_MODE = "PRE"
 # Provider di default per modalità: DERIVATO da MODES (PRE → "TG_PRE", LIVE →
@@ -83,6 +85,12 @@ def _is_recognized_off(value) -> bool:
 # Alias retro-compatibile del vecchio nome privato (riferito da codice/test esterni).
 _as_bool = as_enabled_bool
 
+# Coppie (chat_id, valore troncato) già segnalate a log: `source_chats` può girare in
+# hot path (una normalizzazione per messaggio), e una config corrotta non deve
+# riempire il log con lo stesso warning a ogni evento (review GLM/GPT #309). Bounded:
+# cresce solo di un elemento per valore malformato DISTINTO presente in config.
+_WARNED_ENABLED = set()
+
 
 def normalize_mode(mode) -> str:
     """Normalizza la modalità a PRE/LIVE; valore mancante/ignoto → DEFAULT_MODE
@@ -103,12 +111,20 @@ def _normalize_source(raw: dict) -> dict:
     raw_enabled = raw.get("enabled", True)
     enabled = as_enabled_bool(raw_enabled)
     if not enabled and not _is_recognized_off(raw_enabled):
-        # Solo chat_id + valore incriminato: mai altri campi della config nel log.
-        logging.getLogger(__name__).warning(
-            "source_chats: enabled=%r non riconosciuto per chat_id=%r → sorgente "
-            "DISABILITATA (fail-closed, C7 #259). Valori ammessi: %s / %s.",
-            raw_enabled, str(raw.get("chat_id", "") or "").strip(),
-            "/".join(_ENABLED_TRUE), "/".join(v or "''" for v in _ENABLED_FALSE))
+        # Solo chat_id + valore incriminato (TRONCATO: una config corrotta non deve
+        # produrre righe di log giganti né leakare contenuti lunghi): mai altri campi
+        # della config nel log. Freccia ASCII: handler Windows non-UTF8 (review GPT).
+        chat = str(raw.get("chat_id", "") or "").strip()
+        shown = repr(raw_enabled)
+        if len(shown) > 60:
+            shown = shown[:57] + "..."
+        if (chat, shown) not in _WARNED_ENABLED:     # una volta per chat+valore: no spam
+            _WARNED_ENABLED.add((chat, shown))
+            _LOG.warning(
+                "source_chats: enabled=%s non riconosciuto per chat_id=%s -> sorgente "
+                "DISABILITATA (fail-closed, C7 #259). Valori ammessi: %s / %s.",
+                shown, chat,
+                "/".join(_ENABLED_TRUE), "/".join(v or "''" for v in _ENABLED_FALSE))
     return {
         "name": str(raw.get("name", "") or "").strip(),
         "chat_id": str(raw.get("chat_id", "") or "").strip(),
