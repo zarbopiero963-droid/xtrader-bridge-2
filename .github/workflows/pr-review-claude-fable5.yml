@@ -45,6 +45,11 @@ jobs:
       REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       EVENT_ACTION: ${{ github.event.action }}
+      # before/after esistono solo sul payload pull_request `synchronize`, non su
+      # `labeled`: qui restano VUOTI ed è corretto. resolve_range() usa BEFORE_SHA
+      # solo dietro `EVENT_ACTION == "synchronize"`, quindi su questo gate finale
+      # (solo `labeled`) ripiega sempre su BASE_SHA...HEAD (intera PR). AFTER_SHA
+      # non è mai letto: tenuto per simmetria con i reviewer automatici.
       BEFORE_SHA: ${{ github.event.before }}
       AFTER_SHA: ${{ github.event.after }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}

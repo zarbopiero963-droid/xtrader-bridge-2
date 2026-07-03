@@ -212,6 +212,36 @@ def test_api_key_letta_con_strip():
         )
 
 
+def test_before_sha_vuoto_ripiega_su_intera_pr():
+    """BEFORE_SHA/AFTER_SHA (push-only) vuoti non rompono il range resolution.
+
+    Finding del gate finale Claude Fable 5 (PR #304, head 92722ce): sul payload
+    ``pull_request`` gli SHA ``before``/``after`` esistono SOLO per l'azione
+    ``synchronize``, non per ``labeled`` — quindi sui due gate finali (solo
+    ``labeled``) ``BEFORE_SHA``/``AFTER_SHA`` sono vuoti. È un falso allarme:
+    ``resolve_range()`` legge ``BEFORE_SHA`` con default sicuro e lo usa SOLO
+    dietro ``EVENT_ACTION == "synchronize"``, altrimenti ripiega su
+    ``BASE_SHA...HEAD`` (l'intera PR). Questo test blocca la regressione in cui
+    qualcuno usasse ``BEFORE_SHA`` senza guardia o senza default, facendo esplodere
+    (o svuotare) il range sul gate finale.
+    """
+    for name, meta in _AI_WORKFLOWS.items():
+        if meta["kind"] != "pr_review":
+            continue
+        text = _read(name)
+        # default sicuro: niente KeyError se before/after mancano dal payload
+        assert 'os.environ.get("BEFORE_SHA", "")' in text, (
+            f"{name}: BEFORE_SHA va letto con default sicuro (before assente su labeled)"
+        )
+        # BEFORE_SHA usato solo per synchronize; altrimenti base = BASE_SHA
+        assert re.search(r'EVENT_ACTION == "synchronize" and good_sha\(BEFORE_SHA\)', text), (
+            f"{name}: l'uso di BEFORE_SHA deve essere guardato da EVENT_ACTION == synchronize"
+        )
+        assert re.search(r'else:\s*\n\s*base = BASE_SHA', text), (
+            f"{name}: senza synchronize il range deve ripiegare su BASE_SHA (intera PR)"
+        )
+
+
 def test_gate_finale_budget_output_ampio_e_troncamento_esplicito():
     """I due gate finali rivedono l'INTERA PR: budget output ampio + troncamento onesto.
 
