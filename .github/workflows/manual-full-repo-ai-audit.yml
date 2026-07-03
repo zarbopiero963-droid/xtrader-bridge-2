@@ -575,10 +575,14 @@ jobs:
                   "file": path_str,
                   "line_start": line_start,
                   "line_end": line_end,
-                  "title": str(raw.get("title") or "Finding senza titolo")[:200],
+                  # redact() su TUTTI i campi testuali del modello (non solo
+                  # evidence): se il modello ripete un segreto in title/impact/
+                  # recommendation non deve finire in chiaro nell'artifact né nel
+                  # prompt di summary (Codex P2).
+                  "title": redact(str(raw.get("title") or "Finding senza titolo"))[:200],
                   "evidence": redact(str(raw.get("evidence") or ""))[:1200],
-                  "impact": str(raw.get("impact") or "")[:1200],
-                  "recommendation": str(raw.get("recommendation") or "")[:1200],
+                  "impact": redact(str(raw.get("impact") or ""))[:1200],
+                  "recommendation": redact(str(raw.get("recommendation") or ""))[:1200],
                   "confidence": str(raw.get("confidence") or "medium").lower()[:20],
                   "source": "gpt-5.5-repo-audit",
               }

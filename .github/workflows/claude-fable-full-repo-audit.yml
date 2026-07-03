@@ -556,10 +556,14 @@ jobs:
                   "file": file,
                   "line_start": line_start,
                   "line_end": line_end,
-                  "title": str(raw.get("title") or "Finding senza titolo")[:220],
+                  # redact() su TUTTI i campi testuali del modello (non solo
+                  # evidence): se il modello ripete un segreto in title/impact/
+                  # recommendation non deve finire in chiaro nell'artifact né nel
+                  # prompt di summary (Codex P2).
+                  "title": redact(str(raw.get("title") or "Finding senza titolo"))[:220],
                   "evidence": redact(str(raw.get("evidence") or ""))[:1000],
-                  "impact": str(raw.get("impact") or "")[:1000],
-                  "recommendation": str(raw.get("recommendation") or "")[:1000],
+                  "impact": redact(str(raw.get("impact") or ""))[:1000],
+                  "recommendation": redact(str(raw.get("recommendation") or ""))[:1000],
                   "confidence": str(raw.get("confidence") or "medium")[:20],
                   "source": "claude-fable-5",
               }

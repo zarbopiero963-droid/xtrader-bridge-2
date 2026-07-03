@@ -697,6 +697,23 @@ def test_audit_scansiona_segreti_nei_nomi_dei_symlink(tmp_path, monkeypatch):
         assert all(_fake_github_pat() not in f["file"] for f in crit), name
 
 
+def test_normalize_finding_redige_tutti_i_campi_del_modello(tmp_path, monkeypatch):
+    """Codex P2: se il modello ripete un segreto in title/impact/recommendation
+    (non solo evidence), va redatto prima di finire in artifact/summary."""
+    for name in _AUDIT_WORKFLOWS:
+        ns, _ = _exec_audit_script(name, tmp_path, monkeypatch)
+        secret = _fake_openai_key()
+        f = ns["normalize_finding"]({
+            "severity": "high",
+            "title": f"token {secret}",
+            "evidence": f"ev {secret}",
+            "impact": f"impact {secret}",
+            "recommendation": f"fix {secret}",
+        }, "main.py", 1, 10)
+        for field in ("title", "evidence", "impact", "recommendation"):
+            assert secret not in f[field], f"{name}: campo '{field}' del modello non redatto"
+
+
 def test_normalize_finding_strip_severity(tmp_path, monkeypatch):
     """Codex P2: severity con spazio/newline incidentale ('critical ') non deve
     mancare l'allowed-set e degradare a info (fail_on_critical la mancherebbe)."""
