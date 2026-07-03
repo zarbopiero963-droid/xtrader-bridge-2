@@ -71,5 +71,11 @@ def sport_for_event_type_id(event_type_id):
     Inverso di `event_type_id_for_sport`. Usato dall'harvest dei nomi squadra (#282)
     per salvare i nomi permanenti sotto il **nome** dello sport (la chiave con cui li
     consulta la mappatura nomi della GUI), non sotto l'id numerico. Non solleva:
-    un id non riconosciuto → ``None`` (il chiamante salta, fail-closed)."""
-    return _EVENT_TYPE_TO_SPORT.get(str(event_type_id or ""))
+    un id non riconosciuto → ``None`` (il chiamante salta, fail-closed).
+
+    Check esplicito su ``None`` (non ``or ""``): così un id *falsy ma legittimo* — se
+    Betfair introducesse un `event_type_id` come `0` — verrebbe cercato come ``"0"`` e
+    non collasserebbe silenziosamente su ``""`` (robustezza, review Fable 5)."""
+    if event_type_id is None:
+        return None
+    return _EVENT_TYPE_TO_SPORT.get(str(event_type_id))

@@ -366,3 +366,17 @@ def test_known_teams_permanenti_non_toccati_dal_mark_and_sweep(db):
     # e non esiste alcuna colonna active da azzerare: resta consultabile per sempre
     assert db.count_known_teams("Calcio") == 1
     assert db.fetchall("betfair_known_teams")[0]["display_name"] == "Roma"
+
+
+def test_known_teams_persistono_su_disco_dopo_riapertura(tmp_path):
+    # Durata reale: i nomi permanenti sopravvivono a chiusura/riapertura del DB su file
+    # (persistenza SQLite), e la tabella viene ricreata da `CREATE TABLE IF NOT EXISTS`
+    # anche su un DB già esistente (compatibilità upgrade).
+    path = str(tmp_path / "betfair.db")
+    d1 = BetfairLocalDB(path)
+    d1.upsert_known_team("Calcio", "Juventus", seen_at=1)
+    d1.close()
+    d2 = BetfairLocalDB(path)                         # riapertura: schema idempotente
+    assert d2.count_known_teams("Calcio") == 1
+    assert d2.known_teams("Calcio")[0]["display_name"] == "Juventus"
+    d2.close()

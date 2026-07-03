@@ -734,3 +734,33 @@ def test_harvest_isolato_per_sport(db):
     _sync_br(db).sync(["Basket", "Rugby Union"])
     assert {t["display_name"] for t in db.known_teams("Basket")} == {"Lakers", "Celtics"}
     assert {t["display_name"] for t in db.known_teams("Rugby Union")} == {"England", "Wales"}
+
+
+def test_harvest_evento_multi_mercato_non_duplica(db):
+    # Un evento con PIÙ mercati fa passare l'harvest più volte per lo STESSO evento
+    # (una per mercato): i nomi non devono duplicarsi (idempotenza per chiave normalizzata).
+    menu = {"type": "GROUP", "children": [
+        {"type": "EVENT_TYPE", "id": "1", "name": "Soccer", "children": [
+            {"type": "EVENT", "id": "e1", "name": "Inter v Milan", "children": [
+                {"type": "MARKET", "id": "1.101", "name": "Match Odds",
+                 "marketType": "MATCH_ODDS"},
+                {"type": "MARKET", "id": "1.102", "name": "Over/Under 2.5",
+                 "marketType": "OVER_UNDER_25"}]}]}]}
+    cat = {
+        "1.101": {"marketId": "1.101", "marketName": "Match Odds",
+                  "description": {"marketType": "MATCH_ODDS"},
+                  "event": {"id": "e1", "name": "Inter v Milan"},
+                  "runners": [{"selectionId": 1, "runnerName": "Inter", "handicap": 0},
+                              {"selectionId": 2, "runnerName": "Milan", "handicap": 0}]},
+        "1.102": {"marketId": "1.102", "marketName": "Over/Under 2.5",
+                  "description": {"marketType": "OVER_UNDER_25"},
+                  "event": {"id": "e1", "name": "Inter v Milan"},
+                  "runners": [{"selectionId": 3, "runnerName": "Over 2.5", "handicap": 0},
+                              {"selectionId": 4, "runnerName": "Under 2.5", "handicap": 0}]},
+    }
+    CatalogueSync(db, navigation_transport=lambda: menu,
+                  catalogue_transport=lambda mids: [cat[m] for m in mids if m in cat]
+                  ).sync(["Calcio"])
+    # due mercati per lo stesso match → comunque SOLO 2 nomi squadra (Inter, Milan)
+    assert db.count_known_teams("Calcio") == 2
+    assert {t["display_name"] for t in db.known_teams("Calcio")} == {"Inter", "Milan"}
