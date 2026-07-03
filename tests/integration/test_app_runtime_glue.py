@@ -1522,15 +1522,27 @@ def test_retry_stop_clear_non_tocca_il_path_di_una_nuova_sessione(make_app, app_
     assert not any("ripulito al retry" in m for m in a.logs)
 
 
-def test_stop_arma_il_retry_su_clear_fallito_guardia_strutturale(app_mod):
-    """Guardia sul wiring (audit #259 A1): `_stop` è GUI/thread-coupled — il suo
-    contributo nuovo è catturare l'esito di `_clear_stale_csv` e armare
-    `_schedule_stop_clear_retry` sul fallimento. Il comportamento del retry è
-    coperto dai test funzionali qui sopra."""
-    import inspect
-    src = inspect.getsource(app_mod.App._stop)
-    assert "_schedule_stop_clear_retry" in src
-    assert "stop_cleared" in src
+def test_stop_arma_il_retry_su_clear_fallito(make_app, app_mod):
+    """Audit #259 A1, test COMPORTAMENTALE (CodeRabbit #312: meglio di una guardia
+    su `inspect.getsource`): un vero `_stop` con clear CSV fallito arma il retry sul
+    path della SESSIONE, catturato PRIMA che `_active_csv_path` venga azzerato."""
+    a = make_app(csv_path="sessione.csv")
+    a._async_stop_event = None                       # attributo di __init__, non nel harness
+    riarmi = []
+    a._schedule_stop_clear_retry = riarmi.append
+    a._clear_stale_csv = lambda quando, path=None: False        # clear FALLITO (lock)
+    app_mod.App._stop(a)
+    assert riarmi == ["sessione.csv"]                # retry armato sul path catturato
+    assert a._active_csv_path is None                # teardown comunque completato
+    assert a._running is False
+    # Contro-campo: clear riuscito → nessun retry armato.
+    b = make_app(csv_path="sessione.csv")
+    b._async_stop_event = None
+    riarmi_b = []
+    b._schedule_stop_clear_retry = riarmi_b.append
+    b._clear_stale_csv = lambda quando, path=None: True
+    app_mod.App._stop(b)
+    assert riarmi_b == []
 
 
 def test_start_gate_reale_manuale_e_avvisi_guardia_strutturale(app_mod):
@@ -1544,6 +1556,8 @@ def test_start_gate_reale_manuale_e_avvisi_guardia_strutturale(app_mod):
     assert "elif autostart.needs_real_mode_confirmation(cfg):" in src[idx_auto:]
     assert "allowed_chats(cfg)" in src
     assert "malformed_entry_warnings" in src
+    # CodeRabbit #312: con zero chat attive il ramo AUTO annulla (non promette l'avvio).
+    assert "Avvio automatico annullato: nessuna chat sorgente ATTIVA" in src
 
 
 def test_retry_stop_clear_guardia_possesso_normalizza_il_path(make_app, app_mod,

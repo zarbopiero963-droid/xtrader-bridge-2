@@ -1707,11 +1707,17 @@ class App(ctk.CTk):
         # l'operatore deve vederlo qui, non scoprirlo dal nome non tradotto.
         for warn in name_mapping_store.malformed_entry_warnings(cfg):
             self._log(f"⚠️ {warn}")
-        # Avviso NON bloccante (audit #259 C3, decisione proprietario): filtro chat
-        # presente ma NESSUNA chat effettivamente ascoltata (es. tutte le sorgenti
-        # disattivate) → lo START manuale procede, ma il bridge sarebbe «sordo».
-        # L'avvio AUTOMATICO in questo stato è invece bloccato (autostart fail-closed).
+        # Audit #259 C3 (decisione proprietario): filtro chat presente ma NESSUNA chat
+        # effettivamente ascoltata (es. tutte le sorgenti disattivate) → lo START
+        # manuale procede con avviso (il bridge sarebbe «sordo»), l'avvio AUTOMATICO
+        # è bloccato. Il percorso auto reale è già fermato a monte da can_auto_start;
+        # questo ramo è difesa in profondità per una _start(auto=True) diretta, e
+        # evita un avviso che promette l'avvio quando l'auto-start viene annullato
+        # (CodeRabbit #312).
         if not signal_router.allowed_chats(cfg):
+            if auto:
+                self._log("⏸️ Avvio automatico annullato: nessuna chat sorgente ATTIVA.")
+                return
             self._log("⚠️ Nessuna chat sorgente ATTIVA: il listener parte ma NON "
                       "processerà alcun segnale finché non attivi almeno una chat.")
         # Fail-fast (PR-23/PR-24): la chat notifiche XTrader NON deve coincidere con una
