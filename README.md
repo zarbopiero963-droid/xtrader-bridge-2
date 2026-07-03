@@ -482,6 +482,11 @@ aggiornamenti dell'EXE):
 > ```
 > Filtri combinabili: `--type` (ripetibile), `--last N`, `--since`/`--until` (epoch),
 > `--path` (file alternativo). Non modifica **mai** il diario e non mostra segreti.
+>
+> Chi preferisce la GUI trova la stessa vista nella scheda **«📒 Diario»** dell'hub
+> **🧰 Strumenti**: tabella degli ultimi N eventi (`ts` leggibile · tipo · dati redatti),
+> filtro per tipo, **🔄 Aggiorna** e **📂 Apri cartella**. Anche la scheda è **read-only**
+> (riusa la stessa logica della CLI): non scrive né de-redige mai il diario.
 
 ---
 

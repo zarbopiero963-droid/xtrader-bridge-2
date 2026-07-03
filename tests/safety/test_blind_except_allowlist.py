@@ -45,6 +45,8 @@ _ALLOWLIST = {
                              "(incl. resolver ID anteprima fail-open, #192)"),
     "custom_pipeline.py": (1, "id_resolver iniettato: un resolver che solleva NON blocca la riga (fail-open)"),
     "gui_utils.py": (1, "helper GUI best-effort"),
+    "journal_view_gui.py": (2, "GUI Tk scheda Diario (#236): lettura ledger best-effort "
+                            "(avviso invece di crash) e apertura cartella best-effort"),
     "name_mapping_gui.py": (6, "GUI Tk mapping: render/azioni best-effort"),
     "provider_gui.py": (3, "GUI Tk provider: render/azioni best-effort"),
     "reconnect_policy.py": (1, "classificazione errore di reconnect tollerante"),

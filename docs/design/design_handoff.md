@@ -153,7 +153,8 @@ HUB "🧰 STRUMENTI"  (finestra a tab, caricata su richiesta)
       ├─ 📁 Profili             → profili impostazioni salvabili
       ├─ 🗺️ Mapping             → (sotto-tab: ⚽ Calcio nomi · 🎯 Mercati)
       ├─ 🔵 Betfair Sync        → credenziali + sync dizionario Betfair
-      └─ 📖 Dizionario Betfair  → browser sola-lettura del dizionario locale
+      ├─ 📖 Dizionario Betfair  → browser sola-lettura del dizionario locale
+      └─ 📒 Diario              → vista sola-lettura del diario eventi (event journal)
 ```
 
 **Frequenza d'uso (per prioritizzare la gerarchia visiva):**
@@ -244,7 +245,7 @@ altezza ridimensionabile, min 720×600.
 
 ## 7. Hub Strumenti e finestre secondarie
 
-L'hub **"🧰 Strumenti"** è una finestra a tab caricata su richiesta. I 7 pannelli:
+L'hub **"🧰 Strumenti"** è una finestra a tab caricata su richiesta. Gli 8 pannelli:
 
 ### 7.1 🧩 Parser Personalizzato (`custom_parser_gui.py`) — il pannello più complesso
 Costruttore visuale che definisce **come estrarre ogni colonna del CSV** da un messaggio,
@@ -349,6 +350,22 @@ tabella risultati.
     **"⏳ Dizionario in aggiornamento (sincronizzazione Betfair in corso): premi 🔄 Aggiorna
     tra poco."** — la vista fa **fail-fast** e **non** blocca/freeze la GUI durante la sync;
   - *errore di lettura:* **"⚠️ Errore lettura dizionario: &lt;Tipo&gt;"**.
+
+### 7.8 📒 Diario (`journal_view_gui.py`)
+Titolo **"📒  Diario eventi (locale, sola lettura)"**. Vista di consultazione del **diario
+eventi** (`event_journal.jsonl`): «cosa ha fatto il bridge» (avvii/arresti, segnali,
+conferme XTrader, riconnessioni, pulizie CSV). **Sola lettura**: non scrive né de-redige mai
+il ledger (gli eventi sono già redatti sul file: token e `chat_id` mai in chiaro). Riusa la
+stessa logica pura della CLI `journal_view`.
+- **Barra filtri:** dropdown **"Tipo"** (`(tutti i tipi)` + gli 11 tipi evento), dropdown
+  **"Ultimi"** (`50/100/200/500/Tutti`), **"🔄 Aggiorna"**, **"📂 Apri cartella"** (apre la
+  cartella che contiene il ledger).
+- **Riga conteggi** (sopra la tabella): `Diario: N eventi totali (mostrati M).`; su errore di
+  lettura **"⚠️ Errore lettura diario: &lt;Tipo&gt;"** (fail-safe, nessun crash della finestra).
+- **Tabella** (griglia di label in `CTkScrollableFrame`): colonne **Quando** (`ts` reso
+  leggibile locale) · **Tipo** · **Dati (redatti)** (JSON compatto, chiavi ordinate).
+- **Invariante di sicurezza:** la vista mostra i valori **esattamente come sono sul file** —
+  mai token/chat in chiaro, mai scrittura sul diario.
 
 ---
 

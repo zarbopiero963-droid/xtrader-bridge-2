@@ -109,4 +109,32 @@ produce output vuoto, non un errore. La logica pura (`filter_events`/`format_tab
 `tests/unit/test_journal_view.py` (ordinamento, filtri, riga malformata saltata, file
 assente, non-de-redazione + file non toccato, entrypoint `main`).
 
-> La **scheda GUI «📒 Diario»** che riusa questa stessa logica è tracciata a parte (issue #236).
+## Consultare il diario — scheda GUI «📒 Diario» (#236)
+La stessa vista è disponibile senza terminale nella scheda **«📒 Diario»** dell'hub
+**🧰 Strumenti** (`xtrader_bridge/journal_view_gui.py`, `JournalPanel`). Riusa la logica
+pura della CLI (`journal_view.filter_events`/`table_rows`), quindi condivide le **stesse
+invarianti**: read-only (nessuna scrittura sul ledger), niente de-redazione, ordinamento
+per `ts`, tollerante alle righe malformate.
+
+Controlli della scheda:
+
+| Controllo | Effetto |
+|---|---|
+| **Tipo** (dropdown) | Filtra per tipo evento (`(tutti i tipi)` = nessun filtro); i tipi sono gli 11 di `EVENT_TYPES` |
+| **Ultimi** (dropdown) | Ultimi N eventi dopo l'ordinamento per `ts` (`50/100/200/500` o `Tutti`) |
+| **🔄 Aggiorna** | Rilegge il ledger da disco e ricostruisce la tabella |
+| **📂 Apri cartella** | Apre nel file manager la cartella che contiene il ledger (best-effort) |
+
+La riga conteggi mostra `Diario: N eventi totali (mostrati M).`; un file **assente o illeggibile**
+dà `mostrati 0` senza errore (`read_events` è fail-safe: su `OSError` — file mancante o permessi —
+ritorna lista vuota), mentre un errore di lettura **inatteso** (eccezione non-`OSError`) viene
+mostrato come `⚠️ Errore lettura diario: <Tipo>`. Il modulo GUI non è testato in CI (serve un display): la logica
+esercitabile (`_refresh` su un ledger reale, filtri, read-only + non-de-redazione, guardia
+strutturale «nessuna scrittura») è coperta da `tests/unit/test_journal_view_gui.py`; il resto
+è verifica manuale.
+
+**Smoke test manuale (Windows/con display):** apri **🧰 Strumenti → 📒 Diario** →
+la tabella mostra gli ultimi eventi (`ts` leggibile, tipo, dati redatti) → cambia **Tipo** e
+**Ultimi** (la tabella e la riga conteggi si aggiornano) → premi **🔄 Aggiorna** dopo un nuovo
+evento (compare) → premi **📂 Apri cartella** (si apre la cartella del ledger). Atteso: nessun
+token in chiaro, il file `event_journal.jsonl` non cambia (read-only).

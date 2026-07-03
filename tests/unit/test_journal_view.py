@@ -101,6 +101,22 @@ def test_ts_label_robusto_su_ts_rotto():
     assert jv._ts_label(1000.0).count(":") == 2  # epoch valido → HH:MM:SS
 
 
+def test_table_rows_celle_coerenti_con_format_table(tmp_path):
+    # `table_rows` è la sorgente strutturata riusata da CLI e GUI: ogni riga è una tripla
+    # (ts leggibile, type, data JSON compatto) e deve combaciare con ciò che `format_table`
+    # rende testualmente (stesse celle → stessa tabella).
+    events = jv.filter_events(ej.read_events(_ledger(tmp_path)), types=["START"])
+    rows = jv.table_rows(events)
+    assert len(rows) == 1
+    ts, typ, data_str = rows[0]
+    assert typ == "START"
+    assert data_str == '{"mode": "DRY_RUN"}'          # chiavi ordinate, JSON compatto
+    assert ts.count(":") == 2 and "1000.0" not in ts   # ts reso leggibile, non epoch grezzo
+    # coerenza con la CLI: le stesse celle compaiono nella riga testuale
+    line = jv.format_table(events)
+    assert ts in line and typ in line and data_str in line
+
+
 def test_format_json_e_lista_valida(tmp_path):
     events = jv.filter_events(ej.read_events(_ledger(tmp_path)), last=2)
     parsed = json.loads(jv.format_json(events))
