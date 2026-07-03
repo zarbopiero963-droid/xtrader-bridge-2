@@ -17,6 +17,8 @@ un passo successivo (come `parser_manager` CP-07 ha preceduto CP-09), così ques
 parte resta interamente testabile headless e a rischio zero per il CSV.
 """
 
+import math
+
 MODES = ("PRE", "LIVE")
 DEFAULT_MODE = "PRE"
 # Provider di default per modalità: DERIVATO da MODES (PRE → "TG_PRE", LIVE →
@@ -31,13 +33,30 @@ def is_valid_mode(mode) -> bool:
     return str(mode or "").strip().upper() in MODES
 
 
+# Stringhe che significano "sì" esplicito per `enabled` (stesso vocabolario di
+# `autostart.is_enabled`, italiano incluso). Tutto il resto è fail-closed.
+_ENABLED_TRUE = ("true", "1", "yes", "on", "si", "sì")
+
+
 def _as_bool(value) -> bool:
-    """Coercizione robusta a bool (JSON può portare stringhe '0'/'false')."""
+    """Coercizione FAIL-CLOSED a bool per `enabled` (C7 #259): solo un "sì" ESPLICITO
+    abilita la sorgente. Prima era denylist-based (qualunque stringa non vuota fuori da
+    `0/false/no/off` diventava True): un typo («flase», «disabled») o un NaN/inf da
+    config corrotta RIABILITAVANO una sorgente che l'operatore credeva spenta → chat
+    di nuovo ascoltata. Ora vale l'allowlist (stesso contratto di `autostart.is_enabled`
+    e `config_store.as_bool_optin`); il default True per chiave ASSENTE resta al
+    chiamante (`raw.get("enabled", True)` in `_normalize`, che qui arriva come bool)."""
     if isinstance(value, bool):
         return value
+    if isinstance(value, int):
+        # Un int non può essere NaN/inf: basta `!= 0` (niente conversione a float,
+        # che su int fuori range solleverebbe OverflowError — lezione di #299).
+        return value != 0
+    if isinstance(value, float):
+        return math.isfinite(value) and value != 0
     if isinstance(value, str):
-        return value.strip().lower() not in ("", "0", "false", "no", "off")
-    return bool(value)
+        return value.strip().lower() in _ENABLED_TRUE
+    return False
 
 
 def normalize_mode(mode) -> str:

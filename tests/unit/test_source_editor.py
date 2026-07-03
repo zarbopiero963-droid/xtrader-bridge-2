@@ -251,3 +251,17 @@ def test_apply_riabilitare_sorgente_ripristina_override_attivo():
     assert errors == []
     assert new_cfg["parser_by_chat"].get("222") == "X"                   # ora attivo → autorizza
     assert "222" not in new_cfg.get("parser_by_chat_disabled", {})       # tolto dal parcheggio
+
+
+def test_row_enabled_stringa_malformata_fail_closed():
+    """C7 #259: `_row(enabled=...)` usava `bool(...)`: una stringa non vuota («false»,
+    «flase») passata al controller puro diventava True → sorgente riabilitata. Ora usa
+    la stessa coercizione fail-closed di `source_manager`.
+
+    Fail-first: sul vecchio codice `_row(enabled="false")["enabled"]` era True."""
+    from xtrader_bridge.source_editor import SourceEditor
+    for bad in ("false", "flase", "disabled", "0", "off", ""):
+        assert SourceEditor._row(enabled=bad)["enabled"] is False, f"accesa da {bad!r}"
+    for ok in (True, 1, "true", "sì", "on"):
+        assert SourceEditor._row(enabled=ok)["enabled"] is True, f"spenta da {ok!r}"
+    assert SourceEditor._row()["enabled"] is True      # default invariato

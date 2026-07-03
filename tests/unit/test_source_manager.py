@@ -127,3 +127,27 @@ def test_nome_duplicato_avvisato_non_bloccante():
 def test_nomi_unici_nessun_avviso():
     sources = [{"name": "A", "chat_id": "1"}, {"name": "B", "chat_id": "2"}]
     assert sm.duplicate_name_warnings(sources) == []
+
+
+def test_enabled_malformato_fail_closed():
+    """C7 #259: `enabled` malformato NON deve riabilitare una sorgente che l'operatore
+    credeva spenta. Prima `_as_bool` era denylist-based: un typo («flase», «disabled»)
+    o NaN/inf diventavano True → chat riabilitata di nascosto. Ora vale l'allowlist
+    fail-closed (stesso contratto di `autostart.is_enabled`/`as_bool_optin`): solo un
+    "sì" esplicito abilita; il default per chiave ASSENTE resta True.
+
+    Fail-first: sul vecchio codice «flase»/«attivo»/NaN producevano enabled=True."""
+    for bad in ("flase", "disabled", "spento", "attivo", "enabled",
+                float("nan"), float("inf"), [], {}, None):
+        cfg = _cfg({"chat_id": "777", "enabled": bad})
+        assert sm.source_chats(cfg)[0]["enabled"] is False, f"riabilitata da {bad!r}"
+        assert sm.enabled_chat_ids(cfg) == set()
+    # Gli esplicitamente-sì restano sì (retro-compatibilità con i valori legittimi).
+    for ok in (True, 1, 2, "1", "true", " TRUE ", "yes", "on", "si", "sì"):
+        cfg = _cfg({"chat_id": "777", "enabled": ok})
+        assert sm.source_chats(cfg)[0]["enabled"] is True, f"spenta da {ok!r}"
+    # Gli esplicitamente-no restano no; la chiave assente resta il default attivo.
+    for off in (False, 0, 0.0, "0", "false", "no", "off", ""):
+        cfg = _cfg({"chat_id": "777", "enabled": off})
+        assert sm.source_chats(cfg)[0]["enabled"] is False, f"accesa da {off!r}"
+    assert sm.source_chats(_cfg({"chat_id": "777"}))[0]["enabled"] is True
