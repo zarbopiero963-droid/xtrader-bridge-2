@@ -227,23 +227,29 @@ jobs:
                   print(f"::warning::Could not add label {MANUAL_REVIEW_LABEL}: {exc}")
 
           def upsert_comment(marker: str, body: str):
-              page = 1
-              existing = None
+              # Reviewer opzionale: se il commento non può essere pubblicato
+              # (token read-only/403, API transitoria) NON deve far fallire la
+              # PR — logga un warning e prosegui.
+              try:
+                  page = 1
+                  existing = None
 
-              while True:
-                  comments = gh_request("GET", f"/repos/{REPO}/issues/{PR_NUMBER}/comments?per_page=100&page={page}") or []
-                  for c in comments:
-                      if marker in (c.get("body") or ""):
-                          existing = c
+                  while True:
+                      comments = gh_request("GET", f"/repos/{REPO}/issues/{PR_NUMBER}/comments?per_page=100&page={page}") or []
+                      for c in comments:
+                          if marker in (c.get("body") or ""):
+                              existing = c
+                              break
+                      if existing or len(comments) < 100:
                           break
-                  if existing or len(comments) < 100:
-                      break
-                  page += 1
+                      page += 1
 
-              if existing:
-                  gh_request("PATCH", f"/repos/{REPO}/issues/comments/{existing['id']}", {"body": body})
-              else:
-                  gh_request("POST", f"/repos/{REPO}/issues/{PR_NUMBER}/comments", {"body": body})
+                  if existing:
+                      gh_request("PATCH", f"/repos/{REPO}/issues/comments/{existing['id']}", {"body": body})
+                  else:
+                      gh_request("POST", f"/repos/{REPO}/issues/{PR_NUMBER}/comments", {"body": body})
+              except Exception as exc:
+                  print(f"::warning::{REVIEW_ID}: impossibile pubblicare il commento (PR non bloccata; abilita 'Read and write permissions' in Settings -> Actions -> General): {redact(str(exc))[:500]}")
 
           def call_model(system_prompt: str, user_prompt: str):
               payload = {

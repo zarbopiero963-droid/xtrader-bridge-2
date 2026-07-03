@@ -33,6 +33,15 @@ fa fallire la PR con un check rosso. Puoi quindi abilitare solo i modelli che
 vuoi creando solo i relativi secret. Le chiavi sono mascherate nei log
 (`::add-mask::`) e non vengono mai stampate.
 
+> ⚙️ **Permesso di scrittura richiesto per pubblicare i commenti.** Perché i
+> reviewer possano commentare la PR e aggiungere la label, il repository deve
+> avere *Settings → Actions → General → Workflow permissions* impostato su
+> **«Read and write permissions»**. Con il default read-only il `GITHUB_TOKEN`
+> resta in sola lettura anche col blocco `permissions: issues: write`, e la
+> pubblicazione del commento riceve un `403`. In quel caso i workflow **non
+> falliscono** la PR (degradano a warning nei log), ma il commento non compare
+> finché il permesso non viene abilitato.
+
 ## Novità: review sul range del push (non sul diff cumulativo)
 
 I quattro PR review analizzano **solo i commit del push corrente**, non l'intero

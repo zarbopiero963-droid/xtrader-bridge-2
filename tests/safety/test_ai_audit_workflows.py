@@ -214,6 +214,12 @@ def test_pr_review_reviewer_opzionale_non_fa_fallire_la_pr():
         assert re.search(r"non configurato.*\n\s*exit 0", text), (
             f"{name}: la key assente deve portare a 'exit 0' (skip), non a un fallimento"
         )
+        # Anche un fallimento nella pubblicazione del commento (token read-only
+        # / 403) deve degradare a warning, non far fallire la PR.
+        src = _compiled_heredoc(name)
+        assert "impossibile pubblicare il commento" in src, (
+            f"{name}: upsert_comment deve essere fail-open (warning, non crash) su 403"
+        )
 
 
 def test_pr_review_push_range_via_compare_api():
