@@ -67,3 +67,20 @@ def test_catalogue_client_riusa_la_mappa_canonica():
 def test_sync_tab_controller_riusa_sport_e_normalize():
     assert sync_tab_controller.SPORTS is sports.SPORTS
     assert sync_tab_controller.normalize_sport is sports.normalize_sport
+
+
+# ── reverse map event_type_id → sport (harvest nomi squadra #282) ───────────────
+
+def test_sport_for_event_type_id_inverso_esatto():
+    # È l'inverso esatto di SPORTS_EVENT_TYPE per tutti i 4 sport supportati.
+    for sport, etid in sports.SPORTS_EVENT_TYPE.items():
+        assert sports.sport_for_event_type_id(etid) == sport
+    # accetta anche l'id come intero (str() interno)
+    assert sports.sport_for_event_type_id(1) == "Calcio"
+
+
+def test_sport_for_event_type_id_ignoto_none():
+    # id non riconosciuto / vuoto / None → None (fail-closed: nessun harvest)
+    assert sports.sport_for_event_type_id("999") is None
+    assert sports.sport_for_event_type_id("") is None
+    assert sports.sport_for_event_type_id(None) is None

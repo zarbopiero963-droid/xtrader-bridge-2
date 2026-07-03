@@ -948,3 +948,37 @@ temporaneo di `to_def`). Nessuna modifica al codice di produzione (già corretto
 `test_commit_signals_cap_pieno_autoraise_aggiunge_il_blocco`) e
 `tests/unit/test_signal_queue.py` (`test_add_force_bypassa_il_tetto`,
 `test_add_force_in_overwrite_last_resta_una_sola_riga`). Tutti fail-first sul codice precedente.
+
+## #282 — nomi squadra PERMANENTI dalla sync Betfair (harvest, data layer) ✅ (PR 10)
+
+**Obiettivo (deciso col proprietario).** Rendere i **nomi delle squadre** dei 4 sport
+**permanenti**: raccolti durante la sync Betfair e conservati **per sempre**, così
+restano disponibili per auto-completare la **mappatura nomi** (colonna `betfair`) anche
+quando l'evento finisce.
+
+**Rationale nomi vs ID (invariante di dominio).** Gli identificatori Betfair
+(`MarketId`/`SelectionId`) sono **effimeri** by-design: si rigenerano a ogni sync e il
+mark-and-sweep (`deactivate_unseen`) li marca `active=0` quando spariscono; il loro ciclo
+di vita **non cambia**. I **nomi squadra** invece non scadono nel mondo reale → vanno
+conservati. La PR separa nettamente le due cose:
+
+- nuova tabella `betfair_known_teams` (chiave `sport` + `normalized_name`, colonne
+  `display_name`/`first_seen_at`/`last_seen_at`), **senza colonna `active`**: non è in
+  `_SCOPED`, quindi `deactivate_unseen` la **rifiuta** (`ValueError`) e non può mai
+  disattivarla → permanenza **by-construction**;
+- harvest dentro la stessa transazione della sync (`CatalogueSync._harvest_teams`): per
+  ogni match «Home v Away» (due partecipanti) si fa `upsert_known_team` dei due nomi;
+  eventi a un solo nome (torneo/outright) sono saltati; normalizzazione = la **stessa**
+  della mappatura nomi (`dizionario.normalize`), così le chiavi combaciano;
+- accumulo idempotente (sync ripetute non duplicano); `first_seen_at` fisso,
+  `display_name`/`last_seen_at` seguono l'ultima grafia; sport salvato col **nome**
+  canonico (reverse map `sports.sport_for_event_type_id`).
+
+**Fuori scope PR 10:** aggancio GUI del menù/mappatura nomi e vista di ripulitura manuale
+(→ PR 11 di #282). Contratto CSV **invariato**.
+
+**Test hard (fail-first):** `tests/unit/test_betfair_local_db.py` (upsert/normalizzazione/
+first-seen/permanenza-non-disattivabile), `tests/unit/test_betfair_catalogue_sync.py`
+(harvest dopo sync, **no-deactivate** quando l'evento sparisce → ID `active=0` ma nomi
+restanti, accumulo cross-sync, solo-match-a-due, isolamento per sport),
+`tests/unit/test_sports.py` (`sport_for_event_type_id`).

@@ -654,3 +654,83 @@ def test_openDate_del_menu_preservato_se_catalogue_lo_omette(db):
                   catalogue_transport=lambda mids: cat).sync(["Calcio"])
     ev = db.get_events()[0]
     assert ev["open_date"] == "2026-07-01T18:00:00Z"         # preservato dal menu, non None
+
+
+# ── harvest nomi squadra PERMANENTI (#282) ────────────────────────────────────
+
+def _menu2():
+    """Seconda sync Calcio: l'evento «Inter v Milan» è SPARITO, arriva «Napoli v Lazio»."""
+    return {
+        "type": "GROUP", "name": "ROOT", "children": [
+            {"type": "EVENT_TYPE", "id": "1", "name": "Soccer", "children": [
+                {"type": "COMPETITION", "id": "c1", "name": "Serie A", "children": [
+                    {"type": "EVENT", "id": "e3", "name": "Napoli v Lazio", "children": [
+                        {"type": "MARKET", "id": "1.103", "name": "Match Odds",
+                         "marketType": "MATCH_ODDS"}]}]}]}]}
+
+
+def _catalogue2():
+    return [
+        {"marketId": "1.103", "marketName": "Match Odds",
+         "description": {"marketType": "MATCH_ODDS"},
+         "event": {"id": "e3", "name": "Napoli v Lazio"},
+         "runners": [
+             {"selectionId": 111, "runnerName": "Napoli", "handicap": 0},
+             {"selectionId": 222, "runnerName": "Lazio", "handicap": 0}]},
+    ]
+
+
+def test_harvest_nomi_squadra_dopo_sync(db):
+    summary = _sync(db).sync(["Calcio"])
+    # I due partecipanti del match «Inter v Milan» sono nella tabella permanente.
+    assert {t["display_name"] for t in db.known_teams("Calcio")} == {"Inter", "Milan"}
+    assert summary["known_teams"] == 2
+    # "The Draw" è una SELEZIONE, non una squadra: NON viene harvestata.
+    assert "The Draw" not in {t["display_name"] for t in db.known_teams()}
+
+
+def test_harvest_sync_ripetuta_non_duplica(db):
+    s = _sync(db)
+    s.sync(["Calcio"])
+    s.sync(["Calcio"])                       # stessi dati
+    assert db.count_known_teams("Calcio") == 2   # Inter/Milan, nessun duplicato
+
+
+def test_harvest_no_deactivate_quando_evento_sparisce(db):
+    # 1ª sync: Inter v Milan. 2ª sync: l'evento sparisce, arriva Napoli v Lazio.
+    CatalogueSync(db, navigation_transport=lambda: _menu(),
+                  catalogue_transport=lambda m: _catalogue()).sync(["Calcio"])
+    CatalogueSync(db, navigation_transport=lambda: _menu2(),
+                  catalogue_transport=lambda m: _catalogue2()).sync(["Calcio"])
+
+    # Gli ID dell'evento vecchio sono EFFIMERI: mark-and-sweep li disattiva.
+    active = {e["event_id"]: e["active"] for e in db.get_events()}
+    assert active["e1"] == 0                  # Inter v Milan disattivato
+    assert active["e3"] == 1                  # Napoli v Lazio attivo
+    assert db.count_active("betfair_selections") == 2   # solo Napoli/Lazio attive
+
+    # Ma i NOMI squadra restano TUTTI (permanenti, accumulati nel tempo).
+    assert {t["display_name"] for t in db.known_teams("Calcio")} == \
+        {"Inter", "Milan", "Napoli", "Lazio"}
+    assert db.count_known_teams("Calcio") == 4
+
+
+def test_harvest_solo_match_a_due_partecipanti(db):
+    # Un evento a un solo nome (torneo/outright) NON è una squadra → niente harvest.
+    menu = {"type": "GROUP", "children": [
+        {"type": "EVENT_TYPE", "id": "2", "name": "Tennis", "children": [
+            {"type": "EVENT", "id": "t1", "name": "ATP Finals", "children": [
+                {"type": "MARKET", "id": "1.900", "name": "Winner",
+                 "marketType": "OUTRIGHT"}]}]}]}
+    CatalogueSync(db, navigation_transport=lambda: menu,
+                  catalogue_transport=lambda m: []).sync(["Tennis"])
+    assert db.count_known_teams() == 0        # "ATP Finals" non harvestato
+    # l'evento è comunque salvato (participant_1 = nome intero, participant_2 vuoto)
+    assert db.get_events()[0]["participant_1"] == "ATP Finals"
+
+
+def test_harvest_isolato_per_sport(db):
+    # Basket + Rugby: i nomi finiscono sotto lo sport giusto (reverse map event_type_id).
+    _sync_br(db).sync(["Basket", "Rugby Union"])
+    assert {t["display_name"] for t in db.known_teams("Basket")} == {"Lakers", "Celtics"}
+    assert {t["display_name"] for t in db.known_teams("Rugby Union")} == {"England", "Wales"}
