@@ -431,7 +431,12 @@ jobs:
                           return True
               return False
 
-          if EVENT_ACTION != "labeled" and not touches_core(files):
+          # Fail-safe: se la Compare API ha troncato la lista (>= 300 file) non
+          # possiamo escludere che un file core sia oltre il limite → NON saltare
+          # (meglio spendere che perdere una PR core grande).
+          compare_maybe_truncated = len(files) >= 300
+          if (EVENT_ACTION != "labeled" and not compare_maybe_truncated
+                  and not touches_core(files)):
               print(
                   f"::notice::{REVIEW_ID}: push senza file core del bridge e senza "
                   "label finale → review forte saltata (nessun costo modello)."

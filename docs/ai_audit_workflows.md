@@ -54,6 +54,11 @@ stampate.
   non vede mai le API key, che restano nei GitHub Secrets. Il gate `paths` nativo
   di GitHub non è usato perché filtrerebbe anche l'evento `labeled`: il gate costo
   è dentro lo script (salta il modello se nessun file core e nessuna label).
+  Dettagli: su `synchronize` (push a una PR esistente) analizzano il **push-range**;
+  su `opened`/`reopened`/`ready_for_review` con file core analizzano l'**intera PR**
+  (base...head), come per la label. Il gate è **fail-safe** sulla truncation della
+  Compare API: se la lista file è troncata (≥ 300 file) **non** salta la review
+  (un file core potrebbe essere oltre il limite).
   Proprio perché coprono tutta la PR, i due gate finali usano un **budget di
   output più ampio** degli automatici (`MAX_OUTPUT_TOKENS: 4000` vs `3000`
   GPT-5.5 / `1500` GLM): con un budget piccolo il modello può esaurire i token
@@ -120,8 +125,10 @@ mostra scope, range `base...head`, numero di commit e una stima del costo token.
   fallirebbe prima di partire (il workflow degrada a warning, non blocca la PR).
 - **Audit read-only**: snapshot tarball, nessun checkout scrivibile; solo un
   artifact. I **symlink non vengono mai seguiti** (un link committato non può
-  far leggere file del runner fuori dallo snapshot) e i finding del modello sono
-  **clampati al file/chunk realmente analizzato**.
+  far leggere file del runner fuori dallo snapshot) ma il loro **nome** viene
+  comunque scansionato per segreti (allineato tra i due audit, inclusi symlink
+  rotti/verso directory), e i finding del modello sono **clampati al file/chunk
+  realmente analizzato**.
 - **Redaction pre-invio**: possibili segreti (token Telegram, chiavi
   OpenAI/OpenRouter, PAT GitHub classici **e fine-grained `github_pat_`**,
   private key, assegnazioni `password=`/`token=`) vengono offuscati **prima**

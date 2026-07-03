@@ -394,7 +394,11 @@ jobs:
               path_findings: List[Dict[str, Any]] = []
 
               for path in sorted(ROOT.rglob("*")):
-                  if not path.is_file():
+                  # Includi anche i symlink (anche rotti/verso dir): should_skip li
+                  # scarta MA prima vengono scansionati sul path RAW, così un segreto
+                  # nel NOME di un symlink non sfugge (allineato all'audit Claude,
+                  # Codex/GPT-5.5).
+                  if not path.is_file() and not path.is_symlink():
                       continue
 
                   skip, reason = should_skip(path)

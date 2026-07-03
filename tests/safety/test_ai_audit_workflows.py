@@ -422,12 +422,18 @@ def test_pr_review_trigger_split():
             assert "CORE_TRIGGER_PATTERNS" in text and "touches_core" in text, (
                 f"{name}: manca il gate costo (modello solo su file core o label)"
             )
-            assert re.search(r'EVENT_ACTION != "labeled" and not touches_core', text), (
+            assert 'EVENT_ACTION != "labeled"' in text and "not touches_core(files)" in text, (
                 f"{name}: manca la condizione di skip (nessun file core e nessuna label)"
             )
             # Il set core deve includere almeno il package del bridge.
             assert "xtrader_bridge/" in text, (
                 f"{name}: il trigger core deve includere xtrader_bridge/"
+            )
+            # Fail-safe: su Compare API troncata (>=300 file) NON deve saltare la
+            # review forte, perché un file core potrebbe essere oltre il limite
+            # (GPT-5.5). Il gate deve considerare la truncation prima di skippare.
+            assert "compare_maybe_truncated" in text, (
+                f"{name}: il gate costo non è fail-safe su Compare API troncata (>=300 file)"
             )
 
 
@@ -656,6 +662,28 @@ def test_audit_scansiona_segreti_nei_path_dei_file_skippati(tmp_path, monkeypatc
         assert crit, f"{name}: segreto nel nome di un file skippato non segnalato"
         # nessun valore in chiaro nel finding
         assert _fake_github_pat() not in crit[0]["evidence"], name
+        assert _fake_github_pat() not in crit[0]["file"], name
+
+
+def test_audit_scansiona_segreti_nei_nomi_dei_symlink(tmp_path, monkeypatch):
+    """GPT-5.5: un segreto nel NOME di un symlink (anche rotto/verso dir) deve
+    essere scansionato in ENTRAMBI gli audit — il manual audit prima scartava i
+    non-file prima dello scan, disallineandosi dal Claude audit."""
+    for name, iter_name in (
+        ("manual-full-repo-ai-audit.yml", "iter_text_files"),
+        ("claude-fable-full-repo-audit.yml", "iter_files"),
+    ):
+        ns, root = _exec_audit_script(name, tmp_path, monkeypatch)
+        sub = root / "links"
+        sub.mkdir(exist_ok=True)
+        link = sub / f"{_fake_github_pat()}.txt"
+        if link.exists() or link.is_symlink():
+            link.unlink()
+        link.symlink_to(root / "target-inesistente")  # symlink rotto (non is_file)
+
+        _files, _skipped, path_findings = ns[iter_name]()
+        crit = [f for f in path_findings if f["severity"] == "critical"]
+        assert crit, f"{name}: segreto nel nome di un symlink non segnalato"
         assert _fake_github_pat() not in crit[0]["file"], name
 
 
