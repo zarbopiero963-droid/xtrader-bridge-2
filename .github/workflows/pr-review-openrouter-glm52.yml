@@ -111,6 +111,12 @@ jobs:
               r"(^|/)poetry\.lock$",
               r"(?i)license|licence|activation|payment|supabase|telegram|betfair|csv|parser",
               r"(?i)secret|credential|token|auth|encrypt|decrypt|keyring|updater|auto.?update|config|settings",
+              # dotenv e file-segreto: una PR che aggiunge/rinomina .env o una
+              # chiave privata va marcata manual-review anche se il file è binario/
+              # oversized/senza patch e il modello non può ispezionarlo (Codex P2).
+              r"(^|/)\.env($|\.)",
+              r"(?i)(^|/)[^/]*\.(pem|pfx|p12|key|keystore)$",
+              r"(?i)(^|/)(id_rsa|id_dsa|id_ecdsa|id_ed25519)$",
           ]
 
           REDACTIONS = [
@@ -486,6 +492,11 @@ jobs:
                   f"Errore sintetico:\n\n```text\n{redact(str(exc))[:3000]}\n```"
               )
               usage = {}
+
+          # Redigi anche l'OUTPUT del modello: se ripete un valore segreto (formato
+          # non coperto dalla redaction dell'input o echo del prompt) non deve finire
+          # in chiaro nel commento PR (Codex P2).
+          review = redact(review)
 
           body = f"""{marker}
           # OpenRouter GLM 5.2 PR Review

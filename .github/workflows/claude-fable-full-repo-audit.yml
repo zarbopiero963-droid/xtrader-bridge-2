@@ -331,18 +331,24 @@ jobs:
               except UnicodeDecodeError:
                   return raw.decode("utf-8", errors="replace")
 
-          def iter_files() -> Tuple[List[pathlib.Path], List[Dict[str, str]]]:
+          def iter_files() -> Tuple[List[pathlib.Path], List[Dict[str, str]], List[Dict[str, Any]]]:
               files = []
               skipped = []
+              # Segreti nel NOME dei file SKIPPATI (binari/symlink/oversized/MAX_FILES):
+              # non entrano nel loop dei candidati, quindi vanno scansionati sul path
+              # RAW qui, altrimenti fail_on_critical li mancherebbe (Codex P2).
+              path_findings: List[Dict[str, Any]] = []
 
               for path in sorted(ROOT.rglob("*")):
                   if not path.is_file() and not path.is_symlink():
                       continue
 
-                  rel = safe_display(str(path.relative_to(ROOT)).replace("\\", "/"))
+                  raw_rel = str(path.relative_to(ROOT)).replace("\\", "/")
+                  rel = safe_display(raw_rel)
                   skip, reason = should_skip(path)
 
                   if skip:
+                      path_findings.extend(path_secret_scan(raw_rel, rel))
                       skipped.append({"file": rel, "reason": reason})
                       continue
 
@@ -350,14 +356,17 @@ jobs:
 
               if len(files) > MAX_FILES:
                   for p in files[MAX_FILES:]:
+                      raw_rel = str(p.relative_to(ROOT)).replace("\\", "/")
+                      rel = safe_display(raw_rel)
+                      path_findings.extend(path_secret_scan(raw_rel, rel))
                       skipped.append({
-                          "file": safe_display(str(p.relative_to(ROOT)).replace("\\", "/")),
+                          "file": rel,
                           "reason": f"oltre MAX_FILES={MAX_FILES}",
                       })
 
                   files = files[:MAX_FILES]
 
-              return files, skipped
+              return files, skipped, path_findings
 
           def make_chunks(text: str) -> List[Tuple[int, int, str]]:
               lines = text.splitlines()
@@ -518,7 +527,10 @@ jobs:
                   raise
 
           def normalize_finding(raw: Dict[str, Any], file: str, start: int, end: int) -> Dict[str, Any]:
-              severity = str(raw.get("severity") or "info").lower()
+              # .strip() prima di .lower(): un "critical " con spazio incidentale
+              # non deve mancare l'allowed-set e degradare a info, altrimenti
+              # fail_on_critical non fallirebbe su un finding critico (Codex P2).
+              severity = str(raw.get("severity") or "info").strip().lower()
 
               if severity not in {"critical", "high", "medium", "low", "info"}:
                   severity = "info"
@@ -851,9 +863,9 @@ jobs:
               return counts
 
           def main() -> int:
-              files, skipped = iter_files()
+              files, skipped, skipped_path_findings = iter_files()
               scanned = []
-              findings = []
+              findings = list(skipped_path_findings)
               errors = []
               chunks_used = 0
               chunks_succeeded = 0

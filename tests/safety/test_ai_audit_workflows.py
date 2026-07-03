@@ -393,8 +393,9 @@ def test_pr_review_reviewer_opzionale_non_fa_fallire_la_pr():
 
 
 def test_pr_review_trigger_split():
-    """GPT-5.5 e GLM 5.2 automatici a ogni push; Claude Fable 5 e Fugu Ultra
-    solo via label finale dedicata (cancello pre-merge)."""
+    """GPT-5.5 e GLM 5.2 automatici a ogni push (spendono sempre); Claude Fable 5
+    e Fugu Ultra partono sui push ma spendono (chiamano il modello) SOLO se il
+    push tocca file core del bridge oppure se è aggiunta la label finale."""
     for name, meta in _AI_WORKFLOWS.items():
         if meta["kind"] != "pr_review":
             continue
@@ -406,11 +407,55 @@ def test_pr_review_trigger_split():
             assert "github.event.label.name" not in text, (
                 f"{name}: reviewer automatico non deve gatare su una label"
             )
-        else:
-            assert "types: [labeled]" in text, f"{name}: reviewer finale deve triggerare su label"
-            assert f"github.event.label.name == '{meta['label']}'" in text, (
-                f"{name}: reviewer finale deve gatare sulla label {meta['label']}"
+            assert "CORE_TRIGGER_PATTERNS" not in text, (
+                f"{name}: reviewer automatico non deve avere il gate costo core-file"
             )
+        else:
+            # Gate finale forte: parte sui push + label, ma il costo è gatato.
+            assert "labeled" in text, f"{name}: gate finale deve triggerare anche su label"
+            assert "synchronize" in text, (
+                f"{name}: gate finale deve triggerare sui push (per il gate costo core-file)"
+            )
+            assert f"github.event.label.name == '{meta['label']}'" in text, (
+                f"{name}: gate finale deve accettare la label {meta['label']}"
+            )
+            assert "CORE_TRIGGER_PATTERNS" in text and "touches_core" in text, (
+                f"{name}: manca il gate costo (modello solo su file core o label)"
+            )
+            assert re.search(r'EVENT_ACTION != "labeled" and not touches_core', text), (
+                f"{name}: manca la condizione di skip (nessun file core e nessuna label)"
+            )
+            # Il set core deve includere almeno il package del bridge.
+            assert "xtrader_bridge/" in text, (
+                f"{name}: il trigger core deve includere xtrader_bridge/"
+            )
+
+
+def test_pr_review_redige_output_del_modello():
+    """Codex P2: l'OUTPUT del modello va redatto prima della pubblicazione.
+
+    Se il modello ripete un valore segreto (formato non coperto dalla redaction
+    dell'input, o echo del prompt), non deve finire in chiaro nel commento PR.
+    """
+    for name, meta in _AI_WORKFLOWS.items():
+        if meta["kind"] != "pr_review":
+            continue
+        assert "review = redact(review)" in _read(name), (
+            f"{name}: l'output del modello non passa da redact() prima della pubblicazione"
+        )
+
+
+def test_pr_review_dotenv_e_chiavi_sono_area_critica():
+    """Codex P2: .env e file-chiave devono essere area critica (manual-review),
+    anche se binari/oversized/senza patch."""
+    for name, meta in _AI_WORKFLOWS.items():
+        if meta["kind"] != "pr_review":
+            continue
+        text = _read(name)
+        assert r"(^|/)\.env($|\.)" in text, f"{name}: dotenv non marcato come area critica"
+        assert "pem|pfx|p12|key|keystore" in text, (
+            f"{name}: file-chiave privati non marcati come area critica"
+        )
 
 
 def test_pr_review_robustezza_infra():
@@ -592,6 +637,38 @@ def test_make_chunks_numeri_riga_e_budget(tmp_path, monkeypatch):
     assert ns2["make_chunks"]("") == [(1, 1, "000001: [EMPTY FILE]")]
 
 
+def test_audit_scansiona_segreti_nei_path_dei_file_skippati(tmp_path, monkeypatch):
+    """Codex P2: un segreto nel NOME di un file SKIPPATO (binario/oversized/
+    MAX_FILES) deve comunque produrre un finding critico, altrimenti
+    fail_on_critical lo mancherebbe (il path scan girava solo sui candidati)."""
+    for name, iter_name in (
+        ("manual-full-repo-ai-audit.yml", "iter_text_files"),
+        ("claude-fable-full-repo-audit.yml", "iter_files"),
+    ):
+        ns, root = _exec_audit_script(name, tmp_path, monkeypatch)
+        leaked = root / "leaked"
+        leaked.mkdir(exist_ok=True)
+        # file binario (→ skippato) con un PAT nel nome, a un boundary di path
+        (leaked / f"{_fake_github_pat()}.exe").write_bytes(b"\x00\x01\x02")
+
+        _files, _skipped, path_findings = ns[iter_name]()
+        crit = [f for f in path_findings if f["severity"] == "critical"]
+        assert crit, f"{name}: segreto nel nome di un file skippato non segnalato"
+        # nessun valore in chiaro nel finding
+        assert _fake_github_pat() not in crit[0]["evidence"], name
+        assert _fake_github_pat() not in crit[0]["file"], name
+
+
+def test_normalize_finding_strip_severity(tmp_path, monkeypatch):
+    """Codex P2: severity con spazio/newline incidentale ('critical ') non deve
+    mancare l'allowed-set e degradare a info (fail_on_critical la mancherebbe)."""
+    for name in _AUDIT_WORKFLOWS:
+        ns, _ = _exec_audit_script(name, tmp_path, monkeypatch)
+        norm = ns["normalize_finding"]
+        assert norm({"severity": "critical ", "title": "x"}, "main.py", 1, 10)["severity"] == "critical", name
+        assert norm({"severity": " HIGH\n", "title": "x"}, "main.py", 1, 10)["severity"] == "high", name
+
+
 def test_make_chunks_tronca_righe_singole_oltre_budget(tmp_path, monkeypatch):
     monkeypatch.setenv("CHUNK_MAX_CHARS", "200")
     long_line = "x" * 1000
@@ -715,7 +792,7 @@ def test_iter_files_salta_binari_directory_generate_e_max_files(tmp_path, monkey
     (root / "__pycache__").mkdir()
     (root / "__pycache__" / "x.py").write_text("cache\n", encoding="utf-8")
 
-    files, skipped = ns["iter_files"]()
+    files, skipped, _path_findings = ns["iter_files"]()
     scanned = [str(p.relative_to(root)) for p in files]
     skipped_names = {item["file"] for item in skipped}
 
@@ -741,7 +818,7 @@ def test_iter_files_non_segue_symlink_fuori_dallo_snapshot(tmp_path, monkeypatch
             link.unlink()
         link.symlink_to(fuori)
 
-        files, skipped = ns[iter_name]()
+        files, skipped, _path_findings = ns[iter_name]()
         scanned = [str(p.relative_to(root)) for p in files]
         assert "evil_link.txt" not in scanned, f"{name}: symlink seguito fuori dallo snapshot"
         evil = [item for item in skipped if item["file"] == "evil_link.txt"]
