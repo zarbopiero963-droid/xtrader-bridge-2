@@ -113,6 +113,15 @@ jobs:
             fi
           done
 
+          # MAX_FILES/MAX_CHUNKS a 0 = audit senza contenuto (0 file/0 chunk):
+          # rifiutalo, altrimenti il job sembrerebbe verde senza review AI.
+          for value in MAX_FILES MAX_CHUNKS; do
+            if [ "${!value}" -lt 1 ]; then
+              echo "::error::$value deve essere >= 1 (0 = nessun contenuto analizzato)"
+              exit 1
+            fi
+          done
+
       - name: Download repository snapshot read-only
         shell: bash
         run: |

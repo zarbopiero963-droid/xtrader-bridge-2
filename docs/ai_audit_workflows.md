@@ -119,6 +119,25 @@ mostra scope, range `base...head`, numero di commit e una stima del costo token.
 > review non fanno checkout. Le invarianti comuni sono difese in un punto solo
 > dal test di safety, che è la rete anti-drift.
 
+## Modello di minaccia e limiti onesti
+
+- **L'agente non vede le API key**: aggiunge solo label e commenti; i segreti
+  restano nei GitHub Secrets e non vengono mai stampati (masking + redaction).
+- **Rischio residuo (repo personale, writer fidati).** I reviewer automatici
+  (GPT-5.5, GLM 5.2) girano su `pull_request` e — per le PR **interne** allo
+  stesso repo — eseguono lo script del workflow **preso dal branch della PR**,
+  con il secret disponibile. Chi ha **write sul repo** può quindi modificare il
+  file del reviewer per esfiltrare la chiave, nonostante il guard anti-fork.
+  Questo è inerente alla CI con secret su `pull_request` di **qualunque** repo:
+  chi ha write potrebbe leggere i segreti anche per altre vie. Per XTrader
+  Bridge — repo personale, unici writer il proprietario e il suo agente fidato
+  su branch dedicati, merge sempre manuale — il rischio è **accettato**. Chi
+  volesse un isolamento più forte può spostare le chiavi dietro un **GitHub
+  Environment con required reviewers**, o rendere anche i reviewer automatici
+  a trigger fidato (label/dispatch), a costo del feedback continuo.
+- I due **cancelli finali** (Fable 5, Fugu Ultra) sono già a trigger fidato
+  (label aggiunta dal proprietario/agente), quindi meno esposti.
+
 ## Audit full-repo manuali — come si lanciano
 
 *GitHub → Actions → nome del workflow → Run workflow*, scegliendo branch e

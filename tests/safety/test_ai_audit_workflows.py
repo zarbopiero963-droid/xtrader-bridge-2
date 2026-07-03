@@ -189,6 +189,9 @@ def test_audit_solo_manuali_workflow_dispatch():
         assert not re.search(r"(?m)^  push:", text), f"{name}: trigger push vietato"
         assert not re.search(r"(?m)^  pull_request:", text), f"{name}: trigger pull_request vietato"
         assert not re.search(r"(?m)^  schedule:", text), f"{name}: trigger schedule vietato"
+        # max_files/max_chunks = 0 → audit senza contenuto: va rifiutato
+        # (Codex P2 su PR #304), altrimenti il job sembrerebbe verde con 0/0.
+        assert "-lt 1" in text, f"{name}: budget 0 (max_files/max_chunks) non rifiutato"
 
 
 def test_pr_review_diff_only_niente_checkout_niente_fork():
@@ -265,6 +268,18 @@ def test_pr_review_robustezza_infra():
         # Diff Compare troncato a 300 file → forza controllo manuale.
         assert "compare_truncated" in src, (
             f"{name}: troncamento Compare (>=300 file) non gestito fail-closed"
+        )
+        # Force-push: fallback sull'intera PR, non sul solo parent di HEAD.
+        assert "fallback intera PR" in src, (
+            f"{name}: il fallback deve coprire l'intera PR (base...head), non il solo parent"
+        )
+        # Fence ``` nel patch neutralizzati (recinto anti-injection).
+        assert re.search(r"patch = patch\.replace\(", src), (
+            f"{name}: i fence del patch non sono neutralizzati (prompt-injection)"
+        )
+        # Un path che È un segreto (redatto in placeholder) è comunque sensibile.
+        assert '"[REDACTED" in filename' in src, (
+            f"{name}: un filename-segreto redatto deve restare marcato sensibile"
         )
 
 
