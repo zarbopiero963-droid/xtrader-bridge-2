@@ -381,8 +381,11 @@ def test_iter_files_non_segue_symlink_fuori_dallo_snapshot(tmp_path, monkeypatch
         files, skipped = ns[iter_name]()
         scanned = [str(p.relative_to(root)) for p in files]
         assert "evil_link.txt" not in scanned, f"{name}: symlink seguito fuori dallo snapshot"
-        assert any(item["file"] == "evil_link.txt" for item in skipped), (
-            f"{name}: symlink saltato ma non tracciato"
+        evil = [item for item in skipped if item["file"] == "evil_link.txt"]
+        assert evil, f"{name}: symlink saltato ma non tracciato"
+        # Il motivo deve dire PERCHÉ (symlink), non un motivo qualsiasi.
+        assert any("symlink" in item["reason"] for item in evil), (
+            f"{name}: motivo dello skip non menziona il symlink"
         )
 
 
@@ -396,8 +399,93 @@ def test_pr_review_upsert_paginato_e_ref_tarball_encodato():
             )
         else:
             text = _read(name)
-            assert "urllib.parse.quote" in text, (
+            # È proprio TARGET_REF a essere quotato (non un quote qualsiasi).
+            assert re.search(r"urllib\.parse\.quote\([^)]*TARGET_REF", text), (
                 f"{name}: TARGET_REF va URL-encodato prima dell'URL tarball (branch con '/')"
+            )
+            # Fail-closed sul charset PRIMA di scrivere in GITHUB_ENV: un
+            # target_ref con newline inietterebbe record extra nel file env.
+            assert re.search(r'"\$TARGET_REF"\s*=~\s*\^\[A-Za-z0-9._/-\]\+\$', text), (
+                f"{name}: manca la validazione charset di target_ref prima di GITHUB_ENV"
+            )
+
+
+def test_pr_review_label_e_warning_sopravvivono_al_diff_vuoto():
+    """Codex P2 su PR #304 round 2: una PR di soli file binari/oversized che
+    tocca aree sensibili deve comunque ricevere label + avviso manuale, anche
+    se non c'è patch testuale da mandare al modello. Gli script PR review
+    girano a livello modulo (non exec-abili offline), quindi qui si verifica
+    l'ordine del flusso nel sorgente: label/warning calcolati PRIMA dell'uscita
+    per diff vuoto, e warning incluso in entrambi i commenti."""
+    for name, meta in _AI_WORKFLOWS.items():
+        if meta["kind"] != "pr_review":
+            continue
+        src = _compiled_heredoc(name)
+        assert src.index("if critical_files:") < src.index('if not diff_text.strip():'), (
+            f"{name}: label/warning vanno calcolati prima dell'early-exit per diff vuoto"
+        )
+        assert src.count("{manual_warning}") >= 2, (
+            f"{name}: l'avviso manuale deve comparire anche nel commento per diff vuoto"
+        )
+
+
+def test_redazione_pem_preserva_i_numeri_riga(tmp_path, monkeypatch):
+    """Codex P2 su PR #304 round 2: la redaction di un blocco PEM multi-riga
+    non deve collassare le righe, o i finding successivi puntano a righe
+    sbagliate nel report."""
+    for name in ("manual-full-repo-ai-audit.yml", "claude-fable-full-repo-audit.yml"):
+        ns, _ = _exec_audit_script(name, tmp_path, monkeypatch)
+        text = "riga prima\n" + _fake_private_key_block() + "\nriga dopo"
+        out = ns["redact"](text)
+        assert "MIIfintofintofinto" not in out, f"{name}: PEM non redatto"
+        assert out.count("\n") == text.count("\n"), (
+            f"{name}: la redaction del PEM ha cambiato il numero di righe"
+        )
+        assert out.splitlines()[-1] == "riga dopo", f"{name}: righe successive spostate"
+
+
+def test_make_chunks_tronca_righe_singole_oltre_budget(tmp_path, monkeypatch):
+    """Codex P2 su PR #304 round 2: una riga singola più lunga del budget
+    (file minificato/generato) non deve produrre un chunk fuori budget."""
+    monkeypatch.setenv("CHUNK_MAX_CHARS", "200")
+    long_line = "x" * 1000
+
+    ns, _ = _exec_audit_script("manual-full-repo-ai-audit.yml", tmp_path, monkeypatch)
+    chunks = ns["make_chunks"]("minified.js", long_line)
+    assert all(len(c) <= 260 for _, _, c in chunks), (
+        "audit GPT: chunk oltre il budget con riga singola lunga"
+    )
+
+    ns2, _ = _exec_audit_script("claude-fable-full-repo-audit.yml", tmp_path, monkeypatch)
+    chunks2 = ns2["make_chunks"](long_line)
+    assert all(len(c) <= 260 for _, _, c in chunks2), (
+        "audit Claude: chunk oltre il budget con riga singola lunga"
+    )
+
+
+def test_aree_critiche_coprono_tutti_i_requirements(tmp_path, monkeypatch):
+    """Codex P2 su PR #304 round 2: le sorgenti dipendenze del repo sono
+    requirements.in / -build.in / -dev.txt / -build.lock, non solo
+    requirements.txt: tutte supply-chain, tutte sensibili."""
+    # Solo l'audit GPT ha il concetto di area critica (il prompt Claude non
+    # usa l'area): lì si esercita la funzione reale.
+    ns, _ = _exec_audit_script("manual-full-repo-ai-audit.yml", tmp_path, monkeypatch)
+    for fname in (
+        "requirements.txt",
+        "requirements.in",
+        "requirements-build.in",
+        "requirements-dev.txt",
+        "requirements-build.lock",
+    ):
+        assert ns["critical_area"](fname), f"audit GPT: {fname} non è area critica"
+
+    # I PR review non sono exec-abili: si verifica che il pattern esteso sia
+    # nel sorgente eseguito (stessa regex degli audit).
+    for name, meta in _AI_WORKFLOWS.items():
+        if meta["kind"] == "pr_review":
+            src = _compiled_heredoc(name)
+            assert r"requirements[^/]*\.(txt|in|lock)$" in src, (
+                f"{name}: detector requirements non copre .in/-dev/-build.lock"
             )
 
 

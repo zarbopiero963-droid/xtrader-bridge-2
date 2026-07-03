@@ -95,7 +95,7 @@ jobs:
 
           CRITICAL_PATTERNS = [
               r"(^|/)\.github/workflows/",
-              r"(^|/)requirements\.txt$",
+              r"(^|/)requirements[^/]*\.(txt|in|lock)$",
               r"(^|/)pyproject\.toml$",
               r"(^|/)poetry\.lock$",
               r"(?i)license",
@@ -333,27 +333,9 @@ jobs:
           files = get_pr_files()
           diff_text, skipped_files, critical_files = build_patch_payload(files)
 
-          if not diff_text.strip():
-              upsert_comment(
-                  f"""{MARKER}
-          # Claude Fable 5 Secure PR Review
-
-          Nessun patch testuale analizzabile trovato.
-
-          Possibili motivi:
-          - file binari
-          - diff troppo grande
-          - patch non disponibile dalla GitHub API
-
-          Modalità sicurezza:
-          - niente checkout
-          - niente esecuzione codice PR
-          - niente auto-merge
-          - niente approvazione automatica
-          """
-              )
-              sys.exit(0)
-
+          # Label e avviso manuale vengono calcolati PRIMA dell'uscita per diff
+          # vuoto: una PR di soli file binari/oversized che tocca aree sensibili
+          # è il caso in cui il controllo umano serve di più.
           manual_warning = ""
 
           if critical_files:
@@ -378,6 +360,31 @@ jobs:
                   + ("\n- ... altri file omessi" if len(skipped_files) > 40 else "")
                   + "\n"
               )
+
+          if not diff_text.strip():
+              upsert_comment(
+                  f"""{MARKER}
+          # Claude Fable 5 Secure PR Review
+
+          Nessun patch testuale analizzabile trovato.
+
+          Possibili motivi:
+          - file binari
+          - diff troppo grande
+          - patch non disponibile dalla GitHub API
+
+          Modalità sicurezza:
+          - niente checkout
+          - niente esecuzione codice PR
+          - niente auto-merge
+          - niente approvazione automatica
+
+          {manual_warning}
+
+          {skipped_note}
+          """[:64000]
+              )
+              sys.exit(0)
 
           system_prompt = """
           Sei un senior code reviewer per XTrader Signal Bridge.
