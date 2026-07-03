@@ -67,8 +67,9 @@ jobs:
       MAX_TOTAL_PATCH_CHARS: "24000"
       # Gate finale: rivede l'INTERA PR (base...head), non un piccolo push-range,
       # quindi serve un budget di output ampio o il modello esaurisce i token
-      # prima di produrre la review (osservato su Fable5: 1200 = 0 testo).
-      MAX_OUTPUT_TOKENS: "4000"
+      # prima di produrre la review (osservato su Fable5: 1200 = 0 testo). 6000
+      # copre anche le review lunghe; gira di rado (file core/label) → costo basso.
+      MAX_OUTPUT_TOKENS: "6000"
 
       PRICE_INPUT_PER_MILLION: "5.00"
       PRICE_OUTPUT_PER_MILLION: "30.00"
@@ -122,7 +123,7 @@ jobs:
 
           MAX_PATCH_PER_FILE_CHARS = int(os.environ.get("MAX_PATCH_PER_FILE_CHARS", "7000"))
           MAX_TOTAL_PATCH_CHARS = int(os.environ.get("MAX_TOTAL_PATCH_CHARS", "24000"))
-          MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "4000"))
+          MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "6000"))
 
           PRICE_INPUT_PER_MILLION = float(os.environ.get("PRICE_INPUT_PER_MILLION", "0"))
           PRICE_OUTPUT_PER_MILLION = float(os.environ.get("PRICE_OUTPUT_PER_MILLION", "0"))

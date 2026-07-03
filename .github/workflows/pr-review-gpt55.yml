@@ -52,8 +52,9 @@ jobs:
       MAX_TOTAL_PATCH_CHARS: "24000"
       # gpt-5.5 è un modello reasoning: i token di reasoning contano nel budget
       # di output. Con 1200 su un diff grande il reasoning esauriva tutto e non
-      # restava testo. 3000 lascia spazio a reasoning + review.
-      MAX_OUTPUT_TOKENS: "3000"
+      # restava testo. 4500 lascia spazio a reasoning + review completa senza
+      # troncamenti tipici (gira a ogni push, quindi budget misurato sul costo).
+      MAX_OUTPUT_TOKENS: "4500"
 
       PRICE_INPUT_PER_MILLION: "5.00"
       PRICE_OUTPUT_PER_MILLION: "30.00"
@@ -101,7 +102,7 @@ jobs:
 
           MAX_PATCH_PER_FILE_CHARS = int(os.environ.get("MAX_PATCH_PER_FILE_CHARS", "7000"))
           MAX_TOTAL_PATCH_CHARS = int(os.environ.get("MAX_TOTAL_PATCH_CHARS", "24000"))
-          MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "3000"))
+          MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "4500"))
 
           PRICE_INPUT_PER_MILLION = float(os.environ.get("PRICE_INPUT_PER_MILLION", "0"))
           PRICE_OUTPUT_PER_MILLION = float(os.environ.get("PRICE_OUTPUT_PER_MILLION", "0"))
