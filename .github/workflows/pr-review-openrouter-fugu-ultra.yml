@@ -328,7 +328,11 @@ jobs:
                           return "Il modello non ha restituito choices.", body.get("usage", {})
 
                       msg = choices[0].get("message") or {}
-                      content = msg.get("content", "")
+                      # content può essere null (JSON null → None) o lista di blocchi.
+                      # Normalizza None a "" PRIMA di str(): altrimenti str(None)="None"
+                      # verrebbe pubblicato come testo e il ramo di troncamento (not text)
+                      # non scatterebbe nemmeno con finish_reason=length (review GPT-5.5).
+                      content = msg.get("content") or ""
                       if isinstance(content, list):
                           content = "\n".join(part.get("text", "") for part in content if isinstance(part, dict))
 

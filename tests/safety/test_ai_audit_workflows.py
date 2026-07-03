@@ -282,22 +282,40 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
     troncamento onesto inizialmente copriva solo i due gate finali: ora vale per
     tutti e quattro i reviewer, ognuno col motivo giusto per il suo provider.
     """
-    reason_marker = {
-        "openai": r'status.*incomplete|incomplete.*max_output_tokens',
-        "anthropic": r'stop_reason.*max_tokens',
-        "openrouter": r'finish_reason.*length',
-    }
     for name, meta in _AI_WORKFLOWS.items():
         if meta["kind"] != "pr_review":
             continue
         text = _read(name)
+        provider = meta["provider"]
         assert "Output troncato" in text, (
             f"{name}: manca il messaggio di troncamento onesto (budget esaurito)"
         )
-        assert re.search(reason_marker[meta["provider"]], text), (
-            f"{name}: manca il check del motivo di troncamento per il provider "
-            f"{meta['provider']}"
-        )
+
+        if provider == "openai":
+            # Responses API: NON basta status=incomplete, serve DAVVERO anche il
+            # motivo max_output_tokens (GPT-5.5 review: il vecchio regex passava
+            # col solo status). Richiedi entrambi i marker.
+            assert re.search(r'status.*==.*"incomplete"', text), (
+                f"{name}: manca il check status=incomplete"
+            )
+            assert "max_output_tokens" in text, (
+                f"{name}: manca il check reason=max_output_tokens per il troncamento"
+            )
+        elif provider == "anthropic":
+            assert re.search(r'stop_reason.*max_tokens', text), (
+                f"{name}: manca il check stop_reason=max_tokens"
+            )
+        else:  # openrouter (GLM, Fugu)
+            assert re.search(r'finish_reason.*length', text), (
+                f"{name}: manca il check finish_reason=length"
+            )
+            # content null (JSON null) va normalizzato a "" PRIMA di str(),
+            # altrimenti str(None)="None" viene pubblicato come testo e bypassa
+            # il ramo di troncamento (bloccante GPT-5.5, PR #304).
+            assert 'msg.get("content") or ""' in text, (
+                f"{name}: content=None non normalizzato → rischio di pubblicare 'None'"
+            )
+
         # Un reviewer reasoning (OpenAI gpt-5.5) con budget minuscolo produce 0
         # testo: il budget di output deve avere un minimo ragionevole.
         match = re.search(r'MAX_OUTPUT_TOKENS:\s*"(\d+)"', text)
