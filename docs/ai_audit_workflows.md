@@ -46,12 +46,15 @@ stampate.
   merge fai il controllo forte e completo. L'agente Claude aggiunge solo la
   label — non vede mai le API key, che restano nei GitHub Secrets.
   Proprio perché coprono tutta la PR, i due gate finali usano un **budget di
-  output più ampio** degli automatici (`MAX_OUTPUT_TOKENS: 4000` vs 900–1200):
-  con un budget piccolo il modello può esaurire i token prima di produrre la
-  review su una PR reale. Se il modello si ferma comunque per limite di token,
-  il commento lo dichiara esplicitamente (troncamento) invece di sembrare che
-  "non avesse nulla da dire"; puoi alzare `MAX_OUTPUT_TOKENS` o restringere il
-  diff.
+  output più ampio** degli automatici (`MAX_OUTPUT_TOKENS: 4000` vs `3000`
+  GPT-5.5 / `1500` GLM): con un budget piccolo il modello può esaurire i token
+  prima di produrre la review su una PR reale — critico per **gpt-5.5**, che è un
+  modello *reasoning* e conta i token di reasoning nel budget di output. **Tutti
+  e quattro** i reviewer, se il modello si ferma per limite di token senza
+  produrre testo, lo dichiarano esplicitamente (troncamento, col motivo del
+  provider: `stop_reason=max_tokens` / `finish_reason=length` /
+  `status=incomplete`) invece di sembrare che "non avessero nulla da dire"; puoi
+  alzare `MAX_OUTPUT_TOKENS` o restringere il diff.
 
 Per far ripartire una review finale già eseguita, rimuovi e riaggiungi la label
 (GitHub non emette un nuovo evento `labeled` se la label è già presente).

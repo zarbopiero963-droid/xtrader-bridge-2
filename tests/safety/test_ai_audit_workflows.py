@@ -272,6 +272,40 @@ def test_gate_finale_budget_output_ampio_e_troncamento_esplicito():
         )
 
 
+def test_tutti_i_pr_review_riportano_il_troncamento():
+    """Ogni reviewer PR (anche gli automatici) deve dichiarare il troncamento.
+
+    Regressione reale (PR #304, head fd22cff): il reviewer AUTOMATICO GPT-5.5 —
+    modello reasoning, i cui token di reasoning contano nel budget di output — su
+    un diff grande ha esaurito ``MAX_OUTPUT_TOKENS`` producendo 0 testo, e il
+    commento diceva solo "Il modello non ha restituito testo". Il fix di
+    troncamento onesto inizialmente copriva solo i due gate finali: ora vale per
+    tutti e quattro i reviewer, ognuno col motivo giusto per il suo provider.
+    """
+    reason_marker = {
+        "openai": r'status.*incomplete|incomplete.*max_output_tokens',
+        "anthropic": r'stop_reason.*max_tokens',
+        "openrouter": r'finish_reason.*length',
+    }
+    for name, meta in _AI_WORKFLOWS.items():
+        if meta["kind"] != "pr_review":
+            continue
+        text = _read(name)
+        assert "Output troncato" in text, (
+            f"{name}: manca il messaggio di troncamento onesto (budget esaurito)"
+        )
+        assert re.search(reason_marker[meta["provider"]], text), (
+            f"{name}: manca il check del motivo di troncamento per il provider "
+            f"{meta['provider']}"
+        )
+        # Un reviewer reasoning (OpenAI gpt-5.5) con budget minuscolo produce 0
+        # testo: il budget di output deve avere un minimo ragionevole.
+        match = re.search(r'MAX_OUTPUT_TOKENS:\s*"(\d+)"', text)
+        assert match and int(match.group(1)) >= 1500, (
+            f"{name}: MAX_OUTPUT_TOKENS troppo piccolo per lasciare spazio al testo"
+        )
+
+
 def test_audit_solo_manuali_workflow_dispatch():
     for name, meta in _AI_WORKFLOWS.items():
         if meta["kind"] != "audit":
