@@ -221,6 +221,37 @@ Il controllo review/commenti/inline deve essere fatto **dopo** che i check sono 
 
 Una PR non è pronta se i check sono ancora in corso, anche se `python -m py_compile main.py` passa localmente.
 
+### REVIEWER DISPONIBILI — chi aspettare davvero (nota del proprietario)
+
+I reviewer che coprono davvero una PR sono **i quattro workflow GitHub Actions di
+review con API key nei Secret del repo** — **GPT-5.5**, **GLM 5.2**, **Claude Fable
+5**, **OpenRouter Fugu Ultra** — più **CodeRabbit**. Questa è la situazione di
+default su OGNI PR: dai sempre per scontato che la copertura sia questa. GPT-5.5/GLM
+girano a ogni push; Fable/Fugu partono da soli solo su push che toccano **file core**
+(`main.py`, `xtrader_bridge/**`, dipendenze) o con le label finali (vedi «FINAL AI
+REVIEW»); CodeRabbit rivede l'intera PR dal suo base.
+
+**Codex e Sourcery NON sono un gate — non aspettarli:**
+
+- Se **Codex** pubblica «You have reached your Codex usage limits / enough quota» (o
+  simili), significa che **Codex non è disponibile** (l'abbonamento Codex del
+  proprietario è scaduto; i workflow sopra girano su API key separate). Trattalo come
+  **assente**, non come pending: non aspettarlo, non contarlo nel check-completion
+  gate, non bloccare il `DONE` su di lui. Nel report finale annota solo che Codex non
+  ha revisionato (copertura garantita dai quattro workflow API + CodeRabbit).
+- **Sourcery** ha un **rate limit settimanale** (500k caratteri di diff). Quando
+  pubblica il messaggio di rate-limit, trattalo allo stesso modo: assente, non un gate.
+
+**Ogni push costa API.** I quattro workflow di review chiamano modelli a pagamento a
+ogni push che aggiorna il head della PR (GPT-5.5/GLM sempre; Fable/Fugu solo su push
+che toccano file core — su push di soli docs/test/CI partono ma escono senza chiamare
+il modello, costo zero). Quindi sii parsimonioso coi push: **accorpa i fix di review
+in un solo push per giro** invece di uno per finding; **non pushare mai per cleanup
+puramente cosmetici o per rincorrere falsi positivi da diff-per-push** (un reviewer
+che ha visto solo l'ultimo commit e crede «mancante» un'implementazione che sta in un
+commit precedente della stessa PR) — a quelli rispondi nel thread con l'evidenza, mai
+con un commit.
+
 ---
 
 ## FINESTRA DI REVIEW POST-COMMIT — 16 MIN GATE & SWEEP ULTIME 5 PR — OBBLIGATORIO

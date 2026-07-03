@@ -740,6 +740,37 @@ The final review pass must happen in this order:
 
 A PR is not ready while checks are pending, even if local tests pass.
 
+### Reviewer availability — who to actually wait for (repo owner note)
+
+The set of reviewers that really cover a PR is **the four GitHub Actions review
+workflows driven by API keys in the repo Secrets** — **GPT-5.5**, **GLM 5.2**,
+**Claude Fable 5**, **OpenRouter Fugu Ultra** — plus **CodeRabbit**. These are the
+default situation on every PR: the agent should always assume this is the coverage
+in place. GPT-5.5/GLM run on every push; Fable/Fugu run automatically only on
+pushes touching **core files** (`main.py`, `xtrader_bridge/**`, deps) or when the
+final-review labels are added (see «Final AI review»); CodeRabbit reviews the whole
+PR from its base.
+
+**Codex and Sourcery are NOT a gate — do not wait for them:**
+
+- If **Codex** posts «You have reached your Codex usage limits / enough quota» (or
+  similar), it means **Codex is not available** (the owner's Codex subscription is
+  expired; the workflows above run on separate API keys). Treat it as **absent**,
+  not pending: do not wait, do not count it in the check-completion gate, do not
+  block `DONE` on it. Just note in the final report that Codex did not review
+  (coverage guaranteed by the four API workflows + CodeRabbit).
+- **Sourcery** hits a **weekly rate limit** (500k diff chars). When it posts the
+  rate-limit message, treat it the same way: absent, not a gate.
+
+**Each push costs API money.** The four review workflows call paid models on every
+push that updates the PR head (GPT-5.5/GLM always; Fable/Fugu only on core-file
+pushes — on docs/test/CI-only pushes they start but exit without calling the model,
+cost zero). So be frugal with pushes: **batch review fixes into a single push per
+round** instead of one push per finding; **never push for purely cosmetic cleanups
+or to chase per-push-range false positives** (a reviewer that only saw the last
+commit and thinks an implementation from an earlier commit of the same PR is
+«missing») — answer those in-thread with evidence, never with a commit.
+
 ---
 
 ## Post-commit review window — 16 min gate & last-5 PR sweep — required
