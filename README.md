@@ -475,7 +475,7 @@ aggiornamenti dell'EXE):
 >
 > **Consultarlo** senza aprire il `.jsonl` a mano — CLI **read-only**:
 > ```bash
-> python -m xtrader_bridge.journal_view            # tutti gli eventi, ordinati per data
+> python -m xtrader_bridge.journal_view            # tutti gli eventi, ordinati cronologicamente (per ts)
 > python -m xtrader_bridge.journal_view --last 20  # solo gli ultimi 20
 > python -m xtrader_bridge.journal_view --type CSV_WRITTEN --type CSV_CLEARED
 > python -m xtrader_bridge.journal_view --json     # output JSON (per script)

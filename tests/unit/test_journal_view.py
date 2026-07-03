@@ -139,3 +139,13 @@ def test_main_last_e_tabella(tmp_path, capsys):
     assert jv.main(["--path", p, "--last", "1"]) == 0
     out = capsys.readouterr().out
     assert "CSV_CLEARED" in out and "START" not in out
+
+
+def test_main_since_until_end_to_end(tmp_path, capsys):
+    """CodeRabbit #316: copre l'intervallo `--since`/`--until` via `main`, cioè la
+    conversione argparse stringa→float dell'epoch fino all'output filtrato (il filtro
+    puro è già testato in `test_filter_intervallo_ts`, qui si blinda l'entrypoint)."""
+    p = _ledger(tmp_path)                              # ts 1000..1003
+    assert jv.main(["--path", p, "--since", "1001", "--until", "1002", "--json"]) == 0
+    parsed = json.loads(capsys.readouterr().out)
+    assert [e["type"] for e in parsed] == ["STOP", "CSV_WRITTEN"]
