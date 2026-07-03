@@ -90,7 +90,9 @@ def extract_value_traced(text: str, rule: FieldRule):
     codici `EXTRACT_*`. Serve alla diagnostica per distinguere "inizio non trovato"
     da "fine non trovata" (entrambi danno valore vuoto). FONTE UNICA: `extract_value`
     delega qui, così il comportamento del runtime resta identico."""
-    fixed = rule.fixed_value or ""
+    # Strip: un fixed_value di soli spazi (" ") non è un valore — prima passava il
+    # gate dei required come "presente" e arrivava VALID fino al CSV (audit #259 B5).
+    fixed = (rule.fixed_value or "").strip()
     if fixed != "":
         return fixed, EXTRACT_FIXED
 
@@ -243,5 +245,8 @@ def apply_parser(defn: CustomParserDef, text: str, value_maps_registry: dict = N
         values[rule.target] = value
         if rule.required and rule.target not in required_targets:
             required_targets.append(rule.target)
-    missing = [t for t in required_targets if values.get(t, "") == ""]
+    # `.strip()`: un valore di soli spazi NON conta come presente (audit #259 B5) —
+    # per i campi fuori dal riconoscimento (es. MarketName) questo è l'unico gate.
+    missing = [t for t in required_targets
+               if not str(values.get(t, "") or "").strip()]
     return ExtractionResult(ready=not missing, values=values, missing_required=missing)

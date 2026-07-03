@@ -267,3 +267,21 @@ def test_max_active_signals_current_values_e_apply():
     assert err2 == [] and cfg2.get("max_active_signals", 2) == 2
     _, err3 = sc.apply_advanced({}, {**base, "max_active_signals": "0"})
     assert err3   # 0 non è > 0 → errore
+
+
+def test_auto_start_listener_malformato_fail_closed_al_salvataggio():
+    """Audit #259 C2: `apply_advanced` usava `config_store.as_bool` (denylist,
+    fail-open): un typo «flase» veniva PERSISTITO come `True` bool genuino, che
+    scavalcava l'allowlist fail-closed applicata dal runtime solo in lettura —
+    l'avvio automatico si abilitava per errore. Ora il salvataggio usa la stessa
+    coercizione allowlist del runtime (`autostart.coerce_enabled`).
+
+    Fail-first: sul vecchio codice «flase»/«disabled» producevano True."""
+    for bad in ("flase", "disabled", "boh", float("nan"), None):
+        new_cfg, errors = sc.apply_advanced({}, _valid_form(auto_start_listener=bad))
+        assert errors == []
+        assert new_cfg["auto_start_listener"] is False, bad
+    for ok in (True, "si", "1", " ON "):
+        new_cfg, errors = sc.apply_advanced({}, _valid_form(auto_start_listener=ok))
+        assert errors == []
+        assert new_cfg["auto_start_listener"] is True, ok

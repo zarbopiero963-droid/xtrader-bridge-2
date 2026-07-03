@@ -5,6 +5,7 @@ config) vive in moduli separati ed è testabile headless.
 """
 
 import asyncio
+import os
 import threading
 import time
 import tkinter as tk
@@ -40,6 +41,7 @@ from . import (
     log_view,
     message_freshness,
     multi_signal,
+    name_mapping_store,
     real_mode,
     reconnect_policy,
     runtime_state,
@@ -69,6 +71,11 @@ ctk.set_default_color_theme("blue")
 # XTrader oltre i retry atomici): breve, per non lasciare una riga stantia per un
 # intero intervallo di timeout (PR-23, finding Codex).
 _WRITE_RETRY_DELAY = 5
+
+# Ritardo (ms, timer Tk) tra i retry dello svuotamento CSV fallito allo STOP (audit
+# #259 A1): XTrader può tenere il lock a lungo; senza retry la riga stantia resterebbe
+# su disco finché l'app non viene riavviata.
+_STOP_CLEAR_RETRY_MS = 5000
 
 # Quanti eventi tenere nel ledger append-only (#230): potato allo startup per non far
 # crescere `event_journal.jsonl` all'infinito (~uno-pochi eventi per segnale).
@@ -271,10 +278,12 @@ class App(ctk.CTk):
                 pass
             self._autostart_after_id = None
 
-    def _clear_stale_csv(self, quando: str, path: str = None) -> None:
+    def _clear_stale_csv(self, quando: str, path: str = None) -> bool:
         """Riporta il CSV a solo header se è un CSV del bridge (difesa
         anti-segnale-stantio). Best-effort: un errore di I/O non deve impedire
-        avvio/chiusura. Se `path` è None usa quello in config (caso avvio)."""
+        avvio/chiusura. Se `path` è None usa quello in config (caso avvio).
+        Ritorna False se lo svuotamento è FALLITO per I/O (audit #259 A1: il
+        chiamante di `_stop` arma un retry), True negli altri casi."""
         if path is None:
             path = str((self._config or {}).get("csv_path", "") or "").strip()
         else:
@@ -302,6 +311,59 @@ class App(ctk.CTk):
             # alla scadenza (con retry) riproverà comunque.
             self._log(f"⚠️ Impossibile ripulire il CSV {quando} ({exc}): un segnale potrebbe "
                       "restare attivo nel CSV finché XTrader non rilascia il file.")
+            return False
+        return True
+
+    def _schedule_stop_clear_retry(self, path: str) -> None:
+        """Arma un retry Tk per lo svuotamento CSV fallito allo STOP (audit #259 A1).
+        Prima il fallimento produceva solo un warning: la riga stantia restava su
+        disco — visibile a XTrader — finché l'app non veniva riavviata (il cleanup
+        d'avvio è l'unico altro punto di recovery). Timer Tk, non `threading.Timer`:
+        deve sopravvivere fuori sessione (epoch/`_timer_lock` sono teardown di STOP)."""
+        path = str(path or "").strip()
+        if not path or self.__dict__.get("_closing"):
+            return
+        self._stop_clear_after_id = self.after(
+            _STOP_CLEAR_RETRY_MS, lambda: self._retry_stop_clear(path))
+
+    @staticmethod
+    def _same_csv_path(a, b) -> bool:
+        """Confronto path per la guardia di possesso del retry post-stop (review Fable
+        #312): su Windows lo stesso file può apparire con case o «..»/`.` diversi
+        (`OUT.CSV` vs `out.csv`) se l'utente ritocca csv_path tra due sessioni — un
+        confronto a stringhe lo scambierebbe per un path DIVERSO e il retry
+        cancellerebbe una riga VIVA della nuova sessione. `normcase` è no-op su POSIX
+        (filesystem case-sensitive: lì il confronto resta esatto, correttamente).
+        `abspath` (include normpath) copre anche il mix relativo/assoluto dello stesso
+        file (review GPT/Fugu round 2). Limite dichiarato: i symlink/junction NON sono
+        risolti — `realpath`/`samefile` farebbero I/O proprio quando il file può essere
+        lockato/assente (samefile solleva), e csv_path arriva da un campo testo della
+        GUI: nel runtime non esiste alcun percorso che crei o attraversi link."""
+        if not a or not b:
+            return False
+        return (os.path.normcase(os.path.abspath(str(a)))
+                == os.path.normcase(os.path.abspath(str(b))))
+
+    def _retry_stop_clear(self, path: str) -> None:
+        """Ritenta lo svuotamento post-STOP finché riesce, l'app chiude, o una nuova
+        sessione riprende possesso del path (START svuota già il CSV in proprio: il
+        retry non deve MAI toccare il CSV di una sessione ATTIVA — cancellerebbe una
+        riga viva)."""
+        self._stop_clear_after_id = None
+        if self.__dict__.get("_closing"):
+            return
+        with self._queue_lock:
+            if self._same_csv_path(path, self.__dict__.get("_active_csv_path")):
+                return                            # nuova sessione sul path: suo il compito
+            try:
+                cleared = clear_stale_csv(path, on_mismatch=lambda m: self._log(f"⚠️ {m}"))
+            except OSError:
+                self._schedule_stop_clear_retry(path)   # ancora bloccato: riprova
+                return
+        if cleared:
+            self._log(f"🧹 CSV ripulito al retry dopo lo STOP: {path}")
+            self._journal_csv_cleared_if_had_row("CSV_CLEARED",
+                                                 quando="retry post-stop", path=path)
 
     def _journal(self, event_type: str, **data) -> None:
         """Registra un evento nel ledger append-only (#230). **Best-effort/diagnostico**:
@@ -1640,6 +1702,24 @@ class App(ctk.CTk):
         # l'operatore vede solo la chat smettere di produrre segnali.
         for warn in source_manager.malformed_enabled_warnings(cfg.get("source_chats")):
             self._log(f"⚠️ {warn}")
+        # Avviso NON bloccante (audit #259 B4): righe di mappatura nomi con sport/
+        # entity_type non riconosciuto vengono SCARTATE (fail-closed) dal resolver —
+        # l'operatore deve vederlo qui, non scoprirlo dal nome non tradotto.
+        for warn in name_mapping_store.malformed_entry_warnings(cfg):
+            self._log(f"⚠️ {warn}")
+        # Audit #259 C3 (decisione proprietario): filtro chat presente ma NESSUNA chat
+        # effettivamente ascoltata (es. tutte le sorgenti disattivate) → lo START
+        # manuale procede con avviso (il bridge sarebbe «sordo»), l'avvio AUTOMATICO
+        # è bloccato. Il percorso auto reale è già fermato a monte da can_auto_start;
+        # questo ramo è difesa in profondità per una _start(auto=True) diretta, e
+        # evita un avviso che promette l'avvio quando l'auto-start viene annullato
+        # (CodeRabbit #312).
+        if not signal_router.allowed_chats(cfg):
+            if auto:
+                self._log("⏸️ Avvio automatico annullato: nessuna chat sorgente ATTIVA.")
+                return
+            self._log("⚠️ Nessuna chat sorgente ATTIVA: il listener parte ma NON "
+                      "processerà alcun segnale finché non attivi almeno una chat.")
         # Fail-fast (PR-23/PR-24): la chat notifiche XTrader NON deve coincidere con una
         # chat sorgente (chat_id, override parser_by_chat o sorgente multi-chat ATTIVA);
         # altrimenti i segnali di quella chat finirebbero nel percorso di conferma e
@@ -1672,6 +1752,19 @@ class App(ctk.CTk):
                     self._log("⏸️ Avvio automatico in modalità reale annullato.")
                     return
             self._log("▶️ Avvio automatico del listener (auto_start_listener attivo).")
+        elif autostart.needs_real_mode_confirmation(cfg):
+            # START MANUALE in modalità REALE (audit #259 C5, decisione proprietario):
+            # un `dry_run:false` già persistito (o editato a mano in config.json) NON
+            # ripassa dal phrase gate («REALE», che scatta solo sulla transizione
+            # prova→reale): prima il bridge partiva a scrivere il CSV operativo senza
+            # alcuna conferma. Stesso attrito sì/no dell'avvio automatico.
+            from tkinter import messagebox
+            if not messagebox.askyesno(
+                    "START — MODALITÀ REALE",
+                    "Sei in MODALITÀ REALE: il bridge scriverà i segnali nel CSV "
+                    "(scommesse reali) appena ricevuti.\n\nAvviare ora il listener?"):
+                self._log("⏸️ Avvio in modalità reale annullato.")
+                return
 
         # Pre-flight del csv_path (#184 low-csvpath-validate): un problema di percorso (cartella
         # mancante, es. il default C:\XTrader\, o path vuoto/è una cartella) dà un messaggio CHIARO
@@ -1806,8 +1899,14 @@ class App(ctk.CTk):
             if self._queue is not None:
                 for sid in self._queue.active_ids():
                     self._queue.remove(sid)
-            self._clear_stale_csv("allo stop", path=self._active_csv_path)
+            stop_path = self._active_csv_path
+            stop_cleared = self._clear_stale_csv("allo stop", path=stop_path)
         self._active_csv_path = None
+        if not stop_cleared:
+            # Audit #259 A1: clear fallito (XTrader tiene il lock) → senza retry la riga
+            # stantia resterebbe su disco fino al riavvio dell'app. Il retry si ferma da
+            # solo se una nuova sessione riprende il path o l'app chiude.
+            self._schedule_stop_clear_retry(stop_path)
         self._status_lbl.configure(text="⬤  OFFLINE", text_color="#ef5350")
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")
@@ -1824,6 +1923,14 @@ class App(ctk.CTk):
         # (no leak di selector/fd). Il thread è daemon: se non termina entro il timeout si
         # procede comunque, senza bloccare la chiusura del processo.
         self._cancel_expiry_timer()
+        # Cancella il retry post-stop del clear CSV ancora pendente (audit #259 A1):
+        # dopo destroy non deve rifirare su una root distrutta.
+        _stop_clear_after = getattr(self, "_stop_clear_after_id", None)
+        if _stop_clear_after is not None:
+            try:
+                self.after_cancel(_stop_clear_after)
+            except Exception:   # noqa: BLE001 — id già scaduto/invalido: best-effort
+                pass
         # Cancella il tick auto-sync ancora pendente: dopo destroy non deve rifirare
         # né ri-armarsi su una root distrutta (CodeRabbit).
         _autosync_after = getattr(self, "_autosync_after_id", None)

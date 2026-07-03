@@ -86,6 +86,14 @@ def _is_recognized_off(value) -> bool:
 # Alias retro-compatibile del vecchio nome privato (riferito da codice/test esterni).
 _as_bool = as_enabled_bool
 
+
+def _is_malformed_enabled(raw_enabled) -> bool:
+    """True se `enabled` viene coercito a False senza essere un "no" ESPLICITO
+    (fail-closed C7 #259). Predicato unico (nitpick CodeRabbit/Fable #309) condiviso
+    tra `_normalize_source` (warning logger) e `malformed_enabled_warnings` (avvisi
+    GUI), così log di modulo e log eventi non possono divergere."""
+    return not as_enabled_bool(raw_enabled) and not _is_recognized_off(raw_enabled)
+
 # Lunghezza massima di un valore mostrato nel messaggio di log ("..." inclusi).
 _SHOWN_MAX = 60
 # Coppie (chat_id, hash del valore) già segnalate a log: `source_chats` può girare in
@@ -141,7 +149,7 @@ def _normalize_source(raw: dict) -> dict:
     poterlo vedere, non scoprirlo dall'assenza di segnali (review Fable/Sourcery)."""
     raw_enabled = raw.get("enabled", True)
     enabled = as_enabled_bool(raw_enabled)
-    if not enabled and not _is_recognized_off(raw_enabled):
+    if _is_malformed_enabled(raw_enabled):
         # Solo chat_id + valore incriminato, entrambi resi ASCII-safe ed escapati da
         # `_safe_log_value` (niente UnicodeEncodeError cp1252, niente newline iniettate)
         # e TRONCATI (niente righe giganti né leak lunghi): mai altri campi della
@@ -257,7 +265,7 @@ def malformed_enabled_warnings(raw_sources) -> list:
         if not isinstance(raw, dict):
             continue
         raw_enabled = raw.get("enabled", True)
-        if not as_enabled_bool(raw_enabled) and not _is_recognized_off(raw_enabled):
+        if _is_malformed_enabled(raw_enabled):
             chat = str(raw.get("chat_id", "") or "").strip()
             warnings.append(
                 f"Sorgente chat_id={_safe_log_value(chat)}: enabled="

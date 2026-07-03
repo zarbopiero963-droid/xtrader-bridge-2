@@ -1449,3 +1449,160 @@ def test_start_mostra_avvisi_enabled_malformato_nel_log_eventi(app_mod):
     assert "malformed_enabled_warnings" in src
     idx = src.index("malformed_enabled_warnings")
     assert "_log" in src[idx:idx + 300]        # gli avvisi finiscono nel log eventi GUI
+
+
+# ── Audit #259 A1: retry dello svuotamento CSV fallito allo STOP ───────────────
+
+def _csv_con_riga(tmp_path):
+    """CSV del bridge con UNA riga attiva su disco (via csv_writer reale)."""
+    from xtrader_bridge import csv_writer
+    path = str(tmp_path / "retry.csv")
+    csv_writer.init_csv(path)
+    row = {c: "" for c in csv_writer.CSV_HEADER}
+    row.update({"Provider": "TG_PRE", "EventName": "A v B", "BetType": "PUNTA"})
+    csv_writer.write_rows([row], path)
+    assert csv_writer.has_active_row(path)
+    return path
+
+
+def test_clear_stale_csv_ritorna_false_su_oserror(make_app, app_mod, monkeypatch):
+    """Audit #259 A1 (fail-first): `_clear_stale_csv` inghiottiva l'OSError con un
+    solo warning e nessun esito — il chiamante di `_stop` non poteva sapere che il
+    CSV era rimasto sporco. Ora ritorna False sul fallimento I/O, True altrimenti.
+
+    Fail-first: prima ritornava sempre None (falsy anche sul successo)."""
+    a = make_app()
+    def _locked(path, on_mismatch=None):
+        raise OSError("CSV lockato da XTrader (simulato)")
+    monkeypatch.setattr(app_mod, "clear_stale_csv", _locked)
+    assert app_mod.App._clear_stale_csv(a, "allo stop", path="out.csv") is False
+    assert any("Impossibile ripulire" in m for m in a.logs)
+    monkeypatch.setattr(app_mod, "clear_stale_csv", lambda p, on_mismatch=None: False)
+    assert app_mod.App._clear_stale_csv(a, "allo stop", path="out.csv") is True
+
+
+def test_retry_stop_clear_riprova_finche_lockato_poi_pulisce(make_app, app_mod,
+                                                             monkeypatch, tmp_path):
+    """Audit #259 A1: se XTrader tiene il lock durante lo STOP, la riga stantia
+    restava su disco (visibile a XTrader) fino al riavvio dell'app. Ora il retry
+    Tk riprova finché il file si libera, poi pulisce e logga."""
+    from xtrader_bridge import csv_writer
+    path = _csv_con_riga(tmp_path)
+    a = make_app()
+    a._active_csv_path = None                       # dopo STOP
+    a._csv_had_active_row = True
+    riarmi = []
+    a._schedule_stop_clear_retry = riarmi.append    # cattura il ri-arm
+    # 1) file ancora lockato: nessuna modifica, retry ri-armato.
+    def _locked(p, on_mismatch=None):
+        raise OSError("lock simulato")
+    monkeypatch.setattr(app_mod, "clear_stale_csv", _locked)
+    app_mod.App._retry_stop_clear(a, path)
+    assert riarmi == [path]
+    assert csv_writer.has_active_row(path)          # riga ancora lì (non corrotta)
+    # 2) lock rilasciato: il retry pulisce davvero (clear_stale_csv REALE) e logga.
+    monkeypatch.setattr(app_mod, "clear_stale_csv", csv_writer.clear_stale_csv)
+    app_mod.App._retry_stop_clear(a, path)
+    assert riarmi == [path]                         # nessun nuovo ri-arm
+    assert not csv_writer.has_active_row(path)      # solo header
+    assert any("ripulito al retry" in m for m in a.logs)
+
+
+def test_retry_stop_clear_non_tocca_il_path_di_una_nuova_sessione(make_app, app_mod,
+                                                                  tmp_path):
+    """Guardia di possesso: se una NUOVA sessione ha ripreso lo stesso path, il retry
+    post-stop NON deve toccare il CSV (cancellerebbe una riga VIVA della sessione
+    attiva; START svuota già il CSV in proprio all'avvio)."""
+    from xtrader_bridge import csv_writer
+    path = _csv_con_riga(tmp_path)
+    a = make_app()
+    a._active_csv_path = path                       # nuova sessione sul path
+    app_mod.App._retry_stop_clear(a, path)
+    assert csv_writer.has_active_row(path)          # riga intatta
+    assert not any("ripulito al retry" in m for m in a.logs)
+
+
+def test_stop_arma_il_retry_su_clear_fallito(make_app, app_mod):
+    """Audit #259 A1, test COMPORTAMENTALE (CodeRabbit #312: meglio di una guardia
+    su `inspect.getsource`): un vero `_stop` con clear CSV fallito arma il retry sul
+    path della SESSIONE, catturato PRIMA che `_active_csv_path` venga azzerato."""
+    a = make_app(csv_path="sessione.csv")
+    a._async_stop_event = None                       # attributo di __init__, non nel harness
+    riarmi = []
+    a._schedule_stop_clear_retry = riarmi.append
+    a._clear_stale_csv = lambda quando, path=None: False        # clear FALLITO (lock)
+    app_mod.App._stop(a)
+    assert riarmi == ["sessione.csv"]                # retry armato sul path catturato
+    assert a._active_csv_path is None                # teardown comunque completato
+    assert a._running is False
+    # Contro-campo: clear riuscito → nessun retry armato.
+    b = make_app(csv_path="sessione.csv")
+    b._async_stop_event = None
+    riarmi_b = []
+    b._schedule_stop_clear_retry = riarmi_b.append
+    b._clear_stale_csv = lambda quando, path=None: True
+    app_mod.App._stop(b)
+    assert riarmi_b == []
+
+
+def test_start_gate_reale_manuale_e_avvisi_guardia_strutturale(app_mod):
+    """Guardie sul wiring di `_start` (audit #259 C5/C3/B4, decisioni proprietario):
+    conferma sì/no ANCHE al START manuale in modalità reale (ramo elif fuori da
+    `auto`), avviso zero-chat-attive (`allowed_chats`), avvisi mappatura nomi
+    malformata. La logica pura è coperta dai unit test dei moduli."""
+    import inspect
+    src = inspect.getsource(app_mod.App._start)
+    idx_auto = src.index("if auto:")
+    assert "elif autostart.needs_real_mode_confirmation(cfg):" in src[idx_auto:]
+    assert "allowed_chats(cfg)" in src
+    assert "malformed_entry_warnings" in src
+    # CodeRabbit #312: con zero chat attive il ramo AUTO annulla (non promette l'avvio).
+    assert "Avvio automatico annullato: nessuna chat sorgente ATTIVA" in src
+
+
+def test_retry_stop_clear_guardia_possesso_normalizza_il_path(make_app, app_mod,
+                                                              tmp_path):
+    """Review Fable #312 (fail-first): la guardia di possesso confrontava i path come
+    STRINGHE — su Windows lo stesso file scritto con case/`..` diversi (`OUT.CSV` vs
+    `out.csv`) sembrava un path diverso e il retry post-stop cancellava una riga VIVA
+    della nuova sessione. Ora il confronto è normalizzato (normcase+normpath).
+    Variante portabile del caso: `sub/../retry.csv` vs `sub/retry.csv`... stesso file
+    espresso con `..` (normpath lo collassa su ogni piattaforma).
+
+    Fail-first: sul codice precedente il confronto a stringhe falliva e il retry
+    svuotava il CSV della sessione attiva."""
+    from xtrader_bridge import csv_writer
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    path_reale = _csv_con_riga(sub)                       # sub/retry.csv con riga VIVA
+    path_alias = str(tmp_path / "sub" / ".." / "sub" / "retry.csv")   # stesso file, con ".."
+    a = make_app()
+    a._active_csv_path = path_reale                       # nuova sessione attiva sul file
+    app_mod.App._retry_stop_clear(a, path_alias)          # retry armato col path-alias
+    assert csv_writer.has_active_row(path_reale)          # riga VIVA intatta
+    assert not any("ripulito al retry" in m for m in a.logs)
+    # Contro-campo: path davvero diverso → il retry pulisce normalmente.
+    altro = _csv_con_riga(tmp_path)
+    app_mod.App._retry_stop_clear(a, altro)
+    assert not csv_writer.has_active_row(altro)
+
+
+def test_same_csv_path_normalizzazione(monkeypatch):
+    """Unit del predicato (review Fable + GPT/GLM/Fugu round 2 #312): abspath collassa
+    `.`/`..` E il mix relativo/assoluto dello stesso file; None/vuoto non combacia mai
+    con nulla (un retry senza path non deve bloccare/pulire niente).
+
+    Fail-first round 2: con il solo normpath il mix relativo/assoluto dava False."""
+    import os as _os
+    from xtrader_bridge import app as app_mod
+    same = app_mod.App._same_csv_path
+    assert same("sub/../out.csv", "out.csv") is True
+    assert same("./out.csv", "out.csv") is True
+    assert same(_os.path.abspath("out.csv"), "out.csv") is True   # assoluto vs relativo
+    assert same("a/out.csv", "b/out.csv") is False
+    assert same("", "out.csv") is False
+    assert same(None, None) is False
+    # Case-insensitivity Windows (assert esplicito, review GLM): su POSIX normcase è
+    # identità, quindi si simula la variante Windows monkeypatchandola con lower().
+    monkeypatch.setattr(app_mod.os.path, "normcase", lambda p: str(p).lower())
+    assert same("C:/XTrader/OUT.CSV", "c:/xtrader/out.csv") is True

@@ -50,7 +50,7 @@ Provider,EventId,EventName,MarketId,MarketName,MarketType,SelectionId,SelectionN
 | `fixed_value` | valore costante: se valorizzato, la colonna vale esattamente questo e l'estrazione dal messaggio è ignorata |
 | `transform` | nome di una trasformazione da applicare al valore estratto (es. `score_to_over`) |
 | `value_map` | nome di una value-map per tradurre il valore nel valore esatto XTrader |
-| `required` | obbligatorio: se il valore finale è vuoto il parser è **"Non pronto"** → nessuna riga CSV |
+| `required` | obbligatorio: se il valore finale è vuoto **o di soli spazi** (audit #259 B5) il parser è **"Non pronto"** → nessuna riga CSV. Anche un `fixed_value` di soli spazi non conta come valore. |
 
 `fixed_value` e `start_after`/`end_before` sono **alternativi** (non si possono
 mettere insieme: `validate_parser_def` lo rifiuta).
@@ -127,8 +127,8 @@ provider nei nomi Betfair/XTrader **prima** della scrittura:
   senza sport / righe agnostiche → comportamento legacy (nessun filtro), retro-compatibile.
 - **tipo entità (`entity_type`, #178 §2)**: ogni riga ha anche una colonna **Tipo**
   opzionale con i valori `participant`, `team`, `player`, `competition`, `market`,
-  `selection` o **«(qualsiasi tipo)»** = agnostica (chiave di config `entity_type`; vuoto/
-  ignoto → agnostica, retro-compatibile con le config salvate prima del campo). Serve a
+  `selection` o **«(qualsiasi tipo)»** = agnostica (chiave di config `entity_type`; vuoto
+  → agnostica, retro-compatibile con le config salvate prima del campo). Serve a
   dichiarare COSA mappa una riga, così un alias di un altro tipo non scavalca un nome
   squadra; come per lo sport, il **tipo esatto** ha priorità sull'agnostico. **Nel flusso
   live l'`EventName` (i partecipanti dell'evento) è tradotto SOLO dalle righe
@@ -140,6 +140,21 @@ provider nei nomi Betfair/XTrader **prima** della scrittura:
 **Sicuro (fail-closed)**: se il separatore non si trova **o** una squadra non è nei
 profili (per lo sport del parser), lo stato è `MAPPING_MISSING` → **nessuna riga CSV** (un
 evento sbagliato = scommessa sbagliata). Nessun nome squadra viene mai tradotto "a caso".
+
+Altre due difese fail-closed (audit #259):
+
+- **righe con sport/tipo NON riconosciuto** (typo: `sport="Calc1o"`, `entity_type="boh"`)
+  vengono **IGNORATE** con un avviso ⚠️ nel log eventi all'avvio — prima diventavano
+  agnostiche e una mappatura pensata per uno sport poteva rinominare eventi di TUTTI gli
+  sport. Le righe agnostiche **intenzionali** (campo vuoto / «(tutti gli sport)») restano
+  valide; per riattivare una riga ignorata basta correggere il valore.
+- **quando la traduzione CAMBIA l'EventName**, gli eventuali `EventId`/`MarketId`/
+  `SelectionId` estratti dalle regole-colonna vengono **azzerati** (stessa regola della
+  mappatura mercati): riferivano l'evento col nome provider e nel CSV contraddirebbero il
+  nome canonico appena scritto — XTrader, se prioritizza gli ID, punterebbe l'oggetto
+  sbagliato. La risoluzione ID dal dizionario Betfair locale (PR-P12) li ricostruisce dal
+  nome canonico; se la modalità richiede gli ID e il dizionario non li ha, la riga fa
+  fail-closed in validazione. Se la traduzione NON cambia il nome, gli ID restano intatti.
 Un parser **senza profili** non applica alcuna mappatura (`EventName` invariato,
 retro-compatibile).
 

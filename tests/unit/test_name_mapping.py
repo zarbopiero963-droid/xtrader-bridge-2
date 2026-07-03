@@ -340,15 +340,20 @@ def test_parser_builder_preserva_campi_mappatura_nel_roundtrip():
 # ── PR-P10: scoping per sport (multi-sport) ─────────────────────────────────────
 
 def test_get_entries_normalizza_sport():
+    # Contratto AGGIORNATO dall'audit #259 B4 (decisione proprietario): sport IGNOTO
+    # («Cricket» non è tra gli sport supportati) = riga SCARTATA fail-closed, non più
+    # allargata ad agnostica; l'agnostico intenzionale resta il campo ASSENTE/vuoto.
+    nm._reset_warnings()
     cfg = {"name_mappings": {"P": [
         {"betfair": "Inter", "provider": "Internazionale", "sport": "calcio"},   # case-insens.
-        {"betfair": "Sinner", "provider": "J. Sinner", "sport": "Cricket"},       # ignoto → ""
+        {"betfair": "Sinner", "provider": "J. Sinner", "sport": "Cricket"},       # ignoto → scartata
         {"betfair": "Roma", "provider": "AS Roma"},                               # assente → ""
     ]}}
     entries = nm.get_entries(cfg, "P")
+    assert [e["betfair"] for e in entries] == ["Inter", "Roma"]
     assert entries[0]["sport"] == "Calcio"     # canonicalizzato
-    assert entries[1]["sport"] == ""           # sport ignoto → agnostico (no nuovo failure mode)
-    assert entries[2]["sport"] == ""           # assente → agnostico
+    assert entries[1]["sport"] == ""           # assente → agnostico
+    nm._reset_warnings()
 
 
 def _sport_cfg():
@@ -480,15 +485,19 @@ def test_normalize_entity_type():
 
 
 def test_clean_entry_normalizza_entity_type():
+    # Contratto AGGIORNATO dall'audit #259 B4: entity_type IGNOTO («boh») = riga
+    # SCARTATA fail-closed (prima diventava agnostica); vuoto/assente resta agnostico.
+    nm._reset_warnings()
     cfg = {"name_mappings": {"P": [
         {"betfair": "Juventus", "provider": "Juve", "entity_type": "Team"},
         {"betfair": "Jannik Sinner", "provider": "Sinner", "entity_type": "PLAYER"},
-        {"betfair": "Serie A", "provider": "SerieA", "entity_type": "boh"},   # ignoto → ""
+        {"betfair": "Serie A", "provider": "SerieA", "entity_type": "boh"},   # ignoto → scartata
     ]}}
     ents = nm.get_entries(cfg, "P")
+    assert [e["betfair"] for e in ents] == ["Juventus", "Jannik Sinner"]
     assert ents[0]["entity_type"] == "team"
     assert ents[1]["entity_type"] == "player"
-    assert ents[2]["entity_type"] == ""
+    nm._reset_warnings()
 
 
 def test_entity_type_competition_e_player_rappresentabili():
@@ -649,3 +658,94 @@ def test_resolve_team_tipo_esatto_vince_su_riga_sport_legacy_senza_tipo():
                            entity_type=nm.PARTICIPANT_ENTITY_TYPES) == "Inter FC"
     # Senza filtro tipo: lo scoping per sport resta legacy (vince la riga sport-specifica salvata prima).
     assert nm.resolve_team("Inter", profs, sport="Calcio") == "Inter legacy"
+
+
+# ── Audit #259 B1/B4: ID stantii e righe malformate fail-closed ───────────────
+
+def _mapping_parser_con_id(profiles=("Premier",), separator="v"):
+    """Come `_mapping_parser` ma con regole-colonna che iniettano ID fissi
+    («stantii»: riferiscono l'evento col nome provider, non quello canonico)."""
+    p = _mapping_parser(profiles=profiles, separator=separator)
+    p.rules.extend([
+        cp.FieldRule(target="EventId", fixed_value="111"),
+        cp.FieldRule(target="MarketId", fixed_value="1.222"),
+        cp.FieldRule(target="SelectionId", fixed_value="333"),
+    ])
+    return p
+
+
+def test_pipeline_name_mapping_azzera_id_stantii():
+    """Audit #259 B1: il ramo name-mapping cambiava solo EventName senza azzerare
+    gli ID estratti dalle regole-colonna — il CSV portava un nome canonico con
+    EventId/MarketId/SelectionId potenzialmente di un ALTRO oggetto, e XTrader
+    (se prioritizza gli ID) avrebbe puntato l'evento sbagliato. Ora, come nel ramo
+    market-mapping, quando il dizionario VINCE sul nome la catena ID è azzerata
+    (e `_resolve_ids_into` la ricostruisce dal nome canonico, se il dizionario c'è).
+
+    Fail-first: prima gli ID fissi restavano nella riga VALID."""
+    profiles = nm.entries_for_profiles(_cfg(), ["Premier"])
+    res = pipe.build_validated_row(_mapping_parser_con_id(), _MSG,
+                                   name_mapping_profiles=profiles)
+    assert res.status == validator.VALID
+    assert res.row["EventName"] == "Liverpool - Leeds"
+    assert res.row["EventId"] == ""
+    assert res.row["MarketId"] == ""
+    assert res.row["SelectionId"] == ""
+
+
+def test_pipeline_name_mapping_noop_conserva_gli_id():
+    """Contro-campo B1: se la traduzione NON cambia il nome (già canonico), gli ID
+    estratti restano — nessuna distruzione gratuita di identificatori legittimi."""
+    msg = "Match: Liverpool - Leeds\nSel: Sì\nQuota: 1,85\nLato: BACK"
+    profiles = nm.entries_for_profiles(_cfg(), ["Premier"])
+    res = pipe.build_validated_row(_mapping_parser_con_id(separator="-"), msg,
+                                   name_mapping_profiles=profiles)
+    assert res.status == validator.VALID
+    assert res.row["EventName"] == "Liverpool - Leeds"    # invariato
+    assert res.row["EventId"] == "111"                    # ID conservati
+    assert res.row["MarketId"] == "1.222"
+    assert res.row["SelectionId"] == "333"
+
+
+def test_clean_entry_sport_o_entity_typo_scartata_fail_closed(caplog):
+    """Audit #259 B4 (decisione proprietario): sport/entity_type NON vuoto ma non
+    riconosciuto («Calc1o», «sqadra») rendeva la riga AGNOSTICA — una mappatura
+    pensata per uno sport poteva rinominare eventi di TUTTI gli sport. Ora la riga
+    è SCARTATA (fail-closed) con warning dedupato; le agnostiche INTENZIONALI
+    (campo vuoto) restano valide e agnostiche.
+
+    Fail-first: prima `get_entries` restituiva anche le righe col typo, agnostiche."""
+    import logging as _logging
+    nm._reset_warnings()
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Juventus", "provider": "Juve", "sport": "Calc1o"},      # typo
+        {"betfair": "Lakers", "provider": "LAL", "entity_type": "sqadra"},   # typo
+        {"betfair": "Milan", "provider": "ACM", "sport": ""},          # agnostica voluta
+        {"betfair": "Roma", "provider": "ASR", "sport": "Calcio"},     # valida
+    ]}}
+    with caplog.at_level(_logging.WARNING, logger="xtrader_bridge.name_mapping_store"):
+        rows = nm.get_entries(cfg, "P")
+        nm.get_entries(cfg, "P")                            # hot path: niente doppio log
+    assert [r["betfair"] for r in rows] == ["Milan", "Roma"]
+    assert rows[0]["sport"] == ""                           # agnostica intenzionale intatta
+    recs = [r for r in caplog.records if r.name == "xtrader_bridge.name_mapping_store"]
+    assert len(recs) == 2                                   # un warning per riga, dedupato
+    assert "Calc1o" in recs[0].getMessage() and "sqadra" in recs[1].getMessage()
+    for r in recs:
+        r.getMessage().encode("cp1252")                     # handler Windows legacy
+    nm._reset_warnings()
+
+
+def test_malformed_entry_warnings_per_gui():
+    """#259 B4: gli avvisi per il log eventi GUI (`_start`) — solo le righe con
+    typo, identificate per profilo e nome riga; le vuote/valide/agnostiche tacciono."""
+    cfg = {"name_mappings": {"Serie A": [
+        {"betfair": "Juventus", "provider": "Juve", "sport": "Calc1o"},
+        {"betfair": "", "provider": "", "sport": "Calc1o"},       # vuota: nessun avviso
+        {"betfair": "Roma", "provider": "ASR", "sport": "Calcio"},
+    ]}}
+    warns = nm.malformed_entry_warnings(cfg)
+    assert len(warns) == 1
+    assert "Serie A" in warns[0] and "Juventus" in warns[0] and "Calc1o" in warns[0]
+    warns[0].encode("cp1252")
+    assert nm.malformed_entry_warnings({}) == []
