@@ -127,3 +127,183 @@ def test_nome_duplicato_avvisato_non_bloccante():
 def test_nomi_unici_nessun_avviso():
     sources = [{"name": "A", "chat_id": "1"}, {"name": "B", "chat_id": "2"}]
     assert sm.duplicate_name_warnings(sources) == []
+
+
+def test_enabled_malformato_fail_closed():
+    """C7 #259: `enabled` malformato NON deve riabilitare una sorgente che l'operatore
+    credeva spenta. Prima `_as_bool` era denylist-based: un typo («flase», «disabled»)
+    o NaN/inf diventavano True → chat riabilitata di nascosto. Ora vale l'allowlist
+    fail-closed (stesso contratto di `autostart.is_enabled`/`as_bool_optin`): solo un
+    "sì" esplicito abilita; il default per chiave ASSENTE resta True.
+
+    Fail-first: sul vecchio codice «flase»/«attivo»/NaN producevano enabled=True."""
+    for bad in ("flase", "disabled", "spento", "attivo", "enabled",
+                float("nan"), float("inf"), [], {}, None):
+        cfg = _cfg({"chat_id": "777", "enabled": bad})
+        assert sm.source_chats(cfg)[0]["enabled"] is False, f"riabilitata da {bad!r}"
+        assert sm.enabled_chat_ids(cfg) == set()
+    # Gli esplicitamente-sì restano sì (retro-compatibilità con i valori legittimi).
+    for ok in (True, 1, 2, "1", "true", " TRUE ", "yes", "on", "si", "sì"):
+        cfg = _cfg({"chat_id": "777", "enabled": ok})
+        assert sm.source_chats(cfg)[0]["enabled"] is True, f"spenta da {ok!r}"
+    # Gli esplicitamente-no restano no; la chiave assente resta il default attivo.
+    for off in (False, 0, 0.0, "0", "false", "no", "off", ""):
+        cfg = _cfg({"chat_id": "777", "enabled": off})
+        assert sm.source_chats(cfg)[0]["enabled"] is False, f"accesa da {off!r}"
+    assert sm.source_chats(_cfg({"chat_id": "777"}))[0]["enabled"] is True
+
+
+def _nostri(caplog):
+    """Solo i record del logger di source_manager (robustezza, review Fable: caplog
+    cattura dal root e un warning di una libreria terza non deve falsare gli assert)."""
+    return [r for r in caplog.records if r.name == "xtrader_bridge.source_manager"]
+
+
+def test_enabled_malformato_viene_segnalato_a_log(caplog):
+    """Review Fable/Sourcery su #309: il flip fail-closed non deve essere silenzioso.
+    Un `enabled` malformato produce un WARNING con chat_id e valore incriminato (mai
+    altri campi della config); un "no" ESPLICITO (False/"false"/0/"off"/-0.0) non
+    logga. Il messaggio è codificabile in cp1252 (handler Windows legacy, review GPT)."""
+    import logging as _logging
+    sm._reset_warnings()
+    with caplog.at_level(_logging.WARNING, logger="xtrader_bridge.source_manager"):
+        sm.source_chats(_cfg({"chat_id": "777", "enabled": "flase",
+                              "name": "RISERVATO", "provider": "PROV_X"}))
+    recs = _nostri(caplog)
+    assert len(recs) == 1
+    msg = recs[0].getMessage()
+    assert "flase" in msg and "777" in msg
+    assert "RISERVATO" not in msg and "PROV_X" not in msg  # mai altri campi della config
+    msg.encode("cp1252")                                   # niente char fuori codepage legacy
+    caplog.clear()
+    with caplog.at_level(_logging.WARNING, logger="xtrader_bridge.source_manager"):
+        for off in (False, "false", 0, "off", "", "0", "no", -0.0):
+            sm.source_chats(_cfg({"chat_id": "777", "enabled": off}))
+        sm.source_chats(_cfg({"chat_id": "777"}))                    # default: nessun log
+        sm.source_chats(_cfg({"chat_id": "777", "enabled": True}))   # sì esplicito: idem
+    assert _nostri(caplog) == []
+
+
+def test_enabled_malformato_logga_una_sola_volta_per_valore(caplog):
+    """Anti-flooding (review GLM/GPT/Fable su #309): `source_chats` può girare in hot
+    path — lo STESSO valore malformato per la stessa chat logga UNA volta sola; chat o
+    valore diversi loggano di nuovo; None e NaN sono malformati (warning); un valore
+    lunghissimo viene TRONCATO nel messaggio (niente righe giganti, niente leak)."""
+    import logging as _logging
+    sm._reset_warnings()
+    with caplog.at_level(_logging.WARNING, logger="xtrader_bridge.source_manager"):
+        for _ in range(5):                                             # hot path simulato
+            sm.source_chats(_cfg({"chat_id": "777", "enabled": "flase"}))
+        sm.source_chats(_cfg({"chat_id": "778", "enabled": "flase"}))  # altra chat: logga
+        sm.source_chats(_cfg({"chat_id": "777", "enabled": None}))     # None: malformato
+        sm.source_chats(_cfg({"chat_id": "777", "enabled": float("nan")}))
+        sm.source_chats(_cfg({"chat_id": "777", "enabled": "x" * 500}))
+    recs = _nostri(caplog)
+    assert len(recs) == 5                                  # 1+1+1+1+1: niente spam
+    lungo = [r.getMessage() for r in recs if "xxx" in r.getMessage()]
+    assert lungo and len(lungo[0]) < 300                   # valore troncato nel log
+
+
+def test_enabled_log_sicuro_con_unicode_newline_e_chat_lunga(caplog):
+    """Round 3 (GPT/Fable/Fugu #309): `repr()` non escapa gli Unicode stampabili — un
+    `enabled` con emoji rompeva l'handler cp1252 (UnicodeEncodeError = warning PERSO)
+    e un `chat_id` con newline finiva raw nella riga (log injection); il chat_id non
+    era nemmeno troncato. Ora entrambi i segmenti dinamici passano da `ascii()` +
+    troncamento: messaggio sempre cp1252-encodabile, su una sola riga, corto.
+
+    Fail-first: sul codice precedente l'emoji restava nel messaggio e la newline
+    del chat_id spezzava la riga di log."""
+    import logging as _logging
+    sm._reset_warnings()
+    with caplog.at_level(_logging.WARNING, logger="xtrader_bridge.source_manager"):
+        sm.source_chats(_cfg({"chat_id": "777", "enabled": "😀attivo"}))
+        sm.source_chats(_cfg({"chat_id": "777😀", "enabled": "flase"}))
+        sm.source_chats(_cfg({"chat_id": "777\nWARNING finto", "enabled": "flase"}))
+        sm.source_chats(_cfg({"chat_id": "9" * 500, "enabled": "flase"}))
+    recs = _nostri(caplog)
+    assert len(recs) == 4
+    for r in recs:
+        msg = r.getMessage()
+        msg.encode("cp1252")          # codificabile anche con input arbitrario
+        assert "\n" not in msg        # niente injection multiriga dal chat_id
+        assert len(msg) < 320         # anche il chat_id è troncato, non solo enabled
+
+
+def test_enabled_valori_lunghi_stesso_prefisso_loggano_entrambi(caplog):
+    """Round 3 (GLM/GPT/Fugu #309): il dedup era keyed sul valore TRONCATO — due valori
+    distinti con gli stessi primi 57 caratteri collassavano su una chiave sola e il
+    secondo warning spariva. Ora la chiave usa l'hash del valore COMPLETO (e resta a
+    dimensione fissa in memoria, senza trattenere valori/chat_id giganti).
+
+    Fail-first: sul codice precedente il secondo valore non produceva alcun record."""
+    import logging as _logging
+    sm._reset_warnings()
+    prefisso = "x" * 80
+    with caplog.at_level(_logging.WARNING, logger="xtrader_bridge.source_manager"):
+        sm.source_chats(_cfg({"chat_id": "777", "enabled": prefisso + "A"}))
+        sm.source_chats(_cfg({"chat_id": "777", "enabled": prefisso + "B"}))
+    assert len(_nostri(caplog)) == 2
+
+
+def test_warned_enabled_ha_un_cap_assoluto(caplog):
+    """Round 3 (Fable/Fugu #309): in un processo 24/7 con config rigenerata e garbage
+    variabile il set di dedup cresceva senza limite. Ora c'è un cap assoluto: oltre,
+    i warning NUOVI sono soppressi fino al riavvio/reset (solo visibilità: il
+    fail-closed resta attivo su ogni sorgente) e la memoria è bounded."""
+    import logging as _logging
+    sm._reset_warnings()
+    with caplog.at_level(_logging.WARNING, logger="xtrader_bridge.source_manager"):
+        for i in range(sm._WARNED_CAP + 50):
+            cfg = _cfg({"chat_id": "777", "enabled": f"garbage-{i}"})
+            assert sm.source_chats(cfg)[0]["enabled"] is False   # fail-closed sempre
+    assert len(sm._WARNED_ENABLED) == sm._WARNED_CAP             # niente crescita oltre
+    assert len(_nostri(caplog)) == sm._WARNED_CAP
+    sm._reset_warnings()
+
+
+def test_is_recognized_off_equality_numerica_esplicita():
+    """Review Fable round 3 #309: `-0.0` è un "no" ESPLICITO per equality numerica
+    (`-0.0 == 0`), non via stringa; NaN/inf/None/typo NON sono riconosciuti come off
+    (→ ramo malformato). Test dedicato, non solo indiretto via assenza di log."""
+    for off in (-0.0, 0.0, 0, False, "off", "no", "0", ""):
+        assert sm._is_recognized_off(off) is True, off
+    for not_off in (float("nan"), float("inf"), None, [], {}, "flase", True, 1):
+        assert sm._is_recognized_off(not_off) is False, not_off
+
+
+def test_malformed_enabled_warnings_per_gui():
+    """Codex P2 #309: il warning del logger Python non è visibile nell'app windowed —
+    `malformed_enabled_warnings` produce i messaggi che `_start` mostra nel log eventi.
+    Solo sorgenti malformate (né sì né no espliciti); valori sanificati/troncati; mai
+    altri campi della config."""
+    srcs = [{"chat_id": "111", "enabled": "flase", "name": "RISERVATO"},
+            {"chat_id": "222", "enabled": False},          # no esplicito: nessun avviso
+            {"chat_id": "333", "enabled": True},           # sì esplicito: idem
+            {"chat_id": "444"},                            # default: idem
+            {"chat_id": "555", "enabled": "😀" + "y" * 200},
+            "non-dict-ignorata"]
+    warns = sm.malformed_enabled_warnings(srcs)
+    assert len(warns) == 2
+    assert "111" in warns[0] and "flase" in warns[0] and "RISERVATO" not in warns[0]
+    assert "555" in warns[1] and len(warns[1]) < 320
+    for w in warns:
+        w.encode("cp1252")                                 # anche l'event log è un file
+        assert "\n" not in w
+    assert sm.malformed_enabled_warnings([]) == []
+    assert sm.malformed_enabled_warnings(None) == []
+
+
+def test_vocabolario_si_allineato_con_autostart():
+    """Anti-drift (review GLM/Fable su #309): ogni stringa-sì di `_ENABLED_TRUE` deve
+    essere un sì anche per `autostart.is_enabled` (stesso contratto dichiarato)."""
+    from xtrader_bridge import autostart
+    for v in sm._ENABLED_TRUE:
+        assert autostart.is_enabled({"auto_start_listener": v}) is True, v
+        assert sm.as_enabled_bool(v) is True, v
+
+
+def test_enabled_int_enorme_non_crasha():
+    """Lezione #299 blindata anche qui: un int fuori range float (10**400) non deve
+    sollevare OverflowError — è un numero esplicitamente non-zero → True."""
+    assert sm.as_enabled_bool(10**400) is True
+    assert sm.as_enabled_bool(-(10**400)) is True

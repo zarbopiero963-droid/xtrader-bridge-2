@@ -17,6 +17,12 @@ un passo successivo (come `parser_manager` CP-07 ha preceduto CP-09), così ques
 parte resta interamente testabile headless e a rischio zero per il CSV.
 """
 
+import logging
+import math
+import threading
+
+_LOG = logging.getLogger(__name__)
+
 MODES = ("PRE", "LIVE")
 DEFAULT_MODE = "PRE"
 # Provider di default per modalità: DERIVATO da MODES (PRE → "TG_PRE", LIVE →
@@ -31,13 +37,90 @@ def is_valid_mode(mode) -> bool:
     return str(mode or "").strip().upper() in MODES
 
 
-def _as_bool(value) -> bool:
-    """Coercizione robusta a bool (JSON può portare stringhe '0'/'false')."""
+# Stringhe che significano "sì" o "no" ESPLICITI per `enabled` (il vocabolario "sì"
+# è lo stesso di `autostart.is_enabled`, italiano incluso; test di parità in
+# `test_source_manager`). Tutto ciò che non è in nessuno dei due è MALFORMATO:
+# coercito a False (fail-closed) e segnalato a log da `_normalize_source`.
+_ENABLED_TRUE = ("true", "1", "yes", "on", "si", "sì")
+_ENABLED_FALSE = ("", "0", "false", "no", "off")
+
+
+def as_enabled_bool(value) -> bool:
+    """Coercizione FAIL-CLOSED a bool per `enabled` (C7 #259): abilita solo un "sì"
+    esplicito — bool True, numeri FINITI non-zero, stringhe in `_ENABLED_TRUE` (il
+    contratto numerico è identico a `autostart.is_enabled`/`as_bool_optin`: anche
+    `2` o `-1` sono un numero esplicitamente non-zero, mai un typo). Prima era
+    denylist-based (qualunque stringa non vuota fuori da `0/false/no/off` diventava
+    True): un typo («flase», «disabled») o un NaN/inf da config corrotta RIABILITAVANO
+    una sorgente che l'operatore credeva spenta → chat di nuovo ascoltata. Il default
+    True per chiave ASSENTE resta al chiamante (`raw.get("enabled", True)`)."""
     if isinstance(value, bool):
         return value
+    if isinstance(value, int):
+        # Un int non può essere NaN/inf: basta `!= 0` (niente conversione a float,
+        # che su int fuori range solleverebbe OverflowError — lezione di #299).
+        return value != 0
+    if isinstance(value, float):
+        return math.isfinite(value) and value != 0
     if isinstance(value, str):
-        return value.strip().lower() not in ("", "0", "false", "no", "off")
-    return bool(value)
+        return value.strip().lower() in _ENABLED_TRUE
+    return False
+
+
+def _is_recognized_off(value) -> bool:
+    """True se `value` è un "no" ESPLICITO (bool False, zero finito, stringa della
+    denylist storica): serve a distinguere una disattivazione VOLUTA da un valore
+    MALFORMATO coercito a False, che va invece segnalato a log (review Fable #309:
+    il flip fail-closed non deve essere silenzioso per l'operatore)."""
+    if isinstance(value, bool):
+        return value is False
+    if isinstance(value, int):
+        return value == 0
+    if isinstance(value, float):
+        return math.isfinite(value) and value == 0
+    if isinstance(value, str):
+        return value.strip().lower() in _ENABLED_FALSE
+    return False
+
+
+# Alias retro-compatibile del vecchio nome privato (riferito da codice/test esterni).
+_as_bool = as_enabled_bool
+
+# Lunghezza massima di un valore mostrato nel messaggio di log ("..." inclusi).
+_SHOWN_MAX = 60
+# Coppie (chat_id, hash del valore) già segnalate a log: `source_chats` può girare in
+# hot path (una normalizzazione per messaggio), e una config corrotta non deve
+# riempire il log con lo stesso warning a ogni evento (review GLM/GPT #309). La chiave
+# usa l'hash del valore COMPLETO (dimensione fissa: niente valori giganti in memoria)
+# e non il testo troncato: due valori distinti con lo stesso prefisso loggano entrambi
+# (review GLM/GPT round 3). Cap assoluto sotto: il set non cresce oltre `_WARNED_CAP`
+# nemmeno con garbage variabile in un processo long-running (review Fable round 3).
+_WARNED_ENABLED = set()
+# Oltre il cap i warning NUOVI sono soppressi fino al riavvio/reset: config patologica
+# (centinaia di valori malformati distinti) = flood; il fail-closed resta comunque
+# attivo, il dedup tocca solo la visibilità.
+_WARNED_CAP = 256
+# check-then-add atomico: senza lock due thread (handler concorrenti) potrebbero
+# superare entrambi il `not in` e loggare doppio (review Fugu/Fable round 3).
+_WARNED_LOCK = threading.Lock()
+
+
+def _reset_warnings() -> None:
+    """Svuota il dedup dei warning: per i test e per un eventuale futuro hook di
+    reload config (così una chat corretta e poi ri-corrotta torna a essere segnalata)."""
+    with _WARNED_LOCK:
+        _WARNED_ENABLED.clear()
+
+
+def _safe_log_value(value, max_len=_SHOWN_MAX) -> str:
+    """Rappresentazione SICURA di un valore da interpolare in un messaggio di log:
+    `ascii()` escapa sia i non-ASCII (niente UnicodeEncodeError su handler cp1252
+    Windows legacy, review GPT/Fable round 3) sia i caratteri di controllo (niente
+    newline iniettate nel log); il troncamento evita righe giganti/leak lunghi."""
+    shown = ascii(value)
+    if len(shown) > max_len:
+        shown = shown[:max_len - 3] + "..."
+    return shown
 
 
 def normalize_mode(mode) -> str:
@@ -52,11 +135,36 @@ def _normalize_source(raw: dict) -> dict:
     """Porta una sorgente grezza alla forma canonica (tipi e default coerenti).
 
     `enabled` è True di default (una sorgente appena aggiunta è attiva); `chat_id`
-    e `provider` sono rifilati; `mode` normalizzato a PRE/LIVE."""
+    e `provider` sono rifilati; `mode` normalizzato a PRE/LIVE. Un `enabled`
+    MALFORMATO (né sì né no espliciti) viene coercito a False (fail-closed, C7 #259)
+    e SEGNALATO a log: la sorgente smette di essere ascoltata e l'operatore deve
+    poterlo vedere, non scoprirlo dall'assenza di segnali (review Fable/Sourcery)."""
+    raw_enabled = raw.get("enabled", True)
+    enabled = as_enabled_bool(raw_enabled)
+    if not enabled and not _is_recognized_off(raw_enabled):
+        # Solo chat_id + valore incriminato, entrambi resi ASCII-safe ed escapati da
+        # `_safe_log_value` (niente UnicodeEncodeError cp1252, niente newline iniettate)
+        # e TRONCATI (niente righe giganti né leak lunghi): mai altri campi della
+        # config nel log. Freccia ASCII: handler Windows non-UTF8 (review GPT).
+        chat = str(raw.get("chat_id", "") or "").strip()
+        # Chiave di dedup su HASH dei valori COMPLETI: dimensione fissa in memoria
+        # (nessun chat_id/valore gigante trattenuto) e nessuna collisione di prefisso
+        # tra valori distinti che condividono i primi 57 caratteri.
+        key = (hash(chat), hash(ascii(raw_enabled)))
+        with _WARNED_LOCK:                       # una volta per chat+valore: no spam
+            warn = key not in _WARNED_ENABLED and len(_WARNED_ENABLED) < _WARNED_CAP
+            if warn:
+                _WARNED_ENABLED.add(key)
+        if warn:
+            _LOG.warning(
+                "source_chats: enabled=%s non riconosciuto per chat_id=%s -> sorgente "
+                "DISABILITATA (fail-closed, C7 #259). Valori ammessi: %s / %s.",
+                _safe_log_value(raw_enabled), _safe_log_value(chat),
+                "/".join(_ENABLED_TRUE), "/".join(v or "''" for v in _ENABLED_FALSE))
     return {
         "name": str(raw.get("name", "") or "").strip(),
         "chat_id": str(raw.get("chat_id", "") or "").strip(),
-        "enabled": _as_bool(raw.get("enabled", True)),
+        "enabled": enabled,
         "provider": str(raw.get("provider", "") or "").strip(),
         "mode": normalize_mode(raw.get("mode", "")),
     }
@@ -135,6 +243,27 @@ def validate_sources(raw_sources) -> list:
             errors.append(
                 f"{where}: modalità non valida {raw_mode!r}; ammesse {', '.join(MODES)}.")
     return errors
+
+
+def malformed_enabled_warnings(raw_sources) -> list:
+    """Avvisi **non bloccanti** per la GUI/event log: sorgenti con `enabled` MALFORMATO
+    (né sì né no espliciti), che il normalizzatore coercizza a DISATTIVATA (fail-closed,
+    C7 #259). Il warning del logger Python di `_normalize_source` non è visibile
+    nell'app windowed Windows (Codex P2 #309): `_start` mostra QUESTI messaggi nel log
+    eventi, così l'operatore non scopre il flip dall'assenza di segnali. Valori
+    sanificati/troncati come nel log di modulo: mai altri campi della config."""
+    warnings = []
+    for raw in raw_sources or []:
+        if not isinstance(raw, dict):
+            continue
+        raw_enabled = raw.get("enabled", True)
+        if not as_enabled_bool(raw_enabled) and not _is_recognized_off(raw_enabled):
+            chat = str(raw.get("chat_id", "") or "").strip()
+            warnings.append(
+                f"Sorgente chat_id={_safe_log_value(chat)}: enabled="
+                f"{_safe_log_value(raw_enabled)} non riconosciuto -> considerata "
+                f"DISATTIVATA (fail-closed). Usa true/false (o si/no, on/off, 1/0).")
+    return warnings
 
 
 def duplicate_name_warnings(raw_sources) -> list:

@@ -1634,6 +1634,12 @@ class App(ctk.CTk):
                 self._log(f"❌ Sorgenti multi-chat: {err}")
             self._log("Avvio annullato: correggi le sorgenti.")
             return
+        # Avviso NON bloccante (Codex P2 #309): un `enabled` malformato viene coercito
+        # a DISATTIVATA dal fail-closed C7 #259, ma il warning del logger Python non è
+        # visibile nell'app windowed: va mostrato qui nel log eventi, altrimenti
+        # l'operatore vede solo la chat smettere di produrre segnali.
+        for warn in source_manager.malformed_enabled_warnings(cfg.get("source_chats")):
+            self._log(f"⚠️ {warn}")
         # Fail-fast (PR-23/PR-24): la chat notifiche XTrader NON deve coincidere con una
         # chat sorgente (chat_id, override parser_by_chat o sorgente multi-chat ATTIVA);
         # altrimenti i segnali di quella chat finirebbero nel percorso di conferma e

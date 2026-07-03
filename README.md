@@ -235,6 +235,10 @@ Regole:
   libero: puoi crearne quanti vuoi (es. `TG_VIP`, `TG_GOLD`).
 - **`enabled: false`** → la sorgente è **ignorata** (deny-list): quella chat non
   scrive, anche se compare altrove.
+- **`enabled` malformato** (né un sì né un no riconoscibili — es. il typo `"flase"`) →
+  la sorgente è considerata **disattivata** (fail-closed: un typo non può riattivare
+  una chat che credevi spenta) e all'avvio compare un **avviso nel log eventi**.
+  Valori riconosciuti: `true/false`, `si/no`, `on/off`, `1/0`.
 - **`chat_id` duplicato** tra due sorgenti = errore bloccante all'avvio (il Provider
   sarebbe ambiguo). **Nome** duplicato = solo avviso.
 - Le chat in `source_chats` attive sono **ammesse** in aggiunta a `chat_id`/
