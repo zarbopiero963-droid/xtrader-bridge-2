@@ -609,6 +609,57 @@ A task cannot be `DONE` if the only evidence is unrun, fake, decorative, or assu
 
 ---
 
+## Final AI review before merge — label gate
+
+Two AI reviewers are the **final pre-merge gate** and run **only** when the
+agent adds a label to the PR (`pull_request: labeled` workflows):
+
+- `final-fable-review` → `PR Review Claude Fable 5`
+- `final-fugu-review` → `PR Review OpenRouter Fugu Ultra`
+
+GPT-5.5 and GLM 5.2 stay automatic on every push; Claude Fable 5 and Fugu Ultra
+do not — they cost more and act as a strong check over the **whole PR** right
+before merge. The agent **never sees the API keys**: it only adds a label; the
+secrets stay in GitHub Secrets and GitHub Actions stays read-only on the code.
+
+Trigger the final reviews **only after**: all requested work is complete;
+local/code checks were attempted where possible; the branch is pushed; the PR is
+not draft. The two labels must be **removed and re-added** (GitHub emits no new
+`labeled` event if the label is already present):
+
+```bash
+PR_NUMBER="$(gh pr view --json number -q .number)"
+
+gh pr edit "$PR_NUMBER" --remove-label final-fable-review || true
+gh pr edit "$PR_NUMBER" --remove-label final-fugu-review || true
+
+sleep 2
+
+gh pr edit "$PR_NUMBER" \
+  --add-label final-fable-review \
+  --add-label final-fugu-review
+```
+
+In an environment without `gh` (GitHub MCP tools only), the equivalent is to
+remove and re-add the two labels on the PR via the GitHub API
+(`issues/{n}/labels`). The two labels must already exist in the repo; creating
+them is a one-time owner action.
+
+Then **wait** for the `PR Review Claude Fable 5` and `PR Review OpenRouter Fugu
+Ultra` workflows (they fall under the check-completion gate and review window).
+If either review reports blockers, security issues, CSV-contract risks, Betfair
+risks, workflow risks, secret-handling risks, or `manual-review-required`, do
+not declare the PR ready and do not propose auto-merge: leave the PR open and
+write clearly:
+
+```text
+AUTO-MERGE DISABILITATO: questa PR richiede merge manuale da parte di Piero.
+```
+
+Merge always stays manual, owner-only.
+
+---
+
 ## Check completion gate — required before final PR review
 
 The agent must not perform final PR review, evidence resolve, thread resolve, or final READY/DONE judgment while GitHub checks are still running.

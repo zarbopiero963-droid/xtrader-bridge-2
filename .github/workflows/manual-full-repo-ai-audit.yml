@@ -890,11 +890,14 @@ jobs:
 
                       try:
                           chunk_findings, err = audit_chunk(path_str, start, end, content)
-                          chunks_succeeded += 1
                           findings.extend(chunk_findings)
 
+                          # Un chunk conta come riuscito solo se il modello ha
+                          # risposto JSON valido: un parse error non è successo.
                           if err:
                               errors.append(err)
+                          else:
+                              chunks_succeeded += 1
 
                       except Exception as exc:
                           safe_exc = redact(str(exc))

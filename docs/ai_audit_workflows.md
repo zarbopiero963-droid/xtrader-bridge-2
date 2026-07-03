@@ -7,10 +7,10 @@ proprietario**.
 
 | Workflow | File | Trigger | Modello | Output |
 | --- | --- | --- | --- | --- |
-| PR Review GPT-5.5 | `.github/workflows/pr-review-gpt55.yml` | automatico su ogni push della PR | `gpt-5.5` (OpenAI Responses API, `store: false`) | un commento per range |
-| PR Review Claude Fable 5 | `.github/workflows/pr-review-claude-fable5.yml` | automatico su ogni push della PR | `claude-fable-5` (Anthropic Messages API) | un commento per range |
-| PR Review GLM 5.2 | `.github/workflows/pr-review-openrouter-glm52.yml` | automatico su ogni push della PR | `z-ai/glm-5.2` (OpenRouter) | un commento per range |
-| PR Review Fugu Ultra | `.github/workflows/pr-review-openrouter-fugu-ultra.yml` | automatico su ogni push della PR | `sakana/fugu-ultra` (OpenRouter) | un commento per range |
+| PR Review GPT-5.5 | `.github/workflows/pr-review-gpt55.yml` | **automatico** su ogni push della PR | `gpt-5.5` (OpenAI Responses API, `store: false`) | un commento per range |
+| PR Review GLM 5.2 | `.github/workflows/pr-review-openrouter-glm52.yml` | **automatico** su ogni push della PR | `z-ai/glm-5.2` (OpenRouter) | un commento per range |
+| PR Review Claude Fable 5 | `.github/workflows/pr-review-claude-fable5.yml` | **solo via label** `final-fable-review` (cancello pre-merge) | `claude-fable-5` (Anthropic Messages API) | un commento sull'intera PR |
+| PR Review Fugu Ultra | `.github/workflows/pr-review-openrouter-fugu-ultra.yml` | **solo via label** `final-fugu-review` (cancello pre-merge) | `sakana/fugu-ultra` (OpenRouter) | un commento sull'intera PR |
 | Manual Full Repo Audit (GPT) | `.github/workflows/manual-full-repo-ai-audit.yml` | **solo manuale** (Actions → Run workflow) | `gpt-5.5` | artifact Markdown + JSON |
 | Manual Full Repo Audit (Claude) | `.github/workflows/claude-fable-full-repo-audit.yml` | **solo manuale** (Actions → Run workflow) | `claude-fable-5` | artifact Markdown + JSON |
 
@@ -27,11 +27,27 @@ Da creare in *Settings → Secrets and variables → Actions → Secrets*:
 - `ANTHROPIC_API_KEY` — PR review Claude Fable 5 + audit Claude;
 - `OPENROUTER_API_KEY` — PR review GLM 5.2 + Fugu Ultra.
 
-I **PR review sono reviewer opzionali**: se il secret corrispondente non è
-configurato il job esce con **successo** (skip, con una nota nei log), **non**
-fa fallire la PR con un check rosso. Puoi quindi abilitare solo i modelli che
-vuoi creando solo i relativi secret. Le chiavi sono mascherate nei log
-(`::add-mask::`) e non vengono mai stampate.
+I **PR review sono reviewer opzionali**: ognuno gira solo se il **suo** secret è
+presente; se manca, il job esce con **successo** (skip, con una nota nei log),
+**non** fa fallire la PR con un check rosso. Puoi quindi abilitare solo i
+modelli che vuoi creando solo i relativi secret (es. solo `OPENAI_API_KEY` per
+GPT-5.5). Le chiavi sono mascherate nei log (`::add-mask::`) e non vengono mai
+stampate.
+
+## Due livelli: automatici a ogni push + cancello finale via label
+
+- **GPT-5.5 e GLM 5.2** girano **a ogni push** della PR (feedback continuo,
+  economico): analizzano solo il range appena pushato.
+- **Claude Fable 5 e Fugu Ultra** sono il **cancello finale pre-merge**: NON
+  partono a ogni commit ma **solo quando viene aggiunta una label** dedicata
+  (`final-fable-review` / `final-fugu-review`, trigger `pull_request: labeled`).
+  Poiché l'evento non è `synchronize`, rivedono l'**intera PR** (base...head),
+  non solo l'ultimo push. Così durante lo sviluppo spendi poco, e prima del
+  merge fai il controllo forte e completo. L'agente Claude aggiunge solo la
+  label — non vede mai le API key, che restano nei GitHub Secrets.
+
+Per far ripartire una review finale già eseguita, rimuovi e riaggiungi la label
+(GitHub non emette un nuovo evento `labeled` se la label è già presente).
 
 > ⚙️ **Permesso di scrittura richiesto per pubblicare i commenti.** Perché i
 > reviewer possano commentare la PR e aggiungere la label, il repository deve
@@ -86,7 +102,22 @@ mostra scope, range `base...head`, numero di commit e una stima del costo token.
 - **Action pinnate a SHA**: solo gli audit usano `uses:` (`upload-artifact`
   pinnata allo stesso SHA v4.6.2 di `build.yaml`); i PR review non usano action.
 - **Budget duri** su file, chunk, caratteri e token di output per limitare i
-  costi; ogni commento riporta la stima di spesa.
+  costi; ogni commento riporta la stima di spesa. Il budget di retry di ogni
+  reviewer resta sotto il `timeout-minutes` del job, così il fallback riesce a
+  girare prima che il runner uccida il job.
+- **Fail-open sull'infrastruttura**: un errore GitHub nel risolvere il range, o
+  un `403` sulla pubblicazione del commento (token read-only), degrada a warning
+  e **non** fa fallire la PR — il reviewer resta opzionale.
+- **Segnale di controllo manuale robusto**: le aree sensibili sono rilevate
+  anche sul path **precedente** di un file rinominato (`previous_filename`) e, se
+  la Compare API tronca i file a 300, la PR viene comunque marcata
+  `manual-review-required` (fail-closed).
+
+> ⚠️ **Duplicazione per design.** Il Python vive inline negli heredoc dei sei
+> workflow, con logica in gran parte ripetuta. È una scelta deliberata: nessuna
+> action condivisa da fidare/pinnare, ogni workflow è self-contained e i PR
+> review non fanno checkout. Le invarianti comuni sono difese in un punto solo
+> dal test di safety, che è la rete anti-drift.
 
 ## Audit full-repo manuali — come si lanciano
 

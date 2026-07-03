@@ -126,6 +126,12 @@ jobs:
                   text = pattern.sub(replacement, text)
               return text
 
+          def safe_display(text) -> str:
+              # Redazione + rimozione dei control-char: usato per i nomi file che
+              # finiscono nei prompt/commenti (niente segreti, niente newline che
+              # iniettano campi fuori dal diff delimitato).
+              return re.sub(r"[\x00-\x1f\x7f]", " ", redact(str(text)))
+
           def good_sha(value: str) -> bool:
               return bool(re.fullmatch(r"[0-9a-fA-F]{40}", value or "")) and not re.fullmatch(r"0{40}", value or "")
 
@@ -183,16 +189,18 @@ jobs:
               total = 0
 
               for f in files:
-                  # Anche il nome file può contenere un segreto committato per
-                  # errore: va redatto prima di prompt/commenti/etichette.
-                  filename = redact(f.get("filename", ""))
+                  # Nome file redatto E ripulito dai control-char (può contenere
+                  # un segreto o newline che iniettano campi nel prompt).
+                  filename = safe_display(f.get("filename", ""))
+                  prev = f.get("previous_filename")
                   status = f.get("status", "")
                   additions = f.get("additions", 0)
                   deletions = f.get("deletions", 0)
                   changes = f.get("changes", 0)
                   patch = f.get("patch")
 
-                  if is_critical(filename):
+                  # Rinominato DA un'area sensibile: conta anche il path precedente.
+                  if is_critical(filename) or (prev and is_critical(safe_display(prev))):
                       critical.append(filename)
 
                   if not patch:
@@ -265,7 +273,8 @@ jobs:
               data = json.dumps(payload).encode("utf-8")
               last_error = None
 
-              for attempt in range(1, 5):
+              # 3 tentativi × 100s + backoff: worst-case < timeout-minutes del job.
+              for attempt in range(1, 4):
                   req = urllib.request.Request(
                       "https://openrouter.ai/api/v1/chat/completions",
                       data=data,
@@ -279,7 +288,7 @@ jobs:
                       },
                   )
                   try:
-                      with urllib.request.urlopen(req, timeout=180) as resp:
+                      with urllib.request.urlopen(req, timeout=100) as resp:
                           body = json.loads(resp.read().decode("utf-8"))
 
                       choices = body.get("choices") or []
@@ -328,25 +337,45 @@ jobs:
                   f"- Costo stimato base: `~${estimated:.4f}`\n"
               )
 
-          range_base, range_head, range_scope, compared = resolve_range()
+          try:
+              range_base, range_head, range_scope, compared = resolve_range()
+          except Exception as exc:
+              # Errore infra GitHub (Compare/commit API): reviewer opzionale,
+              # non deve bloccare la PR.
+              print(f"::warning::{REVIEW_ID}: impossibile risolvere il range (errore GitHub API), PR non bloccata: {redact(str(exc))[:500]}")
+              sys.exit(0)
           files = compared.get("files") or []
           commit_count = len(compared.get("commits") or [])
           diff_text, skipped_files, critical_files = build_patch_payload(files)
+
+          # La Compare API tronca i file a 300: se raggiunto il tetto non possiamo
+          # garantire di aver visto tutti i file sensibili del range → forziamo il
+          # controllo manuale (fail-closed).
+          compare_truncated = len(files) >= 300
 
           marker = f"<!-- {REVIEW_ID}-pr-review:xtrader-bridge:{range_base[:12]}...{range_head[:12]} -->"
 
           # Label e avviso calcolati PRIMA di ogni uscita: una push-range di soli
           # file binari/oversized che tocca aree sensibili non perde il segnale.
           manual_warning = ""
-          if critical_files:
+          if critical_files or compare_truncated:
               try_add_label()
+              righe = []
+              if critical_files:
+                  righe.append("**File/aree sensibili rilevati:**")
+                  righe.extend(f"- `{name}`" for name in critical_files[:40])
+                  if len(critical_files) > 40:
+                      righe.append("- ... altri file omessi")
+              if compare_truncated:
+                  righe.append(
+                      "- ⚠️ Diff troncato dalla Compare API (>= 300 file): "
+                      "alcuni file del range potrebbero NON essere stati analizzati."
+                  )
               manual_warning = (
                   "## ⚠️ RICHIEDE CONTROLLO MANUALE\n\n"
                   "Il range tocca aree sensibili del progetto XTrader Bridge. "
                   "Non usare auto-merge finché Piero non controlla manualmente.\n\n"
-                  "**File/aree sensibili rilevati:**\n"
-                  + "\n".join(f"- `{name}`" for name in critical_files[:40])
-                  + ("\n- ... altri file omessi" if len(critical_files) > 40 else "")
+                  + "\n".join(righe)
                   + "\n"
               )
 

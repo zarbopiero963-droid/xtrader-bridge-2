@@ -45,10 +45,10 @@ _WF_DIR = os.path.join(_REPO_ROOT, ".github", "workflows")
 
 # kind: pr_review = automatico push-range (commenta) · audit = manuale read-only
 _AI_WORKFLOWS = {
-    "pr-review-gpt55.yml": {"kind": "pr_review", "provider": "openai"},
-    "pr-review-claude-fable5.yml": {"kind": "pr_review", "provider": "anthropic"},
-    "pr-review-openrouter-glm52.yml": {"kind": "pr_review", "provider": "openrouter"},
-    "pr-review-openrouter-fugu-ultra.yml": {"kind": "pr_review", "provider": "openrouter"},
+    "pr-review-gpt55.yml": {"kind": "pr_review", "provider": "openai", "trigger": "auto"},
+    "pr-review-claude-fable5.yml": {"kind": "pr_review", "provider": "anthropic", "trigger": "label", "label": "final-fable-review"},
+    "pr-review-openrouter-glm52.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "auto"},
+    "pr-review-openrouter-fugu-ultra.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "label", "label": "final-fugu-review"},
     "manual-full-repo-ai-audit.yml": {"kind": "audit", "provider": "openai"},
     "claude-fable-full-repo-audit.yml": {"kind": "audit", "provider": "anthropic"},
 }
@@ -210,7 +210,10 @@ def test_pr_review_reviewer_opzionale_non_fa_fallire_la_pr():
         if meta["kind"] != "pr_review":
             continue
         text = _read(name)
-        assert "exit 1" not in text, f"{name}: il reviewer opzionale non deve mai uscire con exit 1"
+        # Word-boundary: `exit 1` esatto, non `exit 10`/`exit 127` legittimi.
+        assert not re.search(r"\bexit 1\b", text), (
+            f"{name}: il reviewer opzionale non deve mai uscire con exit 1"
+        )
         assert re.search(r"non configurato.*\n\s*exit 0", text), (
             f"{name}: la key assente deve portare a 'exit 0' (skip), non a un fallimento"
         )
@@ -219,6 +222,49 @@ def test_pr_review_reviewer_opzionale_non_fa_fallire_la_pr():
         src = _compiled_heredoc(name)
         assert "impossibile pubblicare il commento" in src, (
             f"{name}: upsert_comment deve essere fail-open (warning, non crash) su 403"
+        )
+
+
+def test_pr_review_trigger_split():
+    """GPT-5.5 e GLM 5.2 automatici a ogni push; Claude Fable 5 e Fugu Ultra
+    solo via label finale dedicata (cancello pre-merge)."""
+    for name, meta in _AI_WORKFLOWS.items():
+        if meta["kind"] != "pr_review":
+            continue
+        text = _read(name)
+        if meta["trigger"] == "auto":
+            assert "types: [opened, synchronize, reopened, ready_for_review]" in text, (
+                f"{name}: reviewer automatico deve triggerare sui push della PR"
+            )
+            assert "github.event.label.name" not in text, (
+                f"{name}: reviewer automatico non deve gatare su una label"
+            )
+        else:
+            assert "types: [labeled]" in text, f"{name}: reviewer finale deve triggerare su label"
+            assert f"github.event.label.name == '{meta['label']}'" in text, (
+                f"{name}: reviewer finale deve gatare sulla label {meta['label']}"
+            )
+
+
+def test_pr_review_robustezza_infra():
+    """Fix CodeRabbit/Codex su PR #304: il reviewer opzionale non deve morire su
+    errori infra e non deve perdere il segnale di controllo manuale."""
+    for name, meta in _AI_WORKFLOWS.items():
+        if meta["kind"] != "pr_review":
+            continue
+        src = _compiled_heredoc(name)
+        # resolve_range fail-open (errore GitHub API non blocca la PR).
+        assert "impossibile risolvere il range" in src, f"{name}: resolve_range non fail-open"
+        # Retry budget ridotto (max 3 tentativi) per stare sotto il job timeout.
+        assert "range(1, 4)" in src, f"{name}: retry budget non ridotto (max 3 tentativi)"
+        assert "range(1, 5)" not in src, f"{name}: retry budget ancora a 4 tentativi"
+        # Rinomina DA area sensibile: considerato anche previous_filename.
+        assert "previous_filename" in src, (
+            f"{name}: previous_filename non considerato per le aree sensibili"
+        )
+        # Diff Compare troncato a 300 file → forza controllo manuale.
+        assert "compare_truncated" in src, (
+            f"{name}: troncamento Compare (>=300 file) non gestito fail-closed"
         )
 
 
@@ -279,9 +325,9 @@ def test_pr_review_fix_incorporati():
         assert src.count("{manual_warning}") >= 2, (
             f"{name}: l'avviso manuale deve comparire anche nel commento per diff vuoto"
         )
-        # Nome file redatto prima di prompt/commenti/etichette.
-        assert 'filename = redact(f.get("filename"' in src, (
-            f"{name}: il nome file va redatto (può contenere un segreto)"
+        # Nome file redatto E ripulito dai control-char (safe_display).
+        assert 'filename = safe_display(f.get("filename"' in src, (
+            f"{name}: il nome file va redatto e sanitizzato (segreti/control-char)"
         )
         # Detector requirements completo (.txt/.in/.lock).
         assert r"requirements[^/]*\.(txt|in|lock)$" in src, (
@@ -480,6 +526,11 @@ def test_audit_fallisce_se_tutti_i_chunk_ai_falliscono():
         assert "chunks_succeeded" in src, f"{name}: manca il conteggio dei chunk riusciti"
         assert "chunks_used > 0 and chunks_succeeded == 0" in src, (
             f"{name}: manca il guard 'nessun chunk riuscito -> fallisci'"
+        )
+        # Un parse error NON conta come chunk riuscito (Codex/CodeRabbit P2):
+        # l'incremento è nell'else del check errore.
+        assert re.search(r"else:\s*\n\s*chunks_succeeded \+= 1", src), (
+            f"{name}: chunks_succeeded incrementato anche sui parse error"
         )
 
 

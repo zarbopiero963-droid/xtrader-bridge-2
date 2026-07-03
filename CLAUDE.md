@@ -96,6 +96,58 @@ Non puoi saltare:
 
 ---
 
+## FINAL AI REVIEW BEFORE MERGE — CANCELLO LABEL
+
+Due reviewer AI sono il **cancello finale pre-merge** e partono **solo** quando
+l'agente aggiunge una label alla PR (workflow `pull_request: labeled`):
+
+- `final-fable-review` → `PR Review Claude Fable 5`
+- `final-fugu-review` → `PR Review OpenRouter Fugu Ultra`
+
+GPT-5.5 e GLM 5.2 restano automatici a ogni push; Claude Fable 5 e Fugu Ultra
+NO — costano di più e servono come controllo forte sull'**intera PR** appena
+prima del merge. L'agente **non vede mai le API key**: aggiunge solo la label; i
+secret restano nei GitHub Secrets e GitHub Actions resta read-only sul codice.
+
+Fai partire le review finali **solo dopo** che: tutto il lavoro richiesto è
+completo; i check/test locali sono stati tentati dove possibile; il branch è
+stato pushato; la PR non è draft. Le due label vanno **rimosse e riaggiunte**
+(GitHub non emette un nuovo evento `labeled` se la label è già presente):
+
+```bash
+PR_NUMBER="$(gh pr view --json number -q .number)"
+
+gh pr edit "$PR_NUMBER" --remove-label final-fable-review || true
+gh pr edit "$PR_NUMBER" --remove-label final-fugu-review || true
+
+sleep 2
+
+gh pr edit "$PR_NUMBER" \
+  --add-label final-fable-review \
+  --add-label final-fugu-review
+```
+
+Se in questo ambiente **non** hai `gh` (usi i tool MCP GitHub), l'equivalente è
+rimuovere e riaggiungere le due label alla PR via API GitHub
+(`issues/{n}/labels`). Le due label devono già esistere nel repo
+(`final-fable-review`, `final-fugu-review`); crearle è un'azione una-tantum del
+proprietario.
+
+Poi **aspetta** i workflow `PR Review Claude Fable 5` e `PR Review OpenRouter
+Fugu Ultra` (rientrano nel CHECK COMPLETION GATE e nella finestra di review). Se
+una delle due review segnala bloccanti, security issue, rischi contratto CSV,
+rischi Betfair, rischi workflow, rischi gestione segreti o `manual-review-required`,
+**non** dichiarare la PR pronta e **non** proporre merge automatico: lascia la PR
+aperta e scrivi chiaramente:
+
+```text
+AUTO-MERGE DISABILITATO: questa PR richiede merge manuale da parte di Piero.
+```
+
+Il merge resta **sempre manuale del proprietario**.
+
+---
+
 ## CHECK COMPLETION GATE — OBBLIGATORIO
 
 Prima del controllo finale della PR devi aspettare che tutti i check siano finiti.

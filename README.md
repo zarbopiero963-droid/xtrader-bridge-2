@@ -660,17 +660,20 @@ La compilazione dell'EXE con **PyInstaller** resta invariata.
 
 ## Review e audit AI (GitHub Actions)
 
-Sei workflow opzionali usano modelli AI come **filtro tecnico aggiuntivo**:
-quattro reviewer automatici (GPT-5.5, Claude Fable 5, GLM 5.2, Fugu Ultra)
-commentano ogni push della PR analizzando **solo il range appena pushato**
-(diff-only via GitHub Compare API, senza checkout né esecuzione del codice); due
-audit full-repo, avviabili **solo a mano** da *Actions → Run workflow*,
-scansionano l'intero repository in sola lettura producendo un report
-scaricabile. Nessuno modifica codice, apre PR, approva o merge — il merge resta
-manuale. I reviewer sono opzionali (senza il relativo secret il check non
-fallisce, viene solo saltato). Richiedono i secrets `OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`. Dettagli, invarianti di sicurezza e
-valori consigliati: **`docs/ai_audit_workflows.md`**.
+Sei workflow opzionali usano modelli AI come **filtro tecnico aggiuntivo**. Due
+reviewer **automatici** (**GPT-5.5** con `OPENAI_API_KEY`, **GLM 5.2** con
+`OPENROUTER_API_KEY`) commentano ogni push della PR analizzando **solo il range
+appena pushato**; due reviewer **finali** (**Claude Fable 5** con
+`ANTHROPIC_API_KEY`, **Fugu Ultra** con `OPENROUTER_API_KEY`) partono **solo
+quando viene aggiunta una label** (`final-fable-review` / `final-fugu-review`) e
+rivedono l'intera PR come cancello pre-merge; due **audit full-repo** (GPT-5.5 /
+Claude Fable 5), avviabili **solo a mano** da *Actions → Run workflow*,
+scansionano il repository in sola lettura producendo un report scaricabile.
+Tutto diff-only/read-only: niente checkout, nessuna esecuzione del codice della
+PR; nessuno modifica codice, apre PR, approva o merge — il merge resta manuale.
+I reviewer sono opzionali: ognuno gira solo se il **suo** secret è presente,
+altrimenti viene saltato senza far fallire la PR. Dettagli, invarianti di
+sicurezza e valori consigliati: **`docs/ai_audit_workflows.md`**.
 
 ---
 
