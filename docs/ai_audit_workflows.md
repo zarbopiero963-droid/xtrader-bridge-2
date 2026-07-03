@@ -91,7 +91,10 @@ stampate.
   prodotto testo (non troncato, non errore): se lo trova, esce senza spendere. Un
   commento troncato/errore porta il marker di range ma **non** quello di
   completamento, quindi un re-run **rifà** la review invece di saltarla lasciando
-  il gate verde a vuoto. Così un re-run del workflow o un togli/rimetti della label
+  il gate verde a vuoto. Il marker viene accettato **solo** se il commento è del
+  bot del workflow (`github-actions[bot]`): il `done_marker` è derivabile dagli SHA
+  pubblici, e senza questo filtro un utente che può commentare la PR potrebbe
+  forgiarlo per far saltare la review finale obbligatoria. Così un re-run del workflow o un togli/rimetti della label
   finale **non ripagano** una review già riuscita; un nuovo push (nuovo range) gira
   normalmente. Prima di uscire per dedup, il job **ri-asserisce la label di
   sicurezza** `manual-review-required` sui range critici (idempotente, fail-open):

@@ -399,6 +399,19 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
             f"{name}: la dedup non deve usare comment_exists(marker) — un commento "
             "troncato bloccherebbe il retry (usa done_marker)"
         )
+        # Sicurezza (CodeRabbit Major, PR #310): il done_marker è derivabile dagli SHA
+        # pubblici. Lo scan dei commenti deve fidarsi del marker SOLO se il commento è
+        # del bot del workflow (github-actions[bot]); altrimenti un utente che può
+        # commentare la PR potrebbe forgiare il marker e far saltare la review finale
+        # obbligatoria / il gate a label. Nessuno scan "nudo" (senza autore) deve restare.
+        assert 'if marker in (c.get("body") or ""):' not in src, (
+            f"{name}: scan del marker senza filtro autore — un marker forgiato da un "
+            "utente potrebbe far saltare la review (usa il gating github-actions[bot])"
+        )
+        assert src.count('== "github-actions[bot]" and marker in (c.get("body") or "")') >= 2, (
+            f"{name}: sia comment_exists sia upsert_comment devono accettare il marker "
+            "SOLO da un commento di github-actions[bot] (anti-forgery del done_marker)"
+        )
         # done_marker va scritto nel body SOLO se la review è realmente completata.
         assert "done_line = " in src, (
             f"{name}: done_marker deve essere appeso al body solo quando la review è completa"

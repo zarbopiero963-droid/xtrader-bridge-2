@@ -300,7 +300,10 @@ jobs:
                   while True:
                       comments = gh_request("GET", f"/repos/{REPO}/issues/{PR_NUMBER}/comments?per_page=100&page={page}") or []
                       for c in comments:
-                          if marker in (c.get("body") or ""):
+                          # Sicurezza: fidati del marker SOLO se il commento è del bot
+                          # del workflow (github-actions[bot]); il marker è derivabile
+                          # da SHA pubblici, non deve poter essere forgiato (CodeRabbit).
+                          if ((c.get("user") or {}).get("login") or "") == "github-actions[bot]" and marker in (c.get("body") or ""):
                               existing = c
                               break
                       if existing or len(comments) < 100:
@@ -514,7 +517,12 @@ jobs:
                       f"/repos/{REPO}/issues/{PR_NUMBER}/comments?per_page=100&page={page}",
                   ) or []
                   for c in comments:
-                      if marker in (c.get("body") or ""):
+                      # Sicurezza: accetta il done_marker SOLO da un commento del bot
+                      # del workflow (github-actions[bot]). done_marker è derivabile
+                      # dagli SHA pubblici: senza questo filtro un utente che può
+                      # commentare la PR potrebbe forgiarlo e far saltare la review
+                      # finale obbligatoria / il gate a label (CodeRabbit Major).
+                      if ((c.get("user") or {}).get("login") or "") == "github-actions[bot]" and marker in (c.get("body") or ""):
                           return True
                   if len(comments) < 100:
                       return False
