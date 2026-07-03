@@ -210,13 +210,14 @@ class FailGetKeyring(FailSetKeyring):
         return super().get_password(service, account)
 
 
-def test_save_rollback_non_cancella_un_campo_con_snapshot_illeggibile(monkeypatch):
+def test_save_rollback_non_cancella_un_campo_con_snapshot_illeggibile(monkeypatch, caplog):
     """Review GPT #313: se lo snapshot di un campo NON è leggibile (keyring instabile)
     e poi una scrittura successiva fallisce, il rollback NON deve cancellare quel
     campo — cancellare un valore preesistente IGNOTO sarebbe una perdita di
     credenziali. Lo snapshot illeggibile è distinto da "campo assente".
 
     Fail-first: prima lo snapshot fallito diventava None e il rollback cancellava."""
+    import logging as _logging
     # get di app_key fallisce (snapshot illeggibile), ma il valore c'è davvero;
     # username viene scritto (NEW) e poi password FALLISCE → rollback.
     fake = FailGetKeyring(fail_get={"betfair_app_key"}, fail_set={"betfair_password"})
@@ -227,12 +228,19 @@ def test_save_rollback_non_cancella_un_campo_con_snapshot_illeggibile(monkeypatc
     monkeypatch.setattr(token_store, "_keyring", lambda: fake)
     nuove = cs.BetfairCredentials(app_key="NEW_APP", username="NEW_USER",
                                   password="NEW_PASS")
-    assert cs.save_credentials(nuove) is False
+    with caplog.at_level(_logging.WARNING, logger="xtrader_bridge.betfair.credential_store"):
+        assert cs.save_credentials(nuove) is False
     # app_key aveva snapshot ILLEGGIBILE → il rollback NON l'ha toccata: il valore
     # scritto (NEW_APP) resta, ma il dato preesistente NON è andato perso in un delete.
     assert fake.store.get((cs.SERVICE, "betfair_app_key")) == "NEW_APP"
     # username aveva snapshot leggibile → ripristinato al valore VECCHIO.
     assert fake.store.get((cs.SERVICE, "betfair_username")) == "OLD_USER"
+    # Il campo _UNREAD committato (app_key, resta NEW) NON è invisibile: warning lo cita
+    # come possibilmente incoerente (review Fugu #313), senza mai i valori nel log.
+    recs = [r for r in caplog.records
+            if r.name == "xtrader_bridge.betfair.credential_store"]
+    assert len(recs) == 1 and "app_key" in recs[0].getMessage()
+    assert "NEW_APP" not in recs[0].getMessage()
 
 
 def test_save_rollback_parziale_fallito_logga_warning(monkeypatch, caplog):

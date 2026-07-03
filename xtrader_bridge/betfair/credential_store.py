@@ -162,15 +162,23 @@ def save_credentials(creds: BetfairCredentials) -> bool:
     applied = []                       # campi effettivamente modificati (per il rollback)
 
     def _rollback():
-        # Ripristina i campi già toccati; se qualche ripristino fallisce lo segnala a
-        # log (nomi dei campi, MAI i valori) — uno stato ancora incoerente non deve
-        # restare invisibile all'operatore (review GLM/GPT #313).
-        failed = [f for f in applied if not _restore_field(kr, _account(f), snapshot[f])]
-        if failed:
+        # Ripristina i campi già toccati; segnala a log (nomi dei campi, MAI i valori)
+        # OGNI campo che resta in stato potenzialmente incoerente — uno stato misto non
+        # deve restare invisibile all'operatore (review GLM/GPT/Fugu #313). Sono
+        # incoerenti sia i campi con restore FALLITO (doppio-guasto), sia quelli con
+        # snapshot `_UNREAD`: scritti col valore NUOVO ma non ripristinabili (il valore
+        # precedente era ignoto, quindi deliberatamente NON toccati per non perderlo).
+        problematic = []
+        for f in applied:
+            if snapshot[f] is _UNREAD:
+                problematic.append(f)          # committato su stato ignoto: resta NUOVO
+            elif not _restore_field(kr, _account(f), snapshot[f]):
+                problematic.append(f)          # ripristino fallito
+        if problematic:
             _LOG.warning(
-                "save_credentials: rollback PARZIALE dopo un errore keyring, campi non "
-                "ripristinati: %s. Le credenziali Betfair potrebbero essere incoerenti; "
-                "ri-salvale.", ", ".join(failed))
+                "save_credentials: rollback INCOMPLETO dopo un errore keyring, campi in "
+                "stato possibilmente incoerente: %s. Le credenziali Betfair potrebbero "
+                "essere miste (vecchie/nuove); ri-salvale.", ", ".join(problematic))
     for field in FIELDS:
         raw = getattr(creds, field) or ""
         acct = _account(field)

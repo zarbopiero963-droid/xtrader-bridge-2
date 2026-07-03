@@ -1614,9 +1614,13 @@ def test_init_invoca_redazione_log_globale(app_mod, monkeypatch):
     invoca `install_global_log_redaction` all'avvio. Ci si ferma al primo metodo GUI
     (`title`) per non costruire la finestra headless.
 
-    L'ordine «PRIMA della GUI» (review Fugu) è garantito nel codice — è la primissima
-    statement di `__init__` — ma NON è osservabile qui: con lo stub di test `CTk` è
-    `object`, quindi `super().__init__()` è un no-op.
+    `__init__` fallisce comunque poco dopo l'install — su `super().__init__()` (init
+    Tk headless: `TclError` quando customtkinter è REALE in CI) o sul primo metodo GUI
+    (`AttributeError`/`RuntimeError` quando lo stub di test rende `CTk` = `object`).
+    In ENTRAMBI i casi install è la primissima statement, quindi è eseguita prima del
+    fallimento: si cattura qualsiasi eccezione e si verifica che sia stata invocata.
+    (L'ordine «install PRIMA della GUI», review Fugu, è così implicitamente confermato
+    dal traceback CI, dove `super().__init__()` fallisce DOPO l'install.)
 
     Fail-first: sul codice pre-D3 `__init__` non chiamava install → `called` vuoto."""
     from xtrader_bridge.betfair import log_safety
@@ -1624,9 +1628,11 @@ def test_init_invoca_redazione_log_globale(app_mod, monkeypatch):
     monkeypatch.setattr(log_safety, "install_global_log_redaction",
                         lambda: called.append(1))
     a = object.__new__(app_mod.App)
-    def _stop_gui(*x, **k):
+    def _stop_gui(*x, **k):                    # ferma presto se super() non fallisce (display)
         raise RuntimeError("stop init al primo metodo GUI (test)")
-    a.title = _stop_gui                       # primo metodo GUI dopo super().__init__()
-    with pytest.raises(RuntimeError):
+    a.title = _stop_gui
+    try:
         app_mod.App.__init__(a)
-    assert called == [1]                      # install invocata davvero durante l'avvio
+    except BaseException:                      # noqa: BLE001 — Tcl/attr/runtime a seconda dell'ambiente
+        pass
+    assert called == [1]                       # install invocata davvero durante l'avvio
