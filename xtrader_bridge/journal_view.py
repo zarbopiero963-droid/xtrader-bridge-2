@@ -71,17 +71,29 @@ def filter_events(events, *, types=None, last=None, since=None, until=None) -> l
     return out
 
 
+def _row_cells(event) -> tuple:
+    """Celle `(ts leggibile, TYPE, data JSON compatto)` di un evento. `data` è serializzato
+    con chiavi ordinate (output deterministico) e mostrato così com'è sul ledger (già
+    redatto: la vista non de-redige nulla)."""
+    ts = _ts_label(event.get("ts"))
+    typ = str(event.get("type", ""))
+    data = event.get("data") or {}
+    data_str = json.dumps(data, ensure_ascii=False, sort_keys=True) if data else ""
+    return (ts, typ, data_str)
+
+
+def table_rows(events) -> list:
+    """Righe strutturate `(ts, type, data)` per il rendering tabellare, riusate sia dalla
+    CLI (`format_table`) sia dalla scheda GUI «📒 Diario» (#236). Logica pura, testabile
+    headless: la GUI resta solo widget/wiring."""
+    return [_row_cells(e) for e in events]
+
+
 def format_table(events) -> str:
     """Rendering tabellare: `ts leggibile · TYPE · data (JSON compatto)`, una riga per
-    evento. `data` è serializzato con chiavi ordinate (output deterministico) e mostrato
-    così com'è sul ledger (già redatto)."""
-    lines = []
-    for e in events:
-        ts = _ts_label(e.get("ts"))
-        typ = str(e.get("type", ""))
-        data = e.get("data") or {}
-        data_str = json.dumps(data, ensure_ascii=False, sort_keys=True) if data else ""
-        lines.append(f"{ts}  {typ:<26}  {data_str}".rstrip())
+    evento (riusa `table_rows`)."""
+    lines = [f"{ts}  {typ:<26}  {data_str}".rstrip()
+             for ts, typ, data_str in table_rows(events)]
     return "\n".join(lines)
 
 

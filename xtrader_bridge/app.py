@@ -2961,6 +2961,13 @@ class App(ctk.CTk):
             controller = DictionaryViewerController(self._betfair_sync_engine().db)
             return DictionaryViewerPanel(parent, controller=controller)
 
+        def _make_journal(parent):
+            """Crea la tab «📒 Diario» (SOLA LETTURA): consulta il diario eventi locale
+            (ultimi N, filtro per tipo, dati già redatti), riusando la logica pura di
+            `journal_view`. Non scrive né de-redige mai il ledger (#236)."""
+            from .journal_view_gui import JournalPanel
+            return JournalPanel(parent)
+
         panels = [
             ("🧩 Parser", _make_parser),
             ("📡 Chat sorgenti", _make_sources),
@@ -2972,6 +2979,7 @@ class App(ctk.CTk):
             ("🗺️ Mapping", _make_mapping),
             ("🔵 Betfair Sync", _make_betfair),
             ("📖 Dizionario Betfair", _make_dictionary),
+            ("📒 Diario", _make_journal),
         ]
         self._tools_win = ToolsWindow(self, panels=panels, initial=initial)
         self._tools_win.focus()
