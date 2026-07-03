@@ -47,11 +47,15 @@ class _FakeCtkModule(types.ModuleType):
 
 @pytest.fixture()
 def JournalPanel(monkeypatch):
-    # Stub di customtkinter SOLO se assente (in CI lo è): non tocca un ctk reale.
-    try:
-        import customtkinter  # noqa: F401
-    except ModuleNotFoundError:
-        monkeypatch.setitem(sys.modules, "customtkinter", _FakeCtkModule("customtkinter"))
+    # Stub di customtkinter SEMPRE (anche quando è installato, es. in CI su Windows/Linux con
+    # display): questo test esercita `_refresh`, che COSTRUISCE widget (`CTkFont`/`CTkLabel`/
+    # `CTkFrame`). Con il customtkinter REALE headless questi crashano subito
+    # («RuntimeError: Too early to use font: no default root window») perché non c'è un root Tk.
+    # Sostituendolo con widget no-op possiamo esercitare la logica reale del pannello
+    # (read_events → filter_events → table_rows) senza aprire alcuna finestra. monkeypatch
+    # ripristina sia customtkinter sia il modulo a fine test, quindi non leaka verso i test che
+    # importano il customtkinter reale (es. lo smoke `test_journal_view_gui_import_opzionale`).
+    monkeypatch.setitem(sys.modules, "customtkinter", _FakeCtkModule("customtkinter"))
     monkeypatch.delitem(sys.modules, "xtrader_bridge.journal_view_gui", raising=False)
     mod = importlib.import_module("xtrader_bridge.journal_view_gui")
     return mod.JournalPanel
