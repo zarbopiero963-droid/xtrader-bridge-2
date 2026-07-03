@@ -98,16 +98,26 @@ Non puoi saltare:
 
 ## FINAL AI REVIEW BEFORE MERGE — CANCELLO LABEL
 
-Due reviewer AI sono il **cancello finale pre-merge** e partono **solo** quando
-l'agente aggiunge una label alla PR (workflow `pull_request: labeled`):
+Due reviewer AI forti e costosi (Claude Fable 5, Fugu Ultra) **non** girano a
+ogni push come GPT-5.5/GLM. Spendono (chiamano il modello) **solo** in due casi:
 
-- `final-fable-review` → `PR Review Claude Fable 5`
-- `final-fugu-review` → `PR Review OpenRouter Fugu Ultra`
+1. **automaticamente** su un push che tocca **file core del bridge** (`main.py`,
+   `xtrader_bridge/**`, dipendenze `requirements*`/`pyproject.toml`/`poetry.lock`)
+   — analizzano il push-range;
+2. **oppure** quando l'agente aggiunge la label finale (gate pre-merge sull'**intera
+   PR**):
+   - `final-fable-review` → `PR Review Claude Fable 5`
+   - `final-fugu-review` → `PR Review OpenRouter Fugu Ultra`
 
-GPT-5.5 e GLM 5.2 restano automatici a ogni push; Claude Fable 5 e Fugu Ultra
-NO — costano di più e servono come controllo forte sull'**intera PR** appena
-prima del merge. L'agente **non vede mai le API key**: aggiunge solo la label; i
-secret restano nei GitHub Secrets e GitHub Actions resta read-only sul codice.
+Su push che toccano **solo** workflow/CI, docs o test, i due job partono ma
+**escono senza chiamare il modello** (costo zero); quei cambiamenti restano
+comunque coperti dai reviewer automatici GPT-5.5/GLM. L'agente **non vede mai le
+API key**: aggiunge solo la label; i secret restano nei GitHub Secrets e GitHub
+Actions resta read-only sul codice.
+
+La label resta il **gate finale pre-merge obbligatorio**: anche se una PR non ha
+toccato file core (quindi i due forti non sono mai partiti da soli), prima di
+dichiararla pronta l'agente **deve** far partire le review finali via label.
 
 Fai partire le review finali **solo dopo** che: tutto il lavoro richiesto è
 completo; i check/test locali sono stati tentati dove possibile; il branch è

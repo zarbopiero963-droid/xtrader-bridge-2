@@ -611,16 +611,26 @@ A task cannot be `DONE` if the only evidence is unrun, fake, decorative, or assu
 
 ## Final AI review before merge — label gate
 
-Two AI reviewers are the **final pre-merge gate** and run **only** when the
-agent adds a label to the PR (`pull_request: labeled` workflows):
+Two strong, costly AI reviewers (Claude Fable 5, Fugu Ultra) do **not** run on
+every push like GPT-5.5/GLM. They spend (call the model) **only** in two cases:
 
-- `final-fable-review` → `PR Review Claude Fable 5`
-- `final-fugu-review` → `PR Review OpenRouter Fugu Ultra`
+1. **automatically** on a push that touches **bridge core files** (`main.py`,
+   `xtrader_bridge/**`, deps `requirements*`/`pyproject.toml`/`poetry.lock`) —
+   they analyze the push-range;
+2. **or** when the agent adds the final label (pre-merge gate over the **whole
+   PR**):
+   - `final-fable-review` → `PR Review Claude Fable 5`
+   - `final-fugu-review` → `PR Review OpenRouter Fugu Ultra`
 
-GPT-5.5 and GLM 5.2 stay automatic on every push; Claude Fable 5 and Fugu Ultra
-do not — they cost more and act as a strong check over the **whole PR** right
-before merge. The agent **never sees the API keys**: it only adds a label; the
-secrets stay in GitHub Secrets and GitHub Actions stays read-only on the code.
+On pushes touching **only** workflow/CI, docs or tests, both jobs start but
+**exit without calling the model** (zero cost); those changes are still covered
+by the automatic GPT-5.5/GLM reviewers. The agent **never sees the API keys**:
+it only adds a label; secrets stay in GitHub Secrets and GitHub Actions stays
+read-only on the code.
+
+The label remains the **mandatory final pre-merge gate**: even if a PR touched
+no core files (so the two strong reviewers never fired on their own), the agent
+**must** trigger the final reviews via label before declaring it ready.
 
 Trigger the final reviews **only after**: all requested work is complete;
 local/code checks were attempted where possible; the branch is pushed; the PR is

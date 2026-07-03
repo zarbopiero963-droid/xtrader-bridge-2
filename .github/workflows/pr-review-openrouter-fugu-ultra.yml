@@ -1,19 +1,21 @@
 name: PR Review OpenRouter Fugu Ultra
 
-# Review AI FINALE con Sakana Fugu Ultra via OpenRouter (endpoint
-# chat/completions stile OpenAI), come cancello pre-merge: NON parte a ogni
-# push, ma solo quando viene aggiunta la label `final-fugu-review` alla PR.
-# Poiché l'evento è `labeled` (non `synchronize`), analizza l'intera PR finale
-# (base...head via GitHub Compare API), non solo l'ultimo push. Diff-only:
-# niente checkout, niente esecuzione del codice della PR. Redige i possibili
-# segreti (inclusi nomi file) prima dell'invio, pubblica/aggiorna un commento e
-# marca le aree sensibili. Reviewer OPZIONALE: se il secret non è configurato il
-# job esce con successo (skip), non fa fallire la PR. Vedi
+# Review AI FORTE con Sakana Fugu Ultra via OpenRouter (endpoint chat/completions
+# stile OpenAI). È caro, quindi chiama il modello SOLO quando serve davvero:
+# - automaticamente su un push che tocca file CORE del bridge (main.py,
+#   xtrader_bridge/**, dipendenze) → analizza il push-range;
+# - oppure quando viene aggiunta la label `final-fugu-review` (gate finale
+#   pre-merge) → analizza l'intera PR (base...head).
+# Su push che toccano solo workflow/docs/test il job parte ma NON spende (gate
+# costo nello script). Diff-only: niente checkout, niente esecuzione del codice
+# della PR. Redige i possibili segreti (inclusi nomi file e OUTPUT del modello)
+# prima dell'invio/pubblicazione e marca le aree sensibili. Reviewer OPZIONALE:
+# se il secret non è configurato il job esce con successo (skip). Vedi
 # docs/ai_audit_workflows.md.
 
 on:
   pull_request:
-    types: [labeled]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
 
 permissions:
   contents: read
@@ -30,12 +32,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    # Parte solo con la label finale dedicata (aggiunta dall'agente prima del
-    # merge), su PR interne non-draft.
+    # Parte su ogni push della PR interna non-draft, MA la chiamata al modello
+    # (il costo) avviene solo se il push tocca file CORE del bridge oppure se è
+    # stata aggiunta la label finale (gate costo nello script). Sui trigger a
+    # label accetta solo `final-fugu-review` (ignora altre label come
+    # manual-review-required per non rilanciare inutilmente).
     if: >
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.label.name == 'final-fugu-review'
+      ( github.event.action != 'labeled' ||
+        github.event.label.name == 'final-fugu-review' )
 
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -45,11 +51,10 @@ jobs:
       REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       EVENT_ACTION: ${{ github.event.action }}
-      # before/after esistono solo sul payload pull_request `synchronize`, non su
-      # `labeled`: qui restano VUOTI ed è corretto. resolve_range() usa BEFORE_SHA
-      # solo dietro `EVENT_ACTION == "synchronize"`, quindi su questo gate finale
-      # (solo `labeled`) ripiega sempre su BASE_SHA...HEAD (intera PR). AFTER_SHA
-      # non è mai letto: tenuto per simmetria con i reviewer automatici.
+      # before/after esistono solo sul payload pull_request `synchronize`. Su
+      # `synchronize` (push di file core) resolve_range() li usa per il push-range;
+      # su `labeled`/`opened`/`reopened` sono vuoti e ripiega su BASE_SHA...HEAD
+      # (intera PR). AFTER_SHA non è mai letto: tenuto per simmetria.
       BEFORE_SHA: ${{ github.event.before }}
       AFTER_SHA: ${{ github.event.after }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -124,6 +129,12 @@ jobs:
               r"(^|/)poetry\.lock$",
               r"(?i)license|licence|activation|payment|supabase|telegram|betfair|csv|parser",
               r"(?i)secret|credential|token|auth|encrypt|decrypt|keyring|updater|auto.?update|config|settings",
+              # dotenv e file-segreto: una PR che aggiunge/rinomina .env o una
+              # chiave privata va marcata manual-review anche se il file è binario/
+              # oversized/senza patch e il modello non può ispezionarlo (Codex P2).
+              r"(^|/)\.env($|\.)",
+              r"(?i)(^|/)[^/]*\.(pem|pfx|p12|key|keystore)$",
+              r"(?i)(^|/)(id_rsa|id_dsa|id_ecdsa|id_ed25519)$",
           ]
 
           REDACTIONS = [
@@ -398,6 +409,35 @@ jobs:
               sys.exit(0)
           files = compared.get("files") or []
           commit_count = len(compared.get("commits") or [])
+
+          # Gate costo: questo reviewer forte è caro. Chiama il modello SOLO se il
+          # push tocca file CORE del bridge (main.py, xtrader_bridge/**, dipendenze)
+          # oppure se è un trigger a label (gate finale pre-merge). Su push che
+          # toccano solo workflow/docs/test il job parte ma NON spende — i reviewer
+          # automatici GPT-5.5/GLM coprono comunque ogni push.
+          CORE_TRIGGER_PATTERNS = [
+              re.compile(r"(^|/)main\.py$"),
+              re.compile(r"(^|/)xtrader_bridge/"),
+              re.compile(r"(^|/)requirements[^/]*\.(txt|in|lock)$"),
+              re.compile(r"(^|/)pyproject\.toml$"),
+              re.compile(r"(^|/)poetry\.lock$"),
+          ]
+
+          def touches_core(file_list) -> bool:
+              for f in file_list:
+                  for key in ("filename", "previous_filename"):
+                      name = f.get(key) or ""
+                      if name and any(p.search(name) for p in CORE_TRIGGER_PATTERNS):
+                          return True
+              return False
+
+          if EVENT_ACTION != "labeled" and not touches_core(files):
+              print(
+                  f"::notice::{REVIEW_ID}: push senza file core del bridge e senza "
+                  "label finale → review forte saltata (nessun costo modello)."
+              )
+              sys.exit(0)
+
           diff_text, skipped_files, critical_files = build_patch_payload(files)
 
           # La Compare API tronca i file a 300: se raggiunto il tetto non possiamo
@@ -501,6 +541,11 @@ jobs:
                   f"Errore sintetico:\n\n```text\n{redact(str(exc))[:3000]}\n```"
               )
               usage = {}
+
+          # Redigi anche l'OUTPUT del modello: se ripete un valore segreto (formato
+          # non coperto dalla redaction dell'input o echo del prompt) non deve finire
+          # in chiaro nel commento PR (Codex P2).
+          review = redact(review)
 
           body = f"""{marker}
           # OpenRouter Fugu Ultra PR Review
