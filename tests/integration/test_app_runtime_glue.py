@@ -1608,12 +1608,25 @@ def test_same_csv_path_normalizzazione(monkeypatch):
     assert same("C:/XTrader/OUT.CSV", "c:/xtrader/out.csv") is True
 
 
-def test_init_installa_redazione_log_globale_betfair(app_mod):
-    """Guardia sul wiring (audit #259 D3): `App.__init__` istanzia Tk (non headless),
-    ma il suo contributo nuovo è chiamare `install_global_log_redaction` all'avvio —
-    prima definita ma mai invocata in produzione, quindi un log Betfair di terze
-    parti/futuro poteva scrivere header/sessionToken in chiaro. Il comportamento del
-    filtro è coperto da test_betfair_log_safety; qui si blinda che l'avvio lo installi."""
-    import inspect
-    src = inspect.getsource(app_mod.App.__init__)
-    assert "install_global_log_redaction" in src
+def test_init_invoca_redazione_log_globale(app_mod, monkeypatch):
+    """Audit #259 D3, test COMPORTAMENTALE (review CodeRabbit/GPT #313: verifica la
+    CHIAMATA reale, non la presenza testuale via `inspect.getsource`): `App.__init__`
+    invoca `install_global_log_redaction` all'avvio. Ci si ferma al primo metodo GUI
+    (`title`) per non costruire la finestra headless.
+
+    L'ordine «PRIMA della GUI» (review Fugu) è garantito nel codice — è la primissima
+    statement di `__init__` — ma NON è osservabile qui: con lo stub di test `CTk` è
+    `object`, quindi `super().__init__()` è un no-op.
+
+    Fail-first: sul codice pre-D3 `__init__` non chiamava install → `called` vuoto."""
+    from xtrader_bridge.betfair import log_safety
+    called = []
+    monkeypatch.setattr(log_safety, "install_global_log_redaction",
+                        lambda: called.append(1))
+    a = object.__new__(app_mod.App)
+    def _stop_gui(*x, **k):
+        raise RuntimeError("stop init al primo metodo GUI (test)")
+    a.title = _stop_gui                       # primo metodo GUI dopo super().__init__()
+    with pytest.raises(RuntimeError):
+        app_mod.App.__init__(a)
+    assert called == [1]                      # install invocata davvero durante l'avvio

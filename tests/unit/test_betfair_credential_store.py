@@ -197,6 +197,79 @@ def test_save_rollback_cancella_campo_prima_assente(monkeypatch):
     assert fake.store.get((cs.SERVICE, "betfair_app_key")) is None
 
 
+class FailGetKeyring(FailSetKeyring):
+    """`get_password` solleva per gli account in `fail_get` (snapshot non leggibile)."""
+
+    def __init__(self, fail_get=None, **kw):
+        super().__init__(**kw)
+        self.fail_get = set(fail_get or ())
+
+    def get_password(self, service, account):
+        if account in self.fail_get:
+            raise RuntimeError("get fallita (backend instabile, simulato)")
+        return super().get_password(service, account)
+
+
+def test_save_rollback_non_cancella_un_campo_con_snapshot_illeggibile(monkeypatch):
+    """Review GPT #313: se lo snapshot di un campo NON è leggibile (keyring instabile)
+    e poi una scrittura successiva fallisce, il rollback NON deve cancellare quel
+    campo — cancellare un valore preesistente IGNOTO sarebbe una perdita di
+    credenziali. Lo snapshot illeggibile è distinto da "campo assente".
+
+    Fail-first: prima lo snapshot fallito diventava None e il rollback cancellava."""
+    # get di app_key fallisce (snapshot illeggibile), ma il valore c'è davvero;
+    # username viene scritto (NEW) e poi password FALLISCE → rollback.
+    fake = FailGetKeyring(fail_get={"betfair_app_key"}, fail_set={"betfair_password"})
+    fake.store = {
+        (cs.SERVICE, "betfair_app_key"): "OLD_APP_PREESISTENTE",
+        (cs.SERVICE, "betfair_username"): "OLD_USER",
+    }
+    monkeypatch.setattr(token_store, "_keyring", lambda: fake)
+    nuove = cs.BetfairCredentials(app_key="NEW_APP", username="NEW_USER",
+                                  password="NEW_PASS")
+    assert cs.save_credentials(nuove) is False
+    # app_key aveva snapshot ILLEGGIBILE → il rollback NON l'ha toccata: il valore
+    # scritto (NEW_APP) resta, ma il dato preesistente NON è andato perso in un delete.
+    assert fake.store.get((cs.SERVICE, "betfair_app_key")) == "NEW_APP"
+    # username aveva snapshot leggibile → ripristinato al valore VECCHIO.
+    assert fake.store.get((cs.SERVICE, "betfair_username")) == "OLD_USER"
+
+
+def test_save_rollback_parziale_fallito_logga_warning(monkeypatch, caplog):
+    """Review GLM/GPT #313: se il rollback stesso fallisce (doppio-guasto), lo stato
+    incoerente non deve restare invisibile — un WARNING elenca i campi non
+    ripristinati (solo i NOMI, mai i valori)."""
+    import logging as _logging
+    # app_key scritta OK ma il suo restore (set) fallirà; password fa fallire il save.
+    fake = FailSetKeyring(fail_set={"betfair_password", "betfair_app_key_restore"})
+    # trucco: rendiamo il set di app_key ok al primo giro ma fallace al rollback →
+    # più semplice: fail_set su betfair_username per il save, e il restore di app_key
+    # fallisce perché fail_set lo include. Riscriviamo con un fake mirato:
+    class RollbackFails(FailSetKeyring):
+        def __init__(self):
+            super().__init__(fail_set={"betfair_username"})
+            self.calls = 0
+        def set_password(self, service, account, password):
+            # app_key: ok alla prima scrittura, FALLISCE al ripristino (2ª volta).
+            if account == "betfair_app_key":
+                self.calls += 1
+                if self.calls >= 2:
+                    raise RuntimeError("restore di app_key fallito (simulato)")
+            super().set_password(service, account, password)
+    fake = RollbackFails()
+    fake.store = {(cs.SERVICE, "betfair_app_key"): "OLD_APP"}
+    monkeypatch.setattr(token_store, "_keyring", lambda: fake)
+    nuove = cs.BetfairCredentials(app_key="NEW_APP", username="NEW_USER")
+    with caplog.at_level(_logging.WARNING, logger="xtrader_bridge.betfair.credential_store"):
+        assert cs.save_credentials(nuove) is False
+    recs = [r for r in caplog.records
+            if r.name == "xtrader_bridge.betfair.credential_store"]
+    assert len(recs) == 1
+    msg = recs[0].getMessage()
+    assert "app_key" in msg
+    assert "NEW_APP" not in msg and "OLD_APP" not in msg      # mai i valori nel log
+
+
 def test_save_riuscito_resta_true_e_atomico(monkeypatch):
     """Contro-campo D2: senza fallimenti il save scrive tutto e ritorna True."""
     fake = FailSetKeyring()                                # nessun fail

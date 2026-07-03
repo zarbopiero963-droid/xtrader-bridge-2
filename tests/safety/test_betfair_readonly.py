@@ -86,3 +86,20 @@ def test_letture_qualificate_restano_consentite():
     # Un nome che CONTIENE un'operazione vietata come sottostringa non è quel metodo:
     # il confronto è sul segmento esatto, non su substring (nessun falso positivo).
     assert safety.is_forbidden_betting_op("listPlaceOrdersReport") is False
+
+
+def test_blocco_separatore_finale_non_aggira_il_guard():
+    """Review Fable/Fugu #313: un'operazione con separatore FINALE (`placeOrders/`,
+    `placeOrders.`) non deve produrre un segmento vuoto che aggira il guard. I
+    separatori ai bordi vengono strippati prima dell'estrazione.
+
+    Fail-first: prima queste forme davano tail vuoto e NON venivano bloccate."""
+    for op in ("placeOrders/", "placeOrders.", "/placeOrders",
+               "SportsAPING/v1.0/placeOrders/", "cancelOrders//",
+               "SportsAPING\\v1.0\\updateOrders\\"):
+        assert safety.is_forbidden_betting_op(op) is True, op
+        with pytest.raises(safety.ReadOnlyViolation):
+            safety.assert_read_only(op)
+    # Stringhe di soli separatori / vuote non sono operazioni note (nessun crash).
+    for noise in ("", "/", "...", "//", None):
+        assert safety.is_forbidden_betting_op(noise) is False, noise

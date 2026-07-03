@@ -49,8 +49,13 @@ def _method_segments(operation) -> tuple:
     corta (``listMarketCatalogue``); questa estrazione rende il gate robusto anche
     alla forma lunga per qualunque chiamante presente o futuro."""
     whole = _normalize(operation)
-    tail = whole.replace("\\", "/").rsplit("/", 1)[-1].rsplit(".", 1)[-1]
-    return (whole, tail) if tail != whole else (whole,)
+    # Strip dei separatori ai BORDI prima di estrarre il segmento: senza, una forma
+    # con separatore finale (``placeOrders/`` o ``placeOrders.``) darebbe un segmento
+    # VUOTO e aggirerebbe il guard (review Fable/Fugu #313). Il tail vuoto è comunque
+    # scartato dal filtro sotto, come cintura di sicurezza.
+    core = whole.replace("\\", "/").strip("/.")
+    tail = core.rsplit("/", 1)[-1].rsplit(".", 1)[-1]
+    return (whole, tail) if tail and tail != whole else (whole,)
 
 
 # Set normalizzato (lazy-free: costruito una volta) per il confronto.

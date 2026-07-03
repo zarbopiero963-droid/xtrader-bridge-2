@@ -128,18 +128,20 @@ class App(ctk.CTk):
     _async_stop_event = None        # asyncio.Event della sessione listener: STOP la sveglia (#184 H5/Codex #191)
 
     def __init__(self):
-        super().__init__()
         # Difesa globale sui log Betfair (audit #259 D3): installa un filtro di
         # redazione su root logger + ogni handler (presenti E futuri) e silenzia i
-        # logger HTTP rumorosi. Va fatto ALL'AVVIO, il prima possibile: il modulo
-        # esponeva `install_global_log_redaction` ma nessun percorso di produzione la
-        # chiamava, quindi un log di terze parti/futuro poteva scrivere in chiaro un
-        # header/sessionToken Betfair. Best-effort: mai bloccare l'avvio della GUI.
+        # logger HTTP rumorosi. Va fatto ALL'AVVIO, il prima possibile — PRIMA di
+        # `super().__init__()` (init Tk): la redazione è pura (solo `logging` stdlib,
+        # nessuna dipendenza dalla finestra), così non resta una finestra di startup
+        # in cui un handler già attivo scriva header/sessionToken in chiaro (review
+        # Fugu #313). Il modulo esponeva `install_global_log_redaction` ma nessun
+        # percorso di produzione la chiamava. Best-effort: mai bloccare l'avvio.
         try:
             from .betfair import log_safety as _bf_log_safety
             _bf_log_safety.install_global_log_redaction()
         except Exception:   # noqa: BLE001 — la redazione è difensiva, non deve mai impedire l'avvio
             pass
+        super().__init__()
         self.title(f"XTrader Signal Bridge v{__version__}")
         # Altezza contenuta + altezza RIDIMENSIONABILE (larghezza fissa: il layout è
         # tarato in larghezza). Su schermi bassi (768/800px) il pannello monitoraggio a
