@@ -50,7 +50,9 @@ jobs:
 
       MAX_PATCH_PER_FILE_CHARS: "5000"
       MAX_TOTAL_PATCH_CHARS: "18000"
-      MAX_OUTPUT_TOKENS: "1500"
+      # 2500: riduce i troncamenti (era il più tagliato) restando l'"economico"
+      # che gira a ogni push.
+      MAX_OUTPUT_TOKENS: "2500"
 
       PRICE_INPUT_PER_MILLION: "0.93"
       PRICE_OUTPUT_PER_MILLION: "3.00"
@@ -97,7 +99,7 @@ jobs:
 
           MAX_PATCH_PER_FILE_CHARS = int(os.environ.get("MAX_PATCH_PER_FILE_CHARS", "5000"))
           MAX_TOTAL_PATCH_CHARS = int(os.environ.get("MAX_TOTAL_PATCH_CHARS", "18000"))
-          MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "1500"))
+          MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "2500"))
 
           PRICE_INPUT_PER_MILLION = float(os.environ.get("PRICE_INPUT_PER_MILLION", "0"))
           PRICE_OUTPUT_PER_MILLION = float(os.environ.get("PRICE_OUTPUT_PER_MILLION", "0"))

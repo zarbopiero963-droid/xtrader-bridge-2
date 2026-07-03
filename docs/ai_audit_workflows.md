@@ -60,8 +60,9 @@ stampate.
   Compare API: se la lista file è troncata (≥ 300 file) **non** salta la review
   (un file core potrebbe essere oltre il limite).
   Proprio perché coprono tutta la PR, i due gate finali usano un **budget di
-  output più ampio** degli automatici (`MAX_OUTPUT_TOKENS: 4000` vs `3000`
-  GPT-5.5 / `1500` GLM): con un budget piccolo il modello può esaurire i token
+  output più ampio** degli automatici (`MAX_OUTPUT_TOKENS: 6000` per Fable 5 e
+  Fugu Ultra, `4500` GPT-5.5, `2500` GLM 5.2): con un budget piccolo il modello
+  può esaurire i token
   prima di produrre la review su una PR reale — critico per **gpt-5.5**, che è un
   modello *reasoning* e conta i token di reasoning nel budget di output. **Tutti
   e quattro** i reviewer, se il modello si ferma per limite di token senza
