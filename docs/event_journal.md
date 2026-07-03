@@ -125,8 +125,10 @@ Controlli della scheda:
 | **🔄 Aggiorna** | Rilegge il ledger da disco e ricostruisce la tabella |
 | **📂 Apri cartella** | Apre nel file manager la cartella che contiene il ledger (best-effort) |
 
-La riga conteggi mostra `Diario: N eventi totali (mostrati M).`; un file assente/illeggibile
-dà `mostrati 0` senza errore. Il modulo GUI non è testato in CI (serve un display): la logica
+La riga conteggi mostra `Diario: N eventi totali (mostrati M).`; un file **assente o illeggibile**
+dà `mostrati 0` senza errore (`read_events` è fail-safe: su `OSError` — file mancante o permessi —
+ritorna lista vuota), mentre un errore di lettura **inatteso** (eccezione non-`OSError`) viene
+mostrato come `⚠️ Errore lettura diario: <Tipo>`. Il modulo GUI non è testato in CI (serve un display): la logica
 esercitabile (`_refresh` su un ledger reale, filtri, read-only + non-de-redazione, guardia
 strutturale «nessuna scrittura») è coperta da `tests/unit/test_journal_view_gui.py`; il resto
 è verifica manuale.
