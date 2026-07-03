@@ -134,13 +134,15 @@ _WRAPPED_PREFIX = (
     r"""["']?\s*(?:&\s*)?["']?"""
     r"(?:(?:[^\s\"']*[\\/])?pyinstaller(?:\.exe)?\b"
     # anche il python della forma modulo può essere qualificato/venv
-    # (`.venv\Scripts\python.exe -m PyInstaller` — Codex P2, 5° giro)
-    r"|(?:[^\s\"']*[\\/])?python(?:\.exe)?[\"']?\s+-m\s+pyinstaller\b)")
+    # (`.venv\Scripts\python.exe -m PyInstaller` — Codex P2, 5° giro) o VERSIONATO
+    # (`python3`/`python3.12 -m PyInstaller` — Codex P2 fantasma #298)
+    r"|(?:[^\s\"']*[\\/])?python(?:3(?:\.\d+)?)?(?:\.exe)?[\"']?\s+-m\s+pyinstaller\b)")
 _PYINSTALLER_DETECT = re.compile(
     _CLI_PREFIX
     # il python DIRETTO può essere qualificato/venv (stessa classe del 5° giro Codex,
-    # coperta d'anticipo): `& ".venv\Scripts\python.exe" -m PyInstaller …`
-    + r"""|^\s*&?\s*["']?(?:[^\s"']*[\\/])?python(?:\.exe)?["']?\s+-m\s+pyinstaller\b"""
+    # coperta d'anticipo): `& ".venv\Scripts\python.exe" -m PyInstaller …` — e VERSIONATO
+    # (`python3`/`python3.12 -m PyInstaller` — Codex P2 fantasma #298)
+    + r"""|^\s*&?\s*["']?(?:[^\s"']*[\\/])?python(?:3(?:\.\d+)?)?(?:\.exe)?["']?\s+-m\s+pyinstaller\b"""
     r"|pyinstaller\.__main__"
     r"|(?:^|\s)import\s+pyinstaller\b"
     r"|from\s+pyinstaller\s+import"
@@ -161,8 +163,11 @@ _PYTEST_ANY = re.compile(r"(?<![\w-])pytest\b", re.IGNORECASE)
 # dinamico sfugge a ogni allowlist statica del gate (#296, audit #242/PR#177, Codex).
 # `%VAR%` copre anche le forme AVANZATE di cmd (`%VAR:~0,200%`, `%VAR:a=b%` — Codex P2,
 # 5° giro): dopo il nome è ammesso un suffisso `:…` qualsiasi fino al `%` di chiusura.
+# Il residuo di command substitution copre anche il BACKQUOTE bash (`` `cat flags.txt` ``)
+# e l'array subexpression PowerShell `@( … )` (Codex P2 fantasmi #298).
 _DYNAMIC_ARG = re.compile(
-    r"\$\{\{[^}]*\}\}|\$\([^)]*\)|\$\{?\w+\}?|%\w+(?::[^%\s]*)?%|!\w+!|(?:^|(?<=\s))@[\w.]+")
+    r"\$\{\{[^}]*\}\}|\$\([^)]*\)|\$\{?\w+\}?|%\w+(?::[^%\s]*)?%|!\w+!"
+    r"|`[^`]+`|(?:^|(?<=\s))@\([^)]*\)|(?:^|(?<=\s))@[\w.]+")
 # Comando che RESETTA l'exit code a successo: `exit 0` in QUALSIASI posizione a/da la
 # riga del pytest (anche condizionale, es. `if ($LASTEXITCODE -ne 0) { exit 0 }` — Codex
 # P2, 3° giro) o `true` come comando a sé/concatenato: renderebbe verde uno step coi
@@ -458,6 +463,36 @@ def test_argomenti_dinamici_rilevati():
     assert _dynamic_args("pyinstaller %FLAGS:~0,200% main.py") == ["%FLAGS:~0,200%"]
     assert _dynamic_args("pyinstaller %PATH:str1=str2% main.py")
     assert _dynamic_args("pyinstaller --onefile --paths . main.py") == []
+
+
+def test_fantasmi_298_python3_versionato_e_substitution_residue():
+    """Regressione #298 (fantasmi post-merge di #297, 2 Codex P2): PRIMA (1) la forma
+    modulo VERSIONATA `python3 -m PyInstaller` — diretta o wrappata — sfuggiva DEL TUTTO
+    al detector (le alternative modulo accettavano solo `python`/`python.exe`), quindi
+    `_build_commands()` la ometteva e i gate canonical-form/allowlist non giravano;
+    (2) `_dynamic_args()` non flaggava il backquote bash (`` `cat flags.txt` ``) né
+    l'array subexpression PowerShell `@(Get-Content flags.txt)`."""
+    versioned = [
+        "python3 -m PyInstaller --onefile main.py",
+        "python3.12 -m PyInstaller --onefile main.py",
+        "cmd /c python3 -m PyInstaller --onefile main.py",
+        'pwsh -Command "python3 -m PyInstaller --onefile main.py"',
+        '& ".venv/bin/python3" -m PyInstaller --onefile main.py',
+    ]
+    for cmd in versioned:
+        assert _PYINSTALLER_DETECT.search(cmd), f"forma versionata non rilevata: {cmd!r}"
+        assert not _PYINSTALLER_CLI.match(cmd), \
+            f"forma modulo scambiata per CLI canonica (verrebbe analizzata male): {cmd!r}"
+    # controcampi: pytest/pip versionati NON sono build (nessun falso positivo)
+    assert not _PYINSTALLER_DETECT.search("python3 -m pytest -q")
+    assert not _PYINSTALLER_DETECT.search(
+        "python3 -m pip install -r requirements-dev.txt pyinstaller httpx")
+    # command substitution residue: backquote bash e array subexpression PowerShell
+    assert _dynamic_args("pyinstaller `cat flags.txt` main.py") == ["`cat flags.txt`"]
+    assert _dynamic_args("pyinstaller @(Get-Content flags.txt) main.py") == \
+        ["@(Get-Content flags.txt)"]
+    # controcampo: argomenti statici restano puliti (niente falsi positivi da ` o @)
+    assert _dynamic_args("pyinstaller --onefile --name bridge main.py") == []
 
 
 def test_build_wrappate_rilevate_e_rifiutate():
