@@ -612,6 +612,22 @@ def test_dedup_handicap_diverso_non_e_duplicato():
     assert signal_dedupe.row_dedup_key(MSG, r1) != signal_dedupe.row_dedup_key(MSG, r2)
 
 
+def test_dedup_bettype_diverso_non_e_duplicato():
+    """#254 punto 3/9: BACK vs LAY sulla stessa selezione sono scommesse DIVERSE.
+    Nel CSV `BetType` vale PUNTA (back) o BANCA (lay); poiché `BetType` è in
+    `_ROW_KEY_FIELDS`, le due righe generano `row_dedup_key` distinte e NON si
+    deduplicano tra loro. Gemello dei test su Provider/Handicap: blinda `BetType`
+    nella chiave di unicità contro una rimozione accidentale da `_ROW_KEY_FIELDS`.
+
+    Fail-first: togliendo `BetType` da `_ROW_KEY_FIELDS` le due chiavi coinciderebbero."""
+    r1 = {"Provider": "PBet", "EventName": EVENT, "MarketType": "MATCH_ODDS",
+          "SelectionName": "Casa", "BetType": "PUNTA"}      # back
+    r2 = dict(r1, BetType="BANCA")                          # lay, stessa selezione
+    assert signal_dedupe.row_dedup_key(MSG, r1) != signal_dedupe.row_dedup_key(MSG, r2)
+    # E `BetType` è davvero nel vocabolario della chiave (guardia esplicita anti-regressione).
+    assert "BetType" in signal_dedupe._ROW_KEY_FIELDS
+
+
 def test_overwrite_last_tiene_tutto_il_blocco(tmp_path):
     # In OVERWRITE_LAST l'«ultima istruzione» è il BLOCCO del messaggio: tutte e 3 le righe
     # restano attive (l'add per-riga ne avrebbe lasciata solo l'ultima).
