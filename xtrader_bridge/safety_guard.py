@@ -129,7 +129,17 @@ class DailyLimiter:
         # `_is_valid_day` valida il CALENDARIO, non solo il formato: una data impossibile
         # (`2026-99-99`) da stato corrotto è UNKNOWN, non un giorno valido → niente reset.
         if _is_valid_day(self._day):
-            self._count = 0
+            # F3 #258: reset SOLO se il nuovo giorno è strettamente FUTURO (le chiavi
+            # YYYY-MM-DD zero-padded ordinano cronologicamente). Un salto dell'orologio
+            # all'INDIETRO (skew NTP, regolazione manuale) non deve riaprire un tetto già
+            # consumato (fail-open): giorno e conteggio restano quelli correnti finché il
+            # tempo reale non raggiunge di nuovo `_day` — al più si è più restrittivi
+            # (anche se `_day` fosse finito nel futuro per un orologio poi corretto), mai
+            # più permissivi.
+            if key > self._day:
+                self._count = 0
+                self._day = key
+            return
         self._day = key
 
     def allow(self, *, now: float = None) -> bool:

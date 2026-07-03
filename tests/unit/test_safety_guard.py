@@ -90,6 +90,24 @@ def test_reset_al_cambio_giorno():
     assert lim.remaining(now=day2) == 1
 
 
+def test_salto_orologio_indietro_non_riapre_il_tetto():
+    """F3 #258: un salto dell'orologio all'INDIETRO (skew NTP/regolazione manuale) non deve
+    azzerare il conteggio: `_roll` vedeva un giorno «diverso» valido e resettava → il tetto
+    già consumato si RIAPRIVA (overtrading, fail-open). Ora il reset avviene SOLO se il
+    nuovo giorno è strettamente FUTURO; su salto indietro giorno e conteggio restano.
+
+    Fail-first: sul vecchio codice `allow(now=ieri)` tornava True (cap riaperto)."""
+    lim = sg.DailyLimiter(max_per_day=1)
+    today = 1_000_000.0                           # 1970-01-12 (UTC)
+    assert lim.allow(now=today) is True
+    assert lim.allow(now=today) is False          # tetto consumato oggi
+    yesterday = today - 86_400
+    assert lim.allow(now=yesterday) is False      # salto indietro: NON riapre il tetto
+    assert lim.state()["day"] == "1970-01-12"     # giorno NON retrocesso
+    assert lim.allow(now=today) is False          # tornati a oggi: ancora consumato
+    assert lim.allow(now=today + 86_400) is True  # il giorno DOPO si azzera normalmente
+
+
 def test_max_per_day_invalido_rifiutato():
     # bool incluso: max_per_day=True da JSON verrebbe coercito a 1 (cap=1/giorno).
     for bad in (0, -1, 2.5, float("nan"), float("inf"), "abc", True, False):
