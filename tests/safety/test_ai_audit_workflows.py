@@ -242,16 +242,14 @@ def test_before_sha_vuoto_ripiega_su_intera_pr():
         )
 
 
-def test_gate_finale_budget_output_ampio_e_troncamento_esplicito():
-    """I due gate finali rivedono l'INTERA PR: budget output ampio + troncamento onesto.
+def test_gate_finale_prompt_severo_budget_basso_e_troncamento():
+    """Cost cap sui due gate finali (label): prompt SEVERO (max 10 finding, max
+    900 parole, niente diff/teoria) + tetto output BASSO + troncamento onesto.
 
-    Regressione reale (PR #304, head c06708b): Claude Fable 5, sul range
-    ``base...head`` (11 commit, ~12k token input), ha esaurito
-    ``MAX_OUTPUT_TOKENS=1200`` producendo **0 testo**, e il commento diceva solo
-    "Il modello non ha restituito testo" senza spiegare il troncamento. Ora i gate
-    finali (label-gated, che rivedono tutta la PR) hanno un budget >= 4000 e,
-    quando il modello si ferma per limite di token, il commento lo dichiara
-    esplicitamente invece di sembrare "il modello non aveva nulla da dire".
+    Storia: prima si era alzato il budget a 6000 per evitare i troncamenti, ma
+    Fugu arrivava a ~19k token di output (~0,70$/review). La scelta del
+    proprietario è invertita: review CORTA per costo → prompt severo + tetto duro
+    (Fable 1200, Fugu 1000). Il troncamento resta dichiarato esplicitamente.
     """
     finali = [n for n, m in _AI_WORKFLOWS.items() if m.get("trigger") == "label"]
     assert finali, "atteso almeno un gate finale label-gated"
@@ -259,9 +257,13 @@ def test_gate_finale_budget_output_ampio_e_troncamento_esplicito():
         text = _read(name)
         match = re.search(r'MAX_OUTPUT_TOKENS:\s*"(\d+)"', text)
         assert match, f"{name}: MAX_OUTPUT_TOKENS non trovato nell'env"
-        assert int(match.group(1)) >= 4000, (
-            f"{name}: gate finale con budget output troppo piccolo "
-            f"({match.group(1)}); rivede l'intera PR e va >= 4000"
+        assert int(match.group(1)) <= 1500, (
+            f"{name}: gate finale con budget output troppo alto "
+            f"({match.group(1)}); tetto duro anti-costo previsto <= 1500"
+        )
+        # prompt severo che rende sensato il budget basso
+        assert "Vincolo costo/output" in text and "MASSIMO 10 finding" in text, (
+            f"{name}: manca il prompt severo (max 10 finding / max 900 parole)"
         )
         assert "Output troncato" in text, (
             f"{name}: manca il ramo di troncamento onesto quando il modello "
@@ -327,11 +329,20 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
                 f"{name}: il join dei blocchi non è protetto da text=None (TypeError)"
             )
 
-        # Un reviewer reasoning (OpenAI gpt-5.5) con budget minuscolo produce 0
-        # testo: il budget di output deve avere un minimo ragionevole.
+        # I budget sono volutamente BASSI (anti-costo) perché il prompt severo
+        # produce review corte; serve solo un floor minimo di sicurezza.
         match = re.search(r'MAX_OUTPUT_TOKENS:\s*"(\d+)"', text)
-        assert match and int(match.group(1)) >= 1500, (
-            f"{name}: MAX_OUTPUT_TOKENS troppo piccolo per lasciare spazio al testo"
+        assert match and int(match.group(1)) >= 500, (
+            f"{name}: MAX_OUTPUT_TOKENS sotto il floor minimo di sicurezza"
+        )
+        # Il prompt severo è su TUTTI e 4: è ciò che rende utili i budget bassi
+        # (senza, con 700/1000 token la review tronca invece di essere concisa).
+        assert "Vincolo costo/output" in text, (
+            f"{name}: manca il prompt severo anti-costo (max 10 finding / max 900 parole)"
+        )
+        # Anti-doppia-review a pagamento: dedup sul marker prima della chiamata AI.
+        assert "def comment_exists(marker" in _compiled_heredoc(name), (
+            f"{name}: manca il dedup comment_exists (re-run/ri-label non deve ripagare)"
         )
 
 

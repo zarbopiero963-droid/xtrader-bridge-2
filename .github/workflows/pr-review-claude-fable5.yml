@@ -64,13 +64,12 @@ jobs:
       REVIEW_ID: claude-fable5
       MODEL_LABEL: Claude Fable 5
 
-      MAX_PATCH_PER_FILE_CHARS: "7000"
-      MAX_TOTAL_PATCH_CHARS: "24000"
-      # Gate finale: rivede l'INTERA PR (base...head), non un piccolo push-range,
-      # quindi serve un budget di output ampio o il modello esaurisce i token
-      # prima di produrre la review (osservato: 1200 = 0 testo su una PR reale).
-      # 6000 copre anche le review lunghe; gira di rado (file core/label) → costo basso.
-      MAX_OUTPUT_TOKENS: "6000"
+      MAX_PATCH_PER_FILE_CHARS: "5000"
+      MAX_TOTAL_PATCH_CHARS: "16000"
+      # Tetto duro anti-costo: la review finale deve essere CORTA (prompt severo:
+      # max 10 finding, max 900 parole, niente diff/teoria). 1200 token bastano a
+      # una review concisa e tagliano il costo (osservato: output ~19k = ~0,70$).
+      MAX_OUTPUT_TOKENS: "1200"
 
       PRICE_INPUT_PER_MILLION: "10.00"
       PRICE_CACHE_CREATION_PER_MILLION: "12.50"
@@ -125,9 +124,9 @@ jobs:
           REVIEW_ID = os.environ.get("REVIEW_ID", "claude-fable5")
           MODEL_LABEL = os.environ.get("MODEL_LABEL", ANTHROPIC_MODEL)
 
-          MAX_PATCH_PER_FILE_CHARS = int(os.environ.get("MAX_PATCH_PER_FILE_CHARS", "7000"))
-          MAX_TOTAL_PATCH_CHARS = int(os.environ.get("MAX_TOTAL_PATCH_CHARS", "24000"))
-          MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "6000"))
+          MAX_PATCH_PER_FILE_CHARS = int(os.environ.get("MAX_PATCH_PER_FILE_CHARS", "5000"))
+          MAX_TOTAL_PATCH_CHARS = int(os.environ.get("MAX_TOTAL_PATCH_CHARS", "16000"))
+          MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "1200"))
 
           PRICE_INPUT_PER_MILLION = float(os.environ.get("PRICE_INPUT_PER_MILLION", "10"))
           PRICE_CACHE_CREATION_PER_MILLION = float(os.environ.get("PRICE_CACHE_CREATION_PER_MILLION", "12.5"))
@@ -476,6 +475,38 @@ jobs:
 
           marker = f"<!-- {REVIEW_ID}-pr-review:xtrader-bridge:{range_base[:12]}...{range_head[:12]} -->"
 
+          # Anti-doppia-review a pagamento: se esiste GIÀ un commento per QUESTO
+          # range (stesso marker), non richiamare il modello — un re-run del workflow
+          # o togli/rimetti la label finale NON devono ripagare la stessa review. Un
+          # nuovo push = nuovo range = nuovo marker → gira normalmente. Fail-open: se
+          # il controllo stesso fallisce, si procede con la review (non si salta).
+          def comment_exists(marker: str) -> bool:
+              page = 1
+              while True:
+                  comments = gh_request(
+                      "GET",
+                      f"/repos/{REPO}/issues/{PR_NUMBER}/comments?per_page=100&page={page}",
+                  ) or []
+                  for c in comments:
+                      if marker in (c.get("body") or ""):
+                          return True
+                  if len(comments) < 100:
+                      return False
+                  page += 1
+
+          try:
+              _already_reviewed = comment_exists(marker)
+          except Exception as exc:
+              _already_reviewed = False
+              print(f"::warning::{REVIEW_ID}: dedup check fallito, procedo con la review: {redact(str(exc))[:300]}")
+
+          if _already_reviewed:
+              print(
+                  f"{REVIEW_ID}: review già presente per {range_base[:12]}...{range_head[:12]} "
+                  "→ salto la chiamata AI a pagamento."
+              )
+              sys.exit(0)
+
           # Label e avviso calcolati PRIMA di ogni uscita: una push-range di soli
           # file binari/oversized che tocca aree sensibili non perde il segnale.
           manual_warning = ""
@@ -536,6 +567,14 @@ jobs:
           Non suggerire mai di stampare token, password, API key, certificati o segreti nei log.
           Concentrati su bug reali, regressioni, race condition, sicurezza, CSV XTrader, Telegram parser, Betfair, Windows, CI e test.
           Sii concreto: cita file/area/motivo.
+
+          Vincolo costo/output (RISPETTALO alla lettera):
+          - Non scrivere una review lunga: MASSIMO 900 parole.
+          - MASSIMO 10 finding totali; ogni finding max 3 righe.
+          - Non ripetere il diff; niente teoria, niente tutorial, niente blocchi di codice lunghi.
+          - Priorità SOLO a: bug bloccanti, regressioni, sicurezza, segreti, contratto CSV, Betfair, race condition, Windows.
+          - Miglioramenti opzionali: massimo 3 bullet.
+          - Se non ci sono bloccanti reali, scrivi: "Nessun bloccante evidente".
           """
 
           user_prompt = f"""
@@ -546,17 +585,15 @@ jobs:
           Commits nel range: {commit_count}
           Modello: {MODEL_LABEL} ({ANTHROPIC_MODEL})
 
-          Produci Markdown con queste sezioni:
+          Produci Markdown, MASSIMO 900 parole, non superare 10 finding totali:
 
-          ## Esito sintetico
+          ## Esito
           ## Bloccanti
-          ## Rischi da controllo manuale
-          ## Sicurezza e segreti
-          ## Race condition / concorrenza
-          ## Compatibilità Windows
-          ## CSV / Telegram / Parser / Betfair
-          ## Test consigliati
-          ## Miglioramenti opzionali
+          ## Rischi manuali
+          ## Sicurezza
+          ## CSV / Betfair / Parser
+          ## Test minimi
+          ## Verdetto finale
 
           Diff del range appena pushato:
           {diff_text}

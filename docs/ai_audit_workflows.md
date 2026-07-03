@@ -59,17 +59,22 @@ stampate.
   (base...head), come per la label. Il gate è **fail-safe** sulla truncation della
   Compare API: se la lista file è troncata (≥ 300 file) **non** salta la review
   (un file core potrebbe essere oltre il limite).
-  Proprio perché coprono tutta la PR, i due gate finali usano un **budget di
-  output più ampio** degli automatici (`MAX_OUTPUT_TOKENS: 6000` per Fable 5 e
-  Fugu Ultra, `4500` GPT-5.5, `2500` GLM 5.2): con un budget piccolo il modello
-  può esaurire i token
-  prima di produrre la review su una PR reale — critico per **gpt-5.5**, che è un
-  modello *reasoning* e conta i token di reasoning nel budget di output. **Tutti
-  e quattro** i reviewer, se il modello si ferma per limite di token senza
-  produrre testo, lo dichiarano esplicitamente (troncamento, col motivo del
-  provider: `stop_reason=max_tokens` / `finish_reason=length` /
-  `status=incomplete`) invece di sembrare che "non avessero nulla da dire"; puoi
-  alzare `MAX_OUTPUT_TOKENS` o restringere il diff.
+  **Controllo costi (tetto duro + prompt severo).** Il costo è dominato
+  dall'**output**: una review lunga di Fugu poteva arrivare a ~19k token
+  (~0,70$). Per questo tutti e quattro i reviewer usano un **prompt severo**
+  (massimo 10 finding, massimo 900 parole, niente ripetizione del diff, niente
+  teoria/tutorial, "Nessun bloccante evidente" se non c'è nulla) e un **tetto
+  duro basso** su `MAX_OUTPUT_TOKENS`: `1200` Fable 5, `1000` Fugu Ultra e
+  GPT-5.5, `700` GLM 5.2. La review resta concisa e utile ma costa una frazione.
+  Se il modello si ferma comunque per limite di token, il commento **dichiara il
+  troncamento** (col motivo del provider: `stop_reason=max_tokens` /
+  `finish_reason=length` / `status=incomplete`) invece di sembrare che "non
+  avesse nulla da dire".
+  **Anti-doppia-review a pagamento.** Prima di chiamare il modello, ogni reviewer
+  controlla se esiste **già** un commento per quello **stesso range** (stesso
+  marker): se sì, esce senza spendere. Così un re-run del workflow o un
+  togli/rimetti della label finale **non ripagano** la stessa review; un nuovo
+  push (nuovo range) gira normalmente.
 
 Per far ripartire una review finale già eseguita, rimuovi e riaggiungi la label
 (GitHub non emette un nuovo evento `labeled` se la label è già presente).
