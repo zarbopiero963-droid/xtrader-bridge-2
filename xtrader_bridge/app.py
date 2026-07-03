@@ -5,6 +5,7 @@ config) vive in moduli separati ed è testabile headless.
 """
 
 import asyncio
+import os
 import threading
 import time
 import tkinter as tk
@@ -325,6 +326,19 @@ class App(ctk.CTk):
         self._stop_clear_after_id = self.after(
             _STOP_CLEAR_RETRY_MS, lambda: self._retry_stop_clear(path))
 
+    @staticmethod
+    def _same_csv_path(a, b) -> bool:
+        """Confronto path per la guardia di possesso del retry post-stop (review Fable
+        #312): su Windows lo stesso file può apparire con case o «..»/`.` diversi
+        (`OUT.CSV` vs `out.csv`) se l'utente ritocca csv_path tra due sessioni — un
+        confronto a stringhe lo scambierebbe per un path DIVERSO e il retry
+        cancellerebbe una riga VIVA della nuova sessione. `normcase` è no-op su POSIX
+        (filesystem case-sensitive: lì il confronto resta esatto, correttamente)."""
+        if not a or not b:
+            return False
+        return (os.path.normcase(os.path.normpath(str(a)))
+                == os.path.normcase(os.path.normpath(str(b))))
+
     def _retry_stop_clear(self, path: str) -> None:
         """Ritenta lo svuotamento post-STOP finché riesce, l'app chiude, o una nuova
         sessione riprende possesso del path (START svuota già il CSV in proprio: il
@@ -334,7 +348,7 @@ class App(ctk.CTk):
         if self.__dict__.get("_closing"):
             return
         with self._queue_lock:
-            if path == self.__dict__.get("_active_csv_path"):
+            if self._same_csv_path(path, self.__dict__.get("_active_csv_path")):
                 return                            # nuova sessione sul path: suo il compito
             try:
                 cleared = clear_stale_csv(path, on_mismatch=lambda m: self._log(f"⚠️ {m}"))

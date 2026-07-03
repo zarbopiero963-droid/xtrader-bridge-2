@@ -1544,3 +1544,42 @@ def test_start_gate_reale_manuale_e_avvisi_guardia_strutturale(app_mod):
     assert "elif autostart.needs_real_mode_confirmation(cfg):" in src[idx_auto:]
     assert "allowed_chats(cfg)" in src
     assert "malformed_entry_warnings" in src
+
+
+def test_retry_stop_clear_guardia_possesso_normalizza_il_path(make_app, app_mod,
+                                                              tmp_path):
+    """Review Fable #312 (fail-first): la guardia di possesso confrontava i path come
+    STRINGHE — su Windows lo stesso file scritto con case/`..` diversi (`OUT.CSV` vs
+    `out.csv`) sembrava un path diverso e il retry post-stop cancellava una riga VIVA
+    della nuova sessione. Ora il confronto è normalizzato (normcase+normpath).
+    Variante portabile del caso: `sub/../retry.csv` vs `sub/retry.csv`... stesso file
+    espresso con `..` (normpath lo collassa su ogni piattaforma).
+
+    Fail-first: sul codice precedente il confronto a stringhe falliva e il retry
+    svuotava il CSV della sessione attiva."""
+    from xtrader_bridge import csv_writer
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    path_reale = _csv_con_riga(sub)                       # sub/retry.csv con riga VIVA
+    path_alias = str(tmp_path / "sub" / ".." / "sub" / "retry.csv")   # stesso file, con ".."
+    a = make_app()
+    a._active_csv_path = path_reale                       # nuova sessione attiva sul file
+    app_mod.App._retry_stop_clear(a, path_alias)          # retry armato col path-alias
+    assert csv_writer.has_active_row(path_reale)          # riga VIVA intatta
+    assert not any("ripulito al retry" in m for m in a.logs)
+    # Contro-campo: path davvero diverso → il retry pulisce normalmente.
+    altro = _csv_con_riga(tmp_path)
+    app_mod.App._retry_stop_clear(a, altro)
+    assert not csv_writer.has_active_row(altro)
+
+
+def test_same_csv_path_normalizzazione():
+    """Unit del predicato (review Fable #312): normpath collassa `.`/`..`; None/vuoto
+    non combacia mai con nulla (un retry senza path non deve bloccare/pulire niente)."""
+    from xtrader_bridge import app as app_mod
+    same = app_mod.App._same_csv_path
+    assert same("sub/../out.csv", "out.csv") is True
+    assert same("./out.csv", "out.csv") is True
+    assert same("a/out.csv", "b/out.csv") is False
+    assert same("", "out.csv") is False
+    assert same(None, None) is False
