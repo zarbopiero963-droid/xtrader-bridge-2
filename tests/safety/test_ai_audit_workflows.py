@@ -352,9 +352,10 @@ def test_audit_solo_manuali_workflow_dispatch():
         assert re.search(r'CHUNK_MAX_CHARS"?\s*-lt 500', text), (
             f"{name}: CHUNK_MAX_CHARS senza floor (valori piccoli = audit vuoto ma verde)"
         )
-        # MAX_FILE_KB = 0 scarterebbe ogni file → 0 scansionati, job verde.
-        assert re.search(r'MAX_FILE_KB"?\s*-lt 1', text), (
-            f"{name}: MAX_FILE_KB=0 non rifiutato (nessun file analizzato)"
+        # MAX_FILE_KB=0 è VALIDO e documentato ("0 = nessun limite"): NON deve
+        # essere rifiutato (Codex P2, regressione corretta).
+        assert not re.search(r'MAX_FILE_KB"?\s*-lt 1', text), (
+            f"{name}: MAX_FILE_KB=0 (illimitato, documentato) non deve essere rifiutato"
         )
 
 
@@ -371,25 +372,41 @@ def test_pr_review_diff_only_niente_checkout_niente_fork():
 
 
 def test_pr_review_reviewer_opzionale_non_fa_fallire_la_pr():
-    """Codex P2: senza API key il reviewer opzionale deve uscire con successo
-    (skip), non trasformarsi in un check rosso su ogni PR interna."""
+    """Senza API key ogni reviewer esce con successo (skip). Sul FALLIMENTO del
+    modello i reviewer AUTOMATICI restano fail-open (mai un check rosso); i due
+    gate FINALI (label) falliscono di proposito il job SOLO sul trigger a label,
+    perché una review forte obbligatoria non avvenuta non deve risultare verde
+    (Codex P2)."""
     for name, meta in _AI_WORKFLOWS.items():
         if meta["kind"] != "pr_review":
             continue
         text = _read(name)
-        # Word-boundary: `exit 1` esatto, non `exit 10`/`exit 127` legittimi.
-        assert not re.search(r"\bexit 1\b", text), (
-            f"{name}: il reviewer opzionale non deve mai uscire con exit 1"
-        )
+        # key assente → `exit 0` (skip), per tutti. Nessun bash `exit 1`.
         assert re.search(r"non configurato.*\n\s*exit 0", text), (
             f"{name}: la key assente deve portare a 'exit 0' (skip), non a un fallimento"
         )
-        # Anche un fallimento nella pubblicazione del commento (token read-only
-        # / 403) deve degradare a warning, non far fallire la PR.
+        assert not re.search(r"\bexit 1\b", text), (
+            f"{name}: nessun bash `exit 1` (la key assente non deve far fallire la PR)"
+        )
+        # Fallimento pubblicazione commento (token read-only / 403) → warning.
         src = _compiled_heredoc(name)
         assert "impossibile pubblicare il commento" in src, (
             f"{name}: upsert_comment deve essere fail-open (warning, non crash) su 403"
         )
+        if meta["trigger"] == "auto":
+            # Reviewer automatico: fail-open puro sul fallimento del modello.
+            assert "sys.exit(1)" not in src, (
+                f"{name}: il reviewer automatico non deve far fallire la PR sul fallimento modello"
+            )
+        else:
+            # Gate finale: sul trigger a LABEL un fallimento del modello DEVE far
+            # fallire il job (check non verde), ma solo su quel path.
+            assert 'model_failed and EVENT_ACTION == "labeled"' in src, (
+                f"{name}: il gate finale deve fallire il job se il modello fallisce sul path a label"
+            )
+            assert "sys.exit(1)" in src, (
+                f"{name}: manca il fail-closed (sys.exit(1)) sul gate finale a label"
+            )
 
 
 def test_pr_review_trigger_split():

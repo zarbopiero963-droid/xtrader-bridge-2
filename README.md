@@ -663,10 +663,13 @@ La compilazione dell'EXE con **PyInstaller** resta invariata.
 Sei workflow opzionali usano modelli AI come **filtro tecnico aggiuntivo**. Due
 reviewer **automatici** (**GPT-5.5** con `OPENAI_API_KEY`, **GLM 5.2** con
 `OPENROUTER_API_KEY`) commentano ogni push della PR analizzando **solo il range
-appena pushato**; due reviewer **finali** (**Claude Fable 5** con
-`ANTHROPIC_API_KEY`, **Fugu Ultra** con `OPENROUTER_API_KEY`) partono **solo
-quando viene aggiunta una label** (`final-fable-review` / `final-fugu-review`) e
-rivedono l'intera PR come cancello pre-merge; due **audit full-repo** (GPT-5.5 /
+appena pushato**; due reviewer **forti** (**Claude Fable 5** con
+`ANTHROPIC_API_KEY`, **Fugu Ultra** con `OPENROUTER_API_KEY`) — più costosi —
+partono automaticamente **solo su push che toccano file core del bridge**
+(`main.py`, `xtrader_bridge/**`, dipendenze) analizzando il push-range, **oppure**
+quando viene aggiunta una label (`final-fable-review` / `final-fugu-review`) per
+rivedere l'intera PR come cancello pre-merge; su push che toccano solo
+workflow/docs/test non spendono; due **audit full-repo** (GPT-5.5 /
 Claude Fable 5), avviabili **solo a mano** da *Actions → Run workflow*,
 scansionano il repository in sola lettura producendo un report scaricabile.
 Tutto diff-only/read-only: niente checkout, nessuna esecuzione del codice della

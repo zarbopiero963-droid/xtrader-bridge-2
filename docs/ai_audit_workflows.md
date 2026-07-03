@@ -117,7 +117,11 @@ mostra scope, range `base...head`, numero di commit e una stima del costo token.
 - **PR review diff-only**: il diff viene letto dalla GitHub API — **nessun
   checkout e nessuna esecuzione del codice della PR**.
 - **Reviewer opzionali fail-open sul check**: key assente → `exit 0` (skip),
-  mai un check rosso.
+  mai un check rosso. **Eccezione voluta**: sui due gate finali, quando vengono
+  attivati **via label** (gate obbligatorio pre-merge) e la chiamata al modello
+  fallisce (auth/rete/API), il job **fallisce di proposito** (check rosso) dopo
+  aver pubblicato il commento d'errore — una review forte obbligatoria non
+  avvenuta non deve sembrare "verde". Sui push automatici restano fail-open.
 - **API key `.strip()`-ate**: ogni secret (OpenAI/Anthropic/OpenRouter) viene
   letto con `.strip()` prima di costruire l'header `Authorization: Bearer …` /
   `x-api-key`. Un secret incollato con newline o spazio finale

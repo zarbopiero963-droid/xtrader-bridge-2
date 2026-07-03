@@ -554,6 +554,7 @@ jobs:
           {diff_text}
           """
 
+          model_failed = False
           try:
               review, usage = call_model(system_prompt, user_prompt)
           except Exception as exc:
@@ -562,6 +563,7 @@ jobs:
                   f"Errore sintetico:\n\n```text\n{redact(str(exc))[:3000]}\n```"
               )
               usage = {}
+              model_failed = True
 
           # Redigi anche l'OUTPUT del modello: se ripete un valore segreto (formato
           # non coperto dalla redaction dell'input o echo del prompt) non deve finire
@@ -595,4 +597,16 @@ jobs:
           """
 
           upsert_comment(marker, body[:64000])
+
+          # Gate finale obbligatorio: se il modello è fallito su un trigger a LABEL
+          # (Anthropic auth/network/API), il check NON deve risultare verde — la
+          # review forte richiesta non è avvenuta. Falliamo il job DOPO aver
+          # pubblicato il commento con l'errore. Sui push automatici (file core)
+          # resta fail-open: reviewer opzionale che non blocca la PR (Codex P2).
+          if model_failed and EVENT_ACTION == "labeled":
+              print(
+                  "::error::Gate finale a label: la review Claude Fable 5 non è stata "
+                  "completata (errore provider) → job fallito di proposito."
+              )
+              sys.exit(1)
           PY

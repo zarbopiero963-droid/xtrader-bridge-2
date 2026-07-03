@@ -125,14 +125,12 @@ jobs:
           # CHUNK_MAX_CHARS troppo piccolo tronca OGNI riga numerata al solo
           # marker "…[RIGA TRONCATA PER BUDGET]": il modello riceve contenuto
           # vuoto ma restituisce JSON valido e il job esce verde con chunks_ok>0
-          # senza aver analizzato nulla. MAX_FILE_KB=0 scarterebbe ogni file.
-          # Fail-closed su entrambi (>= 500 chars = almeno qualche riga reale).
+          # senza aver analizzato nulla. Fail-closed (>= 500 = almeno qualche riga).
+          # NB: MAX_FILE_KB=0 è VALIDO e documentato ("0 = nessun limite"): lo
+          # scanner lo tratta come illimitato (if MAX_FILE_KB > 0 and size > ...),
+          # quindi NON va rifiutato (Codex P2).
           if [ "$CHUNK_MAX_CHARS" -lt 500 ]; then
             echo "::error::CHUNK_MAX_CHARS deve essere >= 500 (valori piccoli troncano ogni riga al marker: audit vuoto ma verde)"
-            exit 1
-          fi
-          if [ "$MAX_FILE_KB" -lt 1 ]; then
-            echo "::error::MAX_FILE_KB deve essere >= 1 (0 = nessun file analizzato)"
             exit 1
           fi
 
