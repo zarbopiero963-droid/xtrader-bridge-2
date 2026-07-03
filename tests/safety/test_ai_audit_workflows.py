@@ -45,10 +45,14 @@ _WF_DIR = os.path.join(_REPO_ROOT, ".github", "workflows")
 
 # kind: pr_review = automatico push-range (commenta) · audit = manuale read-only
 _AI_WORKFLOWS = {
-    "pr-review-gpt55.yml": {"kind": "pr_review", "provider": "openai", "trigger": "auto"},
-    "pr-review-claude-fable5.yml": {"kind": "pr_review", "provider": "anthropic", "trigger": "label", "label": "final-fable-review"},
-    "pr-review-openrouter-glm52.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "auto"},
-    "pr-review-openrouter-fugu-ultra.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "label", "label": "final-fugu-review"},
+    # reasoning: controllo del reasoning nel payload (modelli che ragionano bruciano
+    # il budget di output col tetto basso e troncano). "low" = effort ridotto,
+    # "disabled" = reasoning spento del tutto (GLM col tetto 700 ha ignorato "low" e
+    # troncava lo stesso, PR #310), None = provider senza campo reasoning (Anthropic).
+    "pr-review-gpt55.yml": {"kind": "pr_review", "provider": "openai", "trigger": "auto", "reasoning": "low"},
+    "pr-review-claude-fable5.yml": {"kind": "pr_review", "provider": "anthropic", "trigger": "label", "label": "final-fable-review", "reasoning": None},
+    "pr-review-openrouter-glm52.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "auto", "reasoning": "disabled"},
+    "pr-review-openrouter-fugu-ultra.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "label", "label": "final-fugu-review", "reasoning": "low"},
     "manual-full-repo-ai-audit.yml": {"kind": "audit", "provider": "openai"},
     "claude-fable-full-repo-audit.yml": {"kind": "audit", "provider": "anthropic"},
 }
@@ -242,16 +246,19 @@ def test_before_sha_vuoto_ripiega_su_intera_pr():
         )
 
 
-def test_gate_finale_budget_output_ampio_e_troncamento_esplicito():
-    """I due gate finali rivedono l'INTERA PR: budget output ampio + troncamento onesto.
+def test_gate_finale_prompt_severo_budget_basso_e_troncamento():
+    """Cost cap sui due gate finali (label): prompt ULTRA-CORTO (2 sole sezioni,
+    max 150 parole) + tetto output BASSO + troncamento onesto.
 
-    Regressione reale (PR #304, head c06708b): Claude Fable 5, sul range
-    ``base...head`` (11 commit, ~12k token input), ha esaurito
-    ``MAX_OUTPUT_TOKENS=1200`` producendo **0 testo**, e il commento diceva solo
-    "Il modello non ha restituito testo" senza spiegare il troncamento. Ora i gate
-    finali (label-gated, che rivedono tutta la PR) hanno un budget >= 4000 e,
-    quando il modello si ferma per limite di token, il commento lo dichiara
-    esplicitamente invece di sembrare "il modello non aveva nulla da dire".
+    Storia: prima si era alzato il budget a 6000 per evitare i troncamenti, ma
+    Fugu arrivava a ~19k token di output (~0,70$/review). La scelta del
+    proprietario è invertita: review CORTA per costo → tetto duro (Fable 1200,
+    Fugu 1000). Il gate finale rivede però l'INTERA PR: col prompt a 7 sezioni /
+    400 parole i due reviewer forti si troncavano (review PARZIALE → gate rosso).
+    Scelta del proprietario: accorciare il prompt del gate finale a SOLE 2 sezioni
+    ("## Bloccanti" + "## Verdetto finale", max 150 parole; i rischi safety
+    ripiegati dentro Bloccanti) così la review completa sta nel budget. Il
+    troncamento resta comunque dichiarato esplicitamente.
     """
     finali = [n for n, m in _AI_WORKFLOWS.items() if m.get("trigger") == "label"]
     assert finali, "atteso almeno un gate finale label-gated"
@@ -259,16 +266,41 @@ def test_gate_finale_budget_output_ampio_e_troncamento_esplicito():
         text = _read(name)
         match = re.search(r'MAX_OUTPUT_TOKENS:\s*"(\d+)"', text)
         assert match, f"{name}: MAX_OUTPUT_TOKENS non trovato nell'env"
-        assert int(match.group(1)) >= 4000, (
-            f"{name}: gate finale con budget output troppo piccolo "
-            f"({match.group(1)}); rivede l'intera PR e va >= 4000"
+        assert int(match.group(1)) <= 1500, (
+            f"{name}: gate finale con budget output troppo alto "
+            f"({match.group(1)}); tetto duro anti-costo previsto <= 1500"
         )
+        # Prompt ULTRA-CORTO che sta nel budget basso senza troncare sull'intera PR:
+        # solo 2 sezioni, max 150 parole, i rischi safety ripiegati in "Bloccanti".
+        assert "Vincolo costo/output" in text and "MASSIMO 150 parole" in text, (
+            f"{name}: il gate finale deve usare il prompt ultra-corto (max 150 parole) "
+            "per non troncarsi sull'intera PR"
+        )
+        assert "## Bloccanti" in text and "## Verdetto finale" in text, (
+            f"{name}: il gate finale deve chiedere le due sezioni Bloccanti + Verdetto finale"
+        )
+        # Le sezioni lunghe del prompt per-push NON devono restare nel gate finale
+        # (altrimenti il modello prova a compilarle e ri-tronca il budget).
+        for sezione in ("## Rischi manuali", "## Test minimi", "## CSV / Betfair / Parser"):
+            assert sezione not in text, (
+                f"{name}: il gate finale non deve più chiedere la sezione '{sezione}' "
+                "(prompt accorciato a 2 sezioni per non troncarsi)"
+            )
         assert "Output troncato" in text, (
             f"{name}: manca il ramo di troncamento onesto quando il modello "
             f"esaurisce il budget di output"
         )
         assert re.search(r'stop_reason.*max_tokens|finish_reason.*length', text), (
             f"{name}: manca il check su stop_reason/finish_reason per il troncamento"
+        )
+        # Sul gate finale, il marker di completamento (done_marker) va scritto SOLO
+        # se la review NON è fallita/troncata: altrimenti un re-run della label
+        # salterebbe la review (dedup) e il check resterebbe verde a vuoto senza la
+        # review forte richiesta (P1). done_line è legato a model_failed.
+        src = _compiled_heredoc(name)
+        assert 'done_line = "" if model_failed else done_marker' in src, (
+            f"{name}: il marker di completamento deve dipendere da model_failed "
+            "(una review troncata/errore NON deve marcare done → deve poter essere rifatta)"
         )
 
 
@@ -289,6 +321,27 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
         provider = meta["provider"]
         assert "Output troncato" in text, (
             f"{name}: manca il messaggio di troncamento onesto (budget esaurito)"
+        )
+
+        # Troncamento PARZIALE (Codex P1, PR #310): se il modello restituisce testo
+        # PARZIALE NON vuoto con la ragione di troncamento del provider
+        # (stop_reason=max_tokens / finish_reason=length / status=incomplete),
+        # call_model deve comunque marcarlo. Altrimenti il guard `startswith("Output
+        # troncato")` del chiamante non scatta, il gate a label va VERDE con una review
+        # incompleta e i re-run la deduplicano via col done_marker. Il fix deriva un
+        # flag `truncated` INDIPENDENTE dal fatto che ci sia testo e, sul ramo di testo
+        # parziale, prepende il banner "Output troncato" così il guard lo tratta come
+        # review NON completa (niente done_marker; model_failed sul gate a label).
+        code = _compiled_heredoc(name)
+        assert re.search(r'\btruncated\s*=', code), (
+            f"{name}: manca il flag `truncated` indipendente dal testo (Codex P1)"
+        )
+        assert "elif truncated:" in code, (
+            f"{name}: manca il ramo di troncamento PARZIALE (testo non vuoto ma troncato)"
+        )
+        assert "Output troncato: il modello ha prodotto solo una review " in code, (
+            f"{name}: il testo parziale troncato deve iniziare con 'Output troncato' "
+            "così il guard del chiamante (startswith) lo marca come NON completo"
         )
 
         if provider == "openai":
@@ -327,12 +380,95 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
                 f"{name}: il join dei blocchi non è protetto da text=None (TypeError)"
             )
 
-        # Un reviewer reasoning (OpenAI gpt-5.5) con budget minuscolo produce 0
-        # testo: il budget di output deve avere un minimo ragionevole.
+        # I budget sono volutamente BASSI (anti-costo) perché il prompt severo
+        # produce review corte; serve solo un floor minimo di sicurezza.
         match = re.search(r'MAX_OUTPUT_TOKENS:\s*"(\d+)"', text)
-        assert match and int(match.group(1)) >= 1500, (
-            f"{name}: MAX_OUTPUT_TOKENS troppo piccolo per lasciare spazio al testo"
+        assert match and int(match.group(1)) >= 500, (
+            f"{name}: MAX_OUTPUT_TOKENS sotto il floor minimo di sicurezza"
         )
+        # Il prompt severo è su TUTTI e 4: è ciò che rende utili i budget bassi
+        # (senza, con 700/1000 token la review tronca invece di essere concisa).
+        assert "Vincolo costo/output" in text, (
+            f"{name}: manca il prompt severo anti-costo (max 10 finding / max 400 parole)"
+        )
+        # Anti-doppia-review a pagamento: dedup sul marker prima della chiamata AI.
+        src = _compiled_heredoc(name)
+        assert "def comment_exists(marker" in src, (
+            f"{name}: manca il dedup comment_exists (re-run/ri-label non deve ripagare)"
+        )
+        # Cap anti-loop sulla paginazione dedup (Sourcery bug_risk): il while non
+        # deve poter girare all'infinito se l'API restituisse sempre 100 commenti.
+        assert "while page <= 20" in src, (
+            f"{name}: la paginazione del dedup deve avere un cap anti-loop"
+        )
+        # Il dedup deve guardare il MARKER DI COMPLETAMENTO, non il marker semplice:
+        # un commento troncato/errore porta `marker` ma non `done_marker`, quindi un
+        # re-run rifà la review invece di saltarla lasciando il gate verde a vuoto
+        # (P1 CodeRabbit ×4 + Codex, PR #310).
+        assert "done_marker = " in src, (
+            f"{name}: manca il marker di completamento (done_marker) per la dedup"
+        )
+        assert "comment_exists(done_marker)" in src, (
+            f"{name}: la dedup deve saltare solo su una review COMPLETATA (done_marker), "
+            "non su un qualsiasi commento col marker (altrimenti blocca il retry)"
+        )
+        assert "comment_exists(marker)" not in src, (
+            f"{name}: la dedup non deve usare comment_exists(marker) — un commento "
+            "troncato bloccherebbe il retry (usa done_marker)"
+        )
+        # Sicurezza (CodeRabbit Major, PR #310): il done_marker è derivabile dagli SHA
+        # pubblici. Lo scan dei commenti deve fidarsi del marker SOLO se il commento è
+        # del bot del workflow (github-actions[bot]); altrimenti un utente che può
+        # commentare la PR potrebbe forgiare il marker e far saltare la review finale
+        # obbligatoria / il gate a label. Nessuno scan "nudo" (senza autore) deve restare.
+        assert 'if marker in (c.get("body") or ""):' not in src, (
+            f"{name}: scan del marker senza filtro autore — un marker forgiato da un "
+            "utente potrebbe far saltare la review (usa il gating github-actions[bot])"
+        )
+        assert src.count('== "github-actions[bot]" and marker in (c.get("body") or "")') >= 2, (
+            f"{name}: sia comment_exists sia upsert_comment devono accettare il marker "
+            "SOLO da un commento di github-actions[bot] (anti-forgery del done_marker)"
+        )
+        # done_marker va scritto nel body SOLO se la review è realmente completata.
+        assert "done_line = " in src, (
+            f"{name}: done_marker deve essere appeso al body solo quando la review è completa"
+        )
+        # Label di sicurezza ri-asserita PRIMA dell'uscita per dedup (Codex P2): se un
+        # run precedente ha completato la review (done_marker) ma try_add_label era
+        # fallita, il re-run non deve uscire lasciando un range critico senza
+        # `manual-review-required`. Il ramo `if _already_reviewed:` deve richiamare
+        # try_add_label() prima di sys.exit(0).
+        skip_block = re.search(r'if _already_reviewed:(.*?)sys\.exit\(0\)', src, re.DOTALL)
+        assert skip_block and "try_add_label()" in skip_block.group(1), (
+            f"{name}: il ramo dedup-skip deve ri-asserire try_add_label() sui range "
+            "critici prima di uscire (Codex P2), altrimenti la label di sicurezza non "
+            "viene mai ritentata dopo un fallimento transitorio"
+        )
+        # Modelli reasoning: col budget basso il reasoning nascosto esaurisce i token
+        # e la review tronca a 0 testo (GPT osservato PR #304, GLM PR #310). Ogni
+        # reviewer dichiara nel metadata il controllo atteso — così il test non è
+        # legato al NOME FILE (fragilità segnalata da GPT-5.5 + GLM su #310) ma
+        # all'intento esplicito, ed è specifico per workflow:
+        #   "low"      → reasoning: {"effort": "low"}   (GPT-5.5, Fugu)
+        #   "disabled" → reasoning: {"enabled": False}  (GLM: col tetto 700 ha IGNORATO
+        #                effort='low' e troncava lo stesso → va spento del tutto;
+        #                verificato live, con enabled False ha prodotto 384 token < 700)
+        #   None       → nessun campo reasoning          (Anthropic/Fable)
+        # NB: il sorgente è Python embedded (heredoc), quindi la forma corretta è
+        # `False` Python, non `false` JSON/YAML — accettare `false` farebbe passare un
+        # workflow che va in NameError a runtime.
+        reasoning_mode = meta.get("reasoning")
+        if reasoning_mode == "low":
+            assert re.search(r'"reasoning":\s*\{"effort":\s*"low"\}', src), (
+                f"{name}: modello reasoning deve usare reasoning effort 'low' col budget "
+                "basso, altrimenti il reasoning nascosto tronca la review a 0 testo"
+            )
+        elif reasoning_mode == "disabled":
+            assert re.search(r'"reasoning":\s*\{"enabled":\s*False\}', src), (
+                f"{name}: col tetto basso effort='low' non basta (GLM troncava live su "
+                "#310) → il reasoning va disabilitato del tutto (enabled: False)"
+            )
+        # reasoning_mode None (Anthropic) → nessun campo reasoning richiesto.
 
 
 def test_audit_solo_manuali_workflow_dispatch():

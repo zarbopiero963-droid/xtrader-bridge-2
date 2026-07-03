@@ -59,17 +59,55 @@ stampate.
   (base...head), come per la label. Il gate è **fail-safe** sulla truncation della
   Compare API: se la lista file è troncata (≥ 300 file) **non** salta la review
   (un file core potrebbe essere oltre il limite).
-  Proprio perché coprono tutta la PR, i due gate finali usano un **budget di
-  output più ampio** degli automatici (`MAX_OUTPUT_TOKENS: 6000` per Fable 5 e
-  Fugu Ultra, `4500` GPT-5.5, `2500` GLM 5.2): con un budget piccolo il modello
-  può esaurire i token
-  prima di produrre la review su una PR reale — critico per **gpt-5.5**, che è un
-  modello *reasoning* e conta i token di reasoning nel budget di output. **Tutti
-  e quattro** i reviewer, se il modello si ferma per limite di token senza
-  produrre testo, lo dichiarano esplicitamente (troncamento, col motivo del
-  provider: `stop_reason=max_tokens` / `finish_reason=length` /
-  `status=incomplete`) invece di sembrare che "non avessero nulla da dire"; puoi
-  alzare `MAX_OUTPUT_TOKENS` o restringere il diff.
+  **Controllo costi (tetto duro + prompt severo).** Il costo è dominato
+  dall'**output**: una review lunga di Fugu poteva arrivare a ~19k token
+  (~0,70$). Per questo i reviewer usano un **prompt severo** e un **tetto duro
+  basso** su `MAX_OUTPUT_TOKENS`: `1200` Fable 5, `1000` Fugu Ultra e GPT-5.5,
+  `700` GLM 5.2. I reviewer **automatici per-push** (GPT-5.5, GLM 5.2) analizzano
+  diff incrementali piccoli con un prompt a 7 sezioni corte (massimo 10 finding,
+  massimo 400 parole, niente ripetizione del diff/teoria, "Nessun bloccante
+  evidente" se non c'è nulla). I due **gate finali** (Fable 5, Fugu Ultra)
+  rivedono invece l'**intera PR**: con lo stesso prompt lungo si troncavano
+  (review parziale → gate rosso), quindi usano un prompt **ultra-corto** — sole
+  due sezioni `## Bloccanti` + `## Verdetto finale`, massimo 150 parole, con i
+  rischi di sicurezza/CSV/Betfair/segreti ripiegati dentro `Bloccanti` — così la
+  review completa sta nel budget senza troncarsi. La review resta concisa e utile
+  ma costa una frazione.
+  Se il modello si ferma comunque per limite di token, il commento **dichiara il
+  troncamento** (col motivo del provider: `stop_reason=max_tokens` /
+  `finish_reason=length` / `status=incomplete`) invece di sembrare che "non
+  avesse nulla da dire". Il troncamento è rilevato **anche quando il modello ha
+  prodotto testo PARZIALE non vuoto**: una review incompleta viene marcata con lo
+  stesso banner `Output troncato`, così sul gate a label conta come **fallita**
+  (niente `done_marker`, il check non diventa verde a vuoto) e un re-run la rifà
+  invece di deduplicarla via.
+  **Reasoning cap sui modelli che ragionano.** GPT-5.5, GLM 5.2 e Fugu Ultra
+  spendono parte del budget di output in *reasoning* nascosto: col tetto basso
+  esaurivano i token nel ragionamento e la review usciva **vuota/troncata**. Per
+  questo controllano esplicitamente il reasoning: GPT-5.5 e Fugu Ultra usano
+  `reasoning: {effort: "low"}` (Responses API per OpenAI, campo unificato
+  OpenRouter per Fugu). GLM 5.2, col tetto a 700 token, ha **ignorato** `effort:
+  "low"` e troncava comunque: essendo il reviewer economico che deve solo produrre
+  una review corta, il reasoning è **disabilitato del tutto**
+  (`reasoning: {enabled: false}`), così tutti i 700 token restano per il testo. Il
+  campo è ignorato sui modelli non-reasoning. Fable 5 (Anthropic) non lo usa.
+  **Anti-doppia-review a pagamento.** Prima di chiamare il modello, ogni reviewer
+  controlla se esiste **già** una review **completata** per quello **stesso
+  range**. La dedup non guarda un marker qualsiasi ma un **marker di completamento**
+  (`done_marker`), scritto nel commento **solo** quando il modello ha davvero
+  prodotto testo (non troncato, non errore): se lo trova, esce senza spendere. Un
+  commento troncato/errore porta il marker di range ma **non** quello di
+  completamento, quindi un re-run **rifà** la review invece di saltarla lasciando
+  il gate verde a vuoto. Il marker viene accettato **solo** se il commento è del
+  bot del workflow (`github-actions[bot]`): il `done_marker` è derivabile dagli SHA
+  pubblici, e senza questo filtro un utente che può commentare la PR potrebbe
+  forgiarlo per far saltare la review finale obbligatoria. Così un re-run del workflow o un togli/rimetti della label
+  finale **non ripagano** una review già riuscita; un nuovo push (nuovo range) gira
+  normalmente. Prima di uscire per dedup, il job **ri-asserisce la label di
+  sicurezza** `manual-review-required` sui range critici (idempotente, fail-open):
+  se un run precedente aveva completato la review ma l'aggiunta della label era
+  fallita per un errore transitorio, il re-run non lascia il range critico senza
+  label.
 
 Per far ripartire una review finale già eseguita, rimuovi e riaggiungi la label
 (GitHub non emette un nuovo evento `labeled` se la label è già presente).

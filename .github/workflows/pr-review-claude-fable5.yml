@@ -64,13 +64,12 @@ jobs:
       REVIEW_ID: claude-fable5
       MODEL_LABEL: Claude Fable 5
 
-      MAX_PATCH_PER_FILE_CHARS: "7000"
-      MAX_TOTAL_PATCH_CHARS: "24000"
-      # Gate finale: rivede l'INTERA PR (base...head), non un piccolo push-range,
-      # quindi serve un budget di output ampio o il modello esaurisce i token
-      # prima di produrre la review (osservato: 1200 = 0 testo su una PR reale).
-      # 6000 copre anche le review lunghe; gira di rado (file core/label) → costo basso.
-      MAX_OUTPUT_TOKENS: "6000"
+      MAX_PATCH_PER_FILE_CHARS: "5000"
+      MAX_TOTAL_PATCH_CHARS: "16000"
+      # Tetto duro anti-costo: la review finale deve essere CORTA (prompt severo:
+      # max 10 finding, max 400 parole, niente diff/teoria). 1200 token bastano a
+      # una review concisa e tagliano il costo (osservato: output ~19k = ~0,70$).
+      MAX_OUTPUT_TOKENS: "1200"
 
       PRICE_INPUT_PER_MILLION: "10.00"
       PRICE_CACHE_CREATION_PER_MILLION: "12.50"
@@ -125,9 +124,9 @@ jobs:
           REVIEW_ID = os.environ.get("REVIEW_ID", "claude-fable5")
           MODEL_LABEL = os.environ.get("MODEL_LABEL", ANTHROPIC_MODEL)
 
-          MAX_PATCH_PER_FILE_CHARS = int(os.environ.get("MAX_PATCH_PER_FILE_CHARS", "7000"))
-          MAX_TOTAL_PATCH_CHARS = int(os.environ.get("MAX_TOTAL_PATCH_CHARS", "24000"))
-          MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "6000"))
+          MAX_PATCH_PER_FILE_CHARS = int(os.environ.get("MAX_PATCH_PER_FILE_CHARS", "5000"))
+          MAX_TOTAL_PATCH_CHARS = int(os.environ.get("MAX_TOTAL_PATCH_CHARS", "16000"))
+          MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "1200"))
 
           PRICE_INPUT_PER_MILLION = float(os.environ.get("PRICE_INPUT_PER_MILLION", "10"))
           PRICE_CACHE_CREATION_PER_MILLION = float(os.environ.get("PRICE_CACHE_CREATION_PER_MILLION", "12.5"))
@@ -301,7 +300,10 @@ jobs:
                   while True:
                       comments = gh_request("GET", f"/repos/{REPO}/issues/{PR_NUMBER}/comments?per_page=100&page={page}") or []
                       for c in comments:
-                          if marker in (c.get("body") or ""):
+                          # Sicurezza: fidati del marker SOLO se il commento è del bot
+                          # del workflow (github-actions[bot]); il marker è derivabile
+                          # da SHA pubblici, non deve poter essere forgiato (CodeRabbit).
+                          if ((c.get("user") or {}).get("login") or "") == "github-actions[bot]" and marker in (c.get("body") or ""):
                               existing = c
                               break
                       if existing or len(comments) < 100:
@@ -353,12 +355,18 @@ jobs:
                               parts.append(item.get("text") or "")
 
                       text = "\n".join(parts).strip()
+                      # Troncamento = stop_reason=max_tokens, INDIPENDENTE dal fatto
+                      # che ci sia testo: anche una review PARZIALE non vuota è
+                      # incompleta (Codex P1). Il banner "Output troncato" in testa fa
+                      # scattare il guard del chiamante (startswith) → model_failed sul
+                      # gate a label e niente done_marker → la review parziale non passa
+                      # per completa né viene deduplicata via.
+                      truncated = body.get("stop_reason") == "max_tokens"
                       if not text:
-                          # stop_reason=max_tokens: il budget di output si e'
-                          # esaurito prima di un blocco di testo. Segnalalo con
-                          # verita' invece di far sembrare che il modello non
-                          # avesse nulla da dire.
-                          if body.get("stop_reason") == "max_tokens":
+                          # Budget esaurito prima di qualsiasi blocco di testo:
+                          # segnalalo con verità invece di far sembrare che il modello
+                          # non avesse nulla da dire.
+                          if truncated:
                               text = (
                                   "Output troncato: il modello ha esaurito il budget "
                                   f"(MAX_OUTPUT_TOKENS={MAX_OUTPUT_TOKENS}, stop_reason=max_tokens) "
@@ -367,6 +375,15 @@ jobs:
                               )
                           else:
                               text = "Il modello non ha restituito testo."
+                      elif truncated:
+                          # Testo PARZIALE ma troncato: prependi il banner così il
+                          # guard del chiamante lo tratta come review NON completa.
+                          text = (
+                              "Output troncato: il modello ha prodotto solo una review "
+                              f"PARZIALE (MAX_OUTPUT_TOKENS={MAX_OUTPUT_TOKENS}, "
+                              "stop_reason=max_tokens). Segue il testo parziale.\n\n"
+                              + text
+                          )
                       return text, body.get("usage", {})
                   except urllib.error.HTTPError as exc:
                       detail = exc.read().decode("utf-8", errors="replace")
@@ -475,6 +492,63 @@ jobs:
           compare_truncated = len(files) >= 300
 
           marker = f"<!-- {REVIEW_ID}-pr-review:xtrader-bridge:{range_base[:12]}...{range_head[:12]} -->"
+          # Marker di COMPLETAMENTO: presente nel commento SOLO quando la review è
+          # arrivata davvero (testo reale del modello, non troncata/errore). La dedup
+          # a pagamento guarda QUESTO marker, non `marker`: così un commento troncato
+          # o d'errore (che porta `marker` ma NON `done_marker`) non blocca il retry —
+          # fondamentale sul gate a LABEL, dove saltare una review fallita lascerebbe
+          # il check verde senza la review forte richiesta (P1 CodeRabbit/Codex).
+          done_marker = f"<!-- {REVIEW_ID}-pr-review-done:xtrader-bridge:{range_base[:12]}...{range_head[:12]} -->"
+
+          # Anti-doppia-review a pagamento: se esiste GIÀ una review COMPLETATA per
+          # QUESTO range (done_marker), non richiamare il modello — un re-run del
+          # workflow o togli/rimetti la label finale NON devono ripagare la stessa
+          # review. Un nuovo push = nuovo range = nuovo marker → gira normalmente.
+          # Fail-open: se il controllo stesso fallisce, si procede (non si salta).
+          def comment_exists(marker: str) -> bool:
+              # cap anti-loop (Sourcery bug_risk): se l'API restituisse sempre 100
+              # commenti, il while non terminerebbe. Nessuna PR reale ha >2000
+              # commenti; oltre il cap si assume "non trovato" e si procede con la
+              # review (fail-safe: meglio una review in più che un job appeso).
+              page = 1
+              while page <= 20:
+                  comments = gh_request(
+                      "GET",
+                      f"/repos/{REPO}/issues/{PR_NUMBER}/comments?per_page=100&page={page}",
+                  ) or []
+                  for c in comments:
+                      # Sicurezza: accetta il done_marker SOLO da un commento del bot
+                      # del workflow (github-actions[bot]). done_marker è derivabile
+                      # dagli SHA pubblici: senza questo filtro un utente che può
+                      # commentare la PR potrebbe forgiarlo e far saltare la review
+                      # finale obbligatoria / il gate a label (CodeRabbit Major).
+                      if ((c.get("user") or {}).get("login") or "") == "github-actions[bot]" and marker in (c.get("body") or ""):
+                          return True
+                  if len(comments) < 100:
+                      return False
+                  page += 1
+              return False
+
+          try:
+              _already_reviewed = comment_exists(done_marker)
+          except Exception as exc:
+              _already_reviewed = False
+              print(f"::warning::{REVIEW_ID}: dedup check fallito, procedo con la review: {redact(str(exc))[:300]}")
+
+          if _already_reviewed:
+              # Prima di uscire per dedup, ri-assicura la label di sicurezza sui range
+              # critici: se un run precedente ha completato la review (done_marker) ma
+              # `try_add_label()` era fallita (403/500 transitorio o permessi sistemati
+              # dopo), il re-run non deve uscire lasciando un range critico senza
+              # `manual-review-required` (Codex P2). try_add_label è fail-open e
+              # idempotente: se la label c'è già, è un no-op.
+              if critical_files or compare_truncated:
+                  try_add_label()
+              print(
+                  f"{REVIEW_ID}: review già presente per {range_base[:12]}...{range_head[:12]} "
+                  "→ salto la chiamata AI a pagamento."
+              )
+              sys.exit(0)
 
           # Label e avviso calcolati PRIMA di ogni uscita: una push-range di soli
           # file binari/oversized che tocca aree sensibili non perde il segnale.
@@ -536,6 +610,16 @@ jobs:
           Non suggerire mai di stampare token, password, API key, certificati o segreti nei log.
           Concentrati su bug reali, regressioni, race condition, sicurezza, CSV XTrader, Telegram parser, Betfair, Windows, CI e test.
           Sii concreto: cita file/area/motivo.
+
+          Vincolo costo/output (RISPETTALO alla lettera):
+          - Questo è il GATE FINALE su tutta la PR: review ULTRA-CORTA per stare nel
+            budget di output senza troncarsi. MASSIMO 150 parole totali.
+          - SOLO due sezioni: "## Bloccanti" e "## Verdetto finale". Nessun'altra sezione.
+          - In "Bloccanti" elenca SOLO problemi BLOCCANTI reali — bug, regressioni,
+            sicurezza, segreti, contratto CSV XTrader, Betfair, race condition, Windows —
+            ognuno max 2 righe. Se non ce ne sono, scrivi esattamente "Nessun bloccante evidente".
+          - Niente ripetizione del diff, niente teoria/tutorial/blocchi di codice,
+            niente rischi minori, niente miglioramenti opzionali, niente sezioni extra.
           """
 
           user_prompt = f"""
@@ -546,17 +630,11 @@ jobs:
           Commits nel range: {commit_count}
           Modello: {MODEL_LABEL} ({ANTHROPIC_MODEL})
 
-          Produci Markdown con queste sezioni:
+          Produci Markdown, MASSIMO 150 parole, SOLO queste due sezioni (i rischi di
+          sicurezza / CSV / Betfair / segreti vanno dentro "Bloccanti", non in sezioni a parte):
 
-          ## Esito sintetico
           ## Bloccanti
-          ## Rischi da controllo manuale
-          ## Sicurezza e segreti
-          ## Race condition / concorrenza
-          ## Compatibilità Windows
-          ## CSV / Telegram / Parser / Betfair
-          ## Test consigliati
-          ## Miglioramenti opzionali
+          ## Verdetto finale
 
           Diff del range appena pushato:
           {diff_text}
@@ -573,12 +651,25 @@ jobs:
               usage = {}
               model_failed = True
 
+          # Troncamento / nessun testo = review NON completa: sul gate finale a
+          # LABEL non deve risultare verde (Codex P1). Marca come fallito così
+          # scatta il fail-closed (sys.exit(1) su labeled) più in basso.
+          if not model_failed and review.lstrip().startswith(
+              ("Output troncato", "Il modello non ha restituito testo")
+          ):
+              model_failed = True
+
           # Redigi anche l'OUTPUT del modello: se ripete un valore segreto (formato
           # non coperto dalla redaction dell'input o echo del prompt) non deve finire
           # in chiaro nel commento PR (Codex P2).
           review = redact(review)
 
-          body = f"""{marker}
+          # done_marker SOLO se la review è realmente completata (non model_failed).
+          # Un commento troncato/errore porta `marker` ma NON `done_marker`, quindi un
+          # re-run (o togli/rimetti label) rifà la review invece di saltarla.
+          done_line = "" if model_failed else done_marker
+
+          body = f"""{marker}{done_line}
           # Claude Fable 5 PR Review
 
           **Modalità:** push-range diff via GitHub Compare API
