@@ -84,3 +84,14 @@ def test_sport_for_event_type_id_ignoto_none():
     assert sports.sport_for_event_type_id("999") is None
     assert sports.sport_for_event_type_id("") is None
     assert sports.sport_for_event_type_id(None) is None
+
+
+def test_sport_for_event_type_id_falsy_non_none_non_collassa():
+    # Fissa la semantica del check esplicito su None (review GPT-5.5/GLM/Fable): un id
+    # FALSY ma NON None (es. `0`) viene cercato come `"0"` — NON collassato a `""` dal
+    # vecchio `or ""` — quindi resta `None` perché nessuno sport ha id 0, ma per il motivo
+    # giusto (se Betfair introducesse un id `0`, non verrebbe scambiato per «id assente»).
+    assert sports.sport_for_event_type_id(0) is None       # int falsy → "0", non ""
+    assert sports.sport_for_event_type_id("0") is None      # str "0" → None
+    # controprova: gli id reali (anche passati come int) restano risolti
+    assert sports.sport_for_event_type_id(1) == "Calcio"
