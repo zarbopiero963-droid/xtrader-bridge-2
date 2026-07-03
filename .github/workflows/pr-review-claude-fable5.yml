@@ -442,6 +442,15 @@ jobs:
           # possiamo escludere che un file core sia oltre il limite → NON saltare
           # (meglio spendere che perdere una PR core grande).
           compare_maybe_truncated = len(files) >= 300
+          if (EVENT_ACTION != "labeled" and compare_maybe_truncated
+                  and not touches_core(files)):
+              # Tracciabilità costi: il fail-safe sta eseguendo la review forte su
+              # una PR di massa dove non si vedono file core (Compare troncata).
+              print(
+                  f"::notice::{REVIEW_ID}: Compare API troncata (>= 300 file) e nessun "
+                  "file core nella lista visibile → review forte eseguita per sicurezza "
+                  "(possibile costo su PR di massa)."
+              )
           if (EVENT_ACTION != "labeled" and not compare_maybe_truncated
                   and not touches_core(files)):
               print(

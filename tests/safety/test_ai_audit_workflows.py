@@ -666,9 +666,10 @@ def test_audit_scansiona_segreti_nei_path_dei_file_skippati(tmp_path, monkeypatc
 
 
 def test_audit_scansiona_segreti_nei_nomi_dei_symlink(tmp_path, monkeypatch):
-    """GPT-5.5: un segreto nel NOME di un symlink (anche rotto/verso dir) deve
-    essere scansionato in ENTRAMBI gli audit — il manual audit prima scartava i
-    non-file prima dello scan, disallineandosi dal Claude audit."""
+    """GPT-5.5/GLM: un segreto nel NOME di un symlink (rotto O verso directory)
+    deve essere scansionato in ENTRAMBI gli audit — il manual audit prima scartava
+    i non-file prima dello scan, disallineandosi dal Claude audit. Il symlink non
+    viene mai seguito/letto: solo il suo nome è scansionato."""
     for name, iter_name in (
         ("manual-full-repo-ai-audit.yml", "iter_text_files"),
         ("claude-fable-full-repo-audit.yml", "iter_files"),
@@ -676,15 +677,24 @@ def test_audit_scansiona_segreti_nei_nomi_dei_symlink(tmp_path, monkeypatch):
         ns, root = _exec_audit_script(name, tmp_path, monkeypatch)
         sub = root / "links"
         sub.mkdir(exist_ok=True)
-        link = sub / f"{_fake_github_pat()}.txt"
-        if link.exists() or link.is_symlink():
-            link.unlink()
-        link.symlink_to(root / "target-inesistente")  # symlink rotto (non is_file)
+        realdir = root / "realdir"
+        realdir.mkdir(exist_ok=True)
+        broken = sub / f"{_fake_github_pat()}.txt"       # symlink rotto (non is_file)
+        dirlink = sub / f"{_fake_github_pat()}_dir"       # symlink verso directory
+        for p in (broken, dirlink):
+            if p.exists() or p.is_symlink():
+                p.unlink()
+        try:
+            broken.symlink_to(root / "target-inesistente")
+            dirlink.symlink_to(realdir, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:  # Windows senza privilegi, FS senza symlink
+            pytest.skip(f"symlink non supportati su questo runner/filesystem: {exc}")
 
         _files, _skipped, path_findings = ns[iter_name]()
         crit = [f for f in path_findings if f["severity"] == "critical"]
-        assert crit, f"{name}: segreto nel nome di un symlink non segnalato"
-        assert _fake_github_pat() not in crit[0]["file"], name
+        # sia il link rotto sia il link a dir devono essere intercettati
+        assert len(crit) >= 2, f"{name}: segreti nei nomi dei symlink (rotto/dir) non segnalati"
+        assert all(_fake_github_pat() not in f["file"] for f in crit), name
 
 
 def test_normalize_finding_strip_severity(tmp_path, monkeypatch):
@@ -844,7 +854,10 @@ def test_iter_files_non_segue_symlink_fuori_dallo_snapshot(tmp_path, monkeypatch
         link = root / "evil_link.txt"
         if link.exists() or link.is_symlink():
             link.unlink()
-        link.symlink_to(fuori)
+        try:
+            link.symlink_to(fuori)
+        except (OSError, NotImplementedError) as exc:  # Windows senza privilegi, FS senza symlink
+            pytest.skip(f"symlink non supportati su questo runner/filesystem: {exc}")
 
         files, skipped, _path_findings = ns[iter_name]()
         scanned = [str(p.relative_to(root)) for p in files]
