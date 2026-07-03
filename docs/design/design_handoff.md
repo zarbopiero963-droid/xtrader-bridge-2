@@ -400,20 +400,39 @@ Passando a `APPEND_ACTIVE` o `QUEUE_UNTIL_CONFIRMED` (più righe/scommesse insie
 - **Titolo:** `Conferma modalità MULTI-segnale` — dialogo Sì/No. Se No → resta a
   `OVERWRITE_LAST` (un solo segnale attivo).
 
-### 9.3 Avvio automatico in modalità reale (conferma a ogni apertura)
-Se `auto_start_listener` è attivo **e** siamo in modalità reale, a ogni apertura:
-- **Titolo:** `Avvio automatico — MODALITÀ REALE`
-- **Testo:**
-  > L'avvio automatico è attivo in MODALITÀ REALE: il bridge inizierà a scrivere i segnali
-  > nel CSV (scommesse reali) appena ricevuti.
-  >
-  > Avviare ora il listener?
+### 9.3 Avvio in modalità reale (conferma Sì/No a OGNI avvio, automatico e manuale)
+In modalità reale ogni avvio del listener chiede una conferma Sì/No (audit #259 C5,
+decisione proprietario: un `dry_run:false` già salvato non ripassa dal phrase gate, quindi
+serve attrito a ogni avvio):
+- **Avvio automatico** (`auto_start_listener` attivo), a ogni apertura:
+  - **Titolo:** `Avvio automatico — MODALITÀ REALE`
+  - **Testo:**
+    > L'avvio automatico è attivo in MODALITÀ REALE: il bridge inizierà a scrivere i segnali
+    > nel CSV (scommesse reali) appena ricevuti.
+    >
+    > Avviare ora il listener?
+- **START manuale** (pulsante AVVIA), a ogni pressione:
+  - **Titolo:** `START — MODALITÀ REALE`
+  - **Testo:**
+    > Sei in MODALITÀ REALE: il bridge scriverà i segnali nel CSV (scommesse reali) appena
+    > ricevuti.
+    >
+    > Avviare ora il listener?
+  - Se l'utente annulla: log `⏸️ Avvio in modalità reale annullato.` e nessun avvio.
 
-### 9.4 Perché il bridge non parte (errori di preflight)
+### 9.4 Perché il bridge non parte (errori di preflight) e avvisi non bloccanti
 AVVIA è bloccato (con messaggio nel log) se: manca il Bot Token, manca il CSV Path, il
 Timeout non è un intero > 0, oppure **nessuna chat/sorgente è configurata**. Il design deve
 rendere questi requisiti **evidenti prima** di premere AVVIA (validazione inline, stati
 disabilitati, hint).
+
+AVVIA invece **procede ma con avviso ⚠️ nel log eventi** (audit #259) quando:
+- **nessuna chat sorgente è ATTIVA** (es. tutte disattivate): il listener parte «sordo» e
+  non processerà segnali — l'avvio **automatico** in questo stato è invece bloccato;
+- una sorgente ha **`enabled` malformato** (typo): è considerata DISATTIVATA (fail-closed);
+- una riga di **mappatura nomi** ha sport/tipo non riconosciuto: è IGNORATA (fail-closed).
+Il design può dare a questi avvisi più visibilità (banner/badge), ma non deve trasformarli
+in blocchi.
 
 ### 9.5 Ciclo di vita di un segnale (per capire cosa mostrare)
 `ricevuto → validato → scritto su CSV → (conferma/rifiuto XTrader oppure timeout) →

@@ -307,3 +307,15 @@ def test_enabled_int_enorme_non_crasha():
     sollevare OverflowError — è un numero esplicitamente non-zero → True."""
     assert sm.as_enabled_bool(10**400) is True
     assert sm.as_enabled_bool(-(10**400)) is True
+
+
+def test_is_malformed_enabled_predicato_unico():
+    """Nitpick CodeRabbit/Fable #309 (chiuso in questa PR): predicato condiviso tra
+    `_normalize_source` (warning logger) e `malformed_enabled_warnings` (avvisi GUI)
+    — un campione di valori per lockare l'equivalenza «warna il modulo ⇔ warna la GUI»."""
+    for v in ("flase", "attivo", None, float("nan"), [], {}):
+        assert sm._is_malformed_enabled(v) is True, v
+        assert sm.malformed_enabled_warnings([{"chat_id": "1", "enabled": v}]), v
+    for v in (True, False, 0, -0.0, "no", "si", 1, "", "off"):
+        assert sm._is_malformed_enabled(v) is False, v
+        assert sm.malformed_enabled_warnings([{"chat_id": "1", "enabled": v}]) == [], v

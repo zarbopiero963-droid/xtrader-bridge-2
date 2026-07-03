@@ -326,3 +326,32 @@ def test_obbligatorio_con_end_before_assente_non_pronto():
     res = eng.apply_parser(defn, "Match: Inter v Milan (manca il marker di fine)")
     assert res.ready is False
     assert res.missing_required == ["EventName"]
+
+
+def test_required_whitespace_only_non_conta_come_presente():
+    """Audit #259 B5: il gate dei required confrontava `== ""` senza strip — un
+    `fixed_value=" "` risultava «presente» e la riga arrivava VALID fino al CSV
+    (per campi fuori dal riconoscimento, es. MarketName, questo era l'unico gate).
+
+    Fail-first: prima `ready=True` e `missing_required=[]`."""
+    defn = cp.CustomParserDef(name="WS", mode="NAME_ONLY", rules=[
+        cp.FieldRule(target="MarketName", fixed_value=" ", required=True),
+        cp.FieldRule(target="EventName", start_after="Match:", end_before="\n",
+                     required=True),
+    ])
+    res = eng.apply_parser(defn, "Match: A v B\n")
+    assert res.ready is False
+    assert "MarketName" in res.missing_required
+
+
+def test_fixed_value_whitespace_non_e_un_valore():
+    """#259 B5: un fixed_value di soli spazi non è più un EXTRACT_FIXED — la regola
+    senza altri ancoraggi produce vuoto (resta «mancante» se obbligatoria)."""
+    r = cp.FieldRule(target="MarketName", fixed_value="   ")
+    value, motivo = eng.extract_value_traced("qualsiasi testo", r)
+    assert value == ""
+    assert motivo != eng.EXTRACT_FIXED
+    # Un fixed_value con contenuto reale viene solo rifilato, non alterato.
+    r2 = cp.FieldRule(target="MarketName", fixed_value=" Match Odds ")
+    value2, motivo2 = eng.extract_value_traced("x", r2)
+    assert value2 == "Match Odds" and motivo2 == eng.EXTRACT_FIXED

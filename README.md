@@ -182,7 +182,7 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | `xtrader_notification_chat_id` | `""` | chat id | Chat **separata** su cui XTrader notifica l'esito (vedi [Conferma da XTrader](#conferma-da-xtrader)). |
 | `confirmation_timeout` | `120` | secondi | **In `QUEUE_UNTIL_CONFIRMED`**: per quanti secondi un segnale resta in attesa della conferma XTrader prima di scadere (timeout per-segnale della coda). Nelle altre modalità coda non si applica: vale `clear_delay`. |
 | `max_signal_age` | `120` | secondi | Un messaggio Telegram più vecchio di così viene **ignorato** all'arrivo (anti-segnale-stantio: evita che gli arretrati rifetchati dopo una disconnessione diventino scommesse vecchie). Il valore **effettivo non supera la vita della riga CSV per la modalità coda attiva** — `confirmation_timeout` in `QUEUE_UNTIL_CONFIRMED`, altrimenti `clear_delay`: un segnale già più vecchio della sua durata sul CSV è trattato come stantio. `0` = filtro disattivato. Le **conferme XTrader** (chat notifiche) **non** sono soggette a questo filtro. |
-| `auto_start_listener` | `false` | `true`/`false` | Se `true`, all'apertura l'app **avvia da sola** il listener — ma solo se token e chat sono configurati; in **modalità reale** chiede conferma prima di partire. Default `false`: il bridge parte solo con **AVVIA**. Attivabile dalla tab *Sicurezza*. |
+| `auto_start_listener` | `false` | `true`/`false` | Se `true`, all'apertura l'app **avvia da sola** il listener — ma solo se token e **almeno una chat sorgente ATTIVA** sono configurati (sorgenti tutte disattivate = niente avvio automatico); in **modalità reale** chiede conferma prima di partire. Un valore malformato (typo) vale come `false` anche al **salvataggio** (fail-closed). Default `false`: il bridge parte solo con **AVVIA**. Attivabile dalla tab *Sicurezza*. |
 | `betfair_auto_sync` | `false` | `true`/`false` | **Auto-sync del dizionario Betfair** (PR-P8): se `true` e il **bridge è aperto**, all'orario impostato fa **auto login → sync → auto logout** una sola volta al giorno (il dizionario è **solo locale**, read-only, nessuna scommessa). Opt-in **fail-closed**: un valore ambiguo nel file (es. `"flase"`) resta **OFF**. Se il bridge viene aperto **dopo** l'orario, la sync persa **non** viene recuperata. Attivabile dalla tab **🔵 Betfair Sync**. |
 | `betfair_auto_sync_hour` | `23` | intero `0`–`23` | Ora del giorno (HH, 24h) a cui scatta l'auto-sync Betfair. Valore fuori range o non numerico → ripiega su **23**. |
 | `betfair_sync_sports` | *(tutti)* | lista di sport | Sport sincronizzati dall'auto-sync (`Calcio`, `Tennis`, `Basket`, `Rugby Union`). Si impostano con le caselle della tab **🔵 Betfair Sync**; **assente** = tutti gli sport selezionati. L'auto-sync usa **esattamente** quelli salvati. |
@@ -324,9 +324,14 @@ Tutte queste protezioni sono **attive a runtime**:
    - **Esporta audit reale** (pulsante 🧾 nella tab *Stato*): salva in un file le righe
      `REAL_MODE_ENABLED` estratte dai log giornalieri.
    - La modalità reale, una volta confermata e salvata, **resta** tra i riavvii (la
-     conferma serve solo all'attivazione).
+     conferma serve solo all'attivazione). Per questo, **ogni avvio del listener in
+     modalità reale** — sia **AVVIA** manuale sia avvio automatico — chiede una
+     **conferma Sì/No** prima di partire (un `dry_run:false` già salvato non ripassa
+     dal gate con la parola `REALE`).
 2. **Filtro chat obbligatorio** — il bridge non parte senza almeno una chat/sorgente
-   configurata, così non accetta segnali da chat arbitrarie.
+   configurata, così non accetta segnali da chat arbitrarie. Se le sorgenti esistono ma
+   sono **tutte disattivate**, l'avvio **automatico** non parte (fail-closed) e lo START
+   manuale avvisa nel log che nessun segnale verrà processato.
 3. **Un segnale alla volta** — con `queue_mode=OVERWRITE_LAST` il CSV contiene un
    solo segnale attivo; il timeout lo svuota.
    - **Modalità multi-segnale "frictionful" (audit #105 P2).** Attivare `APPEND_ACTIVE`

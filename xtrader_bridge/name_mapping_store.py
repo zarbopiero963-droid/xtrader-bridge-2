@@ -38,8 +38,38 @@ Regole di sicurezza (safety-critical: un evento sbagliato = scommessa sbagliata)
 
 import re
 
+import logging
+
 from . import sports
 from .dizionario import compose_event_name, normalize
+
+_LOG = logging.getLogger(__name__)
+
+# Coppie (campo, valore troncato) già segnalate a log: il resolver gira in hot path
+# (una risoluzione per messaggio) e una riga malformata non deve riempire il log con
+# lo stesso warning a ogni evento (stesso pattern anti-flooding di `source_manager`).
+_WARNED_MALFORMED = set()
+_WARNED_CAP = 256
+
+
+def _reset_warnings() -> None:
+    """Svuota il dedup dei warning (per i test)."""
+    _WARNED_MALFORMED.clear()
+
+
+def _warn_malformed(field: str, value) -> None:
+    """Segnala UNA volta (per campo+valore) una riga di mappatura scartata perché
+    `sport`/`entity_type` non è riconosciuto (fail-closed, audit #259 B4)."""
+    shown = ascii(value)
+    if len(shown) > 60:
+        shown = shown[:57] + "..."
+    key = (field, hash(shown))
+    if key in _WARNED_MALFORMED or len(_WARNED_MALFORMED) >= _WARNED_CAP:
+        return
+    _WARNED_MALFORMED.add(key)
+    _LOG.warning(
+        "name_mappings: %s=%s non riconosciuto -> riga di mappatura IGNORATA "
+        "(fail-closed, #259 B4): correggi il valore per riattivarla.", field, shown)
 
 # Chiave di config che ospita i profili di mappatura.
 _STORE_KEY = "name_mappings"
@@ -106,18 +136,38 @@ def _find_store_key(store: dict, name: str):
     return None
 
 
+def _malformed_fields(entry: dict) -> list:
+    """Coppie ``(campo, valore_grezzo)`` NON riconosciute di una riga di mappatura:
+    ``sport`` non in ``sports.SPORTS`` o ``entity_type`` non in ``ENTITY_TYPES``
+    (vuoto = agnostico intenzionale, NON malformato). Predicato unico (audit #259 B4)
+    condiviso tra `_clean_entry` (scarto fail-closed + log) e
+    `malformed_entry_warnings` (avvisi GUI), così i due non possono divergere."""
+    out = []
+    raw_sport = str(entry.get("sport", "") or "").strip()
+    if raw_sport and not sports.normalize_sport(raw_sport):
+        out.append(("sport", raw_sport))
+    raw_entity = str(entry.get("entity_type", "") or "").strip()
+    if raw_entity and not normalize_entity_type(raw_entity):
+        out.append(("entity_type", raw_entity))
+    return out
+
+
 def _clean_entry(entry) -> dict:
     """Normalizza una riga di mappatura in
     ``{country, betfair, provider, sport, entity_type}`` (stringhe ripulite), oppure
     ``None`` se la riga è vuota/non valida. Una riga senza né ``betfair`` né ``provider``
     è inutile (non mappa nulla) e viene scartata.
 
-    ``sport`` (PR-P10) restringe la riga a uno sport (``sports.SPORTS``); vuoto/ignoto →
+    ``sport`` (PR-P10) restringe la riga a uno sport (``sports.SPORTS``); **vuoto** →
     ``""`` = **agnostico** (vale per tutti gli sport, retro-compatibile con le righe
     salvate prima di P10). ``entity_type`` (PR-P10 / #178 §2) restringe la riga a un tipo
-    di entità (``ENTITY_TYPES``); vuoto/ignoto → ``""`` = agnostico. Entrambi sono filtri
-    AGGIUNTIVI in `resolve_team`: non cambiano il comportamento delle righe agnostiche
-    (file pre-esistenti restano validi e agnostici)."""
+    di entità (``ENTITY_TYPES``); **vuoto** → ``""`` = agnostico.
+
+    Un valore NON vuoto ma **non riconosciuto** (typo: ``"Calc1o"``) è invece FAIL-CLOSED
+    (audit #259 B4, decisione proprietario): la riga viene **scartata** con warning, NON
+    allargata ad agnostica — un typo non deve far applicare una mappatura pensata per uno
+    sport/tipo a tutti gli altri (EventName sbagliato nel CSV). Le righe agnostiche
+    INTENZIONALI (campo vuoto) restano valide e agnostiche."""
     if not isinstance(entry, dict):
         return None
     country = str(entry.get("country", "") or "").strip()
@@ -125,10 +175,14 @@ def _clean_entry(entry) -> dict:
     provider = str(entry.get("provider", "") or "").strip()
     if not betfair and not provider:
         return None
-    sport = sports.normalize_sport(entry.get("sport")) or ""
-    entity_type = normalize_entity_type(entry.get("entity_type"))
+    bad = _malformed_fields(entry)
+    if bad:
+        for field, raw in bad:
+            _warn_malformed(field, raw)
+        return None
     return {"country": country, "betfair": betfair, "provider": provider,
-            "sport": sport, "entity_type": entity_type}
+            "sport": sports.normalize_sport(entry.get("sport")) or "",
+            "entity_type": normalize_entity_type(entry.get("entity_type"))}
 
 
 def profile_names(cfg: dict) -> list:
@@ -152,6 +206,35 @@ def get_entries(cfg: dict, name: str) -> list:
         if ce is not None:
             out.append(ce)
     return out
+
+
+def malformed_entry_warnings(cfg: dict) -> list:
+    """Avvisi **non bloccanti** per la GUI/event log (audit #259 B4): righe di
+    mappatura con ``sport``/``entity_type`` non riconosciuto, che il resolver SCARTA
+    (fail-closed). Il warning del logger Python di `_clean_entry` non è visibile
+    nell'app windowed (stesso principio di `source_manager.malformed_enabled_warnings`,
+    Codex P2 #309): `_start` mostra QUESTI messaggi nel log eventi, così l'operatore
+    scopre subito la riga disattivata invece che dal nome non tradotto."""
+    warnings = []
+    for profile, rows in _store(cfg).items():
+        if not isinstance(rows, (list, tuple)):
+            continue
+        for entry in rows:
+            if not isinstance(entry, dict):
+                continue
+            betfair = str(entry.get("betfair", "") or "").strip()
+            provider = str(entry.get("provider", "") or "").strip()
+            if not betfair and not provider:
+                continue                      # riga vuota: scartata comunque, senza avviso
+            bad = _malformed_fields(entry)
+            if bad:
+                dove = ", ".join(f"{f}={v!r}" for f, v in bad)
+                riga = betfair or provider
+                warnings.append(
+                    f"Mappatura nomi «{_norm_profile_name(profile)}», riga «{riga}»: "
+                    f"{dove} non riconosciuto -> riga IGNORATA (fail-closed). "
+                    f"Correggi il valore per riattivarla.")
+    return warnings
 
 
 def entries_for_profiles(cfg: dict, names) -> list:

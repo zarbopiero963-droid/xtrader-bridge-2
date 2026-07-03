@@ -1449,3 +1449,98 @@ def test_start_mostra_avvisi_enabled_malformato_nel_log_eventi(app_mod):
     assert "malformed_enabled_warnings" in src
     idx = src.index("malformed_enabled_warnings")
     assert "_log" in src[idx:idx + 300]        # gli avvisi finiscono nel log eventi GUI
+
+
+# ── Audit #259 A1: retry dello svuotamento CSV fallito allo STOP ───────────────
+
+def _csv_con_riga(tmp_path):
+    """CSV del bridge con UNA riga attiva su disco (via csv_writer reale)."""
+    from xtrader_bridge import csv_writer
+    path = str(tmp_path / "retry.csv")
+    csv_writer.init_csv(path)
+    row = {c: "" for c in csv_writer.CSV_HEADER}
+    row.update({"Provider": "TG_PRE", "EventName": "A v B", "BetType": "PUNTA"})
+    csv_writer.write_rows([row], path)
+    assert csv_writer.has_active_row(path)
+    return path
+
+
+def test_clear_stale_csv_ritorna_false_su_oserror(make_app, app_mod, monkeypatch):
+    """Audit #259 A1 (fail-first): `_clear_stale_csv` inghiottiva l'OSError con un
+    solo warning e nessun esito — il chiamante di `_stop` non poteva sapere che il
+    CSV era rimasto sporco. Ora ritorna False sul fallimento I/O, True altrimenti.
+
+    Fail-first: prima ritornava sempre None (falsy anche sul successo)."""
+    a = make_app()
+    def _locked(path, on_mismatch=None):
+        raise OSError("CSV lockato da XTrader (simulato)")
+    monkeypatch.setattr(app_mod, "clear_stale_csv", _locked)
+    assert app_mod.App._clear_stale_csv(a, "allo stop", path="out.csv") is False
+    assert any("Impossibile ripulire" in m for m in a.logs)
+    monkeypatch.setattr(app_mod, "clear_stale_csv", lambda p, on_mismatch=None: False)
+    assert app_mod.App._clear_stale_csv(a, "allo stop", path="out.csv") is True
+
+
+def test_retry_stop_clear_riprova_finche_lockato_poi_pulisce(make_app, app_mod,
+                                                             monkeypatch, tmp_path):
+    """Audit #259 A1: se XTrader tiene il lock durante lo STOP, la riga stantia
+    restava su disco (visibile a XTrader) fino al riavvio dell'app. Ora il retry
+    Tk riprova finché il file si libera, poi pulisce e logga."""
+    from xtrader_bridge import csv_writer
+    path = _csv_con_riga(tmp_path)
+    a = make_app()
+    a._active_csv_path = None                       # dopo STOP
+    a._csv_had_active_row = True
+    riarmi = []
+    a._schedule_stop_clear_retry = riarmi.append    # cattura il ri-arm
+    # 1) file ancora lockato: nessuna modifica, retry ri-armato.
+    def _locked(p, on_mismatch=None):
+        raise OSError("lock simulato")
+    monkeypatch.setattr(app_mod, "clear_stale_csv", _locked)
+    app_mod.App._retry_stop_clear(a, path)
+    assert riarmi == [path]
+    assert csv_writer.has_active_row(path)          # riga ancora lì (non corrotta)
+    # 2) lock rilasciato: il retry pulisce davvero (clear_stale_csv REALE) e logga.
+    monkeypatch.setattr(app_mod, "clear_stale_csv", csv_writer.clear_stale_csv)
+    app_mod.App._retry_stop_clear(a, path)
+    assert riarmi == [path]                         # nessun nuovo ri-arm
+    assert not csv_writer.has_active_row(path)      # solo header
+    assert any("ripulito al retry" in m for m in a.logs)
+
+
+def test_retry_stop_clear_non_tocca_il_path_di_una_nuova_sessione(make_app, app_mod,
+                                                                  tmp_path):
+    """Guardia di possesso: se una NUOVA sessione ha ripreso lo stesso path, il retry
+    post-stop NON deve toccare il CSV (cancellerebbe una riga VIVA della sessione
+    attiva; START svuota già il CSV in proprio all'avvio)."""
+    from xtrader_bridge import csv_writer
+    path = _csv_con_riga(tmp_path)
+    a = make_app()
+    a._active_csv_path = path                       # nuova sessione sul path
+    app_mod.App._retry_stop_clear(a, path)
+    assert csv_writer.has_active_row(path)          # riga intatta
+    assert not any("ripulito al retry" in m for m in a.logs)
+
+
+def test_stop_arma_il_retry_su_clear_fallito_guardia_strutturale(app_mod):
+    """Guardia sul wiring (audit #259 A1): `_stop` è GUI/thread-coupled — il suo
+    contributo nuovo è catturare l'esito di `_clear_stale_csv` e armare
+    `_schedule_stop_clear_retry` sul fallimento. Il comportamento del retry è
+    coperto dai test funzionali qui sopra."""
+    import inspect
+    src = inspect.getsource(app_mod.App._stop)
+    assert "_schedule_stop_clear_retry" in src
+    assert "stop_cleared" in src
+
+
+def test_start_gate_reale_manuale_e_avvisi_guardia_strutturale(app_mod):
+    """Guardie sul wiring di `_start` (audit #259 C5/C3/B4, decisioni proprietario):
+    conferma sì/no ANCHE al START manuale in modalità reale (ramo elif fuori da
+    `auto`), avviso zero-chat-attive (`allowed_chats`), avvisi mappatura nomi
+    malformata. La logica pura è coperta dai unit test dei moduli."""
+    import inspect
+    src = inspect.getsource(app_mod.App._start)
+    idx_auto = src.index("if auto:")
+    assert "elif autostart.needs_real_mode_confirmation(cfg):" in src[idx_auto:]
+    assert "allowed_chats(cfg)" in src
+    assert "malformed_entry_warnings" in src

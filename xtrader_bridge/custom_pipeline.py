@@ -314,14 +314,27 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
         # entity_type (#178 §2, Codex P1): i partecipanti di un evento sono squadre/giocatori
         # → si usano SOLO le righe participant/team/player (più le agnostiche), escludendo le
         # righe competition/market/selection con alias che collide (no EventName sbagliato).
+        original_event = str(row.get("EventName", "") or "")
         mapped = name_mapping_store.resolve_event_name(
-            row.get("EventName", ""), sep, name_mapping_profiles or [],
+            original_event, sep, name_mapping_profiles or [],
             sport=getattr(defn, "sport", ""),
             entity_type=name_mapping_store.PARTICIPANT_ENTITY_TYPES)
         if mapped is None:
             return PipelineResult(MAPPING_MISSING, row, list(res.missing_required))
         row = dict(row)
         row["EventName"] = mapped
+        if mapped != original_event:
+            # Stessa regola del ramo mercati sotto (audit #259 B1): quando il dizionario
+            # VINCE sul nome, gli ID estratti dalle regole-colonna riferivano l'evento
+            # col nome provider e possono contraddire il nome canonico appena scritto —
+            # nel CSV finirebbero identificatori di un ALTRO oggetto e XTrader, se
+            # prioritizza gli ID, punterebbe l'evento sbagliato. Si azzera la catena
+            # (evento + figli): `_resolve_ids_into` a valle la ricostruisce dal nome
+            # canonico via dizionario locale; se la modalità richiede gli ID e il
+            # dizionario non li ha, la riga fa fail-closed in validazione.
+            row["EventId"] = ""
+            row["MarketId"] = ""
+            row["SelectionId"] = ""
 
     # Mappatura mercati a frase (market_mapping_store, FASE 2). Solo se il parser seleziona
     # dei profili mercati. Regola di precedenza D1 (design §4): il DIZIONARIO VINCE sulle

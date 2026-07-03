@@ -150,7 +150,12 @@ def apply_advanced(cfg: dict, form: dict) -> tuple:
 
     updates["dry_run"] = _as_bool(form.get("dry_run", True))
     # Avvio automatico del listener: default sicuro False (parte solo con START).
-    updates["auto_start_listener"] = _as_bool(form.get("auto_start_listener", False))
+    # FAIL-CLOSED al salvataggio (audit #259 C2): la stessa coercizione allowlist del
+    # runtime (`autostart.coerce_enabled`), NON `as_bool` — con la denylist un valore
+    # malformato («flase») veniva persistito come `True` bool genuino, scavalcando
+    # l'allowlist che il runtime applica solo in lettura.
+    updates["auto_start_listener"] = autostart.coerce_enabled(
+        form.get("auto_start_listener", False))
     # Privacy log: default sicuro False (payload NON loggato in chiaro; opt-in di debug).
     # Helper fail-closed unico: None/vuoto → False.
     updates["debug_message_payload"] = _as_bool_optin(form.get("debug_message_payload"))
