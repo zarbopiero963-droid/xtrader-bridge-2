@@ -146,7 +146,9 @@ jobs:
 
           ARCHIVE_URL="https://api.github.com/repos/${REPO}/tarball/${ENCODED_REF}"
 
-          echo "Downloading repository snapshot for ref: ${TARGET_REF}"
+          # Non stampare il ref grezzo: può contenere un valore token-like che
+          # finirebbe nei log prima della redaction Python.
+          echo "Downloading repository snapshot"
 
           curl -fsSL \
             --retry 3 \
@@ -855,11 +857,12 @@ jobs:
                   f"chunks_ok={chunks_succeeded}/{chunks_used}"
               )
 
-              # Se sono stati tentati chunk ma NESSUNO è andato a buon fine (API
-              # irraggiungibile, key invalida, rate limit persistente), l'audit
-              # non ha davvero girato: fallire invece di sembrare verde.
-              if chunks_used > 0 and chunks_succeeded == 0:
-                  print("::error::Nessun chunk AI completato: audit non eseguito (controlla API key/connettività)")
+              # Se c'erano file da scansionare ma NESSUN chunk AI è andato a buon
+              # fine — API giù/key invalida, tutti parse error, oppure max_chunks=0
+              # (nessun chunk tentato) — l'audit non ha davvero girato: fallire
+              # invece di sembrare verde con 0/0.
+              if scanned and chunks_succeeded == 0:
+                  print("::error::Nessun chunk AI completato: audit non eseguito (max_chunks=0? API key/connettività?)")
                   return 3
 
               if FAIL_ON_CRITICAL and counts["critical"] > 0:

@@ -339,6 +339,8 @@ def test_pr_review_fix_incorporati():
         )
         # PAT GitHub fine-grained redatto.
         assert "github_pat_" in src, f"{name}: manca la redaction del PAT fine-grained (github_pat_)"
+        # AWS access key redatta anche nei PR review (Codex P2 su PR #304).
+        assert "AKIA" in src, f"{name}: manca la redaction delle AWS access key (AKIA...)"
 
 
 # ---------------------------------------------------------------------------
@@ -524,8 +526,10 @@ def test_audit_fallisce_se_tutti_i_chunk_ai_falliscono():
     for name in _AUDIT_WORKFLOWS:
         src = _compiled_heredoc(name)
         assert "chunks_succeeded" in src, f"{name}: manca il conteggio dei chunk riusciti"
-        assert "chunks_used > 0 and chunks_succeeded == 0" in src, (
-            f"{name}: manca il guard 'nessun chunk riuscito -> fallisci'"
+        # Guard forte: file da scansionare ma zero chunk riusciti (API giù,
+        # tutti parse error, o max_chunks=0) → fallisci, non 0/0 verde.
+        assert re.search(r"scanned\w* and chunks_succeeded == 0", src), (
+            f"{name}: manca il guard 'file scansionati ma nessun chunk riuscito -> fallisci'"
         )
         # Un parse error NON conta come chunk riuscito (Codex/CodeRabbit P2):
         # l'incremento è nell'else del check errore.
