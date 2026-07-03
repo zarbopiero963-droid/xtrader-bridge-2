@@ -212,6 +212,36 @@ def test_api_key_letta_con_strip():
         )
 
 
+def test_gate_finale_budget_output_ampio_e_troncamento_esplicito():
+    """I due gate finali rivedono l'INTERA PR: budget output ampio + troncamento onesto.
+
+    Regressione reale (PR #304, head c06708b): Claude Fable 5, sul range
+    ``base...head`` (11 commit, ~12k token input), ha esaurito
+    ``MAX_OUTPUT_TOKENS=1200`` producendo **0 testo**, e il commento diceva solo
+    "Il modello non ha restituito testo" senza spiegare il troncamento. Ora i gate
+    finali (label-gated, che rivedono tutta la PR) hanno un budget >= 4000 e,
+    quando il modello si ferma per limite di token, il commento lo dichiara
+    esplicitamente invece di sembrare "il modello non aveva nulla da dire".
+    """
+    finali = [n for n, m in _AI_WORKFLOWS.items() if m.get("trigger") == "label"]
+    assert finali, "atteso almeno un gate finale label-gated"
+    for name in finali:
+        text = _read(name)
+        match = re.search(r'MAX_OUTPUT_TOKENS:\s*"(\d+)"', text)
+        assert match, f"{name}: MAX_OUTPUT_TOKENS non trovato nell'env"
+        assert int(match.group(1)) >= 4000, (
+            f"{name}: gate finale con budget output troppo piccolo "
+            f"({match.group(1)}); rivede l'intera PR e va >= 4000"
+        )
+        assert "Output troncato" in text, (
+            f"{name}: manca il ramo di troncamento onesto quando il modello "
+            f"esaurisce il budget di output"
+        )
+        assert re.search(r'stop_reason.*max_tokens|finish_reason.*length', text), (
+            f"{name}: manca il check su stop_reason/finish_reason per il troncamento"
+        )
+
+
 def test_audit_solo_manuali_workflow_dispatch():
     for name, meta in _AI_WORKFLOWS.items():
         if meta["kind"] != "audit":

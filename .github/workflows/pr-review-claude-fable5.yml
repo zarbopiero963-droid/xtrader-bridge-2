@@ -55,7 +55,10 @@ jobs:
 
       MAX_PATCH_PER_FILE_CHARS: "7000"
       MAX_TOTAL_PATCH_CHARS: "24000"
-      MAX_OUTPUT_TOKENS: "1200"
+      # Gate finale: rivede l'INTERA PR (base...head), non un piccolo push-range,
+      # quindi serve un budget di output ampio o il modello esaurisce i token
+      # prima di produrre la review (osservato: 1200 = 0 testo su una PR reale).
+      MAX_OUTPUT_TOKENS: "4000"
 
       PRICE_INPUT_PER_MILLION: "10.00"
       PRICE_CACHE_CREATION_PER_MILLION: "12.50"
@@ -105,7 +108,7 @@ jobs:
 
           MAX_PATCH_PER_FILE_CHARS = int(os.environ.get("MAX_PATCH_PER_FILE_CHARS", "7000"))
           MAX_TOTAL_PATCH_CHARS = int(os.environ.get("MAX_TOTAL_PATCH_CHARS", "24000"))
-          MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "1200"))
+          MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "4000"))
 
           PRICE_INPUT_PER_MILLION = float(os.environ.get("PRICE_INPUT_PER_MILLION", "10"))
           PRICE_CACHE_CREATION_PER_MILLION = float(os.environ.get("PRICE_CACHE_CREATION_PER_MILLION", "12.5"))
@@ -322,7 +325,22 @@ jobs:
                           if item.get("type") == "text":
                               parts.append(item.get("text", ""))
 
-                      return "\n".join(parts).strip() or "Il modello non ha restituito testo.", body.get("usage", {})
+                      text = "\n".join(parts).strip()
+                      if not text:
+                          # stop_reason=max_tokens: il budget di output si e'
+                          # esaurito prima di un blocco di testo. Segnalalo con
+                          # verita' invece di far sembrare che il modello non
+                          # avesse nulla da dire.
+                          if body.get("stop_reason") == "max_tokens":
+                              text = (
+                                  "Output troncato: il modello ha esaurito il budget "
+                                  f"(MAX_OUTPUT_TOKENS={MAX_OUTPUT_TOKENS}, stop_reason=max_tokens) "
+                                  "prima di produrre la review. Aumenta MAX_OUTPUT_TOKENS "
+                                  "o riduci l'ampiezza del diff."
+                              )
+                          else:
+                              text = "Il modello non ha restituito testo."
+                      return text, body.get("usage", {})
                   except urllib.error.HTTPError as exc:
                       detail = exc.read().decode("utf-8", errors="replace")
                       last_error = f"HTTP {exc.code}: {detail[:1000]}"

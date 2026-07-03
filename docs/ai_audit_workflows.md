@@ -45,6 +45,13 @@ stampate.
   non solo l'ultimo push. Così durante lo sviluppo spendi poco, e prima del
   merge fai il controllo forte e completo. L'agente Claude aggiunge solo la
   label — non vede mai le API key, che restano nei GitHub Secrets.
+  Proprio perché coprono tutta la PR, i due gate finali usano un **budget di
+  output più ampio** degli automatici (`MAX_OUTPUT_TOKENS: 4000` vs 900–1200):
+  con un budget piccolo il modello può esaurire i token prima di produrre la
+  review su una PR reale. Se il modello si ferma comunque per limite di token,
+  il commento lo dichiara esplicitamente (troncamento) invece di sembrare che
+  "non avesse nulla da dire"; puoi alzare `MAX_OUTPUT_TOKENS` o restringere il
+  diff.
 
 Per far ripartire una review finale già eseguita, rimuovi e riaggiungi la label
 (GitHub non emette un nuovo evento `labeled` se la label è già presente).
