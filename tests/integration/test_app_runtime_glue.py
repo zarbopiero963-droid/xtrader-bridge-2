@@ -600,6 +600,33 @@ def test_expire_tick_path_non_attivo_scartato_anche_con_epoch_corrente(
     assert a.expiry_calls == []                    # nessuna riprogrammazione
 
 
+def test_schedule_expiry_stantia_non_cancella_il_timer_della_nuova_sessione(
+        make_app, app_mod, tmp_path):
+    """F1 #258 (review Fable su #307, race residua): un worker della sessione A
+    de-schedulato PRIMA di chiamare `_schedule_expiry(pathA)` che riprende dopo
+    STOP→START non deve CANCELLARE il timer legittimo della sessione B: il suo tick
+    verrebbe neutralizzato dal gate epoch+path ma senza riprogrammarsi → la sessione B
+    resterebbe SENZA timer di scadenza (segnale scaduto mai ripulito dal CSV attivo).
+    Ora `_schedule_expiry` esce senza toccare il timer se `path` non è quello attivo.
+
+    Fail-first: prima la chiamata stantia rimpiazzava il timer di B con uno su pathA."""
+    pathA = str(tmp_path / "vecchio.csv")
+    pathB = str(tmp_path / "nuovo.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
+    a = make_app(csv_path=pathB, queue=q, capture_schedule=False)   # scheduler REALE
+    a._listener_epoch = 2
+    try:
+        # Timer legittimo della sessione B.
+        app_mod.App._schedule_expiry(a, pathB, delay=60)
+        timer_b = a._expire_timer
+        assert timer_b is not None
+        # Chiamata STANTIA di un worker della sessione A (path non più attivo).
+        app_mod.App._schedule_expiry(a, pathA, delay=60)
+        assert a._expire_timer is timer_b      # timer B intatto, NON cancellato/rimpiazzato
+    finally:
+        a._cancel_expiry_timer()               # niente Timer vivi dopo il test
+
+
 def test_expire_tick_gate_running_false_non_riscrive(make_app, app_mod, monkeypatch, tmp_path):
     from xtrader_bridge import csv_writer
     path = str(tmp_path / "segnali.csv")
@@ -927,7 +954,9 @@ def test_schedule_expiry_concorrente_non_lascia_timer_orfani(make_app, app_mod, 
                 b_done.wait(timeout=0.5)
 
     monkeypatch.setattr(app_mod.threading, "Timer", _FakeTimer)
-    a = make_app(capture_schedule=False)      # usa il `_schedule_expiry` REALE
+    # `csv_path="out.csv"`: dal gate F1 #258 `_schedule_expiry` arma solo per il path
+    # ATTIVO della sessione — questo test esercita caller legittimi e concorrenti.
+    a = make_app(csv_path="out.csv", capture_schedule=False)   # `_schedule_expiry` REALE
     a._timer_lock = _t.Lock()                 # __init__ non è girato (object.__new__): lo creiamo
     a._expire_timer = None
 

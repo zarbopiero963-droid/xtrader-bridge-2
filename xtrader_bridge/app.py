@@ -2429,6 +2429,18 @@ class App(ctk.CTk):
         alla **scadenza più vicina** della coda (così un segnale più vecchio non
         resta oltre il suo timeout quando ne arrivano di nuovi); con un `delay`
         esplicito lo usa come ritardo (retry dopo un errore di scrittura)."""
+        # F1 #258 (review Fable): gate anche QUI, non solo nel tick. Un CALLER stantio
+        # (worker di una sessione superata de-schedulato prima di arrivare qui, ripreso
+        # dopo STOP→START) non deve CANCELLARE il timer legittimo della nuova sessione:
+        # il suo tick verrebbe neutralizzato dal gate epoch+path ma senza riprogrammarsi
+        # → la nuova sessione resterebbe senza timer di scadenza. Se il path non è quello
+        # attivo si esce SENZA toccare il timer esistente. Confronto di stringhe senza
+        # normalizzazione: caller e sessione usano la STESSA stringa `cfg["csv_path"]`
+        # catturata a START (stessa fonte, mai rappresentazioni alternative del path).
+        # A bridge fermo (`_active_csv_path` None) non si arma: il tick sarebbe comunque
+        # neutralizzato dal gate `_running`.
+        if path != self._active_csv_path:
+            return
         if delay is None:
             with self._queue_lock:
                 nxt = self._queue.next_expiry() if self._queue is not None else None
@@ -2464,7 +2476,7 @@ class App(ctk.CTk):
                 self._expire_timer.cancel()
                 self._expire_timer = None
 
-    def _expire_tick(self, path: str, epoch=None) -> None:
+    def _expire_tick(self, path: str, epoch: int | None = None) -> None:
         """Rimuove i segnali scaduti e riscrive le righe rimaste (o svuota il CSV
         se non ne resta nessuno). La scadenza è basata sul tempo della coda: non
         cancella mai un segnale ancora valido. Si riprogramma alla scadenza più
