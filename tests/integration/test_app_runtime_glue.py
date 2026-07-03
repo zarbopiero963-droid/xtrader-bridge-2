@@ -1633,6 +1633,6 @@ def test_init_invoca_redazione_log_globale(app_mod, monkeypatch):
     a.title = _stop_gui
     try:
         app_mod.App.__init__(a)
-    except BaseException:                      # noqa: BLE001 — Tcl/attr/runtime a seconda dell'ambiente
-        pass
+    except Exception:                          # noqa: BLE001 — Tcl/attr/runtime a seconda dell'ambiente
+        pass                                   # (Exception, non BaseException: no KeyboardInterrupt/SystemExit)
     assert called == [1]                       # install invocata davvero durante l'avvio
