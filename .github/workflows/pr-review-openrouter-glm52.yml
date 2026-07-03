@@ -343,10 +343,16 @@ jobs:
                           content = "\n".join(str(part.get("text") or "") for part in content if isinstance(part, dict))
 
                       text = str(content).strip()
+                      # Troncamento = finish_reason=length, INDIPENDENTE dal fatto che
+                      # ci sia testo: anche una review PARZIALE non vuota è incompleta
+                      # (Codex P1). Il banner "Output troncato" in testa fa scattare il
+                      # guard del chiamante (startswith) → niente done_marker e la review
+                      # parziale non viene deduplicata come completata.
+                      truncated = choices[0].get("finish_reason") == "length"
                       if not text:
-                          # finish_reason=length: budget di output esaurito prima
-                          # del testo. Segnalalo con verità.
-                          if choices[0].get("finish_reason") == "length":
+                          # Budget di output esaurito prima del testo: segnalalo con
+                          # verità.
+                          if truncated:
                               text = (
                                   "Output troncato: il modello ha esaurito il budget "
                                   f"(MAX_OUTPUT_TOKENS={MAX_OUTPUT_TOKENS}, finish_reason=length) "
@@ -355,6 +361,15 @@ jobs:
                               )
                           else:
                               text = "Il modello non ha restituito testo."
+                      elif truncated:
+                          # Testo PARZIALE ma troncato: prependi il banner così il
+                          # guard del chiamante lo tratta come review NON completa.
+                          text = (
+                              "Output troncato: il modello ha prodotto solo una review "
+                              f"PARZIALE (MAX_OUTPUT_TOKENS={MAX_OUTPUT_TOKENS}, "
+                              "finish_reason=length). Segue il testo parziale.\n\n"
+                              + text
+                          )
                       return text, body.get("usage", {})
                   except urllib.error.HTTPError as exc:
                       detail = exc.read().decode("utf-8", errors="replace")
@@ -447,6 +462,14 @@ jobs:
               print(f"::warning::{REVIEW_ID}: dedup check fallito, procedo con la review: {redact(str(exc))[:300]}")
 
           if _already_reviewed:
+              # Prima di uscire per dedup, ri-assicura la label di sicurezza sui range
+              # critici: se un run precedente ha completato la review (done_marker) ma
+              # `try_add_label()` era fallita (403/500 transitorio o permessi sistemati
+              # dopo), il re-run non deve uscire lasciando un range critico senza
+              # `manual-review-required` (Codex P2). try_add_label è fail-open e
+              # idempotente: se la label c'è già, è un no-op.
+              if critical_files or compare_truncated:
+                  try_add_label()
               print(
                   f"{REVIEW_ID}: review già presente per {range_base[:12]}...{range_head[:12]} "
                   "→ salto la chiamata AI a pagamento."

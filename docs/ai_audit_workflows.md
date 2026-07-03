@@ -69,7 +69,11 @@ stampate.
   Se il modello si ferma comunque per limite di token, il commento **dichiara il
   troncamento** (col motivo del provider: `stop_reason=max_tokens` /
   `finish_reason=length` / `status=incomplete`) invece di sembrare che "non
-  avesse nulla da dire".
+  avesse nulla da dire". Il troncamento è rilevato **anche quando il modello ha
+  prodotto testo PARZIALE non vuoto**: una review incompleta viene marcata con lo
+  stesso banner `Output troncato`, così sul gate a label conta come **fallita**
+  (niente `done_marker`, il check non diventa verde a vuoto) e un re-run la rifà
+  invece di deduplicarla via.
   **Reasoning cap sui modelli che ragionano.** GPT-5.5, GLM 5.2 e Fugu Ultra
   spendono parte del budget di output in *reasoning* nascosto: col tetto basso
   esaurivano i token nel ragionamento e la review usciva **vuota/troncata**. Per
@@ -89,7 +93,11 @@ stampate.
   completamento, quindi un re-run **rifà** la review invece di saltarla lasciando
   il gate verde a vuoto. Così un re-run del workflow o un togli/rimetti della label
   finale **non ripagano** una review già riuscita; un nuovo push (nuovo range) gira
-  normalmente.
+  normalmente. Prima di uscire per dedup, il job **ri-asserisce la label di
+  sicurezza** `manual-review-required` sui range critici (idempotente, fail-open):
+  se un run precedente aveva completato la review ma l'aggiunta della label era
+  fallita per un errore transitorio, il re-run non lascia il range critico senza
+  label.
 
 Per far ripartire una review finale già eseguita, rimuovi e riaggiungi la label
 (GitHub non emette un nuovo evento `labeled` se la label è già presente).

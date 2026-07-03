@@ -306,6 +306,27 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
             f"{name}: manca il messaggio di troncamento onesto (budget esaurito)"
         )
 
+        # Troncamento PARZIALE (Codex P1, PR #310): se il modello restituisce testo
+        # PARZIALE NON vuoto con la ragione di troncamento del provider
+        # (stop_reason=max_tokens / finish_reason=length / status=incomplete),
+        # call_model deve comunque marcarlo. Altrimenti il guard `startswith("Output
+        # troncato")` del chiamante non scatta, il gate a label va VERDE con una review
+        # incompleta e i re-run la deduplicano via col done_marker. Il fix deriva un
+        # flag `truncated` INDIPENDENTE dal fatto che ci sia testo e, sul ramo di testo
+        # parziale, prepende il banner "Output troncato" così il guard lo tratta come
+        # review NON completa (niente done_marker; model_failed sul gate a label).
+        code = _compiled_heredoc(name)
+        assert re.search(r'\btruncated\s*=', code), (
+            f"{name}: manca il flag `truncated` indipendente dal testo (Codex P1)"
+        )
+        assert "elif truncated:" in code, (
+            f"{name}: manca il ramo di troncamento PARZIALE (testo non vuoto ma troncato)"
+        )
+        assert "Output troncato: il modello ha prodotto solo una review " in code, (
+            f"{name}: il testo parziale troncato deve iniziare con 'Output troncato' "
+            "così il guard del chiamante (startswith) lo marca come NON completo"
+        )
+
         if provider == "openai":
             # Responses API: NON basta status=incomplete, serve DAVVERO anche il
             # motivo max_output_tokens (GPT-5.5 review: il vecchio regex passava
@@ -381,6 +402,17 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
         # done_marker va scritto nel body SOLO se la review è realmente completata.
         assert "done_line = " in src, (
             f"{name}: done_marker deve essere appeso al body solo quando la review è completa"
+        )
+        # Label di sicurezza ri-asserita PRIMA dell'uscita per dedup (Codex P2): se un
+        # run precedente ha completato la review (done_marker) ma try_add_label era
+        # fallita, il re-run non deve uscire lasciando un range critico senza
+        # `manual-review-required`. Il ramo `if _already_reviewed:` deve richiamare
+        # try_add_label() prima di sys.exit(0).
+        skip_block = re.search(r'if _already_reviewed:(.*?)sys\.exit\(0\)', src, re.DOTALL)
+        assert skip_block and "try_add_label()" in skip_block.group(1), (
+            f"{name}: il ramo dedup-skip deve ri-asserire try_add_label() sui range "
+            "critici prima di uscire (Codex P2), altrimenti la label di sicurezza non "
+            "viene mai ritentata dopo un fallimento transitorio"
         )
         # Modelli reasoning: col budget basso il reasoning nascosto esaurisce i token
         # e la review tronca a 0 testo (GPT osservato PR #304, GLM PR #310). Ogni

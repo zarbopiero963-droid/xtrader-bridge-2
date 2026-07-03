@@ -332,12 +332,21 @@ jobs:
                           text = "\n".join(parts)
 
                       text = (text or "").strip()
+                      # Troncamento = status=incomplete/max_output_tokens, INDIPENDENTE
+                      # dal fatto che ci sia testo: anche una review PARZIALE non vuota è
+                      # incompleta (Codex P1). Il reasoning di un modello reasoning conta
+                      # nel budget. Il banner "Output troncato" in testa fa scattare il
+                      # guard del chiamante (startswith) → niente done_marker e la review
+                      # parziale non viene deduplicata come completata.
+                      incomplete = body.get("incomplete_details") or {}
+                      truncated = (
+                          body.get("status") == "incomplete"
+                          and incomplete.get("reason") == "max_output_tokens"
+                      )
                       if not text:
-                          # Responses API: status=incomplete + reason
-                          # max_output_tokens = budget esaurito (il reasoning di un
-                          # modello reasoning conta qui). Dillo, non "nessun testo".
-                          incomplete = body.get("incomplete_details") or {}
-                          if body.get("status") == "incomplete" and incomplete.get("reason") == "max_output_tokens":
+                          # Budget esaurito prima di qualsiasi testo: dillo, non
+                          # "nessun testo".
+                          if truncated:
                               text = (
                                   "Output troncato: il modello ha esaurito il budget "
                                   f"(MAX_OUTPUT_TOKENS={MAX_OUTPUT_TOKENS}, status=incomplete/max_output_tokens) "
@@ -346,6 +355,15 @@ jobs:
                               )
                           else:
                               text = "Il modello non ha restituito testo."
+                      elif truncated:
+                          # Testo PARZIALE ma troncato: prependi il banner così il
+                          # guard del chiamante lo tratta come review NON completa.
+                          text = (
+                              "Output troncato: il modello ha prodotto solo una review "
+                              f"PARZIALE (MAX_OUTPUT_TOKENS={MAX_OUTPUT_TOKENS}, "
+                              "status=incomplete/max_output_tokens). Segue il testo parziale.\n\n"
+                              + text
+                          )
                       return text, body.get("usage", {})
                   except urllib.error.HTTPError as exc:
                       detail = exc.read().decode("utf-8", errors="replace")
@@ -438,6 +456,14 @@ jobs:
               print(f"::warning::{REVIEW_ID}: dedup check fallito, procedo con la review: {redact(str(exc))[:300]}")
 
           if _already_reviewed:
+              # Prima di uscire per dedup, ri-assicura la label di sicurezza sui range
+              # critici: se un run precedente ha completato la review (done_marker) ma
+              # `try_add_label()` era fallita (403/500 transitorio o permessi sistemati
+              # dopo), il re-run non deve uscire lasciando un range critico senza
+              # `manual-review-required` (Codex P2). try_add_label è fail-open e
+              # idempotente: se la label c'è già, è un no-op.
+              if critical_files or compare_truncated:
+                  try_add_label()
               print(
                   f"{REVIEW_ID}: review già presente per {range_base[:12]}...{range_head[:12]} "
                   "→ salto la chiamata AI a pagamento."
