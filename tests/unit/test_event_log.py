@@ -383,3 +383,43 @@ def test_counters_record_senza_testo_non_cambia_ultimo():
     c.record_signal()                 # incrementa ma non sovrascrive l'ultimo
     assert c.signals == 2
     assert c.last_signal == "primo"
+
+
+# ── redazione interna (difesa in profondità, audit #259 D4) ───────────────────
+
+def test_append_entry_redige_internamente_un_token(tmp_path):
+    """Audit #259 D4: `append_entry` deve redigere il messaggio da sé (difesa in
+    profondità), non fidarsi solo del chiamante — un caller diretto che passasse un
+    token Telegram nel messaggio non deve scriverlo in chiaro nel log persistente.
+
+    Fail-first: sul vecchio codice il token finiva in chiaro nel file."""
+    # Stesso valore-fake già usato altrove in questo file (non triggera lo scanner).
+    token = "123456789:LiveBotTokenSecretValue_xyz"
+    when = datetime(2026, 6, 22, 12, 0, 0)
+    line = el.append_entry(f"Errore bot: {token}", base=str(tmp_path), when=when)
+    assert token not in line
+    assert "[REDACTED_TOKEN]" in line
+    # anche su disco (non solo nel valore ritornato)
+    righe = el.read_entries(base=str(tmp_path), when=when)
+    assert righe and token not in righe[0]
+
+
+def test_append_entry_redige_segreto_registrato(tmp_path):
+    """D4: anche un segreto registrato per-literal (non solo la regex token) viene
+    mascherato da `append_entry`."""
+    secret = "DelayedAppKeyABCDEF"
+    assert el.register_secret(secret) is True
+    try:
+        when = datetime(2026, 6, 22, 12, 0, 0)
+        line = el.append_entry(f"chiave {secret} usata", base=str(tmp_path), when=when)
+        assert secret not in line and "[REDACTED" in line
+    finally:
+        el.unregister_secret(secret)
+
+
+def test_append_entry_idempotente_su_messaggio_gia_redatto(tmp_path):
+    """D4: la ri-redazione di un messaggio già pulito dal chiamante (`App._log`) non
+    altera il testo normale — nessuna doppia sostituzione osservabile."""
+    when = datetime(2026, 6, 22, 12, 0, 0)
+    line = el.append_entry("Inter v Milan q.1.85", base=str(tmp_path), when=when)
+    assert line == "[12:00:00] [INFO] Inter v Milan q.1.85"

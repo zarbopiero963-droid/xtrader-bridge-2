@@ -56,3 +56,50 @@ def test_input_non_stringa_non_e_operazione_vietata():
     for bad in (None, 123, object()):
         assert safety.is_forbidden_betting_op(bad) is False
         assert safety.assert_read_only(bad) is bad
+
+
+def test_blocco_forma_jsonrpc_qualificata():
+    """Audit #259 D1: il guard non deve essere aggirabile passando il metodo nella
+    forma JSON-RPC completa dell'API Betting. Prima `_normalize` confrontava solo la
+    stringa INTERA: `SportsAPING/v1.0/placeOrders` non era tra i nomi corti vietati e
+    una scommessa sarebbe potuta partire. Ora si estrae anche il segmento finale.
+
+    Fail-first: sul vecchio codice queste forme qualificate NON sollevavano."""
+    for op in ("SportsAPING/v1.0/placeOrders",
+               "SportsAPING/v1.0/cancelOrders",
+               " sportsaping/v1.0/PLACEORDERS ",
+               "SportsAPING\\v1.0\\replaceOrders",     # separatore backslash
+               "SportsAPING.v1.0.updateOrders"):       # separatore punto
+        assert safety.is_forbidden_betting_op(op) is True, op
+        with pytest.raises(safety.ReadOnlyViolation):
+            safety.assert_read_only(op)
+
+
+def test_letture_qualificate_restano_consentite():
+    """Contro-campo D1: le letture nella stessa forma qualificata NON devono essere
+    bloccate (il segmento finale non è un'operazione di scommessa)."""
+    for op in ("SportsAPING/v1.0/listMarketCatalogue",
+               "SportsAPING/v1.0/listEventTypes",
+               "SportsAPING/v1.0/navigationMenu"):
+        assert safety.is_forbidden_betting_op(op) is False, op
+        assert safety.assert_read_only(op) == op
+    # Un nome che CONTIENE un'operazione vietata come sottostringa non è quel metodo:
+    # il confronto è sul segmento esatto, non su substring (nessun falso positivo).
+    assert safety.is_forbidden_betting_op("listPlaceOrdersReport") is False
+
+
+def test_blocco_separatore_finale_non_aggira_il_guard():
+    """Review Fable/Fugu #313: un'operazione con separatore FINALE (`placeOrders/`,
+    `placeOrders.`) non deve produrre un segmento vuoto che aggira il guard. I
+    separatori ai bordi vengono strippati prima dell'estrazione.
+
+    Fail-first: prima queste forme davano tail vuoto e NON venivano bloccate."""
+    for op in ("placeOrders/", "placeOrders.", "/placeOrders",
+               "SportsAPING/v1.0/placeOrders/", "cancelOrders//",
+               "SportsAPING\\v1.0\\updateOrders\\"):
+        assert safety.is_forbidden_betting_op(op) is True, op
+        with pytest.raises(safety.ReadOnlyViolation):
+            safety.assert_read_only(op)
+    # Stringhe di soli separatori / vuote non sono operazioni note (nessun crash).
+    for noise in ("", "/", "...", "//", None):
+        assert safety.is_forbidden_betting_op(noise) is False, noise

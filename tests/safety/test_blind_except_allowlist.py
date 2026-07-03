@@ -29,12 +29,14 @@ _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
-    "app.py": (31, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+    "app.py": (32, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
                    "event journal best-effort (#230); refill campo token su widget Tk distrutto (PR-08c); "
                    "engine/DB non disponibile → login Betfair senza riserva del lock (#172 audit); "
                    "probe is_syncing dell'anteprima ID fail-open (#192, Codex P2); "
                    "after_cancel del retry post-stop clear CSV su id scaduto/invalido (#259 A1, "
-                   "stesso pattern del tick auto-sync)"),
+                   "stesso pattern del tick auto-sync); "
+                   "install_global_log_redaction all'avvio best-effort (#259 D3: la redazione "
+                   "è difensiva, non deve mai impedire l'avvio della GUI)"),
     "atomic_io.py": (1, "cleanup del temporaneo su QUALSIASI errore di scrittura/rename (BaseException)"),
     "config_store.py": (2, "backup config corrotta best-effort + rollback keyring best-effort"),
     "csv_writer.py": (1, "callback diagnostico best-effort di clear_stale_csv: un sink log/GUI che "
@@ -55,7 +57,10 @@ _ALLOWLIST = {
     "betfair/auth_client.py": (2, "errore login safe: niente response/segreti nel messaggio; "
                                    "logout server-side best-effort: un fallimento non blocca il clear locale (#168)"),
     "betfair/auto_sync.py": (7, "ciclo auto login→sync→logout best-effort: logout/release/summary/state"),
-    "betfair/credential_store.py": (4, "soft-import/fallback keyring credenziali Betfair"),
+    "betfair/credential_store.py": (6, "soft-import/fallback keyring credenziali Betfair; "
+                                       "snapshot pre-save e rollback best-effort non devono "
+                                       "sollevare (#259 D2: il ripristino non deve peggiorare "
+                                       "uno stato già rotto)"),
     "betfair/dictionary_viewer_gui.py": (1, "GUI Tk viewer dizionario best-effort"),
     "betfair/log_safety.py": (2, "redazione log best-effort: il filtro non deve mai crashare il "
                                  "logging, e agganciare il filtro a un handler (anche via hook su "

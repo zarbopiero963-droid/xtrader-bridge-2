@@ -16,10 +16,18 @@ Certificato e private key restano file su disco scelti dall'utente: qui salviamo
 solo il loro **percorso** (non il contenuto), così il bridge sa dove leggerli.
 """
 
+import logging
 from dataclasses import dataclass, fields as _dc_fields
 
 from . import log_safety
 from .. import token_store
+
+_LOG = logging.getLogger(__name__)
+
+# Sentinella per uno snapshot NON leggibile (distinta da None = "campo assente"):
+# al rollback un campo con snapshot ignoto NON va cancellato (non so cosa c'era),
+# altrimenti un doppio-guasto keyring perderebbe una credenziale (review GPT #313).
+_UNREAD = object()
 
 # Spazio dei nomi keyring condiviso con il resto dell'app (vedi token_store.SERVICE).
 SERVICE = token_store.SERVICE
@@ -106,17 +114,72 @@ def _kr():
     return token_store._keyring()
 
 
+def _restore_field(kr, acct, previous) -> bool:
+    """Rollback best-effort di un singolo campo al valore `previous` catturato prima
+    del save (audit #259 D2): se c'era un valore lo riscrive, se era assente lo
+    cancella. Ritorna `True` se il ripristino è riuscito (o non necessario), `False`
+    se è fallito. Non solleva mai: il rollback non deve peggiorare uno stato già rotto.
+
+    Se `previous` è `_UNREAD` (snapshot non leggibile) NON si tocca il campo: cancellare
+    un valore preesistente ignoto sarebbe una perdita di credenziali (review GPT #313)."""
+    if previous is _UNREAD:
+        return True                       # stato precedente ignoto: non distruggerlo
+    try:
+        if previous in (None, ""):
+            _delete_one(kr, acct)
+        else:
+            kr.set_password(SERVICE, acct, previous)
+        return True
+    except Exception:
+        return False
+
+
 def save_credentials(creds: BetfairCredentials) -> bool:
     """Salva le credenziali nel keyring. Campi non vuoti vengono scritti, campi
     vuoti vengono rimossi (così "svuotare un campo" lo cancella davvero).
 
     Ritorna `True` se il backend è disponibile e tutte le operazioni riescono,
     `False` altrimenti (il chiamante può avvisare l'utente). I valori segreti
-    salvati sono registrati per la redazione dei log."""
+    salvati sono registrati per la redazione dei log.
+
+    **Atomico best-effort (audit #259 D2):** prima di modificare si cattura lo stato
+    corrente di ogni campo; se una scrittura/cancellazione fallisce a metà, i campi
+    già toccati vengono **ripristinati** allo stato iniziale, così il keyring non
+    resta in un mix incoerente old/new (es. App Key nuova + username vecchio). In
+    caso di rollback la funzione ritorna comunque `False`: il chiamante avvisa e non
+    crede che il salvataggio sia riuscito."""
     kr = _kr()
     if kr is None:
         return False
-    ok = True
+    # Snapshot dello stato corrente PRIMA di toccare qualcosa: la base del rollback.
+    # Un campo non leggibile → sentinella `_UNREAD`: al rollback NON viene toccato
+    # (vedi `_restore_field`), per non cancellare un valore preesistente ignoto.
+    snapshot = {}
+    for field in FIELDS:
+        try:
+            snapshot[field] = kr.get_password(SERVICE, _account(field))
+        except Exception:
+            snapshot[field] = _UNREAD     # non leggibile: al rollback non toccare
+    applied = []                       # campi effettivamente modificati (per il rollback)
+
+    def _rollback():
+        # Ripristina i campi già toccati; segnala a log (nomi dei campi, MAI i valori)
+        # OGNI campo che resta in stato potenzialmente incoerente — uno stato misto non
+        # deve restare invisibile all'operatore (review GLM/GPT/Fugu #313). Sono
+        # incoerenti sia i campi con restore FALLITO (doppio-guasto), sia quelli con
+        # snapshot `_UNREAD`: scritti col valore NUOVO ma non ripristinabili (il valore
+        # precedente era ignoto, quindi deliberatamente NON toccati per non perderlo).
+        problematic = []
+        for f in applied:
+            if snapshot[f] is _UNREAD:
+                problematic.append(f)          # committato su stato ignoto: resta NUOVO
+            elif not _restore_field(kr, _account(f), snapshot[f]):
+                problematic.append(f)          # ripristino fallito
+        if problematic:
+            _LOG.warning(
+                "save_credentials: rollback INCOMPLETO dopo un errore keyring, campi in "
+                "stato possibilmente incoerente: %s. Le credenziali Betfair potrebbero "
+                "essere miste (vecchie/nuove); ri-salvale.", ", ".join(problematic))
     for field in FIELDS:
         raw = getattr(creds, field) or ""
         acct = _account(field)
@@ -126,17 +189,23 @@ def save_credentials(creds: BetfairCredentials) -> bool:
         if raw.strip():
             try:
                 kr.set_password(SERVICE, acct, raw)
+                applied.append(field)
                 if field in SECRET_FIELDS:
                     log_safety.register_secret(raw)
             except Exception:
-                ok = False
+                # Scrittura fallita a metà: annulla i campi già toccati e riporta lo
+                # stato iniziale, poi segnala il fallimento (niente stato misto).
+                _rollback()
+                return False
         else:
             # Svuotare un campo deve cancellarlo davvero: una cancellazione fallita
-            # (vecchio segreto ancora presente) è un FALLIMENTO del save, non un
-            # successo silenzioso (Codex) — altrimenti il segreto resterebbe.
-            if not _delete_one(kr, acct):
-                ok = False
-    return ok
+            # (vecchio segreto ancora presente) è un FALLIMENTO del save (Codex).
+            if _delete_one(kr, acct):
+                applied.append(field)
+            else:
+                _rollback()
+                return False
+    return True
 
 
 def load_credentials() -> BetfairCredentials:
