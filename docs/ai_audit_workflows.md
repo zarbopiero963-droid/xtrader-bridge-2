@@ -62,7 +62,7 @@ stampate.
   **Controllo costi (tetto duro + prompt severo).** Il costo è dominato
   dall'**output**: una review lunga di Fugu poteva arrivare a ~19k token
   (~0,70$). Per questo tutti e quattro i reviewer usano un **prompt severo**
-  (massimo 10 finding, massimo 900 parole, niente ripetizione del diff, niente
+  (massimo 10 finding, massimo 400 parole, niente ripetizione del diff, niente
   teoria/tutorial, "Nessun bloccante evidente" se non c'è nulla) e un **tetto
   duro basso** su `MAX_OUTPUT_TOKENS`: `1200` Fable 5, `1000` Fugu Ultra e
   GPT-5.5, `700` GLM 5.2. La review resta concisa e utile ma costa una frazione.

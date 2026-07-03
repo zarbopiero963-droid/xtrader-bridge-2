@@ -341,9 +341,21 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
             f"{name}: manca il prompt severo anti-costo (max 10 finding / max 900 parole)"
         )
         # Anti-doppia-review a pagamento: dedup sul marker prima della chiamata AI.
-        assert "def comment_exists(marker" in _compiled_heredoc(name), (
+        src = _compiled_heredoc(name)
+        assert "def comment_exists(marker" in src, (
             f"{name}: manca il dedup comment_exists (re-run/ri-label non deve ripagare)"
         )
+        # Cap anti-loop sulla paginazione dedup (Sourcery bug_risk): il while non
+        # deve poter girare all'infinito se l'API restituisse sempre 100 commenti.
+        assert "while page <= 20" in src, (
+            f"{name}: la paginazione del dedup deve avere un cap anti-loop"
+        )
+        # gpt-5.5 è reasoning: con budget basso serve effort 'low', altrimenti il
+        # reasoning esaurisce il budget e la review tronca a 0 testo (osservato PR #310).
+        if meta["provider"] == "openai":
+            assert re.search(r'"reasoning":\s*\{"effort":\s*"low"\}', src), (
+                f"{name}: gpt-5.5 (reasoning) deve usare reasoning effort 'low' col budget basso"
+            )
 
 
 def test_audit_solo_manuali_workflow_dispatch():

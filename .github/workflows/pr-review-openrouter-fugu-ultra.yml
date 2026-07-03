@@ -474,8 +474,12 @@ jobs:
           # nuovo push = nuovo range = nuovo marker → gira normalmente. Fail-open: se
           # il controllo stesso fallisce, si procede con la review (non si salta).
           def comment_exists(marker: str) -> bool:
+              # cap anti-loop (Sourcery bug_risk): se l'API restituisse sempre 100
+              # commenti, il while non terminerebbe. Nessuna PR reale ha >2000
+              # commenti; oltre il cap si assume "non trovato" e si procede con la
+              # review (fail-safe: meglio una review in più che un job appeso).
               page = 1
-              while True:
+              while page <= 20:
                   comments = gh_request(
                       "GET",
                       f"/repos/{REPO}/issues/{PR_NUMBER}/comments?per_page=100&page={page}",
@@ -486,6 +490,7 @@ jobs:
                   if len(comments) < 100:
                       return False
                   page += 1
+              return False
 
           try:
               _already_reviewed = comment_exists(marker)
@@ -562,7 +567,7 @@ jobs:
           Sii concreto: cita file/area/motivo. Evita frasi generiche.
 
           Vincolo costo/output (RISPETTALO alla lettera):
-          - Non scrivere una review lunga: MASSIMO 900 parole.
+          - Non scrivere una review lunga: MASSIMO 400 parole.
           - MASSIMO 10 finding totali; ogni finding max 3 righe.
           - Non ripetere il diff; niente teoria, niente tutorial, niente blocchi di codice lunghi.
           - Priorità SOLO a: bug bloccanti, regressioni, sicurezza, segreti, contratto CSV, Betfair, race condition, Windows.
@@ -578,7 +583,7 @@ jobs:
           Commits nel range: {commit_count}
           Modello: {MODEL_LABEL} ({OPENROUTER_MODEL})
 
-          Produci Markdown, MASSIMO 900 parole, non superare 10 finding totali:
+          Produci Markdown, MASSIMO 400 parole, non superare 10 finding totali:
 
           ## Esito
           ## Bloccanti
@@ -601,6 +606,14 @@ jobs:
                   f"Errore sintetico:\n\n```text\n{redact(str(exc))[:3000]}\n```"
               )
               usage = {}
+              model_failed = True
+
+          # Troncamento / nessun testo = review NON completa: sul gate finale a
+          # LABEL non deve risultare verde (Codex P1). Marca come fallito così
+          # scatta il fail-closed (sys.exit(1) su labeled) più in basso.
+          if not model_failed and review.lstrip().startswith(
+              ("Output troncato", "Il modello non ha restituito testo")
+          ):
               model_failed = True
 
           # Redigi anche l'OUTPUT del modello: se ripete un valore segreto (formato
