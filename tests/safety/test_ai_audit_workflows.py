@@ -284,6 +284,15 @@ def test_audit_solo_manuali_workflow_dispatch():
         # max_files/max_chunks = 0 → audit senza contenuto: va rifiutato
         # (Codex P2 su PR #304), altrimenti il job sembrerebbe verde con 0/0.
         assert "-lt 1" in text, f"{name}: budget 0 (max_files/max_chunks) non rifiutato"
+        # CHUNK_MAX_CHARS troppo piccolo tronca ogni riga al solo marker: audit
+        # vuoto ma verde (Codex P2 round 2). Deve avere un floor >= 500.
+        assert re.search(r'CHUNK_MAX_CHARS"?\s*-lt 500', text), (
+            f"{name}: CHUNK_MAX_CHARS senza floor (valori piccoli = audit vuoto ma verde)"
+        )
+        # MAX_FILE_KB = 0 scarterebbe ogni file → 0 scansionati, job verde.
+        assert re.search(r'MAX_FILE_KB"?\s*-lt 1', text), (
+            f"{name}: MAX_FILE_KB=0 non rifiutato (nessun file analizzato)"
+        )
 
 
 def test_pr_review_diff_only_niente_checkout_niente_fork():
@@ -559,6 +568,59 @@ def test_local_secret_scan_trova_token_finto_e_redige_l_evidenza(tmp_path, monke
         assert _fake_github_pat() not in pat[0]["evidence"], name
 
         assert ns[fn_name]("main.py", "print('ciao')\n") == [], f"{name}: falso positivo"
+
+
+def test_path_secret_scan_segnala_segreto_nel_nome_file(tmp_path, monkeypatch):
+    """Segreto nel NOME file/cartella → finding critico, path/evidence redatti.
+
+    Codex P2 (round 2, PR #304): il path viene redatto (safe_display) PRIMA di
+    ogni finding e lo scan sui contenuti non lo vede; senza uno scan sul path RAW
+    un token path-embedded darebbe 0 finding critici e ``fail_on_critical`` non
+    fallirebbe. Il valore in chiaro non deve mai finire nel finding.
+    """
+    for name, fn_name in (
+        ("manual-full-repo-ai-audit.yml", "path_secret_findings"),
+        ("claude-fable-full-repo-audit.yml", "path_secret_scan"),
+    ):
+        ns, _ = _exec_audit_script(name, tmp_path, monkeypatch)
+        fn = ns[fn_name]
+        safe_display = ns["safe_display"]
+
+        raw = f"leaked/{_fake_github_pat()}.bak"
+        display = safe_display(raw)
+        findings = fn(raw, display)
+        assert findings, f"{name}: segreto nel path non segnalato"
+        assert findings[0]["severity"] == "critical", name
+        assert findings[0]["source"] == "local-secret-scan", name
+        # niente segreto in chiaro nel finding (file + evidence redatti)
+        assert _fake_github_pat() not in findings[0]["evidence"], name
+        assert _fake_github_pat() not in findings[0]["file"], name
+
+        # path pulito → nessun finding
+        assert fn("src/main.py", "src/main.py") == [], f"{name}: falso positivo sul path"
+
+
+def test_audit_delimitatore_con_nonce_anti_injection():
+    """Il delimitatore del contenuto non attendibile usa un nonce casuale.
+
+    Codex P2 (round 2, PR #304): un file che contiene il testo letterale del
+    marker statico ``--- FILE CONTENT END ---`` potrebbe chiudere il blocco e
+    iniettare istruzioni. Con un nonce per-chunk (``os.urandom``) il contenuto
+    non può riprodurre il delimitatore.
+    """
+    for name in _AUDIT_WORKFLOWS:
+        text = _read(name)
+        assert "os.urandom(8).hex()" in text, f"{name}: manca il nonce del delimitatore"
+        assert "start_marker" in text and "end_marker" in text, (
+            f"{name}: manca il marker delimitatore basato sul nonce"
+        )
+        # niente più delimitatore statico riproducibile dal contenuto del file
+        assert "--- FILE CONTENT END ---" not in text, (
+            f"{name}: delimitatore statico ancora presente (injection possibile)"
+        )
+        assert "--- FILE CONTENT START ---" not in text, (
+            f"{name}: delimitatore statico ancora presente (injection possibile)"
+        )
 
 
 def test_normalize_finding_fail_closed_su_dati_del_modello(tmp_path, monkeypatch):

@@ -116,14 +116,22 @@ mostra scope, range `base...head`, numero di commit e una stima del costo token.
   dell'invio — inclusi **nomi file/path** e il **ref**, che possono contenere un
   segreto e da cui vengono rimossi anche i control-char (niente iniezione di
   campi nei prompt). Gli audit fanno anche un secret-scan locale che finisce nel
-  report come finding `critical`/`high`.
+  report come finding `critical`/`high`, **incluso un segreto nel NOME
+  file/cartella**: il path viene matchato in chiaro *prima* della redazione e
+  produce un finding critico (col path già redatto), così `fail_on_critical`
+  scatta anche per un token path-embedded.
 - **Prompt-injection hardening**: i prompt dichiarano diff/file come non
-  attendibili.
+  attendibili; negli audit il contenuto è racchiuso tra delimitatori con un
+  **nonce casuale per-chunk** (`os.urandom`), così un file che contenesse il
+  testo letterale del marker non può chiudere il blocco e iniettare istruzioni.
 - **OpenAI `store: false`**: le richieste alla Responses API non memorizzano.
 - **Audit fail-closed**: se sono stati tentati chunk ma **nessuno** è andato a
   buon fine (API giù, key invalida), l'audit **fallisce** invece di sembrare
   verde; le righe singole oltre budget vengono troncate e la redaction del PEM
-  preserva i numeri riga.
+  preserva i numeri riga. La validazione dei budget rifiuta anche i valori che
+  renderebbero l'audit **vuoto ma verde**: `MAX_FILES`/`MAX_CHUNKS` < 1,
+  `MAX_FILE_KB` < 1 (scarterebbe ogni file) e `CHUNK_MAX_CHARS` < 500 (troncherebbe
+  ogni riga al solo marker, facendo "revisionare" contenuto vuoto).
 - **Action pinnate a SHA**: solo gli audit usano `uses:` (`upload-artifact`
   pinnata allo stesso SHA v4.6.2 di `build.yaml`); i PR review non usano action.
 - **Budget duri** su file, chunk, caratteri e token di output per limitare i
