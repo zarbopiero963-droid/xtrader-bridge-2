@@ -333,11 +333,16 @@ class App(ctk.CTk):
         (`OUT.CSV` vs `out.csv`) se l'utente ritocca csv_path tra due sessioni — un
         confronto a stringhe lo scambierebbe per un path DIVERSO e il retry
         cancellerebbe una riga VIVA della nuova sessione. `normcase` è no-op su POSIX
-        (filesystem case-sensitive: lì il confronto resta esatto, correttamente)."""
+        (filesystem case-sensitive: lì il confronto resta esatto, correttamente).
+        `abspath` (include normpath) copre anche il mix relativo/assoluto dello stesso
+        file (review GPT/Fugu round 2). Limite dichiarato: i symlink/junction NON sono
+        risolti — `realpath`/`samefile` farebbero I/O proprio quando il file può essere
+        lockato/assente (samefile solleva), e csv_path arriva da un campo testo della
+        GUI: nel runtime non esiste alcun percorso che crei o attraversi link."""
         if not a or not b:
             return False
-        return (os.path.normcase(os.path.normpath(str(a)))
-                == os.path.normcase(os.path.normpath(str(b))))
+        return (os.path.normcase(os.path.abspath(str(a)))
+                == os.path.normcase(os.path.abspath(str(b))))
 
     def _retry_stop_clear(self, path: str) -> None:
         """Ritenta lo svuotamento post-STOP finché riesce, l'app chiude, o una nuova

@@ -1573,13 +1573,22 @@ def test_retry_stop_clear_guardia_possesso_normalizza_il_path(make_app, app_mod,
     assert not csv_writer.has_active_row(altro)
 
 
-def test_same_csv_path_normalizzazione():
-    """Unit del predicato (review Fable #312): normpath collassa `.`/`..`; None/vuoto
-    non combacia mai con nulla (un retry senza path non deve bloccare/pulire niente)."""
+def test_same_csv_path_normalizzazione(monkeypatch):
+    """Unit del predicato (review Fable + GPT/GLM/Fugu round 2 #312): abspath collassa
+    `.`/`..` E il mix relativo/assoluto dello stesso file; None/vuoto non combacia mai
+    con nulla (un retry senza path non deve bloccare/pulire niente).
+
+    Fail-first round 2: con il solo normpath il mix relativo/assoluto dava False."""
+    import os as _os
     from xtrader_bridge import app as app_mod
     same = app_mod.App._same_csv_path
     assert same("sub/../out.csv", "out.csv") is True
     assert same("./out.csv", "out.csv") is True
+    assert same(_os.path.abspath("out.csv"), "out.csv") is True   # assoluto vs relativo
     assert same("a/out.csv", "b/out.csv") is False
     assert same("", "out.csv") is False
     assert same(None, None) is False
+    # Case-insensitivity Windows (assert esplicito, review GLM): su POSIX normcase è
+    # identità, quindi si simula la variante Windows monkeypatchandola con lower().
+    monkeypatch.setattr(app_mod.os.path, "normcase", lambda p: str(p).lower())
+    assert same("C:/XTrader/OUT.CSV", "c:/xtrader/out.csv") is True
