@@ -472,6 +472,16 @@ aggiornamenti dell'EXE):
 > all'avvio/stop (`CRASH_RECOVERY_CSV_CLEARED`/`CSV_CLEARED`). È **diagnostico e
 > best-effort**: non rallenta né blocca mai il trading, i **token sono redatti** (nessun
 > segreto), e lo storico è **limitato** (potato agli ultimi ~5000 eventi all'avvio).
+>
+> **Consultarlo** senza aprire il `.jsonl` a mano — CLI **read-only**:
+> ```bash
+> python -m xtrader_bridge.journal_view            # tutti gli eventi, ordinati cronologicamente (per ts)
+> python -m xtrader_bridge.journal_view --last 20  # solo gli ultimi 20
+> python -m xtrader_bridge.journal_view --type CSV_WRITTEN --type CSV_CLEARED
+> python -m xtrader_bridge.journal_view --json     # output JSON (per script)
+> ```
+> Filtri combinabili: `--type` (ripetibile), `--last N`, `--since`/`--until` (epoch),
+> `--path` (file alternativo). Non modifica **mai** il diario e non mostra segreti.
 
 ---
 
