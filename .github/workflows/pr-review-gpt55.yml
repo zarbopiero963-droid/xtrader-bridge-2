@@ -400,12 +400,18 @@ jobs:
           compare_truncated = len(files) >= 300
 
           marker = f"<!-- {REVIEW_ID}-pr-review:xtrader-bridge:{range_base[:12]}...{range_head[:12]} -->"
+          # Marker di COMPLETAMENTO: presente nel commento SOLO quando la review è
+          # arrivata davvero (testo reale del modello, non troncata/errore). La dedup
+          # a pagamento guarda QUESTO marker, non `marker`: così un commento troncato
+          # o d'errore (che porta `marker` ma NON `done_marker`) non blocca il retry —
+          # altrimenti il gate resterebbe verde senza una review reale (P1 CodeRabbit/Codex).
+          done_marker = f"<!-- {REVIEW_ID}-pr-review-done:xtrader-bridge:{range_base[:12]}...{range_head[:12]} -->"
 
-          # Anti-doppia-review a pagamento: se esiste GIÀ un commento per QUESTO
-          # range (stesso marker), non richiamare il modello — un re-run del workflow
-          # o togli/rimetti label NON devono ripagare la stessa review. Un nuovo push
-          # = nuovo range = nuovo marker → gira normalmente. Fail-open: se il
-          # controllo stesso fallisce, si procede con la review (non si salta).
+          # Anti-doppia-review a pagamento: se esiste GIÀ una review COMPLETATA per
+          # QUESTO range (done_marker), non richiamare il modello — un re-run del
+          # workflow o togli/rimetti label NON devono ripagare la stessa review. Un
+          # nuovo push = nuovo range = nuovo marker → gira normalmente. Fail-open: se
+          # il controllo stesso fallisce, si procede con la review (non si salta).
           def comment_exists(marker: str) -> bool:
               # cap anti-loop (Sourcery bug_risk): se l'API restituisse sempre 100
               # commenti, il while non terminerebbe. Nessuna PR reale ha >2000
@@ -426,7 +432,7 @@ jobs:
               return False
 
           try:
-              _already_reviewed = comment_exists(marker)
+              _already_reviewed = comment_exists(done_marker)
           except Exception as exc:
               _already_reviewed = False
               print(f"::warning::{REVIEW_ID}: dedup check fallito, procedo con la review: {redact(str(exc))[:300]}")
@@ -543,7 +549,18 @@ jobs:
           # in chiaro nel commento PR (Codex P2).
           review = redact(review)
 
-          body = f"""{marker}
+          # La review conta come COMPLETATA solo se il modello ha prodotto testo reale:
+          # né troncamento (budget esaurito), né "nessun testo", né errore di chiamata.
+          # Solo in quel caso scriviamo done_marker → la dedup salterà i futuri re-run;
+          # altrimenti done_line resta vuoto e un re-run rifarà la review (retry sicuro).
+          review_complete = not review.lstrip().startswith((
+              "Output troncato",
+              "Il modello non ha restituito testo",
+              "## Review GPT-5.5 non completata",
+          ))
+          done_line = done_marker if review_complete else ""
+
+          body = f"""{marker}{done_line}
           # GPT-5.5 PR Review
 
           **Modalità:** push-range diff via GitHub Compare API

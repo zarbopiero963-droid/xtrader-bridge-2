@@ -70,11 +70,22 @@ stampate.
   troncamento** (col motivo del provider: `stop_reason=max_tokens` /
   `finish_reason=length` / `status=incomplete`) invece di sembrare che "non
   avesse nulla da dire".
+  **Reasoning cap sui modelli che ragionano.** GPT-5.5, GLM 5.2 e Fugu Ultra
+  spendono parte del budget di output in *reasoning* nascosto: col tetto basso
+  esaurivano i token nel ragionamento e la review usciva **vuota/troncata**. Per
+  questo passano `reasoning: {effort: "low"}` (Responses API per OpenAI, campo
+  unificato OpenRouter per GLM/Fugu — ignorato sui modelli non-reasoning), così il
+  budget resta per il testo. Fable 5 (Anthropic) non usa questo campo.
   **Anti-doppia-review a pagamento.** Prima di chiamare il modello, ogni reviewer
-  controlla se esiste **già** un commento per quello **stesso range** (stesso
-  marker): se sì, esce senza spendere. Così un re-run del workflow o un
-  togli/rimetti della label finale **non ripagano** la stessa review; un nuovo
-  push (nuovo range) gira normalmente.
+  controlla se esiste **già** una review **completata** per quello **stesso
+  range**. La dedup non guarda un marker qualsiasi ma un **marker di completamento**
+  (`done_marker`), scritto nel commento **solo** quando il modello ha davvero
+  prodotto testo (non troncato, non errore): se lo trova, esce senza spendere. Un
+  commento troncato/errore porta il marker di range ma **non** quello di
+  completamento, quindi un re-run **rifà** la review invece di saltarla lasciando
+  il gate verde a vuoto. Così un re-run del workflow o un togli/rimetti della label
+  finale **non ripagano** una review già riuscita; un nuovo push (nuovo range) gira
+  normalmente.
 
 Per far ripartire una review finale già eseguita, rimuovi e riaggiungi la label
 (GitHub non emette un nuovo evento `labeled` se la label è già presente).

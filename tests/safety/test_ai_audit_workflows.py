@@ -272,6 +272,15 @@ def test_gate_finale_prompt_severo_budget_basso_e_troncamento():
         assert re.search(r'stop_reason.*max_tokens|finish_reason.*length', text), (
             f"{name}: manca il check su stop_reason/finish_reason per il troncamento"
         )
+        # Sul gate finale, il marker di completamento (done_marker) va scritto SOLO
+        # se la review NON è fallita/troncata: altrimenti un re-run della label
+        # salterebbe la review (dedup) e il check resterebbe verde a vuoto senza la
+        # review forte richiesta (P1). done_line è legato a model_failed.
+        src = _compiled_heredoc(name)
+        assert 'done_line = "" if model_failed else done_marker' in src, (
+            f"{name}: il marker di completamento deve dipendere da model_failed "
+            "(una review troncata/errore NON deve marcare done → deve poter essere rifatta)"
+        )
 
 
 def test_tutti_i_pr_review_riportano_il_troncamento():
@@ -350,11 +359,33 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
         assert "while page <= 20" in src, (
             f"{name}: la paginazione del dedup deve avere un cap anti-loop"
         )
-        # gpt-5.5 è reasoning: con budget basso serve effort 'low', altrimenti il
-        # reasoning esaurisce il budget e la review tronca a 0 testo (osservato PR #310).
-        if meta["provider"] == "openai":
+        # Il dedup deve guardare il MARKER DI COMPLETAMENTO, non il marker semplice:
+        # un commento troncato/errore porta `marker` ma non `done_marker`, quindi un
+        # re-run rifà la review invece di saltarla lasciando il gate verde a vuoto
+        # (P1 CodeRabbit ×4 + Codex, PR #310).
+        assert "done_marker = " in src, (
+            f"{name}: manca il marker di completamento (done_marker) per la dedup"
+        )
+        assert "comment_exists(done_marker)" in src, (
+            f"{name}: la dedup deve saltare solo su una review COMPLETATA (done_marker), "
+            "non su un qualsiasi commento col marker (altrimenti blocca il retry)"
+        )
+        assert "comment_exists(marker)" not in src, (
+            f"{name}: la dedup non deve usare comment_exists(marker) — un commento "
+            "troncato bloccherebbe il retry (usa done_marker)"
+        )
+        # done_marker va scritto nel body SOLO se la review è realmente completata.
+        assert "done_line = " in src, (
+            f"{name}: done_marker deve essere appeso al body solo quando la review è completa"
+        )
+        # gpt-5.5 (openai) e GLM/Fugu (openrouter) sono modelli reasoning: con budget
+        # basso serve effort 'low', altrimenti il reasoning nascosto esaurisce il
+        # budget e la review tronca a 0 testo (GPT osservato PR #304, GLM PR #310).
+        # Anthropic (Fable) non usa questo campo.
+        if meta["provider"] in ("openai", "openrouter"):
             assert re.search(r'"reasoning":\s*\{"effort":\s*"low"\}', src), (
-                f"{name}: gpt-5.5 (reasoning) deve usare reasoning effort 'low' col budget basso"
+                f"{name}: modello reasoning ({meta['provider']}) deve usare reasoning "
+                "effort 'low' col budget basso, altrimenti tronca a 0 testo"
             )
 
 
