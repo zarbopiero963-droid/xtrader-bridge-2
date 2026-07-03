@@ -1435,3 +1435,17 @@ def test_preview_id_resolver_factory_fail_open_su_eccezione(app_mod):
     a._betfair_sync_engine = _boom
     a._betfair_id_resolver = lambda: "RESOLVER"
     assert app_mod.App._preview_id_resolver_factory(a) is None
+
+
+def test_start_mostra_avvisi_enabled_malformato_nel_log_eventi(app_mod):
+    """Guardia strutturale sul wiring (Codex P2 #309): `_start` è GUI/thread-coupled e
+    non istanziabile headless (stesso pattern di test_event_journal_wiring), ma il suo
+    contributo nuovo è la chiamata a `source_manager.malformed_enabled_warnings` girata
+    a `self._log` — il warning del logger Python non è visibile nell'app windowed.
+    Se il wiring sparisce, questo test fallisce. Il comportamento dell'helper è
+    coperto da unit test veri in test_source_manager."""
+    import inspect
+    src = inspect.getsource(app_mod.App._start)
+    assert "malformed_enabled_warnings" in src
+    idx = src.index("malformed_enabled_warnings")
+    assert "_log" in src[idx:idx + 300]        # gli avvisi finiscono nel log eventi GUI
