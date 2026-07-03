@@ -378,14 +378,23 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
         assert "done_line = " in src, (
             f"{name}: done_marker deve essere appeso al body solo quando la review è completa"
         )
-        # gpt-5.5 (openai) e GLM/Fugu (openrouter) sono modelli reasoning: con budget
-        # basso serve effort 'low', altrimenti il reasoning nascosto esaurisce il
-        # budget e la review tronca a 0 testo (GPT osservato PR #304, GLM PR #310).
-        # Anthropic (Fable) non usa questo campo.
-        if meta["provider"] in ("openai", "openrouter"):
+        # gpt-5.5 (openai) e GLM/Fugu (openrouter) sono modelli reasoning: col budget
+        # basso il reasoning nascosto esaurisce i token e la review tronca a 0 testo
+        # (GPT osservato PR #304, GLM PR #310). Serve un controllo esplicito del
+        # reasoning: effort 'low' (riduce) oppure enabled False (disabilita). GLM col
+        # tetto 700 ha IGNORATO effort='low' e ha comunque troncato, quindi lì il
+        # reasoning è disabilitato del tutto. Anthropic (Fable) non usa questo campo.
+        if meta["provider"] == "openai":
             assert re.search(r'"reasoning":\s*\{"effort":\s*"low"\}', src), (
-                f"{name}: modello reasoning ({meta['provider']}) deve usare reasoning "
-                "effort 'low' col budget basso, altrimenti tronca a 0 testo"
+                f"{name}: gpt-5.5 (reasoning) deve usare reasoning effort 'low' col budget basso"
+            )
+        elif meta["provider"] == "openrouter":
+            assert re.search(
+                r'"reasoning":\s*\{"effort":\s*"low"\}|"reasoning":\s*\{"enabled":\s*False\}',
+                src,
+            ), (
+                f"{name}: modello OpenRouter reasoning deve controllare il reasoning "
+                "(effort 'low' o enabled False) col budget basso, altrimenti tronca a 0 testo"
             )
 
 

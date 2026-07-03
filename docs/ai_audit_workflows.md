@@ -73,9 +73,13 @@ stampate.
   **Reasoning cap sui modelli che ragionano.** GPT-5.5, GLM 5.2 e Fugu Ultra
   spendono parte del budget di output in *reasoning* nascosto: col tetto basso
   esaurivano i token nel ragionamento e la review usciva **vuota/troncata**. Per
-  questo passano `reasoning: {effort: "low"}` (Responses API per OpenAI, campo
-  unificato OpenRouter per GLM/Fugu — ignorato sui modelli non-reasoning), così il
-  budget resta per il testo. Fable 5 (Anthropic) non usa questo campo.
+  questo controllano esplicitamente il reasoning: GPT-5.5 e Fugu Ultra usano
+  `reasoning: {effort: "low"}` (Responses API per OpenAI, campo unificato
+  OpenRouter per Fugu). GLM 5.2, col tetto a 700 token, ha **ignorato** `effort:
+  "low"` e troncava comunque: essendo il reviewer economico che deve solo produrre
+  una review corta, il reasoning è **disabilitato del tutto**
+  (`reasoning: {enabled: false}`), così tutti i 700 token restano per il testo. Il
+  campo è ignorato sui modelli non-reasoning. Fable 5 (Anthropic) non lo usa.
   **Anti-doppia-review a pagamento.** Prima di chiamare il modello, ogni reviewer
   controlla se esiste **già** una review **completata** per quello **stesso
   range**. La dedup non guarda un marker qualsiasi ma un **marker di completamento**

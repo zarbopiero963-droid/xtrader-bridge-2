@@ -294,12 +294,15 @@ jobs:
                   ],
                   "temperature": 0.1,
                   "max_tokens": MAX_OUTPUT_TOKENS,
-                  # GLM-5.2 è un modello di ragionamento: senza questo cap spende
-                  # gran parte di max_tokens in reasoning nascosto e tronca la review
-                  # (finish_reason=length con content vuoto). effort=low limita il
-                  # reasoning e libera budget per il testo. OpenRouter ignora questo
-                  # campo per i modelli non-reasoning, quindi è sicuro comunque.
-                  "reasoning": {"effort": "low"},
+                  # GLM-5.2 è un modello di ragionamento: col tetto basso (700) spende
+                  # TUTTO max_tokens in reasoning nascosto e tronca la review a 0 testo
+                  # (finish_reason=length, content vuoto — osservato live su #310 anche
+                  # con effort='low', che GLM ha ignorato). Qui il reviewer economico
+                  # deve solo produrre una review corta e concisa: NON serve il
+                  # ragionamento, quindi lo disabilitiamo del tutto e lasciamo tutti i
+                  # 700 token all'output. OpenRouter ignora il campo sui modelli
+                  # non-reasoning, quindi resta sicuro comunque.
+                  "reasoning": {"enabled": False},
                   "usage": {"include": True},
               }
 
