@@ -2441,6 +2441,11 @@ class App(ctk.CTk):
         # neutralizzato dal gate `_running`.
         if path != self._active_csv_path:
             return
+        # Epoch della sessione all'INGRESSO (review GPT-5.5 round-4): uno STOP→START verso
+        # la STESSA path tra qui e il lock passerebbe il solo gate path, ma il `delay`
+        # (calcolato sotto, dalla coda di allora) apparterrebbe alla sessione vecchia.
+        # L'epoch d'ingresso viene rivalidato sotto `_timer_lock`.
+        entry_epoch = self._listener_epoch
         if delay is None:
             with self._queue_lock:
                 nxt = self._queue.next_expiry() if self._queue is not None else None
@@ -2454,16 +2459,15 @@ class App(ctk.CTk):
         # creazione + assegnazione + start in un'unica sezione critica, così due caller concorrenti
         # non lasciano un secondo Timer avviato ma non referenziato.
         with self._timer_lock:
-            # F1 #258 (review GPT-5.5/Fable, TOCTOU): ricontrollo AUTORITATIVO del path
-            # DENTRO il lock del replace — tra il gate d'ingresso e qui può completarsi uno
-            # STOP→START, e il worker stantio cancellerebbe il timer legittimo della nuova
-            # sessione. Anche l'EPOCH del tick è catturato QUI: se il path è ancora quello
-            # attivo, l'epoch corrente è quello giusto per il timer che si sta armando (un
-            # caller stantio con lo STESSO path arma un timer equivalente e valido per la
-            # sessione corrente — fail-safe, il tick passa i gate e opera legittimamente).
-            if path != self._active_csv_path:
+            # F1 #258 (review GPT-5.5/Fable, TOCTOU): ricontrollo AUTORITATIVO di path
+            # ED epoch DENTRO il lock del replace — tra il gate d'ingresso e qui può
+            # completarsi uno STOP→START (anche verso la STESSA path: il solo path non
+            # identifica la sessione, e il `delay` è stato calcolato dalla coda di
+            # allora). Se path o epoch non sono più quelli d'ingresso, il worker è
+            # stantio: si esce SENZA toccare il timer legittimo della nuova sessione.
+            if path != self._active_csv_path or entry_epoch != self._listener_epoch:
                 return
-            epoch = self._listener_epoch
+            epoch = entry_epoch
             if self._expire_timer is not None:
                 self._expire_timer.cancel()
             timer = threading.Timer(delay, lambda: self._expire_tick(path, epoch))

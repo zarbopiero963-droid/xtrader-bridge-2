@@ -660,6 +660,40 @@ def test_schedule_expiry_toctou_start_durante_la_chiamata_non_cancella_il_timer_
         a._cancel_expiry_timer()
 
 
+def test_schedule_expiry_restart_stessa_path_non_tocca_il_timer_nuovo(
+        make_app, app_mod, monkeypatch, tmp_path):
+    """F1 #258 (review GPT-5.5 round-4 su #307): STOP→START verso la STESSA path tra
+    l'ingresso di `_schedule_expiry` e il lock — il gate path passa (B→B) ma il worker
+    è di una sessione superata e il suo `delay` è stato calcolato dalla coda vecchia:
+    non deve rimpiazzare il timer legittimo della nuova sessione. Ora l'epoch è
+    catturato all'INGRESSO e validato sotto `_timer_lock`: se nel frattempo l'epoch è
+    cambiato, si esce senza toccare nulla.
+
+    Fail-first: prima il gate path passava (stessa stringa) e il timer nuovo veniva
+    cancellato e rimpiazzato da uno armato con il delay stantio."""
+    import threading as _t
+    pathB = str(tmp_path / "B.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
+    q.add(_row("Inter v Milan"), now=1000)
+    a = make_app(csv_path=pathB, queue=q, capture_schedule=False)   # scheduler REALE
+    a._listener_epoch = 2
+    timer_new = _t.Timer(60, lambda: None)         # timer della nuova sessione (epoch 3)
+    try:
+        def _flip(nxt, now):
+            # STOP→START verso la STESSA path: cambia solo l'epoch e il timer attivo.
+            a._listener_epoch = 3
+            a._expire_timer = timer_new
+            return 60
+        monkeypatch.setattr(app_mod.signal_queue, "delay_until", _flip)
+
+        app_mod.App._schedule_expiry(a, pathB)     # delay=None → passa da _flip
+
+        assert a._expire_timer is timer_new        # timer della nuova sessione intatto
+    finally:
+        timer_new.cancel()
+        a._cancel_expiry_timer()
+
+
 def test_expire_tick_gate_running_false_non_riscrive(make_app, app_mod, monkeypatch, tmp_path):
     from xtrader_bridge import csv_writer
     path = str(tmp_path / "segnali.csv")
