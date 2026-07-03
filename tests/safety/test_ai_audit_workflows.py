@@ -381,31 +381,41 @@ def test_pr_review_reviewer_opzionale_non_fa_fallire_la_pr():
         if meta["kind"] != "pr_review":
             continue
         text = _read(name)
-        # key assente → `exit 0` (skip), per tutti. Nessun bash `exit 1`.
-        assert re.search(r"non configurato.*\n\s*exit 0", text), (
-            f"{name}: la key assente deve portare a 'exit 0' (skip), non a un fallimento"
-        )
-        assert not re.search(r"\bexit 1\b", text), (
-            f"{name}: nessun bash `exit 1` (la key assente non deve far fallire la PR)"
-        )
-        # Fallimento pubblicazione commento (token read-only / 403) → warning.
         src = _compiled_heredoc(name)
+        # Fallimento pubblicazione commento (token read-only / 403) → warning.
         assert "impossibile pubblicare il commento" in src, (
             f"{name}: upsert_comment deve essere fail-open (warning, non crash) su 403"
         )
+        # key assente sul push automatico → exit 0 (skip), per tutti.
+        assert re.search(r"non configurato.*\n\s*exit 0", text), (
+            f"{name}: la key assente deve poter fare 'exit 0' (skip) sul push automatico"
+        )
         if meta["trigger"] == "auto":
-            # Reviewer automatico: fail-open puro sul fallimento del modello.
+            # Reviewer automatico: SEMPRE fail-open (mai un check rosso):
+            # nessun `exit 1` bash, nessun sys.exit(1) Python.
+            assert not re.search(r"\bexit 1\b", text), (
+                f"{name}: reviewer automatico non deve mai uscire con exit 1"
+            )
             assert "sys.exit(1)" not in src, (
-                f"{name}: il reviewer automatico non deve far fallire la PR sul fallimento modello"
+                f"{name}: reviewer automatico non deve far fallire la PR sul fallimento modello"
             )
         else:
-            # Gate finale: sul trigger a LABEL un fallimento del modello DEVE far
-            # fallire il job (check non verde), ma solo su quel path.
+            # Gate finale: sul trigger a LABEL (obbligatorio pre-merge) una review
+            # non avvenuta NON deve risultare verde. Due path fail-closed:
+            #  - key assente + labeled → `exit 1` bash;
+            #  - modello fallito + labeled → sys.exit(1) dopo il commento.
+            # Su push automatico entrambi restano fail-open.
+            assert '"${EVENT_ACTION:-}" = "labeled"' in text, (
+                f"{name}: manca il fail-closed bash su label + key assente"
+            )
+            assert re.search(r"\bexit 1\b", text), (
+                f"{name}: su label + key assente il gate deve fallire (exit 1)"
+            )
             assert 'model_failed and EVENT_ACTION == "labeled"' in src, (
-                f"{name}: il gate finale deve fallire il job se il modello fallisce sul path a label"
+                f"{name}: manca il fail-closed sul fallimento modello via label"
             )
             assert "sys.exit(1)" in src, (
-                f"{name}: manca il fail-closed (sys.exit(1)) sul gate finale a label"
+                f"{name}: manca sys.exit(1) sul gate finale a label"
             )
 
 

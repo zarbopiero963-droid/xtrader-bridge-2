@@ -84,9 +84,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Reviewer OPZIONALE: senza secret il job non deve far fallire la PR.
+          # Reviewer OPZIONALE su push automatico: senza secret il job NON fa
+          # fallire la PR. MA sul gate finale via LABEL (obbligatorio pre-merge)
+          # una review non eseguibile per key mancante NON deve risultare verde:
+          # fallisci il job (coerente col fail-closed sul fallimento modello, GPT-5.5).
           if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-            echo "::notice::ANTHROPIC_API_KEY non configurato: reviewer Claude Fable 5 saltato (nessun check rosso)."
+            if [ "${EVENT_ACTION:-}" = "labeled" ]; then
+              echo "::error::Gate finale a label ma ANTHROPIC_API_KEY assente: review non eseguibile → job fallito (il gate non deve risultare verde)."
+              exit 1
+            fi
+            echo "::notice::ANTHROPIC_API_KEY non configurato: reviewer Claude Fable 5 saltato (push automatico, nessun check rosso)."
             exit 0
           fi
 
