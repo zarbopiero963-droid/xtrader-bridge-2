@@ -61,11 +61,18 @@ stampate.
   (un file core potrebbe essere oltre il limite).
   **Controllo costi (tetto duro + prompt severo).** Il costo è dominato
   dall'**output**: una review lunga di Fugu poteva arrivare a ~19k token
-  (~0,70$). Per questo tutti e quattro i reviewer usano un **prompt severo**
-  (massimo 10 finding, massimo 400 parole, niente ripetizione del diff, niente
-  teoria/tutorial, "Nessun bloccante evidente" se non c'è nulla) e un **tetto
-  duro basso** su `MAX_OUTPUT_TOKENS`: `1200` Fable 5, `1000` Fugu Ultra e
-  GPT-5.5, `700` GLM 5.2. La review resta concisa e utile ma costa una frazione.
+  (~0,70$). Per questo i reviewer usano un **prompt severo** e un **tetto duro
+  basso** su `MAX_OUTPUT_TOKENS`: `1200` Fable 5, `1000` Fugu Ultra e GPT-5.5,
+  `700` GLM 5.2. I reviewer **automatici per-push** (GPT-5.5, GLM 5.2) analizzano
+  diff incrementali piccoli con un prompt a 7 sezioni corte (massimo 10 finding,
+  massimo 400 parole, niente ripetizione del diff/teoria, "Nessun bloccante
+  evidente" se non c'è nulla). I due **gate finali** (Fable 5, Fugu Ultra)
+  rivedono invece l'**intera PR**: con lo stesso prompt lungo si troncavano
+  (review parziale → gate rosso), quindi usano un prompt **ultra-corto** — sole
+  due sezioni `## Bloccanti` + `## Verdetto finale`, massimo 150 parole, con i
+  rischi di sicurezza/CSV/Betfair/segreti ripiegati dentro `Bloccanti` — così la
+  review completa sta nel budget senza troncarsi. La review resta concisa e utile
+  ma costa una frazione.
   Se il modello si ferma comunque per limite di token, il commento **dichiara il
   troncamento** (col motivo del provider: `stop_reason=max_tokens` /
   `finish_reason=length` / `status=incomplete`) invece di sembrare che "non

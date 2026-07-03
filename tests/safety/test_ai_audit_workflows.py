@@ -247,13 +247,18 @@ def test_before_sha_vuoto_ripiega_su_intera_pr():
 
 
 def test_gate_finale_prompt_severo_budget_basso_e_troncamento():
-    """Cost cap sui due gate finali (label): prompt SEVERO (max 10 finding, max
-    400 parole, niente diff/teoria) + tetto output BASSO + troncamento onesto.
+    """Cost cap sui due gate finali (label): prompt ULTRA-CORTO (2 sole sezioni,
+    max 150 parole) + tetto output BASSO + troncamento onesto.
 
     Storia: prima si era alzato il budget a 6000 per evitare i troncamenti, ma
     Fugu arrivava a ~19k token di output (~0,70$/review). La scelta del
-    proprietario è invertita: review CORTA per costo → prompt severo + tetto duro
-    (Fable 1200, Fugu 1000). Il troncamento resta dichiarato esplicitamente.
+    proprietario è invertita: review CORTA per costo → tetto duro (Fable 1200,
+    Fugu 1000). Il gate finale rivede però l'INTERA PR: col prompt a 7 sezioni /
+    400 parole i due reviewer forti si troncavano (review PARZIALE → gate rosso).
+    Scelta del proprietario: accorciare il prompt del gate finale a SOLE 2 sezioni
+    ("## Bloccanti" + "## Verdetto finale", max 150 parole; i rischi safety
+    ripiegati dentro Bloccanti) così la review completa sta nel budget. Il
+    troncamento resta comunque dichiarato esplicitamente.
     """
     finali = [n for n, m in _AI_WORKFLOWS.items() if m.get("trigger") == "label"]
     assert finali, "atteso almeno un gate finale label-gated"
@@ -265,10 +270,22 @@ def test_gate_finale_prompt_severo_budget_basso_e_troncamento():
             f"{name}: gate finale con budget output troppo alto "
             f"({match.group(1)}); tetto duro anti-costo previsto <= 1500"
         )
-        # prompt severo che rende sensato il budget basso
-        assert "Vincolo costo/output" in text and "MASSIMO 10 finding" in text, (
-            f"{name}: manca il prompt severo (max 10 finding / max 400 parole)"
+        # Prompt ULTRA-CORTO che sta nel budget basso senza troncare sull'intera PR:
+        # solo 2 sezioni, max 150 parole, i rischi safety ripiegati in "Bloccanti".
+        assert "Vincolo costo/output" in text and "MASSIMO 150 parole" in text, (
+            f"{name}: il gate finale deve usare il prompt ultra-corto (max 150 parole) "
+            "per non troncarsi sull'intera PR"
         )
+        assert "## Bloccanti" in text and "## Verdetto finale" in text, (
+            f"{name}: il gate finale deve chiedere le due sezioni Bloccanti + Verdetto finale"
+        )
+        # Le sezioni lunghe del prompt per-push NON devono restare nel gate finale
+        # (altrimenti il modello prova a compilarle e ri-tronca il budget).
+        for sezione in ("## Rischi manuali", "## Test minimi", "## CSV / Betfair / Parser"):
+            assert sezione not in text, (
+                f"{name}: il gate finale non deve più chiedere la sezione '{sezione}' "
+                "(prompt accorciato a 2 sezioni per non troncarsi)"
+            )
         assert "Output troncato" in text, (
             f"{name}: manca il ramo di troncamento onesto quando il modello "
             f"esaurisce il budget di output"
