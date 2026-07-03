@@ -2450,16 +2450,20 @@ class App(ctk.CTk):
             # con lo stesso clock, altrimenti un salto del wallclock falserebbe il tick.
             # `delay_until` clampa a 0 una scadenza già passata (no ritardo negativo).
             delay = signal_queue.delay_until(nxt, time.monotonic())
-        # F1 #258: il tick porta con sé l'EPOCH della sessione che lo arma (catturato qui,
-        # come l'epoch di `_run_bot`): `Timer.cancel()` è un no-op se il worker ha già
-        # iniziato a invocare la funzione, quindi un tick stantio può sopravvivere a uno
-        # STOP→START e trovare `_running=True` della NUOVA sessione — il gate epoch+path
-        # in `_expire_tick` lo neutralizza.
-        epoch = self._listener_epoch
         # Replace ATOMICO sotto `_timer_lock` (#184 low-timer-lock): cancel del precedente +
         # creazione + assegnazione + start in un'unica sezione critica, così due caller concorrenti
         # non lasciano un secondo Timer avviato ma non referenziato.
         with self._timer_lock:
+            # F1 #258 (review GPT-5.5/Fable, TOCTOU): ricontrollo AUTORITATIVO del path
+            # DENTRO il lock del replace — tra il gate d'ingresso e qui può completarsi uno
+            # STOP→START, e il worker stantio cancellerebbe il timer legittimo della nuova
+            # sessione. Anche l'EPOCH del tick è catturato QUI: se il path è ancora quello
+            # attivo, l'epoch corrente è quello giusto per il timer che si sta armando (un
+            # caller stantio con lo STESSO path arma un timer equivalente e valido per la
+            # sessione corrente — fail-safe, il tick passa i gate e opera legittimamente).
+            if path != self._active_csv_path:
+                return
+            epoch = self._listener_epoch
             if self._expire_timer is not None:
                 self._expire_timer.cancel()
             timer = threading.Timer(delay, lambda: self._expire_tick(path, epoch))

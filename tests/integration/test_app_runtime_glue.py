@@ -627,6 +627,39 @@ def test_schedule_expiry_stantia_non_cancella_il_timer_della_nuova_sessione(
         a._cancel_expiry_timer()               # niente Timer vivi dopo il test
 
 
+def test_schedule_expiry_toctou_start_durante_la_chiamata_non_cancella_il_timer_nuovo(
+        make_app, app_mod, monkeypatch, tmp_path):
+    """F1 #258 (review GPT-5.5 su #307, TOCTOU residuo): se uno STOP→START verso la
+    sessione C si completa TRA il gate d'ingresso di `_schedule_expiry` (path ancora
+    attivo al check) e il replace sotto `_timer_lock`, il worker stantio cancellava
+    comunque il timer legittimo di C. Ora il ricontrollo AUTORITATIVO del path avviene
+    dentro `_timer_lock`. L'interleaving è simulato in modo deterministico agganciando
+    la transizione di sessione a `delay_until` (eseguita tra gate d'ingresso e lock).
+
+    Fail-first: prima il timer di C veniva cancellato e rimpiazzato da uno su pathB."""
+    import threading as _t
+    pathB = str(tmp_path / "B.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
+    q.add(_row("Inter v Milan"), now=1000)         # next_expiry non-None → delay=None percorribile
+    a = make_app(csv_path=pathB, queue=q, capture_schedule=False)   # scheduler REALE
+    timer_c = _t.Timer(60, lambda: None)           # timer già armato dalla sessione C
+    try:
+        def _flip(nxt, now):
+            # La transizione STOP→START verso C avviene QUI: dopo il gate d'ingresso
+            # (che ha visto pathB attivo), prima del `_timer_lock`.
+            a._active_csv_path = str(tmp_path / "C.csv")
+            a._expire_timer = timer_c
+            return 60
+        monkeypatch.setattr(app_mod.signal_queue, "delay_until", _flip)
+
+        app_mod.App._schedule_expiry(a, pathB)     # delay=None → passa da _flip
+
+        assert a._expire_timer is timer_c          # timer di C intatto, NON cancellato
+    finally:
+        timer_c.cancel()
+        a._cancel_expiry_timer()
+
+
 def test_expire_tick_gate_running_false_non_riscrive(make_app, app_mod, monkeypatch, tmp_path):
     from xtrader_bridge import csv_writer
     path = str(tmp_path / "segnali.csv")
