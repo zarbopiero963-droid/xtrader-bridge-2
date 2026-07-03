@@ -408,8 +408,20 @@ def test_pr_review_reviewer_opzionale_non_fa_fallire_la_pr():
             assert '"${EVENT_ACTION:-}" = "labeled"' in text, (
                 f"{name}: manca il fail-closed bash su label + key assente"
             )
-            assert re.search(r"\bexit 1\b", text), (
-                f"{name}: su label + key assente il gate deve fallire (exit 1)"
+            # Precondizione del fail-closed: EVENT_ACTION DEVE essere cablata
+            # nell'env del job, altrimenti `== labeled` è sempre falso e il gate
+            # tornerebbe SILENZIOSAMENTE fail-open (regressione peggiore — un gate
+            # di sicurezza che sembra presente ma non scatta mai; GLM/GPT-5.5).
+            assert "EVENT_ACTION: ${{ github.event.action }}" in text, (
+                f"{name}: EVENT_ACTION non cablata nell'env → il fail-closed su label non scatterebbe"
+            )
+            # Strutturale: `exit 1` DENTRO il ramo EVENT_ACTION==labeled del check
+            # key-assente, non un `exit 1` qualsiasi altrove.
+            assert re.search(
+                r'"\$\{EVENT_ACTION:-\}" = "labeled" \];\s*then\s*\n\s*echo[^\n]*\n\s*exit 1',
+                text,
+            ), (
+                f"{name}: l'exit 1 non è strutturalmente nel ramo EVENT_ACTION==labeled key-assente"
             )
             assert 'model_failed and EVENT_ACTION == "labeled"' in src, (
                 f"{name}: manca il fail-closed sul fallimento modello via label"
