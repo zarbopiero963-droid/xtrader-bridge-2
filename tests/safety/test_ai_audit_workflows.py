@@ -305,6 +305,12 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
             assert re.search(r'stop_reason.*max_tokens', text), (
                 f"{name}: manca il check stop_reason=max_tokens"
             )
+            # blocco con "text": null → None in "\n".join(parts) = TypeError.
+            # La forma Anthropic è diversa dall'OpenRouter, va coperta a parte
+            # (gap segnalato da GPT-5.5, PR #304).
+            assert re.search(r'item\.get\("text"\)\s*or\s*""', text), (
+                f"{name}: il testo dei blocchi Anthropic non è protetto da text=None"
+            )
         else:  # openrouter (GLM, Fugu)
             assert re.search(r'finish_reason.*length', text), (
                 f"{name}: manca il check finish_reason=length"
