@@ -207,7 +207,9 @@ jobs:
           TARGET_REF = os.environ.get("TARGET_REF", "unknown-ref")
           RUN_ID = os.environ.get("GITHUB_RUN_ID", "local")
 
-          ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+          # .strip(): un secret con newline/spazio finale romperebbe l'header
+          # x-api-key (...\n) -> Invalid header value.
+          ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"].strip()
           ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-fable-5")
           ANTHROPIC_VERSION = os.environ.get("ANTHROPIC_VERSION", "2023-06-01")
 

@@ -189,6 +189,29 @@ def test_permessi_minimi_e_niente_scritture():
             )
 
 
+def test_api_key_letta_con_strip():
+    """La API key va letta con .strip().
+
+    Regressione reale (PR #304, head 953d64c): un secret incollato con newline
+    finale produceva ``Authorization: Bearer <key>\\n`` -> ``Invalid header
+    value`` e la request al modello falliva prima ancora di partire. Lo strip
+    neutralizza newline/spazi accidentali nel secret. Vale per tutti e sei i
+    workflow AI (i quattro PR review + i due audit), ciascuno con la propria
+    chiave provider.
+    """
+    for name, meta in _AI_WORKFLOWS.items():
+        text = _read(name)
+        secret = _PROVIDER_SECRET[meta["provider"]]
+        # Accetta sia os.environ["KEY"].strip() (PR review + audit Anthropic)
+        # sia os.environ.get("KEY", "").strip() (audit OpenAI): in entrambi i
+        # casi il valore usato per l'header è .strip()-ato.
+        pattern = rf'os\.environ(?:\.get)?[(\[]"{secret}"(?:,\s*"")?[)\]]\.strip\(\)'
+        assert re.search(pattern, text), (
+            f"{name}: la chiave {secret} va letta con .strip() "
+            f"(un newline finale rompe l'header Authorization/x-api-key)"
+        )
+
+
 def test_audit_solo_manuali_workflow_dispatch():
     for name, meta in _AI_WORKFLOWS.items():
         if meta["kind"] != "audit":

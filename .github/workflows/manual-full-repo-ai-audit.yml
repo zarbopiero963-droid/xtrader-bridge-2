@@ -194,7 +194,9 @@ jobs:
           REPORT_DIR = pathlib.Path(os.environ.get("AUDIT_REPORT_DIR", "ai_audit_report")).resolve()
           REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
-          OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+          # .strip(): un secret con newline/spazio finale romperebbe l'header
+          # Authorization (Bearer ...\n) -> Invalid header value.
+          OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
           OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.5")
           REPO = os.environ.get("REPO", "unknown/repo")
           TARGET_REF = os.environ.get("TARGET_REF", "unknown-ref")

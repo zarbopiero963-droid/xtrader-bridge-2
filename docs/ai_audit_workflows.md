@@ -94,6 +94,11 @@ mostra scope, range `base...head`, numero di commit e una stima del costo token.
   checkout e nessuna esecuzione del codice della PR**.
 - **Reviewer opzionali fail-open sul check**: key assente → `exit 0` (skip),
   mai un check rosso.
+- **API key `.strip()`-ate**: ogni secret (OpenAI/Anthropic/OpenRouter) viene
+  letto con `.strip()` prima di costruire l'header `Authorization: Bearer …` /
+  `x-api-key`. Un secret incollato con newline o spazio finale
+  produrrebbe altrimenti un `Invalid header value` e la request al modello
+  fallirebbe prima di partire (il workflow degrada a warning, non blocca la PR).
 - **Audit read-only**: snapshot tarball, nessun checkout scrivibile; solo un
   artifact. I **symlink non vengono mai seguiti** (un link committato non può
   far leggere file del runner fuori dallo snapshot) e i finding del modello sono

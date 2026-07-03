@@ -86,9 +86,11 @@ jobs:
           BEFORE_SHA = os.environ.get("BEFORE_SHA", "") or ""
           HEAD_SHA = os.environ["HEAD_SHA"]
           BASE_SHA = os.environ["BASE_SHA"]
-          GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
+          GITHUB_TOKEN = os.environ["GITHUB_TOKEN"].strip()
 
-          OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
+          # .strip(): un segreto incollato con newline/spazio finale renderebbe
+          # invalido l'header Authorization (Bearer ...\n) -> request fallita.
+          OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"].strip()
           OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "z-ai/glm-5.2")
           REVIEW_ID = os.environ.get("REVIEW_ID", "glm52")
           MODEL_LABEL = os.environ.get("MODEL_LABEL", OPENROUTER_MODEL)

@@ -87,9 +87,11 @@ jobs:
           AFTER_SHA = os.environ.get("AFTER_SHA", "") or ""
           HEAD_SHA = os.environ["HEAD_SHA"]
           BASE_SHA = os.environ["BASE_SHA"]
-          GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
+          GITHUB_TOKEN = os.environ["GITHUB_TOKEN"].strip()
 
-          OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+          # .strip(): un segreto incollato con newline/spazio finale renderebbe
+          # invalido l'header Authorization (Bearer ...\n) -> request fallita.
+          OPENAI_API_KEY = os.environ["OPENAI_API_KEY"].strip()
           OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.5")
           REVIEW_ID = os.environ.get("REVIEW_ID", "gpt55")
           MODEL_LABEL = os.environ.get("MODEL_LABEL", OPENAI_MODEL)
