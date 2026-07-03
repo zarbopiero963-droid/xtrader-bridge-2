@@ -574,6 +574,32 @@ def test_expire_tick_stantio_di_sessione_superata_non_scrive_su_vecchio_path(
     assert [r["EventName"] for r in q.active_rows()] == ["Inter v Milan"]
 
 
+def test_expire_tick_path_non_attivo_scartato_anche_con_epoch_corrente(
+        make_app, app_mod, monkeypatch, tmp_path):
+    """F1 #258 (gate PATH isolato, review GLM su #307): un tick con epoch CORRENTE ma path
+    diverso da quello attivo della sessione va comunque scartato — il gate path non deve
+    dipendere dal gate epoch (rami indipendenti, entrambi coperti). I chiamanti legacy
+    con `epoch=None` (test esistenti) passano il gate epoch via `_epoch_current(None)` ma
+    restano soggetti a questo gate path."""
+    from xtrader_bridge import csv_writer
+    pathA = str(tmp_path / "vecchio.csv")
+    pathB = str(tmp_path / "nuovo.csv")
+    csv_writer.init_csv(pathA)
+    q = signal_queue.SignalQueue(mode=signal_queue.QUEUE_UNTIL_CONFIRMED, default_timeout=120)
+    q.add(_row("Inter v Milan"), now=1000)
+    q.add(_row("Roma v Lazio"), now=800, timeout=10)           # scaduta a 810
+    csv_writer.write_rows(q.active_rows(1005.0), pathB)
+    a = make_app(csv_path=pathB, queue=q)
+    a._listener_epoch = 2
+    monkeypatch.setattr(app_mod.time, "monotonic", lambda: 1005.0)
+
+    app_mod.App._expire_tick(a, pathA, epoch=2)    # epoch CORRENTE, path NON attivo
+
+    assert _events_in_csv(pathA) == []             # pathA intatto
+    assert [r["EventName"] for r in q.active_rows()] == ["Inter v Milan", "Roma v Lazio"]
+    assert a.expiry_calls == []                    # nessuna riprogrammazione
+
+
 def test_expire_tick_gate_running_false_non_riscrive(make_app, app_mod, monkeypatch, tmp_path):
     from xtrader_bridge import csv_writer
     path = str(tmp_path / "segnali.csv")
