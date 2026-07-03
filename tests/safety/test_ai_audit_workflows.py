@@ -396,6 +396,17 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
                 f"{name}: modello OpenRouter reasoning deve controllare il reasoning "
                 "(effort 'low' o enabled False) col budget basso, altrimenti tronca a 0 testo"
             )
+            # Lock specifico GLM 5.2 (raccomandato da GPT-5.5 + GLM sulla review live
+            # di #310): col tetto 700 GLM ha IGNORATO effort='low' e ha comunque
+            # troncato a 0 testo, quindi per lei il reasoning va DISABILITATO del tutto,
+            # non solo abbassato. L'OR-regex qui sopra da solo non bloccherebbe una
+            # regressione a effort='low' su GLM, che rifarebbe troncare. Verificato dal
+            # vivo: con enabled False GLM ha prodotto una review reale (384 token < 700).
+            if name == "pr-review-openrouter-glm52.yml":
+                assert re.search(r'"reasoning":\s*\{"enabled":\s*False\}', src), (
+                    "GLM 5.2: col tetto basso effort='low' non basta (troncava live su "
+                    "#310) → il reasoning va disabilitato del tutto (enabled: False)"
+                )
 
 
 def test_audit_solo_manuali_workflow_dispatch():
