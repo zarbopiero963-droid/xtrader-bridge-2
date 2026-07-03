@@ -72,10 +72,10 @@ class SourceEditor:
         return {
             "name": str(name or "").strip(),
             "chat_id": str(chat_id or "").strip(),
-            # C7 #259: stessa coercizione FAIL-CLOSED di `source_manager` — con `bool()`
-            # una stringa non vuota («false», typo) passata al controller puro
+            # C7 #259: stessa coercizione FAIL-CLOSED pubblica di `source_manager` — con
+            # `bool()` una stringa non vuota («false», typo) passata al controller puro
             # diventava True e riabilitava la sorgente.
-            "enabled": source_manager._as_bool(enabled),
+            "enabled": source_manager.as_enabled_bool(enabled),
             "mode": source_manager.normalize_mode(mode),
             "provider": str(provider or "").strip(),
             "parser": str(parser or "").strip(),

@@ -17,6 +17,7 @@ un passo successivo (come `parser_manager` CP-07 ha preceduto CP-09), così ques
 parte resta interamente testabile headless e a rischio zero per il CSV.
 """
 
+import logging
 import math
 
 MODES = ("PRE", "LIVE")
@@ -33,19 +34,23 @@ def is_valid_mode(mode) -> bool:
     return str(mode or "").strip().upper() in MODES
 
 
-# Stringhe che significano "sì" esplicito per `enabled` (stesso vocabolario di
-# `autostart.is_enabled`, italiano incluso). Tutto il resto è fail-closed.
+# Stringhe che significano "sì" o "no" ESPLICITI per `enabled` (il vocabolario "sì"
+# è lo stesso di `autostart.is_enabled`, italiano incluso; test di parità in
+# `test_source_manager`). Tutto ciò che non è in nessuno dei due è MALFORMATO:
+# coercito a False (fail-closed) e segnalato a log da `_normalize_source`.
 _ENABLED_TRUE = ("true", "1", "yes", "on", "si", "sì")
+_ENABLED_FALSE = ("", "0", "false", "no", "off")
 
 
-def _as_bool(value) -> bool:
-    """Coercizione FAIL-CLOSED a bool per `enabled` (C7 #259): solo un "sì" ESPLICITO
-    abilita la sorgente. Prima era denylist-based (qualunque stringa non vuota fuori da
-    `0/false/no/off` diventava True): un typo («flase», «disabled») o un NaN/inf da
-    config corrotta RIABILITAVANO una sorgente che l'operatore credeva spenta → chat
-    di nuovo ascoltata. Ora vale l'allowlist (stesso contratto di `autostart.is_enabled`
-    e `config_store.as_bool_optin`); il default True per chiave ASSENTE resta al
-    chiamante (`raw.get("enabled", True)` in `_normalize`, che qui arriva come bool)."""
+def as_enabled_bool(value) -> bool:
+    """Coercizione FAIL-CLOSED a bool per `enabled` (C7 #259): abilita solo un "sì"
+    esplicito — bool True, numeri FINITI non-zero, stringhe in `_ENABLED_TRUE` (il
+    contratto numerico è identico a `autostart.is_enabled`/`as_bool_optin`: anche
+    `2` o `-1` sono un numero esplicitamente non-zero, mai un typo). Prima era
+    denylist-based (qualunque stringa non vuota fuori da `0/false/no/off` diventava
+    True): un typo («flase», «disabled») o un NaN/inf da config corrotta RIABILITAVANO
+    una sorgente che l'operatore credeva spenta → chat di nuovo ascoltata. Il default
+    True per chiave ASSENTE resta al chiamante (`raw.get("enabled", True)`)."""
     if isinstance(value, bool):
         return value
     if isinstance(value, int):
@@ -57,6 +62,26 @@ def _as_bool(value) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in _ENABLED_TRUE
     return False
+
+
+def _is_recognized_off(value) -> bool:
+    """True se `value` è un "no" ESPLICITO (bool False, zero finito, stringa della
+    denylist storica): serve a distinguere una disattivazione VOLUTA da un valore
+    MALFORMATO coercito a False, che va invece segnalato a log (review Fable #309:
+    il flip fail-closed non deve essere silenzioso per l'operatore)."""
+    if isinstance(value, bool):
+        return value is False
+    if isinstance(value, int):
+        return value == 0
+    if isinstance(value, float):
+        return math.isfinite(value) and value == 0
+    if isinstance(value, str):
+        return value.strip().lower() in _ENABLED_FALSE
+    return False
+
+
+# Alias retro-compatibile del vecchio nome privato (riferito da codice/test esterni).
+_as_bool = as_enabled_bool
 
 
 def normalize_mode(mode) -> str:
@@ -71,11 +96,23 @@ def _normalize_source(raw: dict) -> dict:
     """Porta una sorgente grezza alla forma canonica (tipi e default coerenti).
 
     `enabled` è True di default (una sorgente appena aggiunta è attiva); `chat_id`
-    e `provider` sono rifilati; `mode` normalizzato a PRE/LIVE."""
+    e `provider` sono rifilati; `mode` normalizzato a PRE/LIVE. Un `enabled`
+    MALFORMATO (né sì né no espliciti) viene coercito a False (fail-closed, C7 #259)
+    e SEGNALATO a log: la sorgente smette di essere ascoltata e l'operatore deve
+    poterlo vedere, non scoprirlo dall'assenza di segnali (review Fable/Sourcery)."""
+    raw_enabled = raw.get("enabled", True)
+    enabled = as_enabled_bool(raw_enabled)
+    if not enabled and not _is_recognized_off(raw_enabled):
+        # Solo chat_id + valore incriminato: mai altri campi della config nel log.
+        logging.getLogger(__name__).warning(
+            "source_chats: enabled=%r non riconosciuto per chat_id=%r → sorgente "
+            "DISABILITATA (fail-closed, C7 #259). Valori ammessi: %s / %s.",
+            raw_enabled, str(raw.get("chat_id", "") or "").strip(),
+            "/".join(_ENABLED_TRUE), "/".join(v or "''" for v in _ENABLED_FALSE))
     return {
         "name": str(raw.get("name", "") or "").strip(),
         "chat_id": str(raw.get("chat_id", "") or "").strip(),
-        "enabled": _as_bool(raw.get("enabled", True)),
+        "enabled": enabled,
         "provider": str(raw.get("provider", "") or "").strip(),
         "mode": normalize_mode(raw.get("mode", "")),
     }

@@ -265,3 +265,9 @@ def test_row_enabled_stringa_malformata_fail_closed():
     for ok in (True, 1, "true", "sì", "on"):
         assert SourceEditor._row(enabled=ok)["enabled"] is True, f"spenta da {ok!r}"
     assert SourceEditor._row()["enabled"] is True      # default invariato
+
+
+def test_row_enabled_none_resta_spenta():
+    """Simmetria col manager (review Fable su #309): `None` non è un sì esplicito."""
+    from xtrader_bridge.source_editor import SourceEditor
+    assert SourceEditor._row(enabled=None)["enabled"] is False

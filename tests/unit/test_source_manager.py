@@ -151,3 +151,36 @@ def test_enabled_malformato_fail_closed():
         cfg = _cfg({"chat_id": "777", "enabled": off})
         assert sm.source_chats(cfg)[0]["enabled"] is False, f"accesa da {off!r}"
     assert sm.source_chats(_cfg({"chat_id": "777"}))[0]["enabled"] is True
+
+
+def test_enabled_malformato_viene_segnalato_a_log(caplog):
+    """Review Fable/Sourcery su #309: il flip fail-closed non deve essere silenzioso.
+    Un `enabled` malformato produce un WARNING con chat_id e valore incriminato (mai
+    altri campi della config); un "no" ESPLICITO (False/"false"/0/"off") non logga."""
+    import logging as _logging
+    with caplog.at_level(_logging.WARNING, logger="xtrader_bridge.source_manager"):
+        sm.source_chats(_cfg({"chat_id": "777", "enabled": "flase"}))
+    assert any("flase" in r.message and "777" in r.message for r in caplog.records)
+    caplog.clear()
+    with caplog.at_level(_logging.WARNING, logger="xtrader_bridge.source_manager"):
+        for off in (False, "false", 0, "off", "", "0", "no"):
+            sm.source_chats(_cfg({"chat_id": "777", "enabled": off}))
+        sm.source_chats(_cfg({"chat_id": "777"}))                    # default: nessun log
+        sm.source_chats(_cfg({"chat_id": "777", "enabled": True}))   # sì esplicito: idem
+    assert caplog.records == []
+
+
+def test_vocabolario_si_allineato_con_autostart():
+    """Anti-drift (review GLM/Fable su #309): ogni stringa-sì di `_ENABLED_TRUE` deve
+    essere un sì anche per `autostart.is_enabled` (stesso contratto dichiarato)."""
+    from xtrader_bridge import autostart
+    for v in sm._ENABLED_TRUE:
+        assert autostart.is_enabled({"auto_start_listener": v}) is True, v
+        assert sm.as_enabled_bool(v) is True, v
+
+
+def test_enabled_int_enorme_non_crasha():
+    """Lezione #299 blindata anche qui: un int fuori range float (10**400) non deve
+    sollevare OverflowError — è un numero esplicitamente non-zero → True."""
+    assert sm.as_enabled_bool(10**400) is True
+    assert sm.as_enabled_bool(-(10**400)) is True
