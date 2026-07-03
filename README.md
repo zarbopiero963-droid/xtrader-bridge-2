@@ -660,13 +660,16 @@ La compilazione dell'EXE con **PyInstaller** resta invariata.
 
 ## Review e audit AI (GitHub Actions)
 
-Quattro workflow opzionali usano modelli AI (GPT-5.5 e Claude Fable 5) come
-**filtro tecnico aggiuntivo**: due commentano automaticamente ogni PR con una
-review diff-only (senza checkout né esecuzione del codice) e due, avviabili
-**solo a mano** da *Actions → Run workflow*, scansionano l'intero repository in
-sola lettura producendo un report scaricabile. Nessuno modifica codice, apre
-PR, approva o merge — il merge resta manuale. Richiedono i secrets
-`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`. Dettagli, invarianti di sicurezza e
+Sei workflow opzionali usano modelli AI come **filtro tecnico aggiuntivo**:
+quattro reviewer automatici (GPT-5.5, Claude Fable 5, GLM 5.2, Fugu Ultra)
+commentano ogni push della PR analizzando **solo il range appena pushato**
+(diff-only via GitHub Compare API, senza checkout né esecuzione del codice); due
+audit full-repo, avviabili **solo a mano** da *Actions → Run workflow*,
+scansionano l'intero repository in sola lettura producendo un report
+scaricabile. Nessuno modifica codice, apre PR, approva o merge — il merge resta
+manuale. I reviewer sono opzionali (senza il relativo secret il check non
+fallisce, viene solo saltato). Richiedono i secrets `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`. Dettagli, invarianti di sicurezza e
 valori consigliati: **`docs/ai_audit_workflows.md`**.
 
 ---

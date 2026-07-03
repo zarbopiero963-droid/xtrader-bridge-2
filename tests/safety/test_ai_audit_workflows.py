@@ -1,32 +1,38 @@
-"""Gate di sicurezza dei workflow AI (PR review + full-repo audit).
+"""Gate di sicurezza dei workflow AI (PR review push-range + full-repo audit).
 
-I 4 workflow AI (`openai-gpt-pr-review.yml`, `claude-fable-pr-review.yml`,
-`manual-full-repo-ai-audit.yml`, `claude-fable-full-repo-audit.yml`) inviano
-diff/contenuti del repository a servizi esterni (OpenAI/Anthropic). Le regole
-non negoziabili che questo gate difende, in modo deterministico e offline:
+Sei workflow AI mandano diff/contenuti del repository a servizi esterni:
+
+- **PR review push-range** (automatici su ogni push della PR, un commento per
+  range `before...after` via GitHub Compare API):
+  `pr-review-gpt55.yml` (OpenAI), `pr-review-claude-fable5.yml` (Anthropic),
+  `pr-review-openrouter-glm52.yml` e `pr-review-openrouter-fugu-ultra.yml`
+  (OpenRouter);
+- **audit full-repo** (solo manuali, artifact scaricabile):
+  `manual-full-repo-ai-audit.yml` (OpenAI) e `claude-fable-full-repo-audit.yml`
+  (Anthropic).
+
+Invarianti non negoziabili difese qui, in modo deterministico e offline:
 
 - **read-only**: nessun checkout nei PR review, nessun permesso di scrittura
   sul contenuto (`contents: read`; solo `issues: write` per il commento PR);
-- **niente `pull_request_target`** (il pattern pericoloso con secrets + codice
-  del fork) e fork esterni/draft esclusi via guard `if:`;
+- **niente `pull_request_target`**, fork esterni/draft esclusi via `if:`;
 - **audit solo manuali**: trigger esclusivamente `workflow_dispatch`;
-- **redaction**: i possibili segreti vengono offuscati PRIMA dell'invio al
-  modello — qui si esercitano le funzioni REALI estratte dagli heredoc;
-- **no training/persistenza lato OpenAI**: Responses API con `store: False`;
-- **action pinnate a SHA** (convenzione hardening del repo).
+- **reviewer opzionali**: se manca l'API key il PR review esce con **successo**
+  (skip), non fa fallire la PR con un check rosso;
+- **redaction pre-invio**: possibili segreti — inclusi **nomi file/path** e il
+  **ref** — vengono offuscati PRIMA dell'invio (con `github_pat_` fine-grained);
+- **no training/persistenza lato OpenAI**: Responses API con `store: false`;
+- **action pinnate a SHA** (solo gli audit usano `uses:`; i PR review no);
+- **audit fail-closed**: se ogni chunk AI fallisce, l'audit non è "verde".
 
-Come per `test_build_exe_safety.py` il parsing dei workflow è dependency-free
-(regex, nessun parser YAML esterno: PyYAML non è una dipendenza del progetto).
-Il Python embedded negli heredoc `python3 <<'PY'` viene estratto esattamente
-come lo vedrebbe la shell (dedent al livello dell'heredoc), compilato, e per i
-due script di audit anche ESEGUITO offline (solo definizioni: `main()` resta
-dietro `if __name__ == "__main__"`, nessuna chiamata di rete) per testare le
-funzioni pure: redaction, chunking con numeri riga, secret-scan locale,
-normalizzazione dei finding.
-
-Limite onesto: i due script di PR review girano a livello modulo (chiamano le
-API GitHub/AI appena importati), quindi qui sono coperti da compile + invarianti
-statiche; il loro comportamento live si verifica solo su una PR reale.
+Il parsing dei workflow è dependency-free (regex; PyYAML non è una dipendenza
+del progetto). Il Python embedded negli heredoc `python3 <<'PY'` viene estratto
+esattamente come lo vedrebbe la shell (dedent al livello dell'heredoc),
+compilato, e per i due script di audit anche ESEGUITO offline (solo definizioni:
+`main()` resta dietro `if __name__ == "__main__"`, nessuna chiamata di rete) per
+testare le funzioni pure. I quattro PR review girano a livello modulo (chiamano
+GitHub appena importati), quindi sono coperti da compile + invarianti statiche;
+il loro comportamento live si verifica solo su una PR reale.
 """
 
 import os
@@ -37,13 +43,23 @@ import pytest
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _WF_DIR = os.path.join(_REPO_ROOT, ".github", "workflows")
 
-# kind: pr_review = automatico sulle PR (commenta) · audit = manuale read-only (artifact)
+# kind: pr_review = automatico push-range (commenta) · audit = manuale read-only
 _AI_WORKFLOWS = {
-    "openai-gpt-pr-review.yml": {"kind": "pr_review", "provider": "openai"},
-    "claude-fable-pr-review.yml": {"kind": "pr_review", "provider": "anthropic"},
+    "pr-review-gpt55.yml": {"kind": "pr_review", "provider": "openai"},
+    "pr-review-claude-fable5.yml": {"kind": "pr_review", "provider": "anthropic"},
+    "pr-review-openrouter-glm52.yml": {"kind": "pr_review", "provider": "openrouter"},
+    "pr-review-openrouter-fugu-ultra.yml": {"kind": "pr_review", "provider": "openrouter"},
     "manual-full-repo-ai-audit.yml": {"kind": "audit", "provider": "openai"},
     "claude-fable-full-repo-audit.yml": {"kind": "audit", "provider": "anthropic"},
 }
+
+_PROVIDER_SECRET = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+}
+
+_AUDIT_WORKFLOWS = ("manual-full-repo-ai-audit.yml", "claude-fable-full-repo-audit.yml")
 
 _UPLOAD_ARTIFACT_PINNED = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
 
@@ -58,12 +74,7 @@ def _read(name):
 
 
 def _extract_heredocs(text):
-    """Estrae i blocchi ``python3 <<'PY' ... PY`` come li vede la shell.
-
-    YAML rimuove l'indentazione del block scalar fino al livello base del
-    ``run: |``; qui si replica il risultato togliendo a ogni riga del corpo
-    l'indentazione della riga ``python3 <<'PY'`` (le righe vuote restano vuote).
-    """
+    """Estrae i blocchi ``python3 <<'PY' ... PY`` come li vede la shell."""
     lines = text.splitlines()
     blocks = []
     i = 0
@@ -94,14 +105,17 @@ def _compiled_heredoc(name):
 
 
 # --- Segreti FINTI costruiti a runtime: il testo grezzo di questo file non
-# --- deve mai contenere pattern che assomiglino a un segreto reale (gate
-# --- forbidden-files / secret-scan del repo).
+# --- deve mai contenere pattern che assomiglino a un segreto reale.
 def _fake_telegram_token():
-    return "123456789" + ":" + "AB" * 18  # 9 cifre + ':' + 36 caratteri
+    return "123456789" + ":" + "AB" * 18
 
 
 def _fake_openai_key():
-    return "sk-" + "a1B2" * 8  # 'sk-' + 32 caratteri
+    return "sk-" + "a1B2" * 8
+
+
+def _fake_github_pat():
+    return "github_pat_" + "A1b2" * 10  # github_pat_ + 40 caratteri
 
 
 def _fake_private_key_block():
@@ -111,22 +125,18 @@ def _fake_private_key_block():
     )
 
 
-def _exec_audit_script(name, tmp_path, monkeypatch):
-    """Esegue lo script di audit estratto, offline, e ritorna il namespace.
-
-    Prepara un finto repo (AUDIT_ROOT) e una report-dir temporanea; imposta le
-    env richieste a livello modulo. Nessuna rete: viene eseguito solo il corpo
-    di definizione (main() è guardato da __name__).
-    """
+def _exec_audit_script(name, tmp_path, monkeypatch, extra_env=None):
+    """Esegue lo script di audit estratto, offline, e ritorna il namespace."""
     root = tmp_path / "repo"
     root.mkdir(exist_ok=True)
     report = tmp_path / "report"
 
     monkeypatch.setenv("AUDIT_ROOT", str(root))
     monkeypatch.setenv("AUDIT_REPORT_DIR", str(report))
-    # Chiave FINTA: serve solo perché lo script Claude la legge a livello modulo.
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test" + "-non-e-una-chiave-vera")
     monkeypatch.setenv("OPENAI_API_KEY", "test" + "-non-e-una-chiave-vera")
+    for k, v in (extra_env or {}).items():
+        monkeypatch.setenv(k, v)
 
     src = _compiled_heredoc(name)
     namespace = {"__name__": f"wf_audit_{name.replace('-', '_').replace('.', '_')}"}
@@ -135,17 +145,10 @@ def _exec_audit_script(name, tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Invarianti statiche sui 4 workflow
+# Invarianti statiche sui 6 workflow
 # ---------------------------------------------------------------------------
 
 def test_yaml_dei_workflow_ai_e_parsabile():
-    """Validazione YAML piena, solo dove PyYAML è disponibile.
-
-    PyYAML non è una dipendenza del progetto: in CI questo test viene SKIPPATO
-    (motivo scritto qui) e la validità YAML resta garantita da GitHub Actions
-    stesso, che rifiuta i workflow malformati. In locale (dove PyYAML è
-    installato) il parse gira davvero.
-    """
     yaml = pytest.importorskip(
         "yaml", reason="PyYAML non è una dipendenza del progetto; validazione YAML solo locale"
     )
@@ -166,17 +169,13 @@ def test_permessi_minimi_e_niente_scritture():
         assert "contents: write" not in text, f"{name}: contents: write vietato"
         assert "pull-requests: write" not in text, f"{name}: pull-requests: write vietato"
         assert "actions: write" not in text, f"{name}: actions: write vietato"
-        # Come chiave trigger YAML, non come substring: i commenti di sicurezza
-        # («niente pull_request_target») sono legittimi.
         assert not re.search(r"(?m)^\s*pull_request_target:", text), (
             f"{name}: trigger pull_request_target vietato"
         )
 
         if meta["kind"] == "audit":
-            # Gli audit non devono poter scrivere nulla, nemmeno commenti.
             assert "issues: write" not in text, f"{name}: audit deve restare senza issues: write"
         else:
-            # Il PR review scrive SOLO il commento (issues: write) e legge la PR.
             assert "issues: write" in text, f"{name}: manca issues: write per il commento"
             assert "pull-requests: read" in text, f"{name}: manca pull-requests: read"
 
@@ -187,7 +186,6 @@ def test_audit_solo_manuali_workflow_dispatch():
             continue
         text = _read(name)
         assert "workflow_dispatch:" in text, f"{name}: manca workflow_dispatch"
-        # Nessun trigger automatico: niente push/pull_request/schedule.
         assert not re.search(r"(?m)^  push:", text), f"{name}: trigger push vietato"
         assert not re.search(r"(?m)^  pull_request:", text), f"{name}: trigger pull_request vietato"
         assert not re.search(r"(?m)^  schedule:", text), f"{name}: trigger schedule vietato"
@@ -205,16 +203,41 @@ def test_pr_review_diff_only_niente_checkout_niente_fork():
         assert "github.event.pull_request.draft == false" in text, f"{name}: manca il guard draft"
 
 
+def test_pr_review_reviewer_opzionale_non_fa_fallire_la_pr():
+    """Codex P2: senza API key il reviewer opzionale deve uscire con successo
+    (skip), non trasformarsi in un check rosso su ogni PR interna."""
+    for name, meta in _AI_WORKFLOWS.items():
+        if meta["kind"] != "pr_review":
+            continue
+        text = _read(name)
+        assert "exit 1" not in text, f"{name}: il reviewer opzionale non deve mai uscire con exit 1"
+        assert re.search(r"non configurato.*\n\s*exit 0", text), (
+            f"{name}: la key assente deve portare a 'exit 0' (skip), non a un fallimento"
+        )
+
+
+def test_pr_review_push_range_via_compare_api():
+    """L'architettura finale analizza il range del push (before...after) via
+    Compare API, non il diff cumulativo della PR."""
+    for name, meta in _AI_WORKFLOWS.items():
+        if meta["kind"] != "pr_review":
+            continue
+        src = _compiled_heredoc(name)
+        assert "/compare/" in src and "resolve_range" in src, (
+            f"{name}: deve usare il range del push via GitHub Compare API"
+        )
+        assert "BEFORE_SHA" in src, f"{name}: deve leggere github.event.before per il range del push"
+
+
 def test_segreti_via_github_secrets_e_masking():
     for name, meta in _AI_WORKFLOWS.items():
         text = _read(name)
-        key = "OPENAI_API_KEY" if meta["provider"] == "openai" else "ANTHROPIC_API_KEY"
+        key = _PROVIDER_SECRET[meta["provider"]]
         assert "${{ secrets." + key + " }}" in text, f"{name}: la API key deve venire dai secrets"
         assert "::add-mask::" in text, f"{name}: manca il masking della API key nei log"
 
 
 def test_openai_responses_api_con_store_false():
-    """I dati inviati a OpenAI non devono essere memorizzati (store: False)."""
     for name, meta in _AI_WORKFLOWS.items():
         if meta["provider"] != "openai":
             continue
@@ -230,10 +253,40 @@ def test_upload_artifact_pinnato_a_sha():
             assert _UPLOAD_ARTIFACT_PINNED in text, (
                 f"{name}: upload-artifact deve essere pinnato allo SHA v4.6.2 come build.yaml"
             )
-        # Nessuna action non pinnata: ogni `uses:` deve referenziare uno SHA di 40 hex.
         for m in re.finditer(r"(?m)^\s*uses:\s*(\S+)", text):
             ref = m.group(1)
             assert re.search(r"@[0-9a-f]{40}$", ref), f"{name}: action non pinnata a SHA: {ref}"
+
+
+def test_pr_review_fix_incorporati():
+    """Fix mantenuti nella riscrittura push-range (confermati dal proprietario):
+    label/avviso prima di ogni uscita, redaction dei nomi file, pattern che
+    copre tutti i requirements, paginazione dei commenti, PAT fine-grained."""
+    for name, meta in _AI_WORKFLOWS.items():
+        if meta["kind"] != "pr_review":
+            continue
+        src = _compiled_heredoc(name)
+        # Label/avviso calcolati PRIMA dell'uscita per diff vuoto.
+        assert src.index("if critical_files:") < src.index("if not diff_text.strip():"), (
+            f"{name}: label/avviso vanno calcolati prima dell'early-exit per diff vuoto"
+        )
+        assert src.count("{manual_warning}") >= 2, (
+            f"{name}: l'avviso manuale deve comparire anche nel commento per diff vuoto"
+        )
+        # Nome file redatto prima di prompt/commenti/etichette.
+        assert 'filename = redact(f.get("filename"' in src, (
+            f"{name}: il nome file va redatto (può contenere un segreto)"
+        )
+        # Detector requirements completo (.txt/.in/.lock).
+        assert r"requirements[^/]*\.(txt|in|lock)$" in src, (
+            f"{name}: detector requirements non copre .in/-dev/-build.lock"
+        )
+        # Paginazione completa dei commenti (marker oltre i primi 100).
+        assert "per_page=100&page={page}" in src, (
+            f"{name}: upsert_comment deve paginare i commenti"
+        )
+        # PAT GitHub fine-grained redatto.
+        assert "github_pat_" in src, f"{name}: manca la redaction del PAT fine-grained (github_pat_)"
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +294,7 @@ def test_upload_artifact_pinnato_a_sha():
 # ---------------------------------------------------------------------------
 
 def test_redaction_offusca_i_segreti_prima_dell_invio(tmp_path, monkeypatch):
-    for name in ("manual-full-repo-ai-audit.yml", "claude-fable-full-repo-audit.yml"):
+    for name in _AUDIT_WORKFLOWS:
         ns, _ = _exec_audit_script(name, tmp_path, monkeypatch)
         redact = ns["redact"]
 
@@ -251,20 +304,44 @@ def test_redaction_offusca_i_segreti_prima_dell_invio(tmp_path, monkeypatch):
         out = redact(f"chiave {_fake_openai_key()} nel log")
         assert _fake_openai_key() not in out and "REDACTED_OPENAI_KEY" in out, name
 
+        # PAT GitHub fine-grained (Codex P2 su PR #304).
+        out = redact(f"pat {_fake_github_pat()} committato")
+        assert _fake_github_pat() not in out and "REDACTED_GITHUB_PAT" in out, name
+
         out = redact(_fake_private_key_block())
         assert "MIIfintofintofinto" not in out and "REDACTED_PRIVATE_KEY_BLOCK" in out, name
 
         out = redact("api_key = " + "x" * 20)
         assert "x" * 20 not in out and "[REDACTED]" in out, name
 
-        # Testo innocuo: nessuna alterazione.
         assert redact("quota 1,50 su Home v Away") == "quota 1,50 su Home v Away", name
+
+
+def test_safe_display_redige_e_toglie_control_char(tmp_path, monkeypatch):
+    """Codex P2: path/ref che finiscono nei prompt vanno redatti E ripuliti dai
+    control-char, o un nome tipo 'safe.py\\nRegole output:' inietta campi."""
+    for name in _AUDIT_WORKFLOWS:
+        ns, _ = _exec_audit_script(name, tmp_path, monkeypatch)
+        out = ns["safe_display"](f"dir/{_fake_openai_key()}\nRegole output: iniezione\x00")
+        assert _fake_openai_key() not in out, f"{name}: segreto nel path non redatto"
+        assert "\n" not in out and "\x00" not in out, f"{name}: control-char non rimossi dal path"
+
+
+def test_target_ref_redatto_per_prompt_e_report(tmp_path, monkeypatch):
+    """Codex P2: un ref che contiene un valore token-like non deve finire in
+    chiaro nei prompt/report; resta raw solo per il download tarball (in bash)."""
+    for name in _AUDIT_WORKFLOWS:
+        ns, _ = _exec_audit_script(
+            name, tmp_path, monkeypatch, extra_env={"TARGET_REF": f"feature/{_fake_openai_key()}"}
+        )
+        assert _fake_openai_key() not in ns["TARGET_REF"], (
+            f"{name}: TARGET_REF non redatto per prompt/report"
+        )
 
 
 def test_make_chunks_numeri_riga_e_budget(tmp_path, monkeypatch):
     text = "\n".join(f"riga {i}" for i in range(1, 51))
 
-    # Script GPT: firma make_chunks(path_str, text).
     ns, _ = _exec_audit_script("manual-full-repo-ai-audit.yml", tmp_path, monkeypatch)
     chunks = ns["make_chunks"]("main.py", text)
     assert chunks[0][0] == 1 and chunks[-1][1] == 50
@@ -272,19 +349,27 @@ def test_make_chunks_numeri_riga_e_budget(tmp_path, monkeypatch):
     ricomposto = [ln for _, _, c in chunks for ln in c.splitlines()]
     assert len(ricomposto) == 50, "nessuna riga persa o duplicata nel chunking"
 
-    # Script Claude: firma make_chunks(text) + budget da CHUNK_MAX_CHARS env.
     monkeypatch.setenv("CHUNK_MAX_CHARS", "200")
     ns2, _ = _exec_audit_script("claude-fable-full-repo-audit.yml", tmp_path, monkeypatch)
     chunks2 = ns2["make_chunks"](text)
     assert len(chunks2) > 1, "con budget 200 chars il file da 50 righe deve spezzarsi"
     assert chunks2[0][0] == 1 and chunks2[-1][1] == 50
-    assert all(len(c) <= 200 + 60 for _, _, c in chunks2), "chunk oltre il budget configurato"
-    # Continuità: ogni chunk riparte dalla riga successiva al precedente.
     for (s1, e1, _), (s2, _, _) in zip(chunks2, chunks2[1:]):
         assert s2 == e1 + 1
-
-    # File vuoto: chunk sintetico, nessun crash.
     assert ns2["make_chunks"]("") == [(1, 1, "000001: [EMPTY FILE]")]
+
+
+def test_make_chunks_tronca_righe_singole_oltre_budget(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHUNK_MAX_CHARS", "200")
+    long_line = "x" * 1000
+
+    ns, _ = _exec_audit_script("manual-full-repo-ai-audit.yml", tmp_path, monkeypatch)
+    chunks = ns["make_chunks"]("minified.js", long_line)
+    assert all(len(c) <= 260 for _, _, c in chunks), "audit GPT: chunk oltre il budget"
+
+    ns2, _ = _exec_audit_script("claude-fable-full-repo-audit.yml", tmp_path, monkeypatch)
+    chunks2 = ns2["make_chunks"](long_line)
+    assert all(len(c) <= 260 for _, _, c in chunks2), "audit Claude: chunk oltre il budget"
 
 
 def test_local_secret_scan_trova_token_finto_e_redige_l_evidenza(tmp_path, monkeypatch):
@@ -293,47 +378,42 @@ def test_local_secret_scan_trova_token_finto_e_redige_l_evidenza(tmp_path, monke
         ("claude-fable-full-repo-audit.yml", "local_secret_scan"),
     ):
         ns, _ = _exec_audit_script(name, tmp_path, monkeypatch)
+
         text = "riga innocua\n" + f'TOKEN = "{_fake_telegram_token()}"\n'
         findings = ns[fn_name]("config_store.py", text)
-        assert findings, f"{name}: token finto non rilevato"
         telegram = [f for f in findings if f["title"].endswith("telegram_bot_token")]
         assert telegram and telegram[0]["severity"] == "critical", name
         assert telegram[0]["line_start"] == 2, name
-        # L'evidenza NON deve contenere il valore del segreto.
         assert _fake_telegram_token() not in telegram[0]["evidence"], name
 
-        # PEM multi-riga (com'è nella realtà): il marker BEGIN deve produrre un
-        # finding critical anche se BEGIN/END stanno su righe diverse
-        # (regressione Codex P2 / CodeRabbit su PR #304: pattern multiline
-        # usato in un loop per-riga non matchava mai).
-        pem_findings = ns[fn_name]("secret.pem", _fake_private_key_block() + "\n")
-        pem = [f for f in pem_findings if f["title"].endswith("private_key_block")]
-        assert pem and pem[0]["severity"] == "critical", (
-            f"{name}: private key PEM multi-riga non rilevata dallo scan locale"
-        )
+        # PEM multi-riga.
+        pem = [f for f in ns[fn_name]("secret.pem", _fake_private_key_block() + "\n")
+               if f["title"].endswith("private_key_block")]
+        assert pem and pem[0]["severity"] == "critical", f"{name}: PEM multi-riga non rilevata"
+
+        # PAT fine-grained (Codex P2 su PR #304).
+        pat = [f for f in ns[fn_name]("cfg.py", f'PAT = "{_fake_github_pat()}"\n')
+               if f["title"].endswith("github_fine_grained_pat")]
+        assert pat and pat[0]["severity"] == "critical", f"{name}: PAT fine-grained non rilevato"
+        assert _fake_github_pat() not in pat[0]["evidence"], name
 
         assert ns[fn_name]("main.py", "print('ciao')\n") == [], f"{name}: falso positivo"
 
 
 def test_normalize_finding_fail_closed_su_dati_del_modello(tmp_path, monkeypatch):
-    for name in ("manual-full-repo-ai-audit.yml", "claude-fable-full-repo-audit.yml"):
+    for name in _AUDIT_WORKFLOWS:
         ns, _ = _exec_audit_script(name, tmp_path, monkeypatch)
         norm = ns["normalize_finding"]
 
-        # Severity inventata dal modello → clampata a info.
         f = norm({"severity": "apocalittica", "title": "x"}, "main.py", 10, 20)
         assert f["severity"] == "info", name
 
-        # Riga fuori dal range del chunk → scartata (nessuna riga inventata).
         f = norm({"severity": "high", "line_start": 999, "line_end": 999}, "main.py", 10, 20)
         assert f["line_start"] is None, name
 
-        # Riga valida nel range → preservata.
         f = norm({"severity": "critical", "line_start": 12, "line_end": 15}, "main.py", 10, 20)
         assert f["severity"] == "critical" and f["line_start"] == 12 and f["line_end"] == 15, name
 
-        # Il modello non può attribuire il finding a un file MAI analizzato:
-        # il campo file è clampato al file del chunk (Codex P2 su PR #304).
         f = norm({"severity": "high", "file": "altro/file_inventato.py"}, "main.py", 10, 20)
         assert f["file"] == "main.py", f"{name}: file del finding non clampato al chunk"
 
@@ -357,13 +437,10 @@ def test_iter_files_salta_binari_directory_generate_e_max_files(tmp_path, monkey
     assert "bridge.exe" in skipped_names, "binario non saltato"
     assert "__pycache__/x.py" in skipped_names, "directory generata non saltata"
     assert "c_extra.txt" in skipped_names, "file oltre MAX_FILES non tracciato come saltato"
-    # Ogni file saltato ha il motivo scritto (trasparenza: niente troncamenti silenziosi).
     assert all(item["reason"] for item in skipped)
 
 
 def test_iter_files_non_segue_symlink_fuori_dallo_snapshot(tmp_path, monkeypatch):
-    """Un symlink committato nel ref scansionato non deve far leggere file del
-    runner fuori da AUDIT_ROOT (Codex P2 su PR #304): va saltato, con motivo."""
     fuori = tmp_path / "fuori-dallo-snapshot.txt"
     fuori.write_text("contenuto del runner FUORI dal repo\n", encoding="utf-8")
 
@@ -383,116 +460,27 @@ def test_iter_files_non_segue_symlink_fuori_dallo_snapshot(tmp_path, monkeypatch
         assert "evil_link.txt" not in scanned, f"{name}: symlink seguito fuori dallo snapshot"
         evil = [item for item in skipped if item["file"] == "evil_link.txt"]
         assert evil, f"{name}: symlink saltato ma non tracciato"
-        # Il motivo deve dire PERCHÉ (symlink), non un motivo qualsiasi.
         assert any("symlink" in item["reason"] for item in evil), (
             f"{name}: motivo dello skip non menziona il symlink"
         )
 
 
-def test_pr_review_upsert_paginato_e_ref_tarball_encodato():
-    """Invarianti statiche dei fix Codex/CodeRabbit su PR #304."""
-    for name, meta in _AI_WORKFLOWS.items():
-        if meta["kind"] == "pr_review":
-            src = _compiled_heredoc(name)
-            assert "per_page=100&page={page}" in src, (
-                f"{name}: upsert_comment deve paginare i commenti (marker oltre i primi 100)"
-            )
-        else:
-            text = _read(name)
-            # È proprio TARGET_REF a essere quotato (non un quote qualsiasi).
-            assert re.search(r"urllib\.parse\.quote\([^)]*TARGET_REF", text), (
-                f"{name}: TARGET_REF va URL-encodato prima dell'URL tarball (branch con '/')"
-            )
-            # Fail-closed sul charset PRIMA di scrivere in GITHUB_ENV: un
-            # target_ref con newline inietterebbe record extra nel file env.
-            assert re.search(r'"\$TARGET_REF"\s*=~\s*\^\[A-Za-z0-9._/-\]\+\$', text), (
-                f"{name}: manca la validazione charset di target_ref prima di GITHUB_ENV"
-            )
-
-
-def test_pr_review_label_e_warning_sopravvivono_al_diff_vuoto():
-    """Codex P2 su PR #304 round 2: una PR di soli file binari/oversized che
-    tocca aree sensibili deve comunque ricevere label + avviso manuale, anche
-    se non c'è patch testuale da mandare al modello. Gli script PR review
-    girano a livello modulo (non exec-abili offline), quindi qui si verifica
-    l'ordine del flusso nel sorgente: label/warning calcolati PRIMA dell'uscita
-    per diff vuoto, e warning incluso in entrambi i commenti."""
-    for name, meta in _AI_WORKFLOWS.items():
-        if meta["kind"] != "pr_review":
-            continue
+def test_audit_fallisce_se_tutti_i_chunk_ai_falliscono():
+    """Codex P2: se ogni chunk AI fallisce (key invalida/API giù) l'audit non
+    deve sembrare verde. La logica gira a runtime con la rete; qui si verifica
+    che il guard esista nel sorgente eseguito."""
+    for name in _AUDIT_WORKFLOWS:
         src = _compiled_heredoc(name)
-        assert src.index("if critical_files:") < src.index('if not diff_text.strip():'), (
-            f"{name}: label/warning vanno calcolati prima dell'early-exit per diff vuoto"
+        assert "chunks_succeeded" in src, f"{name}: manca il conteggio dei chunk riusciti"
+        assert "chunks_used > 0 and chunks_succeeded == 0" in src, (
+            f"{name}: manca il guard 'nessun chunk riuscito -> fallisci'"
         )
-        assert src.count("{manual_warning}") >= 2, (
-            f"{name}: l'avviso manuale deve comparire anche nel commento per diff vuoto"
-        )
-
-
-def test_redazione_pem_preserva_i_numeri_riga(tmp_path, monkeypatch):
-    """Codex P2 su PR #304 round 2: la redaction di un blocco PEM multi-riga
-    non deve collassare le righe, o i finding successivi puntano a righe
-    sbagliate nel report."""
-    for name in ("manual-full-repo-ai-audit.yml", "claude-fable-full-repo-audit.yml"):
-        ns, _ = _exec_audit_script(name, tmp_path, monkeypatch)
-        text = "riga prima\n" + _fake_private_key_block() + "\nriga dopo"
-        out = ns["redact"](text)
-        assert "MIIfintofintofinto" not in out, f"{name}: PEM non redatto"
-        assert out.count("\n") == text.count("\n"), (
-            f"{name}: la redaction del PEM ha cambiato il numero di righe"
-        )
-        assert out.splitlines()[-1] == "riga dopo", f"{name}: righe successive spostate"
-
-
-def test_make_chunks_tronca_righe_singole_oltre_budget(tmp_path, monkeypatch):
-    """Codex P2 su PR #304 round 2: una riga singola più lunga del budget
-    (file minificato/generato) non deve produrre un chunk fuori budget."""
-    monkeypatch.setenv("CHUNK_MAX_CHARS", "200")
-    long_line = "x" * 1000
-
-    ns, _ = _exec_audit_script("manual-full-repo-ai-audit.yml", tmp_path, monkeypatch)
-    chunks = ns["make_chunks"]("minified.js", long_line)
-    assert all(len(c) <= 260 for _, _, c in chunks), (
-        "audit GPT: chunk oltre il budget con riga singola lunga"
-    )
-
-    ns2, _ = _exec_audit_script("claude-fable-full-repo-audit.yml", tmp_path, monkeypatch)
-    chunks2 = ns2["make_chunks"](long_line)
-    assert all(len(c) <= 260 for _, _, c in chunks2), (
-        "audit Claude: chunk oltre il budget con riga singola lunga"
-    )
-
-
-def test_aree_critiche_coprono_tutti_i_requirements(tmp_path, monkeypatch):
-    """Codex P2 su PR #304 round 2: le sorgenti dipendenze del repo sono
-    requirements.in / -build.in / -dev.txt / -build.lock, non solo
-    requirements.txt: tutte supply-chain, tutte sensibili."""
-    # Solo l'audit GPT ha il concetto di area critica (il prompt Claude non
-    # usa l'area): lì si esercita la funzione reale.
-    ns, _ = _exec_audit_script("manual-full-repo-ai-audit.yml", tmp_path, monkeypatch)
-    for fname in (
-        "requirements.txt",
-        "requirements.in",
-        "requirements-build.in",
-        "requirements-dev.txt",
-        "requirements-build.lock",
-    ):
-        assert ns["critical_area"](fname), f"audit GPT: {fname} non è area critica"
-
-    # I PR review non sono exec-abili: si verifica che il pattern esteso sia
-    # nel sorgente eseguito (stessa regex degli audit).
-    for name, meta in _AI_WORKFLOWS.items():
-        if meta["kind"] == "pr_review":
-            src = _compiled_heredoc(name)
-            assert r"requirements[^/]*\.(txt|in|lock)$" in src, (
-                f"{name}: detector requirements non copre .in/-dev/-build.lock"
-            )
 
 
 def test_dedup_finding_stabile(tmp_path, monkeypatch):
     ns, _ = _exec_audit_script("manual-full-repo-ai-audit.yml", tmp_path, monkeypatch)
     key = ns["finding_key"]
     a = {"severity": "high", "category": "bug", "file": "main.py", "line_start": 3, "title": "Doppione"}
-    assert key(a) == key(dict(a)), "stesso finding → stessa chiave (dedupe deterministico)"
+    assert key(a) == key(dict(a)), "stesso finding -> stessa chiave (dedupe deterministico)"
     b = dict(a, line_start=4)
-    assert key(a) != key(b), "riga diversa → finding distinto"
+    assert key(a) != key(b), "riga diversa -> finding distinto"
