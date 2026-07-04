@@ -1176,3 +1176,70 @@ monkeypatchato): browse cert/key → entry aggiornata + `save_credentials` con *
 
 **Docs:** design_handoff.md (GATE: pulsanti + salvataggio immediato path). README: **N/A** (cert/key
 sono credenziali keyring, non chiavi di `config.json`).
+
+
+## #286 — pulsante «📄 Crea CSV» (genera un CSV vuoto nel formato XTrader) ✅ (PR 16)
+
+**Obiettivo (deciso col proprietario, opzione A).** Nel tab ⚙️ Generale, accanto a CSV Path, un
+pulsante **«📄 Crea CSV»** che **genera** un CSV **a solo header** nel formato XTrader (dal codice,
+`CSV_HEADER`/`init_csv`, mai un file committato/bundlato) nella cartella scelta e lo imposta come
+`csv_path` (stesso salvataggio immediato di #284). Azione complementare a «Sfoglia…» (creare nuovo
+vs selezionare esistente).
+
+**Cosa fa.**
+- `csv_writer.py` — predicato read-only `is_bridge_csv(path)` (`True` se il file esiste ed è un CSV
+  del bridge, prima riga == `CSV_HEADER`; assente/vuoto/illeggibile/non-bridge → `False`) + funzione
+  di creazione **atomica** `create_header_only_csv(path, *, force=False)`: fa il check dell'header
+  esistente E la scrittura **sotto lo stesso `_write_lock`** → **niente TOCTOU** (come
+  `clear_stale_csv` #184 H3). Esiti: `CSV_CREATE_DONE` (creato/rigenerato), `CSV_CREATE_REFUSED_
+  FOREIGN` (file estraneo), `CSV_CREATE_REFUSED_ACTIVE` (CSV del bridge con un segnale attivo);
+  `force=True` bypassa i refuse. Entrambe serializzate con `_write_lock`.
+- `app.py` — `_create_and_save_csv(path, *, force=False)` (testabile): **guardia RUNTIME** — a
+  bridge **avviato** sul CSV della sessione attiva (`_is_active_session_csv`, path normalizzato)
+  rifiuta **anche con force** (STOP prima: non cancellare un segnale in volo / desync coda-expiry);
+  poi `create_header_only_csv` (atomica) e, su `DONE`, riuso di `_apply_and_save_csv_path` (merge sul
+  config vivo + guardia token PR-08c). `_browse_create_csv` (GUI): `asksaveasfilename` + conferma
+  `askyesno` per file estraneo **o** CSV con segnale attivo, `showwarning` per la sessione avviata.
+  Pulsante col. 3 della riga CSV Path.
+
+**Sicurezza.** Il CSV è **generato dal codice** (nessun file committato/bundlato → gate
+`forbidden-files`/`test_no_secrets_committed` invariati). Scrittura **atomica** senza file parziale;
+**check+write sotto lo stesso lock** (no TOCTOU). Anti data-loss a tre livelli: file estraneo,
+CSV con segnale attivo, e CSV della **sessione avviata** (bloccato). Contratto CSV/parser/Telegram
+invariati; guardia token PR-08c preservata; nessun path locale reale committato.
+
+**Review (Fable 5 + Fugu Ultra + CodeRabbit convergenti).** Due bloccanti REALI corretti: (1)
+rigenerazione del CSV della sessione **avviata** cancellava un segnale non letto → guardia runtime
+`_is_active_session_csv` (rifiuta anche con force) + refuse `CSV_CREATE_REFUSED_ACTIVE` per qualsiasi
+CSV con riga attiva; (2) **TOCTOU** tra `is_bridge_csv` e `init_csv` → sostituiti da
+`create_header_only_csv` che fa check+write sotto un solo `_write_lock`. Nitpick CodeRabbit
+(estrarre un helper `_read_header_locked`): **skip motivato** — i quattro call site differiscono su
+gestione `OSError` e comportamento post-lettura (`has_active_row`/`create_header_only_csv`
+continuano a iterare lo stesso reader; `clear_stale_csv` propaga `OSError` e scrive sotto lo stesso
+lock), un helper condiviso non calza e rischierebbe di regredire codice safety-critical già testato.
+Finding CodeRabbit 🟠 (layout): la riga CSV Path con **due** pulsanti sforava la finestra a
+larghezza **fissa** (720px, `resizable(False, True)`) tagliando «Crea CSV» → **corretto** stringendo
+la casella `csv_path` (470→250px, solo quella riga) e i due pulsanti (110→100px) con padding ridotto:
+la riga ora sta dentro la larghezza utile del tab. Le larghezze sono estratte in costanti di modulo
+(`_WINDOW_WIDTH`, `_GEN_LABEL_WIDTH`, `_GEN_FIELD_ENTRY_WIDTH`, `_CSV_PATH_ENTRY_WIDTH`,
+`_CSV_ROW_BTN_WIDTH`) e coperte da un **test di regressione layout**
+(`tests/integration/test_gen_layout_budget.py`): la somma etichetta+casella+2 pulsanti (590px) deve
+stare nel budget della finestra fissa, **derivato dai padding reali** (720 − 30 tab `padx` − 39
+`padx` dei 4 widget = **651px**, non un numero magico — CodeRabbit #330), col padding interno della
+tabview come margine ulteriore. Fail-first verificato: con la vecchia casella a 470px la riga a
+810px sfora 651px. La verifica visiva DPI/font su Windows resta smoke manuale (layout GUI non
+renderizzabile offline).
+
+**Test hard:** `tests/unit/test_is_bridge_csv.py` (predicato + header **byte-esatto** BOM utf-8-sig +
+QUOTE_ALL + CRLF); `tests/unit/test_create_header_only_csv.py` (esiti DONE/REFUSED_FOREIGN/
+REFUSED_ACTIVE, bypass force, binario, path vuoto, cartella mancante creata);
+`tests/integration/test_csv_create.py` (`_create_and_save_csv` via harness headless + vera
+`save_config`/`init_csv`): nuovo → header byte-esatto + `csv_path` salvato preservando gli altri
+campi; bridge header-only → rigenerato; **bridge con segnale attivo senza force → NON toccato**;
+con force → rigenerato; **sessione avviata → rifiutata anche con force** (segnale intatto, altro
+path invece permesso); file estraneo senza/con force; ramo OSError (avviso, no save); annullo/vuoto
+→ no-op; guardia token PR-08c. Dialog Tk GUI-only → smoke manuale. Fail-first via stash. Suite:
+**2046 passed, 10 skipped**.
+
+**Docs:** design_handoff.md (GATE: pulsante «📄 Crea CSV» + anti data-loss a tre livelli), README
+(nota «Crea CSV»). Contratto CSV invariato (stesso `CSV_HEADER`/`init_csv`).
