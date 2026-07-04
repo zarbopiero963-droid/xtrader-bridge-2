@@ -1340,3 +1340,30 @@ reale su Windows/DPI resta smoke manuale. Suite: **2067 passed, 10 skipped**.
 
 **Docs:** design_handoff.md (GATE: sezione Palette con colonna light/dark + nota theme-aware +
 contrasto verificato in CI). Con questo #288 è completa (Delta 1/2/3) e può essere chiusa al merge.
+
+
+## #293 (slice 1) — rinomina colonna «Provider» → «Come lo scrive il canale» ✅ (PR 20)
+
+**Obiettivo (#293, primo slice scelto dal proprietario — il più sicuro).** Nel Dizionario nomi
+squadra la colonna dell'alias del canale si chiamava «Provider», **collidendo** con l'anagrafica
+«Provider» (etichetta della colonna CSV). Rinominata in **«Come lo scrive il canale»** per
+eliminare l'ambiguità. È una **rinomina SOLO di etichetta**: nessun cambio funzionale.
+
+**Cosa fa.**
+- `name_mapping_gui.py` — costante `_CHANNEL_ALIAS_COLUMN = "Come lo scrive il canale"` usata come
+  header di colonna (era `("Provider", 240)`); aggiornati docstring, testi d'aiuto e commenti che
+  citavano «Provider» come nome del campo. La **chiave dati nello store resta `provider`**.
+
+**Sicurezza.** Cambia SOLO l'etichetta visibile. Invariati: chiave dati `provider`
+(`name_mapping_store`), colonna **CSV «Provider»** (anagrafica, `CSV_HEADER`), risoluzione
+fail-closed delle mappature, contratto CSV, parser, Betfair. Nessun test cita l'header di colonna
+verbatim (tutti i «Provider» nei test sono il campo CSV/parser, non l'header GUI).
+
+**Test hard (fail-first via stash):** `tests/integration/test_channel_alias_rename.py` — round-trip
+`set_entries`/`get_entries` preserva la chiave dati `provider`; `CSV_HEADER` contiene ancora
+`Provider` (anagrafica invariata); `_CHANNEL_ALIAS_COLUMN == "Come lo scrive il canale"`; guardia
+anti-ripristino (`("Provider", 240)` non più presente come header). Rendering GUI = smoke manuale.
+Suite: **2072 passed, 10 skipped**.
+
+**Docs:** design_handoff.md (GATE §7.5: colonna rinominata + nota chiave dati `provider` invariata).
+Prossimi slice #293: mappature nel Parser → Riepilogo → 4 gruppi → densità parser.

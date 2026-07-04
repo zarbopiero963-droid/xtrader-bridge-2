@@ -1,7 +1,7 @@
 """Finestra di gestione del Dizionario nomi squadra (profili di mappatura).
 
 Permette di **creare/rinominare/eliminare** profili di mappatura e di **modificarne
-la tabella** ``Country | Betfair/XTrader | Provider`` (entrambe le colonne nome a
+la tabella** ``Country | Betfair/XTrader | Come lo scrive il canale`` (entrambe le colonne nome a
 campo libero), salvati in ``config.json`` → chiave ``name_mappings``. I profili poi
 si selezionano (checkbox) nel Parser Personalizzato per tradurre l'``EventName`` del
 canale nel nome atteso da XTrader.
@@ -33,6 +33,12 @@ from . import (
 _SPORT_ALL = "(tutti gli sport)"
 # Etichetta della tendina Tipo entità per la riga agnostica ("" = qualsiasi tipo).
 _ENTITY_ALL = "(qualsiasi tipo)"
+
+# Etichetta VISIBILE della colonna «alias del canale» nel Dizionario nomi squadra (#293):
+# rinominata da «Provider» a «Come lo scrive il canale» per eliminare la collisione con
+# l'anagrafica «Provider» (etichetta della colonna CSV). SOLO l'etichetta cambia: la chiave dati
+# nello store resta `provider` e la colonna CSV «Provider» è invariata.
+_CHANNEL_ALIAS_COLUMN = "Come lo scrive il canale"
 
 
 def _sport_to_label(sport: str) -> str:
@@ -87,7 +93,7 @@ class NameMappingPanel(ctk.CTkFrame):
             self, text="🗺️  Dizionario nomi squadra",
             font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
         ctk.CTkLabel(
-            self, text="Traduce i nomi squadra del canale (Provider) nel nome atteso da "
+            self, text="Traduce i nomi squadra così come li scrive il canale nel nome atteso da "
                        "Betfair/XTrader. Seleziona i profili nel Parser Personalizzato.",
             font=ctk.CTkFont(size=11), text_color="gray", wraplength=720,
             anchor="w", justify="left").pack(anchor="w", padx=12, pady=(0, 6))
@@ -109,8 +115,8 @@ class NameMappingPanel(ctk.CTkFrame):
         # Intestazione tabella.
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=12, pady=(4, 0))
-        for text, w in (("Country (opz.)", 180), ("Betfair / XTrader", 240), ("Provider", 240),
-                        ("Sport", 150), ("Tipo", 150)):
+        for text, w in (("Country (opz.)", 180), ("Betfair / XTrader", 240),
+                        (_CHANNEL_ALIAS_COLUMN, 240), ("Sport", 150), ("Tipo", 150)):
             ctk.CTkLabel(head, text=text, width=w, anchor="w",
                          font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
 
@@ -123,7 +129,7 @@ class NameMappingPanel(ctk.CTkFrame):
                       command=self._add_row).pack(side="left", padx=3)
         # Precompila la colonna Betfair coi nomi squadra permanenti (#282 PR 11): riempie
         # le righe coi nomi reali già raccolti dalla sync, tu affianchi solo l'alias del
-        # canale nel campo Provider. Niente tendina: i nomi sono scritti direttamente.
+        # canale nella colonna «Come lo scrive il canale». Niente tendina: scritti direttamente.
         ctk.CTkButton(actions, text="📥 Precompila da Betfair", width=190, fg_color="#1565c0",
                       hover_color="#0d47a1", command=self._prefill_betfair_names).pack(side="left", padx=3)
         ctk.CTkButton(actions, text="💾 Salva profilo", width=140, fg_color="#2e7d32",
@@ -238,7 +244,7 @@ class NameMappingPanel(ctk.CTkFrame):
         """Precompila la colonna Betfair con TUTTI i nomi squadra permanenti raccolti dalla
         sync Betfair (#282 PR 11). Aggiunge una riga per ogni nome noto con il **nome Betfair
         FISSO già scritto** (nessun menu a tendina), lo **Sport** impostato e il tipo `team`;
-        il campo **Provider** resta vuoto perché ci scrivi l'alias del canale.
+        la colonna **«Come lo scrive il canale»** resta vuota perché ci scrivi l'alias del canale.
 
         Idempotente e non distruttivo: NON tocca le righe esistenti e **salta** i nomi già
         presenti (stesso sport + nome normalizzato, con la stessa normalizzazione del
@@ -283,12 +289,12 @@ class NameMappingPanel(ctk.CTkFrame):
                 skipped += 1
                 continue
             existing.add(key)
-            # Betfair FISSO scritto nel campo; Provider vuoto (lo compili tu); tipo `team`.
+            # Betfair FISSO scritto nel campo; «Come lo scrive il canale» vuoto (lo compili tu); tipo `team`.
             self._append_row_widget(betfair=name, sport=sport, entity_type="team")
             added += 1
         if added:
             self._status.configure(
-                text=f"📥 Aggiunti {added} nomi Betfair (scrivi l'alias del canale in «Provider»); "
+                text=f"📥 Aggiunti {added} nomi Betfair (scrivi l'alias del canale in «Come lo scrive il canale»); "
                      f"{skipped} già presenti. Poi salva con 💾.", text_color="#66bb6a")
         else:
             self._status.configure(
@@ -858,7 +864,7 @@ class NameMappingWindow(ctk.CTkToplevel):
         super().__init__(master)
         self.title("Dizionario nomi squadra")
         # Larghezza per le colonne attuali (PR-P10 + #178 §2): la riga è
-        # Country(180)+Betfair(240)+Provider(240)+Sport(150)+Tipo(150)+elimina(36) ≈ 996 px
+        # Country(180)+Betfair(240)+«Come lo scrive il canale»(240)+Sport(150)+Tipo(150)+elimina(36) ≈ 996 px
         # più il padding fra i widget; a 940 px Tipo/elimina venivano tagliati (no scroll
         # orizzontale) — Codex. Allargata di conseguenza, con minimo che non taglia.
         gui_utils.fit_to_screen(self, 1120, 620, 1040, 460)
