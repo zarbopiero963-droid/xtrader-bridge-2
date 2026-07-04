@@ -125,6 +125,19 @@ def _retention_label(days: int) -> str:
     return "Mai"
 
 
+# Layout della riga «⚙️ Generale» con la casella CSV Path (#284/#286). La finestra ha larghezza
+# FISSA (`_WINDOW_WIDTH`, `resizable(False, True)`): la riga CSV Path — che porta DUE pulsanti
+# accanto alla casella — deve stare nella larghezza utile del tab, perciò la sua entry è più
+# stretta di quelle senza pulsanti. Le costanti sono esposte per il test di regressione layout
+# (`tests/integration/test_gen_layout_budget.py`): un futuro allargamento che le farebbe sforare
+# fallisce in CI invece di tagliare silenziosamente «Crea CSV» a runtime (CodeRabbit #330).
+_WINDOW_WIDTH = 720                 # larghezza fissa della finestra (vedi fit_to_screen)
+_GEN_LABEL_WIDTH = 140             # etichetta del campo
+_GEN_FIELD_ENTRY_WIDTH = 470       # casella dei campi SENZA pulsanti
+_CSV_PATH_ENTRY_WIDTH = 250        # casella CSV Path: più stretta, la riga porta 2 pulsanti
+_CSV_ROW_BTN_WIDTH = 100           # larghezza dei pulsanti «📁 Sfoglia…» / «📄 Crea CSV»
+
+
 class App(ctk.CTk):
     # Default di CLASSE (non di istanza): garantiscono che questi attributi esistano SEMPRE
     # nel class dict, così un accesso non trova mai "attributo mancante" che — su una vera
@@ -159,7 +172,7 @@ class App(ctk.CTk):
         # Clamp dell'altezza allo schermo (720x760 può sforare su display da 768px) +
         # minsize; la larghezza resta fissa (resizable solo in altezza, layout tarato
         # in larghezza). Il pannello monitoraggio espandibile assorbe la riduzione.
-        gui_utils.fit_to_screen(self, 720, 760, 720, 600)
+        gui_utils.fit_to_screen(self, _WINDOW_WIDTH, 760, _WINDOW_WIDTH, 600)
         self.resizable(False, True)
 
         # Bot token registrati nel redattore dei log (#184 M7 + #203): un INSIEME, non un singolo
@@ -920,27 +933,28 @@ class App(ctk.CTk):
             ("🏷️ Provider",     "provider",    False),
         ]
         for r, (label, key, is_pwd) in enumerate(gen_fields):
-            ctk.CTkLabel(tab_gen, text=label, width=140, anchor="w").grid(
+            ctk.CTkLabel(tab_gen, text=label, width=_GEN_LABEL_WIDTH, anchor="w").grid(
                 row=r, column=0, padx=(10, 5), pady=4, sticky="w")
             # La riga CSV Path porta DUE pulsanti (Sfoglia + Crea CSV) accanto alla casella:
-            # entro la larghezza FISSA della finestra (720px, `resizable(False, True)`) l'entry
-            # va ristretta, altrimenti i pulsanti sf-orano/vengono tagliati (CodeRabbit #330).
-            # Gli altri campi (senza pulsanti) restano a 470px.
-            e = ctk.CTkEntry(tab_gen, width=(250 if key == "csv_path" else 470),
-                             show="●" if is_pwd else "")
+            # entro la larghezza FISSA della finestra (`_WINDOW_WIDTH`, `resizable(False, True)`)
+            # l'entry va ristretta, altrimenti i pulsanti sforano/vengono tagliati (CodeRabbit
+            # #330). Gli altri campi (senza pulsanti) restano a `_GEN_FIELD_ENTRY_WIDTH`.
+            e = ctk.CTkEntry(
+                tab_gen, show="●" if is_pwd else "",
+                width=(_CSV_PATH_ENTRY_WIDTH if key == "csv_path" else _GEN_FIELD_ENTRY_WIDTH))
             e.insert(0, str(self._config.get(key, "")))
             e.grid(row=r, column=1, padx=(0, 8), pady=4, sticky="w")
             self._entries[key] = e
             # CSV Path: pulsante «📁 Sfoglia…» (#284) che apre il selettore file e salva
             # subito il percorso scelto (opzione b), invece di digitarlo a mano.
             if key == "csv_path":
-                ctk.CTkButton(tab_gen, text="📁 Sfoglia…", width=100,
+                ctk.CTkButton(tab_gen, text="📁 Sfoglia…", width=_CSV_ROW_BTN_WIDTH,
                               command=self._browse_csv_path).grid(
                                   row=r, column=2, padx=(0, 6), pady=4, sticky="w")
                 # «📄 Crea CSV» (#286): genera un CSV a solo header nel formato XTrader
                 # nella cartella scelta e lo imposta come csv_path (azione complementare a
                 # «Sfoglia…»: creare un file nuovo invece di selezionarne uno esistente).
-                ctk.CTkButton(tab_gen, text="📄 Crea CSV", width=100,
+                ctk.CTkButton(tab_gen, text="📄 Crea CSV", width=_CSV_ROW_BTN_WIDTH,
                               command=self._browse_create_csv).grid(
                                   row=r, column=3, padx=(0, 10), pady=4, sticky="w")
         self._e_token    = self._entries["bot_token"]

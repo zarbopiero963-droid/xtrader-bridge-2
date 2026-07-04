@@ -1220,8 +1220,13 @@ lock), un helper condiviso non calza e rischierebbe di regredire codice safety-c
 Finding CodeRabbit 🟠 (layout): la riga CSV Path con **due** pulsanti sforava la finestra a
 larghezza **fissa** (720px, `resizable(False, True)`) tagliando «Crea CSV» → **corretto** stringendo
 la casella `csv_path` (470→250px, solo quella riga) e i due pulsanti (110→100px) con padding ridotto:
-la riga ora sta dentro la larghezza utile del tab. Verifica visiva su Windows = smoke manuale
-(layout GUI non testabile offline).
+la riga ora sta dentro la larghezza utile del tab. Le larghezze sono estratte in costanti di modulo
+(`_WINDOW_WIDTH`, `_GEN_LABEL_WIDTH`, `_GEN_FIELD_ENTRY_WIDTH`, `_CSV_PATH_ENTRY_WIDTH`,
+`_CSV_ROW_BTN_WIDTH`) e coperte da un **test di regressione layout**
+(`tests/integration/test_gen_layout_budget.py`): la somma etichetta+casella+2 pulsanti deve stare
+nel budget della finestra fissa (fail-first verificato: con la vecchia casella a 470px la riga a
+810px sfora il budget di 660px). La verifica visiva DPI/font su Windows resta smoke manuale (layout
+GUI non renderizzabile offline).
 
 **Test hard:** `tests/unit/test_is_bridge_csv.py` (predicato + header **byte-esatto** BOM utf-8-sig +
 QUOTE_ALL + CRLF); `tests/unit/test_create_header_only_csv.py` (esiti DONE/REFUSED_FOREIGN/
