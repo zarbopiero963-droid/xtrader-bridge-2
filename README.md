@@ -133,7 +133,7 @@ La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Co
 |---|---|---|---|
 | 🔑 **Bot Token** | `bot_token` | *(vuoto)* | Token del bot Telegram (@BotFather). Senza, START è bloccato. Mai mostrato nei log. Salvato nel **keyring del sistema** (Windows Credential Manager); **senza un backend keyring** ripiega sul token **in chiaro** in `config.json` con avviso nel log — vedi [Sicurezza](#sicurezza-simulazione-duplicati-e-limiti). |
 | 💬 **Chat ID** | `chat_id` | *(vuoto)* | ID della chat/canale sorgente. Definisce quali messaggi vengono accettati. |
-| 📄 **CSV Path** | `csv_path` | `C:\XTrader\segnali.csv` | File CSV che XTrader monitora. Obbligatorio. |
+| 📄 **CSV Path** | `csv_path` | `C:\XTrader\segnali.csv` | File CSV che XTrader monitora. Obbligatorio. Puoi digitarlo o usare il pulsante **«📁 Sfoglia…»** accanto al campo: alla scelta del file il percorso viene **salvato subito** (senza click extra su «Salva Config»). |
 | ⏱️ **Timeout (sec)** | `clear_delay` | `90` | Dopo quanti secondi un segnale scade e il CSV viene svuotato. Deve essere un intero > 0. |
 | 🏷️ **Provider** | `provider` | `TelegramBot` | Etichetta scritta nella colonna `Provider` del CSV (vedi nota sotto). |
 

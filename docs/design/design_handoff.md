@@ -191,9 +191,17 @@ altezza ridimensionabile, min 720×600.
 |---|---|---|
 | 🔑 Bot Token | `bot_token` | campo password (mascherato) |
 | 💬 Chat ID | `chat_id` | testo |
-| 📄 CSV Path | `csv_path` | testo (percorso file) |
+| 📄 CSV Path | `csv_path` | testo (percorso file) **+ pulsante «📁 Sfoglia…»** (#284) |
 | ⏱️ Timeout (sec) | `clear_delay` | intero > 0 |
 | 🏷️ Provider | `provider` | testo |
+
+- **«📁 Sfoglia…» accanto a CSV Path (#284):** apre il selettore file di sistema (dialog Tk
+  `asksaveasfilename`, `.csv`). Alla scelta, il percorso è **scritto nella casella E salvato
+  subito in `config.json`** (opzione b: nessun click extra su «Salva Config»). Il salvataggio
+  è un **merge sul config vivo** — cambia solo `csv_path`, non tocca gli altri campi
+  safety-critical (dry_run/chat/sorgenti) né esegue i gate di modalità REALE. Se l'utente
+  annulla il dialog → nessuna modifica. Nota invariante: cambiare il percorso a bridge
+  **avviato** non tocca il CSV della sessione attiva (resta quello di START finché STOP/START).
 
 **Tab 🎯 Riconoscimento** — 1 dropdown:
 - **"🎯 Modalità riconoscimento"** → opzioni `ID_ONLY` / `NAME_ONLY` / `BOTH`.
