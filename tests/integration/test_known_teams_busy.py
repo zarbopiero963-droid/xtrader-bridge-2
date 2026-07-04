@@ -68,3 +68,11 @@ def test_known_teams_db_assente_ritorna_vuoto(make_app, app_mod):
 
     a._betfair_sync_engine = _boom     # engine non costruibile → best-effort []
     assert app_mod.App._known_betfair_teams(a) == []
+
+
+def test_known_teams_engine_con_db_none_ritorna_vuoto(make_app, app_mod):
+    # Engine costruibile ma `.db` None (es. sync mai fatta): NON deve sollevare
+    # AttributeError fuori dalla guardia (review Fugu #321) — contratto «indisponibile → []».
+    a = make_app()
+    a._betfair_engine_obj = types.SimpleNamespace(db=None)
+    assert app_mod.App._known_betfair_teams(a) == []

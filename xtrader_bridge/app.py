@@ -1313,14 +1313,18 @@ class App(ctk.CTk):
         from .betfair.dictionary_viewer import DictionaryBusy
         try:
             db = self._betfair_sync_engine().db
-        except Exception:   # noqa: BLE001 — best-effort: DB non disponibile → nessun nome
+            if db is None:               # engine costruito ma DB non aperto → nessun nome
+                return []
+            if not db.acquire_read(blocking=False):
+                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+            try:
+                return db.known_teams(sport)
+            finally:
+                db.release_read()
+        except DictionaryBusy:
+            raise                        # segnale 'occupato' distinto: lo gestisce il pannello
+        except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → nessun nome
             return []
-        if not db.acquire_read(blocking=False):
-            raise DictionaryBusy()       # sync in corso: fail-fast, niente freeze del thread Tk
-        try:
-            return db.known_teams(sport)
-        finally:
-            db.release_read()
 
     def _betfair_id_resolver(self):
         """Risolutore ID del dizionario Betfair locale per il flusso live (PR-P12),
