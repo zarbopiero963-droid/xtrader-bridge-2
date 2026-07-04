@@ -70,6 +70,22 @@ def test_palette_colori_theme_aware_e_hex_validi(app_mod):
         assert t[0].lower() != t[1].lower(), f"colore non theme-aware: {t}"
 
 
+def test_nessun_colore_di_stato_hardcoded_fuori_dalle_costanti(app_mod):
+    # Regression guard (GLM #334): i colori SEMANTICI storici non devono ricomparire hardcoded
+    # come `text_color="#…"`/`fg_color="#…"` — né alla costruzione né nei `configure` dinamici
+    # (OFFLINE/ATTIVO/RICONNESSIONE) — ma passare SEMPRE dalle costanti `_COLOR_*` theme-aware.
+    # Il test di contrasto valida solo le costanti; questo cattura un futuro re-hardcode che
+    # quello non vedrebbe. NB: verifica solo gli hex ESCLUSIVI dello stato (non `#2e7d32`/
+    # `#c62828`, usati anche dai pulsanti d'azione tinta-unita, fuori scope).
+    import pathlib
+    src = pathlib.Path(app_mod.__file__).read_text(encoding="utf-8")
+    for hx in ("#1a1a2e", "#4fc3f7", "#ef5350", "#66bb6a", "#ffa726", "#ffb74d", "#7f1d1d"):
+        assert f'text_color="{hx}"' not in src, \
+            f"colore di stato {hx} hardcoded come text_color (usa le costanti _COLOR_*)"
+        assert f'fg_color="{hx}"' not in src, \
+            f"colore di stato {hx} hardcoded come fg_color (usa le costanti _COLOR_*)"
+
+
 def test_dark_variant_invariata_rispetto_allo_storico(app_mod):
     # La variante DARK resta quella storica (nessuna regressione visiva nel tema di default).
     m = app_mod
