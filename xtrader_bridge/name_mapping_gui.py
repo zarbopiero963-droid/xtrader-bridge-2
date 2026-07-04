@@ -40,6 +40,12 @@ _ENTITY_ALL = "(qualsiasi tipo)"
 # nello store resta `provider` e la colonna CSV «Provider» è invariata.
 _CHANNEL_ALIAS_COLUMN = "Come lo scrive il canale"
 
+# Colonne (etichetta, larghezza px) dell'intestazione tabella del Dizionario nomi squadra.
+# Fonte unica usata da `_build_ui` E dal test di regressione (`test_channel_alias_rename.py`),
+# così la verifica dell'etichetta è sul DATO reale dell'header, non su una grep del sorgente.
+_HEADER_COLUMNS = (("Country (opz.)", 180), ("Betfair / XTrader", 240),
+                   (_CHANNEL_ALIAS_COLUMN, 240), ("Sport", 150), ("Tipo", 150))
+
 
 def _sport_to_label(sport: str) -> str:
     return _SPORT_ALL if not sport else sport
@@ -115,8 +121,7 @@ class NameMappingPanel(ctk.CTkFrame):
         # Intestazione tabella.
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=12, pady=(4, 0))
-        for text, w in (("Country (opz.)", 180), ("Betfair / XTrader", 240),
-                        (_CHANNEL_ALIAS_COLUMN, 240), ("Sport", 150), ("Tipo", 150)):
+        for text, w in _HEADER_COLUMNS:
             ctk.CTkLabel(head, text=text, width=w, anchor="w",
                          font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
 

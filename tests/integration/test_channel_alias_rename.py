@@ -6,7 +6,6 @@ REALI del progetto (store puro + costante GUI via import con `customtkinter` stu
 """
 
 import importlib
-import pathlib
 import sys
 import types
 
@@ -44,8 +43,10 @@ def test_colonna_rinominata_nel_dizionario_nomi(gui_mod):
     assert gui_mod._CHANNEL_ALIAS_COLUMN == "Come lo scrive il canale"
 
 
-def test_vecchia_etichetta_provider_non_piu_header_di_colonna(gui_mod):
-    # Guardia anti-ripristino: la vecchia tupla header `("Provider", 240)` non deve tornare.
-    src = pathlib.Path(gui_mod.__file__).read_text(encoding="utf-8")
-    assert '("Provider", 240)' not in src
-    assert "Come lo scrive il canale" in src
+def test_header_columns_usano_il_nuovo_label_non_provider(gui_mod):
+    # Asserzione sul DATO reale dell'header (`_HEADER_COLUMNS`, usato da `_build_ui`), non su una
+    # grep del sorgente: la colonna alias-canale usa la nuova etichetta e «Provider» non è più
+    # un'intestazione di colonna del Dizionario nomi (CodeRabbit #335). Guardia anti-ripristino.
+    labels = [label for label, _w in gui_mod._HEADER_COLUMNS]
+    assert "Come lo scrive il canale" in labels
+    assert "Provider" not in labels

@@ -1356,14 +1356,17 @@ eliminare l'ambiguità. È una **rinomina SOLO di etichetta**: nessun cambio fun
 
 **Sicurezza.** Cambia SOLO l'etichetta visibile. Invariati: chiave dati `provider`
 (`name_mapping_store`), colonna **CSV «Provider»** (anagrafica, `CSV_HEADER`), risoluzione
-fail-closed delle mappature, contratto CSV, parser, Betfair. Nessun test cita l'header di colonna
-verbatim (tutti i «Provider» nei test sono il campo CSV/parser, non l'header GUI).
+fail-closed delle mappature, contratto CSV, parser, Betfair. Nessun test **preesistente** dipende
+dall'etichetta dell'header (i «Provider» negli altri test sono il **campo CSV/parser**
+`target="Provider"`/`row["Provider"]`, non l'header GUI del Dizionario nomi); il nuovo test di
+regressione asserisce invece **sul dato reale** dell'header (`_HEADER_COLUMNS`) che «Provider» non è
+più un'intestazione di colonna.
 
 **Test hard (fail-first via stash):** `tests/integration/test_channel_alias_rename.py` — round-trip
 `set_entries`/`get_entries` preserva la chiave dati `provider`; `CSV_HEADER` contiene ancora
 `Provider` (anagrafica invariata); `_CHANNEL_ALIAS_COLUMN == "Come lo scrive il canale"`; guardia
-anti-ripristino (`("Provider", 240)` non più presente come header). Rendering GUI = smoke manuale.
-Suite: **2072 passed, 10 skipped**.
+anti-ripristino sul **dato** dell'header (`_HEADER_COLUMNS`: contiene la nuova etichetta, NON
+«Provider»). Rendering GUI = smoke manuale. Suite: **2072 passed, 10 skipped**.
 
 **Docs:** design_handoff.md (GATE §7.5: colonna rinominata + nota chiave dati `provider` invariata).
 Prossimi slice #293: mappature nel Parser → Riepilogo → 4 gruppi → densità parser.
