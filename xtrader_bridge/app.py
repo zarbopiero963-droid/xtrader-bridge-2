@@ -922,20 +922,25 @@ class App(ctk.CTk):
         for r, (label, key, is_pwd) in enumerate(gen_fields):
             ctk.CTkLabel(tab_gen, text=label, width=140, anchor="w").grid(
                 row=r, column=0, padx=(10, 5), pady=4, sticky="w")
-            e = ctk.CTkEntry(tab_gen, width=470, show="●" if is_pwd else "")
+            # La riga CSV Path porta DUE pulsanti (Sfoglia + Crea CSV) accanto alla casella:
+            # entro la larghezza FISSA della finestra (720px, `resizable(False, True)`) l'entry
+            # va ristretta, altrimenti i pulsanti sf-orano/vengono tagliati (CodeRabbit #330).
+            # Gli altri campi (senza pulsanti) restano a 470px.
+            e = ctk.CTkEntry(tab_gen, width=(250 if key == "csv_path" else 470),
+                             show="●" if is_pwd else "")
             e.insert(0, str(self._config.get(key, "")))
-            e.grid(row=r, column=1, padx=(0, 10), pady=4, sticky="w")
+            e.grid(row=r, column=1, padx=(0, 8), pady=4, sticky="w")
             self._entries[key] = e
             # CSV Path: pulsante «📁 Sfoglia…» (#284) che apre il selettore file e salva
             # subito il percorso scelto (opzione b), invece di digitarlo a mano.
             if key == "csv_path":
-                ctk.CTkButton(tab_gen, text="📁 Sfoglia…", width=110,
+                ctk.CTkButton(tab_gen, text="📁 Sfoglia…", width=100,
                               command=self._browse_csv_path).grid(
-                                  row=r, column=2, padx=(0, 10), pady=4, sticky="w")
+                                  row=r, column=2, padx=(0, 6), pady=4, sticky="w")
                 # «📄 Crea CSV» (#286): genera un CSV a solo header nel formato XTrader
                 # nella cartella scelta e lo imposta come csv_path (azione complementare a
                 # «Sfoglia…»: creare un file nuovo invece di selezionarne uno esistente).
-                ctk.CTkButton(tab_gen, text="📄 Crea CSV", width=110,
+                ctk.CTkButton(tab_gen, text="📄 Crea CSV", width=100,
                               command=self._browse_create_csv).grid(
                                   row=r, column=3, padx=(0, 10), pady=4, sticky="w")
         self._e_token    = self._entries["bot_token"]

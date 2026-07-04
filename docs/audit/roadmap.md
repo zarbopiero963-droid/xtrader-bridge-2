@@ -1217,6 +1217,11 @@ CSV con riga attiva; (2) **TOCTOU** tra `is_bridge_csv` e `init_csv` → sostitu
 gestione `OSError` e comportamento post-lettura (`has_active_row`/`create_header_only_csv`
 continuano a iterare lo stesso reader; `clear_stale_csv` propaga `OSError` e scrive sotto lo stesso
 lock), un helper condiviso non calza e rischierebbe di regredire codice safety-critical già testato.
+Finding CodeRabbit 🟠 (layout): la riga CSV Path con **due** pulsanti sforava la finestra a
+larghezza **fissa** (720px, `resizable(False, True)`) tagliando «Crea CSV» → **corretto** stringendo
+la casella `csv_path` (470→250px, solo quella riga) e i due pulsanti (110→100px) con padding ridotto:
+la riga ora sta dentro la larghezza utile del tab. Verifica visiva su Windows = smoke manuale
+(layout GUI non testabile offline).
 
 **Test hard:** `tests/unit/test_is_bridge_csv.py` (predicato + header **byte-esatto** BOM utf-8-sig +
 QUOTE_ALL + CRLF); `tests/unit/test_create_header_only_csv.py` (esiti DONE/REFUSED_FOREIGN/

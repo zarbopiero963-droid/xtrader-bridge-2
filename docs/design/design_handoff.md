@@ -191,7 +191,7 @@ altezza ridimensionabile, min 720×600.
 |---|---|---|
 | 🔑 Bot Token | `bot_token` | campo password (mascherato) |
 | 💬 Chat ID | `chat_id` | testo |
-| 📄 CSV Path | `csv_path` | testo (percorso file) **+ pulsante «📁 Sfoglia…»** (#284) **+ pulsante «📄 Crea CSV»** (#286) |
+| 📄 CSV Path | `csv_path` | testo (percorso file, casella **più corta** delle altre) **+ pulsante «📁 Sfoglia…»** (#284) **+ pulsante «📄 Crea CSV»** (#286) — la riga è compatta perché porta due pulsanti e la finestra ha **larghezza fissa** (720px) |
 | ⏱️ Timeout (sec) | `clear_delay` | intero > 0 |
 | 🏷️ Provider | `provider` | testo |
 
