@@ -1488,3 +1488,36 @@ FALLISCONO, poi ripristino. Rendering GUI reale = smoke manuale. Suite: **2116 p
 
 **Docs:** design_handoff.md (GATE §5 mappa hub raggruppata ①..④). Prossimo slice #293: densità
 parser (colonne essenziali di default, «Avanzate» per Trasformazione/Value-map).
+
+
+## #293 (slice 5, ULTIMO) — «densità parser»: colonne avanzate dietro toggle «Avanzate» (PR 24)
+
+**Obiettivo (#293, ultimo slice — chiude l'issue).** La tabella regole del Parser mostrava sempre
+tutte e 8 le colonne, densa e intimidatoria. Ora di **default** mostra solo le colonne
+**essenziali** (Colonna · Inizia dopo · Finisce prima · Valore fisso · Obblig.); le due colonne
+**avanzate** (Trasformazione, Value-map) compaiono solo attivando il toggle **«⚙️ Avanzate»**.
+
+**Cosa fa.**
+- `custom_parser_gui.py` — costante unica `_RULE_COLUMNS` `(label, larghezza, avanzata?)` +
+  helper **puro** `_visible_rule_columns(show_advanced)` (colonne da mostrare); `_populate_rules_header`
+  costruisce l'intestazione da esso. Nuovo `self._show_advanced` (default `False`) + checkbox
+  «⚙️ Avanzate (Trasformazione · Value-map)» con callback `_on_toggle_advanced` (sync builder →
+  ricostruisce intestazione + righe).
+- `_add_row` — i `StringVar` `transform`/`value_map` sono creati **SEMPRE** (così `_sync_to_builder`
+  conserva `rule.transform`/`rule.value_map` anche a colonne nascoste: **nessuna perdita di dati**);
+  i due `CTkOptionMenu` si mostrano solo in modalità «Avanzate».
+
+**Sicurezza/invarianti.** Solo presentazione GUI: nessun cambio a parsing, contratto CSV (14
+colonne), filtro chat, Betfair. `custom_parser_engine` legge ancora `rule.transform`/`value_map`
+invariati. Sezione **Output multi-riga #192 non toccata** (non ha colonne Trasformazione/Value-map).
+
+**Test hard (fail-first via mutazione):** `tests/unit/test_parser_density.py` (5) — `_visible_rule_columns`
+nasconde esattamente le 2 avanzate di default e le mostra tutte con «Avanzate»; `_add_row` (ctk
+stubbato) crea i `StringVar` transform/value_map **col valore del rule anche a colonne nascoste**
+(dato preservato), ramo difensivo senza `_show_advanced`. Mutazione 1 (flag ignorato) → test densità
+FALLISCE; mutazione 2 (StringVar solo se avanzate) → test preservazione FALLISCE con KeyError. Poi
+ripristino. Rendering GUI reale = smoke manuale. Suite: **2123 passed, 10 skipped**.
+
+**Docs:** design_handoff.md (GATE §7.1: toggle «Avanzate» + griglia essenziale di default; §7 conteggio
+pannelli 9→10). **Con questo slice #293 è COMPLETA** (rinomina → mappature nel parser → Riepilogo →
+4 gruppi → densità). Prossimo su #301: Nuitka (Fase 6) + issue #325 (Correct Score dinamico).

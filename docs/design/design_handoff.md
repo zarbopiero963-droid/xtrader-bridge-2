@@ -292,7 +292,8 @@ altezza ridimensionabile, min 720×600.
 
 ## 7. Hub Strumenti e finestre secondarie
 
-L'hub **"🧰 Strumenti"** è una finestra a tab caricata su richiesta. I 9 pannelli:
+L'hub **"🧰 Strumenti"** è una finestra a tab caricata su richiesta, **raggruppate per flusso
+①..④** (vedi §5). I 10 pannelli:
 
 ### 7.1 🧩 Parser Personalizzato (`custom_parser_gui.py`) — il pannello più complesso
 Costruttore visuale che definisce **come estrarre ogni colonna del CSV** da un messaggio,
@@ -318,10 +319,18 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
   mercati)"** + **"➕ Aggiungi mercato"**; checkbox **"MultiSelection (più selezioni)"** +
   **"➕ Aggiungi selezione"**; ogni riga ha campi Tipo mercato/Mercato/Selezione/Quota/
   BetType/Handicap + checkbox **"Attiva"** + **"🗑 Rimuovi"**.
-- **Griglia regole (14 colonne CSV fisse):** intestazioni **Colonna · Inizia dopo ·
-  Finisce prima · Valore fisso · Trasformazione · Value-map · Obblig.** Ogni riga: nome
-  colonna (label), 2 entry delimitatori, **campo «Valore fisso»** (vedi sotto), dropdown
-  Trasformazione, dropdown Value-map, checkbox **Obblig.**
+- **Densità (#293 «densità parser»):** sopra la griglia c'è un toggle **"⚙️ Avanzate
+  (Trasformazione · Value-map)"** (checkbox). **Di default è SPENTO**: la griglia mostra solo le
+  colonne **essenziali** (Colonna · Inizia dopo · Finisce prima · Valore fisso · Obblig.), più
+  leggibile. Attivandolo compaiono le due colonne **avanzate** (Trasformazione, Value-map),
+  sia nell'intestazione sia in ogni riga. Nascondere le colonne **non cancella** i dati: i valori
+  `Trasformazione`/`Value-map` di un parser caricato restano salvati e vengono riscritti invariati
+  (le colonne si nascondono, non si azzerano). Funzione di parsing invariata.
+- **Griglia regole (14 colonne CSV fisse):** intestazioni essenziali **Colonna · Inizia dopo ·
+  Finisce prima · Valore fisso · Obblig.** (+ **Trasformazione · Value-map** solo in modalità
+  «Avanzate»). Ogni riga: nome colonna (label), 2 entry delimitatori, **campo «Valore fisso»**
+  (vedi sotto), [dropdown Trasformazione, dropdown Value-map — solo se «Avanzate»], checkbox
+  **Obblig.**
   - Il campo **«Valore fisso»** varia per colonna: **entry di testo** per la maggior parte;
     **dropdown a scelta fissa** per **Provider** (dall'anagrafica); **tendina EDITABILE**
     (`CTkComboBox`) per **MarketType / MarketName / SelectionName** (#283 PR 13), popolata coi

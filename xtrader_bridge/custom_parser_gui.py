@@ -48,6 +48,30 @@ def _translations_status_text(count: int) -> str:
     return "✓ 1 attiva" if count == 1 else f"✓ {count} attive"
 
 
+# Colonne della tabella regole: (label, larghezza, avanzata?). #293 «densità parser»: di
+# default il Parser mostra solo le colonne ESSENZIALI; le colonne «avanzate» Trasformazione e
+# Value-map sono nascoste finché non si attiva il toggle «Avanzate». Fonte unica dell'ordine e
+# della larghezza delle colonne dell'intestazione.
+_RULE_COLUMNS = (
+    ("Colonna", 150, False),
+    ("Inizia dopo", 150, False),
+    ("Finisce prima", 150, False),
+    ("Valore fisso", 130, False),
+    ("Trasformazione", 150, True),
+    ("Value-map", 150, True),
+    ("Obblig.", 60, False),
+    ("", 70, False),
+)
+
+
+def _visible_rule_columns(show_advanced: bool):
+    """Colonne ``(label, larghezza)`` da mostrare nell'intestazione della tabella regole:
+    tutte se ``show_advanced``, altrimenti SENZA le colonne avanzate (Trasformazione/Value-map).
+    Puro/testabile headless: la densità di default (#293) non dipende dalla GUI."""
+    return [(label, w) for label, w, advanced in _RULE_COLUMNS
+            if show_advanced or not advanced]
+
+
 class CustomParserPanel(ctk.CTkFrame):
     """Pannello del costruttore di Parser Personalizzati — incassabile in finestra
     standalone (`CustomParserWindow`) o come scheda "🧩 Parser" di "🧰 Strumenti".
@@ -408,6 +432,9 @@ class CustomParserPanel(ctk.CTkFrame):
         self._global_mode = global_mode
         self._rows = []  # widget refs per regola
         self._saved_map = {}  # etichetta menu → path file parser
+        # #293 «densità parser»: colonne avanzate (Trasformazione/Value-map) nascoste di default;
+        # il toggle «Avanzate» le mostra. Interruttore letto da _add_row/_populate_rules_header.
+        self._show_advanced = False
 
         self._transforms = self.builder.transform_options()
         self._value_maps = self.builder.value_map_options(include_dizionario=True)
@@ -577,13 +604,19 @@ class CustomParserPanel(ctk.CTkFrame):
         # separate, non cartesiane).
         self._build_multi_section(outer)
 
-        # intestazione colonne
-        head = ctk.CTkFrame(outer, fg_color="transparent")
-        head.pack(fill="x", padx=10)
-        for txt, w in (("Colonna", 150), ("Inizia dopo", 150), ("Finisce prima", 150),
-                       ("Valore fisso", 130), ("Trasformazione", 150), ("Value-map", 150),
-                       ("Obblig.", 60), ("", 70)):
-            ctk.CTkLabel(head, text=txt, width=w, anchor="w").pack(side="left", padx=2)
+        # Toggle «Avanzate» (#293 densità parser): mostra/nasconde le colonne Trasformazione e
+        # Value-map, tenendo di default la tabella più leggibile (solo colonne essenziali).
+        adv_bar = ctk.CTkFrame(outer, fg_color="transparent")
+        adv_bar.pack(fill="x", padx=10, pady=(4, 0))
+        self._advanced_var = ctk.BooleanVar(value=self._show_advanced)
+        ctk.CTkCheckBox(adv_bar, text="⚙️ Avanzate (Trasformazione · Value-map)",
+                        variable=self._advanced_var,
+                        command=self._on_toggle_advanced).pack(side="left", padx=2)
+
+        # intestazione colonne — le colonne avanzate compaiono solo in modalità «Avanzate».
+        self._rules_head = ctk.CTkFrame(outer, fg_color="transparent")
+        self._rules_head.pack(fill="x", padx=10)
+        self._populate_rules_header()
 
         self._rows_frame = ctk.CTkFrame(outer, fg_color="transparent")
         self._rows_frame.pack(fill="x", padx=10, pady=6)
@@ -763,6 +796,30 @@ class CustomParserPanel(ctk.CTkFrame):
         warnings = self.builder.multi_warnings()
         self._multi_warn.configure(text=("\n".join(f"⚠ {w}" for w in warnings)) if warnings else "")
 
+    # ── colonne avanzate / toggle «Avanzate» (#293 densità parser) ─────────
+    def _populate_rules_header(self):
+        """(Ri)costruisce l'intestazione delle colonne, mostrando le colonne avanzate
+        (Trasformazione/Value-map) solo se `self._show_advanced`. Usa la fonte unica
+        `_visible_rule_columns`; distrugge le label precedenti (no `winfo_children`, così
+        resta costruibile anche con widget stubbati in test)."""
+        for lbl in getattr(self, "_rules_head_labels", []):
+            lbl.destroy()
+        self._rules_head_labels = []
+        for label, w in _visible_rule_columns(self._show_advanced):
+            lbl = ctk.CTkLabel(self._rules_head, text=label, width=w, anchor="w")
+            lbl.pack(side="left", padx=2)
+            self._rules_head_labels.append(lbl)
+
+    def _on_toggle_advanced(self):
+        """Toggle «Avanzate»: mostra/nasconde le colonne Trasformazione/Value-map e ricostruisce
+        intestazione + righe. Prima sincronizza i widget nel builder (come `_on_mode_change`),
+        così un'eventuale modifica in corso non va persa; i dati `rule.transform`/`value_map`
+        restano invariati anche a colonne nascoste (si nascondono, non si cancellano)."""
+        self._show_advanced = bool(self._advanced_var.get())
+        self._sync_to_builder()
+        self._populate_rules_header()
+        self._reload_rows_from_builder()
+
     # ── righe regola ──────────────────────────────────────────────────────
     def _add_row(self, rule):
         """Una riga = UNA colonna del contratto (griglia fissa a 14, PR-4): la colonna
@@ -806,10 +863,17 @@ class CustomParserPanel(ctk.CTkFrame):
             refs["fixed_value"] = ctk.CTkEntry(row, width=130)
             refs["fixed_value"].insert(0, rule.fixed_value)
             refs["fixed_value"].pack(side="left", padx=2)
+        # Colonne avanzate (#293 densità parser): i StringVar esistono SEMPRE — così
+        # `_sync_to_builder` continua a leggere e conservare `rule.transform`/`rule.value_map`
+        # anche a colonne nascoste (nessuna perdita di dati) — ma i menu si mostrano solo in
+        # modalità «Avanzate», per tenere la tabella leggibile di default.
         refs["transform"] = ctk.StringVar(value=rule.transform)
-        ctk.CTkOptionMenu(row, variable=refs["transform"], values=self._transforms, width=150).pack(side="left", padx=2)
         refs["value_map"] = ctk.StringVar(value=rule.value_map)
-        ctk.CTkOptionMenu(row, variable=refs["value_map"], values=self._value_maps, width=150).pack(side="left", padx=2)
+        if getattr(self, "_show_advanced", False):
+            ctk.CTkOptionMenu(row, variable=refs["transform"], values=self._transforms,
+                              width=150).pack(side="left", padx=2)
+            ctk.CTkOptionMenu(row, variable=refs["value_map"], values=self._value_maps,
+                              width=150).pack(side="left", padx=2)
         refs["required"] = ctk.BooleanVar(value=bool(rule.required))
         ctk.CTkCheckBox(row, text="", variable=refs["required"], width=40).pack(side="left", padx=2)
         refs["frame"] = row
