@@ -134,10 +134,15 @@ def test_multimarket_e_multiselection_dinamica_seguono_mercato_base():
     defn.multi_markets = [cp.MultiRowRule(market_type="OVER_UNDER", selection_name="Over 2.5")]
     res = pipe.build_validated_rows(defn, MSG, mode="NAME_ONLY")
     pairs = [(r.row["MarketType"], r.row["SelectionName"]) for r in res]
+    # righe SEPARATE, NON cartesiane (#192): esattamente 1 mercato + 3 selezioni (GLM/GPT #341).
+    assert len(res) == 4
     assert ("OVER_UNDER", "Over 2.5") in pairs             # riga MERCATO: usa l'override mercato
     assert ("CORRECT_SCORE", "1 - 0") in pairs             # righe SELEZIONE: dinamiche sul mercato BASE
     assert ("CORRECT_SCORE", "2 - 1") in pairs
     assert ("CORRECT_SCORE", "3 - 0") in pairs
+    # NESSUNA combinazione cartesiana mercato×selezione (nessuna scommessa spuria extra).
+    assert ("OVER_UNDER", "1 - 0") not in pairs
+    assert ("CORRECT_SCORE", "Over 2.5") not in pairs
 
 
 def test_gate_case_insensitive_market_type_minuscolo():
