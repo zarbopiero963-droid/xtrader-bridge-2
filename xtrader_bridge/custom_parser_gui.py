@@ -312,12 +312,16 @@ class CustomParserPanel(ctk.CTkFrame):
         Conta SOLO i profili selezionati **e risolti** (esistenti): un profilo fantasma ⚠
         selezionato NON è una traduzione realmente attiva (è bloccato da `_unresolved_*` e non
         applica alcuna mappatura), quindi non gonfia il conteggio dell'indicatore (Fable #336)."""
+        # `getattr(..., set())` sui set «risolti» come per le etichette/dizionari: se un ordine di
+        # costruzione o un reload parziale non li ha ancora inizializzati, si conta 0 (nessuna
+        # traduzione attiva) invece di sollevare `AttributeError` al toggle (GPT/GLM/Fable #336).
         if self.__dict__.get("_nm_status_lbl") is not None and "_profile_checks" in self.__dict__:
-            active = [p for p in self._selected_profiles() if p in self._existing_profiles]
+            existing = getattr(self, "_existing_profiles", set())
+            active = [p for p in self._selected_profiles() if p in existing]
             self._set_translation_status(self._nm_status_lbl, len(active))
         if self.__dict__.get("_mm_status_lbl") is not None and "_market_profile_checks" in self.__dict__:
-            active_m = [p for p in self._selected_market_profiles()
-                        if p in self._existing_market_profiles]
+            existing_m = getattr(self, "_existing_market_profiles", set())
+            active_m = [p for p in self._selected_market_profiles() if p in existing_m]
             self._set_translation_status(self._mm_status_lbl, len(active_m))
 
     def _selected_market_profiles(self) -> list:

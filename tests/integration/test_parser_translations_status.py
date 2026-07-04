@@ -98,6 +98,29 @@ def test_update_status_profilo_fantasma_non_conta(gui_mod):
     assert p2._nm_status_lbl.text == "✓ 1 attiva"
 
 
+def test_update_status_existing_assente_no_crash(gui_mod):
+    # GPT/GLM/Fugu #336: etichette + checkbox presenti ma `_existing_*` NON inizializzati
+    # (init parziale/reload precoce) → nessun AttributeError; conta 0 (nessun profilo risolto).
+    p = object.__new__(gui_mod.CustomParserPanel)
+    p._nm_status_lbl = _FakeLabel()
+    p._mm_status_lbl = _FakeLabel()
+    p._profile_checks = {"A": _Var(True)}
+    p._market_profile_checks = {"M": _Var(True)}
+    p.builder = types.SimpleNamespace(name_mapping_profiles=["A"], market_mapping_profiles=["M"])
+    # nessun _existing_profiles / _existing_market_profiles
+    gui_mod.CustomParserPanel._update_translations_status(p)   # non deve sollevare
+    assert p._nm_status_lbl.text == "— nessuna"
+    assert p._mm_status_lbl.text == "— nessuna"
+
+
+def test_update_status_mercato_fantasma_non_conta(gui_mod):
+    # GLM #336: simmetrico ai nomi, sul ramo MERCATI — il fantasma ⚠ non gonfia il conteggio.
+    p = _panel(gui_mod, name_checks={}, market_checks={"⚠M": True, "M2": True},
+               market_order=["⚠M", "M2"], existing_markets=["M2"])
+    gui_mod.CustomParserPanel._update_translations_status(p)
+    assert p._mm_status_lbl.text == "✓ 1 attiva"      # solo M2 (risolto); ⚠M escluso
+
+
 def test_set_translation_status_none_no_crash(gui_mod):
     # GLM #336: `_set_translation_status(None, ...)` è un no-op difensivo esplicito.
     p = object.__new__(gui_mod.CustomParserPanel)
