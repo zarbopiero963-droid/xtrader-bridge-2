@@ -162,7 +162,8 @@ HUB "🧰 STRUMENTI"  (finestra a tab, caricata su richiesta)
       ├─ 🔵 Betfair Sync        → credenziali + sync dizionario Betfair
       ├─ 📖 Dizionario Betfair  → browser sola-lettura del dizionario locale
       ├─ 📒 Diario              → vista sola-lettura del diario eventi (event journal)
-      └─ 🧹 Nomi Betfair        → ripulitura dei nomi squadra permanenti (sfoglia + elimina)
+      ├─ 🧹 Nomi Betfair        → ripulitura dei nomi squadra permanenti (sfoglia + elimina)
+      └─ 📋 Riepilogo           → colpo d'occhio sola-lettura: modalità + Betfair + canali «Pronto?»
 ```
 
 **Frequenza d'uso (per prioritizzare la gerarchia visiva):**
@@ -454,6 +455,32 @@ mano quando obsoleti/errati — squadre retrocesse/rinominate).
   (probe non bloccante sul lock del DB); senza dizionario Betfair mostra un avviso e non opera.
 - **Non tocca** ID (`MarketId`/`SelectionId`), CSV, o il flusso di piazzamento: agisce solo
   sulla tabella dei nomi permanenti.
+
+### 7.10 📋 Riepilogo configurazione (`config_summary_gui.py`) — #293 slice 3, SOLA LETTURA
+Colpo d'occhio su ciò che il bridge farà davvero, senza saltare tra Generale/Betfair/Chat
+sorgenti/Parser/Mapping. È il primo passo della **schermata Riepilogo** dell'IA #293 (che a
+regime vivrà nel gruppo ④ Impostazioni); per ora è un pannello dell'hub Strumenti. **Non scrive
+né modifica nulla**: legge la config viva e i conteggi Betfair, riusando gli **stessi predicati
+del runtime** (`signal_router`/`parser_manager`/`safety_guard`/`*_mapping_store`) così il
+riepilogo non può divergere dal comportamento reale. Logica in `config_summary.py` (modulo puro).
+- **Stato globale (in alto):**
+  - **Modalità**: **`🔴 MODALITÀ REALE`** (rosso) oppure **`🧪 Simulazione (DRY_RUN)`** (verde).
+  - **Betfair**: `Dizionario Betfair: sincronizzato|non sincronizzato · login attivo|login non attivo`
+    (dizionario locale presente = sync fatta; login = sessione RAM, non persistita tra riavvii).
+  - **`Canali pronti: N/M`**.
+- **Una card per canale** (`CTkScrollableFrame`): intestazione `nome (chat_id)` (o solo l'id, o
+  «(canale senza chat_id)»), riga **`Parser: <nome>`** (o `—`), riga traduzioni
+  **`Nomi ✓N · Mercati ✓N`** (o `—` se nessuna), e l'indicatore **«Pronto?»**:
+  - **`✅ Pronto`** (verde) solo se il canale è ascoltabile (chat_id presente + sorgente attiva),
+    ha un parser che **si carica ed è valido**, e **tutte** le mappature selezionate si risolvono;
+  - **`⚠ <motivo>`** (arancione) altrimenti — motivi: «Manca chat_id», «Sorgente disattivata»,
+    «Nessun parser assegnato», «Parser non caricabile: <nome>», «Traduzione mancante: <profili>».
+- **«Pronto?» è severo e fail-closed** (scelta del proprietario): un profilo di mappatura
+  fantasma `⚠` (selezionato ma inesistente) **non** conta come traduzione attiva e rende il canale
+  non pronto — coerente col fail-closed che scarta i segnali con nome/mercato non risolto. Nessun
+  falso verde.
+- **Aggiornamento**: al **cambio scheda** nell'hub il pannello si ri-legge (`refresh_options`),
+  così riflette modifiche fatte in altre schede senza riaprire la finestra.
 
 ---
 
