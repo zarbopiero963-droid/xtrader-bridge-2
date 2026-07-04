@@ -76,3 +76,26 @@ def test_known_teams_engine_con_db_none_ritorna_vuoto(make_app, app_mod):
     a = make_app()
     a._betfair_engine_obj = types.SimpleNamespace(db=None)
     assert app_mod.App._known_betfair_teams(a) == []
+
+
+def test_known_teams_query_solleva_ritorna_vuoto_e_rilascia_il_lock(make_app, app_mod):
+    # DB presente, lock ACQUISITO, ma `known_teams()` solleva un errore generico (es.
+    # dizionario corrotto): il catch-all best-effort ritorna `[]` e — punto chiave — il
+    # lock viene comunque RILASCIATO nel `finally`, senza sbilanciamenti (review GLM/GPT/
+    # Fable #321). Prova anche che `except DictionaryBusy: raise` NON è dead code: la
+    # struttura try/except è quella intesa (busy propaga, il resto → []).
+    calls = {"acq": 0, "rel": 0}
+
+    class _FakeDB:
+        def acquire_read(self, *, blocking=False):
+            calls["acq"] += 1
+            return True                      # lock libero: entra nel ramo di lettura
+        def release_read(self):
+            calls["rel"] += 1
+        def known_teams(self, sport=None):
+            raise RuntimeError("dizionario corrotto")
+
+    a = make_app()
+    a._betfair_engine_obj = types.SimpleNamespace(db=_FakeDB())
+    assert app_mod.App._known_betfair_teams(a) == []       # errore ingoiato (best-effort)
+    assert calls["acq"] == 1 and calls["rel"] == 1          # acquisito E rilasciato: no leak lock
