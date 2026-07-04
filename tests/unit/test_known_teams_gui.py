@@ -1,0 +1,127 @@
+"""Test della glue della scheda «🧹 Nomi Betfair» (`KnownTeamsPanel`, #282 PR 11-bis).
+
+`known_teams_gui` importa `customtkinter` (un display) e non è importabile headless: qui
+stubbiamo SEMPRE la libreria GUI con widget no-op (così `_refresh`/`_append_row` che
+COSTRUISCONO widget non crashano senza root Tk), ed esercitiamo i VERI metodi del pannello
+su un `self` finto (provider/delete simulati). La logica sotto test è quella reale: elenco,
+eliminazione + ricarica, fail-fast «sync in corso» (DictionaryBusy), fail-safe senza provider.
+"""
+
+import importlib
+import sys
+import types
+
+import pytest
+
+from xtrader_bridge.betfair.dictionary_viewer import DictionaryBusy
+
+
+class _Widget:
+    def __init__(self, *a, **k):
+        pass
+
+    def __getattr__(self, _name):
+        return lambda *a, **k: _Widget()
+
+
+class _FakeCtkModule(types.ModuleType):
+    def __getattr__(self, name):
+        setattr(self, name, _Widget)
+        return _Widget
+
+
+@pytest.fixture()
+def KnownTeamsPanel(monkeypatch):
+    # Stub SEMPRE customtkinter (anche se installato): `_refresh` costruisce widget/font Tk
+    # che senza root crashano headless. monkeypatch ripristina a fine test.
+    monkeypatch.setitem(sys.modules, "customtkinter", _FakeCtkModule("customtkinter"))
+    monkeypatch.delitem(sys.modules, "xtrader_bridge.known_teams_gui", raising=False)
+    mod = importlib.import_module("xtrader_bridge.known_teams_gui")
+    return mod.KnownTeamsPanel
+
+
+def _fake_self(*, sport="(tutti gli sport)", teams=None, provider=None, deleter=None):
+    counts, deleted = [], []
+    fake = types.SimpleNamespace(
+        _sport=types.SimpleNamespace(get=lambda: sport),
+        _teams_provider=provider if provider is not None else (
+            None if teams is None else (lambda s=None: teams)),
+        _delete_team=deleter if deleter is not None else (
+            lambda s, n: deleted.append((s, n))),
+        _rows_frame=_Widget(),
+        _counts=types.SimpleNamespace(configure=lambda **k: counts.append(k)),
+    )
+    return fake, counts, deleted
+
+
+def _bind(KnownTeamsPanel, fake):
+    for name in ("_selected_sport", "_refresh", "_append_row", "_on_delete"):
+        setattr(fake, name, types.MethodType(getattr(KnownTeamsPanel, name), fake))
+    fake._clear_rows = lambda: None
+
+
+# ── elenco ────────────────────────────────────────────────────────────────────
+
+def test_refresh_elenca_i_nomi(KnownTeamsPanel):
+    teams = [{"sport": "Calcio", "display_name": "Inter", "normalized_name": "inter"},
+             {"sport": "Calcio", "display_name": "Milan", "normalized_name": "milan"}]
+    fake, counts, _ = _fake_self(teams=teams)
+    _bind(KnownTeamsPanel, fake)
+    fake._refresh()
+    assert "2 nomi noti" in counts[-1]["text"]
+
+
+def test_refresh_filtra_per_sport(KnownTeamsPanel):
+    seen = {}
+    def _provider(sport=None):
+        seen["sport"] = sport
+        return []
+    fake, counts, _ = _fake_self(sport="Calcio", provider=_provider)
+    _bind(KnownTeamsPanel, fake)
+    fake._refresh()
+    assert seen["sport"] == "Calcio"          # filtro passato al provider (non «(tutti)»)
+
+
+def test_refresh_senza_provider_avvisa(KnownTeamsPanel):
+    fake, counts, _ = _fake_self(provider=None, teams=None)
+    _bind(KnownTeamsPanel, fake)
+    fake._refresh()
+    assert "non disponibile" in counts[-1]["text"]
+
+
+def test_refresh_sync_in_corso_avvisa(KnownTeamsPanel):
+    def _busy(sport=None):
+        raise DictionaryBusy()
+    fake, counts, _ = _fake_self(provider=_busy)
+    _bind(KnownTeamsPanel, fake)
+    fake._refresh()
+    assert "in corso" in counts[-1]["text"]
+
+
+# ── eliminazione ────────────────────────────────────────────────────────────────
+
+def test_on_delete_elimina_e_ricarica(KnownTeamsPanel):
+    teams = [{"sport": "Calcio", "display_name": "Inter", "normalized_name": "inter"}]
+    fake, counts, deleted = _fake_self(teams=teams)
+    _bind(KnownTeamsPanel, fake)
+    fake._on_delete("Calcio", "inter")
+    assert deleted == [("Calcio", "inter")]   # delete chiamato con la chiave giusta
+    # dopo la delete il pannello ricarica (refresh → riga conteggi aggiornata)
+    assert counts and "nomi noti" in counts[-1]["text"]
+
+
+def test_on_delete_sync_in_corso_avvisa_non_elimina(KnownTeamsPanel):
+    def _deleter(s, n):
+        raise DictionaryBusy()
+    fake, counts, _ = _fake_self(deleter=_deleter)
+    _bind(KnownTeamsPanel, fake)
+    fake._on_delete("Calcio", "inter")
+    assert "in corso" in counts[-1]["text"]
+
+
+def test_on_delete_senza_callback_avvisa(KnownTeamsPanel):
+    fake, counts, _ = _fake_self()
+    fake._delete_team = None                   # nessuna callback di eliminazione iniettata
+    _bind(KnownTeamsPanel, fake)
+    fake._on_delete("Calcio", "inter")
+    assert "non disponibile" in counts[-1]["text"]

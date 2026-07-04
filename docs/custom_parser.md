@@ -198,8 +198,14 @@ una sync in corso** fa fail-fast («⏳ …riprova tra poco») invece di **conge
 il DB con probe non bloccante, come il viewer del dizionario). Fonte dati:
 `BetfairLocalDB.known_teams(sport)` (sola lettura).
 
-> **Non ancora fatto (PR dedicata):** una vista di **ripulitura manuale** dei nomi permanenti
-> (sfogliare per sport ed **eliminare** nomi obsoleti/errati) sarà una PR successiva di #282.
+**Ripulitura manuale (GUI, PR 11-bis).** I nomi permanenti crescono nel tempo (mai
+disattivati): la scheda **«🧹 Nomi Betfair»** dell'hub Strumenti
+(`known_teams_gui.KnownTeamsPanel`) li **sfoglia per sport** e li **elimina** uno per uno
+(pulsante **«🗑 Elimina»**), l'unico modo per togliere un nome obsoleto/errato (squadra
+retrocessa/rinominata) — `BetfairLocalDB.delete_known_team(sport, normalized_name)`. Come le
+altre viste sul dizionario Betfair, è **fail-fast** durante una sync («⏳ …riprova tra poco»,
+niente freeze) e best-effort (DB assente → avviso). Un nome eliminato per errore verrà
+**ri-raccolto** alla prossima sync se l'evento ricompare.
 
 ### Mappatura mercati a frase (`market_mapping_profiles`)
 

@@ -1007,3 +1007,24 @@ elimina nomi obsoleti) — richiederà un `delete_known_team` nel DB. #282 resta
 normalizzato, stesso nome/altro-sport non-duplicato, no-profilo/no-provider/vuoto/provider-che-
 solleva fail-safe, nome vuoto saltato) esercitando il metodo reale su `self` finto (widget/
 provider simulati, nessun display).
+
+## #282 — ripulitura manuale dei nomi squadra permanenti ✅ (PR 11-bis)
+
+**Obiettivo.** I nomi raccolti in PR 10 sono permanenti (mai disattivati dal mark-and-sweep):
+crescono nel tempo e possono restare nomi obsoleti/errati (squadre retrocesse/rinominate).
+Serviva l'**unico** modo per toglierli: una vista di ripulitura manuale.
+
+**Cosa fa.** Nuova scheda **«🧹 Nomi Betfair»** (`known_teams_gui.KnownTeamsPanel`) nell'hub
+Strumenti: sfoglia i nomi per **sport** ed elimina uno per uno con **«🗑 Elimina»**. Backend:
+`BetfairLocalDB.delete_known_team(sport, normalized_name)` (chiave esatta, scoping per
+sport+nome, ritorna righe eliminate). Wiring via `App._delete_betfair_team` — **busy-guardato**
+come la lettura (probe non bloccante + `DictionaryBusy`): un click durante una sync non congela
+la GUI (mostra «⏳ …riprova»), best-effort (DB assente → `False`). Chiude #282.
+
+**Non tocca** ID effimeri, CSV, né il flusso di piazzamento.
+
+**Test hard:** `tests/unit/test_betfair_local_db.py` (delete per chiave esatta, no-op su nome
+inesistente, nessun delete cross-sport); `tests/integration/test_known_teams_busy.py`
+(`_delete_betfair_team`: lock libero → elimina, sync in corso → `DictionaryBusy` fail-fast e
+niente eliminazione, DB assente → `False`); `tests/unit/test_known_teams_gui.py` (elenco,
+filtro sport, eliminazione+ricarica, fail-fast sync, fail-safe senza provider/callback).

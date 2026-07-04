@@ -154,7 +154,8 @@ HUB "🧰 STRUMENTI"  (finestra a tab, caricata su richiesta)
       ├─ 🗺️ Mapping             → (sotto-tab: ⚽ Calcio nomi · 🎯 Mercati)
       ├─ 🔵 Betfair Sync        → credenziali + sync dizionario Betfair
       ├─ 📖 Dizionario Betfair  → browser sola-lettura del dizionario locale
-      └─ 📒 Diario              → vista sola-lettura del diario eventi (event journal)
+      ├─ 📒 Diario              → vista sola-lettura del diario eventi (event journal)
+      └─ 🧹 Nomi Betfair        → ripulitura dei nomi squadra permanenti (sfoglia + elimina)
 ```
 
 **Frequenza d'uso (per prioritizzare la gerarchia visiva):**
@@ -245,7 +246,7 @@ altezza ridimensionabile, min 720×600.
 
 ## 7. Hub Strumenti e finestre secondarie
 
-L'hub **"🧰 Strumenti"** è una finestra a tab caricata su richiesta. Gli 8 pannelli:
+L'hub **"🧰 Strumenti"** è una finestra a tab caricata su richiesta. I 9 pannelli:
 
 ### 7.1 🧩 Parser Personalizzato (`custom_parser_gui.py`) — il pannello più complesso
 Costruttore visuale che definisce **come estrarre ogni colonna del CSV** da un messaggio,
@@ -375,6 +376,22 @@ stessa logica pura della CLI `journal_view`.
   leggibile locale) · **Tipo** · **Dati (redatti)** (JSON compatto, chiavi ordinate).
 - **Invariante di sicurezza:** la vista mostra i valori **esattamente come sono sul file** —
   mai token/chat in chiaro, mai scrittura sul diario.
+
+### 7.9 🧹 Nomi Betfair (`known_teams_gui.py`)
+Titolo **"🧹  Nomi Betfair noti (permanenti) — ripulitura"**. Gestione dei nomi squadra
+**permanenti** raccolti dalla sync Betfair (`betfair_known_teams`, #282): l'unica vista che
+li **elimina** (il mark-and-sweep non li tocca, quindi crescono per sempre e vanno ripuliti a
+mano quando obsoleti/errati — squadre retrocesse/rinominate).
+- **Barra:** dropdown **"Sport"** (`(tutti gli sport)` + i 4 sport), **"🔄 Aggiorna"**.
+- **Riga conteggi:** `N nomi noti.` (o avviso se il dizionario non è disponibile).
+- **Elenco** (`CTkScrollableFrame`): una riga per nome = **Sport** · **nome Betfair** ·
+  **"🗑 Elimina"** (rosso `#c62828`). L'eliminazione è **immediata** (nessun dialogo di
+  conferma: il dato è ri-raccoglibile alla prossima sync) e ricarica l'elenco.
+- **Stati fail-safe:** durante una **sincronizzazione in corso** fa fail-fast con
+  «⏳ Sincronizzazione Betfair in corso: riprova tra poco» **senza congelare** la finestra
+  (probe non bloccante sul lock del DB); senza dizionario Betfair mostra un avviso e non opera.
+- **Non tocca** ID (`MarketId`/`SelectionId`), CSV, o il flusso di piazzamento: agisce solo
+  sulla tabella dei nomi permanenti.
 
 ---
 

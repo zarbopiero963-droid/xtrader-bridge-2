@@ -99,3 +99,47 @@ def test_known_teams_query_solleva_ritorna_vuoto_e_rilascia_il_lock(make_app, ap
     a._betfair_engine_obj = types.SimpleNamespace(db=_FakeDB())
     assert app_mod.App._known_betfair_teams(a) == []       # errore ingoiato (best-effort)
     assert calls["acq"] == 1 and calls["rel"] == 1          # acquisito E rilasciato: no leak lock
+
+
+# ── _delete_betfair_team: stessa busy-guard della lettura (#282 PR 11-bis) ─────
+
+def test_delete_team_lock_libero_elimina(make_app, app_mod):
+    db = BetfairLocalDB(":memory:")
+    db.upsert_known_team("Calcio", "Inter", seen_at=1)
+    a = _app_with_db(make_app, db)
+    try:
+        assert app_mod.App._delete_betfair_team(a, "Calcio", "inter") is True
+        assert db.count_known_teams("Calcio") == 0
+    finally:
+        db.close()
+
+
+def test_delete_team_durante_sync_fa_fail_fast(make_app, app_mod):
+    db = BetfairLocalDB(":memory:")
+    db.upsert_known_team("Calcio", "Inter", seen_at=1)
+    a = _app_with_db(make_app, db)
+    holding, release = threading.Event(), threading.Event()
+
+    def _hold_lock_like_a_sync():
+        db.acquire_read(blocking=True)
+        holding.set()
+        release.wait(2)
+        db.release_read()
+
+    t = threading.Thread(target=_hold_lock_like_a_sync)
+    t.start()
+    try:
+        assert holding.wait(2)
+        with pytest.raises(DictionaryBusy):
+            app_mod.App._delete_betfair_team(a, "Calcio", "inter")   # non blocca: fail-fast
+        assert db.count_known_teams("Calcio") == 1                    # niente eliminazione
+    finally:
+        release.set()
+        t.join()
+        db.close()
+
+
+def test_delete_team_db_assente_ritorna_false(make_app, app_mod):
+    a = make_app()
+    a._betfair_engine_obj = types.SimpleNamespace(db=None)
+    assert app_mod.App._delete_betfair_team(a, "Calcio", "inter") is False

@@ -503,6 +503,21 @@ class BetfairLocalDB:
                     (str(sport),)).fetchone()
             return int(row["n"])
 
+    def delete_known_team(self, sport, normalized_name) -> int:
+        """Elimina UN nome squadra permanente (#282 ripulitura manuale), per chiave esatta
+        (`sport`, `normalized_name`). Ritorna quante righe ha eliminato (0 se non c'era).
+
+        È l'**unico** modo per togliere un nome permanente: il mark-and-sweep non tocca
+        `betfair_known_teams`, quindi un nome obsoleto/errato (squadra retrocessa/rinominata)
+        resterebbe per sempre finché non lo si elimina qui a mano. Scoping esatto: elimina
+        solo quella coppia, mai altri sport o nomi."""
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM betfair_known_teams WHERE sport=? AND normalized_name=?",
+                (str(sport), str(normalized_name)))
+            self._commit_if_needed()
+            return cur.rowcount
+
     def fetchall(self, table):
         """Tutte le righe di una tabella del dizionario (whitelist), per il viewer."""
         valid = set(_SCOPED) | {"betfair_selections", "betfair_local_name_mappings",

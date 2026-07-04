@@ -17,7 +17,8 @@ import xtrader_bridge
 _IMPURE = {"xtrader_bridge.app", "xtrader_bridge.custom_parser_gui",
            "xtrader_bridge.source_chats_gui", "xtrader_bridge.profiles_gui",
            "xtrader_bridge.provider_gui", "xtrader_bridge.name_mapping_gui",
-           "xtrader_bridge.tools_gui", "xtrader_bridge.journal_view_gui"}
+           "xtrader_bridge.tools_gui", "xtrader_bridge.journal_view_gui",
+           "xtrader_bridge.known_teams_gui"}
 
 # Moduli core che DEVONO sempre essere presenti (guardia contro discovery rotta).
 _CORE = {
@@ -99,3 +100,9 @@ def test_journal_view_gui_import_opzionale():
     # La scheda "📒 Diario" dipende da customtkinter: skip se assente.
     pytest.importorskip("customtkinter")
     assert importlib.import_module("xtrader_bridge.journal_view_gui") is not None
+
+
+def test_known_teams_gui_import_opzionale():
+    # La scheda "🧹 Nomi Betfair" dipende da customtkinter: skip se assente.
+    pytest.importorskip("customtkinter")
+    assert importlib.import_module("xtrader_bridge.known_teams_gui") is not None
