@@ -24,7 +24,7 @@ from .local_db import BetfairLocalDB
 # Sport del blocco personale → event_type_id ufficiale Betfair. Fonte UNICA in
 # `xtrader_bridge.sports` (riusata anche dal parser personalizzato, PR-P9); qui la
 # ri-esportiamo per non spezzare l'API pubblica di questo client.
-from ..sports import SPORTS_EVENT_TYPE
+from ..sports import SPORTS_EVENT_TYPE, sport_for_event_type_id
 
 # Operazioni Betfair usate da questo client: SOLO lettura (nomi per il guard/log).
 NAVIGATION_OP = "navigationMenu"
@@ -334,6 +334,28 @@ class CatalogueSync:
                 self.session.clear_if_expired(ex.error_code)
             raise
 
+    def _harvest_teams(self, event_type_id, participant_1, participant_2, seen_at) -> int:
+        """Harvest #282: accumula i nomi squadra **permanenti** (`betfair_known_teams`).
+
+        Solo i match reali con DUE partecipanti («Home v Away»): un evento a un solo nome
+        (torneo/outright, es. «ATP Finals») NON è una squadra e viene saltato, per non
+        inquinare la tabella permanente. Lo sport è salvato col **nome** canonico (la
+        chiave con cui la mappatura nomi li consulta), derivato dall'`event_type_id`; uno
+        sport ignoto → nessun harvest. Idempotente: nomi già noti non duplicano
+        (chiave `sport` + `normalized_name`). Ritorna quanti nomi ha scritto (0/1/2)."""
+        p1 = (participant_1 or "").strip()
+        p2 = (participant_2 or "").strip()
+        if not (p1 and p2):
+            return 0
+        sport = sport_for_event_type_id(event_type_id)
+        if not sport:
+            return 0
+        written = 0
+        for name in (p1, p2):
+            if self.db.upsert_known_team(sport, name, seen_at=seen_at):
+                written += 1
+        return written
+
     def _sync_in_transaction(self, nav_transport, cat_transport, etids) -> dict:
         """Corpo transazionale della sync (estratto da `sync` per il triage degli errori
         di scadenza sessione). Tutte le scritture stanno in UNA transazione: un fallimento
@@ -360,6 +382,8 @@ class CatalogueSync:
                     p1, p2 = split_participants(ev.get("name"))
                     self.db.upsert_event(ev_id, et["id"], comp_id, ev.get("name"),
                                          ev.get("openDate"), p1, p2, seen_at=marker)
+                    # Harvest permanente dei nomi squadra (#282): non tocca gli ID.
+                    self._harvest_teams(et["id"], p1, p2, marker)
                 if mk.get("id"):
                     self.db.upsert_market(mk["id"], ev_id, et["id"], mk.get("name"),
                                           mk.get("marketType"), seen_at=marker)
@@ -397,6 +421,9 @@ class CatalogueSync:
                             ev_id, meta.get("event_type_id", ""),
                             meta.get("competition_id", ""), cat_ev.get("name"),
                             open_date, p1, p2, seen_at=marker)
+                        # Harvest permanente dei nomi squadra dai nomi autorevoli del
+                        # catalogue (#282): idempotente col navigation, non tocca gli ID.
+                        self._harvest_teams(meta.get("event_type_id", ""), p1, p2, marker)
                     self.db.upsert_market(
                         market_id, ev_id,   # ev_id RISOLTO, non il solo event_id del menu (Codex)
                         meta.get("event_type_id", ""),
@@ -431,6 +458,9 @@ class CatalogueSync:
                 "deactivated": deactivated,
                 "active_events": self.db.count_active("betfair_events"),
                 "active_markets": self.db.count_active("betfair_markets"),
+                # Nomi squadra permanenti totali dopo la sync (#282): accumulano nel
+                # tempo, NON calano quando gli eventi/ID scadono.
+                "known_teams": self.db.count_known_teams(),
             }
             self.db.record_sync_run(started_at=marker, finished_at=marker, status="OK",
                                     summary=json.dumps(summary, ensure_ascii=False))

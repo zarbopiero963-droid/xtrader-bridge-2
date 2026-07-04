@@ -3,7 +3,13 @@
 Tabelle locali del dizionario (tutto sul PC/VPS, **nessun cloud, nessun
 export/import**): `betfair_sports`, `betfair_competitions`, `betfair_events`,
 `betfair_markets`, `betfair_selections`, `betfair_sync_runs`,
-`betfair_local_name_mappings`.
+`betfair_local_name_mappings`, `betfair_known_teams`.
+
+`betfair_known_teams` (#282) è la **sola** tabella PERMANENTE: accumula i nomi
+squadra dei 4 sport raccolti durante la sync e **non ha colonna `active`**, quindi il
+mark-and-sweep (`deactivate_unseen`, che opera solo sulle tabelle in `_SCOPED`) non la
+tocca MAI. Gli ID (`MarketId`/`SelectionId`) restano invece effimeri come prima: i nomi
+squadra sopravvivono alla fine dell'evento, gli ID no.
 
 Chiavi corrette (dall'issue), che evitano i falsi duplicati:
 - Sport → `event_type_id`
@@ -23,6 +29,12 @@ dipendenza. Nessun dato sensibile/credenziale finisce qui.
 import os
 import sqlite3
 import threading
+
+# Fonte UNICA della normalizzazione nomi (case/spazi-insensibile): la stessa usata dal
+# dizionario XTrader e dalla mappatura nomi. Riusarla qui garantisce che la chiave dei
+# nomi squadra permanenti (#282) coincida ESATTAMENTE con quella con cui la mappatura
+# nomi della GUI li cercherà (nessuna implementazione divergente).
+from ..dizionario import normalize as _normalize_name
 
 # Quante righe di `betfair_sync_runs` conservare: la tabella registra ~1 riga per
 # sync (storico) e altrimenti crescerebbe all'infinito (#184 LOW). 200 run = oltre
@@ -99,6 +111,14 @@ CREATE TABLE IF NOT EXISTS betfair_local_name_mappings (
     mapped_name     TEXT,
     entity_type     TEXT,
     active          INTEGER NOT NULL DEFAULT 1,
+    last_seen_at    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (sport, normalized_name)
+);
+CREATE TABLE IF NOT EXISTS betfair_known_teams (
+    sport           TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    display_name    TEXT,
+    first_seen_at   INTEGER NOT NULL DEFAULT 0,
     last_seen_at    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (sport, normalized_name)
 );
@@ -303,6 +323,30 @@ class BetfairLocalDB:
                  active=1, last_seen_at=excluded.last_seen_at""",
             (str(sport), str(normalized_name), mapped_name, entity_type, int(seen_at)))
 
+    def upsert_known_team(self, sport, display_name, *, seen_at: int = 0) -> bool:
+        """Accumula un nome squadra **permanente** per `sport` (#282). Ritorna ``True``
+        se un nome è stato scritto, ``False`` se saltato (nome vuoto dopo normalizzazione).
+
+        La chiave è `(sport, normalized_name)` con `normalized_name` = normalizzazione
+        canonica (case/spazi-insensibile), la **stessa** della mappatura nomi: così un
+        nome con maiuscole/spazi diversi NON crea un duplicato. Idempotente: alla
+        seconda vista aggiorna `display_name` all'ultima grafia e `last_seen_at`, ma
+        **NON** cambia `first_seen_at` (resta la prima volta). La tabella non ha `active`:
+        non viene mai disattivata dal mark-and-sweep → nomi **per sempre**."""
+        name = str(display_name or "").strip()
+        norm = _normalize_name(name) if name else ""
+        if not norm:
+            return False
+        self._exec(
+            """INSERT INTO betfair_known_teams
+                 (sport, normalized_name, display_name, first_seen_at, last_seen_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(sport, normalized_name) DO UPDATE SET
+                 display_name=excluded.display_name,
+                 last_seen_at=excluded.last_seen_at""",
+            (str(sport), norm, name, int(seen_at), int(seen_at)))
+        return True
+
     # ── marker di sync (unico e monotòno, persistito) ────────────────────────
 
     def new_sync_marker(self) -> int:
@@ -430,10 +474,39 @@ class BetfairLocalDB:
                 "SELECT * FROM betfair_events ORDER BY event_id").fetchall()
             return [dict(r) for r in rows]
 
+    def known_teams(self, sport=None):
+        """Nomi squadra **permanenti** (#282), opzionalmente filtrati per `sport`,
+        ordinati per `display_name`. Ritorna una lista di dict
+        (`sport`, `normalized_name`, `display_name`, `first_seen_at`, `last_seen_at`).
+        Nessun concetto di `active`: sono tutti permanenti. Serve al menù/mappatura nomi
+        della GUI (PR 11) e ai test."""
+        with self._lock:
+            if sport is None:
+                rows = self._conn.execute(
+                    "SELECT * FROM betfair_known_teams "
+                    "ORDER BY sport, display_name").fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT * FROM betfair_known_teams WHERE sport=? "
+                    "ORDER BY display_name", (str(sport),)).fetchall()
+            return [dict(r) for r in rows]
+
+    def count_known_teams(self, sport=None) -> int:
+        """Quanti nomi squadra permanenti sono salvati (opz. per `sport`)."""
+        with self._lock:
+            if sport is None:
+                row = self._conn.execute(
+                    "SELECT COUNT(*) AS n FROM betfair_known_teams").fetchone()
+            else:
+                row = self._conn.execute(
+                    "SELECT COUNT(*) AS n FROM betfair_known_teams WHERE sport=?",
+                    (str(sport),)).fetchone()
+            return int(row["n"])
+
     def fetchall(self, table):
         """Tutte le righe di una tabella del dizionario (whitelist), per il viewer."""
         valid = set(_SCOPED) | {"betfair_selections", "betfair_local_name_mappings",
-                                "betfair_sync_runs"}
+                                "betfair_known_teams", "betfair_sync_runs"}
         if table not in valid:
             raise ValueError(f"tabella non valida: {table!r}")
         with self._lock:

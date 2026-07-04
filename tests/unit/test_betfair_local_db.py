@@ -318,3 +318,65 @@ def test_prune_dentro_transazione_e_atomico(tmp_path):
     # rollback: né il nuovo insert né il prune sono stati applicati
     assert len(d.fetchall("betfair_sync_runs")) == 5
     d.close()
+
+
+# ── nomi squadra PERMANENTI (harvest #282) ────────────────────────────────────
+
+def test_known_team_upsert_e_normalizzazione(db):
+    # Stesso nome con case/spazi diversi = STESSA chiave normalizzata → nessun duplicato.
+    assert db.upsert_known_team("Calcio", "  Inter  ", seen_at=1) is True
+    assert db.upsert_known_team("Calcio", "inter", seen_at=2) is True   # dup per norm
+    assert db.upsert_known_team("Calcio", "Milan", seen_at=1) is True
+    assert db.count_known_teams("Calcio") == 2                          # Inter + Milan
+    teams = {t["normalized_name"] for t in db.known_teams("Calcio")}
+    assert teams == {"inter", "milan"}
+
+
+def test_known_team_nome_vuoto_saltato(db):
+    # Nome vuoto / solo spazi → non scrive nulla (ritorna False), nessuna riga fantasma.
+    assert db.upsert_known_team("Calcio", "   ", seen_at=1) is False
+    assert db.upsert_known_team("Calcio", None, seen_at=1) is False
+    assert db.count_known_teams() == 0
+
+
+def test_known_team_first_seen_fisso_last_seen_aggiornato(db):
+    # first_seen_at resta la PRIMA volta; last_seen_at e display_name seguono l'ultima vista.
+    db.upsert_known_team("Tennis", "Sinner", seen_at=10)
+    db.upsert_known_team("Tennis", "SINNER", seen_at=20)     # rivisto (grafia diversa)
+    row = db.known_teams("Tennis")[0]
+    assert row["first_seen_at"] == 10                        # invariato
+    assert row["last_seen_at"] == 20                         # aggiornato
+    assert row["display_name"] == "SINNER"                   # ultima grafia
+
+
+def test_known_team_filtro_per_sport(db):
+    db.upsert_known_team("Calcio", "Juventus", seen_at=1)
+    db.upsert_known_team("Tennis", "Alcaraz", seen_at=1)
+    assert {t["display_name"] for t in db.known_teams("Calcio")} == {"Juventus"}
+    assert {t["display_name"] for t in db.known_teams("Tennis")} == {"Alcaraz"}
+    assert db.count_known_teams() == 2                        # tutti gli sport
+
+
+def test_known_teams_permanenti_non_toccati_dal_mark_and_sweep(db):
+    # La tabella NON è scopabile da deactivate_unseen: il mark-and-sweep non può
+    # disattivarla (permanenza by-construction). Un tentativo esplicito è respinto.
+    db.upsert_known_team("Calcio", "Roma", seen_at=1)
+    with pytest.raises(ValueError):
+        db.deactivate_unseen("betfair_known_teams", 999)
+    # e non esiste alcuna colonna active da azzerare: resta consultabile per sempre
+    assert db.count_known_teams("Calcio") == 1
+    assert db.fetchall("betfair_known_teams")[0]["display_name"] == "Roma"
+
+
+def test_known_teams_persistono_su_disco_dopo_riapertura(tmp_path):
+    # Durata reale: i nomi permanenti sopravvivono a chiusura/riapertura del DB su file
+    # (persistenza SQLite), e la tabella viene ricreata da `CREATE TABLE IF NOT EXISTS`
+    # anche su un DB già esistente (compatibilità upgrade).
+    path = str(tmp_path / "betfair.db")
+    d1 = BetfairLocalDB(path)
+    d1.upsert_known_team("Calcio", "Juventus", seen_at=1)
+    d1.close()
+    d2 = BetfairLocalDB(path)                         # riapertura: schema idempotente
+    assert d2.count_known_teams("Calcio") == 1
+    assert d2.known_teams("Calcio")[0]["display_name"] == "Juventus"
+    d2.close()

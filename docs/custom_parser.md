@@ -171,6 +171,28 @@ il **separatore** squadre e spunti i **profili** da usare (checkbox multi-selezi
 «Prova messaggio» risolve i profili dalla config e mostra l'`EventName` tradotto (o
 `MAPPING_MISSING` se non mappabile), coerente col runtime.
 
+#### Nomi squadra permanenti dalla sync Betfair (#282, harvest — data layer)
+
+Oggi la colonna **Betfair/XTrader** della mappatura nomi è **campo libero digitato a
+mano**. Per aiutare a compilarla con i nomi squadra **reali**, la sync Betfair
+**raccoglie e conserva in modo permanente** i nomi dei partecipanti dei match dei 4
+sport:
+
+- durante la sync, per ogni evento «Home v Away» i due partecipanti vengono salvati in
+  una tabella locale dedicata `betfair_known_teams` (chiave `sport` + `normalized_name`,
+  con lo **stesso** normalizzatore della mappatura nomi, così le chiavi combaciano);
+- questa tabella è la **sola permanente**: **non** ha colonna `active` e **non** viene
+  mai toccata dal mark-and-sweep, quindi i nomi restano **per sempre** anche quando
+  l'evento finisce. Gli `MarketId`/`SelectionId` restano invece **effimeri** come prima
+  (il loro ciclo di vita non cambia): sopravvivono i **nomi**, non gli ID;
+- sync ripetute **accumulano** senza duplicare (idempotente); un evento a un solo nome
+  (torneo/outright, es. «ATP Finals») **non** è una squadra e viene saltato.
+
+> **Stato:** questa PR realizza solo il **data layer** (harvest + persistenza + accesso
+> `BetfairLocalDB.known_teams(sport)`). L'**aggancio al menù/GUI** della mappatura nomi
+> (suggerimento/selezione dei nomi permanenti nella colonna Betfair) e una vista di
+> **ripulitura manuale** arrivano nella PR successiva di #282.
+
 ### Mappatura mercati a frase (`market_mapping_profiles`)
 
 Alcuni canali scrivono il **mercato a parole** dentro il messaggio (es. `Quota 0,5 HT
