@@ -111,12 +111,18 @@ class KnownTeamsPanel(ctk.CTkFrame):
             self._counts.configure(text="⛔ Eliminazione non disponibile.")
             return
         try:
-            self._delete_team(sport, normalized_name)
+            ok = self._delete_team(sport, normalized_name)
         except DictionaryBusy:
             self._counts.configure(
                 text="⏳ Sincronizzazione Betfair in corso: riprova tra poco.")
             return
         except Exception as exc:                 # noqa: BLE001 — best-effort, niente crash GUI
             self._counts.configure(text=f"⚠️ Eliminazione fallita: {type(exc).__name__}")
+            return
+        if not ok:
+            # DB non disponibile (best-effort → False): niente refresh «pulito» che nasconde
+            # il no-op — avvisa che nulla è stato eliminato (CodeRabbit/GPT/Fable #322).
+            self._counts.configure(
+                text="⚠️ Eliminazione non riuscita: dizionario Betfair non disponibile.")
             return
         self._refresh()

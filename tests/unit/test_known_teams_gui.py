@@ -17,8 +17,13 @@ from xtrader_bridge.betfair.dictionary_viewer import DictionaryBusy
 
 
 class _Widget:
+    # Registra le `command=` dei widget costruiti (per testare il wiring del pulsante 🗑).
+    commands = []
+
     def __init__(self, *a, **k):
-        pass
+        cmd = k.get("command")
+        if callable(cmd):
+            _Widget.commands.append(cmd)
 
     def __getattr__(self, _name):
         return lambda *a, **k: _Widget()
@@ -42,12 +47,16 @@ def KnownTeamsPanel(monkeypatch):
 
 def _fake_self(*, sport="(tutti gli sport)", teams=None, provider=None, deleter=None):
     counts, deleted = [], []
+
+    def _default_delete(s, n):
+        deleted.append((s, n))
+        return True                            # successo: come App._delete_betfair_team
+
     fake = types.SimpleNamespace(
         _sport=types.SimpleNamespace(get=lambda: sport),
         _teams_provider=provider if provider is not None else (
             None if teams is None else (lambda s=None: teams)),
-        _delete_team=deleter if deleter is not None else (
-            lambda s, n: deleted.append((s, n))),
+        _delete_team=deleter if deleter is not None else _default_delete,
         _rows_frame=_Widget(),
         _counts=types.SimpleNamespace(configure=lambda **k: counts.append(k)),
     )
@@ -108,6 +117,29 @@ def test_on_delete_elimina_e_ricarica(KnownTeamsPanel):
     assert deleted == [("Calcio", "inter")]   # delete chiamato con la chiave giusta
     # dopo la delete il pannello ricarica (refresh → riga conteggi aggiornata)
     assert counts and "nomi noti" in counts[-1]["text"]
+
+
+def test_on_delete_fallita_db_assente_avvisa_non_ricarica(KnownTeamsPanel):
+    # delete_team ritorna False (DB non disponibile): il pannello AVVISA invece di
+    # ricaricare «pulito» nascondendo il no-op (CodeRabbit/GPT/Fable #322).
+    fake, counts, _ = _fake_self(deleter=lambda s, n: False)
+    _bind(KnownTeamsPanel, fake)
+    fake._on_delete("Calcio", "inter")
+    assert "non riuscita" in counts[-1]["text"]
+
+
+def test_append_row_pulsante_elimina_usa_normalized_name(KnownTeamsPanel):
+    # Il pulsante 🗑 deve chiamare _on_delete con la `normalized_name` della riga, NON il
+    # `display_name` (il DB elimina per chiave normalizzata: display_name → no-op silenzioso)
+    # — review GPT #322.
+    _Widget.commands.clear()
+    fake, counts, deleted = _fake_self()
+    _bind(KnownTeamsPanel, fake)
+    fake._append_row({"sport": "Calcio", "display_name": "Inter FC",
+                      "normalized_name": "inter fc"})
+    assert _Widget.commands, "la riga deve creare un pulsante Elimina con una command"
+    _Widget.commands[-1]()                      # simula il click sul 🗑
+    assert deleted == [("Calcio", "inter fc")]  # normalized_name, NON "Inter FC"
 
 
 def test_on_delete_sync_in_corso_avvisa_non_elimina(KnownTeamsPanel):
