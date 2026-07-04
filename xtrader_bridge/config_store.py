@@ -124,6 +124,9 @@ DEFAULTS = {
     "csv_path":         r"C:\XTrader\segnali.csv",
     "clear_delay":      90,
     "provider":         "TelegramBot",
+    # Tema UI (#288 Delta 1): "dark" / "light". Default sicuro "dark" (tema storico
+    # dell'app): una config vecchia senza il campo, o un valore malformato, eredita lo scuro.
+    "theme":            "dark",
     # Modalità di riconoscimento XTrader: ID_ONLY / NAME_ONLY / BOTH.
     # Default NAME_ONLY: oggi il bridge non ricava gli ID dal messaggio Telegram.
     "recognition_mode": "NAME_ONLY",
@@ -179,6 +182,20 @@ DEFAULTS = {
     "betfair_auto_sync_hour":       23,
     "betfair_sync_sports":          ["Calcio", "Tennis", "Basket", "Rugby Union"],
 }
+
+
+VALID_THEMES = ("dark", "light")
+
+
+def normalize_theme(value) -> str:
+    """Normalizza il tema UI (#288 Delta 1) a ``"dark"``/``"light"`` (case-insensitive,
+    spazi ai bordi ignorati). Qualsiasi valore mancante, non-stringa o non riconosciuto →
+    default sicuro ``"dark"`` (il tema storico dell'app): una config vecchia o un
+    `config.json` editato a mano con un valore sporco non lascia mai l'UI in uno stato
+    indefinito. Unica fonte di verità, usata sia in `load_config` sia dal toggle nell'app."""
+    if isinstance(value, str) and value.strip().lower() in VALID_THEMES:
+        return value.strip().lower()
+    return "dark"
 
 
 def as_bool(value) -> bool:
@@ -418,6 +435,10 @@ def _migrate(cfg: dict) -> dict:
             # combaciano. Solo l'allowlist `_STRIP_STR_KEYS`; gli altri str restano invariati.
             if key in _STRIP_STR_KEYS:
                 val = val.strip()
+            if key == "theme":
+                # Tema UI: solo "dark"/"light" (case-insensitive); mancante/malformato →
+                # default sicuro "dark" (#288 Delta 1). Unico punto: `normalize_theme`.
+                val = normalize_theme(val)
             cfg[key] = val
         elif isinstance(default, list):
             if key in _KEYWORD_KEYS:
