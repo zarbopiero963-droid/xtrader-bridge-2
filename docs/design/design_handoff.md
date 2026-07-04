@@ -191,7 +191,7 @@ altezza ridimensionabile, min 720×600.
 |---|---|---|
 | 🔑 Bot Token | `bot_token` | campo password (mascherato) |
 | 💬 Chat ID | `chat_id` | testo |
-| 📄 CSV Path | `csv_path` | testo (percorso file) **+ pulsante «📁 Sfoglia…»** (#284) |
+| 📄 CSV Path | `csv_path` | testo (percorso file) **+ pulsante «📁 Sfoglia…»** (#284) **+ pulsante «📄 Crea CSV»** (#286) |
 | ⏱️ Timeout (sec) | `clear_delay` | intero > 0 |
 | 🏷️ Provider | `provider` | testo |
 
@@ -202,6 +202,14 @@ altezza ridimensionabile, min 720×600.
   safety-critical (dry_run/chat/sorgenti) né esegue i gate di modalità REALE. Se l'utente
   annulla il dialog → nessuna modifica. Nota invariante: cambiare il percorso a bridge
   **avviato** non tocca il CSV della sessione attiva (resta quello di START finché STOP/START).
+- **«📄 Crea CSV» accanto a CSV Path (#286):** azione complementare a «📁 Sfoglia…» — invece di
+  **selezionare** un CSV esistente, **genera** un CSV nuovo **a solo header** nel formato XTrader
+  (dialog Tk `asksaveasfilename`, `.csv`) e lo imposta come `csv_path` (stesso salvataggio
+  immediato + merge sul config vivo). Il file è **generato dall'app** (dal contratto
+  `CSV_HEADER`), mai scaricato o incluso nel repo/EXE. Anti data-loss: se il percorso scelto
+  esiste già ed è un CSV del bridge → rigenerato a solo header; se è un **file estraneo**
+  (header diverso) → **conferma esplicita** (finestra «Sovrascrivere?») prima di toccarlo, altrimenti
+  nessuna modifica. Annullo → nessun file creato.
 
 **Tab 🎯 Riconoscimento** — 1 dropdown:
 - **"🎯 Modalità riconoscimento"** → opzioni `ID_ONLY` / `NAME_ONLY` / `BOTH`.

@@ -25,7 +25,14 @@ from .config_store import (
     migrate_legacy_config,
     save_config,
 )
-from .csv_writer import clear_stale_csv, has_active_row, init_csv, sweep_orphan_temps, write_rows
+from .csv_writer import (
+    clear_stale_csv,
+    has_active_row,
+    init_csv,
+    is_bridge_csv,
+    sweep_orphan_temps,
+    write_rows,
+)
 from . import (
     autostart,
     config_store,
@@ -751,6 +758,70 @@ class App(ctk.CTk):
         if self._apply_and_save_csv_path(dest):
             self._log(f"📄 CSV Path aggiornato e salvato: {dest}")
 
+    # ── CSV Path: pulsante «📄 Crea CSV» — genera un CSV a solo header (#286) ──────
+    def _create_and_save_csv(self, path: str, *, force: bool = False) -> bool:
+        """Genera un CSV **a solo header** nel formato XTrader su `path` (via `init_csv`,
+        scrittura atomica) e ne imposta+salva il percorso in config riusando
+        `_apply_and_save_csv_path` (#284: merge sul config vivo + guardia token PR-08c).
+
+        Opzione A (#286): il file è **generato dal codice** (`CSV_HEADER`/`init_csv`), mai
+        scaricato/committato. Path vuoto (dialog annullato) → nessuna modifica, ritorna False.
+
+        **Anti data-loss:** se `path` **esiste già** ma NON è un CSV del bridge (prima riga
+        ≠ `CSV_HEADER`, cioè un file estraneo scelto per errore), NON lo sovrascrive e ritorna
+        False, a meno che `force=True` (conferma esplicita ottenuta dal chiamante GUI). Un CSV
+        del bridge esistente, o un path nuovo, viene invece (ri)generato a solo header."""
+        path = str(path or "").strip()
+        if not path:
+            return False                     # dialog annullato / vuoto: nessuna modifica
+        if os.path.exists(path) and not is_bridge_csv(path) and not force:
+            # File esistente e NON del bridge: non distruggerlo silenziosamente (coerente con
+            # `clear_stale_csv`). Il chiamante GUI deve chiedere conferma e ripassare force=True.
+            self._log("⚠️ «Crea CSV» annullato: %s esiste e NON è un CSV del bridge "
+                      "(non sovrascritto)." % path)
+            return False
+        try:
+            init_csv(path)                   # header-only atomico (utf-8-sig, QUOTE_ALL)
+        except OSError as e:
+            # Cartella inesistente/permessi: fallire in modo pulito senza toccare la config.
+            self._log("❌ «Crea CSV» fallito: impossibile creare %s (%s)." % (path, e))
+            return False
+        ok = self._apply_and_save_csv_path(path)
+        if ok:
+            self._log("📄 CSV creato (solo header) e impostato: %s" % path)
+        return ok
+
+    def _browse_create_csv(self) -> None:
+        """«📄 Crea CSV» accanto a CSV Path (#286): sceglie dove creare il file, genera un CSV
+        a solo header nel formato XTrader e lo imposta come `csv_path` (salvataggio immediato).
+        Annullo → nessuna modifica. GUI-only (dialog Tk): la logica «crea+imposta+salva» è in
+        `_create_and_save_csv`."""
+        from tkinter import filedialog, messagebox
+        current = str(self._e_csv.get() or "").strip()
+        initialdir = os.path.dirname(current) if current else None
+        initialfile = os.path.basename(current) if current else "segnale.csv"
+        # `confirmoverwrite=False`: gestiamo noi la conferma SOLO per un file estraneo (anti
+        # data-loss mirato); un CSV del bridge o un path nuovo non richiede prompt.
+        dest = filedialog.asksaveasfilename(
+            title="Crea un nuovo CSV per XTrader (solo header)",
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("Tutti i file", "*.*")],
+            confirmoverwrite=False,
+            initialdir=initialdir, initialfile=initialfile)
+        if not dest:
+            return                           # dialog annullato: nessuna modifica
+        force = False
+        if os.path.exists(dest) and not is_bridge_csv(dest):
+            # File estraneo: conferma esplicita PRIMA di sovrascriverlo con un CSV vuoto.
+            if not messagebox.askyesno(
+                    "Sovrascrivere il file esistente?",
+                    "%s esiste e NON è un CSV del bridge.\n\nSovrascriverlo con un CSV "
+                    "vuoto (solo header)?" % dest):
+                self._log("⚠️ «Crea CSV» annullato dall'utente: %s non sovrascritto." % dest)
+                return
+            force = True
+        self._create_and_save_csv(dest, force=force)
+
     def _profiles_snapshot(self) -> dict:
         """Config viva (con token) letta dal form SENZA persistere né effetti collaterali.
         Passata come `get_current_cfg` al pannello Profili: la base per salvare un profilo
@@ -822,6 +893,12 @@ class App(ctk.CTk):
                 ctk.CTkButton(tab_gen, text="📁 Sfoglia…", width=110,
                               command=self._browse_csv_path).grid(
                                   row=r, column=2, padx=(0, 10), pady=4, sticky="w")
+                # «📄 Crea CSV» (#286): genera un CSV a solo header nel formato XTrader
+                # nella cartella scelta e lo imposta come csv_path (azione complementare a
+                # «Sfoglia…»: creare un file nuovo invece di selezionarne uno esistente).
+                ctk.CTkButton(tab_gen, text="📄 Crea CSV", width=110,
+                              command=self._browse_create_csv).grid(
+                                  row=r, column=3, padx=(0, 10), pady=4, sticky="w")
         self._e_token    = self._entries["bot_token"]
         self._e_chat     = self._entries["chat_id"]
         self._e_csv      = self._entries["csv_path"]

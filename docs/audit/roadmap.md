@@ -1176,3 +1176,40 @@ monkeypatchato): browse cert/key → entry aggiornata + `save_credentials` con *
 
 **Docs:** design_handoff.md (GATE: pulsanti + salvataggio immediato path). README: **N/A** (cert/key
 sono credenziali keyring, non chiavi di `config.json`).
+
+
+## #286 — pulsante «📄 Crea CSV» (genera un CSV vuoto nel formato XTrader) ✅ (PR 16)
+
+**Obiettivo (deciso col proprietario, opzione A).** Nel tab ⚙️ Generale, accanto a CSV Path, un
+pulsante **«📄 Crea CSV»** che **genera** un CSV **a solo header** nel formato XTrader (dal codice,
+`CSV_HEADER`/`init_csv`, mai un file committato/bundlato) nella cartella scelta e lo imposta come
+`csv_path` (stesso salvataggio immediato di #284). Azione complementare a «Sfoglia…» (creare nuovo
+vs selezionare esistente).
+
+**Cosa fa.**
+- `csv_writer.py` — nuovo predicato read-only `is_bridge_csv(path)`: `True` se il file esiste ed è
+  un CSV del bridge (prima riga == `CSV_HEADER`); assente/vuoto/illeggibile/non-bridge → `False`.
+  Serializzato con `_write_lock` come `has_active_row`/`clear_stale_csv`.
+- `app.py` — `_create_and_save_csv(path, *, force=False)` (testabile): **anti data-loss** — se
+  `path` esiste ed è un file **estraneo** (header ≠ `CSV_HEADER`) NON lo sovrascrive senza `force`;
+  altrimenti `init_csv(path)` (header-only atomico) + riuso di `_apply_and_save_csv_path` (merge sul
+  config vivo + guardia token PR-08c). `_browse_create_csv` (GUI): `asksaveasfilename` +
+  `messagebox.askyesno` di conferma solo per un file estraneo. Pulsante col. 3 della riga CSV Path.
+
+**Sicurezza.** Il CSV è **generato dal codice** (nessun file committato/bundlato → gate
+`forbidden-files`/`test_no_secrets_committed` invariati). Scrittura **atomica** (`init_csv`), nessun
+file parziale. Anti data-loss su file estraneo (conferma esplicita). Contratto CSV/parser/Telegram
+invariati; guardia token PR-08c preservata; nessun path locale reale committato.
+
+**Test hard:** `tests/unit/test_is_bridge_csv.py` (predicato: bridge/con-riga/estraneo/assente/
+vuoto/binario; header generato **byte-esatto** BOM utf-8-sig + QUOTE_ALL + CRLF, solo header);
+`tests/integration/test_csv_create.py` (`_create_and_save_csv` via harness headless + vera
+`save_config`/`init_csv` su file temporanei): nuovo → header XTrader byte-esatto + `csv_path`
+salvato preservando gli altri campi; CSV del bridge esistente con riga stantia → rigenerato a solo
+header; **file estraneo senza force → NON toccato** (contenuto intatto, config non salvata, avviso);
+file estraneo con force → sovrascritto; annullo/vuoto → no-op; guardia token PR-08c. Dialog Tk
+GUI-only → smoke manuale. Fail-first via stash (unit: import error senza `is_bridge_csv`;
+integration: 6 fail senza la glue). Suite: **2033 passed, 10 skipped**.
+
+**Docs:** design_handoff.md (GATE: pulsante «📄 Crea CSV» + anti data-loss), README (nota «Crea
+CSV»). Contratto CSV invariato (stesso `CSV_HEADER`/`init_csv`).

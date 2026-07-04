@@ -382,6 +382,28 @@ def has_active_row(path: str) -> bool:
             return False
 
 
+def is_bridge_csv(path: str) -> bool:
+    """``True`` se ``path`` esiste ed è un CSV del bridge, cioè la cui prima riga è
+    esattamente `CSV_HEADER`. File assente/vuoto/illeggibile/non-bridge → ``False``.
+
+    Read-only e best-effort, serializzato con `_write_lock` come `has_active_row`/
+    `clear_stale_csv`, così non legge uno stato a metà scrittura. Serve alla feature
+    «📄 Crea CSV» (#286) per l'**anti data-loss**: prima di rigenerare un CSV a solo
+    header su un percorso già esistente si distingue un CSV del bridge (sovrascrivibile
+    a solo header) da un file estraneo dell'utente (da NON distruggere senza conferma
+    esplicita)."""
+    if not path:
+        return False
+    with _write_lock:
+        if not os.path.exists(path):
+            return False
+        try:
+            with open(path, newline="", encoding="utf-8-sig") as f:
+                return next(csv.reader(f), None) == CSV_HEADER
+        except (OSError, UnicodeDecodeError, csv.Error):
+            return False
+
+
 def write_rows(rows, path: str):
     """Scrive PIÙ segnali nel CSV (header + una riga per ciascuno), sovrascrivendo
     in modo atomico. `rows` vuota → solo header (equivale a `init_csv`). Usato dalla
