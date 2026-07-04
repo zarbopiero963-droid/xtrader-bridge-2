@@ -292,9 +292,17 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
 - **Parser salvati:** dropdown `(nessuno)` + **"🆕 Nuovo"**, **"📂 Carica"**, **"📑 Duplica"**,
   **"🗑 Elimina"**.
 - **Catalogo XTrader:** dropdown Mercato + dropdown Selezione + **"➕ Inserisci regole fisse"**.
-- **Mappatura nomi:** separatore (placeholder `v`), **"🗺️ Dizionario nomi"**, riga di
-  checkbox-profili (i profili "fantasma" mancanti sono marcati `⚠`).
-- **Mappatura mercati:** **"🎯 Dizionario mercati"** + checkbox-profili.
+- **🔗 Traduzioni attive per questo parser (#293):** riquadro etichettato che raggruppa le due
+  mappature (prima erano righe sciolte), con un **indicatore di stato ✓/—** per tipo:
+  - **Nomi squadra:** separatore (placeholder `v`), **"🗺️ Dizionario nomi"**, indicatore
+    (`✓ N attive` verde / `— nessuna` grigio), riga di checkbox-profili (i profili "fantasma"
+    mancanti sono marcati `⚠`).
+  - **Mercati:** **"🎯 Dizionario mercati"** + indicatore (`✓ N attive` / `— nessuna`) +
+    checkbox-profili.
+  L'indicatore si aggiorna a ogni spunta/despunta e al caricamento di un parser, e conta **solo i
+  profili risolti** (un profilo fantasma `⚠` selezionato ma inesistente non è una traduzione attiva
+  → non gonfia il conteggio). Funzione invariata: le checkbox e i pulsanti «apri Dizionario» sono gli
+  stessi; cambia solo la presentazione (le mappature stanno accanto al parser, dove si accendono).
 - **Output multi-riga (un messaggio → più righe CSV):** checkbox **"MultiMarket (più
   mercati)"** + **"➕ Aggiungi mercato"**; checkbox **"MultiSelection (più selezioni)"** +
   **"➕ Aggiungi selezione"**; ogni riga ha campi Tipo mercato/Mercato/Selezione/Quota/

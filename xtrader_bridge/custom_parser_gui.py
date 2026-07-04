@@ -33,6 +33,20 @@ _BETFAIR_TERM_TARGETS = {
     "SelectionName": "selection_names",
 }
 
+# Colori dell'indicatore «🔗 Traduzioni attive» (#293): verde theme-aware se almeno un profilo è
+# selezionato, grigio se nessuno. Tuple CustomTkinter (light, dark).
+_TRANSLATION_ON_COLOR = ("#2e7d32", "#66bb6a")
+_TRANSLATION_OFF_COLOR = "gray"
+
+
+def _translations_status_text(count: int) -> str:
+    """Testo dell'indicatore «🔗 Traduzioni attive per questo parser» (#293): ``✓ N attive`` se
+    almeno un profilo di mappatura è selezionato, ``— nessuna`` se nessuno. Puro/testabile: non
+    dipende dalla GUI."""
+    if count <= 0:
+        return "— nessuna"
+    return "✓ 1 attiva" if count == 1 else f"✓ {count} attive"
+
 
 class CustomParserPanel(ctk.CTkFrame):
     """Pannello del costruttore di Parser Personalizzati — incassabile in finestra
@@ -173,14 +187,18 @@ class CustomParserPanel(ctk.CTkFrame):
         if not names:
             ctk.CTkLabel(self._profiles_box, text="(nessun profilo)",
                          text_color="gray").pack(side="left", padx=4)
+            self._update_translations_status()   # indicatore ✓/— (#293)
             return
         for name in names:
             present = name in self._existing_profiles
             var = ctk.BooleanVar(value=name in selected_set)
             kw = {} if present else {"text_color": "#ffa726"}   # ⚠ profilo mancante
+            # `command` (#293): al toggle aggiorna l'indicatore «🔗 Traduzioni attive».
             ctk.CTkCheckBox(self._profiles_box, text=name if present else f"⚠ {name}",
-                            variable=var, width=20, **kw).pack(side="left", padx=4)
+                            variable=var, width=20, command=self._update_translations_status,
+                            **kw).pack(side="left", padx=4)
             self._profile_checks[name] = var
+        self._update_translations_status()   # indicatore ✓/— (#293)
 
     def _selected_profiles(self) -> list:
         """Profili spuntati, **preservando l'ordine** scelto nel parser: l'ordine dei
@@ -265,14 +283,46 @@ class CustomParserPanel(ctk.CTkFrame):
         if not names:
             ctk.CTkLabel(self._market_profiles_box, text="(nessun profilo)",
                          text_color="gray").pack(side="left", padx=4)
+            self._update_translations_status()   # indicatore ✓/— (#293)
             return
         for name in names:
             present = name in self._existing_market_profiles
             var = ctk.BooleanVar(value=name in selected_set)
             kw = {} if present else {"text_color": "#ffa726"}   # ⚠ profilo mancante
+            # `command` (#293): al toggle aggiorna l'indicatore «🔗 Traduzioni attive».
             ctk.CTkCheckBox(self._market_profiles_box, text=name if present else f"⚠ {name}",
-                            variable=var, width=20, **kw).pack(side="left", padx=4)
+                            variable=var, width=20, command=self._update_translations_status,
+                            **kw).pack(side="left", padx=4)
             self._market_profile_checks[name] = var
+        self._update_translations_status()   # indicatore ✓/— (#293)
+
+    def _set_translation_status(self, lbl, count: int) -> None:
+        """Aggiorna un'etichetta indicatore «🔗 Traduzioni attive» (#293): testo `✓ N attive`/
+        `— nessuna` (via `_translations_status_text`) e colore verde/grigio. No-op difensivo se
+        l'etichetta non è ancora costruita."""
+        if lbl is not None:
+            lbl.configure(text=_translations_status_text(count),
+                          text_color=(_TRANSLATION_ON_COLOR if count > 0 else _TRANSLATION_OFF_COLOR))
+
+    def _update_translations_status(self) -> None:
+        """Ricalcola gli indicatori ✓/— (Nomi/Mercati) dai profili selezionati (#293). Chiamato
+        al reload delle checkbox e a ogni toggle. Difensivo sull'ordine di costruzione: aggiorna
+        un indicatore solo se la sua etichetta E il suo dizionario di checkbox esistono già.
+
+        Conta SOLO i profili selezionati **e risolti** (esistenti): un profilo fantasma ⚠
+        selezionato NON è una traduzione realmente attiva (è bloccato da `_unresolved_*` e non
+        applica alcuna mappatura), quindi non gonfia il conteggio dell'indicatore (Fable #336)."""
+        # `getattr(..., set())` sui set «risolti» come per le etichette/dizionari: se un ordine di
+        # costruzione o un reload parziale non li ha ancora inizializzati, si conta 0 (nessuna
+        # traduzione attiva) invece di sollevare `AttributeError` al toggle (GPT/GLM/Fable #336).
+        if self.__dict__.get("_nm_status_lbl") is not None and "_profile_checks" in self.__dict__:
+            existing = getattr(self, "_existing_profiles", set())
+            active = [p for p in self._selected_profiles() if p in existing]
+            self._set_translation_status(self._nm_status_lbl, len(active))
+        if self.__dict__.get("_mm_status_lbl") is not None and "_market_profile_checks" in self.__dict__:
+            existing_m = getattr(self, "_existing_market_profiles", set())
+            active_m = [p for p in self._selected_market_profiles() if p in existing_m]
+            self._set_translation_status(self._mm_status_lbl, len(active_m))
 
     def _selected_market_profiles(self) -> list:
         """Profili mercati spuntati, preservando l'ordine scelto nel parser (come i nomi):
@@ -476,17 +526,28 @@ class CustomParserPanel(ctk.CTkFrame):
                       command=self._insert_fixed_market).pack(side="left", padx=4)
         self._refresh_selection_menu()   # popola le selezioni del mercato iniziale
 
+        # «🔗 Traduzioni attive per questo parser» (#293): raggruppa le mappature Nomi + Mercati
+        # (già presenti) sotto un unico riquadro etichettato, con un indicatore di stato ✓/— per
+        # tipo (✓ N attive = profili selezionati, — nessuna = nessuno). Nessun cambio funzionale:
+        # le checkbox profili e i pulsanti «apri Dizionario» restano quelli di prima; solo la
+        # presentazione cambia (le mappature vivono accanto al parser, dove si accendono).
+        trad = ctk.CTkFrame(outer)
+        trad.pack(fill="x", padx=10, pady=(2, 6))
+        ctk.CTkLabel(trad, text="🔗 Traduzioni attive per questo parser",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=8, pady=(4, 0))
+
         # Mappatura nomi squadra: separatore casa/trasferta del canale + profili
         # (checkbox multi-selezione) che traducono l'EventName provider → Betfair/XTrader.
-        nm = ctk.CTkFrame(outer, fg_color="transparent")
-        nm.pack(fill="x", padx=10, pady=(0, 6))
-        ctk.CTkLabel(nm, text="Mappatura nomi · separatore:").pack(side="left", padx=6)
+        nm = ctk.CTkFrame(trad, fg_color="transparent")
+        nm.pack(fill="x", padx=6, pady=(0, 4))
+        ctk.CTkLabel(nm, text="Nomi squadra · separatore:").pack(side="left", padx=6)
         self._separator_var = ctk.StringVar(value=self.builder.team_separator)
         ctk.CTkEntry(nm, textvariable=self._separator_var, width=70,
                      placeholder_text="v").pack(side="left", padx=2)
         ctk.CTkButton(nm, text="🗺️ Dizionario nomi", width=160,
                       command=self._open_name_mapping).pack(side="left", padx=6)
-        ctk.CTkLabel(nm, text="Profili:").pack(side="left", padx=(8, 2))
+        self._nm_status_lbl = ctk.CTkLabel(nm, text="— nessuna", width=92, anchor="w")
+        self._nm_status_lbl.pack(side="left", padx=(8, 2))
         self._profiles_box = ctk.CTkScrollableFrame(nm, height=42, orientation="horizontal")
         self._profiles_box.pack(side="left", fill="x", expand=True, padx=4)
         self._profile_checks = {}        # nome profilo → BooleanVar
@@ -495,12 +556,13 @@ class CustomParserPanel(ctk.CTkFrame):
 
         # Mappatura mercati a frase: profili (checkbox multi-selezione) che traducono una
         # frase-mercato del messaggio nel Mercato/Selezione XTrader (market_mapping_store).
-        mm = ctk.CTkFrame(outer, fg_color="transparent")
-        mm.pack(fill="x", padx=10, pady=(0, 6))
-        ctk.CTkLabel(mm, text="Mappatura mercati:").pack(side="left", padx=6)
+        mm = ctk.CTkFrame(trad, fg_color="transparent")
+        mm.pack(fill="x", padx=6, pady=(0, 6))
+        ctk.CTkLabel(mm, text="Mercati:").pack(side="left", padx=6)
         ctk.CTkButton(mm, text="🎯 Dizionario mercati", width=170,
                       command=self._open_market_mapping).pack(side="left", padx=6)
-        ctk.CTkLabel(mm, text="Profili:").pack(side="left", padx=(8, 2))
+        self._mm_status_lbl = ctk.CTkLabel(mm, text="— nessuna", width=92, anchor="w")
+        self._mm_status_lbl.pack(side="left", padx=(8, 2))
         self._market_profiles_box = ctk.CTkScrollableFrame(mm, height=42, orientation="horizontal")
         self._market_profiles_box.pack(side="left", fill="x", expand=True, padx=4)
         self._market_profile_checks = {}        # nome profilo mercati → BooleanVar
