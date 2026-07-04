@@ -3355,6 +3355,14 @@ class App(ctk.CTk):
             return KnownTeamsPanel(parent, teams_provider=self._known_betfair_teams,
                                    delete_team=self._delete_betfair_team)
 
+        def _make_summary(parent):
+            """Crea la tab «📋 Riepilogo» (#293 slice 3, SOLA LETTURA): colpo d'occhio su
+            modalità Simulazione/REALE, stato Betfair e, per ogni canale, parser →
+            traduzioni → «Pronto?». Riusa i predicati del runtime (nessuna divergenza) e
+            non scrive nulla."""
+            from .config_summary_gui import ConfigSummaryPanel
+            return ConfigSummaryPanel(parent, summary_provider=self._config_summary_snapshot)
+
         panels = [
             ("🧩 Parser", _make_parser),
             ("📡 Chat sorgenti", _make_sources),
@@ -3368,9 +3376,45 @@ class App(ctk.CTk):
             ("📖 Dizionario Betfair", _make_dictionary),
             ("📒 Diario", _make_journal),
             ("🧹 Nomi Betfair", _make_known_teams),
+            ("📋 Riepilogo", _make_summary),
         ]
         self._tools_win = ToolsWindow(self, panels=panels, initial=initial)
         self._tools_win.focus()
+
+    def _config_summary_snapshot(self):
+        """Snapshot READ-ONLY per la tab «📋 Riepilogo» (#293 slice 3): config viva +
+        stato Betfair (dizionario sincronizzato / login), passati al modulo puro
+        `config_summary`. Non scrive nulla. Lo stato Betfair è best-effort: un DB
+        occupato/assente o una sessione non inizializzata degradano a `False` (il
+        riepilogo mostra «non sincronizzato / login non attivo», mai un crash)."""
+        from . import config_summary, custom_parser
+        # Config VIVA (autoritativa): dopo un salvataggio fallito il disco è STANTIO mentre
+        # `self._config` riflette ciò che l'utente ha impostato. Il riepilogo deve mostrare cosa
+        # farà DAVVERO il bridge, quindi si legge la config viva (come `_betfair_autosync_change`),
+        # con fallback al disco solo se non c'è config viva (CodeRabbit #337).
+        cfg = dict(self._config) if isinstance(self._config, dict) else self._load_config()
+        synced = logged_in = False
+        try:
+            db = self._betfair_sync_engine().db
+            # Probe NON bloccante sullo STESSO `_lock` che la sync tiene (come
+            # `_known_betfair_teams`/`_known_market_terms`): se una sync Betfair è in corso
+            # `acquire_read(blocking=False)` ritorna False → si salta la lettura (best-effort
+            # «non sincronizzato»), senza mai far attendere il thread GUI sul lock del dizionario.
+            # Race-free: la lettura avviene solo mentre teniamo noi il lock (CodeRabbit/Fable #337).
+            if db is not None and db.acquire_read(blocking=False):
+                try:
+                    synced = db.count_active("betfair_events") > 0
+                finally:
+                    db.release_read()
+        except Exception:                   # noqa: BLE001 — DB occupato/assente: fail-soft
+            synced = False
+        try:
+            logged_in = bool(self._betfair_session_obj().is_logged_in)
+        except Exception:                   # noqa: BLE001 — sessione non inizializzata: fail-soft
+            logged_in = False
+        return config_summary.summarize_config(
+            cfg, betfair_synced=synced, betfair_logged_in=logged_in,
+            parsers_dir=custom_parser.default_parsers_dir())
 
     def _populate_form(self, cfg: dict) -> None:
         """Ripopola i campi del form (base + avanzati) dalla config passata: usato dopo

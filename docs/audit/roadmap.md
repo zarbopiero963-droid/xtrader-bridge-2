@@ -1402,3 +1402,54 @@ crash). Rendering GUI reale = smoke manuale. Suite: **2076 passed, 10 skipped**.
 
 **Docs:** design_handoff.md (GATE §7.1: riquadro «Traduzioni attive» + indicatore ✓/—). Prossimi
 slice #293: Riepilogo → 4 gruppi → densità parser.
+
+
+## #293 (slice 3) — schermata «📋 Riepilogo configurazione» (sola lettura) ✅ (PR 22)
+
+**Obiettivo (#293, slice scelto dal proprietario).** Colpo d'occhio su ciò che il bridge farà
+davvero, senza saltare tra Generale/Betfair/Chat sorgenti/Parser/Mapping: **modalità**
+Simulazione/REALE, **stato Betfair** (dizionario sincronizzato + login), e **per ogni canale** →
+parser → traduzioni attive → **«Pronto?»**. Pannello **additivo, sola lettura**: nessuna modifica a
+CSV/parser/config/filtro chat. Posizionamento incrementale scelto col proprietario: **pannello
+nell'hub 🧰 Strumenti** (il riordino «4 gruppi» è uno slice successivo).
+
+**Cosa fa.**
+- `config_summary.py` (NUOVO, modulo **puro**): `summarize_config(cfg, *, betfair_synced,
+  betfair_logged_in, parsers_dir)` → `ConfigSummary` (dataclass) con modalità, flag Betfair e una
+  `ChannelSummary` per canale (parser risolto/caricabile, traduzioni risolte vs fantasma `⚠`,
+  `ready`+`reason`). Riusa gli **stessi predicati del runtime** (`signal_router.allowed_chats`,
+  `parser_manager.resolve_parser_name`/`load_active`, `safety_guard.is_dry_run`,
+  `name/market_mapping_store.profile_names`) così il riepilogo non diverge dal comportamento reale.
+- `config_summary_gui.py` (NUOVO): `ConfigSummaryPanel` sola-lettura + helper puri di
+  testo/colore (`mode_label`/`betfair_label`/`translations_label`/`readiness_label`/…). Si
+  ri-legge al cambio scheda (`refresh_options`).
+- `app.py`: factory `_make_summary` + voce `("📋 Riepilogo", _make_summary)` nell'hub Strumenti;
+  `_config_summary_snapshot()` (config viva + conteggio dizionario Betfair/login **best-effort**,
+  fail-soft a False).
+
+**«Pronto?» severo (scelta del proprietario, fail-closed).** `✅ Pronto` solo se: chat_id presente
++ sorgente attiva + parser che **si carica ed è valido** + **tutte** le mappature selezionate
+risolte. Un profilo fantasma `⚠` non conta come traduzione attiva → non pronto. Motivi espliciti:
+«Manca chat_id» / «Sorgente disattivata» / «Nessun parser assegnato» / «Parser non caricabile: …»
+/ «Traduzione mancante: …».
+
+**Test hard (fail-first via mutazione):** `tests/unit/test_config_summary.py` (12) — modalità
+reale/sim/default, passthrough Betfair, canale pronto, disattivato, senza parser, senza chat_id,
+parser non caricabile, traduzioni risolte, fantasma nomi/mercati nel motivo, canale da
+`parser_by_chat` senza sorgente, ordine+conteggi, immutabilità (sola lettura). Mutazione
+(disattivo la guardia fantasma) → i test fantasma FALLISCONO (regressione bloccata), poi ripristino.
+`tests/integration/test_config_summary_gui.py` (7) — helper puri testo/colore con `customtkinter`
+stubbato. Allowlist blind-except aggiornata (app.py 35→37 + `config_summary_gui.py` 1, motivati).
+Rendering GUI reale = smoke manuale. Suite: **2101 passed, 10 skipped**.
+
+**Docs:** design_handoff.md (GATE §5 mappa hub + §7.10 pannello Riepilogo). Prossimi slice #293:
+4 gruppi di flusso → densità parser.
+
+**Fix di review (stesso PR).** Fable #337: lo snapshot leggeva `count_active` sul DB Betfair nel
+thread GUI → prima `is_syncing`, poi (CodeRabbit #337, più robusto/race-free) il probe non
+bloccante `db.acquire_read(blocking=False)`/`release_read()` come `_known_betfair_teams` — durante
+una sync si salta la lettura (best-effort «non sincronizzato»), mai freeze. CodeRabbit #337:
+`_config_summary_snapshot` ora legge la config **viva** `self._config` (autoritativa dopo un save
+fallito), non il disco. Nitpick CodeRabbit: estratte in helper puri `ready_count_label` /
+`no_channels_label`, e `parser_label` mostra `⚠` per un parser non caricabile. Test aggiornati
+(snapshot: probe non bloccante + config viva + DB None; helper GUI). Suite: **2111 passed, 10 skipped**.
