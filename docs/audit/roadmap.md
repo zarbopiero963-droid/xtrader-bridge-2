@@ -1150,3 +1150,29 @@ dialog Tk è GUI-only → smoke manuale. Fail-first via stash. Suite: **2016 pas
 
 **Docs:** `docs/design/design_handoff.md` (pulsante + comportamento salvataggio immediato),
 `README.md` (nota «📁 Sfoglia…»).
+
+
+## #285 — pulsanti «📁 Sfoglia…» per Certificato + Private key del Betfair Sync ✅ (PR 15)
+
+**Obiettivo (deciso col proprietario).** Nel tab 🔵 Betfair Sync, un pulsante «📁 Sfoglia…» accanto
+a **Certificato (.crt/.pem)** e **Private key (.key)**: `askopenfilename` (file **esistente**;
+filtri `*.crt *.pem` / `*.key`), salvataggio **immediato** dei soli percorsi (opzione a).
+
+**Cosa fa.** `betfair/sync_tab_gui.py` — costante `_BROWSE_FILETYPES`, due pulsanti col 2 nella
+griglia credenziali, `_browse_path(key)` = askopenfilename → set entry → `self._save()`. Legge/salva
+**solo il percorso**, mai il contenuto della chiave privata.
+
+**⚠️ Safety (chiave del design).** `credential_store.save_credentials` **cancella i campi vuoti**:
+un salvataggio path-only ingenuo (secret vuoti) cancellerebbe App Key/Password dal keyring.
+`_browse_path` riusa quindi `_save()`, che **risolve i secret mascherati** nei valori reali PRIMA
+di salvare (non vuoti → riscritti invariati, mai cancellati né lasciati come maschera). Login/sync
+read-only invariati.
+
+**Test hard:** `tests/unit/test_sync_tab_browse_paths.py` (customtkinter stubbato, `filedialog`
+monkeypatchato): browse cert/key → entry aggiornata + `save_credentials` con **secret RISOLTI**
+(non cancellati, non maschera) + nuovo percorso; annullo → no-op; **solo il percorso** (nessuna
+`open()` del contenuto chiave). Dialog Tk GUI-only → smoke manuale. Fail-first via stash. Suite:
+**2020 passed, 10 skipped**.
+
+**Docs:** design_handoff.md (GATE: pulsanti + salvataggio immediato path). README: **N/A** (cert/key
+sono credenziali keyring, non chiavi di `config.json`).

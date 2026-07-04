@@ -358,6 +358,14 @@ Titolo **"🔵  Betfair Sync (locale, read-only)"**. Sincronizza un **dizionario
 locale** (sola lettura, nessuna scommessa). Contiene:
 - 5 campi credenziali (Delayed App Key, Username, Password, Certificato .crt/.pem, Private
   key .key; i segreti mascherati).
+  - **«📁 Sfoglia…» accanto a Certificato e Private key (#285):** ciascuno apre il selettore
+    file di sistema (`askopenfilename`, **file esistente**; filtri `*.crt *.pem` per il
+    certificato, `*.key` per la chiave). Alla scelta, il percorso è scritto nella casella **e
+    salvato subito** (nessun click extra su «💾 Salva credenziali»). Si memorizza **solo il
+    percorso**, mai il contenuto della chiave. Il salvataggio immediato **non tocca** App Key/
+    Password: riusa la logica anti-maschera (risolve i segreti mascherati nei valori reali prima
+    di salvare), così i secret restano invariati e non vengono cancellati. Annullo → nessuna
+    modifica.
 - Selezione **Sport** (checkbox Calcio/Tennis/Basket/Rugby Union), **Giorni avanti**.
 - Auto-sync: checkbox **"Auto sincronizza dizionario"** + **"Orario (HH)"** + righe di stato
   (Ultima / Prossima / Stato auto sync).
