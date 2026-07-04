@@ -207,6 +207,46 @@ altre viste sul dizionario Betfair, è **fail-fast** durante una sync («⏳ …
 niente freeze) e best-effort (DB assente → avviso). Un nome eliminato per errore verrà
 **ri-raccolto** alla prossima sync se l'evento ricompare.
 
+#### Valori permanenti di mercato/selezione dalla sync Betfair (#283: harvest — data layer)
+
+Oltre ai nomi squadra, la sync raccoglie e conserva in modo **permanente** i valori
+universali di **MarketType**, **MarketName** e **SelectionName** dei 4 sport, così restano
+disponibili (per il Parser) anche quando l'evento finisce e gli ID scadono. Questa PR è il
+**data layer** (harvest + persistenza): menù del Parser e CSV **consumeranno** questi valori
+nella **PR 13**. Decisione del proprietario: **«diretto», nessuna mappatura** — i nomi Betfair
+(locale IT) sono già identici a quelli attesi da XTrader, quindi il valore sincronizzato viene
+**persistito così com'è** (a differenza dei nomi squadra della #282, che restano con mappatura
+provider→Betfair).
+
+- durante la sync, per ogni mercato del catalogue vengono salvati in una tabella locale
+  dedicata `betfair_known_market_terms` (chiave `sport` + `market_type` + `normalized_market`
+  + `normalized_selection`, stesso normalizzatore del resto del dizionario; il `market_type`
+  è **parte della chiave** così due mercati con lo stesso nome ma tipo diverso non collidono).
+  Ogni riga è la **tupla coerente** `(sport, market_type, market_name, selection_name)` — così
+  la selezione resta legata al suo mercato (invariante «la selezione appartiene al mercato»);
+- come `betfair_known_teams`, la tabella è **permanente**: nessuna colonna `active`, mai
+  toccata dal mark-and-sweep. `MarketId`/`SelectionId` restano **effimeri**;
+- sync ripetute **accumulano** senza duplicare (idempotente); nuovi valori compaiono col tempo.
+
+**Allowlist safety-critical (SelectionName).** `MarketType` e `MarketName` sono descrittori
+**universali** (es. `MATCH_ODDS` / «Esito Finale», `OVER_UNDER_25` / «Over/Under 2,5») →
+raccolti per **tutti** i mercati. Le **SelectionName**, invece, sono raccolte **solo** dai
+mercati i cui esiti sono **universali** (Over/Under di qualunque soglia, `BOTH_TEAMS_TO_SCORE`
+Sì/No, `ODD_OR_EVEN`) — vedi
+`catalogue_client._UNIVERSAL_SELECTION_MARKET_TYPES` / `_is_universal_selection_market`. I
+mercati **team-dipendenti** (`MATCH_ODDS`, `*_HANDICAP`, `CORRECT_SCORE`, `DRAW_NO_BET`,
+`DOUBLE_CHANCE` — su Betfair i suoi runner sono «{Home} o Pareggio», non «1X/12/X2», …)
+hanno come esiti i **nomi delle squadre** o valori **per-partita**: fissarne uno come
+SelectionName scriverebbe una riga CSV sbagliata (scommessa sbagliata), perciò **non**
+contribuiscono selezioni. La lista è **conservativa e fail-closed** (nel dubbio un mercato
+resta fuori) ed è estendibile dal proprietario. Per i risultati esatti (`CORRECT_SCORE` FT e
+primo tempo) è tracciata a parte l'estrazione dinamica per-riga dal messaggio (issue #325).
+
+> Questo è il **data layer** (harvest + persistenza). Le tendine del Parser (righe
+> MarketType/MarketName/SelectionName in «Valore fisso», popolate da questi valori e filtrate
+> per sport) sono la **PR 13**. Letture: `BetfairLocalDB.known_market_types(sport)` /
+> `known_market_names(sport)` / `known_selection_names(sport, market=None)`.
+
 ### Mappatura mercati a frase (`market_mapping_profiles`)
 
 Alcuni canali scrivono il **mercato a parole** dentro il messaggio (es. `Quota 0,5 HT

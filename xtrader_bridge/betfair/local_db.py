@@ -3,13 +3,17 @@
 Tabelle locali del dizionario (tutto sul PC/VPS, **nessun cloud, nessun
 export/import**): `betfair_sports`, `betfair_competitions`, `betfair_events`,
 `betfair_markets`, `betfair_selections`, `betfair_sync_runs`,
-`betfair_local_name_mappings`, `betfair_known_teams`.
+`betfair_local_name_mappings`, `betfair_known_teams`, `betfair_known_market_terms`.
 
-`betfair_known_teams` (#282) è la **sola** tabella PERMANENTE: accumula i nomi
-squadra dei 4 sport raccolti durante la sync e **non ha colonna `active`**, quindi il
-mark-and-sweep (`deactivate_unseen`, che opera solo sulle tabelle in `_SCOPED`) non la
-tocca MAI. Gli ID (`MarketId`/`SelectionId`) restano invece effimeri come prima: i nomi
-squadra sopravvivono alla fine dell'evento, gli ID no.
+`betfair_known_teams` (#282) e `betfair_known_market_terms` (#283) sono le tabelle
+PERMANENTI: accumulano i valori raccolti durante la sync e **non hanno colonna
+`active`**, quindi il mark-and-sweep (`deactivate_unseen`, che opera solo sulle tabelle
+in `_SCOPED`) non le tocca MAI. `betfair_known_teams` conserva i nomi squadra (→
+EventName); `betfair_known_market_terms` conserva i valori universali di
+MarketType/MarketName/SelectionName come TUPLA coerente per sport (B3 #259: coerenza
+nome mercato↔selezione), «diretti» (nessuna mappatura: il nome Betfair IT è già il nome
+canonico XTrader). Gli ID (`MarketId`/`SelectionId`) restano invece effimeri come prima:
+nomi/valori sopravvivono alla fine dell'evento, gli ID no.
 
 Chiavi corrette (dall'issue), che evitano i falsi duplicati:
 - Sport → `event_type_id`
@@ -121,6 +125,17 @@ CREATE TABLE IF NOT EXISTS betfair_known_teams (
     first_seen_at   INTEGER NOT NULL DEFAULT 0,
     last_seen_at    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (sport, normalized_name)
+);
+CREATE TABLE IF NOT EXISTS betfair_known_market_terms (
+    sport                TEXT NOT NULL,
+    market_type          TEXT NOT NULL DEFAULT '',
+    normalized_market    TEXT NOT NULL,
+    market_name          TEXT,
+    normalized_selection TEXT NOT NULL DEFAULT '',
+    selection_name       TEXT,
+    first_seen_at        INTEGER NOT NULL DEFAULT 0,
+    last_seen_at         INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (sport, market_type, normalized_market, normalized_selection)
 );
 CREATE TABLE IF NOT EXISTS betfair_sync_runs (
     run_id     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -237,6 +252,70 @@ class BetfairLocalDB:
         for col in ("participant_1", "participant_2"):
             if col not in cols:
                 self._conn.execute(f"ALTER TABLE betfair_events ADD COLUMN {col} TEXT")
+        self._migrate_market_terms_pk()
+
+    def _migrate_market_terms_pk(self) -> None:
+        """#283/#326: la PK di `betfair_known_market_terms` è passata da 3 a 4 colonne
+        (aggiunto `market_type`, così due mercati con lo stesso nome ma tipo diverso non
+        collidono). `CREATE TABLE IF NOT EXISTS` NON altera una tabella già creata con la
+        vecchia PK a 3 colonne → l'`ON CONFLICT` a 4 colonne solleverebbe `OperationalError`
+        a runtime su un DB preesistente. Se troviamo la vecchia forma (colonna `market_type`
+        presente ma NON in PK), ricreiamo la tabella copiando i dati (`market_type` NULL →
+        ''). La tabella è un cache **permanente ma ri-derivabile** dalla sync: la copia
+        preserva comunque `first_seen_at`. No-op su DB nuovi (PK già a 4 colonne) o senza la
+        tabella (Fable/GLM/GPT #326)."""
+        info = self._conn.execute(
+            "PRAGMA table_info(betfair_known_market_terms)").fetchall()
+        if not info:
+            return                               # tabella non ancora creata → niente da migrare
+        mt = next((r for r in info if r["name"] == "market_type"), None)
+        if mt is None or int(mt["pk"]) != 0:
+            # No-op se: market_type già in PK (nuova forma), OPPURE colonna `market_type`
+            # assente. Quest'ultimo caso NON è mai esistito in produzione: la tabella è
+            # NUOVA in #283 e ha SEMPRE avuto la colonna `market_type` (la sola forma
+            # «legacy» è la PK a 3 colonne del commit intermedio di questa stessa PR, che la
+            # colonna ce l'ha). Nessuno schema senza `market_type` da migrare (Fable #326).
+            return
+        # La tabella non ha indici/trigger secondari (solo la PK inline, ricreata dal
+        # CREATE sotto): il by-recreate non perde oggetti di schema (Fugu #326).
+        # Migrazione ATOMICA in una singola transazione (SQLite supporta il DDL
+        # transazionale): un crash tra RENAME e INSERT fa ROLLBACK all'originale, così non
+        # resta un `_bkmt_old` orfano né la tabella live mancante (GLM/GPT #326).
+        # `BEGIN IMMEDIATE` prende subito il write-lock: un secondo processo aspetta il
+        # busy_timeout invece di correre in parallelo. `executescript` fa un COMMIT implicito
+        # iniziale (nessuna transazione pendente), poi esegue lo script transazionale.
+        # NB: nessuna collisione possibile nell'INSERT..SELECT — la vecchia PK a 3 colonne
+        # garantiva già l'unicità di (sport, normalized_market, normalized_selection);
+        # aggiungere market_type può solo rendere le chiavi PIÙ distinte, mai fonderle.
+        try:
+            self._conn.executescript(
+                """
+                BEGIN IMMEDIATE;
+                DROP TABLE IF EXISTS _bkmt_old;
+                ALTER TABLE betfair_known_market_terms RENAME TO _bkmt_old;
+                CREATE TABLE betfair_known_market_terms (
+                    sport                TEXT NOT NULL,
+                    market_type          TEXT NOT NULL DEFAULT '',
+                    normalized_market    TEXT NOT NULL,
+                    market_name          TEXT,
+                    normalized_selection TEXT NOT NULL DEFAULT '',
+                    selection_name       TEXT,
+                    first_seen_at        INTEGER NOT NULL DEFAULT 0,
+                    last_seen_at         INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (sport, market_type, normalized_market, normalized_selection)
+                );
+                INSERT INTO betfair_known_market_terms
+                    (sport, market_type, normalized_market, market_name,
+                     normalized_selection, selection_name, first_seen_at, last_seen_at)
+                SELECT sport, COALESCE(market_type, ''), normalized_market, market_name,
+                       normalized_selection, selection_name, first_seen_at, last_seen_at
+                FROM _bkmt_old;
+                DROP TABLE _bkmt_old;
+                COMMIT;
+                """)
+        except sqlite3.Error:                    # atomicità: rollback all'originale e rilancia
+            self._conn.rollback()
+            raise
 
     def close(self) -> None:
         with self._lock:
@@ -345,6 +424,44 @@ class BetfairLocalDB:
                  display_name=excluded.display_name,
                  last_seen_at=excluded.last_seen_at""",
             (str(sport), norm, name, int(seen_at), int(seen_at)))
+        return True
+
+    def upsert_market_term(self, sport, market_type, market_name,
+                           selection_name="", *, seen_at: int = 0) -> bool:
+        """Accumula un valore PERMANENTE di mercato/selezione per `sport` (#283), «diretto»
+        (nessuna mappatura: il nome Betfair IT è già il nome canonico XTrader). Ritorna
+        ``True`` se una riga è stata scritta, ``False`` se saltata (MarketName vuoto).
+
+        Ogni riga è la TUPLA coerente `(sport, market_type, market_name, selection_name)`
+        (B3 #259: coerenza nome mercato↔selezione). `selection_name` vuoto = riga «àncora»
+        del solo mercato (il mercato esiste ma non contribuisce una selezione universale —
+        vedi l'allowlist dell'harvest); una selezione universale (Over/Under, Sì/No, …) è
+        una riga con entrambi valorizzati. Chiave `(sport, market_type, normalized_market,
+        normalized_selection)` con normalizzazione canonica (case/spazi-insensibile): il
+        `market_type` è PARTE della chiave così due mercati con lo STESSO nome ma tipo
+        diverso NON collidono (niente last-write-wins sul tipo → tupla sempre coerente,
+        Fable/GPT #326). Idempotente: alla re-visione aggiorna le grafie e `last_seen_at`,
+        MAI `first_seen_at`. La tabella non ha `active` e resta fuori da `_SCOPED` → il
+        mark-and-sweep non la tocca: valori **per sempre**."""
+        market = str(market_name or "").strip()
+        norm_market = _normalize_name(market) if market else ""
+        if not norm_market:
+            return False
+        selection = str(selection_name or "").strip()
+        norm_selection = _normalize_name(selection) if selection else ""
+        mtype = str(market_type or "").strip()          # '' (non NULL): fa parte della PK
+        self._exec(
+            """INSERT INTO betfair_known_market_terms
+                 (sport, market_type, normalized_market, market_name,
+                  normalized_selection, selection_name, first_seen_at, last_seen_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(sport, market_type, normalized_market, normalized_selection)
+               DO UPDATE SET
+                 market_name=excluded.market_name,
+                 selection_name=excluded.selection_name,
+                 last_seen_at=excluded.last_seen_at""",
+            (str(sport), mtype, norm_market, market,
+             norm_selection, selection or None, int(seen_at), int(seen_at)))
         return True
 
     # ── marker di sync (unico e monotòno, persistito) ────────────────────────
@@ -503,6 +620,64 @@ class BetfairLocalDB:
                     (str(sport),)).fetchone()
             return int(row["n"])
 
+    def known_market_types(self, sport=None):
+        """MarketType permanenti distinti (#283), opz. per `sport`, ordinati. Solo valori
+        non vuoti (le righe di un mercato senza market_type sono ignorate). Serve alle
+        tendine del Parser (PR 13) e ai test."""
+        return self._distinct_market_terms("market_type", sport)
+
+    def known_market_names(self, sport=None):
+        """MarketName permanenti distinti (#283), opz. per `sport`, ordinati (solo non vuoti)."""
+        return self._distinct_market_terms("market_name", sport)
+
+    def _distinct_market_terms(self, column, sport):
+        """Valori DISTINTI non vuoti di una colonna di `betfair_known_market_terms`, opz.
+        per `sport`, ordinati. `column` è un nome FISSO scelto dal codice (mai input
+        utente): whitelist esplicita per non costruire SQL da input non controllato."""
+        if column not in ("market_type", "market_name"):
+            raise ValueError(f"colonna non valida: {column!r}")
+        with self._lock:
+            sql = (f"SELECT DISTINCT {column} AS v FROM betfair_known_market_terms "
+                   f"WHERE {column} IS NOT NULL AND {column} <> ''")
+            params = []
+            if sport is not None:
+                sql += " AND sport=?"
+                params.append(str(sport))
+            sql += " ORDER BY v"
+            rows = self._conn.execute(sql, params).fetchall()
+            return [r["v"] for r in rows]
+
+    def known_selection_names(self, sport=None, market=None):
+        """SelectionName permanenti distinti (#283), opz. per `sport` e per mercato
+        (`market`, confrontato sul nome **normalizzato** → resta coerente con il mercato,
+        invariante «selezione appartiene al mercato»). Ordinati; esclude le righe àncora
+        (selezione vuota)."""
+        with self._lock:
+            sql = ("SELECT DISTINCT selection_name FROM betfair_known_market_terms "
+                   "WHERE selection_name IS NOT NULL AND selection_name <> ''")
+            params = []
+            if sport is not None:
+                sql += " AND sport=?"
+                params.append(str(sport))
+            if market is not None:
+                sql += " AND normalized_market=?"
+                params.append(_normalize_name(str(market)))
+            sql += " ORDER BY selection_name"
+            rows = self._conn.execute(sql, params).fetchall()
+            return [r["selection_name"] for r in rows]
+
+    def count_market_terms(self, sport=None) -> int:
+        """Quante righe permanenti di mercato/selezione sono salvate (opz. per `sport`)."""
+        with self._lock:
+            if sport is None:
+                row = self._conn.execute(
+                    "SELECT COUNT(*) AS n FROM betfair_known_market_terms").fetchone()
+            else:
+                row = self._conn.execute(
+                    "SELECT COUNT(*) AS n FROM betfair_known_market_terms WHERE sport=?",
+                    (str(sport),)).fetchone()
+            return int(row["n"])
+
     def delete_known_team(self, sport, normalized_name) -> int:
         """Elimina UN nome squadra permanente (#282 ripulitura manuale), per chiave esatta
         (`sport`, `normalized_name`). Ritorna quante righe ha eliminato (0 se non c'era).
@@ -521,7 +696,8 @@ class BetfairLocalDB:
     def fetchall(self, table):
         """Tutte le righe di una tabella del dizionario (whitelist), per il viewer."""
         valid = set(_SCOPED) | {"betfair_selections", "betfair_local_name_mappings",
-                                "betfair_known_teams", "betfair_sync_runs"}
+                                "betfair_known_teams", "betfair_known_market_terms",
+                                "betfair_sync_runs"}
         if table not in valid:
             raise ValueError(f"tabella non valida: {table!r}")
         with self._lock:
