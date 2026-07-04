@@ -157,6 +157,16 @@ def test_gate_market_non_canonico_minuscolo_non_estrae_failclosed():
     assert not [r for r in res if r.placeable]                  # fail-closed
 
 
+def test_gate_half_time_score_minuscolo_non_estrae_failclosed():
+    # #341 (GPT symmetry): stesso fail-closed per L'ALTRO mercato-punteggio ammesso —
+    # «half_time_score» minuscolo NON è canonico → nessuna estrazione dinamica (il gate è un
+    # confronto esatto su `_DYNAMIC_SCORE_MARKETS`, uniforme per entrambi i mercati).
+    res = pipe.build_validated_rows(_dyn_parser(market_type="half_time_score"), MSG, mode="NAME_ONLY")
+    names = [r.row.get("SelectionName", "") for r in res]
+    assert "1 - 0" not in names and "2 - 1" not in names
+    assert not [r for r in res if r.placeable]
+
+
 def test_un_solo_risultato():
     rows = _placeable_rows(_dyn_parser(), msg="🆚 A v B\nRisultati: 2 - 2\n")
     assert [r["SelectionName"] for r in rows] == ["2 - 2"]
