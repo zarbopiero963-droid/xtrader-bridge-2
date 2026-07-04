@@ -764,3 +764,106 @@ def test_harvest_evento_multi_mercato_non_duplica(db):
     # due mercati per lo stesso match → comunque SOLO 2 nomi squadra (Inter, Milan)
     assert db.count_known_teams("Calcio") == 2
     assert {t["display_name"] for t in db.known_teams("Calcio")} == {"Inter", "Milan"}
+
+
+# ── harvest valori PERMANENTI mercato/selezione (#283) ────────────────────────
+
+def test_is_universal_selection_market():
+    from xtrader_bridge.betfair.catalogue_client import _is_universal_selection_market
+    # Universali (harvestabili come SelectionName):
+    for mt in ("OVER_UNDER_25", "OVER_UNDER_05", "OVER_UNDER_205_GAMES",
+               "BOTH_TEAMS_TO_SCORE", "ODD_OR_EVEN", "DOUBLE_CHANCE"):
+        assert _is_universal_selection_market(mt) is True
+    # Team-dipendenti / per-partita (NIENTE selezioni: solo MarketType/MarketName):
+    for mt in ("MATCH_ODDS", "ASIAN_HANDICAP", "HANDICAP", "CORRECT_SCORE",
+               "DRAW_NO_BET", "SET_BETTING", "", None):
+        assert _is_universal_selection_market(mt) is False
+
+
+def _menu_mkt():
+    """Calcio, un match con DUE mercati: Esito Finale (team) + Over/Under (universale)."""
+    return {"type": "GROUP", "children": [
+        {"type": "EVENT_TYPE", "id": "1", "name": "Soccer", "children": [
+            {"type": "EVENT", "id": "e1", "name": "Inter v Milan", "children": [
+                {"type": "MARKET", "id": "1.101", "name": "Esito Finale",
+                 "marketType": "MATCH_ODDS"},
+                {"type": "MARKET", "id": "1.102", "name": "Over/Under 2,5",
+                 "marketType": "OVER_UNDER_25"}]}]}]}
+
+
+_CAT_MKT = {
+    "1.101": {"marketId": "1.101", "marketName": "Esito Finale",
+              "description": {"marketType": "MATCH_ODDS"},
+              "event": {"id": "e1", "name": "Inter v Milan"},
+              "runners": [{"selectionId": 1, "runnerName": "Inter", "handicap": 0},
+                          {"selectionId": 2, "runnerName": "Milan", "handicap": 0},
+                          {"selectionId": 3, "runnerName": "Pareggio", "handicap": 0}]},
+    "1.102": {"marketId": "1.102", "marketName": "Over/Under 2,5",
+              "description": {"marketType": "OVER_UNDER_25"},
+              "event": {"id": "e1", "name": "Inter v Milan"},
+              "runners": [{"selectionId": 4, "runnerName": "Over 2,5", "handicap": 0},
+                          {"selectionId": 5, "runnerName": "Under 2,5", "handicap": 0}]},
+}
+
+
+def _sync_mkt(db, catalogue=None):
+    cat = catalogue if catalogue is not None else _CAT_MKT
+    return CatalogueSync(db, navigation_transport=lambda: _menu_mkt(),
+                         catalogue_transport=lambda mids: [cat[m] for m in mids if m in cat])
+
+
+def test_harvest_market_terms_allowlist(db):
+    summary = _sync_mkt(db).sync(["Calcio"])
+    # MarketType/MarketName: presenti per ENTRAMBI i mercati (universali).
+    assert db.known_market_types("Calcio") == ["MATCH_ODDS", "OVER_UNDER_25"]
+    assert db.known_market_names("Calcio") == ["Esito Finale", "Over/Under 2,5"]
+    # SelectionName: SOLO dal mercato universale (Over/Under). I runner di Esito Finale
+    # sono nomi squadra/pareggio (per-partita) → NON harvestati (fail-closed, safety).
+    assert db.known_selection_names("Calcio") == ["Over 2,5", "Under 2,5"]
+    assert "Inter" not in db.known_selection_names("Calcio")
+    assert "Pareggio" not in db.known_selection_names("Calcio")
+    # coerenza per mercato: le selezioni universali stanno sotto il loro mercato
+    assert db.known_selection_names("Calcio", market="Over/Under 2,5") == ["Over 2,5", "Under 2,5"]
+    assert db.known_selection_names("Calcio", market="Esito Finale") == []
+    assert summary["known_market_terms"] == db.count_market_terms()
+
+
+def test_harvest_market_terms_sync_ripetuta_non_duplica(db):
+    s = _sync_mkt(db)
+    s.sync(["Calcio"])
+    n = db.count_market_terms("Calcio")
+    s.sync(["Calcio"])                       # stessi dati
+    assert db.count_market_terms("Calcio") == n     # nessun duplicato
+
+
+def test_harvest_market_terms_permanenti_dopo_evento_sparito(db):
+    # 1ª sync: match con Over/Under. 2ª sync: quell'evento sparisce (menu vuoto).
+    _sync_mkt(db).sync(["Calcio"])
+    assert db.known_selection_names("Calcio") == ["Over 2,5", "Under 2,5"]
+    empty = CatalogueSync(db, navigation_transport=lambda: {"type": "GROUP", "children": [
+        {"type": "EVENT_TYPE", "id": "1", "name": "Soccer", "children": []}]},
+        catalogue_transport=lambda mids: [])
+    empty.sync(["Calcio"])
+    # gli ID effimeri spariscono, ma i valori mercato/selezione restano permanenti
+    assert db.count_active("betfair_markets") == 0
+    assert db.known_market_names("Calcio") == ["Esito Finale", "Over/Under 2,5"]
+    assert db.known_selection_names("Calcio") == ["Over 2,5", "Under 2,5"]
+
+
+def test_harvest_market_terms_isolato_per_sport(db):
+    # Basket con un Over/Under: le selezioni finiscono sotto lo sport giusto.
+    menu = {"type": "GROUP", "children": [
+        {"type": "EVENT_TYPE", "id": "7522", "name": "Basketball", "children": [
+            {"type": "EVENT", "id": "eb", "name": "Lakers v Celtics", "children": [
+                {"type": "MARKET", "id": "1.700", "name": "Over/Under 210,5",
+                 "marketType": "OVER_UNDER_2105_POINTS"}]}]}]}
+    cat = {"1.700": {"marketId": "1.700", "marketName": "Over/Under 210,5",
+                     "description": {"marketType": "OVER_UNDER_2105_POINTS"},
+                     "event": {"id": "eb", "name": "Lakers v Celtics"},
+                     "runners": [{"selectionId": 71, "runnerName": "Over 210,5", "handicap": 0},
+                                 {"selectionId": 72, "runnerName": "Under 210,5", "handicap": 0}]}}
+    CatalogueSync(db, navigation_transport=lambda: menu,
+                  catalogue_transport=lambda mids: [cat[m] for m in mids if m in cat]
+                  ).sync(["Basket"])
+    assert db.known_selection_names("Basket") == ["Over 210,5", "Under 210,5"]
+    assert db.known_selection_names("Calcio") == []       # niente cross-sport

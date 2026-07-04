@@ -398,3 +398,93 @@ def test_delete_known_team_nome_inesistente_no_op(db):
     db.upsert_known_team("Calcio", "Roma", seen_at=1)
     assert db.delete_known_team("Calcio", "lazio") == 0     # non c'è → nessuna riga tolta
     assert db.count_known_teams("Calcio") == 1              # Roma resta
+
+
+# ── valori permanenti mercato/selezione (#283) ────────────────────────────────
+
+def test_market_term_anchor_e_selezione(db):
+    # Riga àncora del solo mercato (MarketType/MarketName) + righe selezione.
+    assert db.upsert_market_term("Calcio", "MATCH_ODDS", "Esito Finale", seen_at=1) is True
+    assert db.upsert_market_term(
+        "Calcio", "OVER_UNDER_25", "Over/Under 2,5", "Over 2,5", seen_at=1) is True
+    assert db.upsert_market_term(
+        "Calcio", "OVER_UNDER_25", "Over/Under 2,5", "Under 2,5", seen_at=1) is True
+    # MarketType/MarketName distinti includono ANCHE il mercato senza selezioni.
+    assert db.known_market_types("Calcio") == ["MATCH_ODDS", "OVER_UNDER_25"]
+    assert db.known_market_names("Calcio") == ["Esito Finale", "Over/Under 2,5"]
+    # SelectionName: solo le due selezioni universali; l'àncora (selezione vuota) è esclusa.
+    assert db.known_selection_names("Calcio") == ["Over 2,5", "Under 2,5"]
+
+
+def test_market_term_market_name_vuoto_saltato(db):
+    # MarketName vuoto/None → niente riga (ritorna False), nessun record fantasma.
+    assert db.upsert_market_term("Calcio", "MATCH_ODDS", "   ", seen_at=1) is False
+    assert db.upsert_market_term("Calcio", "MATCH_ODDS", None, "X", seen_at=1) is False
+    assert db.count_market_terms() == 0
+
+
+def test_market_term_dedup_normalizzato(db):
+    # Stesso mercato/selezione con case/spazi diversi = stessa chiave normalizzata.
+    db.upsert_market_term("Calcio", "OVER_UNDER_25", "Over/Under 2,5", "Over 2,5", seen_at=1)
+    db.upsert_market_term("Calcio", "OVER_UNDER_25", "  over/under 2,5 ", " OVER 2,5 ", seen_at=2)
+    assert db.count_market_terms("Calcio") == 1                 # nessun duplicato
+    assert db.known_selection_names("Calcio") == ["OVER 2,5"]   # ultima grafia
+
+
+def test_market_term_first_seen_fisso_last_seen_aggiornato(db):
+    # Case-only diff → stessa chiave normalizzata: first_seen resta, last_seen/grafia seguono.
+    db.upsert_market_term("Calcio", "OVER_UNDER_25", "Over/Under 2,5", "Over 2,5", seen_at=10)
+    db.upsert_market_term("Calcio", "OVER_UNDER_25", "Over/Under 2,5", "OVER 2,5", seen_at=20)
+    row = [r for r in db.fetchall("betfair_known_market_terms")
+           if r["normalized_selection"]][0]
+    assert row["first_seen_at"] == 10          # invariato
+    assert row["last_seen_at"] == 20           # aggiornato
+    assert row["selection_name"] == "OVER 2,5"  # ultima grafia
+
+
+def test_market_term_selezioni_coerenti_col_mercato(db):
+    # known_selection_names filtrato per mercato: solo le selezioni di QUEL mercato
+    # (invariante «selezione appartiene al mercato»).
+    db.upsert_market_term("Calcio", "OVER_UNDER_25", "Over/Under 2,5", "Over 2,5", seen_at=1)
+    db.upsert_market_term("Calcio", "OVER_UNDER_25", "Over/Under 2,5", "Under 2,5", seen_at=1)
+    db.upsert_market_term("Calcio", "BOTH_TEAMS_TO_SCORE", "Gol/NoGol", "Sì", seen_at=1)
+    db.upsert_market_term("Calcio", "BOTH_TEAMS_TO_SCORE", "Gol/NoGol", "No", seen_at=1)
+    assert db.known_selection_names("Calcio", market="Over/Under 2,5") == ["Over 2,5", "Under 2,5"]
+    assert db.known_selection_names("Calcio", market="Gol/NoGol") == ["No", "Sì"]
+    assert db.known_selection_names("Calcio") == ["No", "Over 2,5", "Sì", "Under 2,5"]
+
+
+def test_market_term_filtro_per_sport(db):
+    db.upsert_market_term("Calcio", "OVER_UNDER_25", "Over/Under 2,5", "Over 2,5", seen_at=1)
+    db.upsert_market_term("Tennis", "OVER_UNDER_205_GAMES", "Over/Under 20,5 games",
+                          "Over 20,5", seen_at=1)
+    assert db.known_market_names("Calcio") == ["Over/Under 2,5"]
+    assert db.known_market_names("Tennis") == ["Over/Under 20,5 games"]
+    assert db.known_selection_names("Calcio") == ["Over 2,5"]
+    assert db.count_market_terms() == 2                          # tutti gli sport
+
+
+def test_market_terms_permanenti_non_toccati_dal_mark_and_sweep(db):
+    # La tabella NON è scopabile da deactivate_unseen: permanenza by-construction.
+    db.upsert_market_term("Calcio", "MATCH_ODDS", "Esito Finale", seen_at=1)
+    with pytest.raises(ValueError):
+        db.deactivate_unseen("betfair_known_market_terms", 999)
+    assert db.count_market_terms("Calcio") == 1
+    assert db.known_market_names("Calcio") == ["Esito Finale"]
+
+
+def test_market_terms_persistono_su_disco_dopo_riapertura(tmp_path):
+    path = str(tmp_path / "betfair.db")
+    d1 = BetfairLocalDB(path)
+    d1.upsert_market_term("Calcio", "OVER_UNDER_25", "Over/Under 2,5", "Over 2,5", seen_at=1)
+    d1.close()
+    d2 = BetfairLocalDB(path)                         # riapertura: schema idempotente
+    assert d2.known_market_names("Calcio") == ["Over/Under 2,5"]
+    assert d2.known_selection_names("Calcio") == ["Over 2,5"]
+    d2.close()
+
+
+def test_distinct_market_terms_colonna_non_valida(db):
+    # Guardia SQL: la colonna è FISSA dal codice, mai input utente.
+    with pytest.raises(ValueError):
+        db._distinct_market_terms("selection_name; DROP TABLE x", "Calcio")

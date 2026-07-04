@@ -30,6 +30,33 @@ from ..sports import SPORTS_EVENT_TYPE, sport_for_event_type_id
 NAVIGATION_OP = "navigationMenu"
 CATALOGUE_OP = "listMarketCatalogue"
 
+# Allowlist SAFETY-CRITICAL (#283): market_type i cui esiti (runner) sono UNIVERSALI —
+# stesse parole per OGNI partita (Over/Under, Sì/No, Pari/Dispari, 1X/12/X2) — quindi
+# harvestabili come SelectionName permanenti «diretti». I mercati TEAM-DIPENDENTI
+# (MATCH_ODDS, *_HANDICAP, CORRECT_SCORE, DRAW_NO_BET, SET_BETTING, …) hanno come esiti
+# NOMI SQUADRA / valori per-partita: NON contribuiscono selezioni (fissarne uno come
+# SelectionName scriverebbe una riga CSV sbagliata = scommessa sbagliata). Danno
+# comunque MarketType/MarketName (universali). Lista **conservativa** e fail-closed:
+# nel dubbio un mercato resta FUORI (nessuna selezione) — il proprietario può estenderla.
+_UNIVERSAL_SELECTION_MARKET_TYPES = frozenset({
+    "BOTH_TEAMS_TO_SCORE",   # Sì / No
+    "ODD_OR_EVEN",           # Dispari / Pari
+    "DOUBLE_CHANCE",         # 1X / 12 / X2 (esiti posizionali, non nomi squadra)
+})
+
+
+def _is_universal_selection_market(market_type) -> bool:
+    """``True`` se le selezioni del `market_type` sono universali (harvestabili come
+    SelectionName permanenti, #283). Gli Over/Under di qualunque soglia (gol/corner/…)
+    sono universali per costruzione (l'esito è sempre «Over/Under N», mai una squadra);
+    per gli altri vale l'allowlist esatta. Sconosciuto/vuoto → ``False`` (fail-closed)."""
+    mt = str(market_type or "").strip().upper()
+    if not mt:
+        return False
+    if mt.startswith("OVER_UNDER"):
+        return True
+    return mt in _UNIVERSAL_SELECTION_MARKET_TYPES
+
 
 class BetfairApiError(RuntimeError):
     """Errore applicativo dell'Exchange (campo ``error`` di una risposta JSON-RPC).
@@ -356,6 +383,35 @@ class CatalogueSync:
                 written += 1
         return written
 
+    def _harvest_market_terms(self, event_type_id, market_name, market_type,
+                              runners, seen_at) -> int:
+        """Harvest #283: accumula i valori PERMANENTI di mercato/selezione
+        (`betfair_known_market_terms`), «diretti» (nessuna mappatura). Salva SEMPRE la
+        riga àncora del mercato (MarketType + MarketName, universali) e — SOLO per i
+        market_type a selezioni universali (`_is_universal_selection_market`) — una riga
+        per ogni SelectionName. I mercati team-dipendenti (MATCH_ODDS, *_HANDICAP,
+        CORRECT_SCORE, …) danno MarketType/MarketName ma NESSUNA selezione: un runner
+        per-partita (nome squadra/risultato) fissato romperebbe il CSV/scommessa
+        (fail-closed, allowlist). Sport dal nome canonico via `event_type_id`; sport
+        ignoto → skip. Non tocca gli ID effimeri. Ritorna quante righe ha scritto."""
+        sport = sport_for_event_type_id(event_type_id)
+        if not sport:
+            return 0
+        if not str(market_name or "").strip():
+            return 0
+        written = 0
+        # Riga àncora: il mercato esiste (MarketType/MarketName selezionabili anche per i
+        # mercati team-dipendenti, che però non contribuiscono selezioni).
+        if self.db.upsert_market_term(sport, market_type, market_name, seen_at=seen_at):
+            written += 1
+        if _is_universal_selection_market(market_type):
+            for r in runners or ():
+                name = r.get("runner_name")
+                if str(name or "").strip() and self.db.upsert_market_term(
+                        sport, market_type, market_name, name, seen_at=seen_at):
+                    written += 1
+        return written
+
     def _sync_in_transaction(self, nav_transport, cat_transport, etids) -> dict:
         """Corpo transazionale della sync (estratto da `sync` per il triage degli errori
         di scadenza sessione). Tutte le scritture stanno in UNA transazione: un fallimento
@@ -430,6 +486,14 @@ class CatalogueSync:
                         info.get("market_name") or meta.get("name"),
                         info.get("market_type") or meta.get("marketType"),
                         seen_at=marker)
+                    # Harvest permanente dei valori mercato/selezione (#283): diretti,
+                    # SelectionName solo dai mercati a esiti universali (allowlist). Non
+                    # tocca gli ID effimeri.
+                    self._harvest_market_terms(
+                        meta.get("event_type_id", ""),
+                        info.get("market_name") or meta.get("name"),
+                        info.get("market_type") or meta.get("marketType"),
+                        info.get("runners", []), marker)
                     for r in info.get("runners", []):
                         if r.get("selection_id"):
                             self.db.upsert_selection(market_id, r["selection_id"],
@@ -461,6 +525,9 @@ class CatalogueSync:
                 # Nomi squadra permanenti totali dopo la sync (#282): accumulano nel
                 # tempo, NON calano quando gli eventi/ID scadono.
                 "known_teams": self.db.count_known_teams(),
+                # Valori mercato/selezione permanenti totali dopo la sync (#283): idem,
+                # accumulano nel tempo (righe àncora mercato + selezioni universali).
+                "known_market_terms": self.db.count_market_terms(),
             }
             self.db.record_sync_run(started_at=marker, finished_at=marker, status="OK",
                                     summary=json.dumps(summary, ensure_ascii=False))

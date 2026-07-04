@@ -1028,3 +1028,48 @@ inesistente, nessun delete cross-sport); `tests/integration/test_known_teams_bus
 (`_delete_betfair_team`: lock libero → elimina, sync in corso → `DictionaryBusy` fail-fast e
 niente eliminazione, DB assente → `False`); `tests/unit/test_known_teams_gui.py` (elenco,
 filtro sport, eliminazione+ricarica, fail-fast sync, fail-safe senza provider/callback).
+
+
+## #283 — valori PERMANENTI di mercato/selezione dalla sync Betfair (harvest, data layer) ✅ (PR 12)
+
+**Obiettivo (deciso col proprietario).** Conservare **per sempre** i valori universali di
+**MarketType / MarketName / SelectionName** dei 4 sport raccolti dalla sync, così restano
+selezionabili nel Parser anche quando l'evento finisce e gli ID scadono. Decisione: **«diretto»,
+nessuna mappatura** (i nomi Betfair IT sono già identici a XTrader), a differenza dei nomi
+squadra #282 che restano con mappatura. Estende il modello «permanente» di #282 dai nomi squadra
+(→ EventName) ai valori di mercato/selezione.
+
+**Cosa fa.**
+- nuova tabella permanente `betfair_known_market_terms` (chiave `sport` + `normalized_market` +
+  `normalized_selection`; colonne `market_type`/`market_name`/`selection_name` +
+  `first_seen_at`/`last_seen_at`). **Senza `active`** e **fuori da `_SCOPED`** → il mark-and-sweep
+  non la tocca: permanenza by-construction. Ogni riga è la **tupla coerente**
+  `(sport, market_type, market_name, selection_name)` (B3 residuo #259: coerenza nome
+  mercato↔selezione; «selezione appartiene al mercato»). Metodi `upsert_market_term`,
+  `known_market_types`/`known_market_names`/`known_selection_names(sport, market=None)`,
+  `count_market_terms`.
+- harvest nella stessa transazione della sync (`CatalogueSync._harvest_market_terms`, nel loop
+  catalogue): riga **àncora** del mercato (MarketType+MarketName) per **ogni** mercato, e — SOLO
+  per i mercati a esiti **universali** — una riga per SelectionName.
+
+**Allowlist safety-critical.** `_UNIVERSAL_SELECTION_MARKET_TYPES` / `_is_universal_selection_market`
+(prefix `OVER_UNDER*` + `BOTH_TEAMS_TO_SCORE`/`ODD_OR_EVEN`/`DOUBLE_CHANCE`): solo questi
+contribuiscono SelectionName. I mercati **team-dipendenti** (`MATCH_ODDS`, `*_HANDICAP`,
+`CORRECT_SCORE`, `DRAW_NO_BET`, …) hanno esiti = nomi squadra/valori per-partita → **nessuna
+selezione** (fissarne uno = riga CSV/scommessa sbagliata). Lista **conservativa/fail-closed**,
+estendibile dal proprietario.
+
+**Fuori scope PR 12:** tendine del Parser popolate da questi valori (→ **PR 13** di #283). Contratto
+CSV **invariato**. `CORRECT_SCORE` a estrazione dinamica per-riga (FT + primo tempo) tracciato in
+**#325**.
+
+**Non tocca** ID effimeri (`MarketId`/`SelectionId`), CSV, parser runtime, né il flusso di
+piazzamento: agisce solo sulla nuova tabella permanente.
+
+**Test hard:** `tests/unit/test_betfair_local_db.py` (upsert àncora+selezione, dedup normalizzato,
+`first_seen` fisso, distinti per sport, coerenza selezione↔mercato, permanenza — deactivate_unseen
+la rifiuta, whitelist colonna); `tests/unit/test_betfair_catalogue_sync.py` (allowlist:
+SelectionName solo dai mercati universali e **mai** i nomi squadra di MATCH_ODDS; MarketType/Name
+per tutti; no-deactivate quando l'evento sparisce; sync ripetuta non duplica; isolamento per sport;
+helper `_is_universal_selection_market`). Fail-first verificato via stash (14 test falliscono senza
+il codice).
