@@ -200,6 +200,13 @@ altezza ridimensionabile, min 720×600.
 | ⏱️ Timeout (sec) | `clear_delay` | intero > 0 |
 | 🏷️ Provider | `provider` | testo |
 
+- **Segnaposto d'aiuto nei campi (#288 Delta 2):** ogni casella mostra un **placeholder** grigio a
+  campo vuoto (es. Chat ID → `es. -1001234567890`, Bot Token → `incolla qui il token del bot`, CSV
+  Path → `es. C:\XTrader\segnali.csv`, Timeout → `es. 90`, Provider → `es. TelegramBot`). Stessa cosa
+  nel tab **Betfair Sync** (App Key/Username/Password/percorsi). Il placeholder è **solo un aiuto
+  visivo**, NON un valore: un campo lasciato vuoto resta `""` (nessun impatto su parsing/salvataggio).
+  Sui campi **sensibili** (token/App Key/Password) il placeholder è **generico e istruttivo**, mai un
+  segreto plausibile (è mostrato in chiaro anche sui campi mascherati).
 - **«📁 Sfoglia…» accanto a CSV Path (#284):** apre il selettore file di sistema (dialog Tk
   `asksaveasfilename`, `.csv`). Alla scelta, il percorso è **scritto nella casella E salvato
   subito in `config.json`** (opzione b: nessun click extra su «Salva Config»). Il salvataggio

@@ -1284,3 +1284,30 @@ smoke manuale su Windows. Suite: **2061 passed, 10 skipped**.
 
 **Docs:** design_handoff.md (GATE: tema commutabile, toggle nell'header, nota palette hardcoded +
 Delta 3), README (nota toggle tema). Restano #288 Delta 2 (placeholder) e Delta 3 (restyle).
+
+
+## #288 Delta 2 — segnaposto d'aiuto nei campi ✅ (PR 18)
+
+**Obiettivo (#288 Delta 2).** I campi principali erano **vuoti** (nessun `placeholder_text`).
+Aggiungere segnaposto d'aiuto (es. `es. -1001234567890` per Chat ID), **puramente additivi**.
+
+**Cosa fa.**
+- `app.py` — dict di modulo `_FIELD_PLACEHOLDERS` (bot_token/chat_id/csv_path/clear_delay/provider)
+  applicato via `placeholder_text=` nella riga del tab «⚙️ Generale».
+- `betfair/sync_tab_gui.py` — dict `_FIELD_PLACEHOLDERS` (app_key/username/password/cert_path/
+  key_path) applicato ai campi credenziali.
+
+**Sicurezza.** Il `placeholder_text` è **testo grigio a campo vuoto, NON un valore**: un campo
+intatto resta `""` → nessun impatto su parsing/salvataggio/START. Sui campi **sensibili**
+(`bot_token`/`app_key`/`password`) il segnaposto è **generico e istruttivo**, MAI un segreto
+plausibile (è mostrato in chiaro anche sui campi mascherati). Nessun impatto su contratto CSV,
+parser, Betfair.
+
+**Test hard (fail-first via stash):** `tests/integration/test_placeholders.py` verifica i dizionari
+REALI: tutti i segnaposto sono stringhe utili; sui campi sensibili è una **frase istruttiva** senza
+alcun blob alfanumerico ≥12 char (che sembrerebbe un token/chiave/password); copertura dei campi
+attesi; **contro-prova** che un segnaposto tipo-segreto fa fallire il check. Il rendering reale del
+placeholder è GUI-only → smoke manuale. Suite: **2064 passed, 10 skipped**.
+
+**Docs:** design_handoff.md (GATE: segnaposto nei campi + nota sicurezza campi sensibili), README
+(nota esempio-guida). Resta **#288 Delta 3** (restyle).

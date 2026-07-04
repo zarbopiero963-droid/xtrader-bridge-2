@@ -31,6 +31,18 @@ _BROWSE_FILETYPES = {
                  [("Private key", "*.key"), ("Tutti i file", "*.*")]),
 }
 
+# Segnaposto d'aiuto (`placeholder_text`) dei campi credenziali Betfair Sync (#288 Delta 2).
+# Additivi (testo grigio a campo vuoto, NON un valore). Per i campi sensibili `app_key`/`password`
+# il segnaposto è **generico e istruttivo**, MAI una chiave/password plausibile (è mostrato in
+# chiaro anche sui campi mascherati). Esposto per il test di sicurezza `test_placeholders.py`.
+_FIELD_PLACEHOLDERS = {
+    "app_key":   "incolla la Delayed App Key",
+    "username":  "es. mario.rossi",
+    "password":  "la tua password Betfair.it",
+    "cert_path": r"es. C:\betfair\client.crt",
+    "key_path":  r"es. C:\betfair\client.key",
+}
+
 
 class BetfairSyncPanel(ctk.CTkFrame):
     """Pannello della tab Betfair Sync.
@@ -76,7 +88,8 @@ class BetfairSyncPanel(ctk.CTkFrame):
         )
         for i, (key, label, secret) in enumerate(rows):
             ctk.CTkLabel(form, text=label).grid(row=i, column=0, sticky="w", padx=8, pady=4)
-            entry = ctk.CTkEntry(form, width=320, show="•" if secret else "")
+            entry = ctk.CTkEntry(form, width=320, show="•" if secret else "",
+                                 placeholder_text=_FIELD_PLACEHOLDERS.get(key, ""))
             entry.grid(row=i, column=1, sticky="we", padx=8, pady=4)
             entry.bind("<KeyRelease>", lambda _e: self._refresh_buttons())
             self._entries[key] = entry
