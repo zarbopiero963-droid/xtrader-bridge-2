@@ -100,6 +100,30 @@ def test_add_row_preserva_transform_e_valuemap_con_colonne_visibili(gui_mod):
     assert refs["value_map"].get() == "map1"
 
 
+def test_on_toggle_advanced_sincronizza_prima_di_ricostruire(gui_mod):
+    # GLM #339: il callback del toggle legge il var, poi sincronizza il builder PRIMA di
+    # ricostruire intestazione + righe (così una modifica in corso non va persa).
+    calls = []
+    fake = types.SimpleNamespace(
+        _show_advanced=False,
+        _advanced_var=_FakeStringVar(True),
+        _sync_to_builder=lambda: calls.append("sync"),
+        _populate_rules_header=lambda: calls.append("header"),
+        _reload_rows_from_builder=lambda: calls.append("rows"))
+    fake._on_toggle_advanced = types.MethodType(
+        gui_mod.CustomParserPanel._on_toggle_advanced, fake)
+
+    fake._on_toggle_advanced()
+    assert fake._show_advanced is True                 # stato preso dal checkbox
+    assert calls == ["sync", "header", "rows"]         # sync PRIMA del rebuild, in ordine
+
+    fake._advanced_var = _FakeStringVar(False)          # spegni il toggle
+    calls.clear()
+    fake._on_toggle_advanced()
+    assert fake._show_advanced is False
+    assert calls == ["sync", "header", "rows"]
+
+
 def test_add_row_default_senza_show_advanced_non_crasha(gui_mod):
     # Difensivo: `_add_row` usa getattr(self, "_show_advanced", False) → un fake self senza
     # l'attributo (init parziale/test legacy) non solleva e crea comunque i StringVar.
