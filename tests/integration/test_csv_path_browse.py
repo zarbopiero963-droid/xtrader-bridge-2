@@ -85,6 +85,11 @@ def test_apply_e_salva_csv_path_guardia_token_pr08c(make_app, app_mod, tmp_path,
     cfg = {"csv_path": "vecchio.csv", "bot_token": "SEGRETO"}
     a, _ = _prep(make_app, app_mod, tmp_path, monkeypatch, config=cfg, gui_csv="vecchio.csv")
     a._had_incomplete_token_load = lambda: "MARKER"       # spia: valore catturato
+    # stub `save_config`: il test verifica SOLO la guardia token (resync), non deve toccare il
+    # keyring REALE della macchina col `bot_token` — isolamento deterministico (CodeRabbit #328).
+    monkeypatch.setattr(app_mod, "save_config",
+                        lambda cfg_arg, _p: app_mod.config_store.SaveResult(
+                            dict(cfg_arg), True, app_mod.config_store.SAVE_OK))
     app_mod.App._apply_and_save_csv_path(a, "/nuovo.csv")
     # `_resync_token_field` chiamato UNA volta col valore catturato PRIMA del save
     assert a.resync_calls == ["MARKER"]
@@ -104,3 +109,7 @@ def test_apply_e_salva_csv_path_fallimento_disco_avvisa(make_app, app_mod, tmp_p
     assert ok is False
     assert any("NON salvato" in m for m in a.logs)        # avviso chiaro nel log
     assert a.resync_calls == [False]                       # guardia token comunque eseguita
+    # comportamento documentato (CodeRabbit #328): entry + config vivo aggiornati ANCHE su save
+    # fallito — lo stato in memoria resta coerente, solo il disco è stantio (e l'utente è avvisato)
+    assert a._e_csv.get() == "/nuovo.csv"
+    assert a._config["csv_path"] == "/nuovo.csv"
