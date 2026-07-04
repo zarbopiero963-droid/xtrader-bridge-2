@@ -1043,8 +1043,11 @@ squadra #282 che restano con mappatura. Estende il modello «permanente» di #28
 - nuova tabella permanente `betfair_known_market_terms` (chiave `sport` + `market_type` +
   `normalized_market` + `normalized_selection`; colonne `market_name`/`selection_name` +
   `first_seen_at`/`last_seen_at`). Il `market_type` è **parte della chiave** (due mercati con
-  stesso nome ma tipo diverso non collidono, Fable/GPT #326). **Senza `active`** e **fuori da
-  `_SCOPED`** → il mark-and-sweep non la tocca: permanenza by-construction. Ogni riga è la **tupla coerente**
+  stesso nome ma tipo diverso non collidono, Fable/GPT #326); `_migrate_market_terms_pk`
+  ricrea la tabella + copia i dati (`market_type` NULL → '') su un DB con la vecchia PK a 3
+  colonne, così l'`ON CONFLICT` a 4 colonne non fallisce su installazioni preesistenti
+  (Fable/Fugu/GLM/GPT #326). **Senza `active`** e **fuori da `_SCOPED`** → il mark-and-sweep
+  non la tocca: permanenza by-construction. Ogni riga è la **tupla coerente**
   `(sport, market_type, market_name, selection_name)` (B3 residuo #259: coerenza nome
   mercato↔selezione; «selezione appartiene al mercato»). Metodi `upsert_market_term`,
   `known_market_types`/`known_market_names`/`known_selection_names(sport, market=None)`,

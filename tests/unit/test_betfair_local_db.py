@@ -512,3 +512,59 @@ def test_market_term_type_vuoto_salvato_come_stringa(db):
     assert db.known_market_types("Calcio") == []          # '' escluso
     assert db.known_market_names("Calcio") == ["Mercato senza tipo"]
     assert db.fetchall("betfair_known_market_terms")[0]["market_type"] == ""
+
+
+def test_market_terms_migrazione_pk_da_schema_legacy(tmp_path):
+    # Upgrade da schema LEGACY (PK a 3 colonne, market_type nullable) → la migrazione
+    # ricrea la tabella con la PK a 4 colonne e copia i dati (market_type NULL → '').
+    # Fail-first: senza `_migrate_market_terms_pk` l'`ON CONFLICT` a 4 colonne solleverebbe
+    # OperationalError su questo DB (Fable/Fugu/GLM/GPT #326).
+    import sqlite3
+    path = str(tmp_path / "betfair.db")
+    con = sqlite3.connect(path)
+    con.executescript(
+        """
+        CREATE TABLE betfair_known_market_terms (
+            sport                TEXT NOT NULL,
+            market_type          TEXT,
+            normalized_market    TEXT NOT NULL,
+            market_name          TEXT,
+            normalized_selection TEXT NOT NULL DEFAULT '',
+            selection_name       TEXT,
+            first_seen_at        INTEGER NOT NULL DEFAULT 0,
+            last_seen_at         INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (sport, normalized_market, normalized_selection)
+        );
+        INSERT INTO betfair_known_market_terms
+            (sport, market_type, normalized_market, market_name,
+             normalized_selection, selection_name, first_seen_at, last_seen_at)
+        VALUES ('Calcio', NULL, 'esito finale', 'Esito Finale', '', NULL, 5, 5),
+               ('Calcio', 'OVER_UNDER_25', 'over/under 2,5', 'Over/Under 2,5',
+                'over 2,5', 'Over 2,5', 5, 5);
+        """)
+    con.commit()
+    con.close()
+
+    db = BetfairLocalDB(path)                    # apertura → migrazione idempotente
+    info = db._conn.execute(
+        "PRAGMA table_info(betfair_known_market_terms)").fetchall()
+    pk_cols = [r["name"] for r in sorted((r for r in info if r["pk"]),
+                                         key=lambda r: r["pk"])]
+    assert pk_cols == ["sport", "market_type", "normalized_market", "normalized_selection"]
+    # dati preservati, market_type NULL migrato a '', first_seen conservato
+    assert db.count_market_terms("Calcio") == 2
+    assert db.known_market_names("Calcio") == ["Esito Finale", "Over/Under 2,5"]
+    assert db.known_selection_names("Calcio") == ["Over 2,5"]
+    assert {r["market_type"] for r in db.fetchall("betfair_known_market_terms")} \
+        == {"", "OVER_UNDER_25"}
+    # e l'ON CONFLICT a 4 colonne ora funziona (niente OperationalError)
+    assert db.upsert_market_term("Calcio", "OVER_UNDER_25", "Over/Under 2,5",
+                                 "Under 2,5", seen_at=9) is True
+    assert db.known_selection_names("Calcio", market="Over/Under 2,5") == \
+        ["Over 2,5", "Under 2,5"]
+    db.close()
+
+    # riapertura: la migrazione è idempotente (tabella già a 4 colonne → no-op)
+    db2 = BetfairLocalDB(path)
+    assert db2.count_market_terms("Calcio") == 3
+    db2.close()

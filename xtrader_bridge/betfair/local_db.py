@@ -252,6 +252,47 @@ class BetfairLocalDB:
         for col in ("participant_1", "participant_2"):
             if col not in cols:
                 self._conn.execute(f"ALTER TABLE betfair_events ADD COLUMN {col} TEXT")
+        self._migrate_market_terms_pk()
+
+    def _migrate_market_terms_pk(self) -> None:
+        """#283/#326: la PK di `betfair_known_market_terms` è passata da 3 a 4 colonne
+        (aggiunto `market_type`, così due mercati con lo stesso nome ma tipo diverso non
+        collidono). `CREATE TABLE IF NOT EXISTS` NON altera una tabella già creata con la
+        vecchia PK a 3 colonne → l'`ON CONFLICT` a 4 colonne solleverebbe `OperationalError`
+        a runtime su un DB preesistente. Se troviamo la vecchia forma (colonna `market_type`
+        presente ma NON in PK), ricreiamo la tabella copiando i dati (`market_type` NULL →
+        ''). La tabella è un cache **permanente ma ri-derivabile** dalla sync: la copia
+        preserva comunque `first_seen_at`. No-op su DB nuovi (PK già a 4 colonne) o senza la
+        tabella (Fable/GLM/GPT #326)."""
+        info = self._conn.execute(
+            "PRAGMA table_info(betfair_known_market_terms)").fetchall()
+        if not info:
+            return                               # tabella non ancora creata → niente da migrare
+        mt = next((r for r in info if r["name"] == "market_type"), None)
+        if mt is None or int(mt["pk"]) != 0:
+            return                               # già nuova forma (market_type in PK) → no-op
+        self._conn.executescript(
+            """
+            ALTER TABLE betfair_known_market_terms RENAME TO _bkmt_old;
+            CREATE TABLE betfair_known_market_terms (
+                sport                TEXT NOT NULL,
+                market_type          TEXT NOT NULL DEFAULT '',
+                normalized_market    TEXT NOT NULL,
+                market_name          TEXT,
+                normalized_selection TEXT NOT NULL DEFAULT '',
+                selection_name       TEXT,
+                first_seen_at        INTEGER NOT NULL DEFAULT 0,
+                last_seen_at         INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (sport, market_type, normalized_market, normalized_selection)
+            );
+            INSERT INTO betfair_known_market_terms
+                (sport, market_type, normalized_market, market_name,
+                 normalized_selection, selection_name, first_seen_at, last_seen_at)
+            SELECT sport, COALESCE(market_type, ''), normalized_market, market_name,
+                   normalized_selection, selection_name, first_seen_at, last_seen_at
+            FROM _bkmt_old;
+            DROP TABLE _bkmt_old;
+            """)
 
     def close(self) -> None:
         with self._lock:
