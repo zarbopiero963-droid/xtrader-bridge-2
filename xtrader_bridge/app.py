@@ -793,7 +793,7 @@ class App(ctk.CTk):
         if btn is not None:
             btn.configure(text="☀️" if theme == "light" else "🌙")
 
-    def _toggle_theme(self) -> None:
+    def _toggle_theme(self) -> str:
         """Toggle tema chiaro/scuro (#288 Delta 1): applica `set_appearance_mode` e **persiste**
         la preferenza in config. MERGE sul config **vivo** (`self._config`), NON rilegge il form
         (non tocca gli altri campi né esegue i gate di transizione REALE) e cattura la **guardia
