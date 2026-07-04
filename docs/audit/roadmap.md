@@ -1370,3 +1370,34 @@ anti-ripristino sul **dato** dell'header (`_HEADER_COLUMNS`: contiene la nuova e
 
 **Docs:** design_handoff.md (GATE §7.5: colonna rinominata + nota chiave dati `provider` invariata).
 Prossimi slice #293: mappature nel Parser → Riepilogo → 4 gruppi → densità parser.
+
+
+## #293 (slice 2) — «🔗 Traduzioni attive per questo parser» con indicatore ✓/— ✅ (PR 21)
+
+**Obiettivo (#293, slice scelto dal proprietario).** Il Parser aveva già le checkbox dei profili di
+mappatura **Nomi** e **Mercati** + i pulsanti «apri Dizionario», ma come righe sciolte. #293 le
+raggruppa in un **riquadro «🔗 Traduzioni attive per questo parser»** con un **indicatore di stato
+✓/—** per tipo (`✓ N attive` verde / `— nessuna` grigio). **Nessun cambio funzionale.**
+
+**Cosa fa.**
+- `custom_parser_gui.py` — le due sezioni mappatura (nomi/mercati) sono spostate dentro un
+  `CTkFrame` etichettato «🔗 Traduzioni attive per questo parser». Aggiunti `self._nm_status_lbl` /
+  `self._mm_status_lbl`. Helper puro `_translations_status_text(count)` (`✓ N attive`/`— nessuna`)
+  + `_set_translation_status`/`_update_translations_status` (colori theme-aware `(light, dark)`).
+  Le checkbox profili ora hanno `command=self._update_translations_status` (aggiorna al toggle); il
+  reload aggiorna l'indicatore. Sotto-etichette rinominate «Nomi squadra»/«Mercati» (sotto il
+  titolo del riquadro).
+
+**Sicurezza.** Solo presentazione: **stessa** logica di selezione profili (`_selected_profiles`/
+`_selected_market_profiles`, ordine preservato), stesso blocco `⚠`/`_unresolved_*`, stesso
+fail-closed delle mappature, **MultiMarket/MultiSelection** e contratto CSV **invariati**. Nessun
+impatto su parser runtime/Betfair.
+
+**Test hard (fail-first via stash):** `tests/integration/test_parser_translations_status.py` —
+`_translations_status_text` (0/negativo→«— nessuna», 1→«✓ 1 attiva», N→«✓ N attive»);
+`_update_translations_status` su un pannello finto (ctk stubbato): nomi attive/mercati no + colori
+ON/OFF, entrambe con conteggio, e ramo **difensivo** (etichette non ancora costruite → nessun
+crash). Rendering GUI reale = smoke manuale. Suite: **2076 passed, 10 skipped**.
+
+**Docs:** design_handoff.md (GATE §7.1: riquadro «Traduzioni attive» + indicatore ✓/—). Prossimi
+slice #293: Riepilogo → 4 gruppi → densità parser.
