@@ -34,7 +34,7 @@ _BROWSE_FILETYPES = {
 # Segnaposto d'aiuto (`placeholder_text`) dei campi credenziali Betfair Sync (#288 Delta 2).
 # Additivi (testo grigio a campo vuoto, NON un valore). Per i campi sensibili `app_key`/`password`
 # il segnaposto è **generico e istruttivo**, MAI una chiave/password plausibile (è mostrato in
-# chiaro anche sui campi mascherati). Esposto per il test di sicurezza `test_placeholders.py`.
+# chiaro anche sui campi mascherati). Esposto per `tests/integration/test_placeholders.py`.
 _FIELD_PLACEHOLDERS = {
     "app_key":   "incolla la Delayed App Key",
     "username":  "es. mario.rossi",

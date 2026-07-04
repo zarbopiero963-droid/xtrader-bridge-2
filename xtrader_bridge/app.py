@@ -151,7 +151,7 @@ _CSV_CREATE_PADX = (0, 10)         # pulsante «📄 Crea CSV»
 # (`entry.get()` su un campo intatto resta `""`), quindi non tocca parsing/salvataggio. Per il
 # campo sensibile `bot_token` il segnaposto è **generico e istruttivo**, MAI un token plausibile
 # (il segnaposto è mostrato in chiaro anche sui campi mascherati). Esposto per il test di sicurezza
-# (`tests/unit/test_placeholders.py`).
+# (`tests/integration/test_placeholders.py`).
 _FIELD_PLACEHOLDERS = {
     "bot_token":   "incolla qui il token del bot",
     "chat_id":     "es. -1001234567890",
@@ -1009,7 +1009,12 @@ class App(ctk.CTk):
                 tab_gen, show="●" if is_pwd else "",
                 placeholder_text=_FIELD_PLACEHOLDERS.get(key, ""),   # aiuto a campo vuoto (#288 Delta 2)
                 width=(_CSV_PATH_ENTRY_WIDTH if key == "csv_path" else _GEN_FIELD_ENTRY_WIDTH))
-            e.insert(0, str(self._config.get(key, "")))
+            # Inserisci il valore SOLO se non vuoto: un `insert(0, "")` su un campo vuoto può
+            # disattivare il `placeholder_text` in CTkEntry finché non c'è un ciclo di focus
+            # (Fable #333). Un campo senza valore in config resta vuoto → mostra il segnaposto.
+            val = str(self._config.get(key, ""))
+            if val:
+                e.insert(0, val)
             e.grid(row=r, column=1, padx=_GEN_ENTRY_PADX, pady=4, sticky="w")
             self._entries[key] = e
             # CSV Path: pulsante «📁 Sfoglia…» (#284) che apre il selettore file e salva
