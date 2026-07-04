@@ -106,6 +106,17 @@ def test_extract_scores_esclude_decimali_con_virgola_italiana():
     assert extract_scores("1-0,2-1") == []
 
 
+def test_extract_scores_esclude_decimale_senza_cifra_iniziale():
+    # #341 (Fable): un decimale scritto SENZA zero iniziale («,5» / «.5») non deve produrre un
+    # punteggio spurio «5 - 1» (il confine `(?<![.,])` sul primo numero morde anche senza cifra prima).
+    assert extract_scores("linea .5-1") == []
+    assert extract_scores("hcap ,5-1") == []
+    assert extract_scores(".5-0") == []
+    # ma un punteggio seguito da un semplice punto/virgola di FRASE resta estratto (non è un decimale).
+    assert extract_scores("Risultato 1-0. Poi 2-1") == ["1 - 0", "2 - 1"]
+    assert extract_scores("Esito 3-1, e basta") == ["3 - 1"]
+
+
 def test_extract_scores_non_fonde_cifre_di_righe_diverse():
     # #341 (Fugu): lo spazio attorno al «-» è SOLO orizzontale ([^\S\r\n]*) → cifre su righe
     # adiacenti in una regione multi-riga NON si fondono in un punteggio spurio (che diventerebbe

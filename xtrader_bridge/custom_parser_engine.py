@@ -158,13 +158,14 @@ def extract_between(text: str, start_after: str = "", end_before: str = "") -> s
 # Confini anti-DECIMALE oltre a quelli anti-cifra: un handicap/quota come «0-0.5», «1-0.25» o «0.5-1»
 # — e la stessa notazione con la **virgola** italiana «0-0,5», «0,5-1» (prevalente nei canali IT) —
 # NON deve produrre un punteggio spurio «0 - 0»/«1 - 0»/«5 - 1» (selezioni Correct Score VALIDE →
-# riga piazzabile errata). `(?<!\d[.,])` esclude il caso in cui il primo numero è la parte decimale di
-# un valore (es. «0,5»); `(?![.,]\d)` esclude il caso in cui il secondo numero è seguito da «[.,]d»
-# (Fable/Fugu/GPT #341). Disambiguazione lista-vs-decimale: il confine morde solo su `[.,]` **adiacente
-# a una cifra** (decimale «0,5»); il separatore di lista comma-SPAZIO «1-0, 2-1» resta valido (dopo la
-# virgola c'è uno spazio, non una cifra). Una lista a virgola SENZA spazio «1-0,2-1» è ambigua con un
-# decimale → fail-closed (non estratta): usare «, » o newline fra i risultati.
-_SCORE_RE = re.compile(r"(?<!\d)(?<!\d[.,])(\d{1,2})[^\S\r\n]*-[^\S\r\n]*(\d{1,2})(?!\d)(?![.,]\d)")
+# riga piazzabile errata). `(?<![.,])` (sul PRIMO numero) esclude il caso in cui è la parte decimale
+# di un valore, anche **senza cifra iniziale** («0,5» ma pure «,5»/«.5»); `(?![.,]\d)` esclude il caso
+# in cui il SECONDO numero è seguito da «[.,]d» — ma NON da un semplice punto/virgola di frase
+# («1-0.» resta «1 - 0») (Fable/Fugu/GPT #341). Disambiguazione lista-vs-decimale: sul primo numero il
+# confine morde su `[.,]` immediatamente prima; il separatore di lista comma-SPAZIO «1-0, 2-1» resta
+# valido (il numero successivo è preceduto da uno SPAZIO, non da «[.,]»). Una lista a virgola SENZA
+# spazio «1-0,2-1» è ambigua con un decimale → fail-closed (non estratta): usare «, » o newline.
+_SCORE_RE = re.compile(r"(?<!\d)(?<![.,])(\d{1,2})[^\S\r\n]*-[^\S\r\n]*(\d{1,2})(?!\d)(?![.,]\d)")
 
 # #325: cap DIFENSIVO sul numero di risultati estratti da UN messaggio (input Telegram NON
 # attendibile, review #341). Un elenco reale di risultati esatti (Correct Score FT/1º tempo) ha
