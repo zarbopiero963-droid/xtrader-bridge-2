@@ -299,9 +299,10 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
     mancanti sono marcati `⚠`).
   - **Mercati:** **"🎯 Dizionario mercati"** + indicatore (`✓ N attive` / `— nessuna`) +
     checkbox-profili.
-  L'indicatore si aggiorna a ogni spunta/despunta e al caricamento di un parser. Funzione
-  invariata: le checkbox e i pulsanti «apri Dizionario» sono gli stessi; cambia solo la
-  presentazione (le mappature stanno accanto al parser, dove si accendono).
+  L'indicatore si aggiorna a ogni spunta/despunta e al caricamento di un parser, e conta **solo i
+  profili risolti** (un profilo fantasma `⚠` selezionato ma inesistente non è una traduzione attiva
+  → non gonfia il conteggio). Funzione invariata: le checkbox e i pulsanti «apri Dizionario» sono gli
+  stessi; cambia solo la presentazione (le mappature stanno accanto al parser, dove si accendono).
 - **Output multi-riga (un messaggio → più righe CSV):** checkbox **"MultiMarket (più
   mercati)"** + **"➕ Aggiungi mercato"**; checkbox **"MultiSelection (più selezioni)"** +
   **"➕ Aggiungi selezione"**; ogni riga ha campi Tipo mercato/Mercato/Selezione/Quota/

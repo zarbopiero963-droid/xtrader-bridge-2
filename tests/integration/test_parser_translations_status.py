@@ -51,12 +51,16 @@ class _Var:
         return self._v
 
 
-def _panel(gui_mod, *, name_checks, market_checks, name_order=(), market_order=()):
+def _panel(gui_mod, *, name_checks, market_checks, name_order=(), market_order=(),
+           existing_names=None, existing_markets=None):
     p = object.__new__(gui_mod.CustomParserPanel)
     p._nm_status_lbl = _FakeLabel()
     p._mm_status_lbl = _FakeLabel()
     p._profile_checks = {k: _Var(v) for k, v in name_checks.items()}
     p._market_profile_checks = {k: _Var(v) for k, v in market_checks.items()}
+    # profili RISOLTI (esistenti): default = tutti quelli con checkbox (nessun fantasma).
+    p._existing_profiles = set(name_checks if existing_names is None else existing_names)
+    p._existing_market_profiles = set(market_checks if existing_markets is None else existing_markets)
     p.builder = types.SimpleNamespace(
         name_mapping_profiles=list(name_order), market_mapping_profiles=list(market_order))
     return p
@@ -80,10 +84,31 @@ def test_update_status_entrambe_e_conteggio(gui_mod):
     assert p._mm_status_lbl.text == "✓ 1 attiva"
 
 
+def test_update_status_profilo_fantasma_non_conta(gui_mod):
+    # Fable #336: un profilo ⚠ SELEZIONATO ma NON risolto (non esistente) NON è una traduzione
+    # attiva → non gonfia il conteggio. Solo-fantasma → «— nessuna».
+    p = _panel(gui_mod, name_checks={"⚠B": True}, market_checks={},
+               name_order=["⚠B"], existing_names=[])   # ⚠B selezionato ma NON esistente
+    gui_mod.CustomParserPanel._update_translations_status(p)
+    assert p._nm_status_lbl.text == "— nessuna"
+    # misto risolto + fantasma → conta solo il risolto
+    p2 = _panel(gui_mod, name_checks={"A": True, "⚠B": True}, market_checks={},
+                name_order=["A", "⚠B"], existing_names=["A"])
+    gui_mod.CustomParserPanel._update_translations_status(p2)
+    assert p2._nm_status_lbl.text == "✓ 1 attiva"
+
+
+def test_set_translation_status_none_no_crash(gui_mod):
+    # GLM #336: `_set_translation_status(None, ...)` è un no-op difensivo esplicito.
+    p = object.__new__(gui_mod.CustomParserPanel)
+    gui_mod.CustomParserPanel._set_translation_status(p, None, 5)   # non deve sollevare
+
+
 def test_update_status_difensivo_senza_label(gui_mod):
     # Ordine di costruzione: se le etichette non esistono ancora, nessun crash.
     p = object.__new__(gui_mod.CustomParserPanel)
     p._profile_checks = {"A": _Var(True)}
+    p._existing_profiles = {"A"}
     p.builder = types.SimpleNamespace(name_mapping_profiles=["A"], market_mapping_profiles=[])
     # nessun _nm_status_lbl / _mm_status_lbl / _market_profile_checks
     gui_mod.CustomParserPanel._update_translations_status(p)   # non deve sollevare

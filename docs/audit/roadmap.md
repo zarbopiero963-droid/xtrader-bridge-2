@@ -1382,7 +1382,8 @@ raggruppa in un **riquadro «🔗 Traduzioni attive per questo parser»** con un
 **Cosa fa.**
 - `custom_parser_gui.py` — le due sezioni mappatura (nomi/mercati) sono spostate dentro un
   `CTkFrame` etichettato «🔗 Traduzioni attive per questo parser». Aggiunti `self._nm_status_lbl` /
-  `self._mm_status_lbl`. Helper puro `_translations_status_text(count)` (`✓ N attive`/`— nessuna`)
+  `self._mm_status_lbl`. Helper puro `_translations_status_text(count)` (`✓ N attive`/`— nessuna`; conta solo i profili
+  **risolti** — un fantasma `⚠` selezionato non è una traduzione attiva, Fable #336)
   + `_set_translation_status`/`_update_translations_status` (colori theme-aware `(light, dark)`).
   Le checkbox profili ora hanno `command=self._update_translations_status` (aggiorna al toggle); il
   reload aggiorna l'indicatore. Sotto-etichette rinominate «Nomi squadra»/«Mercati» (sotto il
