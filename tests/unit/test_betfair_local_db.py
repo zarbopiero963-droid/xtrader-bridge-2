@@ -380,3 +380,21 @@ def test_known_teams_persistono_su_disco_dopo_riapertura(tmp_path):
     assert d2.count_known_teams("Calcio") == 1
     assert d2.known_teams("Calcio")[0]["display_name"] == "Juventus"
     d2.close()
+
+
+def test_delete_known_team_per_chiave_esatta(db):
+    # Ripulitura manuale (#282 PR 11-bis): elimina SOLO la coppia (sport, normalized_name).
+    db.upsert_known_team("Calcio", "Inter", seen_at=1)
+    db.upsert_known_team("Calcio", "Milan", seen_at=1)
+    db.upsert_known_team("Basket", "Milan", seen_at=1)     # stesso nome, altro sport
+    assert db.delete_known_team("Calcio", "inter") == 1     # normalized_name
+    assert db.delete_known_team("Calcio", "inter") == 0     # già eliminato → 0
+    # "Milan" del Basket NON è toccato eliminando quello del Calcio
+    assert db.delete_known_team("Calcio", "milan") == 1
+    assert {(t["sport"], t["display_name"]) for t in db.known_teams()} == {("Basket", "Milan")}
+
+
+def test_delete_known_team_nome_inesistente_no_op(db):
+    db.upsert_known_team("Calcio", "Roma", seen_at=1)
+    assert db.delete_known_team("Calcio", "lazio") == 0     # non c'è → nessuna riga tolta
+    assert db.count_known_teams("Calcio") == 1              # Roma resta

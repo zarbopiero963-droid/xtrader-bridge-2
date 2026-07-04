@@ -1326,6 +1326,31 @@ class App(ctk.CTk):
         except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → nessun nome
             return []
 
+    def _delete_betfair_team(self, sport, normalized_name) -> bool:
+        """Elimina un nome squadra permanente dal dizionario Betfair locale (#282 PR 11-bis,
+        ripulitura manuale). Ritorna `True` se eliminato, `False` se DB non disponibile.
+
+        Come `_known_betfair_teams`: **fail-fast** con `DictionaryBusy` se una sync tiene il
+        lock del DB (la scrittura sul thread Tk non deve congelare la GUI), best-effort → DB
+        assente/errore → `False`. La `acquire_read` prende lo stesso `_lock` che la sync tiene
+        (RLock rientrante): la delete lo riacquisisce sullo stesso thread senza deadlock."""
+        from .betfair.dictionary_viewer import DictionaryBusy
+        try:
+            db = self._betfair_sync_engine().db
+            if db is None:
+                return False
+            if not db.acquire_read(blocking=False):
+                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+            try:
+                db.delete_known_team(sport, normalized_name)
+                return True
+            finally:
+                db.release_read()
+        except DictionaryBusy:
+            raise                        # 'occupato' distinto: lo gestisce il pannello
+        except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → non eliminato
+            return False
+
     def _betfair_id_resolver(self):
         """Risolutore ID del dizionario Betfair locale per il flusso live (PR-P12),
         **best-effort**: ritorna un `DictionaryResolver` sul DB locale, o `None` se il
@@ -2998,6 +3023,14 @@ class App(ctk.CTk):
             from .journal_view_gui import JournalPanel
             return JournalPanel(parent)
 
+        def _make_known_teams(parent):
+            """Crea la tab «🧹 Nomi Betfair» (#282 PR 11-bis): sfoglia per sport i nomi
+            squadra permanenti raccolti dalla sync e li elimina uno per uno (ripulitura
+            manuale). Legge/elimina via callback busy-guardati sul DB Betfair locale."""
+            from .known_teams_gui import KnownTeamsPanel
+            return KnownTeamsPanel(parent, teams_provider=self._known_betfair_teams,
+                                   delete_team=self._delete_betfair_team)
+
         panels = [
             ("🧩 Parser", _make_parser),
             ("📡 Chat sorgenti", _make_sources),
@@ -3010,6 +3043,7 @@ class App(ctk.CTk):
             ("🔵 Betfair Sync", _make_betfair),
             ("📖 Dizionario Betfair", _make_dictionary),
             ("📒 Diario", _make_journal),
+            ("🧹 Nomi Betfair", _make_known_teams),
         ]
         self._tools_win = ToolsWindow(self, panels=panels, initial=initial)
         self._tools_win.focus()
