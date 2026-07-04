@@ -75,3 +75,30 @@ def test_fail_fast_se_manca_una_factory(tools_mod):
     incomplete = {"sources": lambda parent: "sources"}
     with pytest.raises(KeyError):
         tools_mod.build_tool_panels(incomplete)
+
+
+def _window_with(tools_mod, titles):
+    """Istanza NUDA di ToolsWindow (senza Tk) con solo `_panels` popolato, per testare il
+    resolver puro `_resolve_tab_title` senza costruire widget."""
+    w = object.__new__(tools_mod.ToolsWindow)
+    w._panels = {t: object() for t in titles}
+    return w
+
+
+def test_resolve_tab_title_accetta_titolo_base_e_completo(tools_mod):
+    # Robustezza `initial` (review #338, GPT/GLM/Fable/Fugu): i titoli hanno un prefisso ①..④,
+    # ma un chiamante che passa il titolo BASE senza prefisso deve trovare comunque la scheda.
+    w = _window_with(tools_mod, ["① 📡 Chat sorgenti", "② 🧩 Parser", "④ 📋 Riepilogo"])
+    assert w._resolve_tab_title("② 🧩 Parser") == "② 🧩 Parser"     # match esatto (completo)
+    assert w._resolve_tab_title("🧩 Parser") == "② 🧩 Parser"        # titolo base senza prefisso
+    assert w._resolve_tab_title("📋 Riepilogo") == "④ 📋 Riepilogo"
+    assert w._resolve_tab_title("📡 Chat sorgenti") == "① 📡 Chat sorgenti"
+
+
+def test_resolve_tab_title_nessun_match(tools_mod):
+    w = _window_with(tools_mod, ["② 🧩 Parser"])
+    assert w._resolve_tab_title("🔵 Betfair Sync") is None    # non presente
+    assert w._resolve_tab_title("") is None                    # vuoto
+    assert w._resolve_tab_title(None) is None
+    # Non deve fare match parziale ambiguo: "Parser" da solo non è un suffisso « + titolo».
+    assert w._resolve_tab_title("Parser") is None

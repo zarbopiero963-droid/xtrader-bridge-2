@@ -29,6 +29,10 @@ TOOL_GROUPS = (
     ("④", "Impostazioni", ("profiles", "summary")),
 )
 
+# Prefissi di gruppo (①..④), derivati da TOOL_GROUPS: usati per riconoscere/rimuovere il
+# prefisso dal titolo di una scheda quando si risolve un `initial` passato come titolo base.
+_GROUP_PREFIXES = frozenset(prefix for prefix, _name, _keys in TOOL_GROUPS)
+
 # Etichetta base (icona + nome) di ogni strumento, SENZA il prefisso di gruppo.
 TOOL_TITLES = {
     "sources": "📡 Chat sorgenti",
@@ -114,13 +118,36 @@ class ToolsWindow(ctk.CTkToplevel):
                 pass
 
     def select_tab(self, title):
-        """Seleziona la scheda `title` (no-op se vuoto o titolo non valido).
+        """Seleziona la scheda `title` (no-op se vuoto o titolo non trovato).
 
         Usata sia all'apertura sia quando si riapre la hub già viva su un'altra scheda
-        (vedi `App._open_tools`: una sola finestra hub, si cambia scheda)."""
-        if not title:
+        (vedi `App._open_tools`: una sola finestra hub, si cambia scheda). Accetta sia il
+        titolo COMPLETO della scheda (col prefisso di gruppo, es. «② 🧩 Parser») sia il titolo
+        BASE senza prefisso (es. «🧩 Parser»): dal #293 slice 4 i titoli portano un prefisso
+        ①..④, così un chiamante che non lo conosce apre comunque la scheda giusta invece di
+        fallire in silenzio (robustezza del parametro `initial`, review #338)."""
+        target = self._resolve_tab_title(title)
+        if target is None:
             return
         try:
-            self._tabs.set(title)
-        except Exception:                   # noqa: BLE001 — titolo non valido: resta la scheda corrente
+            self._tabs.set(target)
+        except Exception:                   # noqa: BLE001 — widget distrutto/titolo invalido: resta la scheda corrente
             pass
+
+    def _resolve_tab_title(self, title):
+        """Titolo di scheda REALE corrispondente a `title`, oppure ``None`` se nessuna
+        corrisponde. Match esatto; in mancanza, la scheda il cui titolo, tolto il solo prefisso
+        di gruppo «①..④ », **coincide** col valore richiesto (titolo base). Match preciso: «Parser»
+        da solo NON matcha «② 🧩 Parser». Logica **pura** (legge solo `self._panels`), testabile
+        headless. Vuoto → ``None``."""
+        if not title:
+            return None
+        if title in self._panels:
+            return title
+        for name in self._panels:
+            # Rimuovi il solo prefisso di gruppo «①..④ » e confronta col titolo base richiesto:
+            # match preciso (niente suffix-match ambiguo su una parola qualsiasi).
+            base = name.split(" ", 1)[1] if name[:1] in _GROUP_PREFIXES and " " in name else name
+            if base == title:
+                return name
+        return None

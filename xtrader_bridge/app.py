@@ -3148,7 +3148,11 @@ class App(ctk.CTk):
         `ProviderPanel`/`ProfilesPanel` aggiornano la config in memoria come facevano da
         finestre separate (stesso pattern anti-stale di Provider/Profili/Sorgenti).
 
-        `initial`: titolo della scheda da mostrare all'apertura (es. dal pulsante)."""
+        `initial`: scheda da mostrare all'apertura. Attualmente **nessun** chiamante lo passa
+        (l'unico caller è il pulsante «🧰 Strumenti», senza argomento) → default prima scheda.
+        Robusto ai prefissi di gruppo ①..④ (#293 slice 4): `select_tab` accetta sia il titolo
+        completo (es. «② 🧩 Parser») sia quello base senza prefisso (es. «🧩 Parser»), così un
+        eventuale chiamante futuro non deve conoscere il prefisso."""
         from .tools_gui import ToolsWindow, build_tool_panels
         from .provider_gui import ProviderPanel
         from .profiles_gui import ProfilesPanel
