@@ -242,10 +242,22 @@ contribuiscono selezioni. La lista è **conservativa e fail-closed** (nel dubbio
 resta fuori) ed è estendibile dal proprietario. Per i risultati esatti (`CORRECT_SCORE` FT e
 primo tempo) è tracciata a parte l'estrazione dinamica per-riga dal messaggio (issue #325).
 
-> Questo è il **data layer** (harvest + persistenza). Le tendine del Parser (righe
-> MarketType/MarketName/SelectionName in «Valore fisso», popolate da questi valori e filtrate
-> per sport) sono la **PR 13**. Letture: `BetfairLocalDB.known_market_types(sport)` /
+> Letture (data layer): `BetfairLocalDB.known_market_types(sport)` /
 > `known_market_names(sport)` / `known_selection_names(sport, market=None)`.
+
+**Tendine nel Parser (PR 13).** Nella tabella regole del Parser Personalizzato, le righe
+**MarketType / MarketName / SelectionName** hanno in colonna **«Valore fisso»** una **tendina
+editabile** (`CTkComboBox`) popolata da questi valori permanenti, **filtrati per lo sport del
+parser** (la tendina Sport in alto). A differenza della riga **Provider** (tendina a scelta
+fissa dall'anagrafica), qui la tendina è **editabile**: suggerisce i valori sincronizzati **ma
+il testo libero resta digitabile**, così un valore valido non ancora harvestato è comunque
+inseribile (nessuna regressione fail-closed). Le tendine si aggiornano al **cambio sport** e
+quando la scheda torna attiva nell'hub Strumenti (una sync nel frattempo può aver aggiunto
+valori). Fonte dati: `App._known_market_terms(sport)` — sola lettura, **fail-fast** durante una
+sync (probe non bloccante: nessun suggerimento momentaneo invece di congelare la GUI), DB
+assente → nessun suggerimento. La coerenza «selezione appartiene al mercato» resta garantita
+dal picker **«Catalogo XTrader»** (che imposta la tripla Mercato→Tipo→Selezione); le tendine
+per-riga offrono i valori per-sport senza cascading Mercato→Selezione (fuori scope PR 13).
 
 ### Mappatura mercati a frase (`market_mapping_profiles`)
 
