@@ -1311,3 +1311,32 @@ placeholder è GUI-only → smoke manuale. Suite: **2064 passed, 10 skipped**.
 
 **Docs:** design_handoff.md (GATE: segnaposto nei campi + nota sicurezza campi sensibili), README
 (nota esempio-guida). Resta **#288 Delta 3** (restyle).
+
+
+## #288 Delta 3 — palette semantica theme-aware (tema chiaro leggibile) ✅ (PR 19)
+
+**Obiettivo (deciso col proprietario).** La #288 Delta 1 ha aggiunto il toggle tema chiaro/scuro ma
+i colori di STATO erano **hardcoded per lo scuro** → poco leggibili in tema chiaro. Delta 3 (slice
+«Palette + tema chiaro» scelto dal proprietario): rendere i colori semantici **theme-aware** e
+leggibili in entrambi i temi, **senza** cambiare struttura/label né la semantica dei colori.
+
+**Cosa fa.**
+- `app.py` — costanti di palette `(light, dark)` (`_COLOR_HEADER_BG`, `_COLOR_HEADER_TITLE`,
+  `_COLOR_STATUS_OFFLINE`, `_COLOR_STATUS_ACTIVE`, `_COLOR_STATUS_RECONNECT`, `_COLOR_ACTIVE_ROWS`,
+  `_COLOR_WARNING`, `_COLOR_REAL_BANNER_BG`), applicate a: sfondo/titolo header, indicatore di stato
+  (OFFLINE/ATTIVO/RICONNESSIONE, sia alla costruzione sia nei `configure` dinamici), righe attive,
+  warning «nessuna chat», banner modalità reale. La variante **dark è quella storica** (invariata).
+
+**Sicurezza.** Nessun cambio a struttura/label/flussi; la **semantica** dei colori è invariata
+(rosso=errore/OFFLINE, verde=attivo, arancione=warning/riconnessione). Nessun impatto su CSV,
+parser, Betfair, config. Fuori scope (follow-up estetico): pulsanti d'azione tinta-unita e colori
+secondari `_set_last`.
+
+**Test hard (fail-first via stash):** `tests/integration/test_palette.py` calcola il **contrasto
+WCAG** di ogni colore semantico sul relativo sfondo in **entrambi** i temi e richiede ≥ 3.0 (rende
+automatica la «leggibilità in tema chiaro» prima solo smoke-manuale); più: colori theme-aware con
+hex validi e variante light≠dark; variante **dark invariata** rispetto allo storico. Il rendering
+reale su Windows/DPI resta smoke manuale. Suite: **2067 passed, 10 skipped**.
+
+**Docs:** design_handoff.md (GATE: sezione Palette con colonna light/dark + nota theme-aware +
+contrasto verificato in CI). Con questo #288 è completa (Delta 1/2/3) e può essere chiusa al merge.

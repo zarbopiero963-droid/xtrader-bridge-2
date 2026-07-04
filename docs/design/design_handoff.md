@@ -76,8 +76,10 @@ sicurezza parte di default in **simulazione** (`dry_run=true`): riconosce i segn
   accento blu). Dalla #288 Delta 1 è **commutabile** chiaro/scuro con un **toggle nell'header**
   (icona 🌙/☀️): la preferenza è persistita in `config.json` (chiave `theme`, valori `dark`/`light`,
   default `dark`, fail-closed) e riapplicata all'avvio. I widget standard CustomTkinter si
-  ri-tematizzano da soli; alcuni colori semantici sono ancora hardcoded (vedi «Palette») e il tema
-  chiaro non è ancora rifinito — il restyle completo è **Delta 3** (issue #288).
+  ri-tematizzano da soli; dalla **#288 Delta 3** i **colori semantici di stato** sono resi
+  **theme-aware** `(light, dark)` con leggibilità (contrasto WCAG) verificata in CI (vedi «Palette»).
+  Restano tinta-unita i pulsanti d'azione e i colori secondari `_set_last` → ulteriore rifinitura
+  estetica è follow-up di **Delta 3** (issue #288).
 - **Widget disponibili** (ciò che il toolkit offre e che il design può assumere come
   building block): finestra (`CTk`), frame con `corner_radius` e `fg_color`, `CTkLabel`,
   `CTkButton` (con `fg_color`/`hover_color`), `CTkEntry` (anche password con `show="●"`),
@@ -456,7 +458,7 @@ Il design deve rappresentare chiaramente questi stati (testi verbatim dal codice
 | In esecuzione | `⬜  ATTIVO` | verde `#66bb6a` |
 | Riconnessione | `⬜  RICONNESSIONE…` | arancione `#ffa726` |
 
-**Righe attive (header):** testo `N/M` in arancione (`#ffb74d`) — quante scommesse/righe
+**Righe attive (header):** testo `N/M` in arancione theme-aware (`#e65100` chiaro / `#ffb74d` scuro) — quante scommesse/righe
 sono attive ora sul massimo consentito. Rilevante nelle modalità coda multi-riga. Nota (#192,
 auto-raise): un **singolo messaggio multi-riga** è un blocco/istruzione **coerente** che non viene
 mai spezzato dal tetto — le sue righe entrano tutte insieme anche se superano `M`. Quindi `N` può
@@ -536,22 +538,28 @@ segnale/CSV/errore), log, e (in multi-riga) indicatore N/M.
 
 ## 10. Palette colori e stile attuale
 
-Tema **scuro** di default (commutabile chiaro/scuro dal toggle nell'header, #288 Delta 1). I colori
-qui sotto sono **hardcoded** (non ancora theme-aware): restano invariati anche in tema chiaro, quindi
-gli elementi con sfondo scuro fisso (es. header `#1a1a2e`) restano scuri e leggibili, ma la messa a
-punto piena della palette per il tema chiaro — e l'eventuale conversione a colori `(light, dark)` —
-è **Delta 3** (restyle). La leggibilità dei colori semantici in tema chiaro va verificata a vista
-(smoke manuale su Windows). Colori usati oggi (riferimento, non vincolo estetico):
+Tema **scuro** di default (commutabile chiaro/scuro dal toggle nell'header, #288 Delta 1). Dalla
+**#288 Delta 3** i colori **semantici di stato** (header, titolo, OFFLINE/ATTIVO/RICONNESSIONE, righe
+attive, warning «nessuna chat», banner reale) sono **theme-aware**: tuple CustomTkinter `(light,
+dark)` in `app.py` (`_COLOR_*`). La variante **dark è quella storica** (invariata); la variante
+**light** è scelta per il contrasto sul relativo sfondo chiaro. La **leggibilità (contrasto WCAG ≥
+3.0) in entrambi i temi è verificata automaticamente** da `tests/integration/test_palette.py` (non
+più solo smoke manuale). La semantica non cambia (rosso=errore/OFFLINE, verde=attivo, arancione=warning/
+riconnessione). I **pulsanti d'azione** (AVVIA/STOP/Strumenti…) restano tinta unita con testo bianco
+(leggibili in entrambi i temi) e non sono ancora convertiti a `(light, dark)`; anche i colori
+secondari via `_set_last` (ultimo evento) restano hardcoded → follow-up estetico. Colori (light /
+dark dove theme-aware; riferimento, non vincolo estetico):
 
-| Ruolo | Colore |
+| Ruolo | Colore (light / dark) |
 |---|---|
-| Sfondo header | `#1a1a2e` (blu-grigio scuro) |
-| Titolo | `#4fc3f7` (ciano) |
-| Stato OFFLINE / errore | `#ef5350` (rosso) |
-| Stato ATTIVO / recupero | `#66bb6a` (verde) |
-| Stato RICONNESSIONE / warning | `#ffa726` (arancione) |
-| Righe attive | `#ffb74d` (arancione chiaro) |
-| Banner reale (sfondo) | `#7f1d1d` (rosso scuro), testo bianco |
+| Sfondo header | `#e8eaf6` / `#1a1a2e` |
+| Titolo | `#0d47a1` / `#4fc3f7` (ciano) |
+| Stato OFFLINE / errore | `#c62828` / `#ef5350` (rosso) |
+| Stato ATTIVO / recupero | `#2e7d32` / `#66bb6a` (verde) |
+| Stato RICONNESSIONE | `#e65100` / `#ffa726` (arancione) |
+| Warning «nessuna chat» | `#bf360a` / `#ffa726` (arancione) |
+| Righe attive | `#e65100` / `#ffb74d` (arancione) |
+| Banner reale (sfondo) | `#b71c1c` / `#7f1d1d` (rosso scuro), testo bianco |
 | AVVIA | `#2e7d32` / hover `#1b5e20` (verde) |
 | STOP / elimina | `#c62828` / hover `#7f0000` (rosso) |
 | Pulsanti secondari (Salva/Tools bar) | `#37474f` / hover `#263238` (grigio) |
