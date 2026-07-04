@@ -17,6 +17,46 @@ import customtkinter as ctk
 
 from . import gui_utils
 
+# Information architecture dell'hub Strumenti (#293 slice 4): gli strumenti sono raggruppati
+# PER FLUSSO in 4 gruppi. L'ordine di questa struttura è l'ordine delle schede; il numero del
+# gruppo (①..④) prefissa il titolo di ogni scheda, così l'appartenenza è visibile a colpo
+# d'occhio pur restando un `CTkTabview` piatto (primo passo incrementale, scelto col
+# proprietario). Fonte UNICA della IA: ordine e prefissi non possono divergere tra codice e test.
+TOOL_GROUPS = (
+    ("①", "Sorgenti", ("sources", "provider")),
+    ("②", "Lettura messaggi", ("parser", "mapping")),
+    ("③", "Betfair", ("betfair", "dictionary", "journal", "known_teams")),
+    ("④", "Impostazioni", ("profiles", "summary")),
+)
+
+# Etichetta base (icona + nome) di ogni strumento, SENZA il prefisso di gruppo.
+TOOL_TITLES = {
+    "sources": "📡 Chat sorgenti",
+    "provider": "📇 Provider",
+    "parser": "🧩 Parser",
+    "mapping": "🗺️ Mapping",
+    "betfair": "🔵 Betfair Sync",
+    "dictionary": "📖 Dizionario Betfair",
+    "journal": "📒 Diario",
+    "known_teams": "🧹 Nomi Betfair",
+    "profiles": "📁 Profili",
+    "summary": "📋 Riepilogo",
+}
+
+
+def build_tool_panels(factories: dict) -> list:
+    """Costruisce la lista ordinata `(titolo, factory)` delle schede dell'hub, raggruppate per
+    flusso secondo `TOOL_GROUPS`. `factories` mappa la chiave-strumento → `factory(parent)`. Il
+    titolo è prefissato col numero del gruppo (es. «① 📡 Chat sorgenti»). Logica **pura**
+    (nessun widget), così l'ordine/prefissi/completezza sono testabili headless. Solleva
+    `KeyError` se manca la factory di uno strumento previsto: fail-fast, nessuna scheda persa in
+    silenzio dopo un riordino errato."""
+    panels = []
+    for prefix, _name, keys in TOOL_GROUPS:
+        for key in keys:
+            panels.append((f"{prefix} {TOOL_TITLES[key]}", factories[key]))
+    return panels
+
 
 class ToolsWindow(ctk.CTkToplevel):
     """Finestra a schede che ospita i pannelli-strumento.

@@ -3149,7 +3149,7 @@ class App(ctk.CTk):
         finestre separate (stesso pattern anti-stale di Provider/Profili/Sorgenti).
 
         `initial`: titolo della scheda da mostrare all'apertura (es. dal pulsante)."""
-        from .tools_gui import ToolsWindow
+        from .tools_gui import ToolsWindow, build_tool_panels
         from .provider_gui import ProviderPanel
         from .profiles_gui import ProfilesPanel
         from .source_chats_gui import SourceChatsPanel
@@ -3363,21 +3363,23 @@ class App(ctk.CTk):
             from .config_summary_gui import ConfigSummaryPanel
             return ConfigSummaryPanel(parent, summary_provider=self._config_summary_snapshot)
 
-        panels = [
-            ("🧩 Parser", _make_parser),
-            ("📡 Chat sorgenti", _make_sources),
-            ("📇 Provider", _make_provider),
-            ("📁 Profili",
-             lambda parent: ProfilesPanel(
-                 parent, get_current_cfg=self._profiles_snapshot,
-                 on_loaded=_profiles_loaded, is_running=lambda: self._running)),
-            ("🗺️ Mapping", _make_mapping),
-            ("🔵 Betfair Sync", _make_betfair),
-            ("📖 Dizionario Betfair", _make_dictionary),
-            ("📒 Diario", _make_journal),
-            ("🧹 Nomi Betfair", _make_known_teams),
-            ("📋 Riepilogo", _make_summary),
-        ]
+        # #293 slice 4: schede RAGGRUPPATE per flusso (①..④) tramite la IA pura in
+        # `build_tool_panels` (fonte unica ordine/prefissi). Le factory e le loro callback sono
+        # INVARIATE — cambia solo l'ordine e il prefisso del titolo delle schede.
+        panels = build_tool_panels({
+            "sources": _make_sources,
+            "provider": _make_provider,
+            "parser": _make_parser,
+            "mapping": _make_mapping,
+            "betfair": _make_betfair,
+            "dictionary": _make_dictionary,
+            "journal": _make_journal,
+            "known_teams": _make_known_teams,
+            "profiles": lambda parent: ProfilesPanel(
+                parent, get_current_cfg=self._profiles_snapshot,
+                on_loaded=_profiles_loaded, is_running=lambda: self._running),
+            "summary": _make_summary,
+        })
         self._tools_win = ToolsWindow(self, panels=panels, initial=initial)
         self._tools_win.focus()
 
