@@ -190,6 +190,25 @@ def test_market_dinamico_non_fornisce_selectionname_scoping():
     assert not res[0].placeable
 
 
+def test_multi_supplied_cols_selectionname_solo_dalle_selezioni():
+    # #341 (GLM/GPT gap): con MERCATI e SELEZIONI entrambi presenti, il credito «SelectionName via
+    # estrazione dinamica» arriva SOLO dalle selezioni (`from_selection=True`); l'intersezione
+    # `all(markets) and all(selections)` di `_multi_supplied_cols` resta fail-closed.
+    from xtrader_bridge.custom_pipeline import _multi_supplied_cols
+    market = cp.MultiRowRule(market_type="OVER_UNDER", start_after="X", end_before="Y")  # residuo
+    sel = cp.MultiRowRule(start_after="Risultati:", end_before="\n")                     # dinamica
+    # solo mercato (con delimitatori residui) → NON fornisce SelectionName (non lo popola via estrazione).
+    assert "SelectionName" not in _multi_supplied_cols([market], [])
+    # solo selezione dinamica → fornisce SelectionName.
+    assert "SelectionName" in _multi_supplied_cols([], [sel])
+    # entrambi presenti: il mercato NON lo fornisce → intersezione all() → NON fornito (fail-closed).
+    assert "SelectionName" not in _multi_supplied_cols([market], [sel])
+    # un mercato che POPOLA esplicitamente selection_name (attributo non vuoto) + selezione dinamica
+    # → entrambi lo forniscono → SelectionName fornito.
+    market_fixed = cp.MultiRowRule(market_type="OVER_UNDER", selection_name="1 - 0")
+    assert "SelectionName" in _multi_supplied_cols([market_fixed], [sel])
+
+
 def test_detail_no_scores_non_e_colonna_csv():
     # #341 (GLM gap): `detail="no_scores_extracted"` è metadato diagnostico del PipelineResult,
     # NON una colonna CSV → non deve comparire nel contratto/riga scritta.
