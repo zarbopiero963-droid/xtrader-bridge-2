@@ -160,6 +160,23 @@ _FIELD_PLACEHOLDERS = {
     "provider":    "es. TelegramBot",
 }
 
+# Palette SEMANTICA theme-aware (#288 Delta 3): tuple CustomTkinter `(light, dark)`. I colori di
+# STATO leggibili «a colpo d'occhio» (header, titolo, OFFLINE/ATTIVO/RICONNESSIONE, righe attive,
+# banner modalità reale, warning «nessuna chat») devono restare distinguibili in ENTRAMBI i temi:
+# la #288 Delta 1 aveva introdotto il toggle chiaro/scuro ma lasciato questi colori **hardcoded
+# per lo scuro** (poco leggibili in tema chiaro). La variante dark è quella storica (invariata);
+# la variante light è scelta per il contrasto sul relativo sfondo. La leggibilità (contrasto WCAG)
+# è verificata automaticamente da `tests/integration/test_palette.py`. Non cambia struttura/label né la
+# SEMANTICA dei colori (rosso=errore/OFFLINE, verde=attivo, arancione=warning/riconnessione).
+_COLOR_HEADER_BG        = ("#e8eaf6", "#1a1a2e")   # sfondo header
+_COLOR_HEADER_TITLE     = ("#0d47a1", "#4fc3f7")   # titolo app
+_COLOR_STATUS_OFFLINE   = ("#c62828", "#ef5350")   # ⬤ OFFLINE / errore (rosso)
+_COLOR_STATUS_ACTIVE    = ("#2e7d32", "#66bb6a")   # ⬤ ATTIVO (verde)
+_COLOR_STATUS_RECONNECT = ("#e65100", "#ffa726")   # ⬤ RICONNESSIONE… (arancione)
+_COLOR_ACTIVE_ROWS      = ("#e65100", "#ffb74d")   # righe attive N/M (arancione)
+_COLOR_WARNING          = ("#bf360a", "#ffa726")   # warning «nessuna chat» (arancione scuro su bg chiaro)
+_COLOR_REAL_BANNER_BG   = ("#b71c1c", "#7f1d1d")   # sfondo banner MODALITÀ REALE (testo bianco)
+
 
 class App(ctk.CTk):
     # Default di CLASSE (non di istanza): garantiscono che questi attributi esistano SEMPRE
@@ -944,16 +961,16 @@ class App(ctk.CTk):
     # ── UI ────────────────────────────────────
     def _build_ui(self):
         # Header
-        hdr = ctk.CTkFrame(self, fg_color="#1a1a2e", corner_radius=10)
+        hdr = ctk.CTkFrame(self, fg_color=_COLOR_HEADER_BG, corner_radius=10)
         hdr.pack(fill="x", padx=15, pady=(12, 5))
 
         ctk.CTkLabel(hdr, text="🤖  XTrader Signal Bridge",
                      font=ctk.CTkFont(size=20, weight="bold"),
-                     text_color="#4fc3f7").pack(side="left", padx=15, pady=10)
+                     text_color=_COLOR_HEADER_TITLE).pack(side="left", padx=15, pady=10)
 
         self._status_lbl = ctk.CTkLabel(hdr, text="⬤  OFFLINE",
                                          font=ctk.CTkFont(size=13, weight="bold"),
-                                         text_color="#ef5350")
+                                         text_color=_COLOR_STATUS_OFFLINE)
         self._status_lbl.pack(side="right", padx=15)
 
         # Toggle tema chiaro/scuro (#288 Delta 1): pulsante icona a sinistra dello stato.
@@ -966,13 +983,13 @@ class App(ctk.CTk):
         # Indicatore "righe attive" (#136 punto 5): quante righe/scommesse sono attive ora
         # nel CSV. Aggiornato da `_update_active_indicator` su scrittura/scadenza/clear.
         self._active_lbl = ctk.CTkLabel(hdr, text="", font=ctk.CTkFont(size=12),
-                                        text_color="#ffb74d")
+                                        text_color=_COLOR_ACTIVE_ROWS)
         self._active_lbl.pack(side="right", padx=(0, 6))
 
         # Banner ROSSO persistente quando il bridge è in modalità REALE (#136 punto 4).
         # Mostrato/nascosto da `_update_real_mode_banner` in base a `real_mode.banner_text`.
         self._real_banner = ctk.CTkLabel(
-            self, text="", fg_color="#7f1d1d", text_color="white", corner_radius=8,
+            self, text="", fg_color=_COLOR_REAL_BANNER_BG, text_color="white", corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"))
 
         # Config a tab (PR-13): impostazioni base + avanzate. Le avanzate erano prima
@@ -1252,7 +1269,7 @@ class App(ctk.CTk):
             self._chats_lbl.configure(
                 text="⚠️ Nessuna chat configurata — il bridge non si avvierà finché non "
                      "imposti una Chat ID o una Chat sorgente.",
-                text_color="#ffa726")
+                text_color=_COLOR_WARNING)
             return
         lines = [f"• {r['name']}  ({r['chat_id']})" if r["name"] else f"• {r['chat_id']}"
                  for r in rows]
@@ -2177,7 +2194,7 @@ class App(ctk.CTk):
         # solo la config viva (Codex P1).
         self._session_real = not safety_guard.is_dry_run(cfg)
         self._stop_event.clear()      # nuova sessione: riarma l'attesa del backoff
-        self._status_lbl.configure(text="⬤  ATTIVO", text_color="#66bb6a")
+        self._status_lbl.configure(text="⬤  ATTIVO", text_color=_COLOR_STATUS_ACTIVE)
         self._btn_start.configure(state="disabled")
         self._btn_stop.configure(state="normal")
         self._update_real_mode_banner()   # mostra il banner se la sessione è reale
@@ -2278,7 +2295,7 @@ class App(ctk.CTk):
             # stantia resterebbe su disco fino al riavvio dell'app. Il retry si ferma da
             # solo se una nuova sessione riprende il path o l'app chiude.
             self._schedule_stop_clear_retry(stop_path)
-        self._status_lbl.configure(text="⬤  OFFLINE", text_color="#ef5350")
+        self._status_lbl.configure(text="⬤  OFFLINE", text_color=_COLOR_STATUS_OFFLINE)
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")
         self._log("🛑 Bridge fermato.")
@@ -2555,11 +2572,11 @@ class App(ctk.CTk):
         self._stop_event.wait(delay)
 
     def _set_status_reconnecting(self) -> None:
-        self._status_lbl.configure(text="⬤  RICONNESSIONE…", text_color="#ffa726")
+        self._status_lbl.configure(text="⬤  RICONNESSIONE…", text_color=_COLOR_STATUS_RECONNECT)
 
     def _set_status_connected(self) -> None:
         if self._running:
-            self._status_lbl.configure(text="⬤  ATTIVO", text_color="#66bb6a")
+            self._status_lbl.configure(text="⬤  ATTIVO", text_color=_COLOR_STATUS_ACTIVE)
             self._log("✅ Connesso a Telegram.")
 
     # ── PROCESS SIGNAL ────────────────────────
