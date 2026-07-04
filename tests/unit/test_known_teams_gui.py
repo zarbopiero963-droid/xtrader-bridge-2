@@ -35,6 +35,16 @@ class _FakeCtkModule(types.ModuleType):
         return _Widget
 
 
+@pytest.fixture(autouse=True)
+def _reset_widget_commands():
+    # `_Widget.commands` è uno stato di classe condiviso (registra le command dei widget
+    # costruiti nei test): azzeralo PRIMA di ogni test così non accumula residui tra test
+    # (nessuna flakiness/falso positivo nel test del wiring 🗑) — review GLM/Fable #322.
+    _Widget.commands.clear()
+    yield
+    _Widget.commands.clear()
+
+
 @pytest.fixture()
 def KnownTeamsPanel(monkeypatch):
     # Stub SEMPRE customtkinter (anche se installato): `_refresh` costruisce widget/font Tk
@@ -124,15 +134,17 @@ def test_on_delete_fallita_db_assente_avvisa_non_ricarica(KnownTeamsPanel):
     # ricaricare «pulito» nascondendo il no-op (CodeRabbit/GPT/Fable #322).
     fake, counts, _ = _fake_self(deleter=lambda s, n: False)
     _bind(KnownTeamsPanel, fake)
+    refreshed = []
+    fake._refresh = lambda: refreshed.append(True)   # spia: _on_delete NON deve ricaricare
     fake._on_delete("Calcio", "inter")
     assert "non riuscita" in counts[-1]["text"]
+    assert refreshed == []                            # niente refresh sul fallimento (GLM #322)
 
 
 def test_append_row_pulsante_elimina_usa_normalized_name(KnownTeamsPanel):
     # Il pulsante 🗑 deve chiamare _on_delete con la `normalized_name` della riga, NON il
     # `display_name` (il DB elimina per chiave normalizzata: display_name → no-op silenzioso)
-    # — review GPT #322.
-    _Widget.commands.clear()
+    # — review GPT #322.  (`_Widget.commands` è azzerato dalla fixture autouse.)
     fake, counts, deleted = _fake_self()
     _bind(KnownTeamsPanel, fake)
     fake._append_row({"sport": "Calcio", "display_name": "Inter FC",
