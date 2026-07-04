@@ -1230,6 +1230,15 @@ tabview come margine ulteriore. Fail-first verificato: con la vecchia casella a 
 810px sfora 651px. La verifica visiva DPI/font su Windows resta smoke manuale (layout GUI non
 renderizzabile offline).
 
+**Follow-up post-merge (#330 → PR dedicata):** su richiesta del proprietario e come suggerito da
+GPT-5.5 + GLM 5.2 (non bloccante), i valori di `padx` della riga «⚙️ Generale» e della tabview sono
+stati estratti in costanti di modulo (`_TABVIEW_PADX`, `_GEN_LABEL_PADX`, `_GEN_ENTRY_PADX`,
+`_CSV_BROWSE_PADX`, `_CSV_CREATE_PADX`), usate SIA in `_build_ui` SIA nel test di budget layout →
+**una sola fonte di verità**: il test deriva `tab_padding`/`row_padding` dalle stesse costanti che la
+GUI usa per disegnare, eliminando il rischio di **drift** (numeri magici duplicati che divergono in
+silenzio). Valori invariati (30/39 → budget 651px), fail-first verificato (senza le costanti →
+`AttributeError`).
+
 **Test hard:** `tests/unit/test_is_bridge_csv.py` (predicato + header **byte-esatto** BOM utf-8-sig +
 QUOTE_ALL + CRLF); `tests/unit/test_create_header_only_csv.py` (esiti DONE/REFUSED_FOREIGN/
 REFUSED_ACTIVE, bypass force, binario, path vuoto, cartella mancante creata);
