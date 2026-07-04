@@ -1131,12 +1131,22 @@ nella casella **E salvato subito** in `config.json` (nessun click extra su «Sal
 **Sicurezza.** Scrive nella stessa entry che oggi si compila a mano (nessun rischio nuovo).
 Contratto CSV, parser, Telegram invariati. Nessun path locale reale committato.
 
+**Fix review (round 1).** Guardia token **PR-08c** (CodeRabbit 🟠 + Fugu): come TUTTI i save
+NON-form, `_apply_and_save_csv_path` cattura `_had_incomplete_token_load()` PRIMA del save e chiama
+`_resync_token_field(had)` DOPO — senza, un «Sfoglia…» col keyring illeggibile al load avrebbe fatto
+cancellare il token al «Salva Config» seguente. `asksaveasfilename(confirmoverwrite=False)`
+(CodeRabbit nit): scegliere un CSV esistente non è un «salva sopra» → niente prompt fuorviante (il
+file non è toccato, si registra solo il percorso). Falsi positivi rebuttati in-thread: leak token in
+chiaro (`save_config` instrada al keyring, come `_save_config`) e `result.status` su 2-tupla
+(`SaveResult` è una 2-tupla con `.status`, stesso contratto di `_save_config`).
+
 **Test hard:** `tests/integration/test_csv_path_browse.py` (`_apply_and_save_csv_path` via harness
 headless + **vera `save_config`** su `CONFIG_FILE` temporaneo): selezione → entry + `csv_path`
 salvati e reload conferma la persistenza **preservando gli altri campi** (chat_id/dry_run); path
 vuoto/annullo → no-op (nessuna scrittura su disco); **`_active_csv_path` non toccato** a bridge
-avviato. Il dialog Tk è GUI-only → smoke manuale. Fail-first via stash (3 test falliscono senza il
-codice). Suite: **2014 passed, 10 skipped**.
+avviato; **guardia token PR-08c** (`_resync_token_field` chiamato col marker catturato); **ramo
+fallimento disco** (ok=False → False + avviso «NON salvato», niente crash su `result.status`). Il
+dialog Tk è GUI-only → smoke manuale. Fail-first via stash. Suite: **2016 passed, 10 skipped**.
 
 **Docs:** `docs/design/design_handoff.md` (pulsante + comportamento salvataggio immediato),
 `README.md` (nota «📁 Sfoglia…»).

@@ -32,6 +32,11 @@ def _prep(make_app, app_mod, tmp_path, monkeypatch, *, config, gui_csv="",
     monkeypatch.setattr(app_mod, "CONFIG_FILE", cfgfile)
     a = make_app(config=dict(config), running=running, csv_path=active)
     a._e_csv = _FakeEntry(gui_csv)
+    # Guardia token PR-08c (come gli altri save non-form): stub no-op di default;
+    # i test specifici li rimpiazzano con spie.
+    a._had_incomplete_token_load = lambda: False
+    a.resync_calls = []
+    a._resync_token_field = lambda had=None: a.resync_calls.append(had)
     return a, cfgfile
 
 
@@ -71,3 +76,31 @@ def test_apply_e_salva_csv_path_non_tocca_active_csv_path(make_app, app_mod, tmp
     app_mod.App._apply_and_save_csv_path(a, "/nuovo.csv")
     assert a._active_csv_path == "sessione_attiva.csv"    # invariato
     assert a._config["csv_path"] == "/nuovo.csv"          # ma il config vivo sì
+
+
+def test_apply_e_salva_csv_path_guardia_token_pr08c(make_app, app_mod, tmp_path, monkeypatch):
+    # PR-08c (CodeRabbit #328): il save non-form cattura il marker load-incompleto PRIMA e
+    # risincronizza il campo token DOPO, come gli altri save non-form — così un «Sfoglia…»
+    # col keyring giù al load NON fa poi cancellare il token al «Salva Config» seguente.
+    cfg = {"csv_path": "vecchio.csv", "bot_token": "SEGRETO"}
+    a, _ = _prep(make_app, app_mod, tmp_path, monkeypatch, config=cfg, gui_csv="vecchio.csv")
+    a._had_incomplete_token_load = lambda: "MARKER"       # spia: valore catturato
+    app_mod.App._apply_and_save_csv_path(a, "/nuovo.csv")
+    # `_resync_token_field` chiamato UNA volta col valore catturato PRIMA del save
+    assert a.resync_calls == ["MARKER"]
+
+
+def test_apply_e_salva_csv_path_fallimento_disco_avvisa(make_app, app_mod, tmp_path, monkeypatch):
+    # Ramo di fallimento (Fugu #328): `save_config` → ok=False. Il metodo ritorna False,
+    # NON solleva su `result.status` (SaveResult è una 2-tupla con `.status`) e avvisa nel log.
+    cfg = {"csv_path": "vecchio.csv"}
+    a, _ = _prep(make_app, app_mod, tmp_path, monkeypatch, config=cfg, gui_csv="vecchio.csv")
+
+    def _fake_save(cfg_arg, _path):
+        return app_mod.config_store.SaveResult(dict(cfg_arg), False,
+                                               app_mod.config_store.SAVE_DISK_ERROR)
+    monkeypatch.setattr(app_mod, "save_config", _fake_save)
+    ok = app_mod.App._apply_and_save_csv_path(a, "/nuovo.csv")
+    assert ok is False
+    assert any("NON salvato" in m for m in a.logs)        # avviso chiaro nel log
+    assert a.resync_calls == [False]                       # guardia token comunque eseguita

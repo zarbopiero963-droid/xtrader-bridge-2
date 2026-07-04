@@ -710,12 +710,21 @@ class App(ctk.CTk):
             entry.insert(0, path)
         cfg = dict(self._config) if isinstance(self._config, dict) else {}
         cfg["csv_path"] = path
+        # PR-08c (CodeRabbit #328): come TUTTI i save NON-form (retention/debug/auto-sync
+        # Betfair/provider/sources/mapping/parser), cattura il marker load-incompleto PRIMA
+        # del save — che lo CONSUMA se `bot_token` è presente in `cfg` — e risincronizza il
+        # campo token DOPO. Senza, usare «📁 Sfoglia…» col keyring illeggibile al load
+        # consumerebbe il marker mentre `_e_token` resta vuoto → il «💾 Salva Config» seguente
+        # leggerebbe il campo vuoto come clear deliberato e CANCELLEREBBE il token dal keyring.
+        had_incomplete = self._had_incomplete_token_load()
         result = save_config(cfg, CONFIG_FILE)
         saved, ok = result
         self._config = saved
+        self._resync_token_field(had_incomplete)
         self._save_ok = ok
         if not ok:
-            self._log("❌ " + config_store.save_status_message(result.status))
+            self._log("❌ CSV Path selezionato ma NON salvato: "
+                      + config_store.save_status_message(result.status))
         return ok
 
     def _browse_csv_path(self) -> None:
@@ -726,10 +735,16 @@ class App(ctk.CTk):
         current = str(self._e_csv.get() or "").strip()
         initialdir = os.path.dirname(current) if current else None
         initialfile = os.path.basename(current) if current else "segnale.csv"
+        # `asksaveasfilename` (non `askopenfilename`): il CSV può essere NUOVO (non ancora
+        # esistente) o esistente → serve un selettore che accetti entrambi. `confirmoverwrite=
+        # False` (CodeRabbit #328): scegliere un CSV già esistente su cui puntare NON è un
+        # «salva sopra», quindi niente prompt fuorviante «sovrascrivere?» (il file non viene
+        # comunque toccato: si registra solo il percorso).
         dest = filedialog.asksaveasfilename(
             title="Scegli il file CSV per XTrader",
             defaultextension=".csv",
             filetypes=[("CSV", "*.csv"), ("Tutti i file", "*.*")],
+            confirmoverwrite=False,
             initialdir=initialdir, initialfile=initialfile)
         if not dest:
             return                           # dialog annullato: nessuna modifica
