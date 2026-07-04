@@ -29,10 +29,11 @@ class _FakeEntry:
         return self._v
 
 
-def _prep(make_app, app_mod, tmp_path, monkeypatch, *, config, gui_csv=""):
+def _prep(make_app, app_mod, tmp_path, monkeypatch, *, config, gui_csv="",
+          running=False, active=None):
     cfgfile = str(tmp_path / "config.json")
     monkeypatch.setattr(app_mod, "CONFIG_FILE", cfgfile)
-    a = make_app(config=dict(config), running=False)
+    a = make_app(config=dict(config), running=running, csv_path=active)
     a._e_csv = _FakeEntry(gui_csv)
     # Guardia token PR-08c (come gli altri save non-form): stub no-op di default.
     a._had_incomplete_token_load = lambda: False
@@ -62,17 +63,60 @@ def test_crea_csv_nuovo_header_only_e_salva_path(make_app, app_mod, tmp_path, mo
     assert reloaded["chat_id"] == "42"
 
 
-def test_crea_csv_sovrascrive_csv_del_bridge_esistente(make_app, app_mod, tmp_path, monkeypatch):
-    # Un CSV del bridge già esistente (con una riga stantia) → rigenerato a SOLO header.
+def test_crea_csv_rigenera_bridge_header_only(make_app, app_mod, tmp_path, monkeypatch):
+    # Un CSV del bridge già a SOLO header (nessun segnale) → rigenerato (idempotente), no force.
     dest = str(tmp_path / "segnale.csv")
-    csv_writer.write_csv({c: ("X" if c == "EventName" else "") for c in CSV_HEADER}, dest)
-    assert csv_writer.has_active_row(dest) is True             # riga presente PRIMA
+    app_mod.init_csv(dest)                                     # bridge header-only
     a, _ = _prep(make_app, app_mod, tmp_path, monkeypatch, config={"csv_path": dest})
     ok = app_mod.App._create_and_save_csv(a, dest)
     assert ok is True
     with open(dest, newline="", encoding="utf-8-sig") as f:
-        rows = list(csv.reader(f))
-    assert rows == [CSV_HEADER]                                # solo header, riga rimossa
+        assert list(csv.reader(f)) == [CSV_HEADER]
+
+
+def test_crea_csv_bridge_con_segnale_attivo_senza_force_rifiuta(make_app, app_mod, tmp_path, monkeypatch):
+    # ANTI DATA-LOSS (Fable+Fugu #330): un CSV del bridge con una riga ATTIVA non viene
+    # cancellato senza conferma — un segnale non ancora letto da XTrader va protetto.
+    dest = str(tmp_path / "segnale.csv")
+    csv_writer.write_csv({c: ("X" if c == "EventName" else "") for c in CSV_HEADER}, dest)
+    assert csv_writer.has_active_row(dest) is True             # segnale presente PRIMA
+    a, cfgfile = _prep(make_app, app_mod, tmp_path, monkeypatch, config={"csv_path": "vecchio.csv"})
+    ok = app_mod.App._create_and_save_csv(a, dest)
+    assert ok is False
+    assert csv_writer.has_active_row(dest) is True             # riga NON rimossa
+    assert a._config["csv_path"] == "vecchio.csv"             # config non toccata
+    assert not os.path.exists(cfgfile)                         # nessun salvataggio
+    assert any("contiene un segnale attivo" in m for m in a.logs)
+
+
+def test_crea_csv_bridge_con_segnale_attivo_con_force(make_app, app_mod, tmp_path, monkeypatch):
+    # Con conferma esplicita (force=True) → rigenerato a solo header (segnale rimosso).
+    dest = str(tmp_path / "segnale.csv")
+    csv_writer.write_csv({c: ("X" if c == "EventName" else "") for c in CSV_HEADER}, dest)
+    a, _ = _prep(make_app, app_mod, tmp_path, monkeypatch, config={"csv_path": "vecchio.csv"})
+    ok = app_mod.App._create_and_save_csv(a, dest, force=True)
+    assert ok is True
+    with open(dest, newline="", encoding="utf-8-sig") as f:
+        assert list(csv.reader(f)) == [CSV_HEADER]             # riga rimossa
+    assert a._config["csv_path"] == dest
+
+
+def test_crea_csv_sessione_attiva_rifiutata_anche_con_force(make_app, app_mod, tmp_path, monkeypatch):
+    # GUARDIA RUNTIME (Fable+Fugu #330): a bridge AVVIATO, ricreare il CSV della sessione
+    # attiva è VIETATO (anche con force) — cancellerebbe il segnale in volo + desync runtime.
+    dest = str(tmp_path / "segnale.csv")
+    csv_writer.write_csv({c: ("X" if c == "EventName" else "") for c in CSV_HEADER}, dest)
+    a, cfgfile = _prep(make_app, app_mod, tmp_path, monkeypatch, config={"csv_path": dest},
+                       running=True, active=dest)
+    ok = app_mod.App._create_and_save_csv(a, dest, force=True)  # force NON deve bypassare
+    assert ok is False
+    assert csv_writer.has_active_row(dest) is True             # segnale INTATTO
+    assert not os.path.exists(cfgfile)                          # nessun salvataggio
+    assert any("bridge è AVVIATO" in m for m in a.logs)
+    # invariante: cambiare/creare un ALTRO path a bridge avviato è invece permesso
+    other = str(tmp_path / "altro.csv")
+    assert app_mod.App._create_and_save_csv(a, other) is True
+    assert a._active_csv_path == dest                          # sessione attiva invariata
 
 
 def test_crea_csv_file_estraneo_senza_force_non_sovrascrive(make_app, app_mod, tmp_path, monkeypatch):
@@ -109,6 +153,22 @@ def test_crea_csv_annullato_no_op(make_app, app_mod, tmp_path, monkeypatch):
     assert a._e_csv.get() == "vecchio.csv"                          # entry invariata
     assert a._config["csv_path"] == "vecchio.csv"                  # config invariata
     assert not os.path.exists(cfgfile)                              # nessuna scrittura
+
+
+def test_crea_csv_errore_scrittura_avvisa_no_save(make_app, app_mod, tmp_path, monkeypatch):
+    # Ramo OSError: se la creazione atomica fallisce (permessi/disco), il metodo NON tocca la
+    # config, ritorna False e avvisa nel log.
+    dest = str(tmp_path / "segnale.csv")
+    a, cfgfile = _prep(make_app, app_mod, tmp_path, monkeypatch, config={"csv_path": "vecchio.csv"})
+
+    def _boom(_p, *, force=False):
+        raise OSError("disco pieno")
+    monkeypatch.setattr(app_mod.csv_writer, "create_header_only_csv", _boom)
+    ok = app_mod.App._create_and_save_csv(a, dest)
+    assert ok is False
+    assert a._config["csv_path"] == "vecchio.csv"             # config non toccata
+    assert not os.path.exists(cfgfile)                         # nessun salvataggio
+    assert any("Crea CSV» fallito" in m for m in a.logs)
 
 
 def test_crea_csv_guardia_token_pr08c(make_app, app_mod, tmp_path, monkeypatch):

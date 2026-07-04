@@ -206,10 +206,15 @@ altezza ridimensionabile, min 720×600.
   **selezionare** un CSV esistente, **genera** un CSV nuovo **a solo header** nel formato XTrader
   (dialog Tk `asksaveasfilename`, `.csv`) e lo imposta come `csv_path` (stesso salvataggio
   immediato + merge sul config vivo). Il file è **generato dall'app** (dal contratto
-  `CSV_HEADER`), mai scaricato o incluso nel repo/EXE. Anti data-loss: se il percorso scelto
-  esiste già ed è un CSV del bridge → rigenerato a solo header; se è un **file estraneo**
-  (header diverso) → **conferma esplicita** (finestra «Sovrascrivere?») prima di toccarlo, altrimenti
-  nessuna modifica. Annullo → nessun file creato.
+  `CSV_HEADER`), mai scaricato o incluso nel repo/EXE. La creazione è **atomica e senza finestra
+  TOCTOU** (il check di cosa c'è già e la scrittura avvengono sotto lo stesso lock). Anti data-loss,
+  a tre livelli:
+  - percorso nuovo, o CSV del bridge **a solo header** → generato/rigenerato senza domande;
+  - **file estraneo** (header diverso) o CSV del bridge **con un segnale attivo** → **conferma
+    esplicita** (finestra «Sovrascrivere…?») prima di toccarlo, altrimenti nessuna modifica;
+  - **bridge AVVIATO su quello stesso CSV** → **bloccato** con avviso «Fai STOP prima di ricrearlo»
+    (non si cancella un segnale in volo né si desincronizza la sessione), senza scorciatoie.
+  Annullo → nessun file creato.
 
 **Tab 🎯 Riconoscimento** — 1 dropdown:
 - **"🎯 Modalità riconoscimento"** → opzioni `ID_ONLY` / `NAME_ONLY` / `BOTH`.

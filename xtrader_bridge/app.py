@@ -38,6 +38,7 @@ from . import (
     config_store,
     confirmation_reader,
     csv_lock_escalation,
+    csv_writer,
     dashboard_stats,
     diagnostics,
     event_journal,
@@ -759,32 +760,53 @@ class App(ctk.CTk):
             self._log(f"📄 CSV Path aggiornato e salvato: {dest}")
 
     # ── CSV Path: pulsante «📄 Crea CSV» — genera un CSV a solo header (#286) ──────
+    def _is_active_session_csv(self, path: str) -> bool:
+        """True se `path` è (case/relative-insensitive) il CSV della **sessione ATTIVA** a
+        bridge avviato. Ricrearlo mentre il bridge gira cancellerebbe un segnale non ancora
+        letto da XTrader e desincronizzerebbe coda/expiry: va bloccato (Fable+Fugu #330)."""
+        if not (self._running and self._active_csv_path and path):
+            return False
+        def _norm(p):
+            return os.path.normcase(os.path.abspath(str(p)))
+        return _norm(path) == _norm(self._active_csv_path)
+
     def _create_and_save_csv(self, path: str, *, force: bool = False) -> bool:
-        """Genera un CSV **a solo header** nel formato XTrader su `path` (via `init_csv`,
-        scrittura atomica) e ne imposta+salva il percorso in config riusando
-        `_apply_and_save_csv_path` (#284: merge sul config vivo + guardia token PR-08c).
+        """Genera un CSV **a solo header** nel formato XTrader su `path` e ne imposta+salva il
+        percorso in config riusando `_apply_and_save_csv_path` (#284: merge sul config vivo +
+        guardia token PR-08c). Opzione A (#286): il file è **generato dal codice**
+        (`CSV_HEADER`/`init_csv`), mai scaricato/committato.
 
-        Opzione A (#286): il file è **generato dal codice** (`CSV_HEADER`/`init_csv`), mai
-        scaricato/committato. Path vuoto (dialog annullato) → nessuna modifica, ritorna False.
-
-        **Anti data-loss:** se `path` **esiste già** ma NON è un CSV del bridge (prima riga
-        ≠ `CSV_HEADER`, cioè un file estraneo scelto per errore), NON lo sovrascrive e ritorna
-        False, a meno che `force=True` (conferma esplicita ottenuta dal chiamante GUI). Un CSV
-        del bridge esistente, o un path nuovo, viene invece (ri)generato a solo header."""
+        La creazione usa `csv_writer.create_header_only_csv`, che fa il check dell'header
+        esistente E la scrittura **sotto lo stesso `_write_lock`** → nessuna finestra TOCTOU
+        (Fable+Fugu #330). Anti data-loss:
+        - `path` vuoto (dialog annullato) → nessuna modifica, False.
+        - bridge AVVIATO su questo stesso CSV → **rifiutato** (STOP prima: proteggere il segnale
+          attivo e lo stato runtime), anche con `force`.
+        - file **estraneo** (header ≠ `CSV_HEADER`) o CSV del bridge **con un segnale attivo** →
+          rifiutato senza `force`; `force=True` (conferma esplicita del chiamante GUI) sovrascrive.
+        - path nuovo / CSV del bridge a solo header → (ri)generato a solo header."""
         path = str(path or "").strip()
         if not path:
             return False                     # dialog annullato / vuoto: nessuna modifica
-        if os.path.exists(path) and not is_bridge_csv(path) and not force:
-            # File esistente e NON del bridge: non distruggerlo silenziosamente (coerente con
-            # `clear_stale_csv`). Il chiamante GUI deve chiedere conferma e ripassare force=True.
-            self._log("⚠️ «Crea CSV» annullato: %s esiste e NON è un CSV del bridge "
-                      "(non sovrascritto)." % path)
+        if self._is_active_session_csv(path):
+            # Guardia RUNTIME (Fable+Fugu #330): mai ricreare il CSV della sessione in RUN —
+            # cancellerebbe un segnale non ancora consumato. `force` NON la bypassa.
+            self._log("⚠️ «Crea CSV» annullato: il bridge è AVVIATO su questo CSV. "
+                      "Fai STOP prima di ricrearlo.")
             return False
         try:
-            init_csv(path)                   # header-only atomico (utf-8-sig, QUOTE_ALL)
+            outcome = csv_writer.create_header_only_csv(path, force=force)
         except OSError as e:
             # Cartella inesistente/permessi: fallire in modo pulito senza toccare la config.
             self._log("❌ «Crea CSV» fallito: impossibile creare %s (%s)." % (path, e))
+            return False
+        if outcome == csv_writer.CSV_CREATE_REFUSED_FOREIGN:
+            self._log("⚠️ «Crea CSV» annullato: %s esiste e NON è un CSV del bridge "
+                      "(non sovrascritto)." % path)
+            return False
+        if outcome == csv_writer.CSV_CREATE_REFUSED_ACTIVE:
+            self._log("⚠️ «Crea CSV» annullato: %s contiene un segnale attivo "
+                      "(non sovrascritto)." % path)
             return False
         ok = self._apply_and_save_csv_path(path)
         if ok:
@@ -794,14 +816,13 @@ class App(ctk.CTk):
     def _browse_create_csv(self) -> None:
         """«📄 Crea CSV» accanto a CSV Path (#286): sceglie dove creare il file, genera un CSV
         a solo header nel formato XTrader e lo imposta come `csv_path` (salvataggio immediato).
-        Annullo → nessuna modifica. GUI-only (dialog Tk): la logica «crea+imposta+salva» è in
-        `_create_and_save_csv`."""
+        Annullo → nessuna modifica. GUI-only (dialog Tk): la logica «crea+imposta+salva» (e le
+        guardie autoritative) è in `_create_and_save_csv`; qui sopra si chiede solo la conferma."""
         from tkinter import filedialog, messagebox
         current = str(self._e_csv.get() or "").strip()
         initialdir = os.path.dirname(current) if current else None
         initialfile = os.path.basename(current) if current else "segnale.csv"
-        # `confirmoverwrite=False`: gestiamo noi la conferma SOLO per un file estraneo (anti
-        # data-loss mirato); un CSV del bridge o un path nuovo non richiede prompt.
+        # `confirmoverwrite=False`: gestiamo noi la conferma (mirata) invece del prompt nativo.
         dest = filedialog.asksaveasfilename(
             title="Crea un nuovo CSV per XTrader (solo header)",
             defaultextension=".csv",
@@ -810,16 +831,34 @@ class App(ctk.CTk):
             initialdir=initialdir, initialfile=initialfile)
         if not dest:
             return                           # dialog annullato: nessuna modifica
+        if self._is_active_session_csv(dest):
+            # Bridge avviato su questo CSV: messaggio chiaro e stop (la guardia autoritativa è
+            # comunque in `_create_and_save_csv`, che rifiuta anche con force).
+            messagebox.showwarning(
+                "Bridge avviato",
+                "Il bridge è AVVIATO su questo CSV.\n\nFai STOP prima di ricrearlo.")
+            self._log("⚠️ «Crea CSV» annullato: bridge avviato su %s (STOP prima)." % dest)
+            return
+        # Pre-check ADVISORY per il solo messaggio di conferma (la decisione di scrittura è
+        # atomica in `create_header_only_csv`; una race qui è innocua: al più un prompt in più).
         force = False
-        if os.path.exists(dest) and not is_bridge_csv(dest):
-            # File estraneo: conferma esplicita PRIMA di sovrascriverlo con un CSV vuoto.
-            if not messagebox.askyesno(
-                    "Sovrascrivere il file esistente?",
-                    "%s esiste e NON è un CSV del bridge.\n\nSovrascriverlo con un CSV "
-                    "vuoto (solo header)?" % dest):
-                self._log("⚠️ «Crea CSV» annullato dall'utente: %s non sovrascritto." % dest)
-                return
-            force = True
+        if os.path.exists(dest):
+            if not is_bridge_csv(dest):
+                if not messagebox.askyesno(
+                        "Sovrascrivere il file esistente?",
+                        "%s esiste e NON è un CSV del bridge.\n\nSovrascriverlo con un CSV "
+                        "vuoto (solo header)?" % dest):
+                    self._log("⚠️ «Crea CSV» annullato dall'utente: %s non sovrascritto." % dest)
+                    return
+                force = True
+            elif has_active_row(dest):
+                if not messagebox.askyesno(
+                        "Sovrascrivere il segnale attivo?",
+                        "%s contiene un segnale attivo non ancora letto da XTrader.\n\n"
+                        "Sovrascriverlo con un CSV vuoto (solo header)?" % dest):
+                    self._log("⚠️ «Crea CSV» annullato dall'utente: %s non sovrascritto." % dest)
+                    return
+                force = True
         self._create_and_save_csv(dest, force=force)
 
     def _profiles_snapshot(self) -> dict:

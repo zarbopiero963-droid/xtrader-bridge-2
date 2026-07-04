@@ -404,6 +404,51 @@ def is_bridge_csv(path: str) -> bool:
             return False
 
 
+# Esiti di `create_header_only_csv` (#286): guidano il messaggio/conferma del chiamante GUI.
+CSV_CREATE_DONE = "done"                  # creato / rigenerato a solo header
+CSV_CREATE_REFUSED_FOREIGN = "foreign"    # file estraneo (header ≠ CSV_HEADER): non toccato
+CSV_CREATE_REFUSED_ACTIVE = "active"      # CSV del bridge con riga attiva: non toccato
+
+
+def create_header_only_csv(path: str, *, force: bool = False) -> str:
+    """Crea un CSV **a solo header** su `path` in modo ATOMICO e anti data-loss: il check
+    dell'header esistente E la scrittura avvengono SOTTO LO STESSO `_write_lock`, così non
+    c'è finestra TOCTOU tra «guarda cos'è» e «sovrascrivi» (stesso principio di
+    `clear_stale_csv`, issue #184 H3). Serve alla feature «📄 Crea CSV» (#286).
+
+    Semantica (senza `force`):
+    - `path` **assente** → creato a solo header.
+    - **CSV del bridge a solo header** (nessuna riga dati) → rigenerato (idempotente).
+    - **CSV del bridge con una riga attiva** → NON toccato → `CSV_CREATE_REFUSED_ACTIVE`
+      (protegge un segnale non ancora letto da XTrader, es. la sessione avviata).
+    - **file estraneo** (prima riga ≠ `CSV_HEADER`, o illeggibile) → NON toccato →
+      `CSV_CREATE_REFUSED_FOREIGN` (anti data-loss su un file dell'utente scelto per errore).
+
+    Con `force=True` (conferma esplicita dell'utente) i due `REFUSED_*` sono bypassati e il
+    file è comunque rigenerato a solo header. Ritorna `CSV_CREATE_DONE` quando ha scritto.
+    Solleva `OSError` se la scrittura fallisce (cartella assente/permessi)."""
+    if not path:
+        return CSV_CREATE_REFUSED_FOREIGN
+    with _write_lock:
+        if os.path.exists(path) and not force:
+            try:
+                with open(path, newline="", encoding="utf-8-sig") as f:
+                    reader = csv.reader(f)
+                    if next(reader, None) != CSV_HEADER:
+                        return CSV_CREATE_REFUSED_FOREIGN     # non è un CSV del bridge
+                    # È un CSV del bridge: una riga dati "attiva" è una riga con almeno una
+                    # cella non vuota dopo l'header (stessa definizione di `has_active_row`).
+                    if any(any((c or "").strip() for c in row) for row in reader):
+                        return CSV_CREATE_REFUSED_ACTIVE      # c'è un segnale attivo: non toccare
+            except (UnicodeDecodeError, csv.Error):
+                # File non decodificabile/non parsabile → non è un CSV del bridge: non toccarlo.
+                return CSV_CREATE_REFUSED_FOREIGN
+            # NB: un OSError in lettura (permessi/lock) si propaga come per `clear_stale_csv`:
+            # il chiamante lo segnala come «creazione fallita», non lo silenzia.
+        _atomic_write_locked(path, lambda writer: None)       # solo header (stesso lock)
+        return CSV_CREATE_DONE
+
+
 def write_rows(rows, path: str):
     """Scrive PIÙ segnali nel CSV (header + una riga per ciascuno), sovrascrivendo
     in modo atomico. `rows` vuota → solo header (equivale a `init_csv`). Usato dalla
