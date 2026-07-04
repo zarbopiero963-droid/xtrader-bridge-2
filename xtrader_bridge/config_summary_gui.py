@@ -64,10 +64,28 @@ def channel_title(channel) -> str:
 
 
 def parser_label(channel) -> str:
-    """Riga parser del canale."""
+    """Riga parser del canale. Un parser risolto ma NON caricabile (file mancante/invalido,
+    fail-closed) porta un `⚠` sulla riga stessa, così il guasto è visibile qui e non solo
+    nella riga «Pronto?» sottostante (CodeRabbit #337)."""
     if not channel.parser_name:
         return "Parser: —"
+    if not channel.parser_loaded:
+        return f"Parser: {channel.parser_name} ⚠"
     return f"Parser: {channel.parser_name}"
+
+
+def ready_count_label(summary) -> str:
+    """Riga «Canali pronti: N/M»."""
+    return f"Canali pronti: {summary.ready_channels}/{summary.total_channels}"
+
+
+# Stato vuoto (nessuna sorgente/chat configurata): stringa in un helper puro, come le altre
+# etichette, così è coperta dai test e non diverge dall'intento di design (CodeRabbit #337).
+_NO_CHANNELS_LABEL = "Nessun canale configurato (nessuna sorgente / chat)."
+
+
+def no_channels_label() -> str:
+    return _NO_CHANNELS_LABEL
 
 
 class ConfigSummaryPanel(ctk.CTkFrame):
@@ -125,12 +143,11 @@ class ConfigSummaryPanel(ctk.CTkFrame):
                      anchor="w").pack(fill="x", padx=4, pady=(1, 8))
 
         ctk.CTkLabel(
-            self._body,
-            text=f"Canali pronti: {summary.ready_channels}/{summary.total_channels}",
+            self._body, text=ready_count_label(summary),
             anchor="w", font=ctk.CTkFont(weight="bold")).pack(fill="x", padx=4, pady=(0, 6))
 
         if not summary.channels:
-            ctk.CTkLabel(self._body, text="Nessun canale configurato (nessuna sorgente / chat).",
+            ctk.CTkLabel(self._body, text=no_channels_label(),
                          text_color=_COLOR_MUTED, anchor="w").pack(fill="x", padx=8, pady=4)
             return
 

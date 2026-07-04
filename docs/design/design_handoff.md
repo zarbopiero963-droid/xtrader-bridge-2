@@ -469,8 +469,9 @@ riepilogo non può divergere dal comportamento reale. Logica in `config_summary.
     (dizionario locale presente = sync fatta; login = sessione RAM, non persistita tra riavvii).
   - **`Canali pronti: N/M`**.
 - **Una card per canale** (`CTkScrollableFrame`): intestazione `nome (chat_id)` (o solo l'id, o
-  «(canale senza chat_id)»), riga **`Parser: <nome>`** (o `—`), riga traduzioni
-  **`Nomi ✓N · Mercati ✓N`** (o `—` se nessuna), e l'indicatore **«Pronto?»**:
+  «(canale senza chat_id)»), riga **`Parser: <nome>`** (o `—`; un parser risolto ma **non
+  caricabile** — file mancante/invalido — porta un **`⚠`** sulla riga stessa: `Parser: <nome> ⚠`),
+  riga traduzioni **`Nomi ✓N · Mercati ✓N`** (o `—` se nessuna), e l'indicatore **«Pronto?»**:
   - **`✅ Pronto`** (verde) solo se il canale è ascoltabile (chat_id presente + sorgente attiva),
     ha un parser che **si carica ed è valido**, e **tutte** le mappature selezionate si risolvono;
   - **`⚠ <motivo>`** (arancione) altrimenti — motivi: «Manca chat_id», «Sorgente disattivata»,

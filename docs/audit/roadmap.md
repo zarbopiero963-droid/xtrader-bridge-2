@@ -1444,3 +1444,12 @@ Rendering GUI reale = smoke manuale. Suite: **2101 passed, 10 skipped**.
 
 **Docs:** design_handoff.md (GATE §5 mappa hub + §7.10 pannello Riepilogo). Prossimi slice #293:
 4 gruppi di flusso → densità parser.
+
+**Fix di review (stesso PR).** Fable #337: lo snapshot leggeva `count_active` sul DB Betfair nel
+thread GUI → prima `is_syncing`, poi (CodeRabbit #337, più robusto/race-free) il probe non
+bloccante `db.acquire_read(blocking=False)`/`release_read()` come `_known_betfair_teams` — durante
+una sync si salta la lettura (best-effort «non sincronizzato»), mai freeze. CodeRabbit #337:
+`_config_summary_snapshot` ora legge la config **viva** `self._config` (autoritativa dopo un save
+fallito), non il disco. Nitpick CodeRabbit: estratte in helper puri `ready_count_label` /
+`no_channels_label`, e `parser_label` mostra `⚠` per un parser non caricabile. Test aggiornati
+(snapshot: probe non bloccante + config viva + DB None; helper GUI). Suite: **2111 passed, 10 skipped**.

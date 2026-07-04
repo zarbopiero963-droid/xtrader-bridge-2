@@ -3388,16 +3388,24 @@ class App(ctk.CTk):
         occupato/assente o una sessione non inizializzata degradano a `False` (il
         riepilogo mostra «non sincronizzato / login non attivo», mai un crash)."""
         from . import config_summary, custom_parser
-        cfg = self._load_config()
+        # Config VIVA (autoritativa): dopo un salvataggio fallito il disco è STANTIO mentre
+        # `self._config` riflette ciò che l'utente ha impostato. Il riepilogo deve mostrare cosa
+        # farà DAVVERO il bridge, quindi si legge la config viva (come `_betfair_autosync_change`),
+        # con fallback al disco solo se non c'è config viva (CodeRabbit #337).
+        cfg = dict(self._config) if isinstance(self._config, dict) else self._load_config()
         synced = logged_in = False
         try:
-            engine = self._betfair_sync_engine()
-            # Probe NON bloccante: durante una sync Betfair in corso NON si legge il DB,
-            # per non far attendere il thread GUI sul lock del dizionario (stesso pattern
-            # dell'anteprima parser #192, "salta durante una sync per non congelare la GUI").
-            # In sync → best-effort «non sincronizzato», mai un freeze (Fable #337).
-            if not engine.is_syncing:
-                synced = engine.db.count_active("betfair_events") > 0
+            db = self._betfair_sync_engine().db
+            # Probe NON bloccante sullo STESSO `_lock` che la sync tiene (come
+            # `_known_betfair_teams`/`_known_market_terms`): se una sync Betfair è in corso
+            # `acquire_read(blocking=False)` ritorna False → si salta la lettura (best-effort
+            # «non sincronizzato»), senza mai far attendere il thread GUI sul lock del dizionario.
+            # Race-free: la lettura avviene solo mentre teniamo noi il lock (CodeRabbit/Fable #337).
+            if db is not None and db.acquire_read(blocking=False):
+                try:
+                    synced = db.count_active("betfair_events") > 0
+                finally:
+                    db.release_read()
         except Exception:                   # noqa: BLE001 — DB occupato/assente: fail-soft
             synced = False
         try:

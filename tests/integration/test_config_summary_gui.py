@@ -69,5 +69,26 @@ def test_channel_title(gui_mod):
 
 
 def test_parser_label(gui_mod):
-    assert gui_mod.parser_label(_channel(parser_name="P1")) == "Parser: P1"
+    assert gui_mod.parser_label(_channel(parser_name="P1", parser_loaded=True)) == "Parser: P1"
     assert gui_mod.parser_label(_channel(parser_name="")) == "Parser: —"
+    # CodeRabbit #337: parser risolto ma NON caricabile → ⚠ sulla riga parser stessa.
+    assert gui_mod.parser_label(
+        _channel(parser_name="P1", parser_loaded=False)) == "Parser: P1 ⚠"
+
+
+def _summary(ready, total):
+    chans = tuple(
+        cs.ChannelSummary(chat_id=str(i), name="", enabled=True, parser_name="P",
+                          parser_loaded=True, ready=(i < ready))
+        for i in range(total))
+    return cs.ConfigSummary(real_mode=False, betfair_synced=False,
+                            betfair_logged_in=False, channels=chans)
+
+
+def test_ready_count_label(gui_mod):
+    assert gui_mod.ready_count_label(_summary(2, 3)) == "Canali pronti: 2/3"
+    assert gui_mod.ready_count_label(_summary(0, 0)) == "Canali pronti: 0/0"
+
+
+def test_no_channels_label(gui_mod):
+    assert gui_mod.no_channels_label() == "Nessun canale configurato (nessuna sorgente / chat)."
