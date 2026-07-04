@@ -416,28 +416,40 @@ def _is_dynamic_selection(rule) -> bool:
                      or str(getattr(rule, "end_before", "") or "").strip()))
 
 
-def _rule_supplies(rule, col: str, attr: str) -> bool:
+def _rule_supplies(rule, col: str, attr: str, *, from_selection: bool) -> bool:
     """`True` se `rule` garantisce la colonna `col` su OGNI riga che genera: attributo non vuoto,
     OPPURE — per `SelectionName` — è una regola SELEZIONE dinamica (#325), che fornisce il
-    `SelectionName` via estrazione per-riga anche con l'attributo `selection_name` vuoto."""
+    `SelectionName` via estrazione per-riga anche con l'attributo `selection_name` vuoto.
+
+    `from_selection` deve essere `True` SOLO per le regole della lista SELEZIONI: il caso speciale
+    `SelectionName` via estrazione dinamica vale unicamente per le selezioni. Una regola MERCATO
+    ha `selection_name` vuoto per natura (è una riga-mercato) e — poiché `start_after`/`end_before`
+    sono campi condivisi da `MultiRowRule` e non validati per i mercati — potrebbe averli valorizzati
+    (JSON residuo/misconfig): senza questo vincolo verrebbe scambiata per selezione dinamica e
+    «fornirebbe» falsamente `SelectionName`, rilassando a torto il gate base (CodeRabbit #341). I
+    suoi row non riempiono mai `SelectionName` via estrazione, quindi non lo fornisce."""
     if str(getattr(rule, attr, "") or "").strip():
         return True
-    return col == "SelectionName" and _is_dynamic_selection(rule)
+    return col == "SelectionName" and from_selection and _is_dynamic_selection(rule)
 
 
-def _multi_supplied_cols(rules) -> "frozenset":
+def _multi_supplied_cols(markets, selections) -> "frozenset":
     """Colonne CSV che OGNI riga multi generata riempirà con un valore non vuoto (kyZ #192):
     una colonna è «fornita» solo se **tutte** le regole attive (mercati + selezioni) la
     garantiscono — così è assicurata su OGNI riga derivata, non solo su alcune. Una regola
     SELEZIONE dinamica (#325) garantisce `SelectionName` via estrazione anche con l'attributo
     vuoto (`_rule_supplies`), così la base non resta bloccata su un `SelectionName` obbligatorio
-    che la lista estratta riempirà. Con `rules` vuoto → insieme vuoto (nessuna garanzia)."""
-    rules = list(rules or [])
-    if not rules:
+    che la lista estratta riempirà. Il credito `SelectionName` via estrazione dinamica è ristretto
+    alle sole regole SELEZIONE (`from_selection=True`): una regola MERCATO non può rilassare il
+    gate base su `SelectionName` (CodeRabbit #341). Con entrambe le liste vuote → insieme vuoto."""
+    markets = list(markets or [])
+    selections = list(selections or [])
+    if not markets and not selections:
         return frozenset()
     return frozenset(
         col for col, attr in _MULTI_OVERRIDE
-        if all(_rule_supplies(r, col, attr) for r in rules))
+        if all(_rule_supplies(r, col, attr, from_selection=False) for r in markets)
+        and all(_rule_supplies(r, col, attr, from_selection=True) for r in selections))
 
 
 def _apply_multi_rule(base_row: dict, rule) -> dict:
@@ -543,7 +555,7 @@ def build_validated_rows(defn: CustomParserDef, text: str, **kwargs) -> "list[Pi
     # fornite da OGNI riga generata (`multi_supplied`) — così un obbligatorio NON coperto resta
     # bloccante (Codex P1) e la mappatura mercati non fa un falso fail-closed (Codex/CodeRabbit).
     if base.status in _MULTI_RESOLVABLE:
-        supplied = set(_multi_supplied_cols(list(markets) + list(selections)))
+        supplied = set(_multi_supplied_cols(markets, selections))
         # ID_ONLY con dizionario (Codex, follow-up #290): un parser creato dalla GUI marca
         # `MarketId`/`SelectionId` come obbligatori per la modalità; se sono lasciati vuoti perché
         # il resolver li riempie PER RIGA, la base sarebbe `NOT_READY` e la generazione non

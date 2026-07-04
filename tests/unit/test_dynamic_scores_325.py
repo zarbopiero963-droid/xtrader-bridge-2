@@ -80,6 +80,13 @@ def test_extract_scores_dedup_preserva_ordine():
     assert extract_scores("1-0, 1-0, 2-1, 1-0") == ["1 - 0", "2 - 1"]
 
 
+def test_extract_scores_spazi_variabili_attorno_al_trattino():
+    # #341 (GLM/GPT gap): il caso più comune formattato — spazi variabili attorno al «-» e testo
+    # non numerico adiacente — deve estrarre e normalizzare a «N - N».
+    assert extract_scores("Punteggio 1  -  0 finale") == ["1 - 0"]
+    assert extract_scores("HT: 2-0 · FT 3 -1") == ["2 - 0", "3 - 1"]
+
+
 def test_extract_scores_regione_delimitata():
     # solo i punteggi DENTRO la regione [start_after..end_before] contano.
     txt = "PRE 9-9 [ 1-0, 2-1 ] POST 5-5"
@@ -161,3 +168,32 @@ def test_retrocompat_selezione_fissa_resta_single_row():
     defn.multi_selections = [cp.MultiRowRule(selection_name="1 - 0")]
     rows = _placeable_rows(defn)
     assert [r["SelectionName"] for r in rows] == ["1 - 0"]
+
+
+def test_market_dinamico_non_fornisce_selectionname_scoping():
+    # #341 (CodeRabbit): il caso speciale «SelectionName via estrazione dinamica» è ristretto alle
+    # sole regole SELEZIONE. Una regola MERCATO con selection_name VUOTO ma start_after/end_before
+    # valorizzati (campi condivisi da MultiRowRule, NON validati per i mercati → JSON residuo/misconfig)
+    # NON deve essere scambiata per selezione dinamica: non «fornisce» SelectionName e quindi NON
+    # rilassa a torto il gate base su un SelectionName OBBLIGATORIO. Fail-first sul fix di scoping.
+    defn = cp.CustomParserDef(name="MKT", mode="NAME_ONLY", rules=_base())
+    defn.rules = defn.rules + [
+        cp.FieldRule(target="SelectionName", start_after="ZZZ", end_before="ZZZ", required=True)]
+    defn.multi_market_enabled = True
+    defn.multi_selection_enabled = False
+    defn.multi_selections = []
+    defn.multi_markets = [cp.MultiRowRule(market_type="OVER_UNDER",
+                                          start_after="X", end_before="Y")]
+    res = pipe.build_validated_rows(defn, MSG, mode="NAME_ONLY")
+    # base NON rilassata → propagata NOT_READY (fail-closed), nessuna riga mercato generata.
+    assert len(res) == 1 and res[0].status == pipe.NOT_READY
+    assert not res[0].placeable
+
+
+def test_detail_no_scores_non_e_colonna_csv():
+    # #341 (GLM gap): `detail="no_scores_extracted"` è metadato diagnostico del PipelineResult,
+    # NON una colonna CSV → non deve comparire nel contratto/riga scritta.
+    res = pipe.build_validated_rows(_dyn_parser(start_after="NONESISTE:"), MSG, mode="NAME_ONLY")
+    assert res[0].detail == "no_scores_extracted"
+    assert "detail" not in res[0].row
+    assert "no_scores_extracted" not in res[0].row.values()
