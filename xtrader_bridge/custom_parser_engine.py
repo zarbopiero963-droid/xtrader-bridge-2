@@ -155,7 +155,11 @@ def extract_between(text: str, start_after: str = "", end_before: str = "") -> s
 # Lo spazio attorno al «-» è SOLO orizzontale (`[^\S\r\n]*`, non `\s*`): un punteggio sta sempre su
 # UNA riga, quindi cifre di righe adiacenti («3\n- 0») NON devono fondersi in un punteggio spurio
 # (→ riga CSV/scommessa Betfair errata) quando la regione delimitata è multi-riga (Fugu #341).
-_SCORE_RE = re.compile(r"(?<!\d)(\d{1,2})[^\S\r\n]*-[^\S\r\n]*(\d{1,2})(?!\d)")
+# Confini anti-DECIMALE oltre a quelli anti-cifra: un handicap/quota come «0-0.5», «1-0.25» o «0.5-1»
+# NON deve produrre un punteggio spurio «0 - 0»/«1 - 0»/«5 - 1» (selezioni Correct Score VALIDE →
+# riga piazzabile errata). `(?<!\d\.)` esclude il caso in cui il primo numero è la parte decimale di
+# un valore (es. «0.5»); `(?!\.\d)` esclude il caso in cui il secondo numero è seguito da «.d» (Fable #341).
+_SCORE_RE = re.compile(r"(?<!\d)(?<!\d\.)(\d{1,2})[^\S\r\n]*-[^\S\r\n]*(\d{1,2})(?!\d)(?!\.\d)")
 
 # #325: cap DIFENSIVO sul numero di risultati estratti da UN messaggio (input Telegram NON
 # attendibile, review #341). Un elenco reale di risultati esatti (Correct Score FT/1º tempo) ha

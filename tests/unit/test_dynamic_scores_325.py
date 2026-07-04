@@ -80,6 +80,18 @@ def test_extract_scores_dedup_preserva_ordine():
     assert extract_scores("1-0, 1-0, 2-1, 1-0") == ["1 - 0", "2 - 1"]
 
 
+def test_extract_scores_esclude_decimali_handicap_quote():
+    # #341 (Fable): un handicap/quota come «0-0.5», «1-0.25» o «0.5-1» NON deve produrre un punteggio
+    # spurio «0 - 0»/«1 - 0»/«5 - 1» — sono selezioni Correct Score VALIDE che in NAME_ONLY darebbero
+    # una riga piazzabile ERRATA. Confini anti-decimale su entrambi i lati. Fail-first: col vecchio
+    # pattern «0-0.5» → «0 - 0».
+    assert extract_scores("Handicap 0-0.5") == []
+    assert extract_scores("Linea 1-0.25 e 2-1.5") == []
+    assert extract_scores("Quota 0.5-1") == []
+    # ma punteggi interi accanto a un decimale restano estratti
+    assert extract_scores("hcap 0.5 punteggi 2-1, 3-0") == ["2 - 1", "3 - 0"]
+
+
 def test_extract_scores_non_fonde_cifre_di_righe_diverse():
     # #341 (Fugu): lo spazio attorno al «-» è SOLO orizzontale ([^\S\r\n]*) → cifre su righe
     # adiacenti in una regione multi-riga NON si fondono in un punteggio spurio (che diventerebbe
