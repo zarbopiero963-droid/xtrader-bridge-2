@@ -1299,6 +1299,33 @@ class App(ctk.CTk):
                     self._betfair_engine_obj = SyncEngine(db, self._betfair_session_obj())
         return self._betfair_engine_obj
 
+    def _known_betfair_teams(self, sport=None):
+        """Nomi squadra PERMANENTI del dizionario Betfair locale (#282), per precompilare
+        la mappatura nomi (area ⚽ Calcio). **Sola lettura**, best-effort: DB non disponibile
+        (mai sincronizzato, cartella assente…) → `[]`, il pannello mostra un avviso.
+
+        **FAIL-FAST se una sync tiene il lock del DB** (CodeRabbit #321): `CatalogueSync.sync`
+        tiene `db._lock` per l'INTERA transazione, incluse le chiamate HTTP di navigazione/
+        catalogo. Leggere in modo bloccante dal thread Tk congelerebbe la GUI fino a fine
+        sync/timeout. Come `DictionaryViewerController.view_if_free` (#175): probe **non
+        bloccante** e, se occupato, `DictionaryBusy` (il pannello mostra «sync in corso»),
+        distinto dal caso «nessun nome». Non fa rete."""
+        from .betfair.dictionary_viewer import DictionaryBusy
+        try:
+            db = self._betfair_sync_engine().db
+            if db is None:               # engine costruito ma DB non aperto → nessun nome
+                return []
+            if not db.acquire_read(blocking=False):
+                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+            try:
+                return db.known_teams(sport)
+            finally:
+                db.release_read()
+        except DictionaryBusy:
+            raise                        # segnale 'occupato' distinto: lo gestisce il pannello
+        except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → nessun nome
+            return []
+
     def _betfair_id_resolver(self):
         """Risolutore ID del dizionario Betfair locale per il flusso live (PR-P12),
         **best-effort**: ritorna un `DictionaryResolver` sul DB locale, o `None` se il
@@ -2875,8 +2902,11 @@ class App(ctk.CTk):
             return panel_refs["sources"]
 
         def _make_mapping(parent):
-            """Crea il pannello Mapping e ne tiene il riferimento per il refresh."""
-            panel_refs["mapping"] = MappingPanel(parent, on_saved=_mapping_saved)
+            """Crea il pannello Mapping e ne tiene il riferimento per il refresh.
+            Inietta il provider dei nomi squadra permanenti (#282 PR 11), così l'area
+            ⚽ Calcio può precompilare la colonna Betfair coi nomi reali della sync."""
+            panel_refs["mapping"] = MappingPanel(parent, on_saved=_mapping_saved,
+                                                 known_teams_provider=self._known_betfair_teams)
             return panel_refs["mapping"]
 
         def _betfair_sync(sports):

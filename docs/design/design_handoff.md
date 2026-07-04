@@ -321,7 +321,16 @@ NON** viene salvato nei profili). Campo nome + **"💾 Salva profilo"**; lista c
 ### 7.5 🗺️ Mapping (`name_mapping_gui.py`) — 2 sotto-tab
 - **⚽ Calcio (Dizionario nomi squadra):** profilo (Nuovo/Rinomina/Elimina) + tabella
   **Country · Betfair/XTrader · Provider · Sport · Tipo**. Traduce i nomi del canale nei
-  nomi attesi da Betfair/XTrader.
+  nomi attesi da Betfair/XTrader. Pulsanti azione: **«➕ Aggiungi riga»**, **«📥 Precompila
+  da Betfair»** (blu `#1565c0`), **«💾 Salva profilo»**.
+  - **«📥 Precompila da Betfair» (#282 PR 11):** riempie la tabella coi nomi squadra
+    **permanenti** raccolti dalla sync Betfair — una riga per nome, **Betfair già scritto**
+    nel campo (resta un `CTkEntry` editabile, **niente tendina**), **Sport** impostato, **Tipo**
+    `team`, **Provider vuoto** (ci va l'alias del canale). Non distruttivo/idempotente (salta i
+    nomi già presenti). Senza dizionario Betfair (sync mai fatta) mostra un avviso e non aggiunge
+    nulla. **Durante una sincronizzazione in corso** fa fail-fast con «⏳ Sincronizzazione Betfair
+    in corso: riprova tra poco» (arancione) **senza congelare la finestra**. La riga di stato
+    riporta l'esito (es. «📥 Aggiunti N nomi Betfair… ; M già presenti»).
 - **🎯 Mercati (Dizionario mercati):** profilo + tabella **Inizia dopo · Finisce prima ·
   Testo mercato · Mercato (catalogo) · Selezione (catalogo)**. Legge il mercato da una
   posizione precisa del messaggio e imposta Mercato/Selezione dal catalogo XTrader.
