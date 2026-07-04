@@ -24,6 +24,15 @@ from . import (
 from .custom_parser import MultiRowRule
 from .parser_builder import ParserBuilder
 
+# #283 PR 13: le righe MarketType/MarketName/SelectionName della tabella regole hanno una
+# tendina EDITABILE in «Valore fisso», popolata dai valori permanenti del dizionario Betfair
+# (harvest PR 12), filtrata per lo sport del parser. Mappa colonna CSV → chiave del provider.
+_BETFAIR_TERM_TARGETS = {
+    "MarketType": "market_types",
+    "MarketName": "market_names",
+    "SelectionName": "selection_names",
+}
+
 
 class CustomParserPanel(ctk.CTkFrame):
     """Pannello del costruttore di Parser Personalizzati — incassabile in finestra
@@ -52,8 +61,47 @@ class CustomParserPanel(ctk.CTkFrame):
 
     def _on_sport_change(self, _value=None):
         """Sport cambiato dal menu: aggiorna il builder (canonicalizzazione/fail-safe in
-        `set_sport`). Non tocca le regole né l'obbligatorietà (lo sport non cambia le colonne)."""
+        `set_sport`). Non tocca le regole né l'obbligatorietà (lo sport non cambia le colonne).
+        Aggiorna però le tendine MarketType/MarketName/SelectionName ai termini del nuovo sport."""
         self.builder.set_sport(self._label_to_sport(self._sport_var.get()))
+        self._refresh_term_combos()
+
+    # ── tendine Betfair MarketType/MarketName/SelectionName (#283 PR 13) ─────
+    def _fetch_market_terms(self) -> dict:
+        """Legge i valori permanenti mercato/selezione dal dizionario Betfair per lo sport
+        CORRENTE del parser (best-effort). Provider assente/`DictionaryBusy` (sync in corso)/
+        errore → liste vuote: nessun suggerimento ora, ma la tendina resta editabile (testo
+        libero preservato, nessun blocco)."""
+        empty = {"market_types": [], "market_names": [], "selection_names": []}
+        if not callable(self._market_terms_provider):
+            return dict(empty)
+        from .betfair.dictionary_viewer import DictionaryBusy
+        sport = self._label_to_sport(self._sport_var.get()) or None   # "" agnostico → tutti
+        try:
+            return self._market_terms_provider(sport) or dict(empty)
+        except DictionaryBusy:
+            return dict(empty)          # sync in corso: nessun suggerimento (niente freeze)
+        except Exception:               # noqa: BLE001 — best-effort: nessun suggerimento
+            return dict(empty)
+
+    def _term_values(self, target: str) -> list:
+        """Valori suggeriti (per lo sport corrente) per la tendina di `target`, dalla cache."""
+        return list(self._market_terms.get(_BETFAIR_TERM_TARGETS.get(target, ""), []))
+
+    def _refresh_term_combos(self):
+        """Ricarica la cache dei termini e aggiorna i `values` delle tendine
+        MarketType/MarketName/SelectionName **preservando** il valore digitato/selezionato
+        (anche se non (ancora) sincronizzato: resta in lista)."""
+        self._market_terms = self._fetch_market_terms()
+        for refs in self._rows:
+            combo = refs.get("term_combo")
+            if combo is None:
+                continue
+            cur = refs["fixed_value"].get()
+            vals = ["", *self._term_values(refs["target"])]
+            if cur and cur not in vals:
+                vals.append(cur)
+            combo.configure(values=vals)
 
     # ── anagrafica Provider (PR-5) ─────────────────────────────────────────
     @staticmethod
@@ -283,11 +331,19 @@ class CustomParserPanel(ctk.CTkFrame):
         win.focus()
 
     def __init__(self, master=None, builder: ParserBuilder = None, provider: str = "",
-                 global_mode: str = "", on_saved=None, id_resolver_factory=None):
+                 global_mode: str = "", on_saved=None, id_resolver_factory=None,
+                 market_terms_provider=None):
         super().__init__(master)
         is_new = builder is None
         self.builder = builder or ParserBuilder()
         self._provider = provider
+        # Provider OPZIONALE dei valori permanenti mercato/selezione del dizionario Betfair
+        # (#283 PR 13): `callable(sport) -> {"market_types", "market_names", "selection_names"}`
+        # (l'app passa `App._known_market_terms`). Popola le tendine editabili delle righe
+        # MarketType/MarketName/SelectionName. Assente/fallisce → nessun suggerimento, testo
+        # libero preservato (nessuna regressione fail-closed).
+        self._market_terms_provider = market_terms_provider
+        self._market_terms = {}   # cache per lo sport corrente (riempita al reload righe)
         # Factory OPZIONALE del dizionario Betfair per l'anteprima (#192, Codex): un callable
         # `() -> id_resolver | None` (l'app passa `App._betfair_id_resolver`). Serve a rendere
         # «Prova messaggio» EQUIVALENTE al runtime per i parser ID_ONLY che risolvono gli ID dal
@@ -346,6 +402,7 @@ class CustomParserPanel(ctk.CTkFrame):
                 menu.configure(values=vals)
         self._reload_profile_checks()       # ricarica i profili mapping dal disco (spunte preservate)
         self._reload_market_profile_checks()  # idem per i profili mercati
+        self._refresh_term_combos()         # #283 PR 13: una sync nel frattempo può aver aggiunto termini
 
     # ── costruzione UI ─────────────────────────────────────────────────────
     def _build_ui(self):
@@ -671,6 +728,18 @@ class CustomParserPanel(ctk.CTkFrame):
                                               values=vals)
             provider_menu.pack(side="left", padx=2)
             refs["provider_menu"] = provider_menu   # per refresh_options (hub)
+        elif rule.target in _BETFAIR_TERM_TARGETS:
+            # #283 PR 13: tendina EDITABILE coi valori permanenti Betfair (per sport). È una
+            # CTkComboBox (non OptionMenu): suggerisce i valori sincronizzati MA il testo libero
+            # resta digitabile → nessuna regressione fail-closed (un valore valido non ancora
+            # harvestato è comunque inseribile). `.get()` sul StringVar è letto da _sync_to_builder.
+            refs["fixed_value"] = ctk.StringVar(value=rule.fixed_value)
+            vals = ["", *self._term_values(rule.target)]
+            if rule.fixed_value and rule.fixed_value not in vals:
+                vals.append(rule.fixed_value)   # preserva un valore non (ancora) sincronizzato
+            combo = ctk.CTkComboBox(row, variable=refs["fixed_value"], width=130, values=vals)
+            combo.pack(side="left", padx=2)
+            refs["term_combo"] = combo          # per _refresh_term_combos (cambio sport / hub)
         else:
             refs["fixed_value"] = ctk.CTkEntry(row, width=130)
             refs["fixed_value"].insert(0, rule.fixed_value)
@@ -696,6 +765,10 @@ class CustomParserPanel(ctk.CTkFrame):
         self._mode_var.set(self._mode_to_label(self.builder.mode))
         # Sport (PR-P9): ripristina la tendina dal builder (incl. "" agnostico).
         self._sport_var.set(self._sport_to_label(self.builder.sport))
+        # #283 PR 13: rileggi i termini Betfair per lo sport (appena ripristinato) PRIMA di
+        # costruire le righe, così le tendine MarketType/MarketName/SelectionName nascono coi
+        # valori giusti. Best-effort (sync in corso / DB assente → nessun suggerimento).
+        self._market_terms = self._fetch_market_terms()
         # Mappatura nomi: ripristina separatore + checkbox profili dal builder.
         self._separator_var.set(self.builder.team_separator)
         self._reload_profile_checks(use_builder=True)
@@ -1047,11 +1120,13 @@ class CustomParserWindow(ctk.CTkToplevel):
     "🧩 Parser" della finestra "🧰 Strumenti"."""
 
     def __init__(self, master=None, builder: ParserBuilder = None, provider: str = "",
-                 global_mode: str = "", on_saved=None, id_resolver_factory=None):
+                 global_mode: str = "", on_saved=None, id_resolver_factory=None,
+                 market_terms_provider=None):
         super().__init__(master)
         self.title("Parser Personalizzato")
         gui_utils.fit_to_screen(self, 1024, 720, 760, 480)
         CustomParserPanel(self, builder=builder, provider=provider,
                           global_mode=global_mode, on_saved=on_saved,
-                          id_resolver_factory=id_resolver_factory).pack(
+                          id_resolver_factory=id_resolver_factory,
+                          market_terms_provider=market_terms_provider).pack(
                               fill="both", expand=True)

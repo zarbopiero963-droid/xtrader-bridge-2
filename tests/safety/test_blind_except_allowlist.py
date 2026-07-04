@@ -29,7 +29,7 @@ _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
-    "app.py": (34, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+    "app.py": (35, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
                    "event journal best-effort (#230); refill campo token su widget Tk distrutto (PR-08c); "
                    "engine/DB non disponibile → login Betfair senza riserva del lock (#172 audit); "
                    "probe is_syncing dell'anteprima ID fail-open (#192, Codex P2); "
@@ -39,13 +39,16 @@ _ALLOWLIST = {
                    "è difensiva, non deve mai impedire l'avvio della GUI); "
                    "known_teams del dizionario Betfair per precompilare la mappatura nomi "
                    "best-effort (#282 PR 11: DB assente → [], la GUI non crasha); "
-                   "delete_known_team best-effort (#282 PR 11-bis: DB assente → False)"),
+                   "delete_known_team best-effort (#282 PR 11-bis: DB assente → False); "
+                   "known_market_terms best-effort (#283 PR 13: DB assente → liste vuote)"),
     "atomic_io.py": (1, "cleanup del temporaneo su QUALSIASI errore di scrittura/rename (BaseException)"),
     "config_store.py": (2, "backup config corrotta best-effort + rollback keyring best-effort"),
     "csv_writer.py": (1, "callback diagnostico best-effort di clear_stale_csv: un sink log/GUI che "
                          "solleva non deve rompere il cleanup anti-segnale-stantio all'avvio/STOP (#241)"),
-    "custom_parser_gui.py": (9, "GUI Tk del costruttore parser: render/azioni best-effort "
-                             "(incl. resolver ID anteprima fail-open, #192)"),
+    "custom_parser_gui.py": (10, "GUI Tk del costruttore parser: render/azioni best-effort "
+                             "(incl. resolver ID anteprima fail-open, #192; termini Betfair "
+                             "per le tendine MarketType/MarketName/SelectionName best-effort, "
+                             "#283 PR 13: sync in corso/DB assente → nessun suggerimento)"),
     "custom_pipeline.py": (1, "id_resolver iniettato: un resolver che solleva NON blocca la riga (fail-open)"),
     "gui_utils.py": (1, "helper GUI best-effort"),
     "journal_view_gui.py": (2, "GUI Tk scheda Diario (#236): lettura ledger best-effort "

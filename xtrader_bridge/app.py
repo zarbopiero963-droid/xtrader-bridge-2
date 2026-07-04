@@ -1351,6 +1351,38 @@ class App(ctk.CTk):
         except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → non eliminato
             return False
 
+    def _known_market_terms(self, sport=None) -> dict:
+        """Valori PERMANENTI di mercato/selezione del dizionario Betfair locale (#283 PR 13),
+        per popolare le tendine «Valore fisso» delle righe MarketType/MarketName/SelectionName
+        del Parser, filtrati per `sport`. Ritorna `{"market_types": [...], "market_names": [...],
+        "selection_names": [...]}`.
+
+        **Sola lettura**, best-effort: DB non disponibile (mai sincronizzato, cartella assente…)
+        → liste vuote (la tendina resta editabile a testo libero). **FAIL-FAST se una sync tiene
+        il lock del DB** (come `_known_betfair_teams`): probe **non bloccante** e, se occupato,
+        `DictionaryBusy` (il pannello mostra nessun suggerimento senza freeze del thread Tk).
+        Non fa rete."""
+        from .betfair.dictionary_viewer import DictionaryBusy
+        empty = {"market_types": [], "market_names": [], "selection_names": []}
+        try:
+            db = self._betfair_sync_engine().db
+            if db is None:               # engine costruito ma DB non aperto → nessun termine
+                return dict(empty)
+            if not db.acquire_read(blocking=False):
+                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+            try:
+                return {
+                    "market_types": db.known_market_types(sport),
+                    "market_names": db.known_market_names(sport),
+                    "selection_names": db.known_selection_names(sport),
+                }
+            finally:
+                db.release_read()
+        except DictionaryBusy:
+            raise                        # 'occupato' distinto: lo gestisce il pannello
+        except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → liste vuote
+            return dict(empty)
+
     def _betfair_id_resolver(self):
         """Risolutore ID del dizionario Betfair locale per il flusso live (PR-P12),
         **best-effort**: ritorna un `DictionaryResolver` sul DB locale, o `None` se il
@@ -2919,7 +2951,8 @@ class App(ctk.CTk):
             # GUI sul lock del DB (Codex P2). Fail-open: durante la sync l'anteprima è conservativa.
             return CustomParserPanel(parent, provider=_parser_provider,
                                      global_mode=_parser_global_mode, on_saved=_parser_saved,
-                                     id_resolver_factory=self._preview_id_resolver_factory)
+                                     id_resolver_factory=self._preview_id_resolver_factory,
+                                     market_terms_provider=self._known_market_terms)
 
         def _make_sources(parent):
             """Crea il pannello Chat sorgenti e ne tiene il riferimento per il refresh."""

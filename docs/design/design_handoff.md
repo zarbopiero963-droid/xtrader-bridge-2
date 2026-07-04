@@ -266,8 +266,17 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
   BetType/Handicap + checkbox **"Attiva"** + **"🗑 Rimuovi"**.
 - **Griglia regole (14 colonne CSV fisse):** intestazioni **Colonna · Inizia dopo ·
   Finisce prima · Valore fisso · Trasformazione · Value-map · Obblig.** Ogni riga: nome
-  colonna (label), 2 entry delimitatori, entry/dropdown valore fisso (dropdown Provider se
-  colonna = Provider), dropdown Trasformazione, dropdown Value-map, checkbox **Obblig.**
+  colonna (label), 2 entry delimitatori, **campo «Valore fisso»** (vedi sotto), dropdown
+  Trasformazione, dropdown Value-map, checkbox **Obblig.**
+  - Il campo **«Valore fisso»** varia per colonna: **entry di testo** per la maggior parte;
+    **dropdown a scelta fissa** per **Provider** (dall'anagrafica); **tendina EDITABILE**
+    (`CTkComboBox`) per **MarketType / MarketName / SelectionName** (#283 PR 13), popolata coi
+    valori permanenti del dizionario Betfair **filtrati per lo sport del parser**. La tendina
+    editabile suggerisce i valori sincronizzati **ma resta digitabile** (un valore valido non
+    ancora harvestato è comunque inseribile: niente fail-closed). Si aggiorna al cambio Sport e
+    al rientro nell'hub Strumenti. Durante una sync Betfair non si blocca: mostra solo nessun
+    suggerimento (testo libero comunque digitabile). Distinzione visiva: Provider = tendina
+    chiusa; i tre termini Betfair = tendina con campo di testo (freccia + digitabile).
 - **Azioni:** **"💾 Salva"**, **"🧪 Prova messaggio"**, **"📋 Copia diagnostica"**.
 - **Area di test:** textbox "Messaggio di prova" + verdetto (`✅ Pronto` / `⛔ …`). L'anteprima
   usa lo stesso motore del runtime e, quando il dizionario Betfair locale è disponibile, risolve

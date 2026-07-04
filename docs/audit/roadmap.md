@@ -1079,3 +1079,35 @@ SelectionName solo dai mercati universali e **mai** i nomi squadra di MATCH_ODDS
 per tutti; no-deactivate quando l'evento sparisce; sync ripetuta non duplica; isolamento per sport;
 helper `_is_universal_selection_market`). Fail-first verificato via stash (14 test falliscono senza
 il codice).
+
+
+## #283 — tendine MarketType/MarketName/SelectionName nel Parser dai valori permanenti ✅ (PR 13)
+
+**Obiettivo.** Rendere **selezionabili** nel Parser i valori permanenti harvestati in PR 12: nella
+tabella regole, le righe MarketType/MarketName/SelectionName mostrano in «Valore fisso» una tendina
+popolata dal dizionario Betfair, **filtrata per lo sport del parser**. Chiude #283 (con PR 12).
+
+**Cosa fa.**
+- `app.py` — `_known_market_terms(sport)` **busy-guardato** (probe non bloccante + `DictionaryBusy`,
+  come `_known_betfair_teams`): ritorna `{market_types, market_names, selection_names}` filtrati per
+  sport, best-effort (DB assente → liste vuote). Iniettato in `_make_parser`.
+- `custom_parser_gui.py` — in `_add_row`, per `target in (MarketType, MarketName, SelectionName)`
+  una **`CTkComboBox` EDITABILE** (non OptionMenu): suggerisce i valori sincronizzati ma il **testo
+  libero resta digitabile** (un valore valido non ancora harvestato è inseribile → **nessuna
+  regressione fail-closed**). `_fetch_market_terms`/`_refresh_term_combos` aggiornano i valori al
+  **cambio sport** (`_on_sport_change`) e al rientro nell'hub (`refresh_options`), preservando la
+  selezione corrente. Il valore è letto da `_sync_to_builder` via `.get()` sullo StringVar (come
+  Provider).
+
+**Scope.** La coerenza «selezione appartiene al mercato» resta garantita dal picker «Catalogo
+XTrader» (tripla Mercato→Tipo→Selezione); le tendine per-riga offrono i valori per-sport **senza
+cascading** Mercato→Selezione (fuori scope, deciso col proprietario). Non tocca contratto CSV,
+parser runtime, ID effimeri.
+
+**Test hard:** `tests/unit/test_custom_parser_gui_market_terms.py` (customtkinter stubbato con
+StringVar/ComboBox finti ma ispezionabili: la riga term crea una tendina editabile coi valori del
+provider per sport, testo libero preservato, refresh mantiene la selezione, sport passato/agnostico
+→ None, provider assente/sync in corso → nessun suggerimento; una colonna non-term resta entry);
+`tests/integration/test_known_teams_busy.py` (`_known_market_terms`: lock libero → valori per sport,
+sync → `DictionaryBusy` fail-fast, DB assente/engine non costruibile → liste vuote). Fail-first via
+stash (13 test falliscono senza il codice). Suite: **2011 passed, 10 skipped**.
