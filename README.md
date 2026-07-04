@@ -127,7 +127,8 @@ ogni 10–15 secondi). Per il collaudo, tieni XTrader in **Modalità Simulazione
 
 La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Config**
 (oppure all'avvio con **▶ AVVIA**) nel file `config.json` (vedi
-[Dove vengono salvati i file](#dove-vengono-salvati-i-file)).
+[Dove vengono salvati i file](#dove-vengono-salvati-i-file)). Ogni campo mostra un **esempio-guida**
+(placeholder) quando è vuoto; è solo un aiuto visivo e non viene salvato.
 
 | Campo GUI | Chiave config | Default | A cosa serve |
 |---|---|---|---|
