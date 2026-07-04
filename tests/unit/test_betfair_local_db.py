@@ -488,3 +488,27 @@ def test_distinct_market_terms_colonna_non_valida(db):
     # Guardia SQL: la colonna è FISSA dal codice, mai input utente.
     with pytest.raises(ValueError):
         db._distinct_market_terms("selection_name; DROP TABLE x", "Calcio")
+
+
+def test_market_term_stesso_nome_tipo_diverso_non_collide(db):
+    # market_type è PARTE della chiave: due mercati con lo STESSO market_name ma tipo
+    # diverso restano righe SEPARATE (niente last-write-wins sul tipo → tupla coerente,
+    # Fable/GPT #326).
+    db.upsert_market_term("Calcio", "OVER_UNDER_25", "Goals", "Over 2,5", seen_at=1)
+    db.upsert_market_term("Calcio", "OVER_UNDER_35", "Goals", "Over 3,5", seen_at=1)
+    assert db.known_market_types("Calcio") == ["OVER_UNDER_25", "OVER_UNDER_35"]
+    # entrambi i tipi conservati (nessuno sovrascritto), stesso market_name condiviso
+    assert db.known_market_names("Calcio") == ["Goals"]
+    assert db.count_market_terms("Calcio") == 2
+    rows = {(r["market_type"], r["selection_name"])
+            for r in db.fetchall("betfair_known_market_terms")}
+    assert rows == {("OVER_UNDER_25", "Over 2,5"), ("OVER_UNDER_35", "Over 3,5")}
+
+
+def test_market_term_type_vuoto_salvato_come_stringa(db):
+    # market_type assente → salvato come '' (non NULL: fa parte della PK), escluso dai
+    # MarketType distinti ma il mercato resta consultabile via MarketName.
+    assert db.upsert_market_term("Calcio", None, "Mercato senza tipo", seen_at=1) is True
+    assert db.known_market_types("Calcio") == []          # '' escluso
+    assert db.known_market_names("Calcio") == ["Mercato senza tipo"]
+    assert db.fetchall("betfair_known_market_terms")[0]["market_type"] == ""

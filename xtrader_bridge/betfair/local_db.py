@@ -128,14 +128,14 @@ CREATE TABLE IF NOT EXISTS betfair_known_teams (
 );
 CREATE TABLE IF NOT EXISTS betfair_known_market_terms (
     sport                TEXT NOT NULL,
-    market_type          TEXT,
+    market_type          TEXT NOT NULL DEFAULT '',
     normalized_market    TEXT NOT NULL,
     market_name          TEXT,
     normalized_selection TEXT NOT NULL DEFAULT '',
     selection_name       TEXT,
     first_seen_at        INTEGER NOT NULL DEFAULT 0,
     last_seen_at         INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (sport, normalized_market, normalized_selection)
+    PRIMARY KEY (sport, market_type, normalized_market, normalized_selection)
 );
 CREATE TABLE IF NOT EXISTS betfair_sync_runs (
     run_id     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -372,27 +372,31 @@ class BetfairLocalDB:
         (B3 #259: coerenza nome mercato↔selezione). `selection_name` vuoto = riga «àncora»
         del solo mercato (il mercato esiste ma non contribuisce una selezione universale —
         vedi l'allowlist dell'harvest); una selezione universale (Over/Under, Sì/No, …) è
-        una riga con entrambi valorizzati. Chiave `(sport, normalized_market,
-        normalized_selection)` con normalizzazione canonica (case/spazi-insensibile), la
-        stessa dei nomi squadra: nessun duplicato. Idempotente: alla re-visione aggiorna le
-        grafie e `last_seen_at`, MAI `first_seen_at`. La tabella non ha `active` e resta
-        fuori da `_SCOPED` → il mark-and-sweep non la tocca: valori **per sempre**."""
+        una riga con entrambi valorizzati. Chiave `(sport, market_type, normalized_market,
+        normalized_selection)` con normalizzazione canonica (case/spazi-insensibile): il
+        `market_type` è PARTE della chiave così due mercati con lo STESSO nome ma tipo
+        diverso NON collidono (niente last-write-wins sul tipo → tupla sempre coerente,
+        Fable/GPT #326). Idempotente: alla re-visione aggiorna le grafie e `last_seen_at`,
+        MAI `first_seen_at`. La tabella non ha `active` e resta fuori da `_SCOPED` → il
+        mark-and-sweep non la tocca: valori **per sempre**."""
         market = str(market_name or "").strip()
         norm_market = _normalize_name(market) if market else ""
         if not norm_market:
             return False
         selection = str(selection_name or "").strip()
         norm_selection = _normalize_name(selection) if selection else ""
+        mtype = str(market_type or "").strip()          # '' (non NULL): fa parte della PK
         self._exec(
             """INSERT INTO betfair_known_market_terms
                  (sport, market_type, normalized_market, market_name,
                   normalized_selection, selection_name, first_seen_at, last_seen_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(sport, normalized_market, normalized_selection) DO UPDATE SET
-                 market_type=excluded.market_type, market_name=excluded.market_name,
+               ON CONFLICT(sport, market_type, normalized_market, normalized_selection)
+               DO UPDATE SET
+                 market_name=excluded.market_name,
                  selection_name=excluded.selection_name,
                  last_seen_at=excluded.last_seen_at""",
-            (str(sport), str(market_type or "").strip() or None, norm_market, market,
+            (str(sport), mtype, norm_market, market,
              norm_selection, selection or None, int(seen_at), int(seen_at)))
         return True
 

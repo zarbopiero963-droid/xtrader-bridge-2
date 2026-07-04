@@ -772,11 +772,13 @@ def test_is_universal_selection_market():
     from xtrader_bridge.betfair.catalogue_client import _is_universal_selection_market
     # Universali (harvestabili come SelectionName):
     for mt in ("OVER_UNDER_25", "OVER_UNDER_05", "OVER_UNDER_205_GAMES",
-               "BOTH_TEAMS_TO_SCORE", "ODD_OR_EVEN", "DOUBLE_CHANCE"):
+               "BOTH_TEAMS_TO_SCORE", "ODD_OR_EVEN"):
         assert _is_universal_selection_market(mt) is True
-    # Team-dipendenti / per-partita (NIENTE selezioni: solo MarketType/MarketName):
+    # Team-dipendenti / per-partita (NIENTE selezioni: solo MarketType/MarketName).
+    # DOUBLE_CHANCE è ESCLUSO: su Betfair i runner sono team-dipendenti («Inter o
+    # Pareggio»), non «1X/12/X2» (Fable/Fugu #326).
     for mt in ("MATCH_ODDS", "ASIAN_HANDICAP", "HANDICAP", "CORRECT_SCORE",
-               "DRAW_NO_BET", "SET_BETTING", "", None):
+               "DRAW_NO_BET", "SET_BETTING", "DOUBLE_CHANCE", "", None):
         assert _is_universal_selection_market(mt) is False
 
 
@@ -867,3 +869,16 @@ def test_harvest_market_terms_isolato_per_sport(db):
                   ).sync(["Basket"])
     assert db.known_selection_names("Basket") == ["Over 210,5", "Under 210,5"]
     assert db.known_selection_names("Calcio") == []       # niente cross-sport
+
+
+def test_harvest_market_terms_sport_ignoto_fail_closed(db):
+    # Fail-closed (CodeRabbit #326): un event_type_id non riconosciuto
+    # (`sport_for_event_type_id` → None) NON harvesta nulla, anche con un mercato a esiti
+    # universali. Esercitato chiamando direttamente `_harvest_market_terms` (la sync filtra
+    # gli sport a monte, ma la guardia interna deve reggere comunque).
+    cs = _sync_mkt(db)
+    written = cs._harvest_market_terms(
+        "999", "Over/Under 2,5", "OVER_UNDER_25",
+        [{"runner_name": "Over 2,5"}, {"runner_name": "Under 2,5"}], seen_at=1)
+    assert written == 0
+    assert db.count_market_terms() == 0                    # nessuna riga scritta

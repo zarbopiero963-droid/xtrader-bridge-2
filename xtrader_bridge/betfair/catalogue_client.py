@@ -31,17 +31,18 @@ NAVIGATION_OP = "navigationMenu"
 CATALOGUE_OP = "listMarketCatalogue"
 
 # Allowlist SAFETY-CRITICAL (#283): market_type i cui esiti (runner) sono UNIVERSALI —
-# stesse parole per OGNI partita (Over/Under, Sì/No, Pari/Dispari, 1X/12/X2) — quindi
-# harvestabili come SelectionName permanenti «diretti». I mercati TEAM-DIPENDENTI
-# (MATCH_ODDS, *_HANDICAP, CORRECT_SCORE, DRAW_NO_BET, SET_BETTING, …) hanno come esiti
+# stesse parole per OGNI partita (Over/Under, Sì/No, Pari/Dispari) — quindi harvestabili
+# come SelectionName permanenti «diretti». I mercati TEAM-DIPENDENTI (MATCH_ODDS,
+# *_HANDICAP, CORRECT_SCORE, DRAW_NO_BET, SET_BETTING, DOUBLE_CHANCE, …) hanno come esiti
 # NOMI SQUADRA / valori per-partita: NON contribuiscono selezioni (fissarne uno come
 # SelectionName scriverebbe una riga CSV sbagliata = scommessa sbagliata). Danno
 # comunque MarketType/MarketName (universali). Lista **conservativa** e fail-closed:
 # nel dubbio un mercato resta FUORI (nessuna selezione) — il proprietario può estenderla.
+# NB: DOUBLE_CHANCE è ESCLUSO di proposito — su Betfair i suoi runner sono team-dipendenti
+# («{Home} o Pareggio», «Pareggio o {Away}», «{Home} o {Away}»), non «1X/12/X2» (Fable #326).
 _UNIVERSAL_SELECTION_MARKET_TYPES = frozenset({
     "BOTH_TEAMS_TO_SCORE",   # Sì / No
     "ODD_OR_EVEN",           # Dispari / Pari
-    "DOUBLE_CHANCE",         # 1X / 12 / X2 (esiti posizionali, non nomi squadra)
 })
 
 
