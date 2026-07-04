@@ -1252,3 +1252,35 @@ path invece permesso); file estraneo senza/con force; ramo OSError (avviso, no s
 
 **Docs:** design_handoff.md (GATE: pulsante «📄 Crea CSV» + anti data-loss a tre livelli), README
 (nota «Crea CSV»). Contratto CSV invariato (stesso `CSV_HEADER`/`init_csv`).
+
+
+## #288 Delta 1 — toggle tema chiaro/scuro ✅ (PR 17)
+
+**Obiettivo (#288 Delta 1).** L'app aveva **tema scuro fisso** (`set_appearance_mode("dark")` a
+import-time). Aggiungere un **toggle chiaro/scuro** nell'header, con la preferenza persistita in
+config (default `dark`, retrocompatibile) e riapplicata all'avvio.
+
+**Cosa fa.**
+- `config_store.py` — chiave `theme` in `DEFAULTS` (`"dark"`) + helper puro
+  `normalize_theme(value)`: normalizza a `"dark"`/`"light"` (case/spazi-insensitive), qualsiasi
+  valore mancante/non-stringa/sconosciuto → **fail-closed `"dark"`**. Usato SIA in `load_config`
+  (validazione del campo) SIA nell'app → fonte unica di verità.
+- `app.py` — dopo il load, `set_appearance_mode(normalize_theme(cfg["theme"]))`. Header: pulsante
+  toggle (icona 🌙 scuro / ☀️ chiaro) + `_toggle_theme` (applica `set_appearance_mode`, PERSISTE con
+  **merge sul config vivo + guardia token PR-08c** come gli altri save non-form, aggiorna l'icona) +
+  `_update_theme_button`.
+
+**Sicurezza.** Default e fail-closed a `dark` (nessuno stato UI indefinito). Nessun impatto su
+contratto CSV, parser Telegram, Betfair; guardia token PR-08c preservata. I colori semantici
+hardcoded restano invariati (leggibilità in tema chiaro = smoke manuale; rifinitura piena = Delta 3).
+
+**Test hard (fail-first via stash):** `tests/unit/test_theme_config.py` (`normalize_theme`
+dark/light/case/spazi/mancante/malformato/non-str → dark; `load_config` default/light/malformato/
+assente); `tests/integration/test_theme_toggle.py` (`_toggle_theme` via harness headless + vera
+`save_config`: dark→light e light→dark applicano `set_appearance_mode` + persistono + aggiornano
+l'icona + preservano gli altri campi; tema malformato trattato come dark; **guardia token PR-08c**;
+ramo save fallito → tema applicato all'UI ma avviso nel log). Rendering reale del tema chiaro =
+smoke manuale su Windows. Suite: **2061 passed, 10 skipped**.
+
+**Docs:** design_handoff.md (GATE: tema commutabile, toggle nell'header, nota palette hardcoded +
+Delta 3), README (nota toggle tema). Restano #288 Delta 2 (placeholder) e Delta 3 (restyle).

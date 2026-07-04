@@ -192,6 +192,10 @@ class App(ctk.CTk):
         # _load_config, che chiama _register_secret_token.
         self._registered_tokens = set()
         self._config = self._load_config()
+        # Tema UI (#288 Delta 1): l'import-time ha applicato "dark" come default; ora che la
+        # config è caricata applica la preferenza salvata (fail-closed a "dark" se
+        # mancante/malformata via `normalize_theme`).
+        ctk.set_appearance_mode(config_store.normalize_theme(self._config.get("theme")))
         self._running = False
         self._session_real = False   # la sessione attiva è partita in modalità reale? (#136 p4 banner)
         # Esito dell'ultimo salvataggio config su disco (A1): il bottone "Salva Config"
@@ -781,6 +785,38 @@ class App(ctk.CTk):
         if self._apply_and_save_csv_path(dest):
             self._log(f"📄 CSV Path aggiornato e salvato: {dest}")
 
+    # ── Tema chiaro/scuro: toggle nell'header (#288 Delta 1) ──────────────────────
+    def _update_theme_button(self, theme: str) -> None:
+        """Aggiorna l'icona del toggle tema: 🌙 = scuro attivo, ☀️ = chiaro attivo (il click
+        passa all'altro). No-op se il pulsante non è ancora costruito (chiamate headless)."""
+        btn = self.__dict__.get("_theme_btn")
+        if btn is not None:
+            btn.configure(text="☀️" if theme == "light" else "🌙")
+
+    def _toggle_theme(self) -> str:
+        """Toggle tema chiaro/scuro (#288 Delta 1): applica `set_appearance_mode` e **persiste**
+        la preferenza in config. MERGE sul config **vivo** (`self._config`), NON rilegge il form
+        (non tocca gli altri campi né esegue i gate di transizione REALE) e cattura la **guardia
+        token PR-08c** come tutti i save non-form. Aggiorna l'icona del pulsante e logga l'esito.
+        Ritorna il tema applicato (utile ai test)."""
+        current = config_store.normalize_theme(self._config.get("theme"))
+        new = "light" if current == "dark" else "dark"
+        ctk.set_appearance_mode(new)
+        cfg = dict(self._config) if isinstance(self._config, dict) else {}
+        cfg["theme"] = new
+        had_incomplete = self._had_incomplete_token_load()
+        result = save_config(cfg, CONFIG_FILE)
+        saved, ok = result
+        self._config = saved
+        self._resync_token_field(had_incomplete)
+        self._save_ok = ok
+        if not ok:
+            self._log("❌ Preferenza tema NON salvata: "
+                      + config_store.save_status_message(result.status))
+        self._update_theme_button(new)
+        self._log("🎨 Tema: " + ("chiaro" if new == "light" else "scuro"))
+        return new
+
     # ── CSV Path: pulsante «📄 Crea CSV» — genera un CSV a solo header (#286) ──────
     def _is_active_session_csv(self, path: str) -> bool:
         """True se `path` è (case/relative-insensitive) il CSV della **sessione ATTIVA** a
@@ -905,6 +941,13 @@ class App(ctk.CTk):
                                          font=ctk.CTkFont(size=13, weight="bold"),
                                          text_color="#ef5350")
         self._status_lbl.pack(side="right", padx=15)
+
+        # Toggle tema chiaro/scuro (#288 Delta 1): pulsante icona a sinistra dello stato.
+        self._theme_btn = ctk.CTkButton(hdr, text="🌙", width=44,
+                                        font=ctk.CTkFont(size=16),
+                                        command=self._toggle_theme)
+        self._theme_btn.pack(side="right", padx=(0, 5))
+        self._update_theme_button(config_store.normalize_theme(self._config.get("theme")))
 
         # Indicatore "righe attive" (#136 punto 5): quante righe/scommesse sono attive ora
         # nel CSV. Aggiornato da `_update_active_indicator` su scrittura/scadenza/clear.

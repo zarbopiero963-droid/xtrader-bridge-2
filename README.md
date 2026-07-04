@@ -139,6 +139,8 @@ La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Co
 
 Pulsanti aggiuntivi:
 
+- **🌙 / ☀️ Toggle tema** (nell'header) — commuta tra tema **scuro** (default) e **chiaro**. La
+  preferenza (`theme` in `config.json`, `dark`/`light`) è **salvata subito** e riapplicata all'avvio.
 - **🗑️ Svuota CSV ora** — riporta subito il CSV al solo header.
 - **🧩 Parser Personalizzato** — apre il costruttore di parser (vedi
   [Parser Personalizzato](#parser-personalizzato)).

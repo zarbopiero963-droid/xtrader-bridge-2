@@ -72,8 +72,12 @@ sicurezza parte di default in **simulazione** (`dry_run=true`): riconosce i segn
 
 - **Toolkit GUI:** [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) (`ctk`)
   sopra Tkinter. È un layer di widget "moderni" su Tkinter.
-- **Tema attuale:** `set_appearance_mode("dark")` + `set_default_color_theme("blue")` →
-  **tema scuro** con accento blu.
+- **Tema:** default **scuro** (`set_appearance_mode("dark")` + `set_default_color_theme("blue")`,
+  accento blu). Dalla #288 Delta 1 è **commutabile** chiaro/scuro con un **toggle nell'header**
+  (icona 🌙/☀️): la preferenza è persistita in `config.json` (chiave `theme`, valori `dark`/`light`,
+  default `dark`, fail-closed) e riapplicata all'avvio. I widget standard CustomTkinter si
+  ri-tematizzano da soli; alcuni colori semantici sono ancora hardcoded (vedi «Palette») e il tema
+  chiaro non è ancora rifinito — il restyle completo è **Delta 3** (issue #288).
 - **Widget disponibili** (ciò che il toolkit offre e che il design può assumere come
   building block): finestra (`CTk`), frame con `corner_radius` e `fg_color`, `CTkLabel`,
   `CTkButton` (con `fg_color`/`hover_color`), `CTkEntry` (anche password con `show="●"`),
@@ -125,6 +129,7 @@ FINESTRA PRINCIPALE  (720×760, larghezza fissa, altezza ridimensionabile)
 │
 ├── Header
 │     ├─ Titolo "🤖  XTrader Signal Bridge"
+│     ├─ Toggle tema chiaro/scuro (icona 🌙/☀️, #288 Delta 1)
 │     ├─ Indicatore stato (OFFLINE / ATTIVO / RICONNESSIONE…)
 │     └─ Indicatore righe attive (N/M)
 │
@@ -524,7 +529,12 @@ segnale/CSV/errore), log, e (in multi-riga) indicatore N/M.
 
 ## 10. Palette colori e stile attuale
 
-Tema **scuro**. Colori usati oggi (riferimento, non vincolo estetico):
+Tema **scuro** di default (commutabile chiaro/scuro dal toggle nell'header, #288 Delta 1). I colori
+qui sotto sono **hardcoded** (non ancora theme-aware): restano invariati anche in tema chiaro, quindi
+gli elementi con sfondo scuro fisso (es. header `#1a1a2e`) restano scuri e leggibili, ma la messa a
+punto piena della palette per il tema chiaro — e l'eventuale conversione a colori `(light, dark)` —
+è **Delta 3** (restyle). La leggibilità dei colori semantici in tema chiaro va verificata a vista
+(smoke manuale su Windows). Colori usati oggi (riferimento, non vincolo estetico):
 
 | Ruolo | Colore |
 |---|---|
@@ -668,5 +678,6 @@ Per un handoff efficace, sarebbe utile ricevere dal design (indicativo):
 5. **Note di fattibilità con CustomTkinter** (§3): cosa è realizzabile col toolkit attuale
    e cosa richiederebbe un cambio di tecnologia.
 
-> **Vincoli da tenere sempre presenti:** Windows desktop, italiano, tema scuro, CustomTkinter,
+> **Vincoli da tenere sempre presenti:** Windows desktop, italiano, tema scuro di default
+> (commutabile chiaro/scuro dal toggle nell'header, #288 Delta 1), CustomTkinter,
 > e le **invarianti di sicurezza (§13)**. Il resto è aperto al ridisegno.
