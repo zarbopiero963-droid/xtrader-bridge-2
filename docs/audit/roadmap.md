@@ -1453,3 +1453,38 @@ una sync si salta la lettura (best-effort «non sincronizzato»), mai freeze. Co
 fallito), non il disco. Nitpick CodeRabbit: estratte in helper puri `ready_count_label` /
 `no_channels_label`, e `parser_label` mostra `⚠` per un parser non caricabile. Test aggiornati
 (snapshot: probe non bloccante + config viva + DB None; helper GUI). Suite: **2111 passed, 10 skipped**.
+
+
+## #293 (slice 4) — hub Strumenti raggruppato per flusso in 4 gruppi ①..④ (PR 23)
+
+**Obiettivo (#293, slice scelto dal proprietario).** Riorganizzare i 10 strumenti dell'hub 🧰 per
+**«cosa vuoi fare»** invece che alla rinfusa: 4 gruppi ① Sorgenti · ② Lettura messaggi · ③ Betfair
+· ④ Impostazioni. **Approccio incrementale scelto col proprietario:** tab **piatte riordinate** con
+**prefisso di gruppo ①..④** (niente tab annidate in questo slice); collocazione degli strumenti
+extra: 🗺️ Mapping → ②, 📒 Diario + 🧹 Nomi Betfair → ③.
+
+**Cosa fa.**
+- `tools_gui.py` — nuova IA **pura** come fonte unica: `TOOL_GROUPS` (gruppi → strumenti, in
+  ordine), `TOOL_TITLES` (etichetta base per strumento), `build_tool_panels(factories)` che
+  assembla la lista ordinata `(titolo, factory)` col prefisso di gruppo (es. «① 📡 Chat sorgenti»)
+  e fa **fail-fast** (`KeyError`) se manca la factory di uno strumento (nessuna scheda persa).
+- `app.py _open_tools` — la lista schede è ora costruita da `build_tool_panels({...})` con le
+  **stesse factory/callback di prima** (solo ordine + prefisso del titolo cambiano). Nessun altro
+  comportamento toccato.
+
+**Ordine risultante:** ① 📡 Chat sorgenti · ① 📇 Provider · ② 🧩 Parser · ② 🗺️ Mapping ·
+③ 🔵 Betfair Sync · ③ 📖 Dizionario Betfair · ③ 📒 Diario · ③ 🧹 Nomi Betfair · ④ 📁 Profili ·
+④ 📋 Riepilogo.
+
+**Sicurezza/invarianti.** Solo riorganizzazione GUI: nessun cambio a CSV, parser, filtro chat,
+config, backend Telegram/Betfair; nessun click in più (tab piatte); wiring `refresh_options`/
+`select_tab`/isolamento per-scheda invariato (nessun chiamante apre l'hub per titolo specifico).
+
+**Test hard (fail-first via mutazione):** `tests/integration/test_tools_groups.py` (5) — ordine e
+prefissi esatti delle 10 schede, tutte le factory instradate (nessuno strumento perso/duplicato),
+coerenza prefisso↔gruppo, i 4 gruppi coprono esattamente tutti gli strumenti una volta sola,
+fail-fast su factory mancante. Mutazione (scambio ordine in un gruppo) → i test ordine/instradamento
+FALLISCONO, poi ripristino. Rendering GUI reale = smoke manuale. Suite: **2116 passed, 10 skipped**.
+
+**Docs:** design_handoff.md (GATE §5 mappa hub raggruppata ①..④). Prossimo slice #293: densità
+parser (colonne essenziali di default, «Avanzate» per Trasformazione/Value-map).

@@ -153,18 +153,28 @@ FINESTRA PRINCIPALE  (720×760, larghezza fissa, altezza ridimensionabile)
       ├─ 📊 Dashboard        (contatori di sessione)
       └─ 📋 Log              (viewer log + filtro + retention + Debug + Svuota log)
 
-HUB "🧰 STRUMENTI"  (finestra a tab, caricata su richiesta)
-      ├─ 🧩 Parser              → Parser Personalizzato (costruttore regole)
-      ├─ 📡 Chat sorgenti       → gestione multi-chat
-      ├─ 📇 Provider            → anagrafica nomi Provider
-      ├─ 📁 Profili             → profili impostazioni salvabili
-      ├─ 🗺️ Mapping             → (sotto-tab: ⚽ Calcio nomi · 🎯 Mercati)
-      ├─ 🔵 Betfair Sync        → credenziali + sync dizionario Betfair
-      ├─ 📖 Dizionario Betfair  → browser sola-lettura del dizionario locale
-      ├─ 📒 Diario              → vista sola-lettura del diario eventi (event journal)
-      ├─ 🧹 Nomi Betfair        → ripulitura dei nomi squadra permanenti (sfoglia + elimina)
-      └─ 📋 Riepilogo           → colpo d'occhio sola-lettura: modalità + Betfair + canali «Pronto?»
+HUB "🧰 STRUMENTI"  (tab PIATTE ma RAGGRUPPATE per flusso ①..④, #293 slice 4; su richiesta)
+   ① Sorgenti
+      ├─ ① 📡 Chat sorgenti      → gestione multi-chat
+      └─ ① 📇 Provider           → anagrafica nomi Provider
+   ② Lettura messaggi
+      ├─ ② 🧩 Parser             → Parser Personalizzato (regole + 🔗 Traduzioni attive + multi-riga)
+      └─ ② 🗺️ Mapping            → dizionari mappatura (sotto-tab: ⚽ Calcio nomi · 🎯 Mercati)
+   ③ Betfair
+      ├─ ③ 🔵 Betfair Sync       → credenziali + sync dizionario Betfair
+      ├─ ③ 📖 Dizionario Betfair → browser sola-lettura del dizionario locale
+      ├─ ③ 📒 Diario             → vista sola-lettura del diario eventi (event journal)
+      └─ ③ 🧹 Nomi Betfair       → ripulitura dei nomi squadra permanenti (sfoglia + elimina)
+   ④ Impostazioni
+      ├─ ④ 📁 Profili            → profili impostazioni salvabili
+      └─ ④ 📋 Riepilogo          → colpo d'occhio sola-lettura: modalità + Betfair + canali «Pronto?»
 ```
+
+> **#293 slice 4 (raggruppamento per flusso).** Le schede dell'hub restano un unico `CTkTabview`
+> **piatto**, ma sono **riordinate per gruppo** e il titolo di ognuna è **prefissato** col numero
+> del gruppo (①..④): primo passo incrementale verso la IA a 4 gruppi dell'issue #293, senza tab
+> annidate. La IA (gruppi → strumenti, ordine, prefissi) è la fonte unica `tools_gui.TOOL_GROUPS`/
+> `TOOL_TITLES`/`build_tool_panels`. Le funzioni e le callback dei pannelli sono **invariate**.
 
 **Frequenza d'uso (per prioritizzare la gerarchia visiva):**
 - **Quotidiano / sempre a vista:** stato ATTIVO/OFFLINE, banner reale, righe attive,
