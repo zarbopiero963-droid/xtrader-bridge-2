@@ -161,6 +161,28 @@ def test_ordine_e_conteggi(tmp_path):
     assert s.ready_channels == 2          # "200" e "900" pronti; "100" disattivata
 
 
+def test_parser_translation_flags(tmp_path):
+    # #293 slice 6 (chip «Traduzioni» in Chat sorgenti): flag nomi/mercati per un parser,
+    # con la stessa nozione di «risolto» del Riepilogo.
+    _save_parser("Nomi", tmp_path, names=["Nomi1"])
+    _save_parser("Mkt", tmp_path, markets=["Mkt1"])
+    _save_parser("Both", tmp_path, names=["Nomi1"], markets=["Mkt1"])
+    _save_parser("Ghost", tmp_path, names=["Assente"])         # profilo NON esistente
+    # Misto: un profilo esistente + uno fantasma nello STESSO tipo → «attiva» (almeno uno risolto);
+    # pinna la semantica «resolved = at least one» del refactor via _translation_summary (GPT/GLM #340).
+    _save_parser("Misto", tmp_path, names=["Nomi1", "Assente"])
+    cfg = _with_name_profile({}, "Nomi1")
+    cfg = _with_market_profile(cfg, "Mkt1")
+    f = cs.parser_translation_flags
+    assert f(cfg, "Nomi", parsers_dir=str(tmp_path)) == (True, False)
+    assert f(cfg, "Mkt", parsers_dir=str(tmp_path)) == (False, True)
+    assert f(cfg, "Both", parsers_dir=str(tmp_path)) == (True, True)
+    assert f(cfg, "Ghost", parsers_dir=str(tmp_path)) == (False, False)   # fantasma → nessun ✓
+    assert f(cfg, "Misto", parsers_dir=str(tmp_path)) == (True, False)    # 1 risolto + 1 fantasma → ✓
+    assert f(cfg, "", parsers_dir=str(tmp_path)) == (False, False)        # nessun parser
+    assert f(cfg, "NonEsiste", parsers_dir=str(tmp_path)) == (False, False)  # file assente
+
+
 def test_summarize_config_non_muta_cfg(tmp_path):
     # SOLA LETTURA: la funzione non deve mutare la config passata.
     _save_parser("P1", tmp_path, names=["Nomi1"])
