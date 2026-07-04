@@ -602,15 +602,21 @@ retro-compatibile).
   messaggio la **lista di risultati esatti** e generare **una riga CSV per ciascuno** — invece di
   un `selection_name` fisso. Si attiva quando la regola ha `selection_name` **vuoto** **e**
   `start_after`/`end_before` valorizzati («Inizia dopo / Finisce prima»): dalla regione fra i
-  delimitatori si estraggono i punteggi (separatore interno **solo `-`**, es. «1-0»),
-  **normalizzati** al formato del dizionario («01 - 0» → «1 - 0») e **deduplicati** nell'ordine del
-  messaggio. Il separatore *fra* i risultati (virgola/spazio/newline/slash…) **non conta** (i
-  punteggi si riconoscono per forma). Difese anti-abuso (input non attendibile): il «:» **non** è
-  riconosciuto come separatore di punteggio (evita di scambiare orari come «20:45» per risultati);
-  ogni lato è **1–2 cifre** con confini di cifra (niente maglie/ID come «100-1»); numero di
-  risultati per messaggio **limitato** (cap difensivo, ~50).
-  Vale sia per **Correct Score full-time** (`CORRECT_SCORE`) sia per il **primo tempo**
-  (`HALF_TIME_SCORE`): il mercato lo dà la base, la selezione arriva dall'estrazione. Ogni riga è
+  delimitatori si estraggono i punteggi (separatore interno **solo `-`**, con **spazi orizzontali**
+  attorno al trattino; es. «1-0», «1 - 0»), **normalizzati** al formato del dizionario («01 - 0» →
+  «1 - 0») e **deduplicati** nell'ordine del messaggio. Il separatore *fra* i risultati
+  (virgola/spazio/newline/slash…) **non conta** (i punteggi si riconoscono per forma). Difese
+  anti-abuso (input non attendibile): il «:» **non** è riconosciuto come separatore di punteggio
+  (evita di scambiare orari come «20:45» per risultati); un punteggio deve stare su **una sola riga**
+  — cifre di righe adiacenti («3⏎- 0») **non** si fondono in un risultato spurio; ogni lato è **1–2
+  cifre** con confini di cifra (niente maglie/ID come «100-1»); numero di risultati per messaggio
+  **limitato** (cap difensivo, ~50).
+  L'estrazione dinamica si attiva **solo** sui mercati-punteggio **Correct Score full-time**
+  (`CORRECT_SCORE`) e **primo tempo** (`HALF_TIME_SCORE`) — gli unici che elencano risultati «N - N»;
+  su qualunque **altro** mercato una regola con `selection_name` vuoto + delimitatori resta una
+  **riga fissa** (eredita la selezione della base), così un JSON legacy che avesse quei campi
+  residui non moltiplica le scommesse. Il mercato lo dà la base, la selezione arriva dall'estrazione.
+  Ogni riga è
   **validata singolarmente** (fail-closed per-riga, come #192) con **azzeramento + ri-risoluzione
   ID** per la selezione; un token non-punteggio non genera una riga; lista vuota → nessuna riga.
   Una regola con `selection_name` **fisso** resta invariata (override diretto, percorso #192). *In

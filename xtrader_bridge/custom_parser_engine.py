@@ -152,7 +152,10 @@ def extract_between(text: str, start_after: str = "", end_before: str = "") -> s
 # difensivo aggiuntivo. Un punteggio non nel dizionario resta comunque fail-closed a valle (ID_ONLY).
 # NB: i punteggi col separatore «:» (es. «1:0») NON sono riconosciuti di proposito; se un canale li
 # usa, va aggiunta un'euristica orario-vs-punteggio dedicata (follow-up), non un `:` indiscriminato.
-_SCORE_RE = re.compile(r"(?<!\d)(\d{1,2})\s*-\s*(\d{1,2})(?!\d)")
+# Lo spazio attorno al «-» è SOLO orizzontale (`[^\S\r\n]*`, non `\s*`): un punteggio sta sempre su
+# UNA riga, quindi cifre di righe adiacenti («3\n- 0») NON devono fondersi in un punteggio spurio
+# (→ riga CSV/scommessa Betfair errata) quando la regione delimitata è multi-riga (Fugu #341).
+_SCORE_RE = re.compile(r"(?<!\d)(\d{1,2})[^\S\r\n]*-[^\S\r\n]*(\d{1,2})(?!\d)")
 
 # #325: cap DIFENSIVO sul numero di risultati estratti da UN messaggio (input Telegram NON
 # attendibile, review #341). Un elenco reale di risultati esatti (Correct Score FT/1º tempo) ha
@@ -164,8 +167,10 @@ _MAX_SCORES = 50
 def extract_scores(text: str, start_after: str = "", end_before: str = "") -> "list[str]":
     """#325: estrae la LISTA dei risultati esatti dalla regione fra `start_after`/`end_before`
     (stessa semantica di `extract_between`) e li **normalizza** al formato canonico del dizionario
-    XTrader «N - N» (spazi attorno al trattino, zeri iniziali rimossi, es. «1-0»/«1:0»/«01 - 0» →
-    «1 - 0»). I punteggi sono riconosciuti per forma, quindi il separatore fra i risultati non conta.
+    XTrader «N - N» (spazi ORIZZONTALI attorno al trattino, zeri iniziali rimossi, es. «1-0»/«01 - 0»
+    → «1 - 0»; SOLO il trattino, mai «:» — vedi `_SCORE_RE`). I punteggi sono riconosciuti per forma
+    su una singola riga, quindi il separatore FRA i risultati non conta (ma cifre di righe diverse non
+    si fondono).
     **Deduplica preservando l'ordine** (nessuna riga CSV doppia — quindi nessuna doppia scommessa —
     per lo stesso punteggio). Regione vuota o nessun punteggio → lista vuota (fail-closed: la regola
     dinamica non genera righe). Puro: nessuna GUI, non solleva."""

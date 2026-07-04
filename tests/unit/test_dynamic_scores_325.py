@@ -80,6 +80,16 @@ def test_extract_scores_dedup_preserva_ordine():
     assert extract_scores("1-0, 1-0, 2-1, 1-0") == ["1 - 0", "2 - 1"]
 
 
+def test_extract_scores_non_fonde_cifre_di_righe_diverse():
+    # #341 (Fugu): lo spazio attorno al «-» è SOLO orizzontale ([^\S\r\n]*) → cifre su righe
+    # adiacenti in una regione multi-riga NON si fondono in un punteggio spurio (che diventerebbe
+    # una riga CSV / scommessa Betfair errata). Fail-first: col vecchio `\s*` «3\n- 0» → «3 - 0».
+    assert extract_scores("Gol 3\n- 0 fine") == []
+    assert extract_scores("Casa 2\n-\n1 Ospite") == []
+    # ma un punteggio interamente su UNA riga (con altre righe attorno) resta valido.
+    assert extract_scores("riga A\n2 - 1\nriga B") == ["2 - 1"]
+
+
 def test_extract_scores_spazi_variabili_attorno_al_trattino():
     # #341 (GLM/GPT gap): il caso più comune formattato — spazi variabili attorno al «-» e testo
     # non numerico adiacente — deve estrarre e normalizzare a «N - N».
@@ -170,6 +180,27 @@ def test_retrocompat_selezione_fissa_resta_single_row():
     assert [r["SelectionName"] for r in rows] == ["1 - 0"]
 
 
+def test_mercato_non_punteggio_resta_riga_fissa_no_estrazione():
+    # #341 (Fable): una MultiSelection con selection_name VUOTO + delimitatori RESIDUI (campi già
+    # presenti su MultiRowRule PRIMA di #325, «conservati per una futura estrazione per-riga») su un
+    # mercato NON-punteggio NON diventa dinamica: resta UNA riga fissa che eredita il SelectionName
+    # base, senza moltiplicare in N righe/scommesse estratte. Fail-first sul gate _DYNAMIC_SCORE_MARKETS
+    # (col vecchio codice senza gate estrarrebbe «1 - 0»/«2 - 1»/«3 - 0» dal messaggio).
+    defn = cp.CustomParserDef(name="MO", mode="NAME_ONLY", rules=[
+        cp.FieldRule(target="Provider", fixed_value="PBet"),
+        cp.FieldRule(target="EventName", start_after="🆚", end_before="\n", required=True),
+        cp.FieldRule(target="Price", fixed_value="1.50", required=True),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
+        cp.FieldRule(target="MarketType", fixed_value="MATCH_ODDS", required=True),
+        cp.FieldRule(target="MarketName", fixed_value="1X2"),
+        cp.FieldRule(target="SelectionName", fixed_value="1", required=True),
+    ])
+    defn.multi_selection_enabled = True
+    defn.multi_selections = [cp.MultiRowRule(start_after="Risultati:", end_before="\n")]
+    res = pipe.build_validated_rows(defn, MSG, mode="NAME_ONLY")
+    assert [r.row["SelectionName"] for r in res] == ["1"]      # 1 riga fissa, NON i 3 punteggi
+
+
 def test_market_dinamico_non_fornisce_selectionname_scoping():
     # #341 (CodeRabbit): il caso speciale «SelectionName via estrazione dinamica» è ristretto alle
     # sole regole SELEZIONE. Una regola MERCATO con selection_name VUOTO ma start_after/end_before
@@ -197,16 +228,20 @@ def test_multi_supplied_cols_selectionname_solo_dalle_selezioni():
     from xtrader_bridge.custom_pipeline import _multi_supplied_cols
     market = cp.MultiRowRule(market_type="OVER_UNDER", start_after="X", end_before="Y")  # residuo
     sel = cp.MultiRowRule(start_after="Risultati:", end_before="\n")                     # dinamica
+    CS = "CORRECT_SCORE"   # mercato-punteggio → la selezione dinamica è abilitata (#341 gate)
     # solo mercato (con delimitatori residui) → NON fornisce SelectionName (non lo popola via estrazione).
-    assert "SelectionName" not in _multi_supplied_cols([market], [])
-    # solo selezione dinamica → fornisce SelectionName.
-    assert "SelectionName" in _multi_supplied_cols([], [sel])
+    assert "SelectionName" not in _multi_supplied_cols([market], [], CS)
+    # solo selezione dinamica su mercato-punteggio → fornisce SelectionName.
+    assert "SelectionName" in _multi_supplied_cols([], [sel], CS)
     # entrambi presenti: il mercato NON lo fornisce → intersezione all() → NON fornito (fail-closed).
-    assert "SelectionName" not in _multi_supplied_cols([market], [sel])
+    assert "SelectionName" not in _multi_supplied_cols([market], [sel], CS)
     # un mercato che POPOLA esplicitamente selection_name (attributo non vuoto) + selezione dinamica
     # → entrambi lo forniscono → SelectionName fornito.
     market_fixed = cp.MultiRowRule(market_type="OVER_UNDER", selection_name="1 - 0")
-    assert "SelectionName" in _multi_supplied_cols([market_fixed], [sel])
+    assert "SelectionName" in _multi_supplied_cols([market_fixed], [sel], CS)
+    # #341 (Fable gate): stessa selezione dinamica ma su mercato NON-punteggio → NON è dinamica →
+    # NON fornisce SelectionName (nessuna moltiplicazione righe su config legacy).
+    assert "SelectionName" not in _multi_supplied_cols([], [sel], "OVER_UNDER")
 
 
 def test_detail_no_scores_non_e_colonna_csv():
