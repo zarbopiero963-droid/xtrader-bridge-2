@@ -123,6 +123,31 @@ def test_primo_tempo_half_time_score():
     assert all(r["MarketType"] == "HALF_TIME_SCORE" for r in rows)
 
 
+def test_multimarket_e_multiselection_dinamica_seguono_mercato_base():
+    # #341 (Fable #1 / GPT / GLM): MultiMarket + MultiSelection generano righe SEPARATE (#192, non
+    # cartesiane). Entrambe derivano dalla riga BASE: la selezione dinamica segue il mercato della
+    # BASE (o l'override della selezione), NON l'override della regola MERCATO. `_multi_supplied_cols`
+    # e `_selection_rows` usano lo STESSO `base.row["MarketType"]` → nessuna incoerenza di gate.
+    # Config: base CORRECT_SCORE + regola MERCATO OVER_UNDER (con selezione fissa) + selezione dinamica.
+    defn = _dyn_parser()                                   # base CORRECT_SCORE + selezione dinamica
+    defn.multi_market_enabled = True
+    defn.multi_markets = [cp.MultiRowRule(market_type="OVER_UNDER", selection_name="Over 2.5")]
+    res = pipe.build_validated_rows(defn, MSG, mode="NAME_ONLY")
+    pairs = [(r.row["MarketType"], r.row["SelectionName"]) for r in res]
+    assert ("OVER_UNDER", "Over 2.5") in pairs             # riga MERCATO: usa l'override mercato
+    assert ("CORRECT_SCORE", "1 - 0") in pairs             # righe SELEZIONE: dinamiche sul mercato BASE
+    assert ("CORRECT_SCORE", "2 - 1") in pairs
+    assert ("CORRECT_SCORE", "3 - 0") in pairs
+
+
+def test_gate_case_insensitive_market_type_minuscolo():
+    # #341 (Fable #2): un `MarketType` in minuscolo da JSON legacy attiva comunque il gate — la
+    # normalizzazione `.upper()` è in `_is_dynamic_selection` (il punto di confronto), quindi
+    # `_effective_market` può restituire il valore grezzo. Fail-first: senza `.upper()` → riga fissa.
+    res = pipe.build_validated_rows(_dyn_parser(market_type="correct_score"), MSG, mode="NAME_ONLY")
+    assert [r.row["SelectionName"] for r in res] == ["1 - 0", "2 - 1", "3 - 0"]
+
+
 def test_un_solo_risultato():
     rows = _placeable_rows(_dyn_parser(), msg="🆚 A v B\nRisultati: 2 - 2\n")
     assert [r["SelectionName"] for r in rows] == ["2 - 2"]
