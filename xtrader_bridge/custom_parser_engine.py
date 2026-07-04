@@ -140,12 +140,25 @@ def extract_between(text: str, start_after: str = "", end_before: str = "") -> s
     return extract_value(text, FieldRule(target="", start_after=start_after, end_before=end_before))
 
 
-# #325: pattern di un risultato esatto «N - N» dentro la regione estratta. Separatore INTERNO
-# `-`/`:` tollerante agli spazi; 1–3 cifre per lato (evita di agganciare orari/numeri lunghi). I
-# risultati sono riconosciuti via `findall`, perciò il separatore FRA i risultati
-# (virgola/spazio/newline/slash/…) è irrilevante: si prendono le sottostringhe che «sembrano» un
-# punteggio e si ignora tutto il resto — separazione robusta senza dipendere dal delimitatore usato.
-_SCORE_RE = re.compile(r"(\d{1,3})\s*[-:]\s*(\d{1,3})")
+# #325: pattern di un risultato esatto «N - N» dentro la regione estratta.
+# - separatore INTERNO **solo `-`** (trattino), tollerante agli spazi: NON si usa `:` per evitare
+#   di agganciare ORARI/quote come «20:30» o «45:12» (rischio di SelectionName fantasma → riga
+#   spuria piazzabile per nome in NAME_ONLY, potenziale scommessa errata — review #341);
+# - **1–2 cifre per lato** con **confini di cifra** (`(?<!\d)`/`(?!\d)`): NON aggancia numeri più
+#   lunghi (maglie/ID come «100-1», «007-3», «1-100») né loro pezzi.
+# I risultati sono riconosciuti via `findall`, perciò il separatore FRA i risultati
+# (virgola/spazio/newline/slash/…) è irrilevante. La difesa PRIMARIA restano i delimitatori «Inizia
+# dopo/Finisce prima» che limitano la regione al solo elenco di risultati; questo pattern è un cap
+# difensivo aggiuntivo. Un punteggio non nel dizionario resta comunque fail-closed a valle (ID_ONLY).
+# NB: i punteggi col separatore «:» (es. «1:0») NON sono riconosciuti di proposito; se un canale li
+# usa, va aggiunta un'euristica orario-vs-punteggio dedicata (follow-up), non un `:` indiscriminato.
+_SCORE_RE = re.compile(r"(?<!\d)(\d{1,2})\s*-\s*(\d{1,2})(?!\d)")
+
+# #325: cap DIFENSIVO sul numero di risultati estratti da UN messaggio (input Telegram NON
+# attendibile, review #341). Un elenco reale di risultati esatti (Correct Score FT/1º tempo) ha
+# ~20 voci; oltre è un messaggio anomalo o malevolo che, senza limite, genererebbe righe CSV (e
+# quindi scommesse) in quantità arbitraria. 50 è ampiamente sopra il caso reale e taglia gli abusi.
+_MAX_SCORES = 50
 
 
 def extract_scores(text: str, start_after: str = "", end_before: str = "") -> "list[str]":
@@ -173,6 +186,8 @@ def extract_scores(text: str, start_after: str = "", end_before: str = "") -> "l
         if score not in seen:
             seen.add(score)
             out.append(score)
+            if len(out) >= _MAX_SCORES:
+                break                            # cap difensivo (input non attendibile) — vedi sotto
     return out
 
 

@@ -584,8 +584,9 @@ def build_validated_rows(defn: CustomParserDef, text: str, **kwargs) -> "list[Pi
     if not out:
         # #325: una regola SELEZIONE dinamica che non estrae NESSUN risultato (lista vuota) e
         # nessun'altra riga → non si piazza la base (avrebbe SelectionName vuoto): un unico esito
-        # NON piazzabile `NOT_READY`. Evita anche un `[]` che romperebbe `resolve_row` (`results[0]`).
-        return [PipelineResult(NOT_READY, base.row, [])]
+        # NON piazzabile `NOT_READY` con un `detail` esplicito (per la diagnostica/GUI, review #341).
+        # Evita anche un `[]` che romperebbe `resolve_row` (`results[0]`).
+        return [PipelineResult(NOT_READY, base.row, [], "no_scores_extracted")]
     return out
 
 

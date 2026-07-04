@@ -45,9 +45,34 @@ def test_extract_scores_lista_e_normalizzazione():
     assert extract_scores("Risultati: 1-0, 2-1, 3-0 fine") == ["1 - 0", "2 - 1", "3 - 0"]
 
 
-def test_extract_scores_separatori_e_formati_robusti():
-    # separatori misti (virgola/spazio/newline/slash); formati «1:0»/«04-2»/«3 - 0» normalizzati.
-    assert extract_scores("1-0 2:1\n3 - 0 / 04-2") == ["1 - 0", "2 - 1", "3 - 0", "4 - 2"]
+def test_extract_scores_separatori_robusti_e_normalizzazione():
+    # separatori misti FRA i risultati (virgola/spazio/newline/slash); zeri iniziali rimossi.
+    assert extract_scores("1-0 2-1\n3 - 0 / 04-2") == ["1 - 0", "2 - 1", "3 - 0", "4 - 2"]
+
+
+def test_extract_scores_esclude_orari_e_due_punti():
+    # #341 (Fable/Fugu/GPT/GLM): NIENTE «:» → orari come «20:45»/«45:12» NON sono punteggi
+    # (evita SelectionName fantasma → scommessa spuria). Anche un «12-30» resta un punteggio a
+    # trattino valido per forma (fail-closed a valle se non nel dizionario), ma «20:45» no.
+    assert extract_scores("Kickoff 20:45 HT 45:12") == []
+    assert extract_scores("1:0, 2:1") == []                    # «:» non riconosciuto (di proposito)
+
+
+def test_extract_scores_esclude_numeri_lunghi_e_maglie():
+    # #341: confini di cifra + cap 2 cifre → numeri lunghi / maglie non diventano punteggi né
+    # loro pezzi (niente «234 - 5» da «1234-5», niente «0 - 1» da «100-1»).
+    assert extract_scores("Maglia 100-1 e 1-100 e 1234-5 e 007-3") == []
+    # ma un punteggio normale accanto a un numero lungo resta estratto
+    assert extract_scores("id 1234 punteggi: 2-1, 3-0") == ["2 - 1", "3 - 0"]
+
+
+def test_extract_scores_cap_difensivo():
+    # #341 (Fugu): input non attendibile con moltissimi «N-N» → tagliato al cap (nessun
+    # piazzamento massivo). Genero punteggi DISTINTI oltre il cap.
+    from xtrader_bridge.custom_parser_engine import _MAX_SCORES
+    many = " ".join(f"{h}-{a}" for h in range(10) for a in range(10))   # 100 distinti «h-a»
+    got = extract_scores(many)
+    assert len(got) == _MAX_SCORES and _MAX_SCORES == 50
 
 
 def test_extract_scores_dedup_preserva_ordine():
@@ -92,11 +117,24 @@ def test_token_malformato_ignorato_altri_passano():
     assert [r["SelectionName"] for r in rows] == ["1 - 0", "2 - 1"]
 
 
-def test_lista_vuota_nessuna_riga_piazzabile_no_crash():
-    # start_after non trovato → nessun punteggio → nessuna riga piazzabile (fail-closed),
-    # ma build_validated_rows ritorna comunque un esito (non `[]`, così resolve_row non crasha).
+def test_lista_vuota_nessuna_riga_piazzabile_con_detail():
+    # start_after non trovato → nessun punteggio → nessuna riga piazzabile (fail-closed), ma
+    # build_validated_rows ritorna comunque un esito (non `[]`, resolve_row non crasha) con un
+    # `detail` esplicito «no_scores_extracted» per la diagnostica (#341 Fable).
     res = pipe.build_validated_rows(_dyn_parser(start_after="NONESISTE:"), MSG, mode="NAME_ONLY")
     assert res and not [r for r in res if r.placeable]
+    assert res[0].detail == "no_scores_extracted"
+
+
+def test_retrocompat_fissa_con_delimitatori_resta_fissa():
+    # #341 (Fugu): la detection è STRETTA su `selection_name` VUOTO. Una regola con selection_name
+    # FISSO NON diventa dinamica anche se ha start_after/end_before (che pre-#325 erano ignorati) →
+    # resta UNA riga fissa, nessuna estrazione. Nessuna regressione «crea/sopprime bet».
+    defn = _dyn_parser()
+    defn.multi_selections = [cp.MultiRowRule(selection_name="1 - 0",
+                                             start_after="Risultati:", end_before="\n")]
+    rows = _placeable_rows(defn)
+    assert [r["SelectionName"] for r in rows] == ["1 - 0"]
 
 
 def test_ids_azzerati_per_riga_senza_resolver():

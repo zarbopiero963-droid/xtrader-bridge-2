@@ -602,9 +602,13 @@ retro-compatibile).
   messaggio la **lista di risultati esatti** e generare **una riga CSV per ciascuno** — invece di
   un `selection_name` fisso. Si attiva quando la regola ha `selection_name` **vuoto** **e**
   `start_after`/`end_before` valorizzati («Inizia dopo / Finisce prima»): dalla regione fra i
-  delimitatori si estraggono tutti i punteggi «N - N», **normalizzati** al formato del dizionario
-  («1-0»/«1:0»/«01 - 0» → «1 - 0»), **deduplicati** nell'ordine del messaggio. Il separatore fra i
-  risultati (virgola/spazio/newline/slash…) **non conta** (i punteggi si riconoscono per forma).
+  delimitatori si estraggono i punteggi (separatore interno **solo `-`**, es. «1-0»),
+  **normalizzati** al formato del dizionario («01 - 0» → «1 - 0») e **deduplicati** nell'ordine del
+  messaggio. Il separatore *fra* i risultati (virgola/spazio/newline/slash…) **non conta** (i
+  punteggi si riconoscono per forma). Difese anti-abuso (input non attendibile): il «:» **non** è
+  riconosciuto come separatore di punteggio (evita di scambiare orari come «20:45» per risultati);
+  ogni lato è **1–2 cifre** con confini di cifra (niente maglie/ID come «100-1»); numero di
+  risultati per messaggio **limitato** (cap difensivo, ~50).
   Vale sia per **Correct Score full-time** (`CORRECT_SCORE`) sia per il **primo tempo**
   (`HALF_TIME_SCORE`): il mercato lo dà la base, la selezione arriva dall'estrazione. Ogni riga è
   **validata singolarmente** (fail-closed per-riga, come #192) con **azzeramento + ri-risoluzione
