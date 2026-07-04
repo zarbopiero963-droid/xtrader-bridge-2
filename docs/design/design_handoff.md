@@ -365,8 +365,9 @@ Titolo **"📡  Chat sorgenti (multi-chat)"**. Tabella con colonne: **Attiva · 
 · Modalità (PRE/LIVE) · Provider · Parser** (override, sentinel `(predefinito)`) **· Traduzioni**
 · ✕ (elimina). Pulsanti **"➕ Aggiungi sorgente"**, **"💾 Salva"**. Riga di stato con esito salvataggio.
 - **Colonna «Traduzioni» (#293 slice 6, sola lettura):** per ogni canale un chip
-  **`Nomi ✓ · Mercati ✓`** (verde) / **`—`** (grigio) che mostra a colpo d'occhio se il parser di
-  quella chat ha mappature **risolte** attive (nomi/mercati). Il parser considerato è l'override
+  **`Nomi ✓ · Mercati ✓`** con `✓`/`—` per tipo (es. `Nomi ✓ · Mercati —`), **verde** se almeno una
+  mappatura è attiva, **grigio** (`Nomi — · Mercati —`) se nessuna, che mostra a colpo d'occhio se il
+  parser di quella chat ha mappature **risolte** attive. Il parser considerato è l'override
   della riga, o — se «(predefinito)» — il parser **globale**. Si aggiorna al cambio del menu Parser
   della riga e quando la scheda torna attiva (nuove mappature/parser). Stessa nozione di «traduzione
   attiva» del **Riepilogo** (`config_summary.parser_translation_flags`): un profilo fantasma `⚠`
