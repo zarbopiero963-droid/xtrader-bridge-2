@@ -568,3 +568,55 @@ def test_market_terms_migrazione_pk_da_schema_legacy(tmp_path):
     db2 = BetfairLocalDB(path)
     assert db2.count_market_terms("Calcio") == 3
     db2.close()
+
+
+def test_migrate_market_terms_pk_tabella_assente_no_op(db):
+    # Ramo `if not info: return`: se la tabella non esiste, la migrazione non fa nulla e
+    # non solleva (GLM/GPT #326). (In apertura normale `_SCHEMA` la crea prima, ma la
+    # guardia deve reggere se invocata a vuoto.)
+    db._conn.execute("DROP TABLE betfair_known_market_terms")
+    db._conn.commit()
+    db._migrate_market_terms_pk()                # non solleva
+    db._conn.execute(              # ricrea la tabella per non lasciare il db a metà
+        """CREATE TABLE betfair_known_market_terms (
+               sport TEXT NOT NULL, market_type TEXT NOT NULL DEFAULT '',
+               normalized_market TEXT NOT NULL, market_name TEXT,
+               normalized_selection TEXT NOT NULL DEFAULT '', selection_name TEXT,
+               first_seen_at INTEGER NOT NULL DEFAULT 0, last_seen_at INTEGER NOT NULL DEFAULT 0,
+               PRIMARY KEY (sport, market_type, normalized_market, normalized_selection))""")
+    db._conn.commit()
+    assert db.count_market_terms() == 0
+
+
+def test_market_terms_migrazione_pk_con_bkmt_old_residuo(tmp_path):
+    # Robustezza: se una migrazione precedente si era interrotta lasciando `_bkmt_old`
+    # orfana, il `DROP TABLE IF EXISTS _bkmt_old` la ripulisce e la migrazione riesce
+    # (niente «table _bkmt_old already exists» sul RENAME) — Fable #326.
+    import sqlite3
+    path = str(tmp_path / "betfair.db")
+    con = sqlite3.connect(path)
+    con.executescript(
+        """
+        CREATE TABLE betfair_known_market_terms (
+            sport TEXT NOT NULL, market_type TEXT, normalized_market TEXT NOT NULL,
+            market_name TEXT, normalized_selection TEXT NOT NULL DEFAULT '',
+            selection_name TEXT, first_seen_at INTEGER NOT NULL DEFAULT 0,
+            last_seen_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (sport, normalized_market, normalized_selection)
+        );
+        CREATE TABLE _bkmt_old (x INTEGER);       -- residuo di una migrazione interrotta
+        INSERT INTO betfair_known_market_terms
+            (sport, market_type, normalized_market, market_name, normalized_selection, selection_name)
+        VALUES ('Calcio', 'OVER_UNDER_25', 'over/under 2,5', 'Over/Under 2,5', 'over 2,5', 'Over 2,5');
+        """)
+    con.commit()
+    con.close()
+    db = BetfairLocalDB(path)                    # migrazione: droppa _bkmt_old residuo e migra
+    info = db._conn.execute("PRAGMA table_info(betfair_known_market_terms)").fetchall()
+    assert any(r["name"] == "market_type" and r["pk"] for r in info)   # market_type in PK
+    assert db.known_selection_names("Calcio") == ["Over 2,5"]
+    # _bkmt_old non deve restare (droppata + ri-droppata a fine migrazione)
+    tables = {r[0] for r in db._conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    assert "_bkmt_old" not in tables
+    db.close()

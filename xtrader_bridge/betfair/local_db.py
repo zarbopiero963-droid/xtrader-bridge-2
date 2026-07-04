@@ -270,29 +270,52 @@ class BetfairLocalDB:
             return                               # tabella non ancora creata → niente da migrare
         mt = next((r for r in info if r["name"] == "market_type"), None)
         if mt is None or int(mt["pk"]) != 0:
-            return                               # già nuova forma (market_type in PK) → no-op
-        self._conn.executescript(
-            """
-            ALTER TABLE betfair_known_market_terms RENAME TO _bkmt_old;
-            CREATE TABLE betfair_known_market_terms (
-                sport                TEXT NOT NULL,
-                market_type          TEXT NOT NULL DEFAULT '',
-                normalized_market    TEXT NOT NULL,
-                market_name          TEXT,
-                normalized_selection TEXT NOT NULL DEFAULT '',
-                selection_name       TEXT,
-                first_seen_at        INTEGER NOT NULL DEFAULT 0,
-                last_seen_at         INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (sport, market_type, normalized_market, normalized_selection)
-            );
-            INSERT INTO betfair_known_market_terms
-                (sport, market_type, normalized_market, market_name,
-                 normalized_selection, selection_name, first_seen_at, last_seen_at)
-            SELECT sport, COALESCE(market_type, ''), normalized_market, market_name,
-                   normalized_selection, selection_name, first_seen_at, last_seen_at
-            FROM _bkmt_old;
-            DROP TABLE _bkmt_old;
-            """)
+            # No-op se: market_type già in PK (nuova forma), OPPURE colonna `market_type`
+            # assente. Quest'ultimo caso NON è mai esistito in produzione: la tabella è
+            # NUOVA in #283 e ha SEMPRE avuto la colonna `market_type` (la sola forma
+            # «legacy» è la PK a 3 colonne del commit intermedio di questa stessa PR, che la
+            # colonna ce l'ha). Nessuno schema senza `market_type` da migrare (Fable #326).
+            return
+        # La tabella non ha indici/trigger secondari (solo la PK inline, ricreata dal
+        # CREATE sotto): il by-recreate non perde oggetti di schema (Fugu #326).
+        # Migrazione ATOMICA in una singola transazione (SQLite supporta il DDL
+        # transazionale): un crash tra RENAME e INSERT fa ROLLBACK all'originale, così non
+        # resta un `_bkmt_old` orfano né la tabella live mancante (GLM/GPT #326).
+        # `BEGIN IMMEDIATE` prende subito il write-lock: un secondo processo aspetta il
+        # busy_timeout invece di correre in parallelo. `executescript` fa un COMMIT implicito
+        # iniziale (nessuna transazione pendente), poi esegue lo script transazionale.
+        # NB: nessuna collisione possibile nell'INSERT..SELECT — la vecchia PK a 3 colonne
+        # garantiva già l'unicità di (sport, normalized_market, normalized_selection);
+        # aggiungere market_type può solo rendere le chiavi PIÙ distinte, mai fonderle.
+        try:
+            self._conn.executescript(
+                """
+                BEGIN IMMEDIATE;
+                DROP TABLE IF EXISTS _bkmt_old;
+                ALTER TABLE betfair_known_market_terms RENAME TO _bkmt_old;
+                CREATE TABLE betfair_known_market_terms (
+                    sport                TEXT NOT NULL,
+                    market_type          TEXT NOT NULL DEFAULT '',
+                    normalized_market    TEXT NOT NULL,
+                    market_name          TEXT,
+                    normalized_selection TEXT NOT NULL DEFAULT '',
+                    selection_name       TEXT,
+                    first_seen_at        INTEGER NOT NULL DEFAULT 0,
+                    last_seen_at         INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (sport, market_type, normalized_market, normalized_selection)
+                );
+                INSERT INTO betfair_known_market_terms
+                    (sport, market_type, normalized_market, market_name,
+                     normalized_selection, selection_name, first_seen_at, last_seen_at)
+                SELECT sport, COALESCE(market_type, ''), normalized_market, market_name,
+                       normalized_selection, selection_name, first_seen_at, last_seen_at
+                FROM _bkmt_old;
+                DROP TABLE _bkmt_old;
+                COMMIT;
+                """)
+        except sqlite3.Error:                    # atomicità: rollback all'originale e rilancia
+            self._conn.rollback()
+            raise
 
     def close(self) -> None:
         with self._lock:
