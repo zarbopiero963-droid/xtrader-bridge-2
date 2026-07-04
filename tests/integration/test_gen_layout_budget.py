@@ -9,18 +9,23 @@ sforare la riga (fallisce in CI invece di clippare in silenzio). Usa le costanti
 """
 
 
+def _px(padx):
+    """Somma dei due lati di un `padx` `(sinistra, destra)` (o di uno scalare per lato)."""
+    return padx[0] + padx[1] if isinstance(padx, tuple) else padx + padx
+
+
 def test_riga_csv_path_sta_nella_finestra_fissa(app_mod):
     m = app_mod
     # Larghezze fisse effettivamente renderizzate nella riga (come in `_build_ui`).
     content = m._GEN_LABEL_WIDTH + m._CSV_PATH_ENTRY_WIDTH + 2 * m._CSV_ROW_BTN_WIDTH
-    # Budget = larghezza fissa finestra MENO il padding orizzontale ESPLICITO, derivato dai
-    # valori reali (non un numero magico, CodeRabbit #330): la CTkTabview è impaccata a
-    # `padx=15` (30px totali) e i 4 widget della riga hanno i loro `padx` come in `_build_ui`
-    # — etichetta (10,5) + entry (0,8) + Sfoglia (0,6) + Crea CSV (0,10). Il padding INTERNO
-    # della tabview (barra schede/bordo contenuto) è ulteriore margine non modellabile offline,
-    # quindi la soglia è conservativa: se `content` ci sta, la riga non taglia «Crea CSV».
-    tab_padding = 15 * 2
-    row_padding = (10 + 5) + (0 + 8) + (0 + 6) + (0 + 10)
+    # Budget = larghezza fissa finestra MENO il padding orizzontale ESPLICITO, derivato dalle
+    # STESSE costanti che `_build_ui` usa per disegnare (nessun numero magico duplicato → niente
+    # drift, GPT-5.5 + GLM 5.2 #330): la CTkTabview è impaccata a `_TABVIEW_PADX` per lato e i 4
+    # widget della riga usano i loro `padx`. Il padding INTERNO della tabview (barra schede/bordo
+    # contenuto) è margine ulteriore non modellabile offline, quindi la soglia è conservativa.
+    tab_padding = _px(m._TABVIEW_PADX)
+    row_padding = (_px(m._GEN_LABEL_PADX) + _px(m._GEN_ENTRY_PADX)
+                   + _px(m._CSV_BROWSE_PADX) + _px(m._CSV_CREATE_PADX))
     budget = m._WINDOW_WIDTH - tab_padding - row_padding
     assert content <= budget, (
         f"riga CSV Path {content}px oltre il budget {budget}px della finestra "
