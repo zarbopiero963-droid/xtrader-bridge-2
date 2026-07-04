@@ -1223,10 +1223,12 @@ la casella `csv_path` (470→250px, solo quella riga) e i due pulsanti (110→10
 la riga ora sta dentro la larghezza utile del tab. Le larghezze sono estratte in costanti di modulo
 (`_WINDOW_WIDTH`, `_GEN_LABEL_WIDTH`, `_GEN_FIELD_ENTRY_WIDTH`, `_CSV_PATH_ENTRY_WIDTH`,
 `_CSV_ROW_BTN_WIDTH`) e coperte da un **test di regressione layout**
-(`tests/integration/test_gen_layout_budget.py`): la somma etichetta+casella+2 pulsanti deve stare
-nel budget della finestra fissa (fail-first verificato: con la vecchia casella a 470px la riga a
-810px sfora il budget di 660px). La verifica visiva DPI/font su Windows resta smoke manuale (layout
-GUI non renderizzabile offline).
+(`tests/integration/test_gen_layout_budget.py`): la somma etichetta+casella+2 pulsanti (590px) deve
+stare nel budget della finestra fissa, **derivato dai padding reali** (720 − 30 tab `padx` − 39
+`padx` dei 4 widget = **651px**, non un numero magico — CodeRabbit #330), col padding interno della
+tabview come margine ulteriore. Fail-first verificato: con la vecchia casella a 470px la riga a
+810px sfora 651px. La verifica visiva DPI/font su Windows resta smoke manuale (layout GUI non
+renderizzabile offline).
 
 **Test hard:** `tests/unit/test_is_bridge_csv.py` (predicato + header **byte-esatto** BOM utf-8-sig +
 QUOTE_ALL + CRLF); `tests/unit/test_create_header_only_csv.py` (esiti DONE/REFUSED_FOREIGN/
