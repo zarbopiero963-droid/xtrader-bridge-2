@@ -328,7 +328,9 @@ NON** viene salvato nei profili). Campo nome + **"💾 Salva profilo"**; lista c
     nel campo (resta un `CTkEntry` editabile, **niente tendina**), **Sport** impostato, **Tipo**
     `team`, **Provider vuoto** (ci va l'alias del canale). Non distruttivo/idempotente (salta i
     nomi già presenti). Senza dizionario Betfair (sync mai fatta) mostra un avviso e non aggiunge
-    nulla. La riga di stato riporta l'esito (es. «📥 Aggiunti N nomi Betfair… ; M già presenti»).
+    nulla. **Durante una sincronizzazione in corso** fa fail-fast con «⏳ Sincronizzazione Betfair
+    in corso: riprova tra poco» (arancione) **senza congelare la finestra**. La riga di stato
+    riporta l'esito (es. «📥 Aggiunti N nomi Betfair… ; M già presenti»).
 - **🎯 Mercati (Dizionario mercati):** profilo + tabella **Inizia dopo · Finisce prima ·
   Testo mercato · Mercato (catalogo) · Selezione (catalogo)**. Legge il mercato da una
   posizione precisa del messaggio e imposta Mercato/Selezione dal catalogo XTrader.

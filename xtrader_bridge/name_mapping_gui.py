@@ -254,8 +254,16 @@ class NameMappingPanel(ctk.CTkFrame):
                 text="⛔ Dizionario Betfair non disponibile: sincronizza prima da «🔵 Betfair Sync».",
                 text_color="#ef5350")
             return
+        # `DictionaryBusy`: una sync Betfair tiene ora il lock del DB → avviso «riprova»
+        # invece di congelare la GUI (fail-fast, come il viewer dizionario, #175/#321).
+        from .betfair.dictionary_viewer import DictionaryBusy
         try:
             teams = provider() or []
+        except DictionaryBusy:
+            self._status.configure(
+                text="⏳ Sincronizzazione Betfair in corso: riprova tra poco.",
+                text_color="#ffa726")
+            return
         except Exception as exc:                 # noqa: BLE001 — best-effort, niente crash GUI
             self._status.configure(text=f"❌ Nomi Betfair non leggibili: {type(exc).__name__}",
                                    text_color="#ef5350")

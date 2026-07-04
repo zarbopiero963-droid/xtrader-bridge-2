@@ -1301,13 +1301,26 @@ class App(ctk.CTk):
 
     def _known_betfair_teams(self, sport=None):
         """Nomi squadra PERMANENTI del dizionario Betfair locale (#282), per precompilare
-        la mappatura nomi (area ⚽ Calcio). **Best-effort e sola lettura**: se il DB non è
-        disponibile (mai sincronizzato, cartella assente…) ritorna `[]` invece di far
-        crashare la GUI — il pannello mostra un avviso. Non scrive né fa rete."""
+        la mappatura nomi (area ⚽ Calcio). **Sola lettura**, best-effort: DB non disponibile
+        (mai sincronizzato, cartella assente…) → `[]`, il pannello mostra un avviso.
+
+        **FAIL-FAST se una sync tiene il lock del DB** (CodeRabbit #321): `CatalogueSync.sync`
+        tiene `db._lock` per l'INTERA transazione, incluse le chiamate HTTP di navigazione/
+        catalogo. Leggere in modo bloccante dal thread Tk congelerebbe la GUI fino a fine
+        sync/timeout. Come `DictionaryViewerController.view_if_free` (#175): probe **non
+        bloccante** e, se occupato, `DictionaryBusy` (il pannello mostra «sync in corso»),
+        distinto dal caso «nessun nome». Non fa rete."""
+        from .betfair.dictionary_viewer import DictionaryBusy
         try:
-            return self._betfair_sync_engine().db.known_teams(sport)
-        except Exception:   # noqa: BLE001 — best-effort: la GUI non deve crashare
+            db = self._betfair_sync_engine().db
+        except Exception:   # noqa: BLE001 — best-effort: DB non disponibile → nessun nome
             return []
+        if not db.acquire_read(blocking=False):
+            raise DictionaryBusy()       # sync in corso: fail-fast, niente freeze del thread Tk
+        try:
+            return db.known_teams(sport)
+        finally:
+            db.release_read()
 
     def _betfair_id_resolver(self):
         """Risolutore ID del dizionario Betfair locale per il flusso live (PR-P12),

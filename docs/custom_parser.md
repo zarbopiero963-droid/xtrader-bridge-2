@@ -193,7 +193,9 @@ riga per ogni nome noto: **nome Betfair già scritto** nel campo (nessun menu a 
 resta editabile), **Sport** impostato e **Tipo** `team`; tu scrivi solo l'**alias del
 canale** nel campo **Provider**, poi **💾 Salva**. È **non distruttivo e idempotente**: non
 tocca le righe esistenti e **salta** i nomi già presenti (stesso sport + nome normalizzato).
-Fail-safe: senza dizionario Betfair (sync mai fatta) avvisa e non aggiunge nulla. Fonte dati:
+Fail-safe: senza dizionario Betfair (sync mai fatta) avvisa e non aggiunge nulla; **durante
+una sync in corso** fa fail-fast («⏳ …riprova tra poco») invece di **congelare** la GUI (legge
+il DB con probe non bloccante, come il viewer del dizionario). Fonte dati:
 `BetfairLocalDB.known_teams(sport)` (sola lettura).
 
 > **Non ancora fatto (PR dedicata):** una vista di **ripulitura manuale** dei nomi permanenti

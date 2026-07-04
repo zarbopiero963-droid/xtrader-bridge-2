@@ -135,3 +135,37 @@ def test_prefill_nome_vuoto_saltato(NameMappingPanel):
     fake, added, _ = _fake_self(teams=teams)
     _call(NameMappingPanel, fake)
     assert [a["betfair"] for a in added] == ["Roma"]        # il nome vuoto non genera riga
+
+
+# ── busy durante sync + contratto reale known_teams (#321) ────────────────────
+
+def test_prefill_sync_in_corso_avvisa(NameMappingPanel):
+    # Se il provider segnala una sync in corso (DictionaryBusy), il pannello avvisa
+    # «riprova» invece di congelarsi o dire «vuoto» (fix freeze GUI, CodeRabbit #321).
+    from xtrader_bridge.betfair.dictionary_viewer import DictionaryBusy
+    fake, added, status = _fake_self()
+    def _busy():
+        raise DictionaryBusy()
+    fake._known_teams_provider = _busy
+    _call(NameMappingPanel, fake)
+    assert added == []
+    assert "in corso" in status[-1]["text"]
+
+
+def test_prefill_consuma_contratto_reale_known_teams(NameMappingPanel):
+    # Seam PR10↔PR11 (review GLM/GPT): i record REALI di BetfairLocalDB.known_teams()
+    # hanno le chiavi che _prefill consuma (sport + display_name) e lo `sport` è il NOME
+    # canonico accettato dalla tendina Sport della GUI (`sports.SPORTS`).
+    from xtrader_bridge.betfair.local_db import BetfairLocalDB
+    from xtrader_bridge import sports
+    db = BetfairLocalDB(":memory:")
+    db.upsert_known_team("Calcio", "Inter", seen_at=1)
+    db.upsert_known_team("Basket", "Lakers", seen_at=1)
+    teams = db.known_teams()
+    db.close()
+    fake, added, _ = _fake_self(teams=teams)
+    _call(NameMappingPanel, fake)
+    for a in added:
+        assert a["sport"] in sports.SPORTS           # sport valido per la tendina GUI
+        assert a["entity_type"] == "team"
+    assert {(a["sport"], a["betfair"]) for a in added} == {("Calcio", "Inter"), ("Basket", "Lakers")}
