@@ -59,20 +59,24 @@ stampate.
   (base...head), come per la label. Il gate è **fail-safe** sulla truncation della
   Compare API: se la lista file è troncata (≥ 300 file) **non** salta la review
   (un file core potrebbe essere oltre il limite).
-  **Controllo costi (tetto duro + prompt severo).** Il costo è dominato
-  dall'**output**: una review lunga di Fugu poteva arrivare a ~19k token
-  (~0,70$). Per questo i reviewer usano un **prompt severo** e un **tetto duro
-  basso** su `MAX_OUTPUT_TOKENS`: `1200` Fable 5, `1000` Fugu Ultra e GPT-5.5,
-  `700` GLM 5.2. I reviewer **automatici per-push** (GPT-5.5, GLM 5.2) analizzano
-  diff incrementali piccoli con un prompt a 7 sezioni corte (massimo 10 finding,
-  massimo 400 parole, niente ripetizione del diff/teoria, "Nessun bloccante
-  evidente" se non c'è nulla). I due **gate finali** (Fable 5, Fugu Ultra)
-  rivedono invece l'**intera PR**: con lo stesso prompt lungo si troncavano
-  (review parziale → gate rosso), quindi usano un prompt **ultra-corto** — sole
-  due sezioni `## Bloccanti` + `## Verdetto finale`, massimo 150 parole, con i
-  rischi di sicurezza/CSV/Betfair/segreti ripiegati dentro `Bloccanti` — così la
-  review completa sta nel budget senza troncarsi. La review resta concisa e utile
-  ma costa una frazione.
+  **Controllo costi (prompt severo + tetto come CEILING).** Il costo è dominato
+  dall'**output**: una review lunga di Fugu poteva arrivare a ~19k token (~0,70$)
+  **col prompt lungo**. La leva vera è quindi il **prompt**, non il tetto:
+  `MAX_OUTPUT_TOKENS` è un **ceiling** anti-cutoff, ma si pagano solo i token
+  **effettivamente generati**. Budget attuali: `1000` GPT-5.5, `700` GLM 5.2,
+  `3000` Fable 5 e Fugu Ultra. I reviewer **automatici per-push** (GPT-5.5, GLM 5.2)
+  analizzano diff incrementali piccoli con un prompt a 7 sezioni corte (massimo 10
+  finding, massimo 400 parole, niente ripetizione del diff/teoria, "Nessun bloccante
+  evidente" se non c'è nulla). I due **gate finali** (Fable 5, Fugu Ultra) rivedono
+  invece l'**intera PR** e usano un prompt **ultra-corto** — sole due sezioni
+  `## Bloccanti` + `## Verdetto finale`, massimo 150 parole, con i rischi di
+  sicurezza/CSV/Betfair/segreti ripiegati dentro `Bloccanti`. È il prompt a tenere
+  l'output reale a ~200-1300 token; il ceiling a `3000` serve solo a evitare che una
+  review appena più lunga (una nota non-bloccante in più) sbatta contro il tetto e
+  vada in `stop_reason=max_tokens`/`finish_reason=length`, cioè un gate a label
+  **rosso per troncamento** (falso-negativo, osservato su Fable in #322). Con
+  `1200`/`1000` capitava; a `3000` non più, a costo ~invariato (il prompt controlla
+  la lunghezza reale).
   **Budget patch adattivo a 2 livelli (solo gate finali Fable/Fugu).** Il tetto sul
   diff *inviato* al modello (`MAX_TOTAL_PATCH_CHARS`: `16000` Fable, `14000` Fugu;
   per-file `5000`/`4000`) è basso per costo, ma su una **PR grande** alcuni file non

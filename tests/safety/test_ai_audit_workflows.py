@@ -248,17 +248,19 @@ def test_before_sha_vuoto_ripiega_su_intera_pr():
 
 def test_gate_finale_prompt_severo_budget_basso_e_troncamento():
     """Cost cap sui due gate finali (label): prompt ULTRA-CORTO (2 sole sezioni,
-    max 150 parole) + tetto output BASSO + troncamento onesto.
+    max 150 parole) + tetto output CONTENUTO + troncamento onesto.
 
     Storia: prima si era alzato il budget a 6000 per evitare i troncamenti, ma
-    Fugu arrivava a ~19k token di output (~0,70$/review). La scelta del
-    proprietario è invertita: review CORTA per costo → tetto duro (Fable 1200,
-    Fugu 1000). Il gate finale rivede però l'INTERA PR: col prompt a 7 sezioni /
-    400 parole i due reviewer forti si troncavano (review PARZIALE → gate rosso).
-    Scelta del proprietario: accorciare il prompt del gate finale a SOLE 2 sezioni
-    ("## Bloccanti" + "## Verdetto finale", max 150 parole; i rischi safety
-    ripiegati dentro Bloccanti) così la review completa sta nel budget. Il
-    troncamento resta comunque dichiarato esplicitamente.
+    Fugu arrivava a ~19k token di output (~0,70$/review) col prompt LUNGO. Ora la
+    lunghezza è controllata dal PROMPT ULTRA-CORTO (2 sezioni, 150 parole → output
+    reale ~200-1300 token), non dal tetto: perciò `MAX_OUTPUT_TOKENS` torna a un
+    valore più generoso (3000) SOLO come CEILING anti-cutoff. NB: è un tetto, non il
+    costo — si pagano i token effettivamente generati, che il prompt tiene bassi.
+    Con 1200/1000 una review appena più lunga (una nota non-bloccante in più)
+    sbatteva contro il tetto → stop_reason=max_tokens/finish_reason=length → gate a
+    label ROSSO per troncamento (falso-negativo, osservato su Fable in #322). Il
+    troncamento resta comunque dichiarato esplicitamente e fa fail-closed. Il floor
+    minimo di sicurezza è coperto da `test_tutti_i_pr_review_riportano_il_troncamento`.
     """
     finali = [n for n, m in _AI_WORKFLOWS.items() if m.get("trigger") == "label"]
     assert finali, "atteso almeno un gate finale label-gated"
@@ -266,9 +268,12 @@ def test_gate_finale_prompt_severo_budget_basso_e_troncamento():
         text = _read(name)
         match = re.search(r'MAX_OUTPUT_TOKENS:\s*"(\d+)"', text)
         assert match, f"{name}: MAX_OUTPUT_TOKENS non trovato nell'env"
-        assert int(match.group(1)) <= 1500, (
+        # Tetto = ceiling anti-cutoff, non costo (il prompt ultra-corto tiene basso
+        # l'output reale). <= 3000 evita il troncamento del gate senza aprire la
+        # porta a review lunghe/costose (che il prompt comunque impedisce).
+        assert int(match.group(1)) <= 3000, (
             f"{name}: gate finale con budget output troppo alto "
-            f"({match.group(1)}); tetto duro anti-costo previsto <= 1500"
+            f"({match.group(1)}); il ceiling anti-cutoff previsto è <= 3000"
         )
         # Prompt ULTRA-CORTO che sta nel budget basso senza troncare sull'intera PR:
         # solo 2 sezioni, max 150 parole, i rischi safety ripiegati in "Bloccanti".
