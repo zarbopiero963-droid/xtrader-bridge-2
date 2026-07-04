@@ -22,6 +22,15 @@ _CHIP_ON_COLOR = ("#2e7d32", "#66bb6a")
 _CHIP_OFF_COLOR = "gray"
 
 
+def _effective_parser_name(selected: str, no_parser_sentinel: str, global_parser: str) -> str:
+    """Parser effettivo per una riga di Chat sorgenti: l'override SELEZIONATO se presente,
+    altrimenti — se «(predefinito)» (sentinella «nessun override») — il parser GLOBALE
+    (`active_parser`). Puro/testabile: è l'unica logica di branch specifica del chip (CodeRabbit
+    #340). Il globale viene rifilato; nessun override e nessun globale → "" (nessun parser)."""
+    name = "" if selected == no_parser_sentinel else selected
+    return name or str(global_parser or "").strip()
+
+
 def _translations_chip_text(names_active: bool, markets_active: bool) -> str:
     """Testo del chip «Traduzioni» di un canale (#293 slice 6): «Nomi ✓ · Mercati ✓» a seconda
     che il parser del canale abbia mappature nomi/mercati **risolte** attive; «—» dove nessuna.
@@ -221,10 +230,9 @@ class SourceChatsPanel(ctk.CTkFrame):
         per-chat se presente, altrimenti il parser GLOBALE (voce «(predefinito)»). Read-only:
         legge lo snapshot `self._cfg`. `parser_translation_flags` è fail-safe (parser mancante/
         invalido → nessuna traduzione), quindi non serve un try qui."""
-        selected = refs["parser"].get()
-        # «(predefinito)» (sentinella) = nessun override → usa il parser globale di config.
-        name = "" if selected == self._no_parser else selected
-        effective = name or str(self._cfg.get("active_parser", "") or "").strip()
+        # «(predefinito)» (sentinella) = nessun override → parser globale (helper puro).
+        effective = _effective_parser_name(
+            refs["parser"].get(), self._no_parser, self._cfg.get("active_parser", ""))
         names_active, markets_active = config_summary.parser_translation_flags(
             self._cfg, effective, parsers_dir=custom_parser.default_parsers_dir())
         chip = refs.get("trad_chip")

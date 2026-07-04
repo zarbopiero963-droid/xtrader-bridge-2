@@ -176,8 +176,10 @@ def parser_translation_flags(cfg: dict, parser_name, *, parsers_dir: str = None)
     cfg = cfg if isinstance(cfg, dict) else {}
     names_existing = set(name_mapping_store.profile_names(cfg))
     markets_existing = set(market_mapping_store.profile_names(cfg))
-    names_active = any(p in names_existing for p in defn.name_mapping_profiles)
-    markets_active = any(p in markets_existing for p in defn.market_mapping_profiles)
+    # Riusa `_translation_summary` (stessa logica risolto-vs-fantasma di `summarize_channel`), così
+    # la nozione di «traduzione attiva» non può divergere tra Riepilogo e chip (CodeRabbit #340).
+    names_active = bool(_translation_summary(defn.name_mapping_profiles, names_existing).resolved)
+    markets_active = bool(_translation_summary(defn.market_mapping_profiles, markets_existing).resolved)
     return (names_active, markets_active)
 
 

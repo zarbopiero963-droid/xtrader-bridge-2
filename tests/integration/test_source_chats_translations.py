@@ -28,6 +28,16 @@ def test_chip_text_combinazioni(gui_mod):
     assert t(False, False) == "Nomi — · Mercati —"
 
 
+def test_effective_parser_name(gui_mod):
+    # CodeRabbit #340: risoluzione override-vs-globale estratta in helper puro, testata diretta.
+    f = gui_mod._effective_parser_name
+    assert f("P1", "(predefinito)", "GLOB") == "P1"                # override esplicito
+    assert f("(predefinito)", "(predefinito)", "GLOB") == "GLOB"   # sentinella → globale
+    assert f("(predefinito)", "(predefinito)", "") == ""           # nessun globale → nessuno
+    assert f("(predefinito)", "(predefinito)", "  G  ") == "G"     # globale rifilato
+    assert f("P1", "(predefinito)", "") == "P1"                    # override vince anche senza globale
+
+
 class _Var:
     def __init__(self, v):
         self._v = v
