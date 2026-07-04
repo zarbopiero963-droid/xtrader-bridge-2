@@ -690,6 +690,52 @@ class App(ctk.CTk):
         if self._save_ok:
             self._log("💾 Configurazione salvata")
 
+    # ── CSV Path: pulsante «📁 Sfoglia…» + salvataggio immediato (#284) ──────
+    def _apply_and_save_csv_path(self, path: str) -> bool:
+        """Applica il percorso CSV scelto con «📁 Sfoglia…» alla entry e lo persiste SUBITO
+        in config (#284, opzione b: nessun click extra su «Salva Config»).
+
+        MERGE sul config **vivo** (`self._config`), NON rilegge il form: così non tocca gli
+        altri campi safety-critical (dry_run/chat/sorgenti) e **non** esegue i gate di
+        transizione REALE — un semplice cambio di file non deve promptare né salvare per
+        sbaglio un `dry_run` in modifica nel form. Non tocca `_active_csv_path` (il CSV della
+        sessione attiva resta quello di START finché non si fa STOP/START). Path vuoto (dialog
+        annullato) → nessuna modifica, ritorna False. Ritorna True se salvato su disco."""
+        path = str(path or "").strip()
+        if not path:
+            return False                     # dialog annullato / vuoto: nessuna modifica
+        entry = self.__dict__.get("_e_csv")
+        if entry is not None:
+            entry.delete(0, "end")
+            entry.insert(0, path)
+        cfg = dict(self._config) if isinstance(self._config, dict) else {}
+        cfg["csv_path"] = path
+        result = save_config(cfg, CONFIG_FILE)
+        saved, ok = result
+        self._config = saved
+        self._save_ok = ok
+        if not ok:
+            self._log("❌ " + config_store.save_status_message(result.status))
+        return ok
+
+    def _browse_csv_path(self) -> None:
+        """«📁 Sfoglia…» accanto a CSV Path (#284): apre il selettore file di sistema e, alla
+        scelta, applica il percorso e lo salva subito (opzione b). Annullo → nessuna modifica.
+        GUI-only (dialog Tk): la logica «applica+salva» è in `_apply_and_save_csv_path`."""
+        from tkinter import filedialog
+        current = str(self._e_csv.get() or "").strip()
+        initialdir = os.path.dirname(current) if current else None
+        initialfile = os.path.basename(current) if current else "segnale.csv"
+        dest = filedialog.asksaveasfilename(
+            title="Scegli il file CSV per XTrader",
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("Tutti i file", "*.*")],
+            initialdir=initialdir, initialfile=initialfile)
+        if not dest:
+            return                           # dialog annullato: nessuna modifica
+        if self._apply_and_save_csv_path(dest):
+            self._log(f"📄 CSV Path aggiornato e salvato: {dest}")
+
     def _profiles_snapshot(self) -> dict:
         """Config viva (con token) letta dal form SENZA persistere né effetti collaterali.
         Passata come `get_current_cfg` al pannello Profili: la base per salvare un profilo
@@ -755,6 +801,12 @@ class App(ctk.CTk):
             e.insert(0, str(self._config.get(key, "")))
             e.grid(row=r, column=1, padx=(0, 10), pady=4, sticky="w")
             self._entries[key] = e
+            # CSV Path: pulsante «📁 Sfoglia…» (#284) che apre il selettore file e salva
+            # subito il percorso scelto (opzione b), invece di digitarlo a mano.
+            if key == "csv_path":
+                ctk.CTkButton(tab_gen, text="📁 Sfoglia…", width=110,
+                              command=self._browse_csv_path).grid(
+                                  row=r, column=2, padx=(0, 10), pady=4, sticky="w")
         self._e_token    = self._entries["bot_token"]
         self._e_chat     = self._entries["chat_id"]
         self._e_csv      = self._entries["csv_path"]

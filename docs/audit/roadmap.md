@@ -1111,3 +1111,32 @@ provider per sport, testo libero preservato, refresh mantiene la selezione, spor
 `tests/integration/test_known_teams_busy.py` (`_known_market_terms`: lock libero → valori per sport,
 sync → `DictionaryBusy` fail-fast, DB assente/engine non costruibile → liste vuote). Fail-first via
 stash (13 test falliscono senza il codice). Suite: **2011 passed, 10 skipped**.
+
+
+## #284 — pulsante «📁 Sfoglia…» per CSV Path + salvataggio immediato ✅ (PR 14)
+
+**Obiettivo (deciso col proprietario, opzione b).** Nel tab ⚙️ Generale, accanto al campo CSV
+Path, un pulsante **«📁 Sfoglia…»** che apre il selettore file; alla scelta il percorso è scritto
+nella casella **E salvato subito** in `config.json` (nessun click extra su «Salva Config»).
+
+**Cosa fa.**
+- `app.py` — `_browse_csv_path` (GUI): `filedialog.asksaveasfilename` (`.csv`, `initialdir`/
+  `initialfile` dal percorso corrente); annullo → nessuna modifica. `_apply_and_save_csv_path(path)`
+  (testabile): applica il percorso alla entry e persiste **subito** facendo **MERGE sul config
+  vivo** (`self._config`) — NON rilegge il form, NON tocca gli altri campi safety-critical
+  (dry_run/chat/sorgenti), NON esegue i gate di transizione REALE (un cambio file non deve
+  promptare). **Non tocca `_active_csv_path`** (il CSV della sessione attiva resta quello di START).
+  Pulsante «📁 Sfoglia…» aggiunto alla riga CSV Path della griglia (colonna 2).
+
+**Sicurezza.** Scrive nella stessa entry che oggi si compila a mano (nessun rischio nuovo).
+Contratto CSV, parser, Telegram invariati. Nessun path locale reale committato.
+
+**Test hard:** `tests/integration/test_csv_path_browse.py` (`_apply_and_save_csv_path` via harness
+headless + **vera `save_config`** su `CONFIG_FILE` temporaneo): selezione → entry + `csv_path`
+salvati e reload conferma la persistenza **preservando gli altri campi** (chat_id/dry_run); path
+vuoto/annullo → no-op (nessuna scrittura su disco); **`_active_csv_path` non toccato** a bridge
+avviato. Il dialog Tk è GUI-only → smoke manuale. Fail-first via stash (3 test falliscono senza il
+codice). Suite: **2014 passed, 10 skipped**.
+
+**Docs:** `docs/design/design_handoff.md` (pulsante + comportamento salvataggio immediato),
+`README.md` (nota «📁 Sfoglia…»).
