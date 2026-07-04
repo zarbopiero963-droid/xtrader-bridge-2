@@ -29,14 +29,16 @@ _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
-    "app.py": (32, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+    "app.py": (33, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
                    "event journal best-effort (#230); refill campo token su widget Tk distrutto (PR-08c); "
                    "engine/DB non disponibile → login Betfair senza riserva del lock (#172 audit); "
                    "probe is_syncing dell'anteprima ID fail-open (#192, Codex P2); "
                    "after_cancel del retry post-stop clear CSV su id scaduto/invalido (#259 A1, "
                    "stesso pattern del tick auto-sync); "
                    "install_global_log_redaction all'avvio best-effort (#259 D3: la redazione "
-                   "è difensiva, non deve mai impedire l'avvio della GUI)"),
+                   "è difensiva, non deve mai impedire l'avvio della GUI); "
+                   "known_teams del dizionario Betfair per precompilare la mappatura nomi "
+                   "best-effort (#282 PR 11: DB assente → [], la GUI non crasha)"),
     "atomic_io.py": (1, "cleanup del temporaneo su QUALSIASI errore di scrittura/rename (BaseException)"),
     "config_store.py": (2, "backup config corrotta best-effort + rollback keyring best-effort"),
     "csv_writer.py": (1, "callback diagnostico best-effort di clear_stale_csv: un sink log/GUI che "
@@ -47,7 +49,9 @@ _ALLOWLIST = {
     "gui_utils.py": (1, "helper GUI best-effort"),
     "journal_view_gui.py": (2, "GUI Tk scheda Diario (#236): lettura ledger best-effort "
                             "(avviso invece di crash) e apertura cartella best-effort"),
-    "name_mapping_gui.py": (6, "GUI Tk mapping: render/azioni best-effort"),
+    "name_mapping_gui.py": (7, "GUI Tk mapping: render/azioni best-effort; "
+                            "precompila nomi Betfair best-effort (#282 PR 11: provider "
+                            "che solleva → avviso, nessun crash)"),
     "provider_gui.py": (3, "GUI Tk provider: render/azioni best-effort"),
     "reconnect_policy.py": (1, "classificazione errore di reconnect tollerante"),
     "source_chats_gui.py": (1, "GUI Tk sorgenti: best-effort"),

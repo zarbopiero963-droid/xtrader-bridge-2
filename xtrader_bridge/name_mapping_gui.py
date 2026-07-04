@@ -61,9 +61,13 @@ class NameMappingPanel(ctk.CTkFrame):
 
     _NO_PROFILE = "(nessun profilo)"
 
-    def __init__(self, master=None, on_saved=None):
+    def __init__(self, master=None, on_saved=None, known_teams_provider=None):
         super().__init__(master)
         self._on_saved = on_saved
+        # Fonte dei nomi squadra PERMANENTI raccolti dalla sync Betfair (#282 PR 11):
+        # callable() → lista di dict {sport, display_name, ...}. Opzionale: se assente/None
+        # il pulsante «Precompila» avvisa invece di precompilare (nessun crash, fail-safe).
+        self._known_teams_provider = known_teams_provider
         self._current = None              # nome profilo selezionato
         self._row_widgets = []            # [{frame, country, betfair, provider}, ...]
         self._build_ui()
@@ -117,6 +121,11 @@ class NameMappingPanel(ctk.CTkFrame):
         actions.pack(fill="x", padx=12, pady=(0, 4))
         ctk.CTkButton(actions, text="➕ Aggiungi riga", width=140,
                       command=self._add_row).pack(side="left", padx=3)
+        # Precompila la colonna Betfair coi nomi squadra permanenti (#282 PR 11): riempie
+        # le righe coi nomi reali già raccolti dalla sync, tu affianchi solo l'alias del
+        # canale nel campo Provider. Niente tendina: i nomi sono scritti direttamente.
+        ctk.CTkButton(actions, text="📥 Precompila da Betfair", width=190, fg_color="#1565c0",
+                      hover_color="#0d47a1", command=self._prefill_betfair_names).pack(side="left", padx=3)
         ctk.CTkButton(actions, text="💾 Salva profilo", width=140, fg_color="#2e7d32",
                       hover_color="#1b5e20", command=self._save).pack(side="left", padx=3)
 
@@ -224,6 +233,61 @@ class NameMappingPanel(ctk.CTkFrame):
     def _delete_row(self, refs):
         refs["frame"].destroy()
         self._row_widgets = [r for r in self._row_widgets if r is not refs]
+
+    def _prefill_betfair_names(self):
+        """Precompila la colonna Betfair con TUTTI i nomi squadra permanenti raccolti dalla
+        sync Betfair (#282 PR 11). Aggiunge una riga per ogni nome noto con il **nome Betfair
+        FISSO già scritto** (nessun menu a tendina), lo **Sport** impostato e il tipo `team`;
+        il campo **Provider** resta vuoto perché ci scrivi l'alias del canale.
+
+        Idempotente e non distruttivo: NON tocca le righe esistenti e **salta** i nomi già
+        presenti (stesso sport + nome normalizzato, con la stessa normalizzazione del
+        resolver). Fail-safe: senza dizionario Betfair (o sync mai fatta) avvisa e non
+        aggiunge nulla, invece di crashare. Le righe aggiunte vanno **salvate** con 💾."""
+        if not self._current:
+            self._status.configure(text="⛔ Crea prima un profilo con «Nuovo».",
+                                   text_color="#ef5350")
+            return
+        provider = self._known_teams_provider
+        if not callable(provider):
+            self._status.configure(
+                text="⛔ Dizionario Betfair non disponibile: sincronizza prima da «🔵 Betfair Sync».",
+                text_color="#ef5350")
+            return
+        try:
+            teams = provider() or []
+        except Exception as exc:                 # noqa: BLE001 — best-effort, niente crash GUI
+            self._status.configure(text=f"❌ Nomi Betfair non leggibili: {type(exc).__name__}",
+                                   text_color="#ef5350")
+            return
+        # Dedup vs righe già presenti: chiave (sport, nome Betfair normalizzato), così un
+        # secondo «Precompila» non duplica e non calpesta gli alias già compilati.
+        existing = {(_label_to_sport(r["sport"].get()), dizionario.normalize(r["betfair"].get()))
+                    for r in self._row_widgets}
+        added = skipped = 0
+        for team in teams:
+            name = str((team or {}).get("display_name") or "").strip()
+            sport = str((team or {}).get("sport") or "").strip()
+            if not name:
+                continue
+            key = (sport, dizionario.normalize(name))
+            if key in existing:
+                skipped += 1
+                continue
+            existing.add(key)
+            # Betfair FISSO scritto nel campo; Provider vuoto (lo compili tu); tipo `team`.
+            self._append_row_widget(betfair=name, sport=sport, entity_type="team")
+            added += 1
+        if added:
+            self._status.configure(
+                text=f"📥 Aggiunti {added} nomi Betfair (scrivi l'alias del canale in «Provider»); "
+                     f"{skipped} già presenti. Poi salva con 💾.", text_color="#66bb6a")
+        else:
+            self._status.configure(
+                text="ℹ️ Nessun nuovo nome da aggiungere: "
+                     + (f"i {skipped} nomi noti sono già in tabella." if skipped else
+                        "il dizionario Betfair è vuoto — sincronizza da «🔵 Betfair Sync»."),
+                text_color="gray")
 
     # ── azioni profilo (persistono subito) ───────────────────────────────────
     def _persist(self, cfg: dict, ok_msg: str, fail_msg: str, select=None) -> bool:
@@ -755,13 +819,14 @@ class MappingPanel(ctk.CTkFrame):
 
     `on_saved(new_cfg)`: inoltrata a entrambe le aree (i dizionari persistono su config)."""
 
-    def __init__(self, master=None, on_saved=None):
+    def __init__(self, master=None, on_saved=None, known_teams_provider=None):
         super().__init__(master)
         self._tabs = ctk.CTkTabview(self)
         self._tabs.pack(fill="both", expand=True, padx=4, pady=4)
 
         calcio = self._tabs.add("⚽ Calcio")
-        self._calcio = NameMappingPanel(calcio, on_saved=on_saved)
+        self._calcio = NameMappingPanel(calcio, on_saved=on_saved,
+                                        known_teams_provider=known_teams_provider)
         self._calcio.pack(fill="both", expand=True)
 
         mercati = self._tabs.add("🎯 Mercati")

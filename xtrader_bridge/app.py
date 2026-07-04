@@ -1299,6 +1299,16 @@ class App(ctk.CTk):
                     self._betfair_engine_obj = SyncEngine(db, self._betfair_session_obj())
         return self._betfair_engine_obj
 
+    def _known_betfair_teams(self, sport=None):
+        """Nomi squadra PERMANENTI del dizionario Betfair locale (#282), per precompilare
+        la mappatura nomi (area ⚽ Calcio). **Best-effort e sola lettura**: se il DB non è
+        disponibile (mai sincronizzato, cartella assente…) ritorna `[]` invece di far
+        crashare la GUI — il pannello mostra un avviso. Non scrive né fa rete."""
+        try:
+            return self._betfair_sync_engine().db.known_teams(sport)
+        except Exception:   # noqa: BLE001 — best-effort: la GUI non deve crashare
+            return []
+
     def _betfair_id_resolver(self):
         """Risolutore ID del dizionario Betfair locale per il flusso live (PR-P12),
         **best-effort**: ritorna un `DictionaryResolver` sul DB locale, o `None` se il
@@ -2875,8 +2885,11 @@ class App(ctk.CTk):
             return panel_refs["sources"]
 
         def _make_mapping(parent):
-            """Crea il pannello Mapping e ne tiene il riferimento per il refresh."""
-            panel_refs["mapping"] = MappingPanel(parent, on_saved=_mapping_saved)
+            """Crea il pannello Mapping e ne tiene il riferimento per il refresh.
+            Inietta il provider dei nomi squadra permanenti (#282 PR 11), così l'area
+            ⚽ Calcio può precompilare la colonna Betfair coi nomi reali della sync."""
+            panel_refs["mapping"] = MappingPanel(parent, on_saved=_mapping_saved,
+                                                 known_teams_provider=self._known_betfair_teams)
             return panel_refs["mapping"]
 
         def _betfair_sync(sports):

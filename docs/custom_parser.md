@@ -171,12 +171,11 @@ il **separatore** squadre e spunti i **profili** da usare (checkbox multi-selezi
 «Prova messaggio» risolve i profili dalla config e mostra l'`EventName` tradotto (o
 `MAPPING_MISSING` se non mappabile), coerente col runtime.
 
-#### Nomi squadra permanenti dalla sync Betfair (#282, harvest — data layer)
+#### Nomi squadra permanenti dalla sync Betfair (#282: harvest + precompila)
 
-Oggi la colonna **Betfair/XTrader** della mappatura nomi è **campo libero digitato a
-mano**. Per aiutare a compilarla con i nomi squadra **reali**, la sync Betfair
-**raccoglie e conserva in modo permanente** i nomi dei partecipanti dei match dei 4
-sport:
+La colonna **Betfair/XTrader** della mappatura nomi resta **campo libero** (puoi sempre
+digitare un nome), ma può essere **precompilata** coi nomi squadra **reali** che la sync
+Betfair **raccoglie e conserva in modo permanente** per i 4 sport:
 
 - durante la sync, per ogni evento «Home v Away» i due partecipanti vengono salvati in
   una tabella locale dedicata `betfair_known_teams` (chiave `sport` + `normalized_name`,
@@ -188,10 +187,17 @@ sport:
 - sync ripetute **accumulano** senza duplicare (idempotente); un evento a un solo nome
   (torneo/outright, es. «ATP Finals») **non** è una squadra e viene saltato.
 
-> **Stato:** questa PR realizza solo il **data layer** (harvest + persistenza + accesso
-> `BetfairLocalDB.known_teams(sport)`). L'**aggancio al menù/GUI** della mappatura nomi
-> (suggerimento/selezione dei nomi permanenti nella colonna Betfair) e una vista di
-> **ripulitura manuale** arrivano nella PR successiva di #282.
+**Precompila (GUI, PR 11).** Nell'area **⚽ Calcio** del Mapping (scheda «🗺️ Mapping» →
+`name_mapping_gui.NameMappingPanel`) il pulsante **«📥 Precompila da Betfair»** aggiunge una
+riga per ogni nome noto: **nome Betfair già scritto** nel campo (nessun menu a tendina —
+resta editabile), **Sport** impostato e **Tipo** `team`; tu scrivi solo l'**alias del
+canale** nel campo **Provider**, poi **💾 Salva**. È **non distruttivo e idempotente**: non
+tocca le righe esistenti e **salta** i nomi già presenti (stesso sport + nome normalizzato).
+Fail-safe: senza dizionario Betfair (sync mai fatta) avvisa e non aggiunge nulla. Fonte dati:
+`BetfairLocalDB.known_teams(sport)` (sola lettura).
+
+> **Non ancora fatto (PR dedicata):** una vista di **ripulitura manuale** dei nomi permanenti
+> (sfogliare per sport ed **eliminare** nomi obsoleti/errati) sarà una PR successiva di #282.
 
 ### Mappatura mercati a frase (`market_mapping_profiles`)
 

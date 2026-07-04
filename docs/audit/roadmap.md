@@ -982,3 +982,28 @@ first-seen/permanenza-non-disattivabile), `tests/unit/test_betfair_catalogue_syn
 (harvest dopo sync, **no-deactivate** quando l'evento sparisce → ID `active=0` ma nomi
 restanti, accumulo cross-sync, solo-match-a-due, isolamento per sport),
 `tests/unit/test_sports.py` (`sport_for_event_type_id`).
+
+## #282 — precompila la mappatura nomi coi nomi Betfair permanenti ✅ (PR 11)
+
+**Obiettivo (deciso col proprietario).** Rendere **usabili** i nomi squadra permanenti
+raccolti in PR 10: nell'area **⚽ Calcio** del Mapping, la colonna **Betfair** va
+**precompilata coi nomi reali già iscritti** (nessun menu a tendina — i nomi sono scritti
+direttamente nel campo, che resta editabile), così l'utente affianca solo l'**alias** del
+canale nel campo Provider.
+
+**Cosa fa.** Pulsante **«📥 Precompila da Betfair»** in `NameMappingPanel`
+(`_prefill_betfair_names`): per ogni nome noto (`BetfairLocalDB.known_teams`) aggiunge una
+riga con Betfair FISSO, Sport impostato, Tipo `team`, Provider vuoto. **Non distruttivo e
+idempotente**: non tocca le righe esistenti, **salta** i duplicati (chiave `sport` + nome
+**normalizzato** con `dizionario.normalize`, la stessa del resolver). **Fail-safe**: il
+provider è iniettato da `App._known_betfair_teams` (best-effort → `[]` se il DB manca), quindi
+senza sync il pulsante avvisa e non aggiunge nulla. **Il testo libero è preservato** (si può
+sempre digitare un nome non ancora harvestato → nessuna regressione fail-closed).
+
+**Fuori scope (PR dedicata):** la vista di **ripulitura manuale** (sfoglia per sport +
+elimina nomi obsoleti) — richiederà un `delete_known_team` nel DB. #282 resta aperta.
+
+**Test hard:** `tests/unit/test_name_mapping_gui_prefill.py` (append per-nome, dedup
+normalizzato, stesso nome/altro-sport non-duplicato, no-profilo/no-provider/vuoto/provider-che-
+solleva fail-safe, nome vuoto saltato) esercitando il metodo reale su `self` finto (widget/
+provider simulati, nessun display).
