@@ -1519,5 +1519,37 @@ FALLISCE; mutazione 2 (StringVar solo se avanzate) → test preservazione FALLIS
 ripristino. Rendering GUI reale = smoke manuale. Suite: **2123 passed, 10 skipped**.
 
 **Docs:** design_handoff.md (GATE §7.1: toggle «Avanzate» + griglia essenziale di default; §7 conteggio
-pannelli 9→10). **Con questo slice #293 è COMPLETA** (rinomina → mappature nel parser → Riepilogo →
-4 gruppi → densità). Prossimo su #301: Nuitka (Fase 6) + issue #325 (Correct Score dinamico).
+pannelli 9→10). Con questo slice il **piano incrementale a 5 slice** di #293 è fatto (rinomina →
+mappature nel parser → Riepilogo → 4 gruppi → densità); restava l'item 4 del concept (chip
+«Traduzioni» in Chat sorgenti), fatto in slice 6 qui sotto.
+
+
+## #293 (slice 6) — chip «Traduzioni» per canale in Chat sorgenti; #293 COMPLETA (PR 25)
+
+**Obiettivo (#293, item 4 del concept — scelto dal proprietario dopo le 5 slice del piano).** Nel
+pannello **Chat sorgenti** ogni canale ora mostra un **chip «Traduzioni»** che dice a colpo d'occhio
+se il parser di quella chat ha mappature **risolte** attive (**`Nomi ✓ · Mercati ✓`** verde /
+**`—`** grigio). Completa l'intero concept approvato di #293.
+
+**Cosa fa.**
+- `config_summary.py` — nuovo helper **puro** riusabile `parser_translation_flags(cfg, parser_name,
+  *, parsers_dir)` → `(nomi_attive, mercati_attive)` booleani (parser vuoto/non caricabile →
+  `(False, False)`, fail-closed; stessa nozione di «risolto» del Riepilogo).
+- `source_chats_gui.py` — colonna **«Traduzioni»** in intestazione + `_translations_chip_text`
+  (puro) + `_update_row_chip` (parser della riga = override o, se «(predefinito)», il globale). Il
+  chip si aggiorna al cambio del menu Parser (`command=`) e in `refresh_options` (nuove mappature/
+  parser da altre schede); snapshot `self._cfg` aggiornato in `__init__`/`refresh`/`refresh_options`.
+
+**Sicurezza/invarianti.** Solo indicatore read-only: nessun cambio a `_save`, alla logica sentinella
+del parser, a `parser_by_chat`, al contratto CSV, al filtro chat o a Betfair. Nessuna nuova
+eccezione ampia (`parser_translation_flags` è fail-safe).
+
+**Test hard (fail-first via mutazione):** `tests/unit/test_config_summary.py` (+1) —
+`parser_translation_flags` nomi/mercati/entrambi/fantasma(→False)/nessun-parser/file-assente;
+`tests/integration/test_source_chats_translations.py` (1) — `_translations_chip_text` (ctk stubbato).
+Mutazione (conta i profili fantasma) → il caso «Ghost» FALLISCE, poi ripristino. Rendering GUI reale =
+smoke manuale. Suite: **2126 passed, 10 skipped**.
+
+**Docs:** design_handoff.md (GATE §7.2: colonna «Traduzioni» in Chat sorgenti). **#293 è ora COMPLETA
+in tutti i 6 item del concept.** Prossimo su #301 (ordine scelto dal proprietario): issue #325 (Correct
+Score dinamico) → poi Nuitka (Fase 6).

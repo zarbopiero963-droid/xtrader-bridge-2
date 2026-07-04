@@ -160,6 +160,27 @@ def summarize_channel(cfg: dict, row: dict, *, existing_names: set,
         ready=ready, reason=reason)
 
 
+def parser_translation_flags(cfg: dict, parser_name, *, parsers_dir: str = None):
+    """`(nomi_attive, mercati_attive)` booleani per il parser `parser_name`: ``True`` se il
+    parser seleziona almeno un profilo di mappatura **risolto** (esistente) di quel tipo — la
+    stessa nozione di «traduzione attiva» del Riepilogo (#293). Parser vuoto o non caricabile →
+    `(False, False)` (fail-closed: nessun falso ✓). Usato dai chip «Traduzioni» di Chat sorgenti
+    (#293 slice 6). Puro: nessuna GUI; `load_active` è già fail-safe (file mancante/invalido →
+    None), quindi non solleva."""
+    name = str(parser_name or "").strip()
+    if not name:
+        return (False, False)
+    defn = parser_manager.load_active({"active_parser": name}, "", parsers_dir)
+    if defn is None:
+        return (False, False)
+    cfg = cfg if isinstance(cfg, dict) else {}
+    names_existing = set(name_mapping_store.profile_names(cfg))
+    markets_existing = set(market_mapping_store.profile_names(cfg))
+    names_active = any(p in names_existing for p in defn.name_mapping_profiles)
+    markets_active = any(p in markets_existing for p in defn.market_mapping_profiles)
+    return (names_active, markets_active)
+
+
 def summarize_config(cfg: dict, *, betfair_synced: bool = False,
                      betfair_logged_in: bool = False,
                      parsers_dir: str = None) -> ConfigSummary:

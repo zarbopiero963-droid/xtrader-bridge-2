@@ -13,8 +13,22 @@ coperta da `tests/unit/test_source_editor.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import config_store, gui_utils
+from . import config_store, config_summary, custom_parser, gui_utils
 from .source_editor import SourceEditor
+
+# Chip «Traduzioni» per canale (#293 slice 6): mostra se il parser del canale ha mappature
+# nomi/mercati RISOLTE attive. Colori theme-aware (light, dark): verde se almeno una attiva.
+_CHIP_ON_COLOR = ("#2e7d32", "#66bb6a")
+_CHIP_OFF_COLOR = "gray"
+
+
+def _translations_chip_text(names_active: bool, markets_active: bool) -> str:
+    """Testo del chip «Traduzioni» di un canale (#293 slice 6): «Nomi ✓ · Mercati ✓» a seconda
+    che il parser del canale abbia mappature nomi/mercati **risolte** attive; «—» dove nessuna.
+    Puro/testabile: non dipende dalla GUI."""
+    nomi = "Nomi ✓" if names_active else "Nomi —"
+    mercati = "Mercati ✓" if markets_active else "Mercati —"
+    return f"{nomi} · {mercati}"
 
 # Etichetta base della voce "nessun override per-chat" (= "" in parser_by_chat): la
 # chat usa il parser GLOBALE (`active_parser`, via resolve_parser_name), da cui
@@ -56,7 +70,10 @@ class SourceChatsPanel(ctk.CTkFrame):
     def __init__(self, master=None, on_saved=None):
         super().__init__(master)
         self._on_saved = on_saved
-        self._editor = SourceEditor(config_store.load_config(config_store.CONFIG_FILE))
+        # Snapshot config per i chip «Traduzioni» (#293 slice 6): profili di mappatura esistenti
+        # + parser globale. Aggiornato in refresh()/refresh_options().
+        self._cfg = config_store.load_config(config_store.CONFIG_FILE)
+        self._editor = SourceEditor(self._cfg)
         self._modes = self._editor.mode_options()
         # Nomi reali dei parser + sentinella "nessuno" unica (non collide mai con un nome
         # reale NÉ con un override tenuto da una riga, anche danglante). Menu: sentinella, poi i nomi.
@@ -77,7 +94,8 @@ class SourceChatsPanel(ctk.CTkFrame):
         riscriverebbe le `source_chats` STANTIE sopra il profilo appena caricato,
         indebolendo il filtro chat (Codex P1). Le modifiche non salvate vengono scartate:
         il profilo appena caricato è la nuova verità."""
-        self._editor = SourceEditor(config_store.load_config(config_store.CONFIG_FILE))
+        self._cfg = config_store.load_config(config_store.CONFIG_FILE)
+        self._editor = SourceEditor(self._cfg)
         self._modes = self._editor.mode_options()
         self._parser_names = self._editor.parser_options()
         self._no_parser = self._no_parser_label(
@@ -95,9 +113,11 @@ class SourceChatsPanel(ctk.CTkFrame):
         scheda torna attiva nella hub, così un parser appena creato nella scheda Parser
         compare subito nel menu Parser di ogni riga (Codex). Best-effort."""
         try:
-            editor = SourceEditor(config_store.load_config(config_store.CONFIG_FILE))
+            cfg = config_store.load_config(config_store.CONFIG_FILE)
+            editor = SourceEditor(cfg)
         except Exception:               # noqa: BLE001 — config illeggibile: niente refresh
             return
+        self._cfg = cfg                 # snapshot fresco per i chip «Traduzioni» (#293 slice 6)
         old_no_parser = self._no_parser
         self._parser_names = editor.parser_options()
         # Nuova sentinella unica vs nomi reali E override tenuti dalle righe (valore != vecchia
@@ -124,6 +144,7 @@ class SourceChatsPanel(ctk.CTkFrame):
                 if cur and cur not in vals:
                     vals.append(cur)        # preserva la selezione anche se il parser è sparito
                 menu.configure(values=vals)
+            self._update_row_chip(refs)     # rifletti mappature/parser aggiornati nel chip
 
     # ── costruzione UI ─────────────────────────────────────────────────────
     def _build_ui(self):
@@ -140,7 +161,8 @@ class SourceChatsPanel(ctk.CTkFrame):
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=12)
         for text, w in (("Attiva", 60), ("Nome", 180), ("Chat ID", 160),
-                        ("Modalità", 100), ("Provider", 150), ("Parser", 160), ("", 40)):
+                        ("Modalità", 100), ("Provider", 150), ("Parser", 160),
+                        ("Traduzioni", 150), ("", 40)):
             ctk.CTkLabel(head, text=text, width=w, anchor="w",
                          font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
 
@@ -180,12 +202,36 @@ class SourceChatsPanel(ctk.CTkFrame):
         parser_menu = ctk.CTkOptionMenu(row, width=160, values=self._parser_options,
                                         variable=parser)
         parser_menu.pack(side="left", padx=3)
+        # Chip «Traduzioni» (#293 slice 6): mostra a colpo d'occhio se il parser di questa chat
+        # ha mappature nomi/mercati RISOLTE attive. Read-only, si aggiorna al cambio parser.
+        trad_chip = ctk.CTkLabel(row, width=150, anchor="w", font=ctk.CTkFont(size=11))
+        trad_chip.pack(side="left", padx=3)
         refs = {"frame": row, "enabled": enabled, "name": name,
                 "chat_id": chat_id, "mode": mode, "provider": provider, "parser": parser,
-                "parser_menu": parser_menu}
+                "parser_menu": parser_menu, "trad_chip": trad_chip}
+        # Al cambio parser nella tendina, ricalcola il chip di QUESTA riga.
+        parser_menu.configure(command=lambda _v, r=refs: self._update_row_chip(r))
+        self._update_row_chip(refs)
         ctk.CTkButton(row, text="✕", width=40, fg_color="#c62828", hover_color="#7f0000",
                       command=lambda r=refs: self._remove_row(r)).pack(side="left", padx=3)
         self._rows.append(refs)
+
+    def _update_row_chip(self, refs):
+        """Aggiorna il chip «Traduzioni» della riga in base al parser selezionato: l'override
+        per-chat se presente, altrimenti il parser GLOBALE (voce «(predefinito)»). Read-only:
+        legge lo snapshot `self._cfg`. `parser_translation_flags` è fail-safe (parser mancante/
+        invalido → nessuna traduzione), quindi non serve un try qui."""
+        selected = refs["parser"].get()
+        # «(predefinito)» (sentinella) = nessun override → usa il parser globale di config.
+        name = "" if selected == self._no_parser else selected
+        effective = name or str(self._cfg.get("active_parser", "") or "").strip()
+        names_active, markets_active = config_summary.parser_translation_flags(
+            self._cfg, effective, parsers_dir=custom_parser.default_parsers_dir())
+        chip = refs.get("trad_chip")
+        if chip is not None:
+            active = names_active or markets_active
+            chip.configure(text=_translations_chip_text(names_active, markets_active),
+                           text_color=(_CHIP_ON_COLOR if active else _CHIP_OFF_COLOR))
 
     def _remove_row(self, refs):
         refs["frame"].destroy()
