@@ -12,12 +12,24 @@ credenziali salvate. Le credenziali sono globali locali (keyring), non per profi
 il sessionToken vive solo in RAM; nessuna chiamata betting (read-only).
 """
 
+import os
+
 import customtkinter as ctk
 
 from .credential_store import BetfairCredentials
 from .session import BetfairSession
 from .auto_sync import normalize_hour
 from .sync_tab_controller import SPORTS, BetfairSyncController, normalize_days_ahead
+
+# #285: pulsante «📁 Sfoglia…» per i campi PERCORSO (certificato / private key). Solo file
+# ESISTENTI (`askopenfilename`, non `asksaveasfilename`): i file cert/key li crea l'utente.
+# Titolo + filtri per campo. Solo il PERCORSO viene letto/salvato, mai il contenuto della chiave.
+_BROWSE_FILETYPES = {
+    "cert_path": ("Scegli il certificato Betfair (.crt/.pem)",
+                  [("Certificato", "*.crt *.pem"), ("Tutti i file", "*.*")]),
+    "key_path": ("Scegli la private key Betfair (.key)",
+                 [("Private key", "*.key"), ("Tutti i file", "*.*")]),
+}
 
 
 class BetfairSyncPanel(ctk.CTkFrame):
@@ -68,6 +80,12 @@ class BetfairSyncPanel(ctk.CTkFrame):
             entry.grid(row=i, column=1, sticky="we", padx=8, pady=4)
             entry.bind("<KeyRelease>", lambda _e: self._refresh_buttons())
             self._entries[key] = entry
+            # Campi PERCORSO: pulsante «📁 Sfoglia…» (#285) che seleziona il file e salva
+            # subito il percorso (invece di digitarlo a mano).
+            if key in _BROWSE_FILETYPES:
+                ctk.CTkButton(form, text="📁 Sfoglia…", width=100,
+                              command=lambda k=key: self._browse_path(k)).grid(
+                                  row=i, column=2, sticky="w", padx=8, pady=4)
 
         # Sport + giorni avanti.
         opts = ctk.CTkFrame(self)
@@ -167,6 +185,30 @@ class BetfairSyncPanel(ctk.CTkFrame):
             else "Stato login: — non connesso")
 
     # ── azioni ────────────────────────────────────────────────────────────────
+    def _browse_path(self, key):
+        """«📁 Sfoglia…» per `cert_path`/`key_path` (#285): seleziona un file ESISTENTE e ne
+        salva SUBITO il percorso.
+
+        Riusa `_save()` — che RISOLVE i secret mascherati (App Key/Password) nei valori reali
+        PRIMA di salvare: essenziale perché `credential_store.save_credentials` **cancella i
+        campi vuoti**, quindi un salvataggio path-only ingenuo (secret vuoti) li perderebbe.
+        Così solo il PERCORSO è nuovo; i segreti restano invariati (né toccati né smascherati).
+        Legge/salva solo il percorso, **mai** il contenuto della chiave privata. Annullo →
+        nessuna modifica. GUI-only (dialog Tk): la logica di salvataggio è in `_save`."""
+        from tkinter import filedialog
+        title, filetypes = _BROWSE_FILETYPES[key]
+        entry = self._entries[key]
+        current = str(entry.get() or "").strip()
+        initialdir = os.path.dirname(current) if current else None
+        initialfile = os.path.basename(current) if current else None
+        dest = filedialog.askopenfilename(title=title, filetypes=filetypes,
+                                          initialdir=initialdir, initialfile=initialfile)
+        if not dest:
+            return                           # dialog annullato: nessuna modifica
+        entry.delete(0, "end")
+        entry.insert(0, dest)
+        self._save()                         # salva subito (anti-maschera già gestita in _save)
+
     def _save(self):
         # Risolvi i campi mascherati nei valori reali PRIMA di salvare: un segreto non
         # ridigitato non deve sovrascrivere il keyring con la maschera (Codex).
