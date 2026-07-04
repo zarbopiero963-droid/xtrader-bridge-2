@@ -130,8 +130,11 @@ class MultiRowRule:
     """Una riga MultiMarket/MultiSelection (#192): valori che SOVRASCRIVONO i campi
     mercato/selezione della riga base. Un campo vuoto EREDITA dalla riga base.
 
-    `start_after`/`end_before` sono conservati per una futura estrazione per-riga dal
-    messaggio; in questa prima versione i valori dei campi sono fissi (override diretto).
+    Estrazione per-riga (#325): una regola **MultiSelection** con `selection_name` **vuoto** e
+    `start_after`/`end_before` valorizzati è **dinamica** — dalla regione fra i delimitatori si
+    estrae la LISTA dei risultati esatti («N - N», normalizzati) e si genera una riga per ciascuno
+    (`custom_pipeline._selection_rows`/`custom_parser_engine.extract_scores`). Con `selection_name`
+    fisso (o senza delimitatori) i valori restano **fissi** (override diretto, percorso #192).
     `enabled=False` esclude la riga dalla generazione (fail-closed sui valori malformati)."""
 
     start_after: str = ""

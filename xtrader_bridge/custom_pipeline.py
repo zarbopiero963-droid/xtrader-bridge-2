@@ -18,7 +18,7 @@ SOLO se `result.placeable` è True (status VALID).
 
 import re
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from . import (
     market_mapping_store,
@@ -30,7 +30,7 @@ from . import (
 )
 from .csv_writer import DEFAULT_HANDICAP, DEFAULT_POINTS
 from .custom_parser import CustomParserDef
-from .custom_parser_engine import apply_parser
+from .custom_parser_engine import apply_parser, extract_scores
 
 # Separatore casa/trasferta di default quando il parser richiede la mappatura nomi
 # ma non specifica `team_separator` (Betfair usa "Casa v Trasferta").
@@ -406,18 +406,81 @@ _BASE_BLOCKING = (NOT_READY, INVALID_MISSING_PROVIDER, INVALID_HANDICAP,
 _MULTI_RESOLVABLE = (NOT_READY, MARKET_MAPPING_MISSING)
 
 
-def _multi_supplied_cols(rules) -> "frozenset":
+# #325/#341: l'estrazione per-riga dinamica dei punteggi vale SOLO per i mercati Correct Score
+# full-time e primo tempo — gli unici che elencano risultati «N - N» — perché `extract_scores`
+# riconosce solo quella forma. Gating deliberato e fail-closed: i campi `start_after`/`end_before`
+# su una `MultiRowRule` esistevano già prima di #325 (docstring base: «conservati per una futura
+# estrazione per-riga»), quindi un JSON legacy POTREBBE avere una MultiSelection con `selection_name`
+# vuoto + delimitatori residui su un mercato NON-punteggio: senza questo gate diventerebbe dinamica e
+# moltiplicherebbe UNA riga fissa (che ereditava il SelectionName base) in N righe/scommesse estratte
+# → possibili scommesse multiple non volute (Fable #341). Con il gate, quel caso resta una riga FISSA.
+_DYNAMIC_SCORE_MARKETS = frozenset({"CORRECT_SCORE", "HALF_TIME_SCORE"})
+
+
+def _effective_market(base_row: dict, rule) -> str:
+    """MarketType effettivo di una riga selezione: l'override della regola se presente, altrimenti
+    quello ereditato dalla riga base."""
+    return (str(getattr(rule, "market_type", "") or "").strip()
+            or str(base_row.get("MarketType", "") or "").strip())
+
+
+def _is_dynamic_selection(rule, market_type: str) -> bool:
+    """#325: una regola SELEZIONE è **dinamica** se NON ha un `selection_name` fisso ma ha un
+    delimitatore di estrazione (`start_after`/`end_before`) **e** il mercato effettivo è un
+    mercato-punteggio **canonico** (`_DYNAMIC_SCORE_MARKETS`, confronto esatto): il `SelectionName`
+    di ogni riga viene estratto dal messaggio (lista di risultati esatti). Detection **stretta** —
+    con un `selection_name` fisso, senza delimitatori, o su un mercato non-punteggio/non-canonico,
+    resta il percorso #192 a riga fissa invariato (nessuna moltiplicazione di righe su config legacy).
+    Il confronto è **esatto** (niente `.upper()`): un `MarketType` non canonico (es. «correct_score»
+    minuscolo da JSON legacy) NON attiva l'estrazione, così le righe dinamiche emettono **solo**
+    MarketType canonici che XTrader/Betfair riconoscono — evita di scrivere un mercato non canonico
+    che verrebbe rifiutato o mappato male (Fugu #341). Fail-closed."""
+    if str(market_type or "").strip() not in _DYNAMIC_SCORE_MARKETS:
+        return False
+    return (not str(getattr(rule, "selection_name", "") or "").strip()
+            and bool(str(getattr(rule, "start_after", "") or "").strip()
+                     or str(getattr(rule, "end_before", "") or "").strip()))
+
+
+def _rule_supplies(rule, col: str, attr: str, *, from_selection: bool, market_type: str = "") -> bool:
+    """`True` se `rule` garantisce la colonna `col` su OGNI riga che genera: attributo non vuoto,
+    OPPURE — per `SelectionName` — è una regola SELEZIONE dinamica (#325), che fornisce il
+    `SelectionName` via estrazione per-riga anche con l'attributo `selection_name` vuoto.
+
+    `from_selection` deve essere `True` SOLO per le regole della lista SELEZIONI: il caso speciale
+    `SelectionName` via estrazione dinamica vale unicamente per le selezioni. Una regola MERCATO
+    ha `selection_name` vuoto per natura (è una riga-mercato) e — poiché `start_after`/`end_before`
+    sono campi condivisi da `MultiRowRule` e non validati per i mercati — potrebbe averli valorizzati
+    (JSON residuo/misconfig): senza questo vincolo verrebbe scambiata per selezione dinamica e
+    «fornirebbe» falsamente `SelectionName`, rilassando a torto il gate base (CodeRabbit #341). I
+    suoi row non riempiono mai `SelectionName` via estrazione, quindi non lo fornisce."""
+    if str(getattr(rule, attr, "") or "").strip():
+        return True
+    return (col == "SelectionName" and from_selection
+            and _is_dynamic_selection(rule, market_type))
+
+
+def _multi_supplied_cols(markets, selections, base_market: str = "") -> "frozenset":
     """Colonne CSV che OGNI riga multi generata riempirà con un valore non vuoto (kyZ #192):
-    una colonna è «fornita» solo se **tutte** le regole attive (mercati + selezioni) hanno il
-    corrispondente attributo non vuoto — così è garantita su OGNI riga derivata, non solo su
-    alcune. Serve ai gate strutturali della base per non bloccare un campo che il multi completerà.
-    Con `rules` vuoto → insieme vuoto (nessuna garanzia)."""
-    rules = list(rules or [])
-    if not rules:
+    una colonna è «fornita» solo se **tutte** le regole attive (mercati + selezioni) la
+    garantiscono — così è assicurata su OGNI riga derivata, non solo su alcune. Una regola
+    SELEZIONE dinamica (#325) garantisce `SelectionName` via estrazione anche con l'attributo
+    vuoto (`_rule_supplies`), così la base non resta bloccata su un `SelectionName` obbligatorio
+    che la lista estratta riempirà. Il credito `SelectionName` via estrazione dinamica è ristretto
+    alle sole regole SELEZIONE (`from_selection=True`) e ai soli mercati-punteggio (il mercato
+    effettivo della selezione = suo override o `base_market`): una regola MERCATO o una selezione su
+    mercato non-punteggio non può rilassare il gate base su `SelectionName` (CodeRabbit/Fable #341).
+    Con entrambe le liste vuote → insieme vuoto."""
+    markets = list(markets or [])
+    selections = list(selections or [])
+    if not markets and not selections:
         return frozenset()
     return frozenset(
         col for col, attr in _MULTI_OVERRIDE
-        if all(str(getattr(r, attr, "") or "").strip() for r in rules))
+        if all(_rule_supplies(r, col, attr, from_selection=False) for r in markets)
+        and all(_rule_supplies(r, col, attr, from_selection=True,
+                               market_type=_effective_market({"MarketType": base_market}, r))
+                for r in selections))
 
 
 def _apply_multi_rule(base_row: dict, rule) -> dict:
@@ -464,6 +527,28 @@ def _validated_multi_row(base_row: dict, rule, mode: str, require_price: bool,
     return PipelineResult(status, row, missing, detail)
 
 
+def _selection_rows(base_row: dict, rule, text: str, mode: str, require_price: bool,
+                    *, sport: str = "", id_resolver=None) -> "list[PipelineResult]":
+    """Righe generate da UNA regola SELEZIONE (#192 + #325).
+
+    - Regola **fissa** (`selection_name` impostato, o mercato non-punteggio) → UNA riga, come sempre.
+    - Regola **dinamica** (#325: `selection_name` vuoto + delimitatori **su mercato-punteggio**) →
+      estrae la lista dei risultati esatti dal messaggio (`extract_scores`, normalizzati a «N - N») e
+      genera UNA riga per punteggio, ognuna con `selection_name` = quel punteggio. Ogni riga passa dal
+      solito `_validated_multi_row` (azzeramento+ri-risoluzione ID per la selezione, validazione
+      per-riga fail-closed): un punteggio malformato non arriva qui (non matcha il pattern), e una
+      riga non valida non blocca le altre. Lista vuota → NESSUNA riga (fail-closed)."""
+    if not _is_dynamic_selection(rule, _effective_market(base_row, rule)):
+        return [_validated_multi_row(base_row, rule, mode, require_price,
+                                     sport=sport, id_resolver=id_resolver)]
+    rows = []
+    for score in extract_scores(text, rule.start_after, rule.end_before):
+        dyn = replace(rule, selection_name=score)   # copia con il SelectionName estratto
+        rows.append(_validated_multi_row(base_row, dyn, mode, require_price,
+                                         sport=sport, id_resolver=id_resolver))
+    return rows
+
+
 def build_validated_rows(defn: CustomParserDef, text: str, **kwargs) -> "list[PipelineResult]":
     """Variante multi-riga (#192) di `build_validated_row`: ritorna una LISTA di
     `PipelineResult`, una per riga generata. Accetta gli stessi keyword di
@@ -501,7 +586,8 @@ def build_validated_rows(defn: CustomParserDef, text: str, **kwargs) -> "list[Pi
     # fornite da OGNI riga generata (`multi_supplied`) — così un obbligatorio NON coperto resta
     # bloccante (Codex P1) e la mappatura mercati non fa un falso fail-closed (Codex/CodeRabbit).
     if base.status in _MULTI_RESOLVABLE:
-        supplied = set(_multi_supplied_cols(list(markets) + list(selections)))
+        supplied = set(_multi_supplied_cols(markets, selections,
+                                            str(base.row.get("MarketType", "") or "")))
         # ID_ONLY con dizionario (Codex, follow-up #290): un parser creato dalla GUI marca
         # `MarketId`/`SelectionId` come obbligatori per la modalità; se sono lasciati vuoti perché
         # il resolver li riempie PER RIGA, la base sarebbe `NOT_READY` e la generazione non
@@ -534,8 +620,17 @@ def build_validated_rows(defn: CustomParserDef, text: str, **kwargs) -> "list[Pi
     sport = getattr(defn, "sport", "")
     out = [_validated_multi_row(base.row, r, mode, require_price, sport=sport,
                                 id_resolver=id_resolver) for r in markets]
-    out += [_validated_multi_row(base.row, r, mode, require_price, sport=sport,
-                                 id_resolver=id_resolver) for r in selections]
+    # Selezioni: una regola fissa → una riga; una regola DINAMICA (#325) → una riga per risultato
+    # esatto estratto dal messaggio. `_selection_rows` gestisce entrambi i casi.
+    for r in selections:
+        out += _selection_rows(base.row, r, text, mode, require_price,
+                               sport=sport, id_resolver=id_resolver)
+    if not out:
+        # #325: una regola SELEZIONE dinamica che non estrae NESSUN risultato (lista vuota) e
+        # nessun'altra riga → non si piazza la base (avrebbe SelectionName vuoto): un unico esito
+        # NON piazzabile `NOT_READY` con un `detail` esplicito (per la diagnostica/GUI, review #341).
+        # Evita anche un `[]` che romperebbe `resolve_row` (`results[0]`).
+        return [PipelineResult(NOT_READY, base.row, [], "no_scores_extracted")]
     return out
 
 

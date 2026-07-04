@@ -1553,3 +1553,45 @@ smoke manuale. Suite: **2126 passed, 10 skipped**.
 **Docs:** design_handoff.md (GATE §7.2: colonna «Traduzioni» in Chat sorgenti). **#293 è ora COMPLETA
 in tutti i 6 item del concept.** Prossimo su #301 (ordine scelto dal proprietario): issue #325 (Correct
 Score dinamico) → poi Nuitka (Fase 6).
+
+
+## #325 (slice 1, backend) — estrazione per-riga DINAMICA dei risultati esatti (Correct Score FT + 1º tempo)
+
+**Obiettivo (#325, feature nuova; scope backend-first scelto dal proprietario).** Un messaggio che
+elenca più risultati esatti (es. «1-0, 2-1, 3-0») + una regola **MultiSelection dinamica** →
+**una riga CSV per risultato**, estratti dal messaggio (non più solo selezioni fisse
+preconfigurate). Vale sia per **Correct Score full-time** (`CORRECT_SCORE`) sia per il **primo
+tempo** (`HALF_TIME_SCORE`) — entrambi esclusi dall'harvest #283, quindi le selezioni DEVONO venire
+da qui.
+
+**Cosa fa.**
+- `custom_parser_engine.extract_scores(text, start_after, end_before)` (NUOVO, puro): dalla regione
+  fra i delimitatori estrae la lista dei punteggi «N - N», **normalizzati** al formato del dizionario
+  («1-0»/«1:0»/«01 - 0» → «1 - 0»), **deduplicati** nell'ordine del messaggio. Separatore fra i
+  risultati irrilevante (riconoscimento per forma via `findall`). Senza delimitatori → scandisce
+  tutto il testo.
+- `custom_pipeline`: `_is_dynamic_selection(rule)` (detection **stretta**: `selection_name` vuoto +
+  `start_after`/`end_before`), `_selection_rows` (fissa → 1 riga; dinamica → 1 riga per punteggio via
+  `extract_scores`, ognuna dal solito `_validated_multi_row` → azzeramento+ri-risoluzione ID +
+  validazione per-riga fail-closed), e fix `_multi_supplied_cols`/`_rule_supplies` (una regola
+  dinamica «fornisce» `SelectionName` via estrazione, così una base `NOT_READY` su un SelectionName
+  obbligatorio viene rilassata — trappola #192 evitata). `build_validated_rows` non ritorna mai `[]`
+  (una lista vuota → un esito `NOT_READY` non piazzabile, così `resolve_row` non crasha).
+- Docstring `MultiRowRule` aggiornata (l'estrazione per-riga non è più «futura»).
+
+**Sicurezza/invarianti.** Nessun cambio al contratto CSV (14 colonne — solo più righe), al filtro
+chat, a Betfair. Retro-compatibilità: MultiSelection **fisso** e single-row invariati (detection
+stretta). Deduplica punteggi = nessuna doppia scommessa per lo stesso risultato. ID coerenti per
+riga (azzerati quando cambia la selezione, poi ri-risolti). Fail-closed per-riga.
+
+**Test hard (fail-first via mutazione):** `tests/unit/test_dynamic_scores_325.py` (13) —
+`extract_scores` (lista/normalizzazione/separatori robusti/dedup/regione delimitata/vuota);
+pipeline (N righe FT + 1º tempo, un solo risultato, token malformato ignorato, lista vuota → nessuna
+riga piazzabile senza crash, ID azzerati per riga, base NOT_READY su SelectionName obbligatorio
+rilassata dal dinamico, retro-compat fisso). Mutazioni: detection sempre-False → test N-righe
+FALLISCE; rimozione del supply dinamico di SelectionName → test base-NOT_READY FALLISCE. 102 test
+multirow/pipeline/engine preesistenti verdi. Suite: **2141 passed, 10 skipped**.
+
+**Docs:** `docs/custom_parser.md` §5-bis (estrazione per-riga dinamica) + docstring `MultiRowRule`.
+Design handoff = **N/A** (slice backend, nessun cambio GUI; i campi «Inizia dopo/Finisce prima» sulla
+tabella MultiSelection arrivano nella **slice 2 GUI**). Prossimo: #325 slice 2 (GUI) → poi Nuitka.

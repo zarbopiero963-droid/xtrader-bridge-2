@@ -140,6 +140,72 @@ def extract_between(text: str, start_after: str = "", end_before: str = "") -> s
     return extract_value(text, FieldRule(target="", start_after=start_after, end_before=end_before))
 
 
+# #325: pattern di un risultato esatto «N - N» dentro la regione estratta.
+# - separatore INTERNO **solo `-`** (trattino), tollerante agli spazi: NON si usa `:` per evitare
+#   di agganciare ORARI/quote come «20:30» o «45:12» (rischio di SelectionName fantasma → riga
+#   spuria piazzabile per nome in NAME_ONLY, potenziale scommessa errata — review #341);
+# - **1–2 cifre per lato** con **confini di cifra** (`(?<!\d)`/`(?!\d)`): NON aggancia numeri più
+#   lunghi (maglie/ID come «100-1», «007-3», «1-100») né loro pezzi.
+# I risultati sono riconosciuti via `findall`, perciò il separatore FRA i risultati
+# (virgola/spazio/newline/slash/…) è irrilevante. La difesa PRIMARIA restano i delimitatori «Inizia
+# dopo/Finisce prima» che limitano la regione al solo elenco di risultati; questo pattern è un cap
+# difensivo aggiuntivo. Un punteggio non nel dizionario resta comunque fail-closed a valle (ID_ONLY).
+# NB: i punteggi col separatore «:» (es. «1:0») NON sono riconosciuti di proposito; se un canale li
+# usa, va aggiunta un'euristica orario-vs-punteggio dedicata (follow-up), non un `:` indiscriminato.
+# Lo spazio attorno al «-» è SOLO orizzontale (`[^\S\r\n]*`, non `\s*`): un punteggio sta sempre su
+# UNA riga, quindi cifre di righe adiacenti («3\n- 0») NON devono fondersi in un punteggio spurio
+# (→ riga CSV/scommessa Betfair errata) quando la regione delimitata è multi-riga (Fugu #341).
+# Confini anti-DECIMALE oltre a quelli anti-cifra: un handicap/quota come «0-0.5», «1-0.25» o «0.5-1»
+# — e la stessa notazione con la **virgola** italiana «0-0,5», «0,5-1» (prevalente nei canali IT) —
+# NON deve produrre un punteggio spurio «0 - 0»/«1 - 0»/«5 - 1» (selezioni Correct Score VALIDE →
+# riga piazzabile errata). `(?<![.,])` (sul PRIMO numero) esclude il caso in cui è la parte decimale
+# di un valore, anche **senza cifra iniziale** («0,5» ma pure «,5»/«.5»); `(?![.,]\d)` esclude il caso
+# in cui il SECONDO numero è seguito da «[.,]d» — ma NON da un semplice punto/virgola di frase
+# («1-0.» resta «1 - 0») (Fable/Fugu/GPT #341). Disambiguazione lista-vs-decimale: sul primo numero il
+# confine morde su `[.,]` immediatamente prima; il separatore di lista comma-SPAZIO «1-0, 2-1» resta
+# valido (il numero successivo è preceduto da uno SPAZIO, non da «[.,]»). Una lista a virgola SENZA
+# spazio «1-0,2-1» è ambigua con un decimale → fail-closed (non estratta): usare «, » o newline.
+_SCORE_RE = re.compile(r"(?<!\d)(?<![.,])(\d{1,2})[^\S\r\n]*-[^\S\r\n]*(\d{1,2})(?!\d)(?![.,]\d)")
+
+# #325: cap DIFENSIVO sul numero di risultati estratti da UN messaggio (input Telegram NON
+# attendibile, review #341). Un elenco reale di risultati esatti (Correct Score FT/1º tempo) ha
+# ~20 voci; oltre è un messaggio anomalo o malevolo che, senza limite, genererebbe righe CSV (e
+# quindi scommesse) in quantità arbitraria. 50 è ampiamente sopra il caso reale e taglia gli abusi.
+_MAX_SCORES = 50
+
+
+def extract_scores(text: str, start_after: str = "", end_before: str = "") -> "list[str]":
+    """#325: estrae la LISTA dei risultati esatti dalla regione fra `start_after`/`end_before`
+    (stessa semantica di `extract_between`) e li **normalizza** al formato canonico del dizionario
+    XTrader «N - N» (spazi ORIZZONTALI attorno al trattino, zeri iniziali rimossi, es. «1-0»/«01 - 0»
+    → «1 - 0»; SOLO il trattino, mai «:» — vedi `_SCORE_RE`). I punteggi sono riconosciuti per forma
+    su una singola riga, quindi il separatore FRA i risultati non conta (ma cifre di righe diverse non
+    si fondono).
+    **Deduplica preservando l'ordine** (nessuna riga CSV doppia — quindi nessuna doppia scommessa —
+    per lo stesso punteggio). Regione vuota o nessun punteggio → lista vuota (fail-closed: la regola
+    dinamica non genera righe). Puro: nessuna GUI, non solleva."""
+    # Con almeno un delimitatore → si scandisce la sola regione fra start_after/end_before (come le
+    # regole del Parser); senza delimitatori → si scandisce l'INTERO testo (nel runtime una regola
+    # dinamica ha sempre un delimitatore — la detection lo richiede — ma l'helper resta usabile
+    # standalone su tutto il messaggio).
+    if str(start_after or "").strip() or str(end_before or "").strip():
+        region = extract_between(text, start_after, end_before)
+    else:
+        region = text or ""
+    if not region:
+        return []
+    out = []
+    seen = set()
+    for home, away in _SCORE_RE.findall(region):
+        score = f"{int(home)} - {int(away)}"     # normalizza spazi + rimuove zeri iniziali
+        if score not in seen:
+            seen.add(score)
+            out.append(score)
+            if len(out) >= _MAX_SCORES:
+                break                            # cap difensivo (input non attendibile) — vedi sotto
+    return out
+
+
 def matches_message(defn: CustomParserDef, text: str, mode: str = None) -> bool:
     """True se il messaggio ha attivato un'estrazione che rappresenta **contenuto di
     segnale**: una regola con `start_after`/`end_before` (non `fixed_value`) che ha

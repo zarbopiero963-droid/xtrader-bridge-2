@@ -598,8 +598,53 @@ retro-compatibile).
 
 - `BetType` resta `PUNTA`/`BANCA` (contratto XTrader): una riga multi con un valore diverso
   (es. `BACK`) risulta **non valida** in validazione — il contratto CSV non cambia.
-- `start_after`/`end_before` delle righe multi sono **conservati** ma in questa versione i
-  valori sono **fissi** (override diretto); l'estrazione per-riga è un'estensione futura.
+- **Estrazione per-riga DINAMICA (#325):** una regola **MultiSelection** può estrarre dal
+  messaggio la **lista di risultati esatti** e generare **una riga CSV per ciascuno** — invece di
+  un `selection_name` fisso. Si attiva quando la regola ha `selection_name` **vuoto** **e**
+  `start_after`/`end_before` valorizzati («Inizia dopo / Finisce prima»): dalla regione fra i
+  delimitatori si estraggono i punteggi (separatore interno **solo `-`**, con **spazi orizzontali**
+  attorno al trattino; es. «1-0», «1 - 0»), **normalizzati** al formato del dizionario («01 - 0» →
+  «1 - 0») e **deduplicati** nell'ordine del messaggio. Il separatore *fra* i risultati
+  (virgola/spazio/newline/slash…) **non conta** (i punteggi si riconoscono per forma). Difese
+  anti-abuso (input non attendibile): il «:» **non** è riconosciuto come separatore di punteggio
+  (evita di scambiare orari come «20:45» per risultati); un punteggio deve stare su **una sola riga**
+  — cifre di righe adiacenti («3⏎- 0») **non** si fondono in un risultato spurio; ogni lato è **1–2
+  cifre** con confini di cifra (niente maglie/ID come «100-1»); un **decimale** (handicap/quota,
+  col punto **o** la virgola italiana: «0-0,5», «0,5-1», «1-0.25») **non** produce un punteggio spurio
+  «0 - 0»/«5 - 1»; numero di risultati per messaggio **limitato** (cap difensivo, ~50). *Separatore
+  fra i risultati:* usare **«, » (virgola + spazio)**, spazio o newline; una virgola **senza spazio**
+  fra cifre («1-0,2-1») è ambigua con un decimale → **fail-closed** (non estratta).
+  L'estrazione dinamica si attiva **solo** sui mercati-punteggio **canonici** **Correct Score
+  full-time** (`CORRECT_SCORE`) e **primo tempo** (`HALF_TIME_SCORE`) — gli unici che elencano
+  risultati «N - N»; il confronto è **esatto** (un `MarketType` non canonico, es. «correct_score»
+  minuscolo da JSON legacy, **non** attiva l'estrazione, così le righe dinamiche emettono solo
+  mercati che XTrader/Betfair riconoscono). Su qualunque **altro** mercato una regola con
+  `selection_name` vuoto + delimitatori resta una **riga fissa** (eredita la selezione della base),
+  così un JSON legacy con quei campi residui non moltiplica le scommesse. Il mercato lo dà la base,
+  la selezione arriva dall'estrazione.
+  Ogni riga è
+  **validata singolarmente** (fail-closed per-riga, come #192) con **azzeramento + ri-risoluzione
+  ID** per la selezione; un token non-punteggio non genera una riga; lista vuota → nessuna riga.
+  Una regola con `selection_name` **fisso** resta invariata (override diretto, percorso #192). *In
+  questa slice l'estrazione dinamica si configura via il JSON del parser (`start_after`/`end_before`
+  su una riga MultiSelection senza `selection_name`); i campi in GUI arrivano nella slice successiva.*
+  **Nota modalità e sicurezza (importante).** I risultati esatti Betfair sono selezioni
+  **per-partita** (dipendono dalle squadre) e **NON** sono nel dizionario locale: l'harvest #283 li
+  **esclude di proposito** (`catalogue_client._harvest_market_terms`: per `CORRECT_SCORE`/
+  `HALF_TIME_SCORE` salva la riga àncora del mercato ma **nessuna** SelectionName). Di conseguenza un
+  `SelectionId` per «1 - 0» **non è risolvibile** dal dizionario: in **`ID_ONLY`/`BOTH`** ogni
+  punteggio estratto resterebbe **senza ID → scartato** (la feature non produrrebbe righe). Perciò
+  l'estrazione dinamica dei punteggi **piazza a NOME** ed è di fatto una funzione di **`NAME_ONLY`**
+  (contratto #192: piazzamento a nome, senza validazione ID) — **non** esiste una validazione a
+  dizionario possibile per i risultati esatti. La sicurezza contro un punteggio **ben formato ma
+  inesistente** («12 - 30») **non** è quindi un gate a dizionario (impossibile), ma la combinazione:
+  **form-validation robusta** (niente orari con «:», niente decimali punto/virgola, niente fusione
+  multi-riga, confini di cifra anti-maglie/ID), **regione delimitata dall'utente** (`start_after`/
+  `end_before` puntati sull'elenco risultati, non su tutto il messaggio), **filtro `chat_id`** (solo
+  canali configurati), **cap difensivo ~50**, dedup, e **XTrader a valle non abbina** una selezione
+  inesistente «12 - 30». Un eventuale **cap di plausibilità** sul valore dei punteggi (per scartare
+  «12-30»/«45-67») è un follow-up valutabile nella slice 2 GUI, dove vive la scelta modalità/UX di
+  sicurezza; non è imposto qui perché rischierebbe di sopprimere risultati alti legittimi rari.
 - **MultiMarket + MultiSelection insieme** generano righe **separate** (prima i mercati, poi
   le selezioni sul mercato base), **mai** il prodotto cartesiano (`custom_pipeline.
   both_multi_active` segnala il caso, da avvisare in GUI).
