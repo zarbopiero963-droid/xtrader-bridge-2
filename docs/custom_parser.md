@@ -609,8 +609,11 @@ retro-compatibile).
   anti-abuso (input non attendibile): il «:» **non** è riconosciuto come separatore di punteggio
   (evita di scambiare orari come «20:45» per risultati); un punteggio deve stare su **una sola riga**
   — cifre di righe adiacenti («3⏎- 0») **non** si fondono in un risultato spurio; ogni lato è **1–2
-  cifre** con confini di cifra (niente maglie/ID come «100-1»); numero di risultati per messaggio
-  **limitato** (cap difensivo, ~50).
+  cifre** con confini di cifra (niente maglie/ID come «100-1»); un **decimale** (handicap/quota,
+  col punto **o** la virgola italiana: «0-0,5», «0,5-1», «1-0.25») **non** produce un punteggio spurio
+  «0 - 0»/«5 - 1»; numero di risultati per messaggio **limitato** (cap difensivo, ~50). *Separatore
+  fra i risultati:* usare **«, » (virgola + spazio)**, spazio o newline; una virgola **senza spazio**
+  fra cifre («1-0,2-1») è ambigua con un decimale → **fail-closed** (non estratta).
   L'estrazione dinamica si attiva **solo** sui mercati-punteggio **canonici** **Correct Score
   full-time** (`CORRECT_SCORE`) e **primo tempo** (`HALF_TIME_SCORE`) — gli unici che elencano
   risultati «N - N»; il confronto è **esatto** (un `MarketType` non canonico, es. «correct_score»

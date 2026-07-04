@@ -156,10 +156,15 @@ def extract_between(text: str, start_after: str = "", end_before: str = "") -> s
 # UNA riga, quindi cifre di righe adiacenti («3\n- 0») NON devono fondersi in un punteggio spurio
 # (→ riga CSV/scommessa Betfair errata) quando la regione delimitata è multi-riga (Fugu #341).
 # Confini anti-DECIMALE oltre a quelli anti-cifra: un handicap/quota come «0-0.5», «1-0.25» o «0.5-1»
+# — e la stessa notazione con la **virgola** italiana «0-0,5», «0,5-1» (prevalente nei canali IT) —
 # NON deve produrre un punteggio spurio «0 - 0»/«1 - 0»/«5 - 1» (selezioni Correct Score VALIDE →
-# riga piazzabile errata). `(?<!\d\.)` esclude il caso in cui il primo numero è la parte decimale di
-# un valore (es. «0.5»); `(?!\.\d)` esclude il caso in cui il secondo numero è seguito da «.d» (Fable #341).
-_SCORE_RE = re.compile(r"(?<!\d)(?<!\d\.)(\d{1,2})[^\S\r\n]*-[^\S\r\n]*(\d{1,2})(?!\d)(?!\.\d)")
+# riga piazzabile errata). `(?<!\d[.,])` esclude il caso in cui il primo numero è la parte decimale di
+# un valore (es. «0,5»); `(?![.,]\d)` esclude il caso in cui il secondo numero è seguito da «[.,]d»
+# (Fable/Fugu/GPT #341). Disambiguazione lista-vs-decimale: il confine morde solo su `[.,]` **adiacente
+# a una cifra** (decimale «0,5»); il separatore di lista comma-SPAZIO «1-0, 2-1» resta valido (dopo la
+# virgola c'è uno spazio, non una cifra). Una lista a virgola SENZA spazio «1-0,2-1» è ambigua con un
+# decimale → fail-closed (non estratta): usare «, » o newline fra i risultati.
+_SCORE_RE = re.compile(r"(?<!\d)(?<!\d[.,])(\d{1,2})[^\S\r\n]*-[^\S\r\n]*(\d{1,2})(?!\d)(?![.,]\d)")
 
 # #325: cap DIFENSIVO sul numero di risultati estratti da UN messaggio (input Telegram NON
 # attendibile, review #341). Un elenco reale di risultati esatti (Correct Score FT/1º tempo) ha

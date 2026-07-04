@@ -88,8 +88,22 @@ def test_extract_scores_esclude_decimali_handicap_quote():
     assert extract_scores("Handicap 0-0.5") == []
     assert extract_scores("Linea 1-0.25 e 2-1.5") == []
     assert extract_scores("Quota 0.5-1") == []
+    assert extract_scores("0.5-0") == []
+    assert extract_scores("1.0 - 0") == []
     # ma punteggi interi accanto a un decimale restano estratti
     assert extract_scores("hcap 0.5 punteggi 2-1, 3-0") == ["2 - 1", "3 - 0"]
+
+
+def test_extract_scores_esclude_decimali_con_virgola_italiana():
+    # #341 (Fable/Fugu/GPT): nei canali italiani i decimali usano la VIRGOLA («0,5»). «1-0,5» o
+    # «0,5-1» NON devono produrre «1 - 0»/«5 - 1» spuri. I confini anti-decimale mordono su `[.,]`.
+    assert extract_scores("Handicap 1-0,5") == []
+    assert extract_scores("Linea 0,5-1 e 1-0,25") == []
+    assert extract_scores("hcap 0,5 punteggi 2-1, 3-0") == ["2 - 1", "3 - 0"]
+    # disambiguazione lista-vs-decimale: comma-SPAZIO resta una lista valida...
+    assert extract_scores("1-0, 2-1, 3-0") == ["1 - 0", "2 - 1", "3 - 0"]
+    # ...ma la virgola SENZA spazio è ambigua con un decimale → fail-closed (nessuna estrazione).
+    assert extract_scores("1-0,2-1") == []
 
 
 def test_extract_scores_non_fonde_cifre_di_righe_diverse():
