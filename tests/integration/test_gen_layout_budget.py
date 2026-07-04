@@ -14,6 +14,15 @@ def _px(padx):
     return padx[0] + padx[1] if isinstance(padx, tuple) else padx + padx
 
 
+def test_px_helper_tuple_e_scalare():
+    # Copre ESPLICITAMENTE entrambi i rami di `_px` (GLM #331): un `padx` tuple somma i due lati,
+    # uno scalare (come `_TABVIEW_PADX`) vale per lato → raddoppiato. Senza questo, un errore nel
+    # ramo scalare passerebbe inosservato sotto la disuguaglianza larga del budget.
+    assert _px((10, 5)) == 15
+    assert _px((0, 8)) == 8
+    assert _px(15) == 30
+
+
 def test_riga_csv_path_sta_nella_finestra_fissa(app_mod):
     m = app_mod
     # Larghezze fisse effettivamente renderizzate nella riga (come in `_build_ui`).
