@@ -145,12 +145,16 @@ def test_multimarket_e_multiselection_dinamica_seguono_mercato_base():
     assert ("CORRECT_SCORE", "Over 2.5") not in pairs
 
 
-def test_gate_case_insensitive_market_type_minuscolo():
-    # #341 (Fable #2): un `MarketType` in minuscolo da JSON legacy attiva comunque il gate — la
-    # normalizzazione `.upper()` è in `_is_dynamic_selection` (il punto di confronto), quindi
-    # `_effective_market` può restituire il valore grezzo. Fail-first: senza `.upper()` → riga fissa.
+def test_gate_market_non_canonico_minuscolo_non_estrae_failclosed():
+    # #341 (Fugu #2): il gate richiede il MarketType CANONICO (confronto esatto, niente `.upper()`).
+    # Un `market_type` minuscolo da JSON legacy («correct_score») NON attiva l'estrazione dinamica →
+    # nessuna riga dinamica con MarketType non canonico (che XTrader/Betfair rifiuterebbe o mapperebbe
+    # male). Resta fail-closed (base NOT_READY su SelectionName vuoto, nessuna riga piazzabile).
+    # Fail-first: col vecchio `.upper()` estrarrebbe «1 - 0»/«2 - 1»/«3 - 0».
     res = pipe.build_validated_rows(_dyn_parser(market_type="correct_score"), MSG, mode="NAME_ONLY")
-    assert [r.row["SelectionName"] for r in res] == ["1 - 0", "2 - 1", "3 - 0"]
+    names = [r.row.get("SelectionName", "") for r in res]
+    assert "1 - 0" not in names and "2 - 1" not in names        # nessuna estrazione dinamica
+    assert not [r for r in res if r.placeable]                  # fail-closed
 
 
 def test_un_solo_risultato():

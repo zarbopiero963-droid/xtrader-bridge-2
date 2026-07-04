@@ -427,11 +427,15 @@ def _effective_market(base_row: dict, rule) -> str:
 def _is_dynamic_selection(rule, market_type: str) -> bool:
     """#325: una regola SELEZIONE è **dinamica** se NON ha un `selection_name` fisso ma ha un
     delimitatore di estrazione (`start_after`/`end_before`) **e** il mercato effettivo è un
-    mercato-punteggio (`_DYNAMIC_SCORE_MARKETS`): il `SelectionName` di ogni riga viene estratto dal
-    messaggio (lista di risultati esatti). Detection **stretta** — con un `selection_name` fisso,
-    senza delimitatori, o su un mercato non-punteggio, resta il percorso #192 a riga fissa invariato
-    (nessuna moltiplicazione di righe su config legacy, #341)."""
-    if str(market_type or "").strip().upper() not in _DYNAMIC_SCORE_MARKETS:
+    mercato-punteggio **canonico** (`_DYNAMIC_SCORE_MARKETS`, confronto esatto): il `SelectionName`
+    di ogni riga viene estratto dal messaggio (lista di risultati esatti). Detection **stretta** —
+    con un `selection_name` fisso, senza delimitatori, o su un mercato non-punteggio/non-canonico,
+    resta il percorso #192 a riga fissa invariato (nessuna moltiplicazione di righe su config legacy).
+    Il confronto è **esatto** (niente `.upper()`): un `MarketType` non canonico (es. «correct_score»
+    minuscolo da JSON legacy) NON attiva l'estrazione, così le righe dinamiche emettono **solo**
+    MarketType canonici che XTrader/Betfair riconoscono — evita di scrivere un mercato non canonico
+    che verrebbe rifiutato o mappato male (Fugu #341). Fail-closed."""
+    if str(market_type or "").strip() not in _DYNAMIC_SCORE_MARKETS:
         return False
     return (not str(getattr(rule, "selection_name", "") or "").strip()
             and bool(str(getattr(rule, "start_after", "") or "").strip()

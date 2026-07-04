@@ -611,17 +611,27 @@ retro-compatibile).
   — cifre di righe adiacenti («3⏎- 0») **non** si fondono in un risultato spurio; ogni lato è **1–2
   cifre** con confini di cifra (niente maglie/ID come «100-1»); numero di risultati per messaggio
   **limitato** (cap difensivo, ~50).
-  L'estrazione dinamica si attiva **solo** sui mercati-punteggio **Correct Score full-time**
-  (`CORRECT_SCORE`) e **primo tempo** (`HALF_TIME_SCORE`) — gli unici che elencano risultati «N - N»;
-  su qualunque **altro** mercato una regola con `selection_name` vuoto + delimitatori resta una
-  **riga fissa** (eredita la selezione della base), così un JSON legacy che avesse quei campi
-  residui non moltiplica le scommesse. Il mercato lo dà la base, la selezione arriva dall'estrazione.
+  L'estrazione dinamica si attiva **solo** sui mercati-punteggio **canonici** **Correct Score
+  full-time** (`CORRECT_SCORE`) e **primo tempo** (`HALF_TIME_SCORE`) — gli unici che elencano
+  risultati «N - N»; il confronto è **esatto** (un `MarketType` non canonico, es. «correct_score»
+  minuscolo da JSON legacy, **non** attiva l'estrazione, così le righe dinamiche emettono solo
+  mercati che XTrader/Betfair riconoscono). Su qualunque **altro** mercato una regola con
+  `selection_name` vuoto + delimitatori resta una **riga fissa** (eredita la selezione della base),
+  così un JSON legacy con quei campi residui non moltiplica le scommesse. Il mercato lo dà la base,
+  la selezione arriva dall'estrazione.
   Ogni riga è
   **validata singolarmente** (fail-closed per-riga, come #192) con **azzeramento + ri-risoluzione
   ID** per la selezione; un token non-punteggio non genera una riga; lista vuota → nessuna riga.
   Una regola con `selection_name` **fisso** resta invariata (override diretto, percorso #192). *In
   questa slice l'estrazione dinamica si configura via il JSON del parser (`start_after`/`end_before`
   su una riga MultiSelection senza `selection_name`); i campi in GUI arrivano nella slice successiva.*
+  **Nota modalità:** in **`ID_ONLY`/`BOTH`** ogni punteggio estratto è **fail-closed** — deve
+  risolvere un `SelectionId` dal dizionario Betfair locale, altrimenti la riga è scartata (un
+  punteggio inesistente come «12 - 30» non raggiunge il CSV). In **`NAME_ONLY`** vale il contratto
+  #192 (piazzamento **a nome**, senza validazione ID): un punteggio ben formato ma inesistente
+  resterebbe una riga a nomi — a valle **XTrader non abbina** una selezione inesistente, ma per i
+  mercati-punteggio da messaggi non pienamente attendibili si consiglia **`ID_ONLY`/`BOTH`** col
+  dizionario. Una validazione a dizionario anche in `NAME_ONLY` è un possibile follow-up.
 - **MultiMarket + MultiSelection insieme** generano righe **separate** (prima i mercati, poi
   le selezioni sul mercato base), **mai** il prodotto cartesiano (`custom_pipeline.
   both_multi_active` segnala il caso, da avvisare in GUI).
