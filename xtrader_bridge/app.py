@@ -3391,7 +3391,13 @@ class App(ctk.CTk):
         cfg = self._load_config()
         synced = logged_in = False
         try:
-            synced = self._betfair_sync_engine().db.count_active("betfair_events") > 0
+            engine = self._betfair_sync_engine()
+            # Probe NON bloccante: durante una sync Betfair in corso NON si legge il DB,
+            # per non far attendere il thread GUI sul lock del dizionario (stesso pattern
+            # dell'anteprima parser #192, "salta durante una sync per non congelare la GUI").
+            # In sync → best-effort «non sincronizzato», mai un freeze (Fable #337).
+            if not engine.is_syncing:
+                synced = engine.db.count_active("betfair_events") > 0
         except Exception:                   # noqa: BLE001 — DB occupato/assente: fail-soft
             synced = False
         try:
