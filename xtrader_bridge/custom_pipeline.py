@@ -18,7 +18,7 @@ SOLO se `result.placeable` è True (status VALID).
 
 import re
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from . import (
     market_mapping_store,
@@ -30,7 +30,7 @@ from . import (
 )
 from .csv_writer import DEFAULT_HANDICAP, DEFAULT_POINTS
 from .custom_parser import CustomParserDef
-from .custom_parser_engine import apply_parser
+from .custom_parser_engine import apply_parser, extract_scores
 
 # Separatore casa/trasferta di default quando il parser richiede la mappatura nomi
 # ma non specifica `team_separator` (Betfair usa "Casa v Trasferta").
@@ -406,18 +406,38 @@ _BASE_BLOCKING = (NOT_READY, INVALID_MISSING_PROVIDER, INVALID_HANDICAP,
 _MULTI_RESOLVABLE = (NOT_READY, MARKET_MAPPING_MISSING)
 
 
+def _is_dynamic_selection(rule) -> bool:
+    """#325: una regola SELEZIONE è **dinamica** se NON ha un `selection_name` fisso ma ha un
+    delimitatore di estrazione (`start_after`/`end_before`): il `SelectionName` di ogni riga viene
+    estratto dal messaggio (lista di risultati esatti). Detection **stretta** — con un
+    `selection_name` fisso, o senza delimitatori, resta il percorso #192 a riga fissa invariato."""
+    return (not str(getattr(rule, "selection_name", "") or "").strip()
+            and bool(str(getattr(rule, "start_after", "") or "").strip()
+                     or str(getattr(rule, "end_before", "") or "").strip()))
+
+
+def _rule_supplies(rule, col: str, attr: str) -> bool:
+    """`True` se `rule` garantisce la colonna `col` su OGNI riga che genera: attributo non vuoto,
+    OPPURE — per `SelectionName` — è una regola SELEZIONE dinamica (#325), che fornisce il
+    `SelectionName` via estrazione per-riga anche con l'attributo `selection_name` vuoto."""
+    if str(getattr(rule, attr, "") or "").strip():
+        return True
+    return col == "SelectionName" and _is_dynamic_selection(rule)
+
+
 def _multi_supplied_cols(rules) -> "frozenset":
     """Colonne CSV che OGNI riga multi generata riempirà con un valore non vuoto (kyZ #192):
-    una colonna è «fornita» solo se **tutte** le regole attive (mercati + selezioni) hanno il
-    corrispondente attributo non vuoto — così è garantita su OGNI riga derivata, non solo su
-    alcune. Serve ai gate strutturali della base per non bloccare un campo che il multi completerà.
-    Con `rules` vuoto → insieme vuoto (nessuna garanzia)."""
+    una colonna è «fornita» solo se **tutte** le regole attive (mercati + selezioni) la
+    garantiscono — così è assicurata su OGNI riga derivata, non solo su alcune. Una regola
+    SELEZIONE dinamica (#325) garantisce `SelectionName` via estrazione anche con l'attributo
+    vuoto (`_rule_supplies`), così la base non resta bloccata su un `SelectionName` obbligatorio
+    che la lista estratta riempirà. Con `rules` vuoto → insieme vuoto (nessuna garanzia)."""
     rules = list(rules or [])
     if not rules:
         return frozenset()
     return frozenset(
         col for col, attr in _MULTI_OVERRIDE
-        if all(str(getattr(r, attr, "") or "").strip() for r in rules))
+        if all(_rule_supplies(r, col, attr) for r in rules))
 
 
 def _apply_multi_rule(base_row: dict, rule) -> dict:
@@ -462,6 +482,28 @@ def _validated_multi_row(base_row: dict, rule, mode: str, require_price: bool,
     status, detail = validator.validate(row, mode, require_price)
     missing = list(detail) if isinstance(detail, (list, tuple)) else []
     return PipelineResult(status, row, missing, detail)
+
+
+def _selection_rows(base_row: dict, rule, text: str, mode: str, require_price: bool,
+                    *, sport: str = "", id_resolver=None) -> "list[PipelineResult]":
+    """Righe generate da UNA regola SELEZIONE (#192 + #325).
+
+    - Regola **fissa** (`selection_name` impostato) → UNA riga, come sempre.
+    - Regola **dinamica** (#325: `selection_name` vuoto + delimitatori) → estrae la lista dei
+      risultati esatti dal messaggio (`extract_scores`, normalizzati a «N - N») e genera UNA riga
+      per punteggio, ognuna con `selection_name` = quel punteggio. Ogni riga passa dal solito
+      `_validated_multi_row` (azzeramento+ri-risoluzione ID per la selezione, validazione per-riga
+      fail-closed): un punteggio malformato non arriva qui (non matcha il pattern), e una riga non
+      valida non blocca le altre. Lista vuota → NESSUNA riga (fail-closed)."""
+    if not _is_dynamic_selection(rule):
+        return [_validated_multi_row(base_row, rule, mode, require_price,
+                                     sport=sport, id_resolver=id_resolver)]
+    rows = []
+    for score in extract_scores(text, rule.start_after, rule.end_before):
+        dyn = replace(rule, selection_name=score)   # copia con il SelectionName estratto
+        rows.append(_validated_multi_row(base_row, dyn, mode, require_price,
+                                         sport=sport, id_resolver=id_resolver))
+    return rows
 
 
 def build_validated_rows(defn: CustomParserDef, text: str, **kwargs) -> "list[PipelineResult]":
@@ -534,8 +576,16 @@ def build_validated_rows(defn: CustomParserDef, text: str, **kwargs) -> "list[Pi
     sport = getattr(defn, "sport", "")
     out = [_validated_multi_row(base.row, r, mode, require_price, sport=sport,
                                 id_resolver=id_resolver) for r in markets]
-    out += [_validated_multi_row(base.row, r, mode, require_price, sport=sport,
-                                 id_resolver=id_resolver) for r in selections]
+    # Selezioni: una regola fissa → una riga; una regola DINAMICA (#325) → una riga per risultato
+    # esatto estratto dal messaggio. `_selection_rows` gestisce entrambi i casi.
+    for r in selections:
+        out += _selection_rows(base.row, r, text, mode, require_price,
+                               sport=sport, id_resolver=id_resolver)
+    if not out:
+        # #325: una regola SELEZIONE dinamica che non estrae NESSUN risultato (lista vuota) e
+        # nessun'altra riga → non si piazza la base (avrebbe SelectionName vuoto): un unico esito
+        # NON piazzabile `NOT_READY`. Evita anche un `[]` che romperebbe `resolve_row` (`results[0]`).
+        return [PipelineResult(NOT_READY, base.row, [])]
     return out
 
 

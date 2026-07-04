@@ -140,6 +140,42 @@ def extract_between(text: str, start_after: str = "", end_before: str = "") -> s
     return extract_value(text, FieldRule(target="", start_after=start_after, end_before=end_before))
 
 
+# #325: pattern di un risultato esatto «N - N» dentro la regione estratta. Separatore INTERNO
+# `-`/`:` tollerante agli spazi; 1–3 cifre per lato (evita di agganciare orari/numeri lunghi). I
+# risultati sono riconosciuti via `findall`, perciò il separatore FRA i risultati
+# (virgola/spazio/newline/slash/…) è irrilevante: si prendono le sottostringhe che «sembrano» un
+# punteggio e si ignora tutto il resto — separazione robusta senza dipendere dal delimitatore usato.
+_SCORE_RE = re.compile(r"(\d{1,3})\s*[-:]\s*(\d{1,3})")
+
+
+def extract_scores(text: str, start_after: str = "", end_before: str = "") -> "list[str]":
+    """#325: estrae la LISTA dei risultati esatti dalla regione fra `start_after`/`end_before`
+    (stessa semantica di `extract_between`) e li **normalizza** al formato canonico del dizionario
+    XTrader «N - N» (spazi attorno al trattino, zeri iniziali rimossi, es. «1-0»/«1:0»/«01 - 0» →
+    «1 - 0»). I punteggi sono riconosciuti per forma, quindi il separatore fra i risultati non conta.
+    **Deduplica preservando l'ordine** (nessuna riga CSV doppia — quindi nessuna doppia scommessa —
+    per lo stesso punteggio). Regione vuota o nessun punteggio → lista vuota (fail-closed: la regola
+    dinamica non genera righe). Puro: nessuna GUI, non solleva."""
+    # Con almeno un delimitatore → si scandisce la sola regione fra start_after/end_before (come le
+    # regole del Parser); senza delimitatori → si scandisce l'INTERO testo (nel runtime una regola
+    # dinamica ha sempre un delimitatore — la detection lo richiede — ma l'helper resta usabile
+    # standalone su tutto il messaggio).
+    if str(start_after or "").strip() or str(end_before or "").strip():
+        region = extract_between(text, start_after, end_before)
+    else:
+        region = text or ""
+    if not region:
+        return []
+    out = []
+    seen = set()
+    for home, away in _SCORE_RE.findall(region):
+        score = f"{int(home)} - {int(away)}"     # normalizza spazi + rimuove zeri iniziali
+        if score not in seen:
+            seen.add(score)
+            out.append(score)
+    return out
+
+
 def matches_message(defn: CustomParserDef, text: str, mode: str = None) -> bool:
     """True se il messaggio ha attivato un'estrazione che rappresenta **contenuto di
     segnale**: una regola con `start_after`/`end_before` (non `fixed_value`) che ha

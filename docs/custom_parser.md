@@ -598,8 +598,20 @@ retro-compatibile).
 
 - `BetType` resta `PUNTA`/`BANCA` (contratto XTrader): una riga multi con un valore diverso
   (es. `BACK`) risulta **non valida** in validazione — il contratto CSV non cambia.
-- `start_after`/`end_before` delle righe multi sono **conservati** ma in questa versione i
-  valori sono **fissi** (override diretto); l'estrazione per-riga è un'estensione futura.
+- **Estrazione per-riga DINAMICA (#325):** una regola **MultiSelection** può estrarre dal
+  messaggio la **lista di risultati esatti** e generare **una riga CSV per ciascuno** — invece di
+  un `selection_name` fisso. Si attiva quando la regola ha `selection_name` **vuoto** **e**
+  `start_after`/`end_before` valorizzati («Inizia dopo / Finisce prima»): dalla regione fra i
+  delimitatori si estraggono tutti i punteggi «N - N», **normalizzati** al formato del dizionario
+  («1-0»/«1:0»/«01 - 0» → «1 - 0»), **deduplicati** nell'ordine del messaggio. Il separatore fra i
+  risultati (virgola/spazio/newline/slash…) **non conta** (i punteggi si riconoscono per forma).
+  Vale sia per **Correct Score full-time** (`CORRECT_SCORE`) sia per il **primo tempo**
+  (`HALF_TIME_SCORE`): il mercato lo dà la base, la selezione arriva dall'estrazione. Ogni riga è
+  **validata singolarmente** (fail-closed per-riga, come #192) con **azzeramento + ri-risoluzione
+  ID** per la selezione; un token non-punteggio non genera una riga; lista vuota → nessuna riga.
+  Una regola con `selection_name` **fisso** resta invariata (override diretto, percorso #192). *In
+  questa slice l'estrazione dinamica si configura via il JSON del parser (`start_after`/`end_before`
+  su una riga MultiSelection senza `selection_name`); i campi in GUI arrivano nella slice successiva.*
 - **MultiMarket + MultiSelection insieme** generano righe **separate** (prima i mercati, poi
   le selezioni sul mercato base), **mai** il prodotto cartesiano (`custom_pipeline.
   both_multi_active` segnala il caso, da avvisare in GUI).
