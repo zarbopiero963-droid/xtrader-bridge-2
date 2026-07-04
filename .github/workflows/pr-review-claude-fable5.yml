@@ -74,10 +74,14 @@ jobs:
       # l'output resta capato dal prompt ultra-corto.
       MAX_PATCH_PER_FILE_CHARS_ESCALATED: "15000"
       MAX_TOTAL_PATCH_CHARS_ESCALATED: "60000"
-      # Tetto duro anti-costo: la review finale deve essere CORTA (prompt severo:
-      # max 10 finding, max 400 parole, niente diff/teoria). 1200 token bastano a
-      # una review concisa e tagliano il costo (osservato: output ~19k = ~0,70$).
-      MAX_OUTPUT_TOKENS: "1200"
+      # Tetto di output. NB: è un CEILING, non il costo — si pagano solo i token
+      # EFFETTIVAMENTE generati, e il prompt ultra-corto (2 sezioni, 150 parole) tiene
+      # l'output reale a ~200-1300 token. A 1200 una review appena più lunga (una nota
+      # non-bloccante in più) sbatteva contro il tetto → stop_reason=max_tokens → il
+      # gate a label diventava ROSSO per troncamento (falso-negativo, osservato su #322,
+      # nessun bloccante reale). Alzarlo a 3000 elimina quel taglio a costo ~invariato:
+      # il PROMPT controlla la lunghezza reale, il tetto previene solo il cutoff.
+      MAX_OUTPUT_TOKENS: "3000"
 
       PRICE_INPUT_PER_MILLION: "10.00"
       PRICE_CACHE_CREATION_PER_MILLION: "12.50"
@@ -137,7 +141,7 @@ jobs:
           # Tier-2: usati SOLO se il tetto basso ha troncato il diff (vedi build_patch_payload).
           MAX_PATCH_PER_FILE_CHARS_ESCALATED = int(os.environ.get("MAX_PATCH_PER_FILE_CHARS_ESCALATED", "15000"))
           MAX_TOTAL_PATCH_CHARS_ESCALATED = int(os.environ.get("MAX_TOTAL_PATCH_CHARS_ESCALATED", "60000"))
-          MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "1200"))
+          MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "3000"))
 
           PRICE_INPUT_PER_MILLION = float(os.environ.get("PRICE_INPUT_PER_MILLION", "10"))
           PRICE_CACHE_CREATION_PER_MILLION = float(os.environ.get("PRICE_CACHE_CREATION_PER_MILLION", "12.5"))
