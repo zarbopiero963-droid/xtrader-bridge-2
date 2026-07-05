@@ -15,7 +15,7 @@ import os
 import shutil
 import sys
 
-from . import atomic_io, autostart, confirmation_reader, safety_guard, token_store
+from . import atomic_io, autostart, confirmation_reader, csv_writer, safety_guard, token_store
 
 APP_DIR_NAME = "XTraderBridge"
 CONFIG_VERSION = 1
@@ -127,6 +127,12 @@ DEFAULTS = {
     # Tema UI (#288 Delta 1): "dark" / "light". Default sicuro "dark" (tema storico
     # dell'app): una config vecchia senza il campo, o un valore malformato, eredita lo scuro.
     "theme":            "dark",
+    # Lingua del CSV XTrader/Betting Toolkit (#342, fondazione multilingua #343): "IT"/"EN"/"ES".
+    # Governa il SEPARATORE DECIMALE scritto nel CSV (IT/ES = virgola, EN = punto — il supporto
+    # XTrader ha confermato che la versione ITA attuale legge le quote/points con la virgola).
+    # Default sicuro "IT" (target principale). Senza campo GUI in questa slice: si imposta via
+    # config.json; il selettore lingua all'avvio arriva con #343.
+    "csv_language":     "IT",
     # Modalità di riconoscimento XTrader: ID_ONLY / NAME_ONLY / BOTH.
     # Default NAME_ONLY: oggi il bridge non ricava gli ID dal messaggio Telegram.
     "recognition_mode": "NAME_ONLY",
@@ -439,6 +445,10 @@ def _migrate(cfg: dict) -> dict:
                 # Tema UI: solo "dark"/"light" (case-insensitive); mancante/malformato →
                 # default sicuro "dark" (#288 Delta 1). Unico punto: `normalize_theme`.
                 val = normalize_theme(val)
+            elif key == "csv_language":
+                # Lingua CSV (#342): solo IT/EN/ES (case-insensitive); mancante/malformata →
+                # default sicuro "IT". Unica fonte: `csv_writer.normalize_csv_language`.
+                val = csv_writer.normalize_csv_language(val)
             cfg[key] = val
         elif isinstance(default, list):
             if key in _KEYWORD_KEYS:
@@ -511,6 +521,9 @@ def load_config(path: str = CONFIG_FILE) -> dict:
     # `save_config` lo legge e, nel ramo CLEAR, preserva il token keyring invece di cancellarlo.
     if corrupted:
         cfg[POST_CORRUPTION_KEY] = True
+    # Lingua CSV (#342): allinea il writer alla config APPENA caricata, così le scritture
+    # successive usano il separatore decimale giusto fin dallo startup (nessun altro wiring).
+    csv_writer.set_csv_language(cfg.get("csv_language"))
     return cfg
 
 
@@ -561,6 +574,10 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
     # avrebbe alterato silenziosamente l'altro. Con la copia profonda i due sono indipendenti.
     in_memory = copy.deepcopy(cfg)
     in_memory.setdefault("config_version", CONFIG_VERSION)
+    # Lingua CSV (#342): il chiamante tiene SEMPRE `in_memory` come config viva
+    # (`self._config = saved`, anche su disco fallito) → il writer si allinea QUI, così un
+    # salvataggio/caricamento profilo che cambia `csv_language` ha effetto senza riavvio.
+    csv_writer.set_csv_language(in_memory.get("csv_language"))
     # Copia separata per il DISCO: il token sicuro non va scritto in chiaro (vedi sotto),
     # ma `in_memory` lo conserva per il runtime.
     to_save = copy.deepcopy(in_memory)

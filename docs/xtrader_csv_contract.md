@@ -30,7 +30,7 @@ Esempi reali (dal team XTrader):
 | 7 | `SelectionId` | modalità ID | ID selezione; vuoto se assente |
 | 8 | `SelectionName` | modalità NAME | nome selezione (vedi nota lingua) |
 | 9 | `Handicap` | sì | default `0` |
-| 10 | `Price` | no | quota; può essere vuota; separatore decimale → punto (vedi nota separatori) |
+| 10 | `Price` | no | quota; può essere vuota; separatore decimale secondo `csv_language` (vedi nota) |
 | 11 | `MinPrice` | no | può essere vuota |
 | 12 | `MaxPrice` | no | può essere vuota |
 | 13 | `BetType` | sì | **`PUNTA`** (punta/back) o **`BANCA`** (banca/lay) |
@@ -135,14 +135,26 @@ un parser custom può estrarre testo arbitrario):
   **e non è un numero** viene prefissata con un apice singolo (`'`) — mitigazione standard.
   I **numeri** del contratto (es. `Handicap` `-1`/`+1,5`, `Price` `1.85`) **non** vengono
   toccati, così restano valori numerici validi per XTrader.
-- **Separatore decimale del prezzo** (`Price`/`MinPrice`/`MaxPrice`). Il bridge normalizza il
-  separatore decimale a `.`:
+- **Separatore decimale — lingua CSV (#342, BREAKING).** Il supporto XTrader ha confermato che
+  la versione **italiana** (attuale) legge i decimali di quote/points con la **virgola** («1,85»),
+  quella inglese col punto. Il formato scritto nel file è governato dalla config **`csv_language`**
+  (`IT`/`EN`/`ES`, default **`IT`**): con `IT`/`ES` le colonne decimali (`Price`, `MinPrice`,
+  `MaxPrice`, `Points`, `Handicap`) escono con la **virgola** («1,85», «-0,5»); con `EN` col
+  **punto**. *(ES = convenzione spagnola, da confermare col supporto Betting Toolkit.)*
+  **Breaking change rispetto alle versioni precedenti del bridge**, che scrivevano sempre il punto:
+  chi usa XTrader/Betting Toolkit in inglese imposta `"csv_language": "EN"` nel `config.json` per
+  ritrovare il comportamento storico. Valore mancante/malformato → `IT` (fail-closed). Le colonne
+  **testuali** (`SelectionName` «Over 2.5 Goals», `MarketName`…) non vengono **mai** toccate.
+- **Normalizzazione interna del prezzo** (`Price`/`MinPrice`/`MaxPrice`). A monte della scrittura
+  il bridge resta **canonico col punto** (validatori/dedup invariati) e normalizza l'input così:
   - solo virgola → decimale: `1,85` → `1.85`;
   - solo punto: invariato (`1.85`);
   - **entrambi** i separatori: l'**ultimo** è il decimale e l'altro le **migliaia**, ma SOLO se il
     raggruppamento è valido (`1.234,56` → `1234.56`, `1,234.56` → `1234.56`). Un doppio separatore
     **malformato** (es. `1.2,3`, gruppo non da 3 cifre) NON viene "aggiustato": resta invalido ed è
     **scartato** (`INVALID_PRICE`), per non scrivere nel CSV un prezzo sbagliato ma plausibile.
+  La localizzazione alla lingua avviene **solo** al momento della scrittura del file
+  (`csv_writer`): un valore non numerico non viene mai "aggiustato" in scrittura.
 - Header sempre presente, anche su CSV "vuoto" (solo header).
 - **Righe attive e modalità coda (`queue_mode`).** Quante righe segnale possono coesistere nel
   CSV dipende dalla modalità coda configurata (vedi README → `queue_mode`/`max_active_signals`):

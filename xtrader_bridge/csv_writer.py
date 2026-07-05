@@ -41,6 +41,78 @@ BETTYPE_MAP = {
 
 CSV_ENCODING = "utf-8-sig"  # BOM richiesto dagli esempi XTrader.
 
+# ── Lingua CSV / separatore decimale (#342, fondazione multilingua #343) ────────────────────
+# Il supporto XTrader ha confermato che la versione ITALIANA (attuale) legge i decimali di
+# quote/points con la VIRGOLA («1,85»), quella inglese col punto. Internamente il bridge resta
+# CANONICO col punto (validatori/dedup/pipeline invariati): la localizzazione avviene SOLO qui,
+# al confine di scrittura del file. Lingue supportate dal CSV XTrader/Betting Toolkit: IT/EN/ES.
+CSV_LANGUAGES = ("IT", "EN", "ES")
+DEFAULT_CSV_LANGUAGE = "IT"   # default sicuro per il target principale (XTrader ITA).
+# Lingue che scrivono la VIRGOLA decimale. ES segue la convenzione spagnola (virgola) — da
+# confermare col supporto Betting Toolkit; se differisse, la correzione è QUESTA riga.
+_COMMA_DECIMAL_LANGUAGES = frozenset({"IT", "ES"})
+# Colonne del contratto con valori decimali da localizzare (decisione proprietario #342:
+# anche Points e Handicap, non solo le quote).
+CSV_DECIMAL_COLS = ("Handicap", "Price", "MinPrice", "MaxPrice", "Points")
+
+# Numero "puro" con segno (stesso frammento condiviso di _NUMERIC_RE): SOLO un valore così
+# viene localizzato; qualsiasi altra cosa resta INVARIATA (fail-closed: un valore malformato
+# è già stato rifiutato a monte dai validatori, qui non va "aggiustato").
+_LOCALIZABLE_RE = re.compile(numbers_re.SIGNED_DECIMAL)
+
+_csv_language = DEFAULT_CSV_LANGUAGE
+_csv_language_lock = threading.Lock()
+
+
+def normalize_csv_language(value) -> str:
+    """Normalizza la lingua CSV a ``IT``/``EN``/``ES`` (case-insensitive, spazi ignorati).
+    Valore mancante/non-stringa/sconosciuto → default sicuro ``IT`` (fail-closed: una config
+    vecchia o sporca non cambia il formato del CSV del target principale). Unica fonte di
+    verità, usata anche dalla coercion di `config_store.load_config`."""
+    if isinstance(value, str) and value.strip().upper() in CSV_LANGUAGES:
+        return value.strip().upper()
+    return DEFAULT_CSV_LANGUAGE
+
+
+def set_csv_language(value) -> str:
+    """Imposta la lingua del CSV per le PROSSIME scritture (normalizzata fail-closed).
+    Chiamata da `config_store.load_config`/`save_config` così startup, Salva e caricamento
+    profili restano sempre allineati. Ritorna la lingua effettiva."""
+    global _csv_language
+    lang = normalize_csv_language(value)
+    with _csv_language_lock:
+        _csv_language = lang
+    return lang
+
+
+def get_csv_language() -> str:
+    """Lingua CSV corrente (``IT``/``EN``/``ES``)."""
+    with _csv_language_lock:
+        return _csv_language
+
+
+def _localize_decimal(value, lang: str):
+    """Converte il separatore decimale di UN valore al formato della lingua: virgola per
+    IT/ES, punto per EN. Localizza SOLO un numero puro (``[+-]?\\d+([.,]\\d+)?``); qualsiasi
+    altro valore (vuoto, testo, doppio separatore) resta INVARIATO — niente parsing float,
+    niente arrotondamenti: è uno swap di carattere sulla sola serializzazione."""
+    s = "" if value is None else str(value)
+    if not s or not _LOCALIZABLE_RE.fullmatch(s.strip()):
+        return value
+    s = s.strip()
+    if lang in _COMMA_DECIMAL_LANGUAGES:
+        return s.replace(".", ",")
+    return s.replace(",", ".")
+
+
+def _localize_row(row: dict, lang: str) -> dict:
+    """Copia della riga con le colonne decimali (`CSV_DECIMAL_COLS`) localizzate alla lingua."""
+    out = dict(row)
+    for col in CSV_DECIMAL_COLS:
+        if col in out:
+            out[col] = _localize_decimal(out[col], lang)
+    return out
+
 # Nome del temporaneo della scrittura atomica del CSV: fonte unica di verità, usata sia
 # per scrivere (`_atomic_write_locked`) sia per spazzare gli orfani allo startup
 # (`sweep_orphan_temps`), così i due non possono divergere.
@@ -455,12 +527,19 @@ def write_rows(rows, path: str):
     coda dei segnali attivi (PR-22): in OVERWRITE_LAST è una sola riga, in
     APPEND_ACTIVE/QUEUE_UNTIL_CONFIRMED sono i segnali attivi correnti."""
     rows = list(rows or [])
+    # Lingua catturata UNA volta per l'intera scrittura (#342): tutte le righe dello stesso
+    # file usano lo stesso separatore anche se la config cambiasse a metà.
+    lang = get_csv_language()
 
     def _emit(writer):
         for r in rows:
+            # Localizzazione decimali (#342) PRIMA della sanitizzazione: XTrader ITA/ES legge
+            # la virgola, EN il punto; l'interno resta canonico col punto. `_sanitize_cell`
+            # riconosce i numeri con entrambi i separatori (SIGNED_DECIMAL), quindi un
+            # «-1,5» localizzato NON viene apostrofato.
             # Anti CSV-injection (B1): neutralizza i prefissi formula/control-char nelle celle
             # (testo attacker-controlled da Telegram) prima di scriverle; i numeri restano intatti.
-            writer.writerow(_sanitize_row(r))
+            writer.writerow(_sanitize_row(_localize_row(r, lang)))
 
     _atomic_write(path, _emit)
 

@@ -195,6 +195,7 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | `debug_log` | `false` | `true`/`false` | Modalità **Debug**: log dettagliato del percorso (avvio/stop, salvataggi, messaggio in ingresso, stadi del segnale) + warning, per capire "cosa è rotto". Attivabile dalla tab *Log* (checkbox **🐞 Debug**). |
 | `debug_message_payload` | `false` | `true`/`false` | **Privacy dei log.** Se `false` (default) il **testo** dei messaggi Telegram **non** viene scritto in chiaro nei log: solo impronta (`sha256` a 12 cifre) + lunghezza + **prima riga troncata**. Se `true`, logga il **payload completo** (debug consapevole). Attivabile dalla tab *Sicurezza* (checkbox **🕵️**). I token restano comunque sempre redatti. |
 | `providers` | `[]` | lista di nomi | **Anagrafica Provider**: nomi riutilizzabili nella colonna `Provider` del Parser Personalizzato (menu a tendina). Si gestisce dal pulsante **➕ Provider** nel costruttore; evita errori di battitura sul Provider (che deve combaciare col filtro dell'azione XTrader). |
+| `csv_language` | `"IT"` | `IT`/`EN`/`ES` | **Lingua del CSV (#342)**: governa il **separatore decimale** scritto nel file (`Price`/`MinPrice`/`MaxPrice`/`Points`/`Handicap`): `IT`/`ES` = **virgola** («1,85», come richiede XTrader ITA attuale), `EN` = **punto**. Valore malformato → `IT` (fail-closed). Per ora si imposta nel `config.json` (nessun campo GUI); il selettore lingua all'avvio arriva con la #343. |
 
 > Una `config.json` corrotta viene messa da parte come `.bak` e il bridge riparte
 > dai default sicuri. Le chiavi mancanti ereditano sempre il default.
@@ -423,7 +424,7 @@ Header ufficiale a **14 colonne** (vedi **[`docs/xtrader_csv_contract.md`](docs/
 
 ```text
 Provider,EventId,EventName,MarketId,MarketName,MarketType,SelectionId,SelectionName,Handicap,Price,MinPrice,MaxPrice,BetType,Points
-"TelegramBot","","Inter v Milan","","Over/Under 2,5 gol","OVER_UNDER_25","","Over 2,5 goal","0","1.85","","","PUNTA",""
+"TelegramBot","","Inter v Milan","","Over/Under 2,5 gol","OVER_UNDER_25","","Over 2,5 goal","0","1,85","","","PUNTA",""
 ```
 
 Note:
@@ -432,8 +433,11 @@ Note:
 - **`Stake`** **non** è una colonna del CSV: lo stake è gestito in XTrader.
 - **Non esiste** una colonna `Timestamp`: la deduplica è interna al bridge.
 - **`Points`** è lasciato vuoto; **`Handicap`** vale `0`.
-- **Separatore decimale del prezzo** (`Price`/`MinPrice`/`MaxPrice`): il bridge normalizza
-  sempre a **punto**. Quota con la **virgola** → convertita (`1,85` → `1.85`); col punto →
+- **Separatore decimale — lingua CSV (#342)**: il formato dei decimali **scritti nel file**
+  (`Price`/`MinPrice`/`MaxPrice`/`Points`/`Handicap`) segue la config **`csv_language`**
+  (`IT`/`EN`/`ES`, default **`IT`**): con `IT`/`ES` la **virgola** («1,85» — come richiede
+  XTrader ITA attuale), con `EN` il **punto**. Internamente il bridge resta canonico col punto
+  e normalizza l'input così: quota con la **virgola** → convertita (`1,85` → `1.85`); col punto →
   invariata. Con **entrambi** i separatori l'ultimo è il decimale e l'altro le migliaia,
   ma **solo** se il raggruppamento è valido (`1.234,56` → `1234.56`); un doppio separatore
   **malformato** (es. `1.2,3`) **non** viene "aggiustato": il segnale è **scartato**
