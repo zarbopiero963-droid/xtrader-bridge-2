@@ -171,6 +171,17 @@ def test_save_parziale_senza_chiave_non_resetta_la_lingua(tmp_path):
     assert csv_writer.get_csv_language() == "EN"                 # lingua PRESERVATA
 
 
+def test_chiave_presente_ma_none_fail_closed_a_it(tmp_path):
+    # #344 (GLM/GPT gap): chiave PRESENTE con valore None/malformato = intento sconosciuto →
+    # fail-closed al default IT (formato del target principale), coerente con `normalize`.
+    # DIVERSO dal save PARZIALE (chiave ASSENTE = nessuna affermazione → lingua preservata).
+    csv_writer.set_csv_language("EN")
+    p = str(tmp_path / "config.json")
+    saved, ok = config_store.save_config({"csv_language": None, "provider": "X"}, p)
+    assert ok
+    assert csv_writer.get_csv_language() == "IT"
+
+
 def test_valori_con_spazi_forma_preservata_solo_separatore(tmp_path):
     # #344 (Fable): lo swap avviene sul valore ORIGINALE (mai strip): un valore con
     # padding conserva il padding in OGNI direzione — cambia solo il separatore.
