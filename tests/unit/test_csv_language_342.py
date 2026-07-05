@@ -160,6 +160,26 @@ def test_save_config_sincronizza_il_writer(tmp_path):
     assert csv_writer.get_csv_language() == "ES"
 
 
+def test_save_parziale_senza_chiave_non_resetta_la_lingua(tmp_path):
+    # #344 (Fable): un save PARZIALE la cui cfg NON contiene `csv_language` non dice nulla
+    # sulla lingua → NON deve resettare il writer al default IT (un utente EN tornerebbe
+    # silenziosamente alla virgola). Fail-first sul guard `if "csv_language" in in_memory`.
+    csv_writer.set_csv_language("EN")
+    p = str(tmp_path / "config.json")
+    saved, ok = config_store.save_config({"provider": "X"}, p)   # chiave ASSENTE
+    assert ok
+    assert csv_writer.get_csv_language() == "EN"                 # lingua PRESERVATA
+
+
+def test_valori_con_spazi_forma_preservata_solo_separatore(tmp_path):
+    # #344 (Fable): lo swap avviene sul valore ORIGINALE (mai strip): un valore con
+    # padding conserva il padding in OGNI direzione — cambia solo il separatore.
+    csv_writer.set_csv_language("IT")
+    assert csv_writer._localize_decimal(" 1.85 ", "IT") == " 1,85 "
+    assert csv_writer._localize_decimal(" 1,85 ", "IT") == " 1,85 "   # no-op: identico
+    assert csv_writer._localize_decimal(" 1,85 ", "EN") == " 1.85 "
+
+
 def test_scritture_stesso_file_lingua_coerente(tmp_path):
     # La lingua è catturata UNA volta per scrittura: righe multiple nello stesso file
     # escono tutte con lo stesso separatore.

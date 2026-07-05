@@ -577,7 +577,11 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
     # Lingua CSV (#342): il chiamante tiene SEMPRE `in_memory` come config viva
     # (`self._config = saved`, anche su disco fallito) → il writer si allinea QUI, così un
     # salvataggio/caricamento profilo che cambia `csv_language` ha effetto senza riavvio.
-    csv_writer.set_csv_language(in_memory.get("csv_language"))
+    # SOLO se la chiave è presente in QUESTO save (Fable #344): un save PARZIALE senza
+    # `csv_language` non dice nulla sulla lingua — sincronizzare `None` la resetterebbe
+    # silenziosamente al default IT, corrompendo i decimali per un utente EN.
+    if "csv_language" in in_memory:
+        csv_writer.set_csv_language(in_memory.get("csv_language"))
     # Copia separata per il DISCO: il token sicuro non va scritto in chiaro (vedi sotto),
     # ma `in_memory` lo conserva per il runtime.
     to_save = copy.deepcopy(in_memory)

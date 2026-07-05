@@ -99,7 +99,8 @@ def _localize_decimal(value, lang: str):
     s = "" if value is None else str(value)
     if not s or not _LOCALIZABLE_RE.fullmatch(s.strip()):
         return value
-    s = s.strip()
+    # Lo swap avviene sul valore ORIGINALE (mai strip, Fable #344): la forma resta identica
+    # in entrambe le direzioni/no-op — cambia SOLO il carattere separatore. Deterministico.
     if lang in _COMMA_DECIMAL_LANGUAGES:
         return s.replace(".", ",")
     return s.replace(",", ".")
