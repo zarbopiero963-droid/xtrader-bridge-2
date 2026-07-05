@@ -396,10 +396,12 @@ Tutti questi gate devono passare perché una riga venga scritta:
 2. **Validazione contratto**: `Price` deve essere numerico `> 1.0`,
    `BetType ∈ {PUNTA, BANCA}`, e i campi richiesti dalla modalità di
    riconoscimento (`ID_ONLY`/`NAME_ONLY`/`BOTH`) devono esserci. Il separatore
-   decimale di `Price`/`MinPrice`/`MaxPrice` è normalizzato a `.` (es. `1,85`→`1.85`;
-   `1.234,56`→`1234.56` con raggruppamento migliaia valido). Un doppio separatore
-   **malformato** (es. `1.2,3`) NON viene aggiustato: resta invalido → `INVALID_PRICE`
-   (fail-closed, niente prezzo sbagliato nel CSV). I campi facoltativi, **se valorizzati**,
+   decimale di `Price`/`MinPrice`/`MaxPrice` è normalizzato **internamente** a `.`
+   (rappresentazione canonica: es. `1,85`→`1.85`; `1.234,56`→`1234.56` con raggruppamento
+   migliaia valido). Un doppio separatore **malformato** (es. `1.2,3`) NON viene aggiustato:
+   resta invalido → `INVALID_PRICE` (fail-closed, niente prezzo sbagliato nel CSV).
+   Il separatore **scritto nel file** segue poi la config `csv_language` (#342: `IT`/`ES` =
+   virgola «1,85», `EN` = punto — vedi `docs/xtrader_csv_contract.md`). I campi facoltativi, **se valorizzati**,
    sono validati anch'essi (il percorso hardcoded li lascia vuoti):
    - `MinPrice`/`MaxPrice` devono essere quote valide e **coerenti** — l'intervallo non può
      essere invertito (`MinPrice > MaxPrice`) né escludere la quota (`MinPrice > Price`,

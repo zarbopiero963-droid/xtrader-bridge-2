@@ -580,8 +580,12 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
     # SOLO se la chiave è presente in QUESTO save (Fable #344): un save PARZIALE senza
     # `csv_language` non dice nulla sulla lingua — sincronizzare `None` la resetterebbe
     # silenziosamente al default IT, corrompendo i decimali per un utente EN.
+    # Il valore CANONICO ritornato viene riscritto in `in_memory` PRIMA della copia
+    # `to_save` (CodeRabbit #344): così config su disco, `saved` restituita al chiamante e
+    # lingua attiva del writer non divergono mai (niente "francese" persistito verbatim
+    # mentre il writer usa IT).
     if "csv_language" in in_memory:
-        csv_writer.set_csv_language(in_memory.get("csv_language"))
+        in_memory["csv_language"] = csv_writer.set_csv_language(in_memory.get("csv_language"))
     # Copia separata per il DISCO: il token sicuro non va scritto in chiaro (vedi sotto),
     # ma `in_memory` lo conserva per il runtime.
     to_save = copy.deepcopy(in_memory)

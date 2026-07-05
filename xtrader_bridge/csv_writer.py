@@ -92,18 +92,20 @@ def get_csv_language() -> str:
 
 
 def _localize_decimal(value, lang: str):
-    """Converte il separatore decimale di UN valore al formato della lingua: virgola per
-    IT/ES, punto per EN. Localizza SOLO un numero puro (``[+-]?\\d+([.,]\\d+)?``); qualsiasi
-    altro valore (vuoto, testo, doppio separatore) resta INVARIATO — niente parsing float,
-    niente arrotondamenti: è uno swap di carattere sulla sola serializzazione."""
-    s = "" if value is None else str(value)
-    if not s or not _LOCALIZABLE_RE.fullmatch(s.strip()):
-        return value
-    # Lo swap avviene sul valore ORIGINALE (mai strip, Fable #344): la forma resta identica
-    # in entrambe le direzioni/no-op — cambia SOLO il carattere separatore. Deterministico.
-    if lang in _COMMA_DECIMAL_LANGUAGES:
-        return s.replace(".", ",")
-    return s.replace(",", ".")
+    """Serializza il valore di una colonna DECIMALE per la lingua: virgola per IT/ES, punto
+    per EN. Regola UNIFORME e deterministica (review #344 Fable/GLM/Fugu):
+
+    - il valore esce **sempre trimmato** (una colonna decimale non porta MAI padding verso
+      XTrader, il cui parser numerico non è garantito tolleri spazi);
+    - il separatore viene convertito SOLO se il valore è un numero puro
+      (``[+-]?\\d+([.,]\\d+)?``): niente parsing float, niente arrotondamenti — è uno swap di
+      carattere sulla sola serializzazione;
+    - qualsiasi altro contenuto (testo, doppio separatore malformato) resta INVARIATO nel
+      contenuto (già rifiutato a monte dai validatori: qui non va "aggiustato")."""
+    s = ("" if value is None else str(value)).strip()
+    if s and _LOCALIZABLE_RE.fullmatch(s):
+        return s.replace(".", ",") if lang in _COMMA_DECIMAL_LANGUAGES else s.replace(",", ".")
+    return s
 
 
 def _localize_row(row: dict, lang: str) -> dict:

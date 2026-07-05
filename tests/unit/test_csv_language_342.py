@@ -171,6 +171,22 @@ def test_save_parziale_senza_chiave_non_resetta_la_lingua(tmp_path):
     assert csv_writer.get_csv_language() == "EN"                 # lingua PRESERVATA
 
 
+def test_save_config_persiste_il_valore_canonico(tmp_path):
+    # #344 (CodeRabbit): il valore CANONICO normalizzato viene riscritto in config PRIMA
+    # della copia per il disco: config.json, `saved` del chiamante e lingua attiva del
+    # writer non divergono mai (niente «francese» persistito verbatim col writer a IT).
+    p = str(tmp_path / "config.json")
+    saved, ok = config_store.save_config({"csv_language": "es", "provider": "X"}, p)
+    assert ok and saved["csv_language"] == "ES"              # canonico nel saved
+    with open(p, encoding="utf-8") as f:
+        assert json.load(f)["csv_language"] == "ES"          # canonico SU DISCO
+    saved, ok = config_store.save_config({"csv_language": "francese", "provider": "X"}, p)
+    assert ok and saved["csv_language"] == "IT"              # sporco → fail-closed ovunque
+    with open(p, encoding="utf-8") as f:
+        assert json.load(f)["csv_language"] == "IT"
+    assert csv_writer.get_csv_language() == "IT"
+
+
 def test_chiave_presente_ma_none_fail_closed_a_it(tmp_path):
     # #344 (GLM/GPT gap): chiave PRESENTE con valore None/malformato = intento sconosciuto →
     # fail-closed al default IT (formato del target principale), coerente con `normalize`.
@@ -182,13 +198,19 @@ def test_chiave_presente_ma_none_fail_closed_a_it(tmp_path):
     assert csv_writer.get_csv_language() == "IT"
 
 
-def test_valori_con_spazi_forma_preservata_solo_separatore(tmp_path):
-    # #344 (Fable): lo swap avviene sul valore ORIGINALE (mai strip): un valore con
-    # padding conserva il padding in OGNI direzione — cambia solo il separatore.
+def test_colonne_decimali_sempre_trimmate_end_to_end(tmp_path):
+    # #344 (Fable/GLM/Fugu): regola UNIFORME e deterministica — una colonna DECIMALE esce
+    # SEMPRE trimmata nel FILE (il parser numerico XTrader non è garantito tolleri il
+    # padding), col separatore della lingua. End-to-end su file reale, non helper isolato.
     csv_writer.set_csv_language("IT")
-    assert csv_writer._localize_decimal(" 1.85 ", "IT") == " 1,85 "
-    assert csv_writer._localize_decimal(" 1,85 ", "IT") == " 1,85 "   # no-op: identico
-    assert csv_writer._localize_decimal(" 1,85 ", "EN") == " 1.85 "
+    out = _scrivi_e_rileggi(_riga(Price=" 1.85 ", Handicap=" -0.5", Points="1.5 "), tmp_path)
+    assert out["Price"] == "1,85"
+    assert out["Handicap"] == "-0,5"
+    assert out["Points"] == "1,5"
+    # anche un contenuto NON numerico in colonna decimale esce trimmato (regola uniforme),
+    # ma il CONTENUTO resta invariato (fail-closed: niente "aggiusti", scartato a monte).
+    out = _scrivi_e_rileggi(_riga(Price=" abc "), tmp_path)
+    assert out["Price"] == "abc"
 
 
 def test_scritture_stesso_file_lingua_coerente(tmp_path):
