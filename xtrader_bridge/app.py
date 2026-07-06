@@ -1495,18 +1495,29 @@ class App(ctk.CTk):
         prev = self._wizard_win
         if prev is not None:
             try:
-                if prev.winfo_exists():
+                alive = bool(prev.winfo_exists())
+            except Exception:   # noqa: BLE001 — riferimento stantio (Tk smontato): si riapre da zero
+                alive = False
+            if alive:
+                # Il wizard ESISTE: mai una seconda finestra, anche se il focus
+                # fallisce (review GPT #354: un errore di lift/focus non deve
+                # degradare in un doppione modale).
+                try:
                     prev.lift()
                     prev.focus_force()
-                    return
-            except Exception:   # noqa: BLE001 — riferimento stantio (Tk smontato): si riapre da zero
-                pass
+                except Exception:   # noqa: BLE001 — focus best-effort: la finestra c'è comunque
+                    pass
+                return
             self._wizard_win = None
         from . import wizard, wizard_gui   # import locali: il wizard è on-demand
-        cfg = self._config if isinstance(self._config, dict) else {}
 
-        def builder_factory():
-            defn = parser_manager.load_active(cfg, str(cfg.get("chat_id", "") or ""))
+        def builder_factory(chat_id=""):
+            # Config VIVA + chat del wizard (CodeRabbit #354): il parser attivo è
+            # risolto per-chat e va cercato per la chat che l'utente ha appena
+            # inserito nello step 2, non per lo snapshot al momento dell'apertura.
+            live = self._config if isinstance(self._config, dict) else {}
+            cid = str(chat_id or "").strip() or str(live.get("chat_id", "") or "")
+            defn = parser_manager.load_active(live, cid)
             from .parser_builder import ParserBuilder
             return ParserBuilder(defn) if defn is not None else None
 
@@ -1523,8 +1534,11 @@ class App(ctk.CTk):
                 builder_factory=builder_factory,
                 checklist_provider=checklist_provider,
                 on_finish=self._wizard_finish)
-            win.grab_set()   # modale: un solo wizard alla volta
+            # Riferimento PRIMA di grab_set (review Fable #354, round 2): se il grab
+            # fallisce (grab già attivo, race Tk) la finestra è comunque creata e
+            # visibile — senza riferimento il click dopo aprirebbe un doppione.
             self._wizard_win = win
+            win.grab_set()   # modale: un solo wizard alla volta
         except Exception as ex:   # noqa: BLE001 — GUI best-effort: mai crash della finestra
             # SOLO la classe dell'errore nel log: `initial` contiene il token e
             # un'eccezione che lo echeggiasse violerebbe «token mai nei log»

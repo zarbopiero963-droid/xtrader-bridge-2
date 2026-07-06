@@ -21,7 +21,8 @@ class WizardWindow(ctk.CTkToplevel):
     """Finestra del wizard. Dipendenze INIETTATE dal chiamante (app):
 
     - `initial`: dict con i prefill (bot_token/chat_id/csv_path) dalla config viva;
-    - `builder_factory`: () -> ParserBuilder del parser ATTIVO, o None se assente;
+    - `builder_factory`: (chat_id) -> ParserBuilder del parser ATTIVO per quella chat
+      (la chat LIVE dello step 2, non uno snapshot), o None se assente;
     - `checklist_provider`: () -> lista (ok, label) per lo step 5 (wizard.final_checklist
       sulla config viva + parser attivo);
     - `on_finish(values)`: applica token/chat/csv al form e salva (gate esistenti).
@@ -40,6 +41,7 @@ class WizardWindow(ctk.CTkToplevel):
         self._on_finish = on_finish
         self._step = 0
         self._passed = [False] * 5      # step superati (gate del pulsante Avanti)
+        self._verified = {}             # step -> valore VERIFICATO (anti esito stantio)
         self._probe_running = False
 
         self._title_lbl = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=14, weight="bold"))
@@ -89,8 +91,32 @@ class WizardWindow(ctk.CTkToplevel):
             self._result_lbl.configure(
                 text="⛔ Completa prima la verifica di questo step.", text_color=_KO)
             return
+        if self._verified.get(self._step) != self._step_snapshot(self._step):
+            # Valore MODIFICATO dopo il ✅ (CodeRabbit #354): l'esito è stantio —
+            # mai avanzare (e quindi mai salvare) su un valore mai verificato.
+            self._passed[self._step] = False
+            self._result_lbl.configure(
+                text="✏️ Valore modificato dopo la verifica: ripeti la verifica.",
+                text_color=_KO)
+            return
         self._step += 1
         self._render()
+
+    def _step_snapshot(self, step):
+        """Valore corrente rilevante per lo step (confrontato col valore VERIFICATO):
+        copre qualsiasi via di edit — tastiera, incolla dal menu, modifica
+        programmatica — senza dipendere dai binding Tk. Lo step chat dipende anche
+        dal token (chat verificata con un token poi cambiato → da riverificare); lo
+        step parser dipende anche dalla chat (il parser attivo è risolto per-chat)."""
+        if step == 0:
+            return self._e_token.get()
+        if step == 1:
+            return (self._e_token.get(), self._e_chat.get())
+        if step == 2:
+            return (self._e_chat.get(), self._msg_box.get("1.0", "end"))
+        if step == 3:
+            return self._e_csv.get()
+        return None
 
     def _render(self):
         """Mostra i widget dello step corrente (gli altri sono nascosti)."""
@@ -176,35 +202,42 @@ class WizardWindow(ctk.CTkToplevel):
         if alive:
             on_done(res)
 
-    def _show(self, step_idx, res):
+    def _show(self, step_idx, res, snapshot=None):
+        """Registra l'esito; su ✅ memorizza il valore SONDATO (`snapshot`, catturato
+        all'avvio della sonda: un edit durante i 10s di probe non può spacciarsi per
+        verificato — CodeRabbit #354)."""
         self._passed[step_idx] = bool(res.ok)
+        if res.ok:
+            self._verified[step_idx] = snapshot
         self._result_lbl.configure(text=("✅ " if res.ok else "⛔ ") + res.message,
                                    text_color=_OK if res.ok else _KO)
 
     def _run_token_probe(self):
         token = self._e_token.get()
         self._run_async(lambda: wizard.check_token(token),
-                        lambda res: self._show(0, res))
+                        lambda res: self._show(0, res, snapshot=token))
 
     def _run_chat_probe(self):
         token, chat = self._e_token.get(), self._e_chat.get()
         self._run_async(lambda: wizard.check_chat(token, chat),
-                        lambda res: self._show(1, res))
+                        lambda res: self._show(1, res, snapshot=(token, chat)))
 
     def _run_parser_check(self):
-        builder = self._builder_factory() if self._builder_factory else None
+        chat = self._e_chat.get()
+        builder = (self._builder_factory(chat.strip())
+                   if self._builder_factory else None)
         if builder is None:
             self._show(2, wizard.StepResult(
                 False, "Nessun Parser Personalizzato attivo: configuralo nella "
                        "scheda 🧩 Parser e riapri il wizard."))
             return
         text = self._msg_box.get("1.0", "end")
-        self._show(2, wizard.check_parser(builder, text))
+        self._show(2, wizard.check_parser(builder, text), snapshot=(chat, text))
 
     def _run_csv_check(self, do_write):
         path = self._e_csv.get()
         self._run_async(lambda: wizard.check_csv(path, do_write=do_write),
-                        lambda res: self._show(3, res))
+                        lambda res: self._show(3, res, snapshot=path))
 
     def _render_checklist(self):
         items = self._checklist_provider() if self._checklist_provider else []

@@ -45,6 +45,31 @@ def test_check_token_http_401_suggerisce_token_errato():
     assert res.ok is False and "401" in res.message and TOK not in res.message
 
 
+def test_call_telegram_token_percent_encoded_nel_path(monkeypatch):
+    """CodeRabbit #354: caratteri spuri da incolla malformato (#, ?, /, spazi) non
+    troncano/deviano l'URL; `:` resta letterale (un token VALIDO non cambia URL)."""
+    visto = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def read(self):
+            return b'{"ok": true, "result": {}}'
+
+    monkeypatch.setattr(
+        wizard.urllib.request, "urlopen",
+        lambda url, timeout=None: visto.update(url=url, timeout=timeout) or _Resp())
+    assert wizard._call_telegram("123:AB#C?D/e f", "getMe") == {"ok": True, "result": {}}
+    assert "/bot123:AB%23C%3FD%2Fe%20f/getMe" in visto["url"]   # spuri encodati, ':' intatto
+    assert visto["timeout"] == wizard._TIMEOUT
+    wizard._call_telegram(TOK, "getMe")
+    assert f"/bot{TOK}/getMe" in visto["url"]                   # token valido: URL identico
+
+
 # ── step 2: chat + messaggio di prova ────────────────────────────────────────
 
 def _updates(chat_id, text="P.Bet segnale\nriga2"):

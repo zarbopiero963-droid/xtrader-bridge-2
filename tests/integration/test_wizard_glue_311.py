@@ -39,10 +39,15 @@ def _bare_window(mod):
     win = mod.WizardWindow.__new__(mod.WizardWindow)
     win._step = 0
     win._passed = [False] * 5
+    win._verified = {}
     win._probe_running = False
     win._result_lbl = _Lbl()
     win._renders = []
     win._render = lambda: win._renders.append(win._step)
+    win._e_token = types.SimpleNamespace(get=lambda: "")
+    win._e_chat = types.SimpleNamespace(get=lambda: "")
+    win._e_csv = types.SimpleNamespace(get=lambda: "")
+    win._msg_box = types.SimpleNamespace(get=lambda *_a: "")
     return win
 
 
@@ -51,11 +56,32 @@ def test_avanti_bloccato_finche_lo_step_non_e_verificato(monkeypatch):
     win = _bare_window(mod)
     win._go_next()                                    # step 0 non superato
     assert win._step == 0 and "⛔" in win._result_lbl.kw["text"]
-    win._passed[0] = True
+    win._show(0, wizard.StepResult(True, "ok"), snapshot="")   # flusso reale: ✅
     win._go_next()
     assert win._step == 1 and win._renders == [1]     # avanzato e ridisegnato
     win._go_back()
     assert win._step == 0
+
+
+def test_avanti_bloccato_se_il_valore_cambia_dopo_la_verifica(monkeypatch):
+    """CodeRabbit #354 (major): un edit dopo il ✅ invalida l'esito — mai avanzare
+    (e quindi mai salvare) su un valore MAI verificato."""
+    mod = _gui_mod(monkeypatch)
+    win = _bare_window(mod)
+    valore = {"tok": "TOK-VERIFICATO"}
+    win._e_token = types.SimpleNamespace(get=lambda: valore["tok"])
+    win._show(0, wizard.StepResult(True, "ok"), snapshot="TOK-VERIFICATO")
+    valore["tok"] = "TOK-EDITATO"          # l'utente modifica DOPO la verifica
+    win._go_next()
+    assert win._step == 0                  # bloccato sullo step
+    assert win._passed[0] is False         # esito invalidato
+    assert "✏️" in win._result_lbl.kw["text"]
+    valore["tok"] = "TOK-VERIFICATO"       # torna al valore già verificato…
+    win._go_next()
+    assert win._step == 0                  # …ma ormai serve una NUOVA verifica
+    win._show(0, wizard.StepResult(True, "ok"), snapshot="TOK-VERIFICATO")
+    win._go_next()
+    assert win._step == 1                  # verifica fresca → avanza
 
 
 def test_show_marca_lo_step_e_colora(monkeypatch):
@@ -212,6 +238,67 @@ def test_open_wizard_singleton_riporta_davanti(app_mod, monkeypatch):
     app._wizard_win = _Stantio()
     app._open_wizard()                       # non crasha: riapre da zero
     assert len(created) == 3
+
+
+def test_open_wizard_grab_fallita_niente_doppione(app_mod, monkeypatch):
+    """Fable #354 round 2: se `grab_set` solleva la finestra è comunque creata e
+    visibile — il riferimento va tenuto PRIMA del grab, o il click dopo apre un
+    doppione. E un errore di lift/focus su finestra viva non deve degradare in un
+    secondo Toplevel (GPT #354)."""
+    app = _app_per_wizard(app_mod)
+    created = []
+
+    class _GrabKo:
+        def __init__(self, *a, **k):
+            created.append(self)
+
+        def grab_set(self):
+            raise RuntimeError("grab failed: another application has grab")
+
+        def winfo_exists(self):
+            return True
+
+        def lift(self):
+            raise RuntimeError("focus race")   # anche il focus fallisce: irrilevante
+
+        def focus_force(self):
+            pass
+
+    _fake_gui_mod(monkeypatch, _GrabKo)
+    app._open_wizard()                       # grab fallisce ma la finestra esiste
+    app._open_wizard()                       # secondo click: NIENTE doppione
+    app._open_wizard()                       # nemmeno con lift che solleva
+    assert len(created) == 1
+
+
+def test_builder_factory_usa_la_chat_live_del_wizard(app_mod, monkeypatch):
+    """CodeRabbit #354: il parser dello step 3 è risolto PER-CHAT — va cercato per
+    la chat inserita nel wizard (o per la config VIVA), non per lo snapshot
+    catturato all'apertura."""
+    app = _app_per_wizard(app_mod)
+    app._config = {"chat_id": "-100VECCHIA"}
+    captured = {}
+
+    class _Win:
+        def __init__(self, *a, **k):
+            captured.update(k)
+
+        def grab_set(self):
+            pass
+
+    _fake_gui_mod(monkeypatch, _Win)
+    chieste = []
+    monkeypatch.setattr(app_mod.parser_manager, "load_active",
+                        lambda cfg, cid: chieste.append((cfg, cid)) or None)
+    app._open_wizard()
+    factory = captured["builder_factory"]
+    assert factory("-100NUOVA") is None       # defn None → builder None (fail-closed)
+    assert chieste[-1][1] == "-100NUOVA"      # chat LIVE del wizard, non lo snapshot
+    assert factory("") is None
+    assert chieste[-1][1] == "-100VECCHIA"    # fallback: chat della config
+    app._config = {"chat_id": "-100AGGIORNATA"}
+    assert factory("") is None
+    assert chieste[-1] == ({"chat_id": "-100AGGIORNATA"}, "-100AGGIORNATA")  # config VIVA
 
 
 def test_open_wizard_fallita_logga_solo_la_classe(app_mod, monkeypatch):

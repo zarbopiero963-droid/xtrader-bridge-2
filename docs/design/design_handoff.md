@@ -216,7 +216,10 @@ col percorso esistente (gate inclusi); **singleton** (Fable #354): un secondo cl
 bottone riporta davanti il wizard già aperto, mai due finestre modali; una sonda che
 fallisce mostra un esito ⛔ onesto (solo la classe dell'errore) e sblocca subito la
 verifica successiva; chiudere la finestra con una sonda in corso è sicuro (l'esito
-tardivo viene scartato).
+tardivo viene scartato); **anti esito stantio** (CodeRabbit #354): modificare un campo
+DOPO il ✅ invalida la verifica — «Avanti» torna bloccato con *«✏️ Valore modificato
+dopo la verifica: ripeti la verifica.»* finché la sonda non viene rieseguita sul valore
+nuovo (lo step chat dipende anche dal token, lo step parser anche dalla chat).
 
 ### 6.2-ter Scheda «🚦 Salute» — health check a semafori (#311 §3.3)
 

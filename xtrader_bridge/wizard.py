@@ -51,9 +51,14 @@ def _sanitized_error(exc) -> str:
 
 def _call_telegram(token: str, method: str, params=None):
     """Chiamata one-shot alla Bot API (urllib, timeout). Il token vive SOLO nell'URL
-    locale a questa funzione; qualsiasi errore esce già sanificato via i chiamanti."""
+    locale a questa funzione; qualsiasi errore esce già sanificato via i chiamanti.
+    Il token è percent-encoded nel path (CodeRabbit #354): caratteri spuri da un
+    incolla malformato (`#`, `?`, `/`, spazi) non troncano/deviano la richiesta —
+    Telegram risponde 404 e l'esito esce sanificato. `:` resta letterale (è il
+    separatore standard dei token: un token VALIDO non cambia URL)."""
     qs = ("?" + urllib.parse.urlencode(params)) if params else ""
-    with urllib.request.urlopen(f"{_API}/bot{token}/{method}{qs}",
+    tok = urllib.parse.quote(str(token), safe=":")
+    with urllib.request.urlopen(f"{_API}/bot{tok}/{method}{qs}",
                                 timeout=_TIMEOUT) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
