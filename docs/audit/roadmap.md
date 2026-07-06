@@ -1620,7 +1620,7 @@ Anti **doppia istanza = anti doppia scommessa**: due processi bridge hanno
 tracker/limiter/coda separati in RAM (i lock interni sono intra-processo). Nuovo modulo
 foglia `instance_lock.py`: **Windows = mutex named** via ctypes (`Local\XTraderBridge` —
 namespace di sessione: copre il doppio avvio sullo stesso desktop senza il privilegio
-SeCreateGlobal; il kernel lo rilascia da solo a morte processo, anche su crash → nessun
+SeCreateGlobal; il kernel lo rilascia da solo alla terminazione del processo, anche su crash → nessun
 lock orfano); **POSIX (dev/CI) = lockfile `flock`** con le stesse proprietà, che rende la
 logica testabile offline. Acquisizione = **prima istruzione** di `App.__init__` (pin
 strutturale nei test): seconda istanza → messagebox «già in esecuzione» + `SystemExit`,

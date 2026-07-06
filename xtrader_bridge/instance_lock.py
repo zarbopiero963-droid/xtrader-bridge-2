@@ -6,24 +6,28 @@ scrivere il CSV → **doppia scommessa possibile**. Questo modulo fornisce un lo
 istanza a livello di sistema operativo, acquisito PRIMA di costruire la GUI.
 
 - **Windows** (target principale): mutex **named** via ctypes (`CreateMutexW`). Scelto
-  rispetto al lockfile perché il kernel lo **rilascia da solo alla morte del processo**
-  (anche su crash/kill): nessun lock orfano che blocchi il riavvio dopo un blackout.
-  Namespace ``Local\\`` (sessione desktop corrente) e non ``Global\\``: copre il caso
-  reale (doppio avvio sullo stesso desktop) senza richiedere il privilegio
+  rispetto al lockfile perché il kernel lo **rilascia da solo alla terminazione del
+  processo** (anche su crash/kill): nessun lock orfano che blocchi il riavvio dopo un
+  blackout. Namespace ``Local\\`` (sessione desktop corrente) e non ``Global\\``: copre
+  il caso reale (doppio avvio sullo stesso desktop) senza richiedere il privilegio
   `SeCreateGlobalPrivilege` in ambienti terminal-server.
 - **POSIX** (dev/CI, nessun utente finale): lockfile con `flock` esclusivo non bloccante;
-  anche `flock` si rilascia da solo alla morte del processo. Permette di testare la
-  logica reale offline.
+  anche `flock` si rilascia da solo alla terminazione del processo. Permette di testare
+  la logica reale offline.
 
-Fail-open consapevole: se la CREAZIONE del lock fallisce per un errore imprevisto del
-sistema (raro), l'avvio NON viene bloccato — un bridge inutilizzabile per un falso
-negativo è peggio del caso limite; l'evento viene loggato. Il rifiuto avviene SOLO
-quando il lock risulta **già posseduto** da un'altra istanza (segnale certo).
+Semantica FAIL-OPEN/FAIL-CLOSED (review #346):
+
+- il **rifiuto** (ritorno ``None``) avviene SOLO sul segnale **certo** «lock già
+  posseduto da un'altra istanza» (`ERROR_ALREADY_EXISTS` / `EWOULDBLOCK`);
+- qualsiasi **errore imprevisto** del sistema nella creazione del lock → **fail-open
+  consapevole**: warning nei log e handle no-op, l'avvio procede senza protezione. Un
+  bridge inavviabile per un guasto raro è peggio del caso limite.
 
 Modulo foglia: nessun import dal resto del package (usabile ovunque, testabile puro).
 """
 
 import atexit
+import errno as _errno
 import logging
 import os
 import sys
@@ -38,7 +42,9 @@ _ERROR_ALREADY_EXISTS = 183          # winerror: il mutex esisteva già → altr
 
 class InstanceLockHandle:
     """Handle opaco del lock acquisito; da passare a `release`. `kind` è "mutex"
-    (Windows) o "flock" (POSIX); `resource` l'handle/fd sottostante."""
+    (Windows: `resource` = tupla ``(kernel32, handle)`` così il release usa la STESSA
+    kernel32 con restype/argtypes configurati), "flock" (POSIX: `resource` = fd) o
+    "noop" (fail-open)."""
 
     def __init__(self, kind: str, resource, path: str = ""):
         self.kind = kind
@@ -55,41 +61,63 @@ def acquire(name: str = DEFAULT_NAME, lock_dir: str = ""):
     dell'app (`config_store.config_dir()`), passata dal chiamante per tenere questo
     modulo foglia. Vuota → cartella temporanea di sistema.
 
-    Errori IMPREVISTI di creazione (non "già posseduto") → fail-open: si logga e si
-    ritorna un handle no-op, così un guasto raro del SO non rende il bridge inavviabile."""
+    Errori IMPREVISTI (non «già posseduto») → fail-open: warning + handle no-op (vedi
+    docstring del modulo)."""
     try:
         if sys.platform == "win32":
             return _acquire_windows(name)
         return _acquire_posix(name, lock_dir)
-    except Exception:   # noqa: BLE001 — fail-open consapevole (vedi docstring modulo)
+    except Exception:   # noqa: BLE001 — backstop fail-open per errori NON gestiti nei rami
         logger.warning("Single-instance lock non disponibile (errore imprevisto): "
                        "avvio consentito senza protezione doppia-istanza.", exc_info=True)
         return InstanceLockHandle("noop", None)
 
 
-def _acquire_windows(name: str):
-    """CreateMutexW: se `GetLastError()` dice che il mutex esisteva già, un'altra
-    istanza è attiva → chiudi l'handle e rifiuta (None)."""
-    import ctypes
-    kernel32 = ctypes.windll.kernel32
+def _acquire_windows(name: str, kernel32=None, get_last_error=None):
+    """CreateMutexW: se il mutex esisteva già, un'altra istanza è attiva → chiudi
+    l'handle duplicato e rifiuta (None).
+
+    `kernel32`/`get_last_error` sono INIETTABILI per i test (mock eseguibili anche su
+    POSIX, review Fable #346). Il default costruisce la kernel32 reale con:
+    - ``use_last_error=True`` + ``ctypes.get_last_error()``: il LastError va catturato
+      dal meccanismo FFI della chiamata — ``windll.kernel32.GetLastError()`` sarebbe
+      INAFFIDABILE (può essere azzerato/sovrascritto dagli interni di ctypes) e un
+      `ERROR_ALREADY_EXISTS` perso = seconda istanza ammessa (Fable #346);
+    - ``restype``/``argtypes`` ESPLICITI: il restype di default (`c_int`, 32 bit)
+      TRONCHEREBBE l'HANDLE su Windows 64-bit, corrompendo `CloseHandle` e il test
+      ``if not handle`` (Fable #346)."""
+    if kernel32 is None:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        kernel32.CreateMutexW.argtypes = (wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR)
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        get_last_error = ctypes.get_last_error
     handle = kernel32.CreateMutexW(None, False, f"Local\\{name}")
-    already = (kernel32.GetLastError() == _ERROR_ALREADY_EXISTS)
+    already = (get_last_error() == _ERROR_ALREADY_EXISTS)   # letto SUBITO dopo la chiamata
     if not handle:
-        # Creazione fallita (raro): fail-open, vedi docstring di `acquire`.
-        logger.warning("CreateMutexW fallita (GetLastError=%s): avvio consentito "
-                       "senza protezione doppia-istanza.", kernel32.GetLastError())
+        # Creazione fallita (raro): fail-open, vedi docstring del modulo.
+        logger.warning("CreateMutexW fallita (LastError=%s): avvio consentito senza "
+                       "protezione doppia-istanza.", get_last_error())
         return InstanceLockHandle("noop", None)
     if already:
         kernel32.CloseHandle(handle)
         return None
-    lock = InstanceLockHandle("mutex", handle)
-    atexit.register(release, lock)          # backstop: il kernel rilascia comunque a morte processo
+    lock = InstanceLockHandle("mutex", (kernel32, handle))
+    atexit.register(release, lock)     # backstop: il kernel rilascia comunque alla terminazione
     return lock
 
 
 def _acquire_posix(name: str, lock_dir: str):
     """Lockfile + `flock` esclusivo non bloccante. Un secondo `flock` sullo stesso file
-    (anche dallo stesso processo, su un altro fd) fallisce con EWOULDBLOCK → None."""
+    (anche dallo stesso processo, su un altro fd) fallisce con EWOULDBLOCK → None.
+
+    SOLO `EWOULDBLOCK`/`EAGAIN` significa «lock posseduto» → rifiuto certo. Qualsiasi
+    ALTRA `OSError` (filesystem/permessi) è un errore imprevisto → fail-open con warning
+    (Sourcery #346): un guasto FS non deve né ammettere silenziosamente la doppia
+    istanza né — peggio per l'operatività — rendere il bridge inavviabile."""
     import fcntl
     import tempfile
     directory = lock_dir or tempfile.gettempdir()
@@ -98,16 +126,20 @@ def _acquire_posix(name: str, lock_dir: str):
     fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+    except OSError as exc:
         os.close(fd)
-        return None                          # lock posseduto da un'altra istanza
+        if exc.errno in (_errno.EWOULDBLOCK, _errno.EAGAIN):
+            return None                   # lock POSSEDUTO da un'altra istanza: rifiuto certo
+        logger.warning("flock fallita per errore imprevisto (%s): avvio consentito senza "
+                       "protezione doppia-istanza.", exc)
+        return InstanceLockHandle("noop", None)
     try:                                     # PID per diagnosi manuale (best-effort)
         os.ftruncate(fd, 0)
         os.write(fd, str(os.getpid()).encode("ascii"))
     except OSError:
         pass
     lock = InstanceLockHandle("flock", fd, path)
-    atexit.register(release, lock)          # backstop: flock cade comunque a morte processo
+    atexit.register(release, lock)     # backstop: flock cade comunque alla terminazione
     return lock
 
 
@@ -120,11 +152,11 @@ def release(lock) -> None:
     lock.released = True
     try:
         if lock.kind == "mutex":
-            import ctypes
-            ctypes.windll.kernel32.CloseHandle(lock.resource)
+            kernel32, handle = lock.resource   # la STESSA kernel32 configurata in acquire
+            kernel32.CloseHandle(handle)
         elif lock.kind == "flock":
             import fcntl
             fcntl.flock(lock.resource, fcntl.LOCK_UN)
             os.close(lock.resource)
-    except Exception:   # noqa: BLE001 — best-effort: a morte processo rilascia comunque il SO
+    except Exception:   # noqa: BLE001 — best-effort: alla terminazione rilascia comunque il SO
         logger.debug("Rilascio del single-instance lock fallito (best-effort).", exc_info=True)

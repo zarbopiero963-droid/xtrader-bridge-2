@@ -5,6 +5,7 @@ config) vive in moduli separati ed è testabile headless.
 """
 
 import asyncio
+import logging
 import os
 import threading
 import time
@@ -132,6 +133,8 @@ def _retention_label(days: int) -> str:
 # stretta di quelle senza pulsanti. Le costanti sono esposte per il test di regressione layout
 # (`tests/integration/test_gen_layout_budget.py`): un futuro allargamento che le farebbe sforare
 # fallisce in CI invece di tagliare silenziosamente «Crea CSV» a runtime (CodeRabbit #330).
+logger = logging.getLogger(__name__)   # log di modulo (es. rifiuto seconda istanza, #311-1.1)
+
 _WINDOW_WIDTH = 720                 # larghezza fissa della finestra (vedi fit_to_screen)
 _GEN_LABEL_WIDTH = 140             # etichetta del campo
 _GEN_FIELD_ENTRY_WIDTH = 470       # casella dei campi SENZA pulsanti
@@ -605,6 +608,10 @@ class App(ctk.CTk):
         (fail-open gestito nel modulo, con warning nei log)."""
         self._instance_lock = instance_lock.acquire(lock_dir=config_store.config_dir())
         if self._instance_lock is None:
+            # Log ESPLICITO del rifiuto (Sourcery #346): in headless/avvii non standard il
+            # messagebox può non essere visibile — il motivo resta comunque nei log.
+            logger.warning("Seconda istanza rifiutata: lock di istanza già posseduto "
+                           "(protezione doppia-scommessa #311-1.1).")
             self._notify_already_running()
             raise SystemExit("XTrader Bridge è già in esecuzione: seconda istanza rifiutata.")
 
@@ -623,7 +630,10 @@ class App(ctk.CTk):
                 "attive potrebbero scrivere lo stesso CSV e piazzare scommesse doppie.")
             root.destroy()
         except Exception:   # noqa: BLE001 — headless/display assente: l'uscita avviene comunque
-            pass
+            # Il motivo del rifiuto è GIÀ loggato dal chiamante (`_acquire_instance_lock`);
+            # qui si annota solo che l'avviso GUI non è stato mostrabile (Sourcery #346).
+            logger.debug("Avviso «già in esecuzione» non mostrabile (headless/display assente).",
+                         exc_info=True)
 
     def _load_config(self) -> dict:
         # Migra il vecchio config.json (accanto all'EXE) la prima volta, poi carica
@@ -2369,7 +2379,10 @@ class App(ctk.CTk):
             t.join(timeout=5.0)
         # Rilascio del single-instance lock (#311-1.1) sulla chiusura pulita; su
         # crash/kill lo rilascia comunque il SO (mutex named / flock). Idempotente.
-        instance_lock.release(getattr(self, "_instance_lock", None))
+        # `__dict__.get` e NON `getattr`: su un'istanza costruita parzialmente (test)
+        # l'attributo mancante innescherebbe il `__getattr__` di Tk (`getattr(self.tk,…)`)
+        # che RICORRE all'infinito invece di sollevare AttributeError (CI #346).
+        instance_lock.release(self.__dict__.get("_instance_lock"))
         self.destroy()
 
     # ── BOT TELEGRAM ──────────────────────────

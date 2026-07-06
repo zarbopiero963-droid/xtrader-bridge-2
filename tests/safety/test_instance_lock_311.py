@@ -69,6 +69,67 @@ def test_lockfile_non_cancellato_al_release(tmp_path):
     assert os.path.exists(path)
 
 
+def test_flock_errore_imprevisto_fail_open_non_rifiuta(tmp_path, monkeypatch):
+    # #346 (Sourcery, bug reale): SOLO EWOULDBLOCK/EAGAIN = «lock posseduto» → rifiuto.
+    # Un'ALTRA OSError (filesystem/permessi) è un guasto imprevisto → fail-open (noop),
+    # NON un rifiuto spurio che renderebbe il bridge inavviabile.
+    import errno
+    import fcntl
+
+    def _boom(fd, flags):
+        raise OSError(errno.EIO, "guasto I/O simulato")
+    monkeypatch.setattr(fcntl, "flock", _boom)
+    h = instance_lock.acquire("TestBridge", str(tmp_path))
+    assert h is not None and h.kind == "noop"    # avvio consentito, non bloccato
+
+
+# ── ramo WINDOWS con kernel32 MOCKATA (Fable #346: logica esercitata anche in CI) ──
+
+class _FakeKernel32:
+    def __init__(self, handle, last_error):
+        self._handle = handle
+        self._last_error = last_error
+        self.closed = []
+
+    def CreateMutexW(self, security, initial, name):   # noqa: N802 — firma WinAPI
+        self.name = name
+        return self._handle
+
+    def CloseHandle(self, handle):                     # noqa: N802 — firma WinAPI
+        self.closed.append(handle)
+        return True
+
+
+def test_windows_mutex_nuovo_acquisito(tmp_path):
+    k32 = _FakeKernel32(handle=0x1234, last_error=0)
+    h = instance_lock._acquire_windows("TestBridge", k32, lambda: 0)
+    assert h is not None and h.kind == "mutex"
+    assert k32.name == "Local\\TestBridge"
+    assert k32.closed == []                       # handle NOSTRO: non chiuso in acquire
+    instance_lock.release(h)
+    assert k32.closed == [0x1234]                 # release → CloseHandle UNA volta
+    instance_lock.release(h)                      # idempotente
+    assert k32.closed == [0x1234]
+
+
+def test_windows_mutex_gia_esistente_rifiuto_e_handle_chiuso(tmp_path):
+    # ERROR_ALREADY_EXISTS (183) letto via get_last_error INIETTATA (use_last_error,
+    # Fable #346: windll.GetLastError sarebbe inaffidabile) → rifiuto + CloseHandle
+    # dell'handle DUPLICATO (niente leak).
+    k32 = _FakeKernel32(handle=0x5678, last_error=183)
+    h = instance_lock._acquire_windows("TestBridge", k32, lambda: 183)
+    assert h is None
+    assert k32.closed == [0x5678]
+
+
+def test_windows_createmutex_fallita_fail_open(tmp_path):
+    # CreateMutexW → handle nullo (guasto raro): fail-open (noop), avvio consentito.
+    k32 = _FakeKernel32(handle=0, last_error=5)
+    h = instance_lock._acquire_windows("TestBridge", k32, lambda: 5)
+    assert h is not None and h.kind == "noop"
+    assert k32.closed == []
+
+
 def test_lock_dir_creata_se_mancante(tmp_path):
     # Primo avvio assoluto: la cartella dati può non esistere ancora (viene creata
     # da load_config DOPO il lock) → acquire la crea da sé.

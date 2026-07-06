@@ -31,6 +31,16 @@ def test_prima_istanza_prosegue_e_conserva_l_handle(app_mod, monkeypatch):
     assert a._instance_lock is sentinel      # handle conservato per il release a chiusura
 
 
+def test_notify_already_running_best_effort_su_guasto_gui(app_mod, monkeypatch):
+    # #346 (Sourcery): il VERO `_notify_already_running` è best-effort — se Tk/display
+    # falliscono (headless) NON propaga: l'uscita della seconda istanza avviene comunque.
+    def _boom(*a, **k):
+        raise RuntimeError("display assente")
+    monkeypatch.setattr(app_mod.tk, "Tk", _boom)
+    a = object.__new__(app_mod.App)
+    a._notify_already_running()               # nessuna eccezione propagata
+
+
 def test_guard_e_la_prima_cosa_di_init_pin_strutturale(app_mod):
     # PIN di regressione: il guard deve restare la PRIMA cosa di __init__ — prima di
     # super().__init__() (init Tk) e di qualsiasi side-effect. Se qualcuno lo sposta
