@@ -175,6 +175,7 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | `recognition_mode` | `NAME_ONLY` | `ID_ONLY`, `NAME_ONLY`, `BOTH` | Come XTrader riconosce il segnale. Gli ID non arrivano dal messaggio Telegram, ma il flusso del Parser Personalizzato (PR-P12) li **arricchisce dal dizionario Betfair locale** quando trova un match univoco; in mancanza la riga resta a nomi (*fallback*). `NAME_ONLY` (nomi) è il default. `ID_ONLY` richiede `MarketId`/`SelectionId`; `BOTH` entrambi. |
 | *(quota obbligatoria)* | — | — | NON è più una chiave globale: la comanda la casella **«Obblig.» sulla riga `Price`** di ogni Parser Personalizzato. `Price` obbligatorio → segnale senza quota valida (> 1.0) **scartato**; non obbligatorio → quota opzionale. |
 | `dry_run` | `true` | `true`/`false` | **Simulazione**: se `true`, il CSV operativo **non** viene scritto. Mettilo a `false` solo per l'uso reale, consapevolmente. |
+| `bridge_mode` | derivato da `dry_run` (config nuova: `SIMULAZIONE`) | `SIMULAZIONE`/`COLLAUDO`/`REALE` | Modalità **nominata** (#311 §3.1), derivata e coerente con `dry_run` (che resta autoritativo: incoerenza → Simulazione). `COLLAUDO` scrive il CSV col banner «XTrader in simulazione». |
 | `max_per_day` | `200` | intero | Tetto di segnali nuovi accettati in un giorno (UTC). Oltre, i segnali in eccesso non scrivono. |
 | `queue_mode` | `OVERWRITE_LAST` | `OVERWRITE_LAST`, `APPEND_ACTIVE`, `QUEUE_UNTIL_CONFIRMED` | Quanti segnali attivi tenere nel CSV. `OVERWRITE_LAST` = uno solo (sicuro). Le altre due scrivono **più righe** = più scommesse simultanee. Attivare una modalità multi-riga dalla GUI chiede una **conferma**. |
 | `max_active_signals` | `2` | intero ≥ 1 | **Tetto di righe/scommesse attive** simultanee nelle modalità multi-riga (#136 p5): un nuovo segnale oltre il tetto viene **bloccato** (ritentabile quando una riga scade/è confermata). Default basso (2). Ininfluente in `OVERWRITE_LAST` (sempre 1 riga). La GUI mostra un indicatore **"Righe attive: N/M"**. |
@@ -328,7 +329,14 @@ Tutte queste protezioni sono **attive a runtime**:
    un mutex di sistema su Windows (si libera da solo anche dopo un crash o un kill:
    nessun blocco orfano al riavvio).
 
-1. **Simulazione (`dry_run`)** — di default `true`: i segnali vengono riconosciuti
+1. **Modalità bridge (#311 §3.1)** — tendina «🚦 Modalità bridge» nella tab *Sicurezza*,
+   tre stati nominati sopra `dry_run` (che resta la fonte del percorso di scrittura):
+   **🧪 Simulazione Bridge** (`dry_run=true`, il CSV operativo NON viene scritto),
+   **🔬 Collaudo XTrader** (scrive il CSV con banner permanente «XTrader deve essere in
+   Modalità Simulazione»; conferma sì/no all'attivazione), **⚠️ Reale** (scommesse vere;
+   richiede SEMPRE la frase di conferma, anche arrivando dal Collaudo). Una config
+   incoerente (es. `bridge_mode:"REALE"` con `dry_run:true`) ricade in Simulazione
+   (fail-closed). Storico: **Simulazione (`dry_run`)** — di default `true`: i segnali vengono riconosciuti
    ma il CSV operativo **non** viene scritto. Il log lo dichiara
    (`🧪 DRY_RUN attivo`). Per l'uso reale togli la spunta *Simulazione* nella tab
    *Sicurezza* (`dry_run=false`).

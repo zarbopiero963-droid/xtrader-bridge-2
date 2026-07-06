@@ -1679,3 +1679,20 @@ Glue GUI: banner avvisi aggiornato anche su `<FocusOut>` dei campi riga multi, s
 rami incl. fail-safe ignoto/mappatura/riga disattivata/delimitatore blank; localizzazione IT/EN
 con fixture di ripristino lingua; bind GUI esercitati con stub registranti; pin strutturale su
 `_test`), mutation-verified. Docs: custom_parser.md §5-bis + design handoff (banner + anteprima).
+
+## #311 §3.1 — «Modalità Collaudo» esplicita (coda GUI, PR 4)
+
+Tri-stato NOMINATO sopra `dry_run`: **SIMULAZIONE** (non scrive) / **COLLAUDO** (scrive
+il CSV, banner ambra permanente «XTrader deve essere in simulazione», conferma sì/no) /
+**REALE** (frase di conferma + banner rosso). Nuovo modulo puro `bridge_mode.py`;
+`dry_run` resta l'UNICA fonte del write-path (`is_dry_run` invariato ovunque): la
+modalità è derivata fail-closed (`mode_from_cfg`: incoerenza → Simulazione; legacy
+`dry_run:false` senza `bridge_mode` → Reale, nessun declassamento). Gate **mode-aware**
+(`requires_real_confirmation`): chiude il buco COLLAUDO→REALE invisibile al check su
+dry_run (entrambi False); annullo → ritorno al modo PRECEDENTE. Config: chiave
+`bridge_mode` con coercion self-heal; settings_controller deriva `dry_run` dal form
+(retro-compat form legacy). Test: 24 nuovi (unit puri + glue gate reale con dialog
+stub + pin banner), 4 mutazioni KILLED (gate storico, annullo→sim, mode fail-open,
+banner rosso su criterio dry_run). Review round 1: banner ROSSO reso **mode-aware**
+(`real_banner_active`, Fugu: con quello storico una sessione COLLAUDO mostrava «REALE
+ATTIVA» sopprimendo l'ambra) + coerenza immediata `bridge_mode` sul form legacy (Fable).

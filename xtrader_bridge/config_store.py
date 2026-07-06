@@ -15,7 +15,8 @@ import os
 import shutil
 import sys
 
-from . import atomic_io, autostart, confirmation_reader, csv_writer, safety_guard, token_store
+from . import (atomic_io, autostart, bridge_mode, confirmation_reader, csv_writer,
+               safety_guard, token_store)
 
 APP_DIR_NAME = "XTraderBridge"
 CONFIG_VERSION = 1
@@ -155,6 +156,11 @@ DEFAULTS = {
     # viene scritto. Default sicuro True: una config vecchia senza il campo eredita
     # la simulazione, così un aggiornamento non genera scommesse reali per sbaglio.
     "dry_run":                      True,
+    # Modalità nominata del bridge (#311 §3.1): SIMULAZIONE / COLLAUDO / REALE.
+    # Stato DERIVATO e coerente con `dry_run` (che resta l'unica fonte del percorso
+    # di scrittura): la coercion la ri-deriva sempre via `bridge_mode.mode_from_cfg`
+    # (config incoerente → vince dry_run, fail-closed).
+    "bridge_mode":                  "SIMULAZIONE",
     # Tetto di segnali nuovi accettati in un giorno (UTC), complementare al
     # limite/minuto di signal_dedupe (PR-15).
     "max_per_day":                  200,
@@ -449,6 +455,12 @@ def _migrate(cfg: dict) -> dict:
                 # Lingua CSV (#342): solo IT/EN/ES (case-insensitive); mancante/malformata →
                 # default sicuro "IT". Unica fonte: `csv_writer.normalize_csv_language`.
                 val = csv_writer.normalize_csv_language(val)
+            elif key == "bridge_mode":
+                # Modalità nominata (#311 §3.1): SEMPRE ri-derivata dalla coppia salvata
+                # via `mode_from_cfg` — `dry_run` (già coerciuto sopra, viene prima nei
+                # DEFAULTS) è autoritativo: un `bridge_mode` sporco/incoerente non può
+                # accendere la scrittura (fail-closed) né declassare un reale confermato.
+                val = bridge_mode.mode_from_cfg(cfg)
             cfg[key] = val
         elif isinstance(default, list):
             if key in _KEYWORD_KEYS:
