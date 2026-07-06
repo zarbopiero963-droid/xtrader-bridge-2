@@ -212,11 +212,16 @@ Italiano» / «🇬🇧 English» / «🇪🇸 Español»** — e hint grigio (1
 *«Ricorda: in XTrader/Betting Toolkit imposta la LINGUA DELLA FONTE uguale a quella
 scelta qui — col riconoscimento a nomi i nomi dipendono dalla lingua del palinsesto.»*
 Comportamento: il click su una lingua **persiste** `app_language` e **allinea**
-`csv_language` (separatore decimale CSV #342), logga «🌐 Lingua del bridge impostata: …»
-e chiude; chiudere SENZA scegliere è sicuro (comportamento storico IT, il selettore
-ricompare al prossimo avvio — la non-scelta non viene mai persistita). Invarianti: la
-scelta lingua NON tocca modalità/gate di sicurezza; per ora cambia solo lingua CSV +
-persistenza (la UI localizzata è uno slice successivo della #343).
+`csv_language` (separatore decimale CSV #342) — ma una csv_language **personalizzata**
+(≠ default IT e ≠ lingua scelta) viene **preservata**, e il log lo dice («…lingua CSV
+personalizzata preservata: EN»); su salvataggio FALLITO il log è onesto («⚠️ …
+salvataggio config FALLITO: … il selettore riapparirà») — mai un falso successo.
+Chiudere SENZA scegliere è sicuro (comportamento storico IT, il selettore ricompare al
+prossimo avvio — la non-scelta non viene mai persistita). Con **auto-start attivo** il
+selettore NON compare (mai un grab modale sopra un avvio non presidiato: STOP deve
+restare raggiungibile) — log «🌐 Selettore lingua rimandato: auto-start attivo…».
+Invarianti: la scelta lingua NON tocca modalità/gate di sicurezza; per ora cambia solo
+lingua CSV + persistenza (la UI localizzata è uno slice successivo della #343).
 
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 

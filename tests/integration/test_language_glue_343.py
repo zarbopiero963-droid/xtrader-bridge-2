@@ -51,6 +51,41 @@ def test_language_chosen_codice_invalido_fail_closed(app_mod, monkeypatch):
     assert win.destroyed == [True]                     # il selettore si chiude comunque
 
 
+def test_language_chosen_save_fallito_niente_falso_successo(app_mod, monkeypatch):
+    """Fugu #356: se `save_config` ritorna ok=False il log NON deve dichiarare la
+    lingua impostata — la scelta non è persistita e il selettore riapparirà."""
+    app = _app(app_mod, {"app_language": "", "csv_language": "IT"})
+    monkeypatch.setattr(app_mod, "save_config", lambda cfg, path: (cfg, False))
+    app._language_chosen("EN", _Win())
+    assert app._save_ok is False
+    assert not any("impostata:" in ln for ln in app._logs)     # niente falso successo
+    assert any("FALLITO" in ln and "riapparirà" in ln for ln in app._logs)
+
+
+def test_language_chosen_preserva_csv_personalizzata_e_lo_dice(app_mod, monkeypatch):
+    """Fable #356 (upgrade): csv_language personalizzata preservata E dichiarata."""
+    app = _app(app_mod, {"app_language": "", "csv_language": "EN"})
+    salvati = []
+    monkeypatch.setattr(app_mod, "save_config",
+                        lambda cfg, path: (salvati.append(cfg) or (cfg, True)))
+    app._language_chosen("IT", _Win())
+    assert salvati[0]["app_language"] == "IT"
+    assert salvati[0]["csv_language"] == "EN"                  # PRESERVATA
+    assert any("preservata: EN" in ln for ln in app._logs)
+
+
+def test_selettore_rimandato_con_autostart_attivo(app_mod, monkeypatch):
+    """Fable/Fugu #356: con auto-start attivo NIENTE grab modale sopra un avvio non
+    presidiato (STOP resterebbe irraggiungibile mentre il listener scrive il CSV)."""
+    aperture = []
+    monkeypatch.setattr(app_mod.ctk, "CTkToplevel",
+                        lambda *a, **k: aperture.append(True))
+    app = _app(app_mod, {"app_language": "", "auto_start_listener": True})
+    app._maybe_open_language_selector()
+    assert aperture == []                                      # selettore NON aperto
+    assert any("rimandato" in ln and "auto-start" in ln for ln in app._logs)
+
+
 def test_selettore_si_apre_solo_al_primo_avvio(app_mod, monkeypatch):
     aperture = []
     monkeypatch.setattr(app_mod.ctk, "CTkToplevel",

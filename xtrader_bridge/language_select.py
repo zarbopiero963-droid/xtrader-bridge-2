@@ -50,13 +50,33 @@ def needs_language_selection(cfg) -> bool:
 
 
 def apply_language(cfg, lang):
-    """Ritorna una COPIA di `cfg` con `app_language` e `csv_language` impostate a
-    `lang`, o `None` se `lang` non è supportata (fail-closed: nessuna modifica).
-    Non muta mai `cfg` (la persistenza è del chiamante, via `save_config`)."""
+    """Ritorna una COPIA di `cfg` con `app_language` = `lang` e `csv_language`
+    ALLINEATA, o `None` se `lang` non è supportata (fail-closed: nessuna modifica).
+    Non muta mai `cfg` (la persistenza è del chiamante, via `save_config`).
+
+    Percorso UPGRADE (review Fable #356): una `csv_language` PERSONALIZZATA (diversa
+    sia dal default IT sia dalla lingua scelta — es. `EN` impostata a mano in
+    `config.json` come da README #342) viene PRESERVATA, non sovrascritta: su
+    installazioni XTrader vecchie senza l'update «decimali intelligenti» cambiare
+    separatore a sorpresa può far rifiutare il CSV. L'allineamento avviene solo dal
+    default o verso la stessa lingua; chi vuole cambiare anche il CSV lo fa in
+    `config.json` (documentato)."""
     code = normalize_app_language(lang)
     if not code:
         return None
     new_cfg = dict(cfg) if isinstance(cfg, dict) else {}
     new_cfg["app_language"] = code
-    new_cfg["csv_language"] = code
+    current_csv = csv_writer.normalize_csv_language(new_cfg.get("csv_language"))
+    if current_csv in (csv_writer.DEFAULT_CSV_LANGUAGE, code):
+        new_cfg["csv_language"] = code
     return new_cfg
+
+
+def csv_language_preserved(cfg_applied) -> str:
+    """Se `apply_language` ha PRESERVATO una `csv_language` personalizzata diversa
+    dalla lingua app scelta, ritorna quel codice (per il log/UX); altrimenti ""."""
+    if not isinstance(cfg_applied, dict):
+        return ""
+    csv_lang = csv_writer.normalize_csv_language(cfg_applied.get("csv_language"))
+    app_lang = normalize_app_language(cfg_applied.get("app_language"))
+    return csv_lang if (app_lang and csv_lang != app_lang) else ""

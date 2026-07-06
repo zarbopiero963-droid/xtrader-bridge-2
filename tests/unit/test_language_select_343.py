@@ -40,6 +40,25 @@ def test_apply_language_allinea_app_e_csv_senza_mutare_l_originale():
     assert cfg["app_language"] == "" and cfg["csv_language"] == "IT"   # originale INTATTO
 
 
+def test_apply_language_preserva_csv_language_personalizzata():
+    """Fable/Fugu #356 (upgrade): una csv_language impostata A MANO (diversa dal
+    default IT e dalla lingua scelta) NON va sovrascritta — su XTrader vecchi senza
+    l'update decimali un cambio di separatore a sorpresa può far rifiutare il CSV."""
+    cfg = {"app_language": "", "csv_language": "EN"}      # personalizzata (README #342)
+    out = language_select.apply_language(cfg, "IT")
+    assert out["app_language"] == "IT"
+    assert out["csv_language"] == "EN"                    # PRESERVATA
+    assert language_select.csv_language_preserved(out) == "EN"
+    # stessa lingua → nessuna preservazione da segnalare
+    out2 = language_select.apply_language(cfg, "EN")
+    assert out2["csv_language"] == "EN"
+    assert language_select.csv_language_preserved(out2) == ""
+    # dal DEFAULT IT l'allineamento resta pieno (primo avvio pulito)
+    out3 = language_select.apply_language({"csv_language": "IT"}, "ES")
+    assert out3["csv_language"] == "ES"
+    assert language_select.csv_language_preserved(out3) == ""
+
+
 def test_apply_language_codice_non_supportato_fail_closed():
     cfg = {"app_language": "", "csv_language": "IT"}
     assert language_select.apply_language(cfg, "FR") is None

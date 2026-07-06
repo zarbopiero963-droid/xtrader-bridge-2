@@ -1763,6 +1763,10 @@ hint verbatim (supporto §5: lingua fonte XTrader = lingua bridge). Config:
 `app_language` in DEFAULTS ("") con coercion fail-closed. GUI: Toplevel modale al
 primo avvio (300ms dopo la principale), 3 bottoni bandiera; chiusura senza scelta =
 comportamento storico IT, si ripropone. `_language_chosen` salva atomico via
-`save_config` (propaga la lingua CSV runtime #342). Docs ammorbidite («ITA richiedeva
-la virgola; update decimali-intelligenti accetta entrambi», risposta supporto #343).
-Test: 6 unit puri + coercion + 3 glue, mutazioni O–R KILLED.
+`save_config` (propaga la lingua CSV runtime #342). Review round 1 (Fable/Fugu/GLM):
+csv_language PERSONALIZZATA preservata sull'upgrade (mai overwrite a sorpresa del
+separatore su XTrader vecchi), selettore RIMANDATO con auto-start attivo (mai grab
+modale sopra un avvio non presidiato), log onesto su save fallito (niente falso
+successo). Docs ammorbidite («ITA richiedeva la virgola; update decimali-intelligenti
+accetta entrambi», risposta supporto #343). Test: 7 unit puri + coercion + 6 glue,
+mutazioni O–U KILLED.
