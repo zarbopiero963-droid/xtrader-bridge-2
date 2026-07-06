@@ -1721,3 +1721,6 @@ reso interamente BEST-EFFORT (mai rompere `_set_last`/monitoraggio primario; hoo
 spostato DOPO le label e aggiunto a `_update_real_mode_banner` = save/profilo/
 START/STOP, nota GPT) e sonda CSV **tri-stato** con giallo onesto su Windows a file
 esistente (os.access ignora ACL/lock NTFS: mai verde non verificabile).
+Follow-up post-merge (Fugu, fix PR dedicata): giallo onesto esteso al ramo «file da
+creare» su Windows (stesse ACL sulla cartella) + `platform` iniettabile nella sonda
+(GLM: il monkeypatch del globale os.name rompeva la failure-repr di pytest).
