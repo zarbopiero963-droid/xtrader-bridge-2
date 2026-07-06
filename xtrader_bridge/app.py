@@ -225,7 +225,9 @@ class App(ctk.CTk):
         # Windows con scaling 125–150% niente bitmap-stretch sfocato e misure Tk in
         # pixel reali. Stesso valore che imposterebbe customtkinter (mai in
         # conflitto); fail-open per contratto: non solleva mai, l'app parte comunque.
-        dpi_awareness.enable_dpi_awareness()
+        # Esito nel log di modulo (CodeRabbit/GPT/GLM #355): la GUI non esiste ancora,
+        # ma un FAILED su Windows reale resta diagnosticabile.
+        logger.debug("DPI awareness: %s", dpi_awareness.enable_dpi_awareness())
         super().__init__()
         self.title(f"XTrader Signal Bridge v{__version__}")
         # Altezza contenuta + altezza RIDIMENSIONABILE (larghezza fissa: il layout è

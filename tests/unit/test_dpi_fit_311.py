@@ -12,23 +12,28 @@ from xtrader_bridge import dpi_awareness, gui_utils
 # ── enable_dpi_awareness ──────────────────────────────────────────────────────
 
 class _Api:
-    """API fake: registra le chiamate; opzionalmente solleva."""
+    """API fake: registra le chiamate; ritorna `ret` (HRESULT/BOOL) o solleva."""
 
-    def __init__(self, calls, name, raises=False):
-        self._calls, self._name, self._raises = calls, name, raises
+    def __init__(self, calls, name, raises=False, ret=0):
+        self._calls, self._name, self._raises, self._ret = calls, name, raises, ret
 
     def __call__(self, *args):
         if self._raises:
             raise OSError(f"{self._name} non disponibile")
         self._calls.append((self._name, args))
+        return self._ret
 
 
-def _windll(calls, *, shcore_raises=False, user32_raises=False):
+def _windll(calls, *, shcore_raises=False, user32_raises=False,
+            shcore_ret=0, user32_ret=1):
+    # Default: shcore S_OK (0), user32 BOOL TRUE (1) — i valori di successo reali.
     return types.SimpleNamespace(
         shcore=types.SimpleNamespace(
-            SetProcessDpiAwareness=_Api(calls, "shcore", raises=shcore_raises)),
+            SetProcessDpiAwareness=_Api(calls, "shcore", raises=shcore_raises,
+                                        ret=shcore_ret)),
         user32=types.SimpleNamespace(
-            SetProcessDPIAware=_Api(calls, "user32", raises=user32_raises)))
+            SetProcessDPIAware=_Api(calls, "user32", raises=user32_raises,
+                                    ret=user32_ret)))
 
 
 def test_dpi_windows_usa_shcore_con_per_monitor():
@@ -55,6 +60,34 @@ def test_dpi_fail_open_se_entrambe_le_api_falliscono():
     assert calls == []
 
 
+def test_dpi_hresult_gia_impostata_e_esito_positivo():
+    """CodeRabbit #355: ctypes NON solleva sugli HRESULT — E_ACCESSDENIED significa
+    «awareness già impostata»: il processo È DPI-aware, esito positivo, niente
+    fallback user32."""
+    calls = []
+    esito = dpi_awareness.enable_dpi_awareness(
+        platform="nt", windll=_windll(calls, shcore_ret=-2147024891))
+    assert esito == dpi_awareness.SHCORE
+    assert calls == [("shcore", (2,))]            # user32 MAI chiamata
+
+
+def test_dpi_hresult_di_errore_cade_sul_fallback():
+    """CodeRabbit #355: un HRESULT di errore diverso (es. E_INVALIDARG) non deve
+    essere spacciato per successo — si prova user32."""
+    calls = []
+    esito = dpi_awareness.enable_dpi_awareness(
+        platform="nt", windll=_windll(calls, shcore_ret=-2147024809))
+    assert esito == dpi_awareness.USER32
+    assert calls == [("shcore", (2,)), ("user32", ())]
+
+
+def test_dpi_user32_bool_false_e_failed():
+    calls = []
+    esito = dpi_awareness.enable_dpi_awareness(
+        platform="nt", windll=_windll(calls, shcore_raises=True, user32_ret=0))
+    assert esito == dpi_awareness.FAILED          # BOOL 0 = fallita, mai un raise
+
+
 def test_dpi_non_windows_non_tocca_nulla():
     calls = []
     esito = dpi_awareness.enable_dpi_awareness(platform="posix", windll=_windll(calls))
@@ -63,13 +96,16 @@ def test_dpi_non_windows_non_tocca_nulla():
 
 
 def test_dpi_default_platform_e_os_name():
-    # Su CI POSIX il default (platform=None → os.name) deve dare UNSUPPORTED senza
-    # nemmeno provare windll (che su POSIX non esiste).
+    """Il default (platform=None → os.name) è verificato su ENTRAMBI i rami
+    (CodeRabbit #355): POSIX/CI → UNSUPPORTED senza toccare windll; Windows reale
+    → uno degli esiti Windows, MAI UNSUPPORTED."""
     import os
-    atteso = (dpi_awareness.UNSUPPORTED if os.name != "nt" else None)
     esito = dpi_awareness.enable_dpi_awareness()
-    if atteso is not None:
-        assert esito == atteso
+    if os.name != "nt":
+        assert esito == dpi_awareness.UNSUPPORTED
+    else:
+        assert esito in (dpi_awareness.SHCORE, dpi_awareness.USER32,
+                         dpi_awareness.FAILED)
 
 
 # ── clamp_to_screen / fit_to_screen ──────────────────────────────────────────

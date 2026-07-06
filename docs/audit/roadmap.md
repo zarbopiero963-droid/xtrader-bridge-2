@@ -1743,7 +1743,10 @@ Nuovo modulo puro `dpi_awareness.py`: `enable_dpi_awareness(platform/windll
 INIETTABILI)` imposta la DPI awareness del processo PRIMA della root Tk
 (`shcore.SetProcessDpiAwareness(2)`, lo STESSO valore per-monitor di customtkinter:
 mai in conflitto; fallback `user32.SetProcessDPIAware`; su non-Windows UNSUPPORTED)
-— fail-open per contratto: mai un raise, un fallimento DPI non blocca l'avvio.
+— fail-open per contratto: mai un raise, un fallimento DPI non blocca l'avvio;
+gli HRESULT sono VERIFICATI (ctypes non solleva: S_OK/E_ACCESSDENIED=già aware →
+successo, altri → fallback; BOOL di user32 controllato — CodeRabbit #355) e
+l'esito finisce nel log di modulo per diagnostica Windows.
 `gui_utils`: estratta la pura `clamp_to_screen` e `fit_to_screen` ora clampa anche
 la LARGHEZZA (pavimento al minsize del chiamante): le finestre larghe
 (Strumenti/dizionario 1140px) restano visibili su schermi 1024. Firma pubblica

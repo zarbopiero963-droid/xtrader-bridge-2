@@ -22,6 +22,10 @@ UNSUPPORTED = "unsupported"  # non-Windows: niente da fare
 FAILED = "failed"            # Windows ma entrambe le API non disponibili/fallite
 
 _PER_MONITOR_DPI_AWARE = 2   # stesso valore usato da customtkinter: mai in conflitto
+_S_OK = 0                    # HRESULT di successo di SetProcessDpiAwareness
+# HRESULT "awareness già impostata" (E_ACCESSDENIED come int32 con segno, quello che
+# ctypes ritorna di default): il processo È comunque DPI-aware → esito positivo.
+_E_ACCESS_DENIED = -2147024891
 
 
 def enable_dpi_awareness(*, platform=None, windll=None) -> str:
@@ -43,12 +47,18 @@ def enable_dpi_awareness(*, platform=None, windll=None) -> str:
         except Exception:   # noqa: BLE001 — fail-open: senza windll niente DPI, mai bloccare l'avvio
             return FAILED
     try:
-        windll.shcore.SetProcessDpiAwareness(_PER_MONITOR_DPI_AWARE)
-        return SHCORE
-    except Exception:   # noqa: BLE001 — shcore assente (Win < 8.1) o awareness già impostata: si prova il fallback
+        # ctypes NON solleva su un HRESULT di errore (CodeRabbit #355): va
+        # controllato il ritorno. S_OK = impostata ora; E_ACCESSDENIED = già
+        # impostata (il processo è comunque DPI-aware): entrambi esiti positivi.
+        hres = windll.shcore.SetProcessDpiAwareness(_PER_MONITOR_DPI_AWARE)
+        if hres in (_S_OK, _E_ACCESS_DENIED):
+            return SHCORE
+    except Exception:   # noqa: BLE001 — shcore assente (Win < 8.1): si prova il fallback
         pass
     try:
-        windll.user32.SetProcessDPIAware()
-        return USER32
+        # SetProcessDPIAware ritorna un BOOL: 0 = fallita (anche qui nessun raise).
+        if windll.user32.SetProcessDPIAware():
+            return USER32
     except Exception:   # noqa: BLE001 — fail-open: l'app parte comunque (solo resa più sfocata)
-        return FAILED
+        pass
+    return FAILED
