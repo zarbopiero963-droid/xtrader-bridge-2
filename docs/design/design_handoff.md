@@ -215,7 +215,10 @@ Comportamento: il click su una lingua **persiste** `app_language` e **allinea**
 `csv_language` (separatore decimale CSV #342) — ma una csv_language **personalizzata**
 (≠ default IT e ≠ lingua scelta) viene **preservata**, e il log lo dice («…lingua CSV
 personalizzata preservata: EN»); su salvataggio FALLITO il log è onesto («⚠️ …
-salvataggio config FALLITO: … il selettore riapparirà») — mai un falso successo.
+salvataggio config FALLITO: nulla è cambiato (la sessione resta nella lingua
+precedente) e il selettore riapparirà…») — mai un falso successo, e la config viva
+NON viene adottata (memoria, runtime CSV e disco restano coerenti sulla lingua
+precedente).
 Chiudere SENZA scegliere è sicuro (comportamento storico IT, il selettore ricompare al
 prossimo avvio — la non-scelta non viene mai persistita). Con **auto-start attivo** il
 selettore NON compare (mai un grab modale sopra un avvio non presidiato: STOP deve

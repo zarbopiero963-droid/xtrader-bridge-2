@@ -1767,6 +1767,7 @@ comportamento storico IT, si ripropone. `_language_chosen` salva atomico via
 csv_language PERSONALIZZATA preservata sull'upgrade (mai overwrite a sorpresa del
 separatore su XTrader vecchi), selettore RIMANDATO con auto-start attivo (mai grab
 modale sopra un avvio non presidiato), log onesto su save fallito (niente falso
-successo). Docs ammorbidite («ITA richiedeva la virgola; update decimali-intelligenti
+successo; round 2 Fable: config viva NON adottata su ok=False e writer CSV
+riportato alla lingua precedente — mai sessione e disco divergenti). Docs ammorbidite («ITA richiedeva la virgola; update decimali-intelligenti
 accetta entrambi», risposta supporto #343). Test: 7 unit puri + coercion + 6 glue,
 mutazioni O–U KILLED.

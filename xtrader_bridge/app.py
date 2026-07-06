@@ -1617,19 +1617,27 @@ class App(ctk.CTk):
         new_cfg = language_select.apply_language(self._config, code)
         if new_cfg is not None:
             saved, ok = save_config(new_cfg, CONFIG_FILE)
-            self._config = saved
             self._save_ok = ok
             lang = language_select.normalize_app_language(code)
             if ok:
+                self._config = saved
                 kept = language_select.csv_language_preserved(saved)
                 extra = (f" (lingua CSV personalizzata preservata: {kept})" if kept
                          else " — lingua CSV allineata")
                 self._log(f"🌐 Lingua del bridge impostata: {lang}{extra} "
                           "(la UI localizzata arriva con un prossimo slice #343).")
             else:
+                # Config viva NON adottata (Fable #356 round 2): memoria, runtime e
+                # disco restano coerenti sulla lingua PRECEDENTE — mai una sessione
+                # col separatore nuovo e il disco col vecchio (sorpresa al riavvio).
+                # `save_config` ha però GIÀ allineato il writer alla lingua tentata
+                # (sync pre-scrittura, #342): lo si riporta alla lingua di prima.
+                old = self._config if isinstance(self._config, dict) else {}
+                csv_writer.set_csv_language(old.get("csv_language"))
                 self._log(f"⚠️ Lingua scelta ({lang}) ma salvataggio config FALLITO: "
-                          "la scelta non è persistita, il selettore riapparirà al "
-                          "prossimo avvio (controlla permessi/spazio disco).")
+                          "nulla è cambiato (la sessione resta nella lingua "
+                          "precedente) e il selettore riapparirà al prossimo avvio — "
+                          "controlla permessi/spazio disco.")
         try:
             if win is not None:
                 win.destroy()

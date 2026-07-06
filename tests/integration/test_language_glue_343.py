@@ -52,12 +52,20 @@ def test_language_chosen_codice_invalido_fail_closed(app_mod, monkeypatch):
 
 
 def test_language_chosen_save_fallito_niente_falso_successo(app_mod, monkeypatch):
-    """Fugu #356: se `save_config` ritorna ok=False il log NON deve dichiarare la
-    lingua impostata — la scelta non è persistita e il selettore riapparirà."""
+    """Fugu #356 + Fable round 2: se `save_config` ritorna ok=False (1) il log NON
+    dichiara la lingua impostata, (2) la config VIVA non viene adottata (memoria,
+    runtime e disco restano coerenti sulla lingua precedente), (3) il writer CSV —
+    che `save_config` ha già allineato PRIMA della scrittura fallita — viene
+    riportato alla lingua di prima."""
     app = _app(app_mod, {"app_language": "", "csv_language": "IT"})
     monkeypatch.setattr(app_mod, "save_config", lambda cfg, path: (cfg, False))
+    ripristini = []
+    monkeypatch.setattr(app_mod.csv_writer, "set_csv_language",
+                        lambda v: ripristini.append(v) or "IT")
     app._language_chosen("EN", _Win())
     assert app._save_ok is False
+    assert app._config == {"app_language": "", "csv_language": "IT"}   # NON adottata
+    assert ripristini == ["IT"]                    # writer riportato alla lingua VECCHIA
     assert not any("impostata:" in ln for ln in app._logs)     # niente falso successo
     assert any("FALLITO" in ln and "riapparirà" in ln for ln in app._logs)
 
