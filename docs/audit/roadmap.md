@@ -1736,3 +1736,16 @@ negli esiti (mutazione anti-leak KILLED); il wizard non attiva MAI il reale e il
 salvataggio finale passa da `_save_config` (gate #349 inclusi). Vista sottile
 `wizard_gui.py` (sonde in thread + esito via after; gate «Avanti» per step,
 mutazione KILLED). Test: 13 unit puri + 4 glue.
+
+## #311 §3.5 — DPI awareness + clamp larghezza fit_to_screen (coda GUI, PR 8)
+
+Nuovo modulo puro `dpi_awareness.py`: `enable_dpi_awareness(platform/windll
+INIETTABILI)` imposta la DPI awareness del processo PRIMA della root Tk
+(`shcore.SetProcessDpiAwareness(2)`, lo STESSO valore per-monitor di customtkinter:
+mai in conflitto; fallback `user32.SetProcessDPIAware`; su non-Windows UNSUPPORTED)
+— fail-open per contratto: mai un raise, un fallimento DPI non blocca l'avvio.
+`gui_utils`: estratta la pura `clamp_to_screen` e `fit_to_screen` ora clampa anche
+la LARGHEZZA (pavimento al minsize del chiamante): le finestre larghe
+(Strumenti/dizionario 1140px) restano visibili su schermi 1024. Firma pubblica
+invariata, chiamanti non toccati. Test: 9 unit deterministici headless
+(windll/finestra fake), mutazioni I–L KILLED.

@@ -45,6 +45,7 @@ from . import (
     csv_writer,
     dashboard_stats,
     diagnostics,
+    dpi_awareness,
     event_journal,
     event_log,
     gui_utils,
@@ -220,6 +221,11 @@ class App(ctk.CTk):
             _bf_log_safety.install_global_log_redaction()
         except Exception:   # noqa: BLE001 — la redazione è difensiva, non deve mai impedire l'avvio
             pass
+        # DPI awareness esplicita (#311 §3.5): PRIMA di creare la root Tk, così su
+        # Windows con scaling 125–150% niente bitmap-stretch sfocato e misure Tk in
+        # pixel reali. Stesso valore che imposterebbe customtkinter (mai in
+        # conflitto); fail-open per contratto: non solleva mai, l'app parte comunque.
+        dpi_awareness.enable_dpi_awareness()
         super().__init__()
         self.title(f"XTrader Signal Bridge v{__version__}")
         # Altezza contenuta + altezza RIDIMENSIONABILE (larghezza fissa: il layout è

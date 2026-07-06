@@ -65,6 +65,13 @@ sicurezza parte di default in **simulazione** (`dry_run=true`): riconosce i segn
 - **Piattaforma primaria:** **Windows desktop**. (Su Linux/macOS gira solo in dev/CI.)
 - **Lingua UI:** **italiano** (tutte le label sono in italiano, con emoji).
 - **Distribuzione:** EXE singolo generato via GitHub Actions (`XTrader-Signal-Bridge.exe`).
+- **DPI e schermi piccoli (#311 §3.5):** l'app si dichiara **DPI-aware** all'avvio
+  (per-monitor, prima della root Tk): su Windows con scaling 125–150% il testo è nitido
+  (niente bitmap-stretch) e le misure sono in pixel reali; fallimento fail-open (l'app
+  parte comunque). Tutte le finestre passano da `fit_to_screen`, che clampa **altezza E
+  larghezza** all'area schermo disponibile (margine 80px) con pavimento al `minsize`
+  dichiarato: anche le finestre larghe (Strumenti/dizionario, fino a 1140px) restano
+  interamente visibili su schermi 1024px.
 
 ---
 
