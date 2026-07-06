@@ -196,6 +196,31 @@ altezza ridimensionabile, min 720×600.
 - **Indicatore di stato** (a destra): pallino + testo, vedi §8.
 - **Indicatore righe attive** (arancione): "N/M", vedi §8.
 
+### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
+
+Toplevel MODALE (grab) lanciato dal bottone **«🧙 Wizard prima configurazione»**
+(`#00695c`/hover `#004d40`, accanto a «🧰 Strumenti»). Cinque step con titolo
+`N/5 · <nome>`, navigazione **«◀ Indietro» / «Avanti ▶»** (ultimo step: **«Fine ✔»**);
+**gate di avanzamento**: «Avanti» è bloccato (messaggio *«⛔ Completa prima la verifica
+di questo step.»*) finché la verifica dello step non è ✅. Esiti sotto il corpo:
+`✅/⛔ <messaggio>` (verde `#66bb6a` / rosso `#ef5350`), «⏳ Verifica in corso…» durante
+le sonde (eseguite in thread: la finestra non si congela). Step: (1) token (campo
+mascherato `•`) + «🔌 Prova connessione (getMe)»; (2) Chat ID + «📡 Controlla ora»
+(hint: bot admin, messaggio di prova, listener fermo); (3) textbox messaggio reale +
+«🧪 Valuta messaggio» (verdetto del tester #350); (4) csv_path + «🔎 Verifica percorso»
+e «📄 Scrivi CSV di prova» (mai sovrascrive: riga attiva protetta, file estraneo
+rifiutato); (5) checklist ✅/⛔ a 5 voci. Invarianti: il wizard NON attiva mai la
+modalità Reale (checklist informativa; i gate restano nella tab 🛡️ Sicurezza); il
+token non compare MAI negli esiti/log; «Fine ✔» applica token/chat/csv al form e salva
+col percorso esistente (gate inclusi); **singleton** (Fable #354): un secondo click sul
+bottone riporta davanti il wizard già aperto, mai due finestre modali; una sonda che
+fallisce mostra un esito ⛔ onesto (solo la classe dell'errore) e sblocca subito la
+verifica successiva; chiudere la finestra con una sonda in corso è sicuro (l'esito
+tardivo viene scartato); **anti esito stantio** (CodeRabbit #354): modificare un campo
+DOPO il ✅ invalida la verifica — «Avanti» torna bloccato con *«✏️ Valore modificato
+dopo la verifica: ripeti la verifica.»* finché la sonda non viene rieseguita sul valore
+nuovo (lo step chat dipende anche dal token, lo step parser anche dalla chat).
+
 ### 6.2-ter Scheda «🚦 Salute» — health check a semafori (#311 §3.3)
 
 Nuova scheda nel Tabview di monitoraggio (fra «📡 Chat ascoltate» e «📡 Stato»): sette

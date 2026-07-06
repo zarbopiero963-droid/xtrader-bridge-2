@@ -39,6 +39,7 @@ from . import (
     bridge_mode,
     config_store,
     health_check,
+    parser_manager,
     confirmation_reader,
     csv_lock_escalation,
     csv_writer,
@@ -197,6 +198,7 @@ class App(ctk.CTk):
     _betfair_login_epoch = 0        # epoch del login: logout/delete lo bumpa → scarta i completamenti stantii
     _betfair_panel = None           # pannello tab Betfair, valorizzato in `_open_tools`
     _async_stop_event = None        # asyncio.Event della sessione listener: STOP la sveglia (#184 H5/Codex #191)
+    _wizard_win = None              # Wizard aperto (#311 §3.4): singleton, un secondo click lo riporta davanti
 
     def __init__(self):
         # Single-instance lock (#311-1.1): PRIMA di qualsiasi altra cosa — due istanze
@@ -1207,6 +1209,11 @@ class App(ctk.CTk):
             tools_frame, text="🧰  Strumenti", width=220, height=40,
             fg_color="#4527a0", hover_color="#311b92",
             command=self._open_tools).pack(side="left", padx=5)
+        # Wizard di prima configurazione (#311 §3.4): 5 step guidati.
+        ctk.CTkButton(
+            tools_frame, text="🧙 Wizard prima configurazione", width=240, height=40,
+            fg_color="#00695c", hover_color="#004d40",
+            command=self._open_wizard).pack(side="left", padx=5)
 
         # Monitoraggio a schede (B3): Chat ascoltate / Stato / Dashboard / Log erano
         # quattro pannelli impilati che allungavano molto la finestra. Ora vivono in un
@@ -1479,6 +1486,78 @@ class App(ctk.CTk):
         except Exception:              # noqa: BLE001 — su qualsiasi errore dialog → non confermare
             return False
         return real_mode.confirmation_ok(typed)
+
+    def _open_wizard(self) -> None:
+        """Apre il Wizard di prima configurazione (#311 §3.4). Vista in `wizard_gui`
+        (logica pura in `wizard`, testata in CI); dipendenze iniettate da qui.
+        Singleton (review Fable #354): un secondo click riporta davanti il wizard già
+        aperto — due Toplevel modali avrebbero `grab_set` in conflitto."""
+        prev = self._wizard_win
+        if prev is not None:
+            try:
+                alive = bool(prev.winfo_exists())
+            except Exception:   # noqa: BLE001 — riferimento stantio (Tk smontato): si riapre da zero
+                alive = False
+            if alive:
+                # Il wizard ESISTE: mai una seconda finestra, anche se il focus
+                # fallisce (review GPT #354: un errore di lift/focus non deve
+                # degradare in un doppione modale).
+                try:
+                    prev.lift()
+                    prev.focus_force()
+                except Exception:   # noqa: BLE001 — focus best-effort: la finestra c'è comunque
+                    pass
+                return
+            self._wizard_win = None
+        from . import wizard, wizard_gui   # import locali: il wizard è on-demand
+
+        def builder_factory(chat_id=""):
+            # Config VIVA + chat del wizard (CodeRabbit #354): il parser attivo è
+            # risolto per-chat e va cercato per la chat che l'utente ha appena
+            # inserito nello step 2, non per lo snapshot al momento dell'apertura.
+            live = self._config if isinstance(self._config, dict) else {}
+            cid = str(chat_id or "").strip() or str(live.get("chat_id", "") or "")
+            defn = parser_manager.load_active(live, cid)
+            from .parser_builder import ParserBuilder
+            return ParserBuilder(defn) if defn is not None else None
+
+        def checklist_provider():
+            live = self._config if isinstance(self._config, dict) else {}
+            return wizard.final_checklist(
+                live, parser_active=signal_router.has_active_parser_config(live))
+
+        try:
+            win = wizard_gui.WizardWindow(
+                self, initial={"bot_token": self._e_token.get(),
+                               "chat_id": self._e_chat.get(),
+                               "csv_path": self._e_csv.get()},
+                builder_factory=builder_factory,
+                checklist_provider=checklist_provider,
+                on_finish=self._wizard_finish)
+            # Riferimento PRIMA di grab_set (review Fable #354, round 2): se il grab
+            # fallisce (grab già attivo, race Tk) la finestra è comunque creata e
+            # visibile — senza riferimento il click dopo aprirebbe un doppione.
+            self._wizard_win = win
+            win.grab_set()   # modale: un solo wizard alla volta
+        except Exception as ex:   # noqa: BLE001 — GUI best-effort: mai crash della finestra
+            # SOLO la classe dell'errore nel log: `initial` contiene il token e
+            # un'eccezione che lo echeggiasse violerebbe «token mai nei log»
+            # (review Fugu/GPT #354).
+            self._log(f"❌ Apertura wizard fallita: {type(ex).__name__}")
+
+    def _wizard_finish(self, values: dict) -> None:
+        """Fine wizard: applica token/chat/csv al FORM e salva passando dal percorso
+        Salva esistente (validazioni + gate transizioni pericolose inclusi). Il wizard
+        non tocca la modalità: qualunque cambio Sim/Collaudo/Reale resta ai suoi gate."""
+        for entry, key in ((self._e_token, "bot_token"), (self._e_chat, "chat_id"),
+                           (self._e_csv, "csv_path")):
+            val = str((values or {}).get(key, "") or "").strip()
+            if val:
+                entry.delete(0, "end")
+                entry.insert(0, val)
+        self._save_config()
+        if self._save_ok:
+            self._log("🧙 Wizard completato: configurazione salvata.")
 
     def _confirm_collaudo_mode(self) -> bool:
         """Conferma leggera (sì/no) per la modalità COLLAUDO (#311 §3.1): il testo è

@@ -1724,3 +1724,15 @@ esistente (os.access ignora ACL/lock NTFS: mai verde non verificabile).
 Follow-up post-merge (Fugu, fix PR dedicata): giallo onesto esteso al ramo «file da
 creare» su Windows (stesse ACL sulla cartella) + `platform` iniettabile nella sonda
 (GLM: il monkeypatch del globale os.name rompeva la failure-repr di pytest).
+
+## #311 §3.4 — Wizard di prima configurazione (coda GUI, PR 7)
+
+Toplevel modale a 5 step: token+getMe · chat+messaggio di prova (getUpdates one-shot
+SENZA offset: non consuma update del listener) · parser su messaggio reale (riusa il
+tester #350) · csv_path + scrittura di prova (sonda #351 + create_header_only_csv:
+riga attiva protetta, file estraneo rifiutato) · checklist finale informativa. Logica
+PURA in `wizard.py` con sonde INIETTABILI (mai Telegram live nei test); token mai
+negli esiti (mutazione anti-leak KILLED); il wizard non attiva MAI il reale e il
+salvataggio finale passa da `_save_config` (gate #349 inclusi). Vista sottile
+`wizard_gui.py` (sonde in thread + esito via after; gate «Avanti» per step,
+mutazione KILLED). Test: 13 unit puri + 4 glue.
