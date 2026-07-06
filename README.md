@@ -329,6 +329,12 @@ Tutte queste protezioni sono **attive a runtime**:
    un mutex di sistema su Windows (si libera da solo anche dopo un crash o un kill:
    nessun blocco orfano al riavvio).
 
+0-bis. **🧙 Wizard di prima configurazione (#311 §3.4)** — bottone accanto a «🧰
+   Strumenti»: 5 step guidati (token + test getMe · Chat ID + messaggio di prova ·
+   parser sul messaggio reale con verdetto/anteprima · csv_path + scrittura CSV di
+   prova a solo header · checklist finale). Il wizard NON attiva mai la modalità
+   Reale e il token non compare mai nei log; il salvataggio finale passa dai gate
+   esistenti.
 0. **Pannello «🚦 Salute» (#311 §3.3)** — scheda di monitoraggio a semafori: Telegram ·
    ultimo messaggio · parser attivo · ultimo segnale (col motivo) · CSV scrivibile
    (sonda non invasiva: mai un lock sul file) · conferme XTrader · modalità corrente.

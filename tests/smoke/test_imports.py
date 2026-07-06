@@ -18,7 +18,7 @@ _IMPURE = {"xtrader_bridge.app", "xtrader_bridge.custom_parser_gui",
            "xtrader_bridge.source_chats_gui", "xtrader_bridge.profiles_gui",
            "xtrader_bridge.provider_gui", "xtrader_bridge.name_mapping_gui",
            "xtrader_bridge.tools_gui", "xtrader_bridge.journal_view_gui",
-           "xtrader_bridge.known_teams_gui"}
+           "xtrader_bridge.known_teams_gui", "xtrader_bridge.wizard_gui"}
 
 # Moduli core che DEVONO sempre essere presenti (guardia contro discovery rotta).
 _CORE = {
