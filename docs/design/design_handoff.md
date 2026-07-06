@@ -603,6 +603,22 @@ AVVIA invece **procede ma con avviso ⚠️ nel log eventi** (audit #259) quando
 Il design può dare a questi avvisi più visibilità (banner/badge), ma non deve trasformarli
 in blocchi.
 
+### 9.4-bis Seconda istanza rifiutata all'avvio (#311-1.1)
+Il bridge gira in **una sola istanza**. Un secondo avvio mostra — **prima** che qualunque
+finestra dell'app venga costruita — un **messagebox di avviso** (`messagebox.showwarning`
+su root temporanea) e il processo esce subito:
+- **Titolo:** `XTrader Bridge`
+- **Testo (verbatim):**
+  > XTrader Bridge è già in esecuzione.
+  >
+  > Chiudi l'altra istanza prima di avviarne una nuova: due istanze attive potrebbero
+  > scrivere lo stesso CSV e piazzare scommesse doppie.
+
+**Invariante di sicurezza:** la seconda istanza NON avvia listener, NON scrive né svuota il
+CSV dell'istanza attiva. Il lock (mutex di sistema su Windows) si libera da solo a chiusura
+o crash: nessun blocco orfano da gestire nella UI. Il design può ristilizzare il dialogo, ma
+il messaggio deve restare un **avviso bloccante che chiude la seconda istanza**.
+
 ### 9.5 Ciclo di vita di un segnale (per capire cosa mostrare)
 `ricevuto → validato → scritto su CSV → (conferma/rifiuto XTrader oppure timeout) →
 CSV svuotato`. La UI riflette questo tramite: contatori Dashboard, tab Stato (ultimo

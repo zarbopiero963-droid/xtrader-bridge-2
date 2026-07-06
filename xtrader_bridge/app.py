@@ -5,6 +5,7 @@ config) vive in moduli separati ed è testabile headless.
 """
 
 import asyncio
+import logging
 import os
 import threading
 import time
@@ -44,6 +45,7 @@ from . import (
     event_journal,
     event_log,
     gui_utils,
+    instance_lock,
     live_guard,
     log_privacy,
     log_view,
@@ -131,6 +133,8 @@ def _retention_label(days: int) -> str:
 # stretta di quelle senza pulsanti. Le costanti sono esposte per il test di regressione layout
 # (`tests/integration/test_gen_layout_budget.py`): un futuro allargamento che le farebbe sforare
 # fallisce in CI invece di tagliare silenziosamente «Crea CSV» a runtime (CodeRabbit #330).
+logger = logging.getLogger(__name__)   # log di modulo (es. rifiuto seconda istanza, #311-1.1)
+
 _WINDOW_WIDTH = 720                 # larghezza fissa della finestra (vedi fit_to_screen)
 _GEN_LABEL_WIDTH = 140             # etichetta del campo
 _GEN_FIELD_ENTRY_WIDTH = 470       # casella dei campi SENZA pulsanti
@@ -189,6 +193,12 @@ class App(ctk.CTk):
     _async_stop_event = None        # asyncio.Event della sessione listener: STOP la sveglia (#184 H5/Codex #191)
 
     def __init__(self):
+        # Single-instance lock (#311-1.1): PRIMA di qualsiasi altra cosa — due istanze
+        # avrebbero tracker/limiter/coda separati in RAM (i lock interni sono
+        # intra-processo) → doppia scommessa possibile. Se un'altra istanza possiede
+        # già il lock: messagebox e uscita IMMEDIATA — nessun listener, nessuna
+        # scrittura né clear del CSV dell'istanza attiva.
+        self._acquire_instance_lock()
         # Difesa globale sui log Betfair (audit #259 D3): installa un filtro di
         # redazione su root logger + ogni handler (presenti E futuri) e silenzia i
         # logger HTTP rumorosi. Va fatto ALL'AVVIO, il prima possibile — PRIMA di
@@ -588,6 +598,42 @@ class App(ctk.CTk):
             # la credenziale appena reidratata nel campo.
             self._config["bot_token"] = token
             self._config.pop(config_store.TOKEN_LOAD_INCOMPLETE_KEY, None)
+
+    def _acquire_instance_lock(self):
+        """Acquisisce il lock di istanza (#311-1.1) o esce. Chiamato come PRIMA
+        istruzione di `__init__`: se un'altra istanza del bridge è già in esecuzione
+        (lock posseduto), mostra un avviso ed esce con `SystemExit` senza costruire la
+        GUI, senza avviare listener e senza toccare il CSV dell'istanza attiva.
+        Un errore imprevisto del SO nella creazione del lock NON blocca l'avvio
+        (fail-open gestito nel modulo, con warning nei log)."""
+        self._instance_lock = instance_lock.acquire(lock_dir=config_store.config_dir())
+        if self._instance_lock is None:
+            # Log ESPLICITO del rifiuto (Sourcery #346): in headless/avvii non standard il
+            # messagebox può non essere visibile — il motivo resta comunque nei log.
+            logger.warning("Seconda istanza rifiutata: lock di istanza già posseduto "
+                           "(protezione doppia-scommessa #311-1.1).")
+            self._notify_already_running()
+            raise SystemExit("XTrader Bridge è già in esecuzione: seconda istanza rifiutata.")
+
+    def _notify_already_running(self):
+        """Avviso GUI «già in esecuzione» su una root Tk temporanea (la finestra
+        dell'app non è ancora stata costruita). Best-effort: in ambiente headless
+        (nessun display) l'uscita avviene comunque, con il motivo nel log."""
+        try:
+            from tkinter import messagebox
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showwarning(
+                "XTrader Bridge",
+                "XTrader Bridge è già in esecuzione.\n\n"
+                "Chiudi l'altra istanza prima di avviarne una nuova: due istanze "
+                "attive potrebbero scrivere lo stesso CSV e piazzare scommesse doppie.")
+            root.destroy()
+        except Exception:   # noqa: BLE001 — headless/display assente: l'uscita avviene comunque
+            # Il motivo del rifiuto è GIÀ loggato dal chiamante (`_acquire_instance_lock`);
+            # qui si annota solo che l'avviso GUI non è stato mostrabile (Sourcery #346).
+            logger.debug("Avviso «già in esecuzione» non mostrabile (headless/display assente).",
+                         exc_info=True)
 
     def _load_config(self) -> dict:
         # Migra il vecchio config.json (accanto all'EXE) la prima volta, poi carica
@@ -2331,6 +2377,12 @@ class App(ctk.CTk):
         t = self._bot_thread
         if t is not None and t.is_alive():
             t.join(timeout=5.0)
+        # Rilascio del single-instance lock (#311-1.1) sulla chiusura pulita; su
+        # crash/kill lo rilascia comunque il SO (mutex named / flock). Idempotente.
+        # `__dict__.get` e NON `getattr`: su un'istanza costruita parzialmente (test)
+        # l'attributo mancante innescherebbe il `__getattr__` di Tk (`getattr(self.tk,…)`)
+        # che RICORRE all'infinito invece di sollevare AttributeError (CI #346).
+        instance_lock.release(self.__dict__.get("_instance_lock"))
         self.destroy()
 
     # ── BOT TELEGRAM ──────────────────────────
