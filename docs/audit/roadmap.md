@@ -1752,3 +1752,25 @@ la LARGHEZZA (pavimento al minsize del chiamante): le finestre larghe
 (Strumenti/dizionario 1140px) restano visibili su schermi 1024. Firma pubblica
 invariata, chiamanti non toccati. Test: 9 unit deterministici headless
 (windll/finestra fake), mutazioni I–L KILLED.
+
+## #343 slice 3 — Selettore lingua al primo avvio (coda GUI, PR 9)
+
+Nuovo modulo puro `language_select.py`: `normalize_app_language` (IT/EN/ES o "" =
+mai scelta — MAI fallback IT silenzioso: un valore sporco riapre il selettore),
+`needs_language_selection`, `apply_language` (copia della config con `app_language`
++ `csv_language` ALLINEATE; codice non supportato → None fail-closed), etichette e
+hint verbatim (supporto §5: lingua fonte XTrader = lingua bridge). Config:
+`app_language` in DEFAULTS ("") con coercion fail-closed. GUI: Toplevel modale al
+primo avvio (300ms dopo la principale), 3 bottoni bandiera; chiusura senza scelta =
+comportamento storico IT, si ripropone. `_language_chosen` salva atomico via
+`save_config` (propaga la lingua CSV runtime #342). Review round 1 (Fable/Fugu/GLM):
+csv_language PERSONALIZZATA preservata sull'upgrade (mai overwrite a sorpresa del
+separatore su XTrader vecchi), selettore RIMANDATO con auto-start attivo (mai grab
+modale sopra un avvio non presidiato), log onesto su save fallito (niente falso
+successo; round 2 Fable: config viva NON adottata su ok=False e writer CSV
+riportato alla lingua precedente — mai sessione e disco divergenti; round 3
+CodeRabbit/GPT/Fugu: guardia token PR-08c — marker letto prima del save,
+_resync_token_field + _register_secret_token dopo — e rollback writer al valore
+EFFETTIVO pre-save catturato con get_csv_language, mai None su config legacy). Docs ammorbidite («ITA richiedeva la virgola; update decimali-intelligenti
+accetta entrambi», risposta supporto #343). Test: 7 unit puri + coercion + 6 glue,
+mutazioni O–U KILLED.

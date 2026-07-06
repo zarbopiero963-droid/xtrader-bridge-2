@@ -50,6 +50,7 @@ from . import (
     event_log,
     gui_utils,
     instance_lock,
+    language_select,
     live_guard,
     log_privacy,
     log_view,
@@ -349,6 +350,10 @@ class App(ctk.CTk):
         # riavvio dopo riavvio. Best-effort, mai bloccante. Il listener è ancora spento,
         # quindi nessuna scrittura è in volo: ogni tmp che combacia è orfano.
         self._sweep_orphan_csv_temps()
+        # Selettore lingua al PRIMO avvio (#343 slice 3): quando `app_language` non è
+        # mai stata scelta, sopra la finestra principale appena costruita e PRIMA
+        # dell'eventuale auto-start (che al primo avvio è comunque OFF di default).
+        self.after(300, self._maybe_open_language_selector)
         # Avvio automatico del listener (se abilitato e config minima presente): dopo
         # che la UI è pronta, così log/stato sono visibili. Default OFF.
         self._autostart_after_id = self.after(400, self._maybe_auto_start)
@@ -1566,6 +1571,88 @@ class App(ctk.CTk):
         self._save_config()
         if self._save_ok:
             self._log("🧙 Wizard completato: configurazione salvata.")
+
+    def _maybe_open_language_selector(self) -> None:
+        """#343 slice 3: al PRIMO avvio (`app_language` mai scelta) mostra il selettore
+        lingua IT/EN/ES sopra la finestra principale. Best-effort: un errore GUI non
+        blocca l'avvio — senza scelta resta il comportamento storico (IT) e il
+        selettore si ripropone al prossimo avvio (fail-safe, mai fail-closed qui:
+        il default IT è il comportamento di sempre)."""
+        if not language_select.needs_language_selection(self._config):
+            return
+        if autostart.is_enabled(self._config):
+            # Percorso UPGRADE non presidiato (review Fable/Fugu #356): con
+            # l'auto-start attivo il listener parte a +400ms — un grab modale
+            # bloccherebbe la finestra (STOP irraggiungibile) mentre il bridge
+            # scrive il CSV. Niente selettore: resta il comportamento storico
+            # (IT); la lingua si imposta in config.json (`app_language`).
+            self._log("🌐 Selettore lingua rimandato: auto-start attivo (imposta "
+                      "app_language in config.json, o disattiva l'auto-start).")
+            return
+        try:
+            win = ctk.CTkToplevel(self)
+            win.title(language_select.TITLE)
+            ctk.CTkLabel(win, text=language_select.TITLE,
+                         font=ctk.CTkFont(size=14, weight="bold")).pack(
+                padx=18, pady=(14, 8))
+            for code, label in language_select.LANGUAGE_LABELS:
+                ctk.CTkButton(win, text=label, width=240,
+                              command=lambda c=code, w=win: self._language_chosen(c, w)
+                              ).pack(padx=18, pady=4)
+            ctk.CTkLabel(win, text=language_select.SOURCE_LANGUAGE_HINT,
+                         wraplength=320, justify="left",
+                         font=ctk.CTkFont(size=11), text_color="gray").pack(
+                padx=18, pady=(10, 14))
+            win.grab_set()   # modale: la scelta lingua precede il resto
+        except Exception:   # noqa: BLE001 — GUI best-effort: senza scelta resta IT e si ripropone al prossimo avvio
+            pass
+
+    def _language_chosen(self, code: str, win=None) -> None:
+        """Persiste la lingua scelta dal selettore (#343): `app_language` in una copia
+        della config viva con `csv_language` allineata SOLO dal default o verso la
+        stessa lingua (una csv_language personalizzata è preservata — Fable/Fugu #356),
+        salvataggio atomico via `save_config` (che propaga la lingua CSV al runtime,
+        #342). Codice non supportato → fail-closed: nessuna modifica. Il log dice la
+        VERITÀ sul salvataggio (Fugu #356): su ok=False niente falso successo."""
+        new_cfg = language_select.apply_language(self._config, code)
+        if new_cfg is not None:
+            # Lingua writer EFFETTIVA pre-save (GPT/Fable #356 round 3): è il valore
+            # esatto da ripristinare su fallimento — indipendente dalla forma della
+            # config (anche legacy/harness senza `csv_language` esplicita).
+            prev_csv = csv_writer.get_csv_language()
+            # Guardia token PR-08c (CodeRabbit #356): il marker va letto PRIMA del
+            # save (che lo CONSUMA reidratando il token) — senza, il campo password
+            # resterebbe vuoto e il prossimo «Salva» cancellerebbe il token dal
+            # keyring scambiando il vuoto per un clear deliberato.
+            had_incomplete = self._had_incomplete_token_load()
+            saved, ok = save_config(new_cfg, CONFIG_FILE)
+            self._save_ok = ok
+            lang = language_select.normalize_app_language(code)
+            if ok:
+                self._config = saved
+                self._register_secret_token(saved)   # token reidratato → redattore log
+                self._resync_token_field(had_incomplete)
+                kept = language_select.csv_language_preserved(saved)
+                extra = (f" (lingua CSV personalizzata preservata: {kept})" if kept
+                         else " — lingua CSV allineata")
+                self._log(f"🌐 Lingua del bridge impostata: {lang}{extra} "
+                          "(la UI localizzata arriva con un prossimo slice #343).")
+            else:
+                # Config viva NON adottata (Fable #356 round 2): memoria, runtime e
+                # disco restano coerenti sulla lingua PRECEDENTE — mai una sessione
+                # col separatore nuovo e il disco col vecchio (sorpresa al riavvio).
+                # `save_config` ha però GIÀ allineato il writer alla lingua tentata
+                # (sync pre-scrittura, #342): lo si riporta al valore catturato.
+                csv_writer.set_csv_language(prev_csv)
+                self._log(f"⚠️ Lingua scelta ({lang}) ma salvataggio config FALLITO: "
+                          "nulla è cambiato (la sessione resta nella lingua "
+                          "precedente) e il selettore riapparirà al prossimo avvio — "
+                          "controlla permessi/spazio disco.")
+        try:
+            if win is not None:
+                win.destroy()
+        except Exception:   # noqa: BLE001 — chiusura best-effort del selettore (widget già distrutto)
+            pass
 
     def _confirm_collaudo_mode(self) -> bool:
         """Conferma leggera (sì/no) per la modalità COLLAUDO (#311 §3.1): il testo è

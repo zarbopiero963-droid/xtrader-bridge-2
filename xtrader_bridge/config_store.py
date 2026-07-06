@@ -16,7 +16,7 @@ import shutil
 import sys
 
 from . import (atomic_io, autostart, bridge_mode, confirmation_reader, csv_writer,
-               safety_guard, token_store)
+               language_select, safety_guard, token_store)
 
 APP_DIR_NAME = "XTraderBridge"
 CONFIG_VERSION = 1
@@ -134,6 +134,11 @@ DEFAULTS = {
     # Default sicuro "IT" (target principale). Senza campo GUI in questa slice: si imposta via
     # config.json; il selettore lingua all'avvio arriva con #343.
     "csv_language":     "IT",
+    # Lingua dell'APPLICAZIONE (#343 slice «selettore lingua»): "IT"/"EN"/"ES" scelta
+    # dall'utente al primo avvio, oppure "" = mai scelta → il selettore ricompare.
+    # Fail-closed: un valore malformato torna "" (NON default IT: la scelta è
+    # dell'utente). Alla scelta viene allineata anche `csv_language`.
+    "app_language":     "",
     # Modalità di riconoscimento XTrader: ID_ONLY / NAME_ONLY / BOTH.
     # Default NAME_ONLY: oggi il bridge non ricava gli ID dal messaggio Telegram.
     "recognition_mode": "NAME_ONLY",
@@ -455,6 +460,11 @@ def _migrate(cfg: dict) -> dict:
                 # Lingua CSV (#342): solo IT/EN/ES (case-insensitive); mancante/malformata →
                 # default sicuro "IT". Unica fonte: `csv_writer.normalize_csv_language`.
                 val = csv_writer.normalize_csv_language(val)
+            elif key == "app_language":
+                # Lingua APP (#343): IT/EN/ES o "" (mai scelta). Fail-closed: valore
+                # sporco → "" e il selettore all'avvio ricompare — mai un default IT
+                # silenzioso spacciato per scelta. Fonte unica: `language_select`.
+                val = language_select.normalize_app_language(val)
             elif key == "bridge_mode":
                 # Modalità nominata (#311 §3.1): SEMPRE ri-derivata dalla coppia salvata
                 # via `mode_from_cfg` — `dry_run` (già coerciuto sopra, viene prima nei

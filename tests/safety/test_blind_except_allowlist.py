@@ -29,7 +29,7 @@ _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
-    "app.py": (44, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+    "app.py": (46, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
                    "event journal best-effort (#230); refill campo token su widget Tk distrutto (PR-08c); "
                    "engine/DB non disponibile → login Betfair senza riserva del lock (#172 audit); "
                    "probe is_syncing dell'anteprima ID fail-open (#192, Codex P2); "
@@ -58,7 +58,10 @@ _ALLOWLIST = {
                    "singleton Wizard (Fable #354): riferimento stantio con winfo_exists che "
                    "solleva (Tk smontato) → si riapre un wizard nuovo invece di crashare; "
                    "lift/focus_force best-effort sul wizard vivo (GPT #354: un errore di "
-                   "focus non deve degradare in un secondo Toplevel modale doppione)"),
+                   "focus non deve degradare in un secondo Toplevel modale doppione); "
+                   "selettore lingua al primo avvio (#343): apertura best-effort (senza "
+                   "scelta resta il comportamento storico IT e si ripropone al prossimo "
+                   "avvio) + destroy best-effort del selettore su widget già distrutto"),
     "atomic_io.py": (1, "cleanup del temporaneo su QUALSIASI errore di scrittura/rename (BaseException)"),
     "wizard_gui.py": (3, "vista Wizard (#311 §3.4, review Fable #354): (1) sonda in thread "
                          "che solleva → esito FAIL-CLOSED con la sola classe dell'errore e "
