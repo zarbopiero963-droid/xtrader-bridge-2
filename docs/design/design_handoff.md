@@ -379,7 +379,14 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
     al rientro nell'hub Strumenti. Durante una sync Betfair non si blocca: mostra solo nessun
     suggerimento (testo libero comunque digitabile). Distinzione visiva: Provider = tendina
     chiusa; i tre termini Betfair = tendina con campo di testo (freccia + digitabile).
-- **Azioni:** **"💾 Salva"**, **"🧪 Prova messaggio"**, **"📋 Copia diagnostica"**.
+- **Azioni:** **"💾 Salva"**, **"🧪 Prova messaggio"**, **"🧪🧪 Prova più messaggi
+  (separati da ---)"** (#311 §3.2), **"📋 Copia diagnostica"**.
+  Il tester multiplo valuta ogni messaggio del box (separatore: riga con solo `---`) e
+  riusa l'area «Anteprima righe generate»: per ogni messaggio una **riga-intestazione in
+  grassetto** `M<n> · Messaggio · ✅/⛔ · <prima riga del messaggio> → <verdetto con
+  motivo>` (rossa `#ef5350` se scartato) seguita dalle sue righe CSV (stesso formato del
+  singolo). Verdetto sintetico in cima: *«✅/⚠ Messaggi validi: X/N»* (+ avviso se oltre il
+  tetto di 50). Invariante: SOLO anteprima/lettura, mai scritture del CSV operativo.
 - **Area di test:** textbox "Messaggio di prova" + verdetto (`✅ Pronto` / `⛔ …`). L'anteprima
   usa lo stesso motore del runtime e, quando il dizionario Betfair locale è disponibile, risolve
   gli ID come il live (un parser `ID_ONLY` che prende `MarketId`/`SelectionId` dal dizionario può

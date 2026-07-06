@@ -71,6 +71,25 @@ def _static_base_market_type(defn: CustomParserDef) -> "str | None":
     return (rule.fixed_value or "").strip()
 
 
+# Tester multiplo (#311 §3.2): separatore esplicito fra i messaggi incollati (una riga
+# che contiene solo questo) e tetto fail-safe di messaggi valutati per invocazione.
+MESSAGE_SEPARATOR = "---"
+MAX_BATCH_MESSAGES = 50
+
+
+@dataclass
+class BatchMessageReport:
+    """Esito di UN messaggio del tester multiplo (#311 §3.2), pronto per la GUI:
+    `verdict` è lo STESSO verdetto sintetico di «Prova messaggio» (motivo esatto
+    incluso), `rows` le `PreviewRow` generate (anteprima CSV per-riga)."""
+
+    index: int
+    first_line: str
+    ok: bool
+    verdict: str
+    rows: "list" = field(default_factory=list)
+
+
 class ParserBuilder:
     """Stato e operazioni del costruttore. Nessun widget: solo dati e logica."""
 
@@ -621,3 +640,83 @@ class ParserBuilder:
                 missing_required=list(res.missing_required), row=dict(res.row),
                 summary=summary))
         return out
+
+    # ── Tester multiplo (#311 §3.2): N messaggi reali in un colpo solo ──────
+    @staticmethod
+    def split_messages(text) -> list:
+        """Divide il testo incollato in MESSAGGI sul separatore ESPLICITO: una riga che
+        contiene solo ``---`` (`MESSAGE_SEPARATOR`, spazi ai bordi tollerati). Nessuna
+        euristica (i messaggi Telegram sono multi-linea e possono contenere righe vuote:
+        indovinare i confini darebbe verdetti fuorvianti). Blocchi vuoti scartati; ogni
+        messaggio è strippato dei soli whitespace ai bordi."""
+        blocks, current = [], []
+        for line in str(text or "").splitlines():
+            if line.strip() == MESSAGE_SEPARATOR:
+                blocks.append("\n".join(current))
+                current = []
+            else:
+                current.append(line)
+        blocks.append("\n".join(current))
+        return [b.strip() for b in blocks if b.strip()]
+
+    def batch_report(self, text, *, provider: str = "", mode: str = None,
+                     require_price: bool = None, name_mapping_profiles=None,
+                     market_mapping_profiles=None, id_resolver=None):
+        """Report del tester multiplo (#311 §3.2): per OGNI messaggio del testo (separati
+        da righe ``---``) il verdetto sintetico (valido/scartato col MOTIVO esatto — è lo
+        stesso `test_verdict` del singolo «Prova messaggio», quindi status + campi
+        mancanti) e l'anteprima delle righe CSV generate (`preview_rows`, stessa pipeline
+        read-only del runtime: NESSUNA scrittura). Ritorna `(reports, skipped)`:
+        `reports` = lista di `BatchMessageReport`, `skipped` = messaggi oltre il tetto
+        `MAX_BATCH_MESSAGES` (fail-safe anti-paste gigante: il thread GUI non si
+        congela; la GUI segnala il taglio, mai silenzioso)."""
+        messages = self.split_messages(text)
+        skipped = max(0, len(messages) - MAX_BATCH_MESSAGES)
+        errors = self.errors()          # strutturali: indipendenti dal messaggio
+        defn = self.to_def()
+        if require_price is None:
+            require_price = defn.price_required()
+        eff_mode = self.mode if mode is None else mode
+        reports = []
+        for i, msg in enumerate(messages[:MAX_BATCH_MESSAGES]):
+            try:
+                reports.append(self._single_report(
+                    i, msg, errors, defn, provider=provider, mode=eff_mode,
+                    require_price=require_price,
+                    name_mapping_profiles=name_mapping_profiles,
+                    market_mapping_profiles=market_mapping_profiles,
+                    id_resolver=id_resolver))
+            except Exception as exc:   # noqa: BLE001 — isolamento PER-MESSAGGIO (CodeRabbit
+                # #350): un messaggio patologico non deve abortire il batch nascondendo gli
+                # altri report; l'errore resta VISIBILE nel verdetto di quel messaggio.
+                first = (msg.splitlines() or [""])[0][:80]
+                reports.append(BatchMessageReport(
+                    index=i, first_line=first, ok=False,
+                    verdict=f"❌ Errore interno su questo messaggio: {exc}", rows=[]))
+        return reports, skipped
+
+    def _single_report(self, i, msg, errors, defn, *, provider, mode,
+                       require_price, name_mapping_profiles,
+                       market_mapping_profiles, id_resolver):
+        """Report di UN messaggio del batch (#311 §3.2): stessa pipeline del singolo."""
+        res = self.test_message(msg, provider=provider, mode=mode,
+                                require_price=require_price,
+                                name_mapping_profiles=name_mapping_profiles,
+                                market_mapping_profiles=market_mapping_profiles,
+                                id_resolver=id_resolver)
+        diag = parser_diagnostics.diagnose(
+            defn, msg, provider=provider, mode=mode, require_price=require_price,
+            name_mapping_profiles=name_mapping_profiles,
+            market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver)
+        rows = self.preview_rows(msg, provider=provider, mode=mode,
+                                 require_price=require_price,
+                                 name_mapping_profiles=name_mapping_profiles,
+                                 market_mapping_profiles=market_mapping_profiles,
+                                 id_resolver=id_resolver)
+        verdict = ParserBuilder.test_verdict(
+            errors, rows, diag_placeable=diag.placeable, diag_status=diag.status,
+            res_row=res.row, res_missing_required=res.missing_required,
+            res_detail=res.detail, content_ok=not diag.message_error)
+        first = (msg.splitlines() or [""])[0][:80]
+        return BatchMessageReport(index=i, first_line=first,
+                                  ok=verdict.startswith("✅"), verdict=verdict, rows=rows)

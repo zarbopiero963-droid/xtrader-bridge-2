@@ -1696,3 +1696,13 @@ stub + pin banner), 4 mutazioni KILLED (gate storico, annullo→sim, mode fail-o
 banner rosso su criterio dry_run). Review round 1: banner ROSSO reso **mode-aware**
 (`real_banner_active`, Fugu: con quello storico una sessione COLLAUDO mostrava «REALE
 ATTIVA» sopprimendo l'ambra) + coerenza immediata `bridge_mode` sul form legacy (Fable).
+
+## #311 §3.2 — Parser tester su messaggi reali (coda GUI, PR 5)
+
+Bottone «🧪🧪 Prova più messaggi (separati da ---)» nella scheda Parser: N messaggi reali
+in un colpo, per ciascuno verdetto ✅/⛔ col motivo esatto (STESSO `test_verdict` del
+singolo, anti-drift testato per uguaglianza) + anteprima righe CSV. Logica pura nel
+controller (`split_messages`: separatore esplicito riga `---`, niente euristiche;
+`batch_report`: tetto fail-safe 50 con `skipped` segnalato). Read-only puro. Test: 7
+nuovi (split/tetto/misto/anti-drift + glue sul vero `_test_batch` con stub),
+mutazioni KILLED (split in-line, tetto rimosso).

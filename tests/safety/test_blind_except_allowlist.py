@@ -49,6 +49,10 @@ _ALLOWLIST = {
                    "dialog conferma COLLAUDO (#311 §3.1): errore dialog → NON confermare "
                    "(fail-closed, stesso pattern di _confirm_real_mode/_confirm_multi_signal)"),
     "atomic_io.py": (1, "cleanup del temporaneo su QUALSIASI errore di scrittura/rename (BaseException)"),
+    "parser_builder.py": (1, "isolamento PER-MESSAGGIO del tester batch (#311 §3.2, CodeRabbit "
+                             "#350): un messaggio patologico non deve abortire il batch "
+                             "nascondendo gli altri report — l'errore resta VISIBILE nel "
+                             "verdetto ❌ di quel messaggio (fail-visible, mai silenzioso)"),
     "instance_lock.py": (2, "#311-1.1 single-instance: fail-open CONSAPEVOLE su errore imprevisto "
                          "del SO nella creazione del lock (un bridge inavviabile per un guasto raro "
                          "è peggio del caso limite; warning nei log) + release best-effort (a morte "

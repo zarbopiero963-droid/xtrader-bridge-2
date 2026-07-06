@@ -625,6 +625,9 @@ class CustomParserPanel(ctk.CTkFrame):
         actions.pack(fill="x", padx=10, pady=4)
         ctk.CTkButton(actions, text="💾 Salva", command=self._save).pack(side="left", padx=4)
         ctk.CTkButton(actions, text="🧪 Prova messaggio", command=self._test).pack(side="left", padx=4)
+        # Tester multiplo (#311 §3.2): N messaggi reali separati da righe «---».
+        ctk.CTkButton(actions, text="🧪🧪 Prova più messaggi (separati da ---)",
+                      command=self._test_batch).pack(side="left", padx=4)
         ctk.CTkButton(actions, text="📋 Copia diagnostica", command=self._copy_diag).pack(side="left", padx=4)
 
         # test-live
@@ -1273,6 +1276,75 @@ class CustomParserPanel(ctk.CTkFrame):
             esito = "✅" if pr.placeable else f"⛔ {pr.status}"
             add_cells([str(pr.index + 1), kind, esito, pr.summary],
                       color=None if pr.placeable else "#ef5350")
+
+    def _test_batch(self):
+        """Tester multiplo (#311 §3.2): valuta OGNI messaggio incollato nel box (separati
+        da righe «---») con la STESSA pipeline read-only di «Prova messaggio» — verdetto
+        col motivo esatto + anteprima righe CSV per messaggio. Solo lettura: nessuna
+        scrittura del CSV operativo. Input risolti come in `_test` (profili, resolver)."""
+        self._reload_profile_checks()
+        self._reload_market_profile_checks()
+        self._sync_to_builder()
+        self._refresh_multi_warnings()
+        unresolved = self._unresolved_selected()
+        if unresolved:
+            self._result.configure(
+                text=f"⛔ Non pronto: profili di mappatura nomi mancanti ({', '.join(unresolved)}). "
+                     "Ricreali nel «Dizionario nomi» o togli la spunta.")
+            return
+        unresolved_mkt = self._unresolved_market_selected()
+        if unresolved_mkt:
+            self._result.configure(
+                text=f"⛔ Non pronto: profili di mappatura mercati mancanti ({', '.join(unresolved_mkt)}). "
+                     "Ricreali nel «Dizionario mercati» o togli la spunta.")
+            return
+        text = self._msg_box.get("1.0", "end").rstrip("\n")
+        mode = self._label_to_mode(self._mode_var.get()) or self._global_mode
+        defn = self.builder.to_def()
+        reports, skipped = self.builder.batch_report(
+            text, provider=self._provider, mode=mode,
+            require_price=defn.price_required(),
+            name_mapping_profiles=self._resolve_mapping_profiles(defn),
+            market_mapping_profiles=self._resolve_market_mapping_profiles(defn),
+            id_resolver=self._preview_id_resolver())
+        if not reports:
+            self._result.configure(
+                text="⛔ Nessun messaggio: incolla uno o più messaggi separati da una "
+                     "riga «---».")
+            return
+        ok = sum(1 for r in reports if r.ok)
+        extra = (f" · ⚠ mostrati i primi {len(reports)} (altri {skipped} oltre il tetto)"
+                 if skipped else "")
+        self._result.configure(
+            text=f"{'✅' if ok == len(reports) else '⚠'} Messaggi validi: "
+                 f"{ok}/{len(reports)}{extra}")
+        self._render_batch_table(reports)
+
+    def _render_batch_table(self, reports):
+        """Tabella del tester multiplo nell'area anteprima: per ogni messaggio una riga
+        di intestazione (n° · esito · verdetto col motivo) e sotto le sue righe CSV."""
+        for child in self._preview_table.winfo_children():
+            child.destroy()
+
+        def add_cells(values, *, header=False, color=None):
+            row = ctk.CTkFrame(self._preview_table, fg_color="transparent")
+            row.pack(fill="x", pady=1)
+            font = ctk.CTkFont(size=11, weight="bold" if header else "normal")
+            for (txt, (_, w)) in zip(values, self._preview_cols):
+                ctk.CTkLabel(row, text=txt, width=w, anchor="w", justify="left",
+                             wraplength=w - 6, font=font, text_color=color).pack(
+                                 side="left", padx=2)
+
+        add_cells([c for c, _ in self._preview_cols], header=True)
+        for rep in reports:
+            add_cells([f"M{rep.index + 1}", "Messaggio",
+                       "✅" if rep.ok else "⛔", f"{rep.first_line} → {rep.verdict}"],
+                      header=True, color=None if rep.ok else "#ef5350")
+            for pr in rep.rows:
+                kind = self._MULTI_KIND_LABEL.get(pr.kind, pr.kind)
+                esito = "✅" if pr.placeable else f"⛔ {pr.status}"
+                add_cells([str(pr.index + 1), kind, esito, pr.summary],
+                          color=None if pr.placeable else "#ef5350")
 
     def _render_diag_table(self, rows):
         """Disegna la tabella diagnostica da righe già pronte (logica in
