@@ -1453,8 +1453,11 @@ def test_start_senza_parser_attivo_e_bloccante(app_mod):
     assert "Configura almeno un Parser Personalizzato" in blocco   # istruzione visibile
     assert "Avvio annullato" in blocco
     assert "return" in blocco                                      # BLOCCANTE, non avviso
-    # e il blocco sta PRIMA dell'avvio vero (thread del bot): fail-first se spostato dopo.
-    assert idx < src.index("_bot_thread") if "_bot_thread" in src else True
+    # e il blocco sta PRIMA dell'avvio vero: l'ancora `_bot_thread` deve ESISTERE
+    # (niente fallback no-op che passerebbe in silenzio su un rename, Sourcery #347)
+    # e comparire DOPO il guard — fail-first se il guard viene spostato dopo l'avvio.
+    assert "_bot_thread" in src
+    assert idx < src.index("_bot_thread")
 
 
 def test_start_mostra_avvisi_enabled_malformato_nel_log_eventi(app_mod):
