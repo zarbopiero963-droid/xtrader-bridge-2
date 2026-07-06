@@ -196,6 +196,20 @@ altezza ridimensionabile, min 720×600.
 - **Indicatore di stato** (a destra): pallino + testo, vedi §8.
 - **Indicatore righe attive** (arancione): "N/M", vedi §8.
 
+### 6.2-ter Scheda «🚦 Salute» — health check a semafori (#311 §3.3)
+
+Nuova scheda nel Tabview di monitoraggio (fra «📡 Chat ascoltate» e «📡 Stato»): sette
+righe-semaforo `🟢/🟡/🔴 <Etichetta>: <dettaglio>` + pulsante **«🔄 Aggiorna»**. Ordine e
+etichette verbatim: *Telegram* · *Ultimo messaggio* · *Parser Personalizzato* · *Ultimo
+segnale* · *CSV scrivibile* · *Conferme XTrader* · *Modalità*. Colori: verde
+`#2e7d32/#66bb6a`, giallo `#e65100/#ffa726`, rosso `#c62828/#ef5350` (le stesse tuple
+theme-aware dello stato listener). Semantica: dato assente = MAI verde (giallo onesto);
+*Modalità* usa la semantica di rischio dei banner (verde Simulazione, giallo Collaudo,
+rosso Reale). Aggiornamento automatico sugli stessi hook della dashboard (START/STOP,
+campi «Ultimo …», salvataggio config) + manuale col pulsante. La sonda «CSV scrivibile»
+NON apre mai il file (nessun lock che disturbi XTrader). Nella scheda «📡 Stato» compare
+anche il nuovo campo **«Ultima conferma XTrader»** (fonte unica `_LAST_FIELDS`).
+
 ### 6.2-bis Banner modalità COLLAUDO (#311 §3.1)
 
 Banner **AMBRA** persistente (`#e65100` light / `#8a4b00` dark, testo bianco, stessa

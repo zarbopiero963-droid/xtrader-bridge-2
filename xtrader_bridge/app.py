@@ -38,6 +38,7 @@ from . import (
     autostart,
     bridge_mode,
     config_store,
+    health_check,
     confirmation_reader,
     csv_lock_escalation,
     csv_writer,
@@ -111,6 +112,9 @@ _LAST_FIELDS = (
     ("message", "Ultimo messaggio"),
     ("csv", "Ultimo CSV"),
     ("error", "Ultimo errore"),
+    # #311 §3.3: esito dell'ultima conferma/rifiuto XTrader (alimenta anche il
+    # semaforo «Conferme XTrader» del pannello Salute).
+    ("confirmation", "Ultima conferma XTrader"),
 )
 _LAST_PREFIX = dict(_LAST_FIELDS)
 
@@ -1215,6 +1219,7 @@ class App(ctk.CTk):
         mon = ctk.CTkTabview(self)
         mon.pack(fill="both", expand=True, padx=15, pady=(5, 12))
         tab_chats = mon.add("📡 Chat ascoltate")
+        tab_health = mon.add("🚦 Salute")
         tab_stato = mon.add("📡 Stato")
         tab_dash = mon.add("📊 Dashboard")
         tab_log = mon.add("📋 Log")
@@ -1252,6 +1257,22 @@ class App(ctk.CTk):
             pady = (0, 1) if i == 0 else ((1, 8) if i == len(_LAST_FIELDS) - 1 else 1)
             lbl.pack(anchor="w", padx=12, pady=pady)
             self._last_lbls[kind] = lbl
+
+        # — Salute a semafori (#311 §3.3): sette indicatori 🟢/🟡/🔴 dagli stati già
+        # esistenti. Decisioni in `health_check.evaluate` (pura, testata in CI); qui
+        # solo le label, aggiornate da `_refresh_health` sugli stessi hook della
+        # dashboard (START/STOP, _set_last, salvataggio config).
+        self._health_lbls = {}
+        for i, key in enumerate(("telegram", "message", "parser", "signal",
+                                 "csv", "confirmation", "mode")):
+            lbl = ctk.CTkLabel(tab_health, text="", font=ctk.CTkFont(size=12),
+                               wraplength=_CONTENT_WRAP, anchor="w", justify="left")
+            lbl.pack(anchor="w", padx=12, pady=(8 if i == 0 else 2, 0))
+            self._health_lbls[key] = lbl
+        ctk.CTkButton(tab_health, text="🔄 Aggiorna", width=110, height=26,
+                      fg_color="#37474f", hover_color="#263238",
+                      command=self._refresh_health).pack(anchor="w", padx=12, pady=8)
+        self._refresh_health()
 
         # — Dashboard contatori di sessione (PR-14): esiti del flusso dall'ultimo START. —
         ctk.CTkLabel(tab_dash, text="Contatori dall'avvio", font=ctk.CTkFont(size=11),
@@ -1347,6 +1368,41 @@ class App(ctk.CTk):
             text_color="gray")
 
     # ── DASHBOARD (PR-14) ─────────────────────
+    _HEALTH_DOT = {health_check.GREEN: ("🟢", ("#2e7d32", "#66bb6a")),
+                   health_check.YELLOW: ("🟡", ("#e65100", "#ffa726")),
+                   health_check.RED: ("🔴", ("#c62828", "#ef5350"))}
+
+    def _refresh_health(self) -> None:
+        """Aggiorna i semafori del pannello Salute (#311 §3.3) dallo stato vivo.
+        Decisioni in `health_check.evaluate` (pura); qui solo lettura stato + label.
+        Best-effort: chiamabile da qualsiasi hook, no-op su istanza parziale."""
+        lbls = self.__dict__.get("_health_lbls")
+        if not lbls:
+            return
+        cfg = self._config if isinstance(self._config, dict) else {}
+        try:
+            status = self._status_lbl.cget("text")
+        except Exception:   # noqa: BLE001 — widget non pronto: semaforo OFFLINE onesto
+            status = health_check.LISTENER_OFFLINE
+        csv_ok, csv_detail = health_check.csv_writable(cfg.get("csv_path", ""))
+        items = health_check.evaluate(
+            listener_status=status,
+            last_message=self._last_vals.get("message", ""),
+            parser_active=signal_router.has_active_parser_config(cfg),
+            last_signal=self._last_vals.get("signal", ""),
+            last_error=self._last_vals.get("error", ""),
+            csv_ok=csv_ok, csv_detail=csv_detail,
+            confirmations_enabled=bool(str(cfg.get(
+                "xtrader_notification_chat_id", "") or "").strip()),
+            last_confirmation=self._last_vals.get("confirmation", ""),
+            mode=bridge_mode.mode_from_cfg(cfg))
+        for item in items:
+            lbl = lbls.get(item.key)
+            if lbl is None:
+                continue
+            dot, color = self._HEALTH_DOT[item.state]
+            lbl.configure(text=f"{dot} {item.label}: {item.detail}", text_color=color)
+
     def _refresh_dashboard(self) -> None:
         """Aggiorna le label dei contatori dai valori correnti. Thread Tk."""
         counts = self._stats.as_dict()
@@ -1366,6 +1422,7 @@ class App(ctk.CTk):
         `_LAST_PREFIX`. Thread Tk (dal bot via `self.after`)."""
         safe = event_log.redact_secrets(str(value or ""))
         self._last_vals[kind] = safe
+        self._refresh_health()   # i semafori Salute dipendono dagli «Ultimo …» (#311 §3.3)
         self._last_lbls[kind].configure(
             text=f"{_LAST_PREFIX[kind]}: {safe or '—'}", text_color=color)
 
@@ -2967,6 +3024,11 @@ class App(ctk.CTk):
             text, pending, confirm_keywords=confirm_kw, reject_keywords=reject_kw)
 
         if result.status in (confirmation_reader.CONFIRMED, confirmation_reader.REJECTED):
+            # #311 §3.3: traccia l'esito per scheda Stato + semaforo «Conferme XTrader».
+            _esito = ("CONFERMATO" if result.status == confirmation_reader.CONFIRMED
+                      else "RIFIUTATO")
+            self.after(0, lambda s=f"{_esito} @ {datetime.now():%H:%M:%S}":
+                       self._set_last("confirmation", s, "white"))
             path = cfg["csv_path"]
             write_error = None
             with self._queue_lock:
