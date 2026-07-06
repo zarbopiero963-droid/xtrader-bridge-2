@@ -64,6 +64,9 @@ def apply_language(cfg, lang):
     code = normalize_app_language(lang)
     if not code:
         return None
+    # Copia INTENZIONALMENTE shallow (CodeRabbit #356): qui si mutano solo chiavi
+    # stringa top-level (app_language/csv_language); i valori annidati restano
+    # condivisi by design — la persistenza (`save_config`) fa comunque deepcopy.
     new_cfg = dict(cfg) if isinstance(cfg, dict) else {}
     new_cfg["app_language"] = code
     current_csv = csv_writer.normalize_csv_language(new_cfg.get("csv_language"))

@@ -52,22 +52,47 @@ def test_language_chosen_codice_invalido_fail_closed(app_mod, monkeypatch):
 
 
 def test_language_chosen_save_fallito_niente_falso_successo(app_mod, monkeypatch):
-    """Fugu #356 + Fable round 2: se `save_config` ritorna ok=False (1) il log NON
-    dichiara la lingua impostata, (2) la config VIVA non viene adottata (memoria,
-    runtime e disco restano coerenti sulla lingua precedente), (3) il writer CSV —
-    che `save_config` ha già allineato PRIMA della scrittura fallita — viene
-    riportato alla lingua di prima."""
-    app = _app(app_mod, {"app_language": "", "csv_language": "IT"})
+    """Fugu #356 + Fable round 2/3: se `save_config` ritorna ok=False (1) il log NON
+    dichiara la lingua impostata, (2) la config VIVA non viene adottata, (3) il
+    writer CSV — che `save_config` ha già allineato PRIMA della scrittura fallita —
+    torna ESATTAMENTE alla lingua effettiva pre-save (catturata da
+    `get_csv_language`, indipendente dalla forma della config: qui la config è
+    LEGACY, senza chiave `csv_language` — round 3 GPT/Fable/Fugu)."""
+    app = _app(app_mod, {"app_language": ""})      # legacy: NESSUNA csv_language
     monkeypatch.setattr(app_mod, "save_config", lambda cfg, path: (cfg, False))
+    monkeypatch.setattr(app_mod.csv_writer, "get_csv_language", lambda: "ES")
     ripristini = []
     monkeypatch.setattr(app_mod.csv_writer, "set_csv_language",
-                        lambda v: ripristini.append(v) or "IT")
+                        lambda v: ripristini.append(v) or v)
     app._language_chosen("EN", _Win())
     assert app._save_ok is False
-    assert app._config == {"app_language": "", "csv_language": "IT"}   # NON adottata
-    assert ripristini == ["IT"]                    # writer riportato alla lingua VECCHIA
+    assert app._config == {"app_language": ""}                 # NON adottata
+    assert ripristini == ["ES"]        # writer → lingua EFFETTIVA pre-save, mai None
     assert not any("impostata:" in ln for ln in app._logs)     # niente falso successo
     assert any("FALLITO" in ln and "riapparirà" in ln for ln in app._logs)
+
+
+def test_language_chosen_guardia_token_pr08c(app_mod, monkeypatch):
+    """CodeRabbit #356 (major): il marker `_token_load_incomplete` va letto PRIMA di
+    `save_config` (che lo consuma reidratando il token) e il campo password va
+    risincronizzato DOPO — senza, il prossimo «Salva» col campo vuoto cancellerebbe
+    il token dal keyring (PR-08c)."""
+    marker = app_mod.config_store.TOKEN_LOAD_INCOMPLETE_KEY
+    app = _app(app_mod, {"app_language": "", "csv_language": "IT",
+                         "bot_token": "", marker: True})
+    def _fake_save(cfg, path):
+        out = dict(cfg)
+        out.pop(marker, None)                      # il save CONSUMA il marker
+        out["bot_token"] = "TOK-REIDRATATO"
+        return out, True
+    monkeypatch.setattr(app_mod, "save_config", _fake_save)
+    resync, registrati = [], []
+    app._resync_token_field = lambda had=None: resync.append(had)
+    app._register_secret_token = registrati.append
+    app._language_chosen("IT", _Win())
+    assert resync == [True]            # marker catturato PRIMA del save e propagato
+    assert registrati and registrati[0]["bot_token"] == "TOK-REIDRATATO"
+    assert app._config.get("bot_token") == "TOK-REIDRATATO"
 
 
 def test_language_chosen_preserva_csv_personalizzata_e_lo_dice(app_mod, monkeypatch):

@@ -1768,6 +1768,9 @@ csv_language PERSONALIZZATA preservata sull'upgrade (mai overwrite a sorpresa de
 separatore su XTrader vecchi), selettore RIMANDATO con auto-start attivo (mai grab
 modale sopra un avvio non presidiato), log onesto su save fallito (niente falso
 successo; round 2 Fable: config viva NON adottata su ok=False e writer CSV
-riportato alla lingua precedente — mai sessione e disco divergenti). Docs ammorbidite («ITA richiedeva la virgola; update decimali-intelligenti
+riportato alla lingua precedente — mai sessione e disco divergenti; round 3
+CodeRabbit/GPT/Fugu: guardia token PR-08c — marker letto prima del save,
+_resync_token_field + _register_secret_token dopo — e rollback writer al valore
+EFFETTIVO pre-save catturato con get_csv_language, mai None su config legacy). Docs ammorbidite («ITA richiedeva la virgola; update decimali-intelligenti
 accetta entrambi», risposta supporto #343). Test: 7 unit puri + coercion + 6 glue,
 mutazioni O–U KILLED.
