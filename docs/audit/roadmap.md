@@ -1660,7 +1660,7 @@ Prossimo: Nuitka (Fase 6); epica #343 in attesa delle risposte del supporto XTra
 Tre micro-fix GUI accumulati dalle review di #341/#344 (nessun cambio runtime):
 
 1. **Avviso «delimitatori ignorati con Selezione fissa»** — una riga MultiSelection attiva con
-   Selezione impostata E delimitatori valorizzati è ambigua: il runtime usa il valore fisso e
+   Selezione impostata e delimitatori valorizzati è ambigua: il runtime usa il valore fisso e
    ignora i delimitatori. Il banner ⚠ ora lo dice, per riga (1-based).
 2. **Avviso «estrazione dinamica inattiva su mercato non-punteggio»** — Selezione vuota +
    delimitatori ma mercato effettivo fuori da `_DYNAMIC_SCORE_MARKETS` (gate #341): la riga resta

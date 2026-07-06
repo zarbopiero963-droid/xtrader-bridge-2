@@ -294,6 +294,7 @@ class ParserBuilder:
             return []
         out = []
         static_market = _static_base_market_type(defn)
+        score_markets = ", ".join(sorted(DYNAMIC_SCORE_MARKETS))   # calcolato una volta (Sourcery)
         for pos, rule in enumerate(defn.multi_selections, start=1):
             if not rule.enabled:
                 continue
@@ -314,7 +315,7 @@ class ParserBuilder:
                 out.append(
                     f"Riga selezione {pos}: estrazione dinamica dei punteggi INATTIVA — il "
                     f"mercato effettivo {shown} non è un mercato-punteggio "
-                    f"({', '.join(sorted(DYNAMIC_SCORE_MARKETS))}): la riga resta FISSA ed "
+                    f"({score_markets}): la riga resta FISSA ed "
                     "eredita la Selezione della riga base.")
         return out
 
