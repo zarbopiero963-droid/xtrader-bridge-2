@@ -15,6 +15,7 @@ import os
 from dataclasses import dataclass, field
 
 from . import (
+    csv_writer,
     custom_parser,
     dizionario,
     parser_diagnostics,
@@ -26,6 +27,10 @@ from . import (
 )
 from .custom_parser import CustomParserDef, FieldRule, MultiRowRule
 from .custom_pipeline import both_multi_active, build_validated_row, build_validated_rows
+# Gate dei mercati-punteggio dell'estrazione dinamica (#325/#341): importato dal runtime
+# (nome interno, stesso package) perché è la FONTE UNICA di verità — duplicare il set qui
+# farebbe divergere gli avvisi GUI dal comportamento reale della pipeline.
+from .custom_pipeline import _DYNAMIC_SCORE_MARKETS as DYNAMIC_SCORE_MARKETS
 
 
 @dataclass
@@ -45,6 +50,25 @@ class PreviewRow:
     missing_required: "list[str]" = field(default_factory=list)
     row: "dict[str, str]" = field(default_factory=dict)
     summary: str = ""
+
+
+def _static_base_market_type(defn: CustomParserDef) -> "str | None":
+    """`MarketType` della riga BASE se determinabile STATICAMENTE (senza messaggio), altrimenti
+    `None` (= ignoto). Serve agli avvisi multi (#325 follow-up): un avviso «mercato non-punteggio»
+    emesso su un mercato noto solo a runtime sarebbe un falso allarme, quindi su ignoto si tace.
+
+    Ignoto quando: il parser usa la mappatura mercati a frase (`market_mapping_profiles` — a
+    runtime può sovrascrivere il MarketType, D1 «il dizionario vince»), oppure la regola
+    MarketType estrae dal messaggio o applica transform/value-map (valore noto solo a runtime).
+    Statico = il `fixed_value` (strippato) della regola, o `""` se la regola manca/è vuota."""
+    if getattr(defn, "market_mapping_profiles", None):
+        return None
+    rule = next((r for r in defn.rules if r.target == "MarketType"), None)
+    if rule is None:
+        return ""
+    if rule.has_extraction() or rule.transform or rule.value_map:
+        return None
+    return (rule.fixed_value or "").strip()
 
 
 class ParserBuilder:
@@ -236,7 +260,13 @@ class ParserBuilder:
 
         - MultiMarket E MultiSelection attivi insieme → righe SEPARATE (prima i mercati, poi
           le selezioni sul mercato base), MAI il prodotto cartesiano;
-        - una modalità attiva senza righe abilitate → nessuna riga extra generata."""
+        - una modalità attiva senza righe abilitate → nessuna riga extra generata;
+        - (#325 follow-up, review #341/#344) per ogni riga SELEZIONE attiva coi delimitatori:
+          Selezione fissa impostata → i delimitatori sono IGNORATI dal runtime (config ambigua);
+          Selezione vuota ma mercato effettivo NON-punteggio (quando determinabile staticamente:
+          override della riga, o base a valore fisso senza mappatura mercati) → l'estrazione
+          dinamica NON si attiva e la riga resta FISSA ereditando la Selezione base (gate #341).
+          Mercato noto solo a runtime → nessun avviso (mai falsi allarmi)."""
         warnings = []
         defn = self.to_def()
         if both_multi_active(defn):
@@ -249,7 +279,44 @@ class ParserBuilder:
         if self.multi_selection_enabled and not defn.active_multi_selections():
             warnings.append("MultiSelection è attivo ma nessuna riga selezione è abilitata: "
                             "nessuna riga extra verrà generata.")
+        warnings.extend(self._dynamic_selection_warnings(defn))
         return warnings
+
+    @staticmethod
+    def _dynamic_selection_warnings(defn: CustomParserDef) -> list:
+        """Avvisi per-riga sulle SELEZIONI attive coi delimitatori (#325 follow-up). Specchia
+        ESATTAMENTE la detection del runtime (`custom_pipeline._is_dynamic_selection`: Selezione
+        vuota + almeno un delimitatore non-blank + mercato effettivo in `DYNAMIC_SCORE_MARKETS`,
+        confronto esatto), così l'avviso non può divergere dal comportamento reale. L'indice
+        della riga è la posizione nella lista della GUI (1-based, incluse le righe disattivate,
+        così l'utente la ritrova a colpo d'occhio)."""
+        if not defn.multi_selection_enabled:
+            return []
+        out = []
+        static_market = _static_base_market_type(defn)
+        for pos, rule in enumerate(defn.multi_selections, start=1):
+            if not rule.enabled:
+                continue
+            # Come il runtime: un delimitatore di soli spazi NON attiva l'estrazione dinamica.
+            has_delims = bool(str(rule.start_after or "").strip()
+                              or str(rule.end_before or "").strip())
+            if not has_delims:
+                continue
+            if str(rule.selection_name or "").strip():
+                out.append(
+                    f"Riga selezione {pos}: c'è una Selezione fissa, quindi i delimitatori "
+                    "«Inizia dopo»/«Finisce prima» verranno IGNORATI. Per l'estrazione "
+                    "dinamica dei punteggi lascia la Selezione vuota.")
+                continue
+            market = str(rule.market_type or "").strip() or static_market
+            if market is not None and market not in DYNAMIC_SCORE_MARKETS:
+                shown = market or "(vuoto)"
+                out.append(
+                    f"Riga selezione {pos}: estrazione dinamica dei punteggi INATTIVA — il "
+                    f"mercato effettivo {shown} non è un mercato-punteggio "
+                    f"({', '.join(sorted(DYNAMIC_SCORE_MARKETS))}): la riga resta FISSA ed "
+                    "eredita la Selezione della riga base.")
+        return out
 
     # ── modello / validazione ──────────────────────────────────────────────
     def to_def(self) -> CustomParserDef:
@@ -470,7 +537,11 @@ class ParserBuilder:
                         "nessun contenuto estratto dal messaggio")
             return ParserBuilder.preview_summary(preview_rows)
         if diag_placeable:
-            riga = ", ".join(f"{k}={v}" for k, v in res_row.items() if v != "")
+            # Decimali nel formato della lingua CSV corrente (#342, follow-up #344): l'anteprima
+            # mostra i valori COME usciranno nel file (IT/ES virgola, EN punto), non il canonico
+            # interno col punto — altrimenti l'operatore vede «1.85» e il file avrà «1,85».
+            shown = csv_writer.localize_row(res_row)
+            riga = ", ".join(f"{k}={v}" for k, v in shown.items() if v != "")
             return f"✅ Pronto · {riga}"
         missing = list(res_missing_required or [])
         if (not missing and diag_status == validator.INVALID_MISSING_FIELDS
@@ -530,6 +601,10 @@ class ParserBuilder:
         n_markets = len(defn.active_multi_markets())
         n_selections = len(defn.active_multi_selections())
         multi_active = bool(n_markets or n_selections)
+        # Lingua CSV catturata UNA volta per anteprima (#342, follow-up #344): il `summary` mostra
+        # i decimali COME usciranno nel file (IT/ES virgola, EN punto). `row` resta CANONICO col
+        # punto (è il dato, non la vista: chi lo consuma non deve dipendere dalla lingua).
+        lang = csv_writer.get_csv_language()
         out = []
         for i, res in enumerate(results):
             if not multi_active:
@@ -538,7 +613,8 @@ class ParserBuilder:
                 kind = "market"
             else:
                 kind = "selection"
-            summary = ", ".join(f"{k}={v}" for k, v in res.row.items() if v != "")
+            shown = csv_writer.localize_row(res.row, lang)
+            summary = ", ".join(f"{k}={v}" for k, v in shown.items() if v != "")
             out.append(PreviewRow(
                 index=i, kind=kind, placeable=res.placeable, status=res.status,
                 missing_required=list(res.missing_required), row=dict(res.row),

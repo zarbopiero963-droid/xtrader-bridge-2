@@ -1654,3 +1654,28 @@ parametrizzati con `refs["_fields"]`; i delimitatori **non** vengono strippati a
 (stesso contratto della griglia base: «\n» è un delimitatore legittimo). Hint 💡 statico sotto la
 lista selezioni spiega la combinazione dinamica. Design handoff aggiornato (§ Output multi-riga).
 Prossimo: Nuitka (Fase 6); epica #343 in attesa delle risposte del supporto XTrader.
+
+## PR-cestino micro-GUI (coda GUI, PR 3) — avvisi per-riga + anteprima coi decimali per lingua
+
+Tre micro-fix GUI accumulati dalle review di #341/#344 (nessun cambio runtime):
+
+1. **Avviso «delimitatori ignorati con Selezione fissa»** — una riga MultiSelection attiva con
+   Selezione impostata E delimitatori valorizzati è ambigua: il runtime usa il valore fisso e
+   ignora i delimitatori. Il banner ⚠ ora lo dice, per riga (1-based).
+2. **Avviso «estrazione dinamica inattiva su mercato non-punteggio»** — Selezione vuota +
+   delimitatori ma mercato effettivo fuori da `_DYNAMIC_SCORE_MARKETS` (gate #341): la riga resta
+   FISSA ereditando la Selezione base. Emesso **solo a mercato staticamente noto** (override
+   della riga, o MarketType base `fixed_value` puro senza mappatura mercati/transform/value-map:
+   `_static_base_market_type` → `None` = ignoto = silenzio, mai falsi allarmi). Il set dei
+   mercati-punteggio è **importato** dal runtime (`custom_pipeline`), non copiato (anti-drift,
+   test dedicato). Logica in `ParserBuilder._dynamic_selection_warnings` (pura, CI).
+3. **Anteprima «Prova messaggio» coi decimali nel formato `csv_language`** (#342): summary righe
+   anteprima + verdetto «✅ Pronto · …» passano da `csv_writer.localize_row` (nuovo wrapper
+   pubblico di `_localize_row`, stessa fonte del write-path) — IT/ES virgola, EN punto.
+   `PreviewRow.row` resta **canonico col punto** (è il dato, non la vista).
+
+Glue GUI: banner avvisi aggiornato anche su `<FocusOut>` dei campi riga multi, sulla checkbox
+«Attiva» (`command=`) e in `_test` dopo `_sync_to_builder`. Test: 16 nuovi (avvisi su tutti i
+rami incl. fail-safe ignoto/mappatura/riga disattivata/delimitatore blank; localizzazione IT/EN
+con fixture di ripristino lingua; bind GUI esercitati con stub registranti; pin strutturale su
+`_test`), mutation-verified. Docs: custom_parser.md §5-bis + design handoff (banner + anteprima).

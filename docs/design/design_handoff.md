@@ -327,6 +327,21 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
   «N - N»; solo mercati CORRECT_SCORE / HALF_TIME_SCORE).»* Le righe **MultiMarket NON hanno**
   questi campi (invariante di sicurezza: sui mercati i delimitatori sarebbero solo una
   misconfigurazione che il runtime ignora). Nessun altro cambiamento di layout/palette.
+
+  Sotto la sezione c'è un **banner avvisi ⚠** (label arancione `#ffa726`, una riga per avviso,
+  prefisso `⚠ `). Oltre agli avvisi storici (entrambi gli interruttori attivi → «righe SEPARATE…»;
+  interruttore acceso senza righe abilitate), il banner segnala le **configurazioni ambigue
+  per-riga** delle selezioni attive coi delimitatori (follow-up #325/#341), testi verbatim:
+  - *«Riga selezione N: c'è una Selezione fissa, quindi i delimitatori «Inizia dopo»/«Finisce
+    prima» verranno IGNORATI. Per l'estrazione dinamica dei punteggi lascia la Selezione vuota.»*
+  - *«Riga selezione N: estrazione dinamica dei punteggi INATTIVA — il mercato effettivo X non è
+    un mercato-punteggio (CORRECT_SCORE, HALF_TIME_SCORE): la riga resta FISSA ed eredita la
+    Selezione della riga base.»* (emesso **solo** quando il mercato effettivo è determinabile
+    senza messaggio; se dipende dal runtime il banner tace — mai falsi allarmi).
+  Il banner si aggiorna su: aggiungi/rimuovi riga, toggle degli interruttori, **uscita da un campo
+  della riga** (`<FocusOut>`), casella **«Attiva»**, e a ogni **«🧪 Prova messaggio»**.
+  Invariante: sono **avvisi non bloccanti** (il salvataggio non è impedito), il design può dar
+  loro più visibilità ma non trasformarli in blocchi.
 - **Densità (#293 «densità parser»):** sopra la griglia c'è un toggle **"⚙️ Avanzate
   (Trasformazione · Value-map)"** (checkbox). **Di default è SPENTO**: la griglia mostra solo le
   colonne **essenziali** (Colonna · Inizia dopo · Finisce prima · Valore fisso · Obblig.), più
@@ -361,7 +376,10 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
   col runtime che non lo piazzerebbe).
 - **Anteprima righe generate (#192):** tabella `# · Tipo (Base/Mercato/Selezione) · Esito ·
   Riga CSV`. È la fonte **autorevole** per l'esito delle righe generate (la tabella diagnostica
-  per-colonna qui sotto è a livello della sola riga base).
+  per-colonna qui sotto è a livello della sola riga base). Il riepilogo «Colonna=valore» (colonna
+  *Riga CSV* e verdetto `✅ Pronto · …`) mostra i **decimali nel formato della lingua CSV**
+  configurata (#342: virgola per IT/ES — «Price=1,50» — punto per EN), cioè **come usciranno nel
+  file**: l'operatore vede in anteprima esattamente ciò che XTrader leggerà.
 - **Diagnostica per colonna:** tabella `Colonna · Stato (OK/MANCANTE) · Motivo · Inizia
   dopo · Finisce prima · Valore estratto`.
 

@@ -741,9 +741,14 @@ class CustomParserPanel(ctk.CTkFrame):
             entry = ctk.CTkEntry(cell, width=w)
             entry.insert(0, getattr(rule, attr, "") or "")
             entry.pack()
+            # Il banner avvisi ora ha avvisi PER-RIGA che dipendono dal testo digitato
+            # (Selezione fissa + delimitatori, mercato non-punteggio): si aggiorna quando
+            # l'utente lascia il campo, non solo su aggiungi/rimuovi/toggle.
+            entry.bind("<FocusOut>", lambda _e: self._refresh_multi_warnings())
             refs[attr] = entry
         refs["enabled"] = ctk.BooleanVar(value=bool(getattr(rule, "enabled", True)))
-        ctk.CTkCheckBox(row, text="Attiva", variable=refs["enabled"], width=40).pack(
+        ctk.CTkCheckBox(row, text="Attiva", variable=refs["enabled"], width=40,
+                        command=self._refresh_multi_warnings).pack(
             side="left", padx=6)
         ctk.CTkButton(row, text="🗑 Rimuovi", width=90, fg_color="#7f0000",
                       command=lambda: self._remove_multi_row(refs_list, refs)).pack(
@@ -1139,6 +1144,10 @@ class CustomParserPanel(ctk.CTkFrame):
         self._reload_profile_checks()   # rifletti modifiche al dizionario fatte altrove (Codex)
         self._reload_market_profile_checks()
         self._sync_to_builder()
+        # Riallinea il banner avvisi multi allo stato appena sincronizzato: gli avvisi per-riga
+        # (#325 follow-up) dipendono anche dai campi della griglia base (MarketType fisso) e dai
+        # profili mercati, che non passano dai refresh su FocusOut delle sole righe multi.
+        self._refresh_multi_warnings()
         unresolved = self._unresolved_selected()
         if unresolved:
             # Mappatura richiesta ma con profili non risolvibili: non mostrare un'anteprima
