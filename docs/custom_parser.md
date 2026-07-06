@@ -627,9 +627,14 @@ retro-compatibile).
   Ogni riga è
   **validata singolarmente** (fail-closed per-riga, come #192) con **azzeramento + ri-risoluzione
   ID** per la selezione; un token non-punteggio non genera una riga; lista vuota → nessuna riga.
-  Una regola con `selection_name` **fisso** resta invariata (override diretto, percorso #192). *In
-  questa slice l'estrazione dinamica si configura via il JSON del parser (`start_after`/`end_before`
-  su una riga MultiSelection senza `selection_name`); i campi in GUI arrivano nella slice successiva.*
+  Una regola con `selection_name` **fisso** resta invariata (override diretto, percorso #192).
+  **Configurazione in GUI (#325 slice 2):** ogni riga **MultiSelection** ha i campi **«Inizia
+  dopo» / «Finisce prima»** in coda alla riga (dopo Handicap): lasciare **«Selezione» vuota** e
+  compilare i delimitatori attiva l'estrazione dinamica (un hint 💡 sotto la lista lo ricorda).
+  I campi **non** sono esposti sulle righe **MultiMarket** (lì sarebbero solo una
+  misconfigurazione: il runtime li ignora per design) dove restano preservati come campi nascosti.
+  I delimitatori **non** vengono strippati al salvataggio (come nella griglia base): un
+  delimitatore whitespace (es. fine riga) è legittimo.
   **Nota modalità e sicurezza (importante).** I risultati esatti Betfair sono selezioni
   **per-partita** (dipendono dalle squadre) e **NON** sono nel dizionario locale: l'harvest #283 li
   **esclude di proposito** (`catalogue_client._harvest_market_terms`: per `CORRECT_SCORE`/
@@ -677,7 +682,11 @@ retro-compatibile).
 **GUI (scheda 🧩 Parser di «🧰 Strumenti»):** la sezione **«Output multi-riga»** sopra la griglia
 14 colonne offre due interruttori indipendenti — **MultiMarket** e **MultiSelection** — ciascuno
 con un pulsante **`➕ Aggiungi`** che inserisce una **riga dinamica** editabile (Tipo mercato,
-Mercato, Selezione, Quota, BetType, Handicap) con casella **Attiva** e pulsante **`🗑 Rimuovi`**.
+Mercato, Selezione, Quota, BetType, Handicap — e, **solo sulle righe MultiSelection**, anche
+**«Inizia dopo» / «Finisce prima»** per l'estrazione dinamica dei risultati esatti, #325) con
+casella **Attiva** e pulsante **`🗑 Rimuovi`**. Sotto la lista selezioni un **hint 💡** ricorda la
+combinazione che attiva l'estrazione (Selezione vuota + delimitatori, solo
+`CORRECT_SCORE`/`HALF_TIME_SCORE`).
 Un **banner ⚠** avvisa quando entrambi gli interruttori sono attivi (righe **separate**, non
 cartesiane) o quando un interruttore è acceso senza righe abilitate. **«Prova messaggio»** mostra
 una **tabella «Anteprima righe generate»** con **una riga per ogni riga CSV** che il messaggio

@@ -1613,3 +1613,14 @@ profili — nessun altro wiring). **BREAKING**: chi usa la versione inglese impo
 `"csv_language": "EN"`. ES = convenzione spagnola, da confermare col supporto (mappa a una riga).
 È la **prima slice/fondazione config** dell'epica multilingua **#343** (selettore lingua all'avvio,
 BetType per-lingua, UI localizzata, dizionario per-locale user-built, EN/ES solo NAME_ONLY).
+
+## #325 (slice 2, GUI) — campi «Inizia dopo/Finisce prima» sulle righe MultiSelection
+
+Chiude #325: i delimitatori dell'estrazione dinamica (slice 1 backend) sono ora configurabili
+dalla GUI. `_MULTI_SELECTION_FIELDS` = `_MULTI_FIELDS` + i due campi delimitatore, esposti **solo
+sulle righe SELEZIONE** (sui MERCATI sarebbero la misconfigurazione da cui il gate #341 difende:
+lì restano campi nascosti preservati, Codex P1). `_add_multi_row_widget`/`_multi_rule_from_refs`
+parametrizzati con `refs["_fields"]`; i delimitatori **non** vengono strippati al salvataggio
+(stesso contratto della griglia base: «\n» è un delimitatore legittimo). Hint 💡 statico sotto la
+lista selezioni spiega la combinazione dinamica. Design handoff aggiornato (§ Output multi-riga).
+Prossimo: Nuitka (Fase 6); epica #343 in attesa delle risposte del supporto XTrader.
