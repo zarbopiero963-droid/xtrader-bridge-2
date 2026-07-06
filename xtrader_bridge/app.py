@@ -198,6 +198,7 @@ class App(ctk.CTk):
     _betfair_login_epoch = 0        # epoch del login: logout/delete lo bumpa → scarta i completamenti stantii
     _betfair_panel = None           # pannello tab Betfair, valorizzato in `_open_tools`
     _async_stop_event = None        # asyncio.Event della sessione listener: STOP la sveglia (#184 H5/Codex #191)
+    _wizard_win = None              # Wizard aperto (#311 §3.4): singleton, un secondo click lo riporta davanti
 
     def __init__(self):
         # Single-instance lock (#311-1.1): PRIMA di qualsiasi altra cosa — due istanze
@@ -1488,7 +1489,19 @@ class App(ctk.CTk):
 
     def _open_wizard(self) -> None:
         """Apre il Wizard di prima configurazione (#311 §3.4). Vista in `wizard_gui`
-        (logica pura in `wizard`, testata in CI); dipendenze iniettate da qui."""
+        (logica pura in `wizard`, testata in CI); dipendenze iniettate da qui.
+        Singleton (review Fable #354): un secondo click riporta davanti il wizard già
+        aperto — due Toplevel modali avrebbero `grab_set` in conflitto."""
+        prev = self._wizard_win
+        if prev is not None:
+            try:
+                if prev.winfo_exists():
+                    prev.lift()
+                    prev.focus_force()
+                    return
+            except Exception:   # noqa: BLE001 — riferimento stantio (Tk smontato): si riapre da zero
+                pass
+            self._wizard_win = None
         from . import wizard, wizard_gui   # import locali: il wizard è on-demand
         cfg = self._config if isinstance(self._config, dict) else {}
 
@@ -1511,8 +1524,12 @@ class App(ctk.CTk):
                 checklist_provider=checklist_provider,
                 on_finish=self._wizard_finish)
             win.grab_set()   # modale: un solo wizard alla volta
+            self._wizard_win = win
         except Exception as ex:   # noqa: BLE001 — GUI best-effort: mai crash della finestra
-            self._log(f"❌ Apertura wizard fallita: {ex}")
+            # SOLO la classe dell'errore nel log: `initial` contiene il token e
+            # un'eccezione che lo echeggiasse violerebbe «token mai nei log»
+            # (review Fugu/GPT #354).
+            self._log(f"❌ Apertura wizard fallita: {type(ex).__name__}")
 
     def _wizard_finish(self, values: dict) -> None:
         """Fine wizard: applica token/chat/csv al FORM e salva passando dal percorso

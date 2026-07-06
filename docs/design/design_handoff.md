@@ -212,7 +212,11 @@ e «📄 Scrivi CSV di prova» (mai sovrascrive: riga attiva protetta, file estr
 rifiutato); (5) checklist ✅/⛔ a 5 voci. Invarianti: il wizard NON attiva mai la
 modalità Reale (checklist informativa; i gate restano nella tab 🛡️ Sicurezza); il
 token non compare MAI negli esiti/log; «Fine ✔» applica token/chat/csv al form e salva
-col percorso esistente (gate inclusi).
+col percorso esistente (gate inclusi); **singleton** (Fable #354): un secondo click sul
+bottone riporta davanti il wizard già aperto, mai due finestre modali; una sonda che
+fallisce mostra un esito ⛔ onesto (solo la classe dell'errore) e sblocca subito la
+verifica successiva; chiudere la finestra con una sonda in corso è sicuro (l'esito
+tardivo viene scartato).
 
 ### 6.2-ter Scheda «🚦 Salute» — health check a semafori (#311 §3.3)
 

@@ -150,13 +150,31 @@ class WizardWindow(ctk.CTkToplevel):
         self._result_lbl.configure(text="⏳ Verifica in corso…", text_color="gray")
 
         def worker():
-            res = fn()
-            self.after(0, lambda: self._probe_done(res, on_done))
+            # L'esito va SEMPRE riconsegnato al main thread (review Fable #354):
+            # se la sonda solleva e il thread muore in silenzio, `_probe_running`
+            # resterebbe True per sempre → tutte le sonde bloccate su ⏳ eterna.
+            try:
+                res = fn()
+            except Exception as ex:   # noqa: BLE001 — fail-closed: SOLO la classe dell'errore (mai token/URL grezzi)
+                res = wizard.StepResult(
+                    False, f"Verifica fallita: errore imprevisto ({type(ex).__name__}).")
+            try:
+                self.after(0, lambda: self._probe_done(res, on_done))
+            except Exception:   # noqa: BLE001 — finestra/Tk distrutti durante la sonda: niente da aggiornare
+                pass
         threading.Thread(target=worker, daemon=True).start()
 
     def _probe_done(self, res, on_done):
+        """Esito sonda nel main thread Tk. La finestra può essere stata CHIUSA mentre
+        la sonda era in corso (timeout 10s): l'`after` pende sull'interprete, non sul
+        widget, quindi qui va verificato che la finestra esista ancora (Fable #354)."""
         self._probe_running = False
-        on_done(res)
+        try:
+            alive = bool(self.winfo_exists())
+        except Exception:   # noqa: BLE001 — interprete Tk già smontato: come finestra chiusa
+            alive = False
+        if alive:
+            on_done(res)
 
     def _show(self, step_idx, res):
         self._passed[step_idx] = bool(res.ok)

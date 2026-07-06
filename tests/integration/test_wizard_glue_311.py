@@ -84,6 +84,151 @@ def test_fine_consegna_i_valori_e_chiude(monkeypatch):
     assert distrutta == [True]
 
 
+class _SyncThread:
+    """Thread finto SINCRONO: un'eccezione che nel daemon thread reale morirebbe in
+    silenzio (lasciando `_probe_running` bloccato) qui PROPAGA e fa fallire il test."""
+
+    def __init__(self, target=None, daemon=None):
+        self._target = target
+
+    def start(self):
+        self._target()
+
+
+def test_sonda_che_solleva_fail_closed_e_flag_rilasciato(monkeypatch):
+    """Fable #354 (1): la sonda che solleva NON deve lasciare ⏳ eterna: esito
+    fail-closed con la sola CLASSE dell'errore e `_probe_running` rilasciato."""
+    mod = _gui_mod(monkeypatch)
+    win = _bare_window(mod)
+    win.after = lambda _ms, cb: cb()
+    win.winfo_exists = lambda: True
+    monkeypatch.setattr(mod.threading, "Thread", _SyncThread)
+    esiti = []
+
+    def sonda_rotta():
+        raise RuntimeError("boom con token 123:SEGRETO dentro")
+
+    win._run_async(sonda_rotta, esiti.append)
+    assert win._probe_running is False               # flag SEMPRE rilasciato
+    assert esiti and esiti[0].ok is False            # esito fail-closed consegnato
+    assert "RuntimeError" in esiti[0].message
+    assert "SEGRETO" not in esiti[0].message         # mai il messaggio grezzo (token)
+    win._run_async(lambda: wizard.StepResult(True, "ok"), esiti.append)
+    assert esiti[-1].ok is True                      # la sonda successiva NON è bloccata
+
+
+def test_finestra_chiusa_durante_la_sonda_non_tocca_widget(monkeypatch):
+    """Fable #354 (2): finestra distrutta mentre la sonda (10s) è in corso."""
+    mod = _gui_mod(monkeypatch)
+    monkeypatch.setattr(mod.threading, "Thread", _SyncThread)
+    # a) `after` che solleva (Tk smontato): il worker non deve propagare.
+    win = _bare_window(mod)
+
+    def after_esplosivo(_ms, _cb):
+        raise RuntimeError("main thread is not in main loop")
+
+    win.after = after_esplosivo
+    win._run_async(lambda: wizard.StepResult(True, "ok"), lambda res: None)
+    # b) callback `after` consegnato DOPO la distruzione (pende sull'interprete,
+    #    non sul widget): winfo_exists False → on_done NON chiamato.
+    win2 = _bare_window(mod)
+    win2._probe_running = True
+    win2.winfo_exists = lambda: False
+    chiamate = []
+    win2._probe_done(wizard.StepResult(True, "ok"), chiamate.append)
+    assert win2._probe_running is False and chiamate == []
+    # c) winfo_exists che SOLLEVA (interprete già smontato) = finestra chiusa.
+    win3 = _bare_window(mod)
+    win3._probe_running = True
+
+    def winfo_esplosivo():
+        raise RuntimeError("application has been destroyed")
+
+    win3.winfo_exists = winfo_esplosivo
+    win3._probe_done(wizard.StepResult(True, "ok"), chiamate.append)
+    assert win3._probe_running is False and chiamate == []
+
+
+def _app_per_wizard(app_mod):
+    class _Entry:
+        def get(self):
+            return ""
+
+    app = object.__new__(app_mod.App)
+    app._config = {}
+    app._logs = []
+    app._log = app._logs.append
+    app._e_token = app._e_chat = app._e_csv = _Entry()
+    return app
+
+
+def _fake_gui_mod(monkeypatch, window_factory):
+    """Installa un `xtrader_bridge.wizard_gui` finto per `from . import wizard_gui`
+    (in CI customtkinter è assente: la vista reale non è importabile headless)."""
+    import xtrader_bridge
+
+    fake = types.ModuleType("xtrader_bridge.wizard_gui")
+    fake.WizardWindow = window_factory
+    monkeypatch.setitem(sys.modules, "xtrader_bridge.wizard_gui", fake)
+    monkeypatch.setattr(xtrader_bridge, "wizard_gui", fake, raising=False)
+    return fake
+
+
+def test_open_wizard_singleton_riporta_davanti(app_mod, monkeypatch):
+    """Fable #354 (3): click ripetuti su «Wizard» NON creano più Toplevel modali
+    (grab_set in conflitto): il secondo click riporta davanti quello aperto."""
+    app = _app_per_wizard(app_mod)
+    created, lifted = [], []
+
+    class _FakeWin:
+        def __init__(self, *a, **k):
+            created.append(self)
+            self._alive = True
+
+        def grab_set(self):
+            pass
+
+        def winfo_exists(self):
+            return self._alive
+
+        def lift(self):
+            lifted.append(self)
+
+        def focus_force(self):
+            pass
+
+    _fake_gui_mod(monkeypatch, _FakeWin)
+    app._open_wizard()
+    app._open_wizard()                       # secondo click: NIENTE seconda finestra
+    assert len(created) == 1 and lifted == [created[0]]
+    created[0]._alive = False                # wizard chiuso → si può riaprire
+    app._open_wizard()
+    assert len(created) == 2
+
+    class _Stantio:                          # riferimento stantio: winfo_exists solleva
+        def winfo_exists(self):
+            raise RuntimeError("Tk smontato")
+
+    app._wizard_win = _Stantio()
+    app._open_wizard()                       # non crasha: riapre da zero
+    assert len(created) == 3
+
+
+def test_open_wizard_fallita_logga_solo_la_classe(app_mod, monkeypatch):
+    """Fugu/GPT #354: `initial` contiene il token → su errore va loggata SOLO la
+    classe dell'eccezione, mai il messaggio grezzo."""
+    app = _app_per_wizard(app_mod)
+
+    def esplode(*a, **k):
+        raise RuntimeError("boom con token 123:SEGRETO dentro")
+
+    _fake_gui_mod(monkeypatch, esplode)
+    app._open_wizard()                       # best-effort: nessun crash
+    assert any("Apertura wizard fallita" in ln and "RuntimeError" in ln
+               for ln in app._logs)
+    assert all("SEGRETO" not in ln for ln in app._logs)
+
+
 def test_app_wizard_finish_applica_al_form_e_salva(app_mod):
     class _Entry:
         def __init__(self, v=""):
