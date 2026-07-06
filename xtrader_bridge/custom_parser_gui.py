@@ -673,6 +673,11 @@ class CustomParserPanel(ctk.CTkFrame):
         ("start_after", "Inizia dopo", 110),
         ("end_before", "Finisce prima", 110),
     )
+    # Guard anti-rientranza di `_reload_multi_from_builder` (Fable/Fugu #348): default di
+    # CLASSE (non attributo d'istanza creato altrove) così `_refresh_multi_warnings` può
+    # leggerlo sempre senza passare dal `__getattr__` ricorsivo di Tk su attributo mancante
+    # (stessa trappola del lock di istanza, #346).
+    _multi_reloading = False
 
     def _build_multi_section(self, outer):
         """Sezione output multi-riga: due interruttori + due liste di righe dinamiche.
@@ -789,22 +794,33 @@ class CustomParserPanel(ctk.CTkFrame):
 
         Le liste refs vengono SVUOTATE prima di distruggere i frame (CodeRabbit #348):
         distruggere un entry che ha il focus può far scattare il suo `<FocusOut>` →
-        `_refresh_multi_warnings` → `_sync_multi_to_builder` in modo rientrante; con le
-        liste già vuote il sync non legge widget mezzi distrutti né resuscita righe stantie
-        (stesso ordine di `_remove_multi_row`: prima via dalla lista, poi destroy)."""
-        self._multi_market_var.set(bool(self.builder.multi_market_enabled))
-        self._multi_selection_var.set(bool(self.builder.multi_selection_enabled))
-        old_market_rows, self._multi_market_rows = self._multi_market_rows, []
-        old_selection_rows, self._multi_selection_rows = self._multi_selection_rows, []
-        for refs in old_market_rows:
-            refs["frame"].destroy()
-        for refs in old_selection_rows:
-            refs["frame"].destroy()
-        for rule in self.builder.multi_markets:
-            self._add_multi_row_widget(self._multi_markets_box, self._multi_market_rows, rule)
-        for rule in self.builder.multi_selections:
-            self._add_multi_row_widget(self._multi_selections_box, self._multi_selection_rows,
-                                       rule, fields=self._MULTI_SELECTION_FIELDS)
+        `_refresh_multi_warnings` in modo rientrante; con le liste già vuote il sync non
+        legge widget mezzi distrutti né resuscita righe stantie (stesso ordine di
+        `_remove_multi_row`: prima via dalla lista, poi destroy).
+
+        In più, per TUTTA la durata del reload il flag `_multi_reloading` rende
+        `_refresh_multi_warnings` un no-op (Fable #348): senza il guard, un refresh
+        rientrante durante i destroy vedrebbe le liste GUI vuote e SOVRASCRIVEREBBE
+        `builder.multi_markets/multi_selections` con `[]` PRIMA dei loop di ricostruzione
+        qui sotto (che iterano proprio su quelle liste del builder) → perdita silenziosa
+        delle righe multi al caricamento di un parser."""
+        self._multi_reloading = True
+        try:
+            self._multi_market_var.set(bool(self.builder.multi_market_enabled))
+            self._multi_selection_var.set(bool(self.builder.multi_selection_enabled))
+            old_market_rows, self._multi_market_rows = self._multi_market_rows, []
+            old_selection_rows, self._multi_selection_rows = self._multi_selection_rows, []
+            for refs in old_market_rows:
+                refs["frame"].destroy()
+            for refs in old_selection_rows:
+                refs["frame"].destroy()
+            for rule in self.builder.multi_markets:
+                self._add_multi_row_widget(self._multi_markets_box, self._multi_market_rows, rule)
+            for rule in self.builder.multi_selections:
+                self._add_multi_row_widget(self._multi_selections_box, self._multi_selection_rows,
+                                           rule, fields=self._MULTI_SELECTION_FIELDS)
+        finally:
+            self._multi_reloading = False
         self._refresh_multi_warnings()
 
     def _sync_multi_to_builder(self):
@@ -833,7 +849,14 @@ class CustomParserPanel(ctk.CTkFrame):
             enabled=bool(refs["enabled"].get()))
 
     def _refresh_multi_warnings(self):
-        """Aggiorna il banner avvisi dal controller (sincronizza prima i widget)."""
+        """Aggiorna il banner avvisi dal controller (sincronizza prima i widget).
+
+        No-op durante `_reload_multi_from_builder` (Fable/Fugu #348): un `<FocusOut>`
+        rientrante mentre le righe vengono distrutte/ricostruite farebbe scrivere nel
+        builder le liste GUI transitoriamente vuote, perdendo le righe multi del parser
+        appena caricato. Il reload chiama comunque questo metodo alla fine, a flag basso."""
+        if self._multi_reloading:
+            return
         self._sync_multi_to_builder()
         warnings = self.builder.multi_warnings()
         self._multi_warn.configure(text=("\n".join(f"⚠ {w}" for w in warnings)) if warnings else "")

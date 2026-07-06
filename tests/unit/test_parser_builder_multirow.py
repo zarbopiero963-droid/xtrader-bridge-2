@@ -921,3 +921,67 @@ def test_gui_reload_multi_svuota_refs_prima_di_destroy(monkeypatch):
 
     assert leaks == [False, False]              # refs già rimossi quando destroy scatta
     assert panel._multi_market_rows == [] and panel._multi_selection_rows == []
+
+
+def test_gui_reload_multi_sync_rientrante_non_perde_le_righe(monkeypatch):
+    # Fable/Fugu #348: durante `_reload_multi_from_builder`, un <FocusOut> rientrante che
+    # arriva al VERO `_refresh_multi_warnings` → `_sync_multi_to_builder` vedrebbe le liste
+    # GUI transitoriamente vuote e riscriverebbe `builder.multi_markets/multi_selections=[]`
+    # PRIMA dei loop di ricostruzione → perdita silenziosa delle righe del parser caricato.
+    # Il guard `_multi_reloading` rende il refresh rientrante un no-op. Qui il destroy dello
+    # spy invoca DAVVERO il refresh reale (non uno stub): fail-first — senza guard il builder
+    # perde le 2 righe mercato e non ne viene ricostruita nessuna.
+    gui = _gui_module(monkeypatch)
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)
+
+    class _SpyVar:
+        def __init__(self, value=False):
+            self._v = value
+
+        def set(self, v):
+            self._v = v
+
+        def get(self):
+            return self._v
+
+    class _NoopLabel:
+        def configure(self, **_k):
+            pass
+
+    class _EvilFrame:
+        def destroy(self):
+            panel._refresh_multi_warnings()      # rientranza reale: FocusOut durante destroy
+
+    panel._multi_market_var = _SpyVar()
+    panel._multi_selection_var = _SpyVar()
+    panel._multi_warn = _NoopLabel()
+    panel.builder = _multimarket_builder()       # builder POPOLATO: 2 righe mercato
+    panel._multi_markets_box = panel._multi_selections_box = None
+    rebuilt = []
+
+    def _fake_add_row(box, refs_list, rule, fields=None):
+        # Refs COMPLETI (entry per campo + Attiva), così il refresh finale del reload può
+        # eseguire il VERO `_sync_multi_to_builder`/`_multi_rule_from_refs` senza stub.
+        fields = fields or gui.CustomParserPanel._MULTI_FIELDS
+        refs = {"frame": object(), "_rule": rule, "_fields": fields,
+                "enabled": _FakeVar(bool(rule.enabled))}
+        for attr, _label, _w in fields:
+            refs[attr] = _FakeVar(getattr(rule, attr, "") or "")
+        refs_list.append(refs)
+        rebuilt.append(rule)
+
+    panel._add_multi_row_widget = _fake_add_row
+    panel._multi_market_rows = [{"frame": _EvilFrame()}]
+    panel._multi_selection_rows = []
+
+    panel._reload_multi_from_builder()
+
+    # Le 2 righe mercato del builder sopravvivono al reload e vengono ridisegnate.
+    assert [r.market_type for r in panel.builder.multi_markets] == [
+        "FIRST_HALF_GOALS_05", "OVER_UNDER_15"]
+    assert len(rebuilt) == 2 and len(panel._multi_market_rows) == 2
+    # A reload finito il guard è basso: il refresh normale torna operativo (e sincronizza).
+    assert panel._multi_reloading is False
+    panel._refresh_multi_warnings()
+    assert [r.market_type for r in panel.builder.multi_markets] == [
+        "FIRST_HALF_GOALS_05", "OVER_UNDER_15"]
