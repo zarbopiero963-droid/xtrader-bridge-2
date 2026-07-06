@@ -1774,3 +1774,17 @@ _resync_token_field + _register_secret_token dopo — e rollback writer al valor
 EFFETTIVO pre-save catturato con get_csv_language, mai None su config legacy). Docs ammorbidite («ITA richiedeva la virgola; update decimali-intelligenti
 accetta entrambi», risposta supporto #343). Test: 7 unit puri + coercion + 6 glue,
 mutazioni O–U KILLED.
+
+## #343 slice 4a — UI localizzata: infrastruttura i18n + finestra principale (coda GUI, PR 10)
+
+Nuovo modulo puro `i18n.py` stile gettext: chiavi = stringhe ITALIANE verbatim della
+GUI (niente key sintetiche), `tr(testo)` → traduzione nella lingua attiva o il testo
+stesso (fail-safe: mai vuoto/KeyError), `set_language` fail-safe (sporco/vuoto → IT),
+stato di modulo sotto lock. Attivata da `app_language` PRIMA di `_build_ui`; cambio
+lingua → al riavvio (log del selettore aggiornato). Scope: etichette STATICHE della
+finestra principale (9 tab, 17 bottoni, campi form, 3 label) in EN/ES. ESCLUSI e
+motivati: stati «⬤ ATTIVO/…» (il semaforo Salute fa text-parsing dello stato →
+prima serve uno stato canonico, slice dedicato), banner, log, finestre secondarie.
+Test hard: default/fallback/traduzioni, ANTI-DRIFT (ogni chiave catalogo deve
+esistere verbatim in app.py) e anti-revert (le label catalogate devono passare da
+i18n.tr nel sorgente); mutazioni AA–AD KILLED.

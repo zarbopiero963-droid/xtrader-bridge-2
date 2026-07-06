@@ -131,8 +131,10 @@ salvata (`app_language`) e **allinea anche la lingua del CSV** (`csv_language`, 
 decimale #342). Se chiudi senza scegliere non succede nulla: il bridge resta nel
 comportamento storico (italiano) e il selettore ricompare al prossimo avvio. Promemoria:
 col riconoscimento a nomi, **imposta in XTrader/Betting Toolkit la lingua della fonte
-uguale a quella scelta qui** (i nomi dipendono dalla lingua del palinsesto). La UI
-localizzata (testi dell'app in EN/ES) arriva con un prossimo slice della #343.
+uguale a quella scelta qui** (i nomi dipendono dalla lingua del palinsesto). Dalla
+slice 4a la **finestra principale** è localizzata (tab, bottoni, nomi campo in EN/ES;
+la lingua si applica al **riavvio**); stati dinamici «⬤ ATTIVO/OFFLINE», banner, log e
+finestre secondarie restano in italiano e arrivano con i prossimi slice della #343.
 
 La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Config**
 (oppure all'avvio con **▶ AVVIA**) nel file `config.json` (vedi
@@ -206,7 +208,7 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | `debug_message_payload` | `false` | `true`/`false` | **Privacy dei log.** Se `false` (default) il **testo** dei messaggi Telegram **non** viene scritto in chiaro nei log: solo impronta (`sha256` a 12 cifre) + lunghezza + **prima riga troncata**. Se `true`, logga il **payload completo** (debug consapevole). Attivabile dalla tab *Sicurezza* (checkbox **🕵️**). I token restano comunque sempre redatti. |
 | `providers` | `[]` | lista di nomi | **Anagrafica Provider**: nomi riutilizzabili nella colonna `Provider` del Parser Personalizzato (menu a tendina). Si gestisce dal pulsante **➕ Provider** nel costruttore; evita errori di battitura sul Provider (che deve combaciare col filtro dell'azione XTrader). |
 | `csv_language` | `"IT"` | `IT`/`EN`/`ES` | **Lingua del CSV (#342)**: governa il **separatore decimale** scritto nel file (`Price`/`MinPrice`/`MaxPrice`/`Points`/`Handicap`): `IT`/`ES` = **virgola** («1,85»), `EN` = **punto**. Nota (#343): dall'update «decimali intelligenti» XTrader/Betting Toolkit accetta **entrambi** i separatori su tutte le lingue, quindi la scelta è belt-and-suspenders, non più critica. Valore malformato → `IT` (fail-closed). Si imposta col **selettore lingua al primo avvio** (o nel `config.json`). |
-| `app_language` | `""` | `""`/`IT`/`EN`/`ES` | **Lingua dell'applicazione (#343)**: scelta col **selettore al primo avvio** (🌐 IT/EN/ES). `""` = mai scelta → il selettore ricompare al prossimo avvio (nel frattempo il bridge resta nel comportamento storico IT). Alla scelta viene **allineata anche `csv_language`**, MA una `csv_language` **personalizzata a mano** (diversa dal default `IT` e dalla lingua scelta) viene **preservata** — su XTrader senza l'update «decimali intelligenti» un cambio di separatore a sorpresa può far rifiutare il CSV. Con **auto-start attivo** il selettore **non compare** (niente finestra modale sopra un avvio non presidiato): la lingua si imposta qui in `config.json`. Valore malformato → `""` (fail-closed). La UI localizzata arriva con un prossimo slice #343. |
+| `app_language` | `""` | `""`/`IT`/`EN`/`ES` | **Lingua dell'applicazione (#343)**: scelta col **selettore al primo avvio** (🌐 IT/EN/ES). `""` = mai scelta → il selettore ricompare al prossimo avvio (nel frattempo il bridge resta nel comportamento storico IT). Alla scelta viene **allineata anche `csv_language`**, MA una `csv_language` **personalizzata a mano** (diversa dal default `IT` e dalla lingua scelta) viene **preservata** — su XTrader senza l'update «decimali intelligenti» un cambio di separatore a sorpresa può far rifiutare il CSV. Con **auto-start attivo** il selettore **non compare** (niente finestra modale sopra un avvio non presidiato): la lingua si imposta qui in `config.json`. Valore malformato → `""` (fail-closed). Dalla slice 4a governa anche la lingua della finestra principale (applicata al riavvio). |
 
 > Una `config.json` corrotta viene messa da parte come `.bak` e il bridge riparte
 > dai default sicuri. Le chiavi mancanti ereditano sempre il default.

@@ -223,8 +223,15 @@ Chiudere SENZA scegliere è sicuro (comportamento storico IT, il selettore ricom
 prossimo avvio — la non-scelta non viene mai persistita). Con **auto-start attivo** il
 selettore NON compare (mai un grab modale sopra un avvio non presidiato: STOP deve
 restare raggiungibile) — log «🌐 Selettore lingua rimandato: auto-start attivo…».
-Invarianti: la scelta lingua NON tocca modalità/gate di sicurezza; per ora cambia solo
-lingua CSV + persistenza (la UI localizzata è uno slice successivo della #343).
+Invarianti: la scelta lingua NON tocca modalità/gate di sicurezza. Dalla **slice 4a**
+la lingua governa anche le etichette STATICHE della finestra principale (tab, bottoni,
+nomi campo — catalogo `i18n.py`, italiano = riferimento, fallback fail-safe: una
+traduzione mancante mostra l'italiano, mai stringhe vuote), applicate al **riavvio**
+(log di conferma: «…riavvia il bridge per applicare la lingua all'interfaccia…»).
+Restano IN ITALIANO per ora (slice successivi): gli stati dinamici «⬤
+ATTIVO/OFFLINE/RICONNESSIONE…» (il semaforo 🚦 Salute fa il parsing del testo dello
+stato: la loro localizzazione richiede prima uno stato canonico tracciato a parte),
+banner, testi dei log e tutte le finestre secondarie.
 
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
