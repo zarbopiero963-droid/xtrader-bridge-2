@@ -438,6 +438,18 @@ Tutti questi gate devono passare perché una riga venga scritta:
 
 ---
 
+## 3bis-A. Tester multiplo «Prova più messaggi» (#311 §3.2)
+
+Accanto a «🧪 Prova messaggio» c'è **«🧪🧪 Prova più messaggi (separati da ---)»**: incolla
+nel box N **messaggi reali** del canale separandoli con una riga che contiene **solo `---`**
+(separatore ESPLICITO: nessuna euristica sui confini — i messaggi Telegram sono multi-linea).
+Per OGNI messaggio ottieni: **valido/scartato** (✅/⛔), il **motivo esatto** (lo STESSO
+verdetto sintetico del singolo «Prova messaggio»: status + campi mancanti — stessa pipeline
+read-only, `ParserBuilder.batch_report`), e l'**anteprima delle righe CSV** generate (con i
+decimali nel formato `csv_language`, come il singolo). In cima il riepilogo «Messaggi validi:
+X/N». Fail-safe: massimo **50 messaggi** per prova (gli extra sono segnalati, mai valutati in
+silenzio); blocchi vuoti scartati; **nessuna scrittura** del CSV operativo (solo anteprima).
+
 ## 3bis. Diagnostica «Prova messaggio» (perché "Non pronto")
 
 Nel builder, **«Prova messaggio»** non dà più solo il verdetto: mostra una
