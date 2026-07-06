@@ -116,6 +116,15 @@ def _localize_row(row: dict, lang: str) -> dict:
             out[col] = _localize_decimal(out[col], lang)
     return out
 
+
+def localize_row(row: dict, lang: str = None) -> dict:
+    """Wrapper PUBBLICO di `_localize_row` per le ANTEPRIME (GUI «Prova messaggio»): copia
+    della riga coi decimali nel formato della lingua CSV (`lang`, default = lingua corrente),
+    cioè come usciranno davvero nel file. Stessa fonte di verità del write-path (#342): la
+    preview non può divergere dal CSV reale. NON usare nel percorso interno (validatori/dedup
+    lavorano sui valori canonici col punto)."""
+    return _localize_row(row, get_csv_language() if lang is None else lang)
+
 # Nome del temporaneo della scrittura atomica del CSV: fonte unica di verità, usata sia
 # per scrivere (`_atomic_write_locked`) sia per spazzare gli orfani allo startup
 # (`sweep_orphan_temps`), così i due non possono divergere.

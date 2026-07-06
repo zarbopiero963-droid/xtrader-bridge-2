@@ -688,7 +688,18 @@ casella **Attiva** e pulsante **`🗑 Rimuovi`**. Sotto la lista selezioni un **
 combinazione che attiva l'estrazione (Selezione vuota + delimitatori, solo
 `CORRECT_SCORE`/`HALF_TIME_SCORE`).
 Un **banner ⚠** avvisa quando entrambi gli interruttori sono attivi (righe **separate**, non
-cartesiane) o quando un interruttore è acceso senza righe abilitate. **«Prova messaggio»** mostra
+cartesiane) o quando un interruttore è acceso senza righe abilitate. Dagli avvisi **per-riga**
+(follow-up #325/#341) il banner segnala anche le configurazioni ambigue delle righe SELEZIONE
+attive coi delimitatori: **Selezione fissa + delimitatori** → «i delimitatori verranno IGNORATI»
+(con Selezione impostata il runtime usa il valore fisso); **Selezione vuota + delimitatori ma
+mercato effettivo NON-punteggio** → «estrazione dinamica INATTIVA … la riga resta FISSA ed
+eredita la Selezione della riga base» (è il gate #341). L'avviso sul mercato è emesso **solo
+quando il mercato effettivo è determinabile staticamente** (override `Tipo mercato` della riga,
+oppure MarketType base a **valore fisso** senza transform/value-map e senza mappatura mercati a
+frase): se il mercato è noto solo a runtime il banner **tace** (mai falsi allarmi). La detection
+specchia `custom_pipeline._is_dynamic_selection` (stesso set di mercati-punteggio, importato —
+non copiato). Il banner si aggiorna su aggiungi/rimuovi/toggle, quando si lascia un campo della
+riga (`<FocusOut>`), sulla casella **Attiva** e a ogni **«Prova messaggio»**. **«Prova messaggio»** mostra
 una **tabella «Anteprima righe generate»** con **una riga per ogni riga CSV** che il messaggio
 produrrebbe (Base / Mercato / Selezione), col **verdetto per-riga** (✅ piazzabile · ⛔ + motivo):
 usa lo **stesso motore del runtime** (`build_validated_rows`). Quando l'output
@@ -696,6 +707,15 @@ multi-riga è attivo, anche il **verdetto sintetico** in cima si basa sulle **ri
 «✅ Pronto · N righe generate, tutte piazzabili»), non sulla sola riga base — che in un parser
 MultiMarket può mancare di MarketType/SelectionName **di proposito** (li fornisce ogni riga
 mercato), e altrimenti farebbe apparire un falso «Non pronto».
+
+> **Decimali nell'anteprima = formato del file (#342, follow-up #344).** Il riepilogo
+> «Colonna=valore» delle righe anteprima e del verdetto «✅ Pronto · …» mostra le colonne
+> **decimali** (`Price`, `MinPrice`, `MaxPrice`, `Points`, `Handicap`) **nel formato della
+> `csv_language` corrente** — virgola per `IT`/`ES` («Price=1,50»), punto per `EN` — cioè
+> **come usciranno davvero nel CSV**, tramite lo **stesso** localizzatore del write-path
+> (`csv_writer.localize_row`): anteprima e file non possono divergere. È solo la **vista**:
+> il dato interno resta canonico col punto (validatori/dedup invariati) e le colonne
+> testuali («Over 2.5 Goals») non sono mai toccate.
 
 > **Nota sull'arricchimento ID in anteprima (#192, Codex).** L'anteprima usa lo stesso motore del
 > runtime e, quando il dizionario Betfair locale è disponibile, **risolve gli ID come il live**: la

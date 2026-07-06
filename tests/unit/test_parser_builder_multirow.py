@@ -11,15 +11,28 @@ MultiMarket configurato via builder generava 1 sola riga; questi test falliscono
 """
 
 import importlib
+import inspect
 import os
 import sys
 import types
 
+import pytest
+
+from xtrader_bridge import csv_writer
 from xtrader_bridge import custom_parser as cp
 from xtrader_bridge import parser_builder as pb
 from xtrader_bridge import recognition
 from xtrader_bridge import validator
 from xtrader_bridge.csv_writer import CSV_HEADER
+
+
+@pytest.fixture(autouse=True)
+def _restore_csv_language():
+    """L'anteprima localizza i decimali con la lingua CSV corrente (#342): ripristina lo
+    stato del modulo dopo ogni test, così un set_csv_language qui non inquina altri file."""
+    prev = csv_writer.get_csv_language()
+    yield
+    csv_writer.set_csv_language(prev)
 
 # Messaggio reale della issue #192.
 MSG = (
@@ -304,6 +317,8 @@ def test_test_verdict_bounds_detail_non_scambiato_per_mancanti():
 
 
 def test_test_verdict_pronto_single_row():
+    # Lingua EN = separatore punto: il verdetto mostra i decimali CANONICI (col punto).
+    csv_writer.set_csv_language("EN")
     msg = pb.ParserBuilder.test_verdict(
         [], [_base_pr(placeable=True)], diag_placeable=True, diag_status=validator.VALID,
         res_row={"EventName": "Inter v Milan", "Price": "1.85", "Handicap": ""},
@@ -311,6 +326,19 @@ def test_test_verdict_pronto_single_row():
     assert msg.startswith("✅ Pronto")
     assert "EventName=Inter v Milan" in msg and "Price=1.85" in msg
     assert "Handicap" not in msg              # i vuoti non compaiono
+
+
+def test_test_verdict_pronto_decimali_localizzati_it():
+    # #342 follow-up (#344): il verdetto mostra i decimali COME usciranno nel file — con
+    # csv_language IT la Price è «1,85» (virgola), non il canonico interno «1.85».
+    csv_writer.set_csv_language("IT")
+    msg = pb.ParserBuilder.test_verdict(
+        [], [_base_pr(placeable=True)], diag_placeable=True, diag_status=validator.VALID,
+        res_row={"EventName": "Inter v Milan", "Price": "1.85"},
+        res_missing_required=[], res_detail=None)
+    assert "Price=1,85" in msg
+    assert "Price=1.85" not in msg
+    assert "EventName=Inter v Milan" in msg   # le colonne testuali NON sono toccate
 
 
 def test_test_verdict_multi_delega_a_preview_summary():
@@ -637,3 +665,323 @@ def test_kyb_full_disk_roundtrip_preserva_campi_multi_nascosti(tmp_path):
     assert r0.handicap == "-0.5"      # ...e handicap (campo VISIBILE) round-trip completo
     # flag `enabled` preservato: una riga disabilitata non "resuscita" attiva
     assert r1.selection_name == "2 - 1" and r1.enabled is False
+
+
+# ── PR-cestino (follow-up review #341/#344): avvisi per-riga sulle selezioni ──
+# La detection specchia `custom_pipeline._is_dynamic_selection`: gli avvisi devono dire
+# all'utente ESATTAMENTE quando il runtime ignora i delimitatori (Selezione fissa) o non
+# attiva l'estrazione dinamica (mercato effettivo non-punteggio, gate #341).
+
+def test_warning_selezione_fissa_con_delimitatori():
+    # Config ambigua: Selezione fissa + delimitatori → il runtime IGNORA i delimitatori.
+    b = _multiselection_builder()
+    b.multi_selections[1].start_after = "⚽"
+    warnings = b.multi_warnings()
+    assert any("Riga selezione 2" in w and "IGNORATI" in w for w in warnings)
+    # le righe senza delimitatori non generano avvisi per-riga
+    assert not any("Riga selezione 1" in w or "Riga selezione 3" in w for w in warnings)
+
+
+def test_no_warning_dinamica_su_mercato_punteggio():
+    # Selezione vuota + delimitatori + base fissa CORRECT_SCORE → estrazione ATTIVA: silenzio.
+    b = _multiselection_builder()
+    b.add_multi_selection(selection_name="", start_after="⚽")
+    assert not any("Riga selezione" in w for w in b.multi_warnings())
+
+
+def test_warning_dinamica_inattiva_override_non_punteggio():
+    # L'override MarketType della riga vince sulla base: MATCH_ODDS non è un mercato-punteggio
+    # → la riga resta FISSA (gate #341) e l'avviso lo dice, citando il mercato.
+    b = _multiselection_builder()
+    b.add_multi_selection(selection_name="", start_after="⚽", market_type="MATCH_ODDS")
+    warnings = b.multi_warnings()
+    assert any("Riga selezione 4" in w and "INATTIVA" in w and "MATCH_ODDS" in w
+               for w in warnings)
+
+
+def test_warning_dinamica_inattiva_base_fissa_non_punteggio():
+    # Nessun override sulla riga: conta il MarketType FISSO della base (statico → certo).
+    b = _base_builder(extra_rules=[cp.FieldRule(target="MarketType", fixed_value="MATCH_ODDS")])
+    b.multi_selection_enabled = True
+    b.add_multi_selection(selection_name="", end_before="⌚")
+    warnings = b.multi_warnings()
+    assert any("Riga selezione 1" in w and "INATTIVA" in w for w in warnings)
+
+
+def test_warning_dinamica_inattiva_mercato_vuoto():
+    # Base SENZA regola MarketType (e nessuna mappatura mercati): mercato effettivo statico
+    # = "" → non-punteggio certo → avviso con "(vuoto)".
+    b = _base_builder()
+    b.multi_selection_enabled = True
+    b.add_multi_selection(selection_name="", start_after="⚽")
+    warnings = b.multi_warnings()
+    assert any("(vuoto)" in w and "INATTIVA" in w for w in warnings)
+
+
+def test_no_warning_se_mercato_base_noto_solo_a_runtime():
+    # MarketType estratto dal messaggio → il mercato effettivo è ignoto staticamente:
+    # NESSUN falso allarme (fail-safe: meglio tacere che gridare al lupo).
+    b = _base_builder(extra_rules=[cp.FieldRule(target="MarketType", start_after="🏆")])
+    b.multi_selection_enabled = True
+    b.add_multi_selection(selection_name="", start_after="⚽")
+    assert not any("INATTIVA" in w for w in b.multi_warnings())
+
+
+def test_no_warning_inattiva_se_mappatura_mercati_attiva():
+    # Coi profili mercati la mappatura a frase può SOVRASCRIVERE il MarketType a runtime
+    # (D1 «il dizionario vince»): base fissa non-punteggio NON è più una certezza → silenzio.
+    b = _base_builder(extra_rules=[cp.FieldRule(target="MarketType", fixed_value="MATCH_ODDS")])
+    b.market_mapping_profiles = ["profilo-mercati"]
+    b.multi_selection_enabled = True
+    b.add_multi_selection(selection_name="", start_after="⚽")
+    assert not any("INATTIVA" in w for w in b.multi_warnings())
+
+
+def test_no_warning_riga_disabilitata_o_toggle_spento():
+    # Una riga disattivata (o il toggle MultiSelection spento) non genera righe → niente avvisi.
+    b = _multiselection_builder()
+    b.multi_selections[0].selection_name = ""
+    b.multi_selections[0].start_after = "⚽"
+    b.multi_selections[0].market_type = "MATCH_ODDS"
+    b.multi_selections[0].enabled = False
+    assert not any("Riga selezione" in w for w in b.multi_warnings())
+    b.multi_selections[0].enabled = True
+    b.multi_selection_enabled = False
+    assert not any("Riga selezione" in w for w in b.multi_warnings())
+
+
+def test_no_warning_delimitatore_solo_spazi():
+    # Come il runtime (`_is_dynamic_selection`): un delimitatore di soli spazi NON conta —
+    # né per l'estrazione dinamica né per gli avvisi (nessuna riga «ambigua» da segnalare).
+    b = _multiselection_builder()
+    b.multi_selections[0].start_after = "   "
+    assert not any("Riga selezione" in w for w in b.multi_warnings())
+
+
+def test_warning_gate_allineato_al_runtime():
+    # Anti-drift: il set dei mercati-punteggio degli avvisi È quello del runtime (import,
+    # non copia). Se divergessero, l'avviso mentirebbe sul comportamento reale.
+    from xtrader_bridge import custom_pipeline
+    assert pb.DYNAMIC_SCORE_MARKETS is custom_pipeline._DYNAMIC_SCORE_MARKETS
+
+
+# ── PR-cestino: anteprima coi decimali nel formato csv_language (#342/#344) ──
+
+def test_preview_rows_summary_decimali_localizzati_it():
+    # Con csv_language IT il summary mostra «1,50» (come nel file); il DATO `row` resta
+    # canonico col punto (validatori/dedup non dipendono dalla lingua).
+    csv_writer.set_csv_language("IT")
+    b = _multiselection_builder()
+    rows = b.preview_rows(MSG, mode="NAME_ONLY")
+    assert rows and all(r.placeable for r in rows)
+    assert all("Price=1,50" in r.summary for r in rows)
+    assert all(r.row["Price"] == "1.50" for r in rows)
+
+
+def test_preview_rows_summary_decimali_punto_en():
+    csv_writer.set_csv_language("EN")
+    b = _multiselection_builder()
+    rows = b.preview_rows(MSG, mode="NAME_ONLY")
+    assert rows and all("Price=1.50" in r.summary for r in rows)
+    assert not any("Price=1,50" in r.summary for r in rows)
+
+
+def test_preview_rows_summary_testo_non_toccato():
+    # Solo le colonne DECIMALI sono localizzate: un SelectionName «1 - 0» o un MarketName
+    # con virgola/punto restano identici nel summary (stessa regola del write-path #342).
+    csv_writer.set_csv_language("IT")
+    b = _multiselection_builder()
+    rows = b.preview_rows(MSG, mode="NAME_ONLY")
+    assert any("SelectionName=1 - 0" in r.summary for r in rows)
+    assert all("MarketName=Risultato esatto" in r.summary for r in rows)
+
+
+# ── PR-cestino: glue GUI — il banner avvisi si aggiorna sui campi digitati ──
+
+class _RecEntry:
+    """CTkEntry finto che REGISTRA i bind: verifica che ogni campo riga multi aggiorni
+    il banner avvisi quando l'utente lascia il campo (<FocusOut>)."""
+
+    def __init__(self, *a, **k):
+        self.bindings = {}
+        self._text = ""
+
+    def insert(self, _i, s):
+        self._text += s
+
+    def get(self):
+        return self._text
+
+    def pack(self, *a, **k):
+        return self
+
+    def bind(self, event, cb):
+        self.bindings[event] = cb
+
+
+class _RecCheckBox:
+    """CTkCheckBox finto che registra i kwargs (per verificare `command=`)."""
+
+    created = []
+
+    def __init__(self, *a, **k):
+        type(self).created.append(k)
+
+    def pack(self, *a, **k):
+        return self
+
+
+class _NoopWidget:
+    def __init__(self, *a, **k):
+        pass
+
+    def __getattr__(self, _n):
+        return lambda *a, **k: _NoopWidget()
+
+
+class _RecFakeCtk(types.ModuleType):
+    CTkEntry = _RecEntry
+    CTkCheckBox = _RecCheckBox
+
+    def __getattr__(self, _name):        # ogni altro widget/font/var → no-op
+        return _NoopWidget
+
+
+def test_gui_add_multi_row_aggancia_refresh_avvisi(monkeypatch):
+    # Esercita il VERO `_add_multi_row_widget`: ogni entry della riga deve avere il bind
+    # <FocusOut> → `_refresh_multi_warnings`, e la checkbox «Attiva» il `command=` omologo
+    # (gli avvisi per-riga dipendono dal testo digitato e dallo stato Attiva).
+    monkeypatch.setitem(sys.modules, "customtkinter", _RecFakeCtk("customtkinter"))
+    monkeypatch.delitem(sys.modules, "xtrader_bridge.custom_parser_gui", raising=False)
+    gui = importlib.import_module("xtrader_bridge.custom_parser_gui")
+
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)   # no __init__: nessun widget
+    calls = []
+    panel._refresh_multi_warnings = lambda: calls.append(1)
+    _RecCheckBox.created = []
+    refs_list = []
+    panel._add_multi_row_widget(_NoopWidget(), refs_list, cp.MultiRowRule(),
+                                fields=gui.CustomParserPanel._MULTI_SELECTION_FIELDS)
+    refs = refs_list[0]
+    for attr, _, _ in gui.CustomParserPanel._MULTI_SELECTION_FIELDS:
+        cb = refs[attr].bindings.get("<FocusOut>")
+        assert cb is not None, f"campo {attr}: manca il bind <FocusOut>"
+        cb(None)                                       # simula l'uscita dal campo
+    assert len(calls) == len(gui.CustomParserPanel._MULTI_SELECTION_FIELDS)
+    # checkbox «Attiva»: command aggiorna il banner
+    attiva = [k for k in _RecCheckBox.created if k.get("text") == "Attiva"]
+    assert attiva and attiva[0].get("command") is not None
+    attiva[0]["command"]()
+    assert len(calls) == len(gui.CustomParserPanel._MULTI_SELECTION_FIELDS) + 1
+
+
+def test_gui_test_riallinea_banner_avvisi(monkeypatch):
+    # Pin strutturale (come i pin di `_start` in test_app_runtime_glue: `_test` è
+    # GUI-coupled): «Prova messaggio» deve riallineare il banner avvisi DOPO la
+    # sincronizzazione dei widget (gli avvisi dipendono anche dalla griglia base).
+    gui = _gui_module(monkeypatch)
+    src = inspect.getsource(gui.CustomParserPanel._test)
+    assert "_refresh_multi_warnings" in src
+    assert src.index("_sync_to_builder") < src.index("_refresh_multi_warnings")
+
+
+def test_gui_reload_multi_svuota_refs_prima_di_destroy(monkeypatch):
+    # CodeRabbit #348: `_reload_multi_from_builder` deve SVUOTARE le liste refs PRIMA di
+    # distruggere i frame — distruggere un entry che ha il focus può far scattare il suo
+    # `<FocusOut>` (nuovo bind di questa PR) e rientrare in `_sync_multi_to_builder`, che
+    # con le liste ancora piene leggerebbe widget mezzi distrutti / resusciterebbe righe
+    # stantie. Esercita il VERO metodo: ogni destroy registra se i suoi refs sono ancora
+    # raggiungibili dal pannello (fail-first: con l'ordine vecchio leaks == [True, True]).
+    gui = _gui_module(monkeypatch)
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)
+    leaks = []
+
+    class _SpyVar:
+        def set(self, _v):
+            pass
+
+    class _SpyFrame:
+        def __init__(self, attr):
+            self.attr = attr
+
+        def destroy(self):
+            rows = getattr(panel, self.attr)
+            leaks.append(any(r.get("frame") is self for r in rows))
+
+    panel._multi_market_var = _SpyVar()
+    panel._multi_selection_var = _SpyVar()
+    panel.builder = pb.ParserBuilder()          # multi spenti/vuoti: nessuna riga ricreata
+    panel._multi_markets_box = panel._multi_selections_box = None
+    panel._add_multi_row_widget = lambda *a, **k: None
+    panel._refresh_multi_warnings = lambda: None
+    panel._multi_market_rows = [{"frame": _SpyFrame("_multi_market_rows")}]
+    panel._multi_selection_rows = [{"frame": _SpyFrame("_multi_selection_rows")}]
+
+    panel._reload_multi_from_builder()
+
+    assert leaks == [False, False]              # refs già rimossi quando destroy scatta
+    assert panel._multi_market_rows == [] and panel._multi_selection_rows == []
+
+
+def test_gui_reload_multi_sync_rientrante_non_perde_le_righe(monkeypatch):
+    # Fable/Fugu #348: durante `_reload_multi_from_builder`, un <FocusOut> rientrante che
+    # arriva al VERO `_refresh_multi_warnings` → `_sync_multi_to_builder` vedrebbe le liste
+    # GUI transitoriamente vuote e riscriverebbe `builder.multi_markets/multi_selections=[]`
+    # PRIMA dei loop di ricostruzione → perdita silenziosa delle righe del parser caricato.
+    # Il guard `_multi_reloading` rende il refresh rientrante un no-op. Qui il destroy dello
+    # spy invoca DAVVERO il refresh reale (non uno stub): fail-first — senza guard il builder
+    # perde le 2 righe mercato e non ne viene ricostruita nessuna.
+    gui = _gui_module(monkeypatch)
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)
+
+    class _SpyVar:
+        def __init__(self, value=False):
+            self._v = value
+
+        def set(self, v):
+            self._v = v
+
+        def get(self):
+            return self._v
+
+    class _NoopLabel:
+        def configure(self, **_k):
+            pass
+
+    class _EvilFrame:
+        def destroy(self):
+            panel._refresh_multi_warnings()      # rientranza reale: FocusOut durante destroy
+
+    panel._multi_market_var = _SpyVar()
+    panel._multi_selection_var = _SpyVar()
+    panel._multi_warn = _NoopLabel()
+    panel.builder = _multimarket_builder()       # builder POPOLATO: 2 righe mercato
+    panel._multi_markets_box = panel._multi_selections_box = None
+    rebuilt = []
+
+    def _fake_add_row(box, refs_list, rule, fields=None):
+        # Refs COMPLETI (entry per campo + Attiva), così il refresh finale del reload può
+        # eseguire il VERO `_sync_multi_to_builder`/`_multi_rule_from_refs` senza stub.
+        fields = fields or gui.CustomParserPanel._MULTI_FIELDS
+        refs = {"frame": object(), "_rule": rule, "_fields": fields,
+                "enabled": _FakeVar(bool(rule.enabled))}
+        for attr, _label, _w in fields:
+            refs[attr] = _FakeVar(getattr(rule, attr, "") or "")
+        refs_list.append(refs)
+        rebuilt.append(rule)
+
+    panel._add_multi_row_widget = _fake_add_row
+    panel._multi_market_rows = [{"frame": _EvilFrame()}]
+    panel._multi_selection_rows = []
+
+    panel._reload_multi_from_builder()
+
+    # Le 2 righe mercato del builder sopravvivono al reload e vengono ridisegnate.
+    assert [r.market_type for r in panel.builder.multi_markets] == [
+        "FIRST_HALF_GOALS_05", "OVER_UNDER_15"]
+    assert len(rebuilt) == 2 and len(panel._multi_market_rows) == 2
+    # A reload finito il guard è basso: il refresh normale torna operativo (e sincronizza).
+    assert panel._multi_reloading is False
+    panel._refresh_multi_warnings()
+    assert [r.market_type for r in panel.builder.multi_markets] == [
+        "FIRST_HALF_GOALS_05", "OVER_UNDER_15"]

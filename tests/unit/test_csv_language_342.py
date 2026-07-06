@@ -223,3 +223,21 @@ def test_scritture_stesso_file_lingua_coerente(tmp_path):
         rows = list(csv.reader(f))
     prices = [dict(zip(csv_writer.CSV_HEADER, r))["Price"] for r in rows[1:]]
     assert prices == ["1,85", "2,10"]
+
+
+# ── localize_row (wrapper pubblico per le anteprime, PR-cestino) ─────────────
+
+def test_localize_row_lang_esplicita_es_e_default_corrente():
+    # GLM #348: copertura esplicita del wrapper pubblico. `lang` esplicita vince sempre;
+    # senza `lang` usa la lingua corrente del modulo (stessa fonte del write-path).
+    row = _riga(Price="1.85", Points="2.5", Handicap="-1.5")
+    es = csv_writer.localize_row(row, "ES")
+    assert (es["Price"], es["Points"], es["Handicap"]) == ("1,85", "2,5", "-1,5")
+    assert es["EventName"] == "Inter v Milan"            # testuali invariate
+    assert row["Price"] == "1.85"                        # l'input NON è mutato (copia)
+    csv_writer.set_csv_language("EN")
+    default_en = csv_writer.localize_row(row)
+    assert default_en["Price"] == "1.85"
+    csv_writer.set_csv_language("IT")
+    default_it = csv_writer.localize_row(row)
+    assert default_it["Price"] == "1,85"

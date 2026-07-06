@@ -673,6 +673,11 @@ class CustomParserPanel(ctk.CTkFrame):
         ("start_after", "Inizia dopo", 110),
         ("end_before", "Finisce prima", 110),
     )
+    # Guard anti-rientranza di `_reload_multi_from_builder` (Fable/Fugu #348): default di
+    # CLASSE (non attributo d'istanza creato altrove) così `_refresh_multi_warnings` può
+    # leggerlo sempre senza passare dal `__getattr__` ricorsivo di Tk su attributo mancante
+    # (stessa trappola del lock di istanza, #346).
+    _multi_reloading = False
 
     def _build_multi_section(self, outer):
         """Sezione output multi-riga: due interruttori + due liste di righe dinamiche.
@@ -741,9 +746,14 @@ class CustomParserPanel(ctk.CTkFrame):
             entry = ctk.CTkEntry(cell, width=w)
             entry.insert(0, getattr(rule, attr, "") or "")
             entry.pack()
+            # Il banner avvisi ora ha avvisi PER-RIGA che dipendono dal testo digitato
+            # (Selezione fissa + delimitatori, mercato non-punteggio): si aggiorna quando
+            # l'utente lascia il campo, non solo su aggiungi/rimuovi/toggle.
+            entry.bind("<FocusOut>", lambda _e: self._refresh_multi_warnings())
             refs[attr] = entry
         refs["enabled"] = ctk.BooleanVar(value=bool(getattr(rule, "enabled", True)))
-        ctk.CTkCheckBox(row, text="Attiva", variable=refs["enabled"], width=40).pack(
+        ctk.CTkCheckBox(row, text="Attiva", variable=refs["enabled"], width=40,
+                        command=self._refresh_multi_warnings).pack(
             side="left", padx=6)
         ctk.CTkButton(row, text="🗑 Rimuovi", width=90, fg_color="#7f0000",
                       command=lambda: self._remove_multi_row(refs_list, refs)).pack(
@@ -780,20 +790,37 @@ class CustomParserPanel(ctk.CTkFrame):
         self._refresh_multi_warnings()
 
     def _reload_multi_from_builder(self):
-        """Ridisegna interruttori + righe multi dal builder (caricamento parser/nuovo)."""
-        self._multi_market_var.set(bool(self.builder.multi_market_enabled))
-        self._multi_selection_var.set(bool(self.builder.multi_selection_enabled))
-        for refs in list(self._multi_market_rows):
-            refs["frame"].destroy()
-        self._multi_market_rows = []
-        for refs in list(self._multi_selection_rows):
-            refs["frame"].destroy()
-        self._multi_selection_rows = []
-        for rule in self.builder.multi_markets:
-            self._add_multi_row_widget(self._multi_markets_box, self._multi_market_rows, rule)
-        for rule in self.builder.multi_selections:
-            self._add_multi_row_widget(self._multi_selections_box, self._multi_selection_rows,
-                                       rule, fields=self._MULTI_SELECTION_FIELDS)
+        """Ridisegna interruttori + righe multi dal builder (caricamento parser/nuovo).
+
+        Le liste refs vengono SVUOTATE prima di distruggere i frame (CodeRabbit #348):
+        distruggere un entry che ha il focus può far scattare il suo `<FocusOut>` →
+        `_refresh_multi_warnings` in modo rientrante; con le liste già vuote il sync non
+        legge widget mezzi distrutti né resuscita righe stantie (stesso ordine di
+        `_remove_multi_row`: prima via dalla lista, poi destroy).
+
+        In più, per TUTTA la durata del reload il flag `_multi_reloading` rende
+        `_refresh_multi_warnings` un no-op (Fable #348): senza il guard, un refresh
+        rientrante durante i destroy vedrebbe le liste GUI vuote e SOVRASCRIVEREBBE
+        `builder.multi_markets/multi_selections` con `[]` PRIMA dei loop di ricostruzione
+        qui sotto (che iterano proprio su quelle liste del builder) → perdita silenziosa
+        delle righe multi al caricamento di un parser."""
+        self._multi_reloading = True
+        try:
+            self._multi_market_var.set(bool(self.builder.multi_market_enabled))
+            self._multi_selection_var.set(bool(self.builder.multi_selection_enabled))
+            old_market_rows, self._multi_market_rows = self._multi_market_rows, []
+            old_selection_rows, self._multi_selection_rows = self._multi_selection_rows, []
+            for refs in old_market_rows:
+                refs["frame"].destroy()
+            for refs in old_selection_rows:
+                refs["frame"].destroy()
+            for rule in self.builder.multi_markets:
+                self._add_multi_row_widget(self._multi_markets_box, self._multi_market_rows, rule)
+            for rule in self.builder.multi_selections:
+                self._add_multi_row_widget(self._multi_selections_box, self._multi_selection_rows,
+                                           rule, fields=self._MULTI_SELECTION_FIELDS)
+        finally:
+            self._multi_reloading = False
         self._refresh_multi_warnings()
 
     def _sync_multi_to_builder(self):
@@ -822,7 +849,14 @@ class CustomParserPanel(ctk.CTkFrame):
             enabled=bool(refs["enabled"].get()))
 
     def _refresh_multi_warnings(self):
-        """Aggiorna il banner avvisi dal controller (sincronizza prima i widget)."""
+        """Aggiorna il banner avvisi dal controller (sincronizza prima i widget).
+
+        No-op durante `_reload_multi_from_builder` (Fable/Fugu #348): un `<FocusOut>`
+        rientrante mentre le righe vengono distrutte/ricostruite farebbe scrivere nel
+        builder le liste GUI transitoriamente vuote, perdendo le righe multi del parser
+        appena caricato. Il reload chiama comunque questo metodo alla fine, a flag basso."""
+        if self._multi_reloading:
+            return
         self._sync_multi_to_builder()
         warnings = self.builder.multi_warnings()
         self._multi_warn.configure(text=("\n".join(f"⚠ {w}" for w in warnings)) if warnings else "")
@@ -1139,6 +1173,10 @@ class CustomParserPanel(ctk.CTkFrame):
         self._reload_profile_checks()   # rifletti modifiche al dizionario fatte altrove (Codex)
         self._reload_market_profile_checks()
         self._sync_to_builder()
+        # Riallinea il banner avvisi multi allo stato appena sincronizzato: gli avvisi per-riga
+        # (#325 follow-up) dipendono anche dai campi della griglia base (MarketType fisso) e dai
+        # profili mercati, che non passano dai refresh su FocusOut delle sole righe multi.
+        self._refresh_multi_warnings()
         unresolved = self._unresolved_selected()
         if unresolved:
             # Mappatura richiesta ma con profili non risolvibili: non mostrare un'anteprima
