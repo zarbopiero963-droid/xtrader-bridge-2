@@ -1379,19 +1379,28 @@ class App(ctk.CTk):
         lbls = self.__dict__.get("_health_lbls")
         if not lbls:
             return
+        try:
+            self._refresh_health_inner(lbls)
+        except Exception:   # noqa: BLE001 — il pannello Salute è diagnostica BEST-EFFORT
+            # (Fable #351): una sonda che solleva (share di rete instabile, config
+            # corrotta) non deve MAI rompere il monitoraggio primario («Ultimo …»,
+            # dashboard) né i chiamanti (_set_last/START/STOP/save).
+            pass
+
+    def _refresh_health_inner(self, lbls) -> None:
         cfg = self._config if isinstance(self._config, dict) else {}
         try:
             status = self._status_lbl.cget("text")
         except Exception:   # noqa: BLE001 — widget non pronto: semaforo OFFLINE onesto
             status = health_check.LISTENER_OFFLINE
-        csv_ok, csv_detail = health_check.csv_writable(cfg.get("csv_path", ""))
+        csv_state, csv_detail = health_check.csv_writable(cfg.get("csv_path", ""))
         items = health_check.evaluate(
             listener_status=status,
             last_message=self._last_vals.get("message", ""),
             parser_active=signal_router.has_active_parser_config(cfg),
             last_signal=self._last_vals.get("signal", ""),
             last_error=self._last_vals.get("error", ""),
-            csv_ok=csv_ok, csv_detail=csv_detail,
+            csv_state=csv_state, csv_detail=csv_detail,
             confirmations_enabled=bool(str(cfg.get(
                 "xtrader_notification_chat_id", "") or "").strip()),
             last_confirmation=self._last_vals.get("confirmation", ""),
@@ -1422,9 +1431,12 @@ class App(ctk.CTk):
         `_LAST_PREFIX`. Thread Tk (dal bot via `self.after`)."""
         safe = event_log.redact_secrets(str(value or ""))
         self._last_vals[kind] = safe
-        self._refresh_health()   # i semafori Salute dipendono dagli «Ultimo …» (#311 §3.3)
         self._last_lbls[kind].configure(
             text=f"{_LAST_PREFIX[kind]}: {safe or '—'}", text_color=color)
+
+        # #311 §3.3: i semafori dipendono dagli «Ultimo …». DOPO l'aggiornamento
+        # delle label primarie e best-effort (Fable #351): mai rompere il monitoraggio.
+        self._refresh_health()
 
     def _note_csv(self, path: str, n: int) -> None:
         """Aggiorna il campo "Ultimo CSV" con path, righe attive e ora. Va chiamato su
@@ -1550,6 +1562,10 @@ class App(ctk.CTk):
                 collaudo.pack(fill="x", padx=15, pady=(0, 5))
         else:
             collaudo.pack_forget()
+
+        # #311 §3.3: banner e semafori condividono i trigger (save/profilo/START/STOP):
+        # un solo hook qui li copre tutti. Best-effort per costruzione.
+        self._refresh_health()
 
     def _export_real_audit(self) -> None:
         """Esporta in un file scelto dall'utente le righe di AUDIT della modalità reale

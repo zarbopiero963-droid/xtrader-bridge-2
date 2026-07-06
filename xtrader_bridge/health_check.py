@@ -41,30 +41,38 @@ class HealthItem:
     detail: str = ""
 
 
-def csv_writable(path) -> "tuple[bool, str]":
-    """Sonda NON INVASIVA di scrivibilità del CSV: `(ok, motivo)`. Non apre mai il
-    file (nessun lock che disturbi XTrader): controlla esistenza/permessi con
-    `os.access`. File esistente → deve essere scrivibile; file assente → la
-    CARTELLA deve esistere ed essere scrivibile (il bridge lo creerà)."""
+def csv_writable(path) -> "tuple[str, str]":
+    """Sonda NON INVASIVA di scrivibilità del CSV: `(stato, motivo)` con stato ∈
+    {GREEN, YELLOW, RED}. Non apre mai il file (nessun lock che disturbi XTrader):
+    controlla esistenza/permessi con `os.access`. File assente → la CARTELLA deve
+    esistere ed essere scrivibile (il bridge lo creerà).
+
+    Onestà su **Windows** (Fable #351): su NTFS `os.access(W_OK)` ignora ACL e lock
+    attivi (es. XTrader che tiene il file) → un verde sarebbe FALSO proprio nello
+    scenario target. Con file esistente su Windows la sonda si ferma a GIALLO
+    («probabilmente scrivibile»), mai verde non verificabile."""
     p = str(path or "").strip()
     if not p:
-        return False, "csv_path non configurato"
+        return RED, "csv_path non configurato"
     if os.path.isdir(p):
-        return False, "il percorso è una cartella, non un file"
+        return RED, "il percorso è una cartella, non un file"
     if os.path.exists(p):
-        if os.access(p, os.W_OK):
-            return True, "file esistente e scrivibile"
-        return False, "file esistente ma NON scrivibile (permessi/lock)"
+        if not os.access(p, os.W_OK):
+            return RED, "file esistente ma NON scrivibile (permessi/lock)"
+        if os.name == "nt":
+            return YELLOW, ("file esistente, probabilmente scrivibile — su Windows "
+                            "ACL/lock (es. XTrader) non sono rilevabili senza aprirlo")
+        return GREEN, "file esistente e scrivibile"
     parent = os.path.dirname(p) or "."
     if not os.path.isdir(parent):
-        return False, f"cartella inesistente: {parent}"
+        return RED, f"cartella inesistente: {parent}"
     if os.access(parent, os.W_OK):
-        return True, "il file verrà creato (cartella scrivibile)"
-    return False, f"cartella NON scrivibile: {parent}"
+        return GREEN, "il file verrà creato (cartella scrivibile)"
+    return RED, f"cartella NON scrivibile: {parent}"
 
 
 def evaluate(*, listener_status=LISTENER_OFFLINE, last_message="", parser_active=False,
-             last_signal="", last_error="", csv_ok=False, csv_detail="",
+             last_signal="", last_error="", csv_state=RED, csv_detail="",
              confirmations_enabled=False, last_confirmation="", mode="") -> list:
     """I sette semafori (#311 §3.3) dagli input GIÀ disponibili nell'app. Puro."""
     items = []
@@ -100,8 +108,8 @@ def evaluate(*, listener_status=LISTENER_OFFLINE, last_message="", parser_active
         items.append(HealthItem("signal", "Ultimo segnale", YELLOW,
                                 "nessun segnale in questa sessione"))
 
-    items.append(HealthItem("csv", "CSV scrivibile", GREEN if csv_ok else RED,
-                            str(csv_detail or "")))
+    csv_state = csv_state if csv_state in (GREEN, YELLOW, RED) else RED  # fail-closed
+    items.append(HealthItem("csv", "CSV scrivibile", csv_state, str(csv_detail or "")))
 
     if not confirmations_enabled:
         items.append(HealthItem("confirmation", "Conferme XTrader", YELLOW,

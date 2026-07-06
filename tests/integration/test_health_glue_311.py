@@ -51,3 +51,14 @@ def test_refresh_health_colora_dallo_stato_vivo(app_mod, tmp_path, monkeypatch):
 def test_refresh_health_no_op_su_istanza_parziale(app_mod):
     app = object.__new__(app_mod.App)
     app._refresh_health()                                # nessun crash, nessun widget
+
+
+def test_refresh_health_best_effort_non_rompe_il_monitoraggio(app_mod, tmp_path, monkeypatch):
+    # Fable #351: una sonda che solleva (config corrotta, share instabile) NON deve
+    # propagare nei chiamanti (_set_last/START/STOP/save): il refresh è best-effort.
+    app = _bare(app_mod, tmp_path)
+    monkeypatch.setattr(app_mod.signal_router, "has_active_parser_config",
+                        lambda _c: (_ for _ in ()).throw(RuntimeError("config rotta")))
+    app._refresh_health()                                # nessuna eccezione propagata
+    # e le label semaforo restano come erano (nessun aggiornamento parziale sporco)
+    assert all(lbl.kw == {} for lbl in app._health_lbls.values())
