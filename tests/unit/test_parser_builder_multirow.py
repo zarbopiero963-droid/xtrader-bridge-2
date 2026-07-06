@@ -883,3 +883,41 @@ def test_gui_test_riallinea_banner_avvisi(monkeypatch):
     src = inspect.getsource(gui.CustomParserPanel._test)
     assert "_refresh_multi_warnings" in src
     assert src.index("_sync_to_builder") < src.index("_refresh_multi_warnings")
+
+
+def test_gui_reload_multi_svuota_refs_prima_di_destroy(monkeypatch):
+    # CodeRabbit #348: `_reload_multi_from_builder` deve SVUOTARE le liste refs PRIMA di
+    # distruggere i frame — distruggere un entry che ha il focus può far scattare il suo
+    # `<FocusOut>` (nuovo bind di questa PR) e rientrare in `_sync_multi_to_builder`, che
+    # con le liste ancora piene leggerebbe widget mezzi distrutti / resusciterebbe righe
+    # stantie. Esercita il VERO metodo: ogni destroy registra se i suoi refs sono ancora
+    # raggiungibili dal pannello (fail-first: con l'ordine vecchio leaks == [True, True]).
+    gui = _gui_module(monkeypatch)
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)
+    leaks = []
+
+    class _SpyVar:
+        def set(self, _v):
+            pass
+
+    class _SpyFrame:
+        def __init__(self, attr):
+            self.attr = attr
+
+        def destroy(self):
+            rows = getattr(panel, self.attr)
+            leaks.append(any(r.get("frame") is self for r in rows))
+
+    panel._multi_market_var = _SpyVar()
+    panel._multi_selection_var = _SpyVar()
+    panel.builder = pb.ParserBuilder()          # multi spenti/vuoti: nessuna riga ricreata
+    panel._multi_markets_box = panel._multi_selections_box = None
+    panel._add_multi_row_widget = lambda *a, **k: None
+    panel._refresh_multi_warnings = lambda: None
+    panel._multi_market_rows = [{"frame": _SpyFrame("_multi_market_rows")}]
+    panel._multi_selection_rows = [{"frame": _SpyFrame("_multi_selection_rows")}]
+
+    panel._reload_multi_from_builder()
+
+    assert leaks == [False, False]              # refs già rimossi quando destroy scatta
+    assert panel._multi_market_rows == [] and panel._multi_selection_rows == []

@@ -785,15 +785,21 @@ class CustomParserPanel(ctk.CTkFrame):
         self._refresh_multi_warnings()
 
     def _reload_multi_from_builder(self):
-        """Ridisegna interruttori + righe multi dal builder (caricamento parser/nuovo)."""
+        """Ridisegna interruttori + righe multi dal builder (caricamento parser/nuovo).
+
+        Le liste refs vengono SVUOTATE prima di distruggere i frame (CodeRabbit #348):
+        distruggere un entry che ha il focus può far scattare il suo `<FocusOut>` →
+        `_refresh_multi_warnings` → `_sync_multi_to_builder` in modo rientrante; con le
+        liste già vuote il sync non legge widget mezzi distrutti né resuscita righe stantie
+        (stesso ordine di `_remove_multi_row`: prima via dalla lista, poi destroy)."""
         self._multi_market_var.set(bool(self.builder.multi_market_enabled))
         self._multi_selection_var.set(bool(self.builder.multi_selection_enabled))
-        for refs in list(self._multi_market_rows):
+        old_market_rows, self._multi_market_rows = self._multi_market_rows, []
+        old_selection_rows, self._multi_selection_rows = self._multi_selection_rows, []
+        for refs in old_market_rows:
             refs["frame"].destroy()
-        self._multi_market_rows = []
-        for refs in list(self._multi_selection_rows):
+        for refs in old_selection_rows:
             refs["frame"].destroy()
-        self._multi_selection_rows = []
         for rule in self.builder.multi_markets:
             self._add_multi_row_widget(self._multi_markets_box, self._multi_market_rows, rule)
         for rule in self.builder.multi_selections:
