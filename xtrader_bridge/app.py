@@ -1467,16 +1467,11 @@ class App(ctk.CTk):
         if banner is None:
             return
         live = cfg if isinstance(cfg, dict) else (self._config if isinstance(self._config, dict) else {})
-        # Decisione ROSSO **mode-aware** (Fugu #349): il criterio storico basato su
-        # dry_run=False si accenderebbe anche in COLLAUDO, mostrando «REALE ATTIVA»
-        # durante il collaudo e sopprimendo l'ambra. Il rosso vale SOLO per il REALE.
-        active = bridge_mode.real_banner_active(
-            live, session_active=self._running,
-            session_mode=self.__dict__.get("_session_mode", ""))
-        # Banner COLLAUDO (#311 §3.1): stessa logica sticky di sessione del rosso, ma il
-        # ROSSO ha PRIORITÀ (mai due banner insieme: il rischio maggiore vince).
+        # Decisione PURA (Fugu/CodeRabbit #349): rosso mode-aware (il criterio storico su
+        # dry_run=False si accenderebbe anche in COLLAUDO sopprimendo l'ambra) + priorità
+        # del rosso, entrambe in `bridge_mode.banners_for` (testata con input concreti).
         collaudo = getattr(self, "_collaudo_banner", None)
-        collaudo_on = (not active) and bridge_mode.collaudo_banner_active(
+        active, collaudo_on = bridge_mode.banners_for(
             live, session_active=self._running,
             session_mode=self.__dict__.get("_session_mode", ""))
         tabs = getattr(self, "_tabs", None)

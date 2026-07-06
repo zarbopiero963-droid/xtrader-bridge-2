@@ -74,11 +74,32 @@ def test_banner_collaudo_subordinato_al_rosso(app_mod):
     # Pin strutturale (widget non istanziabili headless): il banner COLLAUDO è gestito
     # da _update_real_mode_banner, si accende SOLO se il rosso non è attivo (priorità
     # al rischio maggiore) e usa la decisione pura collaudo_banner_active.
+    # La PRIORITÀ è logica pura testata con input concreti (bridge_mode.banners_for,
+    # CodeRabbit #349): qui si pinna solo che la vista la usi davvero (mode-aware,
+    # niente criterio dry_run) e le passi lo stato di sessione.
     src = inspect.getsource(app_mod.App._update_real_mode_banner)
-    assert "collaudo_banner_active" in src
-    assert "(not active)" in src
+    assert "bridge_mode.banners_for" in src
     assert "_session_mode" in src
-    # Fugu #349: il ROSSO deve usare la decisione MODE-AWARE (real_banner_active), non
-    # real_mode.banner_active basata su dry_run (in COLLAUDO accenderebbe «REALE»).
-    assert "bridge_mode.real_banner_active" in src
     assert "real_mode.banner_active" not in src
+
+
+def test_form_legacy_verso_reale_passa_comunque_dal_gate(app_mod):
+    # Fable #349: un form legacy (solo dry_run=false, niente bridge_mode) che porta la
+    # config in REALE NON bypassa la conferma frase — _gate_dangerous_transitions gira
+    # DOPO apply_advanced su ogni save/caricamento profilo e confronta i MODI effettivi.
+    from xtrader_bridge import config_store as cs
+    from xtrader_bridge import settings_controller as sc
+    base = dict(cs.DEFAULTS)                       # SIMULAZIONE
+    form_legacy = {"recognition_mode": "NAME_ONLY", "queue_mode": "OVERWRITE_LAST",
+                   "dry_run": False, "max_per_day": "10", "max_active_signals": "1",
+                   "xtrader_notification_chat_id": "", "confirmation_timeout": "120",
+                   "confirmation_keywords": "", "rejection_keywords": "",
+                   "auto_start_listener": False, "debug_message_payload": False}
+    cfg, errors = sc.apply_advanced(base, form_legacy)
+    assert errors == [] and bm.mode_from_cfg(cfg) == RE
+    asked = []
+    app = _bare_app(app_mod)
+    app._confirm_real_mode = lambda: (asked.append(1), False)[1]
+    gated = app._gate_dangerous_transitions(base, cfg)
+    assert asked, "gate REALE non chiesto sul path legacy"
+    assert gated["dry_run"] is True and gated["bridge_mode"] == SIM   # annullo → torna a sim

@@ -117,6 +117,19 @@ def collaudo_banner_active(live_cfg, *, session_active=False, session_mode="") -
             or (bool(session_active) and session_mode == COLLAUDO))
 
 
+def banners_for(live_cfg, *, session_active=False, session_mode=""):
+    """Decisione PURA dei banner: `(rosso, ambra)` — MAI entrambi `True` (il rosso ha
+    priorità: rischio maggiore vince). Estratta così la vista (`_update_real_mode_banner`)
+    resta sottile e la priorità è testabile con input concreti (CodeRabbit #349), non con
+    pin sul sorgente. Caso limite coperto: config viva REALE + sessione partita in
+    COLLAUDO → solo rosso (l'ambra sarebbe fuorviante sul rischio in corso)."""
+    red = real_banner_active(live_cfg, session_active=session_active,
+                             session_mode=session_mode)
+    amber = (not red) and collaudo_banner_active(
+        live_cfg, session_active=session_active, session_mode=session_mode)
+    return red, amber
+
+
 def mode_options() -> list:
     """Etichette del selettore GUI, nell'ordine di `VALID_MODES`."""
     return [LABELS[m] for m in VALID_MODES]

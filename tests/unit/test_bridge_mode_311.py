@@ -147,6 +147,17 @@ def test_apply_advanced_form_legacy_solo_dry_run_invariato():
     form["dry_run"] = False
     cfg, errors = sc.apply_advanced(base, form)
     assert errors == [] and cfg["dry_run"] is False
+    # Coerenza IMMEDIATA (Fable/GLM #349): il path legacy ri-deriva bridge_mode dalla
+    # coppia risultante — niente `dry_run=false` + `bridge_mode:"SIMULAZIONE"` persistiti.
+    assert cfg["bridge_mode"] == RE          # legacy reale: nessun declassamento
+    form["dry_run"] = True
+    cfg2, _ = sc.apply_advanced(base, form)
+    assert cfg2["bridge_mode"] == SIM and cfg2["dry_run"] is True
+    # COLLAUDO già dichiarato in base + form legacy dry_run=false → preservato.
+    base_col = dict(config_store.DEFAULTS, bridge_mode=COL, dry_run=False)
+    form["dry_run"] = False
+    cfg3, _ = sc.apply_advanced(base_col, form)
+    assert cfg3["bridge_mode"] == COL
 
 
 def test_current_values_mostra_etichetta_del_modo_effettivo():
@@ -191,3 +202,16 @@ def test_real_banner_sticky_di_sessione_per_modo():
     # Sessione partita in COLLAUDO → rosso NO (resta l'ambra, già testata sopra).
     assert bm.real_banner_active(sim, session_active=True, session_mode=COL) is False
     assert bm.real_banner_active(sim) is False
+
+
+def test_banners_for_priorita_e_mutua_esclusione():
+    # (rosso, ambra) con input concreti: mai entrambi accesi, il rosso vince.
+    assert bm.banners_for({"dry_run": False, "bridge_mode": RE}) == (True, False)
+    assert bm.banners_for({"dry_run": False, "bridge_mode": COL}) == (False, True)
+    assert bm.banners_for({"dry_run": True}) == (False, False)
+    # Caso limite: config viva REALE + sessione partita in COLLAUDO → SOLO rosso.
+    assert bm.banners_for({"dry_run": False, "bridge_mode": RE},
+                          session_active=True, session_mode=COL) == (True, False)
+    # Sessione REALE sticky con config tornata in sim → solo rosso.
+    assert bm.banners_for({"dry_run": True},
+                          session_active=True, session_mode=RE) == (True, False)
