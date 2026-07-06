@@ -167,6 +167,13 @@ def apply_advanced(cfg: dict, form: dict) -> tuple:
     raw_mode = form.get("bridge_mode")
     if raw_mode is None:
         updates["dry_run"] = _as_bool(form.get("dry_run", True))
+        # Coerenza IMMEDIATA anche sul path legacy (Fable #349): senza questo, un form
+        # solo-dry_run può persistere la coppia incoerente `dry_run=false` +
+        # `bridge_mode:"SIMULAZIONE"` fino alla ricoercion. Ri-derivo qui, stessa
+        # regola di `mode_from_cfg` (dry_run autoritativo, COLLAUDO dichiarato preservato).
+        merged = dict(base)
+        merged.update(updates)
+        updates["bridge_mode"] = bridge_mode.mode_from_cfg(merged)
     else:
         mode = bridge_mode.mode_for_form_value(raw_mode)
         if mode is None:

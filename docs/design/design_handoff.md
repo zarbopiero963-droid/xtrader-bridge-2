@@ -202,8 +202,10 @@ Banner **AMBRA** persistente (`#e65100` light / `#8a4b00` dark, testo bianco, st
 posizione del rosso) quando la modalità è **Collaudo XTrader** — testo verbatim:
 *«🔬 MODALITÀ COLLAUDO XTRADER — il CSV operativo VIENE scritto: XTrader deve essere in
 Modalità Simulazione (nessuna scommessa reale).»* Sticky di sessione come il rosso (resta
-finché una sessione partita in collaudo non fa STOP). **Invariante: il banner ROSSO ha
-priorità** — mai due banner insieme, il rischio maggiore vince.
+finché una sessione partita in collaudo non fa STOP). **Invarianti: il banner ROSSO ha
+priorità** (mai due banner insieme, il rischio maggiore vince) **e il ROSSO è mode-aware**
+(Fugu #349): si accende SOLO in modalità Reale — in Collaudo, pur con `dry_run=false`,
+resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante).
 
 ### 6.2 Banner modalità reale
 - Visibile **solo** in modalità reale. Barra **rosso scuro** (`#7f1d1d`, testo bianco):

@@ -78,3 +78,7 @@ def test_banner_collaudo_subordinato_al_rosso(app_mod):
     assert "collaudo_banner_active" in src
     assert "(not active)" in src
     assert "_session_mode" in src
+    # Fugu #349: il ROSSO deve usare la decisione MODE-AWARE (real_banner_active), non
+    # real_mode.banner_active basata su dry_run (in COLLAUDO accenderebbe «REALE»).
+    assert "bridge_mode.real_banner_active" in src
+    assert "real_mode.banner_active" not in src

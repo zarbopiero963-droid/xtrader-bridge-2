@@ -168,3 +168,26 @@ def _form_valida(**over):
     }
     form.update(over)
     return form
+
+
+# ── banner ROSSO mode-aware (Fugu #349): il COLLAUDO non deve accenderlo ─────
+
+def test_real_banner_spento_in_collaudo_e_acceso_solo_in_reale():
+    col = {"dry_run": False, "bridge_mode": COL}
+    reale = {"dry_run": False, "bridge_mode": RE}
+    # In COLLAUDO dry_run è False ma il banner ROSSO deve restare spento (si accende
+    # l'AMBRA): col vecchio criterio su dry_run mostrerebbe «MODALITÀ REALE ATTIVA»
+    # durante il collaudo, sopprimendo l'avviso «XTrader in simulazione».
+    assert bm.real_banner_active(col) is False
+    assert bm.collaudo_banner_active(col) is True
+    assert bm.real_banner_active(reale) is True
+    assert bm.collaudo_banner_active(reale) is False
+
+
+def test_real_banner_sticky_di_sessione_per_modo():
+    sim = {"dry_run": True}
+    # Sessione partita in REALE, config viva tornata in sim → rosso resta.
+    assert bm.real_banner_active(sim, session_active=True, session_mode=RE) is True
+    # Sessione partita in COLLAUDO → rosso NO (resta l'ambra, già testata sopra).
+    assert bm.real_banner_active(sim, session_active=True, session_mode=COL) is False
+    assert bm.real_banner_active(sim) is False

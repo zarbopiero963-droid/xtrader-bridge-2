@@ -1457,7 +1457,9 @@ class App(ctk.CTk):
     def _update_real_mode_banner(self, cfg=None) -> None:
         """Mostra/nasconde il banner rosso persistente in base alla modalità (#136 p4).
 
-        La DECISIONE è `real_mode.banner_active` (logica pura testata): il banner resta
+        La DECISIONE è `bridge_mode.real_banner_active` (logica pura testata, mode-aware
+        — Fugu #349: il criterio storico su dry_run accenderebbe il rosso anche in
+        COLLAUDO): il banner resta
         visibile non solo se la config viva è in reale, ma anche se una SESSIONE in corso è
         partita in reale (il betting reale è ancora attivo fino a STOP/START, Codex P1). Il
         banner è impaccato `before=self._tabs` così resta vicino all'header (Codex P2)."""
@@ -1465,8 +1467,12 @@ class App(ctk.CTk):
         if banner is None:
             return
         live = cfg if isinstance(cfg, dict) else (self._config if isinstance(self._config, dict) else {})
-        active = real_mode.banner_active(
-            live, session_active=self._running, session_real=getattr(self, "_session_real", False))
+        # Decisione ROSSO **mode-aware** (Fugu #349): il criterio storico basato su
+        # dry_run=False si accenderebbe anche in COLLAUDO, mostrando «REALE ATTIVA»
+        # durante il collaudo e sopprimendo l'ambra. Il rosso vale SOLO per il REALE.
+        active = bridge_mode.real_banner_active(
+            live, session_active=self._running,
+            session_mode=self.__dict__.get("_session_mode", ""))
         # Banner COLLAUDO (#311 §3.1): stessa logica sticky di sessione del rosso, ma il
         # ROSSO ha PRIORITÀ (mai due banner insieme: il rischio maggiore vince).
         collaudo = getattr(self, "_collaudo_banner", None)

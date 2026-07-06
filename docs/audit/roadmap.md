@@ -1691,5 +1691,8 @@ modalità è derivata fail-closed (`mode_from_cfg`: incoerenza → Simulazione; 
 (`requires_real_confirmation`): chiude il buco COLLAUDO→REALE invisibile al check su
 dry_run (entrambi False); annullo → ritorno al modo PRECEDENTE. Config: chiave
 `bridge_mode` con coercion self-heal; settings_controller deriva `dry_run` dal form
-(retro-compat form legacy). Test: 22 nuovi (unit puri + glue gate reale con dialog
-stub + pin banner), 3 mutazioni KILLED (gate storico, annullo→sim, mode fail-open).
+(retro-compat form legacy). Test: 24 nuovi (unit puri + glue gate reale con dialog
+stub + pin banner), 4 mutazioni KILLED (gate storico, annullo→sim, mode fail-open,
+banner rosso su criterio dry_run). Review round 1: banner ROSSO reso **mode-aware**
+(`real_banner_active`, Fugu: con quello storico una sessione COLLAUDO mostrava «REALE
+ATTIVA» sopprimendo l'ambra) + coerenza immediata `bridge_mode` sul form legacy (Fable).

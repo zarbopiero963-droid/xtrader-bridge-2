@@ -96,6 +96,17 @@ def requires_collaudo_confirmation(old_cfg, new_cfg) -> bool:
             and mode_from_cfg(old_cfg) == SIMULAZIONE)
 
 
+def real_banner_active(live_cfg, *, session_active=False, session_mode="") -> bool:
+    """Banner ROSSO «MODALITÀ REALE» in chiave MODE-AWARE (Fugu #349): il criterio
+    storico (`real_mode.banner_active`, basato su `dry_run=False`) si accenderebbe
+    anche in COLLAUDO — mostrando «REALE ATTIVA» durante il collaudo e sopprimendo
+    l'avviso ambra «XTrader in simulazione» (stato di sicurezza fuorviante). Qui il
+    rosso si accende SOLO per il REALE: config viva in REALE, oppure sessione in
+    corso partita in REALE (sticky fino a STOP, come prima)."""
+    return (mode_from_cfg(live_cfg) == REALE
+            or (bool(session_active) and session_mode == REALE))
+
+
 def collaudo_banner_active(live_cfg, *, session_active=False, session_mode="") -> bool:
     """`True` se il banner COLLAUDO va mostrato: config viva in COLLAUDO, oppure una
     sessione in corso è PARTITA in collaudo (l'esecuzione scrive il CSV finché non si
