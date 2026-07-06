@@ -329,6 +329,10 @@ Tutte queste protezioni sono **attive a runtime**:
    un mutex di sistema su Windows (si libera da solo anche dopo un crash o un kill:
    nessun blocco orfano al riavvio).
 
+0. **Pannello «🚦 Salute» (#311 §3.3)** — scheda di monitoraggio a semafori: Telegram ·
+   ultimo messaggio · parser attivo · ultimo segnale (col motivo) · CSV scrivibile
+   (sonda non invasiva: mai un lock sul file) · conferme XTrader · modalità corrente.
+   Dato assente = giallo onesto, mai verde per default.
 1. **Modalità bridge (#311 §3.1)** — tendina «🚦 Modalità bridge» nella tab *Sicurezza*,
    tre stati nominati sopra `dry_run` (che resta la fonte del percorso di scrittura):
    **🧪 Simulazione Bridge** (`dry_run=true`, il CSV operativo NON viene scritto),

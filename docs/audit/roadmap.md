@@ -1706,3 +1706,18 @@ controller (`split_messages`: separatore esplicito riga `---`, niente euristiche
 `batch_report`: tetto fail-safe 50 con `skipped` segnalato). Read-only puro. Test: 7
 nuovi (split/tetto/misto/anti-drift + glue sul vero `_test_batch` con stub),
 mutazioni KILLED (split in-line, tetto rimosso).
+
+## #311 §3.3 — Health check a semafori (coda GUI, PR 6)
+
+Scheda «🚦 Salute»: i 7 semafori dell'issue (Telegram · ultimo messaggio · parser ·
+ultimo segnale col motivo · CSV scrivibile · conferme XTrader · modalità) da
+`health_check.evaluate` (modulo PURO: dato assente = mai verde; modalità con semantica
+di rischio dei banner §3.1). Sonda `csv_writable` non invasiva (solo `os.access`, mai
+open → nessun lock contro XTrader). Nuovo campo «Ultima conferma XTrader» in
+`_LAST_FIELDS` (alimentato da CONFERMATO/RIFIUTATO in `_handle_confirmation`).
+Refresh sugli hook esistenti (`_set_last`, START/STOP) + pulsante «🔄 Aggiorna».
+Test: 11 unit puri + 3 glue; 4 mutazioni KILLED. Review round 1 (Fable): refresh
+reso interamente BEST-EFFORT (mai rompere `_set_last`/monitoraggio primario; hook
+spostato DOPO le label e aggiunto a `_update_real_mode_banner` = save/profilo/
+START/STOP, nota GPT) e sonda CSV **tri-stato** con giallo onesto su Windows a file
+esistente (os.access ignora ACL/lock NTFS: mai verde non verificabile).
