@@ -88,6 +88,10 @@ _ALLOWLIST = {
                              "per le tendine MarketType/MarketName/SelectionName best-effort, "
                              "#283 PR 13: sync in corso/DB assente → nessun suggerimento)"),
     "custom_pipeline.py": (1, "id_resolver iniettato: un resolver che solleva NON blocca la riga (fail-open)"),
+    "dpi_awareness.py": (3, "#311 §3.5 fail-open per contratto: un fallimento DPI "
+                            "(ctypes/windll assente, shcore mancante su Win<8.1, "
+                            "awareness già impostata, API che solleva) non deve MAI "
+                            "impedire l'avvio del bridge — esito testuale, mai raise"),
     "gui_utils.py": (1, "helper GUI best-effort"),
     "journal_view_gui.py": (2, "GUI Tk scheda Diario (#236): lettura ledger best-effort "
                             "(avviso invece di crash) e apertura cartella best-effort"),
