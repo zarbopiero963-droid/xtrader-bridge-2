@@ -314,6 +314,14 @@ può leggerla e togliere dal CSV il segnale confermato/rifiutato.
 
 Tutte queste protezioni sono **attive a runtime**:
 
+0. **Istanza singola (#311)** — il bridge può girare in **una sola istanza** alla volta:
+   un secondo avvio (doppio click per errore, o avvio manuale con l'auto-start già
+   partito) mostra l'avviso **«XTrader Bridge è già in esecuzione»** ed esce subito,
+   senza avviare listener né toccare il CSV dell'istanza attiva. Due istanze avrebbero
+   contatori/dedupe/coda separati in memoria → **rischio doppia scommessa**. Il lock è
+   un mutex di sistema su Windows (si libera da solo anche dopo un crash o un kill:
+   nessun blocco orfano al riavvio).
+
 1. **Simulazione (`dry_run`)** — di default `true`: i segnali vengono riconosciuti
    ma il CSV operativo **non** viene scritto. Il log lo dichiara
    (`🧪 DRY_RUN attivo`). Per l'uso reale togli la spunta *Simulazione* nella tab

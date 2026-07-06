@@ -1614,6 +1614,23 @@ profili — nessun altro wiring). **BREAKING**: chi usa la versione inglese impo
 È la **prima slice/fondazione config** dell'epica multilingua **#343** (selettore lingua all'avvio,
 BetType per-lingua, UI localizzata, dizionario per-locale user-built, EN/ES solo NAME_ONLY).
 
+## #311-1.1 — single-instance lock (prima PR della coda GUI decisa dall'owner)
+
+Anti **doppia istanza = anti doppia scommessa**: due processi bridge hanno
+tracker/limiter/coda separati in RAM (i lock interni sono intra-processo). Nuovo modulo
+foglia `instance_lock.py`: **Windows = mutex named** via ctypes (`Local\XTraderBridge` —
+namespace di sessione: copre il doppio avvio sullo stesso desktop senza il privilegio
+SeCreateGlobal; il kernel lo rilascia da solo a morte processo, anche su crash → nessun
+lock orfano); **POSIX (dev/CI) = lockfile `flock`** con le stesse proprietà, che rende la
+logica testabile offline. Acquisizione = **prima istruzione** di `App.__init__` (pin
+strutturale nei test): seconda istanza → messagebox «già in esecuzione» + `SystemExit`,
+nessun listener/CSV. Release in `_on_close` + atexit; **idempotente col flag `released`**
+(una release stantia non può sbloccare il lock della nuova istanza su fd riusato).
+**Fail-open consapevole** sul solo errore imprevisto di creazione (bridge inavviabile >
+caso limite; warning nei log); il rifiuto resta certo su «lock già posseduto».
+Ordine coda GUI post-#345 (decisione owner, commento in #311): 1.1 → 1.3 → PR-cestino
+micro-GUI → 3.1 → 3.2 → 3.3 → 3.4 → 3.5 → #343 GUI; poi Nuitka e il resto.
+
 ## #325 (slice 2, GUI) — campi «Inizia dopo/Finisce prima» sulle righe MultiSelection
 
 Chiude #325: i delimitatori dell'estrazione dinamica (slice 1 backend) sono ora configurabili
