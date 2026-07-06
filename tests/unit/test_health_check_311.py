@@ -74,17 +74,26 @@ def test_csv_writable_file_esistente_e_da_creare(tmp_path):
     assert p.read_text(encoding="utf-8") == "x"
 
 
-def test_csv_writable_windows_file_esistente_giallo_onesto(tmp_path, monkeypatch):
+def test_csv_writable_windows_giallo_onesto(tmp_path):
     # Fable #351: su NTFS os.access ignora ACL/lock (es. XTrader col file aperto) →
     # un verde sarebbe FALSO. Con file esistente su Windows la sonda si ferma a GIALLO.
+    # `platform` INIETTABILE (GLM #351: monkeypatch del globale os.name rompeva
+    # perfino la failure-repr di pytest): niente stato globale toccato.
     p = tmp_path / "segnali.csv"
     p.write_text("x", encoding="utf-8")
-    monkeypatch.setattr(hc.os, "name", "nt")
-    stato, motivo = hc.csv_writable(str(p))
+    stato, motivo = hc.csv_writable(str(p), platform="nt")
     assert stato == hc.YELLOW and "Windows" in motivo
-    # I casi rossi restano rossi anche su Windows; file da creare resta verde
-    # (la cartella scrivibile è verificabile anche lì a livello di sonda).
-    assert hc.csv_writable("")[0] == hc.RED
+    # Coerenza (Fugu #351): anche il ramo «file da creare» su Windows si ferma a
+    # GIALLO — os.access sulla CARTELLA soffre delle stesse ACL NTFS non rilevabili.
+    stato2, motivo2 = hc.csv_writable(str(tmp_path / "nuovo.csv"), platform="nt")
+    assert stato2 == hc.YELLOW and "Windows" in motivo2
+    # I casi rossi restano rossi anche su Windows.
+    assert hc.csv_writable("", platform="nt")[0] == hc.RED
+    assert hc.csv_writable(str(tmp_path), platform="nt")[0] == hc.RED
+    # FAIL-CLOSED sul platform (Fable #353): un valore sconosciuto/sporco NON guadagna
+    # il verde POSIX — resta al giallo onesto su entrambi i rami.
+    assert hc.csv_writable(str(p), platform="java")[0] == hc.YELLOW
+    assert hc.csv_writable(str(tmp_path / "nuovo.csv"), platform="")[0] == hc.YELLOW
 
 
 def test_evaluate_csv_state_sporco_fail_closed():

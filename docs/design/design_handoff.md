@@ -207,9 +207,10 @@ theme-aware dello stato listener). Semantica: dato assente = MAI verde (giallo o
 *Modalità* usa la semantica di rischio dei banner (verde Simulazione, giallo Collaudo,
 rosso Reale). Aggiornamento automatico sugli stessi hook della dashboard (START/STOP,
 campi «Ultimo …», salvataggio config) + manuale col pulsante. La sonda «CSV scrivibile»
-NON apre mai il file (nessun lock che disturbi XTrader); su **Windows** con file esistente
-si ferma a **giallo onesto** («probabilmente scrivibile»: ACL/lock NTFS non rilevabili
-senza aprirlo — Fable #351), mai un verde non verificabile. Nella scheda «📡 Stato» compare
+NON apre mai il file (nessun lock che disturbi XTrader); su **Windows**
+si ferma a **giallo onesto** su ENTRAMBI i rami — file esistente E file da creare
+(«probabilmente scrivibile»: ACL/lock NTFS non rilevabili senza aprire/scrivere —
+Fable/Fugu #351), mai un verde non verificabile. Nella scheda «📡 Stato» compare
 anche il nuovo campo **«Ultima conferma XTrader»** (fonte unica `_LAST_FIELDS`).
 
 ### 6.2-bis Banner modalità COLLAUDO (#311 §3.1)
