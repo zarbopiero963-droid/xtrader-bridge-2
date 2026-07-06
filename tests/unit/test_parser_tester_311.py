@@ -187,3 +187,73 @@ def test_gui_test_batch_senza_messaggi_avvisa(monkeypatch):
 
     panel._test_batch()
     assert "Nessun messaggio" in _Result.text
+
+
+def test_batch_report_tetto_bordi_esatti():
+    # CodeRabbit #350: bordi del tetto (off-by-one): esattamente al tetto → 0 scartati;
+    # tetto+1 → 1 scartato.
+    b = _builder()
+    text = "\n---\n".join(f"msg {i}" for i in range(pb.MAX_BATCH_MESSAGES))
+    reports, skipped = b.batch_report(text, mode="NAME_ONLY")
+    assert len(reports) == pb.MAX_BATCH_MESSAGES and skipped == 0
+    text = "\n---\n".join(f"msg {i}" for i in range(pb.MAX_BATCH_MESSAGES + 1))
+    reports, skipped = b.batch_report(text, mode="NAME_ONLY")
+    assert len(reports) == pb.MAX_BATCH_MESSAGES and skipped == 1
+
+
+def test_batch_report_isolamento_per_messaggio(monkeypatch):
+    # CodeRabbit #350 (major): un messaggio PATOLOGICO che fa esplodere la pipeline non
+    # deve abortire il batch: il suo report è un ❌ visibile e gli ALTRI messaggi vengono
+    # comunque valutati.
+    b = _builder()
+    vero = b.test_message
+
+    def _esplosivo(msg, **kw):
+        if "BOOM" in msg:
+            raise RuntimeError("pipeline esplosa")
+        return vero(msg, **kw)
+
+    monkeypatch.setattr(b, "test_message", _esplosivo)
+    reports, skipped = b.batch_report(f"{MSG_OK}---\nBOOM\n---\nciao", mode="NAME_ONLY")
+    assert skipped == 0 and len(reports) == 3
+    assert reports[0].ok is True                     # il valido prima del botto
+    assert reports[1].ok is False and "Errore interno" in reports[1].verdict
+    assert "pipeline esplosa" in reports[1].verdict and reports[1].rows == []
+    assert reports[2].ok is False                    # il successivo è comunque valutato
+    assert "Errore interno" not in reports[2].verdict
+
+
+def test_gui_test_batch_segnala_i_messaggi_oltre_il_tetto(monkeypatch):
+    # CodeRabbit #350: il taglio al tetto deve essere VISIBILE nel riepilogo GUI.
+    gui = _gui_mod(monkeypatch)
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)
+
+    class _Result:
+        text = ""
+
+        def configure(self, **k):
+            type(self).text = k.get("text", "")
+
+    n = pb.MAX_BATCH_MESSAGES + 2
+    panel._reload_profile_checks = lambda: None
+    panel._reload_market_profile_checks = lambda: None
+    panel._sync_to_builder = lambda: None
+    panel._refresh_multi_warnings = lambda: None
+    panel._unresolved_selected = lambda: []
+    panel._unresolved_market_selected = lambda: []
+    panel._msg_box = types.SimpleNamespace(
+        get=lambda *_a: "\n---\n".join(f"msg {i}" for i in range(n)))
+    panel._result = _Result()
+    panel._label_to_mode = lambda _v: "NAME_ONLY"
+    panel._mode_var = types.SimpleNamespace(get=lambda: "NAME_ONLY")
+    panel._global_mode = "NAME_ONLY"
+    panel._provider = ""
+    panel._resolve_mapping_profiles = lambda _d: None
+    panel._resolve_market_mapping_profiles = lambda _d: None
+    panel._preview_id_resolver = lambda: None
+    panel._render_batch_table = lambda reports: None
+    panel.builder = _builder()
+
+    panel._test_batch()
+    assert f"primi {pb.MAX_BATCH_MESSAGES}" in _Result.text
+    assert "altri 2 oltre il tetto" in _Result.text

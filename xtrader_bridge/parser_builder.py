@@ -679,26 +679,44 @@ class ParserBuilder:
         eff_mode = self.mode if mode is None else mode
         reports = []
         for i, msg in enumerate(messages[:MAX_BATCH_MESSAGES]):
-            res = self.test_message(msg, provider=provider, mode=eff_mode,
-                                    require_price=require_price,
-                                    name_mapping_profiles=name_mapping_profiles,
-                                    market_mapping_profiles=market_mapping_profiles,
-                                    id_resolver=id_resolver)
-            diag = parser_diagnostics.diagnose(
-                defn, msg, provider=provider, mode=eff_mode, require_price=require_price,
-                name_mapping_profiles=name_mapping_profiles,
-                market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver)
-            rows = self.preview_rows(msg, provider=provider, mode=eff_mode,
-                                     require_price=require_price,
-                                     name_mapping_profiles=name_mapping_profiles,
-                                     market_mapping_profiles=market_mapping_profiles,
-                                     id_resolver=id_resolver)
-            verdict = ParserBuilder.test_verdict(
-                errors, rows, diag_placeable=diag.placeable, diag_status=diag.status,
-                res_row=res.row, res_missing_required=res.missing_required,
-                res_detail=res.detail, content_ok=not diag.message_error)
-            first = (msg.splitlines() or [""])[0][:80]
-            reports.append(BatchMessageReport(
-                index=i, first_line=first, ok=verdict.startswith("✅"),
-                verdict=verdict, rows=rows))
+            try:
+                reports.append(self._single_report(
+                    i, msg, errors, defn, provider=provider, mode=eff_mode,
+                    require_price=require_price,
+                    name_mapping_profiles=name_mapping_profiles,
+                    market_mapping_profiles=market_mapping_profiles,
+                    id_resolver=id_resolver))
+            except Exception as exc:   # noqa: BLE001 — isolamento PER-MESSAGGIO (CodeRabbit
+                # #350): un messaggio patologico non deve abortire il batch nascondendo gli
+                # altri report; l'errore resta VISIBILE nel verdetto di quel messaggio.
+                first = (msg.splitlines() or [""])[0][:80]
+                reports.append(BatchMessageReport(
+                    index=i, first_line=first, ok=False,
+                    verdict=f"❌ Errore interno su questo messaggio: {exc}", rows=[]))
         return reports, skipped
+
+    def _single_report(self, i, msg, errors, defn, *, provider, mode,
+                       require_price, name_mapping_profiles,
+                       market_mapping_profiles, id_resolver):
+        """Report di UN messaggio del batch (#311 §3.2): stessa pipeline del singolo."""
+        res = self.test_message(msg, provider=provider, mode=mode,
+                                require_price=require_price,
+                                name_mapping_profiles=name_mapping_profiles,
+                                market_mapping_profiles=market_mapping_profiles,
+                                id_resolver=id_resolver)
+        diag = parser_diagnostics.diagnose(
+            defn, msg, provider=provider, mode=mode, require_price=require_price,
+            name_mapping_profiles=name_mapping_profiles,
+            market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver)
+        rows = self.preview_rows(msg, provider=provider, mode=mode,
+                                 require_price=require_price,
+                                 name_mapping_profiles=name_mapping_profiles,
+                                 market_mapping_profiles=market_mapping_profiles,
+                                 id_resolver=id_resolver)
+        verdict = ParserBuilder.test_verdict(
+            errors, rows, diag_placeable=diag.placeable, diag_status=diag.status,
+            res_row=res.row, res_missing_required=res.missing_required,
+            res_detail=res.detail, content_ok=not diag.message_error)
+        first = (msg.splitlines() or [""])[0][:80]
+        return BatchMessageReport(index=i, first_line=first,
+                                  ok=verdict.startswith("✅"), verdict=verdict, rows=rows)
