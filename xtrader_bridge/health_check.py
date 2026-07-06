@@ -47,10 +47,12 @@ def csv_writable(path, *, platform=None) -> "tuple[str, str]":
     controlla esistenza/permessi con `os.access`. File assente → la CARTELLA deve
     esistere ed essere scrivibile (il bridge lo creerà).
 
-    Onestà su **Windows** (Fable #351): su NTFS `os.access(W_OK)` ignora ACL e lock
-    attivi (es. XTrader che tiene il file) → un verde sarebbe FALSO proprio nello
-    scenario target. Con file esistente su Windows la sonda si ferma a GIALLO
-    («probabilmente scrivibile»), mai verde non verificabile."""
+    Onestà su **Windows** (Fable/Fugu #351/#352): su NTFS `os.access(W_OK)` ignora
+    ACL e lock attivi (es. XTrader che tiene il file) → un verde sarebbe FALSO proprio
+    nello scenario target. Su ENTRAMBI i rami — file esistente E file da creare — la
+    sonda non-POSIX si ferma a GIALLO («probabilmente scrivibile»), mai verde non
+    verificabile. FAIL-CLOSED sul `platform` (Fable #353): solo `platform == "posix"`
+    guadagna il verde; valori sconosciuti/sporchi restano al giallo."""
     platform = os.name if platform is None else platform   # iniettabile nei test
     p = str(path or "").strip()
     if not p:
