@@ -196,6 +196,15 @@ altezza ridimensionabile, min 720×600.
 - **Indicatore di stato** (a destra): pallino + testo, vedi §8.
 - **Indicatore righe attive** (arancione): "N/M", vedi §8.
 
+### 6.2-bis Banner modalità COLLAUDO (#311 §3.1)
+
+Banner **AMBRA** persistente (`#e65100` light / `#8a4b00` dark, testo bianco, stessa
+posizione del rosso) quando la modalità è **Collaudo XTrader** — testo verbatim:
+*«🔬 MODALITÀ COLLAUDO XTRADER — il CSV operativo VIENE scritto: XTrader deve essere in
+Modalità Simulazione (nessuna scommessa reale).»* Sticky di sessione come il rosso (resta
+finché una sessione partita in collaudo non fa STOP). **Invariante: il banner ROSSO ha
+priorità** — mai due banner insieme, il rischio maggiore vince.
+
 ### 6.2 Banner modalità reale
 - Visibile **solo** in modalità reale. Barra **rosso scuro** (`#7f1d1d`, testo bianco):
   > ⚠️ MODALITÀ REALE ATTIVA — i segnali validi vengono scritti nel CSV operativo e
@@ -245,7 +254,12 @@ altezza ridimensionabile, min 720×600.
 - **"🎯 Modalità riconoscimento"** → opzioni `ID_ONLY` / `NAME_ONLY` / `BOTH`.
 
 **Tab 🛡️ Sicurezza** — checkbox + campi + dropdown:
-- ☐ **"🧪 Simulazione (DRY_RUN): NON scrive il CSV operativo"** (`dry_run`)
+- **«🚦 Modalità bridge»** (tendina a 3 stati, #311 §3.1 — sostituisce il checkbox DRY_RUN):
+  etichette verbatim *«🧪 Simulazione Bridge — NON scrive il CSV operativo»*, *«🔬 Collaudo
+  XTrader — scrive il CSV (XTrader in simulazione)»*, *«⚠️ Reale — scommesse vere (richiede
+  conferma)»*. Gate: Sim→Collaudo = conferma **sì/no** (testo `COLLAUDO_CONFIRM_TEXT`);
+  QUALSIASI ingresso in Reale (anche Collaudo→Reale) = **frase digitata** (§10); annullo →
+  la tendina e la config tornano al modo PRECEDENTE (non sempre Simulazione).
 - ☐ **"▶️ Avvio automatico all'apertura (in modalità REALE chiede conferma)"** (`auto_start_listener`)
 - ☐ **"🕵️ Logga il testo completo dei messaggi (debug; OFF = solo hash + 1ª riga)"** (`debug_message_payload`)
 - Campo **"📅 Limite segnali al giorno"** (`max_per_day`)

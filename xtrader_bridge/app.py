@@ -36,6 +36,7 @@ from .csv_writer import (
 )
 from . import (
     autostart,
+    bridge_mode,
     config_store,
     confirmation_reader,
     csv_lock_escalation,
@@ -180,6 +181,7 @@ _COLOR_STATUS_RECONNECT = ("#e65100", "#ffa726")   # ⬤ RICONNESSIONE… (aranc
 _COLOR_ACTIVE_ROWS      = ("#e65100", "#ffb74d")   # righe attive N/M (arancione)
 _COLOR_WARNING          = ("#bf360a", "#ffa726")   # warning «nessuna chat» (arancione scuro su bg chiaro)
 _COLOR_REAL_BANNER_BG   = ("#b71c1c", "#7f1d1d")   # sfondo banner MODALITÀ REALE (testo bianco)
+_COLOR_COLLAUDO_BANNER_BG = ("#e65100", "#8a4b00")  # sfondo banner COLLAUDO XTrader (#311 §3.1)
 
 
 class App(ctk.CTk):
@@ -657,15 +659,28 @@ class App(ctk.CTk):
         Centralizzato qui perché va applicato a OGNI punto che cambia la config in modo
         persistente: il bottone Salva **e** il CARICAMENTO PROFILO — altrimenti un profilo con
         `dry_run:false`/coda multi attiverebbe reale/multi senza conferma (#141/#142)."""
-        if real_mode.requires_confirmation(old_cfg, cfg):
+        old_mode = bridge_mode.mode_from_cfg(old_cfg)
+        # Gate MODE-AWARE (#311 §3.1): `real_mode.requires_confirmation` guarda solo
+        # dry_run True→False e NON vedrebbe COLLAUDO→REALE (entrambi dry_run=False),
+        # che attiverebbe scommesse vere senza conferma. La frase resta quella di
+        # `real_mode`; su annullo si torna al modo VECCHIO (non sempre simulazione).
+        if bridge_mode.requires_real_confirmation(old_cfg, cfg):
             if self._confirm_real_mode():
                 # Evento di AUDIT nel log persistente (tracciabilità dell'attivazione).
                 self._log("⚠️ " + real_mode.enabled_message())
             else:
-                cfg["dry_run"] = True
-                if "dry_run" in self._adv:
-                    self._adv["dry_run"].set(True)   # ri-spunta "🧪 Simulazione (DRY_RUN)"
-                self._log("↩️ Attivazione modalità REALE ANNULLATA: il bridge resta in simulazione.")
+                bridge_mode.apply_mode(cfg, old_mode)
+                self._revert_mode_widget(old_mode)
+                self._log("↩️ Attivazione modalità REALE ANNULLATA: torno a "
+                          f"{old_mode}.")
+        elif bridge_mode.requires_collaudo_confirmation(old_cfg, cfg):
+            # Conferma LEGGERA (sì/no) per il COLLAUDO da simulazione: il CSV operativo
+            # inizia a essere scritto → XTrader deve già essere in simulazione.
+            if not self._confirm_collaudo_mode():
+                bridge_mode.apply_mode(cfg, old_mode)
+                self._revert_mode_widget(old_mode)
+                self._log("↩️ Attivazione modalità COLLAUDO ANNULLATA: torno a "
+                          f"{old_mode}.")
         if multi_signal.requires_warning(old_cfg, cfg):
             if not self._confirm_multi_signal(
                     cfg.get("max_active_signals", DEFAULTS["max_active_signals"])):
@@ -1037,6 +1052,11 @@ class App(ctk.CTk):
         self._real_banner = ctk.CTkLabel(
             self, text="", fg_color=_COLOR_REAL_BANNER_BG, text_color="white", corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"))
+        # Banner AMBRA permanente in modalità COLLAUDO (#311 §3.1): «XTrader deve essere
+        # in simulazione». Gestito da `_update_real_mode_banner`; il ROSSO ha priorità.
+        self._collaudo_banner = ctk.CTkLabel(
+            self, text="", fg_color=_COLOR_COLLAUDO_BANNER_BG, text_color="white",
+            corner_radius=8, font=ctk.CTkFont(size=12, weight="bold"))
 
         # Config a tab (PR-13): impostazioni base + avanzate. Le avanzate erano prima
         # modificabili solo a mano in config.json; la logica vive nel controller puro
@@ -1110,9 +1130,12 @@ class App(ctk.CTk):
         # casella «Obblig.» sulla riga Price di OGNI Parser Personalizzato (unico comando).
 
         # Sicurezza
-        self._adv["dry_run"] = self._add_check(
-            tab_safe, "🧪 Simulazione (DRY_RUN): NON scrive il CSV operativo",
-            adv["dry_run"], 0)
+        # Modalità bridge (#311 §3.1): tre stati NOMINATI al posto del checkbox DRY_RUN.
+        # `dry_run` resta la fonte del percorso di scrittura: lo deriva il controller
+        # (`apply_advanced`: SIMULAZIONE ⇔ dry_run=True), qui solo il widget.
+        self._adv["bridge_mode"] = self._add_option(
+            tab_safe, "🚦 Modalità bridge",
+            settings_controller.bridge_mode_options(), adv["bridge_mode"], 0)
         self._adv["max_per_day"] = self._add_entry(
             tab_safe, "📅 Limite segnali al giorno", str(adv["max_per_day"]), 1)
         self._adv["queue_mode"] = self._add_option(
@@ -1388,6 +1411,21 @@ class App(ctk.CTk):
             return False
         return real_mode.confirmation_ok(typed)
 
+    def _confirm_collaudo_mode(self) -> bool:
+        """Conferma leggera (sì/no) per la modalità COLLAUDO (#311 §3.1): il testo è
+        logica pura (`bridge_mode.COLLAUDO_CONFIRM_TEXT`), qui solo il dialog."""
+        from tkinter import messagebox
+        try:
+            return bool(messagebox.askyesno(
+                "Conferma MODALITÀ COLLAUDO", bridge_mode.COLLAUDO_CONFIRM_TEXT))
+        except Exception:   # noqa: BLE001 — su errore dialog → non confermare
+            return False
+
+    def _revert_mode_widget(self, mode) -> None:
+        """Riporta la tendina «Modalità bridge» all'etichetta di `mode` (annullo gate)."""
+        if "bridge_mode" in self._adv:
+            self._adv["bridge_mode"].set(bridge_mode.label_for(mode))
+
     def _confirm_multi_signal(self, max_active) -> bool:
         """Conferma per attivare una modalità coda MULTI-segnale (#136 p5): True se confermato.
         GUI (verifica manuale); il TESTO/decisione (`multi_signal`) è logica pura testata."""
@@ -1429,15 +1467,31 @@ class App(ctk.CTk):
         live = cfg if isinstance(cfg, dict) else (self._config if isinstance(self._config, dict) else {})
         active = real_mode.banner_active(
             live, session_active=self._running, session_real=getattr(self, "_session_real", False))
+        # Banner COLLAUDO (#311 §3.1): stessa logica sticky di sessione del rosso, ma il
+        # ROSSO ha PRIORITÀ (mai due banner insieme: il rischio maggiore vince).
+        collaudo = getattr(self, "_collaudo_banner", None)
+        collaudo_on = (not active) and bridge_mode.collaudo_banner_active(
+            live, session_active=self._running,
+            session_mode=self.__dict__.get("_session_mode", ""))
+        tabs = getattr(self, "_tabs", None)
         if active:
             banner.configure(text=real_mode.BANNER_TEXT)
-            tabs = getattr(self, "_tabs", None)
             if tabs is not None:
                 banner.pack(fill="x", padx=15, pady=(0, 5), before=tabs)
             else:
                 banner.pack(fill="x", padx=15, pady=(0, 5))
         else:
             banner.pack_forget()
+        if collaudo is None:
+            return
+        if collaudo_on:
+            collaudo.configure(text=bridge_mode.COLLAUDO_BANNER_TEXT)
+            if tabs is not None:
+                collaudo.pack(fill="x", padx=15, pady=(0, 5), before=tabs)
+            else:
+                collaudo.pack(fill="x", padx=15, pady=(0, 5))
+        else:
+            collaudo.pack_forget()
 
     def _export_real_audit(self) -> None:
         """Esporta in un file scelto dall'utente le righe di AUDIT della modalità reale
@@ -1479,8 +1533,7 @@ class App(ctk.CTk):
         cfg = self._config if isinstance(self._config, dict) else {}
         info = [
             ("Stato listener", "ATTIVO" if self._running else "OFFLINE"),
-            ("Modalità", "DRY_RUN (simulazione)"
-                if safety_guard.is_dry_run(cfg) else "REALE"),
+            ("Modalità", bridge_mode.mode_from_cfg(cfg)),
             ("CSV path", cfg.get("csv_path", "")),
             ("Modalità coda", signal_queue.normalize_mode(cfg.get("queue_mode"))),
         ]
@@ -2242,6 +2295,7 @@ class App(ctk.CTk):
         # finché non si fa STOP/START. Il banner REALE deve riflettere ciò che ESEGUE, non
         # solo la config viva (Codex P1).
         self._session_real = not safety_guard.is_dry_run(cfg)
+        self._session_mode = bridge_mode.mode_from_cfg(cfg)   # per il banner COLLAUDO sticky
         self._stop_event.clear()      # nuova sessione: riarma l'attesa del backoff
         self._status_lbl.configure(text="⬤  ATTIVO", text_color=_COLOR_STATUS_ACTIVE)
         self._btn_start.configure(state="disabled")
@@ -2252,6 +2306,7 @@ class App(ctk.CTk):
         self._active_csv_path = cfg["csv_path"]
         # Event journal (#230): inizio sessione (modalità + path, niente segreti).
         self._journal("START", dry_run=bool(safety_guard.is_dry_run(cfg)),
+                      mode=bridge_mode.mode_from_cfg(cfg),
                       csv_path=cfg["csv_path"], auto=bool(auto))
         self._init_guards(cfg)
         self._stats.reset()           # contatori di sessione azzerati a ogni START (PR-14)
@@ -2272,12 +2327,9 @@ class App(ctk.CTk):
         self._log(f"📄 CSV: {cfg['csv_path']}")
         self._log(f"⏱️  Auto-clear dopo: {cfg['clear_delay']}s")
         self._dbg(f"START: chat ascoltate, provider={cfg.get('provider', '')}, "
-                  f"modalità={'DRY_RUN' if safety_guard.is_dry_run(cfg) else 'REALE'}, "
+                  f"modalità={bridge_mode.mode_from_cfg(cfg)}, "
                   f"debug ON")
-        if safety_guard.is_dry_run(cfg):
-            self._log("🧪 DRY_RUN attivo (simulazione): il CSV operativo NON verrà scritto.")
-        else:
-            self._log("⚠️ Modalità REALE: i segnali validi verranno scritti nel CSV.")
+        self._log(bridge_mode.start_log_text(bridge_mode.mode_from_cfg(cfg)))
         self._log("👂 In ascolto su Telegram...")
 
         # Epoch di QUESTA sessione (già incrementato sopra, PRIMA di `_running=True`, #53):

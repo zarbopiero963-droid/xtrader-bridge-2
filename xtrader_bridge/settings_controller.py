@@ -22,7 +22,7 @@ chiavi: ogni altra impostazione (token, chat, sorgenti, parser, ecc.) è preserv
 
 import copy
 
-from . import autostart, config_store, recognition, safety_guard, signal_queue
+from . import autostart, bridge_mode, config_store, recognition, safety_guard, signal_queue
 
 # Default del timeout conferme: fonte unica = config_store.DEFAULTS.
 DEFAULT_CONFIRMATION_TIMEOUT = config_store.DEFAULTS["confirmation_timeout"]
@@ -32,6 +32,7 @@ MANAGED_KEYS = (
     "recognition_mode",
     "queue_mode",
     "dry_run",
+    "bridge_mode",
     "max_per_day",
     "xtrader_notification_chat_id",
     "confirmation_timeout",
@@ -64,6 +65,12 @@ def queue_mode_options() -> list:
     return list(signal_queue.MODES)
 
 
+def bridge_mode_options() -> list:
+    """Etichette del selettore «Modalità bridge» (#311 §3.1): Simulazione Bridge /
+    Collaudo XTrader / Reale, nell'ordine di `bridge_mode.VALID_MODES`."""
+    return bridge_mode.mode_options()
+
+
 # ── lettura dei valori correnti (per popolare i widget) ────────────────────
 def current_values(cfg: dict) -> dict:
     """Valori correnti normalizzati per i widget, ricavati dalla config con gli
@@ -78,6 +85,9 @@ def current_values(cfg: dict) -> dict:
         "recognition_mode": recognition.normalize_mode(rec),
         "queue_mode": signal_queue.normalize_mode(qm),
         "dry_run": safety_guard.is_dry_run(cfg),
+        # Modalità nominata (#311 §3.1): etichetta della tendina per il modo EFFETTIVO
+        # (mode_from_cfg: dry_run autoritativo, config incoerente → Simulazione).
+        "bridge_mode": bridge_mode.label_for(bridge_mode.mode_from_cfg(cfg)),
         "max_per_day": _coerce_int_display(cfg.get("max_per_day"), safety_guard.DEFAULT_MAX_PER_DAY),
         # Tetto righe attive simultanee (#136 p5): intero >= 1, default dai DEFAULTS.
         "max_active_signals": _coerce_int_display(
@@ -148,7 +158,24 @@ def apply_advanced(cfg: dict, form: dict) -> tuple:
     else:
         updates["queue_mode"] = qm
 
-    updates["dry_run"] = _as_bool(form.get("dry_run", True))
+    # Modalità bridge (#311 §3.1): il form nuovo manda `bridge_mode` (etichetta della
+    # tendina o nome canonico) e `dry_run` viene DERIVATO (SIMULAZIONE ⇔ True) così i
+    # due non possono divergere. Valore sconosciuto → errore, nessun merge (mai
+    # indovinare una modalità). Retro-compat: un form legacy SENZA `bridge_mode`
+    # (test/chiamanti headless) continua a governare il solo `dry_run` come prima —
+    # `mode_from_cfg` a valle resta coerente (dry_run autoritativo).
+    raw_mode = form.get("bridge_mode")
+    if raw_mode is None:
+        updates["dry_run"] = _as_bool(form.get("dry_run", True))
+    else:
+        mode = bridge_mode.mode_for_form_value(raw_mode)
+        if mode is None:
+            errors.append(
+                f"Modalità bridge non valida {str(raw_mode)!r}; ammesse: "
+                f"{', '.join(bridge_mode.VALID_MODES)}.")
+        else:
+            updates["bridge_mode"] = mode
+            updates["dry_run"] = (mode == bridge_mode.SIMULAZIONE)
     # Avvio automatico del listener: default sicuro False (parte solo con START).
     # FAIL-CLOSED al salvataggio (audit #259 C2): la stessa coercizione allowlist del
     # runtime (`autostart.coerce_enabled`), NON `as_bool` — con la denylist un valore
