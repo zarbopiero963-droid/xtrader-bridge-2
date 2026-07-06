@@ -54,6 +54,10 @@ _ALLOWLIST = {
                    "(share instabile, config corrotta) non deve MAI rompere il monitoraggio "
                    "primario ne' i chiamanti _set_last/START/STOP/save"),
     "atomic_io.py": (1, "cleanup del temporaneo su QUALSIASI errore di scrittura/rename (BaseException)"),
+    "wizard.py": (3, "sonde one-shot del Wizard (#311 §3.4): getMe/getUpdates/scrittura "
+                     "di prova — qualsiasi errore diventa un esito FAIL-CLOSED col messaggio "
+                     "SANIFICATO (mai il token/URL nell'errore), lo step non passa e il "
+                     "wizard non crasha"),
     "parser_builder.py": (1, "isolamento PER-MESSAGGIO del tester batch (#311 §3.2, CodeRabbit "
                              "#350): un messaggio patologico non deve abortire il batch "
                              "nascondendo gli altri report — l'errore resta VISIBILE nel "
