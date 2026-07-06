@@ -1595,3 +1595,21 @@ multirow/pipeline/engine preesistenti verdi. Suite: **2141 passed, 10 skipped**.
 **Docs:** `docs/custom_parser.md` §5-bis (estrazione per-riga dinamica) + docstring `MultiRowRule`.
 Design handoff = **N/A** (slice backend, nessun cambio GUI; i campi «Inizia dopo/Finisce prima» sulla
 tabella MultiSelection arrivano nella **slice 2 GUI**). Prossimo: #325 slice 2 (GUI) → poi Nuitka.
+
+## #342 — separatore decimale del CSV per lingua (IT/EN/ES) — BREAKING, fondazione multilingua #343
+
+**Problema (confermato dal supporto XTrader).** XTrader **ITA** (versione attuale) legge i decimali
+di quote/points con la **virgola**; il bridge scriveva sempre il **punto** (`_decimal_sep_to_point`)
+su `Price`/`MinPrice`/`MaxPrice`, e `Points`/`Handicap` non erano normalizzati affatto.
+
+**Fix (#342).** Config `csv_language` (`IT`/`EN`/`ES`, default **IT**, coercion fail-closed pattern
+«theme»); localizzazione **solo al confine di scrittura** (`csv_writer.write_rows` →
+`_localize_row`): interno **canonico col punto** (validatori/dedup/pipeline invariati), file con la
+**virgola** per `IT`/`ES` e **punto** per `EN`, su TUTTE le colonne decimali (`Price`, `MinPrice`,
+`MaxPrice`, `Points`, `Handicap` — decisione owner). Solo un numero puro (`SIGNED_DECIMAL`
+fullmatch) viene localizzato; malformati/testo invariati (fail-closed); colonne testuali
+(«Over 2.5 Goals») mai toccate. Sync del writer in `load_config`/`save_config` (startup, Salva,
+profili — nessun altro wiring). **BREAKING**: chi usa la versione inglese imposta
+`"csv_language": "EN"`. ES = convenzione spagnola, da confermare col supporto (mappa a una riga).
+È la **prima slice/fondazione config** dell'epica multilingua **#343** (selettore lingua all'avvio,
+BetType per-lingua, UI localizzata, dizionario per-locale user-built, EN/ES solo NAME_ONLY).

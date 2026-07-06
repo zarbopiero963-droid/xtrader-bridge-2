@@ -22,6 +22,10 @@ ROW = {
     "MaxPrice": "", "BetType": "PUNTA", "Points": "",
 }
 
+# #342: sul DISCO i decimali sono localizzati alla lingua CSV (default IT → virgola):
+# la riga interna resta canonica col punto, il file contiene «1,85».
+ROW_SU_DISCO = dict(ROW, Price="1,85")
+
 
 def _read(path):
     with open(path, newline="", encoding="utf-8-sig") as f:
@@ -83,7 +87,7 @@ def test_clear_stale_csv_rimuove_riga_orfana(tmp_path):
     # comportamento (es. righe extra), questo test lo farebbe emergere subito.
     rows_prima = _read(str(p))
     assert rows_prima[0] == csv_writer.CSV_HEADER
-    assert rows_prima[1] == [ROW[col] for col in csv_writer.CSV_HEADER]
+    assert rows_prima[1] == [ROW_SU_DISCO[col] for col in csv_writer.CSV_HEADER]
     assert len(rows_prima) == 2
     assert csv_writer.clear_stale_csv(str(p)) is True
     assert _read(str(p)) == [csv_writer.CSV_HEADER]   # solo header
@@ -553,7 +557,7 @@ def test_clear_e_write_concorrenti_non_corrompono(tmp_path):
     assert rows[0] == csv_writer.CSV_HEADER                # header sempre presente e integro
     assert len(rows) in (1, 2)                             # solo header, o header + 1 riga
     if len(rows) == 2:
-        assert rows[1] == [ROW[c] for c in csv_writer.CSV_HEADER]
+        assert rows[1] == [ROW_SU_DISCO[c] for c in csv_writer.CSV_HEADER]
     assert _no_tmp_left(str(tmp_path))                     # nessun temporaneo residuo
 
 
@@ -574,7 +578,7 @@ def test_sweep_orphan_temps_rimuove_il_tmp_lasciato_da_un_crash(tmp_path):
     assert _no_tmp_left(str(tmp_path))                     # orfano rimosso
     rows = _read(p)
     assert rows[0] == csv_writer.CSV_HEADER                # CSV reale ancora intatto
-    assert rows[1] == [ROW[c] for c in csv_writer.CSV_HEADER]
+    assert rows[1] == [ROW_SU_DISCO[c] for c in csv_writer.CSV_HEADER]
 
 
 def test_sweep_orphan_temps_path_vuoto_e_no_op(tmp_path):

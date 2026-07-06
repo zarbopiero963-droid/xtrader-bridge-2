@@ -74,8 +74,8 @@ def test_csv_injection_neutralizzata_ma_numeri_intatti(tmp_path):
     assert out["SelectionName"] == "'@SUM(1+1)"
     assert out["MarketName"] == "'-payload"
     assert out["Provider"] == "'\tTabInjection"
-    assert out["Handicap"] == "-1"      # numero preservato
-    assert out["Price"] == "1.85"
+    assert out["Handicap"] == "-1"      # numero preservato (niente apice, resta intero)
+    assert out["Price"] == "1,85"       # #342: lingua CSV default IT → decimale con la VIRGOLA
 
 
 def test_csv_nomi_legittimi_non_prefissati(tmp_path):
