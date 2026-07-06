@@ -203,6 +203,21 @@ altezza ridimensionabile, min 720×600.
 - **Indicatore di stato** (a destra): pallino + testo, vedi §8.
 - **Indicatore righe attive** (arancione): "N/M", vedi §8.
 
+### 6.2-quinquies Selettore «🌐 Scegli la lingua del bridge» al primo avvio (#343)
+
+Toplevel MODALE (grab) che compare **solo al primo avvio** (config con `app_language`
+mai scelta), ~300ms dopo la finestra principale. Contenuto verticale: titolo verbatim
+**«🌐 Scegli la lingua del bridge»** (bold 14), tre bottoni larghezza 240 — **«🇮🇹
+Italiano» / «🇬🇧 English» / «🇪🇸 Español»** — e hint grigio (11px, wraplength 320):
+*«Ricorda: in XTrader/Betting Toolkit imposta la LINGUA DELLA FONTE uguale a quella
+scelta qui — col riconoscimento a nomi i nomi dipendono dalla lingua del palinsesto.»*
+Comportamento: il click su una lingua **persiste** `app_language` e **allinea**
+`csv_language` (separatore decimale CSV #342), logga «🌐 Lingua del bridge impostata: …»
+e chiude; chiudere SENZA scegliere è sicuro (comportamento storico IT, il selettore
+ricompare al prossimo avvio — la non-scelta non viene mai persistita). Invarianti: la
+scelta lingua NON tocca modalità/gate di sicurezza; per ora cambia solo lingua CSV +
+persistenza (la UI localizzata è uno slice successivo della #343).
+
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
 Toplevel MODALE (grab) lanciato dal bottone **«🧙 Wizard prima configurazione»**

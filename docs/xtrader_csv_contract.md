@@ -135,16 +135,16 @@ un parser custom può estrarre testo arbitrario):
   **e non è un numero** viene prefissata con un apice singolo (`'`) — mitigazione standard.
   I **numeri** del contratto (es. `Handicap` `-1`/`+1,5`, `Price` `1.85`) **non** vengono
   toccati, così restano valori numerici validi per XTrader.
-- **Separatore decimale — lingua CSV (#342, BREAKING).** Il supporto XTrader ha confermato che
-  la versione **italiana** (attuale) legge i decimali di quote/points con la **virgola** («1,85»),
-  quella inglese col punto. Il formato scritto nel file è governato dalla config **`csv_language`**
-  (`IT`/`EN`/`ES`, default **`IT`**): con `IT`/`ES` le colonne decimali (`Price`, `MinPrice`,
+- **Separatore decimale — lingua CSV (#342/#343).** Il formato scritto nel file è governato
+  dalla config **`csv_language`** (`IT`/`EN`/`ES`, default **`IT`**, allineata dal **selettore
+  lingua al primo avvio**, #343): con `IT`/`ES` le colonne decimali (`Price`, `MinPrice`,
   `MaxPrice`, `Points`, `Handicap`) escono con la **virgola** («1,85», «-0,5»); con `EN` col
-  **punto**. *(ES = convenzione spagnola, da confermare col supporto Betting Toolkit.)*
-  **Breaking change rispetto alle versioni precedenti del bridge**, che scrivevano sempre il punto:
-  chi usa XTrader/Betting Toolkit in inglese imposta `"csv_language": "EN"` nel `config.json` per
-  ritrovare il comportamento storico. Valore mancante/malformato → `IT` (fail-closed). Le colonne
-  **testuali** (`SelectionName` «Over 2.5 Goals», `MarketName`…) non vengono **mai** toccate.
+  **punto**. Le versioni precedenti di XTrader ITA **richiedevano** la virgola; dall'update
+  «decimali intelligenti» (confermato dal supporto, #343) XTrader/Betting Toolkit **accetta
+  punto E virgola su tutte le colonne decimali, `Handicap` compreso, per tutte le lingue** —
+  la scelta per-lingua resta come belt-and-suspenders, non è più un requisito critico.
+  Valore mancante/malformato → `IT` (fail-closed). Le colonne **testuali** (`SelectionName`
+  «Over 2.5 Goals», `MarketName`…) non vengono **mai** toccate.
 - **Normalizzazione interna del prezzo** (`Price`/`MinPrice`/`MaxPrice`). A monte della scrittura
   il bridge resta **canonico col punto** (validatori/dedup invariati) e normalizza l'input così:
   - solo virgola → decimale: `1,85` → `1.85`;

@@ -50,6 +50,7 @@ from . import (
     event_log,
     gui_utils,
     instance_lock,
+    language_select,
     live_guard,
     log_privacy,
     log_view,
@@ -349,6 +350,10 @@ class App(ctk.CTk):
         # riavvio dopo riavvio. Best-effort, mai bloccante. Il listener è ancora spento,
         # quindi nessuna scrittura è in volo: ogni tmp che combacia è orfano.
         self._sweep_orphan_csv_temps()
+        # Selettore lingua al PRIMO avvio (#343 slice 3): quando `app_language` non è
+        # mai stata scelta, sopra la finestra principale appena costruita e PRIMA
+        # dell'eventuale auto-start (che al primo avvio è comunque OFF di default).
+        self.after(300, self._maybe_open_language_selector)
         # Avvio automatico del listener (se abilitato e config minima presente): dopo
         # che la UI è pronta, così log/stato sono visibili. Default OFF.
         self._autostart_after_id = self.after(400, self._maybe_auto_start)
@@ -1566,6 +1571,52 @@ class App(ctk.CTk):
         self._save_config()
         if self._save_ok:
             self._log("🧙 Wizard completato: configurazione salvata.")
+
+    def _maybe_open_language_selector(self) -> None:
+        """#343 slice 3: al PRIMO avvio (`app_language` mai scelta) mostra il selettore
+        lingua IT/EN/ES sopra la finestra principale. Best-effort: un errore GUI non
+        blocca l'avvio — senza scelta resta il comportamento storico (IT) e il
+        selettore si ripropone al prossimo avvio (fail-safe, mai fail-closed qui:
+        il default IT è il comportamento di sempre)."""
+        if not language_select.needs_language_selection(self._config):
+            return
+        try:
+            win = ctk.CTkToplevel(self)
+            win.title(language_select.TITLE)
+            ctk.CTkLabel(win, text=language_select.TITLE,
+                         font=ctk.CTkFont(size=14, weight="bold")).pack(
+                padx=18, pady=(14, 8))
+            for code, label in language_select.LANGUAGE_LABELS:
+                ctk.CTkButton(win, text=label, width=240,
+                              command=lambda c=code, w=win: self._language_chosen(c, w)
+                              ).pack(padx=18, pady=4)
+            ctk.CTkLabel(win, text=language_select.SOURCE_LANGUAGE_HINT,
+                         wraplength=320, justify="left",
+                         font=ctk.CTkFont(size=11), text_color="gray").pack(
+                padx=18, pady=(10, 14))
+            win.grab_set()   # modale: la scelta lingua precede il resto
+        except Exception:   # noqa: BLE001 — GUI best-effort: senza scelta resta IT e si ripropone al prossimo avvio
+            pass
+
+    def _language_chosen(self, code: str, win=None) -> None:
+        """Persiste la lingua scelta dal selettore (#343): `app_language` +
+        `csv_language` ALLINEATE in una copia della config viva, salvataggio atomico
+        via `save_config` (che propaga anche la lingua CSV al runtime, #342). Codice
+        non supportato → fail-closed: nessuna modifica, il selettore ricomparirà al
+        prossimo avvio."""
+        new_cfg = language_select.apply_language(self._config, code)
+        if new_cfg is not None:
+            saved, ok = save_config(new_cfg, CONFIG_FILE)
+            self._config = saved
+            self._save_ok = ok
+            self._log("🌐 Lingua del bridge impostata: "
+                      f"{language_select.normalize_app_language(code)} — lingua CSV "
+                      "allineata (la UI localizzata arriva con un prossimo slice #343).")
+        try:
+            if win is not None:
+                win.destroy()
+        except Exception:   # noqa: BLE001 — chiusura best-effort del selettore (widget già distrutto)
+            pass
 
     def _confirm_collaudo_mode(self) -> bool:
         """Conferma leggera (sì/no) per la modalità COLLAUDO (#311 §3.1): il testo è
