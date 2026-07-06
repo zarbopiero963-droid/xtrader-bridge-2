@@ -67,6 +67,25 @@ def test_catalogo_valori_sensati():
             assert isinstance(val, str) and val.strip(), f"{lang}:{key!r} vuota"
 
 
+def test_nomi_tab_solo_dentro_tr():
+    """Fable #357: un accesso ai tab PER NOME con la stringa italiana hardcoded
+    (`tabs.set("…")`, `tabview.tab("…")`, `insert(..., before="…")`) crasherebbe
+    in EN/ES, perché il tab è stato AGGIUNTO col nome tradotto. Guardia: ogni
+    occorrenza dei nomi-tab in app.py deve stare dentro `i18n.tr(...)` — un
+    futuro accesso per nome non wrappato fa fallire QUESTO test."""
+    import re
+    tabs = ["⚙️ Generale", "🎯 Riconoscimento", "🛡️ Sicurezza",
+            "✅ Conferme XTrader", "📡 Chat ascoltate", "🚦 Salute",
+            "📡 Stato", "📊 Dashboard", "📋 Log"]
+    for t in tabs:
+        occorrenze = list(re.finditer(re.escape(f'"{t}"'), _APP_SRC))
+        assert occorrenze, f"nome tab sparito da app.py: {t!r}"
+        for m in occorrenze:
+            assert _APP_SRC[:m.start()].endswith("i18n.tr("), (
+                f"accesso al tab {t!r} con literal NON wrappato in i18n.tr "
+                "(in EN/ES CTkTabview non troverebbe il tab)")
+
+
 def test_sorgente_usa_tr_sulle_label_catalogate():
     """Anti-regressione wiring: le label tradotte devono passare da i18n.tr nel
     sorgente (un revert del wrap le farebbe tornare hardcoded solo-IT)."""
