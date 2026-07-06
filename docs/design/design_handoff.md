@@ -319,6 +319,14 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
   mercati)"** + **"➕ Aggiungi mercato"**; checkbox **"MultiSelection (più selezioni)"** +
   **"➕ Aggiungi selezione"**; ogni riga ha campi Tipo mercato/Mercato/Selezione/Quota/
   BetType/Handicap + checkbox **"Attiva"** + **"🗑 Rimuovi"**.
+  **Solo le righe MultiSelection** (#325 slice 2) hanno in coda due campi in più:
+  **«Inizia dopo»** e **«Finisce prima»** (larghezza 110px, label size 10 come le altre celle) —
+  i delimitatori dell'**estrazione dinamica dei risultati esatti**. Sotto la lista selezioni c'è
+  un **hint fisso 💡** (label size 10, testo verbatim): *«Selezione VUOTA + «Inizia dopo/Finisce
+  prima» = estrazione dinamica dei risultati esatti dal messaggio (una riga per punteggio
+  «N - N»; solo mercati CORRECT_SCORE / HALF_TIME_SCORE).»* Le righe **MultiMarket NON hanno**
+  questi campi (invariante di sicurezza: sui mercati i delimitatori sarebbero solo una
+  misconfigurazione che il runtime ignora). Nessun altro cambiamento di layout/palette.
 - **Densità (#293 «densità parser»):** sopra la griglia c'è un toggle **"⚙️ Avanzate
   (Trasformazione · Value-map)"** (checkbox). **Di default è SPENTO**: la griglia mostra solo le
   colonne **essenziali** (Colonna · Inizia dopo · Finisce prima · Valore fisso · Obblig.), più

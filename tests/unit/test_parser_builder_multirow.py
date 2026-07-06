@@ -471,6 +471,88 @@ def test_gui_multi_rule_from_refs_preserves_hidden_fields(monkeypatch):
     assert rule.enabled is True
 
 
+# ── #325 slice 2: delimitatori «Inizia dopo/Finisce prima» sulle righe SELEZIONE ─
+
+def _gui_module(monkeypatch):
+    try:
+        import customtkinter  # noqa: F401
+    except ModuleNotFoundError:
+        monkeypatch.setitem(sys.modules, "customtkinter", _FakeCtkModule("customtkinter"))
+    monkeypatch.delitem(sys.modules, "xtrader_bridge.custom_parser_gui", raising=False)
+    return importlib.import_module("xtrader_bridge.custom_parser_gui")
+
+
+def test_gui_selection_fields_espongono_delimitatori_solo_sulle_selezioni(monkeypatch):
+    # #325 slice 2: i delimitatori sono esposti SOLO sulle righe SELEZIONE; le righe MERCATO
+    # restano senza (lì sarebbero solo la misconfigurazione da cui il gate #341 difende).
+    gui = _gui_module(monkeypatch)
+    sel_attrs = [a for a, _, _ in gui.CustomParserPanel._MULTI_SELECTION_FIELDS]
+    mkt_attrs = [a for a, _, _ in gui.CustomParserPanel._MULTI_FIELDS]
+    assert "start_after" in sel_attrs and "end_before" in sel_attrs
+    assert "start_after" not in mkt_attrs and "end_before" not in mkt_attrs
+    # le colonne base restano identiche (nessuna rimozione: solo aggiunta in coda)
+    assert sel_attrs[:len(mkt_attrs)] == mkt_attrs
+
+
+def test_gui_multi_rule_from_refs_selezione_applica_delimitatori(monkeypatch):
+    # Il VERO `_multi_rule_from_refs` con `_fields` = campi SELEZIONE applica anche i
+    # delimitatori digitati (fail-first sul threading di `_fields`: iterando sempre
+    # `_MULTI_FIELDS` i delimitatori resterebbero quelli della sorgente).
+    gui = _gui_module(monkeypatch)
+    refs = {
+        "_rule": cp.MultiRowRule(), "_fields": gui.CustomParserPanel._MULTI_SELECTION_FIELDS,
+        "market_type": _FakeVar(""), "market_name": _FakeVar(""),
+        "selection_name": _FakeVar(""), "price": _FakeVar(""),
+        "bet_type": _FakeVar(""), "handicap": _FakeVar(""),
+        "start_after": _FakeVar("Risultati:"), "end_before": _FakeVar("\n"),
+        "enabled": _FakeVar(True),
+    }
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)
+    rule = panel._multi_rule_from_refs(refs)
+    assert rule.start_after == "Risultati:"
+    # «\n» NON strippato (stesso contratto della griglia base): un delimitatore whitespace
+    # è legittimo e non deve sparire a ogni apri+salva.
+    assert rule.end_before == "\n"
+    assert rule.selection_name == ""   # selezione vuota + delimitatore → riga dinamica (#325)
+
+
+def test_gui_multi_rule_from_refs_selezione_svuotare_cancella_delimitatori(monkeypatch):
+    # Campo ESPOSTO svuotato dall'utente = intento esplicito → il delimitatore va CANCELLATO
+    # (non più "campo nascosto da preservare"): la riga torna fissa/inerte.
+    gui = _gui_module(monkeypatch)
+    source = cp.MultiRowRule(start_after="[", end_before="]", min_price="1.20")
+    refs = {
+        "_rule": source, "_fields": gui.CustomParserPanel._MULTI_SELECTION_FIELDS,
+        "market_type": _FakeVar(""), "market_name": _FakeVar(""),
+        "selection_name": _FakeVar("1 - 0"), "price": _FakeVar(""),
+        "bet_type": _FakeVar(""), "handicap": _FakeVar(""),
+        "start_after": _FakeVar(""), "end_before": _FakeVar(""),
+        "enabled": _FakeVar(True),
+    }
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)
+    rule = panel._multi_rule_from_refs(refs)
+    assert rule.start_after == "" and rule.end_before == ""   # cancellati (esposti)
+    assert rule.min_price == "1.20"                           # non esposto → preservato
+
+
+def test_gui_multi_rule_from_refs_mercato_preserva_delimitatori(monkeypatch):
+    # Riga MERCATO (`_fields` = _MULTI_FIELDS): i delimitatori NON sono esposti → restano
+    # preservati dalla sorgente (comportamento Codex P1 invariato per i mercati).
+    gui = _gui_module(monkeypatch)
+    source = cp.MultiRowRule(market_type="OLD", start_after="[", end_before="]")
+    refs = {
+        "_rule": source, "_fields": gui.CustomParserPanel._MULTI_FIELDS,
+        "market_type": _FakeVar("OVER_UNDER_25"), "market_name": _FakeVar(""),
+        "selection_name": _FakeVar(""), "price": _FakeVar(""),
+        "bet_type": _FakeVar(""), "handicap": _FakeVar(""),
+        "enabled": _FakeVar(True),
+    }
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)
+    rule = panel._multi_rule_from_refs(refs)
+    assert rule.start_after == "[" and rule.end_before == "]"   # preservati
+    assert rule.market_type == "OVER_UNDER_25"
+
+
 # ── #192 (Codex): il resolver ID dell'anteprima è best-effort/fail-open ───────
 
 def _headless_panel(monkeypatch, factory):

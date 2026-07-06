@@ -664,6 +664,15 @@ class CustomParserPanel(ctk.CTkFrame):
         ("bet_type", "BetType", 90),
         ("handicap", "Handicap", 90),
     )
+    # Campi delle sole righe SELEZIONE (#325 slice 2): in più i delimitatori «Inizia dopo/
+    # Finisce prima» dell'estrazione dinamica dei risultati esatti (Selezione VUOTA +
+    # delimitatori su mercato CORRECT_SCORE/HALF_TIME_SCORE → una riga per punteggio).
+    # NON esposti sulle righe MERCATO (lì sono solo misconfigurazione: il runtime li ignora
+    # per design, gate #341) — dove restano preservati come campi nascosti (Codex P1).
+    _MULTI_SELECTION_FIELDS = _MULTI_FIELDS + (
+        ("start_after", "Inizia dopo", 110),
+        ("end_before", "Finisce prima", 110),
+    )
 
     def _build_multi_section(self, outer):
         """Sezione output multi-riga: due interruttori + due liste di righe dinamiche.
@@ -697,22 +706,34 @@ class CustomParserPanel(ctk.CTkFrame):
         self._multi_selections_box = ctk.CTkFrame(sec, fg_color="transparent")
         self._multi_selections_box.pack(fill="x", padx=8, pady=(0, 4))
         self._multi_selection_rows = []  # refs per riga MultiSelection
+        # Hint estrazione dinamica (#325): spiega la combinazione che attiva una-riga-per-risultato.
+        ctk.CTkLabel(
+            sec, anchor="w", justify="left", font=ctk.CTkFont(size=10),
+            text=("💡 Selezione VUOTA + «Inizia dopo/Finisce prima» = estrazione dinamica dei "
+                  "risultati esatti dal messaggio (una riga per punteggio «N - N»; solo mercati "
+                  "CORRECT_SCORE / HALF_TIME_SCORE).")).pack(fill="x", padx=8, pady=(0, 2))
 
         # Banner avvisi (es. entrambi attivi → righe separate, non cartesiane).
         self._multi_warn = ctk.CTkLabel(sec, text="", anchor="w", justify="left",
                                         text_color="#ffa726")
         self._multi_warn.pack(fill="x", padx=8, pady=(0, 6))
 
-    def _add_multi_row_widget(self, container, refs_list, rule):
-        """Disegna UNA riga multi editabile (campi `_MULTI_FIELDS` + abilitata + Rimuovi)."""
+    def _add_multi_row_widget(self, container, refs_list, rule, fields=None):
+        """Disegna UNA riga multi editabile (campi `fields` + abilitata + Rimuovi).
+
+        `fields` = tupla colonne della riga: `_MULTI_FIELDS` (default, righe MERCATO) o
+        `_MULTI_SELECTION_FIELDS` (righe SELEZIONE, con i delimitatori #325)."""
+        fields = fields or self._MULTI_FIELDS
         row = ctk.CTkFrame(container, fg_color="transparent")
         row.pack(fill="x", pady=2)
-        # Conserva la regola SORGENTE: i campi NON esposti nella GUI (start_after/end_before/
-        # min_price/max_price/points) vanno PRESERVATI al salvataggio, altrimenti aprire+salvare
-        # un parser azzererebbe in silenzio quei vincoli per-riga cambiando le righe CSV emesse
-        # (Codex P1). `_multi_rule_from_refs` riparte da una copia di questa regola.
-        refs = {"frame": row, "_rule": rule}
-        for attr, label, w in self._MULTI_FIELDS:
+        # Conserva la regola SORGENTE: i campi NON esposti nella GUI di QUESTA riga
+        # (min_price/max_price/points sempre; start_after/end_before sulle righe MERCATO)
+        # vanno PRESERVATI al salvataggio, altrimenti aprire+salvare un parser azzererebbe
+        # in silenzio quei vincoli per-riga cambiando le righe CSV emesse (Codex P1).
+        # `_multi_rule_from_refs` riparte da una copia di questa regola e applica SOLO i
+        # campi in `_fields`.
+        refs = {"frame": row, "_rule": rule, "_fields": fields}
+        for attr, label, w in fields:
             cell = ctk.CTkFrame(row, fg_color="transparent")
             cell.pack(side="left", padx=2)
             ctk.CTkLabel(cell, text=label, width=w, anchor="w",
@@ -746,10 +767,11 @@ class CustomParserPanel(ctk.CTkFrame):
         self._refresh_multi_warnings()
 
     def _add_multi_selection_clicked(self):
-        """[+] selezione: spunta MultiSelection (se serve) e aggiunge una riga vuota."""
+        """[+] selezione: spunta MultiSelection (se serve) e aggiunge una riga vuota
+        (con i campi delimitatori #325)."""
         self._multi_selection_var.set(True)
         self._add_multi_row_widget(self._multi_selections_box, self._multi_selection_rows,
-                                   MultiRowRule())
+                                   MultiRowRule(), fields=self._MULTI_SELECTION_FIELDS)
         self._refresh_multi_warnings()
 
     def _on_multi_toggle(self):
@@ -770,7 +792,8 @@ class CustomParserPanel(ctk.CTkFrame):
         for rule in self.builder.multi_markets:
             self._add_multi_row_widget(self._multi_markets_box, self._multi_market_rows, rule)
         for rule in self.builder.multi_selections:
-            self._add_multi_row_widget(self._multi_selections_box, self._multi_selection_rows, rule)
+            self._add_multi_row_widget(self._multi_selections_box, self._multi_selection_rows,
+                                       rule, fields=self._MULTI_SELECTION_FIELDS)
         self._refresh_multi_warnings()
 
     def _sync_multi_to_builder(self):
@@ -783,9 +806,17 @@ class CustomParserPanel(ctk.CTkFrame):
 
     def _multi_rule_from_refs(self, refs) -> "MultiRowRule":
         """Ricostruisce la `MultiRowRule` da una riga: parte dalla regola SORGENTE e applica
-        SOLO gli override visibili (`_MULTI_FIELDS`) + Attiva, preservando i campi non esposti
-        (logica in `ParserBuilder.merge_multi_rule_overrides`, testata in CI; Codex P1)."""
-        overrides = {attr: refs[attr].get().strip() for attr, _, _ in self._MULTI_FIELDS}
+        SOLO gli override visibili della riga (`refs["_fields"]`: `_MULTI_FIELDS` per i
+        mercati, `_MULTI_SELECTION_FIELDS` — coi delimitatori #325 — per le selezioni) +
+        Attiva, preservando i campi non esposti (logica in
+        `ParserBuilder.merge_multi_rule_overrides`, testata in CI; Codex P1)."""
+        fields = refs.get("_fields") or self._MULTI_FIELDS
+        # I delimitatori NON vengono strippati (stesso contratto della griglia base,
+        # `_sync_to_builder`): «\n» o uno spazio sono delimitatori LEGITTIMI di estrazione —
+        # uno strip li cancellerebbe in silenzio a ogni apri+salva.
+        overrides = {attr: (refs[attr].get() if attr in ("start_after", "end_before")
+                            else refs[attr].get().strip())
+                     for attr, _, _ in fields}
         return ParserBuilder.merge_multi_rule_overrides(
             refs.get("_rule") or MultiRowRule(), overrides,
             enabled=bool(refs["enabled"].get()))
