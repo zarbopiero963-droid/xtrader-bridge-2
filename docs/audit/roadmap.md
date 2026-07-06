@@ -1631,6 +1631,19 @@ caso limite; warning nei log); il rifiuto resta certo su «lock già posseduto»
 Ordine coda GUI post-#345 (decisione owner, commento in #311): 1.1 → 1.3 → PR-cestino
 micro-GUI → 3.1 → 3.2 → 3.3 → 3.4 → 3.5 → #343 GUI; poi Nuitka e il resto.
 
+## #311-1.3 — START bloccato senza Parser Personalizzato attivo (coda GUI, PR 2)
+
+Il parser hardcoded P.Bet è disattivato nel live (CP-09b): senza alcun Parser
+Personalizzato il listener partiva «ATTIVO» ma ignorava ogni segnale, con un solo avviso
+⚠ non bloccante — l'operatore credeva che il bridge lavorasse. Ora il check
+`signal_router.has_active_parser_config` in `_start` è **BLOCCANTE** (❌ + `return`),
+coerente con gli altri fail-fast (token/csv_path/chat/sorgenti): messaggio con
+l'istruzione esplicita («Configura almeno un Parser Personalizzato prima di avviare,
+scheda 🧩 Parser»). Guardia strutturale fail-first in test_app_runtime_glue (il blocco
+deve loggare ❌ e fare `return`; mutazione senza `return` → test fallisce); la logica
+pura resta coperta dagli unit di `signal_router`. Copre anche l'auto-start (passa da
+`_start`). Docs: README (box in «Parser Personalizzato») + design handoff §9.4.
+
 ## #325 (slice 2, GUI) — campi «Inizia dopo/Finisce prima» sulle righe MultiSelection
 
 Chiude #325: i delimitatori dell'estrazione dinamica (slice 1 backend) sono ora configurabili

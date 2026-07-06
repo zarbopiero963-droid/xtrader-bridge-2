@@ -591,9 +591,14 @@ serve attrito a ogni avvio):
 
 ### 9.4 Perché il bridge non parte (errori di preflight) e avvisi non bloccanti
 AVVIA è bloccato (con messaggio nel log) se: manca il Bot Token, manca il CSV Path, il
-Timeout non è un intero > 0, oppure **nessuna chat/sorgente è configurata**. Il design deve
-rendere questi requisiti **evidenti prima** di premere AVVIA (validazione inline, stati
-disabilitati, hint).
+Timeout non è un intero > 0, **nessuna chat/sorgente è configurata**, oppure — **#311-1.3** —
+**nessun Parser Personalizzato è configurato** (globale o per-chat): il parser automatico è
+disattivato nel live, quindi un listener senza parser sembrerebbe «ATTIVO» ma ignorerebbe
+ogni segnale in silenzio. Messaggio verbatim: *«❌ Nessun Parser Personalizzato configurato
+(globale o per-chat): il parser automatico è disattivato e il listener ignorerebbe OGNI
+segnale. Configura almeno un Parser Personalizzato prima di avviare (scheda 🧩 Parser).
+Avvio annullato.»* (prima era un avviso ⚠ non bloccante). Il design deve rendere questi
+requisiti **evidenti prima** di premere AVVIA (validazione inline, stati disabilitati, hint).
 
 AVVIA invece **procede ma con avviso ⚠️ nel log eventi** (audit #259) quando:
 - **nessuna chat sorgente è ATTIVA** (es. tutte disattivate): il listener parte «sordo» e

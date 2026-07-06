@@ -2113,14 +2113,17 @@ class App(ctk.CTk):
                       "il bridge accetterebbe segnali da QUALSIASI chat. Configura almeno "
                       "una chat/sorgente. Avvio annullato.")
             return
-        # CP-09b: il parser automatico P.Bet è disattivato. Se NON è configurato alcun
-        # Parser Personalizzato (globale o per-chat), il listener partirebbe ma ignorerebbe
-        # ogni segnale in silenzio. Avviso NON bloccante: l'utente potrebbe attivare un
-        # parser subito dopo, ma deve sapere che ora non verrà processato nulla (Codex).
+        # Fail-fast (#311-1.3): il parser automatico P.Bet è disattivato nel live (CP-09b).
+        # Senza NESSUN Parser Personalizzato (globale o per-chat) il listener partirebbe
+        # «ATTIVO» ma ignorerebbe ogni segnale in silenzio: l'operatore crederebbe che il
+        # bridge lavori. BLOCCANTE, coerente con gli altri fail-fast (token/csv_path/chat):
+        # prima era solo un avviso ⚠ non bloccante.
         if not signal_router.has_active_parser_config(cfg):
-            self._log("⚠️ Nessun Parser Personalizzato configurato (globale o per-chat): "
-                      "il parser automatico è disattivato, quindi NESSUN segnale verrà "
-                      "processato finché non attivi un parser.")
+            self._log("❌ Nessun Parser Personalizzato configurato (globale o per-chat): "
+                      "il parser automatico è disattivato e il listener ignorerebbe OGNI "
+                      "segnale. Configura almeno un Parser Personalizzato prima di avviare "
+                      "(scheda 🧩 Parser). Avvio annullato.")
+            return
         # Fail-fast (PR-24): sorgenti multi-chat malformate (chat_id mancante,
         # DUPLICATO con provider ambiguo, modalità non valida) bloccano l'avvio,
         # altrimenti provider_for_chat sceglierebbe a caso la prima sorgente.

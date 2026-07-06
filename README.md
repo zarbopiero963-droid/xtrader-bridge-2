@@ -256,6 +256,12 @@ Oltre al parser integrato per il formato **P.Bet.**, puoi definire dalla GUI **c
 estrarre ogni colonna del CSV da un messaggio, **senza toccare il codice**. Apri
 **🧩 Parser Personalizzato**.
 
+> **⛔ Serve un parser per avviare (#311-1.3).** Il parser automatico P.Bet è disattivato
+> nel percorso live: **senza almeno un Parser Personalizzato configurato** (globale o
+> per-chat) il pulsante **AVVIA viene bloccato** con il messaggio «Configura almeno un
+> Parser Personalizzato prima di avviare» — prima era solo un avviso e il listener
+> partiva "ATTIVO" ignorando però ogni segnale in silenzio.
+
 In breve, ogni colonna ha una **regola** con:
 
 - **"Inizia dopo"** / **"Finisce prima"**: i delimitatori di testo (tolleranti agli
