@@ -1437,6 +1437,29 @@ def test_preview_id_resolver_factory_fail_open_su_eccezione(app_mod):
     assert app_mod.App._preview_id_resolver_factory(a) is None
 
 
+def test_start_senza_parser_attivo_e_bloccante(app_mod):
+    """#311-1.3 (guardia strutturale, fail-first): senza NESSUN Parser Personalizzato
+    configurato lo START deve essere BLOCCATO (prima era solo un avviso ⚠ non
+    bloccante: il listener partiva «ATTIVO» ma ignorava ogni segnale in silenzio).
+    `_start` è GUI/thread-coupled e non istanziabile headless (stesso pattern di
+    test_start_mostra_avvisi_...): si pinna il wiring — il check `has_active_parser_config`
+    deve esistere, loggare l'errore ❌ con l'istruzione per l'utente e fare `return`
+    PRIMA di qualsiasi avvio. La logica pura è coperta dagli unit di signal_router."""
+    import inspect
+    src = inspect.getsource(app_mod.App._start)
+    assert "has_active_parser_config" in src
+    idx = src.index("has_active_parser_config")
+    blocco = src[idx:idx + 600]
+    assert "Configura almeno un Parser Personalizzato" in blocco   # istruzione visibile
+    assert "Avvio annullato" in blocco
+    assert "return" in blocco                                      # BLOCCANTE, non avviso
+    # e il blocco sta PRIMA dell'avvio vero: l'ancora `_bot_thread` deve ESISTERE
+    # (niente fallback no-op che passerebbe in silenzio su un rename, Sourcery #347)
+    # e comparire DOPO il guard — fail-first se il guard viene spostato dopo l'avvio.
+    assert "_bot_thread" in src
+    assert idx < src.index("_bot_thread")
+
+
 def test_start_mostra_avvisi_enabled_malformato_nel_log_eventi(app_mod):
     """Guardia strutturale sul wiring (Codex P2 #309): `_start` è GUI/thread-coupled e
     non istanziabile headless (stesso pattern di test_event_journal_wiring), ma il suo
