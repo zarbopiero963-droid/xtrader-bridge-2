@@ -60,7 +60,9 @@ def csv_writable(path, *, platform=None) -> "tuple[str, str]":
     if os.path.exists(p):
         if not os.access(p, os.W_OK):
             return RED, "file esistente ma NON scrivibile (permessi/lock)"
-        if platform == "nt":
+        if platform != "posix":
+            # FAIL-CLOSED sul platform (Fable #353): solo POSIX guadagna il verde
+            # verificabile; "nt", valori esotici o sporchi restano al giallo onesto.
             return YELLOW, ("file esistente, probabilmente scrivibile — su Windows "
                             "ACL/lock (es. XTrader) non sono rilevabili senza aprirlo")
         return GREEN, "file esistente e scrivibile"
@@ -68,9 +70,10 @@ def csv_writable(path, *, platform=None) -> "tuple[str, str]":
     if not os.path.isdir(parent):
         return RED, f"cartella inesistente: {parent}"
     if os.access(parent, os.W_OK):
-        if platform == "nt":
-            # Coerenza (Fugu #351): su NTFS anche os.access sulla CARTELLA ignora le
-            # ACL → il ramo «file da creare» non può promettere un verde verificabile.
+        if platform != "posix":
+            # Coerenza (Fugu #351) + fail-closed sul platform (Fable #353): su NTFS
+            # anche os.access sulla CARTELLA ignora le ACL, e un platform sconosciuto
+            # non guadagna il verde → il ramo «file da creare» resta al giallo onesto.
             return YELLOW, ("il file verrà creato, cartella probabilmente scrivibile — "
                             "su Windows le ACL non sono rilevabili senza scrivere")
         return GREEN, "il file verrà creato (cartella scrivibile)"

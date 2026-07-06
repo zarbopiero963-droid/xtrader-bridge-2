@@ -90,6 +90,10 @@ def test_csv_writable_windows_giallo_onesto(tmp_path):
     # I casi rossi restano rossi anche su Windows.
     assert hc.csv_writable("", platform="nt")[0] == hc.RED
     assert hc.csv_writable(str(tmp_path), platform="nt")[0] == hc.RED
+    # FAIL-CLOSED sul platform (Fable #353): un valore sconosciuto/sporco NON guadagna
+    # il verde POSIX — resta al giallo onesto su entrambi i rami.
+    assert hc.csv_writable(str(p), platform="java")[0] == hc.YELLOW
+    assert hc.csv_writable(str(tmp_path / "nuovo.csv"), platform="")[0] == hc.YELLOW
 
 
 def test_evaluate_csv_state_sporco_fail_closed():
