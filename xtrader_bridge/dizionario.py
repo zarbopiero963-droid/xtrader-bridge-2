@@ -15,14 +15,42 @@ import re
 import sys
 
 
-def _data_dir() -> str:
-    """Cartella `data/`. Nell'EXE PyInstaller i dati stanno in sys._MEIPASS
-    (vedi --add-data nel workflow), non accanto a __file__ (bundle temporaneo)."""
-    if getattr(sys, "frozen", False):
-        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
-    else:
+def resource_path(relative: str) -> str:
+    """Percorso assoluto di un asset **read-only impacchettato** (es. `data/…`), corretto in
+    TUTTE le forme di distribuzione: run da **sorgente**, EXE **PyInstaller** ed EXE **Nuitka**.
+
+    L'ordine dei rami è deliberato (Nuitka PRIMA di `sys.frozen`):
+
+    - **Nuitka** (`--standalone`/`--onefile`): si rileva col modo RACCOMANDATO dai doc ufficiali
+      Nuitka, cioè l'attributo di modulo `__compiled__` — NON `sys.frozen`, che Nuitka *non*
+      imposta di proposito (Nuitka User Manual: «Nuitka does *not* set sys.frozen unlike other
+      tools because it usually triggers inferior code»). I dati inclusi con
+      `--include-data-dir=./data=data` stanno relativi alla cartella del programma (standalone)
+      o vengono spacchettati nella dir temporanea ACCANTO ai moduli (onefile): in entrambi i
+      casi `__file__` (genitore del package) li risolve, IDENTICO al sorgente. Il gating
+      esplicito su `__compiled__` è difesa-in-profondità: se un giorno qualcosa impostasse
+      `sys.frozen` su un binario Nuitka, NON si deve cadere nel ramo PyInstaller
+      (`_MEIPASS`/`dirname(executable)`) — in onefile `dirname(executable)` punta accanto
+      all'EXE reale, dove i dati spacchettati NON sono → dizionario non trovato → CSV senza
+      lookup alias.
+    - **PyInstaller** (`--onefile`/`--onedir`): imposta `sys.frozen=True` e `sys._MEIPASS`
+      (la cartella del bundle); `--add-data "src;dest"` finisce in `<_MEIPASS>/dest`. Qui
+      `__file__` punta nel bundle temporaneo, quindi si DEVE usare `_MEIPASS` (fallback
+      difensivo a `dirname(sys.executable)` per freezer che settano `frozen` senza `_MEIPASS`).
+    - **Sorgente**: base = genitore del package, via `__file__`."""
+    if "__compiled__" in globals():                    # Nuitka: rilevamento raccomandato
         base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base, "data")
+    elif getattr(sys, "frozen", False):                # PyInstaller
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+    else:                                              # sorgente
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, relative)
+
+
+def _data_dir() -> str:
+    """Cartella `data/` degli asset impacchettati, via `resource_path` (source/PyInstaller/
+    Nuitka-aware)."""
+    return resource_path("data")
 
 
 DIZIONARIO_PATH = os.path.join(_data_dir(), "dizionario_xtrader.csv")

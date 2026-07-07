@@ -99,6 +99,85 @@ def test_data_dir_da_meipass_se_frozen(monkeypatch, tmp_path):
     assert dz._data_dir() == os.path.join(str(tmp_path), "data")
 
 
+# ── resource_path: 3 forme di distribuzione (source / PyInstaller / Nuitka) ──
+# Fase 6: l'EXE ufficiale passa a Nuitka. `resource_path` è l'unico punto che risolve gli
+# asset read-only impacchettati (`data/dizionario_xtrader.csv`); questi test bloccano una
+# regressione che, cambiando distribuzione, spedirebbe l'EXE senza dizionario (→ nessun
+# lookup alias→XTrader → CSV incompleto). Ogni test è verificabile fail-first via mutazione.
+
+def test_resource_path_da_sorgente_usa_file(monkeypatch):
+    """Run da SORGENTE: nessun `sys.frozen`, nessun `_MEIPASS` → base = genitore del package
+    (`dirname(dirname(__file__))`), cioè la radice del repo dove vive `data/`."""
+    import os
+    monkeypatch.delattr(dz.sys, "frozen", raising=False)
+    monkeypatch.delattr(dz.sys, "_MEIPASS", raising=False)
+    base = os.path.dirname(os.path.dirname(os.path.abspath(dz.__file__)))
+    assert dz.resource_path("data") == os.path.join(base, "data")
+    assert dz.resource_path(os.path.join("data", "x.csv")) == os.path.join(base, "data", "x.csv")
+
+
+def test_resource_path_pyinstaller_usa_meipass(monkeypatch, tmp_path):
+    """PyInstaller: `sys.frozen=True` + `_MEIPASS=<bundle>` → base = `_MEIPASS`. Nel bundle
+    `__file__` punta alla cartella temporanea sbagliata, quindi si DEVE usare `_MEIPASS`."""
+    import os
+    monkeypatch.setattr(dz.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(dz.sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert dz.resource_path("data") == os.path.join(str(tmp_path), "data")
+
+
+def test_resource_path_nuitka_ignora_meipass_e_usa_file(monkeypatch, tmp_path):
+    """Nuitka: marca il modulo con `__compiled__` ma NON imposta `sys.frozen`. Il ramo
+    `_MEIPASS` è gated su `sys.frozen`, quindi Nuitka cade nel ramo `__file__` come il
+    sorgente — anche se un `_MEIPASS` stray fosse presente in `sys`, va IGNORATO.
+    GARANZIA: nessun uso di `_MEIPASS` senza `frozen` (altrimenti l'EXE Nuitka cercherebbe
+    il dizionario in una cartella PyInstaller inesistente)."""
+    import os
+    monkeypatch.setattr(dz, "__compiled__", object(), raising=False)       # marchio Nuitka
+    monkeypatch.delattr(dz.sys, "frozen", raising=False)                    # Nuitka non lo setta
+    monkeypatch.setattr(dz.sys, "_MEIPASS", str(tmp_path), raising=False)   # stray → da ignorare
+    base = os.path.dirname(os.path.dirname(os.path.abspath(dz.__file__)))
+    got = dz.resource_path("data")
+    assert got == os.path.join(base, "data")
+    assert str(tmp_path) not in got                                        # _MEIPASS NON usato
+
+
+def test_resource_path_nuitka_anche_se_frozen_impostato_usa_file(monkeypatch, tmp_path):
+    """DIFESA-IN-PROFONDITÀ (finding review Fable #365): Nuitka NON imposta `sys.frozen` (doc
+    ufficiale), ma se un domani qualcosa lo impostasse su un binario Nuitka, il gating su
+    `__compiled__` PRIMA di `sys.frozen` garantisce che si usi comunque `__file__` — MAI il
+    ramo PyInstaller (`_MEIPASS`/`dirname(executable)`), che in onefile punterebbe accanto
+    all'EXE reale dove i dati spacchettati NON sono (→ dizionario non trovato → CSV senza
+    lookup alias). Qui: `__compiled__` presente + `sys.frozen=True` + `_MEIPASS` stray →
+    DEVE risolvere via `__file__`."""
+    import os
+    monkeypatch.setattr(dz, "__compiled__", object(), raising=False)       # marchio Nuitka
+    monkeypatch.setattr(dz.sys, "frozen", True, raising=False)             # ipotetico frozen
+    monkeypatch.setattr(dz.sys, "_MEIPASS", str(tmp_path / "meipass"), raising=False)
+    monkeypatch.setattr(dz.sys, "executable", str(tmp_path / "app.exe"), raising=False)
+    base = os.path.dirname(os.path.dirname(os.path.abspath(dz.__file__)))
+    got = dz.resource_path("data")
+    assert got == os.path.join(base, "data")
+    assert str(tmp_path) not in got            # né _MEIPASS né dirname(executable) usati
+
+
+def test_resource_path_frozen_senza_meipass_fallback_eseguibile(monkeypatch, tmp_path):
+    """Difensivo: un freezer che imposta `sys.frozen` ma NON `_MEIPASS` → fallback alla
+    cartella dell'eseguibile (`dirname(sys.executable)`), non un crash da AttributeError."""
+    import os
+    monkeypatch.setattr(dz.sys, "frozen", True, raising=False)
+    monkeypatch.delattr(dz.sys, "_MEIPASS", raising=False)
+    monkeypatch.setattr(dz.sys, "executable", str(tmp_path / "app.exe"), raising=False)
+    assert dz.resource_path("data") == os.path.join(str(tmp_path), "data")
+
+
+def test_data_dir_delega_a_resource_path(monkeypatch):
+    """`_data_dir()` è solo `resource_path("data")`: se cambia la radice risolta, `_data_dir`
+    la segue (nessuna logica di path duplicata che possa divergere)."""
+    import os
+    monkeypatch.setattr(dz, "resource_path", lambda rel: os.path.join("FAKE_ROOT", rel))
+    assert dz._data_dir() == os.path.join("FAKE_ROOT", "data")
+
+
 def test_alias_key_normalizza():
     assert dz.alias_key("  Over 0.5 HT ", "OVER 0.5 HT") == ("over 0.5 ht", "over 0.5 ht")
 
