@@ -27,7 +27,8 @@
 ## D. Build EXE Windows (manuale / CI Windows)
 
 > Non eseguibile in ambiente headless. Eseguire su Windows o tramite il workflow
-> `build.yaml` (push su `main` o tag `v*`).
+> `build.yaml`, che parte **manualmente** (Actions → «Run workflow») o su **tag `v*`**
+> (non più a ogni push su `main`, per non consumare la quota storage artifact).
 
 - [ ] Il workflow `build.yaml` completa senza errori.
 - [ ] L'artifact versionato `XTrader-Signal-Bridge-Windows-v<versione>-<data>.zip`

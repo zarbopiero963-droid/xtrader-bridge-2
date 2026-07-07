@@ -1,8 +1,12 @@
 name: Build XTrader Signal Bridge EXE
 
 on:
+  # Build EXE NON automatico a ogni push su main: un EXE (~decine di MB, retention 30gg)
+  # caricato a ogni commit riempirebbe la quota storage artifact di GitHub. Si lancia a
+  # MANO da Actions → «Run workflow» (workflow_dispatch), oppure automaticamente su un tag
+  # di release `v*`. La build resta comunque fail-closed (i test girano prima e sono
+  # bloccanti): cambia solo QUANDO parte, non COME.
   push:
-    branches: [ "main", "master" ]
     tags: [ "v*" ]
   workflow_dispatch:
 

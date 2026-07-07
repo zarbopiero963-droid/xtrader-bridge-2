@@ -648,9 +648,11 @@ simulazione. Per scrivere davvero metti `dry_run=false`.
 
 La compilazione avviene via **GitHub Actions** su Windows:
 
-1. Push sul branch `main` (oppure un tag `v*` per una release).
-2. Actions esegue i test, poi compila l'EXE.
-3. **Actions → ultima run → Artifacts**.
+1. **Manuale**: **Actions → «Build XTrader Signal Bridge EXE» → «Run workflow»** (scegli il
+   branch). Oppure **automatico** su un **tag `v*`** (release). *Non* parte più a ogni push
+   su `main`: eviti di consumare inutilmente la quota storage artifact di GitHub.
+2. Actions esegue i test (bloccanti), poi compila l'EXE.
+3. **Actions → la run → Artifacts**.
 4. Scarica `XTrader-Signal-Bridge-Windows-v<versione>-<data>.zip`.
 5. Dentro trovi `XTrader-Signal-Bridge.exe` pronto all'uso.
 
