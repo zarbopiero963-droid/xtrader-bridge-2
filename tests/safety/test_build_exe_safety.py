@@ -1080,6 +1080,23 @@ def test_nuitka_install_usa_lock_con_hash_quando_disponibile():
         "manca il fallback legacy con nuitka pinnato"
 
 
+def test_nuitka_install_fallback_e_gated_correttamente():
+    """Il ramo `--require-hashes` è DENTRO l'`if` (lock-con-nuitka) e il fallback pinnato è
+    nell'`else`: così quando il lock esiste ma NON contiene nuitka (stato ATTUALE — lock
+    pyinstaller-only, prima della rigenerazione su Windows) scatta il fallback pinnato, NON un
+    `--require-hashes` su un lock privo di nuitka (GLM #367). Verifica strutturale dell'ordine
+    if/else nel workflow."""
+    text = _read(os.path.join(_WORKFLOWS_DIR, "build-nuitka.yaml"))
+    i_if = text.find("if ((Test-Path")
+    i_hashes = text.find("--require-hashes -r requirements-build.lock")
+    i_else = text.find("} else {")
+    i_pinned = text.find("pip install -r requirements-dev.txt nuitka==")
+    assert -1 not in (i_if, i_hashes, i_else, i_pinned), "struttura install self-healing non trovata"
+    assert i_if < i_hashes < i_else < i_pinned, (
+        "il ramo --require-hashes dev'essere nell'if (lock-con-nuitka) e il pinned nell'else "
+        "(fallback quando il lock non contiene ancora nuitka)")
+
+
 def test_nuitka_detector_forme_canoniche_e_wrappate():
     """Detector Nuitka (senza build reale): forma diretta e modulo (anche versionata/venv) sono
     CANONICHE; le forme wrappate (cmd/pwsh/sh) sono RILEVATE ma NON canoniche → rifiutate dal
