@@ -2097,6 +2097,16 @@ bloccare uno STOP indefinitamente; si usano i kwargs di PTB e NON `asyncio.wait_
 (`xtrader_bridge/app.py::_run_bot/_async_run`): da ri-sincronizzare nel cloud.
 
 Test hard (`tests/integration/test_reconnect_110.py`):
+`test_start_polling_ritorna_senza_connettere_non_abbassa_il_flag` (fire-and-forget + `get_me` che
+solleva → riconnessione, `drop_pending=True` su entrambi i giri, teardown pulito, timeout bounded) e
+`test_get_me_timedout_e_transitorio_riconnette_non_stop` (review Fugu Ultra/GLM/GPT — usa la
+classificazione REALE `is_transient_error`, senza stubbare `should_reconnect`: un `TimedOut` da `get_me`
+→ riconnessione, non STOP). `_TgApp` fake esteso con `bot.get_me` (default successo → A/B/C invariati).
+Mutation-guard: rimuovendo il gate `get_me` → `len(apps)==1` KILLED; `get_me` senza timeout → assert
+kwargs KILLED; `TimedOut` rimosso dai transitori → il test TimedOut KILLED. Suite **2401 passed,
+11 skipped**.
+
+Test hard (`tests/integration/test_reconnect_110.py`):
 `test_start_polling_ritorna_senza_connettere_non_abbassa_il_flag` — `start_polling` NON solleva
 (fire-and-forget) e `get_me` solleva alla 1ª connessione → riconnessione; `drop_pending_updates=True` su
 ENTRAMBI i giri (il flag non è stato abbassato). `_TgApp` fake esteso con un `bot.get_me` (default
