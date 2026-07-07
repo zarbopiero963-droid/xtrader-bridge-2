@@ -2026,7 +2026,20 @@ i kwargs e per far sollevare `stop` dopo il successo. Fail-first: la mutazione �
 `start_polling`» KILLED (Test A: la riconnessione passa `False` → assert `is True` fallisce);
 la mutazione «flag promosso a stato d'istanza» KILLED (Test C: la 2ª sessione partirebbe da
 `False`). STOP-durante-backoff e no-doppio-poller invariati (test #110/7 e lifecycle intatti).
-Suite **2390 passed, 11 skipped**. Docs: README «Cosa succede se cade la connessione?» aggiornato
+
+Ridelivery anti-doppia-scommessa (review Fable 5 / Fugu Ultra): con `drop_pending_updates=False`
+sulle riconnessioni, Telegram può rideliverare (at-least-once) un update già processato ma non
+ancora ack-ato prima del blip. Il messaggio è FRESCO (`max_signal_age` non lo scarta): la
+protezione è la **deduplica per contenuto** del `SignalTracker` (hash-messaggio, finestra
+persistente 300s), valutata sotto `_queue_lock` in `write_path.commit_signal` PRIMA di ogni
+scrittura CSV — indipendente da `update_id`. Coperto da `test_app_runtime_glue.py::
+test_process_ridelivery_stesso_messaggio_non_scrive_due_volte` (stesso testo consegnato 2×: la 2ª
+è DUPLICATE → `write_rows` chiamata una sola volta, CSV con UNA riga; mutazione «dedup azzerata»
+KILLED), oltre alla copertura pre-esistente (`test_signal_dedupe`/`test_write_path`). Freschezza su
+`channel_post`: `_handle` estrae la data da `update.message or update.channel_post` in modo
+uniforme → `telegram_dispatch.decide`/`is_stale` la applica anche ai post di canale.
+
+Suite **2391 passed, 11 skipped**. Docs: README «Cosa succede se cade la connessione?» aggiornato
 (prima connessione riuscita scarta / riconnessione dopo successo recupera). Design handoff =
 **N/A** (nessun cambio a schermate/tab/controlli/stati/indicatori: RICONNESSIONE→ATTIVO
 invariato; aggiunta solo una riga di log informativa, non un elemento che il handoff descrive).
