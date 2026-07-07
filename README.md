@@ -613,9 +613,14 @@ non inizia a scommettere da solo per sbaglio. Di default è disattivato.
 
 **Cosa succede se cade la connessione?** Il listener **si riconnette da solo** con
 attese crescenti (backoff: 2s, 4s, 8s… fino a 60s) finché resta avviato; durante
-l'attesa lo stato mostra **RICONNESSIONE…**, poi torna **ATTIVO**. All'avvio i
-messaggi accumulati mentre era offline vengono **scartati** (`drop_pending_updates`).
-Inoltre, **a prescindere** da come avviene la riconnessione, un messaggio Telegram
+l'attesa lo stato mostra **RICONNESSIONE…**, poi torna **ATTIVO**. **Solo alla prima
+connessione riuscita** della sessione i messaggi accumulati mentre il bridge era spento
+vengono **scartati** (`drop_pending_updates`, così non si parte processando segnali vecchi);
+se il primissimo tentativo fallisce, lo scarto avviene comunque al primo tentativo che va a
+buon fine. Sulle **riconnessioni dopo una connessione già riuscita**, invece, il backlog
+**non** viene buttato: un segnale arrivato durante un blip di rete di pochi secondi viene
+**recuperato** (con una riga di log «🔄 Riconnesso…»), non perso per sempre. La protezione anti-arretrati resta comunque attiva
+**a prescindere** da come avviene la riconnessione: un messaggio Telegram
 **più vecchio di `max_signal_age` secondi** (default 120s, comunque non oltre la vita
 della riga CSV per la modalità coda attiva — `confirmation_timeout` in
 `QUEUE_UNTIL_CONFIRMED`, altrimenti `clear_delay`) viene **ignorato** all'arrivo: così,

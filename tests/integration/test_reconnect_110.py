@@ -41,31 +41,39 @@ class _Updater:
     """Updater PTB finto: registra le chiamate; `start_polling` fallisce (errore
     transitorio dal polling) o segnala la connessione riuscita."""
 
-    def __init__(self, app, *, fail):
+    def __init__(self, app, *, fail, stop_fail=False):
         self._app = app
         self._fail = fail
+        self._stop_fail = stop_fail           # #311-1.2 Test B: `stop` solleva → riconnessione DOPO successo
         self.start_polling_calls = 0
+        self.start_polling_kwargs = None      # #311-1.2: cattura i kwargs (drop_pending_updates)
         self.stop_calls = 0
 
     async def start_polling(self, **kwargs):
         """Simula il polling: alla 1ª connessione solleva un errore transitorio
         DAL POLLING; altrimenti segnala il successo (fa uscire il supervisor)."""
         self.start_polling_calls += 1
+        self.start_polling_kwargs = kwargs    # registra ANCHE sul fallimento (per il #311-1.2)
         if self._fail:
             raise type("NetworkError", (Exception,), {})("polling giù (simulato)")
         self._app.on_success()
 
     async def stop(self):
-        """Registra l'arresto dell'updater (chiamato dal vero `_safe_shutdown_tg`)."""
+        """Registra l'arresto dell'updater (chiamato dal vero `_safe_shutdown_tg`).
+        Con `stop_fail`, solleva DOPO una connessione riuscita: modella un blip di
+        rete a bridge già connesso, che fa propagare l'errore fuori da `_async_run`
+        e innesca una riconnessione dello stesso epoch (#311-1.2 Test B)."""
         self.stop_calls += 1
+        if self._stop_fail:
+            raise type("NetworkError", (Exception,), {})("stop giù (simulato)")
 
 
 class _TgApp:
     """App Telegram finta che registra initialize/start/stop/shutdown reali, così
     il test può verificare il CONTRATTO di teardown invece di uno stub no-op."""
 
-    def __init__(self, *, fail, on_success, on_shutdown=None):
-        self.updater = _Updater(self, fail=fail)
+    def __init__(self, *, fail, on_success, on_shutdown=None, stop_fail=False):
+        self.updater = _Updater(self, fail=fail, stop_fail=stop_fail)
         self.on_success = on_success
         self._on_shutdown = on_shutdown
         self.init_calls = 0
@@ -112,6 +120,119 @@ def _install_builder(monkeypatch, app_mod, apps, make_tg):
 
     monkeypatch.setattr(app_mod, "ApplicationBuilder", _factory)
     monkeypatch.setattr(app_mod, "MessageHandler", lambda *a_, **k: ("MH", a_, k))
+
+
+def test_drop_pending_updates_resta_true_se_la_prima_connessione_fallisce(make_app, app_mod, monkeypatch):
+    """#311-1.2 Test A — invariante anti-arretrati: `first_connection` si abbassa a False
+    SOLO DOPO un `start_polling` RIUSCITO. Se la PRIMA connessione FALLISCE (errore transitorio
+    dal polling), il flag resta True e il primo poll RIUSCITO scarta comunque il backlog
+    pre-START → `drop_pending_updates=True` su ENTRAMBI i giri.
+
+    Questo blocca la regressione segnalata da GPT-5.5/Fable 5/Fugu Ultra sul #369: col flip
+    fatto PRIMA di `start_polling` (flip-per-giro), la 1ª connessione fallita abbasserebbe già
+    il flag e il primo poll riuscito NON scarterebbe più il backlog pre-START → una scommessa
+    accodata prima di START potrebbe essere processata. Mutation-guard: quel bug fa passare
+    `drop_pending_updates=False` al 2° giro e questo `is True` fallisce.
+
+    Cornice: 1ª connessione fallisce → riconnessione riuscita. Si cattura `drop_pending_updates`
+    di entrambi i giri."""
+    a = make_app()
+    a._running = True
+    a._listener_epoch = 7
+    a._reconnect_attempt = 0
+    # ramo "transitorio → riconnetti" forzato (classificazione testata altrove)
+    monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
+    a._reconnect_wait = lambda delay: None                 # niente attesa reale: test rapido
+    apps = []
+    _install_builder(monkeypatch, app_mod, apps,
+                     lambda index: _TgApp(fail=(index == 0),
+                                          on_success=lambda: setattr(a, "_running", False)))
+
+    app_mod.App._run_bot(a, {"bot_token": "x"}, 7)
+
+    assert len(apps) == 2                                  # 1° giro (fallito) + 1 riconnessione
+    # 1° giro: tenta di scartare il backlog pre-avvio (ma il polling fallisce)
+    assert apps[0].updater.start_polling_kwargs["drop_pending_updates"] is True
+    # riconnessione DOPO un 1° tentativo FALLITO: il primo poll RIUSCITO scarta comunque il
+    # backlog pre-START — l'invariante anti-arretrati NON viene mai saltata
+    assert apps[1].updater.start_polling_kwargs["drop_pending_updates"] is True
+    # invariato: allowed_updates resta lo stesso su entrambi i giri
+    assert apps[1].updater.start_polling_kwargs["allowed_updates"] == ["message", "channel_post"]
+
+
+def test_drop_pending_updates_false_su_riconnessione_dopo_connessione_riuscita(make_app, app_mod, monkeypatch):
+    """#311-1.2 Test B — recupero backlog dell'outage: dopo una PRIMA connessione RIUSCITA,
+    una riconnessione dello stesso epoch (blip di rete a bridge già connesso) usa
+    `drop_pending_updates=False`, così i messaggi arrivati DURANTE la disconnessione vengono
+    recuperati e non buttati via. L'anti-arretrati resta al filtro `max_signal_age`
+    (`is_stale` in `telegram_dispatch.decide`, testato in `test_telegram_dispatch.py`).
+
+    Cornice: 1ª connessione RIUSCITA (flip a False) → poi `updater.stop` solleva, così l'errore
+    propaga fuori da `_async_run` DOPO il successo e innesca la riconnessione dello stesso epoch.
+    Il 1° giro NON ferma il supervisor (`on_success` sveglia solo l'attesa via
+    `_async_stop_event`, senza abbassare `_running`); il 2° giro ferma il supervisor.
+    Mutation-guard: un `drop_pending_updates=True` fisso farebbe fallire l'`is False` del 2° giro."""
+    a = make_app()
+    a._running = True
+    a._listener_epoch = 9
+    a._reconnect_attempt = 0
+    # ramo "transitorio → riconnetti" forzato (classificazione testata altrove)
+    monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
+    a._reconnect_wait = lambda delay: None                 # niente attesa reale: test rapido
+    apps = []
+
+    def _make_tg(index):
+        if index == 0:
+            # 1ª connessione RIUSCITA: `on_success` sveglia SOLO l'attesa (senza fermare il
+            # bridge), poi `updater.stop` solleva → l'errore propaga DOPO il successo →
+            # riconnessione stesso epoch.
+            return _TgApp(fail=False, stop_fail=True,
+                          on_success=lambda: a._async_stop_event.set())
+        # 2ª connessione RIUSCITA: ferma il supervisor (test termina).
+        return _TgApp(fail=False, on_success=lambda: setattr(a, "_running", False))
+
+    _install_builder(monkeypatch, app_mod, apps, _make_tg)
+
+    app_mod.App._run_bot(a, {"bot_token": "x"}, 9)
+
+    assert len(apps) == 2                                  # 1° giro (riuscito, poi stop fallito) + riconnessione
+    # 1ª connessione della sessione → scarta il backlog pre-START
+    assert apps[0].updater.start_polling_kwargs["drop_pending_updates"] is True
+    # riconnessione DOPO una connessione riuscita → NON scartare: recupera l'outage backlog
+    assert apps[1].updater.start_polling_kwargs["drop_pending_updates"] is False
+
+
+def test_first_connection_si_resetta_a_ogni_nuovo_START(make_app, app_mod, monkeypatch):
+    """#311-1.2 (review GLM 5.2): `first_connection` è LOCALE a `_run_bot`, quindi ogni nuovo
+    START (nuovo epoch, nuova invocazione di `_run_bot`) riparte da `True` → la PRIMA
+    connessione della NUOVA sessione scarta di nuovo il backlog pre-START. Senza questo reset,
+    una sessione riavviata processerebbe gli arretrati accumulati mentre era ferma.
+
+    Si eseguono DUE sessioni consecutive (epoch 1 poi epoch 2), ognuna con una connessione
+    riuscita subito. Mutation-guard: se il flag fosse promosso a stato d'istanza (inizializzato
+    una sola volta), la 2ª sessione partirebbe da `False` (flippato dalla 1ª) → l'assert `is
+    True` del 2° START fallirebbe."""
+    a = make_app()
+    a._reconnect_wait = lambda delay: None
+    monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
+
+    def _run_una_sessione(epoch):
+        apps = []
+        _install_builder(monkeypatch, app_mod, apps,
+                         lambda index: _TgApp(fail=False,
+                                              on_success=lambda: setattr(a, "_running", False)))
+        a._running = True
+        a._listener_epoch = epoch
+        a._reconnect_attempt = 0
+        app_mod.App._run_bot(a, {"bot_token": "x"}, epoch)
+        return apps
+
+    # Sessione 1 (epoch 1): prima connessione → scarta il backlog pre-START.
+    apps1 = _run_una_sessione(1)
+    assert apps1[0].updater.start_polling_kwargs["drop_pending_updates"] is True
+    # Sessione 2 (nuovo START, epoch 2): DEVE ripartire da first_connection=True e riscartare.
+    apps2 = _run_una_sessione(2)
+    assert apps2[0].updater.start_polling_kwargs["drop_pending_updates"] is True
 
 
 def test_reconnect_lifecycle_chiude_il_vecchio_updater_e_ritenta(make_app, app_mod, monkeypatch):

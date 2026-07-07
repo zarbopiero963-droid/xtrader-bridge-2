@@ -98,6 +98,37 @@ def test_process_write_success_accoda_e_scrive(make_app, app_mod, monkeypatch, t
     assert (path, None) in a.expiry_calls                     # scadenza programmata
 
 
+def test_process_ridelivery_stesso_messaggio_non_scrive_due_volte(make_app, app_mod, monkeypatch, tmp_path):
+    """#311-1.2 (review Fable 5 / Fugu Ultra): con `drop_pending_updates=False` sulle riconnessioni
+    dopo un successo, Telegram può RIDELIVERARE (semantica at-least-once) un update già processato ma
+    non ancora ack-ato via offset prima del blip. Il messaggio ridato è FRESCO, quindi `max_signal_age`
+    NON lo scarta: la protezione anti-doppia-scommessa è la **deduplica per contenuto** del
+    `SignalTracker` (hash del messaggio, finestra persistente 300s), valutata SOTTO `_queue_lock` in
+    `write_path.commit_signal` PRIMA di qualunque scrittura CSV.
+
+    Si simula la ridelivery chiamando `_process` DUE volte con lo STESSO testo: la 2ª deve risultare
+    DUPLICATE → nessuna seconda scrittura CSV (`write_rows` chiamata UNA sola volta), CSV con UNA sola
+    riga → nessuna scommessa doppia. Copre esplicitamente il path che questo PR abilita (reconnect che
+    consegna il backlog invece di scartarlo). Mutation-guard: azzerando la dedup del tracker la 2ª
+    scrittura passerebbe (`writes["n"] == 2`) e l'assert fallirebbe."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    a = make_app(csv_path=path, queue=q,
+                 tracker=signal_dedupe.SignalTracker(),
+                 daily=safety_guard.DailyLimiter(max_per_day=10))
+    _patch_resolve(monkeypatch, app_mod, _row("Inter v Milan"))
+    writes = _spy_writer(monkeypatch, app_mod)
+
+    # 1ª consegna: scrive.
+    app_mod.App._process(a, "gol Inter", {"csv_path": path, "dry_run": False}, chat_id="1")
+    # 2ª consegna IDENTICA (ridelivery post-riconnessione): stesso hash-messaggio → DUPLICATE.
+    app_mod.App._process(a, "gol Inter", {"csv_path": path, "dry_run": False}, chat_id="1")
+
+    assert writes["n"] == 1                                   # scrittura CSV UNA sola volta
+    assert _events_in_csv(path) == ["Inter v Milan"]          # CSV con UNA sola riga attiva
+    assert [r["EventName"] for r in q.active_rows()] == ["Inter v Milan"]  # coda non raddoppiata
+
+
 def test_process_multi_una_riga_usa_commit_signals(make_app, app_mod, monkeypatch, tmp_path):
     """#239/#192 (Codex P1): un parser MULTI che ORA produce UNA sola riga piazzabile deve
     passare da `commit_signals` (dedup PER-RIGA), NON da `commit_signal` (hash messaggio).

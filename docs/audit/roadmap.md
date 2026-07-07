@@ -1994,3 +1994,52 @@ lock-con-nuitka + fallback pinnato) — fail-first, 2 mutazioni (nuitka tolto da
 `requirements-build.in` + workflow + test + docs; nulla sotto `xtrader_bridge/**`/`data/**`).
 Design handoff = **N/A** (nessun cambio GUI). Prossimo dopo la validazione Windows dell'owner:
 **ritiro di PyInstaller** (Nuitka diventa la build di release).
+
+## #311-1.2 — `drop_pending_updates` solo alla prima connessione RIUSCITA (recupero backlog su riconnessione)
+
+Chiude il buco operativo #311-1.2: `App._run_bot` passava `drop_pending_updates=True` a OGNI
+(ri)connessione del supervisor → un segnale arrivato durante un blip di rete di pochi secondi
+era scartato per sempre, senza log. Ora un flag di sessione `first_connection` (nonlocal in
+`_async_run`) rende `drop_pending_updates=True` **solo fino alla prima connessione RIUSCITA
+della sessione**: il flag si abbassa a `False` **DOPO** un `start_polling` andato a buon fine —
+non prima. Così, se la 1ª connessione **fallisce**, il flag resta `True` e il primo poll
+riuscito **scarta comunque** il backlog pre-START (invariante anti-arretrati mai saltata);
+solo una riconnessione **dopo una connessione già riuscita** (blip di rete a bridge già
+connesso) usa `False`, così i messaggi dell'outage vengono **recuperati** (riga di log
+«🔄 Riconnesso…»). Questo recepisce il blocker convergente di GPT-5.5/Fable 5/Fugu Ultra sul
+#369: col flip fatto **prima** di `start_polling` (flip-per-giro), una 1ª connessione fallita
+avrebbe già abbassato il flag e il primo poll riuscito NON avrebbe più scartato il backlog
+pre-START → rischio di processare una scommessa accodata prima di START. L'anti-arretrati resta
+comunque al filtro `max_signal_age`/`is_stale` (`telegram_dispatch.decide`, invariato e già
+testato): un arretrato troppo vecchio è comunque scartato all'arrivo. **CORE CHANGE**
+(`xtrader_bridge/app.py`, `_run_bot`/`_async_run`): da ri-sincronizzare nel cloud.
+
+Test hard (in `test_reconnect_110.py`, sulla cornice reale del supervisor):
+`test_drop_pending_updates_resta_true_se_la_prima_connessione_fallisce` (Test A —
+fail→riconnessione: `drop_pending_updates=True` su ENTRAMBI i giri, l'invariante non salta) e
+`test_drop_pending_updates_false_su_riconnessione_dopo_connessione_riuscita` (Test B —
+connessione riuscita → `updater.stop` solleva → riconnessione stesso epoch: 1° giro `True`,
+riconnessione `False`, recupera l'outage backlog); `test_first_connection_si_resetta_a_ogni_nuovo_START`
+(Test C, review GLM 5.2 — due sessioni consecutive epoch 1/2: ogni nuovo START riparte da
+`first_connection=True` e riscarta il backlog pre-START). `_Updater` fake esteso per catturare
+i kwargs e per far sollevare `stop` dopo il successo. Fail-first: la mutazione «flip PRIMA di
+`start_polling`» KILLED (Test A: la riconnessione passa `False` → assert `is True` fallisce);
+la mutazione «flag promosso a stato d'istanza» KILLED (Test C: la 2ª sessione partirebbe da
+`False`). STOP-durante-backoff e no-doppio-poller invariati (test #110/7 e lifecycle intatti).
+
+Ridelivery anti-doppia-scommessa (review Fable 5 / Fugu Ultra): con `drop_pending_updates=False`
+sulle riconnessioni, Telegram può rideliverare (at-least-once) un update già processato ma non
+ancora ack-ato prima del blip. Il messaggio è FRESCO (`max_signal_age` non lo scarta): la
+protezione è la **deduplica per contenuto** del `SignalTracker` (hash-messaggio, finestra
+persistente 300s), valutata sotto `_queue_lock` in `write_path.commit_signal` PRIMA di ogni
+scrittura CSV — indipendente da `update_id`. Coperto da `test_app_runtime_glue.py::
+test_process_ridelivery_stesso_messaggio_non_scrive_due_volte` (stesso testo consegnato 2×: la 2ª
+è DUPLICATE → `write_rows` chiamata una sola volta, CSV con UNA riga; mutazione «dedup azzerata»
+KILLED), oltre alla copertura pre-esistente (`test_signal_dedupe`/`test_write_path`). Freschezza su
+`channel_post`: `_handle` estrae la data da `update.message or update.channel_post` in modo
+uniforme → `telegram_dispatch.decide`/`is_stale` la applica anche ai post di canale.
+
+Suite **2391 passed, 11 skipped**. Docs: README «Cosa succede se cade la connessione?» aggiornato
+(prima connessione riuscita scarta / riconnessione dopo successo recupera). Design handoff =
+**N/A** (nessun cambio a schermate/tab/controlli/stati/indicatori: RICONNESSIONE→ATTIVO
+invariato; aggiunta solo una riga di log informativa, non un elemento che il handoff descrive).
