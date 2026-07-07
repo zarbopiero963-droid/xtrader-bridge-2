@@ -1,0 +1,62 @@
+name: Pulizia artifact vecchi
+
+# Elimina i vecchi artifact di GitHub Actions (es. gli EXE prodotti da `build.yaml`) per non
+# riempire la quota storage dell'account. Due modi:
+#   - MANUALE (Actions -> "Run workflow"): svuota SUBITO il backlog, senza CLI ne PAT
+#     (usa il GITHUB_TOKEN del runner). Input `max_age_days=0` = elimina TUTTI gli artifact.
+#   - PIANIFICATO (settimanale): rete di sicurezza che tiene lo storage pulito da solo.
+# NON tocca codice, segreti o release: gli EXE di release restano nelle GitHub Releases
+# (storage separato, non-scadente). Nessuna action di terze parti (solo `gh api` + il token
+# integrato) e i gate di test restano fail-closed: coerente con i vincoli di sicurezza del repo.
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_age_days:
+        description: "Elimina gli artifact piu' vecchi di N giorni (0 = TUTTI)"
+        required: false
+        default: "7"
+  schedule:
+    - cron: "27 4 * * 1"   # ogni lunedi' ~04:27 UTC (fuori orario, minuto non tondo)
+
+permissions:
+  actions: write     # richiesto per il DELETE degli artifact
+  contents: read
+
+concurrency:
+  group: cleanup-artifacts
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Elimina gli artifact oltre la soglia di eta'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MAX_AGE_DAYS: ${{ github.event.inputs.max_age_days || '7' }}
+        run: |
+          set -euo pipefail
+          if [ "${MAX_AGE_DAYS}" = "0" ]; then
+            cutoff=9999999999                                   # elimina tutto
+          else
+            cutoff=$(date -u -d "${MAX_AGE_DAYS} days ago" +%s)
+          fi
+          # Elenca TUTTI gli artifact (paginati) come "id<TAB>created_at" su file, cosi' il
+          # contatore vive nella stessa shell (un pipe crea una subshell).
+          gh api --paginate "repos/${REPO}/actions/artifacts" \
+            --jq '.artifacts[] | [.id, .created_at] | @tsv' > artifacts.tsv
+          total=$(wc -l < artifacts.tsv | tr -d ' ')
+          deleted=0
+          while IFS=$'\t' read -r id created; do
+            [ -n "${id}" ] || continue
+            ts=$(date -u -d "${created}" +%s)
+            if [ "${ts}" -lt "${cutoff}" ]; then
+              echo "Elimino artifact ${id} (creato ${created})"
+              gh api -X DELETE "repos/${REPO}/actions/artifacts/${id}"
+              deleted=$((deleted + 1))
+            fi
+          done < artifacts.tsv
+          echo "Artifact totali: ${total} - eliminati: ${deleted}"

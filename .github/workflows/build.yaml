@@ -95,7 +95,10 @@ jobs:
       with:
         name: ${{ steps.meta.outputs.artifact }}
         path: dist/XTrader-Signal-Bridge.exe
-        retention-days: 30
+        # Retention breve: l'EXE è un output di build usa-e-scarica; tenerlo 30gg riempiva la
+        # quota storage. Gli EXE di RELEASE restano comunque nelle GitHub Releases (storage
+        # separato, non-scadente). Pulizia extra: workflow `cleanup-artifacts.yml`.
+        retention-days: 7
 
     - name: Crea Release pubblica (solo su tag v*)
       # SHA pin di softprops/action-gh-release corrispondente al tag major v1 al momento

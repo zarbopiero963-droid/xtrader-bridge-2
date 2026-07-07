@@ -661,6 +661,12 @@ La compilazione avviene via **GitHub Actions** su Windows:
 In locale (dev): `python main.py` avvia la GUI; `python -m pytest -q -m "not manual"`
 esegue la suite offline.
 
+**Pulizia storage artifact.** Ogni build carica un EXE (~18 MB) come artifact, con retention
+**7 giorni**. Per svuotare subito il backlog **senza CLI**: Actions → *Pulizia artifact vecchi*
+→ **Run workflow** (input `max_age_days=0` = elimina **tutti** gli artifact; usa il
+`GITHUB_TOKEN`, niente PAT). Un run **settimanale** fa comunque pulizia automatica. Gli EXE di
+**release** restano nelle **Releases** (storage separato, non-scadente).
+
 **Build personale e sicura.** La pipeline produce **solo** l'EXE personale del bridge
 (nessun «Admin EXE»). L'EXE **non include segreti né certificati**: le credenziali Betfair
 e la config restano **fuori** dall'eseguibile, nella cartella utente
