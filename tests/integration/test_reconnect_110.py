@@ -68,12 +68,30 @@ class _Updater:
             raise type("NetworkError", (Exception,), {})("stop giù (simulato)")
 
 
+class _Bot:
+    """Bot PTB finto: `get_me` è il round-trip di CONFERMA connessione (#371). Con
+    `fail=True` solleva — modella `start_polling` che ritorna senza una connessione
+    reale (bootstrap fire-and-forget), così l'invariante anti-arretrati non può
+    dipendere solo dal fatto che `start_polling` sollevi (blocker Fugu #369)."""
+
+    def __init__(self, *, fail=False):
+        self._fail = fail
+        self.get_me_calls = 0
+
+    async def get_me(self):
+        self.get_me_calls += 1
+        if self._fail:
+            raise type("NetworkError", (Exception,), {})("get_me giù: connessione non reale (simulato)")
+        return {"id": 1, "is_bot": True}
+
+
 class _TgApp:
     """App Telegram finta che registra initialize/start/stop/shutdown reali, così
     il test può verificare il CONTRATTO di teardown invece di uno stub no-op."""
 
-    def __init__(self, *, fail, on_success, on_shutdown=None, stop_fail=False):
+    def __init__(self, *, fail, on_success, on_shutdown=None, stop_fail=False, get_me_fail=False):
         self.updater = _Updater(self, fail=fail, stop_fail=stop_fail)
+        self.bot = _Bot(fail=get_me_fail)     # #371: conferma connessione (get_me) prima del flip
         self.on_success = on_success
         self._on_shutdown = on_shutdown
         self.init_calls = 0
@@ -200,6 +218,48 @@ def test_drop_pending_updates_false_su_riconnessione_dopo_connessione_riuscita(m
     assert apps[0].updater.start_polling_kwargs["drop_pending_updates"] is True
     # riconnessione DOPO una connessione riuscita → NON scartare: recupera l'outage backlog
     assert apps[1].updater.start_polling_kwargs["drop_pending_updates"] is False
+
+
+def test_start_polling_ritorna_senza_connettere_non_abbassa_il_flag(make_app, app_mod, monkeypatch):
+    """#371 (blocker Fugu #369): l'invariante anti-arretrati NON deve dipendere dal fatto che
+    `start_polling` sollevi. In PTB `start_polling` può ritornare senza una connessione reale
+    (bootstrap fire-and-forget). Il flip di `first_connection` è quindi gated su una CONFERMA
+    esplicita `await app.bot.get_me()`: se la connessione non è reale `get_me` solleva →
+    riconnessione con `first_connection` ANCORA True → `drop_pending_updates` resta True (il
+    backlog pre-START viene comunque scartato, niente doppia scommessa).
+
+    Cornice: `start_polling` NON solleva (fire-and-forget) e sveglia solo l'attesa; alla 1ª
+    connessione `get_me` SOLLEVA (connessione non reale) → riconnessione; alla 2ª `get_me`
+    riesce → conferma e flip. Si cattura `drop_pending_updates` di entrambi i giri.
+
+    Mutation-guard: senza il gate `get_me` (flip subito dopo `start_polling`), la 1ª connessione
+    non-reale abbasserebbe il flag e NON ci sarebbe riconnessione (nessun `get_me` che solleva) →
+    un solo giro (`len(apps) == 1`) → l'assert `len == 2` fallisce."""
+    a = make_app()
+    a._running = True
+    a._listener_epoch = 11
+    a._reconnect_attempt = 0
+    monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
+    a._reconnect_wait = lambda delay: None                 # niente attesa reale: test rapido
+    apps = []
+
+    def _make_tg(index):
+        # `start_polling` non solleva e sveglia SOLO l'attesa (non ferma il bridge), così se il
+        # codice raggiungesse il wait-loop (ramo buggato) uscirebbe pulito invece di appendersi.
+        # 1ª connessione: `get_me` SOLLEVA (non connesso) → riconnessione; 2ª: `get_me` riesce.
+        return _TgApp(fail=False, get_me_fail=(index == 0),
+                      on_success=lambda: a._async_stop_event.set())
+
+    _install_builder(monkeypatch, app_mod, apps, _make_tg)
+
+    app_mod.App._run_bot(a, {"bot_token": "x"}, 11)
+
+    assert len(apps) == 2                                  # get_me fallito → ha riconnesso (2 giri)
+    assert apps[0].bot.get_me_calls == 1                   # conferma tentata alla 1ª connessione
+    # 1ª connessione NON confermata → scarta il backlog pre-START
+    assert apps[0].updater.start_polling_kwargs["drop_pending_updates"] is True
+    # riconnessione dopo una 1ª connessione NON confermata → il flag è restato True: scarta ANCORA
+    assert apps[1].updater.start_polling_kwargs["drop_pending_updates"] is True
 
 
 def test_first_connection_si_resetta_a_ogni_nuovo_START(make_app, app_mod, monkeypatch):

@@ -2870,10 +2870,22 @@ class App(ctk.CTk):
             drop_pending = first_connection
             await app.updater.start_polling(
                 allowed_updates=["message", "channel_post"], drop_pending_updates=drop_pending)
-            # Flip DOPO un start_polling RIUSCITO (GPT/Fable/Fugu #369): se `start_polling` solleva
-            # (1ª connessione fallita), `first_connection` resta True e il primo poll RIUSCITO
-            # scarta comunque il backlog pre-START → l'invariante anti-arretrati NON viene mai
-            # saltata. Solo una riconnessione DOPO una connessione riuscita (blip di rete a bridge
+            if first_connection:
+                # #371 (blocker Fugu #369): CONFERMA esplicita che la connessione è reale prima di
+                # abbassare `first_connection`. In PTB `start_polling` può ritornare senza una
+                # connessione stabilita (bootstrap/`NetworkError` ritentati in background): affidarsi
+                # solo al fatto che sollevi lascerebbe abbassare il flag SENZA aver scartato il backlog
+                # pre-START, e una riconnessione successiva userebbe `drop_pending=False` recuperando
+                # arretrati pre-avvio → doppia scommessa. Un round-trip REALE a Telegram (`get_me`)
+                # fallisce se non c'è connessione: l'eccezione propaga → il supervisor riconnette con
+                # `first_connection` ANCORA True → `drop_pending` resta True. Solo alla PRIMA connessione
+                # della sessione (le riconnessioni hanno già il flag False e non ripetono la chiamata),
+                # così l'invariante regge a prescindere dalla semantica di `start_polling`.
+                await app.bot.get_me()
+            # Flip DOPO connessione CONFERMATA (GPT/Fable/Fugu #369, #371): se `start_polling` solleva
+            # o `get_me` non conferma la connessione, `first_connection` resta True e il primo poll
+            # RIUSCITO scarta comunque il backlog pre-START → l'invariante anti-arretrati NON viene mai
+            # saltata. Solo una riconnessione DOPO una connessione confermata (blip di rete a bridge
             # già connesso) usa False e recupera l'outage backlog.
             if not drop_pending:
                 self.after(0, lambda: self._log(
