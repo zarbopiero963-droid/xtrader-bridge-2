@@ -35,6 +35,13 @@ class _Widget:
     def __init__(self, *a, **k):
         pass
 
+    def winfo_children(self):
+        # Iterabile vuoto: così il `_clear` REALE del pannello (che itera
+        # `winfo_children()`) non esplode quando si COSTRUISCE un vero `JournalPanel`
+        # headless (vedi `test_selected_types_coerente_con_la_lingua`, che istanzia il
+        # pannello per verificare che `__init__` localizzi davvero i valori-filtro).
+        return ()
+
     def __getattr__(self, _name):
         return lambda *a, **k: _Widget()
 
@@ -76,6 +83,9 @@ def _fake_self(JournalPanel, path, *, type_val="(tutti i tipi)", last_val="100")
         _path=path,
         _type=types.SimpleNamespace(get=lambda: type_val),
         _last=types.SimpleNamespace(get=lambda: last_val),
+        # #343 slice 4f: `_selected_types` confronta con `self._all_types` (valore
+        # localizzato alla costruzione). In CI la lingua è IT → il valore canonico.
+        _all_types="(tutti i tipi)",
         _header=_Widget(),
         _rows_frame=_Widget(),
         _counts=types.SimpleNamespace(configure=lambda **k: counts.append(k)),
@@ -99,6 +109,34 @@ def test_selected_types_e_last(JournalPanel, tmp_path):
                           type_val="START", last_val="Tutti")
     assert fake2._selected_types() == ["START"]      # tipo specifico
     assert fake2._selected_last() is None            # «Tutti» → nessun taglio
+
+
+def test_selected_types_coerente_con_la_lingua(JournalPanel, tmp_path):
+    """#343 slice 4f: «(tutti i tipi)» è display E chiave di confronto. Due livelli:
+
+    (1) un `JournalPanel` REALE costruito in EN/ES deve avere `_all_types` (e la voce
+        «Tutti» in `_last_choices`) localizzati da `__init__` via `i18n.tr` — chiude il
+        gap d'integrazione: prova che la COSTRUZIONE traduce davvero i valori-filtro, non
+        solo che il confronto funzioni in astratto (una regressione che ri-hardcoda
+        `self._all_types = "(tutti i tipi)"` fa fallire qui);
+    (2) `_selected_types` ritorna `None` quando la selezione è quel valore tradotto, e la
+        lista del tipo quando è un tipo reale (non confuso col sentinel)."""
+    from xtrader_bridge import i18n
+    try:
+        for lang, tradotto in (("EN", "(all types)"), ("ES", "(todos los tipos)")):
+            i18n.set_language(lang)
+            # (1) costruzione reale: __init__ deve localizzare i valori-filtro.
+            real = JournalPanel(path=_ledger(tmp_path))
+            assert real._all_types == tradotto             # __init__ chiama davvero i18n.tr
+            assert i18n.tr("Tutti") in real._last_choices  # anche il filtro «Ultimi»
+            # (2) coerenza del confronto in `_selected_types` col valore tradotto.
+            fake, _ = _fake_self(JournalPanel, _ledger(tmp_path), type_val=tradotto)
+            fake._all_types = tradotto                # come farebbe __init__ in quella lingua
+            assert fake._selected_types() is None     # sentinel tradotto → nessun filtro
+            fake._type = types.SimpleNamespace(get=lambda: "START")
+            assert fake._selected_types() == ["START"]
+    finally:
+        i18n.set_language("IT")
 
 
 # ── _refresh esercita read_events + filter_events + table_rows reali ───────────

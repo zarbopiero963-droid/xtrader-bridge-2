@@ -1848,3 +1848,19 @@ gli errori/warning di dominio da `editor.apply()`. Nuovo `test_source_chats_i18n
 include un test che VERIFICA la non-localizzazione della sentinella/chip (guardia
 anti-regressione). Mutazioni AQ (chiave stantia) e AR (sentinella localizzata → safety-test
 fallisce) KILLED. Suite 2347 passed.
+
+## #343 slice 4f — Localizzazione finestre secondarie, parte 4: Diario (coda GUI, PR 15)
+
+Quarta finestra secondaria (`journal_view_gui.py`, sola lettura). Localizzata la chrome
+(titolo, filtri, bottoni — «🔄 Aggiorna» riusa la chiave già a catalogo —, intestazioni
+colonne, template conteggio/errore). Novità rispetto agli slice precedenti: due
+valori-filtro sono DISPLAY *e* CHIAVI («(tutti i tipi)» confrontato in `_selected_types`;
+«Tutti» in `_LAST_*` via int()→None). Gestiti localizzandoli alla COSTRUZIONE
+(`self._all_types`/`self._last_choices`, dopo la scelta lingua) e confrontando col valore
+tradotto — non come costanti di modulo (fissate all'import). Test di coerenza lingua↔
+confronto in `test_journal_view_gui.py` (harness GUI): in EN/ES il sentinel tradotto →
+nessun filtro. La finestra Strumenti (hub) è stata SCARTATA come target: i suoi
+`TOOL_TITLES` sono chiavi di matching (`_resolve_tab_title`/`initial`) e contratti IA nei
+test — localizzarli è un cambiamento cross-cutting a parte. Mutazioni AS (chiave stantia)
+e AT (confronto sulla costante IT invece del valore tradotto → test coerenza fallisce)
+KILLED. Suite 2353 passed.

@@ -199,6 +199,20 @@ _CATALOG = {
             "Check config file permissions/space.",
         "✅ Salvate {n} sorgenti in config.json.":
             "✅ Saved {n} sources to config.json.",
+        # Finestra Diario (#343 slice 4f; «🔄 Aggiorna» riusa la chiave già a catalogo)
+        "📒  Diario eventi (locale, sola lettura)":
+            "📒  Event journal (local, read-only)",
+        "(tutti i tipi)": "(all types)",
+        "Tutti": "All",
+        "Tipo": "Type",
+        "Ultimi": "Last",
+        "📂 Apri cartella": "📂 Open folder",
+        "Eventi del diario": "Journal events",
+        "⚠️ Errore lettura diario: {kind}": "⚠️ Journal read error: {kind}",
+        "Diario: {tot} eventi totali (mostrati {shown}).":
+            "Journal: {tot} total events (showing {shown}).",
+        "Quando": "When",
+        "Dati (redatti)": "Data (redacted)",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -332,5 +346,19 @@ _CATALOG = {
             "reiniciar). Comprueba permisos/espacio del archivo config.",
         "✅ Salvate {n} sorgenti in config.json.":
             "✅ Guardados {n} orígenes en config.json.",
+        # Finestra Diario (#343 slice 4f)
+        "📒  Diario eventi (locale, sola lettura)":
+            "📒  Diario de eventos (local, solo lectura)",
+        "(tutti i tipi)": "(todos los tipos)",
+        "Tutti": "Todos",
+        "Tipo": "Tipo",
+        "Ultimi": "Últimos",
+        "📂 Apri cartella": "📂 Abrir carpeta",
+        "Eventi del diario": "Eventos del diario",
+        "⚠️ Errore lettura diario: {kind}": "⚠️ Error de lectura del diario: {kind}",
+        "Diario: {tot} eventi totali (mostrati {shown}).":
+            "Diario: {tot} eventos en total (mostrados {shown}).",
+        "Quando": "Cuándo",
+        "Dati (redatti)": "Datos (redactados)",
     },
 }
