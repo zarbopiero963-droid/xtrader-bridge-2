@@ -707,7 +707,7 @@ sono espresse come file sorgente `.in` (vincoli "morbidi" top-level) da cui si g
 | File | Cos'è | Si modifica a mano? |
 |---|---|---|
 | `requirements.in` | **sorgente unica** delle dipendenze **runtime** top-level (FLOOR `>=`, con la motivazione di sicurezza) | sì |
-| `requirements-build.in` | tutto ciò che la **build Windows** installa: `-r requirements-dev.txt` (runtime + `pytest`, single-source) + `pyinstaller` + `httpx` | sì |
+| `requirements-build.in` | tutto ciò che la **build Windows** installa: `-r requirements-dev.txt` (runtime + `pytest`, single-source) + `pyinstaller` (release) + `nuitka` (anteprima) + `httpx` | sì |
 | `requirements-build.lock` | **lockfile completo con hash** (versioni esatte di TUTTE le transitive) generato su **Windows + Python 3.11** | **NO** — si rigenera dal workflow |
 | `requirements.txt` | install "soft" della CI di test/dev: ora **richiama `requirements.in`** (`-r requirements.in`), quindi una dipendenza runtime ha **un solo posto** dove cambiare ed è la stessa sorgente del lock (niente drift) | sì |
 | `requirements-dev.txt` | `-r requirements.txt` + `pytest` (test) | sì |
@@ -748,9 +748,23 @@ dipendenza pinnata **prima di pubblicare una release**.
 2. Vai su **Actions → "Generate Windows Lockfile" → Run workflow** (oppure si avvia da
    solo in una PR che tocca quei file). Gira su `windows-latest` + Python 3.11, esegue
    `pip-compile --generate-hashes` e **valida** il lock con `pip install --require-hashes`.
-3. Apri la run → **Artifacts** → scarica `requirements-build-lock-windows-py311`
-   (contiene `requirements-build.lock`).
-4. **Committa** `requirements-build.lock` nel repository (root).
+3. Apri la run → **pagina della run → Summary**: lo step *"Pubblica il lock nel Job Summary"*
+   stampa il `requirements-build.lock` rigenerato in un **blocco copiabile** (è solo versioni +
+   hash, nessun segreto). **Copia** l'intero blocco.
+4. Incollalo nel file **`requirements-build.lock`** nella root del repo e **committalo**.
+
+> 🛟 **Consegna quota-immune (nessun artifact):** il lock si recupera **solo dalla Summary**, non
+> da un artifact. Così la generazione/validazione del lock **non dipende dalla quota storage
+> artifact** (che prima faceva fallire l'`upload-artifact` con `Failed to CreateArtifact:
+> Artifact storage quota has been hit` e teneva rosso il check anche con un lock corretto). Il
+> check ora è verde/rosso solo in base alla **correttezza** del lock (git-diff anti-stantio +
+> validazione `--require-hashes`).
+>
+> **Fine-riga:** incolla pure il blocco così com'è — il gate anti-stantio usa
+> `git diff --ignore-cr-at-eol`, quindi il lock incollato dalla Summary (LF, come normalizza il
+> browser) combacia con la rigenerazione su Windows (CRLF): conta solo il **contenuto**
+> (versioni/hash). Una volta committato, il lock vive **in git** (fonte di verità permanente):
+> nessun "storico" da recuperare dagli artifact.
 
 ### Effetto sulla build
 
@@ -760,6 +774,18 @@ dipendenza pinnata **prima di pubblicare una release**.
   `python -m pip install --require-hashes -r requirements-build.lock` (riproducibile);
 - se **assente** → install legacy (`requirements-dev.txt` + `pyinstaller httpx`), così la
   build non si rompe finché il lock non è stato committato.
+
+`build-nuitka.yaml` (build EXE **anteprima** Nuitka) usa lo **stesso** lock unificato, con un
+controllo in più: installa `--require-hashes` **solo se il lock contiene già `nuitka`**
+(cioè è stato rigenerato dopo l'aggiunta a `requirements-build.in`); altrimenti ripiega su un
+install legacy con **`nuitka` pinnato** a una versione esatta (build funzionante, nessun drift)
+finché non rigeneri e committi il lock.
+
+> ℹ️ **Aggiungere `nuitka` al lock** (fatto in `requirements-build.in`) rende il
+> `requirements-build.lock` committato **stantio**: il check *Generate Windows Lockfile* resta
+> **rosso** finché non lo rigeneri su Windows e lo ricommitti (segui *Come (ri)generare il
+> lockfile* qui sopra: la run pubblica il lock corretto nel **Job Summary**, da cui lo copi e
+> lo committi). È il segnale atteso, non un errore.
 
 La compilazione dell'EXE con **PyInstaller** resta invariata.
 

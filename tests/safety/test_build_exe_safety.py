@@ -1054,6 +1054,79 @@ def test_nuitka_artifact_un_solo_exe_niente_release():
                     f"build-nuitka.yaml: blocco `files:` con .exe (release): {ln.strip()!r}"
 
 
+def test_nuitka_nel_lock_source():
+    """Fase 6 lockfile slice: `requirements-build.in` elenca `nuitka`, così il lock UNIFICATO
+    rigenerato su Windows lo copre con hash e `build-nuitka.yaml` può installare
+    `--require-hashes`. Senza questa riga il lock non conterrebbe mai nuitka e il ramo
+    riproducibile non scatterebbe (resterebbe per sempre sul fallback legacy)."""
+    inp = _read(os.path.join(_REPO_ROOT, "requirements-build.in"))
+    assert re.search(r"(?m)^nuitka\b", inp), "requirements-build.in deve elencare nuitka"
+
+
+def test_nuitka_install_usa_lock_con_hash_quando_disponibile():
+    """Fase 6 lockfile slice: `build-nuitka.yaml` installa con `--require-hashes` dal lock
+    riproducibile QUANDO il lock include nuitka (integrità supply-chain sull'EXE che l'owner
+    esegue), con fallback a nuitka PINNATO finché il lock non è rigenerato. Guardrail
+    fail-closed: se qualcuno togliesse il ramo `--require-hashes` o il gating sul lock-con-nuitka,
+    questo test fallisce (si tornerebbe a un install non bloccato)."""
+    text = _read(os.path.join(_WORKFLOWS_DIR, "build-nuitka.yaml"))
+    assert "--require-hashes -r requirements-build.lock" in text, \
+        "build-nuitka.yaml deve poter installare col lock hashato (--require-hashes)"
+    # il ramo hashato scatta SOLO se il lock include DAVVERO nuitka (non un lock pyinstaller-only)
+    assert re.search(r"Select-String[^\n]*requirements-build\.lock[^\n]*nuitka", text), \
+        "l'install --require-hashes deve essere gated sul lock che CONTIENE nuitka"
+    # fallback pinnato finché il lock non è pronto (build funzionante, niente drift di versione)
+    assert re.search(r"pip install -r requirements-dev\.txt nuitka==\d+\.\d+", text), \
+        "manca il fallback legacy con nuitka pinnato"
+
+
+def test_nuitka_install_fallback_e_gated_correttamente():
+    """Il ramo `--require-hashes` è DENTRO l'`if` (lock-con-nuitka) e il fallback pinnato è
+    nell'`else`: così quando il lock esiste ma NON contiene nuitka (stato ATTUALE — lock
+    pyinstaller-only, prima della rigenerazione su Windows) scatta il fallback pinnato, NON un
+    `--require-hashes` su un lock privo di nuitka (GLM #367). Verifica strutturale dell'ordine
+    if/else nel workflow."""
+    text = _read(os.path.join(_WORKFLOWS_DIR, "build-nuitka.yaml"))
+    i_if = text.find("if ((Test-Path")
+    i_hashes = text.find("--require-hashes -r requirements-build.lock")
+    i_else = text.find("} else {")
+    i_pinned = text.find("pip install -r requirements-dev.txt nuitka==")
+    assert -1 not in (i_if, i_hashes, i_else, i_pinned), "struttura install self-healing non trovata"
+    assert i_if < i_hashes < i_else < i_pinned, (
+        "il ramo --require-hashes dev'essere nell'if (lock-con-nuitka) e il pinned nell'else "
+        "(fallback quando il lock non contiene ancora nuitka)")
+
+
+def test_lockfile_consegnato_via_job_summary_quota_immune():
+    """Consegna del lock QUOTA-IMMUNE (#367 opz. C): `generate-lockfile.yaml` pubblica il lock
+    SOLO nel Job Summary (`GITHUB_STEP_SUMMARY`), NON come artifact. L'`upload-artifact` falliva
+    per quota storage piena e — girando prima dei gate reali (anti-stantio + validazione) —
+    teneva rosso il check anche con un lock corretto. Guardrail: se qualcuno reintroducesse
+    `upload-artifact` nel lock-workflow (ridipendenza dalla quota) o togliesse il dump nel
+    Summary, questo test fallisce."""
+    text = _read(os.path.join(_WORKFLOWS_DIR, "generate-lockfile.yaml"))
+    # `cat` (bash) copia il lock BYTE-per-byte: niente BOM né wrapping delle righe `--hash=...`
+    # che pwsh `Out-File`/`Get-Content` potrebbero introdurre corrompendo il lock copiato (GLM/GPT).
+    assert re.search(r"cat\s+requirements-build\.lock", text), \
+        "il Job Summary deve includere il CONTENUTO di requirements-build.lock via `cat` (byte-faithful)"
+    # deve emettere un fence markdown `~~~` (tilde) così il blocco è copiabile e inequivocabile
+    # nei diff (i backtick venivano mal-resi come spaziati → falsi allarmi review, #367)
+    assert re.search(r"echo '~~~'", text), "manca il fence markdown ~~~ per un blocco copiabile"
+    # scrittura reale nel summary (`>> $GITHUB_STEP_SUMMARY`), non un commento (GPT/GLM)
+    m_sum = re.search(r">>\s*\"?\$GITHUB_STEP_SUMMARY", text)
+    assert m_sum, "manca la scrittura nel Job Summary"
+    # il dump dev'essere PRIMA del gate anti-stantio, così il lock è pubblicato anche quando il
+    # gate fallisce (regressione se riordinato — GLM #367)
+    # il COMANDO reale del gate (con `--ignore-cr-at-eol`), non il commento che cita `git diff`
+    m_stale = re.search(r"git diff --exit-code --ignore-cr-at-eol", text)
+    assert m_stale and m_sum.start() < m_stale.start(), \
+        "il dump nel Job Summary dev'essere PRIMA del gate anti-stantio (git diff)"
+    # QUOTA-IMMUNE: nessuno STEP `uses: actions/upload-artifact` nel lock-workflow (era il punto
+    # di fallimento quota). Il match è sullo step reale, non su commenti che ne citano la storia.
+    assert not re.search(r"uses:\s*actions/upload-artifact", text), \
+        "generate-lockfile.yaml non deve usare upload-artifact (dipendenza dalla quota): il lock si consegna via Summary"
+
+
 def test_nuitka_detector_forme_canoniche_e_wrappate():
     """Detector Nuitka (senza build reale): forma diretta e modulo (anche versionata/venv) sono
     CANONICHE; le forme wrappate (cmd/pwsh/sh) sono RILEVATE ma NON canoniche → rifiutate dal
