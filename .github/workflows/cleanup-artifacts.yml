@@ -50,6 +50,14 @@ jobs:
             echo "::error::max_age_days non valido: '${MAX_AGE_DAYS}' (atteso intero >= 0)"
             exit 1
           fi
+          # `dry_run` e' un flag di SICUREZZA: normalizza (minuscolo, senza spazi) e valida in
+          # true|false, cosi' un typo tipo "True"/"TRUE"/" true " NON disattiva silenziosamente
+          # il dry-run facendo cancellazioni reali (fail-closed sull'input).
+          DRY_RUN=$(printf '%s' "${DRY_RUN}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+          case "${DRY_RUN}" in
+            true|false) ;;
+            *) echo "::error::dry_run non valido: '${DRY_RUN}' (atteso true|false)"; exit 1 ;;
+          esac
           if [ "${MAX_AGE_DAYS}" = "0" ]; then
             cutoff=9999999999                                   # elimina tutto
           else
@@ -61,7 +69,7 @@ jobs:
           gh api --paginate "repos/${REPO}/actions/artifacts" \
             --jq '.artifacts[] | [.id, .created_at] | @tsv' > artifacts.tsv
           total=$(wc -l < artifacts.tsv | tr -d ' ')
-          matched=0
+          matched=0; deleted=0; failed=0
           while IFS=$'\t' read -r id created; do
             [ -n "${id}" ] || continue
             ts=$(date -u -d "${created}" +%s)
@@ -69,14 +77,23 @@ jobs:
               matched=$((matched + 1))
               if [ "${DRY_RUN}" = "true" ]; then
                 echo "[dry-run] eliminerei artifact ${id} (creato ${created})"
+                continue
+              fi
+              # DELETE per-item resiliente: un fallimento singolo (es. 404 se l'artifact e'
+              # gia' scaduto tra l'elenco e il delete, o un 403/5xx transitorio) NON deve
+              # abortire l'intera pulizia sotto `set -e`. Lo si isola in un `if`, si logga un
+              # warning e si prosegue con gli altri.
+              if gh api -X DELETE "repos/${REPO}/actions/artifacts/${id}"; then
+                echo "Eliminato artifact ${id} (creato ${created})"
+                deleted=$((deleted + 1))
               else
-                echo "Elimino artifact ${id} (creato ${created})"
-                gh api -X DELETE "repos/${REPO}/actions/artifacts/${id}"
+                echo "::warning::delete fallito per artifact ${id} (creato ${created}) - proseguo"
+                failed=$((failed + 1))
               fi
             fi
           done < artifacts.tsv
           if [ "${DRY_RUN}" = "true" ]; then
             echo "Artifact totali: ${total} - da eliminare: ${matched} (dry-run, nessuna cancellazione)"
           else
-            echo "Artifact totali: ${total} - eliminati: ${matched}"
+            echo "Artifact totali: ${total} - candidati: ${matched} - eliminati: ${deleted} - falliti: ${failed}"
           fi
