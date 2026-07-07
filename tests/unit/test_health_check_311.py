@@ -64,11 +64,15 @@ def test_evaluate_modalita_semantica_di_rischio():
 # ── csv_writable: sonda non invasiva ─────────────────────────────────────────
 
 def test_csv_writable_file_esistente_e_da_creare(tmp_path):
+    # `platform="posix"` INIETTATO (API Fable #351): il ramo verde-verificabile è POSIX,
+    # quindi lo esercitiamo in modo deterministico su QUALSIASI runner (su windows-latest,
+    # senza iniezione, os.name=="nt" darebbe GIALLO onesto → esito dipendente dall'OS del
+    # runner). Il ramo Windows YELLOW è coperto da `test_csv_writable_windows_giallo_onesto`.
     p = tmp_path / "segnali.csv"
-    stato, motivo = hc.csv_writable(str(p))
+    stato, motivo = hc.csv_writable(str(p), platform="posix")
     assert stato == hc.GREEN and "verrà creato" in motivo    # cartella scrivibile
     p.write_text("x", encoding="utf-8")
-    stato, motivo = hc.csv_writable(str(p))
+    stato, motivo = hc.csv_writable(str(p), platform="posix")
     assert stato == hc.GREEN and "scrivibile" in motivo      # POSIX: verificabile
     # NON invasiva: il contenuto non è stato toccato dalla sonda.
     assert p.read_text(encoding="utf-8") == "x"

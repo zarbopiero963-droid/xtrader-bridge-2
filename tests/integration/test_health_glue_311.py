@@ -43,6 +43,12 @@ def test_refresh_health_colora_dallo_stato_vivo(app_mod, tmp_path, monkeypatch):
     app = _bare(app_mod, tmp_path)
     # parser attivo forzato deterministico (la logica pura ha già i suoi unit test)
     monkeypatch.setattr(app_mod.signal_router, "has_active_parser_config", lambda _c: True)
+    # csv_writable reso deterministico: il glue chiama `health_check.csv_writable(csv_path)`
+    # col platform del runner → su windows-latest sarebbe GIALLO onesto (ACL non rilevabili)
+    # e l'assert csv 🟢 dipenderebbe dall'OS. Il ramo Windows è coperto a parte
+    # (test_csv_writable_windows_giallo_onesto); qui verifichiamo la colorazione del glue.
+    monkeypatch.setattr(app_mod.health_check, "csv_writable",
+                        lambda *a, **k: (hc.GREEN, "cartella scrivibile (harness POSIX)"))
     app._refresh_health()
     texts = {k: lbl.kw.get("text", "") for k, lbl in app._health_lbls.items()}
     assert texts["telegram"].startswith("🟢")
