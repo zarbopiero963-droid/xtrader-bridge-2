@@ -1804,3 +1804,19 @@ OFFLINE universale via fallback). `health_check.evaluate` invariato (il canonico
 il substring). Harness del glue Salute aggiornato al nuovo contratto. Test: 3 glue
 (canonico+display, semaforo riceve il canonico con label EN — fail-first sul vecchio
 cget —, verde end-to-end in EN), mutazioni AH–AI KILLED.
+
+## #343 slice 4c — Localizzazione finestre secondarie, parte 1: Anagrafica Provider (coda GUI, PR 12)
+
+Prima finestra secondaria localizzata (`provider_gui.py`): titolo, header, bottoni,
+placeholder, testo lista vuota E i messaggi di stato dinamici. I messaggi con
+variabili passano dal template tradotto + `.format(...)` (chiave di catalogo = il
+template con `{name}`/`{exc}`), così la finestra resta coerente (niente UI mista
+EN-statico/IT-dinamico come segnalato su #357). Catalogo i18n esteso EN+ES;
+anti-drift del catalogo ora estratto via AST (unisce i literal concatenati multi-linea
+→ le chiavi lunghe delle finestre secondarie sono confrontabili). Nuovo test di
+PARITÀ segnaposto: una traduzione che perde `{name}` fa fallire la suite (eviterebbe
+un KeyError a runtime). Accorpati i 2 nitpick trivial di CodeRabbit #358: label OFFLINE
+iniziale dalla fonte unica `_LISTENER_TEXTS` (niente duplicazione/drift), commento
+«vestigiale» su `_status_lbl` nell'harness del glue Salute. Mutazioni AJ–AL KILLED
+(chiave stantia, placeholder perso, wrap rimosso). Pattern pronto per replicare sulle
+altre finestre nei prossimi slice.
