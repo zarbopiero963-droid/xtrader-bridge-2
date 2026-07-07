@@ -202,6 +202,39 @@ def test_drop_pending_updates_false_su_riconnessione_dopo_connessione_riuscita(m
     assert apps[1].updater.start_polling_kwargs["drop_pending_updates"] is False
 
 
+def test_first_connection_si_resetta_a_ogni_nuovo_START(make_app, app_mod, monkeypatch):
+    """#311-1.2 (review GLM 5.2): `first_connection` è LOCALE a `_run_bot`, quindi ogni nuovo
+    START (nuovo epoch, nuova invocazione di `_run_bot`) riparte da `True` → la PRIMA
+    connessione della NUOVA sessione scarta di nuovo il backlog pre-START. Senza questo reset,
+    una sessione riavviata processerebbe gli arretrati accumulati mentre era ferma.
+
+    Si eseguono DUE sessioni consecutive (epoch 1 poi epoch 2), ognuna con una connessione
+    riuscita subito. Mutation-guard: se il flag fosse promosso a stato d'istanza (inizializzato
+    una sola volta), la 2ª sessione partirebbe da `False` (flippato dalla 1ª) → l'assert `is
+    True` del 2° START fallirebbe."""
+    a = make_app()
+    a._reconnect_wait = lambda delay: None
+    monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
+
+    def _run_una_sessione(epoch):
+        apps = []
+        _install_builder(monkeypatch, app_mod, apps,
+                         lambda index: _TgApp(fail=False,
+                                              on_success=lambda: setattr(a, "_running", False)))
+        a._running = True
+        a._listener_epoch = epoch
+        a._reconnect_attempt = 0
+        app_mod.App._run_bot(a, {"bot_token": "x"}, epoch)
+        return apps
+
+    # Sessione 1 (epoch 1): prima connessione → scarta il backlog pre-START.
+    apps1 = _run_una_sessione(1)
+    assert apps1[0].updater.start_polling_kwargs["drop_pending_updates"] is True
+    # Sessione 2 (nuovo START, epoch 2): DEVE ripartire da first_connection=True e riscartare.
+    apps2 = _run_una_sessione(2)
+    assert apps2[0].updater.start_polling_kwargs["drop_pending_updates"] is True
+
+
 def test_reconnect_lifecycle_chiude_il_vecchio_updater_e_ritenta(make_app, app_mod, monkeypatch):
     """#110/6: errore transitorio DAL POLLING → il vero `_safe_shutdown_tg` chiude il
     vecchio updater (stop/stop/shutdown) PRIMA del retry, poi la riconnessione riuscita

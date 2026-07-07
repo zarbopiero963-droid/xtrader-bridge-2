@@ -2019,11 +2019,14 @@ Test hard (in `test_reconnect_110.py`, sulla cornice reale del supervisor):
 fail→riconnessione: `drop_pending_updates=True` su ENTRAMBI i giri, l'invariante non salta) e
 `test_drop_pending_updates_false_su_riconnessione_dopo_connessione_riuscita` (Test B —
 connessione riuscita → `updater.stop` solleva → riconnessione stesso epoch: 1° giro `True`,
-riconnessione `False`, recupera l'outage backlog). `_Updater` fake esteso per catturare i
-kwargs e per far sollevare `stop` dopo il successo. Fail-first: la mutazione «flip PRIMA di
-`start_polling`» KILLED (Test A: la riconnessione passa `False` → assert `is True` fallisce).
-STOP-durante-backoff e no-doppio-poller invariati (test #110/7 e lifecycle intatti). Suite
-**2389 passed, 11 skipped**. Docs: README «Cosa succede se cade la connessione?» aggiornato
+riconnessione `False`, recupera l'outage backlog); `test_first_connection_si_resetta_a_ogni_nuovo_START`
+(Test C, review GLM 5.2 — due sessioni consecutive epoch 1/2: ogni nuovo START riparte da
+`first_connection=True` e riscarta il backlog pre-START). `_Updater` fake esteso per catturare
+i kwargs e per far sollevare `stop` dopo il successo. Fail-first: la mutazione «flip PRIMA di
+`start_polling`» KILLED (Test A: la riconnessione passa `False` → assert `is True` fallisce);
+la mutazione «flag promosso a stato d'istanza» KILLED (Test C: la 2ª sessione partirebbe da
+`False`). STOP-durante-backoff e no-doppio-poller invariati (test #110/7 e lifecycle intatti).
+Suite **2390 passed, 11 skipped**. Docs: README «Cosa succede se cade la connessione?» aggiornato
 (prima connessione riuscita scarta / riconnessione dopo successo recupera). Design handoff =
 **N/A** (nessun cambio a schermate/tab/controlli/stati/indicatori: RICONNESSIONE→ATTIVO
 invariato; aggiunta solo una riga di log informativa, non un elemento che il handoff descrive).
