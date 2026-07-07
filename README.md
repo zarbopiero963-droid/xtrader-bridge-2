@@ -648,14 +648,24 @@ simulazione. Per scrivere davvero metti `dry_run=false`.
 
 La compilazione avviene via **GitHub Actions** su Windows:
 
-1. Push sul branch `main` (oppure un tag `v*` per una release).
-2. Actions esegue i test, poi compila l'EXE.
-3. **Actions → ultima run → Artifacts**.
+1. **Manuale**: **Actions → «Build XTrader Signal Bridge EXE» → «Run workflow»** (scegli il
+   branch). Oppure **automatico** su un **tag `v*`** (release). *Non* parte più a ogni push
+   su `main`: eviti di consumare inutilmente la quota storage artifact di GitHub. I **test su
+   Windows** girano comunque in automatico a ogni push/PR (job `windows-tests` in
+   `pr-checks.yml`): solo la **compilazione dell'EXE** è manuale/tag.
+2. Actions esegue i test (bloccanti), poi compila l'EXE.
+3. **Actions → la run → Artifacts**.
 4. Scarica `XTrader-Signal-Bridge-Windows-v<versione>-<data>.zip`.
 5. Dentro trovi `XTrader-Signal-Bridge.exe` pronto all'uso.
 
 In locale (dev): `python main.py` avvia la GUI; `python -m pytest -q -m "not manual"`
 esegue la suite offline.
+
+**Pulizia storage artifact.** Ogni build carica un EXE (~18 MB) come artifact, con retention
+**7 giorni**. Per svuotare subito il backlog **senza CLI**: Actions → *Pulizia artifact vecchi*
+→ **Run workflow** (input `max_age_days=0` = elimina **tutti** gli artifact; usa il
+`GITHUB_TOKEN`, niente PAT). Un run **settimanale** fa comunque pulizia automatica. Gli EXE di
+**release** restano nelle **Releases** (storage separato, non-scadente).
 
 **Build personale e sicura.** La pipeline produce **solo** l'EXE personale del bridge
 (nessun «Admin EXE»). L'EXE **non include segreti né certificati**: le credenziali Betfair

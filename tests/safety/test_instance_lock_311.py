@@ -7,11 +7,22 @@ concorrenti e auto-rilascio a morte del processo. Il ramo Windows (ctypes) è sm
 manuale documentato (doppio avvio su PC reale).
 """
 
+import sys
+
 import pytest
 
 from xtrader_bridge import instance_lock
 
+# I test seguenti esercitano il percorso POSIX reale (flock/fcntl): su Windows `fcntl` non
+# esiste e `acquire` usa il mutex kernel32 (kind="mutex"), quindi qui si SALTA su win32. Il
+# ramo Windows resta coperto dai test `test_windows_mutex_*` (kernel32 mockata, girano
+# ovunque) e dallo smoke manuale (doppio avvio su PC reale) — vedi docstring del modulo.
+_skip_su_windows = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="percorso flock POSIX; ramo Windows coperto da test kernel32 mockati + smoke manuale")
 
+
+@_skip_su_windows
 def test_acquire_esclusivo_seconda_acquisizione_rifiutata(tmp_path):
     # Prima istanza: lock acquisito. Seconda (stesso nome/cartella): RIFIUTATA (None).
     a = instance_lock.acquire("TestBridge", str(tmp_path))
@@ -21,6 +32,7 @@ def test_acquire_esclusivo_seconda_acquisizione_rifiutata(tmp_path):
     instance_lock.release(a)
 
 
+@_skip_su_windows
 def test_release_permette_la_riacquisizione(tmp_path):
     a = instance_lock.acquire("TestBridge", str(tmp_path))
     instance_lock.release(a)
@@ -29,6 +41,7 @@ def test_release_permette_la_riacquisizione(tmp_path):
     instance_lock.release(b)
 
 
+@_skip_su_windows
 def test_release_stantia_non_sblocca_il_nuovo_detentore(tmp_path):
     # SAFETY: un release DOPPIO su un handle già rilasciato (es. atexit + _on_close)
     # non deve MAI sbloccare il lock della NUOVA istanza (il SO può riusare lo stesso
@@ -49,6 +62,7 @@ def test_release_none_e_noop_sono_innocui(tmp_path):
     instance_lock.release(instance_lock.InstanceLockHandle("noop", None))
 
 
+@_skip_su_windows
 def test_errore_imprevisto_fail_open_con_handle_noop(tmp_path, monkeypatch):
     # Un guasto RARO del SO nella CREAZIONE del lock non deve rendere il bridge
     # inavviabile: acquire ritorna un handle no-op (≠ None → l'avvio procede),
@@ -59,6 +73,7 @@ def test_errore_imprevisto_fail_open_con_handle_noop(tmp_path, monkeypatch):
     assert h is not None and h.kind == "noop"
 
 
+@_skip_su_windows
 def test_lockfile_non_cancellato_al_release(tmp_path):
     # Il release NON cancella il file (rimuoverlo sarebbe raceabile con un'istanza in
     # avvio): è il flock, non l'esistenza del file, a fare da lock.
@@ -69,6 +84,7 @@ def test_lockfile_non_cancellato_al_release(tmp_path):
     assert os.path.exists(path)
 
 
+@_skip_su_windows
 def test_flock_errore_imprevisto_fail_open_non_rifiuta(tmp_path, monkeypatch):
     # #346 (Sourcery, bug reale): SOLO EWOULDBLOCK/EAGAIN = «lock posseduto» → rifiuto.
     # Un'ALTRA OSError (filesystem/permessi) è un guasto imprevisto → fail-open (noop),
@@ -130,6 +146,7 @@ def test_windows_createmutex_fallita_fail_open(tmp_path):
     assert k32.closed == []
 
 
+@_skip_su_windows
 def test_lock_dir_creata_se_mancante(tmp_path):
     # Primo avvio assoluto: la cartella dati può non esistere ancora (viene creata
     # da load_config DOPO il lock) → acquire la crea da sé.
