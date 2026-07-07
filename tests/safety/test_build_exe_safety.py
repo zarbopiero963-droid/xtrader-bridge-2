@@ -1104,13 +1104,17 @@ def test_lockfile_pubblicato_nel_job_summary_prima_dell_upload():
     Guardrail: se qualcuno spostasse il dump DOPO l'upload (o lo togliesse), il lock tornerebbe
     irrecuperabile a quota piena → questo test fallisce."""
     text = _read(os.path.join(_WORKFLOWS_DIR, "generate-lockfile.yaml"))
-    assert "GITHUB_STEP_SUMMARY" in text, "manca il dump del lock nel Job Summary (fallback quota)"
-    assert re.search(r"Get-Content\s+requirements-build\.lock", text), \
-        "il Job Summary deve includere il CONTENUTO di requirements-build.lock"
-    i_summary = text.find("GITHUB_STEP_SUMMARY")
+    # `cat` (bash) copia il lock BYTE-per-byte: niente BOM né wrapping delle righe `--hash=...`
+    # che pwsh `Out-File`/`Get-Content` potrebbero introdurre corrompendo il lock copiato (GLM/GPT).
+    assert re.search(r"cat\s+requirements-build\.lock", text), \
+        "il Job Summary deve includere il CONTENUTO di requirements-build.lock via `cat` (byte-faithful)"
+    # deve emettere un fence markdown ``` così il blocco è davvero copiabile (GPT #367)
+    assert re.search(r"echo '```'", text), "manca il fence markdown ``` per un blocco copiabile"
+    # ancora sulla SCRITTURA reale nel summary (`>> $GITHUB_STEP_SUMMARY`), non su commenti (GPT/GLM)
+    m_sum = re.search(r">>\s*\"?\$GITHUB_STEP_SUMMARY", text)
     m_upload = re.search(r"uses:\s*actions/upload-artifact", text)   # lo step reale, non i commenti
-    assert i_summary != -1 and m_upload, "struttura generate-lockfile non trovata"
-    assert i_summary < m_upload.start(), \
+    assert m_sum and m_upload, "struttura generate-lockfile non trovata"
+    assert m_sum.start() < m_upload.start(), \
         "il dump nel Job Summary dev'essere PRIMA dello step upload-artifact (disponibile anche se l'upload fallisce)"
 
 
