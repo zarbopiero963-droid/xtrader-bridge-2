@@ -2089,7 +2089,11 @@ Se la connessione non è reale, `get_me` **solleva** → l'eccezione propaga →
 `first_connection` **ancora True** → `drop_pending` resta True (backlog pre-START comunque scartato).
 La conferma parte **solo alla prima connessione della sessione** (`if first_connection:`), quindi le
 riconnessioni non ripetono la chiamata. L'invariante anti-arretrati regge ora **a prescindere** dalla
-semantica di `start_polling`, senza dipendere dal collaudo runtime. **CORE CHANGE**
+semantica di `start_polling`, senza dipendere dal collaudo runtime. La `get_me` usa **timeout espliciti
+di PTB** (`_CONNECT_CONFIRM_TIMEOUT = 15s`, review CodeRabbit): una conferma appesa scade sollevando
+`telegram.error.TimedOut` — classificato TRANSITORIO da `reconnect_policy` → riconnessione — invece di
+bloccare uno STOP indefinitamente; si usano i kwargs di PTB e NON `asyncio.wait_for` (che solleverebbe
+`asyncio.TimeoutError`, non-telegram → classificato permanente → STOP indesiderato). **CORE CHANGE**
 (`xtrader_bridge/app.py::_run_bot/_async_run`): da ri-sincronizzare nel cloud.
 
 Test hard (`tests/integration/test_reconnect_110.py`):

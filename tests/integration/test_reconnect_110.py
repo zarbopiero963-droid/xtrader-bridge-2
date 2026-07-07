@@ -77,9 +77,11 @@ class _Bot:
     def __init__(self, *, fail=False):
         self._fail = fail
         self.get_me_calls = 0
+        self.get_me_kwargs = None          # cattura i timeout espliciti (review CodeRabbit)
 
-    async def get_me(self):
+    async def get_me(self, **kwargs):
         self.get_me_calls += 1
+        self.get_me_kwargs = kwargs
         if self._fail:
             raise type("NetworkError", (Exception,), {})("get_me giù: connessione non reale (simulato)")
         return {"id": 1, "is_bot": True}
@@ -256,6 +258,10 @@ def test_start_polling_ritorna_senza_connettere_non_abbassa_il_flag(make_app, ap
 
     assert len(apps) == 2                                  # get_me fallito → ha riconnesso (2 giri)
     assert apps[0].bot.get_me_calls == 1                   # conferma tentata alla 1ª connessione
+    # La conferma è BOUNDED (review CodeRabbit): timeout espliciti così una `get_me` appesa non
+    # blocca uno STOP. Senza, una chiamata a Telegram irraggiungibile resterebbe indefinita.
+    assert apps[0].bot.get_me_kwargs.get("connect_timeout") is not None
+    assert apps[0].bot.get_me_kwargs.get("read_timeout") is not None
     # 1ª connessione NON confermata → scarta il backlog pre-START
     assert apps[0].updater.start_polling_kwargs["drop_pending_updates"] is True
     # riconnessione dopo una 1ª connessione NON confermata → il flag è restato True: scarta ANCORA
