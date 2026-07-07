@@ -2043,3 +2043,32 @@ Suite **2391 passed, 11 skipped**. Docs: README «Cosa succede se cade la connes
 (prima connessione riuscita scarta / riconnessione dopo successo recupera). Design handoff =
 **N/A** (nessun cambio a schermate/tab/controlli/stati/indicatori: RICONNESSIONE→ATTIVO
 invariato; aggiunta solo una riga di log informativa, non un elemento che il handoff descrive).
+
+## #371 — clamp del `max_age` freschezza alla finestra di deduplica (hardening anti-doppia-scommessa)
+
+Chiude il finding della final review **Fable 5** su #369 (deferito per decisione owner a PR dedicata,
+tracciato in Issue #371). Con `drop_pending_updates=False` sulle riconnessioni (#311-1.2), Telegram
+può **rideliverare** (at-least-once) un update già processato ma non ancora ack-ato prima del blip.
+La protezione a valle è la deduplica per **contenuto** del `SignalTracker` (finestra `dedupe_window`,
+default **300s**). Il filtro freschezza ammetteva però un messaggio fino a
+`effective_max_age = min(max_signal_age, clear_delay)`, **senza** legame con la finestra dedup: con
+config **non-default** (età effettiva > 300s) e un outage > finestra dedup, un update rideliverato era
+ancora "fresco" (`is_stale` = False) ma **non più deduplicato** (hash scaduto) → seconda scrittura CSV
+→ possibile **doppia scommessa**.
+
+Fix (patch stretta): nuova funzione pura `message_freshness.capped_max_age(max_signal_age, clear_delay,
+dedupe_window)` che clampa il `max_age` **attivo** ANCHE alla finestra dedup (fail-closed: un messaggio
+troppo vecchio per essere protetto dalla dedup è trattato come **stantio**, scartato). Non ri-attiva un
+filtro disattivato dall'utente (`max_age <= 0`), e con finestra dedup malformata/`<=0`/`None` non clampa.
+`effective_max_age` resta **invariato**. `App._handle` usa ora `capped_max_age(...)` passando
+`getattr(self._tracker, "dedupe_window", None)`. Con i **default** (eff 120s < 300s) il clamp **non
+morde**: nessun cambiamento osservabile. **CORE CHANGE** (`xtrader_bridge/message_freshness.py` +
+`xtrader_bridge/app.py::_handle`): da ri-sincronizzare nel cloud.
+
+Test hard (`tests/unit/test_message_freshness.py`): `test_capped_max_age_clampa_alla_finestra_dedup`,
+`test_capped_max_age_default_non_morde`, `test_capped_max_age_filtro_disattivato_resta_disattivato`,
+`test_capped_max_age_finestra_dedup_invalida_nessun_clamp`, e l'integrazione fail-first
+`test_capped_max_age_ridelivery_reconnect_e_stale` (config eff 600s + dedup 300s → un update a 350s è
+STANTIO col clamp; mutation-guard: senza clamp sarebbe "fresco"). Mutazione «nessun clamp» → **KILLED**.
+Suite **2396 passed, 11 skipped**. Docs: README (nota su `max_signal_age`) aggiornata. Design handoff =
+**N/A** (nessun cambio a GUI/UX: modifica interna al filtro freschezza, nessun elemento del handoff).

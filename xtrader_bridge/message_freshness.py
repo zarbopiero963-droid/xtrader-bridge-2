@@ -55,6 +55,67 @@ def effective_max_age(max_signal_age, clear_delay):
     return min(ma, cd)
 
 
+def _coerce_positive_finite(value):
+    """Ritorna `float(value)` se è un numero **finito e > 0** (e non `bool`), altrimenti `None`.
+
+    Coercizione difensiva CONDIVISA dal clamp anti-doppia-scommessa (`capped_max_age`, review
+    CodeRabbit): tenere UNA sola sorgente per la regola «bool/malformato/NaN/inf/<=0 → invalido»
+    evita che una modifica futura aggiorni un ramo e non l'altro, indebolendo il fail-safe."""
+    if isinstance(value, bool):
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(v) or v <= 0:
+        return None
+    return v
+
+
+def capped_max_age(max_signal_age, clear_delay, dedupe_window):
+    """`max_age` EFFETTIVO come `effective_max_age`, ma clampato **anche** alla finestra di
+    deduplica del `SignalTracker` (#371).
+
+    Motivo (anti-doppia-scommessa). Con `drop_pending_updates=False` sulle riconnessioni (issue
+    #311-1.2), Telegram può **rideliverare** (at-least-once) un update già processato ma non ancora
+    ack-ato prima del blip. La protezione a valle è la deduplica per **contenuto** del `SignalTracker`,
+    che ha una finestra (`dedupe_window`, default 300s). Il filtro freschezza, invece, ammette un
+    messaggio fino a `effective_max_age = min(max_signal_age, clear_delay)`, **senza** legame con la
+    finestra dedup. Se l'utente configura l'età effettiva **oltre** la finestra dedup e un outage la
+    supera, un update rideliverato è ancora "fresco" (`is_stale` = False) ma **non più deduplicato**
+    (hash scaduto) → seconda scrittura CSV → doppia scommessa. Clampando il `max_age` **attivo** alla
+    finestra dedup, un messaggio troppo vecchio per essere protetto dalla dedup è trattato come
+    **stantio** (scartato): fail-closed, direzione sicura.
+
+    Regole (coerenti con `effective_max_age`):
+    - `dedupe_window` malformato / `bool` / non finito / `<= 0` → **nessun clamp** (si ritorna
+      `effective_max_age` così com'è): una finestra dedup invalida non deve indebolire né
+      irrigidire a caso il filtro;
+    - un filtro freschezza **disattivato** dall'utente (`max_age <= 0` esplicito) **resta tale**: il
+      clamp non ri-attiva un filtro spento di proposito (come in `effective_max_age`);
+    - un `effective_max_age` malformato (stringa non numerica ecc.) è lasciato passare invariato:
+      `is_stale` lo ricondurrà comunque al `DEFAULT_MAX_AGE` sicuro.
+
+    Con i **default** (`max_signal_age`/`clear_delay` = 120s, finestra dedup 300s) l'effettivo è
+    120 < 300 → **nessun cambiamento osservabile**: il clamp morde solo con config non-default
+    (età effettiva > finestra dedup)."""
+    eff = effective_max_age(max_signal_age, clear_delay)
+    # Finestra dedup invalida (malformata/bool/NaN/inf/<=0) → nessun clamp: ritorna l'effettivo grezzo.
+    dw = _coerce_positive_finite(dedupe_window)
+    if dw is None:
+        return eff
+    # Clampa SOLO un max_age ATTIVO (numero finito > 0). Un filtro disattivato (<=0) resta tale; un
+    # `eff` malformato è lasciato a `is_stale` (che ricade su DEFAULT_MAX_AGE).
+    eff_f = _coerce_positive_finite(eff)
+    if eff_f is None:
+        return eff
+    # Preserva il tipo dei valori originali (review Fable 5 / Fugu Ultra): se NON si clampa ritorna
+    # `eff` così com'è (int 120 resta 120, non 120.0); se si clampa ritorna la `dedupe_window`
+    # originale (int 300), non il `dw` coerciuto a float. `is_stale` accetta comunque qualunque
+    # numerico, ma così un consumer che confronti per tipo/serializzi non vede differenze spurie.
+    return eff if eff_f <= dw else dedupe_window
+
+
 def is_stale(message_epoch, now, max_age=DEFAULT_MAX_AGE) -> bool:
     """`True` se il messaggio (epoch UNIX `message_epoch`) è più vecchio di `max_age`
     secondi rispetto a `now` (epoch UNIX).

@@ -120,3 +120,72 @@ def test_effective_max_age_malformato_e_is_stale_non_scrivono_arretrato():
     eff = mf.effective_max_age("abc", 90)
     assert mf.is_stale(0, 100, eff) is True              # 100s > clamp 90 → stantio
     assert mf.is_stale(0, 80, eff) is False              # 80s < 90 → ancora fresco
+
+
+# ── #371: capped_max_age (clamp ANCHE alla finestra di deduplica) ────────────────
+
+def test_capped_max_age_clampa_alla_finestra_dedup():
+    # Config non-default con età effettiva OLTRE la finestra dedup (300s): il clamp la riporta a 300.
+    assert mf.capped_max_age(600, 600, 300) == 300      # eff 600 > dedup 300 → 300
+    assert mf.capped_max_age(600, 400, 300) == 300      # eff min(600,400)=400 > 300 → 300
+    # Anche quando clear_delay è invalido, l'effettivo grezzo (600) va comunque clampato a 300.
+    assert mf.capped_max_age(600, None, 300) == 300
+
+
+def test_capped_max_age_default_non_morde():
+    # Default (eff 120 < dedup 300): nessun cambiamento osservabile rispetto a effective_max_age.
+    assert mf.capped_max_age(120, 120, 300) == 120
+    assert mf.capped_max_age(90, 120, 300) == 90        # eff min(90,120)=90 < 300 → invariato
+
+
+def test_capped_max_age_filtro_disattivato_resta_disattivato():
+    # max_signal_age <= 0 = filtro spento dall'utente: il clamp NON lo ri-attiva.
+    assert mf.capped_max_age(0, 600, 300) == 0
+    assert mf.capped_max_age(-1, 600, 300) == -1
+
+
+def test_capped_max_age_finestra_dedup_invalida_nessun_clamp():
+    # dedupe_window malformata/bool/non-positiva/None → nessun clamp: resta l'effettivo.
+    for bad in (None, "abc", 0, -5, True, False, float("nan"), float("inf")):
+        assert mf.capped_max_age(600, 600, bad) == mf.effective_max_age(600, 600), bad
+
+
+def test_capped_max_age_finestra_dedup_float_valida():
+    # #371 (review GLM 5.2): `dedupe_window` come float valido (non int) deve clampare comunque.
+    assert mf.capped_max_age(600, 600, 300.0) == 300     # eff 600 > 300.0 → clamp
+    assert mf.is_stale(0, 350, mf.capped_max_age(600, 600, 300.0)) is True   # a 350s → stantio
+
+
+def test_capped_max_age_eff_malformato_ritorna_invariato():
+    # #371 (review GLM 5.2): con `clear_delay` malformato, `effective_max_age` ritorna il
+    # max_signal_age grezzo; se questo NON è numerico, `capped_max_age` lo lascia invariato
+    # (float(eff) fallisce → return eff) e `is_stale` lo ricondurrà a DEFAULT_MAX_AGE.
+    assert mf.capped_max_age("abc", "xyz", 300) == mf.effective_max_age("abc", "xyz") == "abc"
+    # is_stale ricade su DEFAULT (120): un arretrato di 130s è stantio, 110s no.
+    assert mf.is_stale(0, 130, mf.capped_max_age("abc", "xyz", 300)) is True
+    assert mf.is_stale(0, 110, mf.capped_max_age("abc", "xyz", 300)) is False
+
+
+def test_capped_max_age_preserva_il_tipo():
+    # #371 (review Fable 5 / Fugu Ultra): la funzione NON introduce un float spurio. Senza clamp
+    # ritorna esattamente ciò che ritorna `effective_max_age` (stesso valore E tipo); col clamp
+    # ritorna la `dedupe_window` originale (int 300), non il `dw` coerciuto a float.
+    # Ramo raw di effective_max_age (clear_delay invalido) → int preservato senza clamp:
+    assert mf.capped_max_age(120, None, 300) == mf.effective_max_age(120, None) == 120
+    assert isinstance(mf.capped_max_age(120, None, 300), int)          # non 120.0
+    # Clamp → ritorna la dedupe_window originale (int), non float:
+    assert mf.capped_max_age(600, 600, 300) == 300
+    assert isinstance(mf.capped_max_age(600, 600, 300), int)           # non 300.0
+
+
+def test_capped_max_age_ridelivery_reconnect_e_stale():
+    # Integrazione fail-first del finding #371 (ridelivery post-reconnect, drop_pending_updates=False):
+    # config età effettiva 600s ma finestra dedup 300s; un update rideliverato a 350s (oltre la
+    # finestra dedup, quindi NON più deduplicato) DEVE risultare STANTIO col clamp, così non viene
+    # riscritto → niente doppia scommessa.
+    capped = mf.capped_max_age(600, 600, 300)           # → 300
+    assert mf.is_stale(0, 350, capped) is True          # 350s > 300 → stantio (scartato)
+    # Mutation-guard: senza il clamp (eff 600) lo stesso update sarebbe "fresco" → riscritto.
+    assert mf.is_stale(0, 350, mf.effective_max_age(600, 600)) is False
+    # Entro la finestra dedup un update rideliverato resta gestito dalla dedup (non stantio).
+    assert mf.is_stale(0, 250, capped) is False         # 250s < 300 → fresco (dedup lo blocca)
