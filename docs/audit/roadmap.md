@@ -1782,7 +1782,9 @@ GUI (niente key sintetiche), `tr(testo)` → traduzione nella lingua attiva o il
 stesso (fail-safe: mai vuoto/KeyError), `set_language` fail-safe (sporco/vuoto → IT),
 stato di modulo sotto lock. Attivata da `app_language` PRIMA di `_build_ui`; cambio
 lingua → al riavvio (log del selettore aggiornato). Scope: etichette STATICHE della
-finestra principale (9 tab, 17 bottoni, campi form, 3 label) in EN/ES. ESCLUSI e
+finestra principale (9 tab, 17 bottoni, campi form, 3 label, 11 etichette delle
+impostazioni avanzate e 7 contatori Dashboard — CodeRabbit #357: i contenuti dei
+tab tradotti non restano in italiano) in EN/ES. ESCLUSI e
 motivati: stati «⬤ ATTIVO/…» (il semaforo Salute fa text-parsing dello stato →
 prima serve uno stato canonico, slice dedicato), banner, log, finestre secondarie.
 Test hard: default/fallback/traduzioni, ANTI-DRIFT (ogni chiave catalogo deve

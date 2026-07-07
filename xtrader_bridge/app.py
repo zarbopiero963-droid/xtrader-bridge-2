@@ -1148,7 +1148,7 @@ class App(ctk.CTk):
 
         # Riconoscimento
         self._adv["recognition_mode"] = self._add_option(
-            tab_rec, "🎯 Modalità riconoscimento",
+            tab_rec, i18n.tr("🎯 Modalità riconoscimento"),
             settings_controller.recognition_mode_options(), adv["recognition_mode"], 0)
         # La quota obbligatoria sì/no NON è più un interruttore globale: la governa la
         # casella «Obblig.» sulla riga Price di OGNI Parser Personalizzato (unico comando).
@@ -1158,34 +1158,34 @@ class App(ctk.CTk):
         # `dry_run` resta la fonte del percorso di scrittura: lo deriva il controller
         # (`apply_advanced`: SIMULAZIONE ⇔ dry_run=True), qui solo il widget.
         self._adv["bridge_mode"] = self._add_option(
-            tab_safe, "🚦 Modalità bridge",
+            tab_safe, i18n.tr("🚦 Modalità bridge"),
             settings_controller.bridge_mode_options(), adv["bridge_mode"], 0)
         self._adv["max_per_day"] = self._add_entry(
-            tab_safe, "📅 Limite segnali al giorno", str(adv["max_per_day"]), 1)
+            tab_safe, i18n.tr("📅 Limite segnali al giorno"), str(adv["max_per_day"]), 1)
         self._adv["queue_mode"] = self._add_option(
-            tab_safe, "🧮 Modalità coda segnali",
+            tab_safe, i18n.tr("🧮 Modalità coda segnali"),
             settings_controller.queue_mode_options(), adv["queue_mode"], 2)
         self._adv["auto_start_listener"] = self._add_check(
-            tab_safe, "▶️ Avvio automatico all'apertura (in modalità REALE chiede conferma)",
+            tab_safe, i18n.tr("▶️ Avvio automatico all'apertura (in modalità REALE chiede conferma)"),
             adv["auto_start_listener"], 3)
         self._adv["debug_message_payload"] = self._add_check(
-            tab_safe, "🕵️ Logga il testo completo dei messaggi (debug; OFF = solo hash + 1ª riga)",
+            tab_safe, i18n.tr("🕵️ Logga il testo completo dei messaggi (debug; OFF = solo hash + 1ª riga)"),
             adv["debug_message_payload"], 4)
         self._adv["max_active_signals"] = self._add_entry(
-            tab_safe, "🔢 Max segnali attivi (modalità coda multi-riga)",
+            tab_safe, i18n.tr("🔢 Max segnali attivi (modalità coda multi-riga)"),
             str(adv["max_active_signals"]), 5)
 
         # Conferme XTrader: chat notifiche + timeout conferma (PR-17b, attivo in
         # QUEUE_UNTIL_CONFIRMED) + parole chiave conferma/rifiuto come stringa CSV.
         self._adv["xtrader_notification_chat_id"] = self._add_entry(
-            tab_conf, "💬 Chat notifiche XTrader", adv["xtrader_notification_chat_id"], 0)
+            tab_conf, i18n.tr("💬 Chat notifiche XTrader"), adv["xtrader_notification_chat_id"], 0)
         self._adv["confirmation_timeout"] = self._add_entry(
-            tab_conf, "⏳ Timeout conferma (sec)", str(adv["confirmation_timeout"]), 1)
+            tab_conf, i18n.tr("⏳ Timeout conferma (sec)"), str(adv["confirmation_timeout"]), 1)
         self._adv["confirmation_keywords"] = self._add_entry(
-            tab_conf, "✅ Parole conferma (separate da virgola)",
+            tab_conf, i18n.tr("✅ Parole conferma (separate da virgola)"),
             adv["confirmation_keywords"], 2)
         self._adv["rejection_keywords"] = self._add_entry(
-            tab_conf, "❌ Parole rifiuto (separate da virgola)",
+            tab_conf, i18n.tr("❌ Parole rifiuto (separate da virgola)"),
             adv["rejection_keywords"], 3)
 
         # Buttons
@@ -1308,7 +1308,7 @@ class App(ctk.CTk):
         for col, (name, label) in enumerate(dashboard_stats.COUNTERS):
             cell = ctk.CTkFrame(tab_dash, fg_color="transparent")
             cell.grid(row=1, column=col, padx=8, pady=(0, 8), sticky="w")
-            ctk.CTkLabel(cell, text=label, font=ctk.CTkFont(size=10),
+            ctk.CTkLabel(cell, text=i18n.tr(label), font=ctk.CTkFont(size=10),
                          text_color="gray").pack(anchor="w")
             val = ctk.CTkLabel(cell, text="0", font=ctk.CTkFont(size=16, weight="bold"))
             val.pack(anchor="w")

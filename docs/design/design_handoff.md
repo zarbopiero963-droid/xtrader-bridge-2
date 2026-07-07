@@ -225,7 +225,9 @@ selettore NON compare (mai un grab modale sopra un avvio non presidiato: STOP de
 restare raggiungibile) — log «🌐 Selettore lingua rimandato: auto-start attivo…».
 Invarianti: la scelta lingua NON tocca modalità/gate di sicurezza. Dalla **slice 4a**
 la lingua governa anche le etichette STATICHE della finestra principale (tab, bottoni,
-nomi campo — catalogo `i18n.py`, italiano = riferimento, fallback fail-safe: una
+nomi campo INCLUSE le impostazioni avanzate dei tab Riconoscimento/Sicurezza/Conferme e
+le etichette dei contatori Dashboard — catalogo `i18n.py`, italiano = riferimento,
+fallback fail-safe: una
 traduzione mancante mostra l'italiano, mai stringhe vuote), applicate al **riavvio**
 (log di conferma: «…riavvia il bridge per applicare la lingua all'interfaccia…»).
 Restano IN ITALIANO per ora (slice successivi): gli stati dinamici «⬤

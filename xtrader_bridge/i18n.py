@@ -88,6 +88,32 @@ _CATALOG = {
         "Contatori dall'avvio": "Counters since start",
         "Mostra:": "Show:",
         "Conserva:": "Keep:",
+        # Impostazioni avanzate (tab Riconoscimento/Sicurezza/Conferme — CodeRabbit
+        # #357: i contenuti dei tab tradotti non devono restare in italiano)
+        "🎯 Modalità riconoscimento": "🎯 Recognition mode",
+        "🚦 Modalità bridge": "🚦 Bridge mode",
+        "📅 Limite segnali al giorno": "📅 Daily signal limit",
+        "🧮 Modalità coda segnali": "🧮 Signal queue mode",
+        "▶️ Avvio automatico all'apertura (in modalità REALE chiede conferma)":
+            "▶️ Auto-start on launch (REAL mode asks for confirmation)",
+        "🕵️ Logga il testo completo dei messaggi (debug; OFF = solo hash + 1ª riga)":
+            "🕵️ Log full message text (debug; OFF = hash + 1st line only)",
+        "🔢 Max segnali attivi (modalità coda multi-riga)":
+            "🔢 Max active signals (multi-row queue mode)",
+        "💬 Chat notifiche XTrader": "💬 XTrader notifications chat",
+        "⏳ Timeout conferma (sec)": "⏳ Confirmation timeout (sec)",
+        "✅ Parole conferma (separate da virgola)":
+            "✅ Confirmation words (comma-separated)",
+        "❌ Parole rifiuto (separate da virgola)":
+            "❌ Rejection words (comma-separated)",
+        # Contatori Dashboard (chiavi in dashboard_stats.COUNTERS)
+        "📥 Ricevuti": "📥 Received",
+        "✅ Scritti": "✅ Written",
+        "⚠️ Scartati": "⚠️ Discarded",
+        "♻️ Duplicati": "♻️ Duplicates",
+        "🚦 Limitati": "🚦 Limited",
+        "🧪 Simulati": "🧪 Simulated",
+        "❌ Errori": "❌ Errors",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -116,5 +142,30 @@ _CATALOG = {
         "Contatori dall'avvio": "Contadores desde el inicio",
         "Mostra:": "Mostrar:",
         "Conserva:": "Conservar:",
+        # Impostazioni avanzate (CodeRabbit #357)
+        "🎯 Modalità riconoscimento": "🎯 Modo de reconocimiento",
+        "🚦 Modalità bridge": "🚦 Modo del bridge",
+        "📅 Limite segnali al giorno": "📅 Límite de señales al día",
+        "🧮 Modalità coda segnali": "🧮 Modo de cola de señales",
+        "▶️ Avvio automatico all'apertura (in modalità REALE chiede conferma)":
+            "▶️ Inicio automático al abrir (en modo REAL pide confirmación)",
+        "🕵️ Logga il testo completo dei messaggi (debug; OFF = solo hash + 1ª riga)":
+            "🕵️ Registrar el texto completo de los mensajes (debug; OFF = solo hash + 1ª línea)",
+        "🔢 Max segnali attivi (modalità coda multi-riga)":
+            "🔢 Máx. señales activas (modo cola multi-fila)",
+        "💬 Chat notifiche XTrader": "💬 Chat de notificaciones XTrader",
+        "⏳ Timeout conferma (sec)": "⏳ Timeout de confirmación (seg)",
+        "✅ Parole conferma (separate da virgola)":
+            "✅ Palabras de confirmación (separadas por comas)",
+        "❌ Parole rifiuto (separate da virgola)":
+            "❌ Palabras de rechazo (separadas por comas)",
+        # Contatori Dashboard (chiavi in dashboard_stats.COUNTERS)
+        "📥 Ricevuti": "📥 Recibidos",
+        "✅ Scritti": "✅ Escritos",
+        "⚠️ Scartati": "⚠️ Descartados",
+        "♻️ Duplicati": "♻️ Duplicados",
+        "🚦 Limitati": "🚦 Limitados",
+        "🧪 Simulati": "🧪 Simulados",
+        "❌ Errori": "❌ Errores",
     },
 }

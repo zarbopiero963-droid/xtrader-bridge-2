@@ -10,8 +10,12 @@ import pytest
 
 from xtrader_bridge import i18n
 
-_APP_SRC = open(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))), "xtrader_bridge", "app.py"), encoding="utf-8").read()
+_PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), "xtrader_bridge")
+_APP_SRC = open(os.path.join(_PKG, "app.py"), encoding="utf-8").read()
+# Le chiavi dei contatori Dashboard vivono in dashboard_stats.COUNTERS (la resa in
+# app.py li wrappa via i18n.tr(label)): l'anti-drift le cerca in ENTRAMBI i sorgenti.
+_DASH_SRC = open(os.path.join(_PKG, "dashboard_stats.py"), encoding="utf-8").read()
 
 
 @pytest.fixture(autouse=True)
@@ -57,7 +61,8 @@ def test_catalogo_anti_drift_chiavi_verbatim_nel_sorgente():
     traduzioni orfane che l'utente EN/ES non vedrebbe più)."""
     for lang, table in i18n._CATALOG.items():
         for key in table:
-            assert key in _APP_SRC, f"{lang}: chiave stantia, non in app.py: {key!r}"
+            assert key in _APP_SRC or key in _DASH_SRC, (
+                f"{lang}: chiave stantia, non in app.py/dashboard_stats.py: {key!r}")
 
 
 def test_catalogo_valori_sensati():
@@ -90,5 +95,12 @@ def test_sorgente_usa_tr_sulle_label_catalogate():
     """Anti-regressione wiring: le label tradotte devono passare da i18n.tr nel
     sorgente (un revert del wrap le farebbe tornare hardcoded solo-IT)."""
     for probe in ('i18n.tr("▶  AVVIA")', 'i18n.tr("🧰  Strumenti")',
-                  'i18n.tr("⚙️ Generale")', 'i18n.tr(label)'):
+                  'i18n.tr("⚙️ Generale")', 'i18n.tr(label)',
+                  # CodeRabbit #357: anche i CONTENUTI dei tab tradotti (impostazioni
+                  # avanzate) e i contatori Dashboard devono passare da tr()
+                  'i18n.tr("🚦 Modalità bridge")',
+                  'i18n.tr("💬 Chat notifiche XTrader")'):
         assert probe in _APP_SRC, f"wrap mancante in app.py: {probe}"
+    assert _APP_SRC.count("i18n.tr(label)") >= 2, (
+        "wrap mancante su gen_fields o sui contatori Dashboard (entrambi i loop "
+        "devono passare da i18n.tr(label))")
