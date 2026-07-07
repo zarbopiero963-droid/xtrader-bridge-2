@@ -6,6 +6,15 @@ qui ci sono SOLO i widget. La finestra si apre da un pulsante nella GUI principa
 trasformazione, value-map, obbligatorio. In più: aggiungi/rimuovi/sposta regola,
 salva/carica, e **test-live** su un messaggio incollato.
 
+Testi UI localizzati via `i18n.tr` (#343 slice 4g): l'italiano è il riferimento,
+la lingua attiva è quella scelta all'avvio; i messaggi con variabili passano dal
+template tradotto (`.format(...)`), così la chiave di catalogo resta stabile. Si
+wrappa SOLO il chrome puro (titolo, etichette, bottoni, header, messaggi di
+stato): NON gli interruttori «MultiMarket (più mercati)»/«MultiSelection (più
+selezioni)» (le loro label raddoppiano da semantica di configurazione) né i
+VALORI delle tendine (Modalità/Sport/Mercato/Trasformazione/Value-map, che sono
+chiavi di config), né `title="Provider"` (confrontato come `rule.target`).
+
 NB: questo modulo non è testato in CI (richiede un display). La logica che usa è
 coperta da `tests/unit/test_parser_builder.py`. Verifica manuale su Windows.
 """
@@ -15,6 +24,7 @@ import customtkinter as ctk
 from . import (
     config_store,
     gui_utils,
+    i18n,
     market_mapping_store,
     name_mapping_store,
     parser_diagnostics,
@@ -44,8 +54,9 @@ def _translations_status_text(count: int) -> str:
     almeno un profilo di mappatura è selezionato, ``— nessuna`` se nessuno. Puro/testabile: non
     dipende dalla GUI."""
     if count <= 0:
-        return "— nessuna"
-    return "✓ 1 attiva" if count == 1 else f"✓ {count} attive"
+        return i18n.tr("— nessuna")
+    return (i18n.tr("✓ 1 attiva") if count == 1
+            else i18n.tr("✓ {count} attive").format(count=count))
 
 
 # Colonne della tabella regole: (label, larghezza, avanzata?). #293 «densità parser»: di
@@ -154,17 +165,17 @@ class CustomParserPanel(ctk.CTkFrame):
     def _add_provider(self):
         """Chiede un nome, lo salva nell'anagrafica (config) e aggiorna le tendine
         Provider. Persistenza indipendente come per la finestra Sorgenti."""
-        dialog = ctk.CTkInputDialog(text="Nome del nuovo Provider:", title="Provider")
+        dialog = ctk.CTkInputDialog(text=i18n.tr("Nome del nuovo Provider:"), title="Provider")
         name = (dialog.get_input() or "").strip()
         if not name:
-            self._result.configure(text="⛔ Provider non aggiunto (nome vuoto).")
+            self._result.configure(text=i18n.tr("⛔ Provider non aggiunto (nome vuoto)."))
             return
         try:
             cfg = config_store.load_config(config_store.CONFIG_FILE)
             cfg = provider_store.add_provider(cfg, name)
             saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
         except Exception as exc:                 # noqa: BLE001
-            self._result.configure(text=f"❌ Errore salvataggio provider: {exc}")
+            self._result.configure(text=i18n.tr("❌ Errore salvataggio provider: {exc}").format(exc=exc))
             return
         # Sincronizza la config in memoria della GUI principale (no perdita provider).
         if ok and callable(self._on_saved):
@@ -173,8 +184,8 @@ class CustomParserPanel(ctk.CTkFrame):
         self._sync_to_builder()                  # non perdere le modifiche correnti
         self._reload_rows_from_builder()         # ridisegna con la tendina aggiornata
         self._result.configure(
-            text=f"➕ Provider «{name}» salvato." if ok
-            else f"⚠️ Provider «{name}» aggiunto solo in memoria (salvataggio fallito).")
+            text=i18n.tr("➕ Provider «{name}» salvato.").format(name=name) if ok
+            else i18n.tr("⚠️ Provider «{name}» aggiunto solo in memoria (salvataggio fallito).").format(name=name))
 
     # ── mappatura nomi squadra (profili) ───────────────────────────────────
     @staticmethod
@@ -496,10 +507,10 @@ class CustomParserPanel(ctk.CTkFrame):
 
         top = ctk.CTkFrame(outer, fg_color="transparent")
         top.pack(fill="x", padx=10, pady=8)
-        ctk.CTkLabel(top, text="Nome parser:").pack(side="left", padx=6)
+        ctk.CTkLabel(top, text=i18n.tr("Nome parser:")).pack(side="left", padx=6)
         self._name_var = ctk.StringVar(value=self.builder.name)
         ctk.CTkEntry(top, textvariable=self._name_var, width=240).pack(side="left", padx=6)
-        ctk.CTkLabel(top, text="Modalità:").pack(side="left", padx=6)
+        ctk.CTkLabel(top, text=i18n.tr("Modalità:")).pack(side="left", padx=6)
         # Modalità DEL PARSER (per-parser): scegliendola, i campi di riconoscimento del
         # set diventano obbligatori da soli (set_mode → auto-Obblig.). La voce
         # "(eredita globale)" rappresenta "" (parser legacy): usa la modalità globale.
@@ -510,35 +521,35 @@ class CustomParserPanel(ctk.CTkFrame):
         # Sport DEL PARSER (PR-P9): Calcio/Tennis/Basket/Rugby Union o "(non specificato)"
         # (= agnostico). Non cambia le colonne CSV; nelle PR successive restringe la
         # risoluzione degli ID Betfair all'event_type_id corretto.
-        ctk.CTkLabel(top, text="Sport:").pack(side="left", padx=6)
+        ctk.CTkLabel(top, text=i18n.tr("Sport:")).pack(side="left", padx=6)
         self._sport_var = ctk.StringVar(value=self._sport_to_label(self.builder.sport))
         ctk.CTkOptionMenu(top, variable=self._sport_var,
                           values=[self._sport_to_label(s) for s in self.builder.sport_options()],
                           width=150, command=self._on_sport_change).pack(side="left", padx=6)
         # Anagrafica Provider (PR-5): aggiungi un nome riusabile nella tendina della
         # colonna Provider (sotto). I provider salvati valgono per tutti i parser.
-        ctk.CTkButton(top, text="➕ Provider", width=110,
+        ctk.CTkButton(top, text=i18n.tr("➕ Provider"), width=110,
                       command=self._add_provider).pack(side="left", padx=6)
 
         # gestione parser salvati: lista + nuovo / carica / duplica / elimina
         manage = ctk.CTkFrame(outer, fg_color="transparent")
         manage.pack(fill="x", padx=10, pady=(0, 6))
-        ctk.CTkLabel(manage, text="Parser salvati:").pack(side="left", padx=6)
+        ctk.CTkLabel(manage, text=i18n.tr("Parser salvati:")).pack(side="left", padx=6)
         self._saved_var = ctk.StringVar(value=self._NONE_SAVED)
         self._saved_menu = ctk.CTkOptionMenu(
             manage, variable=self._saved_var, values=[self._NONE_SAVED], width=220)
         self._saved_menu.pack(side="left", padx=6)
-        ctk.CTkButton(manage, text="🆕 Nuovo", width=90, command=self._new).pack(side="left", padx=3)
-        ctk.CTkButton(manage, text="📂 Carica", width=90, command=self._load_selected).pack(side="left", padx=3)
-        ctk.CTkButton(manage, text="📑 Duplica", width=90, command=self._duplicate_selected).pack(side="left", padx=3)
-        ctk.CTkButton(manage, text="🗑 Elimina", width=90, fg_color="#7f0000",
+        ctk.CTkButton(manage, text=i18n.tr("🆕 Nuovo"), width=90, command=self._new).pack(side="left", padx=3)
+        ctk.CTkButton(manage, text=i18n.tr("📂 Carica"), width=90, command=self._load_selected).pack(side="left", padx=3)
+        ctk.CTkButton(manage, text=i18n.tr("📑 Duplica"), width=90, command=self._duplicate_selected).pack(side="left", padx=3)
+        ctk.CTkButton(manage, text=i18n.tr("🗑 Elimina"), width=90, fg_color="#7f0000",
                       command=self._delete_selected).pack(side="left", padx=3)
 
         # Catalogo XTrader (B2): scegli Mercato → Selezione (solo NON dinamici) e
         # inseriscili come regole FISSE, senza digitare i nomi canonici a mano.
         cat = ctk.CTkFrame(outer, fg_color="transparent")
         cat.pack(fill="x", padx=10, pady=(0, 6))
-        ctk.CTkLabel(cat, text="Catalogo XTrader:").pack(side="left", padx=6)
+        ctk.CTkLabel(cat, text=i18n.tr("Catalogo XTrader:")).pack(side="left", padx=6)
         self._markets = self.builder.market_options()
         self._cat_market = ctk.StringVar(value=self._markets[0] if self._markets else "")
         self._cat_market_menu = ctk.CTkOptionMenu(
@@ -549,7 +560,7 @@ class CustomParserPanel(ctk.CTkFrame):
         self._cat_selection_menu = ctk.CTkOptionMenu(
             cat, variable=self._cat_selection, values=[""], width=240)
         self._cat_selection_menu.pack(side="left", padx=4)
-        ctk.CTkButton(cat, text="➕ Inserisci regole fisse", width=180,
+        ctk.CTkButton(cat, text=i18n.tr("➕ Inserisci regole fisse"), width=180,
                       command=self._insert_fixed_market).pack(side="left", padx=4)
         self._refresh_selection_menu()   # popola le selezioni del mercato iniziale
 
@@ -560,20 +571,20 @@ class CustomParserPanel(ctk.CTkFrame):
         # presentazione cambia (le mappature vivono accanto al parser, dove si accendono).
         trad = ctk.CTkFrame(outer)
         trad.pack(fill="x", padx=10, pady=(2, 6))
-        ctk.CTkLabel(trad, text="🔗 Traduzioni attive per questo parser",
+        ctk.CTkLabel(trad, text=i18n.tr("🔗 Traduzioni attive per questo parser"),
                      font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=8, pady=(4, 0))
 
         # Mappatura nomi squadra: separatore casa/trasferta del canale + profili
         # (checkbox multi-selezione) che traducono l'EventName provider → Betfair/XTrader.
         nm = ctk.CTkFrame(trad, fg_color="transparent")
         nm.pack(fill="x", padx=6, pady=(0, 4))
-        ctk.CTkLabel(nm, text="Nomi squadra · separatore:").pack(side="left", padx=6)
+        ctk.CTkLabel(nm, text=i18n.tr("Nomi squadra · separatore:")).pack(side="left", padx=6)
         self._separator_var = ctk.StringVar(value=self.builder.team_separator)
         ctk.CTkEntry(nm, textvariable=self._separator_var, width=70,
                      placeholder_text="v").pack(side="left", padx=2)
-        ctk.CTkButton(nm, text="🗺️ Dizionario nomi", width=160,
+        ctk.CTkButton(nm, text=i18n.tr("🗺️ Dizionario nomi"), width=160,
                       command=self._open_name_mapping).pack(side="left", padx=6)
-        self._nm_status_lbl = ctk.CTkLabel(nm, text="— nessuna", width=92, anchor="w")
+        self._nm_status_lbl = ctk.CTkLabel(nm, text=i18n.tr("— nessuna"), width=92, anchor="w")
         self._nm_status_lbl.pack(side="left", padx=(8, 2))
         self._profiles_box = ctk.CTkScrollableFrame(nm, height=42, orientation="horizontal")
         self._profiles_box.pack(side="left", fill="x", expand=True, padx=4)
@@ -585,10 +596,10 @@ class CustomParserPanel(ctk.CTkFrame):
         # frase-mercato del messaggio nel Mercato/Selezione XTrader (market_mapping_store).
         mm = ctk.CTkFrame(trad, fg_color="transparent")
         mm.pack(fill="x", padx=6, pady=(0, 6))
-        ctk.CTkLabel(mm, text="Mercati:").pack(side="left", padx=6)
-        ctk.CTkButton(mm, text="🎯 Dizionario mercati", width=170,
+        ctk.CTkLabel(mm, text=i18n.tr("Mercati:")).pack(side="left", padx=6)
+        ctk.CTkButton(mm, text=i18n.tr("🎯 Dizionario mercati"), width=170,
                       command=self._open_market_mapping).pack(side="left", padx=6)
-        self._mm_status_lbl = ctk.CTkLabel(mm, text="— nessuna", width=92, anchor="w")
+        self._mm_status_lbl = ctk.CTkLabel(mm, text=i18n.tr("— nessuna"), width=92, anchor="w")
         self._mm_status_lbl.pack(side="left", padx=(8, 2))
         self._market_profiles_box = ctk.CTkScrollableFrame(mm, height=42, orientation="horizontal")
         self._market_profiles_box.pack(side="left", fill="x", expand=True, padx=4)
@@ -609,7 +620,7 @@ class CustomParserPanel(ctk.CTkFrame):
         adv_bar = ctk.CTkFrame(outer, fg_color="transparent")
         adv_bar.pack(fill="x", padx=10, pady=(4, 0))
         self._advanced_var = ctk.BooleanVar(value=self._show_advanced)
-        ctk.CTkCheckBox(adv_bar, text="⚙️ Avanzate (Trasformazione · Value-map)",
+        ctk.CTkCheckBox(adv_bar, text=i18n.tr("⚙️ Avanzate (Trasformazione · Value-map)"),
                         variable=self._advanced_var,
                         command=self._on_toggle_advanced).pack(side="left", padx=2)
 
@@ -623,17 +634,17 @@ class CustomParserPanel(ctk.CTkFrame):
 
         actions = ctk.CTkFrame(outer, fg_color="transparent")
         actions.pack(fill="x", padx=10, pady=4)
-        ctk.CTkButton(actions, text="💾 Salva", command=self._save).pack(side="left", padx=4)
-        ctk.CTkButton(actions, text="🧪 Prova messaggio", command=self._test).pack(side="left", padx=4)
+        ctk.CTkButton(actions, text=i18n.tr("💾 Salva"), command=self._save).pack(side="left", padx=4)
+        ctk.CTkButton(actions, text=i18n.tr("🧪 Prova messaggio"), command=self._test).pack(side="left", padx=4)
         # Tester multiplo (#311 §3.2): N messaggi reali separati da righe «---».
-        ctk.CTkButton(actions, text="🧪🧪 Prova più messaggi (separati da ---)",
+        ctk.CTkButton(actions, text=i18n.tr("🧪🧪 Prova più messaggi (separati da ---)"),
                       command=self._test_batch).pack(side="left", padx=4)
-        ctk.CTkButton(actions, text="📋 Copia diagnostica", command=self._copy_diag).pack(side="left", padx=4)
+        ctk.CTkButton(actions, text=i18n.tr("📋 Copia diagnostica"), command=self._copy_diag).pack(side="left", padx=4)
 
         # test-live
         test = ctk.CTkFrame(outer, fg_color="transparent")
         test.pack(fill="x", padx=10, pady=6)
-        ctk.CTkLabel(test, text="Messaggio di prova:").pack(anchor="w", padx=6)
+        ctk.CTkLabel(test, text=i18n.tr("Messaggio di prova:")).pack(anchor="w", padx=6)
         self._msg_box = ctk.CTkTextbox(test, height=120)
         self._msg_box.pack(fill="x", padx=6, pady=4)
         self._result = ctk.CTkLabel(test, text="", anchor="w", justify="left")
@@ -641,14 +652,14 @@ class CustomParserPanel(ctk.CTkFrame):
         # Anteprima multi-riga (#192): TABELLA con UNA riga per ogni riga CSV generata
         # (base, oppure le righe MultiMarket/MultiSelection), col verdetto per-riga. Resta
         # vuota finché non si preme «Prova messaggio».
-        ctk.CTkLabel(test, text="Anteprima righe generate (#192):").pack(anchor="w", padx=6)
+        ctk.CTkLabel(test, text=i18n.tr("Anteprima righe generate (#192):")).pack(anchor="w", padx=6)
         self._preview_table = ctk.CTkFrame(test, fg_color="transparent")
         self._preview_table.pack(fill="x", padx=6, pady=(0, 4))
         # Larghezze colonne della tabella anteprima (px), in ordine.
         self._preview_cols = (("#", 30), ("Tipo", 90), ("Esito", 70),
                               ("Riga CSV (campi valorizzati)", 560))
         # Diagnostica per-campo (CP-08b): TABELLA — perché "Non pronto", colonna per colonna.
-        ctk.CTkLabel(test, text="Diagnostica (una riga per colonna):").pack(anchor="w", padx=6)
+        ctk.CTkLabel(test, text=i18n.tr("Diagnostica (una riga per colonna):")).pack(anchor="w", padx=6)
         self._diag_table = ctk.CTkFrame(test, fg_color="transparent")
         self._diag_table.pack(fill="x", padx=6, pady=(0, 4))
         # Larghezze colonne della tabella diagnostica (px), in ordine.
@@ -687,7 +698,7 @@ class CustomParserPanel(ctk.CTkFrame):
         Solo widget; lo stato vive nel `ParserBuilder` (round-trip/anteprima testati in CI)."""
         sec = ctk.CTkFrame(outer)
         sec.pack(fill="x", padx=10, pady=(8, 4))
-        ctk.CTkLabel(sec, text="Output multi-riga (un messaggio → più righe CSV)",
+        ctk.CTkLabel(sec, text=i18n.tr("Output multi-riga (un messaggio → più righe CSV)"),
                      font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=8, pady=(6, 2))
 
         # MultiMarket: più mercati diversi della stessa partita.
@@ -696,7 +707,7 @@ class CustomParserPanel(ctk.CTkFrame):
         self._multi_market_var = ctk.BooleanVar(value=bool(self.builder.multi_market_enabled))
         ctk.CTkCheckBox(mk, text="MultiMarket (più mercati)", variable=self._multi_market_var,
                         command=self._on_multi_toggle).pack(side="left", padx=4)
-        ctk.CTkButton(mk, text="➕ Aggiungi mercato", width=160,
+        ctk.CTkButton(mk, text=i18n.tr("➕ Aggiungi mercato"), width=160,
                       command=self._add_multi_market_clicked).pack(side="left", padx=6)
         self._multi_markets_box = ctk.CTkFrame(sec, fg_color="transparent")
         self._multi_markets_box.pack(fill="x", padx=8, pady=(0, 4))
@@ -709,7 +720,7 @@ class CustomParserPanel(ctk.CTkFrame):
         ctk.CTkCheckBox(ms, text="MultiSelection (più selezioni)",
                         variable=self._multi_selection_var,
                         command=self._on_multi_toggle).pack(side="left", padx=4)
-        ctk.CTkButton(ms, text="➕ Aggiungi selezione", width=160,
+        ctk.CTkButton(ms, text=i18n.tr("➕ Aggiungi selezione"), width=160,
                       command=self._add_multi_selection_clicked).pack(side="left", padx=6)
         self._multi_selections_box = ctk.CTkFrame(sec, fg_color="transparent")
         self._multi_selections_box.pack(fill="x", padx=8, pady=(0, 4))
@@ -755,10 +766,10 @@ class CustomParserPanel(ctk.CTkFrame):
             entry.bind("<FocusOut>", lambda _e: self._refresh_multi_warnings())
             refs[attr] = entry
         refs["enabled"] = ctk.BooleanVar(value=bool(getattr(rule, "enabled", True)))
-        ctk.CTkCheckBox(row, text="Attiva", variable=refs["enabled"], width=40,
+        ctk.CTkCheckBox(row, text=i18n.tr("Attiva"), variable=refs["enabled"], width=40,
                         command=self._refresh_multi_warnings).pack(
             side="left", padx=6)
-        ctk.CTkButton(row, text="🗑 Rimuovi", width=90, fg_color="#7f0000",
+        ctk.CTkButton(row, text=i18n.tr("🗑 Rimuovi"), width=90, fg_color="#7f0000",
                       command=lambda: self._remove_multi_row(refs_list, refs)).pack(
                           side="left", padx=4)
         refs_list.append(refs)
@@ -1030,28 +1041,30 @@ class CustomParserPanel(ctk.CTkFrame):
         unresolved = self._unresolved_selected()
         if unresolved:
             self._result.configure(
-                text=f"⛔ Non salvato: profili di mappatura nomi mancanti ({', '.join(unresolved)}). "
-                     "Ricreali nel «Dizionario nomi» o togli la spunta prima di salvare.")
+                text=i18n.tr("⛔ Non salvato: profili di mappatura nomi mancanti ({names}). "
+                             "Ricreali nel «Dizionario nomi» o togli la spunta prima di salvare.")
+                     .format(names=', '.join(unresolved)))
             return
         unresolved_mkt = self._unresolved_market_selected()
         if unresolved_mkt:
             # Stesso fail-closed dei nomi: un profilo mercati rinominato/eliminato non deve
             # essere riscritto stantio nel parser (→ MARKET_MAPPING_MISSING a runtime, Codex P2).
             self._result.configure(
-                text=f"⛔ Non salvato: profili di mappatura mercati mancanti ({', '.join(unresolved_mkt)}). "
-                     "Ricreali nel «Dizionario mercati» o togli la spunta prima di salvare.")
+                text=i18n.tr("⛔ Non salvato: profili di mappatura mercati mancanti ({names}). "
+                             "Ricreali nel «Dizionario mercati» o togli la spunta prima di salvare.")
+                     .format(names=', '.join(unresolved_mkt)))
             return
         errors = self.builder.errors()
         if errors:
-            self._result.configure(text="❌ Non salvato:\n- " + "\n- ".join(errors))
+            self._result.configure(text=i18n.tr("❌ Non salvato:\n- ") + "\n- ".join(errors))
             return
         try:
             path = self.builder.save()
         except (OSError, ValueError) as exc:
-            self._result.configure(text=f"❌ Errore salvataggio: {exc}")
+            self._result.configure(text=i18n.tr("❌ Errore salvataggio: {exc}").format(exc=exc))
             return
         self._refresh_saved()
-        self._result.configure(text=f"💾 Salvato in {path}")
+        self._result.configure(text=i18n.tr("💾 Salvato in {path}").format(path=path))
 
     # ── catalogo XTrader (B2) ───────────────────────────────────────────────
     def _on_market_change(self, _value=None):
@@ -1076,7 +1089,7 @@ class CustomParserPanel(ctk.CTkFrame):
             self._result.configure(text=f"⛔ {exc}")
             return
         self._reload_rows_from_builder()
-        self._result.configure(text=f"➕ Regole fisse inserite: {market} · {selection}")
+        self._result.configure(text=i18n.tr("➕ Regole fisse inserite: {market} · {selection}").format(market=market, selection=selection))
 
     # ── gestione parser salvati (lista / nuovo / carica / duplica / elimina) ─
     def _refresh_saved(self):
@@ -1102,58 +1115,60 @@ class CustomParserPanel(ctk.CTkFrame):
             self.builder.apply_mode_defaults(self.builder.mode)
         self._name_var.set("")
         self._reload_rows_from_builder()
-        self._result.configure(text="🆕 Nuovo parser (non ancora salvato).")
+        self._result.configure(text=i18n.tr("🆕 Nuovo parser (non ancora salvato)."))
 
     def _load_selected(self):
         path = self._selected_path()
         if not path:
-            self._result.configure(text="⛔ Nessun parser selezionato.")
+            self._result.configure(text=i18n.tr("⛔ Nessun parser selezionato."))
             return
         try:
             self.builder = ParserBuilder.load(path)
         except (OSError, ValueError) as exc:
-            self._result.configure(text=f"❌ Errore caricamento: {exc}")
+            self._result.configure(text=i18n.tr("❌ Errore caricamento: {exc}").format(exc=exc))
             return
         self._name_var.set(self.builder.name)
         self._reload_rows_from_builder()
-        self._result.configure(text=f"📂 Caricato {self.builder.name!r}.")
+        self._result.configure(text=i18n.tr("📂 Caricato {name!r}.").format(name=self.builder.name))
 
     def _duplicate_selected(self):
         path = self._selected_path()
         if not path:
-            self._result.configure(text="⛔ Nessun parser selezionato.")
+            self._result.configure(text=i18n.tr("⛔ Nessun parser selezionato."))
             return
         src_name = self._saved_var.get()
         dialog = ctk.CTkInputDialog(
-            text=f"Nuovo nome per la copia di {src_name!r}:", title="Duplica parser")
+            text=i18n.tr("Nuovo nome per la copia di {src!r}:").format(src=src_name),
+            title=i18n.tr("Duplica parser"))
         new_name = (dialog.get_input() or "").strip()
         if not new_name:
-            self._result.configure(text="⛔ Duplica annullata (nome vuoto).")
+            self._result.configure(text=i18n.tr("⛔ Duplica annullata (nome vuoto)."))
             return
         try:
             ParserBuilder.duplicate_saved(path, new_name)
         except (OSError, ValueError) as exc:
-            self._result.configure(text=f"❌ Errore duplica: {exc}")
+            self._result.configure(text=i18n.tr("❌ Errore duplica: {exc}").format(exc=exc))
             return
         self._refresh_saved()
         self._saved_var.set(new_name if new_name in self._saved_map else self._saved_var.get())
-        self._result.configure(text=f"📑 Duplicato in {new_name!r}.")
+        self._result.configure(text=i18n.tr("📑 Duplicato in {new_name!r}.").format(new_name=new_name))
 
     def _delete_selected(self):
         name = self._saved_var.get()
         if name == self._NONE_SAVED or name not in self._saved_map:
-            self._result.configure(text="⛔ Nessun parser selezionato.")
+            self._result.configure(text=i18n.tr("⛔ Nessun parser selezionato."))
             return
         try:
             removed = ParserBuilder.delete_saved(name)
         except OSError as exc:
             # Permessi / filesystem: mostra un errore pulito invece di crashare il
             # callback (stesso pattern di _save/_load/_duplicate_selected).
-            self._result.configure(text=f"❌ Errore eliminazione: {exc}")
+            self._result.configure(text=i18n.tr("❌ Errore eliminazione: {exc}").format(exc=exc))
             return
         self._refresh_saved()
         self._result.configure(
-            text=f"🗑 Eliminato {name!r}." if removed else f"⛔ {name!r} non trovato.")
+            text=i18n.tr("🗑 Eliminato {name!r}.").format(name=name) if removed
+            else i18n.tr("⛔ {name!r} non trovato.").format(name=name))
 
     def _preview_id_resolver(self):
         """Resolver ID Betfair per l'anteprima (#192, Codex), best-effort/fail-open.
@@ -1309,8 +1324,8 @@ class CustomParserPanel(ctk.CTkFrame):
             id_resolver=self._preview_id_resolver())
         if not reports:
             self._result.configure(
-                text="⛔ Nessun messaggio: incolla uno o più messaggi separati da una "
-                     "riga «---».")
+                text=i18n.tr("⛔ Nessun messaggio: incolla uno o più messaggi separati da una "
+                             "riga «---»."))
             return
         ok = sum(1 for r in reports if r.ok)
         extra = (f" · ⚠ mostrati i primi {len(reports)} (altri {skipped} oltre il tetto)"
@@ -1369,15 +1384,15 @@ class CustomParserPanel(ctk.CTkFrame):
     def _copy_diag(self):
         """Copia l'ultimo report di diagnostica negli appunti (per incollarlo)."""
         if not self._last_report:
-            self._result.configure(text="⛔ Premi prima «Prova messaggio».")
+            self._result.configure(text=i18n.tr("⛔ Premi prima «Prova messaggio»."))
             return
         try:
             self.clipboard_clear()
             self.clipboard_append(self._last_report)
         except Exception:                       # noqa: BLE001 — clipboard non disponibile
-            self._result.configure(text="❌ Copia non riuscita (appunti non disponibili).")
+            self._result.configure(text=i18n.tr("❌ Copia non riuscita (appunti non disponibili)."))
             return
-        self._result.configure(text="📋 Diagnostica copiata negli appunti.")
+        self._result.configure(text=i18n.tr("📋 Diagnostica copiata negli appunti."))
 
 
 class CustomParserWindow(ctk.CTkToplevel):
@@ -1390,7 +1405,7 @@ class CustomParserWindow(ctk.CTkToplevel):
                  global_mode: str = "", on_saved=None, id_resolver_factory=None,
                  market_terms_provider=None):
         super().__init__(master)
-        self.title("Parser Personalizzato")
+        self.title(i18n.tr("Parser Personalizzato"))
         gui_utils.fit_to_screen(self, 1024, 720, 760, 480)
         CustomParserPanel(self, builder=builder, provider=provider,
                           global_mode=global_mode, on_saved=on_saved,

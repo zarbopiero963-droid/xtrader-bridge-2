@@ -213,6 +213,84 @@ _CATALOG = {
             "Journal: {tot} total events (showing {shown}).",
         "Quando": "When",
         "Dati (redatti)": "Data (redacted)",
+        # Finestra Parser Personalizzato (#343 slice 4g; SOLO chrome puro). Non tradotti
+        # per sicurezza: gli interruttori «MultiMarket (più mercati)»/«MultiSelection (più
+        # selezioni)» e i VALORI delle tendine (Modalità/Sport/Mercato/Trasformazione/
+        # Value-map) restano IT perché fungono da chiavi di config/confronto, e
+        # `title="Provider"` è confrontato come `rule.target`. «Sport:» e «➕ Provider» sono
+        # identici in EN → fallback, nessuna entry. «🗑 Elimina», «Attiva», «📋 Copia
+        # diagnostica» riusano le chiavi già a catalogo.
+        "Parser Personalizzato": "Custom Parser",
+        "Nome parser:": "Parser name:",
+        "Modalità:": "Mode:",
+        "Parser salvati:": "Saved parsers:",
+        "Catalogo XTrader:": "XTrader catalog:",
+        "➕ Inserisci regole fisse": "➕ Insert fixed rules",
+        "🔗 Traduzioni attive per questo parser": "🔗 Active translations for this parser",
+        "Nomi squadra · separatore:": "Team names · separator:",
+        "🗺️ Dizionario nomi": "🗺️ Names dictionary",
+        "Mercati:": "Markets:",
+        "🎯 Dizionario mercati": "🎯 Markets dictionary",
+        "⚙️ Avanzate (Trasformazione · Value-map)": "⚙️ Advanced (Transform · Value-map)",
+        "💾 Salva": "💾 Save",
+        "🧪 Prova messaggio": "🧪 Test message",
+        "🧪🧪 Prova più messaggi (separati da ---)":
+            "🧪🧪 Test multiple messages (separated by ---)",
+        "Messaggio di prova:": "Test message:",
+        "Anteprima righe generate (#192):": "Preview of generated rows (#192):",
+        "Diagnostica (una riga per colonna):": "Diagnostics (one row per column):",
+        "Output multi-riga (un messaggio → più righe CSV)":
+            "Multi-row output (one message → several CSV rows)",
+        "➕ Aggiungi mercato": "➕ Add market",
+        "➕ Aggiungi selezione": "➕ Add selection",
+        "🗑 Rimuovi": "🗑 Remove",
+        "🆕 Nuovo": "🆕 New",
+        "📂 Carica": "📂 Load",
+        "📑 Duplica": "📑 Duplicate",
+        "— nessuna": "— none",
+        "✓ 1 attiva": "✓ 1 active",
+        "✓ {count} attive": "✓ {count} active",
+        "Nome del nuovo Provider:": "New provider name:",
+        "⛔ Provider non aggiunto (nome vuoto).": "⛔ Provider not added (empty name).",
+        "🆕 Nuovo parser (non ancora salvato).": "🆕 New parser (not yet saved).",
+        "⛔ Nessun parser selezionato.": "⛔ No parser selected.",
+        "Nuovo nome per la copia di {src!r}:": "New name for the copy of {src!r}:",
+        "Duplica parser": "Duplicate parser",
+        "⛔ Duplica annullata (nome vuoto).": "⛔ Duplication cancelled (empty name).",
+        "❌ Non salvato:\n- ": "❌ Not saved:\n- ",
+        "⛔ Nessun messaggio: incolla uno o più messaggi separati da una "
+        "riga «---».":
+            "⛔ No message: paste one or more messages separated by a «---» line.",
+        "⛔ Premi prima «Prova messaggio».": "⛔ Press «Test message» first.",
+        "❌ Copia non riuscita (appunti non disponibili).":
+            "❌ Copy failed (clipboard unavailable).",
+        "📋 Diagnostica copiata negli appunti.": "📋 Diagnostics copied to clipboard.",
+        # Messaggi di STATO delle azioni Parser (#343 slice 4g; template + .format(...),
+        # chiave = template IT). Il DATO interpolato ({exc}/{path}/{name}/…) resta invariato;
+        # il testo di dominio bollato in {exc} (ParserBuilder/config) resta IT (slice separato).
+        # «➕ Provider «{name}» salvato.» riusa la chiave già a catalogo (Anagrafica Provider).
+        "❌ Errore salvataggio provider: {exc}": "❌ Error saving provider: {exc}",
+        "⚠️ Provider «{name}» aggiunto solo in memoria (salvataggio fallito).":
+            "⚠️ Provider «{name}» added in memory only (save failed).",
+        "⛔ Non salvato: profili di mappatura nomi mancanti ({names}). "
+        "Ricreali nel «Dizionario nomi» o togli la spunta prima di salvare.":
+            "⛔ Not saved: missing name-mapping profiles ({names}). "
+            "Recreate them in «Names dictionary» or untick before saving.",
+        "⛔ Non salvato: profili di mappatura mercati mancanti ({names}). "
+        "Ricreali nel «Dizionario mercati» o togli la spunta prima di salvare.":
+            "⛔ Not saved: missing market-mapping profiles ({names}). "
+            "Recreate them in «Markets dictionary» or untick before saving.",
+        "❌ Errore salvataggio: {exc}": "❌ Save error: {exc}",
+        "💾 Salvato in {path}": "💾 Saved to {path}",
+        "➕ Regole fisse inserite: {market} · {selection}":
+            "➕ Fixed rules inserted: {market} · {selection}",
+        "❌ Errore caricamento: {exc}": "❌ Load error: {exc}",
+        "📂 Caricato {name!r}.": "📂 Loaded {name!r}.",
+        "❌ Errore duplica: {exc}": "❌ Duplicate error: {exc}",
+        "📑 Duplicato in {new_name!r}.": "📑 Duplicated to {new_name!r}.",
+        "❌ Errore eliminazione: {exc}": "❌ Delete error: {exc}",
+        "🗑 Eliminato {name!r}.": "🗑 Deleted {name!r}.",
+        "⛔ {name!r} non trovato.": "⛔ {name!r} not found.",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -360,5 +438,82 @@ _CATALOG = {
             "Diario: {tot} eventos en total (mostrados {shown}).",
         "Quando": "Cuándo",
         "Dati (redatti)": "Datos (redactados)",
+        # Finestra Parser Personalizzato (#343 slice 4g; SOLO chrome puro). Come per EN,
+        # gli interruttori MultiMarket/MultiSelection, i VALORI delle tendine e
+        # `title="Provider"` restano IT (config/confronto). «🗑 Elimina», «Attiva»,
+        # «📋 Copia diagnostica» riusano le chiavi già a catalogo. In ES «Sport:»/«➕ Provider»
+        # differiscono, quindi hanno una entry.
+        "Parser Personalizzato": "Parser Personalizado",
+        "Nome parser:": "Nombre del parser:",
+        "Modalità:": "Modo:",
+        "Sport:": "Deporte:",
+        "Parser salvati:": "Parsers guardados:",
+        "Catalogo XTrader:": "Catálogo XTrader:",
+        "➕ Provider": "➕ Proveedor",
+        "➕ Inserisci regole fisse": "➕ Insertar reglas fijas",
+        "🔗 Traduzioni attive per questo parser": "🔗 Traducciones activas para este parser",
+        "Nomi squadra · separatore:": "Nombres de equipo · separador:",
+        "🗺️ Dizionario nomi": "🗺️ Diccionario de nombres",
+        "Mercati:": "Mercados:",
+        "🎯 Dizionario mercati": "🎯 Diccionario de mercados",
+        "⚙️ Avanzate (Trasformazione · Value-map)": "⚙️ Avanzadas (Transformación · Value-map)",
+        "💾 Salva": "💾 Guardar",
+        "🧪 Prova messaggio": "🧪 Probar mensaje",
+        "🧪🧪 Prova più messaggi (separati da ---)":
+            "🧪🧪 Probar varios mensajes (separados por ---)",
+        "Messaggio di prova:": "Mensaje de prueba:",
+        "Anteprima righe generate (#192):": "Vista previa de filas generadas (#192):",
+        "Diagnostica (una riga per colonna):": "Diagnóstico (una fila por columna):",
+        "Output multi-riga (un messaggio → più righe CSV)":
+            "Salida multifila (un mensaje → varias filas CSV)",
+        "➕ Aggiungi mercato": "➕ Añadir mercado",
+        "➕ Aggiungi selezione": "➕ Añadir selección",
+        "🗑 Rimuovi": "🗑 Eliminar",
+        "🆕 Nuovo": "🆕 Nuevo",
+        "📂 Carica": "📂 Cargar",
+        "📑 Duplica": "📑 Duplicar",
+        "— nessuna": "— ninguna",
+        "✓ 1 attiva": "✓ 1 activa",
+        "✓ {count} attive": "✓ {count} activas",
+        "Nome del nuovo Provider:": "Nombre del nuevo proveedor:",
+        "⛔ Provider non aggiunto (nome vuoto).": "⛔ Proveedor no añadido (nombre vacío).",
+        "🆕 Nuovo parser (non ancora salvato).": "🆕 Nuevo parser (aún no guardado).",
+        "⛔ Nessun parser selezionato.": "⛔ Ningún parser seleccionado.",
+        "Nuovo nome per la copia di {src!r}:": "Nuevo nombre para la copia de {src!r}:",
+        "Duplica parser": "Duplicar parser",
+        "⛔ Duplica annullata (nome vuoto).": "⛔ Duplicación cancelada (nombre vacío).",
+        "❌ Non salvato:\n- ": "❌ No guardado:\n- ",
+        "⛔ Nessun messaggio: incolla uno o più messaggi separati da una "
+        "riga «---».":
+            "⛔ Ningún mensaje: pega uno o más mensajes separados por una línea «---».",
+        "⛔ Premi prima «Prova messaggio».": "⛔ Pulsa «Probar mensaje» primero.",
+        "❌ Copia non riuscita (appunti non disponibili).":
+            "❌ Copia fallida (portapapeles no disponible).",
+        "📋 Diagnostica copiata negli appunti.": "📋 Diagnóstico copiado al portapapeles.",
+        # Messaggi di STATO delle azioni Parser (#343 slice 4g). Come EN: DATO interpolato
+        # invariato e testo di dominio in {exc} resta IT. «➕ Provider «{name}» salvato.»
+        # riusa la chiave già a catalogo.
+        "❌ Errore salvataggio provider: {exc}": "❌ Error al guardar el proveedor: {exc}",
+        "⚠️ Provider «{name}» aggiunto solo in memoria (salvataggio fallito).":
+            "⚠️ Proveedor «{name}» añadido solo en memoria (guardado fallido).",
+        "⛔ Non salvato: profili di mappatura nomi mancanti ({names}). "
+        "Ricreali nel «Dizionario nomi» o togli la spunta prima di salvare.":
+            "⛔ No guardado: faltan perfiles de mapeo de nombres ({names}). "
+            "Vuelve a crearlos en «Diccionario de nombres» o desmárcalos antes de guardar.",
+        "⛔ Non salvato: profili di mappatura mercati mancanti ({names}). "
+        "Ricreali nel «Dizionario mercati» o togli la spunta prima di salvare.":
+            "⛔ No guardado: faltan perfiles de mapeo de mercados ({names}). "
+            "Vuelve a crearlos en «Diccionario de mercados» o desmárcalos antes de guardar.",
+        "❌ Errore salvataggio: {exc}": "❌ Error al guardar: {exc}",
+        "💾 Salvato in {path}": "💾 Guardado en {path}",
+        "➕ Regole fisse inserite: {market} · {selection}":
+            "➕ Reglas fijas insertadas: {market} · {selection}",
+        "❌ Errore caricamento: {exc}": "❌ Error al cargar: {exc}",
+        "📂 Caricato {name!r}.": "📂 Cargado {name!r}.",
+        "❌ Errore duplica: {exc}": "❌ Error al duplicar: {exc}",
+        "📑 Duplicato in {new_name!r}.": "📑 Duplicado en {new_name!r}.",
+        "❌ Errore eliminazione: {exc}": "❌ Error al eliminar: {exc}",
+        "🗑 Eliminato {name!r}.": "🗑 Eliminado {name!r}.",
+        "⛔ {name!r} non trovato.": "⛔ {name!r} no encontrado.",
     },
 }

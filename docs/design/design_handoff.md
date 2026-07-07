@@ -245,7 +245,7 @@ Dalla **slice 4d** è localizzata anche **📁 Profili impostazioni** (stesso sc
 titolo/testi/bottoni + messaggi di stato dinamici via template+`.format`; i messaggi
 che mostrano SOLO l'eccezione bubblata dal layer puro `profile_store` restano IT, slice
 a parte). Restano IN ITALIANO per ora: banner REALE/COLLAUDO, testi dei log e le altre
-finestre secondarie (Parser, Mapping, Strumenti, …).
+finestre secondarie (Mapping, Strumenti, …).
 
 Dalla **slice 4e** è localizzata la **chrome** di **📡 Chat sorgenti** (finestra del
 FILTRO CHAT, safety-critical): titolo, hint, intestazioni colonne (Attiva/Nome/
@@ -263,6 +263,29 @@ confrontati con lo stesso valore tradotto (test di coerenza lingua↔confronto).
 evento (START/STOP/…) restano identificatori di dominio, non tradotti. La finestra
 **Strumenti (hub)** è invece rimandata: i suoi titoli-scheda sono chiavi di matching +
 contratti IA (localizzazione cross-cutting a parte).
+
+Dalla **slice 4g** è localizzata la **chrome** di **🧩 Parser Personalizzato** (§7.1) —
+il pannello più complesso: titolo finestra, etichette campo (Nome parser/Modalità/Sport/
+Parser salvati/Catalogo XTrader/Nomi squadra · separatore/Mercati/Messaggio di prova),
+header di sezione (🔗 Traduzioni attive · ⚙️ Avanzate · Output multi-riga · Anteprima ·
+Diagnostica), bottoni (➕ Provider/🆕 Nuovo/📂 Carica/📑 Duplica/🗑 Elimina/➕ Inserisci
+regole fisse/🗺️ Dizionario nomi/🎯 Dizionario mercati/💾 Salva/🧪 Prova messaggio/🧪🧪
+Prova più messaggi/📋 Copia diagnostica/➕ Aggiungi mercato/➕ Aggiungi selezione/🗑 Rimuovi/
+checkbox Attiva), l'indicatore Traduzioni «— nessuna»/«✓ N attive» (helper puro, ora via
+template+`.format`) e — completata la localizzazione della chrome — anche i **messaggi di
+stato/conferma GUI-composti** dei metodi d'azione (successo, parziale ed error-prefix: es.
+«💾 Salvato in …», «📂 Caricato …», «📑 Duplicato in …», «🗑 Eliminato …», «➕ Regole fisse
+inserite: …», «➕ Provider «…» salvato.» / «⚠️ Provider «…» aggiunto solo in memoria …», gli
+«⛔ Non salvato: profili di mappatura … mancanti (…)» e i prefissi «❌ Errore salvataggio/
+caricamento/duplica/eliminazione: …»), oltre al prompt «Nuovo nome per la copia di …», tutti
+via template tradotto + `.format(...)` con il DATO interpolato lasciato invariato. Restano
+**IN ITALIANO come esclusioni di sicurezza**: gli interruttori **«MultiMarket (più mercati)»**
+e **«MultiSelection (più selezioni)»** (le loro label raddoppiano da semantica di
+configurazione), i **VALORI** delle tendine Modalità/Sport/Mercato/Trasformazione/Value-map
+(chiavi di config) e il `title="Provider"` del dialog (confrontato come
+`rule.target == "Provider"`). Restano IT anche il **testo di dominio bollato in `{exc}`**
+(messaggi/errori del `ParserBuilder`/config interpolati nei prefissi qui sopra), i nomi-colonna
+della tabella regole/diagnostica e l'hint 💡 estrazione dinamica (slice a parte).
 
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
