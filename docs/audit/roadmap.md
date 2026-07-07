@@ -1995,23 +1995,35 @@ lock-con-nuitka + fallback pinnato) — fail-first, 2 mutazioni (nuitka tolto da
 Design handoff = **N/A** (nessun cambio GUI). Prossimo dopo la validazione Windows dell'owner:
 **ritiro di PyInstaller** (Nuitka diventa la build di release).
 
-## #311-1.2 — `drop_pending_updates` solo al primo giro del supervisor (recupero backlog su riconnessione)
+## #311-1.2 — `drop_pending_updates` solo alla prima connessione RIUSCITA (recupero backlog su riconnessione)
 
 Chiude il buco operativo #311-1.2: `App._run_bot` passava `drop_pending_updates=True` a OGNI
 (ri)connessione del supervisor → un segnale arrivato durante un blip di rete di pochi secondi
 era scartato per sempre, senza log. Ora un flag di sessione `first_connection` (nonlocal in
-`_async_run`) rende `drop_pending_updates=True` **solo al 1° giro del supervisor dopo START**
-(scarta il backlog pre-avvio); dal 2° giro in poi — riconnessioni dello stesso epoch, anche dopo
-un 1° tentativo fallito — è **False**, così i messaggi dell'outage vengono **recuperati** (riga
-di log «🔄 Riconnesso…»). L'anti-arretrati resta al filtro `max_signal_age`/`is_stale`
-(`telegram_dispatch.decide`, invariato e già testato): un arretrato troppo vecchio è comunque
-scartato all'arrivo. **CORE CHANGE** (`xtrader_bridge/app.py`): da ri-sincronizzare nel cloud.
+`_async_run`) rende `drop_pending_updates=True` **solo fino alla prima connessione RIUSCITA
+della sessione**: il flag si abbassa a `False` **DOPO** un `start_polling` andato a buon fine —
+non prima. Così, se la 1ª connessione **fallisce**, il flag resta `True` e il primo poll
+riuscito **scarta comunque** il backlog pre-START (invariante anti-arretrati mai saltata);
+solo una riconnessione **dopo una connessione già riuscita** (blip di rete a bridge già
+connesso) usa `False`, così i messaggi dell'outage vengono **recuperati** (riga di log
+«🔄 Riconnesso…»). Questo recepisce il blocker convergente di GPT-5.5/Fable 5/Fugu Ultra sul
+#369: col flip fatto **prima** di `start_polling` (flip-per-giro), una 1ª connessione fallita
+avrebbe già abbassato il flag e il primo poll riuscito NON avrebbe più scartato il backlog
+pre-START → rischio di processare una scommessa accodata prima di START. L'anti-arretrati resta
+comunque al filtro `max_signal_age`/`is_stale` (`telegram_dispatch.decide`, invariato e già
+testato): un arretrato troppo vecchio è comunque scartato all'arrivo. **CORE CHANGE**
+(`xtrader_bridge/app.py`, `_run_bot`/`_async_run`): da ri-sincronizzare nel cloud.
 
-Test hard `test_drop_pending_updates_true_solo_al_primo_giro` (in `test_reconnect_110.py`, sulla
-cornice reale del supervisor con fail→riconnessione): 1° giro `drop_pending_updates=True`,
-riconnessione `False`; `_Updater` fake esteso per catturare i kwargs. Fail-first: mutazione
-(ritorno a `drop_pending_updates=True` fisso) KILLED. STOP-durante-backoff e no-doppio-poller
-invariati (test #110/7 e lifecycle intatti). Suite **2388 passed**. Docs: README «Cosa succede
-se cade la connessione?» aggiornato (avvio scarta / riconnessione recupera). Design handoff =
+Test hard (in `test_reconnect_110.py`, sulla cornice reale del supervisor):
+`test_drop_pending_updates_resta_true_se_la_prima_connessione_fallisce` (Test A —
+fail→riconnessione: `drop_pending_updates=True` su ENTRAMBI i giri, l'invariante non salta) e
+`test_drop_pending_updates_false_su_riconnessione_dopo_connessione_riuscita` (Test B —
+connessione riuscita → `updater.stop` solleva → riconnessione stesso epoch: 1° giro `True`,
+riconnessione `False`, recupera l'outage backlog). `_Updater` fake esteso per catturare i
+kwargs e per far sollevare `stop` dopo il successo. Fail-first: la mutazione «flip PRIMA di
+`start_polling`» KILLED (Test A: la riconnessione passa `False` → assert `is True` fallisce).
+STOP-durante-backoff e no-doppio-poller invariati (test #110/7 e lifecycle intatti). Suite
+**2389 passed, 11 skipped**. Docs: README «Cosa succede se cade la connessione?» aggiornato
+(prima connessione riuscita scarta / riconnessione dopo successo recupera). Design handoff =
 **N/A** (nessun cambio a schermate/tab/controlli/stati/indicatori: RICONNESSIONE→ATTIVO
 invariato; aggiunta solo una riga di log informativa, non un elemento che il handoff descrive).

@@ -2732,11 +2732,14 @@ class App(ctk.CTk):
         # successore: in uno STOP→START rapido il vecchio loop, leggendo `self._tg_app`,
         # fermerebbe l'app NUOVA e lascerebbe il proprio updater a fare polling (Codex #191).
         session_app = None
-        # #311-1.2: `drop_pending_updates=True` SOLO al PRIMO giro del supervisor dopo START
-        # (prima connessione della sessione). Sulle riconnessioni dello stesso epoch → False,
-        # così un blip di rete di pochi secondi non scarta per sempre un segnale arrivato durante
-        # l'outage. La protezione anti-arretrati resta al filtro `max_signal_age` (`is_stale` via
-        # `telegram_dispatch.decide`), che scarta comunque i messaggi troppo vecchi.
+        # #311-1.2: `drop_pending_updates=True` SOLO alla PRIMA connessione RIUSCITA della sessione
+        # (scarta il backlog pre-START). Il flag si abbassa a False solo DOPO un `start_polling`
+        # andato a buon fine (vedi sotto): se la 1ª connessione fallisce, `first_connection` resta
+        # True e il primo poll riuscito scarta comunque il backlog pre-START. Solo le riconnessioni
+        # dopo una connessione già riuscita usano False, così un blip di rete di pochi secondi non
+        # scarta per sempre un segnale arrivato durante l'outage. La protezione anti-arretrati resta
+        # al filtro `max_signal_age` (`is_stale` via `telegram_dispatch.decide`), che scarta comunque
+        # i messaggi troppo vecchi anche quando drop_pending_updates è False.
         first_connection = True
 
         def _is_current():
@@ -2852,25 +2855,25 @@ class App(ctk.CTk):
             await app.initialize()
             await app.start()
             # #311-1.2: drop_pending_updates scarta i messaggi accodati mentre il bridge era
-            # offline. È True SOLO al 1° giro del supervisor dopo START — prima connessione della
-            # sessione (all'avvio non si processano segnali vecchi, PR-11 #9); False sulle
-            # riconnessioni dello stesso epoch,
-            # così un blip di rete non butta via un segnale arrivato DURANTE l'outage. Il filtro
-            # `max_signal_age` (`is_stale`, in `telegram_dispatch.decide`) resta il gate che scarta
-            # gli arretrati troppo vecchi anche quando drop_pending_updates è False.
+            # offline. È True SOLO fino alla PRIMA connessione RIUSCITA della sessione — all'avvio
+            # non si processano segnali vecchi (PR-11 #9); False sulle riconnessioni dopo una
+            # connessione già riuscita, così un blip di rete non butta via un segnale arrivato
+            # DURANTE l'outage. Il filtro `max_signal_age` (`is_stale`, in `telegram_dispatch.decide`)
+            # resta il gate che scarta gli arretrati troppo vecchi anche quando drop_pending_updates
+            # è False.
             drop_pending = first_connection
-            # Flip PER GIRO DEL SUPERVISOR (#311-1.2: «True solo al primo giro dopo START»): dal
-            # 2° giro in poi — riconnessioni dello stesso epoch, anche dopo un 1° tentativo
-            # fallito — è False, così i messaggi arrivati durante l'outage non vengono buttati.
-            # Un eventuale arretrato recuperato resta comunque scartato da `is_stale` se più
-            # vecchio di `max_signal_age`.
-            first_connection = False
             await app.updater.start_polling(
                 allowed_updates=["message", "channel_post"], drop_pending_updates=drop_pending)
+            # Flip DOPO un start_polling RIUSCITO (GPT/Fable/Fugu #369): se `start_polling` solleva
+            # (1ª connessione fallita), `first_connection` resta True e il primo poll RIUSCITO
+            # scarta comunque il backlog pre-START → l'invariante anti-arretrati NON viene mai
+            # saltata. Solo una riconnessione DOPO una connessione riuscita (blip di rete a bridge
+            # già connesso) usa False e recupera l'outage backlog.
             if not drop_pending:
                 self.after(0, lambda: self._log(
                     "🔄 Riconnesso: i messaggi arrivati durante la disconnessione vengono "
                     "recuperati (i troppo vecchi restano scartati per freschezza)."))
+            first_connection = False
             # Connessione stabilita: azzera il backoff e segnala (utile dopo una riconnessione).
             self._reconnect_attempt = 0
             self.after(0, self._set_status_connected)
