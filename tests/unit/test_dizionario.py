@@ -141,6 +141,25 @@ def test_resource_path_nuitka_ignora_meipass_e_usa_file(monkeypatch, tmp_path):
     assert str(tmp_path) not in got                                        # _MEIPASS NON usato
 
 
+def test_resource_path_nuitka_anche_se_frozen_impostato_usa_file(monkeypatch, tmp_path):
+    """DIFESA-IN-PROFONDITÀ (finding review Fable #365): Nuitka NON imposta `sys.frozen` (doc
+    ufficiale), ma se un domani qualcosa lo impostasse su un binario Nuitka, il gating su
+    `__compiled__` PRIMA di `sys.frozen` garantisce che si usi comunque `__file__` — MAI il
+    ramo PyInstaller (`_MEIPASS`/`dirname(executable)`), che in onefile punterebbe accanto
+    all'EXE reale dove i dati spacchettati NON sono (→ dizionario non trovato → CSV senza
+    lookup alias). Qui: `__compiled__` presente + `sys.frozen=True` + `_MEIPASS` stray →
+    DEVE risolvere via `__file__`."""
+    import os
+    monkeypatch.setattr(dz, "__compiled__", object(), raising=False)       # marchio Nuitka
+    monkeypatch.setattr(dz.sys, "frozen", True, raising=False)             # ipotetico frozen
+    monkeypatch.setattr(dz.sys, "_MEIPASS", str(tmp_path / "meipass"), raising=False)
+    monkeypatch.setattr(dz.sys, "executable", str(tmp_path / "app.exe"), raising=False)
+    base = os.path.dirname(os.path.dirname(os.path.abspath(dz.__file__)))
+    got = dz.resource_path("data")
+    assert got == os.path.join(base, "data")
+    assert str(tmp_path) not in got            # né _MEIPASS né dirname(executable) usati
+
+
 def test_resource_path_frozen_senza_meipass_fallback_eseguibile(monkeypatch, tmp_path):
     """Difensivo: un freezer che imposta `sys.frozen` ma NON `_MEIPASS` → fallback alla
     cartella dell'eseguibile (`dirname(sys.executable)`), non un crash da AttributeError."""

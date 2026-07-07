@@ -1869,16 +1869,31 @@ KILLED. Suite 2353 passed.
 
 Prima slice della Fase 6 (passaggio dell'EXE ufficiale da PyInstaller a Nuitka): **hardening**
 del punto unico che risolve gli asset read-only impacchettati (`data/dizionario_xtrader.csv`),
-NON un bugfix — sotto Nuitka il path funzionava già oggi (Nuitka non imposta `sys.frozen`,
-quindi cadeva nel ramo `__file__` corretto). Estratto da `dizionario._data_dir()` un helper
-riusabile `resource_path(relative)` (CORE CHANGE: `xtrader_bridge/dizionario.py`), che copre
-esplicitamente le tre forme di distribuzione: **sorgente** e **Nuitka** risolvono via `__file__`
-(genitore del package); **PyInstaller** usa `sys._MEIPASS` (ramo gated SOLO su `sys.frozen`,
-con fallback difensivo a `dirname(sys.executable)` se un freezer setta `frozen` senza `_MEIPASS`).
-Comportamento **byte-identico** per sorgente/PyInstaller; `_data_dir()` ora delega a
-`resource_path("data")` (nessuna logica di path duplicata). Test hard nuovi in
-`test_dizionario.py` (sorgente / PyInstaller `_MEIPASS` / Nuitka `__compiled__`-non-frozen che
-IGNORA un `_MEIPASS` stray / fallback senza `_MEIPASS` / delega di `_data_dir`), verificati
-fail-first con 3 mutazioni (gate `frozen` rimosso, fallback difensivo rimosso, `_data_dir` che
-non delega) tutte KILLED. Suite 2367 passed. Il workflow di build Nuitka vero e proprio +
-lockfile + smoke EXE Windows restano slice successive della Fase 6.
+NON un bugfix — sotto Nuitka il path funzionava già oggi. Estratto da `dizionario._data_dir()`
+un helper riusabile `resource_path(relative)` (CORE CHANGE: `xtrader_bridge/dizionario.py`), che
+copre esplicitamente le tre forme di distribuzione con **ordine dei rami deliberato (Nuitka PRIMA
+di `sys.frozen`)**:
+
+- **Nuitka** (`--standalone`/`--onefile`): rilevato col modo RACCOMANDATO dai doc ufficiali
+  Nuitka, l'attributo di modulo `__compiled__` — NON `sys.frozen`, che **Nuitka non imposta di
+  proposito** (Nuitka User Manual, verificato: «Nuitka does *not* set sys.frozen … because it
+  usually triggers inferior code»). Risolve via `__file__` (genitore del package), IDENTICO al
+  sorgente (i dati `--include-data-dir` stanno relativi al programma in standalone, o spacchettati
+  nella temp dir accanto ai moduli in onefile).
+- **PyInstaller**: `sys._MEIPASS` (ramo gated su `sys.frozen`, fallback difensivo a
+  `dirname(sys.executable)` se un freezer setta `frozen` senza `_MEIPASS`).
+- **Sorgente**: `__file__`.
+
+**Gating su `__compiled__` PRIMA di `sys.frozen` = difesa-in-profondità** (finding review Fable
+#365, false positive sulla premessa ma azionato per robustezza): se un domani qualcosa impostasse
+`sys.frozen` su un binario Nuitka, NON si cade nel ramo PyInstaller — in onefile
+`dirname(executable)` punterebbe accanto all'EXE reale, dove i dati spacchettati NON sono
+(→ dizionario non trovato → CSV senza lookup alias). Comportamento **byte-identico** per
+sorgente/PyInstaller; `_data_dir()` ora delega a `resource_path("data")` (nessuna logica di path
+duplicata). Test hard nuovi in `test_dizionario.py` (sorgente / PyInstaller `_MEIPASS` / Nuitka
+`__compiled__`-non-frozen che IGNORA un `_MEIPASS` stray / Nuitka **con** `sys.frozen` impostato
+che usa comunque `__file__` / fallback senza `_MEIPASS` / delega di `_data_dir`), verificati
+fail-first con 4 mutazioni (gate `frozen` rimosso, fallback difensivo rimosso, `_data_dir` che
+non delega, gate `__compiled__` rimosso→frozen-first) tutte KILLED. Suite 2368 passed. Il
+workflow di build Nuitka vero e proprio + lockfile + smoke EXE Windows restano slice successive
+della Fase 6.

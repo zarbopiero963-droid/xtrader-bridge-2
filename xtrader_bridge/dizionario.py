@@ -19,20 +19,30 @@ def resource_path(relative: str) -> str:
     """Percorso assoluto di un asset **read-only impacchettato** (es. `data/…`), corretto in
     TUTTE le forme di distribuzione: run da **sorgente**, EXE **PyInstaller** ed EXE **Nuitka**.
 
+    L'ordine dei rami è deliberato (Nuitka PRIMA di `sys.frozen`):
+
+    - **Nuitka** (`--standalone`/`--onefile`): si rileva col modo RACCOMANDATO dai doc ufficiali
+      Nuitka, cioè l'attributo di modulo `__compiled__` — NON `sys.frozen`, che Nuitka *non*
+      imposta di proposito (Nuitka User Manual: «Nuitka does *not* set sys.frozen unlike other
+      tools because it usually triggers inferior code»). I dati inclusi con
+      `--include-data-dir=./data=data` stanno relativi alla cartella del programma (standalone)
+      o vengono spacchettati nella dir temporanea ACCANTO ai moduli (onefile): in entrambi i
+      casi `__file__` (genitore del package) li risolve, IDENTICO al sorgente. Il gating
+      esplicito su `__compiled__` è difesa-in-profondità: se un giorno qualcosa impostasse
+      `sys.frozen` su un binario Nuitka, NON si deve cadere nel ramo PyInstaller
+      (`_MEIPASS`/`dirname(executable)`) — in onefile `dirname(executable)` punta accanto
+      all'EXE reale, dove i dati spacchettati NON sono → dizionario non trovato → CSV senza
+      lookup alias.
     - **PyInstaller** (`--onefile`/`--onedir`): imposta `sys.frozen=True` e `sys._MEIPASS`
       (la cartella del bundle); `--add-data "src;dest"` finisce in `<_MEIPASS>/dest`. Qui
-      `__file__` punta nel bundle temporaneo, quindi si DEVE usare `_MEIPASS`.
-    - **Nuitka** e **sorgente**: Nuitka **non** imposta `sys.frozen` né `sys._MEIPASS` (marca
-      invece i moduli con `__compiled__`); i dati inclusi con `--include-data-dir=./data=data`
-      stanno relativi alla cartella del programma → risolvibili, come da sorgente, via
-      `__file__` (genitore del package). Entrambi cadono quindi nel ramo `else`.
-
-    Regola (fail-safe): il ramo `_MEIPASS` scatta SOLO quando `sys.frozen` è vero; fallback
-    difensivo alla cartella dell'eseguibile per freezer che settano `frozen` senza `_MEIPASS`.
-    Nuitka (non-frozen) usa `__file__` come il sorgente — nessun ramo dedicato necessario."""
-    if getattr(sys, "frozen", False):
+      `__file__` punta nel bundle temporaneo, quindi si DEVE usare `_MEIPASS` (fallback
+      difensivo a `dirname(sys.executable)` per freezer che settano `frozen` senza `_MEIPASS`).
+    - **Sorgente**: base = genitore del package, via `__file__`."""
+    if "__compiled__" in globals():                    # Nuitka: rilevamento raccomandato
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    elif getattr(sys, "frozen", False):                # PyInstaller
         base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
-    else:
+    else:                                              # sorgente
         base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, relative)
 
