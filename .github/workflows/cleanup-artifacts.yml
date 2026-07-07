@@ -16,6 +16,10 @@ on:
         description: "Elimina gli artifact piu' vecchi di N giorni (0 = TUTTI)"
         required: false
         default: "7"
+      dry_run:
+        description: "Se 'true' mostra solo cosa verrebbe eliminato (nessuna cancellazione)"
+        required: false
+        default: "false"
   schedule:
     - cron: "27 4 * * 1"   # ogni lunedi' ~04:27 UTC (fuori orario, minuto non tondo)
 
@@ -37,26 +41,42 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           MAX_AGE_DAYS: ${{ github.event.inputs.max_age_days || '7' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: |
           set -euo pipefail
+          # Validazione input: solo interi non-negativi (0 = tutti). Su un workflow DISTRUTTIVO
+          # un valore sporco/negativo romperebbe `date -d` o darebbe un cutoff imprevisto.
+          if ! printf '%s' "${MAX_AGE_DAYS}" | grep -Eq '^[0-9]+$'; then
+            echo "::error::max_age_days non valido: '${MAX_AGE_DAYS}' (atteso intero >= 0)"
+            exit 1
+          fi
           if [ "${MAX_AGE_DAYS}" = "0" ]; then
             cutoff=9999999999                                   # elimina tutto
           else
             cutoff=$(date -u -d "${MAX_AGE_DAYS} days ago" +%s)
           fi
+          [ "${DRY_RUN}" = "true" ] && echo "== DRY-RUN: nessuna cancellazione =="
           # Elenca TUTTI gli artifact (paginati) come "id<TAB>created_at" su file, cosi' il
           # contatore vive nella stessa shell (un pipe crea una subshell).
           gh api --paginate "repos/${REPO}/actions/artifacts" \
             --jq '.artifacts[] | [.id, .created_at] | @tsv' > artifacts.tsv
           total=$(wc -l < artifacts.tsv | tr -d ' ')
-          deleted=0
+          matched=0
           while IFS=$'\t' read -r id created; do
             [ -n "${id}" ] || continue
             ts=$(date -u -d "${created}" +%s)
             if [ "${ts}" -lt "${cutoff}" ]; then
-              echo "Elimino artifact ${id} (creato ${created})"
-              gh api -X DELETE "repos/${REPO}/actions/artifacts/${id}"
-              deleted=$((deleted + 1))
+              matched=$((matched + 1))
+              if [ "${DRY_RUN}" = "true" ]; then
+                echo "[dry-run] eliminerei artifact ${id} (creato ${created})"
+              else
+                echo "Elimino artifact ${id} (creato ${created})"
+                gh api -X DELETE "repos/${REPO}/actions/artifacts/${id}"
+              fi
             fi
           done < artifacts.tsv
-          echo "Artifact totali: ${total} - eliminati: ${deleted}"
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "Artifact totali: ${total} - da eliminare: ${matched} (dry-run, nessuna cancellazione)"
+          else
+            echo "Artifact totali: ${total} - eliminati: ${matched}"
+          fi
