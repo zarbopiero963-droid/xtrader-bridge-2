@@ -45,12 +45,14 @@ class _Updater:
         self._app = app
         self._fail = fail
         self.start_polling_calls = 0
+        self.start_polling_kwargs = None      # #311-1.2: cattura i kwargs (drop_pending_updates)
         self.stop_calls = 0
 
     async def start_polling(self, **kwargs):
         """Simula il polling: alla 1ª connessione solleva un errore transitorio
         DAL POLLING; altrimenti segnala il successo (fa uscire il supervisor)."""
         self.start_polling_calls += 1
+        self.start_polling_kwargs = kwargs    # registra ANCHE sul fallimento (per il #311-1.2)
         if self._fail:
             raise type("NetworkError", (Exception,), {})("polling giù (simulato)")
         self._app.on_success()
@@ -112,6 +114,42 @@ def _install_builder(monkeypatch, app_mod, apps, make_tg):
 
     monkeypatch.setattr(app_mod, "ApplicationBuilder", _factory)
     monkeypatch.setattr(app_mod, "MessageHandler", lambda *a_, **k: ("MH", a_, k))
+
+
+def test_drop_pending_updates_true_solo_al_primo_giro(make_app, app_mod, monkeypatch):
+    """#311-1.2: `drop_pending_updates=True` SOLO al 1° giro del supervisor dopo START; sulle
+    riconnessioni dello stesso epoch → False, così un blip di rete non scarta per sempre un
+    segnale arrivato DURANTE l'outage. L'anti-arretrati resta al filtro `max_signal_age`
+    (`is_stale` in `telegram_dispatch.decide`, testato in `test_telegram_dispatch.py`): un
+    arretrato troppo vecchio recuperato dopo la riconnessione è comunque scartato.
+
+    Si guida il supervisor con la stessa cornice del lifecycle test: 1ª connessione fallisce
+    (errore transitorio dal polling) → riconnessione riuscita. Si cattura `drop_pending_updates`
+    di ENTRAMBI i giri.
+
+    Fail-first: col vecchio `drop_pending_updates=True` fisso a ogni (ri)connessione, il 2° giro
+    passava `True` → l'assert `is False` fallirebbe."""
+    a = make_app()
+    a._running = True
+    a._listener_epoch = 7
+    a._reconnect_attempt = 0
+    # ramo "transitorio → riconnetti" forzato (classificazione testata altrove)
+    monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
+    a._reconnect_wait = lambda delay: None                 # niente attesa reale: test rapido
+    apps = []
+    _install_builder(monkeypatch, app_mod, apps,
+                     lambda index: _TgApp(fail=(index == 0),
+                                          on_success=lambda: setattr(a, "_running", False)))
+
+    app_mod.App._run_bot(a, {"bot_token": "x"}, 7)
+
+    assert len(apps) == 2                                  # 1° giro (fallito) + 1 riconnessione
+    # 1° giro dopo START → scarta il backlog pre-avvio (niente segnali vecchi all'avvio)
+    assert apps[0].updater.start_polling_kwargs["drop_pending_updates"] is True
+    # riconnessione stesso epoch → NON scartare: un segnale dell'outage non va perso
+    assert apps[1].updater.start_polling_kwargs["drop_pending_updates"] is False
+    # invariato: allowed_updates resta lo stesso su entrambi i giri
+    assert apps[1].updater.start_polling_kwargs["allowed_updates"] == ["message", "channel_post"]
 
 
 def test_reconnect_lifecycle_chiude_il_vecchio_updater_e_ritenta(make_app, app_mod, monkeypatch):

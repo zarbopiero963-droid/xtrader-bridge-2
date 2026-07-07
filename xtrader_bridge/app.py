@@ -2732,13 +2732,19 @@ class App(ctk.CTk):
         # successore: in uno STOP→START rapido il vecchio loop, leggendo `self._tg_app`,
         # fermerebbe l'app NUOVA e lascerebbe il proprio updater a fare polling (Codex #191).
         session_app = None
+        # #311-1.2: `drop_pending_updates=True` SOLO al PRIMO giro del supervisor dopo START
+        # (prima connessione della sessione). Sulle riconnessioni dello stesso epoch → False,
+        # così un blip di rete di pochi secondi non scarta per sempre un segnale arrivato durante
+        # l'outage. La protezione anti-arretrati resta al filtro `max_signal_age` (`is_stale` via
+        # `telegram_dispatch.decide`), che scarta comunque i messaggi troppo vecchi.
+        first_connection = True
 
         def _is_current():
             # Sessione ancora valida: bridge attivo E nessun nuovo START intervenuto.
             return self._running and self._listener_epoch == epoch
 
         async def _async_run():
-            nonlocal session_app
+            nonlocal session_app, first_connection
             # Evento di stop IN-loop (#184 H5 / Codex #191): `_stop`, dal thread GUI, lo sveglia
             # con `call_soon_threadsafe` così il supervisor esce SUBITO dall'attesa e ferma
             # l'updater promptamente (niente finestra di ~1s con il vecchio poller ancora
@@ -2845,13 +2851,27 @@ class App(ctk.CTk):
             app.add_handler(MessageHandler(filters.ALL, _handle))
             await app.initialize()
             await app.start()
-            # drop_pending_updates: scarta i messaggi accodati mentre il bridge era
-            # offline, così all'avvio non si processano segnali vecchi (PR-11, #9).
+            # #311-1.2: drop_pending_updates scarta i messaggi accodati mentre il bridge era
+            # offline. È True SOLO al 1° giro del supervisor dopo START — prima connessione della
+            # sessione (all'avvio non si processano segnali vecchi, PR-11 #9); False sulle
+            # riconnessioni dello stesso epoch,
+            # così un blip di rete non butta via un segnale arrivato DURANTE l'outage. Il filtro
+            # `max_signal_age` (`is_stale`, in `telegram_dispatch.decide`) resta il gate che scarta
+            # gli arretrati troppo vecchi anche quando drop_pending_updates è False.
+            drop_pending = first_connection
+            # Flip PER GIRO DEL SUPERVISOR (#311-1.2: «True solo al primo giro dopo START»): dal
+            # 2° giro in poi — riconnessioni dello stesso epoch, anche dopo un 1° tentativo
+            # fallito — è False, così i messaggi arrivati durante l'outage non vengono buttati.
+            # Un eventuale arretrato recuperato resta comunque scartato da `is_stale` se più
+            # vecchio di `max_signal_age`.
+            first_connection = False
             await app.updater.start_polling(
-                allowed_updates=["message", "channel_post"], drop_pending_updates=True)
-            # Connessione stabilita: azzera il backoff e segnala (utile dopo una
-            # riconnessione). drop_pending_updates=True a OGNI (ri)connessione scarta
-            # i messaggi accumulati mentre eravamo offline → niente segnali vecchi.
+                allowed_updates=["message", "channel_post"], drop_pending_updates=drop_pending)
+            if not drop_pending:
+                self.after(0, lambda: self._log(
+                    "🔄 Riconnesso: i messaggi arrivati durante la disconnessione vengono "
+                    "recuperati (i troppo vecchi restano scartati per freschezza)."))
+            # Connessione stabilita: azzera il backoff e segnala (utile dopo una riconnessione).
             self._reconnect_attempt = 0
             self.after(0, self._set_status_connected)
             # Attesa INTERROMPIBILE: si sveglia subito quando `_stop` setta `_async_stop_event`

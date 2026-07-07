@@ -1994,3 +1994,24 @@ lock-con-nuitka + fallback pinnato) — fail-first, 2 mutazioni (nuitka tolto da
 `requirements-build.in` + workflow + test + docs; nulla sotto `xtrader_bridge/**`/`data/**`).
 Design handoff = **N/A** (nessun cambio GUI). Prossimo dopo la validazione Windows dell'owner:
 **ritiro di PyInstaller** (Nuitka diventa la build di release).
+
+## #311-1.2 — `drop_pending_updates` solo al primo giro del supervisor (recupero backlog su riconnessione)
+
+Chiude il buco operativo #311-1.2: `App._run_bot` passava `drop_pending_updates=True` a OGNI
+(ri)connessione del supervisor → un segnale arrivato durante un blip di rete di pochi secondi
+era scartato per sempre, senza log. Ora un flag di sessione `first_connection` (nonlocal in
+`_async_run`) rende `drop_pending_updates=True` **solo al 1° giro del supervisor dopo START**
+(scarta il backlog pre-avvio); dal 2° giro in poi — riconnessioni dello stesso epoch, anche dopo
+un 1° tentativo fallito — è **False**, così i messaggi dell'outage vengono **recuperati** (riga
+di log «🔄 Riconnesso…»). L'anti-arretrati resta al filtro `max_signal_age`/`is_stale`
+(`telegram_dispatch.decide`, invariato e già testato): un arretrato troppo vecchio è comunque
+scartato all'arrivo. **CORE CHANGE** (`xtrader_bridge/app.py`): da ri-sincronizzare nel cloud.
+
+Test hard `test_drop_pending_updates_true_solo_al_primo_giro` (in `test_reconnect_110.py`, sulla
+cornice reale del supervisor con fail→riconnessione): 1° giro `drop_pending_updates=True`,
+riconnessione `False`; `_Updater` fake esteso per catturare i kwargs. Fail-first: mutazione
+(ritorno a `drop_pending_updates=True` fisso) KILLED. STOP-durante-backoff e no-doppio-poller
+invariati (test #110/7 e lifecycle intatti). Suite **2388 passed**. Docs: README «Cosa succede
+se cade la connessione?» aggiornato (avvio scarta / riconnessione recupera). Design handoff =
+**N/A** (nessun cambio a schermate/tab/controlli/stati/indicatori: RICONNESSIONE→ATTIVO
+invariato; aggiunta solo una riga di log informativa, non un elemento che il handoff descrive).
