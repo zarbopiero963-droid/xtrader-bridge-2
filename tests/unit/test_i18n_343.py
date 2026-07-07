@@ -4,6 +4,7 @@ Puri e headless. Il test anti-drift lega il catalogo al sorgente REALE di
 `app.py`: una label cambiata nel codice fa fallire la suite finché il catalogo
 non viene aggiornato (mai traduzioni orfane)."""
 
+import ast
 import os
 
 import pytest
@@ -12,10 +13,39 @@ from xtrader_bridge import i18n
 
 _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "xtrader_bridge")
-_APP_SRC = open(os.path.join(_PKG, "app.py"), encoding="utf-8").read()
+
+
+def _read(name):
+    with open(os.path.join(_PKG, name), encoding="utf-8") as fh:
+        return fh.read()
+
+
+_APP_SRC = _read("app.py")
 # Le chiavi dei contatori Dashboard vivono in dashboard_stats.COUNTERS (la resa in
 # app.py li wrappa via i18n.tr(label)): l'anti-drift le cerca in ENTRAMBI i sorgenti.
-_DASH_SRC = open(os.path.join(_PKG, "dashboard_stats.py"), encoding="utf-8").read()
+_DASH_SRC = _read("dashboard_stats.py")
+
+
+def _tr_constants(*module_names) -> set:
+    """Estrae via AST tutte le stringhe COSTANTI passate come primo argomento a
+    `i18n.tr(...)` nei moduli indicati. L'AST unisce i literal adiacenti (le
+    stringhe multi-linea concatenate del sorgente diventano UNA costante), così le
+    chiavi lunghe delle finestre secondarie sono confrontabili verbatim col catalogo
+    (#343 slice 4c: le chiavi Provider sono concatenazioni su più righe)."""
+    found = set()
+    for name in module_names:
+        tree = ast.parse(_read(name))
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "tr" and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)):
+                found.add(node.args[0].value)
+    return found
+
+
+# Costanti tr() delle finestre secondarie localizzate (#343 slice 4c).
+_SECONDARY_TR = _tr_constants("provider_gui.py")
 
 
 @pytest.fixture(autouse=True)
@@ -61,8 +91,9 @@ def test_catalogo_anti_drift_chiavi_verbatim_nel_sorgente():
     traduzioni orfane che l'utente EN/ES non vedrebbe più)."""
     for lang, table in i18n._CATALOG.items():
         for key in table:
-            assert key in _APP_SRC or key in _DASH_SRC, (
-                f"{lang}: chiave stantia, non in app.py/dashboard_stats.py: {key!r}")
+            assert key in _APP_SRC or key in _DASH_SRC or key in _SECONDARY_TR, (
+                f"{lang}: chiave stantia, non in app.py/dashboard_stats.py né nelle "
+                f"finestre secondarie localizzate: {key!r}")
 
 
 def test_catalogo_valori_sensati():

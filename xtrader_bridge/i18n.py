@@ -56,9 +56,13 @@ def tr(text: str) -> str:
 
 # Cataloghi: SOLO le stringhe che cambiano rispetto all'italiano (una stringa
 # identica — «🐞 Debug», «📊 Dashboard», «■  STOP» in EN — si omette: il
-# fallback la restituisce già). Le chiavi devono esistere VERBATIM in `app.py`
-# (test anti-drift: una label cambiata nel sorgente fa fallire la suite finché
-# il catalogo non viene aggiornato).
+# fallback la restituisce già). Le chiavi devono esistere VERBATIM in un sorgente
+# GUI (`app.py`, `dashboard_stats.py`, o una finestra secondaria localizzata come
+# `provider_gui.py`): il test anti-drift le estrae via AST e fallisce se una chiave
+# non è più usata nel codice (mai traduzioni orfane). I messaggi con variabili
+# usano il TEMPLATE come chiave (es. «➕ Provider «{name}» salvato.») e il chiamante
+# fa `i18n.tr(template).format(...)`; le traduzioni devono conservare gli stessi
+# segnaposto (test di parità).
 _CATALOG = {
     "EN": {
         # Tab configurazione + monitoraggio
@@ -119,6 +123,32 @@ _CATALOG = {
         "🚦 Limitati": "🚦 Limited",
         "🧪 Simulati": "🧪 Simulated",
         "❌ Errori": "❌ Errors",
+        # Finestra Anagrafica Provider (#343 slice 4c; i messaggi con variabili
+        # usano il template tradotto + .format(...), chiave = template)
+        "📇  Anagrafica Provider": "📇  Provider registry",
+        "Nomi Provider riutilizzabili nel Parser Personalizzato "
+        "(colonna Provider). Valgono per tutti i parser.":
+            "Provider names reusable in the Custom Parser "
+            "(Provider column). They apply to all parsers.",
+        "Nome del nuovo Provider": "New provider name",
+        "➕  Aggiungi": "➕  Add",
+        "Provider salvati": "Saved providers",
+        "Nessun provider salvato.": "No provider saved.",
+        "🗑  Rimuovi": "🗑  Remove",
+        "Anagrafica Provider": "Provider registry",
+        "⛔ Nome vuoto: provider non aggiunto.": "⛔ Empty name: provider not added.",
+        "❌ Config illeggibile: {exc}": "❌ Config unreadable: {exc}",
+        "ℹ️ «{name}» è già nell'anagrafica.": "ℹ️ «{name}» is already in the registry.",
+        "➕ Provider «{name}» salvato.": "➕ Provider «{name}» saved.",
+        "❌ Salvataggio FALLITO: «{name}» non salvato (andrebbe perso al riavvio). "
+        "Controlla permessi/spazio del file config.":
+            "❌ Save FAILED: «{name}» not saved (would be lost on restart). "
+            "Check config file permissions/space.",
+        "🗑 Provider «{name}» rimosso.": "🗑 Provider «{name}» removed.",
+        "❌ Salvataggio FALLITO: «{name}» non rimosso (ricomparirebbe al riavvio). "
+        "Controlla permessi/spazio del file config.":
+            "❌ Save FAILED: «{name}» not removed (would reappear on restart). "
+            "Check config file permissions/space.",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -175,5 +205,31 @@ _CATALOG = {
         "🚦 Limitati": "🚦 Limitados",
         "🧪 Simulati": "🧪 Simulados",
         "❌ Errori": "❌ Errores",
+        # Finestra Anagrafica Provider (#343 slice 4c)
+        "📇  Anagrafica Provider": "📇  Registro de proveedores",
+        "Nomi Provider riutilizzabili nel Parser Personalizzato "
+        "(colonna Provider). Valgono per tutti i parser.":
+            "Nombres de proveedor reutilizables en el Parser Personalizado "
+            "(columna Provider). Valen para todos los parsers.",
+        "Nome del nuovo Provider": "Nombre del nuevo proveedor",
+        "➕  Aggiungi": "➕  Añadir",
+        "Provider salvati": "Proveedores guardados",
+        "Nessun provider salvato.": "Ningún proveedor guardado.",
+        "🗑  Rimuovi": "🗑  Eliminar",
+        "Anagrafica Provider": "Registro de proveedores",
+        "⛔ Nome vuoto: provider non aggiunto.":
+            "⛔ Nombre vacío: proveedor no añadido.",
+        "❌ Config illeggibile: {exc}": "❌ Config ilegible: {exc}",
+        "ℹ️ «{name}» è già nell'anagrafica.": "ℹ️ «{name}» ya está en el registro.",
+        "➕ Provider «{name}» salvato.": "➕ Proveedor «{name}» guardado.",
+        "❌ Salvataggio FALLITO: «{name}» non salvato (andrebbe perso al riavvio). "
+        "Controlla permessi/spazio del file config.":
+            "❌ Guardado FALLIDO: «{name}» no guardado (se perdería al reiniciar). "
+            "Comprueba permisos/espacio del archivo config.",
+        "🗑 Provider «{name}» rimosso.": "🗑 Proveedor «{name}» eliminado.",
+        "❌ Salvataggio FALLITO: «{name}» non rimosso (ricomparirebbe al riavvio). "
+        "Controlla permessi/spazio del file config.":
+            "❌ Guardado FALLIDO: «{name}» no eliminado (reaparecería al reiniciar). "
+            "Comprueba permisos/espacio del archivo config.",
     },
 }

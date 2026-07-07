@@ -27,6 +27,9 @@ def _bare(app_mod, tmp_path, *, status=hc.LISTENER_ACTIVE):
     app._config = {"csv_path": str(csv), "dry_run": False, "bridge_mode": "COLLAUDO",
                    "xtrader_notification_chat_id": "123",
                    "active_parser": "p1", "parsers_dir_exists_hint": True}
+    # `_status_lbl` è VESTIGIALE per questo harness (CodeRabbit #358): dalla slice 4b
+    # `_refresh_health_inner` legge `_listener_state`, non il testo della label —
+    # resta solo perché altri metodi di App potrebbero toccarlo, ma NON guida il test.
     app._status_lbl = _Lbl(status)
     app._last_vals = {"signal": "", "message": "msg di prova", "csv": "",
                       "error": "", "confirmation": "CONFERMATO @ 10:00"}

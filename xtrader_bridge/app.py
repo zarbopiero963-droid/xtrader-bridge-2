@@ -1056,9 +1056,12 @@ class App(ctk.CTk):
                      font=ctk.CTkFont(size=20, weight="bold"),
                      text_color=_COLOR_HEADER_TITLE).pack(side="left", padx=15, pady=10)
 
-        self._status_lbl = ctk.CTkLabel(hdr, text=i18n.tr("⬤  OFFLINE"),
-                                         font=ctk.CTkFont(size=13, weight="bold"),
-                                         text_color=_COLOR_STATUS_OFFLINE)
+        # Testo iniziale dalla fonte UNICA `_LISTENER_TEXTS` (CodeRabbit #358): evita
+        # che l'emoji/spaziatura di OFFLINE diverga dal valore usato da _set_listener_state.
+        self._status_lbl = ctk.CTkLabel(
+            hdr, text=i18n.tr(self._LISTENER_TEXTS[health_check.LISTENER_OFFLINE]),
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=_COLOR_STATUS_OFFLINE)
         self._status_lbl.pack(side="right", padx=15)
 
         # Toggle tema chiaro/scuro (#288 Delta 1): pulsante icona a sinistra dello stato.

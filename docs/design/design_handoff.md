@@ -234,9 +234,15 @@ Dalla **slice 4b** anche gli stati dinamici «⬤ ATTIVO/RICONNESSIONE…» sono
 localizzati (EN: ACTIVE/RECONNECTING… · ES: ACTIVO/RECONEXIÓN… · «⬤  OFFLINE» è
 universale): il semaforo 🚦 Salute non fa più il parsing del testo della label ma usa
 lo **stato canonico** `_listener_state` (`health_check.LISTENER_*`), impostato dal
-punto unico `_set_listener_state` — la label è SOLO display. Restano IN ITALIANO per
-ora (slice successivi): banner REALE/COLLAUDO, testi dei log e tutte le finestre
-secondarie.
+punto unico `_set_listener_state` — la label è SOLO display. Dalla **slice 4c** la
+localizzazione si estende alle **finestre secondarie**, a una per volta: la prima è
+**📇 Anagrafica Provider** (titolo, testi, bottoni, placeholder e i messaggi di stato
+dinamici — questi ultimi via template tradotto + `.format(...)`, così restano
+coerenti e non producono UI mista). Le stringhe con variabili usano il template come
+chiave di catalogo (es. «➕ Provider «{name}» salvato.»); l'anti-drift (AST) e un test
+di parità dei segnaposto garantiscono che le traduzioni restino allineate al codice.
+Restano IN ITALIANO per ora (slice successivi): banner REALE/COLLAUDO, testi dei log e
+le altre finestre secondarie (Parser, Mapping, Strumenti, Chat, Profili, …).
 
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
