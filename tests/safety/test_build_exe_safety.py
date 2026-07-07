@@ -97,6 +97,67 @@ _ALLOWED_COLLECT = {
     ("--collect-submodules", "xtrader_bridge"),
 }
 
+# ── Gate Nuitka (Fase 6 slice 2) ────────────────────────────────────────────────────────────
+# La build EXE ufficiale sta passando da PyInstaller a Nuitka. In questa fase ADDITIVA il
+# workflow `build-nuitka.yaml` gira in parallelo (anteprima manuale) e DEVE rispettare le stesse
+# invarianti dell'EXE personale: EXE singolo, solo il dizionario nel bundle, nessun secret/Admin
+# EXE, test prima della build. Il gate copre la forma canonica Nuitka con la STESSA filosofia
+# fail-closed di PyInstaller: qualunque opzione/valore non in allowlist fa fallire il gate.
+#
+# Differenza di forma-canonica rispetto a PyInstaller: per Nuitka la forma MODULO
+# `python -m nuitka` E' quella documentata/canonica (oltre all'eseguibile `nuitka` diretto),
+# quindi entrambe sono ammesse; le forme WRAPPATE (`cmd /c nuitka`, `pwsh -Command "…"`, `sh -c
+# '…'`) restano non-canoniche e vengono rifiutate.
+_NUITKA_ALLOWED_OPTS = {
+    "--standalone", "--onefile", "--msvc", "--assume-yes-for-downloads",
+    "--enable-plugin", "--include-package-data", "--include-data-files",
+    "--windows-console-mode", "--output-filename", "--output-dir",
+}
+_NUITKA_ALLOWED_PLUGINS = {"tk-inter"}          # solo il plugin tkinter/customtkinter
+_NUITKA_ALLOWED_PACKAGE_DATA = {"customtkinter"}  # solo i DATI (temi/asset) di customtkinter
+_NUITKA_ALLOWED_CONSOLE_MODE = {"disable"}       # GUI senza console (come PyInstaller --windowed)
+_NUITKA_ALLOWED_MSVC = {"latest"}                # usa l'MSVC preinstallato (niente download C)
+# Opzioni Nuitka OBBLIGATORIE per un artifact GUI corretto: se il workflow ne omettesse una, il
+# gate deve fallire (fail-closed sulla PRESENZA, non solo sul valore). `--msvc` è invece una
+# scelta d'ambiente (compilatore), quindi allowlistata ma non obbligatoria.
+_NUITKA_REQUIRED_OPTS = {
+    "--enable-plugin": _NUITKA_ALLOWED_PLUGINS,
+    "--include-package-data": _NUITKA_ALLOWED_PACKAGE_DATA,
+    "--windows-console-mode": _NUITKA_ALLOWED_CONSOLE_MODE,
+    "--output-filename": {_ALLOWED_EXE_NAME + ".exe"},
+    "--output-dir": {"dist"},
+}
+# `--include-data-files=SRC=DEST`: nel bundle SOLO il dizionario, a `data/dizionario_xtrader.csv`
+# (dove `resource_path` lo cerca, relativo alla dir del programma).
+_NUITKA_DATA_SRC = _ALLOWED_BUNDLE_SRC                       # "data/dizionario_xtrader.csv"
+_NUITKA_DATA_DEST = _ALLOWED_BUNDLE_SRC                      # stesso path relativo nel bundle
+
+# Invocazione Nuitka: eseguibile diretto `nuitka` OPPURE forma modulo `python -m nuitka`
+# (entrambe canoniche per Nuitka). Call-operator pwsh `&`, quoting e path completo/venv,
+# python versionato (`python3.12`) ammessi — come per il detector PyInstaller.
+_NUITKA_DIRECT = r"""["']?(?:[^\s"']*[\\/])?nuitka(?:\.exe)?\b"""
+_NUITKA_MODULE = (
+    r"""["']?(?:[^\s"']*[\\/])?python(?:3(?:\.\d+)?)?(?:\.exe)?["']?\s+-m\s+nuitka\b""")
+# Forma canonica analizzabile: il comando E' l'eseguibile/modulo Nuitka diretto.
+_NUITKA_CLI = re.compile(
+    r"^\s*&?\s*(?:" + _NUITKA_DIRECT + r"|" + _NUITKA_MODULE + r")", re.IGNORECASE)
+# Wrapper di shell che rilanciano Nuitka (`cmd /c nuitka …`, `powershell/pwsh -Command "…"`,
+# `sh/bash -c '…'`): rilevati e quindi RIFIUTATI da `test_forma_build_nuitka_canonica` perche'
+# non sono la CLI canonica (fail-closed, nessun wrapper ammesso). Stessa struttura del
+# `_WRAPPED_PREFIX` di PyInstaller.
+_NUITKA_WRAPPED = (
+    r"(?:^|[\s;&|(])(?:&\s*)?[\"']?(?:[^\s\"']*[\\/])?"
+    r"(?:cmd(?:\.exe)?[\"']?\s+(?:/\w+(?::\w+)?\s+)*/[ck]\s+(?:/\w+(?::\w+)?\s+)*"
+    r"|(?:powershell|pwsh)(?:\.exe)?[\"']?\s+(?:-\w+(?:\s+[\w.:\\/-]+)?\s+)*"
+    r"|(?:ba|z|da)?sh[\"']?\s+-c\s+)"
+    r"""["']?\s*(?:&\s*)?["']?"""
+    r"(?:" + _NUITKA_DIRECT + r"|" + _NUITKA_MODULE + r")")
+_NUITKA_DETECT = re.compile(
+    _NUITKA_CLI.pattern + r"|" + _NUITKA_WRAPPED, re.IGNORECASE)
+# Boundary del token `nuitka` per isolare gli argomenti DOPO il nome (così il `-m` di
+# `python -m nuitka` non viene contato come opzione Nuitka).
+_NUITKA_TOKEN = re.compile(r"(?<![\w-])nuitka(?:\.exe)?\b", re.IGNORECASE)
+
 # Estensioni/nomi/segmenti vietati nel bundle dell'EXE (segreti, credenziali, certificati,
 # artefatti locali), inclusi i formati certificato comuni e il segmento `cert`/`certs`.
 _FORBIDDEN_BUNDLE = re.compile(
@@ -781,3 +842,265 @@ def test_artifact_e_release_solo_un_exe():
         foreign = [e for e in re.findall(r"dist/(\S+\.exe)", _read(path))
                    if e != _ALLOWED_EXE_NAME + ".exe"]
         assert not foreign, f"{os.path.basename(path)}: EXE inatteso (anche wildcard): {foreign}"
+
+
+# ── Gate build Nuitka (Fase 6 slice 2) ──────────────────────────────────────────────────────
+# Stesse invarianti EXE personale della build PyInstaller, applicate alla forma canonica Nuitka.
+
+def _after_nuitka(cmd: str) -> str:
+    """Sottostringa DOPO il token `nuitka` (isola gli argomenti Nuitka: così il `-m` di
+    `python -m nuitka` non viene contato come opzione della build)."""
+    m = _NUITKA_TOKEN.search(cmd)
+    return cmd[m.end():] if m else cmd
+
+
+def _nuitka_build_commands():
+    """`(workflow_name, command)` per OGNI comando di shell che invoca Nuitka (qualsiasi forma)."""
+    out = []
+    for path in _workflow_files():
+        for cmd in _shell_commands(_read(path)):
+            if _NUITKA_DETECT.search(cmd):
+                out.append((os.path.basename(path), cmd))
+    return out
+
+
+def _nuitka_data_offenders(cmd: str):
+    """Voci `--include-data-files=SRC=DEST` fuori regola (file vietato, src != dizionario o
+    dest sbagliata) nel comando dato. Vuoto = tutte ammesse."""
+    off = []
+    for entry in _opt_values(_after_nuitka(cmd), "--include-data-files"):
+        parts = entry.split("=")
+        src = _norm(parts[0])
+        dest = _norm(parts[1]) if len(parts) > 1 else ""
+        if (_FORBIDDEN_BUNDLE.search(src) or src != _NUITKA_DATA_SRC
+                or dest != _NUITKA_DATA_DEST):
+            off.append((src, dest))
+    return off
+
+
+def test_build_nuitka_yaml_esiste():
+    """Il workflow di anteprima Nuitka `build-nuitka.yaml` deve esistere."""
+    assert os.path.isfile(os.path.join(_WORKFLOWS_DIR, "build-nuitka.yaml")), \
+        "manca .github/workflows/build-nuitka.yaml"
+
+
+def test_nuitka_build_commands_rilevati():
+    """La scoperta automatica trova la build Nuitka in build-nuitka.yaml."""
+    names = {name for name, _ in _nuitka_build_commands()}
+    assert "build-nuitka.yaml" in names, "build-nuitka.yaml: invocazione nuitka non rilevata"
+
+
+def test_forma_build_nuitka_canonica():
+    """Ogni build Nuitka dev'essere la forma CLI canonica `nuitka …`/`python -m nuitka …`
+    (fail-closed: nessun wrapper cmd/pwsh/sh), con `main.py` come UNICO script."""
+    builds = _nuitka_build_commands()
+    assert builds, "nessuna build Nuitka trovata"
+    for name, cmd in builds:
+        assert _NUITKA_CLI.match(cmd), \
+            f"{name}: forma di build Nuitka non canonica (wrapper?): {cmd!r}"
+        scripts = _py_scripts(_after_nuitka(cmd))
+        assert scripts == [_ALLOWED_SCRIPT], \
+            f"{name}: lo script di build dev'essere solo {_ALLOWED_SCRIPT}, trovati {scripts}"
+
+
+def test_nuitka_un_solo_onefile_standalone():
+    """Per ogni workflow Nuitka: una sola build, con `--onefile` e `--standalone` (EXE singolo
+    autoportante, nessun secondo EXE)."""
+    builds = _nuitka_build_commands()
+    assert builds, "nessuna build Nuitka trovata"
+    per_wf = {}
+    for name, cmd in builds:
+        per_wf.setdefault(name, []).append(cmd)
+    for name, cmds in per_wf.items():
+        assert len(cmds) == 1, f"{name}: attesa UNA sola build Nuitka, trovate {len(cmds)}"
+        assert _has_flag(cmds[0], "--onefile"), f"{name}: build Nuitka non --onefile"
+        assert _has_flag(cmds[0], "--standalone"), f"{name}: build Nuitka non --standalone"
+
+
+def test_nuitka_solo_opzioni_note():
+    """Allowlist opzioni Nuitka: SOLO quelle note e sicure. Qualunque altra
+    (`--include-package`, `--include-data-dir`, `--windows-uac-admin`, `--user-plugin`, …) è
+    rifiutata fail-closed."""
+    builds = _nuitka_build_commands()
+    assert builds, "nessuna build Nuitka trovata"
+    for name, cmd in builds:
+        for opt in _option_tokens(_after_nuitka(cmd)):
+            assert opt in _NUITKA_ALLOWED_OPTS, \
+                f"{name}: opzione Nuitka non in allowlist: {opt!r} ({cmd!r})"
+
+
+def test_nuitka_valori_opzioni_in_allowlist():
+    """Le opzioni Nuitka OBBLIGATORIE devono essere PRESENTI e col valore ESATTO — non solo
+    «se presenti, allora ammesse» (CodeRabbit #366): altrimenti un workflow che OMETTE
+    `--windows-console-mode=disable`, `--output-filename`, `--output-dir`, `--enable-plugin`
+    o `--include-package-data` passerebbe il gate, indebolendo il contratto fail-closed di un
+    EXE GUI usabile (console nascosta, nome/paths giusti, plugin tkinter e dati customtkinter).
+    Il valore `--msvc`, se presente, resta ristretto ma NON è obbligatorio (scelta d'ambiente)."""
+    builds = _nuitka_build_commands()
+    assert builds, "nessuna build Nuitka trovata"
+    for name, cmd in builds:
+        after = _after_nuitka(cmd)
+        for opt, allowed in _NUITKA_REQUIRED_OPTS.items():
+            vals = {_norm(v) for v in _opt_values(after, opt)}
+            assert vals, f"{name}: opzione Nuitka OBBLIGATORIA mancante: {opt} ({cmd!r})"
+            assert vals <= allowed, \
+                f"{name}: valore {opt} fuori allowlist: {vals - allowed} (ammessi {allowed})"
+        # `--msvc` è opzionale ma, se usato, deve restare in allowlist.
+        msvc = {_norm(v) for v in _opt_values(after, "--msvc")}
+        assert msvc <= _NUITKA_ALLOWED_MSVC, \
+            f"{name}: valore --msvc non ammesso: {msvc - _NUITKA_ALLOWED_MSVC}"
+
+
+def test_nuitka_include_data_solo_dizionario():
+    """Nel bundle Nuitka SOLO il dizionario: ogni `--include-data-files` ha src == dizionario e
+    dest == `data/dizionario_xtrader.csv`; nessun file vietato; e NIENTE `--include-data-dir`
+    (raccoglierebbe una cartella intera)."""
+    builds = _nuitka_build_commands()
+    assert builds, "nessuna build Nuitka trovata"
+    for name, cmd in builds:
+        after = _after_nuitka(cmd)
+        entries = _opt_values(after, "--include-data-files")
+        assert entries, f"{name}: atteso almeno un --include-data-files (il dizionario)"
+        off = _nuitka_data_offenders(cmd)
+        assert not off, f"{name}: bundle Nuitka fuori regola: {off} ({cmd!r})"
+        assert not _opt_values(after, "--include-data-dir"), \
+            f"{name}: --include-data-dir non ammesso (solo il dizionario via --include-data-files)"
+
+
+def test_nuitka_nessun_argomento_dinamico():
+    """Il comando Nuitka non può contenere argomenti DINAMICI (`$VAR`, `${{ … }}`, `%VAR%`,
+    substitution, splatting): sfuggirebbero a ogni allowlist statica del gate."""
+    builds = _nuitka_build_commands()
+    assert builds, "nessuna build Nuitka trovata"
+    for name, cmd in builds:
+        dyn = _dynamic_args(cmd)
+        assert not dyn, f"{name}: argomenti dinamici nella build Nuitka: {dyn} ({cmd!r})"
+
+
+def test_nuitka_build_isolata_nel_suo_step():
+    """Il comando Nuitka dev'essere l'UNICO comando del suo step `run:` (nessun
+    `pytest && nuitka`, `cd x; nuitka`): la build non può essere condizionale né accodata."""
+    found = False
+    for path in _workflow_files():
+        for step in _run_steps(_read(path)):
+            cmds = [c.strip() for c in _split_shell(step)
+                    if c.strip() and not c.strip().startswith("#")]
+            if any(_NUITKA_DETECT.search(c) for c in cmds):
+                found = True
+                assert len(cmds) == 1, \
+                    f"{os.path.basename(path)}: build Nuitka non isolata nel suo step: {cmds}"
+    assert found, "nessuno step di build Nuitka trovato"
+
+
+def test_nuitka_test_prima_della_build():
+    """Nello STESSO job che compila con Nuitka, TUTTI i `python -m pytest` girano PRIMA della
+    build (come per PyInstaller). L'ordine conta solo dentro un job (job paralleli salvo
+    `needs`)."""
+    build_names = {name for name, _ in _nuitka_build_commands()}
+    assert build_names, "nessun workflow di build Nuitka trovato"
+    seen_build_job = False
+    for path in _workflow_files():
+        name = os.path.basename(path)
+        if name not in build_names:
+            continue
+        for jobname, body in _jobs(_read(path)):
+            cmds = _shell_commands(body)
+            b_idx = [k for k, c in enumerate(cmds) if _NUITKA_DETECT.search(c)]
+            if not b_idx:
+                continue
+            seen_build_job = True
+            p_idx = [k for k, c in enumerate(cmds) if _PYTEST_CMD.match(c)]
+            assert p_idx, f"{name}/{jobname}: build Nuitka senza `python -m pytest` nello stesso job"
+            assert max(p_idx) < min(b_idx), \
+                f"{name}/{jobname}: TUTTI i test devono girare PRIMA della build Nuitka"
+    assert seen_build_job, "nessun job con build Nuitka individuato"
+
+
+def test_nuitka_artifact_un_solo_exe_niente_release():
+    """build-nuitka.yaml pubblica come artifact ESATTAMENTE `dist/XTrader-Signal-Bridge.exe` e
+    NON crea Release in NESSUNA forma (fase additiva: niente collisione con la release
+    PyInstaller sui tag). Il guardrail no-Release è ampio (CodeRabbit #366): copre le action di
+    release note, la CLI `gh release create`, e qualsiasi `files:` (inline o blocco multilinea
+    `files: |`) che elenchi un `.exe`."""
+    text = _read(os.path.join(_WORKFLOWS_DIR, "build-nuitka.yaml"))
+    artifact_exes = [p for p in re.findall(r"(?m)^\s*path:\s*(\S+)", text)
+                     if p.lower().endswith(".exe")]
+    assert artifact_exes == [_ALLOWED_EXE_PATH], \
+        f"l'artifact Nuitka deve pubblicare esattamente {_ALLOWED_EXE_PATH!r}, non {artifact_exes}"
+    low = text.lower()
+    # Nessun publisher di Release: action (softprops/action-gh-release, actions/create-release,
+    # ncipollo/release-action, elgohr/…, e in generale qualsiasi `*/release*` in `uses:`) né la
+    # CLI `gh release create`.
+    for token in ("action-gh-release", "actions/create-release", "ncipollo/release-action",
+                  "release-action", "gh release create", "gh release upload"):
+        assert token not in low, \
+            f"build-nuitka.yaml non deve pubblicare Release: trovato {token!r}"
+    for used in re.findall(r"(?m)^\s*-?\s*uses:\s*(\S+)", text):
+        assert "release" not in used.lower(), \
+            f"build-nuitka.yaml: action di release non ammessa in fase additiva: {used!r}"
+    # Nessun `files:` (inline o blocco `|`/`>`) che elenchi un .exe (input tipico dei publisher).
+    for m in re.finditer(r"(?m)^([ \t]*)files:\s*(.*)$", text):
+        indent, inline = m.group(1), m.group(2).strip()
+        if inline and not _BLOCK_SCALAR.match(inline):
+            assert ".exe" not in inline.lower(), \
+                f"build-nuitka.yaml: `files:` inline con .exe (release): {inline!r}"
+        else:
+            for ln in text[m.end():].splitlines():
+                if not ln.strip():
+                    continue
+                if len(ln) - len(ln.lstrip()) <= len(indent):
+                    break
+                assert ".exe" not in ln.lower(), \
+                    f"build-nuitka.yaml: blocco `files:` con .exe (release): {ln.strip()!r}"
+
+
+def test_nuitka_detector_forme_canoniche_e_wrappate():
+    """Detector Nuitka (senza build reale): forma diretta e modulo (anche versionata/venv) sono
+    CANONICHE; le forme wrappate (cmd/pwsh/sh) sono RILEVATE ma NON canoniche → rifiutate dal
+    gate. Menzioni innocue (pip/pytest) NON sono build."""
+    canonical = [
+        "nuitka --onefile main.py",
+        "python -m nuitka --standalone --onefile main.py",
+        "python3.12 -m nuitka --onefile main.py",
+        '& ".venv/Scripts/python.exe" -m nuitka --onefile main.py',
+        '& "C:/Python311/Scripts/nuitka.exe" --onefile main.py',
+    ]
+    for cmd in canonical:
+        assert _NUITKA_DETECT.search(cmd), f"forma Nuitka non rilevata: {cmd!r}"
+        assert _NUITKA_CLI.match(cmd), f"forma Nuitka canonica non riconosciuta: {cmd!r}"
+    wrapped = [
+        "cmd /c nuitka --onefile main.py",
+        'cmd.exe /C "python -m nuitka --onefile main.py"',
+        'powershell -Command "nuitka --onefile main.py"',
+        'pwsh -NoProfile -ExecutionPolicy Bypass -Command "python -m nuitka --onefile main.py"',
+        "sh -c 'nuitka --onefile main.py'",
+        "bash -c 'python -m nuitka --onefile main.py'",
+    ]
+    for cmd in wrapped:
+        assert _NUITKA_DETECT.search(cmd), f"wrapper Nuitka non rilevato: {cmd!r}"
+        assert not _NUITKA_CLI.match(cmd), f"wrapper Nuitka scambiato per canonico: {cmd!r}"
+    # controcampi: menzioni innocue NON sono build Nuitka (nessun falso positivo) — incluso
+    # l'install PINNATO `nuitka==4.1.3` usato dal workflow reale (è pip install, non una build).
+    assert not _NUITKA_DETECT.search(
+        "python -m pip install -r requirements-dev.txt nuitka==4.1.3")
+    assert not _NUITKA_DETECT.search("python -m pytest -q")
+
+
+def test_nuitka_opzioni_e_valori_maligni_rifiutati():
+    """Regressione: i casi maligni Nuitka sono flaggati dagli helper del gate; i valori reali no."""
+    # opzione fuori allowlist (raccoglierebbe un intero package)
+    assert "--include-package" not in _NUITKA_ALLOWED_OPTS
+    assert "--include-package" in _option_tokens(
+        _after_nuitka("python -m nuitka --onefile --include-package telegram main.py"))
+    # data-files: file vietato, oppure dest/src sbagliati
+    assert _nuitka_data_offenders(
+        "python -m nuitka --include-data-files=secret.env=data/x main.py")
+    assert _nuitka_data_offenders(
+        "python -m nuitka --include-data-files=data/dizionario_xtrader.csv=evil main.py")
+    # il valore reale usato dal workflow è ammesso
+    assert _nuitka_data_offenders(
+        "python -m nuitka "
+        "--include-data-files=data/dizionario_xtrader.csv=data/dizionario_xtrader.csv "
+        "main.py") == []
+    # argomento dinamico nella build Nuitka intercettato
+    assert _dynamic_args("python -m nuitka ${{ inputs.flags }} main.py")

@@ -1897,3 +1897,47 @@ fail-first con 4 mutazioni (gate `frozen` rimosso, fallback difensivo rimosso, `
 non delega, gate `__compiled__` rimosso→frozen-first) tutte KILLED. Suite 2368 passed. Il
 workflow di build Nuitka vero e proprio + lockfile + smoke EXE Windows restano slice successive
 della Fase 6.
+
+## Fase 6 slice 2 — build EXE Nuitka di anteprima (ADDITIVA) + estensione gate di sicurezza
+
+Introduce la build **Nuitka** SENZA rimuovere PyInstaller: scelta owner «additiva» (opzione A)
+per non perdere la build di release funzionante finché il binario Nuitka non è validato su
+Windows reale. Nuovo workflow `build-nuitka.yaml` (**solo `workflow_dispatch`**, niente tag,
+niente Release → nessuna collisione con la release PyInstaller): `python -m nuitka --standalone
+--onefile --assume-yes-for-downloads --enable-plugin=tk-inter --include-package-data=customtkinter
+--include-data-files=data/dizionario_xtrader.csv=data/dizionario_xtrader.csv
+--windows-console-mode=disable --output-filename=XTrader-Signal-Bridge.exe --output-dir=dist
+main.py`; test bloccanti PRIMA della build; artifact `…-Nuitka-Windows-v<ver>-<data>` col solito
+`XTrader-Signal-Bridge.exe`. Install legacy (`requirements-dev.txt` + `nuitka` + `httpx`): il
+lock attuale è PyInstaller-only, il lock Nuitka `--require-hashes` arriva a parte.
+
+Il gate di sicurezza `tests/safety/test_build_exe_safety.py` è **esteso** per coprire ANCHE la
+forma Nuitka con la stessa filosofia **fail-closed** di PyInstaller: detector canonico Nuitka
+(diretto `nuitka` **e** modulo `python -m nuitka`, entrambi canonici per Nuitka; wrapper
+cmd/pwsh/sh rilevati e rifiutati), allowlist opzioni Nuitka, valori ristretti (plugin `tk-inter`,
+package-data `customtkinter`, console `disable`, EXE personale in `dist/`), bundle SOLO il
+dizionario via `--include-data-files` (niente `--include-data-dir`), nessun argomento dinamico,
+build isolata nel suo step, test-prima-della-build, artifact = 1 solo EXE e nessuna Release. 16
+nuovi test (incl. detector unit-test e regressioni maligne); 4 mutazioni sul workflow reale
+(`--include-package` fuori allowlist, EXE «Admin», `--include-data-dir`, build senza test-prima)
+tutte KILLED. Suite **2384 passed**. NB (lezione #363): i controlli del gate sono substring, quindi
+i COMMENTI del workflow non possono contenere i token vietati (`continue-on-error`, «Admin EXE»).
+
+**Docs:** README «Build EXE Nuitka (anteprima, in valutazione)» con lo smoke test manuale
+consigliato per l'owner. Design handoff = **N/A** (nessun cambio GUI). CORE CHANGE = **nessuno**
+(non tocca `xtrader_bridge/**` né `data/**`: solo workflow + test di sicurezza). Prossimo dopo la
+validazione manuale su Windows: lockfile Nuitka riproducibile, poi ritiro di PyInstaller.
+
+**Hardening da review (#366).** Fable 5 + Fugu Ultra (review finali) hanno segnalato in modo
+convergente il rischio **supply-chain** dell'install non pinnato su un EXE che l'owner *esegue*:
+mitigato senza attendere la slice lockfile — **Nuitka pinnato** (`nuitka==4.1.3`, stessa versione
+che l'install non pinnato avrebbe preso oggi → zero cambio di comportamento, ma niente drift),
+**`--msvc=latest`** per usare l'MSVC **preinstallato** su windows-latest (Nuitka non scarica più
+il compilatore C: chiusa la superficie principale segnalata da Fugu), e rimosso l'install
+esplicito ridondante di `httpx` (transitiva di python-telegram-bot). Il `--require-hashes`
+completo resta la slice lockfile successiva (generata su Windows). CodeRabbit (2 Major): il gate
+`test_nuitka_valori_opzioni_in_allowlist` ora **esige la PRESENZA** delle opzioni obbligatorie
+(non solo il valore se presenti) e `test_nuitka_artifact_un_solo_exe_niente_release` ha il
+guardrail no-Release **ampliato** (action `*/release*`, `gh release create/upload`, `files:`
+inline **e** blocco `|`). 3 mutazioni aggiuntive (opzione obbligatoria omessa, `gh release
+create`, action di release + `files: |`) tutte KILLED. Suite **2384 passed**.

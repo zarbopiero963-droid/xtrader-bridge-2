@@ -1,0 +1,104 @@
+name: Build XTrader Signal Bridge EXE (Nuitka, anteprima)
+
+# Build EXE ANTEPRIMA con Nuitka, ADDITIVA e in parallelo alla build ufficiale PyInstaller
+# (build.yaml). Fase 6 slice 2: si introduce Nuitka SENZA rimuovere PyInstaller, che resta la
+# build di release finche' il binario Nuitka non e' validato su Windows reale dal proprietario
+# (smoke test manuale). Solo DOPO quella validazione, in una slice successiva, PyInstaller
+# verra' ritirato.
+#
+# Percio' questo workflow:
+#   - parte SOLO a mano (workflow_dispatch), NON sui tag `v*` -> non crea Release e non puo'
+#     collidere con la release PyInstaller (che pubblica lo stesso nome EXE sui tag);
+#   - produce SOLO un artifact scaricabile (nome artifact con "Nuitka" per distinguerlo),
+#     per lo smoke test dell'owner.
+#
+# Stessa posizione fail-closed di build.yaml: i test girano PRIMA della build e sono
+# bloccanti (nessun gate di test reso non-bloccante, nessun pytest addolcito). Il gate di
+# sicurezza `tests/safety/test_build_exe_safety.py` copre ANCHE questa forma Nuitka (allowlist
+# dedicata: EXE singolo personale, solo il dizionario nel bundle, nessun secondo eseguibile
+# e nessun segreto imbarcato).
+#
+# Il lockfile riproducibile per Nuitka (`--require-hashes`) arrivera' in una slice successiva;
+# qui l'install e' legacy (come parti' build.yaml prima del suo lock): non blocca la
+# riproducibilita', che resta garantita dalla build PyInstaller di release.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-nuitka:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+      with:
+        python-version: '3.11'
+
+    - name: Installa Dipendenze (Nuitka pinnato; lock con hash in slice successiva)
+      # Runtime + pytest da requirements-dev.txt (che deriva da requirements.in: httpx entra
+      # come transitiva di python-telegram-bot, quindi NON serve un install esplicito extra).
+      # Nuitka e' PINNATO alla versione esatta (mitigazione supply-chain sull'EXE che l'owner
+      # esegue: niente drift verso una release non prevista). NON e' ancora --require-hashes:
+      # il lock completo con hash per Nuitka (generato su Windows) arriva nella slice
+      # successiva; il lock attuale (requirements-build.lock) e' PyInstaller-only.
+      run: python -m pip install -r requirements-dev.txt nuitka==4.1.3
+
+    - name: Verifica compilazione (compileall)
+      run: python -m compileall main.py xtrader_bridge tests
+
+    - name: Esegui i test (bloccante)
+      run: python -m pytest -m "not manual"
+
+    - name: Versione app + data build (nome artifact)
+      id: meta
+      shell: bash
+      run: |
+        # Versione dall'UNICA fonte di verita' (xtrader_bridge/__init__.py); fail se manca,
+        # cosi' l'artifact non finisce mai senza versione. `sys.stdout.write` + `tr -d '\r\n'`:
+        # su windows-latest il print() emette CRLF e $(...) toglie solo \n, lasciando un \r che
+        # renderebbe il nome artifact malformato.
+        ver=$(python -c "import sys, xtrader_bridge as p; sys.stdout.write(p.__version__)" | tr -d '\r\n')
+        [ -n "$ver" ] || { echo "::error::__version__ mancante"; exit 1; }
+        date=$(date -u +%Y%m%d)
+        echo "artifact=XTrader-Signal-Bridge-Nuitka-Windows-v${ver}-${date}" >> "$GITHUB_OUTPUT"
+
+    - name: Compila EXE con Nuitka
+      # Forma canonica CLI (modulo) analizzata dal gate di sicurezza:
+      #   --standalone --onefile        -> EXE singolo autoportante (come PyInstaller --onefile)
+      #   --msvc=latest                 -> usa l'MSVC gia' PREINSTALLATO su windows-latest come
+      #                                    compilatore C: cosi' Nuitka NON scarica un toolchain C
+      #                                    da rete (riduce la superficie supply-chain di build)
+      #   --assume-yes-for-downloads    -> accetta senza prompt i piccoli tool che Nuitka usa su
+      #                                    Windows (es. dependency-walker); col MSVC preinstallato
+      #                                    NON scarica piu' il compilatore
+      #   --enable-plugin=tk-inter      -> supporto tkinter/customtkinter
+      #   --include-package-data=customtkinter -> i temi/asset (DATI) di customtkinter, che il
+      #                                    follow-imports di Nuitka non raccoglie da solo
+      #   --include-data-files=SRC=DEST -> SOLO il dizionario, a `data/dizionario_xtrader.csv`
+      #                                    (resource_path lo risolve relativo alla dir del programma)
+      #   --windows-console-mode=disable-> GUI senza finestra console (come PyInstaller --windowed)
+      #   --output-filename/--output-dir-> EXE personale in dist/, stesso nome della release
+      # I runtime telegram/httpx/httpcore sono raccolti dal follow-imports di --standalone.
+      run: >
+        python -m nuitka --standalone --onefile --msvc=latest --assume-yes-for-downloads
+        --enable-plugin=tk-inter
+        --include-package-data=customtkinter
+        --include-data-files=data/dizionario_xtrader.csv=data/dizionario_xtrader.csv
+        --windows-console-mode=disable
+        --output-filename=XTrader-Signal-Bridge.exe
+        --output-dir=dist
+        main.py
+
+    - name: Carica EXE Nuitka come Artifact (anteprima, scaricabile)
+      # Nome artifact versionato e con "Nuitka" per distinguerlo dall'EXE PyInstaller di
+      # release; il file .exe interno resta `XTrader-Signal-Bridge.exe`.
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: ${{ steps.meta.outputs.artifact }}
+        path: dist/XTrader-Signal-Bridge.exe
+        retention-days: 7
