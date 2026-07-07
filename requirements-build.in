@@ -8,7 +8,12 @@
 #                               (es. un plugin pytest) entra automaticamente nel lock e non
 #                               manca nella build di release (niente più `pytest` duplicato
 #                               qui e in `requirements-dev.txt`, che potevano divergere).
-# - pyinstaller              → compila l'EXE (`pyinstaller --onefile ...`);
+# - pyinstaller              → compila l'EXE di release (`pyinstaller --onefile ...`);
+# - nuitka                   → compila l'EXE di ANTEPRIMA (`build-nuitka.yaml`, Fase 6). Sta nel
+#                              lock UNIFICATO così anche la build Nuitka installa con
+#                              `--require-hashes` (integrità supply-chain sull'EXE che l'owner
+#                              esegue). Entrambi i tool nello stesso lock: ogni workflow di build
+#                              installa il set completo (l'altro tool resta inerte, innocuo).
 # - httpx                    → richiesto da python-telegram-bot a runtime ed esplicitato
 #                              come hidden-import per PyInstaller.
 #
@@ -16,7 +21,10 @@
 #   requirements.in → requirements.txt → requirements-dev.txt → requirements-build.in → lock
 # Da questo file si genera il lock completo con hash `requirements-build.lock` su
 # Windows + Python 3.11 (workflow "Generate Windows Lockfile"). NON modificare il lock
-# a mano: si rigenera dal workflow.
+# a mano: si rigenera dal workflow. NB: aggiungere `nuitka` qui rende STANTIO il lock
+# committato finché non viene rigenerato su Windows e ricommesso (il check "Generate Windows
+# Lockfile" resta rosso fino ad allora — è il segnale atteso, non un errore).
 -r requirements-dev.txt
 pyinstaller
+nuitka
 httpx

@@ -1941,3 +1941,32 @@ completo resta la slice lockfile successiva (generata su Windows). CodeRabbit (2
 guardrail no-Release **ampliato** (action `*/release*`, `gh release create/upload`, `files:`
 inline **e** blocco `|`). 3 mutazioni aggiuntive (opzione obbligatoria omessa, `gh release
 create`, action di release + `files: |`) tutte KILLED. Suite **2384 passed**.
+
+## Fase 6 slice 3 — lockfile Nuitka `--require-hashes` (chiusura residuo supply-chain)
+
+Chiude il residuo supply-chain segnalato da Fable 5 + Fugu Ultra su #366: la build Nuitka non
+installa più (a regime) da PyPI non bloccato, ma dal **lock riproducibile con hash**. Scelta:
+**lock UNIFICATO** — `nuitka` aggiunto a `requirements-build.in` accanto a `pyinstaller`/`httpx`,
+così un solo `requirements-build.lock` (generato su Windows+py3.11 da *Generate Windows Lockfile*)
+copre entrambe le build; ogni workflow installa il set completo, l'altro tool resta inerte.
+
+`build-nuitka.yaml` diventa **self-healing** (stessa logica di `build.yaml` + un check in più):
+installa `--require-hashes -r requirements-build.lock` **solo se il lock contiene già `nuitka==`**
+(rigenerato dopo l'aggiunta al `.in`); altrimenti ripiega sull'install legacy con **nuitka
+pinnato** (`nuitka==4.1.3`), così la build resta funzionante finché il lock non è pronto.
+
+**Handshake owner obbligatorio (per progetto, non un difetto):** aggiungere `nuitka` al `.in`
+rende STANTIO il lock committato → il check *Generate Windows Lockfile* (trigger PR su
+`requirements-build.in`) **fallisce** con `git diff --exit-code` finché l'owner non rigenera il
+lock su Windows e lo ricommitte. La run — anche quella fallita in PR — **carica il lock corretto
+come artifact** (upload PRIMA del gate anti-stantio, by design), che l'owner scarica e committa
+sul branch della PR → verde → merge (manuale). Fino ad allora `build-nuitka.yaml` resta sul
+fallback pinnato (nessuna rottura).
+
+Test hard nuovi (2): `test_nuitka_nel_lock_source` (nuitka in `requirements-build.in`) e
+`test_nuitka_install_usa_lock_con_hash_quando_disponibile` (ramo `--require-hashes` gated sul
+lock-con-nuitka + fallback pinnato) — fail-first, 2 mutazioni (nuitka tolto dal `.in`; ramo
+`--require-hashes` rimosso) KILLED. Suite **2386 passed**. CORE CHANGE = **nessuno** (solo
+`requirements-build.in` + workflow + test + docs; nulla sotto `xtrader_bridge/**`/`data/**`).
+Design handoff = **N/A** (nessun cambio GUI). Prossimo dopo la validazione Windows dell'owner:
+**ritiro di PyInstaller** (Nuitka diventa la build di release).

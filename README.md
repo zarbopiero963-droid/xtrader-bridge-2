@@ -707,7 +707,7 @@ sono espresse come file sorgente `.in` (vincoli "morbidi" top-level) da cui si g
 | File | Cos'è | Si modifica a mano? |
 |---|---|---|
 | `requirements.in` | **sorgente unica** delle dipendenze **runtime** top-level (FLOOR `>=`, con la motivazione di sicurezza) | sì |
-| `requirements-build.in` | tutto ciò che la **build Windows** installa: `-r requirements-dev.txt` (runtime + `pytest`, single-source) + `pyinstaller` + `httpx` | sì |
+| `requirements-build.in` | tutto ciò che la **build Windows** installa: `-r requirements-dev.txt` (runtime + `pytest`, single-source) + `pyinstaller` (release) + `nuitka` (anteprima) + `httpx` | sì |
 | `requirements-build.lock` | **lockfile completo con hash** (versioni esatte di TUTTE le transitive) generato su **Windows + Python 3.11** | **NO** — si rigenera dal workflow |
 | `requirements.txt` | install "soft" della CI di test/dev: ora **richiama `requirements.in`** (`-r requirements.in`), quindi una dipendenza runtime ha **un solo posto** dove cambiare ed è la stessa sorgente del lock (niente drift) | sì |
 | `requirements-dev.txt` | `-r requirements.txt` + `pytest` (test) | sì |
@@ -760,6 +760,18 @@ dipendenza pinnata **prima di pubblicare una release**.
   `python -m pip install --require-hashes -r requirements-build.lock` (riproducibile);
 - se **assente** → install legacy (`requirements-dev.txt` + `pyinstaller httpx`), così la
   build non si rompe finché il lock non è stato committato.
+
+`build-nuitka.yaml` (build EXE **anteprima** Nuitka) usa lo **stesso** lock unificato, con un
+controllo in più: installa `--require-hashes` **solo se il lock contiene già `nuitka`**
+(cioè è stato rigenerato dopo l'aggiunta a `requirements-build.in`); altrimenti ripiega su un
+install legacy con **`nuitka` pinnato** a una versione esatta (build funzionante, nessun drift)
+finché non rigeneri e committi il lock.
+
+> ℹ️ **Aggiungere `nuitka` al lock** (fatto in `requirements-build.in`) rende il
+> `requirements-build.lock` committato **stantio**: il check *Generate Windows Lockfile* resta
+> **rosso** finché non lo rigeneri su Windows e lo ricommitti (segui *Come (ri)generare il
+> lockfile* qui sopra: la run — anche quella fallita in PR — carica il lock corretto come
+> artifact, che scarichi e committi). È il segnale atteso, non un errore.
 
 La compilazione dell'EXE con **PyInstaller** resta invariata.
 

@@ -1054,6 +1054,32 @@ def test_nuitka_artifact_un_solo_exe_niente_release():
                     f"build-nuitka.yaml: blocco `files:` con .exe (release): {ln.strip()!r}"
 
 
+def test_nuitka_nel_lock_source():
+    """Fase 6 lockfile slice: `requirements-build.in` elenca `nuitka`, così il lock UNIFICATO
+    rigenerato su Windows lo copre con hash e `build-nuitka.yaml` può installare
+    `--require-hashes`. Senza questa riga il lock non conterrebbe mai nuitka e il ramo
+    riproducibile non scatterebbe (resterebbe per sempre sul fallback legacy)."""
+    inp = _read(os.path.join(_REPO_ROOT, "requirements-build.in"))
+    assert re.search(r"(?m)^nuitka\b", inp), "requirements-build.in deve elencare nuitka"
+
+
+def test_nuitka_install_usa_lock_con_hash_quando_disponibile():
+    """Fase 6 lockfile slice: `build-nuitka.yaml` installa con `--require-hashes` dal lock
+    riproducibile QUANDO il lock include nuitka (integrità supply-chain sull'EXE che l'owner
+    esegue), con fallback a nuitka PINNATO finché il lock non è rigenerato. Guardrail
+    fail-closed: se qualcuno togliesse il ramo `--require-hashes` o il gating sul lock-con-nuitka,
+    questo test fallisce (si tornerebbe a un install non bloccato)."""
+    text = _read(os.path.join(_WORKFLOWS_DIR, "build-nuitka.yaml"))
+    assert "--require-hashes -r requirements-build.lock" in text, \
+        "build-nuitka.yaml deve poter installare col lock hashato (--require-hashes)"
+    # il ramo hashato scatta SOLO se il lock include DAVVERO nuitka (non un lock pyinstaller-only)
+    assert re.search(r"Select-String[^\n]*requirements-build\.lock[^\n]*nuitka", text), \
+        "l'install --require-hashes deve essere gated sul lock che CONTIENE nuitka"
+    # fallback pinnato finché il lock non è pronto (build funzionante, niente drift di versione)
+    assert re.search(r"pip install -r requirements-dev\.txt nuitka==\d+\.\d+", text), \
+        "manca il fallback legacy con nuitka pinnato"
+
+
 def test_nuitka_detector_forme_canoniche_e_wrappate():
     """Detector Nuitka (senza build reale): forma diretta e modulo (anche versionata/venv) sono
     CANONICHE; le forme wrappate (cmd/pwsh/sh) sono RILEVATE ma NON canoniche → rifiutate dal
