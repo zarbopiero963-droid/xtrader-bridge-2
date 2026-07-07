@@ -1097,6 +1097,23 @@ def test_nuitka_install_fallback_e_gated_correttamente():
         "(fallback quando il lock non contiene ancora nuitka)")
 
 
+def test_lockfile_pubblicato_nel_job_summary_prima_dell_upload():
+    """Fallback anti-quota (#367): `generate-lockfile.yaml` scrive il lock generato nel Job
+    Summary (`GITHUB_STEP_SUMMARY`) PRIMA dello step `upload-artifact`, così il lock resta
+    recuperabile dalla pagina della run anche quando l'upload fallisce per quota storage piena.
+    Guardrail: se qualcuno spostasse il dump DOPO l'upload (o lo togliesse), il lock tornerebbe
+    irrecuperabile a quota piena → questo test fallisce."""
+    text = _read(os.path.join(_WORKFLOWS_DIR, "generate-lockfile.yaml"))
+    assert "GITHUB_STEP_SUMMARY" in text, "manca il dump del lock nel Job Summary (fallback quota)"
+    assert re.search(r"Get-Content\s+requirements-build\.lock", text), \
+        "il Job Summary deve includere il CONTENUTO di requirements-build.lock"
+    i_summary = text.find("GITHUB_STEP_SUMMARY")
+    m_upload = re.search(r"uses:\s*actions/upload-artifact", text)   # lo step reale, non i commenti
+    assert i_summary != -1 and m_upload, "struttura generate-lockfile non trovata"
+    assert i_summary < m_upload.start(), \
+        "il dump nel Job Summary dev'essere PRIMA dello step upload-artifact (disponibile anche se l'upload fallisce)"
+
+
 def test_nuitka_detector_forme_canoniche_e_wrappate():
     """Detector Nuitka (senza build reale): forma diretta e modulo (anche versionata/venv) sono
     CANONICHE; le forme wrappate (cmd/pwsh/sh) sono RILEVATE ma NON canoniche → rifiutate dal

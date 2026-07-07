@@ -1942,6 +1942,20 @@ guardrail no-Release **ampliato** (action `*/release*`, `gh release create/uploa
 inline **e** blocco `|`). 3 mutazioni aggiuntive (opzione obbligatoria omessa, `gh release
 create`, action di release + `files: |`) tutte KILLED. Suite **2384 passed**.
 
+### Fallback anti-quota del lock (#367)
+
+Durante l'handshake del lock su #367 il check *Generate Windows Lockfile* falliva NON per il
+git-diff stantio atteso ma allo step `upload-artifact` con *"Artifact storage quota has been
+hit"* (backlog EXE che riempie la quota storage account-level; il conteggio GitHub si ricalcola
+ogni 6-12h, quindi resta bloccato a lungo anche dopo una *Pulizia artifact* con `max_age_days=0`).
+Il lock si generava correttamente, ma non era scaricabile → handshake bloccato. Fix: nuovo step
+in `generate-lockfile.yaml` che scrive il `requirements-build.lock` generato nel **Job Summary**
+della run (`GITHUB_STEP_SUMMARY`), PRIMA dell'upload e dei gate — così il lock (solo versioni +
+hash, nessun segreto) è **copiabile dalla pagina della run** senza dipendere dall'artifact/quota,
+e la rigenerazione diventa immune al muro-quota. Nessun cambio di permessi (`contents: read`),
+niente auto-commit. Test hard `test_lockfile_pubblicato_nel_job_summary_prima_dell_upload`
+(dump presente + PRIMA dell'upload); mutazione (step rimosso) KILLED. Suite **2388 passed**.
+
 ## Fase 6 slice 3 — lockfile Nuitka `--require-hashes` (chiusura residuo supply-chain)
 
 Chiude il residuo supply-chain segnalato da Fable 5 + Fugu Ultra su #366: la build Nuitka non

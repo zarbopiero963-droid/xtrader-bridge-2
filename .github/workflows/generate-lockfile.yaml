@@ -124,6 +124,24 @@ jobs:
         # versione non pinnata che maschererebbe l'assenza dal lock (Codex).
         run: pip-compile --generate-hashes --allow-unsafe --output-file requirements-build.lock requirements-build.in
 
+      - name: Pubblica il lock nel Job Summary (fallback anti-quota)
+        # Il `requirements-build.lock` è solo versioni + hash (NESSUN segreto): lo si scrive nel
+        # Job Summary della run così è COPIABILE direttamente dalla pagina della run anche quando
+        # il caricamento dell'artifact fallisce per QUOTA storage piena (il conteggio GitHub si
+        # ricalcola ogni 6-12h, quindi il caricamento può restare bloccato a lungo dopo una
+        # pulizia). Sta QUI, PRIMA del caricamento e dei gate anti-stantio/validazione, così il
+        # lock è SEMPRE recuperabile a prescindere dal loro esito. Non tocca permessi (job resta
+        # `contents: read`) né committa.
+        shell: pwsh
+        run: |
+          $sum = $env:GITHUB_STEP_SUMMARY
+          "## requirements-build.lock (rigenerato)"                                        | Out-File -FilePath $sum -Append -Encoding utf8
+          "Se l'upload-artifact è bloccato dalla quota, copia il blocco qui sotto nel file" | Out-File -FilePath $sum -Append -Encoding utf8
+          "``requirements-build.lock`` nella root del repo e committalo."                   | Out-File -FilePath $sum -Append -Encoding utf8
+          '```'                                                                            | Out-File -FilePath $sum -Append -Encoding utf8
+          Get-Content requirements-build.lock                                              | Out-File -FilePath $sum -Append -Encoding utf8
+          '```'                                                                            | Out-File -FilePath $sum -Append -Encoding utf8
+
       - name: Upload generated lockfile
         # Caricato SUBITO dopo la generazione, PRIMA dei gate anti-stantio/validazione: così
         # il lock rigenerato è SEMPRE scaricabile come artifact anche quando il gate fallisce

@@ -752,6 +752,13 @@ dipendenza pinnata **prima di pubblicare una release**.
    (contiene `requirements-build.lock`).
 4. **Committa** `requirements-build.lock` nel repository (root).
 
+> 🛟 **Se l'upload dell'artifact fallisce per quota storage piena** (`Failed to CreateArtifact:
+> Artifact storage quota has been hit` — il conteggio GitHub si ricalcola ogni 6-12h, quindi può
+> restare bloccato per un po' anche dopo una *Pulizia artifact* con `max_age_days=0`): il lock è
+> **comunque recuperabile** dalla **pagina della run → Summary**, dove lo step *"Pubblica il lock
+> nel Job Summary"* lo stampa in un blocco copiabile (è solo versioni + hash, nessun segreto).
+> Copia quel contenuto in `requirements-build.lock` e committalo — nessun artifact necessario.
+
 ### Effetto sulla build
 
 `build.yaml` rileva automaticamente il lock:
