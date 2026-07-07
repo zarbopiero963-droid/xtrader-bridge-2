@@ -133,8 +133,9 @@ comportamento storico (italiano) e il selettore ricompare al prossimo avvio. Pro
 col riconoscimento a nomi, **imposta in XTrader/Betting Toolkit la lingua della fonte
 uguale a quella scelta qui** (i nomi dipendono dalla lingua del palinsesto). Dalla
 slice 4a la **finestra principale** è localizzata (tab, bottoni, nomi campo in EN/ES;
-la lingua si applica al **riavvio**); stati dinamici «⬤ ATTIVO/OFFLINE», banner, log e
-finestre secondarie restano in italiano e arrivano con i prossimi slice della #343.
+la lingua si applica al **riavvio**); dalla slice 4b anche lo stato «⬤ ATTIVO/RICONNESSIONE…»
+è localizzato; banner, log e finestre secondarie restano in italiano e arrivano con i
+prossimi slice della #343.
 
 La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Config**
 (oppure all'avvio con **▶ AVVIA**) nel file `config.json` (vedi

@@ -29,7 +29,7 @@ _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
-    "app.py": (46, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+    "app.py": (45, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
                    "event journal best-effort (#230); refill campo token su widget Tk distrutto (PR-08c); "
                    "engine/DB non disponibile → login Betfair senza riserva del lock (#172 audit); "
                    "probe is_syncing dell'anteprima ID fail-open (#192, Codex P2); "
@@ -48,8 +48,8 @@ _ALLOWLIST = {
                    "in headless/display assente l'uscita della seconda istanza avviene comunque); "
                    "dialog conferma COLLAUDO (#311 §3.1): errore dialog → NON confermare "
                    "(fail-closed, stesso pattern di _confirm_real_mode/_confirm_multi_signal); "
-                   "lettura testo _status_lbl per il semaforo Telegram (#311 §3.3): widget "
-                   "non pronto → stato OFFLINE onesto, il pannello Salute non crasha la GUI; "
+                   "(#343 slice 4b: rimosso il blind-except sulla lettura del testo _status_lbl — "
+                   "il semaforo Telegram ora usa lo stato CANONICO _listener_state, niente widget); "
                    "_refresh_health interamente best-effort (Fable #351): una sonda che solleva "
                    "(share instabile, config corrotta) non deve MAI rompere il monitoraggio "
                    "primario ne' i chiamanti _set_last/START/STOP/save; "

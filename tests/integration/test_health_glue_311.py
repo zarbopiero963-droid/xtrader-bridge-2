@@ -18,8 +18,11 @@ class _Lbl:
         self.kw = kw
 
 
-def _bare(app_mod, tmp_path, *, status="⬤  ATTIVO"):
+def _bare(app_mod, tmp_path, *, status=hc.LISTENER_ACTIVE):
     app = object.__new__(app_mod.App)
+    # #343 slice 4b: il semaforo legge lo stato CANONICO (_listener_state), non
+    # più il testo della label (che ora è solo display localizzato).
+    app._listener_state = status
     csv = tmp_path / "segnali.csv"
     app._config = {"csv_path": str(csv), "dry_run": False, "bridge_mode": "COLLAUDO",
                    "xtrader_notification_chat_id": "123",

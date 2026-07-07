@@ -202,6 +202,9 @@ class App(ctk.CTk):
     _betfair_panel = None           # pannello tab Betfair, valorizzato in `_open_tools`
     _async_stop_event = None        # asyncio.Event della sessione listener: STOP la sveglia (#184 H5/Codex #191)
     _wizard_win = None              # Wizard aperto (#311 §3.4): singleton, un secondo click lo riporta davanti
+    # Stato CANONICO del listener (#343 slice 4b): fonte unica per il semaforo 🚦
+    # Salute (health_check.LISTENER_*) — la label ⬤ è solo display localizzato.
+    _listener_state = health_check.LISTENER_OFFLINE
 
     def __init__(self):
         # Single-instance lock (#311-1.1): PRIMA di qualsiasi altra cosa — due istanze
@@ -1053,7 +1056,7 @@ class App(ctk.CTk):
                      font=ctk.CTkFont(size=20, weight="bold"),
                      text_color=_COLOR_HEADER_TITLE).pack(side="left", padx=15, pady=10)
 
-        self._status_lbl = ctk.CTkLabel(hdr, text="⬤  OFFLINE",
+        self._status_lbl = ctk.CTkLabel(hdr, text=i18n.tr("⬤  OFFLINE"),
                                          font=ctk.CTkFont(size=13, weight="bold"),
                                          text_color=_COLOR_STATUS_OFFLINE)
         self._status_lbl.pack(side="right", padx=15)
@@ -1412,12 +1415,29 @@ class App(ctk.CTk):
             # dashboard) né i chiamanti (_set_last/START/STOP/save).
             pass
 
+    # Testi visibili dello stato listener: SOLO display (localizzati via i18n,
+    # #343 slice 4b); la logica usa lo stato canonico `_listener_state`.
+    _LISTENER_TEXTS = {
+        health_check.LISTENER_ACTIVE: "⬤  ATTIVO",
+        health_check.LISTENER_RECONNECTING: "⬤  RICONNESSIONE…",
+        health_check.LISTENER_OFFLINE: "⬤  OFFLINE",
+    }
+
+    def _set_listener_state(self, state, color) -> None:
+        """Punto UNICO per lo stato listener (#343 slice 4b): traccia lo stato
+        canonico (health_check.LISTENER_*) per il semaforo Salute — niente più
+        parsing del testo della label, che ora è solo display localizzato (in
+        EN/ES la label cambia, la logica no)."""
+        self._listener_state = state
+        self._status_lbl.configure(text=i18n.tr(self._LISTENER_TEXTS[state]),
+                                   text_color=color)
+
     def _refresh_health_inner(self, lbls) -> None:
         cfg = self._config if isinstance(self._config, dict) else {}
-        try:
-            status = self._status_lbl.cget("text")
-        except Exception:   # noqa: BLE001 — widget non pronto: semaforo OFFLINE onesto
-            status = health_check.LISTENER_OFFLINE
+        # Stato CANONICO (#343 slice 4b): niente parsing del testo della label —
+        # in EN/ES la label è tradotta e il vecchio substring-match si romperebbe.
+        status = (self.__dict__.get("_listener_state")
+                  or health_check.LISTENER_OFFLINE)
         csv_state, csv_detail = health_check.csv_writable(cfg.get("csv_path", ""))
         items = health_check.evaluate(
             listener_status=status,
@@ -2552,7 +2572,7 @@ class App(ctk.CTk):
         self._session_real = not safety_guard.is_dry_run(cfg)
         self._session_mode = bridge_mode.mode_from_cfg(cfg)   # per il banner COLLAUDO sticky
         self._stop_event.clear()      # nuova sessione: riarma l'attesa del backoff
-        self._status_lbl.configure(text="⬤  ATTIVO", text_color=_COLOR_STATUS_ACTIVE)
+        self._set_listener_state(health_check.LISTENER_ACTIVE, _COLOR_STATUS_ACTIVE)
         self._btn_start.configure(state="disabled")
         self._btn_stop.configure(state="normal")
         self._update_real_mode_banner()   # mostra il banner se la sessione è reale
@@ -2651,7 +2671,7 @@ class App(ctk.CTk):
             # stantia resterebbe su disco fino al riavvio dell'app. Il retry si ferma da
             # solo se una nuova sessione riprende il path o l'app chiude.
             self._schedule_stop_clear_retry(stop_path)
-        self._status_lbl.configure(text="⬤  OFFLINE", text_color=_COLOR_STATUS_OFFLINE)
+        self._set_listener_state(health_check.LISTENER_OFFLINE, _COLOR_STATUS_OFFLINE)
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")
         self._log("🛑 Bridge fermato.")
@@ -2934,11 +2954,11 @@ class App(ctk.CTk):
         self._stop_event.wait(delay)
 
     def _set_status_reconnecting(self) -> None:
-        self._status_lbl.configure(text="⬤  RICONNESSIONE…", text_color=_COLOR_STATUS_RECONNECT)
+        self._set_listener_state(health_check.LISTENER_RECONNECTING, _COLOR_STATUS_RECONNECT)
 
     def _set_status_connected(self) -> None:
         if self._running:
-            self._status_lbl.configure(text="⬤  ATTIVO", text_color=_COLOR_STATUS_ACTIVE)
+            self._set_listener_state(health_check.LISTENER_ACTIVE, _COLOR_STATUS_ACTIVE)
             self._log("✅ Connesso a Telegram.")
 
     # ── PROCESS SIGNAL ────────────────────────

@@ -230,10 +230,13 @@ le etichette dei contatori Dashboard — catalogo `i18n.py`, italiano = riferime
 fallback fail-safe: una
 traduzione mancante mostra l'italiano, mai stringhe vuote), applicate al **riavvio**
 (log di conferma: «…riavvia il bridge per applicare la lingua all'interfaccia…»).
-Restano IN ITALIANO per ora (slice successivi): gli stati dinamici «⬤
-ATTIVO/OFFLINE/RICONNESSIONE…» (il semaforo 🚦 Salute fa il parsing del testo dello
-stato: la loro localizzazione richiede prima uno stato canonico tracciato a parte),
-banner, testi dei log e tutte le finestre secondarie.
+Dalla **slice 4b** anche gli stati dinamici «⬤ ATTIVO/RICONNESSIONE…» sono
+localizzati (EN: ACTIVE/RECONNECTING… · ES: ACTIVO/RECONEXIÓN… · «⬤  OFFLINE» è
+universale): il semaforo 🚦 Salute non fa più il parsing del testo della label ma usa
+lo **stato canonico** `_listener_state` (`health_check.LISTENER_*`), impostato dal
+punto unico `_set_listener_state` — la label è SOLO display. Restano IN ITALIANO per
+ora (slice successivi): banner REALE/COLLAUDO, testi dei log e tutte le finestre
+secondarie.
 
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
