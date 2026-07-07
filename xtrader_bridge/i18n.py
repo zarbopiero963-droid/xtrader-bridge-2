@@ -178,6 +178,27 @@ _CATALOG = {
         "❌ Eliminazione fallita: {exc}": "❌ Delete failed: {exc}",
         "🗑 Profilo {name!r} eliminato.": "🗑 Profile {name!r} deleted.",
         "⚠️ Profilo {name!r} non trovato.": "⚠️ Profile {name!r} not found.",
+        # Finestra Chat sorgenti (#343 slice 4e; solo chrome — sentinella
+        # «(predefinito)», chip Traduzioni e errori di dominio restano IT)
+        "📡  Chat sorgenti (multi-chat)": "📡  Source chats (multi-chat)",
+        "Chat sorgenti (multi-chat)": "Source chats (multi-chat)",
+        "Ogni sorgente è una chat/canale da cui accettare segnali. "
+        "chat_id obbligatorio e univoco; una sorgente disattivata viene ignorata.":
+            "Each source is a chat/channel to accept signals from. chat_id is "
+            "required and unique; a disabled source is ignored.",
+        "Attiva": "Enabled",
+        "Nome": "Name",
+        "Modalità": "Mode",
+        "Traduzioni": "Translations",
+        "➕  Aggiungi sorgente": "➕  Add source",
+        "💾  Salva": "💾  Save",
+        "Niente salvato: correggi gli errori.": "Nothing saved: fix the errors.",
+        "❌ Salvataggio su disco FALLITO: sorgenti NON salvate (andrebbero "
+        "perse al riavvio). Controlla permessi/spazio del file config.":
+            "❌ Disk save FAILED: sources NOT saved (would be lost on restart). "
+            "Check config file permissions/space.",
+        "✅ Salvate {n} sorgenti in config.json.":
+            "✅ Saved {n} sources to config.json.",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -290,5 +311,26 @@ _CATALOG = {
         "❌ Eliminazione fallita: {exc}": "❌ Eliminación fallida: {exc}",
         "🗑 Profilo {name!r} eliminato.": "🗑 Perfil {name!r} eliminado.",
         "⚠️ Profilo {name!r} non trovato.": "⚠️ Perfil {name!r} no encontrado.",
+        # Finestra Chat sorgenti (#343 slice 4e)
+        "📡  Chat sorgenti (multi-chat)": "📡  Chats de origen (multi-chat)",
+        "Chat sorgenti (multi-chat)": "Chats de origen (multi-chat)",
+        "Ogni sorgente è una chat/canale da cui accettare segnali. "
+        "chat_id obbligatorio e univoco; una sorgente disattivata viene ignorata.":
+            "Cada origen es un chat/canal del que aceptar señales. chat_id es "
+            "obligatorio y único; un origen desactivado se ignora.",
+        "Attiva": "Activa",
+        "Nome": "Nombre",
+        "Modalità": "Modo",
+        "Provider": "Proveedor",
+        "Traduzioni": "Traducciones",
+        "➕  Aggiungi sorgente": "➕  Añadir origen",
+        "💾  Salva": "💾  Guardar",
+        "Niente salvato: correggi gli errori.": "Nada guardado: corrige los errores.",
+        "❌ Salvataggio su disco FALLITO: sorgenti NON salvate (andrebbero "
+        "perse al riavvio). Controlla permessi/spazio del file config.":
+            "❌ Guardado en disco FALLIDO: orígenes NO guardados (se perderían al "
+            "reiniciar). Comprueba permisos/espacio del archivo config.",
+        "✅ Salvate {n} sorgenti in config.json.":
+            "✅ Guardados {n} orígenes en config.json.",
     },
 }
