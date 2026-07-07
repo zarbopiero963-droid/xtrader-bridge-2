@@ -1832,3 +1832,19 @@ l'eccezione bubblata dal modulo puro `profile_store` (testo di dominio, localizz
 in uno slice a parte). Nuovo `test_profiles_i18n_343.py` (wrapping reale, copertura
 EN/ES, parità segnaposto incl. `!r`, round-trip). Mutazioni AN–AP KILLED. Chat sorgenti
 (finestra del filtro chat, safety-critical) tenuta separata per il prossimo slice.
+
+## #343 slice 4e — Localizzazione finestre secondarie, parte 3: Chat sorgenti (chrome) (coda GUI, PR 14)
+
+Terza finestra secondaria (`source_chats_gui.py`), la più delicata: è la finestra del
+FILTRO CHAT (safety-critical). Localizzata SOLO la chrome di display: titolo, hint,
+intestazioni colonne (i titoli via `i18n.tr` alla costruzione della tupla → l'anti-drift
+AST li riconosce come costanti), bottoni, messaggi di stato GUI-composti («✅ Salvate {n}
+sorgenti…», «❌ Salvataggio su disco FALLITO…», «Niente salvato…»). ESPLICITAMENTE FUORI
+SCOPE (docstring + test dedicato che lo enforce): la sentinella `_NO_PARSER_BASE =
+"(predefinito)"` (usata in confronti di UGUAGLIANZA in `_effective_parser_name`/`_save`,
+NON semplice testo), l'helper puro `_translations_chip_text` (asserito verbatim in
+`test_source_chats_translations.py`/`test_config_summary_gui.py`, vocabolario condiviso), e
+gli errori/warning di dominio da `editor.apply()`. Nuovo `test_source_chats_i18n_343.py`
+include un test che VERIFICA la non-localizzazione della sentinella/chip (guardia
+anti-regressione). Mutazioni AQ (chiave stantia) e AR (sentinella localizzata → safety-test
+fallisce) KILLED. Suite 2347 passed.

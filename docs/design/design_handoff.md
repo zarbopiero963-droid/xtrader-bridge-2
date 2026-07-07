@@ -245,7 +245,15 @@ Dalla **slice 4d** è localizzata anche **📁 Profili impostazioni** (stesso sc
 titolo/testi/bottoni + messaggi di stato dinamici via template+`.format`; i messaggi
 che mostrano SOLO l'eccezione bubblata dal layer puro `profile_store` restano IT, slice
 a parte). Restano IN ITALIANO per ora: banner REALE/COLLAUDO, testi dei log e le altre
-finestre secondarie (Parser, Mapping, Strumenti, Chat sorgenti, …).
+finestre secondarie (Parser, Mapping, Strumenti, …).
+
+Dalla **slice 4e** è localizzata la **chrome** di **📡 Chat sorgenti** (finestra del
+FILTRO CHAT, safety-critical): titolo, hint, intestazioni colonne (Attiva/Nome/
+Modalità/Traduzioni; Chat ID/Provider/Parser già ~universali), bottoni e messaggi di
+stato GUI-composti. Restano IN ITALIANO per non toccare logica/contratti: la sentinella
+«(predefinito)» (usata in confronti di uguaglianza), il chip «Traduzioni» («Nomi ✓ ·
+Mercati —», helper puro asserito verbatim in CI) e gli errori/warning bubblati dal layer
+di dominio `editor.apply()`.
 
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 

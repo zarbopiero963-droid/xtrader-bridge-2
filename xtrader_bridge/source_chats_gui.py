@@ -7,13 +7,23 @@ pulsante nella GUI principale (`app.App`). Permette di aggiungere/rimuovere sorg
 ciascuna un **Parser Personalizzato** dedicato (override `parser_by_chat`, PR-13c),
 salvando in `config.json` senza editare il file a mano.
 
+Testi UI localizzati via `i18n.tr` (#343 slice 4e) — SOLO la chrome di display:
+titolo, hint, intestazioni colonne, bottoni, messaggi di stato GUI-composti. Restano
+in italiano (FUORI SCOPE, per non toccare logica safety-critical o contratti di test):
+- la sentinella `(predefinito)` (`_NO_PARSER_BASE`): è usata in confronti di
+  UGUAGLIANZA (`_effective_parser_name`, `_save`) e come chiave di override, NON è
+  semplice testo;
+- l'helper puro `_translations_chip_text` (chip «Nomi ✓ · Mercati —»): asserito
+  VERBATIM in più test CI e vocabolario condiviso con `config_summary_gui`;
+- i messaggi d'errore/warning bubblati da `editor.apply()` (layer di dominio).
+
 NB: questo modulo non è testato in CI (richiede un display). La logica che usa è
 coperta da `tests/unit/test_source_editor.py`. Verifica manuale su Windows.
 """
 
 import customtkinter as ctk
 
-from . import config_store, config_summary, custom_parser, gui_utils
+from . import config_store, config_summary, custom_parser, gui_utils, i18n
 from .source_editor import SourceEditor
 
 # Chip «Traduzioni» per canale (#293 slice 6): mostra se il parser del canale ha mappature
@@ -158,20 +168,23 @@ class SourceChatsPanel(ctk.CTkFrame):
     # ── costruzione UI ─────────────────────────────────────────────────────
     def _build_ui(self):
         ctk.CTkLabel(
-            self, text="📡  Chat sorgenti (multi-chat)",
+            self, text=i18n.tr("📡  Chat sorgenti (multi-chat)"),
             font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
         ctk.CTkLabel(
-            self, text="Ogni sorgente è una chat/canale da cui accettare segnali. "
-                       "chat_id obbligatorio e univoco; una sorgente disattivata viene ignorata.",
+            self, text=i18n.tr("Ogni sorgente è una chat/canale da cui accettare segnali. "
+                               "chat_id obbligatorio e univoco; una sorgente disattivata "
+                               "viene ignorata."),
             font=ctk.CTkFont(size=11), text_color="gray", wraplength=860,
             anchor="w", justify="left").pack(anchor="w", padx=12, pady=(0, 6))
 
-        # Intestazione colonne
+        # Intestazione colonne (i titoli sono display: i18n.tr al momento della
+        # costruzione della tupla, così l'anti-drift AST li riconosce come costanti).
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=12)
-        for text, w in (("Attiva", 60), ("Nome", 180), ("Chat ID", 160),
-                        ("Modalità", 100), ("Provider", 150), ("Parser", 160),
-                        ("Traduzioni", 150), ("", 40)):
+        for text, w in ((i18n.tr("Attiva"), 60), (i18n.tr("Nome"), 180),
+                        (i18n.tr("Chat ID"), 160), (i18n.tr("Modalità"), 100),
+                        (i18n.tr("Provider"), 150), (i18n.tr("Parser"), 160),
+                        (i18n.tr("Traduzioni"), 150), ("", 40)):
             ctk.CTkLabel(head, text=text, width=w, anchor="w",
                          font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
 
@@ -180,9 +193,9 @@ class SourceChatsPanel(ctk.CTkFrame):
 
         btns = ctk.CTkFrame(self, fg_color="transparent")
         btns.pack(fill="x", padx=12, pady=(0, 4))
-        ctk.CTkButton(btns, text="➕  Aggiungi sorgente", width=180,
+        ctk.CTkButton(btns, text=i18n.tr("➕  Aggiungi sorgente"), width=180,
                       command=lambda: self._add_row()).pack(side="left", padx=4)
-        ctk.CTkButton(btns, text="💾  Salva", width=140, fg_color="#2e7d32",
+        ctk.CTkButton(btns, text=i18n.tr("💾  Salva"), width=140, fg_color="#2e7d32",
                       hover_color="#1b5e20", command=self._save).pack(side="right", padx=4)
 
         self._status = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=11),
@@ -262,8 +275,11 @@ class SourceChatsPanel(ctk.CTkFrame):
         cfg = config_store.load_config(config_store.CONFIG_FILE)
         new_cfg, errors, warnings = editor.apply(cfg)
         if errors:
+            # Gli `errors` vengono dal layer di dominio (`editor.apply`, IT): fuori
+            # scope i18n di questa slice; qui si localizza solo la coda GUI-composta.
             self._status.configure(
-                text="❌ " + "  ·  ".join(errors) + "\nNiente salvato: correggi gli errori.",
+                text="❌ " + "  ·  ".join(errors) + "\n"
+                     + i18n.tr("Niente salvato: correggi gli errori."),
                 text_color="#ef5350")
             return
         # Esito reale della persistenza (A1): se la scrittura su disco fallisce NON si
@@ -272,14 +288,16 @@ class SourceChatsPanel(ctk.CTkFrame):
         _, ok = config_store.save_config(new_cfg, config_store.CONFIG_FILE)
         if not ok:
             self._status.configure(
-                text="❌ Salvataggio su disco FALLITO: sorgenti NON salvate (andrebbero "
-                     "perse al riavvio). Controlla permessi/spazio del file config.",
+                text=i18n.tr("❌ Salvataggio su disco FALLITO: sorgenti NON salvate "
+                             "(andrebbero perse al riavvio). Controlla permessi/spazio "
+                             "del file config."),
                 text_color="#ef5350")
             return
         if self._on_saved:
             self._on_saved(new_cfg)
-        msg = f"✅ Salvate {len(self._rows)} sorgenti in config.json."
+        msg = i18n.tr("✅ Salvate {n} sorgenti in config.json.").format(n=len(self._rows))
         if warnings:
+            # `warnings` dal layer di dominio (IT): fuori scope; solo il prefisso è chrome.
             msg += "\n⚠️ " + "  ·  ".join(warnings)
         self._status.configure(text=msg, text_color="#66bb6a")
 
@@ -292,6 +310,6 @@ class SourceChatsWindow(ctk.CTkToplevel):
 
     def __init__(self, master=None, on_saved=None):
         super().__init__(master)
-        self.title("Chat sorgenti (multi-chat)")
+        self.title(i18n.tr("Chat sorgenti (multi-chat)"))
         gui_utils.fit_to_screen(self, 1080, 560, 820, 460)
         SourceChatsPanel(self, on_saved=on_saved).pack(fill="both", expand=True)
