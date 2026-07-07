@@ -29,6 +29,20 @@ def _app(app_mod):
     return app
 
 
+def test_listener_texts_attributo_di_classe_completo(app_mod):
+    """GLM/Fable/Fugu #359: `_LISTENER_TEXTS` è un attributo di CLASSE (nel class
+    dict, NON assegnato in `__init__`), quindi è disponibile in `_build_ui` prima di
+    qualsiasi `_set_listener_state` — la label OFFLINE iniziale ne deriva
+    (CodeRabbit #358), e un buco qui darebbe KeyError all'avvio. Copre i 3 stati
+    canonici con testo non vuoto."""
+    texts = app_mod.App.__dict__["_LISTENER_TEXTS"]      # dal CLASS dict, non da istanza
+    for state in (health_check.LISTENER_ACTIVE, health_check.LISTENER_RECONNECTING,
+                  health_check.LISTENER_OFFLINE):
+        assert state in texts, f"stato canonico non mappato in _LISTENER_TEXTS: {state}"
+        assert texts[state].strip(), f"testo vuoto per {state}"
+    assert texts[health_check.LISTENER_OFFLINE] == "⬤  OFFLINE"
+
+
 def test_set_listener_state_canonico_piu_display_localizzato(app_mod):
     app = _app(app_mod)
     i18n.set_language("EN")
