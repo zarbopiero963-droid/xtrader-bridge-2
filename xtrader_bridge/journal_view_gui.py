@@ -7,6 +7,12 @@ rendering vive in `journal_view` (pura, testata headless — `filter_events`/`ta
 questo modulo è solo widget/wiring e NON è testato in CI (serve un display): la logica
 esercitabile è testata a parte, il resto è verifica manuale (smoke, vedi test).
 
+Testi UI localizzati via `i18n.tr` (#343 slice 4f). I valori-filtro «(tutti i tipi)» e
+«Tutti» sono display MA anche chiavi (il primo è confrontato in `_selected_types`):
+tradotti alla COSTRUZIONE (dopo la scelta lingua) e confrontati con lo stesso valore
+tradotto. I NOMI-tipo evento (START/STOP/…) restano identificatori di dominio, non
+tradotti.
+
 Invarianti (come la CLI #236):
 
 - **Read-only**: riusa `event_journal.read_events`; non scrive né modifica MAI il ledger;
@@ -21,13 +27,11 @@ import sys
 
 import customtkinter as ctk
 
-from . import event_journal, journal_view
+from . import event_journal, i18n, journal_view
 
-# Voce «tutti i tipi» del filtro (= nessun filtro per tipo).
-_ALL_TYPES = "(tutti i tipi)"
-# Scelte del filtro «Ultimi N»: quantità sensate per una lettura a colpo d'occhio; «Tutti»
-# = nessun taglio (last=None).
-_LAST_CHOICES = ["50", "100", "200", "500", "Tutti"]
+# Scelte numeriche del filtro «Ultimi N» (quantità sensate per una lettura a colpo
+# d'occhio); l'ultima voce «tutti» (nessun taglio) è aggiunta TRADOTTA alla costruzione.
+_LAST_NUMERIC = ["50", "100", "200", "500"]
 _COL_TS_WIDTH = 150
 _COL_TYPE_WIDTH = 190
 
@@ -40,7 +44,11 @@ class JournalPanel(ctk.CTkFrame):
     def __init__(self, master=None, path=None):
         super().__init__(master)
         self._path = path or journal_view.default_path()
-        self._type = ctk.StringVar(value=_ALL_TYPES)
+        # Valori localizzati alla COSTRUZIONE (lingua già impostata): `_all_types` è
+        # anche la chiave di confronto in `_selected_types` (#343 slice 4f).
+        self._all_types = i18n.tr("(tutti i tipi)")
+        self._last_choices = _LAST_NUMERIC + [i18n.tr("Tutti")]
+        self._type = ctk.StringVar(value=self._all_types)
         self._last = ctk.StringVar(value="100")
         self._build_ui()
         self._refresh()
@@ -48,21 +56,21 @@ class JournalPanel(ctk.CTkFrame):
     # ── costruzione UI ────────────────────────────────────────────────────────
     def _build_ui(self):
         ctk.CTkLabel(
-            self, text="📒  Diario eventi (locale, sola lettura)",
+            self, text=i18n.tr("📒  Diario eventi (locale, sola lettura)"),
             font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
 
         bar = ctk.CTkFrame(self)
         bar.pack(fill="x", padx=12, pady=6)
-        ctk.CTkLabel(bar, text="Tipo").pack(side="left", padx=(8, 4))
+        ctk.CTkLabel(bar, text=i18n.tr("Tipo")).pack(side="left", padx=(8, 4))
         ctk.CTkOptionMenu(bar, variable=self._type, width=200,
-                          values=[_ALL_TYPES, *sorted(event_journal.EVENT_TYPES)],
+                          values=[self._all_types, *sorted(event_journal.EVENT_TYPES)],
                           command=lambda _v: self._refresh()).pack(side="left", padx=4)
-        ctk.CTkLabel(bar, text="Ultimi").pack(side="left", padx=(12, 4))
-        ctk.CTkOptionMenu(bar, variable=self._last, width=90, values=_LAST_CHOICES,
+        ctk.CTkLabel(bar, text=i18n.tr("Ultimi")).pack(side="left", padx=(12, 4))
+        ctk.CTkOptionMenu(bar, variable=self._last, width=90, values=self._last_choices,
                           command=lambda _v: self._refresh()).pack(side="left", padx=4)
-        ctk.CTkButton(bar, text="🔄 Aggiorna", width=110,
+        ctk.CTkButton(bar, text=i18n.tr("🔄 Aggiorna"), width=110,
                       command=self._refresh).pack(side="left", padx=4)
-        ctk.CTkButton(bar, text="📂 Apri cartella", width=140,
+        ctk.CTkButton(bar, text=i18n.tr("📂 Apri cartella"), width=140,
                       command=self._open_folder).pack(side="left", padx=4)
 
         self._counts = ctk.CTkLabel(self, text="", anchor="w")
@@ -71,14 +79,14 @@ class JournalPanel(ctk.CTkFrame):
         self._header = ctk.CTkFrame(self, fg_color="transparent")
         self._header.pack(fill="x", padx=12)
         self._rows_frame = ctk.CTkScrollableFrame(self, height=400,
-                                                  label_text="Eventi del diario")
+                                                  label_text=i18n.tr("Eventi del diario"))
         self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
 
     # ── selezione filtri ────────────────────────────────────────────────────────
     def _selected_types(self):
         """Lista tipi per `filter_events` (o `None` = tutti)."""
         t = self._type.get()
-        return None if t == _ALL_TYPES else [t]
+        return None if t == self._all_types else [t]
 
     def _selected_last(self):
         """`last` per `filter_events`: intero dalla scelta, oppure `None` per «Tutti»/valore
@@ -104,14 +112,17 @@ class JournalPanel(ctk.CTkFrame):
             events = journal_view.filter_events(
                 all_events, types=self._selected_types(), last=self._selected_last())
         except Exception as exc:   # noqa: BLE001 — lettura best-effort, niente crash GUI
-            self._counts.configure(text=f"⚠️ Errore lettura diario: {type(exc).__name__}")
+            self._counts.configure(text=i18n.tr("⚠️ Errore lettura diario: {kind}")
+                                   .format(kind=type(exc).__name__))
             return
         self._counts.configure(
-            text=f"Diario: {len(all_events)} eventi totali (mostrati {len(events)}).")
-        for title, width in (("Quando", _COL_TS_WIDTH), ("Tipo", _COL_TYPE_WIDTH)):
+            text=i18n.tr("Diario: {tot} eventi totali (mostrati {shown}).")
+            .format(tot=len(all_events), shown=len(events)))
+        for title, width in ((i18n.tr("Quando"), _COL_TS_WIDTH),
+                             (i18n.tr("Tipo"), _COL_TYPE_WIDTH)):
             ctk.CTkLabel(self._header, text=title, width=width, anchor="w",
                          font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
-        ctk.CTkLabel(self._header, text="Dati (redatti)", anchor="w",
+        ctk.CTkLabel(self._header, text=i18n.tr("Dati (redatti)"), anchor="w",
                      font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
         for ts, typ, data_str in journal_view.table_rows(events):
             rf = ctk.CTkFrame(self._rows_frame, fg_color="transparent")

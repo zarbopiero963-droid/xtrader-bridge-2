@@ -255,6 +255,15 @@ stato GUI-composti. Restano IN ITALIANO per non toccare logica/contratti: la sen
 Mercati —», helper puro asserito verbatim in CI) e gli errori/warning bubblati dal layer
 di dominio `editor.apply()`.
 
+Dalla **slice 4f** è localizzata **📒 Diario** (sola lettura): titolo, filtri (Tipo/
+Ultimi), bottoni (🔄 Aggiorna/📂 Apri cartella), intestazioni colonne (Quando/Tipo/Dati
+redatti) e i conteggi/errori. I due valori-filtro «(tutti i tipi)» e «Tutti» sono display
+MA anche chiavi (il primo confrontato in `_selected_types`): tradotti alla COSTRUZIONE e
+confrontati con lo stesso valore tradotto (test di coerenza lingua↔confronto). I nomi-tipo
+evento (START/STOP/…) restano identificatori di dominio, non tradotti. La finestra
+**Strumenti (hub)** è invece rimandata: i suoi titoli-scheda sono chiavi di matching +
+contratti IA (localizzazione cross-cutting a parte).
+
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
 Toplevel MODALE (grab) lanciato dal bottone **«🧙 Wizard prima configurazione»**
