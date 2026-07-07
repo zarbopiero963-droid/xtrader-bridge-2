@@ -748,16 +748,17 @@ dipendenza pinnata **prima di pubblicare una release**.
 2. Vai su **Actions → "Generate Windows Lockfile" → Run workflow** (oppure si avvia da
    solo in una PR che tocca quei file). Gira su `windows-latest` + Python 3.11, esegue
    `pip-compile --generate-hashes` e **valida** il lock con `pip install --require-hashes`.
-3. Apri la run → **Artifacts** → scarica `requirements-build-lock-windows-py311`
-   (contiene `requirements-build.lock`).
-4. **Committa** `requirements-build.lock` nel repository (root).
+3. Apri la run → **pagina della run → Summary**: lo step *"Pubblica il lock nel Job Summary"*
+   stampa il `requirements-build.lock` rigenerato in un **blocco copiabile** (è solo versioni +
+   hash, nessun segreto). **Copia** l'intero blocco.
+4. Incollalo nel file **`requirements-build.lock`** nella root del repo e **committalo**.
 
-> 🛟 **Se l'upload dell'artifact fallisce per quota storage piena** (`Failed to CreateArtifact:
-> Artifact storage quota has been hit` — il conteggio GitHub si ricalcola ogni 6-12h, quindi può
-> restare bloccato per un po' anche dopo una *Pulizia artifact* con `max_age_days=0`): il lock è
-> **comunque recuperabile** dalla **pagina della run → Summary**, dove lo step *"Pubblica il lock
-> nel Job Summary"* lo stampa in un blocco copiabile (è solo versioni + hash, nessun segreto).
-> Copia quel contenuto in `requirements-build.lock` e committalo — nessun artifact necessario.
+> 🛟 **Consegna quota-immune (nessun artifact):** il lock si recupera **solo dalla Summary**, non
+> da un artifact. Così la generazione/validazione del lock **non dipende dalla quota storage
+> artifact** (che prima faceva fallire l'`upload-artifact` con `Failed to CreateArtifact:
+> Artifact storage quota has been hit` e teneva rosso il check anche con un lock corretto). Il
+> check ora è verde/rosso solo in base alla **correttezza** del lock (git-diff anti-stantio +
+> validazione `--require-hashes`).
 
 ### Effetto sulla build
 

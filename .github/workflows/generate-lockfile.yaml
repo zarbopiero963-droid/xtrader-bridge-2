@@ -124,41 +124,30 @@ jobs:
         # versione non pinnata che maschererebbe l'assenza dal lock (Codex).
         run: pip-compile --generate-hashes --allow-unsafe --output-file requirements-build.lock requirements-build.in
 
-      - name: Pubblica il lock nel Job Summary (fallback anti-quota)
-        # Il `requirements-build.lock` è solo versioni + hash (NESSUN segreto): lo si scrive nel
-        # Job Summary della run così è COPIABILE direttamente dalla pagina della run anche quando
-        # il caricamento dell'artifact fallisce per QUOTA storage piena (il conteggio GitHub si
-        # ricalcola ogni 6-12h, quindi il caricamento può restare bloccato a lungo dopo una
-        # pulizia). Sta QUI, PRIMA del caricamento e dei gate anti-stantio/validazione, così il
-        # lock è SEMPRE recuperabile a prescindere dal loro esito. Non tocca permessi (job resta
-        # `contents: read`) né committa.
+      - name: Pubblica il lock nel Job Summary (consegna quota-immune)
+        # Il lock si consegna SOLO via Job Summary della run — NON più come artifact (#367 opz. C).
+        # Motivo: l'`upload-artifact` falliva per QUOTA storage artifact piena ("Artifact storage
+        # quota has been hit", ricalcolo ogni 6-12h) e teneva ROSSO il check anche con un lock
+        # corretto, perché girava PRIMA dei gate reali (anti-stantio + validazione). Rimuovendolo,
+        # la generazione/validazione del lock è IMMUNE alla quota e il check riflette solo la
+        # correttezza del lock. Il `requirements-build.lock` è solo versioni + hash (NESSUN
+        # segreto), quindi è COPIABILE direttamente dalla pagina della run. Job resta
+        # `contents: read`, nessun auto-commit.
         # `shell: bash` (Git bash su windows-latest) di proposito: `cat` copia il file
-        # BYTE-per-BYTE nel summary — niente BOM e niente wrapping delle righe lunghe
-        # (`--hash=sha256:...`) che PowerShell `Out-File`/`Get-Content` potrebbero introdurre,
-        # corrompendo un lock poi copiato a mano (→ `--require-hashes` fallirebbe). Il blocco
-        # ``` mantiene il contenuto testuale esatto e copiabile (GLM #367).
+        # BYTE-per-BYTE — niente BOM e niente wrapping delle righe lunghe (`--hash=sha256:...`)
+        # che PowerShell `Out-File`/`Get-Content` potrebbero introdurre, corrompendo un lock poi
+        # copiato a mano (→ `--require-hashes` fallirebbe). Il blocco ``` mantiene il contenuto
+        # testuale esatto e copiabile (GLM #367).
         shell: bash
         run: |
           {
             echo '## requirements-build.lock (rigenerato)'
-            echo 'Se il caricamento artifact e bloccato dalla quota storage, copia il blocco qui'
-            echo 'sotto nel file requirements-build.lock (root del repo) e committalo.'
+            echo 'Copia il blocco qui sotto nel file requirements-build.lock (root del repo) e'
+            echo 'committalo sul branch della PR.'
             echo '```'
             cat requirements-build.lock
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload generated lockfile
-        # Caricato SUBITO dopo la generazione, PRIMA dei gate anti-stantio/validazione: così
-        # il lock rigenerato è SEMPRE scaricabile come artifact anche quando il gate fallisce
-        # (es. lock committato stantio) — è proprio quello che il messaggio d'errore e il README
-        # dicono di scaricare e ricommittare (CodeRabbit). Il deletion-guard sopra resta un hard
-        # stop prima della generazione, quindi qui un lock c'è sempre.
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: requirements-build-lock-windows-py311
-          path: requirements-build.lock
-          retention-days: 30
 
       - name: Fallisci se il lock committato è STANTIO
         # Se la PR ha committato un `requirements-build.lock`, la rigenerazione qui sopra
@@ -169,7 +158,7 @@ jobs:
         run: |
           git diff --exit-code -- requirements-build.lock
           if ($LASTEXITCODE -ne 0) {
-            Write-Error "requirements-build.lock NON corrisponde alla rigenerazione dai .in (lock stantio, o un upstream ha rilasciato una nuova versione). Riavvia 'Generate Windows Lockfile', scarica l'artifact e ricommitta il lock."
+            Write-Error "requirements-build.lock NON corrisponde alla rigenerazione dai .in (lock stantio, o un upstream ha rilasciato una nuova versione). Riavvia 'Generate Windows Lockfile', copia il lock dal Job Summary della run e ricommitta."
             exit 1
           }
 

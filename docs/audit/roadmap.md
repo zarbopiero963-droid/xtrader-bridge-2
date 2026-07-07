@@ -1953,8 +1953,18 @@ in `generate-lockfile.yaml` che scrive il `requirements-build.lock` generato nel
 della run (`GITHUB_STEP_SUMMARY`), PRIMA dell'upload e dei gate — così il lock (solo versioni +
 hash, nessun segreto) è **copiabile dalla pagina della run** senza dipendere dall'artifact/quota,
 e la rigenerazione diventa immune al muro-quota. Nessun cambio di permessi (`contents: read`),
-niente auto-commit. Test hard `test_lockfile_pubblicato_nel_job_summary_prima_dell_upload`
-(dump presente + PRIMA dell'upload); mutazione (step rimosso) KILLED. Suite **2388 passed**.
+niente auto-commit.
+
+**Escalation opt. C (decisione owner):** siccome l'`upload-artifact` girava PRIMA dei gate reali
+(anti-stantio + validazione), la sua fallita per quota teneva ROSSO il check anche con un lock
+corretto (i gate non arrivavano nemmeno a girare). Rimosso del tutto l'`upload-artifact` dal
+lock-workflow: il lock si consegna **solo** via Summary (quota-immune), e il check
+`generate-windows-lockfile` diventa verde/rosso **solo** in base alla correttezza del lock
+(git-diff + `--require-hashes`). Gli EXE (workflow `build.yaml`/`build-nuitka.yaml`) mantengono i
+loro artifact: C tocca solo la consegna del **lock**. Test
+`test_lockfile_consegnato_via_job_summary_quota_immune` (dump via `cat`/fence + **nessun**
+`upload-artifact` nel lock-workflow); mutazione (cat→Get-Content) KILLED. README «Come
+(ri)generare il lockfile» aggiornato (Summary invece di artifact). Suite **2388 passed**.
 
 ## Fase 6 slice 3 — lockfile Nuitka `--require-hashes` (chiusura residuo supply-chain)
 

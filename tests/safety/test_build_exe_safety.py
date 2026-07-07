@@ -1097,12 +1097,13 @@ def test_nuitka_install_fallback_e_gated_correttamente():
         "(fallback quando il lock non contiene ancora nuitka)")
 
 
-def test_lockfile_pubblicato_nel_job_summary_prima_dell_upload():
-    """Fallback anti-quota (#367): `generate-lockfile.yaml` scrive il lock generato nel Job
-    Summary (`GITHUB_STEP_SUMMARY`) PRIMA dello step `upload-artifact`, così il lock resta
-    recuperabile dalla pagina della run anche quando l'upload fallisce per quota storage piena.
-    Guardrail: se qualcuno spostasse il dump DOPO l'upload (o lo togliesse), il lock tornerebbe
-    irrecuperabile a quota piena → questo test fallisce."""
+def test_lockfile_consegnato_via_job_summary_quota_immune():
+    """Consegna del lock QUOTA-IMMUNE (#367 opz. C): `generate-lockfile.yaml` pubblica il lock
+    SOLO nel Job Summary (`GITHUB_STEP_SUMMARY`), NON come artifact. L'`upload-artifact` falliva
+    per quota storage piena e — girando prima dei gate reali (anti-stantio + validazione) —
+    teneva rosso il check anche con un lock corretto. Guardrail: se qualcuno reintroducesse
+    `upload-artifact` nel lock-workflow (ridipendenza dalla quota) o togliesse il dump nel
+    Summary, questo test fallisce."""
     text = _read(os.path.join(_WORKFLOWS_DIR, "generate-lockfile.yaml"))
     # `cat` (bash) copia il lock BYTE-per-byte: niente BOM né wrapping delle righe `--hash=...`
     # che pwsh `Out-File`/`Get-Content` potrebbero introdurre corrompendo il lock copiato (GLM/GPT).
@@ -1110,12 +1111,12 @@ def test_lockfile_pubblicato_nel_job_summary_prima_dell_upload():
         "il Job Summary deve includere il CONTENUTO di requirements-build.lock via `cat` (byte-faithful)"
     # deve emettere un fence markdown ``` così il blocco è davvero copiabile (GPT #367)
     assert re.search(r"echo '```'", text), "manca il fence markdown ``` per un blocco copiabile"
-    # ancora sulla SCRITTURA reale nel summary (`>> $GITHUB_STEP_SUMMARY`), non su commenti (GPT/GLM)
-    m_sum = re.search(r">>\s*\"?\$GITHUB_STEP_SUMMARY", text)
-    m_upload = re.search(r"uses:\s*actions/upload-artifact", text)   # lo step reale, non i commenti
-    assert m_sum and m_upload, "struttura generate-lockfile non trovata"
-    assert m_sum.start() < m_upload.start(), \
-        "il dump nel Job Summary dev'essere PRIMA dello step upload-artifact (disponibile anche se l'upload fallisce)"
+    # scrittura reale nel summary (`>> $GITHUB_STEP_SUMMARY`), non un commento (GPT/GLM)
+    assert re.search(r">>\s*\"?\$GITHUB_STEP_SUMMARY", text), "manca la scrittura nel Job Summary"
+    # QUOTA-IMMUNE: nessuno STEP `uses: actions/upload-artifact` nel lock-workflow (era il punto
+    # di fallimento quota). Il match è sullo step reale, non su commenti che ne citano la storia.
+    assert not re.search(r"uses:\s*actions/upload-artifact", text), \
+        "generate-lockfile.yaml non deve usare upload-artifact (dipendenza dalla quota): il lock si consegna via Summary"
 
 
 def test_nuitka_detector_forme_canoniche_e_wrappate():
