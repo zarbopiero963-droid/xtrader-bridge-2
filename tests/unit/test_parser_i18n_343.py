@@ -20,7 +20,8 @@ from xtrader_bridge import i18n
 
 _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "xtrader_bridge")
-_PARSER_SRC = open(os.path.join(_PKG, "custom_parser_gui.py"), encoding="utf-8").read()
+with open(os.path.join(_PKG, "custom_parser_gui.py"), encoding="utf-8") as _fh:
+    _PARSER_SRC = _fh.read()
 
 # Le chiavi del catalogo che appartengono alla finestra Parser: quelle presenti come
 # costante tr() nel sorgente (estratte via AST così le concatenazioni multi-linea
@@ -144,12 +145,20 @@ def test_status_text_helper_localizzato(monkeypatch):
     fake = types.ModuleType("customtkinter")
     fake.__getattr__ = lambda _n: object
     monkeypatch.setitem(sys.modules, "customtkinter", fake)
-    monkeypatch.delitem(sys.modules, "xtrader_bridge.custom_parser_gui", raising=False)
-    gui = importlib.import_module("xtrader_bridge.custom_parser_gui")
-    i18n.set_language("EN")
-    assert gui._translations_status_text(0) == "— none"
-    assert gui._translations_status_text(1) == "✓ 1 active"
-    assert gui._translations_status_text(4) == "✓ 4 active"
-    i18n.set_language("IT")
-    assert gui._translations_status_text(0) == "— nessuna"   # identità IT
-    assert gui._translations_status_text(2) == "✓ 2 attive"
+    # Igiene sys.modules (Fable): `monkeypatch.delitem` su una chiave ASSENTE non registra
+    # nulla, quindi il modulo costruito sullo stub resterebbe in sys.modules a fine test →
+    # flakiness order-dependent per chi lo importa dopo. Rimuovo esplicitamente il modulo
+    # PRIMA (import fresco) e nel `finally` DOPO, così il prossimo import ricarica il modulo
+    # REALE col vero customtkinter (ripristinato dal teardown del monkeypatch).
+    sys.modules.pop("xtrader_bridge.custom_parser_gui", None)
+    try:
+        gui = importlib.import_module("xtrader_bridge.custom_parser_gui")
+        i18n.set_language("EN")
+        assert gui._translations_status_text(0) == "— none"
+        assert gui._translations_status_text(1) == "✓ 1 active"
+        assert gui._translations_status_text(4) == "✓ 4 active"
+        i18n.set_language("IT")
+        assert gui._translations_status_text(0) == "— nessuna"   # identità IT
+        assert gui._translations_status_text(2) == "✓ 2 attive"
+    finally:
+        sys.modules.pop("xtrader_bridge.custom_parser_gui", None)
