@@ -1790,3 +1790,17 @@ prima serve uno stato canonico, slice dedicato), banner, log, finestre secondari
 Test hard: default/fallback/traduzioni, ANTI-DRIFT (ogni chiave catalogo deve
 esistere verbatim in app.py) e anti-revert (le label catalogate devono passare da
 i18n.tr nel sorgente); mutazioni AA–AD KILLED.
+
+## #343 slice 4b — Stato canonico del listener + «⬤» localizzato (coda GUI, PR 11)
+
+Il semaforo 🚦 Salute leggeva il TESTO di `_status_lbl` (substring «ATTIVO»): con la
+label localizzata si sarebbe rotto in EN/ES. Ora: `_listener_state` (fonte unica,
+`health_check.LISTENER_*`, default di classe OFFLINE) impostato dal punto unico
+`_set_listener_state(state, color)` nei 4 siti (START, STOP, riconnessione,
+riconnesso); `_refresh_health_inner` legge il canonico via `__dict__` (rimosso il
+blind-except sul cget: allowlist app.py 46→45, ratchet stretto); la label è SOLO
+display localizzato («⬤  ACTIVE»/«⬤  ACTIVO», «⬤  RECONNECTING…»/«⬤  RECONEXIÓN…»,
+OFFLINE universale via fallback). `health_check.evaluate` invariato (il canonico È
+il substring). Harness del glue Salute aggiornato al nuovo contratto. Test: 3 glue
+(canonico+display, semaforo riceve il canonico con label EN — fail-first sul vecchio
+cget —, verde end-to-end in EN), mutazioni AH–AI KILLED.

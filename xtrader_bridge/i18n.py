@@ -106,6 +106,11 @@ _CATALOG = {
             "✅ Confirmation words (comma-separated)",
         "❌ Parole rifiuto (separate da virgola)":
             "❌ Rejection words (comma-separated)",
+        # Stato listener (#343 slice 4b: la logica usa lo stato CANONICO
+        # health_check.LISTENER_*, questi sono solo display; «⬤  OFFLINE» è
+        # universale → fallback)
+        "⬤  ATTIVO": "⬤  ACTIVE",
+        "⬤  RICONNESSIONE…": "⬤  RECONNECTING…",
         # Contatori Dashboard (chiavi in dashboard_stats.COUNTERS)
         "📥 Ricevuti": "📥 Received",
         "✅ Scritti": "✅ Written",
@@ -159,6 +164,9 @@ _CATALOG = {
             "✅ Palabras de confirmación (separadas por comas)",
         "❌ Parole rifiuto (separate da virgola)":
             "❌ Palabras de rechazo (separadas por comas)",
+        # Stato listener (#343 slice 4b)
+        "⬤  ATTIVO": "⬤  ACTIVO",
+        "⬤  RICONNESSIONE…": "⬤  RECONEXIÓN…",
         # Contatori Dashboard (chiavi in dashboard_stats.COUNTERS)
         "📥 Ricevuti": "📥 Recibidos",
         "✅ Scritti": "✅ Escritos",
