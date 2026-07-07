@@ -241,8 +241,11 @@ dinamici — questi ultimi via template tradotto + `.format(...)`, così restano
 coerenti e non producono UI mista). Le stringhe con variabili usano il template come
 chiave di catalogo (es. «➕ Provider «{name}» salvato.»); l'anti-drift (AST) e un test
 di parità dei segnaposto garantiscono che le traduzioni restino allineate al codice.
-Restano IN ITALIANO per ora (slice successivi): banner REALE/COLLAUDO, testi dei log e
-le altre finestre secondarie (Parser, Mapping, Strumenti, Chat, Profili, …).
+Dalla **slice 4d** è localizzata anche **📁 Profili impostazioni** (stesso schema:
+titolo/testi/bottoni + messaggi di stato dinamici via template+`.format`; i messaggi
+che mostrano SOLO l'eccezione bubblata dal layer puro `profile_store` restano IT, slice
+a parte). Restano IN ITALIANO per ora: banner REALE/COLLAUDO, testi dei log e le altre
+finestre secondarie (Parser, Mapping, Strumenti, Chat sorgenti, …).
 
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
