@@ -175,7 +175,7 @@ class CustomParserPanel(ctk.CTkFrame):
             cfg = provider_store.add_provider(cfg, name)
             saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
         except Exception as exc:                 # noqa: BLE001
-            self._result.configure(text=f"❌ Errore salvataggio provider: {exc}")
+            self._result.configure(text=i18n.tr("❌ Errore salvataggio provider: {exc}").format(exc=exc))
             return
         # Sincronizza la config in memoria della GUI principale (no perdita provider).
         if ok and callable(self._on_saved):
@@ -184,8 +184,8 @@ class CustomParserPanel(ctk.CTkFrame):
         self._sync_to_builder()                  # non perdere le modifiche correnti
         self._reload_rows_from_builder()         # ridisegna con la tendina aggiornata
         self._result.configure(
-            text=f"➕ Provider «{name}» salvato." if ok
-            else f"⚠️ Provider «{name}» aggiunto solo in memoria (salvataggio fallito).")
+            text=i18n.tr("➕ Provider «{name}» salvato.").format(name=name) if ok
+            else i18n.tr("⚠️ Provider «{name}» aggiunto solo in memoria (salvataggio fallito).").format(name=name))
 
     # ── mappatura nomi squadra (profili) ───────────────────────────────────
     @staticmethod
@@ -1041,16 +1041,18 @@ class CustomParserPanel(ctk.CTkFrame):
         unresolved = self._unresolved_selected()
         if unresolved:
             self._result.configure(
-                text=f"⛔ Non salvato: profili di mappatura nomi mancanti ({', '.join(unresolved)}). "
-                     "Ricreali nel «Dizionario nomi» o togli la spunta prima di salvare.")
+                text=i18n.tr("⛔ Non salvato: profili di mappatura nomi mancanti ({names}). "
+                             "Ricreali nel «Dizionario nomi» o togli la spunta prima di salvare.")
+                     .format(names=', '.join(unresolved)))
             return
         unresolved_mkt = self._unresolved_market_selected()
         if unresolved_mkt:
             # Stesso fail-closed dei nomi: un profilo mercati rinominato/eliminato non deve
             # essere riscritto stantio nel parser (→ MARKET_MAPPING_MISSING a runtime, Codex P2).
             self._result.configure(
-                text=f"⛔ Non salvato: profili di mappatura mercati mancanti ({', '.join(unresolved_mkt)}). "
-                     "Ricreali nel «Dizionario mercati» o togli la spunta prima di salvare.")
+                text=i18n.tr("⛔ Non salvato: profili di mappatura mercati mancanti ({names}). "
+                             "Ricreali nel «Dizionario mercati» o togli la spunta prima di salvare.")
+                     .format(names=', '.join(unresolved_mkt)))
             return
         errors = self.builder.errors()
         if errors:
@@ -1059,10 +1061,10 @@ class CustomParserPanel(ctk.CTkFrame):
         try:
             path = self.builder.save()
         except (OSError, ValueError) as exc:
-            self._result.configure(text=f"❌ Errore salvataggio: {exc}")
+            self._result.configure(text=i18n.tr("❌ Errore salvataggio: {exc}").format(exc=exc))
             return
         self._refresh_saved()
-        self._result.configure(text=f"💾 Salvato in {path}")
+        self._result.configure(text=i18n.tr("💾 Salvato in {path}").format(path=path))
 
     # ── catalogo XTrader (B2) ───────────────────────────────────────────────
     def _on_market_change(self, _value=None):
@@ -1087,7 +1089,7 @@ class CustomParserPanel(ctk.CTkFrame):
             self._result.configure(text=f"⛔ {exc}")
             return
         self._reload_rows_from_builder()
-        self._result.configure(text=f"➕ Regole fisse inserite: {market} · {selection}")
+        self._result.configure(text=i18n.tr("➕ Regole fisse inserite: {market} · {selection}").format(market=market, selection=selection))
 
     # ── gestione parser salvati (lista / nuovo / carica / duplica / elimina) ─
     def _refresh_saved(self):
@@ -1123,11 +1125,11 @@ class CustomParserPanel(ctk.CTkFrame):
         try:
             self.builder = ParserBuilder.load(path)
         except (OSError, ValueError) as exc:
-            self._result.configure(text=f"❌ Errore caricamento: {exc}")
+            self._result.configure(text=i18n.tr("❌ Errore caricamento: {exc}").format(exc=exc))
             return
         self._name_var.set(self.builder.name)
         self._reload_rows_from_builder()
-        self._result.configure(text=f"📂 Caricato {self.builder.name!r}.")
+        self._result.configure(text=i18n.tr("📂 Caricato {name!r}.").format(name=self.builder.name))
 
     def _duplicate_selected(self):
         path = self._selected_path()
@@ -1145,11 +1147,11 @@ class CustomParserPanel(ctk.CTkFrame):
         try:
             ParserBuilder.duplicate_saved(path, new_name)
         except (OSError, ValueError) as exc:
-            self._result.configure(text=f"❌ Errore duplica: {exc}")
+            self._result.configure(text=i18n.tr("❌ Errore duplica: {exc}").format(exc=exc))
             return
         self._refresh_saved()
         self._saved_var.set(new_name if new_name in self._saved_map else self._saved_var.get())
-        self._result.configure(text=f"📑 Duplicato in {new_name!r}.")
+        self._result.configure(text=i18n.tr("📑 Duplicato in {new_name!r}.").format(new_name=new_name))
 
     def _delete_selected(self):
         name = self._saved_var.get()
@@ -1161,11 +1163,12 @@ class CustomParserPanel(ctk.CTkFrame):
         except OSError as exc:
             # Permessi / filesystem: mostra un errore pulito invece di crashare il
             # callback (stesso pattern di _save/_load/_duplicate_selected).
-            self._result.configure(text=f"❌ Errore eliminazione: {exc}")
+            self._result.configure(text=i18n.tr("❌ Errore eliminazione: {exc}").format(exc=exc))
             return
         self._refresh_saved()
         self._result.configure(
-            text=f"🗑 Eliminato {name!r}." if removed else f"⛔ {name!r} non trovato.")
+            text=i18n.tr("🗑 Eliminato {name!r}.").format(name=name) if removed
+            else i18n.tr("⛔ {name!r} non trovato.").format(name=name))
 
     def _preview_id_resolver(self):
         """Resolver ID Betfair per l'anteprima (#192, Codex), best-effort/fail-open.

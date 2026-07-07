@@ -272,14 +272,20 @@ Diagnostica), bottoni (➕ Provider/🆕 Nuovo/📂 Carica/📑 Duplica/🗑 Eli
 regole fisse/🗺️ Dizionario nomi/🎯 Dizionario mercati/💾 Salva/🧪 Prova messaggio/🧪🧪
 Prova più messaggi/📋 Copia diagnostica/➕ Aggiungi mercato/➕ Aggiungi selezione/🗑 Rimuovi/
 checkbox Attiva), l'indicatore Traduzioni «— nessuna»/«✓ N attive» (helper puro, ora via
-template+`.format`) e i messaggi di stato GUI-composti (via template tradotto per il
-prompt «Nuovo nome per la copia di …»). Restano **IN ITALIANO come esclusioni di
-sicurezza**: gli interruttori **«MultiMarket (più mercati)»** e **«MultiSelection (più
-selezioni)»** (le loro label raddoppiano da semantica di configurazione), i **VALORI**
-delle tendine Modalità/Sport/Mercato/Trasformazione/Value-map (chiavi di config) e il
-`title="Provider"` del dialog (confrontato come `rule.target == "Provider"`). Restano IT
-anche i messaggi bubblati/errori di dominio del `ParserBuilder`, i nomi-colonna della
-tabella regole/diagnostica e l'hint 💡 estrazione dinamica (slice a parte).
+template+`.format`) e — completata la localizzazione della chrome — anche i **messaggi di
+stato/conferma GUI-composti** dei metodi d'azione (successo, parziale ed error-prefix: es.
+«💾 Salvato in …», «📂 Caricato …», «📑 Duplicato in …», «🗑 Eliminato …», «➕ Regole fisse
+inserite: …», «➕ Provider «…» salvato.» / «⚠️ Provider «…» aggiunto solo in memoria …», gli
+«⛔ Non salvato: profili di mappatura … mancanti (…)» e i prefissi «❌ Errore salvataggio/
+caricamento/duplica/eliminazione: …»), oltre al prompt «Nuovo nome per la copia di …», tutti
+via template tradotto + `.format(...)` con il DATO interpolato lasciato invariato. Restano
+**IN ITALIANO come esclusioni di sicurezza**: gli interruttori **«MultiMarket (più mercati)»**
+e **«MultiSelection (più selezioni)»** (le loro label raddoppiano da semantica di
+configurazione), i **VALORI** delle tendine Modalità/Sport/Mercato/Trasformazione/Value-map
+(chiavi di config) e il `title="Provider"` del dialog (confrontato come
+`rule.target == "Provider"`). Restano IT anche il **testo di dominio bollato in `{exc}`**
+(messaggi/errori del `ParserBuilder`/config interpolati nei prefissi qui sopra), i nomi-colonna
+della tabella regole/diagnostica e l'hint 💡 estrazione dinamica (slice a parte).
 
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 

@@ -265,6 +265,32 @@ _CATALOG = {
         "❌ Copia non riuscita (appunti non disponibili).":
             "❌ Copy failed (clipboard unavailable).",
         "📋 Diagnostica copiata negli appunti.": "📋 Diagnostics copied to clipboard.",
+        # Messaggi di STATO delle azioni Parser (#343 slice 4g; template + .format(...),
+        # chiave = template IT). Il DATO interpolato ({exc}/{path}/{name}/…) resta invariato;
+        # il testo di dominio bollato in {exc} (ParserBuilder/config) resta IT (slice separato).
+        # «➕ Provider «{name}» salvato.» riusa la chiave già a catalogo (Anagrafica Provider).
+        "❌ Errore salvataggio provider: {exc}": "❌ Error saving provider: {exc}",
+        "⚠️ Provider «{name}» aggiunto solo in memoria (salvataggio fallito).":
+            "⚠️ Provider «{name}» added in memory only (save failed).",
+        "⛔ Non salvato: profili di mappatura nomi mancanti ({names}). "
+        "Ricreali nel «Dizionario nomi» o togli la spunta prima di salvare.":
+            "⛔ Not saved: missing name-mapping profiles ({names}). "
+            "Recreate them in «Names dictionary» or untick before saving.",
+        "⛔ Non salvato: profili di mappatura mercati mancanti ({names}). "
+        "Ricreali nel «Dizionario mercati» o togli la spunta prima di salvare.":
+            "⛔ Not saved: missing market-mapping profiles ({names}). "
+            "Recreate them in «Markets dictionary» or untick before saving.",
+        "❌ Errore salvataggio: {exc}": "❌ Save error: {exc}",
+        "💾 Salvato in {path}": "💾 Saved to {path}",
+        "➕ Regole fisse inserite: {market} · {selection}":
+            "➕ Fixed rules inserted: {market} · {selection}",
+        "❌ Errore caricamento: {exc}": "❌ Load error: {exc}",
+        "📂 Caricato {name!r}.": "📂 Loaded {name!r}.",
+        "❌ Errore duplica: {exc}": "❌ Duplicate error: {exc}",
+        "📑 Duplicato in {new_name!r}.": "📑 Duplicated to {new_name!r}.",
+        "❌ Errore eliminazione: {exc}": "❌ Delete error: {exc}",
+        "🗑 Eliminato {name!r}.": "🗑 Deleted {name!r}.",
+        "⛔ {name!r} non trovato.": "⛔ {name!r} not found.",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -464,5 +490,30 @@ _CATALOG = {
         "❌ Copia non riuscita (appunti non disponibili).":
             "❌ Copia fallida (portapapeles no disponible).",
         "📋 Diagnostica copiata negli appunti.": "📋 Diagnóstico copiado al portapapeles.",
+        # Messaggi di STATO delle azioni Parser (#343 slice 4g). Come EN: DATO interpolato
+        # invariato e testo di dominio in {exc} resta IT. «➕ Provider «{name}» salvato.»
+        # riusa la chiave già a catalogo.
+        "❌ Errore salvataggio provider: {exc}": "❌ Error al guardar el proveedor: {exc}",
+        "⚠️ Provider «{name}» aggiunto solo in memoria (salvataggio fallito).":
+            "⚠️ Proveedor «{name}» añadido solo en memoria (guardado fallido).",
+        "⛔ Non salvato: profili di mappatura nomi mancanti ({names}). "
+        "Ricreali nel «Dizionario nomi» o togli la spunta prima di salvare.":
+            "⛔ No guardado: faltan perfiles de mapeo de nombres ({names}). "
+            "Vuelve a crearlos en «Diccionario de nombres» o desmárcalos antes de guardar.",
+        "⛔ Non salvato: profili di mappatura mercati mancanti ({names}). "
+        "Ricreali nel «Dizionario mercati» o togli la spunta prima di salvare.":
+            "⛔ No guardado: faltan perfiles de mapeo de mercados ({names}). "
+            "Vuelve a crearlos en «Diccionario de mercados» o desmárcalos antes de guardar.",
+        "❌ Errore salvataggio: {exc}": "❌ Error al guardar: {exc}",
+        "💾 Salvato in {path}": "💾 Guardado en {path}",
+        "➕ Regole fisse inserite: {market} · {selection}":
+            "➕ Reglas fijas insertadas: {market} · {selection}",
+        "❌ Errore caricamento: {exc}": "❌ Error al cargar: {exc}",
+        "📂 Caricato {name!r}.": "📂 Cargado {name!r}.",
+        "❌ Errore duplica: {exc}": "❌ Error al duplicar: {exc}",
+        "📑 Duplicato in {new_name!r}.": "📑 Duplicado en {new_name!r}.",
+        "❌ Errore eliminazione: {exc}": "❌ Error al eliminar: {exc}",
+        "🗑 Eliminato {name!r}.": "🗑 Eliminado {name!r}.",
+        "⛔ {name!r} non trovato.": "⛔ {name!r} no encontrado.",
     },
 }
