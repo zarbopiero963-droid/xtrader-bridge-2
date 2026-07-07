@@ -131,6 +131,10 @@ jobs:
     # carica l'EXE → nessun consumo di quota storage artifact (il build EXE completo resta
     # manuale/tag in `build.yaml`).
     runs-on: windows-latest
+    # Rete di sicurezza contro un hang Windows-specifico (es. un file-lock che non si
+    # rilascia): senza timeout la run resterebbe appesa fino al default di 6h di GitHub.
+    # La suite gira in ~1 min su windows-latest; 20 min è ampiamente sufficiente.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
