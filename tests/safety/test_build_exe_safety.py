@@ -109,13 +109,24 @@ _ALLOWED_COLLECT = {
 # quindi entrambe sono ammesse; le forme WRAPPATE (`cmd /c nuitka`, `pwsh -Command "…"`, `sh -c
 # '…'`) restano non-canoniche e vengono rifiutate.
 _NUITKA_ALLOWED_OPTS = {
-    "--standalone", "--onefile", "--assume-yes-for-downloads",
+    "--standalone", "--onefile", "--msvc", "--assume-yes-for-downloads",
     "--enable-plugin", "--include-package-data", "--include-data-files",
     "--windows-console-mode", "--output-filename", "--output-dir",
 }
 _NUITKA_ALLOWED_PLUGINS = {"tk-inter"}          # solo il plugin tkinter/customtkinter
 _NUITKA_ALLOWED_PACKAGE_DATA = {"customtkinter"}  # solo i DATI (temi/asset) di customtkinter
 _NUITKA_ALLOWED_CONSOLE_MODE = {"disable"}       # GUI senza console (come PyInstaller --windowed)
+_NUITKA_ALLOWED_MSVC = {"latest"}                # usa l'MSVC preinstallato (niente download C)
+# Opzioni Nuitka OBBLIGATORIE per un artifact GUI corretto: se il workflow ne omettesse una, il
+# gate deve fallire (fail-closed sulla PRESENZA, non solo sul valore). `--msvc` è invece una
+# scelta d'ambiente (compilatore), quindi allowlistata ma non obbligatoria.
+_NUITKA_REQUIRED_OPTS = {
+    "--enable-plugin": _NUITKA_ALLOWED_PLUGINS,
+    "--include-package-data": _NUITKA_ALLOWED_PACKAGE_DATA,
+    "--windows-console-mode": _NUITKA_ALLOWED_CONSOLE_MODE,
+    "--output-filename": {_ALLOWED_EXE_NAME + ".exe"},
+    "--output-dir": {"dist"},
+}
 # `--include-data-files=SRC=DEST`: nel bundle SOLO il dizionario, a `data/dizionario_xtrader.csv`
 # (dove `resource_path` lo cerca, relativo alla dir del programma).
 _NUITKA_DATA_SRC = _ALLOWED_BUNDLE_SRC                       # "data/dizionario_xtrader.csv"
@@ -919,26 +930,25 @@ def test_nuitka_solo_opzioni_note():
 
 
 def test_nuitka_valori_opzioni_in_allowlist():
-    """I VALORI delle opzioni Nuitka sono ristretti (non solo il nome-opzione): plugin
-    tk-inter, package-data customtkinter, console disable, EXE personale in dist/."""
+    """Le opzioni Nuitka OBBLIGATORIE devono essere PRESENTI e col valore ESATTO — non solo
+    «se presenti, allora ammesse» (CodeRabbit #366): altrimenti un workflow che OMETTE
+    `--windows-console-mode=disable`, `--output-filename`, `--output-dir`, `--enable-plugin`
+    o `--include-package-data` passerebbe il gate, indebolendo il contratto fail-closed di un
+    EXE GUI usabile (console nascosta, nome/paths giusti, plugin tkinter e dati customtkinter).
+    Il valore `--msvc`, se presente, resta ristretto ma NON è obbligatorio (scelta d'ambiente)."""
     builds = _nuitka_build_commands()
     assert builds, "nessuna build Nuitka trovata"
     for name, cmd in builds:
         after = _after_nuitka(cmd)
-        for val in _opt_values(after, "--enable-plugin"):
-            assert _norm(val) in _NUITKA_ALLOWED_PLUGINS, \
-                f"{name}: plugin Nuitka non ammesso: {val!r}"
-        for val in _opt_values(after, "--include-package-data"):
-            assert _norm(val) in _NUITKA_ALLOWED_PACKAGE_DATA, \
-                f"{name}: include-package-data non ammesso: {val!r}"
-        for val in _opt_values(after, "--windows-console-mode"):
-            assert _norm(val) in _NUITKA_ALLOWED_CONSOLE_MODE, \
-                f"{name}: console-mode non ammesso: {val!r}"
-        for val in _opt_values(after, "--output-filename"):
-            assert _norm(val) == _ALLOWED_EXE_NAME + ".exe", \
-                f"{name}: output EXE dev'essere {_ALLOWED_EXE_NAME}.exe, non {val!r}"
-        for val in _opt_values(after, "--output-dir"):
-            assert _norm(val) == "dist", f"{name}: output-dir dev'essere dist, non {val!r}"
+        for opt, allowed in _NUITKA_REQUIRED_OPTS.items():
+            vals = {_norm(v) for v in _opt_values(after, opt)}
+            assert vals, f"{name}: opzione Nuitka OBBLIGATORIA mancante: {opt} ({cmd!r})"
+            assert vals <= allowed, \
+                f"{name}: valore {opt} fuori allowlist: {vals - allowed} (ammessi {allowed})"
+        # `--msvc` è opzionale ma, se usato, deve restare in allowlist.
+        msvc = {_norm(v) for v in _opt_values(after, "--msvc")}
+        assert msvc <= _NUITKA_ALLOWED_MSVC, \
+            f"{name}: valore --msvc non ammesso: {msvc - _NUITKA_ALLOWED_MSVC}"
 
 
 def test_nuitka_include_data_solo_dizionario():
@@ -1008,16 +1018,40 @@ def test_nuitka_test_prima_della_build():
 
 def test_nuitka_artifact_un_solo_exe_niente_release():
     """build-nuitka.yaml pubblica come artifact ESATTAMENTE `dist/XTrader-Signal-Bridge.exe` e
-    NON crea Release (fase additiva: niente collisione con la release PyInstaller sui tag)."""
+    NON crea Release in NESSUNA forma (fase additiva: niente collisione con la release
+    PyInstaller sui tag). Il guardrail no-Release è ampio (CodeRabbit #366): copre le action di
+    release note, la CLI `gh release create`, e qualsiasi `files:` (inline o blocco multilinea
+    `files: |`) che elenchi un `.exe`."""
     text = _read(os.path.join(_WORKFLOWS_DIR, "build-nuitka.yaml"))
     artifact_exes = [p for p in re.findall(r"(?m)^\s*path:\s*(\S+)", text)
                      if p.lower().endswith(".exe")]
     assert artifact_exes == [_ALLOWED_EXE_PATH], \
         f"l'artifact Nuitka deve pubblicare esattamente {_ALLOWED_EXE_PATH!r}, non {artifact_exes}"
-    assert "action-gh-release" not in text, \
-        "build-nuitka.yaml non deve creare Release in fase additiva (retirement PyInstaller a parte)"
-    assert not re.search(r"(?m)^\s*files:\s*\S+\.exe", text), \
-        "build-nuitka.yaml non deve pubblicare files di release"
+    low = text.lower()
+    # Nessun publisher di Release: action (softprops/action-gh-release, actions/create-release,
+    # ncipollo/release-action, elgohr/…, e in generale qualsiasi `*/release*` in `uses:`) né la
+    # CLI `gh release create`.
+    for token in ("action-gh-release", "actions/create-release", "ncipollo/release-action",
+                  "release-action", "gh release create", "gh release upload"):
+        assert token not in low, \
+            f"build-nuitka.yaml non deve pubblicare Release: trovato {token!r}"
+    for used in re.findall(r"(?m)^\s*-?\s*uses:\s*(\S+)", text):
+        assert "release" not in used.lower(), \
+            f"build-nuitka.yaml: action di release non ammessa in fase additiva: {used!r}"
+    # Nessun `files:` (inline o blocco `|`/`>`) che elenchi un .exe (input tipico dei publisher).
+    for m in re.finditer(r"(?m)^([ \t]*)files:\s*(.*)$", text):
+        indent, inline = m.group(1), m.group(2).strip()
+        if inline and not _BLOCK_SCALAR.match(inline):
+            assert ".exe" not in inline.lower(), \
+                f"build-nuitka.yaml: `files:` inline con .exe (release): {inline!r}"
+        else:
+            for ln in text[m.end():].splitlines():
+                if not ln.strip():
+                    continue
+                if len(ln) - len(ln.lstrip()) <= len(indent):
+                    break
+                assert ".exe" not in ln.lower(), \
+                    f"build-nuitka.yaml: blocco `files:` con .exe (release): {ln.strip()!r}"
 
 
 def test_nuitka_detector_forme_canoniche_e_wrappate():
@@ -1045,9 +1079,10 @@ def test_nuitka_detector_forme_canoniche_e_wrappate():
     for cmd in wrapped:
         assert _NUITKA_DETECT.search(cmd), f"wrapper Nuitka non rilevato: {cmd!r}"
         assert not _NUITKA_CLI.match(cmd), f"wrapper Nuitka scambiato per canonico: {cmd!r}"
-    # controcampi: menzioni innocue NON sono build Nuitka (nessun falso positivo)
+    # controcampi: menzioni innocue NON sono build Nuitka (nessun falso positivo) — incluso
+    # l'install PINNATO `nuitka==4.1.3` usato dal workflow reale (è pip install, non una build).
     assert not _NUITKA_DETECT.search(
-        "python -m pip install -r requirements-dev.txt nuitka httpx")
+        "python -m pip install -r requirements-dev.txt nuitka==4.1.3")
     assert not _NUITKA_DETECT.search("python -m pytest -q")
 
 

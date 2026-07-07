@@ -39,11 +39,14 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Installa Dipendenze (legacy; lock Nuitka in slice successiva)
-      # Runtime + pytest (da requirements-dev.txt) + Nuitka + httpx (belt-and-suspenders,
-      # come build.yaml). L'install NON e' --require-hashes: il lock attuale
-      # (requirements-build.lock) e' PyInstaller-only, il lock Nuitka arriva a parte.
-      run: python -m pip install -r requirements-dev.txt nuitka httpx
+    - name: Installa Dipendenze (Nuitka pinnato; lock con hash in slice successiva)
+      # Runtime + pytest da requirements-dev.txt (che deriva da requirements.in: httpx entra
+      # come transitiva di python-telegram-bot, quindi NON serve un install esplicito extra).
+      # Nuitka e' PINNATO alla versione esatta (mitigazione supply-chain sull'EXE che l'owner
+      # esegue: niente drift verso una release non prevista). NON e' ancora --require-hashes:
+      # il lock completo con hash per Nuitka (generato su Windows) arriva nella slice
+      # successiva; il lock attuale (requirements-build.lock) e' PyInstaller-only.
+      run: python -m pip install -r requirements-dev.txt nuitka==4.1.3
 
     - name: Verifica compilazione (compileall)
       run: python -m compileall main.py xtrader_bridge tests
@@ -67,7 +70,12 @@ jobs:
     - name: Compila EXE con Nuitka
       # Forma canonica CLI (modulo) analizzata dal gate di sicurezza:
       #   --standalone --onefile        -> EXE singolo autoportante (come PyInstaller --onefile)
-      #   --assume-yes-for-downloads    -> in CI accetta il download del toolchain C senza prompt
+      #   --msvc=latest                 -> usa l'MSVC gia' PREINSTALLATO su windows-latest come
+      #                                    compilatore C: cosi' Nuitka NON scarica un toolchain C
+      #                                    da rete (riduce la superficie supply-chain di build)
+      #   --assume-yes-for-downloads    -> accetta senza prompt i piccoli tool che Nuitka usa su
+      #                                    Windows (es. dependency-walker); col MSVC preinstallato
+      #                                    NON scarica piu' il compilatore
       #   --enable-plugin=tk-inter      -> supporto tkinter/customtkinter
       #   --include-package-data=customtkinter -> i temi/asset (DATI) di customtkinter, che il
       #                                    follow-imports di Nuitka non raccoglie da solo
@@ -77,7 +85,7 @@ jobs:
       #   --output-filename/--output-dir-> EXE personale in dist/, stesso nome della release
       # I runtime telegram/httpx/httpcore sono raccolti dal follow-imports di --standalone.
       run: >
-        python -m nuitka --standalone --onefile --assume-yes-for-downloads
+        python -m nuitka --standalone --onefile --msvc=latest --assume-yes-for-downloads
         --enable-plugin=tk-inter
         --include-package-data=customtkinter
         --include-data-files=data/dizionario_xtrader.csv=data/dizionario_xtrader.csv

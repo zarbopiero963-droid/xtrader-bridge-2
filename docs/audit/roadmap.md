@@ -1927,3 +1927,17 @@ i COMMENTI del workflow non possono contenere i token vietati (`continue-on-erro
 consigliato per l'owner. Design handoff = **N/A** (nessun cambio GUI). CORE CHANGE = **nessuno**
 (non tocca `xtrader_bridge/**` né `data/**`: solo workflow + test di sicurezza). Prossimo dopo la
 validazione manuale su Windows: lockfile Nuitka riproducibile, poi ritiro di PyInstaller.
+
+**Hardening da review (#366).** Fable 5 + Fugu Ultra (review finali) hanno segnalato in modo
+convergente il rischio **supply-chain** dell'install non pinnato su un EXE che l'owner *esegue*:
+mitigato senza attendere la slice lockfile — **Nuitka pinnato** (`nuitka==4.1.3`, stessa versione
+che l'install non pinnato avrebbe preso oggi → zero cambio di comportamento, ma niente drift),
+**`--msvc=latest`** per usare l'MSVC **preinstallato** su windows-latest (Nuitka non scarica più
+il compilatore C: chiusa la superficie principale segnalata da Fugu), e rimosso l'install
+esplicito ridondante di `httpx` (transitiva di python-telegram-bot). Il `--require-hashes`
+completo resta la slice lockfile successiva (generata su Windows). CodeRabbit (2 Major): il gate
+`test_nuitka_valori_opzioni_in_allowlist` ora **esige la PRESENZA** delle opzioni obbligatorie
+(non solo il valore se presenti) e `test_nuitka_artifact_un_solo_exe_niente_release` ha il
+guardrail no-Release **ampliato** (action `*/release*`, `gh release create/upload`, `files:`
+inline **e** blocco `|`). 3 mutazioni aggiuntive (opzione obbligatoria omessa, `gh release
+create`, action di release + `files: |`) tutte KILLED. Suite **2384 passed**.
