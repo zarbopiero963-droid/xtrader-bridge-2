@@ -44,8 +44,8 @@ def _tr_constants(*module_names) -> set:
     return found
 
 
-# Costanti tr() delle finestre secondarie localizzate (#343 slice 4c).
-_SECONDARY_TR = _tr_constants("provider_gui.py")
+# Costanti tr() delle finestre secondarie localizzate (#343 slice 4c/4d).
+_SECONDARY_TR = _tr_constants("provider_gui.py", "profiles_gui.py")
 
 
 @pytest.fixture(autouse=True)

@@ -149,6 +149,35 @@ _CATALOG = {
         "Controlla permessi/spazio del file config.":
             "❌ Save FAILED: «{name}» not removed (would reappear on restart). "
             "Check config file permissions/space.",
+        # Finestra Profili impostazioni (#343 slice 4d)
+        "📁  Profili impostazioni": "📁  Settings profiles",
+        "Salva la configurazione corrente come profilo con un nome e "
+        "ricaricala quando vuoi. Il token Telegram NON viene salvato nei "
+        "profili e resta invariato al caricamento.":
+            "Save the current configuration as a named profile and reload it "
+            "whenever you like. The Telegram token is NOT saved in profiles and "
+            "stays unchanged on load.",
+        "Nome profilo (es. Prematch)": "Profile name (e.g. Prematch)",
+        "💾  Salva profilo": "💾  Save profile",
+        "Profili salvati": "Saved profiles",
+        "(impossibile elencare i profili)": "(cannot list profiles)",
+        "(nessun profilo salvato)": "(no profile saved)",
+        "↺ Carica": "↺ Load",
+        "🗑 Elimina": "🗑 Delete",
+        "Profili impostazioni": "Settings profiles",
+        "❌ Elenco profili non leggibile: {exc}": "❌ Profile list unreadable: {exc}",
+        "⚠️ Ferma il bridge (STOP) prima di caricare un profilo: "
+        "le impostazioni live cambiano solo al prossimo AVVIA.":
+            "⚠️ Stop the bridge (STOP) before loading a profile: live settings "
+            "change only on the next START.",
+        "❌ Salvataggio profilo fallito: {exc}": "❌ Profile save failed: {exc}",
+        "✅ Profilo {name!r} salvato (senza token).":
+            "✅ Profile {name!r} saved (without token).",
+        "✅ Profilo {name!r} caricato e applicato (token invariato).":
+            "✅ Profile {name!r} loaded and applied (token unchanged).",
+        "❌ Eliminazione fallita: {exc}": "❌ Delete failed: {exc}",
+        "🗑 Profilo {name!r} eliminato.": "🗑 Profile {name!r} deleted.",
+        "⚠️ Profilo {name!r} non trovato.": "⚠️ Profile {name!r} not found.",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -231,5 +260,35 @@ _CATALOG = {
         "Controlla permessi/spazio del file config.":
             "❌ Guardado FALLIDO: «{name}» no eliminado (reaparecería al reiniciar). "
             "Comprueba permisos/espacio del archivo config.",
+        # Finestra Profili impostazioni (#343 slice 4d)
+        "📁  Profili impostazioni": "📁  Perfiles de configuración",
+        "Salva la configurazione corrente come profilo con un nome e "
+        "ricaricala quando vuoi. Il token Telegram NON viene salvato nei "
+        "profili e resta invariato al caricamento.":
+            "Guarda la configuración actual como un perfil con un nombre y "
+            "recárgala cuando quieras. El token de Telegram NO se guarda en los "
+            "perfiles y permanece sin cambios al cargar.",
+        "Nome profilo (es. Prematch)": "Nombre del perfil (p. ej. Prematch)",
+        "💾  Salva profilo": "💾  Guardar perfil",
+        "Profili salvati": "Perfiles guardados",
+        "(impossibile elencare i profili)": "(no se pueden listar los perfiles)",
+        "(nessun profilo salvato)": "(ningún perfil guardado)",
+        "↺ Carica": "↺ Cargar",
+        "🗑 Elimina": "🗑 Eliminar",
+        "Profili impostazioni": "Perfiles de configuración",
+        "❌ Elenco profili non leggibile: {exc}":
+            "❌ Lista de perfiles ilegible: {exc}",
+        "⚠️ Ferma il bridge (STOP) prima di caricare un profilo: "
+        "le impostazioni live cambiano solo al prossimo AVVIA.":
+            "⚠️ Detén el bridge (STOP) antes de cargar un perfil: los ajustes en "
+            "vivo cambian solo en el próximo INICIAR.",
+        "❌ Salvataggio profilo fallito: {exc}": "❌ Guardado del perfil fallido: {exc}",
+        "✅ Profilo {name!r} salvato (senza token).":
+            "✅ Perfil {name!r} guardado (sin token).",
+        "✅ Profilo {name!r} caricato e applicato (token invariato).":
+            "✅ Perfil {name!r} cargado y aplicado (token sin cambios).",
+        "❌ Eliminazione fallita: {exc}": "❌ Eliminación fallida: {exc}",
+        "🗑 Profilo {name!r} eliminato.": "🗑 Perfil {name!r} eliminado.",
+        "⚠️ Profilo {name!r} non trovato.": "⚠️ Perfil {name!r} no encontrado.",
     },
 }

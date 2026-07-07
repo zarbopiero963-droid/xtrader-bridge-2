@@ -1820,3 +1820,15 @@ iniziale dalla fonte unica `_LISTENER_TEXTS` (niente duplicazione/drift), commen
 «vestigiale» su `_status_lbl` nell'harness del glue Salute. Mutazioni AJ–AL KILLED
 (chiave stantia, placeholder perso, wrap rimosso). Pattern pronto per replicare sulle
 altre finestre nei prossimi slice.
+
+## #343 slice 4d — Localizzazione finestre secondarie, parte 2: Profili impostazioni (coda GUI, PR 13)
+
+Seconda finestra secondaria localizzata (`profiles_gui.py`) col pattern provato in 4c:
+titolo, header, placeholder, bottoni (💾/↺/🗑), testi lista vuota/errore E i messaggi
+di stato dinamici (template tradotto + `.format(name=…/exc=…)`, inclusi i campi con
+conversione `!r`). Catalogo i18n EN+ES esteso (18 chiavi); anti-drift AST esteso a
+`profiles_gui.py`. FUORI SCOPE dichiarato: i messaggi `❌ {exc}` che mostrano solo
+l'eccezione bubblata dal modulo puro `profile_store` (testo di dominio, localizzazione
+in uno slice a parte). Nuovo `test_profiles_i18n_343.py` (wrapping reale, copertura
+EN/ES, parità segnaposto incl. `!r`, round-trip). Mutazioni AN–AP KILLED. Chat sorgenti
+(finestra del filtro chat, safety-critical) tenuta separata per il prossimo slice.
