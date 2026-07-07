@@ -668,12 +668,33 @@ esegue la suite offline.
 **release** restano nelle **Releases** (storage separato, non-scadente).
 
 **Build personale e sicura.** La pipeline produce **solo** l'EXE personale del bridge
-(nessun «Admin EXE»). L'EXE **non include segreti né certificati**: le credenziali Betfair
-e la config restano **fuori** dall'eseguibile, nella cartella utente
+(nessun secondo eseguibile «amministrativo»). L'EXE **non include segreti né certificati**: le
+credenziali Betfair e la config restano **fuori** dall'eseguibile, nella cartella utente
 (`%APPDATA%\XTraderBridge`); il `sessionToken` vive solo in RAM. Un gate automatico
 (`tests/safety/test_build_exe_safety.py`) verifica a ogni PR che la build non impacchetti
 `.env`/chiavi/certificati/`config.json`/DB/token (nel bundle è ammesso solo il dizionario
 ufficiale) e che i test girino prima della compilazione.
+
+### Build EXE Nuitka (anteprima, in valutazione)
+
+È in corso il passaggio dell'EXE ufficiale da **PyInstaller** a **Nuitka** (compilatore C:
+avvio più rapido, meno falsi positivi antivirus). In questa fase **additiva** la build
+PyInstaller sopra **resta quella di release**; in parallelo c'è un workflow di **anteprima**
+Nuitka per validare il binario su Windows reale **prima** di ritirare PyInstaller:
+
+- **Actions → «Build XTrader Signal Bridge EXE (Nuitka, anteprima)» → «Run workflow»** (solo
+  manuale: **non** parte sui tag e **non** crea Release, così non collide con la release
+  PyInstaller).
+- Produce l'artifact `XTrader-Signal-Bridge-Nuitka-Windows-v<versione>-<data>` con dentro lo
+  stesso `XTrader-Signal-Bridge.exe`.
+- **Smoke test consigliato** dopo il download: avvia l'EXE, verifica che la GUI parta, che il
+  dizionario (`data/dizionario_xtrader.csv`) sia leggibile (lookup alias→XTrader funzionante)
+  e che un segnale di prova generi il CSV atteso.
+
+Lo **stesso gate di sicurezza** copre anche la forma Nuitka (EXE singolo personale, solo il
+dizionario nel bundle, nessun segreto, test prima della build). Il **lockfile riproducibile**
+per Nuitka e il **ritiro di PyInstaller** arriveranno in slice successive, dopo la validazione
+manuale su Windows.
 
 ---
 
