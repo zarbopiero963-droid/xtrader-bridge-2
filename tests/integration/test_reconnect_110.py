@@ -260,6 +260,11 @@ def test_start_polling_ritorna_senza_connettere_non_abbassa_il_flag(make_app, ap
     assert apps[0].updater.start_polling_kwargs["drop_pending_updates"] is True
     # riconnessione dopo una 1ª connessione NON confermata → il flag è restato True: scarta ANCORA
     assert apps[1].updater.start_polling_kwargs["drop_pending_updates"] is True
+    # Teardown pulito dopo il fallimento di `get_me` (GPT-5.5): l'updater/app della connessione
+    # non confermata DEVE essere chiuso PRIMA del retry (no task zombie / doppio poller). Il vero
+    # `_safe_shutdown_tg` chiama updater.stop + app.stop + app.shutdown sulla sessione fallita.
+    assert apps[0].updater.stop_calls >= 1
+    assert apps[0].stop_calls >= 1 and apps[0].shutdown_calls >= 1
 
 
 def test_first_connection_si_resetta_a_ogni_nuovo_START(make_app, app_mod, monkeypatch):
