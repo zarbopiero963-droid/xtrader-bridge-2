@@ -136,17 +136,19 @@ jobs:
         # `shell: bash` (Git bash su windows-latest) di proposito: `cat` copia il file
         # BYTE-per-BYTE — niente BOM e niente wrapping delle righe lunghe (`--hash=sha256:...`)
         # che PowerShell `Out-File`/`Get-Content` potrebbero introdurre, corrompendo un lock poi
-        # copiato a mano (→ `--require-hashes` fallirebbe). Il blocco ``` mantiene il contenuto
-        # testuale esatto e copiabile (GLM #367).
+        # copiato a mano (→ `--require-hashes` fallirebbe). Fence markdown con `~~~` (tilde,
+        # non backtick): è un code-fence valido in GitHub-flavored markdown, si rende come
+        # blocco copiabile ED è inequivocabile nei diff (i backtick venivano mal-resi come
+        # spaziati, generando falsi allarmi review su #367).
         shell: bash
         run: |
           {
             echo '## requirements-build.lock (rigenerato)'
             echo 'Copia il blocco qui sotto nel file requirements-build.lock (root del repo) e'
             echo 'committalo sul branch della PR.'
-            echo '```'
+            echo '~~~'
             cat requirements-build.lock
-            echo '```'
+            echo '~~~'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fallisci se il lock committato è STANTIO
@@ -154,9 +156,13 @@ jobs:
         # deve coincidere: altrimenti il repo conterrebbe un lock che NON corrisponde più ai
         # `.in`, e `build.yaml` lo userebbe dopo il merge (Codex). `git diff` confronta col
         # file committato; su un lock non ancora tracciato (prima volta) non c'è diff → passa.
+        # `--ignore-cr-at-eol`: pip-compile su Windows scrive il lock con CRLF, ma un lock
+        # INCOLLATO dal Job Summary (browser) arriva con LF: senza questo flag il gate
+        # fallirebbe su una differenza di soli fine-riga (non di contenuto). Le differenze reali
+        # (versioni/hash) restano rilevate (#367 opz. C: consegna via Summary).
         shell: pwsh
         run: |
-          git diff --exit-code -- requirements-build.lock
+          git diff --exit-code --ignore-cr-at-eol -- requirements-build.lock
           if ($LASTEXITCODE -ne 0) {
             Write-Error "requirements-build.lock NON corrisponde alla rigenerazione dai .in (lock stantio, o un upstream ha rilasciato una nuova versione). Riavvia 'Generate Windows Lockfile', copia il lock dal Job Summary della run e ricommitta."
             exit 1

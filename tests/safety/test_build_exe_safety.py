@@ -1109,10 +1109,18 @@ def test_lockfile_consegnato_via_job_summary_quota_immune():
     # che pwsh `Out-File`/`Get-Content` potrebbero introdurre corrompendo il lock copiato (GLM/GPT).
     assert re.search(r"cat\s+requirements-build\.lock", text), \
         "il Job Summary deve includere il CONTENUTO di requirements-build.lock via `cat` (byte-faithful)"
-    # deve emettere un fence markdown ``` così il blocco è davvero copiabile (GPT #367)
-    assert re.search(r"echo '```'", text), "manca il fence markdown ``` per un blocco copiabile"
+    # deve emettere un fence markdown `~~~` (tilde) così il blocco è copiabile e inequivocabile
+    # nei diff (i backtick venivano mal-resi come spaziati → falsi allarmi review, #367)
+    assert re.search(r"echo '~~~'", text), "manca il fence markdown ~~~ per un blocco copiabile"
     # scrittura reale nel summary (`>> $GITHUB_STEP_SUMMARY`), non un commento (GPT/GLM)
-    assert re.search(r">>\s*\"?\$GITHUB_STEP_SUMMARY", text), "manca la scrittura nel Job Summary"
+    m_sum = re.search(r">>\s*\"?\$GITHUB_STEP_SUMMARY", text)
+    assert m_sum, "manca la scrittura nel Job Summary"
+    # il dump dev'essere PRIMA del gate anti-stantio, così il lock è pubblicato anche quando il
+    # gate fallisce (regressione se riordinato — GLM #367)
+    # il COMANDO reale del gate (con `--ignore-cr-at-eol`), non il commento che cita `git diff`
+    m_stale = re.search(r"git diff --exit-code --ignore-cr-at-eol", text)
+    assert m_stale and m_sum.start() < m_stale.start(), \
+        "il dump nel Job Summary dev'essere PRIMA del gate anti-stantio (git diff)"
     # QUOTA-IMMUNE: nessuno STEP `uses: actions/upload-artifact` nel lock-workflow (era il punto
     # di fallimento quota). Il match è sullo step reale, non su commenti che ne citano la storia.
     assert not re.search(r"uses:\s*actions/upload-artifact", text), \

@@ -759,6 +759,12 @@ dipendenza pinnata **prima di pubblicare una release**.
 > Artifact storage quota has been hit` e teneva rosso il check anche con un lock corretto). Il
 > check ora è verde/rosso solo in base alla **correttezza** del lock (git-diff anti-stantio +
 > validazione `--require-hashes`).
+>
+> **Fine-riga:** incolla pure il blocco così com'è — il gate anti-stantio usa
+> `git diff --ignore-cr-at-eol`, quindi il lock incollato dalla Summary (LF, come normalizza il
+> browser) combacia con la rigenerazione su Windows (CRLF): conta solo il **contenuto**
+> (versioni/hash). Una volta committato, il lock vive **in git** (fonte di verità permanente):
+> nessun "storico" da recuperare dagli artifact.
 
 ### Effetto sulla build
 
@@ -778,8 +784,8 @@ finché non rigeneri e committi il lock.
 > ℹ️ **Aggiungere `nuitka` al lock** (fatto in `requirements-build.in`) rende il
 > `requirements-build.lock` committato **stantio**: il check *Generate Windows Lockfile* resta
 > **rosso** finché non lo rigeneri su Windows e lo ricommitti (segui *Come (ri)generare il
-> lockfile* qui sopra: la run — anche quella fallita in PR — carica il lock corretto come
-> artifact, che scarichi e committi). È il segnale atteso, non un errore.
+> lockfile* qui sopra: la run pubblica il lock corretto nel **Job Summary**, da cui lo copi e
+> lo committi). È il segnale atteso, non un errore.
 
 La compilazione dell'EXE con **PyInstaller** resta invariata.
 
