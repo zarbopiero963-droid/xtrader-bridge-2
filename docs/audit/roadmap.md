@@ -1864,3 +1864,21 @@ nessun filtro. La finestra Strumenti (hub) è stata SCARTATA come target: i suoi
 test — localizzarli è un cambiamento cross-cutting a parte. Mutazioni AS (chiave stantia)
 e AT (confronto sulla costante IT invece del valore tradotto → test coerenza fallisce)
 KILLED. Suite 2353 passed.
+
+## Fase 6 slice 1 — `resource_path()` Nuitka-aware per gli asset impacchettati (fondazione EXE Nuitka)
+
+Prima slice della Fase 6 (passaggio dell'EXE ufficiale da PyInstaller a Nuitka): **hardening**
+del punto unico che risolve gli asset read-only impacchettati (`data/dizionario_xtrader.csv`),
+NON un bugfix — sotto Nuitka il path funzionava già oggi (Nuitka non imposta `sys.frozen`,
+quindi cadeva nel ramo `__file__` corretto). Estratto da `dizionario._data_dir()` un helper
+riusabile `resource_path(relative)` (CORE CHANGE: `xtrader_bridge/dizionario.py`), che copre
+esplicitamente le tre forme di distribuzione: **sorgente** e **Nuitka** risolvono via `__file__`
+(genitore del package); **PyInstaller** usa `sys._MEIPASS` (ramo gated SOLO su `sys.frozen`,
+con fallback difensivo a `dirname(sys.executable)` se un freezer setta `frozen` senza `_MEIPASS`).
+Comportamento **byte-identico** per sorgente/PyInstaller; `_data_dir()` ora delega a
+`resource_path("data")` (nessuna logica di path duplicata). Test hard nuovi in
+`test_dizionario.py` (sorgente / PyInstaller `_MEIPASS` / Nuitka `__compiled__`-non-frozen che
+IGNORA un `_MEIPASS` stray / fallback senza `_MEIPASS` / delega di `_data_dir`), verificati
+fail-first con 3 mutazioni (gate `frozen` rimosso, fallback difensivo rimosso, `_data_dir` che
+non delega) tutte KILLED. Suite 2367 passed. Il workflow di build Nuitka vero e proprio +
+lockfile + smoke EXE Windows restano slice successive della Fase 6.

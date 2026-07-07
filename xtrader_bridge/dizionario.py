@@ -15,14 +15,32 @@ import re
 import sys
 
 
-def _data_dir() -> str:
-    """Cartella `data/`. Nell'EXE PyInstaller i dati stanno in sys._MEIPASS
-    (vedi --add-data nel workflow), non accanto a __file__ (bundle temporaneo)."""
+def resource_path(relative: str) -> str:
+    """Percorso assoluto di un asset **read-only impacchettato** (es. `data/…`), corretto in
+    TUTTE le forme di distribuzione: run da **sorgente**, EXE **PyInstaller** ed EXE **Nuitka**.
+
+    - **PyInstaller** (`--onefile`/`--onedir`): imposta `sys.frozen=True` e `sys._MEIPASS`
+      (la cartella del bundle); `--add-data "src;dest"` finisce in `<_MEIPASS>/dest`. Qui
+      `__file__` punta nel bundle temporaneo, quindi si DEVE usare `_MEIPASS`.
+    - **Nuitka** e **sorgente**: Nuitka **non** imposta `sys.frozen` né `sys._MEIPASS` (marca
+      invece i moduli con `__compiled__`); i dati inclusi con `--include-data-dir=./data=data`
+      stanno relativi alla cartella del programma → risolvibili, come da sorgente, via
+      `__file__` (genitore del package). Entrambi cadono quindi nel ramo `else`.
+
+    Regola (fail-safe): il ramo `_MEIPASS` scatta SOLO quando `sys.frozen` è vero; fallback
+    difensivo alla cartella dell'eseguibile per freezer che settano `frozen` senza `_MEIPASS`.
+    Nuitka (non-frozen) usa `__file__` come il sorgente — nessun ramo dedicato necessario."""
     if getattr(sys, "frozen", False):
         base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
     else:
         base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base, "data")
+    return os.path.join(base, relative)
+
+
+def _data_dir() -> str:
+    """Cartella `data/` degli asset impacchettati, via `resource_path` (source/PyInstaller/
+    Nuitka-aware)."""
+    return resource_path("data")
 
 
 DIZIONARIO_PATH = os.path.join(_data_dir(), "dizionario_xtrader.csv")
