@@ -68,6 +68,27 @@ class _Updater:
             raise type("NetworkError", (Exception,), {})("stop giù (simulato)")
 
 
+def _transient_exc(name, msg="get_me giù: connessione non reale (simulato)"):
+    """Eccezione transitoria FEDELE alla classificazione reale di `reconnect_policy`. Quando
+    `python-telegram-bot` è installato (CI) `is_transient_error` usa `isinstance` sulle CLASSI
+    REALI di `telegram.error`: quindi si solleva la classe REALE (`telegram.error.TimedOut`/
+    `NetworkError`) se disponibile. Senza telegram (alcuni ambienti locali) si ricade su una classe
+    dinamica con lo STESSO nome, che il fallback per nome di `is_transient_error` riconosce. Così il
+    test è corretto in ENTRAMBI gli ambienti (bug CI: una classe dinamica NON è sottoclasse della
+    `telegram.error.TimedOut` reale → non transitoria → STOP)."""
+    try:
+        import telegram.error as te            # noqa: PLC0415 — import locale voluto (dipende dall'ambiente)
+        cls = getattr(te, name, None)
+        if isinstance(cls, type) and issubclass(cls, Exception):
+            try:
+                return cls(msg)
+            except Exception:                  # noqa: BLE001 — firma costruttore diversa → senza messaggio
+                return cls()
+    except Exception:                          # noqa: BLE001 — telegram assente → classe dinamica per nome
+        pass
+    return type(name, (Exception,), {})(msg)
+
+
 class _Bot:
     """Bot PTB finto: `get_me` è il round-trip di CONFERMA connessione (#371). Con
     `fail=True` solleva — modella `start_polling` che ritorna senza una connessione
@@ -76,7 +97,7 @@ class _Bot:
 
     def __init__(self, *, fail=False, exc_name="NetworkError"):
         self._fail = fail
-        self._exc_name = exc_name          # nome-classe dell'eccezione (per la classificazione transient)
+        self._exc_name = exc_name          # classe eccezione (reale telegram.error se disponibile)
         self.get_me_calls = 0
         self.get_me_kwargs = None          # cattura i timeout espliciti (review CodeRabbit)
 
@@ -84,9 +105,7 @@ class _Bot:
         self.get_me_calls += 1
         self.get_me_kwargs = kwargs
         if self._fail:
-            # Nome-classe = quello che `reconnect_policy.is_transient_error` usa nel fallback
-            # (telegram non installato in test): "TimedOut"/"NetworkError" → transitorio.
-            raise type(self._exc_name, (Exception,), {})("get_me giù: connessione non reale (simulato)")
+            raise _transient_exc(self._exc_name)
         return {"id": 1, "is_bot": True}
 
 
@@ -264,9 +283,10 @@ def test_start_polling_ritorna_senza_connettere_non_abbassa_il_flag(make_app, ap
     assert apps[0].bot.get_me_calls == 1                   # conferma tentata alla 1ª connessione
     # La conferma è BOUNDED (review CodeRabbit): timeout espliciti così una `get_me` appesa non
     # blocca uno STOP. Senza, una chiamata a Telegram irraggiungibile resterebbe indefinita.
-    assert apps[0].bot.get_me_kwargs.get("connect_timeout") is not None
-    assert apps[0].bot.get_me_kwargs.get("read_timeout") is not None
-    assert apps[0].bot.get_me_kwargs.get("pool_timeout") is not None
+    to = app_mod._CONNECT_CONFIRM_TIMEOUT              # valore concreto atteso (review CodeRabbit)
+    assert apps[0].bot.get_me_kwargs.get("connect_timeout") == to
+    assert apps[0].bot.get_me_kwargs.get("read_timeout") == to
+    assert apps[0].bot.get_me_kwargs.get("pool_timeout") == to
     # 1ª connessione NON confermata → scarta il backlog pre-START
     assert apps[0].updater.start_polling_kwargs["drop_pending_updates"] is True
     # riconnessione dopo una 1ª connessione NON confermata → il flag è restato True: scarta ANCORA
@@ -286,8 +306,9 @@ def test_get_me_timedout_e_transitorio_riconnette_non_stop(make_app, app_mod, mo
     il supervisor si fermerebbe (un solo giro) e l'assert fallirebbe.
 
     Cornice: `start_polling` non solleva (fire-and-forget); alla 1ª connessione `get_me` solleva
-    un'eccezione di nome `TimedOut` (ciò che PTB solleva allo scadere del timeout) → `is_transient_error`
-    (fallback per nome, telegram non installato in test) la riconosce transitoria → riconnessione con
+    un `TimedOut` — la classe REALE `telegram.error.TimedOut` se disponibile (così `isinstance` in CI
+    la riconosce), altrimenti una classe dinamica omonima per il fallback per nome (vedi
+    `_transient_exc`) → `is_transient_error` la riconosce transitoria → riconnessione con
     `first_connection` ancora True; alla 2ª `get_me` riesce → conferma e flip."""
     a = make_app()
     a._running = True
