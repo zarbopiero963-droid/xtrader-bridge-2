@@ -2786,9 +2786,15 @@ class App(ctk.CTk):
                 # sorgente di timeout della coda evita di clampare a `clear_delay` quando la riga
                 # vive in realtà più a lungo (default 120s conferma vs 90s clear). Un messaggio già
                 # più vecchio della vita CSV è trattato come stantio, non scritto.
-                max_age = message_freshness.effective_max_age(
+                # #371: clampa il max_age ANCHE alla finestra di deduplica del SignalTracker. Con
+                # `drop_pending_updates=False` sulle riconnessioni (#311-1.2) un update rideliverato
+                # più vecchio della finestra dedup sarebbe "fresco" ma non più deduplicato → doppia
+                # scommessa; il clamp lo tratta come stantio (fail-closed). Con i default (eff 120s <
+                # 300s) non morde. `getattr(..., None)` è robusto anche se `_tracker` è None.
+                max_age = message_freshness.capped_max_age(
                     cfg.get("max_signal_age", message_freshness.DEFAULT_MAX_AGE),
-                    signal_queue.timeout_from_config(cfg))
+                    signal_queue.timeout_from_config(cfg),
+                    getattr(self._tracker, "dedupe_window", None))
                 text = msg.text or msg.caption or ''
                 runtime_chat = str(msg.chat_id)
                 # Live-reload del routing (issue #82): INSTRADAMENTO e PARSING (chat ammesse,
