@@ -55,6 +55,23 @@ def effective_max_age(max_signal_age, clear_delay):
     return min(ma, cd)
 
 
+def _coerce_positive_finite(value):
+    """Ritorna `float(value)` se è un numero **finito e > 0** (e non `bool`), altrimenti `None`.
+
+    Coercizione difensiva CONDIVISA dal clamp anti-doppia-scommessa (`capped_max_age`, review
+    CodeRabbit): tenere UNA sola sorgente per la regola «bool/malformato/NaN/inf/<=0 → invalido»
+    evita che una modifica futura aggiorni un ramo e non l'altro, indebolendo il fail-safe."""
+    if isinstance(value, bool):
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(v) or v <= 0:
+        return None
+    return v
+
+
 def capped_max_age(max_signal_age, clear_delay, dedupe_window):
     """`max_age` EFFETTIVO come `effective_max_age`, ma clampato **anche** alla finestra di
     deduplica del `SignalTracker` (#371).
@@ -83,26 +100,20 @@ def capped_max_age(max_signal_age, clear_delay, dedupe_window):
     120 < 300 → **nessun cambiamento osservabile**: il clamp morde solo con config non-default
     (età effettiva > finestra dedup)."""
     eff = effective_max_age(max_signal_age, clear_delay)
-    # Finestra dedup invalida → nessun clamp (ritorna l'effettivo grezzo).
-    if isinstance(dedupe_window, bool):
+    # Finestra dedup invalida (malformata/bool/NaN/inf/<=0) → nessun clamp: ritorna l'effettivo grezzo.
+    dw = _coerce_positive_finite(dedupe_window)
+    if dw is None:
         return eff
-    try:
-        dw = float(dedupe_window)
-    except (TypeError, ValueError, OverflowError):
+    # Clampa SOLO un max_age ATTIVO (numero finito > 0). Un filtro disattivato (<=0) resta tale; un
+    # `eff` malformato è lasciato a `is_stale` (che ricade su DEFAULT_MAX_AGE).
+    eff_f = _coerce_positive_finite(eff)
+    if eff_f is None:
         return eff
-    if not math.isfinite(dw) or dw <= 0:
-        return eff
-    # Clampa SOLO un max_age ATTIVO (numero finito > 0). Un filtro disattivato (<=0) resta tale;
-    # un valore malformato è lasciato a `is_stale` (che ricade su DEFAULT_MAX_AGE).
-    if isinstance(eff, bool):
-        return eff
-    try:
-        eff_f = float(eff)
-    except (TypeError, ValueError, OverflowError):
-        return eff
-    if not math.isfinite(eff_f) or eff_f <= 0:
-        return eff
-    return min(eff_f, dw)
+    # Preserva il tipo dei valori originali (review Fable 5 / Fugu Ultra): se NON si clampa ritorna
+    # `eff` così com'è (int 120 resta 120, non 120.0); se si clampa ritorna la `dedupe_window`
+    # originale (int 300), non il `dw` coerciuto a float. `is_stale` accetta comunque qualunque
+    # numerico, ma così un consumer che confronti per tipo/serializzi non vede differenze spurie.
+    return eff if eff_f <= dw else dedupe_window
 
 
 def is_stale(message_epoch, now, max_age=DEFAULT_MAX_AGE) -> bool:
