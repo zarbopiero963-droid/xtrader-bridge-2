@@ -39,6 +39,7 @@ from . import (
     bridge_mode,
     config_store,
     health_check,
+    i18n,
     parser_manager,
     confirmation_reader,
     csv_lock_escalation,
@@ -250,6 +251,10 @@ class App(ctk.CTk):
         # _load_config, che chiama _register_secret_token.
         self._registered_tokens = set()
         self._config = self._load_config()
+        # Lingua UI (#343 slice 4a): attivata PRIMA di costruire la UI — le etichette
+        # statiche sono lette in _build_ui via i18n.tr. Fail-safe: app_language vuota
+        # o sporca → italiano (comportamento storico). Cambio lingua → al riavvio.
+        i18n.set_language(self._config.get("app_language"))
         # Tema UI (#288 Delta 1): l'import-time ha applicato "dark" come default; ora che la
         # config è caricata applica la preferenza salvata (fail-closed a "dark" se
         # mancante/malformata via `normalize_theme`).
@@ -1086,10 +1091,10 @@ class App(ctk.CTk):
         # quando viene mostrato la prima volta dopo i tab già impaccati (Codex P2: senza
         # `before` Tk lo metterebbe in fondo, fuori vista).
         self._tabs = tabs
-        tab_gen = tabs.add("⚙️ Generale")
-        tab_rec = tabs.add("🎯 Riconoscimento")
-        tab_safe = tabs.add("🛡️ Sicurezza")
-        tab_conf = tabs.add("✅ Conferme XTrader")
+        tab_gen = tabs.add(i18n.tr("⚙️ Generale"))
+        tab_rec = tabs.add(i18n.tr("🎯 Riconoscimento"))
+        tab_safe = tabs.add(i18n.tr("🛡️ Sicurezza"))
+        tab_conf = tabs.add(i18n.tr("✅ Conferme XTrader"))
 
         # — Generale: i campi storici (token, chat, CSV, timeout, provider) —
         self._entries = {}
@@ -1101,7 +1106,7 @@ class App(ctk.CTk):
             ("🏷️ Provider",     "provider",    False),
         ]
         for r, (label, key, is_pwd) in enumerate(gen_fields):
-            ctk.CTkLabel(tab_gen, text=label, width=_GEN_LABEL_WIDTH, anchor="w").grid(
+            ctk.CTkLabel(tab_gen, text=i18n.tr(label), width=_GEN_LABEL_WIDTH, anchor="w").grid(
                 row=r, column=0, padx=_GEN_LABEL_PADX, pady=4, sticky="w")
             # La riga CSV Path porta DUE pulsanti (Sfoglia + Crea CSV) accanto alla casella:
             # entro la larghezza FISSA della finestra (`_WINDOW_WIDTH`, `resizable(False, True)`)
@@ -1122,13 +1127,13 @@ class App(ctk.CTk):
             # CSV Path: pulsante «📁 Sfoglia…» (#284) che apre il selettore file e salva
             # subito il percorso scelto (opzione b), invece di digitarlo a mano.
             if key == "csv_path":
-                ctk.CTkButton(tab_gen, text="📁 Sfoglia…", width=_CSV_ROW_BTN_WIDTH,
+                ctk.CTkButton(tab_gen, text=i18n.tr("📁 Sfoglia…"), width=_CSV_ROW_BTN_WIDTH,
                               command=self._browse_csv_path).grid(
                                   row=r, column=2, padx=_CSV_BROWSE_PADX, pady=4, sticky="w")
                 # «📄 Crea CSV» (#286): genera un CSV a solo header nel formato XTrader
                 # nella cartella scelta e lo imposta come csv_path (azione complementare a
                 # «Sfoglia…»: creare un file nuovo invece di selezionarne uno esistente).
-                ctk.CTkButton(tab_gen, text="📄 Crea CSV", width=_CSV_ROW_BTN_WIDTH,
+                ctk.CTkButton(tab_gen, text=i18n.tr("📄 Crea CSV"), width=_CSV_ROW_BTN_WIDTH,
                               command=self._browse_create_csv).grid(
                                   row=r, column=3, padx=_CSV_CREATE_PADX, pady=4, sticky="w")
         self._e_token    = self._entries["bot_token"]
@@ -1143,7 +1148,7 @@ class App(ctk.CTk):
 
         # Riconoscimento
         self._adv["recognition_mode"] = self._add_option(
-            tab_rec, "🎯 Modalità riconoscimento",
+            tab_rec, i18n.tr("🎯 Modalità riconoscimento"),
             settings_controller.recognition_mode_options(), adv["recognition_mode"], 0)
         # La quota obbligatoria sì/no NON è più un interruttore globale: la governa la
         # casella «Obblig.» sulla riga Price di OGNI Parser Personalizzato (unico comando).
@@ -1153,34 +1158,34 @@ class App(ctk.CTk):
         # `dry_run` resta la fonte del percorso di scrittura: lo deriva il controller
         # (`apply_advanced`: SIMULAZIONE ⇔ dry_run=True), qui solo il widget.
         self._adv["bridge_mode"] = self._add_option(
-            tab_safe, "🚦 Modalità bridge",
+            tab_safe, i18n.tr("🚦 Modalità bridge"),
             settings_controller.bridge_mode_options(), adv["bridge_mode"], 0)
         self._adv["max_per_day"] = self._add_entry(
-            tab_safe, "📅 Limite segnali al giorno", str(adv["max_per_day"]), 1)
+            tab_safe, i18n.tr("📅 Limite segnali al giorno"), str(adv["max_per_day"]), 1)
         self._adv["queue_mode"] = self._add_option(
-            tab_safe, "🧮 Modalità coda segnali",
+            tab_safe, i18n.tr("🧮 Modalità coda segnali"),
             settings_controller.queue_mode_options(), adv["queue_mode"], 2)
         self._adv["auto_start_listener"] = self._add_check(
-            tab_safe, "▶️ Avvio automatico all'apertura (in modalità REALE chiede conferma)",
+            tab_safe, i18n.tr("▶️ Avvio automatico all'apertura (in modalità REALE chiede conferma)"),
             adv["auto_start_listener"], 3)
         self._adv["debug_message_payload"] = self._add_check(
-            tab_safe, "🕵️ Logga il testo completo dei messaggi (debug; OFF = solo hash + 1ª riga)",
+            tab_safe, i18n.tr("🕵️ Logga il testo completo dei messaggi (debug; OFF = solo hash + 1ª riga)"),
             adv["debug_message_payload"], 4)
         self._adv["max_active_signals"] = self._add_entry(
-            tab_safe, "🔢 Max segnali attivi (modalità coda multi-riga)",
+            tab_safe, i18n.tr("🔢 Max segnali attivi (modalità coda multi-riga)"),
             str(adv["max_active_signals"]), 5)
 
         # Conferme XTrader: chat notifiche + timeout conferma (PR-17b, attivo in
         # QUEUE_UNTIL_CONFIRMED) + parole chiave conferma/rifiuto come stringa CSV.
         self._adv["xtrader_notification_chat_id"] = self._add_entry(
-            tab_conf, "💬 Chat notifiche XTrader", adv["xtrader_notification_chat_id"], 0)
+            tab_conf, i18n.tr("💬 Chat notifiche XTrader"), adv["xtrader_notification_chat_id"], 0)
         self._adv["confirmation_timeout"] = self._add_entry(
-            tab_conf, "⏳ Timeout conferma (sec)", str(adv["confirmation_timeout"]), 1)
+            tab_conf, i18n.tr("⏳ Timeout conferma (sec)"), str(adv["confirmation_timeout"]), 1)
         self._adv["confirmation_keywords"] = self._add_entry(
-            tab_conf, "✅ Parole conferma (separate da virgola)",
+            tab_conf, i18n.tr("✅ Parole conferma (separate da virgola)"),
             adv["confirmation_keywords"], 2)
         self._adv["rejection_keywords"] = self._add_entry(
-            tab_conf, "❌ Parole rifiuto (separate da virgola)",
+            tab_conf, i18n.tr("❌ Parole rifiuto (separate da virgola)"),
             adv["rejection_keywords"], 3)
 
         # Buttons
@@ -1188,14 +1193,14 @@ class App(ctk.CTk):
         btn_frame.pack(fill="x", padx=15, pady=6)
 
         self._btn_start = ctk.CTkButton(
-            btn_frame, text="▶  AVVIA", width=160, height=42,
+            btn_frame, text=i18n.tr("▶  AVVIA"), width=160, height=42,
             fg_color="#2e7d32", hover_color="#1b5e20",
             font=ctk.CTkFont(size=14, weight="bold"),
             command=self._start)
         self._btn_start.pack(side="left", padx=5)
 
         self._btn_stop = ctk.CTkButton(
-            btn_frame, text="■  STOP", width=160, height=42,
+            btn_frame, text=i18n.tr("■  STOP"), width=160, height=42,
             fg_color="#c62828", hover_color="#7f0000",
             font=ctk.CTkFont(size=14, weight="bold"),
             state="disabled",
@@ -1203,12 +1208,12 @@ class App(ctk.CTk):
         self._btn_stop.pack(side="left", padx=5)
 
         self._btn_clear = ctk.CTkButton(
-            btn_frame, text="🗑️  Svuota CSV ora", width=175, height=42,
+            btn_frame, text=i18n.tr("🗑️  Svuota CSV ora"), width=175, height=42,
             command=self._manual_clear)
         self._btn_clear.pack(side="left", padx=5)
 
         ctk.CTkButton(
-            btn_frame, text="💾  Salva Config", width=140, height=42,
+            btn_frame, text=i18n.tr("💾  Salva Config"), width=140, height=42,
             fg_color="#37474f", hover_color="#263238",
             command=self._on_save_clicked,
         ).pack(side="right", padx=5)
@@ -1219,12 +1224,12 @@ class App(ctk.CTk):
         tools_frame = ctk.CTkFrame(self, fg_color="transparent")
         tools_frame.pack(fill="x", padx=15, pady=(0, 4))
         ctk.CTkButton(
-            tools_frame, text="🧰  Strumenti", width=220, height=40,
+            tools_frame, text=i18n.tr("🧰  Strumenti"), width=220, height=40,
             fg_color="#4527a0", hover_color="#311b92",
             command=self._open_tools).pack(side="left", padx=5)
         # Wizard di prima configurazione (#311 §3.4): 5 step guidati.
         ctk.CTkButton(
-            tools_frame, text="🧙 Wizard prima configurazione", width=240, height=40,
+            tools_frame, text=i18n.tr("🧙 Wizard prima configurazione"), width=240, height=40,
             fg_color="#00695c", hover_color="#004d40",
             command=self._open_wizard).pack(side="left", padx=5)
 
@@ -1238,11 +1243,11 @@ class App(ctk.CTk):
         # quindi rinominarle/riordinarle è sicuro.
         mon = ctk.CTkTabview(self)
         mon.pack(fill="both", expand=True, padx=15, pady=(5, 12))
-        tab_chats = mon.add("📡 Chat ascoltate")
-        tab_health = mon.add("🚦 Salute")
-        tab_stato = mon.add("📡 Stato")
-        tab_dash = mon.add("📊 Dashboard")
-        tab_log = mon.add("📋 Log")
+        tab_chats = mon.add(i18n.tr("📡 Chat ascoltate"))
+        tab_health = mon.add(i18n.tr("🚦 Salute"))
+        tab_stato = mon.add(i18n.tr("📡 Stato"))
+        tab_dash = mon.add(i18n.tr("📊 Dashboard"))
+        tab_log = mon.add(i18n.tr("📋 Log"))
 
         # — Chat ascoltate (B1): vista READ-ONLY delle chat che il listener processerà,
         # coi nomi leggibili (da source_chats) quando disponibili. Aggiornata a Salva
@@ -1258,13 +1263,13 @@ class App(ctk.CTk):
         # "Apri cartella log" e "Copia diagnostica" (per il supporto). —
         sig_hdr = ctk.CTkFrame(tab_stato, fg_color="transparent")
         sig_hdr.pack(fill="x", padx=12, pady=(8, 4))
-        ctk.CTkButton(sig_hdr, text="📋 Copia diagnostica", width=160, height=28,
+        ctk.CTkButton(sig_hdr, text=i18n.tr("📋 Copia diagnostica"), width=160, height=28,
                       fg_color="#37474f", hover_color="#263238",
                       command=self._copy_diagnostics).pack(side="right", padx=(6, 0))
-        ctk.CTkButton(sig_hdr, text="📂 Apri cartella log", width=160, height=28,
+        ctk.CTkButton(sig_hdr, text=i18n.tr("📂 Apri cartella log"), width=160, height=28,
                       fg_color="#37474f", hover_color="#263238",
                       command=self._open_log_folder).pack(side="right", padx=(6, 0))
-        ctk.CTkButton(sig_hdr, text="🧾 Esporta audit reale", width=170, height=28,
+        ctk.CTkButton(sig_hdr, text=i18n.tr("🧾 Esporta audit reale"), width=170, height=28,
                       fg_color="#37474f", hover_color="#263238",
                       command=self._export_real_audit).pack(side="right", padx=(6, 0))
         _sty = dict(font=ctk.CTkFont(size=11), text_color="gray",
@@ -1289,13 +1294,13 @@ class App(ctk.CTk):
                                wraplength=_CONTENT_WRAP, anchor="w", justify="left")
             lbl.pack(anchor="w", padx=12, pady=(8 if i == 0 else 2, 0))
             self._health_lbls[key] = lbl
-        ctk.CTkButton(tab_health, text="🔄 Aggiorna", width=110, height=26,
+        ctk.CTkButton(tab_health, text=i18n.tr("🔄 Aggiorna"), width=110, height=26,
                       fg_color="#37474f", hover_color="#263238",
                       command=self._refresh_health).pack(anchor="w", padx=12, pady=8)
         self._refresh_health()
 
         # — Dashboard contatori di sessione (PR-14): esiti del flusso dall'ultimo START. —
-        ctk.CTkLabel(tab_dash, text="Contatori dall'avvio", font=ctk.CTkFont(size=11),
+        ctk.CTkLabel(tab_dash, text=i18n.tr("Contatori dall'avvio"), font=ctk.CTkFont(size=11),
                      text_color="gray").grid(
             row=0, column=0, columnspan=len(dashboard_stats.COUNTERS),
             sticky="w", padx=12, pady=(8, 2))
@@ -1303,7 +1308,7 @@ class App(ctk.CTk):
         for col, (name, label) in enumerate(dashboard_stats.COUNTERS):
             cell = ctk.CTkFrame(tab_dash, fg_color="transparent")
             cell.grid(row=1, column=col, padx=8, pady=(0, 8), sticky="w")
-            ctk.CTkLabel(cell, text=label, font=ctk.CTkFont(size=10),
+            ctk.CTkLabel(cell, text=i18n.tr(label), font=ctk.CTkFont(size=10),
                          text_color="gray").pack(anchor="w")
             val = ctk.CTkLabel(cell, text="0", font=ctk.CTkFont(size=16, weight="bold"))
             val.pack(anchor="w")
@@ -1312,7 +1317,7 @@ class App(ctk.CTk):
         # — Log + filtro per livello (PR-14b) —
         log_hdr = ctk.CTkFrame(tab_log, fg_color="transparent")
         log_hdr.pack(fill="x", padx=12, pady=(8, 2))
-        ctk.CTkLabel(log_hdr, text="Mostra:", font=ctk.CTkFont(size=11),
+        ctk.CTkLabel(log_hdr, text=i18n.tr("Mostra:"), font=ctk.CTkFont(size=11),
                      text_color="gray").pack(side="left", padx=(0, 4))
         self._log_filter = tk.StringVar(master=self, value=log_view.ALL)
         ctk.CTkOptionMenu(log_hdr, values=list(log_view.OPTIONS), width=130,
@@ -1322,16 +1327,16 @@ class App(ctk.CTk):
         # adesso, e modalità Debug (log dettagliato del percorso).
         self._retention_var = tk.StringVar(
             master=self, value=_retention_label(event_log.retention_days(self._config)))
-        ctk.CTkLabel(log_hdr, text="Conserva:", font=ctk.CTkFont(size=11),
+        ctk.CTkLabel(log_hdr, text=i18n.tr("Conserva:"), font=ctk.CTkFont(size=11),
                      text_color="gray").pack(side="left", padx=(12, 4))
         ctk.CTkOptionMenu(log_hdr, values=list(_RETENTION_LABELS), width=110,
                           variable=self._retention_var,
                           command=self._on_retention_change).pack(side="left")
-        ctk.CTkButton(log_hdr, text="🧹 Svuota log", width=110, height=28,
+        ctk.CTkButton(log_hdr, text=i18n.tr("🧹 Svuota log"), width=110, height=28,
                       fg_color="#37474f", hover_color="#263238",
                       command=self._clear_logs_now).pack(side="left", padx=(8, 0))
         self._debug_var = tk.BooleanVar(master=self, value=as_bool(self._config.get("debug_log", False)))
-        ctk.CTkCheckBox(log_hdr, text="🐞 Debug", variable=self._debug_var,
+        ctk.CTkCheckBox(log_hdr, text=i18n.tr("🐞 Debug"), variable=self._debug_var,
                         command=self._on_debug_toggle).pack(side="left", padx=(12, 0))
         self._log_box = ctk.CTkTextbox(
             tab_log, font=ctk.CTkFont(size=11, family="Courier"))
@@ -1635,8 +1640,10 @@ class App(ctk.CTk):
                 kept = language_select.csv_language_preserved(saved)
                 extra = (f" (lingua CSV personalizzata preservata: {kept})" if kept
                          else " — lingua CSV allineata")
-                self._log(f"🌐 Lingua del bridge impostata: {lang}{extra} "
-                          "(la UI localizzata arriva con un prossimo slice #343).")
+                self._log(f"🌐 Lingua del bridge impostata: {lang}{extra} — "
+                          "riavvia il bridge per applicare la lingua all'interfaccia "
+                          "(#343: finestra principale; le altre finestre arrivano "
+                          "con i prossimi slice).")
             else:
                 # Config viva NON adottata (Fable #356 round 2): memoria, runtime e
                 # disco restano coerenti sulla lingua PRECEDENTE — mai una sessione
