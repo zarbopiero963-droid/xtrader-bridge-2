@@ -66,6 +66,11 @@ class GuidedMappingPanel(ctk.CTkFrame):
             schedule=self.after, cancel=self.after_cancel)
         self._build_ui()
         self._reload_profiles(select_first=True)
+        # Precarica le competizioni per lo sport di default (già selezionato nella tendina): il
+        # `command` del menu Sport scatta solo su cambio manuale, quindi senza questa chiamata la
+        # tendina Competizione resterebbe sul placeholder finché l'utente non ritocca lo Sport
+        # (CodeRabbit #389). Best-effort: `_on_sport_change` gestisce da sé DB assente/sync in corso.
+        self._on_sport_change()
 
     def destroy(self):
         """Teardown: annulla un eventuale ridisegno in debounce PRIMA di distruggere i widget

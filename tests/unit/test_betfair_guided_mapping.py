@@ -147,7 +147,7 @@ def test_teams_include_eventi_disattivati(db):
     # una sync successiva non rivede e1 → evento disattivato
     m2 = db.new_sync_marker()
     db.deactivate_unseen("betfair_events", seen_at=m2)
-    assert not gm._is_active(db.fetchall("betfair_events")[0])   # sanity: e1 ora inattivo
+    assert db.count_active("betfair_events") == 0   # sanity via API pubblica: e1 ora inattivo
     # le sue squadre restano comunque disponibili per la mappatura
     assert gm.teams_for_competition(db, "c1") == ["Inter", "Milan"]
 
