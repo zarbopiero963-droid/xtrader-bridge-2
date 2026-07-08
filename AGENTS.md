@@ -1082,8 +1082,9 @@ Inline comments checked:
 Unresolved threads checked:
 - YES / NO
 
-Final labels fired + reviewers responded (Fable/Fugu/GPT/GLM):
-- YES / NO   (the 16-min window wait is REPEALED — see OWNER OVERRIDE)
+Final labels fired + reviewers responded (Fable/Fugu/GPT/GLM) + CodeRabbit COMPLETE (or ~15-min cap elapsed):
+- YES / NO   (the 16-min window wait is REPEALED — see OWNER OVERRIDE; the gate is not satisfied
+  until CodeRabbit has completed or the anti-stall cap has elapsed)
 
 Last-5 PR post-merge sweep:
 - YES / NO

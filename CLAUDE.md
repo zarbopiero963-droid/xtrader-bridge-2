@@ -1074,8 +1074,9 @@ Inline comments checked:
 Unresolved threads checked:
 - YES / NO
 
-Label finali fatte partire + reviewer risposti (Fable/Fugu/GPT/GLM):
-- YES / NO   (l'attesa finestra 16 min è ABROGATA — vedi OVERRIDE PROPRIETARIO)
+Label finali fatte partire + reviewer risposti (Fable/Fugu/GPT/GLM) + CodeRabbit COMPLETATO (o cap ~15 min scaduto):
+- YES / NO   (l'attesa finestra 16 min è ABROGATA — vedi OVERRIDE PROPRIETARIO; il gate non è
+  soddisfatto finché CodeRabbit non ha completato o non è scattato il cap anti-stallo)
 
 Last-5 PR post-merge sweep:
 - YES / NO
