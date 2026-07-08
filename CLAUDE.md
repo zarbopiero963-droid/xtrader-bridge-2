@@ -293,24 +293,39 @@ Questa sezione vale per ogni PR. Il merge resta **sempre manuale del proprietari
 gate **non** merga, non blocca il proprietario, e non sostituisce il check completion gate —
 **si aggiunge dopo** di esso.
 
-### OVERRIDE PROPRIETARIO — niente attesa automatica della finestra 16 min
+### OVERRIDE PROPRIETARIO — niente TIMER, ma attesa INTELLIGENTE event-driven
 
-Decisione del proprietario: **non** imporre più l'attesa automatica dei 16 minuti. Aspettare a
-vuoto fa perdere tempo. Il flusso pre-merge diventa:
+Decisione del proprietario: **non** un'attesa a **timer fisso** (i vecchi 16 minuti) — aspettare
+un orologio a vuoto fa perdere tempo. **Ma neppure** mergiare appena rispondono i reviewer veloci:
+si aspetta, **event-driven**, che i reviewer che trovano davvero i P1 in ritardo abbiano **finito**.
+Il rischio è reale — dimostrato sulla PR #379: i quattro reviewer veloci avevano dato no-blocker e
+**CodeRabbit ha poi pubblicato 1 Major + 1 Minor reali minuti dopo**; mergiare subito li avrebbe
+persi pre-merge. Flusso pre-merge:
 
-1. lavoro completo + CI tentata + branch pushato + PR non draft;
+1. lavoro completo + **CI verde** (check-completion gate) + branch pushato + PR non draft;
 2. **far partire i due workflow finali via label** (`final-fable-review` + `final-fugu-review`) —
-   rimuovi e riaggiungi se già presenti;
-3. leggere gli esiti dei reviewer che rispondono (Fable 5, Fugu Ultra, GPT-5.5, GLM 5.2);
-4. appena questi hanno risposto → **dire al proprietario merge sì/no**, senza aspettare un timer.
+   una volta, a head stabile;
+3. i **quattro reviewer sincroni** (Fable 5, Fugu Ultra, GPT-5.5, GLM 5.2) rispondono in ~1 min
+   (job Actions): leggere i loro esiti;
+4. **aspettare che CodeRabbit abbia COMPLETATO la sua review** — non un timer, ma il suo **segnale
+   di completamento**: o pubblica **commenti inline azionabili**, o il riepilogo **«No actionable
+   comments 🎉»**. CodeRabbit posta i finding dettagliati (anche P1/Major) **minuti dopo** i quattro
+   veloci: saltarlo = rischio di perdere un P1. L'attesa è **event-driven** (subscription attiva →
+   ci si sveglia quando posta), **non** a orologio, e **non** blocca il proprietario (può mergiare
+   quando vuole);
+5. solo con i **quattro reviewer + la review reale di CodeRabbit** acquisiti (no-blocker / finding
+   indirizzati) → **dire al proprietario merge sì/no**.
 
-- **Codex = assente** (usage-limit dell'abbonamento): **non è un gate**, non aspettarlo, non
-  contarlo, non bloccare il `DONE` su di lui.
-- **CodeRabbit** ci mette minuti (e va spesso in rate-limit): **non** bloccare né temporeggiare ad
-  aspettarlo. Se arriva dopo, lo copre lo **sweep post-merge** (Issue + eventuale fix PR), non
-  un'attesa a finestra aperta.
-- La rete di sicurezza per i commenti-bot in ritardo resta il **tracciamento post-merge** (Issue +
-  fix PR dedicata) e lo **sweep delle ultime 5 PR** qui sotto, non l'attesa sincrona.
+- **Codex = assente** (usage-limit dell'abbonamento): non posta **mai** → **non è un gate**, non
+  aspettarlo, non contarlo.
+- **CodeRabbit rate-limited**: se pubblica «review limit reached» con un orario, **non** bloccare
+  all'infinito — se il ritardo è breve aspetta quell'orario; se è lungo (39–50 min) **dillo al
+  proprietario** e passa il testimone al tracciamento post-merge (decide lui se mergiare prima).
+- La rete di sicurezza per ciò che sfugge comunque (rate-limit lungo, Codex assente) resta il
+  **tracciamento post-merge** (Issue + fix PR) e lo **sweep delle ultime 5 PR** qui sotto.
+
+Niente `REVIEW_WINDOW_PENDING` e niente self check-in «a scadenza finestra»: l'attesa è legata agli
+**eventi reali dei reviewer** (soprattutto il completamento di CodeRabbit), non a un timer.
 
 ### Gate dei 16 minuti — ❌ STORICO / SUPERATO, NON APPLICARE
 

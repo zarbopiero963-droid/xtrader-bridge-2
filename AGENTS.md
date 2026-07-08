@@ -791,12 +791,21 @@ that's the spending limit / billing, an **owner action** (github.com/settings/bi
 
 ## Post-commit review window — 16 min gate & last-5 PR sweep — required
 
-> ⚠️ **OWNER OVERRIDE: the automatic 16-minute wait is DISABLED (see below).** Once the two
-> final-review workflows have been fired via label and Fable 5 / Fugu Ultra / GPT-5.5 / GLM 5.2
-> have responded, report merge yes/no to the owner immediately — do not idle on a timer. Codex =
-> absent (usage limit) is NOT a gate; CodeRabbit takes minutes and must not be waited on. Late bot
-> comments are caught by the post-merge sweep (Issue + fix PR), not by a synchronous wait. The
-> last-5 PR sweep and post-merge tracking below remain in force; the timed wait does not.
+> ⚠️ **OWNER OVERRIDE: no fixed TIMER, but an INTELLIGENT event-driven wait (see below).** The old
+> 16-minute clock is gone — idling on a clock wastes time. But do **not** merge the moment the four
+> fast reviewers respond either: wait, **event-driven**, until the reviewer that actually finds late
+> P1s has **finished**. Concretely: (1) fire the two final-review labels once; (2) the four
+> **synchronous** reviewers (Fable 5, Fugu Ultra, GPT-5.5, GLM 5.2) answer in ~1 min; (3) **wait for
+> CodeRabbit to COMPLETE its review** — its completion signal is either **actionable inline comments**
+> or the **"No actionable comments 🎉"** summary — because CodeRabbit posts its detailed findings
+> (incl. P1/Major) minutes after the fast four (proven on PR #379: 1 Major + 1 Minor landed after
+> the four said no-blocker); this wait is **event-driven** (subscription active → you wake when it
+> posts), not a clock, and never blocks the owner; (4) only with the four reviewers **and**
+> CodeRabbit's real review in → report merge yes/no. **Codex = absent** (usage limit) never posts →
+> NOT a gate. **CodeRabbit rate-limited** (posts "review limit reached" with a time): don't block
+> forever — wait if short, else tell the owner and hand to the post-merge sweep. `REVIEW_WINDOW_PENDING`
+> and window-wait self check-ins are gone; the last-5 PR sweep and post-merge tracking below remain
+> the backstop for what still slips through.
 
 Reason: AI reviewers do **not** comment immediately. Measured on this repo's real PRs, after
 each push the inline comments land late: **Codex** typically **+7–12 min**, **CodeRabbit**
