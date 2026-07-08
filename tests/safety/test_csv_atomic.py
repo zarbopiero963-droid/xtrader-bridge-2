@@ -381,7 +381,7 @@ def test_replace_with_retry_riprova_e_poi_riesce(monkeypatch):
         return None                        # successo: niente eccezione
 
     monkeypatch.setattr(csv_writer.os, "replace", flaky)
-    csv_writer._replace_with_retry("src.tmp", "dst.csv", attempts=5, delay=0)
+    csv_writer._replace_with_retry("src.tmp", "dst.csv", attempts=5, sleep=lambda *_: None)
     assert calls["n"] == 3                 # 2 fallimenti + 1 successo
 
 
@@ -396,7 +396,7 @@ def test_replace_with_retry_esaurisce_gli_attempt_e_rilancia(monkeypatch):
 
     monkeypatch.setattr(csv_writer.os, "replace", always_fail)
     with pytest.raises(OSError):
-        csv_writer._replace_with_retry("src.tmp", "dst.csv", attempts=4, delay=0)
+        csv_writer._replace_with_retry("src.tmp", "dst.csv", attempts=4, sleep=lambda *_: None)
     assert calls["n"] == 4                 # ha provato esattamente `attempts` volte
 
 
@@ -428,7 +428,7 @@ def test_replace_with_retry_errore_strutturale_escala_subito(monkeypatch):
         monkeypatch.setattr(csv_writer.os, "replace", boom)
         monkeypatch.setattr(csv_writer.time, "sleep", lambda *_: None)
         with pytest.raises(OSError):
-            csv_writer._replace_with_retry("src", "dst", attempts=10, delay=0)
+            csv_writer._replace_with_retry("src", "dst", attempts=10, sleep=lambda *_: None)
         assert calls["n"] == 1, f"errno {permanent}: ritentato invece di escalare subito"
 
 
@@ -444,7 +444,7 @@ def test_replace_with_retry_windows_sharing_violation_ritenta(monkeypatch):
         return None
 
     monkeypatch.setattr(csv_writer.os, "replace", flaky)
-    csv_writer._replace_with_retry("src", "dst", attempts=5, delay=0)
+    csv_writer._replace_with_retry("src", "dst", attempts=5, sleep=lambda *_: None)
     assert calls["n"] == 3                              # 2 retry + successo
 
 
@@ -462,7 +462,7 @@ def test_replace_with_retry_windows_access_denied_e_ritentabile(monkeypatch):
         return None
 
     monkeypatch.setattr(csv_writer.os, "replace", flaky)
-    csv_writer._replace_with_retry("src", "dst", attempts=5, delay=0)
+    csv_writer._replace_with_retry("src", "dst", attempts=5, sleep=lambda *_: None)
     assert calls["n"] == 3                              # 2 retry + successo (non escala subito)
 
 
@@ -479,7 +479,7 @@ def test_replace_with_retry_windows_winerror_strutturale_escala_subito(monkeypat
         monkeypatch.setattr(csv_writer.os, "replace", boom)
         monkeypatch.setattr(csv_writer.time, "sleep", lambda *_: None)
         with pytest.raises(OSError):
-            csv_writer._replace_with_retry("src", "dst", attempts=10, delay=0)
+            csv_writer._replace_with_retry("src", "dst", attempts=10, sleep=lambda *_: None)
         assert calls["n"] == 1, f"winerror {structural}: ritentato invece di escalare"
 
 
@@ -495,6 +495,73 @@ def test_is_retryable_replace_error_classifica_transitori_e_permanenti():
     assert csv_writer._is_retryable_replace_error(OSError("lock generico")) is True  # errno None
     for permanent in (_errno.EISDIR, _errno.EACCES, _errno.ENOENT, _errno.ENOTDIR, _errno.EXDEV):
         assert csv_writer._is_retryable_replace_error(_oserror(errno_=permanent)) is False
+
+
+# ── _replace_with_retry: backoff esponenziale + jitter + budget (#311-3.5-e) ──────
+
+def _always_lock(src, dst):
+    """`os.replace` che fallisce sempre con un lock TRANSITORIO (errno None → ritentabile)."""
+    raise OSError("lock XTrader (simulato, transitorio)")
+
+
+def test_replace_backoff_esponenziale_e_budget(monkeypatch):
+    """#311-3.5-e: il backoff NON è più fisso 0.1s ma ESPONENZIALE (0.05·2^i) con cap 0.4s, e la
+    somma delle attese non supera il budget totale (~1.5s), che tronca PRIMA del tetto N=10.
+    rng neutro (0.5 → jitter 0) per una sequenza deterministica."""
+    monkeypatch.setattr(csv_writer.os, "replace", _always_lock)
+    delays = []
+    with pytest.raises(OSError):
+        csv_writer._replace_with_retry("s", "d", sleep=delays.append, rng=lambda: 0.5)
+    # Esponenziale (mutation-guard: col vecchio passo FISSO sarebbe [0.1, 0.1, 0.1, ...]).
+    assert delays[:4] == pytest.approx([0.05, 0.10, 0.20, 0.40])
+    # Cap 0.4: nessuna singola attesa lo supera (jitter incluso).
+    assert max(delays) <= csv_writer._REPLACE_MAX_DELAY + 1e-9
+    # Budget totale ≤ 1.5s: la somma delle attese non lo sfora.
+    assert sum(delays) <= csv_writer._REPLACE_BUDGET + 1e-9
+    # Il budget tronca prima del tetto assoluto di tentativi (N=10).
+    assert len(delays) < csv_writer._REPLACE_ATTEMPTS
+
+
+def test_replace_budget_domina_su_attempts_alto(monkeypatch):
+    """#311-3.5-e: anche con `attempts` molto alto, è il BUDGET a fermare i retry (il percorso
+    live non resta bloccato oltre ~1.5s tenendo `_write_lock`)."""
+    monkeypatch.setattr(csv_writer.os, "replace", _always_lock)
+    delays = []
+    with pytest.raises(OSError):
+        csv_writer._replace_with_retry("s", "d", attempts=1000, sleep=delays.append, rng=lambda: 0.5)
+    assert sum(delays) <= csv_writer._REPLACE_BUDGET + 1e-9
+    assert len(delays) < 1000            # fermato dal budget, non dal tetto attempts
+
+
+def test_replace_jitter_entro_frazione_e_sotto_cap(monkeypatch):
+    """#311-3.5-e: il jitter resta entro ±_REPLACE_JITTER_FRAC e NON fa mai sforare il cap."""
+    monkeypatch.setattr(csv_writer.os, "replace", _always_lock)
+    base = csv_writer._REPLACE_BASE_DELAY
+    frac = csv_writer._REPLACE_JITTER_FRAC
+    for r in (0.0, 0.999):               # estremi del jitter: ~ -frac e ~ +frac
+        delays = []
+        with pytest.raises(OSError):
+            csv_writer._replace_with_retry("s", "d", attempts=3, sleep=delays.append,
+                                           rng=lambda _r=r: _r)
+        # 1ª attesa = base·(1 ± frac).
+        assert base * (1 - frac) - 1e-9 <= delays[0] <= base * (1 + frac) + 1e-9
+        # Nessuna attesa supera il cap, jitter incluso.
+        assert all(d <= csv_writer._REPLACE_MAX_DELAY + 1e-9 for d in delays)
+
+
+def test_replace_strutturale_escala_subito_col_nuovo_backoff(monkeypatch):
+    """#311-3.5-e: la classificazione transitorio/permanente resta INVARIATA — un errore
+    strutturale propaga al primo tentativo anche col nuovo backoff (nessuna attesa)."""
+    import errno as _errno
+    delays = []
+
+    def boom(src, dst):
+        raise _oserror(errno_=_errno.EISDIR)
+
+    monkeypatch.setattr(csv_writer.os, "replace", boom)
+    with pytest.raises(OSError):
+        csv_writer._replace_with_retry("s", "d", sleep=delays.append)
+    assert delays == []                  # nessuna attesa: escalation immediata
 
 
 # ── H3 (#184): check-then-clear di clear_stale_csv ATOMICO sotto _write_lock ──

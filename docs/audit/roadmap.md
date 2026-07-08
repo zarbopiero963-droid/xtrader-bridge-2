@@ -2189,7 +2189,7 @@ Phase 0 + micro-audit + test hard veritieri; merge sempre manuale.
 | 2ª | **archivio docs** | ✅ FATTO | 9 file storici → `docs/audit/archive/`; link aggiornati |
 | 3ª | **ruff/mypy CI** | ✅ FATTO (questa PR) | **soft-warning** (scelta owner): non blocca |
 | 4ª | **clock-skew dedupe** | ✅ FATTO | core; policy owner: clamp futuro ≤ 60s, scarta oltre |
-| 5ª | retry-budget CSV | da fare | core; l'owner fornisce N retry/backoff |
+| 5ª | **retry-budget CSV** | ✅ FATTO | core; backoff esponenziale 0.05→cap 0.4s + jitter, budget ≤1.5s, N=10 |
 | 6ª | daily-limit ora locale | da fare | core; l'owner fornisce TZ + gestione DST |
 | ⏸️ | firma EXE | in sospeso | attesa certificato (acquisto/gratuito) |
 
@@ -2264,3 +2264,32 @@ disattivato dall'utente (`max_age <= 0`) resta tale (non si applica neppure il r
 e confine; `max_skew` malformato → default 60; filtro disattivato → futuro resta non stantio; costante
 esposta = 60. Suite **2425 passed, 11 skipped**. **CORE change** (`xtrader_bridge/message_freshness.py`)
 → da ri-sincronizzare nel cloud. Design handoff = **N/A** (logica pura interna, nessun elemento GUI/UX).
+
+### 3.5-e retry-budget CSV — FATTO
+
+**Problema.** `csv_writer._replace_with_retry` (il rename atomico finale della scrittura/svuotamento
+CSV, ritentato quando XTrader tiene il file bloccato in lettura su Windows) usava un backoff **fisso
+0.1s** × 10 tentativi (budget ~1s, audit C3). Passo fisso: o troppe iterazioni identiche, o poca
+elasticità se il lock durava un filo di più.
+
+**Policy (owner).** Backoff **esponenziale** `0.05·2^i` con **jitter ±10%** e **cap 0.4s** per
+attesa, **budget totale ≤1.5s**, tetto **N=10** tentativi. Il retry gira sul percorso live tenendo
+`_write_lock`: il **budget** è il vincolo DOMINANTE (oltre ~1.5s ci si arrende → l'errore propaga →
+rollback fail-safe nel chiamante → retry event-driven a valle), così il live non resta bloccato.
+
+**Fix (patch stretta, `csv_writer.py`).** Costanti `_REPLACE_ATTEMPTS=10`, `_REPLACE_BASE_DELAY=0.05`,
+`_REPLACE_MAX_DELAY=0.4`, `_REPLACE_BUDGET=1.5`, `_REPLACE_JITTER_FRAC=0.1`. `_replace_with_retry`
+calcola `base·2^i`, applica il jitter, **clampa al cap** (il jitter non può sforare il cap) e poi al
+**residuo di budget**; a budget esaurito propaga. `sleep`/`rng` iniettabili (default
+`time.sleep`/`random.random`) per test deterministici; il budget si misura sui delay **nominali**
+accumulati (riproducibile). La **classificazione** transitorio/permanente (`_is_retryable_replace_error`,
+winerror 5/32/33 vs strutturali) resta **INVARIATA**: un errore permanente propaga al 1° tentativo.
+
+**Test hard** (`tests/safety/test_csv_atomic.py`): sequenza esponenziale `[0.05,0.10,0.20,0.40,…]`
+(**mutation-guard**: col vecchio passo fisso sarebbe `[0.1,0.1,…]`); cap ≤0.4; somma ≤1.5; budget
+tronca prima del tetto N (anche con `attempts=1000`); jitter entro ±10% e sempre ≤cap; errore
+strutturale escala subito (nessuna attesa). 6 test preesistenti adattati (`delay=0` → `sleep` no-op).
+Suite **2429 passed, 11 skipped**. **CORE change** (`xtrader_bridge/csv_writer.py`) → da
+ri-sincronizzare nel cloud. Docs: README **N/A** (la nota #105 H2 descrive il comportamento
+user-visible — retry automatico/escalation/recupero — invariato; il backoff è un dettaglio interno).
+Design handoff = **N/A** (nessun elemento GUI/UX).
