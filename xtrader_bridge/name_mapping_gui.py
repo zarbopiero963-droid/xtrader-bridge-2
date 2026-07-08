@@ -834,11 +834,15 @@ class MappingPanel(ctk.CTkFrame):
 
     - **⚽ Calcio**: nomi squadre/campionati (`NameMappingPanel`);
     - **🎯 Mercati**: traduzione frase-mercato → mercato/selezione XTrader
-      (`MarketMappingPanel`, config ``market_mappings``).
+      (`MarketMappingPanel`, config ``market_mappings``);
+    - **🌳 Mapping guidato**: albero Sport → Competizione → Squadre dai dati Betfair, con
+      alias-canale per squadra (`GuidedMappingPanel`), che scrive negli stessi profili `name_mappings`.
 
-    `on_saved(new_cfg)`: inoltrata a entrambe le aree (i dizionari persistono su config)."""
+    `on_saved(new_cfg)`: inoltrata a tutte le aree (i dizionari persistono su config).
+    `competitions_provider`/`teams_provider`: letture Betfair (fail-fast su sync) per l'albero guidato."""
 
-    def __init__(self, master=None, on_saved=None, known_teams_provider=None):
+    def __init__(self, master=None, on_saved=None, known_teams_provider=None,
+                 competitions_provider=None, teams_provider=None):
         super().__init__(master)
         self._tabs = ctk.CTkTabview(self)
         self._tabs.pack(fill="both", expand=True, padx=4, pady=4)
@@ -852,11 +856,20 @@ class MappingPanel(ctk.CTkFrame):
         self._mercati = MarketMappingPanel(mercati, on_saved=on_saved)
         self._mercati.pack(fill="both", expand=True)
 
+        # Import locale per non appesantire l'avvio di chi non apre il Mapping.
+        from .guided_mapping_gui import GuidedMappingPanel
+        guidato = self._tabs.add("🌳 Mapping guidato")
+        self._guidato = GuidedMappingPanel(
+            guidato, competitions_provider=competitions_provider,
+            teams_provider=teams_provider, on_saved=on_saved)
+        self._guidato.pack(fill="both", expand=True)
+
     def refresh(self):
-        """Ricarica entrambe le aree (dizionari nomi e mercati) dalla config su disco
+        """Ricarica tutte le aree (nomi, mercati, mapping guidato) dalla config su disco
         (anti-stale: un profilo applicato altrove non deve restare stantio qui)."""
         self._calcio.refresh()
         self._mercati.refresh()
+        self._guidato.refresh()
 
 
 class NameMappingWindow(ctk.CTkToplevel):

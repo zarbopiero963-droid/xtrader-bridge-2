@@ -2288,11 +2288,44 @@ handoff §7.7 aggiornato. **Verifica manuale owner (richiede display, non in CI)
 Dizionario, cambiare Livello su Mercati/Selezioni e premere 🔄 Aggiorna → la finestra **non** si blocca
 più, le colonne sono allineate, e sopra la tabella compare l'avviso di troncamento a 500.
 
-### Fase 3 — mapping guidato ad albero — DA PROGETTARE
+### Fase 3 — mapping guidato ad albero — FATTO
 
-Sport→Competizione→Squadre (derivate da `betfair_events`: participant per `competition_id`)→associa al
-nome del canale→salva in `name_mapping_store`. Feature GUI+logica: da disegnare con l'owner prima di
-implementare.
+Nuova sotto-scheda **«🌳 Mapping guidato»** in Strumenti → Mapping (`guided_mapping_gui.py`), affiancata
+a «⚽ Calcio» e «🎯 Mercati» (non-distruttivo). Flusso: **Sport → Competizione** (tendine dai dati
+Betfair sincronizzati) → **Squadre** della competizione (unione `participant_1`/`participant_2` degli
+eventi per `competition_id`, dedup) → accanto a ogni squadra l'**alias del canale** → **Salva** nel
+**profilo `name_mappings`** scelto (merge, non sovrascrive; `entity_type=team`).
+
+Decisioni owner-approvate: (1) **nuova sotto-scheda dedicata**; (2) squadre **dagli eventi della
+competizione** (vero albero per-competizione; appaiono solo squadre con eventi sincronizzati);
+(3) **profilo scelto dall'utente** (merge). Chiarimento: la **competizione è solo navigazione**, non
+entra nella riga di mapping (il parser non filtra per competizione), quindi nessun cambio di schema
+`name_mappings`.
+
+Logica **pura e testata** in `betfair/guided_mapping.py`:
+- `competitions_for_sport(db, sport)` — competizioni **attive** dello sport (scope `event_type_id`,
+  dedup, ordinate);
+- `teams_for_competition(db, competition_id)` — squadre uniche (union participant, vuoti scartati,
+  include eventi disattivati per il roster storico);
+- `merge_team_aliases(existing, sport, {squadra: alias})` — fonde le righe-squadra nel profilo
+  **aggiornando** (no duplicati), **rimuovendo** su alias vuoto e **lasciando intatte** le altre righe
+  (altri sport, mercati, righe manuali); match case/space-insensitive;
+- `existing_aliases_for_teams(...)` — pre-compilazione degli alias già salvati (per-sport), così
+  ri-salvare una competizione non azzera i mapping di squadre condivise con altre competizioni.
+
+GUI (non testata in CI, richiede display): riuso store/persistenza esistenti
+(`name_mapping_store.set_entries` + `config_store.save_config` + pattern anti-stale `on_saved`),
+letture Betfair **fail-fast** su sync in corso (`DictionaryBusy`, come il viewer), **cap di rendering
+500** squadre + filtro (come Fase 2) per non bloccare su competizioni popolose. Provider busy-guarded
+in `app.py`: `_betfair_competitions` / `_betfair_teams_for_competition`.
+
+Test hard (`test_betfair_guided_mapping.py`, 15): scope competizioni per sport, solo-attive+ordine,
+union squadre/dedup/vuoti/eventi-disattivati, merge (add/update/remove/intatte/case-insensitive),
+pre-compilazione. Suite completa verde. Allowlist blind-except aggiornata (`app.py` 45→47, nuovo
+`guided_mapping_gui.py`=3). Smoke-import: `guided_mapping_gui` fra i moduli GUI (skip headless).
+Design handoff §7.5 aggiornato. **Verifica manuale owner (display):** Strumenti → Mapping → 🌳 Mapping
+guidato → scegli profilo, Sport, Competizione → scrivi alias → Salva; poi verifica nel parser che i
+nomi vengano tradotti.
 
 ---
 

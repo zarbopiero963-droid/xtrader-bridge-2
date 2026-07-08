@@ -166,7 +166,7 @@ HUB "🧰 STRUMENTI"  (tab PIATTE ma RAGGRUPPATE per flusso ①..④, #293 slice
       └─ ① 📇 Provider           → anagrafica nomi Provider
    ② Lettura messaggi
       ├─ ② 🧩 Parser             → Parser Personalizzato (regole + 🔗 Traduzioni attive + multi-riga)
-      └─ ② 🗺️ Mapping            → dizionari mappatura (sotto-tab: ⚽ Calcio nomi · 🎯 Mercati)
+      └─ ② 🗺️ Mapping            → dizionari mappatura (sotto-tab: ⚽ Calcio nomi · 🎯 Mercati · 🌳 Mapping guidato)
    ③ Betfair
       ├─ ③ 🔵 Betfair Sync       → credenziali + sync dizionario Betfair
       ├─ ③ 📖 Dizionario Betfair → browser sola-lettura del dizionario locale
@@ -582,7 +582,7 @@ NON** viene salvato nei profili). Campo nome + **"💾 Salva profilo"**; lista c
   **"⚠️ Scheda &lt;nome&gt; non aggiornata dal profilo (mostra ancora i valori precedenti): …"**
   — l'utente sa che quella tab è stantia invece di crederla aggiornata.
 
-### 7.5 🗺️ Mapping (`name_mapping_gui.py`) — 2 sotto-tab
+### 7.5 🗺️ Mapping (`name_mapping_gui.py`) — 3 sotto-tab
 - **⚽ Calcio (Dizionario nomi squadra):** profilo (Nuovo/Rinomina/Elimina) + tabella
   **Country · Betfair/XTrader · Come lo scrive il canale · Sport · Tipo**. Traduce i nomi del canale
   nei nomi attesi da Betfair/XTrader. La colonna **«Come lo scrive il canale»** (già «Provider»,
@@ -600,6 +600,27 @@ NON** viene salvato nei profili). Campo nome + **"💾 Salva profilo"**; lista c
 - **🎯 Mercati (Dizionario mercati):** profilo + tabella **Inizia dopo · Finisce prima ·
   Testo mercato · Mercato (catalogo) · Selezione (catalogo)**. Legge il mercato da una
   posizione precisa del messaggio e imposta Mercato/Selezione dal catalogo XTrader.
+- **🌳 Mapping guidato (`guided_mapping_gui.py`, Fase 3 collaudo Betfair):** albero a cascata per
+  costruire il dizionario nomi **senza digitare i nomi Betfair a mano**. Controlli, dall'alto:
+  riga **Profilo** (destinazione, con **«🆕 Nuovo»**) → riga **Sport** (tendina Calcio/Tennis/
+  Basket/Rugby) + **Competizione** (tendina popolata dai dati Betfair sincronizzati) → casella
+  **«Filtra squadre»** (con **«Pulisci»**) → tabella a 2 colonne **Squadra Betfair · Come la
+  chiama il canale** (una riga editabile per squadra) → **«💾 Salva nel profilo»** (verde
+  `#2e7d32`) + riga di stato.
+  - **Flusso:** scegli Sport → Competizione; le **squadre** appaiono dall'unione
+    `participant_1`/`participant_2` degli eventi di quella competizione. Accanto a ciascuna scrivi
+    l'alias del canale; al salvataggio le righe vengono **fuse** nel profilo `name_mappings` scelto
+    (stesso store della scheda «⚽ Calcio»), come `entity_type=team`. La **competizione serve solo a
+    navigare** (non entra nel mapping: il parser non filtra per competizione).
+  - **Pre-compilazione:** gli alias già salvati per una squadra (per-sport) ricompaiono accanto ad
+    essa in qualunque competizione, così ri-salvare **aggiorna** senza azzerare mapping condivisi.
+  - **Cap di rendering** `500` squadre (come il viewer, Fase 2): competizioni molto popolose non
+    bloccano; il modello tiene comunque tutte le squadre (gli alias scritti restano salvati anche se
+    non visibili) e «Filtra» restringe. Sopra il cap compare un avviso arancione.
+  - **Stati fail-safe:** durante una **sincronizzazione Betfair in corso** le tendine/l'elenco fanno
+    fail-fast con **«⏳ Dizionario in aggiornamento (sync Betfair in corso): riprova tra poco»**
+    (arancione) **senza congelare la finestra**; senza dati (mai sincronizzato) mostra un avviso e
+    non aggiunge nulla.
 
 ### 7.6 🔵 Betfair Sync (`sync_tab_gui.py`)
 Titolo **"🔵  Betfair Sync (locale, read-only)"**. Sincronizza un **dizionario Betfair

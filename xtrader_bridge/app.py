@@ -2002,6 +2002,53 @@ class App(ctk.CTk):
         except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → nessun nome
             return []
 
+    def _betfair_competitions(self, sport):
+        """Competizioni ATTIVE dello sport dal dizionario Betfair locale, per la tendina del
+        «🌳 Mapping guidato» (Fase 3). Ritorna ``[{"competition_id","name"}]`` ordinate.
+
+        Come `_known_betfair_teams`: **sola lettura best-effort** (DB assente/illeggibile → `[]`)
+        e **fail-fast** con `DictionaryBusy` se una sync tiene il lock del DB (probe non bloccante
+        sul thread Tk, niente freeze). Non fa rete."""
+        from .betfair.dictionary_viewer import DictionaryBusy
+        from .betfair import guided_mapping
+        try:
+            db = self._betfair_sync_engine().db
+            if db is None:
+                return []
+            if not db.acquire_read(blocking=False):
+                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+            try:
+                return guided_mapping.competitions_for_sport(db, sport)
+            finally:
+                db.release_read()
+        except DictionaryBusy:
+            raise                        # 'occupato' distinto: lo gestisce il pannello
+        except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → nessuna competizione
+            return []
+
+    def _betfair_teams_for_competition(self, competition_id):
+        """Nomi squadra di una competizione (unione participant_1/2 degli eventi) dal dizionario
+        Betfair locale, per l'albero del «🌳 Mapping guidato» (Fase 3). Ritorna una lista di nomi.
+
+        Come `_betfair_competitions`: sola lettura best-effort + **fail-fast** su `DictionaryBusy`
+        durante una sync. Non fa rete."""
+        from .betfair.dictionary_viewer import DictionaryBusy
+        from .betfair import guided_mapping
+        try:
+            db = self._betfair_sync_engine().db
+            if db is None:
+                return []
+            if not db.acquire_read(blocking=False):
+                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+            try:
+                return guided_mapping.teams_for_competition(db, competition_id)
+            finally:
+                db.release_read()
+        except DictionaryBusy:
+            raise
+        except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → nessuna squadra
+            return []
+
     def _delete_betfair_team(self, sport, normalized_name) -> bool:
         """Elimina un nome squadra permanente dal dizionario Betfair locale (#282 PR 11-bis,
         ripulitura manuale). Ritorna `True` se eliminato, `False` se DB non disponibile.
@@ -3708,8 +3755,11 @@ class App(ctk.CTk):
             """Crea il pannello Mapping e ne tiene il riferimento per il refresh.
             Inietta il provider dei nomi squadra permanenti (#282 PR 11), così l'area
             ⚽ Calcio può precompilare la colonna Betfair coi nomi reali della sync."""
-            panel_refs["mapping"] = MappingPanel(parent, on_saved=_mapping_saved,
-                                                 known_teams_provider=self._known_betfair_teams)
+            panel_refs["mapping"] = MappingPanel(
+                parent, on_saved=_mapping_saved,
+                known_teams_provider=self._known_betfair_teams,
+                competitions_provider=self._betfair_competitions,
+                teams_provider=self._betfair_teams_for_competition)
             return panel_refs["mapping"]
 
         def _betfair_sync(sports):
