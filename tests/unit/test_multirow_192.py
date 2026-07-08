@@ -477,7 +477,7 @@ def test_resolve_row_multi_ritorna_rows(monkeypatch):
     # RouteResult con tutte le righe in `rows`, e `row` = la prima (retro-compatibile).
     from xtrader_bridge import signal_router
     defn = _multiselection_parser()
-    monkeypatch.setattr(signal_router, "active_custom_parser", lambda cfg, chat, pd=None: defn)
+    monkeypatch.setattr(signal_router, "active_custom_parsers", lambda cfg, chat, pd=None: [defn])
     monkeypatch.setattr(signal_router.custom_parser_engine, "matches_message",
                         lambda d, t, m: True)
     monkeypatch.setattr(signal_router.source_manager, "source_for_chat", lambda cfg, chat: None)
@@ -497,7 +497,7 @@ def test_resolve_row_multi_una_riga_preserva_provenienza(monkeypatch):
     defn = _multiselection_parser()
     defn.multi_selections = [cp.MultiRowRule(selection_name="1 - 0")]   # UNA sola selezione → 1 riga
     assert defn.is_multi_row() is True
-    monkeypatch.setattr(signal_router, "active_custom_parser", lambda cfg, chat, pd=None: defn)
+    monkeypatch.setattr(signal_router, "active_custom_parsers", lambda cfg, chat, pd=None: [defn])
     monkeypatch.setattr(signal_router.custom_parser_engine, "matches_message",
                         lambda d, t, m: True)
     monkeypatch.setattr(signal_router.source_manager, "source_for_chat", lambda cfg, chat: None)
@@ -527,7 +527,7 @@ def test_is_multi_row_solo_con_righe_attive(monkeypatch):
     # e via resolve_row: toggle acceso senza righe attive → RouteResult single-row (rows None).
     from xtrader_bridge import signal_router
     defn.multi_selections = []
-    monkeypatch.setattr(signal_router, "active_custom_parser", lambda cfg, chat, pd=None: defn)
+    monkeypatch.setattr(signal_router, "active_custom_parsers", lambda cfg, chat, pd=None: [defn])
     monkeypatch.setattr(signal_router.custom_parser_engine, "matches_message",
                         lambda d, t, m: True)
     monkeypatch.setattr(signal_router.source_manager, "source_for_chat", lambda cfg, chat: None)
@@ -542,7 +542,7 @@ def test_resolve_row_single_resta_invariato(monkeypatch):
         cp.FieldRule(target="MarketType", fixed_value="CORRECT_SCORE", required=True),
         cp.FieldRule(target="SelectionName", fixed_value="1 - 0", required=True),
     ]))
-    monkeypatch.setattr(signal_router, "active_custom_parser", lambda cfg, chat, pd=None: defn)
+    monkeypatch.setattr(signal_router, "active_custom_parsers", lambda cfg, chat, pd=None: [defn])
     monkeypatch.setattr(signal_router.custom_parser_engine, "matches_message",
                         lambda d, t, m: True)
     monkeypatch.setattr(signal_router.source_manager, "source_for_chat", lambda cfg, chat: None)

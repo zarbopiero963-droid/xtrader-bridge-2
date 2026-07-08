@@ -66,12 +66,19 @@ class ChannelSummary:
     chat_id: str
     name: str
     enabled: bool
-    parser_name: str            # nome del parser risolto ("" = nessuno)
-    parser_loaded: bool         # True se il parser si carica ed è valido (fail-closed)
+    parser_name: str            # nome del parser PRIMARIO risolto ("" = nessuno)
+    parser_loaded: bool         # True se il parser primario si carica ed è valido (fail-closed)
     names: TranslationSummary = field(default_factory=TranslationSummary)
     markets: TranslationSummary = field(default_factory=TranslationSummary)
     ready: bool = False
     reason: str = ""            # motivo se non pronto ("" quando ready=True)
+    # PR-2 (router multi-parser): TUTTI i parser configurati per la chat, in ordine di
+    # priorità (il primo è `parser_name`). Con un solo parser è `(parser_name,)` o `()`.
+    parser_names: tuple = ()
+    # PR-2: i parser configurati che NON si caricano (file mancante/corrotto/invalido) —
+    # primario O secondari. Un secondario rotto perde bet in silenzio: reso VISIBILE qui e
+    # nella riga «Pronto?» (Fable #391), non solo il primario.
+    parser_names_unloaded: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -130,14 +137,30 @@ def summarize_channel(cfg: dict, row: dict, *, existing_names: set,
     name = str(row.get("name", "") or "").strip()
     enabled = bool(row.get("enabled", True))
 
-    parser_name = parser_manager.resolve_parser_name(cfg, chat_id)
-    defn = parser_manager.load_active(cfg, chat_id, parsers_dir) if parser_name else None
+    parser_names = tuple(parser_manager.resolve_parser_names(cfg, chat_id))   # PR-2: lista completa
+    parser_name = parser_names[0] if parser_names else ""                     # primario (retro-compat)
+    # UNA sola lettura da disco (GLM #391: niente doppio I/O `load_active` + `load_active_list`):
+    # `load_active_list` carica in ordine i parser CARICABILI; da lì ricaviamo il primario e
+    # quali NON si caricano — primario O secondari (Fable #391: un secondario rotto perderebbe
+    # bet in silenzio → reso visibile in readiness + riga Parser).
+    loaded_by_name = {d.name: d for d in parser_manager.load_active_list(cfg, chat_id, parsers_dir)}
+    defn = loaded_by_name.get(parser_name) if parser_name else None
     parser_loaded = defn is not None
+    unloaded = tuple(n for n in parser_names if n not in loaded_by_name)
 
     names = _translation_summary(
         defn.name_mapping_profiles if defn else (), existing_names)
     markets = _translation_summary(
         defn.market_mapping_profiles if defn else (), existing_markets)
+    # PR-2 (Codex #391): profili di mappatura FANTASMA su QUALSIASI parser caricato, non solo il
+    # primario. Un secondario che carica ma referenzia profili nomi/mercati inesistenti
+    # sbaglierebbe/perderebbe le sue righe a runtime → la chat NON è pronta. `names`/`markets`
+    # (per il chip) restano quelle del primario; la readiness aggrega su tutti i parser.
+    missing_all = []
+    for d in loaded_by_name.values():
+        missing_all += list(_translation_summary(d.name_mapping_profiles, existing_names).missing)
+        missing_all += list(_translation_summary(d.market_mapping_profiles, existing_markets).missing)
+    missing_all = tuple(dict.fromkeys(missing_all))   # dedup preservando l'ordine
 
     # «Pronto?» severo, in ordine di precedenza (dal problema più a monte).
     if not chat_id:
@@ -146,18 +169,23 @@ def summarize_channel(cfg: dict, row: dict, *, existing_names: set,
         ready, reason = False, REASON_DISABLED
     elif not parser_name:
         ready, reason = False, REASON_NO_PARSER
-    elif not parser_loaded:
-        ready, reason = False, f"{REASON_PARSER_UNLOADABLE}: {parser_name}"
-    elif names.has_missing or markets.has_missing:
-        miss = ", ".join(names.missing + markets.missing)
-        ready, reason = False, f"{REASON_MISSING_TRANSLATION}: {miss}"
+    elif unloaded:
+        # Primario O secondari non caricabili: elencali tutti (fail-closed, mai un falso «Pronto»
+        # con un secondario rotto che perderebbe bet in silenzio). Con un solo parser configurato
+        # è esattamente il messaggio di prima (`REASON_PARSER_UNLOADABLE: <nome>`).
+        ready, reason = False, f"{REASON_PARSER_UNLOADABLE}: {', '.join(unloaded)}"
+    elif missing_all:
+        # Profili fantasma su un qualsiasi parser (primario o secondario). Con un solo parser
+        # è identico a prima (`REASON_MISSING_TRANSLATION: <profili>` del primario).
+        ready, reason = False, f"{REASON_MISSING_TRANSLATION}: {', '.join(missing_all)}"
     else:
         ready, reason = True, ""
 
     return ChannelSummary(
         chat_id=chat_id, name=name, enabled=enabled, parser_name=parser_name,
         parser_loaded=parser_loaded, names=names, markets=markets,
-        ready=ready, reason=reason)
+        ready=ready, reason=reason, parser_names=parser_names,
+        parser_names_unloaded=unloaded)
 
 
 def parser_translation_flags(cfg: dict, parser_name, *, parsers_dir: str = None):

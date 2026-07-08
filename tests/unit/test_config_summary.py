@@ -147,6 +147,59 @@ def test_canale_da_parser_by_chat_senza_sorgente(tmp_path):
     assert ch.name == "" and ch.parser_name == "PerChat" and ch.ready is True
 
 
+def test_canale_multi_parser_elenca_tutti_i_parser(tmp_path):
+    # PR-2 (router multi-parser): una chat con lista multi espone TUTTI i parser in ordine
+    # (`parser_names`), col primario in `parser_name`; readiness sul primario.
+    _save_parser("A", tmp_path)
+    _save_parser("B", tmp_path)
+    cfg = {"parser_list_by_chat": {"777": ["A", "B"]}}
+    s = cs.summarize_config(cfg, parsers_dir=str(tmp_path))
+    ch = next(c for c in s.channels if c.chat_id == "777")
+    assert ch.parser_names == ("A", "B")     # lista completa in ordine
+    assert ch.parser_name == "A"             # primario
+    assert ch.ready is True
+
+
+def test_canale_multi_parser_secondario_rotto_non_pronto(tmp_path):
+    # Fable #391: un SECONDARIO non caricabile (file mancante) non deve sparire in silenzio:
+    # la chat è «non pronta» e il motivo elenca il parser rotto, che finisce in
+    # `parser_names_unloaded` — anche se il PRIMARIO carica.
+    _save_parser("A", tmp_path)                              # primario ok; "B" non esiste
+    cfg = {"parser_list_by_chat": {"777": ["A", "B"]}}
+    s = cs.summarize_config(cfg, parsers_dir=str(tmp_path))
+    ch = next(c for c in s.channels if c.chat_id == "777")
+    assert ch.parser_names == ("A", "B")
+    assert ch.parser_loaded is True                          # il primario A carica…
+    assert ch.parser_names_unloaded == ("B",)               # …ma B no → segnalato
+    assert ch.ready is False
+    assert cs.REASON_PARSER_UNLOADABLE in ch.reason and "B" in ch.reason
+
+
+def test_canale_multi_parser_secondario_con_profilo_fantasma_non_pronto(tmp_path):
+    # Codex #391 P2: un SECONDARIO che CARICA ma referenzia un profilo di mappatura FANTASMA
+    # (inesistente) sbaglierebbe le sue righe a runtime → la chat NON è pronta, anche se il
+    # primario è perfetto. La readiness aggrega i profili mancanti su TUTTI i parser caricati.
+    _save_parser("A", tmp_path)                              # primario: nessuna mappatura
+    _save_parser("B", tmp_path, markets=["GhostM"])          # secondario: profilo mercati fantasma
+    cfg = {"parser_list_by_chat": {"777": ["A", "B"]}}
+    s = cs.summarize_config(cfg, parsers_dir=str(tmp_path))
+    ch = next(c for c in s.channels if c.chat_id == "777")
+    assert ch.parser_names_unloaded == ()                   # entrambi CARICANO…
+    assert ch.ready is False                                # …ma B ha un profilo fantasma
+    assert cs.REASON_MISSING_TRANSLATION in ch.reason and "GhostM" in ch.reason
+
+
+def test_canale_multi_parser_tutti_rotti_non_pronto(tmp_path):
+    # GLM #391 (edge): TUTTI i parser della lista non caricabili → non pronto, tutti in
+    # `parser_names_unloaded`, primario non caricato.
+    cfg = {"parser_list_by_chat": {"777": ["X", "Y"]}}   # nessun file salvato
+    s = cs.summarize_config(cfg, parsers_dir=str(tmp_path))
+    ch = next(c for c in s.channels if c.chat_id == "777")
+    assert ch.parser_loaded is False
+    assert ch.parser_names_unloaded == ("X", "Y")
+    assert ch.ready is False
+
+
 def test_ordine_e_conteggi(tmp_path):
     _save_parser("P1", tmp_path)
     cfg = {"active_parser": "P1",

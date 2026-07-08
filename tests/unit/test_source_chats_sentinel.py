@@ -49,3 +49,12 @@ def test_no_parser_label_stabile_senza_collisioni(scg):
     # Nessun nome/override collide con la base → resta esattamente "(predefinito)" (nessuno
     # spazio superfluo che confonderebbe l'utente).
     assert P._no_parser_label(["Alpha", "Beta"], ["Alpha"]) == "(predefinito)"
+
+
+def test_parsers_summary_lista(scg):
+    # PR-2: riassunto della lista di parser per il bottone di riga (puro/testabile).
+    f = scg._parsers_summary
+    assert f([], "(predefinito)") == "(predefinito)"              # vuota → sentinella
+    assert f(["A"], "(predefinito)") == "1. A"                    # un parser numerato
+    assert f(["A", "B"], "(predefinito)") == "1. A · 2. B"        # ordine di priorità
+    assert f([" A ", "", "A", "B"], "(predefinito)") == "1. A · 2. B"   # pulizia + dedup

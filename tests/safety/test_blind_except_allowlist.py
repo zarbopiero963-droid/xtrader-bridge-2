@@ -117,7 +117,7 @@ _ALLOWLIST = {
                             "che solleva → avviso, nessun crash)"),
     "provider_gui.py": (3, "GUI Tk provider: render/azioni best-effort"),
     "reconnect_policy.py": (1, "classificazione errore di reconnect tollerante"),
-    "source_chats_gui.py": (1, "GUI Tk sorgenti: best-effort"),
+    "source_chats_gui.py": (2, "GUI Tk sorgenti: best-effort (refresh-options + modal transient/grab_set)"),
     "token_store.py": (5, "soft-import/fallback keyring: qualsiasi errore = backend non disponibile"),
     "tools_gui.py": (3, "GUI Tk finestra strumenti: apertura sotto-finestre best-effort"),
     "write_path.py": (2, "write-failure fail-safe: la scrittura CSV fallita non deve crashare → "

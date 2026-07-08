@@ -64,6 +64,12 @@ def _chat_approved_for_custom(cfg: dict, chat: str) -> bool:
         return False
     if chat and chat in parser_manager.parser_by_chat(cfg):
         return True
+    # PR-2: una chat con una LISTA multi-parser (`parser_list_by_chat`) è approvata come lo
+    # è una con override singolo. `set_list_for_chat` sincronizza già `parser_by_chat`, ma
+    # questo copre anche una config editata a mano con la sola lista (robustezza; non
+    # indebolisce il filtro: approva solo chat con un parser ESPLICITO configurato).
+    if chat and chat in parser_manager.parser_list_by_chat(cfg):
+        return True
     if chat and chat in set(map(str, source_manager.enabled_chat_ids(cfg))):
         return True
     configured = str(cfg.get("chat_id", "") or "").strip()
@@ -80,8 +86,9 @@ def has_chat_filter(cfg: dict) -> bool:
     segnali da **qualsiasi** chat → `app._start` annulla l'avvio."""
     configured = str(cfg.get("chat_id", "") or "").strip()
     per_chat = parser_manager.parser_by_chat(cfg)
+    per_chat_list = parser_manager.parser_list_by_chat(cfg)   # PR-2: lista multi-parser
     has_sources = bool(source_manager.source_chats(cfg))
-    return bool(configured or per_chat or has_sources)
+    return bool(configured or per_chat or per_chat_list or has_sources)
 
 
 def allowed_chats(cfg: dict) -> set:
@@ -100,6 +107,7 @@ def allowed_chats(cfg: dict) -> set:
     # Chiavi parser_by_chat già normalizzate a str dalla fonte (parser_manager),
     # coerenti col confronto str(chat) di is_chat_allowed e coi lookup del custom.
     allowed = set(parser_manager.parser_by_chat(cfg).keys())
+    allowed |= set(parser_manager.parser_list_by_chat(cfg).keys())   # PR-2: chat multi-parser
     allowed |= set(map(str, source_manager.enabled_chat_ids(cfg)))   # solo le attive
     if configured:
         allowed.add(configured)
@@ -166,11 +174,22 @@ def listened_chats(cfg: dict) -> list:
 
 
 def active_custom_parser(cfg: dict, chat: str, parsers_dir: str = None):
-    """Parser custom da usare per `chat`, oppure None se la chat non è approvata
-    o nessun parser è attivo. Usato sia dal router sia dal prefiltro live."""
+    """Parser custom PRIMARIO per `chat`, oppure None se la chat non è approvata o
+    nessun parser è attivo. Usato dal prefiltro live e dai chiamanti single-parser;
+    per il routing multi-parser (PR-2) usa `active_custom_parsers`."""
     if not _chat_approved_for_custom(cfg, chat):
         return None
     return parser_manager.load_active(cfg, chat, parsers_dir)
+
+
+def active_custom_parsers(cfg: dict, chat: str, parsers_dir: str = None) -> list:
+    """PR-2 (router multi-parser): LISTA ORDINATA dei parser custom per `chat`, oppure `[]`
+    se la chat non è approvata o nessun parser è configurato/caricabile. È la fonte del
+    routing multi-parser di `resolve_row`; la stessa gate di approvazione chat del singolo
+    (`_chat_approved_for_custom`) resta invariata (nessun indebolimento del filtro chat)."""
+    if not _chat_approved_for_custom(cfg, chat):
+        return []
+    return parser_manager.load_active_list(cfg, chat, parsers_dir)
 
 
 def has_active_parser_config(cfg: dict) -> bool:
@@ -183,7 +202,10 @@ def has_active_parser_config(cfg: dict) -> bool:
     fuorviante, Codex P2)."""
     if parser_manager.active_parser_name(cfg):
         return True
-    return any(str(v or "").strip() for v in parser_manager.parser_by_chat(cfg).values())
+    if any(str(v or "").strip() for v in parser_manager.parser_by_chat(cfg).values()):
+        return True
+    # PR-2: anche una sola chat con lista multi-parser conta come "parser configurato".
+    return bool(parser_manager.parser_list_by_chat(cfg))
 
 
 def should_process(cfg: dict, chat: str, text: str, parsers_dir: str = None) -> bool:
@@ -237,6 +259,66 @@ class RouteResult:
         return [self.row] if self.row is not None else []
 
 
+def _row_key(row: dict):
+    """Chiave di identità di una riga CSV per la deduplica multi-parser (PR-2): due righe
+    con gli stessi campi/valori sono la STESSA scommessa → una sola volta. Ordinata sui
+    campi così l'ordine di inserimento nel dict non conta."""
+    return tuple(sorted((str(k), str(v)) for k, v in row.items()))
+
+
+def _resolve_one(defn, text: str, *, cfg: dict, chat: str, provider: str, id_resolver):
+    """Applica UN parser al messaggio e dice se ha «scattato» (PR-2). Ritorna un dict:
+    `{"fired": bool, "rows": list, "status": str, "detail": obj, "missing": list,
+      "multi": bool}`.
+
+    `fired=True` solo se il parser ha prodotto almeno una riga piazzabile **e** ha superato
+    il **gate di contenuto** `matches_message` (che include le condizioni di gate PR-1):
+    così un parser scatta solo sui messaggi pertinenti. Altrimenti `fired=False` con la
+    diagnostica del perché (nessuna riga). La logica per-parser è identica al percorso
+    single di prima — qui è solo estratta per poterla applicare a più parser."""
+    # Modalità di riconoscimento DEL PARSER (per-parser); se assente (file legacy) eredita
+    # la globale `recognition_mode` — comportamento invariato (Codex P1).
+    mode = recognition.normalize_mode(
+        defn.mode or cfg.get("recognition_mode", recognition.DEFAULT_MODE))
+    # Quota obbligatoria governata dalla riga Price del parser (`Obblig.`).
+    require_price = defn.price_required()
+    # Profili di mappatura nomi/mercati del parser (None se non selezionati → invariato).
+    name_mapping_profiles = (
+        name_mapping_store.entries_for_profiles(cfg, defn.name_mapping_profiles)
+        if defn.name_mapping_profiles else None)
+    market_mapping_profiles = (
+        market_mapping_store.entries_for_profiles(cfg, defn.market_mapping_profiles)
+        if defn.market_mapping_profiles else None)
+    # #192: pipeline multi-riga (un parser single-row → esattamente 1 elemento).
+    results = custom_pipeline.build_validated_rows(
+        defn, text, provider=provider, mode=mode, require_price=require_price,
+        name_mapping_profiles=name_mapping_profiles,
+        market_mapping_profiles=market_mapping_profiles,
+        id_resolver=id_resolver)
+    placeable = [r.row for r in results if r.placeable]
+    # Gate di contenuto (incl. condizioni PR-1): il parser deve aver estratto qualcosa DA
+    # QUESTO messaggio, altrimenti non scatta (niente bet spurio su testo arbitrario). Valutato
+    # PRIMA della diagnostica di validazione (CodeRabbit #391): se le condizioni/contenuto NON
+    # combaciano, il motivo è NO_CONTENT_MATCH — non un errore di validazione (campi mancanti) su
+    # un messaggio che il parser non doveva neppure gestire. Una msg che il parser DOVEVA gestire
+    # ma è malformata passa comunque il gate (recognition estratto) → resta la diagnostica utile.
+    matched = custom_parser_engine.matches_message(defn, text, mode)
+    if not matched:
+        return {"fired": False, "rows": [], "status": NO_CONTENT_MATCH,
+                "detail": "no_content_match", "missing": [], "multi": defn.is_multi_row()}
+    if not placeable:
+        first = results[0]
+        return {"fired": False, "rows": [], "status": first.status,
+                "detail": first.detail, "missing": list(first.missing_required),
+                "multi": defn.is_multi_row()}
+    # PR-24: su una chat che è sorgente attiva, il provider della sorgente VINCE sul Provider
+    # fisso del parser, per TUTTE le righe.
+    if source_manager.source_for_chat(cfg, chat) is not None:
+        placeable = [{**row, "Provider": provider} for row in placeable]
+    return {"fired": True, "rows": placeable, "status": validator.VALID,
+            "detail": None, "missing": [], "multi": defn.is_multi_row()}
+
+
 def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str = None,
                 id_resolver=None) -> RouteResult:
     """Sceglie il parser e ritorna la riga da scrivere (o `row=None` se scartata).
@@ -256,68 +338,45 @@ def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str =
     provider = source_manager.provider_for_chat(
         cfg, chat, default=str(cfg.get("provider", "") or ""))
 
-    defn = active_custom_parser(cfg, chat, parsers_dir)
-    if defn is not None:
-        # Parser Personalizzato attivo: autoritativo (nessun fallback hardcoded). La
-        # Modalità di riconoscimento è quella DEL PARSER (per-parser). Se il parser non
-        # ne ha una (file salvato prima della feature: `mode` assente → ""), si EREDITA
-        # la modalità globale `recognition_mode`, così i parser legacy non cambiano
-        # comportamento dopo l'upgrade (Codex P1).
-        mode = recognition.normalize_mode(
-            defn.mode or cfg.get("recognition_mode", recognition.DEFAULT_MODE))
-        # Quota obbligatoria sì/no è governata SOLO dalla riga Price del parser
-        # (`Obblig.` sulla colonna Price): unico comando, niente più interruttore
-        # globale. Price obbligatorio → quota richiesta; opzionale → Price vuoto ammesso.
-        require_price = defn.price_required()
-        # Mappatura nomi squadra (PR name-mapping): se il parser seleziona dei profili,
-        # risolvi le loro righe da config e passale al pipeline, che tradurrà l'EventName
-        # provider → Betfair/XTrader (o scarterà il segnale con MAPPING_MISSING). Nessun
-        # profilo selezionato → None → EventName invariato (retro-compatibile).
-        name_mapping_profiles = (
-            name_mapping_store.entries_for_profiles(cfg, defn.name_mapping_profiles)
-            if defn.name_mapping_profiles else None)
-        # Mappatura mercati a frase (FASE 2): se il parser seleziona dei profili mercati,
-        # risolvi le loro voci da config e passale al pipeline, che imposterà Mercato/
-        # Selezione canonici (D1 dizionario vince) o scarterà con MARKET_MAPPING_MISSING.
-        # Nessun profilo → None → colonne mercato invariate (retro-compatibile).
-        market_mapping_profiles = (
-            market_mapping_store.entries_for_profiles(cfg, defn.market_mapping_profiles)
-            if defn.market_mapping_profiles else None)
-        # #192: pipeline multi-riga. Per un parser single-row (MultiMarket/MultiSelection
-        # disattivati) `build_validated_rows` ritorna ESATTAMENTE un elemento → comportamento
-        # identico a prima. Per un parser multi-riga ritorna una riga per mercato/selezione.
-        results = custom_pipeline.build_validated_rows(
-            defn, text, provider=provider, mode=mode, require_price=require_price,
-            name_mapping_profiles=name_mapping_profiles,
-            market_mapping_profiles=market_mapping_profiles,
-            id_resolver=id_resolver)
-        placeable = [r.row for r in results if r.placeable]
-        if not placeable:
-            # Nessuna riga piazzabile: riporta la diagnostica del primo esito (per il single-row
-            # `results` ha un solo elemento → identico a prima).
-            first = results[0]
-            return RouteResult(None, first.status, CUSTOM, first.detail, list(first.missing_required))
-        # Gate di contenuto: una riga è piazzabile, ma il parser deve aver estratto qualcosa DA
-        # QUESTO messaggio. Un parser a soli valori fissi sarebbe piazzabile su qualsiasi testo
-        # (anche vuoto): nel live, che bypassa il prefiltro marker, scriverebbe lo stesso bet su
-        # ogni messaggio. Vale per l'intero messaggio → un solo controllo.
-        if not custom_parser_engine.matches_message(defn, text, mode):
-            return RouteResult(None, NO_CONTENT_MATCH, CUSTOM, "no_content_match")
-        # PR-24: per una chat che è una **sorgente attiva**, il provider della sorgente
-        # (esplicito o PRE/LIVE) VINCE sull'eventuale Provider fisso del parser custom — vale per
-        # TUTTE le righe generate. Per le chat non-sorgente il Provider del parser resta.
-        if source_manager.source_for_chat(cfg, chat) is not None:
-            placeable = [{**row, "Provider": provider} for row in placeable]
-        # Single-row: `rows=None`, si usa `row` (comportamento invariato). Multi-row: `rows`
-        # contiene tutte le righe; `row` resta la prima per retro-compatibilità.
-        # Un parser MULTI (`is_multi_row`) preserva SEMPRE la provenienza multi (`rows`
-        # valorizzato) anche quando ORA produce una sola riga piazzabile, così il commit usa
-        # la deduplica PER-RIGA e non l'hash del messaggio: senza, se lo stesso messaggio in
-        # seguito genera più righe la riga già scritta non verrebbe riconosciuta → doppia
-        # scommessa (Codex #239/#192). Un parser single-row resta sul percorso legacy invariato.
-        if len(placeable) == 1 and not defn.is_multi_row():
-            return RouteResult(placeable[0], validator.VALID, CUSTOM)
-        return RouteResult(placeable[0], validator.VALID, CUSTOM, rows=placeable)
+    # PR-2 (router multi-parser): la chat può avere PIÙ parser (in ordine). Ciascuno è
+    # applicato al messaggio; scattano TUTTI quelli le cui condizioni/estrazione combaciano
+    # (scelta del proprietario: «tutti quelli che combaciano»). Un solo parser configurato →
+    # il loop ha un elemento e il comportamento è IDENTICO a prima (retro-compatibile).
+    parsers = active_custom_parsers(cfg, chat, parsers_dir)
+    if parsers:
+        outcomes = [
+            _resolve_one(defn, text, cfg=cfg, chat=chat, provider=provider,
+                         id_resolver=id_resolver)
+            for defn in parsers
+        ]
+        fired = [o for o in outcomes if o["fired"]]
+        if fired:
+            # Unisci le righe di TUTTI i parser che hanno matchato, in ordine di priorità,
+            # deduplicando le righe IDENTICHE: due parser che producono la STESSA riga = una
+            # sola scommessa (no doppia scommessa accidentale); righe DIVERSE = bet diversi
+            # voluti dal proprietario. La deduplica per-riga a valle (#192/#239) resta il gate
+            # anti-duplicato nel commit.
+            combined = []
+            seen = set()
+            for outcome in fired:
+                for row in outcome["rows"]:
+                    key = _row_key(row)
+                    if key not in seen:
+                        seen.add(key)
+                        combined.append(row)
+            # UN solo parser single-row con UNA riga → percorso legacy (`rows=None`):
+            # comportamento e deduplica-per-hash IDENTICI a prima della feature. Appena c'è
+            # più di un parser che scatta, un parser multi-riga, o più righe, si passa la
+            # provenienza multi (`rows`) così il commit usa la deduplica PER-RIGA (Codex
+            # #239/#192): senza, un secondo bet generato dallo stesso messaggio non verrebbe
+            # riconosciuto e si rischierebbe una doppia scommessa.
+            if len(fired) == 1 and not fired[0]["multi"] and len(combined) == 1:
+                return RouteResult(combined[0], validator.VALID, CUSTOM)
+            return RouteResult(combined[0], validator.VALID, CUSTOM, rows=combined)
+        # Nessun parser ha matchato: riporta la diagnostica del PRIMO esito. Con un solo
+        # parser configurato è ESATTAMENTE la diagnostica di prima (retro-compatibile).
+        first = outcomes[0]
+        return RouteResult(None, first["status"], CUSTOM, first["detail"], list(first["missing"]))
 
     # Nessun Parser Personalizzato caricato: il parser automatico P.Bet è DISATTIVATO
     # (CP-09b), quindi il messaggio è ignorato (riga non piazzabile, nessuna scrittura).

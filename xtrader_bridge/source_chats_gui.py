@@ -24,7 +24,7 @@ coperta da `tests/unit/test_source_editor.py`. Verifica manuale su Windows.
 import customtkinter as ctk
 
 from . import config_store, config_summary, custom_parser, gui_utils, i18n
-from .source_editor import SourceEditor
+from .source_editor import SourceEditor, _clean_names
 
 # Chip «Traduzioni» per canale (#293 slice 6): mostra se il parser del canale ha mappature
 # nomi/mercati RISOLTE attive. Colori theme-aware (light, dark): verde se almeno una attiva.
@@ -48,6 +48,17 @@ def _translations_chip_text(names_active: bool, markets_active: bool) -> str:
     nomi = "Nomi ✓" if names_active else "Nomi —"
     mercati = "Mercati ✓" if markets_active else "Mercati —"
     return f"{nomi} · {mercati}"
+
+
+def _parsers_summary(names, no_parser_text: str) -> str:
+    """PR-2: testo riassuntivo della LISTA di parser di una riga per il display (label).
+    Lista vuota → `no_parser_text` («(predefinito)» = usa il globale). Uno o più nomi →
+    numerati in ordine di priorità, es. «1. A · 2. B». Riusa `_clean_names` (fonte unica di
+    strip+dedup, così le due logiche non divergono — CodeRabbit #391). Puro/testabile."""
+    clean = _clean_names(names)
+    if not clean:
+        return no_parser_text
+    return " · ".join(f"{i}. {n}" for i, n in enumerate(clean, 1))
 
 # Etichetta base della voce "nessun override per-chat" (= "" in parser_by_chat): la
 # chat usa il parser GLOBALE (`active_parser`, via resolve_parser_name), da cui
@@ -99,7 +110,6 @@ class SourceChatsPanel(ctk.CTkFrame):
         self._parser_names = self._editor.parser_options()
         self._no_parser = self._no_parser_label(
             self._parser_names, [s.get("parser", "") for s in self._editor.sources])
-        self._parser_options = [self._no_parser] + self._parser_names
         self._rows = []   # widget refs per sorgente
         self._build_ui()
         for src in self._editor.sources:
@@ -119,7 +129,6 @@ class SourceChatsPanel(ctk.CTkFrame):
         self._parser_names = self._editor.parser_options()
         self._no_parser = self._no_parser_label(
             self._parser_names, [s.get("parser", "") for s in self._editor.sources])
-        self._parser_options = [self._no_parser] + self._parser_names
         for refs in self._rows:
             refs["frame"].destroy()
         self._rows = []
@@ -146,7 +155,6 @@ class SourceChatsPanel(ctk.CTkFrame):
         self._no_parser = self._no_parser_label(
             self._parser_names,
             [refs["parser"].get() for refs in self._rows if refs["parser"].get() != old_no_parser])
-        self._parser_options = [self._no_parser] + self._parser_names
         for refs in self._rows:
             var = refs["parser"]
             # Se il sentinella "nessun override" è cambiato (es. è stato creato un parser
@@ -156,13 +164,11 @@ class SourceChatsPanel(ctk.CTkFrame):
             # parser usato per quelle chat (Codex).
             if old_no_parser != self._no_parser and var.get() == old_no_parser:
                 var.set(self._no_parser)
-            menu = refs.get("parser_menu")
-            if menu is not None:
-                cur = var.get()
-                vals = list(self._parser_options)
-                if cur and cur not in vals:
-                    vals.append(cur)        # preserva la selezione anche se il parser è sparito
-                menu.configure(values=vals)
+            # PR-2: aggiorna il testo del bottone lista-parser (la sentinella «(predefinito)»
+            # per la lista vuota può essere cambiata → il riassunto va rifatto).
+            btn = refs.get("parser_btn")
+            if btn is not None:
+                btn.configure(text=_parsers_summary(refs.get("parsers", []), self._no_parser))
             self._update_row_chip(refs)     # rifletti mappature/parser aggiornati nel chip
 
     # ── costruzione UI ─────────────────────────────────────────────────────
@@ -219,20 +225,26 @@ class SourceChatsPanel(ctk.CTkFrame):
         provider = ctk.CTkEntry(row, width=150)
         provider.insert(0, str(source.get("provider", "")))
         provider.pack(side="left", padx=3)
-        # Parser per questa chat: "" → voce "(predefinito)" (usa il globale); un nome reale resta tale.
-        parser = ctk.StringVar(value=str(source.get("parser", "")) or self._no_parser)
-        parser_menu = ctk.CTkOptionMenu(row, width=160, values=self._parser_options,
-                                        variable=parser)
-        parser_menu.pack(side="left", padx=3)
-        # Chip «Traduzioni» (#293 slice 6): mostra a colpo d'occhio se il parser di questa chat
-        # ha mappature nomi/mercati RISOLTE attive. Read-only, si aggiorna al cambio parser.
+        # PR-2: LISTA ordinata di parser per la chat. La lista vive in `refs["parsers"]`; un
+        # bottone col riassunto («1. A · 2. B» oppure «(predefinito)») apre l'editor ordinabile.
+        # `refs["parser"]` (Var) resta il PRIMARIO (primo della lista, o la sentinella se vuota):
+        # lo usano il chip «Traduzioni» e `refresh_options` (retro-compat, test CI su quegli helper).
+        parsers = _clean_names(source.get("parsers")
+                               or ([source.get("parser")] if source.get("parser") else []))
+        parser = ctk.StringVar(value=(parsers[0] if parsers else self._no_parser))
+        parser_btn = ctk.CTkButton(row, width=160, anchor="w",
+                                   text=_parsers_summary(parsers, self._no_parser))
+        parser_btn.pack(side="left", padx=3)
+        # Chip «Traduzioni» (#293 slice 6): mostra a colpo d'occhio se il parser PRIMARIO di
+        # questa chat ha mappature nomi/mercati RISOLTE attive. Read-only, si aggiorna al cambio.
         trad_chip = ctk.CTkLabel(row, width=150, anchor="w", font=ctk.CTkFont(size=11))
         trad_chip.pack(side="left", padx=3)
         refs = {"frame": row, "enabled": enabled, "name": name,
                 "chat_id": chat_id, "mode": mode, "provider": provider, "parser": parser,
-                "parser_menu": parser_menu, "trad_chip": trad_chip}
-        # Al cambio parser nella tendina, ricalcola il chip di QUESTA riga.
-        parser_menu.configure(command=lambda _v, r=refs: self._update_row_chip(r))
+                "parsers": list(parsers), "parser_btn": parser_btn,
+                "parser_menu": None, "trad_chip": trad_chip}
+        # Il bottone apre l'editor della lista ordinata di parser per QUESTA riga.
+        parser_btn.configure(command=lambda r=refs: self._open_parser_list_editor(r))
         self._update_row_chip(refs)
         ctk.CTkButton(row, text="✕", width=40, fg_color="#c62828", hover_color="#7f0000",
                       command=lambda r=refs: self._remove_row(r)).pack(side="left", padx=3)
@@ -254,6 +266,22 @@ class SourceChatsPanel(ctk.CTkFrame):
             chip.configure(text=_translations_chip_text(names_active, markets_active),
                            text_color=(_CHIP_ON_COLOR if active else _CHIP_OFF_COLOR))
 
+    def _open_parser_list_editor(self, refs):
+        """Apre il popup per gestire la LISTA ordinata di parser di questa riga (PR-2)."""
+        _ParserListDialog(self, list(self._parser_names), list(refs.get("parsers", [])),
+                          lambda names, r=refs: self._set_parser_list(r, names))
+
+    def _set_parser_list(self, refs, names):
+        """Applica la nuova lista di parser a una riga: aggiorna `refs["parsers"]`, il primario
+        `refs["parser"]` (per il chip), il testo del bottone e il chip «Traduzioni»."""
+        clean = _clean_names(names)
+        refs["parsers"] = clean
+        refs["parser"].set(clean[0] if clean else self._no_parser)
+        btn = refs.get("parser_btn")
+        if btn is not None:
+            btn.configure(text=_parsers_summary(clean, self._no_parser))
+        self._update_row_chip(refs)
+
     def _remove_row(self, refs):
         refs["frame"].destroy()
         self._rows.remove(refs)
@@ -263,15 +291,12 @@ class SourceChatsPanel(ctk.CTkFrame):
         # Ricostruisce l'editor dallo stato corrente dei widget (niente sync per-campo).
         editor = SourceEditor()
         for r in self._rows:
-            # Solo la sentinella unica significa "nessun override → globale" → "";
-            # qualsiasi altra voce è un nome di parser reale (anche un parser chiamato
-            # "(predefinito)", perché la sentinella in quel caso è diversa: con uno
-            # spazio in più).
-            parser = r["parser"].get()
+            # PR-2: la LISTA ordinata di parser della riga (`refs["parsers"]`). Lista vuota =
+            # nessun override → usa il parser globale (comportamento «(predefinito)» di prima).
             editor.add_source(name=r["name"].get(), chat_id=r["chat_id"].get(),
                               enabled=r["enabled"].get(), mode=r["mode"].get(),
                               provider=r["provider"].get(),
-                              parser="" if parser == self._no_parser else parser)
+                              parsers=list(r.get("parsers", [])))
         cfg = config_store.load_config(config_store.CONFIG_FILE)
         new_cfg, errors, warnings = editor.apply(cfg)
         if errors:
@@ -300,6 +325,104 @@ class SourceChatsPanel(ctk.CTkFrame):
             # `warnings` dal layer di dominio (IT): fuori scope; solo il prefisso è chrome.
             msg += "\n⚠️ " + "  ·  ".join(warnings)
         self._status.configure(text=msg, text_color="#66bb6a")
+
+
+class _ParserListDialog(ctk.CTkToplevel):
+    """PR-2: popup per gestire la LISTA ORDINATA di parser di una chat.
+
+    Mostra i parser scelti in ordine di priorità (↑/↓ per riordinare, ✕ per togliere) e una
+    tendina + «➕ Aggiungi parser» per aggiungerne. Al salvataggio richiama `on_ok(nuova_lista)`
+    (la vista aggiorna la riga; la persistenza passa comunque dal controller testato). Modulo
+    non testato in CI (richiede display): la logica di ordine/dedup vive in `_clean_names`."""
+
+    def __init__(self, master, available, current, on_ok):
+        super().__init__(master)
+        self.title(i18n.tr("Parser della chat (in ordine di priorità)"))
+        gui_utils.fit_to_screen(self, 480, 440, 380, 340)
+        # MODALE (CodeRabbit #391): il genitore non deve poter salvare finché questo editor è
+        # aperto, altrimenti la riga verrebbe persistita con stato parser stantio. `transient`
+        # + `grab_set` costringono a chiudere/salvare qui prima di agire sul genitore.
+        try:
+            self.transient(master)
+            self.grab_set()
+        except Exception:               # noqa: BLE001 — best-effort (test headless / stub Tk)
+            pass
+        self._available = list(available)
+        self._names = _clean_names(current)
+        self._on_ok = on_ok
+        ctk.CTkLabel(
+            self, text=i18n.tr("Il messaggio va a ogni parser in ordine; scattano TUTTI quelli "
+                               "le cui condizioni combaciano (una riga CSV per parser che scatta)."),
+            wraplength=440, justify="left", font=ctk.CTkFont(size=11),
+            text_color="gray", anchor="w").pack(anchor="w", padx=12, pady=(10, 6))
+        self._list_frame = ctk.CTkScrollableFrame(self, height=220)
+        self._list_frame.pack(fill="both", expand=True, padx=12, pady=6)
+        add = ctk.CTkFrame(self, fg_color="transparent")
+        add.pack(fill="x", padx=12, pady=4)
+        # Tendina «aggiungi»: mostra SOLO i parser non ancora nella lista (CodeRabbit #391),
+        # così scegliere un già-aggiunto non risulta un no-op silenzioso.
+        self._add_var = ctk.StringVar(value="")
+        self._add_menu = ctk.CTkOptionMenu(add, width=250, values=[""], variable=self._add_var)
+        self._add_menu.pack(side="left", padx=4)
+        ctk.CTkButton(add, text=i18n.tr("➕ Aggiungi parser"), width=160,
+                      command=self._add).pack(side="left", padx=4)
+        ctk.CTkButton(self, text=i18n.tr("💾  Salva"), fg_color="#2e7d32",
+                      hover_color="#1b5e20", command=self._ok).pack(side="right", padx=12, pady=8)
+        self._render()
+
+    def _remaining(self) -> list:
+        """Parser disponibili non ancora nella lista (per la tendina «aggiungi»)."""
+        return [n for n in self._available if n not in self._names]
+
+    def _refresh_add_menu(self):
+        """Aggiorna valori/selezione della tendina «aggiungi» sui parser ancora disponibili."""
+        remaining = self._remaining()
+        menu = getattr(self, "_add_menu", None)
+        if menu is not None:
+            menu.configure(values=(remaining or [""]))
+        self._add_var.set(remaining[0] if remaining else "")
+
+    def _render(self):
+        self._refresh_add_menu()            # tieni la tendina «aggiungi» in sync con la lista
+        for w in list(self._list_frame.winfo_children()):
+            w.destroy()
+        if not self._names:
+            ctk.CTkLabel(self._list_frame, text=i18n.tr("Nessun parser: la chat usa il parser "
+                         "globale (predefinito)."), text_color="gray",
+                         font=ctk.CTkFont(size=11), anchor="w").pack(anchor="w", padx=6, pady=6)
+            return
+        for i, name in enumerate(self._names):
+            r = ctk.CTkFrame(self._list_frame, fg_color="transparent")
+            r.pack(fill="x", pady=2)
+            ctk.CTkLabel(r, text=f"{i + 1}.", width=28, anchor="w").pack(side="left", padx=2)
+            ctk.CTkLabel(r, text=name, anchor="w").pack(side="left", padx=4, fill="x", expand=True)
+            ctk.CTkButton(r, text="↑", width=34,
+                          command=lambda idx=i: self._move(idx, -1)).pack(side="left", padx=1)
+            ctk.CTkButton(r, text="↓", width=34,
+                          command=lambda idx=i: self._move(idx, 1)).pack(side="left", padx=1)
+            ctk.CTkButton(r, text="✕", width=34, fg_color="#c62828", hover_color="#7f0000",
+                          command=lambda idx=i: self._remove(idx)).pack(side="left", padx=1)
+
+    def _add(self):
+        name = str(self._add_var.get() or "").strip()
+        if name and name not in self._names:
+            self._names.append(name)
+            self._render()
+
+    def _remove(self, idx):
+        if 0 <= idx < len(self._names):
+            del self._names[idx]
+            self._render()
+
+    def _move(self, idx, delta):
+        j = idx + delta
+        if 0 <= idx < len(self._names) and 0 <= j < len(self._names):
+            self._names[idx], self._names[j] = self._names[j], self._names[idx]
+            self._render()
+
+    def _ok(self):
+        self._on_ok(_clean_names(self._names))
+        self.destroy()
 
 
 class SourceChatsWindow(ctk.CTkToplevel):
