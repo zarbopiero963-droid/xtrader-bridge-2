@@ -319,8 +319,19 @@ persi pre-merge. Flusso pre-merge:
 - **Codex = assente** (usage-limit dell'abbonamento): non posta **mai** → **non è un gate**, non
   aspettarlo, non contarlo.
 - **CodeRabbit rate-limited**: se pubblica «review limit reached» con un orario, **non** bloccare
-  all'infinito — se il ritardo è breve aspetta quell'orario; se è lungo (39–50 min) **dillo al
-  proprietario** e passa il testimone al tracciamento post-merge (decide lui se mergiare prima).
+  all'infinito — se il ritardo è **breve (≤10 min)** aspetta quell'orario; se è **lungo (>10 min,
+  tipico 39–50)** **dillo al proprietario** e passa il testimone al tracciamento post-merge (decide
+  lui se mergiare prima).
+- **Tetto anti-stallo (obbligatorio):** l'attesa event-driven di CodeRabbit ha comunque un **cap di
+  ~15 min dall'ultimo push sul head PR**. Se entro quel cap CodeRabbit non ha né pubblicato commenti
+  azionabili né il riepilogo «No actionable comments» (rate-limit senza avviso, outage, coda lunga),
+  **trattalo come assente**: segnala al proprietario «CodeRabbit non ha completato entro il cap →
+  copertura demandata al tracciamento post-merge» e **non** restare in stallo. Il cap è un
+  **fallback**, non il meccanismo primario (che resta l'evento di completamento, di solito 1–10 min).
+- **Chiarimento — il gate vale per l'AGENTE, non blocca il proprietario:** «aspettare CodeRabbit»
+  governa **quando l'agente dichiara pronto/dà il verdetto**, non è un blocco sul merge: il
+  proprietario può mergiare a mano in **qualsiasi** momento; se lo fa prima, i commenti tardivi li
+  copre il tracciamento post-merge.
 - La rete di sicurezza per ciò che sfugge comunque (rate-limit lungo, Codex assente) resta il
   **tracciamento post-merge** (Issue + fix PR) e lo **sweep delle ultime 5 PR** qui sotto.
 
@@ -386,8 +397,8 @@ Issue esistente invece di crearne una nuova.
 
 Lo stato **`REVIEW_WINDOW_PENDING`** è **abrogato** dall'OVERRIDE PROPRIETARIO: non si usa più,
 perché non si attende più alcuna finestra. A lavoro pronto si riporta direttamente il verdetto
-merge sì/no (o `CHECKS_PENDING`/`NEEDS_MANUAL` se pertinente). Se compare ancora come opzione
-altrove nei formati di risposta, **è residuo storico**: non selezionarlo.
+merge sì/no (o `CHECKS_PENDING`/`NEEDS_MANUAL` se pertinente). È stato **rimosso da tutti gli
+elenchi-stato** dei formati di risposta di questo file: non è più un esito selezionabile.
 
 ---
 
@@ -1076,7 +1087,7 @@ Merge:
 - MANUAL ONLY
 
 Final status:
-- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
+- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
 ```
 
 Se anche uno solo di questi punti manca, non dichiarare `DONE`.
@@ -1132,7 +1143,7 @@ NEEDS_MANUAL_UPDATE_BRANCH
 Per nuovo task o PR:
 
 ```text
-DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
+DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
 
 Summary:
 - <cosa è stato cambiato>
@@ -1168,7 +1179,7 @@ Files changed:
 - <file>
 
 Final hard verify:
-- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
+- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
 
 Notes:
 - <limiti, test manuali, cose da sapere>

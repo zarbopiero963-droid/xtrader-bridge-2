@@ -736,7 +736,7 @@ The final review pass must happen in this order:
 9. run hard truthful local validation;
 10. push if needed;
 11. wait again for all checks to finish;
-12. only then decide `DONE`, `PARTIAL`, `NOT DONE`, `CHECKS_PENDING`, `REVIEW_WINDOW_PENDING`, or `NEEDS_MANUAL`.
+12. only then decide `DONE`, `PARTIAL`, `NOT DONE`, `CHECKS_PENDING`, or `NEEDS_MANUAL`.
 
 A PR is not ready while checks are pending, even if local tests pass.
 
@@ -803,7 +803,16 @@ that's the spending limit / billing, an **owner action** (github.com/settings/bi
 > posts), not a clock, and never blocks the owner; (4) only with the four reviewers **and**
 > CodeRabbit's real review in → report merge yes/no. **Codex = absent** (usage limit) never posts →
 > NOT a gate. **CodeRabbit rate-limited** (posts "review limit reached" with a time): don't block
-> forever — wait if short, else tell the owner and hand to the post-merge sweep. `REVIEW_WINDOW_PENDING`
+> forever — wait if the delay is **short (≤10 min)**, else (**>10 min**, typical 39–50) tell the owner
+> and hand to the post-merge sweep. **Anti-stall cap (mandatory):** the event-driven CodeRabbit wait is
+> still capped at **~15 min from the last push to the PR head**; if by then CodeRabbit has posted
+> neither actionable comments nor "No actionable comments" (silent rate-limit, outage, long queue),
+> treat it as absent — tell the owner "CodeRabbit did not complete within the cap → coverage deferred to
+> post-merge tracking" and do **not** stall. The cap is a **fallback**, not the primary mechanism (which
+> stays the completion event, usually 1–10 min). **Clarification — the gate is for the AGENT, it does
+> not block the owner:** "wait for CodeRabbit" governs **when the agent declares ready / gives the
+> verdict**, not the merge itself; the owner may merge manually at **any** time, and if they merge early
+> the late comments are caught by post-merge tracking. `REVIEW_WINDOW_PENDING`
 > and window-wait self check-ins are gone; the last-5 PR sweep and post-merge tracking below remain
 > the backstop for what still slips through.
 
@@ -877,8 +886,8 @@ Issue instead of creating a new one.
 
 The **`REVIEW_WINDOW_PENDING`** status is **repealed** by the OWNER OVERRIDE: it is no longer
 used, because there is no timed window to wait out. When work is ready, report the merge yes/no
-verdict directly (or `CHECKS_PENDING`/`NEEDS_MANUAL` where applicable). If it still appears as an
-option elsewhere in the response templates, that is **historical residue** — do not select it.
+verdict directly (or `CHECKS_PENDING`/`NEEDS_MANUAL` where applicable). It has been **removed from
+all status lists** in this file's response templates: it is no longer a selectable outcome.
 
 ---
 
@@ -1086,7 +1095,7 @@ Merge:
 - MANUAL ONLY
 
 Final status:
-- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
+- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
 ```
 
 If any required final hard verify item is missing, do not declare `DONE`.
@@ -1229,7 +1238,7 @@ Do not mark work complete with fake, assumed, or decorative tests.
 ## Required response format after creating a new PR
 
 ```text
-DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
+DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
 
 Summary:
 - <what was changed>
@@ -1268,7 +1277,7 @@ Files created:
 - <file path>
 
 Final hard verify:
-- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
+- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
 
 Notes:
 - <anything the repository owner must know>
@@ -1287,7 +1296,7 @@ and explain why.
 ## Required response format after fixing current PR
 
 ```text
-DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
+DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
 
 Summary:
 - <what was changed>
@@ -1322,7 +1331,7 @@ Files changed:
 - <file path>
 
 Final hard verify:
-- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
+- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
 
 Notes:
 - <anything the repository owner must know>
