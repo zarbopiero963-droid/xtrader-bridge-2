@@ -1,0 +1,21 @@
+# Configurazione strumenti di sviluppo. NON è un file di build/packaging (l'EXE si costruisce
+# con PyInstaller/Nuitka dai workflow dedicati): qui stanno solo le config di ruff e mypy usate
+# dal job `lint` SOFT-WARNING (#311-3.5-c). Il job è NON bloccante: questi strumenti segnalano,
+# non impediscono il merge.
+
+[tool.ruff]
+target-version = "py311"
+# `select` di DEFAULT di ruff (E4/E7/E9 di pycodestyle + F di pyflakes): intercetta problemi
+# REALI (import/variabili inutilizzati, sintassi, redefinition), NON stile cosmetico. In
+# particolare NON abilitiamo E501 (riga troppo lunga): il codice ha lunghe righe di commento
+# tecnico by design, sarebbero solo rumore. Ampliare il set è una scelta futura deliberata.
+extend-exclude = ["docs", "build", "dist", ".venv"]
+
+[tool.mypy]
+python_version = "3.11"
+# Soft/lenient: gli stub di terze parti (customtkinter, telegram, ecc.) non sono installati nel
+# job lint → ignora gli import mancanti invece di annegare in errori non azionabili. Il job gira
+# mypy SOLO sui moduli PURI (logica senza GUI/IO pesante), dove oggi è già pulito: così stabilisce
+# una BASELINE type-checked e segnala una regressione di tipo su quei moduli, senza bloccare.
+ignore_missing_imports = true
+warn_unused_ignores = false

@@ -1,0 +1,7 @@
+# Strumenti di lint / type-check — usati SOLO dal job `lint` (soft-warning) in CI.
+#
+# Volutamente NON inclusi in requirements-dev.txt / requirements-build.in: non servono
+# all'EXE né ai test, quindi restano FUORI dal lock di build Windows
+# (`requirements-build.lock`) e non lo appesantiscono né lo rendono stantio (#311-3.5-c).
+ruff>=0.6
+mypy>=1.10

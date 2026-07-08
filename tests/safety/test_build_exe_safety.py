@@ -757,23 +757,64 @@ def test_test_eseguiti_prima_della_build():
     assert seen_build_job, "nessun job con build individuato"
 
 
-def test_pytest_fail_closed_nei_workflow():
-    """(#296, audit #242/PR#177, Codex) I gate di test non possono essere fail-open:
-    nessuna invocazione pytest addolcita con `||` (es. `pytest || true`) e nessun
-    `continue-on-error` in ALCUN workflow. Un pytest che non fa fallire lo step
-    maschererebbe regressioni prima della build. I `|| true` sui grep non-pytest
-    (forbidden-files) restano legittimi e non sono toccati.
+def _step_bodies(text: str):
+    """Testo di ogni STEP (riga `- …` + il suo corpo più indentato), delimitato dall'INDENTAZIONE:
+    un commento a livello job (meno indentato dello step) NON viene attribuito allo step
+    precedente. Serve al gate fail-closed per legare `continue-on-error` allo step giusto."""
+    lines = text.splitlines()
+    out, i, n = [], 0, len(lines)
+    while i < n:
+        m = re.match(r"^(\s*)-\s", lines[i])
+        if not m:
+            i += 1
+            continue
+        indent = len(m.group(1))
+        body, j = [lines[i]], i + 1
+        while j < n:
+            if lines[j].strip() == "":
+                body.append(lines[j])
+                j += 1
+                continue
+            cur = len(lines[j]) - len(lines[j].lstrip())
+            if cur <= indent:
+                break
+            body.append(lines[j])
+            j += 1
+        out.append("\n".join(body))
+        i = j
+    return out
 
-    Il divieto di `continue-on-error` è deliberatamente GLOBALE e non scopato ai soli
-    job di test/build (valutato su suggerimento Sourcery, #297): oggi NESSUN workflow
-    lo usa (costo zero) e un'euristica "solo job di test" lascerebbe scoperto un futuro
-    workflow di test non riconosciuto. Stesso stile fail-closed di `_ALLOWED_OPTS`: un
-    eventuale uso legittimo futuro dovrà emendare consapevolmente questo gate."""
+
+# Step su cui `continue-on-error` resta VIETATO: un test/build reso non-fallante maschererebbe
+# una regressione prima del merge/della build. (`py_compile`/`compileall` = smoke di compilazione.)
+_FAIL_CLOSED_STEP_KEYWORDS = ("pytest", "pyinstaller", "nuitka", "compileall", "py_compile")
+
+
+def test_pytest_fail_closed_nei_workflow():
+    """(#296, audit #242/PR#177, Codex) I gate di TEST/BUILD non possono essere fail-open:
+    nessuna invocazione pytest addolcita con `||` (es. `pytest || true`) e nessun
+    `continue-on-error` su uno step che esegua pytest o build EXE. Un test che non fa
+    fallire lo step maschererebbe regressioni prima della build. I `|| true` sui grep
+    non-pytest (forbidden-files) restano legittimi e non sono toccati.
+
+    Emendamento CONSAPEVOLE (#311-3.5-c, come previsto dal gate #297): `continue-on-error`
+    è AMMESSO **solo** su step di lint SOFT-WARNING (ruff/mypy), che per scelta dell'owner
+    segnalano senza bloccare. Resta VIETATO su qualunque step con `pytest`/`pyinstaller`/
+    `nuitka`/`compileall`/`py_compile`: lì il fail-closed è preservato. Il legame
+    `continue-on-error`→step usa l'indentazione (`_step_bodies`), così un commento a livello
+    job che cita la direttiva non viene attribuito a uno step di test."""
     for path in _workflow_files():
         name = os.path.basename(path)
         text = _read(path)
-        assert "continue-on-error" not in text, \
-            f"{name}: `continue-on-error` vietato (gate fail-open)"
+        for body in _step_bodies(text):
+            if "continue-on-error" not in body:
+                continue
+            low = body.lower()
+            for kw in _FAIL_CLOSED_STEP_KEYWORDS:
+                assert kw not in low, \
+                    f"{name}: `continue-on-error` vietato su step con `{kw}` (gate fail-open)"
+            assert "ruff" in low or "mypy" in low, \
+                f"{name}: `continue-on-error` ammesso solo su step lint (ruff/mypy)"
         for step in _run_steps(text):
             bad = _pytest_fail_open_lines(step)
             assert not bad, f"{name}: comando pytest addolcito (fail-open): {bad}"
