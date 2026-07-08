@@ -9,6 +9,8 @@ Obiettivo: il parser scatta SOLO se il messaggio soddisfa le condizioni (contien
 modo E/O), con match case-insensitive e tollerante agli spazi. Niente GUI, niente rete.
 """
 
+import dataclasses
+
 from xtrader_bridge import custom_parser as cp
 from xtrader_bridge import custom_parser_engine as eng
 
@@ -24,6 +26,28 @@ def _parser(conditions=None, mode="all"):
 
 
 # ── modello: round-trip + retro-compatibilità ─────────────────────────────────
+
+def test_condition_round_trip_preserva_TUTTI_i_campi():
+    """Nota GPT-5.5/GLM #390: guardia FIELD-EXHAUSTIVE sul round-trip di `Condition`.
+
+    Non hardcoda `text`/`negate`: itera `dataclasses.fields(Condition)`, dà a ogni campo un
+    valore NON-default, fa `from_dict(to_dict())` e verifica che OGNI campo sopravviva. Se un
+    domani si aggiunge un campo a `Condition` ma non lo si copre in `to_dict`/`from_dict`, il
+    round-trip lo perderebbe in silenzio e QUESTO test fallirebbe (a differenza dei test che
+    citano i campi per nome). Copre così il rischio «campi futuri persi» segnalato in review."""
+    # valore non-default per tipo, così un campo non-serializzato torna al default e il test lo nota
+    non_default = {str: "VALORE_SENTINELLA", bool: True, int: 7, float: 1.5}
+    kwargs = {}
+    for f in dataclasses.fields(cp.Condition):
+        assert f.type in non_default, f"aggiorna il test: tipo non gestito {f.type!r} per {f.name}"
+        kwargs[f.name] = non_default[f.type]
+    original = cp.Condition(**kwargs)
+    again = cp.Condition.from_dict(original.to_dict())
+    # tutte le chiavi del modello sono presenti nel dict serializzato…
+    assert set(original.to_dict()) == {f.name for f in dataclasses.fields(cp.Condition)}
+    # …e ogni campo è preservato dal round-trip (dataclass __eq__ confronta tutti i campi)
+    assert again == original
+
 
 def test_round_trip_preserva_condizioni():
     d = _parser([cp.Condition(text="OVER SUCCESSIVO"), cp.Condition(text="BANCA", negate=True)], mode="any")
