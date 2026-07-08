@@ -212,15 +212,34 @@ def event_type_ids_for(sports) -> set:
     return out
 
 
-def split_participants(event_name):
-    """(`participant_1`, `participant_2`) dal nome evento Betfair «Home v Away».
+# Separatori usati da Betfair nel nome evento TRA i due partecipanti. Tutti circondati da SPAZI di
+# proposito: così `vs` dentro una parola o un trattino attaccato (`Real-Madrid`) NON vengono scambiati
+# per separatore — ed è anche il motivo per cui `" v "` (spazio-v-spazio) NON può matchare dentro
+# `"A vs B"` (dopo la `v` c'è una `s`, non uno spazio). Quindi tra `" vs "` e `" v "` l'ordine non
+# cambia il risultato; `" vs "` resta comunque prima per leggibilità. L'ordine conta SOLO per il
+# separatore ambiguo `" - "`, tenuto PER ULTIMO (vedi docstring). Il calcio/tennis usa `" v "`; il
+# basket e altri sport usano `" - "`/`" @ "` — senza questi, quegli eventi restavano con `participant_2`
+# vuoto (Casa/Trasferta vuote e squadre non raccolte in `betfair_known_teams`). Lista estendibile.
+_PARTICIPANT_SEPARATORS = (" vs ", " v ", " @ ", " - ")
 
-    Betfair separa i due partecipanti con `" v "`. Se non c'è separatore (es. una
-    gara/torneo), ritorna (`nome`, ``""``). Input vuoto → (``""``, ``""``)."""
+
+def split_participants(event_name):
+    """(`participant_1`, `participant_2`) dal nome evento Betfair «Home <sep> Away».
+
+    Riconosce i separatori in `_PARTICIPANT_SEPARATORS` (`" vs "`, `" v "`, `" @ "`, `" - "`),
+    provati in ordine: il primo presente vince (split una sola volta). I separatori richiedono
+    gli **spazi** attorno, quindi un trattino attaccato in un nome (`"Real-Madrid"`) non viene
+    spezzato. Se nessun separatore è presente (es. un torneo/outright «ATP Finals»), ritorna
+    (`nome`, ``""``). Input vuoto → (``""``, ``""``).
+
+    Nota: il trattino `" - "` è il più ambiguo (un evento non-match con un trattino spaziato
+    verrebbe spezzato); è provato **per ultimo** e i nomi errati eventuali sono ripulibili dal
+    tab «Nomi Betfair noti». `split_participants` è informativo (mapping/viewer): non incide su
+    CSV/scommessa."""
     name = (event_name or "").strip()
     if not name:
         return "", ""
-    for sep in (" v ", " vs ", " @ "):
+    for sep in _PARTICIPANT_SEPARATORS:
         if sep in name:
             a, b = name.split(sep, 1)
             return a.strip(), b.strip()

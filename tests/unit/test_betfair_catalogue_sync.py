@@ -35,10 +35,29 @@ def test_event_type_ids_for():
 
 
 def test_split_participants():
+    # calcio / tennis singolo: " v " e " vs "
     assert split_participants("Inter v Milan") == ("Inter", "Milan")
     assert split_participants("Sinner vs Alcaraz") == ("Sinner", "Alcaraz")
+    # basket e altri sport: " - " e " @ " — PRIMA non gestiti → participant_2 restava vuoto
+    # (Casa/Trasferta vuote, squadre non raccolte). Mutation-guard: col vecchio codice
+    # "Atlanta Hawks - San Antonio Spurs" tornava ("Atlanta Hawks - San Antonio Spurs", "").
+    assert split_participants("Atlanta Hawks - San Antonio Spurs") == ("Atlanta Hawks", "San Antonio Spurs")
+    assert split_participants("Lakers @ Celtics") == ("Lakers", "Celtics")
+    # tennis doppio: la "/" è INTERNA a ciascuna coppia, il " v " separa le due coppie
+    assert split_participants("Betov/Hsu v Cretu/Palosi") == ("Betov/Hsu", "Cretu/Palosi")
+    # torneo/outright a nome singolo → nessun separatore
     assert split_participants("ATP Finals") == ("ATP Finals", "")
     assert split_participants("") == ("", "")
+    # cautela: i separatori richiedono gli SPAZI → un trattino ATTACCATO in un nome non spezza
+    assert split_participants("Real-Madrid") == ("Real-Madrid", "")
+    # " vs " gestito correttamente: `" v "` (con spazi) non può matchare dentro "vs" (dopo la v c'è
+    # una s, non uno spazio), quindi l'ordine vs/v non è necessario alla correttezza — verificato qui.
+    assert split_participants("A vs B") == ("A", "B")
+    # LIMITE NOTO E ACCETTATO (review GLM/GPT): il trattino spaziato è ambiguo — un evento NON-match
+    # con " - " nel nome viene spezzato in due "partecipanti". È un trade-off consapevole: il beneficio
+    # sugli sport che usano " - " (basket, ecc.) supera il raro falso positivo, che resta comunque
+    # ripulibile dal tab "Nomi Betfair noti". Documentato qui perché sia INTENZIONALE, non un bug.
+    assert split_participants("Roma - Conference League") == ("Roma", "Conference League")
 
 
 # ── navigation menu ───────────────────────────────────────────────────────────
