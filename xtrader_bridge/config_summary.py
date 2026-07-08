@@ -75,6 +75,10 @@ class ChannelSummary:
     # PR-2 (router multi-parser): TUTTI i parser configurati per la chat, in ordine di
     # priorità (il primo è `parser_name`). Con un solo parser è `(parser_name,)` o `()`.
     parser_names: tuple = ()
+    # PR-2: i parser configurati che NON si caricano (file mancante/corrotto/invalido) —
+    # primario O secondari. Un secondario rotto perde bet in silenzio: reso VISIBILE qui e
+    # nella riga «Pronto?» (Fable #391), non solo il primario.
+    parser_names_unloaded: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -137,6 +141,10 @@ def summarize_channel(cfg: dict, row: dict, *, existing_names: set,
     parser_name = parser_names[0] if parser_names else ""                     # primario (retro-compat)
     defn = parser_manager.load_active(cfg, chat_id, parsers_dir) if parser_name else None
     parser_loaded = defn is not None
+    # PR-2 (Fable #391): quali parser configurati NON si caricano — primario O secondari. Un
+    # secondario rotto perderebbe bet in silenzio: lo rendiamo visibile (readiness + riga Parser).
+    loaded_names = {d.name for d in parser_manager.load_active_list(cfg, chat_id, parsers_dir)}
+    unloaded = tuple(n for n in parser_names if n not in loaded_names)
 
     names = _translation_summary(
         defn.name_mapping_profiles if defn else (), existing_names)
@@ -150,8 +158,11 @@ def summarize_channel(cfg: dict, row: dict, *, existing_names: set,
         ready, reason = False, REASON_DISABLED
     elif not parser_name:
         ready, reason = False, REASON_NO_PARSER
-    elif not parser_loaded:
-        ready, reason = False, f"{REASON_PARSER_UNLOADABLE}: {parser_name}"
+    elif unloaded:
+        # Primario O secondari non caricabili: elencali tutti (fail-closed, mai un falso «Pronto»
+        # con un secondario rotto che perderebbe bet in silenzio). Con un solo parser configurato
+        # è esattamente il messaggio di prima (`REASON_PARSER_UNLOADABLE: <nome>`).
+        ready, reason = False, f"{REASON_PARSER_UNLOADABLE}: {', '.join(unloaded)}"
     elif names.has_missing or markets.has_missing:
         miss = ", ".join(names.missing + markets.missing)
         ready, reason = False, f"{REASON_MISSING_TRANSLATION}: {miss}"
@@ -161,7 +172,8 @@ def summarize_channel(cfg: dict, row: dict, *, existing_names: set,
     return ChannelSummary(
         chat_id=chat_id, name=name, enabled=enabled, parser_name=parser_name,
         parser_loaded=parser_loaded, names=names, markets=markets,
-        ready=ready, reason=reason, parser_names=parser_names)
+        ready=ready, reason=reason, parser_names=parser_names,
+        parser_names_unloaded=unloaded)
 
 
 def parser_translation_flags(cfg: dict, parser_name, *, parsers_dir: str = None):

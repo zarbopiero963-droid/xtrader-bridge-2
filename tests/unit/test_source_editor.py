@@ -353,3 +353,18 @@ def test_disabled_list_corrotto_non_crasha():
     new_cfg, errors, _ = ed.apply({"parser_list_by_chat_disabled": "oops"})
     assert errors == []
     assert "parser_list_by_chat_disabled" not in new_cfg    # valore corrotto ripulito
+
+
+def test_apply_riordino_lista_riscrive_primario_parser_by_chat():
+    # Nota GLM #391: riordinando la lista, il PRIMARIO cambia e `parser_by_chat[chat]` (usato per
+    # autorizzazione + lettori single) deve essere riscritto al nuovo primo, atomicamente col save.
+    ed = SourceEditor()
+    ed.add_source(chat_id="111", parsers=["A", "B"])
+    first, _, _ = ed.apply({})
+    assert first["parser_by_chat"]["111"] == "A"
+    # riordino B prima di A
+    ed2 = SourceEditor()
+    ed2.add_source(chat_id="111", parsers=["B", "A"])
+    second, _, _ = ed2.apply({})
+    assert second["parser_list_by_chat"]["111"] == ["B", "A"]
+    assert second["parser_by_chat"]["111"] == "B"                    # primario riscritto al nuovo primo

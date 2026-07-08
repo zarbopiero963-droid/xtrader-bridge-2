@@ -190,3 +190,19 @@ def test_chat_non_in_lista_non_processata(tmp_path):
                                     chat_id="999", parsers_dir=str(tmp_path))
     assert res.placeable is False
     assert res.source == signal_router.NO_PARSER
+
+
+def test_dedup_e_su_riga_completa_non_solo_mercato(tmp_path):
+    # Nota GLM #391 (safety, doppia-scommessa): la dedup è sulla RIGA COMPLETA (tutti i campi),
+    # NON solo sul mercato. Due parser che producono lo STESSO mercato ma SELEZIONE diversa sono
+    # due bet distinti → entrambe le righe restano (non deduplicate).
+    _mk(str(tmp_path), "A", [cp.Condition(text="GG")],
+        market_type="OVER_UNDER_25", selection_name="Over 2.5")
+    _mk(str(tmp_path), "B", [cp.Condition(text="BACK")],
+        market_type="OVER_UNDER_25", selection_name="Under 2.5")
+    res = signal_router.resolve_row(parser_io.fixture_message(), _cfg_list("42", ["A", "B"]),
+                                    chat_id="42", parsers_dir=str(tmp_path))
+    rows = res.all_rows()
+    assert len(rows) == 2                                             # stesso mercato, selezioni diverse
+    assert all(r["MarketType"] == "OVER_UNDER_25" for r in rows)
+    assert {r["SelectionName"] for r in rows} == {"Over 2.5", "Under 2.5"}

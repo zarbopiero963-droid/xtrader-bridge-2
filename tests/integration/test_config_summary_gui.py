@@ -80,6 +80,10 @@ def test_parser_label(gui_mod):
     # ⚠ sul primario anche in multi (primario non caricabile).
     assert gui_mod.parser_label(
         _channel(parser_name="A", parser_names=("A", "B"), parser_loaded=False)) == "Parser (2): A, B ⚠"
+    # Fable #391: ⚠ anche se il primario carica ma un SECONDARIO no (bet persi in silenzio).
+    assert gui_mod.parser_label(_channel(
+        parser_name="A", parser_names=("A", "B"), parser_loaded=True,
+        parser_names_unloaded=("B",))) == "Parser (2): A, B ⚠"
 
 
 def _summary(ready, total):

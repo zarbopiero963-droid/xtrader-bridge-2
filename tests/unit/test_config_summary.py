@@ -160,6 +160,21 @@ def test_canale_multi_parser_elenca_tutti_i_parser(tmp_path):
     assert ch.ready is True
 
 
+def test_canale_multi_parser_secondario_rotto_non_pronto(tmp_path):
+    # Fable #391: un SECONDARIO non caricabile (file mancante) non deve sparire in silenzio:
+    # la chat è «non pronta» e il motivo elenca il parser rotto, che finisce in
+    # `parser_names_unloaded` — anche se il PRIMARIO carica.
+    _save_parser("A", tmp_path)                              # primario ok; "B" non esiste
+    cfg = {"parser_list_by_chat": {"777": ["A", "B"]}}
+    s = cs.summarize_config(cfg, parsers_dir=str(tmp_path))
+    ch = next(c for c in s.channels if c.chat_id == "777")
+    assert ch.parser_names == ("A", "B")
+    assert ch.parser_loaded is True                          # il primario A carica…
+    assert ch.parser_names_unloaded == ("B",)               # …ma B no → segnalato
+    assert ch.ready is False
+    assert cs.REASON_PARSER_UNLOADABLE in ch.reason and "B" in ch.reason
+
+
 def test_ordine_e_conteggi(tmp_path):
     _save_parser("P1", tmp_path)
     cfg = {"active_parser": "P1",

@@ -742,8 +742,10 @@ riepilogo non può divergere dal comportamento reale. Logica in `config_summary.
   «(canale senza chat_id)»), riga **`Parser: <nome>`** (o `—`; un parser risolto ma **non
   caricabile** — file mancante/invalido — porta un **`⚠`** sulla riga stessa: `Parser: <nome> ⚠`).
   **PR-2 (router multi-parser):** se la chat ha **più** parser, la riga diventa
-  **`Parser (N): A, B`** (lista in ordine di priorità; il `⚠` resta sul **primario**, su cui è
-  valutata la readiness). Con un solo parser il testo è invariato.
+  **`Parser (N): A, B`** (lista in ordine di priorità). Il **`⚠`** compare se **un qualsiasi**
+  parser della lista non è caricabile — **anche un secondario** (un secondario rotto perderebbe
+  bet in silenzio, quindi va reso visibile): la chat risulta **non pronta** e la riga «Pronto?»
+  elenca i nomi non caricabili. Con un solo parser il testo è invariato.
   riga traduzioni **`Nomi ✓N · Mercati ✓N`** (o `—` se nessuna), e l'indicatore **«Pronto?»**:
   - **`✅ Pronto`** (verde) solo se il canale è ascoltabile (chat_id presente + sorgente attiva),
     ha un parser che **si carica ed è valido**, e **tutte** le mappature selezionate si risolvono;

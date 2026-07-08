@@ -69,12 +69,14 @@ def parser_label(channel) -> str:
     nella riga «Pronto?» sottostante (CodeRabbit #337)."""
     if not channel.parser_name:
         return "Parser: —"
-    warn = "" if channel.parser_loaded else " ⚠"
     names = list(getattr(channel, "parser_names", ()) or ())
+    unloaded = tuple(getattr(channel, "parser_names_unloaded", ()) or ())
+    # ⚠ se il primario non carica OPPURE un qualsiasi parser configurato (anche secondario) non
+    # carica: un secondario rotto perderebbe bet in silenzio (Fable #391) → deve essere visibile.
+    warn = " ⚠" if (not channel.parser_loaded or unloaded) else ""
     if len(names) > 1:
-        # PR-2 (router multi-parser): più parser sulla chat → lista in ordine di priorità.
-        # Il ⚠ resta sul PRIMARIO (readiness/caricamento sono valutati sul primario, che è
-        # sincronizzato in config); i parser secondari si vedono nel dettaglio Chat sorgenti.
+        # PR-2 (router multi-parser): più parser sulla chat → lista in ordine di priorità. Il ⚠
+        # segnala che almeno un parser della lista non è caricabile (dettaglio nella riga «Pronto?»).
         return f"Parser ({len(names)}): " + ", ".join(names) + warn
     return f"Parser: {channel.parser_name}{warn}"
 
