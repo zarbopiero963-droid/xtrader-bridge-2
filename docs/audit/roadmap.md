@@ -2072,3 +2072,47 @@ Test hard (`tests/unit/test_message_freshness.py`): `test_capped_max_age_clampa_
 STANTIO col clamp; mutation-guard: senza clamp sarebbe "fresco"). Mutazione «nessun clamp» → **KILLED**.
 Suite **2396 passed, 11 skipped**. Docs: README (nota su `max_signal_age`) aggiornata. Design handoff =
 **N/A** (nessun cambio a GUI/UX: modifica interna al filtro freschezza, nessun elemento del handoff).
+
+## #371 (parte PTB) — conferma esplicita della connessione (`get_me`) prima del flip di `first_connection`
+
+Chiude il secondo finding della final review **Fugu Ultra** su #369 (deferito e tracciato in #371,
+hardening approvato dall'owner). Il modello di riconnessione del supervisor si basava sul fatto che
+`Updater.start_polling()` **sollevi** al fallimento della prima connessione; ma in PTB v20/21
+`start_polling` può **ritornare senza una connessione reale** (bootstrap fire-and-forget, `NetworkError`
+di regime ritentati in background). In quel caso `first_connection` scenderebbe a `False` **senza** aver
+scartato il backlog pre-START, e una riconnessione successiva userebbe `drop_pending_updates=False`
+recuperando arretrati pre-avvio → possibile **doppia scommessa**.
+
+Fix (patch stretta, `_async_run`): il flip `first_connection = False` è ora gated su una **conferma
+esplicita** `await app.bot.get_me()` (round-trip reale a Telegram) subito dopo il primo `start_polling`.
+Se la connessione non è reale, `get_me` **solleva** → l'eccezione propaga → il supervisor riconnette con
+`first_connection` **ancora True** → `drop_pending` resta True (backlog pre-START comunque scartato).
+La conferma parte **solo alla prima connessione della sessione** (`if first_connection:`), quindi le
+riconnessioni non ripetono la chiamata. L'invariante anti-arretrati regge ora **a prescindere** dalla
+semantica di `start_polling`, senza dipendere dal collaudo runtime. La `get_me` usa **timeout espliciti
+di PTB** (`_CONNECT_CONFIRM_TIMEOUT = 15s`, review CodeRabbit): una conferma appesa scade sollevando
+`telegram.error.TimedOut` — classificato TRANSITORIO da `reconnect_policy` → riconnessione — invece di
+bloccare uno STOP indefinitamente; si usano i kwargs di PTB e NON `asyncio.wait_for` (che solleverebbe
+`asyncio.TimeoutError`, non-telegram → classificato permanente → STOP indesiderato). **CORE CHANGE**
+(`xtrader_bridge/app.py::_run_bot/_async_run`): da ri-sincronizzare nel cloud.
+
+Test hard (`tests/integration/test_reconnect_110.py`):
+`test_start_polling_ritorna_senza_connettere_non_abbassa_il_flag` (fire-and-forget + `get_me` che
+solleva → riconnessione, `drop_pending=True` su entrambi i giri, teardown pulito, timeout bounded) e
+`test_get_me_timedout_e_transitorio_riconnette_non_stop` (review Fugu Ultra/GLM/GPT — usa la
+classificazione REALE `is_transient_error`, senza stubbare `should_reconnect`: un `TimedOut` da `get_me`
+→ riconnessione, non STOP). `_TgApp` fake esteso con `bot.get_me` (default successo → A/B/C invariati).
+Mutation-guard: rimuovendo il gate `get_me` → `len(apps)==1` KILLED; `get_me` senza timeout → assert
+kwargs KILLED; `TimedOut` rimosso dai transitori → il test TimedOut KILLED. Suite **2401 passed,
+11 skipped**.
+
+Test hard (`tests/integration/test_reconnect_110.py`):
+`test_start_polling_ritorna_senza_connettere_non_abbassa_il_flag` — `start_polling` NON solleva
+(fire-and-forget) e `get_me` solleva alla 1ª connessione → riconnessione; `drop_pending_updates=True` su
+ENTRAMBI i giri (il flag non è stato abbassato). `_TgApp` fake esteso con un `bot.get_me` (default
+successo, così A/B/C e lifecycle restano invariati). Mutation-guard: rimuovendo il gate `get_me` la 1ª
+connessione non-reale abbassa il flag e NON riconnette (nessun `get_me` che solleva) → `len(apps) == 1` →
+**KILLED** (pulito, nessun hang). Suite **2400 passed, 11 skipped**. Docs: README «Cosa succede se cade la
+connessione?» invariata (comportamento utente-osservabile non cambia; è robustezza interna). Design
+handoff = **N/A** (nessun cambio GUI/UX). Resta all'owner l'eventuale collaudo runtime end-to-end, ma il
+rischio è ora coperto da test offline.

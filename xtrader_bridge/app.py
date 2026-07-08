@@ -88,6 +88,14 @@ ctk.set_default_color_theme("blue")
 # intero intervallo di timeout (PR-23, finding Codex).
 _WRITE_RETRY_DELAY = 5
 
+# Timeout (s) della conferma di connessione `bot.get_me()` alla 1ª connessione (#371,
+# review CodeRabbit): la chiamata è sul percorso che precede il wait-loop interrompibile,
+# quindi una `get_me` senza limite bloccherebbe uno STOP finché Telegram non risponde. Con un
+# limite esplicito una chiamata appesa scade → l'eccezione propaga → riconnessione (con
+# `first_connection` ancora True, `drop_pending` resta True). Valore generoso per non generare
+# falsi timeout su reti lente, ma finito per non congelare la chiusura.
+_CONNECT_CONFIRM_TIMEOUT = 15
+
 # Ritardo (ms, timer Tk) tra i retry dello svuotamento CSV fallito allo STOP (audit
 # #259 A1): XTrader può tenere il lock a lungo; senza retry la riga stantia resterebbe
 # su disco finché l'app non viene riavviata.
@@ -2870,10 +2878,33 @@ class App(ctk.CTk):
             drop_pending = first_connection
             await app.updater.start_polling(
                 allowed_updates=["message", "channel_post"], drop_pending_updates=drop_pending)
-            # Flip DOPO un start_polling RIUSCITO (GPT/Fable/Fugu #369): se `start_polling` solleva
-            # (1ª connessione fallita), `first_connection` resta True e il primo poll RIUSCITO
-            # scarta comunque il backlog pre-START → l'invariante anti-arretrati NON viene mai
-            # saltata. Solo una riconnessione DOPO una connessione riuscita (blip di rete a bridge
+            if first_connection:
+                # #371 (blocker Fugu #369): CONFERMA esplicita che la connessione è reale prima di
+                # abbassare `first_connection`. In PTB `start_polling` può ritornare senza una
+                # connessione stabilita (bootstrap/`NetworkError` ritentati in background): affidarsi
+                # solo al fatto che sollevi lascerebbe abbassare il flag SENZA aver scartato il backlog
+                # pre-START, e una riconnessione successiva userebbe `drop_pending=False` recuperando
+                # arretrati pre-avvio → doppia scommessa. Un round-trip REALE a Telegram (`get_me`)
+                # fallisce se non c'è connessione: l'eccezione propaga → il supervisor riconnette con
+                # `first_connection` ANCORA True → `drop_pending` resta True. Solo alla PRIMA connessione
+                # della sessione (le riconnessioni hanno già il flag False e non ripetono la chiamata),
+                # così l'invariante regge a prescindere dalla semantica di `start_polling`.
+                #
+                # Timeout ESPLICITI (review CodeRabbit): senza limite una `get_me` appesa (Telegram
+                # lento/irraggiungibile) bloccherebbe uno STOP finché la chiamata non ritorna. Con i
+                # timeout di PTB la chiamata scade sollevando `telegram.error.TimedOut` — che
+                # `reconnect_policy.is_transient_error` classifica come TRANSITORIO → riconnessione
+                # (con `first_connection` ancora True). Si usano i kwargs di PTB, NON `asyncio.wait_for`,
+                # che solleverebbe `asyncio.TimeoutError` (non-telegram) → classificato permanente →
+                # STOP del bridge, indesiderato.
+                await app.bot.get_me(
+                    read_timeout=_CONNECT_CONFIRM_TIMEOUT,
+                    connect_timeout=_CONNECT_CONFIRM_TIMEOUT,
+                    pool_timeout=_CONNECT_CONFIRM_TIMEOUT)
+            # Flip DOPO connessione CONFERMATA (GPT/Fable/Fugu #369, #371): se `start_polling` solleva
+            # o `get_me` non conferma la connessione, `first_connection` resta True e il primo poll
+            # RIUSCITO scarta comunque il backlog pre-START → l'invariante anti-arretrati NON viene mai
+            # saltata. Solo una riconnessione DOPO una connessione confermata (blip di rete a bridge
             # già connesso) usa False e recupera l'outage backlog.
             if not drop_pending:
                 self.after(0, lambda: self._log(
