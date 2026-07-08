@@ -62,3 +62,7 @@ def test_job_lint_e_soft_warning_non_bloccante():
     assert "continue-on-error: true" in lint_block, "il job lint deve essere soft (continue-on-error)"
     assert "requirements-lint.txt" in lint_block
     assert "ruff check" in lint_block and "mypy" in lint_block
+    # `continue-on-error` sopprime il fallimento ma NON il tempo: senza `timeout-minutes` un hang
+    # girerebbe fino al default 6h di GitHub sprecando minuti runner. Questa assert è la GUARDIA DI
+    # REGRESSIONE del fix: se qualcuno rimuove il tetto dal job lint, il test diventa rosso.
+    assert "timeout-minutes:" in lint_block, "il job lint deve avere un timeout-minutes (anti-hang)"

@@ -868,6 +868,9 @@ def test_gate_continue_on_error_logic():
     # wrapper `python -m mypy` (review GPT): lint-only → AMMESSO
     assert _continue_on_error_violation(
         step("- continue-on-error: true", "  run: python -m mypy src/x.py")) is None
+    # simmetria: anche il wrapper `python -m ruff` è lint-only → AMMESSO (review GLM)
+    assert _continue_on_error_violation(
+        step("- continue-on-error: true", "  run: python -m ruff check src")) is None
     # `run` MULTILINEA (blocco `|`) con lint su riga 1 e pytest su riga 2 (review GLM): la seconda
     # riga è un comando distinto e DEVE essere intercettata → violazione, nessun bypass.
     assert _continue_on_error_violation(
