@@ -69,4 +69,4 @@ moduli separati, configurazione linter/formatter/type-checker.
 | Config | Accanto all'EXE | `%APPDATA%` persistente |
 | Sicurezza | Token in chiaro nel config | `.gitignore` + niente token nei log |
 
-Il dettaglio dei problemi è in `known_issues.md`. Il piano di chiusura è in `roadmap.md`.
+Il dettaglio dei problemi è in `known_issues.md`. Il piano di chiusura è in `../roadmap.md`.

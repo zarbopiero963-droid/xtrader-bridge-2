@@ -44,7 +44,7 @@
 - [ ] Tutte le GitHub Action nei workflow sono fissate a SHA (test di enforcement verde).
 - [ ] Nessun token Telegram compare nei log (redazione attiva).
 - [ ] **`chat_id` esplicito configurato** prima dell'uso: senza, il filtro chat ammette
-      tutte le chat (vedi `final_audit.md` §4 punto 6). Requisito bloccante per l'uso reale.
+      tutte le chat (vedi `archive/final_audit.md` §4 punto 6). Requisito bloccante per l'uso reale.
 - [ ] DRY_RUN (default = simulazione) **agganciato al runtime (PR-21)**: verifica che in
       DRY_RUN il CSV operativo NON venga scritto (log "🧪 DRY_RUN"). Per l'uso reale,
       disattivarlo consapevolmente.
@@ -53,7 +53,7 @@
       "♻️ Duplicato"/"🚦 Limite ...".
 - [ ] **Protezioni NON ancora attive a runtime** (da agganciare prima dell'uso reale):
       coda multi-segnale (`signal_queue`), conferma XTrader (`confirmation_reader`),
-      multi-chat (`source_manager`). Vedi `final_audit.md` §4.
+      multi-chat (`source_manager`). Vedi `archive/final_audit.md` §4.
 
 ## F. Verifica funzionale manuale (Windows + GUI)
 
@@ -69,7 +69,7 @@
 ## I. Disaster recovery / resilienza (#109 · #110) — manuale Windows
 
 Passi **manuali** non automatizzabili in CI, riferiti dalla matrice
-`resilience_110_matrix.md` (voci 1, 15-19). **Attenzione alla modalità**: in **DRY_RUN**
+`archive/resilience_110_matrix.md` (voci 1, 15-19). **Attenzione alla modalità**: in **DRY_RUN**
 il CSV operativo NON viene scritto (`live_guard` → `DRY_RUN`), quindi gli scenari che
 devono produrre una riga attiva (power-cut, XTrader) vanno eseguiti in **modalità REALE
 con XTrader in *Modalità Simulazione*** e stake basso/limiti chiari; gli scenari di sola
@@ -89,7 +89,7 @@ rete/auto-start possono restare in DRY_RUN.
       best-effort**: il duplicato recente è riconosciuto e il daily count è preservato
       **solo se lo stato guard era stato persistito prima del crash**; un crash nella
       finestra stretta "write CSV riuscita → prima di `_save_guard_state`" può far
-      dimenticare quel segnale (vedi `resilience_110_matrix.md` #110/10) — è un fail-safe
+      dimenticare quel segnale (vedi `archive/resilience_110_matrix.md` #110/10) — è un fail-safe
       accettato, non una garanzia di "exactly-once". Per un check deterministico del
       dedupe, fai prima arrivare un 2° segnale (così lo stato viene salvato) e poi togli
       la corrente.

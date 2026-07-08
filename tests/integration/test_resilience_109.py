@@ -11,7 +11,7 @@ Punti coperti qui:
 - #109/25 — un'azione manuale (STOP/AVVIA) ANNULLA un auto-start pendente
   (`_cancel_pending_autostart`).
 
-Gli altri punti #109 sono già coperti altrove (vedi `docs/audit/resilience_109_matrix.md`).
+Gli altri punti #109 sono già coperti altrove (vedi `docs/audit/archive/resilience_109_matrix.md`).
 """
 
 import csv
