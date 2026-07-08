@@ -1,3 +1,8 @@
 # Dipendenze di sviluppo/test (non necessarie a runtime).
 -r requirements.txt
 pytest>=7.0
+# Timeout per-test: un test che si impianta (loop/deadlock) viene ucciso con stack trace
+# invece di appendere l'intera suite/CI finché non scatta il timeout del runner. Il default
+# è configurato in `pytest.ini` (opzione ini `timeout`), non in `addopts`, così un run senza
+# il plugin non fallisce con "unrecognized arguments" (#311-3.5 pytest-timeout).
+pytest-timeout>=2.1
