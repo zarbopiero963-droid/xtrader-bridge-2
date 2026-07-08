@@ -286,6 +286,15 @@ In breve, ogni colonna ha una **regola** con:
   `BACK`/`LAY` in `PUNTA`/`BANCA`);
 - **obbligatorio**: se vuoto, il parser è **"Non pronto"** → **nessuna** riga CSV.
 
+Il parser può anche dichiarare **Condizioni di gate** (sezione **«Condizioni di gate»**):
+il parser **scatta solo se** il messaggio le soddisfa — righe **«contiene» / «NON contiene»**
+un testo, combinate in modo **TUTTE (E)** o **una qualsiasi (O)**. Il confronto è senza
+maiuscole e tollerante agli spazi; **nessuna condizione = nessun filtro** (comportamento
+invariato). Serve a far agire un parser **solo sui messaggi pertinenti** (es. «un mercato/lato
+diverso a seconda dello scenario»). Il match è **per sottostringa** (non parola intera): usa testi
+**distintivi** (es. `@punta`, `⚽ 0 - 1`) per evitare che un testo breve come `BACK` scatti dentro
+parole più lunghe. Dettagli: [`docs/custom_parser.md`](docs/custom_parser.md) §3ter.
+
 Ogni parser può anche dichiarare uno **Sport** (tendina accanto a «Modalità»):
 **Calcio / Tennis / Basket / Rugby Union** oppure **«(non specificato)»** = agnostico.
 Lo Sport non cambia le colonne del CSV: indica a quale sport appartiene il segnale e

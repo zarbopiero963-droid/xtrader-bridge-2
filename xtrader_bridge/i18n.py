@@ -241,6 +241,17 @@ _CATALOG = {
         "Diagnostica (una riga per colonna):": "Diagnostics (one row per column):",
         "Output multi-riga (un messaggio → più righe CSV)":
             "Multi-row output (one message → several CSV rows)",
+        "Condizioni di gate (il parser scatta solo se il messaggio le soddisfa)":
+            "Gate conditions (the parser fires only if the message satisfies them)",
+        "Soddisfa:": "Satisfy:",
+        "➕ Aggiungi condizione": "➕ Add condition",
+        "testo da cercare nel messaggio": "text to search for in the message",
+        "💡 «contiene»/«NON contiene» un testo; confronto senza maiuscole e "
+        "tollerante agli spazi. Nessuna condizione = nessun filtro. Righe a "
+        "testo vuoto sono ignorate.":
+            "💡 «contains»/«does NOT contain» a text; case-insensitive, "
+            "space-tolerant match. No condition = no filter. Empty-text rows "
+            "are ignored.",
         "➕ Aggiungi mercato": "➕ Add market",
         "➕ Aggiungi selezione": "➕ Add selection",
         "🗑 Rimuovi": "🗑 Remove",
@@ -466,6 +477,17 @@ _CATALOG = {
         "Diagnostica (una riga per colonna):": "Diagnóstico (una fila por columna):",
         "Output multi-riga (un messaggio → più righe CSV)":
             "Salida multifila (un mensaje → varias filas CSV)",
+        "Condizioni di gate (il parser scatta solo se il messaggio le soddisfa)":
+            "Condiciones de activación (el parser se dispara solo si el mensaje las cumple)",
+        "Soddisfa:": "Cumple:",
+        "➕ Aggiungi condizione": "➕ Añadir condición",
+        "testo da cercare nel messaggio": "texto a buscar en el mensaje",
+        "💡 «contiene»/«NON contiene» un testo; confronto senza maiuscole e "
+        "tollerante agli spazi. Nessuna condizione = nessun filtro. Righe a "
+        "testo vuoto sono ignorate.":
+            "💡 «contiene»/«NO contiene» un texto; comparación sin mayúsculas y "
+            "tolerante a espacios. Sin condiciones = sin filtro. Las filas con "
+            "texto vacío se ignoran.",
         "➕ Aggiungi mercato": "➕ Añadir mercado",
         "➕ Aggiungi selezione": "➕ Añadir selección",
         "🗑 Rimuovi": "🗑 Eliminar",

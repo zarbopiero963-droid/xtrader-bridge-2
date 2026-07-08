@@ -435,6 +435,50 @@ Tutti questi gate devono passare perché una riga venga scritta:
    la chat, se non produce una riga piazzabile il segnale è **scartato** — non si
    ripiega sul parser hardcoded (che potrebbe interpretare diversamente lo stesso
    messaggio).
+6. **Condizioni di gate** (PR-1, opzionali): se il parser definisce condizioni
+   `contiene`/`NON contiene` (con modo `E`/`O`), il messaggio viene processato **solo se**
+   le soddisfa; altrimenti è **scartato** (`NO_CONTENT_MATCH`, nessuna riga). Vedi §3ter.
+
+---
+
+## 3ter. Condizioni di gate (PR-1) — «il parser scatta solo se…»
+
+Un Parser Personalizzato può opzionalmente dichiarare una lista di **condizioni** sul testo
+del messaggio: il parser **scatta soltanto se il messaggio le soddisfa**, altrimenti il
+messaggio è **scartato** (`NO_CONTENT_MATCH`, nessuna riga CSV). È un **filtro fail-closed**
+valutato **prima** di ogni estrazione (in cima a `custom_parser_engine.matches_message`), utile
+per far agire un parser **solo sui messaggi pertinenti** — es. «un mercato/lato diverso a
+seconda dello scenario nel messaggio».
+
+Modello (`custom_parser.py`):
+
+- `conditions: list[Condition]` — ogni `Condition` ha `text` (il testo da cercare) e `negate`
+  (bool: `False` = *deve contenere*, `True` = *NON deve contenere*);
+- `conditions_mode: str` — `"all"` (default, **E**: tutte devono valere) o `"any"` (**O**:
+  ne basta una). Un valore ignoto/manomesso ricade su `"all"` (fail-closed, più restrittivo).
+
+Regole di valutazione (`conditions_pass`):
+
+- il confronto è **case-insensitive e tollerante agli spazi** (stessa normalizzazione di
+  `dizionario.normalize`: minuscole + spazi collassati);
+- il match è **per sottostringa**, **non** per parola intera (nota Fugu #390): un testo **breve**
+  come `BACK` scatta anche dentro parole più lunghe (`BACKGROUND`, `OUTBACK`) e `1` scatterebbe in
+  ogni `10`/`21`. Usa testi **distintivi** (es. `@punta`, `⚽ 0 - 1`, `OVER SUCCESSIVO`) per evitare
+  match indesiderati;
+- una condizione a **testo vuoto** è **ignorata** (`active_conditions()` la filtra) — non fa né
+  matchare né scartare nulla;
+- **nessuna condizione** (lista vuota o tutte vuote) = **nessun filtro**: comportamento identico
+  a prima della feature (retro-compatibile: i file salvati senza chiavi `conditions`/
+  `conditions_mode` caricano con default vuoti).
+
+Retro-compatibilità: `to_dict`/`from_dict` serializzano le due chiavi nuove; un parser salvato
+prima della feature si carica con `conditions=[]` e `conditions_mode="all"`.
+
+**GUI (scheda 🧩 Parser):** sotto la sezione «Output multi-riga» c'è il riquadro **«Condizioni
+di gate»** — tendina modo **TUTTE (E)** / **una qualsiasi (O)**, pulsante **«➕ Aggiungi
+condizione»**, e una riga per condizione (**tendina contiene/NON contiene** + **testo** +
+**🗑 Rimuovi**). Le righe a testo vuoto sono **scartate al salvataggio** (non generano errori di
+validazione). Vedi `docs/design/design_handoff.md` §7.1.
 
 ---
 

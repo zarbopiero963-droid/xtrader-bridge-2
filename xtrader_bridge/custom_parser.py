@@ -174,6 +174,53 @@ class MultiRowRule:
         return rule
 
 
+# Modi di combinazione delle condizioni di gate (PR-1): "all" = TUTTE (E), "any" = una qualsiasi (O).
+CONDITION_MODES = ("all", "any")
+
+
+def _normalize_conditions_mode(raw) -> str:
+    """Normalizza il modo delle condizioni letto da JSON: solo 'all'/'any'. Qualsiasi altro
+    valore (assente, null, typo, corrotto) → 'all' — fail-closed sul gate PIÙ restrittivo (E),
+    così un file manomesso non allarga per errore l'accettazione dei messaggi."""
+    s = str(raw or "").strip().lower()
+    return s if s in CONDITION_MODES else "all"
+
+
+@dataclass
+class Condition:
+    """Condizione di gate (PR-1): il parser scatta SOLO se il messaggio la soddisfa.
+
+    - `text`: sottostringa cercata nel messaggio (match case-insensitive e tollerante agli
+      spazi via `dizionario.normalize`, applicato a ENTRAMBI i lati);
+    - `negate`: `False` = «contiene» (soddisfatta se il testo è PRESENTE); `True` = «NON
+      contiene» (soddisfatta se il testo è ASSENTE).
+
+    Per il GATE basta la presenza del testo (sottostringa): niente delimitatori
+    `start_after`/`end_before` (quelli ESTRAGGONO un valore; qui si VALIDA soltanto)."""
+
+    text: str = ""
+    negate: bool = False
+
+    def to_dict(self) -> dict:
+        return dataclasses.asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Condition":
+        """Da dict, tollerante a chiavi mancanti/extra. `negate` malformato → `False`
+        (fail-closed sul default «contiene»)."""
+        if not isinstance(data, dict):
+            raise ValueError(f"condizione non è un oggetto JSON: {type(data).__name__}")
+        cond = cls()
+        raw_text = data.get("text", "")
+        cond.text = "" if raw_text is None else str(raw_text)
+        if "negate" in data:
+            try:
+                cond.negate = _as_bool(data["negate"])
+            except ValueError:
+                cond.negate = False
+        return cond
+
+
 @dataclass
 class CustomParserDef:
     """Definizione di un Parser Personalizzato: nome + elenco di regole."""
@@ -213,6 +260,12 @@ class CustomParserDef:
     multi_selection_enabled: bool = False
     multi_markets: "list[MultiRowRule]" = field(default_factory=list)
     multi_selections: "list[MultiRowRule]" = field(default_factory=list)
+    # Condizioni di gate (PR-1): il parser scatta SOLO se il messaggio le soddisfa
+    # (contiene / NON contiene ⟨testo⟩). `conditions_mode`: "all" = TUTTE (E), "any" = una
+    # qualsiasi (O). Vuote = nessun gate aggiuntivo (retro-compatibile coi file pre-feature).
+    # Il gate è valutato in `custom_parser_engine.matches_message` (case/space-insensitive).
+    conditions: "list[Condition]" = field(default_factory=list)
+    conditions_mode: str = "all"
 
     def to_dict(self) -> dict:
         return {
@@ -229,6 +282,8 @@ class CustomParserDef:
             "multi_selection_enabled": bool(self.multi_selection_enabled),
             "multi_markets": [r.to_dict() for r in self.multi_markets],
             "multi_selections": [r.to_dict() for r in self.multi_selections],
+            "conditions": [c.to_dict() for c in self.conditions],
+            "conditions_mode": self.conditions_mode,
         }
 
     def active_multi_markets(self) -> "list[MultiRowRule]":
@@ -238,6 +293,12 @@ class CustomParserDef:
     def active_multi_selections(self) -> "list[MultiRowRule]":
         """Righe MultiSelection attive (#192): solo se la modalità è abilitata e la riga è enabled."""
         return [r for r in self.multi_selections if r.enabled] if self.multi_selection_enabled else []
+
+    def active_conditions(self) -> "list[Condition]":
+        """Condizioni di gate con testo NON vuoto (PR-1). Le condizioni a testo vuoto sono
+        ignorate: una «contiene ''» matcherebbe qualsiasi messaggio (gate no-op pericoloso),
+        quindi non deve gattare nulla. Usato da `custom_parser_engine.matches_message`."""
+        return [c for c in self.conditions if str(c.text).strip() != ""]
 
     def is_multi_row(self) -> bool:
         """True se il parser produce **multi-riga** (#192): ha almeno una riga MultiMarket o
@@ -315,6 +376,14 @@ class CustomParserDef:
                 return []
             return [MultiRowRule.from_dict(r) for r in raw if isinstance(r, dict)]
 
+        # Condizioni di gate (PR-1). Retro-compat: chiave assente/malformata → lista vuota
+        # (nessun gate aggiuntivo, come i file pre-feature). Elementi non-dict ignorati.
+        def _cond_list(key):
+            raw = data.get(key, [])
+            if not isinstance(raw, list):
+                return []
+            return [Condition.from_dict(r) for r in raw if isinstance(r, dict)]
+
         return cls(
             name=str(data.get("name", "")),
             description=str(data.get("description", "")),
@@ -327,6 +396,8 @@ class CustomParserDef:
             multi_selection_enabled=_flag("multi_selection_enabled"),
             multi_markets=_multi_list("multi_markets"),
             multi_selections=_multi_list("multi_selections"),
+            conditions=_cond_list("conditions"),
+            conditions_mode=_normalize_conditions_mode(data.get("conditions_mode", "all")),
             # Modalità: SOLO la chiave assente/null (file legacy pre-feature) → "" =
             # eredita il globale. Un `mode` ESPLICITO valido è tenuto; `""` esplicito è
             # l'eredità scelta dalla GUI; un valore malformato (typo, file corrotto) →
@@ -411,6 +482,18 @@ def validate_parser_def(defn: CustomParserDef) -> list:
             errors.append(
                 f"{where}: trasformazione sconosciuta {rule.transform!r}; "
                 f"ammesse: {', '.join(transforms.available_transforms())}."
+            )
+
+    # Condizioni di gate (PR-1): modo valido e nessuna condizione a testo vuoto (una
+    # «contiene ''» sarebbe un gate no-op che matcha tutto — errore di configurazione).
+    if defn.conditions_mode not in CONDITION_MODES:
+        errors.append(
+            f"Modo condizioni non valido: {defn.conditions_mode!r}; ammessi {', '.join(CONDITION_MODES)}."
+        )
+    for i, cond in enumerate(defn.conditions):
+        if str(cond.text).strip() == "":
+            errors.append(
+                f"Condizione #{i + 1}: testo vuoto (ogni condizione deve avere un testo da cercare)."
             )
 
     return errors

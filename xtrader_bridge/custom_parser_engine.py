@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 from . import recognition, transforms, value_maps
 from .csv_writer import CSV_HEADER
 from .custom_parser import CustomParserDef, FieldRule
+from .dizionario import normalize
 
 # Match dei delimitatori tollerante agli spazi: spazi/tab ai bordi del
 # delimitatore vengono ignorati e ogni run di spazi/tab INTERNO diventa flessibile
@@ -206,6 +207,33 @@ def extract_scores(text: str, start_after: str = "", end_before: str = "") -> "l
     return out
 
 
+def conditions_pass(defn: CustomParserDef, text: str) -> bool:
+    """Gate delle CONDIZIONI (PR-1): True se il messaggio soddisfa le condizioni del parser.
+
+    - nessuna condizione attiva (`defn.active_conditions()` vuoto) → True (nessun gate
+      aggiuntivo, retro-compatibile);
+    - `conditions_mode == "all"` → TUTTE le condizioni soddisfatte (E); `"any"` → almeno UNA (O);
+    - una condizione è soddisfatta se il suo testo è PRESENTE (contiene) oppure ASSENTE
+      (`negate` = «NON contiene») nel messaggio.
+
+    Match **case-insensitive e tollerante agli spazi**: `text` e `condition.text` sono
+    normalizzati con `dizionario.normalize` (lowercase + collasso spazi interni) su ENTRAMBI
+    i lati, poi si fa il confronto sottostringa. Le condizioni a testo vuoto sono già escluse
+    da `active_conditions`, quindi il needle è sempre non vuoto (niente match-tutto)."""
+    conds = defn.active_conditions()
+    if not conds:
+        return True
+    hay = normalize(text)
+    results = []
+    for c in conds:
+        present = normalize(c.text) in hay
+        results.append((not present) if c.negate else present)
+    # Modo già normalizzato da from_dict; ricontrollo difensivo (default costruttore/GUI).
+    if defn.conditions_mode == "any":
+        return any(results)
+    return all(results)
+
+
 def matches_message(defn: CustomParserDef, text: str, mode: str = None) -> bool:
     """True se il messaggio ha attivato un'estrazione che rappresenta **contenuto di
     segnale**: una regola con `start_after`/`end_before` (non `fixed_value`) che ha
@@ -232,7 +260,14 @@ def matches_message(defn: CustomParserDef, text: str, mode: str = None) -> bool:
     farebbe scrivere un bet spurio su un non-segnale. In quel caso serve un'estrazione
     **obbligatoria** (contenuto reale dichiarato dall'utente). Quando invece il riconoscimento
     NON è già completo coi soli fissi, l'estrazione SERVE a riconoscere e continua a contare
-    (così i parser basati su mappatura mercati — che estraggono solo l'evento — restano validi)."""
+    (così i parser basati su mappatura mercati — che estraggono solo l'evento — restano validi).
+
+    **Condizioni di gate (PR-1).** Se il parser ha condizioni attive (contiene/NON contiene) e il
+    messaggio NON le soddisfa, il parser NON scatta: `return False` immediato, PRIMA della logica
+    di riconoscimento. Così un parser configurato agisce solo sui messaggi pertinenti (filtro
+    fail-closed), a prescindere da cosa riuscirebbe a estrarre."""
+    if not conditions_pass(defn, text):
+        return False
     mode = recognition.normalize_mode(defn.mode if mode is None else mode)
     relevant = recognition.recognition_fields_for_mode(mode)
     # I soli FISSI completano già un set di riconoscimento? → riga piazzabile per ogni messaggio.
