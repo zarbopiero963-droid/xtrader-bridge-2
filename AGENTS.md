@@ -810,57 +810,33 @@ This section applies to every PR. Merge stays **always manual and owner-only**: 
 does **not** merge, does not block the owner, and does not replace the check completion gate —
 it is **added after** it.
 
-### The 16-minute gate
+### The 16-minute gate — ❌ HISTORICAL / SUPERSEDED, DO NOT APPLY
 
-When work is "ready for merge" (checks green + local final hard verify done), you must **not**
-declare final `DONE`/`READY` until at least **16 minutes have passed since the LAST push that
-updated the PR head** (use the PR head push/update time, **not** the local git commit/author
-timestamp — bots react when the commit is attached to the PR, which can be much later than when
-it was authored locally). The 16-minute window covers the **typical** inline-review delay
-(Codex, non-rate-limited CodeRabbit).
+> ⚠️ This gate is **repealed** by the **OWNER OVERRIDE** above: you no longer wait out any timed
+> window, the `REVIEW_WINDOW_PENDING` status is **no longer used**, and you do not schedule any
+> "window-wait" self check-in. The text below is kept **only as historical context** (the old
+> flow), **not** as an instruction to execute. When work is ready, the only thing to do is: fire
+> the final labels → read the reviewers' verdicts → tell the owner merge yes/no immediately. The
+> only parts of this section **still live** are the **post-merge tracking** and the **last-5 PR
+> sweep** below (the backstop for late bot comments).
+>
+> *(Historical, not in force: the old flow waited ≥16 min since the last push to the PR head
+> before declaring ready, to cover the typical inline-comment delay; every push reset the timer.
+> Today there is no wait.)*
 
-A reviewer known to be **rate-limited** is a longer tail the 16-minute window does **not**
-cover: CodeRabbit can be delayed 39–50 min (it posts a "review limit reached" notice with the
-next-available time). When a current-head reviewer is still pending/rate-limited at window
-close, **do not** declare final `DONE`: keep watching (extend the wait to the announced
-availability, or hand off to the post-merge tracking below) until that reviewer posts or its
-own delay elapses. The last-5 sweep and post-merge Issue tracking are the backstop.
+### Post-merge tracking of late comments — ✅ IN FORCE
 
-During the window you must:
-
-- keep the **PR-activity subscription active** (`subscribe_pr_activity`) so AI comments are
-  intercepted as they arrive;
-- schedule a **self check-in** (e.g. `send_later`/`ScheduleWakeup`) at the window's close to
-  re-read the PR;
-- report status `REVIEW_WINDOW_PENDING` with the window-close time, instead of `DONE`.
-
-Tooling fallback: the gate is fundamentally about **waiting and then re-reading**, not about a
-specific tool. `subscribe_pr_activity` + `send_later`/`ScheduleWakeup` are the **preferred**
-mechanism. If they are unavailable (e.g. a runner with only git/GitHub CLI/API polling), still
-satisfy the gate by polling: re-read checks, reviews, **PR conversation comments**, inline
-comments and unresolved threads at/after window close via the CLI/API. Missing wake-up tooling never authorizes an early
-`DONE` and never blocks the PR — it only changes how you wait.
-
-Rules:
-
-- **every new push to the PR head RESETS the timer** to 16 minutes from that push (bots
-  re-review the new head);
-- do not declare `DONE`/`READY`/`READY_TO_MERGE` and do not resolve threads "with the window
-  open" before re-reading the PR at window close;
-- do not make random patches just because you are waiting.
-
-### Persistence even if the owner merges early
-
-The owner may merge manually at any time. **Merging does NOT close the review window.** You
-must still complete the 16-minute watch on that PR, **even if it is now merged/closed**, and
-re-read it at window close:
+The owner may merge manually at any time. Because you no longer wait out a window, bot comments
+can arrive **after** the merge: the backstop is **post-merge tracking** (plus the **last-5 PR
+sweep** below). After a PR is merged/closed, when a review event lands on it, re-read it and look
+for:
 
 - inline comments / review bodies with `submitted_at` **after the last push**;
 - **unresolved** threads;
 - above all, comments with `submitted_at` **after `merged_at`** (the "post-merge ghosts");
 - check annotations, Codacy/DeepSource/CodeRabbit/Sourcery/Codex if present.
 
-Outcome at window close:
+Outcome:
 
 - **nothing unresolved** → close out: no action, declare the final status.
 - **something detected** → it must be **tracked**: always open a **GitHub Issue** recording
@@ -888,27 +864,12 @@ Mandatory dedup: **before opening an Issue, search existing Issues** (open and c
 finding/PR and **do not duplicate**; if one already exists, link the comment to the existing
 Issue instead of creating a new one.
 
-### Dedicated status
+### Dedicated status — ❌ RETIRED
 
-```text
-REVIEW_WINDOW_PENDING
-
-PR:
-- <number / head SHA>
-
-Last push to PR head:
-- <SHA> @ <PR-head push/update timestamp>
-
-Window closes:
-- <PR-head push timestamp + 16 min>
-
-Merge:
-- MANUAL (not blocked by this gate)
-
-Next allowed action:
-- At close: re-read checks, review bodies, inline comments, unresolved threads, and
-  comments with submitted_at > merged_at; track in Issue + fix PR if needed.
-```
+The **`REVIEW_WINDOW_PENDING`** status is **repealed** by the OWNER OVERRIDE: it is no longer
+used, because there is no timed window to wait out. When work is ready, report the merge yes/no
+verdict directly (or `CHECKS_PENDING`/`NEEDS_MANUAL` where applicable). If it still appears as an
+option elsewhere in the response templates, that is **historical residue** — do not select it.
 
 ---
 
@@ -1103,8 +1064,8 @@ Inline comments checked:
 Unresolved threads checked:
 - YES / NO
 
-Review window (16 min since last push to PR head) honored:
-- YES / NO / RUNNING (closes at <timestamp>)
+Final labels fired + reviewers responded (Fable/Fugu/GPT/GLM):
+- YES / NO   (the 16-min window wait is REPEALED — see OWNER OVERRIDE)
 
 Last-5 PR post-merge sweep:
 - YES / NO

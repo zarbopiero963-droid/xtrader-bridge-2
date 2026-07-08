@@ -312,57 +312,26 @@ vuoto fa perdere tempo. Il flusso pre-merge diventa:
 - La rete di sicurezza per i commenti-bot in ritardo resta il **tracciamento post-merge** (Issue +
   fix PR dedicata) e lo **sweep delle ultime 5 PR** qui sotto, non l'attesa sincrona.
 
-Il `Gate dei 16 minuti` qui sotto resta come **contesto storico**, ma **non va più applicato come
-attesa bloccante**: lo stato `REVIEW_WINDOW_PENDING` non si usa più per temporeggiare.
+### Gate dei 16 minuti — ❌ STORICO / SUPERATO, NON APPLICARE
 
-### Gate dei 16 minuti
+> ⚠️ Questo gate è **abrogato** dall'**OVERRIDE PROPRIETARIO** sopra: **non** si attende più
+> alcuna finestra a timer, lo stato `REVIEW_WINDOW_PENDING` **non si usa più** e non si programma
+> alcun self check-in «di attesa finestra». Il testo che segue resta **solo come contesto storico**
+> (com'era il vecchio flusso), **non** come istruzione da eseguire. L'unica cosa da fare a lavoro
+> pronto è: far partire le label finali → letti gli esiti dei reviewer → dire subito al proprietario
+> merge sì/no. Le uniche parti **ancora vive** di questa sezione sono il **tracciamento post-merge**
+> e lo **sweep delle ultime 5 PR** più sotto (rete di sicurezza per i commenti-bot in ritardo).
+>
+> *(Storico, non in vigore: prima si aspettavano ≥16 min dall'ultimo push sul head PR prima di
+> dichiarare pronto, per coprire il ritardo tipico degli inline comment; ogni push resettava il
+> timer. Oggi non si aspetta più.)*
 
-Quando il lavoro è «pronto per merge» (check verdi + final hard verify locale fatto), **non**
-puoi ancora dichiarare `DONE`/`READY` finale finché non sono passati **almeno 16 minuti
-dall'ULTIMO push che ha aggiornato il head della PR** (usa l'orario di **push/aggiornamento
-del head della PR**, **non** il timestamp del commit git locale: i bot reagiscono quando il
-commit viene attaccato alla PR, che può essere molto più tardi di quando è stato creato in
-locale). La finestra dei 16 minuti copre il ritardo **tipico** della review inline (Codex,
-CodeRabbit non rate-limited).
+### Tracciamento post-merge dei commenti tardivi — ✅ IN VIGORE
 
-Un reviewer **rate-limited** è una coda più lunga che i 16 minuti **non** coprono: CodeRabbit
-può ritardare di 39–50 min (pubblica un avviso «review limit reached» con l'orario di prossima
-disponibilità). Se a fine finestra un reviewer del current-head è ancora pending/rate-limited,
-**non** dichiarare `DONE`: continua a sorvegliare (estendi l'attesa fino all'orario annunciato,
-oppure passa il testimone al tracciamento post-merge qui sotto) finché quel reviewer non
-pubblica o il suo ritardo non è trascorso. Lo sweep ultime 5 PR e la Issue post-merge sono la
-rete di sicurezza.
-
-Durante la finestra devi:
-
-- mantenere **attiva la subscription** agli eventi della PR (`subscribe_pr_activity`) così
-  intercetti i commenti AI man mano che arrivano;
-- programmare un **self check-in** (es. `send_later`/`ScheduleWakeup`) alla scadenza della
-  finestra per rileggere la PR;
-- riportare lo stato `REVIEW_WINDOW_PENDING` con l'orario di chiusura della finestra, invece
-  di `DONE`.
-
-Fallback strumenti: il gate è essenzialmente **attendere e poi rileggere**, non uno strumento
-specifico. `subscribe_pr_activity` + `send_later`/`ScheduleWakeup` sono il meccanismo
-**preferito**. Se non sono disponibili (es. un runner con solo polling git/GitHub CLI/API),
-soddisfa comunque il gate con il **polling**: rileggi check, review, **commenti di
-conversazione della PR**, inline e thread non risolti a/dopo la chiusura della finestra via
-CLI/API. La mancanza degli strumenti di wake-up
-non autorizza mai un `DONE` anticipato e non blocca mai la PR: cambia solo *come* aspetti.
-
-Regole:
-
-- **ogni nuovo push sul head PR RESETTA il timer** a 16 minuti da quel push (i bot rivedono
-  il nuovo head);
-- non dichiarare `DONE`, `READY`, `READY_TO_MERGE`, non risolvere thread «a finestra aperta»
-  prima di aver riletto la PR a fine finestra;
-- non fare patch casuali solo perché stai aspettando.
-
-### Persistenza anche se il proprietario merga in anticipo
-
-Il proprietario può mergiare a mano in qualsiasi momento. **Il merge NON chiude la finestra
-di review.** Devi comunque completare il watch dei 16 minuti su quella PR, **anche se ora è
-mergiata/chiusa**, e a fine finestra rileggerla:
+Il proprietario può mergiare a mano in qualsiasi momento. Poiché **non** si attende più una finestra,
+i commenti-bot possono arrivare **dopo** il merge: la rete di sicurezza è il **tracciamento
+post-merge** (più lo **sweep ultime 5 PR** qui sotto). Dopo che una PR è mergiata/chiusa, quando
+arriva un evento review su di essa, rileggila e cerca:
 
 - inline comment / review bodies con `submitted_at` **successivo all'ultimo push**;
 - thread **non risolti**;
@@ -370,7 +339,7 @@ mergiata/chiusa**, e a fine finestra rileggerla:
   post-merge»);
 - annotazioni dei check, Codacy/DeepSource/CodeRabbit/Sourcery/Codex se presenti.
 
-Esito a fine finestra:
+Esito:
 
 - **nulla di non risolto** → chiudi: nessuna azione, dichiara lo stato finale.
 - **rilevato qualcosa** → va **tracciato**: apri **SEMPRE una Issue GitHub** che registra
@@ -398,27 +367,12 @@ Deduplica obbligatoria: **prima di aprire una Issue cerca le Issue esistenti** (
 chiuse) per quel finding/PR e **non duplicare**; se esiste già, collega il commento alla
 Issue esistente invece di crearne una nuova.
 
-### Stato dedicato
+### Stato dedicato — ❌ RITIRATO
 
-```text
-REVIEW_WINDOW_PENDING
-
-PR:
-- <numero / head SHA>
-
-Ultimo push sul head PR:
-- <SHA> @ <timestamp push/aggiornamento head PR>
-
-Finestra chiude:
-- <timestamp push sul head PR + 16 min>
-
-Merge:
-- MANUALE (non bloccato da questo gate)
-
-Next allowed action:
-- Alla scadenza: rileggere check, review bodies, inline, thread non risolti e
-  commenti con submitted_at > merged_at; tracciare in Issue + fix PR se serve.
-```
+Lo stato **`REVIEW_WINDOW_PENDING`** è **abrogato** dall'OVERRIDE PROPRIETARIO: non si usa più,
+perché non si attende più alcuna finestra. A lavoro pronto si riporta direttamente il verdetto
+merge sì/no (o `CHECKS_PENDING`/`NEEDS_MANUAL` se pertinente). Se compare ancora come opzione
+altrove nei formati di risposta, **è residuo storico**: non selezionarlo.
 
 ---
 
@@ -1094,8 +1048,8 @@ Inline comments checked:
 Unresolved threads checked:
 - YES / NO
 
-Review window (16 min dall'ultimo push sul head PR) rispettata:
-- YES / NO / RUNNING (chiude a <timestamp>)
+Label finali fatte partire + reviewer risposti (Fable/Fugu/GPT/GLM):
+- YES / NO   (l'attesa finestra 16 min è ABROGATA — vedi OVERRIDE PROPRIETARIO)
 
 Last-5 PR post-merge sweep:
 - YES / NO
