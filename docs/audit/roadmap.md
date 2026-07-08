@@ -2159,3 +2159,47 @@ Suite **2406 passed, 11 skipped**. Docs: README (nota gate) e `docs/xtrader_csv_
 handoff = **N/A** (dropdown «🎯 Modalità riconoscimento» e opzioni invariati; cambia solo l'opzione
 preselezionata per una config nuova, e solo dopo la validazione del dizionario). 2.3 «piena» (BOTH attivo)
 resta legata a #2.2, che dipende dal collaudo reale (T19) dell'owner.
+
+---
+
+## #318-L2-1 — validazione numerica ASCII-only (fail-open cifre non-ASCII) — FATTO (PR #377)
+
+Finding adversariale #318 (L2-1, MEDIUM, fail-OPEN). `numbers_re.DECIMAL`/`SIGNED_DECIMAL` — fonte unica
+dei decimali usata da `validator`/`custom_pipeline`/`csv_writer`/`parser` — usava `\d`, che in Python
+matcha **tutte** le cifre Unicode. Poiché `float("١٩") == 19.0`, un `Price`/`Handicap`/`Points`/`Min`/
+`MaxPrice` scritto con cifre non-ASCII (arabo «١٩», devanagari «१९», fullwidth «１９») superava la
+validazione ed entrava nel CSV letto da XTrader — **raggiungibile da un vero messaggio Telegram** via
+parser custom. **Fix** (`\d`→`[0-9]` nella fonte unica; `SIGNED_DECIMAL` ora composto da `DECIMAL`
+anti-drift): fail-closed propagato a tutti i consumer. **CORE CHANGE** (`xtrader_bridge/numbers_re.py`):
+ri-sincronizzare nel cloud. Test hard: `test_numbers_re` (frammento + `_HANDICAP_RE`), `test_validator`
+(Price/Points/Min/MaxPrice), end-to-end `test_custom_parser_end_to_end` (Telegram→parser→router, quota
+araba → non piazzabile) — mutation-guard KILLED su `\d`. Docs: `docs/xtrader_csv_contract.md`. Suite 2411
+passed.
+
+---
+
+## #311-3.5 — Minori (una PR alla volta, dopo ogni merge del proprietario)
+
+Coda approvata dei minori 3.5, nell'ordine (dal più sicuro al più delicato). Ogni voce = PR singola con
+Phase 0 + micro-audit + test hard veritieri; merge sempre manuale.
+
+| Ordine | Item | Stato | Note |
+|---|---|---|---|
+| 1ª | **pytest-timeout** | ✅ FATTO (questa PR) | non-core, rischio zero |
+| 2ª | archivio docs | da fare | non-core; l'owner indica quali file archiviare |
+| 3ª | ruff/mypy CI | da fare | l'owner decide soft-warning o gate |
+| 4ª | clock-skew dedupe | da fare | core; l'owner fornisce la policy skew |
+| 5ª | retry-budget CSV | da fare | core; l'owner fornisce N retry/backoff |
+| 6ª | daily-limit ora locale | da fare | core; l'owner fornisce TZ + gestione DST |
+| ⏸️ | firma EXE | in sospeso | attesa certificato (acquisto/gratuito) |
+
+### 3.5-a pytest-timeout — FATTO
+
+`pytest-timeout>=2.1` aggiunto a `requirements-dev.txt`; `pytest.ini` imposta `timeout = 120` e
+`timeout_method = thread` (cross-platform, Windows incluso). Un test che si impianta (loop/deadlock)
+viene ucciso con stack trace invece di appendere la CI. 120 s è ~44× il test più lento (~2.7 s) →
+nessun falso positivo. Configurato via **opzione ini** (non `addopts`): senza il plugin l'opzione è
+ignorata, nessun errore «unrecognized arguments». Test hard `tests/unit/test_pytest_timeout_config.py`:
+plugin installato, `pytest.ini` configurato, e sub-pytest con `timeout=1` nell'ini che **uccide davvero**
+un test che dorme 5 s (prova del meccanismo, non solo del flag). Non-core, nessun impatto su CSV/Telegram/
+config/design. Design handoff = N/A.
