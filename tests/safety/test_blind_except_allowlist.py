@@ -80,12 +80,16 @@ _ALLOWLIST = {
                          "del SO nella creazione del lock (un bridge inavviabile per un guasto raro "
                          "è peggio del caso limite; warning nei log) + release best-effort (a morte "
                          "processo rilascia comunque il SO: mutex named / flock)"),
-    "config_store.py": (2, "backup config corrotta best-effort + rollback keyring best-effort"),
+    "config_store.py": (3, "backup config corrotta best-effort + rollback keyring best-effort + "
+                           "gate #311-2.3 `_default_recognition_mode` fail-safe → NAME_ONLY"),
     "config_summary_gui.py": (1, "GUI Tk scheda Riepilogo (#293 slice 3, sola lettura): il "
                              "summary_provider che solleva mostra un avviso invece di rompere "
                              "la finestra (stesso pattern best-effort degli altri pannelli)"),
     "csv_writer.py": (1, "callback diagnostico best-effort di clear_stale_csv: un sink log/GUI che "
                          "solleva non deve rompere il cleanup anti-segnale-stantio all'avvio/STOP (#241)"),
+    "dizionario.py": (1, "gate #311-2.3 `is_validated` fail-safe: dizionario assente/header rotto → "
+                         "non validato (False) → default recognition_mode resta NAME_ONLY, mai BOTH su "
+                         "dati inaffidabili"),
     "custom_parser_gui.py": (10, "GUI Tk del costruttore parser: render/azioni best-effort "
                              "(incl. resolver ID anteprima fail-open, #192; termini Betfair "
                              "per le tendine MarketType/MarketName/SelectionName best-effort, "

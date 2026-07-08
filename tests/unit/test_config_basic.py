@@ -8,7 +8,7 @@ testabili headless con path temporanei. PR-04: cartella utente persistente
 import json
 import os
 
-from xtrader_bridge import config_store
+from xtrader_bridge import config_store, dizionario, recognition
 
 
 def _fake_keyring(monkeypatch, store, available=True):
@@ -646,7 +646,65 @@ def test_defaults_non_contengono_segreti():
 
 
 def test_default_recognition_mode_name_only():
+    # #311-2.3 (gate): il valore STATICO in DEFAULTS resta NAME_ONLY (base sicura per config
+    # legacy/parziali e config corrotte). Il passaggio a BOTH avviene SOLO per una config nuova,
+    # gestito da `load_config` via `_default_recognition_mode()`, non da questo valore statico.
     assert config_store.DEFAULTS["recognition_mode"] == "NAME_ONLY"
+
+
+# ── #311-2.3 (gate su #311-2.2): default BOTH solo a dizionario validato ──
+
+def test_dizionario_is_validated_solo_senza_righe_generate():
+    # Validato = almeno una riga e NESSUNA riga «Generato da schema» (non verificata).
+    assert dizionario.is_validated([{"Fonte": "Export XTrader"}]) is True
+    assert dizionario.is_validated([{"Fonte": "Export XTrader"},
+                                    {"Fonte": "Generato da schema"}]) is False
+    assert dizionario.is_validated([]) is False                 # vuoto → non validato (fail-safe)
+    # Case/spazi non ingannano il marker.
+    assert dizionario.is_validated([{"Fonte": "  generato da schema  "}]) is False
+
+
+def test_dizionario_reale_oggi_non_validato():
+    # Il dizionario REALE del repo ha ancora righe «Generato da schema» → NON validato oggi.
+    # (Quando #2.2 le promuove tutte a «Export XTrader», questo diventerà True e il gate aprirà BOTH.)
+    assert dizionario.is_validated() is False
+
+
+def test_default_recognition_mode_gate(monkeypatch):
+    # Il gate lega 2.3 a 2.2: BOTH sse il dizionario è validato, altrimenti NAME_ONLY.
+    monkeypatch.setattr(dizionario, "is_validated", lambda *a, **k: True)
+    assert config_store._default_recognition_mode() == recognition.BOTH
+    monkeypatch.setattr(dizionario, "is_validated", lambda *a, **k: False)
+    assert config_store._default_recognition_mode() == recognition.NAME_ONLY
+    # Fail-safe: un'eccezione nel gate → NAME_ONLY.
+    def _boom(*a, **k):
+        raise RuntimeError("dizionario rotto")
+    monkeypatch.setattr(dizionario, "is_validated", _boom)
+    assert config_store._default_recognition_mode() == recognition.NAME_ONLY
+
+
+def test_config_nuova_gate_both_solo_a_dizionario_validato(tmp_path, monkeypatch):
+    # #311-2.3: una config NUOVA (file assente) prende BOTH SOLO se il dizionario è validato.
+    missing = str(tmp_path / "non_esiste.json")
+    # Oggi (dizionario reale non validato) → NAME_ONLY: comportamento invariato, no-op.
+    assert dizionario.is_validated() is False
+    assert config_store.load_config(missing)["recognition_mode"] == "NAME_ONLY"
+    # A dizionario validato (simulato #2.2 completato) → la config nuova nasce BOTH.
+    monkeypatch.setattr(dizionario, "is_validated", lambda *a, **k: True)
+    assert config_store.load_config(missing)["recognition_mode"] == "BOTH"
+    # Mutation-guard: se il gate NON si applicasse, resterebbe il NAME_ONLY dei DEFAULTS.
+
+
+def test_config_esistente_non_toccata_dal_gate(tmp_path, monkeypatch):
+    # Config ESISTENTE con valore esplicito: il gate NON la tocca, anche a dizionario validato.
+    monkeypatch.setattr(dizionario, "is_validated", lambda *a, **k: True)
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"recognition_mode": "ID_ONLY", "csv_path": "x"}), encoding="utf-8")
+    assert config_store.load_config(str(p))["recognition_mode"] == "ID_ONLY"
+    # Config esistente SENZA la chiave (legacy) → resta NAME_ONLY (DEFAULTS), non BOTH.
+    p2 = tmp_path / "legacy.json"
+    p2.write_text(json.dumps({"csv_path": "x"}), encoding="utf-8")
+    assert config_store.load_config(str(p2))["recognition_mode"] == "NAME_ONLY"
 
 
 # ── #184 M1: _migrate strippa i campi stringa noti (filtro chat non "diventa sordo") ──

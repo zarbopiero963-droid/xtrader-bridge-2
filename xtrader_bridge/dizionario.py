@@ -65,6 +65,34 @@ EXPECTED_COLUMNS = [
 ]
 
 
+# Valore della colonna `Fonte` per una riga NON ancora validata contro un export XTrader reale
+# (#311-2.2): finché ne esiste anche una sola, il dizionario non è pienamente affidabile e gli ID
+# risolti da quelle righe potrebbero essere ERRATI (non un semplice miss). Le righe validate hanno
+# `Fonte="Export XTrader"`.
+UNVALIDATED_FONTE = "Generato da schema"
+
+
+def is_validated(rows=None) -> bool:
+    """True se il dizionario è **pienamente validato** contro un export XTrader reale (#311-2.2):
+    ha almeno una riga e **NESSUNA** riga marcata `Fonte="Generato da schema"` (non verificata).
+
+    Gate anti-doppia-scommessa per #311-2.3: il default `BOTH` (che fa accettare un segnale sugli ID
+    risolti dal dizionario) va abilitato SOLO quando ci si può fidare di quegli ID; con anche una
+    sola riga non validata, un match errato scriverebbe `MarketId`/`SelectionId` sbagliati → in
+    modalità REALE una scommessa sul mercato/selezione errato (blocker Fugu Ultra su #374).
+
+    Fail-safe: dizionario assente/illeggibile/vuoto → **False** (non si dichiara «validato» ciò che
+    non si può leggere). `rows` iniettabile per i test; assente → carica dal file."""
+    try:
+        rows = load_dizionario() if rows is None else rows
+    except Exception:   # noqa: BLE001 — dizionario assente/header rotto → non validato (fail-safe)
+        return False
+    if not rows:
+        return False
+    marker = UNVALIDATED_FONTE.strip().casefold()
+    return not any(str(r.get("Fonte", "")).strip().casefold() == marker for r in rows)
+
+
 def load_dizionario(path: str = DIZIONARIO_PATH) -> list:
     """Carica il dizionario come lista di dict (una per riga).
 

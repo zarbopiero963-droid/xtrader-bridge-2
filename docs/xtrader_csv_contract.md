@@ -64,6 +64,15 @@ un set, l'altro **può restare vuoto**.
 > Allineato a `recognition.missing_fields`: in `BOTH` la riga è valida se è completo
 > **almeno uno** dei due set (non servono entrambi).
 
+> **Default per le config NUOVE — gate #311-2.3 su #311-2.2.** Il default del `recognition_mode`
+> per una config nuova è `NAME_ONLY` **finché il dizionario Betfair non è pienamente validato**
+> contro un export XTrader reale (nessuna riga `Fonte="Generato da schema"`); quando lo è, passa
+> **automaticamente a `BOTH`**. Motivo: con `BOTH` il bridge **accetta** un segnale sugli ID risolti
+> dal dizionario; affidarsi a ID di un dizionario non verificato rischierebbe, su un match errato, di
+> scrivere `MarketId`/`SelectionId` sbagliati → in modalità REALE una scommessa sul mercato/selezione
+> errato. Le **config esistenti** mantengono la loro scelta esplicita; un valore malformato ricade su
+> `NAME_ONLY` (fail-safe, invariante A10).
+
 Con i nomi (`NAME_ONLY`/`BOTH`), la **lingua** del CSV deve coincidere con quella della
 fonte Segnali di XTrader (italiano). **Nota:** il messaggio Telegram non contiene gli ID
 (`EventId`/`MarketId`/`SelectionId`); il bridge punta sulla modalità a nomi e, quando

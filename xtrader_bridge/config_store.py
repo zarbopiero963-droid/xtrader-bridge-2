@@ -16,7 +16,7 @@ import shutil
 import sys
 
 from . import (atomic_io, autostart, bridge_mode, confirmation_reader, csv_writer,
-               language_select, safety_guard, token_store)
+               dizionario, language_select, recognition, safety_guard, token_store)
 
 APP_DIR_NAME = "XTraderBridge"
 CONFIG_VERSION = 1
@@ -490,6 +490,23 @@ def _migrate(cfg: dict) -> dict:
     return cfg
 
 
+def _default_recognition_mode() -> str:
+    """Default `recognition_mode` per una config **NUOVA** (#311-2.3, gate su #311-2.2).
+
+    `BOTH` («ID se univoci, altrimenti nomi») **solo** se il dizionario Betfair è **pienamente
+    validato** (`dizionario.is_validated()`); altrimenti `NAME_ONLY`. Motivo (blocker Fugu Ultra su
+    #374): con `BOTH` il bridge accetta un segnale sugli ID risolti dal dizionario; finché il
+    dizionario non è validato da un export reale, un match errato scriverebbe ID sbagliati → in
+    modalità REALE una scommessa sul mercato/selezione errato. Il gate lega quindi 2.3 a 2.2 in
+    automatico: **oggi** il dizionario ha righe «Generato da schema» → ritorna `NAME_ONLY`
+    (comportamento invariato); diventa `BOTH` **da solo** quando #2.2 promuove tutte le righe a
+    «Export XTrader». Fail-safe: qualunque problema → `NAME_ONLY` (`recognition.DEFAULT_MODE`)."""
+    try:
+        return recognition.BOTH if dizionario.is_validated() else recognition.NAME_ONLY
+    except Exception:   # noqa: BLE001 — qualunque errore nel gate → default sicuro NAME_ONLY
+        return recognition.DEFAULT_MODE
+
+
 def load_config(path: str = CONFIG_FILE) -> dict:
     """Ritorna i default, sovrascritti dal file se presente e leggibile.
 
@@ -497,13 +514,25 @@ def load_config(path: str = CONFIG_FILE) -> dict:
     e riparte dai default, così una config rotta non blocca l'avvio. Prima di
     restituire, `_migrate` coerce i tipi noti (audit C5) così un file vecchio/editato
     a mano non immette tipi sbagliati nei consumer.
+
+    #311-2.3 (gate su #311-2.2): SOLO per una config **NUOVA** (nessun file preesistente) il
+    `recognition_mode` di default è deciso da `_default_recognition_mode()` (BOTH se il dizionario
+    è validato, altrimenti NAME_ONLY). Config esistenti (valore esplicito o legacy) e config
+    corrotte NON vengono toccate: restano sul loro valore / sul `NAME_ONLY` dei DEFAULTS (fail-safe).
     """
     # deepcopy: i default contengono valori mutabili nested (es. parser_by_chat
     # {}); una copia shallow li condividerebbe con DEFAULTS e una mutazione
     # in-place della config restituita corromperebbe i load successivi.
     cfg = copy.deepcopy(DEFAULTS)
     corrupted = False
-    if os.path.exists(path):
+    file_existed = os.path.exists(path)
+    # Config NUOVA (nessun file): applica il gate #311-2.3 al default recognition_mode. Prima del
+    # blocco di load così un file esistente (che sotto fa `cfg.update(data)`) sovrascrive comunque
+    # col proprio valore esplicito; una config corrotta (file_existed=True) resta sul NAME_ONLY dei
+    # DEFAULTS (conservativo). `_migrate` più sotto ri-valida comunque il valore.
+    if not file_existed:
+        cfg["recognition_mode"] = _default_recognition_mode()
+    if file_existed:
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
