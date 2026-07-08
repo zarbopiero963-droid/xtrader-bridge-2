@@ -40,7 +40,11 @@ def require_positive_int(value, name: str) -> int:
         raise ValueError(f"{name} non valido: {value!r}")
     try:
         f = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError (#318 L1-1): un int troppo grande per un float (es. 10**400) — da config
+        # corrotta/manomessa — NON è sottoclasse di ValueError, quindi senza catturarlo esplicito
+        # `float()` propagherebbe e farebbe crashare l'handler/START. Trattato come malformato
+        # (ValueError controllato), coerente con message_freshness/csv_writer.
         raise ValueError(f"{name} non valido: {value!r}") from None
     if not math.isfinite(f) or f <= 0 or f != int(f):
         raise ValueError(f"{name} deve essere un intero > 0 (ricevuto {value!r})")
@@ -56,7 +60,10 @@ def require_finite_now(now) -> float:
         raise ValueError(f"now non valido: {now!r}")
     try:
         f = float(now)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError (#318 L1-1): un int troppo grande per un float (es. 10**400) non è
+        # sottoclasse di ValueError → senza catturarlo `float()` crasherebbe il chiamante
+        # (DailyLimiter/SignalTracker). Trattato come `now` malformato (ValueError controllato).
         raise ValueError(f"now non valido: {now!r}") from None
     if not math.isfinite(f):
         raise ValueError(f"now deve essere finito (ricevuto {now!r})")

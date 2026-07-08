@@ -2178,6 +2178,25 @@ passed.
 
 ---
 
+## #318-L1-1 — `OverflowError` non catturato in `validators` (crash su int enorme) — FATTO
+
+Finding adversariale #318 (L1-1, LOW/MED). `validators.require_positive_int`/`require_finite_now`
+catturavano solo `(TypeError, ValueError)` attorno a `float(value)`. Un **int troppo grande per un
+float** (es. `10**400` da un `config.json`/`daily_state.json` corrotto o manomesso) fa sollevare a
+`float()` un **`OverflowError`** — che è sottoclasse di `ArithmeticError`, **non** di `ValueError` —
+quindi propagava e **crashava** il chiamante (`DailyLimiter`/`SignalTracker`) dopo la UI «ATTIVO».
+**Fix** (patch stretta): aggiunto `OverflowError` al catch in entrambe le funzioni → l'int enorme è
+trattato come input **malformato** (`ValueError` controllato), coerente col pattern già usato in
+`message_freshness.py`/`csv_writer.py`. Nessun cambio per gli input validi. **CORE CHANGE**
+(`xtrader_bridge/validators.py`): ri-sincronizzare nel cloud. Test hard (`test_validators.py`):
+`10**400` → `ValueError` su `require_positive_int` e `require_finite_now`, con **mutation-guard**
+(sul vecchio codice propagavano `OverflowError`, che `pytest.raises(ValueError)` non cattura → test
+rosso) + sanity `float(10**400)` → `OverflowError`. Suite **2433 passed**. Docs: README **N/A** (fix
+interno, nessun comportamento user-visible o API documentata cambia). Design handoff **N/A** (nessun
+elemento GUI/UX). Restano da triare gli altri finding #318 (L1-2/L1-3, L1-4, L2-2) — vedi Issue #376 §B.
+
+---
+
 ## #311-3.5 — Minori (una PR alla volta, dopo ogni merge del proprietario)
 
 Coda approvata dei minori 3.5, nell'ordine (dal più sicuro al più delicato). Ogni voce = PR singola con

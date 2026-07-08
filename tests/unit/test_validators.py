@@ -20,7 +20,8 @@ def test_require_positive_int_accetta_interi_validi():
 
 def test_require_positive_int_rifiuta_bool_e_malformati():
     # bool: True/False da JSON NON devono diventare 1/0 (config malformata).
-    for bad in (True, False, 0, -1, 1.5, "1.5", float("nan"), float("inf"), "abc", None):
+    # `10**400` (#318 L1-1): int troppo grande per float → OverflowError, da trattare come malformato.
+    for bad in (True, False, 0, -1, 1.5, "1.5", float("nan"), float("inf"), "abc", None, 10 ** 400):
         with pytest.raises(ValueError):
             v.require_positive_int(bad, "x")
 
@@ -32,9 +33,27 @@ def test_require_finite_now_accetta_finiti():
 
 
 def test_require_finite_now_rifiuta_bool_e_non_finiti():
-    for bad in (True, False, float("nan"), float("inf"), float("-inf"), "abc", None):
+    # `10**400` (#318 L1-1): int troppo grande per float → OverflowError, da trattare come malformato.
+    for bad in (True, False, float("nan"), float("inf"), float("-inf"), "abc", None, 10 ** 400):
         with pytest.raises(ValueError):
             v.require_finite_now(bad)
+
+
+def test_int_enorme_solleva_valueerror_non_overflowerror():
+    """#318 L1-1: un int troppo grande per un float (es. 10**400) faceva sollevare `OverflowError`
+    (sottoclasse di ArithmeticError, NON di ValueError) da `float()` → crash dell'handler/START.
+    Ora è catturato e riportato come `ValueError` controllato, come ogni altro input malformato.
+
+    Mutation-guard: sul vecchio codice queste chiamate propagavano `OverflowError`, che
+    `pytest.raises(ValueError)` NON cattura → il test falliva."""
+    huge = 10 ** 400
+    with pytest.raises(ValueError):
+        v.require_positive_int(huge, "max_per_day")
+    with pytest.raises(ValueError):
+        v.require_finite_now(huge)
+    # Sanity: `float(huge)` solleva davvero OverflowError (documenta il perché del fix).
+    with pytest.raises(OverflowError):
+        float(huge)
 
 
 def test_safe_filename_core_sanitizza():
