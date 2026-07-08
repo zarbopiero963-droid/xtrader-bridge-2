@@ -65,6 +65,39 @@ EXPECTED_COLUMNS = [
 ]
 
 
+# WHITELIST (fail-CLOSED, review Fable 5/GPT-5.5 su #375) dei valori `Fonte` che marcano una riga
+# VALIDATA contro un export XTrader reale (#311-2.2). Confronto `strip().casefold()`. È volutamente
+# una whitelist, NON una blacklist del solo «Generato da schema»: una riga con `Fonte` **vuota,
+# assente, con typo o con un'etichetta futura non prevista** NON conta come validata → il dizionario
+# resta NON validato → il gate #311-2.3 NON apre `BOTH`. Meglio non aprire `BOTH` che aprirlo su una
+# riga di provenienza ignota (il rischio è una scommessa su mercato/selezione errato in REALE).
+VALIDATED_FONTI = frozenset({"export xtrader"})
+
+
+def is_validated(rows=None) -> bool:
+    """True se il dizionario è **pienamente validato** contro un export XTrader reale (#311-2.2):
+    ha almeno una riga e **OGNI** riga ha `Fonte` nella whitelist `VALIDATED_FONTI` (fail-closed).
+
+    Gate anti-doppia-scommessa per #311-2.3: il default `BOTH` (che fa accettare un segnale sugli ID
+    risolti dal dizionario) va abilitato SOLO quando ci si può fidare di quegli ID; se anche una sola
+    riga non è validata (provenienza non whitelistata), un match errato scriverebbe `MarketId`/
+    `SelectionId` sbagliati → in modalità REALE una scommessa sul mercato/selezione errato (blocker
+    Fugu Ultra su #374; whitelist per il blocker Fable 5 su #375).
+
+    Fail-safe: dizionario assente/illeggibile/vuoto **o riga malformata** (es. non-dict, dove
+    `.get` solleverebbe `AttributeError`) → **False** (non si dichiara «validato» ciò che non si
+    può leggere o interpretare). L'intero corpo è dentro il `try`, non solo il load, così un
+    chiamante diretto che passa `rows` sporchi resta fail-closed come il percorso dal file (review
+    Fable 5 su #375). `rows` iniettabile per i test; assente → carica dal file."""
+    try:
+        rows = load_dizionario() if rows is None else rows
+        if not rows:
+            return False
+        return all(str(r.get("Fonte", "")).strip().casefold() in VALIDATED_FONTI for r in rows)
+    except Exception:   # noqa: BLE001 — assente/header rotto/riga non-dict → non validato (fail-safe)
+        return False
+
+
 def load_dizionario(path: str = DIZIONARIO_PATH) -> list:
     """Carica il dizionario come lista di dict (una per riga).
 

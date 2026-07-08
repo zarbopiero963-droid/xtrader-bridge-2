@@ -2116,3 +2116,46 @@ connessione non-reale abbassa il flag e NON riconnette (nessun `get_me` che soll
 connessione?» invariata (comportamento utente-osservabile non cambia; è robustezza interna). Design
 handoff = **N/A** (nessun cambio GUI/UX). Resta all'owner l'eventuale collaudo runtime end-to-end, ma il
 rischio è ora coperto da test offline.
+
+## #311-2.3 — default `BOTH` con GATE su validazione dizionario (#311-2.2)
+
+Slice #311-2.3 nella variante **gated** (decisione owner dopo il blocker Fugu Ultra su #374, chiusa
+senza merge). Obiettivo di 2.3: rendere `BOTH` («ID se univoci, altrimenti nomi») il default consigliato
+per le config nuove, così un miss del dizionario non scarta il segnale. Rischio bloccante (Fugu): `BOTH`
+fa **accettare** un segnale sugli ID risolti dal dizionario Betfair; finché il dizionario non è validato
+da un export XTrader reale (#311-2.2, righe `Fonte="Generato da schema"` ancora presenti), un match
+**errato** scriverebbe `MarketId`/`SelectionId` sbagliati → in modalità REALE una scommessa sul
+mercato/selezione errato.
+
+Soluzione: **gate automatico**. `dizionario.is_validated()` (nuova, pura, fail-safe) è True sse il
+dizionario ha almeno una riga e **ogni** riga ha `Fonte` nella **whitelist** `{"Export XTrader"}`
+(fail-closed, review Fable 5/Fugu Ultra su #375: una blacklist del solo «Generato da schema» avrebbe
+lasciato passare righe con `Fonte` vuota/assente/typo → `BOTH` su dati ignoti). Il fail-safe di
+`_default_recognition_mode` ritorna `NAME_ONLY` **esplicito** in entrambi i rami (non `DEFAULT_MODE`, così
+non può fail-aprire se un domani `DEFAULT_MODE` divergesse — review Fugu). Persistenza (nota Fable #2,
+accettata dall'owner): il gate decide il default alla **creazione** della config; una config nata `BOTH`
+resta `BOTH` anche se il dizionario venisse in seguito degradato — è un valore salvato esplicito, e un
+re-check a runtime scavalcherebbe la scelta dell'utente; il conflict-check di `_resolve_ids_into` resta
+comunque a valle. `config_store.load_config`,
+**solo per una config NUOVA** (nessun file preesistente), imposta `recognition_mode` via
+`_default_recognition_mode()` = `BOTH` sse `is_validated()` altrimenti `NAME_ONLY`. Il valore statico
+`DEFAULTS["recognition_mode"]` resta `NAME_ONLY` (base per config legacy/parziali/corrotte); l'invariante
+A10 (malformato → `NAME_ONLY`) è preservata. **Oggi** il dizionario reale ha 39 righe «Generato da schema»
+→ `is_validated()` False → nuove config nascono `NAME_ONLY`: **comportamento invariato, il gate è un
+no-op**. Quando #2.2 promuoverà tutte le righe a «Export XTrader», il gate aprirà `BOTH` **da solo**,
+senza altre modifiche di codice. **CORE CHANGE** (`xtrader_bridge/dizionario.py`: `is_validated`;
+`xtrader_bridge/config_store.py`: `_default_recognition_mode` + gate in `load_config`): da ri-sincronizzare
+nel cloud.
+
+Test hard (`tests/unit/test_config_basic.py`): `test_dizionario_is_validated_whitelist_fail_closed`
+(whitelist: Fonte vuota/assente/typo → non validato — blocker Fable/Fugu/GPT chiuso),
+`test_dizionario_is_validated_file_assente_fail_safe` (dizionario illeggibile → False, review GLM),
+`test_dizionario_reale_oggi_non_validato` (il dizionario del repo NON è validato oggi),
+`test_default_recognition_mode_gate` (BOTH↔validato, fail-safe → NAME_ONLY),
+`test_config_nuova_gate_both_solo_a_dizionario_validato` (config nuova: NAME_ONLY oggi, BOTH a dizionario
+validato — **mutazione «gate disattivato» KILLED**), `test_config_esistente_non_toccata_dal_gate` (config
+esistente/legacy invariata). Allowlist blind-except aggiornata (`dizionario.py`, `config_store.py`).
+Suite **2406 passed, 11 skipped**. Docs: README (nota gate) e `docs/xtrader_csv_contract.md`. Design
+handoff = **N/A** (dropdown «🎯 Modalità riconoscimento» e opzioni invariati; cambia solo l'opzione
+preselezionata per una config nuova, e solo dopo la validazione del dizionario). 2.3 «piena» (BOTH attivo)
+resta legata a #2.2, che dipende dal collaudo reale (T19) dell'owner.
