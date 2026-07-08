@@ -473,6 +473,12 @@ def test_jsonrpc_result_tollera_error_data_non_dict():
         cc._jsonrpc_result({"error": {"code": -32099, "data": {"APINGException": "str"}}})
     with pytest.raises(RuntimeError):                                    # error stesso non-dict
         cc._jsonrpc_result({"error": "errore-come-stringa"})
+    # #318 L1-3 (review GPT/Fable): un `error` non-dict NON deve trapelare nel messaggio (nemmeno
+    # troncato) — si usa un placeholder COSTANTE. Nessuna parte del payload remoto deve comparire.
+    with pytest.raises(RuntimeError) as ei:
+        cc._jsonrpc_result({"error": "PAYLOAD-REMOTO-SENSIBILE-1234567890"})
+    assert "PAYLOAD-REMOTO" not in str(ei.value)                         # niente contenuto remoto
+    assert "<malformed>" in str(ei.value)                               # placeholder costante
 
 
 def test_http_catalogue_chunk_e_aggrega():

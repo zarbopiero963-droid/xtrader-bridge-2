@@ -2213,7 +2213,8 @@ aveva. **Triage 2026-07-08: entrambi ancora presenti** (nessun fix pregresso).
 - **L1-3** (`_jsonrpc_result`): `(err.get("data") or {}).get("APINGException")` crashava se `data`/
   `APINGException` erano str/list. Fix: **isinstance guard** su `data_field` e `aping` → un errore con
   forma anomala resta classificato (`BetfairApiError`), solo senza il dettaglio `errorCode`; un `error`
-  non-dict è **troncato a 64 char** nel messaggio (review CodeRabbit: no payload grezzo nei log).
+  non-dict usa un **placeholder costante** (`<malformed>`) nel messaggio (review CodeRabbit/GPT/Fable:
+  nessun contenuto remoto non attendibile nei log, anche troncato — anti log-injection).
 
 **Patch stretta** (`betfair/catalogue_client.py`): nessun cambio per input validi. **CORE CHANGE** →
 ri-sincronizzare nel cloud. Test hard (`test_betfair_catalogue_sync.py`): runner/description/event

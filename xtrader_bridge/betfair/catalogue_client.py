@@ -136,10 +136,11 @@ def _jsonrpc_result(data):
         raise RuntimeError("Risposta listMarketCatalogue non valida (formato).")
     err = data.get("error")
     if err:
-        # #318 L1-3 (review CodeRabbit): un `error` NON-dict (str/list malformato) NON deve finire
-        # grezzo nel messaggio d'errore — la docstring garantisce «solo il codice, mai contenuti».
-        # Si tronca a 64 char come segnaposto bounded.
-        code = err.get("code") if isinstance(err, dict) else str(err)[:64]
+        # #318 L1-3 (review CodeRabbit/GPT/Fable): un `error` NON-dict (str/list malformato) NON deve
+        # finire nel messaggio d'errore — nemmeno troncato: la docstring garantisce «solo il codice,
+        # mai contenuti» e il campo `error` è contenuto REMOTO non attendibile (rischio log-injection).
+        # Un errore con forma anomala usa un placeholder COSTANTE, senza esporre alcuna parte del payload.
+        code = err.get("code") if isinstance(err, dict) else "<malformed>"
         detail = ""
         if isinstance(err, dict):
             # #318 L1-3: `data`/`APINGException` potrebbero arrivare come str/list (forma anomala
