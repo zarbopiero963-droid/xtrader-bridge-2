@@ -51,9 +51,13 @@ def test_timeout_ini_uccide_un_test_impiccato(tmp_path):
         def test_hang():
             time.sleep(5)
     """), encoding="utf-8")
+    # Ambiente ERMETICO: pytest-timeout legge `PYTEST_TIMEOUT`, e pytest legge `PYTEST_ADDOPTS`;
+    # se fossero impostate nell'ambiente (CI/dev) altererebbero il sub-pytest → falso positivo o
+    # negativo. Le rimuoviamo così il test dipende SOLO dall'ini scritto in tmp_path (review Fable 5).
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_")}
     proc = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(tmp_path)],
-        cwd=str(tmp_path), capture_output=True, text=True, timeout=60)
+        cwd=str(tmp_path), capture_output=True, text=True, timeout=60, env=env)
     out = proc.stdout + proc.stderr
     assert proc.returncode != 0, f"il test impiccato NON è stato ucciso:\n{out}"
     assert "Timeout" in out, f"nessun messaggio di Timeout dal plugin:\n{out}"
