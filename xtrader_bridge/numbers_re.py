@@ -22,4 +22,6 @@ Unicode, aprendo il fail-open #318 L2-1.
 DECIMAL = r"[0-9]+(?:[.,][0-9]+)?"
 
 # Come `DECIMAL` ma con segno opzionale (es. Handicap "-1"/"+1,5", Price "1.85").
-SIGNED_DECIMAL = r"[+-]?[0-9]+(?:[.,][0-9]+)?"
+# COMPOSTO da `DECIMAL` (non riscritto a mano) così un futuro cambio a `DECIMAL` non può
+# divergere qui — l'anti-drift vale anche dentro il modulo (review Fable 5 su #318).
+SIGNED_DECIMAL = r"[+-]?" + DECIMAL

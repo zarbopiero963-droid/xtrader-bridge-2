@@ -55,6 +55,7 @@ def test_prezzo_points_handicap_rifiutano_cifre_non_ascii():
         assert validator.validate(_row(Price=bad), "NAME_ONLY")[0] == validator.INVALID_PRICE, bad
         assert validator.validate(_row(Points=bad), "NAME_ONLY")[0] == validator.INVALID_POINTS, bad
         assert validator.validate(_row(MinPrice=bad), "NAME_ONLY")[0] == validator.INVALID_PRICE, bad
+        assert validator.validate(_row(MaxPrice=bad), "NAME_ONLY")[0] == validator.INVALID_PRICE, bad
     # Controprova: le quote ASCII valide (punto e virgola) restano accettate.
     assert validator.price_status("1,85") == validator.VALID
     assert validator.price_status("2.10") == validator.VALID

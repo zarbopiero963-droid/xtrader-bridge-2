@@ -60,6 +60,20 @@ def test_tolleranza_spazi_nei_delimitatori_end_to_end(tmp_path):
     assert res.row["Price"] == "1.85"
 
 
+def test_quota_cifre_non_ascii_scartata_end_to_end(tmp_path):
+    # #318 L2-1 end-to-end: un messaggio Telegram con quota in cifre NON-ASCII («١٩», arabo)
+    # deve produrre una riga NON piazzabile (nessuna scrittura CSV). Prima del fix `\d` matchava
+    # l'Unicode e float("١٩")==19.0 → la riga sarebbe stata piazzabile con "١٩" nel Price, valore
+    # che XTrader non sa leggere. Percorso reale: messaggio → parser custom → validatore → router.
+    defn = parser_io.example_parser()
+    defn.name = "Esempio"
+    cp.save_parser(defn, str(tmp_path))
+    msg = "Match: Inter v Milan\nEsito: GG\nQuota: ١٩\nLato: BACK"
+    res = signal_router.resolve_row(msg, _cfg("Esempio"),
+                                    chat_id="42", parsers_dir=str(tmp_path))
+    assert res.placeable is False       # quota non-ASCII → scartata, nessuna riga nel CSV
+
+
 def test_quota_con_punto_end_to_end(tmp_path):
     # Linee guida parser: quota sia con virgola sia con PUNTO. Qui "1.85" deve
     # restare "1.85" (già col punto) e produrre una riga piazzabile.

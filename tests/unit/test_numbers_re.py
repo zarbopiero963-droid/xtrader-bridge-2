@@ -38,6 +38,11 @@ def test_decimal_rifiuta_cifre_non_ascii():
     # Controprova: le cifre ASCII (con ,/. e segno) restano valide.
     assert dec.fullmatch("19") and dec.fullmatch("1,85") and dec.fullmatch("2.10")
     assert sdec.fullmatch("-1") and sdec.fullmatch("+1,5")
+    # Consumer Handicap reale (custom_pipeline._HANDICAP_RE, gate a custom_pipeline.py:302/518):
+    # anche l'Handicap deve rifiutare le cifre non-ASCII (segno + cifre non-ASCII incluso).
+    assert not custom_pipeline._HANDICAP_RE.match("١٩")
+    assert not custom_pipeline._HANDICAP_RE.match("-١٩")
+    assert custom_pipeline._HANDICAP_RE.match("-1") and custom_pipeline._HANDICAP_RE.match("+1,5")
 
 
 def test_consumer_usano_il_frammento_condiviso():
