@@ -2226,6 +2226,53 @@ design handoff **N/A**. Restano #318 **L1-4** (parser ReDoS) e **L2-2** (`_is_pl
 
 ---
 
+## Collaudo reale Betfair (2026-07-08) — problemi emersi + piano a fasi
+
+Dal primo collaudo reale del proprietario (login + sync Betfair reale: 4 sport, 285 eventi, 3246
+mercati, 12523 selezioni) sono emersi tre problemi nel **Dizionario Betfair** / mapping, con una
+**radice comune** su due di essi:
+
+- **P1 — separatori nome evento (Casa/Trasferta vuote + squadre non raccolte).** `split_participants`
+  gestiva solo `" v "`/`" vs "`/`" @ "`. Gli eventi basket usano `" - "` («Atlanta Hawks - San Antonio
+  Spurs») → `participant_2` vuoto → colonne Casa/Trasferta vuote nel viewer **e** `_harvest_teams` non
+  salvava le squadre in `betfair_known_teams` (tab «Nomi Betfair noti» aveva solo i doppi di tennis).
+- **P2 — viewer che si BLOCCA (freeze "Non risponde") + colonne disallineate.** Il
+  `DictionaryViewerPanel` disegna ogni cella come widget CustomTkinter (~88.000 widget per le 12.523
+  selezioni) su `CTkScrollableFrame`, sul thread GUI → minuti di freeze; le label a larghezza fissa
+  sbordano coi nomi lunghi → colonne "sconcentrate".
+- **P3 — mapping guidato ad albero (feature).** Richiesta owner: selettore Sport → Competizione →
+  Squadre (dai dati Betfair) → associa al nome usato dal canale Telegram → salva. Sostituisce
+  l'inserimento manuale in «Mapping / Dizionario nomi squadra».
+
+**Piano a fasi (owner-approvato, priorità assoluta: "non deve bloccarsi"):**
+
+### Fase 1 — separatori `split_participants` — FATTO
+
+`_PARTICIPANT_SEPARATORS = (" vs ", " v ", " @ ", " - ")` (lista estendibile), provati in ordine; tutti
+CON spazi (un trattino attaccato `Real-Madrid` non spezza). Il `" - "` (più ambiguo) è provato per
+ultimo; nomi errati eventuali sono ripulibili dal tab «Nomi Betfair noti». `split_participants` è
+informativo (mapping/viewer), non incide su CSV/scommessa. **Effetto:** dopo un **nuovo sync**,
+Casa/Trasferta si popolano e le squadre basket/calcio entrano in `betfair_known_teams`. **CORE change**
+(`xtrader_bridge/betfair/catalogue_client.py`) → ri-sincronizzare nel cloud. Test hard
+(`test_split_participants`): basket `" - "`/`" @ "` → split (mutation-guard vs vecchio codice), tennis
+doppio `A/B v C/D`, trattino attaccato non spezzato, `" vs "` prioritario su `" v "`. Suite **2435
+passed**. README/design handoff **N/A** (logica interna; il rendering GUI è la Fase 2). Verifica owner:
+livello «Eventi» (285 righe, non si blocca) dopo un nuovo sync.
+
+### Fase 2 — viewer non-bloccante + colonne allineate — DA FARE
+
+Sostituire `CTkScrollableFrame`+label-per-cella con una tabella **nativa** (`ttk.Treeview`, insert in
+batch, virtualizzato) + **LIMIT/paginazione** SQL + caricamento in **background**. Elimina freeze e
+disallineamento. GUI → aggiornare design handoff.
+
+### Fase 3 — mapping guidato ad albero — DA PROGETTARE
+
+Sport→Competizione→Squadre (derivate da `betfair_events`: participant per `competition_id`)→associa al
+nome del canale→salva in `name_mapping_store`. Feature GUI+logica: da disegnare con l'owner prima di
+implementare.
+
+---
+
 ## #311-3.5 — Minori (una PR alla volta, dopo ogni merge del proprietario)
 
 Coda approvata dei minori 3.5, nell'ordine (dal più sicuro al più delicato). Ogni voce = PR singola con

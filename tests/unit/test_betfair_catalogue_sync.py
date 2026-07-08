@@ -35,10 +35,23 @@ def test_event_type_ids_for():
 
 
 def test_split_participants():
+    # calcio / tennis singolo: " v " e " vs "
     assert split_participants("Inter v Milan") == ("Inter", "Milan")
     assert split_participants("Sinner vs Alcaraz") == ("Sinner", "Alcaraz")
+    # basket e altri sport: " - " e " @ " — PRIMA non gestiti → participant_2 restava vuoto
+    # (Casa/Trasferta vuote, squadre non raccolte). Mutation-guard: col vecchio codice
+    # "Atlanta Hawks - San Antonio Spurs" tornava ("Atlanta Hawks - San Antonio Spurs", "").
+    assert split_participants("Atlanta Hawks - San Antonio Spurs") == ("Atlanta Hawks", "San Antonio Spurs")
+    assert split_participants("Lakers @ Celtics") == ("Lakers", "Celtics")
+    # tennis doppio: la "/" è INTERNA a ciascuna coppia, il " v " separa le due coppie
+    assert split_participants("Betov/Hsu v Cretu/Palosi") == ("Betov/Hsu", "Cretu/Palosi")
+    # torneo/outright a nome singolo → nessun separatore
     assert split_participants("ATP Finals") == ("ATP Finals", "")
     assert split_participants("") == ("", "")
+    # cautela: i separatori richiedono gli SPAZI → un trattino ATTACCATO in un nome non spezza
+    assert split_participants("Real-Madrid") == ("Real-Madrid", "")
+    # cautela: " vs " ha priorità su " v " (non spezza "vs" a metà)
+    assert split_participants("A vs B") == ("A", "B")
 
 
 # ── navigation menu ───────────────────────────────────────────────────────────
