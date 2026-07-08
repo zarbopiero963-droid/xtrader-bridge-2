@@ -85,6 +85,15 @@ def test_nessuna_condizione_passa_sempre():
     assert eng.conditions_pass(_parser([]), "qualsiasi") is True
 
 
+def test_nessuna_condizione_passa_sempre_anche_in_modo_any():
+    # Gap GLM #390: lista vuota → True a prescindere dal modo (il gate esce PRIMA del
+    # controllo E/O). Guardia: se un domani il modo venisse letto prima del check-vuoto,
+    # `any([])` tornerebbe False e questo test lo bloccherebbe.
+    assert eng.conditions_pass(_parser([], mode="any"), "qualsiasi") is True
+    # anche con condizioni tutte a testo vuoto (ignorate) → nessun gate.
+    assert eng.conditions_pass(_parser([cp.Condition(text="  ")], mode="any"), "x") is True
+
+
 def test_contiene_presente_e_assente():
     d = _parser([cp.Condition(text="OVER SUCCESSIVO")])
     assert eng.conditions_pass(d, "P.Bet. OVER SUCCESSIVO ✅") is True

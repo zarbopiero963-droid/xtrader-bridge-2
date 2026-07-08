@@ -1076,3 +1076,20 @@ def test_gui_sync_reload_condizioni_round_trip(monkeypatch):
     assert panel._cond_mode_var.get() == gui.CustomParserPanel._COND_MODE_ALL
     assert [(r["text"].get(), r["kind"].get()) for r in panel._condition_rows] == [
         ("GG", panel._COND_CONTAINS), ("BANCA", panel._COND_NOT_CONTAINS)]
+
+
+def test_to_def_deep_copies_conditions_no_aliasing():
+    """Nota Fable #390: `to_def()` deve produrre `Condition` NUOVE (copia profonda), non
+    condividere gli oggetti col builder. Regressione: con `list(self.conditions)` (shallow)
+    mutare il builder DOPO `to_def` cambierebbe anche il def già prodotto."""
+    b = _base_builder()
+    b.conditions = [cp.Condition(text="GG"), cp.Condition(text="BANCA", negate=True)]
+    b.conditions_mode = "any"
+    defn = b.to_def()
+    assert defn.conditions_mode == "any"
+    assert [(c.text, c.negate) for c in defn.conditions] == [("GG", False), ("BANCA", True)]
+    # muto il builder: il def NON deve cambiare (oggetti distinti)
+    b.conditions[0].text = "MUTATO"
+    b.conditions[1].negate = False
+    assert defn.conditions[0].text == "GG"
+    assert defn.conditions[1].negate is True

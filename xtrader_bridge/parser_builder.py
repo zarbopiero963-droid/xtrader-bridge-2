@@ -363,8 +363,11 @@ class ParserBuilder:
             multi_selection_enabled=bool(self.multi_selection_enabled),
             multi_markets=list(self.multi_markets),
             multi_selections=list(self.multi_selections),
-            # Condizioni di gate (PR-1): inoltrate al modello (lista NUOVA, no aliasing).
-            conditions=list(self.conditions),
+            # Condizioni di gate (PR-1): copia PROFONDA (nuova lista + nuova Condition per
+            # elemento), simmetrica alla deep-copy di `__init__` — così il def prodotto non
+            # condivide oggetti `Condition` col builder e una mutazione successiva del builder
+            # non tocca il def già salvato (nota Fable #390: allinea le due direzioni del round-trip).
+            conditions=[Condition.from_dict(c.to_dict()) for c in self.conditions],
             conditions_mode=self.conditions_mode)
 
     # ── Modalità di riconoscimento (per-parser) ────────────────────────────

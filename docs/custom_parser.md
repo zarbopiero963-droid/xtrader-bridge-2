@@ -461,6 +461,10 @@ Regole di valutazione (`conditions_pass`):
 
 - il confronto è **case-insensitive e tollerante agli spazi** (stessa normalizzazione di
   `dizionario.normalize`: minuscole + spazi collassati);
+- il match è **per sottostringa**, **non** per parola intera (nota Fugu #390): un testo **breve**
+  come `BACK` scatta anche dentro parole più lunghe (`BACKGROUND`, `OUTBACK`) e `1` scatterebbe in
+  ogni `10`/`21`. Usa testi **distintivi** (es. `@punta`, `⚽ 0 - 1`, `OVER SUCCESSIVO`) per evitare
+  match indesiderati;
 - una condizione a **testo vuoto** è **ignorata** (`active_conditions()` la filtra) — non fa né
   matchare né scartare nulla;
 - **nessuna condizione** (lista vuota o tutte vuote) = **nessun filtro**: comportamento identico
