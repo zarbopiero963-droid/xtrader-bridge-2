@@ -8,6 +8,8 @@ scrittura), non fa rete e non muta il DB: tutta la logica sta in
 è testato in CI (richiede un display): verifica manuale (vedi roadmap PR-P11).
 """
 
+from tkinter import ttk
+
 import customtkinter as ctk
 
 from .. import sports
@@ -20,6 +22,13 @@ _COL_WIDTH = 150
 # Ritardo del debounce della casella «Cerca» (#184 M12): una raffica di keystroke collassa in una
 # sola query DB + rebuild tabella a fine digitazione, evitando il lag con dizionari grandi.
 _SEARCH_DEBOUNCE_MS = 250
+# Tetto di righe renderizzate (Fase 2 collaudo Betfair). Il vecchio viewer disegnava una griglia di
+# widget CustomTkinter PER CELLA (~88.000 widget per le 12.523 selezioni) sul thread Tk → minuti di
+# freeze ("Non risponde"). Ora la tabella è un `ttk.Treeview` nativo (virtualizzato: renderizza solo
+# le righe visibili) e il cap limita comunque quante righe si inseriscono in un colpo, così Mercati e
+# Selezioni non bloccano. Con più righe del cap, l'utente restringe con Sport/Cerca (la riga conteggi
+# lo segnala). Il cap è applicato dal controller DOPO i filtri (vista corretta, non una LIMIT SQL).
+_ROW_CAP = 500
 
 
 class DictionaryViewerPanel(ctk.CTkFrame):
@@ -92,11 +101,27 @@ class DictionaryViewerPanel(ctk.CTkFrame):
         self._counts = ctk.CTkLabel(self, text="", anchor="w")
         self._counts.pack(fill="x", padx=14, pady=(0, 4))
 
-        self._header = ctk.CTkFrame(self, fg_color="transparent")
-        self._header.pack(fill="x", padx=12)
-        self._rows_frame = ctk.CTkScrollableFrame(self, height=400,
-                                                  label_text="Righe del dizionario")
-        self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
+        # Tabella nativa `ttk.Treeview` (Fase 2): virtualizzata (renderizza solo le righe visibili),
+        # colonne con header e larghezza propria → niente freeze e niente disallineamento. Rimpiazza
+        # la vecchia griglia di label in `CTkScrollableFrame`. `show="headings"` nasconde la colonna
+        # ad albero fantasma (mostriamo solo le colonne dati).
+        table_frame = ctk.CTkFrame(self, fg_color="transparent")
+        table_frame.pack(fill="both", expand=True, padx=12, pady=6)
+        self._tree = ttk.Treeview(table_frame, show="headings", height=18, selectmode="none")
+        # Scrollbar verticale E orizzontale (CodeRabbit #388): i livelli larghi hanno 6–8 colonne a
+        # larghezza fissa (`stretch=False`) → la tabella può sbordare oltre la finestra e senza scroll
+        # orizzontale le colonne di destra (Casa/Trasferta, Attivo) resterebbero irraggiungibili. Uso
+        # `grid` (non `pack`) dentro table_frame per posizionare correttamente le due scrollbar attorno
+        # alla tabella (la verticale a destra, l'orizzontale sotto).
+        vsb = ttk.Scrollbar(table_frame, orient="vertical", command=self._tree.yview)
+        hsb = ttk.Scrollbar(table_frame, orient="horizontal", command=self._tree.xview)
+        self._tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        self._tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        table_frame.grid_rowconfigure(0, weight=1)
+        table_frame.grid_columnconfigure(0, weight=1)
+        self._apply_tree_style()
 
     # ── dati ──────────────────────────────────────────────────────────────────
     def _selected_level(self) -> str:
@@ -127,15 +152,38 @@ class DictionaryViewerPanel(ctk.CTkFrame):
         self._search_debouncer.cancel_pending()
         self._refresh()
 
-    def _clear(self, frame):
-        for w in frame.winfo_children():
-            w.destroy()
+    def _apply_tree_style(self):
+        """Stile minimo del Treeview (best-effort): altezza riga leggibile e header in grassetto.
+        Guardato: un fallimento di stile (tema ttk che ignora l'opzione) non deve rompere la tabella,
+        che resta comunque funzionale coi colori nativi del tema."""
+        try:
+            style = ttk.Style(self)
+            style.configure("Treeview", rowheight=24)
+            style.configure("Treeview.Heading", font=(None, 10, "bold"))
+        except Exception:   # noqa: BLE001 — lo stile è cosmetico, mai bloccante
+            pass
+
+    def _set_tree_columns(self, headers):
+        """(Ri)configura le colonne del Treeview per il livello corrente. Gli identificatori sono
+        posizionali (`c0`, `c1`, …) per non dipendere dal testo dell'header (spazi/simboli); il testo
+        visibile resta l'intestazione italiana. Larghezza per-colonna → colonne allineate."""
+        col_ids = [f"c{i}" for i in range(len(headers))]
+        self._tree.configure(columns=col_ids)
+        for cid, header in zip(col_ids, headers):
+            self._tree.heading(cid, text=header)
+            self._tree.column(cid, width=_COL_WIDTH, minwidth=60, anchor="w", stretch=False)
+
+    def _clear_tree_rows(self):
+        """Svuota le righe della tabella (le colonne restano). `delete(*children)` è O(righe) e non
+        crea/distrugge widget per cella: è ciò che elimina il freeze rispetto alla vecchia griglia."""
+        children = self._tree.get_children()
+        if children:
+            self._tree.delete(*children)
 
     def _refresh(self):
         """Ricarica la tabella dal controller (sola lettura). Best-effort: un errore di
         lettura mostra un avviso invece di far crashare la finestra Strumenti."""
-        self._clear(self._header)
-        self._clear(self._rows_frame)
+        self._clear_tree_rows()
         if self.controller is None:
             self._counts.configure(
                 text="⚠️ Dizionario non disponibile (DB locale non apribile).")
@@ -145,9 +193,10 @@ class DictionaryViewerPanel(ctk.CTkFrame):
             # `view_if_free` fa FAIL-FAST se una sync Betfair tiene ora il lock del DB
             # (tenuto attraverso le chiamate di rete del catalogue): senza, la lettura sul
             # thread Tk bloccherebbe e freezerebbe la GUI fino a fine sync (Codex #175).
+            # `limit=_ROW_CAP`: cap righe renderizzate (Fase 2) → niente freeze su Mercati/Selezioni.
             data = self.controller.view_if_free(level, sport=self._selected_sport(),
                                                 active_only=bool(self._active_only.get()),
-                                                search=self._search.get())
+                                                search=self._search.get(), limit=_ROW_CAP)
         except DictionaryBusy:
             self._counts.configure(
                 text="⏳ Dizionario in aggiornamento (sincronizzazione Betfair in corso): "
@@ -156,14 +205,13 @@ class DictionaryViewerPanel(ctk.CTkFrame):
         except Exception as exc:   # noqa: BLE001 — lettura best-effort, niente crash GUI
             self._counts.configure(text=f"⚠️ Errore lettura dizionario: {type(exc).__name__}")
             return
-        self._counts.configure(
-            text=f"{LEVEL_LABELS[level]}: {data['total']} totali, {data['active']} attivi "
-                 f"(mostrate {len(data['rows'])} righe).")
-        for col in data["columns"]:
-            ctk.CTkLabel(self._header, text=col, width=_COL_WIDTH, anchor="w",
-                         font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
+        self._set_tree_columns(data["columns"])
         for row in data["rows"]:
-            rf = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
-            rf.pack(fill="x", pady=1)
-            for cell in row:
-                ctk.CTkLabel(rf, text=cell, width=_COL_WIDTH, anchor="w").pack(side="left", padx=3)
+            self._tree.insert("", "end", values=list(row))
+        shown = data.get("shown", len(data["rows"]))
+        msg = (f"{LEVEL_LABELS[level]}: {data['total']} totali, {data['active']} attivi "
+               f"(mostrate {len(data['rows'])} di {shown} righe).")
+        if data.get("truncated"):
+            msg += (f"  ⚠️ Elenco troncato a {_ROW_CAP}: restringi con «Sport» o «Cerca» "
+                    f"per vedere le righe che ti servono.")
+        self._counts.configure(text=msg)

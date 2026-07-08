@@ -626,8 +626,19 @@ Titolo **"🔵  Dizionario Betfair (locale, sola lettura)"**. Browser gerarchico
 Sport→Competizioni→Eventi→Mercati→Selezioni con filtro **Livello**, filtro **Sport**,
 checkbox **"Solo attivi"**, **"🔄 Aggiorna"**, ricerca (con **"Pulisci"**), riga conteggi,
 tabella risultati.
+- **Tabella:** griglia **nativa `ttk.Treeview`** (non più una griglia di label CTk) con
+  **scrollbar verticale e orizzontale**, intestazioni di colonna e **larghezza per-colonna** →
+  colonne allineate (la scrollbar orizzontale serve ai livelli larghi — Eventi ha 8 colonne — per
+  raggiungere le colonne di destra come Casa/Trasferta e Attivo senza che la finestra sbordi).
+  È **virtualizzata** (renderizza solo le righe visibili) e le righe sono **limitate a `500`**
+  (`_ROW_CAP`): così i livelli grandi (Mercati ≈ 3k, Selezioni ≈ 12k) **non bloccano** più la
+  finestra (prima costruiva ~88.000 widget → freeze "Non risponde" di minuti). Se un livello
+  supera il cap, la riga conteggi lo segnala e invita a restringere con **Sport**/**Cerca**.
 - **Stati della riga conteggi** (label sopra la tabella):
-  - *normale:* `<Livello>: N totali, M attivi (mostrate K righe).`;
+  - *normale:* `<Livello>: N totali, M attivi (mostrate K di S righe).` (`K` = righe in tabella,
+    `S` = righe che passano i filtri prima del cap);
+  - *elenco troncato* (righe filtrate > `500`): alla riga normale si aggiunge
+    **"⚠️ Elenco troncato a 500: restringi con «Sport» o «Cerca» per vedere le righe che ti servono."**;
   - *DB non disponibile:* **"⚠️ Dizionario non disponibile (DB locale non apribile)."**;
   - *dizionario occupato* (una **sincronizzazione Betfair è in corso** e tiene il lock del DB):
     **"⏳ Dizionario in aggiornamento (sincronizzazione Betfair in corso): premi 🔄 Aggiorna

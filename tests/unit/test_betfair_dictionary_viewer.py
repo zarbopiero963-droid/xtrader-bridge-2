@@ -217,6 +217,84 @@ def test_db_vuoto_nessuna_riga(db):
     assert v["total"] == 0 and v["active"] == 0 and v["rows"] == []
 
 
+# ── Cap righe renderizzate (Fase 2 collaudo Betfair: viewer non-bloccante) ──────
+# Il viewer costruiva una griglia di widget CTk PER CELLA (~88.000 widget per 12.523 selezioni)
+# → minuti di freeze. Ora la GUI passa `limit=_ROW_CAP`: il controller tronca le righe DOPO tutti i
+# filtri (vista corretta, non una LIMIT SQL), così la tabella non blocca. `total`/`active` restano
+# pieni (il riepilogo dice quante righe esistono davvero); `shown`/`truncated` guidano l'utente.
+
+def test_view_limit_tronca_le_righe_ma_non_i_conteggi(db):
+    """Mutation-guard: col vecchio codice (nessun `limit`) `rows` conteneva TUTTE le righe filtrate;
+    ora con `limit=1` ne resta 1 sola, mentre `total`/`active` restano pieni."""
+    _seed(db)                                         # 2 eventi, entrambi attivi
+    ctrl = DictionaryViewerController(db)
+    v = ctrl.view("events", limit=1)
+    assert v["total"] == 2 and v["active"] == 2       # conteggi pieni invariati
+    assert v["shown"] == 2                            # righe mostrabili PRIMA del cap
+    assert len(v["rows"]) == 1                        # cap applicato
+    assert v["truncated"] is True
+
+
+def test_view_limit_none_nessun_cap(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    v = ctrl.view("events", limit=None)               # retro-compatibile: default = nessun cap
+    assert len(v["rows"]) == 2
+    assert v["shown"] == 2 and v["truncated"] is False
+
+
+def test_view_limit_maggiore_del_totale_nessun_troncamento(db):
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    v = ctrl.view("events", limit=100)                # cap > righe → non tronca
+    assert len(v["rows"]) == 2 and v["truncated"] is False
+
+
+def test_view_limit_zero_o_negativo_nessun_cap(db):
+    """Difensivo (nit GLM #388): un cap ``0`` o negativo è nonsensico e NON deve svuotare la
+    tabella — deve valere come «nessun cap» (mostra tutto). La GUI passa sempre `_ROW_CAP`>0,
+    ma il contratto resta robusto."""
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    for bad in (0, -1, -100):
+        v = ctrl.view("events", limit=bad)
+        assert len(v["rows"]) == 2, f"limit={bad} non deve troncare"
+        assert v["truncated"] is False and v["shown"] == 2
+
+
+def test_view_limit_applicato_dopo_active_only(db):
+    """Il cap sta a VALLE di tutti i filtri, incluso `active_only`: con 1 solo attivo e limit=1
+    la riga mostrata è quella attiva e NON è troncata (1 <= 1)."""
+    _seed(db)
+    marker = db.new_sync_marker()
+    db.upsert_event("e1", "1", "c1", "Inter v Milan", seen_at=marker)   # rivisto
+    db.deactivate_unseen("betfair_events", seen_at=marker)              # e2 → inattivo
+    ctrl = DictionaryViewerController(db)
+    v = ctrl.view("events", active_only=True, limit=1)
+    assert v["shown"] == 1                            # 1 solo attivo mostrabile
+    assert len(v["rows"]) == 1 and v["truncated"] is False
+    assert v["rows"][0][1] == "Inter v Milan"
+
+
+def test_view_limit_applicato_dopo_ricerca(db):
+    """Il cap è a valle anche della ricerca: la ricerca restringe a 1 riga, il cap non tronca."""
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    v = ctrl.view("events", search="inter", limit=1)
+    assert v["total"] == 1 and v["shown"] == 1
+    assert len(v["rows"]) == 1 and v["truncated"] is False
+    assert v["rows"][0][1] == "Inter v Milan"
+
+
+def test_view_if_free_propaga_limit(db):
+    """`view_if_free` (usato dalla GUI sul thread Tk) deve inoltrare `limit` a `view`."""
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    v = ctrl.view_if_free("events", limit=1)
+    assert len(v["rows"]) == 1 and v["truncated"] is True
+    assert v["total"] == 2
+
+
 # ── Ricerca testuale (issue #178 §1: "Ricerca partecipante" / "Ricerca selection") ──
 
 def test_view_ricerca_evento(db):
