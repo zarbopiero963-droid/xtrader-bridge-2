@@ -132,6 +132,12 @@ un parser custom può estrarre testo arbitrario):
 - **`Points`** (moltiplicatore stake): se valorizzato deve essere un **numero positivo**
   (`> 0`); testo non numerico, negativo o zero viene scartato (stato `INVALID_POINTS`).
   `Points` non viene normalizzato a "1": resta com'è (vuoto di default).
+- **Cifre ASCII soltanto (`#318` L2-1, fail-closed).** Tutti i campi numerici del contratto
+  (`Handicap`, `Price`, `MinPrice`, `MaxPrice`, `Points`) sono validati con `[0-9]` — **solo
+  cifre ASCII**. Un valore scritto con cifre Unicode non-ASCII (arabo-indiane «١٩», devanagari
+  «१९», fullwidth «１９») viene **scartato** come non numerico, anche se `float()` di Python
+  saprebbe interpretarlo: XTrader legge solo numeri ASCII, quindi un valore non-ASCII non deve
+  mai raggiungere il CSV.
 
 ## Regole di scrittura
 
