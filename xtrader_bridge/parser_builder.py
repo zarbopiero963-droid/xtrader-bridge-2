@@ -25,7 +25,7 @@ from . import (
     validator,
     value_maps,
 )
-from .custom_parser import CustomParserDef, FieldRule, MultiRowRule
+from .custom_parser import Condition, CustomParserDef, FieldRule, MultiRowRule
 from .custom_pipeline import both_multi_active, build_validated_row, build_validated_rows
 # Gate dei mercati-punteggio dell'estrazione dinamica (#325/#341): importato dal runtime
 # (nome interno, stesso package) perché è la FONTE UNICA di verità — duplicare il set qui
@@ -116,6 +116,10 @@ class ParserBuilder:
             self.multi_selection_enabled = False
             self.multi_markets = []
             self.multi_selections = []
+            # Condizioni di gate (PR-1): righe contiene/NON contiene + modo E/O. Vuote =
+            # nessun gate aggiuntivo. Preservate nel round-trip come gli altri campi.
+            self.conditions = []
+            self.conditions_mode = "all"
         else:
             self.name = defn.name
             self.description = defn.description
@@ -141,6 +145,12 @@ class ParserBuilder:
                                   for r in getattr(defn, "multi_markets", []) or []]
             self.multi_selections = [MultiRowRule.from_dict(r.to_dict())
                                      for r in getattr(defn, "multi_selections", []) or []]
+            # Condizioni di gate (PR-1): copia (lista nuova + copia di ogni Condition) così il
+            # builder non condivide oggetti col def caricato e load+save/duplica non perde il
+            # gate. `getattr` tollera def costruite prima della feature.
+            self.conditions = [Condition.from_dict(c.to_dict())
+                               for c in getattr(defn, "conditions", []) or []]
+            self.conditions_mode = getattr(defn, "conditions_mode", "all") or "all"
 
     # ── opzioni per i menu a tendina della GUI ─────────────────────────────
     def target_options(self) -> list:
@@ -352,7 +362,10 @@ class ParserBuilder:
             multi_market_enabled=bool(self.multi_market_enabled),
             multi_selection_enabled=bool(self.multi_selection_enabled),
             multi_markets=list(self.multi_markets),
-            multi_selections=list(self.multi_selections))
+            multi_selections=list(self.multi_selections),
+            # Condizioni di gate (PR-1): inoltrate al modello (lista NUOVA, no aliasing).
+            conditions=list(self.conditions),
+            conditions_mode=self.conditions_mode)
 
     # ── Modalità di riconoscimento (per-parser) ────────────────────────────
     def set_mode(self, mode: str) -> None:

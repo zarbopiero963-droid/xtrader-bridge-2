@@ -454,13 +454,16 @@ def test_merge_multi_rule_overrides_new_row_no_hidden_values():
 # ── vista: il VERO `_multi_rule_from_refs` preserva i campi nascosti (stub Tk) ─
 
 class _FakeVar:
-    """Stub di StringVar/BooleanVar: espone solo `.get()` (niente display Tk)."""
+    """Stub di StringVar/BooleanVar: espone `.get()`/`.set()` (niente display Tk)."""
 
     def __init__(self, value):
         self._value = value
 
     def get(self):
         return self._value
+
+    def set(self, value):
+        self._value = value
 
 
 class _FakeCtkModule(types.ModuleType):
@@ -985,3 +988,91 @@ def test_gui_reload_multi_sync_rientrante_non_perde_le_righe(monkeypatch):
     panel._refresh_multi_warnings()
     assert [r.market_type for r in panel.builder.multi_markets] == [
         "FIRST_HALF_GOALS_05", "OVER_UNDER_15"]
+
+
+# ── PR-1: sezione «Condizioni di gate» nella vista (helper puri, stub customtkinter) ──
+
+def test_gui_cond_mode_label_round_trip(monkeypatch):
+    """Mappatura etichetta GUI ⇄ modello: `all`/`any` totale e fail-closed su E."""
+    gui = _gui_module(monkeypatch)
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)
+    assert panel._cond_mode_to_label("all") == gui.CustomParserPanel._COND_MODE_ALL
+    assert panel._cond_mode_to_label("any") == gui.CustomParserPanel._COND_MODE_ANY
+    assert panel._cond_mode_to_label("boh") == gui.CustomParserPanel._COND_MODE_ALL   # fail-closed E
+    assert panel._cond_label_to_mode(gui.CustomParserPanel._COND_MODE_ANY) == "any"
+    assert panel._cond_label_to_mode(gui.CustomParserPanel._COND_MODE_ALL) == "all"
+    assert panel._cond_label_to_mode("qualsiasi cosa") == "all"                       # fail-closed E
+
+
+def test_gui_sync_conditions_scarta_righe_vuote_e_mappa_negate(monkeypatch):
+    """Il VERO `_sync_conditions_to_builder`: le righe a testo vuoto/solo-spazi sono SCARTATE
+    (così `validate_parser_def` non segnala «testo vuoto»); «NON contiene» → `negate=True`;
+    il testo è strippato."""
+    gui = _gui_module(monkeypatch)
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)
+    panel.builder = types.SimpleNamespace(conditions=None, conditions_mode=None)
+    panel._cond_mode_var = _FakeVar(gui.CustomParserPanel._COND_MODE_ANY)
+    panel._condition_rows = [
+        {"kind": _FakeVar(gui.CustomParserPanel._COND_CONTAINS), "text": _FakeVar("  OVER SUCCESSIVO ")},
+        {"kind": _FakeVar(gui.CustomParserPanel._COND_NOT_CONTAINS), "text": _FakeVar("BANCA")},
+        {"kind": _FakeVar(gui.CustomParserPanel._COND_CONTAINS), "text": _FakeVar("   ")},   # vuota → scartata
+    ]
+    panel._sync_conditions_to_builder()
+    assert panel.builder.conditions_mode == "any"
+    assert [(c.text, c.negate) for c in panel.builder.conditions] == [
+        ("OVER SUCCESSIVO", False), ("BANCA", True)]
+
+
+def test_gui_reload_conditions_disegna_le_righe_dal_builder(monkeypatch):
+    """Il VERO `_reload_conditions_from_builder` ridisegna modo + una riga per condizione,
+    con la tendina `kind` allineata a `negate` e il testo copiato."""
+    gui = _gui_module(monkeypatch)
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)
+    panel.builder = types.SimpleNamespace(
+        conditions=[cp.Condition(text="GG"), cp.Condition(text="BANCA", negate=True)],
+        conditions_mode="any")
+    panel._cond_mode_var = _FakeVar("")
+    panel._conditions_box = object()          # non usato: sostituiamo la add-row con un fake
+    panel._condition_rows = []
+    drawn = []
+
+    def _fake_add(cond):
+        refs = {"frame": types.SimpleNamespace(destroy=lambda: None),
+                "kind": _FakeVar(panel._COND_NOT_CONTAINS if cond.negate else panel._COND_CONTAINS),
+                "text": _FakeVar(cond.text)}
+        panel._condition_rows.append(refs)
+        drawn.append((cond.text, cond.negate))
+
+    panel._add_condition_row_widget = _fake_add
+    panel._reload_conditions_from_builder()
+    assert panel._cond_mode_var.get() == gui.CustomParserPanel._COND_MODE_ANY
+    assert drawn == [("GG", False), ("BANCA", True)]
+    assert len(panel._condition_rows) == 2
+
+
+def test_gui_sync_reload_condizioni_round_trip(monkeypatch):
+    """Round-trip vista→builder→vista: sync produce le condizioni, reload le ridisegna
+    identiche (guard di regressione sul giro completo della GUI)."""
+    gui = _gui_module(monkeypatch)
+    panel = gui.CustomParserPanel.__new__(gui.CustomParserPanel)
+    panel.builder = types.SimpleNamespace(conditions=None, conditions_mode=None)
+    panel._cond_mode_var = _FakeVar(gui.CustomParserPanel._COND_MODE_ALL)
+    panel._condition_rows = [
+        {"kind": _FakeVar(gui.CustomParserPanel._COND_CONTAINS), "text": _FakeVar("GG")},
+        {"kind": _FakeVar(gui.CustomParserPanel._COND_NOT_CONTAINS), "text": _FakeVar("BANCA")},
+    ]
+    panel._sync_conditions_to_builder()
+    # ora ricarico dal builder: le righe devono tornare identiche
+    panel._conditions_box = object()
+    panel._condition_rows = []
+
+    def _fake_add(cond):
+        panel._condition_rows.append({
+            "kind": _FakeVar(panel._COND_NOT_CONTAINS if cond.negate else panel._COND_CONTAINS),
+            "text": _FakeVar(cond.text), "frame": types.SimpleNamespace(destroy=lambda: None)})
+
+    panel._add_condition_row_widget = _fake_add
+    panel._reload_conditions_from_builder()
+    assert panel._cond_mode_var.get() == gui.CustomParserPanel._COND_MODE_ALL
+    assert [(r["text"].get(), r["kind"].get()) for r in panel._condition_rows] == [
+        ("GG", panel._COND_CONTAINS), ("BANCA", panel._COND_NOT_CONTAINS)]

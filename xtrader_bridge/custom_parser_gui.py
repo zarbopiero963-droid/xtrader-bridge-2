@@ -31,7 +31,7 @@ from . import (
     provider_store,
     sports,
 )
-from .custom_parser import MultiRowRule
+from .custom_parser import Condition, MultiRowRule
 from .parser_builder import ParserBuilder
 
 # #283 PR 13: le righe MarketType/MarketName/SelectionName della tabella regole hanno una
@@ -615,6 +615,12 @@ class CustomParserPanel(ctk.CTkFrame):
         # separate, non cartesiane).
         self._build_multi_section(outer)
 
+        # Condizioni di gate (PR-1): il parser scatta SOLO se il messaggio soddisfa le
+        # condizioni (contiene/NON contiene ⟨testo⟩; modo E/O). Solo widget; lo stato vive nel
+        # ParserBuilder (round-trip testato in CI). Serve a far agire un parser solo sui
+        # messaggi pertinenti (filtro fail-closed), es. «un mercato diverso per scenario».
+        self._build_conditions_section(outer)
+
         # Toggle «Avanzate» (#293 densità parser): mostra/nasconde le colonne Trasformazione e
         # Value-map, tenendo di default la tabella più leggibile (solo colonne essenziali).
         adv_bar = ctk.CTkFrame(outer, fg_color="transparent")
@@ -875,6 +881,110 @@ class CustomParserPanel(ctk.CTkFrame):
         warnings = self.builder.multi_warnings()
         self._multi_warn.configure(text=("\n".join(f"⚠ {w}" for w in warnings)) if warnings else "")
 
+    # ── condizioni di gate (PR-1): il parser scatta SOLO se il messaggio le soddisfa ──
+    # Etichette GUI ⇄ valori-modello. Il modello usa `negate` (bool) e `conditions_mode`
+    # ("all"/"any"); qui mostriamo testo italiano leggibile. Le tendine offrono SOLO valori
+    # validi, quindi la mappatura è totale (nessun ramo «ignoto» possibile da GUI).
+    _COND_CONTAINS = "contiene"
+    _COND_NOT_CONTAINS = "NON contiene"
+    _COND_MODE_ALL = "TUTTE (E)"
+    _COND_MODE_ANY = "una qualsiasi (O)"
+
+    def _cond_mode_to_label(self, mode: str) -> str:
+        """Modello ("all"/"any") → etichetta GUI. Fallback fail-closed su E (più restrittivo)."""
+        return self._COND_MODE_ANY if str(mode) == "any" else self._COND_MODE_ALL
+
+    def _cond_label_to_mode(self, label: str) -> str:
+        """Etichetta GUI → modello. Fallback fail-closed su "all" (più restrittivo)."""
+        return "any" if label == self._COND_MODE_ANY else "all"
+
+    def _build_conditions_section(self, outer):
+        """Sezione «Condizioni di gate»: modo E/O + righe dinamiche [contiene/NON contiene +
+        testo + Rimuovi]. Solo widget; lo stato vive nel `ParserBuilder` (round-trip e gate
+        testati in CI). Nessuna condizione = nessun filtro (comportamento invariato)."""
+        sec = ctk.CTkFrame(outer)
+        sec.pack(fill="x", padx=10, pady=(8, 4))
+        ctk.CTkLabel(sec, text=i18n.tr("Condizioni di gate (il parser scatta solo se il messaggio le soddisfa)"),
+                     font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=8, pady=(6, 2))
+
+        # Barra: modo E/O + pulsante «Aggiungi condizione».
+        bar = ctk.CTkFrame(sec, fg_color="transparent")
+        bar.pack(fill="x", padx=8, pady=2)
+        ctk.CTkLabel(bar, text=i18n.tr("Soddisfa:")).pack(side="left", padx=(4, 2))
+        self._cond_mode_var = ctk.StringVar(
+            value=self._cond_mode_to_label(getattr(self.builder, "conditions_mode", "all")))
+        ctk.CTkOptionMenu(bar, variable=self._cond_mode_var, width=150,
+                          values=[self._COND_MODE_ALL, self._COND_MODE_ANY]).pack(side="left", padx=4)
+        ctk.CTkButton(bar, text=i18n.tr("➕ Aggiungi condizione"), width=170,
+                      command=self._add_condition_clicked).pack(side="left", padx=6)
+
+        self._conditions_box = ctk.CTkFrame(sec, fg_color="transparent")
+        self._conditions_box.pack(fill="x", padx=8, pady=(0, 4))
+        self._condition_rows = []        # refs per riga condizione
+
+        ctk.CTkLabel(
+            sec, anchor="w", justify="left", font=ctk.CTkFont(size=10),
+            text=i18n.tr("💡 «contiene»/«NON contiene» un testo; confronto senza maiuscole e "
+                         "tollerante agli spazi. Nessuna condizione = nessun filtro. Righe a "
+                         "testo vuoto sono ignorate.")).pack(fill="x", padx=8, pady=(0, 6))
+
+    def _add_condition_row_widget(self, cond):
+        """Disegna UNA riga condizione: [tendina contiene/NON contiene] [testo] [🗑 Rimuovi]."""
+        row = ctk.CTkFrame(self._conditions_box, fg_color="transparent")
+        row.pack(fill="x", pady=2)
+        refs = {"frame": row}
+        refs["kind"] = ctk.StringVar(
+            value=self._COND_NOT_CONTAINS if bool(getattr(cond, "negate", False))
+            else self._COND_CONTAINS)
+        ctk.CTkOptionMenu(row, variable=refs["kind"], width=140,
+                          values=[self._COND_CONTAINS, self._COND_NOT_CONTAINS]).pack(side="left", padx=2)
+        entry = ctk.CTkEntry(row, width=360, placeholder_text=i18n.tr("testo da cercare nel messaggio"))
+        entry.insert(0, getattr(cond, "text", "") or "")
+        entry.pack(side="left", padx=4)
+        refs["text"] = entry
+        ctk.CTkButton(row, text=i18n.tr("🗑 Rimuovi"), width=90, fg_color="#7f0000",
+                      command=lambda: self._remove_condition_row(refs)).pack(side="left", padx=4)
+        self._condition_rows.append(refs)
+
+    def _add_condition_clicked(self):
+        """[+] condizione: aggiunge una riga vuota (contiene, testo vuoto)."""
+        self._add_condition_row_widget(Condition())
+
+    def _remove_condition_row(self, refs):
+        """Toglie una riga condizione (widget + ref)."""
+        try:
+            self._condition_rows.remove(refs)
+        except ValueError:
+            pass
+        refs["frame"].destroy()
+
+    def _reload_conditions_from_builder(self):
+        """Ridisegna modo + righe condizioni dal builder (caricamento parser/nuovo).
+
+        Stesso ordine anti-rientranza di `_reload_multi_from_builder`: prima si SVUOTA la
+        lista refs, poi si distruggono i frame, così un eventuale evento su un widget in
+        distruzione non legge righe mezze morte."""
+        self._cond_mode_var.set(
+            self._cond_mode_to_label(getattr(self.builder, "conditions_mode", "all")))
+        old_rows, self._condition_rows = self._condition_rows, []
+        for refs in old_rows:
+            refs["frame"].destroy()
+        for cond in getattr(self.builder, "conditions", []) or []:
+            self._add_condition_row_widget(cond)
+
+    def _sync_conditions_to_builder(self):
+        """Riporta modo + righe condizioni nel builder. Le righe a testo vuoto vengono
+        SCARTATE qui (non solo ignorate a runtime): così `validate_parser_def` non segnala
+        «testo vuoto» per una riga lasciata a metà, e il file salvato resta pulito."""
+        self.builder.conditions_mode = self._cond_label_to_mode(self._cond_mode_var.get())
+        conds = []
+        for refs in self._condition_rows:
+            text = refs["text"].get().strip()
+            if not text:
+                continue
+            conds.append(Condition(text=text, negate=(refs["kind"].get() == self._COND_NOT_CONTAINS)))
+        self.builder.conditions = conds
+
     # ── colonne avanzate / toggle «Avanzate» (#293 densità parser) ─────────
     def _populate_rules_header(self):
         """(Ri)costruisce l'intestazione delle colonne, mostrando le colonne avanzate
@@ -981,6 +1091,8 @@ class CustomParserPanel(ctk.CTkFrame):
         self._reload_market_profile_checks(use_builder=True)
         # Output multi-riga (#192): interruttori + righe dal builder.
         self._reload_multi_from_builder()
+        # Condizioni di gate (PR-1): modo E/O + righe dal builder.
+        self._reload_conditions_from_builder()
         for rule in self.builder.rules:
             self._add_row(rule)
 
@@ -1017,6 +1129,8 @@ class CustomParserPanel(ctk.CTkFrame):
         self.builder.market_mapping_profiles = self._selected_market_profiles()
         # Output multi-riga (#192): interruttori + righe MultiMarket/MultiSelection.
         self._sync_multi_to_builder()
+        # Condizioni di gate (PR-1): modo E/O + righe (le vuote scartate).
+        self._sync_conditions_to_builder()
         self.builder.rules = []
         for refs in self._rows:
             self.builder.add_rule(

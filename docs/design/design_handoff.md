@@ -491,6 +491,23 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
   della riga** (`<FocusOut>`), casella **«Attiva»**, e a ogni **«🧪 Prova messaggio»**.
   Invariante: sono **avvisi non bloccanti** (il salvataggio non è impedito), il design può dar
   loro più visibilità ma non trasformarli in blocchi.
+- **Condizioni di gate (PR-1 — «il parser scatta solo se il messaggio le soddisfa»):** riquadro
+  etichettato (titolo in grassetto verbatim **"Condizioni di gate (il parser scatta solo se il
+  messaggio le soddisfa)"**) sotto la sezione multi-riga. Una **barra** con etichetta **"Soddisfa:"**
+  + una **tendina modo** a due voci — **"TUTTE (E)"** (default) / **"una qualsiasi (O)"** — e il
+  pulsante **"➕ Aggiungi condizione"**. Sotto, una lista di **righe dinamiche**; ogni riga è:
+  **tendina "contiene" / "NON contiene"** + **entry di testo** (placeholder *"testo da cercare nel
+  messaggio"*) + **"🗑 Rimuovi"**. In coda un **hint fisso 💡** (label size 10, testo verbatim):
+  *«"contiene"/"NON contiene" un testo; confronto senza maiuscole e tollerante agli spazi. Nessuna
+  condizione = nessun filtro. Righe a testo vuoto sono ignorate.»* Semantica: se **non** ci sono
+  condizioni (o tutte a testo vuoto) il parser si comporta **come prima** (nessun filtro); con
+  condizioni, il parser **scatta solo se** il messaggio le soddisfa (modo E = tutte, modo O = almeno
+  una), con *"NON contiene"* per singola riga negata. Il confronto è **case-insensitive e tollerante
+  agli spazi** (stessa normalizzazione dei nomi). È un **filtro fail-closed**: un messaggio che non
+  soddisfa il gate viene **scartato** (`NO_CONTENT_MATCH`, nessuna riga CSV). Le righe a testo vuoto
+  sono scartate al salvataggio (non generano errori di validazione). Serve a far agire un parser
+  **solo sui messaggi pertinenti** (es. «un mercato diverso per scenario»). Nessun cambiamento di
+  palette; riquadro nello stile delle altre sezioni.
 - **Densità (#293 «densità parser»):** sopra la griglia c'è un toggle **"⚙️ Avanzate
   (Trasformazione · Value-map)"** (checkbox). **Di default è SPENTO**: la griglia mostra solo le
   colonne **essenziali** (Colonna · Inizia dopo · Finisce prima · Valore fisso · Obblig.), più
