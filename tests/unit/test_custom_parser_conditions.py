@@ -27,21 +27,39 @@ def _parser(conditions=None, mode="all"):
 
 # ── modello: round-trip + retro-compatibilità ─────────────────────────────────
 
-def test_condition_round_trip_copre_tutti_i_campi_serializzati():
-    """Nota GPT-5.5/GLM #390: guardia sul round-trip di `Condition` senza fragilità di tipo.
+def _non_default(value):
+    """Restituisce un valore DIVERSO dal `value` di default passato, ispezionando il valore
+    RUNTIME (non l'annotazione `Field.type`): così è immune a `from __future__ import
+    annotations` (dove `f.type` sarebbe una stringa) e non dipende dai nomi dei campi. Un tipo
+    di default non ancora gestito fa fallire il test ESPLICITAMENTE, forzando ad aggiornarlo
+    quando `Condition` guadagna un campo di tipo nuovo (guardia «campo futuro non coperto»)."""
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, str):
+        return (value or "") + "_SENTINELLA"
+    if isinstance(value, (int, float)):
+        return value + 1
+    raise AssertionError(
+        f"_non_default non gestisce il tipo del default {value!r}: aggiorna il test per il "
+        "nuovo campo di Condition (copertura round-trip field-exhaustive).")
 
-    Deliberatamente NON introspeziona `dataclasses.Field.type` (che con
-    `from __future__ import annotations` o tipi ricchi — `Optional`/`Literal`/enum — sarebbe
-    una stringa e darebbe falsi rossi su evoluzioni legittime del modello, esattamente il
-    rischio segnalato in review). Usa invece due asserzioni robuste:
 
-    1. `to_dict()` serializza OGNI campo del dataclass — se un domani si aggiunge un campo a
-       `Condition` ma non lo si include in `to_dict`, questa asserzione fallisce (il campo
-       andrebbe altrimenti perso in silenzio nella persistenza su disco);
-    2. il round-trip `from_dict(to_dict())` preserva i valori impostati (dataclass `__eq__`)."""
-    field_names = {f.name for f in dataclasses.fields(cp.Condition)}
-    assert set(cp.Condition().to_dict()) == field_names        # to_dict copre tutti i campi
-    original = cp.Condition(text="VALORE_SENTINELLA", negate=True)
+def test_condition_round_trip_field_exhaustive():
+    """Nota GPT-5.5/GLM #390: guardia FIELD-EXHAUSTIVE sul round-trip di `Condition`, robusta.
+
+    Sintesi delle due note di review: itera i campi PER NOME (`dataclasses.fields`) e assegna
+    a ciascuno un valore NON-default derivato dal default RUNTIME (`_non_default`, via
+    `isinstance` sul valore — NON su `Field.type`, quindi niente falsi rossi con annotazioni
+    stringa). Copre così TUTTI i campi attuali con valori non-default, e un campo futuro non
+    coperto da `to_dict`/`from_dict` (o di tipo non gestito) fa fallire il test invece di
+    perdere dati in silenzio. Oggi `Condition` ha `text` e `negate`; entrambi sono esercitati
+    con valori non-default e verificati dal round-trip (dataclass `__eq__`)."""
+    base = cp.Condition()
+    kwargs = {f.name: _non_default(getattr(base, f.name)) for f in dataclasses.fields(cp.Condition)}
+    original = cp.Condition(**kwargs)
+    # to_dict serializza OGNI campo del dataclass (un campo assente qui = perdita silenziosa)…
+    assert set(original.to_dict()) == {f.name for f in dataclasses.fields(cp.Condition)}
+    # …e il round-trip preserva il valore non-default di OGNI campo.
     assert cp.Condition.from_dict(original.to_dict()) == original
 
 
