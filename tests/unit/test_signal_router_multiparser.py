@@ -221,3 +221,53 @@ def test_set_for_chat_rimuove_lista_multi_stantia():
     assert "42" not in cleared.get("parser_list_by_chat", {})
     assert "42" not in cleared.get("parser_by_chat", {})
     assert parser_manager.resolve_parser_names(cleared, "42") == []
+
+
+def test_gate_condizioni_prima_della_diagnostica_validazione(tmp_path):
+    # CodeRabbit #391: se le condizioni NON combaciano, il motivo è NO_CONTENT_MATCH — non un
+    # errore di validazione (campi mancanti) su un messaggio che il parser non doveva gestire.
+    _mk(str(tmp_path), "A", [cp.Condition(text="ZZZ_ASSENTE")])
+    msg = "Match: Inter v Milan\nEsito: GG\nLato: BACK"        # manca "Quota:" → Price mancante
+    res = signal_router.resolve_row(msg, _cfg_list("42", ["A"]), chat_id="42",
+                                    parsers_dir=str(tmp_path))
+    assert res.status == signal_router.NO_CONTENT_MATCH        # non uno status di validazione
+    assert res.placeable is False
+
+
+def test_condizioni_ok_ma_campo_mancante_mantiene_diagnostica(tmp_path):
+    # Controprova: condizioni soddisfatte ("GG" c'è) ma Price mancante → resta la diagnostica di
+    # validazione (NON NO_CONTENT_MATCH): il parser DOVEVA gestirlo, va detto cosa manca.
+    _mk(str(tmp_path), "A", [cp.Condition(text="GG")])
+    msg = "Match: Inter v Milan\nEsito: GG\nLato: BACK"        # "GG" presente, ma manca Quota
+    res = signal_router.resolve_row(msg, _cfg_list("42", ["A"]), chat_id="42",
+                                    parsers_dir=str(tmp_path))
+    assert res.placeable is False
+    assert res.status != signal_router.NO_CONTENT_MATCH        # diagnostica di validazione preservata
+
+
+def test_set_for_chat_e_set_list_non_mutano_input():
+    # Fable/GLM/Fugu #391: gli helper non mutano la cfg di input (i getter ritornano copie nuove).
+    import copy
+    cfg = {"parser_list_by_chat": {"42": ["A", "B"]}, "parser_by_chat": {"42": "A"}}
+    snapshot = copy.deepcopy(cfg)
+    parser_manager.set_for_chat(cfg, "42", "C")
+    parser_manager.set_list_for_chat(cfg, "42", ["X", "Y"])
+    assert cfg == snapshot                                    # input invariato (nessun aliasing)
+
+
+def test_set_list_for_chat_sovrascrive_primario_preesistente():
+    # GLM #391: con un parser_by_chat preesistente, set_list_for_chat sovrascrive il primario col
+    # primo della nuova lista, senza residui.
+    out = parser_manager.set_list_for_chat({"parser_by_chat": {"42": "OLD"}}, "42", ["A", "B"])
+    assert out["parser_by_chat"]["42"] == "A"                 # primario = primo nuovo
+    assert out["parser_list_by_chat"]["42"] == ["A", "B"]
+
+
+def test_allowed_chats_fail_fast_esclude_disattivata_include_solo_lista():
+    # Fable #391: il fail-fast chat-notifiche usa allowed_chats. Una sorgente DISATTIVATA non è
+    # processata → NON in allowed_chats (correttamente non un conflitto); una chat solo-in-lista sì.
+    cfg = {"source_chats": [{"chat_id": "111", "enabled": False, "mode": "PRE"}],
+           "parser_list_by_chat": {"222": ["P"]}}
+    allowed = signal_router.allowed_chats(cfg)
+    assert "111" not in allowed                               # disattivata → non ammessa
+    assert "222" in allowed                                   # solo-in-lista → il fail-fast la vede

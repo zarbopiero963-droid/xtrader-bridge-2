@@ -53,15 +53,9 @@ def _translations_chip_text(names_active: bool, markets_active: bool) -> str:
 def _parsers_summary(names, no_parser_text: str) -> str:
     """PR-2: testo riassuntivo della LISTA di parser di una riga per il display (label).
     Lista vuota → `no_parser_text` («(predefinito)» = usa il globale). Uno o più nomi →
-    numerati in ordine di priorità, es. «1. A · 2. B». Deduplica preservando l'ordine (i nomi
-    arrivano già puliti dal controller, ma resta robusto). Puro/testabile."""
-    seen = set()
-    clean = []
-    for n in (names or []):
-        name = str(n or "").strip()
-        if name and name not in seen:
-            seen.add(name)
-            clean.append(name)
+    numerati in ordine di priorità, es. «1. A · 2. B». Riusa `_clean_names` (fonte unica di
+    strip+dedup, così le due logiche non divergono — CodeRabbit #391). Puro/testabile."""
+    clean = _clean_names(names)
     if not clean:
         return no_parser_text
     return " · ".join(f"{i}. {n}" for i, n in enumerate(clean, 1))
@@ -116,7 +110,6 @@ class SourceChatsPanel(ctk.CTkFrame):
         self._parser_names = self._editor.parser_options()
         self._no_parser = self._no_parser_label(
             self._parser_names, [s.get("parser", "") for s in self._editor.sources])
-        self._parser_options = [self._no_parser] + self._parser_names
         self._rows = []   # widget refs per sorgente
         self._build_ui()
         for src in self._editor.sources:
@@ -136,7 +129,6 @@ class SourceChatsPanel(ctk.CTkFrame):
         self._parser_names = self._editor.parser_options()
         self._no_parser = self._no_parser_label(
             self._parser_names, [s.get("parser", "") for s in self._editor.sources])
-        self._parser_options = [self._no_parser] + self._parser_names
         for refs in self._rows:
             refs["frame"].destroy()
         self._rows = []
@@ -163,7 +155,6 @@ class SourceChatsPanel(ctk.CTkFrame):
         self._no_parser = self._no_parser_label(
             self._parser_names,
             [refs["parser"].get() for refs in self._rows if refs["parser"].get() != old_no_parser])
-        self._parser_options = [self._no_parser] + self._parser_names
         for refs in self._rows:
             var = refs["parser"]
             # Se il sentinella "nessun override" è cambiato (es. è stato creato un parser
@@ -173,13 +164,6 @@ class SourceChatsPanel(ctk.CTkFrame):
             # parser usato per quelle chat (Codex).
             if old_no_parser != self._no_parser and var.get() == old_no_parser:
                 var.set(self._no_parser)
-            menu = refs.get("parser_menu")
-            if menu is not None:
-                cur = var.get()
-                vals = list(self._parser_options)
-                if cur and cur not in vals:
-                    vals.append(cur)        # preserva la selezione anche se il parser è sparito
-                menu.configure(values=vals)
             # PR-2: aggiorna il testo del bottone lista-parser (la sentinella «(predefinito)»
             # per la lista vuota può essere cambiata → il riassunto va rifatto).
             btn = refs.get("parser_btn")
@@ -355,6 +339,14 @@ class _ParserListDialog(ctk.CTkToplevel):
         super().__init__(master)
         self.title(i18n.tr("Parser della chat (in ordine di priorità)"))
         gui_utils.fit_to_screen(self, 480, 440, 380, 340)
+        # MODALE (CodeRabbit #391): il genitore non deve poter salvare finché questo editor è
+        # aperto, altrimenti la riga verrebbe persistita con stato parser stantio. `transient`
+        # + `grab_set` costringono a chiudere/salvare qui prima di agire sul genitore.
+        try:
+            self.transient(master)
+            self.grab_set()
+        except Exception:               # noqa: BLE001 — best-effort (test headless / stub Tk)
+            pass
         self._available = list(available)
         self._names = _clean_names(current)
         self._on_ok = on_ok
@@ -367,16 +359,31 @@ class _ParserListDialog(ctk.CTkToplevel):
         self._list_frame.pack(fill="both", expand=True, padx=12, pady=6)
         add = ctk.CTkFrame(self, fg_color="transparent")
         add.pack(fill="x", padx=12, pady=4)
-        self._add_var = ctk.StringVar(value=(self._available[0] if self._available else ""))
-        ctk.CTkOptionMenu(add, width=250, values=(self._available or [""]),
-                          variable=self._add_var).pack(side="left", padx=4)
+        # Tendina «aggiungi»: mostra SOLO i parser non ancora nella lista (CodeRabbit #391),
+        # così scegliere un già-aggiunto non risulta un no-op silenzioso.
+        self._add_var = ctk.StringVar(value="")
+        self._add_menu = ctk.CTkOptionMenu(add, width=250, values=[""], variable=self._add_var)
+        self._add_menu.pack(side="left", padx=4)
         ctk.CTkButton(add, text=i18n.tr("➕ Aggiungi parser"), width=160,
                       command=self._add).pack(side="left", padx=4)
         ctk.CTkButton(self, text=i18n.tr("💾  Salva"), fg_color="#2e7d32",
                       hover_color="#1b5e20", command=self._ok).pack(side="right", padx=12, pady=8)
         self._render()
 
+    def _remaining(self) -> list:
+        """Parser disponibili non ancora nella lista (per la tendina «aggiungi»)."""
+        return [n for n in self._available if n not in self._names]
+
+    def _refresh_add_menu(self):
+        """Aggiorna valori/selezione della tendina «aggiungi» sui parser ancora disponibili."""
+        remaining = self._remaining()
+        menu = getattr(self, "_add_menu", None)
+        if menu is not None:
+            menu.configure(values=(remaining or [""]))
+        self._add_var.set(remaining[0] if remaining else "")
+
     def _render(self):
+        self._refresh_add_menu()            # tieni la tendina «aggiungi» in sync con la lista
         for w in list(self._list_frame.winfo_children()):
             w.destroy()
         if not self._names:

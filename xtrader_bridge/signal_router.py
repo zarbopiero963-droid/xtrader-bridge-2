@@ -296,16 +296,21 @@ def _resolve_one(defn, text: str, *, cfg: dict, chat: str, provider: str, id_res
         market_mapping_profiles=market_mapping_profiles,
         id_resolver=id_resolver)
     placeable = [r.row for r in results if r.placeable]
+    # Gate di contenuto (incl. condizioni PR-1): il parser deve aver estratto qualcosa DA
+    # QUESTO messaggio, altrimenti non scatta (niente bet spurio su testo arbitrario). Valutato
+    # PRIMA della diagnostica di validazione (CodeRabbit #391): se le condizioni/contenuto NON
+    # combaciano, il motivo è NO_CONTENT_MATCH — non un errore di validazione (campi mancanti) su
+    # un messaggio che il parser non doveva neppure gestire. Una msg che il parser DOVEVA gestire
+    # ma è malformata passa comunque il gate (recognition estratto) → resta la diagnostica utile.
+    matched = custom_parser_engine.matches_message(defn, text, mode)
+    if not matched:
+        return {"fired": False, "rows": [], "status": NO_CONTENT_MATCH,
+                "detail": "no_content_match", "missing": [], "multi": defn.is_multi_row()}
     if not placeable:
         first = results[0]
         return {"fired": False, "rows": [], "status": first.status,
                 "detail": first.detail, "missing": list(first.missing_required),
                 "multi": defn.is_multi_row()}
-    # Gate di contenuto (incl. condizioni PR-1): il parser deve aver estratto qualcosa DA
-    # QUESTO messaggio, altrimenti non scatta (niente bet spurio su testo arbitrario).
-    if not custom_parser_engine.matches_message(defn, text, mode):
-        return {"fired": False, "rows": [], "status": NO_CONTENT_MATCH,
-                "detail": "no_content_match", "missing": [], "multi": defn.is_multi_row()}
     # PR-24: su una chat che è sorgente attiva, il provider della sorgente VINCE sul Provider
     # fisso del parser, per TUTTE le righe.
     if source_manager.source_for_chat(cfg, chat) is not None:
