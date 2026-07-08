@@ -24,6 +24,7 @@ import customtkinter as ctk
 from . import config_store, name_mapping_store, sports
 from .betfair.dictionary_viewer import Debouncer, DictionaryBusy
 from .betfair.guided_mapping import (
+    competition_labels,
     existing_aliases_for_teams,
     merge_team_aliases,
 )
@@ -35,7 +36,7 @@ _NO_COMP = "(scegli lo sport)"
 # competizioni molto popolose (es. tornei tennis con centinaia di partecipanti). Il MODELLO tiene
 # tutte le squadre (una StringVar ciascuna, nessun widget); qui si limita solo il RENDER, e la
 # casella «Filtra» restringe. NON è un cap sui dati salvati.
-_TEAM_RENDER_CAP = 300
+_TEAM_RENDER_CAP = 500
 # Debounce della casella «Filtra squadre» (come il viewer #184 M12): una raffica di keystroke
 # collassa in un solo ridisegno a fine digitazione.
 _FILTER_DEBOUNCE_MS = 250
@@ -58,7 +59,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
         self._teams_provider = teams_provider
         self._on_saved = on_saved
         self._current = None                 # profilo selezionato
-        self._comps = []                     # [{competition_id, name}] della tendina competizioni
+        self._comp_by_label = {}             # {label univoca tendina: competition_id}
         self._team_vars = {}                 # {nome_squadra: StringVar(alias)} — MODELLO, tutte le squadre
         self._filter_debouncer = Debouncer(
             _FILTER_DEBOUNCE_MS, self._render_team_rows,
@@ -75,9 +76,16 @@ class GuidedMappingPanel(ctk.CTkFrame):
         super().destroy()
 
     def refresh(self):
-        """Ricarica i profili dalla config su disco (anti-stale: un profilo cambiato altrove non
-        deve restare stantio qui). Non ricarica squadre/competizioni (dipendono dalle scelte)."""
-        self._reload_profiles(select_first=True)
+        """Aggiorna SOLO l'elenco profili dalla config su disco (anti-stale dei nomi profilo dopo
+        rename/delete fatti in un'altra sotto-scheda). **Non ri-precompila gli alias e non tocca le
+        squadre**: un refresh esterno (es. salvataggio in «⚽ Calcio» che propaga `on_saved`) NON deve
+        azzerare gli alias digitati e non ancora salvati nell'albero guidato (Fable #389)."""
+        cfg = self._load_cfg()
+        names = name_mapping_store.profile_names(cfg) if cfg is not None else []
+        self._profile_menu.configure(values=names or [_NO_PROFILE])
+        if self._current not in names:          # profilo eliminato altrove → deseleziona (senza clobber)
+            self._current = None
+            self._profile_var.set(_NO_PROFILE)
 
     # ── costruzione UI ─────────────────────────────────────────────────────────
     def _build_ui(self):
@@ -156,7 +164,10 @@ class GuidedMappingPanel(ctk.CTkFrame):
             self._status.configure(text=f"❌ Config illeggibile: {exc}", text_color="#ef5350")
             return None
 
-    def _reload_profiles(self, select=None, select_first=False):
+    def _reload_profiles(self, select=None, select_first=False, prefill=True):
+        """Ricarica la tendina profili e seleziona il target. `prefill=True` ri-precompila gli alias
+        dal profilo scelto (init/switch deliberato); `prefill=False` preserva gli alias digitati (es.
+        dopo «🆕 Nuovo»: le squadre appena mappate a mano non devono sparire prima di salvarle)."""
         cfg = self._load_cfg()
         names = name_mapping_store.profile_names(cfg) if cfg is not None else []
         self._profile_menu.configure(values=names or [_NO_PROFILE])
@@ -170,9 +181,10 @@ class GuidedMappingPanel(ctk.CTkFrame):
             target = None
         self._current = target
         self._profile_var.set(target or _NO_PROFILE)
-        # cambiando profilo cambia la pre-compilazione degli alias già salvati.
-        self._prefill_aliases()
-        self._render_team_rows()
+        if prefill:
+            # switch/init deliberato: mostra gli alias già salvati del profilo scelto.
+            self._prefill_aliases()
+            self._render_team_rows()
 
     def _on_profile_change(self, value):
         self._current = value if value != _NO_PROFILE else None
@@ -196,7 +208,9 @@ class GuidedMappingPanel(ctk.CTkFrame):
         if ok and callable(self._on_saved):
             self._on_saved(saved)
         if ok:
-            self._reload_profiles(select=name)
+            # prefill=False: se avevi già digitato alias, «Nuovo» seleziona il profilo vuoto SENZA
+            # azzerarli, così puoi salvarli subito nel profilo appena creato.
+            self._reload_profiles(select=name, prefill=False)
         self._status.configure(
             text=f"🆕 Profilo «{name}» creato." if ok
             else f"❌ Salvataggio FALLITO: «{name}» non creato.",
@@ -208,7 +222,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
 
     def _on_sport_change(self):
         """Nuovo sport: ricarica la tendina competizioni (fail-fast su sync in corso)."""
-        self._comps = []
+        self._comp_by_label = {}
         try:
             comps = (self._competitions_provider(self._selected_sport())
                      if callable(self._competitions_provider) else [])
@@ -223,8 +237,11 @@ class GuidedMappingPanel(ctk.CTkFrame):
             return
         except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → nessuna competizione
             comps = []
-        self._comps = comps
-        labels = [c["name"] for c in comps] or [_NO_COMP]
+        # Label UNIVOCHE (Fable/Fugu #389): competizioni omonime avrebbero la stessa voce e
+        # selezionerebbero sempre la prima → id sbagliato. `competition_labels` disambigua.
+        pairs = competition_labels(comps)
+        self._comp_by_label = dict(pairs)
+        labels = [lbl for lbl, _ in pairs] or [_NO_COMP]
         self._comp_menu.configure(values=labels)
         self._comp_var.set(labels[0])
         # svuota le squadre finché non si (ri)carica la competizione selezionata.
@@ -238,11 +255,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
                      "Fai un sync Betfair, poi riprova.", text_color="gray")
 
     def _selected_competition_id(self):
-        label = self._comp_var.get()
-        for c in self._comps:
-            if c["name"] == label:
-                return c["competition_id"]
-        return None
+        return self._comp_by_label.get(self._comp_var.get())
 
     def _load_teams(self):
         """Carica le squadre della competizione selezionata nel MODELLO (una StringVar ciascuna),

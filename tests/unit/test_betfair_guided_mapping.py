@@ -75,6 +75,39 @@ def test_competitions_solo_attive_e_ordinate(db):
                      {"competition_id": "c2", "name": "Serie A"}]
 
 
+# ── competition_labels (disambiguazione tendina) ──────────────────────────────
+
+def test_competition_labels_univoche_semplici():
+    comps = [{"competition_id": "c2", "name": "Serie A"},
+             {"competition_id": "c1", "name": "Coppa Italia"}]
+    assert gm.competition_labels(comps) == [("Serie A", "c2"), ("Coppa Italia", "c1")]
+
+
+def test_competition_labels_disambigua_nomi_omonimi():
+    """Due competizioni con lo STESSO nome → label distinte con l'id, così la tendina risolve
+    la competizione esatta (Fable/Fugu #389)."""
+    comps = [{"competition_id": "c1", "name": "Premier League"},
+             {"competition_id": "c2", "name": "Premier League"}]
+    labels = gm.competition_labels(comps)
+    assert labels == [("Premier League [c1]", "c1"), ("Premier League [c2]", "c2")]
+    # ogni label mappa a UNA sola competizione
+    assert dict(labels)["Premier League [c1]"] == "c1"
+    assert dict(labels)["Premier League [c2]"] == "c2"
+
+
+def test_competition_labels_fallback_su_collisione_residua():
+    # id ripetuti (dato anomalo): la riserva «#n» garantisce comunque label univoche.
+    comps = [{"competition_id": "x", "name": "Cup"},
+             {"competition_id": "x", "name": "Cup"}]
+    labels = [lbl for lbl, _ in gm.competition_labels(comps)]
+    assert len(set(labels)) == 2                       # nessuna label duplicata
+
+
+def test_competition_labels_nome_vuoto():
+    labels = gm.competition_labels([{"competition_id": "c1", "name": ""}])
+    assert labels == [("(senza nome)", "c1")]
+
+
 # ── teams_for_competition ─────────────────────────────────────────────────────
 
 def test_teams_union_participant(db):

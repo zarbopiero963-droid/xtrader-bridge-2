@@ -61,6 +61,34 @@ def competitions_for_sport(db, sport) -> list:
                   key=lambda c: c["name"].casefold())
 
 
+def competition_labels(comps) -> list:
+    """Etichette UNIVOCHE per la tendina competizioni: lista ordinata di ``(label, competition_id)``.
+
+    `comps` è l'output di `competitions_for_sport` (``[{"competition_id","name"}]``, già ordinato).
+    Due competizioni con lo STESSO nome (possibile su Betfair fra paesi/edizioni) avrebbero label
+    identiche e la tendina non potrebbe distinguerle → verrebbe sempre scelta la prima (squadre/
+    salvataggio sulla competizione sbagliata, Fable #389). Qui, su nome ripetuto, si appende
+    ``[<id>]`` (e un ``#n`` di riserva se anche quello collidesse), così ogni label mappa a UNA
+    sola competizione. Nome vuoto → ``"(senza nome)"``."""
+    name_counts = {}
+    for c in comps:
+        name_counts[c.get("name", "")] = name_counts.get(c.get("name", ""), 0) + 1
+    used = set()
+    out = []
+    for c in comps:
+        cid = str(c.get("competition_id", "") or "")
+        raw = c.get("name", "")
+        name = str(raw or "") or "(senza nome)"
+        label = name if name_counts.get(raw, 0) <= 1 else f"{name} [{cid}]"
+        base, k = label, 2
+        while label in used:                 # riserva: id ripetuti o collisione residua
+            label = f"{base} #{k}"
+            k += 1
+        used.add(label)
+        out.append((label, cid))
+    return out
+
+
 def teams_for_competition(db, competition_id) -> list:
     """Nomi squadra **unici** degli eventi di una competizione, ordinati case-insensitive.
 
