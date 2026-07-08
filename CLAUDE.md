@@ -252,9 +252,30 @@ che ha visto solo l'ultimo commit e crede «mancante» un'implementazione che st
 commit precedente della stessa PR) — a quelli rispondi nel thread con l'evidenza, mai
 con un commit.
 
+### CI MINUTES / PUSH-CHURN — non sprecare minuti Windows
+
+Oltre al costo API dei reviewer, **ogni push e ogni re-run consumano minuti GitHub Actions**,
+e i runner **Windows costano 2×** (`windows-tests`, `generate-windows-lockfile`,
+`merge-simulation`). Il repo è privato → i minuti sono a consumo e cappati dallo spending
+limit: esaurirli **blocca TUTTA la CI** (i job falliscono all'istante, `runner_id: 0`, nessun
+log — non è un bug del codice, è billing). Regole:
+
+- **Accorpa** i fix in **un solo push per giro**; mai push ravvicinati.
+- **Niente commit vuoti / re-trigger a raffica.** Se un check è rosso, prima **diagnostica**
+  (transient vs reale) leggendo i log; ri-triggera **una volta**, poi verifica prima di riprovare.
+- **Non fare churn di label** (rimuovi+riaggiungi) subito dopo un push: aspetta che i check si
+  stabilizzino, altrimenti rischi ri-run/cancellazioni inutili.
+- Se **tutti** i check falliscono in ~2 s senza log e `runner_id: 0`, **fermati**: è lo spending
+  limit / un problema di billing → **azione del proprietario** (github.com/settings/billing →
+  Actions), **non** ripushare (peggiora e non risolve).
+- Preferisci sempre **aspettare** un check in corso piuttosto che ri-triggerarlo.
+
 ---
 
 ## FINESTRA DI REVIEW POST-COMMIT — 16 MIN GATE & SWEEP ULTIME 5 PR — OBBLIGATORIO
+
+> ⚠️ **OVERRIDE PROPRIETARIO (vedi sotto): l'attesa automatica dei 16 minuti è DISATTIVATA.**
+> Il resto della sezione (sweep ultime 5 PR, tracciamento post-merge) resta valido.
 
 Motivo: i reviewer AI **non** pubblicano subito. Misurato sulle PR reali del repo, dopo
 ogni push gli inline comment arrivano con ritardo: **Codex** tipicamente **+7–12 min**,
@@ -267,6 +288,28 @@ merge** con **2 P1 + 4 P2 mai indirizzati**.
 Questa sezione vale per ogni PR. Il merge resta **sempre manuale del proprietario**: questo
 gate **non** merga, non blocca il proprietario, e non sostituisce il check completion gate —
 **si aggiunge dopo** di esso.
+
+### OVERRIDE PROPRIETARIO — niente attesa automatica della finestra 16 min
+
+Decisione del proprietario: **non** imporre più l'attesa automatica dei 16 minuti. Aspettare a
+vuoto fa perdere tempo. Il flusso pre-merge diventa:
+
+1. lavoro completo + CI tentata + branch pushato + PR non draft;
+2. **far partire i due workflow finali via label** (`final-fable-review` + `final-fugu-review`) —
+   rimuovi e riaggiungi se già presenti;
+3. leggere gli esiti dei reviewer che rispondono (Fable 5, Fugu Ultra, GPT-5.5, GLM 5.2);
+4. appena questi hanno risposto → **dire al proprietario merge sì/no**, senza aspettare un timer.
+
+- **Codex = assente** (usage-limit dell'abbonamento): **non è un gate**, non aspettarlo, non
+  contarlo, non bloccare il `DONE` su di lui.
+- **CodeRabbit** ci mette minuti (e va spesso in rate-limit): **non** bloccare né temporeggiare ad
+  aspettarlo. Se arriva dopo, lo copre lo **sweep post-merge** (Issue + eventuale fix PR), non
+  un'attesa a finestra aperta.
+- La rete di sicurezza per i commenti-bot in ritardo resta il **tracciamento post-merge** (Issue +
+  fix PR dedicata) e lo **sweep delle ultime 5 PR** qui sotto, non l'attesa sincrona.
+
+Il `Gate dei 16 minuti` qui sotto resta come **contesto storico**, ma **non va più applicato come
+attesa bloccante**: lo stato `REVIEW_WINDOW_PENDING` non si usa più per temporeggiare.
 
 ### Gate dei 16 minuti
 

@@ -771,9 +771,29 @@ or to chase per-push-range false positives** (a reviewer that only saw the last
 commit and thinks an implementation from an earlier commit of the same PR is
 «missing») — answer those in-thread with evidence, never with a commit.
 
+### CI minutes / push-churn — do not waste Windows minutes
+
+Beyond reviewer API cost, **every push and every re-run consume GitHub Actions minutes**, and
+**Windows runners bill 2×** (`windows-tests`, `generate-windows-lockfile`, `merge-simulation`).
+The repo is private → minutes are metered and capped by the spending limit; exhausting it
+**blocks ALL CI** (jobs fail instantly, `runner_id: 0`, no logs — not a code bug, it's billing).
+Rules: batch fixes into a **single push per round** (no rapid successive pushes); **never spam
+empty commits / re-runs** — if a check is red, first **diagnose** (transient vs real) from the
+logs, re-trigger **once**, then verify before retrying; **do not churn labels** (remove+re-add)
+right after a push; if **every** check fails in ~2s with no logs and `runner_id: 0`, **stop** —
+that's the spending limit / billing, an **owner action** (github.com/settings/billing → Actions),
+**do not keep pushing**. Prefer **waiting** on an in-progress check over re-triggering it.
+
 ---
 
 ## Post-commit review window — 16 min gate & last-5 PR sweep — required
+
+> ⚠️ **OWNER OVERRIDE: the automatic 16-minute wait is DISABLED (see below).** Once the two
+> final-review workflows have been fired via label and Fable 5 / Fugu Ultra / GPT-5.5 / GLM 5.2
+> have responded, report merge yes/no to the owner immediately — do not idle on a timer. Codex =
+> absent (usage limit) is NOT a gate; CodeRabbit takes minutes and must not be waited on. Late bot
+> comments are caught by the post-merge sweep (Issue + fix PR), not by a synchronous wait. The
+> last-5 PR sweep and post-merge tracking below remain in force; the timed wait does not.
 
 Reason: AI reviewers do **not** comment immediately. Measured on this repo's real PRs, after
 each push the inline comments land late: **Codex** typically **+7–12 min**, **CodeRabbit**
