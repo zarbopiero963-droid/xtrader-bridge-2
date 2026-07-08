@@ -625,7 +625,11 @@ buon fine. Sulle **riconnessioni dopo una connessione già riuscita**, invece, i
 della riga CSV per la modalità coda attiva — `confirmation_timeout` in
 `QUEUE_UNTIL_CONFIRMED`, altrimenti `clear_delay`) viene **ignorato** all'arrivo: così,
 se la rete è mancata a lungo, gli
-arretrati rifetchati non diventano scommesse vecchie. Le **conferme XTrader** dalla
+arretrati rifetchati non diventano scommesse vecchie. Simmetricamente, un messaggio con
+**timestamp nel futuro** rispetto all'orologio del PC (clock non sincronizzato) è tollerato
+solo entro **60 secondi** (trattato come "adesso"); oltre viene **ignorato** come l'anti-arretrati,
+perché uno scarto d'orologio grande renderebbe inaffidabile il filtro (un backlog vecchio, con il
+PC indietro, sembrerebbe "fresco"). Le **conferme XTrader** dalla
 chat notifiche, invece, **non** vengono filtrate per età: un esito ritardato deve
 comunque rimuovere il segnale attivo. Un errore **non** recuperabile (es. **token non valido**)
 non viene ritentato all'infinito: il bridge si ferma e mostra l'errore. Lo STOP

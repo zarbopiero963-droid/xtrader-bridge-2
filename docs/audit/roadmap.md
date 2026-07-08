@@ -2188,7 +2188,7 @@ Phase 0 + micro-audit + test hard veritieri; merge sempre manuale.
 | 1ª | **pytest-timeout** | ✅ FATTO | non-core, rischio zero |
 | 2ª | **archivio docs** | ✅ FATTO | 9 file storici → `docs/audit/archive/`; link aggiornati |
 | 3ª | **ruff/mypy CI** | ✅ FATTO (questa PR) | **soft-warning** (scelta owner): non blocca |
-| 4ª | clock-skew dedupe | da fare | core; l'owner fornisce la policy skew |
+| 4ª | **clock-skew dedupe** | ✅ FATTO | core; policy owner: clamp futuro ≤ 60s, scarta oltre |
 | 5ª | retry-budget CSV | da fare | core; l'owner fornisce N retry/backoff |
 | 6ª | daily-limit ora locale | da fare | core; l'owner fornisce TZ + gestione DST |
 | ⏸️ | firma EXE | in sospeso | attesa certificato (acquisto/gratuito) |
@@ -2235,3 +2235,32 @@ prevedeva) per ammettere `continue-on-error` **solo** su step di lint (ruff/mypy
 il legame direttiva→step è per indentazione, così un commento a livello job non inganna il gate.
 Mutation-guard verificato: `continue-on-error` su uno step pytest fa ancora fallire il gate. Test
 hard: `tests/unit/test_lint_config.py` (config presente, soft, tool fuori dal lock). Non-core.
+
+### 3.5-d clock-skew dedupe — FATTO
+
+**Problema.** `message_freshness.is_stale` decideva la freschezza con `(now - msg_epoch) > max_age`:
+un messaggio con `msg.date` **nel futuro** rispetto al clock locale dava sempre un delta negativo →
+`is_stale` = False → **mai stantio** (comportamento documentato ma non protetto). Rischio reale: con
+il **clock locale indietro** (NTP non sincronizzato, VM/BIOS) un backlog **vecchio** rifetchato dopo
+un outage ha `msg.date` "nel futuro" e passerebbe come **fresco** → scritto/ripiazzato nel CSV
+(segnale stantio ripiazzato, rischio doppia scommessa). La deduplica (`SignalTracker`) NON è toccata:
+timestampa le voci con `time.time()` locale, non con `msg.date`, quindi il timestamp Telegram entra
+**solo** in `is_stale` (il clock-skew della dedupe — salti dell'orologio locale — è già coperto da #184).
+
+**Policy (owner).** Clamp con tolleranza **`max_skew` = 60s** (orologi ragionevolmente sincronizzati,
+NTP): un messaggio futuro **entro 60s** è clampato ad "adesso" (resta fresco); **oltre 60s** è
+implausibile → **stantio (fail-closed)**. Confine **inclusivo** (skew == 60 → fresco), coerente con
+`max_age`.
+
+**Fix (patch stretta, `message_freshness.py`).** Nuova costante `DEFAULT_MAX_CLOCK_SKEW = 60` e
+parametro `max_skew` (default 60) su `is_stale`; nel ramo `msg_epoch > now` si ritorna
+`(msg_epoch - now) > max_skew`. `max_skew` coerciuto con `_coerce_positive_finite`
+(bool/malformato/NaN/inf/`<=0` → default, così una config rotta non spegne la protezione). **Nessun
+chiamante toccato**: `telegram_dispatch.decide`/`app` usano il default 60. Un filtro anti-stale
+disattivato dall'utente (`max_age <= 0`) resta tale (non si applica neppure il reject-skew).
+
+**Test hard** (`tests/unit/test_message_freshness.py`): futuro ≤60 (incl. confine) → fresco; futuro
+>60 (61/300/99999s) → stantio (**mutation-guard**: falliva sul vecchio codice); `max_skew` esplicito
+e confine; `max_skew` malformato → default 60; filtro disattivato → futuro resta non stantio; costante
+esposta = 60. Suite **2425 passed, 11 skipped**. **CORE change** (`xtrader_bridge/message_freshness.py`)
+→ da ri-sincronizzare nel cloud. Design handoff = **N/A** (logica pura interna, nessun elemento GUI/UX).
