@@ -780,7 +780,10 @@ The repo is private → minutes are metered and capped by the spending limit; ex
 Rules: batch fixes into a **single push per round** (no rapid successive pushes); **never spam
 empty commits / re-runs** — if a check is red, first **diagnose** (transient vs real) from the
 logs, re-trigger **once**, then verify before retrying; **do not churn labels** (remove+re-add)
-right after a push; if **every** check fails in ~2s with no logs and `runner_id: 0`, **stop** —
+right after a push (this does **not** forbid firing the final-review gate: do that **once**,
+deliberately, when the head is stable — on a fresh PR just **add** the absent labels; remove+re-add
+is only for labels already present — the rule bans **repeated/reflexive** remove+add while checks
+are still moving); if **every** check fails in ~2s with no logs and `runner_id: 0`, **stop** —
 that's the spending limit / billing, an **owner action** (github.com/settings/billing → Actions),
 **do not keep pushing**. Prefer **waiting** on an in-progress check over re-triggering it.
 

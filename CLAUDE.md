@@ -264,7 +264,11 @@ log — non è un bug del codice, è billing). Regole:
 - **Niente commit vuoti / re-trigger a raffica.** Se un check è rosso, prima **diagnostica**
   (transient vs reale) leggendo i log; ri-triggera **una volta**, poi verifica prima di riprovare.
 - **Non fare churn di label** (rimuovi+riaggiungi) subito dopo un push: aspetta che i check si
-  stabilizzino, altrimenti rischi ri-run/cancellazioni inutili.
+  stabilizzino, altrimenti rischi ri-run/cancellazioni inutili. Questo **non** vieta il firing
+  del gate finale: far partire i due workflow via label è legittimo e va fatto **una volta**, in
+  modo deliberato, quando il head è stabile (su PR nuova basta **aggiungere** le label assenti;
+  il remove+re-add serve solo se sono già presenti). La regola vieta il remove+add **ripetuto o
+  riflesso** mentre i check sono ancora in movimento.
 - Se **tutti** i check falliscono in ~2 s senza log e `runner_id: 0`, **fermati**: è lo spending
   limit / un problema di billing → **azione del proprietario** (github.com/settings/billing →
   Actions), **non** ripushare (peggiora e non risolve).
