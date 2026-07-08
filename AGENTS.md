@@ -736,7 +736,7 @@ The final review pass must happen in this order:
 9. run hard truthful local validation;
 10. push if needed;
 11. wait again for all checks to finish;
-12. only then decide `DONE`, `PARTIAL`, `NOT DONE`, `CHECKS_PENDING`, `REVIEW_WINDOW_PENDING`, or `NEEDS_MANUAL`.
+12. only then decide `DONE`, `PARTIAL`, `NOT DONE`, `CHECKS_PENDING`, or `NEEDS_MANUAL`.
 
 A PR is not ready while checks are pending, even if local tests pass.
 
@@ -771,9 +771,50 @@ or to chase per-push-range false positives** (a reviewer that only saw the last
 commit and thinks an implementation from an earlier commit of the same PR is
 «missing») — answer those in-thread with evidence, never with a commit.
 
+### CI minutes / push-churn — do not waste Windows minutes
+
+Beyond reviewer API cost, **every push and every re-run consume GitHub Actions minutes**, and
+**Windows runners bill 2×** (`windows-tests`, `generate-windows-lockfile`, `merge-simulation`).
+The repo is private → minutes are metered and capped by the spending limit; exhausting it
+**blocks ALL CI** (jobs fail instantly, `runner_id: 0`, no logs — not a code bug, it's billing).
+Rules: batch fixes into a **single push per round** (no rapid successive pushes); **never spam
+empty commits / re-runs** — if a check is red, first **diagnose** (transient vs real) from the
+logs, re-trigger **once**, then verify before retrying; **do not churn labels** (remove+re-add)
+right after a push (this does **not** forbid firing the final-review gate: do that **once**,
+deliberately, when the head is stable — on a fresh PR just **add** the absent labels; remove+re-add
+is only for labels already present — the rule bans **repeated/reflexive** remove+add while checks
+are still moving); if **every** check fails in ~2s with no logs and `runner_id: 0`, **stop** —
+that's the spending limit / billing, an **owner action** (github.com/settings/billing → Actions),
+**do not keep pushing**. Prefer **waiting** on an in-progress check over re-triggering it.
+
 ---
 
 ## Post-commit review window — 16 min gate & last-5 PR sweep — required
+
+> ⚠️ **OWNER OVERRIDE: no fixed TIMER, but an INTELLIGENT event-driven wait (see below).** The old
+> 16-minute clock is gone — idling on a clock wastes time. But do **not** merge the moment the four
+> fast reviewers respond either: wait, **event-driven**, until the reviewer that actually finds late
+> P1s has **finished**. Concretely: (1) fire the two final-review labels once; (2) the four
+> **synchronous** reviewers (Fable 5, Fugu Ultra, GPT-5.5, GLM 5.2) answer in ~1 min; (3) **wait for
+> CodeRabbit to COMPLETE its review** — its completion signal is either **actionable inline comments**
+> or the **"No actionable comments 🎉"** summary — because CodeRabbit posts its detailed findings
+> (incl. P1/Major) minutes after the fast four (proven on PR #379: 1 Major + 1 Minor landed after
+> the four said no-blocker); this wait is **event-driven** (subscription active → you wake when it
+> posts), not a clock, and never blocks the owner; (4) only with the four reviewers **and**
+> CodeRabbit's real review in → report merge yes/no. **Codex = absent** (usage limit) never posts →
+> NOT a gate. **CodeRabbit rate-limited** (posts "review limit reached" with a time): don't block
+> forever — wait if the delay is **short (≤10 min)**, else (**>10 min**, typical 39–50) tell the owner
+> and hand to the post-merge sweep. **Anti-stall cap (mandatory):** the event-driven CodeRabbit wait is
+> still capped at **~15 min from the last push to the PR head**; if by then CodeRabbit has posted
+> neither actionable comments nor "No actionable comments" (silent rate-limit, outage, long queue),
+> treat it as absent — tell the owner "CodeRabbit did not complete within the cap → coverage deferred to
+> post-merge tracking" and do **not** stall. The cap is a **fallback**, not the primary mechanism (which
+> stays the completion event, usually 1–10 min). **Clarification — the gate is for the AGENT, it does
+> not block the owner:** "wait for CodeRabbit" governs **when the agent declares ready / gives the
+> verdict**, not the merge itself; the owner may merge manually at **any** time, and if they merge early
+> the late comments are caught by post-merge tracking. `REVIEW_WINDOW_PENDING`
+> and window-wait self check-ins are gone; the last-5 PR sweep and post-merge tracking below remain
+> the backstop for what still slips through.
 
 Reason: AI reviewers do **not** comment immediately. Measured on this repo's real PRs, after
 each push the inline comments land late: **Codex** typically **+7–12 min**, **CodeRabbit**
@@ -787,57 +828,33 @@ This section applies to every PR. Merge stays **always manual and owner-only**: 
 does **not** merge, does not block the owner, and does not replace the check completion gate —
 it is **added after** it.
 
-### The 16-minute gate
+### The 16-minute gate — ❌ HISTORICAL / SUPERSEDED, DO NOT APPLY
 
-When work is "ready for merge" (checks green + local final hard verify done), you must **not**
-declare final `DONE`/`READY` until at least **16 minutes have passed since the LAST push that
-updated the PR head** (use the PR head push/update time, **not** the local git commit/author
-timestamp — bots react when the commit is attached to the PR, which can be much later than when
-it was authored locally). The 16-minute window covers the **typical** inline-review delay
-(Codex, non-rate-limited CodeRabbit).
+> ⚠️ This gate is **repealed** by the **OWNER OVERRIDE** above: you no longer wait out any timed
+> window, the `REVIEW_WINDOW_PENDING` status is **no longer used**, and you do not schedule any
+> "window-wait" self check-in. The text below is kept **only as historical context** (the old
+> flow), **not** as an instruction to execute. When work is ready, the only thing to do is: fire
+> the final labels → read the reviewers' verdicts → tell the owner merge yes/no immediately. The
+> only parts of this section **still live** are the **post-merge tracking** and the **last-5 PR
+> sweep** below (the backstop for late bot comments).
+>
+> *(Historical, not in force: the old flow waited ≥16 min since the last push to the PR head
+> before declaring ready, to cover the typical inline-comment delay; every push reset the timer.
+> Today there is no wait.)*
 
-A reviewer known to be **rate-limited** is a longer tail the 16-minute window does **not**
-cover: CodeRabbit can be delayed 39–50 min (it posts a "review limit reached" notice with the
-next-available time). When a current-head reviewer is still pending/rate-limited at window
-close, **do not** declare final `DONE`: keep watching (extend the wait to the announced
-availability, or hand off to the post-merge tracking below) until that reviewer posts or its
-own delay elapses. The last-5 sweep and post-merge Issue tracking are the backstop.
+### Post-merge tracking of late comments — ✅ IN FORCE
 
-During the window you must:
-
-- keep the **PR-activity subscription active** (`subscribe_pr_activity`) so AI comments are
-  intercepted as they arrive;
-- schedule a **self check-in** (e.g. `send_later`/`ScheduleWakeup`) at the window's close to
-  re-read the PR;
-- report status `REVIEW_WINDOW_PENDING` with the window-close time, instead of `DONE`.
-
-Tooling fallback: the gate is fundamentally about **waiting and then re-reading**, not about a
-specific tool. `subscribe_pr_activity` + `send_later`/`ScheduleWakeup` are the **preferred**
-mechanism. If they are unavailable (e.g. a runner with only git/GitHub CLI/API polling), still
-satisfy the gate by polling: re-read checks, reviews, **PR conversation comments**, inline
-comments and unresolved threads at/after window close via the CLI/API. Missing wake-up tooling never authorizes an early
-`DONE` and never blocks the PR — it only changes how you wait.
-
-Rules:
-
-- **every new push to the PR head RESETS the timer** to 16 minutes from that push (bots
-  re-review the new head);
-- do not declare `DONE`/`READY`/`READY_TO_MERGE` and do not resolve threads "with the window
-  open" before re-reading the PR at window close;
-- do not make random patches just because you are waiting.
-
-### Persistence even if the owner merges early
-
-The owner may merge manually at any time. **Merging does NOT close the review window.** You
-must still complete the 16-minute watch on that PR, **even if it is now merged/closed**, and
-re-read it at window close:
+The owner may merge manually at any time. Because you no longer wait out a window, bot comments
+can arrive **after** the merge: the backstop is **post-merge tracking** (plus the **last-5 PR
+sweep** below). After a PR is merged/closed, when a review event lands on it, re-read it and look
+for:
 
 - inline comments / review bodies with `submitted_at` **after the last push**;
 - **unresolved** threads;
 - above all, comments with `submitted_at` **after `merged_at`** (the "post-merge ghosts");
 - check annotations, Codacy/DeepSource/CodeRabbit/Sourcery/Codex if present.
 
-Outcome at window close:
+Outcome:
 
 - **nothing unresolved** → close out: no action, declare the final status.
 - **something detected** → it must be **tracked**: always open a **GitHub Issue** recording
@@ -865,27 +882,12 @@ Mandatory dedup: **before opening an Issue, search existing Issues** (open and c
 finding/PR and **do not duplicate**; if one already exists, link the comment to the existing
 Issue instead of creating a new one.
 
-### Dedicated status
+### Dedicated status — ❌ RETIRED
 
-```text
-REVIEW_WINDOW_PENDING
-
-PR:
-- <number / head SHA>
-
-Last push to PR head:
-- <SHA> @ <PR-head push/update timestamp>
-
-Window closes:
-- <PR-head push timestamp + 16 min>
-
-Merge:
-- MANUAL (not blocked by this gate)
-
-Next allowed action:
-- At close: re-read checks, review bodies, inline comments, unresolved threads, and
-  comments with submitted_at > merged_at; track in Issue + fix PR if needed.
-```
+The **`REVIEW_WINDOW_PENDING`** status is **repealed** by the OWNER OVERRIDE: it is no longer
+used, because there is no timed window to wait out. When work is ready, report the merge yes/no
+verdict directly (or `CHECKS_PENDING`/`NEEDS_MANUAL` where applicable). It has been **removed from
+all status lists** in this file's response templates: it is no longer a selectable outcome.
 
 ---
 
@@ -1080,8 +1082,9 @@ Inline comments checked:
 Unresolved threads checked:
 - YES / NO
 
-Review window (16 min since last push to PR head) honored:
-- YES / NO / RUNNING (closes at <timestamp>)
+Final labels fired + reviewers responded (Fable/Fugu/GPT/GLM) + CodeRabbit COMPLETE (or ~15-min cap elapsed):
+- YES / NO   (the 16-min window wait is REPEALED — see OWNER OVERRIDE; the gate is not satisfied
+  until CodeRabbit has completed or the anti-stall cap has elapsed)
 
 Last-5 PR post-merge sweep:
 - YES / NO
@@ -1093,7 +1096,7 @@ Merge:
 - MANUAL ONLY
 
 Final status:
-- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
+- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
 ```
 
 If any required final hard verify item is missing, do not declare `DONE`.
@@ -1236,7 +1239,7 @@ Do not mark work complete with fake, assumed, or decorative tests.
 ## Required response format after creating a new PR
 
 ```text
-DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
+DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
 
 Summary:
 - <what was changed>
@@ -1275,7 +1278,7 @@ Files created:
 - <file path>
 
 Final hard verify:
-- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
+- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
 
 Notes:
 - <anything the repository owner must know>
@@ -1294,7 +1297,7 @@ and explain why.
 ## Required response format after fixing current PR
 
 ```text
-DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
+DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
 
 Summary:
 - <what was changed>
@@ -1329,7 +1332,7 @@ Files changed:
 - <file path>
 
 Final hard verify:
-- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / REVIEW_WINDOW_PENDING / NEEDS_MANUAL
+- DONE / PARTIAL / NOT DONE / CHECKS_PENDING / NEEDS_MANUAL
 
 Notes:
 - <anything the repository owner must know>
