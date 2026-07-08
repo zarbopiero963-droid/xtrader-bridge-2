@@ -25,7 +25,7 @@ oggi.
 - **`../xtrader_simulation_test.md`** — piano di **collaudo reale** T1–T20 (#311 Fase 0).
 - **`../release_checklist.md`**, **`../mercati_mapping_design.md`** — operativi/di design.
 - **`../../xtrader_csv_contract.md`**, **`../../custom_parser.md`**, **`../../event_journal.md`**,
-  **`../../design/design_handoff.md`**, **`../../ai_audit_workflows.md`**, `README.md` — doc di
+  **`../../design/design_handoff.md`**, **`../../ai_audit_workflows.md`**, **`../../../README.md`** — doc di
   dominio/contratto/handoff vivi.
 
 I file qui archiviati mantengono la **git history** completa (spostati con `git mv`). I
