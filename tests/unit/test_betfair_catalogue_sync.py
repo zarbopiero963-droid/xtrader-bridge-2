@@ -104,29 +104,40 @@ def test_parse_market_catalogue():
 
 
 def test_parse_market_catalogue_tollera_campi_non_dict():
-    """#318 L1-2: una risposta `listMarketCatalogue` malformata/manomessa con `runners`/
-    `description`/`event` NON-dict (stringa/lista truthy) non deve far crashare
-    `parse_market_catalogue` con `AttributeError`. I campi anomali degradano fail-closed: un runner
-    non-dict è saltato, `description`/`event` non-dict → `{}`. Mutation-guard: sul vecchio codice
-    `r.get(...)`/`desc.get(...)` su un non-dict alzava `AttributeError`."""
-    cat = [{
-        "marketId": "1.999",
-        "marketName": "M",
-        "description": "stringa-non-dict",           # truthy non-dict → degradato a {}
-        "event": ["lista", "non", "dict"],            # truthy non-dict → degradato a {}
-        "runners": [
-            {"selectionId": 47972, "runnerName": "Inter"},   # valido
-            "runner-non-dict",                                # str → saltato
-            123,                                              # int → saltato
-        ],
-    }]
-    out = parse_market_catalogue(cat)                 # NON deve sollevare
-    assert "1.999" in out
+    """#318 L1-2: una risposta `listMarketCatalogue` malformata/manomessa non deve far crashare
+    `parse_market_catalogue` — né con `AttributeError` (`.get` su non-dict) né con `TypeError`
+    (`for` su un `runners` non-iterabile). Tutti i campi anomali degradano fail-closed:
+    - un `item` del catalogue non-dict → saltato (guard esistente);
+    - `description`/`event` non-dict → `{}`;
+    - un `runner` non-dict → saltato; un `runners` NON list/tuple (es. `123`, `"abcd"`) → nessun runner.
+    Mutation-guard: `r.get(...)`/`desc.get(...)` su non-dict alzava `AttributeError`, e `for r in 123`
+    alzava `TypeError`."""
+    cat = [
+        "elemento-non-dict",                          # item non-dict → saltato (guard esistente)
+        12345,                                        # item non-dict → saltato
+        {
+            "marketId": "1.999",
+            "marketName": "M",
+            "description": "stringa-non-dict",        # truthy non-dict → degradato a {}
+            "event": ["lista", "non", "dict"],        # truthy non-dict → degradato a {}
+            "runners": [
+                {"selectionId": 47972, "runnerName": "Inter"},   # valido
+                "runner-non-dict",                                # str → saltato
+                123,                                              # int → saltato
+            ],
+        },
+        {"marketId": "1.888", "marketName": "M2", "runners": 123},      # runners non-iterabile → []
+        {"marketId": "1.777", "marketName": "M3", "runners": "abcd"},   # runners str → [] (no iter char)
+    ]
+    out = parse_market_catalogue(cat)                 # NON deve sollevare (né AttributeError né TypeError)
+    assert set(out) == {"1.999", "1.888", "1.777"}    # i 2 item non-dict saltati
     info = out["1.999"]
     assert info["market_type"] is None                # description non-dict → {} → marketType assente
     assert info["event"]["name"] is None              # event non-dict → {} → name assente
     assert len(info["runners"]) == 1                  # solo il runner dict valido
     assert info["runners"][0]["selection_id"] == "47972"
+    assert out["1.888"]["runners"] == []              # runners:123 non-iterabile → vuoto, nessun TypeError
+    assert out["1.777"]["runners"] == []              # runners:"abcd" str → vuoto (non itera i caratteri)
 
 
 # ── sync end-to-end nel DB locale ─────────────────────────────────────────────

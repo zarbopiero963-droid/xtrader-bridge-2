@@ -136,7 +136,10 @@ def _jsonrpc_result(data):
         raise RuntimeError("Risposta listMarketCatalogue non valida (formato).")
     err = data.get("error")
     if err:
-        code = err.get("code") if isinstance(err, dict) else err
+        # #318 L1-3 (review CodeRabbit): un `error` NON-dict (str/list malformato) NON deve finire
+        # grezzo nel messaggio d'errore — la docstring garantisce «solo il codice, mai contenuti».
+        # Si tronca a 64 char come segnaposto bounded.
+        code = err.get("code") if isinstance(err, dict) else str(err)[:64]
         detail = ""
         if isinstance(err, dict):
             # #318 L1-3: `data`/`APINGException` potrebbero arrivare come str/list (forma anomala
@@ -284,8 +287,14 @@ def parse_market_catalogue(catalogue):
         desc = desc if isinstance(desc, dict) else {}
         event = item.get("event")
         event = event if isinstance(event, dict) else {}
+        # `runners` deve essere una lista/tupla: un valore NON-iterabile truthy (es. `runners: 123`)
+        # farebbe fallire `for r in ...` con `TypeError`; una stringa/dict itererebbe caratteri/chiavi.
+        # Si accetta solo list/tuple, altrimenti nessun runner (fail-closed, #318 L1-2).
+        raw_runners = item.get("runners")
+        if not isinstance(raw_runners, (list, tuple)):
+            raw_runners = ()
         runners = []
-        for r in item.get("runners") or ():
+        for r in raw_runners:
             if not isinstance(r, dict):
                 continue                    # runner non-dict (input malformato) → skip, non crash
             runners.append({

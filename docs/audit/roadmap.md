@@ -2206,11 +2206,14 @@ rollback, 0 righe scritte, nessun leak/DoS), ma il parser dichiarava una tollera
 aveva. **Triage 2026-07-08: entrambi ancora presenti** (nessun fix pregresso).
 
 - **L1-2** (`parse_market_catalogue`): un `runner` non-dict (`r.get(...)`) — e, stessa classe nella
-  stessa funzione, un `description`/`event` **stringa/lista** truthy — alzavano `AttributeError`. Fix:
-  `runner` non-dict → **saltato**; `description`/`event` non-dict → **coerciti a `{}`**.
+  stessa funzione, un `description`/`event` **stringa/lista** truthy — alzavano `AttributeError`; un
+  `runners` **non list/tuple** (es. `123`) alzava `TypeError` su `for` (review Fugu). Fix: `runner`
+  non-dict → **saltato**; `description`/`event` non-dict → **coerciti a `{}`**; `runners` non list/tuple
+  → **nessun runner**.
 - **L1-3** (`_jsonrpc_result`): `(err.get("data") or {}).get("APINGException")` crashava se `data`/
   `APINGException` erano str/list. Fix: **isinstance guard** su `data_field` e `aping` → un errore con
-  forma anomala resta classificato (`BetfairApiError`), solo senza il dettaglio `errorCode`.
+  forma anomala resta classificato (`BetfairApiError`), solo senza il dettaglio `errorCode`; un `error`
+  non-dict è **troncato a 64 char** nel messaggio (review CodeRabbit: no payload grezzo nei log).
 
 **Patch stretta** (`betfair/catalogue_client.py`): nessun cambio per input validi. **CORE CHANGE** →
 ri-sincronizzare nel cloud. Test hard (`test_betfair_catalogue_sync.py`): runner/description/event
