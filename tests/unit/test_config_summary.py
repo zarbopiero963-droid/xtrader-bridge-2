@@ -175,6 +175,20 @@ def test_canale_multi_parser_secondario_rotto_non_pronto(tmp_path):
     assert cs.REASON_PARSER_UNLOADABLE in ch.reason and "B" in ch.reason
 
 
+def test_canale_multi_parser_secondario_con_profilo_fantasma_non_pronto(tmp_path):
+    # Codex #391 P2: un SECONDARIO che CARICA ma referenzia un profilo di mappatura FANTASMA
+    # (inesistente) sbaglierebbe le sue righe a runtime → la chat NON è pronta, anche se il
+    # primario è perfetto. La readiness aggrega i profili mancanti su TUTTI i parser caricati.
+    _save_parser("A", tmp_path)                              # primario: nessuna mappatura
+    _save_parser("B", tmp_path, markets=["GhostM"])          # secondario: profilo mercati fantasma
+    cfg = {"parser_list_by_chat": {"777": ["A", "B"]}}
+    s = cs.summarize_config(cfg, parsers_dir=str(tmp_path))
+    ch = next(c for c in s.channels if c.chat_id == "777")
+    assert ch.parser_names_unloaded == ()                   # entrambi CARICANO…
+    assert ch.ready is False                                # …ma B ha un profilo fantasma
+    assert cs.REASON_MISSING_TRANSLATION in ch.reason and "GhostM" in ch.reason
+
+
 def test_canale_multi_parser_tutti_rotti_non_pronto(tmp_path):
     # GLM #391 (edge): TUTTI i parser della lista non caricabili → non pronto, tutti in
     # `parser_names_unloaded`, primario non caricato.

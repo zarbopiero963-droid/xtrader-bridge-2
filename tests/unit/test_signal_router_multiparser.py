@@ -85,8 +85,8 @@ def test_set_list_for_chat_scrive_lista_e_sincronizza_singolo():
     assert out["parser_by_chat"]["42"] == "A"                        # singolo sincronizzato al primo
     # lista vuota → rimuove entrambe le voci per la chat
     cleared = parser_manager.set_list_for_chat(out, "42", [])
-    assert "42" not in cleared["parser_list_by_chat"]
-    assert "42" not in cleared["parser_by_chat"]
+    assert "42" not in cleared.get("parser_list_by_chat", {})
+    assert "42" not in cleared.get("parser_by_chat", {})
 
 
 def test_load_active_list_salta_nomi_non_caricabili(tmp_path):
@@ -206,3 +206,18 @@ def test_dedup_e_su_riga_completa_non_solo_mercato(tmp_path):
     assert len(rows) == 2                                             # stesso mercato, selezioni diverse
     assert all(r["MarketType"] == "OVER_UNDER_25" for r in rows)
     assert {r["SelectionName"] for r in rows} == {"Over 2.5", "Under 2.5"}
+
+
+def test_set_for_chat_rimuove_lista_multi_stantia():
+    # Codex #391 P2: tornare a UN solo parser (o azzerare) via set_for_chat deve RIMUOVERE la
+    # lista multi stantia, che altrimenti vincerebbe in resolve_parser_names (precedenza lista).
+    cfg = {"parser_list_by_chat": {"42": ["A", "B"]}, "parser_by_chat": {"42": "A"}}
+    out = parser_manager.set_for_chat(cfg, "42", "C")
+    assert "42" not in out.get("parser_list_by_chat", {})           # lista stantia rimossa
+    assert out["parser_by_chat"]["42"] == "C"
+    assert parser_manager.resolve_parser_names(out, "42") == ["C"]  # ora routing su C, non ["A","B"]
+    # azzerando il singolo, sparisce tutto per la chat
+    cleared = parser_manager.set_for_chat(cfg, "42", "")
+    assert "42" not in cleared.get("parser_list_by_chat", {})
+    assert "42" not in cleared.get("parser_by_chat", {})
+    assert parser_manager.resolve_parser_names(cleared, "42") == []

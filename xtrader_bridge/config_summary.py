@@ -152,6 +152,15 @@ def summarize_channel(cfg: dict, row: dict, *, existing_names: set,
         defn.name_mapping_profiles if defn else (), existing_names)
     markets = _translation_summary(
         defn.market_mapping_profiles if defn else (), existing_markets)
+    # PR-2 (Codex #391): profili di mappatura FANTASMA su QUALSIASI parser caricato, non solo il
+    # primario. Un secondario che carica ma referenzia profili nomi/mercati inesistenti
+    # sbaglierebbe/perderebbe le sue righe a runtime → la chat NON è pronta. `names`/`markets`
+    # (per il chip) restano quelle del primario; la readiness aggrega su tutti i parser.
+    missing_all = []
+    for d in loaded_by_name.values():
+        missing_all += list(_translation_summary(d.name_mapping_profiles, existing_names).missing)
+        missing_all += list(_translation_summary(d.market_mapping_profiles, existing_markets).missing)
+    missing_all = tuple(dict.fromkeys(missing_all))   # dedup preservando l'ordine
 
     # «Pronto?» severo, in ordine di precedenza (dal problema più a monte).
     if not chat_id:
@@ -165,9 +174,10 @@ def summarize_channel(cfg: dict, row: dict, *, existing_names: set,
         # con un secondario rotto che perderebbe bet in silenzio). Con un solo parser configurato
         # è esattamente il messaggio di prima (`REASON_PARSER_UNLOADABLE: <nome>`).
         ready, reason = False, f"{REASON_PARSER_UNLOADABLE}: {', '.join(unloaded)}"
-    elif names.has_missing or markets.has_missing:
-        miss = ", ".join(names.missing + markets.missing)
-        ready, reason = False, f"{REASON_MISSING_TRANSLATION}: {miss}"
+    elif missing_all:
+        # Profili fantasma su un qualsiasi parser (primario o secondario). Con un solo parser
+        # è identico a prima (`REASON_MISSING_TRANSLATION: <profili>` del primario).
+        ready, reason = False, f"{REASON_MISSING_TRANSLATION}: {', '.join(missing_all)}"
     else:
         ready, reason = True, ""
 

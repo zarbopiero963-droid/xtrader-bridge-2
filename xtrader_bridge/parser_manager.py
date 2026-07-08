@@ -99,10 +99,17 @@ def set_active(cfg: dict, name: str) -> dict:
 
 
 def set_for_chat(cfg: dict, chat_id: str, name: str) -> dict:
-    """Ritorna una copia della config con l'override per la chat impostato
-    (nome vuoto → rimuove l'override)."""
+    """Ritorna una copia della config con l'override SINGOLO per la chat impostato
+    (nome vuoto → rimuove l'override).
+
+    PR-2 (Codex #391): imposta il singolo `parser_by_chat[chat]` **e** RIMUOVE una eventuale
+    LISTA multi-parser stantia per la stessa chat (`parser_list_by_chat[chat]`). Senza,
+    riportando una chat a un solo parser (o azzerandola) via questo percorso legacy, la lista
+    vecchia — che ha PRECEDENZA in `resolve_parser_names` — continuerebbe a vincere, lasciando
+    il routing sui parser vecchi. Il singolo è la nuova verità → la lista va tolta."""
     out = dict(cfg or {})
     mapping = parser_by_chat(out)
+    list_mapping = parser_list_by_chat(out)
     chat_key = str(chat_id or "").strip()
     clean = str(name or "").strip()
     if chat_key:
@@ -110,7 +117,9 @@ def set_for_chat(cfg: dict, chat_id: str, name: str) -> dict:
             mapping[chat_key] = clean
         else:
             mapping.pop(chat_key, None)
+        list_mapping.pop(chat_key, None)   # la lista multi stantia NON deve più vincere
     out["parser_by_chat"] = mapping
+    _set_or_clear(out, "parser_list_by_chat", list_mapping)
     return out
 
 
@@ -121,9 +130,11 @@ def set_list_for_chat(cfg: dict, chat_id: str, names) -> dict:
     Deduplica preservando l'ordine. Mantiene inoltre `parser_by_chat[chat]` sincronizzato
     col PRIMO nome (o lo rimuove se la lista è vuota): così le viste e i lettori "single"
     (config_summary, chat-approval legacy) restano coerenti e la chat resta approvata
-    dallo stesso percorso di sempre, senza indebolire il filtro chat."""
+    dallo stesso percorso di sempre, senza indebolire il filtro chat. Scrive ENTRAMBE le mappe
+    direttamente (non via `set_for_chat`, che rimuoverebbe la lista appena impostata)."""
     out = dict(cfg or {})
     mapping = parser_list_by_chat(out)
+    by_chat = parser_by_chat(out)
     chat_key = str(chat_id or "").strip()
     clean = []
     seen = set()
@@ -135,12 +146,21 @@ def set_list_for_chat(cfg: dict, chat_id: str, names) -> dict:
     if chat_key:
         if clean:
             mapping[chat_key] = clean
+            by_chat[chat_key] = clean[0]       # sync del singolo al primo
         else:
             mapping.pop(chat_key, None)
-    out["parser_list_by_chat"] = mapping
-    # Primo nome (o "" per rimuovere) sincronizzato sul singolo, così i lettori single e
-    # l'approvazione chat legacy vedono comunque la chat come configurata.
-    return set_for_chat(out, chat_key, clean[0] if clean else "")
+            by_chat.pop(chat_key, None)
+    out["parser_by_chat"] = by_chat
+    _set_or_clear(out, "parser_list_by_chat", mapping)
+    return out
+
+
+def _set_or_clear(container: dict, key: str, value: dict) -> None:
+    """Scrive `value` sotto `key` se non vuoto, altrimenti rimuove la chiave (config pulita)."""
+    if value:
+        container[key] = value
+    else:
+        container.pop(key, None)
 
 
 def available_parser_names(dir_path: str = None) -> list:

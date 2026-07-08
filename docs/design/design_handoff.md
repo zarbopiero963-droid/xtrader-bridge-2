@@ -748,7 +748,10 @@ riepilogo non può divergere dal comportamento reale. Logica in `config_summary.
   elenca i nomi non caricabili. Con un solo parser il testo è invariato.
   riga traduzioni **`Nomi ✓N · Mercati ✓N`** (o `—` se nessuna), e l'indicatore **«Pronto?»**:
   - **`✅ Pronto`** (verde) solo se il canale è ascoltabile (chat_id presente + sorgente attiva),
-    ha un parser che **si carica ed è valido**, e **tutte** le mappature selezionate si risolvono;
+    ha un parser che **si carica ed è valido**, e **tutte** le mappature selezionate si risolvono.
+    **PR-2 (multi-parser):** con più parser per la chat, la readiness copre **TUTTI** i parser
+    della lista — un secondario non caricabile **o** con un profilo di mappatura fantasma rende
+    il canale **non pronto** (un secondario rotto perderebbe/sbaglierebbe bet in silenzio);
   - **`⚠ <motivo>`** (arancione) altrimenti — motivi: «Manca chat_id», «Sorgente disattivata»,
     «Nessun parser assegnato», «Parser non caricabile: <nome>», «Traduzione mancante: <profili>».
 - **«Pronto?» è severo e fail-closed** (scelta del proprietario): un profilo di mappatura

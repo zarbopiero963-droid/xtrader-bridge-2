@@ -2544,14 +2544,16 @@ class App(ctk.CTk):
             self._log("⚠️ Nessuna chat sorgente ATTIVA: il listener parte ma NON "
                       "processerà alcun segnale finché non attivi almeno una chat.")
         # Fail-fast (PR-23/PR-24): la chat notifiche XTrader NON deve coincidere con una
-        # chat sorgente (chat_id, override parser_by_chat o sorgente multi-chat ATTIVA);
-        # altrimenti i segnali di quella chat finirebbero nel percorso di conferma e
-        # verrebbero ignorati silenziosamente.
+        # chat sorgente; altrimenti i segnali di quella chat finirebbero nel percorso di
+        # conferma e verrebbero ignorati silenziosamente. PR-2 (Codex #391): usa la FONTE
+        # UNICA `signal_router.allowed_chats` (chat_id + parser_by_chat + **parser_list_by_chat**
+        # + sorgenti ATTIVE, meno le disattivate) invece di ricostruire il set a mano: senza,
+        # una chat configurata SOLO nella lista multi-parser (`parser_list_by_chat`) non veniva
+        # rilevata come sorgente e il conflitto notifiche sfuggiva al fail-fast → ogni suo
+        # messaggio finiva in `IGNORE_CONFLICT` silenzioso.
         notif = str(cfg.get("xtrader_notification_chat_id", "") or "").strip()
         if notif:
-            sources = {str(cfg.get("chat_id", "") or "").strip()}
-            sources.update(str(k).strip() for k in (cfg.get("parser_by_chat") or {}))
-            sources.update(str(s).strip() for s in source_manager.enabled_chat_ids(cfg))
+            sources = set(signal_router.allowed_chats(cfg))
             sources.discard("")
             if notif in sources:
                 self._log("❌ La Chat notifiche XTrader coincide con una chat sorgente: "
