@@ -2274,9 +2274,15 @@ del cap) e `truncated`, e la riga conteggi invita a restringere con Sport/Cerca 
 piccola e sicura, coerente con la REGOLA D'ORO). Il debouncer ricerca e il suo teardown (`destroy`)
 restano invariati.
 
+**Fix di review (stesso PR, un solo push):** aggiunta **scrollbar orizzontale** al Treeview
+(CodeRabbit Major: i livelli larghi — Eventi ha 8 colonne × 150px — sbordavano e le colonne di destra
+Casa/Trasferta/Attivo restavano irraggiungibili; usato `grid` per posizionare le due scrollbar); cap
+reso difensivo `limit > 0` (nit GLM: un cap `0`/negativo non deve svuotare la tabella → vale «nessun
+cap»).
+
 Test hard (`test_betfair_dictionary_viewer.py`): `limit` tronca ma NON i conteggi (mutation-guard vs
-vecchio codice che tornava tutte le righe), `limit=None`/`limit>totale` = nessun cap, cap applicato
-DOPO `active_only` e DOPO la ricerca, `view_if_free` propaga `limit`. Suite completa verde. Aggiornato
+vecchio codice che tornava tutte le righe), `limit=None`/`limit>totale`/`limit≤0` = nessun cap, cap
+applicato DOPO `active_only` e DOPO la ricerca, `view_if_free` propaga `limit`. Suite completa verde. Aggiornato
 allowlist blind-except (`dictionary_viewer_gui.py`: 1→2, per lo stile Treeview best-effort). Design
 handoff §7.7 aggiornato. **Verifica manuale owner (richiede display, non in CI):** aprire Strumenti →
 Dizionario, cambiare Livello su Mercati/Selezioni e premere 🔄 Aggiorna → la finestra **non** si blocca

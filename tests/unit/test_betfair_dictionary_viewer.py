@@ -250,6 +250,18 @@ def test_view_limit_maggiore_del_totale_nessun_troncamento(db):
     assert len(v["rows"]) == 2 and v["truncated"] is False
 
 
+def test_view_limit_zero_o_negativo_nessun_cap(db):
+    """Difensivo (nit GLM #388): un cap ``0`` o negativo è nonsensico e NON deve svuotare la
+    tabella — deve valere come «nessun cap» (mostra tutto). La GUI passa sempre `_ROW_CAP`>0,
+    ma il contratto resta robusto."""
+    _seed(db)
+    ctrl = DictionaryViewerController(db)
+    for bad in (0, -1, -100):
+        v = ctrl.view("events", limit=bad)
+        assert len(v["rows"]) == 2, f"limit={bad} non deve troncare"
+        assert v["truncated"] is False and v["shown"] == 2
+
+
 def test_view_limit_applicato_dopo_active_only(db):
     """Il cap sta a VALLE di tutti i filtri, incluso `active_only`: con 1 solo attivo e limit=1
     la riga mostrata è quella attiva e NON è troncata (1 <= 1)."""

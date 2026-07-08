@@ -188,9 +188,11 @@ class DictionaryViewerController:
           DOPO tutti i filtri (scope/filters/search/active_only). Serve alla GUI per non
           costruire migliaia di widget in un colpo (freeze "Non risponde" su Mercati/Selezioni):
           il cap sta qui, a valle dei filtri, perché una `LIMIT` SQL taglierebbe PRIMA di
-          filtrare → risultati sbagliati. `None`/negativo → nessun cap (retro-compatibile).
-          `shown` = quante righe passavano i filtri prima del cap; `truncated` = True se il
-          cap ha tagliato (la GUI lo segnala e invita a restringere con Sport/Cerca)."""
+          filtrare → risultati sbagliati. `None` o un valore **≤ 0** → nessun cap
+          (retro-compatibile e difensivo: un cap nonsensico ``0``/negativo NON deve svuotare
+          la tabella, mostra tutto). `shown` = quante righe passavano i filtri prima del cap;
+          `truncated` = True se il cap ha tagliato (la GUI lo segnala e invita a restringere
+          con Sport/Cerca)."""
         spec = _LEVELS[_check_level(level)]
         rows_ = self._scoped_rows(level, sport)
         rows_ = self._apply_filters(rows_, filters)
@@ -200,7 +202,7 @@ class DictionaryViewerController:
         shown_rows = [r for r in rows_ if _is_active(r)] if active_only else rows_
         shown = len(shown_rows)
         truncated = False
-        if limit is not None and limit >= 0 and shown > limit:
+        if limit is not None and limit > 0 and shown > limit:
             shown_rows = shown_rows[:limit]
             truncated = True
         cols = spec["columns"]

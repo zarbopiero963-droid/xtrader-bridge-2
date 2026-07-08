@@ -627,7 +627,9 @@ Sport→Competizioni→Eventi→Mercati→Selezioni con filtro **Livello**, filt
 checkbox **"Solo attivi"**, **"🔄 Aggiorna"**, ricerca (con **"Pulisci"**), riga conteggi,
 tabella risultati.
 - **Tabella:** griglia **nativa `ttk.Treeview`** (non più una griglia di label CTk) con
-  **scrollbar verticale**, intestazioni di colonna e **larghezza per-colonna** → colonne allineate.
+  **scrollbar verticale e orizzontale**, intestazioni di colonna e **larghezza per-colonna** →
+  colonne allineate (la scrollbar orizzontale serve ai livelli larghi — Eventi ha 8 colonne — per
+  raggiungere le colonne di destra come Casa/Trasferta e Attivo senza che la finestra sbordi).
   È **virtualizzata** (renderizza solo le righe visibili) e le righe sono **limitate a `500`**
   (`_ROW_CAP`): così i livelli grandi (Mercati ≈ 3k, Selezioni ≈ 12k) **non bloccano** più la
   finestra (prima costruiva ~88.000 widget → freeze "Non risponde" di minuti). Se un livello

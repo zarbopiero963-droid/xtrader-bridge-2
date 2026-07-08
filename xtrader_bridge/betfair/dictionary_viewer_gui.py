@@ -108,10 +108,19 @@ class DictionaryViewerPanel(ctk.CTkFrame):
         table_frame = ctk.CTkFrame(self, fg_color="transparent")
         table_frame.pack(fill="both", expand=True, padx=12, pady=6)
         self._tree = ttk.Treeview(table_frame, show="headings", height=18, selectmode="none")
+        # Scrollbar verticale E orizzontale (CodeRabbit #388): i livelli larghi hanno 6–8 colonne a
+        # larghezza fissa (`stretch=False`) → la tabella può sbordare oltre la finestra e senza scroll
+        # orizzontale le colonne di destra (Casa/Trasferta, Attivo) resterebbero irraggiungibili. Uso
+        # `grid` (non `pack`) dentro table_frame per posizionare correttamente le due scrollbar attorno
+        # alla tabella (la verticale a destra, l'orizzontale sotto).
         vsb = ttk.Scrollbar(table_frame, orient="vertical", command=self._tree.yview)
-        self._tree.configure(yscrollcommand=vsb.set)
-        vsb.pack(side="right", fill="y")
-        self._tree.pack(side="left", fill="both", expand=True)
+        hsb = ttk.Scrollbar(table_frame, orient="horizontal", command=self._tree.xview)
+        self._tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        self._tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        table_frame.grid_rowconfigure(0, weight=1)
+        table_frame.grid_columnconfigure(0, weight=1)
         self._apply_tree_style()
 
     # ── dati ──────────────────────────────────────────────────────────────────
