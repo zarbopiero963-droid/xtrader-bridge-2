@@ -103,6 +103,43 @@ def test_parse_market_catalogue():
     assert info["runners"][0]["selection_id"] == "47972"
 
 
+def test_parse_market_catalogue_tollera_campi_non_dict():
+    """#318 L1-2: una risposta `listMarketCatalogue` malformata/manomessa non deve far crashare
+    `parse_market_catalogue` — né con `AttributeError` (`.get` su non-dict) né con `TypeError`
+    (`for` su un `runners` non-iterabile). Tutti i campi anomali degradano fail-closed:
+    - un `item` del catalogue non-dict → saltato (guard esistente);
+    - `description`/`event` non-dict → `{}`;
+    - un `runner` non-dict → saltato; un `runners` NON list/tuple (es. `123`, `"abcd"`) → nessun runner.
+    Mutation-guard: `r.get(...)`/`desc.get(...)` su non-dict alzava `AttributeError`, e `for r in 123`
+    alzava `TypeError`."""
+    cat = [
+        "elemento-non-dict",                          # item non-dict → saltato (guard esistente)
+        12345,                                        # item non-dict → saltato
+        {
+            "marketId": "1.999",
+            "marketName": "M",
+            "description": "stringa-non-dict",        # truthy non-dict → degradato a {}
+            "event": ["lista", "non", "dict"],        # truthy non-dict → degradato a {}
+            "runners": [
+                {"selectionId": 47972, "runnerName": "Inter"},   # valido
+                "runner-non-dict",                                # str → saltato
+                123,                                              # int → saltato
+            ],
+        },
+        {"marketId": "1.888", "marketName": "M2", "runners": 123},      # runners non-iterabile → []
+        {"marketId": "1.777", "marketName": "M3", "runners": "abcd"},   # runners str → [] (no iter char)
+    ]
+    out = parse_market_catalogue(cat)                 # NON deve sollevare (né AttributeError né TypeError)
+    assert set(out) == {"1.999", "1.888", "1.777"}    # i 2 item non-dict saltati
+    info = out["1.999"]
+    assert info["market_type"] is None                # description non-dict → {} → marketType assente
+    assert info["event"]["name"] is None              # event non-dict → {} → name assente
+    assert len(info["runners"]) == 1                  # solo il runner dict valido
+    assert info["runners"][0]["selection_id"] == "47972"
+    assert out["1.888"]["runners"] == []              # runners:123 non-iterabile → vuoto, nessun TypeError
+    assert out["1.777"]["runners"] == []              # runners:"abcd" str → vuoto (non itera i caratteri)
+
+
 # ── sync end-to-end nel DB locale ─────────────────────────────────────────────
 
 def _sync(db):
@@ -419,6 +456,29 @@ def test_jsonrpc_result_solleva_su_errore_e_result_mancante():
     with pytest.raises(RuntimeError):
         cc._jsonrpc_result("non un dict")
     assert cc._jsonrpc_result({"result": [{"marketId": "1.1"}]}) == [{"marketId": "1.1"}]
+
+
+def test_jsonrpc_result_tollera_error_data_non_dict():
+    """#318 L1-3: `error.data`/`APINGException` con forma anomala (str/list invece di dict) non deve
+    far crashare `_jsonrpc_result` con `AttributeError`: l'errore resta classificato
+    (`BetfairApiError`, sottoclasse di `RuntimeError`), solo senza il dettaglio `errorCode`.
+    Mutation-guard: sul vecchio codice `(err.get("data") or {}).get(...)` su una str/list alzava
+    `AttributeError` (NON `RuntimeError`), che `pytest.raises(RuntimeError)` non catturerebbe."""
+    from xtrader_bridge.betfair import catalogue_client as cc
+    with pytest.raises(RuntimeError):                                    # data = stringa non-dict
+        cc._jsonrpc_result({"error": {"code": -32099, "data": "stringa-non-dict"}})
+    with pytest.raises(RuntimeError):                                    # data = lista non-dict
+        cc._jsonrpc_result({"error": {"code": -32099, "data": ["lista"]}})
+    with pytest.raises(RuntimeError):                                    # APINGException = str non-dict
+        cc._jsonrpc_result({"error": {"code": -32099, "data": {"APINGException": "str"}}})
+    with pytest.raises(RuntimeError):                                    # error stesso non-dict
+        cc._jsonrpc_result({"error": "errore-come-stringa"})
+    # #318 L1-3 (review GPT/Fable): un `error` non-dict NON deve trapelare nel messaggio (nemmeno
+    # troncato) — si usa un placeholder COSTANTE. Nessuna parte del payload remoto deve comparire.
+    with pytest.raises(RuntimeError) as ei:
+        cc._jsonrpc_result({"error": "PAYLOAD-REMOTO-SENSIBILE-1234567890"})
+    assert "PAYLOAD-REMOTO" not in str(ei.value)                         # niente contenuto remoto
+    assert "<malformed>" in str(ei.value)                               # placeholder costante
 
 
 def test_http_catalogue_chunk_e_aggrega():

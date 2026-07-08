@@ -136,11 +136,21 @@ def _jsonrpc_result(data):
         raise RuntimeError("Risposta listMarketCatalogue non valida (formato).")
     err = data.get("error")
     if err:
-        code = err.get("code") if isinstance(err, dict) else err
+        # #318 L1-3 (review CodeRabbit/GPT/Fable): un `error` NON-dict (str/list malformato) NON deve
+        # finire nel messaggio d'errore — nemmeno troncato: la docstring garantisce «solo il codice,
+        # mai contenuti» e il campo `error` è contenuto REMOTO non attendibile (rischio log-injection).
+        # Un errore con forma anomala usa un placeholder COSTANTE, senza esporre alcuna parte del payload.
+        code = err.get("code") if isinstance(err, dict) else "<malformed>"
         detail = ""
         if isinstance(err, dict):
-            aping = (err.get("data") or {}).get("APINGException") or {}
-            detail = aping.get("errorCode") or ""
+            # #318 L1-3: `data`/`APINGException` potrebbero arrivare come str/list (forma anomala
+            # o encoding insolito) → `.get(...)` su un non-dict solleverebbe `AttributeError`. Con
+            # gli isinstance guard un errore con forma inattesa resta classificato (BetfairApiError
+            # sollevato), solo senza il dettaglio `errorCode` — fail-closed, mai crash.
+            data_field = err.get("data")
+            aping = data_field.get("APINGException") if isinstance(data_field, dict) else None
+            detail = aping.get("errorCode") if isinstance(aping, dict) else ""
+            detail = detail or ""
         raise BetfairApiError(
             f"Errore listMarketCatalogue dall'Exchange (code={code} {detail}).".strip(),
             error_code=detail or None)
@@ -270,10 +280,24 @@ def parse_market_catalogue(catalogue):
         market_id = str(item.get("marketId") or "")
         if not market_id:
             continue
-        desc = item.get("description") or {}
-        event = item.get("event") or {}
+        # #318 L1-2: campi che il parser tratta come dict ma che una risposta API malformata
+        # (o manomessa) potrebbe consegnare come stringa/lista truthy → `.get(...)` solleverebbe
+        # `AttributeError`, che crasherebbe il thread di sync invece di degradare fail-closed. Si
+        # coerciscono a `{}` i non-dict (description/event) e si saltano i runner non-dict.
+        desc = item.get("description")
+        desc = desc if isinstance(desc, dict) else {}
+        event = item.get("event")
+        event = event if isinstance(event, dict) else {}
+        # `runners` deve essere una lista/tupla: un valore NON-iterabile truthy (es. `runners: 123`)
+        # farebbe fallire `for r in ...` con `TypeError`; una stringa/dict itererebbe caratteri/chiavi.
+        # Si accetta solo list/tuple, altrimenti nessun runner (fail-closed, #318 L1-2).
+        raw_runners = item.get("runners")
+        if not isinstance(raw_runners, (list, tuple)):
+            raw_runners = ()
         runners = []
-        for r in item.get("runners") or ():
+        for r in raw_runners:
+            if not isinstance(r, dict):
+                continue                    # runner non-dict (input malformato) → skip, non crash
             runners.append({
                 "selection_id": str(r.get("selectionId") or ""),
                 "runner_name": r.get("runnerName"),

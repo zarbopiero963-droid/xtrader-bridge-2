@@ -2197,6 +2197,35 @@ elemento GUI/UX). Restano da triare gli altri finding #318 (L1-2/L1-3, L1-4, L2-
 
 ---
 
+## #318-L1-2 / L1-3 — isinstance guard su risposta Betfair malformata — FATTO
+
+Finding adversariali #318 (L1-2 + L1-3, LOW, stesso file `betfair/catalogue_client.py`, stessa classe:
+`.get(...)` su un valore non-dict → `AttributeError` che crasherebbe il thread di sync Betfair su una
+risposta API malformata/anomala). Entrambi **fail-closed/contenuti** (il sync degrada a `FAILED` con
+rollback, 0 righe scritte, nessun leak/DoS), ma il parser dichiarava una tolleranza ai campi che non
+aveva. **Triage 2026-07-08: entrambi ancora presenti** (nessun fix pregresso).
+
+- **L1-2** (`parse_market_catalogue`): un `runner` non-dict (`r.get(...)`) — e, stessa classe nella
+  stessa funzione, un `description`/`event` **stringa/lista** truthy — alzavano `AttributeError`; un
+  `runners` **non list/tuple** (es. `123`) alzava `TypeError` su `for` (review Fugu). Fix: `runner`
+  non-dict → **saltato**; `description`/`event` non-dict → **coerciti a `{}`**; `runners` non list/tuple
+  → **nessun runner**.
+- **L1-3** (`_jsonrpc_result`): `(err.get("data") or {}).get("APINGException")` crashava se `data`/
+  `APINGException` erano str/list. Fix: **isinstance guard** su `data_field` e `aping` → un errore con
+  forma anomala resta classificato (`BetfairApiError`), solo senza il dettaglio `errorCode`; un `error`
+  non-dict usa un **placeholder costante** (`<malformed>`) nel messaggio (review CodeRabbit/GPT/Fable:
+  nessun contenuto remoto non attendibile nei log, anche troncato — anti log-injection).
+
+**Patch stretta** (`betfair/catalogue_client.py`): nessun cambio per input validi. **CORE CHANGE** →
+ri-sincronizzare nel cloud. Test hard (`test_betfair_catalogue_sync.py`): runner/description/event
+non-dict → nessun crash, output coerente (`market_type`/`event.name` `None`, solo il runner valido);
+`error.data`/`APINGException` str/list → `RuntimeError`/`BetfairApiError` (non `AttributeError`) —
+**mutation-guard** (sul vecchio codice `pytest.raises(RuntimeError)` non catturava l'`AttributeError`).
+Suite **2435 passed**. Docs: README **N/A** (fix interno Betfair, nessun comportamento user-visible);
+design handoff **N/A**. Restano #318 **L1-4** (parser ReDoS) e **L2-2** (`_is_placeholder`).
+
+---
+
 ## #311-3.5 — Minori (una PR alla volta, dopo ogni merge del proprietario)
 
 Coda approvata dei minori 3.5, nell'ordine (dal più sicuro al più delicato). Ogni voce = PR singola con
