@@ -75,9 +75,17 @@ def _fmt_day(year: int, mon: int, mday: int) -> str:
 
 
 def _day_key(now: float) -> str:
-    """Chiave del giorno (UTC) ``YYYY-MM-DD`` per `now` (epoch). UTC per evitare
-    salti di fuso/ora legale che falserebbero il reset giornaliero."""
-    t = time.gmtime(now)
+    """Chiave del giorno **LOCALE** ``YYYY-MM-DD`` per `now` (epoch), secondo il fuso e
+    l'ora legale del sistema operativo (#311-3.5-f). Così il reset del tetto giornaliero
+    segue la mezzanotte **locale** dell'utente, non quella UTC (per un'app desktop il fuso del
+    PC è quello dell'utente).
+
+    **DST (ora legale): gestito dal SO.** Il confronto del rollover è sulla **DATA di
+    calendario** (`YYYY-MM-DD`), non sulle ore: un giorno di cambio ora — che dura 23 o 25 ore —
+    non salta né duplica una data, quindi l'ordinamento cronologico delle chiavi (e con esso le
+    invarianti fail-closed di `_roll`/`allow`) resta corretto. Un salto DST avviene a notte fonda
+    entro lo stesso giorno di calendario, non ne crea uno nuovo."""
+    t = time.localtime(now)
     return _fmt_day(t.tm_year, t.tm_mon, t.tm_mday)
 
 
@@ -102,7 +110,8 @@ def _is_valid_day(day) -> bool:
 
 @dataclass
 class DailyLimiter:
-    """Tetto di segnali **al giorno** (UTC) con reset automatico al cambio data.
+    """Tetto di segnali **al giorno** (ora **locale** del SO, #311-3.5-f) con reset automatico
+    al cambio data.
 
     `allow(now)` ritorna True se c'è ancora capienza nel giorno corrente (e in tal
     caso conta il segnale), False se il tetto è raggiunto. Lo stato è serializzabile

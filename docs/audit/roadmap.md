@@ -2190,7 +2190,7 @@ Phase 0 + micro-audit + test hard veritieri; merge sempre manuale.
 | 3ª | **ruff/mypy CI** | ✅ FATTO (questa PR) | **soft-warning** (scelta owner): non blocca |
 | 4ª | **clock-skew dedupe** | ✅ FATTO | core; policy owner: clamp futuro ≤ 60s, scarta oltre |
 | 5ª | **retry-budget CSV** | ✅ FATTO | core; backoff esponenziale 0.05→cap 0.4s + jitter, budget ≤1.5s, N=10 |
-| 6ª | daily-limit ora locale | da fare | core; l'owner fornisce TZ + gestione DST |
+| 6ª | **daily-limit ora locale** | ✅ FATTO | core; reset a mezzanotte locale (`time.localtime`), DST del SO |
 | ⏸️ | firma EXE | in sospeso | attesa certificato (acquisto/gratuito) |
 
 ### 3.5-a pytest-timeout — FATTO
@@ -2293,3 +2293,36 @@ Suite **2429 passed, 11 skipped**. **CORE change** (`xtrader_bridge/csv_writer.p
 ri-sincronizzare nel cloud. Docs: README **N/A** (la nota #105 H2 descrive il comportamento
 user-visible — retry automatico/escalation/recupero — invariato; il backoff è un dettaglio interno).
 Design handoff = **N/A** (nessun elemento GUI/UX).
+
+### 3.5-f daily-limit ora locale — FATTO
+
+**Problema.** Il tetto giornaliero (`DailyLimiter`, `max_per_day`) resettava il conteggio a
+**mezzanotte UTC** (`safety_guard._day_key` usava `time.gmtime`), scelto in origine per evitare
+salti di fuso/DST. Per un utente in Italia (UTC+1/+2) la "mezzanotte" del limite cadeva
+all'01:00/02:00 locale, non alla sua mezzanotte reale.
+
+**Policy (owner).** **(A)** ora locale del **sistema operativo** (`time.localtime`), **DST
+automatico del SO**. Nessuna nuova opzione config/GUI, nessuna dipendenza aggiuntiva (l'app
+desktop gira nel fuso dell'utente).
+
+**Fix (patch stretta, `safety_guard.py`).** `_day_key` usa `time.localtime` invece di
+`time.gmtime` — **unico** punto UTC-dipendente. Tutte le invarianti fail-closed di `_roll`/
+`allow`/`remaining`/`restore_state` restano **invariate**: operano sul confronto della **chiave
+data** `YYYY-MM-DD`, che è cronologicamente monotona nel tempo reale anche col DST (un cambio ora
+avviene a notte fonda **entro lo stesso giorno** di calendario, non ne crea uno nuovo). `_is_valid_day`
+(`strptime`) è già fuso-indipendente e non cambia.
+
+**DST.** Delegato al SO: non richiede codice dedicato perché il rollover confronta **date**, non
+ore. Non è testabile in modo deterministico offline cross-platform (Windows non ha il DB IANA e
+`time.tzset` è Unix-only) → coperto da **smoke manuale** (cambiare l'orologio di Windows a cavallo
+del cambio ora legale e verificare che il reset resti a mezzanotte locale) e dalla robustezza
+per-data documentata.
+
+**Test hard** (`tests/unit/test_safety_guard.py`): fixture autouse che forza `localtime=gmtime`
+per rendere DETERMINISTICI i test a date assolute a prescindere dal `TZ` del runner; nuovi test con
+fuso **UTC+2 simulato**: `_day_key` segue la mezzanotte LOCALE (**mutation-guard** vs `gmtime`), il
+limiter resetta al giorno locale, e le invarianti **fail-closed** (salto orologio all'indietro non
+riapre il tetto) valgono anche con fuso locale. Suite **2432 passed, 11 skipped**. **CORE change**
+(`xtrader_bridge/safety_guard.py`) → da ri-sincronizzare nel cloud. Docs: README (`max_per_day`
+«ora locale») aggiornato. Design handoff = **N/A** (nessun elemento GUI/UX; il comportamento del
+tetto è logica interna, la label/soglia in GUI non cambia).
