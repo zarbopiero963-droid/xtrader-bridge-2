@@ -678,6 +678,17 @@ def test_dizionario_is_validated_file_assente_fail_safe(monkeypatch):
     assert dizionario.is_validated() is False
 
 
+def test_dizionario_is_validated_riga_non_dict_fail_closed():
+    # #375 (review Fable 5): is_validated è fail-CLOSED per QUALSIASI input, non solo per un load
+    # fallito. Una riga malformata non-dict (es. una lista/None/stringa passata da un chiamante
+    # diretto) farebbe sollevare `.get(...)` con AttributeError se il corpo non fosse dentro il try.
+    # Deve invece ritornare False senza sollevare. Mutation-guard: spostando il corpo fuori dal try
+    # questo assert diventa un'eccezione non gestita → il test fallisce (regressione bloccata).
+    assert dizionario.is_validated([{"Fonte": "Export XTrader"}, ["Export XTrader"]]) is False
+    assert dizionario.is_validated([None]) is False
+    assert dizionario.is_validated(["Export XTrader"]) is False
+
+
 def test_dizionario_reale_oggi_non_validato():
     # Il dizionario REALE del repo ha ancora righe «Generato da schema» → NON validato oggi.
     # (Quando #2.2 le promuove tutte a «Export XTrader», questo diventerà True e il gate aprirà BOTH.)

@@ -84,15 +84,18 @@ def is_validated(rows=None) -> bool:
     `SelectionId` sbagliati → in modalità REALE una scommessa sul mercato/selezione errato (blocker
     Fugu Ultra su #374; whitelist per il blocker Fable 5 su #375).
 
-    Fail-safe: dizionario assente/illeggibile/vuoto → **False** (non si dichiara «validato» ciò che
-    non si può leggere). `rows` iniettabile per i test; assente → carica dal file."""
+    Fail-safe: dizionario assente/illeggibile/vuoto **o riga malformata** (es. non-dict, dove
+    `.get` solleverebbe `AttributeError`) → **False** (non si dichiara «validato» ciò che non si
+    può leggere o interpretare). L'intero corpo è dentro il `try`, non solo il load, così un
+    chiamante diretto che passa `rows` sporchi resta fail-closed come il percorso dal file (review
+    Fable 5 su #375). `rows` iniettabile per i test; assente → carica dal file."""
     try:
         rows = load_dizionario() if rows is None else rows
-    except Exception:   # noqa: BLE001 — dizionario assente/header rotto → non validato (fail-safe)
+        if not rows:
+            return False
+        return all(str(r.get("Fonte", "")).strip().casefold() in VALIDATED_FONTI for r in rows)
+    except Exception:   # noqa: BLE001 — assente/header rotto/riga non-dict → non validato (fail-safe)
         return False
-    if not rows:
-        return False
-    return all(str(r.get("Fonte", "")).strip().casefold() in VALIDATED_FONTI for r in rows)
 
 
 def load_dizionario(path: str = DIZIONARIO_PATH) -> list:
