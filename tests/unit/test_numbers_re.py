@@ -25,6 +25,26 @@ def test_signed_decimal_accetta_il_segno():
     assert not rx.fullmatch("--1")
 
 
+def test_decimal_rifiuta_cifre_non_ascii():
+    # #318 L2-1 (fail-OPEN): `\d` in Python matcha le cifre Unicode (arabo-indiane,
+    # devanagari, fullwidth). Un valore come «١٩» superava DECIMAL/SIGNED_DECIMAL e,
+    # poiché float("١٩")==19.0, veniva accettato come numero valido ed entrava nel CSV.
+    # Il frammento condiviso DEVE accettare SOLO cifre ASCII [0-9]. Regressione bloccata.
+    dec = re.compile(r"^" + numbers_re.DECIMAL + r"$")
+    sdec = re.compile(r"^" + numbers_re.SIGNED_DECIMAL + r"$")
+    for bad in ("١٩", "٥", "१९", "５", "1٩", "1۵5"):   # arabo, devanagari, fullwidth, misti
+        assert not dec.fullmatch(bad), f"DECIMAL non deve matchare {bad!r}"
+        assert not sdec.fullmatch(bad), f"SIGNED_DECIMAL non deve matchare {bad!r}"
+    # Controprova: le cifre ASCII (con ,/. e segno) restano valide.
+    assert dec.fullmatch("19") and dec.fullmatch("1,85") and dec.fullmatch("2.10")
+    assert sdec.fullmatch("-1") and sdec.fullmatch("+1,5")
+    # Consumer Handicap reale (custom_pipeline._HANDICAP_RE, gate a custom_pipeline.py:302/518):
+    # anche l'Handicap deve rifiutare le cifre non-ASCII (segno + cifre non-ASCII incluso).
+    assert not custom_pipeline._HANDICAP_RE.match("١٩")
+    assert not custom_pipeline._HANDICAP_RE.match("-١٩")
+    assert custom_pipeline._HANDICAP_RE.match("-1") and custom_pipeline._HANDICAP_RE.match("+1,5")
+
+
 def test_consumer_usano_il_frammento_condiviso():
     # I quattro moduli compongono il frammento unico (fonte unica, anti-drift): se uno
     # divergesse, questi pattern non corrisponderebbero più al frammento.

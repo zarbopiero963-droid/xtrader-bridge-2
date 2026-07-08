@@ -44,6 +44,23 @@ def test_prezzo_non_numerico_non_valido():
     assert validator.validate(_row(Price="abc"), "NAME_ONLY")[0] == validator.INVALID_PRICE
 
 
+def test_prezzo_points_handicap_rifiutano_cifre_non_ascii():
+    # #318 L2-1 (fail-OPEN, raggiungibile da un vero messaggio Telegram): le cifre non-ASCII
+    # (arabo «١٩», devanagari «१९», fullwidth «１９») superavano la validazione perché `\d`
+    # matcha l'Unicode e float("١٩")==19.0 → il valore non-ASCII finiva nel CSV letto da XTrader.
+    # Ora Price/Points/Handicap devono essere fail-CLOSED su cifre non-ASCII.
+    for bad in ("١٩", "१९", "１９", "1٩85"):
+        assert validator.price_status(bad) == validator.INVALID_PRICE, bad
+        assert validator.points_status(bad) == validator.INVALID_POINTS, bad
+        assert validator.validate(_row(Price=bad), "NAME_ONLY")[0] == validator.INVALID_PRICE, bad
+        assert validator.validate(_row(Points=bad), "NAME_ONLY")[0] == validator.INVALID_POINTS, bad
+        assert validator.validate(_row(MinPrice=bad), "NAME_ONLY")[0] == validator.INVALID_PRICE, bad
+        assert validator.validate(_row(MaxPrice=bad), "NAME_ONLY")[0] == validator.INVALID_PRICE, bad
+    # Controprova: le quote ASCII valide (punto e virgola) restano accettate.
+    assert validator.price_status("1,85") == validator.VALID
+    assert validator.price_status("2.10") == validator.VALID
+
+
 def test_prezzo_valido_appena_sopra_uno():
     assert validator.is_valid(_row(Price="1.01"), "NAME_ONLY") is True
 
