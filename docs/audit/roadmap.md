@@ -2186,8 +2186,8 @@ Phase 0 + micro-audit + test hard veritieri; merge sempre manuale.
 | Ordine | Item | Stato | Note |
 |---|---|---|---|
 | 1ª | **pytest-timeout** | ✅ FATTO | non-core, rischio zero |
-| 2ª | **archivio docs** | ✅ FATTO (questa PR) | 9 file storici → `docs/audit/archive/`; link aggiornati |
-| 3ª | ruff/mypy CI | da fare | l'owner decide soft-warning o gate |
+| 2ª | **archivio docs** | ✅ FATTO | 9 file storici → `docs/audit/archive/`; link aggiornati |
+| 3ª | **ruff/mypy CI** | ✅ FATTO (questa PR) | **soft-warning** (scelta owner): non blocca |
 | 4ª | clock-skew dedupe | da fare | core; l'owner fornisce la policy skew |
 | 5ª | retry-budget CSV | da fare | core; l'owner fornisce N retry/backoff |
 | 6ª | daily-limit ora locale | da fare | core; l'owner fornisce TZ + gestione DST |
@@ -2215,3 +2215,23 @@ spostati sono stati aggiornati a `docs/audit/archive/…` (inclusi un commento i
 `xtrader_bridge/betfair/__init__.py` e uno in `tests/integration/test_resilience_109.py`);
 `archive/README.md` indicizza l'archivio. **CORE CHANGE** (tocca `xtrader_bridge/betfair/__init__.py`,
 solo un path in commento): da ri-sincronizzare nel cloud. Nessun contenuto perso, solo riorganizzato.
+
+### 3.5-c ruff/mypy CI — FATTO (soft-warning)
+
+Scelta owner: **soft-warning** (non bloccante), per adozione graduale su un codebase esistente
+senza cleanup di massa. Aggiunto un job `lint` in `.github/workflows/pr-checks.yml` con
+`continue-on-error` **per-step**: **ruff** (`--output-format=github` → annotazioni inline) su
+`xtrader_bridge`/`tests`/`main.py` e **mypy** sui soli **moduli puri** (`numbers_re`, `recognition`,
+`validator`, `message_freshness`, `reconnect_policy` — oggi già puliti: baseline type-checked). Gli
+strumenti stanno in **`requirements-lint.txt`** (separato, FUORI dal lock di build EXE: non lo
+gonfia né richiede il regen). Config in **`pyproject.toml`** (`[tool.ruff]` select di default, no
+E501; `[tool.mypy]` `ignore_missing_imports`). Oggi ruff segnala ~32 problemi informativi (import/
+var inutilizzati), **non corretti** (era il cleanup grande evitato dalla scelta soft).
+
+Il gate di sicurezza **#297** (`test_pytest_fail_closed_nei_workflow`) vietava `continue-on-error`
+in QUALSIASI workflow (anti fail-open dei test): **emendato consapevolmente** (come il gate stesso
+prevedeva) per ammettere `continue-on-error` **solo** su step di lint (ruff/mypy) e mantenerlo
+**vietato** su qualunque step `pytest`/build (`pyinstaller`/`nuitka`/`compileall`/`py_compile`) —
+il legame direttiva→step è per indentazione, così un commento a livello job non inganna il gate.
+Mutation-guard verificato: `continue-on-error` su uno step pytest fa ancora fallire il gate. Test
+hard: `tests/unit/test_lint_config.py` (config presente, soft, tool fuori dal lock). Non-core.

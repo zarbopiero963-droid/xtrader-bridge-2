@@ -757,26 +757,127 @@ def test_test_eseguiti_prima_della_build():
     assert seen_build_job, "nessun job con build individuato"
 
 
-def test_pytest_fail_closed_nei_workflow():
-    """(#296, audit #242/PR#177, Codex) I gate di test non possono essere fail-open:
-    nessuna invocazione pytest addolcita con `||` (es. `pytest || true`) e nessun
-    `continue-on-error` in ALCUN workflow. Un pytest che non fa fallire lo step
-    maschererebbe regressioni prima della build. I `|| true` sui grep non-pytest
-    (forbidden-files) restano legittimi e non sono toccati.
+def _step_bodies(text: str):
+    """Testo di ogni STEP (riga `- …` + il suo corpo più indentato), delimitato dall'INDENTAZIONE:
+    un commento a livello job (meno indentato dello step) NON viene attribuito allo step
+    precedente. Serve al gate fail-closed per legare `continue-on-error` allo step giusto."""
+    lines = text.splitlines()
+    out, i, n = [], 0, len(lines)
+    while i < n:
+        m = re.match(r"^(\s*)-\s", lines[i])
+        if not m:
+            i += 1
+            continue
+        indent = len(m.group(1))
+        body, j = [lines[i]], i + 1
+        while j < n:
+            if lines[j].strip() == "":
+                body.append(lines[j])
+                j += 1
+                continue
+            cur = len(lines[j]) - len(lines[j].lstrip())
+            if cur <= indent:
+                break
+            body.append(lines[j])
+            j += 1
+        out.append("\n".join(body))
+        i = j
+    return out
 
-    Il divieto di `continue-on-error` è deliberatamente GLOBALE e non scopato ai soli
-    job di test/build (valutato su suggerimento Sourcery, #297): oggi NESSUN workflow
-    lo usa (costo zero) e un'euristica "solo job di test" lascerebbe scoperto un futuro
-    workflow di test non riconosciuto. Stesso stile fail-closed di `_ALLOWED_OPTS`: un
-    eventuale uso legittimo futuro dovrà emendare consapevolmente questo gate."""
+
+# Invocazioni di TEST/BUILD su cui `continue-on-error` resta VIETATO: un test/build reso
+# non-fallante maschererebbe una regressione prima del merge/della build. Il match copre le forme
+# reali: `pytest`, `py.test`, `pyinstaller`, `nuitka`, `compileall`, `py_compile`. (review Fable:
+# `py.test` non era coperto da una whitelist a substring "pytest").
+_FAIL_CLOSED_CMD_RE = re.compile(r"\b(py\.?test|pyinstaller|nuitka|compileall|py_compile)\b", re.IGNORECASE)
+# Uno step di lint SOFT-WARNING: il COMANDO `run` è ruff/mypy (match sul comando, non sul testo
+# dello step → un `name:` che contiene "ruff" non aggira il vincolo, review Fable/GLM/GPT). Accetta
+# anche il wrapper `python -m ruff|mypy` (forma comune, review GPT); la safety resta perché i
+# comandi di test/build sono già bloccati da `_FAIL_CLOSED_CMD_RE` PRIMA di questo controllo.
+_LINT_CMD_RE = re.compile(r"^(?:python\s+-m\s+)?(ruff|mypy)\b", re.IGNORECASE)
+
+
+def _continue_on_error_violation(body: str):
+    """`None` se lo step `body` NON viola il gate fail-closed; altrimenti la stringa-motivo.
+
+    Regola (#311-3.5-c): `continue-on-error` è ammesso SOLO su step di lint — dove OGNI comando
+    `run` inizia con `ruff`/`mypy` — e MAI su step che eseguono test/build. Il controllo è sul
+    COMANDO `run` (via `_shell_commands`), non sul testo grezzo dello step: così né un `name:` che
+    contiene "ruff" né un commento aggirano il vincolo, e forme come `py.test` sono coperte."""
+    if "continue-on-error" not in body:
+        return None
+    cmds = [c.strip() for c in _shell_commands(body) if c.strip()]
+    if not cmds:
+        return "continue-on-error su step senza comando `run` (non è uno step di lint)"
+    for c in cmds:
+        if _FAIL_CLOSED_CMD_RE.search(c):
+            return f"continue-on-error su step di test/build (fail-open): {c!r}"
+    for c in cmds:
+        if not _LINT_CMD_RE.match(c):
+            return f"continue-on-error ammesso solo su step lint (ruff/mypy): {c!r}"
+    return None
+
+
+def test_pytest_fail_closed_nei_workflow():
+    """(#296, audit #242/PR#177, Codex) I gate di TEST/BUILD non possono essere fail-open:
+    nessuna invocazione pytest addolcita con `||` (es. `pytest || true`) e nessun
+    `continue-on-error` su uno step che esegua pytest o build EXE. Un test che non fa
+    fallire lo step maschererebbe regressioni prima della build. I `|| true` sui grep
+    non-pytest (forbidden-files) restano legittimi e non sono toccati.
+
+    Emendamento CONSAPEVOLE (#311-3.5-c, come previsto dal gate #297): `continue-on-error`
+    è AMMESSO **solo** su step di lint SOFT-WARNING (ruff/mypy). La logica è in
+    `_continue_on_error_violation` (controllo sul comando `run`, non sul testo dello step) ed è
+    coperta dal self-test `test_gate_continue_on_error_logic`."""
     for path in _workflow_files():
         name = os.path.basename(path)
         text = _read(path)
-        assert "continue-on-error" not in text, \
-            f"{name}: `continue-on-error` vietato (gate fail-open)"
+        for body in _step_bodies(text):
+            reason = _continue_on_error_violation(body)
+            assert reason is None, f"{name}: {reason}"
         for step in _run_steps(text):
             bad = _pytest_fail_open_lines(step)
             assert not bad, f"{name}: comando pytest addolcito (fail-open): {bad}"
+
+
+def test_gate_continue_on_error_logic():
+    """Regressione della logica fail-closed di `_continue_on_error_violation` (mutation-guard
+    committato, non solo manuale — review GLM). Lint ammesso; test/build vietati anche in forme
+    che una whitelist a substring lascerebbe passare (`py.test`, step `name:` con 'ruff')."""
+    def step(*lines):
+        return "\n".join("      " + ln for ln in lines)
+
+    # AMMESSI: step di lint con continue-on-error
+    assert _continue_on_error_violation(
+        step("- name: ruff (soft)", "  continue-on-error: true", "  run: ruff check src")) is None
+    assert _continue_on_error_violation(
+        step("- name: mypy (soft)", "  continue-on-error: true", "  run: mypy src/x.py")) is None
+    # senza continue-on-error: mai una violazione
+    assert _continue_on_error_violation(step("- run: python -m pytest -q")) is None
+
+    # VIETATI: continue-on-error su test/build (fail-open)
+    assert _continue_on_error_violation(
+        step("- continue-on-error: true", "  run: python -m pytest -q")) is not None
+    assert _continue_on_error_violation(   # forma `py.test` (Fable): NON deve sfuggire
+        step("- continue-on-error: true", "  run: py.test -q")) is not None
+    assert _continue_on_error_violation(
+        step("- continue-on-error: true", "  run: pyinstaller --onefile main.py")) is not None
+    # step con 'ruff' nel NOME ma che ESEGUE pytest: il match sul comando lo blocca comunque
+    assert _continue_on_error_violation(
+        step("- name: ruff-and-test", "  continue-on-error: true", "  run: python -m pytest -q")) is not None
+    # wrapper `python -m mypy` (review GPT): lint-only → AMMESSO
+    assert _continue_on_error_violation(
+        step("- continue-on-error: true", "  run: python -m mypy src/x.py")) is None
+    # simmetria: anche il wrapper `python -m ruff` è lint-only → AMMESSO (review GLM)
+    assert _continue_on_error_violation(
+        step("- continue-on-error: true", "  run: python -m ruff check src")) is None
+    # `run` MULTILINEA (blocco `|`) con lint su riga 1 e pytest su riga 2 (review GLM): la seconda
+    # riga è un comando distinto e DEVE essere intercettata → violazione, nessun bypass.
+    assert _continue_on_error_violation(
+        step("- continue-on-error: true", "  run: |", "    ruff check src", "    python -m pytest -q")) is not None
+    # multilinea solo-lint → AMMESSO
+    assert _continue_on_error_violation(
+        step("- continue-on-error: true", "  run: |", "    ruff check a", "    mypy b.py")) is None
 
 
 def test_pytest_addolcito_rilevato():
