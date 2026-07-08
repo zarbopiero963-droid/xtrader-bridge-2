@@ -50,8 +50,14 @@ def test_split_participants():
     assert split_participants("") == ("", "")
     # cautela: i separatori richiedono gli SPAZI → un trattino ATTACCATO in un nome non spezza
     assert split_participants("Real-Madrid") == ("Real-Madrid", "")
-    # cautela: " vs " ha priorità su " v " (non spezza "vs" a metà)
+    # " vs " gestito correttamente: `" v "` (con spazi) non può matchare dentro "vs" (dopo la v c'è
+    # una s, non uno spazio), quindi l'ordine vs/v non è necessario alla correttezza — verificato qui.
     assert split_participants("A vs B") == ("A", "B")
+    # LIMITE NOTO E ACCETTATO (review GLM/GPT): il trattino spaziato è ambiguo — un evento NON-match
+    # con " - " nel nome viene spezzato in due "partecipanti". È un trade-off consapevole: il beneficio
+    # sugli sport che usano " - " (basket, ecc.) supera il raro falso positivo, che resta comunque
+    # ripulibile dal tab "Nomi Betfair noti". Documentato qui perché sia INTENZIONALE, non un bug.
+    assert split_participants("Roma - Conference League") == ("Roma", "Conference League")
 
 
 # ── navigation menu ───────────────────────────────────────────────────────────
