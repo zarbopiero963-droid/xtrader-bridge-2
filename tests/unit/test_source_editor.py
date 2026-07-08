@@ -24,7 +24,7 @@ def test_add_update_remove():
     ed = SourceEditor()
     ed.add_source(name="  X ", chat_id=" 42 ", enabled=True, mode="pre", provider=" TG_VIP ")
     assert ed.sources[0] == {"name": "X", "chat_id": "42", "enabled": True,
-                             "mode": "PRE", "provider": "TG_VIP", "parser": ""}
+                             "mode": "PRE", "provider": "TG_VIP", "parser": "", "parsers": []}
     ed.update_source(0, enabled=False, mode="LIVE")
     assert ed.sources[0]["enabled"] is False
     assert ed.sources[0]["mode"] == "LIVE"
@@ -271,3 +271,85 @@ def test_row_enabled_none_resta_spenta():
     """Simmetria col manager (review Fable su #309): `None` non è un sì esplicito."""
     from xtrader_bridge.source_editor import SourceEditor
     assert SourceEditor._row(enabled=None)["enabled"] is False
+
+
+# ── PR-2: LISTA multi-parser per chat (parser_list_by_chat) ──────────────────
+
+def test_add_source_con_lista_parsers():
+    ed = SourceEditor()
+    ed.add_source(chat_id="111", parsers=["A", "B", "A", ""])   # dedup + pulizia
+    assert ed.sources[0]["parsers"] == ["A", "B"]
+    assert ed.sources[0]["parser"] == "A"                        # primo, retro-compat
+
+
+def test_apply_lista_multi_scrive_parser_list_e_sincronizza_singolo():
+    ed = SourceEditor()
+    ed.add_source(chat_id="111", parsers=["A", "B"])
+    new_cfg, errors, _ = ed.apply({})
+    assert errors == []
+    assert new_cfg["parser_list_by_chat"]["111"] == ["A", "B"]   # lista multi
+    assert new_cfg["parser_by_chat"]["111"] == "A"               # singolo sincronizzato al primo
+
+
+def test_apply_lista_singola_resta_legacy_senza_voce_lista():
+    # UN solo parser → scrive SOLO parser_by_chat (identico a prima), nessuna voce lista.
+    ed = SourceEditor()
+    ed.add_source(chat_id="111", parsers=["A"])
+    new_cfg, errors, _ = ed.apply({})
+    assert errors == []
+    assert new_cfg["parser_by_chat"]["111"] == "A"
+    assert "parser_list_by_chat" not in new_cfg                  # niente lista per un singolo
+
+
+def test_apply_lista_disattivata_parcheggia_e_non_autorizza():
+    ed = SourceEditor()
+    ed.add_source(chat_id="222", enabled=False, parsers=["A", "B"])
+    new_cfg, errors, _ = ed.apply({})
+    assert errors == []
+    assert "222" not in new_cfg.get("parser_by_chat", {})              # non autorizzata
+    assert "222" not in new_cfg.get("parser_list_by_chat", {})        # non attiva
+    assert new_cfg["parser_list_by_chat_disabled"]["222"] == ["A", "B"]  # parcheggiata
+    # round-trip: riaprendo, la riga disattivata mostra ancora la sua lista
+    ed2 = SourceEditor(new_cfg)
+    row = next(s for s in ed2.sources if s["chat_id"] == "222")
+    assert row["parsers"] == ["A", "B"] and row["enabled"] is False
+
+
+def test_prefill_lista_multi_dalla_config():
+    cfg = {"source_chats": [{"chat_id": "111", "enabled": True, "mode": "PRE"}],
+           "parser_list_by_chat": {"111": ["A", "B"]}}
+    ed = SourceEditor(cfg)
+    assert ed.sources[0]["parsers"] == ["A", "B"]
+    assert ed.sources[0]["parser"] == "A"
+
+
+def test_apply_riabilitare_lista_torna_attiva():
+    base = {"source_chats": [{"chat_id": "222", "enabled": False, "mode": "PRE"}],
+            "parser_list_by_chat_disabled": {"222": ["A", "B"]}}
+    ed = SourceEditor(base)
+    assert ed.sources[0]["parsers"] == ["A", "B"]      # prefill dal parcheggio
+    ed.update_source(0, enabled=True)                  # riabilita
+    new_cfg, errors, _ = ed.apply(base)
+    assert errors == []
+    assert new_cfg["parser_list_by_chat"]["222"] == ["A", "B"]           # ora attiva
+    assert new_cfg["parser_by_chat"]["222"] == "A"                       # sync singolo
+    assert "222" not in new_cfg.get("parser_list_by_chat_disabled", {})  # tolta dal parcheggio
+
+
+def test_apply_rimuove_lista_di_sorgente_eliminata():
+    cfg = {"source_chats": [{"chat_id": "111"}],
+           "parser_list_by_chat": {"111": ["A", "B"]}, "parser_by_chat": {"111": "A"}}
+    ed = SourceEditor()                                 # nessuna riga: 111 rimossa
+    new_cfg, errors, _ = ed.apply(cfg)
+    assert errors == []
+    assert "111" not in new_cfg.get("parser_list_by_chat", {})
+    assert "111" not in new_cfg.get("parser_by_chat", {})
+
+
+def test_disabled_list_corrotto_non_crasha():
+    ed = SourceEditor({"source_chats": [{"chat_id": "222", "enabled": False, "mode": "PRE"}],
+                       "parser_list_by_chat_disabled": "oops"})
+    assert ed.sources[0]["parsers"] == []
+    new_cfg, errors, _ = ed.apply({"parser_list_by_chat_disabled": "oops"})
+    assert errors == []
+    assert "parser_list_by_chat_disabled" not in new_cfg    # valore corrotto ripulito

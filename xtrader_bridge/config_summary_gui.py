@@ -69,9 +69,14 @@ def parser_label(channel) -> str:
     nella riga «Pronto?» sottostante (CodeRabbit #337)."""
     if not channel.parser_name:
         return "Parser: —"
-    if not channel.parser_loaded:
-        return f"Parser: {channel.parser_name} ⚠"
-    return f"Parser: {channel.parser_name}"
+    warn = "" if channel.parser_loaded else " ⚠"
+    names = list(getattr(channel, "parser_names", ()) or ())
+    if len(names) > 1:
+        # PR-2 (router multi-parser): più parser sulla chat → lista in ordine di priorità.
+        # Il ⚠ resta sul PRIMARIO (readiness/caricamento sono valutati sul primario, che è
+        # sincronizzato in config); i parser secondari si vedono nel dettaglio Chat sorgenti.
+        return f"Parser ({len(names)}): " + ", ".join(names) + warn
+    return f"Parser: {channel.parser_name}{warn}"
 
 
 def ready_count_label(summary) -> str:

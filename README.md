@@ -192,8 +192,10 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | `queue_mode` | `OVERWRITE_LAST` | `OVERWRITE_LAST`, `APPEND_ACTIVE`, `QUEUE_UNTIL_CONFIRMED` | Quanti segnali attivi tenere nel CSV. `OVERWRITE_LAST` = uno solo (sicuro). Le altre due scrivono **più righe** = più scommesse simultanee. Attivare una modalità multi-riga dalla GUI chiede una **conferma**. |
 | `max_active_signals` | `2` | intero ≥ 1 | **Tetto di righe/scommesse attive** simultanee nelle modalità multi-riga (#136 p5): un nuovo segnale oltre il tetto viene **bloccato** (ritentabile quando una riga scade/è confermata). Default basso (2). Ininfluente in `OVERWRITE_LAST` (sempre 1 riga). La GUI mostra un indicatore **"Righe attive: N/M"**. |
 | `active_parser` | `""` | nome parser | Parser Personalizzato attivo **globalmente**. Di norma si imposta dalla GUI. **`""` (vuoto) = nessun parser custom globale.** Una chat con un parser **dedicato** in `parser_by_chat` funziona comunque; una chat **senza** né `active_parser` né voce in `parser_by_chat` viene **IGNORATA** in live (il parser hardcoded P.Bet **non** gira live, vedi nota sotto). |
-| `parser_by_chat` | `{}` | `{chat_id: nome_parser}` | Override del parser per singola chat. Modificabile dal pulsante **"📡 Chat sorgenti"** (colonna Parser di ogni sorgente). Contiene **solo** le sorgenti **attive** (una sorgente disattivata non autorizza la sua chat). |
-| `parser_by_chat_disabled` | `{}` | `{chat_id: nome_parser}` | Gestito dall'editor **"📡 Chat sorgenti"**: parcheggia la scelta parser delle sorgenti **disattivate** così, riabilitandole, non si perde (non autorizza né influisce sul routing/avvio — la chat resta esclusa finché disattivata). |
+| `parser_by_chat` | `{}` | `{chat_id: nome_parser}` | Override del parser (singolo) per singola chat. Modificabile dal pulsante **"📡 Chat sorgenti"** (colonna Parser di ogni sorgente). Contiene **solo** le sorgenti **attive** (una sorgente disattivata non autorizza la sua chat). |
+| `parser_list_by_chat` | `{}` | `{chat_id: [nome_parser, ...]}` | **PR-2 (router multi-parser):** più parser per una chat, valutati **in ordine**; scattano **TUTTI** quelli le cui condizioni combaciano (una riga CSV per parser che scatta, deduplicata per-riga). Ha **precedenza** su `parser_by_chat` (che resta sincronizzato al **primo** nome per autorizzazione/retro-compat). Vuoto = singolo/globale come prima. Gestito dall'editor **"📡 Chat sorgenti"** (colonna Parser → editor a lista ordinata). |
+| `parser_by_chat_disabled` | `{}` | `{chat_id: nome_parser}` | Gestito dall'editor **"📡 Chat sorgenti"**: parcheggia la scelta parser (singola) delle sorgenti **disattivate** così, riabilitandole, non si perde (non autorizza né influisce sul routing/avvio — la chat resta esclusa finché disattivata). |
+| `parser_list_by_chat_disabled` | `{}` | `{chat_id: [nome_parser, ...]}` | Come sopra ma per la **lista multi-parser** (PR-2) parcheggiata delle sorgenti disattivate. |
 | `source_chats` | `[]` | lista | Più chat sorgente (vedi sotto). |
 | `xtrader_notification_chat_id` | `""` | chat id | Chat **separata** su cui XTrader notifica l'esito (vedi [Conferma da XTrader](#conferma-da-xtrader)). |
 | `confirmation_timeout` | `120` | secondi | **In `QUEUE_UNTIL_CONFIRMED`**: per quanti secondi un segnale resta in attesa della conferma XTrader prima di scadere (timeout per-segnale della coda). Nelle altre modalità coda non si applica: vale `clear_delay`. |
@@ -231,9 +233,15 @@ la fine della sync e premi di nuovo **"🔄 Aggiorna"**.
 
 Per ricevere segnali da **più chat/canali**, usa il pulsante **"📡 Chat sorgenti"**
 nella finestra principale: aggiungi/rimuovi righe e imposta per ciascuna nome,
-chat_id, attiva, modalità PRE/LIVE, provider e — colonna **Parser** — un Parser
-Personalizzato dedicato per quella chat (salvato in `parser_by_chat`). In alternativa
-valorizza a mano `source_chats` in `config.json`. È una lista di oggetti:
+chat_id, attiva, modalità PRE/LIVE, provider e — colonna **Parser** — **uno o più** Parser
+Personalizzati per quella chat. Il pulsante nella colonna Parser apre un **editor a lista
+ordinata**: con **un** parser il comportamento è quello di sempre (`parser_by_chat`); con
+**più** parser (PR-2, router multi-parser, `parser_list_by_chat`) il messaggio è passato a
+**ciascuno in ordine** e scattano **TUTTI quelli le cui condizioni combaciano** — una riga CSV
+per parser che scatta, deduplicata per-riga (nessuna doppia scommessa accidentale). Insieme alle
+**[Condizioni di gate](#parser-personalizzato)** è la soluzione a «un mercato/lato diverso a
+seconda dello scenario, sulla stessa chat». In alternativa valorizza a mano `source_chats` in
+`config.json`. È una lista di oggetti:
 
 ```json
 {

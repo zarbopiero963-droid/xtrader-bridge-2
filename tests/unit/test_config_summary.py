@@ -147,6 +147,19 @@ def test_canale_da_parser_by_chat_senza_sorgente(tmp_path):
     assert ch.name == "" and ch.parser_name == "PerChat" and ch.ready is True
 
 
+def test_canale_multi_parser_elenca_tutti_i_parser(tmp_path):
+    # PR-2 (router multi-parser): una chat con lista multi espone TUTTI i parser in ordine
+    # (`parser_names`), col primario in `parser_name`; readiness sul primario.
+    _save_parser("A", tmp_path)
+    _save_parser("B", tmp_path)
+    cfg = {"parser_list_by_chat": {"777": ["A", "B"]}}
+    s = cs.summarize_config(cfg, parsers_dir=str(tmp_path))
+    ch = next(c for c in s.channels if c.chat_id == "777")
+    assert ch.parser_names == ("A", "B")     # lista completa in ordine
+    assert ch.parser_name == "A"             # primario
+    assert ch.ready is True
+
+
 def test_ordine_e_conteggi(tmp_path):
     _save_parser("P1", tmp_path)
     cfg = {"active_parser": "P1",

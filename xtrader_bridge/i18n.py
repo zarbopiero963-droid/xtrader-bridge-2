@@ -191,6 +191,14 @@ _CATALOG = {
         "Modalità": "Mode",
         "Traduzioni": "Translations",
         "➕  Aggiungi sorgente": "➕  Add source",
+        "Parser della chat (in ordine di priorità)": "Chat parsers (in priority order)",
+        "Il messaggio va a ogni parser in ordine; scattano TUTTI quelli le cui condizioni "
+        "combaciano (una riga CSV per parser che scatta).":
+            "The message is passed to each parser in order; ALL parsers whose conditions match "
+            "fire (one CSV row per firing parser).",
+        "➕ Aggiungi parser": "➕ Add parser",
+        "Nessun parser: la chat usa il parser globale (predefinito).":
+            "No parser: the chat uses the global (default) parser.",
         "💾  Salva": "💾  Save",
         "Niente salvato: correggi gli errori.": "Nothing saved: fix the errors.",
         "❌ Salvataggio su disco FALLITO: sorgenti NON salvate (andrebbero "
@@ -427,6 +435,14 @@ _CATALOG = {
         "Provider": "Proveedor",
         "Traduzioni": "Traducciones",
         "➕  Aggiungi sorgente": "➕  Añadir origen",
+        "Parser della chat (in ordine di priorità)": "Parsers del chat (en orden de prioridad)",
+        "Il messaggio va a ogni parser in ordine; scattano TUTTI quelli le cui condizioni "
+        "combaciano (una riga CSV per parser che scatta).":
+            "El mensaje se pasa a cada parser en orden; se activan TODOS los que cumplen sus "
+            "condiciones (una fila CSV por parser activado).",
+        "➕ Aggiungi parser": "➕ Añadir parser",
+        "Nessun parser: la chat usa il parser globale (predefinito).":
+            "Sin parser: el chat usa el parser global (predeterminado).",
         "💾  Salva": "💾  Guardar",
         "Niente salvato: correggi gli errori.": "Nada guardado: corrige los errores.",
         "❌ Salvataggio su disco FALLITO: sorgenti NON salvate (andrebbero "

@@ -29,15 +29,65 @@ def parser_by_chat(cfg: dict) -> dict:
     return {str(k): v for k, v in value.items()}
 
 
-def resolve_parser_name(cfg: dict, chat_id: str = "") -> str:
-    """Nome del parser da usare per `chat_id`: prima l'override per chat, poi
-    l'attivo globale. "" = nessuno (→ parser hardcoded)."""
+def parser_list_by_chat(cfg: dict) -> dict:
+    """PR-2 (router multi-parser): mappa `{chat_id: [nome, ...]}` di PIÙ parser per una
+    chat, valutati in ordine (first-to-last). Chiavi normalizzate a str; valori = liste di
+    nomi non vuoti, **deduplicati preservando l'ordine**. Voci non-lista o liste che
+    restano vuote dopo la pulizia sono ignorate (fail-safe su config manomessa a mano).
+
+    Chiave di config separata da `parser_by_chat` (che resta il singolo, retro-compat):
+    così i file salvati prima della feature caricano invariati e i lettori "single"
+    esistenti non cambiano comportamento."""
+    value = (cfg or {}).get("parser_list_by_chat", {})
+    if not isinstance(value, dict):
+        return {}
+    out = {}
+    for k, v in value.items():
+        if not isinstance(v, list):
+            continue
+        seen = set()
+        ordered = []
+        for n in v:
+            name = str(n or "").strip()
+            if name and name not in seen:
+                seen.add(name)
+                ordered.append(name)
+        if ordered:
+            out[str(k)] = ordered
+    return out
+
+
+def resolve_parser_names(cfg: dict, chat_id: str = "") -> list:
+    """PR-2: LISTA ORDINATA dei parser da usare per `chat_id`. Precedenza:
+
+    1. lista esplicita `parser_list_by_chat[chat]` (multi-parser) — in ordine;
+    2. altrimenti il singolo override `parser_by_chat[chat]`;
+    3. altrimenti l'attivo globale `active_parser`.
+
+    `[]` = nessun parser configurato (→ chat non processata). Deduplicata preservando
+    l'ordine. È la fonte unica del routing multi-parser: `resolve_parser_name` (singolo)
+    ne ritorna il primo per i chiamanti legacy."""
     chat_key = str(chat_id or "").strip()
     if chat_key:
+        multi = parser_list_by_chat(cfg).get(chat_key)
+        if multi:
+            return list(multi)
         override = str(parser_by_chat(cfg).get(chat_key, "") or "").strip()
         if override:
-            return override
-    return active_parser_name(cfg)
+            return [override]
+    name = active_parser_name(cfg)
+    return [name] if name else []
+
+
+def resolve_parser_name(cfg: dict, chat_id: str = "") -> str:
+    """Nome del parser PRIMARIO per `chat_id`: il PRIMO di `resolve_parser_names`
+    (retro-compat coi chiamanti single-parser). "" = nessuno.
+
+    Onora anche la lista multi (`parser_list_by_chat`): così `should_process` e le viste
+    che chiedono "c'è un parser?" restano corrette anche per una chat configurata SOLO
+    con la lista multi (senza `parser_by_chat`/globale)."""
+    names = resolve_parser_names(cfg, chat_id)
+    return names[0] if names else ""
 
 
 def set_active(cfg: dict, name: str) -> dict:
@@ -64,6 +114,35 @@ def set_for_chat(cfg: dict, chat_id: str, name: str) -> dict:
     return out
 
 
+def set_list_for_chat(cfg: dict, chat_id: str, names) -> dict:
+    """PR-2: ritorna una copia della config con la LISTA di parser per la chat impostata
+    (`parser_list_by_chat[chat]`). Lista vuota/None → rimuove la voce.
+
+    Deduplica preservando l'ordine. Mantiene inoltre `parser_by_chat[chat]` sincronizzato
+    col PRIMO nome (o lo rimuove se la lista è vuota): così le viste e i lettori "single"
+    (config_summary, chat-approval legacy) restano coerenti e la chat resta approvata
+    dallo stesso percorso di sempre, senza indebolire il filtro chat."""
+    out = dict(cfg or {})
+    mapping = parser_list_by_chat(out)
+    chat_key = str(chat_id or "").strip()
+    clean = []
+    seen = set()
+    for n in (names or []):
+        nm = str(n or "").strip()
+        if nm and nm not in seen:
+            seen.add(nm)
+            clean.append(nm)
+    if chat_key:
+        if clean:
+            mapping[chat_key] = clean
+        else:
+            mapping.pop(chat_key, None)
+    out["parser_list_by_chat"] = mapping
+    # Primo nome (o "" per rimuovere) sincronizzato sul singolo, così i lettori single e
+    # l'approvazione chat legacy vedono comunque la chat come configurata.
+    return set_for_chat(out, chat_key, clean[0] if clean else "")
+
+
 def available_parser_names(dir_path: str = None) -> list:
     """Nomi dei parser salvati (dal campo `name`), per i menu di selezione.
     I file illeggibili vengono saltati."""
@@ -86,11 +165,14 @@ def available_parser_names(dir_path: str = None) -> list:
     return sorted(names)
 
 
-def load_active(cfg: dict, chat_id: str = "", dir_path: str = None):
-    """Carica la definizione del parser attivo per `chat_id`, oppure None se
-    nessun parser è selezionato o il file non esiste (→ il chiamante usa il
-    parser hardcoded). Un file corrotto → None (fail-safe)."""
-    name = resolve_parser_name(cfg, chat_id)
+def _load_by_name(name: str, dir_path: str = None):
+    """Carica UN parser per nome con la logica **fail-closed** del live (CP-09):
+    - `""`/file mancante/corrotto → None;
+    - il file caricato deve essere PROPRIO il parser richiesto: nomi diversi che si
+      sanitizzano allo stesso file (es. "A/B" → AB.json) non devono caricare il parser
+      sbagliato;
+    - la definizione dev'essere valida (un file editato a mano con, es., BetType duplicato,
+      non deve raggiungere il CSV)."""
     if not name:
         return None
     path = custom_parser.parser_path(name, dir_path)
@@ -98,12 +180,32 @@ def load_active(cfg: dict, chat_id: str = "", dir_path: str = None):
         defn = custom_parser.load_parser(path)
     except (OSError, ValueError):
         return None
-    # Fail-closed (alimenta il live, CP-09):
-    # - il file caricato deve essere PROPRIO il parser richiesto: nomi diversi che
-    #   si sanitizzano allo stesso file (es. "A/B" → AB.json) non devono caricare
-    #   il parser sbagliato;
-    # - la definizione dev'essere valida (un file modificato a mano con, es.,
-    #   BetType duplicato non deve raggiungere il CSV).
     if defn.name != name or not custom_parser.is_valid(defn):
         return None
     return defn
+
+
+def load_active(cfg: dict, chat_id: str = "", dir_path: str = None):
+    """Carica la definizione del parser PRIMARIO per `chat_id`, oppure None se
+    nessun parser è selezionato o il file non esiste. Un file corrotto → None
+    (fail-safe). Per il multi-parser usa `load_active_list`."""
+    return _load_by_name(resolve_parser_name(cfg, chat_id), dir_path)
+
+
+def load_active_list(cfg: dict, chat_id: str = "", dir_path: str = None) -> list:
+    """PR-2: carica TUTTE le definizioni per `chat_id`, in ordine (`resolve_parser_names`),
+    saltando i nomi mancanti/corrotti/invalidi (stessa logica fail-closed di `load_active`).
+    Niente duplicati per nome. `[]` se nessun parser è configurato o caricabile.
+
+    Un nome non caricabile viene SALTATO (non blocca gli altri parser della chat): così un
+    file rimosso a mano non ferma gli altri segnali, coerente col fail-safe di `load_active`."""
+    out = []
+    seen = set()
+    for name in resolve_parser_names(cfg, chat_id):
+        if name in seen:
+            continue
+        seen.add(name)
+        defn = _load_by_name(name, dir_path)
+        if defn is not None:
+            out.append(defn)
+    return out

@@ -561,20 +561,38 @@ La risoluzione avviene in **due passi** — prima l'**approvazione** della chat,
 Una sorgente **disattivata** è deny-list: **mai** approvata, nemmeno con un override. Una
 chat **non** approvata → messaggio **ignorato** (`IGNORE_NOT_RELEVANT`).
 
-**B. Quale parser usa una chat approvata?**
-1. se la chat ha una voce in `parser_by_chat` → quel parser (override per-chat);
-2. altrimenti → l'**`active_parser` globale**. ⚠️ Questo vale **anche per una sorgente
-   `source_chats` attiva senza voce `parser_by_chat`**: eredita il parser globale ed è
-   **processata** (può scrivere il CSV) — **non** è inerte. Perciò, con un `active_parser`
-   globale impostato, **tutte** le sorgenti attive senza override lo usano;
-3. se non c'è né override per-chat né `active_parser` globale → **nessun parser**: nel live
-   il messaggio è **ignorato** (`NO_PARSER`, CP-09b); il parser hardcoded **non** entra in
+**B. Quale/i parser usa una chat approvata?** (PR-2 — router multi-parser)
+1. se la chat ha una **lista** in `parser_list_by_chat` → **quei parser, in ordine** (multi-parser);
+2. altrimenti se ha un singolo override in `parser_by_chat` → quel parser (override per-chat);
+3. altrimenti → l'**`active_parser` globale**. ⚠️ Questo vale **anche per una sorgente
+   `source_chats` attiva senza override**: eredita il parser globale ed è **processata** (può
+   scrivere il CSV) — **non** è inerte. Perciò, con un `active_parser` globale impostato,
+   **tutte** le sorgenti attive senza override lo usano;
+4. se non c'è né lista, né override per-chat, né `active_parser` globale → **nessun parser**: nel
+   live il messaggio è **ignorato** (`NO_PARSER`, CP-09b); il parser hardcoded **non** entra in
    gioco (resta solo per compatibilità/test).
+
+La fonte unica è `parser_manager.resolve_parser_names(cfg, chat)` (lista ordinata, precedenza
+lista → singolo → globale); `resolve_parser_name` (singolo) ne ritorna il primo, per i chiamanti
+legacy.
+
+**Multi-parser per chat (PR-2).** Una chat può avere **più parser** valutati **in ordine di
+priorità**: il messaggio è passato a **ciascuno** e **scattano TUTTI quelli le cui condizioni di
+gate/estrazione combaciano** (non solo il primo). Le righe dei parser che scattano sono **unite in
+ordine** e **deduplicate per-riga**: due parser che producono la **stessa** riga CSV = **una sola**
+scommessa (nessuna doppia scommessa accidentale); righe **diverse** = bet diversi voluti. Se
+**nessun** parser scatta → `NO_CONTENT_MATCH`, nessuna riga. Il gate (`matches_message`, incl. le
+**condizioni** §3ter) è valutato **per parser**, sul messaggio intero: così ogni parser agisce solo
+sui messaggi pertinenti. Con **un solo** parser il comportamento è **identico** a prima
+(retro-compatibile). Si configura dall'editor **«📡 Chat sorgenti»** (colonna Parser → editor a
+lista ordinata). Combinato con le **condizioni di gate** (§3ter), è la soluzione a «un mercato/lato
+diverso per messaggio sulla stessa chat».
 
 Nel live, il chat id usato è quello **reale del messaggio** (così l'override
 per-chat funziona anche con setup multi-chat dove `chat_id` singolo non è
-impostato). Se né `chat_id`, né `parser_by_chat`, né alcuna `source_chats` sono configurati,
-vale il comportamento legacy (tutte le chat ammesse — responsabilità dell'utente).
+impostato). Se né `chat_id`, né `parser_by_chat`, né `parser_list_by_chat`, né alcuna
+`source_chats` sono configurati, vale il comportamento legacy (tutte le chat ammesse —
+responsabilità dell'utente).
 
 ---
 

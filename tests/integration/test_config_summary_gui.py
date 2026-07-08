@@ -74,6 +74,12 @@ def test_parser_label(gui_mod):
     # CodeRabbit #337: parser risolto ma NON caricabile → ⚠ sulla riga parser stessa.
     assert gui_mod.parser_label(
         _channel(parser_name="P1", parser_loaded=False)) == "Parser: P1 ⚠"
+    # PR-2 (router multi-parser): più parser sulla chat → lista numerata per priorità.
+    assert gui_mod.parser_label(
+        _channel(parser_name="A", parser_names=("A", "B"), parser_loaded=True)) == "Parser (2): A, B"
+    # ⚠ sul primario anche in multi (primario non caricabile).
+    assert gui_mod.parser_label(
+        _channel(parser_name="A", parser_names=("A", "B"), parser_loaded=False)) == "Parser (2): A, B ⚠"
 
 
 def _summary(ready, total):

@@ -66,12 +66,15 @@ class ChannelSummary:
     chat_id: str
     name: str
     enabled: bool
-    parser_name: str            # nome del parser risolto ("" = nessuno)
-    parser_loaded: bool         # True se il parser si carica ed è valido (fail-closed)
+    parser_name: str            # nome del parser PRIMARIO risolto ("" = nessuno)
+    parser_loaded: bool         # True se il parser primario si carica ed è valido (fail-closed)
     names: TranslationSummary = field(default_factory=TranslationSummary)
     markets: TranslationSummary = field(default_factory=TranslationSummary)
     ready: bool = False
     reason: str = ""            # motivo se non pronto ("" quando ready=True)
+    # PR-2 (router multi-parser): TUTTI i parser configurati per la chat, in ordine di
+    # priorità (il primo è `parser_name`). Con un solo parser è `(parser_name,)` o `()`.
+    parser_names: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -130,7 +133,8 @@ def summarize_channel(cfg: dict, row: dict, *, existing_names: set,
     name = str(row.get("name", "") or "").strip()
     enabled = bool(row.get("enabled", True))
 
-    parser_name = parser_manager.resolve_parser_name(cfg, chat_id)
+    parser_names = tuple(parser_manager.resolve_parser_names(cfg, chat_id))   # PR-2: lista completa
+    parser_name = parser_names[0] if parser_names else ""                     # primario (retro-compat)
     defn = parser_manager.load_active(cfg, chat_id, parsers_dir) if parser_name else None
     parser_loaded = defn is not None
 
@@ -157,7 +161,7 @@ def summarize_channel(cfg: dict, row: dict, *, existing_names: set,
     return ChannelSummary(
         chat_id=chat_id, name=name, enabled=enabled, parser_name=parser_name,
         parser_loaded=parser_loaded, names=names, markets=markets,
-        ready=ready, reason=reason)
+        ready=ready, reason=reason, parser_names=parser_names)
 
 
 def parser_translation_flags(cfg: dict, parser_name, *, parsers_dir: str = None):

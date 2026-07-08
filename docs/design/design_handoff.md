@@ -561,8 +561,19 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
 
 ### 7.2 📡 Chat sorgenti (`source_chats_gui.py`)
 Titolo **"📡  Chat sorgenti (multi-chat)"**. Tabella con colonne: **Attiva · Nome · Chat ID
-· Modalità (PRE/LIVE) · Provider · Parser** (override, sentinel `(predefinito)`) **· Traduzioni**
-· ✕ (elimina). Pulsanti **"➕ Aggiungi sorgente"**, **"💾 Salva"**. Riga di stato con esito salvataggio.
+· Modalità (PRE/LIVE) · Provider · Parser · Traduzioni** · ✕ (elimina). Pulsanti
+**"➕ Aggiungi sorgente"**, **"💾 Salva"**. Riga di stato con esito salvataggio.
+- **Colonna «Parser» (PR-2, router multi-parser):** non più una singola tendina, ma un
+  **pulsante** che mostra il riassunto dei parser della chat — **«(predefinito)»** se nessuno
+  (usa il globale), altrimenti la lista **numerata in ordine di priorità** (es. **«1. A · 2. B»**).
+  Cliccandolo si apre il **popup «Parser della chat (in ordine di priorità)»**: hint che spiega
+  «il messaggio va a ogni parser in ordine; scattano TUTTI quelli le cui condizioni combaciano
+  (una riga CSV per parser che scatta)»; la lista corrente con **↑ / ↓** (riordina) e **✕**
+  (togli) per riga; una **tendina + «➕ Aggiungi parser»** per aggiungerne; **«💾 Salva»** per
+  confermare. Con **un solo** parser il comportamento è quello storico (override singolo). La
+  sentinella `(predefinito)` = «nessun parser per-chat → usa il globale». È la UI del routing
+  multi-parser: più bet diversi/disambiguati **dallo stesso canale** in base alle condizioni di
+  gate del Parser (§7.1).
 - **Colonna «Traduzioni» (#293 slice 6, sola lettura):** per ogni canale un chip
   **`Nomi ✓ · Mercati ✓`** con `✓`/`—` per tipo (es. `Nomi ✓ · Mercati —`), **verde** se almeno una
   mappatura è attiva, **grigio** (`Nomi — · Mercati —`) se nessuna, che mostra a colpo d'occhio se il
@@ -729,7 +740,10 @@ riepilogo non può divergere dal comportamento reale. Logica in `config_summary.
   - **`Canali pronti: N/M`**.
 - **Una card per canale** (`CTkScrollableFrame`): intestazione `nome (chat_id)` (o solo l'id, o
   «(canale senza chat_id)»), riga **`Parser: <nome>`** (o `—`; un parser risolto ma **non
-  caricabile** — file mancante/invalido — porta un **`⚠`** sulla riga stessa: `Parser: <nome> ⚠`),
+  caricabile** — file mancante/invalido — porta un **`⚠`** sulla riga stessa: `Parser: <nome> ⚠`).
+  **PR-2 (router multi-parser):** se la chat ha **più** parser, la riga diventa
+  **`Parser (N): A, B`** (lista in ordine di priorità; il `⚠` resta sul **primario**, su cui è
+  valutata la readiness). Con un solo parser il testo è invariato.
   riga traduzioni **`Nomi ✓N · Mercati ✓N`** (o `—` se nessuna), e l'indicatore **«Pronto?»**:
   - **`✅ Pronto`** (verde) solo se il canale è ascoltabile (chat_id presente + sorgente attiva),
     ha un parser che **si carica ed è valido**, e **tutte** le mappature selezionate si risolvono;
