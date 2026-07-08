@@ -503,8 +503,11 @@ def _default_recognition_mode() -> str:
     «Export XTrader». Fail-safe: qualunque problema → `NAME_ONLY` (`recognition.DEFAULT_MODE`)."""
     try:
         return recognition.BOTH if dizionario.is_validated() else recognition.NAME_ONLY
-    except Exception:   # noqa: BLE001 — qualunque errore nel gate → default sicuro NAME_ONLY
-        return recognition.DEFAULT_MODE
+    except Exception:   # noqa: BLE001 — qualunque errore nel gate → NAME_ONLY (fail-closed, A10)
+        # Esplicito `NAME_ONLY`, NON `recognition.DEFAULT_MODE` (review Fugu Ultra su #375): il
+        # fail-safe non deve dipendere dal valore di DEFAULT_MODE — se un domani divergesse verso
+        # `BOTH`, l'`except` fail-aprirebbe l'invariante A10. Entrambi i rami tornano NAME_ONLY.
+        return recognition.NAME_ONLY
 
 
 def load_config(path: str = CONFIG_FILE) -> dict:

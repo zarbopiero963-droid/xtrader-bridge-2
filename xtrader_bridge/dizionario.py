@@ -65,21 +65,24 @@ EXPECTED_COLUMNS = [
 ]
 
 
-# Valore della colonna `Fonte` per una riga NON ancora validata contro un export XTrader reale
-# (#311-2.2): finché ne esiste anche una sola, il dizionario non è pienamente affidabile e gli ID
-# risolti da quelle righe potrebbero essere ERRATI (non un semplice miss). Le righe validate hanno
-# `Fonte="Export XTrader"`.
-UNVALIDATED_FONTE = "Generato da schema"
+# WHITELIST (fail-CLOSED, review Fable 5/GPT-5.5 su #375) dei valori `Fonte` che marcano una riga
+# VALIDATA contro un export XTrader reale (#311-2.2). Confronto `strip().casefold()`. È volutamente
+# una whitelist, NON una blacklist del solo «Generato da schema»: una riga con `Fonte` **vuota,
+# assente, con typo o con un'etichetta futura non prevista** NON conta come validata → il dizionario
+# resta NON validato → il gate #311-2.3 NON apre `BOTH`. Meglio non aprire `BOTH` che aprirlo su una
+# riga di provenienza ignota (il rischio è una scommessa su mercato/selezione errato in REALE).
+VALIDATED_FONTI = frozenset({"export xtrader"})
 
 
 def is_validated(rows=None) -> bool:
     """True se il dizionario è **pienamente validato** contro un export XTrader reale (#311-2.2):
-    ha almeno una riga e **NESSUNA** riga marcata `Fonte="Generato da schema"` (non verificata).
+    ha almeno una riga e **OGNI** riga ha `Fonte` nella whitelist `VALIDATED_FONTI` (fail-closed).
 
     Gate anti-doppia-scommessa per #311-2.3: il default `BOTH` (che fa accettare un segnale sugli ID
-    risolti dal dizionario) va abilitato SOLO quando ci si può fidare di quegli ID; con anche una
-    sola riga non validata, un match errato scriverebbe `MarketId`/`SelectionId` sbagliati → in
-    modalità REALE una scommessa sul mercato/selezione errato (blocker Fugu Ultra su #374).
+    risolti dal dizionario) va abilitato SOLO quando ci si può fidare di quegli ID; se anche una sola
+    riga non è validata (provenienza non whitelistata), un match errato scriverebbe `MarketId`/
+    `SelectionId` sbagliati → in modalità REALE una scommessa sul mercato/selezione errato (blocker
+    Fugu Ultra su #374; whitelist per il blocker Fable 5 su #375).
 
     Fail-safe: dizionario assente/illeggibile/vuoto → **False** (non si dichiara «validato» ciò che
     non si può leggere). `rows` iniettabile per i test; assente → carica dal file."""
@@ -89,8 +92,7 @@ def is_validated(rows=None) -> bool:
         return False
     if not rows:
         return False
-    marker = UNVALIDATED_FONTE.strip().casefold()
-    return not any(str(r.get("Fonte", "")).strip().casefold() == marker for r in rows)
+    return all(str(r.get("Fonte", "")).strip().casefold() in VALIDATED_FONTI for r in rows)
 
 
 def load_dizionario(path: str = DIZIONARIO_PATH) -> list:

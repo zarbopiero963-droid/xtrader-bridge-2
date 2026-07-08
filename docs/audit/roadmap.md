@@ -2128,7 +2128,15 @@ da un export XTrader reale (#311-2.2, righe `Fonte="Generato da schema"` ancora 
 mercato/selezione errato.
 
 Soluzione: **gate automatico**. `dizionario.is_validated()` (nuova, pura, fail-safe) è True sse il
-dizionario ha almeno una riga e **nessuna** `Fonte="Generato da schema"`. `config_store.load_config`,
+dizionario ha almeno una riga e **ogni** riga ha `Fonte` nella **whitelist** `{"Export XTrader"}`
+(fail-closed, review Fable 5/Fugu Ultra su #375: una blacklist del solo «Generato da schema» avrebbe
+lasciato passare righe con `Fonte` vuota/assente/typo → `BOTH` su dati ignoti). Il fail-safe di
+`_default_recognition_mode` ritorna `NAME_ONLY` **esplicito** in entrambi i rami (non `DEFAULT_MODE`, così
+non può fail-aprire se un domani `DEFAULT_MODE` divergesse — review Fugu). Persistenza (nota Fable #2,
+accettata dall'owner): il gate decide il default alla **creazione** della config; una config nata `BOTH`
+resta `BOTH` anche se il dizionario venisse in seguito degradato — è un valore salvato esplicito, e un
+re-check a runtime scavalcherebbe la scelta dell'utente; il conflict-check di `_resolve_ids_into` resta
+comunque a valle. `config_store.load_config`,
 **solo per una config NUOVA** (nessun file preesistente), imposta `recognition_mode` via
 `_default_recognition_mode()` = `BOTH` sse `is_validated()` altrimenti `NAME_ONLY`. Il valore statico
 `DEFAULTS["recognition_mode"]` resta `NAME_ONLY` (base per config legacy/parziali/corrotte); l'invariante
@@ -2139,7 +2147,9 @@ senza altre modifiche di codice. **CORE CHANGE** (`xtrader_bridge/dizionario.py`
 `xtrader_bridge/config_store.py`: `_default_recognition_mode` + gate in `load_config`): da ri-sincronizzare
 nel cloud.
 
-Test hard (`tests/unit/test_config_basic.py`): `test_dizionario_is_validated_solo_senza_righe_generate`,
+Test hard (`tests/unit/test_config_basic.py`): `test_dizionario_is_validated_whitelist_fail_closed`
+(whitelist: Fonte vuota/assente/typo → non validato — blocker Fable/Fugu/GPT chiuso),
+`test_dizionario_is_validated_file_assente_fail_safe` (dizionario illeggibile → False, review GLM),
 `test_dizionario_reale_oggi_non_validato` (il dizionario del repo NON è validato oggi),
 `test_default_recognition_mode_gate` (BOTH↔validato, fail-safe → NAME_ONLY),
 `test_config_nuova_gate_both_solo_a_dizionario_validato` (config nuova: NAME_ONLY oggi, BOTH a dizionario

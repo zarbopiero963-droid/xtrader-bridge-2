@@ -654,14 +654,28 @@ def test_default_recognition_mode_name_only():
 
 # ── #311-2.3 (gate su #311-2.2): default BOTH solo a dizionario validato ──
 
-def test_dizionario_is_validated_solo_senza_righe_generate():
-    # Validato = almeno una riga e NESSUNA riga «Generato da schema» (non verificata).
+def test_dizionario_is_validated_whitelist_fail_closed():
+    # #375 (blocker Fable 5/Fugu Ultra): WHITELIST, non blacklist. Validato = almeno una riga e OGNI
+    # riga con Fonte nella whitelist («Export XTrader»). Case/spazi non ingannano.
     assert dizionario.is_validated([{"Fonte": "Export XTrader"}]) is True
+    assert dizionario.is_validated([{"Fonte": "  export xtrader  "}]) is True
     assert dizionario.is_validated([{"Fonte": "Export XTrader"},
                                     {"Fonte": "Generato da schema"}]) is False
     assert dizionario.is_validated([]) is False                 # vuoto → non validato (fail-safe)
-    # Case/spazi non ingannano il marker.
-    assert dizionario.is_validated([{"Fonte": "  generato da schema  "}]) is False
+    # FAIL-CLOSED sui casi che una blacklist lascerebbe passare (GPT-5.5): Fonte vuota, assente, typo.
+    assert dizionario.is_validated([{"Fonte": ""}]) is False
+    assert dizionario.is_validated([{}]) is False               # chiave Fonte assente
+    assert dizionario.is_validated([{"Fonte": "Exportt XTrader"}]) is False   # typo
+    assert dizionario.is_validated([{"Fonte": "Export XTrader"}, {"Fonte": ""}]) is False
+
+
+def test_dizionario_is_validated_file_assente_fail_safe(monkeypatch):
+    # #375 (review GLM 5.2): dizionario assente/illeggibile → is_validated False (fail-safe),
+    # senza sollevare. Si simula un load che fallisce (file assente/permessi/header rotto).
+    def _boom(*a, **k):
+        raise OSError("dizionario non leggibile (simulato)")
+    monkeypatch.setattr(dizionario, "load_dizionario", _boom)
+    assert dizionario.is_validated() is False
 
 
 def test_dizionario_reale_oggi_non_validato():

@@ -66,7 +66,8 @@ un set, l'altro **può restare vuoto**.
 
 > **Default per le config NUOVE — gate #311-2.3 su #311-2.2.** Il default del `recognition_mode`
 > per una config nuova è `NAME_ONLY` **finché il dizionario Betfair non è pienamente validato**
-> contro un export XTrader reale (nessuna riga `Fonte="Generato da schema"`); quando lo è, passa
+> contro un export XTrader reale (**ogni** riga con `Fonte="Export XTrader"` — whitelist fail-closed:
+> una `Fonte` vuota/assente/typo NON conta come validata); quando lo è, passa
 > **automaticamente a `BOTH`**. Motivo: con `BOTH` il bridge **accetta** un segnale sugli ID risolti
 > dal dizionario; affidarsi a ID di un dizionario non verificato rischierebbe, su un match errato, di
 > scrivere `MarketId`/`SelectionId` sbagliati → in modalità REALE una scommessa sul mercato/selezione
