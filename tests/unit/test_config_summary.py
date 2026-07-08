@@ -175,6 +175,17 @@ def test_canale_multi_parser_secondario_rotto_non_pronto(tmp_path):
     assert cs.REASON_PARSER_UNLOADABLE in ch.reason and "B" in ch.reason
 
 
+def test_canale_multi_parser_tutti_rotti_non_pronto(tmp_path):
+    # GLM #391 (edge): TUTTI i parser della lista non caricabili → non pronto, tutti in
+    # `parser_names_unloaded`, primario non caricato.
+    cfg = {"parser_list_by_chat": {"777": ["X", "Y"]}}   # nessun file salvato
+    s = cs.summarize_config(cfg, parsers_dir=str(tmp_path))
+    ch = next(c for c in s.channels if c.chat_id == "777")
+    assert ch.parser_loaded is False
+    assert ch.parser_names_unloaded == ("X", "Y")
+    assert ch.ready is False
+
+
 def test_ordine_e_conteggi(tmp_path):
     _save_parser("P1", tmp_path)
     cfg = {"active_parser": "P1",

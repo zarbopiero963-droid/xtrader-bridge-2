@@ -139,12 +139,14 @@ def summarize_channel(cfg: dict, row: dict, *, existing_names: set,
 
     parser_names = tuple(parser_manager.resolve_parser_names(cfg, chat_id))   # PR-2: lista completa
     parser_name = parser_names[0] if parser_names else ""                     # primario (retro-compat)
-    defn = parser_manager.load_active(cfg, chat_id, parsers_dir) if parser_name else None
+    # UNA sola lettura da disco (GLM #391: niente doppio I/O `load_active` + `load_active_list`):
+    # `load_active_list` carica in ordine i parser CARICABILI; da lì ricaviamo il primario e
+    # quali NON si caricano — primario O secondari (Fable #391: un secondario rotto perderebbe
+    # bet in silenzio → reso visibile in readiness + riga Parser).
+    loaded_by_name = {d.name: d for d in parser_manager.load_active_list(cfg, chat_id, parsers_dir)}
+    defn = loaded_by_name.get(parser_name) if parser_name else None
     parser_loaded = defn is not None
-    # PR-2 (Fable #391): quali parser configurati NON si caricano — primario O secondari. Un
-    # secondario rotto perderebbe bet in silenzio: lo rendiamo visibile (readiness + riga Parser).
-    loaded_names = {d.name for d in parser_manager.load_active_list(cfg, chat_id, parsers_dir)}
-    unloaded = tuple(n for n in parser_names if n not in loaded_names)
+    unloaded = tuple(n for n in parser_names if n not in loaded_by_name)
 
     names = _translation_summary(
         defn.name_mapping_profiles if defn else (), existing_names)

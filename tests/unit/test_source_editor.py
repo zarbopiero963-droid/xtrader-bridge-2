@@ -362,9 +362,9 @@ def test_apply_riordino_lista_riscrive_primario_parser_by_chat():
     ed.add_source(chat_id="111", parsers=["A", "B"])
     first, _, _ = ed.apply({})
     assert first["parser_by_chat"]["111"] == "A"
-    # riordino B prima di A
-    ed2 = SourceEditor()
-    ed2.add_source(chat_id="111", parsers=["B", "A"])
-    second, _, _ = ed2.apply({})
+    # riordino SULLA STESSA istanza (path reale della GUI): B prima di A
+    ed.update_source(0, parsers=["B", "A"])
+    assert ed.sources[0]["parsers"] == ["B", "A"] and ed.sources[0]["parser"] == "B"
+    second, _, _ = ed.apply(first)
     assert second["parser_list_by_chat"]["111"] == ["B", "A"]
     assert second["parser_by_chat"]["111"] == "B"                    # primario riscritto al nuovo primo
