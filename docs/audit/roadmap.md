@@ -1,6 +1,6 @@
 # Roadmap tecnica — XTrader Signal Bridge
 
-> Documento master. Trasforma i problemi di `known_issues.md` in una sequenza di
+> Documento master. Trasforma i problemi di `archive/known_issues.md` in una sequenza di
 > PR piccole, testabili e sicure. Ogni PR ha: obiettivo, task, **test hard**,
 > **micro-audit**, **audit di controllo totale**.
 
@@ -100,7 +100,7 @@ ciò che può causare una **riga CSV sbagliata o duplicata** sta nel gate di ogn
 Provider,EventId,EventName,MarketId,MarketName,MarketType,SelectionId,SelectionName,Handicap,Price,MinPrice,MaxPrice,BetType,Points
 ```
 
-- `Stake` e `Timestamp` **non** sono colonne CSV (vedi `known_issues.md`).
+- `Stake` e `Timestamp` **non** sono colonne CSV (vedi `archive/known_issues.md`).
 - `BetType` ∈ {`PUNTA` (back), `BANCA` (lay)}. `Points` **vuoto** di default.
   `Handicap` = `0`. `Price`/`MinPrice`/`MaxPrice` possono essere vuoti.
 - Encoding `utf-8-sig` (BOM) + `quoting=QUOTE_ALL`.
@@ -133,7 +133,7 @@ Provider,EventId,EventName,MarketId,MarketName,MarketType,SelectionId,SelectionN
 
 ## PR-00 — phase-0/repo-baseline-audit
 **Obiettivo:** congelare lo stato attuale prima di modificare codice.
-**Tecnico:** `docs/audit/current_state.md`, `docs/audit/known_issues.md`,
+**Tecnico:** `docs/audit/archive/current_state.md`, `docs/audit/archive/known_issues.md`,
 `docs/audit/roadmap.md`, `.gitignore`.
 **Task:** documentare struttura, file, problemi (reali vs README), stato prototipo;
 aggiungere `.gitignore` di sicurezza; non toccare la logica del bridge.
@@ -561,7 +561,7 @@ profitto.
 
 ## PR-20 — phase-9/full-project-audit-release-candidate
 **Obiettivo:** audit completo → release candidate.
-**Tecnico:** `docs/audit/final_audit.md`, `docs/audit/release_checklist.md`,
+**Tecnico:** `docs/audit/archive/final_audit.md`, `docs/audit/release_checklist.md`,
 `docs/audit/xtrader_simulation_test.md`.
 **Task:** audit di codice, README, CSV, parser, mapping, Telegram, config, build, coverage;
 test manuale con XTrader in **simulazione**.
@@ -2185,8 +2185,8 @@ Phase 0 + micro-audit + test hard veritieri; merge sempre manuale.
 
 | Ordine | Item | Stato | Note |
 |---|---|---|---|
-| 1ª | **pytest-timeout** | ✅ FATTO (questa PR) | non-core, rischio zero |
-| 2ª | archivio docs | da fare | non-core; l'owner indica quali file archiviare |
+| 1ª | **pytest-timeout** | ✅ FATTO | non-core, rischio zero |
+| 2ª | **archivio docs** | ✅ FATTO (questa PR) | 9 file storici → `docs/audit/archive/`; link aggiornati |
 | 3ª | ruff/mypy CI | da fare | l'owner decide soft-warning o gate |
 | 4ª | clock-skew dedupe | da fare | core; l'owner fornisce la policy skew |
 | 5ª | retry-budget CSV | da fare | core; l'owner fornisce N retry/backoff |
@@ -2203,3 +2203,15 @@ ignorata, nessun errore «unrecognized arguments». Test hard `tests/unit/test_p
 plugin installato, `pytest.ini` configurato, e sub-pytest con `timeout=1` nell'ini che **uccide davvero**
 un test che dorme 5 s (prova del meccanismo, non solo del flag). Non-core, nessun impatto su CSV/Telegram/
 config/design. Design handoff = N/A.
+
+### 3.5-b archivio docs — FATTO
+
+Spostati in `docs/audit/archive/` (via `git mv`, history preservata) i 9 doc storici/conclusi:
+`roadmap1`, `blocco1_personale_roadmap`, `blocco_finalissima_184_roadmap`, `remediation_104_105`,
+`resilience_109_matrix`, `resilience_110_matrix`, `final_audit`, `current_state`, `known_issues`.
+Restano **vivi** in `docs/audit/`: `roadmap.md` (attiva), `xtrader_simulation_test.md` (collaudo
+T1–T20), `release_checklist.md`, `mercati_mapping_design.md`. Tutti i riferimenti interni ai file
+spostati sono stati aggiornati a `docs/audit/archive/…` (inclusi un commento in
+`xtrader_bridge/betfair/__init__.py` e uno in `tests/integration/test_resilience_109.py`);
+`archive/README.md` indicizza l'archivio. **CORE CHANGE** (tocca `xtrader_bridge/betfair/__init__.py`,
+solo un path in commento): da ri-sincronizzare nel cloud. Nessun contenuto perso, solo riorganizzato.

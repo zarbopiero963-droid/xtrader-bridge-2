@@ -18,7 +18,7 @@ e il motore di sync. Vincoli **non negoziabili**, validi per ogni modulo qui den
 PR-P1 ha introdotto lo scheletro e il guard read-only; PR-P2 aggiunge lo storage
 locale sicuro delle credenziali, la sessione RAM-only e la redazione dei log. I
 moduli funzionali (auth, dizionario, sync) arrivano nelle PR successive (vedi
-`docs/audit/blocco1_personale_roadmap.md`).
+`docs/audit/archive/blocco1_personale_roadmap.md`).
 """
 
 from . import (

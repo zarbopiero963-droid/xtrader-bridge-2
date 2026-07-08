@@ -17,7 +17,7 @@
   Passare a modalità reale solo consapevolmente, con stake minimo.
 - Usare un bot Telegram e una chat **di test**, non quelli di produzione.
 
-> **Cosa è agganciato al runtime oggi** (vedi `final_audit.md` §4). **Attivi:** filtro
+> **Cosa è agganciato al runtime oggi** (vedi `archive/final_audit.md` §4). **Attivi:** filtro
 > chat (solo con `chat_id`/sorgente configurato), parsing+validazione, **anti-duplicato +
 > limite/minuto + limite/giorno + DRY_RUN** (PR-21), **coda multi-segnale** (PR-22),
 > **conferma XTrader** (PR-23), **multi-chat provider/mode** (PR-24), scrittura/
@@ -65,7 +65,7 @@
 > **Pre-requisito:** in config deve esserci un `chat_id` esplicito (o un override
 > `parser_by_chat`/una sorgente). Con config **completamente vuota** il bridge ora
 > **non parte** (PR-25): `app._start` annulla l'avvio finché non configuri almeno una
-> chat/sorgente (vedi `final_audit.md` §4 punto 1).
+> chat/sorgente (vedi `archive/final_audit.md` §4 punto 1).
 
 1. Con un `chat_id` configurato, invia un messaggio da una chat **diversa**.
 2. **Atteso:** messaggio ignorato; nessuna scrittura; log coerente.
