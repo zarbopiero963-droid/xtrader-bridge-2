@@ -1,11 +1,22 @@
 """Test dei guardrail di sicurezza (PR-19/PHASE 8): DRY_RUN + limite giornaliero."""
 
 import os
+import time
 
 import pytest
 
 from xtrader_bridge import atomic_io
 from xtrader_bridge import safety_guard as sg
+
+
+@pytest.fixture(autouse=True)
+def _daykey_deterministico(monkeypatch):
+    """#311-3.5-f: `_day_key` ora usa `time.localtime`, quindi il rollover del tetto giornaliero
+    dipenderebbe dal fuso del runner (CI vs macchina di sviluppo). Per rendere DETERMINISTICI i
+    test che asseriscono date assolute (`1970-01-1x`) a prescindere dal `TZ` della macchina, si
+    forza `localtime = gmtime` come default. I test che verificano espressamente il comportamento
+    LOCALE (mezzanotte locale ≠ UTC) SOVRASCRIVONO questo mock nel proprio corpo."""
+    monkeypatch.setattr(sg.time, "localtime", time.gmtime)
 
 
 # ── DRY_RUN (simulazione) ────────────────────────────────────────────────────
@@ -156,6 +167,53 @@ def test_skew_avanti_oltre_mezzanotte_e_ritorno_non_riapre_il_cap_gia_speso():
     assert lim.state()["day"] == "1970-01-13"      # giorno registrato non retrocesso
     assert lim.allow(now=today + 86_400) is True   # raggiunto domani: 1 residuo del SUO budget
     assert lim.allow(now=today + 86_400) is False  # e poi pieno
+
+
+# ── #311-3.5-f: reset del tetto giornaliero alla mezzanotte LOCALE (non UTC) ──────
+
+def _tz_utc_plus(hours):
+    """`localtime` simulato per un fuso fisso UTC+`hours`, così il rollover LOCALE è testabile
+    in modo deterministico senza dipendere dal `TZ` reale della macchina/CI (né da `tzset`, che
+    su Windows non esiste)."""
+    return lambda secs=None: time.gmtime((time.time() if secs is None else secs) + hours * 3600)
+
+
+def test_day_key_usa_ora_locale_non_utc(monkeypatch):
+    """#311-3.5-f: `_day_key` segue la mezzanotte LOCALE. Con un fuso UTC+2 simulato, un epoch
+    che in UTC è 1970-01-12 22:00 è già 1970-01-13 00:00 in locale → la chiave è quella LOCALE.
+    Mutation-guard: col vecchio `gmtime` la chiave sarebbe '1970-01-12'."""
+    monkeypatch.setattr(sg.time, "localtime", _tz_utc_plus(2))
+    epoch = 11 * 86_400 + 22 * 3600            # 1970-01-12 22:00:00 UTC = 1970-01-13 00:00 UTC+2
+    assert sg._day_key(epoch) == "1970-01-13"
+    assert time.gmtime(epoch).tm_mday == 12    # baseline: in UTC è ANCORA il 12 (il fix cambia davvero)
+
+
+def test_limiter_reset_a_mezzanotte_locale(monkeypatch):
+    """#311-3.5-f: il DailyLimiter registra e resetta sul GIORNO LOCALE. Con UTC+2, due segnali a
+    cavallo della mezzanotte LOCALE (ma stesso giorno UTC) cadono in giorni LOCALI diversi → reset.
+    Mutation-guard: col vecchio `gmtime` sarebbero lo stesso giorno UTC (12) → nessun reset → il
+    secondo `allow` tornerebbe False."""
+    monkeypatch.setattr(sg.time, "localtime", _tz_utc_plus(2))
+    lim = sg.DailyLimiter(max_per_day=1)
+    before = 11 * 86_400 + 21 * 3600           # UTC 21:00 → locale 23:00 (giorno 12)
+    after = 11 * 86_400 + 22 * 3600            # UTC 22:00 → locale 00:00 (giorno 13)
+    assert lim.allow(now=before) is True        # giorno locale 12: consuma
+    assert lim.allow(now=before) is False       # tetto pieno (giorno locale 12)
+    assert lim.state()["day"] == "1970-01-12"   # giorno LOCALE registrato
+    assert lim.allow(now=after) is True         # mezzanotte locale passata → nuovo giorno → reset
+    assert lim.state()["day"] == "1970-01-13"
+
+
+def test_invarianti_fail_closed_con_ora_locale(monkeypatch):
+    """#311-3.5-f: il passaggio a ora locale NON indebolisce il fail-closed — un salto
+    dell'orologio all'INDIETRO non riapre un tetto già consumato, anche con un fuso locale ≠ UTC."""
+    monkeypatch.setattr(sg.time, "localtime", _tz_utc_plus(2))
+    lim = sg.DailyLimiter(max_per_day=1)
+    today = 11 * 86_400 + 22 * 3600            # locale 1970-01-13 00:00
+    assert lim.allow(now=today) is True
+    assert lim.allow(now=today) is False        # consumato
+    assert lim.allow(now=today - 86_400) is False   # salto indietro: NON riapre il tetto
+    assert lim.state()["day"] == "1970-01-13"   # data LOCALE non retrocessa
 
 
 def test_max_per_day_invalido_rifiutato():
