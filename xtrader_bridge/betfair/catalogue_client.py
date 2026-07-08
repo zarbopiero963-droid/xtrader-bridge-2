@@ -139,8 +139,14 @@ def _jsonrpc_result(data):
         code = err.get("code") if isinstance(err, dict) else err
         detail = ""
         if isinstance(err, dict):
-            aping = (err.get("data") or {}).get("APINGException") or {}
-            detail = aping.get("errorCode") or ""
+            # #318 L1-3: `data`/`APINGException` potrebbero arrivare come str/list (forma anomala
+            # o encoding insolito) → `.get(...)` su un non-dict solleverebbe `AttributeError`. Con
+            # gli isinstance guard un errore con forma inattesa resta classificato (BetfairApiError
+            # sollevato), solo senza il dettaglio `errorCode` — fail-closed, mai crash.
+            data_field = err.get("data")
+            aping = data_field.get("APINGException") if isinstance(data_field, dict) else None
+            detail = aping.get("errorCode") if isinstance(aping, dict) else ""
+            detail = detail or ""
         raise BetfairApiError(
             f"Errore listMarketCatalogue dall'Exchange (code={code} {detail}).".strip(),
             error_code=detail or None)
@@ -270,10 +276,18 @@ def parse_market_catalogue(catalogue):
         market_id = str(item.get("marketId") or "")
         if not market_id:
             continue
-        desc = item.get("description") or {}
-        event = item.get("event") or {}
+        # #318 L1-2: campi che il parser tratta come dict ma che una risposta API malformata
+        # (o manomessa) potrebbe consegnare come stringa/lista truthy → `.get(...)` solleverebbe
+        # `AttributeError`, che crasherebbe il thread di sync invece di degradare fail-closed. Si
+        # coerciscono a `{}` i non-dict (description/event) e si saltano i runner non-dict.
+        desc = item.get("description")
+        desc = desc if isinstance(desc, dict) else {}
+        event = item.get("event")
+        event = event if isinstance(event, dict) else {}
         runners = []
         for r in item.get("runners") or ():
+            if not isinstance(r, dict):
+                continue                    # runner non-dict (input malformato) → skip, non crash
             runners.append({
                 "selection_id": str(r.get("selectionId") or ""),
                 "runner_name": r.get("runnerName"),

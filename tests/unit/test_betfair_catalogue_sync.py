@@ -103,6 +103,32 @@ def test_parse_market_catalogue():
     assert info["runners"][0]["selection_id"] == "47972"
 
 
+def test_parse_market_catalogue_tollera_campi_non_dict():
+    """#318 L1-2: una risposta `listMarketCatalogue` malformata/manomessa con `runners`/
+    `description`/`event` NON-dict (stringa/lista truthy) non deve far crashare
+    `parse_market_catalogue` con `AttributeError`. I campi anomali degradano fail-closed: un runner
+    non-dict è saltato, `description`/`event` non-dict → `{}`. Mutation-guard: sul vecchio codice
+    `r.get(...)`/`desc.get(...)` su un non-dict alzava `AttributeError`."""
+    cat = [{
+        "marketId": "1.999",
+        "marketName": "M",
+        "description": "stringa-non-dict",           # truthy non-dict → degradato a {}
+        "event": ["lista", "non", "dict"],            # truthy non-dict → degradato a {}
+        "runners": [
+            {"selectionId": 47972, "runnerName": "Inter"},   # valido
+            "runner-non-dict",                                # str → saltato
+            123,                                              # int → saltato
+        ],
+    }]
+    out = parse_market_catalogue(cat)                 # NON deve sollevare
+    assert "1.999" in out
+    info = out["1.999"]
+    assert info["market_type"] is None                # description non-dict → {} → marketType assente
+    assert info["event"]["name"] is None              # event non-dict → {} → name assente
+    assert len(info["runners"]) == 1                  # solo il runner dict valido
+    assert info["runners"][0]["selection_id"] == "47972"
+
+
 # ── sync end-to-end nel DB locale ─────────────────────────────────────────────
 
 def _sync(db):
@@ -419,6 +445,23 @@ def test_jsonrpc_result_solleva_su_errore_e_result_mancante():
     with pytest.raises(RuntimeError):
         cc._jsonrpc_result("non un dict")
     assert cc._jsonrpc_result({"result": [{"marketId": "1.1"}]}) == [{"marketId": "1.1"}]
+
+
+def test_jsonrpc_result_tollera_error_data_non_dict():
+    """#318 L1-3: `error.data`/`APINGException` con forma anomala (str/list invece di dict) non deve
+    far crashare `_jsonrpc_result` con `AttributeError`: l'errore resta classificato
+    (`BetfairApiError`, sottoclasse di `RuntimeError`), solo senza il dettaglio `errorCode`.
+    Mutation-guard: sul vecchio codice `(err.get("data") or {}).get(...)` su una str/list alzava
+    `AttributeError` (NON `RuntimeError`), che `pytest.raises(RuntimeError)` non catturerebbe."""
+    from xtrader_bridge.betfair import catalogue_client as cc
+    with pytest.raises(RuntimeError):                                    # data = stringa non-dict
+        cc._jsonrpc_result({"error": {"code": -32099, "data": "stringa-non-dict"}})
+    with pytest.raises(RuntimeError):                                    # data = lista non-dict
+        cc._jsonrpc_result({"error": {"code": -32099, "data": ["lista"]}})
+    with pytest.raises(RuntimeError):                                    # APINGException = str non-dict
+        cc._jsonrpc_result({"error": {"code": -32099, "data": {"APINGException": "str"}}})
+    with pytest.raises(RuntimeError):                                    # error stesso non-dict
+        cc._jsonrpc_result({"error": "errore-come-stringa"})
 
 
 def test_http_catalogue_chunk_e_aggrega():
