@@ -13,6 +13,7 @@ import random
 import re
 import threading
 import time
+from typing import Callable, Optional
 
 from . import atomic_io, mapping, numbers_re
 
@@ -274,7 +275,8 @@ _REPLACE_JITTER_FRAC = 0.1   # jitter ±10% per de-sincronizzare retry concorren
 
 
 def _replace_with_retry(src: str, dst: str, attempts: int = _REPLACE_ATTEMPTS, *,
-                        sleep=None, rng=None) -> None:
+                        sleep: Optional[Callable[[float], None]] = None,
+                        rng: Optional[Callable[[], float]] = None) -> None:
     """`os.replace` con retry: su Windows il file può essere momentaneamente bloccato da
     XTrader che lo sta leggendo. Backoff **esponenziale** (`_REPLACE_BASE_DELAY`·2^i, con
     **jitter** ±`_REPLACE_JITTER_FRAC` e **cap** `_REPLACE_MAX_DELAY`) fino a un **budget totale**

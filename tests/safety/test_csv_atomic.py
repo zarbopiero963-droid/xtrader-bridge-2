@@ -426,7 +426,6 @@ def test_replace_with_retry_errore_strutturale_escala_subito(monkeypatch):
             raise _oserror(errno_=_e)
 
         monkeypatch.setattr(csv_writer.os, "replace", boom)
-        monkeypatch.setattr(csv_writer.time, "sleep", lambda *_: None)
         with pytest.raises(OSError):
             csv_writer._replace_with_retry("src", "dst", attempts=10, sleep=lambda *_: None)
         assert calls["n"] == 1, f"errno {permanent}: ritentato invece di escalare subito"
@@ -477,7 +476,6 @@ def test_replace_with_retry_windows_winerror_strutturale_escala_subito(monkeypat
             raise _oserror(errno_=13, winerror=_w)
 
         monkeypatch.setattr(csv_writer.os, "replace", boom)
-        monkeypatch.setattr(csv_writer.time, "sleep", lambda *_: None)
         with pytest.raises(OSError):
             csv_writer._replace_with_retry("src", "dst", attempts=10, sleep=lambda *_: None)
         assert calls["n"] == 1, f"winerror {structural}: ritentato invece di escalare"
