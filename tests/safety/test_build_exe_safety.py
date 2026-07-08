@@ -790,9 +790,11 @@ def _step_bodies(text: str):
 # reali: `pytest`, `py.test`, `pyinstaller`, `nuitka`, `compileall`, `py_compile`. (review Fable:
 # `py.test` non era coperto da una whitelist a substring "pytest").
 _FAIL_CLOSED_CMD_RE = re.compile(r"\b(py\.?test|pyinstaller|nuitka|compileall|py_compile)\b", re.IGNORECASE)
-# Uno step di lint SOFT-WARNING: il COMANDO `run` inizia con ruff/mypy (match sul comando, non sul
-# testo dello step → un `name:` che contiene "ruff" non aggira il vincolo, review Fable/GLM/GPT).
-_LINT_CMD_RE = re.compile(r"^(ruff|mypy)\b", re.IGNORECASE)
+# Uno step di lint SOFT-WARNING: il COMANDO `run` è ruff/mypy (match sul comando, non sul testo
+# dello step → un `name:` che contiene "ruff" non aggira il vincolo, review Fable/GLM/GPT). Accetta
+# anche il wrapper `python -m ruff|mypy` (forma comune, review GPT); la safety resta perché i
+# comandi di test/build sono già bloccati da `_FAIL_CLOSED_CMD_RE` PRIMA di questo controllo.
+_LINT_CMD_RE = re.compile(r"^(?:python\s+-m\s+)?(ruff|mypy)\b", re.IGNORECASE)
 
 
 def _continue_on_error_violation(body: str):
@@ -863,6 +865,16 @@ def test_gate_continue_on_error_logic():
     # step con 'ruff' nel NOME ma che ESEGUE pytest: il match sul comando lo blocca comunque
     assert _continue_on_error_violation(
         step("- name: ruff-and-test", "  continue-on-error: true", "  run: python -m pytest -q")) is not None
+    # wrapper `python -m mypy` (review GPT): lint-only → AMMESSO
+    assert _continue_on_error_violation(
+        step("- continue-on-error: true", "  run: python -m mypy src/x.py")) is None
+    # `run` MULTILINEA (blocco `|`) con lint su riga 1 e pytest su riga 2 (review GLM): la seconda
+    # riga è un comando distinto e DEVE essere intercettata → violazione, nessun bypass.
+    assert _continue_on_error_violation(
+        step("- continue-on-error: true", "  run: |", "    ruff check src", "    python -m pytest -q")) is not None
+    # multilinea solo-lint → AMMESSO
+    assert _continue_on_error_violation(
+        step("- continue-on-error: true", "  run: |", "    ruff check a", "    mypy b.py")) is None
 
 
 def test_pytest_addolcito_rilevato():

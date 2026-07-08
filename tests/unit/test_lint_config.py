@@ -6,6 +6,7 @@ coerente: se qualcuno rimuove il job lint, la config o le dipendenze, questi tes
 """
 
 import os
+import re
 
 try:
     import tomllib  # Python 3.11+
@@ -53,6 +54,11 @@ def test_job_lint_e_soft_warning_non_bloccante():
     # questo test se ne accorge.
     wf = _read(".github/workflows/pr-checks.yml")
     assert "\n  lint:" in wf, "job `lint` mancante in pr-checks.yml"
-    assert "continue-on-error: true" in wf, "il job lint deve essere soft (continue-on-error)"
-    assert "requirements-lint.txt" in wf
-    assert "ruff check" in wf and "mypy" in wf
+    # Isola il blocco del solo job `lint` (dal suo header fino al prossimo job allo stesso
+    # livello di indentazione, o a fine file): così le assert su `continue-on-error` valgono
+    # DAVVERO sul job lint e non su un `continue-on-error` di un altro job qualsiasi.
+    lint_block = wf.split("\n  lint:", 1)[1]
+    lint_block = re.split(r"\n  [A-Za-z0-9_-]+:\n", lint_block, maxsplit=1)[0]
+    assert "continue-on-error: true" in lint_block, "il job lint deve essere soft (continue-on-error)"
+    assert "requirements-lint.txt" in lint_block
+    assert "ruff check" in lint_block and "mypy" in lint_block

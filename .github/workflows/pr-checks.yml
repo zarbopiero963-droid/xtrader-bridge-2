@@ -157,6 +157,11 @@ jobs:
     # Adozione graduale su un codebase esistente, senza imporre un cleanup di massa. Gli strumenti
     # stanno in `requirements-lint.txt` (fuori dal lock di build EXE).
     runs-on: ubuntu-latest
+    # `continue-on-error` sopprime il FALLIMENTO ma non il TEMPO: senza tetto, un hang (es. in
+    # `pip install`) girerebbe fino al default 6h di GitHub, sprecando minuti runner (review
+    # CodeRabbit). Il job lint dura pochi secondi; 10 min è ampiamente sufficiente. Stesso
+    # safeguard di `windows-tests`.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
