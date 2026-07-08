@@ -5,11 +5,21 @@ quando la connessione torna, **recupera** i messaggi accumulati offline. Per il
 trading live un segnale vecchio di minuti è inutile/pericoloso (verrebbe scritto nel
 CSV e ripiazzato). Questo modulo decide — in modo **puro e testabile** — se un
 messaggio è troppo vecchio rispetto a "adesso", in base al suo timestamp (`msg.date`).
+
+Simmetricamente, un messaggio dal **futuro** (clock skew: `msg.date` avanti rispetto al
+clock locale) è tollerato solo entro `DEFAULT_MAX_CLOCK_SKEW` secondi (clampato ad
+"adesso"); oltre è trattato come stantio (fail-closed), perché uno skew grande — tipico
+di un clock locale indietro — farebbe passare un backlog vecchio come "fresco" (#311-3.5-d).
 """
 
 import math
 
 DEFAULT_MAX_AGE = 120  # secondi
+# Tolleranza per un timestamp del messaggio nel FUTURO rispetto al clock locale (clock skew,
+# #311-3.5-d). Un messaggio avanti fino a questo margine è clampato ad "adesso" (resta fresco);
+# oltre è trattato come stantio (fail-closed). 60s presuppone orologi ragionevolmente
+# sincronizzati (NTP): scelta del proprietario per la coda #311-3.5.
+DEFAULT_MAX_CLOCK_SKEW = 60  # secondi
 
 
 def effective_max_age(max_signal_age, clear_delay):
@@ -116,7 +126,8 @@ def capped_max_age(max_signal_age, clear_delay, dedupe_window):
     return eff if eff_f <= dw else dedupe_window
 
 
-def is_stale(message_epoch, now, max_age=DEFAULT_MAX_AGE) -> bool:
+def is_stale(message_epoch, now, max_age=DEFAULT_MAX_AGE,
+             max_skew=DEFAULT_MAX_CLOCK_SKEW) -> bool:
     """`True` se il messaggio (epoch UNIX `message_epoch`) è più vecchio di `max_age`
     secondi rispetto a `now` (epoch UNIX).
 
@@ -134,7 +145,15 @@ def is_stale(message_epoch, now, max_age=DEFAULT_MAX_AGE) -> bool:
       Viene quindi trattato come stantio e scartato;
     - **`now` illeggibile → non stantio (fail-OPEN)**: il `now` è il TUO clock; se è
       illeggibile meglio processare un segnale buono che scartarlo per un now rotto;
-    - un messaggio dal **futuro** (clock skew) non è stantio.
+    - un messaggio dal **futuro** (clock skew, #311-3.5-d): tollerato **entro `max_skew`
+      secondi** (default `DEFAULT_MAX_CLOCK_SKEW` = 60) e clampato ad "adesso" → **non
+      stantio**; **oltre `max_skew` è stantio (fail-CLOSED)**. Uno skew grande rende
+      inaffidabile l'anti-stale — con il clock locale INDIETRO un backlog vecchio avrebbe
+      `msg.date` "nel futuro" e passerebbe come fresco — quindi si scarta invece di
+      ripiazzare un segnale non databile con certezza. `max_skew` è coerciuto in modo
+      difensivo (bool/malformato/NaN/inf/`<=0` → `DEFAULT_MAX_CLOCK_SKEW`), così una
+      config rotta non disattiva la protezione. Il confine è **inclusivo** (skew == max_skew
+      → ancora fresco), coerente con la soglia `max_age`.
     """
     # bool non è una soglia in secondi: un True/False trapelato da config ricade sul
     # default sicuro invece di valere 1/0 (che disattiverebbe il filtro per sbaglio).
@@ -165,4 +184,17 @@ def is_stale(message_epoch, now, max_age=DEFAULT_MAX_AGE) -> bool:
         return False
     if not math.isfinite(now_f):
         return False
+    # Messaggio dal FUTURO rispetto al clock locale (clock skew, #311-3.5-d). Un timestamp
+    # Telegram avanti rispetto al TUO orologio indica orologi non sincronizzati:
+    #   - futuro entro `max_skew` → clamp ad "adesso": trattato come fresco (non stantio);
+    #   - futuro OLTRE `max_skew` → skew implausibile → fail-CLOSED (stantio, scartato). Con il
+    #     clock locale indietro un backlog vecchio sembrerebbe "fresco": meglio scartarlo che
+    #     ripiazzare un segnale la cui età non è databile con certezza.
+    # `max_skew` coerciuto in modo difensivo: bool/malformato/NaN/inf/<=0 → DEFAULT_MAX_CLOCK_SKEW,
+    # così una config rotta non spegne la protezione. Confine inclusivo (skew == max_skew → fresco).
+    if msg_epoch > now_f:
+        skew_tol = _coerce_positive_finite(max_skew)
+        if skew_tol is None:
+            skew_tol = float(DEFAULT_MAX_CLOCK_SKEW)
+        return (msg_epoch - now_f) > skew_tol
     return (now_f - msg_epoch) > max_age

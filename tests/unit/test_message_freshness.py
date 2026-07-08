@@ -27,9 +27,55 @@ def test_filtro_disattivato_solo_con_soglia_non_positiva():
     assert mf.is_stale(now - 99999, now, max_age=-5) is False
 
 
-def test_messaggio_dal_futuro_non_e_stantio():
+def test_messaggio_dal_futuro_entro_skew_non_e_stantio():
+    # #311-3.5-d: un messaggio nel futuro ENTRO la tolleranza max_skew (default 60s) è clampato
+    # ad "adesso" → non stantio (clock skew tollerabile, orologi quasi sincronizzati).
     now = 1_000_000.0
-    assert mf.is_stale(now + 30, now, max_age=120) is False     # clock skew
+    assert mf.is_stale(now + 30, now, max_age=120) is False      # +30s: entro 60 → fresco
+    assert mf.is_stale(now + 60, now, max_age=120) is False      # +60s: confine inclusivo → fresco
+    assert mf.is_stale(now + 0.5, now, max_age=120) is False     # skew minimo normale → fresco
+
+
+def test_messaggio_dal_futuro_oltre_skew_e_stantio_fail_closed():
+    # #311-3.5-d: OLTRE max_skew un timestamp futuro è implausibile (clock locale sballato) →
+    # STANTIO (fail-closed). Con il clock locale indietro un backlog vecchio sembrerebbe "fresco":
+    # scartarlo evita di ripiazzare un segnale non databile con certezza.
+    now = 1_000_000.0
+    assert mf.is_stale(now + 61, now, max_age=120) is True       # +61s: appena oltre → stantio
+    assert mf.is_stale(now + 300, now, max_age=120) is True      # +5 min → stantio
+    assert mf.is_stale(now + 99999, now, max_age=120) is True    # molto avanti → stantio
+    # Mutation-guard: prima del fix il futuro era SEMPRE "non stantio" (now - msg < 0 <= max_age),
+    # quindi questa riga falliva sul vecchio codice → regressione bloccata.
+
+
+def test_max_skew_esplicito_e_default_esposto():
+    # #311-3.5-d: max_skew configurabile per-chiamata; il default esposto è 60s.
+    now = 1_000_000.0
+    assert mf.DEFAULT_MAX_CLOCK_SKEW == 60
+    # Tolleranza allargata a 120s: +90s ora è fresco, ma resta stantio col default (60).
+    assert mf.is_stale(now + 90, now, max_age=120, max_skew=120) is False
+    assert mf.is_stale(now + 90, now, max_age=120) is True       # default 60 → +90s stantio
+    # Confine con max_skew esplicito: == soglia ammesso, appena oltre no.
+    assert mf.is_stale(now + 120, now, max_age=120, max_skew=120) is False
+    assert mf.is_stale(now + 121, now, max_age=120, max_skew=120) is True
+
+
+def test_max_skew_malformato_usa_default_sicuro():
+    # #311-3.5-d: un max_skew rotto NON deve spegnere la protezione: ricade su DEFAULT (60s).
+    # Un futuro di +300s resta quindi stantio anche con max_skew corrotto/bool/NaN/inf/<=0.
+    now = 1_000_000.0
+    for bad in ("abc", True, False, float("nan"), float("inf"), None, [], {}, 0, -5):
+        assert mf.is_stale(now + 300, now, max_age=120, max_skew=bad) is True, bad
+        # E un futuro entro il default (30s) resta fresco anche con max_skew rotto.
+        assert mf.is_stale(now + 30, now, max_age=120, max_skew=bad) is False, bad
+
+
+def test_futuro_implausibile_ma_filtro_disattivato_non_e_stantio():
+    # Coerenza: se l'utente ha spento l'anti-stale (max_age <= 0), NON si applica neppure il
+    # reject-skew — il messaggio passa (scelta esplicita dell'utente, come per gli arretrati).
+    now = 1_000_000.0
+    assert mf.is_stale(now + 99999, now, max_age=0) is False
+    assert mf.is_stale(now + 99999, now, max_age=-5) is False
 
 
 def test_timestamp_messaggio_illeggibile_fail_closed():
