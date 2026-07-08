@@ -271,3 +271,15 @@ def test_allowed_chats_fail_fast_esclude_disattivata_include_solo_lista():
     allowed = signal_router.allowed_chats(cfg)
     assert "111" not in allowed                               # disattivata → non ammessa
     assert "222" in allowed                                   # solo-in-lista → il fail-fast la vede
+
+
+def test_allowed_chats_disattivata_vince_anche_su_parser_list_by_chat():
+    # CodeRabbit #391 (sicurezza filtro chat): se la STESSA chat è sia DISATTIVATA in source_chats
+    # sia presente in parser_list_by_chat, la deny-list deve vincere su ENTRAMBE le mappe (non solo
+    # su parser_by_chat). Altrimenti una chat disattivata resterebbe processabile via la lista
+    # multi → buco nel filtro chat.
+    cfg = {"source_chats": [{"chat_id": "333", "enabled": False, "mode": "PRE"}],
+           "parser_list_by_chat": {"333": ["P"]}}
+    allowed = signal_router.allowed_chats(cfg)
+    assert "333" not in allowed                               # deny-list vince sulla lista multi
+    assert signal_router.is_chat_allowed(cfg, "333") is False  # e non è processata
