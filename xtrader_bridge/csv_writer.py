@@ -9,9 +9,11 @@ import csv
 import errno
 import logging
 import os
+import random
 import re
 import threading
 import time
+from typing import Callable, Optional
 
 from . import atomic_io, mapping, numbers_re
 
@@ -259,16 +261,41 @@ def _is_retryable_replace_error(exc: OSError) -> bool:
     return exc.errno not in _PERMANENT_REPLACE_ERRNOS
 
 
-def _replace_with_retry(src: str, dst: str, attempts: int = 10, delay: float = 0.1) -> None:
+# Parametri del retry di `os.replace` sotto contesa di lock (#311-3.5-e). Backoff ESPONENZIALE
+# con jitter invece del vecchio passo FISSO 0.1s: assorbe meglio un lock di XTrader un po' più
+# lungo con poche iterazioni, senza penalizzare il percorso live (il retry gira tenendo
+# `_write_lock`). Vincolo DOMINANTE: il budget totale di attesa `_REPLACE_BUDGET` (≤1.5s), oltre
+# il quale ci si arrende (propaga → rollback fail-safe → retry event-driven a valle). `attempts`
+# è un tetto ASSOLUTO di sicurezza; col backdown+budget il budget lo raggiunge quasi sempre prima.
+_REPLACE_ATTEMPTS = 10       # tetto massimo di tentativi di os.replace
+_REPLACE_BASE_DELAY = 0.05   # attesa iniziale (s); poi raddoppia a ogni retry
+_REPLACE_MAX_DELAY = 0.4     # cap della singola attesa (s)
+_REPLACE_BUDGET = 1.5        # budget totale di attesa (s) — vincolo dominante sul percorso live
+_REPLACE_JITTER_FRAC = 0.1   # jitter ±10% per de-sincronizzare retry concorrenti
+
+
+def _replace_with_retry(src: str, dst: str, attempts: int = _REPLACE_ATTEMPTS, *,
+                        sleep: Optional[Callable[[float], None]] = None,
+                        rng: Optional[Callable[[], float]] = None) -> None:
     """`os.replace` con retry: su Windows il file può essere momentaneamente bloccato da
-    XTrader che lo sta leggendo. Budget ~1s (10×0.1s, audit C3): 3×0.1s (~0.3s) erano troppo
-    pochi — se XTrader teneva il lock più a lungo lo svuotamento/scrittura falliva e poteva
-    lasciare un segnale stale attivo nel CSV. ~1s copre la contesa tipica del lock di lettura
-    senza ritardare troppo il percorso live in caso di contesa.
+    XTrader che lo sta leggendo. Backoff **esponenziale** (`_REPLACE_BASE_DELAY`·2^i, con
+    **jitter** ±`_REPLACE_JITTER_FRAC` e **cap** `_REPLACE_MAX_DELAY`) fino a un **budget totale**
+    `_REPLACE_BUDGET` (~1.5s): il vecchio passo fisso 0.1s (10×0.1s, audit C3) è stato sostituito
+    da un backoff che assorbe un lock un po' più lungo con poche iterazioni (#311-3.5-e). Il budget
+    è il vincolo DOMINANTE — oltre quello ci si arrende e l'errore propaga (il chiamante fa il
+    rollback fail-safe e il retry event-driven a valle riprova) — così il percorso live, che gira
+    tenendo `_write_lock`, non resta bloccato troppo a lungo. `attempts` è un tetto ASSOLUTO.
 
     Solo gli errori TRANSITORI vengono ritentati (`_is_retryable_replace_error`, M5 #184): un
     errore strutturale (dir read-only/EACCES, EISDIR, ENOENT, cross-device) si propaga SUBITO,
-    senza sprecare ~1s per ogni segnale prima dell'escalation."""
+    senza sprecare il budget per ogni segnale prima dell'escalation.
+
+    `sleep`/`rng` sono iniettabili (default `time.sleep`/`random.random`) per test deterministici;
+    il budget si misura sui delay NOMINALI accumulati, non sul tempo di parete, quindi è
+    riproducibile a prescindere dall'attesa reale."""
+    sleep = time.sleep if sleep is None else sleep
+    rng = random.random if rng is None else rng
+    elapsed = 0.0
     for i in range(attempts):
         try:
             os.replace(src, dst)
@@ -276,7 +303,18 @@ def _replace_with_retry(src: str, dst: str, attempts: int = 10, delay: float = 0
         except OSError as exc:
             if i == attempts - 1 or not _is_retryable_replace_error(exc):
                 raise
-            time.sleep(delay)
+            # Backoff esponenziale con jitter, poi CAP per-attesa (il jitter non può sforare il cap).
+            delay = _REPLACE_BASE_DELAY * (2 ** i)
+            delay *= 1.0 + (rng() * 2.0 - 1.0) * _REPLACE_JITTER_FRAC
+            delay = min(delay, _REPLACE_MAX_DELAY)
+            # Budget totale: esaurito → arrenditi (propaga l'errore corrente). Altrimenti clampa
+            # l'ultima attesa al residuo, così la somma dei delay non supera mai `_REPLACE_BUDGET`.
+            remaining = _REPLACE_BUDGET - elapsed
+            if remaining <= 0.0:
+                raise
+            delay = min(delay, remaining)
+            elapsed += delay
+            sleep(delay)
 
 
 # Caratteri che, se in TESTA a una cella, possono far interpretare la cella come
