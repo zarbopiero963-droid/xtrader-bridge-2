@@ -169,35 +169,48 @@ class DictionaryViewerController:
         return out
 
     def view(self, level: str, sport=None, active_only: bool = False,
-             search=None, filters=None) -> dict:
+             search=None, filters=None, limit=None) -> dict:
         """Vista tabellare di un livello, pronta per la GUI.
 
-        Ritorna ``{"columns": [...], "rows": [[...], ...], "total": int, "active": int}``:
-        `columns` sono le intestazioni; `rows` le celle già formattate (sola lettura);
-        `total`/`active` contano le righe **che soddisfano la query** (scope sport +
-        `filters` drill-down + `search` testuale), prima dell'eventuale filtro
-        `active_only`, così il riepilogo riflette ciò che si sta guardando. Con
+        Ritorna ``{"columns": [...], "rows": [[...], ...], "total": int, "active": int,
+        "shown": int, "truncated": bool}``: `columns` sono le intestazioni; `rows` le celle
+        già formattate (sola lettura); `total`/`active` contano le righe **che soddisfano la
+        query** (scope sport + `filters` drill-down + `search` testuale), prima dell'eventuale
+        filtro `active_only`, così il riepilogo riflette ciò che si sta guardando. Con
         `active_only=True` `rows` contiene solo le righe attive.
 
         - `sport`: restringe allo sport (event_type_id; per le selezioni via market_id);
           sport non valido/non specificato → nessun filtro.
         - `filters`: dict ``{colonna: valore}`` a corrispondenza esatta (competizione/
           evento/mercato); chiavi non pertinenti al livello ignorate (fail-open).
-        - `search`: testo cercato come sottostringa case-insensitive sui campi testuali."""
+        - `search`: testo cercato come sottostringa case-insensitive sui campi testuali.
+        - `limit` (Fase 2 collaudo Betfair): tetto massimo di righe **renderizzate**, applicato
+          DOPO tutti i filtri (scope/filters/search/active_only). Serve alla GUI per non
+          costruire migliaia di widget in un colpo (freeze "Non risponde" su Mercati/Selezioni):
+          il cap sta qui, a valle dei filtri, perché una `LIMIT` SQL taglierebbe PRIMA di
+          filtrare → risultati sbagliati. `None`/negativo → nessun cap (retro-compatibile).
+          `shown` = quante righe passavano i filtri prima del cap; `truncated` = True se il
+          cap ha tagliato (la GUI lo segnala e invita a restringere con Sport/Cerca)."""
         spec = _LEVELS[_check_level(level)]
         rows_ = self._scoped_rows(level, sport)
         rows_ = self._apply_filters(rows_, filters)
         rows_ = self._apply_search(rows_, level, search)
         total = len(rows_)
         active = sum(1 for r in rows_ if _is_active(r))
-        shown = [r for r in rows_ if _is_active(r)] if active_only else rows_
+        shown_rows = [r for r in rows_ if _is_active(r)] if active_only else rows_
+        shown = len(shown_rows)
+        truncated = False
+        if limit is not None and limit >= 0 and shown > limit:
+            shown_rows = shown_rows[:limit]
+            truncated = True
         cols = spec["columns"]
-        rows = [[_format_cell(c, r.get(c)) for c, _ in cols] for r in shown]
+        rows = [[_format_cell(c, r.get(c)) for c, _ in cols] for r in shown_rows]
         return {"columns": [h for _, h in cols], "rows": rows,
-                "total": total, "active": active}
+                "total": total, "active": active,
+                "shown": shown, "truncated": truncated}
 
     def view_if_free(self, level: str, sport=None, active_only: bool = False,
-                     search=None, filters=None) -> dict:
+                     search=None, filters=None, limit=None) -> dict:
         """Come `view`, ma NON blocca il chiamante se una sync Betfair tiene ora il lock del
         DB: prova ad acquisirlo **senza attesa** e, se è occupato, solleva `DictionaryBusy`
         invece di bloccare. Se libero, tiene il lock per l'INTERA lettura (vista coerente,
@@ -212,7 +225,7 @@ class DictionaryViewerController:
             raise DictionaryBusy()
         try:
             return self.view(level, sport=sport, active_only=active_only,
-                             search=search, filters=filters)
+                             search=search, filters=filters, limit=limit)
         finally:
             self.db.release_read()
 

@@ -2259,11 +2259,28 @@ doppio `A/B v C/D`, trattino attaccato non spezzato, `" vs "` prioritario su `" 
 passed**. README/design handoff **N/A** (logica interna; il rendering GUI è la Fase 2). Verifica owner:
 livello «Eventi» (285 righe, non si blocca) dopo un nuovo sync.
 
-### Fase 2 — viewer non-bloccante + colonne allineate — DA FARE
+### Fase 2 — viewer non-bloccante + colonne allineate — FATTO
 
-Sostituire `CTkScrollableFrame`+label-per-cella con una tabella **nativa** (`ttk.Treeview`, insert in
-batch, virtualizzato) + **LIMIT/paginazione** SQL + caricamento in **background**. Elimina freeze e
-disallineamento. GUI → aggiornare design handoff.
+Sostituito `CTkScrollableFrame`+label-per-cella con una tabella **nativa `ttk.Treeview`**
+(virtualizzata: renderizza solo le righe visibili) + scrollbar + header e **larghezza per-colonna**
+→ niente più freeze e colonne allineate. Aggiunto un **cap di `500` righe renderizzate** (`_ROW_CAP`)
+applicato dal **controller DOPO tutti i filtri** (`view(..., limit=)`; NON una `LIMIT` SQL, che
+taglierebbe prima dei filtri → risultati errati): la vista restituisce `shown` (righe filtrate prima
+del cap) e `truncated`, e la riga conteggi invita a restringere con Sport/Cerca quando tronca.
+
+**Scelta deliberata: niente threading/background.** Il freeze era **100% rendering** (costruzione di
+~88.000 widget CTk sul thread Tk); la query pura (`fetchall` + filtri) è O(n) veloce. Virtualizzazione
++ cap eliminano il freeze senza introdurre marshalling Tk cross-thread e race di teardown (patch più
+piccola e sicura, coerente con la REGOLA D'ORO). Il debouncer ricerca e il suo teardown (`destroy`)
+restano invariati.
+
+Test hard (`test_betfair_dictionary_viewer.py`): `limit` tronca ma NON i conteggi (mutation-guard vs
+vecchio codice che tornava tutte le righe), `limit=None`/`limit>totale` = nessun cap, cap applicato
+DOPO `active_only` e DOPO la ricerca, `view_if_free` propaga `limit`. Suite completa verde. Aggiornato
+allowlist blind-except (`dictionary_viewer_gui.py`: 1→2, per lo stile Treeview best-effort). Design
+handoff §7.7 aggiornato. **Verifica manuale owner (richiede display, non in CI):** aprire Strumenti →
+Dizionario, cambiare Livello su Mercati/Selezioni e premere 🔄 Aggiorna → la finestra **non** si blocca
+più, le colonne sono allineate, e sopra la tabella compare l'avviso di troncamento a 500.
 
 ### Fase 3 — mapping guidato ad albero — DA PROGETTARE
 

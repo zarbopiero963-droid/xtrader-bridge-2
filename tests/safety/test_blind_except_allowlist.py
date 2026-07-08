@@ -123,7 +123,9 @@ _ALLOWLIST = {
                                        "snapshot pre-save e rollback best-effort non devono "
                                        "sollevare (#259 D2: il ripristino non deve peggiorare "
                                        "uno stato già rotto)"),
-    "betfair/dictionary_viewer_gui.py": (1, "GUI Tk viewer dizionario best-effort"),
+    "betfair/dictionary_viewer_gui.py": (2, "GUI Tk viewer dizionario best-effort: lettura "
+                                            "dizionario e stile Treeview (Fase 2) non devono "
+                                            "crashare la finestra Strumenti"),
     "betfair/log_safety.py": (2, "redazione log best-effort: il filtro non deve mai crashare il "
                                  "logging, e agganciare il filtro a un handler (anche via hook su "
                                  "addHandler) è best-effort (#166)"),
