@@ -2241,6 +2241,15 @@ scope minimo). Entrambi **fuori dal percorso live** o comunque a impatto contenu
   toccate: i quantificatori possessivi (Python 3.11) erano stati provati ma **cambiano cosa
   combacia** (l'originale si affida al backtracking per partizionare code tipo «90+2 FT» — un
   test regrediva) → tenuto il solo cap, a rischio zero.
+  - **Estensione round-2 (review finale Fable 5):** sul ramo signal_type di `parse_message`
+    erano quadratiche **anche** la **search di riga** `P\.Bet\.\s+(.+?)(?:…|$)` (misurato: riga
+    ~40KB di whitespace → **~9s**, il contributo maggiore) e **`_STATUS_TAIL.sub`** (~5.8s), che
+    giravano su input **non cappato**. **Fix: un unico guard di lunghezza sulla riga `P.Bet.`**
+    (`len(line) <= _MAX_META_INPUT` prima della search) — dentro il cap `alias ≤ cap`, quindi
+    `_STATUS_TAIL`/`_TRAILING_EMOJI` restano O(cap²). Comportamento **identico** per gli alias
+    reali (corti: `GG LIVE`→`GG`, `Over 2.5 pre`→`Over 2.5`, emoji finale rimossa); oltre il cap
+    nessun `signal_type` piazzabile (**fail-closed**). `parse_message` su input patologico: da
+    ~8.9s → **~1.4ms**.
 - **L2-2** (`value_maps.py`): `_is_placeholder` usava `"{" in v **and** "}" in v` → un placeholder
   **parziale/troncato** («{HOME_TEAM» senza `}`) NON era riconosciuto e sarebbe finito nella
   value-map come valore reale. **Fix: `and` → `or`** (fail-closed: i valori betting reali non

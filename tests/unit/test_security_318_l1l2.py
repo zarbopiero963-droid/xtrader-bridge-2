@@ -86,3 +86,33 @@ def test_value_map_esclude_placeholder_parziale():
     pairs = [("gg", "Goal/Goal"), ("bad", "{HOME_TEAM"), ("ok", "Milan")]
     filtered = vm.value_map_from_pairs([(a, v) for a, v in pairs if not vm._is_placeholder(v)])
     assert "bad" not in filtered and filtered.get("gg") == "Goal/Goal"
+
+
+# ── L1-4 (estensione): riga `P.Bet.` — search di riga + `_STATUS_TAIL` su input non cappato ───
+
+def test_parse_message_pbet_line_redos_bounded():
+    # La search di riga `P\.Bet\.\s+(.+?)(?:…|$)` E `_STATUS_TAIL.sub` giravano su input NON
+    # cappato → backtracking QUADRATICO (una riga ~40KB di whitespace interno → ~9s solo la
+    # search, ~5.8s in `_STATUS_TAIL`). Ora la riga `P.Bet.` è cappata a monte (`_MAX_META_INPUT`):
+    # input patologico → parse veloce. Bound generoso (1.0s) vs i ~9s del codice pre-fix.
+    msg = "P.Bet. a" + (" " * 40000) + "b"
+    t0 = time.perf_counter()
+    p.parse_message(msg)
+    assert time.perf_counter() - t0 < 1.0
+
+
+def test_parse_message_status_e_emoji_strip_preservati_su_alias_reale():
+    # Il cap di riga NON cambia il comportamento sugli alias reali (corti): LIVE/PRE tolti,
+    # emoji finale tolta, alias pulito invariato.
+    assert p.parse_message("P.Bet. GG LIVE")["signal_type"] == "GG"
+    assert p.parse_message("P.Bet. Over 2.5 pre")["signal_type"] == "Over 2.5"
+    assert p.parse_message("P.Bet. GG \U0001F525")["signal_type"] == "GG"       # 🔥 finale rimossa
+    assert p.parse_message("P.Bet. Goal")["signal_type"] == "Goal"
+
+
+def test_parse_message_alias_sovracap_non_e_piazzabile():
+    # Un alias oltre il cap non passa per le regex → nessun signal_type piazzabile (fail-closed):
+    # non resta l'alias grezzo (che non mapperebbe comunque) e non innesca le regex quadratiche.
+    big = "x" * (p._MAX_META_INPUT + 50)
+    st = p.parse_message("P.Bet. " + big).get("signal_type", "")
+    assert st == "" and st != big

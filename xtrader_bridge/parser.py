@@ -86,8 +86,9 @@ _EMOJI_CLASS = (
 )
 _TRAILING_EMOJI = re.compile(r'(?:[' + _EMOJI_CLASS + r']\s*)+$')
 
-# #318 L1-4 (anti-ReDoS): `_META_TAIL`/`_TRAILING_EMOJI` hanno backtracking QUADRATICO su input
-# ostile (misurato: ~40KB → 11.7s). NON si toccano le regex (i possessivi cambierebbero cosa
+# #318 L1-4 (anti-ReDoS): `_META_TAIL`/`_TRAILING_EMOJI`/`_STATUS_TAIL` hanno backtracking
+# QUADRATICO su input ostile (misurato: `_META_TAIL` ~40KB → 11.7s; `_STATUS_TAIL` ~40KB → ~5.8s
+# su una coda di whitespace). NON si toccano le regex (i possessivi cambierebbero cosa
 # combacia: l'originale si affida al backtracking per partizionare code tipo «90+2 FT»); si CAPPA
 # invece l'input al call-site. Un «lato» squadra o un alias signal_type reali sono corti (nomi
 # club < ~60 char): oltre questa soglia l'input non è legittimo. Con input ≤ cap il costo resta
@@ -310,15 +311,18 @@ def parse_message(text: str) -> dict:
             continue
 
         if 'P.Bet.' in line:
-            m = re.search(r'P\.Bet\.\s+(.+?)(?:\s+[🔊✅🔇]|$)', line)
+            # #318 L1-4 (anti-ReDoS): la search di riga `P\.Bet\.\s+(.+?)(?:…|$)` E `_STATUS_TAIL`
+            # hanno backtracking QUADRATICO su input ostile non cappato (misurato: una riga ~40KB di
+            # whitespace → ~9s nella sola search, ~5.8s in `_STATUS_TAIL`). Una riga "P.Bet. <alias>"
+            # legittima è corta (alias reali << cap); oltre `_MAX_META_INPUT` la riga non è un segnale
+            # valido → non si dà in pasto ad alcuna regex (fail-closed: un alias spropositato non
+            # mapperebbe comunque). Dentro il cap, alias ≤ cap ⇒ ogni strip resta O(cap²) = trascurabile.
+            m = re.search(r'P\.Bet\.\s+(.+?)(?:\s+[🔊✅🔇]|$)', line) if len(line) <= _MAX_META_INPUT else None
             if m:
                 # togli i token di stato (LIVE/PRE) e un'eventuale emoji in coda (#184
                 # low-parser-emoji) così resta l'alias puro per il mapping.
                 sig = _STATUS_TAIL.sub('', m.group(1).strip()).strip()
-                # #318 L1-4: applica lo strip emoji SOLO su un alias di lunghezza sana (anti-ReDoS);
-                # un alias spropositato non mapperebbe comunque ad alcun valore (fail-closed).
-                result['signal_type'] = (
-                    _TRAILING_EMOJI.sub('', sig).strip() if len(sig) <= _MAX_META_INPUT else sig)
+                result['signal_type'] = _TRAILING_EMOJI.sub('', sig).strip()
             continue
         if '🏆' in line:
             result['competition'] = re.sub(r'[🏆\s]+', ' ', line).strip()
