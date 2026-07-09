@@ -2226,6 +2226,45 @@ design handoff **N/A**. Restano #318 **L1-4** (parser ReDoS) e **L2-2** (`_is_pl
 
 ---
 
+## #318-L1-4 — ReDoS regex parser + #318-L2-2 — `_is_placeholder` permissivo — FATTO (2026-07-09)
+
+Ultimi due finding adversariali #318, chiusi in un'unica PR stretta (stesso tema sicurezza,
+scope minimo). Entrambi **fuori dal percorso live** o comunque a impatto contenuto.
+
+- **L1-4** (`parser.py`, ReDoS): `_META_TAIL` e `_TRAILING_EMOJI` hanno backtracking **QUADRATICO**
+  su input ostile (misurato: ~40KB → **11.7s**; caso `90+2` a 40KB → 11.7s). Usate dal parser
+  **hardcoded** (`_clean_team_side`, ramo signal_type di `parse_message`), disattivato nel live
+  (CP-09b) e comunque limitato dal cap Telegram ~4KB, ma latente DoS. **Fix: cap di lunghezza
+  al call-site** (`_MAX_META_INPUT = 256`) — un «lato» squadra o un alias signal_type reali sono
+  corti (< ~60 char); oltre soglia l'input non è legittimo. Con input ≤ cap il costo resta
+  O(cap²) = trascurabile → **nessun ReDoS a prescindere dalla regex**. Le regex **NON** sono
+  toccate: i quantificatori possessivi (Python 3.11) erano stati provati ma **cambiano cosa
+  combacia** (l'originale si affida al backtracking per partizionare code tipo «90+2 FT» — un
+  test regrediva) → tenuto il solo cap, a rischio zero.
+  - **Estensione round-2 (review finale Fable 5):** sul ramo signal_type di `parse_message`
+    erano quadratiche **anche** la **search di riga** `P\.Bet\.\s+(.+?)(?:…|$)` (misurato: riga
+    ~40KB di whitespace → **~9s**, il contributo maggiore) e **`_STATUS_TAIL.sub`** (~5.8s), che
+    giravano su input **non cappato**. **Fix: un unico guard di lunghezza sulla riga `P.Bet.`**
+    (`len(line) <= _MAX_META_INPUT` prima della search) — dentro il cap `alias ≤ cap`, quindi
+    `_STATUS_TAIL`/`_TRAILING_EMOJI` restano O(cap²). Comportamento **identico** per gli alias
+    reali (corti: `GG LIVE`→`GG`, `Over 2.5 pre`→`Over 2.5`, emoji finale rimossa); oltre il cap
+    nessun `signal_type` piazzabile (**fail-closed**). `parse_message` su input patologico: da
+    ~8.9s → **~1.4ms**.
+- **L2-2** (`value_maps.py`): `_is_placeholder` usava `"{" in v **and** "}" in v` → un placeholder
+  **parziale/troncato** («{HOME_TEAM» senza `}`) NON era riconosciuto e sarebbe finito nella
+  value-map come valore reale. **Fix: `and` → `or`** (fail-closed: i valori betting reali non
+  contengono mai graffe, quindi UNA sola graffa = placeholder non sostituito → escluso).
+
+**Patch stretta** (`parser.py` cap + 2 call-site; `value_maps.py` una condizione): nessun cambio
+per input validi (suite parser/value_maps invariata, 565 test). Test hard
+(`test_security_318_l1l2.py`): cap deterministico (over-cap → `None`), **bound temporale**
+anti-ReDoS su input patologico ~50KB (era 11.7s → ora <5ms), correttezza casi reali invariata,
+`_is_placeholder` sui parziali, value-map esclude il placeholder parziale. Suite **2535 passed**.
+Docs: README **N/A** (fix interni, nessun comportamento user-visible/CSV/GUI); design handoff
+**N/A**. Con questi due, i finding #318 **triati sono tutti chiusi**.
+
+---
+
 ## Collaudo reale Betfair (2026-07-08) — problemi emersi + piano a fasi
 
 Dal primo collaudo reale del proprietario (login + sync Betfair reale: 4 sport, 285 eventi, 3246

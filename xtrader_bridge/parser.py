@@ -86,6 +86,15 @@ _EMOJI_CLASS = (
 )
 _TRAILING_EMOJI = re.compile(r'(?:[' + _EMOJI_CLASS + r']\s*)+$')
 
+# #318 L1-4 (anti-ReDoS): `_META_TAIL`/`_TRAILING_EMOJI`/`_STATUS_TAIL` hanno backtracking
+# QUADRATICO su input ostile (misurato: `_META_TAIL` ~40KB → 11.7s; `_STATUS_TAIL` ~40KB → ~5.8s
+# su una coda di whitespace). NON si toccano le regex (i possessivi cambierebbero cosa
+# combacia: l'originale si affida al backtracking per partizionare code tipo «90+2 FT»); si CAPPA
+# invece l'input al call-site. Un «lato» squadra o un alias signal_type reali sono corti (nomi
+# club < ~60 char): oltre questa soglia l'input non è legittimo. Con input ≤ cap il costo resta
+# O(cap²) = trascurabile → nessun ReDoS possibile, a prescindere dalla struttura della regex.
+_MAX_META_INPUT = 256
+
 
 def _is_odds(value: str) -> bool:
     """Una quota decimale offerta è sempre **> 1.0**: così "0,5" (linea del mercato,
@@ -212,6 +221,10 @@ def _clean_team_side(side: str):
     `None` se NON è una squadra reale: vuoto, solo metadati (`46m`/`HT`/`FT`/`LIVE`) o senza
     lettere. Una cifra iniziale è ammessa (`1. FC Köln`, `1860 Munich`): non è metadato (#184 M10,
     Codex P1/P2)."""
+    # #318 L1-4: un «lato» spropositatamente lungo NON è una squadra reale (nomi club < ~60 char);
+    # scartarlo qui evita di dare in pasto a `_META_TAIL.sub` un input patologico (anti-ReDoS).
+    if side is None or len(side) > _MAX_META_INPUT:
+        return None
     s = _META_TAIL.sub('', side).strip()
     if not s or _META_ONLY.match(s) or not _HAS_ALPHA.search(s):
         return None
@@ -298,7 +311,13 @@ def parse_message(text: str) -> dict:
             continue
 
         if 'P.Bet.' in line:
-            m = re.search(r'P\.Bet\.\s+(.+?)(?:\s+[🔊✅🔇]|$)', line)
+            # #318 L1-4 (anti-ReDoS): la search di riga `P\.Bet\.\s+(.+?)(?:…|$)` E `_STATUS_TAIL`
+            # hanno backtracking QUADRATICO su input ostile non cappato (misurato: una riga ~40KB di
+            # whitespace → ~9s nella sola search, ~5.8s in `_STATUS_TAIL`). Una riga "P.Bet. <alias>"
+            # legittima è corta (alias reali << cap); oltre `_MAX_META_INPUT` la riga non è un segnale
+            # valido → non si dà in pasto ad alcuna regex (fail-closed: un alias spropositato non
+            # mapperebbe comunque). Dentro il cap, alias ≤ cap ⇒ ogni strip resta O(cap²) = trascurabile.
+            m = re.search(r'P\.Bet\.\s+(.+?)(?:\s+[🔊✅🔇]|$)', line) if len(line) <= _MAX_META_INPUT else None
             if m:
                 # togli i token di stato (LIVE/PRE) e un'eventuale emoji in coda (#184
                 # low-parser-emoji) così resta l'alias puro per il mapping.
