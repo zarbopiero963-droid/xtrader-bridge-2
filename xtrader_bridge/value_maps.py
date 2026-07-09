@@ -45,9 +45,14 @@ _BUILTIN = {
 
 
 def _is_placeholder(value: str) -> bool:
-    """Valore con placeholder dinamico non sostituito, es. "{HOME_TEAM}"."""
+    """Valore con placeholder dinamico non sostituito, es. "{HOME_TEAM}".
+
+    #318 L2-2: usa `or`, non `and`. Un placeholder PARZIALE/troncato («{HOME_TEAM» senza `}`,
+    o «HOME_TEAM}») deve comunque essere escluso dalla value-map: i valori betting reali non
+    contengono MAI graffe, quindi la presenza di UNA sola graffa è già segno di placeholder
+    non sostituito (fail-closed: mai un placeholder rotto usato come valore reale)."""
     v = value or ""
-    return "{" in v and "}" in v
+    return "{" in v or "}" in v
 
 
 def value_map_from_pairs(pairs) -> dict:

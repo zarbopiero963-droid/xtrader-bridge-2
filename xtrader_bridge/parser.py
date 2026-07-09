@@ -86,6 +86,14 @@ _EMOJI_CLASS = (
 )
 _TRAILING_EMOJI = re.compile(r'(?:[' + _EMOJI_CLASS + r']\s*)+$')
 
+# #318 L1-4 (anti-ReDoS): `_META_TAIL`/`_TRAILING_EMOJI` hanno backtracking QUADRATICO su input
+# ostile (misurato: ~40KB → 11.7s). NON si toccano le regex (i possessivi cambierebbero cosa
+# combacia: l'originale si affida al backtracking per partizionare code tipo «90+2 FT»); si CAPPA
+# invece l'input al call-site. Un «lato» squadra o un alias signal_type reali sono corti (nomi
+# club < ~60 char): oltre questa soglia l'input non è legittimo. Con input ≤ cap il costo resta
+# O(cap²) = trascurabile → nessun ReDoS possibile, a prescindere dalla struttura della regex.
+_MAX_META_INPUT = 256
+
 
 def _is_odds(value: str) -> bool:
     """Una quota decimale offerta è sempre **> 1.0**: così "0,5" (linea del mercato,
@@ -212,6 +220,10 @@ def _clean_team_side(side: str):
     `None` se NON è una squadra reale: vuoto, solo metadati (`46m`/`HT`/`FT`/`LIVE`) o senza
     lettere. Una cifra iniziale è ammessa (`1. FC Köln`, `1860 Munich`): non è metadato (#184 M10,
     Codex P1/P2)."""
+    # #318 L1-4: un «lato» spropositatamente lungo NON è una squadra reale (nomi club < ~60 char);
+    # scartarlo qui evita di dare in pasto a `_META_TAIL.sub` un input patologico (anti-ReDoS).
+    if side is None or len(side) > _MAX_META_INPUT:
+        return None
     s = _META_TAIL.sub('', side).strip()
     if not s or _META_ONLY.match(s) or not _HAS_ALPHA.search(s):
         return None
@@ -303,7 +315,10 @@ def parse_message(text: str) -> dict:
                 # togli i token di stato (LIVE/PRE) e un'eventuale emoji in coda (#184
                 # low-parser-emoji) così resta l'alias puro per il mapping.
                 sig = _STATUS_TAIL.sub('', m.group(1).strip()).strip()
-                result['signal_type'] = _TRAILING_EMOJI.sub('', sig).strip()
+                # #318 L1-4: applica lo strip emoji SOLO su un alias di lunghezza sana (anti-ReDoS);
+                # un alias spropositato non mapperebbe comunque ad alcun valore (fail-closed).
+                result['signal_type'] = (
+                    _TRAILING_EMOJI.sub('', sig).strip() if len(sig) <= _MAX_META_INPUT else sig)
             continue
         if '🏆' in line:
             result['competition'] = re.sub(r'[🏆\s]+', ' ', line).strip()
