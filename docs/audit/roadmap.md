@@ -45,11 +45,11 @@ rischio** (non uno per singolo file di test):
 | Workflow | Trigger | Cosa fa |
 |---|---|---|
 | `pr-checks.yml` | PR · push main · manuale | job **ubuntu (1×)** separati: `compile`, `contract`, `unit`, `safety`, `integration`, `smoke`, `lint` |
-| `windows-tests.yml` | push main · label collaudo · manuale | **Windows (2×)**: intera suite non-manual su `windows-latest`. NON a ogni push/PR (risparmio minuti); scatta su `ci-full`/`final-fable-review`/`final-fugu-review` o dispatch |
-| `merge-simulation.yml` | label collaudo · manuale | fonde `main` nel branch PR (no merge reale) → `compileall` + `pytest`; rileva conflitti. Scatta su `ci-full`/`final-*` o dispatch, **non** a ogni PR |
+| `windows-tests.yml` | push main/master · label di collaudo · manuale | **Windows (2×)**: intera suite non manuale su `windows-latest`. NON a ogni push/PR (risparmio minuti); parte quando una label `ci-full`/`final-fable-review`/`final-fugu-review` è **presente** sulla PR e, finché resta, **ri-gira a ogni push** (`synchronize`) → collauda sempre il head reale · anche su `workflow_dispatch` |
+| `merge-simulation.yml` | label di collaudo · manuale | fonde `main` nel branch PR (no merge reale) → `compileall` + `pytest`; rileva conflitti. Parte con una label `ci-full`/`final-*` presente e ri-gira a ogni push finché resta; **non** su PR senza label |
 | `merge-simulation-hard.yml` | manuale · schedulata (notte) | Windows: merge + suite completa + `safety`/`integration` + build EXE + controllo file vietati |
 | `forbidden-files.yml` | PR · push main · manuale | blocca `.env`/`config.json`/`*.exe`/`*.zip`/`*.log` e CSV (eccetto `data/dizionario_xtrader.csv`) |
-| `build.yaml` | push main · tag `v*` · manuale | build EXE Windows + artifact; release solo su tag |
+| `build.yaml` | tag `v*` · manuale | build EXE Windows + artifact; **solo** su tag `v*` (release) o `workflow_dispatch`, non su push `main` |
 
 Il check `contract` (`tests/unit/test_csv_contract.py`) è la barriera che diventa
 rossa se cambiano: header/ordine/numero colonne, encoding `utf-8-sig`, `QUOTE_ALL`,
@@ -58,11 +58,12 @@ rossa se cambiano: header/ordine/numero colonne, encoding `utf-8-sig`, `QUOTE_AL
 > **Branch protection (consigliata, da impostare lato GitHub dal proprietario):**
 > rendere *required* i job ubuntu che girano a **ogni PR** — `compile`, `contract`, `unit`,
 > `safety`, `integration` — più `forbidden-files` e `commit-gate`. **`windows-tests` e
-> `merge-simulation` NON girano più a ogni PR** (solo su label di collaudo `ci-full`/`final-*`
-> o dispatch, per risparmiare minuti Windows 2×): non renderli *required* su ogni PR, altrimenti
-> una PR senza label resta bloccata in attesa del check. Il gate finale
-> (`final-fable-review`/`final-fugu-review`, lanciato comunque pre-merge) li fa scattare
-> entrambi prima del merge. `merge-simulation-hard` resta manuale/notturna.
+> `merge-simulation` NON girano su una PR senza label di collaudo** (solo con `ci-full`/`final-*`
+> presente, o su dispatch, per risparmiare minuti Windows 2×): non renderli *required* su ogni PR,
+> altrimenti una PR senza label resta bloccata in attesa del check. Il gate finale
+> (`final-fable-review`/`final-fugu-review`, lanciato comunque pre-merge) li fa scattare; e
+> **finché la label resta, ri-girano a ogni push** (`synchronize`) → il collaudo Windows/merge è
+> sempre sull'ultimo commit, non su uno snapshot stantio. `merge-simulation-hard` resta manuale/notturna.
 
 ### Commit gate (ad ogni commit/push) e profili
 
@@ -88,7 +89,7 @@ finiscono segreti/artefatti nel repo (`tests/safety/test_no_secrets_committed.py
 | Profilo | Quando | Selettore |
 |---|---|---|
 | commit | ogni push | `pytest -m "not slow and not manual and not e2e"` (unit+safety+smoke+integration veloci) |
-| pr | ogni PR | `pytest -m "not manual"` (tutta la suite offline **ubuntu**, esclusi i live/manuali). `windows-tests`/`merge-simulation` solo su label collaudo (`ci-full`/`final-*`) o dispatch |
+| pr | ogni PR | `pytest -m "not manual"` (tutta la suite offline **ubuntu**, esclusi i live/manuali). `windows-tests`/`merge-simulation` solo con label di collaudo (`ci-full`/`final-*`) presente — poi a ogni push finché resta — o su dispatch |
 | release | pre-release / PR-20 | `pytest -m "not manual"` + `tests/e2e` + stress + build EXE (merge-simulation-hard) |
 
 I test pesanti (stress/chaos/e2e completo/recovery) restano su PR/release; tutto

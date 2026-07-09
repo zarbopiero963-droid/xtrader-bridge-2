@@ -9,18 +9,21 @@ name: Windows Tests
 # NON gira più a OGNI push di PR (dove prima stava dentro `pr-checks.yml`), ma solo quando
 # serve davvero un collaudo Windows:
 #   - push verso main/master → rete di sicurezza post-merge sul target reale;
-#   - la PR riceve una label di collaudo: `ci-full` (on-demand, senza chiamare i reviewer a
-#     pagamento) oppure le label di review finale `final-fable-review`/`final-fugu-review`
-#     (il gate pre-merge che il proprietario lancia comunque fa scattare anche Windows);
+#   - la PR ha una label di collaudo PRESENTE: `ci-full` (on-demand, senza chiamare i reviewer
+#     a pagamento) oppure le label di review finale `final-fable-review`/`final-fugu-review`
+#     (il gate pre-merge che il proprietario lancia comunque fa scattare anche Windows).
+#     Finché la label resta sulla PR, ogni push successivo (`synchronize`) ri-collauda il head
+#     reale — così non si merga mai un commit non testato su Windows;
 #   - `workflow_dispatch` manuale.
-# I core-check ubuntu (compile/contract/unit/safety/integration/smoke/lint) restano invece a
-# OGNI push in `pr-checks.yml`: sono 1× e coprono la logica pura ad ogni commit. Il nome del
-# check resta `windows-tests` (branch-protection invariata).
+# Su una PR SENZA label di collaudo il job non parte (nessun costo Windows). I core-check ubuntu
+# (compile/contract/unit/safety/integration/smoke/lint) restano invece a OGNI push in
+# `pr-checks.yml`: sono 1× e coprono la logica pura ad ogni commit. Il nome del check resta
+# `windows-tests` (branch-protection invariata).
 on:
   push:
     branches: [main, master]
   pull_request:
-    types: [labeled]
+    types: [labeled, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -28,10 +31,14 @@ permissions:
 
 jobs:
   windows-tests:
-    # Su push/dispatch gira sempre; su PR solo se la label aggiunta è una di quelle di collaudo.
+    # Su push/dispatch gira sempre; su PR (labeled/synchronize/reopened) solo se una label di
+    # collaudo è PRESENTE ADESSO sulla PR — così un push DOPO la label ri-collauda il head reale
+    # (non solo lo snapshot al momento dell'etichettatura), senza girare sulle PR senza label.
     if: >
       github.event_name != 'pull_request' ||
-      contains(fromJSON('["ci-full","final-fable-review","final-fugu-review"]'), github.event.label.name)
+      contains(github.event.pull_request.labels.*.name, 'ci-full') ||
+      contains(github.event.pull_request.labels.*.name, 'final-fable-review') ||
+      contains(github.event.pull_request.labels.*.name, 'final-fugu-review')
     runs-on: windows-latest
     # Rete di sicurezza contro un hang Windows-specifico (es. un file-lock che non si
     # rilascia): senza timeout la run resterebbe appesa fino al default di 6h di GitHub.

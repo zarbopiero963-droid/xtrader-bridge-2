@@ -12,7 +12,7 @@ name: Merge Simulation
 # via label; a merge reale i conflitti li mostra comunque git.
 on:
   pull_request:
-    types: [labeled]
+    types: [labeled, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -20,10 +20,14 @@ permissions:
 
 jobs:
   merge-simulation:
-    # Su dispatch gira sempre; su PR solo se la label aggiunta è una di quelle di collaudo.
+    # Su dispatch gira sempre; su PR (labeled/synchronize/reopened) solo se una label di collaudo
+    # è PRESENTE ADESSO sulla PR — così un push DOPO la label ri-simula il merge sul head reale,
+    # non solo sullo snapshot al momento dell'etichettatura; senza label il job non parte.
     if: >
       github.event_name != 'pull_request' ||
-      contains(fromJSON('["ci-full","final-fable-review","final-fugu-review"]'), github.event.label.name)
+      contains(github.event.pull_request.labels.*.name, 'ci-full') ||
+      contains(github.event.pull_request.labels.*.name, 'final-fable-review') ||
+      contains(github.event.pull_request.labels.*.name, 'final-fugu-review')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
