@@ -3,8 +3,16 @@ name: Merge Simulation
 # Risponde a: "se questa PR venisse mergiata ORA su main, i test passerebbero
 # ancora?". Fonde main nel branch della PR (senza commit/push reali) e rilancia
 # compile + l'intera suite. Rileva anche i conflitti di merge con main.
+#
+# RISPARMIO MINUTI (#billing): rigira l'INTERA suite offline (ridondante coi job di
+# `pr-checks.yml` sul head del branch). Perciò NON gira più a ogni push di PR, ma solo
+# quando serve il collaudo "come-se-mergiato": label di collaudo (`ci-full` o le label di
+# review finale `final-fable-review`/`final-fugu-review`, che il proprietario lancia comunque
+# pre-merge) oppure `workflow_dispatch`. Il rilevamento conflitti resta disponibile pre-merge
+# via label; a merge reale i conflitti li mostra comunque git.
 on:
   pull_request:
+    types: [labeled]
   workflow_dispatch:
 
 permissions:
@@ -12,6 +20,10 @@ permissions:
 
 jobs:
   merge-simulation:
+    # Su dispatch gira sempre; su PR solo se la label aggiunta è una di quelle di collaudo.
+    if: >
+      github.event_name != 'pull_request' ||
+      contains(fromJSON('["ci-full","final-fable-review","final-fugu-review"]'), github.event.label.name)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1

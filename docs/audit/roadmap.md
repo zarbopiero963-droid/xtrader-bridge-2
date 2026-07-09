@@ -44,8 +44,9 @@ rischio** (non uno per singolo file di test):
 
 | Workflow | Trigger | Cosa fa |
 |---|---|---|
-| `pr-checks.yml` | PR · push main · manuale | job separati: `compile`, `contract`, `unit`, `safety`, `integration`, `smoke` |
-| `merge-simulation.yml` | PR · manuale | fonde `main` nel branch PR (no merge reale) → `compileall` + `pytest`; rileva conflitti |
+| `pr-checks.yml` | PR · push main · manuale | job **ubuntu (1×)** separati: `compile`, `contract`, `unit`, `safety`, `integration`, `smoke`, `lint` |
+| `windows-tests.yml` | push main · label collaudo · manuale | **Windows (2×)**: intera suite non-manual su `windows-latest`. NON a ogni push/PR (risparmio minuti); scatta su `ci-full`/`final-fable-review`/`final-fugu-review` o dispatch |
+| `merge-simulation.yml` | label collaudo · manuale | fonde `main` nel branch PR (no merge reale) → `compileall` + `pytest`; rileva conflitti. Scatta su `ci-full`/`final-*` o dispatch, **non** a ogni PR |
 | `merge-simulation-hard.yml` | manuale · schedulata (notte) | Windows: merge + suite completa + `safety`/`integration` + build EXE + controllo file vietati |
 | `forbidden-files.yml` | PR · push main · manuale | blocca `.env`/`config.json`/`*.exe`/`*.zip`/`*.log` e CSV (eccetto `data/dizionario_xtrader.csv`) |
 | `build.yaml` | push main · tag `v*` · manuale | build EXE Windows + artifact; release solo su tag |
@@ -55,9 +56,13 @@ rossa se cambiano: header/ordine/numero colonne, encoding `utf-8-sig`, `QUOTE_AL
 `BetType` (PUNTA/BANCA), `Points` vuoto, `Handicap` 0, o se rientrano `Stake`/`Timestamp`.
 
 > **Branch protection (consigliata, da impostare lato GitHub dal proprietario):**
-> rendere *required* almeno `compile`, `contract`, `unit`, `safety`, `integration`,
-> `merge-simulation`, `forbidden-files`, `commit-gate`. `merge-simulation-hard`
-> resta manuale/notturna.
+> rendere *required* i job ubuntu che girano a **ogni PR** — `compile`, `contract`, `unit`,
+> `safety`, `integration` — più `forbidden-files` e `commit-gate`. **`windows-tests` e
+> `merge-simulation` NON girano più a ogni PR** (solo su label di collaudo `ci-full`/`final-*`
+> o dispatch, per risparmiare minuti Windows 2×): non renderli *required* su ogni PR, altrimenti
+> una PR senza label resta bloccata in attesa del check. Il gate finale
+> (`final-fable-review`/`final-fugu-review`, lanciato comunque pre-merge) li fa scattare
+> entrambi prima del merge. `merge-simulation-hard` resta manuale/notturna.
 
 ### Commit gate (ad ogni commit/push) e profili
 
@@ -83,7 +88,7 @@ finiscono segreti/artefatti nel repo (`tests/safety/test_no_secrets_committed.py
 | Profilo | Quando | Selettore |
 |---|---|---|
 | commit | ogni push | `pytest -m "not slow and not manual and not e2e"` (unit+safety+smoke+integration veloci) |
-| pr | ogni PR | `pytest -m "not manual"` (tutta la suite offline, esclusi i live/manuali) + merge-simulation |
+| pr | ogni PR | `pytest -m "not manual"` (tutta la suite offline **ubuntu**, esclusi i live/manuali). `windows-tests`/`merge-simulation` solo su label collaudo (`ci-full`/`final-*`) o dispatch |
 | release | pre-release / PR-20 | `pytest -m "not manual"` + `tests/e2e` + stress + build EXE (merge-simulation-hard) |
 
 I test pesanti (stress/chaos/e2e completo/recovery) restano su PR/release; tutto
