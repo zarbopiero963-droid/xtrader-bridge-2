@@ -116,3 +116,15 @@ def test_parse_message_alias_sovracap_non_e_piazzabile():
     big = "x" * (p._MAX_META_INPUT + 50)
     st = p.parse_message("P.Bet. " + big).get("signal_type", "")
     assert st == "" and st != big
+
+
+def test_parse_message_pbet_riga_al_limite_del_cap():
+    # Boundary (review GLM 5.2): una riga `P.Bet.` lunga ESATTAMENTE `_MAX_META_INPUT` è ancora
+    # processata (guard `len(line) <= cap`); a cap+1 viene scartata (fail-closed). Verifica il confine.
+    alias_len = p._MAX_META_INPUT - len("P.Bet. ")
+    at_cap = "P.Bet. " + ("G" * alias_len)
+    assert len(at_cap) == p._MAX_META_INPUT
+    assert p.parse_message(at_cap)["signal_type"] == "G" * alias_len       # al limite → processata
+    over = "P.Bet. " + ("G" * (alias_len + 1))
+    assert len(over) == p._MAX_META_INPUT + 1
+    assert p.parse_message(over).get("signal_type", "") == ""              # oltre il limite → scartata
