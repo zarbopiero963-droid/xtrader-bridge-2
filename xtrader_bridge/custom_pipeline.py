@@ -202,7 +202,10 @@ def _normalize_to_contract(row: dict, provider: str) -> dict:
     - `Provider`: dal runtime/config (`provider`) se la regola non lo imposta;
     - `Handicap` = "0" se vuoto/None; `Points` resta vuoto;
     - `Price`/`MinPrice`/`MaxPrice`: virgola → punto (es. "1,85" → "1.85");
-    - `BetType`: maiuscolo (il contratto emette esattamente PUNTA/BANCA).
+    - `BetType`: canonicalizzato al lato ITALIANO del contratto (`BACK`→`PUNTA`, `LAY`→`BANCA`,
+      `PUNTA`/`BANCA` invariati). Gli input inglesi sono accettati indifferentemente (conferma
+      supporto BT/XT, issue #3), ma l'OUTPUT CSV resta canonico PUNTA/BANCA (universale su tutte
+      le versioni). Un lato ignoto resta invariato e sarà respinto in validazione (fail-closed).
     """
     out = dict(row)
     if provider and not str(out.get("Provider", "")).strip():
@@ -219,7 +222,10 @@ def _normalize_to_contract(row: dict, provider: str) -> dict:
             out[col] = _decimal_sep_to_point(v)
     bt = out.get("BetType")
     if bt is not None and str(bt).strip():
-        out["BetType"] = str(bt).strip().upper()
+        # Canonicalizza al lato ITALIANO del contratto: BACK/LAY (input inglese, valido su tutte
+        # le versioni BT/XT — issue #3) → PUNTA/BANCA; PUNTA/BANCA invariati. Un lato ignoto resta
+        # invariato (uppercase) e la validazione lo respinge (fail-closed, mai indovinare il lato).
+        out["BetType"] = validator.canonical_bettype(bt)
     return out
 
 

@@ -31,7 +31,7 @@ REQUIRED_EMPTY = "REQUIRED_EMPTY"        # obbligatorio ma vuoto (nessuna estraz
 TRANSFORM_FAILED = "TRANSFORM_FAILED"    # la trasformazione ha svuotato il valore
 VALUE_MAP_MISS = "VALUE_MAP_MISS"        # la value-map non ha trovato il valore
 INVALID_PRICE = "INVALID_PRICE"          # Price non numerico o ≤ 1.0
-INVALID_BETTYPE = "INVALID_BETTYPE"      # BetType non PUNTA/BANCA
+INVALID_BETTYPE = "INVALID_BETTYPE"      # BetType non è un lato valido (PUNTA/BANCA/BACK/LAY)
 INVALID_HANDICAP = "INVALID_HANDICAP"    # Handicap valorizzato ma non numerico
 INVALID_POINTS = "INVALID_POINTS"        # Points valorizzato ma non un numero > 0
 INVALID_PRICE_BOUNDS = "INVALID_PRICE_BOUNDS"  # Min/Max incoerenti (invertiti o escludono Price)
@@ -55,7 +55,7 @@ _EXPLAIN = {
     TRANSFORM_FAILED: "la trasformazione non ha prodotto un valore",
     VALUE_MAP_MISS: "value-map: valore non presente nel dizionario",
     INVALID_PRICE: "quota non numerica o ≤ 1.0",
-    INVALID_BETTYPE: "BetType non è PUNTA/BANCA",
+    INVALID_BETTYPE: "BetType non è un lato valido (PUNTA/BANCA/BACK/LAY)",
     INVALID_HANDICAP: "Handicap valorizzato ma non numerico",
     INVALID_POINTS: "Points valorizzato ma non un numero positivo",
     INVALID_PRICE_BOUNDS: "limiti di prezzo incoerenti (Min > Max o intervallo che esclude Price)",
@@ -161,7 +161,8 @@ def _overlay_validator(result, by_target, fields) -> None:
     (B) gli errori di VALORE per-colonna (BetType/prezzi/Points/limiti), controllati
         INDIPENDENTEMENTE così un messaggio con PIÙ colonne invalide le mostra TUTTE —
         `validator.validate` si ferma al primo errore (short-circuit), la diagnostica no
-        (Codex #70): es. `BetType=BACK` **e** `Price=abc` marca entrambe, non solo BetType.
+        (Codex #70): es. `BetType=FAVOR` (ES non ancora supportato) **e** `Price=abc` marca
+        entrambe, non solo BetType.
 
     (B) non cambia il verdetto (`placeable`), solo l'attribuzione per-colonna."""
     status = result.status

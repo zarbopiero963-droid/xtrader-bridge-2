@@ -404,7 +404,9 @@ Tutti questi gate devono passare perché una riga venga scritta:
 1. **"Non pronto"** (obbligatori): se un campo `required` è vuoto dopo
    estrazione/trasformazione/value-map → nessuna riga CSV.
 2. **Validazione contratto**: `Price` deve essere numerico `> 1.0`,
-   `BetType ∈ {PUNTA, BANCA}`, e i campi richiesti dalla modalità di
+   `BetType` è uno dei quattro lati validi `{PUNTA, BANCA, BACK, LAY}` (indifferenti su tutte le
+   versioni BT/XT, #3; l'output CSV resta canonico `PUNTA`/`BANCA`; ES `FAVOR`/`CONTRA` non ancora
+   supportati → rifiutati), e i campi richiesti dalla modalità di
    riconoscimento (`ID_ONLY`/`NAME_ONLY`/`BOTH`) devono esserci. Il separatore
    decimale di `Price`/`MinPrice`/`MaxPrice` è normalizzato **internamente** a `.`
    (rappresentazione canonica: es. `1,85`→`1.85`; `1.234,56`→`1234.56` con raggruppamento
@@ -524,7 +526,7 @@ trasformazione) e `→map` (dopo value-map), più un codice di stato:
 | `TRANSFORM_FAILED` | la trasformazione non ha prodotto un valore |
 | `VALUE_MAP_MISS` | la value-map non ha trovato il valore (→ vuoto) |
 | `INVALID_PRICE` | `Price` non numerico o ≤ 1.0 |
-| `INVALID_BETTYPE` | `BetType` non è `PUNTA`/`BANCA` |
+| `INVALID_BETTYPE` | `BetType` non è un lato valido (`PUNTA`/`BANCA`/`BACK`/`LAY`) |
 | `INVALID_POINTS` | `Points` valorizzato ma non un numero positivo (`> 0`) |
 | `INVALID_PRICE_BOUNDS` | limiti incoerenti: `Min > Max`, o l'intervallo esclude `Price` (segnalato solo sul limite che offende) |
 | `MODE_REQUIRED_MISSING` | campo richiesto dalla Modalità di riconoscimento mancante |

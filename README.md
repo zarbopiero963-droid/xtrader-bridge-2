@@ -503,7 +503,12 @@ Provider,EventId,EventName,MarketId,MarketName,MarketType,SelectionId,SelectionN
 
 Note:
 
-- **`BetType`** è in italiano: **`PUNTA`** (back) o **`BANCA`** (lay).
+- **`BetType`**: sono validi indifferentemente **`PUNTA`/`BANCA`** (italiano) e **`BACK`/`LAY`**
+  (inglese) — accettati su tutte le versioni Betting Toolkit/XTrader (conferma supporto, epica
+  multilingua #3). Il bridge **scrive sempre il valore canonico italiano** `PUNTA`/`BANCA`
+  (universalmente accettato), quindi un `BACK`/`LAY` in ingresso viene normalizzato a
+  `PUNTA`/`BANCA`. I termini spagnoli (`FAVOR`/`CONTRA`) **non** sono ancora supportati: un lato
+  sconosciuto è rifiutato (fail-closed, mai indovinare il lato).
 - **`Stake`** **non** è una colonna del CSV: lo stake è gestito in XTrader.
 - **Non esiste** una colonna `Timestamp`: la deduplica è interna al bridge.
 - **`Points`** è lasciato vuoto; **`Handicap`** vale `0`.

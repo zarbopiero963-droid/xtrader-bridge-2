@@ -74,10 +74,39 @@ def test_require_price_disattivabile():
 
 
 def test_bettype_sconosciuto_bloccato():
-    status, detail = validator.validate(_row(BetType="BACK"), "NAME_ONLY")
+    # Un lato IGNOTO resta bloccato (fail-closed): mai indovinare il lato. "XYZ" non è nessuno
+    # dei quattro lati validi (issue #3: BACK/LAY sono ORA validi, quindi non servono più come
+    # "sconosciuto"; si usa un valore davvero fuori mappa).
+    status, detail = validator.validate(_row(BetType="XYZ"), "NAME_ONLY")
     assert status == validator.INVALID_BETTYPE
-    assert detail == "BACK"
+    assert detail == "XYZ"
     assert validator.is_valid(_row(BetType="BANCA"), "NAME_ONLY") is True
+
+
+def test_bettype_quattro_lati_tutti_validi():
+    # Issue #3 (conferma supporto BT/XT): PUNTA/BANCA/BACK/LAY sono TUTTI validi, indifferenti su
+    # tutte le versioni — case-insensitive. Fail-first: prima BACK/LAY erano INVALID_BETTYPE.
+    for side in ("PUNTA", "BANCA", "BACK", "LAY", "back", " Lay "):
+        assert validator.bettype_status(side) == validator.VALID, side
+        assert validator.is_valid(_row(BetType=side), "NAME_ONLY") is True, side
+
+
+def test_bettype_es_e_garbage_non_ancora_supportati():
+    # I termini spagnoli FAVOR/CONTRA NON sono ancora supportati (prossimi aggiornamenti) e
+    # qualunque garbage/vuoto resta INVALID (fail-closed: un lato ignoto invertirebbe la scommessa).
+    for bad in ("FAVOR", "CONTRA", "", "   ", "B", "P", "BAC", "PUNTABANCA"):
+        assert validator.bettype_status(bad) == validator.INVALID_BETTYPE, bad
+
+
+def test_canonical_bettype_mappa_al_lato_italiano():
+    # Canonicalizzazione al lato ITALIANO del contratto CSV (output universale su tutte le versioni).
+    assert validator.canonical_bettype("BACK") == "PUNTA"
+    assert validator.canonical_bettype(" lay ") == "BANCA"
+    assert validator.canonical_bettype("punta") == "PUNTA"
+    assert validator.canonical_bettype("BANCA") == "BANCA"
+    # Ignoto: invariato (uppercase), poi respinto da bettype_status → mai un lato inventato.
+    assert validator.canonical_bettype("FAVOR") == "FAVOR"
+    assert validator.bettype_status(validator.canonical_bettype("FAVOR")) == validator.INVALID_BETTYPE
 
 
 def test_campi_nome_mancanti_bloccati():

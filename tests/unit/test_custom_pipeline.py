@@ -37,6 +37,39 @@ def test_riga_valida_piazzabile():
     assert res.row["Points"] == ""                     # default contratto (vuoto)
 
 
+def _parser_bettype_fixed(side):
+    """Parser NAME_ONLY con BetType a VALORE FISSO GREZZO (senza value-map `bettype`): il valore
+    arriva al confine del contratto così com'è, esercitando la canonicalizzazione di
+    `_normalize_to_contract` (issue #3, conferma supporto BT/XT)."""
+    return cp.CustomParserDef(name="BT", rules=[
+        cp.FieldRule(target="Provider", fixed_value="TG_CUSTOM"),
+        cp.FieldRule(target="EventName", fixed_value="Inter v Milan", required=True),
+        cp.FieldRule(target="MarketType", fixed_value="BOTH_TEAMS_TO_SCORE", required=True),
+        cp.FieldRule(target="SelectionName", fixed_value="Sì", required=True),
+        cp.FieldRule(target="Price", fixed_value="1.85", required=True),
+        cp.FieldRule(target="BetType", fixed_value=side, required=True),
+    ])
+
+
+def test_bettype_back_lay_grezzi_accettati_e_canonicalizzati():
+    # Issue #3: un BetType inglese GREZZO (senza value-map) è ORA accettato e l'OUTPUT CSV resta
+    # canonico PUNTA/BANCA (universale su tutte le versioni BT/XT). Fail-first: prima BACK/LAY
+    # grezzi erano INVALID_BETTYPE → non piazzabili.
+    for side, expected in (("BACK", "PUNTA"), ("LAY", "BANCA"), ("back", "PUNTA"),
+                           (" Lay ", "BANCA"), ("PUNTA", "PUNTA"), ("BANCA", "BANCA")):
+        res = pipe.build_validated_row(_parser_bettype_fixed(side), "qualsiasi")
+        assert res.status == validator.VALID and res.placeable is True, side
+        assert res.row["BetType"] == expected, side       # output canonico, universale
+
+
+def test_bettype_es_e_ignoto_non_piazzabili():
+    # FAVOR/CONTRA (ES non ancora supportati) e qualunque garbage → non piazzabili (fail-closed:
+    # mai indovinare il lato, che invertirebbe la scommessa).
+    for side in ("FAVOR", "CONTRA", "XYZ", "B", "P"):
+        res = pipe.build_validated_row(_parser_bettype_fixed(side), "qualsiasi")
+        assert res.status == validator.INVALID_BETTYPE and res.placeable is False, side
+
+
 def test_handicap_points_non_sovrascritti_se_impostati():
     # Se il parser valorizza Handicap/Points, i default del contratto NON devono
     # sovrascriverli (guardia anti-regressione su _with_contract_defaults).

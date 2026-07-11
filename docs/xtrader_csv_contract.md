@@ -38,8 +38,11 @@ Esempi reali (dal team XTrader):
 
 ## Valori in italiano
 
-- **`BetType`**: il bridge scrive `PUNTA` (equivalente di back) o `BANCA` (equivalente
-  di lay), come negli esempi reali. Mapping interno: `BACK → PUNTA`, `LAY → BANCA`.
+- **`BetType`**: il bridge scrive sempre il valore **canonico italiano** `PUNTA` (equivalente di
+  back) o `BANCA` (equivalente di lay), come negli esempi reali. In **ingresso** sono validi
+  indifferentemente `PUNTA`/`BANCA`/`BACK`/`LAY` (accettati su tutte le versioni BT/XT — conferma
+  supporto, epica multilingua #3); mapping interno: `BACK → PUNTA`, `LAY → BANCA` (l'output resta
+  canonico e universale). I termini spagnoli `FAVOR`/`CONTRA` non sono ancora supportati.
 - **`Points`**: lasciato vuoto (gli esempi reali non lo valorizzano).
 - **`Handicap`**: `0` di default.
 
