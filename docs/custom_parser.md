@@ -152,9 +152,13 @@ Altre due difese fail-closed (audit #259):
   `SelectionId` estratti dalle regole-colonna vengono **azzerati** (stessa regola della
   mappatura mercati): riferivano l'evento col nome provider e nel CSV contraddirebbero il
   nome canonico appena scritto — XTrader, se prioritizza gli ID, punterebbe l'oggetto
-  sbagliato. La risoluzione ID dal dizionario Betfair locale (PR-P12) li ricostruisce dal
+  sbagliato. La risoluzione ID dal **dizionario locale** (PR-P12) li ricostruisce dal
   nome canonico; se la modalità richiede gli ID e il dizionario non li ha, la riga fa
   fail-closed in validazione. Se la traduzione NON cambia il nome, gli ID restano intatti.
+  **Nota (rimozione «Betfair Sync»):** nel **CSV live** l'arricchimento ID è oggi disattivato
+  (`id_resolver=None`) — il dizionario locale va popolato a mano e il seam è riattivabile; in
+  `ID_ONLY` senza ID risolti la riga resta quindi non piazzabile (fail-closed). L'anteprima
+  «Prova messaggio» risolve invece già dal dizionario locale.
 Un parser **senza profili** non applica alcuna mappatura (`EventName` invariato,
 retro-compatibile).
 
@@ -171,20 +175,25 @@ il **separatore** squadre e spunti i **profili** da usare (checkbox multi-selezi
 «Prova messaggio» risolve i profili dalla config e mostra l'`EventName` tradotto (o
 `MAPPING_MISSING` se non mappabile), coerente col runtime.
 
-#### Nomi squadra permanenti dalla sync Betfair (#282: harvest + precompila)
+#### Nomi squadra permanenti nel dizionario locale (#282: precompila)
+
+> **Nota (rimozione «Betfair Sync»).** In origine questi nomi erano **raccolti dalla sync**
+> Betfair. Con la rimozione della funzione la sync non esiste più: la tabella
+> `betfair_known_teams` resta come substrato ed è **popolata a mano** dall'utente (o via import
+> del suo dizionario custom). Lo schema e la precompila qui sotto sono invariati.
 
 La colonna **Betfair/XTrader** della mappatura nomi resta **campo libero** (puoi sempre
-digitare un nome), ma può essere **precompilata** coi nomi squadra **reali** che la sync
-Betfair **raccoglie e conserva in modo permanente** per i 4 sport:
+digitare un nome), ma può essere **precompilata** coi nomi squadra **permanenti** presenti nel
+dizionario locale per i 4 sport:
 
-- durante la sync, per ogni evento «Home v Away» i due partecipanti vengono salvati in
-  una tabella locale dedicata `betfair_known_teams` (chiave `sport` + `normalized_name`,
-  con lo **stesso** normalizzatore della mappatura nomi, così le chiavi combaciano);
+- per ogni evento «Home v Away» i due partecipanti sono salvati in una tabella locale dedicata
+  `betfair_known_teams` (chiave `sport` + `normalized_name`, con lo **stesso** normalizzatore
+  della mappatura nomi, così le chiavi combaciano);
 - questa tabella è la **sola permanente**: **non** ha colonna `active` e **non** viene
   mai toccata dal mark-and-sweep, quindi i nomi restano **per sempre** anche quando
   l'evento finisce. Gli `MarketId`/`SelectionId` restano invece **effimeri** come prima
   (il loro ciclo di vita non cambia): sopravvivono i **nomi**, non gli ID;
-- sync ripetute **accumulano** senza duplicare (idempotente); un evento a un solo nome
+- inserimenti ripetuti **accumulano** senza duplicare (idempotente); un evento a un solo nome
   (torneo/outright, es. «ATP Finals») **non** è una squadra e viene saltato.
 
 **Precompila (GUI, PR 11).** Nell'area **⚽ Calcio** del Mapping (scheda «🗺️ Mapping» →
@@ -193,30 +202,31 @@ riga per ogni nome noto: **nome Betfair già scritto** nel campo (nessun menu a 
 resta editabile), **Sport** impostato e **Tipo** `team`; tu scrivi solo l'**alias del
 canale** nel campo **Provider**, poi **💾 Salva**. È **non distruttivo e idempotente**: non
 tocca le righe esistenti e **salta** i nomi già presenti (stesso sport + nome normalizzato).
-Fail-safe: senza dizionario Betfair (sync mai fatta) avvisa e non aggiunge nulla; **durante
-una sync in corso** fa fail-fast («⏳ …riprova tra poco») invece di **congelare** la GUI (legge
+Fail-safe: con **dizionario locale vuoto** avvisa e non aggiunge nulla; **se un altro strumento
+tiene il lock del DB** fa fail-fast («⏳ …riprova tra poco») invece di **congelare** la GUI (legge
 il DB con probe non bloccante, come il viewer del dizionario). Fonte dati:
 `BetfairLocalDB.known_teams(sport)` (sola lettura).
 
 **Ripulitura manuale (GUI, PR 11-bis).** I nomi permanenti crescono nel tempo (mai
-disattivati): la scheda **«🧹 Nomi Betfair»** dell'hub Strumenti
+disattivati): la scheda **«🧹 Nomi squadra»** dell'hub Strumenti
 (`known_teams_gui.KnownTeamsPanel`) li **sfoglia per sport** e li **elimina** uno per uno
 (pulsante **«🗑 Elimina»**), l'unico modo per togliere un nome obsoleto/errato (squadra
 retrocessa/rinominata) — `BetfairLocalDB.delete_known_team(sport, normalized_name)`. Come le
-altre viste sul dizionario Betfair, è **fail-fast** durante una sync («⏳ …riprova tra poco»,
-niente freeze) e best-effort (DB assente → avviso). Un nome eliminato per errore verrà
-**ri-raccolto** alla prossima sync se l'evento ricompare.
+altre viste sul dizionario locale, è **fail-fast** se il DB è occupato («⏳ …riprova tra poco»,
+niente freeze) e best-effort (DB assente → avviso).
 
-#### Valori permanenti di mercato/selezione dalla sync Betfair (#283: harvest — data layer)
+#### Valori permanenti di mercato/selezione nel dizionario locale (#283: data layer)
 
-Oltre ai nomi squadra, la sync raccoglie e conserva in modo **permanente** i valori
+> **Nota (rimozione «Betfair Sync»).** In origine questi valori erano **raccolti dalla sync**
+> Betfair; con la rimozione della funzione la sync non esiste più e il dizionario locale è
+> **popolato a mano** dall'utente. Il data layer (schema + lettura) resta invariato.
+
+Oltre ai nomi squadra, il dizionario locale conserva in modo **permanente** i valori
 universali di **MarketType**, **MarketName** e **SelectionName** dei 4 sport, così restano
-disponibili (per il Parser) anche quando l'evento finisce e gli ID scadono. Questa PR è il
-**data layer** (harvest + persistenza): menù del Parser e CSV **consumeranno** questi valori
-nella **PR 13**. Decisione del proprietario: **«diretto», nessuna mappatura** — i nomi Betfair
-(locale IT) sono già identici a quelli attesi da XTrader, quindi il valore sincronizzato viene
-**persistito così com'è** (a differenza dei nomi squadra della #282, che restano con mappatura
-provider→Betfair).
+disponibili (per il Parser) anche quando l'evento finisce e gli ID scadono. Decisione del
+proprietario: **«diretto», nessuna mappatura** — i nomi Betfair (locale IT) sono già identici a
+quelli attesi da XTrader, quindi il valore viene **persistito così com'è** (a differenza dei nomi
+squadra della #282, che restano con mappatura provider→Betfair).
 
 - durante la sync, per ogni mercato del catalogue vengono salvati in una tabella locale
   dedicata `betfair_known_market_terms` (chiave `sport` + `market_type` + `normalized_market`
@@ -249,7 +259,7 @@ primo tempo) è tracciata a parte l'estrazione dinamica per-riga dal messaggio (
 **MarketType / MarketName / SelectionName** hanno in colonna **«Valore fisso»** una **tendina
 editabile** (`CTkComboBox`) popolata da questi valori permanenti, **filtrati per lo sport del
 parser** (la tendina Sport in alto). A differenza della riga **Provider** (tendina a scelta
-fissa dall'anagrafica), qui la tendina è **editabile**: suggerisce i valori sincronizzati **ma
+fissa dall'anagrafica), qui la tendina è **editabile**: suggerisce i valori presenti nel dizionario **ma
 il testo libero resta digitabile**, così un valore valido non ancora harvestato è comunque
 inseribile (nessuna regressione fail-closed). Le tendine si aggiornano al **cambio sport** e
 quando la scheda torna attiva nell'hub Strumenti (una sync nel frattempo può aver aggiunto
@@ -665,7 +675,7 @@ retro-compatibile).
   **Fail-closed** restano: un obbligatorio **non** coperto dal multi (resta `NOT_READY`, così un
   messaggio dichiarato incompleto non raggiunge il CSV), un mercato non coperto, e gli altri gate
   (`Provider` mancante, `Handicap` non numerico, mappatura nomi non risolta).
-  - *ID per riga (risolto):* in `ID_ONLY` con dizionario Betfair gli ID sono ora risolti **per
+  - *ID per riga (risolto):* in `ID_ONLY` con dizionario locale gli ID sono ora risolti **per
     singola riga derivata** (`_resolve_ids_into` in `_validated_multi_row`) — una MultiSelection
     azzera `SelectionId` al cambio selezione e subito dopo ri-risolve gli ID per quella selezione,
     così l'ID_ONLY produce righe con gli ID corretti. Vedi «ID coerenti + risoluzione per riga».
@@ -747,7 +757,7 @@ retro-compatibile).
 - **ID coerenti + risoluzione per riga**: quando una riga multi cambia `MarketType`/`MarketName`/
   `SelectionName`/`Handicap`, gli eventuali `MarketId`/`SelectionId` ereditati dalla base vengono
   **azzerati** (una riga non può nominare un mercato e identificarne un altro per ID); subito dopo,
-  se è disponibile il dizionario Betfair locale (`id_resolver` + sport del parser), gli ID vengono
+  se è disponibile il dizionario locale (`id_resolver` + sport del parser), gli ID vengono
   **ri-risolti per la selezione/mercato di QUELLA riga** (`_resolve_ids_into`, additivo/fail-open/
   non distruttivo). Così un **MultiSelection in `ID_ONLY`** produce righe con gli ID corretti per
   ciascuna selezione; senza dizionario (o parser agnostico) le righe restano a **nomi** — in
@@ -792,7 +802,7 @@ mercato), e altrimenti farebbe apparire un falso «Non pronto».
 > testuali («Over 2.5 Goals») non sono mai toccate.
 
 > **Nota sull'arricchimento ID in anteprima (#192, Codex).** L'anteprima usa lo stesso motore del
-> runtime e, quando il dizionario Betfair locale è disponibile, **risolve gli ID come il live**: la
+> runtime e, quando il dizionario locale è popolato, **risolve gli ID dal dizionario**: la
 > GUI inoltra a `test_message`, `diagnose` e `preview_rows` un `id_resolver` opzionale, ottenuto
 > best-effort dall'app (factory `id_resolver_factory` → `App._betfair_id_resolver`). Così un parser
 > **multi-riga** `ID_ONLY` che si affida al dizionario per `MarketId`/`SelectionId` (lasciati vuoti)
@@ -819,12 +829,13 @@ mercato), e altrimenti farebbe apparire un falso «Non pronto».
 > (verde/rosso per riga); la tabella per-campo è un aiuto di diagnosi a livello base. È una discrepanza
 > in direzione conservativa (mostra più «mancanti» del reale), non un falso «pronto».
 >
-> **Sync-safe (Codex P2).** La factory dell'anteprima (`App._preview_id_resolver_factory`) **salta**
-> il resolver mentre è in corso una **sync Betfair** (`engine.is_syncing`, probe non bloccante): il
-> resolver legge il DB sotto lo stesso lock che la sync tiene per l'intera durata, quindi invocarlo
-> sul thread GUI durante una sync congelerebbe la finestra. Durante la sync l'anteprima è quindi
-> conservativa (nessun arricchimento ID). Il flusso **live** non è toccato: usa il resolver
-> direttamente su un worker thread, dove l'attesa sul lock è accettabile.
+> **Anteprima vs live (rimozione «Betfair Sync»).** La factory dell'anteprima
+> (`App._preview_id_resolver_factory`) risolve gli ID dal **dizionario locale** come farebbe il
+> live (una volta ricablato il seam). Con la rimozione della funzione «Betfair Sync» non esiste
+> più una sync in corso da cui difendersi: la factory ritorna semplicemente il resolver sul DB
+> locale (best-effort → `None` se il dizionario è assente). Il **flusso CSV live** invece **non**
+> è cablato sul resolver (`id_resolver=None`): le righe restano a nomi finché il dizionario custom
+> non è popolato e il seam riattivato.
 >
 > **Gate di contenuto nel verdetto multi (#192, Codex).** Il verdetto sintetico «Prova messaggio»
 > onora `NO_CONTENT_MATCH` **anche** per l'output multi-riga: un parser a soli valori fissi (che non

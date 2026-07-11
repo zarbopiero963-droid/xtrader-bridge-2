@@ -167,14 +167,13 @@ HUB "🧰 STRUMENTI"  (tab PIATTE ma RAGGRUPPATE per flusso ①..④, #293 slice
    ② Lettura messaggi
       ├─ ② 🧩 Parser             → Parser Personalizzato (regole + 🔗 Traduzioni attive + multi-riga)
       └─ ② 🗺️ Mapping            → dizionari mappatura (sotto-tab: ⚽ Calcio nomi · 🎯 Mercati · 🌳 Mapping guidato)
-   ③ Betfair
-      ├─ ③ 🔵 Betfair Sync       → credenziali + sync dizionario Betfair
-      ├─ ③ 📖 Dizionario Betfair → browser sola-lettura del dizionario locale
+   ③ Dizionario
+      ├─ ③ 📖 Dizionario         → browser sola-lettura del dizionario locale
       ├─ ③ 📒 Diario             → vista sola-lettura del diario eventi (event journal)
-      └─ ③ 🧹 Nomi Betfair       → ripulitura dei nomi squadra permanenti (sfoglia + elimina)
+      └─ ③ 🧹 Nomi squadra       → ripulitura dei nomi squadra del dizionario (sfoglia + elimina)
    ④ Impostazioni
       ├─ ④ 📁 Profili            → profili impostazioni salvabili
-      └─ ④ 📋 Riepilogo          → colpo d'occhio sola-lettura: modalità + Betfair + canali «Pronto?»
+      └─ ④ 📋 Riepilogo          → colpo d'occhio sola-lettura: modalità + dizionario locale + canali «Pronto?»
 ```
 
 > **#293 slice 4 (raggruppamento per flusso).** Le schede dell'hub restano un unico `CTkTabview`
@@ -187,7 +186,7 @@ HUB "🧰 STRUMENTI"  (tab PIATTE ma RAGGRUPPATE per flusso ①..④, #293 slice
 - **Quotidiano / sempre a vista:** stato ATTIVO/OFFLINE, banner reale, righe attive,
   AVVIA/STOP, ultimo errore, log.
 - **Setup iniziale (poi raro):** tab Generale (token/chat/csv), Parser Personalizzato,
-  Chat sorgenti, Betfair, Mapping.
+  Chat sorgenti, Dizionario, Mapping.
 - **Occasionale:** Sicurezza (cambio modalità), Profili, Conferme XTrader, Dashboard.
 
 ---
@@ -359,11 +358,10 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 
 - **Segnaposto d'aiuto nei campi (#288 Delta 2):** ogni casella mostra un **placeholder** grigio a
   campo vuoto (es. Chat ID → `es. -1001234567890`, Bot Token → `incolla qui il token del bot`, CSV
-  Path → `es. C:\XTrader\segnali.csv`, Timeout → `es. 90`, Provider → `es. TelegramBot`). Stessa cosa
-  nel tab **Betfair Sync** (App Key/Username/Password/percorsi). Il placeholder è **solo un aiuto
-  visivo**, NON un valore: un campo lasciato vuoto resta `""` (nessun impatto su parsing/salvataggio).
-  Sui campi **sensibili** (token/App Key/Password) il placeholder è **generico e istruttivo**, mai un
-  segreto plausibile (è mostrato in chiaro anche sui campi mascherati).
+  Path → `es. C:\XTrader\segnali.csv`, Timeout → `es. 90`, Provider → `es. TelegramBot`). Il
+  placeholder è **solo un aiuto visivo**, NON un valore: un campo lasciato vuoto resta `""` (nessun
+  impatto su parsing/salvataggio). Sui campi **sensibili** (token) il placeholder è **generico e
+  istruttivo**, mai un segreto plausibile (è mostrato in chiaro anche sui campi mascherati).
 - **«📁 Sfoglia…» accanto a CSV Path (#284):** apre il selettore file di sistema (dialog Tk
   `asksaveasfilename`, `.csv`). Alla scelta, il percorso è **scritto nella casella E salvato
   subito in `config.json`** (opzione b: nessun click extra su «Salva Config»). Il salvataggio
@@ -523,12 +521,12 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
   - Il campo **«Valore fisso»** varia per colonna: **entry di testo** per la maggior parte;
     **dropdown a scelta fissa** per **Provider** (dall'anagrafica); **tendina EDITABILE**
     (`CTkComboBox`) per **MarketType / MarketName / SelectionName** (#283 PR 13), popolata coi
-    valori permanenti del dizionario Betfair **filtrati per lo sport del parser**. La tendina
-    editabile suggerisce i valori sincronizzati **ma resta digitabile** (un valore valido non
-    ancora harvestato è comunque inseribile: niente fail-closed). Si aggiorna al cambio Sport e
-    al rientro nell'hub Strumenti. Durante una sync Betfair non si blocca: mostra solo nessun
-    suggerimento (testo libero comunque digitabile). Distinzione visiva: Provider = tendina
-    chiusa; i tre termini Betfair = tendina con campo di testo (freccia + digitabile).
+    valori permanenti del **dizionario locale** **filtrati per lo sport del parser**. La tendina
+    editabile suggerisce i valori presenti **ma resta digitabile** (un valore valido non ancora
+    nel dizionario è comunque inseribile: niente fail-closed). Si aggiorna al cambio Sport e al
+    rientro nell'hub Strumenti. Se un altro strumento tiene il lock del DB non si blocca: mostra
+    solo nessun suggerimento (testo libero comunque digitabile). Distinzione visiva: Provider =
+    tendina chiusa; i tre termini = tendina con campo di testo (freccia + digitabile).
 - **Azioni:** **"💾 Salva"**, **"🧪 Prova messaggio"**, **"🧪🧪 Prova più messaggi
   (separati da ---)"** (#311 §3.2), **"📋 Copia diagnostica"**.
   Il tester multiplo valuta ogni messaggio del box (separatore: riga con solo `---`) e
@@ -538,9 +536,11 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
   singolo). Verdetto sintetico in cima: *«✅/⚠ Messaggi validi: X/N»* (+ avviso se oltre il
   tetto di 50). Invariante: SOLO anteprima/lettura, mai scritture del CSV operativo.
 - **Area di test:** textbox "Messaggio di prova" + verdetto (`✅ Pronto` / `⛔ …`). L'anteprima
-  usa lo stesso motore del runtime e, quando il dizionario Betfair locale è disponibile, risolve
-  gli ID come il live (un parser `ID_ONLY` che prende `MarketId`/`SelectionId` dal dizionario può
-  quindi risultare `✅ Pronto`); se il dizionario manca resta conservativa (`⛔`), mai il contrario.
+  usa lo stesso motore del runtime e, quando il **dizionario locale** è popolato, risolve gli ID
+  dal dizionario (un parser `ID_ONLY` che prende `MarketId`/`SelectionId` dal dizionario può
+  quindi risultare `✅ Pronto`); se il dizionario è vuoto resta conservativa (`⛔`), mai il contrario.
+  (Nota: nel **CSV live** l'arricchimento ID è oggi disattivato — vedi §7.6/§8 — ma l'anteprima
+  continua a risolvere dal dizionario locale.)
   Il verdetto onora anche il **gate di contenuto** del runtime: un parser a soli valori fissi (che
   non estrae nulla dal messaggio) mostra `⛔ Non pronto (NO_CONTENT_MATCH) · nessun contenuto
   estratto dal messaggio` invece di `✅ Pronto`, sia in single-row sia in multi-riga — come lo
@@ -602,8 +602,8 @@ NON** viene salvato nei profili). Campo nome + **"💾 Salva profilo"**; lista c
   **"❌ Salvataggio profilo fallito: …"**, caricamento/eliminazione falliti con messaggio
   analogo. Esiti positivi in verde (**"✅ Profilo … salvato/caricato"**).
 - **Refresh cross-scheda al caricamento profilo:** applicare un profilo cambia `config.json`,
-  quindi le altre schede Strumenti già aperte (Provider, Chat sorgenti, Mapping, Betfair Sync)
-  vengono **ricaricate dal disco** in automatico (`ProviderPanel.refresh()` e simili), così un
+  quindi le altre schede Strumenti già aperte (Provider, Chat sorgenti, Mapping) vengono
+  **ricaricate dal disco** in automatico (`ProviderPanel.refresh()` e simili), così un
   loro Salva successivo non riscrive lo stato vecchio sopra il profilo (per Chat sorgenti
   eviterebbe di reindebolire il filtro chat). Se una scheda **non riesce** a ricaricarsi il
   caricamento del profilo **non** viene bloccato, ma nel log dell'app compare l'avviso
@@ -618,20 +618,20 @@ NON** viene salvato nei profili). Campo nome + **"💾 Salva profilo"**; lista c
   dati resta `provider`) contiene l'alias con cui il canale scrive il nome squadra. Pulsanti azione:
   **«➕ Aggiungi riga»**, **«📥 Precompila da Betfair»** (blu `#1565c0`), **«💾 Salva profilo»**.
   - **«📥 Precompila da Betfair» (#282 PR 11):** riempie la tabella coi nomi squadra
-    **permanenti** raccolti dalla sync Betfair — una riga per nome, **Betfair già scritto**
+    **permanenti** presenti nel **dizionario locale** — una riga per nome, **Betfair già scritto**
     nel campo (resta un `CTkEntry` editabile, **niente tendina**), **Sport** impostato, **Tipo**
     `team`, **«Come lo scrive il canale» vuoto** (ci va l'alias del canale). Non distruttivo/idempotente (salta i
-    nomi già presenti). Senza dizionario Betfair (sync mai fatta) mostra un avviso e non aggiunge
-    nulla. **Durante una sincronizzazione in corso** fa fail-fast con «⏳ Sincronizzazione Betfair
-    in corso: riprova tra poco» (arancione) **senza congelare la finestra**. La riga di stato
-    riporta l'esito (es. «📥 Aggiunti N nomi Betfair… ; M già presenti»).
+    nomi già presenti). Con **dizionario locale vuoto** mostra un avviso e non aggiunge nulla.
+    **Se un altro strumento tiene il lock del DB** fa fail-fast con «⏳ Dizionario occupato:
+    riprova tra poco» (arancione) **senza congelare la finestra**. La riga di stato riporta
+    l'esito (es. «📥 Aggiunti N nomi Betfair… ; M già presenti»).
 - **🎯 Mercati (Dizionario mercati):** profilo + tabella **Inizia dopo · Finisce prima ·
   Testo mercato · Mercato (catalogo) · Selezione (catalogo)**. Legge il mercato da una
   posizione precisa del messaggio e imposta Mercato/Selezione dal catalogo XTrader.
-- **🌳 Mapping guidato (`guided_mapping_gui.py`, Fase 3 collaudo Betfair):** albero a cascata per
-  costruire il dizionario nomi **senza digitare i nomi Betfair a mano**. Controlli, dall'alto:
+- **🌳 Mapping guidato (`guided_mapping_gui.py`):** albero a cascata per costruire il dizionario
+  nomi **senza digitare i nomi Betfair a mano**. Controlli, dall'alto:
   riga **Profilo** (destinazione, con **«🆕 Nuovo»**) → riga **Sport** (tendina Calcio/Tennis/
-  Basket/Rugby) + **Competizione** (tendina popolata dai dati Betfair sincronizzati) → casella
+  Basket/Rugby) + **Competizione** (tendina popolata dal dizionario locale) → casella
   **«Filtra squadre»** (con **«Pulisci»**) → tabella a 2 colonne **Squadra Betfair · Come la
   chiama il canale** (una riga editabile per squadra) → **«💾 Salva nel profilo»** (verde
   `#2e7d32`) + riga di stato.
@@ -645,33 +645,20 @@ NON** viene salvato nei profili). Campo nome + **"💾 Salva profilo"**; lista c
   - **Cap di rendering** `500` squadre (come il viewer, Fase 2): competizioni molto popolose non
     bloccano; il modello tiene comunque tutte le squadre (gli alias scritti restano salvati anche se
     non visibili) e «Filtra» restringe. Sopra il cap compare un avviso arancione.
-  - **Stati fail-safe:** durante una **sincronizzazione Betfair in corso** le tendine/l'elenco fanno
-    fail-fast con **«⏳ Dizionario in aggiornamento (sync Betfair in corso): riprova tra poco»**
-    (arancione) **senza congelare la finestra**; senza dati (mai sincronizzato) mostra un avviso e
-    non aggiunge nulla.
+  - **Stati fail-safe:** se un altro strumento tiene il lock del DB le tendine/l'elenco fanno
+    fail-fast con **«⏳ Dizionario occupato: riprova tra poco»** (arancione) **senza congelare la
+    finestra**; con dizionario vuoto mostra un avviso e non aggiunge nulla.
 
-### 7.6 🔵 Betfair Sync (`sync_tab_gui.py`)
-Titolo **"🔵  Betfair Sync (locale, read-only)"**. Sincronizza un **dizionario Betfair
-locale** (sola lettura, nessuna scommessa). Contiene:
-- 5 campi credenziali (Delayed App Key, Username, Password, Certificato .crt/.pem, Private
-  key .key; i segreti mascherati).
-  - **«📁 Sfoglia…» accanto a Certificato e Private key (#285):** ciascuno apre il selettore
-    file di sistema (`askopenfilename`, **file esistente**; filtri `*.crt *.pem` per il
-    certificato, `*.key` per la chiave). Alla scelta, il percorso è scritto nella casella **e
-    salvato subito** (nessun click extra su «💾 Salva credenziali»). Si memorizza **solo il
-    percorso**, mai il contenuto della chiave. Il salvataggio immediato **non tocca** App Key/
-    Password: riusa la logica anti-maschera (risolve i segreti mascherati nei valori reali prima
-    di salvare), così i secret restano invariati e non vengono cancellati. Annullo → nessuna
-    modifica.
-- Selezione **Sport** (checkbox Calcio/Tennis/Basket/Rugby Union), **Giorni avanti**.
-- Auto-sync: checkbox **"Auto sincronizza dizionario"** + **"Orario (HH)"** + righe di stato
-  (Ultima / Prossima / Stato auto sync).
-- Stato login/sync (es. `Stato login: ✅ connesso`).
-- Pulsanti: **"💾 Salva credenziali"**, **"🔑 Accedi"**, **"🔄 Sincronizza ora"**,
-  **"🚪 Logout"**, **"🗑️ Cancella credenziali salvate"**.
+### 7.6 🔵 Betfair Sync — RIMOSSA
+La scheda **«🔵 Betfair Sync»** (login a Betfair, download del catalogo, sync e auto-sync del
+dizionario, gestione credenziali) **è stata rimossa**: il bridge non contatta più Betfair, non
+fa login e non fa auto-sync. Il **dizionario locale** (`betfair_dictionary.db`) resta ma è
+**popolato a mano** dall'utente coi propri campi personalizzati; le schede superstiti (📖
+Dizionario, 🧹 Nomi squadra, 🌳 Mapping guidato) lo leggono in sola lettura. Nel gruppo
+Strumenti non esiste più una scheda «Betfair Sync».
 
-### 7.7 📖 Dizionario Betfair (`dictionary_viewer_gui.py`)
-Titolo **"🔵  Dizionario Betfair (locale, sola lettura)"**. Browser gerarchico
+### 7.7 📖 Dizionario (`dictionary_viewer_gui.py`)
+Titolo **"🔵  Dizionario (locale, sola lettura)"**. Browser gerarchico
 Sport→Competizioni→Eventi→Mercati→Selezioni con filtro **Livello**, filtro **Sport**,
 checkbox **"Solo attivi"**, **"🔄 Aggiorna"**, ricerca (con **"Pulisci"**), riga conteggi,
 tabella risultati.
@@ -689,9 +676,9 @@ tabella risultati.
   - *elenco troncato* (righe filtrate > `500`): alla riga normale si aggiunge
     **"⚠️ Elenco troncato a 500: restringi con «Sport» o «Cerca» per vedere le righe che ti servono."**;
   - *DB non disponibile:* **"⚠️ Dizionario non disponibile (DB locale non apribile)."**;
-  - *dizionario occupato* (una **sincronizzazione Betfair è in corso** e tiene il lock del DB):
-    **"⏳ Dizionario in aggiornamento (sincronizzazione Betfair in corso): premi 🔄 Aggiorna
-    tra poco."** — la vista fa **fail-fast** e **non** blocca/freeze la GUI durante la sync;
+  - *dizionario occupato* (un altro strumento tiene il lock del DB in quel momento):
+    **"⏳ Dizionario in aggiornamento: premi 🔄 Aggiorna tra poco."** — la vista fa
+    **fail-fast** e **non** blocca/freeze la GUI;
   - *errore di lettura:* **"⚠️ Errore lettura dizionario: &lt;Tipo&gt;"**.
 
 ### 7.8 📒 Diario (`journal_view_gui.py`)
@@ -710,19 +697,19 @@ stessa logica pura della CLI `journal_view`.
 - **Invariante di sicurezza:** la vista mostra i valori **esattamente come sono sul file** —
   mai token/chat in chiaro, mai scrittura sul diario.
 
-### 7.9 🧹 Nomi Betfair (`known_teams_gui.py`)
-Titolo **"🧹  Nomi Betfair noti (permanenti) — ripulitura"**. Gestione dei nomi squadra
-**permanenti** raccolti dalla sync Betfair (`betfair_known_teams`, #282): l'unica vista che
-li **elimina** (il mark-and-sweep non li tocca, quindi crescono per sempre e vanno ripuliti a
-mano quando obsoleti/errati — squadre retrocesse/rinominate).
+### 7.9 🧹 Nomi squadra (`known_teams_gui.py`)
+Titolo **"🧹  Nomi squadra noti (permanenti) — ripulitura"**. Gestione dei nomi squadra
+**permanenti** del dizionario locale (`betfair_known_teams`, #282): l'unica vista che li
+**elimina** (il mark-and-sweep non li tocca, quindi vanno ripuliti a mano quando obsoleti/errati
+— squadre retrocesse/rinominate).
 - **Barra:** dropdown **"Sport"** (`(tutti gli sport)` + i 4 sport), **"🔄 Aggiorna"**.
 - **Riga conteggi:** `N nomi noti.` (o avviso se il dizionario non è disponibile).
-- **Elenco** (`CTkScrollableFrame`): una riga per nome = **Sport** · **nome Betfair** ·
+- **Elenco** (`CTkScrollableFrame`): una riga per nome = **Sport** · **nome squadra** ·
   **"🗑 Elimina"** (rosso `#c62828`). L'eliminazione è **immediata** (nessun dialogo di
-  conferma: il dato è ri-raccoglibile alla prossima sync) e ricarica l'elenco.
-- **Stati fail-safe:** durante una **sincronizzazione in corso** fa fail-fast con
-  «⏳ Sincronizzazione Betfair in corso: riprova tra poco» **senza congelare** la finestra
-  (probe non bloccante sul lock del DB); senza dizionario Betfair mostra un avviso e non opera.
+  conferma) e ricarica l'elenco.
+- **Stati fail-safe:** se un altro strumento tiene il lock del DB fa fail-fast con
+  «⏳ Dizionario occupato: riprova tra poco» **senza congelare** la finestra (probe non
+  bloccante sul lock del DB); con dizionario vuoto mostra un avviso e non opera.
 - **Non tocca** ID (`MarketId`/`SelectionId`), CSV, o il flusso di piazzamento: agisce solo
   sulla tabella dei nomi permanenti.
 
@@ -730,13 +717,13 @@ mano quando obsoleti/errati — squadre retrocesse/rinominate).
 Colpo d'occhio su ciò che il bridge farà davvero, senza saltare tra Generale/Betfair/Chat
 sorgenti/Parser/Mapping. È il primo passo della **schermata Riepilogo** dell'IA #293 (che a
 regime vivrà nel gruppo ④ Impostazioni); per ora è un pannello dell'hub Strumenti. **Non scrive
-né modifica nulla**: legge la config viva e i conteggi Betfair, riusando gli **stessi predicati
+né modifica nulla**: legge la config viva e lo stato del dizionario locale, riusando gli **stessi predicati
 del runtime** (`signal_router`/`parser_manager`/`safety_guard`/`*_mapping_store`) così il
 riepilogo non può divergere dal comportamento reale. Logica in `config_summary.py` (modulo puro).
 - **Stato globale (in alto):**
   - **Modalità**: **`🔴 MODALITÀ REALE`** (rosso) oppure **`🧪 Simulazione (DRY_RUN)`** (verde).
-  - **Betfair**: `Dizionario Betfair: sincronizzato|non sincronizzato · login attivo|login non attivo`
-    (dizionario locale presente = sync fatta; login = sessione RAM, non persistita tra riavvii).
+  - **Dizionario locale**: `Dizionario locale: presente|vuoto` (presente = il DB locale contiene
+    almeno un evento attivo). Con la rimozione di «Betfair Sync» non c'è più uno stato di login.
   - **`Canali pronti: N/M`**.
 - **Una card per canale** (`CTkScrollableFrame`): intestazione `nome (chat_id)` (o solo l'id, o
   «(canale senza chat_id)»), riga **`Parser: <nome>`** (o `—`; un parser risolto ma **non
@@ -963,7 +950,7 @@ significato di sicurezza:
 | **Modalità riconoscimento** | Come XTrader identifica il segnale: `NAME_ONLY` / `ID_ONLY` / `BOTH`. |
 | **Value-map** | Traduce alias (es. `GG`, `OVER 2.5`, `BACK/LAY`) nei valori XTrader (`PUNTA/BANCA`). |
 | **Dizionario nomi / mercati** | Tabelle che traducono nomi squadra / frasi-mercato nei valori canonici XTrader. |
-| **Dizionario Betfair** | DB locale sola-lettura per arricchire gli ID (nessuna scommessa). |
+| **Dizionario locale** | DB locale sola-lettura (`betfair_dictionary.db`) per arricchire gli ID; popolato a mano dall'utente. Con la rimozione di «Betfair Sync» l'arricchimento nel CSV live è oggi disattivato (seam pronto). |
 | **Dedupe** | Anti-duplicato: lo stesso messaggio ravvicinato non viene riscritto. |
 | **Timeout / auto-clear** | Dopo N secondi il segnale scade e il CSV torna a solo header. |
 | **BetType** | `PUNTA` (back) o `BANCA` (lay). |

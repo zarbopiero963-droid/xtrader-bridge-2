@@ -98,6 +98,33 @@ def test_process_write_success_accoda_e_scrive(make_app, app_mod, monkeypatch, t
     assert (path, None) in a.expiry_calls                     # scadenza programmata
 
 
+def test_process_passa_id_resolver_none_al_router(make_app, app_mod, monkeypatch, tmp_path):
+    """Rimozione «Betfair Sync»: il flusso CSV LIVE NON arricchisce più gli ID dal dizionario.
+    `_process` deve invocare `signal_router.resolve_row` con `id_resolver=None` (seam staccato),
+    così la riga resta a NOMI finché l'utente non popola il suo dizionario e ricabla il seam.
+
+    Fail-first: prima passava `id_resolver=self._betfair_id_resolver()` → kwarg NON None e il
+    resolver del dizionario locale veniva invocato dal live."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    a = make_app(csv_path=path, queue=q, tracker=signal_dedupe.SignalTracker(),
+                 daily=safety_guard.DailyLimiter(max_per_day=10))
+    captured = {}
+    rr = app_mod.signal_router.RouteResult(row=_row("Inter v Milan"))
+
+    def _capture(*a_, **k):
+        captured.update(k)
+        return rr
+    monkeypatch.setattr(app_mod.signal_router, "resolve_row", _capture)
+    # Il flusso live NON deve nemmeno costruire il resolver del dizionario locale.
+    a._betfair_id_resolver = lambda: (_ for _ in ()).throw(
+        AssertionError("il flusso live non deve usare il resolver del dizionario"))
+
+    app_mod.App._process(a, "msg", {"csv_path": path, "dry_run": False}, chat_id="1")
+
+    assert "id_resolver" in captured and captured["id_resolver"] is None
+
+
 def test_process_ridelivery_stesso_messaggio_non_scrive_due_volte(make_app, app_mod, monkeypatch, tmp_path):
     """#311-1.2 (review Fable 5 / Fugu Ultra): con `drop_pending_updates=False` sulle riconnessioni
     dopo un successo, Telegram può RIDELIVERARE (semantica at-least-once) un update già processato ma
@@ -1425,46 +1452,24 @@ def test_on_debug_toggle_messaggio_specifico_per_stato_save(make_app, app_mod, m
     assert not any("keyring" in m.lower() for m in a.logs) # NON il messaggio keyring
 
 
-# ── #192 (Codex P2): l'anteprima GUI salta il resolver ID durante una sync Betfair ──
-# `_preview_id_resolver_factory` è la factory passata al pannello «Prova messaggio». Il resolver
-# legge il DB sotto lo stesso RLock che una sync tiene per l'intera durata: invocarlo sul thread
-# Tk durante la sync congelerebbe la finestra. La factory deve quindi ritornare None se `is_syncing`,
-# senza toccare il flusso live (che usa `_betfair_id_resolver` su un worker thread).
+# ── #192: la factory del resolver ID dell'anteprima «Prova messaggio» ─────────────
+# Con la rimozione di «Betfair Sync» non esiste più una sync in corso da cui difendersi:
+# `_preview_id_resolver_factory` ritorna semplicemente il resolver sul dizionario locale,
+# così l'anteprima risolve gli ID come farebbe il live (una volta ricablato il seam).
 
-class _FakeSyncEngine:
-    def __init__(self, syncing):
-        self.is_syncing = syncing
-
-
-def test_preview_id_resolver_factory_salta_durante_sync(app_mod):
-    """Fail-first: durante una sync la factory dell'anteprima NON deve invocare il resolver
-    (che bloccherebbe sul lock DB) → ritorna None. Prima del fix l'anteprima usava
-    `_betfair_id_resolver` direttamente, senza guardia sync."""
+def test_preview_id_resolver_factory_usa_resolver(app_mod):
+    """La factory dell'anteprima ritorna il resolver reale sul dizionario locale, così «Prova
+    messaggio» risolve gli ID come il runtime."""
     a = object.__new__(app_mod.App)
-    a._betfair_sync_engine = lambda: _FakeSyncEngine(syncing=True)
-    called = []
-    a._betfair_id_resolver = lambda: called.append(1) or "RESOLVER"
-    assert app_mod.App._preview_id_resolver_factory(a) is None
-    assert called == []                     # il resolver NON è stato costruito/invocato
-
-
-def test_preview_id_resolver_factory_usa_resolver_senza_sync(app_mod):
-    """Senza sync in corso la factory ritorna il resolver reale, così «Prova messaggio»
-    risolve gli ID come il runtime."""
-    a = object.__new__(app_mod.App)
-    a._betfair_sync_engine = lambda: _FakeSyncEngine(syncing=False)
     a._betfair_id_resolver = lambda: "RESOLVER"
     assert app_mod.App._preview_id_resolver_factory(a) == "RESOLVER"
 
 
-def test_preview_id_resolver_factory_fail_open_su_eccezione(app_mod):
-    """Fail-open: se il probe `is_syncing`/engine solleva, la factory ritorna None (anteprima
-    conservativa), mai un crash/blocco della GUI."""
+def test_preview_id_resolver_factory_none_se_dizionario_assente(app_mod):
+    """Best-effort: se il resolver non è disponibile (dizionario assente), la factory
+    propaga il None → anteprima conservativa a nomi, nessun crash."""
     a = object.__new__(app_mod.App)
-    def _boom():
-        raise RuntimeError("engine non disponibile")
-    a._betfair_sync_engine = _boom
-    a._betfair_id_resolver = lambda: "RESOLVER"
+    a._betfair_id_resolver = lambda: None
     assert app_mod.App._preview_id_resolver_factory(a) is None
 
 
@@ -1662,31 +1667,3 @@ def test_same_csv_path_normalizzazione(monkeypatch):
     assert same("C:/XTrader/OUT.CSV", "c:/xtrader/out.csv") is True
 
 
-def test_init_invoca_redazione_log_globale(app_mod, monkeypatch):
-    """Audit #259 D3, test COMPORTAMENTALE (review CodeRabbit/GPT #313: verifica la
-    CHIAMATA reale, non la presenza testuale via `inspect.getsource`): `App.__init__`
-    invoca `install_global_log_redaction` all'avvio. Ci si ferma al primo metodo GUI
-    (`title`) per non costruire la finestra headless.
-
-    `__init__` fallisce comunque poco dopo l'install — su `super().__init__()` (init
-    Tk headless: `TclError` quando customtkinter è REALE in CI) o sul primo metodo GUI
-    (`AttributeError`/`RuntimeError` quando lo stub di test rende `CTk` = `object`).
-    In ENTRAMBI i casi install è la primissima statement, quindi è eseguita prima del
-    fallimento: si cattura qualsiasi eccezione e si verifica che sia stata invocata.
-    (L'ordine «install PRIMA della GUI», review Fugu, è così implicitamente confermato
-    dal traceback CI, dove `super().__init__()` fallisce DOPO l'install.)
-
-    Fail-first: sul codice pre-D3 `__init__` non chiamava install → `called` vuoto."""
-    from xtrader_bridge.betfair import log_safety
-    called = []
-    monkeypatch.setattr(log_safety, "install_global_log_redaction",
-                        lambda: called.append(1))
-    a = object.__new__(app_mod.App)
-    def _stop_gui(*x, **k):                    # ferma presto se super() non fallisce (display)
-        raise RuntimeError("stop init al primo metodo GUI (test)")
-    a.title = _stop_gui
-    try:
-        app_mod.App.__init__(a)
-    except Exception:                          # noqa: BLE001 — Tcl/attr/runtime a seconda dell'ambiente
-        pass                                   # (Exception, non BaseException: no KeyboardInterrupt/SystemExit)
-    assert called == [1]                       # install invocata davvero durante l'avvio

@@ -4,7 +4,7 @@ La schermata «Riepilogo configurazione» dà il **colpo d'occhio** su ciò che 
 farà davvero, senza saltare tra le schede Generale/Betfair/Chat sorgenti/Parser/Mapping:
 
 - **Modalità**: Simulazione (DRY_RUN) vs REALE;
-- **Betfair**: dizionario sincronizzato sì/no + login attivo sì/no;
+- **Dizionario locale**: presente (contiene eventi) sì/no;
 - **per ogni canale** → parser assegnato → traduzioni (nomi/mercati) attive → «Pronto?».
 
 Questo modulo è **puro**: non tocca GUI, Telegram, CSV, rete o config su disco. Riusa gli
@@ -86,8 +86,7 @@ class ConfigSummary:
     """Riepilogo completo, sola lettura, della configurazione corrente."""
 
     real_mode: bool             # True = REALE, False = Simulazione (DRY_RUN)
-    betfair_synced: bool        # dizionario Betfair locale presente (sync fatta)
-    betfair_logged_in: bool     # sessione Betfair attiva (token RAM, non persistito)
+    betfair_synced: bool        # dizionario locale presente (contiene almeno un evento attivo)
     channels: tuple = ()        # tuple[ChannelSummary], ordine di presentazione
 
     @property
@@ -212,13 +211,12 @@ def parser_translation_flags(cfg: dict, parser_name, *, parsers_dir: str = None)
 
 
 def summarize_config(cfg: dict, *, betfair_synced: bool = False,
-                     betfair_logged_in: bool = False,
                      parsers_dir: str = None) -> ConfigSummary:
     """Costruisce il riepilogo READ-ONLY della configurazione.
 
-    `betfair_synced`/`betfair_logged_in` sono passati dal chiamante (letti dal DB/sessione
-    Betfair, che questo modulo puro non conosce), così l'aggregazione resta testabile senza
-    rete né SQLite. `parsers_dir` = cartella dei parser (default → `custom_parser`)."""
+    `betfair_synced` è passato dal chiamante (letto dal DB locale, che questo modulo puro non
+    conosce), così l'aggregazione resta testabile senza SQLite. `parsers_dir` = cartella dei
+    parser (default → `custom_parser`)."""
     cfg = cfg if isinstance(cfg, dict) else {}
     existing_names = set(name_mapping_store.profile_names(cfg))
     existing_markets = set(market_mapping_store.profile_names(cfg))
@@ -229,5 +227,4 @@ def summarize_config(cfg: dict, *, betfair_synced: bool = False,
     return ConfigSummary(
         real_mode=not safety_guard.is_dry_run(cfg),
         betfair_synced=bool(betfair_synced),
-        betfair_logged_in=bool(betfair_logged_in),
         channels=channels)

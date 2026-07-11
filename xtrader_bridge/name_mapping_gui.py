@@ -262,7 +262,7 @@ class NameMappingPanel(ctk.CTkFrame):
         provider = self._known_teams_provider
         if not callable(provider):
             self._status.configure(
-                text="⛔ Dizionario Betfair non disponibile: sincronizza prima da «🔵 Betfair Sync».",
+                text="⛔ Dizionario locale vuoto o non disponibile: popola prima il dizionario locale.",
                 text_color="#ef5350")
             return
         # `DictionaryBusy`: una sync Betfair tiene ora il lock del DB → avviso «riprova»
@@ -272,7 +272,7 @@ class NameMappingPanel(ctk.CTkFrame):
             teams = provider() or []
         except DictionaryBusy:
             self._status.configure(
-                text="⏳ Sincronizzazione Betfair in corso: riprova tra poco.",
+                text="⏳ Dizionario occupato: riprova tra poco.",
                 text_color="#ffa726")
             return
         except Exception as exc:                 # noqa: BLE001 — best-effort, niente crash GUI
@@ -305,7 +305,7 @@ class NameMappingPanel(ctk.CTkFrame):
             self._status.configure(
                 text="ℹ️ Nessun nuovo nome da aggiungere: "
                      + (f"i {skipped} nomi noti sono già in tabella." if skipped else
-                        "il dizionario Betfair è vuoto — sincronizza da «🔵 Betfair Sync»."),
+                        "il dizionario locale è vuoto — popolalo prima."),
                 text_color="gray")
 
     # ── azioni profilo (persistono subito) ───────────────────────────────────

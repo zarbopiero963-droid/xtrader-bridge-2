@@ -1,84 +1,44 @@
-"""Sottosistema Betfair del bridge — **solo locale e solo read-only** (issue #86).
+"""Sottosistema dizionario locale del bridge — **solo locale e solo read-only**.
 
-Questo subpackage ospiterà (PR-P2…PR-P11) lo storage cifrato delle credenziali,
-il client di login Betfair.it con Delayed App Key, il dizionario locale multi-sport
-e il motore di sync. Vincoli **non negoziabili**, validi per ogni modulo qui dentro:
+Storicamente questo subpackage ospitava anche il login Betfair, il client
+catalogo e il motore di sync online (issue #86). Quella **funzione «Betfair Sync»
+è stata rimossa**: il bridge non contatta più Betfair e non costruisce più il
+dizionario automaticamente. Il dizionario locale (`betfair_dictionary.db`, SQLite
+in AppData) resta come **substrato**: viene ora popolato dall'utente con i propri
+campi personalizzati, e i moduli qui sotto lo leggono in sola lettura.
 
-- **100% locale**: nessun dato Betfair (App Key, credenziali, dizionario, eventi,
-  MarketId/SelectionId, sync history, mapping) esce dal PC/VPS. Niente cloud,
-  niente backup/import/export.
-- **Solo read-only**: sono **vietate** le operazioni di scommessa dell'Exchange.
-  L'elenco e il gate vivono in `safety.py` (`assert_read_only`,
-  `FORBIDDEN_BETTING_OPS`): ogni chiamata che instrada una operazione Betfair deve
-  passare da lì prima di colpire la rete.
-- **Segreti mai loggati**: App Key, username, password, sessionToken, certificato,
-  private key, headers e payload/response di login non vanno mai nei log. Il
-  `sessionToken` vive **solo in RAM** (mai su disco).
+Vincoli **non negoziabili** validi per ogni modulo qui dentro:
 
-PR-P1 ha introdotto lo scheletro e il guard read-only; PR-P2 aggiunge lo storage
-locale sicuro delle credenziali, la sessione RAM-only e la redazione dei log. I
-moduli funzionali (auth, dizionario, sync) arrivano nelle PR successive (vedi
-`docs/audit/archive/blocco1_personale_roadmap.md`).
+- **100% locale**: nessun dato (dizionario, eventi, MarketId/SelectionId, mapping)
+  esce dal PC/VPS. Niente cloud, niente backup/import/export.
+- **Solo read-only**: nessuna operazione di scommessa; questi moduli non fanno rete.
+
+Moduli superstiti:
+
+- `local_db`            — storage SQLite del dizionario locale (lettura/scrittura locale);
+- `dictionary_resolver` — risoluzione EventId/MarketId/SelectionId dal dizionario (il
+  «gancio» per l'arricchimento ID, oggi non cablato sul CSV live — vedi `app.py`);
+- `dictionary_viewer`(+`_gui`) — consultazione read-only del dizionario;
+- `guided_mapping`      — alberi Sport→Competizione→Squadre dal dizionario (mapping guidato).
 """
 
 from . import (
-    auth_client,
-    catalogue_client,
-    credential_store,
     dictionary_resolver,
     dictionary_viewer,
     local_db,
-    log_safety,
-    sync_tab_controller,
 )
-from . import auto_sync, sync_engine
 from .dictionary_resolver import DictionaryResolver
 from .dictionary_viewer import DictionaryViewerController
-from .auth_client import BetfairAuthClient, CertificateError, LoginError
-from .auto_sync import AutoSyncScheduler, should_run as auto_sync_should_run
-from .catalogue_client import CatalogueSync
 from .local_db import BetfairLocalDB
-from .sync_engine import SyncEngine, SyncResult
-from .credential_store import BetfairCredentials
-from .safety import (
-    FORBIDDEN_BETTING_OPS,
-    ReadOnlyViolation,
-    assert_read_only,
-    is_forbidden_betting_op,
-)
-from .session import BetfairSession
-from .sync_tab_controller import BetfairSyncController
 
-# NB: `sync_tab_gui` (widget customtkinter) NON è importato qui: l'import del package
-# non deve richiedere un display/customtkinter. La GUI si importa esplicitamente.
+# NB: `dictionary_viewer_gui` (widget customtkinter) NON è importato qui: l'import del
+# package non deve richiedere un display/customtkinter. La GUI si importa esplicitamente.
 
 __all__ = [
-    "FORBIDDEN_BETTING_OPS",
-    "ReadOnlyViolation",
-    "assert_read_only",
-    "is_forbidden_betting_op",
-    "BetfairCredentials",
-    "BetfairSession",
-    "BetfairSyncController",
-    "BetfairAuthClient",
-    "LoginError",
-    "CertificateError",
     "BetfairLocalDB",
     "DictionaryViewerController",
     "dictionary_viewer",
     "DictionaryResolver",
     "dictionary_resolver",
-    "CatalogueSync",
-    "SyncEngine",
-    "SyncResult",
-    "AutoSyncScheduler",
-    "auto_sync_should_run",
-    "auto_sync",
-    "auth_client",
-    "catalogue_client",
     "local_db",
-    "sync_engine",
-    "credential_store",
-    "log_safety",
-    "sync_tab_controller",
 ]

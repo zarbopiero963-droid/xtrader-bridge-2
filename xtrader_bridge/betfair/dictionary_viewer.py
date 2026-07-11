@@ -3,7 +3,7 @@
 Logica pura (niente GUI, niente rete, niente scrittura DB) che interroga il dizionario
 locale (`BetfairLocalDB`) per mostrarne il contenuto: sport, competizioni, eventi,
 mercati, selezioni. È pensato per un pannello di sola consultazione: l'utente verifica
-che cosa è stato sincronizzato sul PC, **senza** poter modificare nulla.
+che cosa c’è nel dizionario locale sul PC, **senza** poter modificare nulla.
 
 Vincoli (issue #86): il dizionario resta 100% locale; questo modulo non fa rete e non
 muta il DB (solo `SELECT` via i metodi di lettura di `BetfairLocalDB`). Nessuna
@@ -25,14 +25,14 @@ _LEVELS = {
     "sports": {
         "table": "betfair_sports",
         "columns": [("event_type_id", "Event Type ID"), ("name", "Sport"),
-                    ("last_seen_at", "Ultima sync"), ("active", "Attivo")],
+                    ("last_seen_at", "Ultimo agg."), ("active", "Attivo")],
         "scope": "event_type_id",
     },
     "competitions": {
         "table": "betfair_competitions",
         "columns": [("competition_id", "ID"), ("name", "Competizione"),
                     ("event_type_id", "Sport ID"),
-                    ("last_seen_at", "Ultima sync"), ("active", "Attivo")],
+                    ("last_seen_at", "Ultimo agg."), ("active", "Attivo")],
         "scope": "event_type_id",
     },
     "events": {
@@ -40,21 +40,21 @@ _LEVELS = {
         "columns": [("event_id", "Event ID"), ("name", "Evento"),
                     ("competition_id", "Comp."), ("open_date", "Data"),
                     ("participant_1", "Casa"), ("participant_2", "Trasferta"),
-                    ("last_seen_at", "Ultima sync"), ("active", "Attivo")],
+                    ("last_seen_at", "Ultimo agg."), ("active", "Attivo")],
         "scope": "event_type_id",
     },
     "markets": {
         "table": "betfair_markets",
         "columns": [("market_id", "Market ID"), ("event_id", "Event ID"),
                     ("market_name", "Mercato"), ("market_type", "Tipo"),
-                    ("last_seen_at", "Ultima sync"), ("active", "Attivo")],
+                    ("last_seen_at", "Ultimo agg."), ("active", "Attivo")],
         "scope": "event_type_id",
     },
     "selections": {
         "table": "betfair_selections",
         "columns": [("market_id", "Market ID"), ("selection_id", "Selection ID"),
                     ("runner_name", "Selezione"), ("handicap", "Handicap"),
-                    ("last_seen_at", "Ultima sync"), ("active", "Attivo")],
+                    ("last_seen_at", "Ultimo agg."), ("active", "Attivo")],
         "scope": "market_id",
     },
 }
@@ -95,7 +95,7 @@ def _format_cell(col: str, value) -> str:
 
 
 class DictionaryBusy(Exception):
-    """Il dizionario è temporaneamente occupato da una sincronizzazione Betfair in corso.
+    """Il dizionario è temporaneamente occupato da un’altra operazione sul DB in corso.
 
     Il viewer (sola lettura, thread Tk) fa **fail-fast** con questa eccezione invece di
     bloccarsi sul lock del DB, che `transaction()` tiene attraverso le chiamate di rete del
@@ -213,16 +213,15 @@ class DictionaryViewerController:
 
     def view_if_free(self, level: str, sport=None, active_only: bool = False,
                      search=None, filters=None, limit=None) -> dict:
-        """Come `view`, ma NON blocca il chiamante se una sync Betfair tiene ora il lock del
-        DB: prova ad acquisirlo **senza attesa** e, se è occupato, solleva `DictionaryBusy`
-        invece di bloccare. Se libero, tiene il lock per l'INTERA lettura (vista coerente,
-        nessuna sync può interlacciarsi) e lo rilascia all'uscita.
+        """Come `view`, ma NON blocca il chiamante se un altro thread tiene ora il lock del
+        DB (es. una popolazione manuale del dizionario): prova ad acquisirlo **senza attesa**
+        e, se è occupato, solleva `DictionaryBusy` invece di bloccare. Se libero, tiene il lock
+        per l'INTERA lettura (vista coerente) e lo rilascia all'uscita.
 
         Serve al viewer del dizionario, che gira sul **thread Tk**: senza fail-fast, aprire o
-        aggiornare la scheda durante una sync bloccherebbe la GUI sul lock del DB — tenuto
-        attraverso le chiamate di rete del catalogue — finché la rete non finisce/scade
-        (Codex #175). L'RLock è rientrante, quindi i metodi di lettura interni (`view` →
-        `fetchall`/`market_ids_for_sports`) lo riacquisiscono senza deadlock."""
+        aggiornare la scheda mentre un'altra operazione tiene il lock del DB bloccherebbe la GUI
+        fino al rilascio (Codex #175). L'RLock è rientrante, quindi i metodi di lettura interni
+        (`view` → `fetchall`/`market_ids_for_sports`) lo riacquisiscono senza deadlock."""
         if not self.db.acquire_read(blocking=False):
             raise DictionaryBusy()
         try:

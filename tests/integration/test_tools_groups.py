@@ -22,7 +22,7 @@ def tools_mod(monkeypatch):
     return importlib.import_module("xtrader_bridge.tools_gui")
 
 
-_ALL_KEYS = ("sources", "provider", "parser", "mapping", "betfair", "dictionary",
+_ALL_KEYS = ("sources", "provider", "parser", "mapping", "dictionary",
              "journal", "known_teams", "profiles", "summary")
 
 
@@ -37,17 +37,17 @@ def test_ordine_e_prefissi_delle_schede(tools_mod):
     assert titles == [
         "① 📡 Chat sorgenti", "① 📇 Provider",
         "② 🧩 Parser", "② 🗺️ Mapping",
-        "③ 🔵 Betfair Sync", "③ 📖 Dizionario Betfair", "③ 📒 Diario", "③ 🧹 Nomi Betfair",
+        "③ 📖 Dizionario", "③ 📒 Diario", "③ 🧹 Nomi squadra",
         "④ 📁 Profili", "④ 📋 Riepilogo",
     ]
 
 
 def test_tutte_le_factory_sono_instradate(tools_mod):
-    # Nessuno strumento perso o duplicato dal riordino: 10 schede, ogni factory alla sua scheda.
+    # Nessuno strumento perso o duplicato dal riordino: 9 schede, ogni factory alla sua scheda.
     panels = tools_mod.build_tool_panels(_factories())
-    assert len(panels) == 10
+    assert len(panels) == 9
     routed = [f(None) for _t, f in panels]
-    assert routed == ["sources", "provider", "parser", "mapping", "betfair",
+    assert routed == ["sources", "provider", "parser", "mapping",
                       "dictionary", "journal", "known_teams", "profiles", "summary"]
 
 

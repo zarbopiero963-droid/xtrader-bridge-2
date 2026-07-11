@@ -16,7 +16,7 @@ Punti chiave del design (decisi col proprietario):
   mapping salvata (il parser non filtra per competizione). La riga salvata è per-squadra:
   `{country:"", betfair:<squadra>, provider:<alias canale>, sport:<sport>, entity_type:"team"}`;
 - le **squadre** di una competizione sono l'unione di `participant_1`/`participant_2` degli
-  eventi di quella competizione (popolati da `catalogue_client.split_participants`), con i
+  eventi di quella competizione (colonne del dizionario locale, popolate dall'utente), con i
   vuoti scartati (eventi outright/tornei hanno `participant_2` vuoto) e dedup;
 - ri-salvare **aggiorna** (non duplica) le righe delle squadre editate e **lascia intatte**
   tutte le altre righe del profilo (altri sport, mercati, righe manuali).

@@ -1,9 +1,8 @@
 """Test hard: `App._known_betfair_teams` NON congela la GUI durante una sync (#321).
 
-Fix CodeRabbit: la lettura dei nomi Betfair per la precompila della mappatura nomi
-(area ⚽ Calcio) gira sul thread Tk. `CatalogueSync.sync` tiene il lock del DB per l'intera
-transazione (incluse le chiamate HTTP), quindi una lettura **bloccante** congelerebbe la
-finestra fino a fine sync. Il metodo fa quindi **fail-fast** (`DictionaryBusy`) se il lock è
+Fix CodeRabbit: la lettura dei nomi squadra del dizionario locale per la precompila della mappatura nomi
+(area ⚽ Calcio) gira sul thread Tk. Se un altro thread tiene il lock del DB, una lettura
+**bloccante** congelerebbe la finestra fino al rilascio. Il metodo fa quindi **fail-fast** (`DictionaryBusy`) se il lock è
 occupato, invece di attendere — mirror di `DictionaryViewerController.view_if_free` (#175).
 
 Esercita il METODO REALE di `App` via l'harness headless (`make_app`), con un
@@ -11,7 +10,6 @@ Esercita il METODO REALE di `App` via l'harness headless (`make_app`), con un
 """
 
 import threading
-import types
 
 import pytest
 
@@ -21,7 +19,7 @@ from xtrader_bridge.betfair.local_db import BetfairLocalDB
 
 def _app_with_db(make_app, db):
     a = make_app()
-    a._betfair_engine_obj = types.SimpleNamespace(db=db)   # _betfair_sync_engine() lo ritorna
+    a._betfair_local_db = lambda: db   # _betfair_local_db() ritorna il DB locale
     return a
 
 
@@ -66,7 +64,7 @@ def test_known_teams_db_assente_ritorna_vuoto(make_app, app_mod):
     def _boom():
         raise RuntimeError("DB non disponibile")
 
-    a._betfair_sync_engine = _boom     # engine non costruibile → best-effort []
+    a._betfair_local_db = _boom     # DB non apribile → best-effort []
     assert app_mod.App._known_betfair_teams(a) == []
 
 
@@ -74,7 +72,7 @@ def test_known_teams_engine_con_db_none_ritorna_vuoto(make_app, app_mod):
     # Engine costruibile ma `.db` None (es. sync mai fatta): NON deve sollevare
     # AttributeError fuori dalla guardia (review Fugu #321) — contratto «indisponibile → []».
     a = make_app()
-    a._betfair_engine_obj = types.SimpleNamespace(db=None)
+    a._betfair_local_db = lambda: None
     assert app_mod.App._known_betfair_teams(a) == []
 
 
@@ -96,7 +94,7 @@ def test_known_teams_query_solleva_ritorna_vuoto_e_rilascia_il_lock(make_app, ap
             raise RuntimeError("dizionario corrotto")
 
     a = make_app()
-    a._betfair_engine_obj = types.SimpleNamespace(db=_FakeDB())
+    a._betfair_local_db = lambda: _FakeDB()
     assert app_mod.App._known_betfair_teams(a) == []       # errore ingoiato (best-effort)
     assert calls["acq"] == 1 and calls["rel"] == 1          # acquisito E rilasciato: no leak lock
 
@@ -141,7 +139,7 @@ def test_delete_team_durante_sync_fa_fail_fast(make_app, app_mod):
 
 def test_delete_team_db_assente_ritorna_false(make_app, app_mod):
     a = make_app()
-    a._betfair_engine_obj = types.SimpleNamespace(db=None)
+    a._betfair_local_db = lambda: None
     assert app_mod.App._delete_betfair_team(a, "Calcio", "inter") is False
 
 
@@ -187,7 +185,7 @@ def test_known_market_terms_durante_sync_fa_fail_fast(make_app, app_mod):
 
 def test_known_market_terms_db_assente_ritorna_liste_vuote(make_app, app_mod):
     a = make_app()
-    a._betfair_engine_obj = types.SimpleNamespace(db=None)
+    a._betfair_local_db = lambda: None
     terms = app_mod.App._known_market_terms(a)
     assert terms == {"market_types": [], "market_names": [], "selection_names": []}
 
@@ -198,6 +196,6 @@ def test_known_market_terms_engine_non_costruibile_ritorna_liste_vuote(make_app,
     def _boom():
         raise RuntimeError("DB non disponibile")
 
-    a._betfair_sync_engine = _boom     # engine non costruibile → best-effort liste vuote
+    a._betfair_local_db = _boom     # DB non apribile → best-effort liste vuote
     terms = app_mod.App._known_market_terms(a)
     assert terms == {"market_types": [], "market_names": [], "selection_names": []}

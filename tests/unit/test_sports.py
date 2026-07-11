@@ -1,12 +1,11 @@
 """Test della fonte UNICA degli sport del blocco personale (issue #86 PR-P9).
 
-Copre la mappa canonica sport→event_type_id, la normalizzazione case-insensitive e
-la **coerenza** fra i moduli che la riusano (catalogue client + tab Betfair Sync):
-non devono andare in drift rispetto a `xtrader_bridge.sports`.
+Copre la mappa canonica sport→event_type_id, la normalizzazione case-insensitive e la
+reverse-map event_type_id→sport. Lo sport resta usato dal parser (`event_type_id`) e dalla
+risoluzione ID del dizionario locale, anche dopo la rimozione della funzione «Betfair Sync».
 """
 
 from xtrader_bridge import sports
-from xtrader_bridge.betfair import catalogue_client, sync_tab_controller
 
 
 # ── mappa canonica ────────────────────────────────────────────────────────────
@@ -55,18 +54,6 @@ def test_event_type_id_for_sport_noto():
 def test_event_type_id_for_sport_ignoto_none():
     assert sports.event_type_id_for_sport("") is None
     assert sports.event_type_id_for_sport("Hockey") is None
-
-
-# ── coerenza single-source (niente drift fra moduli) ────────────────────────────
-
-def test_catalogue_client_riusa_la_mappa_canonica():
-    # catalogue_client.SPORTS_EVENT_TYPE deve essere ESATTAMENTE quella canonica.
-    assert catalogue_client.SPORTS_EVENT_TYPE is sports.SPORTS_EVENT_TYPE
-
-
-def test_sync_tab_controller_riusa_sport_e_normalize():
-    assert sync_tab_controller.SPORTS is sports.SPORTS
-    assert sync_tab_controller.normalize_sport is sports.normalize_sport
 
 
 # ── reverse map event_type_id → sport (harvest nomi squadra #282) ───────────────

@@ -1,8 +1,8 @@
-"""Pannello «Dizionario Betfair» — SOLA LETTURA (issue #86 PR-P11).
+"""Pannello «Dizionario» — SOLA LETTURA (issue #86 PR-P11).
 
-Vista di consultazione del dizionario Betfair locale: l'utente sceglie un livello
+Vista di consultazione del dizionario locale: l'utente sceglie un livello
 (Sport/Competizioni/Eventi/Mercati/Selezioni) e un filtro sport, e vede le righe
-sincronizzate sul PC. **Non** modifica nulla (nessuna Entry, nessun pulsante di
+presenti sul PC. **Non** modifica nulla (nessuna Entry, nessun pulsante di
 scrittura), non fa rete e non muta il DB: tutta la logica sta in
 `DictionaryViewerController` (testata in CI). Questo modulo è solo widget/wiring e NON
 è testato in CI (richiede un display): verifica manuale (vedi roadmap PR-P11).
@@ -190,17 +190,16 @@ class DictionaryViewerPanel(ctk.CTkFrame):
             return
         level = self._selected_level()
         try:
-            # `view_if_free` fa FAIL-FAST se una sync Betfair tiene ora il lock del DB
-            # (tenuto attraverso le chiamate di rete del catalogue): senza, la lettura sul
-            # thread Tk bloccherebbe e freezerebbe la GUI fino a fine sync (Codex #175).
+            # `view_if_free` fa FAIL-FAST se un altro thread tiene ora il lock del DB
+            # (es. una popolazione manuale del dizionario): senza, la lettura sul thread Tk
+            # bloccherebbe e freezerebbe la GUI fino al rilascio (Codex #175).
             # `limit=_ROW_CAP`: cap righe renderizzate (Fase 2) → niente freeze su Mercati/Selezioni.
             data = self.controller.view_if_free(level, sport=self._selected_sport(),
                                                 active_only=bool(self._active_only.get()),
                                                 search=self._search.get(), limit=_ROW_CAP)
         except DictionaryBusy:
             self._counts.configure(
-                text="⏳ Dizionario in aggiornamento (sincronizzazione Betfair in corso): "
-                     "premi 🔄 Aggiorna tra poco.")
+                text="⏳ Dizionario in aggiornamento: premi 🔄 Aggiorna tra poco.")
             return
         except Exception as exc:   # noqa: BLE001 — lettura best-effort, niente crash GUI
             self._counts.configure(text=f"⚠️ Errore lettura dizionario: {type(exc).__name__}")
