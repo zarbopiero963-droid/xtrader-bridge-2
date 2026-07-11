@@ -1949,7 +1949,7 @@ class App(ctk.CTk):
             if db is None:               # engine costruito ma DB non aperto → nessun nome
                 return []
             if not db.acquire_read(blocking=False):
-                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+                raise DictionaryBusy()   # DB occupato: fail-fast, niente freeze del thread Tk
             try:
                 return db.known_teams(sport)
             finally:
@@ -1973,7 +1973,7 @@ class App(ctk.CTk):
             if db is None:
                 return []
             if not db.acquire_read(blocking=False):
-                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+                raise DictionaryBusy()   # DB occupato: fail-fast, niente freeze del thread Tk
             try:
                 return guided_mapping.competitions_for_sport(db, sport)
             finally:
@@ -1996,7 +1996,7 @@ class App(ctk.CTk):
             if db is None:
                 return []
             if not db.acquire_read(blocking=False):
-                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+                raise DictionaryBusy()   # DB occupato: fail-fast, niente freeze del thread Tk
             try:
                 return guided_mapping.teams_for_competition(db, competition_id)
             finally:
@@ -2020,7 +2020,7 @@ class App(ctk.CTk):
             if db is None:
                 return False
             if not db.acquire_read(blocking=False):
-                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+                raise DictionaryBusy()   # DB occupato: fail-fast, niente freeze del thread Tk
             try:
                 db.delete_known_team(sport, normalized_name)
                 return True
@@ -2049,7 +2049,7 @@ class App(ctk.CTk):
             if db is None:               # engine costruito ma DB non aperto → nessun termine
                 return dict(empty)
             if not db.acquire_read(blocking=False):
-                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+                raise DictionaryBusy()   # DB occupato: fail-fast, niente freeze del thread Tk
             try:
                 return {
                     "market_types": db.known_market_types(sport),
