@@ -55,8 +55,11 @@ def test_bettype_back_lay_grezzi_accettati_e_canonicalizzati():
     # Issue #3: un BetType inglese GREZZO (senza value-map) è ORA accettato e l'OUTPUT CSV resta
     # canonico PUNTA/BANCA (universale su tutte le versioni BT/XT). Fail-first: prima BACK/LAY
     # grezzi erano INVALID_BETTYPE → non piazzabili.
+    # Include varianti case/whitespace sia inglesi sia ITALIANE (Sourcery): la normalizzazione
+    # deve valere per entrambe le lingue, non solo per l'inglese.
     for side, expected in (("BACK", "PUNTA"), ("LAY", "BANCA"), ("back", "PUNTA"),
-                           (" Lay ", "BANCA"), ("PUNTA", "PUNTA"), ("BANCA", "BANCA")):
+                           (" Lay ", "BANCA"), ("PUNTA", "PUNTA"), ("BANCA", "BANCA"),
+                           (" punTa ", "PUNTA"), ("  banca  ", "BANCA")):
         res = pipe.build_validated_row(_parser_bettype_fixed(side), "qualsiasi")
         assert res.status == validator.VALID and res.placeable is True, side
         assert res.row["BetType"] == expected, side       # output canonico, universale

@@ -42,7 +42,8 @@ Esempi reali (dal team XTrader):
   back) o `BANCA` (equivalente di lay), come negli esempi reali. In **ingresso** sono validi
   indifferentemente `PUNTA`/`BANCA`/`BACK`/`LAY` (accettati su tutte le versioni BT/XT — conferma
   supporto, epica multilingua #3); mapping interno: `BACK → PUNTA`, `LAY → BANCA` (l'output resta
-  canonico e universale). I termini spagnoli `FAVOR`/`CONTRA` non sono ancora supportati.
+  canonico e universale). I termini spagnoli `FAVOR`/`CONTRA` non sono ancora supportati e vengono
+  **rifiutati fail-closed** (`INVALID_BETTYPE`): un lato ignoto non viene mai indovinato.
 - **`Points`**: lasciato vuoto (gli esempi reali non lo valorizzano).
 - **`Handicap`**: `0` di default.
 

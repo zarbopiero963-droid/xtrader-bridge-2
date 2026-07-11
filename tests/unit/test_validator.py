@@ -107,6 +107,10 @@ def test_canonical_bettype_mappa_al_lato_italiano():
     # Ignoto: invariato (uppercase), poi respinto da bettype_status → mai un lato inventato.
     assert validator.canonical_bettype("FAVOR") == "FAVOR"
     assert validator.bettype_status(validator.canonical_bettype("FAVOR")) == validator.INVALID_BETTYPE
+    # None/vuoto → "" (nessun lato), non "NONE" (Sourcery): coerente col contratto "vuoto".
+    assert validator.canonical_bettype(None) == ""
+    assert validator.canonical_bettype("   ") == ""
+    assert validator.bettype_status(None) == validator.INVALID_BETTYPE
 
 
 def test_campi_nome_mancanti_bloccati():

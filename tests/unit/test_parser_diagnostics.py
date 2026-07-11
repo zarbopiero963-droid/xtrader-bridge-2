@@ -121,14 +121,28 @@ def test_invalid_bettype():
 
 
 def test_bettype_back_lay_validi_in_diagnostica():
-    # Issue #3: BACK/LAY sono lati validi anche nella diagnostica (coerente col runtime).
-    for side in ("BACK", "LAY"):
+    # Issue #3: BACK/LAY sono lati validi anche nella diagnostica (coerente col runtime), incluse
+    # varianti di case/whitespace (Sourcery), in linea con bettype_status/pipeline.
+    for side in ("BACK", "LAY", "back", "lay", "BACK ", " LAY", " Lay "):
         defn = _full_name_rules(
             BetType=FieldRule(target="BetType", fixed_value=side, required=True),
             Price=FieldRule(target="Price", start_after="Quota", required=True))
         diag = pd.diagnose(defn, "Quota 1.85", mode=recognition.NAME_ONLY,
                            provider="TG", value_maps_registry=_BUILTIN)
         assert _f(diag, "BetType").ok, side       # nessun errore sul BetType
+
+
+def test_bettype_valido_price_invalido_marca_solo_price():
+    # Overlay a validità mista (Sourcery): BetType VALIDO (BACK) + Price non numerico → la
+    # diagnostica marca SOLO Price, mai un falso errore sul BetType.
+    defn = _full_name_rules(
+        BetType=FieldRule(target="BetType", fixed_value="BACK", required=True),
+        Price=FieldRule(target="Price", fixed_value="abc", required=True))
+    diag = pd.diagnose(defn, "qualsiasi", mode=recognition.NAME_ONLY,
+                       provider="TG", value_maps_registry=_BUILTIN)
+    assert _f(diag, "BetType").ok                     # BACK resta valido
+    assert _f(diag, "Price").error == pd.INVALID_PRICE
+    assert diag.placeable is False
 
 
 def test_mode_required_missing_crea_campo_sintetico():

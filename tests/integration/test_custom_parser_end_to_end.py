@@ -13,6 +13,9 @@ hardcoded quando attivo), gate "Non pronto", gate di contenuto (parser a soli
 valori fissi), approvazione della chat. È la prova di "pronto" della PHASE 3-bis.
 """
 
+import csv
+
+from xtrader_bridge import csv_writer
 from xtrader_bridge import custom_parser as cp
 from xtrader_bridge import parser_io, signal_router
 from xtrader_bridge.csv_writer import CSV_HEADER
@@ -43,6 +46,42 @@ def test_esempio_end_to_end_riga_completa(tmp_path):
     assert res.row["Price"] == "1.85"              # virgola → punto
     assert res.row["MarketType"] == "BOTH_TEAMS_TO_SCORE"
     assert res.row["Handicap"] == "0"              # default contratto
+
+
+def _parser_raw_bettype():
+    """Parser NAME_ONLY che ESTRAE il BetType dal messaggio **senza value-map** (`bettype`): il
+    lato inglese grezzo arriva al confine del contratto così com'è. Estrae anche EventName/Price
+    dal messaggio (serve un content-match reale, altrimenti il gate CP-09 scarta il parser)."""
+    return cp.CustomParserDef(name="RawBT", mode="NAME_ONLY", sport="Calcio", rules=[
+        cp.FieldRule(target="Provider", fixed_value="TG"),
+        cp.FieldRule(target="EventName", start_after="Match:", end_before="\n", required=True),
+        cp.FieldRule(target="MarketType", fixed_value="BOTH_TEAMS_TO_SCORE", required=True),
+        cp.FieldRule(target="SelectionName", fixed_value="Sì", required=True),
+        cp.FieldRule(target="Price", start_after="Quota:", end_before="\n", required=True),
+        cp.FieldRule(target="BetType", start_after="Lato:", end_before="\n", required=True),
+    ])
+
+
+def test_csv_finale_mai_bettype_grezzo_back_lay(tmp_path):
+    """Issue #3 (verifica dei reviewer GLM/GPT/Fable/Fugu): nessun percorso di scrittura CSV deve
+    emettere un `BACK`/`LAY` GREZZO. Catena completa fino al FILE: `resolve_row` → `write_rows` →
+    file su disco → il `BetType` scritto è SEMPRE canonico `PUNTA`/`BANCA` (universale), mai
+    l'input inglese. Fail-first: senza la canonicalizzazione a monte il file conterrebbe `BACK`."""
+    for side, expected in (("BACK", "PUNTA"), ("LAY", "BANCA")):
+        defn = _parser_raw_bettype()
+        defn.name = f"RawBT_{side}"
+        cp.save_parser(defn, str(tmp_path))
+        msg = f"Match: Inter v Milan\nLato: {side}\nQuota: 1,85\n"   # trailing \n: end_before delle righe
+        res = signal_router.resolve_row(msg, _cfg(defn.name), chat_id="42",
+                                        parsers_dir=str(tmp_path))
+        assert res.placeable is True, side
+        assert res.row["BetType"] == expected, side       # riga già canonica
+        path = str(tmp_path / f"segnali_{side}.csv")
+        csv_writer.write_rows([res.row], path)
+        with open(path, newline="", encoding="utf-8-sig") as fh:
+            rows = list(csv.DictReader(fh))
+        assert len(rows) == 1, side
+        assert rows[0]["BetType"] == expected, side       # sul FILE: canonico, mai BACK/LAY grezzo
     assert res.row["Points"] == ""                 # default contratto
 
 
