@@ -46,6 +46,7 @@ def test_esempio_end_to_end_riga_completa(tmp_path):
     assert res.row["Price"] == "1.85"              # virgola → punto
     assert res.row["MarketType"] == "BOTH_TEAMS_TO_SCORE"
     assert res.row["Handicap"] == "0"              # default contratto
+    assert res.row["Points"] == ""                 # default contratto
 
 
 def _parser_raw_bettype():
@@ -82,7 +83,7 @@ def test_csv_finale_mai_bettype_grezzo_back_lay(tmp_path):
             rows = list(csv.DictReader(fh))
         assert len(rows) == 1, side
         assert rows[0]["BetType"] == expected, side       # sul FILE: canonico, mai BACK/LAY grezzo
-    assert res.row["Points"] == ""                 # default contratto
+        assert rows[0]["Points"] == "", side              # Points resta vuoto anche sul FILE
 
 
 def test_tolleranza_spazi_nei_delimitatori_end_to_end(tmp_path):
