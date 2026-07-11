@@ -2068,11 +2068,14 @@ class App(ctk.CTk):
         ritorna un `DictionaryResolver` sul DB locale, o `None` se il dizionario non è
         disponibile. Sola lettura: non scrive nulla e non fa rete.
 
-        **Gancio per l'arricchimento ID.** Con la rimozione di «Betfair Sync» il flusso CSV
-        LIVE **non** è più cablato su questo resolver (vedi `_process`: `id_resolver=None`) —
-        il dizionario è ora popolato a mano dall'utente coi suoi campi personalizzati. Il
-        resolver resta come seam pronto: alimenta l'anteprima «Prova messaggio» e ricablare
-        il live è una riga (`id_resolver=self._betfair_id_resolver()`)."""
+        **Gancio (seam) per l'arricchimento ID.** Con la rimozione di «Betfair Sync» il
+        dizionario locale è popolato a mano dall'utente coi suoi campi personalizzati e
+        l'arricchimento ID è **staccato** sia dal flusso CSV LIVE (`_process`: `id_resolver=None`)
+        sia dall'anteprima (`_preview_id_resolver_factory`: `None`) — così anteprima e runtime
+        **coincidono** e non c'è divergenza «Pronto in GUI ma scartato nel live» (Fugu #20).
+        Questo metodo resta il **punto unico** di ricablaggio: quando il dizionario custom sarà
+        pronto, riattivare l'arricchimento = passare `self._betfair_id_resolver()` in ENTRAMBI i
+        punti (live + factory anteprima)."""
         try:
             from .betfair.dictionary_resolver import DictionaryResolver
             return DictionaryResolver(self._betfair_local_db())
@@ -2080,10 +2083,14 @@ class App(ctk.CTk):
             return None
 
     def _preview_id_resolver_factory(self):
-        """Factory del resolver ID per l'ANTEPRIMA GUI «Prova messaggio» (#192): risolve gli ID
-        dal dizionario locale come farebbe il live (una volta ricablato). Sola lettura sul DB
-        locale, nessuna rete; best-effort → `None` se il dizionario non è disponibile."""
-        return self._betfair_id_resolver()
+        """Factory del resolver ID per l'ANTEPRIMA GUI «Prova messaggio» (#192).
+
+        Ritorna `None`: con «Betfair Sync» rimossa l'arricchimento ID è staccato anche dal LIVE
+        (`_process` passa `id_resolver=None`), quindi l'anteprima deve restare **conservativa**
+        per non mostrare `✅ Pronto` su una riga che il live scarterebbe (`ID_ONLY` senza ID →
+        fail-closed). Invariante: «anteprima = runtime». Il resolver reale (`_betfair_id_resolver`)
+        resta il seam da ricablare in entrambi i punti quando il dizionario custom sarà popolato."""
+        return None
 
     def _init_guards(self, cfg: dict) -> None:
         """Crea i guardrail del percorso di scrittura dalla config (chiamato allo

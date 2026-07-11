@@ -536,11 +536,12 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
   singolo). Verdetto sintetico in cima: *«✅/⚠ Messaggi validi: X/N»* (+ avviso se oltre il
   tetto di 50). Invariante: SOLO anteprima/lettura, mai scritture del CSV operativo.
 - **Area di test:** textbox "Messaggio di prova" + verdetto (`✅ Pronto` / `⛔ …`). L'anteprima
-  usa lo stesso motore del runtime e, quando il **dizionario locale** è popolato, risolve gli ID
-  dal dizionario (un parser `ID_ONLY` che prende `MarketId`/`SelectionId` dal dizionario può
-  quindi risultare `✅ Pronto`); se il dizionario è vuoto resta conservativa (`⛔`), mai il contrario.
-  (Nota: nel **CSV live** l'arricchimento ID è oggi disattivato — vedi §7.6/§8 — ma l'anteprima
-  continua a risolvere dal dizionario locale.)
+  usa lo stesso motore del runtime. **Con «Betfair Sync» rimossa l'arricchimento ID è staccato
+  sia dal CSV live sia dall'anteprima** (`id_resolver=None`): l'anteprima resta quindi
+  **conservativa** e non mostra `✅ Pronto` su una riga che il live scarterebbe (un `ID_ONLY`
+  senza ID risolti → `⛔`, fail-closed). Invariante «anteprima = runtime» preservato. Quando il
+  dizionario locale sarà popolato a mano e il seam riattivato, anteprima e live torneranno a
+  risolvere gli ID insieme.
   Il verdetto onora anche il **gate di contenuto** del runtime: un parser a soli valori fissi (che
   non estrae nulla dal messaggio) mostra `⛔ Non pronto (NO_CONTENT_MATCH) · nessun contenuto
   estratto dal messaggio` invece di `✅ Pronto`, sia in single-row sia in multi-riga — come lo

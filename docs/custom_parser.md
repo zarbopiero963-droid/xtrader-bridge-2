@@ -155,10 +155,11 @@ Altre due difese fail-closed (audit #259):
   sbagliato. La risoluzione ID dal **dizionario locale** (PR-P12) li ricostruisce dal
   nome canonico; se la modalità richiede gli ID e il dizionario non li ha, la riga fa
   fail-closed in validazione. Se la traduzione NON cambia il nome, gli ID restano intatti.
-  **Nota (rimozione «Betfair Sync»):** nel **CSV live** l'arricchimento ID è oggi disattivato
-  (`id_resolver=None`) — il dizionario locale va popolato a mano e il seam è riattivabile; in
-  `ID_ONLY` senza ID risolti la riga resta quindi non piazzabile (fail-closed). L'anteprima
-  «Prova messaggio» risolve invece già dal dizionario locale.
+  **Nota (rimozione «Betfair Sync»):** l'arricchimento ID è disattivato **sia** nel **CSV live**
+  **sia** nell'**anteprima** «Prova messaggio» (`id_resolver=None`) — il dizionario locale va
+  popolato a mano e il seam è riattivabile in entrambi i punti insieme; in `ID_ONLY` senza ID
+  risolti la riga resta non piazzabile (fail-closed). Anteprima e runtime **coincidono** (niente
+  «Pronto» in GUI su una riga che il live scarterebbe).
 Un parser **senza profili** non applica alcuna mappatura (`EventName` invariato,
 retro-compatibile).
 
@@ -829,13 +830,13 @@ mercato), e altrimenti farebbe apparire un falso «Non pronto».
 > (verde/rosso per riga); la tabella per-campo è un aiuto di diagnosi a livello base. È una discrepanza
 > in direzione conservativa (mostra più «mancanti» del reale), non un falso «pronto».
 >
-> **Anteprima vs live (rimozione «Betfair Sync»).** La factory dell'anteprima
-> (`App._preview_id_resolver_factory`) risolve gli ID dal **dizionario locale** come farebbe il
-> live (una volta ricablato il seam). Con la rimozione della funzione «Betfair Sync» non esiste
-> più una sync in corso da cui difendersi: la factory ritorna semplicemente il resolver sul DB
-> locale (best-effort → `None` se il dizionario è assente). Il **flusso CSV live** invece **non**
-> è cablato sul resolver (`id_resolver=None`): le righe restano a nomi finché il dizionario custom
-> non è popolato e il seam riattivato.
+> **Anteprima = live (rimozione «Betfair Sync»).** Con la funzione rimossa l'arricchimento ID è
+> staccato in **entrambi** i punti: il **CSV live** (`_process` → `id_resolver=None`) e
+> l'**anteprima** (`App._preview_id_resolver_factory` → `None`). Così l'anteprima resta
+> **conservativa** e non mostra `✅ Pronto` su una riga che il live scarterebbe (`ID_ONLY` senza
+> ID risolti → fail-closed): invariante «anteprima = runtime». `App._betfair_id_resolver` resta il
+> **seam** (resolver sul dizionario locale) da ricablare in entrambi i punti quando il dizionario
+> custom sarà popolato.
 >
 > **Gate di contenuto nel verdetto multi (#192, Codex).** Il verdetto sintetico «Prova messaggio»
 > onora `NO_CONTENT_MATCH` **anche** per l'output multi-riga: un parser a soli valori fissi (che non

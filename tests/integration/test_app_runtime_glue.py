@@ -1452,24 +1452,22 @@ def test_on_debug_toggle_messaggio_specifico_per_stato_save(make_app, app_mod, m
     assert not any("keyring" in m.lower() for m in a.logs) # NON il messaggio keyring
 
 
-# ── #192: la factory del resolver ID dell'anteprima «Prova messaggio» ─────────────
-# Con la rimozione di «Betfair Sync» non esiste più una sync in corso da cui difendersi:
-# `_preview_id_resolver_factory` ritorna semplicemente il resolver sul dizionario locale,
-# così l'anteprima risolve gli ID come farebbe il live (una volta ricablato il seam).
+# ── #192 + Fugu #20: la factory del resolver ID dell'anteprima «Prova messaggio» ──
+# Con la rimozione di «Betfair Sync» l'arricchimento ID è staccato ANCHE dal live
+# (`_process` passa id_resolver=None). Per non mostrare «✅ Pronto» in GUI su una riga che il
+# live scarterebbe (ID_ONLY senza ID → fail-closed), l'anteprima deve restare conservativa:
+# `_preview_id_resolver_factory` ritorna None — invariante «anteprima = runtime».
 
-def test_preview_id_resolver_factory_usa_resolver(app_mod):
-    """La factory dell'anteprima ritorna il resolver reale sul dizionario locale, così «Prova
-    messaggio» risolve gli ID come il runtime."""
+def test_preview_id_resolver_factory_conservativa_ritorna_none(app_mod):
+    """La factory dell'anteprima ritorna None (anteprima = runtime detached): nessun
+    arricchimento ID, così l'anteprima non diverge dal live che passa id_resolver=None.
+
+    Fail-first: se la factory tornasse il resolver, un parser ID_ONLY con dizionario popolato
+    risulterebbe «Pronto» in GUI mentre il live scarta la riga (divergenza Fugu #20)."""
     a = object.__new__(app_mod.App)
-    a._betfair_id_resolver = lambda: "RESOLVER"
-    assert app_mod.App._preview_id_resolver_factory(a) == "RESOLVER"
-
-
-def test_preview_id_resolver_factory_none_se_dizionario_assente(app_mod):
-    """Best-effort: se il resolver non è disponibile (dizionario assente), la factory
-    propaga il None → anteprima conservativa a nomi, nessun crash."""
-    a = object.__new__(app_mod.App)
-    a._betfair_id_resolver = lambda: None
+    # Anche se il resolver fosse costruibile, la factory NON deve usarlo (resta conservativa).
+    a._betfair_id_resolver = lambda: (_ for _ in ()).throw(
+        AssertionError("l'anteprima non deve usare il resolver mentre il seam è staccato"))
     assert app_mod.App._preview_id_resolver_factory(a) is None
 
 
