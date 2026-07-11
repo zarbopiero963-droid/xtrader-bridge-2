@@ -46,7 +46,7 @@ _REDACTED = "[REDACTED_TOKEN]"
 # (porzione segreta < 20 char, URL-encoded, spezzata su righe) le sfuggirebbe. Registrando il
 # token VIVO da config (`register_secret`), lo si maschera comunque ovunque compaia, in
 # qualunque forma. Soglia minima di lunghezza per non mascherare frammenti banali. Thread-safe
-# (additivo). Mirror della stessa idea in `betfair/log_safety`.
+# (additivo).
 _MIN_SECRET_LEN = 8
 _secret_lock = threading.Lock()
 _secret_literals: set = set()

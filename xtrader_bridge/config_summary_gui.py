@@ -1,9 +1,9 @@
 """#293 (slice 3): pannello «📋 Riepilogo configurazione» (SOLA LETTURA).
 
 Rende il riepilogo prodotto da `config_summary.summarize_config` (modulo puro): modalità
-Simulazione/REALE, stato Betfair, e per ogni canale → parser → traduzioni → «Pronto?».
-Non scrive né modifica nulla: legge la config viva e i conteggi Betfair passati dalla GUI
-principale. Le decisioni di testo/colore sono in helper **puri** a livello di modulo
+Simulazione/REALE, stato del dizionario locale, e per ogni canale → parser → traduzioni →
+«Pronto?». Non scrive né modifica nulla: legge la config viva e lo stato del dizionario
+passato dalla GUI principale. Le decisioni di testo/colore sono in helper **puri** a livello di modulo
 (testabili headless); la costruzione dei widget è verifica manuale su Windows (come gli
 altri pannelli GUI, non testati in CI perché richiedono un display).
 """
@@ -28,11 +28,9 @@ def mode_color(real_mode: bool):
     return _COLOR_REAL if real_mode else _COLOR_OK
 
 
-def betfair_label(synced: bool, logged_in: bool) -> str:
-    """Testo dello stato Betfair: dizionario sincronizzato sì/no + login attivo sì/no."""
-    sync = "sincronizzato" if synced else "non sincronizzato"
-    login = "login attivo" if logged_in else "login non attivo"
-    return f"Dizionario Betfair: {sync} · {login}"
+def betfair_label(synced: bool) -> str:
+    """Testo dello stato del dizionario locale: presente (contiene eventi) sì/no."""
+    return f"Dizionario locale: {'presente' if synced else 'vuoto'}"
 
 
 def _one_translation_label(prefix: str, ts) -> str:
@@ -101,7 +99,7 @@ class ConfigSummaryPanel(ctk.CTkFrame):
     Args:
         master: contenitore padre (una scheda dell'hub Strumenti).
         summary_provider: callable che ritorna un `config_summary.ConfigSummary` fresco
-            (la GUI principale lo cabla con la config viva + stato Betfair). Chiamato alla
+            (la GUI principale lo cabla con la config viva + stato del dizionario locale). Chiamato alla
             costruzione e ad ogni `refresh_options()` (cambio scheda), così il riepilogo
             resta aggiornato senza riaprire la finestra.
     """
@@ -141,12 +139,11 @@ class ConfigSummaryPanel(ctk.CTkFrame):
                      font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(
                          fill="x", padx=4, pady=(2, 8))
 
-        # Stato globale: modalità + Betfair.
+        # Stato globale: modalità + dizionario locale.
         ctk.CTkLabel(self._body, text=mode_label(summary.real_mode),
                      text_color=mode_color(summary.real_mode), anchor="w",
                      font=ctk.CTkFont(weight="bold")).pack(fill="x", padx=4, pady=1)
-        ctk.CTkLabel(self._body, text=betfair_label(summary.betfair_synced,
-                                                     summary.betfair_logged_in),
+        ctk.CTkLabel(self._body, text=betfair_label(summary.betfair_synced),
                      anchor="w").pack(fill="x", padx=4, pady=(1, 8))
 
         ctk.CTkLabel(

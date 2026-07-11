@@ -25,7 +25,7 @@ from . import gui_utils
 TOOL_GROUPS = (
     ("①", "Sorgenti", ("sources", "provider")),
     ("②", "Lettura messaggi", ("parser", "mapping")),
-    ("③", "Betfair", ("betfair", "dictionary", "journal", "known_teams")),
+    ("③", "Dizionario", ("dictionary", "journal", "known_teams")),
     ("④", "Impostazioni", ("profiles", "summary")),
 )
 
@@ -39,10 +39,9 @@ TOOL_TITLES = {
     "provider": "📇 Provider",
     "parser": "🧩 Parser",
     "mapping": "🗺️ Mapping",
-    "betfair": "🔵 Betfair Sync",
-    "dictionary": "📖 Dizionario Betfair",
+    "dictionary": "📖 Dizionario",
     "journal": "📒 Diario",
-    "known_teams": "🧹 Nomi Betfair",
+    "known_teams": "🧹 Nomi squadra",
     "profiles": "📁 Profili",
     "summary": "📋 Riepilogo",
 }

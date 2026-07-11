@@ -184,7 +184,7 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 
 | Chiave | Default | Valori | A cosa serve |
 |---|---|---|---|
-| `recognition_mode` | `NAME_ONLY`* | `ID_ONLY`, `NAME_ONLY`, `BOTH` | Come XTrader riconosce il segnale. Gli ID non arrivano dal messaggio Telegram, ma il flusso del Parser Personalizzato (PR-P12) li **arricchisce dal dizionario Betfair locale** quando trova un match univoco; in mancanza la riga resta a nomi (*fallback*). `NAME_ONLY` (nomi), `ID_ONLY` richiede `MarketId`/`SelectionId`, `BOTH` accetta la riga con ID **oppure** nomi. **\*Default per le config NUOVE (#311-2.3):** è `NAME_ONLY` finché il **dizionario non è pienamente validato** contro un export XTrader reale (#311-2.2), poi passa **automaticamente a `BOTH`** («ID se univoci, altrimenti nomi»). Così non ci si affida a ID di un dizionario non verificato per accettare un segnale in modalità REALE. Un valore malformato ricade su `NAME_ONLY` (fail-safe). Le config esistenti mantengono la loro scelta. |
+| `recognition_mode` | `NAME_ONLY`* | `ID_ONLY`, `NAME_ONLY`, `BOTH` | Come XTrader riconosce il segnale. Gli ID non arrivano dal messaggio Telegram; il flusso del Parser Personalizzato può **arricchirli dal dizionario locale** quando trova un match univoco. **Nota (rimozione «Betfair Sync»):** l'arricchimento ID è **attualmente disattivato** (`id_resolver=None`) **sia** nel **CSV live** **sia** nell'anteprima «Prova messaggio» — entrambi restano a **nomi** finché non popoli a mano il dizionario locale e **riattivi il *seam* in entrambi i punti** (così anteprima e runtime coincidono: nessun «Pronto» in GUI su una riga che il live scarterebbe). `NAME_ONLY` (nomi), `ID_ONLY` richiede `MarketId`/`SelectionId`, `BOTH` accetta la riga con ID **oppure** nomi. **\*Default per le config NUOVE (#311-2.3):** è `NAME_ONLY` finché il **dizionario non è pienamente validato** contro un export XTrader reale (#311-2.2), poi passa **automaticamente a `BOTH`** («ID se univoci, altrimenti nomi»). Un valore malformato ricade su `NAME_ONLY` (fail-safe). Le config esistenti mantengono la loro scelta. |
 | *(quota obbligatoria)* | — | — | NON è più una chiave globale: la comanda la casella **«Obblig.» sulla riga `Price`** di ogni Parser Personalizzato. `Price` obbligatorio → segnale senza quota valida (> 1.0) **scartato**; non obbligatorio → quota opzionale. |
 | `dry_run` | `true` | `true`/`false` | **Simulazione**: se `true`, il CSV operativo **non** viene scritto. Mettilo a `false` solo per l'uso reale, consapevolmente. |
 | `bridge_mode` | derivato da `dry_run` (config nuova: `SIMULAZIONE`) | `SIMULAZIONE`/`COLLAUDO`/`REALE` | Modalità **nominata** (#311 §3.1), derivata e coerente con `dry_run` (che resta autoritativo: incoerenza → Simulazione). `COLLAUDO` scrive il CSV col banner «XTrader in simulazione». |
@@ -201,9 +201,6 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | `confirmation_timeout` | `120` | secondi | **In `QUEUE_UNTIL_CONFIRMED`**: per quanti secondi un segnale resta in attesa della conferma XTrader prima di scadere (timeout per-segnale della coda). Nelle altre modalità coda non si applica: vale `clear_delay`. |
 | `max_signal_age` | `120` | secondi | Un messaggio Telegram più vecchio di così viene **ignorato** all'arrivo (anti-segnale-stantio: evita che gli arretrati rifetchati dopo una disconnessione diventino scommesse vecchie). Il valore **effettivo non supera la vita della riga CSV per la modalità coda attiva** — `confirmation_timeout` in `QUEUE_UNTIL_CONFIRMED`, altrimenti `clear_delay`: un segnale già più vecchio della sua durata sul CSV è trattato come stantio. È inoltre **limitato alla finestra di deduplica** (300s): un messaggio troppo vecchio per essere riconosciuto come duplicato viene trattato come stantio, così una ridelivery dopo una riconnessione non può diventare una scommessa doppia. Di conseguenza, in `QUEUE_UNTIL_CONFIRMED` con `confirmation_timeout` **> 300s**, un messaggio più vecchio di 300s è comunque scartato (trade-off deliberato a favore della sicurezza anti-doppia-scommessa). `0` = filtro disattivato. Le **conferme XTrader** (chat notifiche) **non** sono soggette a questo filtro. |
 | `auto_start_listener` | `false` | `true`/`false` | Se `true`, all'apertura l'app **avvia da sola** il listener — ma solo se token e **almeno una chat sorgente ATTIVA** sono configurati (sorgenti tutte disattivate = niente avvio automatico); in **modalità reale** chiede conferma prima di partire. Un valore malformato (typo) vale come `false` anche al **salvataggio** (fail-closed). Default `false`: il bridge parte solo con **AVVIA**. Attivabile dalla tab *Sicurezza*. |
-| `betfair_auto_sync` | `false` | `true`/`false` | **Auto-sync del dizionario Betfair** (PR-P8): se `true` e il **bridge è aperto**, all'orario impostato fa **auto login → sync → auto logout** una sola volta al giorno (il dizionario è **solo locale**, read-only, nessuna scommessa). Opt-in **fail-closed**: un valore ambiguo nel file (es. `"flase"`) resta **OFF**. Se il bridge viene aperto **dopo** l'orario, la sync persa **non** viene recuperata. Attivabile dalla tab **🔵 Betfair Sync**. |
-| `betfair_auto_sync_hour` | `23` | intero `0`–`23` | Ora del giorno (HH, 24h) a cui scatta l'auto-sync Betfair. Valore fuori range o non numerico → ripiega su **23**. |
-| `betfair_sync_sports` | *(tutti)* | lista di sport | Sport sincronizzati dall'auto-sync (`Calcio`, `Tennis`, `Basket`, `Rugby Union`). Si impostano con le caselle della tab **🔵 Betfair Sync**; **assente** = tutti gli sport selezionati. L'auto-sync usa **esattamente** quelli salvati. |
 | `confirmation_keywords` | `[]` | lista | Parole che indicano conferma (vuoto = default del modulo). Dalla GUI: stringa separata da virgola. |
 | `rejection_keywords` | `[]` | lista | Parole che indicano rifiuto (vuoto = default del modulo). Dalla GUI: stringa separata da virgola. |
 | `log_retention_days` | `0` | `0`/`5`/`15`/`30`… | Giorni di conservazione dei log: oltre il limite i file `bridge-AAAA-MM-GG.log` più vecchi vengono **cancellati** all'avvio del bridge (e quando cambi l'opzione). `0` = "Mai" (conserva tutto). Dalla tab *Log*: tendina **Conserva** + pulsante **🧹 Svuota log**. |
@@ -216,16 +213,31 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 > Una `config.json` corrotta viene messa da parte come `.bak` e il bridge riparte
 > dai default sicuri. Le chiavi mancanti ereditano sempre il default.
 
-### 📖 Dizionario Betfair (consultazione, sola lettura)
+### 📖 Dizionario (consultazione, sola lettura)
 
-Dalla finestra **"🧰 Strumenti" → scheda "📖 Dizionario Betfair"** puoi **consultare** il
-dizionario Betfair locale (Sport → Competizioni → Eventi → Mercati → Selezioni) sincronizzato
-sul PC. Scegli il **Livello** e il **Sport**, spunta **"Solo attivi"**, **cerca** per nome o
-ID e premi **"🔄 Aggiorna"**. È una vista **di sola lettura**: non modifica il dizionario,
-non piazza scommesse e non fa rete (la sincronizzazione avviene solo dalla scheda **🔵 Betfair
-Sync**). Se apri o aggiorni la scheda **mentre è in corso una sincronizzazione Betfair**, la
-riga conteggi mostra **"⏳ Dizionario in aggiornamento…"** e la GUI **non si blocca**: attendi
-la fine della sync e premi di nuovo **"🔄 Aggiorna"**.
+> **Nota (rimozione «Betfair Sync»).** La vecchia funzione **🔵 Betfair Sync** — login a
+> Betfair, download del catalogo e costruzione automatica del dizionario — **è stata rimossa**:
+> il bridge non contatta più Betfair, non fa login e non fa auto-sync. Il **dizionario locale**
+> (`betfair_dictionary.db`, SQLite in `%APPDATA%\XTraderBridge`, sempre solo sul PC) resta come
+> substrato ma va **popolato a mano** dall'utente con i propri campi personalizzati. Di
+> conseguenza il flusso CSV **live non arricchisce più** gli ID (EventId/MarketId/SelectionId)
+> dal dizionario: la riga resta a **nomi** (il *seam* di arricchimento è pronto e riattivabile
+> quando il dizionario custom sarà popolato).
+>
+> **Come si popola oggi.** Non esiste (ancora) una procedura di import/seed integrata nella GUI:
+> finché non verrà aggiunta, un **DB pre-popolato è di fatto un prerequisito** per l'arricchimento
+> ID. Senza dizionario popolato il bridge funziona comunque **a nomi** (`recognition_mode`
+> `NAME_ONLY`, il default per le config nuove): consulta/ripulisci i nomi già presenti dalle
+> schede «📖 Dizionario» e «🧹 Nomi squadra». La definizione dello schema custom e del suo
+> import è lavoro dell'utente/futuro, fuori dallo scope di questa rimozione.
+
+Dalla finestra **"🧰 Strumenti" → scheda "📖 Dizionario"** puoi **consultare** il dizionario
+locale (Sport → Competizioni → Eventi → Mercati → Selezioni). Scegli il **Livello** e il
+**Sport**, spunta **"Solo attivi"**, **cerca** per nome o ID e premi **"🔄 Aggiorna"**. È una
+vista **di sola lettura**: non modifica il dizionario, non piazza scommesse e non fa rete. Se
+un altro strumento tiene occupato il DB in quel momento, la riga conteggi mostra **"⏳
+Dizionario in aggiornamento…"** e la GUI **non si blocca**: attendi e premi di nuovo **"🔄
+Aggiorna"**.
 
 ---
 
@@ -508,9 +520,11 @@ Note:
 - XTrader valida con `MarketId + SelectionId` **oppure** `EventName + MarketType +
   SelectionName`. Usando i nomi, la lingua del CSV deve coincidere con quella della
   fonte Segnali di XTrader. Gli ID non arrivano dal messaggio Telegram: con il parser
-  legacy (`build_csv_row`) restano vuoti, mentre il flusso del Parser Personalizzato
-  (PR-P12) li **arricchisce dal dizionario Betfair locale** se trova un match univoco,
-  altrimenti resta a nomi (*fallback*, `recognition_mode=NAME_ONLY`). Dettagli in
+  legacy (`build_csv_row`) restano vuoti. Il flusso del Parser Personalizzato **può**
+  arricchirli dal **dizionario locale**, ma dopo la rimozione di «Betfair Sync»
+  l'arricchimento è **disattivato nel CSV live** (`id_resolver=None`): le righe restano a
+  **nomi** (*fallback*, `recognition_mode=NAME_ONLY`) finché non popoli il dizionario a mano
+  e riattivi il *seam*. Dettagli in
   [`docs/xtrader_csv_contract.md`](docs/xtrader_csv_contract.md).
 
 ---
@@ -698,9 +712,9 @@ esegue la suite offline.
 **release** restano nelle **Releases** (storage separato, non-scadente).
 
 **Build personale e sicura.** La pipeline produce **solo** l'EXE personale del bridge
-(nessun secondo eseguibile «amministrativo»). L'EXE **non include segreti né certificati**: le
-credenziali Betfair e la config restano **fuori** dall'eseguibile, nella cartella utente
-(`%APPDATA%\XTraderBridge`); il `sessionToken` vive solo in RAM. Un gate automatico
+(nessun secondo eseguibile «amministrativo»). L'EXE **non include segreti né certificati**: il
+token del bot e la config restano **fuori** dall'eseguibile, nella cartella utente
+(`%APPDATA%\XTraderBridge`); il token del bot vive nel keyring/OS. Un gate automatico
 (`tests/safety/test_build_exe_safety.py`) verifica a ogni PR che la build non impacchetti
 `.env`/chiavi/certificati/`config.json`/DB/token (nel bundle è ammesso solo il dizionario
 ufficiale) e che i test girino prima della compilazione.

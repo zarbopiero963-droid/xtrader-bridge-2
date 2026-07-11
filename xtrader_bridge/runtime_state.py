@@ -25,20 +25,13 @@ DEDUPE_STATE_FILE = "dedupe_state.json"
 DAILY_STATE_FILE = "daily_state.json"
 EVENT_JOURNAL_FILE = "event_journal.jsonl"
 BETFAIR_DB_FILE = "betfair_dictionary.db"
-BETFAIR_AUTOSYNC_STATE_FILE = "betfair_autosync_state.json"
 
 
 def betfair_db_path(config_dir_path: str) -> str:
-    """Path del dizionario Betfair locale (SQLite), accanto al config (AppData):
-    sport/eventi/mercati/selezioni sincronizzati restano SOLO sul PC (issue #86).
-    Nessun cloud, nessun export/import."""
+    """Path del dizionario locale (SQLite), accanto al config (AppData): sport/eventi/
+    mercati/selezioni restano SOLO sul PC. Nessun cloud, nessun export/import. Popolato a
+    mano dall'utente (la funzione «Betfair Sync» che lo riempiva via rete è stata rimossa)."""
     return os.path.join(config_dir_path, BETFAIR_DB_FILE)
-
-
-def betfair_autosync_state_path(config_dir_path: str) -> str:
-    """Path dello stato auto-sync (ultima run giorno+ora): persiste la guardia
-    'una volta al giorno/orario' attraverso i riavvii (issue #86 PR-P8)."""
-    return os.path.join(config_dir_path, BETFAIR_AUTOSYNC_STATE_FILE)
 
 
 def event_journal_path(config_dir_path: str) -> str:

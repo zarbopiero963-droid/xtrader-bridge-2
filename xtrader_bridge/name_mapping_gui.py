@@ -76,7 +76,7 @@ class NameMappingPanel(ctk.CTkFrame):
     def __init__(self, master=None, on_saved=None, known_teams_provider=None):
         super().__init__(master)
         self._on_saved = on_saved
-        # Fonte dei nomi squadra PERMANENTI raccolti dalla sync Betfair (#282 PR 11):
+        # Fonte dei nomi squadra PERMANENTI del dizionario locale (#282 PR 11):
         # callable() → lista di dict {sport, display_name, ...}. Opzionale: se assente/None
         # il pulsante «Precompila» avvisa invece di precompilare (nessun crash, fail-safe).
         self._known_teams_provider = known_teams_provider
@@ -246,8 +246,8 @@ class NameMappingPanel(ctk.CTkFrame):
         self._row_widgets = [r for r in self._row_widgets if r is not refs]
 
     def _prefill_betfair_names(self):
-        """Precompila la colonna Betfair con TUTTI i nomi squadra permanenti raccolti dalla
-        sync Betfair (#282 PR 11). Aggiunge una riga per ogni nome noto con il **nome Betfair
+        """Precompila la colonna Betfair con TUTTI i nomi squadra permanenti presenti nel
+        dizionario locale (#282 PR 11). Aggiunge una riga per ogni nome noto con il **nome Betfair
         FISSO già scritto** (nessun menu a tendina), lo **Sport** impostato e il tipo `team`;
         la colonna **«Come lo scrive il canale»** resta vuota perché ci scrivi l'alias del canale.
 
@@ -262,17 +262,17 @@ class NameMappingPanel(ctk.CTkFrame):
         provider = self._known_teams_provider
         if not callable(provider):
             self._status.configure(
-                text="⛔ Dizionario Betfair non disponibile: sincronizza prima da «🔵 Betfair Sync».",
+                text="⛔ Dizionario locale vuoto o non disponibile: popola prima il dizionario locale.",
                 text_color="#ef5350")
             return
-        # `DictionaryBusy`: una sync Betfair tiene ora il lock del DB → avviso «riprova»
+        # `DictionaryBusy`: un altro thread tiene ora il lock del DB → avviso «riprova»
         # invece di congelare la GUI (fail-fast, come il viewer dizionario, #175/#321).
         from .betfair.dictionary_viewer import DictionaryBusy
         try:
             teams = provider() or []
         except DictionaryBusy:
             self._status.configure(
-                text="⏳ Sincronizzazione Betfair in corso: riprova tra poco.",
+                text="⏳ Dizionario occupato: riprova tra poco.",
                 text_color="#ffa726")
             return
         except Exception as exc:                 # noqa: BLE001 — best-effort, niente crash GUI
@@ -305,7 +305,7 @@ class NameMappingPanel(ctk.CTkFrame):
             self._status.configure(
                 text="ℹ️ Nessun nuovo nome da aggiungere: "
                      + (f"i {skipped} nomi noti sono già in tabella." if skipped else
-                        "il dizionario Betfair è vuoto — sincronizza da «🔵 Betfair Sync»."),
+                        "il dizionario locale è vuoto — popolalo prima."),
                 text_color="gray")
 
     # ── azioni profilo (persistono subito) ───────────────────────────────────

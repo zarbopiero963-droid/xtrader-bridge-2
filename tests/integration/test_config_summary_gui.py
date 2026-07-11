@@ -40,9 +40,8 @@ def test_mode_label_e_colore(gui_mod):
 
 
 def test_betfair_label(gui_mod):
-    assert gui_mod.betfair_label(True, True) == "Dizionario Betfair: sincronizzato · login attivo"
-    assert gui_mod.betfair_label(False, False) == (
-        "Dizionario Betfair: non sincronizzato · login non attivo")
+    assert gui_mod.betfair_label(True) == "Dizionario locale: presente"
+    assert gui_mod.betfair_label(False) == "Dizionario locale: vuoto"
 
 
 def test_translations_label(gui_mod):
@@ -91,8 +90,7 @@ def _summary(ready, total):
         cs.ChannelSummary(chat_id=str(i), name="", enabled=True, parser_name="P",
                           parser_loaded=True, ready=(i < ready))
         for i in range(total))
-    return cs.ConfigSummary(real_mode=False, betfair_synced=False,
-                            betfair_logged_in=False, channels=chans)
+    return cs.ConfigSummary(real_mode=False, betfair_synced=False, channels=chans)
 
 
 def test_ready_count_label(gui_mod):

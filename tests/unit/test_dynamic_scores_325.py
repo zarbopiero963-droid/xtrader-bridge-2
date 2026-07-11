@@ -237,8 +237,8 @@ def test_retrocompat_fissa_con_delimitatori_resta_fissa():
 
 def test_id_only_punteggi_dinamici_non_piazzabili_senza_dizionario():
     # #341: i risultati esatti Betfair sono selezioni PER-PARTITA e NON sono nel dizionario locale
-    # (harvest #283 li esclude, catalogue_client._harvest_market_terms → nessuna SelectionName per
-    # CORRECT_SCORE/HALF_TIME_SCORE). Quindi in ID_ONLY un punteggio dinamico non risolve alcun
+    # (tipicamente assenti: nessuna SelectionName per CORRECT_SCORE/HALF_TIME_SCORE). Quindi in
+    # ID_ONLY un punteggio dinamico non risolve alcun
     # SelectionId → NON piazzabile (fail-closed): l'estrazione dei punteggi è di fatto NAME_ONLY.
     res = pipe.build_validated_rows(_dyn_parser(), MSG, mode="ID_ONLY")
     assert res, "build_validated_rows non deve tornare lista vuota"

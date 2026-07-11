@@ -4,6 +4,17 @@
 > PR piccole, testabili e sicure. Ogni PR ha: obiettivo, task, **test hard**,
 > **micro-audit**, **audit di controllo totale**.
 
+> ⚠️ **Rimozione «Betfair Sync» (aggiornamento).** La funzione **Betfair Sync** — login a
+> Betfair, client catalogo, motore di sync e auto-sync, storage credenziali, redazione log dei
+> segreti e la scheda GUI «🔵 Betfair Sync» — **è stata rimossa**. Il bridge non contatta più
+> Betfair, non fa login e non costruisce più il dizionario automaticamente. **Sopravvive** solo
+> il **dizionario locale** (`betfair_dictionary.db`) come substrato read-only, ora **popolato a
+> mano** dall'utente coi propri campi personalizzati, insieme ai suoi lettori (viewer, mapping
+> guidato, nomi squadra, resolver ID). Nel **CSV live** l'arricchimento ID è **staccato**
+> (`id_resolver=None`, seam pronto e riattivabile). Rimosse anche le chiavi di config
+> `betfair_auto_sync`/`_hour`/`betfair_sync_sports` e il path di stato auto-sync. Le voci PR-P*
+> qui sotto che descrivono login/sync/auto-sync restano come **storico**, non come stato attuale.
+
 ## Regole di processo (valgono per OGNI PR)
 
 1. Si lavora **solo** sul branch della PR, mai su `main`.

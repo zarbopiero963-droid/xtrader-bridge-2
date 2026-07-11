@@ -1,19 +1,19 @@
 """Pannello «🌳 Mapping guidato» — albero Sport → Competizione → Squadre → nome canale (Fase 3).
 
 Sotto-scheda di «🧰 Strumenti → Mapping». Guida l'utente: sceglie **Sport**, poi una
-**Competizione** (dai dati Betfair sincronizzati sul PC), vede le **Squadre** di quella
+**Competizione** (dal dizionario locale sul PC), vede le **Squadre** di quella
 competizione e, accanto a ciascuna, scrive «come la chiama il canale Telegram». Al salvataggio
 le associazioni finiscono nel **profilo `name_mappings`** scelto (consumato dal parser), riusando
 `name_mapping_store.set_entries` (stessa pulizia/validazione della GUI classica).
 
 Divisione delle responsabilità (come le altre GUI del repo):
-- la logica pura (competizioni/squadre da Betfair, fusione righe) sta in
+- la logica pura (competizioni/squadre dal dizionario locale, fusione righe) sta in
   `betfair.guided_mapping` (testata in CI);
 - qui ci sono SOLO widget + persistenza (`config_store.save_config`) + il pattern anti-stale
   (`on_saved(new_cfg)`);
-- la lettura del dizionario Betfair è **fail-fast** durante una sync: i provider passati
-  dall'app sollevano `DictionaryBusy` (probe non bloccante sul lock del DB) e il pannello mostra
-  «sync in corso» invece di freezare il thread Tk (come il viewer, #175).
+- la lettura del dizionario locale è **fail-fast** se un altro thread ne tiene il lock: i
+  provider passati dall'app sollevano `DictionaryBusy` (probe non bloccante sul lock del DB) e
+  il pannello mostra «occupato» invece di freezare il thread Tk (come il viewer, #175).
 
 NB: modulo non testato in CI (richiede display); la logica sottostante è coperta da
 `tests/unit/test_betfair_guided_mapping.py`. Verifica manuale su Windows.
@@ -45,8 +45,8 @@ _FILTER_DEBOUNCE_MS = 250
 class GuidedMappingPanel(ctk.CTkFrame):
     """Pannello del Mapping guidato Betfair → nome canale.
 
-    Provider iniettati dall'app (sola lettura del dizionario Betfair, **fail-fast** su
-    `DictionaryBusy` durante una sync):
+    Provider iniettati dall'app (sola lettura del dizionario locale, **fail-fast** su
+    `DictionaryBusy` se un altro thread tiene il lock del DB):
     - `competitions_provider(sport) -> list[{"competition_id","name"}]`;
     - `teams_provider(competition_id) -> list[str]` (nomi squadra della competizione).
     `on_saved(new_cfg)`: callback dopo ogni salvataggio riuscito (anti-stale della GUI principale).
@@ -69,7 +69,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
         # Precarica le competizioni per lo sport di default (già selezionato nella tendina): il
         # `command` del menu Sport scatta solo su cambio manuale, quindi senza questa chiamata la
         # tendina Competizione resterebbe sul placeholder finché l'utente non ritocca lo Sport
-        # (CodeRabbit #389). Best-effort: `_on_sport_change` gestisce da sé DB assente/sync in corso.
+        # (CodeRabbit #389). Best-effort: `_on_sport_change` gestisce da sé DB assente/occupato.
         self._on_sport_change()
 
     def destroy(self):
@@ -99,8 +99,8 @@ class GuidedMappingPanel(ctk.CTkFrame):
             font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
         ctk.CTkLabel(
             self, text="Scegli Sport → Competizione: compaiono le squadre dai dati Betfair "
-                       "sincronizzati. Accanto a ogni squadra scrivi «come la chiama il canale» e "
-                       "salva nel profilo. Serve un sync Betfair recente.",
+                       "presenti nel dizionario. Accanto a ogni squadra scrivi «come la chiama il canale» e "
+                       "salva nel profilo. Serve un dizionario locale popolato.",
             font=ctk.CTkFont(size=11), text_color="gray", wraplength=760,
             anchor="w", justify="left").pack(anchor="w", padx=12, pady=(0, 6))
 
@@ -226,7 +226,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
         return self._sport_var.get()
 
     def _on_sport_change(self):
-        """Nuovo sport: ricarica la tendina competizioni (fail-fast su sync in corso)."""
+        """Nuovo sport: ricarica la tendina competizioni (fail-fast se il DB è occupato)."""
         self._comp_by_label = {}
         try:
             comps = (self._competitions_provider(self._selected_sport())
@@ -237,7 +237,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
             self._team_vars = {}
             self._render_team_rows()
             self._status.configure(
-                text="⏳ Dizionario in aggiornamento (sync Betfair in corso): riprova tra poco.",
+                text="⏳ Dizionario occupato: riprova tra poco.",
                 text_color="#ffa726")
             return
         except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → nessuna competizione
@@ -257,7 +257,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
         else:
             self._status.configure(
                 text=f"ℹ️ Nessuna competizione per «{self._selected_sport()}». "
-                     "Fai un sync Betfair, poi riprova.", text_color="gray")
+                     "Popola il dizionario locale, poi riprova.", text_color="gray")
 
     def _selected_competition_id(self):
         return self._comp_by_label.get(self._comp_var.get())
@@ -276,7 +276,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
             self._team_vars = {}
             self._render_team_rows()
             self._status.configure(
-                text="⏳ Dizionario in aggiornamento (sync Betfair in corso): riprova tra poco.",
+                text="⏳ Dizionario occupato: riprova tra poco.",
                 text_color="#ffa726")
             return
         except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → nessuna squadra
@@ -286,8 +286,8 @@ class GuidedMappingPanel(ctk.CTkFrame):
         self._render_team_rows()
         if not teams:
             self._status.configure(
-                text="ℹ️ Nessuna squadra per questa competizione (nessun evento sincronizzato). "
-                     "Fai un sync Betfair, poi riprova.", text_color="gray")
+                text="ℹ️ Nessuna squadra per questa competizione (nessun evento nel dizionario). "
+                     "Popola il dizionario locale, poi riprova.", text_color="gray")
         else:
             self._status.configure(
                 text=f"{len(teams)} squadre. Scrivi l'alias del canale e premi «Salva nel profilo».",

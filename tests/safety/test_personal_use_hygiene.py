@@ -4,10 +4,10 @@ codice, e nessuna operazione di scommessa fuori dal guard read-only.
 Scansiona SOLO i sorgenti Python del package `xtrader_bridge/`:
 - nessun riferimento a Supabase / service_role / license key / Admin EXE
   (il bridge personale è 100% locale, senza cloud/licenze/gestionale);
-- nessuna delle 4 operazioni di scommessa Betfair nominata nei moduli `betfair/`,
-  con l'unica eccezione di `safety.py`, che è il punto autorizzato a definirle nel
-  guard read-only. Qualsiasi futuro modulo che voglia instradare un'operazione DEVE
-  passare dal guard, non nominare l'operazione direttamente.
+- nessuna delle 4 operazioni di scommessa Betfair nominata nei moduli `betfair/`.
+  Con la rimozione della funzione «Betfair Sync» il subpackage non contiene più alcun
+  client di rete/login: sopravvivono SOLO il dizionario locale e i suoi lettori (sola
+  lettura, nessuna rete), quindi nessun modulo può più nominare un'operazione di scommessa.
 """
 
 import os
@@ -89,24 +89,30 @@ def test_nessun_riferimento_cloud_licenza_admin_nel_package():
 
 
 def test_betfair_subpackage_esiste_ed_e_read_only():
-    # Il subpackage del blocco personale esiste con il suo guard.
+    # Il subpackage del dizionario locale esiste (sola lettura, nessuna rete). Dopo la
+    # rimozione di «Betfair Sync» non c'è più alcun client di login/rete né guard di
+    # scommessa: sopravvivono solo local_db + i lettori del dizionario.
     assert os.path.isdir(_BETFAIR_DIR), "manca il subpackage xtrader_bridge/betfair/"
-    assert os.path.isfile(os.path.join(_BETFAIR_DIR, "safety.py"))
+    assert os.path.isfile(os.path.join(_BETFAIR_DIR, "local_db.py"))
+    # Nessun modulo di rete/login deve essere ricomparso.
+    for gone in ("auth_client.py", "catalogue_client.py", "credential_store.py",
+                 "session.py", "sync_engine.py", "auto_sync.py"):
+        assert not os.path.isfile(os.path.join(_BETFAIR_DIR, gone)), (
+            f"il modulo di rete/login «{gone}» non deve riesistere dopo la rimozione di Betfair Sync")
 
 
-def test_nessuna_operazione_di_scommessa_fuori_dal_guard():
-    # In betfair/ solo safety.py può nominare le operazioni di scommessa (è il guard).
+def test_nessuna_operazione_di_scommessa_nel_subpackage():
+    # Nessun modulo betfair/ può nominare le 4 operazioni di scommessa: non esiste più
+    # alcun client di rete, quindi nessun uso legittimo.
     offenders = []
     for path in _py_files(_BETFAIR_DIR):
-        if os.path.basename(path) == "safety.py":
-            continue
         low = _read(path).casefold()
         hits = [op for op in _BETTING_OPS if op in low]
         if hits:
             rel = os.path.relpath(path, _REPO_ROOT)
             offenders.append((rel, hits))
     assert not offenders, (
-        f"Operazioni di scommessa nominate fuori dal guard read-only: {offenders}")
+        f"Operazioni di scommessa nominate nel subpackage dizionario: {offenders}")
 
 
 def test_nessun_provider_di_pagamento_nel_package():

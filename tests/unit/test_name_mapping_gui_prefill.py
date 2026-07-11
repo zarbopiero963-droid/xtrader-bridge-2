@@ -137,11 +137,11 @@ def test_prefill_nome_vuoto_saltato(NameMappingPanel):
     assert [a["betfair"] for a in added] == ["Roma"]        # il nome vuoto non genera riga
 
 
-# ── busy durante sync + contratto reale known_teams (#321) ────────────────────
+# ── busy (lock del DB) + contratto reale known_teams (#321) ───────────────────
 
-def test_prefill_sync_in_corso_avvisa(NameMappingPanel):
-    # Se il provider segnala una sync in corso (DictionaryBusy), il pannello avvisa
-    # «riprova» invece di congelarsi o dire «vuoto» (fix freeze GUI, CodeRabbit #321).
+def test_prefill_dizionario_occupato_avvisa(NameMappingPanel):
+    # Se il provider segnala il DB occupato (DictionaryBusy, un altro thread tiene il lock),
+    # il pannello avvisa «riprova» invece di congelarsi o dire «vuoto» (fix freeze GUI, #321).
     from xtrader_bridge.betfair.dictionary_viewer import DictionaryBusy
     fake, added, status = _fake_self()
     def _busy():
@@ -149,7 +149,7 @@ def test_prefill_sync_in_corso_avvisa(NameMappingPanel):
     fake._known_teams_provider = _busy
     _call(NameMappingPanel, fake)
     assert added == []
-    assert "in corso" in status[-1]["text"]
+    assert "occupato" in status[-1]["text"] or "riprova" in status[-1]["text"]
 
 
 def test_prefill_consuma_contratto_reale_known_teams(NameMappingPanel):

@@ -29,27 +29,24 @@ _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
-    "app.py": (47, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+    "app.py": (33, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
                    "event journal best-effort (#230); refill campo token su widget Tk distrutto (PR-08c); "
-                   "engine/DB non disponibile → login Betfair senza riserva del lock (#172 audit); "
-                   "probe is_syncing dell'anteprima ID fail-open (#192, Codex P2); "
-                   "after_cancel del retry post-stop clear CSV su id scaduto/invalido (#259 A1, "
-                   "stesso pattern del tick auto-sync); "
-                   "install_global_log_redaction all'avvio best-effort (#259 D3: la redazione "
-                   "è difensiva, non deve mai impedire l'avvio della GUI); "
-                   "known_teams del dizionario Betfair per precompilare la mappatura nomi "
-                   "best-effort (#282 PR 11: DB assente → [], la GUI non crasha); "
+                   "resolver ID del dizionario locale best-effort (#192: DB assente → None, il flusso "
+                   "resta a nomi senza crashare); "
+                   "controller del viewer «Dizionario» best-effort (#20: DB non apribile → controller "
+                   "None, il pannello mostra l'avviso invece di crashare la costruzione della scheda); "
+                   "after_cancel del retry post-stop clear CSV su id scaduto/invalido (#259 A1); "
+                   "known_teams/competitions/teams del dizionario locale per precompilare la mappatura "
+                   "nomi e il «Mapping guidato» best-effort (#282: DB assente → [], la GUI non crasha); "
                    "delete_known_team best-effort (#282 PR 11-bis: DB assente → False); "
                    "known_market_terms best-effort (#283 PR 13: DB assente → liste vuote); "
-                   "snapshot Riepilogo config best-effort (#293 slice 3: conteggio dizionario "
-                   "Betfair e stato login → DB occupato/assente o sessione non inizializzata "
-                   "degradano a False, il riepilogo sola-lettura non deve mai crashare); "
+                   "snapshot Riepilogo config best-effort (#293 slice 3: conteggio del dizionario "
+                   "locale → DB occupato/assente degrada a False, il riepilogo sola-lettura non "
+                   "deve mai crashare); "
                    "avviso «già in esecuzione» su root Tk temporanea best-effort (#311-1.1: "
                    "in headless/display assente l'uscita della seconda istanza avviene comunque); "
                    "dialog conferma COLLAUDO (#311 §3.1): errore dialog → NON confermare "
                    "(fail-closed, stesso pattern di _confirm_real_mode/_confirm_multi_signal); "
-                   "(#343 slice 4b: rimosso il blind-except sulla lettura del testo _status_lbl — "
-                   "il semaforo Telegram ora usa lo stato CANONICO _listener_state, niente widget); "
                    "_refresh_health interamente best-effort (Fable #351): una sonda che solleva "
                    "(share instabile, config corrotta) non deve MAI rompere il monitoraggio "
                    "primario ne' i chiamanti _set_last/START/STOP/save; "
@@ -61,9 +58,7 @@ _ALLOWLIST = {
                    "focus non deve degradare in un secondo Toplevel modale doppione); "
                    "selettore lingua al primo avvio (#343): apertura best-effort (senza "
                    "scelta resta il comportamento storico IT e si ripropone al prossimo "
-                   "avvio) + destroy best-effort del selettore su widget già distrutto; "
-                   "competitions/teams del dizionario Betfair per il «Mapping guidato» "
-                   "best-effort (Fase 3: DB assente/illeggibile → [], la GUI non crasha)"),
+                   "avvio) + destroy best-effort del selettore su widget già distrutto"),
     "guided_mapping_gui.py": (3, "GUI Tk «Mapping guidato» best-effort (Fase 3): lettura config "
                                  "illeggibile → messaggio; lettura competizioni/squadre Betfair "
                                  "con DB assente/illeggibile → tendina/elenco vuoti; nessuno di "
@@ -123,20 +118,9 @@ _ALLOWLIST = {
     "write_path.py": (2, "write-failure fail-safe: la scrittura CSV fallita non deve crashare → "
                          "rollback di coda/guardrail ed errore riportato, in commit_signal e "
                          "commit_signals (multi-riga #192)"),
-    "betfair/auth_client.py": (2, "errore login safe: niente response/segreti nel messaggio; "
-                                   "logout server-side best-effort: un fallimento non blocca il clear locale (#168)"),
-    "betfair/auto_sync.py": (7, "ciclo auto login→sync→logout best-effort: logout/release/summary/state"),
-    "betfair/credential_store.py": (6, "soft-import/fallback keyring credenziali Betfair; "
-                                       "snapshot pre-save e rollback best-effort non devono "
-                                       "sollevare (#259 D2: il ripristino non deve peggiorare "
-                                       "uno stato già rotto)"),
     "betfair/dictionary_viewer_gui.py": (2, "GUI Tk viewer dizionario best-effort: lettura "
                                             "dizionario e stile Treeview (Fase 2) non devono "
                                             "crashare la finestra Strumenti"),
-    "betfair/log_safety.py": (2, "redazione log best-effort: il filtro non deve mai crashare il "
-                                 "logging, e agganciare il filtro a un handler (anche via hook su "
-                                 "addHandler) è best-effort (#166)"),
-    "betfair/sync_engine.py": (1, "fallimento sync safe: SyncResult FAILED, niente crash/segreti"),
 }
 
 

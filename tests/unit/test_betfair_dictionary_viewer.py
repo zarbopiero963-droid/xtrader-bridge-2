@@ -387,7 +387,7 @@ def test_filtro_e_ricerca_combinati(db):
 def test_last_seen_at_in_colonne_di_ogni_livello(db):
     ctrl = DictionaryViewerController(db)
     for lvl in LEVELS:
-        assert "Ultima sync" in ctrl.columns(lvl)
+        assert "Ultimo agg." in ctrl.columns(lvl)
     # "Attivo" resta l'ultima colonna (i test esistenti usano r[-1] per l'attivo)
     assert ctrl.columns("events")[-1] == "Attivo"
 
@@ -397,8 +397,8 @@ def test_last_seen_at_valorizzato_nelle_righe(db):
     ctrl = DictionaryViewerController(db)
     v = ctrl.view("events")
     cols = v["columns"]
-    idx = cols.index("Ultima sync")
-    # il marker della sync è > 0 e viene mostrato come stringa non vuota
+    idx = cols.index("Ultimo agg.")
+    # il marker di popolazione è > 0 e viene mostrato come stringa non vuota
     assert all(r[idx] == str(m) for r in v["rows"])
 
 

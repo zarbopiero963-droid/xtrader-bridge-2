@@ -205,9 +205,6 @@ class App(ctk.CTk):
     # nel class dict, così un accesso non trova mai "attributo mancante" che — su una vera
     # `customtkinter.CTk` senza `self.tk` inizializzato (es. istanza headless nei test) —
     # cadrebbe nel `__getattr__` di tkinter e ricorrerebbe all'infinito (RecursionError, #184 H1).
-    _betfair_login_busy = False     # True mentre un login Betfair è in corso (anti-rientro)
-    _betfair_login_epoch = 0        # epoch del login: logout/delete lo bumpa → scarta i completamenti stantii
-    _betfair_panel = None           # pannello tab Betfair, valorizzato in `_open_tools`
     _async_stop_event = None        # asyncio.Event della sessione listener: STOP la sveglia (#184 H5/Codex #191)
     _wizard_win = None              # Wizard aperto (#311 §3.4): singleton, un secondo click lo riporta davanti
     # Stato CANONICO del listener (#343 slice 4b): fonte unica per il semaforo 🚦
@@ -221,19 +218,6 @@ class App(ctk.CTk):
         # già il lock: messagebox e uscita IMMEDIATA — nessun listener, nessuna
         # scrittura né clear del CSV dell'istanza attiva.
         self._acquire_instance_lock()
-        # Difesa globale sui log Betfair (audit #259 D3): installa un filtro di
-        # redazione su root logger + ogni handler (presenti E futuri) e silenzia i
-        # logger HTTP rumorosi. Va fatto ALL'AVVIO, il prima possibile — PRIMA di
-        # `super().__init__()` (init Tk): la redazione è pura (solo `logging` stdlib,
-        # nessuna dipendenza dalla finestra), così non resta una finestra di startup
-        # in cui un handler già attivo scriva header/sessionToken in chiaro (review
-        # Fugu #313). Il modulo esponeva `install_global_log_redaction` ma nessun
-        # percorso di produzione la chiamava. Best-effort: mai bloccare l'avvio.
-        try:
-            from .betfair import log_safety as _bf_log_safety
-            _bf_log_safety.install_global_log_redaction()
-        except Exception:   # noqa: BLE001 — la redazione è difensiva, non deve mai impedire l'avvio
-            pass
         # DPI awareness esplicita (#311 §3.5): PRIMA di creare la root Tk, così su
         # Windows con scaling 125–150% niente bitmap-stretch sfocato e misure Tk in
         # pixel reali. Stesso valore che imposterebbe customtkinter (mai in
@@ -284,11 +268,10 @@ class App(ctk.CTk):
         # Chiusura in corso: impedisce all'auto-start ritardato di avviare il listener
         # dopo che la finestra è stata chiusa (Codex P2).
         self._closing = False
-        # Lock per la creazione lazy degli oggetti Betfair condivisi (sessione/auth/engine):
-        # ora il flusso live (thread listener Telegram) può costruire l'engine mentre il main
-        # thread lo crea per la tab/auto-sync. Senza lock si creerebbero due engine e la
-        # guardia "una sync per volta" (lock sull'istanza) verrebbe aggirata (Codex). RLock:
-        # `_betfair_sync_engine` chiama `_betfair_session_obj` mentre tiene il lock.
+        # Lock per la creazione lazy del dizionario locale condiviso (`_betfair_local_db`):
+        # il flusso live (thread listener Telegram) e il main thread (tab Dizionario/Mapping)
+        # possono richiederlo in concorrenza. Senza lock si aprirebbero due handle SQLite sullo
+        # stesso file. RLock per rientranza sullo stesso thread.
         self._betfair_lock = threading.RLock()
         # Id del callback ritardato di auto-start: tracciato per poterlo ANNULLARE su
         # qualsiasi azione manuale (AVVIA/STOP/chiusura), così un'azione dell'utente
@@ -373,11 +356,6 @@ class App(ctk.CTk):
         # Avvio automatico del listener (se abilitato e config minima presente): dopo
         # che la UI è pronta, così log/stato sono visibili. Default OFF.
         self._autostart_after_id = self.after(400, self._maybe_auto_start)
-        # Tick auto-sync Betfair (issue #86 PR-P8): parte mentre il bridge è aperto;
-        # internamente scatta solo se l'auto-sync è attiva e all'orario impostato. Il
-        # PRIMO check è quasi subito (non +60s) così aprire il bridge DENTRO l'ora
-        # configurata non manca la run; poi si ri-arma ogni 60s.
-        self._autosync_after_id = self.after(2_000, self._betfair_autosync_tick)
 
     def _maybe_auto_start(self) -> None:
         """Avvia il listener all'apertura se `auto_start_listener` è attivo e la config
@@ -584,7 +562,7 @@ class App(ctk.CTk):
         load `save_config` reidrata `self._config["bot_token"]` e consuma il marker, ma il campo
         GUI resta vuoto; il save normale successivo ricostruisce la config dal campo vuoto, entra
         nel ramo clear REALE e cancella il token. Stessa lacuna per i save dei tab Tools, i save
-        non-GUI (debug/retention/auto-sync Betfair) e START (che valida il campo vuoto prima che
+        non-GUI (debug/retention) e START (che valida il campo vuoto prima che
         un save reidrati).
 
         Agisce SOLO se: esiste il campo, è VUOTO, e il load era incompleto (`had_incomplete_load`;
@@ -1938,61 +1916,40 @@ class App(ctk.CTk):
         # NON deve azzerare il tetto (altrimenti il limite/giorno è aggirabile).
         return runtime_state.daily_state_path(config_dir())
 
-    # ── Betfair (issue #86): sessione/auth/engine condivisi (lazy) ────────────
-    def _betfair_session_obj(self):
-        """Sessione Betfair condivisa (sessionToken solo in RAM): UNA per processo.
-        Creazione lazy sotto `_betfair_lock` (doppio controllo): il flusso live e il main
-        thread possono richiederla in concorrenza (Codex)."""
-        from .betfair.session import BetfairSession
-        if getattr(self, "_betfair_session", None) is None:
-            with self._betfair_lock:
-                if getattr(self, "_betfair_session", None) is None:
-                    self._betfair_session = BetfairSession()
-        return self._betfair_session
+    # ── Dizionario locale (SQLite in AppData): sola lettura, nessuna rete ──────
+    def _betfair_local_db(self):
+        """Dizionario locale condiviso (SQLite in AppData). UNA istanza per processo:
+        il flusso live (thread listener) e il main thread (tab Dizionario/Mapping) la
+        richiedono in concorrenza → creazione lazy **sincronizzata** (`_betfair_lock`,
+        doppio controllo) per non aprire due handle sullo stesso file.
 
-    def _betfair_auth_client(self):
-        """Client di login Betfair (read-only) condiviso, sulla sessione del bridge.
-        Creazione lazy sotto `_betfair_lock` (doppio controllo)."""
-        from .betfair.auth_client import BetfairAuthClient
-        if getattr(self, "_betfair_auth_obj", None) is None:
-            with self._betfair_lock:
-                if getattr(self, "_betfair_auth_obj", None) is None:
-                    self._betfair_auth_obj = BetfairAuthClient(session=self._betfair_session_obj())
-        return self._betfair_auth_obj
-
-    def _betfair_sync_engine(self):
-        """Motore di sync Betfair condiviso (apre il DB locale in AppData). UNA
-        istanza: il lock anti-doppia-sync e il marker devono persistere. Creazione lazy
-        **sincronizzata** (`_betfair_lock`, doppio controllo): senza, una chiamata dal
-        thread listener (flusso live PR-P12) e una dal main thread (tab/auto-sync)
-        creerebbero DUE engine, aggirando la guardia 'una sync per volta' (Codex)."""
+        La funzione «Betfair Sync» che popolava questo DB via rete è stata rimossa: il
+        DB è ora popolato dall'utente coi propri campi personalizzati e qui si apre solo
+        in sola lettura best-effort (i consumatori gestiscono DB assente/vuoto)."""
         from .betfair.local_db import BetfairLocalDB
-        from .betfair.sync_engine import SyncEngine
-        if getattr(self, "_betfair_engine_obj", None) is None:
+        if getattr(self, "_betfair_db_obj", None) is None:
             with self._betfair_lock:
-                if getattr(self, "_betfair_engine_obj", None) is None:
-                    db = BetfairLocalDB(runtime_state.betfair_db_path(config_dir()))
-                    self._betfair_engine_obj = SyncEngine(db, self._betfair_session_obj())
-        return self._betfair_engine_obj
+                if getattr(self, "_betfair_db_obj", None) is None:
+                    self._betfair_db_obj = BetfairLocalDB(
+                        runtime_state.betfair_db_path(config_dir()))
+        return self._betfair_db_obj
 
     def _known_betfair_teams(self, sport=None):
-        """Nomi squadra PERMANENTI del dizionario Betfair locale (#282), per precompilare
-        la mappatura nomi (area ⚽ Calcio). **Sola lettura**, best-effort: DB non disponibile
-        (mai sincronizzato, cartella assente…) → `[]`, il pannello mostra un avviso.
+        """Nomi squadra del dizionario locale (#282), per precompilare la mappatura nomi (area
+        ⚽ Calcio). **Sola lettura**, best-effort: DB non disponibile (vuoto, cartella assente…)
+        → `[]`, il pannello mostra un avviso.
 
-        **FAIL-FAST se una sync tiene il lock del DB** (CodeRabbit #321): `CatalogueSync.sync`
-        tiene `db._lock` per l'INTERA transazione, incluse le chiamate HTTP di navigazione/
-        catalogo. Leggere in modo bloccante dal thread Tk congelerebbe la GUI fino a fine
-        sync/timeout. Come `DictionaryViewerController.view_if_free` (#175): probe **non
-        bloccante** e, se occupato, `DictionaryBusy` (il pannello mostra «sync in corso»),
-        distinto dal caso «nessun nome». Non fa rete."""
+        **FAIL-FAST se un altro thread tiene il lock del DB** (CodeRabbit #321): leggere in modo
+        bloccante dal thread Tk congelerebbe la GUI fino al rilascio. Come
+        `DictionaryViewerController.view_if_free` (#175): probe **non bloccante** e, se occupato,
+        `DictionaryBusy` (il pannello mostra «occupato»), distinto dal caso «nessun nome». Non fa rete."""
         from .betfair.dictionary_viewer import DictionaryBusy
         try:
-            db = self._betfair_sync_engine().db
+            db = self._betfair_local_db()
             if db is None:               # engine costruito ma DB non aperto → nessun nome
                 return []
             if not db.acquire_read(blocking=False):
-                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+                raise DictionaryBusy()   # DB occupato: fail-fast, niente freeze del thread Tk
             try:
                 return db.known_teams(sport)
             finally:
@@ -2007,16 +1964,16 @@ class App(ctk.CTk):
         «🌳 Mapping guidato» (Fase 3). Ritorna ``[{"competition_id","name"}]`` ordinate.
 
         Come `_known_betfair_teams`: **sola lettura best-effort** (DB assente/illeggibile → `[]`)
-        e **fail-fast** con `DictionaryBusy` se una sync tiene il lock del DB (probe non bloccante
+        e **fail-fast** con `DictionaryBusy` se un altro thread tiene il lock del DB (probe non bloccante
         sul thread Tk, niente freeze). Non fa rete."""
         from .betfair.dictionary_viewer import DictionaryBusy
         from .betfair import guided_mapping
         try:
-            db = self._betfair_sync_engine().db
+            db = self._betfair_local_db()
             if db is None:
                 return []
             if not db.acquire_read(blocking=False):
-                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+                raise DictionaryBusy()   # DB occupato: fail-fast, niente freeze del thread Tk
             try:
                 return guided_mapping.competitions_for_sport(db, sport)
             finally:
@@ -2031,15 +1988,15 @@ class App(ctk.CTk):
         Betfair locale, per l'albero del «🌳 Mapping guidato» (Fase 3). Ritorna una lista di nomi.
 
         Come `_betfair_competitions`: sola lettura best-effort + **fail-fast** su `DictionaryBusy`
-        durante una sync. Non fa rete."""
+        se il DB è occupato. Non fa rete."""
         from .betfair.dictionary_viewer import DictionaryBusy
         from .betfair import guided_mapping
         try:
-            db = self._betfair_sync_engine().db
+            db = self._betfair_local_db()
             if db is None:
                 return []
             if not db.acquire_read(blocking=False):
-                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+                raise DictionaryBusy()   # DB occupato: fail-fast, niente freeze del thread Tk
             try:
                 return guided_mapping.teams_for_competition(db, competition_id)
             finally:
@@ -2053,17 +2010,17 @@ class App(ctk.CTk):
         """Elimina un nome squadra permanente dal dizionario Betfair locale (#282 PR 11-bis,
         ripulitura manuale). Ritorna `True` se eliminato, `False` se DB non disponibile.
 
-        Come `_known_betfair_teams`: **fail-fast** con `DictionaryBusy` se una sync tiene il
+        Come `_known_betfair_teams`: **fail-fast** con `DictionaryBusy` se un altro thread tiene il
         lock del DB (la scrittura sul thread Tk non deve congelare la GUI), best-effort → DB
         assente/errore → `False`. La `acquire_read` prende lo stesso `_lock` che la sync tiene
         (RLock rientrante): la delete lo riacquisisce sullo stesso thread senza deadlock."""
         from .betfair.dictionary_viewer import DictionaryBusy
         try:
-            db = self._betfair_sync_engine().db
+            db = self._betfair_local_db()
             if db is None:
                 return False
             if not db.acquire_read(blocking=False):
-                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+                raise DictionaryBusy()   # DB occupato: fail-fast, niente freeze del thread Tk
             try:
                 db.delete_known_team(sport, normalized_name)
                 return True
@@ -2080,19 +2037,19 @@ class App(ctk.CTk):
         del Parser, filtrati per `sport`. Ritorna `{"market_types": [...], "market_names": [...],
         "selection_names": [...]}`.
 
-        **Sola lettura**, best-effort: DB non disponibile (mai sincronizzato, cartella assente…)
-        → liste vuote (la tendina resta editabile a testo libero). **FAIL-FAST se una sync tiene
+        **Sola lettura**, best-effort: DB non disponibile (vuoto, cartella assente…)
+        → liste vuote (la tendina resta editabile a testo libero). **FAIL-FAST se un altro thread tiene
         il lock del DB** (come `_known_betfair_teams`): probe **non bloccante** e, se occupato,
         `DictionaryBusy` (il pannello mostra nessun suggerimento senza freeze del thread Tk).
         Non fa rete."""
         from .betfair.dictionary_viewer import DictionaryBusy
         empty = {"market_types": [], "market_names": [], "selection_names": []}
         try:
-            db = self._betfair_sync_engine().db
+            db = self._betfair_local_db()
             if db is None:               # engine costruito ma DB non aperto → nessun termine
                 return dict(empty)
             if not db.acquire_read(blocking=False):
-                raise DictionaryBusy()   # sync in corso: fail-fast, niente freeze del thread Tk
+                raise DictionaryBusy()   # DB occupato: fail-fast, niente freeze del thread Tk
             try:
                 return {
                     "market_types": db.known_market_types(sport),
@@ -2107,290 +2064,46 @@ class App(ctk.CTk):
             return dict(empty)
 
     def _betfair_id_resolver(self):
-        """Risolutore ID del dizionario Betfair locale per il flusso live (PR-P12),
-        **best-effort**: ritorna un `DictionaryResolver` sul DB locale, o `None` se il
-        dizionario non è disponibile (in tal caso il flusso resta a nomi: fallback nomi,
-        nessun blocco). Sola lettura: non scrive nulla e non fa rete."""
+        """Risolutore ID del dizionario locale (EventId/MarketId/SelectionId), **best-effort**:
+        ritorna un `DictionaryResolver` sul DB locale, o `None` se il dizionario non è
+        disponibile. Sola lettura: non scrive nulla e non fa rete.
+
+        **Gancio (seam) per l'arricchimento ID.** Con la rimozione di «Betfair Sync» il
+        dizionario locale è popolato a mano dall'utente coi suoi campi personalizzati e
+        l'arricchimento ID è **staccato** sia dal flusso CSV LIVE (`_process`: `id_resolver=None`)
+        sia dall'anteprima (`_preview_id_resolver_factory`: `None`) — così anteprima e runtime
+        **coincidono** e non c'è divergenza «Pronto in GUI ma scartato nel live» (Fugu #20).
+        Questo metodo resta il **punto unico** di ricablaggio: quando il dizionario custom sarà
+        pronto, riattivare l'arricchimento = passare `self._betfair_id_resolver()` in ENTRAMBI i
+        punti (live + factory anteprima)."""
         try:
             from .betfair.dictionary_resolver import DictionaryResolver
-            return DictionaryResolver(self._betfair_sync_engine().db)
-        except Exception:   # noqa: BLE001 — best-effort: il flusso live non deve crashare
+            return DictionaryResolver(self._betfair_local_db())
+        except Exception:   # noqa: BLE001 — best-effort: il flusso non deve crashare
             return None
+
+    def _dictionary_viewer_controller(self):
+        """Controller SOLA LETTURA per la tab «Dizionario», **best-effort**: apre il DB locale
+        e, se non apribile (AppData non scrivibile, disco pieno, file corrotto, permessi),
+        ritorna `None` — così `DictionaryViewerPanel` mostra il suo avviso «Dizionario non
+        disponibile» invece di far crashare la costruzione della scheda Strumenti (CodeRabbit
+        #20). Stesso pattern degli altri accessor (`_known_betfair_teams` ecc.)."""
+        from .betfair.dictionary_viewer import DictionaryViewerController
+        try:
+            db = self._betfair_local_db()
+        except Exception:   # noqa: BLE001 — best-effort: degrada a None, niente crash GUI
+            return None
+        return DictionaryViewerController(db) if db is not None else None
 
     def _preview_id_resolver_factory(self):
-        """Factory del resolver ID per l'ANTEPRIMA GUI «Prova messaggio» (#192, Codex P2).
+        """Factory del resolver ID per l'ANTEPRIMA GUI «Prova messaggio» (#192).
 
-        Come `_betfair_id_resolver`, MA **salta** (ritorna `None`) se una sync Betfair è in
-        corso. Il resolver legge il DB sotto lo stesso `RLock` che la sync tiene per l'INTERA
-        durata (incluse le chiamate di rete di navigazione/catalogo): invocarlo in modo sincrono
-        dal thread Tk dell'anteprima bloccherebbe la finestra fino a fine sync/timeout HTTP.
-        `is_syncing` è un probe **non bloccante** (acquire/release immediato). Durante una sync
-        l'anteprima resta quindi conservativa (nessun arricchimento ID), mai un freeze — fail-open.
-
-        Il flusso LIVE **non** è toccato: usa `_betfair_id_resolver` direttamente su un worker
-        thread (non sul thread GUI), dove un'attesa sul lock è accettabile."""
-        try:
-            if self._betfair_sync_engine().is_syncing:
-                return None
-        except Exception:   # noqa: BLE001 — probe best-effort: mai bloccare/crashare l'anteprima
-            return None
-        return self._betfair_id_resolver()
-
-    def _betfair_autosync_seed(self) -> dict:
-        """Valori auto-sync (enabled/hour/sports) per **seminare** il pannello Betfair.
-
-        Letti dalla config **LIVE in memoria** (`self._config`), non da una rilettura del
-        disco: se un save precedente è fallito, il disco è stantio e seminare da lì
-        mostrerebbe valori vecchi che un successivo edit (ora/sport) riscriverebbe sopra
-        la config viva, ri-disabilitando o ri-schedulando l'auto-sync (Codex). Stessa
-        semantica di `_betfair_autosync_change` e del tick, che già usano `self._config`."""
-        cfg = self._config if isinstance(self._config, dict) else self._load_config()
-        return {"enabled": config_store.as_bool_optin(cfg.get("betfair_auto_sync", False)),
-                "hour": cfg.get("betfair_auto_sync_hour", 23),
-                "sports": cfg.get("betfair_sync_sports")}
-
-    def _betfair_login_work(self, creds):
-        """Esegue il login Betfair (POST HTTPS **bloccante**, fino a ~20s) e ritorna il
-        messaggio di log (già redatto, mai segreti). Pensato per girare su un WORKER
-        THREAD (H1): NON tocca Tk. Su successo porta la App Key del login nell'engine
-        (così la sync funziona anche con credenziali non ancora salvate nel keyring);
-        su `LoginError` ritorna il messaggio safe del client (nessuna response grezza)."""
-        from .betfair.auth_client import LoginError
-        # Serializza il login manuale con l'auto-sync sulla SESSIONE CONDIVISA: prenota il
-        # lock del motore PRIMA del login (come fa `auto_sync._cycle`). Senza, un click
-        # «Accedi» durante il ciclo auto-sync (tra il suo check `pre_logged` e il `logout`
-        # finale) verrebbe sloggato da quel `logout()`, lasciando la tab disconnessa pur
-        # avendo riportato successo (Codex). Se il lock è già preso (sync manuale o
-        # auto-sync in corso) il login è rimandato senza toccare la sessione condivisa.
-        reserved = False
-        engine = None
-        try:
-            engine = self._betfair_sync_engine()
-            reserve = getattr(engine, "reserve", None)
-            release = getattr(engine, "release", None)
-            if callable(reserve) and callable(release):
-                if not reserve():
-                    return ("⏳ Login Betfair rimandato: una sincronizzazione è in corso. "
-                            "Riprova tra qualche secondo.")
-                reserved = True
-        except Exception:               # noqa: BLE001 — engine/DB non disponibile: login senza riserva
-            pass
-        try:
-            self._betfair_auth_client().login(creds)
-            if engine is not None:
-                try:
-                    engine.set_app_key(creds.app_key)
-                except Exception:       # noqa: BLE001 — l'engine può mancare se il DB fallisce
-                    pass
-            return "🔵 Login Betfair riuscito (sessione in memoria)."
-        except LoginError as ex:        # messaggio già safe (nessun segreto)
-            return f"❌ Login Betfair fallito: {ex}"
-        finally:
-            # Lock sicuramente preso (reserved=True): release() di un threading.Lock detenuto
-            # non solleva, quindi niente try/except qui (a differenza del finally di
-            # `_cycle`, dove il release può correre con altri path).
-            if reserved:
-                engine.release()
-
-    def _betfair_login_async(self, creds):
-        """Callback «Accedi» della tab Betfair (H1): il login (rete, fino a ~20s) gira su
-        un WORKER THREAD per non bloccare la GUI Tk — come `_betfair_sync` — e l'esito è
-        marshalato sul main thread con `after(0, ...)`. Un flag anti-rientro
-        (`_betfair_login_busy`) evita login concorrenti finché uno è in corso (equivale a
-        disabilitare il bottone). Prima del fix il login girava sincrono nella callback Tk
-        e congelava la finestra (no repaint/STOP/chiusura) per tutta la durata della POST.
-
-        Robustezza (Codex su #184 H1):
-        - **teardown**: se l'app si sta chiudendo il worker NON rientra in Tk (flag
-          `_closing`), così non chiama `after` su una root distrutta;
-        - **completamento stantio**: ogni login prende un `gen` (epoch); se nel frattempo
-          l'utente fa logout o «Cancella credenziali» (`_betfair_invalidate_login` bumpa
-          l'epoch), il login in volo è stantio → si scarta il token appena settato
-          (`_betfair_discard_stale_login`) e non si riporta la UI a «connesso». Il flag
-          anti-rientro serializza i login, quindi un mismatch di epoch = logout/delete."""
-        if self._betfair_login_busy:
-            return
-        self._betfair_login_busy = True
-        self._betfair_login_epoch += 1
-        gen = self._betfair_login_epoch
-
-        def _worker():
-            msg = self._betfair_login_work(creds)
-            if gen != self._betfair_login_epoch:
-                # logout/delete arrivato durante il login: disfa il token stantio.
-                self._betfair_login_busy = False
-                self._betfair_discard_stale_login()
-                return
-            if self._closing:           # app in chiusura: niente chiamate Tk dal worker
-                self._betfair_login_busy = False
-                return
-            try:
-                self.after(0, lambda: self._betfair_login_done(msg, gen))
-            except Exception:           # noqa: BLE001 — race: root distrutta TRA il check
-                # `_closing` e lo schedule (`destroy()` invalida l'interprete Tcl). Niente
-                # eccezione non gestita sul daemon thread a teardown (Codex).
-                self._betfair_login_busy = False
-
-        t = threading.Thread(target=_worker, daemon=True, name="betfair-login")
-        self._betfair_login_thread = t      # esposto per join nei test (deterministico)
-        t.start()
-
-    def _betfair_login_done(self, msg, gen):
-        """Rientro nel main thread dopo il login (via `after`): libera il flag, e — solo se
-        il login NON è stantio (epoch) e la root è viva (`_closing`/`winfo_exists`) — logga
-        l'esito redatto e aggiorna gli stati dei bottoni della tab."""
-        self._betfair_login_busy = False
-        if gen != self._betfair_login_epoch:        # superato da logout/delete: ignora
-            return
-        if self._closing or not self.winfo_exists():
-            return
-        self._log(msg)
-        panel = self._betfair_panel
-        if panel is not None:
-            try:
-                panel._refresh_buttons()
-            except Exception:           # noqa: BLE001 — refresh best-effort, mai crash GUI
-                pass
-
-    def _betfair_invalidate_login(self):
-        """Invalida un eventuale login in volo: chiamato dal pannello su «Logout» e
-        «Cancella credenziali» così il completamento di un login partito PRIMA dell'azione
-        non riporti la sessione a «connesso» DOPO che l'utente ha sloggato/cancellato
-        (Codex). Bumpa solo l'epoch (lettura/scrittura int semplice, thread-safe in CPython)."""
-        self._betfair_login_epoch += 1
-
-    def _betfair_discard_stale_login(self):
-        """Un login STANTIO (superato da logout/delete) ha già settato il sessionToken
-        dentro `auth_client.login`: lo si scarta pulendo la sessione (solo RAM), così
-        l'utente resta sloggato come voleva. Best-effort, fuori dal main thread (niente Tk)."""
-        try:
-            self._betfair_session_obj().clear()
-        except Exception:               # noqa: BLE001 — best-effort
-            pass
-
-    def _betfair_autosync_tick(self):
-        """Tick periodico (mentre il bridge è APERTO) dell'auto-sync Betfair. La
-        decisione e il ciclo (auto login→sync→auto logout) sono in `auto_sync`; qui
-        si legge la config, si costruisce lo scheduler una volta e si esegue il
-        `maybe_run` su un worker thread (la rete non deve bloccare la GUI). Best-effort:
-        un errore non interrompe il loop dei tick. Si ri-arma ogni 60s."""
-        try:
-            # winfo_exists() qui gira sul MAIN thread (il tick è schedulato con after);
-            # il worker NON deve toccare Tk (Codex). Lo scheduler usa is_bridge_open legato
-            # a `_closing`, così un worker lanciato a ridosso della chiusura fallisce chiuso.
-            if self.winfo_exists():
-                # Config LIVE in memoria (non rilettura da disco): dopo un save fallito
-                # `self._config` riflette ciò che l'utente ha impostato, mentre il disco
-                # avrebbe valori stantii (CodeRabbit). Stessa semantica del resto di App.
-                cfg = dict(self._config) if isinstance(self._config, dict) else self._load_config()
-                if config_store.as_bool_optin(cfg.get("betfair_auto_sync", False)):
-                    try:
-                        sched = self._betfair_autosync_scheduler()
-                    except Exception as ex:   # noqa: BLE001 — costruzione scheduler (es. DB non apribile)
-                        # Non restare silenziosi: l'utente crede l'auto-sync attiva ma
-                        # non partirà mai in questo ambiente. Avvisa UNA volta (Codex).
-                        if not getattr(self, "_autosync_build_warned", False):
-                            self._autosync_build_warned = True
-                            self._log(f"⚠️ Auto-sync Betfair non avviabile ({type(ex).__name__}): "
-                                      "controlla la cartella dati / il dizionario locale.")
-                        sched = None
-                    if sched is not None:
-                        import datetime
-                        now = datetime.datetime.now()
-                        threading.Thread(target=lambda: sched.maybe_run(now),
-                                         daemon=True, name="betfair-autosync").start()
-        except Exception:               # noqa: BLE001 — il tick non deve mai crashare
-            pass
-        finally:
-            # Ri-arma solo se il bridge non si sta chiudendo: dopo `_on_close`
-            # `self.after` su una root distrutta solleverebbe (CodeRabbit).
-            if not self._closing:
-                self._autosync_after_id = self.after(60_000, self._betfair_autosync_tick)
-
-    def _betfair_autosync_scheduler(self):
-        """Scheduler auto-sync condiviso (lazy). `get_config` legge enabled/hour/sports
-        dalla config e le credenziali locali per l'auto login; `on_summary` logga
-        l'esito safe sul main thread e aggiorna le etichette della tab se aperta."""
-        from . import atomic_io
-        from .betfair import auto_sync, credential_store
-        if getattr(self, "_betfair_autosync_obj", None) is not None:
-            return self._betfair_autosync_obj
-
-        def _get_config():
-            # Config LEGGERA (no keyring): lo scheduler la legge a ogni tick (anche fuori
-            # orario o a run già fatta), quindi NON deve leggere le credenziali qui — il
-            # keyring si tocca solo quando la run è dovuta, in `_get_credentials` (CodeRabbit).
-            # Config LIVE in memoria, non rilettura da disco: dopo un save fallito riflette
-            # ciò che l'utente ha impostato, non valori stantii su disco (CodeRabbit).
-            cfg = dict(self._config) if isinstance(self._config, dict) else self._load_config()
-            enabled = config_store.as_bool_optin(cfg.get("betfair_auto_sync", False))
-            hour = auto_sync.normalize_hour(cfg.get("betfair_auto_sync_hour", 23))
-            sports = cfg.get("betfair_sync_sports") or []
-            return enabled, hour, sports
-
-        def _get_credentials():
-            # Letto SOLO quando l'auto-sync è davvero dovuta (dentro `_cycle`), non a ogni tick.
-            return credential_store.load_credentials()
-
-        _state_path = runtime_state.betfair_autosync_state_path(config_dir())
-
-        def _load_state():
-            try:
-                import json
-                with open(_state_path, "r", encoding="utf-8") as fh:
-                    return json.load(fh)
-            except Exception:   # noqa: BLE001 — assente/corrotto → nessuna run nota
-                return None
-
-        def _save_state(key):
-            atomic_io.atomic_write_json(_state_path, key)   # scrittura atomica
-
-        def _on_state_error(_ex):
-            # Invocato dal worker auto-sync: qui NIENTE chiamate Tk (winfo_exists) — solo
-            # il flag `_closing` (lettura semplice, thread-safe). La winfo_exists vera la
-            # fa il callback schedulato, che gira sul main thread (CodeRabbit).
-            if self._closing:
-                return
-
-            def _report():
-                if self._closing or not self.winfo_exists():
-                    return
-                self._log(
-                    "⚠️ Auto-sync Betfair: impossibile salvare lo stato (la guardia "
-                    "'una volta al giorno' potrebbe non valere dopo un riavvio).")
-            self.after(0, _report)
-
-        def _on_summary(res):
-            # Invocato dal worker auto-sync (può finire DOPO `_on_close`): qui solo il flag
-            # `_closing`, nessuna chiamata Tk dal worker; la winfo_exists la fa `_report`
-            # sul main thread (CodeRabbit).
-            if self._closing:
-                return
-
-            def _report():
-                if self._closing or not self.winfo_exists():
-                    return
-                ok = getattr(res, "ok", False)
-                self._log("🔄 Auto-sync Betfair OK." if ok
-                          else "⚠️ Auto-sync Betfair non riuscita: "
-                          + ("; ".join(res.errors) if res and res.errors else "—"))
-                panel = getattr(self, "_betfair_panel", None)
-                if panel is not None:
-                    try:
-                        panel.set_autosync_status(state=("OK" if ok else "errore"))
-                    except Exception:   # noqa: BLE001
-                        pass
-            self.after(0, _report)
-
-        self._betfair_autosync_obj = auto_sync.AutoSyncScheduler(
-            auth=self._betfair_auth_client(), engine=self._betfair_sync_engine(),
-            get_config=_get_config, get_credentials=_get_credentials,
-            # Fail-closed in chiusura: se `_on_close` setta `_closing` dopo lo spawn del
-            # worker ma prima che entri in maybe_run, il ciclo non parte (CodeRabbit).
-            is_bridge_open=lambda: not self._closing,
-            on_summary=_on_summary, load_state=_load_state, save_state=_save_state,
-            on_state_error=_on_state_error)
-        return self._betfair_autosync_obj
+        Ritorna `None`: con «Betfair Sync» rimossa l'arricchimento ID è staccato anche dal LIVE
+        (`_process` passa `id_resolver=None`), quindi l'anteprima deve restare **conservativa**
+        per non mostrare `✅ Pronto` su una riga che il live scarterebbe (`ID_ONLY` senza ID →
+        fail-closed). Invariante: «anteprima = runtime». Il resolver reale (`_betfair_id_resolver`)
+        resta il seam da ricablare in entrambi i punti quando il dizionario custom sarà popolato."""
+        return None
 
     def _init_guards(self, cfg: dict) -> None:
         """Crea i guardrail del percorso di scrittura dalla config (chiamato allo
@@ -2755,15 +2468,6 @@ class App(ctk.CTk):
                 self.after_cancel(_stop_clear_after)
             except Exception:   # noqa: BLE001 — id già scaduto/invalido: best-effort
                 pass
-        # Cancella il tick auto-sync ancora pendente: dopo destroy non deve rifirare
-        # né ri-armarsi su una root distrutta (CodeRabbit).
-        _autosync_after = getattr(self, "_autosync_after_id", None)
-        if _autosync_after is not None:
-            try:
-                self.after_cancel(_autosync_after)
-            except Exception:   # noqa: BLE001 — id già scaduto/invalido: best-effort
-                pass
-            self._autosync_after_id = None
         t = self._bot_thread
         if t is not None and t.is_alive():
             t.join(timeout=5.0)
@@ -3117,11 +2821,12 @@ class App(ctk.CTk):
         # va sul main thread (`_process` gira sul thread del listener Telegram).
         self.after(0, lambda m=log_privacy.redact_message(text, full=payload_full), c=chat_id:
                    self._dbg(f"IN (chat {c or '?'}): {m}"))
-        # PR-P12: passa il risolutore ID del dizionario Betfair locale, così — dopo le
-        # mappature a nomi — la riga viene arricchita con EventId/MarketId/SelectionId se
-        # il dizionario trova un match univoco; altrimenti resta a nomi (fallback nomi).
+        # Arricchimento ID DISATTIVATO (rimozione «Betfair Sync»): il CSV live NON riempie più
+        # EventId/MarketId/SelectionId dal dizionario (`id_resolver=None`) → la riga resta a NOMI.
+        # Il seam è pronto: quando l'utente popolerà il dizionario locale coi suoi campi
+        # personalizzati, riattivare l'arricchimento = passare `self._betfair_id_resolver()` qui.
         result = signal_router.resolve_row(text, route, chat_id=chat_id,
-                                           id_resolver=self._betfair_id_resolver())
+                                           id_resolver=None)
         # Event journal (#230): il PARSER è girato (esito + sorgente), PRIMA del ramo
         # piazzabile/scartato — così il diario distingue «parser eseguito ma segnale scartato»
         # da «mai ricevuto» anche per i non piazzabili, completando la pipeline RECEIVED→PARSED→
@@ -3610,7 +3315,7 @@ class App(ctk.CTk):
 
     def _refresh_tool_panels_after_profile(self, panel_refs, saved) -> None:
         """Ricarica dal disco le schede Strumenti già costruite dopo l'applicazione di un
-        profilo (Provider, Chat sorgenti, Mapping, Betfair Sync). Senza, un loro Salva
+        profilo (Provider, Chat sorgenti, Mapping). Senza, un loro Salva
         successivo riscriverebbe lo stato vecchio sopra il profilo — per Chat sorgenti
         significherebbe riscrivere `source_chats` vecchie e INDEBOLIRE il filtro chat
         (Codex P1).
@@ -3627,18 +3332,6 @@ class App(ctk.CTk):
                 except Exception as ex:       # noqa: BLE001 — best-effort, ma non silenzioso
                     self._log(f"⚠️ Scheda {_TOOL_PANEL_LABELS[_key]} non aggiornata dal "
                               f"profilo (mostra ancora i valori precedenti): {ex}")
-        # La tab Betfair ha controlli auto-sync (enabled/hour/sport) caricati dalla config:
-        # dopo un profilo va ricaricata, altrimenti un suo Salva riscrive i valori vecchi.
-        _bf_panel = getattr(self, "_betfair_panel", None)
-        if _bf_panel is not None:
-            try:
-                _bf_panel.refresh_autosync(
-                    config_store.as_bool_optin(saved.get("betfair_auto_sync", False)),
-                    saved.get("betfair_auto_sync_hour", 23),
-                    saved.get("betfair_sync_sports"))
-            except Exception as ex:           # noqa: BLE001 — best-effort, ma non silenzioso
-                self._log(f"⚠️ Scheda Betfair Sync non aggiornata dal profilo "
-                          f"(mostra ancora i valori precedenti): {ex}")
 
     def _open_tools(self, initial=None):
         """Apre la finestra hub "🧰 Strumenti" a schede (consolidazione GUI, roadmap).
@@ -3658,8 +3351,6 @@ class App(ctk.CTk):
         from .source_chats_gui import SourceChatsPanel
         from .name_mapping_gui import MappingPanel
         from .custom_parser_gui import CustomParserPanel
-        from .betfair.sync_tab_gui import BetfairSyncPanel
-        from .betfair.sync_engine import OK as _SYNC_OK
 
         # UNA sola finestra hub: se è già aperta, si cambia scheda e la si porta in primo
         # piano invece di aprirne una seconda identica (CodeRabbit). `winfo_exists` è 0 se
@@ -3738,11 +3429,10 @@ class App(ctk.CTk):
 
         def _make_parser(parent):
             """Crea il pannello Parser Personalizzato (scheda 🧩 Parser)."""
-            # Factory best-effort del dizionario Betfair (#192, Codex): rende «Prova
-            # messaggio» equivalente al runtime per i parser ID_ONLY dizionario-dipendenti
-            # (l'anteprima risolve gli ID come il live). Usa `_preview_id_resolver_factory`
-            # (non `_betfair_id_resolver`): salta durante una sync per non congelare il thread
-            # GUI sul lock del DB (Codex P2). Fail-open: durante la sync l'anteprima è conservativa.
+            # Factory best-effort del dizionario locale (#192, Codex): rende «Prova messaggio»
+            # capace di risolvere gli ID dal dizionario per i parser ID_ONLY dizionario-dipendenti.
+            # Fail-open: dizionario assente/vuoto → nessun arricchimento (anteprima conservativa).
+            # NB: il CSV live NON usa il resolver (id_resolver=None dopo la rimozione di «Betfair Sync»).
             return CustomParserPanel(parent, provider=_parser_provider,
                                      global_mode=_parser_global_mode, on_saved=_parser_saved,
                                      id_resolver_factory=self._preview_id_resolver_factory,
@@ -3755,8 +3445,9 @@ class App(ctk.CTk):
 
         def _make_mapping(parent):
             """Crea il pannello Mapping e ne tiene il riferimento per il refresh.
-            Inietta il provider dei nomi squadra permanenti (#282 PR 11), così l'area
-            ⚽ Calcio può precompilare la colonna Betfair coi nomi reali della sync."""
+            Inietta il provider dei nomi squadra del dizionario locale (#282 PR 11), così l'area
+            ⚽ Calcio può precompilare la colonna Betfair/XTrader coi nomi già presenti nel
+            dizionario (popolato a mano dall'utente)."""
             panel_refs["mapping"] = MappingPanel(
                 parent, on_saved=_mapping_saved,
                 known_teams_provider=self._known_betfair_teams,
@@ -3764,87 +3455,13 @@ class App(ctk.CTk):
                 teams_provider=self._betfair_teams_for_competition)
             return panel_refs["mapping"]
 
-        def _betfair_sync(sports):
-            """Callback «Sincronizza ora»: la sync (rete) gira su un WORKER THREAD per
-            non bloccare la GUI Tk; l'esito è marshalato sul main thread con
-            `after(0, ...)` e loggato in forma safe (CodeRabbit/Codex)."""
-            engine = self._betfair_sync_engine()
-
-            def _report(res):
-                if res.status == _SYNC_OK:
-                    self._log(f"🔄 Sync Betfair OK — sport {res.sports}: "
-                              f"+{res.new_events} eventi, +{res.new_markets} mercati, "
-                              f"+{res.new_selections} selezioni, {res.deactivated} disattivati.")
-                else:
-                    self._log("⚠️ Sync Betfair non eseguita: "
-                              + ("; ".join(res.errors) if res.errors else res.status))
-
-            def _worker():
-                res = engine.run(sports)
-                self.after(0, lambda: _report(res))
-
-            threading.Thread(target=_worker, daemon=True, name="betfair-sync").start()
-
-        def _betfair_autosync_change(enabled, hour, sports):
-            """Checkbox/orario/sport auto-sync cambiati nel pannello: persiste in config.
-            Gli sport selezionati vengono salvati con i flag, così l'auto-sync usa
-            esattamente quelli scelti (Codex). Un salvataggio fallito è segnalato come
-            tale invece di dichiarare ON (Codex)."""
-            # Parti dalla config LIVE in memoria (non da una rilettura del disco): se un
-            # save precedente è fallito, il disco è stantio e ne riscriveremmo sopra le
-            # impostazioni attive (source_chats/dry_run/…) sovrascrivendo `self._config`
-            # con uno snapshot vecchio. Sovrapponi SOLO le chiavi auto-sync (Codex).
-            cfg = dict(self._config) if isinstance(self._config, dict) else self._load_config()
-            cfg["betfair_auto_sync"] = bool(enabled)
-            cfg["betfair_auto_sync_hour"] = int(hour)
-            if sports is not None:
-                cfg["betfair_sync_sports"] = list(sports)
-            had = self._had_incomplete_token_load()   # PR-08c: il save consuma il marker
-            saved, ok = result = save_config(cfg, CONFIG_FILE)
-            self._config = saved
-            # Reidratazione del campo token dopo un save non-GUI (PR-08c): vedi _on_retention_change.
-            self._resync_token_field(had)
-            self._save_ok = ok
-            if ok:
-                self._log(f"🔵 Auto-sync Betfair {'ON' if enabled else 'OFF'} (orario {hour:02d}).")
-                # Kick immediato: abilitando o portando l'ora a quella corrente subito dopo
-                # un tick a 60s, si perderebbe la finestra a cavallo dell'ora (es. 23:59:30
-                # → prossimo check dopo mezzanotte, ora 00 ≠ 23). Cancella il tick pendente
-                # e rilancia subito; il tick si ri-arma da solo, così la chain resta unica
-                # (niente doppio timer) — Codex.
-                if not self._closing:
-                    _prev = getattr(self, "_autosync_after_id", None)
-                    if _prev is not None:
-                        try:
-                            self.after_cancel(_prev)
-                        except Exception:   # noqa: BLE001 — id già scaduto/invalido
-                            pass
-                    self._autosync_after_id = self.after(0, self._betfair_autosync_tick)
-            else:
-                # Causa SPECIFICA (#255 line-647): disco vs keyring vs config corrotto.
-                self._log("⚠️ Auto-sync Betfair NON persistito. "
-                          + config_store.save_status_message(result.status))
-
-        def _make_betfair(parent):
-            """Crea la tab Betfair Sync (credenziali locali + stato login/sync + auto).
-            Apre qui il DB/engine, così un suo errore resta isolato a questa scheda."""
-            self._betfair_sync_engine()    # forza la creazione del DB nel try/except del pannello
-            self._betfair_panel = BetfairSyncPanel(
-                parent, session=self._betfair_session_obj(),
-                on_login=self._betfair_login_async, on_sync=_betfair_sync,
-                on_invalidate=self._betfair_invalidate_login,
-                autosync=self._betfair_autosync_seed(),   # config LIVE, non disco stantio (Codex)
-                on_autosync_change=_betfair_autosync_change)
-            return self._betfair_panel
-
         def _make_dictionary(parent):
-            """Crea la tab «Dizionario Betfair» (SOLA LETTURA): consulta sport/eventi/
-            mercati/selezioni sincronizzati localmente. Riusa il DB del motore Betfair
-            (stessa istanza), senza scrivere nulla."""
-            from .betfair.dictionary_viewer import DictionaryViewerController
+            """Crea la tab «Dizionario» (SOLA LETTURA): consulta sport/eventi/mercati/selezioni
+            del dizionario locale. Apre il DB locale condiviso (stessa istanza del resto
+            dell'app), senza scrivere nulla. Il controller è costruito best-effort
+            (`_dictionary_viewer_controller`): un DB non apribile degrada a `None` senza crash."""
             from .betfair.dictionary_viewer_gui import DictionaryViewerPanel
-            controller = DictionaryViewerController(self._betfair_sync_engine().db)
-            return DictionaryViewerPanel(parent, controller=controller)
+            return DictionaryViewerPanel(parent, controller=self._dictionary_viewer_controller())
 
         def _make_journal(parent):
             """Crea la tab «📒 Diario» (SOLA LETTURA): consulta il diario eventi locale
@@ -3855,7 +3472,7 @@ class App(ctk.CTk):
 
         def _make_known_teams(parent):
             """Crea la tab «🧹 Nomi Betfair» (#282 PR 11-bis): sfoglia per sport i nomi
-            squadra permanenti raccolti dalla sync e li elimina uno per uno (ripulitura
+            squadra permanenti del dizionario locale e li elimina uno per uno (ripulitura
             manuale). Legge/elimina via callback busy-guardati sul DB Betfair locale."""
             from .known_teams_gui import KnownTeamsPanel
             return KnownTeamsPanel(parent, teams_provider=self._known_betfair_teams,
@@ -3863,7 +3480,7 @@ class App(ctk.CTk):
 
         def _make_summary(parent):
             """Crea la tab «📋 Riepilogo» (#293 slice 3, SOLA LETTURA): colpo d'occhio su
-            modalità Simulazione/REALE, stato Betfair e, per ogni canale, parser →
+            modalità Simulazione/REALE, stato del dizionario locale e, per ogni canale, parser →
             traduzioni → «Pronto?». Riusa i predicati del runtime (nessuna divergenza) e
             non scrive nulla."""
             from .config_summary_gui import ConfigSummaryPanel
@@ -3877,7 +3494,6 @@ class App(ctk.CTk):
             "provider": _make_provider,
             "parser": _make_parser,
             "mapping": _make_mapping,
-            "betfair": _make_betfair,
             "dictionary": _make_dictionary,
             "journal": _make_journal,
             "known_teams": _make_known_teams,
@@ -3890,25 +3506,22 @@ class App(ctk.CTk):
         self._tools_win.focus()
 
     def _config_summary_snapshot(self):
-        """Snapshot READ-ONLY per la tab «📋 Riepilogo» (#293 slice 3): config viva +
-        stato Betfair (dizionario sincronizzato / login), passati al modulo puro
-        `config_summary`. Non scrive nulla. Lo stato Betfair è best-effort: un DB
-        occupato/assente o una sessione non inizializzata degradano a `False` (il
-        riepilogo mostra «non sincronizzato / login non attivo», mai un crash)."""
+        """Snapshot READ-ONLY per la tab «📋 Riepilogo» (#293 slice 3): config viva + stato
+        del dizionario locale (presente/vuoto), passati al modulo puro `config_summary`. Non
+        scrive nulla. Lo stato è best-effort: un DB occupato/assente degrada a `False` (il
+        riepilogo mostra «dizionario vuoto», mai un crash)."""
         from . import config_summary, custom_parser
         # Config VIVA (autoritativa): dopo un salvataggio fallito il disco è STANTIO mentre
         # `self._config` riflette ciò che l'utente ha impostato. Il riepilogo deve mostrare cosa
-        # farà DAVVERO il bridge, quindi si legge la config viva (come `_betfair_autosync_change`),
-        # con fallback al disco solo se non c'è config viva (CodeRabbit #337).
+        # farà DAVVERO il bridge, quindi si legge la config viva, con fallback al disco solo se
+        # non c'è config viva (CodeRabbit #337).
         cfg = dict(self._config) if isinstance(self._config, dict) else self._load_config()
-        synced = logged_in = False
+        synced = False
         try:
-            db = self._betfair_sync_engine().db
-            # Probe NON bloccante sullo STESSO `_lock` che la sync tiene (come
-            # `_known_betfair_teams`/`_known_market_terms`): se una sync Betfair è in corso
-            # `acquire_read(blocking=False)` ritorna False → si salta la lettura (best-effort
-            # «non sincronizzato»), senza mai far attendere il thread GUI sul lock del dizionario.
-            # Race-free: la lettura avviene solo mentre teniamo noi il lock (CodeRabbit/Fable #337).
+            db = self._betfair_local_db()
+            # Probe NON bloccante sul `_lock` del DB (come `_known_betfair_teams`): se un altro
+            # thread lo tiene, si salta la lettura (best-effort «vuoto») senza far attendere il
+            # thread GUI. Race-free: si legge solo mentre teniamo noi il lock (CodeRabbit/Fable #337).
             if db is not None and db.acquire_read(blocking=False):
                 try:
                     synced = db.count_active("betfair_events") > 0
@@ -3916,12 +3529,8 @@ class App(ctk.CTk):
                     db.release_read()
         except Exception:                   # noqa: BLE001 — DB occupato/assente: fail-soft
             synced = False
-        try:
-            logged_in = bool(self._betfair_session_obj().is_logged_in)
-        except Exception:                   # noqa: BLE001 — sessione non inizializzata: fail-soft
-            logged_in = False
         return config_summary.summarize_config(
-            cfg, betfair_synced=synced, betfair_logged_in=logged_in,
+            cfg, betfair_synced=synced,
             parsers_dir=custom_parser.default_parsers_dir())
 
     def _populate_form(self, cfg: dict) -> None:

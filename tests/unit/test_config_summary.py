@@ -42,10 +42,10 @@ def test_mode_reale_vs_simulazione():
 
 
 def test_betfair_flags_passthrough():
-    s = cs.summarize_config({}, betfair_synced=True, betfair_logged_in=False)
-    assert s.betfair_synced is True and s.betfair_logged_in is False
-    s2 = cs.summarize_config({})            # default: nessuno stato Betfair
-    assert s2.betfair_synced is False and s2.betfair_logged_in is False
+    s = cs.summarize_config({}, betfair_synced=True)
+    assert s.betfair_synced is True
+    s2 = cs.summarize_config({})            # default: dizionario vuoto
+    assert s2.betfair_synced is False
 
 
 # ── «Pronto?» severo per canale ──────────────────────────────────────────────
