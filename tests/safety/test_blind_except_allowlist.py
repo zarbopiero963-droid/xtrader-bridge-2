@@ -29,10 +29,12 @@ _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
-    "app.py": (32, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+    "app.py": (33, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
                    "event journal best-effort (#230); refill campo token su widget Tk distrutto (PR-08c); "
                    "resolver ID del dizionario locale best-effort (#192: DB assente → None, il flusso "
                    "resta a nomi senza crashare); "
+                   "controller del viewer «Dizionario» best-effort (#20: DB non apribile → controller "
+                   "None, il pannello mostra l'avviso invece di crashare la costruzione della scheda); "
                    "after_cancel del retry post-stop clear CSV su id scaduto/invalido (#259 A1); "
                    "known_teams/competitions/teams del dizionario locale per precompilare la mappatura "
                    "nomi e il «Mapping guidato» best-effort (#282: DB assente → [], la GUI non crasha); "

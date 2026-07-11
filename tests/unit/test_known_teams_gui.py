@@ -4,7 +4,7 @@
 stubbiamo SEMPRE la libreria GUI con widget no-op (così `_refresh`/`_append_row` che
 COSTRUISCONO widget non crashano senza root Tk), ed esercitiamo i VERI metodi del pannello
 su un `self` finto (provider/delete simulati). La logica sotto test è quella reale: elenco,
-eliminazione + ricarica, fail-fast «sync in corso» (DictionaryBusy), fail-safe senza provider.
+eliminazione + ricarica, fail-fast «Dizionario occupato» (DictionaryBusy), fail-safe senza provider.
 """
 
 import importlib
@@ -108,13 +108,13 @@ def test_refresh_senza_provider_avvisa(KnownTeamsPanel):
     assert "non disponibile" in counts[-1]["text"]
 
 
-def test_refresh_sync_in_corso_avvisa(KnownTeamsPanel):
+def test_refresh_db_occupato_avvisa(KnownTeamsPanel):
     def _busy(sport=None):
         raise DictionaryBusy()
     fake, counts, _ = _fake_self(provider=_busy)
     _bind(KnownTeamsPanel, fake)
     fake._refresh()
-    assert "in corso" in counts[-1]["text"]
+    assert "occupato" in counts[-1]["text"]
 
 
 # ── eliminazione ────────────────────────────────────────────────────────────────
@@ -154,13 +154,13 @@ def test_append_row_pulsante_elimina_usa_normalized_name(KnownTeamsPanel):
     assert deleted == [("Calcio", "inter fc")]  # normalized_name, NON "Inter FC"
 
 
-def test_on_delete_sync_in_corso_avvisa_non_elimina(KnownTeamsPanel):
+def test_on_delete_db_occupato_avvisa_non_elimina(KnownTeamsPanel):
     def _deleter(s, n):
         raise DictionaryBusy()
     fake, counts, _ = _fake_self(deleter=_deleter)
     _bind(KnownTeamsPanel, fake)
     fake._on_delete("Calcio", "inter")
-    assert "in corso" in counts[-1]["text"]
+    assert "occupato" in counts[-1]["text"]
 
 
 def test_on_delete_senza_callback_avvisa(KnownTeamsPanel):

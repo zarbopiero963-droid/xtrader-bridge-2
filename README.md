@@ -218,11 +218,18 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 > **Nota (rimozione «Betfair Sync»).** La vecchia funzione **🔵 Betfair Sync** — login a
 > Betfair, download del catalogo e costruzione automatica del dizionario — **è stata rimossa**:
 > il bridge non contatta più Betfair, non fa login e non fa auto-sync. Il **dizionario locale**
-> (`betfair_dictionary.db`, sempre solo sul PC) resta come substrato ma va **popolato a mano**
-> dall'utente con i propri campi personalizzati. Di conseguenza il flusso CSV **live non
-> arricchisce più** gli ID (EventId/MarketId/SelectionId) dal dizionario: la riga resta a
-> **nomi** (il *seam* di arricchimento è pronto e riattivabile quando il dizionario custom sarà
-> popolato).
+> (`betfair_dictionary.db`, SQLite in `%APPDATA%\XTraderBridge`, sempre solo sul PC) resta come
+> substrato ma va **popolato a mano** dall'utente con i propri campi personalizzati. Di
+> conseguenza il flusso CSV **live non arricchisce più** gli ID (EventId/MarketId/SelectionId)
+> dal dizionario: la riga resta a **nomi** (il *seam* di arricchimento è pronto e riattivabile
+> quando il dizionario custom sarà popolato).
+>
+> **Come si popola oggi.** Non esiste (ancora) una procedura di import/seed integrata nella GUI:
+> finché non verrà aggiunta, un **DB pre-popolato è di fatto un prerequisito** per l'arricchimento
+> ID. Senza dizionario popolato il bridge funziona comunque **a nomi** (`recognition_mode`
+> `NAME_ONLY`, il default per le config nuove): consulta/ripulisci i nomi già presenti dalle
+> schede «📖 Dizionario» e «🧹 Nomi squadra». La definizione dello schema custom e del suo
+> import è lavoro dell'utente/futuro, fuori dallo scope di questa rimozione.
 
 Dalla finestra **"🧰 Strumenti" → scheda "📖 Dizionario"** puoi **consultare** il dizionario
 locale (Sport → Competizioni → Eventi → Mercati → Selezioni). Scegli il **Livello** e il

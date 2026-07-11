@@ -1,14 +1,14 @@
-"""Scheda «🧹 Nomi Betfair» — ripulitura manuale dei nomi squadra permanenti (#282 PR 11-bis).
+"""Scheda «🧹 Nomi squadra» — ripulitura manuale dei nomi squadra permanenti (#282 PR 11-bis).
 
-I nomi squadra raccolti dalla sync Betfair (`betfair_known_teams`, #319) sono **permanenti**:
+I nomi squadra del dizionario locale (`betfair_known_teams`, #319) sono **permanenti**:
 il mark-and-sweep non li tocca, quindi crescono nel tempo e possono restare nomi obsoleti/
 errati (squadre retrocesse/rinominate). Questa scheda li **sfoglia per sport** e permette di
 **eliminarli** uno per uno — l'unico modo per togliere un nome permanente.
 
-Come le altre viste sul dizionario Betfair, è **fail-fast** durante una sync (probe non
-bloccante: mostra «⏳ sync in corso» invece di congelare la GUI) e best-effort (DB assente →
-avviso, nessun crash). Tutta la logica di lettura/eliminazione (busy-guard incluso) vive in
-`App` (callback iniettati); qui ci sono solo widget/wiring, non testati in CI (serve un
+Come le altre viste sul dizionario locale, è **fail-fast** se un altro thread tiene il lock del
+DB (probe non bloccante: mostra «⏳ occupato» invece di congelare la GUI) e best-effort (DB
+assente → avviso, nessun crash). Tutta la logica di lettura/eliminazione (busy-guard incluso)
+vive in `App` (callback iniettati); qui ci sono solo widget/wiring, non testati in CI (serve un
 display): la logica esercitabile è testata a parte.
 """
 
@@ -27,7 +27,7 @@ class KnownTeamsPanel(ctk.CTkFrame):
     """Pannello di ripulitura dei nomi squadra permanenti.
 
     `teams_provider(sport=None)` → lista di dict `{sport, normalized_name, display_name, …}`
-    (può sollevare `DictionaryBusy` se una sync è in corso). `delete_team(sport,
+    (può sollevare `DictionaryBusy` se un altro thread tiene il lock del DB). `delete_team(sport,
     normalized_name)` → elimina un nome (idem `DictionaryBusy`). Entrambi opzionali: se
     assenti, il pannello avvisa invece di operare."""
 
@@ -42,10 +42,10 @@ class KnownTeamsPanel(ctk.CTkFrame):
     # ── costruzione UI ────────────────────────────────────────────────────────
     def _build_ui(self):
         ctk.CTkLabel(
-            self, text="🧹  Nomi Betfair noti (permanenti) — ripulitura",
+            self, text="🧹  Nomi squadra noti (permanenti) — ripulitura",
             font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
         ctk.CTkLabel(
-            self, text="Nomi squadra raccolti dalla sync Betfair, conservati per sempre. "
+            self, text="Nomi squadra del dizionario locale, conservati per sempre. "
                        "Elimina qui quelli obsoleti/errati (es. squadre retrocesse).",
             font=ctk.CTkFont(size=11), text_color="gray", wraplength=720,
             anchor="w", justify="left").pack(anchor="w", padx=12, pady=(0, 6))
@@ -78,13 +78,13 @@ class KnownTeamsPanel(ctk.CTkFrame):
         self._clear_rows()
         if not callable(self._teams_provider):
             self._counts.configure(
-                text="⛔ Dizionario Betfair non disponibile: sincronizza da «🔵 Betfair Sync».")
+                text="⛔ Provider del dizionario locale non disponibile.")
             return
         try:
             teams = self._teams_provider(self._selected_sport()) or []
         except DictionaryBusy:
             self._counts.configure(
-                text="⏳ Sincronizzazione Betfair in corso: riprova tra poco.")
+                text="⏳ Dizionario occupato: riprova tra poco.")
             return
         except Exception as exc:                 # noqa: BLE001 — best-effort, niente crash GUI
             self._counts.configure(text=f"⚠️ Errore lettura nomi: {type(exc).__name__}")
@@ -114,7 +114,7 @@ class KnownTeamsPanel(ctk.CTkFrame):
             ok = self._delete_team(sport, normalized_name)
         except DictionaryBusy:
             self._counts.configure(
-                text="⏳ Sincronizzazione Betfair in corso: riprova tra poco.")
+                text="⏳ Dizionario occupato: riprova tra poco.")
             return
         except Exception as exc:                 # noqa: BLE001 — best-effort, niente crash GUI
             self._counts.configure(text=f"⚠️ Eliminazione fallita: {type(exc).__name__}")
@@ -123,6 +123,6 @@ class KnownTeamsPanel(ctk.CTkFrame):
             # DB non disponibile (best-effort → False): niente refresh «pulito» che nasconde
             # il no-op — avvisa che nulla è stato eliminato (CodeRabbit/GPT/Fable #322).
             self._counts.configure(
-                text="⚠️ Eliminazione non riuscita: dizionario Betfair non disponibile.")
+                text="⚠️ Eliminazione non riuscita: dizionario locale non disponibile.")
             return
         self._refresh()

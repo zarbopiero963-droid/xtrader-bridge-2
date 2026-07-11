@@ -1465,10 +1465,50 @@ def test_preview_id_resolver_factory_conservativa_ritorna_none(app_mod):
     Fail-first: se la factory tornasse il resolver, un parser ID_ONLY con dizionario popolato
     risulterebbe «Pronto» in GUI mentre il live scarta la riga (divergenza Fugu #20)."""
     a = object.__new__(app_mod.App)
-    # Anche se il resolver fosse costruibile, la factory NON deve usarlo (resta conservativa).
-    a._betfair_id_resolver = lambda: (_ for _ in ()).throw(
-        AssertionError("l'anteprima non deve usare il resolver mentre il seam è staccato"))
+    # Guardia EAGER (GLM #20): un raise IMMEDIATO alla chiamata (non un generatore lazy) così il
+    # test fallisce davvero se la factory osasse invocare `_betfair_id_resolver`.
+    called = {"n": 0}
+
+    def _boom():
+        called["n"] += 1
+        raise AssertionError("l'anteprima non deve usare il resolver mentre il seam è staccato")
+    a._betfair_id_resolver = _boom
     assert app_mod.App._preview_id_resolver_factory(a) is None
+    assert called["n"] == 0                 # il resolver NON è stato nemmeno chiamato
+
+
+# ── CodeRabbit #20 (Major): _dictionary_viewer_controller best-effort ─────────────
+
+def test_dictionary_viewer_controller_ok(app_mod):
+    """DB apribile → ritorna un DictionaryViewerController agganciato al DB locale."""
+    from xtrader_bridge.betfair.dictionary_viewer import DictionaryViewerController
+    from xtrader_bridge.betfair.local_db import BetfairLocalDB
+    db = BetfairLocalDB(":memory:")
+    a = object.__new__(app_mod.App)
+    a._betfair_local_db = lambda: db
+    ctrl = app_mod.App._dictionary_viewer_controller(a)
+    assert isinstance(ctrl, DictionaryViewerController) and ctrl.db is db
+    db.close()
+
+
+def test_dictionary_viewer_controller_db_non_apribile_ritorna_none(app_mod):
+    """Fail-first (Major #20): se `_betfair_local_db()` solleva (AppData non scrivibile, disco
+    pieno, file corrotto), la costruzione della scheda «Dizionario» NON deve crashare → il
+    controller degrada a None (il pannello mostra il suo avviso). Prima del fix `_make_dictionary`
+    chiamava il DB non guardato e sollevava durante la costruzione dell'hub Strumenti."""
+    a = object.__new__(app_mod.App)
+
+    def _boom():
+        raise RuntimeError("DB locale non apribile (simulato)")
+    a._betfair_local_db = _boom
+    assert app_mod.App._dictionary_viewer_controller(a) is None
+
+
+def test_dictionary_viewer_controller_db_none_ritorna_none(app_mod):
+    """DB accessor che ritorna None (nessun DB aperto) → controller None, nessun crash."""
+    a = object.__new__(app_mod.App)
+    a._betfair_local_db = lambda: None
+    assert app_mod.App._dictionary_viewer_controller(a) is None
 
 
 def test_start_senza_parser_attivo_e_bloccante(app_mod):

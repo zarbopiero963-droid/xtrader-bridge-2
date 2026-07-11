@@ -10,16 +10,23 @@ campi personalizzati, e i moduli qui sotto lo leggono in sola lettura.
 Vincoli **non negoziabili** validi per ogni modulo qui dentro:
 
 - **100% locale**: nessun dato (dizionario, eventi, MarketId/SelectionId, mapping)
-  esce dal PC/VPS. Niente cloud, niente backup/import/export.
-- **Solo read-only**: nessuna operazione di scommessa; questi moduli non fanno rete.
+  esce dal PC/VPS. Niente cloud, niente rete, niente backup/import/export.
+- **Nessuna rete, nessun login, nessuna scommessa**: rimossi con «Betfair Sync».
+
+Sul «read-only»: i **consumatori** del dizionario (`dictionary_resolver`, `dictionary_viewer`,
+`guided_mapping`) sono **sola lettura**. Il solo `local_db` può **scrivere in locale** (SQLite):
+la **manutenzione** del dizionario resta supportata — popolazione a mano dell'utente e
+**eliminazione** di un nome squadra permanente (`delete_known_team`, scheda «🧹 Nomi squadra»).
+Queste scritture sono tutte **locali** e non riguardano scommesse né rete.
 
 Moduli superstiti:
 
-- `local_db`            — storage SQLite del dizionario locale (lettura/scrittura locale);
-- `dictionary_resolver` — risoluzione EventId/MarketId/SelectionId dal dizionario (il
-  «gancio» per l'arricchimento ID, oggi non cablato sul CSV live — vedi `app.py`);
-- `dictionary_viewer`(+`_gui`) — consultazione read-only del dizionario;
-- `guided_mapping`      — alberi Sport→Competizione→Squadre dal dizionario (mapping guidato).
+- `local_db`            — storage SQLite del dizionario locale (lettura + scrittura **locale**:
+  popolazione/manutenzione manuale, es. `delete_known_team`);
+- `dictionary_resolver` — risoluzione EventId/MarketId/SelectionId dal dizionario, **sola
+  lettura** (il «gancio»/seam per l'arricchimento ID, oggi non cablato — vedi `app.py`);
+- `dictionary_viewer`(+`_gui`) — consultazione **read-only** del dizionario;
+- `guided_mapping`      — alberi Sport→Competizione→Squadre dal dizionario (**read-only**).
 """
 
 from . import (

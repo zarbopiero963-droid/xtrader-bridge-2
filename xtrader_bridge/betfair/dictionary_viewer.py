@@ -76,7 +76,7 @@ def _format_cell(col: str, value) -> str:
     """Formatta UNA cella per la visualizzazione (sola lettura):
 
     - `active` (0/1) → "sì"/"no" (più leggibile dello 0/1 grezzo);
-    - `last_seen_at` 0/None → "" (mai sincronizzato), altrimenti il marker della sync;
+    - `last_seen_at` 0/None → "" (mai popolato), altrimenti il marker di popolazione;
     - `None` → "" (cella vuota);
     - tutto il resto → stringa."""
     if col == "active":
@@ -98,8 +98,8 @@ class DictionaryBusy(Exception):
     """Il dizionario è temporaneamente occupato da un’altra operazione sul DB in corso.
 
     Il viewer (sola lettura, thread Tk) fa **fail-fast** con questa eccezione invece di
-    bloccarsi sul lock del DB, che `transaction()` tiene attraverso le chiamate di rete del
-    catalogue: bloccare freezerebbe la GUI finché la sync non finisce/scade (Codex #175)."""
+    bloccarsi sul lock del DB: un'altra operazione locale (popolazione/manutenzione del
+    dizionario) può tenerlo, e bloccare freezerebbe la GUI fino al rilascio (Codex #175)."""
 
 
 class DictionaryViewerController:

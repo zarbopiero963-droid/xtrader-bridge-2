@@ -229,7 +229,7 @@ proprietario: **«diretto», nessuna mappatura** — i nomi Betfair (locale IT) 
 quelli attesi da XTrader, quindi il valore viene **persistito così com'è** (a differenza dei nomi
 squadra della #282, che restano con mappatura provider→Betfair).
 
-- durante la sync, per ogni mercato del catalogue vengono salvati in una tabella locale
+- per ogni mercato presente nel dizionario i valori vengono salvati in una tabella locale
   dedicata `betfair_known_market_terms` (chiave `sport` + `market_type` + `normalized_market`
   + `normalized_selection`, stesso normalizzatore del resto del dizionario; il `market_type`
   è **parte della chiave** così due mercati con lo stesso nome ma tipo diverso non collidono).
@@ -237,20 +237,19 @@ squadra della #282, che restano con mappatura provider→Betfair).
   la selezione resta legata al suo mercato (invariante «la selezione appartiene al mercato»);
 - come `betfair_known_teams`, la tabella è **permanente**: nessuna colonna `active`, mai
   toccata dal mark-and-sweep. `MarketId`/`SelectionId` restano **effimeri**;
-- sync ripetute **accumulano** senza duplicare (idempotente); nuovi valori compaiono col tempo.
+- inserimenti ripetuti **accumulano** senza duplicare (idempotente); nuovi valori compaiono man mano che l'utente popola il dizionario.
 
-**Allowlist safety-critical (SelectionName).** `MarketType` e `MarketName` sono descrittori
-**universali** (es. `MATCH_ODDS` / «Esito Finale», `OVER_UNDER_25` / «Over/Under 2,5») →
-raccolti per **tutti** i mercati. Le **SelectionName**, invece, sono raccolte **solo** dai
+**Principio safety-critical (SelectionName).** `MarketType` e `MarketName` sono descrittori
+**universali** (es. `MATCH_ODDS` / «Esito Finale», `OVER_UNDER_25` / «Over/Under 2,5») → validi
+per **tutti** i mercati. Le **SelectionName**, invece, andrebbero conservate **solo** per i
 mercati i cui esiti sono **universali** (Over/Under di qualunque soglia, `BOTH_TEAMS_TO_SCORE`
-Sì/No, `ODD_OR_EVEN`) — vedi
-`catalogue_client._UNIVERSAL_SELECTION_MARKET_TYPES` / `_is_universal_selection_market`. I
+Sì/No, `ODD_OR_EVEN`). I
 mercati **team-dipendenti** (`MATCH_ODDS`, `*_HANDICAP`, `CORRECT_SCORE`, `DRAW_NO_BET`,
 `DOUBLE_CHANCE` — su Betfair i suoi runner sono «{Home} o Pareggio», non «1X/12/X2», …)
 hanno come esiti i **nomi delle squadre** o valori **per-partita**: fissarne uno come
 SelectionName scriverebbe una riga CSV sbagliata (scommessa sbagliata), perciò **non**
-contribuiscono selezioni. La lista è **conservativa e fail-closed** (nel dubbio un mercato
-resta fuori) ed è estendibile dal proprietario. Per i risultati esatti (`CORRECT_SCORE` FT e
+contribuiscono selezioni. Il criterio è **conservativo e fail-closed** (nel dubbio un mercato
+resta fuori). Per i risultati esatti (`CORRECT_SCORE` FT e
 primo tempo) è tracciata a parte l'estrazione dinamica per-riga dal messaggio (issue #325).
 
 > Letture (data layer): `BetfairLocalDB.known_market_types(sport)` /
@@ -261,12 +260,12 @@ primo tempo) è tracciata a parte l'estrazione dinamica per-riga dal messaggio (
 editabile** (`CTkComboBox`) popolata da questi valori permanenti, **filtrati per lo sport del
 parser** (la tendina Sport in alto). A differenza della riga **Provider** (tendina a scelta
 fissa dall'anagrafica), qui la tendina è **editabile**: suggerisce i valori presenti nel dizionario **ma
-il testo libero resta digitabile**, così un valore valido non ancora harvestato è comunque
+il testo libero resta digitabile**, così un valore valido non ancora nel dizionario è comunque
 inseribile (nessuna regressione fail-closed). Le tendine si aggiornano al **cambio sport** e
-quando la scheda torna attiva nell'hub Strumenti (una sync nel frattempo può aver aggiunto
-valori). Fonte dati: `App._known_market_terms(sport)` — sola lettura, **fail-fast** durante una
-sync (probe non bloccante: nessun suggerimento momentaneo invece di congelare la GUI), DB
-assente → nessun suggerimento. La coerenza «selezione appartiene al mercato» resta garantita
+quando la scheda torna attiva nell'hub Strumenti (una modifica al dizionario nel frattempo può
+aver aggiunto valori). Fonte dati: `App._known_market_terms(sport)` — sola lettura, **fail-fast**
+se un altro thread tiene il lock del DB (probe non bloccante: nessun suggerimento momentaneo
+invece di congelare la GUI), DB assente → nessun suggerimento. La coerenza «selezione appartiene al mercato» resta garantita
 dal picker **«Catalogo XTrader»** (che imposta la tripla Mercato→Tipo→Selezione); le tendine
 per-riga offrono i valori per-sport senza cascading Mercato→Selezione (fuori scope PR 13).
 
@@ -369,8 +368,8 @@ esplicita (incl. la voce «(eredita globale)» se la scegli apposta).
 Ogni parser può dichiarare uno **Sport** (menu a tendina accanto a «Modalità»): uno fra
 **Calcio / Tennis / Basket / Rugby Union**, oppure **«(non specificato)»** = parser
 **agnostico**. È salvato nel file del parser (campo `sport`; vuoto = non specificato) ed è
-la fonte unica degli sport (`xtrader_bridge/sports.py`), la stessa usata dalla tab Betfair
-Sync e dal catalogue client, con la mappa allo `event_type_id` ufficiale Betfair
+la fonte unica degli sport (`xtrader_bridge/sports.py`), usata dal parser e dalla risoluzione
+ID del dizionario locale, con la mappa allo `event_type_id` ufficiale Betfair
 (Calcio=1, Tennis=2, Basket=7522, Rugby Union=5).
 
 Lo Sport **non cambia le colonne CSV** (restano le 14 generiche): serve a indicare a quale
@@ -721,9 +720,9 @@ retro-compatibile).
   I delimitatori **non** vengono strippati al salvataggio (come nella griglia base): un
   delimitatore whitespace (es. fine riga) è legittimo.
   **Nota modalità e sicurezza (importante).** I risultati esatti Betfair sono selezioni
-  **per-partita** (dipendono dalle squadre) e **NON** sono nel dizionario locale: l'harvest #283 li
-  **esclude di proposito** (`catalogue_client._harvest_market_terms`: per `CORRECT_SCORE`/
-  `HALF_TIME_SCORE` salva la riga àncora del mercato ma **nessuna** SelectionName). Di conseguenza un
+  **per-partita** (dipendono dalle squadre) e tipicamente **NON** sono nel dizionario locale (una
+  popolazione «diretta» conserva la riga àncora del mercato `CORRECT_SCORE`/`HALF_TIME_SCORE` ma
+  **nessuna** SelectionName per-partita). Di conseguenza un
   `SelectionId` per «1 - 0» **non è risolvibile** dal dizionario: in **`ID_ONLY`/`BOTH`** ogni
   punteggio estratto resterebbe **senza ID → scartato** (la feature non produrrebbe righe). Perciò
   l'estrazione dinamica dei punteggi **piazza a NOME** ed è di fatto una funzione di **`NAME_ONLY`**

@@ -2082,6 +2082,19 @@ class App(ctk.CTk):
         except Exception:   # noqa: BLE001 — best-effort: il flusso non deve crashare
             return None
 
+    def _dictionary_viewer_controller(self):
+        """Controller SOLA LETTURA per la tab «Dizionario», **best-effort**: apre il DB locale
+        e, se non apribile (AppData non scrivibile, disco pieno, file corrotto, permessi),
+        ritorna `None` — così `DictionaryViewerPanel` mostra il suo avviso «Dizionario non
+        disponibile» invece di far crashare la costruzione della scheda Strumenti (CodeRabbit
+        #20). Stesso pattern degli altri accessor (`_known_betfair_teams` ecc.)."""
+        from .betfair.dictionary_viewer import DictionaryViewerController
+        try:
+            db = self._betfair_local_db()
+        except Exception:   # noqa: BLE001 — best-effort: degrada a None, niente crash GUI
+            return None
+        return DictionaryViewerController(db) if db is not None else None
+
     def _preview_id_resolver_factory(self):
         """Factory del resolver ID per l'ANTEPRIMA GUI «Prova messaggio» (#192).
 
@@ -3445,11 +3458,10 @@ class App(ctk.CTk):
         def _make_dictionary(parent):
             """Crea la tab «Dizionario» (SOLA LETTURA): consulta sport/eventi/mercati/selezioni
             del dizionario locale. Apre il DB locale condiviso (stessa istanza del resto
-            dell'app), senza scrivere nulla."""
-            from .betfair.dictionary_viewer import DictionaryViewerController
+            dell'app), senza scrivere nulla. Il controller è costruito best-effort
+            (`_dictionary_viewer_controller`): un DB non apribile degrada a `None` senza crash."""
             from .betfair.dictionary_viewer_gui import DictionaryViewerPanel
-            controller = DictionaryViewerController(self._betfair_local_db())
-            return DictionaryViewerPanel(parent, controller=controller)
+            return DictionaryViewerPanel(parent, controller=self._dictionary_viewer_controller())
 
         def _make_journal(parent):
             """Crea la tab «📒 Diario» (SOLA LETTURA): consulta il diario eventi locale

@@ -45,8 +45,8 @@ _FILTER_DEBOUNCE_MS = 250
 class GuidedMappingPanel(ctk.CTkFrame):
     """Pannello del Mapping guidato Betfair → nome canale.
 
-    Provider iniettati dall'app (sola lettura del dizionario Betfair, **fail-fast** su
-    `DictionaryBusy` durante una sync):
+    Provider iniettati dall'app (sola lettura del dizionario locale, **fail-fast** su
+    `DictionaryBusy` se un altro thread tiene il lock del DB):
     - `competitions_provider(sport) -> list[{"competition_id","name"}]`;
     - `teams_provider(competition_id) -> list[str]` (nomi squadra della competizione).
     `on_saved(new_cfg)`: callback dopo ogni salvataggio riuscito (anti-stale della GUI principale).
@@ -69,7 +69,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
         # Precarica le competizioni per lo sport di default (già selezionato nella tendina): il
         # `command` del menu Sport scatta solo su cambio manuale, quindi senza questa chiamata la
         # tendina Competizione resterebbe sul placeholder finché l'utente non ritocca lo Sport
-        # (CodeRabbit #389). Best-effort: `_on_sport_change` gestisce da sé DB assente/sync in corso.
+        # (CodeRabbit #389). Best-effort: `_on_sport_change` gestisce da sé DB assente/occupato.
         self._on_sport_change()
 
     def destroy(self):
@@ -226,7 +226,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
         return self._sport_var.get()
 
     def _on_sport_change(self):
-        """Nuovo sport: ricarica la tendina competizioni (fail-fast su sync in corso)."""
+        """Nuovo sport: ricarica la tendina competizioni (fail-fast se il DB è occupato)."""
         self._comp_by_label = {}
         try:
             comps = (self._competitions_provider(self._selected_sport())
