@@ -100,11 +100,17 @@ def test_load_config_roundtrip_preserva_altre_chiavi(tmp_path):
     assert cfg["source_language"] == ""                     # default aggiunto (fail-closed)
     assert cfg["csv_path"] == r"C:\Custom\segnali.csv"      # altra chiave preservata
     assert cfg["recognition_mode"] == "ID_ONLY"            # altra chiave preservata (file esistente)
-    # imposta la lingua-fonte e persiste; il reload la normalizza e non perde nulla
+    # imposta la lingua-fonte (minuscola) e persiste. Verifichiamo la semantica REALE su disco
+    # (CodeRabbit #22): `save_config` scrive il valore GREZZO ("en"), la canonicalizzazione è a
+    # CARICO del load (`_migrate`) — punto UNICO di normalizzazione, come `app_language`/
+    # `csv_language`. Il valore grezzo su disco è innocuo perché OGNI load ri-normalizza.
     cfg["source_language"] = "en"
-    config_store.save_config(cfg, str(p))
+    _saved, ok = config_store.save_config(cfg, str(p))
+    assert ok                                               # scrittura su disco riuscita
+    persisted = json.loads(p.read_text(encoding="utf-8"))
+    assert persisted["source_language"] == "en"             # persistito (non droppato); grezzo by design
     reloaded = config_store.load_config(str(p))
-    assert reloaded["source_language"] == "EN"              # "en" → "EN" persistito
+    assert reloaded["source_language"] == "EN"              # "en" → "EN" alla RILETTURA (single point)
     assert reloaded["csv_path"] == r"C:\Custom\segnali.csv"
     assert reloaded["recognition_mode"] == "ID_ONLY"
 
