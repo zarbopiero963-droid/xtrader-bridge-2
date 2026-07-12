@@ -153,9 +153,9 @@ provider nei nomi Betfair/XTrader **prima** della scrittura:
   Un valore non-vuoto e **non riconosciuto** (typo tipo `ENG`) è FAIL-CLOSED (riga scartata,
   con avviso, non allargata a tutte le lingue). Dalla **slice 5b (wiring)** la pipeline passa
   automaticamente la `source_language` effettiva (live **e** anteprima) a questo filtro, quindi
-  il campo è **attivo a runtime**; per ora la colonna si imposta via `config.json` (l'editor GUI
-  «Lingua» arriva nella slice successiva). Con lingua-fonte non impostata il comportamento è
-  quello storico (nessun filtro).
+  il campo è **attivo a runtime**. La colonna **«Lingua»** si imposta dalla tendina nel **Dizionario
+  nomi** (🗺️ Mapping) — `IT`/`EN`/`ES` o **«(tutte le lingue)»** (agnostica) — oppure a mano in
+  `config.json`. Con lingua-fonte non impostata il comportamento è quello storico (nessun filtro).
 
 **Sicuro (fail-closed)**: se il separatore non si trova **o** una squadra non è nei
 profili (per lo sport del parser), lo stato è `MAPPING_MISSING` → **nessuna riga CSV** (un

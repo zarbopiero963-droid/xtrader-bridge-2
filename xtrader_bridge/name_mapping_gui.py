@@ -26,6 +26,7 @@ from . import (
     gui_utils,
     market_mapping_store,
     name_mapping_store,
+    recognition,
     sports,
 )
 
@@ -33,6 +34,8 @@ from . import (
 _SPORT_ALL = "(tutti gli sport)"
 # Etichetta della tendina Tipo entità per la riga agnostica ("" = qualsiasi tipo).
 _ENTITY_ALL = "(qualsiasi tipo)"
+# Etichetta della tendina Lingua-fonte per la riga agnostica ("" = vale per tutte le lingue).
+_LANGUAGE_ALL = "(tutte le lingue)"
 
 # Etichetta VISIBILE della colonna «alias del canale» nel Dizionario nomi squadra (#293):
 # rinominata da «Provider» a «Come lo scrive il canale» per eliminare la collisione con
@@ -44,7 +47,8 @@ _CHANNEL_ALIAS_COLUMN = "Come lo scrive il canale"
 # Fonte unica usata da `_build_ui` E dal test di regressione (`test_channel_alias_rename.py`),
 # così la verifica dell'etichetta è sul DATO reale dell'header, non su una grep del sorgente.
 _HEADER_COLUMNS = (("Country (opz.)", 180), ("Betfair / XTrader", 240),
-                   (_CHANNEL_ALIAS_COLUMN, 240), ("Sport", 150), ("Tipo", 150))
+                   (_CHANNEL_ALIAS_COLUMN, 240), ("Sport", 150), ("Tipo", 150),
+                   ("Lingua", 130))
 
 
 def _sport_to_label(sport: str) -> str:
@@ -61,6 +65,14 @@ def _entity_to_label(entity_type: str) -> str:
 
 def _label_to_entity(label: str) -> str:
     return "" if label == _ENTITY_ALL else label
+
+
+def _language_to_label(language: str) -> str:
+    return _LANGUAGE_ALL if not language else language
+
+
+def _label_to_language(label: str) -> str:
+    return "" if label == _LANGUAGE_ALL else label
 
 
 class NameMappingPanel(ctk.CTkFrame):
@@ -184,13 +196,13 @@ class NameMappingPanel(ctk.CTkFrame):
         for e in entries:
             self._append_row_widget(e.get("country", ""), e.get("betfair", ""),
                                     e.get("provider", ""), e.get("sport", ""),
-                                    e.get("entity_type", ""))
+                                    e.get("entity_type", ""), e.get("language", ""))
         if not entries:
             self._append_row_widget()                   # una riga vuota pronta da compilare
 
     def _append_row_widget(self, country="", betfair="", provider="", sport="",
-                           entity_type=""):
-        """Aggiunge una riga di widget (3 Entry + tendina Sport + tendina Tipo + elimina)."""
+                           entity_type="", language=""):
+        """Aggiunge una riga di widget (3 Entry + tendina Sport + Tipo + Lingua + elimina)."""
         row = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
         row.pack(fill="x", pady=2)
         e_country = ctk.CTkEntry(row, width=180)
@@ -213,19 +225,28 @@ class NameMappingPanel(ctk.CTkFrame):
         ctk.CTkOptionMenu(row, variable=entity_var, width=150,
                           values=[_ENTITY_ALL, *name_mapping_store.ENTITY_TYPES]
                           ).pack(side="left", padx=3)
+        # Lingua-fonte (#3 slice 5b): «(tutte le lingue)» = riga agnostica; altrimenti restringe
+        # la riga alla lingua del palinsesto (IT/EN/ES), prioritaria sull'agnostica nel matching.
+        language_var = ctk.StringVar(value=_language_to_label(language))
+        ctk.CTkOptionMenu(row, variable=language_var, width=130,
+                          values=[_LANGUAGE_ALL, *recognition.SOURCE_LANGUAGES]
+                          ).pack(side="left", padx=3)
         refs = {"frame": row, "country": e_country, "betfair": e_betfair,
-                "provider": e_provider, "sport": sport_var, "entity_type": entity_var}
+                "provider": e_provider, "sport": sport_var, "entity_type": entity_var,
+                "language": language_var}
         ctk.CTkButton(row, text="🗑", width=36, fg_color="#c62828", hover_color="#7f0000",
                       command=lambda r=refs: self._delete_row(r)).pack(side="left", padx=3)
         self._row_widgets.append(refs)
 
     def _collect_rows(self) -> list:
         """Righe correnti dai widget come dict {country, betfair, provider, sport,
-        entity_type} (la pulizia delle righe vuote la fa `name_mapping_store.set_entries`)."""
+        entity_type, language} (la pulizia delle righe vuote la fa
+        `name_mapping_store.set_entries`)."""
         return [
             {"country": r["country"].get(), "betfair": r["betfair"].get(),
              "provider": r["provider"].get(), "sport": _label_to_sport(r["sport"].get()),
-             "entity_type": _label_to_entity(r["entity_type"].get())}
+             "entity_type": _label_to_entity(r["entity_type"].get()),
+             "language": _label_to_language(r["language"].get())}
             for r in self._row_widgets
         ]
 

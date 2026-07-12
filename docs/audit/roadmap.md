@@ -2679,3 +2679,35 @@ con relativo aggiornamento handoff — è la slice successiva.
 **Ancora aperto:** colonna GUI «Lingua» nel Dizionario nomi (design_handoff); poi 5c (colonna
 `Lingua` del dizionario canonico) e 5d (Betfair per-exchange). La **#3 si chiude** solo a slice 5
 completa.
+
+## #3 slice 5b (parte 3 — GUI) — Colonna «Lingua» nel Dizionario nomi
+
+**Contesto.** La 5b «store» ha aggiunto il campo per-riga `language` al dizionario nomi e la 5b
+«wiring» l'ha reso attivo a runtime (live+preview). Questa slice espone il campo nella **GUI** così
+la lingua per riga si imposta con una tendina invece di editare `config.json`.
+
+**Tecnico (`name_mapping_gui.py`).** Nuova colonna **«Lingua»** nella tabella del Dizionario nomi
+squadra, speculare a **Sport**/**Tipo**:
+- header `_HEADER_COLUMNS` esteso con `("Lingua", 130)`;
+- tendina per riga con valori `[«(tutte le lingue)», IT, EN, ES]` (`recognition.SOURCE_LANGUAGES`);
+- sentinella `_LANGUAGE_ALL` + helper `_language_to_label`/`_label_to_language` (agnostica «(tutte
+  le lingue)» ↔ chiave dati `""`), come `_SPORT_ALL`/`_ENTITY_ALL`;
+- `_append_row_widget` accetta `language=""`, `_collect_rows` emette la chiave `language`, il load
+  delle righe passa `e.get("language","")`. Il precompila-da-Betfair lascia la lingua agnostica.
+- Persistenza invariata: `name_mapping_store.set_entries`/`_clean_entry` normalizzano e fanno
+  fail-closed sui typo (già dalla 5b store).
+
+**Safety.** Solo vista/editing: nessuna modifica al matching o al contratto CSV; default agnostico
+(nessun cambio di comportamento per i dizionari esistenti). Merge **manuale**.
+
+**Test hard** (`tests/unit/test_name_mapping_gui_language.py`, +3, headless con stub `customtkinter`):
+helper lingua round-trip + agnostica; header contiene «Lingua» senza rimuovere le colonne esistenti;
+`_collect_rows` emette `language` (valorizzata resta, «(tutte le lingue)» → `""`) col contratto store
+invariato. La resa visuale della tendina resta uno **smoke manuale** (apri 🗺️ Mapping → Dizionario
+nomi, imposta una riga a EN, salva, riapri → la tendina mostra EN; una riga «(tutte le lingue)» resta
+agnostica). Suite **2379 passed, 11 skipped**. **CORE change** (`name_mapping_gui.py`) → da
+ri-sincronizzare nel cloud. Docs: README + `docs/custom_parser.md` + **`docs/design/design_handoff.md`**
+(tabella Dizionario nomi con la colonna «Lingua» e il default prefill) aggiornati.
+
+**Ancora aperto:** 5c (colonna `Lingua` del dizionario canonico) e 5d (Betfair per-exchange IT-vs-UK).
+La **#3 si chiude** solo a slice 5 completa.
