@@ -2665,9 +2665,11 @@ retro-compat: dizionari agnostici risolvono ancora con lingua-fonte impostata. M
 `build_validated_row`; `resolve_row` (live) usa il dizionario della lingua-fonte globale;
 override per-parser vince nel live; **parità live/preview** su EN/IT/"" (stesso EventName);
 retro-compat dizionario agnostico; `""` = comportamento legacy; **`source_language` globale
-malformata → fail-safe (nessun filtro, non «nessun match»)** su live+pipeline (GLM #24). Allowlist
+malformata → fail-safe (nessun filtro, non «nessun match»)** su live+pipeline (GLM #24);
+**percorso MULTI-RIGA**: la lingua-fonte si propaga a TUTTE le righe MultiSelection generate
+(EventName mappato sulla base ereditato dalle derivate — Fable #24). Allowlist
 blind-except `custom_parser_gui.py` 10→11 (nuovo resolver lingua fail-safe da config, motivato). Suite
-**2375 passed, 11 skipped**. **CORE change** (`custom_pipeline.py`, `signal_router.py`,
+**2376 passed, 11 skipped**. **CORE change** (`custom_pipeline.py`, `signal_router.py`,
 `parser_builder.py`, `parser_diagnostics.py`, `custom_parser_gui.py`) → da ri-sincronizzare nel
 cloud. Docs: README (`source_language` ora attiva) + `docs/custom_parser.md` aggiornati.
 Design handoff = **N/A**: nessun elemento GUI **visibile** cambia (l'anteprima ora calcola la

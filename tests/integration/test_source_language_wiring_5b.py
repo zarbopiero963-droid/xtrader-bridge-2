@@ -111,6 +111,41 @@ def test_retrocompat_dizionario_agnostico_live(tmp_path):
     assert res.placeable and res.row["EventName"] == "Liverpool - Leeds"
 
 
+def _multi_parser():
+    """Parser MultiSelection (#192): la BASE mappa l'EventName (una volta), ogni selezione
+    genera una riga che eredita quell'EventName tradotto."""
+    defn = cp.CustomParserDef(
+        name="LangMulti", mode="NAME_ONLY",
+        name_mapping_profiles=["P"], team_separator="v",
+        rules=[
+            cp.FieldRule(target="Provider", fixed_value="TG"),
+            cp.FieldRule(target="EventName", start_after="Match:", end_before="\n", required=True),
+            cp.FieldRule(target="MarketType", fixed_value="CORRECT_SCORE", required=True),
+            cp.FieldRule(target="MarketName", fixed_value="Risultato esatto"),
+            cp.FieldRule(target="Price", start_after="Quota:", end_before="\n", required=True),
+            cp.FieldRule(target="BetType", fixed_value="BACK", required=True),
+        ])
+    defn.multi_selection_enabled = True
+    defn.multi_selections = [cp.MultiRowRule(selection_name=s) for s in ("1 - 0", "2 - 1")]
+    return defn
+
+
+def test_multirow_source_language_propaga_a_tutte_le_righe():
+    # Fable #24: la lingua-fonte deve propagarsi anche sul percorso MULTI-RIGA. La mappatura
+    # EventName avviene sulla BASE (una volta) e ogni riga MultiSelection eredita l'EventName
+    # tradotto → il filtro-lingua NON resta inerte sul multi (passthrough `**kwargs` di
+    # `build_validated_rows` su base+retry + eredità base→derivate). Fail-first: se
+    # `build_validated_rows` perdesse il kwarg su base/retry, EN/IT non filtrerebbero qui.
+    profs = nm.entries_for_profiles(_cfg(), ["P"])
+    for lang, exp in (("EN", "Liverpool - Leeds"), ("IT", "Liverpool IT - Leeds IT")):
+        rows = pipe.build_validated_rows(_multi_parser(), _MSG, name_mapping_profiles=profs,
+                                         source_language=lang)
+        placeable = [r for r in rows if r.placeable]
+        assert len(placeable) == 2, lang                       # due selezioni generate
+        assert all(r.row["EventName"] == exp for r in placeable), lang   # lingua propagata a TUTTE
+        assert {r.row["SelectionName"] for r in placeable} == {"1 - 0", "2 - 1"}, lang
+
+
 def test_source_language_globale_malformata_fail_safe(tmp_path):
     # Fail-safe lato QUERY (GLM #24): una `source_language` globale MALFORMATA ("ENG"/"FR"/…)
     # normalizza a "" → nessun filtro (comportamento legacy), NON un filtro rotto che scarta
