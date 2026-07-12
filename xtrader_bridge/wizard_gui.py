@@ -11,7 +11,7 @@ import threading
 
 import customtkinter as ctk
 
-from . import wizard
+from . import i18n, wizard
 
 _W = 620          # larghezza contenuti/wraplength
 _OK, _KO = "#66bb6a", "#ef5350"
@@ -34,7 +34,7 @@ class WizardWindow(ctk.CTkToplevel):
     def __init__(self, master=None, *, initial=None, builder_factory=None,
                  checklist_provider=None, on_finish=None):
         super().__init__(master)
-        self.title("🧙 Wizard di prima configurazione")
+        self.title(i18n.tr("🧙 Wizard di prima configurazione"))
         initial = initial if isinstance(initial, dict) else {}
         self._builder_factory = builder_factory
         self._checklist_provider = checklist_provider
@@ -53,10 +53,10 @@ class WizardWindow(ctk.CTkToplevel):
         self._result_lbl.pack(fill="x", padx=14, pady=4)
         nav = ctk.CTkFrame(self, fg_color="transparent")
         nav.pack(fill="x", padx=14, pady=(4, 12))
-        self._btn_back = ctk.CTkButton(nav, text="◀ Indietro", width=110,
+        self._btn_back = ctk.CTkButton(nav, text=i18n.tr("◀ Indietro"), width=110,
                                        command=self._go_back)
         self._btn_back.pack(side="left")
-        self._btn_next = ctk.CTkButton(nav, text="Avanti ▶", width=110,
+        self._btn_next = ctk.CTkButton(nav, text=i18n.tr("Avanti ▶"), width=110,
                                        command=self._go_next)
         self._btn_next.pack(side="right")
 
@@ -89,14 +89,14 @@ class WizardWindow(ctk.CTkToplevel):
             return
         if not self._passed[self._step]:
             self._result_lbl.configure(
-                text="⛔ Completa prima la verifica di questo step.", text_color=_KO)
+                text=i18n.tr("⛔ Completa prima la verifica di questo step."), text_color=_KO)
             return
         if self._verified.get(self._step) != self._step_snapshot(self._step):
             # Valore MODIFICATO dopo il ✅ (CodeRabbit #354): l'esito è stantio —
             # mai avanzare (e quindi mai salvare) su un valore mai verificato.
             self._passed[self._step] = False
             self._result_lbl.configure(
-                text="✏️ Valore modificato dopo la verifica: ripeti la verifica.",
+                text=i18n.tr("✏️ Valore modificato dopo la verifica: ripeti la verifica."),
                 text_color=_KO)
             return
         self._step += 1
@@ -123,46 +123,51 @@ class WizardWindow(ctk.CTkToplevel):
         for w in (self._e_token, self._e_chat, self._e_csv, self._msg_box,
                   self._hint, self._action_btn, self._extra_btn, *self._check_lbls):
             w.pack_forget()
-        self._title_lbl.configure(text=self._TITLES[self._step])
+        self._title_lbl.configure(text=i18n.tr(self._TITLES[self._step]))
         self._result_lbl.configure(text="", text_color="gray")
         self._btn_back.configure(state="normal" if self._step else "disabled")
-        self._btn_next.configure(text="Fine ✔" if self._step == 4 else "Avanti ▶")
+        self._btn_next.configure(
+            text=i18n.tr("Fine ✔") if self._step == 4 else i18n.tr("Avanti ▶"))
         step = self._step
         if step == 0:
-            self._hint.configure(text="Incolla il token del bot creato con @BotFather, "
-                                      "poi premi il test. Il token non compare mai nei log.")
+            self._hint.configure(text=i18n.tr(
+                "Incolla il token del bot creato con @BotFather, "
+                "poi premi il test. Il token non compare mai nei log."))
             self._hint.pack(anchor="w", pady=(0, 4))
             self._e_token.pack(anchor="w", pady=4)
-            self._action_btn.configure(text="🔌 Prova connessione (getMe)",
+            self._action_btn.configure(text=i18n.tr("🔌 Prova connessione (getMe)"),
                                        command=self._run_token_probe)
             self._action_btn.pack(anchor="w", pady=6)
         elif step == 1:
-            self._hint.configure(text="Aggiungi il bot come ADMIN alla chat/canale, invia "
-                                      "un messaggio di prova, inserisci il Chat ID e premi "
-                                      "«Controlla ora». (Listener fermo: altrimenti consuma "
-                                      "lui gli update.)")
+            self._hint.configure(text=i18n.tr(
+                "Aggiungi il bot come ADMIN alla chat/canale, invia "
+                "un messaggio di prova, inserisci il Chat ID e premi "
+                "«Controlla ora». (Listener fermo: altrimenti consuma "
+                "lui gli update.)"))
             self._hint.pack(anchor="w", pady=(0, 4))
             self._e_chat.pack(anchor="w", pady=4)
-            self._action_btn.configure(text="📡 Controlla ora", command=self._run_chat_probe)
+            self._action_btn.configure(text=i18n.tr("📡 Controlla ora"), command=self._run_chat_probe)
             self._action_btn.pack(anchor="w", pady=6)
         elif step == 2:
-            self._hint.configure(text="Incolla un messaggio segnale REALE del canale: lo "
-                                      "valuto col Parser Personalizzato ATTIVO (configuralo "
-                                      "prima nella scheda 🧩 Parser se manca).")
+            self._hint.configure(text=i18n.tr(
+                "Incolla un messaggio segnale REALE del canale: lo "
+                "valuto col Parser Personalizzato ATTIVO (configuralo "
+                "prima nella scheda 🧩 Parser se manca)."))
             self._hint.pack(anchor="w", pady=(0, 4))
             self._msg_box.pack(anchor="w", pady=4)
-            self._action_btn.configure(text="🧪 Valuta messaggio", command=self._run_parser_check)
+            self._action_btn.configure(text=i18n.tr("🧪 Valuta messaggio"), command=self._run_parser_check)
             self._action_btn.pack(anchor="w", pady=6)
         elif step == 3:
-            self._hint.configure(text="Percorso del CSV letto da XTrader (identico nella "
-                                      "sorgente segnali di XTrader). La scrittura di prova "
-                                      "crea SOLO l'header e non tocca mai un CSV operativo.")
+            self._hint.configure(text=i18n.tr(
+                "Percorso del CSV letto da XTrader (identico nella "
+                "sorgente segnali di XTrader). La scrittura di prova "
+                "crea SOLO l'header e non tocca mai un CSV operativo."))
             self._hint.pack(anchor="w", pady=(0, 4))
             self._e_csv.pack(anchor="w", pady=4)
-            self._action_btn.configure(text="🔎 Verifica percorso",
+            self._action_btn.configure(text=i18n.tr("🔎 Verifica percorso"),
                                        command=lambda: self._run_csv_check(False))
             self._action_btn.pack(anchor="w", pady=(6, 2))
-            self._extra_btn.configure(text="📄 Scrivi CSV di prova",
+            self._extra_btn.configure(text=i18n.tr("📄 Scrivi CSV di prova"),
                                       command=lambda: self._run_csv_check(True))
             self._extra_btn.pack(anchor="w", pady=2)
         else:
@@ -173,7 +178,7 @@ class WizardWindow(ctk.CTkToplevel):
         if self._probe_running:
             return
         self._probe_running = True
-        self._result_lbl.configure(text="⏳ Verifica in corso…", text_color="gray")
+        self._result_lbl.configure(text=i18n.tr("⏳ Verifica in corso…"), text_color="gray")
 
         def worker():
             # L'esito va SEMPRE riconsegnato al main thread (review Fable #354):
@@ -183,7 +188,8 @@ class WizardWindow(ctk.CTkToplevel):
                 res = fn()
             except Exception as ex:   # noqa: BLE001 — fail-closed: SOLO la classe dell'errore (mai token/URL grezzi)
                 res = wizard.StepResult(
-                    False, f"Verifica fallita: errore imprevisto ({type(ex).__name__}).")
+                    False, i18n.tr("Verifica fallita: errore imprevisto ({kind}).").format(
+                        kind=type(ex).__name__))
             try:
                 self.after(0, lambda: self._probe_done(res, on_done))
             except Exception:   # noqa: BLE001 — finestra/Tk distrutti durante la sonda: niente da aggiornare
@@ -228,8 +234,8 @@ class WizardWindow(ctk.CTkToplevel):
                    if self._builder_factory else None)
         if builder is None:
             self._show(2, wizard.StepResult(
-                False, "Nessun Parser Personalizzato attivo: configuralo nella "
-                       "scheda 🧩 Parser e riapri il wizard."))
+                False, i18n.tr("Nessun Parser Personalizzato attivo: configuralo nella "
+                               "scheda 🧩 Parser e riapri il wizard.")))
             return
         text = self._msg_box.get("1.0", "end")
         self._show(2, wizard.check_parser(builder, text), snapshot=(chat, text))
@@ -245,9 +251,10 @@ class WizardWindow(ctk.CTkToplevel):
             lbl.configure(text=("✅ " if ok else "⛔ ") + text,
                           text_color=_OK if ok else _KO)
             lbl.pack(anchor="w", pady=2)
-        self._hint.configure(text="La checklist è informativa: il wizard NON attiva la "
-                                  "modalità Reale (si passa dai gate della tab 🛡️ Sicurezza). "
-                                  "Premi «Fine ✔» per salvare token/chat/CSV nella config.")
+        self._hint.configure(text=i18n.tr(
+            "La checklist è informativa: il wizard NON attiva la "
+            "modalità Reale (si passa dai gate della tab 🛡️ Sicurezza). "
+            "Premi «Fine ✔» per salvare token/chat/CSV nella config."))
         self._hint.pack(anchor="w", pady=(8, 0))
         self._passed[4] = True
 

@@ -322,6 +322,61 @@ _CATALOG = {
         "❌ Errore eliminazione: {exc}": "❌ Delete error: {exc}",
         "🗑 Eliminato {name!r}.": "🗑 Deleted {name!r}.",
         "⛔ {name!r} non trovato.": "⛔ {name!r} not found.",
+        # Finestra Wizard di prima configurazione (#343 slice 4h; SOLO chrome: titoli step,
+        # nav, pulsanti azione, hint e messaggi GUI-composti). I `res.message` di dominio
+        # bubblati da `wizard.py` (check_token/chat/parser/csv) restano IT (layer puro, slice
+        # a parte). Le label «bottone» citate negli hint sono tradotte coerentemente.
+        "🧙 Wizard di prima configurazione": "🧙 First-setup wizard",
+        "1/5 · Token del bot": "1/5 · Bot token",
+        "2/5 · Chat sorgente": "2/5 · Source chat",
+        "3/5 · Parser sul messaggio reale": "3/5 · Parser on the real message",
+        "4/5 · Percorso CSV": "4/5 · CSV path",
+        "5/5 · Checklist finale": "5/5 · Final checklist",
+        "◀ Indietro": "◀ Back",
+        "Avanti ▶": "Next ▶",
+        "Fine ✔": "Finish ✔",
+        "⏳ Verifica in corso…": "⏳ Checking…",
+        "⛔ Completa prima la verifica di questo step.":
+            "⛔ Complete this step's verification first.",
+        "✏️ Valore modificato dopo la verifica: ripeti la verifica.":
+            "✏️ Value changed after verification: verify again.",
+        "Verifica fallita: errore imprevisto ({kind}).":
+            "Check failed: unexpected error ({kind}).",
+        "🔌 Prova connessione (getMe)": "🔌 Test connection (getMe)",
+        "📡 Controlla ora": "📡 Check now",
+        "🧪 Valuta messaggio": "🧪 Evaluate message",
+        "🔎 Verifica percorso": "🔎 Verify path",
+        "📄 Scrivi CSV di prova": "📄 Write test CSV",
+        "Incolla il token del bot creato con @BotFather, "
+        "poi premi il test. Il token non compare mai nei log.":
+            "Paste the bot token created with @BotFather, then press the test. "
+            "The token never appears in the logs.",
+        "Aggiungi il bot come ADMIN alla chat/canale, invia "
+        "un messaggio di prova, inserisci il Chat ID e premi "
+        "«Controlla ora». (Listener fermo: altrimenti consuma "
+        "lui gli update.)":
+            "Add the bot as ADMIN to the chat/channel, send a test message, enter the "
+            "Chat ID and press «Check now». (Listener stopped: otherwise it consumes the "
+            "updates itself.)",
+        "Incolla un messaggio segnale REALE del canale: lo "
+        "valuto col Parser Personalizzato ATTIVO (configuralo "
+        "prima nella scheda 🧩 Parser se manca).":
+            "Paste a REAL signal message from the channel: it is evaluated with the ACTIVE "
+            "Custom Parser (configure it first in the 🧩 Parser tab if missing).",
+        "Percorso del CSV letto da XTrader (identico nella "
+        "sorgente segnali di XTrader). La scrittura di prova "
+        "crea SOLO l'header e non tocca mai un CSV operativo.":
+            "Path of the CSV read by XTrader (identical to XTrader's signal source). The "
+            "test write creates ONLY the header and never touches an operational CSV.",
+        "Nessun Parser Personalizzato attivo: configuralo nella "
+        "scheda 🧩 Parser e riapri il wizard.":
+            "No active Custom Parser: configure it in the 🧩 Parser tab and reopen the wizard.",
+        "La checklist è informativa: il wizard NON attiva la "
+        "modalità Reale (si passa dai gate della tab 🛡️ Sicurezza). "
+        "Premi «Fine ✔» per salvare token/chat/CSV nella config.":
+            "The checklist is informational: the wizard does NOT enable Real mode (that goes "
+            "through the 🛡️ Safety tab gates). Press «Finish ✔» to save token/chat/CSV to "
+            "the config.",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -575,5 +630,59 @@ _CATALOG = {
         "❌ Errore eliminazione: {exc}": "❌ Error al eliminar: {exc}",
         "🗑 Eliminato {name!r}.": "🗑 Eliminado {name!r}.",
         "⛔ {name!r} non trovato.": "⛔ {name!r} no encontrado.",
+        # Finestra Wizard di prima configurazione (#343 slice 4h; SOLO chrome). I `res.message`
+        # di dominio da `wizard.py` restano IT (layer puro). Label «bottone» negli hint coerenti.
+        "🧙 Wizard di prima configurazione": "🧙 Asistente de primera configuración",
+        "1/5 · Token del bot": "1/5 · Token del bot",
+        "2/5 · Chat sorgente": "2/5 · Chat de origen",
+        "3/5 · Parser sul messaggio reale": "3/5 · Parser sobre el mensaje real",
+        "4/5 · Percorso CSV": "4/5 · Ruta CSV",
+        "5/5 · Checklist finale": "5/5 · Checklist final",
+        "◀ Indietro": "◀ Atrás",
+        "Avanti ▶": "Siguiente ▶",
+        "Fine ✔": "Finalizar ✔",
+        "⏳ Verifica in corso…": "⏳ Comprobando…",
+        "⛔ Completa prima la verifica di questo step.":
+            "⛔ Completa primero la verificación de este paso.",
+        "✏️ Valore modificato dopo la verifica: ripeti la verifica.":
+            "✏️ Valor modificado tras la verificación: vuelve a verificar.",
+        "Verifica fallita: errore imprevisto ({kind}).":
+            "Comprobación fallida: error inesperado ({kind}).",
+        "🔌 Prova connessione (getMe)": "🔌 Probar conexión (getMe)",
+        "📡 Controlla ora": "📡 Comprobar ahora",
+        "🧪 Valuta messaggio": "🧪 Evaluar mensaje",
+        "🔎 Verifica percorso": "🔎 Verificar ruta",
+        "📄 Scrivi CSV di prova": "📄 Escribir CSV de prueba",
+        "Incolla il token del bot creato con @BotFather, "
+        "poi premi il test. Il token non compare mai nei log.":
+            "Pega el token del bot creado con @BotFather, luego pulsa la prueba. "
+            "El token nunca aparece en los logs.",
+        "Aggiungi il bot come ADMIN alla chat/canale, invia "
+        "un messaggio di prova, inserisci il Chat ID e premi "
+        "«Controlla ora». (Listener fermo: altrimenti consuma "
+        "lui gli update.)":
+            "Añade el bot como ADMIN al chat/canal, envía un mensaje de prueba, introduce "
+            "el Chat ID y pulsa «Comprobar ahora». (Listener detenido: de lo contrario "
+            "consume él las actualizaciones.)",
+        "Incolla un messaggio segnale REALE del canale: lo "
+        "valuto col Parser Personalizzato ATTIVO (configuralo "
+        "prima nella scheda 🧩 Parser se manca).":
+            "Pega un mensaje de señal REAL del canal: se evalúa con el Parser Personalizado "
+            "ACTIVO (configúralo primero en la pestaña 🧩 Parser si falta).",
+        "Percorso del CSV letto da XTrader (identico nella "
+        "sorgente segnali di XTrader). La scrittura di prova "
+        "crea SOLO l'header e non tocca mai un CSV operativo.":
+            "Ruta del CSV leído por XTrader (idéntica a la fuente de señales de XTrader). "
+            "La escritura de prueba crea SOLO el encabezado y nunca toca un CSV operativo.",
+        "Nessun Parser Personalizzato attivo: configuralo nella "
+        "scheda 🧩 Parser e riapri il wizard.":
+            "Ningún Parser Personalizado activo: configúralo en la pestaña 🧩 Parser y "
+            "reabre el asistente.",
+        "La checklist è informativa: il wizard NON attiva la "
+        "modalità Reale (si passa dai gate della tab 🛡️ Sicurezza). "
+        "Premi «Fine ✔» per salvare token/chat/CSV nella config.":
+            "La checklist es informativa: el asistente NO activa el modo Real (eso pasa por "
+            "los gates de la pestaña 🛡️ Seguridad). Pulsa «Finalizar ✔» para guardar "
+            "token/chat/CSV en la config.",
     },
 }

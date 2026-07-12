@@ -2824,14 +2824,15 @@ nomi/mercati per-lingua user-built», con parità live/preview e fail-closed sui
 completo con 5a→5b→5c→5d.
 
 **⚠️ L'epica #3 NON è ancora chiusa.** #3 è l'epica multilingua **intera** e comprende anche
-la **slice 4 — localizzazione UI completa** («l'intera UI in quella lingua»). I **banner** di
-modalità REALE/COLLAUDO sono ora **localizzati** (vedi «#343 slice 4 — banner» qui sotto).
-**Residuo ancora in italiano** (fonte autorevole: `design_handoff.md` § localizzazione):
+la **slice 4 — localizzazione UI completa** («l'intera UI in quella lingua»). Sono ora
+**localizzati** i **banner** REALE/COLLAUDO (slice 4 banner) e la finestra **🧙 Wizard**
+(slice 4h, qui sotto). **Residuo ancora in italiano** (fonte autorevole: `design_handoff.md`
+§ localizzazione):
 - i **messaggi di log** dell'app (diagnostici): ~105 righe `self._log(...)` in
   `xtrader_bridge/app.py` non passano ancora da i18n `tr()`;
-- alcune **finestre secondarie** non ancora localizzate — **🗺️ Mapping** (`name_mapping_gui`),
-  **🧰 Strumenti (hub)** (`tools_gui`, rimandata: titoli-scheda = chiavi di matching) e
-  **🧙 Wizard** (`wizard_gui`) — nessuna usa ancora `i18n.tr`.
+- due **finestre secondarie** non ancora localizzate — **🗺️ Mapping** (`name_mapping_gui`) e
+  **🧰 Strumenti (hub)** (`tools_gui`, rimandata: titoli-scheda = chiavi di matching) —
+  nessuna usa ancora `i18n.tr`.
 
 Perciò la Issue #3 **resta aperta** finché anche questi non sono localizzati (slice successive,
 raggruppate per area — decisione owner: banner prima, resto a slice). *(Nota: una versione
@@ -2865,5 +2866,35 @@ spostati da «restano IT» a «localizzati»). Design handoff = **PASS** (aspett
 cambiato: aggiornato).
 
 **Ancora aperto (per chiudere #3):** la localizzazione dei **~105 log** `self._log(...)` di
-`app.py` **e** delle finestre secondarie non ancora tradotte (🗺️ Mapping, 🧰 Strumenti hub,
-🧙 Wizard), in slice successive raggruppate per area.
+`app.py` **e** delle due finestre secondarie non ancora tradotte (🗺️ Mapping, 🧰 Strumenti
+hub), in slice successive raggruppate per area.
+
+## #343 slice 4h — Wizard di prima configurazione localizzato (residuo UI della #3)
+
+**Obiettivo.** Prossimo pezzo del residuo slice-4 dopo i banner (scelta agente: la finestra
+residua più **contenuta e sicura** — 259 righe, **0 rischi «valore=chiave»**, vs Mapping grande
+e Strumenti hub esplicitamente rimandata). Localizza la **chrome** del Wizard (`wizard_gui.py`),
+come già fatto per Provider/Profili/Chat sorgenti/Diario/Parser (4c-4g).
+
+**Cosa fa.** In `wizard_gui.py` passano ora da `i18n.tr(...)`: il titolo finestra, i **5 titoli
+step** (tupla `_TITLES`, resa via `i18n.tr(self._TITLES[step])`), i pulsanti nav (◀ Indietro /
+Avanti ▶ / Fine ✔) e azione (🔌 getMe · 📡 Controlla ora · 🧪 Valuta messaggio · 🔎 Verifica
+percorso · 📄 Scrivi CSV di prova), gli **hint** dei 5 step e i messaggi **GUI-composti** (⛔/✏️
+di navigazione, ⏳ verifica, template errore imprevisto `{kind}`, «Nessun Parser attivo»).
+Catalogo `i18n.py`: 24 chiavi × EN/ES (19 tr-constant + 5 titoli). **Escluso di proposito**
+(resta IT, layer puro come le esclusioni 4e/4g): i `res.message` di **dominio** bubblati da
+`wizard.py` (`check_token`/`check_chat`/`check_parser`/`check_csv`) — il wizard prepende solo
+l'emoji universale ✅/⛔. **Nessun cambio di logica**: sonde, gate «Avanti» e invarianti di
+sicurezza (il wizard NON attiva mai la modalità Reale) invariati.
+
+**Test hard** (`tests/unit/test_wizard_i18n_343.py`, +5, pattern 4c): estrae via AST le
+tr-constant + i literal `_TITLES`, richiede EN/ES per **ognuna** (nessuna UI mista), verifica i
+segnaposto `{kind}` conservati e il round-trip `tr(template).format(...)`, più spot-check
+verbatim. Anti-drift esteso (`test_i18n_343.py`): `wizard_gui` aggiunto ai tr-constant + sorgente
+raw per i 5 titoli indiretti. Suite locale (al commit): **2423 passed, 11 skipped** (l'esito
+autorevole è la CI del head PR). **CORE change** (`wizard_gui.py`, `i18n.py`) → ri-sincronizzare
+nel cloud. Docs: README + `design_handoff.md` (§6.2-quater Wizard + § localizzazione). Design
+handoff = **PASS** (finestra GUI localizzata: aggiornato).
+
+**Ancora aperto (per chiudere #3):** ~105 log `self._log(...)` di `app.py` + finestre 🗺️ Mapping
+e 🧰 Strumenti hub.

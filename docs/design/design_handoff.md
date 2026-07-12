@@ -244,9 +244,9 @@ Dalla **slice 4d** è localizzata anche **📁 Profili impostazioni** (stesso sc
 titolo/testi/bottoni + messaggi di stato dinamici via template+`.format`; i messaggi
 che mostrano SOLO l'eccezione bubblata dal layer puro `profile_store` restano IT, slice
 a parte). Restano IN ITALIANO per ora: testi dei **log** dell'app (diagnostici) e le finestre
-secondarie non ancora localizzate (**🗺️ Mapping**, **🧰 Strumenti** hub, **🧙 Wizard**). *(I
-banner REALE/COLLAUDO — prima esclusi — sono ora localizzati: vedi «slice 4 — banner di
-modalità» in fondo a questa sezione.)*
+secondarie non ancora localizzate (**🗺️ Mapping**, **🧰 Strumenti** hub). *(Ora localizzati,
+prima esclusi: i banner REALE/COLLAUDO — «slice 4 — banner di modalità» in fondo a questa
+sezione — e la finestra **🧙 Wizard** — «slice 4h», vedi §6.2-quater.)*
 
 Dalla **slice 4e** è localizzata la **chrome** di **📡 Chat sorgenti** (finestra del
 FILTRO CHAT, safety-critical): titolo, hint, intestazioni colonne (Attiva/Nome/
@@ -324,6 +324,17 @@ tardivo viene scartato); **anti esito stantio** (CodeRabbit #354): modificare un
 DOPO il ✅ invalida la verifica — «Avanti» torna bloccato con *«✏️ Valore modificato
 dopo la verifica: ripeti la verifica.»* finché la sonda non viene rieseguita sul valore
 nuovo (lo step chat dipende anche dal token, lo step parser anche dalla chat).
+
+**Localizzazione (#343 slice 4h).** La **chrome** del Wizard è ora tradotta EN/ES via
+`i18n.tr`: titolo finestra, i **5 titoli step** (`N/5 · <nome>`), i pulsanti nav (◀ Indietro /
+Avanti ▶ / Fine ✔) e azione (🔌 getMe / 📡 Controlla ora / 🧪 Valuta messaggio / 🔎 Verifica
+percorso / 📄 Scrivi CSV di prova), gli hint dei 5 step e i messaggi GUI-composti (⛔/✏️ di
+navigazione, ⏳ verifica, «Nessun Parser attivo», template errore imprevisto `{kind}`). Le label
+citate sopra sono **chiavi del catalogo** (verbatim). Restano IT — **esclusione di dominio**,
+come le 4e/4g — i `res.message` degli esiti sonda bubblati dal layer puro `wizard.py`
+(`check_token`/`check_chat`/`check_parser`/`check_csv`); il wizard prepende solo l'emoji
+universale ✅/⛔. Le **invarianti di sicurezza** (mai attivazione REALE, token mai nei log, gate
+«Avanti», singleton) sono **invariate**: la localizzazione tocca solo il testo mostrato.
 
 ### 6.2-ter Scheda «🚦 Salute» — health check a semafori (#311 §3.3)
 

@@ -24,6 +24,10 @@ _APP_SRC = _read("app.py")
 # Le chiavi dei contatori Dashboard vivono in dashboard_stats.COUNTERS (la resa in
 # app.py li wrappa via i18n.tr(label)): l'anti-drift le cerca in ENTRAMBI i sorgenti.
 _DASH_SRC = _read("dashboard_stats.py")
+# Wizard (#343 slice 4h): i 5 titoli step vivono nella tupla `_TITLES` e sono resi via
+# `i18n.tr(self._TITLES[step])` (indiretto → non estraibili come tr-constant): l'anti-drift li
+# cerca come literal VERBATIM nel sorgente (sono single-line, non concatenati).
+_WIZARD_SRC = _read("wizard_gui.py")
 
 
 def _tr_constants(*module_names) -> set:
@@ -47,7 +51,7 @@ def _tr_constants(*module_names) -> set:
 # Costanti tr() delle finestre secondarie localizzate (#343 slice 4c/4d/4e/4f).
 _SECONDARY_TR = _tr_constants("provider_gui.py", "profiles_gui.py",
                               "source_chats_gui.py", "journal_view_gui.py",
-                              "custom_parser_gui.py")
+                              "custom_parser_gui.py", "wizard_gui.py")
 
 # Banner di MODALITÀ (#343 slice 4 — residuo banner della #3): i testi vivono come COSTANTI
 # multi-riga concatenate in `real_mode`/`bridge_mode` e sono resi in app.py via
@@ -101,9 +105,9 @@ def test_catalogo_anti_drift_chiavi_verbatim_nel_sorgente():
     for lang, table in i18n._CATALOG.items():
         for key in table:
             assert (key in _APP_SRC or key in _DASH_SRC or key in _SECONDARY_TR
-                    or key in _BANNER_TEXTS), (
+                    or key in _BANNER_TEXTS or key in _WIZARD_SRC), (
                 f"{lang}: chiave stantia, non in app.py/dashboard_stats.py, nelle "
-                f"finestre secondarie localizzate né nei banner di modalità: {key!r}")
+                f"finestre secondarie localizzate, nei banner di modalità né nel wizard: {key!r}")
 
 
 def test_catalogo_valori_sensati():
