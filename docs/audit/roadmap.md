@@ -2677,8 +2677,9 @@ lingua come il live, ma non compaiono nuovi widget/label/flussi); la **colonna G
 con relativo aggiornamento handoff — è la slice successiva.
 
 **Ancora aperto:** colonna GUI «Lingua» nel Dizionario nomi (design_handoff); poi 5c (colonna
-`Lingua` del dizionario canonico) e 5d (Betfair per-exchange). La **#3 si chiude** solo a slice 5
-completa.
+`Lingua` del dizionario canonico) e 5d (Betfair per-exchange). *(nota storica: qui in origine
+«La #3 si chiude solo a slice 5 completa» — impreciso: la slice 5 chiude solo il meccanismo
+per-lingua; la #3 resta aperta per la slice 4 UI, vedi sezione 5d.)*
 
 ## #3 slice 5b (parte 3 — GUI) — Colonna «Lingua» nel Dizionario nomi
 
@@ -2715,7 +2716,8 @@ ri-sincronizzare nel cloud. Docs: README + `docs/custom_parser.md` + **`docs/des
 (tabella Dizionario nomi con la colonna «Lingua» e il default prefill) aggiornati.
 
 **Ancora aperto:** 5c (colonna `Lingua` del dizionario mercati) e 5d (Betfair per-exchange IT-vs-UK).
-La **#3 si chiude** solo a slice 5 completa.
+La **slice 5** si completa con 5c + 5d; la **#3** resta poi aperta per la slice 4 (UI: banner/log). *(nota
+storica: questa riga in origine diceva «#3 si chiude solo a slice 5 completa» — impreciso, vedi 5d.)*
 
 ## #3 slice 5c — Colonna «Lingua» nel Dizionario MERCATI
 
@@ -2774,7 +2776,7 @@ salva, riapri → la tendina mostra `EN`; «(tutte le lingue)» resta agnostica)
 
 **Ancora aperto:** 5d (Betfair per-exchange IT-vs-UK) — chiuso qui sotto.
 
-## #3 slice 5d — per-exchange Betfair: rationale del supporto + chiusura epica #3
+## #3 slice 5d — per-exchange Betfair: rationale del supporto + completamento slice 5
 
 **Contesto (risposte del supporto Betting Toolkit/XTrader, ticket 06-07-2026).** La domanda
 aperta di slice 5 era la disuniformità «per-exchange». Il supporto ha chiarito:
@@ -2817,5 +2819,14 @@ agnostico "" → mercato ambiguo → `MARKET_MAPPING_MISSING` (nessun mercato in
 le colonne «Lingua» erano già in 5b/5c). Nota fuori scope: il Q4 «separatore indifferente» rende
 non-critica la localizzazione decimale di #342 — possibile semplificazione futura, non toccata qui.
 
-**#3 CHIUSA.** L'epica multilingua (source_language + dizionari nomi/mercati per-lingua
-user-built, con parità live/preview e fail-closed sui typo) è completa con 5a→5b→5c→5d.
+**Slice 5 COMPLETA (dizionario per-locale).** Il meccanismo «lingua-fonte + dizionari
+nomi/mercati per-lingua user-built», con parità live/preview e fail-closed sui typo, è
+completo con 5a→5b→5c→5d.
+
+**⚠️ L'epica #3 NON è ancora chiusa.** #3 è l'epica multilingua **intera** e comprende anche
+la **slice 4 — localizzazione UI completa** («l'intera UI in quella lingua»), che ha un
+**residuo aperto**: **banner e log** dell'app sono ancora **hardcoded in italiano** (in
+`xtrader_bridge/app.py` le righe `self._log(...)` non passano dalla funzione i18n `tr()`; il README lo
+dichiara: «banner, log … restano in italiano»). Perciò la Issue #3 **resta aperta** finché
+anche banner/log non sono localizzati. *(Nota: una versione precedente di questa sezione
+scriveva erroneamente «#3 CHIUSA» — era riferito alla sola slice 5, non all'epica.)*
