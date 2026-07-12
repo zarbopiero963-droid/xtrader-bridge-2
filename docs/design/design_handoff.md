@@ -297,7 +297,7 @@ banner invariati (rosso REALE ha priorità sull'ambra COLLAUDO), parole-rischio 
 (REAL/REALES, TEST/PRUEBA). La **decisione** di mostrare il banner (`real_mode.banner_active`
 / `bridge_mode.banners_for`) è invariata: cambia solo il testo mostrato. IT resta il
 riferimento (fail-safe: lingua mai scelta → banner in italiano storico). Restano IN ITALIANO
-i **messaggi di log** dell'app (diagnostici), previsti nei prossimi slice della #343.
+i **messaggi di log** dell'app (diagnostici), previsti nelle prossime slice della #343.
 
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
