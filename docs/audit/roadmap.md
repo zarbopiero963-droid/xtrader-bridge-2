@@ -2772,4 +2772,50 @@ salva, riapri → la tendina mostra `EN`; «(tutte le lingue)» resta agnostica)
 `name_mapping_gui.py`) → da ri-sincronizzare nel cloud. Docs: README + `docs/custom_parser.md` +
 **`docs/design/design_handoff.md`** (tabella Dizionario mercati con la colonna «Lingua») aggiornati.
 
-**Ancora aperto:** 5d (Betfair per-exchange IT-vs-UK). La **#3 si chiude** solo a slice 5 completa.
+**Ancora aperto:** 5d (Betfair per-exchange IT-vs-UK) — chiuso qui sotto.
+
+## #3 slice 5d — per-exchange Betfair: rationale del supporto + chiusura epica #3
+
+**Contesto (risposte del supporto Betting Toolkit/XTrader, ticket 06-07-2026).** La domanda
+aperta di slice 5 era la disuniformità «per-exchange». Il supporto ha chiarito:
+
+- Col riconoscimento a NOMI «è **indispensabile** indicare, oltre al modo di riconoscimento,
+  anche la **lingua della propria fonte**»: i nomi «dipendono dalla lingua scelta in fase di
+  lettura del palinsesto (**oltre che dall'exchange**, in quanto Betfair fa piccole differenze
+  tra i nomi ad esempio dell'exchange italiano e quelli dell'exchange in inglese letti con
+  lingua IT)».
+- La traduzione nomi per un exchange «**va verificata puntualmente e non dipende da**» BT/XT,
+  «ma da BF». Betfair inoltre usa **ID diversi** per evento/mercato/selezione tra gli exchange.
+- Struttura CSV, header, **codici `MarketType`** e BetType (BACK/LAY/PUNTA/BANCA) sono
+  **identici** tra versioni/lingue. Separatore decimale: ora **indifferente** (il programma
+  «digerisce» sia punto sia virgola su tutti i campi decimali, Handicap incluso).
+
+**Decisione (scope stretto, nessun cambio core).** Per QUESTO bridge — **Betfair Sync
+rimosso**, dizionario **user-built a mano**, arricchimento ID live **staccato**
+(`id_resolver=None`) — la disuniformità per-exchange è già coperta dal meccanismo di 5a-5c:
+l'utente costruisce il dizionario nomi/mercati con i **nomi esatti** della propria
+fonte/exchange, **taggati con la lingua-fonte** (colonna «Lingua»). **NON** si introduce un
+asse «exchange» separato: sarebbe complessità morta su un sottosistema rimosso, non
+auto-popolabile senza la sync, e ridondante (un deployment legge da un solo setup
+fonte+exchange, i cui nomi finiscono già nel dizionario per-lingua). Gli **ID diversi
+per-exchange non toccano il CSV live** perché l'arricchimento ID è staccato.
+
+**Cosa consegna la slice.** Nessun codice runtime nuovo: si **blocca con un test la garanzia
+end-to-end** che chiude l'epica #3 — un UNICO segnale, con UNA sola lingua-fonte, filtra
+**coerentemente sia il dizionario NOMI** (`EventName`) **sia il dizionario MERCATI**
+(`MarketType`/`SelectionName`). Prima c'erano test separati nomi (5b) e mercati (5c), ma
+nessuno esercitava i **due dizionari insieme** sullo stesso segnale.
+
+**Test hard** (`tests/integration/test_multilingua_end_to_end_5d.py`, +5): la stessa
+lingua-fonte filtra nomi+mercati sul percorso diretto (`build_validated_row`) e live
+(`resolve_row`); isolamento EN/IT (nessun incrocio nome-di-una-lingua con mercato-di-un'altra);
+**parità live/preview** end-to-end su EN/IT/"" (incluso il fail-closed ambiguo con "");
+agnostico "" → mercato ambiguo → `MARKET_MAPPING_MISSING` (nessun mercato inventato); BetType
+`BACK`→`PUNTA` canonico invariato. Suite **2411 passed, 11 skipped**. **CORE change = nessuno**
+(solo `tests/**` + docs; nulla sotto `xtrader_bridge/**`). Docs: README + `docs/custom_parser.md`
+(nota per-exchange/per-lingua per l'utente). Design handoff = **N/A** (nessun elemento GUI nuovo:
+le colonne «Lingua» erano già in 5b/5c). Nota fuori scope: il Q4 «separatore indifferente» rende
+non-critica la localizzazione decimale di #342 — possibile semplificazione futura, non toccata qui.
+
+**#3 CHIUSA.** L'epica multilingua (source_language + dizionari nomi/mercati per-lingua
+user-built, con parità live/preview e fail-closed sui typo) è completa con 5a→5b→5c→5d.

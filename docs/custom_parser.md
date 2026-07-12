@@ -156,6 +156,15 @@ provider nei nomi Betfair/XTrader **prima** della scrittura:
   il campo è **attivo a runtime**. La colonna **«Lingua»** si imposta dalla tendina nel **Dizionario
   nomi** (🗺️ Mapping) — `IT`/`EN`/`ES` o **«(tutte le lingue)»** (agnostica) — oppure a mano in
   `config.json`. Con lingua-fonte non impostata il comportamento è quello storico (nessun filtro).
+- **per-exchange Betfair (#3 slice 5d — chiusura epica).** Il supporto ha confermato che i nomi
+  dipendono dalla lingua della fonte **e** dall'**exchange Betfair** (BF fa piccole differenze tra
+  i nomi dell'exchange IT e UK, e usa **ID diversi** tra exchange); è un'incoerenza di Betfair, «da
+  verificare puntualmente». Poiché in questo bridge il dizionario è **user-built** (la sync Betfair
+  è rimossa) e l'arricchimento ID live è **staccato**, la disuniformità per-exchange si gestisce
+  **senza un asse dedicato**: inserisci nel dizionario nomi/mercati i **nomi esatti** della tua
+  fonte/exchange e **taggali con la lingua**, così il filtro lingua-fonte sceglie le voci giuste.
+  Con questa slice l'epica multilingua #3 è **completa** (source_language + dizionari nomi/mercati
+  per-lingua, parità live/anteprima, fail-closed sui typo).
 
 **Sicuro (fail-closed)**: se il separatore non si trova **o** una squadra non è nei
 profili (per lo sport del parser), lo stato è `MAPPING_MISSING` → **nessuna riga CSV** (un
