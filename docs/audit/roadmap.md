@@ -2677,8 +2677,9 @@ lingua come il live, ma non compaiono nuovi widget/label/flussi); la **colonna G
 con relativo aggiornamento handoff — è la slice successiva.
 
 **Ancora aperto:** colonna GUI «Lingua» nel Dizionario nomi (design_handoff); poi 5c (colonna
-`Lingua` del dizionario canonico) e 5d (Betfair per-exchange). La **#3 si chiude** solo a slice 5
-completa.
+`Lingua` del dizionario canonico) e 5d (Betfair per-exchange). *(nota storica: qui in origine
+«La #3 si chiude solo a slice 5 completa» — impreciso: la slice 5 chiude solo il meccanismo
+per-lingua; la #3 resta aperta per la slice 4 UI, vedi sezione 5d.)*
 
 ## #3 slice 5b (parte 3 — GUI) — Colonna «Lingua» nel Dizionario nomi
 
