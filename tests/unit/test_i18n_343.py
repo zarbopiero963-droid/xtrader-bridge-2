@@ -28,6 +28,10 @@ _DASH_SRC = _read("dashboard_stats.py")
 # `i18n.tr(self._TITLES[step])` (indiretto → non estraibili come tr-constant): l'anti-drift li
 # cerca come literal VERBATIM nel sorgente (sono single-line, non concatenati).
 _WIZARD_SRC = _read("wizard_gui.py")
+# Mapping (#343 slice 4i): le etichette colonna vivono nelle tuple `_HEADER_COLUMNS`/
+# `_MARKET_HEADER_COLUMNS` e sono rese via `i18n.tr(text)` (indiretto): come per il Wizard,
+# l'anti-drift le cerca come literal VERBATIM nel sorgente (single-line nelle tuple).
+_NAMEMAP_SRC = _read("name_mapping_gui.py")
 
 
 def _tr_constants(*module_names) -> set:
@@ -51,7 +55,7 @@ def _tr_constants(*module_names) -> set:
 # Costanti tr() delle finestre secondarie localizzate (#343 slice 4c/4d/4e/4f).
 _SECONDARY_TR = _tr_constants("provider_gui.py", "profiles_gui.py",
                               "source_chats_gui.py", "journal_view_gui.py",
-                              "custom_parser_gui.py", "wizard_gui.py")
+                              "custom_parser_gui.py", "wizard_gui.py", "name_mapping_gui.py")
 
 # Banner di MODALITÀ (#343 slice 4 — residuo banner della #3): i testi vivono come COSTANTI
 # multi-riga concatenate in `real_mode`/`bridge_mode` e sono resi in app.py via
@@ -105,9 +109,9 @@ def test_catalogo_anti_drift_chiavi_verbatim_nel_sorgente():
     for lang, table in i18n._CATALOG.items():
         for key in table:
             assert (key in _APP_SRC or key in _DASH_SRC or key in _SECONDARY_TR
-                    or key in _BANNER_TEXTS or key in _WIZARD_SRC), (
-                f"{lang}: chiave stantia, non in app.py/dashboard_stats.py, nelle "
-                f"finestre secondarie localizzate, nei banner di modalità né nel wizard: {key!r}")
+                    or key in _BANNER_TEXTS or key in _WIZARD_SRC or key in _NAMEMAP_SRC), (
+                f"{lang}: chiave stantia, non in app.py/dashboard_stats.py, nelle finestre "
+                f"secondarie localizzate, nei banner, nel wizard né nel Mapping: {key!r}")
 
 
 def test_catalogo_valori_sensati():
