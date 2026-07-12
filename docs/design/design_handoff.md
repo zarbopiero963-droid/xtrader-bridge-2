@@ -244,9 +244,10 @@ Dalla **slice 4d** è localizzata anche **📁 Profili impostazioni** (stesso sc
 titolo/testi/bottoni + messaggi di stato dinamici via template+`.format`; i messaggi
 che mostrano SOLO l'eccezione bubblata dal layer puro `profile_store` restano IT, slice
 a parte). Restano IN ITALIANO per ora: testi dei **log** dell'app (diagnostici) e le finestre
-secondarie non ancora localizzate (**🗺️ Mapping**, **🧰 Strumenti** hub). *(Ora localizzati,
-prima esclusi: i banner REALE/COLLAUDO — «slice 4 — banner di modalità» in fondo a questa
-sezione — e la finestra **🧙 Wizard** — «slice 4h», vedi §6.2-quater.)*
+secondarie non ancora localizzate (**🧰 Strumenti** hub e il pannello **🌳 Mapping guidato**).
+*(Ora localizzati, prima esclusi: i banner REALE/COLLAUDO — «slice 4 — banner di modalità» in
+fondo a questa sezione — la finestra **🧙 Wizard** — «slice 4h», §6.2-quater — e la finestra
+**🗺️ Mapping** (Dizionario nomi + mercati) — «slice 4i», vedi §7.5.)*
 
 Dalla **slice 4e** è localizzata la **chrome** di **📡 Chat sorgenti** (finestra del
 FILTRO CHAT, safety-critical): titolo, hint, intestazioni colonne (Attiva/Nome/
@@ -637,6 +638,19 @@ NON** viene salvato nei profili). Campo nome + **"💾 Salva profilo"**; lista c
   — l'utente sa che quella tab è stantia invece di crederla aggiornata.
 
 ### 7.5 🗺️ Mapping (`name_mapping_gui.py`) — 3 sotto-tab
+
+**Localizzazione (#343 slice 4i).** La **chrome** dei due pannelli **⚽ Calcio (Dizionario nomi)**
+e **🎯 Mercati** è ora tradotta EN/ES via `i18n.tr`: titoli, sottotitoli, **etichette colonna**,
+pulsanti (Profilo/Nuovo/Rinomina/Elimina/Aggiungi riga/Precompila da Betfair/Salva profilo),
+placeholder e **tutti i messaggi di stato/dialogo** (creato/rinominato/eliminato, save FALLITO,
+avvisi `MAPPING_MISSING`/`MARKET_MAPPING_MISSING`, righe incomplete/senza delimitatori). Restano
+**IT** — esclusione di **dominio/value-as-key**: le **sentinelle** delle tendine («(tutti gli
+sport)»/«(qualsiasi tipo)»/«(tutte le lingue)»/«(nessun profilo)», usate in confronti), i **valori**
+Sport/Tipo/Lingua e i nomi **Mercato/Selezione del Catalogo** (canonici), i **tab del container**
+(«⚽ Calcio»/«🎯 Mercati»/«🌳 Mapping guidato» = chiavi di matching) e il pannello **🌳 Mapping
+guidato** (`guided_mapping_gui.py`, modulo separato — slice futura). La **logica** (persistenza,
+gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia solo il testo mostrato.
+
 - **⚽ Calcio (Dizionario nomi squadra):** profilo (Nuovo/Rinomina/Elimina) + tabella
   **Country · Betfair/XTrader · Come lo scrive il canale · Sport · Tipo · Lingua**. Traduce i nomi del
   canale nei nomi attesi da Betfair/XTrader. La colonna **«Come lo scrive il canale»** (già «Provider»,

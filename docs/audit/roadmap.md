@@ -2825,14 +2825,13 @@ completo con 5a→5b→5c→5d.
 
 **⚠️ L'epica #3 NON è ancora chiusa.** #3 è l'epica multilingua **intera** e comprende anche
 la **slice 4 — localizzazione UI completa** («l'intera UI in quella lingua»). Sono ora
-**localizzati** i **banner** REALE/COLLAUDO (slice 4 banner) e la finestra **🧙 Wizard**
-(slice 4h, qui sotto). **Residuo ancora in italiano** (fonte autorevole: `design_handoff.md`
-§ localizzazione):
+**localizzati** i **banner** REALE/COLLAUDO (slice 4 banner), la finestra **🧙 Wizard** (slice
+4h) e la finestra **🗺️ Mapping** (Dizionario nomi + mercati, slice 4i — qui sotto). **Residuo
+ancora in italiano** (fonte autorevole: `design_handoff.md` § localizzazione):
 - i **messaggi di log** dell'app (diagnostici): ~105 righe `self._log(...)` in
   `xtrader_bridge/app.py` non passano ancora da i18n `tr()`;
-- due **finestre secondarie** non ancora localizzate — **🗺️ Mapping** (`name_mapping_gui`) e
-  **🧰 Strumenti (hub)** (`tools_gui`, rimandata: titoli-scheda = chiavi di matching) —
-  nessuna usa ancora `i18n.tr`.
+- la finestra **🧰 Strumenti (hub)** (`tools_gui`, rimandata: titoli-scheda = chiavi di
+  matching) — non usa ancora `i18n.tr`.
 
 Perciò la Issue #3 **resta aperta** finché anche questi non sono localizzati (slice successive,
 raggruppate per area — decisione owner: banner prima, resto a slice). *(Nota: una versione
@@ -2898,3 +2897,45 @@ handoff = **PASS** (finestra GUI localizzata: aggiornato).
 
 **Ancora aperto (per chiudere #3):** ~105 log `self._log(...)` di `app.py` + finestre 🗺️ Mapping
 e 🧰 Strumenti hub.
+
+## #343 slice 4i — finestra Mapping (Dizionario nomi + mercati) localizzata (residuo UI della #3)
+
+**Obiettivo.** Prossimo pezzo del residuo slice-4 (decisione owner: intera finestra Mapping in
+un PR). Localizza la **chrome** di `name_mapping_gui.py` — entrambi i pannelli **🗺️ Dizionario
+nomi** (`NameMappingPanel`) e **🎯 Dizionario mercati** (`MarketMappingPanel`), come per le
+4c-4h.
+
+**Perché intera finestra e non due slice.** I due pannelli **condividono codice quasi identico**
+(gli stessi metodi `_load_cfg`/`_persist`/dialoghi profilo con **le stesse identiche stringhe di
+stato**): uno split Nomi/Mercati lascerebbe righe identiche indistinguibili e produrrebbe UI
+mista IT/EN nel pannello non ancora fatto (anti-pattern CodeRabbit #357). Le stringhe condivise
+sono wrappate in entrambi i pannelli; catalogo con chiave unica.
+
+**Cosa fa.** Passano ora da `i18n.tr(...)`: titoli finestra/pannello, sottotitoli, **etichette
+colonna** (tuple `_HEADER_COLUMNS`/`_MARKET_HEADER_COLUMNS`, rese via `i18n.tr(text)` sulla
+costante), pulsanti (Profilo/Nuovo/Rinomina/Elimina/Aggiungi riga/Precompila da Betfair/Salva
+profilo), placeholder Entry mercato, e **tutti i messaggi di stato/dialogo GUI-composti** (creato/
+rinominato/eliminato, save FALLITO, avvisi rinomina/delete con `MAPPING_MISSING`/
+`MARKET_MAPPING_MISSING`, avvisi righe incomplete/senza delimitatori, ecc.), come template
+`tr(...).format(...)`. Catalogo `i18n.py`: **60 chiavi nuove × EN/ES** (5 già a catalogo, riusate).
+
+**Esclusioni documentate (restano IT — value-as-key / matching).** Le **sentinelle** delle
+tendine (`_SPORT_ALL` «(tutti gli sport)», `_ENTITY_ALL`, `_LANGUAGE_ALL` «(tutte le lingue)»,
+`_NO_PROFILE`) usate in confronti di uguaglianza; i **valori** delle tendine Sport/Tipo/Lingua e i
+nomi Mercato/Selezione del **Catalogo** (chiavi/valori canonici); i **tab del container**
+MappingPanel («⚽ Calcio»/«🎯 Mercati»/«🌳 Mapping guidato») — chiavi di matching e il pannello
+🌳 **Mapping guidato** (`guided_mapping_gui.py`) è un modulo separato non ancora localizzato; il
+dato interpolato in `{exc}` (dominio). **Nessun cambio di logica**: persistenza, gate, `_collect_rows`
+e le invarianti (mai scommessa involontaria) invariate.
+
+**Test hard** (`tests/unit/test_name_mapping_i18n_343.py`, +5, pattern 4c): estrae via AST le
+tr-constant + i literal delle colonne, richiede EN/ES per **ognuna**, verifica i segnaposto
+conservati e il round-trip `.format(...)`, e **asserisce le esclusioni** (sentinelle/tab NON
+wrappati né a catalogo). Anti-drift esteso (`test_i18n_343.py`): `name_mapping_gui` nei tr-constant
++ sorgente raw per i literal colonna. Suite locale (al commit): **2428 passed, 11 skipped**
+(l'esito autorevole è la CI del head PR). **CORE change** (`name_mapping_gui.py`, `i18n.py`) →
+ri-sincronizzare nel cloud. Docs: README + `design_handoff.md` (§7.5 Mapping + § localizzazione).
+Design handoff = **PASS**.
+
+**Ancora aperto (per chiudere #3):** ~105 log `self._log(...)` di `app.py` + finestra 🧰 Strumenti
+hub (`tools_gui`) + il pannello 🌳 Mapping guidato (`guided_mapping_gui`).
