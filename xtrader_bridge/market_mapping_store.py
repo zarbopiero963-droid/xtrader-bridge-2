@@ -139,6 +139,10 @@ def _clean_entry(entry) -> dict:
     market_type = str(entry.get("market_type", "") or "").strip()
     market_name = str(entry.get("market_name", "") or "").strip()
     selection_name = str(entry.get("selection_name", "") or "").strip()
+    # `raw_language` ripulito UNA volta e condiviso con la validazione: `_malformed_fields`
+    # valida `str(...).strip()`, quindi persistere lo STESSO valore ripulito evita ogni
+    # divergenza tra ciò che si valida e ciò che si salva (Sourcery bug_risk #26).
+    raw_language = str(entry.get("language", "") or "").strip()
     if not phrase or not market_name or not selection_name:
         return None
     if _malformed_fields(entry):                 # language typo → voce scartata (fail-closed)
@@ -146,7 +150,7 @@ def _clean_entry(entry) -> dict:
     return {"start_after": start_after, "end_before": end_before, "phrase": phrase,
             "market_type": market_type, "market_name": market_name,
             "selection_name": selection_name,
-            "language": recognition.normalize_source_language(entry.get("language"))}
+            "language": recognition.normalize_source_language(raw_language)}
 
 
 def profile_names(cfg: dict) -> list:

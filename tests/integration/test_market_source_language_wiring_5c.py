@@ -147,3 +147,19 @@ def test_source_language_globale_malformata_fail_safe_mercati(tmp_path):
         cfg = dict(cfg_en, source_language=bad)
         res = signal_router.resolve_row(_MSG, cfg, chat_id="42", parsers_dir=str(tmp_path))
         assert res.placeable and res.row["MarketType"] == "BOTH_TEAMS_TO_SCORE", bad
+
+
+def test_source_language_override_per_parser_malformata_fail_safe_mercati(tmp_path):
+    # Companion (Sourcery #26): un override PER-PARSER (`defn.source_language`) MALFORMATO deve
+    # fail-safe come il globale — `effective_source_language` lo normalizza a "" e ricade sul
+    # globale (qui vuoto) → nessun filtro. Con l'unica voce EN, «no filtro» la applica (dict
+    # vince → BTTS); un override-letterale rotto la scarterebbe (el=EN ≠ "ENG" → none → base).
+    cfg_en = {"provider": "TG", "active_parser": "MktLang", "chat_id": "42",
+              "recognition_mode": "NAME_ONLY", "source_language": "",   # globale vuoto
+              "market_mappings": {"M": [_mentry("EN", "Entrambe le squadre a segno", "Sì")]}}
+    for bad in ("ENG", "fr", "xx"):
+        defn = _parser()
+        defn.source_language = bad                # override per-parser malformato
+        cp.save_parser(defn, str(tmp_path))
+        res = signal_router.resolve_row(_MSG, cfg_en, chat_id="42", parsers_dir=str(tmp_path))
+        assert res.placeable and res.row["MarketType"] == "BOTH_TEAMS_TO_SCORE", bad
