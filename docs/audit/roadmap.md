@@ -2554,3 +2554,40 @@ riapre il tetto) valgono anche con fuso locale. Suite **2432 passed, 11 skipped*
 (`xtrader_bridge/safety_guard.py`) → da ri-sincronizzare nel cloud. Docs: README (`max_per_day`
 «ora locale») aggiornato. Design handoff = **N/A** (nessun elemento GUI/UX; il comportamento del
 tetto è logica interna, la label/soglia in GUI non cambia).
+
+## #3 slice 5a — Foundation «lingua della fonte» (`source_language`) per il riconoscimento a nomi
+
+**Contesto (epica multilingua #3).** Il supporto Betting Toolkit ha confermato che, col
+riconoscimento **a NOMI**, i nomi di evento/mercato/selezione **dipendono dalla lingua** del
+palinsesto della fonte (e, più a fondo, dall'exchange Betfair). Questa slice è la **fondazione**
+(come `csv_language`/#342 lo fu per il selettore #343): introduce solo il *plumbing* della
+lingua-fonte. **Nessun cambio al matching**: il filtro per-lingua sui profili nomi è la slice 5b.
+
+**Tecnico.**
+- Nuova chiave config globale `source_language` (default `""` = non dichiarata → agnostica,
+  comportamento storico). Coercizione difensiva in `config_store._migrate` via
+  `recognition.normalize_source_language` (IT/EN/ES o `""`, fail-closed come `app_language`:
+  valore sporco → `""`, mai un IT silenzioso).
+- Override **per-parser**: nuovo campo `CustomParserDef.source_language` (default `""` = eredita
+  il globale). Serializzato in `to_dict`/`from_dict`, retro-compatibile (campo assente → `""`).
+- `recognition.py` (modulo-gate puro, senza import): `SOURCE_LANGUAGES` (duplicato di
+  `csv_writer.CSV_LANGUAGES`, con test anti-drift), `normalize_source_language`, e
+  `effective_source_language(cfg, defn)` che risolve override-per-parser → globale → `""`
+  (specchio di come `recognition_mode` combina globale + override). `defn` è **duck-typed**
+  (nessun import di `custom_parser`: sarebbe un ciclo). **Consumato dalla slice 5b.**
+
+**Sicurezza.** Fail-closed: una lingua-fonte mai scelta non viene mai finta (`""` = agnostica),
+così il matching non si restringe a sorpresa (mai invertire/scartare un segnale per una lingua
+inventata). Nessun impatto su CSV/Telegram/dedup. Contratto CSV invariato. Merge **manuale**.
+
+**Test hard** (`tests/unit/test_source_language_5a.py`): `SOURCE_LANGUAGES` == `CSV_LANGUAGES`
+(anti-drift); `normalize_source_language` su valide/sporche/tipi errati → fail-closed;
+`effective_source_language` override>globale>vuoto e fail-closed su sporco (anche cfg non-dict);
+round-trip `CustomParserDef` + retro-compat (campo assente/malformato → `""`); `DEFAULTS` e
+`_migrate` normalizzano la chiave; override per-parser con **tipo non-stringa** → fail-closed
+(GLM #22); **round-trip reale su disco** di `config.json` senza `source_language` che preserva
+le altre chiavi (GPT #22). Suite **2359 passed, 11 skipped**. **CORE change**
+(`recognition.py`, `custom_parser.py`, `config_store.py`) → da ri-sincronizzare nel cloud. Docs:
+README (chiave `source_language`) + `docs/custom_parser.md` (campo per-parser) aggiornati. Design
+handoff = **N/A** (nessun elemento GUI/UX in 5a: solo config/plumbing; il campo GUI per la
+lingua-fonte arriverà con la slice che lo espone).

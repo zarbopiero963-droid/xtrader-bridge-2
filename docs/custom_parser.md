@@ -136,6 +136,14 @@ provider nei nomi Betfair/XTrader **prima** della scrittura:
   `selection`, anche con un alias che collide, **non** traducono un partecipante (evita un
   `EventName` CSV sbagliato). Gli altri tipi restano disponibili per la risoluzione quando
   il chiamante li richiede esplicitamente.
+- **lingua della fonte (`source_language`, #3 slice 5a — FOUNDATION)**: il parser può
+  dichiarare la **lingua del palinsesto della fonte** (`IT`/`EN`/`ES`, oppure vuoto =
+  eredita il globale `source_language`; vuoto ovunque = **agnostica**, comportamento
+  storico). Col riconoscimento **a nomi** i nomi dipendono dalla lingua (conferma supporto
+  Betting Toolkit). ⚠️ In **questa slice (5a)** il campo è **solo persistenza + risoluzione
+  globale/override**: **non filtra ancora** il matching (nessun cambio di comportamento). Il
+  filtro per-lingua sui profili nomi arriva con la **slice 5b**. Valore malformato → vuoto
+  (fail-closed, retro-compatibile con i parser salvati prima del campo).
 
 **Sicuro (fail-closed)**: se il separatore non si trova **o** una squadra non è nei
 profili (per lo sport del parser), lo stato è `MAPPING_MISSING` → **nessuna riga CSV** (un
