@@ -2715,7 +2715,8 @@ ri-sincronizzare nel cloud. Docs: README + `docs/custom_parser.md` + **`docs/des
 (tabella Dizionario nomi con la colonna «Lingua» e il default prefill) aggiornati.
 
 **Ancora aperto:** 5c (colonna `Lingua` del dizionario mercati) e 5d (Betfair per-exchange IT-vs-UK).
-La **#3 si chiude** solo a slice 5 completa.
+La **slice 5** si completa con 5c + 5d; la **#3** resta poi aperta per la slice 4 (UI: banner/log). *(nota
+storica: questa riga in origine diceva «#3 si chiude solo a slice 5 completa» — impreciso, vedi 5d.)*
 
 ## #3 slice 5c — Colonna «Lingua» nel Dizionario MERCATI
 
@@ -2774,7 +2775,7 @@ salva, riapri → la tendina mostra `EN`; «(tutte le lingue)» resta agnostica)
 
 **Ancora aperto:** 5d (Betfair per-exchange IT-vs-UK) — chiuso qui sotto.
 
-## #3 slice 5d — per-exchange Betfair: rationale del supporto + chiusura epica #3
+## #3 slice 5d — per-exchange Betfair: rationale del supporto + completamento slice 5
 
 **Contesto (risposte del supporto Betting Toolkit/XTrader, ticket 06-07-2026).** La domanda
 aperta di slice 5 era la disuniformità «per-exchange». Il supporto ha chiarito:
