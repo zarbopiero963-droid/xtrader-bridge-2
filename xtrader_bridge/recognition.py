@@ -91,3 +91,39 @@ def missing_fields(row: dict, mode: str) -> list:
 
 def is_valid(row: dict, mode: str) -> bool:
     return not missing_fields(row, mode)
+
+
+# ── Lingua della FONTE per il riconoscimento a NOMI (epica #3 slice 5a) ──────────────
+# Col riconoscimento a NOMI i nomi di evento/mercato/selezione dipendono dalla LINGUA del
+# palinsesto della fonte (conferma supporto Betting Toolkit §5). Questa è la FOUNDATION:
+# normalizzazione + risoluzione globale/override della lingua-fonte. Il matching per-lingua
+# vero e proprio (filtro sui profili nomi) arriva con la slice 5b — come `csv_language`
+# (#342) fu la fondazione prima del suo consumo (#343). L'insieme lingue è lo stesso del CSV
+# (`csv_writer.CSV_LANGUAGES`); qui è DUPLICATO di proposito per tenere `recognition` senza
+# import (è il modulo-gate puro): un test anti-drift verifica che i due insiemi coincidano.
+SOURCE_LANGUAGES = ("IT", "EN", "ES")
+
+
+def normalize_source_language(value) -> str:
+    """Lingua della fonte per il matching a NOMI: `IT`/`EN`/`ES` (case-insensitive, spazi
+    tollerati) oppure STRINGA VUOTA (= non dichiarata → comportamento storico agnostico alla
+    lingua). Come `app_language`, NESSUN fallback a IT: un valore sporco/mancante torna ""
+    (fail-closed: non si finge una lingua-fonte mai scelta, che restringerebbe il matching a
+    sorpresa invertendo o scartando un segnale)."""
+    if isinstance(value, str) and value.strip().upper() in SOURCE_LANGUAGES:
+        return value.strip().upper()
+    return ""
+
+
+def effective_source_language(cfg, defn=None) -> str:
+    """Lingua-fonte EFFETTIVA per un parser: override per-parser (`defn.source_language`) se
+    valorizzato, altrimenti il globale `cfg['source_language']`, altrimenti "" (agnostica).
+    Specchio di come `recognition_mode` combina globale + override per-parser. `defn` è
+    duck-typed (si legge solo l'attributo: nessun import di `custom_parser`, sarebbe un
+    ciclo). Consumato dalla slice 5b."""
+    per_parser = (normalize_source_language(getattr(defn, "source_language", ""))
+                  if defn is not None else "")
+    if per_parser:
+        return per_parser
+    cfg_val = cfg.get("source_language") if isinstance(cfg, dict) else ""
+    return normalize_source_language(cfg_val)

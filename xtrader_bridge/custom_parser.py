@@ -253,6 +253,11 @@ class CustomParserDef:
     # ma — nelle PR successive — restringe la risoluzione degli ID Betfair all'event_type_id
     # corretto. Il parser per-profilo cambia con il profilo (active_parser nello snapshot).
     sport: str = ""
+    # Lingua della FONTE per il riconoscimento a NOMI (epica #3 slice 5a): "IT"/"EN"/"ES"
+    # oppure "" = non dichiarata → eredita il globale `source_language` (comportamento storico
+    # agnostico alla lingua). Foundation: il filtro per-lingua sui profili nomi arriva con la
+    # slice 5b. Retro-compatibile coi file salvati prima (campo assente → "").
+    source_language: str = ""
     # Output multi-riga (#192): un solo messaggio → più righe CSV. MultiMarket = più mercati
     # diversi della stessa partita; MultiSelection = più selezioni dello stesso mercato. Vuoti/
     # disattivati = comportamento single-row invariato (retro-compatibile con i file pre-#192).
@@ -274,6 +279,7 @@ class CustomParserDef:
             "version": self.version,
             "mode": self.mode,
             "sport": self.sport,
+            "source_language": self.source_language,
             "name_mapping_profiles": list(self.name_mapping_profiles),
             "team_separator": self.team_separator,
             "market_mapping_profiles": list(self.market_mapping_profiles),
@@ -389,6 +395,9 @@ class CustomParserDef:
             description=str(data.get("description", "")),
             version=version,
             sport=sport,
+            # Lingua-fonte (epica #3 slice 5a): IT/EN/ES o "" (assente/malformata → "",
+            # eredita il globale; fail-closed come app_language). Fonte unica: `recognition`.
+            source_language=recognition.normalize_source_language(data.get("source_language", "")),
             name_mapping_profiles=profiles,
             team_separator=str(data.get("team_separator", "") or ""),
             market_mapping_profiles=market_profiles,

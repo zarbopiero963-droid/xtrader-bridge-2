@@ -142,6 +142,12 @@ DEFAULTS = {
     # Modalità di riconoscimento XTrader: ID_ONLY / NAME_ONLY / BOTH.
     # Default NAME_ONLY: oggi il bridge non ricava gli ID dal messaggio Telegram.
     "recognition_mode": "NAME_ONLY",
+    # Lingua della FONTE per il riconoscimento a nomi (epica #3 slice 5a): "IT"/"EN"/"ES"
+    # oppure "" = non dichiarata (comportamento storico agnostico alla lingua; il selettore
+    # lingua all'avvio potrà impostarla). Fail-closed: valore malformato → "". Foundation: il
+    # filtro matching per-lingua sui profili nomi arriva con la slice 5b. Override per-parser
+    # via `CustomParserDef.source_language`.
+    "source_language":  "",
     # NB: la quota obbligatoria sì/no NON è più una chiave globale: la governa la
     # casella «Obblig.» sulla riga Price di ogni Parser Personalizzato (per-parser).
     # Parser Personalizzato attivo (nome; "" = usa il parser hardcoded). CP-07.
@@ -457,6 +463,11 @@ def _migrate(cfg: dict) -> dict:
                 # sporco → "" e il selettore all'avvio ricompare — mai un default IT
                 # silenzioso spacciato per scelta. Fonte unica: `language_select`.
                 val = language_select.normalize_app_language(val)
+            elif key == "source_language":
+                # Lingua-fonte (epica #3 slice 5a): IT/EN/ES o "" (non dichiarata). Fail-closed
+                # come app_language: valore sporco/mancante → "". Fonte unica:
+                # `recognition.normalize_source_language`.
+                val = recognition.normalize_source_language(val)
             elif key == "bridge_mode":
                 # Modalità nominata (#311 §3.1): SEMPRE ri-derivata dalla coppia salvata
                 # via `mode_from_cfg` — `dry_run` (già coerciuto sopra, viene prima nei
