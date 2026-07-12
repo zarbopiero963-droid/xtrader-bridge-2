@@ -8,8 +8,9 @@ dalla modalità, verifica due cose safety-critical:
   una quota). Il parametro `require_price` rende il controllo disattivabile: a
   runtime è guidato dalla riga Price del parser (`CustomParserDef.price_required`),
   non più da una chiave di config globale;
-- il **BetType** è `PUNTA`/`BANCA` (un lato sconosciuto pizzerebbe la scommessa
-  sbagliata).
+- il **BetType** è uno dei quattro lati validi `PUNTA`/`BANCA`/`BACK`/`LAY` (indifferenti su
+  tutte le versioni BT/XT, issue #3); un lato sconosciuto — inclusi i termini ES `FAVOR`/`CONTRA`
+  non ancora supportati — pizzerebbe la scommessa sbagliata, quindi è rifiutato (fail-closed).
 
 Un segnale senza prezzo, con prezzo non valido o con lato sconosciuto NON deve
 raggiungere XTrader. Il validatore non modifica la riga: la accetta o la scarta.
@@ -37,7 +38,27 @@ INVALID_BETTYPE = "INVALID_BETTYPE"
 INVALID_POINTS = "INVALID_POINTS"           # Points valorizzato ma non un numero > 0
 INVALID_PRICE_BOUNDS = "INVALID_PRICE_BOUNDS"  # Min/Max incoerenti (invertiti o escludono Price)
 
-_VALID_BETTYPES = ("PUNTA", "BANCA")
+# Le due forme CANONICHE del contratto CSV (output, in italiano): universali su tutte le versioni
+# Betting Toolkit / XTrader.
+_CANONICAL_BETTYPES = ("PUNTA", "BANCA")
+# I QUATTRO lati validi in INGRESSO → forma canonica. Indifferenti su TUTTE le versioni (conferma
+# del supporto, issue #3): italiano PUNTA/BANCA e inglese BACK/LAY. Il mapping è NON ambiguo
+# (BACK=back→PUNTA, LAY=lay→BANCA): un lato ignoto non viene MAI indovinato (invertire il lato della
+# scommessa sarebbe catastrofico). I termini spagnoli (FAVOR/CONTRA) NON sono ancora supportati
+# (arriveranno nei prossimi aggiornamenti del supporto): non sono in mappa → INVALID (fail-closed).
+_BETTYPE_CANON = {"PUNTA": "PUNTA", "BANCA": "BANCA", "BACK": "PUNTA", "LAY": "BANCA"}
+
+
+def canonical_bettype(value) -> str:
+    """Canonicalizza un BetType al lato ITALIANO del contratto CSV: `BACK`→`PUNTA`, `LAY`→`BANCA`,
+    `PUNTA`/`BANCA` invariati (case-insensitive, spazi ignorati). `None`/vuoto → `""` (nessun
+    lato); un valore ignoto resta invariato (solo uppercase). In entrambi i casi `bettype_status`
+    lo respinge (fail-closed: mai un lato inventato). Usato al confine del contratto CSV così
+    l'output resta canonico PUNTA/BANCA."""
+    if value is None:
+        return ""
+    up = str(value).strip().upper()
+    return _BETTYPE_CANON.get(up, up)
 
 
 def _price_status(value) -> str:
@@ -66,10 +87,14 @@ def price_status(value) -> str:
 
 
 def bettype_status(value) -> str:
-    """Pubblico: `VALID` se `value` è un BetType valido (`PUNTA`/`BANCA`, case-insensitive),
-    altrimenti `INVALID_BETTYPE`. Vuoto/sconosciuto = non valido (il lato è obbligatorio).
-    Usato dalla diagnostica per segnalare la colonna BetType indipendentemente dagli altri."""
-    return VALID if str(value).strip().upper() in _VALID_BETTYPES else INVALID_BETTYPE
+    """Pubblico: `VALID` se `value` è un BetType valido (`PUNTA`/`BANCA`/`BACK`/`LAY`,
+    case-insensitive — indifferenti su tutte le versioni BT/XT, issue #3), altrimenti
+    `INVALID_BETTYPE`. Vuoto/sconosciuto (inclusi i termini ES `FAVOR`/`CONTRA` non ancora
+    supportati) = non valido: il lato è obbligatorio e non si indovina mai. Usato dalla
+    diagnostica per segnalare la colonna BetType indipendentemente dagli altri."""
+    # Delega la normalizzazione a `canonical_bettype` (fonte unica): un lato è valido sse
+    # canonicalizza a una delle due forme del contratto → niente strip/upper duplicato qui.
+    return VALID if canonical_bettype(value) in _CANONICAL_BETTYPES else INVALID_BETTYPE
 
 
 def points_status(value) -> str:

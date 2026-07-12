@@ -954,7 +954,7 @@ significato di sicurezza:
 | **Dizionario locale** | DB locale sola-lettura (`betfair_dictionary.db`) per arricchire gli ID; popolato a mano dall'utente. Con la rimozione di «Betfair Sync» l'arricchimento nel CSV live è oggi disattivato (seam pronto). |
 | **Dedupe** | Anti-duplicato: lo stesso messaggio ravvicinato non viene riscritto. |
 | **Timeout / auto-clear** | Dopo N secondi il segnale scade e il CSV torna a solo header. |
-| **BetType** | `PUNTA` (back) o `BANCA` (lay). |
+| **BetType** | Lato scommessa. Validi indifferentemente `PUNTA`/`BANCA` (IT) e `BACK`/`LAY` (EN) — issue #3; output CSV sempre canonico `PUNTA`/`BANCA`. ES `FAVOR`/`CONTRA` non ancora supportati (rifiutati, fail-closed). |
 
 ---
 

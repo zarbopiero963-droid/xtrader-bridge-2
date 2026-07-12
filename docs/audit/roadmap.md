@@ -1672,6 +1672,27 @@ parametrizzati con `refs["_fields"]`; i delimitatori **non** vengono strippati a
 lista selezioni spiega la combinazione dinamica. Design handoff aggiornato (§ Output multi-riga).
 Prossimo: Nuitka (Fase 6); epica #343 in attesa delle risposte del supporto XTrader.
 
+## #3 slice 2 — BetType multilingua (BACK/LAY/PUNTA/BANCA) — sbloccata
+
+Il supporto Betting Toolkit/XTrader ha **confermato** (issue #3): come `BetType` valgono
+**indifferentemente `BACK`, `LAY`, `PUNTA`, `BANCA` su tutte le versioni**; i termini spagnoli
+(`FAVOR`/`CONTRA`) **non** sono ancora previsti (prossimi aggiornamenti). La struttura CSV, i codici
+`MarketType` e i nomi-colonna sono **identici** per tutte le lingue; il separatore decimale è
+«indifferente» (già coperto da #342). Le differenze vere restano sui **nomi** per il matching, che
+dipendono da **lingua della fonte + exchange Betfair** (slice 5, ancora aperta: dizionario per-locale
+user-built + indicazione della lingua della fonte).
+
+**Fix (slice 2).** `validator._VALID_BETTYPES` esteso ai quattro lati (`PUNTA/BANCA/BACK/LAY`) +
+`validator.canonical_bettype()` (BACK→PUNTA, LAY→BANCA); `custom_pipeline._normalize_to_contract`
+canonicalizza il BetType al confine del contratto → **l'output CSV resta canonico `PUNTA`/`BANCA`**
+(universale). Fail-closed invariato: `FAVOR`/`CONTRA`/garbage/vuoto → `INVALID_BETTYPE` (mai indovinare
+il lato). Nessun cambiamento al `csv_writer` legacy (già mappava BACK→PUNTA) né agli header.
+
+**Test hard:** i 4 lati validi (case-insensitive); `canonical_bettype` mappa al lato italiano; ES/garbage
+rifiutati (fail-closed); pipeline con BetType grezzo `BACK`→output `PUNTA`, `LAY`→`BANCA`, `FAVOR`→non
+piazzabile; diagnostica coerente (BACK/LAY ok, FAVOR marcato). Slice 5 (nomi per-locale) resta la
+prossima, dipendente dalle disuniformità Betfair citate dal supporto.
+
 ## PR-cestino micro-GUI (coda GUI, PR 3) — avvisi per-riga + anteprima coi decimali per lingua
 
 Tre micro-fix GUI accumulati dalle review di #341/#344 (nessun cambio runtime):
