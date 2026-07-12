@@ -121,9 +121,10 @@ def test_esclusioni_value_as_key_non_wrappate():
     for sentinel in ('_SPORT_ALL = "(tutti gli sport)"', '_ENTITY_ALL = "(qualsiasi tipo)"',
                      '_LANGUAGE_ALL = "(tutte le lingue)"', '_NO_PROFILE = "(nessun profilo)"'):
         assert sentinel in _MAP_SRC, f"sentinella cambiata: {sentinel}"
-    # mai wrappate in i18n.tr
-    for bad in ('i18n.tr(_SPORT_ALL', 'i18n.tr(_LANGUAGE_ALL', 'i18n.tr(_NO_PROFILE',
-                'i18n.tr("(tutti gli sport)")', 'i18n.tr("(tutte le lingue)")'):
+    # mai wrappate in i18n.tr (tutte e quattro le sentinelle: simbolo E literal)
+    for bad in ('i18n.tr(_SPORT_ALL', 'i18n.tr(_ENTITY_ALL', 'i18n.tr(_LANGUAGE_ALL',
+                'i18n.tr(_NO_PROFILE', 'i18n.tr("(tutti gli sport)")',
+                'i18n.tr("(qualsiasi tipo)")', 'i18n.tr("(tutte le lingue)")'):
         assert bad not in _MAP_SRC, f"sentinella wrappata per errore: {bad}"
     # i tab del container restano IT (chiavi di matching + pannello guidato non localizzato)
     for tab in ('self._tabs.add("⚽ Calcio")', 'self._tabs.add("🎯 Mercati")',
