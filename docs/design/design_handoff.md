@@ -243,9 +243,10 @@ di parità dei segnaposto garantiscono che le traduzioni restino allineate al co
 Dalla **slice 4d** è localizzata anche **📁 Profili impostazioni** (stesso schema:
 titolo/testi/bottoni + messaggi di stato dinamici via template+`.format`; i messaggi
 che mostrano SOLO l'eccezione bubblata dal layer puro `profile_store` restano IT, slice
-a parte). Restano IN ITALIANO per ora: testi dei **log** dell'app (diagnostici) e le altre
-finestre secondarie (Mapping, Strumenti, …). *(I banner REALE/COLLAUDO — prima esclusi — sono
-ora localizzati: vedi «slice 4 — banner di modalità» in fondo a questa sezione.)*
+a parte). Restano IN ITALIANO per ora: testi dei **log** dell'app (diagnostici) e le finestre
+secondarie non ancora localizzate (**🗺️ Mapping**, **🧰 Strumenti** hub, **🧙 Wizard**). *(I
+banner REALE/COLLAUDO — prima esclusi — sono ora localizzati: vedi «slice 4 — banner di
+modalità» in fondo a questa sezione.)*
 
 Dalla **slice 4e** è localizzata la **chrome** di **📡 Chat sorgenti** (finestra del
 FILTRO CHAT, safety-critical): titolo, hint, intestazioni colonne (Attiva/Nome/
