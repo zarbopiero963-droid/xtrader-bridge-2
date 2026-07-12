@@ -111,6 +111,22 @@ def test_retrocompat_dizionario_agnostico_live(tmp_path):
     assert res.placeable and res.row["EventName"] == "Liverpool - Leeds"
 
 
+def test_source_language_globale_malformata_fail_safe(tmp_path):
+    # Fail-safe lato QUERY (GLM #24): una `source_language` globale MALFORMATA ("ENG"/"FR"/…)
+    # normalizza a "" → nessun filtro (comportamento legacy), NON un filtro rotto che scarta
+    # tutto. La direzione fail-safe qui è «non filtrare», non «nessun match» (un valore sporco
+    # dal chiamante non deve azzerare il matching e far perdere segnali validi).
+    cp.save_parser(_parser(), str(tmp_path))
+    for bad in ("ENG", "FR", "xx", "123"):
+        res = signal_router.resolve_row(_MSG, _cfg(bad), chat_id="42", parsers_dir=str(tmp_path))
+        assert res.placeable and res.row["EventName"] == "Liverpool - Leeds", bad
+    # stesso fail-safe a livello di pipeline: `source_language` malformata == nessun filtro
+    profs = nm.entries_for_profiles(_cfg(), ["P"])
+    r = pipe.build_validated_row(_parser(), _MSG, name_mapping_profiles=profs,
+                                 source_language="ENG")
+    assert r.placeable and r.row["EventName"] == "Liverpool - Leeds"
+
+
 def test_source_language_none_comportamento_legacy(tmp_path):
     # Senza `source_language` (""), il filtro è inerte: si risolve col comportamento storico
     # (prima riga alias combaciante nell'ordine salvato → la EN, che è la prima).

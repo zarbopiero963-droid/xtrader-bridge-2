@@ -2664,9 +2664,10 @@ retro-compat: dizionari agnostici risolvono ancora con lingua-fonte impostata. M
 **Test hard** (`tests/integration/test_source_language_wiring_5b.py`, +6): filtro lingua in
 `build_validated_row`; `resolve_row` (live) usa il dizionario della lingua-fonte globale;
 override per-parser vince nel live; **parità live/preview** su EN/IT/"" (stesso EventName);
-retro-compat dizionario agnostico; `""` = comportamento legacy. Allowlist blind-except
-`custom_parser_gui.py` 10→11 (nuovo resolver lingua fail-safe da config, motivato). Suite
-**2374 passed, 11 skipped**. **CORE change** (`custom_pipeline.py`, `signal_router.py`,
+retro-compat dizionario agnostico; `""` = comportamento legacy; **`source_language` globale
+malformata → fail-safe (nessun filtro, non «nessun match»)** su live+pipeline (GLM #24). Allowlist
+blind-except `custom_parser_gui.py` 10→11 (nuovo resolver lingua fail-safe da config, motivato). Suite
+**2375 passed, 11 skipped**. **CORE change** (`custom_pipeline.py`, `signal_router.py`,
 `parser_builder.py`, `parser_diagnostics.py`, `custom_parser_gui.py`) → da ri-sincronizzare nel
 cloud. Docs: README (`source_language` ora attiva) + `docs/custom_parser.md` aggiornati.
 Design handoff = **N/A**: nessun elemento GUI **visibile** cambia (l'anteprima ora calcola la
