@@ -33,10 +33,10 @@ def test_get_entries_pulisce_righe_vuote():
         "non-un-dict",                              # rumore → scartato
     ]}}
     entries = nm.get_entries(cfg, "P")
-    # PR-P10: la riga ripulita include ora `sport` e `entity_type` (""=agnostici,
-    # retro-compatibili con le config salvate prima di questi campi).
+    # PR-P10 + #3 slice 5b: la riga ripulita include ora `sport`, `entity_type` e `language`
+    # (""=agnostici, retro-compatibili con le config salvate prima di questi campi).
     assert entries == [{"country": "", "betfair": "Inter", "provider": "Internazionale",
-                        "sport": "", "entity_type": ""}]
+                        "sport": "", "entity_type": "", "language": ""}]
 
 
 def test_profili_assenti_o_malformati_non_esplodono():
@@ -55,7 +55,7 @@ def test_set_entries_immutabile_e_pulisce():
     assert cfg == {}                                    # originale invariato
     assert nm.get_entries(out, "Liga") == [
         {"country": "", "betfair": "Real", "provider": "Real Madrid",
-         "sport": "", "entity_type": ""}]
+         "sport": "", "entity_type": "", "language": ""}]
 
 
 def test_add_profile_non_sovrascrive_esistente():
@@ -749,3 +749,108 @@ def test_malformed_entry_warnings_per_gui():
     assert "Serie A" in warns[0] and "Juventus" in warns[0] and "Calc1o" in warns[0]
     warns[0].encode("cp1252")
     assert nm.malformed_entry_warnings({}) == []
+
+
+# ── Filtro LINGUA-fonte (epica #3 slice 5b) ─────────────────────────────────────────
+
+def test_language_normalizzata_e_agnostica_default():
+    # Il campo `language` è normalizzato (IT/EN/ES, case/spazi) e vuoto = agnostico
+    # (retro-compatibile con le righe salvate prima). Un typo di lingua è FAIL-CLOSED.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Liverpool", "provider": "Reds", "language": " en "},   # → "EN"
+        {"betfair": "Inter", "provider": "Nerazzurri"},                     # lingua assente → ""
+    ]}}
+    ents = nm.get_entries(cfg, "P")
+    assert ents[0]["language"] == "EN"
+    assert ents[1]["language"] == ""
+
+
+def test_language_typo_fail_closed_riga_scartata():
+    # Lingua non-vuota ma non IT/EN/ES (typo) → riga SCARTATA (come sport/entity_type), non
+    # allargata a "tutte le lingue": un errore non deve tradurre con la voce sbagliata.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Liverpool", "provider": "Reds", "language": "ENG"},   # typo → scartata
+        {"betfair": "Inter", "provider": "Nerazzurri", "language": "IT"},  # valida
+    ]}}
+    ents = nm.get_entries(cfg, "P")
+    assert len(ents) == 1 and ents[0]["betfair"] == "Inter"
+    # e compare nell'elenco avvisi GUI (fail-closed visibile all'operatore)
+    warns = nm.malformed_entry_warnings(cfg)
+    assert len(warns) == 1 and "language" in warns[0] and "ENG" in warns[0]
+
+
+def test_resolve_team_filtro_lingua_esatta_e_agnostica():
+    # Con `language` valorizzata: la riga della lingua ESATTA vince sull'agnostica; una riga
+    # di ALTRA lingua è saltata; senza filtro (`language=None`) vale l'ordine salvato (legacy).
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Squadra EN", "provider": "Team", "language": "EN"},
+        {"betfair": "Squadra IT", "provider": "Team", "language": "IT"},
+        {"betfair": "Squadra AGN", "provider": "Team"},                    # agnostica
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Team", profs, language="EN") == "Squadra EN"   # lingua esatta vince
+    assert nm.resolve_team("Team", profs, language="IT") == "Squadra IT"
+    assert nm.resolve_team("Team", profs, language="ES") == "Squadra AGN"  # nessuna ES → agnostica
+    assert nm.resolve_team("Team", profs) == "Squadra EN"                  # legacy: prima riga
+
+
+def test_resolve_team_lingua_esatta_prioritaria_su_agnostica_precedente():
+    # Come per sport/tipo: una riga agnostica salvata PRIMA non scavalca la riga della lingua
+    # esatta salvata dopo (la GUI fa solo append).
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Agnostica", "provider": "X"},                         # agnostica (prima)
+        {"betfair": "Esatta EN", "provider": "X", "language": "EN"},       # lingua esatta (dopo)
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("X", profs, language="EN") == "Esatta EN"
+
+
+def test_resolve_team_dizionario_agnostico_con_lingua_impostata_retrocompat():
+    # RETRO-COMPAT CHIAVE: un dizionario tutto-agnostico (nessuna riga con lingua, come i
+    # setup esistenti) DEVE continuare a risolvere anche quando la lingua-fonte è impostata.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Liverpool", "provider": "Reds"},
+        {"betfair": "Leeds", "provider": "Leeds Utd"},
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Reds", profs, language="EN") == "Liverpool"
+    assert nm.resolve_event_name("Reds v Leeds Utd", "v", profs, language="EN") == "Liverpool - Leeds"
+
+
+def test_resolve_team_lingua_ignota_o_vuota_nessun_filtro():
+    # `language` None/""/ignota (es. "FR") = nessun filtro (fail-safe): non si azzera il
+    # matching per una lingua non supportata passata dal chiamante.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Squadra IT", "provider": "Team", "language": "IT"},
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    for lang in (None, "", "FR", "xx"):
+        assert nm.resolve_team("Team", profs, language=lang) == "Squadra IT", repr(lang)
+
+
+def test_resolve_event_name_filtro_lingua_end_to_end():
+    # Il filtro-lingua si propaga a resolve_event_name (casa+trasferta): con EN si usano le
+    # righe EN, l'agnostica fa da fallback; una riga IT che collide non traduce sotto EN.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Home EN", "provider": "H", "language": "EN"},
+        {"betfair": "Home IT", "provider": "H", "language": "IT"},
+        {"betfair": "Away AGN", "provider": "A"},                          # agnostica per l'ospite
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_event_name("H v A", "v", profs, language="EN") == "Home EN - Away AGN"
+    assert nm.resolve_event_name("H v A", "v", profs, language="IT") == "Home IT - Away AGN"
+
+
+def test_language_additiva_a_sport_e_tipo():
+    # Le tre dimensioni sono additive: serve match (o agnostico) su sport E tipo E lingua.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter Calcio EN", "provider": "Inter", "sport": "Calcio",
+         "entity_type": "team", "language": "EN"},
+        {"betfair": "Inter Calcio IT", "provider": "Inter", "sport": "Calcio",
+         "entity_type": "team", "language": "IT"},
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Inter", profs, sport="Calcio", entity_type="team",
+                           language="EN") == "Inter Calcio EN"
+    assert nm.resolve_team("Inter", profs, sport="Calcio", entity_type="team",
+                           language="IT") == "Inter Calcio IT"

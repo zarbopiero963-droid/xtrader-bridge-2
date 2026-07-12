@@ -144,6 +144,17 @@ provider nei nomi Betfair/XTrader **prima** della scrittura:
   globale/override**: **non filtra ancora** il matching (nessun cambio di comportamento). Il
   filtro per-lingua sui profili nomi arriva con la **slice 5b**. Valore malformato → vuoto
   (fail-closed, retro-compatibile con i parser salvati prima del campo).
+- **lingua per riga di dizionario (`language`, #3 slice 5b — STORE)**: ogni riga di mappatura
+  può portare una colonna **Lingua** opzionale (`IT`/`EN`/`ES`, chiave di config `language`;
+  vuoto = **agnostica**, retro-compatibile). Come per sport/tipo, quando il matching riceve
+  una lingua-fonte si considerano SOLO le righe di quella lingua o **agnostiche**, con
+  **priorità alla lingua esatta** sull'agnostica; le righe di un'altra lingua sono saltate.
+  Un valore non-vuoto e **non riconosciuto** (typo tipo `ENG`) è FAIL-CLOSED (riga scartata,
+  con avviso, non allargata a tutte le lingue). ⚠️ In **questa slice (5b)** il campo e il
+  filtro vivono nello **store** (`resolve_team`/`resolve_event_name` accettano una `language`)
+  e sono impostabili via `config.json`: il **cablaggio nella pipeline** (che passa
+  automaticamente la `source_language` effettiva, live+preview) e la **colonna GUI** arrivano
+  nella slice successiva. Con `language` non passata il comportamento è quello storico.
 
 **Sicuro (fail-closed)**: se il separatore non si trova **o** una squadra non è nei
 profili (per lo sport del parser), lo stato è `MAPPING_MISSING` → **nessuna riga CSV** (un

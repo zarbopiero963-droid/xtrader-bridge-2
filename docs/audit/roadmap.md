@@ -2591,3 +2591,43 @@ le altre chiavi (GPT #22). Suite **2359 passed, 11 skipped**. **CORE change**
 README (chiave `source_language`) + `docs/custom_parser.md` (campo per-parser) aggiornati. Design
 handoff = **N/A** (nessun elemento GUI/UX in 5a: solo config/plumbing; il campo GUI per la
 lingua-fonte arriverà con la slice che lo espone).
+
+## #3 slice 5b (parte 1 — store) — Filtro LINGUA-fonte nel dizionario nomi
+
+**Contesto (epica multilingua #3).** Col riconoscimento a NOMI i nomi dipendono dalla lingua
+della fonte (conferma supporto). La 5a ha introdotto la fondazione `source_language` (globale +
+override per-parser + `recognition.effective_source_language`). Questa slice porta il consumo al
+livello **store** del dizionario nomi, come **terza dimensione di scope** accanto a
+`sport`/`entity_type`.
+
+**Tecnico (`name_mapping_store.py`).**
+- Nuovo campo per-riga `language` (`IT`/`EN`/`ES`, chiave config `language`; **vuoto = agnostico**,
+  retro-compatibile con le righe salvate prima). Normalizzato via `recognition.normalize_source_language`.
+- Fail-closed: un `language` non-vuoto e non riconosciuto (typo) → riga **scartata** (come
+  `sport`/`entity_type`), con avviso in `malformed_entry_warnings`; mai allargata a «tutte le lingue».
+- `_scoped_entry_groups` guadagna `want_language`: elegge solo righe della lingua esatta o
+  agnostiche, con **priorità alla lingua esatta** (tier). Rank `(entity, lingua, sport)`: senza
+  filtro-lingua il rank-lingua è costante → **ordinamento legacy invariato**.
+- `resolve_team`/`resolve_event_name` guadagnano il parametro `language` (default `None` = nessun
+  filtro = comportamento storico), inoltrato a `_scoped_entry_groups`.
+- **Retro-compatibilità chiave:** un dizionario tutto-agnostico (i setup esistenti) continua a
+  risolvere anche con la lingua-fonte impostata (tier agnostico sempre eleggibile).
+
+**Ancora aperto (prossima slice).** Il **cablaggio nella pipeline** (`custom_pipeline`/
+`signal_router`/`parser_builder`) che calcola `effective_source_language(cfg, defn)` e la passa a
+`resolve_*` su **entrambi** i seam live+preview (invariante di parità), e la **colonna GUI «Lingua»**
+nel Dizionario nomi (con aggiornamento `design_handoff`). In QUESTA slice il filtro è impostabile
+solo via `config.json` (nessun cambio di comportamento runtime finché la pipeline non passa la lingua).
+
+**Safety.** Contratto CSV invariato; nessun impatto su Telegram/dedup/BetType; fail-closed su
+lingua sbagliata/typo (mai un evento tradotto a caso → mai scommessa sbagliata). Merge **manuale**.
+
+**Test hard** (`tests/unit/test_name_mapping.py`): normalizzazione + agnostico di default; typo
+lingua fail-closed (riga scartata + avviso GUI); priorità lingua esatta > agnostica (anche su
+agnostica salvata prima); dizionario tutto-agnostico + lingua impostata risolve ancora
+(retro-compat); `language` None/""/ignota = nessun filtro; propagazione a `resolve_event_name`;
+additività lingua × sport × tipo. Suite **2367 passed, 11 skipped**. **CORE change**
+(`name_mapping_store.py`) → da ri-sincronizzare nel cloud. Docs: `docs/custom_parser.md` aggiornato.
+README = **N/A** (nessun cambio utente/flusso in questa slice: campo config-only non ancora consumato
+dalla pipeline). Design handoff = **N/A** (nessun elemento GUI in questa slice; la colonna «Lingua»
+arriva con la slice del cablaggio+GUI).
