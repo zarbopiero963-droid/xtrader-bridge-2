@@ -2824,7 +2824,7 @@ completo con 5a→5b→5c→5d.
 **⚠️ L'epica #3 NON è ancora chiusa.** #3 è l'epica multilingua **intera** e comprende anche
 la **slice 4 — localizzazione UI completa** («l'intera UI in quella lingua»), che ha un
 **residuo aperto**: **banner e log** dell'app sono ancora **hardcoded in italiano** (in
-`app.py` le righe `self._log(...)` non passano dalla funzione i18n `tr()`; il README lo
+`xtrader_bridge/app.py` le righe `self._log(...)` non passano dalla funzione i18n `tr()`; il README lo
 dichiara: «banner, log … restano in italiano»). Perciò la Issue #3 **resta aperta** finché
 anche banner/log non sono localizzati. *(Nota: una versione precedente di questa sezione
 scriveva erroneamente «#3 CHIUSA» — era riferito alla sola slice 5, non all'epica.)*
