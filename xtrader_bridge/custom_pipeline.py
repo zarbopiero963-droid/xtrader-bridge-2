@@ -353,7 +353,11 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
     # regole-colonna quando una frase combacia in modo univoco; ambiguità → fail-closed (D2).
     # Profili None (anteprima senza config) = lista vuota → si valuta come "nessun match".
     if defn.market_mapping_profiles:
-        resm = market_mapping_store.resolve_market(text, market_mapping_profiles or [])
+        # `language` (epica #3 slice 5c): la stessa lingua-fonte effettiva usata per i nomi
+        # (identica su live e anteprima, 5b wiring) filtra anche il dizionario mercati, così
+        # una voce mercato di lingua sbagliata non si applica. `""` = nessun filtro (legacy).
+        resm = market_mapping_store.resolve_market(text, market_mapping_profiles or [],
+                                                   language=source_language)
         if resm.status == "ambiguous":
             # Due frasi indicano mercati diversi: niente riga, mai tirare a indovinare.
             return PipelineResult(MARKET_MAPPING_MISSING, row, list(res.missing_required))

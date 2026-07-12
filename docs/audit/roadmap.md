@@ -2714,5 +2714,62 @@ mostra EN; una riga «(tutte le lingue)» resta agnostica). Suite **2383 passed,
 ri-sincronizzare nel cloud. Docs: README + `docs/custom_parser.md` + **`docs/design/design_handoff.md`**
 (tabella Dizionario nomi con la colonna «Lingua» e il default prefill) aggiornati.
 
-**Ancora aperto:** 5c (colonna `Lingua` del dizionario canonico) e 5d (Betfair per-exchange IT-vs-UK).
+**Ancora aperto:** 5c (colonna `Lingua` del dizionario mercati) e 5d (Betfair per-exchange IT-vs-UK).
 La **#3 si chiude** solo a slice 5 completa.
+
+## #3 slice 5c — Colonna «Lingua» nel Dizionario MERCATI
+
+**Contesto.** La 5b ha portato il filtro-lingua-fonte al Dizionario **nomi** (store + wiring
+live/preview + colonna GUI). Questa slice estende lo **stesso** filtro al Dizionario **mercati**
+(`market_mapping_store`): anche le frasi-mercato che il provider scrive dipendono dalla lingua
+della fonte, quindi la voce mercato guadagna una dimensione `language` speculare a quella dei nomi.
+Target confermato dal proprietario («Dizionario mercati», non un ipotetico «dizionario canonico»:
+il termine della 5b non era definito nel codice).
+
+**Tecnico (cambio additivo, default `language=""`/`source_language=""` → nessun cambio di
+comportamento).**
+- **`market_mapping_store.py`**: nuovo campo per-voce `language` in `_clean_entry` (chiave config
+  `language`; **vuoto = agnostico**, retro-compatibile). Fail-closed sui typo tramite il predicato
+  unico `_malformed_fields` (voce **scartata** se `language` non-vuota e non `IT`/`EN`/`ES`, mai
+  allargata a «tutte le lingue»), con `malformed_entry_warnings` per l'avviso GUI/log. `resolve_market`
+  guadagna il parametro `language=None` (default = nessun filtro = legacy): scarta le voci di
+  un'ALTRA lingua (le agnostiche restano) e la voce della lingua **esatta** ha priorità sull'agnostica
+  (tier), come il dizionario nomi. `wl=""` → set invariato → ambiguità/risultato identici al legacy.
+- **`custom_pipeline.build_validated_row`**: la `source_language` già calcolata dal 5b wiring
+  (identica su live e anteprima) è ora inoltrata anche a `resolve_market(..., language=source_language)`
+  — **una riga**. Live (`signal_router._resolve_one`) e anteprima (`parser_builder`/`custom_parser_gui`)
+  passano già la stessa lingua, quindi la **parità** è preservata senza nuovi seam.
+- **`app.py` `_start`**: surface di `market_mapping_store.malformed_entry_warnings(cfg)` nel log eventi
+  (mirror dei nomi), così l'operatore vede subito una voce disattivata da un typo di lingua.
+- **`name_mapping_gui.MarketMappingPanel`** (GUI): nuova colonna **«Lingua»** nella tabella del
+  Dizionario mercati (header estratto nella costante `_MARKET_HEADER_COLUMNS`, speculare a
+  `_HEADER_COLUMNS`); tendina per riga `[«(tutte le lingue)», IT, EN, ES]` riusando gli helper
+  `_LANGUAGE_ALL`/`_language_to_label`/`_label_to_language` già introdotti dal 5b; `_append_row_widget`
+  accetta `language=""`, `_collect_rows` emette `language`, `_reload_rows` passa `e.get("language","")`.
+  Un valore fuori lista (dato storico) è **preservato** come opzione extra (non perso in silenzio).
+
+**Safety.** Contratto CSV invariato; nessun impatto su Telegram/dedup/BetType; fail-closed su
+lingua sbagliata/typo (mai un mercato di lingua sbagliata → mai scommessa sbagliata); ambiguità
+resta `MARKET_MAPPING_MISSING` (D2). Retro-compat: dizionari mercati agnostici risolvono identici
+con o senza lingua-fonte. Merge **manuale**.
+
+**Test hard.** `tests/unit/test_market_mapping.py` (+10 store): normalizzazione + agnostico default;
+typo lingua fail-closed (voce scartata + `malformed_entry_warnings`); `resolve_market` con lingua
+esatta > agnostica (tier, niente falsa ambiguità); lingua diversa scartata con agnostica di riserva;
+solo-lingua-diversa → `none`; dizionario agnostico + lingua impostata risolve (retro-compat);
+`language` None/""/ignota = nessun filtro; legacy ambiguo invariato senza filtro.
+`tests/integration/test_market_source_language_wiring_5c.py` (+7): wiring diretto in
+`build_validated_row`; live (`resolve_row`) usa la lingua-fonte globale; override per-parser vince;
+**parità live/preview** su EN/IT/"" (incluso il caso fail-closed ambiguo); retro-compat agnostico;
+fail-safe su `source_language` malformata (= nessun filtro, non filtro rotto).
+`tests/unit/test_market_mapping_gui_language.py` (+6, headless con stub `customtkinter`, mirror dei
+nomi): header contiene «Lingua» senza rimuovere le altre; `_collect_rows` emette `language`;
+`_reload_rows` carica la lingua salvata; `_append_row_widget` costruisce la tendina esatta e la
+inizializza (default agnostica); resilienza valore sconosciuto («FR») preservato. La resa visuale
+resta uno **smoke manuale** (apri 🧰 Strumenti → 🗺️ Mapping → 🎯 Mercati, imposta una voce a `EN`,
+salva, riapri → la tendina mostra `EN`; «(tutte le lingue)» resta agnostica). Suite **2405 passed,
+11 skipped**. **CORE change** (`market_mapping_store.py`, `custom_pipeline.py`, `app.py`,
+`name_mapping_gui.py`) → da ri-sincronizzare nel cloud. Docs: README + `docs/custom_parser.md` +
+**`docs/design/design_handoff.md`** (tabella Dizionario mercati con la colonna «Lingua») aggiornati.
+
+**Ancora aperto:** 5d (Betfair per-exchange IT-vs-UK). La **#3 si chiude** solo a slice 5 completa.

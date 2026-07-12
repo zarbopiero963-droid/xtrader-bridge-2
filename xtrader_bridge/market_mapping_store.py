@@ -52,7 +52,7 @@ NB: la **precedenza D1** ("il dizionario vince" sulla regola-colonna) è una sce
 import re
 from collections import namedtuple
 
-from . import dizionario
+from . import dizionario, recognition
 from .custom_parser_engine import extract_between
 
 # Chiave di config che ospita i profili di mappatura mercati.
@@ -96,9 +96,26 @@ def _find_store_key(store: dict, name: str):
     return None
 
 
+def _malformed_fields(entry: dict) -> list:
+    """Coppie ``(campo, valore_grezzo)`` NON riconosciute di una voce mercato: per ora la
+    sola ``language`` (epica #3 slice 5c) non-vuota e non ``IT``/``EN``/``ES``. Vuoto =
+    agnostico intenzionale (vale per tutte le lingue), NON malformato. Predicato unico
+    condiviso tra ``_clean_entry`` (scarto fail-closed) e ``malformed_entry_warnings``
+    (avvisi GUI), così i due non possono divergere — stesso pattern di
+    ``name_mapping_store._malformed_fields``."""
+    out = []
+    # language (epica #3 slice 5c): non-vuoto ma non IT/EN/ES → FAIL-CLOSED come nel
+    # dizionario nomi. Un typo di lingua non deve allargare in silenzio la voce a "tutte le
+    # lingue" (un mercato applicato a una lingua sbagliata = scommessa sbagliata).
+    raw_language = str(entry.get("language", "") or "").strip()
+    if raw_language and not recognition.normalize_source_language(raw_language):
+        out.append(("language", raw_language))
+    return out
+
+
 def _clean_entry(entry) -> dict:
     """Normalizza una voce in ``{start_after, end_before, phrase, market_type, market_name,
-    selection_name}`` (stringhe ripulite), o ``None`` se inutile.
+    selection_name, language}`` (stringhe ripulite), o ``None`` se inutile.
 
     Una voce è valida se ha **testo mercato** (``phrase``), **market_name** e
     **selection_name**: senza, non può formare un mercato. I delimitatori ``start_after``/
@@ -108,7 +125,12 @@ def _clean_entry(entry) -> dict:
     (fail-closed) — invece di eliminarla. Dei delimitatori si tolgono **solo spazi/tab** ai
     bordi (come ``_delim_pattern`` del Parser), **preservando i newline** (es. ``"\\nMercato:"``
     resta ancorato a inizio riga, Codex). ``market_type`` può essere vuoto (lo ricava
-    ``_canonical_market`` dal catalogo)."""
+    ``_canonical_market`` dal catalogo).
+
+    ``language`` (epica #3 slice 5c): lingua della fonte (``IT``/``EN``/``ES``); **vuoto** →
+    ``""`` = agnostico (retro-compatibile con le voci salvate prima). Un valore non-vuoto ma
+    **non riconosciuto** (typo) è FAIL-CLOSED come nel dizionario nomi: la voce viene
+    **scartata** (mai allargata a tutte le lingue), con avviso in ``malformed_entry_warnings``."""
     if not isinstance(entry, dict):
         return None
     start_after = str(entry.get("start_after", "") or "").strip(" \t")
@@ -117,11 +139,18 @@ def _clean_entry(entry) -> dict:
     market_type = str(entry.get("market_type", "") or "").strip()
     market_name = str(entry.get("market_name", "") or "").strip()
     selection_name = str(entry.get("selection_name", "") or "").strip()
+    # `raw_language` ripulito UNA volta e condiviso con la validazione: `_malformed_fields`
+    # valida `str(...).strip()`, quindi persistere lo STESSO valore ripulito evita ogni
+    # divergenza tra ciò che si valida e ciò che si salva (Sourcery bug_risk #26).
+    raw_language = str(entry.get("language", "") or "").strip()
     if not phrase or not market_name or not selection_name:
+        return None
+    if _malformed_fields(entry):                 # language typo → voce scartata (fail-closed)
         return None
     return {"start_after": start_after, "end_before": end_before, "phrase": phrase,
             "market_type": market_type, "market_name": market_name,
-            "selection_name": selection_name}
+            "selection_name": selection_name,
+            "language": recognition.normalize_source_language(raw_language)}
 
 
 def profile_names(cfg: dict) -> list:
@@ -144,6 +173,34 @@ def get_entries(cfg: dict, name: str) -> list:
         if ce is not None:
             out.append(ce)
     return out
+
+
+def malformed_entry_warnings(cfg: dict) -> list:
+    """Avvisi **non bloccanti** per la GUI/event log (epica #3 slice 5c): voci mercato con
+    ``language`` non riconosciuta, che il resolver SCARTA (fail-closed). Il warning del
+    logger Python non è visibile nell'app windowed: ``_start`` mostra QUESTI messaggi nel log
+    eventi, così l'operatore scopre subito la voce disattivata invece che dal mercato non
+    riconosciuto — stesso principio di ``name_mapping_store.malformed_entry_warnings``."""
+    warnings = []
+    for profile, rows in _store(cfg).items():
+        if not isinstance(rows, (list, tuple)):
+            continue
+        for entry in rows:
+            if not isinstance(entry, dict):
+                continue
+            phrase = str(entry.get("phrase", "") or "").strip()
+            market_name = str(entry.get("market_name", "") or "").strip()
+            selection_name = str(entry.get("selection_name", "") or "").strip()
+            if not phrase or not market_name or not selection_name:
+                continue                      # voce incompleta: scartata comunque, senza avviso
+            bad = _malformed_fields(entry)
+            if bad:
+                dove = ", ".join(f"{f}={v!r}" for f, v in bad)
+                warnings.append(
+                    f"Mappatura mercati «{_norm_profile_name(profile)}», voce «{phrase}»: "
+                    f"{dove} non riconosciuto -> voce IGNORATA (fail-closed). "
+                    f"Correggi il valore per riattivarla.")
+    return warnings
 
 
 def entries_for_profiles(cfg: dict, names) -> list:
@@ -252,7 +309,7 @@ def _phrase_in_text(phrase: str, text_norm: str) -> bool:
     return re.search(r"(?<![\w/-])" + re.escape(p) + r"(?![\w/-])", text_norm) is not None
 
 
-def resolve_market(text: str, profiles, rows=None) -> MarketResolution:
+def resolve_market(text: str, profiles, rows=None, language=None) -> MarketResolution:
     """Risolve il mercato canonico XTrader dal mercato scritto dal provider nel ``text``.
 
     Per ogni voce il mercato si legge **da una posizione precisa** del messaggio: si estrae
@@ -263,6 +320,12 @@ def resolve_market(text: str, profiles, rows=None) -> MarketResolution:
     mercato vero sta tra «Quota» e «Prematch»). La coppia Mercato/Selezione dev'essere
     **coerente col Catalogo XTrader** (``_canonical_market``, §5.3): una voce incoerente
     (config a mano/bug) è ignorata, mai scritta. ``rows`` inietta un catalogo nei test.
+
+    ``language`` (epica #3 slice 5c): lingua-fonte effettiva (``IT``/``EN``/``ES`` o
+    ``None``/``""`` = nessun filtro = comportamento storico). Se valorizzata: le voci di
+    un'ALTRA lingua vengono **scartate** (le agnostiche restano) e la voce della lingua
+    ESATTA ha **priorità** sull'agnostica (tier), come il dizionario nomi (5b). Un dizionario
+    tutto-agnostico continua a risolvere anche con la lingua-fonte impostata (retro-compat).
     Poi (D2):
 
     - 0 match → ``MarketResolution("none", None)``;
@@ -273,7 +336,8 @@ def resolve_market(text: str, profiles, rows=None) -> MarketResolution:
     """
     if not str(text or "").strip():
         return MarketResolution("none", None)
-    found = []
+    wl = recognition.normalize_source_language(language)   # "" = nessun filtro-lingua (legacy)
+    found = []                                             # (canon_tuple, entry_language)
     for entries in (profiles or []):
         for e in entries:
             sa = str(e.get("start_after", "") or "")
@@ -285,6 +349,13 @@ def resolve_market(text: str, profiles, rows=None) -> MarketResolution:
             # combaciare su tutto il messaggio (Sourcery/CodeRabbit). "Vuoto" = solo spazi/tab
             # ai bordi, come `_delim_pattern`: un delimitatore di soli newline conta.
             if not ph or (not sa.strip(" \t") and not eb.strip(" \t")):
+                continue
+            # Filtro-lingua (epica #3 slice 5c): con una lingua-fonte richiesta, una voce di
+            # un'ALTRA lingua esatta è scartata (mai applicare un mercato di lingua sbagliata).
+            # Le agnostiche (`""`) restano eleggibili. Senza filtro (`wl` vuoto) nessuno scarto
+            # → comportamento storico invariato.
+            el = str(e.get("language", "") or "")
+            if wl and el and el != wl:
                 continue
             # Leggi il mercato SOLO dalla posizione delimitata (niente scansione dell'intero
             # messaggio): i delimitatori RAW vanno a extract_between, che preserva i newline
@@ -302,11 +373,19 @@ def resolve_market(text: str, profiles, rows=None) -> MarketResolution:
             canon = _canonical_market(e.get("market_name", ""), e.get("selection_name", ""), rows)
             if canon is None:
                 continue
-            found.append((canon["market_type"], canon["market_name"], canon["selection_name"]))
+            found.append(((canon["market_type"], canon["market_name"],
+                           canon["selection_name"]), el))
     if not found:
         return MarketResolution("none", None)
-    if len(set(found)) > 1:
+    # Tier lingua (epica #3 slice 5c): se è richiesta una lingua-fonte e c'è almeno un match
+    # della lingua ESATTA, si usano SOLO quelli — un match agnostico non deve creare una falsa
+    # ambiguità contro la voce della lingua giusta (mirror del tier del dizionario nomi). Senza
+    # filtro (`wl` vuoto) il set resta invariato → ambiguità/risultato identici al legacy.
+    if wl and any(el == wl for _, el in found):
+        found = [(canon, el) for canon, el in found if el == wl]
+    canon_set = {canon for canon, _ in found}
+    if len(canon_set) > 1:
         return MarketResolution("ambiguous", None)
-    mt, mn, sn = found[0]
+    mt, mn, sn = next(iter(canon_set))
     return MarketResolution("ok", {"market_type": mt, "market_name": mn,
                                    "selection_name": sn})

@@ -55,6 +55,7 @@ from . import (
     live_guard,
     log_privacy,
     log_view,
+    market_mapping_store,
     message_freshness,
     multi_signal,
     name_mapping_store,
@@ -2242,6 +2243,11 @@ class App(ctk.CTk):
         # entity_type non riconosciuto vengono SCARTATE (fail-closed) dal resolver —
         # l'operatore deve vederlo qui, non scoprirlo dal nome non tradotto.
         for warn in name_mapping_store.malformed_entry_warnings(cfg):
+            self._log(f"⚠️ {warn}")
+        # Avviso NON bloccante (epica #3 slice 5c): voci del dizionario mercati con `language`
+        # non riconosciuta vengono SCARTATE (fail-closed) dal resolver — l'operatore deve
+        # vederlo qui, non scoprirlo dal mercato non riconosciuto.
+        for warn in market_mapping_store.malformed_entry_warnings(cfg):
             self._log(f"⚠️ {warn}")
         # Audit #259 C3 (decisione proprietario): filtro chat presente ma NESSUNA chat
         # effettivamente ascoltata (es. tutte le sorgenti disattivate) → lo START
