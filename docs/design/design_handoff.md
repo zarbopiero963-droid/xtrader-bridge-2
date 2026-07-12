@@ -243,8 +243,9 @@ di parità dei segnaposto garantiscono che le traduzioni restino allineate al co
 Dalla **slice 4d** è localizzata anche **📁 Profili impostazioni** (stesso schema:
 titolo/testi/bottoni + messaggi di stato dinamici via template+`.format`; i messaggi
 che mostrano SOLO l'eccezione bubblata dal layer puro `profile_store` restano IT, slice
-a parte). Restano IN ITALIANO per ora: banner REALE/COLLAUDO, testi dei log e le altre
-finestre secondarie (Mapping, Strumenti, …).
+a parte). Restano IN ITALIANO per ora: testi dei **log** dell'app (diagnostici) e le altre
+finestre secondarie (Mapping, Strumenti, …). *(I banner REALE/COLLAUDO — prima esclusi — sono
+ora localizzati: vedi «slice 4 — banner di modalità» in fondo a questa sezione.)*
 
 Dalla **slice 4e** è localizzata la **chrome** di **📡 Chat sorgenti** (finestra del
 FILTRO CHAT, safety-critical): titolo, hint, intestazioni colonne (Attiva/Nome/
@@ -285,6 +286,18 @@ configurazione), i **VALORI** delle tendine Modalità/Sport/Mercato/Trasformazio
 `rule.target == "Provider"`). Restano IT anche il **testo di dominio bollato in `{exc}`**
 (messaggi/errori del `ParserBuilder`/config interpolati nei prefissi qui sopra), i nomi-colonna
 della tabella regole/diagnostica e l'hint 💡 estrazione dinamica (slice a parte).
+
+Dalla **slice 4 — banner di modalità** sono localizzati i due **banner persistenti di
+sicurezza**: il **banner ROSSO «⚠️ MODALITÀ REALE ATTIVA…»** (`real_mode.BANNER_TEXT`) e il
+**banner AMBRA «🔬 MODALITÀ COLLAUDO XTRADER…»** (`bridge_mode.COLLAUDO_BANNER_TEXT`), resi in
+`app.py` via `i18n.tr(...)` sulla costante. Traduzioni (catalogo `i18n.py`): EN «⚠️ REAL MODE
+ACTIVE …» / «🔬 XTRADER TEST MODE …», ES «⚠️ MODO REAL ACTIVO …» / «🔬 MODO DE PRUEBA XTRADER
+…». La **semantica di rischio è preservata** in tutte le lingue: emoji ⚠️/🔬 invariate, colori
+banner invariati (rosso REALE ha priorità sull'ambra COLLAUDO), parole-rischio conservate
+(REAL/REALES, TEST/PRUEBA). La **decisione** di mostrare il banner (`real_mode.banner_active`
+/ `bridge_mode.banners_for`) è invariata: cambia solo il testo mostrato. IT resta il
+riferimento (fail-safe: lingua mai scelta → banner in italiano storico). Restano IN ITALIANO
+i **messaggi di log** dell'app (diagnostici), previsti nei prossimi slice della #343.
 
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 

@@ -1736,7 +1736,7 @@ class App(ctk.CTk):
             session_mode=self.__dict__.get("_session_mode", ""))
         tabs = getattr(self, "_tabs", None)
         if active:
-            banner.configure(text=real_mode.BANNER_TEXT)
+            banner.configure(text=i18n.tr(real_mode.BANNER_TEXT))
             if tabs is not None:
                 banner.pack(fill="x", padx=15, pady=(0, 5), before=tabs)
             else:
@@ -1746,7 +1746,7 @@ class App(ctk.CTk):
         if collaudo is None:
             return
         if collaudo_on:
-            collaudo.configure(text=bridge_mode.COLLAUDO_BANNER_TEXT)
+            collaudo.configure(text=i18n.tr(bridge_mode.COLLAUDO_BANNER_TEXT))
             if tabs is not None:
                 collaudo.pack(fill="x", padx=15, pady=(0, 5), before=tabs)
             else:

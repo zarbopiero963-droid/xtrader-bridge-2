@@ -115,6 +115,18 @@ _CATALOG = {
         # universale → fallback)
         "⬤  ATTIVO": "⬤  ACTIVE",
         "⬤  RICONNESSIONE…": "⬤  RECONNECTING…",
+        # Banner di MODALITÀ (#343 slice 4 — residuo banner della #3). Chiavi = costanti
+        # `real_mode.BANNER_TEXT` / `bridge_mode.COLLAUDO_BANNER_TEXT` (verbatim, l'anti-drift
+        # le lega ai valori reali). Stringhe di SICUREZZA: la traduzione preserva la severità.
+        "⚠️ MODALITÀ REALE ATTIVA — i segnali validi vengono scritti nel CSV "
+        "operativo e XTrader può piazzare scommesse REALI.":
+            "⚠️ REAL MODE ACTIVE — valid signals are written to the operational CSV "
+            "and XTrader can place REAL bets.",
+        "🔬 MODALITÀ COLLAUDO XTRADER — il CSV operativo VIENE scritto: "
+        "XTrader deve essere in Modalità Simulazione "
+        "(nessuna scommessa reale).":
+            "🔬 XTRADER TEST MODE — the operational CSV IS written: "
+            "XTrader must be in Simulation Mode (no real bets).",
         # Contatori Dashboard (chiavi in dashboard_stats.COUNTERS)
         "📥 Ricevuti": "📥 Received",
         "✅ Scritti": "✅ Written",
@@ -358,6 +370,16 @@ _CATALOG = {
         # Stato listener (#343 slice 4b)
         "⬤  ATTIVO": "⬤  ACTIVO",
         "⬤  RICONNESSIONE…": "⬤  RECONEXIÓN…",
+        # Banner di MODALITÀ (#343 slice 4 — residuo banner della #3). Stringhe di SICUREZZA.
+        "⚠️ MODALITÀ REALE ATTIVA — i segnali validi vengono scritti nel CSV "
+        "operativo e XTrader può piazzare scommesse REALI.":
+            "⚠️ MODO REAL ACTIVO — las señales válidas se escriben en el CSV "
+            "operativo y XTrader puede realizar apuestas REALES.",
+        "🔬 MODALITÀ COLLAUDO XTRADER — il CSV operativo VIENE scritto: "
+        "XTrader deve essere in Modalità Simulazione "
+        "(nessuna scommessa reale).":
+            "🔬 MODO DE PRUEBA XTRADER — el CSV operativo SE escribe: "
+            "XTrader debe estar en Modo Simulación (sin apuestas reales).",
         # Contatori Dashboard (chiavi in dashboard_stats.COUNTERS)
         "📥 Ricevuti": "📥 Recibidos",
         "✅ Scritti": "✅ Escritos",
