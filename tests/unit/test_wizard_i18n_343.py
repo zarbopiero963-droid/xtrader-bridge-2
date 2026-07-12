@@ -20,7 +20,8 @@ from xtrader_bridge import i18n
 
 _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "xtrader_bridge")
-_WIZ_SRC = open(os.path.join(_PKG, "wizard_gui.py"), encoding="utf-8").read()
+with open(os.path.join(_PKG, "wizard_gui.py"), encoding="utf-8") as _fh:
+    _WIZ_SRC = _fh.read()
 _WIZ_TREE = ast.parse(_WIZ_SRC)
 
 # Chiavi wrappate come costante di `i18n.tr(...)` (AST unisce le concatenazioni multi-linea).
