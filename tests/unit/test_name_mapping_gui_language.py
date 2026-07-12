@@ -116,6 +116,9 @@ def _rich_ctk():
         def insert(self, *a, **k):
             pass
 
+        def get(self):
+            return ""
+
     class _StringVar:
         def __init__(self, value="", *a, **k):
             self._v = value
@@ -172,3 +175,22 @@ def test_append_row_widget_default_lingua_agnostica(monkeypatch):
                                  _delete_row=lambda r: None)
     mod.NameMappingPanel._append_row_widget(fake)
     assert fake._row_widgets[0]["language"].get() == mod._LANGUAGE_ALL
+
+
+def test_append_row_widget_lingua_sconosciuta_preservata(monkeypatch):
+    """Resilienza (CodeRabbit #25): un valore `language` fuori da IT/EN/ES/agnostico (dato storico
+    o di una lingua rimossa) NON deve essere perso silenziosamente dalla GUI — il var lo conserva
+    e sopravvive al round-trip `_collect_rows`. La VALIDITÀ la impone lo store al salvataggio
+    (slice 5b: fail-closed sui typo), non la GUI, che non deve mutare in silenzio il dato utente."""
+    rich = _rich_ctk()
+    monkeypatch.setitem(sys.modules, "customtkinter", rich)
+    monkeypatch.delitem(sys.modules, "xtrader_bridge.name_mapping_gui", raising=False)
+    mod = importlib.import_module("xtrader_bridge.name_mapping_gui")
+    fake = types.SimpleNamespace(_rows_frame=object(), _row_widgets=[],
+                                 _delete_row=lambda r: None)
+    mod.NameMappingPanel._append_row_widget(fake, betfair="X", language="FR")
+    # il valore sconosciuto resta nel var (non forzato ad agnostica)
+    assert fake._row_widgets[0]["language"].get() == "FR"
+    # e sopravvive al round-trip verso lo store (nessuna perdita silenziosa lato GUI)
+    rows = mod.NameMappingPanel._collect_rows(fake)
+    assert rows[0]["language"] == "FR"

@@ -2706,9 +2706,11 @@ helper lingua round-trip + agnostica; header contiene «Lingua» senza rimuovere
 invariato; **il vero `_reload_rows` carica la `language` salvata** in `_append_row_widget` (regressione
 sul `e.get("language","")` bloccata); **il vero `_append_row_widget` costruisce la tendina Lingua con
 esattamente `[«(tutte le lingue)», IT, EN, ES]`** e la inizializza alla lingua passata (default →
-agnostica) — usando un fake `customtkinter` più ricco (CodeRabbit/GLM #25). La resa visuale resta uno
+agnostica) — usando un fake `customtkinter` più ricco (CodeRabbit/GLM #25); **resilienza**: una lingua
+sconosciuta/stantia (`"FR"`, dato storico) è **preservata** (var + `_collect_rows`), non persa in
+silenzio — la validità la impone lo store al salvataggio (CodeRabbit #25). La resa visuale resta uno
 **smoke manuale** (apri 🗺️ Mapping → Dizionario nomi, imposta una riga a EN, salva, riapri → la tendina
-mostra EN; una riga «(tutte le lingue)» resta agnostica). Suite **2382 passed, 11 skipped**. **CORE change** (`name_mapping_gui.py`) → da
+mostra EN; una riga «(tutte le lingue)» resta agnostica). Suite **2383 passed, 11 skipped**. **CORE change** (`name_mapping_gui.py`) → da
 ri-sincronizzare nel cloud. Docs: README + `docs/custom_parser.md` + **`docs/design/design_handoff.md`**
 (tabella Dizionario nomi con la colonna «Lingua» e il default prefill) aggiornati.
 
