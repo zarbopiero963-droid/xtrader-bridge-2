@@ -289,12 +289,16 @@ def _resolve_one(defn, text: str, *, cfg: dict, chat: str, provider: str, id_res
     market_mapping_profiles = (
         market_mapping_store.entries_for_profiles(cfg, defn.market_mapping_profiles)
         if defn.market_mapping_profiles else None)
+    # Lingua della fonte effettiva (epica #3 slice 5b wiring): override per-parser + globale
+    # `source_language`, risolta dalla STESSA funzione usata dall'anteprima → parità live/preview.
+    # Vuota = comportamento storico (nessun filtro-lingua sui profili nomi).
+    source_language = recognition.effective_source_language(cfg, defn)
     # #192: pipeline multi-riga (un parser single-row → esattamente 1 elemento).
     results = custom_pipeline.build_validated_rows(
         defn, text, provider=provider, mode=mode, require_price=require_price,
         name_mapping_profiles=name_mapping_profiles,
         market_mapping_profiles=market_mapping_profiles,
-        id_resolver=id_resolver)
+        id_resolver=id_resolver, source_language=source_language)
     placeable = [r.row for r in results if r.placeable]
     # Gate di contenuto (incl. condizioni PR-1): il parser deve aver estratto qualcosa DA
     # QUESTO messaggio, altrimenti non scatta (niente bet spurio su testo arbitrario). Valutato

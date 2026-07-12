@@ -237,6 +237,7 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
                         name_mapping_profiles=None,
                         market_mapping_profiles=None,
                         id_resolver=None,
+                        source_language="",
                         multi_supplied=None) -> PipelineResult:
     """Applica il parser al messaggio e valida la riga risultante.
 
@@ -321,10 +322,15 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
         # → si usano SOLO le righe participant/team/player (più le agnostiche), escludendo le
         # righe competition/market/selection con alias che collide (no EventName sbagliato).
         original_event = str(row.get("EventName", "") or "")
+        # `source_language` (epica #3 slice 5b wiring): lingua-fonte effettiva risolta dal
+        # chiamante (`recognition.effective_source_language(cfg, defn)`), IDENTICA su live e
+        # anteprima (invariante di parità). Restringe la mappatura nomi alle righe di quella
+        # lingua o agnostiche; vuota = comportamento storico (nessun filtro-lingua).
         mapped = name_mapping_store.resolve_event_name(
             original_event, sep, name_mapping_profiles or [],
             sport=getattr(defn, "sport", ""),
-            entity_type=name_mapping_store.PARTICIPANT_ENTITY_TYPES)
+            entity_type=name_mapping_store.PARTICIPANT_ENTITY_TYPES,
+            language=source_language)
         if mapped is None:
             return PipelineResult(MAPPING_MISSING, row, list(res.missing_required))
         row = dict(row)

@@ -480,7 +480,7 @@ class ParserBuilder:
     def test_message(self, message: str, *, provider: str = "",
                      mode: str = None, require_price: bool = None,
                      name_mapping_profiles=None, market_mapping_profiles=None,
-                     id_resolver=None):
+                     id_resolver=None, source_language=""):
         """Applica il parser corrente a un messaggio e ritorna il `PipelineResult`
         (status + riga + piazzabilità), per l'anteprima del costruttore. La modalità
         usata è quella DEL PARSER (`self.mode`) salvo override esplicito.
@@ -507,7 +507,7 @@ class ParserBuilder:
                                    require_price=require_price,
                                    name_mapping_profiles=name_mapping_profiles,
                                    market_mapping_profiles=market_mapping_profiles,
-                                   id_resolver=id_resolver)
+                                   id_resolver=id_resolver, source_language=source_language)
 
     @staticmethod
     def merge_multi_rule_overrides(base: MultiRowRule, overrides: dict,
@@ -607,7 +607,7 @@ class ParserBuilder:
     def preview_rows(self, message: str, *, provider: str = "",
                      mode: str = None, require_price: bool = None,
                      name_mapping_profiles=None, market_mapping_profiles=None,
-                     id_resolver=None) -> list:
+                     id_resolver=None, source_language="") -> list:
         """Anteprima MULTI-RIGA (#192, PR2): applica il parser e ritorna una lista di
         `PreviewRow` GIÀ pronte per la tabella della GUI «Prova messaggio».
 
@@ -633,7 +633,8 @@ class ParserBuilder:
         results = build_validated_rows(
             defn, message, provider=provider, mode=eff_mode, require_price=require_price,
             name_mapping_profiles=name_mapping_profiles,
-            market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver)
+            market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver,
+            source_language=source_language)
         n_markets = len(defn.active_multi_markets())
         n_selections = len(defn.active_multi_selections())
         multi_active = bool(n_markets or n_selections)
@@ -677,7 +678,7 @@ class ParserBuilder:
 
     def batch_report(self, text, *, provider: str = "", mode: str = None,
                      require_price: bool = None, name_mapping_profiles=None,
-                     market_mapping_profiles=None, id_resolver=None):
+                     market_mapping_profiles=None, id_resolver=None, source_language=""):
         """Report del tester multiplo (#311 §3.2): per OGNI messaggio del testo (separati
         da righe ``---``) il verdetto sintetico (valido/scartato col MOTIVO esatto — è lo
         stesso `test_verdict` del singolo «Prova messaggio», quindi status + campi
@@ -701,7 +702,7 @@ class ParserBuilder:
                     require_price=require_price,
                     name_mapping_profiles=name_mapping_profiles,
                     market_mapping_profiles=market_mapping_profiles,
-                    id_resolver=id_resolver))
+                    id_resolver=id_resolver, source_language=source_language))
             except Exception as exc:   # noqa: BLE001 — isolamento PER-MESSAGGIO (CodeRabbit
                 # #350): un messaggio patologico non deve abortire il batch nascondendo gli
                 # altri report; l'errore resta VISIBILE nel verdetto di quel messaggio.
@@ -713,22 +714,23 @@ class ParserBuilder:
 
     def _single_report(self, i, msg, errors, defn, *, provider, mode,
                        require_price, name_mapping_profiles,
-                       market_mapping_profiles, id_resolver):
+                       market_mapping_profiles, id_resolver, source_language=""):
         """Report di UN messaggio del batch (#311 §3.2): stessa pipeline del singolo."""
         res = self.test_message(msg, provider=provider, mode=mode,
                                 require_price=require_price,
                                 name_mapping_profiles=name_mapping_profiles,
                                 market_mapping_profiles=market_mapping_profiles,
-                                id_resolver=id_resolver)
+                                id_resolver=id_resolver, source_language=source_language)
         diag = parser_diagnostics.diagnose(
             defn, msg, provider=provider, mode=mode, require_price=require_price,
             name_mapping_profiles=name_mapping_profiles,
-            market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver)
+            market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver,
+            source_language=source_language)
         rows = self.preview_rows(msg, provider=provider, mode=mode,
                                  require_price=require_price,
                                  name_mapping_profiles=name_mapping_profiles,
                                  market_mapping_profiles=market_mapping_profiles,
-                                 id_resolver=id_resolver)
+                                 id_resolver=id_resolver, source_language=source_language)
         verdict = ParserBuilder.test_verdict(
             errors, rows, diag_placeable=diag.placeable, diag_status=diag.status,
             res_row=res.row, res_missing_required=res.missing_required,

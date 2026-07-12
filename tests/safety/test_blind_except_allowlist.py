@@ -92,10 +92,12 @@ _ALLOWLIST = {
     "dizionario.py": (1, "gate #311-2.3 `is_validated` fail-safe: dizionario assente/header rotto → "
                          "non validato (False) → default recognition_mode resta NAME_ONLY, mai BOTH su "
                          "dati inaffidabili"),
-    "custom_parser_gui.py": (10, "GUI Tk del costruttore parser: render/azioni best-effort "
+    "custom_parser_gui.py": (11, "GUI Tk del costruttore parser: render/azioni best-effort "
                              "(incl. resolver ID anteprima fail-open, #192; termini Betfair "
                              "per le tendine MarketType/MarketName/SelectionName best-effort, "
-                             "#283 PR 13: sync in corso/DB assente → nessun suggerimento)"),
+                             "#283 PR 13: sync in corso/DB assente → nessun suggerimento; "
+                             "risoluzione profili nomi + lingua-fonte anteprima da config, "
+                             "#3 slice 5b: config illeggibile → nessun filtro, fail-safe)"),
     "custom_pipeline.py": (1, "id_resolver iniettato: un resolver che solleva NON blocca la riga (fail-open)"),
     "dpi_awareness.py": (3, "#311 §3.5 fail-open per contratto: un fallimento DPI "
                             "(ctypes/windll assente, shcore mancante su Win<8.1, "

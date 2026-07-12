@@ -2632,3 +2632,50 @@ comportamento di selezione safety-relevant). Suite **2368 passed, 11 skipped**. 
 README = **N/A** (nessun cambio utente/flusso in questa slice: campo config-only non ancora consumato
 dalla pipeline). Design handoff = **N/A** (nessun elemento GUI in questa slice; la colonna «Lingua»
 arriva con la slice del cablaggio+GUI).
+
+## #3 slice 5b (parte 2 — wiring) — La pipeline consuma la lingua-fonte (parità live+preview)
+
+**Contesto.** La 5a ha introdotto `source_language` (globale + override per-parser +
+`recognition.effective_source_language`); la 5b «store» ha aggiunto il filtro-lingua nel
+dizionario nomi (`resolve_team`/`resolve_event_name` con parametro `language`). Questa slice
+**cabla** i due pezzi: la pipeline calcola la lingua-fonte effettiva e la passa al filtro, così
+impostare la lingua-fonte **filtra davvero** il matching a runtime.
+
+**Tecnico (cambio additivo, default `source_language=""` → nessun cambio di comportamento).**
+- **`custom_pipeline.build_validated_row`**: nuovo kwarg `source_language`, inoltrato a
+  `name_mapping_store.resolve_event_name(..., language=source_language)`. `build_validated_rows`
+  lo propaga via `**kwargs` (base + retry + righe multi ereditano l'EventName già tradotto).
+- **`signal_router._resolve_one` (LIVE)**: calcola `recognition.effective_source_language(cfg, defn)`
+  e lo passa a `build_validated_rows`.
+- **`parser_builder`** (ANTEPRIMA): `test_message`/`preview_rows`/`batch_report`/`_single_report`
+  guadagnano `source_language`, inoltrato al motore; **`parser_diagnostics.diagnose`** idem (il
+  verdetto «Pronto» resta allineato al live).
+- **`custom_parser_gui`**: nuovo helper `_resolve_source_language(defn)` (stessa
+  `effective_source_language` sulla config su disco) passato a test/diagnose/preview/batch.
+
+**Invariante di parità (il cuore della slice).** Live e anteprima calcolano la lingua-fonte con
+la **stessa** funzione (`effective_source_language`) sugli **stessi** input (cfg + defn), quindi
+«Pronto in anteprima = scritto in live» resta vero anche col filtro-lingua attivo. Coperto da un
+test dedicato.
+
+**Safety.** Contratto CSV invariato; fail-closed su lingua sbagliata preservato (5b store);
+retro-compat: dizionari agnostici risolvono ancora con lingua-fonte impostata. Merge **manuale**.
+
+**Test hard** (`tests/integration/test_source_language_wiring_5b.py`, +6): filtro lingua in
+`build_validated_row`; `resolve_row` (live) usa il dizionario della lingua-fonte globale;
+override per-parser vince nel live; **parità live/preview** su EN/IT/"" (stesso EventName);
+retro-compat dizionario agnostico; `""` = comportamento legacy; **`source_language` globale
+malformata → fail-safe (nessun filtro, non «nessun match»)** su live+pipeline (GLM #24);
+**percorso MULTI-RIGA**: la lingua-fonte si propaga a TUTTE le righe MultiSelection generate
+(EventName mappato sulla base ereditato dalle derivate — Fable #24). Allowlist
+blind-except `custom_parser_gui.py` 10→11 (nuovo resolver lingua fail-safe da config, motivato). Suite
+**2376 passed, 11 skipped**. **CORE change** (`custom_pipeline.py`, `signal_router.py`,
+`parser_builder.py`, `parser_diagnostics.py`, `custom_parser_gui.py`) → da ri-sincronizzare nel
+cloud. Docs: README (`source_language` ora attiva) + `docs/custom_parser.md` aggiornati.
+Design handoff = **N/A**: nessun elemento GUI **visibile** cambia (l'anteprima ora calcola la
+lingua come il live, ma non compaiono nuovi widget/label/flussi); la **colonna GUI «Lingua»** —
+con relativo aggiornamento handoff — è la slice successiva.
+
+**Ancora aperto:** colonna GUI «Lingua» nel Dizionario nomi (design_handoff); poi 5c (colonna
+`Lingua` del dizionario canonico) e 5d (Betfair per-exchange). La **#3 si chiude** solo a slice 5
+completa.

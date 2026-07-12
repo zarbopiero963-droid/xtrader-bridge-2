@@ -29,6 +29,7 @@ from . import (
     name_mapping_store,
     parser_diagnostics,
     provider_store,
+    recognition,
     sports,
 )
 from .custom_parser import Condition, MultiRowRule
@@ -267,6 +268,19 @@ class CustomParserPanel(ctk.CTkFrame):
         except Exception:                       # noqa: BLE001 — fallback sicuro
             cfg = {}
         return name_mapping_store.entries_for_profiles(cfg, defn.name_mapping_profiles)
+
+    @staticmethod
+    def _resolve_source_language(defn):
+        """Lingua-fonte effettiva del parser (epica #3 slice 5b wiring), per l'anteprima:
+        override per-parser + globale `source_language` dalla config. Usa la STESSA funzione
+        del runtime (`recognition.effective_source_language`) sulla config su disco, così
+        l'anteprima filtra la mappatura nomi per lingua ESATTAMENTE come il live (parità).
+        Best-effort: config illeggibile → "" (nessun filtro-lingua, comportamento storico)."""
+        try:
+            cfg = config_store.load_config(config_store.CONFIG_FILE)
+        except Exception:                       # noqa: BLE001 — fallback sicuro
+            cfg = {}
+        return recognition.effective_source_language(cfg, defn)
 
     def _open_name_mapping(self):
         """Apre il Dizionario nomi (finestra separata). Alla chiusura/salvataggio
@@ -1347,21 +1361,26 @@ class CustomParserPanel(ctk.CTkFrame):
         # risolve gli ID come il runtime per i parser ID_ONLY dizionario-dipendenti (o resta
         # conservativa se il resolver non è disponibile).
         id_resolver = self._preview_id_resolver()
+        # Lingua-fonte effettiva (epica #3 slice 5b wiring): stessa risoluzione del runtime →
+        # l'anteprima filtra la mappatura nomi per lingua come il live (parità).
+        source_language = self._resolve_source_language(defn)
         res = self.builder.test_message(message, provider=self._provider, mode=mode,
                                         require_price=require_price,
                                         name_mapping_profiles=name_mapping_profiles,
                                         market_mapping_profiles=market_mapping_profiles,
-                                        id_resolver=id_resolver)
+                                        id_resolver=id_resolver, source_language=source_language)
         diag = parser_diagnostics.diagnose(
             defn, message, provider=self._provider, mode=mode, require_price=require_price,
             name_mapping_profiles=name_mapping_profiles,
-            market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver)
+            market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver,
+            source_language=source_language)
         # Anteprima multi-riga (#192): tutte le righe generate (base o MultiMarket/
         # MultiSelection), col verdetto per-riga. Stesso motore del runtime.
         preview = self.builder.preview_rows(
             message, provider=self._provider, mode=mode, require_price=require_price,
             name_mapping_profiles=name_mapping_profiles,
-            market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver)
+            market_mapping_profiles=market_mapping_profiles, id_resolver=id_resolver,
+            source_language=source_language)
         # Verdetto sintetico (logica pura testata in CI: `ParserBuilder.test_verdict`).
         # Precedenza: errori STRUTTURALI del parser (che Save rifiuterebbe) → «Non salvabile»,
         # così l'anteprima non dice «Pronto» per una definizione non salvabile (Codex #19);
@@ -1435,7 +1454,8 @@ class CustomParserPanel(ctk.CTkFrame):
             require_price=defn.price_required(),
             name_mapping_profiles=self._resolve_mapping_profiles(defn),
             market_mapping_profiles=self._resolve_market_mapping_profiles(defn),
-            id_resolver=self._preview_id_resolver())
+            id_resolver=self._preview_id_resolver(),
+            source_language=self._resolve_source_language(defn))
         if not reports:
             self._result.configure(
                 text=i18n.tr("⛔ Nessun messaggio: incolla uno o più messaggi separati da una "
