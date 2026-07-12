@@ -2824,9 +2824,46 @@ nomi/mercati per-lingua user-built», con parità live/preview e fail-closed sui
 completo con 5a→5b→5c→5d.
 
 **⚠️ L'epica #3 NON è ancora chiusa.** #3 è l'epica multilingua **intera** e comprende anche
-la **slice 4 — localizzazione UI completa** («l'intera UI in quella lingua»), che ha un
-**residuo aperto**: **banner e log** dell'app sono ancora **hardcoded in italiano** (in
-`xtrader_bridge/app.py` le righe `self._log(...)` non passano dalla funzione i18n `tr()`; il README lo
-dichiara: «banner, log … restano in italiano»). Perciò la Issue #3 **resta aperta** finché
-anche banner/log non sono localizzati. *(Nota: una versione precedente di questa sezione
-scriveva erroneamente «#3 CHIUSA» — era riferito alla sola slice 5, non all'epica.)*
+la **slice 4 — localizzazione UI completa** («l'intera UI in quella lingua»). I **banner** di
+modalità REALE/COLLAUDO sono ora **localizzati** (vedi «#343 slice 4 — banner» qui sotto).
+**Residuo ancora in italiano** (fonte autorevole: `design_handoff.md` § localizzazione):
+- i **messaggi di log** dell'app (diagnostici): ~105 righe `self._log(...)` in
+  `xtrader_bridge/app.py` non passano ancora da i18n `tr()`;
+- alcune **finestre secondarie** non ancora localizzate — **🗺️ Mapping** (`name_mapping_gui`),
+  **🧰 Strumenti (hub)** (`tools_gui`, rimandata: titoli-scheda = chiavi di matching) e
+  **🧙 Wizard** (`wizard_gui`) — nessuna usa ancora `i18n.tr`.
+
+Perciò la Issue #3 **resta aperta** finché anche questi non sono localizzati (slice successive,
+raggruppate per area — decisione owner: banner prima, resto a slice). *(Nota: una versione
+precedente scriveva erroneamente «#3 CHIUSA» — era riferito alla sola slice 5, non all'epica.)*
+
+## #343 slice 4 — banner di modalità REALE/COLLAUDO localizzati (residuo banner della #3)
+
+**Obiettivo.** Primo pezzo del residuo slice-4 (decisione owner: banner prima, i 105 log a
+slice successive). Localizza i due **banner persistenti di sicurezza** — prima esclusi
+(hardcoded IT): il **ROSSO** `real_mode.BANNER_TEXT` («⚠️ MODALITÀ REALE ATTIVA…») e l'**AMBRA**
+`bridge_mode.COLLAUDO_BANNER_TEXT` («🔬 MODALITÀ COLLAUDO XTRADER…»).
+
+**Cosa fa.** In `app.py` i due `configure(text=…)` passano ora da `i18n.tr(real_mode.BANNER_TEXT)`
+e `i18n.tr(bridge_mode.COLLAUDO_BANNER_TEXT)`. Catalogo `i18n.py`: aggiunte le due chiavi con
+traduzioni EN/ES (stringhe di SICUREZZA: severità preservata — emoji ⚠️/🔬, REAL/REALES,
+TEST/PRUEBA). **Nessun cambio di logica**: la DECISIONE di mostrare il banner
+(`real_mode.banner_active` / `bridge_mode.banners_for`, priorità rosso>ambra) è invariata; IT
+resta il riferimento (fail-safe: lingua mai scelta → banner italiano storico).
+
+**Test hard.** `tests/unit/test_i18n_343.py` (+3): default IT identità sui banner; traduzione
+EN/ES verbatim + severità preservata (⚠️/🔬); wiring in app.py via `i18n.tr(...)`. L'anti-drift
+lega ora le chiavi banner ai **valori reali** delle costanti (`_BANNER_TEXTS`), così un cambio
+di `BANNER_TEXT`/`COLLAUDO_BANNER_TEXT` fa fallire il catalogo (mai traduzioni orfane).
+`tests/integration/test_banner_i18n_343.py` (+4, headless via `object.__new__(App)` + stub
+conftest, GPT #29): esercita `App._update_real_mode_banner` reale in EN/ES/IT e in simulazione,
+verificando il testo EFFETTIVO passato al widget e la priorità rosso>ambra. Suite locale
+(al commit): **2418 passed, 11 skipped** (l'esito autorevole è la CI del head PR, non questo
+conteggio, che deriva dai test aggiunti). **CORE change** (`app.py`, `i18n.py`) →
+ri-sincronizzare nel cloud. Docs: README + `design_handoff.md` (§ localizzazione: banner
+spostati da «restano IT» a «localizzati»). Design handoff = **PASS** (aspetto UI di sicurezza
+cambiato: aggiornato).
+
+**Ancora aperto (per chiudere #3):** la localizzazione dei **~105 log** `self._log(...)` di
+`app.py` **e** delle finestre secondarie non ancora tradotte (🗺️ Mapping, 🧰 Strumenti hub,
+🧙 Wizard), in slice successive raggruppate per area.

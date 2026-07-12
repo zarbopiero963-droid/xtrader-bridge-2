@@ -138,9 +138,11 @@ dell'exchange italiano e di quello inglese, e usa ID diversi tra exchange): per 
 fonte/exchange e taggali con la loro **lingua** (colonna «Lingua»), così il filtro
 lingua-fonte sceglie le voci giuste. Dalla
 slice 4a la **finestra principale** è localizzata (tab, bottoni, nomi campo in EN/ES;
-la lingua si applica al **riavvio**); dalla slice 4b anche lo stato «⬤ ATTIVO/RICONNESSIONE…»
-è localizzato; banner, log e finestre secondarie restano in italiano e arrivano con i
-prossimi slice della #343.
+la lingua si applica al **riavvio**); dalla slice 4b anche lo stato «⬤ ATTIVO/RICONNESSIONE…»;
+dalle slice 4c–4g le **finestre secondarie** (Provider, Profili, Chat sorgenti, Diario, Parser);
+e i **banner di modalità REALE/COLLAUDO** sono localizzati. Restano ancora in italiano: le
+finestre **🗺️ Mapping**, **🧰 Strumenti (hub)** e **🧙 Wizard**, più i **messaggi di log**
+dell'app (diagnostici) — previsti nelle prossime slice della #343.
 
 La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Config**
 (oppure all'avvio con **▶ AVVIA**) nel file `config.json` (vedi

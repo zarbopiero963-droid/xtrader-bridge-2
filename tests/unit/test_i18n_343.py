@@ -9,7 +9,7 @@ import os
 
 import pytest
 
-from xtrader_bridge import i18n
+from xtrader_bridge import bridge_mode, i18n, real_mode
 
 _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "xtrader_bridge")
@@ -48,6 +48,13 @@ def _tr_constants(*module_names) -> set:
 _SECONDARY_TR = _tr_constants("provider_gui.py", "profiles_gui.py",
                               "source_chats_gui.py", "journal_view_gui.py",
                               "custom_parser_gui.py")
+
+# Banner di MODALITÀ (#343 slice 4 — residuo banner della #3): i testi vivono come COSTANTI
+# multi-riga concatenate in `real_mode`/`bridge_mode` e sono resi in app.py via
+# `i18n.tr(real_mode.BANNER_TEXT)` / `i18n.tr(bridge_mode.COLLAUDO_BANNER_TEXT)`. L'anti-drift
+# li lega ai VALORI REALI delle costanti (non al testo sorgente, che è spezzato dalla
+# concatenazione): se una costante cambia, la chiave del catalogo non combacia più → FAIL.
+_BANNER_TEXTS = {real_mode.BANNER_TEXT, bridge_mode.COLLAUDO_BANNER_TEXT}
 
 
 @pytest.fixture(autouse=True)
@@ -93,9 +100,10 @@ def test_catalogo_anti_drift_chiavi_verbatim_nel_sorgente():
     traduzioni orfane che l'utente EN/ES non vedrebbe più)."""
     for lang, table in i18n._CATALOG.items():
         for key in table:
-            assert key in _APP_SRC or key in _DASH_SRC or key in _SECONDARY_TR, (
-                f"{lang}: chiave stantia, non in app.py/dashboard_stats.py né nelle "
-                f"finestre secondarie localizzate: {key!r}")
+            assert (key in _APP_SRC or key in _DASH_SRC or key in _SECONDARY_TR
+                    or key in _BANNER_TEXTS), (
+                f"{lang}: chiave stantia, non in app.py/dashboard_stats.py, nelle "
+                f"finestre secondarie localizzate né nei banner di modalità: {key!r}")
 
 
 def test_catalogo_valori_sensati():
@@ -137,3 +145,43 @@ def test_sorgente_usa_tr_sulle_label_catalogate():
     assert _APP_SRC.count("i18n.tr(label)") >= 2, (
         "wrap mancante su gen_fields o sui contatori Dashboard (entrambi i loop "
         "devono passare da i18n.tr(label))")
+
+
+def test_banner_modalita_default_italiano():
+    # IT (default/fail-safe): i banner restano nel testo italiano storico — il catalogo non
+    # tocca la lingua di riferimento, nessuna regressione per gli utenti italiani.
+    assert i18n.get_language() == "IT"
+    assert i18n.tr(real_mode.BANNER_TEXT) == real_mode.BANNER_TEXT
+    assert i18n.tr(bridge_mode.COLLAUDO_BANNER_TEXT) == bridge_mode.COLLAUDO_BANNER_TEXT
+
+
+def test_banner_modalita_tradotti_en_es():
+    # SAFETY: il banner ROSSO «MODALITÀ REALE» e quello COLLAUDO devono localizzarsi in EN/ES
+    # (prima restavano hardcoded in IT). Traduzione verbatim → blocca la regressione e verifica
+    # che la severità sia preservata (REAL/REALES, TEST/PRUEBA, warning emoji conservata).
+    i18n.set_language("EN")
+    assert i18n.tr(real_mode.BANNER_TEXT) == (
+        "⚠️ REAL MODE ACTIVE — valid signals are written to the operational CSV "
+        "and XTrader can place REAL bets.")
+    assert i18n.tr(bridge_mode.COLLAUDO_BANNER_TEXT) == (
+        "🔬 XTRADER TEST MODE — the operational CSV IS written: "
+        "XTrader must be in Simulation Mode (no real bets).")
+    i18n.set_language("ES")
+    assert i18n.tr(real_mode.BANNER_TEXT) == (
+        "⚠️ MODO REAL ACTIVO — las señales válidas se escriben en el CSV "
+        "operativo y XTrader puede realizar apuestas REALES.")
+    assert i18n.tr(bridge_mode.COLLAUDO_BANNER_TEXT) == (
+        "🔬 MODO DE PRUEBA XTRADER — el CSV operativo SE escribe: "
+        "XTrader debe estar en Modo Simulación (sin apuestas reales).")
+    # la warning-emoji e il rischio «real» restano visibili in entrambe le lingue
+    for lang in ("EN", "ES"):
+        i18n.set_language(lang)
+        assert i18n.tr(real_mode.BANNER_TEXT).startswith("⚠️"), lang
+        assert i18n.tr(bridge_mode.COLLAUDO_BANNER_TEXT).startswith("🔬"), lang
+
+
+def test_banner_wiring_in_app():
+    # Anti-regressione wiring: app.py deve rendere i banner via i18n.tr sulle costanti (un
+    # revert li farebbe tornare hardcoded solo-IT anche in EN/ES).
+    assert "i18n.tr(real_mode.BANNER_TEXT)" in _APP_SRC
+    assert "i18n.tr(bridge_mode.COLLAUDO_BANNER_TEXT)" in _APP_SRC
