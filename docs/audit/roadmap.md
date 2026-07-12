@@ -2700,12 +2700,15 @@ squadra, speculare a **Sport**/**Tipo**:
 **Safety.** Solo vista/editing: nessuna modifica al matching o al contratto CSV; default agnostico
 (nessun cambio di comportamento per i dizionari esistenti). Merge **manuale**.
 
-**Test hard** (`tests/unit/test_name_mapping_gui_language.py`, +3, headless con stub `customtkinter`):
+**Test hard** (`tests/unit/test_name_mapping_gui_language.py`, +6, headless con stub `customtkinter`):
 helper lingua round-trip + agnostica; header contiene «Lingua» senza rimuovere le colonne esistenti;
 `_collect_rows` emette `language` (valorizzata resta, «(tutte le lingue)» → `""`) col contratto store
-invariato. La resa visuale della tendina resta uno **smoke manuale** (apri 🗺️ Mapping → Dizionario
-nomi, imposta una riga a EN, salva, riapri → la tendina mostra EN; una riga «(tutte le lingue)» resta
-agnostica). Suite **2379 passed, 11 skipped**. **CORE change** (`name_mapping_gui.py`) → da
+invariato; **il vero `_reload_rows` carica la `language` salvata** in `_append_row_widget` (regressione
+sul `e.get("language","")` bloccata); **il vero `_append_row_widget` costruisce la tendina Lingua con
+esattamente `[«(tutte le lingue)», IT, EN, ES]`** e la inizializza alla lingua passata (default →
+agnostica) — usando un fake `customtkinter` più ricco (CodeRabbit/GLM #25). La resa visuale resta uno
+**smoke manuale** (apri 🗺️ Mapping → Dizionario nomi, imposta una riga a EN, salva, riapri → la tendina
+mostra EN; una riga «(tutte le lingue)» resta agnostica). Suite **2382 passed, 11 skipped**. **CORE change** (`name_mapping_gui.py`) → da
 ri-sincronizzare nel cloud. Docs: README + `docs/custom_parser.md` + **`docs/design/design_handoff.md`**
 (tabella Dizionario nomi con la colonna «Lingua» e il default prefill) aggiornati.
 

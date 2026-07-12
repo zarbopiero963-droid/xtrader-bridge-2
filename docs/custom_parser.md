@@ -186,11 +186,13 @@ retro-compatibile).
 **GUI**: i profili si gestiscono nella scheda **Mapping** della finestra «🧰 Strumenti»
 (pulsante «🗺️ Mapping» nella finestra principale → `name_mapping_gui.MappingPanel`),
 **area ⚽ Calcio** (`NameMappingPanel`): selettore profilo (nuovo/rinomina/elimina) e
-tabella `Country | Betfair/XTrader | Provider | Sport | Tipo`. La classe
+tabella `Country | Betfair/XTrader | Provider | Sport | Tipo | Lingua`. La classe
 `NameMappingWindow` resta come finestra standalone (compatibilità). La tabella ha una
 colonna **Sport** per riga (PR-P10: «(tutti gli sport)» = agnostica, oppure uno sport
-specifico) e una colonna **Tipo** (#178 §2: «(qualsiasi tipo)» = agnostica, oppure
-`participant`/`team`/`player`/`competition`/`market`/`selection`). Nel **Parser
+specifico), una colonna **Tipo** (#178 §2: «(qualsiasi tipo)» = agnostica, oppure
+`participant`/`team`/`player`/`competition`/`market`/`selection`) e una colonna **Lingua**
+(#3 slice 5b: «(tutte le lingue)» = agnostica, oppure `IT`/`EN`/`ES` = lingua-fonte della
+riga, prioritaria sull'agnostica nel matching). Nel **Parser
 Personalizzato** scegli
 il **separatore** squadre e spunti i **profili** da usare (checkbox multi-selezione);
 «Prova messaggio» risolve i profili dalla config e mostra l'`EventName` tradotto (o
