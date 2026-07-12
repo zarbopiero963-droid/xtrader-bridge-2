@@ -2626,7 +2626,8 @@ lingua sbagliata/typo (mai un evento tradotto a caso → mai scommessa sbagliata
 lingua fail-closed (riga scartata + avviso GUI); priorità lingua esatta > agnostica (anche su
 agnostica salvata prima); dizionario tutto-agnostico + lingua impostata risolve ancora
 (retro-compat); `language` None/""/ignota = nessun filtro; propagazione a `resolve_event_name`;
-additività lingua × sport × tipo. Suite **2367 passed, 11 skipped**. **CORE change**
+additività lingua × sport × tipo; **tie-break lingua > sport** nel rank (CodeRabbit #23, lock del
+comportamento di selezione safety-relevant). Suite **2368 passed, 11 skipped**. **CORE change**
 (`name_mapping_store.py`) → da ri-sincronizzare nel cloud. Docs: `docs/custom_parser.md` aggiornato.
 README = **N/A** (nessun cambio utente/flusso in questa slice: campo config-only non ancora consumato
 dalla pipeline). Design handoff = **N/A** (nessun elemento GUI in questa slice; la colonna «Lingua»

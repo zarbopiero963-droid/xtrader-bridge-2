@@ -854,3 +854,16 @@ def test_language_additiva_a_sport_e_tipo():
                            language="EN") == "Inter Calcio EN"
     assert nm.resolve_team("Inter", profs, sport="Calcio", entity_type="team",
                            language="IT") == "Inter Calcio IT"
+
+
+def test_language_batte_sport_nel_tie_break():
+    # CodeRabbit #23: lock del comportamento di selezione (safety-relevant). Rank = (entity,
+    # LINGUA, sport): quando una riga ha sport esatto/lingua agnostica e un'altra sport
+    # agnostico/lingua esatta, VINCE la lingua esatta. Un futuro refactor del tuple di rank che
+    # invertisse l'ordine farebbe fallire questo test.
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Sport esatto", "provider": "Team", "sport": "Calcio"},   # sport esatto, lingua agn.
+        {"betfair": "Lingua esatta", "provider": "Team", "language": "EN"},   # sport agn., lingua esatta
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Team", profs, sport="Calcio", language="EN") == "Lingua esatta"
