@@ -313,7 +313,17 @@ traducono nel **Mercato + Selezione XTrader** canonici (gli stessi del Catalogo 
   "frase su tutto il messaggio" è rimossa, ma senza cancellare dati;
 - **precedenza (D1): il dizionario VINCE.** Se una voce combacia in modo univoco, imposta
   `MarketType`/`MarketName`/`SelectionName` **sovrascrivendo** quelli eventualmente estratti
-  dalle regole-colonna. Se **nessuna** voce combacia, restano i valori delle regole-colonna.
+  dalle regole-colonna. Se **nessuna** voce combacia, restano i valori delle regole-colonna;
+- **lingua-fonte per voce (#3 slice 5c).** Ogni voce può portare una colonna **`language`**
+  opzionale (`IT`/`EN`/`ES`; **vuoto = agnostico**, retro-compatibile con le voci salvate
+  prima), impostabile dalla tendina «Lingua» della GUI o a mano in `config.json`. Quando la
+  **lingua-fonte** effettiva (`source_language` globale o override per-parser, vedi §5a) è
+  valorizzata, `resolve_market` **scarta** le voci di un'ALTRA lingua (le agnostiche restano) e
+  dà **priorità** alla voce della lingua ESATTA sull'agnostica — identico al filtro-lingua del
+  Dizionario nomi (5b) e **identico su live e anteprima**. Una `language` non riconosciuta
+  (typo) è **fail-closed**: la voce viene scartata (mai applicata a «tutte le lingue»), con
+  avviso nel log eventi allo START. Un dizionario tutto-agnostico (i setup esistenti) risolve
+  identico a prima, con o senza lingua-fonte impostata.
 
 **Sicuro (fail-closed)**: match **ambiguo** (più voci → mercati diversi nello stesso campo)
 → stato `MARKET_MAPPING_MISSING`, **nessuna riga CSV** (un mercato sbagliato = scommessa
@@ -336,10 +346,12 @@ la riga resta valida senza ID stantii.
 
 **GUI**: l'area **🎯 Mercati** della scheda **Mapping** (`MarketMappingPanel`) è ora
 **funzionante**: selettore profilo (nuovo/rinomina/elimina) + tabella `Inizia dopo |
-Finisce prima | Testo mercato | Mercato (catalogo ▾) | Selezione (catalogo ▾)`, dove i
+Finisce prima | Testo mercato | Mercato (catalogo ▾) | Selezione (catalogo ▾) | Lingua ▾`, dove i
 delimitatori ritagliano il campo del messaggio, il Testo mercato lo riconosce, e
 Mercato/Selezione si scelgono dai menù del Catalogo XTrader (la Selezione dipende dal
-Mercato) con `MarketType` derivato dal Catalogo. I profili persistono in `config.json` → `market_mappings`. Rinominare/eliminare un
+Mercato) con `MarketType` derivato dal Catalogo. La tendina **«Lingua»** (#3 slice 5c:
+«(tutte le lingue)» = agnostica, oppure `IT`/`EN`/`ES` = lingua-fonte della voce) imposta il
+filtro-lingua per riga, come la colonna analoga del Dizionario nomi. I profili persistono in `config.json` → `market_mappings`. Rinominare/eliminare un
 profilo aggiorna/avvisa i parser che lo selezionano
 (`rename_market_mapping_profile_in_files` / `parsers_using_market_mapping_profile`).
 

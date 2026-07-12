@@ -50,6 +50,14 @@ _HEADER_COLUMNS = (("Country (opz.)", 180), ("Betfair / XTrader", 240),
                    (_CHANNEL_ALIAS_COLUMN, 240), ("Sport", 150), ("Tipo", 150),
                    ("Lingua", 130))
 
+# Colonne (etichetta, larghezza px) dell'intestazione tabella del Dizionario MERCATI. Fonte
+# unica usata da `MarketMappingPanel._build_ui` E dal test di regressione, come `_HEADER_COLUMNS`
+# per i nomi: la verifica dell'etichetta «Lingua» (epica #3 slice 5c) è sul DATO reale
+# dell'header, non su una grep del sorgente.
+_MARKET_HEADER_COLUMNS = (("Inizia dopo", 120), ("Finisce prima", 120), ("Testo mercato", 140),
+                          ("Mercato (catalogo)", 200), ("Selezione (catalogo)", 200),
+                          ("Lingua", 130))
+
 
 def _sport_to_label(sport: str) -> str:
     return _SPORT_ALL if not sport else sport
@@ -559,8 +567,7 @@ class MarketMappingPanel(ctk.CTkFrame):
 
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=12, pady=(4, 0))
-        for text, w in (("Inizia dopo", 120), ("Finisce prima", 120), ("Testo mercato", 140),
-                        ("Mercato (catalogo)", 200), ("Selezione (catalogo)", 200)):
+        for text, w in _MARKET_HEADER_COLUMNS:
             ctk.CTkLabel(head, text=text, width=w, anchor="w",
                          font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
 
@@ -615,14 +622,15 @@ class MarketMappingPanel(ctk.CTkFrame):
         for e in entries:
             self._append_row_widget(e.get("start_after", ""), e.get("end_before", ""),
                                     e.get("phrase", ""), e.get("market_name", ""),
-                                    e.get("selection_name", ""))
+                                    e.get("selection_name", ""), e.get("language", ""))
         if not entries:
-            self._append_row_widget("", "", "", "", "")
+            self._append_row_widget("", "", "", "", "", "")
 
     def _append_row_widget(self, start_after="", end_before="", phrase="",
-                           market="", selection=""):
+                           market="", selection="", language=""):
         """Aggiunge una riga: Inizia dopo + Finisce prima (Entry) + Testo mercato (Entry) +
-        Mercato (menu catalogo) + Selezione (menu dipendente dal Mercato) + elimina."""
+        Mercato (menu catalogo) + Selezione (menu dipendente dal Mercato) + Lingua (menu) +
+        elimina."""
         row = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
         row.pack(fill="x", pady=2)
         e_start = ctk.CTkEntry(row, width=120, placeholder_text="es. Quota")
@@ -654,9 +662,21 @@ class MarketMappingPanel(ctk.CTkFrame):
         if selection and selection not in (sels or []):
             selection_menu.configure(values=[*(sels or []), selection])
 
+        # Lingua-fonte per riga (epica #3 slice 5c), speculare al Dizionario nomi (5b):
+        # «(tutte le lingue)» = agnostica (dato ""), oppure IT/EN/ES. Default agnostico.
+        lang_values = [_LANGUAGE_ALL, *recognition.SOURCE_LANGUAGES]
+        language_var = ctk.StringVar(value=_language_to_label(language))
+        language_menu = ctk.CTkOptionMenu(row, variable=language_var, width=130,
+                                          values=lang_values)
+        # Un valore lingua salvato ma fuori lista (dato storico/corrotto, es. "FR"): preservalo
+        # come opzione così non si perde in silenzio (la validità la impone lo store al salvataggio).
+        if language and _language_to_label(language) not in lang_values:
+            language_menu.configure(values=[*lang_values, _language_to_label(language)])
+        language_menu.pack(side="left", padx=3)
+
         refs = {"frame": row, "start_after": e_start, "end_before": e_end, "phrase": e_phrase,
                 "market": market_var, "market_menu": market_menu, "selection": selection_var,
-                "selection_menu": selection_menu}
+                "selection_menu": selection_menu, "language": language_var}
         market_menu.configure(command=lambda _v, r=refs: self._on_row_market_change(r))
         ctk.CTkButton(row, text="🗑", width=36, fg_color="#c62828", hover_color="#7f0000",
                       command=lambda r=refs: self._delete_row(r)).pack(side="left", padx=3)
@@ -671,9 +691,10 @@ class MarketMappingPanel(ctk.CTkFrame):
 
     def _collect_rows(self) -> list:
         """Righe correnti dai widget come voci ``{start_after, end_before, phrase,
-        market_type, market_name, selection_name}``. ``market_type`` derivato dal Catalogo
-        (D4); la pulizia delle righe incomplete (senza delimitatori/mercato) la fa
-        `market_mapping_store.set_entries`."""
+        market_type, market_name, selection_name, language}``. ``market_type`` derivato dal
+        Catalogo (D4); ``language`` è la lingua-fonte per riga (epica #3 slice 5c, «(tutte le
+        lingue)» → ``""``); la pulizia delle righe incomplete (senza delimitatori/mercato) la
+        fa `market_mapping_store.set_entries`."""
         out = []
         for r in self._row_widgets:
             market = r["market"].get()
@@ -684,6 +705,7 @@ class MarketMappingPanel(ctk.CTkFrame):
                 "market_type": dizionario.market_type_for_name(market) or "",
                 "market_name": market,
                 "selection_name": r["selection"].get(),
+                "language": _label_to_language(r["language"].get()),
             })
         return out
 

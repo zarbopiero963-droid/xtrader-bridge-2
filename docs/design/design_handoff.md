@@ -633,8 +633,14 @@ NON** viene salvato nei profili). Campo nome + **"💾 Salva profilo"**; lista c
     riprova tra poco» (arancione) **senza congelare la finestra**. La riga di stato riporta
     l'esito (es. «📥 Aggiunti N nomi Betfair… ; M già presenti»).
 - **🎯 Mercati (Dizionario mercati):** profilo + tabella **Inizia dopo · Finisce prima ·
-  Testo mercato · Mercato (catalogo) · Selezione (catalogo)**. Legge il mercato da una
-  posizione precisa del messaggio e imposta Mercato/Selezione dal catalogo XTrader.
+  Testo mercato · Mercato (catalogo) · Selezione (catalogo) · Lingua**. Legge il mercato da una
+  posizione precisa del messaggio e imposta Mercato/Selezione dal catalogo XTrader. La tendina
+  **«Lingua»** (epica multilingua **#3 slice 5c**, speculare alla colonna Lingua del Dizionario
+  nomi) tagga la voce con la **lingua della fonte** (`IT`/`EN`/`ES`) oppure **«(tutte le lingue)»**
+  = agnostica (default): quando la lingua-fonte è impostata, le voci della lingua ESATTA hanno
+  priorità sulle agnostiche e quelle di un'altra lingua sono saltate (le agnostiche restano sempre
+  valide → i dizionari mercati esistenti continuano a funzionare). Come per la colonna analoga dei
+  nomi, «(tutte le lingue)» mappa alla chiave dati vuota.
 - **🌳 Mapping guidato (`guided_mapping_gui.py`):** albero a cascata per costruire il dizionario
   nomi **senza digitare i nomi Betfair a mano**. Controlli, dall'alto:
   riga **Profilo** (destinazione, con **«🆕 Nuovo»**) → riga **Sport** (tendina Calcio/Tennis/

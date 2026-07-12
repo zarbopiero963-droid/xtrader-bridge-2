@@ -309,3 +309,115 @@ def test_immutabilita_config_originale():
     mms.delete_profile(cfg, "P")
     mms.rename_profile(cfg, "P", "R")
     assert cfg == snapshot   # nessuna funzione muta l'originale
+
+
+# ── LINGUA-fonte per riga (epica #3 slice 5c) ───────────────────────────────
+# Speculare al filtro-lingua del dizionario nomi (5b): le voci mercato guadagnano un campo
+# `language` (IT/EN/ES o "" agnostico) e `resolve_market(..., language=)` scarta le voci di
+# un'ALTRA lingua dando priorità alla lingua esatta sull'agnostica. `language` None/"" =
+# nessun filtro = comportamento storico invariato.
+
+def _lentry(phrase, language="", market="Entrambe le squadre a segno", selection="Sì",
+            start_after="Mercato:", end_before="\n"):
+    e = _entry(phrase, start_after=start_after, end_before=end_before,
+               market=market, selection=selection, mtype="")
+    e["language"] = language
+    return e
+
+
+def test_clean_entry_language_normalizzata_e_agnostica_default():
+    # `it` minuscolo/spazi → "IT"; assente → "" agnostico (retro-compat con voci vecchie).
+    cfg = mms.set_entries({}, "P", [
+        {"start_after": "M:", "end_before": "\n", "phrase": "gg",
+         "market_name": "Entrambe le squadre a segno", "selection_name": "Sì",
+         "language": "  it "},
+        {"start_after": "M:", "end_before": "\n", "phrase": "gng",
+         "market_name": "Entrambe le squadre a segno", "selection_name": "No"},   # senza language
+    ])
+    entries = mms.get_entries(cfg, "P")
+    assert entries[0]["language"] == "IT"
+    assert entries[1]["language"] == ""          # default agnostico
+
+
+def test_clean_entry_language_typo_fail_closed_scartata():
+    # Una lingua non IT/EN/ES (typo/dato storico) → voce SCARTATA (mai allargata a "tutte le
+    # lingue"): un mercato applicato alla lingua sbagliata = scommessa sbagliata.
+    cfg = mms.set_entries({}, "P", [_lentry("gg", language="ENG")])
+    assert mms.get_entries(cfg, "P") == []       # fail-closed: nessuna voce valida
+
+
+def test_malformed_entry_warnings_segnala_lingua_typo():
+    cfg = {"market_mappings": {"P": [_lentry("gg", language="ENG")]}}
+    warns = mms.malformed_entry_warnings(cfg)
+    assert len(warns) == 1
+    assert "ENG" in warns[0] and "language" in warns[0]
+    # una voce corretta non genera avvisi
+    cfg_ok = {"market_mappings": {"P": [_lentry("gg", language="EN")]}}
+    assert mms.malformed_entry_warnings(cfg_ok) == []
+
+
+def test_resolve_none_filter_legacy_ambiguo_invariato():
+    # SENZA filtro-lingua (language=None): due voci di lingua diversa che matchano la stessa
+    # frase ma indicano mercati DIVERSI → "ambiguous" (comportamento storico preservato).
+    profiles = [[
+        _lentry("gg", language="EN", market="Entrambe le squadre a segno", selection="Sì"),
+        _lentry("gg", language="", market="1º tempo - Totale goal 0,5",
+                selection="Over 0,5 goal"),
+    ]]
+    res = mms.resolve_market("Inter v Milan\nMercato: gg\n", profiles)   # nessuna lingua
+    assert res.status == "ambiguous"
+
+
+def test_resolve_lingua_esatta_vince_su_agnostica():
+    # Con lingua EN richiesta: la voce EN ha priorità sull'agnostica (tier) → nessuna falsa
+    # ambiguità, vince il mercato della lingua esatta.
+    profiles = [[
+        _lentry("gg", language="EN", market="Entrambe le squadre a segno", selection="Sì"),
+        _lentry("gg", language="", market="1º tempo - Totale goal 0,5",
+                selection="Over 0,5 goal"),
+    ]]
+    res = mms.resolve_market("Inter v Milan\nMercato: gg\n", profiles, language="EN")
+    assert res.status == "ok"
+    assert res.market["market_type"] == "BOTH_TEAMS_TO_SCORE"
+
+
+def test_resolve_lingua_diversa_scartata_agnostica_resta():
+    # Con lingua IT: la voce EN è scartata (lingua diversa), resta l'agnostica → risolve
+    # sul mercato agnostico (fail-closed sulla lingua sbagliata, retro-compat sull'agnostica).
+    profiles = [[
+        _lentry("gg", language="EN", market="Entrambe le squadre a segno", selection="Sì"),
+        _lentry("gg", language="", market="1º tempo - Totale goal 0,5",
+                selection="Over 0,5 goal"),
+    ]]
+    res = mms.resolve_market("Inter v Milan\nMercato: gg\n", profiles, language="IT")
+    assert res.status == "ok"
+    assert res.market["market_type"] == "FIRST_HALF_GOALS_05"
+
+
+def test_resolve_solo_lingua_diversa_none():
+    # Unica voce che matcha è di un'ALTRA lingua → scartata → "none" (mai un mercato di lingua
+    # sbagliata): il chiamante non scrive nulla.
+    profiles = [[_lentry("gg", language="EN", market="Entrambe le squadre a segno",
+                         selection="Sì")]]
+    res = mms.resolve_market("Inter v Milan\nMercato: gg\n", profiles, language="IT")
+    assert res.status == "none"
+
+
+def test_resolve_dizionario_agnostico_con_lingua_impostata_retro_compat():
+    # Un dizionario TUTTO agnostico (setup esistenti) continua a risolvere anche con la
+    # lingua-fonte impostata (il tier agnostico resta eleggibile).
+    profiles = [[_lentry("gg", language="", market="Entrambe le squadre a segno",
+                         selection="Sì")]]
+    res = mms.resolve_market("Inter v Milan\nMercato: gg\n", profiles, language="ES")
+    assert res.status == "ok"
+    assert res.market["market_type"] == "BOTH_TEAMS_TO_SCORE"
+
+
+def test_resolve_language_vuota_o_ignota_nessun_filtro():
+    # language="" o valore sporco → normalizza a "" → nessun filtro (come None).
+    profiles = [[_lentry("gg", language="EN", market="Entrambe le squadre a segno",
+                         selection="Sì")]]
+    for lang in ("", "  ", "XX", None):
+        res = mms.resolve_market("Inter v Milan\nMercato: gg\n", profiles, language=lang)
+        assert res.status == "ok"                # nessuno scarto: la voce EN resta
+        assert res.market["market_type"] == "BOTH_TEAMS_TO_SCORE"
