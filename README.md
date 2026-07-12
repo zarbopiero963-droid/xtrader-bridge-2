@@ -131,7 +131,12 @@ salvata (`app_language`) e **allinea anche la lingua del CSV** (`csv_language`, 
 decimale #342). Se chiudi senza scegliere non succede nulla: il bridge resta nel
 comportamento storico (italiano) e il selettore ricompare al prossimo avvio. Promemoria:
 col riconoscimento a nomi, **imposta in XTrader/Betting Toolkit la lingua della fonte
-uguale a quella scelta qui** (i nomi dipendono dalla lingua del palinsesto). Dalla
+uguale a quella scelta qui** (i nomi dipendono dalla lingua del palinsesto). I nomi
+dipendono anche dall'**exchange Betfair** (BF fa piccole differenze tra i nomi
+dell'exchange italiano e di quello inglese, e usa ID diversi tra exchange): per questo il
+**dizionario nomi e mercati è user-built** — inserisci i **nomi esatti** della tua
+fonte/exchange e taggali con la loro **lingua** (colonna «Lingua»), così il filtro
+lingua-fonte sceglie le voci giuste. Dalla
 slice 4a la **finestra principale** è localizzata (tab, bottoni, nomi campo in EN/ES;
 la lingua si applica al **riavvio**); dalla slice 4b anche lo stato «⬤ ATTIVO/RICONNESSIONE…»
 è localizzato; banner, log e finestre secondarie restano in italiano e arrivano con i
