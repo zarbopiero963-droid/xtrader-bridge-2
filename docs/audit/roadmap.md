@@ -2584,7 +2584,9 @@ inventata). Nessun impatto su CSV/Telegram/dedup. Contratto CSV invariato. Merge
 (anti-drift); `normalize_source_language` su valide/sporche/tipi errati → fail-closed;
 `effective_source_language` override>globale>vuoto e fail-closed su sporco (anche cfg non-dict);
 round-trip `CustomParserDef` + retro-compat (campo assente/malformato → `""`); `DEFAULTS` e
-`_migrate` normalizzano la chiave. Suite **2357 passed, 11 skipped**. **CORE change**
+`_migrate` normalizzano la chiave; override per-parser con **tipo non-stringa** → fail-closed
+(GLM #22); **round-trip reale su disco** di `config.json` senza `source_language` che preserva
+le altre chiavi (GPT #22). Suite **2359 passed, 11 skipped**. **CORE change**
 (`recognition.py`, `custom_parser.py`, `config_store.py`) → da ri-sincronizzare nel cloud. Docs:
 README (chiave `source_language`) + `docs/custom_parser.md` (campo per-parser) aggiornati. Design
 handoff = **N/A** (nessun elemento GUI/UX in 5a: solo config/plumbing; il campo GUI per la

@@ -73,6 +73,42 @@ def test_custom_parser_from_dict_retrocompat_e_fail_closed():
         {"name": "P", "source_language": " es "}).source_language == "ES"
 
 
+def test_effective_source_language_override_non_stringa_fail_closed():
+    # GLM #22: un override per-parser con TIPO NON stringa (int/None/bool/list) passa comunque
+    # da `normalize_source_language` → "" → si eredita il globale valido, senza propagare un tipo
+    # errato e senza AttributeError. Duck-typing preso sul serio.
+    class _Duck:
+        def __init__(self, v):
+            self.source_language = v
+    for bad in (123, None, True, [], {}):
+        assert recognition.effective_source_language(
+            {"source_language": "IT"}, _Duck(bad)) == "IT", repr(bad)
+    # override non-stringa + globale assente → "" (agnostica, fail-closed)
+    assert recognition.effective_source_language({}, _Duck(123)) == ""
+
+
+def test_load_config_roundtrip_preserva_altre_chiavi(tmp_path):
+    # GPT #22: un `config.json` PREESISTENTE senza `source_language` si carica con la chiave a
+    # "" (default, fail-closed) SENZA perdere le altre chiavi; salvando e ricaricando la
+    # lingua-fonte persiste normalizzata e le altre chiavi restano intatte (retro-compat reale
+    # su disco, non solo `_migrate`).
+    import json
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"csv_path": r"C:\Custom\segnali.csv",
+                             "recognition_mode": "ID_ONLY"}), encoding="utf-8")
+    cfg = config_store.load_config(str(p))
+    assert cfg["source_language"] == ""                     # default aggiunto (fail-closed)
+    assert cfg["csv_path"] == r"C:\Custom\segnali.csv"      # altra chiave preservata
+    assert cfg["recognition_mode"] == "ID_ONLY"            # altra chiave preservata (file esistente)
+    # imposta la lingua-fonte e persiste; il reload la normalizza e non perde nulla
+    cfg["source_language"] = "en"
+    config_store.save_config(cfg, str(p))
+    reloaded = config_store.load_config(str(p))
+    assert reloaded["source_language"] == "EN"              # "en" → "EN" persistito
+    assert reloaded["csv_path"] == r"C:\Custom\segnali.csv"
+    assert reloaded["recognition_mode"] == "ID_ONLY"
+
+
 def test_config_default_source_language_vuoto():
     assert config_store.DEFAULTS["source_language"] == ""
 
