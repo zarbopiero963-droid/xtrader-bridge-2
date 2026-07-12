@@ -11,7 +11,7 @@ Modello dati (config, chiave ``name_mappings``)::
     cfg["name_mappings"] = {
         "<nome profilo>": [
             {"country": "Inghilterra", "betfair": "Liverpool", "provider": "Liverpool FC",
-             "sport": "Calcio", "entity_type": "team"},
+             "sport": "Calcio", "entity_type": "team", "language": "EN"},
             ...
         ],
         ...
@@ -20,9 +20,12 @@ Modello dati (config, chiave ``name_mappings``)::
 Entrambe le colonne sono **campo libero** (le riempie l'utente): ``betfair`` è il
 nome canonico XTrader/Betfair (anche l'output della mappatura), ``provider`` è
 l'alias usato nei messaggi del canale. ``country`` è solo organizzativo (opz.).
-``sport`` (PR-P10) ed ``entity_type`` (PR-P10 / #178 §2) sono filtri opzionali per
-riga (vedi `ENTITY_TYPES`): vuoti = agnostici, così le config salvate prima di questi
-campi restano valide.
+``sport`` (PR-P10), ``entity_type`` (PR-P10 / #178 §2) e ``language`` (epica #3
+slice 5b: lingua della fonte, ``IT``/``EN``/``ES``) sono filtri opzionali per riga:
+vuoti = agnostici, così le config salvate prima di questi campi restano valide. Il
+filtro-lingua è ATTIVO solo quando il chiamante passa una ``language`` a
+`resolve_team`/`resolve_event_name` (consumo cablato nella pipeline in una slice
+successiva); con ``language=None`` (default) il comportamento è quello storico.
 
 Logica PURA su un ``dict`` di config: nessuna GUI, nessun I/O — la persistenza è
 del chiamante (``config_store.save_config``), come per ``provider_store``. Le
@@ -40,7 +43,7 @@ import re
 
 import logging
 
-from . import sports
+from . import recognition, sports
 from .dizionario import compose_event_name, normalize
 
 _LOG = logging.getLogger(__name__)
@@ -149,14 +152,24 @@ def _malformed_fields(entry: dict) -> list:
     raw_entity = str(entry.get("entity_type", "") or "").strip()
     if raw_entity and not normalize_entity_type(raw_entity):
         out.append(("entity_type", raw_entity))
+    # language (epica #3 slice 5b): non-vuoto ma non IT/EN/ES → FAIL-CLOSED come sport/entity_type
+    # (un typo di lingua non deve allargare in silenzio la riga a "tutte le lingue"). Vuoto = agnostico.
+    raw_language = str(entry.get("language", "") or "").strip()
+    if raw_language and not recognition.normalize_source_language(raw_language):
+        out.append(("language", raw_language))
     return out
 
 
 def _clean_entry(entry) -> dict:
     """Normalizza una riga di mappatura in
-    ``{country, betfair, provider, sport, entity_type}`` (stringhe ripulite), oppure
-    ``None`` se la riga è vuota/non valida. Una riga senza né ``betfair`` né ``provider``
-    è inutile (non mappa nulla) e viene scartata.
+    ``{country, betfair, provider, sport, entity_type, language}`` (stringhe ripulite),
+    oppure ``None`` se la riga è vuota/non valida. Una riga senza né ``betfair`` né
+    ``provider`` è inutile (non mappa nulla) e viene scartata.
+
+    ``language`` (epica #3 slice 5b): lingua della fonte (``IT``/``EN``/``ES``); **vuoto**
+    → ``""`` = agnostico (retro-compatibile con le righe salvate prima). Un valore non-vuoto
+    ma **non riconosciuto** è FAIL-CLOSED come ``sport``/``entity_type`` (riga scartata, non
+    allargata a tutte le lingue).
 
     ``sport`` (PR-P10) restringe la riga a uno sport (``sports.SPORTS``); **vuoto** →
     ``""`` = **agnostico** (vale per tutti gli sport, retro-compatibile con le righe
@@ -182,7 +195,8 @@ def _clean_entry(entry) -> dict:
         return None
     return {"country": country, "betfair": betfair, "provider": provider,
             "sport": sports.normalize_sport(entry.get("sport")) or "",
-            "entity_type": normalize_entity_type(entry.get("entity_type"))}
+            "entity_type": normalize_entity_type(entry.get("entity_type")),
+            "language": recognition.normalize_source_language(entry.get("language"))}
 
 
 def profile_names(cfg: dict) -> list:
@@ -308,10 +322,14 @@ def _entity_eligible(entry, allowed) -> bool:
     return et in allowed or et == ""
 
 
-def _scoped_entry_groups(entries, want_sport, want_entity=None):
-    """Righe eleggibili per lo scope richiesto (sport + tipo di entità) **raggruppate per
-    tier di priorità**, dal più specifico all'agnostico, dando priorità ai match esatti su
-    ENTRAMBE le dimensioni (PR-P10, CodeRabbit + Codex).
+def _scoped_entry_groups(entries, want_sport, want_entity=None, want_language=""):
+    """Righe eleggibili per lo scope richiesto (sport + tipo di entità + lingua-fonte)
+    **raggruppate per tier di priorità**, dal più specifico all'agnostico, dando priorità ai
+    match esatti su TUTTE le dimensioni (PR-P10, CodeRabbit + Codex; ``language`` = #3 slice 5b).
+
+    ``want_language`` (``IT``/``EN``/``ES`` o ``""``): se valorizzata si scartano le righe di
+    un'ALTRA lingua (le agnostiche restano) e la riga della lingua ESATTA ha priorità
+    sull'agnostica; vuota = nessun filtro-lingua (comportamento storico invariato).
 
     Ritorna una **lista di gruppi** (ogni gruppo = righe con lo stesso rango, nell'ordine
     salvato), coi gruppi ordinati dal tier più specifico a quello più agnostico:
@@ -334,18 +352,23 @@ def _scoped_entry_groups(entries, want_sport, want_entity=None):
     non scavalca un override esatto salvato dopo (la GUI fa solo append). Senza alcun filtro
     c'è **un solo gruppo** nell'ordine salvato (comportamento legacy invariato)."""
     want = want_sport or ""
+    wl = recognition.normalize_source_language(want_language)   # "" = nessun filtro-lingua
     allowed = _entity_filter(want_entity)
     pool = [e for e in entries
             if _entity_eligible(e, allowed)
-            and (not want or str(e.get("sport", "") or "") in (want, ""))]
-    if not want and allowed is None:
+            and (not want or str(e.get("sport", "") or "") in (want, ""))
+            and (not wl or str(e.get("language", "") or "") in (wl, ""))]
+    if not want and allowed is None and not wl:
         return [pool] if pool else []         # nessun filtro → un solo gruppo (ordine salvato, legacy)
 
     def _rank(e):
         entity_rank = 0 if (allowed is None
                             or str(e.get("entity_type", "") or "") in allowed) else 1
+        # lingua (epica #3 slice 5b): riga della lingua ESATTA prima dell'agnostica; senza
+        # filtro-lingua (`wl` vuoto) il rank è costante → ordinamento legacy invariato.
+        lang_rank = 0 if (not wl or str(e.get("language", "") or "") == wl) else 1
         sport_rank = 0 if (not want or str(e.get("sport", "") or "") == want) else 1
-        return (entity_rank, sport_rank)      # tipo PRIMARIO, poi sport (Codex)
+        return (entity_rank, lang_rank, sport_rank)   # tipo PRIMARIO, poi lingua, poi sport
 
     groups = {}
     for e in sorted(pool, key=_rank):         # sort STABILE: ordine salvato a parità di rango
@@ -353,7 +376,7 @@ def _scoped_entry_groups(entries, want_sport, want_entity=None):
     return [groups[rank] for rank in sorted(groups)]   # tier dal più specifico all'agnostico
 
 
-def resolve_team(team: str, profiles, sport=None, entity_type=None) -> str:
+def resolve_team(team: str, profiles, sport=None, entity_type=None, language=None) -> str:
     """Traduce un nome squadra grezzo nel nome Betfair/XTrader, o ``None`` se ignoto.
 
     ``profiles`` è una lista di liste-di-righe (vedi `entries_for_profiles`), nell'
@@ -379,6 +402,12 @@ def resolve_team(team: str, profiles, sport=None, entity_type=None) -> str:
     "competition" non traduce un nome squadra), con **priorità al tipo esatto** sulle
     agnostiche. Assente/ignoto → nessun filtro. È additivo allo scoping per sport.
 
+    ``language`` (epica #3 slice 5b): se valorizzata (``IT``/``EN``/``ES``, la lingua-fonte
+    del palinsesto) si considerano SOLO le righe di quella lingua o **agnostiche** (lingua
+    vuota), con **priorità alla lingua esatta** sull'agnostica. Le righe taggate per un'altra
+    lingua sono saltate. Assente/vuota/ignota → nessun filtro (comportamento legacy). È
+    additiva allo scoping per sport/tipo. Fail-closed invariato: nessun nome tradotto a caso.
+
     L'esaurire alias+canonico di un profilo prima del successivo evita che l'alias di
     un profilo più in basso scavalchi il canonico di uno più in alto (Codex)."""
     nt = normalize(team)
@@ -390,7 +419,7 @@ def resolve_team(team: str, profiles, sport=None, entity_type=None) -> str:
         # più agnostico: così un alias agnostico non scavalca un canonico esatto-sport dello
         # stesso nome (Codex P2 #174). Dentro il tier resta alias→canonico (l'alias del
         # provider ha precedenza sul nome canonico).
-        for group in _scoped_entry_groups(entries, want, entity_type):
+        for group in _scoped_entry_groups(entries, want, entity_type, language):
             for e in group:
                 alias = e.get("provider", "")
                 betfair = e.get("betfair", "")
@@ -433,7 +462,7 @@ def split_event(event_name: str, separator: str):
 
 
 def resolve_event_name(event_name: str, separator: str, profiles, sport=None,
-                       entity_type=None) -> str:
+                       entity_type=None, language=None) -> str:
     """Traduce un ``EventName`` provider in ``EventName`` Betfair/XTrader, o ``None``.
 
     Divide su ``separator``, mappa casa e trasferta coi ``profiles`` e ricompone nel
@@ -441,16 +470,17 @@ def resolve_event_name(event_name: str, separator: str, profiles, sport=None,
     ``None`` (fail-closed: niente riga CSV) se non si riesce a dividere **o** se una
     delle due squadre non è mappabile.
 
-    ``sport`` (PR-P10) ed ``entity_type`` (#178 §2) sono inoltrati a `resolve_team` per
-    restringere la mappatura alle righe di quello sport/tipo o agnostiche. Le squadre di un
-    evento sono partecipanti: il chiamante può passare ``entity_type`` per usare solo le
-    righe pertinenti (default ``None`` = nessun filtro, comportamento legacy)."""
+    ``sport`` (PR-P10), ``entity_type`` (#178 §2) e ``language`` (#3 slice 5b) sono inoltrati
+    a `resolve_team` per restringere la mappatura alle righe di quello sport/tipo/lingua o
+    agnostiche. Le squadre di un evento sono partecipanti: il chiamante può passare
+    ``entity_type`` per usare solo le righe pertinenti (default ``None`` = nessun filtro,
+    comportamento legacy)."""
     split = split_event(event_name, separator)
     if split is None:
         return None
     home, away = split
-    h = resolve_team(home, profiles, sport=sport, entity_type=entity_type)
-    a = resolve_team(away, profiles, sport=sport, entity_type=entity_type)
+    h = resolve_team(home, profiles, sport=sport, entity_type=entity_type, language=language)
+    a = resolve_team(away, profiles, sport=sport, entity_type=entity_type, language=language)
     if not h or not a:
         return None
     return compose_event_name(h, a)
