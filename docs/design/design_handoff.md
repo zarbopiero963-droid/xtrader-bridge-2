@@ -613,15 +613,21 @@ NON** viene salvato nei profili). Campo nome + **"💾 Salva profilo"**; lista c
 
 ### 7.5 🗺️ Mapping (`name_mapping_gui.py`) — 3 sotto-tab
 - **⚽ Calcio (Dizionario nomi squadra):** profilo (Nuovo/Rinomina/Elimina) + tabella
-  **Country · Betfair/XTrader · Come lo scrive il canale · Sport · Tipo**. Traduce i nomi del canale
-  nei nomi attesi da Betfair/XTrader. La colonna **«Come lo scrive il canale»** (già «Provider»,
+  **Country · Betfair/XTrader · Come lo scrive il canale · Sport · Tipo · Lingua**. Traduce i nomi del
+  canale nei nomi attesi da Betfair/XTrader. La colonna **«Come lo scrive il canale»** (già «Provider»,
   rinominata in **#293** per non collidere con l'anagrafica «Provider» = etichetta CSV; la chiave
-  dati resta `provider`) contiene l'alias con cui il canale scrive il nome squadra. Pulsanti azione:
+  dati resta `provider`) contiene l'alias con cui il canale scrive il nome squadra. La tendina
+  **«Lingua»** (epica multilingua **#3 slice 5b**) tagga la riga con la **lingua della fonte**
+  (`IT`/`EN`/`ES`) oppure **«(tutte le lingue)»** = agnostica (default): quando la lingua-fonte è
+  impostata, le righe della lingua ESATTA hanno priorità sulle agnostiche e quelle di un'altra lingua
+  sono saltate (le agnostiche restano sempre valide → i dizionari esistenti continuano a funzionare).
+  Come per **Sport**/**Tipo**, «(tutte le lingue)» mappa alla chiave dati vuota. Pulsanti azione:
   **«➕ Aggiungi riga»**, **«📥 Precompila da Betfair»** (blu `#1565c0`), **«💾 Salva profilo»**.
   - **«📥 Precompila da Betfair» (#282 PR 11):** riempie la tabella coi nomi squadra
     **permanenti** presenti nel **dizionario locale** — una riga per nome, **Betfair già scritto**
     nel campo (resta un `CTkEntry` editabile, **niente tendina**), **Sport** impostato, **Tipo**
-    `team`, **«Come lo scrive il canale» vuoto** (ci va l'alias del canale). Non distruttivo/idempotente (salta i
+    `team`, **«Come lo scrive il canale» vuoto** (ci va l'alias del canale) e **«Lingua» =
+    «(tutte le lingue)»** (agnostica; l'utente può restringerla). Non distruttivo/idempotente (salta i
     nomi già presenti). Con **dizionario locale vuoto** mostra un avviso e non aggiunge nulla.
     **Se un altro strumento tiene il lock del DB** fa fail-fast con «⏳ Dizionario occupato:
     riprova tra poco» (arancione) **senza congelare la finestra**. La riga di stato riporta

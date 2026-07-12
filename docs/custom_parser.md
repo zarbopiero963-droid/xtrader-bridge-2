@@ -153,9 +153,9 @@ provider nei nomi Betfair/XTrader **prima** della scrittura:
   Un valore non-vuoto e **non riconosciuto** (typo tipo `ENG`) è FAIL-CLOSED (riga scartata,
   con avviso, non allargata a tutte le lingue). Dalla **slice 5b (wiring)** la pipeline passa
   automaticamente la `source_language` effettiva (live **e** anteprima) a questo filtro, quindi
-  il campo è **attivo a runtime**; per ora la colonna si imposta via `config.json` (l'editor GUI
-  «Lingua» arriva nella slice successiva). Con lingua-fonte non impostata il comportamento è
-  quello storico (nessun filtro).
+  il campo è **attivo a runtime**. La colonna **«Lingua»** si imposta dalla tendina nel **Dizionario
+  nomi** (🗺️ Mapping) — `IT`/`EN`/`ES` o **«(tutte le lingue)»** (agnostica) — oppure a mano in
+  `config.json`. Con lingua-fonte non impostata il comportamento è quello storico (nessun filtro).
 
 **Sicuro (fail-closed)**: se il separatore non si trova **o** una squadra non è nei
 profili (per lo sport del parser), lo stato è `MAPPING_MISSING` → **nessuna riga CSV** (un
@@ -186,11 +186,13 @@ retro-compatibile).
 **GUI**: i profili si gestiscono nella scheda **Mapping** della finestra «🧰 Strumenti»
 (pulsante «🗺️ Mapping» nella finestra principale → `name_mapping_gui.MappingPanel`),
 **area ⚽ Calcio** (`NameMappingPanel`): selettore profilo (nuovo/rinomina/elimina) e
-tabella `Country | Betfair/XTrader | Provider | Sport | Tipo`. La classe
+tabella `Country | Betfair/XTrader | Provider | Sport | Tipo | Lingua`. La classe
 `NameMappingWindow` resta come finestra standalone (compatibilità). La tabella ha una
 colonna **Sport** per riga (PR-P10: «(tutti gli sport)» = agnostica, oppure uno sport
-specifico) e una colonna **Tipo** (#178 §2: «(qualsiasi tipo)» = agnostica, oppure
-`participant`/`team`/`player`/`competition`/`market`/`selection`). Nel **Parser
+specifico), una colonna **Tipo** (#178 §2: «(qualsiasi tipo)» = agnostica, oppure
+`participant`/`team`/`player`/`competition`/`market`/`selection`) e una colonna **Lingua**
+(#3 slice 5b: «(tutte le lingue)» = agnostica, oppure `IT`/`EN`/`ES` = lingua-fonte della
+riga, prioritaria sull'agnostica nel matching). Nel **Parser
 Personalizzato** scegli
 il **separatore** squadre e spunti i **profili** da usare (checkbox multi-selezione);
 «Prova messaggio» risolve i profili dalla config e mostra l'`EventName` tradotto (o
