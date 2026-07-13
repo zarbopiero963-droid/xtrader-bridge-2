@@ -686,6 +686,32 @@ _CATALOG = {
         "(scommesse reali) appena ricevuti.\n\nAvviare ora il listener?":
             "You are in REAL MODE: the bridge will write signals to the CSV (real bets) as "
             "soon as they arrive.\n\nStart the listener now?",
+        # Dialoghi GUI di AZIONE FILE (#343 slice 4z): selettori file (Sfoglia/Crea CSV, Esporta
+        # audit reale), avvisi e conferme di sovrascrittura. Resi via `i18n.tr` in app.py (fire post
+        # `set_language`). {path}=percorso file (valore di dominio interpolato). «CSV»/«XTrader» =
+        # termini prodotto invariati; il dialog «già in esecuzione» all'avvio resta IT (renderizza
+        # PRIMA di set_language). NB: le operazioni sul CSV e i pattern *.csv sono INVARIATI.
+        "Scegli il file CSV per XTrader": "Choose the CSV file for XTrader",
+        "Crea un nuovo CSV per XTrader (solo header)": "Create a new CSV for XTrader (header only)",
+        "Tutti i file": "All files",
+        "Testo": "Text",
+        "Bridge avviato": "Bridge started",
+        "Il bridge è AVVIATO su questo CSV.\n\nFai STOP prima di ricrearlo.":
+            "The bridge is STARTED on this CSV.\n\nStop it before recreating it.",
+        "Sovrascrivere il file esistente?": "Overwrite the existing file?",
+        "{path} esiste e NON è un CSV del bridge.\n\nSovrascriverlo con "
+        "un CSV vuoto (solo header)?":
+            "{path} exists and is NOT a bridge CSV.\n\nOverwrite it with an empty CSV "
+            "(header only)?",
+        "Sovrascrivere il segnale attivo?": "Overwrite the active signal?",
+        "{path} contiene un segnale attivo non ancora letto da XTrader.\n\n"
+        "Sovrascriverlo con un CSV vuoto (solo header)?":
+            "{path} contains an active signal not yet read by XTrader.\n\n"
+            "Overwrite it with an empty CSV (header only)?",
+        "Audit modalità reale": "Real mode audit",
+        "Nessun evento di attivazione modalità reale nei log.":
+            "No real mode activation event in the logs.",
+        "Esporta audit modalità reale": "Export real mode audit",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -1246,5 +1272,28 @@ _CATALOG = {
         "(scommesse reali) appena ricevuti.\n\nAvviare ora il listener?":
             "Estás en MODO REAL: el bridge escribirá las señales en el CSV (apuestas reales) "
             "en cuanto lleguen.\n\n¿Iniciar ahora el listener?",
+        # Dialoghi GUI di AZIONE FILE (#343 slice 4z) — vedi nota nel blocco EN. {path}=percorso;
+        # «CSV»/«XTrader» invariati; dialog «già in esecuzione» all'avvio resta IT (pre set_language).
+        "Scegli il file CSV per XTrader": "Elige el archivo CSV para XTrader",
+        "Crea un nuovo CSV per XTrader (solo header)": "Crea un nuevo CSV para XTrader (solo encabezado)",
+        "Tutti i file": "Todos los archivos",
+        "Testo": "Texto",
+        "Bridge avviato": "Bridge iniciado",
+        "Il bridge è AVVIATO su questo CSV.\n\nFai STOP prima di ricrearlo.":
+            "El bridge está INICIADO en este CSV.\n\nDetenlo antes de recrearlo.",
+        "Sovrascrivere il file esistente?": "¿Sobrescribir el archivo existente?",
+        "{path} esiste e NON è un CSV del bridge.\n\nSovrascriverlo con "
+        "un CSV vuoto (solo header)?":
+            "{path} existe y NO es un CSV del bridge.\n\n¿Sobrescribirlo con un CSV vacío "
+            "(solo encabezado)?",
+        "Sovrascrivere il segnale attivo?": "¿Sobrescribir la señal activa?",
+        "{path} contiene un segnale attivo non ancora letto da XTrader.\n\n"
+        "Sovrascriverlo con un CSV vuoto (solo header)?":
+            "{path} contiene una señal activa aún no leída por XTrader.\n\n"
+            "¿Sobrescribirlo con un CSV vacío (solo encabezado)?",
+        "Audit modalità reale": "Auditoría del modo real",
+        "Nessun evento di attivazione modalità reale nei log.":
+            "Ningún evento de activación del modo real en los registros.",
+        "Esporta audit modalità reale": "Exportar auditoría del modo real",
     },
 }

@@ -3505,3 +3505,34 @@ esistenti `test_multi_signal.py`/`test_real_mode.py` restano verdi (IT identità
 **Ancora aperto (per chiudere #3):** i restanti log `self._log(...)` di `app.py` (in gran parte
 esclusioni permanenti) + alcuni **avvisi/dialoghi GUI non di conferma-modalità** (warning salvataggio
 CSV, showinfo audit, ecc.) + la nota SUCCESS del selettore lingua da attualizzare.
+
+## #343 slice 4z — dialoghi GUI di AZIONE FILE (app.py) localizzati (residuo UI #3)
+
+**Obiettivo.** Localizzare i **dialoghi modali di azione file** — la superficie «dialoghi GUI» distinta
+dai log: selettori file e avvisi/conferme dei flussi «📁 Sfoglia CSV», «📄 Crea CSV» e «Esporta audit
+modalità reale».
+
+**Cosa fa.** Passano da `i18n.tr(...)` **13 stringhe** in `app.py`: 3 titoli `filedialog`
+(Sfoglia/Crea CSV, Esporta audit) + 2 label `filetypes` («Tutti i file», «Testo»; «CSV» resta termine
+prodotto) + `showwarning` «Bridge avviato» (titolo+corpo) + 2 `askyesno` di sovrascrittura
+(file estraneo / segnale attivo — titolo+corpo, con `{path}` reso via `.format`, ex `%s`) +
+`showinfo` «Audit modalità reale» (titolo+corpo). Catalogo `i18n.py`: **13 chiavi NUOVE × EN/ES**.
+Tutte tr-constant di `app.py` → l'anti-drift le trova via `_APP_TR` (nessuna nuova sorgente).
+
+**Esclusioni (restano IT).** Il dialog **«XTrader Bridge è già in esecuzione»** all'avvio: renderizza
+**prima** di `i18n.set_language` (l'acquisizione del lock di istanza in `__init__` precede la scelta
+lingua) → localizzarlo non avrebbe effetto; escluso e verificato dal test. `{path}` = percorso file
+(valore di dominio). **Nessun cambio di logica**: selezione file, pattern `*.csv`, operazioni CSV e
+guardie autoritative (`_create_and_save_csv`) invariati — solo il testo dei dialog è tradotto.
+
+**Test hard.** Nuovo `tests/unit/test_file_action_dialogs_i18n_343.py`: AST (13 stringhe wrappate,
+nessuna vecchia forma hardcoded/`%s` superstite), **mutation-guard `.format(path=...)`** sui 2 corpi
+con `{path}`, copertura EN/ES **!= IT** + placeholder, round-trip reale, e il test che verifica
+l'**esclusione** del dialog «già in esecuzione» (resta IT, non a catalogo). Anti-drift `test_i18n_343.py`
+verde senza modifiche (tutte le chiavi in `_APP_TR`). Suite unit+integration: **2533 passed, 11 skipped**.
+Docs: README + `design_handoff.md` (nota «Crea CSV» attualizzata da «resta IT» → «localizzato 4z»).
+Design handoff = **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti log `self._log(...)` di `app.py` (in gran parte
+esclusioni permanenti) + la nota SUCCESS del selettore lingua da attualizzare + i dialoghi/avvisi GUI
+eventualmente residui.

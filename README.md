@@ -169,10 +169,12 @@ titoli-scheda: 📡 Chat sorgenti, 📇 Provider, 🧩 Parser, 🗺️ Mapping, 
 🧹 Nomi squadra, 📁 Profili, 📋 Riepilogo; «Provider»/«Parser» restano termini prodotto) e — dalla
 slice 4y — i **dialoghi modali di conferma modalità** (attivazione REALE con frase da digitare,
 COLLAUDO, MULTI-segnale e i due gate di avvio automatico/START in modalità reale; la parola da
-digitare resta **`REALE`** in ogni lingua per sicurezza) sono localizzati.
-Restano ancora in italiano: i restanti **messaggi di log** dell'app e alcuni **avvisi/dialoghi
-GUI** non di conferma-modalità (e i messaggi che riportano contenuto di dominio, che restano IT per
-contratto) — previsti nelle prossime slice della #343.
+digitare resta **`REALE`** in ogni lingua per sicurezza) e — dalla slice 4z — i **dialoghi GUI di
+azione file** (selettori «📁 Sfoglia…»/«📄 Crea CSV», avviso «bridge avviato», conferme di
+sovrascrittura file/segnale attivo, e l'export «Esporta audit modalità reale») sono localizzati.
+Restano ancora in italiano: i restanti **messaggi di log** dell'app, il dialogo «già in esecuzione»
+all'avvio (renderizza prima della scelta lingua) e i messaggi che riportano contenuto di dominio
+(IT per contratto) — previsti/documentati nelle prossime slice della #343.
 
 La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Config**
 (oppure all'avvio con **▶ AVVIA**) nel file `config.json` (vedi

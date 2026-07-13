@@ -374,10 +374,12 @@ annullato dall'utente). «Crea CSV» è tradotto come il **bottone** omonimo (EN
 «Crear CSV»); marker emoji e livello conservati. **Restano IT** (documentato): i **messaggi di
 stato** del layer puro `config_store.save_status_message` (si traduce solo il prefisso), il dato
 `{exc}`, i log di **recovery/clear** con la parola-quando («all'avvio»/«allo stop»/…) — slice a
-parte — e, importante per il design, i **dialoghi modali** di «Crea CSV» (`messagebox`/`filedialog`:
-titoli, conferme di sovrascrittura): sono una superficie diversa dai log e restano in italiano
-finché non arriva la slice dedicata ai **dialoghi GUI** (quindi, temporaneamente, cliccando «Crea
-CSV» il **dialogo** è IT ma la **riga di log** risultante è localizzata).
+parte. I **dialoghi modali** di azione file (`messagebox`/`filedialog`: selettori «📁 Sfoglia…»/
+«📄 Crea CSV», titoli, conferme di sovrascrittura file/segnale attivo, e l'export «Esporta audit
+modalità reale») sono invece **localizzati dalla slice 4z** (EN/ES; `{path}` interpolato come valore,
+pattern `*.csv` e operazioni CSV invariati). **Eccezione**: il dialog «XTrader Bridge è già in
+esecuzione» all'avvio resta IT perché renderizza **prima** di `i18n.set_language` (l'acquisizione del
+lock di istanza precede la scelta lingua in `__init__`).
 
 Dalla **slice 4l — log AVVIO/VALIDAZIONE START** è localizzato il terzo gruppo: i messaggi
 **safety-critical** che compaiono nel pannello **📋 Log** quando lo **START è bloccato/annullato** —
