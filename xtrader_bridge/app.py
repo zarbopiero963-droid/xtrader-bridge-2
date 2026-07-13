@@ -1498,9 +1498,9 @@ class App(ctk.CTk):
                 subprocess.Popen(["open", folder])
             else:
                 subprocess.Popen(["xdg-open", folder])
-            self._log(f"📂 Cartella log: {folder}")
+            self._log(i18n.tr("📂 Cartella log: {path}").format(path=folder))
         except Exception as ex:                 # noqa: BLE001 — esito a log, no crash
-            self._log(f"❌ Impossibile aprire la cartella log: {ex}")
+            self._log(i18n.tr("❌ Impossibile aprire la cartella log: {exc}").format(exc=ex))
 
     def _confirm_real_mode(self) -> bool:
         """Doppia conferma per attivare la modalità REALE (#136 punto 4): oltre alla spunta,
@@ -1792,9 +1792,10 @@ class App(ctk.CTk):
                 return
             with open(dest, "w", encoding="utf-8") as f:
                 f.write("\n".join(lines) + "\n")
-            self._log(f"🧾 Audit modalità reale esportato ({len(lines)} eventi): {dest}")
+            self._log(i18n.tr("🧾 Audit modalità reale esportato ({count} eventi): {path}")
+                      .format(count=len(lines), path=dest))
         except Exception as ex:        # noqa: BLE001 — esito a log, no crash
-            self._log(f"❌ Esportazione audit reale fallita: {ex}")
+            self._log(i18n.tr("❌ Esportazione audit reale fallita: {exc}").format(exc=ex))
 
     def _copy_diagnostics(self):
         """Copia negli appunti un report diagnostico (stato, contatori, ultimi eventi,
@@ -1815,9 +1816,9 @@ class App(ctk.CTk):
         try:
             self.clipboard_clear()
             self.clipboard_append(report)
-            self._log("📋 Diagnostica copiata negli appunti.")
+            self._log(i18n.tr("📋 Diagnostica copiata negli appunti."))
         except Exception as ex:                 # noqa: BLE001
-            self._log(f"❌ Copia diagnostica fallita: {ex}")
+            self._log(i18n.tr("❌ Copia diagnostica fallita: {exc}").format(exc=ex))
 
     def _on_retention_change(self, label: str):
         """Imposta i giorni di conservazione log, persiste e pulisce subito (PR-3)."""
@@ -1832,13 +1833,14 @@ class App(ctk.CTk):
         self._resync_token_field(had)
         if not ok:
             # Causa SPECIFICA (#255 line-647): disco vs keyring vs config corrotto.
-            self._log("❌ Retention log NON salvata. " + config_store.save_status_message(result.status))
+            self._log(i18n.tr("❌ Retention log NON salvata. ") + config_store.save_status_message(result.status))
             return
         if days:
             removed = event_log.purge_old_logs(days)
-            self._log(f"🧹 Retention log: {days} giorni · {len(removed)} file vecchi rimossi.")
+            self._log(i18n.tr("🧹 Retention log: {days} giorni · {count} file vecchi rimossi.")
+                      .format(days=days, count=len(removed)))
         else:
-            self._log("🧹 Retention log: conservo tutto (nessuna pulizia automatica).")
+            self._log(i18n.tr("🧹 Retention log: conservo tutto (nessuna pulizia automatica)."))
 
     def _clear_logs_now(self):
         """«Svuota log adesso»: rimuove i file di log su disco E svuota la vista in
@@ -1847,7 +1849,8 @@ class App(ctk.CTk):
         removed = event_log.clear_all_logs()
         self._log_entries.clear()
         self._log_box.delete("1.0", "end")
-        self._log(f"🧹 Log svuotati: {len(removed)} file su disco rimossi; vista azzerata.")
+        self._log(i18n.tr("🧹 Log svuotati: {count} file su disco rimossi; vista azzerata.")
+                  .format(count=len(removed)))
 
     def _on_debug_toggle(self):
         """Attiva/disattiva la modalità Debug (log dettagliato del percorso) e persiste."""
@@ -1858,10 +1861,10 @@ class App(ctk.CTk):
         self._config = saved
         # Reidratazione del campo token dopo un save non-GUI (PR-08c): vedi _on_retention_change.
         self._resync_token_field(had)
-        self._log(f"🐞 Modalità Debug log: {'ON' if on else 'OFF'}.")
+        self._log(i18n.tr("🐞 Modalità Debug log: {state}.").format(state="ON" if on else "OFF"))
         if not ok:
             # Causa SPECIFICA (#255 line-647): disco vs keyring vs config corrotto.
-            self._log("⚠️ Impostazione Debug NON salvata. " + config_store.save_status_message(result.status))
+            self._log(i18n.tr("⚠️ Impostazione Debug NON salvata. ") + config_store.save_status_message(result.status))
 
     def _dbg(self, msg: str):
         """Log di percorso dettagliato, scritto SOLO se la modalità Debug è attiva
@@ -2380,7 +2383,8 @@ class App(ctk.CTk):
         if _ret:
             _removed = event_log.purge_old_logs(_ret)
             if _removed:
-                self._log(f"🧹 Retention log ({_ret}g): {len(_removed)} file vecchi rimossi.")
+                self._log(i18n.tr("🧹 Retention log ({days}g): {count} file vecchi rimossi.")
+                          .format(days=_ret, count=len(_removed)))
         self._log(i18n.tr("🚀 Bridge avviato!"))
         self._log(i18n.tr("📄 CSV: {path}").format(path=cfg['csv_path']))
         self._log(i18n.tr("⏱️  Auto-clear dopo: {seconds}s").format(seconds=cfg['clear_delay']))

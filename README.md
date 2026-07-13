@@ -150,8 +150,10 @@ inizializzabile, slice 4l), i **log di esito elaborazione messaggio/segnale** (m
 scartato, scrittura CSV fallita, tracciabilità Messaggio→CSV, aggiornamento CSV post-conferma/scadenza,
 segnali scaduti rimossi, slice 4m) e — dalla slice 4n — i **log di resilienza** (riconnessione,
 connessione persa con backoff, errore non recuperabile del listener, recovery CSV post-STOP/temporanei
-orfani) sono localizzati (i log di recovery con la «parola-quando», es. «CSV riportato a solo header
-all'avvio», restano in italiano perché quel valore è usato anche come chiave nel codice, `== "all'avvio"`).
+orfani, slice 4n; i log di recovery con la «parola-quando», es. «CSV riportato a solo header
+all'avvio», restano in italiano perché quel valore è usato anche come chiave nel codice, `== "all'avvio"`)
+e — dalla slice 4o — i **log degli strumenti Log & diagnostica** (apri cartella log, export audit
+modalità reale, copia diagnostica, retention log, svuota log, toggle Debug) sono localizzati.
 Restano ancora in italiano: la finestra **🧰 Strumenti (hub)** e il pannello
 **🌳 Mapping guidato**, i restanti **messaggi di log** dell'app e i **dialoghi modali** GUI (e i
 messaggi che riportano contenuto di dominio, che restano IT per contratto) — previsti nelle prossime
