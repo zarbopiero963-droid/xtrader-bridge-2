@@ -548,6 +548,14 @@ _CATALOG = {
         "🧮 Modalità coda: {mode}": "🧮 Queue mode: {mode}",
         "⚠️ Impossibile salvare lo stato anti-duplicato su disco: protezione dopo riavvio degradata.": "⚠️ Unable to save the anti-duplicate state to disk: protection after restart degraded.",
         "⚠️ Impossibile salvare lo stato del limite giornaliero su disco: protezione anti-overtrading dopo riavvio degradata.": "⚠️ Unable to save the daily-limit state to disk: anti-overtrading protection after restart degraded.",
+        # Log MODE-TRANSITION ANNULLATA (#343 slice 4r): annullo delle conferme di transizione
+        # pericolosa in _gate_dangerous_transitions. «REALE»→«REAL», «COLLAUDO»→«TEST» coerenti coi
+        # banner di modalità; «OVERWRITE_LAST» (termine prodotto) e {old_mode} (valore di dominio da
+        # bridge_mode.mode_from_cfg: SIMULAZIONE/COLLAUDO/REALE) restano invariati. Il log di AUDIT
+        # «⚠️ » + real_mode.enabled_message() (bolla di dominio da layer puro) resta IT (solo prefisso).
+        "↩️ Attivazione modalità REALE ANNULLATA: torno a {old_mode}.": "↩️ REAL mode activation CANCELLED: reverting to {old_mode}.",
+        "↩️ Attivazione modalità COLLAUDO ANNULLATA: torno a {old_mode}.": "↩️ TEST mode activation CANCELLED: reverting to {old_mode}.",
+        "↩️ Modalità coda multi-segnale ANNULLATA: resto a un solo segnale attivo (OVERWRITE_LAST).": "↩️ Multi-signal queue mode CANCELLED: staying with a single active signal (OVERWRITE_LAST).",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -1002,5 +1010,9 @@ _CATALOG = {
         "🧮 Modalità coda: {mode}": "🧮 Modo de cola: {mode}",
         "⚠️ Impossibile salvare lo stato anti-duplicato su disco: protezione dopo riavvio degradata.": "⚠️ No se puede guardar el estado anti-duplicados en disco: protección tras reinicio degradada.",
         "⚠️ Impossibile salvare lo stato del limite giornaliero su disco: protezione anti-overtrading dopo riavvio degradata.": "⚠️ No se puede guardar el estado del límite diario en disco: protección anti-overtrading tras reinicio degradada.",
+        # Log MODE-TRANSITION ANNULLATA (#343 slice 4r) — vedi nota nel blocco EN.
+        "↩️ Attivazione modalità REALE ANNULLATA: torno a {old_mode}.": "↩️ Activación del modo REAL CANCELADA: vuelvo a {old_mode}.",
+        "↩️ Attivazione modalità COLLAUDO ANNULLATA: torno a {old_mode}.": "↩️ Activación del modo PRUEBA CANCELADA: vuelvo a {old_mode}.",
+        "↩️ Modalità coda multi-segnale ANNULLATA: resto a un solo segnale attivo (OVERWRITE_LAST).": "↩️ Modo de cola multi-señal CANCELADO: permanezco con una sola señal activa (OVERWRITE_LAST).",
     },
 }

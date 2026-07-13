@@ -395,6 +395,15 @@ mostrato tale e quale. **Restano IT** per contratto: gli **avvisi fail-safe** em
 `self._log(warning)` nel loop `for warning in guards.warnings` (bolla di dominio dal layer puro
 `runtime_state.build_guards`, non chiavi del catalogo).
 
+Dalla **slice 4r — log MODE-TRANSITION ANNULLATA** è localizzato il nono gruppo: i log del pannello
+**📋 Log** emessi quando l'utente **annulla** la conferma di una transizione di modalità pericolosa —
+«↩️ Attivazione modalità REALE ANNULLATA: torno a {old_mode}.», «↩️ Attivazione modalità COLLAUDO
+ANNULLATA: torno a {old_mode}.» e «↩️ Modalità coda multi-segnale ANNULLATA: resto a un solo segnale
+attivo (OVERWRITE_LAST).». «REALE»→«REAL», «COLLAUDO»→«TEST» (EN) / «PRUEBA» (ES), coerenti coi banner
+di modalità; marker (↩️) conservato → colore/livello invariato. **Restano IT** per contratto: il log di
+**AUDIT** dell'attivazione REALE *confermata* («⚠️ » + `real_mode.enabled_message()`, bolla di dominio,
+solo prefisso concatenato) e il valore `{old_mode}` (nome modalità da `bridge_mode.mode_from_cfg`).
+
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
 Toplevel MODALE (grab) lanciato dal bottone **«🧙 Wizard prima configurazione»**
