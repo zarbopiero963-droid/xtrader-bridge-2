@@ -18,7 +18,7 @@ parametro `max_active`):
 - `blocked_message(max_active)`: messaggio quando un segnale è bloccato dal tetto.
 """
 
-from . import signal_queue
+from . import i18n, signal_queue
 
 
 def is_multi_mode(mode) -> bool:
@@ -38,10 +38,16 @@ def requires_warning(old_cfg, new_cfg) -> bool:
 
 
 def warning_text(max_active) -> str:
-    """Testo del warning modale all'attivazione di una modalità multi-segnale."""
-    return ("Stai attivando una modalità coda MULTI-segnale: nel CSV potranno esserci PIÙ "
-            "righe attive contemporaneamente, quindi XTrader può piazzare PIÙ scommesse "
-            f"simultanee (tetto attuale: {max_active} righe attive). Confermi?")
+    """Testo del warning modale all'attivazione di una modalità multi-segnale.
+
+    Localizzato (#343 slice 4y): template `i18n.tr(...)` con segnaposto `{max_active}` reso
+    via `.format` (il tetto è un valore di dominio interpolato, non riparsato). In IT `tr` è
+    identità → testo storico invariato."""
+    return i18n.tr(
+        "Stai attivando una modalità coda MULTI-segnale: nel CSV potranno esserci PIÙ "
+        "righe attive contemporaneamente, quindi XTrader può piazzare PIÙ scommesse "
+        "simultanee (tetto attuale: {max_active} righe attive). Confermi?"
+    ).format(max_active=max_active)
 
 
 def active_count_text(n, max_active) -> str:

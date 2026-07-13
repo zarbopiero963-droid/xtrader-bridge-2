@@ -647,6 +647,45 @@ _CATALOG = {
         "📁 Profili": "📁 Profiles",
         "📋 Riepilogo": "📋 Summary",
         "⚠️ Impossibile aprire questo strumento:\n{exc}": "⚠️ Unable to open this tool:\n{exc}",
+        # Dialoghi di CONFERMA MODALITÀ (#343 slice 4y): i gate «frictionful» che precedono la
+        # scrittura di scommesse. Titoli + corpi (REALE/COLLAUDO/MULTI-segnale + autostart/START
+        # reale). SAFETY: la frase da digitare `{phrase}` resta «REALE» (valore, non localizzato:
+        # `confirmation_ok` la confronta); `{max_active}` è il tetto (valore di dominio). «XTrader»
+        # termine prodotto; severità (ATTENZIONE/REAL, VERE/REAL) preservata.
+        "Conferma MODALITÀ REALE": "Confirm REAL MODE",
+        "ATTENZIONE: stai per attivare la MODALITÀ REALE.\n"
+        "XTrader potrà piazzare scommesse REALI.\n\n"
+        "Per confermare digita:  {phrase}":
+            "WARNING: you are about to enable REAL MODE.\n"
+            "XTrader will be able to place REAL bets.\n\n"
+            "To confirm type:  {phrase}",
+        "Conferma MODALITÀ COLLAUDO": "Confirm XTRADER TEST MODE",
+        "Stai attivando la MODALITÀ COLLAUDO XTRADER:\n"
+        "il CSV operativo verrà scritto e XTrader lo importerà.\n\n"
+        "XTrader è impostato in Modalità Simulazione?\n"
+        "(Se è in reale, le scommesse sarebbero VERE.)":
+            "You are enabling XTRADER TEST MODE:\n"
+            "the operational CSV will be written and XTrader will import it.\n\n"
+            "Is XTrader set to Simulation Mode?\n"
+            "(If it is in real mode, the bets would be REAL.)",
+        "Conferma modalità MULTI-segnale": "Confirm MULTI-signal mode",
+        "Stai attivando una modalità coda MULTI-segnale: nel CSV potranno esserci PIÙ "
+        "righe attive contemporaneamente, quindi XTrader può piazzare PIÙ scommesse "
+        "simultanee (tetto attuale: {max_active} righe attive). Confermi?":
+            "You are enabling a MULTI-signal queue mode: the CSV may hold SEVERAL active "
+            "rows at once, so XTrader can place SEVERAL simultaneous bets (current cap: "
+            "{max_active} active rows). Confirm?",
+        "Avvio automatico — MODALITÀ REALE": "Automatic start — REAL MODE",
+        "L'avvio automatico è attivo in MODALITÀ REALE: il bridge "
+        "inizierà a scrivere i segnali nel CSV (scommesse reali) "
+        "appena ricevuti.\n\nAvviare ora il listener?":
+            "Automatic start is enabled in REAL MODE: the bridge will start writing signals "
+            "to the CSV (real bets) as soon as they arrive.\n\nStart the listener now?",
+        "START — MODALITÀ REALE": "START — REAL MODE",
+        "Sei in MODALITÀ REALE: il bridge scriverà i segnali nel CSV "
+        "(scommesse reali) appena ricevuti.\n\nAvviare ora il listener?":
+            "You are in REAL MODE: the bridge will write signals to the CSV (real bets) as "
+            "soon as they arrive.\n\nStart the listener now?",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -1171,5 +1210,41 @@ _CATALOG = {
         "📁 Profili": "📁 Perfiles",
         "📋 Riepilogo": "📋 Resumen",
         "⚠️ Impossibile aprire questo strumento:\n{exc}": "⚠️ No se puede abrir esta herramienta:\n{exc}",
+        # Dialoghi di CONFERMA MODALITÀ (#343 slice 4y) — vedi nota nel blocco EN. `{phrase}` resta
+        # «REALE» (valore, non localizzato); `{max_active}` è il tetto. «XTrader» invariato.
+        "Conferma MODALITÀ REALE": "Confirmar MODO REAL",
+        "ATTENZIONE: stai per attivare la MODALITÀ REALE.\n"
+        "XTrader potrà piazzare scommesse REALI.\n\n"
+        "Per confermare digita:  {phrase}":
+            "ATENCIÓN: estás a punto de activar el MODO REAL.\n"
+            "XTrader podrá realizar apuestas REALES.\n\n"
+            "Para confirmar escribe:  {phrase}",
+        "Conferma MODALITÀ COLLAUDO": "Confirmar MODO DE PRUEBA XTRADER",
+        "Stai attivando la MODALITÀ COLLAUDO XTRADER:\n"
+        "il CSV operativo verrà scritto e XTrader lo importerà.\n\n"
+        "XTrader è impostato in Modalità Simulazione?\n"
+        "(Se è in reale, le scommesse sarebbero VERE.)":
+            "Estás activando el MODO DE PRUEBA XTRADER:\n"
+            "el CSV operativo se escribirá y XTrader lo importará.\n\n"
+            "¿XTrader está configurado en Modo Simulación?\n"
+            "(Si está en modo real, las apuestas serían REALES.)",
+        "Conferma modalità MULTI-segnale": "Confirmar modo MULTI-señal",
+        "Stai attivando una modalità coda MULTI-segnale: nel CSV potranno esserci PIÙ "
+        "righe attive contemporaneamente, quindi XTrader può piazzare PIÙ scommesse "
+        "simultanee (tetto attuale: {max_active} righe attive). Confermi?":
+            "Estás activando un modo de cola MULTI-señal: el CSV podrá tener VARIAS filas "
+            "activas a la vez, por lo que XTrader puede realizar VARIAS apuestas simultáneas "
+            "(tope actual: {max_active} filas activas). ¿Confirmar?",
+        "Avvio automatico — MODALITÀ REALE": "Inicio automático — MODO REAL",
+        "L'avvio automatico è attivo in MODALITÀ REALE: il bridge "
+        "inizierà a scrivere i segnali nel CSV (scommesse reali) "
+        "appena ricevuti.\n\nAvviare ora il listener?":
+            "El inicio automático está activo en MODO REAL: el bridge empezará a escribir las "
+            "señales en el CSV (apuestas reales) en cuanto lleguen.\n\n¿Iniciar ahora el listener?",
+        "START — MODALITÀ REALE": "INICIAR — MODO REAL",
+        "Sei in MODALITÀ REALE: il bridge scriverà i segnali nel CSV "
+        "(scommesse reali) appena ricevuti.\n\nAvviare ora il listener?":
+            "Estás en MODO REAL: el bridge escribirá las señales en el CSV (apuestas reales) "
+            "en cuanto lleguen.\n\n¿Iniciar ahora el listener?",
     },
 }

@@ -3468,3 +3468,40 @@ label-tr-constant + `_TOOLS_SRC` raw per i titoli resi via `i18n.tr(variable)`).
 **Ancora aperto (per chiudere #3):** i restanti ~26 log `self._log(...)` di `app.py` (in gran parte
 esclusioni permanenti) + i **dialoghi modali** GUI. Con la 4x **tutte le finestre/pannelli GUI e l'hub
 sono localizzati**: resta il residuo log di `app.py` e i modali.
+
+## #343 slice 4y — dialoghi di CONFERMA MODALITÀ (app.py/multi_signal) localizzati (residuo UI #3)
+
+**Obiettivo.** Localizzare i **dialoghi modali di conferma modalità** — i gate «frictionful» che
+precedono la scrittura di scommesse: attivazione **REALE** (frase da digitare), **COLLAUDO** (sì/no),
+**MULTI-segnale** (sì/no) e i **due gate autostart/START in modalità reale**.
+
+**Cosa fa.** Passano da `i18n.tr(...)` **10 stringhe** (5 titoli + 5 corpi): i 5 titoli + il corpo REALE
++ i 2 corpi autostart/START sono `i18n.tr("literal")` in `app.py`; il corpo **COLLAUDO** è la costante
+`bridge_mode.COLLAUDO_CONFIRM_TEXT` resa via `i18n.tr(bridge_mode.COLLAUDO_CONFIRM_TEXT)` (come i
+banner); il corpo **MULTI-segnale** è localizzato **dentro `multi_signal.warning_text`** come
+`i18n.tr("… {max_active} …").format(max_active=…)` (il modulo importa ora `i18n`). Catalogo `i18n.py`:
+**10 chiavi NUOVE × EN/ES**.
+
+**SAFETY (invariante centrale).** La **frase da digitare** per confermare la modalità reale resta
+**`real_mode.CONFIRM_PHRASE` = «REALE»** in OGNI lingua: è interpolata come **valore**
+(`.format(phrase=real_mode.CONFIRM_PHRASE)`), **mai** passata da `i18n.tr`, perché
+`real_mode.confirmation_ok` la confronta letteralmente (`upper() == "REALE"`). Localizzarla romperebbe
+il gate anti-scommessa. `real_mode.py`/`bridge_mode.py`/`real_mode.confirmation_ok` **non toccati**; il
+`return bool(askyesno(...))` dei gate è invariato — cambia solo la lingua del testo. Severità/parole-
+rischio preservate (ATTENZIONE→WARNING/ATENCIÓN, VERE→REAL/REALES, «MULTI» invariato). `{max_active}` è
+il tetto (valore di dominio); `active_count_text`/`blocked_message` di `multi_signal` **fuori scope**
+(non sono dialoghi di conferma).
+
+**Test hard.** Nuovo `tests/unit/test_mode_confirm_dialogs_i18n_343.py`: AST (titoli/corpi wrappati in
+`app.py`, COLLAUDO via `i18n.tr(costante)`, warning_text via tr-constant+`.format` in `multi_signal`),
+copertura EN/ES **!= IT** + placeholder (`{phrase}`/`{max_active}`), **round-trip sulla FUNZIONE reale**
+`multi_signal.warning_text(2/3/5)` in IT/EN/ES, e il **test SAFETY** che verifica che «REALE» resta
+visibile nel dialog reale in ogni lingua e che `confirmation_ok("REALE")=True`/`("REAL")=False`. I test
+esistenti `test_multi_signal.py`/`test_real_mode.py` restano verdi (IT identità). Anti-drift
+`test_i18n_343.py` esteso (`bridge_mode.COLLAUDO_CONFIRM_TEXT` nel set costanti + tr-constant di
+`multi_signal.py`). Suite unit+integration: **2528 passed, 11 skipped**. Docs: README + `design_handoff.md`
+(§9 + fix nota «ancora IT» stantia). Design handoff = **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti log `self._log(...)` di `app.py` (in gran parte
+esclusioni permanenti) + alcuni **avvisi/dialoghi GUI non di conferma-modalità** (warning salvataggio
+CSV, showinfo audit, ecc.) + la nota SUCCESS del selettore lingua da attualizzare.
