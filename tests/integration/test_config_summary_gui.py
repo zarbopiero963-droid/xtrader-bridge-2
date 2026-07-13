@@ -13,6 +13,13 @@ import types
 import pytest
 
 from xtrader_bridge import config_summary as cs
+from xtrader_bridge import i18n
+
+
+@pytest.fixture(autouse=True)
+def _ripristina_lingua():
+    yield
+    i18n.set_language("IT")     # stato di modulo: mai leak verso altri test
 
 
 @pytest.fixture
@@ -100,3 +107,56 @@ def test_ready_count_label(gui_mod):
 
 def test_no_channels_label(gui_mod):
     assert gui_mod.no_channels_label() == "Nessun canale configurato (nessuna sorgente / chat)."
+
+
+# ── Localizzazione EN/ES (#343 slice 4u): gli helper puri rendono la lingua UI corrente ──
+
+def test_mode_label_localizzato(gui_mod):
+    i18n.set_language("EN")
+    assert gui_mod.mode_label(True) == "🔴 REAL MODE"
+    assert gui_mod.mode_label(False) == "🧪 Simulation (DRY_RUN)"
+    i18n.set_language("ES")
+    assert gui_mod.mode_label(True) == "🔴 MODO REAL"
+    assert gui_mod.mode_label(False) == "🧪 Simulación (DRY_RUN)"
+
+
+def test_betfair_label_localizzato(gui_mod):
+    i18n.set_language("EN")
+    assert gui_mod.betfair_label(True) == "Local dictionary: present"
+    assert gui_mod.betfair_label(False) == "Local dictionary: empty"
+    i18n.set_language("ES")
+    assert gui_mod.betfair_label(True) == "Diccionario local: presente"
+
+
+def test_translations_label_prefissi_localizzati(gui_mod):
+    """I prefissi «Nomi»/«Mercati» si traducono; i simboli ✓/—/· e i conteggi restano."""
+    ch = _channel(names=cs.TranslationSummary(resolved=("N1", "N2")),
+                  markets=cs.TranslationSummary())
+    i18n.set_language("EN")
+    assert gui_mod.translations_label(ch) == "Names ✓2 · Markets —"
+    i18n.set_language("ES")
+    assert gui_mod.translations_label(ch) == "Nombres ✓2 · Mercados —"
+
+
+def test_readiness_e_conteggi_localizzati(gui_mod):
+    i18n.set_language("EN")
+    assert gui_mod.readiness_label(_channel(ready=True, reason="")) == "✅ Ready"
+    assert gui_mod.ready_count_label(_summary(2, 3)) == "Ready channels: 2/3"
+    assert gui_mod.channel_title(_channel(name="", chat_id="")) == "(channel without chat_id)"
+    assert gui_mod.no_channels_label() == "No channel configured (no source / chat)."
+    i18n.set_language("ES")
+    assert gui_mod.ready_count_label(_summary(0, 0)) == "Canales listos: 0/0"
+
+
+def test_esclusioni_dominio_restano_it(gui_mod):
+    """RESTANO IT anche in EN: la riga «Parser: …» (termine prodotto + nomi di dominio) e il MOTIVO
+    di «⚠ <motivo>» (testo di dominio da config_summary). I nomi canale/chat_id sono domìnio."""
+    i18n.set_language("EN")
+    # riga parser: invariata (nessuna parola da tradurre, solo prodotto + nomi)
+    assert gui_mod.parser_label(_channel(parser_name="P1", parser_loaded=True)) == "Parser: P1"
+    assert gui_mod.parser_label(_channel(parser_name="")) == "Parser: —"
+    # motivo bubblato dal layer puro: resta IT (solo «✅ Pronto» è tradotto)
+    notready = _channel(ready=False, reason=cs.REASON_NO_PARSER)
+    assert gui_mod.readiness_label(notready) == f"⚠ {cs.REASON_NO_PARSER}"
+    # nome canale = valore di dominio, non tradotto
+    assert gui_mod.channel_title(_channel(name="Canale A", chat_id="100")) == "Canale A (100)"

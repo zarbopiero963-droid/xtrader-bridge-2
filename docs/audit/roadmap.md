@@ -3329,3 +3329,35 @@ Docs: README + `design_handoff.md`. Design handoff = **PASS**.
 **Ancora aperto (per chiudere #3):** i restanti ~26 log `self._log(...)` di `app.py` (dominio-bubble/
 value-as-key che restano IT + pochi candidati) + i **dialoghi modali** GUI + i pannelli GUI ancora in
 italiano (🧰 `tools_gui`, 🌳 `guided_mapping_gui`, `config_summary_gui`).
+
+## #343 slice 4u — pannello «📋 Riepilogo configurazione» (config_summary_gui) localizzato (residuo UI #3)
+
+**Obiettivo.** Secondo pannello GUI localizzato del residuo (dopo 🧹 Nomi squadra): il **📋 Riepilogo
+configurazione** (sola lettura) che mostra modalità Simulazione/REALE, stato del dizionario locale, e
+per ogni canale → parser → traduzioni → «Pronto?».
+
+**Cosa fa.** Passano da `i18n.tr(...)` **13 chiavi** rese dagli **helper puri di presentazione**
+(testabili headless): riga modalità («🔴 MODALITÀ REALE»/«🧪 Simulazione (DRY_RUN)»), stato dizionario
+(«Dizionario locale: presente/vuoto»), prefissi traduzioni «Nomi»/«Mercati», «✅ Pronto», segnaposto
+«(canale senza chat_id)», «Canali pronti: {ready}/{total}», «Nessun canale configurato …», più i testi
+inline del render («📋 Riepilogo configurazione», «Nessun dato di configurazione.», «⚠️ Impossibile
+leggere la configurazione:\n{exc}»). Catalogo `i18n.py`: **13 chiavi × EN/ES**. Anti-drift:
+`config_summary_gui.py` aggiunto a `_SECONDARY_TR` (tutte `i18n.tr("literal")`).
+
+**Esclusioni documentate (restano IT).** La riga **«Parser: …»** (`parser_label`): «Parser» è un
+**termine prodotto** e il resto sono **nomi parser di dominio** + simboli (⚠), niente di traducibile →
+invariata. Il **MOTIVO** di «⚠ <motivo>» (`channel.reason`) è **testo di dominio** prodotto dal layer
+puro `config_summary` → resta IT (solo «✅ Pronto» è tradotto). I **nomi canale/chat_id** sono valori di
+dominio. **Nessun cambio di logica**: `summarize_config`/decisioni testo-colore invariate — pura
+presentazione (in IT gli helper rendono identico all'attuale, garantito dai test esistenti).
+
+**Test hard.** Estesi i test di presentazione reali `tests/integration/test_config_summary_gui.py`
+(customtkinter stubbato, helper esercitati su `ConfigSummary`/`ChannelSummary` reali): i test IT
+esistenti restano verdi (identità in IT) e **6 nuovi test EN/ES** verificano la resa localizzata
+(modalità, dizionario, prefissi traduzioni, «Pronto»/conteggi/segnaposto) **e le esclusioni** (riga
+Parser + motivo + nome canale restano IT). Anti-drift `test_i18n_343.py` verde. Suite unit+integration:
+**2252 passed, 1 skipped**. Docs: README + `design_handoff.md`. Design handoff = **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti ~26 log `self._log(...)` di `app.py` (dominio-bubble/
+value-as-key che restano IT + pochi candidati) + i **dialoghi modali** GUI + i pannelli GUI cross-cutting
+ancora in italiano (🧰 `tools_gui` hub — titoli-scheda = chiavi di matching, 🌳 `guided_mapping_gui`).
