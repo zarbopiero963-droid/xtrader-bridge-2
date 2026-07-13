@@ -16,6 +16,7 @@ salva config, tema chiaro/scuro, salva/crea/aggiorna il percorso CSV — verific
 
 import ast
 import os
+import re
 import string
 
 import pytest
@@ -26,16 +27,39 @@ _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "xtrader_bridge")
 with open(os.path.join(_PKG, "app.py"), encoding="utf-8") as _fh:
     _APP_SRC = _fh.read()
+_APP_AST = ast.parse(_APP_SRC)
 
 # Costanti passate a `i18n.tr(...)` in app.py, estratte via AST: l'AST unisce le costanti
 # multi-riga concatenate (`i18n.tr("… " "…")`) in UNA stringa, così i messaggi «Crea CSV»
 # spezzati su più righe restano confrontabili verbatim col catalogo.
 _APP_TR = set()
-for _n in ast.walk(ast.parse(_APP_SRC)):
+for _n in ast.walk(_APP_AST):
     if (isinstance(_n, ast.Call) and isinstance(_n.func, ast.Attribute)
             and _n.func.attr == "tr" and _n.args
             and isinstance(_n.args[0], ast.Constant) and isinstance(_n.args[0].value, str)):
         _APP_TR.add(_n.args[0].value)
+
+
+def _log_tr_format_calls():
+    """(template, {kwargs}) per ogni `self._log(i18n.tr("…").format(**kwargs))` in app.py,
+    estratto via AST. Robusto a riordino argomenti / newline / rinomina variabili: cattura il
+    PATTERN logico, non il testo sorgente."""
+    out = []
+    for node in ast.walk(_APP_AST):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "_log" and node.args):
+            continue
+        msg = node.args[0]
+        if not (isinstance(msg, ast.Call) and isinstance(msg.func, ast.Attribute)
+                and msg.func.attr == "format"):
+            continue
+        tr = msg.func.value
+        if not (isinstance(tr, ast.Call) and isinstance(tr.func, ast.Attribute)
+                and tr.func.attr == "tr" and tr.args
+                and isinstance(tr.args[0], ast.Constant) and isinstance(tr.args[0].value, str)):
+            continue
+        out.append((tr.args[0].value, {kw.arg for kw in msg.keywords if kw.arg}))
+    return out
 
 # Gruppo CONFIG/CSV localizzato in questa slice (chiavi IT = chiavi del catalogo).
 _CFG_CSV_KEYS = (
@@ -87,13 +111,23 @@ def test_config_csv_logs_wrappati_in_app():
 
 
 def test_dynamic_config_csv_logs_chiamano_format():
-    """I log dinamici del gruppo devono chiamare `.format(...)` sull'argomento reale nel
-    sorgente: togliere `.format` loggherebbe `{path}`/`{exc}` letterali (mutation-guard)."""
-    for site in ('.format(path=dest)', '.format(path=path)',
-                 '.format(path=path, exc=e)'):
-        assert site in _APP_SRC, f"call-site .format mancante: {site}"
-    # il messaggio con path+exc deve formattare ENTRAMBI i segnaposto
-    assert 'i18n.tr("❌ «Crea CSV» fallito: impossibile creare {path} ({exc}).")' in _APP_SRC
+    """Mutation-guard via AST (robusto a riordino/newline/rinomina): ogni `self._log(...)` che
+    passa un template `i18n.tr("…{seg}…")` DEVE seguirlo con `.format(**kwargs)` che copre TUTTI
+    i suoi segnaposto. Togliere `.format` o dimenticare un kwarg loggherebbe `{path}`/`{exc}`
+    letterali → il test fallisce. Copre anche i template dinamici della 4j (`{path}`/`{seconds}`)."""
+    calls = _log_tr_format_calls()
+    assert calls, "nessuna chiamata self._log(i18n.tr(...).format(...)) trovata in app.py"
+    dinamici = {t for t, _ in calls if _placeholders(t)}
+    # i template dinamici del gruppo CONFIG/CSV devono comparire come _log(tr(...).format(...))
+    for key in _CFG_CSV_KEYS:
+        if _placeholders(key):
+            assert key in dinamici, f"template dinamico non formattato via _log: {key!r}"
+    # ogni template formattato deve fornire come kwargs TUTTI i suoi segnaposto
+    for template, kwargs in calls:
+        attesi = _placeholders(template)
+        if attesi:
+            assert attesi <= kwargs, (
+                f".format non copre i segnaposto di {template!r}: mancano {attesi - kwargs}")
 
 
 def test_config_csv_logs_nel_catalogo_en_es():
@@ -134,18 +168,32 @@ def test_format_round_trip_config_csv():
     # fallback IT: template invariato
     i18n.set_language("IT")
     assert i18n.tr("💾 Configurazione salvata") == "💾 Configurazione salvata"
-    # marker iniziale conservato in ogni lingua
+
+
+def test_marker_conservato_tutte_le_chiavi():
+    """Il marker/emoji iniziale codifica la SEVERITÀ del log (il sink `_log` classifica il
+    livello dal primo carattere): deve restare invariato per OGNI chiave del gruppo in EN/ES.
+    Parametrizzato su tutto `_CFG_CSV_KEYS` → una traduzione che alterasse il marker (o lo
+    perdesse) fa fallire il test, non solo su un sottoinsieme."""
+    i18n.set_language("IT")
+    for key in _CFG_CSV_KEYS:
+        assert i18n.tr(key) == key            # IT = riferimento: template identico
     for lang in ("EN", "ES"):
         i18n.set_language(lang)
-        assert i18n.tr("💾 Configurazione salvata").startswith("💾"), lang
-        assert i18n.tr("❌ Preferenza tema NON salvata: ").startswith("❌"), lang
+        for key in _CFG_CSV_KEYS:
+            translated = i18n.tr(key)
+            assert translated, (lang, key)
+            assert translated[0] == key[0], (lang, key, translated)
 
 
 def test_esclusioni_dominio_e_quando_restano_it():
     """I messaggi di stato del layer puro e i log di recovery con `{quando}`/`on_mismatch`
     restano IT: il domain-content NON è wrappato (guardia contro over-localization)."""
-    # solo il PREFISSO è wrappato; save_status_message resta concatenato fuori da i18n.tr
-    assert 'i18n.tr("❌ CSV Path selezionato ma NON salvato: ")\n                      + config_store.save_status_message' in _APP_SRC
+    # solo il PREFISSO è wrappato; save_status_message resta concatenato FUORI da i18n.tr.
+    # Regex `\s*\+\s*` → robusta a newline/indentazione (niente falsi fail su riformattazioni).
+    assert re.search(
+        r'i18n\.tr\("❌ CSV Path selezionato ma NON salvato: "\)\s*\+\s*config_store\.save_status_message',
+        _APP_SRC), "il prefisso deve essere wrappato, save_status_message resta fuori da i18n.tr"
     for bad in ('i18n.tr("❌ " + config_store', 'i18n.tr(config_store.save_status_message',
                 'i18n.tr(f"⚠️ {m}")', 'i18n.tr(f"🧹 CSV riportato a solo header',
                 'i18n.tr(f"⚠️ Impossibile ripulire il CSV'):

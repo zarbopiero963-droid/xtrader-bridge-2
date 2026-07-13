@@ -3000,8 +3000,8 @@ di dominio (`f"⚠️ {m}"`) NON sono wrappati: richiedono una traduzione coordi
 tracciata come residuo «dialoghi GUI». **Nessun cambio di logica**: persistenza config, guardie
 CSV (runtime/foreign/active), gate REALE e invarianti (mai scommessa involontaria) invariate.
 
-**Test hard** (`tests/unit/test_app_config_csv_i18n_343.py`, +6, pattern 4c/4j): estrae via AST le
-tr-constant di `app.py` (unisce le costanti multi-riga concatenate dei messaggi «Crea CSV»),
+**Test hard** (`tests/unit/test_app_config_csv_i18n_343.py`, +7, pattern 4c/4j): estrae via AST le
+costanti `tr` di `app.py` (unisce le costanti multi-riga concatenate dei messaggi «Crea CSV»),
 verifica il wrapping e che i vecchi literal/`%s` non sopravvivano, la copertura EN/ES per ognuna
 delle 13 chiavi, i **call-site `.format(...)`** dei log dinamici (mutation-guard su `{path}`/`{exc}`),
 la conservazione dei segnaposto, il round-trip `.format(...)` e le **esclusioni** (dominio/`{quando}`
