@@ -510,6 +510,23 @@ _CATALOG = {
         "🔌 Connessione persa ({error}): riconnessione tra {delay}s (tentativo {attempt})…": "🔌 Connection lost ({error}): reconnecting in {delay}s (attempt {attempt})…",
         "🧹 CSV ripulito al retry dopo lo STOP: {path}": "🧹 CSV cleaned on retry after STOP: {path}",
         "🧹 Rimossi {count} file temporanei CSV orfani all'avvio.": "🧹 Removed {count} orphan temporary CSV files at startup.",
+        # Log LOG & DIAGNOSTICA (#343 slice 4o): cartella log, export audit, diagnostica, retention,
+        # debug, svuota log. «Debug»/«ON»/«OFF» verbatim (stati tecnici). I valori {path}/{exc}/{count}/
+        # {days} sono dominio. I suffissi config_store.save_status_message di retention/debug restano IT
+        # (si wrappa solo il prefisso).
+        "📂 Cartella log: {path}": "📂 Log folder: {path}",
+        "❌ Impossibile aprire la cartella log: {exc}": "❌ Cannot open the log folder: {exc}",
+        "🧾 Audit modalità reale esportato ({count} eventi): {path}": "🧾 Real-mode audit exported ({count} events): {path}",
+        "❌ Esportazione audit reale fallita: {exc}": "❌ Real audit export failed: {exc}",
+        "📋 Diagnostica copiata negli appunti.": "📋 Diagnostics copied to the clipboard.",
+        "❌ Copia diagnostica fallita: {exc}": "❌ Diagnostics copy failed: {exc}",
+        "❌ Retention log NON salvata. ": "❌ Log retention NOT saved. ",
+        "🧹 Retention log: {days} giorni · {count} file vecchi rimossi.": "🧹 Log retention: {days} days · {count} old files removed.",
+        "🧹 Retention log: conservo tutto (nessuna pulizia automatica).": "🧹 Log retention: keep everything (no automatic cleanup).",
+        "🧹 Log svuotati: {count} file su disco rimossi; vista azzerata.": "🧹 Logs cleared: {count} files removed from disk; view reset.",
+        "🐞 Modalità Debug log: {state}.": "🐞 Debug log mode: {state}.",
+        "⚠️ Impostazione Debug NON salvata. ": "⚠️ Debug setting NOT saved. ",
+        "🧹 Retention log ({days}g): {count} file vecchi rimossi.": "🧹 Log retention ({days}d): {count} old files removed.",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -936,5 +953,19 @@ _CATALOG = {
         "🔌 Connessione persa ({error}): riconnessione tra {delay}s (tentativo {attempt})…": "🔌 Conexión perdida ({error}): reconexión en {delay}s (intento {attempt})…",
         "🧹 CSV ripulito al retry dopo lo STOP: {path}": "🧹 CSV limpiado en el reintento tras STOP: {path}",
         "🧹 Rimossi {count} file temporanei CSV orfani all'avvio.": "🧹 Eliminados {count} archivos temporales CSV huérfanos al inicio.",
+        # Log LOG & DIAGNOSTICA (#343 slice 4o) — vedi nota nel blocco EN.
+        "📂 Cartella log: {path}": "📂 Carpeta de logs: {path}",
+        "❌ Impossibile aprire la cartella log: {exc}": "❌ No se puede abrir la carpeta de logs: {exc}",
+        "🧾 Audit modalità reale esportato ({count} eventi): {path}": "🧾 Auditoría de modo real exportada ({count} eventos): {path}",
+        "❌ Esportazione audit reale fallita: {exc}": "❌ Exportación de auditoría real fallida: {exc}",
+        "📋 Diagnostica copiata negli appunti.": "📋 Diagnóstico copiado al portapapeles.",
+        "❌ Copia diagnostica fallita: {exc}": "❌ Copia del diagnóstico fallida: {exc}",
+        "❌ Retention log NON salvata. ": "❌ Retención de logs NO guardada. ",
+        "🧹 Retention log: {days} giorni · {count} file vecchi rimossi.": "🧹 Retención de logs: {days} días · {count} archivos antiguos eliminados.",
+        "🧹 Retention log: conservo tutto (nessuna pulizia automatica).": "🧹 Retención de logs: conservar todo (sin limpieza automática).",
+        "🧹 Log svuotati: {count} file su disco rimossi; vista azzerata.": "🧹 Logs vaciados: {count} archivos eliminados del disco; vista restablecida.",
+        "🐞 Modalità Debug log: {state}.": "🐞 Modo Debug del log: {state}.",
+        "⚠️ Impostazione Debug NON salvata. ": "⚠️ Ajuste Debug NO guardado. ",
+        "🧹 Retention log ({days}g): {count} file vecchi rimossi.": "🧹 Retención de logs ({days}d): {count} archivos antiguos eliminados.",
     },
 }

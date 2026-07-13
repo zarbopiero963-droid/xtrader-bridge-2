@@ -364,6 +364,16 @@ header {quando}: …», «⚠️ Impossibile ripulire il CSV {quando} …»), pe
 clear normale — la sua localizzazione richiede uno split display↔chiave, rimandato a una slice
 dedicata; i valori interpolati `{exc}`/`{error}`/`{path}` restano dominio.
 
+Dalla **slice 4o — log LOG & DIAGNOSTICA** è localizzato il sesto gruppo: i log del pannello **📋 Log**
+legati agli **strumenti di logging/diagnostica** — «📂 Cartella log: …» (apertura cartella), «🧾 Audit
+modalità reale esportato (N eventi): …», «📋 Diagnostica copiata negli appunti.», i messaggi di
+**retention log** («🧹 Retention log: N giorni · N rimossi», «conservo tutto», variante all'avvio),
+«🧹 Log svuotati: …» e «🐞 Modalità Debug log: ON/OFF.». Marker (📂/🧾/📋/🧹/🐞/❌/⚠️) conservato →
+colore/livello invariato; «Debug»/«ON»/«OFF» restano invariati (stati tecnici). **Restano IT** per
+contratto: i **suffissi di stato** del layer puro `config_store.save_status_message` nei due messaggi
+«Retention/Debug NON salvata» (si traduce solo il prefisso, come per gli altri error-prefix), i valori
+di dominio interpolati e i log `_dbg(…)` di debug verboso (fuori pannello, diagnostica interna).
+
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
 Toplevel MODALE (grab) lanciato dal bottone **«🧙 Wizard prima configurazione»**

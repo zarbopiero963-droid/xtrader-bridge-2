@@ -3127,3 +3127,40 @@ head PR). **CORE change** (`app.py`, `i18n.py`) → ri-sincronizzare nel cloud. 
 `{quando}`, varie audit/diagnostica/retention/debug/lingua/multi-chat, dominio-bubble che resta IT) +
 i **dialoghi modali** GUI + finestra 🧰 Strumenti hub (`tools_gui`) + il pannello 🌳 Mapping guidato
 (`guided_mapping_gui`).
+
+## #343 slice 4o — log LOG & DIAGNOSTICA (app.py) localizzati (residuo UI della #3)
+
+**Obiettivo.** Sesto gruppo del residuo dei log di `app.py` (dopo lifecycle 4j, config/CSV 4k, START
+4l, esito-elaborazione 4m, resilienza 4n): i log degli **strumenti Log & diagnostica** — apri cartella
+log, export audit modalità reale, copia diagnostica, retention log, svuota log, toggle Debug.
+
+**Cosa fa.** Passano ora da `i18n.tr(...)` **13 chiavi**: «📂 Cartella log: {path}» + errore apertura
+{exc}; «🧾 Audit modalità reale esportato ({count} eventi): {path}» + errore export {exc}; «📋
+Diagnostica copiata negli appunti.» + errore copia {exc}; retention (prefisso NON-salvata,
+«{days} giorni · {count} rimossi», «conservo tutto», e la variante all'avvio «({days}g): {count}»);
+«🧹 Log svuotati: {count} …»; «🐞 Modalità Debug log: {state}.» + prefisso Debug NON-salvata. Le
+interpolazioni f-string diventano template `tr(...).format(...)`. Catalogo `i18n.py`: **13 chiavi ×
+EN/ES** («Debug»/«ON»/«OFF» verbatim, stati tecnici). Marker (📂/❌/🧾/📋/🧹/🐞/⚠️) conservato →
+livello invariato.
+
+**Esclusioni documentate (restano IT).** I **suffissi di dominio** `config_store.save_status_message`
+dei due log «NON salvata» (retention/debug): si wrappa **solo il prefisso**, lo stato specifico
+(disco/keyring/config) resta IT (stesso pattern degli error-prefix delle slice precedenti). I valori
+`{path}`/`{exc}`/`{count}`/`{days}` sono dominio; i log `_dbg(...)` (debug verboso di percorso) sono
+fuori gruppo e restano IT. **Nessun cambio di logica**: retention/purge, toggle debug, export audit,
+copia diagnostica e persistenza config invariati.
+
+**Test hard** (`tests/unit/test_app_tools_i18n_343.py`, +6, pattern 4n): estrae via AST le costanti
+`tr`, verifica wrapping (+ assenza vecchi f-string), copertura EN/ES **con traduzione != IT** per le 13
+chiavi, i **call-site `.format(...)`** dei log dinamici (mutation-guard `{path}`/`{exc}`/`{count}`/
+`{days}`/`{state}`), la conservazione dei segnaposto, il round-trip, il marker e l'**esclusione dei
+suffissi di dominio** (regex robusta: prefisso wrappato, `save_status_message` fuori da `i18n.tr`).
+Anti-drift `test_i18n_343.py` resta verde (`_APP_TR` AST). Suite locale (al commit): **2465 passed, 11
+skipped** (l'esito autorevole è la CI del head PR). **CORE change** (`app.py`, `i18n.py`) →
+ri-sincronizzare nel cloud. Docs: README + `design_handoff.md` (§ localizzazione log). Design handoff
+= **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti ~41 log `self._log(...)` di `app.py` (recovery
+`{quando}`, wizard/lingua, profilo/multi-chat/scheda, dominio-bubble che resta IT) + i **dialoghi
+modali** GUI + finestra 🧰 Strumenti hub (`tools_gui`) + il pannello 🌳 Mapping guidato
+(`guided_mapping_gui`).
