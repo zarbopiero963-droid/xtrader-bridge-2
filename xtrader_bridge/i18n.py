@@ -632,6 +632,21 @@ _CATALOG = {
         "⛔ Nessuna squadra caricata da salvare.": "⛔ No team loaded to save.",
         "💾 Salvato nel profilo «{profile}»: {written} squadre mappate in questa competizione ({total} righe totali nel profilo).": "💾 Saved to profile «{profile}»: {written} teams mapped in this competition ({total} total rows in the profile).",
         "❌ Salvataggio FALLITO: «{profile}» non salvato (andrebbe perso al riavvio). Controlla permessi/spazio del file config.": "❌ Save FAILED: «{profile}» not saved (would be lost on restart). Check permissions/space of the config file.",
+        # Hub «🧰 Strumenti» (#343 slice 4x): titolo finestra + titoli-scheda (etichetta base, il
+        # prefisso di gruppo ①..④ resta invariato) + label d'errore per-scheda. Resi via `i18n.tr`
+        # a build-time in tools_gui.build_tool_panels / ToolsWindow. «Provider»/«Parser» = termini
+        # prodotto (invariati). {exc}=eccezione (valore di dominio nel segnaposto).
+        "🧰 Strumenti": "🧰 Tools",
+        "📡 Chat sorgenti": "📡 Source chats",
+        "📇 Provider": "📇 Provider",
+        "🧩 Parser": "🧩 Parser",
+        "🗺️ Mapping": "🗺️ Mapping",
+        "📖 Dizionario": "📖 Dictionary",
+        "📒 Diario": "📒 Journal",
+        "🧹 Nomi squadra": "🧹 Team names",
+        "📁 Profili": "📁 Profiles",
+        "📋 Riepilogo": "📋 Summary",
+        "⚠️ Impossibile aprire questo strumento:\n{exc}": "⚠️ Unable to open this tool:\n{exc}",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -1144,5 +1159,17 @@ _CATALOG = {
         "⛔ Nessuna squadra caricata da salvare.": "⛔ Ningún equipo cargado para guardar.",
         "💾 Salvato nel profilo «{profile}»: {written} squadre mappate in questa competizione ({total} righe totali nel profilo).": "💾 Guardado en el perfil «{profile}»: {written} equipos mapeados en esta competición ({total} filas totales en el perfil).",
         "❌ Salvataggio FALLITO: «{profile}» non salvato (andrebbe perso al riavvio). Controlla permessi/spazio del file config.": "❌ Guardado FALLIDO: «{profile}» no guardado (se perdería al reiniciar). Comprueba permisos/espacio del archivo config.",
+        # Hub «🧰 Strumenti» (#343 slice 4x) — vedi nota nel blocco EN. «Provider»/«Parser» invariati.
+        "🧰 Strumenti": "🧰 Herramientas",
+        "📡 Chat sorgenti": "📡 Chats de origen",
+        "📇 Provider": "📇 Proveedor",
+        "🧩 Parser": "🧩 Parser",
+        "🗺️ Mapping": "🗺️ Mapeo",
+        "📖 Dizionario": "📖 Diccionario",
+        "📒 Diario": "📒 Diario",
+        "🧹 Nomi squadra": "🧹 Nombres de equipo",
+        "📁 Profili": "📁 Perfiles",
+        "📋 Riepilogo": "📋 Resumen",
+        "⚠️ Impossibile aprire questo strumento:\n{exc}": "⚠️ No se puede abrir esta herramienta:\n{exc}",
     },
 }

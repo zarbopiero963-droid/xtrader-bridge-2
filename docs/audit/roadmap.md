@@ -3433,3 +3433,38 @@ handoff = **PASS**.
 **Ancora aperto (per chiudere #3):** i restanti ~26 log `self._log(...)` di `app.py` (in gran parte
 esclusioni permanenti) + i **dialoghi modali** GUI + l'hub 🧰 `tools_gui` (cross-cutting: titoli-scheda
 = chiavi di matching).
+
+## #343 slice 4x — hub «🧰 Strumenti» (tools_gui) localizzato (residuo UI #3)
+
+**Obiettivo.** Localizzare l'ultimo pezzo cross-cutting della GUI: l'**hub «🧰 Strumenti»**, la
+finestra a schede che raccoglie tutti gli strumenti del bridge. È la più delicata perché i titoli-scheda
+sono anche **chiavi di matching** interne (`_resolve_tab_title`, `select_tab`): vanno tradotti senza
+rompere la selezione della scheda.
+
+**Cosa fa.** Passano da `i18n.tr(...)` a **build-time** (mai a livello di modulo, che congelerebbe la
+lingua all'import): il **titolo finestra** (`ToolsWindow.__init__`, default `"🧰 Strumenti"` → `self.title(i18n.tr(title))`),
+i **9 titoli-scheda** (etichetta base di `TOOL_TITLES`, resa in `build_tool_panels` come
+`f"{prefix} {i18n.tr(TOOL_TITLES[key])}"`; il prefisso di gruppo ①..④ resta invariato) e la **label
+d'errore per-scheda** (`i18n.tr("⚠️ Impossibile aprire questo strumento:\n{exc}").format(exc=exc)`).
+`TOOL_TITLES` resta **IT canonico** (i suoi valori SONO le chiavi di catalogo). Catalogo `i18n.py`:
+**11 chiavi NUOVE × EN/ES** (9 titoli + titolo finestra + label d'errore). Sicuro sul matching:
+`_open_tools` chiama sempre `initial=None` (unico caller = pulsante «🧰 Strumenti»), e `_resolve_tab_title`
+legge `self._panels` (le cui chiavi sono i titoli già localizzati) → **self-consistente** in ogni lingua.
+
+**Esclusioni (restano IT).** «Provider»/«Parser» = **termini prodotto** (EN invariati; ES traduce solo
+«Provider»→«Proveedor»). I `_name` dei gruppi in `TOOL_GROUPS` («Sorgenti»/«Lettura messaggi»/…) **non
+sono mostrati** (solo IA interna) → non localizzati. Il valore interpolato `{exc}` è dominio.
+
+**Test hard.** Nuovo `tests/unit/test_tools_hub_i18n_343.py`: AST (TOOL_TITLES ha solo literal IT →
+niente `tr` a import-time; titolo/label wrappati a build-time; nessuna f-string superstite),
+mutation-guard `.format(exc=...)` sulla label d'errore, copertura EN/ES (con eccezioni termini-prodotto
+esplicite), round-trip. `tests/integration/test_tools_groups.py` esteso: `build_tool_panels` produce i
+titoli **tradotti** in EN/ES (flusso reale con stub customtkinter) e `_resolve_tab_title` resta coerente
+coi titoli localizzati; i test d'ordine IT esistenti restano verdi (fail-safe IT = identità), con fixture
+di ripristino lingua. Anti-drift `test_i18n_343.py` esteso (`tools_gui.py` in `_SECONDARY_TR` per la
+label-tr-constant + `_TOOLS_SRC` raw per i titoli resi via `i18n.tr(variable)`). Suite unit+integration:
+**2521 passed, 11 skipped**. Docs: README + `design_handoff.md`. Design handoff = **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti ~26 log `self._log(...)` di `app.py` (in gran parte
+esclusioni permanenti) + i **dialoghi modali** GUI. Con la 4x **tutte le finestre/pannelli GUI e l'hub
+sono localizzati**: resta il residuo log di `app.py` e i modali.

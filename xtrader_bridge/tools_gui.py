@@ -15,7 +15,7 @@ strumenti è coperta dai rispettivi test unitari. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import gui_utils
+from . import gui_utils, i18n
 
 # Information architecture dell'hub Strumenti (#293 slice 4): gli strumenti sono raggruppati
 # PER FLUSSO in 4 gruppi. L'ordine di questa struttura è l'ordine delle schede; il numero del
@@ -34,6 +34,9 @@ TOOL_GROUPS = (
 _GROUP_PREFIXES = frozenset(prefix for prefix, _name, _keys in TOOL_GROUPS)
 
 # Etichetta base (icona + nome) di ogni strumento, SENZA il prefisso di gruppo.
+# I VALORI sono chiavi di catalogo IT canoniche: la localizzazione avviene al momento della
+# costruzione delle schede (`build_tool_panels`), NON qui a livello di modulo — un `i18n.tr` a
+# import-time congelerebbe la lingua a IT (l'utente cambia lingua dopo l'import). Vedi #343.
 TOOL_TITLES = {
     "sources": "📡 Chat sorgenti",
     "provider": "📇 Provider",
@@ -57,7 +60,10 @@ def build_tool_panels(factories: dict) -> list:
     panels = []
     for prefix, _name, keys in TOOL_GROUPS:
         for key in keys:
-            panels.append((f"{prefix} {TOOL_TITLES[key]}", factories[key]))
+            # Il titolo è localizzato QUI (build-time): il prefisso di gruppo ①..④ resta invariato,
+            # l'etichetta base passa da `i18n.tr` così la scheda nasce già nella lingua scelta. In IT
+            # `tr` è identità → i titoli restano quelli storici (test integrazione invariati).
+            panels.append((f"{prefix} {i18n.tr(TOOL_TITLES[key])}", factories[key]))
     return panels
 
 
@@ -74,7 +80,7 @@ class ToolsWindow(ctk.CTkToplevel):
 
     def __init__(self, master=None, panels=None, initial=None, title="🧰 Strumenti"):
         super().__init__(master)
-        self.title(title)
+        self.title(i18n.tr(title))
         # Larghezza default 1140 (era 1040): la scheda Mapping ha righe con 5 colonne +
         # elimina (Country|Betfair|Provider|Sport|Tipo|🗑 ≈ 1032 px) e lo scroll è solo
         # verticale; a 1040 Tipo/elimina venivano tagliati nel tab Strumenti (Codex #178 §2).
@@ -99,7 +105,7 @@ class ToolsWindow(ctk.CTkToplevel):
                 # l'errore NELLA sua scheda e proseguendo con le altre (Codex).
                 ctk.CTkLabel(
                     container,
-                    text=f"⚠️ Impossibile aprire questo strumento:\n{exc}",
+                    text=i18n.tr("⚠️ Impossibile aprire questo strumento:\n{exc}").format(exc=exc),
                     text_color="#ef5350", wraplength=600, justify="left",
                     anchor="w").pack(padx=12, pady=12, fill="x")
         self.select_tab(initial)

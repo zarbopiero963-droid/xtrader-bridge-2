@@ -12,6 +12,15 @@ import types
 
 import pytest
 
+from xtrader_bridge import i18n
+
+
+@pytest.fixture(autouse=True)
+def _ripristina_lingua():
+    # Stato di modulo i18n: mai leak di EN/ES verso i test che pretendono i titoli IT.
+    yield
+    i18n.set_language("IT")
+
 
 @pytest.fixture
 def tools_mod(monkeypatch):
@@ -102,3 +111,49 @@ def test_resolve_tab_title_nessun_match(tools_mod):
     assert w._resolve_tab_title(None) is None
     # Non deve fare match parziale ambiguo: "Parser" da solo non è un suffisso « + titolo».
     assert w._resolve_tab_title("Parser") is None
+
+
+# ── Localizzazione hub (#343 slice 4x): i titoli-scheda passano da i18n.tr a BUILD-TIME. ──
+
+def test_build_tool_panels_localizza_in_en(tools_mod):
+    # In EN i titoli-scheda sono tradotti; il prefisso di gruppo ①..④ resta invariato. Verifica il
+    # flusso REALE (build_tool_panels → i18n.tr), non solo il catalogo.
+    i18n.set_language("EN")
+    titles = [t for t, _f in tools_mod.build_tool_panels(_factories())]
+    assert titles == [
+        "① 📡 Source chats", "① 📇 Provider",
+        "② 🧩 Parser", "② 🗺️ Mapping",
+        "③ 📖 Dictionary", "③ 📒 Journal", "③ 🧹 Team names",
+        "④ 📁 Profiles", "④ 📋 Summary",
+    ]
+
+
+def test_build_tool_panels_localizza_in_es(tools_mod):
+    i18n.set_language("ES")
+    titles = [t for t, _f in tools_mod.build_tool_panels(_factories())]
+    assert titles == [
+        "① 📡 Chats de origen", "① 📇 Proveedor",
+        "② 🧩 Parser", "② 🗺️ Mapeo",
+        "③ 📖 Diccionario", "③ 📒 Diario", "③ 🧹 Nombres de equipo",
+        "④ 📁 Perfiles", "④ 📋 Resumen",
+    ]
+
+
+def test_build_tool_panels_it_invariato(tools_mod):
+    # IT (default/fail-safe): i titoli restano quelli storici → nessuna regressione, e il test
+    # d'ordine esistente (che pretende i titoli IT) resta coerente.
+    i18n.set_language("IT")
+    titles = [t for t, _f in tools_mod.build_tool_panels(_factories())]
+    assert titles[0] == "① 📡 Chat sorgenti"
+    assert titles[2] == "② 🧩 Parser"
+
+
+def test_resolve_tab_title_coerente_coi_titoli_localizzati(tools_mod):
+    # In EN le schede sono create coi titoli tradotti: il resolver (che legge self._panels) deve
+    # restare self-consistente — match esatto e per titolo-base tradotto senza prefisso.
+    i18n.set_language("EN")
+    titles = [t for t, _f in tools_mod.build_tool_panels(_factories())]
+    w = _window_with(tools_mod, titles)
+    assert w._resolve_tab_title("② 🧩 Parser") == "② 🧩 Parser"
+    assert w._resolve_tab_title("📖 Dictionary") == "③ 📖 Dictionary"     # base tradotto → scheda giusta
+    assert w._resolve_tab_title("📡 Chat sorgenti") is None               # base IT non matcha in EN

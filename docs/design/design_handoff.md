@@ -182,6 +182,17 @@ HUB "🧰 STRUMENTI"  (tab PIATTE ma RAGGRUPPATE per flusso ①..④, #293 slice
 > annidate. La IA (gruppi → strumenti, ordine, prefissi) è la fonte unica `tools_gui.TOOL_GROUPS`/
 > `TOOL_TITLES`/`build_tool_panels`. Le funzioni e le callback dei pannelli sono **invariate**.
 
+> **#343 slice 4x (localizzazione hub).** Il **titolo finestra** («🧰 Strumenti») e i **9 titoli-scheda**
+> (l'etichetta base dopo il prefisso ①..④) sono ora **localizzati** in EN/ES, resi a build-time via
+> `i18n.tr` (in IT identità → label storiche invariate). Il **prefisso di gruppo ①..④ resta invariato**
+> in ogni lingua. **«Provider» e «Parser» restano termini prodotto** (EN invariati; ES traduce solo
+> «Provider»→«Proveedor»). I **nomi dei 4 gruppi** («Sorgenti»/«Lettura messaggi»/«Dizionario»/
+> «Impostazioni») **non sono mostrati** nella UI (solo IA interna) → restano IT. Traduzioni: EN
+> Source chats · Provider · Parser · Mapping · Dictionary · Journal · Team names · Profiles · Summary;
+> ES Chats de origen · Proveedor · Parser · Mapeo · Diccionario · Diario · Nombres de equipo · Perfiles ·
+> Resumen. Anche la **label d'errore** mostrata in una scheda se lo strumento non si apre («⚠️ Impossibile
+> aprire questo strumento: …») è localizzata.
+
 **Frequenza d'uso (per prioritizzare la gerarchia visiva):**
 - **Quotidiano / sempre a vista:** stato ATTIVO/OFFLINE, banner reale, righe attive,
   AVVIA/STOP, ultimo errore, log.
