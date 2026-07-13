@@ -291,6 +291,17 @@ configurazione), i **VALORI** delle tendine Modalità/Sport/Mercato/Trasformazio
 (messaggi/errori del `ParserBuilder`/config interpolati nei prefissi qui sopra), i nomi-colonna
 della tabella regole/diagnostica e l'hint 💡 estrazione dinamica (slice a parte).
 
+Dalla **slice 4t** è localizzata la scheda **🧹 Nomi squadra** (`known_teams_gui`, ripulitura dei
+nomi squadra permanenti del dizionario locale): titolo e descrizione, label «Sport», bottoni «🔄
+Aggiorna»/«🗑 Elimina», il `label_text` «Nomi noti» e i messaggi di stato (provider assente,
+dizionario occupato, errore lettura `{exc}`, «{count} nomi noti.», eliminazione non disponibile/
+fallita `{exc}`/non riuscita) — via template+`.format`. «Sport» resta identico in EN (parola uguale).
+Restano **IN ITALIANO come esclusioni**: il **sentinel «(tutti gli sport)»** (`_SPORT_ALL`) è un
+**value-as-key** confrontato in `_selected_sport` (`s == _SPORT_ALL`) e condiviso con
+`name_mapping_gui` (che lo tiene IT per contratto) → non localizzato, non a catalogo; i **nomi sport**
+e i **nomi squadra** sono valori di dominio. La finestra **🧰 Strumenti (hub)** che ospita la scheda
+resta per ora IT (titoli-scheda = chiavi di matching, localizzazione cross-cutting a parte).
+
 Dalla **slice 4 — banner di modalità** sono localizzati i due **banner persistenti di
 sicurezza**: il **banner ROSSO «⚠️ MODALITÀ REALE ATTIVA…»** (`real_mode.BANNER_TEXT`) e il
 **banner AMBRA «🔬 MODALITÀ COLLAUDO XTRADER…»** (`bridge_mode.COLLAUDO_BANNER_TEXT`), resi in
