@@ -600,6 +600,23 @@ _CATALOG = {
         "📋 Riepilogo configurazione": "📋 Configuration summary",
         "Nessun dato di configurazione.": "No configuration data.",
         "⚠️ Impossibile leggere la configurazione:\n{exc}": "⚠️ Unable to read the configuration:\n{exc}",
+        # Pannello «🌳 Mapping guidato» — CHROME (#343 slice 4v): titolo/descrizione, label di riga
+        # (Profilo/Sport/Competizione già a catalogo), filtro, intestazioni colonne, bottoni,
+        # placeholder e dialog «Nuovo profilo». «Betfair» è termine prodotto (invariato). RESTANO IT
+        # (value-as-key, NON a catalogo): i segnaposto «(nessun profilo)»/«(scegli lo sport)». I nomi
+        # sport/competizione/squadra sono valori di dominio. I MESSAGGI DI STATO dinamici → slice 4w.
+        "🌳  Mapping guidato (Betfair → nome canale)": "🌳  Guided mapping (Betfair → channel name)",
+        "Scegli Sport → Competizione: compaiono le squadre dai dati Betfair presenti nel dizionario. Accanto a ogni squadra scrivi «come la chiama il canale» e salva nel profilo. Serve un dizionario locale popolato.": "Choose Sport → Competition: the teams from the Betfair data in the dictionary appear. Next to each team write «how the channel calls it» and save to the profile. A populated local dictionary is required.",
+        "Competizione:": "Competition:",
+        "Filtra squadre:": "Filter teams:",
+        "parte del nome squadra…": "part of the team name…",
+        "Pulisci": "Clear",
+        "Squadra Betfair": "Betfair team",
+        "Come la chiama il canale": "How the channel calls it",
+        "Squadre": "Teams",
+        "💾 Salva nel profilo": "💾 Save to profile",
+        "Scegli Sport e Competizione per vedere le squadre.": "Choose Sport and Competition to see the teams.",
+        "come la chiama il canale…": "how the channel calls it…",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -1090,5 +1107,18 @@ _CATALOG = {
         "📋 Riepilogo configurazione": "📋 Resumen de configuración",
         "Nessun dato di configurazione.": "Sin datos de configuración.",
         "⚠️ Impossibile leggere la configurazione:\n{exc}": "⚠️ No se puede leer la configuración:\n{exc}",
+        # Pannello «🌳 Mapping guidato» — CHROME (#343 slice 4v) — vedi nota nel blocco EN.
+        "🌳  Mapping guidato (Betfair → nome canale)": "🌳  Mapeo guiado (Betfair → nombre del canal)",
+        "Scegli Sport → Competizione: compaiono le squadre dai dati Betfair presenti nel dizionario. Accanto a ogni squadra scrivi «come la chiama il canale» e salva nel profilo. Serve un dizionario locale popolato.": "Elige Deporte → Competición: aparecen los equipos de los datos Betfair presentes en el diccionario. Junto a cada equipo escribe «cómo lo llama el canal» y guarda en el perfil. Se necesita un diccionario local poblado.",
+        "Competizione:": "Competición:",
+        "Filtra squadre:": "Filtrar equipos:",
+        "parte del nome squadra…": "parte del nombre del equipo…",
+        "Pulisci": "Limpiar",
+        "Squadra Betfair": "Equipo Betfair",
+        "Come la chiama il canale": "Cómo lo llama el canal",
+        "Squadre": "Equipos",
+        "💾 Salva nel profilo": "💾 Guardar en el perfil",
+        "Scegli Sport e Competizione per vedere le squadre.": "Elige Deporte y Competición para ver los equipos.",
+        "come la chiama il canale…": "cómo lo llama el canal…",
     },
 }

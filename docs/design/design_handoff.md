@@ -302,6 +302,18 @@ Restano **IN ITALIANO come esclusioni**: il **sentinel «(tutti gli sport)»** (
 e i **nomi squadra** sono valori di dominio. La finestra **🧰 Strumenti (hub)** che ospita la scheda
 resta per ora IT (titoli-scheda = chiavi di matching, localizzazione cross-cutting a parte).
 
+Dalla **slice 4v** è localizzata la **chrome** del pannello **🌳 Mapping guidato**
+(`guided_mapping_gui`, albero Sport → Competizione → Squadre → nome canale): titolo/descrizione, label
+«Profilo/Sport/Competizione», casella «Filtra squadre:» (+ placeholder + «Pulisci»), intestazioni
+colonne «Squadra Betfair»/«Come la chiama il canale», `label_text` «Squadre», bottoni «🆕 Nuovo»/«💾
+Salva nel profilo», placeholder di riga, stato vuoto e il dialog «Nuovo profilo»/«Nome del nuovo
+profilo:». «Betfair» resta termine prodotto. Restano **IN ITALIANO come esclusioni**: i **segnaposto
+value-as-key** delle tendine «(nessun profilo)» (`_NO_PROFILE`, confrontato per uguaglianza) e «(scegli
+lo sport)» (`_NO_COMP`, segnaposto «nessuna competizione»), e i **nomi sport/competizione/squadra**
+(valori di dominio dal dizionario locale). I **messaggi di stato dinamici** del pannello (con `{exc}`,
+conteggi, nome profilo) sono rimandati alla **slice 4w**. La finestra **🧰 Strumenti (hub)** che ospita
+la sotto-scheda resta IT (titoli-scheda = chiavi di matching).
+
 Dalla **slice 4u** è localizzato il pannello **📋 Riepilogo configurazione** (sola lettura,
 `config_summary_gui`): riga modalità («🔴 MODALITÀ REALE»/«🧪 Simulazione (DRY_RUN)»), stato del
 dizionario locale («presente»/«vuoto»), prefissi dell'indicatore traduzioni «Nomi»/«Mercati» (i

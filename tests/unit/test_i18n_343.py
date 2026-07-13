@@ -62,7 +62,11 @@ _SECONDARY_TR = _tr_constants("provider_gui.py", "profiles_gui.py",
                               "known_teams_gui.py",
                               # Pannello «📋 Riepilogo configurazione» (#343 slice 4u): helper puri
                               # di presentazione, tutte le chiavi sono `i18n.tr("literal")`.
-                              "config_summary_gui.py")
+                              "config_summary_gui.py",
+                              # Pannello «🌳 Mapping guidato» (#343 slice 4v — CHROME): chiavi tutte
+                              # `i18n.tr("literal")` (descrizione multi-riga inclusa). I segnaposto
+                              # value-as-key «(nessun profilo)»/«(scegli lo sport)» restano IT.
+                              "guided_mapping_gui.py")
 
 # Costanti tr() di app.py (#343 slice 4j/4k — log localizzati): alcune chiavi dei log sono
 # COSTANTI multi-riga concatenate (`i18n.tr("… " "…")`) che la ricerca raw in `_APP_SRC` non
