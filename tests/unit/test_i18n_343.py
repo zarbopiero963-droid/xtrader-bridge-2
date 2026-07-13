@@ -57,6 +57,12 @@ _SECONDARY_TR = _tr_constants("provider_gui.py", "profiles_gui.py",
                               "source_chats_gui.py", "journal_view_gui.py",
                               "custom_parser_gui.py", "wizard_gui.py", "name_mapping_gui.py")
 
+# Costanti tr() di app.py (#343 slice 4j/4k — log localizzati): alcune chiavi dei log sono
+# COSTANTI multi-riga concatenate (`i18n.tr("… " "…")`) che la ricerca raw in `_APP_SRC` non
+# trova. L'AST le unisce in UNA costante confrontabile verbatim col catalogo, come per le
+# finestre secondarie.
+_APP_TR = _tr_constants("app.py")
+
 # Banner di MODALITÀ (#343 slice 4 — residuo banner della #3): i testi vivono come COSTANTI
 # multi-riga concatenate in `real_mode`/`bridge_mode` e sono resi in app.py via
 # `i18n.tr(real_mode.BANNER_TEXT)` / `i18n.tr(bridge_mode.COLLAUDO_BANNER_TEXT)`. L'anti-drift
@@ -108,7 +114,7 @@ def test_catalogo_anti_drift_chiavi_verbatim_nel_sorgente():
     traduzioni orfane che l'utente EN/ES non vedrebbe più)."""
     for lang, table in i18n._CATALOG.items():
         for key in table:
-            assert (key in _APP_SRC or key in _DASH_SRC or key in _SECONDARY_TR
+            assert (key in _APP_SRC or key in _APP_TR or key in _DASH_SRC or key in _SECONDARY_TR
                     or key in _BANNER_TEXTS or key in _WIZARD_SRC or key in _NAMEMAP_SRC), (
                 f"{lang}: chiave stantia, non in app.py/dashboard_stats.py, nelle finestre "
                 f"secondarie localizzate, nei banner, nel wizard né nel Mapping: {key!r}")

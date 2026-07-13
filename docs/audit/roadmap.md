@@ -2974,3 +2974,44 @@ Suite locale (al commit): **2433 passed, 11 skipped** (l'esito autorevole è la 
 **Ancora aperto (per chiudere #3):** i restanti ~97 log `self._log(...)` di `app.py` (altri
 gruppi: config/CSV, avvio/validazione, riconnessione, conferme XTrader, dominio-bubble che resta
 IT) + finestra 🧰 Strumenti hub (`tools_gui`) + il pannello 🌳 Mapping guidato (`guided_mapping_gui`).
+
+## #343 slice 4k — log CONFIG/CSV user-action (app.py) localizzati (residuo UI della #3)
+
+**Obiettivo.** Secondo gruppo del residuo dei log `self._log(...)` di `app.py` (dopo il lifecycle
+della 4j): le azioni utente su **configurazione e CSV** — salva config, toggle tema, salva/crea/
+aggiorna il percorso CSV (pulsanti «💾 Salva Config», tema, «📁 Sfoglia…», «📄 Crea CSV»).
+
+**Cosa fa.** Passano ora da `i18n.tr(...)` **13 chiavi** in `app.py`: «💾 Configurazione salvata»;
+prefissi d'errore «❌ CSV Path selezionato ma NON salvato: » e «❌ Preferenza tema NON salvata: »;
+«📄 CSV Path aggiornato e salvato: {path}»; «🎨 Tema: chiaro/scuro»; e l'intero set di messaggi
+«Crea CSV» (bloccato-in-RUN, fallito `{path}`/`{exc}`, file estraneo `{path}`, segnale attivo
+`{path}`, creato `{path}`, bloccato-avviato `{path}`, annullato-utente `{path}`). Le interpolazioni
+`%s`/`f-string` diventano template `tr(...).format(...)`. Catalogo `i18n.py`: **13 chiavi × EN/ES**
+(«Crea CSV» → «Create CSV»/«Crear CSV», coerente col bottone omonimo già a catalogo). Marker emoji
+iniziale conservato → livello di log invariato.
+
+**Esclusioni documentate (restano IT).** I **messaggi di stato del layer puro**
+(`config_store.save_status_message(...)`): si wrappa **solo il PREFISSO**, lo stato resta IT
+(stesso pattern degli error-prefix della slice Parser). Il dato interpolato `{exc}` è contenuto di
+dominio. I **log di recovery/clear** con `{quando}` («all'avvio»/«allo stop»/…) e gli `on_mismatch`
+di dominio (`f"⚠️ {m}"`) NON sono wrappati: richiedono una traduzione coordinata delle frasi
+`{quando}` → **slice a parte**. Anche i **dialoghi modali** di «Crea CSV» (`messagebox`/
+`filedialog`: titoli/conferme di sovrascrittura) restano IT: sono una superficie diversa dai log,
+tracciata come residuo «dialoghi GUI». **Nessun cambio di logica**: persistenza config, guardie
+CSV (runtime/foreign/active), gate REALE e invarianti (mai scommessa involontaria) invariate.
+
+**Test hard** (`tests/unit/test_app_config_csv_i18n_343.py`, +7, pattern 4c/4j): estrae via AST le
+costanti `tr` di `app.py` (unisce le costanti multi-riga concatenate dei messaggi «Crea CSV»),
+verifica il wrapping e che i vecchi literal/`%s` non sopravvivano, la copertura EN/ES per ognuna
+delle 13 chiavi, i **call-site `.format(...)`** dei log dinamici (mutation-guard su `{path}`/`{exc}`),
+la conservazione dei segnaposto, il round-trip `.format(...)` e le **esclusioni** (dominio/`{quando}`
+non wrappati). Anti-drift `test_i18n_343.py` esteso con `_APP_TR = _tr_constants("app.py")` (le
+chiavi multi-riga concatenate non sono verbatim nel sorgente raw). Suite locale (al commit):
+**2440 passed, 11 skipped** (l'esito autorevole è la CI del head PR). **CORE change** (`app.py`,
+`i18n.py`) → ri-sincronizzare nel cloud. Docs: README + `design_handoff.md` (§ localizzazione log).
+Design handoff = **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti ~84 log `self._log(...)` di `app.py` (avvio/
+validazione START, riconnessione/backoff, conferme XTrader, recovery `{quando}`, dominio-bubble che
+resta IT) + i **dialoghi modali** GUI + finestra 🧰 Strumenti hub (`tools_gui`) + il pannello
+🌳 Mapping guidato (`guided_mapping_gui`).
