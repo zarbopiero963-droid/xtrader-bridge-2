@@ -2127,8 +2127,8 @@ class App(ctk.CTk):
         # l'assenza al primo avvio è normale, non un degrado.
         dpath = self._dedupe_state_path()
         if os.path.exists(dpath) and not signal_dedupe.load_state(self._tracker, dpath):
-            self._log("⚠️ Stato anti-duplicato presente ma illeggibile: "
-                      "protezione dopo riavvio non garantita.")
+            self._log(i18n.tr("⚠️ Stato anti-duplicato presente ma illeggibile: "
+                              "protezione dopo riavvio non garantita."))
         self._daily = guards.daily
         self._load_daily_state()
         self._queue = guards.queue
@@ -2139,7 +2139,7 @@ class App(ctk.CTk):
         # qui perché `build_guards` resti puro e testabile senza GUI.
         for warning in guards.warnings:
             self._log(warning)
-        self._log(f"🧮 Modalità coda: {guards.mode}")
+        self._log(i18n.tr("🧮 Modalità coda: {mode}").format(mode=guards.mode))
 
     def _load_daily_state(self) -> None:
         """Ripristina il conteggio giornaliero (persistenza same-day tra START/STOP).
@@ -2155,18 +2155,18 @@ class App(ctk.CTk):
         if (not signal_dedupe.save_state(self._tracker, self._dedupe_state_path())
                 and not self._dedupe_save_warned):
             self._dedupe_save_warned = True
-            self.after(0, lambda: self._log(
+            self.after(0, lambda: self._log(i18n.tr(
                 "⚠️ Impossibile salvare lo stato anti-duplicato su disco: "
-                "protezione dopo riavvio degradata."))
+                "protezione dopo riavvio degradata.")))
         # Daily: salvataggio ATOMICO+fsync (audit #105 P2), allineato a signal_dedupe; un
         # fallimento è segnalato una sola volta (non più silenzioso come `except OSError: pass`).
         if (self._daily is not None
                 and not safety_guard.save_state(self._daily, self._daily_state_path())
                 and not self._daily_save_warned):
             self._daily_save_warned = True
-            self.after(0, lambda: self._log(
+            self.after(0, lambda: self._log(i18n.tr(
                 "⚠️ Impossibile salvare lo stato del limite giornaliero su disco: "
-                "protezione anti-overtrading dopo riavvio degradata."))
+                "protezione anti-overtrading dopo riavvio degradata.")))
 
     # ── START / STOP ──────────────────────────
     def _start(self, auto: bool = False):

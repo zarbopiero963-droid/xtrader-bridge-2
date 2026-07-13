@@ -540,6 +540,14 @@ _CATALOG = {
         "📁 Profilo caricato e applicato (token invariato).": "📁 Profile loaded and applied (token unchanged).",
         "⚠️ Profilo applicato in memoria (token invariato), ma NON persistito. ": "⚠️ Profile applied in memory (token unchanged), but NOT persisted. ",
         "📡 Sorgenti multi-chat aggiornate ({count}).": "📡 Multi-chat sources updated ({count}).",
+        # Log GUARDRAIL RUNTIME (#343 slice 4q): stato anti-duplicato/limite-giornaliero + modalità
+        # coda. Termini prodotto («OVERWRITE_LAST», nomi modalità in {mode}) restano invariati; {mode}
+        # è valore di dominio da runtime_state.build_guards (display, non usato come chiave). Gli avvisi
+        # fail-safe di build_guards (`self._log(warning)`, bolla di dominio da layer puro) restano IT.
+        "⚠️ Stato anti-duplicato presente ma illeggibile: protezione dopo riavvio non garantita.": "⚠️ Anti-duplicate state present but unreadable: protection after restart not guaranteed.",
+        "🧮 Modalità coda: {mode}": "🧮 Queue mode: {mode}",
+        "⚠️ Impossibile salvare lo stato anti-duplicato su disco: protezione dopo riavvio degradata.": "⚠️ Unable to save the anti-duplicate state to disk: protection after restart degraded.",
+        "⚠️ Impossibile salvare lo stato del limite giornaliero su disco: protezione anti-overtrading dopo riavvio degradata.": "⚠️ Unable to save the daily-limit state to disk: anti-overtrading protection after restart degraded.",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -989,5 +997,10 @@ _CATALOG = {
         "📁 Profilo caricato e applicato (token invariato).": "📁 Perfil cargado y aplicado (token sin cambios).",
         "⚠️ Profilo applicato in memoria (token invariato), ma NON persistito. ": "⚠️ Perfil aplicado en memoria (token sin cambios), pero NO persistido. ",
         "📡 Sorgenti multi-chat aggiornate ({count}).": "📡 Fuentes multi-chat actualizadas ({count}).",
+        # Log GUARDRAIL RUNTIME (#343 slice 4q) — vedi nota nel blocco EN.
+        "⚠️ Stato anti-duplicato presente ma illeggibile: protezione dopo riavvio non garantita.": "⚠️ Estado anti-duplicados presente pero ilegible: protección tras reinicio no garantizada.",
+        "🧮 Modalità coda: {mode}": "🧮 Modo de cola: {mode}",
+        "⚠️ Impossibile salvare lo stato anti-duplicato su disco: protezione dopo riavvio degradata.": "⚠️ No se puede guardar el estado anti-duplicados en disco: protección tras reinicio degradada.",
+        "⚠️ Impossibile salvare lo stato del limite giornaliero su disco: protezione anti-overtrading dopo riavvio degradata.": "⚠️ No se puede guardar el estado del límite diario en disco: protección anti-overtrading tras reinicio degradada.",
     },
 }
