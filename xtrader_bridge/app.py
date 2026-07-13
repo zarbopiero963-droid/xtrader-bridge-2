@@ -1674,12 +1674,13 @@ class App(ctk.CTk):
                 self._register_secret_token(saved)   # token reidratato → redattore log
                 self._resync_token_field(had_incomplete)
                 kept = language_select.csv_language_preserved(saved)
-                extra = (f" (lingua CSV personalizzata preservata: {kept})" if kept
-                         else " — lingua CSV allineata")
-                self._log(f"🌐 Lingua del bridge impostata: {lang}{extra} — "
-                          "riavvia il bridge per applicare la lingua all'interfaccia "
-                          "(#343: finestra principale; le altre finestre arrivano "
-                          "con i prossimi slice).")
+                # `extra` (localizzato) è già una stringa risolta quando viene interpolato nel
+                # template esterno: nessuna graffa residua → nessun doppio-format rischioso.
+                extra = (i18n.tr(" (lingua CSV personalizzata preservata: {kept})").format(kept=kept)
+                         if kept else i18n.tr(" — lingua CSV allineata"))
+                self._log(i18n.tr("🌐 Lingua del bridge impostata: {lang}{extra} — riavvia il "
+                                  "bridge per applicare la lingua all'intera interfaccia.")
+                          .format(lang=lang, extra=extra))
             else:
                 # Config viva NON adottata (Fable #356 round 2): memoria, runtime e
                 # disco restano coerenti sulla lingua PRECEDENTE — mai una sessione

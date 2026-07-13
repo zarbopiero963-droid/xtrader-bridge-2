@@ -150,15 +150,14 @@ def test_format_round_trip_wp():
 
 
 def test_esclusioni_defer_e_dominio():
-    """Il log SUCCESS lingua (con {extra}+nota) è rimandato: resta f-string IT non wrappata.
-    Il suffisso di dominio `save_status_message` di «Profilo … NON persistito» resta fuori da
-    `i18n.tr` (regex robusta). Il log wizard-fallito NON deve mai loggare il token (solo la
-    classe dell'eccezione)."""
-    # 1657 successo lingua: rimandato → f-string IT
-    assert 'f"🌐 Lingua del bridge impostata: {lang}{extra} — "' in _APP_SRC
-    for bad in ('i18n.tr("🌐 Lingua del bridge impostata',
-                'i18n.tr(f"🌐 Lingua del bridge impostata'):
-        assert bad not in _APP_SRC, f"log SUCCESS lingua wrappato prematuramente: {bad}"
+    """Il log SUCCESS lingua è ORA localizzato (slice 4aa): era rimandato dalla 4p, la 4aa lo wrappa
+    in `i18n.tr` e attualizza la nota. Il suffisso di dominio `save_status_message` di «Profilo …
+    NON persistito» resta fuori da `i18n.tr` (regex robusta). Il log wizard-fallito NON deve mai
+    loggare il token (solo la classe dell'eccezione)."""
+    # successo lingua: dalla slice 4aa è wrappato in i18n.tr (non più f-string rimandata); il test
+    # dedicato è tests/unit/test_language_selector_success_i18n_343.py.
+    assert 'f"🌐 Lingua del bridge impostata: {lang}{extra} — "' not in _APP_SRC
+    assert 'i18n.tr("🌐 Lingua del bridge impostata: {lang}{extra} — riavvia il ' in _APP_SRC
     # suffisso dominio del profilo NON-persistito: prefisso wrappato, save_status_message fuori
     assert re.search(
         r'i18n\.tr\("⚠️ Profilo applicato in memoria \(token invariato\), ma NON persistito\. "\)\s*\+\s*config_store\.save_status_message',

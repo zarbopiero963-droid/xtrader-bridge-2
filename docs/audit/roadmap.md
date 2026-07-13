@@ -3536,3 +3536,35 @@ Design handoff = **PASS**.
 **Ancora aperto (per chiudere #3):** i restanti log `self._log(...)` di `app.py` (in gran parte
 esclusioni permanenti) + la nota SUCCESS del selettore lingua da attualizzare + i dialoghi/avvisi GUI
 eventualmente residui.
+
+## #343 slice 4aa — log SUCCESS del selettore lingua localizzato + nota attualizzata (residuo UI #3)
+
+**Obiettivo.** Localizzare l'ultimo messaggio UI rimasto rimandato: il **log di successo del
+cambio-lingua** (`App._language_chosen`, ramo `ok`), che la slice 4p aveva esplicitamente **rimandato**
+(f-string IT non wrappata) perché aveva una sotto-stringa computata **e** una nota da attualizzare.
+
+**Cosa fa.** Passa da `i18n.tr(...)` il template esterno + le **due varianti** della sotto-frase
+`{extra}`: «CSV personalizzata preservata {kept}» / «CSV allineata». La variante «CSV preservata»
+risolve `{kept}` col proprio `.format` **prima** di essere interpolata nel template esterno
+(`.format(lang=…, extra=…)`) → nessuna graffa residua nel doppio format. Catalogo `i18n.py`: **3 chiavi
+NUOVE × EN/ES**; tutte tr-constant di `app.py` → anti-drift via `_APP_TR`. **Nota attualizzata:** la
+vecchia coda «(#343: finestra principale; le altre finestre arrivano con i prossimi slice)» era
+**stantia** (dalle slice 4x/4y/4z tutte le finestre/dialoghi sono localizzati) → sostituita con
+«riavvia il bridge per applicare la lingua all'**intera interfaccia**». Il log di **fallimento** era
+già a catalogo (4p, invariato). `{lang}`/`{kept}` sono valori interpolati (codice lingua / lingua CSV).
+
+**Test hard.** Nuovo `tests/unit/test_language_selector_success_i18n_343.py`: AST (3 stringhe wrappate),
+**guardia anti-nota-stantia** (le frasi «le altre finestre arrivano»/«con i prossimi slice» NON devono
+sopravvivere), mutation-guard `.format` (template esterno `lang`+`extra`; variante `kept`), copertura
+EN/ES **!= IT** + placeholder, round-trip del messaggio COMPLETO per entrambe le varianti. Aggiornato il
+test 4p `test_app_wizard_profile_i18n_343.py::test_esclusioni_defer_e_dominio` (l'asserzione «SUCCESS
+lingua rimandato → f-string» diventa «ora wrappato in i18n.tr», come previsto dalla 4p). Suite
+unit+integration: **2538 passed, 11 skipped**. Docs: README + `design_handoff.md` (§lingua §6.2-bis).
+Design handoff = **PASS**.
+
+**Stato #3.** Con la 4aa **tutta la UI localizzabile è coperta**: finestra principale, finestre/pannelli
+secondari, wizard, hub Strumenti, banner, dialoghi di conferma modalità, dialoghi GUI di azione file,
+e ora l'ultimo log di feedback UI. Ciò che resta IT è **per contratto** (dominio puro:
+`save_status_message`, errori/warning di validazione/store `{err}`/`{warn}`/`{exc}`, parola-quando dei
+recovery, log `_dbg`, e il dialog «già in esecuzione» pre-`set_language`). La **chiusura dell'epica #3**
+resta una decisione del proprietario (merge sempre manuale).

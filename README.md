@@ -171,10 +171,12 @@ slice 4y — i **dialoghi modali di conferma modalità** (attivazione REALE con 
 COLLAUDO, MULTI-segnale e i due gate di avvio automatico/START in modalità reale; la parola da
 digitare resta **`REALE`** in ogni lingua per sicurezza) e — dalla slice 4z — i **dialoghi GUI di
 azione file** (selettori «📁 Sfoglia…»/«📄 Crea CSV», avviso «bridge avviato», conferme di
-sovrascrittura file/segnale attivo, e l'export «Esporta audit modalità reale») sono localizzati.
-Restano ancora in italiano: i restanti **messaggi di log** dell'app, il dialogo «già in esecuzione»
-all'avvio (renderizza prima della scelta lingua) e i messaggi che riportano contenuto di dominio
-(IT per contratto) — previsti/documentati nelle prossime slice della #343.
+sovrascrittura file/segnale attivo, e l'export «Esporta audit modalità reale») e — dalla slice 4aa —
+il **log di successo del cambio-lingua** («🌐 Lingua del bridge impostata: …», con la nota
+attualizzata: il riavvio applica la lingua all'**intera interfaccia**) sono localizzati.
+Restano in italiano **per contratto**: il dialogo «già in esecuzione» all'avvio (renderizza prima
+della scelta lingua) e i **log di puro dominio** (errori di validazione/store, `save_status_message`,
+la parola-quando dei recovery «all'avvio», `{exc}`/`{err}`/`{warn}` interpolati, log `_dbg`).
 
 La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Config**
 (oppure all'avvio con **▶ AVVIA**) nel file `config.json` (vedi
