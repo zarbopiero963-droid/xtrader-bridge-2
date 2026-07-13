@@ -243,11 +243,13 @@ di parità dei segnaposto garantiscono che le traduzioni restino allineate al co
 Dalla **slice 4d** è localizzata anche **📁 Profili impostazioni** (stesso schema:
 titolo/testi/bottoni + messaggi di stato dinamici via template+`.format`; i messaggi
 che mostrano SOLO l'eccezione bubblata dal layer puro `profile_store` restano IT, slice
-a parte). Restano IN ITALIANO per ora: testi dei **log** dell'app (diagnostici) e le finestre
-secondarie non ancora localizzate (**🧰 Strumenti** hub e il pannello **🌳 Mapping guidato**).
+a parte). Restano IN ITALIANO per ora: la maggior parte dei testi dei **log** dell'app
+(diagnostici — localizzati a gruppi, vedi «slice 4j») e le finestre secondarie non ancora
+localizzate (**🧰 Strumenti** hub e il pannello **🌳 Mapping guidato**).
 *(Ora localizzati, prima esclusi: i banner REALE/COLLAUDO — «slice 4 — banner di modalità» in
-fondo a questa sezione — la finestra **🧙 Wizard** — «slice 4h», §6.2-quater — e la finestra
-**🗺️ Mapping** (Dizionario nomi + mercati) — «slice 4i», vedi §7.5.)*
+fondo a questa sezione — la finestra **🧙 Wizard** — «slice 4h», §6.2-quater — la finestra
+**🗺️ Mapping** (Dizionario nomi + mercati) — «slice 4i», vedi §7.5 — e il primo gruppo di **log
+di ciclo-vita del bridge** — «slice 4j», in fondo a questa sezione.)*
 
 Dalla **slice 4e** è localizzata la **chrome** di **📡 Chat sorgenti** (finestra del
 FILTRO CHAT, safety-critical): titolo, hint, intestazioni colonne (Attiva/Nome/
@@ -298,8 +300,21 @@ ACTIVE …» / «🔬 XTRADER TEST MODE …», ES «⚠️ MODO REAL ACTIVO …�
 banner invariati (rosso REALE ha priorità sull'ambra COLLAUDO), parole-rischio conservate
 (REAL/REALES, TEST/PRUEBA). La **decisione** di mostrare il banner (`real_mode.banner_active`
 / `bridge_mode.banners_for`) è invariata: cambia solo il testo mostrato. IT resta il
-riferimento (fail-safe: lingua mai scelta → banner in italiano storico). Restano IN ITALIANO
-i **messaggi di log** dell'app (diagnostici), previsti nelle prossime slice della #343.
+riferimento (fail-safe: lingua mai scelta → banner in italiano storico). I **messaggi di log**
+dell'app (diagnostici) sono localizzati a gruppi coerenti, a partire dalla «slice 4j» qui sotto.
+
+Dalla **slice 4j — log di ciclo-vita del bridge** è localizzato il primo gruppo dei ~105 log
+`self._log(...)` di `app.py`, cioè i più visibili all'utente nel pannello **📋 Log**: avvio
+(«🚀 Bridge avviato!»), CSV attivo («📄 CSV: …») e auto-clear («⏱️  Auto-clear dopo: …s»),
+ascolto («👂 In ascolto su Telegram…»), STOP («🛑 Bridge fermato.»), connessione
+(«✅ Connesso a Telegram.»), scadenza segnale («⏱️  Scadenza segnale tra ~…s») e svuotamento
+manuale del CSV («🗑️  CSV svuotato manualmente»). Traduzioni EN/ES nel catalogo `i18n.py`
+(«bridge»/«Telegram» invariati, come nel resto del catalogo). Il **marker emoji iniziale**
+(❌/⚠️/✅/… — usato dal sink `_log` per classificare il livello) è **conservato in ogni lingua**,
+quindi il colore/livello della riga di log non cambia. Restano IN ITALIANO, per contratto, i log
+che riportano **contenuto di dominio** risalito dai layer puri (`bridge_mode.start_log_text`,
+`real_mode.*`, `config_store.save_status_message`, esiti `outcome.*_log`, `warning`) e i restanti
+gruppi di log, previsti nelle prossime slice della #343.
 
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 

@@ -440,6 +440,18 @@ _CATALOG = {
         "⚠️ Profilo rinominato «{old}» → «{new}», ma {count} parser NON aggiornati ({names}): correggili a mano o quei segnali verranno scartati (MARKET_MAPPING_MISSING).": "⚠️ Profile renamed «{old}» → «{new}», but {count} parsers NOT updated ({names}): fix them by hand or those signals will be discarded (MARKET_MAPPING_MISSING).",
         "⚠️ «{name}» eliminato, ma è ancora selezionato in {count} parser ({names}): quei segnali verranno scartati (MAPPING_MISSING) finché non togli il profilo da quei parser.": "⚠️ «{name}» deleted, but it is still selected in {count} parsers ({names}): those signals will be discarded (MAPPING_MISSING) until you remove the profile from those parsers.",
         "⚠️ «{name}» eliminato, ma è ancora selezionato in {count} parser ({names}): quei segnali verranno scartati (MARKET_MAPPING_MISSING) finché non togli il profilo da quei parser.": "⚠️ «{name}» deleted, but it is still selected in {count} parsers ({names}): those signals will be discarded (MARKET_MAPPING_MISSING) until you remove the profile from those parsers.",
+        # Log di ciclo-vita del bridge (#343 slice 4j): START/STOP/connessione/ascolto/
+        # scadenza-segnale/svuotamento manuale CSV. "bridge"/"Telegram" restano verbatim
+        # (termini di prodotto, come già nel resto del catalogo). I log di DOMINIO che
+        # risalgono dai layer puri (bridge_mode/real_mode/config_store/outcome) restano IT.
+        "🚀 Bridge avviato!": "🚀 Bridge started!",
+        "📄 CSV: {path}": "📄 CSV: {path}",
+        "⏱️  Auto-clear dopo: {seconds}s": "⏱️  Auto-clear after: {seconds}s",
+        "👂 In ascolto su Telegram...": "👂 Listening on Telegram...",
+        "🛑 Bridge fermato.": "🛑 Bridge stopped.",
+        "✅ Connesso a Telegram.": "✅ Connected to Telegram.",
+        "⏱️  Scadenza segnale tra ~{seconds}s": "⏱️  Signal expires in ~{seconds}s",
+        "🗑️  CSV svuotato manualmente": "🗑️  CSV cleared manually",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -810,5 +822,14 @@ _CATALOG = {
         "⚠️ Profilo rinominato «{old}» → «{new}», ma {count} parser NON aggiornati ({names}): correggili a mano o quei segnali verranno scartati (MARKET_MAPPING_MISSING).": "⚠️ Perfil renombrado «{old}» → «{new}», pero {count} parsers NO actualizados ({names}): corrígelos a mano o esas señales se descartarán (MARKET_MAPPING_MISSING).",
         "⚠️ «{name}» eliminato, ma è ancora selezionato in {count} parser ({names}): quei segnali verranno scartati (MAPPING_MISSING) finché non togli il profilo da quei parser.": "⚠️ «{name}» eliminado, pero sigue seleccionado en {count} parsers ({names}): esas señales se descartarán (MAPPING_MISSING) hasta que quites el perfil de esos parsers.",
         "⚠️ «{name}» eliminato, ma è ancora selezionato in {count} parser ({names}): quei segnali verranno scartati (MARKET_MAPPING_MISSING) finché non togli il profilo da quei parser.": "⚠️ «{name}» eliminado, pero sigue seleccionado en {count} parsers ({names}): esas señales se descartarán (MARKET_MAPPING_MISSING) hasta que quites el perfil de esos parsers.",
+        # Log di ciclo-vita del bridge (#343 slice 4j) — vedi nota nel blocco EN.
+        "🚀 Bridge avviato!": "🚀 ¡Bridge iniciado!",
+        "📄 CSV: {path}": "📄 CSV: {path}",
+        "⏱️  Auto-clear dopo: {seconds}s": "⏱️  Auto-borrado tras: {seconds}s",
+        "👂 In ascolto su Telegram...": "👂 Escuchando en Telegram...",
+        "🛑 Bridge fermato.": "🛑 Bridge detenido.",
+        "✅ Connesso a Telegram.": "✅ Conectado a Telegram.",
+        "⏱️  Scadenza segnale tra ~{seconds}s": "⏱️  La señal expira en ~{seconds}s",
+        "🗑️  CSV svuotato manualmente": "🗑️  CSV vaciado manualmente",
     },
 }
