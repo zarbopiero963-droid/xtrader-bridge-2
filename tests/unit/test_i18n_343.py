@@ -32,6 +32,12 @@ _WIZARD_SRC = _read("wizard_gui.py")
 # `_MARKET_HEADER_COLUMNS` e sono rese via `i18n.tr(text)` (indiretto): come per il Wizard,
 # l'anti-drift le cerca come literal VERBATIM nel sorgente (single-line nelle tuple).
 _NAMEMAP_SRC = _read("name_mapping_gui.py")
+# Hub «🧰 Strumenti» (#343 slice 4x): i titoli-scheda vivono in `TOOL_TITLES` e il titolo finestra
+# nel default `title="🧰 Strumenti"`; sono resi via `i18n.tr(variable)` a build-time (indiretto →
+# non estraibili come tr-constant). Come Wizard/Mapping, l'anti-drift li cerca come literal VERBATIM
+# nel sorgente (single-line, nessun escape). La label d'errore per-scheda è invece un
+# `i18n.tr("literal")` (contiene «\n») → coperta da `_SECONDARY_TR` che ne decodifica l'escape.
+_TOOLS_SRC = _read("tools_gui.py")
 
 
 def _tr_constants(*module_names) -> set:
@@ -66,7 +72,12 @@ _SECONDARY_TR = _tr_constants("provider_gui.py", "profiles_gui.py",
                               # Pannello «🌳 Mapping guidato» (#343 slice 4v — CHROME): chiavi tutte
                               # `i18n.tr("literal")` (descrizione multi-riga inclusa). I segnaposto
                               # value-as-key «(nessun profilo)»/«(scegli lo sport)» restano IT.
-                              "guided_mapping_gui.py")
+                              "guided_mapping_gui.py",
+                              # Hub «🧰 Strumenti» (#343 slice 4x): la sola tr-constant è la label
+                              # d'errore per-scheda `i18n.tr("⚠️ Impossibile aprire…\n{exc}")` (l'AST
+                              # decodifica il «\n» che la ricerca raw non troverebbe). I titoli-scheda
+                              # e il titolo finestra sono `i18n.tr(variable)` → coperti da `_TOOLS_SRC`.
+                              "tools_gui.py")
 
 # Costanti tr() di app.py (#343 slice 4j/4k — log localizzati): alcune chiavi dei log sono
 # COSTANTI multi-riga concatenate (`i18n.tr("… " "…")`) che la ricerca raw in `_APP_SRC` non
@@ -126,9 +137,11 @@ def test_catalogo_anti_drift_chiavi_verbatim_nel_sorgente():
     for lang, table in i18n._CATALOG.items():
         for key in table:
             assert (key in _APP_SRC or key in _APP_TR or key in _DASH_SRC or key in _SECONDARY_TR
-                    or key in _BANNER_TEXTS or key in _WIZARD_SRC or key in _NAMEMAP_SRC), (
+                    or key in _BANNER_TEXTS or key in _WIZARD_SRC or key in _NAMEMAP_SRC
+                    or key in _TOOLS_SRC), (
                 f"{lang}: chiave stantia, non in app.py/dashboard_stats.py, nelle finestre "
-                f"secondarie localizzate, nei banner, nel wizard né nel Mapping: {key!r}")
+                f"secondarie localizzate, nei banner, nel wizard, nel Mapping né nell'hub "
+                f"Strumenti: {key!r}")
 
 
 def _catalog_lang_dicts(tree):
