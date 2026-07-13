@@ -3354,9 +3354,12 @@ presentazione (in IT gli helper rendono identico all'attuale, garantito dai test
 **Test hard.** Estesi i test di presentazione reali `tests/integration/test_config_summary_gui.py`
 (customtkinter stubbato, helper esercitati su `ConfigSummary`/`ChannelSummary` reali): i test IT
 esistenti restano verdi (identità in IT) e **6 nuovi test EN/ES** verificano la resa localizzata
-(modalità, dizionario, prefissi traduzioni, «Pronto»/conteggi/segnaposto) **e le esclusioni** (riga
-Parser + motivo + nome canale restano IT). Anti-drift `test_i18n_343.py` verde. Suite unit+integration:
-**2252 passed, 1 skipped**. Docs: README + `design_handoff.md`. Design handoff = **PASS**.
+(modalità, dizionario su entrambi i rami, prefissi traduzioni, «Pronto»/conteggi/segnaposto/stato
+vuoto, e le **stringhe inline di `_render`** — titolo, «nessun dato», errore config `{exc}` con
+segnaposto conservato) **e le esclusioni** (riga Parser + motivo + nome canale restano IT). La resa dei
+widget veri di `_render` richiede un display → documentato smoke test manuale nel test. Anti-drift
+`test_i18n_343.py` verde. Suite unit+integration: **2253 passed, 1 skipped**. Docs: README +
+`design_handoff.md`. Design handoff = **PASS**.
 
 **Ancora aperto (per chiudere #3):** i restanti ~26 log `self._log(...)` di `app.py` (dominio-bubble/
 value-as-key che restano IT + pochi candidati) + i **dialoghi modali** GUI + i pannelli GUI cross-cutting

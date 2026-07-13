@@ -93,6 +93,7 @@ def ready_count_label(summary) -> str:
 # etichette, così è coperta dai test e non diverge dall'intento di design (CodeRabbit #337).
 # Localizzata (#343 slice 4u): literal in `i18n.tr(...)` così è una tr-constant (anti-drift AST).
 def no_channels_label() -> str:
+    """Testo dello stato vuoto (nessuna sorgente/chat configurata), localizzato (#343 slice 4u)."""
     return i18n.tr("Nessun canale configurato (nessuna sorgente / chat).")
 
 
