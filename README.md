@@ -162,11 +162,10 @@ modalità** (attivazione REALE/COLLAUDO annullata, coda multi-segnale annullata,
 delle modalità di trading** interpolati in quei log (REALE→REAL, COLLAUDO→TEST/PRUEBA,
 SIMULAZIONE→SIMULATION/SIMULACIÓN, slice 4s), la scheda **🧹 Nomi squadra**
 (pannello di ripulitura dei nomi squadra noti, slice 4t), il pannello **📋 Riepilogo configurazione**
-(modalità, stato dizionario, traduzioni, «Pronto?», slice 4u) e — dalla slice 4v — la **chrome** del
-pannello **🌳 Mapping guidato** (titoli, label, filtro, intestazioni, bottoni, dialog «Nuovo profilo»)
-sono localizzati.
-Restano ancora in italiano: la finestra **🧰 Strumenti (hub)**, i **messaggi di stato dinamici** del
-🌳 Mapping guidato (in arrivo nella slice 4w), i restanti **messaggi di log** dell'app e i **dialoghi modali** GUI (e i
+(modalità, stato dizionario, traduzioni, «Pronto?», slice 4u) e — dalle slice 4v–4w — il pannello
+**🌳 Mapping guidato** completo (chrome + messaggi di stato dinamici: profilo, competizioni, squadre,
+salvataggio) sono localizzati.
+Restano ancora in italiano: la finestra **🧰 Strumenti (hub)**, i restanti **messaggi di log** dell'app e i **dialoghi modali** GUI (e i
 messaggi che riportano contenuto di dominio, che restano IT per contratto) — previsti nelle prossime
 slice della #343.
 

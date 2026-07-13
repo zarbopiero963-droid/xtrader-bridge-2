@@ -617,6 +617,23 @@ _CATALOG = {
         "💾 Salva nel profilo": "💾 Save to profile",
         "Scegli Sport e Competizione per vedere le squadre.": "Choose Sport and Competition to see the teams.",
         "come la chiama il canale…": "how the channel calls it…",
+        # Pannello «🌳 Mapping guidato» — MESSAGGI DI STATO (#343 slice 4w): esiti dinamici di
+        # profilo/competizioni/squadre/salvataggio. {exc}=eccezione, {name}/{profile}=nome profilo,
+        # {sport}=nome sport, {count}/{shown}/{total}/{written}=conteggi — valori di dominio nei
+        # segnaposto. «⏳ Dizionario occupato: riprova tra poco.» è già a catalogo (slice 4t).
+        "❌ Config illeggibile: {exc}": "❌ Config unreadable: {exc}",
+        "⛔ Profilo non creato (nome vuoto).": "⛔ Profile not created (empty name).",
+        "ℹ️ Il profilo «{name}» esiste già.": "ℹ️ The profile «{name}» already exists.",
+        "🆕 Profilo «{name}» creato.": "🆕 Profile «{name}» created.",
+        "❌ Salvataggio FALLITO: «{name}» non creato.": "❌ Save FAILED: «{name}» not created.",
+        "ℹ️ Nessuna competizione per «{sport}». Popola il dizionario locale, poi riprova.": "ℹ️ No competition for «{sport}». Populate the local dictionary, then try again.",
+        "ℹ️ Nessuna squadra per questa competizione (nessun evento nel dizionario). Popola il dizionario locale, poi riprova.": "ℹ️ No team for this competition (no event in the dictionary). Populate the local dictionary, then try again.",
+        "{count} squadre. Scrivi l'alias del canale e premi «Salva nel profilo».": "{count} teams. Type the channel alias and press «Save to profile».",
+        "… mostrate {shown} di {total} squadre: usa «Filtra» per restringere (gli alias già scritti restano salvati anche se non visibili).": "… showing {shown} of {total} teams: use «Filter» to narrow down (aliases already typed stay saved even if not visible).",
+        "⛔ Nessun profilo selezionato: crea o scegli un profilo di destinazione.": "⛔ No profile selected: create or choose a destination profile.",
+        "⛔ Nessuna squadra caricata da salvare.": "⛔ No team loaded to save.",
+        "💾 Salvato nel profilo «{profile}»: {written} squadre mappate in questa competizione ({total} righe totali nel profilo).": "💾 Saved to profile «{profile}»: {written} teams mapped in this competition ({total} total rows in the profile).",
+        "❌ Salvataggio FALLITO: «{profile}» non salvato (andrebbe perso al riavvio). Controlla permessi/spazio del file config.": "❌ Save FAILED: «{profile}» not saved (would be lost on restart). Check permissions/space of the config file.",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -1120,5 +1137,19 @@ _CATALOG = {
         "💾 Salva nel profilo": "💾 Guardar en el perfil",
         "Scegli Sport e Competizione per vedere le squadre.": "Elige Deporte y Competición para ver los equipos.",
         "come la chiama il canale…": "cómo lo llama el canal…",
+        # Pannello «🌳 Mapping guidato» — MESSAGGI DI STATO (#343 slice 4w) — vedi nota nel blocco EN.
+        "❌ Config illeggibile: {exc}": "❌ Config ilegible: {exc}",
+        "⛔ Profilo non creato (nome vuoto).": "⛔ Perfil no creado (nombre vacío).",
+        "ℹ️ Il profilo «{name}» esiste già.": "ℹ️ El perfil «{name}» ya existe.",
+        "🆕 Profilo «{name}» creato.": "🆕 Perfil «{name}» creado.",
+        "❌ Salvataggio FALLITO: «{name}» non creato.": "❌ Guardado FALLIDO: «{name}» no creado.",
+        "ℹ️ Nessuna competizione per «{sport}». Popola il dizionario locale, poi riprova.": "ℹ️ Ninguna competición para «{sport}». Puebla el diccionario local y reinténtalo.",
+        "ℹ️ Nessuna squadra per questa competizione (nessun evento nel dizionario). Popola il dizionario locale, poi riprova.": "ℹ️ Ningún equipo para esta competición (ningún evento en el diccionario). Puebla el diccionario local y reinténtalo.",
+        "{count} squadre. Scrivi l'alias del canale e premi «Salva nel profilo».": "{count} equipos. Escribe el alias del canal y pulsa «Guardar en el perfil».",
+        "… mostrate {shown} di {total} squadre: usa «Filtra» per restringere (gli alias già scritti restano salvati anche se non visibili).": "… mostrando {shown} de {total} equipos: usa «Filtrar» para acotar (los alias ya escritos permanecen guardados aunque no se vean).",
+        "⛔ Nessun profilo selezionato: crea o scegli un profilo di destinazione.": "⛔ Ningún perfil seleccionado: crea o elige un perfil de destino.",
+        "⛔ Nessuna squadra caricata da salvare.": "⛔ Ningún equipo cargado para guardar.",
+        "💾 Salvato nel profilo «{profile}»: {written} squadre mappate in questa competizione ({total} righe totali nel profilo).": "💾 Guardado en el perfil «{profile}»: {written} equipos mapeados en esta competición ({total} filas totales en el perfil).",
+        "❌ Salvataggio FALLITO: «{profile}» non salvato (andrebbe perso al riavvio). Controlla permessi/spazio del file config.": "❌ Guardado FALLIDO: «{profile}» no guardado (se perdería al reiniciar). Comprueba permisos/espacio del archivo config.",
     },
 }
