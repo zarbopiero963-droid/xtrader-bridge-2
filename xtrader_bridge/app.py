@@ -898,9 +898,9 @@ class App(ctk.CTk):
         # «salva sopra», quindi niente prompt fuorviante «sovrascrivere?» (il file non viene
         # comunque toccato: si registra solo il percorso).
         dest = filedialog.asksaveasfilename(
-            title="Scegli il file CSV per XTrader",
+            title=i18n.tr("Scegli il file CSV per XTrader"),
             defaultextension=".csv",
-            filetypes=[("CSV", "*.csv"), ("Tutti i file", "*.*")],
+            filetypes=[("CSV", "*.csv"), (i18n.tr("Tutti i file"), "*.*")],
             confirmoverwrite=False,
             initialdir=initialdir, initialfile=initialfile)
         if not dest:
@@ -1006,9 +1006,9 @@ class App(ctk.CTk):
         initialfile = os.path.basename(current) if current else "segnale.csv"
         # `confirmoverwrite=False`: gestiamo noi la conferma (mirata) invece del prompt nativo.
         dest = filedialog.asksaveasfilename(
-            title="Crea un nuovo CSV per XTrader (solo header)",
+            title=i18n.tr("Crea un nuovo CSV per XTrader (solo header)"),
             defaultextension=".csv",
-            filetypes=[("CSV", "*.csv"), ("Tutti i file", "*.*")],
+            filetypes=[("CSV", "*.csv"), (i18n.tr("Tutti i file"), "*.*")],
             confirmoverwrite=False,
             initialdir=initialdir, initialfile=initialfile)
         if not dest:
@@ -1017,8 +1017,8 @@ class App(ctk.CTk):
             # Bridge avviato su questo CSV: messaggio chiaro e stop (la guardia autoritativa è
             # comunque in `_create_and_save_csv`, che rifiuta anche con force).
             messagebox.showwarning(
-                "Bridge avviato",
-                "Il bridge è AVVIATO su questo CSV.\n\nFai STOP prima di ricrearlo.")
+                i18n.tr("Bridge avviato"),
+                i18n.tr("Il bridge è AVVIATO su questo CSV.\n\nFai STOP prima di ricrearlo."))
             self._log(i18n.tr("⚠️ «Crea CSV» annullato: bridge avviato su {path} (STOP prima).")
                       .format(path=dest))
             return
@@ -1028,18 +1028,18 @@ class App(ctk.CTk):
         if os.path.exists(dest):
             if not is_bridge_csv(dest):
                 if not messagebox.askyesno(
-                        "Sovrascrivere il file esistente?",
-                        "%s esiste e NON è un CSV del bridge.\n\nSovrascriverlo con un CSV "
-                        "vuoto (solo header)?" % dest):
+                        i18n.tr("Sovrascrivere il file esistente?"),
+                        i18n.tr("{path} esiste e NON è un CSV del bridge.\n\nSovrascriverlo con "
+                                "un CSV vuoto (solo header)?").format(path=dest)):
                     self._log(i18n.tr("⚠️ «Crea CSV» annullato dall'utente: {path} non sovrascritto.")
                               .format(path=dest))
                     return
                 force = True
             elif has_active_row(dest):
                 if not messagebox.askyesno(
-                        "Sovrascrivere il segnale attivo?",
-                        "%s contiene un segnale attivo non ancora letto da XTrader.\n\n"
-                        "Sovrascriverlo con un CSV vuoto (solo header)?" % dest):
+                        i18n.tr("Sovrascrivere il segnale attivo?"),
+                        i18n.tr("{path} contiene un segnale attivo non ancora letto da XTrader.\n\n"
+                                "Sovrascriverlo con un CSV vuoto (solo header)?").format(path=dest)):
                     self._log(i18n.tr("⚠️ «Crea CSV» annullato dall'utente: {path} non sovrascritto.")
                               .format(path=dest))
                     return
@@ -1805,13 +1805,13 @@ class App(ctk.CTk):
                         # non ambiguo (le righe di log portano solo [HH:MM:SS], Codex P2).
                         lines.extend(real_mode.audit_lines_with_date(name, f.read()))
             if not lines:
-                messagebox.showinfo("Audit modalità reale",
-                                    "Nessun evento di attivazione modalità reale nei log.")
+                messagebox.showinfo(i18n.tr("Audit modalità reale"),
+                                    i18n.tr("Nessun evento di attivazione modalità reale nei log."))
                 return
             dest = filedialog.asksaveasfilename(
-                title="Esporta audit modalità reale", defaultextension=".txt",
+                title=i18n.tr("Esporta audit modalità reale"), defaultextension=".txt",
                 initialfile="audit_modalita_reale.txt",
-                filetypes=[("Testo", "*.txt"), ("Tutti i file", "*.*")])
+                filetypes=[(i18n.tr("Testo"), "*.txt"), (i18n.tr("Tutti i file"), "*.*")])
             if not dest:
                 return
             with open(dest, "w", encoding="utf-8") as f:
