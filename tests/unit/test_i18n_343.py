@@ -131,6 +131,30 @@ def test_catalogo_anti_drift_chiavi_verbatim_nel_sorgente():
                 f"secondarie localizzate, nei banner, nel wizard né nel Mapping: {key!r}")
 
 
+def test_catalogo_nessuna_chiave_duplicata_con_valore_diverso():
+    """Nessun dict-literal EN/ES ha la STESSA chiave mappata a DUE valori DIVERSI (CodeRabbit #50):
+    è la classe di bug reale — l'ultima entry vince silenziosamente, cambiando la traduzione per i
+    chiamanti dell'entry precedente (es. profiles_gui). Guardia AST sul sorgente (i dict runtime già
+    collassano i duplicati): parse di `i18n.py`, si ispezionano i letterali dict e si vieta ogni
+    chiave stringa ripetuta che punti a un valore diverso. (I duplicati con valore IDENTICO sono
+    ridondanti ma innocui e non falliscono qui.)"""
+    tree = ast.parse(_read("i18n.py"))
+    conflitti = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        viste = {}
+        for k, v in zip(node.keys, node.values):
+            if not (isinstance(k, ast.Constant) and isinstance(k.value, str)
+                    and isinstance(v, ast.Constant)):
+                continue
+            if k.value in viste and viste[k.value] != v.value:
+                conflitti.append((k.value, viste[k.value], v.value, k.lineno))
+            viste[k.value] = v.value
+    assert not conflitti, "chiavi di catalogo duplicate con valore DIVERSO (override silenzioso):\n" + \
+        "\n".join(f"  {key!r} @L{ln}: {prev!r} → {cur!r}" for key, prev, cur, ln in conflitti)
+
+
 def test_catalogo_valori_sensati():
     for lang, table in i18n._CATALOG.items():
         assert table, f"catalogo {lang} vuoto"

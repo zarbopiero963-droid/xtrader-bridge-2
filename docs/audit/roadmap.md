@@ -3403,13 +3403,19 @@ Suite unit+integration: **2258 passed, 1 skipped**. Docs: README + `design_hando
 **Obiettivo.** Completa la localizzazione del **🌳 Mapping guidato** (dopo la chrome della 4v): i
 **messaggi di stato dinamici** del pannello (esiti di profilo/competizioni/squadre/salvataggio).
 
-**Cosa fa.** Passano da `i18n.tr(...)` **13 messaggi di stato NUOVI** (con template+`.format`): config
+**Cosa fa.** Passano da `i18n.tr(...)` **13 messaggi di stato** (con template+`.format`): config
 illeggibile `{exc}`, profilo non creato/esistente/creato `{name}`, salvataggio profilo fallito, nessuna
 competizione `{sport}`/nessuna squadra, «{count} squadre…», cap-render «… mostrate {shown} di {total}…»,
 nessun profilo selezionato/nessuna squadra da salvare, salvato `{profile}`/{written}/{total}, salvataggio
-fallito `{profile}`. Catalogo `i18n.py`: **13 chiavi × EN/ES**. «⏳ Dizionario occupato: riprova tra
-poco.» era **già a catalogo** (slice 4t): qui solo wrappata (nessuna nuova voce). `guided_mapping_gui.py`
-è già in `_SECONDARY_TR` (4v).
+fallito `{profile}`. Catalogo `i18n.py`: **8 chiavi NUOVE × EN/ES** (competizioni/squadre/salvataggio
+del guidato); le altre **5 sono RIUSATE** senza ri-aggiungerle per non duplicare la chiave — «⏳
+Dizionario occupato…» (slice 4t) e i messaggi profilo-CRUD «ℹ️ Il profilo «{name}» esiste già.»/«❌
+Config illeggibile: {exc}»/«⛔ Profilo non creato…»/«🆕 Profilo «{name}» creato.»/«❌ Salvataggio
+FALLITO: «{name}» non creato.» (già a catalogo da `profiles_gui`). `guided_mapping_gui.py` è già in
+`_SECONDARY_TR` (4v). **Fix duplicati (CodeRabbit #50):** rimossi 2 duplicati a **valore diverso**
+preesistenti/introdotti — «ℹ️ Il profilo…» (EN «Profile…» vs «The profile…») e «📋 Diagnostica copiata
+negli appunti.» (EN «…to clipboard» vs «…to the clipboard») — e aggiunta una **guardia AST anti-duplicati
+a valore diverso** in `test_i18n_343.py` (protegge tutto il catalogo dalla stessa classe di regressione).
 
 **Esclusioni (restano IT).** I **valori interpolati** nei segnaposto (`{exc}`, nome profilo `{name}/
 {profile}`, nome sport `{sport}`, conteggi) sono dominio; i **segnaposto value-as-key** «(nessun

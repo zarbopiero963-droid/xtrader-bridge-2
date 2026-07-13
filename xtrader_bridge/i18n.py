@@ -518,7 +518,6 @@ _CATALOG = {
         "❌ Impossibile aprire la cartella log: {exc}": "❌ Cannot open the log folder: {exc}",
         "🧾 Audit modalità reale esportato ({count} eventi): {path}": "🧾 Real-mode audit exported ({count} events): {path}",
         "❌ Esportazione audit reale fallita: {exc}": "❌ Real audit export failed: {exc}",
-        "📋 Diagnostica copiata negli appunti.": "📋 Diagnostics copied to the clipboard.",
         "❌ Copia diagnostica fallita: {exc}": "❌ Diagnostics copy failed: {exc}",
         "❌ Retention log NON salvata. ": "❌ Log retention NOT saved. ",
         "🧹 Retention log: {days} giorni · {count} file vecchi rimossi.": "🧹 Log retention: {days} days · {count} old files removed.",
@@ -620,12 +619,11 @@ _CATALOG = {
         # Pannello «🌳 Mapping guidato» — MESSAGGI DI STATO (#343 slice 4w): esiti dinamici di
         # profilo/competizioni/squadre/salvataggio. {exc}=eccezione, {name}/{profile}=nome profilo,
         # {sport}=nome sport, {count}/{shown}/{total}/{written}=conteggi — valori di dominio nei
-        # segnaposto. «⏳ Dizionario occupato: riprova tra poco.» è già a catalogo (slice 4t).
-        "❌ Config illeggibile: {exc}": "❌ Config unreadable: {exc}",
-        "⛔ Profilo non creato (nome vuoto).": "⛔ Profile not created (empty name).",
-        "ℹ️ Il profilo «{name}» esiste già.": "ℹ️ The profile «{name}» already exists.",
-        "🆕 Profilo «{name}» creato.": "🆕 Profile «{name}» created.",
-        "❌ Salvataggio FALLITO: «{name}» non creato.": "❌ Save FAILED: «{name}» not created.",
+        # segnaposto. RIUSATE (già a catalogo da profiles_gui/altre slice, NON ri-aggiunte qui per
+        # non duplicare la chiave — il pannello le wrappa e riusa la voce esistente): «⏳ Dizionario
+        # occupato: riprova tra poco.» (4t), «ℹ️ Il profilo «{name}» esiste già.», «❌ Config
+        # illeggibile: {exc}», «⛔ Profilo non creato (nome vuoto).», «🆕 Profilo «{name}» creato.»,
+        # «❌ Salvataggio FALLITO: «{name}» non creato.» (profiles_gui). Qui SOLO le chiavi nuove:
         "ℹ️ Nessuna competizione per «{sport}». Popola il dizionario locale, poi riprova.": "ℹ️ No competition for «{sport}». Populate the local dictionary, then try again.",
         "ℹ️ Nessuna squadra per questa competizione (nessun evento nel dizionario). Popola il dizionario locale, poi riprova.": "ℹ️ No team for this competition (no event in the dictionary). Populate the local dictionary, then try again.",
         "{count} squadre. Scrivi l'alias del canale e premi «Salva nel profilo».": "{count} teams. Type the channel alias and press «Save to profile».",
@@ -1065,7 +1063,6 @@ _CATALOG = {
         "❌ Impossibile aprire la cartella log: {exc}": "❌ No se puede abrir la carpeta de logs: {exc}",
         "🧾 Audit modalità reale esportato ({count} eventi): {path}": "🧾 Auditoría de modo real exportada ({count} eventos): {path}",
         "❌ Esportazione audit reale fallita: {exc}": "❌ Exportación de auditoría real fallida: {exc}",
-        "📋 Diagnostica copiata negli appunti.": "📋 Diagnóstico copiado al portapapeles.",
         "❌ Copia diagnostica fallita: {exc}": "❌ Copia del diagnóstico fallida: {exc}",
         "❌ Retention log NON salvata. ": "❌ Retención de logs NO guardada. ",
         "🧹 Retention log: {days} giorni · {count} file vecchi rimossi.": "🧹 Retención de logs: {days} días · {count} archivos antiguos eliminados.",
@@ -1137,12 +1134,8 @@ _CATALOG = {
         "💾 Salva nel profilo": "💾 Guardar en el perfil",
         "Scegli Sport e Competizione per vedere le squadre.": "Elige Deporte y Competición para ver los equipos.",
         "come la chiama il canale…": "cómo lo llama el canal…",
-        # Pannello «🌳 Mapping guidato» — MESSAGGI DI STATO (#343 slice 4w) — vedi nota nel blocco EN.
-        "❌ Config illeggibile: {exc}": "❌ Config ilegible: {exc}",
-        "⛔ Profilo non creato (nome vuoto).": "⛔ Perfil no creado (nombre vacío).",
-        "ℹ️ Il profilo «{name}» esiste già.": "ℹ️ El perfil «{name}» ya existe.",
-        "🆕 Profilo «{name}» creato.": "🆕 Perfil «{name}» creado.",
-        "❌ Salvataggio FALLITO: «{name}» non creato.": "❌ Guardado FALLIDO: «{name}» no creado.",
+        # Pannello «🌳 Mapping guidato» — MESSAGGI DI STATO (#343 slice 4w) — vedi nota nel blocco EN
+        # (chiavi profilo-CRUD + «⏳» + «ℹ️ Il profilo…» riusate da profiles_gui/4t, non ri-aggiunte).
         "ℹ️ Nessuna competizione per «{sport}». Popola il dizionario locale, poi riprova.": "ℹ️ Ninguna competición para «{sport}». Puebla el diccionario local y reinténtalo.",
         "ℹ️ Nessuna squadra per questa competizione (nessun evento nel dizionario). Popola il dizionario locale, poi riprova.": "ℹ️ Ningún equipo para esta competición (ningún evento en el diccionario). Puebla el diccionario local y reinténtalo.",
         "{count} squadre. Scrivi l'alias del canale e premi «Salva nel profilo».": "{count} equipos. Escribe el alias del canal y pulsa «Guardar en el perfil».",
