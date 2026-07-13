@@ -3091,3 +3091,39 @@ handoff = **PASS**.
 backoff, recovery `{quando}`, varie audit/diagnostica/retention/debug/lingua/multi-chat,
 dominio-bubble che resta IT) + i **dialoghi modali** GUI + finestra 🧰 Strumenti hub (`tools_gui`) +
 il pannello 🌳 Mapping guidato (`guided_mapping_gui`).
+
+## #343 slice 4n — log RESILIENZA runtime (riconnessione + recovery CSV) localizzati (residuo UI della #3)
+
+**Obiettivo.** Quinto gruppo del residuo dei log di `app.py` (dopo lifecycle 4j, config/CSV 4k,
+START 4l, esito-elaborazione 4m): i log di **resilienza** del listener — riconnessione/backoff e
+recovery del CSV — quelli che l'utente vede quando la connessione cade e si ripristina.
+
+**Cosa fa.** Passano ora da `i18n.tr(...)` **5 chiavi**: «🔄 Riconnesso: … recuperati …»; «❌ Errore non
+recuperabile del listener: {exc}. Bridge fermato.»; «🔌 Connessione persa ({error}): riconnessione tra
+{delay}s (tentativo {attempt})…»; «🧹 CSV ripulito al retry dopo lo STOP: {path}»; «🧹 Rimossi {count}
+file temporanei CSV orfani all'avvio.». Le interpolazioni f-string diventano template
+`tr(...).format(...)` (il `{delay}` è pre-formattato `{d:.0f}` e passato come stringa). Catalogo
+`i18n.py`: **5 chiavi × EN/ES** («listener»/«bridge»/«STOP»/«CSV» verbatim). Marker (🔄/❌/🔌/🧹)
+conservato → livello invariato.
+
+**Esclusioni documentate (restano IT — slice a parte).** I log di recovery `f"🧹 CSV riportato a solo
+header {quando}: {path}"` e `f"⚠️ Impossibile ripulire il CSV {quando} ({exc}): …"` NON sono wrappati:
+`{quando}` è **value-as-key** (in `_clear_stale_csv` è confrontato `== "all'avvio"` per scegliere
+l'evento journal `CRASH_RECOVERY_CSV_CLEARED` vs `CSV_CLEARED`), quindi localizzarlo richiede uno
+**split display↔chiave** — rimandato a una slice dedicata. I valori `{exc}`/`{error}`/`{path}`/`{count}`
+sono dominio; il traceback e i domini-bubble restano IT. **Nessun cambio di logica**: policy di
+reconnect/backoff (`reconnect_policy`), `_reconnect_wait`, recovery CSV e journal invariati.
+
+**Test hard** (`tests/unit/test_app_resilience_i18n_343.py`, +6, pattern 4m): estrae via AST le
+costanti `tr`, verifica wrapping (+ assenza vecchi f-string), copertura EN/ES **con traduzione != IT**
+per le 5 chiavi, i **call-site `.format(...)`** dei log dinamici (mutation-guard `{exc}`/`{error}`/
+`{delay}`/`{attempt}`/`{path}`/`{count}`), la conservazione dei segnaposto, il round-trip, il marker e
+l'**esclusione `{quando}`** (recovery non wrappato). Anti-drift `test_i18n_343.py` resta verde
+(`_APP_TR` AST). Suite locale (al commit): **2459 passed, 11 skipped** (l'esito autorevole è la CI del
+head PR). **CORE change** (`app.py`, `i18n.py`) → ri-sincronizzare nel cloud. Docs: README +
+`design_handoff.md` (§ localizzazione log). Design handoff = **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti ~54 log `self._log(...)` di `app.py` (recovery
+`{quando}`, varie audit/diagnostica/retention/debug/lingua/multi-chat, dominio-bubble che resta IT) +
+i **dialoghi modali** GUI + finestra 🧰 Strumenti hub (`tools_gui`) + il pannello 🌳 Mapping guidato
+(`guided_mapping_gui`).

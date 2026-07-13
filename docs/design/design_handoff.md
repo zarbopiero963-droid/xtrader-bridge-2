@@ -351,8 +351,18 @@ falliti dopo conferma/scadenza e «🗑️ N segnale/i scaduto/i rimosso/i dal C
 conservato → colore/livello invariato. **Restano IT** per contratto: i **veri messaggi di ESITO
 conferma** (confermato/rifiutato/unmatched/unknown) e le presentazioni di scrittura/scarto costruite
 nei layer puri (`outcome.*_log`, `signal_outcome.confirmation_removed_log`/`_ignored_log`,
-`multi_signal.blocked_message`) coi dati di dominio interpolati; i log di **riconnessione/backoff**
-(🔄/🔌/❌ errore listener) sono un tema «connessione» rimandato a una slice successiva.
+`multi_signal.blocked_message`) coi dati di dominio interpolati.
+
+Dalla **slice 4n — log RESILIENZA runtime** è localizzato il quinto gruppo: i log del pannello
+**📋 Log** legati a **caduta e ripristino della connessione** e al recovery del CSV — «🔄 Riconnesso:
+… recuperati …», «🔌 Connessione persa (…): riconnessione tra Ns (tentativo N)…», «❌ Errore non
+recuperabile del listener: … Bridge fermato.», «🧹 CSV ripulito al retry dopo lo STOP: …» e «🧹 Rimossi
+N file temporanei CSV orfani all'avvio.». Marker (🔄/❌/🔌/🧹) conservato → colore/livello invariato.
+**Restano IT** per contratto: i log di recovery con la **parola-quando** («🧹 CSV riportato a solo
+header {quando}: …», «⚠️ Impossibile ripulire il CSV {quando} …»), perché `{quando}` è una
+**chiave-valore** confrontata nel codice (`== "all'avvio"`) per distinguere un crash-recovery da un
+clear normale — la sua localizzazione richiede uno split display↔chiave, rimandato a una slice
+dedicata; i valori interpolati `{exc}`/`{error}`/`{path}` restano dominio.
 
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
