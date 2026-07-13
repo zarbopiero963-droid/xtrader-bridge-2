@@ -316,6 +316,20 @@ che riportano **contenuto di dominio** risalito dai layer puri (`bridge_mode.sta
 `real_mode.*`, `config_store.save_status_message`, esiti `outcome.*_log`, `warning`) e i restanti
 gruppi di log, previsti nelle prossime slice della #343.
 
+Dalla **slice 4k — log CONFIG/CSV user-action** è localizzato il secondo gruppo: i log delle
+**azioni utente su configurazione e CSV** nel pannello **📋 Log** — «💾 Configurazione salvata»,
+«🎨 Tema: chiaro/scuro», «📄 CSV Path aggiornato e salvato: …», i prefissi d'errore «❌ CSV Path
+selezionato ma NON salvato: …»/«❌ Preferenza tema NON salvata: …» e l'intero set di feedback del
+pulsante **«📄 Crea CSV»** (bloccato in RUN, creato, file estraneo/segnale attivo non sovrascritti,
+annullato dall'utente). «Crea CSV» è tradotto come il **bottone** omonimo (EN «Create CSV», ES
+«Crear CSV»); marker emoji e livello conservati. **Restano IT** (documentato): i **messaggi di
+stato** del layer puro `config_store.save_status_message` (si traduce solo il prefisso), il dato
+`{exc}`, i log di **recovery/clear** con la parola-quando («all'avvio»/«allo stop»/…) — slice a
+parte — e, importante per il design, i **dialoghi modali** di «Crea CSV» (`messagebox`/`filedialog`:
+titoli, conferme di sovrascrittura): sono una superficie diversa dai log e restano in italiano
+finché non arriva la slice dedicata ai **dialoghi GUI** (quindi, temporaneamente, cliccando «Crea
+CSV» il **dialogo** è IT ma la **riga di log** risultante è localizzata).
+
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
 Toplevel MODALE (grab) lanciato dal bottone **«🧙 Wizard prima configurazione»**

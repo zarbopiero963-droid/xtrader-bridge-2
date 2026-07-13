@@ -828,7 +828,7 @@ class App(ctk.CTk):
         segnalato da `_save_config`, quindi qui non si ripete l'errore."""
         self._save_config()
         if self._save_ok:
-            self._log("💾 Configurazione salvata")
+            self._log(i18n.tr("💾 Configurazione salvata"))
 
     # ── CSV Path: pulsante «📁 Sfoglia…» + salvataggio immediato (#284) ──────
     def _apply_and_save_csv_path(self, path: str) -> bool:
@@ -863,7 +863,7 @@ class App(ctk.CTk):
         self._resync_token_field(had_incomplete)
         self._save_ok = ok
         if not ok:
-            self._log("❌ CSV Path selezionato ma NON salvato: "
+            self._log(i18n.tr("❌ CSV Path selezionato ma NON salvato: ")
                       + config_store.save_status_message(result.status))
         return ok
 
@@ -889,7 +889,7 @@ class App(ctk.CTk):
         if not dest:
             return                           # dialog annullato: nessuna modifica
         if self._apply_and_save_csv_path(dest):
-            self._log(f"📄 CSV Path aggiornato e salvato: {dest}")
+            self._log(i18n.tr("📄 CSV Path aggiornato e salvato: {path}").format(path=dest))
 
     # ── Tema chiaro/scuro: toggle nell'header (#288 Delta 1) ──────────────────────
     def _update_theme_button(self, theme: str) -> None:
@@ -917,10 +917,10 @@ class App(ctk.CTk):
         self._resync_token_field(had_incomplete)
         self._save_ok = ok
         if not ok:
-            self._log("❌ Preferenza tema NON salvata: "
+            self._log(i18n.tr("❌ Preferenza tema NON salvata: ")
                       + config_store.save_status_message(result.status))
         self._update_theme_button(new)
-        self._log("🎨 Tema: " + ("chiaro" if new == "light" else "scuro"))
+        self._log(i18n.tr("🎨 Tema: chiaro") if new == "light" else i18n.tr("🎨 Tema: scuro"))
         return new
 
     # ── CSV Path: pulsante «📄 Crea CSV» — genera un CSV a solo header (#286) ──────
@@ -955,26 +955,27 @@ class App(ctk.CTk):
         if self._is_active_session_csv(path):
             # Guardia RUNTIME (Fable+Fugu #330): mai ricreare il CSV della sessione in RUN —
             # cancellerebbe un segnale non ancora consumato. `force` NON la bypassa.
-            self._log("⚠️ «Crea CSV» annullato: il bridge è AVVIATO su questo CSV. "
-                      "Fai STOP prima di ricrearlo.")
+            self._log(i18n.tr("⚠️ «Crea CSV» annullato: il bridge è AVVIATO su questo CSV. "
+                              "Fai STOP prima di ricrearlo."))
             return False
         try:
             outcome = csv_writer.create_header_only_csv(path, force=force)
         except OSError as e:
             # Cartella inesistente/permessi: fallire in modo pulito senza toccare la config.
-            self._log("❌ «Crea CSV» fallito: impossibile creare %s (%s)." % (path, e))
+            self._log(i18n.tr("❌ «Crea CSV» fallito: impossibile creare {path} ({exc}).")
+                      .format(path=path, exc=e))
             return False
         if outcome == csv_writer.CSV_CREATE_REFUSED_FOREIGN:
-            self._log("⚠️ «Crea CSV» annullato: %s esiste e NON è un CSV del bridge "
-                      "(non sovrascritto)." % path)
+            self._log(i18n.tr("⚠️ «Crea CSV» annullato: {path} esiste e NON è un CSV del bridge "
+                              "(non sovrascritto).").format(path=path))
             return False
         if outcome == csv_writer.CSV_CREATE_REFUSED_ACTIVE:
-            self._log("⚠️ «Crea CSV» annullato: %s contiene un segnale attivo "
-                      "(non sovrascritto)." % path)
+            self._log(i18n.tr("⚠️ «Crea CSV» annullato: {path} contiene un segnale attivo "
+                              "(non sovrascritto).").format(path=path))
             return False
         ok = self._apply_and_save_csv_path(path)
         if ok:
-            self._log("📄 CSV creato (solo header) e impostato: %s" % path)
+            self._log(i18n.tr("📄 CSV creato (solo header) e impostato: {path}").format(path=path))
         return ok
 
     def _browse_create_csv(self) -> None:
@@ -1001,7 +1002,8 @@ class App(ctk.CTk):
             messagebox.showwarning(
                 "Bridge avviato",
                 "Il bridge è AVVIATO su questo CSV.\n\nFai STOP prima di ricrearlo.")
-            self._log("⚠️ «Crea CSV» annullato: bridge avviato su %s (STOP prima)." % dest)
+            self._log(i18n.tr("⚠️ «Crea CSV» annullato: bridge avviato su {path} (STOP prima).")
+                      .format(path=dest))
             return
         # Pre-check ADVISORY per il solo messaggio di conferma (la decisione di scrittura è
         # atomica in `create_header_only_csv`; una race qui è innocua: al più un prompt in più).
@@ -1012,7 +1014,8 @@ class App(ctk.CTk):
                         "Sovrascrivere il file esistente?",
                         "%s esiste e NON è un CSV del bridge.\n\nSovrascriverlo con un CSV "
                         "vuoto (solo header)?" % dest):
-                    self._log("⚠️ «Crea CSV» annullato dall'utente: %s non sovrascritto." % dest)
+                    self._log(i18n.tr("⚠️ «Crea CSV» annullato dall'utente: {path} non sovrascritto.")
+                              .format(path=dest))
                     return
                 force = True
             elif has_active_row(dest):
@@ -1020,7 +1023,8 @@ class App(ctk.CTk):
                         "Sovrascrivere il segnale attivo?",
                         "%s contiene un segnale attivo non ancora letto da XTrader.\n\n"
                         "Sovrascriverlo con un CSV vuoto (solo header)?" % dest):
-                    self._log("⚠️ «Crea CSV» annullato dall'utente: %s non sovrascritto." % dest)
+                    self._log(i18n.tr("⚠️ «Crea CSV» annullato dall'utente: {path} non sovrascritto.")
+                              .format(path=dest))
                     return
                 force = True
         self._create_and_save_csv(dest, force=force)

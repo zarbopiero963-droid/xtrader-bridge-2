@@ -452,6 +452,23 @@ _CATALOG = {
         "✅ Connesso a Telegram.": "✅ Connected to Telegram.",
         "⏱️  Scadenza segnale tra ~{seconds}s": "⏱️  Signal expires in ~{seconds}s",
         "🗑️  CSV svuotato manualmente": "🗑️  CSV cleared manually",
+        # Log azioni utente CONFIG/CSV (#343 slice 4k): salva config/tema, salva/crea CSV path.
+        # «Crea CSV» tradotto come il bottone omonimo. I messaggi di stato del layer puro
+        # (config_store.save_status_message) restano IT: qui si wrappa solo il PREFISSO. Il dato
+        # interpolato {exc} è contenuto di dominio (resta invariato).
+        "💾 Configurazione salvata": "💾 Configuration saved",
+        "❌ CSV Path selezionato ma NON salvato: ": "❌ CSV Path selected but NOT saved: ",
+        "📄 CSV Path aggiornato e salvato: {path}": "📄 CSV Path updated and saved: {path}",
+        "❌ Preferenza tema NON salvata: ": "❌ Theme preference NOT saved: ",
+        "🎨 Tema: chiaro": "🎨 Theme: light",
+        "🎨 Tema: scuro": "🎨 Theme: dark",
+        "⚠️ «Crea CSV» annullato: il bridge è AVVIATO su questo CSV. Fai STOP prima di ricrearlo.": "⚠️ «Create CSV» cancelled: the bridge is STARTED on this CSV. Stop it (STOP) before recreating it.",
+        "❌ «Crea CSV» fallito: impossibile creare {path} ({exc}).": "❌ «Create CSV» failed: cannot create {path} ({exc}).",
+        "⚠️ «Crea CSV» annullato: {path} esiste e NON è un CSV del bridge (non sovrascritto).": "⚠️ «Create CSV» cancelled: {path} exists and is NOT a bridge CSV (not overwritten).",
+        "⚠️ «Crea CSV» annullato: {path} contiene un segnale attivo (non sovrascritto).": "⚠️ «Create CSV» cancelled: {path} contains an active signal (not overwritten).",
+        "📄 CSV creato (solo header) e impostato: {path}": "📄 CSV created (header only) and set: {path}",
+        "⚠️ «Crea CSV» annullato: bridge avviato su {path} (STOP prima).": "⚠️ «Create CSV» cancelled: bridge started on {path} (STOP first).",
+        "⚠️ «Crea CSV» annullato dall'utente: {path} non sovrascritto.": "⚠️ «Create CSV» cancelled by user: {path} not overwritten.",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -831,5 +848,19 @@ _CATALOG = {
         "✅ Connesso a Telegram.": "✅ Conectado a Telegram.",
         "⏱️  Scadenza segnale tra ~{seconds}s": "⏱️  La señal expira en ~{seconds}s",
         "🗑️  CSV svuotato manualmente": "🗑️  CSV vaciado manualmente",
+        # Log azioni utente CONFIG/CSV (#343 slice 4k) — vedi nota nel blocco EN.
+        "💾 Configurazione salvata": "💾 Configuración guardada",
+        "❌ CSV Path selezionato ma NON salvato: ": "❌ Ruta CSV seleccionada pero NO guardada: ",
+        "📄 CSV Path aggiornato e salvato: {path}": "📄 Ruta CSV actualizada y guardada: {path}",
+        "❌ Preferenza tema NON salvata: ": "❌ Preferencia de tema NO guardada: ",
+        "🎨 Tema: chiaro": "🎨 Tema: claro",
+        "🎨 Tema: scuro": "🎨 Tema: oscuro",
+        "⚠️ «Crea CSV» annullato: il bridge è AVVIATO su questo CSV. Fai STOP prima di ricrearlo.": "⚠️ «Crear CSV» cancelado: el bridge está INICIADO en este CSV. Detén (STOP) antes de recrearlo.",
+        "❌ «Crea CSV» fallito: impossibile creare {path} ({exc}).": "❌ «Crear CSV» fallido: no se puede crear {path} ({exc}).",
+        "⚠️ «Crea CSV» annullato: {path} esiste e NON è un CSV del bridge (non sovrascritto).": "⚠️ «Crear CSV» cancelado: {path} existe y NO es un CSV del bridge (no sobrescrito).",
+        "⚠️ «Crea CSV» annullato: {path} contiene un segnale attivo (non sovrascritto).": "⚠️ «Crear CSV» cancelado: {path} contiene una señal activa (no sobrescrito).",
+        "📄 CSV creato (solo header) e impostato: {path}": "📄 CSV creado (solo cabecera) y establecido: {path}",
+        "⚠️ «Crea CSV» annullato: bridge avviato su {path} (STOP prima).": "⚠️ «Crear CSV» cancelado: bridge iniciado en {path} (STOP antes).",
+        "⚠️ «Crea CSV» annullato dall'utente: {path} non sovrascritto.": "⚠️ «Crear CSV» cancelado por el usuario: {path} no sobrescrito.",
     },
 }
