@@ -21,7 +21,7 @@ NB: modulo non testato in CI (richiede display); la logica sottostante è copert
 
 import customtkinter as ctk
 
-from . import config_store, name_mapping_store, sports
+from . import config_store, i18n, name_mapping_store, sports
 from .betfair.dictionary_viewer import Debouncer, DictionaryBusy
 from .betfair.guided_mapping import (
     competition_labels,
@@ -29,7 +29,11 @@ from .betfair.guided_mapping import (
     merge_team_aliases,
 )
 
-# Voce placeholder delle tendine.
+# Voci placeholder delle tendine. Sono VALUE-AS-KEY (restano IT, NON a catalogo, #343 slice 4v):
+# `_NO_PROFILE` è confrontato per uguaglianza in `_on_profile_change` (`value != _NO_PROFILE`) ed è
+# già nella lista-esclusioni di `test_esclusioni_value_as_key_non_wrappate`; `_NO_COMP` è il segnaposto
+# «nessuna competizione» (assente da `_comp_by_label` → `_selected_competition_id` ritorna None).
+# Localizzarli romperebbe il confronto/segnaposto: la chrome è tradotta, questi due no.
 _NO_PROFILE = "(nessun profilo)"
 _NO_COMP = "(scegli lo sport)"
 # Tetto di righe-squadra renderizzate in un colpo (come il viewer, Fase 2): evita il freeze su
@@ -95,35 +99,35 @@ class GuidedMappingPanel(ctk.CTkFrame):
     # ── costruzione UI ─────────────────────────────────────────────────────────
     def _build_ui(self):
         ctk.CTkLabel(
-            self, text="🌳  Mapping guidato (Betfair → nome canale)",
+            self, text=i18n.tr("🌳  Mapping guidato (Betfair → nome canale)"),
             font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
         ctk.CTkLabel(
-            self, text="Scegli Sport → Competizione: compaiono le squadre dai dati Betfair "
-                       "presenti nel dizionario. Accanto a ogni squadra scrivi «come la chiama il canale» e "
-                       "salva nel profilo. Serve un dizionario locale popolato.",
+            self, text=i18n.tr("Scegli Sport → Competizione: compaiono le squadre dai dati Betfair "
+                               "presenti nel dizionario. Accanto a ogni squadra scrivi «come la chiama il canale» e "
+                               "salva nel profilo. Serve un dizionario locale popolato."),
             font=ctk.CTkFont(size=11), text_color="gray", wraplength=760,
             anchor="w", justify="left").pack(anchor="w", padx=12, pady=(0, 6))
 
         # Riga profilo (destinazione del salvataggio).
         prof = ctk.CTkFrame(self, fg_color="transparent")
         prof.pack(fill="x", padx=12, pady=(0, 4))
-        ctk.CTkLabel(prof, text="Profilo:").pack(side="left", padx=(6, 4))
+        ctk.CTkLabel(prof, text=i18n.tr("Profilo:")).pack(side="left", padx=(6, 4))
         self._profile_var = ctk.StringVar(value=_NO_PROFILE)
         self._profile_menu = ctk.CTkOptionMenu(
             prof, variable=self._profile_var, values=[_NO_PROFILE], width=220,
             command=self._on_profile_change)
         self._profile_menu.pack(side="left", padx=4)
-        ctk.CTkButton(prof, text="🆕 Nuovo", width=84,
+        ctk.CTkButton(prof, text=i18n.tr("🆕 Nuovo"), width=84,
                       command=self._new_profile).pack(side="left", padx=3)
 
         # Riga sport + competizione.
         pick = ctk.CTkFrame(self, fg_color="transparent")
         pick.pack(fill="x", padx=12, pady=(0, 4))
-        ctk.CTkLabel(pick, text="Sport:").pack(side="left", padx=(6, 4))
+        ctk.CTkLabel(pick, text=i18n.tr("Sport:")).pack(side="left", padx=(6, 4))
         self._sport_var = ctk.StringVar(value=sports.SPORTS[0])
         ctk.CTkOptionMenu(pick, variable=self._sport_var, width=150, values=list(sports.SPORTS),
                           command=lambda _v: self._on_sport_change()).pack(side="left", padx=4)
-        ctk.CTkLabel(pick, text="Competizione:").pack(side="left", padx=(12, 4))
+        ctk.CTkLabel(pick, text=i18n.tr("Competizione:")).pack(side="left", padx=(12, 4))
         self._comp_var = ctk.StringVar(value=_NO_COMP)
         self._comp_menu = ctk.CTkOptionMenu(pick, variable=self._comp_var, width=240,
                                             values=[_NO_COMP], command=lambda _v: self._load_teams())
@@ -132,29 +136,29 @@ class GuidedMappingPanel(ctk.CTkFrame):
         # Riga filtro squadre.
         fbar = ctk.CTkFrame(self, fg_color="transparent")
         fbar.pack(fill="x", padx=12, pady=(0, 4))
-        ctk.CTkLabel(fbar, text="Filtra squadre:").pack(side="left", padx=(6, 4))
+        ctk.CTkLabel(fbar, text=i18n.tr("Filtra squadre:")).pack(side="left", padx=(6, 4))
         self._filter_var = ctk.StringVar(value="")
         entry = ctk.CTkEntry(fbar, textvariable=self._filter_var, width=240,
-                             placeholder_text="parte del nome squadra…")
+                             placeholder_text=i18n.tr("parte del nome squadra…"))
         entry.pack(side="left", padx=4)
         entry.bind("<KeyRelease>", self._on_filter_key)
-        ctk.CTkButton(fbar, text="Pulisci", width=80,
+        ctk.CTkButton(fbar, text=i18n.tr("Pulisci"), width=80,
                       command=self._clear_filter).pack(side="left", padx=3)
 
         # Intestazione tabella squadre.
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=12, pady=(4, 0))
-        ctk.CTkLabel(head, text="Squadra Betfair", width=300, anchor="w",
+        ctk.CTkLabel(head, text=i18n.tr("Squadra Betfair"), width=300, anchor="w",
                      font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
-        ctk.CTkLabel(head, text="Come la chiama il canale", width=300, anchor="w",
+        ctk.CTkLabel(head, text=i18n.tr("Come la chiama il canale"), width=300, anchor="w",
                      font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
 
-        self._rows_frame = ctk.CTkScrollableFrame(self, height=340, label_text="Squadre")
+        self._rows_frame = ctk.CTkScrollableFrame(self, height=340, label_text=i18n.tr("Squadre"))
         self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
 
         actions = ctk.CTkFrame(self, fg_color="transparent")
         actions.pack(fill="x", padx=12, pady=(0, 4))
-        ctk.CTkButton(actions, text="💾 Salva nel profilo", width=170, fg_color="#2e7d32",
+        ctk.CTkButton(actions, text=i18n.tr("💾 Salva nel profilo"), width=170, fg_color="#2e7d32",
                       hover_color="#1b5e20", command=self._save).pack(side="left", padx=3)
 
         self._status = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=11),
@@ -197,7 +201,8 @@ class GuidedMappingPanel(ctk.CTkFrame):
         self._render_team_rows()
 
     def _new_profile(self):
-        dialog = ctk.CTkInputDialog(text="Nome del nuovo profilo:", title="Nuovo profilo")
+        dialog = ctk.CTkInputDialog(text=i18n.tr("Nome del nuovo profilo:"),
+                                    title=i18n.tr("Nuovo profilo"))
         name = (dialog.get_input() or "").strip()
         if not name:
             self._status.configure(text="⛔ Profilo non creato (nome vuoto).", text_color="#ef5350")
@@ -328,7 +333,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
             child.destroy()
         if not self._team_vars:
             ctk.CTkLabel(self._rows_frame,
-                         text="Scegli Sport e Competizione per vedere le squadre.",
+                         text=i18n.tr("Scegli Sport e Competizione per vedere le squadre."),
                          text_color="gray").pack(anchor="w", padx=6, pady=4)
             return
         needle = self._filter_var.get().strip().casefold()
@@ -339,7 +344,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
             row.pack(fill="x", pady=2)
             ctk.CTkLabel(row, text=team, width=300, anchor="w").pack(side="left", padx=3)
             ctk.CTkEntry(row, width=300, textvariable=self._team_vars[team],
-                         placeholder_text="come la chiama il canale…").pack(side="left", padx=3)
+                         placeholder_text=i18n.tr("come la chiama il canale…")).pack(side="left", padx=3)
         if len(teams) > _TEAM_RENDER_CAP:
             ctk.CTkLabel(
                 self._rows_frame,

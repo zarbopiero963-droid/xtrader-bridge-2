@@ -3364,3 +3364,36 @@ widget veri di `_render` richiede un display → documentato smoke test manuale 
 **Ancora aperto (per chiudere #3):** i restanti ~26 log `self._log(...)` di `app.py` (dominio-bubble/
 value-as-key che restano IT + pochi candidati) + i **dialoghi modali** GUI + i pannelli GUI cross-cutting
 ancora in italiano (🧰 `tools_gui` hub — titoli-scheda = chiavi di matching, 🌳 `guided_mapping_gui`).
+
+## #343 slice 4v — «🌳 Mapping guidato» CHROME (guided_mapping_gui) localizzata (residuo UI #3)
+
+**Obiettivo.** Terzo pannello GUI del residuo (dopo 🧹 Nomi squadra e 📋 Riepilogo): la **chrome
+statica** del **🌳 Mapping guidato** (albero Sport → Competizione → Squadre → nome canale). Il pannello
+è grande (~383 righe) → **spezzato in 2 slice**: 4v = chrome; **4w = messaggi di stato dinamici**.
+
+**Cosa fa.** Passano da `i18n.tr(...)` **17 stringhe di chrome** (titolo, descrizione multi-riga,
+label «Profilo/Sport/Competizione», filtro «Filtra squadre:» + placeholder + «Pulisci», intestazioni
+colonne «Squadra Betfair»/«Come la chiama il canale», `label_text` «Squadre», bottoni «🆕 Nuovo»/«💾
+Salva nel profilo», placeholder riga, empty-state, dialog «Nuovo profilo»/«Nome del nuovo profilo:»).
+Catalogo `i18n.py`: **12 chiavi NUOVE × EN/ES** (le altre 5 — Profilo:/🆕 Nuovo/Sport:/Nome del nuovo
+profilo:/Nuovo profilo — sono già a catalogo da pannelli precedenti; «Sport:» è ES-only, EN identità).
+«Betfair» resta termine prodotto. Anti-drift: `guided_mapping_gui.py` aggiunto a `_SECONDARY_TR`.
+
+**Esclusioni documentate (restano IT).** I **segnaposto value-as-key** «(nessun profilo)»
+(`_NO_PROFILE`, confrontato `!= _NO_PROFILE` in `_on_profile_change`, già nella lista di
+`test_esclusioni_value_as_key_non_wrappate`) e «(scegli lo sport)» (`_NO_COMP`, segnaposto «nessuna
+competizione», assente da `_comp_by_label`) → non localizzati, non a catalogo. I **nomi
+sport/competizione/squadra** sono valori di dominio. I **messaggi di stato dinamici** (con `{exc}`,
+`{name}`, conteggi) sono **rimandati alla slice 4w**. **Nessun cambio di logica**:
+provider/save/reload/filtro/debounce invariati (pura presentazione).
+
+**Test hard** (`tests/unit/test_guided_mapping_i18n_343.py`): AST (chrome wrappata, vecchie stringhe
+sparite), copertura EN/ES **!= IT** delle 12 chiavi nuove, **guardia value-as-key** (sentinel IT non a
+catalogo), **scoping** (i messaggi di stato restano f-string IT — arrivano con 4w), round-trip. I test
+logici esistenti (`test_betfair_guided_mapping.py`) restano verdi. Anti-drift `test_i18n_343.py` verde.
+Suite unit+integration: **2258 passed, 1 skipped**. Docs: README + `design_handoff.md`. Design handoff
+= **PASS**.
+
+**Ancora aperto (per chiudere #3):** i **messaggi di stato dinamici** del 🌳 Mapping guidato (slice 4w)
++ i restanti ~26 log `self._log(...)` di `app.py` + i **dialoghi modali** GUI + l'hub 🧰 `tools_gui`
+(cross-cutting: titoli-scheda = chiavi di matching).
