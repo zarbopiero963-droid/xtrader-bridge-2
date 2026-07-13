@@ -374,6 +374,18 @@ contratto: i **suffissi di stato** del layer puro `config_store.save_status_mess
 «Retention/Debug NON salvata» (si traduce solo il prefisso, come per gli altri error-prefix), i valori
 di dominio interpolati e i log `_dbg(…)` di debug verboso (fuori pannello, diagnostica interna).
 
+Dalla **slice 4p — log WIZARD + LINGUA-SELECTOR + PROFILO/SORGENTI** è localizzato il settimo gruppo:
+i log del pannello **📋 Log** legati a **wizard**, **selettore lingua** e **profilo/sorgenti** —
+apertura wizard fallita, «🧙 Wizard completato: …», «🌐 Selettore lingua rimandato: auto-start
+attivo …», «⚠️ Lingua scelta (…) ma salvataggio config FALLITO …», «⚠️ Scheda … non aggiornata dal
+profilo …», «📁 Profilo caricato e applicato …» e «📡 Sorgenti multi-chat aggiornate (N).». Marker
+conservato → colore/livello invariato. **Restano IT** per contratto: il log di **successo del
+cambio-lingua** («🌐 Lingua del bridge impostata: …») — ha una sotto-stringa computata e una nota che
+va aggiornata, rimandato a una slice dedicata; il **suffisso di stato** `save_status_message` del
+profilo «NON persistito» (solo prefisso tradotto); e — invariante di sicurezza — il log di
+apertura-wizard-fallita registra **solo la classe dell'eccezione** (`type(ex).__name__`), mai il
+token (che potrebbe comparire nel testo di un'eccezione, review #354).
+
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
 Toplevel MODALE (grab) lanciato dal bottone **«🧙 Wizard prima configurazione»**

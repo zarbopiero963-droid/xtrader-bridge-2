@@ -1575,7 +1575,7 @@ class App(ctk.CTk):
             # SOLO la classe dell'errore nel log: `initial` contiene il token e
             # un'eccezione che lo echeggiasse violerebbe «token mai nei log»
             # (review Fugu/GPT #354).
-            self._log(f"❌ Apertura wizard fallita: {type(ex).__name__}")
+            self._log(i18n.tr("❌ Apertura wizard fallita: {exc}").format(exc=type(ex).__name__))
 
     def _wizard_finish(self, values: dict) -> None:
         """Fine wizard: applica token/chat/csv al FORM e salva passando dal percorso
@@ -1589,7 +1589,7 @@ class App(ctk.CTk):
                 entry.insert(0, val)
         self._save_config()
         if self._save_ok:
-            self._log("🧙 Wizard completato: configurazione salvata.")
+            self._log(i18n.tr("🧙 Wizard completato: configurazione salvata."))
 
     def _maybe_open_language_selector(self) -> None:
         """#343 slice 3: al PRIMO avvio (`app_language` mai scelta) mostra il selettore
@@ -1605,8 +1605,8 @@ class App(ctk.CTk):
             # bloccherebbe la finestra (STOP irraggiungibile) mentre il bridge
             # scrive il CSV. Niente selettore: resta il comportamento storico
             # (IT); la lingua si imposta in config.json (`app_language`).
-            self._log("🌐 Selettore lingua rimandato: auto-start attivo (imposta "
-                      "app_language in config.json, o disattiva l'auto-start).")
+            self._log(i18n.tr("🌐 Selettore lingua rimandato: auto-start attivo (imposta "
+                              "app_language in config.json, o disattiva l'auto-start)."))
             return
         try:
             win = ctk.CTkToplevel(self)
@@ -1665,10 +1665,10 @@ class App(ctk.CTk):
                 # `save_config` ha però GIÀ allineato il writer alla lingua tentata
                 # (sync pre-scrittura, #342): lo si riporta al valore catturato.
                 csv_writer.set_csv_language(prev_csv)
-                self._log(f"⚠️ Lingua scelta ({lang}) ma salvataggio config FALLITO: "
-                          "nulla è cambiato (la sessione resta nella lingua "
-                          "precedente) e il selettore riapparirà al prossimo avvio — "
-                          "controlla permessi/spazio disco.")
+                self._log(i18n.tr("⚠️ Lingua scelta ({lang}) ma salvataggio config FALLITO: "
+                                  "nulla è cambiato (la sessione resta nella lingua "
+                                  "precedente) e il selettore riapparirà al prossimo avvio — "
+                                  "controlla permessi/spazio disco.").format(lang=lang))
         try:
             if win is not None:
                 win.destroy()
@@ -3351,8 +3351,9 @@ class App(ctk.CTk):
                 try:
                     _panel.refresh()
                 except Exception as ex:       # noqa: BLE001 — best-effort, ma non silenzioso
-                    self._log(f"⚠️ Scheda {_TOOL_PANEL_LABELS[_key]} non aggiornata dal "
-                              f"profilo (mostra ancora i valori precedenti): {ex}")
+                    self._log(i18n.tr("⚠️ Scheda {tab} non aggiornata dal profilo "
+                                      "(mostra ancora i valori precedenti): {exc}")
+                              .format(tab=_TOOL_PANEL_LABELS[_key], exc=ex))
 
     def _open_tools(self, initial=None):
         """Apre la finestra hub "🧰 Strumenti" a schede (consolidazione GUI, roadmap).
@@ -3408,10 +3409,10 @@ class App(ctk.CTk):
             # testabile headless — Codex #94).
             self._refresh_tool_panels_after_profile(panel_refs, saved)
             if ok:
-                self._log("📁 Profilo caricato e applicato (token invariato).")
+                self._log(i18n.tr("📁 Profilo caricato e applicato (token invariato)."))
             else:
                 # Causa SPECIFICA (#255 line-647): disco vs keyring vs config corrotto.
-                self._log("⚠️ Profilo applicato in memoria (token invariato), ma NON persistito. "
+                self._log(i18n.tr("⚠️ Profilo applicato in memoria (token invariato), ma NON persistito. ")
                           + config_store.save_status_message(result.status))
 
         def _sources_saved(new_cfg):
@@ -3421,7 +3422,8 @@ class App(ctk.CTk):
             self._config = new_cfg
             self._resync_token_field(had)             # reidrata il campo token se serve (PR-08c)
             self._refresh_listened_chats()
-            self._log(f"📡 Sorgenti multi-chat aggiornate ({len(new_cfg.get('source_chats', []))}).")
+            self._log(i18n.tr("📡 Sorgenti multi-chat aggiornate ({count}).")
+                      .format(count=len(new_cfg.get('source_chats', []))))
 
         def _mapping_saved(new_cfg):
             """Dizionario nomi (area Calcio del Mapping) salvato: aggiorna la config in

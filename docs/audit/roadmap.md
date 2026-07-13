@@ -3164,3 +3164,41 @@ ri-sincronizzare nel cloud. Docs: README + `design_handoff.md` (§ localizzazion
 `{quando}`, wizard/lingua, profilo/multi-chat/scheda, dominio-bubble che resta IT) + i **dialoghi
 modali** GUI + finestra 🧰 Strumenti hub (`tools_gui`) + il pannello 🌳 Mapping guidato
 (`guided_mapping_gui`).
+
+## #343 slice 4p — log WIZARD + LINGUA-SELECTOR + PROFILO/SORGENTI (app.py) localizzati (residuo UI #3)
+
+**Obiettivo.** Settimo gruppo del residuo dei log di `app.py` (dopo 4j–4o): i log delle azioni GUI di
+**wizard**, **selettore lingua** (percorsi rimandato / salvataggio-fallito) e **applicazione profilo /
+aggiornamento sorgenti**.
+
+**Cosa fa.** Passano ora da `i18n.tr(...)` **8 chiavi**: «❌ Apertura wizard fallita: {exc}»; «🧙 Wizard
+completato: configurazione salvata.»; «🌐 Selettore lingua rimandato: auto-start attivo …»; «⚠️ Lingua
+scelta ({lang}) ma salvataggio config FALLITO …»; «⚠️ Scheda {tab} non aggiornata dal profilo …:
+{exc}»; «📁 Profilo caricato e applicato (token invariato).»; «⚠️ Profilo applicato in memoria …, ma
+NON persistito. » (prefisso); «📡 Sorgenti multi-chat aggiornate ({count}).». Catalogo `i18n.py`:
+**8 chiavi × EN/ES** («wizard»→«asistente», «Profilo»→«Perfil», «Sorgenti»→«Fuentes», «Scheda»→
+«Pestaña», coerenti col catalogo). Marker (❌/🧙/🌐/⚠️/📁/📡) conservato → livello invariato.
+
+**Esclusioni documentate (restano IT — slice/contratto).** Il log di **SUCCESSO lingua**
+«🌐 Lingua del bridge impostata: {lang}{extra} …» resta f-string IT non wrappata: ha un `{extra}`
+**computato** (due sotto-stringhe) e una nota parenthetica ormai **stantia** («le altre finestre
+arrivano con i prossimi slice» — molte già fatte), quindi richiede uno split del sotto-testo + una
+decisione sul freshening della nota → **slice dedicata**. Il **suffisso di dominio**
+`config_store.save_status_message` di «Profilo … NON persistito» resta IT (solo prefisso wrappato). Il
+log **apertura-wizard-fallita** logga di proposito **solo `type(ex).__name__`** (mai il token, review
+Fugu/GPT #354): preservato. I valori `{exc}`/`{lang}/{tab}/{count}` sono dominio. **Nessun cambio di
+logica**: wizard finish/save, selettore lingua (`language_select.apply_language`, guardia token
+PR-08c), persistenza profilo e refresh sorgenti invariati.
+
+**Test hard** (`tests/unit/test_app_wizard_profile_i18n_343.py`, +6, pattern 4o): AST tr-constant,
+copertura EN/ES **!= IT**, mutation-guard `.format` (`{exc}`/`{lang}`/`{tab}`/`{count}`), placeholder,
+round-trip, marker, e **guardie di esclusione** (log SUCCESS lingua NON wrappato; suffisso dominio
+fuori da `i18n.tr` via regex; wizard-fallito logga `type(ex).__name__`, non l'eccezione). Anti-drift
+`test_i18n_343.py` resta verde (`_APP_TR` AST). Suite locale (al commit): **2471 passed, 11 skipped**.
+**CORE change** (`app.py`, `i18n.py`) → ri-sincronizzare nel cloud. Docs: README + `design_handoff.md`
+(§ localizzazione log). Design handoff = **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti ~33 log `self._log(...)` di `app.py` (recovery
+`{quando}`, log SUCCESS lingua `{extra}`+nota, altri sparsi, dominio-bubble che resta IT) + i
+**dialoghi modali** GUI + finestra 🧰 Strumenti hub (`tools_gui`) + il pannello 🌳 Mapping guidato
+(`guided_mapping_gui`).

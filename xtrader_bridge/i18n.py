@@ -527,6 +527,19 @@ _CATALOG = {
         "🐞 Modalità Debug log: {state}.": "🐞 Debug log mode: {state}.",
         "⚠️ Impostazione Debug NON salvata. ": "⚠️ Debug setting NOT saved. ",
         "🧹 Retention log ({days}g): {count} file vecchi rimossi.": "🧹 Log retention ({days}d): {count} old files removed.",
+        # Log WIZARD + LINGUA-SELECTOR + PROFILO/SORGENTI (#343 slice 4p). «wizard»/«asistente»,
+        # «Profilo»/«Perfil», «Sorgenti»/«Fuentes», «Scheda»/«Tab» coerenti col catalogo. I valori
+        # {exc}/{lang}/{tab}/{count} sono dominio. Il log SUCCESS «🌐 Lingua del bridge impostata …»
+        # (con {extra} computato + nota) è rimandato a una slice dedicata; il suffisso
+        # config_store.save_status_message di «Profilo … NON persistito» resta IT (solo prefisso wrappato).
+        "❌ Apertura wizard fallita: {exc}": "❌ Failed to open the wizard: {exc}",
+        "🧙 Wizard completato: configurazione salvata.": "🧙 Wizard completed: configuration saved.",
+        "🌐 Selettore lingua rimandato: auto-start attivo (imposta app_language in config.json, o disattiva l'auto-start).": "🌐 Language selector postponed: auto-start is on (set app_language in config.json, or disable auto-start).",
+        "⚠️ Lingua scelta ({lang}) ma salvataggio config FALLITO: nulla è cambiato (la sessione resta nella lingua precedente) e il selettore riapparirà al prossimo avvio — controlla permessi/spazio disco.": "⚠️ Language chosen ({lang}) but config save FAILED: nothing changed (the session stays in the previous language) and the selector will reappear at the next startup — check permissions/disk space.",
+        "⚠️ Scheda {tab} non aggiornata dal profilo (mostra ancora i valori precedenti): {exc}": "⚠️ Tab {tab} not updated from the profile (still shows the previous values): {exc}",
+        "📁 Profilo caricato e applicato (token invariato).": "📁 Profile loaded and applied (token unchanged).",
+        "⚠️ Profilo applicato in memoria (token invariato), ma NON persistito. ": "⚠️ Profile applied in memory (token unchanged), but NOT persisted. ",
+        "📡 Sorgenti multi-chat aggiornate ({count}).": "📡 Multi-chat sources updated ({count}).",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -967,5 +980,14 @@ _CATALOG = {
         "🐞 Modalità Debug log: {state}.": "🐞 Modo Debug del log: {state}.",
         "⚠️ Impostazione Debug NON salvata. ": "⚠️ Ajuste Debug NO guardado. ",
         "🧹 Retention log ({days}g): {count} file vecchi rimossi.": "🧹 Retención de logs ({days}d): {count} archivos antiguos eliminados.",
+        # Log WIZARD + LINGUA-SELECTOR + PROFILO/SORGENTI (#343 slice 4p) — vedi nota nel blocco EN.
+        "❌ Apertura wizard fallita: {exc}": "❌ Error al abrir el asistente: {exc}",
+        "🧙 Wizard completato: configurazione salvata.": "🧙 Asistente completado: configuración guardada.",
+        "🌐 Selettore lingua rimandato: auto-start attivo (imposta app_language in config.json, o disattiva l'auto-start).": "🌐 Selector de idioma pospuesto: auto-inicio activo (configura app_language en config.json, o desactiva el auto-inicio).",
+        "⚠️ Lingua scelta ({lang}) ma salvataggio config FALLITO: nulla è cambiato (la sessione resta nella lingua precedente) e il selettore riapparirà al prossimo avvio — controlla permessi/spazio disco.": "⚠️ Idioma elegido ({lang}) pero guardado de config FALLIDO: no ha cambiado nada (la sesión permanece en el idioma anterior) y el selector reaparecerá en el próximo inicio — comprueba permisos/espacio en disco.",
+        "⚠️ Scheda {tab} non aggiornata dal profilo (mostra ancora i valori precedenti): {exc}": "⚠️ Pestaña {tab} no actualizada desde el perfil (aún muestra los valores anteriores): {exc}",
+        "📁 Profilo caricato e applicato (token invariato).": "📁 Perfil cargado y aplicado (token sin cambios).",
+        "⚠️ Profilo applicato in memoria (token invariato), ma NON persistito. ": "⚠️ Perfil aplicado en memoria (token sin cambios), pero NO persistido. ",
+        "📡 Sorgenti multi-chat aggiornate ({count}).": "📡 Fuentes multi-chat actualizadas ({count}).",
     },
 }
