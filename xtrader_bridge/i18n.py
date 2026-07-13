@@ -502,6 +502,14 @@ _CATALOG = {
         "❌ Aggiornamento CSV dopo conferma fallito: {exc}. Riprovo a breve.": "❌ CSV update after confirmation failed: {exc}. Retrying shortly.",
         "❌ Aggiornamento CSV alla scadenza fallito: {exc}. Riprovo a breve.": "❌ CSV update on expiry failed: {exc}. Retrying shortly.",
         "🗑️  {n} segnale/i scaduto/i rimosso/i dal CSV": "🗑️  {n} expired signal(s) removed from the CSV",
+        # Log RESILIENZA runtime (#343 slice 4n): riconnessione/backoff + recovery CSV.
+        # «listener»/«bridge»/«STOP»/«CSV» verbatim. I valori {exc}/{error}/{path}/{count} sono
+        # dominio. I log di recovery con {quando} (value-as-key, confrontato == "all'avvio") restano IT.
+        "🔄 Riconnesso: i messaggi arrivati durante la disconnessione vengono recuperati (i troppo vecchi restano scartati per freschezza).": "🔄 Reconnected: messages that arrived during the disconnection are recovered (the too-old ones stay discarded for freshness).",
+        "❌ Errore non recuperabile del listener: {exc}. Bridge fermato.": "❌ Unrecoverable listener error: {exc}. Bridge stopped.",
+        "🔌 Connessione persa ({error}): riconnessione tra {delay}s (tentativo {attempt})…": "🔌 Connection lost ({error}): reconnecting in {delay}s (attempt {attempt})…",
+        "🧹 CSV ripulito al retry dopo lo STOP: {path}": "🧹 CSV cleaned on retry after STOP: {path}",
+        "🧹 Rimossi {count} file temporanei CSV orfani all'avvio.": "🧹 Removed {count} orphan temporary CSV files at startup.",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -922,5 +930,11 @@ _CATALOG = {
         "❌ Aggiornamento CSV dopo conferma fallito: {exc}. Riprovo a breve.": "❌ Actualización del CSV tras confirmación fallida: {exc}. Reintento en breve.",
         "❌ Aggiornamento CSV alla scadenza fallito: {exc}. Riprovo a breve.": "❌ Actualización del CSV al vencimiento fallida: {exc}. Reintento en breve.",
         "🗑️  {n} segnale/i scaduto/i rimosso/i dal CSV": "🗑️  {n} señal(es) vencida(s) eliminada(s) del CSV",
+        # Log RESILIENZA runtime (#343 slice 4n) — vedi nota nel blocco EN.
+        "🔄 Riconnesso: i messaggi arrivati durante la disconnessione vengono recuperati (i troppo vecchi restano scartati per freschezza).": "🔄 Reconectado: los mensajes llegados durante la desconexión se recuperan (los demasiado antiguos se descartan por frescura).",
+        "❌ Errore non recuperabile del listener: {exc}. Bridge fermato.": "❌ Error irrecuperable del listener: {exc}. Bridge detenido.",
+        "🔌 Connessione persa ({error}): riconnessione tra {delay}s (tentativo {attempt})…": "🔌 Conexión perdida ({error}): reconexión en {delay}s (intento {attempt})…",
+        "🧹 CSV ripulito al retry dopo lo STOP: {path}": "🧹 CSV limpiado en el reintento tras STOP: {path}",
+        "🧹 Rimossi {count} file temporanei CSV orfani all'avvio.": "🧹 Eliminados {count} archivos temporales CSV huérfanos al inicio.",
     },
 }

@@ -146,9 +146,11 @@ STOP/connessione/ascolto/scadenza segnale/svuotamento manuale del CSV, slice 4j)
 azioni su configurazione e CSV** (salva config/tema, salva/crea/aggiorna il percorso CSV, slice 4k)
 i **log di avvio/validazione START** (i messaggi che spiegano perché il bridge non è partito:
 token/chat/parser mancanti, conflitto chat notifiche, modalità reale annullata, CSV non
-inizializzabile, slice 4l) e — dalla slice 4m — i **log di esito elaborazione messaggio/segnale**
-(messaggio ignorato/scartato, scrittura CSV fallita, tracciabilità Messaggio→CSV, aggiornamento CSV
-post-conferma/scadenza, segnali scaduti rimossi) sono localizzati. Restano ancora in italiano: la finestra **🧰 Strumenti (hub)** e il pannello
+inizializzabile, slice 4l), i **log di esito elaborazione messaggio/segnale** (messaggio ignorato/
+scartato, scrittura CSV fallita, tracciabilità Messaggio→CSV, aggiornamento CSV post-conferma/scadenza,
+segnali scaduti rimossi, slice 4m) e — dalla slice 4n — i **log di resilienza** (riconnessione,
+connessione persa con backoff, errore non recuperabile del listener, recovery CSV post-STOP/temporanei
+orfani) sono localizzati. Restano ancora in italiano: la finestra **🧰 Strumenti (hub)** e il pannello
 **🌳 Mapping guidato**, i restanti **messaggi di log** dell'app e i **dialoghi modali** GUI (e i
 messaggi che riportano contenuto di dominio, che restano IT per contratto) — previsti nelle prossime
 slice della #343.

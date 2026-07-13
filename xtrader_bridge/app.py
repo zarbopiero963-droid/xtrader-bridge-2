@@ -465,7 +465,7 @@ class App(ctk.CTk):
                 self._schedule_stop_clear_retry(path)   # ancora bloccato: riprova
                 return
         if cleared:
-            self._log(f"🧹 CSV ripulito al retry dopo lo STOP: {path}")
+            self._log(i18n.tr("🧹 CSV ripulito al retry dopo lo STOP: {path}").format(path=path))
             self._journal_csv_cleared_if_had_row("CSV_CLEARED",
                                                  quando="retry post-stop", path=path)
 
@@ -507,7 +507,7 @@ class App(ctk.CTk):
             return
         removed = sweep_orphan_temps(path)
         if removed:
-            self._log(f"🧹 Rimossi {removed} file temporanei CSV orfani all'avvio.")
+            self._log(i18n.tr("🧹 Rimossi {count} file temporanei CSV orfani all'avvio.").format(count=removed))
 
     # ── CONFIG ────────────────────────────────
     def _register_secret_token(self, cfg) -> None:
@@ -2671,9 +2671,9 @@ class App(ctk.CTk):
             # saltata. Solo una riconnessione DOPO una connessione confermata (blip di rete a bridge
             # già connesso) usa False e recupera l'outage backlog.
             if not drop_pending:
-                self.after(0, lambda: self._log(
+                self.after(0, lambda: self._log(i18n.tr(
                     "🔄 Riconnesso: i messaggi arrivati durante la disconnessione vengono "
-                    "recuperati (i troppo vecchi restano scartati per freschezza)."))
+                    "recuperati (i troppo vecchi restano scartati per freschezza).")))
             first_connection = False
             # Connessione stabilita: azzera il backoff e segnala (utile dopo una riconnessione).
             self._reconnect_attempt = 0
@@ -2714,8 +2714,9 @@ class App(ctk.CTk):
                     # errore non recuperabile mentre eravamo attivi (es. token invalido)
                     tb = traceback.format_exc()
                     self.after(0, lambda e=ex: self._set_last("error", f"bot: {e}"))
-                    self.after(0, lambda e=ex: self._log(
-                        f"❌ Errore non recuperabile del listener: {e}. Bridge fermato."))
+                    self.after(0, lambda e=ex: self._log(i18n.tr(
+                        "❌ Errore non recuperabile del listener: {exc}. Bridge fermato.")
+                        .format(exc=e)))
                     # Traceback completo nel log per la diagnostica (redatto dal
                     # log handler): aiuta a capire un errore inatteso.
                     self.after(0, lambda t=tb: self._log(t))
@@ -2732,9 +2733,9 @@ class App(ctk.CTk):
                 retry_after = getattr(ex, "retry_after", None)
                 delay = reconnect_policy.effective_delay(self._reconnect_attempt, retry_after)
                 self.after(0, lambda e=ex: self._set_last("error", f"rete: {e}"))
-                self.after(0, lambda e=ex, d=delay, n=self._reconnect_attempt: self._log(
-                    f"🔌 Connessione persa ({type(e).__name__}): riconnessione tra "
-                    f"{d:.0f}s (tentativo {n})…"))
+                self.after(0, lambda e=ex, d=delay, n=self._reconnect_attempt: self._log(i18n.tr(
+                    "🔌 Connessione persa ({error}): riconnessione tra {delay}s (tentativo {attempt})…")
+                    .format(error=type(e).__name__, delay=f"{d:.0f}", attempt=n)))
                 self.after(0, self._set_status_reconnecting)
                 self._reconnect_wait(delay)
         # Sessione finita (STOP / nuovo START / errore non recuperabile): CHIUDI l'event
