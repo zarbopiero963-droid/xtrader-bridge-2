@@ -140,10 +140,12 @@ lingua-fonte sceglie le voci giuste. Dalla
 slice 4a la **finestra principale** è localizzata (tab, bottoni, nomi campo in EN/ES;
 la lingua si applica al **riavvio**); dalla slice 4b anche lo stato «⬤ ATTIVO/RICONNESSIONE…»;
 dalle slice 4c–4g le **finestre secondarie** (Provider, Profili, Chat sorgenti, Diario, Parser),
-il **🧙 Wizard** (slice 4h), la finestra **🗺️ Mapping** (Dizionario nomi + mercati, slice 4i) e i
-**banner di modalità REALE/COLLAUDO** sono localizzati. Restano ancora in italiano: la finestra
-**🧰 Strumenti (hub)** e il pannello **🌳 Mapping guidato**, più i **messaggi di log** dell'app
-(diagnostici) — previsti nelle prossime slice della #343.
+il **🧙 Wizard** (slice 4h), la finestra **🗺️ Mapping** (Dizionario nomi + mercati, slice 4i), i
+**banner di modalità REALE/COLLAUDO** e — dalla slice 4j — il primo gruppo di **log di ciclo-vita
+del bridge** (avvio/STOP/connessione/ascolto/scadenza segnale/svuotamento manuale del CSV) sono
+localizzati. Restano ancora in italiano: la finestra **🧰 Strumenti (hub)** e il pannello
+**🌳 Mapping guidato**, i restanti **messaggi di log** dell'app (e quelli che riportano contenuto
+di dominio, che restano IT per contratto) — previsti nelle prossime slice della #343.
 
 La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Config**
 (oppure all'avvio con **▶ AVVIA**) nel file `config.json` (vedi

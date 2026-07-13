@@ -2377,14 +2377,14 @@ class App(ctk.CTk):
             _removed = event_log.purge_old_logs(_ret)
             if _removed:
                 self._log(f"🧹 Retention log ({_ret}g): {len(_removed)} file vecchi rimossi.")
-        self._log("🚀 Bridge avviato!")
-        self._log(f"📄 CSV: {cfg['csv_path']}")
-        self._log(f"⏱️  Auto-clear dopo: {cfg['clear_delay']}s")
+        self._log(i18n.tr("🚀 Bridge avviato!"))
+        self._log(i18n.tr("📄 CSV: {path}").format(path=cfg['csv_path']))
+        self._log(i18n.tr("⏱️  Auto-clear dopo: {seconds}s").format(seconds=cfg['clear_delay']))
         self._dbg(f"START: chat ascoltate, provider={cfg.get('provider', '')}, "
                   f"modalità={bridge_mode.mode_from_cfg(cfg)}, "
                   f"debug ON")
         self._log(bridge_mode.start_log_text(bridge_mode.mode_from_cfg(cfg)))
-        self._log("👂 In ascolto su Telegram...")
+        self._log(i18n.tr("👂 In ascolto su Telegram..."))
 
         # Epoch di QUESTA sessione (già incrementato sopra, PRIMA di `_running=True`, #53):
         # passato al thread del listener per il gate `_is_current()`/`_epoch_current()`.
@@ -2453,7 +2453,7 @@ class App(ctk.CTk):
         self._set_listener_state(health_check.LISTENER_OFFLINE, _COLOR_STATUS_OFFLINE)
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")
-        self._log("🛑 Bridge fermato.")
+        self._log(i18n.tr("🛑 Bridge fermato."))
         self._dbg("STOP: listener fermato, coda/CSV gestiti dal ciclo di stop.")
 
     def _on_close(self):
@@ -2781,7 +2781,7 @@ class App(ctk.CTk):
     def _set_status_connected(self) -> None:
         if self._running:
             self._set_listener_state(health_check.LISTENER_ACTIVE, _COLOR_STATUS_ACTIVE)
-            self._log("✅ Connesso a Telegram.")
+            self._log(i18n.tr("✅ Connesso a Telegram."))
 
     # ── PROCESS SIGNAL ────────────────────────
     def _epoch_current(self, epoch=None) -> bool:
@@ -2993,7 +2993,8 @@ class App(ctk.CTk):
         # Scadenza per-segnale: (ri)programma il tick alla scadenza più vicina (non un
         # ritardo fisso, così un segnale più vecchio non resta oltre il suo timeout).
         self._schedule_expiry(path)
-        self.after(0, lambda d=self._queue_timeout: self._log(f"⏱️  Scadenza segnale tra ~{d}s"))
+        self.after(0, lambda d=self._queue_timeout: self._log(
+            i18n.tr("⏱️  Scadenza segnale tra ~{seconds}s").format(seconds=d)))
 
     def _after_non_write(self, decision: str, row: dict) -> None:
         """Gestisce gli esiti che NON scrivono il CSV (PR-21): log chiaro e, in
@@ -3313,7 +3314,7 @@ class App(ctk.CTk):
             self._schedule_expiry(path)   # fuori dal lock: _schedule_expiry lo riacquisisce
             return
         self._note_csv(path, 0)
-        self._log("🗑️  CSV svuotato manualmente")
+        self._log(i18n.tr("🗑️  CSV svuotato manualmente"))
         # Event journal (#230/#234): lo svuotamento MANUALE riporta il CSV a solo header → registralo,
         # ma SOLO se c'era davvero una riga (no clear spurio se il CSV era già a solo header). Solo sul
         # percorso riuscito (write_error già ritornato sopra). Best-effort, fuori dal lock.

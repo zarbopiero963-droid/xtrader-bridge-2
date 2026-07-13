@@ -2939,3 +2939,38 @@ Design handoff = **PASS**.
 
 **Ancora aperto (per chiudere #3):** ~105 log `self._log(...)` di `app.py` + finestra 🧰 Strumenti
 hub (`tools_gui`) + il pannello 🌳 Mapping guidato (`guided_mapping_gui`).
+
+## #343 slice 4j — log di ciclo-vita del bridge (app.py) localizzati (residuo UI della #3)
+
+**Obiettivo.** Primo gruppo del residuo dei **~105 `self._log(...)`** di `app.py` (decisione
+owner: procedere a gruppi coerenti). Localizza il cluster **runtime lifecycle** — i log più
+visibili all'utente: START, STOP, connessione, ascolto, scadenza segnale e svuotamento manuale
+del CSV.
+
+**Cosa fa.** Passano ora da `i18n.tr(...)` **8 righe** literal/f-string in `app.py`:
+`🚀 Bridge avviato!`, `📄 CSV: {path}`, `⏱️  Auto-clear dopo: {seconds}s`,
+`👂 In ascolto su Telegram...`, `🛑 Bridge fermato.`, `✅ Connesso a Telegram.`,
+`⏱️  Scadenza segnale tra ~{seconds}s`, `🗑️  CSV svuotato manualmente` (le interpolazioni
+diventano template `tr(...).format(...)`). Catalogo `i18n.py`: **8 chiavi nuove × EN/ES**
+(«bridge»/«Telegram» verbatim, come nel resto del catalogo). `_log()` redige i segreti e
+classifica il livello dal **marker emoji** iniziale (❌/⚠️/…): le traduzioni conservano il marker,
+quindi il livello resta invariato in ogni lingua.
+
+**Esclusioni documentate (restano IT — contenuto di dominio dai layer puri).** I log che
+risalgono da funzioni pure NON sono wrappati né a catalogo: `bridge_mode.start_log_text(...)`,
+`real_mode.enabled_message()`, `config_store.save_status_message(...)`, `outcome.*_log`,
+`self._log(warning)`/`self._log(m)` e simili. **Nessun cambio di logica**: redazione segreti,
+classificazione livello, invarianti CSV/coda/chat invariati.
+
+**Test hard** (`tests/unit/test_app_log_i18n_343.py`, +5, pattern 4c): verifica il wrapping nel
+sorgente (e che i vecchi literal/f-string non sopravvivano), la copertura EN/ES per ognuna delle
+8 chiavi, la **conservazione dei segnaposto** `{path}`/`{seconds}`, il round-trip reale
+`tr(...).format(...)` (marker emoji conservato) e **guardia sui log di dominio non wrappati**.
+Anti-drift `test_i18n_343.py` resta verde (le 8 chiavi sono tr-constant verbatim in `app.py`).
+Suite locale (al commit): **2433 passed, 11 skipped** (l'esito autorevole è la CI del head PR).
+**CORE change** (`app.py`, `i18n.py`) → ri-sincronizzare nel cloud. Docs: README +
+`design_handoff.md` (§ localizzazione log). Design handoff = **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti ~97 log `self._log(...)` di `app.py` (altri
+gruppi: config/CSV, avvio/validazione, riconnessione, conferme XTrader, dominio-bubble che resta
+IT) + finestra 🧰 Strumenti hub (`tools_gui`) + il pannello 🌳 Mapping guidato (`guided_mapping_gui`).
