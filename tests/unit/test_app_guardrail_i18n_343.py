@@ -1,7 +1,7 @@
 """Test hard #343 slice 4q: localizzazione dei log GUARDRAIL RUNTIME.
 
 Copre i log di stato anti-duplicato / limite giornaliero e della modalità coda emessi in
-`_setup_guards`/`_save_guard_state`. Puro e headless (`app.py` importa customtkinter → si legge
+`_init_guards`/`_save_guard_state`. Puro e headless (`app.py` importa customtkinter → si legge
 il sorgente via AST e si esercita il catalogo i18n reale). Verifica:
 - wrapping in `i18n.tr(...)` nel sorgente (via AST, così le chiavi multilinea concatenate — un
   singolo `ast.Constant` — sono trovate verbatim);

@@ -3206,7 +3206,7 @@ fuori da `i18n.tr` via regex; wizard-fallito logga `type(ex).__name__`, non l'ec
 ## #343 slice 4q — log GUARDRAIL RUNTIME (anti-duplicato / limite giornaliero / coda) localizzati (residuo UI #3)
 
 **Obiettivo.** Ottavo gruppo del residuo dei log di `app.py` (dopo 4j–4p): i log di **stato dei
-guardrail** emessi in `_setup_guards`/`_save_guard_state` — anti-duplicato illeggibile, fallimento
+guardrail** emessi in `_init_guards`/`_save_guard_state` — anti-duplicato illeggibile, fallimento
 persistenza dello stato anti-duplicato e del limite giornaliero, e l'informativo **modalità coda**.
 
 **Cosa fa.** Passano ora da `i18n.tr(...)` **4 chiavi**: «⚠️ Stato anti-duplicato presente ma
