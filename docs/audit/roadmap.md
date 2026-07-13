@@ -3265,3 +3265,35 @@ nel cloud. Docs: README + `design_handoff.md` (§ localizzazione log). Design ha
 `{quando}`, log SUCCESS lingua `{extra}`+nota, settings/timeout, dedupe-illeggibile warned, altri
 sparsi, dominio-bubble che resta IT) + i **dialoghi modali** GUI + finestra 🧰 Strumenti hub
 (`tools_gui`) + il pannello 🌳 Mapping guidato (`guided_mapping_gui`).
+
+## #343 slice 4s — NOMI MODALITÀ di trading localizzati nei log (Issue #45, residuo UI #3)
+
+**Obiettivo.** Chiude **Issue #45** (aperta durante la #44/4r su rilievo di GPT-5.5 + GLM 5.2): i due
+log di annullo transizione (slice 4r) interpolano `{old_mode}` con un valore di dominio
+(SIMULAZIONE/COLLAUDO/REALE) che restava in **italiano** anche in EN/ES, dando messaggi mistilingue
+(«reverting to COLLAUDO»).
+
+**Cosa fa.** Nuovo helper `App._mode_display_name(mode)` (**presentazione ONLY**): traduce il nome
+modalità nella lingua UI via `i18n.tr("SIMULAZIONE"|"COLLAUDO"|"REALE")`, coerente coi banner di
+modalità (REALE→REAL, COLLAUDO→TEST (EN)/PRUEBA (ES), SIMULAZIONE→SIMULATION (EN)/SIMULACIÓN (ES));
+sconosciuto → valore raw (fail-safe). I due call-site di annullo passano ora
+`self._mode_display_name(old_mode)` nel `.format(...)`. Catalogo `i18n.py`: **3 chiavi × EN/ES**. Le
+chiavi sono usate come `i18n.tr("<literal>")` nell'helper → l'anti-drift le trova via `_APP_TR` (AST);
+un `i18n.tr(variabile)` NON sarebbe stato rilevato.
+
+**Invariante di sicurezza.** `_mode_display_name` NON muta MAI il valore di dominio usato dai gate
+(`== REALE`, `apply_mode`, `mode_from_cfg`): traduce solo la resa testuale nel log. La **modalità coda**
+(«🧮 Modalità coda: {mode}», slice 4q) NON rientra: `OVERWRITE_LAST`/`FIFO` sono termini tecnici, non
+parole IT → il valore resta passato raw (verificato dal test di esclusione).
+
+**Test hard** (`tests/unit/test_app_mode_names_i18n_343.py`): AST (helper presente + usa `i18n.tr`
+literal, chiavi in `_APP_TR`, call-site usano `_mode_display_name`, niente `old_mode` raw), copertura
+EN/ES **!= IT**, round-trip reale sul catalogo, guardia di esclusione modalità coda. Anti-drift
+`test_i18n_343.py` verde (`_APP_TR` AST). Suite unit: **1921 passed, 1 skipped**. **CORE change**
+(`app.py`, `i18n.py`) → ri-sincronizzare nel cloud. Docs: README + `design_handoff.md`. Design handoff
+= **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti ~26 log `self._log(...)` di `app.py` (recovery
+`{quando}`, log SUCCESS lingua `{extra}`+nota, settings/timeout, altri sparsi, dominio-bubble che resta
+IT) + i **dialoghi modali** GUI + i pannelli GUI ancora in italiano (🧰 `tools_gui`, 🌳
+`guided_mapping_gui`, `config_summary_gui`, `known_teams_gui`).

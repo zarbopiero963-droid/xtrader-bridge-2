@@ -659,6 +659,23 @@ class App(ctk.CTk):
         self._register_secret_token(cfg)   # #184 M7: token noto → mascherato nei log
         return cfg
 
+    @staticmethod
+    def _mode_display_name(mode: str) -> str:
+        """Nome modalità di trading localizzato per i LOG — PRESENTAZIONE ONLY (#343, Issue #45).
+
+        Traduce il valore di dominio di `bridge_mode.mode_from_cfg`
+        (SIMULAZIONE/COLLAUDO/REALE) nella lingua UI, coerente coi banner di modalità
+        (REALE→REAL, COLLAUDO→TEST/PRUEBA). NON muta MAI il valore usato dai gate di
+        sicurezza (`== REALE`, `apply_mode`, ecc.): serve solo a rendere il testo del log.
+        Un valore sconosciuto è restituito raw (fail-safe, nessun crash)."""
+        if mode == bridge_mode.SIMULAZIONE:
+            return i18n.tr("SIMULAZIONE")
+        if mode == bridge_mode.COLLAUDO:
+            return i18n.tr("COLLAUDO")
+        if mode == bridge_mode.REALE:
+            return i18n.tr("REALE")
+        return mode
+
     def _gate_dangerous_transitions(self, old_cfg, cfg):
         """Applica le conferme di sicurezza alle transizioni PERICOLOSE di `cfg` rispetto a
         `old_cfg`, e ritorna `cfg` (eventualmente corretto). Due gate:
@@ -686,7 +703,7 @@ class App(ctk.CTk):
                 bridge_mode.apply_mode(cfg, old_mode)
                 self._revert_mode_widget(old_mode)
                 self._log(i18n.tr("↩️ Attivazione modalità REALE ANNULLATA: torno a "
-                                  "{old_mode}.").format(old_mode=old_mode))
+                                  "{old_mode}.").format(old_mode=self._mode_display_name(old_mode)))
         elif bridge_mode.requires_collaudo_confirmation(old_cfg, cfg):
             # Conferma LEGGERA (sì/no) per il COLLAUDO da simulazione: il CSV operativo
             # inizia a essere scritto → XTrader deve già essere in simulazione.
@@ -694,7 +711,7 @@ class App(ctk.CTk):
                 bridge_mode.apply_mode(cfg, old_mode)
                 self._revert_mode_widget(old_mode)
                 self._log(i18n.tr("↩️ Attivazione modalità COLLAUDO ANNULLATA: torno a "
-                                  "{old_mode}.").format(old_mode=old_mode))
+                                  "{old_mode}.").format(old_mode=self._mode_display_name(old_mode)))
         if multi_signal.requires_warning(old_cfg, cfg):
             if not self._confirm_multi_signal(
                     cfg.get("max_active_signals", DEFAULTS["max_active_signals"])):
