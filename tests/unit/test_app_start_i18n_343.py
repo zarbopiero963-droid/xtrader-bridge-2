@@ -112,12 +112,17 @@ def test_dynamic_start_logs_chiamano_format():
 
 
 def test_start_logs_nel_catalogo_en_es():
-    """Copertura piena EN/ES: nessun log START resta in italiano."""
+    """Copertura piena EN/ES: nessun log START resta in italiano. Oltre a esistere e non essere
+    vuota, la traduzione DEVE differire dalla chiave IT (Sourcery #35): questi log sono
+    safety-critical e vanno realmente localizzati — una «traduzione» identità (== IT) lascerebbe
+    l'utente EN/ES in italiano ma passerebbe un semplice check di presenza."""
     for lang in ("EN", "ES"):
         table = i18n._CATALOG[lang]
         for key in _START_KEYS:
             assert key in table, f"{lang}: manca la traduzione per {key!r}"
             assert table[key].strip(), f"{lang}: traduzione vuota per {key!r}"
+            assert table[key] != key, (
+                f"{lang}: traduzione IDENTICA all'italiano per {key!r} (log START non localizzato)")
 
 
 def test_placeholder_conservati_nelle_traduzioni():
