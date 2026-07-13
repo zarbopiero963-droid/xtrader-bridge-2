@@ -142,9 +142,11 @@ la lingua si applica al **riavvio**); dalla slice 4b anche lo stato «⬤ ATTIVO
 dalle slice 4c–4g le **finestre secondarie** (Provider, Profili, Chat sorgenti, Diario, Parser),
 il **🧙 Wizard** (slice 4h), la finestra **🗺️ Mapping** (Dizionario nomi + mercati, slice 4i), i
 **banner di modalità REALE/COLLAUDO**, il primo gruppo di **log di ciclo-vita del bridge** (avvio/
-STOP/connessione/ascolto/scadenza segnale/svuotamento manuale del CSV, slice 4j) e — dalla slice 4k
-— i **log delle azioni su configurazione e CSV** (salva config/tema, salva/crea/aggiorna il percorso
-CSV) sono localizzati. Restano ancora in italiano: la finestra **🧰 Strumenti (hub)** e il pannello
+STOP/connessione/ascolto/scadenza segnale/svuotamento manuale del CSV, slice 4j), i **log delle
+azioni su configurazione e CSV** (salva config/tema, salva/crea/aggiorna il percorso CSV, slice 4k)
+e — dalla slice 4l — i **log di avvio/validazione START** (i messaggi che spiegano perché il bridge
+non è partito: token/chat/parser mancanti, conflitto chat notifiche, modalità reale annullata, CSV
+non inizializzabile) sono localizzati. Restano ancora in italiano: la finestra **🧰 Strumenti (hub)** e il pannello
 **🌳 Mapping guidato**, i restanti **messaggi di log** dell'app e i **dialoghi modali** GUI (e i
 messaggi che riportano contenuto di dominio, che restano IT per contratto) — previsti nelle prossime
 slice della #343.

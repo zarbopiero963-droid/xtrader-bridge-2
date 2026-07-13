@@ -469,6 +469,25 @@ _CATALOG = {
         "📄 CSV creato (solo header) e impostato: {path}": "📄 CSV created (header only) and set: {path}",
         "⚠️ «Crea CSV» annullato: bridge avviato su {path} (STOP prima).": "⚠️ «Create CSV» cancelled: bridge started on {path} (STOP first).",
         "⚠️ «Crea CSV» annullato dall'utente: {path} non sovrascritto.": "⚠️ «Create CSV» cancelled by user: {path} not overwritten.",
+        # Log AVVIO/VALIDAZIONE START (#343 slice 4l): messaggi che bloccano/annullano lo START.
+        # «bridge»/«Bot Token»/«listener»/«Parser Personalizzato» verbatim (termini prodotto).
+        # I valori interpolati {err}/{problem}/{exc} sono contenuto di dominio (invariati); i log
+        # `f"❌ {err}"`/`f"⚠️ {warn}"` di puro dominio restano IT non wrappati.
+        "❌ python-telegram-bot non disponibile: impossibile avviare il listener.": "❌ python-telegram-bot not available: cannot start the listener.",
+        "❌ Inserisci il Bot Token prima di avviare!": "❌ Enter the Bot Token before starting!",
+        "❌ Impostazioni avanzate non valide (vedi avvisi sopra): correggile prima di avviare. Avvio annullato.": "❌ Invalid advanced settings (see warnings above): fix them before starting. Start cancelled.",
+        "❌ Nessuna chat configurata (Chat ID, parser per-chat o sorgente): il bridge accetterebbe segnali da QUALSIASI chat. Configura almeno una chat/sorgente. Avvio annullato.": "❌ No chat configured (Chat ID, per-chat parser or source): the bridge would accept signals from ANY chat. Configure at least one chat/source. Start cancelled.",
+        "❌ Nessun Parser Personalizzato configurato (globale o per-chat): il parser automatico è disattivato e il listener ignorerebbe OGNI segnale. Configura almeno un Parser Personalizzato prima di avviare (scheda 🧩 Parser). Avvio annullato.": "❌ No Custom Parser configured (global or per-chat): the automatic parser is disabled and the listener would ignore EVERY signal. Configure at least one Custom Parser before starting (🧩 Parser tab). Start cancelled.",
+        "❌ Sorgenti multi-chat: {err}": "❌ Multi-chat sources: {err}",
+        "Avvio annullato: correggi le sorgenti.": "Start cancelled: fix the sources.",
+        "⏸️ Avvio automatico annullato: nessuna chat sorgente ATTIVA.": "⏸️ Automatic start cancelled: no ACTIVE source chat.",
+        "⚠️ Nessuna chat sorgente ATTIVA: il listener parte ma NON processerà alcun segnale finché non attivi almeno una chat.": "⚠️ No ACTIVE source chat: the listener starts but will NOT process any signal until you activate at least one chat.",
+        "❌ La Chat notifiche XTrader coincide con una chat sorgente: cambiala (i segnali verrebbero scambiati per conferme). Avvio annullato.": "❌ The XTrader notifications Chat coincides with a source chat: change it (signals would be mistaken for confirmations). Start cancelled.",
+        "⏸️ Avvio automatico in modalità reale annullato.": "⏸️ Automatic start in real mode cancelled.",
+        "▶️ Avvio automatico del listener (auto_start_listener attivo).": "▶️ Automatic listener start (auto_start_listener enabled).",
+        "⏸️ Avvio in modalità reale annullato.": "⏸️ Start in real mode cancelled.",
+        "❌ {problem} Avvio annullato.": "❌ {problem} Start cancelled.",
+        "❌ Impossibile inizializzare il CSV ({path}): {exc}. Avvio annullato.": "❌ Cannot initialize the CSV ({path}): {exc}. Start cancelled.",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -862,5 +881,21 @@ _CATALOG = {
         "📄 CSV creato (solo header) e impostato: {path}": "📄 CSV creado (solo cabecera) y establecido: {path}",
         "⚠️ «Crea CSV» annullato: bridge avviato su {path} (STOP prima).": "⚠️ «Crear CSV» cancelado: bridge iniciado en {path} (STOP antes).",
         "⚠️ «Crea CSV» annullato dall'utente: {path} non sovrascritto.": "⚠️ «Crear CSV» cancelado por el usuario: {path} no sobrescrito.",
+        # Log AVVIO/VALIDAZIONE START (#343 slice 4l) — vedi nota nel blocco EN.
+        "❌ python-telegram-bot non disponibile: impossibile avviare il listener.": "❌ python-telegram-bot no disponible: no se puede iniciar el listener.",
+        "❌ Inserisci il Bot Token prima di avviare!": "❌ ¡Introduce el Bot Token antes de iniciar!",
+        "❌ Impostazioni avanzate non valide (vedi avvisi sopra): correggile prima di avviare. Avvio annullato.": "❌ Ajustes avanzados no válidos (ver avisos arriba): corrígelos antes de iniciar. Inicio cancelado.",
+        "❌ Nessuna chat configurata (Chat ID, parser per-chat o sorgente): il bridge accetterebbe segnali da QUALSIASI chat. Configura almeno una chat/sorgente. Avvio annullato.": "❌ Ninguna chat configurada (Chat ID, parser por chat o fuente): el bridge aceptaría señales de CUALQUIER chat. Configura al menos una chat/fuente. Inicio cancelado.",
+        "❌ Nessun Parser Personalizzato configurato (globale o per-chat): il parser automatico è disattivato e il listener ignorerebbe OGNI segnale. Configura almeno un Parser Personalizzato prima di avviare (scheda 🧩 Parser). Avvio annullato.": "❌ Ningún Parser Personalizado configurado (global o por chat): el parser automático está desactivado y el listener ignoraría CADA señal. Configura al menos un Parser Personalizado antes de iniciar (pestaña 🧩 Parser). Inicio cancelado.",
+        "❌ Sorgenti multi-chat: {err}": "❌ Fuentes multi-chat: {err}",
+        "Avvio annullato: correggi le sorgenti.": "Inicio cancelado: corrige las fuentes.",
+        "⏸️ Avvio automatico annullato: nessuna chat sorgente ATTIVA.": "⏸️ Inicio automático cancelado: ninguna chat fuente ACTIVA.",
+        "⚠️ Nessuna chat sorgente ATTIVA: il listener parte ma NON processerà alcun segnale finché non attivi almeno una chat.": "⚠️ Ninguna chat fuente ACTIVA: el listener se inicia pero NO procesará ninguna señal hasta que actives al menos una chat.",
+        "❌ La Chat notifiche XTrader coincide con una chat sorgente: cambiala (i segnali verrebbero scambiati per conferme). Avvio annullato.": "❌ La Chat de notificaciones XTrader coincide con una chat fuente: cámbiala (las señales se confundirían con confirmaciones). Inicio cancelado.",
+        "⏸️ Avvio automatico in modalità reale annullato.": "⏸️ Inicio automático en modo real cancelado.",
+        "▶️ Avvio automatico del listener (auto_start_listener attivo).": "▶️ Inicio automático del listener (auto_start_listener activo).",
+        "⏸️ Avvio in modalità reale annullato.": "⏸️ Inicio en modo real cancelado.",
+        "❌ {problem} Avvio annullato.": "❌ {problem} Inicio cancelado.",
+        "❌ Impossibile inizializzare il CSV ({path}): {exc}. Avvio annullato.": "❌ No se puede inicializar el CSV ({path}): {exc}. Inicio cancelado.",
     },
 }

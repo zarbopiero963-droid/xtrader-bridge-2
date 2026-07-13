@@ -330,6 +330,18 @@ titoli, conferme di sovrascrittura): sono una superficie diversa dai log e resta
 finché non arriva la slice dedicata ai **dialoghi GUI** (quindi, temporaneamente, cliccando «Crea
 CSV» il **dialogo** è IT ma la **riga di log** risultante è localizzata).
 
+Dalla **slice 4l — log AVVIO/VALIDAZIONE START** è localizzato il terzo gruppo: i messaggi
+**safety-critical** che compaiono nel pannello **📋 Log** quando lo **START è bloccato/annullato** —
+cioè quelli che spiegano perché il bridge non è partito: «❌ Inserisci il Bot Token prima di
+avviare!», «❌ Nessuna chat configurata …», «❌ Nessun Parser Personalizzato configurato …»,
+«❌ La Chat notifiche XTrader coincide con una chat sorgente …», «⚠️ Nessuna chat sorgente ATTIVA
+…», gli annullamenti di modalità reale/auto-start («⏸️ …»), «▶️ Avvio automatico del listener …»,
+«❌ {problem} Avvio annullato.» e «❌ Impossibile inizializzare il CSV ({path}): {exc} …». Marker di
+severità (❌/⚠️/⏸️/▶️) conservato in EN/ES → colore/livello della riga invariato. **Restano IT** per
+contratto: i log di **puro dominio** `f"❌ {err}"` (errore di validazione) e `f"⚠️ {warn}"` (avvisi
+degli store), coi valori interpolati `{err}`/`{problem}`/`{exc}` di dominio; e i **dialoghi modali**
+`messagebox` di conferma START in modalità reale (superficie «dialoghi GUI», ancora IT).
+
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
 Toplevel MODALE (grab) lanciato dal bottone **«🧙 Wizard prima configurazione»**
