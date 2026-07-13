@@ -13,6 +13,15 @@ import types
 import pytest
 
 from xtrader_bridge import config_summary as cs
+from xtrader_bridge import i18n
+
+
+@pytest.fixture(autouse=True)
+def _ripristina_lingua():
+    """Ripristina la lingua a IT dopo ogni test (il teardown post-`yield` gira anche se il test
+    fallisce), così lo stato di modulo di `i18n` non trapela verso altri test."""
+    yield
+    i18n.set_language("IT")
 
 
 @pytest.fixture
@@ -100,3 +109,80 @@ def test_ready_count_label(gui_mod):
 
 def test_no_channels_label(gui_mod):
     assert gui_mod.no_channels_label() == "Nessun canale configurato (nessuna sorgente / chat)."
+
+
+# ── Localizzazione EN/ES (#343 slice 4u): gli helper puri rendono la lingua UI corrente ──
+
+def test_mode_label_localizzato(gui_mod):
+    """La riga modalità (REALE/Simulazione) si rende nella lingua UI corrente (EN/ES)."""
+    i18n.set_language("EN")
+    assert gui_mod.mode_label(True) == "🔴 REAL MODE"
+    assert gui_mod.mode_label(False) == "🧪 Simulation (DRY_RUN)"
+    i18n.set_language("ES")
+    assert gui_mod.mode_label(True) == "🔴 MODO REAL"
+    assert gui_mod.mode_label(False) == "🧪 Simulación (DRY_RUN)"
+
+
+def test_betfair_label_localizzato(gui_mod):
+    """Lo stato del dizionario locale (presente/vuoto) è tradotto in EN e ES su ENTRAMBI i rami."""
+    i18n.set_language("EN")
+    assert gui_mod.betfair_label(True) == "Local dictionary: present"
+    assert gui_mod.betfair_label(False) == "Local dictionary: empty"
+    i18n.set_language("ES")
+    assert gui_mod.betfair_label(True) == "Diccionario local: presente"
+    assert gui_mod.betfair_label(False) == "Diccionario local: vacío"
+
+
+def test_translations_label_prefissi_localizzati(gui_mod):
+    """I prefissi «Nomi»/«Mercati» si traducono; i simboli ✓/—/· e i conteggi restano."""
+    ch = _channel(names=cs.TranslationSummary(resolved=("N1", "N2")),
+                  markets=cs.TranslationSummary())
+    i18n.set_language("EN")
+    assert gui_mod.translations_label(ch) == "Names ✓2 · Markets —"
+    i18n.set_language("ES")
+    assert gui_mod.translations_label(ch) == "Nombres ✓2 · Mercados —"
+
+
+def test_readiness_e_conteggi_localizzati(gui_mod):
+    """«✅ Pronto», la riga conteggi, il segnaposto canale e lo stato vuoto sono localizzati."""
+    i18n.set_language("EN")
+    assert gui_mod.readiness_label(_channel(ready=True, reason="")) == "✅ Ready"
+    assert gui_mod.ready_count_label(_summary(2, 3)) == "Ready channels: 2/3"
+    assert gui_mod.channel_title(_channel(name="", chat_id="")) == "(channel without chat_id)"
+    assert gui_mod.no_channels_label() == "No channel configured (no source / chat)."
+    i18n.set_language("ES")
+    assert gui_mod.ready_count_label(_summary(0, 0)) == "Canales listos: 0/0"
+    assert gui_mod.no_channels_label() == "Ningún canal configurado (sin fuente / chat)."
+
+
+def test_render_inline_keys_localizzate(gui_mod):
+    """Le stringhe inline di `_render` (titolo pannello, «Nessun dato …», errore di lettura config
+    con `{exc}`) sono chiavi di catalogo tradotte in EN/ES; il template `{exc}` conserva il
+    segnaposto e il valore interpolato non viene ri-parsato. La resa dei WIDGET veri di `_render`
+    richiede un display → verifica manuale (smoke): aprire 🧰 Strumenti → 📋 Riepilogo in EN/ES e,
+    simulando un provider che solleva, controllare il messaggio d'errore tradotto multilinea."""
+    for lang, title, nodata, err_prefix in (
+            ("EN", "📋 Configuration summary", "No configuration data.",
+             "⚠️ Unable to read the configuration:\n"),
+            ("ES", "📋 Resumen de configuración", "Sin datos de configuración.",
+             "⚠️ No se puede leer la configuración:\n")):
+        i18n.set_language(lang)
+        assert i18n.tr("📋 Riepilogo configurazione") == title
+        assert i18n.tr("Nessun dato di configurazione.") == nodata
+        rendered = i18n.tr("⚠️ Impossibile leggere la configurazione:\n{exc}").format(
+            exc="PermissionError")
+        assert rendered == err_prefix + "PermissionError"
+
+
+def test_esclusioni_dominio_restano_it(gui_mod):
+    """RESTANO IT anche in EN: la riga «Parser: …» (termine prodotto + nomi di dominio) e il MOTIVO
+    di «⚠ <motivo>» (testo di dominio da config_summary). I nomi canale/chat_id sono domìnio."""
+    i18n.set_language("EN")
+    # riga parser: invariata (nessuna parola da tradurre, solo prodotto + nomi)
+    assert gui_mod.parser_label(_channel(parser_name="P1", parser_loaded=True)) == "Parser: P1"
+    assert gui_mod.parser_label(_channel(parser_name="")) == "Parser: —"
+    # motivo bubblato dal layer puro: resta IT (solo «✅ Pronto» è tradotto)
+    notready = _channel(ready=False, reason=cs.REASON_NO_PARSER)
+    assert gui_mod.readiness_label(notready) == f"⚠ {cs.REASON_NO_PARSER}"
+    # nome canale = valore di dominio, non tradotto
+    assert gui_mod.channel_title(_channel(name="Canale A", chat_id="100")) == "Canale A (100)"

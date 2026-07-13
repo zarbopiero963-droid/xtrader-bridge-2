@@ -302,6 +302,17 @@ Restano **IN ITALIANO come esclusioni**: il **sentinel «(tutti gli sport)»** (
 e i **nomi squadra** sono valori di dominio. La finestra **🧰 Strumenti (hub)** che ospita la scheda
 resta per ora IT (titoli-scheda = chiavi di matching, localizzazione cross-cutting a parte).
 
+Dalla **slice 4u** è localizzato il pannello **📋 Riepilogo configurazione** (sola lettura,
+`config_summary_gui`): riga modalità («🔴 MODALITÀ REALE»/«🧪 Simulazione (DRY_RUN)»), stato del
+dizionario locale («presente»/«vuoto»), prefissi dell'indicatore traduzioni «Nomi»/«Mercati» (i
+simboli ✓/—/· e i conteggi restano), «✅ Pronto», segnaposto «(canale senza chat_id)», «Canali pronti:
+N/M», stato vuoto e i testi inline del render (titolo, «Nessun dato di configurazione.», errore di
+lettura config). Sono **helper puri di presentazione**: in IT rendono identico all'attuale (test di
+regressione esistenti). Restano **IN ITALIANO come esclusioni**: la riga **«Parser: …»** («Parser» =
+termine prodotto, nomi parser di dominio, nessuna parola da tradurre), il **motivo** di «⚠ <motivo>»
+(testo di dominio da `config_summary`, solo «✅ Pronto» è tradotto) e i **nomi canale/chat_id** (valori
+di dominio). I **colori semantici** (verde OK / arancio avviso / rosso reale) sono invariati.
+
 Dalla **slice 4 — banner di modalità** sono localizzati i due **banner persistenti di
 sicurezza**: il **banner ROSSO «⚠️ MODALITÀ REALE ATTIVA…»** (`real_mode.BANNER_TEXT`) e il
 **banner AMBRA «🔬 MODALITÀ COLLAUDO XTRADER…»** (`bridge_mode.COLLAUDO_BANNER_TEXT`), resi in

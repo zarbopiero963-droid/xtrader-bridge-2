@@ -10,6 +10,8 @@ altri pannelli GUI, non testati in CI perché richiedono un display).
 
 import customtkinter as ctk
 
+from . import i18n
+
 # Colori semantici theme-aware `(chiaro, scuro)`, coerenti con il resto della GUI
 # (stessa palette di custom_parser_gui/app: verde OK, arancio avviso, rosso reale).
 _COLOR_OK = ("#2e7d32", "#66bb6a")
@@ -19,8 +21,8 @@ _COLOR_MUTED = "gray"
 
 
 def mode_label(real_mode: bool) -> str:
-    """Testo della riga modalità."""
-    return "🔴 MODALITÀ REALE" if real_mode else "🧪 Simulazione (DRY_RUN)"
+    """Testo della riga modalità (localizzato #343 slice 4u)."""
+    return i18n.tr("🔴 MODALITÀ REALE") if real_mode else i18n.tr("🧪 Simulazione (DRY_RUN)")
 
 
 def mode_color(real_mode: bool):
@@ -29,8 +31,8 @@ def mode_color(real_mode: bool):
 
 
 def betfair_label(synced: bool) -> str:
-    """Testo dello stato del dizionario locale: presente (contiene eventi) sì/no."""
-    return f"Dizionario locale: {'presente' if synced else 'vuoto'}"
+    """Testo dello stato del dizionario locale: presente (contiene eventi) sì/no (localizzato)."""
+    return i18n.tr("Dizionario locale: presente") if synced else i18n.tr("Dizionario locale: vuoto")
 
 
 def _one_translation_label(prefix: str, ts) -> str:
@@ -39,14 +41,16 @@ def _one_translation_label(prefix: str, ts) -> str:
 
 
 def translations_label(channel) -> str:
-    """Traduzioni attive del canale in forma compatta, es. `Nomi ✓2 · Mercati —`."""
-    return (_one_translation_label("Nomi", channel.names) + " · "
-            + _one_translation_label("Mercati", channel.markets))
+    """Traduzioni attive del canale in forma compatta, es. `Nomi ✓2 · Mercati —`. I prefissi
+    «Nomi»/«Mercati» sono localizzati (#343 slice 4u); i simboli ✓/—/· e i conteggi restano."""
+    return (_one_translation_label(i18n.tr("Nomi"), channel.names) + " · "
+            + _one_translation_label(i18n.tr("Mercati"), channel.markets))
 
 
 def readiness_label(channel) -> str:
-    """`✅ Pronto` oppure `⚠ <motivo>`."""
-    return "✅ Pronto" if channel.ready else f"⚠ {channel.reason}"
+    """`✅ Pronto` oppure `⚠ <motivo>`. Solo «✅ Pronto» è localizzato (#343 slice 4u); il MOTIVO
+    (`channel.reason`) è testo di dominio prodotto da `config_summary` (layer puro) → resta IT."""
+    return i18n.tr("✅ Pronto") if channel.ready else f"⚠ {channel.reason}"
 
 
 def readiness_color(channel):
@@ -58,7 +62,7 @@ def channel_title(channel) -> str:
     anche l'id, un segnaposto esplicito."""
     if channel.name:
         return f"{channel.name} ({channel.chat_id})" if channel.chat_id else channel.name
-    return channel.chat_id or "(canale senza chat_id)"
+    return channel.chat_id or i18n.tr("(canale senza chat_id)")
 
 
 def parser_label(channel) -> str:
@@ -80,17 +84,17 @@ def parser_label(channel) -> str:
 
 
 def ready_count_label(summary) -> str:
-    """Riga «Canali pronti: N/M»."""
-    return f"Canali pronti: {summary.ready_channels}/{summary.total_channels}"
+    """Riga «Canali pronti: N/M» (prefisso localizzato #343 slice 4u; i conteggi restano)."""
+    return i18n.tr("Canali pronti: {ready}/{total}").format(
+        ready=summary.ready_channels, total=summary.total_channels)
 
 
 # Stato vuoto (nessuna sorgente/chat configurata): stringa in un helper puro, come le altre
 # etichette, così è coperta dai test e non diverge dall'intento di design (CodeRabbit #337).
-_NO_CHANNELS_LABEL = "Nessun canale configurato (nessuna sorgente / chat)."
-
-
+# Localizzata (#343 slice 4u): literal in `i18n.tr(...)` così è una tr-constant (anti-drift AST).
 def no_channels_label() -> str:
-    return _NO_CHANNELS_LABEL
+    """Testo dello stato vuoto (nessuna sorgente/chat configurata), localizzato (#343 slice 4u)."""
+    return i18n.tr("Nessun canale configurato (nessuna sorgente / chat).")
 
 
 class ConfigSummaryPanel(ctk.CTkFrame):
@@ -126,16 +130,17 @@ class ConfigSummaryPanel(ctk.CTkFrame):
         try:
             summary = self._summary_provider() if self._summary_provider else None
         except Exception as exc:            # noqa: BLE001 — provider best-effort
-            ctk.CTkLabel(self._body, text=f"⚠️ Impossibile leggere la configurazione:\n{exc}",
+            ctk.CTkLabel(self._body,
+                         text=i18n.tr("⚠️ Impossibile leggere la configurazione:\n{exc}").format(exc=exc),
                          text_color=_COLOR_WARN, justify="left", anchor="w").pack(
                              fill="x", padx=8, pady=8)
             return
         if summary is None:
-            ctk.CTkLabel(self._body, text="Nessun dato di configurazione.",
+            ctk.CTkLabel(self._body, text=i18n.tr("Nessun dato di configurazione."),
                          text_color=_COLOR_MUTED, anchor="w").pack(fill="x", padx=8, pady=8)
             return
 
-        ctk.CTkLabel(self._body, text="📋 Riepilogo configurazione",
+        ctk.CTkLabel(self._body, text=i18n.tr("📋 Riepilogo configurazione"),
                      font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(
                          fill="x", padx=4, pady=(2, 8))
 
