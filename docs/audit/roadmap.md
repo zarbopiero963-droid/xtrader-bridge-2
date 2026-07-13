@@ -3202,3 +3202,35 @@ fuori da `i18n.tr` via regex; wizard-fallito logga `type(ex).__name__`, non l'ec
 `{quando}`, log SUCCESS lingua `{extra}`+nota, altri sparsi, dominio-bubble che resta IT) + i
 **dialoghi modali** GUI + finestra 🧰 Strumenti hub (`tools_gui`) + il pannello 🌳 Mapping guidato
 (`guided_mapping_gui`).
+
+## #343 slice 4q — log GUARDRAIL RUNTIME (anti-duplicato / limite giornaliero / coda) localizzati (residuo UI #3)
+
+**Obiettivo.** Ottavo gruppo del residuo dei log di `app.py` (dopo 4j–4p): i log di **stato dei
+guardrail** emessi in `_setup_guards`/`_save_guard_state` — anti-duplicato illeggibile, fallimento
+persistenza dello stato anti-duplicato e del limite giornaliero, e l'informativo **modalità coda**.
+
+**Cosa fa.** Passano ora da `i18n.tr(...)` **4 chiavi**: «⚠️ Stato anti-duplicato presente ma
+illeggibile: protezione dopo riavvio non garantita.»; «🧮 Modalità coda: {mode}» (dinamica,
+`.format(mode=guards.mode)`); «⚠️ Impossibile salvare lo stato anti-duplicato su disco: protezione
+dopo riavvio degradata.»; «⚠️ Impossibile salvare lo stato del limite giornaliero su disco:
+protezione anti-overtrading dopo riavvio degradata.». Catalogo `i18n.py`: **4 chiavi × EN/ES**.
+Marker (⚠️/🧮) conservato → livello log invariato. Le tre chiavi multilinea sono letterali adiacenti
+→ un singolo `ast.Constant`, trovato verbatim da `_APP_TR` (anti-drift).
+
+**Esclusioni documentate (restano IT).** `self._log(warning)` nel loop `for warning in
+guards.warnings` resta NON wrappato: è la **bolla di dominio** degli avvisi fail-safe prodotti dal
+layer puro `runtime_state.build_guards` (non una chiave del catalogo). `{mode}` è valore di dominio
+(nome modalità, display) — non usato come chiave/confronto. **Nessun cambio di logica**: dedupe,
+limite giornaliero e coda invariati (pura presentazione).
+
+**Test hard** (`tests/unit/test_app_guardrail_i18n_343.py`, pattern 4p): AST tr-constant (incluse le
+multilinea), copertura EN/ES **!= IT**, mutation-guard `.format` (`{mode}`), placeholder, round-trip,
+marker, e **guardia di esclusione** (`self._log(warning)` NON wrappato, niente `i18n.tr(warning)`).
+Anti-drift `test_i18n_343.py` resta verde (`_APP_TR` AST). **CORE change** (`app.py`, `i18n.py`) →
+ri-sincronizzare nel cloud. Docs: README + `design_handoff.md` (§ localizzazione log). Design handoff
+= **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti ~29 log `self._log(...)` di `app.py` (recovery
+`{quando}`, log SUCCESS lingua `{extra}`+nota, mode-toggle ANNULLATA, settings/timeout, altri sparsi,
+dominio-bubble che resta IT) + i **dialoghi modali** GUI + finestra 🧰 Strumenti hub (`tools_gui`) + il
+pannello 🌳 Mapping guidato (`guided_mapping_gui`).

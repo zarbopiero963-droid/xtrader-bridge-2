@@ -386,6 +386,15 @@ profilo «NON persistito» (solo prefisso tradotto); e — invariante di sicurez
 apertura-wizard-fallita registra **solo la classe dell'eccezione** (`type(ex).__name__`), mai il
 token (che potrebbe comparire nel testo di un'eccezione, review #354).
 
+Dalla **slice 4q — log GUARDRAIL RUNTIME** è localizzato l'ottavo gruppo: i log del pannello
+**📋 Log** legati allo **stato dei guardrail di sicurezza** — «⚠️ Stato anti-duplicato presente ma
+illeggibile: …», «🧮 Modalità coda: {mode}», «⚠️ Impossibile salvare lo stato anti-duplicato su
+disco: …» e «⚠️ Impossibile salvare lo stato del limite giornaliero su disco: …». Marker (⚠️/🧮)
+conservato → colore/livello invariato; `{mode}` (nome modalità coda) resta un valore di dominio
+mostrato tale e quale. **Restano IT** per contratto: gli **avvisi fail-safe** emessi da
+`self._log(warning)` nel loop `for warning in guards.warnings` (bolla di dominio dal layer puro
+`runtime_state.build_guards`, non chiavi del catalogo).
+
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
 Toplevel MODALE (grab) lanciato dal bottone **«🧙 Wizard prima configurazione»**

@@ -153,9 +153,11 @@ connessione persa con backoff, errore non recuperabile del listener, recovery CS
 orfani, slice 4n; i log di recovery con la «parola-quando», es. «CSV riportato a solo header
 all'avvio», restano in italiano perché quel valore è usato anche come chiave nel codice, `== "all'avvio"`)
 i **log degli strumenti Log & diagnostica** (apri cartella log, export audit modalità reale, copia
-diagnostica, retention log, svuota log, toggle Debug, slice 4o) e — dalla slice 4p — i **log di
+diagnostica, retention log, svuota log, toggle Debug, slice 4o), i **log di
 wizard, selettore lingua e profilo/sorgenti** (apertura/fine wizard, selettore lingua rimandato,
-applicazione profilo, aggiornamento sorgenti multi-chat) sono localizzati.
+applicazione profilo, aggiornamento sorgenti multi-chat, slice 4p) e — dalla slice 4q — i **log dei
+guardrail runtime** (stato anti-duplicato illeggibile, fallimento persistenza stato anti-duplicato/
+limite giornaliero, modalità coda) sono localizzati.
 Restano ancora in italiano: la finestra **🧰 Strumenti (hub)** e il pannello
 **🌳 Mapping guidato**, i restanti **messaggi di log** dell'app e i **dialoghi modali** GUI (e i
 messaggi che riportano contenuto di dominio, che restano IT per contratto) — previsti nelle prossime
