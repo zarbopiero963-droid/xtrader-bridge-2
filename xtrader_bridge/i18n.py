@@ -564,6 +564,24 @@ _CATALOG = {
         "SIMULAZIONE": "SIMULATION",
         "COLLAUDO": "TEST",
         "REALE": "REAL",
+        # Pannello «🧹 Nomi squadra noti» (#343 slice 4t): scheda di ripulitura dei nomi squadra
+        # permanenti del dizionario locale. I nomi sport ({sport}) e i nomi squadra sono valori di
+        # dominio (restano invariati); {exc}=classe eccezione, {count}=conteggio. «Sport» resta
+        # invariato in EN (parola identica). Il sentinel «(tutti gli sport)» è un VALUE-AS-KEY
+        # (confronto `s == _SPORT_ALL` in _selected_sport): resta IT e NON è a catalogo.
+        "🧹  Nomi squadra noti (permanenti) — ripulitura": "🧹  Known team names (permanent) — cleanup",
+        "Nomi squadra del dizionario locale, conservati per sempre. Elimina qui quelli obsoleti/errati (es. squadre retrocesse).": "Team names from the local dictionary, kept forever. Delete obsolete/wrong ones here (e.g. relegated teams).",
+        "Sport": "Sport",
+        "🔄 Aggiorna": "🔄 Refresh",
+        "Nomi noti": "Known names",
+        "⛔ Provider del dizionario locale non disponibile.": "⛔ Local dictionary provider not available.",
+        "⏳ Dizionario occupato: riprova tra poco.": "⏳ Dictionary busy: try again shortly.",
+        "⚠️ Errore lettura nomi: {exc}": "⚠️ Error reading names: {exc}",
+        "{count} nomi noti.": "{count} known names.",
+        "🗑 Elimina": "🗑 Delete",
+        "⛔ Eliminazione non disponibile.": "⛔ Deletion not available.",
+        "⚠️ Eliminazione fallita: {exc}": "⚠️ Deletion failed: {exc}",
+        "⚠️ Eliminazione non riuscita: dizionario locale non disponibile.": "⚠️ Deletion failed: local dictionary not available.",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -1026,5 +1044,19 @@ _CATALOG = {
         "SIMULAZIONE": "SIMULACIÓN",
         "COLLAUDO": "PRUEBA",
         "REALE": "REAL",
+        # Pannello «🧹 Nomi squadra noti» (#343 slice 4t) — vedi nota nel blocco EN.
+        "🧹  Nomi squadra noti (permanenti) — ripulitura": "🧹  Nombres de equipo conocidos (permanentes) — limpieza",
+        "Nomi squadra del dizionario locale, conservati per sempre. Elimina qui quelli obsoleti/errati (es. squadre retrocesse).": "Nombres de equipo del diccionario local, conservados para siempre. Elimina aquí los obsoletos/erróneos (p. ej. equipos descendidos).",
+        "Sport": "Deporte",
+        "🔄 Aggiorna": "🔄 Actualizar",
+        "Nomi noti": "Nombres conocidos",
+        "⛔ Provider del dizionario locale non disponibile.": "⛔ Proveedor del diccionario local no disponible.",
+        "⏳ Dizionario occupato: riprova tra poco.": "⏳ Diccionario ocupado: reinténtalo en breve.",
+        "⚠️ Errore lettura nomi: {exc}": "⚠️ Error al leer los nombres: {exc}",
+        "{count} nomi noti.": "{count} nombres conocidos.",
+        "🗑 Elimina": "🗑 Eliminar",
+        "⛔ Eliminazione non disponibile.": "⛔ Eliminación no disponible.",
+        "⚠️ Eliminazione fallita: {exc}": "⚠️ Eliminación fallida: {exc}",
+        "⚠️ Eliminazione non riuscita: dizionario locale non disponibile.": "⚠️ Eliminación fallida: diccionario local no disponible.",
     },
 }

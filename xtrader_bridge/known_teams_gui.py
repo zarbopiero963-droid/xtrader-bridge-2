@@ -14,10 +14,13 @@ display): la logica esercitabile è testata a parte.
 
 import customtkinter as ctk
 
-from . import sports
+from . import i18n, sports
 from .betfair.dictionary_viewer import DictionaryBusy
 
-# Voce «tutti gli sport» del filtro (= nessun filtro).
+# Voce «tutti gli sport» del filtro (= nessun filtro). È un VALUE-AS-KEY: usata nel confronto di
+# uguaglianza `_selected_sport` (`s == _SPORT_ALL`) per distinguere «nessun filtro» da uno sport
+# reale. Resta in ITALIANO e NON è a catalogo (#343 slice 4t): localizzarla romperebbe il
+# confronto — stessa regola delle sentinelle di name_mapping_gui.
 _SPORT_ALL = "(tutti gli sport)"
 _COL_SPORT_WIDTH = 130
 _COL_NAME_WIDTH = 300
@@ -42,26 +45,26 @@ class KnownTeamsPanel(ctk.CTkFrame):
     # ── costruzione UI ────────────────────────────────────────────────────────
     def _build_ui(self):
         ctk.CTkLabel(
-            self, text="🧹  Nomi squadra noti (permanenti) — ripulitura",
+            self, text=i18n.tr("🧹  Nomi squadra noti (permanenti) — ripulitura"),
             font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
         ctk.CTkLabel(
-            self, text="Nomi squadra del dizionario locale, conservati per sempre. "
-                       "Elimina qui quelli obsoleti/errati (es. squadre retrocesse).",
+            self, text=i18n.tr("Nomi squadra del dizionario locale, conservati per sempre. "
+                               "Elimina qui quelli obsoleti/errati (es. squadre retrocesse)."),
             font=ctk.CTkFont(size=11), text_color="gray", wraplength=720,
             anchor="w", justify="left").pack(anchor="w", padx=12, pady=(0, 6))
 
         bar = ctk.CTkFrame(self)
         bar.pack(fill="x", padx=12, pady=6)
-        ctk.CTkLabel(bar, text="Sport").pack(side="left", padx=(8, 4))
+        ctk.CTkLabel(bar, text=i18n.tr("Sport")).pack(side="left", padx=(8, 4))
         ctk.CTkOptionMenu(bar, variable=self._sport, width=180,
                           values=[_SPORT_ALL, *sports.SPORTS],
                           command=lambda _v: self._refresh()).pack(side="left", padx=4)
-        ctk.CTkButton(bar, text="🔄 Aggiorna", width=110,
+        ctk.CTkButton(bar, text=i18n.tr("🔄 Aggiorna"), width=110,
                       command=self._refresh).pack(side="left", padx=4)
 
         self._counts = ctk.CTkLabel(self, text="", anchor="w")
         self._counts.pack(fill="x", padx=14, pady=(0, 4))
-        self._rows_frame = ctk.CTkScrollableFrame(self, height=400, label_text="Nomi noti")
+        self._rows_frame = ctk.CTkScrollableFrame(self, height=400, label_text=i18n.tr("Nomi noti"))
         self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
 
     # ── dati ──────────────────────────────────────────────────────────────────
@@ -78,18 +81,19 @@ class KnownTeamsPanel(ctk.CTkFrame):
         self._clear_rows()
         if not callable(self._teams_provider):
             self._counts.configure(
-                text="⛔ Provider del dizionario locale non disponibile.")
+                text=i18n.tr("⛔ Provider del dizionario locale non disponibile."))
             return
         try:
             teams = self._teams_provider(self._selected_sport()) or []
         except DictionaryBusy:
             self._counts.configure(
-                text="⏳ Dizionario occupato: riprova tra poco.")
+                text=i18n.tr("⏳ Dizionario occupato: riprova tra poco."))
             return
         except Exception as exc:                 # noqa: BLE001 — best-effort, niente crash GUI
-            self._counts.configure(text=f"⚠️ Errore lettura nomi: {type(exc).__name__}")
+            self._counts.configure(
+                text=i18n.tr("⚠️ Errore lettura nomi: {exc}").format(exc=type(exc).__name__))
             return
-        self._counts.configure(text=f"{len(teams)} nomi noti.")
+        self._counts.configure(text=i18n.tr("{count} nomi noti.").format(count=len(teams)))
         for team in teams:
             self._append_row(team)
 
@@ -101,28 +105,29 @@ class KnownTeamsPanel(ctk.CTkFrame):
         row.pack(fill="x", pady=1)
         ctk.CTkLabel(row, text=sport, width=_COL_SPORT_WIDTH, anchor="w").pack(side="left", padx=3)
         ctk.CTkLabel(row, text=name, width=_COL_NAME_WIDTH, anchor="w").pack(side="left", padx=3)
-        ctk.CTkButton(row, text="🗑 Elimina", width=100, fg_color="#c62828",
+        ctk.CTkButton(row, text=i18n.tr("🗑 Elimina"), width=100, fg_color="#c62828",
                       hover_color="#7f0000",
                       command=lambda s=sport, n=norm: self._on_delete(s, n)).pack(side="left", padx=3)
 
     def _on_delete(self, sport, normalized_name):
         """Elimina un nome permanente e ricarica. Fail-fast durante una sync; best-effort."""
         if not callable(self._delete_team):
-            self._counts.configure(text="⛔ Eliminazione non disponibile.")
+            self._counts.configure(text=i18n.tr("⛔ Eliminazione non disponibile."))
             return
         try:
             ok = self._delete_team(sport, normalized_name)
         except DictionaryBusy:
             self._counts.configure(
-                text="⏳ Dizionario occupato: riprova tra poco.")
+                text=i18n.tr("⏳ Dizionario occupato: riprova tra poco."))
             return
         except Exception as exc:                 # noqa: BLE001 — best-effort, niente crash GUI
-            self._counts.configure(text=f"⚠️ Eliminazione fallita: {type(exc).__name__}")
+            self._counts.configure(
+                text=i18n.tr("⚠️ Eliminazione fallita: {exc}").format(exc=type(exc).__name__))
             return
         if not ok:
             # DB non disponibile (best-effort → False): niente refresh «pulito» che nasconde
             # il no-op — avvisa che nulla è stato eliminato (CodeRabbit/GPT/Fable #322).
             self._counts.configure(
-                text="⚠️ Eliminazione non riuscita: dizionario locale non disponibile.")
+                text=i18n.tr("⚠️ Eliminazione non riuscita: dizionario locale non disponibile."))
             return
         self._refresh()

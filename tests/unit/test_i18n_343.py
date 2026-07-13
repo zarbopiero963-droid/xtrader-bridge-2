@@ -55,7 +55,11 @@ def _tr_constants(*module_names) -> set:
 # Costanti tr() delle finestre secondarie localizzate (#343 slice 4c/4d/4e/4f).
 _SECONDARY_TR = _tr_constants("provider_gui.py", "profiles_gui.py",
                               "source_chats_gui.py", "journal_view_gui.py",
-                              "custom_parser_gui.py", "wizard_gui.py", "name_mapping_gui.py")
+                              "custom_parser_gui.py", "wizard_gui.py", "name_mapping_gui.py",
+                              # Pannello «🧹 Nomi squadra noti» (#343 slice 4t): chiavi tutte
+                              # `i18n.tr("literal")` (descrizione multi-riga concatenata inclusa →
+                              # AST le unisce). Il sentinel «(tutti gli sport)» resta value-as-key IT.
+                              "known_teams_gui.py")
 
 # Costanti tr() di app.py (#343 slice 4j/4k — log localizzati): alcune chiavi dei log sono
 # COSTANTI multi-riga concatenate (`i18n.tr("… " "…")`) che la ricerca raw in `_APP_SRC` non

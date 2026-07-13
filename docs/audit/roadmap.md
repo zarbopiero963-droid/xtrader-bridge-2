@@ -3296,4 +3296,36 @@ EN/ES **!= IT**, round-trip reale sul catalogo, guardia di esclusione modalità 
 **Ancora aperto (per chiudere #3):** i restanti ~26 log `self._log(...)` di `app.py` (recovery
 `{quando}`, log SUCCESS lingua `{extra}`+nota, settings/timeout, altri sparsi, dominio-bubble che resta
 IT) + i **dialoghi modali** GUI + i pannelli GUI ancora in italiano (🧰 `tools_gui`, 🌳
-`guided_mapping_gui`, `config_summary_gui`, `known_teams_gui`).
+`guided_mapping_gui`, `config_summary_gui`).
+
+## #343 slice 4t — pannello «🧹 Nomi squadra noti» (known_teams_gui) localizzato (residuo UI #3)
+
+**Obiettivo.** Primo pannello GUI localizzato del residuo (dopo i log di `app.py`): la scheda
+**🧹 Nomi squadra** (ripulitura manuale dei nomi squadra permanenti del dizionario locale, `betfair_known_teams`).
+
+**Cosa fa.** Passano da `i18n.tr(...)` **13 chiavi** UI: titolo/descrizione della scheda, label «Sport»,
+bottoni «🔄 Aggiorna»/«🗑 Elimina», `label_text` «Nomi noti» e i 6 messaggi di stato (provider assente,
+dizionario occupato, errore lettura `{exc}`, conteggio `{count}`, eliminazione non disponibile/fallita
+`{exc}`/non riuscita). Catalogo `i18n.py`: **13 chiavi × EN/ES**. «Sport» resta identico in EN (parola
+uguale). Anti-drift: `known_teams_gui.py` aggiunto a `_SECONDARY_TR` (le chiavi sono tutte
+`i18n.tr("literal")`, descrizione multi-riga concatenata inclusa → AST le unisce).
+
+**Esclusioni documentate (restano IT).** Il **sentinel** «(tutti gli sport)» (`_SPORT_ALL`) è un
+**value-as-key**: usato nel confronto `s == _SPORT_ALL` in `_selected_sport` per distinguere «nessun
+filtro» da uno sport reale → resta IT e **NON a catalogo** (localizzarlo romperebbe il confronto —
+stessa regola delle sentinelle di `name_mapping_gui`, protetta dal test esistente
+`test_esclusioni_value_as_key_non_wrappate`). I **nomi sport** (`sports.SPORTS`) e i **nomi squadra**
+sono valori di dominio → invariati. **Nessun cambio di logica**: provider/delete/refresh/busy-guard
+invariati (pura presentazione).
+
+**Test hard** (`tests/unit/test_known_teams_i18n_343.py`): AST (tutte le label wrappate, dinamici
+`{exc}`/`{count}` via `.format`, import i18n), copertura EN/ES **!= IT** (eccetto «Sport» identica in
+EN), placeholder + marker, round-trip, e **guardia di esclusione value-as-key** (sentinel IT, non a
+catalogo). I test headless esistenti (`test_known_teams_gui.py`) restano verdi (nessun cambio di
+logica). Anti-drift `test_i18n_343.py` verde. Suite unit: **1928 passed, 1 skipped**. **CORE change**?
+No — `known_teams_gui.py`/`i18n.py` non sono core-bridge, ma restano da ri-sincronizzare nel cloud.
+Docs: README + `design_handoff.md`. Design handoff = **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti ~26 log `self._log(...)` di `app.py` (dominio-bubble/
+value-as-key che restano IT + pochi candidati) + i **dialoghi modali** GUI + i pannelli GUI ancora in
+italiano (🧰 `tools_gui`, 🌳 `guided_mapping_gui`, `config_summary_gui`).
