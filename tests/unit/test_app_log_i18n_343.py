@@ -64,6 +64,17 @@ def test_lifecycle_logs_wrappati_in_app():
         assert old not in _APP_SRC, f"stringa non wrappata sopravvissuta: {old}"
 
 
+def test_dynamic_logs_chiamano_format_in_app():
+    """I 3 log DINAMICI devono chiamare `.format(...)` sull'argomento reale nel sorgente,
+    non solo essere wrappati in `i18n.tr(...)`. Senza questa guardia, togliere il `.format`
+    da un call-site lascerebbe passare la suite ma loggherebbe il template letterale
+    `{path}`/`{seconds}` (CodeRabbit #32, Major)."""
+    for site in ('i18n.tr("📄 CSV: {path}").format(path=cfg[\'csv_path\'])',
+                 'i18n.tr("⏱️  Auto-clear dopo: {seconds}s").format(seconds=cfg[\'clear_delay\'])',
+                 'i18n.tr("⏱️  Scadenza segnale tra ~{seconds}s").format(seconds=d)'):
+        assert site in _APP_SRC, f"call-site .format mancante/alterato: {site}"
+
+
 def test_lifecycle_logs_nel_catalogo_en_es():
     """Copertura piena EN/ES: nessun log del gruppo resta in italiano (niente log misto)."""
     for lang in ("EN", "ES"):
