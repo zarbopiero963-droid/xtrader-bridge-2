@@ -2588,24 +2588,24 @@ class App(ctk.CTk):
                 if decision == telegram_dispatch.IGNORE_STALE:
                     # Anti-segnale-stantio (Codex P1): un arretrato recuperato da PTB dopo una
                     # disconnessione non è un segnale "live".
-                    self.after(0, lambda: self._log(
+                    self.after(0, lambda: self._log(i18n.tr(
                         "⏳ Messaggio ignorato: troppo vecchio (probabile arretrato "
-                        "dopo una disconnessione)."))
+                        "dopo una disconnessione).")))
                     return
                 if decision == telegram_dispatch.IGNORE_NO_FILTER:
                     # Difesa-in-profondità (CodeRabbit): con la config viva azzerata di
                     # chat_id/parser_by_chat/sorgenti, "nessun filtro" è fail-closed.
-                    self.after(0, lambda: self._log(
+                    self.after(0, lambda: self._log(i18n.tr(
                         "⚠️ Config live senza filtro chat: messaggio ignorato per sicurezza "
-                        "(configura chat/sorgenti, poi salva)."))
+                        "(configura chat/sorgenti, poi salva).")))
                     return
                 if decision == telegram_dispatch.IGNORE_CONFLICT:
                     # Codex P2: notif-chat che COINCIDE con una sorgente ammessa è AMBIGUA
                     # (segnale o esito?) → fail-closed, né scrittura né conferma.
-                    self.after(0, lambda: self._log(
+                    self.after(0, lambda: self._log(i18n.tr(
                         "❌ La Chat notifiche XTrader coincide con una sorgente ammessa: "
                         "config ambigua, messaggio IGNORATO (né segnale né conferma). "
-                        "Correggi xtrader_notification_chat_id (dev'essere una chat separata)."))
+                        "Correggi xtrader_notification_chat_id (dev'essere una chat separata).")))
                     return
                 if decision == telegram_dispatch.CONFIRM:
                     # PR-23 + audit C8: la chat notifiche XTrader porta ESITI → percorso conferma.
@@ -2618,8 +2618,9 @@ class App(ctk.CTk):
                     # Esito non riconosciuto (refuso / drift futuro del contratto di
                     # `decide`): FAIL-CLOSED — non instradare a `_process` (che scrive), ma
                     # ignorare con avviso (review CodeRabbit #158).
-                    self.after(0, lambda d=decision: self._log(
-                        f"⚠️ Esito instradamento sconosciuto ({d}): messaggio ignorato per sicurezza."))
+                    self.after(0, lambda d=decision: self._log(i18n.tr(
+                        "⚠️ Esito instradamento sconosciuto ({decision}): messaggio ignorato per sicurezza.")
+                        .format(decision=d)))
                     return
                 # decision == PROCESS
                 # PR-14c: traccia l'ultimo messaggio pertinente ricevuto (diagnostica).
@@ -2847,8 +2848,9 @@ class App(ctk.CTk):
             detail = (", ".join(result.missing_required)
                       if result.missing_required else result.detail)
             self.after(0, lambda: self._bump("discarded"))
-            self.after(0, lambda: self._log(
-                f"⚠️ Segnale scartato ({result.source}/{result.status}): {detail}"))
+            self.after(0, lambda: self._log(i18n.tr(
+                "⚠️ Segnale scartato ({source}/{status}): {detail}").format(
+                    source=result.source, status=result.status, detail=detail)))
             return
 
         # #192: il parser può produrre PIÙ righe (MultiMarket/MultiSelection). Per il single-row
@@ -2932,8 +2934,9 @@ class App(ctk.CTk):
         if write_error is not None:
             self.after(0, lambda: self._bump("errors"))
             self.after(0, lambda e=write_error: self._set_last("error", f"scrittura CSV: {e}"))
-            self.after(0, lambda e=write_error: self._log(
-                f"❌ Scrittura CSV fallita: {e}. Segnale non registrato (riprovabile)."))
+            self.after(0, lambda e=write_error: self._log(i18n.tr(
+                "❌ Scrittura CSV fallita: {exc}. Segnale non registrato (riprovabile).")
+                .format(exc=e)))
             # I segnali ripristinati devono comunque scadere. Ma se il disco è STANTIO
             # (`_csv_dirty`: una risincronizzazione post-conferma/scadenza è fallita e anche
             # QUESTA scrittura è fallita), il delay di scadenza normale RIMPIAZZEREBBE il
@@ -2991,8 +2994,8 @@ class App(ctk.CTk):
         # operativi della scommessa) resta per la tracciabilità; i token sono redatti dal sink.
         self.after(0, lambda m=log_privacy.redact_message(text, full=payload_full),
                    r=dict(written_row): self._log(
-            "🧾 Messaggio→CSV  |  msg: " + m + "  |  riga: "
-            + ", ".join(f"{k}={v}" for k, v in r.items() if v != "")))
+            i18n.tr("🧾 Messaggio→CSV  |  msg: {msg}  |  riga: {row}").format(
+                msg=m, row=", ".join(f"{k}={v}" for k, v in r.items() if v != ""))))
 
         # Scadenza per-segnale: (ri)programma il tick alla scadenza più vicina (non un
         # ritardo fisso, così un segnale più vecchio non resta oltre il suo timeout).
@@ -3113,8 +3116,9 @@ class App(ctk.CTk):
                 # sarà il retry (`_expire_tick`) a riportarlo a solo header e a loggare il clear (#234 C).
                 self.after(0, lambda: self._bump("errors"))
                 self.after(0, lambda e=write_error: self._set_last("error", f"CSV dopo conferma: {e}"))
-                self.after(0, lambda e=write_error: self._log(
-                    f"❌ Aggiornamento CSV dopo conferma fallito: {e}. Riprovo a breve."))
+                self.after(0, lambda e=write_error: self._log(i18n.tr(
+                    "❌ Aggiornamento CSV dopo conferma fallito: {exc}. Riprovo a breve.")
+                    .format(exc=e)))
                 self._schedule_expiry(path, delay=_WRITE_RETRY_DELAY)
                 return
             # Scrittura riuscita: aggiorna il flag di stato del CSV. Se era l'ULTIMO segnale attivo
@@ -3248,15 +3252,16 @@ class App(ctk.CTk):
             # anche a coda vuota (un segnale scaduto non deve restare nel CSV).
             self.after(0, lambda: self._bump("errors"))
             self.after(0, lambda e=write_error: self._set_last("error", f"CSV alla scadenza: {e}"))
-            self.after(0, lambda e=write_error: self._log(
-                f"❌ Aggiornamento CSV alla scadenza fallito: {e}. Riprovo a breve."))
+            self.after(0, lambda e=write_error: self._log(i18n.tr(
+                "❌ Aggiornamento CSV alla scadenza fallito: {exc}. Riprovo a breve.")
+                .format(exc=e)))
             self._schedule_expiry(path, delay=_WRITE_RETRY_DELAY)
             return
         if expired:
             self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
             self.after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5
-            self.after(0, lambda n=len(expired): self._log(
-                f"🗑️  {n} segnale/i scaduto/i rimosso/i dal CSV"))
+            self.after(0, lambda n=len(expired): self._log(i18n.tr(
+                "🗑️  {n} segnale/i scaduto/i rimosso/i dal CSV").format(n=n)))
         # Stato del CSV dopo una scrittura RIUSCITA (#230/#234 D): se restano righe il CSV è ancora
         # attivo; se è tornato a solo header registra il clear sulla transizione reale. Gestito QUI
         # (non gated su `expired`) così anche un RETRY post-write-failure — dove `expired` è vuoto

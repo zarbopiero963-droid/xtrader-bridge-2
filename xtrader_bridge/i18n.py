@@ -488,6 +488,20 @@ _CATALOG = {
         "⏸️ Avvio in modalità reale annullato.": "⏸️ Start in real mode cancelled.",
         "❌ {problem} Avvio annullato.": "❌ {problem} Start cancelled.",
         "❌ Impossibile inizializzare il CSV ({path}): {exc}. Avvio annullato.": "❌ Cannot initialize the CSV ({path}): {exc}. Start cancelled.",
+        # Log ESITO elaborazione messaggio/segnale (#343 slice 4m): dispatch ignore + scrittura
+        # CSV + conferma/scadenza. «CSV»/«XTrader»/`xtrader_notification_chat_id` verbatim. I valori
+        # {source}/{status}/{detail}/{exc}/{decision}/{msg}/{row}/{n} sono dominio (invariati). I log
+        # di ESITO CONFERMA veri (outcome.*_log, confirmation_removed/ignored_log) restano IT.
+        "⏳ Messaggio ignorato: troppo vecchio (probabile arretrato dopo una disconnessione).": "⏳ Message ignored: too old (probably a backlog after a disconnection).",
+        "⚠️ Config live senza filtro chat: messaggio ignorato per sicurezza (configura chat/sorgenti, poi salva).": "⚠️ Live config without chat filter: message ignored for safety (configure chats/sources, then save).",
+        "❌ La Chat notifiche XTrader coincide con una sorgente ammessa: config ambigua, messaggio IGNORATO (né segnale né conferma). Correggi xtrader_notification_chat_id (dev'essere una chat separata).": "❌ The XTrader notifications Chat coincides with an allowed source: ambiguous config, message IGNORED (neither signal nor confirmation). Fix xtrader_notification_chat_id (it must be a separate chat).",
+        "⚠️ Esito instradamento sconosciuto ({decision}): messaggio ignorato per sicurezza.": "⚠️ Unknown routing outcome ({decision}): message ignored for safety.",
+        "⚠️ Segnale scartato ({source}/{status}): {detail}": "⚠️ Signal discarded ({source}/{status}): {detail}",
+        "❌ Scrittura CSV fallita: {exc}. Segnale non registrato (riprovabile).": "❌ CSV write failed: {exc}. Signal not recorded (retryable).",
+        "🧾 Messaggio→CSV  |  msg: {msg}  |  riga: {row}": "🧾 Message→CSV  |  msg: {msg}  |  row: {row}",
+        "❌ Aggiornamento CSV dopo conferma fallito: {exc}. Riprovo a breve.": "❌ CSV update after confirmation failed: {exc}. Retrying shortly.",
+        "❌ Aggiornamento CSV alla scadenza fallito: {exc}. Riprovo a breve.": "❌ CSV update on expiry failed: {exc}. Retrying shortly.",
+        "🗑️  {n} segnale/i scaduto/i rimosso/i dal CSV": "🗑️  {n} expired signal(s) removed from the CSV",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -897,5 +911,16 @@ _CATALOG = {
         "⏸️ Avvio in modalità reale annullato.": "⏸️ Inicio en modo real cancelado.",
         "❌ {problem} Avvio annullato.": "❌ {problem} Inicio cancelado.",
         "❌ Impossibile inizializzare il CSV ({path}): {exc}. Avvio annullato.": "❌ No se puede inicializar el CSV ({path}): {exc}. Inicio cancelado.",
+        # Log ESITO elaborazione messaggio/segnale (#343 slice 4m) — vedi nota nel blocco EN.
+        "⏳ Messaggio ignorato: troppo vecchio (probabile arretrato dopo una disconnessione).": "⏳ Mensaje ignorado: demasiado antiguo (probablemente atrasado tras una desconexión).",
+        "⚠️ Config live senza filtro chat: messaggio ignorato per sicurezza (configura chat/sorgenti, poi salva).": "⚠️ Config en vivo sin filtro de chat: mensaje ignorado por seguridad (configura chats/fuentes y luego guarda).",
+        "❌ La Chat notifiche XTrader coincide con una sorgente ammessa: config ambigua, messaggio IGNORATO (né segnale né conferma). Correggi xtrader_notification_chat_id (dev'essere una chat separata).": "❌ La Chat de notificaciones XTrader coincide con una fuente permitida: config ambigua, mensaje IGNORADO (ni señal ni confirmación). Corrige xtrader_notification_chat_id (debe ser una chat separada).",
+        "⚠️ Esito instradamento sconosciuto ({decision}): messaggio ignorato per sicurezza.": "⚠️ Resultado de enrutamiento desconocido ({decision}): mensaje ignorado por seguridad.",
+        "⚠️ Segnale scartato ({source}/{status}): {detail}": "⚠️ Señal descartada ({source}/{status}): {detail}",
+        "❌ Scrittura CSV fallita: {exc}. Segnale non registrato (riprovabile).": "❌ Escritura CSV fallida: {exc}. Señal no registrada (reintentable).",
+        "🧾 Messaggio→CSV  |  msg: {msg}  |  riga: {row}": "🧾 Mensaje→CSV  |  msg: {msg}  |  fila: {row}",
+        "❌ Aggiornamento CSV dopo conferma fallito: {exc}. Riprovo a breve.": "❌ Actualización del CSV tras confirmación fallida: {exc}. Reintento en breve.",
+        "❌ Aggiornamento CSV alla scadenza fallito: {exc}. Riprovo a breve.": "❌ Actualización del CSV al vencimiento fallida: {exc}. Reintento en breve.",
+        "🗑️  {n} segnale/i scaduto/i rimosso/i dal CSV": "🗑️  {n} señal(es) vencida(s) eliminada(s) del CSV",
     },
 }
