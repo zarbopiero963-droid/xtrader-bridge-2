@@ -3425,7 +3425,8 @@ provider/save/reload/filtro/debounce invariati (solo il testo di stato è tradot
 **Test hard** (`tests/unit/test_guided_mapping_i18n_343.py`, esteso): AST (status wrappati, nessun
 f-string superstite), **mutation-guard `.format`** (tutti i segnaposto coperti), copertura EN/ES
 **!= IT** + placeholder, round-trip. I test logici esistenti (`test_betfair_guided_mapping.py`) restano
-verdi. Anti-drift `test_i18n_343.py` verde. Suite unit+integration: **2261 passed, 1 skipped**. Con la
+verdi. Anti-drift `test_i18n_343.py` verde. Suite unit+integration: **2262 passed, 1 skipped** (incl.
+la guardia anti-duplicati aggiunta nel fix review). Con la
 4w il **🌳 Mapping guidato è completamente localizzato**. Docs: README + `design_handoff.md`. Design
 handoff = **PASS**.
 

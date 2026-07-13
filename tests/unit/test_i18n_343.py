@@ -131,28 +131,45 @@ def test_catalogo_anti_drift_chiavi_verbatim_nel_sorgente():
                 f"secondarie localizzate, nei banner, nel wizard né nel Mapping: {key!r}")
 
 
-def test_catalogo_nessuna_chiave_duplicata_con_valore_diverso():
-    """Nessun dict-literal EN/ES ha la STESSA chiave mappata a DUE valori DIVERSI (CodeRabbit #50):
-    è la classe di bug reale — l'ultima entry vince silenziosamente, cambiando la traduzione per i
-    chiamanti dell'entry precedente (es. profiles_gui). Guardia AST sul sorgente (i dict runtime già
-    collassano i duplicati): parse di `i18n.py`, si ispezionano i letterali dict e si vieta ogni
-    chiave stringa ripetuta che punti a un valore diverso. (I duplicati con valore IDENTICO sono
-    ridondanti ma innocui e non falliscono qui.)"""
-    tree = ast.parse(_read("i18n.py"))
-    conflitti = []
+def _catalog_lang_dicts(tree):
+    """I dict-literal per-lingua DENTRO l'assegnazione `_CATALOG = {"EN": {...}, "ES": {...}}` di
+    i18n.py (CodeRabbit #50: la guardia va limitata al catalogo, non a ogni ast.Dict del file)."""
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Dict):
-            continue
+        if (isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "_CATALOG" for t in node.targets)
+                and isinstance(node.value, ast.Dict)):
+            for lang_key, lang_val in zip(node.value.keys, node.value.values):
+                if isinstance(lang_val, ast.Dict):
+                    lang = lang_key.value if isinstance(lang_key, ast.Constant) else "?"
+                    yield lang, lang_val
+
+
+def test_catalogo_nessuna_chiave_duplicata_con_valore_diverso():
+    """Nessuna mappa-lingua di `_CATALOG` ha la STESSA chiave mappata a DUE valori DIVERSI
+    (CodeRabbit #50): è la classe di bug reale — l'ultima entry vince silenziosamente, cambiando la
+    traduzione per i chiamanti dell'entry precedente (es. profiles_gui). Guardia AST scoping-ata al
+    solo `_CATALOG` (non a ogni dict di i18n.py): parse del sorgente, per ogni mappa-lingua si vieta
+    ogni chiave stringa ripetuta con valore diverso. (I duplicati con valore IDENTICO sono ridondanti
+    ma innocui e non falliscono qui.)"""
+    tree = ast.parse(_read("i18n.py"))
+    lang_dicts = list(_catalog_lang_dicts(tree))
+    # il test non deve diventare un no-op se `_CATALOG` viene ristrutturato: pretende le lingue reali.
+    lingue = {lang for lang, _ in lang_dicts}
+    assert set(i18n._CATALOG) <= lingue, (
+        f"guardia non ha trovato tutte le mappe-lingua di _CATALOG come dict-literal: {lingue}")
+    conflitti = []
+    for lang, d in lang_dicts:
         viste = {}
-        for k, v in zip(node.keys, node.values):
+        for k, v in zip(d.keys, d.values):
             if not (isinstance(k, ast.Constant) and isinstance(k.value, str)
                     and isinstance(v, ast.Constant)):
                 continue
             if k.value in viste and viste[k.value] != v.value:
-                conflitti.append((k.value, viste[k.value], v.value, k.lineno))
+                conflitti.append((lang, k.value, viste[k.value], v.value, k.lineno))
             viste[k.value] = v.value
     assert not conflitti, "chiavi di catalogo duplicate con valore DIVERSO (override silenzioso):\n" + \
-        "\n".join(f"  {key!r} @L{ln}: {prev!r} → {cur!r}" for key, prev, cur, ln in conflitti)
+        "\n".join(f"  [{lg}] {key!r} @L{ln}: {prev!r} → {cur!r}"
+                  for lg, key, prev, cur, ln in conflitti)
 
 
 def test_catalogo_valori_sensati():
