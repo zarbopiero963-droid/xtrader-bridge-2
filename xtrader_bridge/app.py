@@ -2173,7 +2173,7 @@ class App(ctk.CTk):
         if not TELEGRAM_OK:
             # Libreria python-telegram-bot assente: errore chiaro, niente crash
             # silenzioso nel thread del bot (PR-11, #11).
-            self._log("❌ python-telegram-bot non disponibile: impossibile avviare il listener.")
+            self._log(i18n.tr("❌ python-telegram-bot non disponibile: impossibile avviare il listener."))
             return
         # Reidratazione del campo token PRIMA della validazione grezza (PR-08c): se il keyring
         # era illeggibile al load (marker `_token_load_incomplete`) il campo è vuoto pur
@@ -2191,7 +2191,7 @@ class App(ctk.CTk):
             "clear_delay": self._e_delay.get().strip(),
         }
         if not raw["bot_token"]:
-            self._log("❌ Inserisci il Bot Token prima di avviare!")
+            self._log(i18n.tr("❌ Inserisci il Bot Token prima di avviare!"))
             return
         errors = settings_validation.validate_settings(raw)
         if errors:
@@ -2205,17 +2205,17 @@ class App(ctk.CTk):
         # valori. Avviare ignorerebbe una modifica safety-critical (es. riattivare
         # DRY_RUN o passare a OVERWRITE_LAST): meglio bloccare e far correggere.
         if self._adv_errors:
-            self._log("❌ Impostazioni avanzate non valide (vedi avvisi sopra): "
-                      "correggile prima di avviare. Avvio annullato.")
+            self._log(i18n.tr("❌ Impostazioni avanzate non valide (vedi avvisi sopra): "
+                              "correggile prima di avviare. Avvio annullato."))
             return
         # Fail-fast (PR-25): senza NESSUNA chat configurata (chat_id, parser_by_chat
         # o sorgente source_chats anche disattivata) is_chat_allowed ammetterebbe
         # TUTTE le chat: il bridge accetterebbe segnali da chat arbitrarie. Blocco
         # l'avvio finché l'utente non configura almeno una chat/sorgente.
         if not signal_router.has_chat_filter(cfg):
-            self._log("❌ Nessuna chat configurata (Chat ID, parser per-chat o sorgente): "
-                      "il bridge accetterebbe segnali da QUALSIASI chat. Configura almeno "
-                      "una chat/sorgente. Avvio annullato.")
+            self._log(i18n.tr("❌ Nessuna chat configurata (Chat ID, parser per-chat o sorgente): "
+                              "il bridge accetterebbe segnali da QUALSIASI chat. Configura almeno "
+                              "una chat/sorgente. Avvio annullato."))
             return
         # Fail-fast (#311-1.3): il parser automatico P.Bet è disattivato nel live (CP-09b).
         # Senza NESSUN Parser Personalizzato (globale o per-chat) il listener partirebbe
@@ -2223,10 +2223,10 @@ class App(ctk.CTk):
         # bridge lavori. BLOCCANTE, coerente con gli altri fail-fast (token/csv_path/chat):
         # prima era solo un avviso ⚠ non bloccante.
         if not signal_router.has_active_parser_config(cfg):
-            self._log("❌ Nessun Parser Personalizzato configurato (globale o per-chat): "
-                      "il parser automatico è disattivato e il listener ignorerebbe OGNI "
-                      "segnale. Configura almeno un Parser Personalizzato prima di avviare "
-                      "(scheda 🧩 Parser). Avvio annullato.")
+            self._log(i18n.tr("❌ Nessun Parser Personalizzato configurato (globale o per-chat): "
+                              "il parser automatico è disattivato e il listener ignorerebbe OGNI "
+                              "segnale. Configura almeno un Parser Personalizzato prima di avviare "
+                              "(scheda 🧩 Parser). Avvio annullato."))
             return
         # Fail-fast (PR-24): sorgenti multi-chat malformate (chat_id mancante,
         # DUPLICATO con provider ambiguo, modalità non valida) bloccano l'avvio,
@@ -2234,8 +2234,8 @@ class App(ctk.CTk):
         src_errors = source_manager.validate_sources(cfg.get("source_chats"))
         if src_errors:
             for err in src_errors:
-                self._log(f"❌ Sorgenti multi-chat: {err}")
-            self._log("Avvio annullato: correggi le sorgenti.")
+                self._log(i18n.tr("❌ Sorgenti multi-chat: {err}").format(err=err))
+            self._log(i18n.tr("Avvio annullato: correggi le sorgenti."))
             return
         # Avviso NON bloccante (Codex P2 #309): un `enabled` malformato viene coercito
         # a DISATTIVATA dal fail-closed C7 #259, ma il warning del logger Python non è
@@ -2262,10 +2262,10 @@ class App(ctk.CTk):
         # (CodeRabbit #312).
         if not signal_router.allowed_chats(cfg):
             if auto:
-                self._log("⏸️ Avvio automatico annullato: nessuna chat sorgente ATTIVA.")
+                self._log(i18n.tr("⏸️ Avvio automatico annullato: nessuna chat sorgente ATTIVA."))
                 return
-            self._log("⚠️ Nessuna chat sorgente ATTIVA: il listener parte ma NON "
-                      "processerà alcun segnale finché non attivi almeno una chat.")
+            self._log(i18n.tr("⚠️ Nessuna chat sorgente ATTIVA: il listener parte ma NON "
+                              "processerà alcun segnale finché non attivi almeno una chat."))
         # Fail-fast (PR-23/PR-24): la chat notifiche XTrader NON deve coincidere con una
         # chat sorgente; altrimenti i segnali di quella chat finirebbero nel percorso di
         # conferma e verrebbero ignorati silenziosamente. PR-2 (Codex #391): usa la FONTE
@@ -2279,8 +2279,8 @@ class App(ctk.CTk):
             sources = set(signal_router.allowed_chats(cfg))
             sources.discard("")
             if notif in sources:
-                self._log("❌ La Chat notifiche XTrader coincide con una chat sorgente: "
-                          "cambiala (i segnali verrebbero scambiati per conferme). Avvio annullato.")
+                self._log(i18n.tr("❌ La Chat notifiche XTrader coincide con una chat sorgente: "
+                                  "cambiala (i segnali verrebbero scambiati per conferme). Avvio annullato."))
                 return
 
         # Avvio AUTOMATICO: la decisione si basa sulla config APPENA salvata (cfg),
@@ -2297,9 +2297,9 @@ class App(ctk.CTk):
                         "L'avvio automatico è attivo in MODALITÀ REALE: il bridge "
                         "inizierà a scrivere i segnali nel CSV (scommesse reali) "
                         "appena ricevuti.\n\nAvviare ora il listener?"):
-                    self._log("⏸️ Avvio automatico in modalità reale annullato.")
+                    self._log(i18n.tr("⏸️ Avvio automatico in modalità reale annullato."))
                     return
-            self._log("▶️ Avvio automatico del listener (auto_start_listener attivo).")
+            self._log(i18n.tr("▶️ Avvio automatico del listener (auto_start_listener attivo)."))
         elif autostart.needs_real_mode_confirmation(cfg):
             # START MANUALE in modalità REALE (audit #259 C5, decisione proprietario):
             # un `dry_run:false` già persistito (o editato a mano in config.json) NON
@@ -2311,7 +2311,7 @@ class App(ctk.CTk):
                     "START — MODALITÀ REALE",
                     "Sei in MODALITÀ REALE: il bridge scriverà i segnali nel CSV "
                     "(scommesse reali) appena ricevuti.\n\nAvviare ora il listener?"):
-                self._log("⏸️ Avvio in modalità reale annullato.")
+                self._log(i18n.tr("⏸️ Avvio in modalità reale annullato."))
                 return
 
         # Pre-flight del csv_path (#184 low-csvpath-validate): un problema di percorso (cartella
@@ -2320,7 +2320,7 @@ class App(ctk.CTk):
         # errori di lock/permessi restano gestiti dall'except OSError sotto.
         csv_problem = config_store.csv_path_problem(cfg["csv_path"])
         if csv_problem:
-            self._log(f"❌ {csv_problem} Avvio annullato.")
+            self._log(i18n.tr("❌ {problem} Avvio annullato.").format(problem=csv_problem))
             return
         # Svuota il CSV operativo PRIMA di mettere la sessione in stato ATTIVO: se il path
         # non è scrivibile (lockato da XTrader, permessi, disco pieno) l'avvio va annullato
@@ -2329,8 +2329,8 @@ class App(ctk.CTk):
         try:
             init_csv(cfg["csv_path"])
         except OSError as exc:
-            self._log(f"❌ Impossibile inizializzare il CSV ({cfg['csv_path']}): "
-                      f"{type(exc).__name__}: {exc}. Avvio annullato.")
+            self._log(i18n.tr("❌ Impossibile inizializzare il CSV ({path}): {exc}. Avvio annullato.")
+                      .format(path=cfg['csv_path'], exc=f"{type(exc).__name__}: {exc}"))
             return
         # #234 B: se una riga stantia è sopravvissuta fino a qui (cleanup avvio/STOP non riuscito
         # perché XTrader teneva il file lockato), è QUESTO init_csv a rimuoverla → registra il clear

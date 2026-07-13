@@ -3015,3 +3015,39 @@ Design handoff = **PASS**.
 validazione START, riconnessione/backoff, conferme XTrader, recovery `{quando}`, dominio-bubble che
 resta IT) + i **dialoghi modali** GUI + finestra 🧰 Strumenti hub (`tools_gui`) + il pannello
 🌳 Mapping guidato (`guided_mapping_gui`).
+
+## #343 slice 4l — log AVVIO/VALIDAZIONE START (app.py) localizzati (residuo UI della #3)
+
+**Obiettivo.** Terzo gruppo del residuo dei log di `app.py` (dopo lifecycle 4j e config/CSV 4k):
+i messaggi **safety-critical** che **bloccano/annullano lo START**, cioè quelli che spiegano
+all'utente perché il bridge NON è partito.
+
+**Cosa fa.** Passano ora da `i18n.tr(...)` **15 chiavi** in `_start`: python-telegram-bot assente;
+Bot Token mancante; impostazioni avanzate non valide; nessuna chat configurata; nessun Parser
+Personalizzato; «Sorgenti multi-chat: {err}»; «Avvio annullato: correggi le sorgenti»; auto-start
+senza chat ATTIVA; nessuna chat ATTIVA (warning); conflitto Chat notifiche XTrader; auto-start
+reale annullato; auto-start attivo; START reale annullato; «{problem} Avvio annullato»; CSV non
+inizializzabile «({path}): {exc}». Le interpolazioni `%s`/f-string diventano template
+`tr(...).format(...)`. Catalogo `i18n.py`: **15 chiavi × EN/ES** («bridge»/«Bot Token»/«listener»/
+«Parser Personalizzato» verbatim). Marker emoji (❌/⚠️/⏸️/▶️) conservato → livello di log invariato.
+
+**Esclusioni documentate (restano IT).** I log di **puro dominio** `f"❌ {err}"` (validation error da
+`settings_validation`) e `f"⚠️ {warn}"` (avvisi da `source_manager`/`name_mapping_store`/
+`market_mapping_store`) NON sono wrappati; i valori interpolati `{err}`/`{problem}`/`{exc}` sono
+contenuto di dominio (invariati). I **dialoghi modali** `messagebox` di START in modalità reale
+restano IT (residuo «dialoghi GUI»). **Nessun cambio di logica**: gate/fail-fast (token/chat/parser/
+sorgenti/conflitto notifiche), conferma modalità reale, pre-flight e init CSV invariati.
+
+**Test hard** (`tests/unit/test_app_start_i18n_343.py`, +6, pattern 4k): estrae via AST le costanti
+`tr` di `app.py`, verifica il wrapping (e che i vecchi literal non sopravvivano), la copertura EN/ES
+per le 15 chiavi, i **call-site `.format(...)`** dei log dinamici (mutation-guard `{err}`/`{problem}`/
+`{path}`/`{exc}`), la conservazione dei segnaposto, il round-trip, il marker conservato (solo per le
+chiavi con marker) e le **esclusioni** (`f"❌ {err}"`/`f"⚠️ {warn}"` non wrappati). Anti-drift
+`test_i18n_343.py` resta verde (`_APP_TR` AST già introdotto in 4k). Suite locale (al commit):
+**2447 passed, 11 skipped** (l'esito autorevole è la CI del head PR). **CORE change** (`app.py`,
+`i18n.py`) → ri-sincronizzare nel cloud. Docs: README + `design_handoff.md` (§ localizzazione log).
+Design handoff = **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti ~69 log `self._log(...)` di `app.py` (riconnessione/
+backoff, conferme XTrader, recovery `{quando}`, dominio-bubble che resta IT) + i **dialoghi modali**
+GUI + finestra 🧰 Strumenti hub (`tools_gui`) + il pannello 🌳 Mapping guidato (`guided_mapping_gui`).
