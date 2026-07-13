@@ -155,9 +155,10 @@ all'avvio», restano in italiano perché quel valore è usato anche come chiave 
 i **log degli strumenti Log & diagnostica** (apri cartella log, export audit modalità reale, copia
 diagnostica, retention log, svuota log, toggle Debug, slice 4o), i **log di
 wizard, selettore lingua e profilo/sorgenti** (apertura/fine wizard, selettore lingua rimandato,
-applicazione profilo, aggiornamento sorgenti multi-chat, slice 4p) e — dalla slice 4q — i **log dei
+applicazione profilo, aggiornamento sorgenti multi-chat, slice 4p), i **log dei
 guardrail runtime** (stato anti-duplicato illeggibile, fallimento persistenza stato anti-duplicato/
-limite giornaliero, modalità coda) sono localizzati.
+limite giornaliero, modalità coda, slice 4q) e — dalla slice 4r — i **log di annullo transizione
+modalità** (attivazione REALE/COLLAUDO annullata, coda multi-segnale annullata) sono localizzati.
 Restano ancora in italiano: la finestra **🧰 Strumenti (hub)** e il pannello
 **🌳 Mapping guidato**, i restanti **messaggi di log** dell'app e i **dialoghi modali** GUI (e i
 messaggi che riportano contenuto di dominio, che restano IT per contratto) — previsti nelle prossime

@@ -3234,3 +3234,34 @@ ri-sincronizzare nel cloud. Docs: README + `design_handoff.md` (§ localizzazion
 `{quando}`, log SUCCESS lingua `{extra}`+nota, mode-toggle ANNULLATA, settings/timeout, altri sparsi,
 dominio-bubble che resta IT) + i **dialoghi modali** GUI + finestra 🧰 Strumenti hub (`tools_gui`) + il
 pannello 🌳 Mapping guidato (`guided_mapping_gui`).
+
+## #343 slice 4r — log MODE-TRANSITION ANNULLATA (attivazione REALE/COLLAUDO/coda annullata) localizzati (residuo UI #3)
+
+**Obiettivo.** Nono gruppo del residuo dei log di `app.py` (dopo 4j–4q): i log emessi in
+`_gate_dangerous_transitions` quando l'utente **ANNULLA** la conferma di una transizione di modalità
+pericolosa — attivazione **REALE**, attivazione **COLLAUDO**, coda **multi-segnale**.
+
+**Cosa fa.** Passano ora da `i18n.tr(...)` **3 chiavi**: «↩️ Attivazione modalità REALE ANNULLATA:
+torno a {old_mode}.» (dinamica, `.format(old_mode=old_mode)`); «↩️ Attivazione modalità COLLAUDO
+ANNULLATA: torno a {old_mode}.» (dinamica); «↩️ Modalità coda multi-segnale ANNULLATA: resto a un
+solo segnale attivo (OVERWRITE_LAST).». Catalogo `i18n.py`: **3 chiavi × EN/ES** — «REALE»→«REAL»,
+«COLLAUDO»→«TEST» (EN) / «PRUEBA» (ES), coerenti coi banner di modalità (slice 4). Marker (↩️)
+conservato → livello log invariato.
+
+**Esclusioni documentate (restano IT).** Il log di **AUDIT** dell'attivazione REALE *confermata*
+(`self._log("⚠️ " + real_mode.enabled_message())`) resta un messaggio di **dominio**: solo il prefisso
+«⚠️ » è concatenato con `real_mode.enabled_message()`, che NON passa da `i18n.tr` (come per gli altri
+suffissi di dominio). `{old_mode}` è un valore di dominio da `bridge_mode.mode_from_cfg`
+(SIMULAZIONE/COLLAUDO/REALE) e resta invariato; `OVERWRITE_LAST` è un termine prodotto. **Nessun cambio
+di logica**: gate di conferma, `apply_mode`, revert widget e coda invariati (pura presentazione).
+
+**Test hard** (`tests/unit/test_app_mode_transition_i18n_343.py`, pattern 4q): AST tr-constant (incluse
+le multilinea), mutation-guard `.format` (`{old_mode}`), copertura EN/ES **!= IT**, placeholder,
+round-trip, marker, e **guardia di esclusione** (AUDIT `enabled_message` fuori da `i18n.tr`). Anti-drift
+`test_i18n_343.py` resta verde (`_APP_TR` AST). **CORE change** (`app.py`, `i18n.py`) → ri-sincronizzare
+nel cloud. Docs: README + `design_handoff.md` (§ localizzazione log). Design handoff = **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti ~26 log `self._log(...)` di `app.py` (recovery
+`{quando}`, log SUCCESS lingua `{extra}`+nota, settings/timeout, dedupe-illeggibile warned, altri
+sparsi, dominio-bubble che resta IT) + i **dialoghi modali** GUI + finestra 🧰 Strumenti hub
+(`tools_gui`) + il pannello 🌳 Mapping guidato (`guided_mapping_gui`).

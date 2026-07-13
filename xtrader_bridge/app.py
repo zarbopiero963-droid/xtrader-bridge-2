@@ -685,24 +685,24 @@ class App(ctk.CTk):
             else:
                 bridge_mode.apply_mode(cfg, old_mode)
                 self._revert_mode_widget(old_mode)
-                self._log("↩️ Attivazione modalità REALE ANNULLATA: torno a "
-                          f"{old_mode}.")
+                self._log(i18n.tr("↩️ Attivazione modalità REALE ANNULLATA: torno a "
+                                  "{old_mode}.").format(old_mode=old_mode))
         elif bridge_mode.requires_collaudo_confirmation(old_cfg, cfg):
             # Conferma LEGGERA (sì/no) per il COLLAUDO da simulazione: il CSV operativo
             # inizia a essere scritto → XTrader deve già essere in simulazione.
             if not self._confirm_collaudo_mode():
                 bridge_mode.apply_mode(cfg, old_mode)
                 self._revert_mode_widget(old_mode)
-                self._log("↩️ Attivazione modalità COLLAUDO ANNULLATA: torno a "
-                          f"{old_mode}.")
+                self._log(i18n.tr("↩️ Attivazione modalità COLLAUDO ANNULLATA: torno a "
+                                  "{old_mode}.").format(old_mode=old_mode))
         if multi_signal.requires_warning(old_cfg, cfg):
             if not self._confirm_multi_signal(
                     cfg.get("max_active_signals", DEFAULTS["max_active_signals"])):
                 cfg["queue_mode"] = signal_queue.OVERWRITE_LAST
                 if "queue_mode" in self._adv:
                     self._adv["queue_mode"].set(signal_queue.OVERWRITE_LAST)
-                self._log("↩️ Modalità coda multi-segnale ANNULLATA: resto a un solo segnale "
-                          "attivo (OVERWRITE_LAST).")
+                self._log(i18n.tr("↩️ Modalità coda multi-segnale ANNULLATA: resto a un solo segnale "
+                                  "attivo (OVERWRITE_LAST)."))
         return cfg
 
     def _persist_loaded_profile(self, new_cfg):
