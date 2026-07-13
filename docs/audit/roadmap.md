@@ -3051,3 +3051,43 @@ Design handoff = **PASS**.
 **Ancora aperto (per chiudere #3):** i restanti ~69 log `self._log(...)` di `app.py` (riconnessione/
 backoff, conferme XTrader, recovery `{quando}`, dominio-bubble che resta IT) + i **dialoghi modali**
 GUI + finestra 🧰 Strumenti hub (`tools_gui`) + il pannello 🌳 Mapping guidato (`guided_mapping_gui`).
+
+## #343 slice 4m — log ESITO elaborazione messaggio/segnale (app.py) localizzati (residuo UI della #3)
+
+**Obiettivo.** Quarto gruppo del residuo dei log di `app.py` (dopo lifecycle 4j, config/CSV 4k,
+START 4l): i log runtime che spiegano **l'esito di un messaggio/segnale** durante l'ascolto — il
+flusso attorno alle conferme XTrader (dispatch → scrittura CSV → conferma/scadenza).
+
+**Cosa fa.** Passano ora da `i18n.tr(...)` **10 chiavi**: dispatch-ignore (messaggio troppo vecchio;
+config live senza filtro chat; conflitto Chat-notifiche/sorgente; «Esito instradamento sconosciuto
+({decision})»); scrittura CSV («Segnale scartato ({source}/{status}): {detail}»; «Scrittura CSV
+fallita: {exc}…»; tracciabilità «Messaggio→CSV | msg: {msg} | riga: {row}»); conferma/scadenza
+(«Aggiornamento CSV dopo conferma fallito: {exc}…»; «…alla scadenza fallito: {exc}…»; «{n} segnale/i
+scaduto/i rimosso/i dal CSV»). Le interpolazioni f-string/concat diventano template
+`tr(...).format(...)`. Catalogo `i18n.py`: **10 chiavi × EN/ES** («CSV»/«XTrader»/
+`xtrader_notification_chat_id` verbatim). Marker (⏳/⚠️/❌/🧾/🗑️) conservato → livello invariato.
+
+**Esclusioni documentate (restano IT).** Gli **esiti di DOMINIO** costruiti nei layer puri NON sono
+wrappati: `outcome.signal_log`/`outcome.csv_log`/`outcome.log`, `multi_signal.blocked_message`,
+`signal_outcome.confirmation_removed_log`/`confirmation_ignored_log` (i veri messaggi di ESITO
+conferma «confermato/rifiutato/unmatched/unknown»), il traceback. I valori interpolati
+`{source}`/`{status}`/`{detail}`/`{exc}`/`{decision}`/`{msg}`/`{row}`/`{n}` sono dominio. I log di
+**riconnessione/backoff** (🔄 riconnesso, 🔌 connessione persa, ❌ errore non recuperabile) sono un
+tema «connessione» a parte → **slice successiva**. **Nessun cambio di logica**: dispatch fail-closed,
+scrittura CSV, coda/scadenza, rimozione su conferma e invarianti (mai scommessa involontaria)
+invariate.
+
+**Test hard** (`tests/unit/test_app_process_i18n_343.py`, +6, pattern 4l): estrae via AST le costanti
+`tr`, verifica wrapping (+ assenza vecchi f-string), copertura EN/ES **con traduzione != IT** per le
+10 chiavi, i **call-site `.format(...)`** dei log dinamici (mutation-guard `{decision}`/`{source}`/
+`{status}`/`{detail}`/`{exc}`/`{msg}`/`{row}`/`{n}`), la conservazione dei segnaposto, il round-trip,
+il marker conservato e le **esclusioni** (outcome.*_log/blocked_message/confirmation_* non wrappati).
+Anti-drift `test_i18n_343.py` resta verde (`_APP_TR` AST). Suite locale (al commit): **2453 passed,
+11 skipped** (l'esito autorevole è la CI del head PR). **CORE change** (`app.py`, `i18n.py`) →
+ri-sincronizzare nel cloud. Docs: README + `design_handoff.md` (§ localizzazione log). Design
+handoff = **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti ~59 log `self._log(...)` di `app.py` (riconnessione/
+backoff, recovery `{quando}`, varie audit/diagnostica/retention/debug/lingua/multi-chat,
+dominio-bubble che resta IT) + i **dialoghi modali** GUI + finestra 🧰 Strumenti hub (`tools_gui`) +
+il pannello 🌳 Mapping guidato (`guided_mapping_gui`).

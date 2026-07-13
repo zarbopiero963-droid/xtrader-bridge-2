@@ -342,6 +342,18 @@ contratto: i log di **puro dominio** `f"❌ {err}"` (errore di validazione) e `f
 degli store), coi valori interpolati `{err}`/`{problem}`/`{exc}` di dominio; e i **dialoghi modali**
 `messagebox` di conferma START in modalità reale (superficie «dialoghi GUI», ancora IT).
 
+Dalla **slice 4m — log ESITO elaborazione messaggio/segnale** è localizzato il quarto gruppo: i log
+runtime del pannello **📋 Log** che spiegano **cosa è successo a un messaggio/segnale** durante
+l'ascolto (il flusso attorno alle conferme XTrader) — messaggio ignorato perché troppo vecchio, config
+live senza filtro chat, conflitto Chat-notifiche/sorgente, «⚠️ Segnale scartato (…)», «❌ Scrittura CSV
+fallita: …», la riga di tracciabilità «🧾 Messaggio→CSV | msg: … | riga: …», gli aggiornamenti CSV
+falliti dopo conferma/scadenza e «🗑️ N segnale/i scaduto/i rimosso/i dal CSV». Marker (⏳/⚠️/❌/🧾/🗑️)
+conservato → colore/livello invariato. **Restano IT** per contratto: i **veri messaggi di ESITO
+conferma** (confermato/rifiutato/unmatched/unknown) e le presentazioni di scrittura/scarto costruite
+nei layer puri (`outcome.*_log`, `signal_outcome.confirmation_removed_log`/`_ignored_log`,
+`multi_signal.blocked_message`) coi dati di dominio interpolati; i log di **riconnessione/backoff**
+(🔄/🔌/❌ errore listener) sono un tema «connessione» rimandato a una slice successiva.
+
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 
 Toplevel MODALE (grab) lanciato dal bottone **«🧙 Wizard prima configurazione»**
