@@ -400,9 +400,18 @@ Dalla **slice 4r — log MODE-TRANSITION ANNULLATA** è localizzato il nono grup
 «↩️ Attivazione modalità REALE ANNULLATA: torno a {old_mode}.», «↩️ Attivazione modalità COLLAUDO
 ANNULLATA: torno a {old_mode}.» e «↩️ Modalità coda multi-segnale ANNULLATA: resto a un solo segnale
 attivo (OVERWRITE_LAST).». «REALE»→«REAL», «COLLAUDO»→«TEST» (EN) / «PRUEBA» (ES), coerenti coi banner
-di modalità; marker (↩️) conservato → colore/livello invariato. **Restano IT** per contratto: il log di
+di modalità; marker (↩️) conservato → colore/livello invariato. **Restava IT** il valore `{old_mode}`
+(nome modalità) — ora localizzato dalla slice 4s (vedi sotto). **Resta IT** per contratto: il log di
 **AUDIT** dell'attivazione REALE *confermata* («⚠️ » + `real_mode.enabled_message()`, bolla di dominio,
-solo prefisso concatenato) e il valore `{old_mode}` (nome modalità da `bridge_mode.mode_from_cfg`).
+solo prefisso concatenato).
+
+Dalla **slice 4s — NOMI MODALITÀ nei log** (Issue #45) il **nome della modalità di trading**
+interpolato nei due log di annullo («torno a {old_mode}») è reso nella lingua UI dall'helper di
+presentazione `App._mode_display_name`: in EN «reverting to **REAL**/**TEST**/**SIMULATION**», in ES
+«vuelvo a **REAL**/**PRUEBA**/**SIMULACIÓN**» — niente più messaggi mistilingue. È una resa
+**puramente testuale**: il valore di dominio usato dai gate di sicurezza (attivazione reale, `apply_mode`)
+è invariato. La **modalità coda** («🧮 Modalità coda: {mode}») resta col valore tecnico
+(`OVERWRITE_LAST`/`FIFO`), non è un nome di modalità di trading.
 
 ### 6.2-quater Finestra «🧙 Wizard di prima configurazione» (#311 §3.4)
 

@@ -556,6 +556,14 @@ _CATALOG = {
         "↩️ Attivazione modalità REALE ANNULLATA: torno a {old_mode}.": "↩️ REAL mode activation CANCELLED: reverting to {old_mode}.",
         "↩️ Attivazione modalità COLLAUDO ANNULLATA: torno a {old_mode}.": "↩️ TEST mode activation CANCELLED: reverting to {old_mode}.",
         "↩️ Modalità coda multi-segnale ANNULLATA: resto a un solo segnale attivo (OVERWRITE_LAST).": "↩️ Multi-signal queue mode CANCELLED: staying with a single active signal (OVERWRITE_LAST).",
+        # NOMI MODALITÀ di trading (#343 slice 4s / Issue #45): nome breve localizzato reso da
+        # App._mode_display_name SOLO per i log (presentazione). Coerenti coi banner di modalità
+        # (slice 4). Il VALORE di dominio usato dai gate (bridge_mode.mode_from_cfg) resta invariato:
+        # qui si traduce solo la resa testuale nel log. La modalità coda ({mode}: OVERWRITE_LAST/FIFO)
+        # NON rientra: sono termini tecnici, non parole IT.
+        "SIMULAZIONE": "SIMULATION",
+        "COLLAUDO": "TEST",
+        "REALE": "REAL",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -1014,5 +1022,9 @@ _CATALOG = {
         "↩️ Attivazione modalità REALE ANNULLATA: torno a {old_mode}.": "↩️ Activación del modo REAL CANCELADA: vuelvo a {old_mode}.",
         "↩️ Attivazione modalità COLLAUDO ANNULLATA: torno a {old_mode}.": "↩️ Activación del modo PRUEBA CANCELADA: vuelvo a {old_mode}.",
         "↩️ Modalità coda multi-segnale ANNULLATA: resto a un solo segnale attivo (OVERWRITE_LAST).": "↩️ Modo de cola multi-señal CANCELADO: permanezco con una sola señal activa (OVERWRITE_LAST).",
+        # NOMI MODALITÀ di trading (#343 slice 4s / Issue #45) — vedi nota nel blocco EN.
+        "SIMULAZIONE": "SIMULACIÓN",
+        "COLLAUDO": "PRUEBA",
+        "REALE": "REAL",
     },
 }
