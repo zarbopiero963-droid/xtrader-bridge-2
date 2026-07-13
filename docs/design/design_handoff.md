@@ -388,8 +388,9 @@ avviare!», «❌ Nessuna chat configurata …», «❌ Nessun Parser Personaliz
 «❌ {problem} Avvio annullato.» e «❌ Impossibile inizializzare il CSV ({path}): {exc} …». Marker di
 severità (❌/⚠️/⏸️/▶️) conservato in EN/ES → colore/livello della riga invariato. **Restano IT** per
 contratto: i log di **puro dominio** `f"❌ {err}"` (errore di validazione) e `f"⚠️ {warn}"` (avvisi
-degli store), coi valori interpolati `{err}`/`{problem}`/`{exc}` di dominio; e i **dialoghi modali**
-`messagebox` di conferma START in modalità reale (superficie «dialoghi GUI», ancora IT).
+degli store), coi valori interpolati `{err}`/`{problem}`/`{exc}` di dominio. I **dialoghi modali di
+conferma modalità** (REALE/COLLAUDO/MULTI-segnale + i due gate autostart/START reale) sono invece
+**localizzati dalla slice 4y** — vedi §9.
 
 Dalla **slice 4m — log ESITO elaborazione messaggio/segnale** è localizzato il quarto gruppo: i log
 runtime del pannello **📋 Log** che spiegano **cosa è successo a un messaggio/segnale** durante
@@ -994,6 +995,15 @@ compare **"🔒 CSV bloccato da XTrader"** (con numero tentativi), poi il recupe
 
 Questi flussi hanno **attrito intenzionale**: il design deve preservarne la forza.
 
+> **#343 slice 4y (localizzazione dialoghi di conferma).** Titoli e testi di **tutti** i dialoghi
+> di questa sezione (§9.1 REALE, §9.1-bis COLLAUDO, §9.2 MULTI-segnale, §9.3 autostart/START reale)
+> sono ora **localizzati** in EN/ES (in IT identità → testi storici invariati). **Invariante SAFETY:** la
+> parola da digitare per confermare la modalità reale resta **`REALE`** in ogni lingua (è
+> interpolata come valore fisso, non tradotta: `real_mode.confirmation_ok` la confronta
+> letteralmente); un utente EN/ES vede comunque «digita: REALE». Severità e parole-rischio
+> preservate (REAL/REALES, VERE→REAL, MULTI invariato). L'attrito (frase da digitare / Sì-No a ogni
+> avvio) e la semantica dei gate sono **immutati**: cambia solo la lingua del testo.
+
 ### 9.1 Attivazione MODALITÀ REALE (doppia conferma)
 Passando da simulazione a reale (o caricando un profilo con `dry_run:false`) appare un
 dialogo:
@@ -1005,6 +1015,20 @@ dialogo:
   > Per confermare digita:  REALE
 - L'utente **deve digitare** `REALE` (case-insensitive). Se annulla → resta in simulazione.
 - Dopo la conferma: banner rosso persistente + evento `REAL_MODE_ENABLED` nel log.
+
+### 9.1-bis Attivazione MODALITÀ COLLAUDO (conferma Sì/No)
+Passando da simulazione a COLLAUDO (il CSV operativo inizia a essere scritto, quindi XTrader DEVE
+già essere in Modalità Simulazione) appare un dialogo Sì/No:
+- **Titolo:** `Conferma MODALITÀ COLLAUDO`
+- **Testo:**
+  > Stai attivando la MODALITÀ COLLAUDO XTRADER:
+  > il CSV operativo verrà scritto e XTrader lo importerà.
+  >
+  > XTrader è impostato in Modalità Simulazione?
+  > (Se è in reale, le scommesse sarebbero VERE.)
+- Se **No** → la modalità torna a quella precedente (nessuna scrittura del CSV operativo).
+- Localizzato in EN/ES (slice 4y) dalla costante `bridge_mode.COLLAUDO_CONFIRM_TEXT` resa via
+  `i18n.tr(...)`, come il banner COLLAUDO; parole-rischio preservate (VERE→REAL, COLLAUDO→TEST/PRUEBA).
 
 ### 9.2 Attivazione modalità MULTI-segnale (conferma Sì/No)
 Passando a `APPEND_ACTIVE` o `QUEUE_UNTIL_CONFIRMED` (più righe/scommesse insieme):

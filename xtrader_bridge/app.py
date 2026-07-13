@@ -1526,11 +1526,16 @@ class App(ctk.CTk):
         GUI (verifica manuale): un input dialog mostra l'avviso e attende la frase; la
         DECISIONE (`real_mode.confirmation_ok`) è logica pura testata."""
         try:
+            # SAFETY (#343 slice 4y): la FRASE da digitare resta `real_mode.CONFIRM_PHRASE`
+            # («REALE», value-as-key confrontata in `confirmation_ok`) — interpolata come valore,
+            # MAI localizzata, altrimenti in EN/ES l'utente digiterebbe una parola che il gate
+            # rifiuterebbe. Solo il testo attorno è tradotto.
             dlg = ctk.CTkInputDialog(
-                title="Conferma MODALITÀ REALE",
-                text=("ATTENZIONE: stai per attivare la MODALITÀ REALE.\n"
-                      "XTrader potrà piazzare scommesse REALI.\n\n"
-                      f"Per confermare digita:  {real_mode.CONFIRM_PHRASE}"))
+                title=i18n.tr("Conferma MODALITÀ REALE"),
+                text=i18n.tr(
+                    "ATTENZIONE: stai per attivare la MODALITÀ REALE.\n"
+                    "XTrader potrà piazzare scommesse REALI.\n\n"
+                    "Per confermare digita:  {phrase}").format(phrase=real_mode.CONFIRM_PHRASE))
             typed = dlg.get_input()    # None se l'utente annulla/chiude
         except Exception:              # noqa: BLE001 — su qualsiasi errore dialog → non confermare
             return False
@@ -1698,7 +1703,8 @@ class App(ctk.CTk):
         from tkinter import messagebox
         try:
             return bool(messagebox.askyesno(
-                "Conferma MODALITÀ COLLAUDO", bridge_mode.COLLAUDO_CONFIRM_TEXT))
+                i18n.tr("Conferma MODALITÀ COLLAUDO"),
+                i18n.tr(bridge_mode.COLLAUDO_CONFIRM_TEXT)))
         except Exception:   # noqa: BLE001 — su errore dialog → non confermare
             return False
 
@@ -1713,7 +1719,8 @@ class App(ctk.CTk):
         from tkinter import messagebox
         try:
             return bool(messagebox.askyesno(
-                "Conferma modalità MULTI-segnale", multi_signal.warning_text(max_active)))
+                i18n.tr("Conferma modalità MULTI-segnale"),
+                multi_signal.warning_text(max_active)))
         except Exception:   # noqa: BLE001 — su errore dialog → non confermare
             return False
 
@@ -2313,10 +2320,10 @@ class App(ctk.CTk):
             if autostart.needs_real_mode_confirmation(cfg):
                 from tkinter import messagebox
                 if not messagebox.askyesno(
-                        "Avvio automatico — MODALITÀ REALE",
-                        "L'avvio automatico è attivo in MODALITÀ REALE: il bridge "
-                        "inizierà a scrivere i segnali nel CSV (scommesse reali) "
-                        "appena ricevuti.\n\nAvviare ora il listener?"):
+                        i18n.tr("Avvio automatico — MODALITÀ REALE"),
+                        i18n.tr("L'avvio automatico è attivo in MODALITÀ REALE: il bridge "
+                                "inizierà a scrivere i segnali nel CSV (scommesse reali) "
+                                "appena ricevuti.\n\nAvviare ora il listener?")):
                     self._log(i18n.tr("⏸️ Avvio automatico in modalità reale annullato."))
                     return
             self._log(i18n.tr("▶️ Avvio automatico del listener (auto_start_listener attivo)."))
@@ -2328,9 +2335,9 @@ class App(ctk.CTk):
             # alcuna conferma. Stesso attrito sì/no dell'avvio automatico.
             from tkinter import messagebox
             if not messagebox.askyesno(
-                    "START — MODALITÀ REALE",
-                    "Sei in MODALITÀ REALE: il bridge scriverà i segnali nel CSV "
-                    "(scommesse reali) appena ricevuti.\n\nAvviare ora il listener?"):
+                    i18n.tr("START — MODALITÀ REALE"),
+                    i18n.tr("Sei in MODALITÀ REALE: il bridge scriverà i segnali nel CSV "
+                            "(scommesse reali) appena ricevuti.\n\nAvviare ora il listener?")):
                 self._log(i18n.tr("⏸️ Avvio in modalità reale annullato."))
                 return
 

@@ -166,10 +166,13 @@ SIMULAZIONE→SIMULATION/SIMULACIÓN, slice 4s), la scheda **🧹 Nomi squadra**
 **🌳 Mapping guidato** completo (chrome + messaggi di stato dinamici: profilo, competizioni, squadre,
 salvataggio, slice 4v–4w) e — dalla slice 4x — l'**hub 🧰 Strumenti** (titolo finestra + i 9
 titoli-scheda: 📡 Chat sorgenti, 📇 Provider, 🧩 Parser, 🗺️ Mapping, 📖 Dizionario, 📒 Diario,
-🧹 Nomi squadra, 📁 Profili, 📋 Riepilogo; «Provider»/«Parser» restano termini prodotto) sono localizzati.
-Restano ancora in italiano: i restanti **messaggi di log** dell'app e i **dialoghi modali** GUI (e i
-messaggi che riportano contenuto di dominio, che restano IT per contratto) — previsti nelle prossime
-slice della #343.
+🧹 Nomi squadra, 📁 Profili, 📋 Riepilogo; «Provider»/«Parser» restano termini prodotto) e — dalla
+slice 4y — i **dialoghi modali di conferma modalità** (attivazione REALE con frase da digitare,
+COLLAUDO, MULTI-segnale e i due gate di avvio automatico/START in modalità reale; la parola da
+digitare resta **`REALE`** in ogni lingua per sicurezza) sono localizzati.
+Restano ancora in italiano: i restanti **messaggi di log** dell'app e alcuni **avvisi/dialoghi
+GUI** non di conferma-modalità (e i messaggi che riportano contenuto di dominio, che restano IT per
+contratto) — previsti nelle prossime slice della #343.
 
 La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Config**
 (oppure all'avvio con **▶ AVVIA**) nel file `config.json` (vedi

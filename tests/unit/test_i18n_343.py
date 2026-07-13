@@ -92,6 +92,15 @@ _APP_TR = _tr_constants("app.py")
 # concatenazione): se una costante cambia, la chiave del catalogo non combacia più → FAIL.
 _BANNER_TEXTS = {real_mode.BANNER_TEXT, bridge_mode.COLLAUDO_BANNER_TEXT}
 
+# Dialoghi di CONFERMA MODALITÀ (#343 slice 4y): il corpo del dialog COLLAUDO è la COSTANTE
+# `bridge_mode.COLLAUDO_CONFIRM_TEXT`, resa in app.py via `i18n.tr(bridge_mode.COLLAUDO_CONFIRM_TEXT)`
+# (indiretto → non estraibile come tr-constant). Come i banner, l'anti-drift la lega al VALORE reale.
+_CONFIRM_TEXTS = {bridge_mode.COLLAUDO_CONFIRM_TEXT}
+# Il warning del dialog MULTI-segnale è localizzato DENTRO `multi_signal.warning_text` come
+# `i18n.tr("… {max_active} …").format(...)` → tr-constant di multi_signal.py (titoli + corpi
+# REALE/autostart restano tr-constant di app.py, già in `_APP_TR`).
+_MODE_TR = _tr_constants("multi_signal.py")
+
 
 @pytest.fixture(autouse=True)
 def _ripristina_lingua():
@@ -138,10 +147,10 @@ def test_catalogo_anti_drift_chiavi_verbatim_nel_sorgente():
         for key in table:
             assert (key in _APP_SRC or key in _APP_TR or key in _DASH_SRC or key in _SECONDARY_TR
                     or key in _BANNER_TEXTS or key in _WIZARD_SRC or key in _NAMEMAP_SRC
-                    or key in _TOOLS_SRC), (
+                    or key in _TOOLS_SRC or key in _CONFIRM_TEXTS or key in _MODE_TR), (
                 f"{lang}: chiave stantia, non in app.py/dashboard_stats.py, nelle finestre "
-                f"secondarie localizzate, nei banner, nel wizard, nel Mapping né nell'hub "
-                f"Strumenti: {key!r}")
+                f"secondarie localizzate, nei banner, nel wizard, nel Mapping, nell'hub "
+                f"Strumenti né nei dialoghi di conferma modalità: {key!r}")
 
 
 def _catalog_lang_dicts(tree):
