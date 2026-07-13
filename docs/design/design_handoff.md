@@ -310,8 +310,12 @@ Salva nel profilo», placeholder di riga, stato vuoto e il dialog «Nuovo profil
 profilo:». «Betfair» resta termine prodotto. Restano **IN ITALIANO come esclusioni**: i **segnaposto
 value-as-key** delle tendine «(nessun profilo)» (`_NO_PROFILE`, confrontato per uguaglianza) e «(scegli
 lo sport)» (`_NO_COMP`, segnaposto «nessuna competizione»), e i **nomi sport/competizione/squadra**
-(valori di dominio dal dizionario locale). I **messaggi di stato dinamici** del pannello (con `{exc}`,
-conteggi, nome profilo) sono rimandati alla **slice 4w**. La finestra **🧰 Strumenti (hub)** che ospita
+(valori di dominio dal dizionario locale). Dalla **slice 4w** sono localizzati anche i **messaggi di
+stato dinamici** del pannello (esiti profilo/competizioni/squadre/salvataggio — «🆕 Profilo «…» creato.»,
+«{count} squadre. Scrivi l'alias…», «💾 Salvato nel profilo «…»: N squadre…», errori di salvataggio,
+«ℹ️ Nessuna competizione/squadra…», «⏳ Dizionario occupato…»), via template+`.format` coi valori
+interpolati (`{exc}`/nome profilo/nome sport/conteggi) lasciati invariati come dominio → col completamento
+della 4w **il 🌳 Mapping guidato è interamente localizzato**. La finestra **🧰 Strumenti (hub)** che ospita
 la sotto-scheda resta IT (titoli-scheda = chiavi di matching).
 
 Dalla **slice 4u** è localizzato il pannello **📋 Riepilogo configurazione** (sola lettura,

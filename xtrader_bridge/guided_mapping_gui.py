@@ -170,7 +170,8 @@ class GuidedMappingPanel(ctk.CTkFrame):
         try:
             return config_store.load_config(config_store.CONFIG_FILE)
         except Exception as exc:                 # noqa: BLE001 — fallback con messaggio
-            self._status.configure(text=f"❌ Config illeggibile: {exc}", text_color="#ef5350")
+            self._status.configure(
+                text=i18n.tr("❌ Config illeggibile: {exc}").format(exc=exc), text_color="#ef5350")
             return None
 
     def _reload_profiles(self, select=None, select_first=False, prefill=True):
@@ -205,13 +206,16 @@ class GuidedMappingPanel(ctk.CTkFrame):
                                     title=i18n.tr("Nuovo profilo"))
         name = (dialog.get_input() or "").strip()
         if not name:
-            self._status.configure(text="⛔ Profilo non creato (nome vuoto).", text_color="#ef5350")
+            self._status.configure(text=i18n.tr("⛔ Profilo non creato (nome vuoto)."),
+                                   text_color="#ef5350")
             return
         cfg = self._load_cfg()
         if cfg is None:
             return
         if name in name_mapping_store.profile_names(cfg):
-            self._status.configure(text=f"ℹ️ Il profilo «{name}» esiste già.", text_color="gray")
+            self._status.configure(
+                text=i18n.tr("ℹ️ Il profilo «{name}» esiste già.").format(name=name),
+                text_color="gray")
             return
         cfg = name_mapping_store.add_profile(cfg, name)
         saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
@@ -222,8 +226,8 @@ class GuidedMappingPanel(ctk.CTkFrame):
             # azzerarli, così puoi salvarli subito nel profilo appena creato.
             self._reload_profiles(select=name, prefill=False)
         self._status.configure(
-            text=f"🆕 Profilo «{name}» creato." if ok
-            else f"❌ Salvataggio FALLITO: «{name}» non creato.",
+            text=(i18n.tr("🆕 Profilo «{name}» creato.").format(name=name) if ok
+                  else i18n.tr("❌ Salvataggio FALLITO: «{name}» non creato.").format(name=name)),
             text_color="#66bb6a" if ok else "#ef5350")
 
     # ── sport / competizioni / squadre ─────────────────────────────────────────
@@ -242,7 +246,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
             self._team_vars = {}
             self._render_team_rows()
             self._status.configure(
-                text="⏳ Dizionario occupato: riprova tra poco.",
+                text=i18n.tr("⏳ Dizionario occupato: riprova tra poco."),
                 text_color="#ffa726")
             return
         except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → nessuna competizione
@@ -261,8 +265,9 @@ class GuidedMappingPanel(ctk.CTkFrame):
             self._load_teams()
         else:
             self._status.configure(
-                text=f"ℹ️ Nessuna competizione per «{self._selected_sport()}». "
-                     "Popola il dizionario locale, poi riprova.", text_color="gray")
+                text=i18n.tr("ℹ️ Nessuna competizione per «{sport}». "
+                             "Popola il dizionario locale, poi riprova.").format(
+                                 sport=self._selected_sport()), text_color="gray")
 
     def _selected_competition_id(self):
         return self._comp_by_label.get(self._comp_var.get())
@@ -281,7 +286,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
             self._team_vars = {}
             self._render_team_rows()
             self._status.configure(
-                text="⏳ Dizionario occupato: riprova tra poco.",
+                text=i18n.tr("⏳ Dizionario occupato: riprova tra poco."),
                 text_color="#ffa726")
             return
         except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → nessuna squadra
@@ -291,12 +296,12 @@ class GuidedMappingPanel(ctk.CTkFrame):
         self._render_team_rows()
         if not teams:
             self._status.configure(
-                text="ℹ️ Nessuna squadra per questa competizione (nessun evento nel dizionario). "
-                     "Popola il dizionario locale, poi riprova.", text_color="gray")
+                text=i18n.tr("ℹ️ Nessuna squadra per questa competizione (nessun evento nel dizionario). "
+                             "Popola il dizionario locale, poi riprova."), text_color="gray")
         else:
             self._status.configure(
-                text=f"{len(teams)} squadre. Scrivi l'alias del canale e premi «Salva nel profilo».",
-                text_color="gray")
+                text=i18n.tr("{count} squadre. Scrivi l'alias del canale e premi «Salva nel profilo».").format(
+                    count=len(teams)), text_color="gray")
 
     def _prefill_aliases(self):
         """Pre-compila gli alias delle squadre correnti con quelli GIÀ salvati nel profilo scelto
@@ -348,8 +353,9 @@ class GuidedMappingPanel(ctk.CTkFrame):
         if len(teams) > _TEAM_RENDER_CAP:
             ctk.CTkLabel(
                 self._rows_frame,
-                text=f"… mostrate {_TEAM_RENDER_CAP} di {len(teams)} squadre: usa «Filtra» per "
-                     "restringere (gli alias già scritti restano salvati anche se non visibili).",
+                text=i18n.tr("… mostrate {shown} di {total} squadre: usa «Filtra» per "
+                             "restringere (gli alias già scritti restano salvati anche se non visibili).").format(
+                                 shown=_TEAM_RENDER_CAP, total=len(teams)),
                 text_color="#ffa726", wraplength=560, anchor="w", justify="left").pack(
                 anchor="w", padx=6, pady=(4, 2))
 
@@ -357,11 +363,11 @@ class GuidedMappingPanel(ctk.CTkFrame):
     def _save(self):
         if not self._current:
             self._status.configure(
-                text="⛔ Nessun profilo selezionato: crea o scegli un profilo di destinazione.",
+                text=i18n.tr("⛔ Nessun profilo selezionato: crea o scegli un profilo di destinazione."),
                 text_color="#ef5350")
             return
         if not self._team_vars:
-            self._status.configure(text="⛔ Nessuna squadra caricata da salvare.",
+            self._status.configure(text=i18n.tr("⛔ Nessuna squadra caricata da salvare."),
                                    text_color="#ef5350")
             return
         cfg = self._load_cfg()
@@ -378,11 +384,13 @@ class GuidedMappingPanel(ctk.CTkFrame):
             n_written = sum(1 for a in team_aliases.values() if str(a or "").strip())
             n_total = len(name_mapping_store.get_entries(cfg, self._current))
             self._status.configure(
-                text=f"💾 Salvato nel profilo «{self._current}»: {n_written} squadre mappate in "
-                     f"questa competizione ({n_total} righe totali nel profilo).",
+                text=i18n.tr("💾 Salvato nel profilo «{profile}»: {written} squadre mappate in "
+                             "questa competizione ({total} righe totali nel profilo).").format(
+                                 profile=self._current, written=n_written, total=n_total),
                 text_color="#66bb6a")
         else:
             self._status.configure(
-                text=f"❌ Salvataggio FALLITO: «{self._current}» non salvato (andrebbe perso al "
-                     "riavvio). Controlla permessi/spazio del file config.",
+                text=i18n.tr("❌ Salvataggio FALLITO: «{profile}» non salvato (andrebbe perso al "
+                             "riavvio). Controlla permessi/spazio del file config.").format(
+                                 profile=self._current),
                 text_color="#ef5350")

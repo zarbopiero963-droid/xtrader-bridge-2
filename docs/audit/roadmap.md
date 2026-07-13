@@ -3397,3 +3397,39 @@ Suite unit+integration: **2258 passed, 1 skipped**. Docs: README + `design_hando
 **Ancora aperto (per chiudere #3):** i **messaggi di stato dinamici** del 🌳 Mapping guidato (slice 4w)
 + i restanti ~26 log `self._log(...)` di `app.py` + i **dialoghi modali** GUI + l'hub 🧰 `tools_gui`
 (cross-cutting: titoli-scheda = chiavi di matching).
+
+## #343 slice 4w — «🌳 Mapping guidato» MESSAGGI DI STATO (guided_mapping_gui) localizzati (residuo UI #3)
+
+**Obiettivo.** Completa la localizzazione del **🌳 Mapping guidato** (dopo la chrome della 4v): i
+**messaggi di stato dinamici** del pannello (esiti di profilo/competizioni/squadre/salvataggio).
+
+**Cosa fa.** Passano da `i18n.tr(...)` **13 messaggi di stato** (con template+`.format`): config
+illeggibile `{exc}`, profilo non creato/esistente/creato `{name}`, salvataggio profilo fallito, nessuna
+competizione `{sport}`/nessuna squadra, «{count} squadre…», cap-render «… mostrate {shown} di {total}…»,
+nessun profilo selezionato/nessuna squadra da salvare, salvato `{profile}`/{written}/{total}, salvataggio
+fallito `{profile}`. Catalogo `i18n.py`: **8 chiavi NUOVE × EN/ES** (competizioni/squadre/salvataggio
+del guidato); le altre **5 sono RIUSATE** senza ri-aggiungerle per non duplicare la chiave — «⏳
+Dizionario occupato…» (slice 4t) e i messaggi profilo-CRUD «ℹ️ Il profilo «{name}» esiste già.»/«❌
+Config illeggibile: {exc}»/«⛔ Profilo non creato…»/«🆕 Profilo «{name}» creato.»/«❌ Salvataggio
+FALLITO: «{name}» non creato.» (già a catalogo da `profiles_gui`). `guided_mapping_gui.py` è già in
+`_SECONDARY_TR` (4v). **Fix duplicati (CodeRabbit #50):** rimossi 2 duplicati a **valore diverso**
+preesistenti/introdotti — «ℹ️ Il profilo…» (EN «Profile…» vs «The profile…») e «📋 Diagnostica copiata
+negli appunti.» (EN «…to clipboard» vs «…to the clipboard») — e aggiunta una **guardia AST anti-duplicati
+a valore diverso** in `test_i18n_343.py` (protegge tutto il catalogo dalla stessa classe di regressione).
+
+**Esclusioni (restano IT).** I **valori interpolati** nei segnaposto (`{exc}`, nome profilo `{name}/
+{profile}`, nome sport `{sport}`, conteggi) sono dominio; i **segnaposto value-as-key** «(nessun
+profilo)»/«(scegli lo sport)» restano IT (invariati dalla 4v). **Nessun cambio di logica**:
+provider/save/reload/filtro/debounce invariati (solo il testo di stato è tradotto).
+
+**Test hard** (`tests/unit/test_guided_mapping_i18n_343.py`, esteso): AST (status wrappati, nessun
+f-string superstite), **mutation-guard `.format`** (tutti i segnaposto coperti), copertura EN/ES
+**!= IT** + placeholder, round-trip. I test logici esistenti (`test_betfair_guided_mapping.py`) restano
+verdi. Anti-drift `test_i18n_343.py` verde. Suite unit+integration: **2262 passed, 1 skipped** (incl.
+la guardia anti-duplicati aggiunta nel fix review). Con la
+4w il **🌳 Mapping guidato è completamente localizzato**. Docs: README + `design_handoff.md`. Design
+handoff = **PASS**.
+
+**Ancora aperto (per chiudere #3):** i restanti ~26 log `self._log(...)` di `app.py` (in gran parte
+esclusioni permanenti) + i **dialoghi modali** GUI + l'hub 🧰 `tools_gui` (cross-cutting: titoli-scheda
+= chiavi di matching).
