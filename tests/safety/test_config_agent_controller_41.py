@@ -378,6 +378,400 @@ def test_worker_stop_same_thread_ritorna_true():
     assert result["ret"] is True              # auto-fermante → True, non False
 
 
+class WriteToolClient:
+    """Client finto che al primo giro PROPONE `set_config_value` (senza confirm), poi risponde."""
+
+    def __init__(self, key="theme", value="light"):
+        self.key, self.value, self.n, self.offered = key, value, 0, None
+
+    def create_message(self, *, system, messages, tools):
+        self.n += 1
+        self.offered = [t["name"] for t in (tools or [])]
+        if self.n == 1:
+            return {"stop_reason": "tool_use", "content": [
+                {"type": "tool_use", "id": "w1", "name": "set_config_value",
+                 "input": {"key": self.key, "value": self.value}}]}
+        return {"stop_reason": "end_turn", "content": [{"type": "text", "text": "fatto"}]}
+
+
+def _write_controller(tmp_path, monkeypatch, client, path):
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    return ctl.AgentController(
+        client=client,
+        config_loader=lambda: config_store.load_config(path),
+        config_saver=lambda cfg: config_store.save_config(cfg, path))
+
+
+def test_proposta_non_scrive_finche_utente_non_applica(tmp_path, monkeypatch):
+    # review #65: il tool PROPONE soltanto — nessuna scrittura finché l'utente non applica.
+    events = []
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "chat_id": "-1001234567890"}, path)
+    c = _write_controller(tmp_path, monkeypatch, WriteToolClient("theme", "light"), path)
+    c._on_event = lambda k, d: events.append((k, d))
+    c.enable()
+    c.submit("metti il tema chiaro")
+    c._worker.run_pending()
+    # la modifica è PENDING, NON scritta
+    assert config_store.load_config(path)["theme"] == "dark"
+    assert c.pending() == {"key": "theme", "new": "light", "old": "dark", "epoch": c.current_epoch()}
+    assert any(k == "pending" for k, _ in events)
+    # ora l'UTENTE applica → SOLO adesso scrive
+    assert c.apply_pending() is True
+    saved = config_store.load_config(path)
+    assert saved["theme"] == "light"                        # scritto dall'utente
+    assert saved["chat_id"] == "-1001234567890"             # resto preservato
+    assert c.pending() is None
+    c.stop()
+
+
+def test_apply_pending_senza_proposta_e_falso(tmp_path, monkeypatch):
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark"}, path)
+    c = _write_controller(tmp_path, monkeypatch, FakeClient(), path)
+    c.enable()
+    assert c.apply_pending() is False                       # niente da applicare
+    c.stop()
+
+
+def test_cancel_pending_non_scrive(tmp_path, monkeypatch):
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark"}, path)
+    c = _write_controller(tmp_path, monkeypatch, WriteToolClient("theme", "light"), path)
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()
+    assert c.pending() is not None
+    c.cancel_pending()
+    assert c.pending() is None
+    assert c.apply_pending() is False                       # dopo annulla non c'è nulla
+    assert config_store.load_config(path)["theme"] == "dark"   # mai scritto
+    c.stop()
+
+
+def test_apply_pending_save_fallito_ritorna_false(tmp_path, monkeypatch):
+    # GLM/Fable #65: apply con save fallito → False + messaggio d'errore, MAI falso «Fatto».
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark"}, path)
+    events = []
+    c = ctl.AgentController(
+        client=WriteToolClient("theme", "light"),
+        config_loader=lambda: config_store.load_config(path),
+        config_saver=lambda cfg: config_store.SaveResult(cfg, False, config_store.SAVE_DISK_ERROR))
+    c._on_event = lambda k, d: events.append((k, d))
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()
+    assert c.apply_pending() is False
+    assert config_store.load_config(path)["theme"] == "dark"        # non scritto
+    assert c.pending() is None
+    assert any(k == "turn" and "non riuscito" in d.get("text", "") for k, d in events)
+    c.stop()
+
+
+def test_apply_pending_saver_che_solleva_non_crasha(tmp_path, monkeypatch):
+    # un saver che SOLLEVA non deve crashare il thread GUI: esito fallito, config intatta.
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark"}, path)
+
+    def _boom(_cfg):
+        raise OSError("disco in fiamme")
+
+    c = ctl.AgentController(
+        client=WriteToolClient("theme", "light"),
+        config_loader=lambda: config_store.load_config(path), config_saver=_boom)
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()
+    assert c.apply_pending() is False                              # nessun crash
+    assert config_store.load_config(path)["theme"] == "dark"
+    assert c.pending() is None
+    c.stop()
+
+
+def test_apply_pending_chiave_cambiata_non_sovrascrive(tmp_path, monkeypatch):
+    # Fugu #65: se la STESSA chiave è cambiata concorrentemente dopo la proposta, apply NON
+    # sovrascrive il valore concorrente — la proposta stantia è annullata.
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"clear_delay": 90}, path)
+    c = _write_controller(tmp_path, monkeypatch, WriteToolClient("clear_delay", 45), path)
+    c.enable()
+    c.submit("clear 45")
+    c._worker.run_pending()
+    assert c.pending()["old"] == 90                       # proposta basata su 90
+    config_store.save_config({"clear_delay": 120}, path)  # cambio CONCORRENTE (es. GUI «Salva»)
+    assert c.apply_pending() is False                     # non sovrascrive
+    assert config_store.load_config(path)["clear_delay"] == 120   # cambio concorrente preservato
+    assert c.pending() is None
+    c.stop()
+
+
+def test_apply_pending_load_invalido_non_azzera_config(tmp_path, monkeypatch):
+    # Fugu #65: un load che non dà una config valida NON deve scrivere (un fallback a {} azzererebbe
+    # chat_id/csv_path/limiti). Il pending resta per il retry.
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "chat_id": "-1001234567890"}, path)
+    valid = {"on": True}
+    c = ctl.AgentController(
+        client=WriteToolClient("theme", "light"),
+        config_loader=lambda: (config_store.load_config(path) if valid["on"] else {}),
+        config_saver=lambda cfg: config_store.save_config(cfg, path))
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()
+    assert c.pending() is not None
+    valid["on"] = False                                   # ora il load "fallisce" (dà {})
+    assert c.apply_pending() is False                     # NON scrive
+    valid["on"] = True
+    saved = config_store.load_config(path)
+    assert saved["theme"] == "dark" and saved["chat_id"] == "-1001234567890"   # config intatta
+    assert c.pending() is not None                        # pending mantenuto per il retry
+    c.stop()
+
+
+def test_apply_pending_loader_che_solleva_non_crasha(tmp_path, monkeypatch):
+    # GPT/Fable #65: un LOADER che solleva (OSError su disco) NON deve crashare il thread GUI →
+    # trattato come «config non disponibile»; il pending resta per il retry.
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "chat_id": "-1001234567890"}, path)
+    armed = {"on": False}
+
+    def _loader():
+        if armed["on"]:
+            raise OSError("config illeggibile")
+        return config_store.load_config(path)
+
+    c = ctl.AgentController(client=WriteToolClient("theme", "light"), config_loader=_loader,
+                            config_saver=lambda cfg: config_store.save_config(cfg, path))
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()
+    assert c.pending() is not None
+    armed["on"] = True
+    assert c.apply_pending() is False                 # loader solleva → nessun crash, no write
+    armed["on"] = False
+    assert config_store.load_config(path)["theme"] == "dark"
+    assert c.pending() is not None                    # pending mantenuto per il retry
+    c.stop()
+
+
+def test_apply_pending_stop_durante_apply_non_scrive(tmp_path, monkeypatch):
+    # Fable #65 (commit gate): se la sessione cambia (Stop) DOPO la lettura del pending ma prima
+    # della scrittura, apply NON scrive (ri-verifica identità+epoch sotto lock). Deterministico: il
+    # loader fa da hook e chiama stop() durante l'apply.
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "chat_id": "-1001234567890"}, path)
+    holder, armed = {}, {"on": False}
+
+    def _loader():
+        cfg = config_store.load_config(path)
+        if armed["on"]:
+            armed["on"] = False
+            holder["c"].stop()            # Stop concorrente DURANTE l'apply → epoch avanza, pending svuotato
+        return cfg
+
+    c = ctl.AgentController(client=WriteToolClient("theme", "light"), config_loader=_loader,
+                            config_saver=lambda cfg: config_store.save_config(cfg, path))
+    holder["c"] = c
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()
+    assert c.pending() is not None
+    armed["on"] = True
+    assert c.apply_pending() is False                 # sessione cambiata → non scrive
+    assert config_store.load_config(path)["theme"] == "dark"
+    assert c.pending() is None
+
+
+def test_apply_pending_proposta_piu_nuova_non_emette_pending_cleared(tmp_path, monkeypatch):
+    # Fable/GPT/Fugu #65: se una proposta PIÙ NUOVA subentra mentre apply è in corso (e la chiave
+    # della vecchia è cambiata), il ramo stantìo NON deve emettere `pending_cleared` (nasconderebbe
+    # il banner della proposta nuova) né azzerarla.
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "clear_delay": 90}, path)
+    events, holder, armed = [], {}, {"on": False}
+
+    def _loader():
+        cfg = config_store.load_config(path)
+        if armed["on"]:
+            armed["on"] = False
+            config_store.save_config({**cfg, "theme": "light"}, path)   # cambia la chiave di p1
+            holder["c"]._stage_pending("clear_delay", 30, 90)           # proposta PIÙ NUOVA (p2)
+            return config_store.load_config(path)
+        return cfg
+
+    c = ctl.AgentController(client=WriteToolClient("theme", "light"), config_loader=_loader,
+                            config_saver=lambda cfg: config_store.save_config(cfg, path))
+    c._on_event = lambda k, d: events.append((k, d))
+    holder["c"] = c
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()                        # propone theme dark→light (p1)
+    assert c.pending()["key"] == "theme"
+    armed["on"] = True
+    events.clear()
+    assert c.apply_pending() is False              # p1 stantìa (chiave cambiata + rimpiazzata da p2)
+    assert c.pending()["key"] == "clear_delay"     # la proposta PIÙ NUOVA è preservata
+    assert all(k != "pending_cleared" for k, _ in events)   # niente desync del banner nuovo
+    c.stop()
+
+
+def test_apply_pending_proposta_nuova_durante_save_preserva_pending(tmp_path, monkeypatch):
+    # GPT/Fable/Fugu #65: se una proposta PIÙ NUOVA (chiave diversa, stesso epoch) è staged MENTRE il
+    # save è in corso, la p2 deve restare la proposta CORRENTE. Il controller emette comunque
+    # `pending_cleared` (l'emit non può stare sotto lock — invariante #64), ma la decisione
+    # mostra/nascondi la prende il CONSUMER (GUI) leggendo `controller.pending()`: qui verifichiamo
+    # che quello stato autoritativo sia p2 (→ la GUI ri-mostra il suo banner, niente desync).
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "clear_delay": 90}, path)
+    holder, armed = {}, {"on": False}
+
+    def _saver(cfg):
+        if armed["on"]:
+            armed["on"] = False
+            holder["c"]._stage_pending("clear_delay", 30, 90)   # p2 staged DURANTE il save
+        return config_store.save_config(cfg, path)
+
+    c = ctl.AgentController(client=WriteToolClient("theme", "light"),
+                            config_loader=lambda: config_store.load_config(path), config_saver=_saver)
+    holder["c"] = c
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()                        # p1: theme dark→light
+    armed["on"] = True
+    assert c.apply_pending() is True               # p1 applicato (chiave invariata)
+    assert config_store.load_config(path)["theme"] == "light"   # scritto
+    assert c.pending()["key"] == "clear_delay"     # stato autoritativo = p2 (il banner la mostra)
+    c.stop()
+
+
+def test_apply_pending_save_fallito_con_proposta_nuova_preserva_pending(tmp_path, monkeypatch):
+    # Fable/Fugu #65: save FALLITO mentre p2 subentra → esito errore, p1 non scritto, p2 resta lo
+    # stato autoritativo (il consumer ri-mostra il banner di p2).
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "clear_delay": 90}, path)
+    events, holder, armed = [], {}, {"on": False}
+
+    def _saver(cfg):
+        if armed["on"]:
+            armed["on"] = False
+            holder["c"]._stage_pending("clear_delay", 30, 90)   # p2 durante il save
+        return config_store.SaveResult(cfg, False, config_store.SAVE_DISK_ERROR)   # save FALLISCE
+
+    c = ctl.AgentController(client=WriteToolClient("theme", "light"),
+                            config_loader=lambda: config_store.load_config(path), config_saver=_saver)
+    c._on_event = lambda k, d: events.append((k, d))
+    holder["c"] = c
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()
+    armed["on"] = True
+    events.clear()
+    assert c.apply_pending() is False              # save fallito
+    assert config_store.load_config(path)["theme"] == "dark"    # p1 non scritto
+    assert c.pending()["key"] == "clear_delay"     # p2 resta lo stato autoritativo
+    assert any(k == "turn" and "non riuscito" in d.get("text", "") for k, d in events)
+    c.stop()
+
+
+def test_stop_scarta_la_proposta_pendente(tmp_path, monkeypatch):
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark"}, path)
+    c = _write_controller(tmp_path, monkeypatch, WriteToolClient("theme", "light"), path)
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()
+    assert c.pending() is not None
+    c.stop()
+    assert c.pending() is None                              # sessione chiusa → proposta scartata
+    assert c.apply_pending() is False and config_store.load_config(path)["theme"] == "dark"
+
+
+def test_apply_pending_stale_epoch_non_scrive(tmp_path, monkeypatch):
+    # una proposta di una sessione, se la sessione cambia (stop→enable), non si applica più.
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark"}, path)
+    c = _write_controller(tmp_path, monkeypatch, WriteToolClient("theme", "light"), path)
+    c.enable()
+    # stage manuale legato all'epoch corrente, poi avanza sessione
+    c._stage_pending("theme", "light", "dark")
+    old = c.pending()
+    assert old is not None
+    c.stop()
+    c.enable()
+    # inietta la vecchia proposta (epoch stale) e prova ad applicare
+    with c._pending_lock:
+        c._pending = old
+    assert c.apply_pending() is False
+    assert config_store.load_config(path)["theme"] == "dark"
+    c.stop()
+
+
+def test_proposta_di_turno_stale_non_messa_in_pending(tmp_path, monkeypatch):
+    # review #65 + epoch #64: se Stop scatta MENTRE il turno è in volo, la PROPOSTA che il tool
+    # tenta di mettere in pending dopo è di una sessione chiusa → SCARTATA (né pending né evento).
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark"}, path)
+    events, holder = [], {}
+
+    class ProposeThenStopClient:
+        def __init__(self):
+            self.n = 0
+
+        def create_message(self, *, system, messages, tools):
+            self.n += 1
+            if self.n == 1:
+                holder["c"].stop()          # Stop DURANTE il turno → epoch avanza
+                return {"stop_reason": "tool_use", "content": [
+                    {"type": "tool_use", "id": "w1", "name": "set_config_value",
+                     "input": {"key": "theme", "value": "light"}}]}
+            return {"stop_reason": "end_turn", "content": []}
+
+    c = _write_controller(tmp_path, monkeypatch, ProposeThenStopClient(), path)
+    c._on_event = lambda k, d: events.append(k)
+    holder["c"] = c
+    c.enable()
+    epoch = c._epoch
+    c._handle_message("tema chiaro", epoch)
+    assert c.pending() is None                  # proposta stale scartata
+    assert "pending" not in events              # nessun banner-fantasma
+    assert config_store.load_config(path)["theme"] == "dark"
+
+
+def test_proposta_safety_critical_non_mette_in_pending(tmp_path, monkeypatch):
+    # anche con allow_writes=True, una chiave safety-critical (chat_id) NON diventa una proposta.
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "chat_id": "-1001234567890"}, path)
+    c = _write_controller(tmp_path, monkeypatch, WriteToolClient("chat_id", "-100999999"), path)
+    c.enable()
+    c.submit("cambia la chat sorgente")
+    c._worker.run_pending()
+    assert c.pending() is None                              # nessuna proposta staged
+    assert c.apply_pending() is False
+    assert config_store.load_config(path)["chat_id"] == "-1001234567890"   # filtro chat intatto
+    c.stop()
+
+
+def test_set_config_value_offerto_al_modello(tmp_path, monkeypatch):
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark"}, path)
+    client = WriteToolClient("theme", "light")
+    c = _write_controller(tmp_path, monkeypatch, client, path)
+    c.enable()
+    c.submit("x")
+    c._worker.run_pending()
+    assert "set_config_value" in client.offered            # offerto con allow_writes=True
+    c.stop()
+
+
 def test_enable_stop_enable_riparte(tmp_path, monkeypatch):
     # dopo uno Stop pulito (worker terminato), un nuovo enable() riparte senza residui.
     c = _controller(tmp_path, monkeypatch, client=FakeClient())

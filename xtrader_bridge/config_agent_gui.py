@@ -55,6 +55,15 @@ def is_stale_event(data, current_epoch) -> bool:
     return ev != cur
 
 
+def pending_text(data) -> str:
+    """Testo del banner di conferma per una modifica config PROPOSTA dall'assistente (#41 PR-4).
+    L'assistente **non** applica nulla da solo: la scrittura avviene solo se l'utente preme
+    «✅ Applica». `data` è l'evento `pending` del controller (`key`/`old`/`new`)."""
+    d = data or {}
+    return i18n.tr("L'assistente propone: «{key}» da «{old}» a «{new}». Applicare?").format(
+        key=d.get("key", ""), old=d.get("old", ""), new=d.get("new", ""))
+
+
 def messages_to_transcript(messages) -> list:
     """Trasforma i messaggi (formato `ConfigAgent`) in righe di trascritto leggibili, mostrando SOLO
     il testo (i blocchi `tool_use`/`tool_result` sono dettagli interni, non parte della chat)."""
@@ -134,6 +143,18 @@ class AssistantPanel:
         self._transcript.pack(fill="both", expand=True, pady=(2, 4))
         self._transcript.configure(state="disabled")
 
+        # Banner CONFERMA (nascosto di default): compare quando l'assistente PROPONE una modifica
+        # config; SOLO il click su «✅ Applica» scrive (server-side gate, review #65). Viene
+        # ri-`pack`-ato sopra la riga di input (`before=`) quando arriva una proposta.
+        self._pending_bar = ctk.CTkFrame(outer, fg_color=("#fff3cd", "#4d3f00"))
+        self._pending_lbl = ctk.CTkLabel(self._pending_bar, text="", wraplength=420, justify="left")
+        self._pending_lbl.pack(side="left", padx=(6, 6), pady=4)
+        ctk.CTkButton(self._pending_bar, text=i18n.tr("✅ Applica"), width=100,
+                      command=self._apply_pending).pack(side="left", padx=2)
+        ctk.CTkButton(self._pending_bar, text=i18n.tr("✖ Annulla"), width=90,
+                      fg_color="gray", command=self._cancel_pending).pack(side="left", padx=2)
+        # non fare pack ora: resta nascosto finché non arriva un evento `pending`.
+
         inrow = ctk.CTkFrame(outer, fg_color="transparent")
         inrow.pack(fill="x")
         self._input_var = ctk.StringVar(value="")
@@ -176,6 +197,31 @@ class AssistantPanel:
         else:
             self._append(i18n.tr("⚠️ Abilita l'assistente prima di inviare messaggi."))
 
+    def _apply_pending(self):
+        """Callback «✅ Applica»: **l'utente** conferma la modifica proposta → la scrive (unico punto
+        di scrittura config; il modello non può arrivarci)."""
+        self.controller.apply_pending()
+
+    def _cancel_pending(self):
+        """Callback «✖ Annulla»: scarta la modifica proposta senza scrivere."""
+        self.controller.cancel_pending()
+
+    def _show_pending(self, data):
+        """Mostra il banner di conferma con l'anteprima della modifica proposta."""
+        self._pending_lbl.configure(text=pending_text(data))
+        self._pending_bar.pack(fill="x", pady=(0, 4), before=self._input_bar())
+
+    def _hide_pending(self):
+        """Nasconde il banner di conferma (proposta applicata/annullata o sessione chiusa)."""
+        try:
+            self._pending_bar.pack_forget()
+        except Exception:   # noqa: BLE001 — widget già distrutto (teardown): best-effort
+            pass
+
+    def _input_bar(self):
+        """La riga di input (per posizionare il banner subito sopra)."""
+        return self._input.master
+
     # -- eventi del controller (marshallati sul thread GUI) --
     def _on_event(self, kind, data):
         """Riceve un evento del controller (anche dal thread worker) e lo marshalla sul thread GUI."""
@@ -186,10 +232,26 @@ class AssistantPanel:
 
     def _handle_event(self, kind, data):
         """Applica un evento del controller ai widget (sul thread GUI)."""
-        # Rete di sicurezza consumer-side (#64): il controller emette `turn`/`warning` FUORI dal
-        # lock e vi stampa l'`epoch`; se nel frattempo la sessione è cambiata (Stop/Enable) l'evento
-        # è di una sessione chiusa → scartato qui, così non compare una risposta-fantasma.
-        if kind in ("turn", "warning") and is_stale_event(data, self.controller.current_epoch()):
+        # Rete di sicurezza consumer-side (#64): il controller emette `turn`/`warning`/`pending`
+        # FUORI dal lock e vi stampa l'`epoch`; se nel frattempo la sessione è cambiata (Stop/Enable)
+        # l'evento è di una sessione chiusa → scartato qui, così non compare una risposta-fantasma.
+        if kind in ("turn", "warning", "pending") and is_stale_event(
+                data, self.controller.current_epoch()):
+            return
+        if kind == "pending":
+            self._show_pending(data)
+            return
+        if kind == "pending_cleared":
+            # Sorgente di verità = la proposta CORRENTE del controller, letta qui sul thread GUI (non
+            # ci si fida dell'ordine degli eventi): se nel frattempo è subentrata una proposta più
+            # nuova la si (ri)mostra, altrimenti si nasconde il banner. Chiude la finestra di race tra
+            # `pending_cleared` (emesso fuori lock, invariante anti-deadlock #64) e uno stage
+            # concorrente — stessa filosofia di `is_stale_event` (GPT/Fable #65).
+            cur = self.controller.pending()
+            if cur:
+                self._show_pending(cur)
+            else:
+                self._hide_pending()
             return
         if kind == "state":
             self._refresh_state(data.get("state"), data.get("error", ""))

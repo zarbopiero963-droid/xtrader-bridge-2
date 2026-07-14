@@ -124,15 +124,19 @@ _ALLOWLIST = {
                            "best-effort (un logger che solleva non deve far fallire il dispatch); "
                            "soft-import 'anthropic' (dipendenza opzionale: assenza = errore chiaro "
                            "solo all'uso reale, mai all'import del modulo)"),
-    "config_agent_controller.py": (3, "controller assistente (#41 PR-3): emit di un evento verso la "
-                                      "view best-effort (un handler della GUI che solleva non deve "
+    "config_agent_controller.py": (5, "controller assistente (#41 PR-3/PR-4): emit di un evento verso "
+                                      "la view best-effort (un handler della GUI che solleva non deve "
                                       "rompere il controller); un turno che solleva nel worker non "
                                       "uccide il loop (errore restituito come turno); persistenza "
                                       "cronologia best-effort (qualsiasi errore di save non deve "
-                                      "scartare il turno già calcolato, CodeRabbit #64)"),
-    "config_agent_gui.py": (2, "view assistente (#41 PR-3): marshalling evento via after() su root "
-                               "Tk distrutta/assente (teardown) best-effort; log della riga di "
-                               "trascritto best-effort"),
+                                      "scartare il turno già calcolato, CodeRabbit #64); in "
+                                      "apply_pending il LOADER e il SAVER che sollevano sono trattati "
+                                      "come config non disponibile / save fallito, mai crash del "
+                                      "thread GUI (GPT/Fable/Fugu #65)"),
+    "config_agent_gui.py": (3, "view assistente (#41 PR-3/PR-4): marshalling evento via after() su "
+                               "root Tk distrutta/assente (teardown) best-effort; log della riga di "
+                               "trascritto best-effort; nascondere il banner di conferma su widget "
+                               "già distrutto (teardown) best-effort"),
     "token_store.py": (8, "soft-import/fallback keyring: qualsiasi errore = backend non disponibile "
                           "(bot token + API key Anthropic #41: save/load-status/delete per la chiave)"),
     "tools_gui.py": (3, "GUI Tk finestra strumenti: apertura sotto-finestre best-effort"),

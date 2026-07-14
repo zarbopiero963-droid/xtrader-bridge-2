@@ -143,9 +143,63 @@ di `redact_secrets` a prescindere.
 - **`app.py`**: aggiunge la tab **«🤖 Assistente»** (best-effort) e il **teardown** del pannello in
   `_on_close` (stop+join, coerente col bot thread e col single-instance lock).
 
-**Sicurezza (PR-3):** `enable()` accende **solo la chat**; `allow_writes=False` (i tool di scrittura
-sono PR-4); le azioni safety-critical restano hard-block; la API key vive solo nel keyring; la
-cronologia su disco resta sempre redatta.
+**Sicurezza (PR-3):** `enable()` accende **solo la chat**; le azioni safety-critical restano
+hard-block; la API key vive solo nel keyring; la cronologia su disco resta sempre redatta. *(La
+scrittura config, prima disattivata in PR-3, è ora abilitata GATED in PR-4 — vedi sotto.)*
+
+## Scrittura config GATED (PR-4)
+
+Il controller costruisce ora l'agente con **`allow_writes=True`**: l'assistente può **proporre**
+modifiche di configurazione, ma **solo** attraverso il tool `set_config_value`, **solo** su un
+piccolo insieme di chiavi **non safety-critical**, e **la scrittura vera la fa l'utente** (non il
+modello). Tutte le altre guardie restano attive (hard-block `FORBIDDEN_TOOLS`, redazione segreti,
+cap anti-loop, cronologia redatta).
+
+- **Allowlist** (`config_agent.WRITABLE_CONFIG_KEYS`): `theme` (dark/light), `app_language`
+  (IT/EN/ES), `clear_delay`, `confirmation_timeout`, `max_signal_age` (interi, con **bound**
+  validati). `max_signal_age` ha **min > 0**: l'assistente **non** può disattivare il filtro
+  anti-segnale-stantio.
+- **Denylist** (`config_agent.WRITE_FORBIDDEN_KEYS`, difesa in profondità): `bot_token`/keyring,
+  `chat_id`/`source_chats`/`parser_by_chat`/`parser_list_by_chat`/`xtrader_notification_chat_id`
+  (**filtro chat**), `bridge_mode`/`dry_run`/`csv_path`/`csv_language` (**modalità/CSV = contratto
+  XTrader**), `queue_mode`/`max_active_signals`/`max_per_day` (**scommesse simultanee**),
+  `auto_start_listener`, `debug_message_payload`, `active_parser` e altre → **rifiutate anche su
+  ordine esplicito**, con audit.
+- **Validazione stretta**: un valore fuori dominio/bound è **rifiutato** con messaggio, **mai**
+  coerciuto in silenzio (a differenza di `config_store._migrate`, fail-closed sul *load*).
+- **Gate di conferma SERVER-SIDE** (review #65 GPT-5.5/Fugu/Fable): il tool **non scrive mai**.
+  Valida e chiama `on_proposal(key, new, old)` → il controller registra la modifica **pendente**
+  (legata all'`epoch`) ed emette l'evento `pending`; la GUI mostra un banner «✅ Applica / ✖ Annulla».
+  **Solo** `AgentController.apply_pending()`, invocato dal **pulsante dell'utente** (thread GUI),
+  scrive. Così un `confirm` allucinato/indotto (prompt injection) **non** può applicare nulla: al
+  massimo propone. La conferma è uno **stato server-side legato a chiave/valore/epoch**, non un
+  booleano deciso dal modello.
+- **Anti-TOCTOU e fail-safe** (Fable/Fugu #65): `apply_pending()` ri-legge la config sul thread GUI
+  (come «💾 Salva Config»), opera su una **copia** e tocca **solo** la chiave proposta. Difese:
+  - **niente fallback a `{}`**: se il load non dà un dict valido e non vuoto → **abortisce** (mai
+    scrivere una config quasi vuota che azzererebbe chat_id/csv_path/bridge_mode/limiti); il pending
+    resta per il retry;
+  - **anti-clobber della chiave proposta**: si scrive solo se il valore attuale coincide ancora con
+    quello su cui si basava la proposta (`old`); un cambio **concorrente** della stessa chiave (es.
+    GUI «Salva») **non** viene sovrascritto — proposta stantia annullata con avviso;
+  - il loader passato dall'app è la **config viva RAW** (`self._config`), **non** la vista redatta dei
+    tool read-only → nessun `***` persistito sui segreti;
+  - un saver che **solleva** è trattato come save fallito (nessun crash del thread GUI);
+  - il banner di conferma è governato **consumer-side**: il controller emette `pending_cleared`
+    fuori dal lock (invariante anti-deadlock #64) e la GUI, ricevendolo, **rilegge**
+    `controller.pending()` e mostra/nasconde di conseguenza — se nel frattempo è subentrata una
+    proposta più nuova la ri-mostra, altrimenti nasconde. Race-free rispetto all'ordine degli eventi
+    (stessa filosofia di `is_stale_event`), senza tenere il lock attraverso l'emit.
+  Tutte le scritture di `config.json` (assistente e GUI) avvengono sul thread Tk → **serializzate**.
+  Il `bot_token` non è tra le chiavi scrivibili e resta nel keyring. Un save fallito riporta
+  l'errore, mai un falso «Fatto». La proposta è scartata se l'`epoch` è cambiato (Stop/Enable) o al
+  `stop()`.
+
+Test hard: `tests/safety/test_config_agent_write_41.py` (denylist/allowlist/validazione, il tool
+**non scrive né mette in pending** per chiavi vietate/valori invalidi, propone la forma canonica,
+schema senza `confirm`, gate `allow_writes`) + controller (`proposta_non_scrive_finche_utente_non_applica`,
+`apply_pending_senza_proposta`, `cancel_pending`, `stop_scarta_la_proposta`, `apply_pending_stale_epoch`,
+`proposta_safety_critical_non_mette_in_pending`) + GUI (`pending_text`).
 
 ### Smoke test manuale (Windows, no display in CI)
 
@@ -167,7 +221,9 @@ cronologia su disco resta sempre redatta.
 > (fuori dallo scope di PR-3).
 
 ## Cosa NON c'è ancora (PR successive)
-- **PR-4**: tool di **scrittura** config gated (token/chat/csv/parser) con conferma sulle
-  transizioni pericolose.
+- **PR-4 (fatto)**: scrittura config GATED — **solo** chiavi non safety-critical (vedi sopra). Le
+  chiavi pericolose (token/chat/csv/parser/modalità/limiti) restano **non scrivibili**
+  dall'assistente; un eventuale write-path frictionful per alcune di esse è una scelta esplicita del
+  proprietario per una fase successiva.
 - **PR-5**: first-run — l'agente pilota il wizard esistente.
 - **PR-6**: guide utente `docs/user/`.

@@ -277,10 +277,155 @@ def build_read_only_tools(*, config_loader=None, parsers_dir=None) -> list:
     ]
 
 
-def build_default_registry(*, config_loader=None, parsers_dir=None, logger=None) -> ToolRegistry:
-    """Registry pronto con i tool sola-lettura di PR-1."""
+# ── Scrittura config GATED (#41 PR-4) ───────────────────────────────────────────
+# L'assistente può scrivere SOLO un piccolo insieme di chiavi NON safety-critical, ognuna con
+# validazione/bound espliciti. Le chiavi safety-critical (segreti, filtro chat, modalità/CSV,
+# limiti scommesse, parser) sono RIFIUTATE anche su ordine esplicito. Doppia difesa:
+# (1) allowlist `WRITABLE_CONFIG_KEYS`: tutto ciò che non è qui è rifiutato;
+# (2) denylist `WRITE_FORBIDDEN_KEYS`: rifiuto CHIARO + audit per le chiavi pericolose.
+# La scrittura resta comunque gated dal permesso WRITE_CONFIG (offerta solo con `allow_writes=True`).
+
+# Chiavi enum (valori ammessi in forma canonica; match input case-insensitive).
+_WRITE_ENUM = {
+    "theme": ("dark", "light"),
+    "app_language": ("IT", "EN", "ES"),
+}
+# Chiavi intere con intervallo [min, max] INCLUSIVO. `max_signal_age` ha min > 0 di proposito:
+# l'assistente NON può DISATTIVARE il filtro anti-segnale-stantio (0 = off) — invariante di sicurezza.
+_WRITE_INT_BOUNDS = {
+    "clear_delay":          (5, 3600),
+    "confirmation_timeout": (5, 3600),
+    "max_signal_age":       (10, 3600),
+}
+WRITABLE_CONFIG_KEYS = frozenset(_WRITE_ENUM) | frozenset(_WRITE_INT_BOUNDS)
+
+# Denylist esplicita (difesa in profondità): chiavi SAFETY-CRITICAL mai scrivibili dall'assistente,
+# nemmeno su ordine esplicito. Già escluse dall'allowlist; qui danno un rifiuto dedicato e tracciano
+# l'intento. Coprono segreti, filtro chat, modalità/CSV (contratto XTrader), limiti scommesse, parser.
+WRITE_FORBIDDEN_KEYS = frozenset({
+    "bot_token", "bot_token_storage",
+    "chat_id", "source_chats", "parser_by_chat", "parser_list_by_chat",
+    "xtrader_notification_chat_id",
+    "bridge_mode", "dry_run", "csv_path", "csv_language",
+    "queue_mode", "max_active_signals", "max_per_day",
+    "auto_start_listener", "debug_message_payload",
+    "active_parser", "provider", "recognition_mode", "source_language",
+    "confirmation_keywords", "rejection_keywords",
+})
+
+
+def _validate_writable(key, value):
+    """Valida un valore per una chiave scrivibile. Ritorna ``(ok, normalized, err)``.
+
+    NON coerce silenziosamente un valore fuori dominio (a differenza di `config_store._migrate`, che
+    è fail-closed sul CARICAMENTO): qui l'assistente deve poter DIRE all'utente cosa non va, quindi
+    un valore non valido è RIFIUTATO con un messaggio, non riscritto a un default."""
+    if key in _WRITE_ENUM:
+        allowed = _WRITE_ENUM[key]
+        s = str(value).strip()
+        for a in allowed:
+            if s.lower() == a.lower():
+                return True, a, ""     # forma canonica
+        return False, None, f"valori ammessi: {', '.join(allowed)}"
+    lo, hi = _WRITE_INT_BOUNDS[key]
+    # Intero STRETTO: no bool (sottoclasse di int), no float non intero, no stringa non numerica.
+    if isinstance(value, bool):
+        return False, None, f"serve un intero tra {lo} e {hi}"
+    if isinstance(value, int):
+        n = value
+    elif isinstance(value, float) and value.is_integer():
+        n = int(value)
+    else:
+        try:
+            n = int(str(value).strip())
+        except (TypeError, ValueError):
+            return False, None, f"serve un intero tra {lo} e {hi}"
+    if n < lo or n > hi:
+        return False, None, f"fuori intervallo: ammesso {lo}–{hi}"
+    return True, n, ""
+
+
+def _save_outcome(result):
+    """Estrae ``(ok, status)`` da un esito di `config_store.save_config` (un `SaveResult`), robusto
+    anche a un saver iniettato più semplice (tupla `(cfg, ok)` o bool)."""
+    ok = getattr(result, "ok", None)
+    status = getattr(result, "status", "")
+    if ok is None:
+        if isinstance(result, tuple) and len(result) >= 2:
+            ok = bool(result[1])
+        else:
+            ok = bool(result)
+    return bool(ok), status
+
+
+def build_write_tools(*, config_loader=None, on_proposal=None) -> list:
+    """Costruisce i tool di **scrittura** config GATED (#41 PR-4). `config_loader` iniettabile (per
+    leggere il valore attuale e validare); `on_proposal(key, new, old)` è chiamato quando una
+    modifica valida è PROPOSTA.
+
+    **Gate di conferma server-side (review #65 GPT-5.5/Fugu/Fable).** Il tool **non scrive mai**: si
+    limita a **validare** e a **proporre** il cambiamento. La scrittura vera è eseguita SOLO
+    dall'utente tramite la UI (pulsante «Applica» → `AgentController.apply_pending`), non da un
+    booleano deciso dal modello. Così un `confirm` allucinato o indotto (prompt injection) non può
+    applicare nulla: al massimo mette in coda una PROPOSTA che l'utente vede e conferma a mano."""
+    load_cfg = config_loader or config_store.load_config
+
+    def _set_config_value(inp):
+        key = str(inp.get("key", "")).strip()
+        # 1. denylist esplicita: chiavi safety-critical → rifiuto dedicato (anche su ordine esplicito).
+        if key in WRITE_FORBIDDEN_KEYS:
+            return (f"Rifiutato: «{key}» è una chiave SAFETY-CRITICAL (segreti / filtro chat / "
+                    "modalità / CSV / limiti scommesse / parser): l'assistente non può modificarla, "
+                    "nemmeno su richiesta esplicita.")
+        # 2. allowlist: tutto ciò che non è scrivibile → rifiuto.
+        if key not in WRITABLE_CONFIG_KEYS:
+            return (f"Rifiutato: «{key}» non è modificabile dall'assistente. Chiavi consentite: "
+                    f"{', '.join(sorted(WRITABLE_CONFIG_KEYS))}.")
+        # 3. validazione stretta (nessuna coercizione silenziosa).
+        ok, normalized, err = _validate_writable(key, inp.get("value"))
+        if not ok:
+            return f"Valore non valido per «{key}»: {err}."
+        cfg = load_cfg() or {}
+        old = cfg.get(key)
+        if normalized == old:
+            return f"Nessuna modifica: «{key}» è già «{normalized}»."
+        # 4. PROPOSTA (nessuna scrittura): registra la modifica pendente e chiedi conferma UMANA.
+        #    L'applicazione avviene SOLO dal pulsante «Applica» dell'utente (server-side gate).
+        if on_proposal is not None:
+            on_proposal(key, normalized, old)
+        return (f"PROPOSTA: cambiare «{key}» da «{old}» a «{normalized}». Chiedi all'utente di "
+                "confermare con il pulsante «✅ Applica» nella tab (o «✖ Annulla»); non posso "
+                "applicarla io.")
+
+    return [
+        AgentTool(
+            "set_config_value",
+            "Propone di impostare UNA chiave di configurazione NON safety-critical del bridge. "
+            "Chiavi ammesse: theme (dark/light), app_language (IT/EN/ES), clear_delay, "
+            "confirmation_timeout, max_signal_age (secondi, interi). NON può toccare token, filtro "
+            "chat, modalità/CSV, limiti scommesse o parser: sono rifiutati. Il tool NON applica la "
+            "modifica: la mette in attesa e l'utente la conferma con un pulsante nella tab. Spiega "
+            "all'utente cosa cambierà e invitalo a premere «✅ Applica».",
+            {"type": "object",
+             "properties": {
+                 "key": {"type": "string", "description": "nome della chiave di config da impostare"},
+                 "value": {"description": "nuovo valore (stringa o intero secondo la chiave)"}},
+             "required": ["key", "value"],
+             "additionalProperties": False},
+            WRITE_CONFIG, _set_config_value),
+    ]
+
+
+def build_default_registry(*, config_loader=None, parsers_dir=None, on_proposal=None,
+                           logger=None) -> ToolRegistry:
+    """Registry pronto con i tool sola-lettura (PR-1) **e** i tool di scrittura gated (PR-4). I tool
+    di scrittura sono registrati ma **offerti al modello solo con `allow_writes=True`** (li filtra
+    `tool_specs`); il gate `dispatch(allow_writes=...)` resta l'ultima difesa; e la scrittura vera è
+    gated dalla UI (`on_proposal` → conferma umana), mai dal modello."""
     reg = ToolRegistry(logger=logger)
     for tool in build_read_only_tools(config_loader=config_loader, parsers_dir=parsers_dir):
+        reg.register(tool)
+    for tool in build_write_tools(config_loader=config_loader, on_proposal=on_proposal):
         reg.register(tool)
     return reg
 
@@ -292,7 +437,11 @@ SYSTEM_PROMPT = (
     "configurare il bridge ESEGUENDO i suoi ordini tramite gli strumenti disponibili, non "
     "prendendo iniziative safety-critical. Non piazzi scommesse, non parli con XTrader/Betfair, "
     "non avvii il listener live o la modalità reale, non riveli segreti, non usi il web né esegui "
-    "codice: queste azioni sono bloccate dal bridge a prescindere. Rispondi in italiano, conciso."
+    "codice: queste azioni sono bloccate dal bridge a prescindere. Puoi PROPORRE modifiche SOLO ad "
+    "alcune impostazioni non critiche (tema, lingua app, clear_delay, confirmation_timeout, "
+    "max_signal_age) con 'set_config_value': il tool NON applica nulla, mette la modifica in attesa; "
+    "spiega all'utente cosa cambierà e invitalo a premere il pulsante «✅ Applica» nella tab per "
+    "confermare. Rispondi in italiano, conciso."
 )
 
 

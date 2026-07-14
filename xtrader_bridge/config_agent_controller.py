@@ -7,7 +7,9 @@ worker può essere pilotato in modo sincrono.
 
 Sicurezza: `enable()` abilita SOLO la chat, **non** avvia il listener live né la modalità reale; le
 azioni safety-critical restano bloccate dalle guardie di `config_agent` (hard block). La scrittura
-config resta disattivata (`allow_writes=False`, i tool di scrittura sono PR-4). La cronologia è
+config è abilitata GATED (`allow_writes=True`, #41 PR-4): l'assistente può impostare solo un piccolo
+insieme di chiavi NON safety-critical (`set_config_value` — allowlist/denylist + conferma esplicita);
+token, filtro chat, modalità/CSV, limiti scommesse e parser restano non scrivibili. La cronologia è
 caricata a `enable()` e salvata **redatta** dopo ogni turno (`ConversationHistory`, PR-2).
 """
 
@@ -32,8 +34,9 @@ class AgentController:
     spento)."""
 
     def __init__(self, *, client=None, client_factory=None, config_loader=None,
-                 history=None, parsers_dir=None, on_event=None, logger=None):
+                 config_saver=None, history=None, parsers_dir=None, on_event=None, logger=None):
         self._config_loader = config_loader or config_store.load_config
+        self._config_saver = config_saver or config_store.save_config
         self._parsers_dir = parsers_dir
         self._on_event = on_event
         self._logger = logger
@@ -41,9 +44,22 @@ class AgentController:
         self._client_factory = client_factory
         self.state = STOPPED
         self.last_error = ""
-        # Registry read-only che legge lo stato VIVO dell'app (config redatta, health, parser).
+        # Modifica config PROPOSTA dall'assistente e in attesa di conferma UMANA (#41 PR-4, review
+        # #65): il tool `set_config_value` non scrive mai — chiama `_stage_pending`; la scrittura
+        # vera avviene SOLO da `apply_pending()` (pulsante «Applica» dell'utente, sul thread GUI).
+        self._pending = None
+        self._pending_lock = threading.Lock()
+        # Epoch del turno CORRENTE per-thread (thread-local): il tool `set_config_value` gira dentro
+        # `_handle_message` sul thread worker e chiama `_stage_pending`; leggendo qui l'epoch del suo
+        # turno (non l'epoch vivo) una proposta di un worker STALE (post Stop/Enable) viene scartata
+        # invece di comparire nella nuova sessione. Worker concorrenti hanno ciascuno il proprio.
+        self._turn_ctx = threading.local()
+        # Registry con i tool read-only (stato VIVO redatto) e i tool di scrittura config GATED
+        # (#41 PR-4): questi ultimi sono offerti al modello solo con `allow_writes=True` (vedi enable)
+        # e **non scrivono**: propongono soltanto (`on_proposal`), la conferma è umana via UI.
         self._registry = config_agent.build_default_registry(
-            config_loader=self._config_loader, parsers_dir=parsers_dir, logger=logger)
+            config_loader=self._config_loader, on_proposal=self._stage_pending,
+            parsers_dir=parsers_dir, logger=logger)
         self._history = history if history is not None else config_agent.ConversationHistory([])
         self._agent = None
         self._worker = None
@@ -129,7 +145,11 @@ class AgentController:
             self._epoch += 1
             epoch = self._epoch
             self._history = config_agent.ConversationHistory.load()
-            self._agent = config_agent.ConfigAgent(self._registry, client, allow_writes=False)
+            # PR-4: la scrittura config GATED è ora abilitata (`allow_writes=True`). Restano attive
+            # tutte le guardie: hard-block `FORBIDDEN_TOOLS`, allowlist/denylist delle chiavi
+            # scrivibili in `set_config_value` (niente token/filtro chat/modalità/CSV/limiti/parser)
+            # e il gate di conferma esplicita per ogni scrittura.
+            self._agent = config_agent.ConfigAgent(self._registry, client, allow_writes=True)
         # L'epoch è LEGATO al worker (closure): i turni di QUESTA sessione portano `epoch`; un worker
         # superstite di una sessione precedente porta un epoch diverso → i suoi risultati sono scartati
         # (niente scrittura/emit sulla NUOVA sessione — CodeRabbit/GPT/GLM/Fugu #64).
@@ -152,6 +172,13 @@ class AgentController:
         with self._history_lock:
             self._epoch += 1
             self._agent = None
+        # Una sessione fermata non deve trattenere una proposta pendente (sarebbe di una sessione
+        # chiusa): la si scarta e si notifica la GUI di nascondere il banner «Applica».
+        with self._pending_lock:
+            had_pending = self._pending is not None
+            self._pending = None
+        if had_pending:
+            self._emit("pending_cleared", {"epoch": self._epoch})
         w = self._worker
         if w is not None and w.stop():
             self._worker = None
@@ -199,7 +226,13 @@ class AgentController:
                 return None
             agent = self._agent
             base_messages = list(self._history.messages)
-        turn = agent.run_turn(text, history=base_messages)   # lento: nessun lock tenuto
+        # Pubblica l'epoch di QUESTO turno per il tool `set_config_value` (→ `_stage_pending`), così
+        # una proposta è legata alla sessione che l'ha generata (thread-local: no race tra worker).
+        self._turn_ctx.epoch = epoch
+        try:
+            turn = agent.run_turn(text, history=base_messages)   # lento: nessun lock tenuto
+        finally:
+            self._turn_ctx.epoch = None
         # Replace+save ATOMICI sotto lock rispetto all'epoch (niente TOCTOU sui DATI). Se la sessione
         # è cambiata (stop/re-enable durante il turno) si scarta TUTTO — nessun evento emesso.
         save_failed_exc = None
@@ -243,6 +276,128 @@ class AgentController:
         applicare un evento per scartare i `turn`/`warning` di una sessione ormai chiusa
         (Stop/Enable nel frattempo) — la rete di sicurezza consumer-side dell'emit senza lock."""
         return self._epoch
+
+    # ── modifica config PROPOSTA + conferma UMANA (#41 PR-4, review #65) ─────────
+    def _stage_pending(self, key, new, old) -> None:
+        """Chiamato dal tool `set_config_value` (thread worker) quando l'assistente PROPONE una
+        modifica valida. NON scrive: registra la modifica pendente (legata all'`epoch` del turno) ed
+        emette l'evento `pending` FUORI dal lock, così la GUI mostra il pulsante «Applica». Una nuova
+        proposta sostituisce quella non ancora applicata. Una proposta di un turno **stale** (worker
+        di una sessione già chiusa da Stop/Enable) viene **ignorata**: né staged né emessa."""
+        epoch = getattr(self._turn_ctx, "epoch", None)
+        if epoch is None:
+            epoch = self._epoch                       # chiamata fuori da un turno (es. test): epoch vivo
+        with self._pending_lock:
+            if epoch != self._epoch:
+                return                                # sessione chiusa → nessuna proposta-fantasma
+            self._pending = {"key": key, "new": new, "old": old, "epoch": epoch}
+        self._emit("pending", {"key": key, "new": new, "old": old, "epoch": epoch})
+
+    def pending(self):
+        """La modifica pendente corrente (dict o `None`) — lettura per la GUI/test."""
+        with self._pending_lock:
+            return dict(self._pending) if self._pending else None
+
+    def apply_pending(self) -> bool:
+        """**Applica** la modifica pendente — chiamato SOLO dall'utente (pulsante «Applica», thread
+        GUI). È l'UNICO punto che scrive la config: il modello non può arrivarci. Ritorna `True` se
+        scritta, `False` altrimenti (niente pending / sessione cambiata / config non valida / chiave
+        cambiata sotto di noi / save fallito).
+
+        Fail-safe e anti-TOCTOU (Fugu/Fable #65):
+        - la config viene ri-letta qui (sul thread GUI, come «💾 Salva Config»); se il load **non** dà
+          un dict valido e non vuoto si **abortisce** (mai un fallback a `{}`, che scriverebbe una
+          config quasi vuota azzerando chat_id/csv_path/bridge_mode/limiti). Il pending resta (retry);
+        - si scrive **solo** se il valore attuale della chiave coincide ancora con quello su cui si
+          basava la proposta (`old`): un cambio CONCORRENTE della stessa chiave (es. GUI «Salva»)
+          **non** viene sovrascritto — la proposta stantia è annullata con avviso;
+        - si opera su una **copia** (niente mutazione del dict condiviso, niente mutazione parziale se
+          il save fallisce) e si tocca solo la chiave proposta (le altre restano quelle fresche).
+        La proposta è scartata se l'epoch è cambiato (Stop/Enable).
+
+        **Asimmetria voluta (Fugu #65):** un *load* fallito **mantiene** il pending (config non
+        leggibile ora → si ritenta); un *save* fallito lo **consuma** (il tentativo è stato fatto,
+        l'utente rilancia la proposta).
+
+        **Serializzazione (thread Tk, GPT #65):** è chiamato SOLO dal thread GUI, dove avvengono
+        anche `stop()` (via l'event loop) e «💾 Salva Config» → tutte le scritture di `config.json`
+        sono serializzate. Uno `stop()` che arrivasse tra il commit-gate e la scrittura persiste
+        comunque una modifica che l'utente ha appena confermato (comportamento accettato); gli eventi
+        emessi portano l'epoch **committato** così un cambio di sessione li fa scartare dalla GUI."""
+        with self._pending_lock:
+            p = self._pending
+            if p is None or p["epoch"] != self._epoch:
+                self._pending = None
+                return False
+            key, new, old, epoch = p["key"], p["new"], p["old"], p["epoch"]
+        # Fail-safe anche sul LOAD (Fable/GPT #65): un loader che SOLLEVA (OSError su disco, ecc.)
+        # non deve crashare il thread GUI → si tratta come «config non disponibile».
+        try:
+            cfg = self._config_loader()
+        except Exception:   # noqa: BLE001 — loader che solleva = config non leggibile ora: fail-safe
+            cfg = None
+        # Senza una config valida NON si scrive (Fugu #65): un fallback a {} azzererebbe le altre
+        # chiavi. Pending mantenuto → l'utente può ritentare quando la config torna leggibile.
+        if not isinstance(cfg, dict) or not cfg:
+            self._emit("turn", {"text": "⚠️ Config non disponibile: modifica NON applicata, riprova.",
+                                "capped": False, "messages": [], "epoch": epoch})
+            return False
+        # Anti-clobber della chiave PROPOSTA (Fugu #65): se è cambiata sotto di noi (modifica
+        # concorrente), la proposta è stantia → annulla senza sovrascrivere. `pending_cleared` e
+        # l'avviso si emettono SOLO se abbiamo davvero consumato QUESTA proposta: se nel frattempo è
+        # subentrata una proposta PIÙ NUOVA (`self._pending is not p`) non si tocca il suo banner
+        # (Fable/GPT/Fugu #65: niente desync stato/vista).
+        if cfg.get(key) != old:
+            with self._pending_lock:
+                cleared = self._pending is p
+                if cleared:
+                    self._pending = None
+            if cleared:
+                self._emit("pending_cleared", {"epoch": epoch})
+                self._emit("turn", {"text": f"⚠️ «{key}» è cambiato nel frattempo (ora "
+                                    f"«{cfg.get(key)}»): proposta annullata, rilanciala se serve.",
+                                    "capped": False, "messages": [], "epoch": epoch})
+            return False
+        new_cfg = dict(cfg)                  # copia: niente mutazione del dict condiviso né parziale
+        new_cfg[key] = new                   # tocca SOLO la chiave proposta (le altre restano fresche)
+        # COMMIT GATE (Fable #65): consuma la proposta e ri-verifica SOTTO lock, subito prima di
+        # scrivere, che sia ANCORA la stessa proposta (identità) e che la sessione non sia cambiata
+        # (stop/enable durante load/check → epoch avanzato). Altrimenti NON si scrive.
+        with self._pending_lock:
+            if self._pending is not p or p["epoch"] != self._epoch:
+                return False
+            self._pending = None
+        # Un saver che SOLLEVA non deve crashare il thread GUI: si tratta come save fallito (ritorna
+        # `False`, messaggio d'errore, mai falso «Fatto» — GLM/Fable #65).
+        try:
+            ok, status = config_agent._save_outcome(self._config_saver(new_cfg))
+        except Exception:   # noqa: BLE001 — save fallito/eccezione: fail-safe (esito negativo, non crash)
+            ok, status = False, config_store.SAVE_DISK_ERROR
+        # `pending_cleared` è emesso SEMPRE dopo aver consumato la proposta: NON si tenta di
+        # sopprimerlo qui con un check `_pending is None`, perché quel check è fuori dal lock (l'emit
+        # NON può stare sotto lock — invariante anti-deadlock #64) e riaprirebbe una finestra TOCTOU
+        # check→emit (GPT/Fable/Fugu #65). La decisione mostra/nascondi la prende il CONSUMER (GUI)
+        # leggendo la proposta CORRENTE del controller quando gestisce l'evento: se nel frattempo è
+        # subentrata una p2 la ri-mostra, altrimenti nasconde — race-free rispetto all'ordine eventi,
+        # stessa filosofia di `is_stale_event`. Il turn di esito si emette comunque (riga di chat).
+        self._emit("pending_cleared", {"epoch": epoch})
+        if ok:
+            self._emit("turn", {"text": f"✓ «{key}» impostato a «{new}» (era «{old}»).",
+                                "capped": False, "messages": [], "epoch": epoch})
+        else:
+            msg = config_store.save_status_message(status) if status else ""
+            self._emit("turn", {"text": f"⚠️ Salvataggio non riuscito per «{key}»." +
+                                (f" {msg}" if msg else ""),
+                                "capped": False, "messages": [], "epoch": epoch})
+        return ok
+
+    def cancel_pending(self) -> None:
+        """Annulla la modifica pendente senza applicarla (pulsante «Annulla», thread GUI)."""
+        with self._pending_lock:
+            had = self._pending is not None
+            self._pending = None
+        if had:
+            self._emit("pending_cleared", {"epoch": self._epoch})
 
 
 class AgentWorker:

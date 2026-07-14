@@ -205,13 +205,13 @@ HUB "🧰 STRUMENTI"  (tab PIATTE ma RAGGRUPPATE per flusso ①..④, #293 slice
 
 ---
 
-## 🤖 Assistente di configurazione (#41 PR-3)
+## 🤖 Assistente di configurazione (#41 PR-3 · scrittura GATED da PR-4)
 
 Nuova tab **«🤖 Assistente»** nella tabview di monitoraggio: una **chat a linguaggio naturale** sulla
-configurazione del bridge. **In PR-3 l'assistente è in SOLA LETTURA**: introduce la **vista** + il
-**ciclo di vita** (chat + tre tool live **sola-lettura**: config redatta, salute, elenco parser).
-**Non modifica** ancora la configurazione — i tool di **scrittura** sono gated (`allow_writes=False`)
-e arrivano in **PR-4**. La capacità di «compilare i campi al posto tuo» è quindi una fase successiva.
+configurazione del bridge. PR-3 ha introdotto la **vista** + il **ciclo di vita** (chat + tre tool
+live **sola-lettura**: config redatta, salute, elenco parser). **Da PR-4** l'assistente può anche
+**applicare** modifiche, ma **solo** su un piccolo insieme di impostazioni **non critiche** e
+**solo dopo conferma esplicita** dell'utente (vedi «Scrittura config gated» qui sotto).
 
 **Controlli (dall'alto in basso):**
 - **Campo «API key Anthropic:»** — input **mascherato** (`show="●"`), placeholder «incollala qui
@@ -227,6 +227,21 @@ e arrivano in **PR-4**. La capacità di «compilare i campi al posto tuo» è qu
   …»**. Mostra **solo il testo** della chat (i dettagli interni tool non compaiono).
 - **Input** «scrivi un ordine di configurazione…» + **«Invia»** (anche `Invio`). Input e Invia sono
   **disabilitati** quando l'assistente non è ATTIVO.
+
+**Scrittura config gated (PR-4) — l'assistente PROPONE, l'utente APPLICA:**
+- L'assistente può proporre modifiche a **solo** poche chiavi **non safety-critical**: **tema**
+  (chiaro/scuro), **lingua app** (IT/EN/ES), **clear_delay**, **confirmation_timeout**,
+  **max_signal_age** (con limiti validati; `max_signal_age` non può essere azzerato/disattivato).
+- **Banner di conferma (nuovo controllo UI):** quando l'assistente propone una modifica compare —
+  sopra la riga di input — un **banner** giallo con il testo «L'assistente propone: «‹chiave›» da
+  «‹vecchio›» a «‹nuovo›». Applicare?» e due pulsanti **«✅ Applica»** / **«✖ Annulla»**. La modifica
+  viene scritta **SOLO** se l'utente preme **«✅ Applica»** — il modello **non** può applicare da solo
+  (gate server-side, review #65). «✖ Annulla» o lo Stop scartano la proposta e nascondono il banner.
+  Un valore fuori range viene rifiutato con spiegazione, senza proposta.
+- **Mai** scrivibili dall'assistente (rifiutati anche su ordine esplicito): **token/API key**, il
+  **filtro chat** (chat sorgente/notifiche/parser-per-chat), **modalità/CSV** (`bridge_mode`,
+  `dry_run`, `csv_path`, `csv_language`), i **limiti scommesse** (`queue_mode`,
+  `max_active_signals`, `max_per_day`), `auto_start_listener`, `active_parser`.
 
 **Invarianti di sicurezza lato UI:**
 - «Abilita» accende **solo la chat**: **non** avvia il listener live né la modalità reale, e **non**
