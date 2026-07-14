@@ -15,7 +15,8 @@ come configurarlo e usarlo in sicurezza.
 
 - Il bridge parte in **Simulazione**: il CSV operativo **non** viene scritto finché non passi tu, con
   conferma esplicita, a modalità reale (tab **🛡️ Sicurezza**).
-- Il **bot token** e la **API key** dell'assistente stanno nel **keyring del sistema**, mai in chiaro.
+- La **API key** dell'assistente sta **solo nel keyring** del sistema; il **bot token** sta nel keyring
+  (con fallback in chiaro **solo** se manca un keyring, e con avviso nel log).
 - Il bridge ascolta **solo** le chat che configuri; il CSV contiene **solo** il segnale attivo previsto
   e viene **svuotato** dopo il timeout.
 

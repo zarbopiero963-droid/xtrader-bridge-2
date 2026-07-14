@@ -20,7 +20,7 @@ Nella finestra principale, nella tabview di configurazione, apri **⚙️ Genera
 
 | Campo | A cosa serve |
 |---|---|
-| **🔑 Bot Token** | Il token del bot Telegram (da **@BotFather**). Senza, **AVVIA** è bloccato. È un segreto: viene salvato nel **keyring del sistema** (Windows Credential Manager), non in chiaro. |
+| **🔑 Bot Token** | Il token del bot Telegram (da **@BotFather**). Senza, **AVVIA** è bloccato. È un segreto: viene salvato nel **keyring del sistema** (Windows Credential Manager). Solo se **non** è disponibile alcun keyring, ripiega sul token in chiaro in `config.json` con un **avviso** nel log. |
 | **💬 Chat ID** | L'ID della chat/canale **sorgente** dei segnali (es. `-1001234567890`). Definisce **quali** messaggi vengono accettati. |
 | **📄 CSV Path** | Il percorso del file CSV che **XTrader legge** (es. `C:\XTrader\segnali.csv`). La cartella deve esistere. |
 | **⏱️ Timeout** | Dopo quanti secondi il CSV viene **svuotato** (torna a solo header) dopo un segnale. |
@@ -68,6 +68,7 @@ partire?»* e ti dice quali requisiti sono a posto e quali no, e ti guida a comp
 
 ## Dove finiscono i file
 
-Config e cronologia stanno nella cartella dati utente (`%APPDATA%\XTraderBridge` su Windows). Il
-**bot token** e la **API key** dell'assistente stanno nel **keyring del sistema**, mai in chiaro. Il
-CSV operativo sta dove indichi in **CSV Path**.
+Config e cronologia stanno nella cartella dati utente (`%APPDATA%\XTraderBridge` su Windows). La
+**API key** dell'assistente sta **solo nel keyring** (se il keyring non è disponibile, **non** viene
+salvata). Il **bot token** sta nel keyring, con l'eccezione del fallback in chiaro sopra descritto se
+manca un keyring. Il CSV operativo sta dove indichi in **CSV Path**.
