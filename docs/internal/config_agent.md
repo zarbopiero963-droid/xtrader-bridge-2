@@ -15,8 +15,10 @@ client Anthropic *tool-use* iniettabile, registry dei tool con classificazione d
   `permission` (`READ_ONLY` | `WRITE_CONFIG`) + `handler(input) -> str`.
 - **`ToolRegistry`** — l'**unico** punto da cui un tool viene eseguito. Espone al modello solo le
   spec permesse (`tool_specs`), esegue le guardie e registra ogni chiamata in `audit_log`.
-- **Tool sola-lettura** (PR-1): `get_config_state` (config **redatta**), `get_health`
-  (semafori `health_check`), `list_parsers`. Esercitano funzioni reali del progetto.
+- **Tool sola-lettura**: `get_config_state` (config **redatta**), `get_health` (semafori
+  `health_check`), `list_parsers` (PR-1) e `get_setup_status` (**PR-5**: checklist di prima
+  configurazione — token/chat/parser/CSV/modalità come booleani `done`+label, **nessun segreto** —
+  riusa `wizard.final_checklist`). Esercitano funzioni reali del progetto.
 - **`RealAnthropicClient`** — client verso l'Anthropic Messages API con **lazy import** di
   `anthropic` (dipendenza opzionale, fail-safe come `keyring` in `token_store`). **Non** usato nei
   test: `ConfigAgent` accetta qualunque client con `create_message(system, messages, tools)`.
@@ -201,6 +203,35 @@ schema senza `confirm`, gate `allow_writes`) + controller (`proposta_non_scrive_
 `apply_pending_senza_proposta`, `cancel_pending`, `stop_scarta_la_proposta`, `apply_pending_stale_epoch`,
 `proposta_safety_critical_non_mette_in_pending`) + GUI (`pending_text`).
 
+## Guida alla prima configurazione (PR-5)
+
+L'assistente **guida** (non automatizza) il primo avvio. Il tool sola-lettura **`get_setup_status`**
+gli dà lo stato di cosa manca per lo START. **Non espone segreti** (mai il valore di token/chat: solo
+«configurato sì/no»), colmando il buco per cui `get_config_state` maschera il token a `***` e
+l'assistente non sapeva se fosse impostato. Ritorna:
+
+- **`requirements`** — i **4 requisiti operativi** dello START come booleani **nominati per chiave**
+  (`bot_token`, `chat`, `parser_active`, `csv_usable`): derivati direttamente dalla config +
+  `health_check.csv_writable`, **non** dall'ordine posizionale di una lista (review #66
+  GLM/GPT/Fable/Fugu: niente accoppiamento agli indici);
+- **`ready_to_start`** — `and` dei 4 requisiti. La **modalità NON** vi entra: lo START gira anche in
+  **Simulazione** (default sicuro; il passaggio a Reale ha il suo gate frase a parte);
+- **`mode_simulation`** — informativo (sei in Simulazione sì/no);
+- **`language_chosen`** e una **`checklist`** leggibile (label canoniche di `wizard.final_checklist`,
+  solo per il testo di guida: la fonte autoritativa di prontezza è `requirements`).
+
+Con questo l'assistente può dire all'utente *cosa* manca e *dove* metterlo:
+- per le impostazioni **non critiche** (tema, lingua app, `clear_delay`, `confirmation_timeout`,
+  `max_signal_age`) **propone** lui il valore (l'utente conferma con «✅ Applica», PR-4);
+- per i campi **critici** (token, chat, `csv_path`, parser attivo, modalità) — che restano in
+  **denylist** e che l'assistente **non può scrivere** — indirizza l'utente ai campi della finestra o
+  al pulsante **«🧙 Wizard prima configurazione»** (tab Strumenti), che verifica token/chat/CSV dal
+  vivo. L'assistente **non apre finestre** né automatizza la GUI (invarianti): solo testo di guida.
+
+Test hard: `tests/safety/test_config_agent_41.py` (`get_setup_status` su config vuota/parziale/
+completa → checklist e `ready_to_start` corretti; **niente token/chat in chiaro** nell'output;
+offerto come **read-only** anche senza `allow_writes`; nessuna scrittura).
+
 ### Smoke test manuale (Windows, no display in CI)
 
 1. Apri l'app → tab **«🤖 Assistente»**: stato **⚪ OFFLINE**, input **disabilitato**.
@@ -225,5 +256,6 @@ schema senza `confirm`, gate `allow_writes`) + controller (`proposta_non_scrive_
   chiavi pericolose (token/chat/csv/parser/modalità/limiti) restano **non scrivibili**
   dall'assistente; un eventuale write-path frictionful per alcune di esse è una scelta esplicita del
   proprietario per una fase successiva.
-- **PR-5**: first-run — l'agente pilota il wizard esistente.
+- **PR-5 (fatto)**: first-run — l'assistente **guida** il primo avvio via `get_setup_status` (vedi
+  «Guida alla prima configurazione»). Non automatizza la GUI né scrive i campi critici.
 - **PR-6**: guide utente `docs/user/`.

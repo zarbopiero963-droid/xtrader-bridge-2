@@ -6,6 +6,9 @@ scrittura config è gated, e il loop tool-use è protetto da un cap. Nessuna ret
 Anthropic è iniettato come oggetto finto.
 """
 
+import json
+import os
+
 import pytest
 
 from xtrader_bridge import config_agent as ca
@@ -110,7 +113,7 @@ def test_tool_specs_espone_solo_read_only_in_pr1():
                               ca.WRITE_CONFIG, lambda _i: "x"))
     names = [s["name"] for s in reg.tool_specs()]                    # default: no writes
     assert "set_token" not in names
-    assert set(names) == {"get_config_state", "get_health", "list_parsers"}
+    assert set(names) == {"get_config_state", "get_health", "list_parsers", "get_setup_status"}
     assert "set_token" in [s["name"] for s in reg.tool_specs(include_writes=True)]
 
 
@@ -203,6 +206,101 @@ def test_audit_e_result_name_redatti():
         assert secret not in res.content
     finally:
         event_log.unregister_secret(secret)
+
+
+# ── #41 PR-5: get_setup_status (checklist prima configurazione, sola lettura) ────
+
+def test_get_setup_status_config_vuota():
+    reg = ca.build_default_registry(config_loader=lambda: {})
+    res = reg.dispatch("get_setup_status", {})
+    assert res.refused is False
+    data = json.loads(res.content)
+    assert data["ready_to_start"] is False
+    assert data["language_chosen"] is None
+    # requisiti per CHIAVE (non per indice): niente configurato → tutti False
+    assert data["requirements"] == {"bot_token": False, "chat": False,
+                                     "parser_active": False, "csv_usable": False}
+    # la modalità di default è Simulazione (informativa, non un requisito di START)
+    assert data["mode_simulation"] is True
+
+
+def test_get_setup_status_config_completa(tmp_path):
+    # cartella esistente → CSV usabile; token/chat/parser presenti → pronto allo START.
+    csv_path = os.path.join(str(tmp_path), "segnali.csv")
+    cfg = {"bot_token": "FAKEBOTTOKEN0000", "chat_id": "-1001234567890",
+           "active_parser": "P1", "csv_path": csv_path, "app_language": "IT",
+           "bridge_mode": "SIMULAZIONE"}
+    reg = ca.build_default_registry(config_loader=lambda: dict(cfg))
+    res = reg.dispatch("get_setup_status", {})
+    data = json.loads(res.content)
+    assert data["ready_to_start"] is True
+    assert all(data["requirements"].values())        # tutti e 4 i requisiti a posto
+    assert data["language_chosen"] == "IT"
+    # token/chat NON compaiono in chiaro nell'output (solo booleani + label)
+    assert "FAKEBOTTOKEN0000" not in res.content
+    assert "-1001234567890" not in res.content
+
+
+def test_get_setup_status_parziale_non_pronto():
+    # token+chat ma NESSUN parser attivo → non pronto (lo START richiede il parser). Segreti
+    # realistici nei campi critici: non devono comparire in chiaro nell'output.
+    cfg = {"bot_token": "123456:FAKE-AAAABBBBCCCCDDDD", "chat_id": "-1009998887776",
+           "active_parser": "", "csv_path": "", "bridge_mode": "SIMULAZIONE"}
+    reg = ca.build_default_registry(config_loader=lambda: dict(cfg))
+    res = reg.dispatch("get_setup_status", {})
+    data = json.loads(res.content)
+    assert data["ready_to_start"] is False
+    assert data["requirements"]["bot_token"] is True
+    assert data["requirements"]["parser_active"] is False
+    assert "123456:FAKE-AAAABBBBCCCCDDDD" not in res.content
+    assert "-1009998887776" not in res.content
+
+
+def test_get_setup_status_csv_dir_inesistente_non_pronto(tmp_path):
+    # GLM/GPT #66: csv_path in una directory INESISTENTE → csv non usabile → non pronto.
+    csv_path = os.path.join(str(tmp_path), "cartella_assente", "segnali.csv")
+    cfg = {"bot_token": "t", "chat_id": "-100999", "active_parser": "P1", "csv_path": csv_path}
+    reg = ca.build_default_registry(config_loader=lambda: dict(cfg))
+    data = json.loads(reg.dispatch("get_setup_status", {}).content)
+    assert data["requirements"]["csv_usable"] is False
+    assert data["ready_to_start"] is False
+
+
+def test_get_setup_status_non_crea_ne_tocca_il_csv(tmp_path):
+    # Fable #66: il tool è READ_ONLY → la sonda `csv_writable` NON deve creare né modificare il file
+    # CSV (mai `open`/write: solo `os.path`/`os.access`). Prova su path assente E su file esistente.
+    csv_path = os.path.join(str(tmp_path), "segnali.csv")
+    reg = ca.build_default_registry(
+        config_loader=lambda: {"csv_path": csv_path, "active_parser": "P1"})
+    data = json.loads(reg.dispatch("get_setup_status", {}).content)
+    assert not os.path.exists(csv_path)              # la sonda NON ha creato il file
+    assert data["requirements"]["csv_usable"] is True   # cartella scrivibile → usabile (POSIX)
+    # file già esistente: il contenuto resta INTATTO dopo la sonda
+    with open(csv_path, "w", encoding="utf-8") as fh:
+        fh.write("HEADER-XTRADER\n")
+    reg.dispatch("get_setup_status", {})
+    with open(csv_path, encoding="utf-8") as fh:
+        assert fh.read() == "HEADER-XTRADER\n"       # non toccato
+
+
+def test_get_setup_status_source_chats_fallback():
+    # GPT/GLM #66: `chat` usa `source_chats` come fallback di `chat_id`. Lista VUOTA → False
+    # (bool([]) è False, coerente con wizard.final_checklist); lista con voci → True.
+    vuota = ca.build_default_registry(config_loader=lambda: {"chat_id": "", "source_chats": []})
+    assert json.loads(vuota.dispatch("get_setup_status", {}).content)["requirements"]["chat"] is False
+    piena = ca.build_default_registry(
+        config_loader=lambda: {"chat_id": "", "source_chats": [{"chat_id": "-1001234567890"}]})
+    d = json.loads(piena.dispatch("get_setup_status", {}).content)
+    assert d["requirements"]["chat"] is True
+    assert "-1001234567890" not in json.dumps(d)      # nemmeno il chat_id di source_chats in chiaro
+
+
+def test_get_setup_status_e_read_only_e_non_scrive():
+    reg = ca.build_default_registry(config_loader=lambda: {})
+    # offerto SEMPRE (read-only), anche senza allow_writes
+    assert "get_setup_status" in [s["name"] for s in reg.tool_specs()]
+    # non è un write-tool: dispatch senza allow_writes NON è rifiutato
+    assert reg.dispatch("get_setup_status", {}, allow_writes=False).refused is False
 
 
 def test_tool_specs_esclude_forbidden_anche_se_iniettato():

@@ -243,6 +243,14 @@ live **sola-lettura**: config redatta, salute, elenco parser). **Da PR-4** l'ass
   `dry_run`, `csv_path`, `csv_language`), i **limiti scommesse** (`queue_mode`,
   `max_active_signals`, `max_per_day`), `auto_start_listener`, `active_parser`.
 
+**Guida alla prima configurazione (PR-5):** l'assistente può dire all'utente **cosa manca per lo
+START** (token, chat, parser attivo, CSV, modalità: solo «configurato sì/no», **mai** i valori) e
+**dove** metterlo. Per le impostazioni non critiche le **propone** (banner «✅ Applica»); per i campi
+**critici** — che non può scrivere — **indirizza a parole** l'utente ai campi della finestra o al
+pulsante esistente **«🧙 Wizard prima configurazione»** (tab Strumenti). **Nessun nuovo controllo UI**
+e **nessuna automazione**: l'assistente non compila i campi né apre finestre — è solo testo di guida
+nel trascritto.
+
 **Invarianti di sicurezza lato UI:**
 - «Abilita» accende **solo la chat**: **non** avvia il listener live né la modalità reale, e **non**
   scrive il CSV operativo — quelle azioni restano dietro le **conferme frictionful** esistenti e le

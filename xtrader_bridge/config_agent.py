@@ -22,7 +22,8 @@ lasciano mai la macchina in chiaro.
 import json
 import os
 
-from . import atomic_io, config_store, custom_parser, event_log, health_check, log_privacy
+from . import (atomic_io, bridge_mode, config_store, custom_parser, event_log, health_check,
+               language_select, log_privacy, wizard)
 
 # ── Classi di permesso dei tool ────────────────────────────────────────────────
 READ_ONLY = "read_only"        # sola lettura: sempre permesso
@@ -257,6 +258,49 @@ def build_read_only_tools(*, config_loader=None, parsers_dir=None) -> list:
         return json.dumps({"parsers": names, "active": load_cfg().get("active_parser", "")},
                           ensure_ascii=False)
 
+    def _get_setup_status(_inp):
+        # Checklist di PRIMA CONFIGURAZIONE (#41 PR-5): «cosa manca per lo START». Espone SOLO
+        # booleani + label statiche, MAI il valore di token/chat (nessun segreto; il dispatcher
+        # redige comunque a valle). Serve all'assistente per GUIDARE il primo avvio: i campi critici
+        # NON sono modificabili da lui (denylist) → li indirizza all'utente / al pulsante «Wizard».
+        cfg = load_cfg() or {}
+        # Requisiti nominati (per CHIAVE, non per indice — review #66 GLM/GPT/Fable: niente
+        # accoppiamento all'ordine posizionale di `wizard.final_checklist`). Stessi criteri del gate
+        # reale di START/`health_check`: parser = `active_parser` non vuoto; CSV = sonda non invasiva.
+        token_set = bool(str(cfg.get("bot_token", "") or "").strip())
+        chat_set = bool(str(cfg.get("chat_id", "") or "").strip() or cfg.get("source_chats"))
+        parser_active = bool(str(cfg.get("active_parser", "") or "").strip())
+        csv_state, _csv_reason = health_check.csv_writable(cfg.get("csv_path", ""))
+        csv_usable = csv_state != health_check.RED
+        in_simulation = bridge_mode.mode_from_cfg(cfg) == bridge_mode.SIMULAZIONE
+        requirements = {
+            "bot_token": token_set,
+            "chat": chat_set,
+            "parser_active": parser_active,
+            "csv_usable": csv_usable,
+        }
+        # Pronto allo START = i 4 requisiti OPERATIVI. La MODALITÀ è **informativa** (lo START gira
+        # anche in Simulazione, che è il default sicuro; passare a Reale ha il suo gate frase a
+        # parte) → NON entra in `ready_to_start` (chiarimento contratto, GPT #66).
+        ready = token_set and chat_set and parser_active and csv_usable
+        lang = language_select.normalize_app_language(cfg.get("app_language"))
+        # Checklist human-readable (label canoniche del wizard) SOLO per il testo di guida: il valore
+        # autoritativo di prontezza è `requirements`/`ready_to_start` qui sopra, non l'ordine di questa lista.
+        checklist = [{"done": bool(done), "item": label}
+                     for done, label in wizard.final_checklist(cfg, parser_active=parser_active)]
+        return json.dumps({
+            "language_chosen": lang or None,
+            "ready_to_start": ready,
+            "requirements": requirements,
+            "mode_simulation": in_simulation,     # informativo, NON un requisito di START
+            "checklist": checklist,
+            "note": ("I campi CRITICI (token, chat, percorso CSV, parser attivo, modalità) NON sono "
+                     "modificabili dall'assistente: guida l'utente a compilarli nei campi della "
+                     "finestra o ad aprire «🧙 Wizard prima configurazione» nella tab Strumenti. Le "
+                     "impostazioni non critiche (tema, lingua app, clear_delay, confirmation_timeout, "
+                     "max_signal_age) puoi proporle con set_config_value."),
+        }, ensure_ascii=False, indent=2)
+
     return [
         AgentTool(
             "get_config_state",
@@ -274,6 +318,16 @@ def build_read_only_tools(*, config_loader=None, parsers_dir=None) -> list:
             "Elenca i Parser Personalizzati salvati e quello attivo. Sola lettura.",
             {"type": "object", "properties": {}, "additionalProperties": False},
             READ_ONLY, _list_parsers),
+        AgentTool(
+            "get_setup_status",
+            "Stato di PRIMA CONFIGURAZIONE: i 4 REQUISITI dello START (token, chat, parser attivo, "
+            "CSV utilizzabile) come booleani nominati in `requirements`, più `ready_to_start`, "
+            "`mode_simulation` (informativo, NON un requisito: lo START gira anche in Simulazione), "
+            "`language_chosen` e una `checklist` leggibile. NON espone segreti (solo «configurato "
+            "sì/no», mai i valori). Usalo per guidare il primo avvio: proponi le impostazioni non "
+            "critiche e indirizza l'utente ai campi/al Wizard per quelle critiche. Sola lettura.",
+            {"type": "object", "properties": {}, "additionalProperties": False},
+            READ_ONLY, _get_setup_status),
     ]
 
 
@@ -441,7 +495,12 @@ SYSTEM_PROMPT = (
     "alcune impostazioni non critiche (tema, lingua app, clear_delay, confirmation_timeout, "
     "max_signal_age) con 'set_config_value': il tool NON applica nulla, mette la modifica in attesa; "
     "spiega all'utente cosa cambierà e invitalo a premere il pulsante «✅ Applica» nella tab per "
-    "confermare. Rispondi in italiano, conciso."
+    "confermare. Per la PRIMA CONFIGURAZIONE usa 'get_setup_status' per vedere cosa manca allo START e "
+    "guidare l'utente passo passo: proponi tu le impostazioni non critiche, ma per i campi CRITICI "
+    "(token del bot, chat sorgente, percorso CSV, parser attivo, modalità) NON puoi scriverli — "
+    "spiega all'utente come compilarli nei campi della finestra o di aprire «🧙 Wizard prima "
+    "configurazione» nella tab Strumenti (che verifica token/chat/CSV dal vivo). Rispondi in "
+    "italiano, conciso."
 )
 
 
