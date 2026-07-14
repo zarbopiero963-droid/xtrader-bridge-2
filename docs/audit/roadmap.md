@@ -60,7 +60,7 @@ rischio** (non uno per singolo file di test):
 | `merge-simulation.yml` | label di collaudo · manuale | fonde `main` nel branch PR (no merge reale) → `compileall` + `pytest`; rileva conflitti. Parte con una label `ci-full`/`final-*` presente e ri-gira a ogni push finché resta; **non** su PR senza label |
 | `merge-simulation-hard.yml` | manuale · schedulata (notte) | Windows: merge + suite completa + `safety`/`integration` + build EXE + controllo file vietati |
 | `forbidden-files.yml` | PR · push main · manuale | blocca `.env`/`config.json`/`*.exe`/`*.zip`/`*.log` e CSV (eccetto `data/dizionario_xtrader.csv`) |
-| `build.yaml` | tag `v*` · manuale | build EXE Windows + artifact; **solo** su tag `v*` (release) o `workflow_dispatch`, non su push `main` |
+| `build.yaml` | tag `v*` · manuale | job `build` = EXE Windows + artifact; job `build-linux` (#36 PR-A) = binario **Linux** PyInstaller onefile + artifact (`ubuntu-latest`, additivo, build Windows invariata); **solo** su tag `v*` (release) o `workflow_dispatch`, non su push `main`. AppImage = follow-up #36 PR-B |
 
 Il check `contract` (`tests/unit/test_csv_contract.py`) è la barriera che diventa
 rossa se cambiano: header/ordine/numero colonne, encoding `utf-8-sig`, `QUOTE_ALL`,

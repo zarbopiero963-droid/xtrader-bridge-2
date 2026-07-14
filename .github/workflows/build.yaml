@@ -108,3 +108,89 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       with:
         files: dist/XTrader-Signal-Bridge.exe
+
+  # ── Build Linux (#36 PR-A) ─────────────────────────────────────────────────────
+  # Job PARALLELO e ADDITIVO al build Windows sopra (che resta INVARIATO): produce un
+  # binario Linux PyInstaller onefile self-contained («scarica ed esegui»), scaricabile
+  # dagli Artifacts esattamente come l'EXE. Nessuna modifica alla logica del bridge: la
+  # stessa app gira identica su Windows e Linux (la logica ha già i rami POSIX). La firma
+  # e il wrapping in AppImage sono un follow-up separato (PR-B). L'anello che consuma il
+  # CSV (XTrader) resta Windows: questo artifact fa girare il BRIDGE su Linux.
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+      with:
+        python-version: '3.11'
+
+    - name: Verifica Tk disponibile (fail-closed)
+      # La GUI (customtkinter→tkinter) richiede _tkinter nel Python che compila il binario,
+      # altrimenti l'artifact Linux si avvierebbe senza interfaccia. I build standalone di
+      # setup-python includono già tkinter; se un giorno non fosse così questo step FALLISCE
+      # subito con un messaggio chiaro, invece di produrre un binario rotto (fail-closed).
+      run: python -c "import tkinter; print('Tk', tkinter.TkVersion)"
+
+    - name: Installa Dipendenze (Linux, legacy)
+      # `requirements-build.lock` contiene gli hash delle wheel WINDOWS (generato dalla CI
+      # Windows): su Linux `--require-hashes` fallirebbe. Il job Linux installa quindi dal
+      # set legacy (runtime+dev+pyinstaller+httpx), coerente col ramo legacy del job Windows.
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements-dev.txt pyinstaller httpx
+
+    - name: Verifica compilazione (compileall)
+      run: python -m compileall main.py xtrader_bridge tests
+
+    - name: Esegui i test (bloccante)
+      run: python -m pytest -m "not manual"
+
+    - name: Versione app + data build (nome artifact)
+      id: meta
+      run: |
+        # Stessa fonte di verità del job Windows (xtrader_bridge/__init__.py), fail se manca.
+        ver=$(python -c "import sys, xtrader_bridge as p; sys.stdout.write(p.__version__)" | tr -d '\r\n')
+        [ -n "$ver" ] || { echo "::error::__version__ mancante"; exit 1; }
+        date=$(date -u +%Y%m%d)
+        echo "version=$ver"     >> "$GITHUB_OUTPUT"
+        echo "build_date=$date" >> "$GITHUB_OUTPUT"
+        echo "artifact=XTrader-Signal-Bridge-Linux-v${ver}-${date}" >> "$GITHUB_OUTPUT"
+
+    - name: Compila binario Linux con PyInstaller
+      # onefile self-contained. Differenze dal job Windows: `--add-data` usa `:` come
+      # separatore (su Windows è `;`); `--windowed` è una flag Windows/macOS e su Linux non
+      # ha effetto → omessa. Tutto il resto (paths, submodules, data, hidden-import) è identico.
+      run: >
+        pyinstaller --onefile
+        --name "XTrader-Signal-Bridge"
+        --paths .
+        --collect-submodules xtrader_bridge
+        --add-data "data/dizionario_xtrader.csv:data"
+        --collect-all customtkinter
+        --hidden-import=telegram
+        --hidden-import=telegram.ext
+        --hidden-import=telegram.ext._application
+        --hidden-import=telegram.ext._updater
+        --hidden-import=httpx
+        --hidden-import=httpcore
+        main.py
+
+    - name: Impacchetta in tar.gz (preserva il bit di esecuzione)
+      # `actions/upload-artifact` ZIPpa i file e NON conserva i permessi POSIX: caricando il
+      # binario grezzo, al download il bit `+x` andrebbe perso (mode 644) e l'utente dovrebbe
+      # fare `chmod` a mano. Un `tar` preserva mode 755, così dopo l'estrazione il binario è
+      # eseguibile «così com'è». (#36, CodeRabbit)
+      run: |
+        chmod +x dist/XTrader-Signal-Bridge
+        tar -czf "${{ steps.meta.outputs.artifact }}.tar.gz" -C dist XTrader-Signal-Bridge
+
+    - name: Carica il tar.gz Linux come Artifact (sempre scaricabile)
+      # Nome versionato, retention 7gg (output usa-e-scarica). Dentro l'archivio l'eseguibile
+      # resta `XTrader-Signal-Bridge` (mode 755): scarica → estrai il tar.gz → esegui.
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: ${{ steps.meta.outputs.artifact }}
+        path: ${{ steps.meta.outputs.artifact }}.tar.gz
+        retention-days: 7

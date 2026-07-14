@@ -468,6 +468,19 @@ def _build_commands():
     return out
 
 
+def _build_commands_by_job():
+    """`(workflow_name, job_name, command)` per OGNI build PyInstaller, ATTRIBUITA al suo job.
+    Serve a contare le build PER JOB: un secondo EXE dentro lo STESSO job resta vietato, ma job
+    paralleli legittimi (build Windows + `build-linux`, #36) sono ammessi."""
+    out = []
+    for path in _workflow_files():
+        for job_name, body in _jobs(_read(path)):
+            for cmd in _shell_commands(body):
+                if _PYINSTALLER_DETECT.search(cmd):
+                    out.append((os.path.basename(path), job_name, cmd))
+    return out
+
+
 def test_build_yaml_esiste():
     """Il workflow di build personale `build.yaml` deve esistere."""
     assert os.path.isfile(_BUILD_YAML), "manca .github/workflows/build.yaml"
@@ -616,17 +629,50 @@ def test_build_e_comando_isolato_nel_suo_step():
 
 
 def test_un_solo_build_e_onefile_per_workflow():
-    """Per ogni workflow che compila: un solo comando di build con `--onefile` (EXE singolo,
-    nessun secondo EXE)."""
-    builds = _build_commands()
+    """Per ogni JOB che compila: un solo comando di build con `--onefile` (EXE singolo, nessun
+    secondo EXE nello STESSO job). Job paralleli legittimi — build Windows + `build-linux` (#36)
+    nello stesso workflow — sono ammessi: ognuno deve avere UNA sola build `--onefile`."""
+    builds = _build_commands_by_job()
     assert builds, "nessuna build trovata"
-    per_wf = {}
-    for name, cmd in builds:
-        per_wf.setdefault(name, []).append(cmd)
-    for name, cmds in per_wf.items():
-        assert len(cmds) == 1, f"{name}: attesa UNA sola build, trovate {len(cmds)}"
+    per_job = {}
+    for wf, job, cmd in builds:
+        per_job.setdefault((wf, job), []).append(cmd)
+    for (wf, job), cmds in per_job.items():
+        assert len(cmds) == 1, f"{wf}:{job}: attesa UNA sola build, trovate {len(cmds)}"
         assert _has_flag(cmds[0], "--onefile"), \
-            f"{name}: build non --onefile (EXE singolo personale)"
+            f"{wf}:{job}: build non --onefile (EXE singolo personale)"
+
+
+def test_build_linux_presente_e_sicuro():
+    """#36 PR-A: `build.yaml` ha un job `build-linux` con UNA build `--onefile`, nome EXE
+    personale, `--add-data` col SOLO dizionario (separatore Linux `:`), niente `--windowed`
+    (no-op su Linux) e `main.py` come unico script. Regressione: se il job Linux venisse
+    rimosso o modificato in modo non sicuro, questo test fallisce."""
+    builds = [(wf, job, cmd) for wf, job, cmd in _build_commands_by_job()
+              if wf == "build.yaml" and job == "build-linux"]
+    assert len(builds) == 1, f"atteso 1 build nel job build-linux, trovate {len(builds)}"
+    cmd = builds[0][2]
+    assert _has_flag(cmd, "--onefile"), "build Linux non --onefile"
+    assert not _has_flag(cmd, "--windowed"), "--windowed è no-op su Linux: va omessa"
+    assert _name_values(cmd) == [_ALLOWED_EXE_NAME], \
+        f"nome EXE Linux dev'essere {_ALLOWED_EXE_NAME!r}"
+    assert _opt_values(cmd, "--add-data") == [f"{_ALLOWED_BUNDLE_SRC}:{_ALLOWED_BUNDLE_DEST}"], \
+        "add-data Linux dev'essere il solo dizionario col separatore ':'"
+    assert _py_scripts(cmd) == ["main.py"], "unico script dev'essere main.py"
+
+
+def test_build_linux_artifact_preserva_permessi():
+    """#36 (CodeRabbit, Major): `actions/upload-artifact` ZIPpa e NON conserva il bit `+x`.
+    Il job `build-linux` deve quindi impacchettare il binario in un `tar` (che preserva mode
+    755) e caricare il `.tar.gz`, NON il binario grezzo `dist/XTrader-Signal-Bridge` (che al
+    download sarebbe non eseguibile). Regressione: se si tornasse a caricare il binario grezzo
+    o si togliesse il tar, questo test fallisce."""
+    body = next(b for name, b in _jobs(_read(_BUILD_YAML)) if name == "build-linux")
+    assert re.search(r"\btar\b[^\n]*-c[^\n]*z[^\n]*f", body), \
+        "il job build-linux deve creare un tar (preserva il bit di esecuzione)"
+    assert ".tar.gz" in body, "il job build-linux deve produrre/caricare un .tar.gz"
+    assert not re.search(r"(?m)^\s*path:\s*dist/XTrader-Signal-Bridge\s*$", body), \
+        "l'artifact Linux NON deve caricare il binario grezzo (permessi persi): usa il tar.gz"
 
 
 def test_solo_opzioni_note():
@@ -698,9 +744,18 @@ def test_adddata_solo_il_dizionario():
         entries = _opt_values(cmd, "--add-data")
         assert entries, f"{name}: atteso almeno un --add-data (il dizionario)"
         for entry in entries:
-            parts = entry.split(";")   # separatore Windows; NON `:` (drive letter)
-            src = _norm(parts[0])
-            dest = _norm(parts[1]) if len(parts) > 1 else ""
+            # Separatore SORG<sep>DEST di `--add-data`: `;` su Windows, `:` su Linux/macOS
+            # (`os.pathsep`, #36). Su Windows si splitta su `;` per NON spezzare una
+            # drive-letter `C:\…`; su Linux la sorgente è un path relativo senza `:`, quindi
+            # l'ULTIMO `:` è il separatore della destinazione.
+            if ";" in entry:
+                src_raw, _, dest_raw = entry.partition(";")
+            elif ":" in entry:
+                src_raw, _, dest_raw = entry.rpartition(":")
+            else:
+                src_raw, dest_raw = entry, ""
+            src = _norm(src_raw)
+            dest = _norm(dest_raw)
             assert not _FORBIDDEN_BUNDLE.search(src), \
                 f"{name}: --add-data include un file vietato: {src!r}"
             assert src == _ALLOWED_BUNDLE_SRC, \
