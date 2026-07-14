@@ -1344,11 +1344,15 @@ def test_generate_linux_lockfile_esiste_e_quota_immune():
     assert not re.search(r"uses:\s*actions/upload-artifact", text), \
         "generate-linux-lockfile.yaml non deve usare upload-artifact (dipendenza dalla quota)"
     # guard anti-eliminazione: se il lock è adottato sul base ma assente nella PR (eliminato),
-    # il workflow deve fallire — altrimenti la build regredirebbe SILENZIOSAMENTE al legacy
-    # non hashato senza che il gate anti-stantio (git diff su untracked = 0) lo intercetti
-    # (CodeRabbit). Verifica il wiring `git cat-file -e <base>:lock` sul lock Linux.
+    # il workflow deve FALLIRE (exit≠0) — altrimenti la build regredirebbe SILENZIOSAMENTE al
+    # legacy non hashato senza che il gate anti-stantio (git diff su untracked = 0) lo intercetti
+    # (CodeRabbit/Fugu). Si verifica sia il wiring `git cat-file -e <base>:lock` SIA che lo step
+    # blocchi davvero con `exit 1` (non solo che citi il comando): il match S-flag lega il
+    # cat-file al successivo `exit 1` DENTRO lo stesso step guard.
     assert re.search(r"git cat-file -e[^\n]*requirements-build-linux\.lock", text), \
         "manca il guard anti-eliminazione del lock Linux (git cat-file sul commit base)"
+    assert re.search(r"git cat-file -e[^\n]*requirements-build-linux\.lock.*?exit 1", text, re.S), \
+        "il guard anti-eliminazione deve FALLIRE davvero (exit 1), non solo citare git cat-file"
 
 
 def test_nuitka_detector_forme_canoniche_e_wrappate():
