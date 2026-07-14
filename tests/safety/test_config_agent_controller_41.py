@@ -622,6 +622,37 @@ def test_apply_pending_proposta_piu_nuova_non_emette_pending_cleared(tmp_path, m
     c.stop()
 
 
+def test_apply_pending_proposta_nuova_durante_save_non_emette_pending_cleared(tmp_path, monkeypatch):
+    # GPT/Fugu #65: se una proposta PIÙ NUOVA (chiave diversa, stesso epoch) è staged MENTRE il save
+    # è in corso, il ramo di successo NON deve emettere `pending_cleared` (nasconderebbe il banner
+    # della proposta nuova). Il save di p1 avviene comunque; p2 resta pendente.
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "clear_delay": 90}, path)
+    events, holder, armed = [], {}, {"on": False}
+
+    def _saver(cfg):
+        if armed["on"]:
+            armed["on"] = False
+            holder["c"]._stage_pending("clear_delay", 30, 90)   # p2 staged DURANTE il save
+        return config_store.save_config(cfg, path)
+
+    c = ctl.AgentController(client=WriteToolClient("theme", "light"),
+                            config_loader=lambda: config_store.load_config(path), config_saver=_saver)
+    c._on_event = lambda k, d: events.append((k, d))
+    holder["c"] = c
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()                        # p1: theme dark→light
+    armed["on"] = True
+    events.clear()
+    assert c.apply_pending() is True               # p1 applicato (chiave invariata)
+    assert config_store.load_config(path)["theme"] == "light"   # scritto
+    assert c.pending()["key"] == "clear_delay"     # la proposta PIÙ NUOVA (p2) è preservata
+    assert all(k != "pending_cleared" for k, _ in events)   # niente hide del banner p2
+    c.stop()
+
+
 def test_stop_scarta_la_proposta_pendente(tmp_path, monkeypatch):
     path = os.path.join(str(tmp_path), "config.json")
     config_store.save_config({"theme": "dark"}, path)
