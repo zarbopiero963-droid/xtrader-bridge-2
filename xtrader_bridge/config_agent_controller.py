@@ -313,13 +313,23 @@ class AgentController:
           **non** viene sovrascritto — la proposta stantia è annullata con avviso;
         - si opera su una **copia** (niente mutazione del dict condiviso, niente mutazione parziale se
           il save fallisce) e si tocca solo la chiave proposta (le altre restano quelle fresche).
-        La proposta è scartata se l'epoch è cambiato (Stop/Enable)."""
+        La proposta è scartata se l'epoch è cambiato (Stop/Enable).
+
+        **Asimmetria voluta (Fugu #65):** un *load* fallito **mantiene** il pending (config non
+        leggibile ora → si ritenta); un *save* fallito lo **consuma** (il tentativo è stato fatto,
+        l'utente rilancia la proposta).
+
+        **Serializzazione (thread Tk, GPT #65):** è chiamato SOLO dal thread GUI, dove avvengono
+        anche `stop()` (via l'event loop) e «💾 Salva Config» → tutte le scritture di `config.json`
+        sono serializzate. Uno `stop()` che arrivasse tra il commit-gate e la scrittura persiste
+        comunque una modifica che l'utente ha appena confermato (comportamento accettato); gli eventi
+        emessi portano l'epoch **committato** così un cambio di sessione li fa scartare dalla GUI."""
         with self._pending_lock:
             p = self._pending
             if p is None or p["epoch"] != self._epoch:
                 self._pending = None
                 return False
-            key, new, old = p["key"], p["new"], p["old"]
+            key, new, old, epoch = p["key"], p["new"], p["old"], p["epoch"]
         # Fail-safe anche sul LOAD (Fable/GPT #65): un loader che SOLLEVA (OSError su disco, ecc.)
         # non deve crashare il thread GUI → si tratta come «config non disponibile».
         try:
@@ -330,18 +340,23 @@ class AgentController:
         # chiavi. Pending mantenuto → l'utente può ritentare quando la config torna leggibile.
         if not isinstance(cfg, dict) or not cfg:
             self._emit("turn", {"text": "⚠️ Config non disponibile: modifica NON applicata, riprova.",
-                                "capped": False, "messages": [], "epoch": self._epoch})
+                                "capped": False, "messages": [], "epoch": epoch})
             return False
         # Anti-clobber della chiave PROPOSTA (Fugu #65): se è cambiata sotto di noi (modifica
-        # concorrente), la proposta è stantia → annulla senza sovrascrivere.
+        # concorrente), la proposta è stantia → annulla senza sovrascrivere. `pending_cleared` e
+        # l'avviso si emettono SOLO se abbiamo davvero consumato QUESTA proposta: se nel frattempo è
+        # subentrata una proposta PIÙ NUOVA (`self._pending is not p`) non si tocca il suo banner
+        # (Fable/GPT/Fugu #65: niente desync stato/vista).
         if cfg.get(key) != old:
             with self._pending_lock:
-                if self._pending is p:        # non azzerare una proposta PIÙ NUOVA nel frattempo
+                cleared = self._pending is p
+                if cleared:
                     self._pending = None
-            self._emit("pending_cleared", {"epoch": self._epoch})
-            self._emit("turn", {"text": f"⚠️ «{key}» è cambiato nel frattempo (ora "
-                                f"«{cfg.get(key)}»): proposta annullata, rilanciala se serve.",
-                                "capped": False, "messages": [], "epoch": self._epoch})
+            if cleared:
+                self._emit("pending_cleared", {"epoch": epoch})
+                self._emit("turn", {"text": f"⚠️ «{key}» è cambiato nel frattempo (ora "
+                                    f"«{cfg.get(key)}»): proposta annullata, rilanciala se serve.",
+                                    "capped": False, "messages": [], "epoch": epoch})
             return False
         new_cfg = dict(cfg)                  # copia: niente mutazione del dict condiviso né parziale
         new_cfg[key] = new                   # tocca SOLO la chiave proposta (le altre restano fresche)
@@ -358,15 +373,15 @@ class AgentController:
             ok, status = config_agent._save_outcome(self._config_saver(new_cfg))
         except Exception:   # noqa: BLE001 — save fallito/eccezione: fail-safe (esito negativo, non crash)
             ok, status = False, config_store.SAVE_DISK_ERROR
-        self._emit("pending_cleared", {"epoch": self._epoch})
+        self._emit("pending_cleared", {"epoch": epoch})
         if ok:
             self._emit("turn", {"text": f"✓ «{key}» impostato a «{new}» (era «{old}»).",
-                                "capped": False, "messages": [], "epoch": self._epoch})
+                                "capped": False, "messages": [], "epoch": epoch})
         else:
             msg = config_store.save_status_message(status) if status else ""
             self._emit("turn", {"text": f"⚠️ Salvataggio non riuscito per «{key}»." +
                                 (f" {msg}" if msg else ""),
-                                "capped": False, "messages": [], "epoch": self._epoch})
+                                "capped": False, "messages": [], "epoch": epoch})
         return ok
 
     def cancel_pending(self) -> None:

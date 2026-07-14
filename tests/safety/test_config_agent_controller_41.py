@@ -588,6 +588,40 @@ def test_apply_pending_stop_durante_apply_non_scrive(tmp_path, monkeypatch):
     assert c.pending() is None
 
 
+def test_apply_pending_proposta_piu_nuova_non_emette_pending_cleared(tmp_path, monkeypatch):
+    # Fable/GPT/Fugu #65: se una proposta PIÙ NUOVA subentra mentre apply è in corso (e la chiave
+    # della vecchia è cambiata), il ramo stantìo NON deve emettere `pending_cleared` (nasconderebbe
+    # il banner della proposta nuova) né azzerarla.
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "clear_delay": 90}, path)
+    events, holder, armed = [], {}, {"on": False}
+
+    def _loader():
+        cfg = config_store.load_config(path)
+        if armed["on"]:
+            armed["on"] = False
+            config_store.save_config({**cfg, "theme": "light"}, path)   # cambia la chiave di p1
+            holder["c"]._stage_pending("clear_delay", 30, 90)           # proposta PIÙ NUOVA (p2)
+            return config_store.load_config(path)
+        return cfg
+
+    c = ctl.AgentController(client=WriteToolClient("theme", "light"), config_loader=_loader,
+                            config_saver=lambda cfg: config_store.save_config(cfg, path))
+    c._on_event = lambda k, d: events.append((k, d))
+    holder["c"] = c
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()                        # propone theme dark→light (p1)
+    assert c.pending()["key"] == "theme"
+    armed["on"] = True
+    events.clear()
+    assert c.apply_pending() is False              # p1 stantìa (chiave cambiata + rimpiazzata da p2)
+    assert c.pending()["key"] == "clear_delay"     # la proposta PIÙ NUOVA è preservata
+    assert all(k != "pending_cleared" for k, _ in events)   # niente desync del banner nuovo
+    c.stop()
+
+
 def test_stop_scarta_la_proposta_pendente(tmp_path, monkeypatch):
     path = os.path.join(str(tmp_path), "config.json")
     config_store.save_config({"theme": "dark"}, path)
