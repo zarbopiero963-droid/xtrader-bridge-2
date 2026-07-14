@@ -239,7 +239,7 @@ nomi campo INCLUSE le impostazioni avanzate dei tab Riconoscimento/Sicurezza/Con
 le etichette dei contatori Dashboard — catalogo `i18n.py`, italiano = riferimento,
 fallback fail-safe: una
 traduzione mancante mostra l'italiano, mai stringhe vuote), applicate al **riavvio**
-(log di conferma: «…riavvia il bridge per applicare la lingua all'interfaccia…»).
+(log di conferma: «…riavvia il bridge per applicare la lingua all'intera interfaccia.», localizzato).
 Dalla **slice 4b** anche gli stati dinamici «⬤ ATTIVO/RICONNESSIONE…» sono
 localizzati (EN: ACTIVE/RECONNECTING… · ES: ACTIVO/RECONEXIÓN… · «⬤  OFFLINE» è
 universale): il semaforo 🚦 Salute non fa più il parsing del testo della label ma usa
@@ -431,12 +431,15 @@ i log del pannello **📋 Log** legati a **wizard**, **selettore lingua** e **pr
 apertura wizard fallita, «🧙 Wizard completato: …», «🌐 Selettore lingua rimandato: auto-start
 attivo …», «⚠️ Lingua scelta (…) ma salvataggio config FALLITO …», «⚠️ Scheda … non aggiornata dal
 profilo …», «📁 Profilo caricato e applicato …» e «📡 Sorgenti multi-chat aggiornate (N).». Marker
-conservato → colore/livello invariato. **Restano IT** per contratto: il log di **successo del
-cambio-lingua** («🌐 Lingua del bridge impostata: …») — ha una sotto-stringa computata e una nota che
-va aggiornata, rimandato a una slice dedicata; il **suffisso di stato** `save_status_message` del
-profilo «NON persistito» (solo prefisso tradotto); e — invariante di sicurezza — il log di
-apertura-wizard-fallita registra **solo la classe dell'eccezione** (`type(ex).__name__`), mai il
-token (che potrebbe comparire nel testo di un'eccezione, review #354).
+conservato → colore/livello invariato. Il log di **successo del cambio-lingua**
+(«🌐 Lingua del bridge impostata: {lang}{extra} — …») è **localizzato dalla slice 4aa**: template +
+le due sotto-frasi `{extra}` (CSV preservata `{kept}` / CSV allineata) passano da `i18n.tr`, e la
+nota è **attualizzata** — dalle slice 4x/4y/4z tutte le finestre/dialoghi sono localizzati, quindi il
+riavvio applica la lingua all'**intera interfaccia** (non più «solo la finestra principale»).
+**Restano IT** per contratto: il **suffisso di stato** `save_status_message` del profilo «NON
+persistito» (solo prefisso tradotto); e — invariante di sicurezza — il log di apertura-wizard-fallita
+registra **solo la classe dell'eccezione** (`type(ex).__name__`), mai il token (che potrebbe comparire
+nel testo di un'eccezione, review #354).
 
 Dalla **slice 4q — log GUARDRAIL RUNTIME** è localizzato l'ottavo gruppo: i log del pannello
 **📋 Log** legati allo **stato dei guardrail di sicurezza** — «⚠️ Stato anti-duplicato presente ma

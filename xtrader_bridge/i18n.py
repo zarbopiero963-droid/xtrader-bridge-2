@@ -712,6 +712,18 @@ _CATALOG = {
         "Nessun evento di attivazione modalità reale nei log.":
             "No real mode activation event in the logs.",
         "Esporta audit modalità reale": "Export real mode audit",
+        # Log di ESITO del selettore lingua (#343 slice 4aa): feedback dopo la scelta lingua andata
+        # a buon fine. {lang}=codice lingua (IT/EN/ES), {kept}=lingua CSV personalizzata, {extra}=
+        # sotto-frase già localizzata e interpolata come valore. Nota attualizzata: dalle slice
+        # 4x/4y/4z TUTTE le finestre/dialoghi sono localizzati → «intera interfaccia» (non più «solo
+        # la finestra principale»). Il log di FALLIMENTO è già a catalogo (slice 4p).
+        "🌐 Lingua del bridge impostata: {lang}{extra} — riavvia il "
+        "bridge per applicare la lingua all'intera interfaccia.":
+            "🌐 Bridge language set: {lang}{extra} — restart the bridge to apply the "
+            "language to the whole interface.",
+        " (lingua CSV personalizzata preservata: {kept})":
+            " (custom CSV language preserved: {kept})",
+        " — lingua CSV allineata": " — CSV language aligned",
     },
     "ES": {
         "⚙️ Generale": "⚙️ General",
@@ -1295,5 +1307,13 @@ _CATALOG = {
         "Nessun evento di attivazione modalità reale nei log.":
             "Ningún evento de activación del modo real en los registros.",
         "Esporta audit modalità reale": "Exportar auditoría del modo real",
+        # Log di ESITO del selettore lingua (#343 slice 4aa) — vedi nota nel blocco EN.
+        "🌐 Lingua del bridge impostata: {lang}{extra} — riavvia il "
+        "bridge per applicare la lingua all'intera interfaccia.":
+            "🌐 Idioma del bridge configurado: {lang}{extra} — reinicia el bridge para "
+            "aplicar el idioma a toda la interfaz.",
+        " (lingua CSV personalizzata preservata: {kept})":
+            " (idioma CSV personalizado preservado: {kept})",
+        " — lingua CSV allineata": " — idioma CSV alineado",
     },
 }
