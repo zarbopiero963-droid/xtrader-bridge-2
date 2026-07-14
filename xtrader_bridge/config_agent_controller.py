@@ -47,9 +47,13 @@ class AgentController:
         self._history = history if history is not None else config_agent.ConversationHistory([])
         self._agent = None
         self._worker = None
-        # Serializza l'accesso alla cronologia: se un worker superstite (turno reale in timeout su
-        # Stop) e un nuovo worker toccassero `_history` insieme, il lock evita la corruzione (Fugu #64).
-        self._history_lock = threading.Lock()
+        # Serializza l'accesso alla cronologia E l'emit del turno rispetto all'epoch (Fable/Fugu #64):
+        # è **rientrante** (`RLock`) così l'emit può avvenire SOTTO il lock — rendendo atomici
+        # «check epoch → save → emit» (niente TOCTOU / turno-fantasma dopo Stop) — SENZA
+        # deadlockare se un handler `on_event` sincrono rientra in `stop()`/`enable()` (che
+        # riacquisiscono lo stesso lock dallo stesso thread). `stop()` da un altro thread si
+        # serializza normalmente sul lock; il worker che tenta il join di sé è gestito a parte.
+        self._history_lock = threading.RLock()
         # Epoch di sessione (stesso pattern del listener in app.py): ogni `enable()`/`stop()` lo
         # incrementa. Un turno che era già in volo quando la sessione è cambiata risulta **stale** e
         # viene SCARTATO (niente save, niente risposta-fantasma dopo lo Stop — GPT/GLM #64).
@@ -191,7 +195,10 @@ class AgentController:
             agent = self._agent
             base_messages = list(self._history.messages)
         turn = agent.run_turn(text, history=base_messages)   # lento: nessun lock tenuto
-        save_failed = None
+        # Save + emit ATOMICI sotto lock rispetto all'epoch (Fable/Fugu #64: niente TOCTOU). L'RLock
+        # rende l'emit sicuro anche se un handler `on_event` sincrono rientra in stop()/enable(). Uno
+        # `stop()` da un ALTRO thread non può interleavare: deve acquisire lo stesso lock, quindi
+        # attende il rilascio → l'epoch non cambia tra il check e l'emit (nessun turno-fantasma).
         with self._history_lock:
             if epoch != self._epoch:
                 return None                                  # sessione cambiata → scarta
@@ -204,24 +211,20 @@ class AgentController:
             except Exception as exc:   # noqa: BLE001 — persistenza best-effort: MAI scartare il turno
                 # Un errore di salvataggio (disco/permessi/serializzazione) non deve perdere la
                 # risposta né rompere la conversazione (CodeRabbit #64: non solo OSError).
-                save_failed = type(exc).__name__
-        # Emit FUORI dal lock (Fable #64): un handler `on_event` sincrono che richiamasse
-        # `stop()`/`enable()` (stesso `_history_lock`) andrebbe altrimenti in deadlock. Ricontrolla
-        # l'epoch (read atomica) per non emettere una risposta se lo Stop è arrivato tra save ed emit.
-        if epoch != self._epoch:
-            return None
-        if save_failed:
-            self._emit("warning", {"reason": "history_save_failed", "exc": save_failed})
-        self._emit("turn", {"text": turn.text, "capped": turn.capped, "messages": turn.messages})
+                self._emit("warning", {"reason": "history_save_failed", "exc": type(exc).__name__})
+            self._emit("turn", {"text": turn.text, "capped": turn.capped,
+                                "messages": turn.messages})
         return None
 
     def _on_worker_result(self, turn, epoch):
-        # Il turno NORMALE è già emesso da `_handle_message` (sotto guardia epoch), che ritorna
-        # `None`. Qui arriva solo il turno d'ERRORE prodotto dal worker se l'handle solleva → lo si
-        # mostra SOLO se l'epoch è ancora corrente (niente errore-fantasma dopo lo Stop).
-        if epoch != self._epoch:
+        """Il turno NORMALE è già emesso da `_handle_message` (che ritorna `None`); qui arriva solo
+        il turno d'ERRORE del worker se l'handle solleva → mostrato SOLO se l'epoch è ancora corrente
+        (check + emit atomici sotto lock: niente errore-fantasma dopo lo Stop)."""
+        if turn is None or not getattr(turn, "text", ""):
             return
-        if turn is not None and getattr(turn, "text", ""):
+        with self._history_lock:
+            if epoch != self._epoch:
+                return
             self._emit("turn", {"text": turn.text, "capped": getattr(turn, "capped", False),
                                 "messages": []})
 
@@ -301,6 +304,11 @@ class AgentWorker:
         t = self._thread
         if t is None:
             return True
+        if t is threading.current_thread():
+            # `stop()` invocato DALLO STESSO thread worker (handler sincrono che rientra): non si può
+            # (né si deve) fare il join di sé — il loop uscirà alla sentinella al ritorno. Si tiene
+            # il riferimento (Fable #64: niente RuntimeError «cannot join current thread»).
+            return False
         if t.is_alive():
             t.join(timeout=timeout)
         if t.is_alive():

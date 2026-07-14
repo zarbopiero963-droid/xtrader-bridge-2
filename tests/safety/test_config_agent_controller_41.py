@@ -235,20 +235,21 @@ def test_rotazione_chiave_vecchia_resta_redatta(tmp_path, monkeypatch):
         event_log.unregister_secret(new)
 
 
-def test_emit_fuori_dal_lock_no_deadlock(tmp_path, monkeypatch):
-    # Fable #64: un handler `on_event` che richiama `stop()` durante l'emit del turno NON deve
-    # deadlockare (l'emit è fuori dal `_history_lock`). Se fosse sotto lock, questo test si
-    # appenderebbe (e fallirebbe per pytest-timeout).
+def test_emit_handler_rientrante_no_deadlock(tmp_path, monkeypatch):
+    # Fable/Fugu #64: l'emit del turno è sotto un RLock (rientrante) + guardia epoch atomica. Un
+    # handler `on_event` che richiama `stop()` durante l'emit NON deve deadlockare né crashare
+    # (RLock riacquisito dallo stesso thread; il worker non fa join di sé). Se andasse in deadlock,
+    # il test si appenderebbe (fallisce per pytest-timeout).
     holder = {}
 
     def on_event(kind, data):
-        if kind == "turn":
+        if kind == "turn" and holder.get("c") is not None:
             holder["c"].stop()                # stop() dallo stesso thread che emette
     c = _controller(tmp_path, monkeypatch, client=FakeClient(), on_event=on_event)
     holder["c"] = c
     c.enable()
     c.submit("ciao")
-    c._worker.run_pending()                   # emit sotto lock → deadlock; fuori dal lock → ok
+    c._worker.run_pending()                   # emit sotto RLock + handler che chiama stop() → ok
     assert c.state == ctl.STOPPED             # lo stop dall'handler ha avuto effetto
 
 
