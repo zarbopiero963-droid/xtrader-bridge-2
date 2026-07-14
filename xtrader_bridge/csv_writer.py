@@ -93,6 +93,14 @@ def get_csv_language() -> str:
         return _csv_language
 
 
+def decimal_separator(language: str = "") -> str:
+    """Separatore decimale del CSV per `language`: ``,`` per IT/ES, ``.`` per EN. API PUBBLICA per i
+    chiamanti (es. l'anteprima «Prova messaggio») che devono MOSTRARE il separatore senza accoppiarsi
+    al set privato `_COMMA_DECIMAL_LANGUAGES`. Fail-closed: lingua mancante/sconosciuta → IT (virgola),
+    coerente con `normalize_csv_language` e con `_localize_decimal`."""
+    return "," if normalize_csv_language(language) in _COMMA_DECIMAL_LANGUAGES else "."
+
+
 def _localize_decimal(value, lang: str):
     """Serializza il valore di una colonna DECIMALE per la lingua: virgola per IT/ES, punto
     per EN. Regola UNIFORME e deterministica (review #344 Fable/GLM/Fugu):

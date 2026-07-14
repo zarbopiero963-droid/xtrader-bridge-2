@@ -643,3 +643,78 @@ def test_build_message_preview_non_espone_segreti(tmp_path):
                                               chat="-1009999999999", parsers_dir=pd))
     assert "123456:FAKE" not in out
     assert "-1009999999999" not in out
+
+
+def test_test_message_lingua_es_virgola_decimale(tmp_path):
+    # GLM #70: copertura anche per ES (virgola, come IT).
+    _parser_dir_con_esempio(tmp_path)
+    reg = _tester_registry(tmp_path, _cfg_esempio(csv_language="ES"))
+    data = json.loads(reg.dispatch("test_message", {"message": _parser_io.fixture_message()}).content)
+    assert data["csv_context"]["decimal_separator"] == ","
+    assert data["reports"][0]["rows"][0]["columns"]["Price"] == "1,85"
+
+
+def test_test_message_separatori_senza_contenuto(tmp_path):
+    # GLM #70: testo con soli separatori «---» → nessun messaggio, nessun report, nessun crash.
+    _parser_dir_con_esempio(tmp_path)
+    reg = _tester_registry(tmp_path, _cfg_esempio())
+    data = json.loads(reg.dispatch("test_message", {"message": "---\n---\n   \n---"}).content)
+    assert data["reports"] == []
+
+
+def test_test_message_decimal_separator_usa_api_pubblica():
+    # Fable/Fugu #70: il separatore viene dall'API PUBBLICA di csv_writer, non da un membro privato.
+    assert ca.csv_writer.decimal_separator("IT") == ","
+    assert ca.csv_writer.decimal_separator("ES") == ","
+    assert ca.csv_writer.decimal_separator("EN") == "."
+    assert ca.csv_writer.decimal_separator("") == ","        # fail-closed → IT
+    assert ca.csv_writer.decimal_separator("xx") == ","      # sconosciuto → IT
+
+
+def test_build_message_preview_failsafe_parser_malformato(tmp_path, monkeypatch):
+    # Fugu #70: un parser attivo che fa sollevare la pipeline → messaggio guida, MAI un'eccezione.
+    _parser_dir_con_esempio(tmp_path)
+
+    class _Boom:
+        name = "Boom"
+        name_mapping_profiles = []
+        market_mapping_profiles = []
+
+        def batch_report(self, *a, **k):
+            raise RuntimeError("parser rotto")
+
+    # defn non-None (bypassa il ramo no_active_parser) e builder che esplode in batch_report.
+    monkeypatch.setattr(ca.parser_manager, "load_active", lambda *a, **k: _Boom())
+    monkeypatch.setattr(ca.parser_builder, "ParserBuilder", lambda defn: _Boom())
+    data = ca.build_message_preview(_cfg_esempio(), "Match: Inter v Milan", parsers_dir=str(tmp_path))
+    assert data["error"] == "internal"
+    assert "malformato" in data["message"]
+    assert "csv_context" in data          # contesto CSV comunque presente
+
+
+def test_build_message_preview_def_legacy_senza_mapping_profiles(tmp_path):
+    # CodeRabbit #70: una def LEGACY priva di *_mapping_profiles non deve dare AttributeError
+    # (il builder normalizza via getattr). Deve produrre un report normale.
+    _parser_dir_con_esempio(tmp_path)
+    defn = _parser_io.example_parser()
+    defn.name = "Esempio"
+    # simula una def vecchia: rimuovi gli attributi di mapping profiles
+    for attr in ("name_mapping_profiles", "market_mapping_profiles"):
+        try:
+            delattr(defn, attr)
+        except AttributeError:
+            pass
+    import xtrader_bridge.config_agent as _ca
+
+    def _fake_load_active(cfg, chat="", parsers_dir=None):
+        return defn
+
+    orig = _ca.parser_manager.load_active
+    _ca.parser_manager.load_active = _fake_load_active
+    try:
+        data = _ca.build_message_preview(_cfg_esempio(), _parser_io.fixture_message(),
+                                         parsers_dir=str(tmp_path))
+    finally:
+        _ca.parser_manager.load_active = orig
+    assert "error" not in data            # nessun AttributeError → report normale
+    assert data["reports"][0]["recognized"] is True

@@ -427,13 +427,6 @@ def build_guide_tools(*, base_dir=None) -> list:
 MAX_TESTER_CHARS = 8000
 
 
-def _decimal_separator(csv_language) -> str:
-    """Separatore decimale del CSV per la lingua configurata (virgola IT/ES, punto EN). Fail-closed
-    su valore mancante/sconosciuto → IT (virgola), coerente con `csv_writer.normalize_csv_language`."""
-    lang = csv_writer.normalize_csv_language(csv_language)
-    return "," if lang in csv_writer._COMMA_DECIMAL_LANGUAGES else "."
-
-
 def build_message_preview(cfg, message, *, chat="", parsers_dir=None) -> dict:
     """Prova `message` col parser attivo per `chat` e ritorna un dict JSON-friendly (SOLA LETTURA).
 
@@ -447,7 +440,7 @@ def build_message_preview(cfg, message, *, chat="", parsers_dir=None) -> dict:
     ctx = {
         "csv_header": list(csv_writer.CSV_HEADER),
         "csv_language": csv_language,
-        "decimal_separator": _decimal_separator(csv_language),
+        "decimal_separator": csv_writer.decimal_separator(csv_language),
         "message_separator": parser_builder.MESSAGE_SEPARATOR,
     }
     if not text:
@@ -468,35 +461,45 @@ def build_message_preview(cfg, message, *, chat="", parsers_dir=None) -> dict:
                         "spiegarti come con 'read_guide' (guida «parser_personalizzato»)."),
             "csv_context": ctx,
         }
-    builder = parser_builder.ParserBuilder(defn)
-    # Profili di mapping + lingua sorgente + provider dalla config, come il runtime (parità
-    # preview↔live). `entries_for_profiles` ignora da sé i profili assenti.
-    name_profiles = (name_mapping_store.entries_for_profiles(cfg, defn.name_mapping_profiles)
-                     if defn.name_mapping_profiles else None)
-    market_profiles = (market_mapping_store.entries_for_profiles(cfg, defn.market_mapping_profiles)
-                       if defn.market_mapping_profiles else None)
-    source_language = recognition.effective_source_language(cfg, defn)
-    provider = source_manager.provider_for_chat(cfg, chat_id, default=str(cfg.get("provider", "") or ""))
-    reports, skipped = builder.batch_report(
-        text, provider=provider, name_mapping_profiles=name_profiles,
-        market_mapping_profiles=market_profiles, source_language=source_language)
-    out_reports = []
-    for rep in reports:
-        rows = []
-        for pr in rep.rows:
-            # Riga COME uscirebbe nel file: valori localizzati per la lingua CSV (IT/ES virgola,
-            # EN punto), colonne vuote incluse così l'utente vede il contratto completo.
-            shown = csv_writer.localize_row(pr.row, csv_language)
-            rows.append({
-                "kind": pr.kind, "placeable": bool(pr.placeable), "status": pr.status,
-                "missing_required": list(pr.missing_required),
-                "columns": {col: shown.get(col, "") for col in csv_writer.CSV_HEADER},
-                "warnings": list(pr.warnings),
+    try:
+        builder = parser_builder.ParserBuilder(defn)
+        # Profili di mapping dal BUILDER (che li normalizza via `getattr` → robusto anche su una def
+        # LEGACY priva del campo, CodeRabbit #70) + lingua sorgente + provider dalla config, come il
+        # runtime (parità preview↔live). `entries_for_profiles` ignora da sé i profili assenti.
+        name_profiles = (name_mapping_store.entries_for_profiles(cfg, builder.name_mapping_profiles)
+                         if builder.name_mapping_profiles else None)
+        market_profiles = (market_mapping_store.entries_for_profiles(cfg, builder.market_mapping_profiles)
+                           if builder.market_mapping_profiles else None)
+        source_language = recognition.effective_source_language(cfg, defn)
+        provider = source_manager.provider_for_chat(cfg, chat_id, default=str(cfg.get("provider", "") or ""))
+        reports, skipped = builder.batch_report(
+            text, provider=provider, name_mapping_profiles=name_profiles,
+            market_mapping_profiles=market_profiles, source_language=source_language)
+        out_reports = []
+        for rep in reports:
+            rows = []
+            for pr in rep.rows:
+                # Riga COME uscirebbe nel file: valori localizzati per la lingua CSV (IT/ES virgola,
+                # EN punto), colonne vuote incluse così l'utente vede il contratto completo.
+                shown = csv_writer.localize_row(pr.row, csv_language)
+                rows.append({
+                    "kind": pr.kind, "placeable": bool(pr.placeable), "status": pr.status,
+                    "missing_required": list(pr.missing_required),
+                    "columns": {col: shown.get(col, "") for col in csv_writer.CSV_HEADER},
+                    "warnings": list(pr.warnings),
+                })
+            out_reports.append({
+                "first_line": rep.first_line, "recognized": bool(rep.ok),
+                "verdict": rep.verdict, "rows": rows,
             })
-        out_reports.append({
-            "first_line": rep.first_line, "recognized": bool(rep.ok),
-            "verdict": rep.verdict, "rows": rows,
-        })
+    except Exception as exc:   # noqa: BLE001 — tester SOLA-LETTURA: un parser attivo malformato o
+        # un input patologico non deve MAI far crashare l'assistente; l'errore diventa un messaggio
+        # guida (garanzia «mai crash» del Blocco B; Fugu #70). Nessuna scrittura è mai avvenuta.
+        return {"error": "internal", "parser": getattr(defn, "name", ""),
+                "message": (f"Impossibile provare il messaggio ({type(exc).__name__}): il parser "
+                            "attivo potrebbe essere malformato. Controllalo nella tab «🧩 Parser "
+                            "Personalizzato»."),
+                "csv_context": ctx}
     return {
         "parser": defn.name,
         "provider": provider,
