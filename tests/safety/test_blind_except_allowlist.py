@@ -124,14 +124,15 @@ _ALLOWLIST = {
                            "best-effort (un logger che solleva non deve far fallire il dispatch); "
                            "soft-import 'anthropic' (dipendenza opzionale: assenza = errore chiaro "
                            "solo all'uso reale, mai all'import del modulo)"),
-    "config_agent_controller.py": (4, "controller assistente (#41 PR-3/PR-4): emit di un evento verso "
+    "config_agent_controller.py": (5, "controller assistente (#41 PR-3/PR-4): emit di un evento verso "
                                       "la view best-effort (un handler della GUI che solleva non deve "
                                       "rompere il controller); un turno che solleva nel worker non "
                                       "uccide il loop (errore restituito come turno); persistenza "
                                       "cronologia best-effort (qualsiasi errore di save non deve "
-                                      "scartare il turno già calcolato, CodeRabbit #64); saver che "
-                                      "solleva in apply_pending trattato come save fallito, mai crash "
-                                      "del thread GUI (Fugu #65)"),
+                                      "scartare il turno già calcolato, CodeRabbit #64); in "
+                                      "apply_pending il LOADER e il SAVER che sollevano sono trattati "
+                                      "come config non disponibile / save fallito, mai crash del "
+                                      "thread GUI (GPT/Fable/Fugu #65)"),
     "config_agent_gui.py": (3, "view assistente (#41 PR-3/PR-4): marshalling evento via after() su "
                                "root Tk distrutta/assente (teardown) best-effort; log della riga di "
                                "trascritto best-effort; nascondere il banner di conferma su widget "

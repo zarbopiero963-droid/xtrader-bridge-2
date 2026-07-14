@@ -320,9 +320,14 @@ class AgentController:
                 self._pending = None
                 return False
             key, new, old = p["key"], p["new"], p["old"]
-        cfg = self._config_loader()
-        # Fail-safe: senza una config valida NON si scrive (Fugu #65). Pending mantenuto → l'utente
-        # può ritentare quando la config torna leggibile.
+        # Fail-safe anche sul LOAD (Fable/GPT #65): un loader che SOLLEVA (OSError su disco, ecc.)
+        # non deve crashare il thread GUI → si tratta come «config non disponibile».
+        try:
+            cfg = self._config_loader()
+        except Exception:   # noqa: BLE001 — loader che solleva = config non leggibile ora: fail-safe
+            cfg = None
+        # Senza una config valida NON si scrive (Fugu #65): un fallback a {} azzererebbe le altre
+        # chiavi. Pending mantenuto → l'utente può ritentare quando la config torna leggibile.
         if not isinstance(cfg, dict) or not cfg:
             self._emit("turn", {"text": "⚠️ Config non disponibile: modifica NON applicata, riprova.",
                                 "capped": False, "messages": [], "epoch": self._epoch})
@@ -331,7 +336,8 @@ class AgentController:
         # concorrente), la proposta è stantia → annulla senza sovrascrivere.
         if cfg.get(key) != old:
             with self._pending_lock:
-                self._pending = None
+                if self._pending is p:        # non azzerare una proposta PIÙ NUOVA nel frattempo
+                    self._pending = None
             self._emit("pending_cleared", {"epoch": self._epoch})
             self._emit("turn", {"text": f"⚠️ «{key}» è cambiato nel frattempo (ora "
                                 f"«{cfg.get(key)}»): proposta annullata, rilanciala se serve.",
@@ -339,14 +345,19 @@ class AgentController:
             return False
         new_cfg = dict(cfg)                  # copia: niente mutazione del dict condiviso né parziale
         new_cfg[key] = new                   # tocca SOLO la chiave proposta (le altre restano fresche)
-        # Un errore del saver (o del loader) NON deve crashare il thread GUI: si tratta come save
-        # fallito (ritorna `False`, messaggio d'errore, mai falso «Fatto» — GLM/Fable #65).
+        # COMMIT GATE (Fable #65): consuma la proposta e ri-verifica SOTTO lock, subito prima di
+        # scrivere, che sia ANCORA la stessa proposta (identità) e che la sessione non sia cambiata
+        # (stop/enable durante load/check → epoch avanzato). Altrimenti NON si scrive.
+        with self._pending_lock:
+            if self._pending is not p or p["epoch"] != self._epoch:
+                return False
+            self._pending = None
+        # Un saver che SOLLEVA non deve crashare il thread GUI: si tratta come save fallito (ritorna
+        # `False`, messaggio d'errore, mai falso «Fatto» — GLM/Fable #65).
         try:
             ok, status = config_agent._save_outcome(self._config_saver(new_cfg))
-        except Exception:   # noqa: BLE001 — save fallito/eccezione: fail-safe, il pending resta scartato
+        except Exception:   # noqa: BLE001 — save fallito/eccezione: fail-safe (esito negativo, non crash)
             ok, status = False, config_store.SAVE_DISK_ERROR
-        with self._pending_lock:
-            self._pending = None
         self._emit("pending_cleared", {"epoch": self._epoch})
         if ok:
             self._emit("turn", {"text": f"✓ «{key}» impostato a «{new}» (era «{old}»).",

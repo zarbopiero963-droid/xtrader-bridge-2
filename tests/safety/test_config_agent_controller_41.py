@@ -532,6 +532,62 @@ def test_apply_pending_load_invalido_non_azzera_config(tmp_path, monkeypatch):
     c.stop()
 
 
+def test_apply_pending_loader_che_solleva_non_crasha(tmp_path, monkeypatch):
+    # GPT/Fable #65: un LOADER che solleva (OSError su disco) NON deve crashare il thread GUI →
+    # trattato come «config non disponibile»; il pending resta per il retry.
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "chat_id": "-1001234567890"}, path)
+    armed = {"on": False}
+
+    def _loader():
+        if armed["on"]:
+            raise OSError("config illeggibile")
+        return config_store.load_config(path)
+
+    c = ctl.AgentController(client=WriteToolClient("theme", "light"), config_loader=_loader,
+                            config_saver=lambda cfg: config_store.save_config(cfg, path))
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()
+    assert c.pending() is not None
+    armed["on"] = True
+    assert c.apply_pending() is False                 # loader solleva → nessun crash, no write
+    armed["on"] = False
+    assert config_store.load_config(path)["theme"] == "dark"
+    assert c.pending() is not None                    # pending mantenuto per il retry
+    c.stop()
+
+
+def test_apply_pending_stop_durante_apply_non_scrive(tmp_path, monkeypatch):
+    # Fable #65 (commit gate): se la sessione cambia (Stop) DOPO la lettura del pending ma prima
+    # della scrittura, apply NON scrive (ri-verifica identità+epoch sotto lock). Deterministico: il
+    # loader fa da hook e chiama stop() durante l'apply.
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "chat_id": "-1001234567890"}, path)
+    holder, armed = {}, {"on": False}
+
+    def _loader():
+        cfg = config_store.load_config(path)
+        if armed["on"]:
+            armed["on"] = False
+            holder["c"].stop()            # Stop concorrente DURANTE l'apply → epoch avanza, pending svuotato
+        return cfg
+
+    c = ctl.AgentController(client=WriteToolClient("theme", "light"), config_loader=_loader,
+                            config_saver=lambda cfg: config_store.save_config(cfg, path))
+    holder["c"] = c
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()
+    assert c.pending() is not None
+    armed["on"] = True
+    assert c.apply_pending() is False                 # sessione cambiata → non scrive
+    assert config_store.load_config(path)["theme"] == "dark"
+    assert c.pending() is None
+
+
 def test_stop_scarta_la_proposta_pendente(tmp_path, monkeypatch):
     path = os.path.join(str(tmp_path), "config.json")
     config_store.save_config({"theme": "dark"}, path)
