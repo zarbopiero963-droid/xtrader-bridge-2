@@ -661,6 +661,20 @@ def test_build_linux_presente_e_sicuro():
     assert _py_scripts(cmd) == ["main.py"], "unico script dev'essere main.py"
 
 
+def test_build_linux_artifact_preserva_permessi():
+    """#36 (CodeRabbit, Major): `actions/upload-artifact` ZIPpa e NON conserva il bit `+x`.
+    Il job `build-linux` deve quindi impacchettare il binario in un `tar` (che preserva mode
+    755) e caricare il `.tar.gz`, NON il binario grezzo `dist/XTrader-Signal-Bridge` (che al
+    download sarebbe non eseguibile). Regressione: se si tornasse a caricare il binario grezzo
+    o si togliesse il tar, questo test fallisce."""
+    body = next(b for name, b in _jobs(_read(_BUILD_YAML)) if name == "build-linux")
+    assert re.search(r"\btar\b[^\n]*-c[^\n]*z[^\n]*f", body), \
+        "il job build-linux deve creare un tar (preserva il bit di esecuzione)"
+    assert ".tar.gz" in body, "il job build-linux deve produrre/caricare un .tar.gz"
+    assert not re.search(r"(?m)^\s*path:\s*dist/XTrader-Signal-Bridge\s*$", body), \
+        "l'artifact Linux NON deve caricare il binario grezzo (permessi persi): usa il tar.gz"
+
+
 def test_solo_opzioni_note():
     """Allowlist delle opzioni PyInstaller: il comando di build può usare SOLO le opzioni
     note e sicure dei workflow reali. Qualunque altra opzione — `--resource`/`-r`,

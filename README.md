@@ -758,8 +758,10 @@ Lo **stesso** workflow «Build XTrader Signal Bridge EXE» costruisce **anche** 
 **Linux** in un job parallelo (`build-linux`, `ubuntu-latest`), **additivo** e senza toccare
 la build Windows. La logica del bridge è identica su Windows e Linux (i rami POSIX esistono
 già); la suite gira verde su Linux e un binario **PyInstaller onefile self-contained** viene
-caricato negli **Artifacts** come `XTrader-Signal-Bridge-Linux-v<versione>-<data>` (dentro,
-l'eseguibile `XTrader-Signal-Bridge`, «scarica ed esegui», nessuna installazione).
+caricato negli **Artifacts** come `XTrader-Signal-Bridge-Linux-v<versione>-<data>`. L'archivio
+è un **`.tar.gz`** (non lo zip di GitHub non conserva il bit di esecuzione): **scaricalo,
+estrailo** (`tar -xzf …`) e trovi l'eseguibile `XTrader-Signal-Bridge` **già eseguibile**
+(mode 755), nessuna installazione né `chmod`.
 
 > ℹ️ **XTrader resta Windows.** Il binario Linux fa girare **il bridge** (Telegram → CSV);
 > a *leggere* il CSV e piazzare è **XTrader**, che è solo Windows. Su Linux ha senso quindi

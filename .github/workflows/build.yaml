@@ -177,14 +177,20 @@ jobs:
         --hidden-import=httpcore
         main.py
 
-    - name: Rendi eseguibile il binario
-      run: chmod +x dist/XTrader-Signal-Bridge
+    - name: Impacchetta in tar.gz (preserva il bit di esecuzione)
+      # `actions/upload-artifact` ZIPpa i file e NON conserva i permessi POSIX: caricando il
+      # binario grezzo, al download il bit `+x` andrebbe perso (mode 644) e l'utente dovrebbe
+      # fare `chmod` a mano. Un `tar` preserva mode 755, così dopo l'estrazione il binario è
+      # eseguibile «così com'è». (#36, CodeRabbit)
+      run: |
+        chmod +x dist/XTrader-Signal-Bridge
+        tar -czf "${{ steps.meta.outputs.artifact }}.tar.gz" -C dist XTrader-Signal-Bridge
 
-    - name: Carica binario Linux come Artifact (sempre scaricabile)
-      # Stesso schema del job Windows: nome versionato, retention 7gg (output usa-e-scarica).
-      # Il file interno resta `XTrader-Signal-Bridge` così l'utente lo ritrova uguale.
+    - name: Carica il tar.gz Linux come Artifact (sempre scaricabile)
+      # Nome versionato, retention 7gg (output usa-e-scarica). Dentro l'archivio l'eseguibile
+      # resta `XTrader-Signal-Bridge` (mode 755): scarica → estrai il tar.gz → esegui.
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
       with:
         name: ${{ steps.meta.outputs.artifact }}
-        path: dist/XTrader-Signal-Bridge
+        path: ${{ steps.meta.outputs.artifact }}.tar.gz
         retention-days: 7
