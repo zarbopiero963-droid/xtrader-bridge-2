@@ -246,6 +246,7 @@ class RouteResult:
     detail: object = None                         # motivo dello scarto
     missing_required: list = field(default_factory=list)
     rows: list = None                             # multi-row (#192); None → single via `row`
+    warnings: list = field(default_factory=list)  # avvisi non-fatali (issue #38), per il log live
 
     @property
     def placeable(self) -> bool:
@@ -319,8 +320,15 @@ def _resolve_one(defn, text: str, *, cfg: dict, chat: str, provider: str, id_res
     # fisso del parser, per TUTTE le righe.
     if source_manager.source_for_chat(cfg, chat) is not None:
         placeable = [{**row, "Provider": provider} for row in placeable]
+    # Avvisi non-fatali (issue #38): raccolti da tutti gli esiti del pipeline (l'avviso di
+    # riformattazione EventName è a livello messaggio), deduplicati nell'ordine di comparsa.
+    warns = []
+    for r in results:
+        for w in getattr(r, "warnings", None) or []:
+            if w not in warns:
+                warns.append(w)
     return {"fired": True, "rows": placeable, "status": validator.VALID,
-            "detail": None, "missing": [], "multi": defn.is_multi_row()}
+            "detail": None, "missing": [], "multi": defn.is_multi_row(), "warnings": warns}
 
 
 def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str = None,
@@ -374,9 +382,15 @@ def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str =
             # provenienza multi (`rows`) così il commit usa la deduplica PER-RIGA (Codex
             # #239/#192): senza, un secondo bet generato dallo stesso messaggio non verrebbe
             # riconosciuto e si rischierebbe una doppia scommessa.
+            # Avvisi non-fatali (issue #38) di TUTTI i parser scattati, deduplicati in ordine.
+            warns = []
+            for outcome in fired:
+                for w in outcome.get("warnings") or []:
+                    if w not in warns:
+                        warns.append(w)
             if len(fired) == 1 and not fired[0]["multi"] and len(combined) == 1:
-                return RouteResult(combined[0], validator.VALID, CUSTOM)
-            return RouteResult(combined[0], validator.VALID, CUSTOM, rows=combined)
+                return RouteResult(combined[0], validator.VALID, CUSTOM, warnings=warns)
+            return RouteResult(combined[0], validator.VALID, CUSTOM, rows=combined, warnings=warns)
         # Nessun parser ha matchato: riporta la diagnostica del PRIMO esito. Con un solo
         # parser configurato è ESATTAMENTE la diagnostica di prima (retro-compatibile).
         first = outcomes[0]

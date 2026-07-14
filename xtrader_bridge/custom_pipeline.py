@@ -21,6 +21,7 @@ import threading
 from dataclasses import dataclass, field, replace
 
 from . import (
+    dizionario,
     market_mapping_store,
     name_mapping_store,
     numbers_re,
@@ -35,6 +36,12 @@ from .custom_parser_engine import apply_parser, extract_scores
 # Separatore casa/trasferta di default quando il parser richiede la mappatura nomi
 # ma non specifica `team_separator` (Betfair usa "Casa v Trasferta").
 _DEFAULT_TEAM_SEPARATOR = "v"
+
+# Avviso non-fatale (issue #38): nel percorso di riformattazione SENZA dizionario nomi,
+# quando il separatore è impostato ma NON si trova tra le due squadre (nessuna forma
+# spaziata), l'EventName resta VERBATIM (la riga non viene scartata: normalizzare un
+# formato non può creare una scommessa errata) e si emette questo avviso in preview/log.
+WARN_TEAM_SEPARATOR_NOT_FOUND = "separatore non trovato tra le squadre: nome lasciato invariato"
 
 # Registro value-map di default del pipeline: include il dizionario (le mappe
 # markettype/marketname/selectionname usate dallo skeleton e dai parser reali).
@@ -112,6 +119,7 @@ class PipelineResult:
     row: "dict[str, str]" = field(default_factory=dict)   # riga 14 colonne (diagnostica)
     missing_required: "list[str]" = field(default_factory=list)  # gate parser
     detail: object = None                         # dettaglio del validator (campi/valore)
+    warnings: "list[str]" = field(default_factory=list)   # avvisi non-fatali (issue #38), per preview/log
 
     @property
     def placeable(self) -> bool:
@@ -314,6 +322,7 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
     # (`None`, es. anteprima senza config) sono trattati come "nessun profilo" →
     # MAPPING_MISSING, così l'anteprima NON mostra "Pronto" per un evento che il
     # runtime scarterebbe (Codex). Senza profili richiesti l'EventName resta invariato.
+    warnings = []   # avvisi non-fatali (issue #38) da riportare in preview/log
     if defn.name_mapping_profiles:
         sep = (defn.team_separator or "").strip() or _DEFAULT_TEAM_SEPARATOR
         # Sport del parser (PR-P10): restringe la mappatura nomi alle righe di quello sport
@@ -347,6 +356,36 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
             row["EventId"] = ""
             row["MarketId"] = ""
             row["SelectionId"] = ""
+    elif (defn.team_separator or "").strip():
+        # Issue #38 — riformattazione EventName SENZA dizionario nomi: se il parser NON ha
+        # un dizionario ma ha un `team_separator` ESPLICITAMENTE non vuoto, si normalizza solo
+        # il FORMATO del nome nel formato XTrader «Casa - Trasferta», usando le squadre
+        # **verbatim** del messaggio (nessuna traduzione, nessun nome inventato).
+        #
+        # - `spaced_only=True` (guardia anti-split, commento owner sull'issue): per i separatori
+        #   simbolici (`-`/`/`) si accetta SOLO la forma spaziata, niente fallback compatto, così
+        #   un separatore sbagliato non taglia dentro un nome col trattino/slash interno
+        #   (es. "Al-Kholood Club v Al-Hilal" con sep `-`).
+        # - split OK → ricompone «Casa - Trasferta» (`compose_event_name`). NON si azzerano gli ID:
+        #   è lo STESSO evento, solo col separatore normalizzato (a differenza del ramo dizionario,
+        #   dove il nome può CAMBIARE per traduzione → lì gli ID stantii vanno azzerati).
+        # - split FALLITO → EventName VERBATIM + avviso visibile (la riga NON viene scartata:
+        #   normalizzare un formato non può creare una scommessa errata; un formato non
+        #   normalizzato al massimo non è riconosciuto da XTrader).
+        # - NESSUN default `v` qui (a differenza del ramo dizionario): la riformattazione scatta
+        #   SOLO col separatore esplicito → parser esistenti col campo vuoto restano invariati.
+        sep = defn.team_separator.strip()
+        original_event = str(row.get("EventName", "") or "")
+        split = name_mapping_store.split_event(original_event, sep, spaced_only=True)
+        if split is not None and original_event:
+            home, away = split
+            recomposed = dizionario.compose_event_name(home, away)
+            if recomposed != original_event:
+                row = dict(row)
+                row["EventName"] = recomposed
+        elif original_event:
+            # separatore impostato ma non trovato tra le squadre → verbatim + avviso
+            warnings.append(WARN_TEAM_SEPARATOR_NOT_FOUND)
 
     # Mappatura mercati a frase (market_mapping_store, FASE 2). Solo se il parser seleziona
     # dei profili mercati. Regola di precedenza D1 (design §4): il DIZIONARIO VINCE sulle
@@ -394,7 +433,7 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
     row = _resolve_ids_into(row, sport=getattr(defn, "sport", ""), id_resolver=id_resolver)
 
     status, detail = validator.validate(row, mode, require_price)
-    return PipelineResult(status, row, list(res.missing_required), detail)
+    return PipelineResult(status, row, list(res.missing_required), detail, warnings=warnings)
 
 
 # ── Output multi-riga (#192): un messaggio → più righe CSV ────────────────────
@@ -646,7 +685,13 @@ def build_validated_rows(defn: CustomParserDef, text: str, **kwargs) -> "list[Pi
         # nessun'altra riga → non si piazza la base (avrebbe SelectionName vuoto): un unico esito
         # NON piazzabile `NOT_READY` con un `detail` esplicito (per la diagnostica/GUI, review #341).
         # Evita anche un `[]` che romperebbe `resolve_row` (`results[0]`).
-        return [PipelineResult(NOT_READY, base.row, [], "no_scores_extracted")]
+        return [PipelineResult(NOT_READY, base.row, [], "no_scores_extracted",
+                               warnings=list(base.warnings))]
+    # Issue #38: l'avviso di riformattazione EventName è a livello di MESSAGGIO (l'EventName base è
+    # condiviso da tutte le righe derivate) → lo si riporta UNA sola volta, sulla prima riga, così
+    # preview/log lo mostrano senza duplicarlo per ogni riga multi.
+    if base.warnings and out:
+        out[0].warnings = list(base.warnings)
     return out
 
 

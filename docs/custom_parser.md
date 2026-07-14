@@ -191,8 +191,37 @@ Altre due difese fail-closed (audit #259):
   popolato a mano e il seam è riattivabile in entrambi i punti insieme; in `ID_ONLY` senza ID
   risolti la riga resta non piazzabile (fail-closed). Anteprima e runtime **coincidono** (niente
   «Pronto» in GUI su una riga che il live scarterebbe).
-Un parser **senza profili** non applica alcuna mappatura (`EventName` invariato,
-retro-compatibile).
+#### Separatore squadre SENZA dizionario nomi — riformatta «Casa - Trasferta» (issue #38)
+
+Il `team_separator` è utile **anche senza** dizionario nomi: serve a **riformattare** il
+solo *formato* dell'`EventName` nel formato XTrader `Casa - Trasferta`, usando le squadre
+**verbatim** del messaggio (nessuna traduzione, nessun nome inventato). Il ramo `EventName`
+ha quindi **tre** casi:
+
+1. **Dizionario nomi attivo** (`name_mapping_profiles` non vuoto) → invariato: traduce i
+   nomi **e** ricompone `Casa - Trasferta` (come sopra).
+2. **Nessun dizionario, ma `team_separator` esplicitamente non vuoto** → si **riformatta**:
+   `Milan v Inter` → `Milan - Inter`. Se il separatore **non** si trova tra le due squadre,
+   l'`EventName` resta **verbatim** e compare un **avviso** («separatore non trovato tra le
+   squadre: nome lasciato invariato») in anteprima e nel log — la riga **non** viene scartata
+   (normalizzare un formato non può creare una scommessa errata; un formato non riconosciuto
+   da XTrader al massimo non viene piazzato).
+3. **Nessun dizionario e nessun separatore** → `EventName` **verbatim**, identico a prima
+   della feature (retro-compatibile). **Nessun** default `v` viene applicato in questo
+   percorso: la riformattazione scatta **solo** con separatore esplicito.
+
+**Guardia anti-split (separatori simbolici).** Nel percorso senza-dizionario i separatori
+**simbolici** (`-`, `/`) accettano **solo** la forma **spaziata** (`\ - \`, `\ / \`), senza
+il fallback compatto: così un separatore sbagliato non taglia dentro un nome col trattino/
+slash interno. Esempio reale: `Al-Kholood Club v Al-Hilal` con separatore `v` → `Al-Kholood
+Club - Al-Hilal` (i trattini interni preservati); lo stesso testo con separatore `-` (che lì
+non esiste spaziato) → **verbatim + avviso**, mai `Al` / `Kholood Club v Al-Hilal`. Il ramo
+col **dizionario** nomi resta invariato (fallback compatto incluso) per non alterare i
+comportamenti esistenti.
+
+In questo percorso l'`EventName` è lo **stesso** evento (solo col separatore normalizzato),
+quindi gli eventuali `EventId`/`MarketId`/`SelectionId` estratti dalle regole-colonna **non**
+vengono azzerati (a differenza del ramo dizionario, dove il nome può cambiare per traduzione).
 
 **GUI**: i profili si gestiscono nella scheda **Mapping** della finestra «🧰 Strumenti»
 (pulsante «🗺️ Mapping» nella finestra principale → `name_mapping_gui.MappingPanel`),

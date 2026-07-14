@@ -646,9 +646,16 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
 - **Catalogo XTrader:** dropdown Mercato + dropdown Selezione + **"➕ Inserisci regole fisse"**.
 - **🔗 Traduzioni attive per questo parser (#293):** riquadro etichettato che raggruppa le due
   mappature (prima erano righe sciolte), con un **indicatore di stato ✓/—** per tipo:
-  - **Nomi squadra:** separatore (placeholder `v`), **"🗺️ Dizionario nomi"**, indicatore
-    (`✓ N attive` verde / `— nessuna` grigio), riga di checkbox-profili (i profili "fantasma"
-    mancanti sono marcati `⚠`).
+  - **Separatore squadre:** campo (label «Separatore squadre:», placeholder `v`), **"🗺️
+    Dizionario nomi"**, indicatore (`✓ N attive` verde / `— nessuna` grigio), riga di
+    checkbox-profili (i profili "fantasma" mancanti sono marcati `⚠`). Sotto la riga, una
+    **nota grigia** (issue #38): «Il separatore riformatta l'EventName in «Casa - Trasferta»
+    anche senza dizionario nomi (usa le squadre del messaggio così come sono). Vuoto = nome
+    invariato.» — il campo separatore ora vale **anche senza** dizionario: da solo riformatta
+    il *formato* dell'EventName (verbatim, senza tradurre); col dizionario attivo traduce
+    **anche** i nomi. Se col solo separatore le squadre non si dividono, «Prova messaggio» e
+    il log mostrano un **avviso** «⚠ separatore non trovato tra le squadre: nome lasciato
+    invariato» accanto al verdetto (la riga resta valida, EventName invariato).
   - **Mercati:** **"🎯 Dizionario mercati"** + indicatore (`✓ N attive` / `— nessuna`) +
     checkbox-profili.
   L'indicatore si aggiorna a ogni spunta/despunta e al caricamento di un parser, e conta **solo i

@@ -592,7 +592,7 @@ class CustomParserPanel(ctk.CTkFrame):
         # (checkbox multi-selezione) che traducono l'EventName provider → Betfair/XTrader.
         nm = ctk.CTkFrame(trad, fg_color="transparent")
         nm.pack(fill="x", padx=6, pady=(0, 4))
-        ctk.CTkLabel(nm, text=i18n.tr("Nomi squadra · separatore:")).pack(side="left", padx=6)
+        ctk.CTkLabel(nm, text=i18n.tr("Separatore squadre:")).pack(side="left", padx=6)
         self._separator_var = ctk.StringVar(value=self.builder.team_separator)
         ctk.CTkEntry(nm, textvariable=self._separator_var, width=70,
                      placeholder_text="v").pack(side="left", padx=2)
@@ -605,6 +605,15 @@ class CustomParserPanel(ctk.CTkFrame):
         self._profile_checks = {}        # nome profilo → BooleanVar
         self._existing_profiles = set()  # profili realmente presenti in config (non ⚠)
         self._reload_profile_checks()
+        # Il separatore vale ANCHE senza dizionario nomi (issue #38): riformatta l'EventName nel
+        # formato XTrader «Casa - Trasferta» usando le squadre del messaggio così come sono. Col
+        # dizionario nomi attivo, oltre a riformattare traduce anche i nomi. Vuoto = EventName
+        # invariato (retro-compatibile).
+        ctk.CTkLabel(trad, text=i18n.tr(
+            "Il separatore riformatta l'EventName in «Casa - Trasferta» anche senza dizionario "
+            "nomi (usa le squadre del messaggio così come sono). Vuoto = nome invariato."),
+            font=ctk.CTkFont(size=11), text_color="gray", anchor="w",
+            wraplength=680, justify="left").pack(anchor="w", padx=14, pady=(0, 2))
 
         # Mappatura mercati a frase: profili (checkbox multi-selezione) che traducono una
         # frase-mercato del messaggio nel Mercato/Selezione XTrader (market_mapping_store).
@@ -1393,7 +1402,8 @@ class CustomParserPanel(ctk.CTkFrame):
             self.builder.errors(), preview,
             diag_placeable=diag.placeable, diag_status=diag.status,
             res_row=res.row, res_missing_required=res.missing_required,
-            res_detail=res.detail, content_ok=not diag.message_error))
+            res_detail=res.detail, content_ok=not diag.message_error,
+            res_warnings=getattr(res, "warnings", ())))
         self._last_report = parser_diagnostics.format_report(diag)
         self._render_diag_table(parser_diagnostics.diagnostic_table(diag, defn))
         self._render_preview_table(preview)

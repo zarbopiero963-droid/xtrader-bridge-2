@@ -247,7 +247,11 @@ _CATALOG = {
         "Catalogo XTrader:": "XTrader catalog:",
         "➕ Inserisci regole fisse": "➕ Insert fixed rules",
         "🔗 Traduzioni attive per questo parser": "🔗 Active translations for this parser",
-        "Nomi squadra · separatore:": "Team names · separator:",
+        "Separatore squadre:": "Team separator:",
+        "Il separatore riformatta l'EventName in «Casa - Trasferta» anche senza dizionario "
+        "nomi (usa le squadre del messaggio così come sono). Vuoto = nome invariato.":
+            "The separator reformats the EventName to «Home - Away» even without a names "
+            "dictionary (using the teams from the message as-is). Empty = name unchanged.",
         "🗺️ Dizionario nomi": "🗺️ Names dictionary",
         "Mercati:": "Markets:",
         "🎯 Dizionario mercati": "🎯 Markets dictionary",
@@ -903,7 +907,11 @@ _CATALOG = {
         "➕ Provider": "➕ Proveedor",
         "➕ Inserisci regole fisse": "➕ Insertar reglas fijas",
         "🔗 Traduzioni attive per questo parser": "🔗 Traducciones activas para este parser",
-        "Nomi squadra · separatore:": "Nombres de equipo · separador:",
+        "Separatore squadre:": "Separador de equipos:",
+        "Il separatore riformatta l'EventName in «Casa - Trasferta» anche senza dizionario "
+        "nomi (usa le squadre del messaggio così come sono). Vuoto = nome invariato.":
+            "El separador reformatea el EventName como «Casa - Visitante» incluso sin "
+            "diccionario de nombres (usa los equipos del mensaje tal cual). Vacío = nombre sin cambios.",
         "🗺️ Dizionario nomi": "🗺️ Diccionario de nombres",
         "Mercati:": "Mercados:",
         "🎯 Dizionario mercati": "🎯 Diccionario de mercados",
