@@ -757,17 +757,24 @@ def build_health_report(cfg, *, health_provider=None) -> dict:
     items = None
     if health_provider is not None:
         try:
-            items = health_provider()
-            live = True
+            got = health_provider()
+            # `live` è True SOLO se il provider ha dato semafori VALIDI e non vuoti (GLM #72): un
+            # provider che ritorna None/[] è degenere → si ripiega su config con `live=False`, mai
+            # `live=True` su dati di fallback (etichetta coerente per il consumatore).
+            if got:
+                items, live = got, True
         except Exception:   # noqa: BLE001 — provider dell'app difettoso: mai crash, ripiega su config
-            items, live = None, False
-    if items is None:
+            items = None
+    if not items:
         csv_state, csv_detail = health_check.csv_writable(cfg.get("csv_path", ""))
+        # `mode` via `bridge_mode.mode_from_cfg` — la STESSA fonte del pannello 🚦 Salute
+        # (`app._live_health_items`) e di `get_setup_status`: nel fallback la Modalità non deve
+        # divergere né mascherare il REALE (Fugu #72).
         items = health_check.evaluate(
             parser_active=bool(cfg.get("active_parser")),
             csv_state=csv_state, csv_detail=csv_detail,
             confirmations_enabled=bool(str(cfg.get("xtrader_notification_chat_id", "") or "").strip()),
-            mode=str(cfg.get("bridge_mode", "") or cfg.get("mode", "")))
+            mode=bridge_mode.mode_from_cfg(cfg))
     return {"live": live, "semafori": _health_items_to_dicts(items)}
 
 

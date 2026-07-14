@@ -928,3 +928,40 @@ def test_explain_health_non_espone_segreti(tmp_path):
                                     health_provider=prov)
     out = reg.dispatch("explain_health", {}).content
     assert "123456:FAKE" not in out
+
+
+def test_explain_health_provider_none_o_vuoto_ripiega(tmp_path):
+    # GLM #72: un provider che ritorna None o [] è degenere → fallback config, live=False
+    # (mai live=True su dati di fallback).
+    for prov in (lambda: None, lambda: []):
+        data = ca.build_health_report({"active_parser": "P1"}, health_provider=prov)
+        assert data["live"] is False
+        assert len(data["semafori"]) == 7
+
+
+def test_explain_health_mode_usa_mode_from_cfg():
+    # Fugu #72: nel fallback il semaforo Modalità usa bridge_mode.mode_from_cfg (come il pannello 🚦
+    # e get_setup_status), non un get grezzo. Ne consegue la stessa semantica FAIL-CLOSED:
+    from xtrader_bridge import bridge_mode
+    # REALE coerente (dry_run False) → semaforo ROSSO.
+    reale = ca.build_health_report({"bridge_mode": bridge_mode.REALE, "dry_run": False})
+    assert next(s for s in reale["semafori"] if s["key"] == "mode")["state"] == ca.health_check.RED
+    # REALE «sporco» senza dry_run=False → mode_from_cfg declassa a SIMULAZIONE (vince dry_run):
+    # con il vecchio get grezzo sarebbe apparso ROSSO, mascherando il fail-closed.
+    dirty = ca.build_health_report({"bridge_mode": bridge_mode.REALE})
+    assert next(s for s in dirty["semafori"] if s["key"] == "mode")["state"] == ca.health_check.GREEN
+
+
+def test_why_discarded_redige_segreti_nel_diario(tmp_path):
+    # Fugu #72: prova la CATENA di redazione — un token nel payload del diario NON deve arrivare
+    # al modello via why_discarded (event_journal redige in scrittura + il registry redige l'output).
+    p = str(tmp_path / "ej.jsonl")
+    token = "7654321:FAKE-BOT-TOKEN-AAAABBBBCCCCDDDDEEEE"
+    _ej.append_event(p, "SIGNAL_RECEIVED", {"raw": f"segnale con {token} dentro"}, now=1000.0)
+    # 1) già redatto su disco (event_journal)
+    on_disk = json.dumps(_ej.read_events(p))
+    assert token not in on_disk
+    # 2) e comunque non esce da why_discarded (registry redige l'output come difesa finale)
+    reg = ca.build_default_registry(config_loader=lambda: {}, journal_path=p)
+    out = reg.dispatch("why_discarded", {}).content
+    assert token not in out

@@ -1463,7 +1463,13 @@ class App(ctk.CTk):
         """I 7 semafori LIVE (stessa logica del pannello 🚦 Salute), come lista di `HealthItem`.
         Estratto da `_refresh_health_inner` (#41 PR-10 Blocco D) così l'assistente può leggere lo
         STESSO stato che l'utente vede (`explain_health`). Puro rispetto a `health_check.evaluate`;
-        legge solo stato in RAM/config, non scrive nulla."""
+        legge solo stato in RAM/config, non scrive nulla.
+
+        Thread-safety (Fable #72): può essere invocato dal thread worker dell'assistente mentre il
+        thread Tk aggiorna `_config`/`_last_vals`/`_listener_state`. È una lettura **best-effort
+        senza lock**: in CPython leggere questi riferimenti è atomico (GIL) e al più restituisce uno
+        snapshot leggermente stantio (mai corrotto) — accettabile per una diagnostica read-only, come
+        il pannello 🚦 stesso. Nessuna scrittura, nessun rischio di corruzione."""
         cfg = self._config if isinstance(self._config, dict) else {}
         # Stato CANONICO (#343 slice 4b): niente parsing del testo della label —
         # in EN/ES la label è tradotta e il vecchio substring-match si romperebbe.
