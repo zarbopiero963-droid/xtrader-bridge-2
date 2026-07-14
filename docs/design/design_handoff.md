@@ -267,6 +267,12 @@ della riga CSV** che uscirebbe (colonne e valori, col separatore decimale della 
 controllo UI**: è il tester read-only già esistente («Prova messaggio»/wizard) reso disponibile in
 chat; cambia solo il contenuto delle risposte nel trascritto.
 
+**Consulta dizionario (PR-9 Blocco C):** l'assistente cerca **squadre/mercati/mapping** nel dizionario
+XTrader e nei profili di mapping dell'utente e spiega, nel trascritto, **come sono mappati** (alias
+Telegram → valori XTrader; squadra → nome Betfair; value-map), o dà la **panoramica** di cosa conosce
+il bridge. **Sola lettura**, fail-safe se il dizionario non è incluso. **Nessun nuovo controllo UI**:
+cambia solo il contenuto delle risposte nel trascritto.
+
 **Invarianti di sicurezza lato UI:**
 - «Abilita» accende **solo la chat**: **non** avvia il listener live né la modalità reale, e **non**
   scrive il CSV operativo — quelle azioni restano dietro le **conferme frictionful** esistenti e le

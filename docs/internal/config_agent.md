@@ -20,9 +20,11 @@ client Anthropic *tool-use* iniettabile, registry dei tool con classificazione d
   configurazione — token/chat/parser/CSV/modalità come booleani `done`+label, **nessun segreto** —
   riusa `wizard.final_checklist`), i tool di **conoscenza** `list_guides`/`read_guide` (**PR-7
   Blocco A**: leggono la documentazione reale del progetto da una **allowlist** di file per spiegare
-  qualunque pulsante/campo/concetto), e il tester **`test_message`** (**PR-8 Blocco B**: prova un
-  messaggio col parser attivo e mostra verdetto + anteprima riga CSV, **senza scrivere** — vedi
-  sotto). Esercitano funzioni reali del progetto.
+  qualunque pulsante/campo/concetto), il tester **`test_message`** (**PR-8 Blocco B**: prova un
+  messaggio col parser attivo e mostra verdetto + anteprima riga CSV, **senza scrivere**), e
+  **`lookup_dictionary`** (**PR-9 Blocco C**: cerca squadre/mercati/mapping nel dizionario XTrader e
+  nei profili dell'utente e spiega come sono mappati — vedi sotto). Esercitano funzioni reali del
+  progetto.
 - **`RealAnthropicClient`** — client verso l'Anthropic Messages API con **lazy import** di
   `anthropic` (dipendenza opzionale, fail-safe come `keyring` in `token_store`). **Non** usato nei
   test: `ConfigAgent` accetta qualunque client con `create_message(system, messages, tools)`.
@@ -311,6 +313,34 @@ Test hard: `tests/safety/test_config_agent_41.py` (riconosciuto → riga CSV con
 e decimale IT/EN corretto; non riconosciuto → nessuna riga piazzabile; parser assente / vuoto /
 troppo lungo; multi-messaggio; **read-only che non scrive il CSV**; nessun segreto nell'output).
 
+## Consulta dizionario — `lookup_dictionary` (PR-9 Blocco C)
+
+L'assistente cerca **squadre, mercati e mapping** e spiega **come sono mappati**, in **sola lettura**.
+Un unico tool `lookup_dictionary(query?)`: con un `query` cerca quel termine, **senza** dà la
+**panoramica** («cosa conosce il bridge»). `build_dictionary_lookup` / `build_dictionary_overview`
+sono funzioni pure, testabili offline.
+
+Cerca su tre fonti, tutte via **API pubbliche** (nessun accoppiamento a membri privati):
+
+- **Dizionario XTrader** (`data/dizionario_xtrader.csv`, via `dizionario.market_catalog` +
+  `dizionario.selections_for_market`): per ogni corrispondenza mostra **alias Telegram → valori
+  XTrader** (`market_type`, `market_name`, `selection_name`, `market_alias_telegram`,
+  `selection_alias_telegram`, `bettype`, `handicap`). È il «traduttore» autoritativo.
+- **Profili nomi** dell'utente (`name_mapping_store`): squadra/alias → **nome Betfair**
+  (`from → to_betfair`, con `sport`/`entity_type`/`language`).
+- **Profili mercati** dell'utente (`market_mapping_store`): frase → `market_name`/`selection_name`.
+- **Value-map** (`value_maps.registry`, es. `bettype` BACK→PUNTA): `alias → value`.
+
+Robustezza: match **case/space-insensitive** (`dizionario.normalize`); risultati **capati** a
+`MAX_DICT_MATCHES` per categoria con flag `truncated`; **fail-safe** se il dizionario non è incluso
+(es. EXE senza `data/`) → sezione dizionario `dizionario_available: false`, i profili utente restano
+consultabili (blind-except registrato in allowlist). **Nessun segreto** nell'output (dati di dominio:
+squadre/mercati), tool `READ_ONLY` offerto anche senza `allow_writes`.
+
+Test hard: `tests/safety/test_config_agent_41.py` (panoramica; ricerca mercato per alias Telegram →
+mapping XTrader; squadra nei profili nomi; mercato utente + value-map; termine assente → nessun
+match; **dizionario mancante → fail-safe**; read-only; nessun segreto nell'output).
+
 ## Cosa NON c'è ancora (PR successive)
 - **PR-4 (fatto)**: scrittura config GATED — **solo** chiavi non safety-critical (vedi sopra). Le
   chiavi pericolose (token/chat/csv/parser/modalità/limiti) restano **non scrivibili**
@@ -324,5 +354,7 @@ troppo lungo; multi-messaggio; **read-only che non scrive il CSV**; nessun segre
 - **PR-7 Blocco A (fatto)**: conoscenza dell'intero bridge (`list_guides`/`read_guide`, allowlist) +
   risposta nella **lingua** scelta all'avvio (`build_system_prompt`).
 - **PR-8 Blocco B (fatto)**: 🧪 «Prova messaggio» (`test_message`) — riconosciuto sì/no + motivo +
-  anteprima riga CSV + delimitatori/colonne, sola lettura. Prossimi blocchi: **C** «Consulta
-  dizionario», **D** «Perché scartato?» + «Spiega la salute».
+  anteprima riga CSV + delimitatori/colonne, sola lettura.
+- **PR-9 Blocco C (fatto)**: 📖 «Consulta dizionario» (`lookup_dictionary`) — cerca squadre/mercati/
+  mapping e spiega come sono mappati, sola lettura. Prossimo blocco: **D** «Perché scartato?» +
+  «Spiega la salute».

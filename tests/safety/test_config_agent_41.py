@@ -114,7 +114,7 @@ def test_tool_specs_espone_solo_read_only_in_pr1():
     names = [s["name"] for s in reg.tool_specs()]                    # default: no writes
     assert "set_token" not in names
     assert set(names) == {"get_config_state", "get_health", "list_parsers", "get_setup_status",
-                          "list_guides", "read_guide", "test_message"}
+                          "list_guides", "read_guide", "test_message", "lookup_dictionary"}
     assert "set_token" in [s["name"] for s in reg.tool_specs(include_writes=True)]
 
 
@@ -718,3 +718,119 @@ def test_build_message_preview_def_legacy_senza_mapping_profiles(tmp_path):
         _ca.parser_manager.load_active = orig
     assert "error" not in data            # nessun AttributeError → report normale
     assert data["reports"][0]["recognized"] is True
+
+
+# ── #41 PR-9 Blocco C: 📖 lookup_dictionary (consulta dizionario, SOLA-LETTURA) ──
+
+from xtrader_bridge import name_mapping_store as _nms   # noqa: E402
+from xtrader_bridge import market_mapping_store as _mms  # noqa: E402
+
+
+def _cfg_con_mapping():
+    cfg = {}
+    cfg = _nms.set_entries(cfg, "SerieA", [{"provider": "Juve", "betfair": "Juventus",
+                                            "sport": "Calcio"}])
+    cfg = _mms.set_entries(cfg, "Mercati", [{"phrase": "Multigol", "market_name": "Multigol 1-3",
+                                             "selection_name": "1-3"}])
+    return cfg
+
+
+def test_lookup_dictionary_panoramica_senza_query():
+    reg = ca.build_default_registry(config_loader=_cfg_con_mapping)
+    res = reg.dispatch("lookup_dictionary", {}, allow_writes=False)
+    assert res.refused is False
+    data = json.loads(res.content)
+    assert data["dizionario_available"] is True
+    assert len(data["dizionario_markets"]) >= 1
+    assert {"bettype"} <= set(data["value_maps"])
+    assert data["name_mapping_profiles"] == [{"profile": "SerieA", "entries": 1}]
+    assert data["market_mapping_profiles"] == [{"profile": "Mercati", "entries": 1}]
+
+
+def test_lookup_dictionary_mercato_per_alias_telegram():
+    reg = ca.build_default_registry(config_loader=lambda: {})
+    data = json.loads(reg.dispatch("lookup_dictionary", {"query": "goal"}).content)
+    assert data["dizionario_matches"], "atteso almeno un match nel dizionario per 'goal'"
+    m = data["dizionario_matches"][0]
+    # ogni match spiega COME è mappato: alias Telegram → valori XTrader
+    assert set(m).issuperset({"market_type", "market_name", "selection_name",
+                              "market_alias_telegram", "selection_alias_telegram", "bettype"})
+
+
+def test_lookup_dictionary_squadra_nei_profili():
+    reg = ca.build_default_registry(config_loader=_cfg_con_mapping)
+    data = json.loads(reg.dispatch("lookup_dictionary", {"query": "juve"}).content)
+    assert data["team_matches"] == [{"profile": "SerieA", "from": "Juve", "to_betfair": "Juventus",
+                                     "sport": "Calcio", "entity_type": "", "language": ""}]
+
+
+def test_lookup_dictionary_mercato_utente_e_value_map():
+    reg = ca.build_default_registry(config_loader=_cfg_con_mapping)
+    d1 = json.loads(reg.dispatch("lookup_dictionary", {"query": "multigol"}).content)
+    assert d1["market_mapping_matches"][0]["market_name"] == "Multigol 1-3"
+    # value-map bettype: alias "back" → PUNTA
+    d2 = json.loads(reg.dispatch("lookup_dictionary", {"query": "back"}).content)
+    assert {"value_map": "bettype", "alias": "back", "value": "PUNTA"} in d2["value_map_matches"]
+
+
+def test_lookup_dictionary_termine_assente_nessun_match():
+    reg = ca.build_default_registry(config_loader=lambda: {})
+    data = json.loads(reg.dispatch("lookup_dictionary",
+                                   {"query": "zzz_non_esiste_xyz"}).content)
+    assert data["dizionario_matches"] == []
+    assert data["team_matches"] == [] and data["market_mapping_matches"] == []
+    assert data["value_map_matches"] == []
+
+
+def test_lookup_dictionary_fail_safe_dizionario_mancante(monkeypatch):
+    # Dizionario non incluso (es. EXE senza data/) → sezione marcata non disponibile, nessun crash;
+    # i profili utente restano consultabili.
+    def _boom(*a, **k):
+        raise FileNotFoundError("dizionario assente")
+    monkeypatch.setattr(ca.dizionario, "market_catalog", _boom)
+    data = ca.build_dictionary_lookup(_cfg_con_mapping(), "juve")
+    assert data["dizionario_available"] is False
+    assert data["dizionario_matches"] == []
+    assert data["team_matches"][0]["to_betfair"] == "Juventus"   # profili utente ancora ok
+    ov = ca.build_dictionary_overview({})
+    assert ov["dizionario_available"] is False and ov["dizionario_markets"] == []
+
+
+def test_lookup_dictionary_e_read_only():
+    reg = ca.build_default_registry(config_loader=lambda: {})
+    assert "lookup_dictionary" in [s["name"] for s in reg.tool_specs()]     # offerto senza allow_writes
+    assert reg.dispatch("lookup_dictionary", {"query": "goal"}, allow_writes=False).refused is False
+
+
+def test_lookup_dictionary_non_espone_segreti():
+    # Anche con token/chat in config, l'output del lookup non li contiene.
+    cfg = dict(_cfg_con_mapping())
+    cfg["bot_token"] = "123456:FAKE-AAAABBBBCCCCDDDDEEEEFFFFGGGG"
+    cfg["chat_id"] = "-1008888888888"
+    out = json.dumps(ca.build_dictionary_lookup(cfg, "juve"))
+    assert "123456:FAKE" not in out and "-1008888888888" not in out
+
+
+def test_lookup_dictionary_normalizza_case_e_spazi():
+    # GLM/GPT #71: match case/space-insensitive (dizionario.normalize) — "  GOAL  " == "goal".
+    reg = ca.build_default_registry(config_loader=lambda: {})
+    a = json.loads(reg.dispatch("lookup_dictionary", {"query": "goal"}).content)["dizionario_matches"]
+    b = json.loads(reg.dispatch("lookup_dictionary", {"query": "  GoAl  "}).content)["dizionario_matches"]
+    assert a and a == b
+
+
+def test_lookup_dictionary_truncated_overflow(monkeypatch):
+    # GLM #71: quando i match superano MAX_DICT_MATCHES, la lista è capata e truncated=True.
+    monkeypatch.setattr(ca, "MAX_DICT_MATCHES", 3)
+    data = ca.build_dictionary_lookup({}, "goal")     # "goal" ha molti match nel dizionario
+    assert len(data["dizionario_matches"]) == 3
+    assert data["truncated"]["dizionario"] is True
+
+
+def test_lookup_dictionary_truncated_chiave_sempre_presente(monkeypatch):
+    # Fable #71: schema coerente — truncated["dizionario"] presente anche a dizionario ASSENTE.
+    monkeypatch.setattr(ca.dizionario, "market_catalog",
+                        lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError()))
+    data = ca.build_dictionary_lookup({}, "goal")
+    assert data["dizionario_available"] is False
+    assert data["truncated"]["dizionario"] is False       # chiave presente, non omessa
