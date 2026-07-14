@@ -197,8 +197,9 @@ i **limiti sulle scommesse** o il **parser attivo**: sono rifiutati anche su ric
 operativo.
 
 **Guida alla prima configurazione.** L'assistente può aiutarti al primo avvio: chiedigli «cosa manca
-per partire?» e ti dirà quali requisiti dello START sono a posto e quali no (token, chat, parser
-attivo, CSV, modalità) — **senza mai mostrare** token o chat in chiaro. Per le impostazioni non
+per partire?» e ti dirà quali **requisiti dello START** sono a posto e quali no (token, chat, parser
+attivo, CSV) più la **modalità** (informativa: lo START gira anche in Simulazione) — **senza mai
+mostrare** token o chat in chiaro. Per le impostazioni non
 critiche te le **propone**; per i campi critici ti **guida** a compilarli nei campi della finestra o
 ad aprire il **«🧙 Wizard prima configurazione»** (tab Strumenti), che verifica token/chat/CSV dal
 vivo. L'assistente **non compila** quei campi né apre finestre al posto tuo: ti spiega cosa fare.

@@ -206,11 +206,19 @@ schema senza `confirm`, gate `allow_writes`) + controller (`proposta_non_scrive_
 ## Guida alla prima configurazione (PR-5)
 
 L'assistente **guida** (non automatizza) il primo avvio. Il tool sola-lettura **`get_setup_status`**
-gli dà una **checklist** di cosa manca per lo START, riusando la logica pura del wizard
-(`wizard.final_checklist`): token del bot, chat sorgente, parser attivo, CSV utilizzabile, modalità —
-come **booleani `done` + label**, più `language_chosen` e `ready_to_start`. **Non espone segreti**
-(mai il valore di token/chat: solo «configurato sì/no»), colmando il buco per cui `get_config_state`
-maschera il token a `***` e l'assistente non sapeva se fosse impostato.
+gli dà lo stato di cosa manca per lo START. **Non espone segreti** (mai il valore di token/chat: solo
+«configurato sì/no»), colmando il buco per cui `get_config_state` maschera il token a `***` e
+l'assistente non sapeva se fosse impostato. Ritorna:
+
+- **`requirements`** — i **4 requisiti operativi** dello START come booleani **nominati per chiave**
+  (`bot_token`, `chat`, `parser_active`, `csv_usable`): derivati direttamente dalla config +
+  `health_check.csv_writable`, **non** dall'ordine posizionale di una lista (review #66
+  GLM/GPT/Fable/Fugu: niente accoppiamento agli indici);
+- **`ready_to_start`** — `and` dei 4 requisiti. La **modalità NON** vi entra: lo START gira anche in
+  **Simulazione** (default sicuro; il passaggio a Reale ha il suo gate frase a parte);
+- **`mode_simulation`** — informativo (sei in Simulazione sì/no);
+- **`language_chosen`** e una **`checklist`** leggibile (label canoniche di `wizard.final_checklist`,
+  solo per il testo di guida: la fonte autoritativa di prontezza è `requirements`).
 
 Con questo l'assistente può dire all'utente *cosa* manca e *dove* metterlo:
 - per le impostazioni **non critiche** (tema, lingua app, `clear_delay`, `confirmation_timeout`,

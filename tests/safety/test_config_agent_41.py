@@ -217,11 +217,11 @@ def test_get_setup_status_config_vuota():
     data = json.loads(res.content)
     assert data["ready_to_start"] is False
     assert data["language_chosen"] is None
-    assert len(data["checklist"]) == 5     # token/chat/parser/CSV/modalità
-    # niente configurato → i 4 requisiti dello START (token/chat/parser/CSV) sono False
-    assert all(it["done"] is False for it in data["checklist"][:4])
-    # la modalità di default è Simulazione → quella voce è True (default sicuro)
-    assert data["checklist"][4]["done"] is True
+    # requisiti per CHIAVE (non per indice): niente configurato → tutti False
+    assert data["requirements"] == {"bot_token": False, "chat": False,
+                                     "parser_active": False, "csv_usable": False}
+    # la modalità di default è Simulazione (informativa, non un requisito di START)
+    assert data["mode_simulation"] is True
 
 
 def test_get_setup_status_config_completa(tmp_path):
@@ -234,6 +234,7 @@ def test_get_setup_status_config_completa(tmp_path):
     res = reg.dispatch("get_setup_status", {})
     data = json.loads(res.content)
     assert data["ready_to_start"] is True
+    assert all(data["requirements"].values())        # tutti e 4 i requisiti a posto
     assert data["language_chosen"] == "IT"
     # token/chat NON compaiono in chiaro nell'output (solo booleani + label)
     assert "FAKEBOTTOKEN0000" not in res.content
@@ -241,15 +242,28 @@ def test_get_setup_status_config_completa(tmp_path):
 
 
 def test_get_setup_status_parziale_non_pronto():
-    # token+chat ma NESSUN parser attivo → non pronto (lo START richiede il parser).
-    cfg = {"bot_token": "t", "chat_id": "-100999", "active_parser": "",
-           "csv_path": "", "bridge_mode": "SIMULAZIONE"}
+    # token+chat ma NESSUN parser attivo → non pronto (lo START richiede il parser). Segreti
+    # realistici nei campi critici: non devono comparire in chiaro nell'output.
+    cfg = {"bot_token": "123456:FAKE-AAAABBBBCCCCDDDD", "chat_id": "-1009998887776",
+           "active_parser": "", "csv_path": "", "bridge_mode": "SIMULAZIONE"}
+    reg = ca.build_default_registry(config_loader=lambda: dict(cfg))
+    res = reg.dispatch("get_setup_status", {})
+    data = json.loads(res.content)
+    assert data["ready_to_start"] is False
+    assert data["requirements"]["bot_token"] is True
+    assert data["requirements"]["parser_active"] is False
+    assert "123456:FAKE-AAAABBBBCCCCDDDD" not in res.content
+    assert "-1009998887776" not in res.content
+
+
+def test_get_setup_status_csv_dir_inesistente_non_pronto(tmp_path):
+    # GLM/GPT #66: csv_path in una directory INESISTENTE → csv non usabile → non pronto.
+    csv_path = os.path.join(str(tmp_path), "cartella_assente", "segnali.csv")
+    cfg = {"bot_token": "t", "chat_id": "-100999", "active_parser": "P1", "csv_path": csv_path}
     reg = ca.build_default_registry(config_loader=lambda: dict(cfg))
     data = json.loads(reg.dispatch("get_setup_status", {}).content)
+    assert data["requirements"]["csv_usable"] is False
     assert data["ready_to_start"] is False
-    done = {it["item"]: it["done"] for it in data["checklist"]}
-    assert done["Token del bot configurato"] is True
-    assert done["Parser Personalizzato attivo (richiesto dallo START)"] is False
 
 
 def test_get_setup_status_e_read_only_e_non_scrive():
