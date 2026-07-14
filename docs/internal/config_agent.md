@@ -109,9 +109,42 @@ per-literal (guardia anti-frammento, per non redigere sottostringhe banali); i c
 Telegram (`-100…`) sono lunghi e coperti, e il bot token / `sk-ant-...` restano coperti dai pattern
 di `redact_secrets` a prescindere.
 
-## Cosa NON c'è ancora (PR successive)
+## Tab GUI + ciclo di vita (PR-3)
 
-- **PR-3**: tab GUI + Abilita/Stop + wiring stato live (design handoff).
+- **`config_agent_controller.AgentController`** (logica, testata): macchina a stati
+  `STOPPED`/`RUNNING`/`ERROR`. `enable()` richiede la API key (keyring) — assente → `ERROR`, l'agente
+  resta spento; carica la cronologia persistente (redatta) e avvia il worker. `stop()`/`teardown()`
+  fermano e **joinano** il worker (nessun thread superstite). `submit(text)` accoda un messaggio;
+  **rifiutato** se non `RUNNING` (guardia). Ogni turno: `run_turn` → `history.replace` →
+  `history.save(extra_secrets=[chat_id])` (best-effort su errore disco). Client Anthropic iniettabile.
+- **`config_agent_controller.AgentWorker`** (testato): loop su `queue.Queue` con **sentinella** di
+  stop; un turno che solleva **non** uccide il loop (errore restituito come turno). `run_pending()`
+  esegue il loop in modo **sincrono** per i test (nessun thread reale).
+- **`config_agent_gui`** (view sottile): helper puri testati (`state_label`/`state_color`/
+  `input_enabled`/`messages_to_transcript`) + `AssistantPanel` (widget: campo API key mascherato,
+  Abilita/Stop, indicatore stato, trascritto, input) — **verifica manuale**. Marshalla gli eventi del
+  controller sul thread GUI con `after(0, …)`.
+- **`app.py`**: aggiunge la tab **«🤖 Assistente»** (best-effort) e il **teardown** del pannello in
+  `_on_close` (stop+join, coerente col bot thread e col single-instance lock).
+
+**Sicurezza (PR-3):** `enable()` accende **solo la chat**; `allow_writes=False` (i tool di scrittura
+sono PR-4); le azioni safety-critical restano hard-block; la API key vive solo nel keyring; la
+cronologia su disco resta sempre redatta.
+
+### Smoke test manuale (Windows, no display in CI)
+
+1. Apri l'app → tab **«🤖 Assistente»**: stato **⚪ OFFLINE**, input **disabilitato**.
+2. Premi **Abilita** *senza* API key salvata → stato **🔴 ERRORE** con avviso «API key … mancante»;
+   l'input resta disabilitato.
+3. Incolla una API key nel campo mascherato → **💾 Salva chiave** → «✓ Chiave salvata nel keyring»;
+   il campo si svuota. Premi **Abilita** → **🟢 ATTIVO**, input abilitato.
+4. Scrivi un messaggio → **Invia**: compaiono «🧑 Tu: …» e la risposta «🤖 Assistente: …».
+   *Atteso:* nessun token/chat in chiaro nel log; la conversazione è salvata redatta in
+   `%APPDATA%/XTraderBridge/assistant_history.json`.
+5. Chiudi la finestra (o **Stop**) → il thread worker termina (nessun processo/thread appeso).
+   *Non verificato in CI:* rendering widget, chiamata reale ad Anthropic, keyring reale Windows.
+
+## Cosa NON c'è ancora (PR successive)
 - **PR-4**: tool di **scrittura** config gated (token/chat/csv/parser) con conferma sulle
   transizioni pericolose.
 - **PR-5**: first-run — l'agente pilota il wizard esistente.
