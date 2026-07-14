@@ -3,7 +3,8 @@
 > Guida **utente**. L'assistente è una **chat a linguaggio naturale** che ti aiuta a **configurare** e
 > a **capire** il bridge: legge lo stato, ti dice cosa manca, **spiega** qualunque pulsante/campo/
 > concetto dalla documentazione reale, **prova** un messaggio col parser attivo (mostrando la riga CSV
-> che uscirebbe, senza scrivere), e può proporre alcune impostazioni non critiche — sempre con una
+> che uscirebbe, senza scrivere), **consulta** il dizionario (squadre/mercati/mapping), e può proporre
+> alcune impostazioni non critiche — sempre con una
 > **tua conferma** prima di scrivere. Risponde nella **lingua** scelta all'avvio. È uno strumento
 > **personale del proprietario**, non una chat per utenti finali.
 
@@ -78,7 +79,23 @@ come **tester** mentre sistemi il parser, finché la riga non è quella giusta.
 > dizionario può risultare «non pronto» qui anche se, a bridge avviato, verrebbe scritto. Non mostra
 > mai «pronto» qualcosa che a runtime verrebbe scartato.
 
-## 6. Proporre una modifica: tu confermi con «✅ Applica»
+## 6. 📖 Consulta il dizionario (squadre, mercati, mapping)
+
+Chiedi *«come è mappata la Juventus?»*, *«che mercati conosce il bridge?»*, *«cosa significa questo
+alias?»*: l'assistente cerca nel **dizionario XTrader** e nei tuoi **profili di mapping** e ti spiega
+**come sono mappati** — in sola lettura. Ti mostra:
+
+- dal **dizionario XTrader**: l'alias Telegram → i valori esatti di XTrader (tipo mercato, nome
+  mercato, selezione, BetType PUNTA/BANCA, handicap);
+- dai tuoi **profili nomi**: squadra/alias → **nome Betfair**;
+- dai tuoi **profili mercati**: la frase → mercato/selezione;
+- dalle **value-map** (es. BACK → PUNTA).
+
+Senza indicare un termine ti dà la **panoramica** («cosa conosce il bridge»: mercati, profili,
+value-map). Se il dizionario non è incluso nell'installazione te lo dice, e i tuoi profili restano
+comunque consultabili.
+
+## 7. Proporre una modifica: tu confermi con «✅ Applica»
 
 L'assistente può **proporre** modifiche a **poche impostazioni non critiche**:
 
@@ -91,7 +108,7 @@ Quando propone qualcosa **non lo applica da solo**: compare un **banner** con l'
 **«✅ Applica»** / **«✖ Annulla»**. La modifica viene scritta **solo se premi tu «✅ Applica»**.
 \[screenshot: banner conferma\]
 
-## 7. Cosa l'assistente NON può fare (per sicurezza)
+## 8. Cosa l'assistente NON può fare (per sicurezza)
 
 Anche se glielo chiedi esplicitamente, l'assistente **non può**:
 

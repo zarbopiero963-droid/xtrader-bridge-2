@@ -222,6 +222,12 @@ CSV) — **senza scrivere nulla**. Puoi provarne più d'uno separandoli con una 
 tester mentre sistemi il parser. L'anteprima è **prudente** (senza dizionario Betfair può mostrare
 «non pronto» un parser che a runtime, col dizionario, verrebbe scritto; mai il contrario).
 
+**📖 Consulta dizionario.** Chiedi «come è mappata la Juventus?», «che mercati conosce il bridge?»,
+«cosa significa questo alias?»: l'assistente cerca nel **dizionario XTrader** e nei tuoi **profili di
+mapping** (squadre/mercati/value-map) e ti spiega **come sono mappati** — alias Telegram → valori
+XTrader (tipo/nome mercato, selezione, BetType, handicap) e squadra → nome Betfair. Senza un termine
+dà la **panoramica** di cosa conosce il bridge. Sola lettura.
+
 La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Config**
 (oppure all'avvio con **▶ AVVIA**) nel file `config.json` (vedi
 [Dove vengono salvati i file](#dove-vengono-salvati-i-file)). Ogni campo mostra un **esempio-guida**

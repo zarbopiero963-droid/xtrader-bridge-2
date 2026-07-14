@@ -118,14 +118,17 @@ _ALLOWLIST = {
     "provider_gui.py": (3, "GUI Tk provider: render/azioni best-effort"),
     "reconnect_policy.py": (1, "classificazione errore di reconnect tollerante"),
     "source_chats_gui.py": (2, "GUI Tk sorgenti: best-effort (refresh-options + modal transient/grab_set)"),
-    "config_agent.py": (4, "assistente di configurazione (#41 PR-1): dispatch di un tool "
+    "config_agent.py": (5, "assistente di configurazione (#41 PR-1): dispatch di un tool "
                            "sola-lettura best-effort (un handler che solleva NON deve crashare "
                            "l'agente → errore restituito come contenuto); logging dell'audit "
                            "best-effort (un logger che solleva non deve far fallire il dispatch); "
                            "soft-import 'anthropic' (dipendenza opzionale: assenza = errore chiaro "
                            "solo all'uso reale, mai all'import del modulo); tester «Prova messaggio» "
                            "(#41 PR-8 Blocco B): un parser attivo malformato non deve crashare "
-                           "l'assistente → l'errore diventa un messaggio guida, mai scrittura"),
+                           "l'assistente → l'errore diventa un messaggio guida, mai scrittura; "
+                           "«Consulta dizionario» (#41 PR-9 Blocco C): dizionario non incluso/"
+                           "illeggibile (es. EXE senza data/) → fail-safe, sezione marcata non "
+                           "disponibile, mai crash"),
     "config_agent_controller.py": (6, "controller assistente (#41 PR-3/PR-4): emit di un evento verso "
                                       "la view best-effort (un handler della GUI che solleva non deve "
                                       "rompere il controller); un turno che solleva nel worker non "

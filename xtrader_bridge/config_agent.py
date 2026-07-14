@@ -22,9 +22,10 @@ lasciano mai la macchina in chiaro.
 import json
 import os
 
-from . import (atomic_io, bridge_mode, config_store, csv_writer, custom_parser, event_log,
-               health_check, language_select, log_privacy, market_mapping_store, name_mapping_store,
-               parser_builder, parser_manager, recognition, source_manager, wizard)
+from . import (atomic_io, bridge_mode, config_store, csv_writer, custom_parser, dizionario,
+               event_log, health_check, language_select, log_privacy, market_mapping_store,
+               name_mapping_store, parser_builder, parser_manager, recognition, source_manager,
+               value_maps, wizard)
 
 # ── Classi di permesso dei tool ────────────────────────────────────────────────
 READ_ONLY = "read_only"        # sola lettura: sempre permesso
@@ -544,6 +545,167 @@ def build_tester_tools(*, config_loader=None, parsers_dir=None) -> list:
     ]
 
 
+# ── 📖 Consulta dizionario: lookup SOLA-LETTURA (#41 PR-9 Blocco C) ──────────────
+# L'assistente cerca squadre/mercati/mapping e spiega COME sono mappati, in sola lettura:
+#  - il DIZIONARIO XTrader (`data/dizionario_xtrader.csv`): alias Telegram → valori XTrader
+#    (MarketType/MarketName/SelectionName/BetType/Handicap) — via API PUBBLICHE `dizionario.*`;
+#  - i PROFILI di mapping dell'utente: nomi squadre (`name_mapping_store`) e mercati
+#    (`market_mapping_store`);
+#  - le VALUE-MAP (`value_maps`, es. bettype BACK→PUNTA).
+# Nessuna scrittura, nessun segreto (dati di dominio). Fail-safe se il dizionario non è incluso
+# (es. EXE senza `data/`): la sezione dizionario è marcata «non disponibile», i profili utente no.
+
+MAX_DICT_MATCHES = 40   # tetto per categoria: non gonfiare il contesto su ricerche larghe
+
+
+def _dictionary_entries() -> "list | None":
+    """Righe PIATTE del dizionario XTrader via API pubbliche (`market_catalog` + `selections_for_market`).
+    Ritorna `None` se il dizionario non è disponibile (es. EXE senza `data/`) → fail-safe."""
+    try:
+        out = []
+        for m in dizionario.market_catalog():
+            sels = dizionario.selections_for_market(m["MarketType"]) or [{
+                "SelectionName": "", "MarketAliasTelegram": "", "SelectionAliasTelegram": "",
+                "BetType": "", "Handicap": ""}]
+            for s in sels:
+                out.append({
+                    "market_type": m["MarketType"], "market_name": m["MarketName"],
+                    "selection_name": s.get("SelectionName", ""),
+                    "market_alias_telegram": s.get("MarketAliasTelegram", ""),
+                    "selection_alias_telegram": s.get("SelectionAliasTelegram", ""),
+                    "bettype": s.get("BetType", ""), "handicap": s.get("Handicap", ""),
+                    "dynamic": bool(s.get("dynamic")),
+                })
+        return out
+    except Exception:   # noqa: BLE001 — dizionario non incluso/illeggibile: fail-safe (None), mai crash
+        return None
+
+
+def build_dictionary_overview(cfg) -> dict:
+    """Panoramica SOLA-LETTURA di cosa «conosce» il bridge: mercati del dizionario XTrader, profili di
+    mapping nomi/mercati dell'utente (con conteggi) e value-map disponibili."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    entries = _dictionary_entries()
+    if entries is None:
+        markets, dict_available = [], False
+    else:
+        seen, markets = set(), []
+        for e in entries:
+            if e["market_type"] in seen:
+                continue
+            seen.add(e["market_type"])
+            markets.append({"market_type": e["market_type"], "market_name": e["market_name"]})
+        dict_available = True
+    name_profiles = [{"profile": n, "entries": len(name_mapping_store.get_entries(cfg, n))}
+                     for n in name_mapping_store.profile_names(cfg)]
+    market_profiles = [{"profile": n, "entries": len(market_mapping_store.get_entries(cfg, n))}
+                       for n in market_mapping_store.profile_names(cfg)]
+    return {
+        "dizionario_available": dict_available,
+        "dizionario_markets": markets,
+        "name_mapping_profiles": name_profiles,
+        "market_mapping_profiles": market_profiles,
+        "value_maps": value_maps.available_value_maps(),
+    }
+
+
+def _match(query_norm, *fields) -> bool:
+    """True se `query_norm` (già normalizzato) è sottostringa di uno dei `fields` normalizzati."""
+    return any(query_norm in dizionario.normalize(f) for f in fields if f)
+
+
+def build_dictionary_lookup(cfg, query) -> dict:
+    """Cerca `query` (case/space-insensitive) tra dizionario XTrader, profili nomi/mercati e value-map,
+    e ritorna COME ogni corrispondenza è mappata (SOLA LETTURA). Risultati capati per categoria."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    q = dizionario.normalize(query)
+    if not q:
+        return {"error": "empty",
+                "message": "Cosa cerco nel dizionario? Dammi una squadra, un mercato o un alias."}
+    truncated = {}
+
+    entries = _dictionary_entries()
+    dict_matches = []
+    if entries is not None:
+        for e in entries:
+            if _match(q, e["market_type"], e["market_name"], e["selection_name"],
+                      e["market_alias_telegram"], e["selection_alias_telegram"]):
+                dict_matches.append(e)
+        truncated["dizionario"] = len(dict_matches) > MAX_DICT_MATCHES
+        dict_matches = dict_matches[:MAX_DICT_MATCHES]
+
+    team_matches = []
+    for prof in name_mapping_store.profile_names(cfg):
+        for en in name_mapping_store.get_entries(cfg, prof):
+            if _match(q, en.get("provider", ""), en.get("country", ""), en.get("betfair", "")):
+                team_matches.append({
+                    "profile": prof, "from": en.get("provider", "") or en.get("country", ""),
+                    "to_betfair": en.get("betfair", ""), "sport": en.get("sport", ""),
+                    "entity_type": en.get("entity_type", ""), "language": en.get("language", "")})
+    truncated["name_mapping"] = len(team_matches) > MAX_DICT_MATCHES
+    team_matches = team_matches[:MAX_DICT_MATCHES]
+
+    market_matches = []
+    for prof in market_mapping_store.profile_names(cfg):
+        for en in market_mapping_store.get_entries(cfg, prof):
+            if _match(q, en.get("phrase", ""), en.get("market_name", ""),
+                      en.get("selection_name", ""), en.get("market_type", "")):
+                market_matches.append({
+                    "profile": prof, "phrase": en.get("phrase", ""),
+                    "market_type": en.get("market_type", ""), "market_name": en.get("market_name", ""),
+                    "selection_name": en.get("selection_name", ""), "language": en.get("language", "")})
+    truncated["market_mapping"] = len(market_matches) > MAX_DICT_MATCHES
+    market_matches = market_matches[:MAX_DICT_MATCHES]
+
+    value_map_matches = []
+    reg = value_maps.registry()
+    for name in sorted(reg):
+        for alias, val in reg[name].items():
+            if _match(q, name, alias, val):
+                value_map_matches.append({"value_map": name, "alias": alias, "value": val})
+    truncated["value_maps"] = len(value_map_matches) > MAX_DICT_MATCHES
+    value_map_matches = value_map_matches[:MAX_DICT_MATCHES]
+
+    return {
+        "query": query,
+        "dizionario_available": entries is not None,
+        "dizionario_matches": dict_matches,
+        "team_matches": team_matches,
+        "market_mapping_matches": market_matches,
+        "value_map_matches": value_map_matches,
+        "truncated": truncated,
+    }
+
+
+def build_dictionary_tools(*, config_loader=None) -> list:
+    """Tool SOLA-LETTURA `lookup_dictionary` (#41 PR-9 Blocco C). `config_loader` iniettabile."""
+    load_cfg = config_loader or config_store.load_config
+
+    def _lookup_dictionary(inp):
+        cfg = load_cfg() or {}
+        query = str(inp.get("query", "") or "").strip()
+        data = (build_dictionary_lookup(cfg, query) if query
+                else build_dictionary_overview(cfg))
+        return json.dumps(data, ensure_ascii=False, indent=2)
+
+    return [
+        AgentTool(
+            "lookup_dictionary",
+            "CONSULTA il dizionario XTrader e i profili di mapping dell'utente (squadre, mercati, "
+            "value-map) e spiega COME un termine è mappato: alias Telegram → valori XTrader "
+            "(MarketType/MarketName/SelectionName/BetType/Handicap) e squadra → nome Betfair. Con un "
+            "`query` cerca quel termine; senza, dà la PANORAMICA (mercati noti, profili, value-map). "
+            "Sola lettura.",
+            {"type": "object",
+             "properties": {
+                 "query": {"type": "string",
+                           "description": "termine da cercare (squadra, mercato, selezione o alias); "
+                                          "vuoto = panoramica"}},
+             "additionalProperties": False},
+            READ_ONLY, _lookup_dictionary),
+    ]
+
+
 # ── Scrittura config GATED (#41 PR-4) ───────────────────────────────────────────
 # L'assistente può scrivere SOLO un piccolo insieme di chiavi NON safety-critical, ognuna con
 # validazione/bound espliciti. Le chiavi safety-critical (segreti, filtro chat, modalità/CSV,
@@ -697,6 +859,8 @@ def build_default_registry(*, config_loader=None, parsers_dir=None, on_proposal=
         reg.register(tool)
     for tool in build_tester_tools(config_loader=config_loader, parsers_dir=parsers_dir):
         reg.register(tool)
+    for tool in build_dictionary_tools(config_loader=config_loader):
+        reg.register(tool)
     for tool in build_write_tools(config_loader=config_loader, on_proposal=on_proposal):
         reg.register(tool)
     return reg
@@ -734,6 +898,11 @@ _SYSTEM_PROMPT_BASE = (
     "della riga CSV (colonne e valori) — SENZA scrivere nulla. Spiega all'utente il verdetto, le "
     "colonne e il separatore decimale, e se non è pronto cosa manca; puoi fargli da tester mentre "
     "sistema il parser. L'anteprima è conservativa (senza dizionario Betfair). "
+    # PR-9 Blocco C — consulta dizionario: cerca squadre/mercati/mapping e spiega come sono mappati.
+    "Per «come è mappata questa squadra/mercato?», «che mercati conosce il bridge?», «cosa significa "
+    "questo alias?» usa 'lookup_dictionary': con un termine cerca nel dizionario XTrader e nei profili "
+    "di mapping dell'utente (alias Telegram → valori XTrader, squadra → nome Betfair, value-map); "
+    "senza termine dà la panoramica. Sola lettura. "
 )
 
 # Clausola di lingua per la risposta, in base ad app_language (IT/EN/ES); default IT.
