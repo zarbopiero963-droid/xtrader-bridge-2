@@ -174,12 +174,21 @@ cap anti-loop, cronologia redatta).
   scrive. Così un `confirm` allucinato/indotto (prompt injection) **non** può applicare nulla: al
   massimo propone. La conferma è uno **stato server-side legato a chiave/valore/epoch**, non un
   booleano deciso dal modello.
-- **Anti-TOCTOU** (Fable #65): `apply_pending()` **ri-legge la config fresca** sul thread GUI (come
-  «💾 Salva Config») e tocca **solo** la chiave proposta → nessuna scrittura clobbera un cambio
-  concorrente delle altre chiavi. Tutte le scritture di `config.json` (assistente e GUI) avvengono
-  ora sul thread Tk → serializzate. Il `bot_token` non è tra le chiavi scrivibili e resta nel
-  keyring. Un save fallito riporta l'errore, mai un falso «Fatto». La proposta è scartata se
-  l'`epoch` è cambiato (Stop/Enable) o al `stop()`.
+- **Anti-TOCTOU e fail-safe** (Fable/Fugu #65): `apply_pending()` ri-legge la config sul thread GUI
+  (come «💾 Salva Config»), opera su una **copia** e tocca **solo** la chiave proposta. Difese:
+  - **niente fallback a `{}`**: se il load non dà un dict valido e non vuoto → **abortisce** (mai
+    scrivere una config quasi vuota che azzererebbe chat_id/csv_path/bridge_mode/limiti); il pending
+    resta per il retry;
+  - **anti-clobber della chiave proposta**: si scrive solo se il valore attuale coincide ancora con
+    quello su cui si basava la proposta (`old`); un cambio **concorrente** della stessa chiave (es.
+    GUI «Salva») **non** viene sovrascritto — proposta stantia annullata con avviso;
+  - il loader passato dall'app è la **config viva RAW** (`self._config`), **non** la vista redatta dei
+    tool read-only → nessun `***` persistito sui segreti;
+  - un saver che **solleva** è trattato come save fallito (nessun crash del thread GUI).
+  Tutte le scritture di `config.json` (assistente e GUI) avvengono sul thread Tk → **serializzate**.
+  Il `bot_token` non è tra le chiavi scrivibili e resta nel keyring. Un save fallito riporta
+  l'errore, mai un falso «Fatto». La proposta è scartata se l'`epoch` è cambiato (Stop/Enable) o al
+  `stop()`.
 
 Test hard: `tests/safety/test_config_agent_write_41.py` (denylist/allowlist/validazione, il tool
 **non scrive né mette in pending** per chiavi vietate/valori invalidi, propone la forma canonica,

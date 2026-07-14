@@ -301,20 +301,50 @@ class AgentController:
     def apply_pending(self) -> bool:
         """**Applica** la modifica pendente — chiamato SOLO dall'utente (pulsante «Applica», thread
         GUI). È l'UNICO punto che scrive la config: il modello non può arrivarci. Ritorna `True` se
-        scritta, `False` altrimenti (niente pending / sessione cambiata / save fallito).
+        scritta, `False` altrimenti (niente pending / sessione cambiata / config non valida / chiave
+        cambiata sotto di noi / save fallito).
 
-        Anti-TOCTOU (Fable #65): la config viene **ri-letta fresca** qui (sul thread GUI, come «💾
-        Salva Config») e si tocca **solo** la chiave proposta → nessuna scrittura clobbera un cambio
-        concorrente delle altre chiavi. La proposta è scartata se l'epoch è cambiato (Stop/Enable)."""
+        Fail-safe e anti-TOCTOU (Fugu/Fable #65):
+        - la config viene ri-letta qui (sul thread GUI, come «💾 Salva Config»); se il load **non** dà
+          un dict valido e non vuoto si **abortisce** (mai un fallback a `{}`, che scriverebbe una
+          config quasi vuota azzerando chat_id/csv_path/bridge_mode/limiti). Il pending resta (retry);
+        - si scrive **solo** se il valore attuale della chiave coincide ancora con quello su cui si
+          basava la proposta (`old`): un cambio CONCORRENTE della stessa chiave (es. GUI «Salva»)
+          **non** viene sovrascritto — la proposta stantia è annullata con avviso;
+        - si opera su una **copia** (niente mutazione del dict condiviso, niente mutazione parziale se
+          il save fallisce) e si tocca solo la chiave proposta (le altre restano quelle fresche).
+        La proposta è scartata se l'epoch è cambiato (Stop/Enable)."""
         with self._pending_lock:
             p = self._pending
             if p is None or p["epoch"] != self._epoch:
                 self._pending = None
                 return False
             key, new, old = p["key"], p["new"], p["old"]
-        cfg = self._config_loader() or {}
-        cfg[key] = new                       # tocca SOLO la chiave proposta (config fresca)
-        ok, status = config_agent._save_outcome(self._config_saver(cfg))
+        cfg = self._config_loader()
+        # Fail-safe: senza una config valida NON si scrive (Fugu #65). Pending mantenuto → l'utente
+        # può ritentare quando la config torna leggibile.
+        if not isinstance(cfg, dict) or not cfg:
+            self._emit("turn", {"text": "⚠️ Config non disponibile: modifica NON applicata, riprova.",
+                                "capped": False, "messages": [], "epoch": self._epoch})
+            return False
+        # Anti-clobber della chiave PROPOSTA (Fugu #65): se è cambiata sotto di noi (modifica
+        # concorrente), la proposta è stantia → annulla senza sovrascrivere.
+        if cfg.get(key) != old:
+            with self._pending_lock:
+                self._pending = None
+            self._emit("pending_cleared", {"epoch": self._epoch})
+            self._emit("turn", {"text": f"⚠️ «{key}» è cambiato nel frattempo (ora "
+                                f"«{cfg.get(key)}»): proposta annullata, rilanciala se serve.",
+                                "capped": False, "messages": [], "epoch": self._epoch})
+            return False
+        new_cfg = dict(cfg)                  # copia: niente mutazione del dict condiviso né parziale
+        new_cfg[key] = new                   # tocca SOLO la chiave proposta (le altre restano fresche)
+        # Un errore del saver (o del loader) NON deve crashare il thread GUI: si tratta come save
+        # fallito (ritorna `False`, messaggio d'errore, mai falso «Fatto» — GLM/Fable #65).
+        try:
+            ok, status = config_agent._save_outcome(self._config_saver(new_cfg))
+        except Exception:   # noqa: BLE001 — save fallito/eccezione: fail-safe, il pending resta scartato
+            ok, status = False, config_store.SAVE_DISK_ERROR
         with self._pending_lock:
             self._pending = None
         self._emit("pending_cleared", {"epoch": self._epoch})
