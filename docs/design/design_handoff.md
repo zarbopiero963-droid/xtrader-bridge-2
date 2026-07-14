@@ -1258,6 +1258,11 @@ Per un handoff efficace, sarebbe utile ricevere dal design (indicativo):
 4. **Flussi con attrito:** redesign dei 3 dialoghi di conferma (§9) mantenendone la forza.
 5. **Note di fattibilità con CustomTkinter** (§3): cosa è realizzabile col toolkit attuale
    e cosa richiederebbe un cambio di tecnologia.
+6. **Icona dell'app (brand):** dal build Linux **AppImage** (#36) l'app ha ora un'**icona di
+   launcher** (voce di menu / taskbar) — attualmente un **placeholder neutro**
+   (`packaging/appimage/app-icon.png`, 256×256, tondo scuro con motivo «ponte»). Da sostituire
+   con l'icona di brand definitiva (stesso nome/dimensione); utile anche per l'EXE Windows
+   (oggi senza `--icon`).
 
 > **Vincoli da tenere sempre presenti:** Windows desktop, italiano, tema scuro di default
 > (commutabile chiaro/scuro dal toggle nell'header, #288 Delta 1), CustomTkinter,

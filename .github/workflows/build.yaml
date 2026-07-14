@@ -187,20 +187,55 @@ jobs:
         --hidden-import=httpcore
         main.py
 
-    - name: Impacchetta in tar.gz (preserva il bit di esecuzione)
-      # `actions/upload-artifact` ZIPpa i file e NON conserva i permessi POSIX: caricando il
-      # binario grezzo, al download il bit `+x` andrebbe perso (mode 644) e l'utente dovrebbe
-      # fare `chmod` a mano. Un `tar` preserva mode 755, così dopo l'estrazione il binario è
-      # eseguibile «così com'è». (#36, CodeRabbit)
+    - name: Prepara AppDir (#36 PR-B)
+      # Assembla l'AppDir dagli asset COMMITTATI (packaging/appimage/) + il binario PyInstaller.
+      # Struttura AppImage standard: AppRun (launcher) + <icona>.png + <app>.desktop nella root,
+      # binario in usr/bin.
       run: |
-        chmod +x dist/XTrader-Signal-Bridge
-        tar -czf "${{ steps.meta.outputs.artifact }}.tar.gz" -C dist XTrader-Signal-Bridge
+        APP="XTrader-Signal-Bridge"
+        mkdir -p AppDir/usr/bin
+        cp "dist/$APP" "AppDir/usr/bin/$APP"
+        chmod +x "AppDir/usr/bin/$APP"
+        cp packaging/appimage/app-icon.png AppDir/app-icon.png
+        cp packaging/appimage/app.desktop  AppDir/app.desktop
+        cp packaging/appimage/AppRun        AppDir/AppRun
+        chmod +x AppDir/AppRun
 
-    - name: Carica il tar.gz Linux come Artifact (sempre scaricabile)
-      # Nome versionato, retention 7gg (output usa-e-scarica). Dentro l'archivio l'eseguibile
-      # resta `XTrader-Signal-Bridge` (mode 755): scarica → estrai il tar.gz → esegui.
+    - name: Scarica appimagetool (pin versione + verifica sha256)
+      # appimagetool impacchetta il binario dentro l'AppImage → è supply-chain-sensibile:
+      # versione PINNATA (tag immutabile) + verifica dell'hash PRIMA dell'uso. L'hash reale
+      # viene stampato nel log e verificato contro il pin (bootstrap: si legge dal primo run
+      # e si committa il valore). In CI il runner ha internet; la sandbox di sviluppo no.
+      env:
+        APPIMAGETOOL_VERSION: "1.9.0"
+        # sha256 verificato dal primo run CI (bootstrap #36 PR-B). Immutabile per questo tag.
+        APPIMAGETOOL_SHA256: "46fdd785094c7f6e545b61afcfb0f3d98d8eab243f644b4b17698c01d06083d1"
+      run: |
+        url="https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage"
+        curl -fsSL -o appimagetool "$url"
+        echo "${APPIMAGETOOL_SHA256}  appimagetool" | sha256sum -c - \
+          || { echo "::error::sha256 di appimagetool NON combacia col pin (ottenuto: $(sha256sum appimagetool | cut -d' ' -f1))."; exit 1; }
+        chmod +x appimagetool
+
+    - name: Dipendenze di sistema per AppImage
+      # appimagetool valida il `.desktop` con `desktop-file-validate` (pacchetto desktop-file-utils),
+      # non presente di default su ubuntu-latest.
+      run: sudo apt-get update && sudo apt-get install -y desktop-file-utils
+
+    - name: Costruisci AppImage
+      # `--appimage-extract-and-run`: evita la dipendenza da FUSE sul runner (che ubuntu-latest
+      # non garantisce). Produce l'AppImage single-file, desktop-integrated (icona + .desktop).
+      run: |
+        ARCH=x86_64 ./appimagetool --appimage-extract-and-run AppDir "${{ steps.meta.outputs.artifact }}.AppImage"
+        chmod +x "${{ steps.meta.outputs.artifact }}.AppImage"
+        ls -la "${{ steps.meta.outputs.artifact }}.AppImage"
+
+    - name: Carica l'AppImage come Artifact (scarica ed esegui)
+      # L'AppImage è un SINGOLO file eseguibile con icona + voce di menu. Nota: come per ogni
+      # artifact GitHub (zippato), il bit +x va perso al download → l'utente fa `chmod +x` una
+      # volta e poi doppio-click / `./…AppImage` (flusso AppImage standard, documentato nel README).
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
       with:
         name: ${{ steps.meta.outputs.artifact }}
-        path: ${{ steps.meta.outputs.artifact }}.tar.gz
+        path: ${{ steps.meta.outputs.artifact }}.AppImage
         retention-days: 7

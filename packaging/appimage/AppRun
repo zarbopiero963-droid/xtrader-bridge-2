@@ -1,0 +1,4 @@
+#!/bin/sh
+# Launcher dell'AppImage: esegue il binario PyInstaller impacchettato in usr/bin.
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/bin/XTrader-Signal-Bridge" "$@"
