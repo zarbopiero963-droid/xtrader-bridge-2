@@ -72,3 +72,8 @@ Config e cronologia stanno nella cartella dati utente (`%APPDATA%\XTraderBridge`
 **API key** dell'assistente sta **solo nel keyring** (se il keyring non è disponibile, **non** viene
 salvata). Il **bot token** sta nel keyring, con l'eccezione del fallback in chiaro sopra descritto se
 manca un keyring. Il CSV operativo sta dove indichi in **CSV Path**.
+
+> 🔒 **Se il token finisce in chiaro** (fallback senza keyring): tratta `config.json` come un file
+> **riservato** — non condividerlo, non allegarlo a segnalazioni/diagnostica, e preferisci una
+> cartella **non** sincronizzata su cloud (OneDrive/Drive). La soluzione migliore resta avere un
+> backend keyring disponibile, così il token non tocca mai il disco in chiaro.
