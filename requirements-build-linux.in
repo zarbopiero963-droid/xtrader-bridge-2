@@ -1,0 +1,22 @@
+# Dipendenze necessarie alla BUILD Linux del binario — SORGENTE del lock di build Linux.
+#
+# Rappresenta TUTTO ciò che il job `build-linux` di `build.yaml` installa su ubuntu-latest:
+# - `-r requirements-dev.txt` → runtime + test (pytest) dalla SORGENTE UNICA delle
+#                               dipendenze di test (requirements-dev.txt → requirements.txt
+#                               → requirements.in), come per il lock Windows;
+# - pyinstaller              → compila il binario Linux onefile (`pyinstaller --onefile ...`);
+# - httpx                    → richiesto da python-telegram-bot a runtime ed esplicitato
+#                              come hidden-import per PyInstaller.
+#
+# NB: a differenza di `requirements-build.in` (Windows) qui NON c'è `nuitka`: non esiste una
+# build Nuitka su Linux, quindi il set Linux resta minimale (solo PyInstaller).
+#
+# Catena single-source (Linux):
+#   requirements.in → requirements.txt → requirements-dev.txt → requirements-build-linux.in → lock
+# Da questo file si genera il lock completo con hash `requirements-build-linux.lock` su
+# Linux + Python 3.11 (workflow "Generate Linux Lockfile"). NON modificare il lock a mano:
+# si rigenera dal workflow. Gli hash delle wheel sono platform-specifici → il lock Linux
+# DEVE essere generato su Linux (come quello Windows su Windows).
+-r requirements-dev.txt
+pyinstaller
+httpx

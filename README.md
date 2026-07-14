@@ -816,11 +816,16 @@ sono espresse come file sorgente `.in` (vincoli "morbidi" top-level) da cui si g
 | `requirements.in` | **sorgente unica** delle dipendenze **runtime** top-level (FLOOR `>=`, con la motivazione di sicurezza) | sì |
 | `requirements-build.in` | tutto ciò che la **build Windows** installa: `-r requirements-dev.txt` (runtime + `pytest`, single-source) + `pyinstaller` (release) + `nuitka` (anteprima) + `httpx` | sì |
 | `requirements-build.lock` | **lockfile completo con hash** (versioni esatte di TUTTE le transitive) generato su **Windows + Python 3.11** | **NO** — si rigenera dal workflow |
+| `requirements-build-linux.in` | tutto ciò che la **build Linux** installa: `-r requirements-dev.txt` (runtime + `pytest`) + `pyinstaller` (senza `nuitka`: non c'è build Nuitka su Linux) | sì |
+| `requirements-build-linux.lock` | **lockfile con hash** per la build Linux, generato su **Linux + Python 3.11** (#36) | **NO** — si rigenera dal workflow |
 | `requirements.txt` | install "soft" della CI di test/dev: ora **richiama `requirements.in`** (`-r requirements.in`), quindi una dipendenza runtime ha **un solo posto** dove cambiare ed è la stessa sorgente del lock (niente drift) | sì |
 | `requirements-dev.txt` | `-r requirements.txt` + `pytest` (test) | sì |
 
-> ⚠️ Il lockfile **non va generato da Linux**: gli hash e le wheel devono corrispondere a
-> quelli che la build Windows installa davvero. Per questo si genera in CI su Windows.
+> ⚠️ Ogni lockfile va generato **sulla sua piattaforma**: gli hash/wheel devono corrispondere
+> a quelli che la build installa davvero. Il lock **Windows** si genera in CI su **Windows**
+> (*Generate Windows Lockfile*); il lock **Linux** in CI su **Linux** (*Generate Linux
+> Lockfile*, #36). Finché il rispettivo `.lock` non è committato, la build usa l'install
+> **legacy** (non hashato) e passa automaticamente al lock appena committato.
 
 ### Garanzie del workflow di generazione
 
@@ -859,6 +864,18 @@ dipendenza pinnata **prima di pubblicare una release**.
    stampa il `requirements-build.lock` rigenerato in un **blocco copiabile** (è solo versioni +
    hash, nessun segreto). **Copia** l'intero blocco.
 4. Incollalo nel file **`requirements-build.lock`** nella root del repo e **committalo**.
+
+**Lock Linux (#36)** — stessa procedura, ma sull'altra piattaforma:
+
+1. Modifica `requirements.in` e/o `requirements-build-linux.in` se cambi le dipendenze della
+   build Linux.
+2. **Actions → "Generate Linux Lockfile" → Run workflow** (oppure si avvia da solo su una PR
+   che tocca quei file). Gira su `ubuntu-latest` + Python 3.11, esegue `pip-compile
+   --generate-hashes` e **valida** il lock con `pip install --require-hashes`.
+3. Run → **Summary**: lo step *"Pubblica il lock nel Job Summary"* stampa il
+   `requirements-build-linux.lock` rigenerato in un blocco copiabile. **Copia** l'intero blocco.
+4. Incollalo in **`requirements-build-linux.lock`** nella root del repo e **committalo**: da lì
+   il job `build-linux` installa con `--require-hashes` (fuori dal fallback legacy).
 
 > 🛟 **Consegna quota-immune (nessun artifact):** il lock si recupera **solo dalla Summary**, non
 > da un artifact. Così la generazione/validazione del lock **non dipende dalla quota storage
