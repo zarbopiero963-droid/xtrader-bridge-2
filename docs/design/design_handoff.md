@@ -207,10 +207,11 @@ HUB "🧰 STRUMENTI"  (tab PIATTE ma RAGGRUPPATE per flusso ①..④, #293 slice
 
 ## 🤖 Assistente di configurazione (#41 PR-3)
 
-Nuova tab **«🤖 Assistente»** nella tabview di monitoraggio: una **chat a linguaggio naturale** con
-cui il proprietario configura il bridge «a voce» (l'assistente **esegue** gli ordini compilando i
-campi, non decide da sé). PR-3 introduce la **vista** e il **ciclo di vita** (chat sola-lettura + tre
-tool live sola-lettura); i tool di **scrittura** config sono gated e arrivano in PR-4.
+Nuova tab **«🤖 Assistente»** nella tabview di monitoraggio: una **chat a linguaggio naturale** sulla
+configurazione del bridge. **In PR-3 l'assistente è in SOLA LETTURA**: introduce la **vista** + il
+**ciclo di vita** (chat + tre tool live **sola-lettura**: config redatta, salute, elenco parser).
+**Non modifica** ancora la configurazione — i tool di **scrittura** sono gated (`allow_writes=False`)
+e arrivano in **PR-4**. La capacità di «compilare i campi al posto tuo» è quindi una fase successiva.
 
 **Controlli (dall'alto in basso):**
 - **Campo «API key Anthropic:»** — input **mascherato** (`show="●"`), placeholder «incollala qui
@@ -232,8 +233,11 @@ tool live sola-lettura); i tool di **scrittura** config sono gated e arrivano in
   scrive il CSV operativo — quelle azioni restano dietro le **conferme frictionful** esistenti e le
   guardie hard-block dell'agente.
 - La **cronologia** è persistente ma **sempre redatta** su disco (API key/token/chat mai in chiaro).
-- Alla chiusura finestra / «Stop» il **thread** dell'assistente viene fermato e joinato (nessun
-  thread superstite), coerente col teardown del bot e col single-instance lock.
+- Alla chiusura finestra / «Stop» il **thread** dell'assistente viene fermato con un **join a
+  timeout** (best-effort limitato, come il bot thread): normalmente termina subito; se un turno
+  reale è in volo, il thread è **daemon** e uscirà appena la chiamata rientra. Un turno che completa
+  dopo lo Stop è comunque **scartato** (guardia epoch): niente risposta né scrittura a sessione
+  chiusa.
 
 ## 6. Finestra principale — dettaglio completo
 

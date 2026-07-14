@@ -50,16 +50,26 @@ class AgentController:
         # Serializza l'accesso alla cronologia: se un worker superstite (turno reale in timeout su
         # Stop) e un nuovo worker toccassero `_history` insieme, il lock evita la corruzione (Fugu #64).
         self._history_lock = threading.Lock()
+        # Epoch di sessione (stesso pattern del listener in app.py): ogni `enable()`/`stop()` lo
+        # incrementa. Un turno che era già in volo quando la sessione è cambiata risulta **stale** e
+        # viene SCARTATO (niente save, niente risposta-fantasma dopo lo Stop — GPT/GLM #64).
+        self._epoch = 0
+        # Ultima API key registrata come segreto: alla ROTAZIONE (chiave diversa) si de-registra la
+        # precedente, così il registro globale non accumula chiavi vecchie (GPT/GLM/Fugu #64).
+        self._registered_key = ""
 
     # ── stato ──────────────────────────────────────────────────────────────────
     @property
     def history(self):
+        """La `ConversationHistory` corrente (in RAM)."""
         return self._history
 
     def is_running(self) -> bool:
+        """`True` se l'assistente è nello stato RUNNING (chat attiva)."""
         return self.state == RUNNING
 
     def _emit(self, kind, data=None):
+        """Notifica un evento alla view (`on_event(kind, data)`), best-effort."""
         if self._on_event is not None:
             try:
                 self._on_event(kind, data)
@@ -67,6 +77,7 @@ class AgentController:
                 pass
 
     def _set_state(self, state, *, error=""):
+        """Imposta lo stato e notifica la view con l'evento `state`."""
         self.state = state
         self.last_error = error
         self._emit("state", {"state": state, "error": error})
@@ -82,11 +93,18 @@ class AgentController:
         api_key = token_store.load_api_key()
         if not api_key:
             return None
-        # Registra la chiave come segreto (Fugu #64): caricata dal keyring, va mascherata nei
-        # log/cronologia anche se il suo formato NON combacia col pattern `sk-ant-` (il path GUI
-        # la registra a mano al salvataggio, ma il keyring può contenerla già da una sessione prima).
-        event_log.register_secret(api_key)
+        self._register_key(api_key)
         return config_agent.RealAnthropicClient(api_key)
+
+    def _register_key(self, key):
+        """Registra la API key come segreto (Fugu #64): mascherata nei log/cronologia anche se il
+        formato non combacia col pattern `sk-ant-`. Alla **rotazione** de-registra la chiave
+        precedente, così il registro globale non accumula chiavi vecchie (GPT/GLM/Fugu #64)."""
+        prev = self._registered_key
+        if prev and prev != key:
+            event_log.unregister_secret(prev)
+        event_log.register_secret(key)
+        self._registered_key = key
 
     def enable(self) -> bool:
         """Abilita l'assistente: carica la cronologia (persistente, redatta) e avvia il worker.
@@ -105,10 +123,20 @@ class AgentController:
         if client is None:
             self._set_state(ERROR, error="API key Anthropic mancante: impostala per avviare l'assistente.")
             return False
-        self._history = config_agent.ConversationHistory.load()
-        self._agent = config_agent.ConfigAgent(self._registry, client, allow_writes=False)
-        self._worker = AgentWorker(self._handle_message, on_result=self._on_worker_result,
-                                   thread_factory=threading.Thread)
+        # Nuova sessione sotto lock: incrementa l'epoch (invalida turni in volo di prima) e ricarica
+        # la cronologia in modo atomico rispetto a un eventuale worker superstite (GLM #64).
+        with self._history_lock:
+            self._epoch += 1
+            epoch = self._epoch
+            self._history = config_agent.ConversationHistory.load()
+            self._agent = config_agent.ConfigAgent(self._registry, client, allow_writes=False)
+        # L'epoch è LEGATO al worker (closure): i turni di QUESTA sessione portano `epoch`; un worker
+        # superstite di una sessione precedente porta un epoch diverso → i suoi risultati sono scartati
+        # (niente scrittura/emit sulla NUOVA sessione — CodeRabbit/GPT/GLM/Fugu #64).
+        self._worker = AgentWorker(
+            lambda t: self._handle_message(t, epoch),
+            on_result=lambda turn: self._on_worker_result(turn, epoch),
+            thread_factory=threading.Thread)
         self._worker.start()
         self._set_state(RUNNING)
         self._emit("history", {"messages": self._history.messages})
@@ -117,11 +145,13 @@ class AgentController:
     def stop(self) -> None:
         """Ferma l'assistente e il worker (teardown pulito, join con timeout). Idempotente.
 
-        Azzera `_agent` PRIMA (i messaggi in volo diventano no-op via la guardia in
-        `_handle_message`). Se il worker termina, lo si scarta; se dopo il timeout è **ancora vivo**
-        (turno reale in volo) se ne **tiene** il riferimento (Fugu #64): così un `enable()` immediato
-        non crea un secondo thread sopra a quello superstite."""
-        self._agent = None
+        Incrementa l'epoch (i turni in volo diventano **stale** → scartati) e azzera `_agent` sotto
+        lock. Se il worker termina, lo si scarta; se dopo il timeout è **ancora vivo** (turno reale
+        in volo) se ne **tiene** il riferimento (Fugu #64): così un `enable()` immediato non crea un
+        secondo thread sopra a quello superstite."""
+        with self._history_lock:
+            self._epoch += 1
+            self._agent = None
         w = self._worker
         if w is not None and w.stop():
             self._worker = None
@@ -145,35 +175,53 @@ class AgentController:
         self._worker.submit(text)
         return True
 
-    def _handle_message(self, text):
-        """Elabora UN messaggio (chiamato dal worker): esegue il turno, aggiorna e SALVA la
-        cronologia (redatta), e ritorna il `AgentTurn`. Sincrono e testabile.
+    def _handle_message(self, text, epoch):
+        """Elabora UN messaggio (chiamato dal worker), guardato dall'**epoch** LEGATO alla sessione
+        che ha creato il worker:
 
-        Guardia (Fable #64): se nel frattempo è stato fatto `stop()` (con un messaggio già in volo o
-        il join scaduto), `self._agent` è `None` → si ritorna un turno VUOTO invece di sollevare
-        `AttributeError` (niente messaggio-fantasma «errore interno» dopo lo Stop)."""
-        agent = self._agent
-        if agent is None:
-            return config_agent.AgentTurn("", list(self._history.messages), [])
+        - se l'epoch è già stale (stop/re-enable prima ancora di partire) o `_agent` è `None` → no-op;
+        - `run_turn` gira **fuori** dal lock (lento; opera su una COPIA dei messaggi, quindi un
+          `replace` concorrente non lo corrompe);
+        - al ritorno, **sotto lock**, se l'epoch è diventato stale (`stop()`/re-enable durante il
+          turno) il risultato è SCARTATO: niente `replace`, niente `save`, niente evento `turn`
+          (nessuna risposta-fantasma né mutazione della NUOVA sessione — CodeRabbit/GPT/GLM/Fugu #64);
+        - altrimenti aggiorna+salva la cronologia (redatta) ed emette `turn`, tutto sotto lock.
+
+        Ritorna sempre `None`: l'emissione del turno normale avviene qui (sotto la guardia epoch); il
+        percorso d'errore del worker passa da `_on_worker_result` (anch'esso epoch-guardato)."""
         with self._history_lock:
-            turn = agent.run_turn(text, history=self._history.messages)
+            if epoch != self._epoch or self._agent is None:
+                return None
+            agent = self._agent
+            base_messages = list(self._history.messages)
+        turn = agent.run_turn(text, history=base_messages)   # lento: nessun lock tenuto
+        with self._history_lock:
+            if epoch != self._epoch:
+                return None                                  # sessione cambiata → scarta
             self._history.replace(turn.messages)
             cfg = self._config_loader() or {}
-            # Segreti di sessione per la redazione: solo valori non vuoti (i vuoti sono comunque
-            # ignorati da `redact_extra`, ma li filtriamo per chiarezza).
             extra = [v for v in (cfg.get("chat_id", ""),
                                  cfg.get("xtrader_notification_chat_id", "")) if v]
             try:
                 self._history.save(extra_secrets=extra)
-            except OSError:
-                # Persistenza best-effort: un disco pieno/permessi non deve rompere la conversazione.
-                self._emit("warning", {"reason": "history_save_failed"})
-        return turn
+            except Exception as exc:   # noqa: BLE001 — persistenza best-effort: MAI scartare il turno
+                # Un errore di salvataggio (disco/permessi/serializzazione) non deve perdere la
+                # risposta né rompere la conversazione (CodeRabbit #64: non solo OSError).
+                self._emit("warning", {"reason": "history_save_failed",
+                                       "exc": type(exc).__name__})
+            self._emit("turn", {"text": turn.text, "capped": turn.capped,
+                                "messages": turn.messages})
+        return None
 
-    def _on_worker_result(self, turn):
-        self._emit("turn", {"text": getattr(turn, "text", ""),
-                            "capped": getattr(turn, "capped", False),
-                            "messages": getattr(turn, "messages", [])})
+    def _on_worker_result(self, turn, epoch):
+        # Il turno NORMALE è già emesso da `_handle_message` (sotto guardia epoch), che ritorna
+        # `None`. Qui arriva solo il turno d'ERRORE prodotto dal worker se l'handle solleva → lo si
+        # mostra SOLO se l'epoch è ancora corrente (niente errore-fantasma dopo lo Stop).
+        if epoch != self._epoch:
+            return
+        if turn is not None and getattr(turn, "text", ""):
+            self._emit("turn", {"text": turn.text, "capped": getattr(turn, "capped", False),
+                                "messages": []})
 
 
 class AgentWorker:
@@ -190,12 +238,14 @@ class AgentWorker:
         self._thread = None
 
     def start(self) -> None:
+        """Avvia il thread daemon del loop (no-op se già avviato)."""
         if self._thread is not None:
             return
         self._thread = self._thread_factory(target=self._loop, daemon=True)
         self._thread.start()
 
     def submit(self, text) -> None:
+        """Accoda un item da elaborare."""
         self._q.put(text)
 
     def _process_one(self, item) -> bool:
@@ -214,6 +264,7 @@ class AgentWorker:
         return True
 
     def _loop(self) -> None:
+        """Loop del thread: consuma la coda finché non incontra la sentinella di stop."""
         while True:
             item = self._q.get()
             try:
@@ -234,6 +285,7 @@ class AgentWorker:
                 self._q.task_done()
 
     def is_alive(self) -> bool:
+        """`True` se il thread del worker è avviato e ancora vivo."""
         return self._thread is not None and self._thread.is_alive()
 
     def stop(self, *, timeout=5.0) -> bool:

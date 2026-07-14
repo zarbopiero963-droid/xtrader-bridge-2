@@ -211,13 +211,58 @@ def test_build_client_registra_api_key_dal_keyring(tmp_path, monkeypatch):
 
 
 def test_handle_message_dopo_stop_non_solleva(tmp_path, monkeypatch):
-    # Fable #64: con _agent=None (dopo stop / join scaduto) _handle_message ritorna un turno VUOTO,
-    # niente AttributeError, niente messaggio-fantasma «errore interno».
-    c = _controller(tmp_path, monkeypatch, client=FakeClient())
+    # Fable #64: con epoch stale (dopo stop) _handle_message è un no-op (None), niente
+    # AttributeError, niente messaggio-fantasma.
+    events = []
+    c = _controller(tmp_path, monkeypatch, client=FakeClient(),
+                    on_event=lambda k, d: events.append(k))
     c.enable()
-    c.stop()                                  # azzera _agent
-    turn = c._handle_message("messaggio in volo dopo stop")
-    assert turn.text == "" and turn.messages == c.history.messages
+    epoch = c._epoch
+    c.stop()                                  # incrementa epoch → il vecchio è stale
+    assert c._handle_message("messaggio in volo dopo stop", epoch) is None
+    assert "turn" not in events               # nessuna risposta-fantasma emessa
+
+
+def test_epoch_worker_stale_non_tocca_nuova_sessione(tmp_path, monkeypatch):
+    # CodeRabbit/GPT/GLM #64 (deterministico): un worker di una sessione precedente (epoch vecchio),
+    # dopo Stop→Enable, NON deve emettere risultati né mutare la cronologia della NUOVA sessione.
+    events = []
+    c = _controller(tmp_path, monkeypatch, client=FakeClient("risposta vecchia"),
+                    on_event=lambda k, d: events.append((k, d)))
+    c.enable()
+    old_epoch = c._epoch
+    c.stop()
+    c.enable()                                # nuova sessione: epoch avanzato, storia nuova
+    new_hist = list(c.history.messages)
+    events.clear()
+    # il worker STALE (old_epoch) prova a elaborare un messaggio in coda
+    assert c._handle_message("messaggio della vecchia sessione", old_epoch) is None
+    assert all(k != "turn" for k, _ in events)          # nessun risultato emesso
+    assert c.history.messages == new_hist               # cronologia nuova intatta
+    c.stop()
+
+
+def test_turno_scartato_se_stop_durante_run(tmp_path, monkeypatch):
+    # CodeRabbit #64 (deterministico): se Stop scatta MENTRE run_turn è in volo, il turno che
+    # completa dopo è STALE → scartato (niente save, niente risposta-fantasma). Il client fa
+    # partire lo stop DURANTE la propria create_message.
+    events, holder = [], {}
+
+    class StopDuringClient:
+        def create_message(self, *, system, messages, tools):
+            holder["c"].stop()      # Stop durante il turno → epoch avanza
+            return {"stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": "risposta tardiva"}]}
+
+    c = _controller(tmp_path, monkeypatch, client=StopDuringClient(),
+                    on_event=lambda k, d: events.append(k))
+    holder["c"] = c
+    c.enable()
+    epoch = c._epoch
+    assert c._handle_message("ciao", epoch) is None       # scartato
+    assert "turn" not in events                            # nessuna risposta-fantasma
+    hp = os.path.join(str(tmp_path), ca.HISTORY_FILENAME)
+    assert not os.path.exists(hp) or json.load(open(hp))["messages"] == []
 
 
 def test_worker_stop_thread_vivo_ritorna_false():

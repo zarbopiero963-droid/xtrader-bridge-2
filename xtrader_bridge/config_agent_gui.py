@@ -85,6 +85,7 @@ class AssistantPanel:
 
     # -- costruzione --
     def _build(self):
+        """Costruisce i widget del pannello (campo API key, Abilita/Stop, trascritto, input)."""
         ctk = self._ctk
         outer = ctk.CTkFrame(self.master, fg_color="transparent")
         outer.pack(fill="both", expand=True, padx=8, pady=6)
@@ -130,6 +131,7 @@ class AssistantPanel:
 
     # -- azioni GUI --
     def _save_key(self):
+        """Salva la API key nel keyring e la registra come segreto; svuota il campo."""
         key = self._key_var.get().strip()
         if not key:
             return
@@ -141,12 +143,15 @@ class AssistantPanel:
             self._append(i18n.tr("⚠️ Keyring non disponibile: chiave NON salvata."))
 
     def _enable(self):
+        """Callback «Abilita»: avvia l'assistente."""
         self.controller.enable()
 
     def _stop(self):
+        """Callback «Stop»: ferma l'assistente."""
         self.controller.stop()
 
     def _send(self):
+        """Callback «Invia»: accoda il messaggio utente (se l'assistente è attivo)."""
         text = self._input_var.get().strip()
         if not text:
             return
@@ -158,12 +163,14 @@ class AssistantPanel:
 
     # -- eventi del controller (marshallati sul thread GUI) --
     def _on_event(self, kind, data):
+        """Riceve un evento del controller (anche dal thread worker) e lo marshalla sul thread GUI."""
         try:
             self.master.after(0, lambda: self._handle_event(kind, data))
         except Exception:   # noqa: BLE001 — root Tk distrutta / assente (teardown): best-effort
             pass
 
     def _handle_event(self, kind, data):
+        """Applica un evento del controller ai widget (sul thread GUI)."""
         if kind == "state":
             self._refresh_state(data.get("state"), data.get("error", ""))
         elif kind == "turn":
@@ -184,6 +191,7 @@ class AssistantPanel:
             self._append(i18n.tr("⚠️ Cronologia non salvata (disco/permessi)."))
 
     def _refresh_state(self, state, error=""):
+        """Aggiorna indicatore di stato e abilitazione dell'input in base allo stato."""
         self._state_lbl.configure(text=state_label(state), text_color=state_color(state))
         enabled = input_enabled(state)
         self._input.configure(state="normal" if enabled else "disabled")

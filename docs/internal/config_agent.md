@@ -114,7 +114,11 @@ di `redact_secrets` a prescindere.
 - **`config_agent_controller.AgentController`** (logica, testata): macchina a stati
   `STOPPED`/`RUNNING`/`ERROR`. `enable()` richiede la API key (keyring) — assente → `ERROR`, l'agente
   resta spento; carica la cronologia persistente (redatta) e avvia il worker. `stop()`/`teardown()`
-  fermano e **joinano** il worker (nessun thread superstite). `submit(text)` accoda un messaggio;
+  fermano il worker con un **join a timeout** (best-effort limitato: se un turno reale è in volo il
+  thread daemon esce appena la chiamata rientra). Ogni `enable()`/`stop()` avanza un **epoch** di
+  sessione **legato** al worker: un turno che completa dopo lo Stop (o dopo un re-enable) è **stale**
+  e viene **scartato** (niente save, niente risposta-fantasma, nessuna mutazione della nuova
+  sessione — pattern identico al `_listener_epoch` del bot). `submit(text)` accoda un messaggio;
   **rifiutato** se non `RUNNING` (guardia). Ogni turno: `run_turn` → `history.replace` →
   `history.save(extra_secrets=[chat_id])` (best-effort su errore disco). Client Anthropic iniettabile.
 - **`config_agent_controller.AgentWorker`** (testato): loop su `queue.Queue` con **sentinella** di
@@ -141,8 +145,14 @@ cronologia su disco resta sempre redatta.
 4. Scrivi un messaggio → **Invia**: compaiono «🧑 Tu: …» e la risposta «🤖 Assistente: …».
    *Atteso:* nessun token/chat in chiaro nel log; la conversazione è salvata redatta in
    `%APPDATA%/XTraderBridge/assistant_history.json`.
-5. Chiudi la finestra (o **Stop**) → il thread worker termina (nessun processo/thread appeso).
+5. Chiudi la finestra (o **Stop**) → si richiede lo stop del worker (join a timeout): la finestra si
+   chiude subito; un eventuale turno reale in volo termina da sé (thread daemon) ed è scartato.
    *Non verificato in CI:* rendering widget, chiamata reale ad Anthropic, keyring reale Windows.
+
+> **Nota (future, nitpick CodeRabbit #64):** `run_turn` ripassa al modello l'INTERA cronologia a
+> ogni turno → in sessioni molto lunghe il contesto cresce (latenza/costo/limite di finestra). Una
+> **troncatura/riassunto** oltre una soglia è un miglioramento previsto per una fase successiva
+> (fuori dallo scope di PR-3).
 
 ## Cosa NON c'è ancora (PR successive)
 - **PR-4**: tool di **scrittura** config gated (token/chat/csv/parser) con conferma sulle
