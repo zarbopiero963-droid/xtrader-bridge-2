@@ -266,6 +266,35 @@ def test_get_setup_status_csv_dir_inesistente_non_pronto(tmp_path):
     assert data["ready_to_start"] is False
 
 
+def test_get_setup_status_non_crea_ne_tocca_il_csv(tmp_path):
+    # Fable #66: il tool è READ_ONLY → la sonda `csv_writable` NON deve creare né modificare il file
+    # CSV (mai `open`/write: solo `os.path`/`os.access`). Prova su path assente E su file esistente.
+    csv_path = os.path.join(str(tmp_path), "segnali.csv")
+    reg = ca.build_default_registry(
+        config_loader=lambda: {"csv_path": csv_path, "active_parser": "P1"})
+    data = json.loads(reg.dispatch("get_setup_status", {}).content)
+    assert not os.path.exists(csv_path)              # la sonda NON ha creato il file
+    assert data["requirements"]["csv_usable"] is True   # cartella scrivibile → usabile (POSIX)
+    # file già esistente: il contenuto resta INTATTO dopo la sonda
+    with open(csv_path, "w", encoding="utf-8") as fh:
+        fh.write("HEADER-XTRADER\n")
+    reg.dispatch("get_setup_status", {})
+    with open(csv_path, encoding="utf-8") as fh:
+        assert fh.read() == "HEADER-XTRADER\n"       # non toccato
+
+
+def test_get_setup_status_source_chats_fallback():
+    # GPT/GLM #66: `chat` usa `source_chats` come fallback di `chat_id`. Lista VUOTA → False
+    # (bool([]) è False, coerente con wizard.final_checklist); lista con voci → True.
+    vuota = ca.build_default_registry(config_loader=lambda: {"chat_id": "", "source_chats": []})
+    assert json.loads(vuota.dispatch("get_setup_status", {}).content)["requirements"]["chat"] is False
+    piena = ca.build_default_registry(
+        config_loader=lambda: {"chat_id": "", "source_chats": [{"chat_id": "-1001234567890"}]})
+    d = json.loads(piena.dispatch("get_setup_status", {}).content)
+    assert d["requirements"]["chat"] is True
+    assert "-1001234567890" not in json.dumps(d)      # nemmeno il chat_id di source_chats in chiaro
+
+
 def test_get_setup_status_e_read_only_e_non_scrive():
     reg = ca.build_default_registry(config_loader=lambda: {})
     # offerto SEMPRE (read-only), anche senza allow_writes
