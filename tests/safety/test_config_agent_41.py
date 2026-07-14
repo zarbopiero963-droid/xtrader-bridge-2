@@ -114,7 +114,8 @@ def test_tool_specs_espone_solo_read_only_in_pr1():
     names = [s["name"] for s in reg.tool_specs()]                    # default: no writes
     assert "set_token" not in names
     assert set(names) == {"get_config_state", "get_health", "list_parsers", "get_setup_status",
-                          "list_guides", "read_guide", "test_message", "lookup_dictionary"}
+                          "list_guides", "read_guide", "test_message", "lookup_dictionary",
+                          "explain_health", "why_discarded"}
     assert "set_token" in [s["name"] for s in reg.tool_specs(include_writes=True)]
 
 
@@ -834,3 +835,133 @@ def test_lookup_dictionary_truncated_chiave_sempre_presente(monkeypatch):
     data = ca.build_dictionary_lookup({}, "goal")
     assert data["dizionario_available"] is False
     assert data["truncated"]["dizionario"] is False       # chiave presente, non omessa
+
+
+# ── #41 PR-10 Blocco D: 🚦 explain_health + 🩺 why_discarded (diagnosi, SOLA-LETTURA) ──
+
+from xtrader_bridge import event_journal as _ej   # noqa: E402
+from xtrader_bridge.health_check import HealthItem as _HI, RED as _RED, GREEN as _GREEN  # noqa: E402
+
+
+def test_explain_health_config_only_fallback():
+    # Senza health_provider: valutazione da config + sonda CSV; ogni non-verde ha un advice.
+    reg = ca.build_default_registry(config_loader=lambda: {"active_parser": "P1"})
+    res = reg.dispatch("explain_health", {}, allow_writes=False)
+    assert res.refused is False
+    data = json.loads(res.content)
+    assert data["live"] is False
+    keys = {s["key"] for s in data["semafori"]}
+    assert keys == {"telegram", "message", "parser", "signal", "csv", "confirmation", "mode"}
+    for s in data["semafori"]:
+        assert (s["advice"] != "") == (s["state"] != _GREEN)     # advice sse e solo se non-verde
+
+
+def test_explain_health_usa_provider_live():
+    # Con health_provider iniettato (stato dell'app) → live=True e riflette quei semafori.
+    prov = lambda: [_HI("telegram", "Telegram", _RED, "OFFLINE — premi AVVIA")]
+    reg = ca.build_default_registry(config_loader=lambda: {}, health_provider=prov)
+    data = json.loads(reg.dispatch("explain_health", {}).content)
+    assert data["live"] is True
+    assert data["semafori"][0]["state"] == _RED
+    assert data["semafori"][0]["advice"]        # RED → advice presente
+
+
+def test_explain_health_provider_difettoso_ripiega():
+    # Un provider dell'app che solleva → fail-safe: ripiega su config, live=False, mai crash.
+    def _boom():
+        raise RuntimeError("app rotta")
+    reg = ca.build_default_registry(config_loader=lambda: {}, health_provider=_boom)
+    data = json.loads(reg.dispatch("explain_health", {}).content)
+    assert data["live"] is False and len(data["semafori"]) == 7
+
+
+def test_why_discarded_ciclo_di_vita(tmp_path):
+    p = str(tmp_path / "ej.jsonl")
+    t = 1000.0
+    for et in ("START", "SIGNAL_RECEIVED", "SIGNAL_PARSED"):   # ricevuto ma MAI scritto
+        _ej.append_event(p, et, {}, now=t); t += 1
+    reg = ca.build_default_registry(config_loader=lambda: {}, journal_path=p)
+    data = json.loads(reg.dispatch("why_discarded", {}).content)
+    assert data["journal_available"] is True
+    s = data["summary"]
+    assert s["last_signal_received"] is True
+    assert s["last_signal_reached_csv"] is False        # non arrivato al CSV → utile per la diagnosi
+
+
+def test_why_discarded_arrivato_al_csv(tmp_path):
+    p = str(tmp_path / "ej.jsonl")
+    t = 2000.0
+    for et in ("SIGNAL_RECEIVED", "SIGNAL_PARSED", "SIGNAL_VALIDATED", "CSV_WRITTEN"):
+        _ej.append_event(p, et, {}, now=t); t += 1
+    data = ca.build_journal_report(journal_path=p)
+    assert data["summary"]["last_signal_reached_csv"] is True
+
+
+def test_why_discarded_fail_safe_diario_assente(tmp_path):
+    reg = ca.build_default_registry(config_loader=lambda: {}, journal_path=str(tmp_path / "nope.jsonl"))
+    data = json.loads(reg.dispatch("why_discarded", {}).content)
+    assert data["journal_available"] is False and data["events"] == []
+
+
+def test_why_discarded_limit_capato(tmp_path):
+    p = str(tmp_path / "ej.jsonl")
+    for i in range(ca.MAX_JOURNAL_EVENTS + 10):
+        _ej.append_event(p, "SIGNAL_RECEIVED", {"i": i}, now=1000.0 + i)
+    data = ca.build_journal_report(journal_path=p, limit=ca.MAX_JOURNAL_EVENTS)
+    assert data["shown"] == ca.MAX_JOURNAL_EVENTS and data["total"] == ca.MAX_JOURNAL_EVENTS + 10
+
+
+def test_diagnostic_tools_read_only():
+    reg = ca.build_default_registry(config_loader=lambda: {})
+    names = [s["name"] for s in reg.tool_specs()]           # offerti senza allow_writes
+    assert "explain_health" in names and "why_discarded" in names
+    assert reg.dispatch("explain_health", {}, allow_writes=False).refused is False
+    assert reg.dispatch("why_discarded", {}, allow_writes=False).refused is False
+
+
+def test_explain_health_non_espone_segreti(tmp_path):
+    # Un last_error nei semafori non deve MAI contenere token in chiaro (il provider dà detail redatto,
+    # ma verifichiamo che il tool non re-introduca segreti): usiamo un provider con detail innocuo.
+    prov = lambda: [_HI("signal", "Ultimo segnale", "YELLOW",
+                        "nessun segnale; ultimo errore: parser non ha riconosciuto")]
+    reg = ca.build_default_registry(config_loader=lambda: {"bot_token": "123456:FAKE-XYZ"},
+                                    health_provider=prov)
+    out = reg.dispatch("explain_health", {}).content
+    assert "123456:FAKE" not in out
+
+
+def test_explain_health_provider_none_o_vuoto_ripiega(tmp_path):
+    # GLM #72: un provider che ritorna None o [] è degenere → fallback config, live=False
+    # (mai live=True su dati di fallback).
+    for prov in (lambda: None, lambda: []):
+        data = ca.build_health_report({"active_parser": "P1"}, health_provider=prov)
+        assert data["live"] is False
+        assert len(data["semafori"]) == 7
+
+
+def test_explain_health_mode_usa_mode_from_cfg():
+    # Fugu #72: nel fallback il semaforo Modalità usa bridge_mode.mode_from_cfg (come il pannello 🚦
+    # e get_setup_status), non un get grezzo. Ne consegue la stessa semantica FAIL-CLOSED:
+    from xtrader_bridge import bridge_mode
+    # REALE coerente (dry_run False) → semaforo ROSSO.
+    reale = ca.build_health_report({"bridge_mode": bridge_mode.REALE, "dry_run": False})
+    assert next(s for s in reale["semafori"] if s["key"] == "mode")["state"] == ca.health_check.RED
+    # REALE «sporco» senza dry_run=False → mode_from_cfg declassa a SIMULAZIONE (vince dry_run):
+    # con il vecchio get grezzo sarebbe apparso ROSSO, mascherando il fail-closed.
+    dirty = ca.build_health_report({"bridge_mode": bridge_mode.REALE})
+    assert next(s for s in dirty["semafori"] if s["key"] == "mode")["state"] == ca.health_check.GREEN
+
+
+def test_why_discarded_redige_segreti_nel_diario(tmp_path):
+    # Fugu #72: prova la CATENA di redazione — un token nel payload del diario NON deve arrivare
+    # al modello via why_discarded (event_journal redige in scrittura + il registry redige l'output).
+    p = str(tmp_path / "ej.jsonl")
+    token = "7654321:FAKE-BOT-TOKEN-AAAABBBBCCCCDDDDEEEE"
+    _ej.append_event(p, "SIGNAL_RECEIVED", {"raw": f"segnale con {token} dentro"}, now=1000.0)
+    # 1) già redatto su disco (event_journal)
+    on_disk = json.dumps(_ej.read_events(p))
+    assert token not in on_disk
+    # 2) e comunque non esce da why_discarded (registry redige l'output come difesa finale)
+    reg = ca.build_default_registry(config_loader=lambda: {}, journal_path=p)
+    out = reg.dispatch("why_discarded", {}).content
+    assert token not in out
