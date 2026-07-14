@@ -142,6 +142,69 @@ def test_risultato_tool_passa_per_redact_secrets():
         event_log.unregister_secret(secret)
 
 
+def test_audit_log_input_redatto():
+    # #62 (GPT/Fable/Fugu/GLM): un segreto passato come PARAMETRO di tool non deve restare in
+    # chiaro nell'audit_log (canale di leak in memoria / futura cronologia PR-2).
+    secret = "sk-ant-AUDITSECRET-123"
+    event_log.register_secret(secret)
+    try:
+        reg = _registry()
+        reg.dispatch("tool_sconosciuto", {"api_key": secret})   # anche su tool rifiutato
+        entry = reg.audit_log[-1]
+        assert secret not in str(entry["input"])
+        # e su un tool eseguito
+        reg.dispatch("get_health", {"nota": secret})
+        assert all(secret not in str(e["input"]) for e in reg.audit_log)
+    finally:
+        event_log.unregister_secret(secret)
+
+
+def test_logger_non_riceve_segreti():
+    secret = "sk-ant-LOGGERSECRET-456"
+    event_log.register_secret(secret)
+    captured = []
+    try:
+        reg = ca.build_default_registry(config_loader=lambda: dict(_CFG),
+                                        logger=captured.append)
+        # il nome-tool (controllato dal modello) contiene un segreto → il log lo redige
+        reg.dispatch(secret, {})
+        assert captured and all(secret not in m for m in captured)
+    finally:
+        event_log.unregister_secret(secret)
+
+
+def test_contenuto_rifiuto_redatto():
+    secret = "sk-ant-REFUSAL-789"
+    event_log.register_secret(secret)
+    try:
+        reg = _registry()
+        res = reg.dispatch(secret, {})          # nome sconosciuto = il segreto stesso
+        assert res.refused is True
+        assert secret not in res.content         # il messaggio di rifiuto è redatto
+    finally:
+        event_log.unregister_secret(secret)
+
+
+def test_tool_specs_esclude_forbidden_anche_se_iniettato():
+    # Difesa in profondità: anche bypassando `register` (che già lo vieta) e iniettando un tool
+    # dal nome vietato direttamente in `_tools`, `tool_specs` non lo offre MAI al modello.
+    reg = _registry()
+    reg._tools["place_bet"] = ca.AgentTool(
+        "place_bet", "x", {"type": "object", "properties": {}}, ca.WRITE_CONFIG, lambda _i: "!")
+    offered = [s["name"] for s in reg.tool_specs(include_writes=True)]
+    assert "place_bet" not in offered
+
+
+def test_real_client_lazy_import_failsafe():
+    # La costruzione NON importa `anthropic` (l'import del modulo non deve rompere l'avvio app).
+    client = ca.RealAnthropicClient("fake-key")
+    import importlib.util
+    if importlib.util.find_spec("anthropic") is None:
+        # Dipendenza assente → errore CHIARO solo all'uso reale, mai un ImportError all'import.
+        with pytest.raises(RuntimeError):
+            client.create_message(system="s", messages=[], tools=[])
+
+
 def test_handler_che_solleva_non_crasha_l_agente():
     reg = ca.ToolRegistry()
     reg.register(ca.AgentTool("boom", "solleva", {"type": "object", "properties": {}},

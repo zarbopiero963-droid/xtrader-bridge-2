@@ -127,39 +127,61 @@ class ToolRegistry:
     def tool_specs(self, *, include_writes=False) -> list:
         """Le spec da passare al modello. In PR-1 si espongono SOLO i tool sola-lettura
         (``include_writes=False``): i tool di scrittura esistono nel registro ma non vengono
-        offerti finché la fase di scrittura gated (PR-4) non li abilita."""
+        offerti finché la fase di scrittura gated (PR-4) non li abilita. Filtro difensivo
+        aggiuntivo: un nome nella denylist ``FORBIDDEN_TOOLS`` non è MAI offerto al modello
+        (belt-and-suspenders: `register` già lo impedisce, ma se qualcuno bypassasse il costruttore
+        e iniettasse in `_tools`, qui resta comunque escluso)."""
         return [t.spec() for t in self._tools.values()
-                if t.permission == READ_ONLY or (include_writes and t.permission == WRITE_CONFIG)]
+                if t.name not in FORBIDDEN_TOOLS
+                and (t.permission == READ_ONLY or (include_writes and t.permission == WRITE_CONFIG))]
+
+    @staticmethod
+    def _safe_repr(obj) -> str:
+        """Rappresentazione **redatta** di un input per l'audit: nessun segreto registrato
+        (token/API key) resta in chiaro. Difesa in profondità (#41): l'audit — e la cronologia
+        (PR-2) — non devono MAI conservare segreti, nemmeno se il modello passa un valore sensibile
+        come parametro di tool (rilievo GPT-5.5/Fable/Fugu/GLM su #62)."""
+        try:
+            return event_log.redact_secrets(json.dumps(obj, ensure_ascii=False, default=str))
+        except (TypeError, ValueError):
+            return "<non serializzabile>"
 
     def _audit(self, name, tool_input, allowed, reason):
-        self.audit_log.append({"name": name, "input": tool_input,
+        # `input` REDATTO all'ingresso (non solo l'output): l'audit non deve mai contenere segreti.
+        self.audit_log.append({"name": name, "input": self._safe_repr(tool_input),
                                "allowed": allowed, "reason": reason})
         if self._logger is not None:
             verb = "eseguito" if allowed else "RIFIUTATO"
             try:
-                self._logger(f"[assistente] tool {verb}: {name} ({reason})")
+                self._logger(event_log.redact_secrets(
+                    f"[assistente] tool {verb}: {name} ({reason})"))
             except Exception:   # noqa: BLE001 — il logging non deve mai far fallire il dispatch
                 pass
 
     def dispatch(self, name, tool_input, *, allow_writes=False) -> ToolResult:
         """Esegue (o rifiuta) un tool. Vedi le regole nella docstring della classe."""
         tool_input = tool_input if isinstance(tool_input, dict) else {}
+        # I messaggi di rifiuto interpolano il `name` (che il modello controlla): passano comunque
+        # per `redact_secrets`, così nessun segreto torna al modello nemmeno via un nome-tool
+        # malevolo (rilievo GLM su #62).
         # 1. hard block: denylist — a prescindere da registrazione e da allow_writes.
         if name in FORBIDDEN_TOOLS:
             reason = "forbidden"
             self._audit(name, tool_input, False, reason)
-            return ToolResult(name, _REFUSAL_FORBIDDEN.format(name=name), refused=True, reason=reason)
+            return ToolResult(name, event_log.redact_secrets(_REFUSAL_FORBIDDEN.format(name=name)),
+                              refused=True, reason=reason)
         tool = self._tools.get(name)
         # 2. sconosciuto.
         if tool is None:
             reason = "unknown"
             self._audit(name, tool_input, False, reason)
-            return ToolResult(name, _REFUSAL_UNKNOWN.format(name=name), refused=True, reason=reason)
+            return ToolResult(name, event_log.redact_secrets(_REFUSAL_UNKNOWN.format(name=name)),
+                              refused=True, reason=reason)
         # 3. scrittura non abilitata.
         if tool.permission == WRITE_CONFIG and not allow_writes:
             reason = "write_disabled"
             self._audit(name, tool_input, False, reason)
-            return ToolResult(name, _REFUSAL_WRITE_DISABLED.format(name=name),
+            return ToolResult(name, event_log.redact_secrets(_REFUSAL_WRITE_DISABLED.format(name=name)),
                               refused=True, reason=reason)
         # 4. esecuzione + redazione segreti sul risultato.
         try:

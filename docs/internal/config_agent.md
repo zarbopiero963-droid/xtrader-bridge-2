@@ -49,7 +49,8 @@ Meccanismi (fail-closed, testati in `tests/safety/test_config_agent_41.py`):
 | Un tool con nome in denylist **non è nemmeno registrabile** | `ToolRegistry.register` |
 | Tool sconosciuto → rifiuto | `dispatch` (punto 2) |
 | Scrittura config **gated** (`allow_writes=False` in PR-1; i write-tool non sono nemmeno **offerti** al modello) | `dispatch` (punto 3) + `tool_specs` |
-| **Redazione segreti** su OGNI risultato di tool prima di tornare al modello | `dispatch` (punto 4) via `event_log.redact_secrets` |
+| **Redazione segreti** su OGNI contenuto che torna al modello — risultati **e messaggi di rifiuto** | `dispatch` via `event_log.redact_secrets` |
+| **Audit redatto all'ingresso**: `audit_log` e il `logger` non conservano mai `tool_input`/nomi in chiaro | `ToolRegistry._audit` / `_safe_repr` |
 | `get_config_state` maschera token/API key/chat ID | `_redact_config` |
 | Loop tool-use protetto da **cap** anti-loop | `ConfigAgent.run_turn` / `MAX_TOOL_ITERATIONS` |
 | Un handler che solleva **non** crasha l'agente | `dispatch` (best-effort) |
@@ -64,10 +65,15 @@ iniettabile (l'app reale ci aggancerà `event_log`).
   repository, in `config.json` in chiaro, o nella cronologia conversazione (che sarà redatta in
   PR-2). Nessun fallback plaintext.
 
-## Rete
+## Rete e cronologia
 
 - L'**unica** connessione in uscita prevista è la chiamata HTTPS ad Anthropic (il canale col
   modello). Nessun web/browser/fetch: quelle capacità sono nella denylist hard-block.
+- Il **messaggio dell'utente** viene inviato al modello: è il canale sanzionato (l'assistente deve
+  capire l'ordine per eseguirlo). Ciò che **non** deve mai persistere in chiaro sono l'**audit**
+  (redatto qui, PR-1) e la **cronologia conversazione** (redazione in **PR-2**, con `log_privacy`/
+  `redact_secrets`). Per le operazioni di **scrittura** (PR-4) il valore sensibile va passato al
+  tool **senza** doverlo esporre nel testo persistito: il design del write-path lo definisce lì.
 
 ## Cosa NON c'è ancora (PR successive)
 
