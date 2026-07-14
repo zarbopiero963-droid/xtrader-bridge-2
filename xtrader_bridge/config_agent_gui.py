@@ -40,6 +40,21 @@ def transcript_line(role, text) -> str:
     return f"{prefix}: {text}"
 
 
+def is_stale_event(data, current_epoch) -> bool:
+    """`True` se l'evento appartiene a una sessione ormai chiusa (Stop/Enable nel frattempo) e va
+    SCARTATO. Il controller emette `turn`/`warning` **fuori dal lock** (deadlock-free) e vi stampa
+    l'`epoch`; qui, sul thread GUI, lo si confronta con l'epoch corrente del controller — così una
+    risposta-fantasma tardiva non compare nella nuova sessione (rete di sicurezza consumer-side,
+    #64). Gli eventi senza `epoch` (`state`/`history`/`rejected`/`worker_draining`) non sono mai
+    stale. L'epoch è monotòno crescente: `current` è letto DOPO l'emit, quindi `current >= epoch`."""
+    if not isinstance(data, dict) or "epoch" not in data:
+        return False
+    ev, cur = data.get("epoch"), current_epoch
+    if not isinstance(ev, int) or not isinstance(cur, int):
+        return False
+    return ev != cur
+
+
 def messages_to_transcript(messages) -> list:
     """Trasforma i messaggi (formato `ConfigAgent`) in righe di trascritto leggibili, mostrando SOLO
     il testo (i blocchi `tool_use`/`tool_result` sono dettagli interni, non parte della chat)."""
@@ -171,6 +186,11 @@ class AssistantPanel:
 
     def _handle_event(self, kind, data):
         """Applica un evento del controller ai widget (sul thread GUI)."""
+        # Rete di sicurezza consumer-side (#64): il controller emette `turn`/`warning` FUORI dal
+        # lock e vi stampa l'`epoch`; se nel frattempo la sessione è cambiata (Stop/Enable) l'evento
+        # è di una sessione chiusa → scartato qui, così non compare una risposta-fantasma.
+        if kind in ("turn", "warning") and is_stale_event(data, self.controller.current_epoch()):
+            return
         if kind == "state":
             self._refresh_state(data.get("state"), data.get("error", ""))
         elif kind == "turn":

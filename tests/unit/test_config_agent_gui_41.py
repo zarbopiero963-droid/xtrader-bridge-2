@@ -49,3 +49,20 @@ def test_messages_to_transcript_robusto_su_input_sporco():
     out = g.messages_to_transcript([None, {"role": "user"}, "x",
                                     {"role": "user", "content": "vero"}])
     assert out == ["🧑 Tu: vero"]
+
+
+def test_is_stale_event_scarta_epoch_vecchio():
+    # #64: il controller emette `turn`/`warning` fuori dal lock, con l'`epoch` stampato. Il consumer
+    # scarta gli eventi di una sessione già chiusa: epoch diverso da quello corrente → stale.
+    assert g.is_stale_event({"text": "x", "epoch": 1}, 2) is True    # sessione vecchia → scartato
+    assert g.is_stale_event({"text": "x", "epoch": 2}, 2) is False   # sessione corrente → mostrato
+
+
+def test_is_stale_event_senza_epoch_non_e_mai_stale():
+    # eventi senza `epoch` (state/history/rejected/worker_draining) non sono mai stale.
+    assert g.is_stale_event({"reason": "worker_draining"}, 5) is False
+    assert g.is_stale_event({}, 5) is False
+    assert g.is_stale_event(None, 5) is False
+    # tipi non-int (difensivo) → non stale (non si scarta per un dato malformato)
+    assert g.is_stale_event({"epoch": "1"}, 2) is False
+    assert g.is_stale_event({"epoch": 1}, None) is False

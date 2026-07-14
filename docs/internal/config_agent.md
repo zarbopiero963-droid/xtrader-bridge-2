@@ -121,9 +121,21 @@ di `redact_secrets` a prescindere.
   sessione — pattern identico al `_listener_epoch` del bot). `submit(text)` accoda un messaggio;
   **rifiutato** se non `RUNNING` (guardia). Ogni turno: `run_turn` → `history.replace` →
   `history.save(extra_secrets=[chat_id])` (best-effort su errore disco). Client Anthropic iniettabile.
+- **Concorrenza (invariante #64):** l'aggiornamento dei **dati** (`replace`+`save`) è atomico sotto
+  `_history_lock` rispetto all'epoch; l'`_emit` degli eventi (`turn`/`warning`) avviene **fuori dal
+  lock** — una callback `on_event` tenuta sotto lock deadlockerebbe se l'handler attende un altro
+  thread che chiama `stop()`/`enable()` (o vi rientra). Per non mostrare la risposta di una sessione
+  già chiusa, ogni evento porta l'`epoch`: il **consumer** (GUI, thread singolo) lo confronta con
+  `controller.current_epoch()` (`config_agent_gui.is_stale_event`) e **scarta** i `turn`/`warning`
+  non correnti — rete di sicurezza consumer-side, race-free senza lock in emit.
 - **`config_agent_controller.AgentWorker`** (testato): loop su `queue.Queue` con **sentinella** di
   stop; un turno che solleva **non** uccide il loop (errore restituito come turno). `run_pending()`
-  esegue il loop in modo **sincrono** per i test (nessun thread reale).
+  esegue il loop in modo **sincrono** per i test (nessun thread reale). `stop()` fa il **join** del
+  thread (cross-thread) e ritorna `True` se terminato — o se invocato **dallo stesso thread worker**
+  (handler rientrante): lì non fa join di sé, la sentinella è già in coda e il loop uscirà al ritorno
+  (auto-fermante, ritorna `True` così i call-site non lo leggono come «stop fallito»). Ritorna
+  `False` **solo** su timeout cross-thread con thread ancora vivo (turno reale in volo): il
+  riferimento non viene azzerato, per non creare un doppio worker.
 - **`config_agent_gui`** (view sottile): helper puri testati (`state_label`/`state_color`/
   `input_enabled`/`messages_to_transcript`) + `AssistantPanel` (widget: campo API key mascherato,
   Abilita/Stop, indicatore stato, trascritto, input) — **verifica manuale**. Marshalla gli eventi del

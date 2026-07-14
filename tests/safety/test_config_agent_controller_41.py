@@ -236,10 +236,10 @@ def test_rotazione_chiave_vecchia_resta_redatta(tmp_path, monkeypatch):
 
 
 def test_emit_handler_rientrante_no_deadlock(tmp_path, monkeypatch):
-    # Fable/Fugu #64: l'emit del turno è sotto un RLock (rientrante) + guardia epoch atomica. Un
-    # handler `on_event` che richiama `stop()` durante l'emit NON deve deadlockare né crashare
-    # (RLock riacquisito dallo stesso thread; il worker non fa join di sé). Se andasse in deadlock,
-    # il test si appenderebbe (fallisce per pytest-timeout).
+    # Fable/Fugu #64: l'emit del turno avviene FUORI dal `_history_lock` (non rientrante). Un handler
+    # `on_event` che richiama `stop()` durante l'emit NON deve deadlockare né crashare (il lock non è
+    # tenuto durante la callback; il worker non fa join di sé). Se andasse in deadlock, il test si
+    # appenderebbe (fallisce per pytest-timeout).
     holder = {}
 
     def on_event(kind, data):
@@ -249,7 +249,7 @@ def test_emit_handler_rientrante_no_deadlock(tmp_path, monkeypatch):
     holder["c"] = c
     c.enable()
     c.submit("ciao")
-    c._worker.run_pending()                   # emit sotto RLock + handler che chiama stop() → ok
+    c._worker.run_pending()                   # emit fuori dal lock + handler che chiama stop() → ok
     assert c.state == ctl.STOPPED             # lo stop dall'handler ha avuto effetto
 
 
@@ -330,6 +330,52 @@ def test_worker_stop_thread_vivo_ritorna_false():
     release.set()
     assert w.stop(timeout=3.0) is True         # sbloccato → termina, riferimento azzerato
     assert w._thread is None
+
+
+def test_evento_turn_porta_epoch_corrente(tmp_path, monkeypatch):
+    # #64: l'emit del `turn` avviene FUORI dal lock → deve portare l'`epoch` della sessione così il
+    # consumer (GUI) può scartare le risposte-fantasma di sessioni chiuse. Qui verifichiamo che
+    # l'epoch stampato combaci con quello corrente del controller.
+    events = []
+    c = _controller(tmp_path, monkeypatch, client=FakeClient("ok"),
+                    on_event=lambda k, d: events.append((k, d)))
+    c.enable()
+    c.submit("ciao")
+    c._worker.run_pending()
+    turn_evts = [d for k, d in events if k == "turn"]
+    assert turn_evts and turn_evts[-1].get("epoch") == c.current_epoch()
+    c.stop()
+
+
+def test_current_epoch_avanza_su_enable_e_stop(tmp_path, monkeypatch):
+    # #64: `current_epoch()` è la fonte unica letta dal consumer; deve avanzare a ogni enable()/stop().
+    c = _controller(tmp_path, monkeypatch, client=FakeClient())
+    e0 = c.current_epoch()
+    c.enable()
+    e1 = c.current_epoch()
+    c.stop()
+    e2 = c.current_epoch()
+    assert e0 < e1 < e2                        # monotòno crescente
+
+
+def test_worker_stop_same_thread_ritorna_true():
+    # Fugu #64: `stop()` invocato DALLO STESSO thread worker (handler sincrono che rientra) non può
+    # fare join di sé → si sta auto-fermando alla sentinella già in coda → ritorna `True` (non
+    # `False`: nessun call-site lo legge come «stop fallito»). Deterministico via Event.
+    import threading
+    holder, result, done = {}, {}, threading.Event()
+
+    def handle(_t):
+        result["ret"] = holder["w"].stop()    # stop() dal thread del worker stesso
+        done.set()
+        return "x"
+
+    w = ctl.AgentWorker(handle)
+    holder["w"] = w
+    w.start()
+    w.submit("go")
+    assert done.wait(2.0) is True
+    assert result["ret"] is True              # auto-fermante → True, non False
 
 
 def test_enable_stop_enable_riparte(tmp_path, monkeypatch):

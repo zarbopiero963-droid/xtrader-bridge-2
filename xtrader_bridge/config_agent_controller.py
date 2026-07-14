@@ -47,13 +47,13 @@ class AgentController:
         self._history = history if history is not None else config_agent.ConversationHistory([])
         self._agent = None
         self._worker = None
-        # Serializza l'accesso alla cronologia E l'emit del turno rispetto all'epoch (Fable/Fugu #64):
-        # è **rientrante** (`RLock`) così l'emit può avvenire SOTTO il lock — rendendo atomici
-        # «check epoch → save → emit» (niente TOCTOU / turno-fantasma dopo Stop) — SENZA
-        # deadlockare se un handler `on_event` sincrono rientra in `stop()`/`enable()` (che
-        # riacquisiscono lo stesso lock dallo stesso thread). `stop()` da un altro thread si
-        # serializza normalmente sul lock; il worker che tenta il join di sé è gestito a parte.
-        self._history_lock = threading.RLock()
+        # Serializza l'accesso alla cronologia. Principio (Fable/Fugu/GPT #64): NON si tiene mai il
+        # lock **attraverso una callback** `on_event` (evita l'inversione di lock / deadlock). La
+        # decisione «questo turno è valido» (check epoch + save) è atomica SOTTO il lock; l'`_emit`
+        # avviene FUORI dal lock. Per non mostrare una risposta di una sessione ormai chiusa
+        # (Stop/Enable avvenuto nel frattempo), ogni evento porta l'`epoch`: il **consumer** (la GUI,
+        # a thread singolo) scarta gli eventi con epoch non corrente — race-free senza lock in emit.
+        self._history_lock = threading.Lock()
         # Epoch di sessione (stesso pattern del listener in app.py): ogni `enable()`/`stop()` lo
         # incrementa. Un turno che era già in volo quando la sessione è cambiata risulta **stale** e
         # viene SCARTATO (niente save, niente risposta-fantasma dopo lo Stop — GPT/GLM #64).
@@ -183,22 +183,26 @@ class AgentController:
         - `run_turn` gira **fuori** dal lock (lento; opera su una COPIA dei messaggi, quindi un
           `replace` concorrente non lo corrompe);
         - al ritorno, **sotto lock**, se l'epoch è diventato stale (`stop()`/re-enable durante il
-          turno) il risultato è SCARTATO: niente `replace`, niente `save`, niente evento `turn`
-          (nessuna risposta-fantasma né mutazione della NUOVA sessione — CodeRabbit/GPT/GLM/Fugu #64);
-        - altrimenti aggiorna+salva la cronologia (redatta) ed emette `turn`, tutto sotto lock.
+          turno) il risultato è SCARTATO: niente `replace`, niente `save`, niente evento (nessuna
+          risposta-fantasma né mutazione della NUOVA sessione — CodeRabbit/GPT/GLM/Fugu #64);
+        - altrimenti aggiorna+salva la cronologia (redatta) SOTTO lock, poi emette `turn` (e
+          l'eventuale `warning` di save fallito) **FUORI dal lock**.
 
-        Ritorna sempre `None`: l'emissione del turno normale avviene qui (sotto la guardia epoch); il
-        percorso d'errore del worker passa da `_on_worker_result` (anch'esso epoch-guardato)."""
+        L'`_emit` avviene fuori dal lock perché `on_event` è una **callback**: tenerla sotto lock
+        deadlocca se l'handler attende un altro thread che chiama `stop()`/`enable()`, o vi rientra
+        (Fable/Fugu #64). Per non mostrare la risposta di una sessione già chiusa, ogni evento porta
+        l'`epoch`: il consumer (GUI, thread singolo) scarta quelli non correnti — race-free senza
+        lock in emit. Ritorna sempre `None`: il turno normale è emesso qui; il percorso d'errore del
+        worker passa da `_on_worker_result` (anch'esso epoch-guardato)."""
         with self._history_lock:
             if epoch != self._epoch or self._agent is None:
                 return None
             agent = self._agent
             base_messages = list(self._history.messages)
         turn = agent.run_turn(text, history=base_messages)   # lento: nessun lock tenuto
-        # Save + emit ATOMICI sotto lock rispetto all'epoch (Fable/Fugu #64: niente TOCTOU). L'RLock
-        # rende l'emit sicuro anche se un handler `on_event` sincrono rientra in stop()/enable(). Uno
-        # `stop()` da un ALTRO thread non può interleavare: deve acquisire lo stesso lock, quindi
-        # attende il rilascio → l'epoch non cambia tra il check e l'emit (nessun turno-fantasma).
+        # Replace+save ATOMICI sotto lock rispetto all'epoch (niente TOCTOU sui DATI). Se la sessione
+        # è cambiata (stop/re-enable durante il turno) si scarta TUTTO — nessun evento emesso.
+        save_failed_exc = None
         with self._history_lock:
             if epoch != self._epoch:
                 return None                                  # sessione cambiata → scarta
@@ -211,22 +215,34 @@ class AgentController:
             except Exception as exc:   # noqa: BLE001 — persistenza best-effort: MAI scartare il turno
                 # Un errore di salvataggio (disco/permessi/serializzazione) non deve perdere la
                 # risposta né rompere la conversazione (CodeRabbit #64: non solo OSError).
-                self._emit("warning", {"reason": "history_save_failed", "exc": type(exc).__name__})
-            self._emit("turn", {"text": turn.text, "capped": turn.capped,
-                                "messages": turn.messages})
+                save_failed_exc = type(exc).__name__
+        # Emissione FUORI dal lock (deadlock-free anche se l'handler chiama stop()/enable() o attende
+        # un altro thread). Ogni evento porta l'`epoch`: il consumer scarta quelli di sessioni chiuse.
+        if save_failed_exc is not None:
+            self._emit("warning", {"reason": "history_save_failed", "exc": save_failed_exc,
+                                   "epoch": epoch})
+        self._emit("turn", {"text": turn.text, "capped": turn.capped,
+                            "messages": turn.messages, "epoch": epoch})
         return None
 
     def _on_worker_result(self, turn, epoch):
         """Il turno NORMALE è già emesso da `_handle_message` (che ritorna `None`); qui arriva solo
         il turno d'ERRORE del worker se l'handle solleva → mostrato SOLO se l'epoch è ancora corrente
-        (check + emit atomici sotto lock: niente errore-fantasma dopo lo Stop)."""
+        allo snapshot. Il check è sotto lock; l'`_emit` (callback) avviene FUORI dal lock, con
+        l'`epoch` stampato così il consumer scarta un errore-fantasma emesso dopo un Stop tardivo."""
         if turn is None or not getattr(turn, "text", ""):
             return
         with self._history_lock:
             if epoch != self._epoch:
                 return
-            self._emit("turn", {"text": turn.text, "capped": getattr(turn, "capped", False),
-                                "messages": []})
+            text, capped = turn.text, getattr(turn, "capped", False)
+        self._emit("turn", {"text": text, "capped": capped, "messages": [], "epoch": epoch})
+
+    def current_epoch(self) -> int:
+        """Epoch di sessione corrente (lettura atomica sotto GIL). La GUI la legge al momento di
+        applicare un evento per scartare i `turn`/`warning` di una sessione ormai chiusa
+        (Stop/Enable nel frattempo) — la rete di sicurezza consumer-side dell'emit senza lock."""
+        return self._epoch
 
 
 class AgentWorker:
@@ -295,20 +311,22 @@ class AgentWorker:
 
     def stop(self, *, timeout=5.0) -> bool:
         """Ferma il worker: accoda la sentinella e fa il join del thread (se avviato). Ritorna
-        `True` se il thread è terminato, `False` se dopo il timeout è ANCORA vivo (es. turno reale
-        Anthropic in volo). In quel caso il riferimento al thread **non** viene azzerato (Fugu #64):
-        così `start()` non ne avvia un secondo sopra a quello superstite (no doppio worker); il
-        thread è daemon e terminerà da solo processando la sentinella al ritorno della chiamata.
-        Idempotente."""
+        `True` se il thread è terminato (o si sta auto-fermando, vedi sotto), `False` solo se dopo il
+        timeout è ANCORA vivo per un turno **cross-thread** in volo (es. chiamata reale Anthropic). In
+        quel caso il riferimento **non** viene azzerato (Fugu #64): `start()` non ne avvia un secondo
+        sopra al superstite (no doppio worker); il thread è daemon e terminerà da solo processando la
+        sentinella. Idempotente."""
         self._q.put(_STOP)
         t = self._thread
         if t is None:
             return True
         if t is threading.current_thread():
             # `stop()` invocato DALLO STESSO thread worker (handler sincrono che rientra): non si può
-            # (né si deve) fare il join di sé — il loop uscirà alla sentinella al ritorno. Si tiene
-            # il riferimento (Fable #64: niente RuntimeError «cannot join current thread»).
-            return False
+            # (né si deve) fare il join di sé (Fable #64: niente RuntimeError «cannot join current
+            # thread»). La sentinella è già in coda e il loop uscirà appena la chiamata rientra →
+            # il worker si sta AUTO-fermando: ritorna `True` così i call-site (es. `enable()`) non lo
+            # leggono come «stop fallito» (Fugu #64: nessuna regressione sul valore di ritorno).
+            return True
         if t.is_alive():
             t.join(timeout=timeout)
         if t.is_alive():
