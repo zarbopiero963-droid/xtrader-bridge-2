@@ -113,7 +113,8 @@ def test_tool_specs_espone_solo_read_only_in_pr1():
                               ca.WRITE_CONFIG, lambda _i: "x"))
     names = [s["name"] for s in reg.tool_specs()]                    # default: no writes
     assert "set_token" not in names
-    assert set(names) == {"get_config_state", "get_health", "list_parsers", "get_setup_status"}
+    assert set(names) == {"get_config_state", "get_health", "list_parsers", "get_setup_status",
+                          "list_guides", "read_guide"}
     assert "set_token" in [s["name"] for s in reg.tool_specs(include_writes=True)]
 
 
@@ -311,6 +312,118 @@ def test_tool_specs_esclude_forbidden_anche_se_iniettato():
         "place_bet", "x", {"type": "object", "properties": {}}, ca.WRITE_CONFIG, lambda _i: "!")
     offered = [s["name"] for s in reg.tool_specs(include_writes=True)]
     assert "place_bet" not in offered
+
+
+# ── #41 PR-7 Blocco A: system prompt language-aware ──────────────────────────────
+
+@pytest.mark.parametrize("app_language,needle", [
+    ("IT", "italiano"),
+    ("EN", "English"),
+    ("ES", "español"),
+])
+def test_build_system_prompt_lingua(app_language, needle):
+    # La clausola di risposta è nella lingua scelta all'avvio (IT/EN/ES).
+    prompt = ca.build_system_prompt(app_language)
+    assert needle in prompt
+    # match case-insensitive: "it"/"es" minuscoli danno comunque la clausola giusta
+    assert ca.build_system_prompt(app_language.lower()) == prompt
+    # la base (conoscenza + regola segreti) è sempre presente
+    assert "list_guides" in prompt and "REGOLA SUI SEGRETI" in prompt
+
+
+@pytest.mark.parametrize("value", ["", "   ", "fr", "de", None, "xx", "IT-IT"])
+def test_build_system_prompt_default_italiano_fail_closed(value):
+    # Valore mancante/sconosciuto → italiano (default sicuro), mai crash né lingua a caso.
+    assert ca.build_system_prompt(value).endswith(ca._LANG_REPLY_CLAUSE["IT"])
+
+
+def test_build_system_prompt_regola_segreti_e_azioni_critiche():
+    # La base ordina di NON chiedere/mostrare segreti e di spiegare (non eseguire) le azioni critiche.
+    base = ca.build_system_prompt("IT")
+    assert "non chiedere MAI" in base
+    assert "modalità reale" in base and "listener live" in base
+    assert "NON le esegui tu" in base
+
+
+def test_default_registry_espone_lingua_al_controller():
+    # `build_system_prompt` è la sola fonte del prompt: il default SYSTEM_PROMPT è la variante IT.
+    assert ca.SYSTEM_PROMPT == ca.build_system_prompt("IT")
+
+
+# ── #41 PR-7 Blocco A: tool di conoscenza list_guides / read_guide (sola lettura) ─
+
+def _guide_registry(tmp_path):
+    """Registry con `base_dir` iniettato su una radice-guide di test (niente file reali del repo)."""
+    return ca.build_default_registry(config_loader=lambda: {}, base_dir=str(tmp_path))
+
+
+def _write_guides(tmp_path):
+    """Crea sul disco temporaneo alcune guide dell'allowlist con contenuto riconoscibile."""
+    (tmp_path / "README.md").write_text("PANORAMICA DEL BRIDGE\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "custom_parser.md").write_text("REGOLE DEL PARSER\n", encoding="utf-8")
+
+
+def test_list_guides_read_only_ed_elenca_allowlist(tmp_path):
+    reg = _guide_registry(tmp_path)
+    specs = {s["name"] for s in reg.tool_specs()}
+    assert {"list_guides", "read_guide"} <= specs           # offerti senza allow_writes
+    res = reg.dispatch("list_guides", {}, allow_writes=False)
+    assert res.refused is False
+    data = json.loads(res.content)
+    listed = {g["name"] for g in data["guides"]}
+    assert listed == set(ca.GUIDES)                         # elenca ESATTAMENTE l'allowlist
+    for g in data["guides"]:
+        assert g["about"]                                   # ogni voce ha una descrizione
+
+
+def test_read_guide_ritorna_contenuto_da_base_dir(tmp_path):
+    _write_guides(tmp_path)
+    reg = _guide_registry(tmp_path)
+    res = reg.dispatch("read_guide", {"name": "panoramica"}, allow_writes=False)
+    assert res.refused is False
+    assert "PANORAMICA DEL BRIDGE" in res.content
+    assert "REGOLE DEL PARSER" in reg.dispatch("read_guide", {"name": "parser_personalizzato"}).content
+
+
+def test_read_guide_nome_sconosciuto_rifiutato_no_path_traversal(tmp_path):
+    # Fuori app: un segreto accanto alla radice-guide non deve MAI essere leggibile.
+    (tmp_path / "config.json").write_text('{"bot_token": "SEGRETO123"}', encoding="utf-8")
+    reg = _guide_registry(tmp_path)
+    for evil in ["config.json", "../config.json", "/etc/passwd", "docs/../config.json", ""]:
+        out = reg.dispatch("read_guide", {"name": evil}).content
+        assert "SEGRETO123" not in out
+        assert "non trovata" in out                         # solo i nomi in allowlist sono ammessi
+
+
+def test_read_guide_file_mancante_failsafe(tmp_path):
+    # Guida in allowlist ma file assente (es. docs non incluse nell'EXE) → messaggio, nessun crash.
+    reg = _guide_registry(tmp_path)                         # tmp_path vuota: nessun file guida
+    out = reg.dispatch("read_guide", {"name": "assistente"}).content
+    assert "non disponibile" in out
+
+
+def test_read_guide_troncatura(tmp_path):
+    # Contenuto oltre il cap → troncato con nota (non gonfia il contesto).
+    tmp_path.joinpath("README.md").write_text("X" * (ca.MAX_GUIDE_CHARS + 500), encoding="utf-8")
+    reg = _guide_registry(tmp_path)
+    out = reg.dispatch("read_guide", {"name": "panoramica"}).content
+    assert len(out) <= ca.MAX_GUIDE_CHARS + 100
+    assert "troncata" in out
+
+
+def test_read_guide_e_list_guides_non_sono_write(tmp_path):
+    # Sola lettura: dispatch senza allow_writes NON è rifiutato.
+    reg = _guide_registry(tmp_path)
+    assert reg.dispatch("list_guides", {}, allow_writes=False).refused is False
+    assert reg.dispatch("read_guide", {"name": "panoramica"}, allow_writes=False).refused is False
+
+
+def test_guide_allowlist_punta_a_file_reali_del_repo():
+    # Verità del contratto: ogni path dell'allowlist esiste davvero nel repo (niente voci morte).
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    for name, (rel_path, _desc) in ca.GUIDES.items():
+        assert os.path.isfile(os.path.join(root, rel_path)), f"{name} → {rel_path} mancante"
 
 
 def test_real_client_lazy_import_failsafe():

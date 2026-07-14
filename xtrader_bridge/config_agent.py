@@ -331,6 +331,89 @@ def build_read_only_tools(*, config_loader=None, parsers_dir=None) -> list:
     ]
 
 
+# ── Base di conoscenza: guide del progetto (sola lettura, #41 PR-7 Blocco A) ─────
+# ALLOWLIST esplicita di file-documentazione leggibili dall'assistente per spiegare il bridge. È una
+# allowlist (come le chiavi scrivibili): l'assistente NON può leggere path arbitrari → mai
+# config.json, sorgenti o segreti. I path sono relativi alla RADICE del progetto e sono fissi qui
+# (il modello passa solo un `name`, non un path → niente path-traversal).
+GUIDES = {
+    "panoramica":            ("README.md",
+                              "Panoramica del bridge: cos'è, come funziona, guida rapida, sicurezza, formato CSV."),
+    "guida_utente":          ("docs/user/README.md",
+                              "Indice delle guide utente + principi di sicurezza."),
+    "primi_passi":           ("docs/user/getting_started.md",
+                              "Dalla prima apertura al primo AVVIA: lingua, token/chat/CSV, Wizard, START/STOP, modalità."),
+    "assistente":            ("docs/user/assistente.md",
+                              "Guida all'assistente 🤖: cosa può/non può fare, proposta→Applica, prima configurazione."),
+    "parser_personalizzato": ("docs/custom_parser.md",
+                              "Il Parser Personalizzato: regole, delimitatori, colonne, condizioni; come crearlo."),
+    "contratto_csv":         ("docs/xtrader_csv_contract.md",
+                              "Il contratto CSV per XTrader: colonne, formato, separatore decimale, compatibilità."),
+    "interfaccia":           ("docs/design/design_handoff.md",
+                              "Descrizione di ogni schermata/tab/pulsante/campo/stato della GUI."),
+    "diario_eventi":         ("docs/event_journal.md",
+                              "Il diario eventi (journal): cosa registra e come consultarlo."),
+}
+
+# Tetto sul contenuto restituito, per non gonfiare il contesto: una guida grande è troncata con nota
+# (l'assistente può leggerne un'altra o chiedere una sezione specifica).
+MAX_GUIDE_CHARS = 12000
+
+
+def _guides_base_dir(base_dir=None) -> str:
+    """Radice da cui leggere le guide (default: radice del progetto = parent del package)."""
+    if base_dir is not None:
+        return base_dir
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def build_guide_tools(*, base_dir=None) -> list:
+    """Tool SOLA-LETTURA di conoscenza (#41 PR-7 Blocco A): `list_guides`/`read_guide`. `base_dir`
+    iniettabile per i test. Legge SOLO i file nell'allowlist `GUIDES`."""
+    root = _guides_base_dir(base_dir)
+
+    def _list_guides(_inp):
+        return json.dumps(
+            {"guides": [{"name": n, "about": desc} for n, (_p, desc) in sorted(GUIDES.items())]},
+            ensure_ascii=False, indent=2)
+
+    def _read_guide(inp):
+        name = str(inp.get("name", "")).strip()
+        entry = GUIDES.get(name)
+        if entry is None:                       # solo i nomi in allowlist: niente path arbitrari
+            return (f"Guida «{name}» non trovata. Disponibili: {', '.join(sorted(GUIDES))}. "
+                    "Usa 'list_guides' per l'elenco con le descrizioni.")
+        rel_path, _desc = entry
+        try:
+            with open(os.path.join(root, rel_path), encoding="utf-8") as fh:
+                text = fh.read()
+        except (OSError, ValueError):           # fail-safe: docs non incluse (es. EXE) → nessun crash
+            return (f"Guida «{name}» non disponibile in questa installazione (documentazione non "
+                    "inclusa nel pacchetto).")
+        if len(text) > MAX_GUIDE_CHARS:
+            text = text[:MAX_GUIDE_CHARS] + "\n\n[…troncata: chiedi una sezione specifica o un'altra guida]"
+        return text
+
+    return [
+        AgentTool(
+            "list_guides",
+            "Elenca le GUIDE del progetto che puoi leggere per spiegare il bridge (nome + argomento). "
+            "Sola lettura.",
+            {"type": "object", "properties": {}, "additionalProperties": False},
+            READ_ONLY, _list_guides),
+        AgentTool(
+            "read_guide",
+            "Ritorna il contenuto di UNA guida del progetto (per `name`, da 'list_guides') per "
+            "spiegare pulsanti/campi/concetti e COME si fanno le azioni. Legge SOLO le guide in "
+            "elenco, nessun altro file. Sola lettura.",
+            {"type": "object",
+             "properties": {"name": {"type": "string",
+                                     "description": "nome della guida (da 'list_guides')"}},
+             "required": ["name"], "additionalProperties": False},
+            READ_ONLY, _read_guide),
+    ]
+
+
 # ── Scrittura config GATED (#41 PR-4) ───────────────────────────────────────────
 # L'assistente può scrivere SOLO un piccolo insieme di chiavi NON safety-critical, ognuna con
 # validazione/bound espliciti. Le chiavi safety-critical (segreti, filtro chat, modalità/CSV,
@@ -471,13 +554,16 @@ def build_write_tools(*, config_loader=None, on_proposal=None) -> list:
 
 
 def build_default_registry(*, config_loader=None, parsers_dir=None, on_proposal=None,
-                           logger=None) -> ToolRegistry:
-    """Registry pronto con i tool sola-lettura (PR-1) **e** i tool di scrittura gated (PR-4). I tool
-    di scrittura sono registrati ma **offerti al modello solo con `allow_writes=True`** (li filtra
-    `tool_specs`); il gate `dispatch(allow_writes=...)` resta l'ultima difesa; e la scrittura vera è
-    gated dalla UI (`on_proposal` → conferma umana), mai dal modello."""
+                           base_dir=None, logger=None) -> ToolRegistry:
+    """Registry pronto con i tool sola-lettura (PR-1), i tool di conoscenza (PR-7 Blocco A) **e** i
+    tool di scrittura gated (PR-4). I tool di scrittura sono registrati ma **offerti al modello solo
+    con `allow_writes=True`** (li filtra `tool_specs`); il gate `dispatch(allow_writes=...)` resta
+    l'ultima difesa; e la scrittura vera è gated dalla UI (`on_proposal` → conferma umana), mai dal
+    modello. `base_dir` è iniettabile per i test (radice da cui leggere le guide)."""
     reg = ToolRegistry(logger=logger)
     for tool in build_read_only_tools(config_loader=config_loader, parsers_dir=parsers_dir):
+        reg.register(tool)
+    for tool in build_guide_tools(base_dir=base_dir):
         reg.register(tool)
     for tool in build_write_tools(config_loader=config_loader, on_proposal=on_proposal):
         reg.register(tool)
@@ -486,22 +572,50 @@ def build_default_registry(*, config_loader=None, parsers_dir=None, on_proposal=
 
 # ── Client Anthropic (iniettabile) + impl reale lazy-import fail-safe ───────────
 
-SYSTEM_PROMPT = (
+# Base del system prompt SENZA la clausola di lingua (aggiunta da `build_system_prompt`).
+_SYSTEM_PROMPT_BASE = (
     "Sei l'assistente di configurazione di XTrader Signal Bridge. Aiuti il proprietario a "
-    "configurare il bridge ESEGUENDO i suoi ordini tramite gli strumenti disponibili, non "
-    "prendendo iniziative safety-critical. Non piazzi scommesse, non parli con XTrader/Betfair, "
-    "non avvii il listener live o la modalità reale, non riveli segreti, non usi il web né esegui "
-    "codice: queste azioni sono bloccate dal bridge a prescindere. Puoi PROPORRE modifiche SOLO ad "
-    "alcune impostazioni non critiche (tema, lingua app, clear_delay, confirmation_timeout, "
-    "max_signal_age) con 'set_config_value': il tool NON applica nulla, mette la modifica in attesa; "
-    "spiega all'utente cosa cambierà e invitalo a premere il pulsante «✅ Applica» nella tab per "
-    "confermare. Per la PRIMA CONFIGURAZIONE usa 'get_setup_status' per vedere cosa manca allo START e "
-    "guidare l'utente passo passo: proponi tu le impostazioni non critiche, ma per i campi CRITICI "
-    "(token del bot, chat sorgente, percorso CSV, parser attivo, modalità) NON puoi scriverli — "
-    "spiega all'utente come compilarli nei campi della finestra o di aprire «🧙 Wizard prima "
-    "configurazione» nella tab Strumenti (che verifica token/chat/CSV dal vivo). Rispondi in "
-    "italiano, conciso."
+    "configurare e CAPIRE il bridge tramite gli strumenti disponibili, non prendendo iniziative "
+    "safety-critical. Non piazzi scommesse, non parli con XTrader/Betfair, non avvii il listener "
+    "live o la modalità reale, non riveli segreti, non usi il web né esegui codice: queste azioni "
+    "sono bloccate dal bridge a prescindere. Puoi PROPORRE modifiche SOLO ad alcune impostazioni "
+    "non critiche (tema, lingua app, clear_delay, confirmation_timeout, max_signal_age) con "
+    "'set_config_value': il tool NON applica nulla, mette la modifica in attesa; spiega all'utente "
+    "cosa cambierà e invitalo a premere il pulsante «✅ Applica» nella tab per confermare. Per la "
+    "PRIMA CONFIGURAZIONE usa 'get_setup_status' per vedere cosa manca allo START e guidare l'utente "
+    "passo passo: proponi tu le impostazioni non critiche, ma per i campi CRITICI (token del bot, "
+    "chat sorgente, percorso CSV, parser attivo, modalità) NON puoi scriverli — spiega all'utente "
+    "come compilarli nei campi della finestra o di aprire «🧙 Wizard prima configurazione» nella tab "
+    "Strumenti (che verifica token/chat/CSV dal vivo). "
+    # PR-7 Blocco A — conoscenza: puoi leggere la documentazione reale del progetto per spiegare tutto.
+    "Puoi CONSULTARE la documentazione del bridge con 'list_guides' (elenco guide) e 'read_guide' "
+    "(contenuto di una guida) per spiegare QUALUNQUE pulsante, campo, impostazione o concetto "
+    "(parser, dizionario, contratto CSV di XTrader, modalità, sicurezza) e per spiegare COME si "
+    "eseguono le azioni che TU non puoi fare (avviare il listener live, passare a modalità reale, "
+    "impostare token/chat/CSV/parser/limiti): guidi l'utente a farle passo passo, spiegando anche le "
+    "conseguenze, ma NON le esegui tu. Basa le spiegazioni sulle guide reali, non inventare. "
+    "REGOLA SUI SEGRETI: non chiedere MAI all'utente di incollare token/API key/chat ID nella chat e "
+    "non mostrarli — indica soltanto DOVE inserirli nella finestra. "
 )
+
+# Clausola di lingua per la risposta, in base ad app_language (IT/EN/ES); default IT.
+_LANG_REPLY_CLAUSE = {
+    "IT": "Rispondi in italiano, conciso.",
+    "EN": "Reply in English, concise.",
+    "ES": "Responde en español, conciso.",
+}
+
+
+def build_system_prompt(app_language="") -> str:
+    """System prompt dell'assistente con la clausola di lingua giusta (#41 PR-7 Blocco A). La lingua
+    è quella dell'app (`app_language` IT/EN/ES); un valore mancante/sconosciuto → italiano (default
+    sicuro). Così l'assistente risponde nella lingua che l'utente ha scelto all'avvio."""
+    lang = language_select.normalize_app_language(app_language)     # "IT"/"EN"/"ES" oppure ""
+    return _SYSTEM_PROMPT_BASE + _LANG_REPLY_CLAUSE.get(lang, _LANG_REPLY_CLAUSE["IT"])
+
+
+# Default retro-compatibile (italiano): usato da `ConfigAgent` se il chiamante non passa `system`.
+SYSTEM_PROMPT = build_system_prompt("IT")
 
 
 class RealAnthropicClient:

@@ -207,6 +207,14 @@ critiche te le **propone**; per i campi critici ti **guida** a compilarli nei ca
 ad aprire il **«🧙 Wizard prima configurazione»** (tab Strumenti), che verifica token/chat/CSV dal
 vivo. L'assistente **non compila** quei campi né apre finestre al posto tuo: ti spiega cosa fare.
 
+**Esperto del bridge + lingua.** L'assistente conosce la **documentazione reale** del progetto e sa
+spiegare **qualunque** pulsante, campo, impostazione o concetto (parser personalizzato, contratto
+CSV di XTrader, modalità, semafori di salute, sicurezza, diario eventi), e sa spiegare **come** si
+eseguono le azioni che lui **non può** fare (avviare l'ascolto live, passare a modalità reale,
+impostare token/chat/CSV/parser/limiti) — **guidandoti** passo passo, **senza** eseguirle. Non
+chiede né mostra mai segreti in chat: indica solo **dove** inserirli. Risponde nella **lingua** che
+hai scelto all'avvio (Italiano / English / Español).
+
 La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Config**
 (oppure all'avvio con **▶ AVVIA**) nel file `config.json` (vedi
 [Dove vengono salvati i file](#dove-vengono-salvati-i-file)). Ogni campo mostra un **esempio-guida**

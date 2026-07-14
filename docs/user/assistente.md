@@ -1,9 +1,10 @@
 # Assistente di configurazione (🤖)
 
-> Guida **utente**. L'assistente è una **chat a linguaggio naturale** che ti aiuta a **configurare**
-> il bridge: legge lo stato, ti dice cosa manca, e può proporre alcune impostazioni non critiche —
-> sempre con una **tua conferma** prima di scrivere. È uno strumento **personale del proprietario**,
-> non una chat per utenti finali.
+> Guida **utente**. L'assistente è una **chat a linguaggio naturale** che ti aiuta a **configurare** e
+> a **capire** il bridge: legge lo stato, ti dice cosa manca, **spiega** qualunque pulsante/campo/
+> concetto dalla documentazione reale, e può proporre alcune impostazioni non critiche — sempre con
+> una **tua conferma** prima di scrivere. Risponde nella **lingua** scelta all'avvio. È uno strumento
+> **personale del proprietario**, non una chat per utenti finali.
 
 > 📸 *Gli screenshot verranno aggiunti in `docs/assets/screenshots/`. I «\[screenshot: …\]» indicano dove.*
 
@@ -40,7 +41,25 @@ chat — più la modalità (informativa: lo START gira anche in Simulazione). Po
   nei campi della finestra o ti indirizza al pulsante **«🧙 Wizard prima configurazione»** — non li
   compila lui.
 
-## 4. Proporre una modifica: tu confermi con «✅ Applica»
+## 4. Chiedigli di spiegarti qualunque cosa del bridge
+
+L'assistente conosce la **documentazione reale** del bridge e può spiegarti **qualunque**
+pulsante, campo, impostazione o concetto — parser personalizzato, contratto CSV di XTrader,
+modalità, semafori di salute, sicurezza, diario eventi. Chiedi pure *«a cosa serve il campo
+Timeout?»*, *«come funziona il parser personalizzato?»*, *«cosa significa modalità reale?»*.
+
+Sa anche spiegarti **come** si fanno le azioni che lui **non può** eseguire (avviare l'ascolto
+live, passare a modalità reale, impostare token/chat/CSV/parser/limiti): ti **guida passo passo**,
+spiegando anche le conseguenze, ma **non le esegue lui**. Basa le risposte sulle guide reali, non
+inventa.
+
+> 🔒 **Segreti:** l'assistente **non ti chiederà mai** di incollare token, API key o chat ID nella
+> chat, e **non li mostra**: ti dice soltanto **dove** inserirli nella finestra.
+
+**Lingua.** L'assistente risponde nella **lingua scelta all'avvio** (Italiano / English / Español).
+Se cambi la lingua dell'app, la nuova lingua vale dalla **successiva** riabilitazione dell'assistente.
+
+## 5. Proporre una modifica: tu confermi con «✅ Applica»
 
 L'assistente può **proporre** modifiche a **poche impostazioni non critiche**:
 
@@ -53,7 +72,7 @@ Quando propone qualcosa **non lo applica da solo**: compare un **banner** con l'
 **«✅ Applica»** / **«✖ Annulla»**. La modifica viene scritta **solo se premi tu «✅ Applica»**.
 \[screenshot: banner conferma\]
 
-## 5. Cosa l'assistente NON può fare (per sicurezza)
+## 6. Cosa l'assistente NON può fare (per sicurezza)
 
 Anche se glielo chiedi esplicitamente, l'assistente **non può**:
 
