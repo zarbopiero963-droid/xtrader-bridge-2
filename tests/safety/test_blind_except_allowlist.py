@@ -29,7 +29,10 @@ _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
-    "app.py": (33, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+    "app.py": (35, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+                   "pannello Assistente (#41 PR-3) best-effort: costruzione che fallisce → label di "
+                   "fallback invece di rompere la finestra; teardown del suo thread worker best-effort "
+                   "in _on_close; "
                    "event journal best-effort (#230); refill campo token su widget Tk distrutto (PR-08c); "
                    "resolver ID del dizionario locale best-effort (#192: DB assente → None, il flusso "
                    "resta a nomi senza crashare); "
@@ -121,6 +124,15 @@ _ALLOWLIST = {
                            "best-effort (un logger che solleva non deve far fallire il dispatch); "
                            "soft-import 'anthropic' (dipendenza opzionale: assenza = errore chiaro "
                            "solo all'uso reale, mai all'import del modulo)"),
+    "config_agent_controller.py": (3, "controller assistente (#41 PR-3): emit di un evento verso la "
+                                      "view best-effort (un handler della GUI che solleva non deve "
+                                      "rompere il controller); un turno che solleva nel worker non "
+                                      "uccide il loop (errore restituito come turno); persistenza "
+                                      "cronologia best-effort (qualsiasi errore di save non deve "
+                                      "scartare il turno già calcolato, CodeRabbit #64)"),
+    "config_agent_gui.py": (2, "view assistente (#41 PR-3): marshalling evento via after() su root "
+                               "Tk distrutta/assente (teardown) best-effort; log della riga di "
+                               "trascritto best-effort"),
     "token_store.py": (8, "soft-import/fallback keyring: qualsiasi errore = backend non disponibile "
                           "(bot token + API key Anthropic #41: save/load-status/delete per la chiave)"),
     "tools_gui.py": (3, "GUI Tk finestra strumenti: apertura sotto-finestre best-effort"),

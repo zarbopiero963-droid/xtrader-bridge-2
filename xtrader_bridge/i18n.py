@@ -73,6 +73,7 @@ _CATALOG = {
         "📡 Chat ascoltate": "📡 Monitored chats",
         "🚦 Salute": "🚦 Health",
         "📡 Stato": "📡 Status",
+        "🤖 Assistente": "🤖 Assistant",
         # Bottoni principali
         "📁 Sfoglia…": "📁 Browse…",
         "📄 Crea CSV": "📄 Create CSV",
@@ -737,6 +738,7 @@ _CATALOG = {
         "📡 Chat ascoltate": "📡 Chats escuchados",
         "🚦 Salute": "🚦 Salud",
         "📡 Stato": "📡 Estado",
+        "🤖 Assistente": "🤖 Asistente",
         "📁 Sfoglia…": "📁 Examinar…",
         "📄 Crea CSV": "📄 Crear CSV",
         "▶  AVVIA": "▶  INICIAR",

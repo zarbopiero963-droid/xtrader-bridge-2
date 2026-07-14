@@ -154,11 +154,13 @@ FINESTRA PRINCIPALE  (720×760, larghezza fissa, altezza ridimensionabile)
 │     ├─ ▶ AVVIA   ■ STOP   🗑️ Svuota CSV ora   💾 Salva Config
 │     └─ 🧰 Strumenti
 │
-└── Tabview MONITORAGGIO (4 tab)
+└── Tabview MONITORAGGIO (6 tab)
       ├─ 📡 Chat ascoltate   (elenco chat + Esporta audit / Apri log / Copia diagnostica)
+      ├─ 🚦 Salute           (7 semafori: Telegram / messaggio / parser / CSV / modalità …)
       ├─ 📡 Stato            (ultimo segnale / messaggio / CSV / errore)
       ├─ 📊 Dashboard        (contatori di sessione)
-      └─ 📋 Log              (viewer log + filtro + retention + Debug + Svuota log)
+      ├─ 📋 Log              (viewer log + filtro + retention + Debug + Svuota log)
+      └─ 🤖 Assistente       (chat di configurazione + Abilita/Stop + campo API key — #41 PR-3)
 
 HUB "🧰 STRUMENTI"  (tab PIATTE ma RAGGRUPPATE per flusso ①..④, #293 slice 4; su richiesta)
    ① Sorgenti
@@ -199,8 +201,43 @@ HUB "🧰 STRUMENTI"  (tab PIATTE ma RAGGRUPPATE per flusso ①..④, #293 slice
 - **Setup iniziale (poi raro):** tab Generale (token/chat/csv), Parser Personalizzato,
   Chat sorgenti, Dizionario, Mapping.
 - **Occasionale:** Sicurezza (cambio modalità), Profili, Conferme XTrader, Dashboard.
+- **Assistente di configurazione (#41):** occasionale, in setup/modifica config a linguaggio naturale.
 
 ---
+
+## 🤖 Assistente di configurazione (#41 PR-3)
+
+Nuova tab **«🤖 Assistente»** nella tabview di monitoraggio: una **chat a linguaggio naturale** sulla
+configurazione del bridge. **In PR-3 l'assistente è in SOLA LETTURA**: introduce la **vista** + il
+**ciclo di vita** (chat + tre tool live **sola-lettura**: config redatta, salute, elenco parser).
+**Non modifica** ancora la configurazione — i tool di **scrittura** sono gated (`allow_writes=False`)
+e arrivano in **PR-4**. La capacità di «compilare i campi al posto tuo» è quindi una fase successiva.
+
+**Controlli (dall'alto in basso):**
+- **Campo «API key Anthropic:»** — input **mascherato** (`show="●"`), placeholder «incollala qui
+  (salvata solo nel keyring)», pulsante **«💾 Salva chiave»**. La chiave va **solo nel keyring del
+  SO**, mai su file/log/cronologia; dopo il salvataggio il campo si svuota.
+- **Indicatore di stato** + **«▶ Abilita»** / **«⏹ Stop»**. Stati e colori (palette semantica del
+  resto della GUI):
+  - **⚪ Assistente OFFLINE** — grigio (default, a riposo);
+  - **🟢 Assistente ATTIVO** — verde (chat utilizzabile);
+  - **🔴 Assistente in ERRORE** — rosso (es. API key mancante: l'assistente **resta spento** e mostra
+    il motivo nel trascritto).
+- **Trascritto conversazione** (sola lettura, scrollabile): righe **«🧑 Tu: …»** e **«🤖 Assistente:
+  …»**. Mostra **solo il testo** della chat (i dettagli interni tool non compaiono).
+- **Input** «scrivi un ordine di configurazione…» + **«Invia»** (anche `Invio`). Input e Invia sono
+  **disabilitati** quando l'assistente non è ATTIVO.
+
+**Invarianti di sicurezza lato UI:**
+- «Abilita» accende **solo la chat**: **non** avvia il listener live né la modalità reale, e **non**
+  scrive il CSV operativo — quelle azioni restano dietro le **conferme frictionful** esistenti e le
+  guardie hard-block dell'agente.
+- La **cronologia** è persistente ma **sempre redatta** su disco (API key/token/chat mai in chiaro).
+- Alla chiusura finestra / «Stop» il **thread** dell'assistente viene fermato con un **join a
+  timeout** (best-effort limitato, come il bot thread): normalmente termina subito; se un turno
+  reale è in volo, il thread è **daemon** e uscirà appena la chiamata rientra. Un turno che completa
+  dopo lo Stop è comunque **scartato** (guardia epoch): niente risposta né scrittura a sessione
+  chiusa.
 
 ## 6. Finestra principale — dettaglio completo
 

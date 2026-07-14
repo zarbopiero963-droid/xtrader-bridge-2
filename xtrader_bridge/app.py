@@ -37,6 +37,7 @@ from .csv_writer import (
 from . import (
     autostart,
     bridge_mode,
+    config_agent_gui,
     config_store,
     health_check,
     i18n,
@@ -1262,6 +1263,19 @@ class App(ctk.CTk):
         tab_stato = mon.add(i18n.tr("📡 Stato"))
         tab_dash = mon.add(i18n.tr("📊 Dashboard"))
         tab_log = mon.add(i18n.tr("📋 Log"))
+        tab_assist = mon.add(i18n.tr("🤖 Assistente"))
+
+        # — Assistente di configurazione (#41 PR-3): chat a linguaggio naturale + Abilita/Stop.
+        # Costruzione best-effort (come gli altri pannelli): un fallimento del pannello NON deve
+        # impedire la costruzione della finestra principale. `config_loader` legge la config VIVA;
+        # gli avvisi vanno nel log dell'app. Il teardown del suo thread è in `_on_close`.
+        self._assistant_panel = None
+        try:
+            self._assistant_panel = config_agent_gui.AssistantPanel(
+                tab_assist, config_loader=lambda: self._config or {}, log=self._log)
+        except Exception:   # noqa: BLE001 — pannello assistente best-effort: mai rompere la GUI
+            ctk.CTkLabel(tab_assist, text=i18n.tr("Assistente non disponibile."),
+                         text_color="gray").pack(padx=12, pady=8)
 
         # — Chat ascoltate (B1): vista READ-ONLY delle chat che il listener processerà,
         # coi nomi leggibili (da source_chats) quando disponibili. Aggiornata a Salva
@@ -2492,6 +2506,14 @@ class App(ctk.CTk):
     def _on_close(self):
         self._closing = True   # blocca un auto-start ritardato ancora pendente (Codex P2)
         self._stop()
+        # Teardown dell'assistente (#41 PR-3): ferma il suo thread worker e fa il join, come per il
+        # bot thread. Best-effort: un errore qui non deve impedire la chiusura della finestra.
+        panel = self.__dict__.get("_assistant_panel")
+        if panel is not None:
+            try:
+                panel.teardown()
+            except Exception:   # noqa: BLE001 — teardown assistente best-effort
+                pass
         # Teardown DETERMINISTICO (audit C1): cancella il timer di scadenza e ASPETTA che il
         # thread del bot termini (join con timeout) prima di distruggere la finestra, invece
         # di indovinare con `after(500, destroy)`. Così il thread non chiama più `self.after()`

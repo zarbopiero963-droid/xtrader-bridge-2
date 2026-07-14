@@ -178,6 +178,19 @@ Restano in italiano **per contratto**: il dialogo «già in esecuzione» all'avv
 della scelta lingua) e i **log di puro dominio** (errori di validazione/store, `save_status_message`,
 la parola-quando dei recovery «all'avvio», `{exc}`/`{err}`/`{warn}` interpolati, log `_dbg`).
 
+### 🤖 Assistente di configurazione (in anteprima)
+
+La tab **«🤖 Assistente»** (nel riquadro di monitoraggio) offre una **chat a linguaggio naturale**
+sulla configurazione del bridge. Richiede una **API key Anthropic**, che incolli nell'apposito campo
+mascherato e che viene salvata **solo nel keyring del sistema** (mai in `config.json`, log o
+cronologia). Premi **«▶ Abilita»** per attivare la chat (indicatore **🟢 ATTIVO**), **«⏹ Stop»** per
+fermarla. La conversazione è **persistente ma sempre redatta** su disco.
+
+**In questa fase (anteprima) l'assistente è in SOLA LETTURA**: **legge** lo stato del bridge (config,
+salute, parser) e ti risponde, ma **non modifica** ancora la configurazione. **Abilitare la chat non
+avvia mai il listener live né la modalità reale** e non scrive il CSV operativo. La capacità di
+**compilare i campi** su tuo ordine arriverà in una **fase successiva**, dietro conferme dedicate.
+
 La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Config**
 (oppure all'avvio con **▶ AVVIA**) nel file `config.json` (vedi
 [Dove vengono salvati i file](#dove-vengono-salvati-i-file)). Ogni campo mostra un **esempio-guida**

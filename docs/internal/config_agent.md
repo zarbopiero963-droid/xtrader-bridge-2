@@ -109,9 +109,64 @@ per-literal (guardia anti-frammento, per non redigere sottostringhe banali); i c
 Telegram (`-100…`) sono lunghi e coperti, e il bot token / `sk-ant-...` restano coperti dai pattern
 di `redact_secrets` a prescindere.
 
-## Cosa NON c'è ancora (PR successive)
+## Tab GUI + ciclo di vita (PR-3)
 
-- **PR-3**: tab GUI + Abilita/Stop + wiring stato live (design handoff).
+- **`config_agent_controller.AgentController`** (logica, testata): macchina a stati
+  `STOPPED`/`RUNNING`/`ERROR`. `enable()` richiede la API key (keyring) — assente → `ERROR`, l'agente
+  resta spento; carica la cronologia persistente (redatta) e avvia il worker. `stop()`/`teardown()`
+  fermano il worker con un **join a timeout** (best-effort limitato: se un turno reale è in volo il
+  thread daemon esce appena la chiamata rientra). Ogni `enable()`/`stop()` avanza un **epoch** di
+  sessione **legato** al worker: un turno che completa dopo lo Stop (o dopo un re-enable) è **stale**
+  e viene **scartato** (niente save, niente risposta-fantasma, nessuna mutazione della nuova
+  sessione — pattern identico al `_listener_epoch` del bot). `submit(text)` accoda un messaggio;
+  **rifiutato** se non `RUNNING` (guardia). Ogni turno: `run_turn` → `history.replace` →
+  `history.save(extra_secrets=[chat_id])` (best-effort su errore disco). Client Anthropic iniettabile.
+- **Concorrenza (invariante #64):** l'aggiornamento dei **dati** (`replace`+`save`) è atomico sotto
+  `_history_lock` rispetto all'epoch; l'`_emit` degli eventi (`turn`/`warning`) avviene **fuori dal
+  lock** — una callback `on_event` tenuta sotto lock deadlockerebbe se l'handler attende un altro
+  thread che chiama `stop()`/`enable()` (o vi rientra). Per non mostrare la risposta di una sessione
+  già chiusa, ogni evento porta l'`epoch`: il **consumer** (GUI, thread singolo) lo confronta con
+  `controller.current_epoch()` (`config_agent_gui.is_stale_event`) e **scarta** i `turn`/`warning`
+  non correnti — rete di sicurezza consumer-side, race-free senza lock in emit.
+- **`config_agent_controller.AgentWorker`** (testato): loop su `queue.Queue` con **sentinella** di
+  stop; un turno che solleva **non** uccide il loop (errore restituito come turno). `run_pending()`
+  esegue il loop in modo **sincrono** per i test (nessun thread reale). `stop()` fa il **join** del
+  thread (cross-thread) e ritorna `True` se terminato — o se invocato **dallo stesso thread worker**
+  (handler rientrante): lì non fa join di sé, la sentinella è già in coda e il loop uscirà al ritorno
+  (auto-fermante, ritorna `True` così i call-site non lo leggono come «stop fallito»). Ritorna
+  `False` **solo** su timeout cross-thread con thread ancora vivo (turno reale in volo): il
+  riferimento non viene azzerato, per non creare un doppio worker.
+- **`config_agent_gui`** (view sottile): helper puri testati (`state_label`/`state_color`/
+  `input_enabled`/`messages_to_transcript`) + `AssistantPanel` (widget: campo API key mascherato,
+  Abilita/Stop, indicatore stato, trascritto, input) — **verifica manuale**. Marshalla gli eventi del
+  controller sul thread GUI con `after(0, …)`.
+- **`app.py`**: aggiunge la tab **«🤖 Assistente»** (best-effort) e il **teardown** del pannello in
+  `_on_close` (stop+join, coerente col bot thread e col single-instance lock).
+
+**Sicurezza (PR-3):** `enable()` accende **solo la chat**; `allow_writes=False` (i tool di scrittura
+sono PR-4); le azioni safety-critical restano hard-block; la API key vive solo nel keyring; la
+cronologia su disco resta sempre redatta.
+
+### Smoke test manuale (Windows, no display in CI)
+
+1. Apri l'app → tab **«🤖 Assistente»**: stato **⚪ OFFLINE**, input **disabilitato**.
+2. Premi **Abilita** *senza* API key salvata → stato **🔴 ERRORE** con avviso «API key … mancante»;
+   l'input resta disabilitato.
+3. Incolla una API key nel campo mascherato → **💾 Salva chiave** → «✓ Chiave salvata nel keyring»;
+   il campo si svuota. Premi **Abilita** → **🟢 ATTIVO**, input abilitato.
+4. Scrivi un messaggio → **Invia**: compaiono «🧑 Tu: …» e la risposta «🤖 Assistente: …».
+   *Atteso:* nessun token/chat in chiaro nel log; la conversazione è salvata redatta in
+   `%APPDATA%/XTraderBridge/assistant_history.json`.
+5. Chiudi la finestra (o **Stop**) → si richiede lo stop del worker (join a timeout): la finestra si
+   chiude subito; un eventuale turno reale in volo termina da sé (thread daemon) ed è scartato.
+   *Non verificato in CI:* rendering widget, chiamata reale ad Anthropic, keyring reale Windows.
+
+> **Nota (future, nitpick CodeRabbit #64):** `run_turn` ripassa al modello l'INTERA cronologia a
+> ogni turno → in sessioni molto lunghe il contesto cresce (latenza/costo/limite di finestra). Una
+> **troncatura/riassunto** oltre una soglia è un miglioramento previsto per una fase successiva
+> (fuori dallo scope di PR-3).
+
+## Cosa NON c'è ancora (PR successive)
 - **PR-4**: tool di **scrittura** config gated (token/chat/csv/parser) con conferma sulle
   transizioni pericolose.
 - **PR-5**: first-run — l'agente pilota il wizard esistente.
