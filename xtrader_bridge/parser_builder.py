@@ -169,7 +169,7 @@ class ParserBuilder:
 
     def sport_options(self) -> list:
         """Opzioni della tendina Sport: "" (= non specificato/agnostico) + gli sport
-        supportati (PR-P9). L'ordine segue `sports.SPORTS` (Calcio/Tennis/Basket/Rugby)."""
+        supportati (PR-P9). L'ordine segue `sports.SPORTS` (Calcio/Tennis/Basket/Rugby/Football Americano)."""
         return [""] + list(sports.SPORTS)
 
     def set_sport(self, sport: str) -> None:
