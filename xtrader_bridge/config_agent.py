@@ -631,8 +631,10 @@ def build_dictionary_lookup(cfg, query) -> dict:
             if _match(q, e["market_type"], e["market_name"], e["selection_name"],
                       e["market_alias_telegram"], e["selection_alias_telegram"]):
                 dict_matches.append(e)
-        truncated["dizionario"] = len(dict_matches) > MAX_DICT_MATCHES
-        dict_matches = dict_matches[:MAX_DICT_MATCHES]
+    # Chiave SEMPRE presente (anche quando il dizionario è assente → False): schema di output
+    # coerente per il consumatore LLM (Fable #71), niente ramo che la ometteva.
+    truncated["dizionario"] = len(dict_matches) > MAX_DICT_MATCHES
+    dict_matches = dict_matches[:MAX_DICT_MATCHES]
 
     team_matches = []
     for prof in name_mapping_store.profile_names(cfg):

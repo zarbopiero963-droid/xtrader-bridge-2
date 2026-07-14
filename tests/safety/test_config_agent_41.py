@@ -809,3 +809,28 @@ def test_lookup_dictionary_non_espone_segreti():
     cfg["chat_id"] = "-1008888888888"
     out = json.dumps(ca.build_dictionary_lookup(cfg, "juve"))
     assert "123456:FAKE" not in out and "-1008888888888" not in out
+
+
+def test_lookup_dictionary_normalizza_case_e_spazi():
+    # GLM/GPT #71: match case/space-insensitive (dizionario.normalize) — "  GOAL  " == "goal".
+    reg = ca.build_default_registry(config_loader=lambda: {})
+    a = json.loads(reg.dispatch("lookup_dictionary", {"query": "goal"}).content)["dizionario_matches"]
+    b = json.loads(reg.dispatch("lookup_dictionary", {"query": "  GoAl  "}).content)["dizionario_matches"]
+    assert a and a == b
+
+
+def test_lookup_dictionary_truncated_overflow(monkeypatch):
+    # GLM #71: quando i match superano MAX_DICT_MATCHES, la lista è capata e truncated=True.
+    monkeypatch.setattr(ca, "MAX_DICT_MATCHES", 3)
+    data = ca.build_dictionary_lookup({}, "goal")     # "goal" ha molti match nel dizionario
+    assert len(data["dizionario_matches"]) == 3
+    assert data["truncated"]["dizionario"] is True
+
+
+def test_lookup_dictionary_truncated_chiave_sempre_presente(monkeypatch):
+    # Fable #71: schema coerente — truncated["dizionario"] presente anche a dizionario ASSENTE.
+    monkeypatch.setattr(ca.dizionario, "market_catalog",
+                        lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError()))
+    data = ca.build_dictionary_lookup({}, "goal")
+    assert data["dizionario_available"] is False
+    assert data["truncated"]["dizionario"] is False       # chiave presente, non omessa
