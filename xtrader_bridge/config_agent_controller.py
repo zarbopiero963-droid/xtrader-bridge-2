@@ -139,6 +139,14 @@ class AgentController:
         if client is None:
             self._set_state(ERROR, error="API key Anthropic mancante: impostala per avviare l'assistente.")
             return False
+        # PR-7 Blocco A: l'assistente risponde nella lingua scelta all'avvio (app_language IT/EN/ES;
+        # mancante/sconosciuta → italiano, default sicuro). Letta qui alla (ri)abilitazione così un
+        # cambio lingua applicato dall'utente ha effetto alla successiva sessione dell'assistente.
+        try:
+            app_language = (self._config_loader() or {}).get("app_language", "")
+        except Exception:   # noqa: BLE001 — loader difettoso non deve impedire l'avvio: default IT
+            app_language = ""
+        system_prompt = config_agent.build_system_prompt(app_language)
         # Nuova sessione sotto lock: incrementa l'epoch (invalida turni in volo di prima) e ricarica
         # la cronologia in modo atomico rispetto a un eventuale worker superstite (GLM #64).
         with self._history_lock:
@@ -149,7 +157,8 @@ class AgentController:
             # tutte le guardie: hard-block `FORBIDDEN_TOOLS`, allowlist/denylist delle chiavi
             # scrivibili in `set_config_value` (niente token/filtro chat/modalità/CSV/limiti/parser)
             # e il gate di conferma esplicita per ogni scrittura.
-            self._agent = config_agent.ConfigAgent(self._registry, client, allow_writes=True)
+            self._agent = config_agent.ConfigAgent(self._registry, client, system=system_prompt,
+                                                   allow_writes=True)
         # L'epoch è LEGATO al worker (closure): i turni di QUESTA sessione portano `epoch`; un worker
         # superstite di una sessione precedente porta un epoch diverso → i suoi risultati sono scartati
         # (niente scrittura/emit sulla NUOVA sessione — CodeRabbit/GPT/GLM/Fugu #64).

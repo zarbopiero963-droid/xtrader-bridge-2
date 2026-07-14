@@ -16,9 +16,11 @@ client Anthropic *tool-use* iniettabile, registry dei tool con classificazione d
 - **`ToolRegistry`** — l'**unico** punto da cui un tool viene eseguito. Espone al modello solo le
   spec permesse (`tool_specs`), esegue le guardie e registra ogni chiamata in `audit_log`.
 - **Tool sola-lettura**: `get_config_state` (config **redatta**), `get_health` (semafori
-  `health_check`), `list_parsers` (PR-1) e `get_setup_status` (**PR-5**: checklist di prima
+  `health_check`), `list_parsers` (PR-1), `get_setup_status` (**PR-5**: checklist di prima
   configurazione — token/chat/parser/CSV/modalità come booleani `done`+label, **nessun segreto** —
-  riusa `wizard.final_checklist`). Esercitano funzioni reali del progetto.
+  riusa `wizard.final_checklist`), e i tool di **conoscenza** `list_guides`/`read_guide` (**PR-7
+  Blocco A**: leggono la documentazione reale del progetto da una **allowlist** di file per spiegare
+  qualunque pulsante/campo/concetto — vedi sotto). Esercitano funzioni reali del progetto.
 - **`RealAnthropicClient`** — client verso l'Anthropic Messages API con **lazy import** di
   `anthropic` (dipendenza opzionale, fail-safe come `keyring` in `token_store`). **Non** usato nei
   test: `ConfigAgent` accetta qualunque client con `create_message(system, messages, tools)`.
@@ -29,7 +31,7 @@ client Anthropic *tool-use* iniettabile, registry dei tool con classificazione d
 ## Fonti di conoscenza (issue #41)
 
 1. **Tools (azioni)** — funzioni interne: sempre esatte perché sono il codice vero.
-2. **Documenti (comprensione)** — guide `docs/user/` (fasi successive).
+2. **Documenti (comprensione)** — guide del repo lette via `list_guides`/`read_guide` (PR-7 Blocco A).
 3. **Stato live (contesto)** — i tool sola-lettura sopra: «sa dove siamo» dal programma vivo.
 
 ## Invarianti di sicurezza — hard block (BLOCCATE SEMPRE)
@@ -251,6 +253,34 @@ offerto come **read-only** anche senza `allow_writes`; nessuna scrittura).
 > **troncatura/riassunto** oltre una soglia è un miglioramento previsto per una fase successiva
 > (fuori dallo scope di PR-3).
 
+## Conoscenza del bridge + lingua (PR-7 Blocco A)
+
+L'assistente diventa un **esperto sola-lettura dell'intero bridge**: sa spiegare qualunque
+pulsante/campo/impostazione/concetto e sa dire **come** si eseguono le azioni che lui **non può**
+fare (avviare il listener live, passare a modalità reale, impostare token/chat/CSV/parser/limiti) —
+**guidando** l'utente passo passo, **senza** eseguirle. Due meccanismi:
+
+- **Conoscenza — `list_guides` / `read_guide`** (sola lettura). `read_guide` legge **una** guida da
+  una **allowlist esplicita** (`GUIDES` in `config_agent.py`: `README.md`, `docs/user/*`,
+  `docs/custom_parser.md`, `docs/xtrader_csv_contract.md`, `docs/design/design_handoff.md`,
+  `docs/event_journal.md`). Come per le chiavi scrivibili è una **allowlist**: il modello passa solo
+  un `name` (non un path) → **niente path-traversal**, mai `config.json`/sorgenti/segreti. File
+  assente (es. docs non incluse nell'EXE) → messaggio, **nessun crash**; contenuto oltre
+  `MAX_GUIDE_CHARS` → troncato con nota. `base_dir` è iniettabile per i test.
+- **Lingua — `build_system_prompt(app_language)`**. Il system prompt porta la clausola di risposta
+  nella lingua scelta all'avvio (`app_language` **IT/EN/ES**, match case-insensitive via
+  `language_select.normalize_app_language`); valore mancante/sconosciuto → **italiano** (default
+  sicuro, fail-closed). Il controller la (ri)legge dalla config in `enable()`, così un cambio lingua
+  ha effetto alla successiva sessione dell'assistente. Il prompt include anche la **REGOLA SUI
+  SEGRETI**: non chiedere/mostrare mai token/API key/chat ID in chat, indicare solo **dove** inserirli.
+
+Le **invarianti di sicurezza** restano intatte: i tool di conoscenza sono `READ_ONLY`, offerti
+sempre (anche senza `allow_writes`), e non aprono alcun write-path. Test hard in
+`tests/safety/test_config_agent_41.py` (`build_system_prompt` IT/EN/ES/default; `list_guides` elenca
+l'allowlist; `read_guide` legge da `base_dir` iniettato, rifiuta nomi fuori allowlist e ogni
+tentativo di path-traversal senza leggere `config.json`, fail-safe su file mancante, troncatura,
+read-only; e un test-contratto che ogni path dell'allowlist esiste davvero nel repo).
+
 ## Cosa NON c'è ancora (PR successive)
 - **PR-4 (fatto)**: scrittura config GATED — **solo** chiavi non safety-critical (vedi sopra). Le
   chiavi pericolose (token/chat/csv/parser/modalità/limiti) restano **non scrivibili**
@@ -261,3 +291,7 @@ offerto come **read-only** anche senza `allow_writes`; nessuna scrittura).
 - **PR-6 (fatto)**: guide utente in [`docs/user/`](../user/README.md) — [Primi passi](../user/getting_started.md)
   e [Assistente di configurazione](../user/assistente.md); cartella screenshot in
   [`docs/assets/screenshots/`](../assets/screenshots/) (segnaposto finché non catturati su Windows).
+- **PR-7 Blocco A (fatto)**: conoscenza dell'intero bridge (`list_guides`/`read_guide`, allowlist) +
+  risposta nella **lingua** scelta all'avvio (`build_system_prompt`). Prossimi blocchi: **B** «Prova
+  messaggio» (incolla un messaggio → riconosciuto sì/no + perché + anteprima riga CSV + spiegazione
+  delimitatori/colonne), **C** «Consulta dizionario», **D** «Perché scartato?» + «Spiega la salute».

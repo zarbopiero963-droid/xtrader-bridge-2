@@ -251,6 +251,15 @@ pulsante esistente **«🧙 Wizard prima configurazione»** (tab Strumenti). **N
 e **nessuna automazione**: l'assistente non compila i campi né apre finestre — è solo testo di guida
 nel trascritto.
 
+**Conoscenza del bridge + lingua (PR-7 Blocco A):** l'assistente sa **spiegare** qualunque
+pulsante/campo/impostazione/concetto (parser, contratto CSV, modalità, semafori di salute, sicurezza,
+diario eventi) leggendo la **documentazione reale** del progetto, e sa spiegare **come** si eseguono
+le azioni che non può fare (ascolto live, modalità reale, token/chat/CSV/parser/limiti) — **guidando**
+l'utente, **senza** eseguirle. Le risposte sono nella **lingua** scelta all'avvio (IT/EN/ES; un
+cambio lingua vale dalla successiva riabilitazione). **Non chiede né mostra mai segreti** nel
+trascritto: indica solo **dove** inserirli. **Nessun nuovo controllo UI**: cambia solo il contenuto
+delle risposte nel trascritto.
+
 **Invarianti di sicurezza lato UI:**
 - «Abilita» accende **solo la chat**: **non** avvia il listener live né la modalità reale, e **non**
   scrive il CSV operativo — quelle azioni restano dietro le **conferme frictionful** esistenti e le
