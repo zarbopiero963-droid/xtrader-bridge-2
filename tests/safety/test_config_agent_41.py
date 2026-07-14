@@ -49,7 +49,7 @@ def _final(text):
 
 
 _CFG = {"active_parser": "P1", "chat_id": "-1001234567",
-        "token": "1234567:SECRETTOKEN", "provider": "TG",
+        "token": "FAKEBOTTOKEN0000", "provider": "TG",
         "csv_path": r"C:\XTrader\segnali.csv"}
 
 
@@ -120,7 +120,7 @@ def test_get_config_state_non_espone_token_ne_chat():
     reg = _registry()
     res = reg.dispatch("get_config_state", {})
     assert res.refused is False
-    assert "SECRETTOKEN" not in res.content       # token mascherato ("***")
+    assert "FAKEBOTTOKEN0000" not in res.content       # token mascherato ("***")
     assert "-1001234567" not in res.content        # chat ID redatto
     assert "active_parser" in res.content          # i campi non sensibili restano
 
@@ -128,7 +128,7 @@ def test_get_config_state_non_espone_token_ne_chat():
 def test_risultato_tool_passa_per_redact_secrets():
     # Un segreto REGISTRATO che finisse in un risultato di tool viene redatto prima di tornare
     # al modello (difesa: nessun leak verso l'API anche se un tool lo espone per errore).
-    secret = "sk-ant-TESTSECRET-xyz"
+    secret = "FAKE-SECRET-VALUE-xyz"
     event_log.register_secret(secret)
     try:
         reg = ca.ToolRegistry()
@@ -145,7 +145,7 @@ def test_risultato_tool_passa_per_redact_secrets():
 def test_audit_log_input_redatto():
     # #62 (GPT/Fable/Fugu/GLM): un segreto passato come PARAMETRO di tool non deve restare in
     # chiaro nell'audit_log (canale di leak in memoria / futura cronologia PR-2).
-    secret = "sk-ant-AUDITSECRET-123"
+    secret = "FAKE-AUDIT-SECRET-123"
     event_log.register_secret(secret)
     try:
         reg = _registry()
@@ -160,7 +160,7 @@ def test_audit_log_input_redatto():
 
 
 def test_logger_non_riceve_segreti():
-    secret = "sk-ant-LOGGERSECRET-456"
+    secret = "FAKE-LOGGER-SECRET-456"
     event_log.register_secret(secret)
     captured = []
     try:
@@ -174,13 +174,33 @@ def test_logger_non_riceve_segreti():
 
 
 def test_contenuto_rifiuto_redatto():
-    secret = "sk-ant-REFUSAL-789"
+    secret = "FAKE-REFUSAL-SECRET-789"
     event_log.register_secret(secret)
     try:
         reg = _registry()
         res = reg.dispatch(secret, {})          # nome sconosciuto = il segreto stesso
         assert res.refused is True
         assert secret not in res.content         # il messaggio di rifiuto è redatto
+    finally:
+        event_log.unregister_secret(secret)
+
+
+def test_audit_e_result_name_redatti():
+    # #62 (GPT/Fable/Fugu): il NOME del tool è controllato dal modello e può contenere un segreto →
+    # né audit_log["name"]/["reason"] né ToolResult.name devono conservarlo in chiaro.
+    secret = "FAKE-NAME-SECRET-abc"
+    event_log.register_secret(secret)
+    try:
+        reg = _registry()
+        res = reg.dispatch(secret, {"x": secret})
+        entry = reg.audit_log[-1]
+        # nessun campo serializzabile dell'audit contiene il segreto
+        assert secret not in str(entry["name"])
+        assert secret not in str(entry["input"])
+        assert secret not in str(entry["reason"])
+        # né il risultato restituito
+        assert secret not in res.name
+        assert secret not in res.content
     finally:
         event_log.unregister_secret(secret)
 
@@ -280,9 +300,9 @@ class _FakeKeyring:
 def test_api_key_roundtrip_su_keyring(monkeypatch):
     fake = _FakeKeyring()
     monkeypatch.setattr(token_store, "_keyring", lambda: fake)
-    assert token_store.save_api_key("sk-ant-abc") is True
-    assert token_store.load_api_key() == "sk-ant-abc"
-    assert token_store.load_api_key_status() == ("sk-ant-abc", True)
+    assert token_store.save_api_key("FAKE-API-KEY-abc") is True
+    assert token_store.load_api_key() == "FAKE-API-KEY-abc"
+    assert token_store.load_api_key_status() == ("FAKE-API-KEY-abc", True)
     # voce distinta dal bot token (account diverso)
     assert (token_store.SERVICE, token_store.API_KEY_ACCOUNT) in fake.store
     assert token_store.delete_api_key() is True

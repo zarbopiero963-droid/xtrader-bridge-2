@@ -90,7 +90,12 @@ class ToolResult:
     ``refused`` True se bloccato dalle guardie (handler NON chiamato)."""
 
     def __init__(self, name, content, *, refused=False, reason=""):
-        self.name = name
+        # Il `name` è controllato dal modello e potrebbe contenere un segreto (#62): si redige anche
+        # qui, così nessun campo serializzabile del risultato (né la futura cronologia PR-2) lo
+        # espone. `redact_secrets` lascia intatti i nomi legittimi (solo i segreti REGISTRATI sono
+        # mascherati). Il lookup del tool nel dispatch usa il `name` grezzo PRIMA di costruire il
+        # risultato, quindi la redazione non tocca la logica.
+        self.name = event_log.redact_secrets(str(name))
         self.content = content
         self.refused = refused
         self.reason = reason
@@ -147,9 +152,12 @@ class ToolRegistry:
             return "<non serializzabile>"
 
     def _audit(self, name, tool_input, allowed, reason):
-        # `input` REDATTO all'ingresso (non solo l'output): l'audit non deve mai contenere segreti.
-        self.audit_log.append({"name": name, "input": self._safe_repr(tool_input),
-                               "allowed": allowed, "reason": reason})
+        # TUTTI i campi persistiti REDATTI (non solo `input`): il `name` è controllato dal modello e
+        # `reason` può includere il messaggio di un'eccezione → nessun segreto resta nell'audit (#62).
+        self.audit_log.append({"name": event_log.redact_secrets(str(name)),
+                               "input": self._safe_repr(tool_input),
+                               "allowed": allowed,
+                               "reason": event_log.redact_secrets(str(reason))})
         if self._logger is not None:
             verb = "eseguito" if allowed else "RIFIUTATO"
             try:
