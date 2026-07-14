@@ -661,18 +661,40 @@ def test_build_linux_presente_e_sicuro():
     assert _py_scripts(cmd) == ["main.py"], "unico script dev'essere main.py"
 
 
-def test_build_linux_artifact_preserva_permessi():
-    """#36 (CodeRabbit, Major): `actions/upload-artifact` ZIPpa e NON conserva il bit `+x`.
-    Il job `build-linux` deve quindi impacchettare il binario in un `tar` (che preserva mode
-    755) e caricare il `.tar.gz`, NON il binario grezzo `dist/XTrader-Signal-Bridge` (che al
-    download sarebbe non eseguibile). Regressione: se si tornasse a caricare il binario grezzo
-    o si togliesse il tar, questo test fallisce."""
+def test_build_linux_produce_appimage_pinnato():
+    """#36 PR-B: il job `build-linux` costruisce un **AppImage** (single-file desktop-integrated)
+    con `appimagetool` **PINNATO** (versione fissa + verifica `sha256`) e carica l'`.AppImage`,
+    NON il binario grezzo `dist/XTrader-Signal-Bridge`. Regressioni bloccate:
+    - appimagetool non pinnato/non verificato (rischio supply-chain);
+    - upload del binario grezzo invece dell'AppImage."""
     body = next(b for name, b in _jobs(_read(_BUILD_YAML)) if name == "build-linux")
-    assert re.search(r"\btar\b[^\n]*-c[^\n]*z[^\n]*f", body), \
-        "il job build-linux deve creare un tar (preserva il bit di esecuzione)"
-    assert ".tar.gz" in body, "il job build-linux deve produrre/caricare un .tar.gz"
+    assert "appimagetool" in body, "il job build-linux deve usare appimagetool per l'AppImage"
+    # pin ESPLICITO della versione + verifica dell'hash PRIMA dell'uso (supply-chain)
+    assert re.search(r"APPIMAGETOOL_VERSION:\s*[\"']?\d", body), \
+        "appimagetool dev'essere pinnato a una versione esplicita (tag immutabile)"
+    assert re.search(r"sha256sum -c", body), \
+        "appimagetool va verificato con sha256 (--check) PRIMA dell'uso"
+    assert ".AppImage" in body, "il job deve produrre un .AppImage"
+    # l'artifact caricato è l'.AppImage, NON il binario grezzo
+    assert re.search(r"(?m)^\s*path:.*\.AppImage", body), \
+        "l'artifact Linux caricato dev'essere l'.AppImage"
     assert not re.search(r"(?m)^\s*path:\s*dist/XTrader-Signal-Bridge\s*$", body), \
-        "l'artifact Linux NON deve caricare il binario grezzo (permessi persi): usa il tar.gz"
+        "non caricare il binario grezzo: l'artifact Linux è l'AppImage"
+
+
+def test_appimage_assets_committati_e_coerenti():
+    """#36 PR-B: gli asset dell'AppImage sono COMMITTATI (build deterministica, no generazione
+    a runtime) e coerenti: icona PNG, `.desktop` con `Exec` = nome eseguibile e `Icon` = nome
+    icona, `AppRun` che lancia il binario in usr/bin."""
+    base = os.path.join(_REPO_ROOT, "packaging", "appimage")
+    assert os.path.isfile(os.path.join(base, "app-icon.png")), "manca packaging/appimage/app-icon.png"
+    desktop = _read(os.path.join(base, "app.desktop"))
+    assert re.search(r"(?m)^Exec=" + re.escape(_ALLOWED_EXE_NAME) + r"\s*$", desktop), \
+        f".desktop: Exec dev'essere {_ALLOWED_EXE_NAME}"
+    assert re.search(r"(?m)^Icon=app-icon\s*$", desktop), ".desktop: Icon dev'essere 'app-icon' (= nome file icona)"
+    apprun = _read(os.path.join(base, "AppRun"))
+    assert _ALLOWED_EXE_NAME in apprun and "usr/bin" in apprun, \
+        "AppRun deve lanciare il binario in usr/bin/<APP>"
 
 
 def test_solo_opzioni_note():

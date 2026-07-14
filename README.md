@@ -752,21 +752,29 @@ La compilazione avviene via **GitHub Actions** su Windows:
 In locale (dev): `python main.py` avvia la GUI; `python -m pytest -q -m "not manual"`
 esegue la suite offline.
 
-### Build Linux (binario onefile) — #36
+### Build Linux (AppImage) — #36
 
-Lo **stesso** workflow «Build XTrader Signal Bridge EXE» costruisce **anche** un binario
+Lo **stesso** workflow «Build XTrader Signal Bridge EXE» costruisce **anche** l'app per
 **Linux** in un job parallelo (`build-linux`, `ubuntu-latest`), **additivo** e senza toccare
 la build Windows. La logica del bridge è identica su Windows e Linux (i rami POSIX esistono
-già); la suite gira verde su Linux e un binario **PyInstaller onefile self-contained** viene
-caricato negli **Artifacts** come `XTrader-Signal-Bridge-Linux-v<versione>-<data>`. L'archivio
-è un **`.tar.gz`** (non lo zip di GitHub non conserva il bit di esecuzione): **scaricalo,
-estrailo** (`tar -xzf …`) e trovi l'eseguibile `XTrader-Signal-Bridge` **già eseguibile**
-(mode 755), nessuna installazione né `chmod`.
+già); la suite gira verde su Linux, poi il binario **PyInstaller onefile** viene impacchettato
+in un **AppImage** (`appimagetool` pinnato + verifica `sha256`) e caricato negli **Artifacts**
+come `XTrader-Signal-Bridge-Linux-v<versione>-<data>`.
 
-> ℹ️ **XTrader resta Windows.** Il binario Linux fa girare **il bridge** (Telegram → CSV);
-> a *leggere* il CSV e piazzare è **XTrader**, che è solo Windows. Su Linux ha senso quindi
-> con XTrader su una macchina/VM Windows che legge il CSV (cartella condivisa). Il wrapping
-> in **AppImage** (desktop-integration) è un follow-up separato (#36 PR-B).
+**Come si usa (scarica e apri):**
+1. Scarica l'artifact dagli **Actions → Artifacts** ed estrai lo zip di GitHub → ottieni
+   `XTrader-Signal-Bridge-Linux-v….AppImage`.
+2. Rendilo eseguibile **una volta**: `chmod +x XTrader-Signal-Bridge-Linux-v….AppImage`
+   (GitHub zippa gli artifact e non conserva il bit `+x` — è il flusso AppImage standard).
+3. **Doppio-click** o `./XTrader-Signal-Bridge-Linux-v….AppImage`. Un **solo file**, con icona
+   e voce di menu, nessuna installazione. Su sistemi senza FUSE: `./…AppImage --appimage-extract-and-run`.
+
+L'icona del launcher (`packaging/appimage/app-icon.png`) è un **placeholder** sostituibile con
+l'icona di brand definitiva.
+
+> ℹ️ **XTrader resta Windows.** L'AppImage fa girare **il bridge** (Telegram → CSV); a *leggere*
+> il CSV e piazzare è **XTrader**, che è solo Windows. Su Linux ha senso quindi con XTrader su
+> una macchina/VM Windows che legge il CSV (cartella condivisa).
 
 **Pulizia storage artifact.** Ogni build carica un EXE (~18 MB) come artifact, con retention
 **7 giorni**. Per svuotare subito il backlog **senza CLI**: Actions → *Pulizia artifact vecchi*
