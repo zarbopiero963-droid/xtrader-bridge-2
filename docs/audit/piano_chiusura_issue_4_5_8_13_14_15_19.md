@@ -7,6 +7,24 @@
 > issue per issue, cosa è già fatto (con evidenza file:riga e test), cosa resta come lavoro codice
 > (piano PR), cosa dipende solo dal proprietario.
 
+> **🔄 Aggiornamento 2026-07-14 (supera i riferimenti allo snapshot `f1748f9` qui sopra).**
+> Il corpo che segue è lo **snapshot originale** dell'audit del 2026-07-13 (lasciato come storico).
+> Stato corrente:
+> - **#5/#8/#13/#14/#15/#19** già chiuse con commenti di evidenza; residui owner tracciati in **#34**.
+> - **#4 PR-1 — FATTA e mergiata** (PR **#58**, `main` dopo il merge): «Football Americano» →
+>   `event_type_id 6423` in `sports.SPORTS_EVENT_TYPE`, con test anti-drift + docs. Suite completa
+>   al momento della PR: **2554 passed, 11 skipped**. Resta il **gate owner**: confermare `6423`
+>   contro Betfair prima di considerarlo definitivo.
+> - **#4 PR-2 — voci-mercato dizionario: RIMANDATE a T19** (decisione owner 2026-07-14). Non si
+>   scrivono righe-mercato **inventate** per Rugby Union / Football Americano: il dizionario
+>   (`data/dizionario_xtrader.csv`) è il **Catalogo XTrader canonico** e i suoi `MarketType`/
+>   `MarketName`/`SelectionName` sono identificatori interni di XTrader — senza l'**export reale
+>   (T19)** sarebbero valori fabbricati e safety-critical (usati anche dal name-mapping, non solo dai
+>   percorsi a ID). La **mappatura nomi squadra** dei due sport è invece **già abilitata da PR-1**
+>   (compaiono nelle tendine Sport di `name_mapping`/`known_teams`/`guided_mapping`, derivate da
+>   `sports.py`). Quindi **#4 resta aperta** solo sulle voci-mercato, che arriveranno con la
+>   validazione dizionario da export reale (ex PR-4/T19).
+
 Regole invariate: una sola PR aperta alla volta · merge SEMPRE manuale del proprietario ·
 ogni PR con Phase 0 → patch stretta → micro-audit → test hard veritieri → check verdi →
 label finali → verdetto.
@@ -23,7 +41,7 @@ label finali → verdetto.
 | **#13** Backlog ~24 PR (Fase 5 UI + Fase 6 Nuitka) | ✅ Fase 5 completa; Nuitka in anteprima | Chiusura, residuo Nuitka → nuova roadmap |
 | **#15** Migliorie finali (#311) | ✅ Fasi 1 e 3 complete; Fase 0/2 = dati owner | Chiusura, residui owner → nuova roadmap |
 | **#19** «Guarda» (stato roadmap) | Nota/domanda, non task | Creare **nuova issue roadmap pulita**, chiudere #19 |
-| **#4** Football Americano + dizionario Rugby | ❌ **Unico vero lavoro codice residuo** | **PR-1** (+ eventuale PR-2 con dati owner) |
+| **#4** Football Americano + dizionario Rugby | ✅ PR-1 fatta (#58); voci-mercato → T19 | PR-1 ✅ · voci-mercato rimandate all'export reale (T19) |
 
 **Lavoro codice effettivo rimasto: solo issue #4.** Tutto il resto si chiude con evidenza
 documentale + una nuova issue roadmap che raccolga i residui che dipendono dal proprietario.
@@ -161,7 +179,7 @@ la chiusura giusta anche per #5/#13/#15. La nuova issue «📋 Roadmap residua»
 > ⛔ Prerequisito: la PR **#33** (i18n slice 4k) è aperta → nessuna nuova PR finché non è
 > mergiata (regola «una sola PR aperta alla volta»).
 
-### PR-1 — Issue #4a: sport «Football Americano» (piccola)
+### PR-1 — Issue #4a: sport «Football Americano» (piccola) — ✅ FATTA (PR #58, mergiata 2026-07-14)
 - `xtrader_bridge/sports.py`: aggiungere `"Football Americano": 6423` a `SPORTS_EVENT_TYPE`
   (**verificare 6423 contro la documentazione Betfair prima del merge**; con il Sync rimosso
   l'ID serve solo a scoping del dizionario locale/resolver, ma resta safety-critical).
@@ -174,15 +192,22 @@ la chiusura giusta anche per #5/#13/#15. La nuova issue «📋 Roadmap residua»
   una label visibile nei dropdown (probabile PASS con una riga).
 - PR body: segnalare «CORE CHANGE» come chiesto dall'issue.
 
-### PR-2 — Issue #4b: voci dizionario Rugby Union (+ Football Americano) (piccola)
-- `data/dizionario_xtrader.csv`: voci market-terms/nomi per Rugby Union e Football Americano
-  con `Fonte`/`Stato` **onesti** (senza export reale: `Generato da schema` / «Da verificare»,
-  ID vuoti — come previsto dall'issue e da `docs/audit/mercati_mapping_design.md`).
-- Il gate `is_validated()` resta fail-closed (già oggi False): nessun percorso a ID si apre.
-- Test hard: parse del CSV con i nuovi sport; resolver fail-closed su voci non verificate;
-  header/colonne invariati.
-- **Alternativa consigliata all'owner**: se l'export XTrader reale (T19) arriva prima,
-  accorpare PR-2 con la validazione 2.2 e inserire solo voci verificate.
+### PR-2 — Issue #4b: voci dizionario Rugby Union (+ Football Americano) — ⏸️ RIMANDATA a T19 (decisione owner 2026-07-14)
+**Esito della valutazione (2026-07-14):** *non* si scrivono voci-mercato **inventate**. Il
+dizionario è il **Catalogo XTrader canonico** e i suoi `MarketType`/`MarketName`/`SelectionName`
+sono identificatori interni di XTrader: senza l'**export reale (T19)** ogni riga Rugby/Football
+sarebbe un valore fabbricato e safety-critical — e verrebbe usato **anche dal name-mapping**, non
+solo dai percorsi a ID (il gate `is_validated()` chiude gli **ID**, non i **nomi**). La regola
+«non inventare mercato» (CLAUDE.md) e il vincolo «se T19 arriva prima → solo voci verificate»
+prevalgono. Perciò le voci-mercato **coincidono con la ex PR-4 / T19** (validazione dizionario da
+export reale) e non si aprono prima.
+
+Nota: la **mappatura nomi squadra** per Rugby Union e Football Americano è **già abilitata** da
+PR-1 (i due sport compaiono nelle tendine Sport di `name_mapping`/`known_teams`/`guided_mapping`,
+tutte derivate da `sports.py`), quindi la metà «name mapping» del task #4 è coperta.
+
+Quando arriverà T19: inserire **solo** voci verificate (`Fonte="Export XTrader"`, ID reali) per i
+mercati che l'export conferma per quegli sport; il gate `is_validated()` si apre solo allora.
 
 ### PR-3 (condizionata a T18) — fixture conferme XTrader reali
 Aggiungere le notifiche reali anonimizzate in `tests/fixtures/`, adeguare
@@ -198,4 +223,5 @@ sbloccando così `is_validated()` e i percorsi a ID (`BOTH`/`ID_ONLY`) in sicure
 2. Chiusura #8 e #14 con commento di evidenza.
 3. Chiusura #5, #13, #15 con commento di evidenza + link alla nuova roadmap.
 4. Chiusura #19 con link alla nuova roadmap.
-5. Chiusura #4 **solo dopo** il merge di PR-1 e PR-2 (o della variante PR-2+T19).
+5. Chiusura #4 **solo dopo** il merge di PR-1 (✅ #58) **e** delle voci-mercato verificate da
+   export reale (T19). Con PR-2 rimandata a T19, #4 resta aperta sulla sola parte mercati.
