@@ -54,9 +54,6 @@ class AgentController:
         # incrementa. Un turno che era già in volo quando la sessione è cambiata risulta **stale** e
         # viene SCARTATO (niente save, niente risposta-fantasma dopo lo Stop — GPT/GLM #64).
         self._epoch = 0
-        # Ultima API key registrata come segreto: alla ROTAZIONE (chiave diversa) si de-registra la
-        # precedente, così il registro globale non accumula chiavi vecchie (GPT/GLM/Fugu #64).
-        self._registered_key = ""
 
     # ── stato ──────────────────────────────────────────────────────────────────
     @property
@@ -97,14 +94,13 @@ class AgentController:
         return config_agent.RealAnthropicClient(api_key)
 
     def _register_key(self, key):
-        """Registra la API key come segreto (Fugu #64): mascherata nei log/cronologia anche se il
-        formato non combacia col pattern `sk-ant-`. Alla **rotazione** de-registra la chiave
-        precedente, così il registro globale non accumula chiavi vecchie (GPT/GLM/Fugu #64)."""
-        prev = self._registered_key
-        if prev and prev != key:
-            event_log.unregister_secret(prev)
+        """Registra la API key come segreto: mascherata nei log/cronologia anche se il formato non
+        combacia col pattern `sk-ant-` (Fugu #64). **NON** de-registra le chiavi precedenti
+        (Fable/GPT #64): una chiave ruotata può restare valida e comparire in cronologia/log residui
+        o nell'output di un worker stale → va tenuta redatta per la vita del processo. Il registro è
+        un **set**: registrare la stessa chiave più volte è idempotente (nessun accumulo per la
+        stessa chiave; chiavi diverse restano tutte redatte, che è l'esito sicuro)."""
         event_log.register_secret(key)
-        self._registered_key = key
 
     def enable(self) -> bool:
         """Abilita l'assistente: carica la cronologia (persistente, redatta) e avvia il worker.
@@ -195,6 +191,7 @@ class AgentController:
             agent = self._agent
             base_messages = list(self._history.messages)
         turn = agent.run_turn(text, history=base_messages)   # lento: nessun lock tenuto
+        save_failed = None
         with self._history_lock:
             if epoch != self._epoch:
                 return None                                  # sessione cambiata → scarta
@@ -207,10 +204,15 @@ class AgentController:
             except Exception as exc:   # noqa: BLE001 — persistenza best-effort: MAI scartare il turno
                 # Un errore di salvataggio (disco/permessi/serializzazione) non deve perdere la
                 # risposta né rompere la conversazione (CodeRabbit #64: non solo OSError).
-                self._emit("warning", {"reason": "history_save_failed",
-                                       "exc": type(exc).__name__})
-            self._emit("turn", {"text": turn.text, "capped": turn.capped,
-                                "messages": turn.messages})
+                save_failed = type(exc).__name__
+        # Emit FUORI dal lock (Fable #64): un handler `on_event` sincrono che richiamasse
+        # `stop()`/`enable()` (stesso `_history_lock`) andrebbe altrimenti in deadlock. Ricontrolla
+        # l'epoch (read atomica) per non emettere una risposta se lo Stop è arrivato tra save ed emit.
+        if epoch != self._epoch:
+            return None
+        if save_failed:
+            self._emit("warning", {"reason": "history_save_failed", "exc": save_failed})
+        self._emit("turn", {"text": turn.text, "capped": turn.capped, "messages": turn.messages})
         return None
 
     def _on_worker_result(self, turn, epoch):

@@ -89,7 +89,8 @@ def test_turno_aggiorna_e_salva_history(tmp_path, monkeypatch):
     assert len(c.history.messages) == 2
     hp = os.path.join(str(tmp_path), ca.HISTORY_FILENAME)
     assert os.path.exists(hp)
-    data = json.load(open(hp, encoding="utf-8"))
+    with open(hp, encoding="utf-8") as fh:
+        data = json.load(fh)
     assert isinstance(data["messages"], list) and len(data["messages"]) == 2
     c.stop()
 
@@ -103,7 +104,8 @@ def test_history_salvata_redatta(tmp_path, monkeypatch):
     c.enable()
     c.submit(f"la mia chiave e' {secret}")
     c._worker.run_pending()
-    raw = open(os.path.join(str(tmp_path), ca.HISTORY_FILENAME), encoding="utf-8").read()
+    with open(os.path.join(str(tmp_path), ca.HISTORY_FILENAME), encoding="utf-8") as fh:
+        raw = fh.read()
     assert secret not in raw and "[REDACTED_TOKEN]" in raw
     # anche il chat_id di sessione (extra_secrets) è redatto
     assert "-1001234567890" not in raw
@@ -210,6 +212,46 @@ def test_build_client_registra_api_key_dal_keyring(tmp_path, monkeypatch):
         c.stop()
 
 
+def test_rotazione_chiave_vecchia_resta_redatta(tmp_path, monkeypatch):
+    # Fable/GPT #64: dopo la ROTAZIONE la chiave VECCHIA NON viene de-registrata → resta redatta
+    # (può essere ancora valida o presente nella cronologia residua). Entrambe mascherate.
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    old = "old-anthropic-key-1234567890"
+    new = "new-anthropic-key-abcdefghij"
+    keys = {"v": old}
+    monkeypatch.setattr(token_store, "load_api_key", lambda: keys["v"])
+    monkeypatch.setattr(ca, "RealAnthropicClient", lambda k: object())
+    c = ctl.AgentController(config_loader=lambda: {})
+    try:
+        c.enable()
+        c.stop()
+        keys["v"] = new                       # rotazione della chiave
+        c.enable()
+        c.stop()
+        assert event_log.redact_secrets(f"a {old} b {new}") == \
+            "a [REDACTED_TOKEN] b [REDACTED_TOKEN]"
+    finally:
+        event_log.unregister_secret(old)
+        event_log.unregister_secret(new)
+
+
+def test_emit_fuori_dal_lock_no_deadlock(tmp_path, monkeypatch):
+    # Fable #64: un handler `on_event` che richiama `stop()` durante l'emit del turno NON deve
+    # deadlockare (l'emit è fuori dal `_history_lock`). Se fosse sotto lock, questo test si
+    # appenderebbe (e fallirebbe per pytest-timeout).
+    holder = {}
+
+    def on_event(kind, data):
+        if kind == "turn":
+            holder["c"].stop()                # stop() dallo stesso thread che emette
+    c = _controller(tmp_path, monkeypatch, client=FakeClient(), on_event=on_event)
+    holder["c"] = c
+    c.enable()
+    c.submit("ciao")
+    c._worker.run_pending()                   # emit sotto lock → deadlock; fuori dal lock → ok
+    assert c.state == ctl.STOPPED             # lo stop dall'handler ha avuto effetto
+
+
 def test_handle_message_dopo_stop_non_solleva(tmp_path, monkeypatch):
     # Fable #64: con epoch stale (dopo stop) _handle_message è un no-op (None), niente
     # AttributeError, niente messaggio-fantasma.
@@ -262,7 +304,9 @@ def test_turno_scartato_se_stop_durante_run(tmp_path, monkeypatch):
     assert c._handle_message("ciao", epoch) is None       # scartato
     assert "turn" not in events                            # nessuna risposta-fantasma
     hp = os.path.join(str(tmp_path), ca.HISTORY_FILENAME)
-    assert not os.path.exists(hp) or json.load(open(hp))["messages"] == []
+    if os.path.exists(hp):
+        with open(hp, encoding="utf-8") as fh:
+            assert json.load(fh)["messages"] == []
 
 
 def test_worker_stop_thread_vivo_ritorna_false():
