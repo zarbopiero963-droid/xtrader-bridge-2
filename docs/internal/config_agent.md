@@ -184,7 +184,12 @@ cap anti-loop, cronologia redatta).
     GUI «Salva») **non** viene sovrascritto — proposta stantia annullata con avviso;
   - il loader passato dall'app è la **config viva RAW** (`self._config`), **non** la vista redatta dei
     tool read-only → nessun `***` persistito sui segreti;
-  - un saver che **solleva** è trattato come save fallito (nessun crash del thread GUI).
+  - un saver che **solleva** è trattato come save fallito (nessun crash del thread GUI);
+  - il banner di conferma è governato **consumer-side**: il controller emette `pending_cleared`
+    fuori dal lock (invariante anti-deadlock #64) e la GUI, ricevendolo, **rilegge**
+    `controller.pending()` e mostra/nasconde di conseguenza — se nel frattempo è subentrata una
+    proposta più nuova la ri-mostra, altrimenti nasconde. Race-free rispetto all'ordine degli eventi
+    (stessa filosofia di `is_stale_event`), senza tenere il lock attraverso l'emit.
   Tutte le scritture di `config.json` (assistente e GUI) avvengono sul thread Tk → **serializzate**.
   Il `bot_token` non è tra le chiavi scrivibili e resta nel keyring. Un save fallito riporta
   l'errore, mai un falso «Fatto». La proposta è scartata se l'`epoch` è cambiato (Stop/Enable) o al

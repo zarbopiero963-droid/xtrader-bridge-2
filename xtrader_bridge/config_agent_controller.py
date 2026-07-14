@@ -373,13 +373,14 @@ class AgentController:
             ok, status = config_agent._save_outcome(self._config_saver(new_cfg))
         except Exception:   # noqa: BLE001 — save fallito/eccezione: fail-safe (esito negativo, non crash)
             ok, status = False, config_store.SAVE_DISK_ERROR
-        # `pending_cleared` SOLO se non è subentrata una proposta PIÙ NUOVA (stesso epoch → il filtro
-        # epoch non protegge) mentre il save era in corso: altrimenti nasconderebbe il suo banner
-        # (GPT/Fugu #65). Il turn di esito si emette comunque (è una riga di chat, non tocca il banner).
-        with self._pending_lock:
-            no_newer_pending = self._pending is None
-        if no_newer_pending:
-            self._emit("pending_cleared", {"epoch": epoch})
+        # `pending_cleared` è emesso SEMPRE dopo aver consumato la proposta: NON si tenta di
+        # sopprimerlo qui con un check `_pending is None`, perché quel check è fuori dal lock (l'emit
+        # NON può stare sotto lock — invariante anti-deadlock #64) e riaprirebbe una finestra TOCTOU
+        # check→emit (GPT/Fable/Fugu #65). La decisione mostra/nascondi la prende il CONSUMER (GUI)
+        # leggendo la proposta CORRENTE del controller quando gestisce l'evento: se nel frattempo è
+        # subentrata una p2 la ri-mostra, altrimenti nasconde — race-free rispetto all'ordine eventi,
+        # stessa filosofia di `is_stale_event`. Il turn di esito si emette comunque (riga di chat).
+        self._emit("pending_cleared", {"epoch": epoch})
         if ok:
             self._emit("turn", {"text": f"✓ «{key}» impostato a «{new}» (era «{old}»).",
                                 "capped": False, "messages": [], "epoch": epoch})

@@ -622,14 +622,16 @@ def test_apply_pending_proposta_piu_nuova_non_emette_pending_cleared(tmp_path, m
     c.stop()
 
 
-def test_apply_pending_proposta_nuova_durante_save_non_emette_pending_cleared(tmp_path, monkeypatch):
-    # GPT/Fugu #65: se una proposta PIÙ NUOVA (chiave diversa, stesso epoch) è staged MENTRE il save
-    # è in corso, il ramo di successo NON deve emettere `pending_cleared` (nasconderebbe il banner
-    # della proposta nuova). Il save di p1 avviene comunque; p2 resta pendente.
+def test_apply_pending_proposta_nuova_durante_save_preserva_pending(tmp_path, monkeypatch):
+    # GPT/Fable/Fugu #65: se una proposta PIÙ NUOVA (chiave diversa, stesso epoch) è staged MENTRE il
+    # save è in corso, la p2 deve restare la proposta CORRENTE. Il controller emette comunque
+    # `pending_cleared` (l'emit non può stare sotto lock — invariante #64), ma la decisione
+    # mostra/nascondi la prende il CONSUMER (GUI) leggendo `controller.pending()`: qui verifichiamo
+    # che quello stato autoritativo sia p2 (→ la GUI ri-mostra il suo banner, niente desync).
     monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
     path = os.path.join(str(tmp_path), "config.json")
     config_store.save_config({"theme": "dark", "clear_delay": 90}, path)
-    events, holder, armed = [], {}, {"on": False}
+    holder, armed = {}, {"on": False}
 
     def _saver(cfg):
         if armed["on"]:
@@ -639,17 +641,44 @@ def test_apply_pending_proposta_nuova_durante_save_non_emette_pending_cleared(tm
 
     c = ctl.AgentController(client=WriteToolClient("theme", "light"),
                             config_loader=lambda: config_store.load_config(path), config_saver=_saver)
-    c._on_event = lambda k, d: events.append((k, d))
     holder["c"] = c
     c.enable()
     c.submit("tema chiaro")
     c._worker.run_pending()                        # p1: theme dark→light
     armed["on"] = True
-    events.clear()
     assert c.apply_pending() is True               # p1 applicato (chiave invariata)
     assert config_store.load_config(path)["theme"] == "light"   # scritto
-    assert c.pending()["key"] == "clear_delay"     # la proposta PIÙ NUOVA (p2) è preservata
-    assert all(k != "pending_cleared" for k, _ in events)   # niente hide del banner p2
+    assert c.pending()["key"] == "clear_delay"     # stato autoritativo = p2 (il banner la mostra)
+    c.stop()
+
+
+def test_apply_pending_save_fallito_con_proposta_nuova_preserva_pending(tmp_path, monkeypatch):
+    # Fable/Fugu #65: save FALLITO mentre p2 subentra → esito errore, p1 non scritto, p2 resta lo
+    # stato autoritativo (il consumer ri-mostra il banner di p2).
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "clear_delay": 90}, path)
+    events, holder, armed = [], {}, {"on": False}
+
+    def _saver(cfg):
+        if armed["on"]:
+            armed["on"] = False
+            holder["c"]._stage_pending("clear_delay", 30, 90)   # p2 durante il save
+        return config_store.SaveResult(cfg, False, config_store.SAVE_DISK_ERROR)   # save FALLISCE
+
+    c = ctl.AgentController(client=WriteToolClient("theme", "light"),
+                            config_loader=lambda: config_store.load_config(path), config_saver=_saver)
+    c._on_event = lambda k, d: events.append((k, d))
+    holder["c"] = c
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()
+    armed["on"] = True
+    events.clear()
+    assert c.apply_pending() is False              # save fallito
+    assert config_store.load_config(path)["theme"] == "dark"    # p1 non scritto
+    assert c.pending()["key"] == "clear_delay"     # p2 resta lo stato autoritativo
+    assert any(k == "turn" and "non riuscito" in d.get("text", "") for k, d in events)
     c.stop()
 
 

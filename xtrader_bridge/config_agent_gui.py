@@ -242,7 +242,16 @@ class AssistantPanel:
             self._show_pending(data)
             return
         if kind == "pending_cleared":
-            self._hide_pending()
+            # Sorgente di verità = la proposta CORRENTE del controller, letta qui sul thread GUI (non
+            # ci si fida dell'ordine degli eventi): se nel frattempo è subentrata una proposta più
+            # nuova la si (ri)mostra, altrimenti si nasconde il banner. Chiude la finestra di race tra
+            # `pending_cleared` (emesso fuori lock, invariante anti-deadlock #64) e uno stage
+            # concorrente — stessa filosofia di `is_stale_event` (GPT/Fable #65).
+            cur = self.controller.pending()
+            if cur:
+                self._show_pending(cur)
+            else:
+                self._hide_pending()
             return
         if kind == "state":
             self._refresh_state(data.get("state"), data.get("error", ""))
