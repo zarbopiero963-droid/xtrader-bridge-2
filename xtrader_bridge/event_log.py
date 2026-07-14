@@ -39,6 +39,10 @@ def normalize_level(level) -> str:
 # ovunque possa finire in un log (es. un'eccezione che incorpora il token), per
 # rispettare l'invariante "mai token in chiaro nei log".
 _TELEGRAM_TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{20,}")
+# API key Anthropic dell'assistente di configurazione (#41): shape `sk-ant-...`. Euristica che
+# intercetta la chiave anche se NON registrata (es. incollata in chat prima del salvataggio), così
+# non finisce mai in chiaro nei log né nella cronologia conversazione (#41 PR-2).
+_ANTHROPIC_KEY_RE = re.compile(r"sk-ant-[A-Za-z0-9_-]{16,}")
 _REDACTED = "[REDACTED_TOKEN]"
 
 # Registro di segreti ESATTI da mascherare per-literal, OLTRE alla regex (issue #184 M7).
@@ -130,6 +134,7 @@ def redact_secrets(text: str) -> str:
     (es. doppia codifica, separatori diversi da CR/LF), può ancora sfuggire; per questo il token
     di config va registrato (lo fa `app` a load/save)."""
     s = _TELEGRAM_TOKEN_RE.sub(_REDACTED, str(text or ""))
+    s = _ANTHROPIC_KEY_RE.sub(_REDACTED, s)   # API key Anthropic (#41), anche non registrata
     # Espande ogni literal registrato nelle sue forme derivate (grezzo + URL-encoded), poi
     # sostituisce le più LUNGHE prima: evita che un segreto contenuto in un altro venga
     # mascherato a metà lasciando un frammento dell'altro in chiaro. Ogni forma è matchata in
@@ -143,6 +148,22 @@ def redact_secrets(text: str) -> str:
         if not sec:
             continue
         s = _crlf_tolerant_re(sec).sub(_REDACTED, s)
+    return s
+
+
+def redact_extra(text: str, literals) -> str:
+    """Come `redact_secrets`, ma maschera ANCHE i `literals` passati (oltre a pattern e segreti
+    registrati), applicando le STESSE forme derivate (`_secret_forms`: grezzo + URL-encoded) e il
+    match **CRLF-tollerante** (`_crlf_tolerant_re`) — in **locale**, SENZA registrarli nel registro
+    globale. Pensato per segreti di **sessione** (es. `chat_id`) che non vanno registrati in modo
+    persistente: così un `chat_id` già registrato dall'app non rischia una de-registrazione (#41
+    PR-2). I `literals` vuoti sono ignorati."""
+    s = redact_secrets(text)
+    for lit in (literals or ()):
+        if not lit:
+            continue
+        for form in _secret_forms(str(lit)):
+            s = _crlf_tolerant_re(form).sub(_REDACTED, s)
     return s
 
 

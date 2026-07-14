@@ -4,11 +4,11 @@ Questo modulo è il **cervello** dell'assistente: un client Anthropic *tool-use*
 un **registry di tool** con classificazione dei permessi, e le **guardie di sicurezza hard-block**
 che impediscono all'agente azioni pericolose **anche su ordine esplicito**.
 
-PR-1 è volutamente **headless** (nessuna GUI, nessun thread, nessuna persistenza) e
-**offline-testabile**: il client reale Anthropic è un *lazy import* fail-safe (come
-``token_store`` con ``keyring``) e **non** viene mai esercitato nei test — i test iniettano un
-client finto. La GUI (PR-3), la persistenza cronologia (PR-2) e i tool di **scrittura** config
-(PR-4) arrivano nelle PR successive.
+Resta **headless** (nessuna GUI, nessun thread) e **offline-testabile**: il client reale Anthropic
+è un *lazy import* fail-safe (come ``token_store`` con ``keyring``) e **non** viene mai esercitato
+nei test — i test iniettano un client finto. **PR-2** aggiunge la **persistenza cronologia**
+(``ConversationHistory``, sempre redatta su disco). La GUI (PR-3) e i tool di **scrittura** config
+gated (PR-4) arrivano nelle PR successive.
 
 Invarianti di sicurezza (hard block — vedi ``FORBIDDEN_TOOLS`` e ``ToolRegistry.dispatch``):
 l'agente non può MAI piazzare scommesse, parlare con XTrader/Betfair, indebolire il filtro chat,
@@ -20,8 +20,9 @@ lasciano mai la macchina in chiaro.
 """
 
 import json
+import os
 
-from . import config_store, custom_parser, event_log, health_check, log_privacy
+from . import atomic_io, config_store, custom_parser, event_log, health_check, log_privacy
 
 # ── Classi di permesso dei tool ────────────────────────────────────────────────
 READ_ONLY = "read_only"        # sola lettura: sempre permesso
@@ -252,7 +253,6 @@ def build_read_only_tools(*, config_loader=None, parsers_dir=None) -> list:
 
     def _list_parsers(_inp):
         files = custom_parser.list_parser_files(parsers_dir)
-        import os
         names = [os.path.splitext(os.path.basename(f))[0] for f in files]
         return json.dumps({"parsers": names, "active": load_cfg().get("active_parser", "")},
                           ensure_ascii=False)
@@ -390,3 +390,140 @@ class ConfigAgent:
             messages.append({"role": "user", "content": results_blocks})
         # Cap raggiunto: il modello continua a chiamare tool → si ferma per sicurezza.
         return AgentTurn("", messages, tool_results_all, capped=True)
+
+
+# ── Persistenza cronologia conversazione (#41 PR-2) ─────────────────────────────
+# La cronologia rende l'assistente «consapevole di dove siamo» tra un avvio e l'altro. Vive nella
+# cartella dati utente (`config_store.config_dir()` → %APPDATA%/$XDG_CONFIG_HOME) ed è scritta in
+# modo ATOMICO e SEMPRE REDATTA: API key/bot token/chat non finiscono mai in chiaro nel file.
+HISTORY_FILENAME = "assistant_history.json"
+HISTORY_SCHEMA_VERSION = 1
+
+
+def history_path(config_dir=None) -> str:
+    """Path del file cronologia (default: nella cartella dati dell'app)."""
+    base = config_dir if config_dir is not None else config_store.config_dir()
+    return os.path.join(base, HISTORY_FILENAME)
+
+
+# Marker di redazione e guardia anti-frammento per i literal di sessione (es. chat_id).
+_EXTRA_REDACTED = "[REDACTED_TOKEN]"
+_MIN_EXTRA_SECRET_LEN = 8
+
+
+def _redact_str(s: str, extra_literals=()) -> str:
+    """Redige una stringa: prima i segreti noti a `event_log` (bot token/sk-ant/registrati), poi i
+    literal di sessione passati esplicitamente (es. chat_id). I literal usano le STESSE primitive
+    robuste di `event_log` — forme derivate (`_secret_forms`: grezzo + URL-encoded) e match
+    **CRLF-tollerante** (`_crlf_tolerant_re`) — ma applicate in **locale**, SENZA registrare nulla
+    nel registro globale (evita la de-registrazione accidentale, Fable/Fugu #63)."""
+    return event_log.redact_extra(s, extra_literals)
+
+
+def _deep_redact(obj, extra_literals=()):
+    """Redige RICORSIVAMENTE i messaggi preservando la struttura: testo utente/assistente,
+    `tool_use.input`, `tool_result.content`, nomi. Copre anche:
+    - le **chiavi** dei dict (GLM/GPT #63: un segreto usato come chiave non resta in chiaro; le
+      chiavi strutturali legittime non sono toccate da `redact_secrets`). Se due chiavi distinte
+      redigono allo STESSO marker, l'entry NON viene persa: si disambigua con un suffisso
+      (evita la collisione silenziosa segnalata da Fable/GPT #63);
+    - gli **scalari numerici** (Fugu #63: un `chat_id`/segreto passato come `int`/`float` in un
+      `tool_use.input` verrebbe altrimenti serializzato in chiaro) — se la forma-stringa contiene
+      un segreto si restituisce il marker, altrimenti il numero originale (tipo preservato)."""
+    if isinstance(obj, str):
+        return _redact_str(obj, extra_literals)
+    if isinstance(obj, bool):
+        return obj   # `bool` è sottoclasse di `int`: va escluso PRIMA del ramo numerico
+    if isinstance(obj, (int, float)):
+        red = _redact_str(str(obj), extra_literals)
+        return red if red != str(obj) else obj
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            rk = _deep_redact(k, extra_literals)
+            rk = rk if isinstance(rk, str) else str(rk)
+            # Le chiavi-SORGENTE sono uniche: se `rk` è già in `out`, DUE chiavi distinte hanno
+            # prodotto lo stesso marker → disambigua SEMPRE (Fable #63: la condizione `rk != k`
+            # lasciava sovrascrivere una chiave-segreta redatta da una chiave strutturale già
+            # uguale al marker, con perdita silenziosa dell'entry).
+            if rk in out:
+                n = 2
+                while f"{rk}#{n}" in out:
+                    n += 1
+                rk = f"{rk}#{n}"
+            out[rk] = _deep_redact(v, extra_literals)
+        return out
+    if isinstance(obj, list):
+        return [_deep_redact(x, extra_literals) for x in obj]
+    return obj
+
+
+class ConversationHistory:
+    """Cronologia persistente della conversazione con l'assistente (#41 PR-2).
+
+    In RAM tiene i `messages` nel formato di `ConfigAgent` (la sessione ha il contesto pieno); su
+    **disco** viene scritta SEMPRE REDATTA (nessun segreto in chiaro). Flusso tipico del chiamante:
+
+        h = ConversationHistory.load()
+        turn = agent.run_turn(testo_utente, history=h.messages)
+        h.replace(turn.messages)
+        h.save(extra_secrets=[cfg.get("chat_id")])   # chat_id di sessione redatto in aggiunta
+    """
+
+    def __init__(self, messages=None):
+        self.messages = list(messages or [])
+
+    def is_empty(self) -> bool:
+        return not self.messages
+
+    def append(self, message) -> None:
+        self.messages.append(message)
+
+    def extend(self, messages) -> None:
+        self.messages.extend(messages or [])
+
+    def replace(self, messages) -> None:
+        """Sostituisce l'intera cronologia (es. con `turn.messages` dopo un turno)."""
+        self.messages = list(messages or [])
+
+    def redacted_messages(self, *, extra_secrets=()):
+        """Vista REDATTA dei messaggi senza persistere. `extra_secrets` (es. il `chat_id` di
+        sessione) sono mascherati per **replace LOCALE**: NON si tocca il registro globale di
+        `event_log` — così un segreto già registrato dall'app non viene mai de-registrato per
+        sbaglio (regressione/race, Fable & Fugu #63). Guardia anti-frammento: solo i literal
+        >= `_MIN_EXTRA_SECRET_LEN` sono mascherati (i chat ID reali Telegram `-100…` sono lunghi e
+        coperti; un valore cortissimo non si redige per non mascherare sottostringhe banali)."""
+        lits = [str(s) for s in (extra_secrets or [])
+                if s and len(str(s)) >= _MIN_EXTRA_SECRET_LEN]
+        return _deep_redact(self.messages, lits)
+
+    def save(self, path=None, *, config_dir=None, extra_secrets=()) -> str:
+        """Scrive la cronologia REDATTA su disco in modo ATOMICO. Ritorna il path scritto."""
+        p = path or history_path(config_dir)
+        parent = os.path.dirname(p)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        payload = {"version": HISTORY_SCHEMA_VERSION,
+                   "messages": self.redacted_messages(extra_secrets=extra_secrets)}
+        atomic_io.atomic_write_json(p, payload, ensure_ascii=False, indent=2)
+        return p
+
+    @classmethod
+    def load(cls, path=None, *, config_dir=None):
+        """Carica la cronologia dal file. **Fail-safe**: file assente, JSON corrotto o forma
+        inattesa → cronologia VUOTA (l'assistente riparte pulito, non crasha)."""
+        p = path or history_path(config_dir)
+        try:
+            with open(p, encoding="utf-8") as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            return cls([])
+        except (ValueError, OSError):
+            # JSON corrotto / file illeggibile → cronologia vuota (fail-safe).
+            return cls([])
+        msgs = data.get("messages") if isinstance(data, dict) else None
+        if not isinstance(msgs, list):
+            return cls([])
+        # Tiene SOLO i messaggi ben formati (dict con "role"): un file editato a mano con elementi
+        # malformati non deve iniettare payload incompatibili nel client LLM (GPT #63).
+        return cls([m for m in msgs if isinstance(m, dict) and "role" in m])

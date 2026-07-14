@@ -75,9 +75,42 @@ iniettabile (l'app reale ci aggancerà `event_log`).
   `redact_secrets`). Per le operazioni di **scrittura** (PR-4) il valore sensibile va passato al
   tool **senza** doverlo esporre nel testo persistito: il design del write-path lo definisce lì.
 
+## Persistenza cronologia (PR-2)
+
+`ConversationHistory` rende l'assistente «consapevole di dove siamo» tra un avvio e l'altro.
+
+- **In RAM**: `messages` nel formato di `ConfigAgent` (la sessione ha il contesto pieno).
+- **Su disco**: `config_store.config_dir()/assistant_history.json` (%APPDATA%/$XDG_CONFIG_HOME),
+  scritto in modo **atomico** (`atomic_io.atomic_write_json`) e **sempre REDATTO**.
+- **Redazione profonda** (`_deep_redact`): ogni foglia dei messaggi (testo utente/assistente,
+  `tool_use.input`, `tool_result.content`, nomi) passa per `event_log.redact_secrets`; la
+  struttura è preservata. Copre anche gli **scalari numerici** (un `chat_id` come `int` viene
+  redatto, un numero legittimo resta) e le **chiavi** dei dict (un segreto usato come chiave non
+  resta in chiaro). `save(extra_secrets=[...])` maschera i segreti di sessione (es. il `chat_id`)
+  per **replace LOCALE** — **senza** toccare il registro globale di `event_log`, così un segreto
+  già registrato dall'app non viene mai de-registrato per sbaglio (niente leak/race). **API key/
+  bot token/chat non finiscono mai in chiaro nel file.**
+- **Fail-safe** in `load`: file assente, JSON corrotto o forma inattesa → cronologia **vuota**
+  (l'assistente riparte pulito, non crasha).
+- **Redazione API key**: `event_log.redact_secrets` ora maschera anche il pattern `sk-ant-...`
+  (euristica), così la chiave Anthropic è coperta **anche prima** della registrazione.
+
+Flusso del chiamante (la GUI, PR-3):
+
+```python
+h = ConversationHistory.load()
+turn = agent.run_turn(testo_utente, history=h.messages)
+h.replace(turn.messages)
+h.save(extra_secrets=[cfg.get("chat_id")])
+```
+
+Limite onesto: i literal di sessione < 8 caratteri (`_MIN_EXTRA_SECRET_LEN`) non sono mascherati
+per-literal (guardia anti-frammento, per non redigere sottostringhe banali); i chat ID reali
+Telegram (`-100…`) sono lunghi e coperti, e il bot token / `sk-ant-...` restano coperti dai pattern
+di `redact_secrets` a prescindere.
+
 ## Cosa NON c'è ancora (PR successive)
 
-- **PR-2**: persistenza cronologia con redazione segreti.
 - **PR-3**: tab GUI + Abilita/Stop + wiring stato live (design handoff).
 - **PR-4**: tool di **scrittura** config gated (token/chat/csv/parser) con conferma sulle
   transizioni pericolose.
