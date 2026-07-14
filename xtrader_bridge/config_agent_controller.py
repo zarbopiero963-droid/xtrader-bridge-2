@@ -34,7 +34,8 @@ class AgentController:
     spento)."""
 
     def __init__(self, *, client=None, client_factory=None, config_loader=None,
-                 config_saver=None, history=None, parsers_dir=None, on_event=None, logger=None):
+                 config_saver=None, history=None, parsers_dir=None, on_event=None,
+                 health_provider=None, journal_path=None, logger=None):
         self._config_loader = config_loader or config_store.load_config
         self._config_saver = config_saver or config_store.save_config
         self._parsers_dir = parsers_dir
@@ -57,9 +58,13 @@ class AgentController:
         # Registry con i tool read-only (stato VIVO redatto) e i tool di scrittura config GATED
         # (#41 PR-4): questi ultimi sono offerti al modello solo con `allow_writes=True` (vedi enable)
         # e **non scrivono**: propongono soltanto (`on_proposal`), la conferma è umana via UI.
+        # `health_provider`/`journal_path` (#41 PR-10 Blocco D): stato LIVE dei 7 semafori e percorso
+        # del diario eventi, iniettati dall'app così l'assistente legge ciò che l'utente vede nel
+        # pannello 🚦 Salute e nel diario. Sono SOLA-LETTURA (nessuna scrittura/azione).
         self._registry = config_agent.build_default_registry(
             config_loader=self._config_loader, on_proposal=self._stage_pending,
-            parsers_dir=parsers_dir, logger=logger)
+            parsers_dir=parsers_dir, health_provider=health_provider, journal_path=journal_path,
+            logger=logger)
         self._history = history if history is not None else config_agent.ConversationHistory([])
         self._agent = None
         self._worker = None

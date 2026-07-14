@@ -23,8 +23,9 @@ client Anthropic *tool-use* iniettabile, registry dei tool con classificazione d
   qualunque pulsante/campo/concetto), il tester **`test_message`** (**PR-8 Blocco B**: prova un
   messaggio col parser attivo e mostra verdetto + anteprima riga CSV, **senza scrivere**), e
   **`lookup_dictionary`** (**PR-9 Blocco C**: cerca squadre/mercati/mapping nel dizionario XTrader e
-  nei profili dell'utente e spiega come sono mappati — vedi sotto). Esercitano funzioni reali del
-  progetto.
+  nei profili dell'utente e spiega come sono mappati), e i tool di **diagnosi** `explain_health` +
+  `why_discarded` (**PR-10 Blocco D**: i 7 semafori live + consigli, e il diario eventi per capire
+  perché un segnale non è passato — vedi sotto). Esercitano funzioni reali del progetto.
 - **`RealAnthropicClient`** — client verso l'Anthropic Messages API con **lazy import** di
   `anthropic` (dipendenza opzionale, fail-safe come `keyring` in `token_store`). **Non** usato nei
   test: `ConfigAgent` accetta qualunque client con `create_message(system, messages, tools)`.
@@ -341,6 +342,36 @@ Test hard: `tests/safety/test_config_agent_41.py` (panoramica; ricerca mercato p
 mapping XTrader; squadra nei profili nomi; mercato utente + value-map; termine assente → nessun
 match; **dizionario mancante → fail-safe**; read-only; nessun segreto nell'output).
 
+## Diagnosi — `explain_health` + `why_discarded` (PR-10 Blocco D)
+
+Due tool **SOLA-LETTURA** che chiudono la serie #41 dando all'assistente la stessa vista
+diagnostica che l'utente ha nella GUI.
+
+- **`explain_health`** — i **7 semafori** (`telegram`/`message`/`parser`/`signal`/`csv`/
+  `confirmation`/`mode`, da `health_check.evaluate`) con stato, dettaglio e un **consiglio** per
+  ogni stato **non-verde** (`_HEALTH_ADVICE`). Se l'app inietta un **`health_provider`** (callable →
+  gli stessi `HealthItem` del pannello 🚦 Salute) il report è **LIVE** (`live: true`) e riflette
+  esattamente ciò che l'utente vede; senza provider (headless/test) ripiega su una valutazione da
+  **config + sonda CSV non invasiva** (`live: false`, fedeltà parziale: Telegram/segnale/conferme
+  non sono noti senza app viva). Un provider difettoso → **fail-safe** sul fallback config.
+- **`why_discarded`** — legge il **diario eventi** (`event_journal`, già redatto; path da
+  `journal_path` iniettato o `journal_view.default_path()`) e ne **riassume il ciclo di vita**
+  (`_journal_summary`): conteggi per tipo, se l'**ultimo segnale ricevuto è arrivato al CSV**
+  (`CSV_WRITTEN` dopo l'ultimo `SIGNAL_RECEIVED`), rifiuti, recovery anti-stantio, riconnessioni.
+  Il diario registra le **tappe**, non il motivo esatto dello scarto: per quello l'assistente
+  combina `why_discarded` con l'**«ultimo errore»** del semaforo `signal` di `explain_health`.
+  Fail-safe se il diario è assente/illeggibile (`journal_available: false`).
+
+**Wiring (thin, #41 PR-10).** `app._live_health_items` (estratto da `_refresh_health_inner`, stessa
+logica del pannello) e `app._journal_path` sono passati a `AssistantPanel` → `AgentController` →
+`build_default_registry(health_provider=…, journal_path=…)` → `build_diagnostic_tools`. Tutto
+**READ_ONLY**: nessuna scrittura, nessuna azione, output senza segreti (semafori/diario già redatti).
+
+Test hard: `tests/safety/test_config_agent_41.py` (`explain_health` config-only con advice sui
+non-verdi / provider live / provider difettoso → fallback; `why_discarded` ciclo di vita
+ricevuto-non-scritto vs arrivato-al-CSV / diario assente → fail-safe / limite capato; read-only;
+nessun segreto). Glue GUI (`_live_health_items`, injection) = smoke manuale (l'app viva).
+
 ## Cosa NON c'è ancora (PR successive)
 - **PR-4 (fatto)**: scrittura config GATED — **solo** chiavi non safety-critical (vedi sopra). Le
   chiavi pericolose (token/chat/csv/parser/modalità/limiti) restano **non scrivibili**
@@ -356,5 +387,7 @@ match; **dizionario mancante → fail-safe**; read-only; nessun segreto nell'out
 - **PR-8 Blocco B (fatto)**: 🧪 «Prova messaggio» (`test_message`) — riconosciuto sì/no + motivo +
   anteprima riga CSV + delimitatori/colonne, sola lettura.
 - **PR-9 Blocco C (fatto)**: 📖 «Consulta dizionario» (`lookup_dictionary`) — cerca squadre/mercati/
-  mapping e spiega come sono mappati, sola lettura. Prossimo blocco: **D** «Perché scartato?» +
-  «Spiega la salute».
+  mapping e spiega come sono mappati, sola lettura.
+- **PR-10 Blocco D (fatto)**: 🚦 «Spiega la salute» (`explain_health`) + 🩺 «Perché scartato?»
+  (`why_discarded`) — i 7 semafori live con consigli e il diario eventi, sola lettura. **Serie #41
+  (assistente esperto del bridge) completa.**

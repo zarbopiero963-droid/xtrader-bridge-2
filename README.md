@@ -228,6 +228,13 @@ mapping** (squadre/mercati/value-map) e ti spiega **come sono mappati** — alia
 XTrader (tipo/nome mercato, selezione, BetType, handicap) e squadra → nome Betfair. Senza un termine
 dà la **panoramica** di cosa conosce il bridge. Sola lettura.
 
+**🚦 Salute e 🩺 diagnosi.** Chiedi «come sta il bridge?» / «cosa manca?»: l'assistente legge i **7
+semafori** (Telegram, messaggio, parser, segnale, CSV, conferme, modalità) — lo stesso stato della
+tab **🚦 Salute** — con lo stato e un **consiglio** per quelli non verdi. Chiedi «perché è stato
+scartato?»: legge il **diario eventi** e ti spiega il **ciclo di vita** dell'ultimo segnale (se è
+arrivato al CSV o no) e, con l'«ultimo errore», il motivo (duplicato/troppo vecchio/parser/CSV). Sola
+lettura.
+
 La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Config**
 (oppure all'avvio con **▶ AVVIA**) nel file `config.json` (vedi
 [Dove vengono salvati i file](#dove-vengono-salvati-i-file)). Ogni campo mostra un **esempio-guida**

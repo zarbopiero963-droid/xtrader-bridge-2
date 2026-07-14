@@ -94,13 +94,17 @@ class AssistantPanel:
     Verifica manuale (nessun display in CI): vedi lo smoke test in `docs/internal/config_agent.md`.
     """
 
-    def __init__(self, master, *, controller=None, config_loader=None, log=None):
+    def __init__(self, master, *, controller=None, config_loader=None, log=None,
+                 health_provider=None, journal_path=None):
         import customtkinter as ctk  # import locale: il modulo resta importabile headless (test)
         self._ctk = ctk
         self.master = master
         self._log = log
+        # `health_provider`/`journal_path` (#41 PR-10 Blocco D): inoltrati al controller così i tool
+        # `explain_health`/`why_discarded` leggono lo stato LIVE dei semafori e il diario dell'app.
         self.controller = controller or ctl.AgentController(
-            config_loader=config_loader, on_event=self._on_event)
+            config_loader=config_loader, on_event=self._on_event,
+            health_provider=health_provider, journal_path=journal_path)
         if controller is not None:
             # se il controller è iniettato, aggancia comunque gli eventi alla view
             self.controller._on_event = self._on_event

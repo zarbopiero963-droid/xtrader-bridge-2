@@ -273,6 +273,14 @@ Telegram → valori XTrader; squadra → nome Betfair; value-map), o dà la **pa
 il bridge. **Sola lettura**, fail-safe se il dizionario non è incluso. **Nessun nuovo controllo UI**:
 cambia solo il contenuto delle risposte nel trascritto.
 
+**Diagnosi salute + diario (PR-10 Blocco D):** l'assistente può **leggere i 7 semafori** del pannello
+**🚦 Salute** (Telegram, messaggio, parser, segnale, CSV, conferme, modalità) e spiegarli nel
+trascritto con un **consiglio** per gli stati non-verdi, e leggere il **diario eventi** per spiegare
+**perché un segnale è stato scartato** (ciclo di vita: ricevuto → parsato → validato → scritto). Vede
+lo **stesso stato live** che vedi tu (l'app gli passa i semafori del pannello e il percorso del
+diario). **Sola lettura**, fail-safe. **Nessun nuovo controllo UI**: il pannello 🚦 Salute è
+invariato; cambia solo il contenuto delle risposte nel trascritto.
+
 **Invarianti di sicurezza lato UI:**
 - «Abilita» accende **solo la chat**: **non** avvia il listener live né la modalità reale, e **non**
   scrive il CSV operativo — quelle azioni restano dietro le **conferme frictionful** esistenti e le

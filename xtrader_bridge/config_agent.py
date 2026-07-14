@@ -23,9 +23,9 @@ import json
 import os
 
 from . import (atomic_io, bridge_mode, config_store, csv_writer, custom_parser, dizionario,
-               event_log, health_check, language_select, log_privacy, market_mapping_store,
-               name_mapping_store, parser_builder, parser_manager, recognition, source_manager,
-               value_maps, wizard)
+               event_journal, event_log, health_check, journal_view, language_select, log_privacy,
+               market_mapping_store, name_mapping_store, parser_builder, parser_manager, recognition,
+               source_manager, value_maps, wizard)
 
 # ── Classi di permesso dei tool ────────────────────────────────────────────────
 READ_ONLY = "read_only"        # sola lettura: sempre permesso
@@ -708,6 +708,159 @@ def build_dictionary_tools(*, config_loader=None) -> list:
     ]
 
 
+# ── 🚦 Salute + 🩺 Diagnosi: tool SOLA-LETTURA (#41 PR-10 Blocco D) ──────────────
+# Due tool sola-lettura:
+#  - `explain_health`: i 7 semafori (telegram/message/parser/signal/csv/confirmation/mode) + una
+#    riga di CONSIGLIO per gli stati non-verdi. Se l'app inietta `health_provider` (callable → gli
+#    stessi `HealthItem` del pannello 🚦 Salute), riflette lo stato LIVE che l'utente vede; senza
+#    provider (headless/test) ripiega su una valutazione da config + sonda CSV non invasiva.
+#  - `why_discarded`: legge il DIARIO EVENTI (già redatto) e riassume il ciclo di vita degli ultimi
+#    segnali (ricevuto→parsato→validato→scritto, rifiuti, recovery, riconnessioni) per spiegare
+#    perché un segnale può non essere arrivato al CSV. Fail-safe se il diario è assente.
+
+MAX_JOURNAL_EVENTS = 30   # ultimi N eventi restituiti/riassunti (append-only, cresce nel tempo)
+
+# Consiglio breve per ogni semaforo quando NON è verde (cosa fare). Testo neutro, nessun segreto.
+_HEALTH_ADVICE = {
+    "telegram":     "Se OFFLINE premi ▶ AVVIA; se «riconnessione» attendi il backoff (rete/proxy).",
+    "message":      "Invia un messaggio di prova nella chat sorgente e verifica che arrivi.",
+    "parser":       "Attiva/crea un Parser Personalizzato (scheda 🧩): senza, lo START è bloccato.",
+    "signal":       "Se c'è un «ultimo errore», leggilo: dice perché il segnale non è passato "
+                    "(usa anche 'why_discarded').",
+    "csv":          "Controlla il percorso CSV (la cartella deve esistere ed essere scrivibile).",
+    "confirmation": "Per le conferme XTrader configura la chat notifiche (facoltativa).",
+    "mode":         "GIALLO = Collaudo, ROSSO = Modalità REALE attiva: verifica di volerlo.",
+}
+
+
+def _health_items_to_dicts(items) -> list:
+    """Serializza una lista di `HealthItem` (o dict equivalenti) in dict JSON-friendly, aggiungendo
+    `advice` per gli stati non-verdi. Tollera sia oggetti `HealthItem` sia dict (provider iniettato)."""
+    out = []
+    for it in items or []:
+        key = getattr(it, "key", None) if not isinstance(it, dict) else it.get("key", "")
+        label = getattr(it, "label", None) if not isinstance(it, dict) else it.get("label", "")
+        state = getattr(it, "state", None) if not isinstance(it, dict) else it.get("state", "")
+        detail = getattr(it, "detail", None) if not isinstance(it, dict) else it.get("detail", "")
+        advice = _HEALTH_ADVICE.get(key, "") if state and state != health_check.GREEN else ""
+        out.append({"key": key or "", "label": label or "", "state": state or "",
+                    "detail": detail or "", "advice": advice})
+    return out
+
+
+def build_health_report(cfg, *, health_provider=None) -> dict:
+    """I 7 semafori + consiglio per gli stati non-verdi (SOLA LETTURA). Con `health_provider` (dato
+    dall'app) riflette lo stato LIVE del pannello 🚦; senza, valuta da config + sonda CSV non invasiva
+    (headless/test): fedeltà parziale (telegram/segnale/conferme non sono noti senza app viva)."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    live = False
+    items = None
+    if health_provider is not None:
+        try:
+            items = health_provider()
+            live = True
+        except Exception:   # noqa: BLE001 — provider dell'app difettoso: mai crash, ripiega su config
+            items, live = None, False
+    if items is None:
+        csv_state, csv_detail = health_check.csv_writable(cfg.get("csv_path", ""))
+        items = health_check.evaluate(
+            parser_active=bool(cfg.get("active_parser")),
+            csv_state=csv_state, csv_detail=csv_detail,
+            confirmations_enabled=bool(str(cfg.get("xtrader_notification_chat_id", "") or "").strip()),
+            mode=str(cfg.get("bridge_mode", "") or cfg.get("mode", "")))
+    return {"live": live, "semafori": _health_items_to_dicts(items)}
+
+
+def _journal_summary(events) -> dict:
+    """Riassunto del ciclo di vita dagli eventi del diario (già in ordine d'inserimento): conteggi per
+    tipo + esito dell'ULTIMO segnale ricevuto (è arrivato al CSV? rifiutato?)."""
+    counts = {}
+    for e in events:
+        t = str((e or {}).get("type", "") or "")
+        counts[t] = counts.get(t, 0) + 1
+    last_signal_reached_csv = None
+    last_received_idx = None
+    for i, e in enumerate(events):
+        if (e or {}).get("type") == "SIGNAL_RECEIVED":
+            last_received_idx = i
+    if last_received_idx is not None:
+        # è stato scritto un CSV DOPO l'ultimo segnale ricevuto?
+        after = events[last_received_idx + 1:]
+        last_signal_reached_csv = any((e or {}).get("type") == "CSV_WRITTEN" for e in after)
+    return {
+        "counts": counts,
+        "last_signal_received": last_received_idx is not None,
+        "last_signal_reached_csv": last_signal_reached_csv,
+        "any_rejected": counts.get("XTRADER_REJECTED", 0) > 0,
+        "crash_recovery_clears": counts.get("CRASH_RECOVERY_CSV_CLEARED", 0),
+        "reconnects": counts.get("RECONNECT", 0),
+    }
+
+
+def build_journal_report(*, journal_path=None, limit=MAX_JOURNAL_EVENTS) -> dict:
+    """Legge il DIARIO EVENTI (già redatto) e ne riassume il ciclo di vita recente (SOLA LETTURA).
+    `journal_path` iniettabile (default: `journal_view.default_path()`). Fail-safe: diario assente/
+    illeggibile → lista vuota + `journal_available=False`, mai crash."""
+    try:
+        path = journal_path or journal_view.default_path()
+    except Exception:   # noqa: BLE001 — risoluzione path (config_dir) difettosa: fail-safe
+        path = None
+    events = event_journal.read_events(path) if path else []
+    recent = events[-int(limit):] if limit and len(events) > int(limit) else events
+    return {
+        "journal_available": bool(events),
+        "shown": len(recent),
+        "total": len(events),
+        "events": recent,
+        "summary": _journal_summary(events),
+        "note": ("Il diario registra le TAPPE (ricevuto/parsato/validato/scritto/rifiuti/recovery), "
+                 "non il motivo esatto dello scarto. Per il motivo specifico (duplicato, troppo "
+                 "vecchio, parser, CSV) guarda anche l'«ultimo errore» in 'explain_health'."),
+    }
+
+
+def build_diagnostic_tools(*, config_loader=None, health_provider=None, journal_path=None) -> list:
+    """Tool SOLA-LETTURA di diagnosi (#41 PR-10 Blocco D): `explain_health` + `why_discarded`.
+    `health_provider`/`journal_path` iniettati dall'app (o dai test)."""
+    load_cfg = config_loader or config_store.load_config
+
+    def _explain_health(_inp):
+        return json.dumps(build_health_report(load_cfg() or {}, health_provider=health_provider),
+                          ensure_ascii=False, indent=2)
+
+    def _why_discarded(inp):
+        try:
+            limit = int(inp.get("limit", MAX_JOURNAL_EVENTS))
+        except (TypeError, ValueError):
+            limit = MAX_JOURNAL_EVENTS
+        limit = max(1, min(limit, MAX_JOURNAL_EVENTS))
+        return json.dumps(build_journal_report(journal_path=journal_path, limit=limit),
+                          ensure_ascii=False, indent=2)
+
+    return [
+        AgentTool(
+            "explain_health",
+            "Legge i 7 SEMAFORI di salute del bridge (Telegram, messaggio, parser, segnale, CSV, "
+            "conferme, modalità) e per ognuno dà stato + dettaglio + un CONSIGLIO su cosa fare se non "
+            "è verde. Usalo per «come sta il bridge?», «cosa manca per funzionare?», «perché è rosso?». "
+            "Sola lettura.",
+            {"type": "object", "properties": {}, "additionalProperties": False},
+            READ_ONLY, _explain_health),
+        AgentTool(
+            "why_discarded",
+            "Legge il DIARIO EVENTI e riassume il ciclo di vita degli ultimi segnali (ricevuto → "
+            "parsato → validato → scritto, più rifiuti/recovery/riconnessioni) per spiegare perché un "
+            "segnale può NON essere arrivato al CSV. Per il motivo esatto (duplicato/troppo vecchio/"
+            "parser/CSV) combinalo con l'«ultimo errore» di 'explain_health'. Sola lettura.",
+            {"type": "object",
+             "properties": {
+                 "limit": {"type": "integer",
+                           "description": f"quanti eventi recenti mostrare (max {MAX_JOURNAL_EVENTS})"}},
+             "additionalProperties": False},
+            READ_ONLY, _why_discarded),
+    ]
+
+
 # ── Scrittura config GATED (#41 PR-4) ───────────────────────────────────────────
 # L'assistente può scrivere SOLO un piccolo insieme di chiavi NON safety-critical, ognuna con
 # validazione/bound espliciti. Le chiavi safety-critical (segreti, filtro chat, modalità/CSV,
@@ -848,12 +1001,14 @@ def build_write_tools(*, config_loader=None, on_proposal=None) -> list:
 
 
 def build_default_registry(*, config_loader=None, parsers_dir=None, on_proposal=None,
-                           base_dir=None, logger=None) -> ToolRegistry:
-    """Registry pronto con i tool sola-lettura (PR-1), i tool di conoscenza (PR-7 Blocco A) **e** i
-    tool di scrittura gated (PR-4). I tool di scrittura sono registrati ma **offerti al modello solo
-    con `allow_writes=True`** (li filtra `tool_specs`); il gate `dispatch(allow_writes=...)` resta
-    l'ultima difesa; e la scrittura vera è gated dalla UI (`on_proposal` → conferma umana), mai dal
-    modello. `base_dir` è iniettabile per i test (radice da cui leggere le guide)."""
+                           base_dir=None, health_provider=None, journal_path=None,
+                           logger=None) -> ToolRegistry:
+    """Registry pronto con i tool sola-lettura (PR-1), conoscenza (PR-7 A), tester (PR-8 B),
+    dizionario (PR-9 C), diagnosi salute/diario (PR-10 D) **e** scrittura gated (PR-4). I tool di
+    scrittura sono registrati ma **offerti al modello solo con `allow_writes=True`** (li filtra
+    `tool_specs`); il gate `dispatch(allow_writes=...)` resta l'ultima difesa; e la scrittura vera è
+    gated dalla UI (`on_proposal` → conferma umana), mai dal modello. `base_dir`/`health_provider`/
+    `journal_path` sono iniettabili (test / stato live dell'app)."""
     reg = ToolRegistry(logger=logger)
     for tool in build_read_only_tools(config_loader=config_loader, parsers_dir=parsers_dir):
         reg.register(tool)
@@ -862,6 +1017,9 @@ def build_default_registry(*, config_loader=None, parsers_dir=None, on_proposal=
     for tool in build_tester_tools(config_loader=config_loader, parsers_dir=parsers_dir):
         reg.register(tool)
     for tool in build_dictionary_tools(config_loader=config_loader):
+        reg.register(tool)
+    for tool in build_diagnostic_tools(config_loader=config_loader,
+                                       health_provider=health_provider, journal_path=journal_path):
         reg.register(tool)
     for tool in build_write_tools(config_loader=config_loader, on_proposal=on_proposal):
         reg.register(tool)
@@ -905,6 +1063,12 @@ _SYSTEM_PROMPT_BASE = (
     "questo alias?» usa 'lookup_dictionary': con un termine cerca nel dizionario XTrader e nei profili "
     "di mapping dell'utente (alias Telegram → valori XTrader, squadra → nome Betfair, value-map); "
     "senza termine dà la panoramica. Sola lettura. "
+    # PR-10 Blocco D — diagnosi: spiega la salute e perché un segnale è stato scartato.
+    "Per «come sta il bridge?», «cosa manca?», «perché è rosso?» usa 'explain_health': i 7 semafori "
+    "con stato e un consiglio su cosa fare per quelli non verdi. Per «perché è stato scartato?» / "
+    "«perché non è arrivato al CSV?» usa 'why_discarded' (diario eventi: ciclo di vita degli ultimi "
+    "segnali) e combinalo con l'«ultimo errore» di 'explain_health' per spiegare il motivo esatto "
+    "(duplicato, troppo vecchio, parser non riconosciuto, CSV non scrivibile). Sola lettura. "
 )
 
 # Clausola di lingua per la risposta, in base ad app_language (IT/EN/ES); default IT.

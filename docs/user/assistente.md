@@ -3,8 +3,9 @@
 > Guida **utente**. L'assistente è una **chat a linguaggio naturale** che ti aiuta a **configurare** e
 > a **capire** il bridge: legge lo stato, ti dice cosa manca, **spiega** qualunque pulsante/campo/
 > concetto dalla documentazione reale, **prova** un messaggio col parser attivo (mostrando la riga CSV
-> che uscirebbe, senza scrivere), **consulta** il dizionario (squadre/mercati/mapping), e può proporre
-> alcune impostazioni non critiche — sempre con una
+> che uscirebbe, senza scrivere), **consulta** il dizionario (squadre/mercati/mapping), **spiega la
+> salute** (7 semafori) e **perché un segnale è stato scartato**, e può proporre alcune impostazioni
+> non critiche — sempre con una
 > **tua conferma** prima di scrivere. Risponde nella **lingua** scelta all'avvio. È uno strumento
 > **personale del proprietario**, non una chat per utenti finali.
 
@@ -95,7 +96,20 @@ Senza indicare un termine ti dà la **panoramica** («cosa conosce il bridge»: 
 value-map). Se il dizionario non è incluso nell'installazione te lo dice, e i tuoi profili restano
 comunque consultabili.
 
-## 7. Proporre una modifica: tu confermi con «✅ Applica»
+## 7. 🚦 Come sta il bridge? · 🩺 Perché è stato scartato?
+
+Chiedi *«come sta il bridge?»*, *«cosa manca per funzionare?»*, *«perché è rosso?»*: l'assistente
+legge i **7 semafori di salute** (Telegram, ultimo messaggio, parser, ultimo segnale, CSV, conferme,
+modalità) e per ognuno ti dice lo **stato** e, se non è verde, **cosa fare**. Vede lo stesso stato
+che trovi nella tab **🚦 Salute**.
+
+Chiedi *«perché è stato scartato?»* / *«perché non è arrivato al CSV?»*: legge il **diario eventi** e
+ti spiega il **ciclo di vita** dell'ultimo segnale (ricevuto → parsato → validato → scritto), se è
+arrivato al CSV o no, più eventuali rifiuti/riconnessioni. Per il **motivo esatto** (duplicato,
+troppo vecchio, parser non riconosciuto, CSV non scrivibile) combina il diario con l'**«ultimo
+errore»** dei semafori. Tutto in **sola lettura**.
+
+## 8. Proporre una modifica: tu confermi con «✅ Applica»
 
 L'assistente può **proporre** modifiche a **poche impostazioni non critiche**:
 
@@ -108,7 +122,7 @@ Quando propone qualcosa **non lo applica da solo**: compare un **banner** con l'
 **«✅ Applica»** / **«✖ Annulla»**. La modifica viene scritta **solo se premi tu «✅ Applica»**.
 \[screenshot: banner conferma\]
 
-## 8. Cosa l'assistente NON può fare (per sicurezza)
+## 9. Cosa l'assistente NON può fare (per sicurezza)
 
 Anche se glielo chiedi esplicitamente, l'assistente **non può**:
 

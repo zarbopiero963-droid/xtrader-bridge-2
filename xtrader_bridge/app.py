@@ -1272,7 +1272,9 @@ class App(ctk.CTk):
         self._assistant_panel = None
         try:
             self._assistant_panel = config_agent_gui.AssistantPanel(
-                tab_assist, config_loader=lambda: self._config or {}, log=self._log)
+                tab_assist, config_loader=lambda: self._config or {}, log=self._log,
+                health_provider=self._live_health_items,
+                journal_path=self.__dict__.get("_journal_path"))
         except Exception:   # noqa: BLE001 — pannello assistente best-effort: mai rompere la GUI
             ctk.CTkLabel(tab_assist, text=i18n.tr("Assistente non disponibile."),
                          text_color="gray").pack(padx=12, pady=8)
@@ -1457,14 +1459,18 @@ class App(ctk.CTk):
         self._status_lbl.configure(text=i18n.tr(self._LISTENER_TEXTS[state]),
                                    text_color=color)
 
-    def _refresh_health_inner(self, lbls) -> None:
+    def _live_health_items(self) -> list:
+        """I 7 semafori LIVE (stessa logica del pannello 🚦 Salute), come lista di `HealthItem`.
+        Estratto da `_refresh_health_inner` (#41 PR-10 Blocco D) così l'assistente può leggere lo
+        STESSO stato che l'utente vede (`explain_health`). Puro rispetto a `health_check.evaluate`;
+        legge solo stato in RAM/config, non scrive nulla."""
         cfg = self._config if isinstance(self._config, dict) else {}
         # Stato CANONICO (#343 slice 4b): niente parsing del testo della label —
         # in EN/ES la label è tradotta e il vecchio substring-match si romperebbe.
         status = (self.__dict__.get("_listener_state")
                   or health_check.LISTENER_OFFLINE)
         csv_state, csv_detail = health_check.csv_writable(cfg.get("csv_path", ""))
-        items = health_check.evaluate(
+        return health_check.evaluate(
             listener_status=status,
             last_message=self._last_vals.get("message", ""),
             parser_active=signal_router.has_active_parser_config(cfg),
@@ -1475,6 +1481,9 @@ class App(ctk.CTk):
                 "xtrader_notification_chat_id", "") or "").strip()),
             last_confirmation=self._last_vals.get("confirmation", ""),
             mode=bridge_mode.mode_from_cfg(cfg))
+
+    def _refresh_health_inner(self, lbls) -> None:
+        items = self._live_health_items()
         for item in items:
             lbl = lbls.get(item.key)
             if lbl is None:
