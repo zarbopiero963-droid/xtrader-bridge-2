@@ -13,6 +13,14 @@
 > `docs/audit/mercati_mapping_design.md` e lettura diretta dei moduli GUI
 > (`xtrader_bridge/app.py` e i vari `*_gui.py`).
 
+> 📸 **Riferimenti visivi (stato attuale).** Le schermate reali dell'app sono descritte qui e nelle
+> **guide utente** (`docs/user/`); gli **screenshot** vivono in `docs/assets/screenshots/`. Vanno
+> **catturati su Windows** (l'app è Windows-first: aspetto/font/finestre reali) con i **segreti
+> oscurati** (bot token, API key, chat ID, percorsi/credenziali). Alcuni sono ancora **segnaposto**
+> `[screenshot: …]` in attesa di cattura: è **rifinitura visiva**, non cambia la logica né le
+> invarianti. **Regola (come per le altre docs):** quando una modifica cambia schermate/pulsanti/
+> flussi UI, **screenshot + guide utente + questo handoff** vanno aggiornati **nello stesso PR**.
+
 ---
 
 ## Indice
