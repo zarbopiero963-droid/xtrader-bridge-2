@@ -1351,8 +1351,14 @@ def test_generate_linux_lockfile_esiste_e_quota_immune():
     # cat-file al successivo `exit 1` DENTRO lo stesso step guard.
     assert re.search(r"git cat-file -e[^\n]*requirements-build-linux\.lock", text), \
         "manca il guard anti-eliminazione del lock Linux (git cat-file sul commit base)"
-    assert re.search(r"git cat-file -e[^\n]*requirements-build-linux\.lock.*?exit 1", text, re.S), \
-        "il guard anti-eliminazione deve FALLIRE davvero (exit 1), non solo citare git cat-file"
+    # il lookahead negativo `(?!\n\s*- name:)` impedisce a `.*?` di attraversare il confine
+    # dello step: così l'`exit 1` deve stare NELLO STESSO step del `git cat-file` (non un exit 1
+    # di uno step successivo, es. lo stale-gate) — evita il falso-verde se il guard perdesse il
+    # suo `exit 1` (GPT/GLM). Verificato anche a contrario più sotto.
+    assert re.search(
+        r"git cat-file -e[^\n]*requirements-build-linux\.lock(?:(?!\n[ \t]*- name:).)*?exit 1",
+        text, re.S), \
+        "il guard anti-eliminazione deve FALLIRE (exit 1) NELLO STESSO step del git cat-file"
 
 
 def test_nuitka_detector_forme_canoniche_e_wrappate():
