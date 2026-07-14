@@ -4,5 +4,5 @@ Name=XTrader Signal Bridge
 Comment=Bridge Telegram to CSV for XTrader
 Exec=XTrader-Signal-Bridge
 Icon=app-icon
-Categories=Utility;Network;
+Categories=Utility;
 Terminal=false

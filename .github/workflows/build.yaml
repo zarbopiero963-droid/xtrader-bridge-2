@@ -208,22 +208,19 @@ jobs:
       # e si committa il valore). In CI il runner ha internet; la sandbox di sviluppo no.
       env:
         APPIMAGETOOL_VERSION: "1.9.0"
-        APPIMAGETOOL_SHA256: "REPLACE_ME_DAL_PRIMO_RUN"
+        # sha256 verificato dal primo run CI (bootstrap #36 PR-B). Immutabile per questo tag.
+        APPIMAGETOOL_SHA256: "46fdd785094c7f6e545b61afcfb0f3d98d8eab243f644b4b17698c01d06083d1"
       run: |
         url="https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage"
         curl -fsSL -o appimagetool "$url"
-        got="$(sha256sum appimagetool | cut -d' ' -f1)"
-        echo "appimagetool ${APPIMAGETOOL_VERSION} sha256 scaricato: ${got}"
-        if [ "${APPIMAGETOOL_SHA256}" = "REPLACE_ME_DAL_PRIMO_RUN" ]; then
-          # BOOTSTRAP (temporaneo): l'hash non è ancora pinnato → NON blocca, così questo run
-          # stampa l'hash reale sopra e prosegue a costruire l'AppImage (validazione completa).
-          # Appena l'hash è pinnato, questo ramo sparisce e la verifica diventa OBBLIGATORIA.
-          echo "::warning::BOOTSTRAP appimagetool: pinna APPIMAGETOOL_SHA256=${got} (poi rimuovi questo ramo)."
-        else
-          echo "${APPIMAGETOOL_SHA256}  appimagetool" | sha256sum -c - \
-            || { echo "::error::sha256 di appimagetool NON combacia col pin. Atteso ${APPIMAGETOOL_SHA256}, ottenuto ${got}."; exit 1; }
-        fi
+        echo "${APPIMAGETOOL_SHA256}  appimagetool" | sha256sum -c - \
+          || { echo "::error::sha256 di appimagetool NON combacia col pin (ottenuto: $(sha256sum appimagetool | cut -d' ' -f1))."; exit 1; }
         chmod +x appimagetool
+
+    - name: Dipendenze di sistema per AppImage
+      # appimagetool valida il `.desktop` con `desktop-file-validate` (pacchetto desktop-file-utils),
+      # non presente di default su ubuntu-latest.
+      run: sudo apt-get update && sudo apt-get install -y desktop-file-utils
 
     - name: Costruisci AppImage
       # `--appimage-extract-and-run`: evita la dipendenza da FUSE sul runner (che ubuntu-latest
