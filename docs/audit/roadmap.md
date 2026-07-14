@@ -60,7 +60,9 @@ rischio** (non uno per singolo file di test):
 | `merge-simulation.yml` | label di collaudo · manuale | fonde `main` nel branch PR (no merge reale) → `compileall` + `pytest`; rileva conflitti. Parte con una label `ci-full`/`final-*` presente e ri-gira a ogni push finché resta; **non** su PR senza label |
 | `merge-simulation-hard.yml` | manuale · schedulata (notte) | Windows: merge + suite completa + `safety`/`integration` + build EXE + controllo file vietati |
 | `forbidden-files.yml` | PR · push main · manuale | blocca `.env`/`config.json`/`*.exe`/`*.zip`/`*.log` e CSV (eccetto `data/dizionario_xtrader.csv`) |
-| `build.yaml` | tag `v*` · manuale | job `build` = EXE Windows + artifact; job `build-linux` (#36 PR-A) = binario **Linux** PyInstaller onefile + artifact (`ubuntu-latest`, additivo, build Windows invariata); **solo** su tag `v*` (release) o `workflow_dispatch`, non su push `main`. AppImage = follow-up #36 PR-B |
+| `build.yaml` | tag `v*` · manuale | job `build` = EXE Windows + artifact; job `build-linux` (#36) = binario **Linux** PyInstaller onefile + artifact `.tar.gz` (`ubuntu-latest`, additivo, build Windows invariata); install dal **lock Linux con hash** se presente, altrimenti legacy; **solo** su tag `v*` (release) o `workflow_dispatch`. AppImage = follow-up #36 PR-B |
+| `generate-lockfile.yaml` | PR sui `.in`/lock · manuale | genera `requirements-build.lock` (hash) su **Windows**; consegna via Job Summary; gate anti-stantio + validazione in venv pulito |
+| `generate-linux-lockfile.yaml` | PR sui `.in`/lock Linux · manuale | speculare, su **Linux** (#36): genera `requirements-build-linux.lock` (hash) per il job `build-linux`; consegna via Job Summary; gate anti-stantio + validazione |
 
 Il check `contract` (`tests/unit/test_csv_contract.py`) è la barriera che diventa
 rossa se cambiano: header/ordine/numero colonne, encoding `utf-8-sig`, `QUOTE_ALL`,

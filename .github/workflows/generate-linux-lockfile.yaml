@@ -1,0 +1,133 @@
+name: Generate Linux Lockfile
+
+# Genera il lockfile riproducibile con HASH per la build Linux del binario, sulla STESSA
+# piattaforma in cui il binario viene compilato (ubuntu-latest + Python 3.11), così le ruote
+# (wheels) risolte e gli hash corrispondono davvero a ciò che la build installa. Speculare a
+# "Generate Windows Lockfile" (`generate-lockfile.yaml`), ma per Linux (#36 lock supply-chain).
+# NB: il lock NON viene committato in automatico — si pubblica nel Job Summary; lo si copia e
+# lo si committa a mano (vedi README, sezione "Dependency lockfile").
+
+on:
+  workflow_dispatch:
+    inputs:
+      verify_committed_lock:
+        # Interruttore ESPLICITO per la verifica pre-release del lock committato. DEFAULT off:
+        # l'altro caso d'uso del dispatch è RIgenerare un lock rotto/stantio, e lì testare il
+        # vecchio lock lo farebbe fallire PRIMA di generare/caricare il nuovo — bloccando il
+        # file che serve per sistemarlo. Spunta SOLO quando il lock committato è buono.
+        description: "Collauda il requirements-build-linux.lock committato com'è prima di rigenerarlo (verifica pre-release). LASCIA OFF se stai RIgenerando un lock rotto/stantio."
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      # Tutta la catena single-source del lock Linux: una modifica a QUALSIASI di questi file
+      # può cambiare il set bloccato, quindi il lock va rigenerato/riconfrontato.
+      - "requirements.in"
+      - "requirements.txt"
+      - "requirements-dev.txt"
+      - "requirements-build-linux.in"
+      - "requirements-build-linux.lock"
+      - ".github/workflows/generate-linux-lockfile.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  generate-linux-lockfile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          # Job di sola lettura (legge i .in, pubblica il lock nel Summary): non serve il
+          # GITHUB_TOKEN nel git config del worktree → difesa-in-profondità (finding zizmor
+          # `artipacked`).
+          persist-credentials: false
+          # Storia completa: serve al confronto col commit base (guard anti-eliminazione).
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: (dispatch) Testa il lock COMMITTATO così com'è, prima di rigenerarlo
+        # Opzione "C": su esecuzione MANUALE valida il `requirements-build-linux.lock` ESATTAMENTE
+        # com'è committato — lo stesso file che `build.yaml` installerà — in un venv PULITO con
+        # `--require-hashes`, poi esegue i test. Sta QUI di proposito, PRIMA dello step "Genera il
+        # lockfile" che sovrascrive il file: dopo la rigenerazione si validerebbe il lock rigenerato,
+        # non quello committato. Dietro l'input ESPLICITO `verify_committed_lock` (default off).
+        # `hashFiles(...) != ''`: salta se il lock non è ancora committato (niente da testare).
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_committed_lock && hashFiles('requirements-build-linux.lock') != ''
+        run: |
+          python -m venv .lockcommitted
+          ./.lockcommitted/bin/python -m pip install --require-hashes -r requirements-build-linux.lock
+          ./.lockcommitted/bin/python -m pytest -m "not manual" -q
+
+      - name: Rifiuta l'ELIMINAZIONE del lock una volta adottato
+        # Se `requirements-build-linux.lock` esiste sul branch base (è "adottato") ma è ASSENTE in
+        # questa PR, è stato eliminato: il check anti-stantio sotto NON lo intercetta (pip-compile
+        # lo ricrea come untracked e `git diff --exit-code` esce 0 sui non tracciati). Senza questo
+        # guard la PR mergerebbe senza lock e `build.yaml` tornerebbe all'install legacy non bloccato.
+        # Su workflow_dispatch non c'è base PR → si salta.
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -n "$base" ]; then
+            if git cat-file -e "${base}:requirements-build-linux.lock" 2>/dev/null; then
+              if [ ! -f requirements-build-linux.lock ]; then
+                echo "::error::requirements-build-linux.lock è adottato sul branch base ma ASSENTE in questa PR: non eliminarlo (la build perderebbe il lock e tornerebbe all'install legacy non bloccato)."
+                exit 1
+              fi
+            fi
+          fi
+
+      - name: Install pip-tools (versione ESATTA per output deterministico)
+        # Pin ESATTO del generatore (stessa coppia pip/pip-tools del lock Windows): lo stesso `.in`
+        # deve produrre lo stesso lock. Aggiorna questi pin DELIBERATAMENTE, validando la coppia.
+        run: |
+          python -m pip install "pip==24.3.1"
+          python -m pip install "pip-tools==7.4.1"
+
+      - name: Genera il lockfile con hash (in place)
+        # `--allow-unsafe`: include nel lock anche pip/setuptools/wheel (che pip-compile altrimenti
+        # OMETTE), così l'ambiente di build è davvero completo e con hash — PyInstaller richiede
+        # setuptools a runtime, e setup-python/venv ne seminano una versione non pinnata.
+        run: pip-compile --generate-hashes --allow-unsafe --output-file requirements-build-linux.lock requirements-build-linux.in
+
+      - name: Pubblica il lock nel Job Summary (consegna quota-immune)
+        # Il lock si consegna SOLO via Job Summary della run — NON come artifact (evita i falsi
+        # rossi da quota storage artifact piena). È solo versioni + hash (NESSUN segreto), quindi
+        # è COPIABILE direttamente dalla pagina della run. `cat` copia BYTE-per-BYTE. Fence `~~~`.
+        run: |
+          {
+            echo '## requirements-build-linux.lock (rigenerato)'
+            echo 'Copia il blocco qui sotto nel file requirements-build-linux.lock (root del repo) e'
+            echo 'committalo sul branch della PR.'
+            echo '~~~'
+            cat requirements-build-linux.lock
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fallisci se il lock committato è STANTIO
+        # Se la PR ha committato un `requirements-build-linux.lock`, la rigenerazione qui sopra deve
+        # coincidere: altrimenti il repo conterrebbe un lock che NON corrisponde più ai `.in`, e
+        # `build.yaml` lo userebbe dopo il merge. Su un lock non ancora tracciato (prima volta) non
+        # c'è diff → passa.
+        run: |
+          git diff --exit-code -- requirements-build-linux.lock || {
+            echo "::error::requirements-build-linux.lock NON corrisponde alla rigenerazione dai .in (lock stantio, o un upstream ha rilasciato una nuova versione). Riavvia 'Generate Linux Lockfile', copia il lock dal Job Summary e ricommitta.";
+            exit 1;
+          }
+
+      - name: Valida ed ESERCITA il lock in un venv PULITO
+        # 1) Install in un venv NUOVO, isolato da pip-tools e dalle sue transitive: un lock che
+        #    ometta una dipendenza già presente nell'ambiente non passa qui per poi fallire
+        #    nell'install "pulito" di build.yaml.
+        # 2) ESERCITA il set bloccato eseguendo i test (come build.yaml): intercetta un eventuale
+        #    "API drift" di una dipendenza pinnata PRIMA del merge.
+        run: |
+          python -m venv .lockcheck
+          ./.lockcheck/bin/python -m pip install --require-hashes -r requirements-build-linux.lock
+          ./.lockcheck/bin/python -m pytest -m "not manual" -q

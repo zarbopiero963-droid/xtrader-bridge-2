@@ -133,13 +133,23 @@ jobs:
       # subito con un messaggio chiaro, invece di produrre un binario rotto (fail-closed).
       run: python -c "import tkinter; print('Tk', tkinter.TkVersion)"
 
-    - name: Installa Dipendenze (Linux, legacy)
-      # `requirements-build.lock` contiene gli hash delle wheel WINDOWS (generato dalla CI
-      # Windows): su Linux `--require-hashes` fallirebbe. Il job Linux installa quindi dal
-      # set legacy (runtime+dev+pyinstaller+httpx), coerente col ramo legacy del job Windows.
+    - name: Installa Dipendenze (lock Linux con hash se disponibile; altrimenti legacy)
+      # Riproducibile e self-healing (stessa logica del job Windows): se
+      # `requirements-build-linux.lock` è committato (generato da "Generate Linux Lockfile"
+      # su ubuntu), si installa SOLO da lì con `--require-hashes` (versioni+hash bloccati →
+      # build riproducibile, supply-chain verificata). NB: NON si usa `requirements-build.lock`
+      # (Windows): i suoi hash sono di wheel Windows e su Linux `--require-hashes` fallirebbe.
+      # Finché il lock Linux non è committato, si usa l'install legacy così la build non si
+      # rompe — passerà automaticamente al lock appena committato.
       run: |
-        python -m pip install --upgrade pip
-        python -m pip install -r requirements-dev.txt pyinstaller httpx
+        if [ -f requirements-build-linux.lock ]; then
+          echo "requirements-build-linux.lock trovato: install riproducibile con --require-hashes."
+          python -m pip install --require-hashes -r requirements-build-linux.lock
+        else
+          echo "::warning::requirements-build-linux.lock assente: install legacy (passera' a --require-hashes appena il lock generato dalla CI Linux sara' committato)."
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt pyinstaller httpx
+        fi
 
     - name: Verifica compilazione (compileall)
       run: python -m compileall main.py xtrader_bridge tests

@@ -1283,6 +1283,64 @@ def test_lockfile_consegnato_via_job_summary_quota_immune():
         "generate-lockfile.yaml non deve usare upload-artifact (dipendenza dalla quota): il lock si consegna via Summary"
 
 
+# ── Gate lock Linux (#36 supply-chain: dipendenze del job build-linux con hash) ─────────────
+
+_BUILD_LINUX_IN = os.path.join(_REPO_ROOT, "requirements-build-linux.in")
+_GEN_LINUX_LOCK = os.path.join(_WORKFLOWS_DIR, "generate-linux-lockfile.yaml")
+
+
+def test_linux_lock_source_esiste_e_elenca_pyinstaller():
+    """#36: `requirements-build-linux.in` è la SORGENTE del lock Linux e deve elencare
+    `pyinstaller` (il tool con cui `build-linux` compila il binario), così il lock generato lo
+    include davvero. Deriva dalla catena test via `-r requirements-dev.txt`."""
+    assert os.path.isfile(_BUILD_LINUX_IN), "manca requirements-build-linux.in"
+    inp = _read(_BUILD_LINUX_IN)
+    assert re.search(r"(?m)^pyinstaller\b", inp), "requirements-build-linux.in deve elencare pyinstaller"
+    assert re.search(r"(?m)^-r\s+requirements-dev\.txt\b", inp), \
+        "requirements-build-linux.in deve derivare da requirements-dev.txt (single-source)"
+
+
+def test_build_linux_install_usa_lock_con_hash_quando_disponibile():
+    """#36 (supply-chain, finding Fugu): il job `build-linux` deve poter installare con
+    `--require-hashes` dal lock Linux quando è presente (build riproducibile), NON solo dal set
+    legacy floating. Fail-closed: se qualcuno togliesse il ramo `--require-hashes`, questo test
+    fallisce. NB: si usa il lock LINUX, mai `requirements-build.lock` (hash di wheel Windows)."""
+    body = next(b for name, b in _jobs(_read(_BUILD_YAML)) if name == "build-linux")
+    assert "--require-hashes -r requirements-build-linux.lock" in body, \
+        "build-linux deve poter installare col lock Linux hashato (--require-hashes)"
+    # il ramo --require-hashes dev'essere gated sulla PRESENZA del lock (if -f ...lock), col
+    # fallback legacy nell'else: così non si tenta --require-hashes su un lock assente.
+    i_guard = body.find("requirements-build-linux.lock ]")
+    i_hashes = body.find("--require-hashes -r requirements-build-linux.lock")
+    assert i_guard != -1 and i_guard < i_hashes, \
+        "l'install --require-hashes dev'essere dentro l'if che verifica il lock Linux (-f ...lock)"
+    # NON deve usare il lock WINDOWS (hash incompatibili su Linux)
+    assert "--require-hashes -r requirements-build.lock" not in body, \
+        "build-linux non deve usare il lock Windows (requirements-build.lock): hash incompatibili"
+
+
+def test_generate_linux_lockfile_esiste_e_quota_immune():
+    """#36: `generate-linux-lockfile.yaml` esiste, gira su ubuntu, genera con hash e pubblica il
+    lock SOLO nel Job Summary (quota-immune), NON via upload-artifact. Speculare al gate del lock
+    Windows."""
+    assert os.path.isfile(_GEN_LINUX_LOCK), "manca .github/workflows/generate-linux-lockfile.yaml"
+    text = _read(_GEN_LINUX_LOCK)
+    assert "runs-on: ubuntu-latest" in text, "il lock Linux va generato su ubuntu (wheel/hash platform-specifici)"
+    assert re.search(r"pip-compile --generate-hashes[^\n]*requirements-build-linux\.lock", text), \
+        "deve generare il lock con --generate-hashes"
+    assert re.search(r"cat\s+requirements-build-linux\.lock", text), \
+        "il Job Summary deve includere il CONTENUTO del lock via `cat` (byte-faithful)"
+    m_sum = re.search(r">>\s*\"?\$GITHUB_STEP_SUMMARY", text)
+    assert m_sum, "manca la scrittura nel Job Summary"
+    # il COMANDO reale del gate (con `-- requirements-build-linux.lock`), non il commento che
+    # cita `git diff --exit-code` a scopo esplicativo (stesso accorgimento del test Windows).
+    m_stale = re.search(r"git diff --exit-code -- requirements-build-linux\.lock", text)
+    assert m_stale and m_sum.start() < m_stale.start(), \
+        "il dump nel Job Summary dev'essere PRIMA del gate anti-stantio (git diff)"
+    assert not re.search(r"uses:\s*actions/upload-artifact", text), \
+        "generate-linux-lockfile.yaml non deve usare upload-artifact (dipendenza dalla quota)"
+
+
 def test_nuitka_detector_forme_canoniche_e_wrappate():
     """Detector Nuitka (senza build reale): forma diretta e modulo (anche versionata/venv) sono
     CANONICHE; le forme wrappate (cmd/pwsh/sh) sono RILEVATE ma NON canoniche → rifiutate dal
