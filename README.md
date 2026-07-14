@@ -215,6 +215,13 @@ impostare token/chat/CSV/parser/limiti) — **guidandoti** passo passo, **senza*
 chiede né mostra mai segreti in chat: indica solo **dove** inserirli. Risponde nella **lingua** che
 hai scelto all'avvio (Italiano / English / Español).
 
+**🧪 Prova messaggio.** Incolla un messaggio del canale e chiedi «questo va bene?» / «cosa uscirebbe
+nel CSV?»: l'assistente lo **prova col parser attivo** e ti dice se è **riconosciuto**, il **motivo**
+del verdetto e l'**anteprima della riga CSV** (colonne e valori, col separatore decimale della lingua
+CSV) — **senza scrivere nulla**. Puoi provarne più d'uno separandoli con una riga `---`, e usarlo come
+tester mentre sistemi il parser. L'anteprima è **prudente** (senza dizionario Betfair può mostrare
+«non pronto» un parser che a runtime, col dizionario, verrebbe scritto; mai il contrario).
+
 La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Config**
 (oppure all'avvio con **▶ AVVIA**) nel file `config.json` (vedi
 [Dove vengono salvati i file](#dove-vengono-salvati-i-file)). Ogni campo mostra un **esempio-guida**

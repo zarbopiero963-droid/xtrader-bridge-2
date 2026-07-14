@@ -18,9 +18,11 @@ client Anthropic *tool-use* iniettabile, registry dei tool con classificazione d
 - **Tool sola-lettura**: `get_config_state` (config **redatta**), `get_health` (semafori
   `health_check`), `list_parsers` (PR-1), `get_setup_status` (**PR-5**: checklist di prima
   configurazione — token/chat/parser/CSV/modalità come booleani `done`+label, **nessun segreto** —
-  riusa `wizard.final_checklist`), e i tool di **conoscenza** `list_guides`/`read_guide` (**PR-7
+  riusa `wizard.final_checklist`), i tool di **conoscenza** `list_guides`/`read_guide` (**PR-7
   Blocco A**: leggono la documentazione reale del progetto da una **allowlist** di file per spiegare
-  qualunque pulsante/campo/concetto — vedi sotto). Esercitano funzioni reali del progetto.
+  qualunque pulsante/campo/concetto), e il tester **`test_message`** (**PR-8 Blocco B**: prova un
+  messaggio col parser attivo e mostra verdetto + anteprima riga CSV, **senza scrivere** — vedi
+  sotto). Esercitano funzioni reali del progetto.
 - **`RealAnthropicClient`** — client verso l'Anthropic Messages API con **lazy import** di
   `anthropic` (dipendenza opzionale, fail-safe come `keyring` in `token_store`). **Non** usato nei
   test: `ConfigAgent` accetta qualunque client con `create_message(system, messages, tools)`.
@@ -281,6 +283,34 @@ l'allowlist; `read_guide` legge da `base_dir` iniettato, rifiuta nomi fuori allo
 tentativo di path-traversal senza leggere `config.json`, fail-safe su file mancante, troncatura,
 read-only; e un test-contratto che ogni path dell'allowlist esiste davvero nel repo).
 
+## Prova messaggio — `test_message` (PR-8 Blocco B)
+
+L'assistente può **provare** un messaggio del canale col parser **attivo** e mostrare all'utente se è
+riconosciuto, il **motivo** del verdetto e l'**anteprima della riga CSV** (colonne e valori) che
+uscirebbe — **senza scrivere nulla**. Utile per «questo messaggio va bene?», «cosa uscirebbe nel
+CSV?», per spiegare colonne/delimitatori, o come **tester** mentre l'utente sistema il parser.
+
+- **Riuso della pipeline read-only del runtime.** `build_message_preview(cfg, message, *, chat,
+  parsers_dir)` replica il wiring di `signal_router._resolve_one` / del tester GUI: parser attivo per
+  la chat (`parser_manager.load_active`), profili di mapping nomi/mercati
+  (`name/market_mapping_store.entries_for_profiles`), lingua sorgente
+  (`recognition.effective_source_language`) e provider (`source_manager.provider_for_chat`), poi
+  `ParserBuilder.batch_report` → `build_validated_rows` (la **stessa** funzione del runtime, ma **senza
+  scrittura CSV**). Le righe sono localizzate per la lingua CSV configurata
+  (`csv_writer.localize_row`), così l'utente vede i valori **come uscirebbero nel file** (IT/ES
+  virgola, EN punto); l'output porta anche `csv_header` e `decimal_separator`.
+- **Conservativo (fail-closed), come il wizard.** **Non** passa `id_resolver` (dizionario Betfair):
+  un parser `ID_ONLY` che risolve gli ID dal dizionario può apparire «non pronto» anche se a runtime,
+  col dizionario, verrebbe scritto — mai il contrario. La nota è esplicitata nell'output.
+- **Sicurezza/robustezza.** Tool **`READ_ONLY`** (offerto anche senza `allow_writes`), **nessun**
+  write-path: verificato da test che il CSV **non** viene creato/toccato. Input capato a
+  `MAX_TESTER_CHARS` (fail-safe anti-paste); multi-messaggio sul separatore `---` con `skipped`;
+  parser assente / messaggio vuoto → messaggio guida, mai crash. L'output non espone token/chat.
+
+Test hard: `tests/safety/test_config_agent_41.py` (riconosciuto → riga CSV con colonne/valori attesi
+e decimale IT/EN corretto; non riconosciuto → nessuna riga piazzabile; parser assente / vuoto /
+troppo lungo; multi-messaggio; **read-only che non scrive il CSV**; nessun segreto nell'output).
+
 ## Cosa NON c'è ancora (PR successive)
 - **PR-4 (fatto)**: scrittura config GATED — **solo** chiavi non safety-critical (vedi sopra). Le
   chiavi pericolose (token/chat/csv/parser/modalità/limiti) restano **non scrivibili**
@@ -292,6 +322,7 @@ read-only; e un test-contratto che ogni path dell'allowlist esiste davvero nel r
   e [Assistente di configurazione](../user/assistente.md); cartella screenshot in
   [`docs/assets/screenshots/`](../assets/screenshots/) (segnaposto finché non catturati su Windows).
 - **PR-7 Blocco A (fatto)**: conoscenza dell'intero bridge (`list_guides`/`read_guide`, allowlist) +
-  risposta nella **lingua** scelta all'avvio (`build_system_prompt`). Prossimi blocchi: **B** «Prova
-  messaggio» (incolla un messaggio → riconosciuto sì/no + perché + anteprima riga CSV + spiegazione
-  delimitatori/colonne), **C** «Consulta dizionario», **D** «Perché scartato?» + «Spiega la salute».
+  risposta nella **lingua** scelta all'avvio (`build_system_prompt`).
+- **PR-8 Blocco B (fatto)**: 🧪 «Prova messaggio» (`test_message`) — riconosciuto sì/no + motivo +
+  anteprima riga CSV + delimitatori/colonne, sola lettura. Prossimi blocchi: **C** «Consulta
+  dizionario», **D** «Perché scartato?» + «Spiega la salute».

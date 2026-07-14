@@ -2,8 +2,9 @@
 
 > Guida **utente**. L'assistente è una **chat a linguaggio naturale** che ti aiuta a **configurare** e
 > a **capire** il bridge: legge lo stato, ti dice cosa manca, **spiega** qualunque pulsante/campo/
-> concetto dalla documentazione reale, e può proporre alcune impostazioni non critiche — sempre con
-> una **tua conferma** prima di scrivere. Risponde nella **lingua** scelta all'avvio. È uno strumento
+> concetto dalla documentazione reale, **prova** un messaggio col parser attivo (mostrando la riga CSV
+> che uscirebbe, senza scrivere), e può proporre alcune impostazioni non critiche — sempre con una
+> **tua conferma** prima di scrivere. Risponde nella **lingua** scelta all'avvio. È uno strumento
 > **personale del proprietario**, non una chat per utenti finali.
 
 > 📸 *Gli screenshot verranno aggiunti in `docs/assets/screenshots/`. I «\[screenshot: …\]» indicano dove.*
@@ -59,7 +60,25 @@ inventa.
 **Lingua.** L'assistente risponde nella **lingua scelta all'avvio** (Italiano / English / Español).
 Se cambi la lingua dell'app, la nuova lingua vale dalla **successiva** riabilitazione dell'assistente.
 
-## 5. Proporre una modifica: tu confermi con «✅ Applica»
+## 5. 🧪 Prova un messaggio (senza scrivere nulla)
+
+Incolla un messaggio del canale e chiedi *«questo va bene?»* o *«cosa uscirebbe nel CSV?»*:
+l'assistente lo **prova col parser attivo** e ti dice:
+
+- se è **riconosciuto** (sì/no) e, se no, **perché** (es. manca la quota, campo obbligatorio non
+  trovato, parser non riconosce il formato);
+- l'**anteprima della riga CSV** che uscirebbe — **colonne e valori** — con il **separatore decimale**
+  giusto per la lingua CSV impostata (virgola per IT/ES, punto per EN);
+- puoi anche incollarne **più di uno** separandoli con una riga che contiene solo `---`.
+
+È tutto **in sola lettura**: l'assistente **non scrive** il CSV operativo, prova soltanto. Puoi usarlo
+come **tester** mentre sistemi il parser, finché la riga non è quella giusta.
+
+> ℹ️ L'anteprima è **prudente**: senza il dizionario Betfair, un parser che ricava gli ID dal
+> dizionario può risultare «non pronto» qui anche se, a bridge avviato, verrebbe scritto. Non mostra
+> mai «pronto» qualcosa che a runtime verrebbe scartato.
+
+## 6. Proporre una modifica: tu confermi con «✅ Applica»
 
 L'assistente può **proporre** modifiche a **poche impostazioni non critiche**:
 
@@ -72,7 +91,7 @@ Quando propone qualcosa **non lo applica da solo**: compare un **banner** con l'
 **«✅ Applica»** / **«✖ Annulla»**. La modifica viene scritta **solo se premi tu «✅ Applica»**.
 \[screenshot: banner conferma\]
 
-## 6. Cosa l'assistente NON può fare (per sicurezza)
+## 7. Cosa l'assistente NON può fare (per sicurezza)
 
 Anche se glielo chiedi esplicitamente, l'assistente **non può**:
 
