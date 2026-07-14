@@ -228,13 +228,16 @@ live **sola-lettura**: config redatta, salute, elenco parser). **Da PR-4** l'ass
 - **Input** «scrivi un ordine di configurazione…» + **«Invia»** (anche `Invio`). Input e Invia sono
   **disabilitati** quando l'assistente non è ATTIVO.
 
-**Scrittura config gated (PR-4) — flusso di conferma in chat:**
-- L'assistente può impostare **solo** poche chiavi **non safety-critical**: **tema** (chiaro/scuro),
-  **lingua app** (IT/EN/ES), **clear_delay**, **confirmation_timeout**, **max_signal_age** (con
-  limiti validati; `max_signal_age` non può essere azzerato/disattivato).
-- **Gate di conferma nel trascritto**: l'assistente prima **mostra il cambiamento** («cambierò X da
-  A a B») e applica **solo dopo l'ok esplicito** dell'utente. Un valore fuori range viene rifiutato
-  con spiegazione, senza modifiche.
+**Scrittura config gated (PR-4) — l'assistente PROPONE, l'utente APPLICA:**
+- L'assistente può proporre modifiche a **solo** poche chiavi **non safety-critical**: **tema**
+  (chiaro/scuro), **lingua app** (IT/EN/ES), **clear_delay**, **confirmation_timeout**,
+  **max_signal_age** (con limiti validati; `max_signal_age` non può essere azzerato/disattivato).
+- **Banner di conferma (nuovo controllo UI):** quando l'assistente propone una modifica compare —
+  sopra la riga di input — un **banner** giallo con il testo «L'assistente propone: «‹chiave›» da
+  «‹vecchio›» a «‹nuovo›». Applicare?» e due pulsanti **«✅ Applica»** / **«✖ Annulla»**. La modifica
+  viene scritta **SOLO** se l'utente preme **«✅ Applica»** — il modello **non** può applicare da solo
+  (gate server-side, review #65). «✖ Annulla» o lo Stop scartano la proposta e nascondono il banner.
+  Un valore fuori range viene rifiutato con spiegazione, senza proposta.
 - **Mai** scrivibili dall'assistente (rifiutati anche su ordine esplicito): **token/API key**, il
   **filtro chat** (chat sorgente/notifiche/parser-per-chat), **modalità/CSV** (`bridge_mode`,
   `dry_run`, `csv_path`, `csv_language`), i **limiti scommesse** (`queue_mode`,

@@ -149,10 +149,11 @@ scrittura config, prima disattivata in PR-3, è ora abilitata GATED in PR-4 — 
 
 ## Scrittura config GATED (PR-4)
 
-Il controller costruisce ora l'agente con **`allow_writes=True`**: l'assistente può **applicare**
-modifiche di configurazione, ma **solo** attraverso il tool `set_config_value` e **solo** su un
-piccolo insieme di chiavi **non safety-critical**. Tutte le altre guardie restano attive (hard-block
-`FORBIDDEN_TOOLS`, redazione segreti, cap anti-loop, cronologia redatta).
+Il controller costruisce ora l'agente con **`allow_writes=True`**: l'assistente può **proporre**
+modifiche di configurazione, ma **solo** attraverso il tool `set_config_value`, **solo** su un
+piccolo insieme di chiavi **non safety-critical**, e **la scrittura vera la fa l'utente** (non il
+modello). Tutte le altre guardie restano attive (hard-block `FORBIDDEN_TOOLS`, redazione segreti,
+cap anti-loop, cronologia redatta).
 
 - **Allowlist** (`config_agent.WRITABLE_CONFIG_KEYS`): `theme` (dark/light), `app_language`
   (IT/EN/ES), `clear_delay`, `confirmation_timeout`, `max_signal_age` (interi, con **bound**
@@ -166,16 +167,25 @@ piccolo insieme di chiavi **non safety-critical**. Tutte le altre guardie restan
   ordine esplicito**, con audit.
 - **Validazione stretta**: un valore fuori dominio/bound è **rifiutato** con messaggio, **mai**
   coerciuto in silenzio (a differenza di `config_store._migrate`, fail-closed sul *load*).
-- **Gate di conferma**: senza `confirm=true` il tool ritorna solo un'**anteprima** («cambierò X da A
-  a B») e **non scrive**; applica **solo** con `confirm=true` (il system prompt istruisce a chiedere
-  l'ok all'utente prima). Il salvataggio è il round-trip completo di `config_store.save_config`
-  (atomico; token gestito dal keyring, mai in chiaro); un save fallito riporta l'errore, mai un
-  falso «Fatto».
+- **Gate di conferma SERVER-SIDE** (review #65 GPT-5.5/Fugu/Fable): il tool **non scrive mai**.
+  Valida e chiama `on_proposal(key, new, old)` → il controller registra la modifica **pendente**
+  (legata all'`epoch`) ed emette l'evento `pending`; la GUI mostra un banner «✅ Applica / ✖ Annulla».
+  **Solo** `AgentController.apply_pending()`, invocato dal **pulsante dell'utente** (thread GUI),
+  scrive. Così un `confirm` allucinato/indotto (prompt injection) **non** può applicare nulla: al
+  massimo propone. La conferma è uno **stato server-side legato a chiave/valore/epoch**, non un
+  booleano deciso dal modello.
+- **Anti-TOCTOU** (Fable #65): `apply_pending()` **ri-legge la config fresca** sul thread GUI (come
+  «💾 Salva Config») e tocca **solo** la chiave proposta → nessuna scrittura clobbera un cambio
+  concorrente delle altre chiavi. Tutte le scritture di `config.json` (assistente e GUI) avvengono
+  ora sul thread Tk → serializzate. Il `bot_token` non è tra le chiavi scrivibili e resta nel
+  keyring. Un save fallito riporta l'errore, mai un falso «Fatto». La proposta è scartata se
+  l'`epoch` è cambiato (Stop/Enable) o al `stop()`.
 
-Test hard: `tests/safety/test_config_agent_write_41.py` (denylist, allowlist, validazione,
-`max_signal_age` non disattivabile, gate confirm, persistenza reale con resto preservato, gate
-`allow_writes`, offerta al modello, save fallito) + due test end-to-end nel controller
-(`test_controller_scrive_config_gated_end_to_end`, `test_controller_scrittura_safety_critical_bloccata`).
+Test hard: `tests/safety/test_config_agent_write_41.py` (denylist/allowlist/validazione, il tool
+**non scrive né mette in pending** per chiavi vietate/valori invalidi, propone la forma canonica,
+schema senza `confirm`, gate `allow_writes`) + controller (`proposta_non_scrive_finche_utente_non_applica`,
+`apply_pending_senza_proposta`, `cancel_pending`, `stop_scarta_la_proposta`, `apply_pending_stale_epoch`,
+`proposta_safety_critical_non_mette_in_pending`) + GUI (`pending_text`).
 
 ### Smoke test manuale (Windows, no display in CI)
 

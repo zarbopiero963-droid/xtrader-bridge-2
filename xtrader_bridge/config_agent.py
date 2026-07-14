@@ -358,11 +358,17 @@ def _save_outcome(result):
     return bool(ok), status
 
 
-def build_write_tools(*, config_loader=None, config_saver=None) -> list:
-    """Costruisce i tool di **scrittura** config GATED (#41 PR-4). Iniettabili per i test; di default
-    usano lo stato reale (`config_store.load_config`/`save_config`)."""
+def build_write_tools(*, config_loader=None, on_proposal=None) -> list:
+    """Costruisce i tool di **scrittura** config GATED (#41 PR-4). `config_loader` iniettabile (per
+    leggere il valore attuale e validare); `on_proposal(key, new, old)` è chiamato quando una
+    modifica valida è PROPOSTA.
+
+    **Gate di conferma server-side (review #65 GPT-5.5/Fugu/Fable).** Il tool **non scrive mai**: si
+    limita a **validare** e a **proporre** il cambiamento. La scrittura vera è eseguita SOLO
+    dall'utente tramite la UI (pulsante «Applica» → `AgentController.apply_pending`), non da un
+    booleano deciso dal modello. Così un `confirm` allucinato o indotto (prompt injection) non può
+    applicare nulla: al massimo mette in coda una PROPOSTA che l'utente vede e conferma a mano."""
     load_cfg = config_loader or config_store.load_config
-    save_cfg = config_saver or config_store.save_config
 
     def _set_config_value(inp):
         key = str(inp.get("key", "")).strip()
@@ -383,52 +389,43 @@ def build_write_tools(*, config_loader=None, config_saver=None) -> list:
         old = cfg.get(key)
         if normalized == old:
             return f"Nessuna modifica: «{key}» è già «{normalized}»."
-        # 4. gate di CONFERMA: senza `confirm=true` si ritorna solo un'ANTEPRIMA (niente scrittura).
-        if inp.get("confirm", False) is not True:
-            return (f"CONFERMA RICHIESTA: cambierò «{key}» da «{old}» a «{normalized}». "
-                    "Mostra il cambiamento all'utente e richiama lo stesso strumento con "
-                    "confirm=true SOLO dopo il suo ok esplicito.")
-        # 5. applica: round-trip dell'INTERA config (save_config riscrive il file completo; un save
-        #    di sola-una-chiave perderebbe tutto il resto). Il `bot_token` NON è tra le chiavi
-        #    scrivibili e resta gestito dal keyring da `save_config` (mai in chiaro).
-        new_cfg = dict(cfg)
-        new_cfg[key] = normalized
-        ok_disk, status = _save_outcome(save_cfg(new_cfg))
-        if ok_disk:
-            return f"Fatto: «{key}» impostato a «{normalized}» (era «{old}»)."
-        msg = config_store.save_status_message(status) if status else ""
-        return (f"Salvataggio NON riuscito per «{key}» (resta «{old}»)." +
-                (f" {msg}" if msg else ""))
+        # 4. PROPOSTA (nessuna scrittura): registra la modifica pendente e chiedi conferma UMANA.
+        #    L'applicazione avviene SOLO dal pulsante «Applica» dell'utente (server-side gate).
+        if on_proposal is not None:
+            on_proposal(key, normalized, old)
+        return (f"PROPOSTA: cambiare «{key}» da «{old}» a «{normalized}». Chiedi all'utente di "
+                "confermare con il pulsante «✅ Applica» nella tab (o «✖ Annulla»); non posso "
+                "applicarla io.")
 
     return [
         AgentTool(
             "set_config_value",
-            "Imposta UNA chiave di configurazione NON safety-critical del bridge. Chiavi ammesse: "
-            "theme (dark/light), app_language (IT/EN/ES), clear_delay, confirmation_timeout, "
-            "max_signal_age (secondi, interi). NON può toccare token, filtro chat, modalità/CSV, "
-            "limiti scommesse o parser: sono rifiutati. Chiama PRIMA senza confirm per l'anteprima "
-            "del cambiamento, mostrala all'utente, poi richiama con confirm=true SOLO dopo il suo ok.",
+            "Propone di impostare UNA chiave di configurazione NON safety-critical del bridge. "
+            "Chiavi ammesse: theme (dark/light), app_language (IT/EN/ES), clear_delay, "
+            "confirmation_timeout, max_signal_age (secondi, interi). NON può toccare token, filtro "
+            "chat, modalità/CSV, limiti scommesse o parser: sono rifiutati. Il tool NON applica la "
+            "modifica: la mette in attesa e l'utente la conferma con un pulsante nella tab. Spiega "
+            "all'utente cosa cambierà e invitalo a premere «✅ Applica».",
             {"type": "object",
              "properties": {
                  "key": {"type": "string", "description": "nome della chiave di config da impostare"},
-                 "value": {"description": "nuovo valore (stringa o intero secondo la chiave)"},
-                 "confirm": {"type": "boolean",
-                             "description": "true SOLO dopo la conferma esplicita dell'utente"}},
+                 "value": {"description": "nuovo valore (stringa o intero secondo la chiave)"}},
              "required": ["key", "value"],
              "additionalProperties": False},
             WRITE_CONFIG, _set_config_value),
     ]
 
 
-def build_default_registry(*, config_loader=None, parsers_dir=None, config_saver=None,
+def build_default_registry(*, config_loader=None, parsers_dir=None, on_proposal=None,
                            logger=None) -> ToolRegistry:
     """Registry pronto con i tool sola-lettura (PR-1) **e** i tool di scrittura gated (PR-4). I tool
     di scrittura sono registrati ma **offerti al modello solo con `allow_writes=True`** (li filtra
-    `tool_specs`); il gate `dispatch(allow_writes=...)` resta l'ultima difesa."""
+    `tool_specs`); il gate `dispatch(allow_writes=...)` resta l'ultima difesa; e la scrittura vera è
+    gated dalla UI (`on_proposal` → conferma umana), mai dal modello."""
     reg = ToolRegistry(logger=logger)
     for tool in build_read_only_tools(config_loader=config_loader, parsers_dir=parsers_dir):
         reg.register(tool)
-    for tool in build_write_tools(config_loader=config_loader, config_saver=config_saver):
+    for tool in build_write_tools(config_loader=config_loader, on_proposal=on_proposal):
         reg.register(tool)
     return reg
 
@@ -440,10 +437,11 @@ SYSTEM_PROMPT = (
     "configurare il bridge ESEGUENDO i suoi ordini tramite gli strumenti disponibili, non "
     "prendendo iniziative safety-critical. Non piazzi scommesse, non parli con XTrader/Betfair, "
     "non avvii il listener live o la modalità reale, non riveli segreti, non usi il web né esegui "
-    "codice: queste azioni sono bloccate dal bridge a prescindere. Puoi modificare SOLO alcune "
-    "impostazioni non critiche (tema, lingua app, clear_delay, confirmation_timeout, max_signal_age) "
-    "con 'set_config_value': chiama sempre PRIMA senza confirm per l'anteprima, mostra il cambiamento "
-    "all'utente e applica con confirm=true solo dopo il suo ok. Rispondi in italiano, conciso."
+    "codice: queste azioni sono bloccate dal bridge a prescindere. Puoi PROPORRE modifiche SOLO ad "
+    "alcune impostazioni non critiche (tema, lingua app, clear_delay, confirmation_timeout, "
+    "max_signal_age) con 'set_config_value': il tool NON applica nulla, mette la modifica in attesa; "
+    "spiega all'utente cosa cambierà e invitalo a premere il pulsante «✅ Applica» nella tab per "
+    "confermare. Rispondi in italiano, conciso."
 )
 
 

@@ -44,10 +44,21 @@ class AgentController:
         self._client_factory = client_factory
         self.state = STOPPED
         self.last_error = ""
+        # Modifica config PROPOSTA dall'assistente e in attesa di conferma UMANA (#41 PR-4, review
+        # #65): il tool `set_config_value` non scrive mai — chiama `_stage_pending`; la scrittura
+        # vera avviene SOLO da `apply_pending()` (pulsante «Applica» dell'utente, sul thread GUI).
+        self._pending = None
+        self._pending_lock = threading.Lock()
+        # Epoch del turno CORRENTE per-thread (thread-local): il tool `set_config_value` gira dentro
+        # `_handle_message` sul thread worker e chiama `_stage_pending`; leggendo qui l'epoch del suo
+        # turno (non l'epoch vivo) una proposta di un worker STALE (post Stop/Enable) viene scartata
+        # invece di comparire nella nuova sessione. Worker concorrenti hanno ciascuno il proprio.
+        self._turn_ctx = threading.local()
         # Registry con i tool read-only (stato VIVO redatto) e i tool di scrittura config GATED
-        # (#41 PR-4): questi ultimi sono offerti al modello solo con `allow_writes=True` (vedi enable).
+        # (#41 PR-4): questi ultimi sono offerti al modello solo con `allow_writes=True` (vedi enable)
+        # e **non scrivono**: propongono soltanto (`on_proposal`), la conferma è umana via UI.
         self._registry = config_agent.build_default_registry(
-            config_loader=self._config_loader, config_saver=self._config_saver,
+            config_loader=self._config_loader, on_proposal=self._stage_pending,
             parsers_dir=parsers_dir, logger=logger)
         self._history = history if history is not None else config_agent.ConversationHistory([])
         self._agent = None
@@ -161,6 +172,13 @@ class AgentController:
         with self._history_lock:
             self._epoch += 1
             self._agent = None
+        # Una sessione fermata non deve trattenere una proposta pendente (sarebbe di una sessione
+        # chiusa): la si scarta e si notifica la GUI di nascondere il banner «Applica».
+        with self._pending_lock:
+            had_pending = self._pending is not None
+            self._pending = None
+        if had_pending:
+            self._emit("pending_cleared", {"epoch": self._epoch})
         w = self._worker
         if w is not None and w.stop():
             self._worker = None
@@ -208,7 +226,13 @@ class AgentController:
                 return None
             agent = self._agent
             base_messages = list(self._history.messages)
-        turn = agent.run_turn(text, history=base_messages)   # lento: nessun lock tenuto
+        # Pubblica l'epoch di QUESTO turno per il tool `set_config_value` (→ `_stage_pending`), così
+        # una proposta è legata alla sessione che l'ha generata (thread-local: no race tra worker).
+        self._turn_ctx.epoch = epoch
+        try:
+            turn = agent.run_turn(text, history=base_messages)   # lento: nessun lock tenuto
+        finally:
+            self._turn_ctx.epoch = None
         # Replace+save ATOMICI sotto lock rispetto all'epoch (niente TOCTOU sui DATI). Se la sessione
         # è cambiata (stop/re-enable durante il turno) si scarta TUTTO — nessun evento emesso.
         save_failed_exc = None
@@ -252,6 +276,65 @@ class AgentController:
         applicare un evento per scartare i `turn`/`warning` di una sessione ormai chiusa
         (Stop/Enable nel frattempo) — la rete di sicurezza consumer-side dell'emit senza lock."""
         return self._epoch
+
+    # ── modifica config PROPOSTA + conferma UMANA (#41 PR-4, review #65) ─────────
+    def _stage_pending(self, key, new, old) -> None:
+        """Chiamato dal tool `set_config_value` (thread worker) quando l'assistente PROPONE una
+        modifica valida. NON scrive: registra la modifica pendente (legata all'`epoch` del turno) ed
+        emette l'evento `pending` FUORI dal lock, così la GUI mostra il pulsante «Applica». Una nuova
+        proposta sostituisce quella non ancora applicata. Una proposta di un turno **stale** (worker
+        di una sessione già chiusa da Stop/Enable) viene **ignorata**: né staged né emessa."""
+        epoch = getattr(self._turn_ctx, "epoch", None)
+        if epoch is None:
+            epoch = self._epoch                       # chiamata fuori da un turno (es. test): epoch vivo
+        with self._pending_lock:
+            if epoch != self._epoch:
+                return                                # sessione chiusa → nessuna proposta-fantasma
+            self._pending = {"key": key, "new": new, "old": old, "epoch": epoch}
+        self._emit("pending", {"key": key, "new": new, "old": old, "epoch": epoch})
+
+    def pending(self):
+        """La modifica pendente corrente (dict o `None`) — lettura per la GUI/test."""
+        with self._pending_lock:
+            return dict(self._pending) if self._pending else None
+
+    def apply_pending(self) -> bool:
+        """**Applica** la modifica pendente — chiamato SOLO dall'utente (pulsante «Applica», thread
+        GUI). È l'UNICO punto che scrive la config: il modello non può arrivarci. Ritorna `True` se
+        scritta, `False` altrimenti (niente pending / sessione cambiata / save fallito).
+
+        Anti-TOCTOU (Fable #65): la config viene **ri-letta fresca** qui (sul thread GUI, come «💾
+        Salva Config») e si tocca **solo** la chiave proposta → nessuna scrittura clobbera un cambio
+        concorrente delle altre chiavi. La proposta è scartata se l'epoch è cambiato (Stop/Enable)."""
+        with self._pending_lock:
+            p = self._pending
+            if p is None or p["epoch"] != self._epoch:
+                self._pending = None
+                return False
+            key, new, old = p["key"], p["new"], p["old"]
+        cfg = self._config_loader() or {}
+        cfg[key] = new                       # tocca SOLO la chiave proposta (config fresca)
+        ok, status = config_agent._save_outcome(self._config_saver(cfg))
+        with self._pending_lock:
+            self._pending = None
+        self._emit("pending_cleared", {"epoch": self._epoch})
+        if ok:
+            self._emit("turn", {"text": f"✓ «{key}» impostato a «{new}» (era «{old}»).",
+                                "capped": False, "messages": [], "epoch": self._epoch})
+        else:
+            msg = config_store.save_status_message(status) if status else ""
+            self._emit("turn", {"text": f"⚠️ Salvataggio non riuscito per «{key}»." +
+                                (f" {msg}" if msg else ""),
+                                "capped": False, "messages": [], "epoch": self._epoch})
+        return ok
+
+    def cancel_pending(self) -> None:
+        """Annulla la modifica pendente senza applicarla (pulsante «Annulla», thread GUI)."""
+        with self._pending_lock:
+            had = self._pending is not None
+            self._pending = None
+        if had:
+            self._emit("pending_cleared", {"epoch": self._epoch})
 
 
 class AgentWorker:

@@ -130,9 +130,10 @@ _ALLOWLIST = {
                                       "uccide il loop (errore restituito come turno); persistenza "
                                       "cronologia best-effort (qualsiasi errore di save non deve "
                                       "scartare il turno già calcolato, CodeRabbit #64)"),
-    "config_agent_gui.py": (2, "view assistente (#41 PR-3): marshalling evento via after() su root "
-                               "Tk distrutta/assente (teardown) best-effort; log della riga di "
-                               "trascritto best-effort"),
+    "config_agent_gui.py": (3, "view assistente (#41 PR-3/PR-4): marshalling evento via after() su "
+                               "root Tk distrutta/assente (teardown) best-effort; log della riga di "
+                               "trascritto best-effort; nascondere il banner di conferma su widget "
+                               "già distrutto (teardown) best-effort"),
     "token_store.py": (8, "soft-import/fallback keyring: qualsiasi errore = backend non disponibile "
                           "(bot token + API key Anthropic #41: save/load-status/delete per la chiave)"),
     "tools_gui.py": (3, "GUI Tk finestra strumenti: apertura sotto-finestre best-effort"),

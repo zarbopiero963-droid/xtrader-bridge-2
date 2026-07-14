@@ -66,3 +66,13 @@ def test_is_stale_event_senza_epoch_non_e_mai_stale():
     # tipi non-int (difensivo) → non stale (non si scarta per un dato malformato)
     assert g.is_stale_event({"epoch": "1"}, 2) is False
     assert g.is_stale_event({"epoch": 1}, None) is False
+
+
+def test_pending_text_mostra_key_old_new():
+    # #41 PR-4: il banner di conferma mostra chiave, vecchio e nuovo valore proposti.
+    txt = g.pending_text({"key": "theme", "old": "dark", "new": "light"})
+    assert "theme" in txt and "dark" in txt and "light" in txt
+
+
+def test_pending_text_robusto_su_none():
+    assert isinstance(g.pending_text(None), str)      # nessun crash su dati assenti

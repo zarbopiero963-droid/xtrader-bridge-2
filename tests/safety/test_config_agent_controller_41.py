@@ -379,7 +379,7 @@ def test_worker_stop_same_thread_ritorna_true():
 
 
 class WriteToolClient:
-    """Client finto che al primo giro chiama `set_config_value` (confirm=true), poi risponde."""
+    """Client finto che al primo giro PROPONE `set_config_value` (senza confirm), poi risponde."""
 
     def __init__(self, key="theme", value="light"):
         self.key, self.value, self.n, self.offered = key, value, 0, None
@@ -390,45 +390,152 @@ class WriteToolClient:
         if self.n == 1:
             return {"stop_reason": "tool_use", "content": [
                 {"type": "tool_use", "id": "w1", "name": "set_config_value",
-                 "input": {"key": self.key, "value": self.value, "confirm": True}}]}
+                 "input": {"key": self.key, "value": self.value}}]}
         return {"stop_reason": "end_turn", "content": [{"type": "text", "text": "fatto"}]}
 
 
-def test_controller_scrive_config_gated_end_to_end(tmp_path, monkeypatch):
-    # #41 PR-4: con allow_writes=True l'assistente può impostare una chiave NON safety-critical
-    # (theme) end-to-end; il file config su disco cambia e il resto è preservato.
+def _write_controller(tmp_path, monkeypatch, client, path):
     monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
-    path = os.path.join(str(tmp_path), "config.json")
-    config_store.save_config({"theme": "dark", "chat_id": "-1001234567890"}, path)
-    client = WriteToolClient(key="theme", value="light")
-    c = ctl.AgentController(
+    return ctl.AgentController(
         client=client,
         config_loader=lambda: config_store.load_config(path),
         config_saver=lambda cfg: config_store.save_config(cfg, path))
+
+
+def test_proposta_non_scrive_finche_utente_non_applica(tmp_path, monkeypatch):
+    # review #65: il tool PROPONE soltanto — nessuna scrittura finché l'utente non applica.
+    events = []
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "chat_id": "-1001234567890"}, path)
+    c = _write_controller(tmp_path, monkeypatch, WriteToolClient("theme", "light"), path)
+    c._on_event = lambda k, d: events.append((k, d))
     c.enable()
-    assert c.submit("metti il tema chiaro") is True
+    c.submit("metti il tema chiaro")
     c._worker.run_pending()
+    # la modifica è PENDING, NON scritta
+    assert config_store.load_config(path)["theme"] == "dark"
+    assert c.pending() == {"key": "theme", "new": "light", "old": "dark", "epoch": c.current_epoch()}
+    assert any(k == "pending" for k, _ in events)
+    # ora l'UTENTE applica → SOLO adesso scrive
+    assert c.apply_pending() is True
     saved = config_store.load_config(path)
-    assert saved["theme"] == "light"                       # scritto
-    assert saved["chat_id"] == "-1001234567890"            # resto preservato
-    assert "set_config_value" in client.offered            # il tool di scrittura È offerto al modello
+    assert saved["theme"] == "light"                        # scritto dall'utente
+    assert saved["chat_id"] == "-1001234567890"             # resto preservato
+    assert c.pending() is None
     c.stop()
 
 
-def test_controller_scrittura_safety_critical_bloccata(tmp_path, monkeypatch):
-    # anche con allow_writes=True, una chiave safety-critical (chat_id) NON viene scritta.
-    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+def test_apply_pending_senza_proposta_e_falso(tmp_path, monkeypatch):
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark"}, path)
+    c = _write_controller(tmp_path, monkeypatch, FakeClient(), path)
+    c.enable()
+    assert c.apply_pending() is False                       # niente da applicare
+    c.stop()
+
+
+def test_cancel_pending_non_scrive(tmp_path, monkeypatch):
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark"}, path)
+    c = _write_controller(tmp_path, monkeypatch, WriteToolClient("theme", "light"), path)
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()
+    assert c.pending() is not None
+    c.cancel_pending()
+    assert c.pending() is None
+    assert c.apply_pending() is False                       # dopo annulla non c'è nulla
+    assert config_store.load_config(path)["theme"] == "dark"   # mai scritto
+    c.stop()
+
+
+def test_stop_scarta_la_proposta_pendente(tmp_path, monkeypatch):
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark"}, path)
+    c = _write_controller(tmp_path, monkeypatch, WriteToolClient("theme", "light"), path)
+    c.enable()
+    c.submit("tema chiaro")
+    c._worker.run_pending()
+    assert c.pending() is not None
+    c.stop()
+    assert c.pending() is None                              # sessione chiusa → proposta scartata
+    assert c.apply_pending() is False and config_store.load_config(path)["theme"] == "dark"
+
+
+def test_apply_pending_stale_epoch_non_scrive(tmp_path, monkeypatch):
+    # una proposta di una sessione, se la sessione cambia (stop→enable), non si applica più.
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark"}, path)
+    c = _write_controller(tmp_path, monkeypatch, WriteToolClient("theme", "light"), path)
+    c.enable()
+    # stage manuale legato all'epoch corrente, poi avanza sessione
+    c._stage_pending("theme", "light", "dark")
+    old = c.pending()
+    assert old is not None
+    c.stop()
+    c.enable()
+    # inietta la vecchia proposta (epoch stale) e prova ad applicare
+    with c._pending_lock:
+        c._pending = old
+    assert c.apply_pending() is False
+    assert config_store.load_config(path)["theme"] == "dark"
+    c.stop()
+
+
+def test_proposta_di_turno_stale_non_messa_in_pending(tmp_path, monkeypatch):
+    # review #65 + epoch #64: se Stop scatta MENTRE il turno è in volo, la PROPOSTA che il tool
+    # tenta di mettere in pending dopo è di una sessione chiusa → SCARTATA (né pending né evento).
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark"}, path)
+    events, holder = [], {}
+
+    class ProposeThenStopClient:
+        def __init__(self):
+            self.n = 0
+
+        def create_message(self, *, system, messages, tools):
+            self.n += 1
+            if self.n == 1:
+                holder["c"].stop()          # Stop DURANTE il turno → epoch avanza
+                return {"stop_reason": "tool_use", "content": [
+                    {"type": "tool_use", "id": "w1", "name": "set_config_value",
+                     "input": {"key": "theme", "value": "light"}}]}
+            return {"stop_reason": "end_turn", "content": []}
+
+    c = _write_controller(tmp_path, monkeypatch, ProposeThenStopClient(), path)
+    c._on_event = lambda k, d: events.append(k)
+    holder["c"] = c
+    c.enable()
+    epoch = c._epoch
+    c._handle_message("tema chiaro", epoch)
+    assert c.pending() is None                  # proposta stale scartata
+    assert "pending" not in events              # nessun banner-fantasma
+    assert config_store.load_config(path)["theme"] == "dark"
+
+
+def test_proposta_safety_critical_non_mette_in_pending(tmp_path, monkeypatch):
+    # anche con allow_writes=True, una chiave safety-critical (chat_id) NON diventa una proposta.
     path = os.path.join(str(tmp_path), "config.json")
     config_store.save_config({"theme": "dark", "chat_id": "-1001234567890"}, path)
-    client = WriteToolClient(key="chat_id", value="-100999999")
-    c = ctl.AgentController(
-        client=client,
-        config_loader=lambda: config_store.load_config(path),
-        config_saver=lambda cfg: config_store.save_config(cfg, path))
+    c = _write_controller(tmp_path, monkeypatch, WriteToolClient("chat_id", "-100999999"), path)
     c.enable()
     c.submit("cambia la chat sorgente")
     c._worker.run_pending()
+    assert c.pending() is None                              # nessuna proposta staged
+    assert c.apply_pending() is False
     assert config_store.load_config(path)["chat_id"] == "-1001234567890"   # filtro chat intatto
+    c.stop()
+
+
+def test_set_config_value_offerto_al_modello(tmp_path, monkeypatch):
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark"}, path)
+    client = WriteToolClient("theme", "light")
+    c = _write_controller(tmp_path, monkeypatch, client, path)
+    c.enable()
+    c.submit("x")
+    c._worker.run_pending()
+    assert "set_config_value" in client.offered            # offerto con allow_writes=True
     c.stop()
 
 
