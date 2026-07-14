@@ -2881,7 +2881,19 @@ class App(ctk.CTk):
             self.after(0, lambda: self._log(i18n.tr(
                 "⚠️ Segnale scartato ({source}/{status}): {detail}").format(
                     source=result.source, status=result.status, detail=detail)))
+            # Avvisi #38 anche sulla riga scartata (parità col path piazzabile): l'operatore
+            # che debugga uno scarto vede comunque l'avviso separatore, se presente.
+            for _warn in getattr(result, "warnings", None) or []:
+                self.after(0, lambda w=_warn: self._log(
+                    i18n.tr("⚠️ EventName: {warning}").format(warning=w)))
             return
+
+        # Avvisi non-fatali (issue #38): es. riformattazione EventName senza dizionario che non ha
+        # potuto dividere le squadre → il segnale è comunque piazzabile (nome lasciato invariato),
+        # ma l'operatore vede l'avviso nel log (parità con la preview «Prova messaggio»).
+        for _warn in getattr(result, "warnings", None) or []:
+            self.after(0, lambda w=_warn: self._log(
+                i18n.tr("⚠️ EventName: {warning}").format(warning=w)))
 
         # #192: il parser può produrre PIÙ righe (MultiMarket/MultiSelection). Per il single-row
         # `all_rows()` ne ritorna una sola → percorso legacy invariato. `row` è la prima riga

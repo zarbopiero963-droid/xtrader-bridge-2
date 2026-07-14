@@ -432,7 +432,7 @@ def resolve_team(team: str, profiles, sport=None, entity_type=None, language=Non
     return None
 
 
-def split_event(event_name: str, separator: str):
+def split_event(event_name: str, separator: str, *, spaced_only: bool = False):
     """Divide un ``EventName`` ("Casa <sep> Trasferta") in ``(casa, trasferta)``,
     o ``None`` se non si riesce a separarlo in due nomi non vuoti.
 
@@ -444,14 +444,23 @@ def split_event(event_name: str, separator: str):
     c'è, si ripiega sulla forma **compatta** (``\\s*<sep>\\s*``, es. "Liverpool/Leeds");
     per i separatori **alfabetici** ("v"/"vs") non c'è fallback compatto, altrimenti
     "v" senza spazi spezzerebbe "Liverpool". Solo la prima occorrenza separa
-    (``maxsplit=1``)."""
+    (``maxsplit=1``).
+
+    ``spaced_only`` (issue #38, guardia anti-split-errato): se ``True`` si accetta
+    **solo** la forma spaziata (``\\s+<sep>\\s+``) anche per i separatori simbolici —
+    **nessun fallback compatto**. Serve al percorso di riformattazione SENZA dizionario
+    nomi: lì un separatore simbolico sbagliato (es. ``-`` su "Al-Kholood Club v Al-Hilal",
+    dove non c'è alcun « - » spaziato) NON deve tagliare dentro un nome col trattino
+    interno → meglio nessuno split (l'evento resta verbatim) che un evento sbagliato.
+    Il default ``False`` preserva ESATTAMENTE il comportamento storico (ramo dizionario
+    e tutti i chiamanti esistenti invariati)."""
     name = str(event_name or "").strip()
     sep = str(separator or "").strip()
     if not name or not sep:
         return None
     esc = re.escape(sep)
     parts = re.compile(r"\s+" + esc + r"\s+", re.IGNORECASE).split(name, maxsplit=1)
-    if len(parts) != 2 and not sep.isalpha():
+    if len(parts) != 2 and not sep.isalpha() and not spaced_only:
         parts = re.compile(r"\s*" + esc + r"\s*").split(name, maxsplit=1)
     if len(parts) != 2:
         return None

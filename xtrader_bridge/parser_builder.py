@@ -50,6 +50,7 @@ class PreviewRow:
     missing_required: "list[str]" = field(default_factory=list)
     row: "dict[str, str]" = field(default_factory=dict)
     summary: str = ""
+    warnings: "list[str]" = field(default_factory=list)   # avvisi non-fatali (issue #38)
 
 
 def _static_base_market_type(defn: CustomParserDef) -> "str | None":
@@ -525,9 +526,22 @@ class ParserBuilder:
         return rule
 
     @staticmethod
+    def _warnings_suffix(res_warnings, preview_rows) -> str:
+        """Suffisso « · ⚠ …» con gli avvisi non-fatali (issue #38), deduplicati e nell'ordine
+        di prima comparsa. Fonte: gli avvisi del risultato single-row (`res_warnings`) più quelli
+        delle righe d'anteprima (multi-riga). Vuoto se non ci sono avvisi (verdetto invariato)."""
+        seen, ordered = set(), []
+        for w in list(res_warnings or []) + [w for p in (preview_rows or [])
+                                             for w in getattr(p, "warnings", []) or []]:
+            if w and w not in seen:
+                seen.add(w)
+                ordered.append(w)
+        return "".join(f" · ⚠ {w}" for w in ordered)
+
+    @staticmethod
     def test_verdict(errors: list, preview_rows: list, *, diag_placeable: bool,
                      diag_status: str, res_row: dict, res_missing_required: list,
-                     res_detail, content_ok: bool = True) -> str:
+                     res_detail, content_ok: bool = True, res_warnings=()) -> str:
         """Verdetto sintetico di «Prova messaggio» (single + multi-riga). Logica pura, CI.
 
         Precedenza (Codex #19):
@@ -557,6 +571,10 @@ class ParserBuilder:
         righe scartate) invece di mascherare il vero errore con `NO_CONTENT_MATCH`."""
         if errors:
             return "⛔ Non salvabile: " + "; ".join(errors)
+        # Suffisso avvisi non-fatali (issue #38): riformattazione EventName senza dizionario che
+        # non ha potuto dividere le squadre → si mostra l'avviso accanto al verdetto (parità con il
+        # log del runtime), SENZA cambiare il verdetto di piazzabilità (la riga resta valida).
+        warn = ParserBuilder._warnings_suffix(res_warnings, preview_rows)
         if any(getattr(p, "kind", "base") != "base" for p in preview_rows):
             # Gate di contenuto come il runtime (signal_router): un parser a soli valori fissi
             # è piazzabile su qualsiasi testo ma verrebbe scartato con NO_CONTENT_MATCH. Non
@@ -570,21 +588,21 @@ class ParserBuilder:
                 # `diag.message_error` da cui deriva `content_ok`) così il messaggio resta
                 # allineato allo status del runtime, senza letterale divergente (CodeRabbit/Sourcery).
                 return (f"⛔ Non pronto ({parser_diagnostics.NO_CONTENT_MATCH}) · "
-                        "nessun contenuto estratto dal messaggio")
-            return ParserBuilder.preview_summary(preview_rows)
+                        "nessun contenuto estratto dal messaggio") + warn
+            return ParserBuilder.preview_summary(preview_rows) + warn
         if diag_placeable:
             # Decimali nel formato della lingua CSV corrente (#342, follow-up #344): l'anteprima
             # mostra i valori COME usciranno nel file (IT/ES virgola, EN punto), non il canonico
             # interno col punto — altrimenti l'operatore vede «1.85» e il file avrà «1,85».
             shown = csv_writer.localize_row(res_row)
             riga = ", ".join(f"{k}={v}" for k, v in shown.items() if v != "")
-            return f"✅ Pronto · {riga}"
+            return f"✅ Pronto · {riga}" + warn
         missing = list(res_missing_required or [])
         if (not missing and diag_status == validator.INVALID_MISSING_FIELDS
                 and isinstance(res_detail, (list, tuple))):
             missing = [str(x) for x in res_detail]
         extra = f" · mancanti: {', '.join(missing)}" if missing else ""
-        return f"⛔ Non pronto ({diag_status}){extra}"
+        return f"⛔ Non pronto ({diag_status}){extra}" + warn
 
     @staticmethod
     def preview_summary(preview_rows: list) -> str:
@@ -655,7 +673,7 @@ class ParserBuilder:
             out.append(PreviewRow(
                 index=i, kind=kind, placeable=res.placeable, status=res.status,
                 missing_required=list(res.missing_required), row=dict(res.row),
-                summary=summary))
+                summary=summary, warnings=list(getattr(res, "warnings", []) or [])))
         return out
 
     # ── Tester multiplo (#311 §3.2): N messaggi reali in un colpo solo ──────

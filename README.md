@@ -365,6 +365,16 @@ file del parser (campo `sport`); i parser creati prima di questa funzione restan
 agnostici. Poiché il parser attivo è **per profilo**, cambiando profilo cambia anche lo
 Sport del parser usato.
 
+Il campo **«Separatore squadre:»** (accanto a «🗺️ Dizionario nomi») vale **anche senza**
+dizionario nomi: se lo imposti (es. `v`, `vs`, `-`, `/`), il bridge **riformatta** l'`EventName`
+nel formato XTrader **«Casa - Trasferta»** usando le squadre del messaggio **così come sono**
+(nessuna traduzione, nessun nome inventato) — utile quando il canale usa un separatore diverso
+da quello atteso. Col **dizionario nomi** attivo, oltre a riformattare **traduce** anche i nomi.
+Campo **vuoto = `EventName` invariato** (retro-compatibile). Se col solo separatore le squadre
+non si dividono (separatore assente nel nome), il nome resta invariato e compare un **avviso**
+in «Prova messaggio» e nel log (la riga non viene scartata). Dettagli:
+[`docs/custom_parser.md`](docs/custom_parser.md).
+
 Quando un Parser Personalizzato è attivo per una chat è **autoritativo** (niente
 fallback all'hardcoded). I parser si salvano/condividono come file in
 `data/parsers/<nome>.json`. Guida completa: **[`docs/custom_parser.md`](docs/custom_parser.md)**.

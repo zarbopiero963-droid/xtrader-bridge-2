@@ -232,12 +232,27 @@ def test_pipeline_mapping_missing_se_separatore_non_trovato():
     assert res.status == pipe.MAPPING_MISSING
 
 
-def test_pipeline_nessuna_mappatura_se_parser_senza_profili():
-    # Retro-compatibilità: parser senza profili → EventName invariato.
+def test_pipeline_riformatta_senza_profili_con_separatore_esplicito():
+    # Issue #38: senza dizionario nomi ma con separatore ESPLICITO ("v", default del parser di
+    # test), il ramo senza-dizionario riformatta il FORMATO dell'EventName in «Casa - Trasferta»
+    # usando le squadre del messaggio VERBATIM (nessuna traduzione, nessun nome inventato). Prima
+    # della feature era verbatim; ora è la riformattazione approvata dal proprietario.
     parser = _mapping_parser(profiles=())
     res = pipe.build_validated_row(parser, _MSG, name_mapping_profiles=[])
     assert res.status == validator.VALID
-    assert res.row["EventName"] == "Liverpool FC v Leeds Utd"   # non tradotto
+    assert res.row["EventName"] == "Liverpool FC - Leeds Utd"   # riformattato, non tradotto
+    assert res.warnings == []
+
+
+def test_pipeline_retrocompat_verbatim_senza_profili_e_senza_separatore():
+    # Vera retro-compatibilità (issue #38): NIENTE dizionario E separatore VUOTO → EventName
+    # invariato, identico a prima della feature. NESSUN default "v" applicato nel percorso
+    # senza-dizionario (a differenza del ramo dizionario dove il default resta).
+    parser = _mapping_parser(profiles=(), separator="")
+    res = pipe.build_validated_row(parser, _MSG, name_mapping_profiles=[])
+    assert res.status == validator.VALID
+    assert res.row["EventName"] == "Liverpool FC v Leeds Utd"   # verbatim
+    assert res.warnings == []
 
 
 def test_pipeline_fail_closed_se_mappatura_richiesta_ma_profili_none():
