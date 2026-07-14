@@ -260,6 +260,13 @@ cambio lingua vale dalla successiva riabilitazione). **Non chiede né mostra mai
 trascritto: indica solo **dove** inserirli. **Nessun nuovo controllo UI**: cambia solo il contenuto
 delle risposte nel trascritto.
 
+**Prova messaggio (PR-8 Blocco B):** l'assistente può **provare** un messaggio del canale col parser
+attivo e rispondere, nel trascritto, se è **riconosciuto**, il **motivo** del verdetto e l'**anteprima
+della riga CSV** che uscirebbe (colonne e valori, col separatore decimale della lingua CSV) —
+**senza scrivere** il CSV operativo. Anteprima **prudente** (senza dizionario Betfair). **Nessun nuovo
+controllo UI**: è il tester read-only già esistente («Prova messaggio»/wizard) reso disponibile in
+chat; cambia solo il contenuto delle risposte nel trascritto.
+
 **Invarianti di sicurezza lato UI:**
 - «Abilita» accende **solo la chat**: **non** avvia il listener live né la modalità reale, e **non**
   scrive il CSV operativo — quelle azioni restano dietro le **conferme frictionful** esistenti e le

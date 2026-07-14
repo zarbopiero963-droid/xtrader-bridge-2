@@ -22,8 +22,9 @@ lasciano mai la macchina in chiaro.
 import json
 import os
 
-from . import (atomic_io, bridge_mode, config_store, custom_parser, event_log, health_check,
-               language_select, log_privacy, wizard)
+from . import (atomic_io, bridge_mode, config_store, csv_writer, custom_parser, event_log,
+               health_check, language_select, log_privacy, market_mapping_store, name_mapping_store,
+               parser_builder, parser_manager, recognition, source_manager, wizard)
 
 # ── Classi di permesso dei tool ────────────────────────────────────────────────
 READ_ONLY = "read_only"        # sola lettura: sempre permesso
@@ -414,6 +415,132 @@ def build_guide_tools(*, base_dir=None) -> list:
     ]
 
 
+# ── 🧪 Prova messaggio: tester SOLA-LETTURA (#41 PR-8 Blocco B) ──────────────────
+# L'assistente prova un messaggio col parser ATTIVO e mostra il verdetto + l'anteprima della riga
+# CSV, SENZA scrivere nulla. Riusa la STESSA pipeline read-only del tester GUI/wizard
+# (`ParserBuilder.batch_report` → `build_validated_rows`, identica al runtime ma senza scrittura).
+# Il wiring (mapping profiles + lingua sorgente + provider) è preso da config come fa il runtime; il
+# `id_resolver` (dizionario Betfair) NON è passato → anteprima CONSERVATIVA (fail-closed: un parser
+# ID_ONLY può apparire «non pronto» ma mai il contrario), esattamente come il wizard.
+
+# Limite di lunghezza dell'input (fail-safe anti-paste gigante prima ancora di `split_messages`).
+MAX_TESTER_CHARS = 8000
+
+
+def _decimal_separator(csv_language) -> str:
+    """Separatore decimale del CSV per la lingua configurata (virgola IT/ES, punto EN). Fail-closed
+    su valore mancante/sconosciuto → IT (virgola), coerente con `csv_writer.normalize_csv_language`."""
+    lang = csv_writer.normalize_csv_language(csv_language)
+    return "," if lang in csv_writer._COMMA_DECIMAL_LANGUAGES else "."
+
+
+def build_message_preview(cfg, message, *, chat="", parsers_dir=None) -> dict:
+    """Prova `message` col parser attivo per `chat` e ritorna un dict JSON-friendly (SOLA LETTURA).
+
+    Replica il wiring runtime/GUI (`signal_router._resolve_one` / `custom_parser_gui`): parser
+    attivo per la chat + profili di mapping nomi/mercati + lingua sorgente + provider, tutti da
+    config. **Non** passa `id_resolver` (dizionario Betfair) → anteprima CONSERVATIVA come il wizard.
+    Non scrive né tocca alcun file. `parsers_dir` iniettabile per i test."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    text = str(message or "").strip()
+    csv_language = csv_writer.normalize_csv_language(cfg.get("csv_language"))
+    ctx = {
+        "csv_header": list(csv_writer.CSV_HEADER),
+        "csv_language": csv_language,
+        "decimal_separator": _decimal_separator(csv_language),
+        "message_separator": parser_builder.MESSAGE_SEPARATOR,
+    }
+    if not text:
+        return {"error": "empty", "message": "Nessun messaggio: incolla un segnale del canale.",
+                "csv_context": ctx}
+    if len(text) > MAX_TESTER_CHARS:
+        return {"error": "too_long",
+                "message": f"Messaggio troppo lungo ({len(text)} caratteri, max {MAX_TESTER_CHARS}). "
+                           "Incolla un solo segnale (o pochi, separati da una riga «---»).",
+                "csv_context": ctx}
+    chat_id = str(chat or "").strip() or str(cfg.get("chat_id", "") or "")
+    defn = parser_manager.load_active(cfg, chat_id, parsers_dir)
+    if defn is None:
+        return {
+            "error": "no_active_parser",
+            "message": ("Nessun Parser Personalizzato ATTIVO per questa chat: non posso provare il "
+                        "messaggio. Attiva/crea un parser (tab «🧩 Parser Personalizzato»); posso "
+                        "spiegarti come con 'read_guide' (guida «parser_personalizzato»)."),
+            "csv_context": ctx,
+        }
+    builder = parser_builder.ParserBuilder(defn)
+    # Profili di mapping + lingua sorgente + provider dalla config, come il runtime (parità
+    # preview↔live). `entries_for_profiles` ignora da sé i profili assenti.
+    name_profiles = (name_mapping_store.entries_for_profiles(cfg, defn.name_mapping_profiles)
+                     if defn.name_mapping_profiles else None)
+    market_profiles = (market_mapping_store.entries_for_profiles(cfg, defn.market_mapping_profiles)
+                       if defn.market_mapping_profiles else None)
+    source_language = recognition.effective_source_language(cfg, defn)
+    provider = source_manager.provider_for_chat(cfg, chat_id, default=str(cfg.get("provider", "") or ""))
+    reports, skipped = builder.batch_report(
+        text, provider=provider, name_mapping_profiles=name_profiles,
+        market_mapping_profiles=market_profiles, source_language=source_language)
+    out_reports = []
+    for rep in reports:
+        rows = []
+        for pr in rep.rows:
+            # Riga COME uscirebbe nel file: valori localizzati per la lingua CSV (IT/ES virgola,
+            # EN punto), colonne vuote incluse così l'utente vede il contratto completo.
+            shown = csv_writer.localize_row(pr.row, csv_language)
+            rows.append({
+                "kind": pr.kind, "placeable": bool(pr.placeable), "status": pr.status,
+                "missing_required": list(pr.missing_required),
+                "columns": {col: shown.get(col, "") for col in csv_writer.CSV_HEADER},
+                "warnings": list(pr.warnings),
+            })
+        out_reports.append({
+            "first_line": rep.first_line, "recognized": bool(rep.ok),
+            "verdict": rep.verdict, "rows": rows,
+        })
+    return {
+        "parser": defn.name,
+        "provider": provider,
+        "reports": out_reports,
+        "skipped_messages": skipped,
+        "csv_context": ctx,
+        "note": ("Anteprima CONSERVATIVA e SENZA scrivere nulla: il dizionario Betfair non è "
+                 "consultato qui, quindi un parser che risolve gli ID dal dizionario può apparire "
+                 "«non pronto» anche se a runtime, col dizionario, verrebbe scritto."),
+    }
+
+
+def build_tester_tools(*, config_loader=None, parsers_dir=None) -> list:
+    """Tool SOLA-LETTURA `test_message` (#41 PR-8 Blocco B). `config_loader`/`parsers_dir`
+    iniettabili per i test. Non scrive né tocca alcun file."""
+    load_cfg = config_loader or config_store.load_config
+
+    def _test_message(inp):
+        cfg = load_cfg() or {}
+        data = build_message_preview(cfg, inp.get("message", ""),
+                                     chat=str(inp.get("chat_id", "") or ""), parsers_dir=parsers_dir)
+        return json.dumps(data, ensure_ascii=False, indent=2)
+
+    return [
+        AgentTool(
+            "test_message",
+            "PROVA un messaggio del canale col parser ATTIVO e mostra se è riconosciuto, il MOTIVO "
+            "del verdetto e l'anteprima della riga CSV che uscirebbe (colonne e valori) — SENZA "
+            "scrivere nulla. Usalo per «questo messaggio è ok?», «cosa uscirebbe nel CSV?», per "
+            "spiegare colonne/delimitatori, o come tester mentre l'utente sistema il parser. "
+            "Anteprima conservativa (niente dizionario Betfair). Sola lettura.",
+            {"type": "object",
+             "properties": {
+                 "message": {"type": "string",
+                             "description": "il testo del messaggio da provare (uno o più, separati "
+                                            "da una riga «---»)"},
+                 "chat_id": {"type": "string",
+                             "description": "opzionale: chat sorgente per cui risolvere il parser "
+                                            "attivo (default: la chat configurata)"}},
+             "required": ["message"], "additionalProperties": False},
+            READ_ONLY, _test_message),
+    ]
+
+
 # ── Scrittura config GATED (#41 PR-4) ───────────────────────────────────────────
 # L'assistente può scrivere SOLO un piccolo insieme di chiavi NON safety-critical, ognuna con
 # validazione/bound espliciti. Le chiavi safety-critical (segreti, filtro chat, modalità/CSV,
@@ -565,6 +692,8 @@ def build_default_registry(*, config_loader=None, parsers_dir=None, on_proposal=
         reg.register(tool)
     for tool in build_guide_tools(base_dir=base_dir):
         reg.register(tool)
+    for tool in build_tester_tools(config_loader=config_loader, parsers_dir=parsers_dir):
+        reg.register(tool)
     for tool in build_write_tools(config_loader=config_loader, on_proposal=on_proposal):
         reg.register(tool)
     return reg
@@ -596,6 +725,12 @@ _SYSTEM_PROMPT_BASE = (
     "conseguenze, ma NON le esegui tu. Basa le spiegazioni sulle guide reali, non inventare. "
     "REGOLA SUI SEGRETI: non chiedere MAI all'utente di incollare token/API key/chat ID nella chat e "
     "non mostrarli — indica soltanto DOVE inserirli nella finestra. "
+    # PR-8 Blocco B — prova messaggio: puoi provare un segnale col parser attivo, senza scrivere.
+    "Quando l'utente incolla un messaggio del canale (o chiede «questo va bene?», «cosa uscirebbe nel "
+    "CSV?»), usa 'test_message': ti dice se è riconosciuto, il MOTIVO del verdetto e l'anteprima "
+    "della riga CSV (colonne e valori) — SENZA scrivere nulla. Spiega all'utente il verdetto, le "
+    "colonne e il separatore decimale, e se non è pronto cosa manca; puoi fargli da tester mentre "
+    "sistema il parser. L'anteprima è conservativa (senza dizionario Betfair). "
 )
 
 # Clausola di lingua per la risposta, in base ad app_language (IT/EN/ES); default IT.

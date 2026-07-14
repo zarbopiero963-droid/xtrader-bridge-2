@@ -114,7 +114,7 @@ def test_tool_specs_espone_solo_read_only_in_pr1():
     names = [s["name"] for s in reg.tool_specs()]                    # default: no writes
     assert "set_token" not in names
     assert set(names) == {"get_config_state", "get_health", "list_parsers", "get_setup_status",
-                          "list_guides", "read_guide"}
+                          "list_guides", "read_guide", "test_message"}
     assert "set_token" in [s["name"] for s in reg.tool_specs(include_writes=True)]
 
 
@@ -531,3 +531,115 @@ def test_api_key_failsafe_senza_backend(monkeypatch):
 def test_save_api_key_vuota_non_salva(monkeypatch):
     monkeypatch.setattr(token_store, "_keyring", lambda: _FakeKeyring())
     assert token_store.save_api_key("") is False
+
+
+# ── #41 PR-8 Blocco B: 🧪 test_message (tester SOLA-LETTURA) ─────────────────────
+
+from xtrader_bridge import custom_parser as _cp   # noqa: E402
+from xtrader_bridge import parser_io as _parser_io  # noqa: E402
+
+
+def _parser_dir_con_esempio(tmp_path):
+    """Salva il parser d'esempio reale del progetto in una parsers_dir di test."""
+    defn = _parser_io.example_parser()
+    defn.name = "Esempio"
+    _cp.save_parser(defn, str(tmp_path))
+    return str(tmp_path)
+
+
+def _cfg_esempio(**extra):
+    cfg = {"provider": "TG", "active_parser": "Esempio", "chat_id": "42",
+           "recognition_mode": "NAME_ONLY", "csv_language": "IT"}
+    cfg.update(extra)
+    return cfg
+
+
+def _tester_registry(tmp_path, cfg):
+    return ca.build_default_registry(config_loader=lambda: dict(cfg), parsers_dir=str(tmp_path))
+
+
+def test_test_message_riconosciuto_riga_csv(tmp_path):
+    pd = _parser_dir_con_esempio(tmp_path)
+    reg = _tester_registry(tmp_path, _cfg_esempio())
+    res = reg.dispatch("test_message", {"message": _parser_io.fixture_message()}, allow_writes=False)
+    assert res.refused is False
+    data = json.loads(res.content)
+    assert data["parser"] == "Esempio"
+    rep = data["reports"][0]
+    assert rep["recognized"] is True and rep["verdict"].startswith("✅")
+    cols = rep["rows"][0]["columns"]
+    # colonne del contratto XTrader, valori reali estratti/tradotti, decimale IT (virgola)
+    assert list(cols.keys()) == ca.csv_writer.CSV_HEADER
+    assert cols["EventName"] == "Inter v Milan"
+    assert cols["BetType"] == "PUNTA"            # BACK → PUNTA via value-map
+    assert cols["Price"] == "1,85"               # IT: virgola
+    assert data["csv_context"]["decimal_separator"] == ","
+    assert data["csv_context"]["csv_language"] == "IT"
+
+
+def test_test_message_lingua_en_punto_decimale(tmp_path):
+    _parser_dir_con_esempio(tmp_path)
+    reg = _tester_registry(tmp_path, _cfg_esempio(csv_language="EN"))
+    data = json.loads(reg.dispatch("test_message", {"message": _parser_io.fixture_message()}).content)
+    assert data["csv_context"]["decimal_separator"] == "."
+    assert data["reports"][0]["rows"][0]["columns"]["Price"] == "1.85"   # EN: punto
+
+
+def test_test_message_non_riconosciuto_nessuna_riga_piazzabile(tmp_path):
+    _parser_dir_con_esempio(tmp_path)
+    reg = _tester_registry(tmp_path, _cfg_esempio())
+    data = json.loads(reg.dispatch("test_message", {"message": "ciao come va, nessun segnale qui"}).content)
+    # o nessun report, oppure un report NON riconosciuto (nessuna riga piazzabile): mai ✅
+    reps = data.get("reports", [])
+    if reps:
+        assert reps[0]["recognized"] is False
+        assert not any(r["placeable"] for r in reps[0]["rows"])
+
+
+def test_test_message_nessun_parser_attivo(tmp_path):
+    reg = _tester_registry(tmp_path, {"chat_id": "42"})   # nessun active_parser salvato
+    data = json.loads(reg.dispatch("test_message", {"message": "Match: Inter v Milan"}).content)
+    assert data["error"] == "no_active_parser"
+    assert "message" in data and "parser" in data["message"].lower()   # messaggio guida presente
+
+
+def test_test_message_vuoto(tmp_path):
+    reg = _tester_registry(tmp_path, _cfg_esempio())
+    assert json.loads(reg.dispatch("test_message", {"message": "   "}).content)["error"] == "empty"
+
+
+def test_test_message_troppo_lungo(tmp_path):
+    _parser_dir_con_esempio(tmp_path)
+    reg = _tester_registry(tmp_path, _cfg_esempio())
+    big = "x" * (ca.MAX_TESTER_CHARS + 1)
+    assert json.loads(reg.dispatch("test_message", {"message": big}).content)["error"] == "too_long"
+
+
+def test_test_message_multi_separatore(tmp_path):
+    _parser_dir_con_esempio(tmp_path)
+    reg = _tester_registry(tmp_path, _cfg_esempio())
+    msg = _parser_io.fixture_message() + "\n---\n" + _parser_io.fixture_message()
+    data = json.loads(reg.dispatch("test_message", {"message": msg}).content)
+    assert len(data["reports"]) == 2
+    assert all(r["recognized"] for r in data["reports"])
+
+
+def test_test_message_e_read_only_non_scrive_csv(tmp_path):
+    # Sola lettura: offerto senza allow_writes, dispatch non rifiutato, e NESSUN file CSV creato.
+    _parser_dir_con_esempio(tmp_path)
+    csv_path = tmp_path / "operativo.csv"
+    reg = _tester_registry(tmp_path, _cfg_esempio(csv_path=str(csv_path)))
+    assert "test_message" in [s["name"] for s in reg.tool_specs()]           # read-only, sempre offerto
+    assert reg.dispatch("test_message", {"message": _parser_io.fixture_message()},
+                        allow_writes=False).refused is False
+    assert not csv_path.exists()        # il tester non ha creato/toccato il CSV operativo
+
+
+def test_build_message_preview_non_espone_segreti(tmp_path):
+    # L'output non deve contenere token/chat in chiaro anche se presenti in config.
+    pd = _parser_dir_con_esempio(tmp_path)
+    cfg = _cfg_esempio(bot_token="123456:FAKE-AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH", chat_id="-1009999999999")
+    out = json.dumps(ca.build_message_preview(cfg, _parser_io.fixture_message(),
+                                              chat="-1009999999999", parsers_dir=pd))
+    assert "123456:FAKE" not in out
+    assert "-1009999999999" not in out
