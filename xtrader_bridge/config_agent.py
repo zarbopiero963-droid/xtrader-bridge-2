@@ -406,16 +406,42 @@ def history_path(config_dir=None) -> str:
     return os.path.join(base, HISTORY_FILENAME)
 
 
-def _deep_redact(obj):
-    """Redige RICORSIVAMENTE ogni foglia-stringa (via `event_log.redact_secrets`) preservando la
-    struttura dei messaggi: testo utente/assistente, `tool_use.input`, `tool_result.content`, nomi.
-    Le CHIAVI dei dict sono strutturali → non redatte."""
+# Marker di redazione e guardia anti-frammento per i literal di sessione (es. chat_id).
+_EXTRA_REDACTED = "[REDACTED_TOKEN]"
+_MIN_EXTRA_SECRET_LEN = 8
+
+
+def _redact_str(s: str, extra_literals=()) -> str:
+    """Redige una stringa: prima i segreti noti a `event_log` (bot token/sk-ant/registrati), poi i
+    literal di sessione passati esplicitamente (es. chat_id) — per replace LOCALE, senza toccare il
+    registro globale."""
+    out = event_log.redact_secrets(s)
+    for lit in extra_literals:
+        if lit:
+            out = out.replace(lit, _EXTRA_REDACTED)
+    return out
+
+
+def _deep_redact(obj, extra_literals=()):
+    """Redige RICORSIVAMENTE i messaggi preservando la struttura: testo utente/assistente,
+    `tool_use.input`, `tool_result.content`, nomi. Copre anche:
+    - le **chiavi** dei dict (GLM/GPT #63: un segreto usato come chiave non resta in chiaro; le
+      chiavi strutturali legittime non sono toccate da `redact_secrets`);
+    - gli **scalari numerici** (Fugu #63: un `chat_id`/segreto passato come `int`/`float` in un
+      `tool_use.input` verrebbe altrimenti serializzato in chiaro) — se la forma-stringa contiene
+      un segreto si restituisce il marker, altrimenti il numero originale (tipo preservato)."""
     if isinstance(obj, str):
-        return event_log.redact_secrets(obj)
+        return _redact_str(obj, extra_literals)
+    if isinstance(obj, bool):
+        return obj   # `bool` è sottoclasse di `int`: va escluso PRIMA del ramo numerico
+    if isinstance(obj, (int, float)):
+        red = _redact_str(str(obj), extra_literals)
+        return red if red != str(obj) else obj
     if isinstance(obj, dict):
-        return {k: _deep_redact(v) for k, v in obj.items()}
+        return {_deep_redact(k, extra_literals): _deep_redact(v, extra_literals)
+                for k, v in obj.items()}
     if isinstance(obj, list):
-        return [_deep_redact(x) for x in obj]
+        return [_deep_redact(x, extra_literals) for x in obj]
     return obj
 
 
@@ -449,17 +475,14 @@ class ConversationHistory:
 
     def redacted_messages(self, *, extra_secrets=()):
         """Vista REDATTA dei messaggi senza persistere. `extra_secrets` (es. il `chat_id` di
-        sessione) sono registrati temporaneamente così `redact_secrets` li maschera in modo robusto
-        (grezzo/URL-encoded/CRLF-tollerante), poi de-registrati. I valori < 8 caratteri sono
-        ignorati da `register_secret` (guardia anti-frammento) e NON vengono mascherati per literal:
-        i chat ID reali Telegram (`-100…`) sono lunghi e coperti; un ID cortissimo di test no."""
-        registered = [s for s in (extra_secrets or [])
-                      if s and event_log.register_secret(str(s))]
-        try:
-            return _deep_redact(self.messages)
-        finally:
-            for s in registered:
-                event_log.unregister_secret(str(s))
+        sessione) sono mascherati per **replace LOCALE**: NON si tocca il registro globale di
+        `event_log` — così un segreto già registrato dall'app non viene mai de-registrato per
+        sbaglio (regressione/race, Fable & Fugu #63). Guardia anti-frammento: solo i literal
+        >= `_MIN_EXTRA_SECRET_LEN` sono mascherati (i chat ID reali Telegram `-100…` sono lunghi e
+        coperti; un valore cortissimo non si redige per non mascherare sottostringhe banali)."""
+        lits = [str(s) for s in (extra_secrets or [])
+                if s and len(str(s)) >= _MIN_EXTRA_SECRET_LEN]
+        return _deep_redact(self.messages, lits)
 
     def save(self, path=None, *, config_dir=None, extra_secrets=()) -> str:
         """Scrive la cronologia REDATTA su disco in modo ATOMICO. Ritorna il path scritto."""
@@ -486,4 +509,8 @@ class ConversationHistory:
             # JSON corrotto / file illeggibile → cronologia vuota (fail-safe).
             return cls([])
         msgs = data.get("messages") if isinstance(data, dict) else None
-        return cls(msgs if isinstance(msgs, list) else [])
+        if not isinstance(msgs, list):
+            return cls([])
+        # Tiene SOLO i messaggi ben formati (dict con "role"): un file editato a mano con elementi
+        # malformati non deve iniettare payload incompatibili nel client LLM (GPT #63).
+        return cls([m for m in msgs if isinstance(m, dict) and "role" in m])

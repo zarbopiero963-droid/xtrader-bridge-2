@@ -113,6 +113,64 @@ def test_extra_secret_corto_non_registrato_ma_lungo_si(tmp_path):
     assert "42" in raw                     # corto → non redatto (documentato)
 
 
+def test_extra_secrets_non_muta_registro_globale():
+    # BLOCCANTE Fable/Fugu #63: se il chat_id era GIÀ registrato dall'app, redacted_messages non
+    # deve de-registrarlo dal registro globale (altrimenti finirebbe in chiaro in TUTTI i log).
+    chat = "-1001234567890"
+    event_log.register_secret(chat)          # simula la registrazione persistente dell'app
+    try:
+        h = ca.ConversationHistory([{"role": "user", "content": f"chat {chat}"}])
+        _ = h.redacted_messages(extra_secrets=[chat])
+        # dopo la redazione, il segreto dell'app è ANCORA registrato (nessuna de-registrazione)
+        assert event_log.redact_secrets(f"eco {chat}") == "eco [REDACTED_TOKEN]"
+    finally:
+        event_log.unregister_secret(chat)
+
+
+def test_scalare_numerico_segreto_redatto(tmp_path):
+    # BLOCCANTE Fugu #63: un chat_id come INT in tool_use.input non deve finire in chiaro.
+    chat_int = -1001234567890
+    p = str(tmp_path / "h.json")
+    ca.ConversationHistory([
+        {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t1", "name": "set_chat",
+             "input": {"chat_id": chat_int, "keep": 42}}]}]).save(
+        path=p, extra_secrets=[str(chat_int)])
+    raw = open(p, encoding="utf-8").read()
+    assert str(chat_int) not in raw          # l'int-segreto è redatto
+    data = json.load(open(p, encoding="utf-8"))
+    tu = data["messages"][0]["content"][0]
+    assert tu["input"]["chat_id"] == "[REDACTED_TOKEN]"
+    assert tu["input"]["keep"] == 42         # numero legittimo (non segreto) preservato come int
+
+
+def test_bool_non_convertito():
+    # `bool` è sottoclasse di int: non deve diventare stringa nella redazione.
+    out = ca._deep_redact({"flag": True, "n": 0})
+    assert out["flag"] is True and out["n"] == 0
+
+
+def test_chiave_dict_segreta_redatta():
+    # GLM/GPT #63: un segreto usato come CHIAVE di dict non resta in chiaro.
+    tok = "999888777:ABCdefGHIjklMNOpqrstUVWx"    # shape bot token
+    out = ca._deep_redact({tok: "valore"})
+    assert tok not in json.dumps(out)
+    assert "[REDACTED_TOKEN]" in json.dumps(out)
+
+
+def test_load_scarta_elementi_malformati(tmp_path):
+    # GPT #63: elementi non-dict o senza "role" (file editato a mano) vengono scartati.
+    p = tmp_path / "h.json"
+    p.write_text(json.dumps({"version": 1, "messages": [
+        {"role": "user", "content": "ok"},
+        "stringa-non-valida",
+        {"content": "senza role"},
+        123,
+    ]}), encoding="utf-8")
+    loaded = ca.ConversationHistory.load(path=str(p))
+    assert loaded.messages == [{"role": "user", "content": "ok"}]
+
+
 def test_history_path_usa_config_dir(monkeypatch):
     from xtrader_bridge import config_store
     monkeypatch.setattr(config_store, "config_dir", lambda: "/tmp/xtb-cfg")
