@@ -202,6 +202,34 @@ def test_collisione_chiavi_non_perde_entry():
     assert sorted(out.values()) == ["a", "b"]
 
 
+def test_collisione_chiave_marker_strutturale_non_perde_entry():
+    # Fable #63 (edge): una chiave strutturale già uguale al marker, inserita DOPO una chiave-segreta
+    # redatta, NON deve sovrascrivere l'entry segreta (perdita silenziosa).
+    tok = "111111111:ABCdefGHIjklMNOpqrstUVWx"
+    out = ca._deep_redact({tok: "segreto", "[REDACTED_TOKEN]": "legittima"})
+    assert len(out) == 2                       # nessuna entry persa
+    assert sorted(out.values()) == ["legittima", "segreto"]
+    assert tok not in json.dumps(out)
+
+
+def test_collisione_tre_chiavi_segrete():
+    # GPT/GLM #63: tre chiavi che redigono allo stesso marker → tutte preservate (loop #n).
+    toks = ["111111111:ABCdefGHIjklMNOpqrstUVWx",
+            "222222222:ZYXwvuTSRqponMLKjihGFEdc",
+            "333333333:QWErtyUIOPasdFGHjklZXCvb"]
+    out = ca._deep_redact({t: str(i) for i, t in enumerate(toks)})
+    assert len(out) == 3 and sorted(out.values()) == ["0", "1", "2"]
+    assert all(t not in json.dumps(out) for t in toks)
+
+
+def test_extra_secret_con_metacaratteri_regex():
+    # GPT/Fable #63: un literal di sessione con metacaratteri regex non deve rompere la redazione
+    # (event_log._crlf_tolerant_re fa re.escape su ogni carattere).
+    lit = "a.b+c(d)*e"
+    out = ca._deep_redact({"role": "user", "content": f"val {lit} fine"}, [lit])
+    assert lit not in json.dumps(out) and "[REDACTED_TOKEN]" in json.dumps(out)
+
+
 def test_extra_secrets_accetta_int(tmp_path):
     # extra_secrets può ricevere un valore numerico: convertito a stringa e mascherato.
     p = str(tmp_path / "h.json")

@@ -442,8 +442,11 @@ def _deep_redact(obj, extra_literals=()):
         for k, v in obj.items():
             rk = _deep_redact(k, extra_literals)
             rk = rk if isinstance(rk, str) else str(rk)
-            if rk in out and rk != k:
-                # due chiavi diverse hanno prodotto lo stesso marker → non perdere l'entry
+            # Le chiavi-SORGENTE sono uniche: se `rk` è già in `out`, DUE chiavi distinte hanno
+            # prodotto lo stesso marker → disambigua SEMPRE (Fable #63: la condizione `rk != k`
+            # lasciava sovrascrivere una chiave-segreta redatta da una chiave strutturale già
+            # uguale al marker, con perdita silenziosa dell'entry).
+            if rk in out:
                 n = 2
                 while f"{rk}#{n}" in out:
                     n += 1
