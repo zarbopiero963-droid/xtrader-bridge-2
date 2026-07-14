@@ -6,6 +6,9 @@ scrittura config è gated, e il loop tool-use è protetto da un cap. Nessuna ret
 Anthropic è iniettato come oggetto finto.
 """
 
+import json
+import os
+
 import pytest
 
 from xtrader_bridge import config_agent as ca
@@ -110,7 +113,7 @@ def test_tool_specs_espone_solo_read_only_in_pr1():
                               ca.WRITE_CONFIG, lambda _i: "x"))
     names = [s["name"] for s in reg.tool_specs()]                    # default: no writes
     assert "set_token" not in names
-    assert set(names) == {"get_config_state", "get_health", "list_parsers"}
+    assert set(names) == {"get_config_state", "get_health", "list_parsers", "get_setup_status"}
     assert "set_token" in [s["name"] for s in reg.tool_specs(include_writes=True)]
 
 
@@ -203,6 +206,58 @@ def test_audit_e_result_name_redatti():
         assert secret not in res.content
     finally:
         event_log.unregister_secret(secret)
+
+
+# ── #41 PR-5: get_setup_status (checklist prima configurazione, sola lettura) ────
+
+def test_get_setup_status_config_vuota():
+    reg = ca.build_default_registry(config_loader=lambda: {})
+    res = reg.dispatch("get_setup_status", {})
+    assert res.refused is False
+    data = json.loads(res.content)
+    assert data["ready_to_start"] is False
+    assert data["language_chosen"] is None
+    assert len(data["checklist"]) == 5     # token/chat/parser/CSV/modalità
+    # niente configurato → i 4 requisiti dello START (token/chat/parser/CSV) sono False
+    assert all(it["done"] is False for it in data["checklist"][:4])
+    # la modalità di default è Simulazione → quella voce è True (default sicuro)
+    assert data["checklist"][4]["done"] is True
+
+
+def test_get_setup_status_config_completa(tmp_path):
+    # cartella esistente → CSV usabile; token/chat/parser presenti → pronto allo START.
+    csv_path = os.path.join(str(tmp_path), "segnali.csv")
+    cfg = {"bot_token": "FAKEBOTTOKEN0000", "chat_id": "-1001234567890",
+           "active_parser": "P1", "csv_path": csv_path, "app_language": "IT",
+           "bridge_mode": "SIMULAZIONE"}
+    reg = ca.build_default_registry(config_loader=lambda: dict(cfg))
+    res = reg.dispatch("get_setup_status", {})
+    data = json.loads(res.content)
+    assert data["ready_to_start"] is True
+    assert data["language_chosen"] == "IT"
+    # token/chat NON compaiono in chiaro nell'output (solo booleani + label)
+    assert "FAKEBOTTOKEN0000" not in res.content
+    assert "-1001234567890" not in res.content
+
+
+def test_get_setup_status_parziale_non_pronto():
+    # token+chat ma NESSUN parser attivo → non pronto (lo START richiede il parser).
+    cfg = {"bot_token": "t", "chat_id": "-100999", "active_parser": "",
+           "csv_path": "", "bridge_mode": "SIMULAZIONE"}
+    reg = ca.build_default_registry(config_loader=lambda: dict(cfg))
+    data = json.loads(reg.dispatch("get_setup_status", {}).content)
+    assert data["ready_to_start"] is False
+    done = {it["item"]: it["done"] for it in data["checklist"]}
+    assert done["Token del bot configurato"] is True
+    assert done["Parser Personalizzato attivo (richiesto dallo START)"] is False
+
+
+def test_get_setup_status_e_read_only_e_non_scrive():
+    reg = ca.build_default_registry(config_loader=lambda: {})
+    # offerto SEMPRE (read-only), anche senza allow_writes
+    assert "get_setup_status" in [s["name"] for s in reg.tool_specs()]
+    # non è un write-tool: dispatch senza allow_writes NON è rifiutato
+    assert reg.dispatch("get_setup_status", {}, allow_writes=False).refused is False
 
 
 def test_tool_specs_esclude_forbidden_anche_se_iniettato():

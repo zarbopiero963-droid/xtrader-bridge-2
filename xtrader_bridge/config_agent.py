@@ -22,7 +22,8 @@ lasciano mai la macchina in chiaro.
 import json
 import os
 
-from . import atomic_io, config_store, custom_parser, event_log, health_check, log_privacy
+from . import (atomic_io, config_store, custom_parser, event_log, health_check, language_select,
+               log_privacy, wizard)
 
 # ── Classi di permesso dei tool ────────────────────────────────────────────────
 READ_ONLY = "read_only"        # sola lettura: sempre permesso
@@ -257,6 +258,31 @@ def build_read_only_tools(*, config_loader=None, parsers_dir=None) -> list:
         return json.dumps({"parsers": names, "active": load_cfg().get("active_parser", "")},
                           ensure_ascii=False)
 
+    def _get_setup_status(_inp):
+        # Checklist di PRIMA CONFIGURAZIONE (#41 PR-5): «cosa manca per lo START». Riusa la logica
+        # PURA del wizard (`wizard.final_checklist`) → SOLO booleani + label statiche, MAI il valore
+        # di token/chat (nessun segreto nell'output; il dispatcher redige comunque a valle). Serve
+        # all'assistente per GUIDARE il primo avvio: i campi critici (token/chat/csv/parser/modalità)
+        # NON sono modificabili da lui (denylist) → li indirizza all'utente / al pulsante «Wizard».
+        cfg = load_cfg() or {}
+        parser_active = bool(str(cfg.get("active_parser", "") or "").strip())
+        checklist = wizard.final_checklist(cfg, parser_active=parser_active)
+        items = [{"done": bool(done), "item": label} for done, label in checklist]
+        lang = language_select.normalize_app_language(cfg.get("app_language"))
+        # Pronto allo START (in Simulazione) = token + chat + parser + CSV (i primi 4 item; la
+        # modalità è informativa, lo START gira in simulazione).
+        ready = all(it["done"] for it in items[:4])
+        return json.dumps({
+            "language_chosen": lang or None,
+            "ready_to_start": ready,
+            "checklist": items,
+            "note": ("I campi CRITICI (token, chat, percorso CSV, parser attivo, modalità) NON sono "
+                     "modificabili dall'assistente: guida l'utente a compilarli nei campi della "
+                     "finestra o ad aprire «🧙 Wizard prima configurazione» nella tab Strumenti. Le "
+                     "impostazioni non critiche (tema, lingua app, clear_delay, confirmation_timeout, "
+                     "max_signal_age) puoi proporle con set_config_value."),
+        }, ensure_ascii=False, indent=2)
+
     return [
         AgentTool(
             "get_config_state",
@@ -274,6 +300,15 @@ def build_read_only_tools(*, config_loader=None, parsers_dir=None) -> list:
             "Elenca i Parser Personalizzati salvati e quello attivo. Sola lettura.",
             {"type": "object", "properties": {}, "additionalProperties": False},
             READ_ONLY, _list_parsers),
+        AgentTool(
+            "get_setup_status",
+            "Checklist di PRIMA CONFIGURAZIONE: dice cosa manca per lo START (token, chat, parser "
+            "attivo, CSV, modalità) come booleani done/label, se la lingua è stata scelta e se è "
+            "pronto allo START. NON espone segreti. Usalo per guidare il primo avvio: proponi le "
+            "impostazioni non critiche e indirizza l'utente ai campi/al Wizard per quelle critiche. "
+            "Sola lettura.",
+            {"type": "object", "properties": {}, "additionalProperties": False},
+            READ_ONLY, _get_setup_status),
     ]
 
 
@@ -441,7 +476,12 @@ SYSTEM_PROMPT = (
     "alcune impostazioni non critiche (tema, lingua app, clear_delay, confirmation_timeout, "
     "max_signal_age) con 'set_config_value': il tool NON applica nulla, mette la modifica in attesa; "
     "spiega all'utente cosa cambierà e invitalo a premere il pulsante «✅ Applica» nella tab per "
-    "confermare. Rispondi in italiano, conciso."
+    "confermare. Per la PRIMA CONFIGURAZIONE usa 'get_setup_status' per vedere cosa manca allo START e "
+    "guidare l'utente passo passo: proponi tu le impostazioni non critiche, ma per i campi CRITICI "
+    "(token del bot, chat sorgente, percorso CSV, parser attivo, modalità) NON puoi scriverli — "
+    "spiega all'utente come compilarli nei campi della finestra o di aprire «🧙 Wizard prima "
+    "configurazione» nella tab Strumenti (che verifica token/chat/CSV dal vivo). Rispondi in "
+    "italiano, conciso."
 )
 
 
