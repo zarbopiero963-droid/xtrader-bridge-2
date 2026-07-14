@@ -752,6 +752,20 @@ La compilazione avviene via **GitHub Actions** su Windows:
 In locale (dev): `python main.py` avvia la GUI; `python -m pytest -q -m "not manual"`
 esegue la suite offline.
 
+### Build Linux (binario onefile) — #36
+
+Lo **stesso** workflow «Build XTrader Signal Bridge EXE» costruisce **anche** un binario
+**Linux** in un job parallelo (`build-linux`, `ubuntu-latest`), **additivo** e senza toccare
+la build Windows. La logica del bridge è identica su Windows e Linux (i rami POSIX esistono
+già); la suite gira verde su Linux e un binario **PyInstaller onefile self-contained** viene
+caricato negli **Artifacts** come `XTrader-Signal-Bridge-Linux-v<versione>-<data>` (dentro,
+l'eseguibile `XTrader-Signal-Bridge`, «scarica ed esegui», nessuna installazione).
+
+> ℹ️ **XTrader resta Windows.** Il binario Linux fa girare **il bridge** (Telegram → CSV);
+> a *leggere* il CSV e piazzare è **XTrader**, che è solo Windows. Su Linux ha senso quindi
+> con XTrader su una macchina/VM Windows che legge il CSV (cartella condivisa). Il wrapping
+> in **AppImage** (desktop-integration) è un follow-up separato (#36 PR-B).
+
 **Pulizia storage artifact.** Ogni build carica un EXE (~18 MB) come artifact, con retention
 **7 giorni**. Per svuotare subito il backlog **senza CLI**: Actions → *Pulizia artifact vecchi*
 → **Run workflow** (input `max_age_days=0` = elimina **tutti** gli artifact; usa il
