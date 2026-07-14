@@ -115,7 +115,14 @@ _ALLOWLIST = {
     "provider_gui.py": (3, "GUI Tk provider: render/azioni best-effort"),
     "reconnect_policy.py": (1, "classificazione errore di reconnect tollerante"),
     "source_chats_gui.py": (2, "GUI Tk sorgenti: best-effort (refresh-options + modal transient/grab_set)"),
-    "token_store.py": (5, "soft-import/fallback keyring: qualsiasi errore = backend non disponibile"),
+    "config_agent.py": (3, "assistente di configurazione (#41 PR-1): dispatch di un tool "
+                           "sola-lettura best-effort (un handler che solleva NON deve crashare "
+                           "l'agente → errore restituito come contenuto); logging dell'audit "
+                           "best-effort (un logger che solleva non deve far fallire il dispatch); "
+                           "soft-import 'anthropic' (dipendenza opzionale: assenza = errore chiaro "
+                           "solo all'uso reale, mai all'import del modulo)"),
+    "token_store.py": (8, "soft-import/fallback keyring: qualsiasi errore = backend non disponibile "
+                          "(bot token + API key Anthropic #41: save/load-status/delete per la chiave)"),
     "tools_gui.py": (3, "GUI Tk finestra strumenti: apertura sotto-finestre best-effort"),
     "write_path.py": (2, "write-failure fail-safe: la scrittura CSV fallita non deve crashare → "
                          "rollback di coda/guardrail ed errore riportato, in commit_signal e "

@@ -100,3 +100,57 @@ def delete_token() -> bool:
     except Exception:
         # PasswordDeleteError (voce inesistente) o backend assente → niente da fare.
         return False
+
+
+# ── API key dell'assistente di configurazione (#41) ────────────────────────────
+# Stessa politica del bot token: la chiave Anthropic vive SOLO nel keyring del SO,
+# MAI nel repository né in `config.json` in chiaro. Voce keyring distinta dal token.
+API_KEY_ACCOUNT = "anthropic_api_key"
+
+
+def save_api_key(api_key: str) -> bool:
+    """Salva la API key Anthropic (#41) nel keyring. ``True`` se riuscito, ``False`` se il
+    backend è assente/solleva o la chiave è vuota (per rimuoverla usa `delete_api_key`).
+    Nessun fallback plaintext: una chiave non salvabile resta assente (fail-safe), MAI su file."""
+    kr = _keyring()
+    if kr is None or not api_key:
+        return False
+    try:
+        kr.set_password(SERVICE, API_KEY_ACCOUNT, api_key)
+        return True
+    except Exception:
+        return False
+
+
+def load_api_key_status():
+    """Come `load_token_status` ma per la API key Anthropic (#41). Ritorna `(api_key, read_ok)`:
+    `read_ok=True`+valore = presente; `read_ok=True`+``None`` = keyring leggibile e chiave assente;
+    `read_ok=False`+``None`` = backend assente o ha sollevato (lettura fallita, NON trattare come
+    'assente')."""
+    kr = _keyring()
+    if kr is None:
+        return None, False
+    try:
+        return kr.get_password(SERVICE, API_KEY_ACCOUNT), True
+    except Exception:
+        return None, False
+
+
+def load_api_key():
+    """La API key Anthropic dal keyring, o ``None`` se assente/backend non disponibile.
+    Non distingue 'assente' da 'lettura fallita': per quello usa `load_api_key_status`."""
+    api_key, _ = load_api_key_status()
+    return api_key
+
+
+def delete_api_key() -> bool:
+    """Rimuove la API key Anthropic dal keyring (best-effort). ``True`` se rimossa, ``False`` se
+    assente/non disponibile (incl. voce già inesistente)."""
+    kr = _keyring()
+    if kr is None:
+        return False
+    try:
+        kr.delete_password(SERVICE, API_KEY_ACCOUNT)
+        return True
+    except Exception:
+        return False
