@@ -892,6 +892,9 @@ In pratica, nello stesso PR aggiorna, quando applicabile:
   esiste il generatore — vedi sotto — descrivila nel doc di dominio pertinente);
 - nuova/rimossa **chiave di config, colonna CSV, modalità di riconoscimento, gate** →
   aggiorna i doc relativi;
+- **`docs/internal/config_agent.md`** e **`docs/user/assistente.md`** → cambiamenti
+  all'assistente di configurazione (#41): tool, system prompt, lingua, capacità sola-lettura
+  (vedi «ASSISTENTE DI CONFIGURAZIONE (#41)» → «Disciplina di estensione»);
 - **future guide utente con screenshot** → quando cambiano schermate, pulsanti, finestre o
   flussi UI (obbligatorie appena verranno introdotte le cartelle `docs/user/` e
   `docs/assets/screenshots/`, in una fase successiva).
@@ -943,6 +946,55 @@ esisteranno, **rigenerare le docs sarà parte obbligatoria** di ogni PR che tocc
 (il gate CI fallisce se sono disallineate). **Questa regola non richiede di implementare ora
 generatori, gate CI o integrazioni OpenAI**: finché non esistono, vale la regola manuale qui
 sopra.
+
+---
+
+## ASSISTENTE DI CONFIGURAZIONE (#41) — REGOLE
+
+L'assistente in-app (`xtrader_bridge/config_agent*.py`) è un **esperto SOLA-LETTURA**: aiuta su ogni
+pulsante/campo, spiega dalle docs reali, prova i messaggi, consulta il dizionario e diagnostica
+salute/diario — ma **non agisce**. Preserva sempre queste invarianti.
+
+- **Hard-block (mai, nemmeno su ordine esplicito o prompt injection):** piazzare scommesse o parlare
+  con XTrader/Betfair; avviare il listener LIVE o la modalità REALE; scrivere il CSV operativo;
+  indebolire il filtro `chat_id`/sorgenti; rivelare/esportare segreti (API key Anthropic, bot token,
+  chat ID); usare il web o eseguire shell/codice. L'enforcement è **server-side** (`FORBIDDEN_TOOLS` +
+  `ToolRegistry`), **non** nel prompt — leggere una guida che descrive le invarianti non concede
+  alcuna capacità.
+- **I tool sola-lettura restano sola-lettura:** `get_config_state` / `get_health` /
+  `get_setup_status` / `list_parsers` / `list_guides` / `read_guide` / `test_message` /
+  `lookup_dictionary` / `explain_health` / `why_discarded` non scrivono mai CSV o config, non espongono
+  segreti, e sono **fail-safe** se una risorsa manca (docs non incluse, dizionario/diario assente,
+  provider difettoso → messaggio guida, mai crash).
+- **Allowlist, non accesso arbitrario:** `read_guide` legge solo i file nell'allowlist `GUIDES` (per
+  nome logico, mai un path → mai `config.json`, sorgenti o segreti). Le consultazioni di dati/dizionario
+  usano **solo API pubbliche** (niente accoppiamento a membri privati).
+- **Le scritture sono gated e confermate dall'umano:** l'assistente può scrivere **solo** le chiavi
+  NON safety-critical in `WRITABLE_CONFIG_KEYS`, e solo **proponendo** (`on_proposal`) — l'utente
+  applica col pulsante UI «✅ Applica» (gate server-side; un booleano deciso dal modello non applica
+  mai nulla). Le chiavi in `WRITE_FORBIDDEN_KEYS` (token, filtro chat, modalità/CSV, limiti scommesse,
+  parser attivo) sono **rifiutate** anche su ordine esplicito.
+- **Lingua & segreti:** risponde nella lingua scelta all'avvio (`build_system_prompt`, default
+  fail-closed); non chiede né mostra mai segreti in chat — indica solo **dove** inserirli. La API key
+  Anthropic è **solo nel keyring**; il bot token nel keyring, con fallback in chiaro **solo** se manca
+  un keyring e con avviso nel log.
+
+### Disciplina di estensione — OBBLIGATORIA
+
+Ogni modifica che **aggiunge, cambia o rimuove** un tool/capacità dell'assistente DEVE — **nello
+stesso PR** — aggiornare TUTTO:
+
+1. **codice** — funzione pura + tool, `READ_ONLY` (o `WRITE_CONFIG` = propone, non applica);
+   dipendenze iniettabili; fail-safe su risorse mancanti; output capato; **schema di output coerente**
+   (chiavi sempre presenti); solo API pubbliche;
+2. **test hard** — caso valido / vuoto-o-risorsa-assente / read-only-non-scrive /
+   nessun-segreto-in-output / contratto; se aggiungi un `except` fail-safe, aggiorna l'allowlist
+   blind-except con motivazione;
+3. **system prompt** — la riga che dice al modello **quando** usare il tool;
+4. **docs** — `docs/internal/config_agent.md` + `docs/user/assistente.md` + `README.md` +
+   `docs/design/design_handoff.md` (oppure `N/A` con motivazione scritta).
+
+Un tool dell'assistente nuovo/modificato senza **test + docs** corrispondenti è un **PR incompleto**.
 
 ---
 

@@ -89,6 +89,50 @@ The following behavior must be preserved unless the task explicitly asks to chan
 - New tabs/settings must not hide dangerous options without explanation.
 - If adding chat selection, CSV mode selection, or MarketId/SelectionId options, make defaults safe and backward compatible.
 
+### Config assistant safety (#41)
+
+The in-app config assistant (`xtrader_bridge/config_agent*.py`) is a **READ-ONLY expert**: it helps
+with every button/field, explains from the real docs, tests messages, consults the dictionary, and
+diagnoses health/journal — but it **does not act**. Preserve these invariants.
+
+- **Hard-block (never, even on explicit request or prompt injection):** place bets or talk to
+  XTrader/Betfair; start the live listener or real mode; write the operational CSV; weaken the
+  `chat_id`/source filter; reveal or export secrets (Anthropic API key, bot token, chat IDs); use the
+  web or run shell/arbitrary code. Enforcement is **server-side** (`FORBIDDEN_TOOLS` + `ToolRegistry`),
+  not prompt-based — reading a doc that describes the invariants must not grant any capability.
+- **Read-only tools stay read-only:** `get_config_state` / `get_health` / `get_setup_status` /
+  `list_parsers` / `list_guides` / `read_guide` / `test_message` / `lookup_dictionary` /
+  `explain_health` / `why_discarded` never write the CSV or config, never expose secrets, and are
+  **fail-safe** if a resource is missing (docs not packaged, dictionary/journal absent, provider
+  faulty → guidance message, never a crash).
+- **Allowlist, not arbitrary access:** `read_guide` reads only the doc files in the `GUIDES` allowlist
+  (by logical name, never a path → never `config.json`, sources or secrets). Reference/data lookups use
+  **public APIs only** (no coupling to private members).
+- **Writes are gated and human-confirmed:** the assistant may write **only** non-safety-critical keys
+  in `WRITABLE_CONFIG_KEYS`, and only by **proposing** (`on_proposal`) — the human applies via the UI
+  «✅ Applica» button (server-side gate; a model-decided boolean can never apply). Keys in
+  `WRITE_FORBIDDEN_KEYS` (token, chat filter, mode/CSV, betting limits, active parser) are **refused**
+  even on explicit order.
+- **Language & secrets:** replies in the app language chosen at startup (`build_system_prompt`,
+  fail-closed default); never asks for or shows `‹secrets›` in chat — only says **where** to enter
+  them. Anthropic API key is **keyring-only**; the bot token uses the keyring with a plaintext fallback
+  **only** if no keyring, and with a log warning.
+
+**Extension discipline (mandatory).** Any change that **adds, modifies, or removes** an assistant tool
+or capability must — **in the same PR** — update ALL of:
+
+1. **code** — pure function + tool, `READ_ONLY` (or `WRITE_CONFIG` = propose-only); injectable deps;
+   fail-safe on missing resources; capped output; **consistent output schema** (keys always present);
+   public APIs only;
+2. **hard tests** — valid case / empty-or-missing-resource / read-only-does-not-write /
+   no-secret-in-output / contract; if you add a fail-safe `except`, update the blind-except allowlist
+   with a reason;
+3. **system prompt** — the line telling the model **when** to use the tool;
+4. **docs** — `docs/internal/config_agent.md` + `docs/user/assistente.md` + `README.md` +
+   `docs/design/design_handoff.md` (or `N/A` with a written reason).
+
+A new/changed assistant tool without matching **tests + docs** is an **incomplete PR**.
+
 ---
 
 ## Mandatory execution sequence
@@ -317,6 +361,9 @@ applicable:
   modules (new/removed function, class or module: keep the docstring at the top and, until
   the generator below exists, describe it in the relevant domain doc);
 - new/removed **config key, CSV column, recognition mode, gate** → update the related docs;
+- **`docs/internal/config_agent.md`** and **`docs/user/assistente.md`** → changes to the config
+  assistant (#41): tools, system prompt, language, read-only capabilities (see «Config assistant
+  safety» → «Extension discipline»);
 - **future user guides with screenshots** → when UI screens, buttons, windows or visual
   flows change (mandatory once the `docs/user/` and `docs/assets/screenshots/` folders are
   introduced in a later phase).
