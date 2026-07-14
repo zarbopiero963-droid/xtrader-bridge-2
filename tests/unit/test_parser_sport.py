@@ -175,4 +175,31 @@ def test_builder_set_sport_ignoto_resta_agnostico():
 
 def test_builder_sport_options():
     opts = ParserBuilder().sport_options()
-    assert opts == ["", "Calcio", "Tennis", "Basket", "Rugby Union"]
+    assert opts == ["", "Calcio", "Tennis", "Basket", "Rugby Union", "Football Americano"]
+
+
+def test_builder_sport_options_deriva_da_sports_no_drift():
+    # Anti-drift (issue #4): le opzioni Sport della GUI parser derivano DINAMICAMENTE da
+    # sports.SPORTS (più "" agnostico), non da un elenco hardcoded. Aggiungere uno sport
+    # in sports.py deve comparire qui senza modifiche al ParserBuilder.
+    from xtrader_bridge import sports
+    assert ParserBuilder().sport_options() == ["", *sports.SPORTS]
+    assert "Football Americano" in ParserBuilder().sport_options()
+
+
+# ── consumer reale: la validazione parser accetta il nuovo sport (issue #4) ───────
+
+def test_validazione_football_americano_ok():
+    # Prima di PR-1 un parser sport="Football Americano" era BLOCCATO (sport ignoto,
+    # fail-closed). Ora è uno sport supportato → validazione pulita e event_type_id 6423.
+    d = _valid_def(sport="Football Americano")
+    assert cp.validate_parser_def(d) == []
+    assert cp.is_valid(d)
+    assert d.event_type_id() == "6423"
+
+
+def test_builder_set_sport_football_americano_canonicalizza():
+    b = ParserBuilder()
+    b.set_sport("football americano")     # case-insensitive → canonico
+    assert b.sport == "Football Americano"
+    assert b.to_def().event_type_id() == "6423"

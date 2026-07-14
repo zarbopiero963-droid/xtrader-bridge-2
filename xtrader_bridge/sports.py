@@ -10,6 +10,7 @@ Sport supportati dal blocco personale e relativo `event_type_id` Betfair:
 - Tennis → 2
 - Basket → 7522
 - Rugby Union → 5
+- Football Americano → 6423
 
 Lo «sport non specificato» è la stringa vuota (`SPORT_UNSPECIFIED`): un parser
 senza sport è **agnostico** (retro-compatibile con i parser salvati prima di PR-P9
@@ -25,6 +26,10 @@ SPORTS_EVENT_TYPE = {
     "Tennis": "2",
     "Basket": "7522",
     "Rugby Union": "5",
+    # Football Americano → 6423 (American Football su Betfair). CORE/safety-critical:
+    # un event_type_id errato = risoluzione mercato/selezione sbagliata. Da confermare
+    # dal proprietario contro Betfair prima del merge (vedi PR body / issue #4).
+    "Football Americano": "6423",
 }
 
 # Tupla dei nomi sport supportati (ordine di visualizzazione).

@@ -114,7 +114,7 @@ provider nei nomi Betfair/XTrader **prima** della scrittura:
 - **multi-profilo**: i profili selezionati si applicano nell'ordine dato; in caso di
   conflitto vince la **prima** corrispondenza (deterministico);
 - **multi-sport (PR-P10)**: ogni riga di mappatura ha una colonna **Sport** opzionale
-  (`Calcio`/`Tennis`/`Basket`/`Rugby Union` o **«(tutti gli sport)»** = agnostica). Se il
+  (`Calcio`/`Tennis`/`Basket`/`Rugby Union`/`Football Americano` o **«(tutti gli sport)»** = agnostica). Se il
   parser ha uno **Sport** impostato, la mappatura considera SOLO le righe di quello sport o
   agnostiche — con **priorità allo sport esatto** sulle agnostiche (un override per-sport
   non viene scavalcato da una riga agnostica salvata prima) — e **salta** le righe taggate
@@ -218,7 +218,7 @@ il **separatore** squadre e spunti i **profili** da usare (checkbox multi-selezi
 
 La colonna **Betfair/XTrader** della mappatura nomi resta **campo libero** (puoi sempre
 digitare un nome), ma può essere **precompilata** coi nomi squadra **permanenti** presenti nel
-dizionario locale per i 4 sport:
+dizionario locale per i 5 sport:
 
 - per ogni evento «Home v Away» i due partecipanti sono salvati in una tabella locale dedicata
   `betfair_known_teams` (chiave `sport` + `normalized_name`, con lo **stesso** normalizzatore
@@ -256,7 +256,7 @@ niente freeze) e best-effort (DB assente → avviso).
 > **popolato a mano** dall'utente. Il data layer (schema + lettura) resta invariato.
 
 Oltre ai nomi squadra, il dizionario locale conserva in modo **permanente** i valori
-universali di **MarketType**, **MarketName** e **SelectionName** dei 4 sport, così restano
+universali di **MarketType**, **MarketName** e **SelectionName** dei 5 sport, così restano
 disponibili (per il Parser) anche quando l'evento finisce e gli ID scadono. Decisione del
 proprietario: **«diretto», nessuna mappatura** — i nomi Betfair (locale IT) sono già identici a
 quelli attesi da XTrader, quindi il valore viene **persistito così com'è** (a differenza dei nomi
@@ -411,11 +411,11 @@ esplicita (incl. la voce «(eredita globale)» se la scegli apposta).
 ### Sport del parser (multi-sport)
 
 Ogni parser può dichiarare uno **Sport** (menu a tendina accanto a «Modalità»): uno fra
-**Calcio / Tennis / Basket / Rugby Union**, oppure **«(non specificato)»** = parser
+**Calcio / Tennis / Basket / Rugby Union / Football Americano**, oppure **«(non specificato)»** = parser
 **agnostico**. È salvato nel file del parser (campo `sport`; vuoto = non specificato) ed è
 la fonte unica degli sport (`xtrader_bridge/sports.py`), usata dal parser e dalla risoluzione
 ID del dizionario locale, con la mappa allo `event_type_id` ufficiale Betfair
-(Calcio=1, Tennis=2, Basket=7522, Rugby Union=5).
+(Calcio=1, Tennis=2, Basket=7522, Rugby Union=5, Football Americano=6423).
 
 Lo Sport **non cambia le colonne CSV** (restano le 14 generiche): serve a indicare a quale
 sport appartiene il segnale così che — nelle versioni successive — la risoluzione degli ID

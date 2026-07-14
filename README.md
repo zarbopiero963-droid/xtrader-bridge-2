@@ -358,7 +358,7 @@ diverso a seconda dello scenario»). Il match è **per sottostringa** (non parol
 parole più lunghe. Dettagli: [`docs/custom_parser.md`](docs/custom_parser.md) §3ter.
 
 Ogni parser può anche dichiarare uno **Sport** (tendina accanto a «Modalità»):
-**Calcio / Tennis / Basket / Rugby Union** oppure **«(non specificato)»** = agnostico.
+**Calcio / Tennis / Basket / Rugby Union / Football Americano** oppure **«(non specificato)»** = agnostico.
 Lo Sport non cambia le colonne del CSV: indica a quale sport appartiene il segnale e
 servirà a restringere la risoluzione degli ID Betfair allo sport giusto. È salvato nel
 file del parser (campo `sport`); i parser creati prima di questa funzione restano

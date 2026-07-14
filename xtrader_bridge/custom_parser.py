@@ -248,7 +248,7 @@ class CustomParserDef:
     # restano quelle delle regole, retro-compatibile). Vedi docs/audit/mercati_mapping_design.md.
     market_mapping_profiles: "list[str]" = field(default_factory=list)
     # Sport del parser (PR-P9): uno fra `sports.SPORTS` (Calcio/Tennis/Basket/Rugby
-    # Union) oppure `""` = non specificato (parser **agnostico**, retro-compatibile con
+    # Union/Football Americano) oppure `""` = non specificato (parser **agnostico**, retro-compatibile con
     # i file salvati prima di PR-P9). Lo sport non cambia le colonne CSV (sempre generiche)
     # ma — nelle PR successive — restringe la risoluzione degli ID Betfair all'event_type_id
     # corretto. Il parser per-profilo cambia con il profilo (active_parser nello snapshot).

@@ -532,7 +532,7 @@ class CustomParserPanel(ctk.CTkFrame):
         ctk.CTkOptionMenu(top, variable=self._mode_var,
                           values=[self._MODE_INHERIT, *self._modes], width=160,
                           command=self._on_mode_change).pack(side="left", padx=6)
-        # Sport DEL PARSER (PR-P9): Calcio/Tennis/Basket/Rugby Union o "(non specificato)"
+        # Sport DEL PARSER (PR-P9): Calcio/Tennis/Basket/Rugby Union/Football Americano o "(non specificato)"
         # (= agnostico). Non cambia le colonne CSV; nelle PR successive restringe la
         # risoluzione degli ID Betfair all'event_type_id corretto.
         ctk.CTkLabel(top, text=i18n.tr("Sport:")).pack(side="left", padx=6)

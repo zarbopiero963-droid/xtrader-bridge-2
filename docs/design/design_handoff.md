@@ -640,7 +640,7 @@ Costruttore visuale che definisce **come estrarre ogni colonna del CSV** da un m
 senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
 
 - **Intestazione:** `Nome parser`, `Modalità` (`(eredita globale)` + opzioni), `Sport`
-  (`(non specificato)` / Calcio / Tennis / Basket / Rugby Union), pulsante **"➕ Provider"**.
+  (`(non specificato)` / Calcio / Tennis / Basket / Rugby Union / Football Americano), pulsante **"➕ Provider"**.
 - **Parser salvati:** dropdown `(nessuno)` + **"🆕 Nuovo"**, **"📂 Carica"**, **"📑 Duplica"**,
   **"🗑 Elimina"**.
 - **Catalogo XTrader:** dropdown Mercato + dropdown Selezione + **"➕ Inserisci regole fisse"**.
@@ -850,7 +850,7 @@ gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia so
 - **🌳 Mapping guidato (`guided_mapping_gui.py`):** albero a cascata per costruire il dizionario
   nomi **senza digitare i nomi Betfair a mano**. Controlli, dall'alto:
   riga **Profilo** (destinazione, con **«🆕 Nuovo»**) → riga **Sport** (tendina Calcio/Tennis/
-  Basket/Rugby) + **Competizione** (tendina popolata dal dizionario locale) → casella
+  Basket/Rugby/Football Americano) + **Competizione** (tendina popolata dal dizionario locale) → casella
   **«Filtra squadre»** (con **«Pulisci»**) → tabella a 2 colonne **Squadra Betfair · Come la
   chiama il canale** (una riga editabile per squadra) → **«💾 Salva nel profilo»** (verde
   `#2e7d32`) + riga di stato.
@@ -921,7 +921,7 @@ Titolo **"🧹  Nomi squadra noti (permanenti) — ripulitura"**. Gestione dei n
 **permanenti** del dizionario locale (`betfair_known_teams`, #282): l'unica vista che li
 **elimina** (il mark-and-sweep non li tocca, quindi vanno ripuliti a mano quando obsoleti/errati
 — squadre retrocesse/rinominate).
-- **Barra:** dropdown **"Sport"** (`(tutti gli sport)` + i 4 sport), **"🔄 Aggiorna"**.
+- **Barra:** dropdown **"Sport"** (`(tutti gli sport)` + i 5 sport), **"🔄 Aggiorna"**.
 - **Riga conteggi:** `N nomi noti.` (o avviso se il dizionario non è disponibile).
 - **Elenco** (`CTkScrollableFrame`): una riga per nome = **Sport** · **nome squadra** ·
   **"🗑 Elimina"** (rosso `#c62828`). L'eliminazione è **immediata** (nessun dialogo di
