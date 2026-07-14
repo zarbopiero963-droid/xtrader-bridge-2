@@ -301,6 +301,15 @@ def _resolve_one(defn, text: str, *, cfg: dict, chat: str, provider: str, id_res
         market_mapping_profiles=market_mapping_profiles,
         id_resolver=id_resolver, source_language=source_language)
     placeable = [r.row for r in results if r.placeable]
+    # Avvisi non-fatali (issue #38): raccolti da tutti gli esiti del pipeline (l'avviso di
+    # riformattazione EventName è a livello messaggio), deduplicati nell'ordine di comparsa.
+    # Calcolati QUI così valgono sia sul path piazzabile sia su quello scartato (parità log,
+    # CodeRabbit/Fable): un operatore che debugga una riga scartata vede comunque l'avviso.
+    warns = []
+    for r in results:
+        for w in getattr(r, "warnings", None) or []:
+            if w not in warns:
+                warns.append(w)
     # Gate di contenuto (incl. condizioni PR-1): il parser deve aver estratto qualcosa DA
     # QUESTO messaggio, altrimenti non scatta (niente bet spurio su testo arbitrario). Valutato
     # PRIMA della diagnostica di validazione (CodeRabbit #391): se le condizioni/contenuto NON
@@ -315,18 +324,11 @@ def _resolve_one(defn, text: str, *, cfg: dict, chat: str, provider: str, id_res
         first = results[0]
         return {"fired": False, "rows": [], "status": first.status,
                 "detail": first.detail, "missing": list(first.missing_required),
-                "multi": defn.is_multi_row()}
+                "multi": defn.is_multi_row(), "warnings": warns}
     # PR-24: su una chat che è sorgente attiva, il provider della sorgente VINCE sul Provider
     # fisso del parser, per TUTTE le righe.
     if source_manager.source_for_chat(cfg, chat) is not None:
         placeable = [{**row, "Provider": provider} for row in placeable]
-    # Avvisi non-fatali (issue #38): raccolti da tutti gli esiti del pipeline (l'avviso di
-    # riformattazione EventName è a livello messaggio), deduplicati nell'ordine di comparsa.
-    warns = []
-    for r in results:
-        for w in getattr(r, "warnings", None) or []:
-            if w not in warns:
-                warns.append(w)
     return {"fired": True, "rows": placeable, "status": validator.VALID,
             "detail": None, "missing": [], "multi": defn.is_multi_row(), "warnings": warns}
 
@@ -393,8 +395,10 @@ def resolve_row(text: str, cfg: dict, *, chat_id: str = None, parsers_dir: str =
             return RouteResult(combined[0], validator.VALID, CUSTOM, rows=combined, warnings=warns)
         # Nessun parser ha matchato: riporta la diagnostica del PRIMO esito. Con un solo
         # parser configurato è ESATTAMENTE la diagnostica di prima (retro-compatibile).
+        # Gli avvisi #38 del primo esito viaggiano comunque (parità log su riga scartata).
         first = outcomes[0]
-        return RouteResult(None, first["status"], CUSTOM, first["detail"], list(first["missing"]))
+        return RouteResult(None, first["status"], CUSTOM, first["detail"], list(first["missing"]),
+                           warnings=list(first.get("warnings") or []))
 
     # Nessun Parser Personalizzato caricato: il parser automatico P.Bet è DISATTIVATO
     # (CP-09b), quindi il messaggio è ignorato (riga non piazzabile, nessuna scrittura).

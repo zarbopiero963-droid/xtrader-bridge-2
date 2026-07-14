@@ -399,7 +399,8 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
                                                    language=source_language)
         if resm.status == "ambiguous":
             # Due frasi indicano mercati diversi: niente riga, mai tirare a indovinare.
-            return PipelineResult(MARKET_MAPPING_MISSING, row, list(res.missing_required))
+            return PipelineResult(MARKET_MAPPING_MISSING, row, list(res.missing_required),
+                                  warnings=warnings)
         if resm.status == "ok":
             # Il dizionario vince: sovrascrive Type/Mercato/Selezione con i valori CANONICI
             # del catalogo (resolve_market li ha già canonicalizzati).
@@ -424,7 +425,8 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
             # riga senza mercato. Controllo mode-aware per non scartare per errore una riga ID.
             # kyZ (#192): i campi mercato forniti da OGNI riga multi (`supplied`) contano come
             # presenti — così un MultiSelection che riempie `SelectionName` non fa fail-closed qui.
-            return PipelineResult(MARKET_MAPPING_MISSING, row, list(res.missing_required))
+            return PipelineResult(MARKET_MAPPING_MISSING, row, list(res.missing_required),
+                                  warnings=warnings)
 
     # Identificazione precisa dal dizionario Betfair locale (PR-P12): dopo le mappature
     # a nomi, prova a riempire EventId/MarketId/SelectionId dalla catena evento→mercato→

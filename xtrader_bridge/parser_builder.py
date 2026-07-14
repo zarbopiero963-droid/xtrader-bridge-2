@@ -588,7 +588,7 @@ class ParserBuilder:
                 # `diag.message_error` da cui deriva `content_ok`) così il messaggio resta
                 # allineato allo status del runtime, senza letterale divergente (CodeRabbit/Sourcery).
                 return (f"⛔ Non pronto ({parser_diagnostics.NO_CONTENT_MATCH}) · "
-                        "nessun contenuto estratto dal messaggio")
+                        "nessun contenuto estratto dal messaggio") + warn
             return ParserBuilder.preview_summary(preview_rows) + warn
         if diag_placeable:
             # Decimali nel formato della lingua CSV corrente (#342, follow-up #344): l'anteprima

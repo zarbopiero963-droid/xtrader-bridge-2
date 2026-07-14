@@ -297,3 +297,97 @@ def test_router_nessun_warning_quando_split_ok(tmp_path):
     assert res.placeable is True
     assert res.all_rows()[0]["EventName"] == "Milan - Inter"      # riformattato
     assert res.warnings == []
+
+
+# ── retro-compat blindata: il DEFAULT della dataclass è "" (non "v") → verbatim ──────────────
+
+def test_default_dataclass_team_separator_vuoto_nessuna_riformattazione():
+    # Refuta il timore reviewer «default v»: costruito SENZA specificare team_separator, il
+    # default è "" → il ramo #38 NON scatta e l'EventName resta verbatim (parser legacy salvi).
+    defn = CustomParserDef(
+        name="Legacy", mode="NAME_ONLY",
+        rules=[
+            FieldRule(target="Provider", fixed_value="TG"),
+            FieldRule(target="EventName", fixed_value="Milan v Inter", required=True),
+            FieldRule(target="MarketType", fixed_value="MATCH_ODDS", required=True),
+            FieldRule(target="SelectionName", fixed_value="Pareggio", required=True),
+            FieldRule(target="BetType", fixed_value="PUNTA"),
+        ])
+    assert defn.team_separator == ""     # default esplicito, non "v"
+    res = pipe.build_validated_row(defn, "msg", provider="TG", require_price=False)
+    assert res.status == validator.VALID
+    assert res.row["EventName"] == "Milan v Inter"   # verbatim, feature NON attivata
+    assert res.warnings == []
+
+
+def test_json_legacy_senza_campo_separatore_resta_verbatim():
+    # Un JSON parser salvato PRIMA del campo (from_dict senza team_separator) → "" → verbatim.
+    d = cp.CustomParserDef.from_dict({
+        "name": "OldJson", "mode": "NAME_ONLY",
+        "rules": [
+            {"target": "Provider", "fixed_value": "TG"},
+            {"target": "EventName", "fixed_value": "Milan v Inter", "required": True},
+            {"target": "MarketType", "fixed_value": "MATCH_ODDS", "required": True},
+            {"target": "SelectionName", "fixed_value": "Pareggio", "required": True},
+            {"target": "BetType", "fixed_value": "PUNTA"},
+        ]})
+    assert d.team_separator == ""
+    res = pipe.build_validated_row(d, "msg", provider="TG", require_price=False)
+    assert res.row["EventName"] == "Milan v Inter"
+    assert res.warnings == []
+
+
+# ── consistenza avvisi (finding CodeRabbit/Fable): verdetto NO_CONTENT_MATCH + path non-fired ─
+
+def test_verdict_no_content_match_include_avviso():
+    # Verdetto NO_CONTENT_MATCH (multi-riga con almeno una riga piazzabile ma content-gate KO):
+    # l'avviso separatore deve comparire comunque accanto al verdetto (coerenza con gli altri rami).
+    from xtrader_bridge.parser_builder import PreviewRow
+    rows = [PreviewRow(index=0, kind="market", placeable=True, status=validator.VALID,
+                       warnings=[pipe.WARN_TEAM_SEPARATOR_NOT_FOUND])]
+    verdict = ParserBuilder.test_verdict(
+        [], rows, diag_placeable=True, diag_status=validator.VALID,
+        res_row={}, res_missing_required=[], res_detail=None, content_ok=False)
+    assert "NO_CONTENT_MATCH" in verdict
+    assert pipe.WARN_TEAM_SEPARATOR_NOT_FOUND in verdict
+
+
+def test_market_mapping_missing_preserva_avviso():
+    # split fallito (avviso) + mappatura mercati "none" senza mercato dalle regole → fail-closed
+    # MARKET_MAPPING_MISSING: l'avviso separatore deve sopravvivere sul risultato scartato.
+    defn = CustomParserDef(
+        name="MM", mode="NAME_ONLY", team_separator="/",
+        market_mapping_profiles=["M"],
+        rules=[
+            FieldRule(target="Provider", fixed_value="TG"),
+            FieldRule(target="EventName", fixed_value="Marseille/Lyon", required=True),
+        ])
+    res = pipe.build_validated_row(defn, "msg", provider="TG", require_price=False,
+                                   market_mapping_profiles=[[]])   # profilo vuoto → nessun match
+    assert res.status == "MARKET_MAPPING_MISSING"
+    assert res.row["EventName"] == "Marseille/Lyon"   # verbatim
+    assert res.warnings == [pipe.WARN_TEAM_SEPARATOR_NOT_FOUND]
+
+
+def test_router_avviso_su_riga_scartata_non_fired(tmp_path):
+    # Gate parser OK (tutti i required estratti, separatore fallito → avviso) ma riga NON
+    # piazzabile perché il valore Price è invalido → RouteResult non-fired deve comunque portare
+    # l'avviso separatore (parità log su scarto). Nota: uno scarto per campo MANCANTE si ferma
+    # al gate parser PRIMA del ramo separatore (NOT_READY, nessun avviso) — è corretto.
+    defn = CustomParserDef(
+        name="RD", mode="NAME_ONLY", team_separator="/",
+        rules=[
+            FieldRule(target="Provider", fixed_value="TG"),
+            FieldRule(target="EventName", start_after="Match:", end_before="\n", required=True),
+            FieldRule(target="MarketType", fixed_value="MATCH_ODDS", required=True),
+            FieldRule(target="SelectionName", fixed_value="Pareggio", required=True),
+            FieldRule(target="Price", start_after="Quota:", end_before="\n", required=True),
+        ])
+    cp.save_parser(defn, str(tmp_path))
+    cfg = {"provider": "TG", "active_parser": "RD", "chat_id": "42",
+           "recognition_mode": "NAME_ONLY", "require_price": True}
+    # Price valido (gate passa) ma manca BetType → riga non piazzabile DOPO il ramo separatore.
+    msg = "Match: Marseille/Lyon\nQuota: 999\n"
+    res = signal_router.resolve_row(msg, cfg, chat_id="42", parsers_dir=str(tmp_path))
+    assert res.placeable is False
+    assert res.warnings == [pipe.WARN_TEAM_SEPARATOR_NOT_FOUND]
