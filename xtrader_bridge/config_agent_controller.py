@@ -14,7 +14,7 @@ caricata a `enable()` e salvata **redatta** dopo ogni turno (`ConversationHistor
 import queue
 import threading
 
-from . import config_agent, config_store, token_store
+from . import config_agent, config_store, event_log, token_store
 
 # Stati del controller.
 STOPPED = "stopped"
@@ -47,6 +47,9 @@ class AgentController:
         self._history = history if history is not None else config_agent.ConversationHistory([])
         self._agent = None
         self._worker = None
+        # Serializza l'accesso alla cronologia: se un worker superstite (turno reale in timeout su
+        # Stop) e un nuovo worker toccassero `_history` insieme, il lock evita la corruzione (Fugu #64).
+        self._history_lock = threading.Lock()
 
     # ── stato ──────────────────────────────────────────────────────────────────
     @property
@@ -79,6 +82,10 @@ class AgentController:
         api_key = token_store.load_api_key()
         if not api_key:
             return None
+        # Registra la chiave come segreto (Fugu #64): caricata dal keyring, va mascherata nei
+        # log/cronologia anche se il suo formato NON combacia col pattern `sk-ant-` (il path GUI
+        # la registra a mano al salvataggio, ma il keyring può contenerla già da una sessione prima).
+        event_log.register_secret(api_key)
         return config_agent.RealAnthropicClient(api_key)
 
     def enable(self) -> bool:
@@ -87,6 +94,13 @@ class AgentController:
         Idempotente: già RUNNING → no-op `True`."""
         if self.state == RUNNING:
             return True
+        # Un worker precedente ancora in chiusura (turno reale Anthropic in volo allo Stop): NON
+        # crearne un secondo (Fugu #64, race doppio worker). Si ri-tenta il join; se è ancora vivo
+        # si rifiuta l'avvio con un avviso — il vecchio è daemon e uscirà da solo, l'utente riprova.
+        if self._worker is not None and not self._worker.stop():
+            self._emit("warning", {"reason": "worker_draining"})
+            return False
+        self._worker = None
         client = self._build_client()
         if client is None:
             self._set_state(ERROR, error="API key Anthropic mancante: impostala per avviare l'assistente.")
@@ -101,11 +115,16 @@ class AgentController:
         return True
 
     def stop(self) -> None:
-        """Ferma l'assistente e il worker (teardown pulito, join con timeout). Idempotente."""
-        w, self._worker = self._worker, None
-        if w is not None:
-            w.stop()
+        """Ferma l'assistente e il worker (teardown pulito, join con timeout). Idempotente.
+
+        Azzera `_agent` PRIMA (i messaggi in volo diventano no-op via la guardia in
+        `_handle_message`). Se il worker termina, lo si scarta; se dopo il timeout è **ancora vivo**
+        (turno reale in volo) se ne **tiene** il riferimento (Fugu #64): così un `enable()` immediato
+        non crea un secondo thread sopra a quello superstite."""
         self._agent = None
+        w = self._worker
+        if w is not None and w.stop():
+            self._worker = None
         if self.state != STOPPED:
             self._set_state(STOPPED)
 
@@ -128,16 +147,27 @@ class AgentController:
 
     def _handle_message(self, text):
         """Elabora UN messaggio (chiamato dal worker): esegue il turno, aggiorna e SALVA la
-        cronologia (redatta), e ritorna il `AgentTurn`. Sincrono e testabile."""
-        turn = self._agent.run_turn(text, history=self._history.messages)
-        self._history.replace(turn.messages)
-        cfg = self._config_loader() or {}
-        extra = [cfg.get("chat_id", ""), cfg.get("xtrader_notification_chat_id", "")]
-        try:
-            self._history.save(extra_secrets=extra)
-        except OSError:
-            # Persistenza best-effort: un disco pieno/permessi non deve rompere la conversazione.
-            self._emit("warning", {"reason": "history_save_failed"})
+        cronologia (redatta), e ritorna il `AgentTurn`. Sincrono e testabile.
+
+        Guardia (Fable #64): se nel frattempo è stato fatto `stop()` (con un messaggio già in volo o
+        il join scaduto), `self._agent` è `None` → si ritorna un turno VUOTO invece di sollevare
+        `AttributeError` (niente messaggio-fantasma «errore interno» dopo lo Stop)."""
+        agent = self._agent
+        if agent is None:
+            return config_agent.AgentTurn("", list(self._history.messages), [])
+        with self._history_lock:
+            turn = agent.run_turn(text, history=self._history.messages)
+            self._history.replace(turn.messages)
+            cfg = self._config_loader() or {}
+            # Segreti di sessione per la redazione: solo valori non vuoti (i vuoti sono comunque
+            # ignorati da `redact_extra`, ma li filtriamo per chiarezza).
+            extra = [v for v in (cfg.get("chat_id", ""),
+                                 cfg.get("xtrader_notification_chat_id", "")) if v]
+            try:
+                self._history.save(extra_secrets=extra)
+            except OSError:
+                # Persistenza best-effort: un disco pieno/permessi non deve rompere la conversazione.
+                self._emit("warning", {"reason": "history_save_failed"})
         return turn
 
     def _on_worker_result(self, turn):
@@ -203,9 +233,23 @@ class AgentWorker:
             finally:
                 self._q.task_done()
 
-    def stop(self, *, timeout=5.0) -> None:
-        """Ferma il worker: accoda la sentinella e fa il join del thread (se avviato). Idempotente."""
+    def is_alive(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def stop(self, *, timeout=5.0) -> bool:
+        """Ferma il worker: accoda la sentinella e fa il join del thread (se avviato). Ritorna
+        `True` se il thread è terminato, `False` se dopo il timeout è ANCORA vivo (es. turno reale
+        Anthropic in volo). In quel caso il riferimento al thread **non** viene azzerato (Fugu #64):
+        così `start()` non ne avvia un secondo sopra a quello superstite (no doppio worker); il
+        thread è daemon e terminerà da solo processando la sentinella al ritorno della chiamata.
+        Idempotente."""
         self._q.put(_STOP)
-        t, self._thread = self._thread, None
-        if t is not None and t.is_alive():
+        t = self._thread
+        if t is None:
+            return True
+        if t.is_alive():
             t.join(timeout=timeout)
+        if t.is_alive():
+            return False              # ancora vivo: NON azzerare (evita doppio worker)
+        self._thread = None
+        return True

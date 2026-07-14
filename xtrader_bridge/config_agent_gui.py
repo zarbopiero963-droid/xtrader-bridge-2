@@ -173,6 +173,9 @@ class AssistantPanel:
             if (data or {}).get("capped"):
                 self._append(i18n.tr("⚠️ (l'assistente ha raggiunto il limite di passi per turno)"))
         elif kind == "history":
+            # Ricarica la cronologia nel trascritto: prima SVUOTA (Fable #64), così un
+            # Abilita→Stop→Abilita non duplica le righe già mostrate.
+            self._clear_transcript()
             for line in messages_to_transcript((data or {}).get("messages", [])):
                 self._append(line)
         elif kind == "rejected":
@@ -187,6 +190,11 @@ class AssistantPanel:
         self._send_btn.configure(state="normal" if enabled else "disabled")
         if state == ctl.ERROR and error:
             self._append(f"⚠️ {error}")
+
+    def _clear_transcript(self):
+        self._transcript.configure(state="normal")
+        self._transcript.delete("1.0", "end")
+        self._transcript.configure(state="disabled")
 
     def _append(self, line):
         self._transcript.configure(state="normal")
