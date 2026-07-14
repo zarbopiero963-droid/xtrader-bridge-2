@@ -258,4 +258,6 @@ offerto come **read-only** anche senza `allow_writes`; nessuna scrittura).
   proprietario per una fase successiva.
 - **PR-5 (fatto)**: first-run — l'assistente **guida** il primo avvio via `get_setup_status` (vedi
   «Guida alla prima configurazione»). Non automatizza la GUI né scrive i campi critici.
-- **PR-6**: guide utente `docs/user/`.
+- **PR-6 (fatto)**: guide utente in [`docs/user/`](../user/README.md) — [Primi passi](../user/getting_started.md)
+  e [Assistente di configurazione](../user/assistente.md); cartella screenshot in
+  [`docs/assets/screenshots/`](../assets/screenshots/) (segnaposto finché non catturati su Windows).

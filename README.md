@@ -6,6 +6,9 @@
 
 ---
 
+> 📘 **Nuovo qui?** Le **guide utente** passo-passo sono in **[`docs/user/`](docs/user/README.md)**:
+> [Primi passi](docs/user/getting_started.md) · [Assistente di configurazione](docs/user/assistente.md).
+
 ## Indice
 
 - [Cos'è](#cosè)
