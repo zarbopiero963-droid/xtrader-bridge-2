@@ -378,6 +378,60 @@ def test_worker_stop_same_thread_ritorna_true():
     assert result["ret"] is True              # auto-fermante → True, non False
 
 
+class WriteToolClient:
+    """Client finto che al primo giro chiama `set_config_value` (confirm=true), poi risponde."""
+
+    def __init__(self, key="theme", value="light"):
+        self.key, self.value, self.n, self.offered = key, value, 0, None
+
+    def create_message(self, *, system, messages, tools):
+        self.n += 1
+        self.offered = [t["name"] for t in (tools or [])]
+        if self.n == 1:
+            return {"stop_reason": "tool_use", "content": [
+                {"type": "tool_use", "id": "w1", "name": "set_config_value",
+                 "input": {"key": self.key, "value": self.value, "confirm": True}}]}
+        return {"stop_reason": "end_turn", "content": [{"type": "text", "text": "fatto"}]}
+
+
+def test_controller_scrive_config_gated_end_to_end(tmp_path, monkeypatch):
+    # #41 PR-4: con allow_writes=True l'assistente può impostare una chiave NON safety-critical
+    # (theme) end-to-end; il file config su disco cambia e il resto è preservato.
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "chat_id": "-1001234567890"}, path)
+    client = WriteToolClient(key="theme", value="light")
+    c = ctl.AgentController(
+        client=client,
+        config_loader=lambda: config_store.load_config(path),
+        config_saver=lambda cfg: config_store.save_config(cfg, path))
+    c.enable()
+    assert c.submit("metti il tema chiaro") is True
+    c._worker.run_pending()
+    saved = config_store.load_config(path)
+    assert saved["theme"] == "light"                       # scritto
+    assert saved["chat_id"] == "-1001234567890"            # resto preservato
+    assert "set_config_value" in client.offered            # il tool di scrittura È offerto al modello
+    c.stop()
+
+
+def test_controller_scrittura_safety_critical_bloccata(tmp_path, monkeypatch):
+    # anche con allow_writes=True, una chiave safety-critical (chat_id) NON viene scritta.
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    path = os.path.join(str(tmp_path), "config.json")
+    config_store.save_config({"theme": "dark", "chat_id": "-1001234567890"}, path)
+    client = WriteToolClient(key="chat_id", value="-100999999")
+    c = ctl.AgentController(
+        client=client,
+        config_loader=lambda: config_store.load_config(path),
+        config_saver=lambda cfg: config_store.save_config(cfg, path))
+    c.enable()
+    c.submit("cambia la chat sorgente")
+    c._worker.run_pending()
+    assert config_store.load_config(path)["chat_id"] == "-1001234567890"   # filtro chat intatto
+    c.stop()
+
+
 def test_enable_stop_enable_riparte(tmp_path, monkeypatch):
     # dopo uno Stop pulito (worker terminato), un nuovo enable() riparte senza residui.
     c = _controller(tmp_path, monkeypatch, client=FakeClient())

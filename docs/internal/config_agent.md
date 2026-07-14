@@ -143,9 +143,39 @@ di `redact_secrets` a prescindere.
 - **`app.py`**: aggiunge la tab **«🤖 Assistente»** (best-effort) e il **teardown** del pannello in
   `_on_close` (stop+join, coerente col bot thread e col single-instance lock).
 
-**Sicurezza (PR-3):** `enable()` accende **solo la chat**; `allow_writes=False` (i tool di scrittura
-sono PR-4); le azioni safety-critical restano hard-block; la API key vive solo nel keyring; la
-cronologia su disco resta sempre redatta.
+**Sicurezza (PR-3):** `enable()` accende **solo la chat**; le azioni safety-critical restano
+hard-block; la API key vive solo nel keyring; la cronologia su disco resta sempre redatta. *(La
+scrittura config, prima disattivata in PR-3, è ora abilitata GATED in PR-4 — vedi sotto.)*
+
+## Scrittura config GATED (PR-4)
+
+Il controller costruisce ora l'agente con **`allow_writes=True`**: l'assistente può **applicare**
+modifiche di configurazione, ma **solo** attraverso il tool `set_config_value` e **solo** su un
+piccolo insieme di chiavi **non safety-critical**. Tutte le altre guardie restano attive (hard-block
+`FORBIDDEN_TOOLS`, redazione segreti, cap anti-loop, cronologia redatta).
+
+- **Allowlist** (`config_agent.WRITABLE_CONFIG_KEYS`): `theme` (dark/light), `app_language`
+  (IT/EN/ES), `clear_delay`, `confirmation_timeout`, `max_signal_age` (interi, con **bound**
+  validati). `max_signal_age` ha **min > 0**: l'assistente **non** può disattivare il filtro
+  anti-segnale-stantio.
+- **Denylist** (`config_agent.WRITE_FORBIDDEN_KEYS`, difesa in profondità): `bot_token`/keyring,
+  `chat_id`/`source_chats`/`parser_by_chat`/`parser_list_by_chat`/`xtrader_notification_chat_id`
+  (**filtro chat**), `bridge_mode`/`dry_run`/`csv_path`/`csv_language` (**modalità/CSV = contratto
+  XTrader**), `queue_mode`/`max_active_signals`/`max_per_day` (**scommesse simultanee**),
+  `auto_start_listener`, `debug_message_payload`, `active_parser` e altre → **rifiutate anche su
+  ordine esplicito**, con audit.
+- **Validazione stretta**: un valore fuori dominio/bound è **rifiutato** con messaggio, **mai**
+  coerciuto in silenzio (a differenza di `config_store._migrate`, fail-closed sul *load*).
+- **Gate di conferma**: senza `confirm=true` il tool ritorna solo un'**anteprima** («cambierò X da A
+  a B») e **non scrive**; applica **solo** con `confirm=true` (il system prompt istruisce a chiedere
+  l'ok all'utente prima). Il salvataggio è il round-trip completo di `config_store.save_config`
+  (atomico; token gestito dal keyring, mai in chiaro); un save fallito riporta l'errore, mai un
+  falso «Fatto».
+
+Test hard: `tests/safety/test_config_agent_write_41.py` (denylist, allowlist, validazione,
+`max_signal_age` non disattivabile, gate confirm, persistenza reale con resto preservato, gate
+`allow_writes`, offerta al modello, save fallito) + due test end-to-end nel controller
+(`test_controller_scrive_config_gated_end_to_end`, `test_controller_scrittura_safety_critical_bloccata`).
 
 ### Smoke test manuale (Windows, no display in CI)
 
@@ -167,7 +197,9 @@ cronologia su disco resta sempre redatta.
 > (fuori dallo scope di PR-3).
 
 ## Cosa NON c'è ancora (PR successive)
-- **PR-4**: tool di **scrittura** config gated (token/chat/csv/parser) con conferma sulle
-  transizioni pericolose.
+- **PR-4 (fatto)**: scrittura config GATED — **solo** chiavi non safety-critical (vedi sopra). Le
+  chiavi pericolose (token/chat/csv/parser/modalità/limiti) restano **non scrivibili**
+  dall'assistente; un eventuale write-path frictionful per alcune di esse è una scelta esplicita del
+  proprietario per una fase successiva.
 - **PR-5**: first-run — l'agente pilota il wizard esistente.
 - **PR-6**: guide utente `docs/user/`.

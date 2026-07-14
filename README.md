@@ -186,10 +186,14 @@ mascherato e che viene salvata **solo nel keyring del sistema** (mai in `config.
 cronologia). Premi **«▶ Abilita»** per attivare la chat (indicatore **🟢 ATTIVO**), **«⏹ Stop»** per
 fermarla. La conversazione è **persistente ma sempre redatta** su disco.
 
-**In questa fase (anteprima) l'assistente è in SOLA LETTURA**: **legge** lo stato del bridge (config,
-salute, parser) e ti risponde, ma **non modifica** ancora la configurazione. **Abilitare la chat non
-avvia mai il listener live né la modalità reale** e non scrive il CSV operativo. La capacità di
-**compilare i campi** su tuo ordine arriverà in una **fase successiva**, dietro conferme dedicate.
+**Cosa può (e non può) fare.** Oltre a **leggere** lo stato del bridge (config, salute, parser),
+l'assistente può **modificare un piccolo insieme di impostazioni non critiche** — **tema**
+(chiaro/scuro), **lingua dell'app**, `clear_delay`, `confirmation_timeout`, `max_signal_age` — e
+**sempre** ti mostra prima il cambiamento e chiede **conferma** prima di applicarlo. **Non** può
+toccare il **bot token**, il **filtro chat** (chat sorgente/notifiche), la **modalità/CSV**, i
+**limiti sulle scommesse** o il **parser attivo**: sono rifiutati anche su richiesta esplicita.
+**Abilitare la chat non avvia mai il listener live né la modalità reale** e non scrive il CSV
+operativo.
 
 La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Config**
 (oppure all'avvio con **▶ AVVIA**) nel file `config.json` (vedi

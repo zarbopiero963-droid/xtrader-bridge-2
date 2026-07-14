@@ -7,7 +7,9 @@ worker può essere pilotato in modo sincrono.
 
 Sicurezza: `enable()` abilita SOLO la chat, **non** avvia il listener live né la modalità reale; le
 azioni safety-critical restano bloccate dalle guardie di `config_agent` (hard block). La scrittura
-config resta disattivata (`allow_writes=False`, i tool di scrittura sono PR-4). La cronologia è
+config è abilitata GATED (`allow_writes=True`, #41 PR-4): l'assistente può impostare solo un piccolo
+insieme di chiavi NON safety-critical (`set_config_value` — allowlist/denylist + conferma esplicita);
+token, filtro chat, modalità/CSV, limiti scommesse e parser restano non scrivibili. La cronologia è
 caricata a `enable()` e salvata **redatta** dopo ogni turno (`ConversationHistory`, PR-2).
 """
 
@@ -32,8 +34,9 @@ class AgentController:
     spento)."""
 
     def __init__(self, *, client=None, client_factory=None, config_loader=None,
-                 history=None, parsers_dir=None, on_event=None, logger=None):
+                 config_saver=None, history=None, parsers_dir=None, on_event=None, logger=None):
         self._config_loader = config_loader or config_store.load_config
+        self._config_saver = config_saver or config_store.save_config
         self._parsers_dir = parsers_dir
         self._on_event = on_event
         self._logger = logger
@@ -41,9 +44,11 @@ class AgentController:
         self._client_factory = client_factory
         self.state = STOPPED
         self.last_error = ""
-        # Registry read-only che legge lo stato VIVO dell'app (config redatta, health, parser).
+        # Registry con i tool read-only (stato VIVO redatto) e i tool di scrittura config GATED
+        # (#41 PR-4): questi ultimi sono offerti al modello solo con `allow_writes=True` (vedi enable).
         self._registry = config_agent.build_default_registry(
-            config_loader=self._config_loader, parsers_dir=parsers_dir, logger=logger)
+            config_loader=self._config_loader, config_saver=self._config_saver,
+            parsers_dir=parsers_dir, logger=logger)
         self._history = history if history is not None else config_agent.ConversationHistory([])
         self._agent = None
         self._worker = None
@@ -129,7 +134,11 @@ class AgentController:
             self._epoch += 1
             epoch = self._epoch
             self._history = config_agent.ConversationHistory.load()
-            self._agent = config_agent.ConfigAgent(self._registry, client, allow_writes=False)
+            # PR-4: la scrittura config GATED è ora abilitata (`allow_writes=True`). Restano attive
+            # tutte le guardie: hard-block `FORBIDDEN_TOOLS`, allowlist/denylist delle chiavi
+            # scrivibili in `set_config_value` (niente token/filtro chat/modalità/CSV/limiti/parser)
+            # e il gate di conferma esplicita per ogni scrittura.
+            self._agent = config_agent.ConfigAgent(self._registry, client, allow_writes=True)
         # L'epoch è LEGATO al worker (closure): i turni di QUESTA sessione portano `epoch`; un worker
         # superstite di una sessione precedente porta un epoch diverso → i suoi risultati sono scartati
         # (niente scrittura/emit sulla NUOVA sessione — CodeRabbit/GPT/GLM/Fugu #64).
