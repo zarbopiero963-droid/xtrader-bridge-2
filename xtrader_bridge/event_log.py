@@ -151,6 +151,22 @@ def redact_secrets(text: str) -> str:
     return s
 
 
+def redact_extra(text: str, literals) -> str:
+    """Come `redact_secrets`, ma maschera ANCHE i `literals` passati (oltre a pattern e segreti
+    registrati), applicando le STESSE forme derivate (`_secret_forms`: grezzo + URL-encoded) e il
+    match **CRLF-tollerante** (`_crlf_tolerant_re`) — in **locale**, SENZA registrarli nel registro
+    globale. Pensato per segreti di **sessione** (es. `chat_id`) che non vanno registrati in modo
+    persistente: così un `chat_id` già registrato dall'app non rischia una de-registrazione (#41
+    PR-2). I `literals` vuoti sono ignorati."""
+    s = redact_secrets(text)
+    for lit in (literals or ()):
+        if not lit:
+            continue
+        for form in _secret_forms(str(lit)):
+            s = _crlf_tolerant_re(form).sub(_REDACTED, s)
+    return s
+
+
 def _secret_spans(text: str):
     """Span `(start, end)` di tutti i segreti in `text`: regex del token canonico + literal
     registrati nelle loro forme derivate (`_secret_forms`). Usato da `redact_preview` per sapere

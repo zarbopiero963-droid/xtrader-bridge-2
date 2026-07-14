@@ -171,6 +171,45 @@ def test_load_scarta_elementi_malformati(tmp_path):
     assert loaded.messages == [{"role": "user", "content": "ok"}]
 
 
+def test_extra_secret_crlf_tollerante(tmp_path):
+    # Fable/Fugu #63: un chat_id SPEZZATO da CR/LF (wrapping) nel contenuto deve comunque essere
+    # mascherato — la robustezza CRLF-tollerante è ripristinata SENZA mutare il registro globale.
+    chat = "-1001234567890"
+    spezzato = "-100123456\n7890"      # stesso chat_id con un LF inserito
+    p = str(tmp_path / "h.json")
+    ca.ConversationHistory([{"role": "user", "content": f"la chat e' {spezzato} ok"}]).save(
+        path=p, extra_secrets=[chat])
+    raw = open(p, encoding="utf-8").read()
+    # nessuna delle due parti contigue del chat_id resta in chiaro
+    assert "-100123456" not in raw and "7890 ok" not in raw
+    assert "[REDACTED_TOKEN]" in raw
+
+
+def test_redact_extra_helper_crlf():
+    # L'API pubblica event_log.redact_extra copre le forme CRLF-tolleranti del literal.
+    chat = "-1001234567890"
+    out = event_log.redact_extra("prima -100123456\n7890 dopo", [chat])
+    assert "-100123456" not in out and "[REDACTED_TOKEN]" in out
+
+
+def test_collisione_chiavi_non_perde_entry():
+    # Fable/GPT #63: due chiavi-segrete distinte non devono collassare in una sola (perdita entry).
+    tok1 = "111111111:ABCdefGHIjklMNOpqrstUVWx"
+    tok2 = "222222222:ZYXwvuTSRqponMLKjihGFEdc"
+    out = ca._deep_redact({tok1: "a", tok2: "b"})
+    assert tok1 not in json.dumps(out) and tok2 not in json.dumps(out)
+    assert len(out) == 2                 # entrambe le entry preservate (nessuna collisione silenziosa)
+    assert sorted(out.values()) == ["a", "b"]
+
+
+def test_extra_secrets_accetta_int(tmp_path):
+    # extra_secrets può ricevere un valore numerico: convertito a stringa e mascherato.
+    p = str(tmp_path / "h.json")
+    ca.ConversationHistory([{"role": "user", "content": "chat -1001234567890"}]).save(
+        path=p, extra_secrets=[-1001234567890])
+    assert "-1001234567890" not in open(p, encoding="utf-8").read()
+
+
 def test_history_path_usa_config_dir(monkeypatch):
     from xtrader_bridge import config_store
     monkeypatch.setattr(config_store, "config_dir", lambda: "/tmp/xtb-cfg")

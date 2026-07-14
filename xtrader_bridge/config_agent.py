@@ -413,20 +413,20 @@ _MIN_EXTRA_SECRET_LEN = 8
 
 def _redact_str(s: str, extra_literals=()) -> str:
     """Redige una stringa: prima i segreti noti a `event_log` (bot token/sk-ant/registrati), poi i
-    literal di sessione passati esplicitamente (es. chat_id) — per replace LOCALE, senza toccare il
-    registro globale."""
-    out = event_log.redact_secrets(s)
-    for lit in extra_literals:
-        if lit:
-            out = out.replace(lit, _EXTRA_REDACTED)
-    return out
+    literal di sessione passati esplicitamente (es. chat_id). I literal usano le STESSE primitive
+    robuste di `event_log` — forme derivate (`_secret_forms`: grezzo + URL-encoded) e match
+    **CRLF-tollerante** (`_crlf_tolerant_re`) — ma applicate in **locale**, SENZA registrare nulla
+    nel registro globale (evita la de-registrazione accidentale, Fable/Fugu #63)."""
+    return event_log.redact_extra(s, extra_literals)
 
 
 def _deep_redact(obj, extra_literals=()):
     """Redige RICORSIVAMENTE i messaggi preservando la struttura: testo utente/assistente,
     `tool_use.input`, `tool_result.content`, nomi. Copre anche:
     - le **chiavi** dei dict (GLM/GPT #63: un segreto usato come chiave non resta in chiaro; le
-      chiavi strutturali legittime non sono toccate da `redact_secrets`);
+      chiavi strutturali legittime non sono toccate da `redact_secrets`). Se due chiavi distinte
+      redigono allo STESSO marker, l'entry NON viene persa: si disambigua con un suffisso
+      (evita la collisione silenziosa segnalata da Fable/GPT #63);
     - gli **scalari numerici** (Fugu #63: un `chat_id`/segreto passato come `int`/`float` in un
       `tool_use.input` verrebbe altrimenti serializzato in chiaro) — se la forma-stringa contiene
       un segreto si restituisce il marker, altrimenti il numero originale (tipo preservato)."""
@@ -438,8 +438,18 @@ def _deep_redact(obj, extra_literals=()):
         red = _redact_str(str(obj), extra_literals)
         return red if red != str(obj) else obj
     if isinstance(obj, dict):
-        return {_deep_redact(k, extra_literals): _deep_redact(v, extra_literals)
-                for k, v in obj.items()}
+        out = {}
+        for k, v in obj.items():
+            rk = _deep_redact(k, extra_literals)
+            rk = rk if isinstance(rk, str) else str(rk)
+            if rk in out and rk != k:
+                # due chiavi diverse hanno prodotto lo stesso marker → non perdere l'entry
+                n = 2
+                while f"{rk}#{n}" in out:
+                    n += 1
+                rk = f"{rk}#{n}"
+            out[rk] = _deep_redact(v, extra_literals)
+        return out
     if isinstance(obj, list):
         return [_deep_redact(x, extra_literals) for x in obj]
     return obj
