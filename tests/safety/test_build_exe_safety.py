@@ -1296,6 +1296,10 @@ def test_linux_lock_source_esiste_e_elenca_pyinstaller():
     assert os.path.isfile(_BUILD_LINUX_IN), "manca requirements-build-linux.in"
     inp = _read(_BUILD_LINUX_IN)
     assert re.search(r"(?m)^pyinstaller\b", inp), "requirements-build-linux.in deve elencare pyinstaller"
+    # `httpx` è richiesto da python-telegram-bot a runtime ed esplicitato come hidden-import
+    # PyInstaller: una sua rimozione accidentale dal .in lo toglierebbe dal lock (CodeRabbit).
+    assert re.search(r"(?m)^httpx\b", inp), \
+        "requirements-build-linux.in deve elencare httpx (hidden-import PyInstaller)"
     assert re.search(r"(?m)^-r\s+requirements-dev\.txt\b", inp), \
         "requirements-build-linux.in deve derivare da requirements-dev.txt (single-source)"
 
@@ -1339,6 +1343,12 @@ def test_generate_linux_lockfile_esiste_e_quota_immune():
         "il dump nel Job Summary dev'essere PRIMA del gate anti-stantio (git diff)"
     assert not re.search(r"uses:\s*actions/upload-artifact", text), \
         "generate-linux-lockfile.yaml non deve usare upload-artifact (dipendenza dalla quota)"
+    # guard anti-eliminazione: se il lock è adottato sul base ma assente nella PR (eliminato),
+    # il workflow deve fallire — altrimenti la build regredirebbe SILENZIOSAMENTE al legacy
+    # non hashato senza che il gate anti-stantio (git diff su untracked = 0) lo intercetti
+    # (CodeRabbit). Verifica il wiring `git cat-file -e <base>:lock` sul lock Linux.
+    assert re.search(r"git cat-file -e[^\n]*requirements-build-linux\.lock", text), \
+        "manca il guard anti-eliminazione del lock Linux (git cat-file sul commit base)"
 
 
 def test_nuitka_detector_forme_canoniche_e_wrappate():

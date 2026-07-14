@@ -865,6 +865,18 @@ dipendenza pinnata **prima di pubblicare una release**.
    hash, nessun segreto). **Copia** l'intero blocco.
 4. Incollalo nel file **`requirements-build.lock`** nella root del repo e **committalo**.
 
+**Lock Linux (#36)** — stessa procedura, ma sull'altra piattaforma:
+
+1. Modifica `requirements.in` e/o `requirements-build-linux.in` se cambi le dipendenze della
+   build Linux.
+2. **Actions → "Generate Linux Lockfile" → Run workflow** (oppure si avvia da solo su una PR
+   che tocca quei file). Gira su `ubuntu-latest` + Python 3.11, esegue `pip-compile
+   --generate-hashes` e **valida** il lock con `pip install --require-hashes`.
+3. Run → **Summary**: lo step *"Pubblica il lock nel Job Summary"* stampa il
+   `requirements-build-linux.lock` rigenerato in un blocco copiabile. **Copia** l'intero blocco.
+4. Incollalo in **`requirements-build-linux.lock`** nella root del repo e **committalo**: da lì
+   il job `build-linux` installa con `--require-hashes` (fuori dal fallback legacy).
+
 > 🛟 **Consegna quota-immune (nessun artifact):** il lock si recupera **solo dalla Summary**, non
 > da un artifact. Così la generazione/validazione del lock **non dipende dalla quota storage
 > artifact** (che prima faceva fallire l'`upload-artifact` con `Failed to CreateArtifact:
