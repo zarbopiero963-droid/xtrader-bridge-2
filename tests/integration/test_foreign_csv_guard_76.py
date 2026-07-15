@@ -115,6 +115,27 @@ def test_manual_clear_fermo_io_fallito_rifiuta_con_messaggio_dedicato(
     assert not any("non è un CSV del bridge" in m for m in a.logs)
 
 
+def test_manual_clear_rifiutato_riprogramma_il_tick_di_scadenza(make_app, app_mod, tmp_path):
+    # Review #79 Fable/Fugu (round 2): il tick di scadenza è cancellato PRIMA del lock (PR-22);
+    # su un RIFIUTO va riprogrammato come nel ramo write-error, altrimenti nell'edge
+    # `from_gui_path` con sessione attiva (`_active_csv_path` falsy) una riga attiva su disco
+    # non scadrebbe mai più (segnale stantio). FAIL-FIRST: sul head precedente expiry_calls
+    # restava vuota.
+    p = str(tmp_path / "dati_utente.csv")
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("colA\nvalore\n")
+    q = _queue_with(_row("Inter v Milan"))
+    a = make_app(csv_path=None, running=True, gui_csv=p, queue=q)   # attivo ma active_path falsy
+
+    app_mod.App._manual_clear(a)
+
+    with open(p, encoding="utf-8") as f:
+        assert f.read() == "colA\nvalore\n"                 # file intatto
+    assert len(q.active_rows()) == 1                        # coda NON toccata
+    assert a.expiry_calls and a.expiry_calls[-1][0] == p    # tick RIPROGRAMMATO (no riga immortale)
+    assert any("Svuotamento rifiutato" in m for m in a.logs)
+
+
 # ── P2-3: guardia strutturale su _start ──────────────────────────────────────────────────────
 
 def test_start_bloccato_su_csv_estraneo_guardia_strutturale(app_mod):

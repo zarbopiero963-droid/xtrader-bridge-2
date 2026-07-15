@@ -3436,6 +3436,12 @@ class App(ctk.CTk):
             else:
                 self._log(i18n.tr("⚠️ Svuotamento rifiutato: impossibile leggere il file "
                                   "(lockato o permessi), non lo tocco."))
+            # Review #79 Fable (round 2): il tick di scadenza è stato cancellato PRIMA del lock
+            # (PR-22) — su un rifiuto va RIPROGRAMMATO come nel ramo write-error, altrimenti
+            # nell'edge `from_gui_path` con sessione attiva (es. `_active_csv_path` falsy) una
+            # riga attiva su disco non scadrebbe più (segnale stantio verso XTrader). A bridge
+            # fermo `_schedule_expiry` è un no-op sicuro (gate `_running`/path di sessione).
+            self._schedule_expiry(path)
             return
         if write_error is not None:
             # Path + tipo eccezione aiutano a diagnosticare lock/permessi.

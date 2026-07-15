@@ -585,6 +585,13 @@ def init_csv_for_session(path: str) -> str:
     avvengono SOTTO LO STESSO ``_write_lock`` — nessuna finestra TOCTOU tra «guarda cos'è» e
     «sovrascrivi» (stesso principio di `create_header_only_csv` #286; review #79 Fable).
 
+    **Portata dell'atomicità (review #79 GPT):** il lock serializza i THREAD del bridge
+    (stesso `_write_lock` di tutte le scritture CSV), come per `create_header_only_csv`.
+    Una race con PROCESSI ESTERNI che sostituiscono il file tra check e replace resta
+    inerente a qualsiasi contratto file-based (servirebbe un lock a livello OS, fuori
+    scope): XTrader il CSV lo LEGGE soltanto, e la scrittura resta comunque atomica
+    (tmp+`os.replace`) — mai uno stato parziale su disco.
+
     Esiti:
     - ``CSV_INIT_DONE`` → header scritto: file assente/vuoto creato, CSV del bridge azzerato
       (ANCHE con riga attiva: a START/clear la riga stantia va rimossa — a differenza di
