@@ -102,7 +102,22 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows,
         # da uno stato dedupe PERSISTITO da una versione precedente. Se la chiave per-riga è già vista,
         # è un duplicato → non scrivere (fail-closed anti-doppia-scommessa), invece di controllare solo
         # l'hash-messaggio che il percorso multi non registra.
-        if tracker.is_seen(signal_dedupe.row_dedup_key(text, row)):
+        #
+        # P2-1 audit #76: la finestra del tracker (default 300s) può essere PIÙ CORTA della vita
+        # della riga (`confirmation_timeout`/`clear_delay`): un reinvio identico oltre la finestra
+        # sarebbe NEW e in APPEND/QUEUE accoderebbe una SECONDA riga uguale → doppia scommessa.
+        # Quindi una riga la cui chiave è ancora tra le ATTIVE della coda (non scadute, provenienza
+        # esatta memorizzata all'add) è un DUPLICATE a prescindere dalla finestra. Escluso
+        # OVERWRITE_LAST: lì `add` SOSTITUISCE (mai doppia riga) e il reinvio deve poter
+        # riscrivere l'ultima istruzione (comportamento storico invariato).
+        key = signal_dedupe.row_dedup_key(text, row)
+        # Filtro difensivo (review #77 Fable): si confrontano solo chiavi NON vuote, allineato al
+        # percorso multi. Oggi `row_dedup_key` non può restituire "" (sha256 hexdigest, sempre 64
+        # char), ma se un refactor futuro lo permettesse, una chiave vuota NON deve combaciare con
+        # una riga legacy accodata senza chiave ("") e bloccare un segnale nuovo (over-blocking).
+        if tracker.is_seen(key) or (
+                queue.mode != signal_queue.OVERWRITE_LAST and key
+                and key in {k for k in queue.active_keys(now=now) if k}):
             decision = live_guard.DUPLICATE
         else:
             decision = live_guard.evaluate(cfg, tracker, daily, text)
@@ -270,6 +285,13 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
     # segnale SCADUTO (clear-timeout) né si scambia una riga di un ALTRO messaggio con la corrente
     # (Codex #281 P1/provenance). Le chiavi sono lette dalla coda, NON ricalcolate dal testo corrente.
     active_keys = set(queue.active_keys(now=now)) if overwrite else set()
+    # P2-1 audit #76 (solo APPEND/QUEUE): una riga la cui chiave è ancora ATTIVA in coda è un
+    # DUPLICATE anche se l'hash è uscito dalla finestra dedup del tracker (vita riga > finestra):
+    # senza questo check un reinvio identico oltre la finestra verrebbe ri-accodato con
+    # `force=True` → seconda riga uguale nel CSV → doppia scommessa. Chiavi vuote escluse (righe
+    # legacy accodate senza `dedup_key` non devono mai bloccare). In OVERWRITE il blocco è già
+    # protetto da `active_keys` + `_same_rows_unordered` (reinvio identico = no-op).
+    queue_active = set() if overwrite else {k for k in queue.active_keys(now=now) if k}
 
     decisions = []
     new_rows = []          # righe NUOVE (WRITE) di QUESTO messaggio, effettivamente piazzate
@@ -287,6 +309,11 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
                 queue.add(row, now=now, force=True)
             continue
         key = signal_dedupe.row_dedup_key(text, row)
+        if key in queue_active:
+            # P2-1 #76: riga identica ANCORA attiva (provenienza esatta) → duplicato, senza
+            # consumare tracker/daily (nessun `evaluate`): non accodata, non scritta.
+            decisions.append(live_guard.DUPLICATE)
+            continue
         row_tracker_snap = tracker.state()
         d = live_guard.evaluate(cfg, tracker, daily, text, dedup_key=key)
         decisions.append(d)
