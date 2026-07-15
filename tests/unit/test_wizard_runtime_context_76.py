@@ -74,6 +74,29 @@ def test_step3_mode_esplicito_del_parser_vince_sul_globale():
     assert res.ok is True                                     # precedenza defn.mode (runtime)
 
 
+# ── ramo profili MERCATI (review #82 GLM/Fugu): esercitato dal vivo, nessun crash ────────────
+
+def test_step3_ramo_profili_mercati_esercitato_senza_crash():
+    # Builder con profili MERCATI selezionati + cfg col profilo vuoto: `entries_for_profiles`
+    # è chiamata davvero e `batch_report` riceve la lista — nessun match → restano i valori
+    # delle regole-colonna (VALID). Refuta il timore AttributeError/TypeError sul ramo market
+    # (ParserBuilder inizializza SEMPRE `market_mapping_profiles`, righe 109-139).
+    b = _builder()
+    b.market_mapping_profiles = ["Mercati"]
+    cfg = {"provider": "PBet", "recognition_mode": "NAME_ONLY",
+           "market_mappings": {"Mercati": []}}
+    res = wizard.check_parser(b, _MSG, cfg=cfg, chat="42")
+    assert res.ok is True                                     # nessun crash, regole preservate
+
+
+def test_step3_profili_nomi_richiesti_ma_config_senza_name_mappings():
+    # Config del tutto PRIVA della chiave name_mappings: entries_for_profiles → [[]] (profilo
+    # mancante = lista vuota, fail-closed documentato) → MAPPING_MISSING, mai crash.
+    res = wizard.check_parser(_builder(name_profiles=["Serie A"]), _MSG,
+                              cfg={"provider": "PBet"})
+    assert res.ok is False
+
+
 # ── retro-compatibilità: cfg assente → comportamento storico invariato ───────────────────────
 
 def test_step3_senza_cfg_comportamento_storico():
@@ -95,10 +118,13 @@ def test_wizard_gui_passa_il_cfg_provider_a_check_parser():
     src = pathlib.Path(__file__).resolve().parents[2].joinpath(
         "xtrader_bridge", "wizard_gui.py").read_text(encoding="utf-8")
     idx = src.index("def _run_parser_check")
-    blocco = src[idx:idx + 800]
+    blocco = src[idx:idx + 1200]
     assert "_cfg_provider" in blocco
     assert "cfg=cfg" in blocco and "chat=" in blocco          # contesto passato allo step 3
     assert "check_parser" in blocco
+    # Review #82 GLM/GPT: un cfg_provider che solleva NON deve crashare il wizard —
+    # try/except con degrado a cfg=None (comportamento storico) presente attorno alla chiamata.
+    assert "try:" in blocco and "cfg = None" in blocco
 
 
 def test_app_open_wizard_fornisce_la_config_viva():
