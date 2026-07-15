@@ -60,7 +60,7 @@ Meccanismi (fail-closed, testati in `tests/safety/test_config_agent_41.py`):
 | Scrittura config **gated** (`allow_writes=False` in PR-1; i write-tool non sono nemmeno **offerti** al modello) | `dispatch` (punto 3) + `tool_specs` |
 | **Redazione segreti** su OGNI contenuto che torna al modello — risultati **e messaggi di rifiuto** | `dispatch` via `event_log.redact_secrets` |
 | **Audit redatto all'ingresso**: `audit_log` e il `logger` non conservano mai `tool_input`/nomi in chiaro | `ToolRegistry._audit` / `_safe_repr` |
-| `get_config_state` maschera token/API key/chat ID | `_redact_config` |
+| `get_config_state` maschera token/API key/chat ID — incluse le **chiavi** dei dict `parser_by_chat`/`parser_list_by_chat` (P2-6 audit #76: `{chat_id: parser}` non parte mai in chiaro verso l'API né finisce in cronologia; i nomi parser restano leggibili) | `_redact_config` |
 | Loop tool-use protetto da **cap** anti-loop | `ConfigAgent.run_turn` / `MAX_TOOL_ITERATIONS` |
 | Un handler che solleva **non** crasha l'agente | `dispatch` (best-effort) |
 
@@ -297,7 +297,10 @@ CSV?», per spiegare colonne/delimitatori, o come **tester** mentre l'utente sis
   parsers_dir)` replica il wiring di `signal_router._resolve_one` / del tester GUI: parser attivo per
   la chat (`parser_manager.load_active`), profili di mapping nomi/mercati
   (`name/market_mapping_store.entries_for_profiles`), lingua sorgente
-  (`recognition.effective_source_language`) e provider (`source_manager.provider_for_chat`), poi
+  (`recognition.effective_source_language`), provider (`source_manager.provider_for_chat`) e la
+  **modalità effettiva** (P2-7 audit #76: `normalize_mode(defn.mode or recognition_mode globale)`,
+  stessa risoluzione verbatim del runtime — un parser legacy con `mode=""` eredita la globale
+  anche in anteprima, mai un falso «Pronto» in ID_ONLY), poi
   `ParserBuilder.batch_report` → `build_validated_rows` (la **stessa** funzione del runtime, ma **senza
   scrittura CSV**). Le righe sono localizzate per la lingua CSV configurata
   (`csv_writer.localize_row`), così l'utente vede i valori **come uscirebbero nel file** (IT/ES
