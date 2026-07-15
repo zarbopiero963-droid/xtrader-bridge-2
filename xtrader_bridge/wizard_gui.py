@@ -32,12 +32,16 @@ class WizardWindow(ctk.CTkToplevel):
                "4/5 · Percorso CSV", "5/5 · Checklist finale")
 
     def __init__(self, master=None, *, initial=None, builder_factory=None,
-                 checklist_provider=None, on_finish=None):
+                 checklist_provider=None, cfg_provider=None, on_finish=None):
         super().__init__(master)
         self.title(i18n.tr("🧙 Wizard di prima configurazione"))
         initial = initial if isinstance(initial, dict) else {}
         self._builder_factory = builder_factory
         self._checklist_provider = checklist_provider
+        # P2-8 audit #76: config VIVA per lo step 3 — senza, `check_parser` valutava il
+        # parser NUDO (niente profili di mappatura/mode globale/provider/lingua) e il
+        # wizard era incompletabile con profili nomi configurati, o dava un falso ✅.
+        self._cfg_provider = cfg_provider
         self._on_finish = on_finish
         self._step = 0
         self._passed = [False] * 5      # step superati (gate del pulsante Avanti)
@@ -238,7 +242,9 @@ class WizardWindow(ctk.CTkToplevel):
                                "scheda 🧩 Parser e riapri il wizard.")))
             return
         text = self._msg_box.get("1.0", "end")
-        self._show(2, wizard.check_parser(builder, text), snapshot=(chat, text))
+        cfg = self._cfg_provider() if self._cfg_provider else None
+        self._show(2, wizard.check_parser(builder, text, cfg=cfg, chat=chat.strip()),
+                   snapshot=(chat, text))
 
     def _run_csv_check(self, do_write):
         path = self._e_csv.get()

@@ -122,14 +122,41 @@ def check_chat(token, chat_id, probe=probe_get_updates) -> StepResult:
 
 
 # ── Step 3: parser su messaggio reale (riusa il tester #350) ─────────────────
-def check_parser(builder, message) -> StepResult:
+def check_parser(builder, message, *, cfg=None, chat="") -> StepResult:
     """Valuta il messaggio reale incollato col parser corrente del `ParserBuilder`
     (stessa pipeline read-only di «Prova messaggio»): superato solo se il verdetto è
-    ✅. Il motivo esatto dello scarto è il verdetto stesso (#350)."""
+    ✅. Il motivo esatto dello scarto è il verdetto stesso (#350).
+
+    `cfg` (P2-8 audit #76): config VIVA per risolvere il CONTESTO DEL RUNTIME, con la
+    stessa risoluzione verbatim di `signal_router._resolve_one` / GUI «Prova messaggio» /
+    assistente (`build_message_preview`): profili di mappatura nomi/mercati, modalità
+    effettiva (parser legacy `mode=""` → eredita `recognition_mode` globale), lingua
+    sorgente e provider per la `chat`. Senza contesto lo step 3 valutava il parser NUDO:
+    con profili nomi configurati era `MAPPING_MISSING` perenne (⛔ → wizard
+    INCOMPLETABILE con una config funzionante), e in ID_ONLY globale un parser legacy
+    mostrava un falso ✅. `cfg=None` preserva il comportamento storico (chiamanti/test
+    puri senza config)."""
     text = str(message or "").strip()
     if not text:
         return StepResult(False, "Incolla un messaggio segnale REALE del canale.")
-    reports, _skipped = builder.batch_report(text)
+    if isinstance(cfg, dict):
+        from . import (market_mapping_store, name_mapping_store, recognition,
+                       source_manager)
+        defn = builder.to_def()
+        name_profiles = (name_mapping_store.entries_for_profiles(cfg, builder.name_mapping_profiles)
+                         if builder.name_mapping_profiles else None)
+        market_profiles = (market_mapping_store.entries_for_profiles(cfg, builder.market_mapping_profiles)
+                           if builder.market_mapping_profiles else None)
+        mode = recognition.normalize_mode(
+            getattr(defn, "mode", "") or cfg.get("recognition_mode", recognition.DEFAULT_MODE))
+        reports, _skipped = builder.batch_report(
+            text, provider=source_manager.provider_for_chat(
+                cfg, str(chat or ""), default=str(cfg.get("provider", "") or "")),
+            mode=mode, name_mapping_profiles=name_profiles,
+            market_mapping_profiles=market_profiles,
+            source_language=recognition.effective_source_language(cfg, defn))
+    else:
+        reports, _skipped = builder.batch_report(text)
     if not reports:
         return StepResult(False, "Nessun messaggio riconosciuto nel testo incollato.")
     rep = reports[0]

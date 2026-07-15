@@ -577,7 +577,10 @@ di questo step.»*) finché la verifica dello step non è ✅. Esiti sotto il co
 le sonde (eseguite in thread: la finestra non si congela). Step: (1) token (campo
 mascherato `•`) + «🔌 Prova connessione (getMe)»; (2) Chat ID + «📡 Controlla ora»
 (hint: bot admin, messaggio di prova, listener fermo); (3) textbox messaggio reale +
-«🧪 Valuta messaggio» (verdetto del tester #350); (4) csv_path + «🔎 Verifica percorso»
+«🧪 Valuta messaggio» (verdetto del tester #350; P2-8 audit #76: valutato col **contesto
+del runtime** — profili di mappatura nomi/mercati, modalità globale per i parser legacy,
+provider e lingua sorgente dalla config viva — stesso esito del live, mai un ⛔ perenne
+con profili configurati né un falso ✅ in ID_ONLY); (4) csv_path + «🔎 Verifica percorso»
 e «📄 Scrivi CSV di prova» (mai sovrascrive: riga attiva protetta, file estraneo
 rifiutato); (5) checklist ✅/⛔ a 5 voci. Invarianti: il wizard NON attiva mai la
 modalità Reale (checklist informativa; i gate restano nella tab 🛡️ Sicurezza); il

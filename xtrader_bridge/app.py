@@ -1620,6 +1620,11 @@ class App(ctk.CTk):
                                "csv_path": self._e_csv.get()},
                 builder_factory=builder_factory,
                 checklist_provider=checklist_provider,
+                # P2-8 audit #76: config VIVA per lo step 3 (stessa fonte di
+                # builder_factory) — profili di mappatura, mode globale, provider e
+                # lingua sorgente risolti come il runtime, mai il parser nudo.
+                cfg_provider=lambda: (dict(self._config)
+                                      if isinstance(self._config, dict) else {}),
                 on_finish=self._wizard_finish)
             # Riferimento PRIMA di grab_set (review Fable #354, round 2): se il grab
             # fallisce (grab già attivo, race Tk) la finestra è comunque creata e
