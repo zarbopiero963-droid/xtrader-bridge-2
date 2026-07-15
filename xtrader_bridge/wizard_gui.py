@@ -32,12 +32,16 @@ class WizardWindow(ctk.CTkToplevel):
                "4/5 · Percorso CSV", "5/5 · Checklist finale")
 
     def __init__(self, master=None, *, initial=None, builder_factory=None,
-                 checklist_provider=None, on_finish=None):
+                 checklist_provider=None, cfg_provider=None, on_finish=None):
         super().__init__(master)
         self.title(i18n.tr("🧙 Wizard di prima configurazione"))
         initial = initial if isinstance(initial, dict) else {}
         self._builder_factory = builder_factory
         self._checklist_provider = checklist_provider
+        # P2-8 audit #76: config VIVA per lo step 3 — senza, `check_parser` valutava il
+        # parser NUDO (niente profili di mappatura/mode globale/provider/lingua) e il
+        # wizard era incompletabile con profili nomi configurati, o dava un falso ✅.
+        self._cfg_provider = cfg_provider
         self._on_finish = on_finish
         self._step = 0
         self._passed = [False] * 5      # step superati (gate del pulsante Avanti)
@@ -238,7 +242,21 @@ class WizardWindow(ctk.CTkToplevel):
                                "scheda 🧩 Parser e riapri il wizard.")))
             return
         text = self._msg_box.get("1.0", "end")
-        self._show(2, wizard.check_parser(builder, text), snapshot=(chat, text))
+        try:
+            cfg = self._cfg_provider() if self._cfg_provider else None
+            res = wizard.check_parser(builder, text, cfg=cfg, chat=chat.strip())
+        except Exception:   # noqa: BLE001 — fail-CLOSED su TUTTA la valutazione, mai crash
+            # Review #82 round 2 (GPT/Fugu) + final Fable: lo step 3 è un PREFLIGHT — se la
+            # config viva non è leggibile O la valutazione col contesto solleva (es. config
+            # malformata in una struttura annidata), NON si degrada al parser nudo (sarebbe
+            # fail-open: possibile falso ✅, proprio il bug P2-8) e NON si crasha il wizard.
+            # Esito ⛔ onesto e sanificato (nessun dettaglio dell'errore: potrebbe contenere
+            # dati di config); l'utente corregge e riprova.
+            self._show(2, wizard.StepResult(
+                False, i18n.tr("Config non leggibile: impossibile valutare col contesto "
+                               "reale. Riprova (o riapri il wizard).")))
+            return
+        self._show(2, res, snapshot=(chat, text))
 
     def _run_csv_check(self, do_write):
         path = self._e_csv.get()

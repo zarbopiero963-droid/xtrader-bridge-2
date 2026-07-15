@@ -68,11 +68,15 @@ _ALLOWLIST = {
                                  "questi deve crashare la finestra Strumenti (il caso 'sync in "
                                  "corso' è gestito a parte, non-blind, con DictionaryBusy)"),
     "atomic_io.py": (1, "cleanup del temporaneo su QUALSIASI errore di scrittura/rename (BaseException)"),
-    "wizard_gui.py": (3, "vista Wizard (#311 §3.4, review Fable #354): (1) sonda in thread "
+    "wizard_gui.py": (4, "vista Wizard (#311 §3.4, review Fable #354): (1) sonda in thread "
                          "che solleva → esito FAIL-CLOSED con la sola classe dell'errore e "
                          "flag _probe_running SEMPRE rilasciato (mai ⏳ eterna); (2) after() "
                          "su finestra/Tk distrutti durante la sonda → niente da aggiornare; "
-                         "(3) winfo_exists che solleva a interprete smontato = finestra chiusa"),
+                         "(3) winfo_exists che solleva a interprete smontato = finestra chiusa; "
+                         "(4) valutazione step 3 (cfg_provider iniettato E check_parser col "
+                         "contesto; P2-8 #76, review #82 round 2 GPT/Fugu + final Fable) che "
+                         "solleva → esito FAIL-CLOSED sanificato (StepResult ⛔ e return, MAI "
+                         "degrado al parser nudo: sarebbe fail-open), mai crash del wizard"),
     "wizard.py": (3, "sonde one-shot del Wizard (#311 §3.4): getMe/getUpdates/scrittura "
                      "di prova — qualsiasi errore diventa un esito FAIL-CLOSED col messaggio "
                      "SANIFICATO (mai il token/URL nell'errore), lo step non passa e il "

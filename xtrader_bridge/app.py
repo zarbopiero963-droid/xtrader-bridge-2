@@ -5,6 +5,7 @@ config) vive in moduli separati ed è testabile headless.
 """
 
 import asyncio
+import copy
 import logging
 import os
 import threading
@@ -1620,6 +1621,16 @@ class App(ctk.CTk):
                                "csv_path": self._e_csv.get()},
                 builder_factory=builder_factory,
                 checklist_provider=checklist_provider,
+                # P2-8 audit #76: config VIVA per lo step 3 (stessa fonte di
+                # builder_factory) — profili di mappatura, mode globale, provider e
+                # lingua sorgente risolti come il runtime, mai il parser nudo.
+                # deepcopy (final review Fable #82): snapshot CONSISTENTE — le strutture
+                # annidate (name_mappings/market_mappings/sources) non restano condivise
+                # con la config viva, così una mutazione concorrente durante la
+                # valutazione non può alterare l'esito né sollevare a metà lettura; se
+                # la copia stessa fallisce, il wizard è fail-closed (⛔, mai crash).
+                cfg_provider=lambda: (copy.deepcopy(self._config)
+                                      if isinstance(self._config, dict) else {}),
                 on_finish=self._wizard_finish)
             # Riferimento PRIMA di grab_set (review Fable #354, round 2): se il grab
             # fallisce (grab già attivo, race Tk) la finestra è comunque creata e

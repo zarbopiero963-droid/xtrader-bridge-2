@@ -1,0 +1,165 @@
+"""Test hard veritieri — Issue #76 P2-8 (audit 2026-07-15): wizard step 3 col contesto runtime.
+
+`wizard.check_parser` chiamava `builder.batch_report(text)` NUDO: senza profili di
+mappatura nomi/mercati (parser che li richiede → `MAPPING_MISSING` perenne → step 3
+sempre ⛔ → **wizard incompletabile** con una config funzionante), senza la modalità
+globale (parser legacy `mode=""` valutato in NAME_ONLY → **falso ✅** con globale
+ID_ONLY), senza provider/lingua sorgente.
+
+Fix testato: `check_parser(builder, message, *, cfg=None, chat="")` risolve il contesto
+dalla config VIVA con la stessa risoluzione verbatim del runtime
+(`signal_router._resolve_one` / GUI «Prova messaggio» / assistente); `cfg=None` preserva
+il comportamento storico. Wiring: `WizardWindow(cfg_provider=...)` da `app._open_wizard`.
+"""
+
+
+
+from xtrader_bridge import parser_builder as pb
+from xtrader_bridge import wizard
+
+
+def _builder(*, mode="NAME_ONLY", name_profiles=()):
+    b = pb.ParserBuilder()
+    b.name = "Wiz"
+    b.mode = mode
+    b.name_mapping_profiles = list(name_profiles)
+    b.add_rule(target="Provider", fixed_value="PBet")
+    b.add_rule(target="EventName", start_after="🆚", end_before="\n", required=True)
+    b.add_rule(target="Price", fixed_value="1.50", required=True)
+    b.add_rule(target="BetType", fixed_value="PUNTA", required=True)
+    b.add_rule(target="MarketType", fixed_value="MATCH_ODDS", required=True)
+    b.add_rule(target="SelectionName", fixed_value="Casa", required=True)
+    return b
+
+
+_MSG = "x\n🆚Inter v Milan\n⌚ 1m"
+
+
+# ── scenario A (fail-first): profili nomi configurati → lo step 3 deve PASSARE ──────────────
+
+def test_step3_con_profili_nomi_configurati_passa():
+    # Parser che RICHIEDE la mappatura nomi + config con il profilo popolato (setup standard):
+    # prima del fix `batch_report` nudo riceveva profili None → MAPPING_MISSING → ⛔ perenne.
+    cfg = {"provider": "PBet", "recognition_mode": "NAME_ONLY",
+           "name_mappings": {"Serie A": [
+               {"provider": "Inter", "betfair": "FC Internazionale", "entity_type": "team"},
+               {"provider": "Milan", "betfair": "AC Milan", "entity_type": "team"},
+           ]}}
+    b = _builder(name_profiles=["Serie A"])
+    res = wizard.check_parser(b, _MSG, cfg=cfg, chat="42")
+    assert res.ok is True                                     # wizard COMPLETABILE
+    assert "FC Internazionale" in str(res.data["rows"][0].row["EventName"])
+
+
+def test_step3_profili_richiesti_ma_vuoti_resta_fail_closed():
+    # Il contesto non “regala” il pass: profilo richiesto ma senza righe in config →
+    # MAPPING_MISSING resta (fail-closed identico al runtime).
+    cfg = {"provider": "PBet", "recognition_mode": "NAME_ONLY",
+           "name_mappings": {"Serie A": []}}
+    res = wizard.check_parser(_builder(name_profiles=["Serie A"]), _MSG, cfg=cfg)
+    assert res.ok is False
+
+
+# ── scenario B (fail-first): parser legacy mode="" + globale ID_ONLY → niente falso ✅ ───────
+
+def test_step3_parser_legacy_eredita_id_only_dal_globale():
+    cfg = {"provider": "PBet", "recognition_mode": "ID_ONLY"}
+    res = wizard.check_parser(_builder(mode=""), _MSG, cfg=cfg)
+    assert res.ok is False                                    # come il runtime: niente falso ✅
+
+
+def test_step3_mode_esplicito_del_parser_vince_sul_globale():
+    cfg = {"provider": "PBet", "recognition_mode": "ID_ONLY"}
+    res = wizard.check_parser(_builder(mode="NAME_ONLY"), _MSG, cfg=cfg)
+    assert res.ok is True                                     # precedenza defn.mode (runtime)
+
+
+# ── ramo profili MERCATI (review #82 GLM/Fugu): esercitato dal vivo, nessun crash ────────────
+
+def test_step3_ramo_profili_mercati_esercitato_senza_crash():
+    # Builder con profili MERCATI selezionati + cfg col profilo vuoto: `entries_for_profiles`
+    # è chiamata davvero e `batch_report` riceve la lista — nessun match → restano i valori
+    # delle regole-colonna (VALID). Refuta il timore AttributeError/TypeError sul ramo market
+    # (ParserBuilder inizializza SEMPRE `market_mapping_profiles`, righe 109-139).
+    b = _builder()
+    b.market_mapping_profiles = ["Mercati"]
+    cfg = {"provider": "PBet", "recognition_mode": "NAME_ONLY",
+           "market_mappings": {"Mercati": []}}
+    res = wizard.check_parser(b, _MSG, cfg=cfg, chat="42")
+    assert res.ok is True                                     # nessun crash, regole preservate
+
+
+def test_step3_profili_nomi_richiesti_ma_config_senza_name_mappings():
+    # Config del tutto PRIVA della chiave name_mappings: entries_for_profiles → [[]] (profilo
+    # mancante = lista vuota, fail-closed documentato) → MAPPING_MISSING, mai crash.
+    res = wizard.check_parser(_builder(name_profiles=["Serie A"]), _MSG,
+                              cfg={"provider": "PBet"})
+    assert res.ok is False
+
+
+# ── retro-compatibilità: cfg assente → comportamento storico invariato ───────────────────────
+
+def test_step3_senza_cfg_comportamento_storico():
+    assert wizard.check_parser(_builder(), _MSG).ok is True
+    assert wizard.check_parser(_builder(), "ciao come va").ok is False
+    assert wizard.check_parser(_builder(), "  ").ok is False
+
+
+def test_step3_cfg_non_dict_degrada_al_comportamento_storico():
+    assert wizard.check_parser(_builder(), _MSG, cfg="rotto").ok is True
+
+
+def test_check_parser_propaga_le_eccezioni_della_valutazione():
+    """check_parser NON ingoia le eccezioni della valutazione (per design): il
+    fail-closed sta nel chiamante GUI (_run_parser_check: try attorno a TUTTA la
+    valutazione, esito ⛔ sanificato — final review Fable #82). Questo test blocca
+    la regressione inversa: se check_parser catturasse tutto in silenzio, un errore
+    reale sparirebbe senza ⛔ e senza log."""
+    import pytest
+    b = _builder()
+
+    def boom(*_a, **_k):
+        raise RuntimeError("boom")
+
+    b.batch_report = boom
+    with pytest.raises(RuntimeError):
+        wizard.check_parser(b, _MSG, cfg={"recognition_mode": "NAME_ONLY"})
+
+
+# ── wiring (strutturale, pattern #311/#309: GUI non istanziabile headless) ───────────────────
+
+def test_wizard_gui_passa_il_cfg_provider_a_check_parser():
+    # wizard_gui importa customtkinter (assente/incompleto senza Tk reale): si pinna il
+    # SORGENTE su file, come per app.py qui sotto.
+    import pathlib
+    src = pathlib.Path(__file__).resolve().parents[2].joinpath(
+        "xtrader_bridge", "wizard_gui.py").read_text(encoding="utf-8")
+    idx = src.index("def _run_parser_check")
+    blocco = src[idx:idx + 1800]
+    assert "_cfg_provider" in blocco
+    assert "cfg=cfg" in blocco and "chat=" in blocco          # contesto passato allo step 3
+    # Review #82 round 2 (GPT/Fugu) + final Fable: TUTTA la valutazione (cfg_provider E
+    # check_parser) sta DENTRO il try — un'eccezione in qualunque punto (provider rotto,
+    # config malformata nel ramo cfg) è FAIL-CLOSED: esito ⛔ (StepResult False) e `return`,
+    # MAI degrado silenzioso al parser nudo (fail-open = possibile falso ✅, bug P2-8),
+    # mai crash del wizard. E niente `cfg = None` nel ramo d'errore.
+    try_idx = blocco.index("try:")
+    exc_idx = blocco.index("except Exception")
+    assert try_idx < blocco.index("wizard.check_parser") < exc_idx   # valutazione nel try
+    ramo = blocco[exc_idx:blocco.index("self._show(2, res")]
+    assert "StepResult(" in ramo and "False" in ramo          # esito ⛔ onesto
+    assert "return" in ramo                                   # non si prosegue col parser nudo
+    assert "cfg = None" not in ramo                           # nessun fallback fail-open
+
+
+def test_app_open_wizard_fornisce_la_config_viva():
+    # app.py importa customtkinter/telegram a modulo: si pinna il SORGENTE su file (stesso
+    # esito del test strutturale via inspect: il wiring c'è o non c'è), senza import fragili.
+    import pathlib
+    src = pathlib.Path(__file__).resolve().parents[2].joinpath(
+        "xtrader_bridge", "app.py").read_text(encoding="utf-8")
+    idx = src.index("cfg_provider=")
+    assert "self._config" in src[idx:idx + 200]               # config VIVA, non snapshot disco
+    # Final review Fable #82: snapshot DEEP e consistente — le strutture annidate
+    # (name_mappings/market_mappings/sources) non restano condivise con la config viva.
+    assert "copy.deepcopy(self._config)" in src[idx:idx + 200]
