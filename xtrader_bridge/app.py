@@ -31,6 +31,7 @@ from .csv_writer import (
     has_active_row,
     init_csv,
     is_bridge_csv,
+    is_foreign_csv,
     sweep_orphan_temps,
     write_rows,
 )
@@ -2379,6 +2380,16 @@ class App(ctk.CTk):
         if csv_problem:
             self._log(i18n.tr("❌ {problem} Avvio annullato.").format(problem=csv_problem))
             return
+        # P2-3 audit #76 (anti data-loss): se `csv_path` punta a un file ESISTENTE con contenuto
+        # che NON è un CSV del bridge (typo/path riusato → file dell'utente), AVVIA non deve
+        # troncarlo in silenzio con `init_csv`: il cleanup d'avvio (`clear_stale_csv`) e
+        # «📄 Crea CSV» (#286, con conferma esplicita) proteggevano già i file estranei — questo
+        # era l'unico percorso che sovrascriveva senza check. Fail-fast BLOCCANTE (pattern A9)
+        # con istruzione azionabile; un file VUOTO resta inizializzabile (nessun dato da perdere).
+        if is_foreign_csv(cfg["csv_path"]):
+            self._log(i18n.tr("❌ Il file CSV esistente non è un CSV del bridge: non lo sovrascrivo. "
+                              "Usa «📄 Crea CSV» (chiede conferma) o cambia percorso. Avvio annullato."))
+            return
         # Svuota il CSV operativo PRIMA di mettere la sessione in stato ATTIVO: se il path
         # non è scrivibile (lockato da XTrader, permessi, disco pieno) l'avvio va annullato
         # SENZA lasciare la UI "attiva" col listener mai partito (A9). init_csv è l'unico
@@ -3362,6 +3373,16 @@ class App(ctk.CTk):
             path = self._active_csv_path
         else:
             path = self._e_csv.get().strip()
+            # P2-4 audit #76 (anti data-loss): a bridge fermo il path viene dal campo GUI, NON
+            # validato — se punta a un file esistente con contenuto NON-bridge, un click su
+            # «🗑️ Svuota CSV ora» non deve distruggerlo con `init_csv` (stessa guardia del
+            # cleanup d'avvio/«Crea CSV»/AVVIA). Rifiuto PRIMA di ogni side-effect (niente
+            # cancel del timer, niente clear coda). A bridge ATTIVO non serve: si usa
+            # `_active_csv_path`, inizializzato come CSV del bridge allo START.
+            if is_foreign_csv(path):
+                self._log(i18n.tr("⚠️ Svuotamento rifiutato: il file non è un CSV del bridge, "
+                                  "non lo tocco. Controlla il percorso o usa «📄 Crea CSV»."))
+                return
         if not path:
             return
         # Ferma il tick di scadenza così non riscrive il CSV mentre lo svuotiamo (PR-22).

@@ -537,7 +537,12 @@ Tutte queste protezioni sono **attive a runtime**:
 5. **Limite al minuto e al giorno** — oltre soglia i segnali in eccesso non scrivono
    (`max_per_day` per il giorno).
 6. **Scrittura atomica** — il CSV si scrive su file temporaneo e poi `rename`, così
-   XTrader non legge mai un file parziale; l'header è sempre presente.
+   XTrader non legge mai un file parziale; l'header è sempre presente. **Anti data-loss
+   sui file estranei** (audit #76): se `csv_path` punta per errore a un file esistente che
+   **non** è un CSV del bridge, né **AVVIA** né **«🗑️ Svuota CSV ora» a bridge fermo** lo
+   sovrascrivono — l'azione viene rifiutata con un messaggio nel log; per rigenerarlo
+   consapevolmente usa **«📄 Crea CSV»**, che chiede conferma esplicita. Un file vuoto
+   (0 byte) resta inizializzabile senza attrito.
 7. **Nessun token nei log** — i segreti sono redatti sia a schermo sia su file.
 8. **Privacy del contenuto messaggi** — di default il **testo** dei messaggi Telegram
    **non** viene scritto in chiaro nei log: solo impronta (`sha256`) + lunghezza + prima

@@ -703,6 +703,17 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 - **"▶  AVVIA"** (verde `#2e7d32`, bold)
 - **"■  STOP"** (rosso `#c62828`, bold; disabilitato all'avvio)
 - **"🗑️  Svuota CSV ora"**
+
+> **Invariante anti data-loss (audit #76 P2-3/P2-4).** Sia **AVVIA** sia **«🗑️ Svuota CSV
+> ora» a bridge fermo** rifiutano di toccare un file esistente che **non** è un CSV del
+> bridge (contenuto utente scelto per errore nel campo CSV Path): nessun dialogo nuovo,
+> l'esito è un messaggio **bloccante nel log eventi** — AVVIA: «❌ Il file CSV esistente non
+> è un CSV del bridge: non lo sovrascrivo. Usa "📄 Crea CSV" (chiede conferma) o cambia
+> percorso. Avvio annullato.»; Svuota: «⚠️ Svuotamento rifiutato: il file non è un CSV del
+> bridge, non lo tocco…». Un file **vuoto** (0 byte) resta inizializzabile senza attrito.
+> La rigenerazione consapevole di un file estraneo resta il flusso con conferma di
+> «📄 Crea CSV» (§ sotto). A bridge **attivo** «Svuota» agisce sul CSV di sessione (mai sul
+> campo GUI), quindi la guardia non interferisce.
 - **"💾  Salva Config"** (grigio `#37474f`)
 - **"🧰  Strumenti"** (viola `#4527a0`) — apre l'hub
 

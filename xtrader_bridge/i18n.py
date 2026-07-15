@@ -492,6 +492,14 @@ _CATALOG = {
         "▶️ Avvio automatico del listener (auto_start_listener attivo).": "▶️ Automatic listener start (auto_start_listener enabled).",
         "⏸️ Avvio in modalità reale annullato.": "⏸️ Start in real mode cancelled.",
         "❌ {problem} Avvio annullato.": "❌ {problem} Start cancelled.",
+        "❌ Il file CSV esistente non è un CSV del bridge: non lo sovrascrivo. "
+        "Usa «📄 Crea CSV» (chiede conferma) o cambia percorso. Avvio annullato.":
+            "❌ The existing CSV file is not a bridge CSV: I won't overwrite it. "
+            "Use «📄 Create CSV» (asks for confirmation) or change the path. Start cancelled.",
+        "⚠️ Svuotamento rifiutato: il file non è un CSV del bridge, "
+        "non lo tocco. Controlla il percorso o usa «📄 Crea CSV».":
+            "⚠️ Clear refused: the file is not a bridge CSV, leaving it untouched. "
+            "Check the path or use «📄 Create CSV».",
         "❌ Impossibile inizializzare il CSV ({path}): {exc}. Avvio annullato.": "❌ Cannot initialize the CSV ({path}): {exc}. Start cancelled.",
         # Log ESITO elaborazione messaggio/segnale (#343 slice 4m): dispatch ignore + scrittura
         # CSV + conferma/scadenza. «CSV»/«XTrader»/`xtrader_notification_chat_id` verbatim. I valori
@@ -1142,6 +1150,14 @@ _CATALOG = {
         "▶️ Avvio automatico del listener (auto_start_listener attivo).": "▶️ Inicio automático del listener (auto_start_listener activo).",
         "⏸️ Avvio in modalità reale annullato.": "⏸️ Inicio en modo real cancelado.",
         "❌ {problem} Avvio annullato.": "❌ {problem} Inicio cancelado.",
+        "❌ Il file CSV esistente non è un CSV del bridge: non lo sovrascrivo. "
+        "Usa «📄 Crea CSV» (chiede conferma) o cambia percorso. Avvio annullato.":
+            "❌ El archivo CSV existente no es un CSV del bridge: no lo sobrescribo. "
+            "Usa «📄 Crear CSV» (pide confirmación) o cambia la ruta. Inicio cancelado.",
+        "⚠️ Svuotamento rifiutato: il file non è un CSV del bridge, "
+        "non lo tocco. Controlla il percorso o usa «📄 Crea CSV».":
+            "⚠️ Vaciado rechazado: el archivo no es un CSV del bridge, no lo toco. "
+            "Comprueba la ruta o usa «📄 Crear CSV».",
         "❌ Impossibile inizializzare il CSV ({path}): {exc}. Avvio annullato.": "❌ No se puede inicializar el CSV ({path}): {exc}. Inicio cancelado.",
         # Log ESITO elaborazione messaggio/segnale (#343 slice 4m) — vedi nota nel blocco EN.
         "⏳ Messaggio ignorato: troppo vecchio (probabile arretrato dopo una disconnessione).": "⏳ Mensaje ignorado: demasiado antiguo (probablemente atrasado tras una desconexión).",

@@ -534,6 +534,37 @@ def is_bridge_csv(path: str) -> bool:
             return False
 
 
+def is_foreign_csv(path: str) -> bool:
+    """``True`` se ``path`` esiste, NON è vuoto e NON è un CSV del bridge: cioè un file
+    dell'utente con CONTENUTO che una sovrascrittura a solo header distruggerebbe.
+
+    Guardia anti data-loss (P2-3/P2-4 audit #76) per i percorsi che chiamano ``init_csv``
+    su un path arbitrario (AVVIA, «🗑️ Svuota CSV ora» a bridge fermo): `clear_stale_csv` e
+    «📄 Crea CSV» proteggevano già i file estranei, `init_csv` diretto no. Distinzioni:
+
+    - path vuoto / file **assente** → ``False`` (niente da perdere: inizializzabile);
+    - file **vuoto** (0 byte) → ``False`` (nessun dato da perdere: inizializzabile, come
+      un file appena creato dal dialogo Sfoglia);
+    - prima riga = ``CSV_HEADER`` → ``False`` (è un CSV del bridge: sovrascrivibile);
+    - qualsiasi altro contenuto, file **illeggibile/binario** o **errore di lettura** →
+      ``True`` (fail-closed: se non si può PROVARE che è del bridge, non va troncato).
+
+    Read-only, serializzato con `_write_lock` come `is_bridge_csv` (niente lettura di uno
+    stato a metà scrittura)."""
+    if not path:
+        return False
+    with _write_lock:
+        if not os.path.exists(path):
+            return False
+        try:
+            if os.path.getsize(path) == 0:
+                return False
+            with open(path, newline="", encoding="utf-8-sig") as f:
+                return next(csv.reader(f), None) != CSV_HEADER
+        except (OSError, UnicodeDecodeError, csv.Error):
+            return True    # illeggibile: fail-closed, non si tronca ciò che non si conosce
+
+
 # Esiti di `create_header_only_csv` (#286): guidano il messaggio/conferma del chiamante GUI.
 CSV_CREATE_DONE = "done"                  # creato / rigenerato a solo header
 CSV_CREATE_REFUSED_FOREIGN = "foreign"    # file estraneo (header ≠ CSV_HEADER): non toccato
