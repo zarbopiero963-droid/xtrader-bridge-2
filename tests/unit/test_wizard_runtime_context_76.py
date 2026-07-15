@@ -109,6 +109,23 @@ def test_step3_cfg_non_dict_degrada_al_comportamento_storico():
     assert wizard.check_parser(_builder(), _MSG, cfg="rotto").ok is True
 
 
+def test_check_parser_propaga_le_eccezioni_della_valutazione():
+    """check_parser NON ingoia le eccezioni della valutazione (per design): il
+    fail-closed sta nel chiamante GUI (_run_parser_check: try attorno a TUTTA la
+    valutazione, esito ⛔ sanificato — final review Fable #82). Questo test blocca
+    la regressione inversa: se check_parser catturasse tutto in silenzio, un errore
+    reale sparirebbe senza ⛔ e senza log."""
+    import pytest
+    b = _builder()
+
+    def boom(*_a, **_k):
+        raise RuntimeError("boom")
+
+    b.batch_report = boom
+    with pytest.raises(RuntimeError):
+        wizard.check_parser(b, _MSG, cfg={"recognition_mode": "NAME_ONLY"})
+
+
 # ── wiring (strutturale, pattern #311/#309: GUI non istanziabile headless) ───────────────────
 
 def test_wizard_gui_passa_il_cfg_provider_a_check_parser():
@@ -118,16 +135,18 @@ def test_wizard_gui_passa_il_cfg_provider_a_check_parser():
     src = pathlib.Path(__file__).resolve().parents[2].joinpath(
         "xtrader_bridge", "wizard_gui.py").read_text(encoding="utf-8")
     idx = src.index("def _run_parser_check")
-    blocco = src[idx:idx + 1600]
+    blocco = src[idx:idx + 1800]
     assert "_cfg_provider" in blocco
     assert "cfg=cfg" in blocco and "chat=" in blocco          # contesto passato allo step 3
-    assert "check_parser" in blocco
-    # Review #82 round 2 (GPT/Fugu): un cfg_provider che solleva è FAIL-CLOSED — esito ⛔
-    # (StepResult False) e `return` PRIMA di check_parser: MAI degrado silenzioso al parser
-    # nudo (fail-open = possibile falso ✅, proprio il bug P2-8). E niente `cfg = None` nel
-    # ramo d'errore.
+    # Review #82 round 2 (GPT/Fugu) + final Fable: TUTTA la valutazione (cfg_provider E
+    # check_parser) sta DENTRO il try — un'eccezione in qualunque punto (provider rotto,
+    # config malformata nel ramo cfg) è FAIL-CLOSED: esito ⛔ (StepResult False) e `return`,
+    # MAI degrado silenzioso al parser nudo (fail-open = possibile falso ✅, bug P2-8),
+    # mai crash del wizard. E niente `cfg = None` nel ramo d'errore.
+    try_idx = blocco.index("try:")
     exc_idx = blocco.index("except Exception")
-    ramo = blocco[exc_idx:blocco.index("self._show(2, wizard.check_parser")]
+    assert try_idx < blocco.index("wizard.check_parser") < exc_idx   # valutazione nel try
+    ramo = blocco[exc_idx:blocco.index("self._show(2, res")]
     assert "StepResult(" in ramo and "False" in ramo          # esito ⛔ onesto
     assert "return" in ramo                                   # non si prosegue col parser nudo
     assert "cfg = None" not in ramo                           # nessun fallback fail-open
@@ -141,3 +160,6 @@ def test_app_open_wizard_fornisce_la_config_viva():
         "xtrader_bridge", "app.py").read_text(encoding="utf-8")
     idx = src.index("cfg_provider=")
     assert "self._config" in src[idx:idx + 200]               # config VIVA, non snapshot disco
+    # Final review Fable #82: snapshot DEEP e consistente — le strutture annidate
+    # (name_mappings/market_mappings/sources) non restano condivise con la config viva.
+    assert "copy.deepcopy(self._config)" in src[idx:idx + 200]

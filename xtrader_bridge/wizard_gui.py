@@ -244,17 +244,19 @@ class WizardWindow(ctk.CTkToplevel):
         text = self._msg_box.get("1.0", "end")
         try:
             cfg = self._cfg_provider() if self._cfg_provider else None
-        except Exception:   # noqa: BLE001 — provider iniettato: fail-CLOSED, mai crash del wizard
-            # Review #82 round 2 (GPT/Fugu): lo step 3 è un PREFLIGHT di validazione — se la
-            # config viva non è leggibile NON si degrada al parser nudo (sarebbe fail-open:
-            # possibile falso ✅, proprio il bug P2-8). Esito ⛔ onesto e sanificato (nessun
-            # dettaglio dell'errore: potrebbe contenere dati di config); l'utente riprova.
+            res = wizard.check_parser(builder, text, cfg=cfg, chat=chat.strip())
+        except Exception:   # noqa: BLE001 — fail-CLOSED su TUTTA la valutazione, mai crash
+            # Review #82 round 2 (GPT/Fugu) + final Fable: lo step 3 è un PREFLIGHT — se la
+            # config viva non è leggibile O la valutazione col contesto solleva (es. config
+            # malformata in una struttura annidata), NON si degrada al parser nudo (sarebbe
+            # fail-open: possibile falso ✅, proprio il bug P2-8) e NON si crasha il wizard.
+            # Esito ⛔ onesto e sanificato (nessun dettaglio dell'errore: potrebbe contenere
+            # dati di config); l'utente corregge e riprova.
             self._show(2, wizard.StepResult(
                 False, i18n.tr("Config non leggibile: impossibile valutare col contesto "
                                "reale. Riprova (o riapri il wizard).")))
             return
-        self._show(2, wizard.check_parser(builder, text, cfg=cfg, chat=chat.strip()),
-                   snapshot=(chat, text))
+        self._show(2, res, snapshot=(chat, text))
 
     def _run_csv_check(self, do_write):
         path = self._e_csv.get()
