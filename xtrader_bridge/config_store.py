@@ -607,9 +607,9 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
     config restituita in memoria mantiene comunque il token, così il runtime (`_start`) non
     cambia. La chiave `bot_token` **assente** (save parziale) NON tocca il keyring; solo la
     chiave **presente e vuota** è un clear esplicito. Il keyring viene aggiornato **prima**
-    della scrittura su disco e, se il disco fallisce, si esegue il **rollback** del keyring:
-    così un crash a metà non perde il token e un disco fallito non lascia keyring e disco
-    incoerenti. Un sentinel `bot_token_storage` (`keyring`/`plaintext`/`none`) registra dove
+    della scrittura su disco e, se la scrittura fallisce (I/O **o serializzazione**, P2-5
+    audit #76), si esegue il **rollback** del keyring: così un crash a metà non perde il
+    token e una scrittura fallita non lascia keyring e disco incoerenti. Un sentinel `bot_token_storage` (`keyring`/`plaintext`/`none`) registra dove
     sta il token e `load_config` reidrata solo se vale "keyring".
 
     **Post-corruzione (issue #199).** Se `load_config` ha appena messo da parte un config
@@ -894,9 +894,15 @@ def save_config(cfg: dict, path: str = CONFIG_FILE):
         # Scrittura atomica condivisa (tmp + flush/fsync + os.replace, cleanup su errore).
         atomic_io.atomic_write_json(path, to_save, prefix=TMP_PREFIX, suffix=TMP_SUFFIX,
                                     indent=2)
-    except OSError as exc:
-        # Disco fallito → ROLLBACK del keyring allo stato precedente, così keyring e disco
+    except (OSError, TypeError, ValueError) as exc:
+        # Scrittura fallita → ROLLBACK del keyring allo stato precedente, così keyring e disco
         # restano coerenti (la credenziale non cambia se la config non è stata salvata).
+        # P2-5 audit #76: oltre all'I/O (OSError), anche un errore di SERIALIZZAZIONE dentro
+        # `atomic_write_json` → `json.dumps` (TypeError per un valore non-JSON finito in config
+        # in RAM, ValueError per un riferimento circolare) deve seguire QUESTO ramo: prima
+        # propagava senza rollback né SaveResult — keyring aggiornato, config su disco stantia
+        # ed eccezione non gestita al chiamante GUI. Il file su disco è comunque intatto
+        # (`atomic_write_json` fallisce sul temporaneo, mai sul file vero).
         if keyring_changed:
             # `keyring_changed` è True dopo una modifica keyring RIUSCITA: `save_token` nel ramo SET
             # (token nuovo) oppure `delete_token` nel ramo CLEAR (rimozione). In entrambi i casi
