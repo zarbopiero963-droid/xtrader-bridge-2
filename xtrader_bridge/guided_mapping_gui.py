@@ -65,6 +65,12 @@ class GuidedMappingPanel(ctk.CTkFrame):
         self._current = None                 # profilo selezionato
         self._comp_by_label = {}             # {label univoca tendina: competition_id}
         self._team_vars = {}                 # {nome_squadra: StringVar(alias)} — MODELLO, tutte le squadre
+        # Anti-perdita input (P2-9 #76): «foto» degli alias all'ultima precompilazione o
+        # salvataggio; `_dirty()` confronta il modello con questa foto per capire se c'è
+        # input non ancora salvato prima di uno switch profilo/sport/competizione.
+        self._baseline = {}
+        self._last_sport = None              # sport dell'ultimo caricamento (per il merge in uscita)
+        self._last_comp = None               # label competizione dell'ultimo caricamento
         self._filter_debouncer = Debouncer(
             _FILTER_DEBOUNCE_MS, self._render_team_rows,
             schedule=self.after, cancel=self.after_cancel)
@@ -196,8 +202,61 @@ class GuidedMappingPanel(ctk.CTkFrame):
             self._prefill_aliases()
             self._render_team_rows()
 
+    # ── anti-perdita input (P2-9 #76) ───────────────────────────────────────────
+    def _dirty(self):
+        """True se c'è input non ancora salvato: un alias a schermo diverso dalla «foto»
+        (`_baseline`) scattata all'ultima precompilazione o all'ultimo salvataggio."""
+        base = self._baseline
+        return any(var.get() != base.get(team, "") for team, var in self._team_vars.items())
+
+    def _autosave_leaving(self, sport):
+        """Auto-salva gli alias digitati nel profilo corrente PRIMA di uno switch di
+        profilo/sport/competizione (P2-9 #76 — pattern «⚽ Calcio»): STESSO merge per-sport
+        di «💾 Salva nel profilo» (`merge_team_aliases`), così i mapping delle altre
+        competizioni non vengono azzerati. `sport` è quello sotto cui gli alias sono stati
+        digitati (nel cambio sport la tendina è GIÀ sul nuovo valore quando scatta il
+        `command`). Ritorna True se lo switch può proseguire; False (config illeggibile o
+        save fallito) = lo switch va ANNULLATO, con gli alias ancora a schermo."""
+        cfg = self._load_cfg()
+        if cfg is None:
+            return False
+        team_aliases = {team: var.get() for team, var in self._team_vars.items()}
+        merged = merge_team_aliases(
+            name_mapping_store.get_entries(cfg, self._current), sport, team_aliases)
+        cfg = name_mapping_store.set_entries(cfg, self._current, merged)
+        saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
+        if ok and callable(self._on_saved):
+            # anche l'auto-save propaga alla GUI principale (come «⚽ Calcio»): senza, un
+            # successivo «Salva Config»/START sovrascriverebbe il merge appena scritto.
+            self._on_saved(saved)
+        return ok
+
     def _on_profile_change(self, value):
-        self._current = value if value != _NO_PROFILE else None
+        """Cambio profilo: PRIMA auto-salva gli alias digitati nel profilo che si sta
+        lasciando (P2-9 #76, pattern «⚽ Calcio»), POI precompila dal selezionato.
+        Auto-save fallito o config illeggibile → switch ANNULLATO, modifiche a schermo.
+        Senza profilo di partenza gli alias digitati restano a schermo (come «🆕 Nuovo»),
+        pronti da salvare nel profilo appena scelto."""
+        new = value if value != _NO_PROFILE else None
+        if new == self._current:
+            return
+        if self._dirty():
+            if self._current is None:
+                self._current = new
+                self._status.configure(
+                    text=i18n.tr("ℹ️ Alias non ancora salvati mantenuti a schermo: premi "
+                                 "«💾 Salva nel profilo» per scriverli in «{profile}».").format(
+                                     profile=new),
+                    text_color="#ffa726")
+                return
+            if not self._autosave_leaving(self._selected_sport()):
+                self._profile_var.set(self._current)     # annulla lo switch
+                self._status.configure(
+                    text=i18n.tr("❌ Auto-salvataggio FALLITO: cambio profilo annullato, alias "
+                                 "mantenuti a schermo. Controlla permessi/spazio del file config."),
+                    text_color="#ef5350")
+                return
+        self._current = new
         self._prefill_aliases()
         self._render_team_rows()
 
@@ -235,7 +294,31 @@ class GuidedMappingPanel(ctk.CTkFrame):
         return self._sport_var.get()
 
     def _on_sport_change(self):
-        """Nuovo sport: ricarica la tendina competizioni (fail-fast se il DB è occupato)."""
+        """Nuovo sport: ricarica la tendina competizioni (fail-fast se il DB è occupato).
+        PRIMA auto-salva gli alias digitati (P2-9 #76): il merge usa lo sport che si sta
+        LASCIANDO (`_last_sport`) perché la tendina è già sul nuovo valore quando scatta
+        il `command`. Auto-save impossibile (nessun profilo/config illeggibile) o fallito
+        → cambio sport ANNULLATO, alias ancora a schermo."""
+        prev_sport = self._last_sport
+        if self._team_vars and self._dirty():
+            if not self._current:
+                if prev_sport is not None:
+                    self._sport_var.set(prev_sport)
+                self._status.configure(
+                    text=i18n.tr("⛔ Alias digitati ma nessun profilo selezionato: cambio sport "
+                                 "annullato. Salva in un profilo (o svuota gli alias) e riprova."),
+                    text_color="#ef5350")
+                return
+            if not self._autosave_leaving(prev_sport if prev_sport is not None
+                                          else self._selected_sport()):
+                if prev_sport is not None:
+                    self._sport_var.set(prev_sport)
+                self._status.configure(
+                    text=i18n.tr("❌ Auto-salvataggio FALLITO: cambio sport annullato, alias "
+                                 "mantenuti a schermo. Controlla permessi/spazio del file config."),
+                    text_color="#ef5350")
+                return
+        self._last_sport = self._selected_sport()
         self._comp_by_label = {}
         try:
             comps = (self._competitions_provider(self._selected_sport())
@@ -274,7 +357,38 @@ class GuidedMappingPanel(ctk.CTkFrame):
 
     def _load_teams(self):
         """Carica le squadre della competizione selezionata nel MODELLO (una StringVar ciascuna),
-        pre-compila gli alias già salvati, e ridisegna."""
+        pre-compila gli alias già salvati, e ridisegna.
+        PRIMA auto-salva gli alias digitati se si sta cambiando competizione (P2-9 #76; lo
+        sport non cambia, quindi il merge usa quello corrente); auto-save impossibile o
+        fallito → cambio ANNULLATO. Ri-selezionare la STESSA competizione con alias digitati
+        è un no-op: il reload li azzererebbe."""
+        comp_label = self._comp_var.get()
+        prev_comp = self._last_comp
+        if self._team_vars and self._dirty():
+            if comp_label == prev_comp:
+                self._status.configure(
+                    text=i18n.tr("ℹ️ Alias non ancora salvati mantenuti a schermo (stessa "
+                                 "competizione): premi «💾 Salva nel profilo»."),
+                    text_color="#ffa726")
+                return
+            if not self._current:
+                if prev_comp is not None:
+                    self._comp_var.set(prev_comp)
+                self._status.configure(
+                    text=i18n.tr("⛔ Alias digitati ma nessun profilo selezionato: cambio "
+                                 "competizione annullato. Salva in un profilo (o svuota gli "
+                                 "alias) e riprova."),
+                    text_color="#ef5350")
+                return
+            if not self._autosave_leaving(self._selected_sport()):
+                if prev_comp is not None:
+                    self._comp_var.set(prev_comp)
+                self._status.configure(
+                    text=i18n.tr("❌ Auto-salvataggio FALLITO: cambio competizione annullato, alias "
+                                 "mantenuti a schermo. Controlla permessi/spazio del file config."),
+                    text_color="#ef5350")
+                return
+        self._last_comp = comp_label
         comp_id = self._selected_competition_id()
         if not comp_id:
             self._team_vars = {}
@@ -309,6 +423,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
         squadre senza mapping restano vuote. Fondamentale per la correttezza del salvataggio: senza,
         ri-salvare una competizione azzererebbe i mapping di squadre condivise con altre competizioni."""
         if not self._team_vars:
+            self._baseline = {}
             return
         cfg = self._load_cfg()
         entries = (name_mapping_store.get_entries(cfg, self._current)
@@ -317,6 +432,8 @@ class GuidedMappingPanel(ctk.CTkFrame):
                                              list(self._team_vars.keys()))
         for team, var in self._team_vars.items():
             var.set(aliases.get(team, ""))
+        # foto anti-perdita (P2-9): da qui in poi `_dirty()` rileva l'input non salvato.
+        self._baseline = {team: aliases.get(team, "") for team in self._team_vars}
 
     # ── filtro / render ────────────────────────────────────────────────────────
     def _on_filter_key(self, event):
@@ -381,6 +498,8 @@ class GuidedMappingPanel(ctk.CTkFrame):
         if ok:
             if callable(self._on_saved):
                 self._on_saved(saved)
+            # gli alias a schermo ora coincidono col salvato: aggiorna la foto anti-perdita.
+            self._baseline = dict(team_aliases)
             n_written = sum(1 for a in team_aliases.values() if str(a or "").strip())
             n_total = len(name_mapping_store.get_entries(cfg, self._current))
             self._status.configure(
