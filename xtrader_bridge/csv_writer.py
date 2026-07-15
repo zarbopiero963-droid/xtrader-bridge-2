@@ -534,35 +534,74 @@ def is_bridge_csv(path: str) -> bool:
             return False
 
 
+# Esiti di `init_csv_for_session` (P2-3/P2-4 audit #76 + review #79 Fable): guidano il
+# messaggio del chiamante — un file ESTRANEO e un file ILLEGGIBILE per I/O sono entrambi
+# bloccanti (fail-closed) ma la diagnosi è diversa (il secondo può essere un CSV del bridge
+# legittimo lockato da XTrader: dire «non è un CSV del bridge» sarebbe fuorviante).
+CSV_INIT_DONE = "done"                 # header scritto (file assente/vuoto/bridge)
+CSV_INIT_FOREIGN = "foreign"           # contenuto NON-bridge: non toccato
+CSV_INIT_UNREADABLE = "unreadable"     # I/O fallito in lettura (lock/permessi): non toccato
+
+
+def _foreign_status_locked(path: str) -> str:
+    """Classifica il file su ``path`` per l'inizializzazione di sessione. Da chiamare SOTTO
+    ``_write_lock``. Ritorna ``""`` se è inizializzabile senza perdita dati (assente, vuoto,
+    o CSV del bridge), ``CSV_INIT_FOREIGN`` se ha contenuto non-bridge (anche
+    binario/non-decodificabile: il contenuto c'è e non è provabile del bridge),
+    ``CSV_INIT_UNREADABLE`` se la LETTURA fallisce per I/O (lock esclusivo, permessi):
+    fail-closed in entrambi i casi, ma con diagnosi distinta (review #79 Fable)."""
+    if not os.path.exists(path):
+        return ""
+    try:
+        if os.path.getsize(path) == 0:
+            return ""                                  # 0 byte: nessun dato da perdere
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            return "" if next(csv.reader(f), None) == CSV_HEADER else CSV_INIT_FOREIGN
+    except (UnicodeDecodeError, csv.Error):
+        return CSV_INIT_FOREIGN                        # contenuto illeggibile ≠ bridge
+    except OSError:
+        return CSV_INIT_UNREADABLE                     # I/O: non è detto che sia estraneo
+
+
 def is_foreign_csv(path: str) -> bool:
-    """``True`` se ``path`` esiste, NON è vuoto e NON è un CSV del bridge: cioè un file
-    dell'utente con CONTENUTO che una sovrascrittura a solo header distruggerebbe.
+    """``True`` se ``path`` esiste e NON è inizializzabile senza perdita dati: contenuto
+    non-bridge (``CSV_INIT_FOREIGN``) **oppure** lettura fallita per I/O
+    (``CSV_INIT_UNREADABLE`` — fail-closed: se non si può PROVARE che è del bridge, non va
+    troncato). Path vuoto / file assente / file vuoto (0 byte) / CSV del bridge → ``False``.
 
-    Guardia anti data-loss (P2-3/P2-4 audit #76) per i percorsi che chiamano ``init_csv``
-    su un path arbitrario (AVVIA, «🗑️ Svuota CSV ora» a bridge fermo): `clear_stale_csv` e
-    «📄 Crea CSV» proteggevano già i file estranei, `init_csv` diretto no. Distinzioni:
-
-    - path vuoto / file **assente** → ``False`` (niente da perdere: inizializzabile);
-    - file **vuoto** (0 byte) → ``False`` (nessun dato da perdere: inizializzabile, come
-      un file appena creato dal dialogo Sfoglia);
-    - prima riga = ``CSV_HEADER`` → ``False`` (è un CSV del bridge: sovrascrivibile);
-    - qualsiasi altro contenuto, file **illeggibile/binario** o **errore di lettura** →
-      ``True`` (fail-closed: se non si può PROVARE che è del bridge, non va troncato).
-
-    Read-only, serializzato con `_write_lock` come `is_bridge_csv` (niente lettura di uno
-    stato a metà scrittura)."""
+    Classificatore READ-ONLY (guardia anti data-loss P2-3/P2-4 audit #76), serializzato con
+    `_write_lock` come `is_bridge_csv`. Per il percorso che poi SCRIVE l'header usare
+    `init_csv_for_session`, che fa check-and-init ATOMICO sotto lo stesso lock (niente
+    finestra TOCTOU tra guardia e troncamento, review #79 Fable)."""
     if not path:
         return False
     with _write_lock:
-        if not os.path.exists(path):
-            return False
-        try:
-            if os.path.getsize(path) == 0:
-                return False
-            with open(path, newline="", encoding="utf-8-sig") as f:
-                return next(csv.reader(f), None) != CSV_HEADER
-        except (OSError, UnicodeDecodeError, csv.Error):
-            return True    # illeggibile: fail-closed, non si tronca ciò che non si conosce
+        return _foreign_status_locked(path) != ""
+
+
+def init_csv_for_session(path: str) -> str:
+    """Inizializza il CSV di sessione a SOLO header in modo ATOMICO e anti data-loss: la
+    classificazione del file esistente (`_foreign_status_locked`) e la scrittura dell'header
+    avvengono SOTTO LO STESSO ``_write_lock`` — nessuna finestra TOCTOU tra «guarda cos'è» e
+    «sovrascrivi» (stesso principio di `create_header_only_csv` #286; review #79 Fable).
+
+    Esiti:
+    - ``CSV_INIT_DONE`` → header scritto: file assente/vuoto creato, CSV del bridge azzerato
+      (ANCHE con riga attiva: a START/clear la riga stantia va rimossa — a differenza di
+      `create_header_only_csv`, che in quel caso rifiuta con `CSV_CREATE_REFUSED_ACTIVE`);
+    - ``CSV_INIT_FOREIGN`` → contenuto non-bridge: NON toccato (usare «📄 Crea CSV» con
+      conferma per rigenerarlo consapevolmente);
+    - ``CSV_INIT_UNREADABLE`` → lettura fallita per I/O (lock/permessi): NON toccato.
+
+    Solleva ``OSError`` se la SCRITTURA fallisce (come `init_csv`)."""
+    if not path:
+        return CSV_INIT_FOREIGN
+    with _write_lock:
+        status = _foreign_status_locked(path)
+        if status:
+            return status
+        _atomic_write_locked(path, lambda writer: None)    # solo header, stesso lock
+        return CSV_INIT_DONE
 
 
 # Esiti di `create_header_only_csv` (#286): guidano il messaggio/conferma del chiamante GUI.

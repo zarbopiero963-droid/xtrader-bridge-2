@@ -96,19 +96,44 @@ def test_manual_clear_running_usa_active_e_ignora_gui_estraneo(make_app, app_mod
     assert q.is_empty()
 
 
+# ── P2-4 (review #79 Fable): I/O fallito in lettura ≠ file estraneo — diagnosi distinta ──────
+
+def test_manual_clear_fermo_io_fallito_rifiuta_con_messaggio_dedicato(
+        make_app, app_mod, monkeypatch, tmp_path):
+    # Un CSV del bridge LEGITTIMO ma illeggibile (lock esclusivo XTrader / permessi) non va
+    # toccato, e il messaggio NON deve dire «non è un CSV del bridge» (sarebbe fuorviante).
+    p = str(tmp_path / "segnali.csv")
+    csv_writer.init_csv(p)
+    monkeypatch.setattr(app_mod, "init_csv_for_session",
+                        lambda _p: csv_writer.CSV_INIT_UNREADABLE)
+    a = make_app(csv_path=None, running=False, gui_csv=p, queue=None)
+
+    app_mod.App._manual_clear(a)
+
+    assert csv_writer.is_bridge_csv(p)                      # non toccato
+    assert any("impossibile leggere" in m for m in a.logs)  # diagnosi I/O dedicata
+    assert not any("non è un CSV del bridge" in m for m in a.logs)
+
+
 # ── P2-3: guardia strutturale su _start ──────────────────────────────────────────────────────
 
 def test_start_bloccato_su_csv_estraneo_guardia_strutturale(app_mod):
-    # FAIL-FIRST: sul codice precedente `is_foreign_csv` non compariva in _start.
+    # FAIL-FIRST: sul codice precedente il check-and-init atomico non compariva in _start.
+    # Review #79 Fable: si usa `init_csv_for_session` (classificazione + scrittura header sotto
+    # lo STESSO lock del csv_writer → nessuna finestra TOCTOU tra guardia e troncamento) con
+    # esiti bloccanti distinti per file estraneo e I/O fallito in lettura.
     src = inspect.getsource(app_mod.App._start)
-    assert "is_foreign_csv" in src
-    idx = src.index("is_foreign_csv")
-    blocco = src[idx:idx + 600]
-    assert "non lo sovrascrivo" in blocco                   # istruzione visibile all'utente
-    assert "Avvio annullato" in blocco
+    assert "init_status = init_csv_for_session(" in src     # ancora sulla CHIAMATA, non sul commento
+    idx = src.index("init_status = init_csv_for_session(")
+    blocco = src[idx:idx + 1200]
+    assert "CSV_INIT_FOREIGN" in blocco
+    assert "non lo sovrascrivo" in blocco                   # istruzione visibile (foreign)
+    assert "CSV_INIT_UNREADABLE" in blocco
+    assert "Impossibile leggere" in blocco                  # diagnosi I/O dedicata
+    assert blocco.count("Avvio annullato") >= 2             # entrambi gli esiti bloccano
     assert "return" in blocco                               # BLOCCANTE, non avviso
-    # La guardia sta PRIMA dell'avvio vero (`_bot_thread` esiste e viene dopo) e PRIMA di
-    # `init_csv` (l'unico punto che sovrascriverebbe il file).
+    # La guardia atomica sta PRIMA dell'avvio vero, e in _start NON resta alcuna chiamata
+    # diretta `init_csv(` non-atomica (sarebbe la reintroduzione della TOCTOU).
     assert "_bot_thread" in src
     assert idx < src.index("_bot_thread")
-    assert idx < src.index("init_csv(")
+    assert "init_csv(" not in src.replace("init_csv_for_session(", "")

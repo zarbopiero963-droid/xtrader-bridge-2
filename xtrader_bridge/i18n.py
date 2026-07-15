@@ -500,6 +500,14 @@ _CATALOG = {
         "non lo tocco. Controlla il percorso o usa «📄 Crea CSV».":
             "⚠️ Clear refused: the file is not a bridge CSV, leaving it untouched. "
             "Check the path or use «📄 Create CSV».",
+        "❌ Impossibile leggere il file CSV esistente (lockato o permessi): "
+        "non lo tocco. Avvio annullato.":
+            "❌ Cannot read the existing CSV file (locked or permissions): "
+            "leaving it untouched. Start cancelled.",
+        "⚠️ Svuotamento rifiutato: impossibile leggere il file "
+        "(lockato o permessi), non lo tocco.":
+            "⚠️ Clear refused: cannot read the file (locked or permissions), "
+            "leaving it untouched.",
         "❌ Impossibile inizializzare il CSV ({path}): {exc}. Avvio annullato.": "❌ Cannot initialize the CSV ({path}): {exc}. Start cancelled.",
         # Log ESITO elaborazione messaggio/segnale (#343 slice 4m): dispatch ignore + scrittura
         # CSV + conferma/scadenza. «CSV»/«XTrader»/`xtrader_notification_chat_id` verbatim. I valori
@@ -1158,6 +1166,14 @@ _CATALOG = {
         "non lo tocco. Controlla il percorso o usa «📄 Crea CSV».":
             "⚠️ Vaciado rechazado: el archivo no es un CSV del bridge, no lo toco. "
             "Comprueba la ruta o usa «📄 Crear CSV».",
+        "❌ Impossibile leggere il file CSV esistente (lockato o permessi): "
+        "non lo tocco. Avvio annullato.":
+            "❌ No se puede leer el archivo CSV existente (bloqueado o permisos): "
+            "no lo toco. Inicio cancelado.",
+        "⚠️ Svuotamento rifiutato: impossibile leggere il file "
+        "(lockato o permessi), non lo tocco.":
+            "⚠️ Vaciado rechazado: no se puede leer el archivo (bloqueado o permisos), "
+            "no lo toco.",
         "❌ Impossibile inizializzare il CSV ({path}): {exc}. Avvio annullato.": "❌ No se puede inicializar el CSV ({path}): {exc}. Inicio cancelado.",
         # Log ESITO elaborazione messaggio/segnale (#343 slice 4m) — vedi nota nel blocco EN.
         "⏳ Messaggio ignorato: troppo vecchio (probabile arretrato dopo una disconnessione).": "⏳ Mensaje ignorado: demasiado antiguo (probablemente atrasado tras una desconexión).",

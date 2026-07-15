@@ -27,11 +27,14 @@ from .config_store import (
     save_config,
 )
 from .csv_writer import (
+    CSV_INIT_DONE,
+    CSV_INIT_FOREIGN,
+    CSV_INIT_UNREADABLE,
     clear_stale_csv,
     has_active_row,
     init_csv,
+    init_csv_for_session,
     is_bridge_csv,
-    is_foreign_csv,
     sweep_orphan_temps,
     write_rows,
 )
@@ -2380,25 +2383,30 @@ class App(ctk.CTk):
         if csv_problem:
             self._log(i18n.tr("❌ {problem} Avvio annullato.").format(problem=csv_problem))
             return
-        # P2-3 audit #76 (anti data-loss): se `csv_path` punta a un file ESISTENTE con contenuto
-        # che NON è un CSV del bridge (typo/path riusato → file dell'utente), AVVIA non deve
-        # troncarlo in silenzio con `init_csv`: il cleanup d'avvio (`clear_stale_csv`) e
-        # «📄 Crea CSV» (#286, con conferma esplicita) proteggevano già i file estranei — questo
-        # era l'unico percorso che sovrascriveva senza check. Fail-fast BLOCCANTE (pattern A9)
-        # con istruzione azionabile; un file VUOTO resta inizializzabile (nessun dato da perdere).
-        if is_foreign_csv(cfg["csv_path"]):
-            self._log(i18n.tr("❌ Il file CSV esistente non è un CSV del bridge: non lo sovrascrivo. "
-                              "Usa «📄 Crea CSV» (chiede conferma) o cambia percorso. Avvio annullato."))
-            return
-        # Svuota il CSV operativo PRIMA di mettere la sessione in stato ATTIVO: se il path
-        # non è scrivibile (lockato da XTrader, permessi, disco pieno) l'avvio va annullato
-        # SENZA lasciare la UI "attiva" col listener mai partito (A9). init_csv è l'unico
-        # I/O che può fallire qui prima dell'avvio del thread.
+        # P2-3 audit #76 + review #79 Fable (anti data-loss, ATOMICO): l'inizializzazione del CSV
+        # di sessione usa `init_csv_for_session` — classificazione del file esistente e scrittura
+        # dell'header sotto lo STESSO lock del csv_writer, nessuna finestra TOCTOU tra «guarda
+        # cos'è» e «sovrascrivi». Svuota il CSV PRIMA di mettere la sessione in stato ATTIVO: se
+        # il path non è utilizzabile l'avvio va annullato SENZA lasciare la UI "attiva" col
+        # listener mai partito (A9). Esiti bloccanti, con diagnosi DISTINTA (review #79):
+        # - FOREIGN → file utente con contenuto non-bridge (typo/path riusato): non si tronca in
+        #   silenzio — la rigenerazione consapevole resta «📄 Crea CSV» (#286, con conferma); un
+        #   file VUOTO resta inizializzabile (nessun dato da perdere);
+        # - UNREADABLE → lettura fallita per I/O (lock esclusivo XTrader, permessi): può essere
+        #   un CSV del bridge legittimo — dire «non è un CSV del bridge» sarebbe fuorviante.
         try:
-            init_csv(cfg["csv_path"])
+            init_status = init_csv_for_session(cfg["csv_path"])
         except OSError as exc:
             self._log(i18n.tr("❌ Impossibile inizializzare il CSV ({path}): {exc}. Avvio annullato.")
                       .format(path=cfg['csv_path'], exc=f"{type(exc).__name__}: {exc}"))
+            return
+        if init_status == CSV_INIT_FOREIGN:
+            self._log(i18n.tr("❌ Il file CSV esistente non è un CSV del bridge: non lo sovrascrivo. "
+                              "Usa «📄 Crea CSV» (chiede conferma) o cambia percorso. Avvio annullato."))
+            return
+        if init_status == CSV_INIT_UNREADABLE:
+            self._log(i18n.tr("❌ Impossibile leggere il file CSV esistente (lockato o permessi): "
+                              "non lo tocco. Avvio annullato."))
             return
         # #234 B: se una riga stantia è sopravvissuta fino a qui (cleanup avvio/STOP non riuscito
         # perché XTrader teneva il file lockato), è QUESTO init_csv a rimuoverla → registra il clear
@@ -3369,20 +3377,16 @@ class App(ctk.CTk):
         # path del campo GUI: l'utente potrebbe averlo cambiato a runtime e svuotare il
         # file sbagliato lascerebbe una riga ORFANA nel CSV operativo reale (A2). A bridge
         # fermo non c'è sessione attiva → si usa il campo GUI.
+        # P2-4 audit #76: a bridge FERMO il path viene dal campo GUI, NON validato — se punta a
+        # un file con contenuto NON-bridge, un click su «🗑️ Svuota CSV ora» non deve distruggerlo.
+        # La guardia è ATOMICA (review #79 Fable): nel ramo fermo si usa `init_csv_for_session`
+        # (check-and-init sotto lo stesso lock del csv_writer) al posto di `init_csv`. A bridge
+        # ATTIVO non serve: si usa `_active_csv_path`, inizializzato come CSV del bridge a START.
+        from_gui_path = not (self._running and self._active_csv_path)
         if self._running and self._active_csv_path:
             path = self._active_csv_path
         else:
             path = self._e_csv.get().strip()
-            # P2-4 audit #76 (anti data-loss): a bridge fermo il path viene dal campo GUI, NON
-            # validato — se punta a un file esistente con contenuto NON-bridge, un click su
-            # «🗑️ Svuota CSV ora» non deve distruggerlo con `init_csv` (stessa guardia del
-            # cleanup d'avvio/«Crea CSV»/AVVIA). Rifiuto PRIMA di ogni side-effect (niente
-            # cancel del timer, niente clear coda). A bridge ATTIVO non serve: si usa
-            # `_active_csv_path`, inizializzato come CSV del bridge allo START.
-            if is_foreign_csv(path):
-                self._log(i18n.tr("⚠️ Svuotamento rifiutato: il file non è un CSV del bridge, "
-                                  "non lo tocco. Controlla il percorso o usa «📄 Crea CSV»."))
-                return
         if not path:
             return
         # Ferma il tick di scadenza così non riscrive il CSV mentre lo svuotiamo (PR-22).
@@ -3397,23 +3401,42 @@ class App(ctk.CTk):
         # la coda e RIPROGRAMMIAMO la scadenza, così la riga rimasta sul disco viene
         # comunque ripulita più tardi invece di restare orfana; e non crasha la GUI.
         write_error = None
+        refused = ""      # P2-4: esito FOREIGN/UNREADABLE del ramo bridge-fermo (nessuna scrittura)
+        csv_lock_event = None
         with self._queue_lock:
             try:
-                init_csv(path)
+                if from_gui_path:
+                    status = init_csv_for_session(path)
+                    if status != CSV_INIT_DONE:
+                        refused = status
+                else:
+                    init_csv(path)
             except OSError as exc:
                 write_error = exc
             else:
-                if self._queue is not None:
-                    for sid in self._queue.active_ids():
-                        self._queue.remove(sid)
-                # Header su disco + coda svuotata: riallineati (Codex P1 #300).
-                self._csv_dirty = False
+                if not refused:
+                    if self._queue is not None:
+                        for sid in self._queue.active_ids():
+                            self._queue.remove(sid)
+                    # Header su disco + coda svuotata: riallineati (Codex P1 #300).
+                    self._csv_dirty = False
             # #153 H2 (Codex #156): anche lo svuotamento manuale è una scrittura su disco.
             # Registra l'esito sotto lock, così un clear riuscito dopo lo sblocco esce
             # dallo stato «CSV bloccato» (altrimenti, cancellando il timer, nessun
-            # `_apply_csv_lock_event` successivo lo farebbe).
-            csv_lock_event = self._record_csv_lock(True, write_error)
-        self._apply_csv_lock_event(csv_lock_event)
+            # `_apply_csv_lock_event` successivo lo farebbe). Un RIFIUTO (foreign/unreadable)
+            # NON è una scrittura tentata: lo stato CSV-lock resta invariato.
+            if not refused:
+                csv_lock_event = self._record_csv_lock(True, write_error)
+        if csv_lock_event is not None:
+            self._apply_csv_lock_event(csv_lock_event)
+        if refused:
+            if refused == CSV_INIT_FOREIGN:
+                self._log(i18n.tr("⚠️ Svuotamento rifiutato: il file non è un CSV del bridge, "
+                                  "non lo tocco. Controlla il percorso o usa «📄 Crea CSV»."))
+            else:
+                self._log(i18n.tr("⚠️ Svuotamento rifiutato: impossibile leggere il file "
+                                  "(lockato o permessi), non lo tocco."))
+            return
         if write_error is not None:
             # Path + tipo eccezione aiutano a diagnosticare lock/permessi.
             self._log(

@@ -710,7 +710,11 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 > l'esito è un messaggio **bloccante nel log eventi** — AVVIA: «❌ Il file CSV esistente non
 > è un CSV del bridge: non lo sovrascrivo. Usa "📄 Crea CSV" (chiede conferma) o cambia
 > percorso. Avvio annullato.»; Svuota: «⚠️ Svuotamento rifiutato: il file non è un CSV del
-> bridge, non lo tocco…». Un file **vuoto** (0 byte) resta inizializzabile senza attrito.
+> bridge, non lo tocco…». Se invece la **lettura fallisce per I/O** (file lockato da
+> XTrader, permessi) la diagnosi è distinta e onesta — AVVIA: «❌ Impossibile leggere il
+> file CSV esistente (lockato o permessi): non lo tocco. Avvio annullato.»; Svuota:
+> «⚠️ Svuotamento rifiutato: impossibile leggere il file (lockato o permessi), non lo
+> tocco.». Un file **vuoto** (0 byte) resta inizializzabile senza attrito.
 > La rigenerazione consapevole di un file estraneo resta il flusso con conferma di
 > «📄 Crea CSV» (§ sotto). A bridge **attivo** «Svuota» agisce sul CSV di sessione (mai sul
 > campo GUI), quindi la guardia non interferisce.
