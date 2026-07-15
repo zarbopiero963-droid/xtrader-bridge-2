@@ -74,8 +74,9 @@ _ALLOWLIST = {
                          "su finestra/Tk distrutti durante la sonda → niente da aggiornare; "
                          "(3) winfo_exists che solleva a interprete smontato = finestra chiusa; "
                          "(4) cfg_provider iniettato che solleva allo step 3 (P2-8 #76, review "
-                         "#82 GLM/GPT) → si degrada a cfg=None (parser nudo, comportamento "
-                         "storico), mai crash del wizard"),
+                         "#82 round 2 GPT/Fugu) → esito FAIL-CLOSED sanificato (StepResult ⛔ e "
+                         "return, MAI degrado al parser nudo: sarebbe fail-open), mai crash del "
+                         "wizard"),
     "wizard.py": (3, "sonde one-shot del Wizard (#311 §3.4): getMe/getUpdates/scrittura "
                      "di prova — qualsiasi errore diventa un esito FAIL-CLOSED col messaggio "
                      "SANIFICATO (mai il token/URL nell'errore), lo step non passa e il "
