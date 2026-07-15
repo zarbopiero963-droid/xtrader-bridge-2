@@ -166,6 +166,20 @@ def test_chiave_vuota_in_coda_non_blocca_un_segnale_nuovo():
     assert len(written) == 2
 
 
+def test_chiave_calcolata_vuota_non_combacia_con_legacy_vuota(monkeypatch):
+    # Filtro difensivo (review #77 Fable): scenario IPOTETICO in cui `row_dedup_key` degenerasse
+    # a "" (oggi impossibile: sha256 hexdigest, sempre 64 char) con una riga legacy a chiave ""
+    # in coda → il segnale nuovo NON deve essere marcato DUPLICATE (over-blocking = bet persa).
+    tracker, daily, queue = _fresh(signal_queue.APPEND_ACTIVE, timeout=600)
+    queue.add(_row("X"), now=100.0)                   # riga legacy senza dedup_key → ""
+    monkeypatch.setattr(write_path.signal_dedupe, "row_dedup_key", lambda t, r: "")
+    written = []
+    res = write_path.commit_signal(
+        tracker, daily, queue, CFG_REAL, "msgY", _row("Y"), "out.csv", 110.0, _ok_writer(written))
+    assert res.decision == live_guard.WRITE           # "" non blocca mai: chiavi vuote escluse
+    assert len(written) == 1
+
+
 # ── OVERWRITE_LAST: comportamento invariato (nessun rischio doppia-riga) ────────────────────
 
 def test_overwrite_single_row_reinvio_oltre_finestra_resta_write_sostituzione():

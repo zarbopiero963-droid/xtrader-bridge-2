@@ -111,9 +111,13 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows,
         # OVERWRITE_LAST: lì `add` SOSTITUISCE (mai doppia riga) e il reinvio deve poter
         # riscrivere l'ultima istruzione (comportamento storico invariato).
         key = signal_dedupe.row_dedup_key(text, row)
+        # Filtro difensivo (review #77 Fable): si confrontano solo chiavi NON vuote, allineato al
+        # percorso multi. Oggi `row_dedup_key` non può restituire "" (sha256 hexdigest, sempre 64
+        # char), ma se un refactor futuro lo permettesse, una chiave vuota NON deve combaciare con
+        # una riga legacy accodata senza chiave ("") e bloccare un segnale nuovo (over-blocking).
         if tracker.is_seen(key) or (
-                queue.mode != signal_queue.OVERWRITE_LAST
-                and key in queue.active_keys(now=now)):
+                queue.mode != signal_queue.OVERWRITE_LAST and key
+                and key in {k for k in queue.active_keys(now=now) if k}):
             decision = live_guard.DUPLICATE
         else:
             decision = live_guard.evaluate(cfg, tracker, daily, text)
