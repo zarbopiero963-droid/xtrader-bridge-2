@@ -233,6 +233,15 @@ def _redact_config(cfg: dict) -> dict:
                 if isinstance(ch, dict) else ch
                 for ch in val]
             continue
+        if key in ("parser_by_chat", "parser_list_by_chat") and isinstance(val, dict):
+            # P2-6 audit #76: anche i chat ID usati come CHIAVI di questi dict
+            # ({chat_id: parser} / {chat_id: [parser, ...]}) sono sensibili quanto
+            # `chat_id`/`source_chats`: senza redazione partirebbero in CHIARO verso l'API
+            # Anthropic e verrebbero persistiti in `assistant_history.json` (il redattore a
+            # valle copre solo il bot token). I VALORI (nomi parser) non sono sensibili e
+            # restano leggibili; una chiave vuota/None degrada a "" (mai il valore grezzo).
+            out[key] = {(log_privacy.redact_chat_id(k) or ""): v for k, v in val.items()}
+            continue
         out[key] = val
     return out
 
@@ -473,8 +482,15 @@ def build_message_preview(cfg, message, *, chat="", parsers_dir=None) -> dict:
                            if builder.market_mapping_profiles else None)
         source_language = recognition.effective_source_language(cfg, defn)
         provider = source_manager.provider_for_chat(cfg, chat_id, default=str(cfg.get("provider", "") or ""))
+        # P2-7 audit #76 (parità preview↔runtime): la modalità EFFETTIVA è quella del parser o,
+        # per un parser LEGACY con `mode==""`, quella GLOBALE — stessa risoluzione VERBATIM del
+        # runtime (`signal_router._resolve_one`) e della GUI («Prova messaggio», `or _global_mode`).
+        # Senza `mode=`, il builder normalizzava "" a NAME_ONLY e l'assistente poteva dire
+        # «Pronto» per un messaggio che il live in ID_ONLY scarta (o viceversa).
+        mode = recognition.normalize_mode(
+            getattr(defn, "mode", "") or cfg.get("recognition_mode", recognition.DEFAULT_MODE))
         reports, skipped = builder.batch_report(
-            text, provider=provider, name_mapping_profiles=name_profiles,
+            text, provider=provider, mode=mode, name_mapping_profiles=name_profiles,
             market_mapping_profiles=market_profiles, source_language=source_language)
         out_reports = []
         for rep in reports:
