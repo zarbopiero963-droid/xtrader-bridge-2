@@ -529,7 +529,11 @@ Tutte queste protezioni sono **attive a runtime**:
      alto mostra quante scommesse sono attive ora.
 4. **Anti-duplicato** — lo stesso messaggio ravvicinato non viene riscritto. Lo
    stato persiste in `dedupe_state.json`, quindi i duplicati recenti restano
-   riconosciuti anche dopo un riavvio.
+   riconosciuti anche dopo un riavvio. Inoltre, nelle modalità multi-riga
+   (`APPEND_ACTIVE`/`QUEUE_UNTIL_CONFIRMED`), un segnale **identico a una riga ancora
+   attiva** nel CSV è un duplicato **a prescindere dalla finestra temporale**: anche se
+   il reinvio arriva oltre la finestra di deduplica (es. `confirmation_timeout` più
+   lungo), la riga uguale già attiva non viene mai raddoppiata.
 5. **Limite al minuto e al giorno** — oltre soglia i segnali in eccesso non scrivono
    (`max_per_day` per il giorno).
 6. **Scrittura atomica** — il CSV si scrive su file temporaneo e poi `rename`, così
