@@ -504,6 +504,10 @@ _CATALOG = {
         "non lo tocco. Avvio annullato.":
             "❌ Cannot read the existing CSV file (locked or permissions): "
             "leaving it untouched. Start cancelled.",
+        "Config non leggibile: impossibile valutare col contesto "
+        "reale. Riprova (o riapri il wizard).":
+            "Config unreadable: cannot evaluate with the real context. "
+            "Retry (or reopen the wizard).",
         "⚠️ Svuotamento rifiutato: impossibile leggere il file "
         "(lockato o permessi), non lo tocco.":
             "⚠️ Clear refused: cannot read the file (locked or permissions), "
@@ -1170,6 +1174,10 @@ _CATALOG = {
         "non lo tocco. Avvio annullato.":
             "❌ No se puede leer el archivo CSV existente (bloqueado o permisos): "
             "no lo toco. Inicio cancelado.",
+        "Config non leggibile: impossibile valutare col contesto "
+        "reale. Riprova (o riapri il wizard).":
+            "Config ilegible: no se puede evaluar con el contexto real. "
+            "Reintenta (o reabre el asistente).",
         "⚠️ Svuotamento rifiutato: impossibile leggere il file "
         "(lockato o permessi), non lo tocco.":
             "⚠️ Vaciado rechazado: no se puede leer el archivo (bloqueado o permisos), "

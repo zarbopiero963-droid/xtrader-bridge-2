@@ -244,11 +244,15 @@ class WizardWindow(ctk.CTkToplevel):
         text = self._msg_box.get("1.0", "end")
         try:
             cfg = self._cfg_provider() if self._cfg_provider else None
-        except Exception:   # noqa: BLE001 — provider iniettato: fail-safe, mai crash del wizard
-            # Review #82 GLM/GPT: un cfg_provider difettoso non deve far crashare lo step 3 —
-            # senza contesto si degrada al comportamento storico (parser nudo), che al più dà
-            # un verdetto meno fedele, mai un'eccezione in faccia all'utente.
-            cfg = None
+        except Exception:   # noqa: BLE001 — provider iniettato: fail-CLOSED, mai crash del wizard
+            # Review #82 round 2 (GPT/Fugu): lo step 3 è un PREFLIGHT di validazione — se la
+            # config viva non è leggibile NON si degrada al parser nudo (sarebbe fail-open:
+            # possibile falso ✅, proprio il bug P2-8). Esito ⛔ onesto e sanificato (nessun
+            # dettaglio dell'errore: potrebbe contenere dati di config); l'utente riprova.
+            self._show(2, wizard.StepResult(
+                False, i18n.tr("Config non leggibile: impossibile valutare col contesto "
+                               "reale. Riprova (o riapri il wizard).")))
+            return
         self._show(2, wizard.check_parser(builder, text, cfg=cfg, chat=chat.strip()),
                    snapshot=(chat, text))
 

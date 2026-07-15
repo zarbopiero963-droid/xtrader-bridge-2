@@ -118,13 +118,19 @@ def test_wizard_gui_passa_il_cfg_provider_a_check_parser():
     src = pathlib.Path(__file__).resolve().parents[2].joinpath(
         "xtrader_bridge", "wizard_gui.py").read_text(encoding="utf-8")
     idx = src.index("def _run_parser_check")
-    blocco = src[idx:idx + 1200]
+    blocco = src[idx:idx + 1600]
     assert "_cfg_provider" in blocco
     assert "cfg=cfg" in blocco and "chat=" in blocco          # contesto passato allo step 3
     assert "check_parser" in blocco
-    # Review #82 GLM/GPT: un cfg_provider che solleva NON deve crashare il wizard —
-    # try/except con degrado a cfg=None (comportamento storico) presente attorno alla chiamata.
-    assert "try:" in blocco and "cfg = None" in blocco
+    # Review #82 round 2 (GPT/Fugu): un cfg_provider che solleva è FAIL-CLOSED — esito ⛔
+    # (StepResult False) e `return` PRIMA di check_parser: MAI degrado silenzioso al parser
+    # nudo (fail-open = possibile falso ✅, proprio il bug P2-8). E niente `cfg = None` nel
+    # ramo d'errore.
+    exc_idx = blocco.index("except Exception")
+    ramo = blocco[exc_idx:blocco.index("self._show(2, wizard.check_parser")]
+    assert "StepResult(" in ramo and "False" in ramo          # esito ⛔ onesto
+    assert "return" in ramo                                   # non si prosegue col parser nudo
+    assert "cfg = None" not in ramo                           # nessun fallback fail-open
 
 
 def test_app_open_wizard_fornisce_la_config_viva():
