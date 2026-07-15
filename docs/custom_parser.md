@@ -482,9 +482,12 @@ Tutti questi gate devono passare perché una riga venga scritta:
    versioni BT/XT, #3; l'output CSV resta canonico `PUNTA`/`BANCA`; ES `FAVOR`/`CONTRA` non ancora
    supportati → rifiutati), e i campi richiesti dalla modalità di
    riconoscimento (`ID_ONLY`/`NAME_ONLY`/`BOTH`) devono esserci. Il separatore
-   decimale di `Price`/`MinPrice`/`MaxPrice` è normalizzato **internamente** a `.`
+   decimale di `Price`/`MinPrice`/`MaxPrice` — e, dall'audit #76 (P2-2), anche di
+   `Handicap`/`Points` — è normalizzato **internamente** a `.`
    (rappresentazione canonica: es. `1,85`→`1.85`; `1.234,56`→`1234.56` con raggruppamento
-   migliaia valido). Un doppio separatore **malformato** (es. `1.2,3`) NON viene aggiustato:
+   migliaia valido). La forma canonica di `Handicap` conta anche per la **deduplica**: la
+   stessa scommessa scritta «0,5» o «0.5» da due parser sulla stessa chat ha la stessa
+   chiave per-riga e non genera due righe. Un doppio separatore **malformato** (es. `1.2,3`) NON viene aggiustato:
    resta invalido → `INVALID_PRICE` (fail-closed, niente prezzo sbagliato nel CSV).
    Il separatore **scritto nel file** segue poi la config `csv_language` (#342: `IT`/`ES` =
    virgola «1,85», `EN` = punto — vedi `docs/xtrader_csv_contract.md`). I campi facoltativi, **se valorizzati**,

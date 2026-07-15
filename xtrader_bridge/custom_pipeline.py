@@ -81,6 +81,14 @@ _HANDICAP_RE = re.compile(r"^" + numbers_re.SIGNED_DECIMAL + r"$")   # frammento
 
 # Colonne quota: il contratto XTrader usa il punto decimale (es. "1.85").
 _PRICE_COLS = ("Price", "MinPrice", "MaxPrice")
+# Colonne decimali normalizzate virgola→punto al contratto (P2-2 audit #76): oltre alle quote,
+# anche Handicap e Points. `_HANDICAP_RE` accetta la virgola («+1,5») e `Handicap` è parte della
+# chiave di deduplica per-riga (`signal_dedupe._ROW_KEY_FIELDS`, confronto su stringa grezza):
+# senza normalizzazione, la STESSA scommessa da due parser (stile «0.5» vs «0,5») avrebbe chiavi
+# diverse → nessuna dedup → due righe identiche nel CSV localizzato (doppia scommessa). La riga
+# interna deve restare canonica col punto (docstring `csv_writer.localize_row`); l'output CSV non
+# cambia: `_localize_decimal` serializza già in modo uniforme per lingua.
+_DECIMAL_NORM_COLS = _PRICE_COLS + ("Handicap", "Points")
 
 
 def _decimal_sep_to_point(value) -> str:
@@ -209,7 +217,9 @@ def _normalize_to_contract(row: dict, provider: str) -> dict:
 
     - `Provider`: dal runtime/config (`provider`) se la regola non lo imposta;
     - `Handicap` = "0" se vuoto/None; `Points` resta vuoto;
-    - `Price`/`MinPrice`/`MaxPrice`: virgola → punto (es. "1,85" → "1.85");
+    - `Price`/`MinPrice`/`MaxPrice`/`Handicap`/`Points`: virgola → punto (es. "1,85" → "1.85";
+      P2-2 audit #76: anche Handicap/Points, così la chiave dedup per-riga è canonica e la
+      stessa scommessa in stile «0,5»/«0.5» non genera due righe);
     - `BetType`: canonicalizzato al lato ITALIANO del contratto (`BACK`→`PUNTA`, `LAY`→`BANCA`,
       `PUNTA`/`BANCA` invariati). Gli input inglesi sono accettati indifferentemente (conferma
       supporto BT/XT, issue #3), ma l'OUTPUT CSV resta canonico PUNTA/BANCA (universale su tutte
@@ -224,7 +234,7 @@ def _normalize_to_contract(row: dict, provider: str) -> dict:
         out["Handicap"] = DEFAULT_HANDICAP
     if out.get("Points") is None:
         out["Points"] = DEFAULT_POINTS
-    for col in _PRICE_COLS:
+    for col in _DECIMAL_NORM_COLS:
         v = out.get(col)
         if v is not None and str(v).strip():
             out[col] = _decimal_sep_to_point(v)
@@ -543,7 +553,7 @@ def _multi_supplied_cols(markets, selections, base_market: str = "") -> "frozens
 def _apply_multi_rule(base_row: dict, rule) -> dict:
     """Deriva una riga CSV dalla riga BASE applicando gli override NON VUOTI della regola
     multi (#192); i campi vuoti ereditano dalla base. La riga risultante è normalizzata al
-    contratto (virgola→punto sulle quote, BetType maiuscolo, Handicap default)."""
+    contratto (virgola→punto su quote/Handicap/Points, BetType maiuscolo, Handicap default)."""
     row = dict(base_row)
     clear_ids = False
     for col, attr in _MULTI_OVERRIDE:
