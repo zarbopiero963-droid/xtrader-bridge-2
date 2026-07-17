@@ -64,6 +64,7 @@ jobs:
           cache-dependency-path: |
             requirements*.txt
             requirements*.in
+            requirements*.lock
       - run: python -m pip install --upgrade pip
-      - run: pip install -r requirements-dev.txt
+      - run: pip install -r requirements-dev.txt -c requirements-dev.lock
       - run: python -m pytest -m "not manual" -q
