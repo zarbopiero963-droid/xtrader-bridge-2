@@ -315,7 +315,10 @@ jobs:
           def upsert_comment(marker: str, body: str):
               # Reviewer opzionale: se il commento non può essere pubblicato
               # (token read-only/403, API transitoria) NON deve far fallire la
-              # PR — logga un warning e prosegui.
+              # PR sui push automatici — logga un warning e prosegui. Ritorna
+              # True se il commento è stato pubblicato: sul gate a LABEL il
+              # chiamante fa fail-closed (P3-38 #76, visto live su PR #79:
+              # job verde con HTTP 402 e nessuna review visibile).
               try:
                   page = 1
                   existing = None
@@ -337,8 +340,10 @@ jobs:
                       gh_request("PATCH", f"/repos/{REPO}/issues/comments/{existing['id']}", {"body": body})
                   else:
                       gh_request("POST", f"/repos/{REPO}/issues/{PR_NUMBER}/comments", {"body": body})
+                  return True
               except Exception as exc:
                   print(f"::warning::{REVIEW_ID}: impossibile pubblicare il commento (PR non bloccata; abilita 'Read and write permissions' in Settings -> Actions -> General): {redact(str(exc))[:500]}")
+                  return False
 
           def call_model(system_prompt: str, user_prompt: str):
               payload = {
@@ -625,7 +630,7 @@ jobs:
               )
 
           if not diff_text.strip():
-              upsert_comment(marker, f"""{marker}
+              published = upsert_comment(marker, f"""{marker}
           # Claude Fable 5 PR Review
 
           Nessun patch testuale analizzabile trovato.
@@ -640,6 +645,9 @@ jobs:
 
           Modalità sicurezza: niente checkout, niente esecuzione codice PR, niente auto-merge.
           """[:64000])
+              if not published and EVENT_ACTION == "labeled":
+                  print("::error::Gate finale a label: esito non pubblicato → job fallito di proposito (P3-38 #76).")
+                  sys.exit(1)
               sys.exit(0)
 
           system_prompt = """
@@ -735,7 +743,7 @@ jobs:
           Nota: questa review AI è un filtro tecnico, non sostituisce il controllo umano.
           """
 
-          upsert_comment(marker, body[:64000])
+          published = upsert_comment(marker, body[:64000])
 
           # Gate finale obbligatorio: se il modello è fallito su un trigger a LABEL
           # (Anthropic auth/network/API), il check NON deve risultare verde — la
@@ -746,6 +754,17 @@ jobs:
               print(
                   "::error::Gate finale a label: la review Claude Fable 5 non è stata "
                   "completata (errore provider) → job fallito di proposito."
+              )
+              sys.exit(1)
+
+          # P3-38 audit #76 (visto dal vivo su PR #79: job verde con HTTP 402 e nessuna
+          # review pubblicata): sul gate a LABEL il commento È il deliverable del job —
+          # se la pubblicazione fallisce il check NON deve risultare verde. Sui push
+          # automatici resta fail-open: reviewer opzionale che non blocca la PR.
+          if not published and EVENT_ACTION == "labeled":
+              print(
+                  "::error::Gate finale a label: review completata ma NON pubblicata "
+                  "(permessi/quota API GitHub) → job fallito di proposito."
               )
               sys.exit(1)
           PY

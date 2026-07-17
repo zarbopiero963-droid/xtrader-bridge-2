@@ -1173,3 +1173,51 @@ def test_dedup_finding_stabile(tmp_path, monkeypatch):
     assert key(a) == key(dict(a)), "stesso finding -> stessa chiave (dedupe deterministico)"
     b = dict(a, line_start=4)
     assert key(a) != key(b), "riga diversa -> finding distinto"
+
+
+def test_gate_finale_pubblicazione_fail_closed():
+    """P3-38 audit #76 (visto dal vivo su PR #79: job Fugu VERDE con HTTP 402 e nessuna
+    review pubblicata): sul gate finale a LABEL il commento È il deliverable del job —
+    `upsert_comment` ritorna l'esito e il chiamante fallisce il job (`sys.exit(1)`) su
+    `labeled` se la pubblicazione non è avvenuta. Sui push automatici resta fail-open
+    (invariante «reviewer opzionali» di questo modulo, invariata).
+
+    COMPORTAMENTALE (funzione REALE estratta dall'heredoc): gh_request ok → True;
+    gh_request che solleva (es. HTTP 402) → False, warning, nessuna eccezione.
+    STRUTTURALE: entrambi i call-site catturano `published` e il fail-closed è
+    condizionato a EVENT_ACTION == "labeled".
+    """
+    finali = [n for n, m in _AI_WORKFLOWS.items() if m.get("trigger") == "label"]
+    assert finali, "atteso almeno un gate finale label-gated"
+    for name in finali:
+        src = _compiled_heredoc(name)
+
+        calls = []
+
+        def gh_ok(method, path, payload=None):
+            calls.append(method)
+            return []                          # GET commenti: nessuno → si passa al POST
+
+        fn = _extract_func(src, "upsert_comment", {
+            "gh_request": gh_ok, "redact": lambda s: s,
+            "REPO": "o/r", "PR_NUMBER": "1", "REVIEW_ID": "test-review",
+        })
+        assert fn("<!-- m -->", "body") is True, f"{name}: pubblicazione ok deve dare True"
+        assert "POST" in calls, f"{name}: atteso il POST del nuovo commento"
+
+        def gh_boom(method, path, payload=None):
+            raise RuntimeError("HTTP 402: Payment Required")
+
+        fn = _extract_func(src, "upsert_comment", {
+            "gh_request": gh_boom, "redact": lambda s: s,
+            "REPO": "o/r", "PR_NUMBER": "1", "REVIEW_ID": "test-review",
+        })
+        assert fn("<!-- m -->", "body") is False, (
+            f"{name}: pubblicazione fallita deve dare False (non sollevare, non True)")
+
+        assert src.count("published = upsert_comment(") == 2, (
+            f"{name}: entrambi i call-site (ramo no-diff e commento finale) devono "
+            f"catturare l'esito della pubblicazione")
+        assert src.count('if not published and EVENT_ACTION == "labeled"') == 2, (
+            f"{name}: fail-closed sulla pubblicazione mancante o non gated su labeled "
+            f"(sui push automatici deve restare fail-open)")
