@@ -18,6 +18,13 @@ on:
 permissions:
   contents: read
 
+# P3-33 audit #76 (stesso pattern del P2-10 su windows-tests): i due eventi `labeled`
+# della coppia di label finali duplicavano la suite completa su ubuntu. Stesso rimedio:
+# gruppo per PR (fallback SHA per workflow_dispatch) + cancel-in-progress.
+concurrency:
+  group: merge-simulation-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   merge-simulation:
     # Su dispatch gira sempre; su PR (labeled/synchronize/reopened) solo se una label di collaudo
