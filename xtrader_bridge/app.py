@@ -445,12 +445,34 @@ class App(ctk.CTk):
         Prima il fallimento produceva solo un warning: la riga stantia restava su
         disco — visibile a XTrader — finché l'app non veniva riavviata (il cleanup
         d'avvio è l'unico altro punto di recovery). Timer Tk, non `threading.Timer`:
-        deve sopravvivere fuori sessione (epoch/`_timer_lock` sono teardown di STOP)."""
+        deve sopravvivere fuori sessione (epoch/`_timer_lock` sono teardown di STOP).
+
+        P3-8 #76: gli after-id pendenti sono tracciati PER PATH nel registro
+        `_stop_clear_after_ids` — ri-armare lo STESSO path cancella prima il timer
+        precedente (mai doppia catena sullo stesso file), path DIVERSI convivono (il
+        path abbandonato da uno STOP precedente continua il suo retry in-sessione) e
+        `_on_close` li cancella TUTTI. Prima l'id singolo veniva sovrascritto senza
+        `after_cancel`: la catena orfana sfuggiva alla cancellazione in chiusura."""
         path = str(path or "").strip()
         if not path or self.__dict__.get("_closing"):
             return
-        self._stop_clear_after_id = self.after(
+        pending = self.__dict__.setdefault("_stop_clear_after_ids", {})
+        key = self._stop_clear_key(path)      # una sola normalizzazione (review GPT #93)
+        prev = pending.pop(key, None)
+        if prev is not None:
+            try:
+                self.after_cancel(prev)
+            except Exception:   # noqa: BLE001 — id già scaduto/invalido: best-effort
+                pass
+        pending[key] = self.after(
             _STOP_CLEAR_RETRY_MS, lambda: self._retry_stop_clear(path))
+
+    @staticmethod
+    def _stop_clear_key(path) -> str:
+        """Chiave canonica del registro retry post-STOP (P3-8 #76): stessa
+        normalizzazione di `_same_csv_path` — su Windows `OUT.CSV` e `out.csv` sono lo
+        stesso file, quindi lo stesso timer (mai due catene per lo stesso CSV)."""
+        return os.path.normcase(os.path.abspath(str(path)))
 
     @staticmethod
     def _same_csv_path(a, b) -> bool:
@@ -475,7 +497,11 @@ class App(ctk.CTk):
         sessione riprende possesso del path (START svuota già il CSV in proprio: il
         retry non deve MAI toccare il CSV di una sessione ATTIVA — cancellerebbe una
         riga viva)."""
-        self._stop_clear_after_id = None
+        # P3-8 #76: questo firing consuma il proprio slot nel registro per-path (un
+        # eventuale ri-arm sotto lo ricrea; un retry che muore qui lascia il registro
+        # pulito, niente id stantii da cancellare in chiusura).
+        self.__dict__.setdefault("_stop_clear_after_ids", {}).pop(
+            self._stop_clear_key(path), None)
         if self.__dict__.get("_closing"):
             return
         with self._queue_lock:
@@ -2601,14 +2627,19 @@ class App(ctk.CTk):
         # (no leak di selector/fd). Il thread è daemon: se non termina entro il timeout si
         # procede comunque, senza bloccare la chiusura del processo.
         self._cancel_expiry_timer()
-        # Cancella il retry post-stop del clear CSV ancora pendente (audit #259 A1):
-        # dopo destroy non deve rifirare su una root distrutta.
-        _stop_clear_after = getattr(self, "_stop_clear_after_id", None)
-        if _stop_clear_after is not None:
+        # Cancella TUTTI i retry post-stop del clear CSV ancora pendenti (audit #259 A1;
+        # registro per-path dal P3-8 #76 — prima l'id singolo sovrascritto lasciava
+        # catene orfane non cancellabili): dopo destroy non devono rifirare su una root
+        # distrutta.
+        for _stop_clear_after in list(
+                (self.__dict__.get("_stop_clear_after_ids") or {}).values()):
             try:
                 self.after_cancel(_stop_clear_after)
             except Exception:   # noqa: BLE001 — id già scaduto/invalido: best-effort
                 pass
+        # Registro svuotato dopo la cancellazione (review GPT #93): difensivo se la
+        # chiusura venisse rieseguita — mai after_cancel doppi su id già consumati.
+        (self.__dict__.get("_stop_clear_after_ids") or {}).clear()
         t = self._bot_thread
         if t is not None and t.is_alive():
             t.join(timeout=5.0)
