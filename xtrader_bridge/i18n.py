@@ -657,6 +657,17 @@ _CATALOG = {
         "⛔ Nessuna squadra caricata da salvare.": "⛔ No team loaded to save.",
         "💾 Salvato nel profilo «{profile}»: {written} squadre mappate in questa competizione ({total} righe totali nel profilo).": "💾 Saved to profile «{profile}»: {written} teams mapped in this competition ({total} total rows in the profile).",
         "❌ Salvataggio FALLITO: «{profile}» non salvato (andrebbe perso al riavvio). Controlla permessi/spazio del file config.": "❌ Save FAILED: «{profile}» not saved (would be lost on restart). Check permissions/space of the config file.",
+        # Pannello «🌳 Mapping guidato» — ANTI-PERDITA INPUT (P2-9 #76): auto-save allo switch di
+        # profilo/sport/competizione, switch annullato su save fallito/nessun profilo, no-op su
+        # ri-selezione della stessa competizione con alias digitati. {profile}=nome profilo.
+        "ℹ️ Alias non ancora salvati mantenuti a schermo: premi «💾 Salva nel profilo» per scriverli in «{profile}».": "ℹ️ Unsaved aliases kept on screen: press «💾 Save to profile» to write them into «{profile}».",
+        "❌ Config illeggibile: cambio profilo annullato, alias mantenuti a schermo. Riprova.": "❌ Unreadable config: profile switch cancelled, aliases kept on screen. Try again.",
+        "❌ Auto-salvataggio FALLITO: cambio profilo annullato, alias mantenuti a schermo. Controlla permessi/spazio del file config.": "❌ Auto-save FAILED: profile switch cancelled, aliases kept on screen. Check permissions/space of the config file.",
+        "⛔ Alias digitati ma nessun profilo selezionato: cambio sport annullato. Salva in un profilo (o svuota gli alias) e riprova.": "⛔ Aliases typed but no profile selected: sport switch cancelled. Save into a profile (or clear the aliases) and try again.",
+        "❌ Auto-salvataggio FALLITO: cambio sport annullato, alias mantenuti a schermo. Controlla permessi/spazio del file config.": "❌ Auto-save FAILED: sport switch cancelled, aliases kept on screen. Check permissions/space of the config file.",
+        "ℹ️ Alias non ancora salvati mantenuti a schermo (stessa competizione): premi «💾 Salva nel profilo».": "ℹ️ Unsaved aliases kept on screen (same competition): press «💾 Save to profile».",
+        "⛔ Alias digitati ma nessun profilo selezionato: cambio competizione annullato. Salva in un profilo (o svuota gli alias) e riprova.": "⛔ Aliases typed but no profile selected: competition switch cancelled. Save into a profile (or clear the aliases) and try again.",
+        "❌ Auto-salvataggio FALLITO: cambio competizione annullato, alias mantenuti a schermo. Controlla permessi/spazio del file config.": "❌ Auto-save FAILED: competition switch cancelled, aliases kept on screen. Check permissions/space of the config file.",
         # Hub «🧰 Strumenti» (#343 slice 4x): titolo finestra + titoli-scheda (etichetta base, il
         # prefisso di gruppo ①..④ resta invariato) + label d'errore per-scheda. Resi via `i18n.tr`
         # a build-time in tools_gui.build_tool_panels / ToolsWindow. «Provider»/«Parser» = termini
@@ -1286,6 +1297,15 @@ _CATALOG = {
         "⛔ Nessuna squadra caricata da salvare.": "⛔ Ningún equipo cargado para guardar.",
         "💾 Salvato nel profilo «{profile}»: {written} squadre mappate in questa competizione ({total} righe totali nel profilo).": "💾 Guardado en el perfil «{profile}»: {written} equipos mapeados en esta competición ({total} filas totales en el perfil).",
         "❌ Salvataggio FALLITO: «{profile}» non salvato (andrebbe perso al riavvio). Controlla permessi/spazio del file config.": "❌ Guardado FALLIDO: «{profile}» no guardado (se perdería al reiniciar). Comprueba permisos/espacio del archivo config.",
+        # Pannello «🌳 Mapping guidato» — ANTI-PERDITA INPUT (P2-9 #76) — vedi nota nel blocco EN.
+        "ℹ️ Alias non ancora salvati mantenuti a schermo: premi «💾 Salva nel profilo» per scriverli in «{profile}».": "ℹ️ Alias no guardados mantenidos en pantalla: pulsa «💾 Guardar en el perfil» para escribirlos en «{profile}».",
+        "❌ Config illeggibile: cambio profilo annullato, alias mantenuti a schermo. Riprova.": "❌ Config ilegible: cambio de perfil cancelado, alias mantenidos en pantalla. Reinténtalo.",
+        "❌ Auto-salvataggio FALLITO: cambio profilo annullato, alias mantenuti a schermo. Controlla permessi/spazio del file config.": "❌ Auto-guardado FALLIDO: cambio de perfil cancelado, alias mantenidos en pantalla. Comprueba permisos/espacio del archivo config.",
+        "⛔ Alias digitati ma nessun profilo selezionato: cambio sport annullato. Salva in un profilo (o svuota gli alias) e riprova.": "⛔ Alias escritos pero ningún perfil seleccionado: cambio de deporte cancelado. Guarda en un perfil (o vacía los alias) y reinténtalo.",
+        "❌ Auto-salvataggio FALLITO: cambio sport annullato, alias mantenuti a schermo. Controlla permessi/spazio del file config.": "❌ Auto-guardado FALLIDO: cambio de deporte cancelado, alias mantenidos en pantalla. Comprueba permisos/espacio del archivo config.",
+        "ℹ️ Alias non ancora salvati mantenuti a schermo (stessa competizione): premi «💾 Salva nel profilo».": "ℹ️ Alias no guardados mantenidos en pantalla (misma competición): pulsa «💾 Guardar en el perfil».",
+        "⛔ Alias digitati ma nessun profilo selezionato: cambio competizione annullato. Salva in un profilo (o svuota gli alias) e riprova.": "⛔ Alias escritos pero ningún perfil seleccionado: cambio de competición cancelado. Guarda en un perfil (o vacía los alias) y reinténtalo.",
+        "❌ Auto-salvataggio FALLITO: cambio competizione annullato, alias mantenuti a schermo. Controlla permessi/spazio del file config.": "❌ Auto-guardado FALLIDO: cambio de competición cancelado, alias mantenidos en pantalla. Comprueba permisos/espacio del archivo config.",
         # Hub «🧰 Strumenti» (#343 slice 4x) — vedi nota nel blocco EN. «Provider»/«Parser» invariati.
         "🧰 Strumenti": "🧰 Herramientas",
         "📡 Chat sorgenti": "📡 Chats de origen",

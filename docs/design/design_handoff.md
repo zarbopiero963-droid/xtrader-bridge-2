@@ -990,6 +990,19 @@ gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia so
   - **Stati fail-safe:** se un altro strumento tiene il lock del DB le tendine/l'elenco fanno
     fail-fast con **«⏳ Dizionario occupato: riprova tra poco»** (arancione) **senza congelare la
     finestra**; con dizionario vuoto mostra un avviso e non aggiunge nulla.
+  - **Anti-perdita input (P2-9 #76):** cambiare **profilo, sport o competizione** con alias
+    digitati e non salvati **non li butta più via**: il pannello li **auto-salva** nel profilo che
+    si sta lasciando (stesso merge di «💾 Salva nel profilo», pattern «⚽ Calcio»). Se l'auto-save
+    fallisce (o la config è illeggibile) lo **switch è annullato** — tendina riportata indietro,
+    alias ancora a schermo, messaggio rosso «❌ Auto-salvataggio FALLITO: cambio … annullato…».
+    L'auto-save scrive **solo gli alias davvero toccati** (delta rispetto alla precompilazione):
+    le righe non toccate — anche se aggiornate nel frattempo da un'altra scheda — restano intatte.
+    Con **nessun profilo selezionato**: il cambio profilo **precompila il profilo scelto e
+    ri-applica sopra gli alias digitati** (avviso arancione ℹ️, stesso UX di «🆕 Nuovo»: lo schermo
+    mostra disco + modifiche, pronte per «💾 Salva»), mentre cambio sport/competizione è
+    **annullato** con «⛔ … nessun profilo selezionato…» (rosso).
+    Ri-selezionare la **stessa competizione** con alias digitati è un **no-op** (avviso ℹ️
+    arancione): il ricaricamento li azzererebbe.
 
 ### 7.6 🔵 Betfair Sync — RIMOSSA
 La scheda **«🔵 Betfair Sync»** (login a Betfair, download del catalogo, sync e auto-sync del
