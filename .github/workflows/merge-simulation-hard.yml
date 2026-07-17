@@ -13,7 +13,41 @@ permissions:
   contents: read
 
 jobs:
+  # P3-36 audit #76: il cron notturno girava OGNI notte su windows-latest (minuti 2×)
+  # anche con zero commit dal giorno prima (~600+ min/mese potenzialmente a vuoto).
+  # Guard economica su ubuntu: nella run SCHEDULATA, se l'ultimo commit del default
+  # branch è più vecchio di 25h (margine sul cron delle 03:00), la hard-run è saltata.
+  # FAIL-OPEN verso l'esecuzione: dispatch manuale sempre eseguito; output mancante o
+  # errore del check → run eseguita comunque (mai copertura persa per un errore).
+  fresh-commits-check:
+    runs-on: ubuntu-latest
+    outputs:
+      has_new: ${{ steps.check.outputs.has_new }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+      - id: check
+        shell: bash
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" != "schedule" ]; then
+            echo "has_new=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          # fetch-depth di default (1): basta l'ULTIMO commit — se è più recente di
+          # 25h c'è lavoro nuovo; altrimenti la notte scorsa ha già collaudato tutto.
+          last="$(git log -1 --since='25 hours ago' --format=%H || true)"
+          if [ -n "${last}" ]; then
+            echo "has_new=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "has_new=false" >> "${GITHUB_OUTPUT}"
+            echo "Nessun commit nelle ultime 25h: hard-run notturna saltata (P3-36 #76)."
+          fi
+
   hard:
+    needs: fresh-commits-check
+    # != 'false' (non == 'true'): output vuoto/errore → run eseguita (fail-open).
+    if: needs.fresh-commits-check.outputs.has_new != 'false'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1

@@ -10,15 +10,23 @@ on:
     tags: [ "v*" ]
   workflow_dispatch:
 
+# P3-37 audit #76: il default del workflow scende a sola LETTURA; `contents: write`
+# resta SOLO sul job `build` (serve alla release su tag v*). build-linux eredita read.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write   # solo per «Crea Release pubblica (solo su tag v*)»
 
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      with:
+        # P3-37: il token non serve dopo il checkout (la release usa GITHUB_TOKEN
+        # dell'action, non le credenziali git persistite).
+        persist-credentials: false
 
     - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
       with:
@@ -121,6 +129,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      with:
+        persist-credentials: false   # P3-37: nessuno step git dopo il checkout
 
     - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
       with:
