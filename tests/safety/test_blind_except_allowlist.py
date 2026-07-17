@@ -29,6 +29,10 @@ _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
+    "dirty_csv_store.py": (3, "registro dei path CSV sporchi (P3-6 #76), FAIL-SAFE per contratto: "
+                              "lettura su file assente/corrotto/schema inatteso → nessun path; "
+                              "mark/clear best-effort — un I/O rotto non deve bloccare STOP/chiusura "
+                              "(la marcatura avviene comunque PRIMA di armare il retry, crash-safe)"),
     "app.py": (35, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
                    "pannello Assistente (#41 PR-3) best-effort: costruzione che fallisce → label di "
                    "fallback invece di rompere la finestra; teardown del suo thread worker best-effort "
