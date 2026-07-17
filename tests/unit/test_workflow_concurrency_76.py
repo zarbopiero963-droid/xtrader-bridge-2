@@ -137,3 +137,26 @@ def test_concurrency_anche_su_commit_gate_e_pr_checks():
         assert m and m.group(1).startswith(prefix + "-"), (
             f"{prefix}.yml: prefisso di gruppo «{prefix}-» assente (collisione tra workflow)")
         assert key in m.group(1), f"{prefix}.yml: chiave di gruppo attesa «{key}»"
+
+
+def test_pr_open_check_conta_solo_le_liste():
+    """Review GPT PR #86 (bloccante reale): con 401/403/rate-limit l'API /pulls risponde
+    con un OGGETTO JSON ({"message": ...}) e `len(dict)` conta le chiavi (>0) →
+    `has_pr=true` → suite SALTATA proprio quando l'API è rotta: fail-open violato.
+    Il one-liner REALE del workflow deve contare solo le liste (dict/errore → 0)."""
+    import subprocess
+    text = _text("commit-gate")
+    m = re.search(r'python3 -c "([^"]+)"', text)
+    assert m, "commit-gate.yml: one-liner python del pr-open-check non trovato"
+    snippet = m.group(1)
+    assert "isinstance" in snippet, (
+        "commit-gate.yml: il conteggio deve distinguere lista (PR) da oggetto (errore API)")
+
+    def run(payload):
+        return subprocess.run(["python3", "-c", snippet], input=payload,
+                              capture_output=True, text=True)
+
+    assert run("[]").stdout.strip() == "0"                         # nessuna PR
+    assert run('[{"number": 1}]').stdout.strip() == "1"            # PR aperta
+    assert run('{"message": "Bad credentials"}').stdout.strip() == "0"   # errore API → 0
+    assert run("non-json").returncode != 0                         # invalido → || echo 0

@@ -44,7 +44,7 @@ jobs:
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=1&head=${GITHUB_REPOSITORY_OWNER}:${GITHUB_REF_NAME}" \
-            | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d, list) else 0)" \
             || echo 0)"
           if [ "${count}" -gt 0 ] 2>/dev/null; then
             echo "has_pr=true" >> "${GITHUB_OUTPUT}"
