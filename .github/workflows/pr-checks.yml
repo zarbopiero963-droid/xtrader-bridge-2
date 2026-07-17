@@ -17,6 +17,13 @@ on:
 permissions:
   contents: read
 
+# P3-35 audit #76 (stesso pattern di windows-tests/merge-simulation, PR #84): un push
+# nuovo sulla PR cancella la run ormai stantia del head precedente; i push su
+# main/dispatch hanno gruppi distinti per commit (fallback sha: mai cancellati tra loro).
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   compile:
     runs-on: ubuntu-latest

@@ -6,13 +6,56 @@ name: Commit Gate
 # esclusi e restano per i workflow di PR/release.
 on:
   push:
+    # P3-34 audit #76: i push su main/master eseguono già l'INTERO set di pr-checks
+    # (compile/contract/unit/safety/integration/smoke/lint, superset di questo gate):
+    # farli girare anche qui = suite doppia a ogni merge, minuti sprecati.
+    branches-ignore: [main, master]
   workflow_dispatch:
 
 permissions:
   contents: read
+  # Serve al job pr-open-check (sola LETTURA delle PR aperte del branch).
+  pull-requests: read
+
+# P3-35 audit #76: un push nuovo sullo stesso branch cancella la run ormai stantia
+# (si collauda il head reale, mai code di run obsolete che girano fino in fondo).
+concurrency:
+  group: commit-gate-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # P3-34 audit #76: su un branch CON PR aperta ogni push fa già girare l'intera
+  # suite in pr-checks (evento pull_request): questo gate sarebbe un DOPPIONE.
+  # Il job qui sotto controlla (read-only) se esiste una PR aperta per il branch e
+  # in tal caso salta la suite. FAIL-OPEN deliberato: se la chiamata API fallisce
+  # (rete/quota/permessi) la suite gira comunque — un errore può solo costare
+  # minuti, MAI perdere copertura. Niente interpolazione `${{ }}` dentro lo
+  # script (script-injection): branch e repo arrivano dalle env del runner.
+  pr-open-check:
+    runs-on: ubuntu-latest
+    outputs:
+      has_pr: ${{ steps.check.outputs.has_pr }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          count="$(curl -sS --max-time 15 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=1&head=${GITHUB_REPOSITORY_OWNER}:${GITHUB_REF_NAME}" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d, list) else 0)" \
+            || echo 0)"
+          if [ "${count}" -gt 0 ] 2>/dev/null; then
+            echo "has_pr=true" >> "${GITHUB_OUTPUT}"
+            echo "PR aperta per ${GITHUB_REF_NAME}: la suite gira in pr-checks, gate saltato."
+          else
+            echo "has_pr=false" >> "${GITHUB_OUTPUT}"
+          fi
+
   commit-gate:
+    needs: pr-open-check
+    if: needs.pr-open-check.outputs.has_pr != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1

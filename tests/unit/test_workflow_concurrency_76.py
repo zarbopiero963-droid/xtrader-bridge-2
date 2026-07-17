@@ -89,3 +89,77 @@ def test_trigger_e_gate_label_invariati():
         for label in ("ci-full", "final-fable-review", "final-fugu-review"):
             assert (f"'{label}'" in text) or (f'"{label}"' in text), (
                 f"{prefix}.yml: gate label «{label}» sparito dall'if")
+
+
+# ── P3-34 + P3-35 (PR successiva): suite doppia commit-gate/pr-checks ────────────────────────
+
+def test_commit_gate_non_gira_sui_push_di_main():
+    """P3-34 #76: i push su main/master eseguono già l'intero set di pr-checks (superset
+    del gate): commit-gate deve ignorarli, o ogni merge paga la suite due volte."""
+    text = _text("commit-gate")
+    assert re.search(r"^\s*branches-ignore:\s*\[main,\s*master\]\s*$", text, re.MULTILINE), (
+        "commit-gate.yml: manca branches-ignore [main, master] sul trigger push")
+
+
+def test_commit_gate_salta_se_esiste_pr_aperta_fail_open():
+    """P3-34 #76: su branch con PR aperta la suite gira già in pr-checks — il gate va
+    saltato. La skip-logic deve essere FAIL-OPEN (errore API → suite eseguita comunque:
+    può solo costare minuti, mai perdere copertura) e senza interpolazione `${{ }}`
+    dentro lo script (script-injection: branch/repo dalle env del runner)."""
+    text = _text("commit-gate")
+    assert re.search(r"^\s*pull-requests:\s*read\s*$", text, re.MULTILINE), (
+        "commit-gate.yml: serve pull-requests: read per interrogare le PR aperte")
+    assert re.search(r"^\s*pr-open-check:\s*$", text, re.MULTILINE)
+    assert re.search(r"^\s*needs:\s*pr-open-check\s*$", text, re.MULTILINE)
+    assert "if: needs.pr-open-check.outputs.has_pr != 'true'" in text, (
+        "commit-gate.yml: la suite deve saltare SOLO con has_pr == true (fail-open)")
+    assert "|| echo 0" in text, (
+        "commit-gate.yml: fallback fail-open assente — un errore API deve valere "
+        "«nessuna PR» (suite eseguita), mai skip")
+    # niente interpolazione GitHub-expression del ref dentro lo script (injection):
+    script = text[text.index("pr-open-check"):]
+    assert "${{ github.ref_name" not in script and "${{ github.head_ref" not in script, (
+        "commit-gate.yml: il branch deve arrivare dalle env del runner, non da ${{ }}")
+    assert "${GITHUB_REF_NAME}" in script
+
+
+def test_concurrency_anche_su_commit_gate_e_pr_checks():
+    """P3-35 #76: anche i due workflow di test su ubuntu cancellano le run stantie.
+    commit-gate raggruppa per ref (gira solo su branch senza PR); pr-checks per PR con
+    fallback sha (pattern PR #84: push su main mai cancellati tra loro)."""
+    for prefix, key in (("commit-gate", "github.ref"),
+                        ("pr-checks", "github.event.pull_request.number || github.sha")):
+        block = _concurrency_block(prefix)
+        assert block is not None, f"{prefix}.yml: blocco concurrency assente"
+        assert re.search(r"^\s*cancel-in-progress:\s*true\s*$", block, re.MULTILINE), (
+            f"{prefix}.yml: cancel-in-progress assente")
+        m = re.search(r"^\s*group:\s*(.+)$", block, re.MULTILINE)
+        assert m and m.group(1).startswith(prefix + "-"), (
+            f"{prefix}.yml: prefisso di gruppo «{prefix}-» assente (collisione tra workflow)")
+        assert key in m.group(1), f"{prefix}.yml: chiave di gruppo attesa «{key}»"
+
+
+def test_pr_open_check_conta_solo_le_liste():
+    """Review GPT PR #86 (bloccante reale): con 401/403/rate-limit l'API /pulls risponde
+    con un OGGETTO JSON ({"message": ...}) e `len(dict)` conta le chiavi (>0) →
+    `has_pr=true` → suite SALTATA proprio quando l'API è rotta: fail-open violato.
+    Il one-liner REALE del workflow deve contare solo le liste (dict/errore → 0)."""
+    import subprocess
+    import sys
+    text = _text("commit-gate")
+    m = re.search(r'python3 -c "([^"]+)"', text)
+    assert m, "commit-gate.yml: one-liner python del pr-open-check non trovato"
+    snippet = m.group(1)
+    assert "isinstance" in snippet, (
+        "commit-gate.yml: il conteggio deve distinguere lista (PR) da oggetto (errore API)")
+
+    def run(payload):
+        # sys.executable, non "python3" (review GPT #86): la suite gira anche su
+        # windows-latest, dove "python3" può non risolversi; lo snippet è lo stesso.
+        return subprocess.run([sys.executable, "-c", snippet], input=payload,
+                              capture_output=True, text=True)
+
+    assert run("[]").stdout.strip() == "0"                         # nessuna PR
+    assert run('[{"number": 1}]').stdout.strip() == "1"            # PR aperta
+    assert run('{"message": "Bad credentials"}').stdout.strip() == "0"   # errore API → 0
+    assert run("non-json").returncode != 0                         # invalido → || echo 0
