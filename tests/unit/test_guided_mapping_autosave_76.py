@@ -206,6 +206,32 @@ def test_da_nessun_profilo_config_illeggibile_annulla_lo_switch(cfg_file, monkey
     assert "❌" in p._status.text
 
 
+def test_da_nessun_profilo_prefill_usa_lo_snapshot_del_guard(cfg_file, monkeypatch):
+    """Fable #83 round 3 (check-then-use): se il config diventa illeggibile TRA il guard e
+    il prefill (lock/antivirus su Windows), la seconda lettura fallita precompilerebbe a
+    VUOTO (schermo senza i mapping del profilo → «💾 Salva» distruttivo). Il prefill deve
+    riusare lo SNAPSHOT già validato dal guard: una sola lettura."""
+    mod = _gui_mod(monkeypatch)
+    _seed_alias("P2", {"Milan": "ac milan"})
+    p = _panel(mod, profile=None, typed={"Inter": "inter fc"})
+    vero_load = config_store.load_config
+    esiti = iter([vero_load])                        # 1ª lettura ok, poi il file «si rompe»
+
+    def load_una_volta(path):
+        try:
+            return next(esiti)(path)
+        except StopIteration:
+            raise OSError("file lockato")
+
+    monkeypatch.setattr(config_store, "load_config", load_una_volta)
+
+    p._on_profile_change("P2")
+
+    assert p._current == "P2"                        # switch riuscito col solo snapshot
+    assert p._team_vars["Milan"].get() == "ac milan"  # prefill DAL guard, non riletto
+    assert p._team_vars["Inter"].get() == "inter fc"  # delta ri-applicato
+
+
 def test_da_nessun_profilo_il_save_non_cancella_i_mapping_esistenti(cfg_file, monkeypatch):
     """CodeRabbit #83 (Major): P2 ha già Milan→«ac milan» su disco. Digito Inter SENZA profilo,
     scelgo P2 e premo «💾 Salva»: il mapping esistente di Milan deve SOPRAVVIVERE (il prefill

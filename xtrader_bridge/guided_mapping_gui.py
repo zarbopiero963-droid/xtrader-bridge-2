@@ -261,7 +261,8 @@ class GuidedMappingPanel(ctk.CTkFrame):
                 # disco + modifiche: senza il prefill, un successivo «💾 Salva» vedrebbe
                 # vuote le squadre mai precompilate e CANCELLEREBBE i mapping già presenti
                 # nel profilo appena scelto.
-                if self._load_cfg() is None:
+                cfg = self._load_cfg()
+                if cfg is None:
                     # config illeggibile → switch ANNULLATO come gli altri percorsi (Fable
                     # #83 round 2): proseguire precompilerebbe tutto a vuoto (schermo senza
                     # i mapping esistenti del profilo) → «💾 Salva» distruttivo.
@@ -274,7 +275,9 @@ class GuidedMappingPanel(ctk.CTkFrame):
                 delta = {team: var.get() for team, var in self._team_vars.items()
                          if var.get() != self._baseline.get(team, "")}
                 self._current = new
-                self._prefill_aliases()
+                # stesso snapshot validato dal guard (Fable #83 round 3): niente seconda
+                # lettura che possa fallire e precompilare a vuoto.
+                self._prefill_aliases(cfg)
                 for team, value in delta.items():
                     var = self._team_vars.get(team)
                     if var is not None:
@@ -454,15 +457,20 @@ class GuidedMappingPanel(ctk.CTkFrame):
                 text=i18n.tr("{count} squadre. Scrivi l'alias del canale e premi «Salva nel profilo».").format(
                     count=len(teams)), text_color="gray")
 
-    def _prefill_aliases(self):
+    def _prefill_aliases(self, cfg=None):
         """Pre-compila gli alias delle squadre correnti con quelli GIÀ salvati nel profilo scelto
         (mapping per-sport: la stessa squadra mostra il suo alias in qualunque competizione). Le
         squadre senza mapping restano vuote. Fondamentale per la correttezza del salvataggio: senza,
-        ri-salvare una competizione azzererebbe i mapping di squadre condivise con altre competizioni."""
+        ri-salvare una competizione azzererebbe i mapping di squadre condivise con altre competizioni.
+        `cfg`: snapshot di config GIÀ validato dal chiamante, per non rileggere il file due
+        volte (Fable #83 round 3: il config può diventare illeggibile TRA un guard e il
+        prefill — lock/antivirus su Windows — e la seconda lettura fallita precompilerebbe
+        a vuoto); None = carica da disco come sempre."""
         if not self._team_vars:
             self._baseline = {}
             return
-        cfg = self._load_cfg()
+        if cfg is None:
+            cfg = self._load_cfg()
         entries = (name_mapping_store.get_entries(cfg, self._current)
                    if (cfg is not None and self._current) else [])
         aliases = existing_aliases_for_teams(entries, self._selected_sport(),
