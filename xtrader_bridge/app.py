@@ -52,6 +52,7 @@ from . import (
     csv_writer,
     dashboard_stats,
     diagnostics,
+    dirty_csv_store,
     dpi_awareness,
     event_journal,
     event_log,
@@ -350,6 +351,11 @@ class App(ctk.CTk):
         # spento, quindi una riga nel CSV è per forza orfana di una sessione morta
         # → riportiamo il CSV a solo header PRIMA di un eventuale START.
         self._clear_stale_csv("all'avvio")
+        # P3-6 audit #76: ripassa anche i path ABBANDONATI marcati «sporchi» (STOP con
+        # clear fallito seguito da chiusura + cambio path): senza, il vecchio path
+        # resterebbe con una riga attiva per sempre. Il marker cade solo a pulizia
+        # riuscita: se il file è ancora lockato si riproverà al prossimo avvio.
+        self._recover_dirty_csv_paths()
         # Igiene del disco (#184 LOW): rimuove i temporanei `.segnali_*.tmp` orfani
         # lasciati da un crash/blackout TRA la creazione del tmp e il rename atomico.
         # Il CSV reale era già intatto; qui si evita solo che gli orfani si accumulino
@@ -424,6 +430,16 @@ class App(ctk.CTk):
             return False
         return True
 
+    def _recover_dirty_csv_paths(self) -> None:
+        """Pulizia d'avvio dei path CSV marcati «sporchi» (P3-6 audit #76). Gira PRIMA
+        di ogni START (listener spento: nessuna sessione possiede alcun path, una riga
+        trovata è per forza orfana). `_clear_stale_csv` è già fail-safe su mismatch
+        (file estraneo: non toccato, esito True → marker via: la riga del bridge non
+        esiste più lì) e su path assente (True: nulla da pulire)."""
+        for path in dirty_csv_store.dirty_paths():
+            if self._clear_stale_csv("all'avvio (path abbandonato)", path=path):
+                dirty_csv_store.clear_dirty(path)
+
     def _schedule_stop_clear_retry(self, path: str) -> None:
         """Arma un retry Tk per lo svuotamento CSV fallito allo STOP (audit #259 A1).
         Prima il fallimento produceva solo un warning: la riga stantia restava su
@@ -471,6 +487,7 @@ class App(ctk.CTk):
                 self._schedule_stop_clear_retry(path)   # ancora bloccato: riprova
                 return
         if cleared:
+            dirty_csv_store.clear_dirty(path)     # P3-6: pulito → marker via
             self._log(i18n.tr("🧹 CSV ripulito al retry dopo lo STOP: {path}").format(path=path))
             self._journal_csv_cleared_if_had_row("CSV_CLEARED",
                                                  quando="retry post-stop", path=path)
@@ -2434,6 +2451,9 @@ class App(ctk.CTk):
         # prima del START, altrimenti il diario avrebbe un CSV_WRITTEN senza il clear corrispondente.
         self._journal_csv_cleared_if_had_row("CSV_CLEARED", reason="start")
         self._csv_dirty = False   # nuova sessione: CSV a solo header, allineato alla coda
+        # P3-6: l'init ha appena riportato il file a solo header sotto il controllo della
+        # NUOVA sessione: un eventuale marker «sporco» su questo path è superato.
+        dirty_csv_store.clear_dirty(cfg["csv_path"])
 
         # Nuovo epoch PRIMA di marcare la sessione attiva (#53): un vecchio supervisor in backoff
         # (sessione precedente) valuta `_is_current()` = `_running and _listener_epoch == epoch`.
@@ -2548,6 +2568,11 @@ class App(ctk.CTk):
             stop_cleared = self._clear_stale_csv("allo stop", path=stop_path)
         self._active_csv_path = None
         if not stop_cleared:
+            # P3-6 audit #76: marca il path «sporco» su disco PRIMA di armare il retry —
+            # il retry vive solo nel processo: se l'app chiude/crasha prima che riesca e
+            # l'utente cambia csv_path, la recovery d'avvio ripasserà anche questo path
+            # (senza marker, il vecchio path resterebbe con una riga attiva per sempre).
+            dirty_csv_store.mark_dirty(stop_path)
             # Audit #259 A1: clear fallito (XTrader tiene il lock) → senza retry la riga
             # stantia resterebbe su disco fino al riavvio dell'app. Il retry si ferma da
             # solo se una nuova sessione riprende il path o l'app chiude.
