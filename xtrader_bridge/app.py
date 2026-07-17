@@ -457,13 +457,14 @@ class App(ctk.CTk):
         if not path or self.__dict__.get("_closing"):
             return
         pending = self.__dict__.setdefault("_stop_clear_after_ids", {})
-        prev = pending.pop(self._stop_clear_key(path), None)
+        key = self._stop_clear_key(path)      # una sola normalizzazione (review GPT #93)
+        prev = pending.pop(key, None)
         if prev is not None:
             try:
                 self.after_cancel(prev)
             except Exception:   # noqa: BLE001 — id già scaduto/invalido: best-effort
                 pass
-        pending[self._stop_clear_key(path)] = self.after(
+        pending[key] = self.after(
             _STOP_CLEAR_RETRY_MS, lambda: self._retry_stop_clear(path))
 
     @staticmethod
@@ -2636,6 +2637,9 @@ class App(ctk.CTk):
                 self.after_cancel(_stop_clear_after)
             except Exception:   # noqa: BLE001 — id già scaduto/invalido: best-effort
                 pass
+        # Registro svuotato dopo la cancellazione (review GPT #93): difensivo se la
+        # chiusura venisse rieseguita — mai after_cancel doppi su id già consumati.
+        (self.__dict__.get("_stop_clear_after_ids") or {}).clear()
         t = self._bot_thread
         if t is not None and t.is_alive():
             t.join(timeout=5.0)

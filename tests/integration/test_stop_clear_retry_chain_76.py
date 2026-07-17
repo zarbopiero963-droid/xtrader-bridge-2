@@ -85,6 +85,28 @@ def test_firing_consuma_il_proprio_slot(make_app, app_mod, tmp_path, monkeypatch
     assert puliti == [p]
 
 
+def test_mismatch_consuma_lo_slot_senza_riarmo_e_conserva_il_marker(make_app, app_mod,
+                                                                    tmp_path, monkeypatch):
+    """Ramo `cleared=False` (review GLM #93): file ESTRANEO sul path — il clear non tocca
+    nulla e la catena muore. Lo slot è consumato (registro pulito, niente id stantii),
+    NIENTE ri-arm, e il marker dirty (P3-6) NON viene rimosso: se il file estraneo un
+    giorno sparisce, la recovery d'avvio potrà ancora ripassare il path."""
+    a = make_app(running=False, csv_path=None)
+    _armati, cancellati = _conta_timer(a)
+    p = str(tmp_path / "out.csv")
+    a._stop_clear_after_ids = {app_mod.App._stop_clear_key(p): "idX"}
+    monkeypatch.setattr(app_mod, "clear_stale_csv",
+                        lambda _p, on_mismatch=None: False)          # estraneo: non toccato
+    puliti = []
+    monkeypatch.setattr(app_mod.dirty_csv_store, "clear_dirty", puliti.append)
+
+    app_mod.App._retry_stop_clear(a, p)
+
+    assert a._stop_clear_after_ids == {}       # slot consumato, nessuna catena viva
+    assert _armati == [] and cancellati == []  # niente ri-arm, niente cancel
+    assert puliti == []                        # marker P3-6 conservato (non era pulito)
+
+
 def test_oserror_riarma_e_resta_tracciato(make_app, app_mod, tmp_path, monkeypatch):
     """File ancora lockato (OSError): il ri-arm passa dal registro — la nuova catena
     è tracciata sotto la stessa chiave, senza doppioni."""
