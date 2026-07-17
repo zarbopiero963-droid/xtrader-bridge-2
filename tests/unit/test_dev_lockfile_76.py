@@ -28,6 +28,9 @@ def _lock_pins():
         line = line.strip()
         if line and not line.startswith("#") and "==" in line:
             name, ver = line.split("==", 1)
+            # via l'eventuale environment marker (es. `; sys_platform == 'win32'`):
+            # i suoi digit corromperebbero il confronto di versione (CodeRabbit #88).
+            ver = ver.split(";", 1)[0]
             pins[name.strip().lower().replace("_", "-")] = ver.strip()
     return pins
 
@@ -62,16 +65,19 @@ def test_lock_copre_tutte_le_top_level():
 
 
 def test_lock_rispetta_i_floor_di_sicurezza():
-    """I pin devono soddisfare i FLOOR `>=` di requirements.in (sono vincoli di
-    SICUREZZA: h11>=0.16 esclude una CVE, ptb>=21 esclude h11 vulnerabile, ecc.):
+    """I pin devono soddisfare i FLOOR `>=` di requirements.in E requirements-dev.txt
+    (review GPT #88: anche una dipendenza dev può avere un floor di sicurezza) — sono
+    vincoli di SICUREZZA: h11>=0.16 esclude una CVE, ptb>=21 esclude h11 vulnerabile:
     un lock rigenerato male che retrocedesse sotto un floor deve fallire qui."""
     pins = _lock_pins()
     floors = {}
-    for line in (_ROOT / "requirements.in").read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        m = re.match(r"^([A-Za-z0-9._-]+)\s*>=\s*([0-9.]+)", line)
-        if m:
-            floors[m.group(1).lower().replace("_", "-")] = m.group(2)
+    for fname in ("requirements.in", "requirements-dev.txt"):
+        for line in (_ROOT / fname).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            # (?:\[...\])? — tollera gli extras (es. `pkg[extra]>=1.0`, CodeRabbit #88)
+            m = re.match(r"^([A-Za-z0-9._-]+)(?:\[[^\]]+\])?\s*>=\s*([0-9.]+)", line)
+            if m:
+                floors[m.group(1).lower().replace("_", "-")] = m.group(2)
     assert floors, "requirements.in: attesi floor >= (vincoli di sicurezza)"
     for name, floor in floors.items():
         assert name in pins, f"{name}: floor di sicurezza senza pin nel lock"
@@ -85,7 +91,7 @@ def test_ci_installa_con_le_constraints():
     lock rigenerato riuserebbe la cache pip stantia)."""
     for name in _TEST_WORKFLOWS:
         text = (_WF_DIR / name).read_text(encoding="utf-8")
-        bare = re.findall(r"pip install -r requirements-dev\.txt(?! -c requirements-dev\.lock)",
+        bare = re.findall(r"pip install -r requirements-dev\.txt(?!\s+-c requirements-dev\.lock)",
                           text)
         assert not bare, f"{name}: install di requirements-dev.txt SENZA constraints"
         assert "pip install -r requirements-dev.txt -c requirements-dev.lock" in text, (
