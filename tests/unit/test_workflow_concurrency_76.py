@@ -145,6 +145,7 @@ def test_pr_open_check_conta_solo_le_liste():
     `has_pr=true` → suite SALTATA proprio quando l'API è rotta: fail-open violato.
     Il one-liner REALE del workflow deve contare solo le liste (dict/errore → 0)."""
     import subprocess
+    import sys
     text = _text("commit-gate")
     m = re.search(r'python3 -c "([^"]+)"', text)
     assert m, "commit-gate.yml: one-liner python del pr-open-check non trovato"
@@ -153,7 +154,9 @@ def test_pr_open_check_conta_solo_le_liste():
         "commit-gate.yml: il conteggio deve distinguere lista (PR) da oggetto (errore API)")
 
     def run(payload):
-        return subprocess.run(["python3", "-c", snippet], input=payload,
+        # sys.executable, non "python3" (review GPT #86): la suite gira anche su
+        # windows-latest, dove "python3" può non risolversi; lo snippet è lo stesso.
+        return subprocess.run([sys.executable, "-c", snippet], input=payload,
                               capture_output=True, text=True)
 
     assert run("[]").stdout.strip() == "0"                         # nessuna PR
