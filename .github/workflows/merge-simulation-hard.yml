@@ -46,8 +46,11 @@ jobs:
 
   hard:
     needs: fresh-commits-check
-    # != 'false' (non == 'true'): output vuoto/errore → run eseguita (fail-open).
-    if: needs.fresh-commits-check.outputs.has_new != 'false'
+    # FAIL-OPEN completo (review GPT #87): senza `!cancelled()`, un job-guard FALLITO
+    # (checkout/rete) farebbe skippare `hard` per dipendenza fallita, a dispetto
+    # dell'if. Con `!cancelled()` la run parte anche a guard fallita (output vuoto →
+    # != 'false'); `!= 'false'` (non == 'true') copre l'output vuoto a guard verde.
+    if: ${{ !cancelled() && needs.fresh-commits-check.outputs.has_new != 'false' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1

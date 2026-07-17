@@ -30,9 +30,11 @@ def test_hard_run_notturna_ha_la_guard_sui_commit_freschi():
         "merge-simulation-hard.yml: manca il job-guard fresh-commits-check — il cron "
         "notturno tornerebbe a bruciare minuti Windows 2× anche senza commit (P3-36 #76)")
     assert re.search(r"^\s*needs:\s*fresh-commits-check\s*$", text, re.MULTILINE)
-    assert "if: needs.fresh-commits-check.outputs.has_new != 'false'" in text, (
-        "merge-simulation-hard.yml: il gate deve essere `!= 'false'` (fail-open verso "
-        "l'esecuzione: output vuoto/errore → run eseguita, mai copertura persa)")
+    assert ("if: ${{ !cancelled() && "
+            "needs.fresh-commits-check.outputs.has_new != 'false' }}") in text, (
+        "merge-simulation-hard.yml: il gate deve essere `!cancelled() && ... != 'false'` "
+        "— senza !cancelled() un job-guard FALLITO skippa `hard` per dipendenza fallita "
+        "(review GPT #87); senza != 'false' l'output vuoto a guard verde farebbe skip")
 
 
 def test_guard_notturna_fail_open_e_solo_su_schedule():
