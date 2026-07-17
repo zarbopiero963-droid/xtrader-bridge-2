@@ -2272,6 +2272,16 @@ class App(ctk.CTk):
             return
 
         cfg = self._save_config()   # aggiorna anche il pannello "Chat ascoltate"
+        # Fail-fast (P3-5 audit #76): salvataggio su disco FALLITO → la sessione partirebbe
+        # su una config solo IN-MEMORY. Al riavvio (o dopo un crash) la recovery del CSV
+        # stantio leggerebbe la config VECCHIA dal disco e pulirebbe il path SBAGLIATO —
+        # con il rischio opposto: riga stantia viva sul path davvero usato dalla sessione.
+        # Bloccare finché il save non riesce è l'unica scelta senza finestre.
+        if not self._save_ok:
+            self._log(i18n.tr("❌ Salvataggio config FALLITO: avvio annullato (al riavvio la "
+                              "pulizia del CSV userebbe la config vecchia su disco). Correggi "
+                              "l'errore segnalato sopra e riprova."))
+            return
         # Fail-fast (PR-13, finding Codex P1): se le impostazioni avanzate non sono
         # valide, apply_advanced le ha RIFIUTATE in blocco e cfg ha ancora i vecchi
         # valori. Avviare ignorerebbe una modifica safety-critical (es. riattivare
