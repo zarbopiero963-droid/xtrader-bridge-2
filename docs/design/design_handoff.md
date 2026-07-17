@@ -995,9 +995,12 @@ gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia so
     si sta lasciando (stesso merge di «💾 Salva nel profilo», pattern «⚽ Calcio»). Se l'auto-save
     fallisce (o la config è illeggibile) lo **switch è annullato** — tendina riportata indietro,
     alias ancora a schermo, messaggio rosso «❌ Auto-salvataggio FALLITO: cambio … annullato…».
-    Con **nessun profilo selezionato**: il cambio profilo **mantiene** gli alias a schermo pronti
-    da salvare nel profilo appena scelto (avviso arancione ℹ️, stesso UX di «🆕 Nuovo»), mentre
-    cambio sport/competizione è **annullato** con «⛔ … nessun profilo selezionato…» (rosso).
+    L'auto-save scrive **solo gli alias davvero toccati** (delta rispetto alla precompilazione):
+    le righe non toccate — anche se aggiornate nel frattempo da un'altra scheda — restano intatte.
+    Con **nessun profilo selezionato**: il cambio profilo **precompila il profilo scelto e
+    ri-applica sopra gli alias digitati** (avviso arancione ℹ️, stesso UX di «🆕 Nuovo»: lo schermo
+    mostra disco + modifiche, pronte per «💾 Salva»), mentre cambio sport/competizione è
+    **annullato** con «⛔ … nessun profilo selezionato…» (rosso).
     Ri-selezionare la **stessa competizione** con alias digitati è un **no-op** (avviso ℹ️
     arancione): il ricaricamento li azzererebbe.
 

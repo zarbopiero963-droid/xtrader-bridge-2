@@ -107,6 +107,18 @@ def _saved_aliases(profile, teams):
         name_mapping_store.get_entries(cfg, profile), SPORT, list(teams))
 
 
+def _seed_alias(profile, team_aliases):
+    """Scrive su disco (store REALI) alias già esistenti nel profilo, fuori dal pannello —
+    simula righe salvate in precedenza o da un'altra scheda («⚽ Calcio», assistente)."""
+    from xtrader_bridge.betfair.guided_mapping import merge_team_aliases
+    cfg = config_store.load_config(config_store.CONFIG_FILE)
+    merged = merge_team_aliases(
+        name_mapping_store.get_entries(cfg, profile), SPORT, team_aliases)
+    cfg = name_mapping_store.set_entries(cfg, profile, merged)
+    _saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
+    assert ok
+
+
 # ── cambio profilo ────────────────────────────────────────────────────────────
 
 def test_cambio_profilo_dirty_autosalva_nel_profilo_lasciato(cfg_file, monkeypatch):
@@ -163,17 +175,73 @@ def test_cambio_profilo_config_illeggibile_annulla(cfg_file, monkeypatch):
 
 
 def test_cambio_profilo_da_nessun_profilo_mantiene_gli_alias(cfg_file, monkeypatch):
-    """Nessuna destinazione da auto-salvare: gli alias digitati restano a schermo (pattern
-    «🆕 Nuovo») pronti per «💾 Salva» nel profilo appena scelto — MAI azzerati in silenzio."""
+    """Nessuna destinazione da auto-salvare: il profilo scelto viene precompilato e il delta
+    digitato RI-APPLICATO sopra (CodeRabbit #83) — l'input non è mai azzerato in silenzio e
+    lo schermo mostra disco + modifiche."""
     mod = _gui_mod(monkeypatch)
     p = _panel(mod, profile=None, typed={"Inter": "inter fc"})
 
     p._on_profile_change("P2")
 
     assert p._current == "P2"
-    assert p._team_vars["Inter"].get() == "inter fc"   # nessun prefill distruttivo
+    assert p._team_vars["Inter"].get() == "inter fc"   # delta digitato ri-applicato
     assert p._dirty() is True                          # ancora da salvare
     assert _saved_aliases("P2", ["Inter"]) == {}       # e niente scritture implicite
+
+
+def test_da_nessun_profilo_il_save_non_cancella_i_mapping_esistenti(cfg_file, monkeypatch):
+    """CodeRabbit #83 (Major): P2 ha già Milan→«ac milan» su disco. Digito Inter SENZA profilo,
+    scelgo P2 e premo «💾 Salva»: il mapping esistente di Milan deve SOPRAVVIVERE (il prefill
+    del ramo nessun-profilo lo porta a schermo; senza, il vuoto lo cancellerebbe)."""
+    mod = _gui_mod(monkeypatch)
+    _seed_alias("P2", {"Milan": "ac milan"})
+    p = _panel(mod, profile=None, typed={"Inter": "inter fc"})
+
+    p._on_profile_change("P2")
+    assert p._team_vars["Milan"].get() == "ac milan"   # precompilato dal profilo scelto
+    p._save()
+
+    assert _saved_aliases("P2", ["Inter", "Milan"]) == {"Inter": "inter fc",
+                                                        "Milan": "ac milan"}
+
+
+def test_autosave_delta_preserva_aggiornamenti_esterni(cfg_file, monkeypatch):
+    """CodeRabbit #83 (Major): dopo il prefill un'ALTRA scheda salva Milan→«esterno» in P1.
+    L'auto-save allo switch deve scrivere SOLO il delta digitato (Inter): l'istantanea
+    completa, col vuoto stantio di Milan, cancellerebbe l'aggiornamento esterno."""
+    mod = _gui_mod(monkeypatch)
+    p = _panel(mod, profile="P1", typed={"Inter": "inter fc"})   # baseline: tutte vuote
+    _seed_alias("P1", {"Milan": "esterno"})                      # scrittura esterna post-prefill
+
+    p._on_profile_change("P2")
+
+    assert _saved_aliases("P1", ["Inter", "Milan"]) == {"Inter": "inter fc",
+                                                        "Milan": "esterno"}
+
+
+def test_autosave_persiste_la_cancellazione_di_un_alias(cfg_file, monkeypatch):
+    """Svuotare un alias esistente È un edit (var ≠ baseline): l'auto-save delta-only deve
+    persistere la rimozione, come farebbe «💾 Salva nel profilo»."""
+    mod = _gui_mod(monkeypatch)
+    _seed_alias("P1", {"Inter": "vecchio"})
+    p = _panel(mod, profile="P1")
+    p._baseline = {"Inter": "vecchio", "Milan": ""}
+    p._team_vars["Inter"].set("vecchio")
+    p._team_vars["Inter"].set("")                    # l'utente svuota l'alias
+
+    p._on_profile_change("P2")
+
+    assert _saved_aliases("P1", ["Inter"]) == {}     # rimozione persistita
+
+
+def test_autosave_riuscito_aggiorna_la_baseline(cfg_file, monkeypatch):
+    """Fugu/Fable #83: dopo un auto-save riuscito la foto va aggiornata subito — un secondo
+    switch prima del prossimo prefill non deve ri-mergiare lo stesso delta."""
+    mod = _gui_mod(monkeypatch)
+    p = _panel(mod, profile="P1", typed={"Inter": "inter fc"})
+
+    assert p._autosave_leaving(SPORT) is True
+    assert p._dirty() is False                       # foto = schermo appena salvato
 
 
 # ── cambio sport ──────────────────────────────────────────────────────────────

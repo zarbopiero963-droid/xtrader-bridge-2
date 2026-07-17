@@ -220,15 +220,29 @@ class GuidedMappingPanel(ctk.CTkFrame):
         cfg = self._load_cfg()
         if cfg is None:
             return False
-        team_aliases = {team: var.get() for team, var in self._team_vars.items()}
+        # DELTA-only (CodeRabbit #83, Major): si persistono SOLO gli alias che l'utente ha
+        # davvero toccato (diversi dalla foto `_baseline`). L'istantanea completa a schermo
+        # può essere stantia rispetto al disco (es. salvataggio da un'altra scheda dopo il
+        # prefill): passarla intera a `merge_team_aliases` sovrascriverebbe/cancellerebbe
+        # righe non toccate qui (un vuoto non toccato = rimozione). Il pulsante «💾 Salva
+        # nel profilo» resta a istantanea completa: lì è l'utente ad affermare ciò che vede.
+        team_aliases = {team: var.get() for team, var in self._team_vars.items()
+                        if var.get() != self._baseline.get(team, "")}
+        if not team_aliases:            # difensivo: chiamata sotto guardia _dirty()
+            return True
         merged = merge_team_aliases(
             name_mapping_store.get_entries(cfg, self._current), sport, team_aliases)
         cfg = name_mapping_store.set_entries(cfg, self._current, merged)
         saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
-        if ok and callable(self._on_saved):
-            # anche l'auto-save propaga alla GUI principale (come «⚽ Calcio»): senza, un
-            # successivo «Salva Config»/START sovrascriverebbe il merge appena scritto.
-            self._on_saved(saved)
+        if ok:
+            if callable(self._on_saved):
+                # anche l'auto-save propaga alla GUI principale (come «⚽ Calcio»): senza, un
+                # successivo «Salva Config»/START sovrascriverebbe il merge appena scritto.
+                self._on_saved(saved)
+            # il disco ora coincide con lo schermo per le squadre toccate: foto aggiornata
+            # (Fugu/Fable #83: senza, un secondo switch prima del prossimo prefill
+            # ri-mergerebbe lo stesso delta — idempotente ma scrittura ridondante).
+            self._baseline = {team: var.get() for team, var in self._team_vars.items()}
         return ok
 
     def _on_profile_change(self, value):
@@ -242,7 +256,20 @@ class GuidedMappingPanel(ctk.CTkFrame):
             return
         if self._dirty():
             if self._current is None:
+                # nessuna sorgente da auto-salvare: precompila il profilo SCELTO e RI-APPLICA
+                # sopra il delta digitato (CodeRabbit #83, Major). Così lo schermo mostra
+                # disco + modifiche: senza il prefill, un successivo «💾 Salva» vedrebbe
+                # vuote le squadre mai precompilate e CANCELLEREBBE i mapping già presenti
+                # nel profilo appena scelto.
+                delta = {team: var.get() for team, var in self._team_vars.items()
+                         if var.get() != self._baseline.get(team, "")}
                 self._current = new
+                self._prefill_aliases()
+                for team, value in delta.items():
+                    var = self._team_vars.get(team)
+                    if var is not None:
+                        var.set(value)
+                self._render_team_rows()
                 self._status.configure(
                     text=i18n.tr("ℹ️ Alias non ancora salvati mantenuti a schermo: premi "
                                  "«💾 Salva nel profilo» per scriverli in «{profile}».").format(
