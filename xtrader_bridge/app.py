@@ -3509,11 +3509,16 @@ class App(ctk.CTk):
         self._journal_csv_cleared_if_had_row("CSV_CLEARED", reason="manual")
 
     def _refresh_tool_panels_after_profile(self, panel_refs, saved) -> None:
-        """Ricarica dal disco le schede Strumenti già costruite dopo l'applicazione di un
-        profilo (Provider, Chat sorgenti, Mapping). Senza, un loro Salva
-        successivo riscriverebbe lo stato vecchio sopra il profilo — per Chat sorgenti
-        significherebbe riscrivere `source_chats` vecchie e INDEBOLIRE il filtro chat
-        (Codex P1).
+        """Ricarica le schede Strumenti già costruite dopo l'applicazione di un
+        profilo (Provider, Chat sorgenti, Mapping) dalla config VIVA appena applicata
+        (`saved`), NON dal disco. Senza refresh, un loro Salva successivo riscriverebbe lo
+        stato vecchio sopra il profilo — per Chat sorgenti significherebbe riscrivere
+        `source_chats` vecchie e INDEBOLIRE il filtro chat (Codex P1). E il refresh DAL
+        DISCO non basta (P3-7 #76): se il persist del profilo è FALLITO il disco ha ancora
+        la config PRE-profilo, e i pannelli tornerebbero a mostrare (e al Salva successivo a
+        riscrivere, anche nella config viva via `on_saved`) esattamente lo stato stantio che
+        questa funzione esiste per eliminare. Deepcopy PER PANNELLO: i pannelli tengono/
+        mutano il proprio snapshot e non devono condividere dict annidati con `self._config`.
 
         Best-effort: un refresh fallito NON blocca il caricamento del profilo, ma NON viene
         più ingoiato in silenzio — si LOGGA quale scheda è rimasta stantia, così l'utente sa
@@ -3523,7 +3528,7 @@ class App(ctk.CTk):
             _panel = panel_refs.get(_key)
             if _panel is not None:
                 try:
-                    _panel.refresh()
+                    _panel.refresh(copy.deepcopy(saved))
                 except Exception as ex:       # noqa: BLE001 — best-effort, ma non silenzioso
                     self._log(i18n.tr("⚠️ Scheda {tab} non aggiornata dal profilo "
                                       "(mostra ancora i valori precedenti): {exc}")

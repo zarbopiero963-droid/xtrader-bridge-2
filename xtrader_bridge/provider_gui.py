@@ -38,13 +38,18 @@ class ProviderPanel(ctk.CTkFrame):
         self._build_ui()
         self._reload()
 
-    def refresh(self):
-        """Ricarica la lista dei provider dal disco.
+    def refresh(self, cfg=None):
+        """Ricarica la lista dei provider.
 
         Usato quando la config cambia da FUORI questo pannello (es. l'applicazione di
         un profilo nella stessa finestra "🧰 Strumenti" può sostituire la lista
-        `providers`): senza, il pannello mostrerebbe nomi stantii (Codex)."""
-        self._reload()
+        `providers`): senza, il pannello mostrerebbe nomi stantii (Codex).
+
+        `cfg`: config VIVA da usare al posto del disco (P3-7 #76) — dopo un profilo
+        applicato ma NON persistito il disco ha ancora lo stato pre-profilo e rileggerlo
+        rimetterebbe in anteprima i provider vecchi. `None` = ricarica dal disco
+        (comportamento storico per gli altri chiamanti)."""
+        self._reload(cfg)
 
     # ── costruzione UI ─────────────────────────────────────────────────────
     def _build_ui(self):
@@ -75,19 +80,21 @@ class ProviderPanel(ctk.CTkFrame):
         self._status.pack(fill="x", padx=12, pady=(0, 10))
 
     # ── stato corrente ─────────────────────────────────────────────────────
-    def _load_names(self) -> list:
-        """Nomi provider salvati (best-effort: config illeggibile → lista vuota)."""
-        try:
-            cfg = config_store.load_config(config_store.CONFIG_FILE)
-        except Exception:                       # noqa: BLE001 — fallback sicuro
-            return []
+    def _load_names(self, cfg=None) -> list:
+        """Nomi provider salvati (best-effort: config illeggibile → lista vuota).
+        `cfg` fornita = fonte viva (P3-7 #76); `None` = disco."""
+        if cfg is None:
+            try:
+                cfg = config_store.load_config(config_store.CONFIG_FILE)
+            except Exception:                   # noqa: BLE001 — fallback sicuro
+                return []
         return provider_store.provider_names(cfg)
 
-    def _reload(self):
-        """Ridisegna la lista dei provider dallo stato corrente su disco."""
+    def _reload(self, cfg=None):
+        """Ridisegna la lista dei provider (da `cfg` viva se fornita, altrimenti da disco)."""
         for child in self._rows_frame.winfo_children():
             child.destroy()
-        names = self._load_names()
+        names = self._load_names(cfg)
         if not names:
             ctk.CTkLabel(self._rows_frame, text=i18n.tr("Nessun provider salvato."),
                          text_color="gray").pack(anchor="w", padx=6, pady=4)

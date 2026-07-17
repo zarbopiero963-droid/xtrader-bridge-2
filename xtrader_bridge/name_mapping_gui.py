@@ -106,13 +106,16 @@ class NameMappingPanel(ctk.CTkFrame):
         self._build_ui()
         self._reload_profiles(select_first=True)
 
-    def refresh(self):
-        """Ricarica profili e righe del dizionario nomi dalla config su disco.
+    def refresh(self, cfg=None):
+        """Ricarica profili e righe del dizionario nomi.
 
         Da chiamare quando la config cambia da FUORI (es. un profilo applicato nella
         stessa finestra "🧰 Strumenti"): senza, un Salva successivo riscriverebbe il
-        dizionario nomi stantio sopra il profilo (Codex)."""
-        self._reload_profiles(select_first=True)
+        dizionario nomi stantio sopra il profilo (Codex).
+
+        `cfg`: config VIVA da usare al posto del disco (P3-7 #76) — con un profilo
+        applicato ma NON persistito il disco è ancora pre-profilo. `None` = disco."""
+        self._reload_profiles(select_first=True, cfg=cfg)
 
     # ── costruzione UI ─────────────────────────────────────────────────────
     def _build_ui(self):
@@ -178,9 +181,11 @@ class NameMappingPanel(ctk.CTkFrame):
                                    text_color="#ef5350")
             return None
 
-    def _reload_profiles(self, select=None, select_first=False):
-        """Ricarica la tendina dei profili da config e seleziona quello indicato."""
-        cfg = self._load_cfg()
+    def _reload_profiles(self, select=None, select_first=False, cfg=None):
+        """Ricarica la tendina dei profili da config e seleziona quello indicato.
+        `cfg` fornita = fonte viva (P3-7 #76), propagata anche alle righe; `None` = disco."""
+        if cfg is None:
+            cfg = self._load_cfg()
         names = name_mapping_store.profile_names(cfg) if cfg is not None else []
         self._profile_menu.configure(values=names or [self._NO_PROFILE])
         if select and select in names:
@@ -193,10 +198,11 @@ class NameMappingPanel(ctk.CTkFrame):
             target = None
         self._current = target
         self._profile_var.set(target or self._NO_PROFILE)
-        self._reload_rows()
+        self._reload_rows(cfg)
 
-    def _reload_rows(self):
-        """Ridisegna la tabella dalle righe salvate del profilo corrente."""
+    def _reload_rows(self, cfg=None):
+        """Ridisegna la tabella dalle righe salvate del profilo corrente
+        (da `cfg` viva se fornita, altrimenti da disco)."""
         for child in self._rows_frame.winfo_children():
             child.destroy()
         self._row_widgets = []
@@ -204,7 +210,8 @@ class NameMappingPanel(ctk.CTkFrame):
             ctk.CTkLabel(self._rows_frame, text=i18n.tr("Nessun profilo. Crea un profilo con «Nuovo»."),
                          text_color="gray").pack(anchor="w", padx=6, pady=4)
             return
-        cfg = self._load_cfg()
+        if cfg is None:
+            cfg = self._load_cfg()
         entries = name_mapping_store.get_entries(cfg, self._current) if cfg is not None else []
         for e in entries:
             self._append_row_widget(e.get("country", ""), e.get("betfair", ""),
@@ -544,9 +551,10 @@ class MarketMappingPanel(ctk.CTkFrame):
         self._build_ui()
         self._reload_profiles(select_first=True)
 
-    def refresh(self):
-        """Ricarica profili e righe dei mercati dalla config su disco (anti-stale)."""
-        self._reload_profiles(select_first=True)
+    def refresh(self, cfg=None):
+        """Ricarica profili e righe dei mercati (anti-stale). `cfg` fornita = fonte viva
+        (P3-7 #76: dopo un profilo NON persistito il disco è ancora pre-profilo); `None` = disco."""
+        self._reload_profiles(select_first=True, cfg=cfg)
 
     @staticmethod
     def _selections_for(market: str) -> list:
@@ -614,8 +622,10 @@ class MarketMappingPanel(ctk.CTkFrame):
                                    text_color="#ef5350")
             return None
 
-    def _reload_profiles(self, select=None, select_first=False):
-        cfg = self._load_cfg()
+    def _reload_profiles(self, select=None, select_first=False, cfg=None):
+        # `cfg` fornita = fonte viva (P3-7 #76), propagata anche alle righe; `None` = disco.
+        if cfg is None:
+            cfg = self._load_cfg()
         names = market_mapping_store.profile_names(cfg) if cfg is not None else []
         self._profile_menu.configure(values=names or [self._NO_PROFILE])
         if select and select in names:
@@ -628,9 +638,9 @@ class MarketMappingPanel(ctk.CTkFrame):
             target = None
         self._current = target
         self._profile_var.set(target or self._NO_PROFILE)
-        self._reload_rows()
+        self._reload_rows(cfg)
 
-    def _reload_rows(self):
+    def _reload_rows(self, cfg=None):
         for child in self._rows_frame.winfo_children():
             child.destroy()
         self._row_widgets = []
@@ -638,7 +648,8 @@ class MarketMappingPanel(ctk.CTkFrame):
             ctk.CTkLabel(self._rows_frame, text=i18n.tr("Nessun profilo. Crea un profilo con «Nuovo»."),
                          text_color="gray").pack(anchor="w", padx=6, pady=4)
             return
-        cfg = self._load_cfg()
+        if cfg is None:
+            cfg = self._load_cfg()
         entries = market_mapping_store.get_entries(cfg, self._current) if cfg is not None else []
         for e in entries:
             self._append_row_widget(e.get("start_after", ""), e.get("end_before", ""),
@@ -940,12 +951,14 @@ class MappingPanel(ctk.CTkFrame):
             teams_provider=teams_provider, on_saved=on_saved)
         self._guidato.pack(fill="both", expand=True)
 
-    def refresh(self):
-        """Ricarica tutte le aree (nomi, mercati, mapping guidato) dalla config su disco
-        (anti-stale: un profilo applicato altrove non deve restare stantio qui)."""
-        self._calcio.refresh()
-        self._mercati.refresh()
-        self._guidato.refresh()
+    def refresh(self, cfg=None):
+        """Ricarica tutte le aree (nomi, mercati, mapping guidato) — anti-stale: un profilo
+        applicato altrove non deve restare stantio qui. `cfg` fornita = config VIVA inoltrata
+        a tutte le aree (P3-7 #76: dopo un profilo applicato ma NON persistito il disco è
+        ancora pre-profilo); `None` = ricarica dal disco (comportamento storico)."""
+        self._calcio.refresh(cfg)
+        self._mercati.refresh(cfg)
+        self._guidato.refresh(cfg)
 
 
 class NameMappingWindow(ctk.CTkToplevel):

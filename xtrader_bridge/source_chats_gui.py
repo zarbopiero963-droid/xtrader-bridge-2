@@ -115,15 +115,20 @@ class SourceChatsPanel(ctk.CTkFrame):
         for src in self._editor.sources:
             self._add_row(src)
 
-    def refresh(self):
-        """Ricarica editor e righe dalla config su disco.
+    def refresh(self, cfg=None):
+        """Ricarica editor e righe della config.
 
         Da chiamare quando la config cambia da FUORI questo pannello (es. un profilo
         applicato nella stessa finestra "🧰 Strumenti"): senza, un Salva successivo
         riscriverebbe le `source_chats` STANTIE sopra il profilo appena caricato,
         indebolendo il filtro chat (Codex P1). Le modifiche non salvate vengono scartate:
-        il profilo appena caricato è la nuova verità."""
-        self._cfg = config_store.load_config(config_store.CONFIG_FILE)
+        il profilo appena caricato è la nuova verità.
+
+        `cfg`: config VIVA da usare al posto del disco (P3-7 #76) — con un profilo
+        applicato ma NON persistito il disco ha ancora le `source_chats` pre-profilo e
+        rileggerlo rimetterebbe in anteprima (e al Salva, su disco e nella config viva)
+        il filtro chat vecchio. `None` = ricarica dal disco (comportamento storico)."""
+        self._cfg = cfg if cfg is not None else config_store.load_config(config_store.CONFIG_FILE)
         self._editor = SourceEditor(self._cfg)
         self._modes = self._editor.mode_options()
         self._parser_names = self._editor.parser_options()
