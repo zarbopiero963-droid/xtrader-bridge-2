@@ -92,7 +92,7 @@ def test_append_concorrenti_nessuna_riga_corrotta(tmp_path):
     assert len(events) == 200                  # nessun evento perso o saltato
     # unicità (GLM #89): 200 event_id distinti e tutti i 200 payload distinti presenti —
     # esclude che il conteggio passi con duplicati che mascherano eventi persi.
-    assert len({e["event_id"] for e in events}) == 200
+    assert len({e["id"] for e in events}) == 200
     assert {e["data"]["note"] for e in events} == {f"t{i}-{j}" for i in range(4)
                                                    for j in range(50)}
 
