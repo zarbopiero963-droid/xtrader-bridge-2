@@ -103,7 +103,11 @@ def test_sources_refresh_usa_la_config_viva(cfg_file, monkeypatch):
 
     panel.refresh(live)
     assert added == ["-100222"], "refresh(cfg) deve usare le sorgenti della config VIVA"
-    assert panel._cfg is live                                    # snapshot per i chip = viva
+    # Review Fable #92: unico pannello che TRATTIENE la config (chip «Traduzioni») →
+    # deepcopy DIFENSIVA interna: snapshot UGUALE alla viva ma indipendente (nessun dict
+    # annidato condiviso, anche se il chiamante non passasse già una copia).
+    assert panel._cfg == live and panel._cfg is not live
+    assert panel._cfg["source_chats"] is not live["source_chats"]
 
     added.clear()
     panel.refresh()                                              # storico: dal disco

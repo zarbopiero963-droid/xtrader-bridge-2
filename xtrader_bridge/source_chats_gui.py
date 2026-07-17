@@ -21,6 +21,8 @@ NB: questo modulo non è testato in CI (richiede un display). La logica che usa 
 coperta da `tests/unit/test_source_editor.py`. Verifica manuale su Windows.
 """
 
+import copy
+
 import customtkinter as ctk
 
 from . import config_store, config_summary, custom_parser, gui_utils, i18n
@@ -127,8 +129,14 @@ class SourceChatsPanel(ctk.CTkFrame):
         `cfg`: config VIVA da usare al posto del disco (P3-7 #76) — con un profilo
         applicato ma NON persistito il disco ha ancora le `source_chats` pre-profilo e
         rileggerlo rimetterebbe in anteprima (e al Salva, su disco e nella config viva)
-        il filtro chat vecchio. `None` = ricarica dal disco (comportamento storico)."""
-        self._cfg = cfg if cfg is not None else config_store.load_config(config_store.CONFIG_FILE)
+        il filtro chat vecchio. `None` = ricarica dal disco (comportamento storico).
+
+        Deepcopy DIFENSIVA nel pannello (review Fable #92): questo è l'unico pannello che
+        TRATTIENE la config (`self._cfg`, snapshot per i chip «Traduzioni») — la copia
+        interna garantisce l'invariante "nessun dict annidato condiviso con la config
+        viva" anche per chiamanti futuri che non passassero già una copia."""
+        self._cfg = (copy.deepcopy(cfg) if cfg is not None
+                     else config_store.load_config(config_store.CONFIG_FILE))
         self._editor = SourceEditor(self._cfg)
         self._modes = self._editor.mode_options()
         self._parser_names = self._editor.parser_options()
