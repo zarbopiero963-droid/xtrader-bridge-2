@@ -17,6 +17,8 @@ NB: questo modulo non è testato in CI (richiede un display). La logica che usa 
 coperta da `tests/unit/test_name_mapping.py`. Verifica manuale su Windows.
 """
 
+import copy
+
 import customtkinter as ctk
 
 from . import (
@@ -955,10 +957,14 @@ class MappingPanel(ctk.CTkFrame):
         """Ricarica tutte le aree (nomi, mercati, mapping guidato) — anti-stale: un profilo
         applicato altrove non deve restare stantio qui. `cfg` fornita = config VIVA inoltrata
         a tutte le aree (P3-7 #76: dopo un profilo applicato ma NON persistito il disco è
-        ancora pre-profilo); `None` = ricarica dal disco (comportamento storico)."""
-        self._calcio.refresh(cfg)
-        self._mercati.refresh(cfg)
-        self._guidato.refresh(cfg)
+        ancora pre-profilo); `None` = ricarica dal disco (comportamento storico).
+
+        Deepcopy PER AREA (review Fable/GPT #92): stesso invariante del chiamante in
+        `app.py` — le tre sotto-aree non devono condividere dict annidati tra loro (oggi
+        sono read-only, ma una futura mutazione locale non deve propagarsi alle sorelle)."""
+        self._calcio.refresh(copy.deepcopy(cfg) if cfg is not None else None)
+        self._mercati.refresh(copy.deepcopy(cfg) if cfg is not None else None)
+        self._guidato.refresh(copy.deepcopy(cfg) if cfg is not None else None)
 
 
 class NameMappingWindow(ctk.CTkToplevel):

@@ -20,6 +20,7 @@ store/editor REALI (`provider_store`, `SourceEditor`, `name_mapping_store`,
 disco ≠ viva è vero, non simulato."""
 
 import importlib
+import re
 import sys
 import types
 from pathlib import Path
@@ -181,9 +182,20 @@ def test_mapping_panel_inoltra_la_config_viva_alle_aree(monkeypatch):
             calls.append((self._key, cfg))
 
     hub._calcio, hub._mercati, hub._guidato = _Sub("calcio"), _Sub("mercati"), _Sub("guidato")
-    live = {"marker": "viva"}
+    live = {"marker": "viva", "annidato": {"k": 1}}
     hub.refresh(live)
-    assert calls == [("calcio", live), ("mercati", live), ("guidato", live)]
+    assert [(k, c) for k, c in calls] == [("calcio", live), ("mercati", live),
+                                          ("guidato", live)]
+    # Review Fable/GPT #92: UGUALI ma NON identiche — deepcopy per area, nessun dict
+    # annidato condiviso tra le sorelle né con la config viva del chiamante.
+    ricevute = [c for _k, c in calls]
+    for c in ricevute:
+        assert c is not live and c["annidato"] is not live["annidato"]
+    assert ricevute[0] is not ricevute[1] and ricevute[1] is not ricevute[2]
+
+    calls.clear()
+    hub.refresh()                                    # storico: None inoltrato tal quale
+    assert calls == [("calcio", None), ("mercati", None), ("guidato", None)]
 
 
 # ── app.py: il glue passa deepcopy(saved) — mai refresh() senza argomento ────────────
@@ -198,3 +210,9 @@ def test_app_inoltra_deepcopy_della_config_viva():
     assert "_panel.refresh(copy.deepcopy(saved))" in corpo
     assert "_panel.refresh()" not in corpo, (
         "refresh() senza argomento = ricarica dal disco → anteprima pre-profilo (P3-7)")
+    # Review Fugu #92: il pin sul CORPO non basterebbe se `import copy` sparisse dal
+    # modulo — un NameError verrebbe inghiottito dall'except best-effort e TUTTI i
+    # pannelli resterebbero stantii in silenzio. Pinna anche l'import a livello modulo.
+    assert re.search(r"^import copy$", src, re.M), (
+        "app.py: manca `import copy` a livello modulo — deepcopy(saved) fallirebbe in "
+        "NameError silenzioso dentro il try best-effort")
