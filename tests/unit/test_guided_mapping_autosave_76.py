@@ -328,6 +328,26 @@ def test_cambio_sport_save_fallito_annullato(cfg_file, monkeypatch):
     assert "❌" in p._status.text
 
 
+def test_cambio_sport_senza_last_sport_fail_closed(cfg_file, monkeypatch):
+    """Final review Fable #83: `_last_sport=None` con alias dirty è irraggiungibile nel
+    ciclo di vita reale, ma il vecchio fallback avrebbe fatto il merge sotto lo sport
+    NUOVO (tendina già cambiata) corrompendo il mapping per-sport. Fail-closed: switch
+    annullato, NESSUNA scrittura con sport indovinato."""
+    mod = _gui_mod(monkeypatch)
+    p = _panel(mod, profile="P1", typed={"Inter": "inter fc"})
+    p._last_sport = None                             # stato anomalo simulato
+    p._sport_var.set("SportNuovo")
+    scritture = []
+    monkeypatch.setattr(config_store, "save_config",
+                        lambda cfg, path: (scritture.append(1), (cfg, True))[1])
+
+    p._on_sport_change()
+
+    assert scritture == []                           # nessun merge con sport indovinato
+    assert p._team_vars["Inter"].get() == "inter fc"  # input intatto
+    assert "❌" in p._status.text
+
+
 # ── cambio competizione ───────────────────────────────────────────────────────
 
 def test_cambio_competizione_dirty_autosalva_poi_carica(cfg_file, monkeypatch):

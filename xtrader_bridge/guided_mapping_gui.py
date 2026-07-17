@@ -349,8 +349,12 @@ class GuidedMappingPanel(ctk.CTkFrame):
                                  "annullato. Salva in un profilo (o svuota gli alias) e riprova."),
                     text_color="#ef5350")
                 return
-            if not self._autosave_leaving(prev_sport if prev_sport is not None
-                                          else self._selected_sport()):
+            # `prev_sport is None` con alias dirty è uno stato IMPOSSIBILE nel ciclo di
+            # vita reale (il modello nasce solo dopo che `__init__` → `_on_sport_change`
+            # ha valorizzato `_last_sport`), ma il fallback sullo sport NUOVO scriverebbe
+            # gli alias sotto lo sport sbagliato (final review Fable #83): fail-closed,
+            # switch annullato — MAI merge con uno sport indovinato.
+            if prev_sport is None or not self._autosave_leaving(prev_sport):
                 if prev_sport is not None:
                     self._sport_var.set(prev_sport)
                 self._status.configure(
