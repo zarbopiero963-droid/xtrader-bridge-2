@@ -42,12 +42,18 @@ def test_debug_in_logga_il_chat_id_redatto():
 
 
 def test_redazione_correlabile_col_diario():
-    """Stessa impronta del diario: `chat:sha256:<12hex>`, stabile e mai l'ID in chiaro."""
+    """Stessa impronta del diario: `chat:sha256:<12hex>`, stabile e mai l'ID in chiaro.
+    E il caso `None`/vuoto (review Fable/Fugu/GLM #89: `_process` ha `chat_id=None` di
+    default) NON solleva e ritorna `None` → la lambda mostra `?` via `c or '?'`,
+    identico al comportamento pre-patch."""
     from xtrader_bridge import log_privacy
     out = log_privacy.redact_chat_id("-1001234567890")
     assert out == log_privacy.redact_chat_id(-1001234567890)   # int/str → stessa impronta
     assert re.fullmatch(r"chat:sha256:[0-9a-f]{12}", out)
     assert "1234567890" not in out
+    assert log_privacy.redact_chat_id(None) is None            # mai raise, mai hash di "None"
+    assert log_privacy.redact_chat_id("") is None
+    assert log_privacy.redact_chat_id("   ") is None
 
 
 # ── P3-4: append del diario serializzato ─────────────────────────────────────────────
@@ -84,6 +90,11 @@ def test_append_concorrenti_nessuna_riga_corrotta(tmp_path):
         json.loads(line)                       # ogni riga è JSON integro
     events = event_journal.read_events(path)
     assert len(events) == 200                  # nessun evento perso o saltato
+    # unicità (GLM #89): 200 event_id distinti e tutti i 200 payload distinti presenti —
+    # esclude che il conteggio passi con duplicati che mascherano eventi persi.
+    assert len({e["event_id"] for e in events}) == 200
+    assert {e["data"]["note"] for e in events} == {f"t{i}-{j}" for i in range(4)
+                                                   for j in range(50)}
 
 
 def test_append_dopo_coda_troncata_resta_serializzato(tmp_path):
