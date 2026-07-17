@@ -2279,8 +2279,8 @@ class App(ctk.CTk):
         # Bloccare finché il save non riesce è l'unica scelta senza finestre.
         if not self._save_ok:
             self._log(i18n.tr("❌ Salvataggio config FALLITO: avvio annullato (al riavvio la "
-                              "pulizia del CSV userebbe la config vecchia su disco). Controlla "
-                              "permessi/spazio del file config e riprova."))
+                              "pulizia del CSV userebbe la config vecchia su disco). Correggi "
+                              "l'errore segnalato sopra e riprova."))
             return
         # Fail-fast (PR-13, finding Codex P1): se le impostazioni avanzate non sono
         # valide, apply_advanced le ha RIFIUTATE in blocco e cfg ha ancora i vecchi

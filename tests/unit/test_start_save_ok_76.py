@@ -54,8 +54,8 @@ def test_stringa_localizzata_en_es():
     """La stringa del fail-fast deve avere le traduzioni EN/ES (anti-drift i18n)."""
     from xtrader_bridge import i18n
     key = ("❌ Salvataggio config FALLITO: avvio annullato (al riavvio la pulizia del "
-           "CSV userebbe la config vecchia su disco). Controlla permessi/spazio del "
-           "file config e riprova.")
+           "CSV userebbe la config vecchia su disco). Correggi l'errore segnalato "
+           "sopra e riprova.")
     body = _start_body()
     assert "Salvataggio config FALLITO: avvio annullato" in body
     for lang in ("EN", "ES"):
