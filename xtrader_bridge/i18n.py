@@ -661,6 +661,7 @@ _CATALOG = {
         # profilo/sport/competizione, switch annullato su save fallito/nessun profilo, no-op su
         # ri-selezione della stessa competizione con alias digitati. {profile}=nome profilo.
         "ℹ️ Alias non ancora salvati mantenuti a schermo: premi «💾 Salva nel profilo» per scriverli in «{profile}».": "ℹ️ Unsaved aliases kept on screen: press «💾 Save to profile» to write them into «{profile}».",
+        "❌ Config illeggibile: cambio profilo annullato, alias mantenuti a schermo. Riprova.": "❌ Unreadable config: profile switch cancelled, aliases kept on screen. Try again.",
         "❌ Auto-salvataggio FALLITO: cambio profilo annullato, alias mantenuti a schermo. Controlla permessi/spazio del file config.": "❌ Auto-save FAILED: profile switch cancelled, aliases kept on screen. Check permissions/space of the config file.",
         "⛔ Alias digitati ma nessun profilo selezionato: cambio sport annullato. Salva in un profilo (o svuota gli alias) e riprova.": "⛔ Aliases typed but no profile selected: sport switch cancelled. Save into a profile (or clear the aliases) and try again.",
         "❌ Auto-salvataggio FALLITO: cambio sport annullato, alias mantenuti a schermo. Controlla permessi/spazio del file config.": "❌ Auto-save FAILED: sport switch cancelled, aliases kept on screen. Check permissions/space of the config file.",
@@ -1298,6 +1299,7 @@ _CATALOG = {
         "❌ Salvataggio FALLITO: «{profile}» non salvato (andrebbe perso al riavvio). Controlla permessi/spazio del file config.": "❌ Guardado FALLIDO: «{profile}» no guardado (se perdería al reiniciar). Comprueba permisos/espacio del archivo config.",
         # Pannello «🌳 Mapping guidato» — ANTI-PERDITA INPUT (P2-9 #76) — vedi nota nel blocco EN.
         "ℹ️ Alias non ancora salvati mantenuti a schermo: premi «💾 Salva nel profilo» per scriverli in «{profile}».": "ℹ️ Alias no guardados mantenidos en pantalla: pulsa «💾 Guardar en el perfil» para escribirlos en «{profile}».",
+        "❌ Config illeggibile: cambio profilo annullato, alias mantenuti a schermo. Riprova.": "❌ Config ilegible: cambio de perfil cancelado, alias mantenidos en pantalla. Reinténtalo.",
         "❌ Auto-salvataggio FALLITO: cambio profilo annullato, alias mantenuti a schermo. Controlla permessi/spazio del file config.": "❌ Auto-guardado FALLIDO: cambio de perfil cancelado, alias mantenidos en pantalla. Comprueba permisos/espacio del archivo config.",
         "⛔ Alias digitati ma nessun profilo selezionato: cambio sport annullato. Salva in un profilo (o svuota gli alias) e riprova.": "⛔ Alias escritos pero ningún perfil seleccionado: cambio de deporte cancelado. Guarda en un perfil (o vacía los alias) y reinténtalo.",
         "❌ Auto-salvataggio FALLITO: cambio sport annullato, alias mantenuti a schermo. Controlla permessi/spazio del file config.": "❌ Auto-guardado FALLIDO: cambio de deporte cancelado, alias mantenidos en pantalla. Comprueba permisos/espacio del archivo config.",

@@ -189,6 +189,23 @@ def test_cambio_profilo_da_nessun_profilo_mantiene_gli_alias(cfg_file, monkeypat
     assert _saved_aliases("P2", ["Inter"]) == {}       # e niente scritture implicite
 
 
+def test_da_nessun_profilo_config_illeggibile_annulla_lo_switch(cfg_file, monkeypatch):
+    """Fable #83 round 2 (bloccante): nel ramo nessun-profilo un prefill con config
+    illeggibile precompilerebbe tutto a VUOTO (schermo senza i mapping esistenti del
+    profilo scelto) → «💾 Salva» distruttivo. Come gli altri percorsi: switch ANNULLATO."""
+    mod = _gui_mod(monkeypatch)
+    p = _panel(mod, profile=None, typed={"Inter": "inter fc"})
+    monkeypatch.setattr(config_store, "load_config",
+                        lambda _p: (_ for _ in ()).throw(OSError("boom")))
+
+    p._on_profile_change("P2")
+
+    assert p._current is None                           # switch ANNULLATO
+    assert p._profile_var.get() == mod._NO_PROFILE      # tendina riportata indietro
+    assert p._team_vars["Inter"].get() == "inter fc"    # input ancora a schermo
+    assert "❌" in p._status.text
+
+
 def test_da_nessun_profilo_il_save_non_cancella_i_mapping_esistenti(cfg_file, monkeypatch):
     """CodeRabbit #83 (Major): P2 ha già Milan→«ac milan» su disco. Digito Inter SENZA profilo,
     scelgo P2 e premo «💾 Salva»: il mapping esistente di Milan deve SOPRAVVIVERE (il prefill

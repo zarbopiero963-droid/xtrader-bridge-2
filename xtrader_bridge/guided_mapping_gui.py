@@ -261,6 +261,16 @@ class GuidedMappingPanel(ctk.CTkFrame):
                 # disco + modifiche: senza il prefill, un successivo «💾 Salva» vedrebbe
                 # vuote le squadre mai precompilate e CANCELLEREBBE i mapping già presenti
                 # nel profilo appena scelto.
+                if self._load_cfg() is None:
+                    # config illeggibile → switch ANNULLATO come gli altri percorsi (Fable
+                    # #83 round 2): proseguire precompilerebbe tutto a vuoto (schermo senza
+                    # i mapping esistenti del profilo) → «💾 Salva» distruttivo.
+                    self._profile_var.set(_NO_PROFILE)
+                    self._status.configure(
+                        text=i18n.tr("❌ Config illeggibile: cambio profilo annullato, alias "
+                                     "mantenuti a schermo. Riprova."),
+                        text_color="#ef5350")
+                    return
                 delta = {team: var.get() for team, var in self._team_vars.items()
                          if var.get() != self._baseline.get(team, "")}
                 self._current = new
