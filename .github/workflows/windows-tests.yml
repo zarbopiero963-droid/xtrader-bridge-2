@@ -29,6 +29,15 @@ on:
 permissions:
   contents: read
 
+# P2-10 audit #76: le due label finali aggiunte insieme emettono DUE eventi `labeled` →
+# senza concurrency partivano due run Windows identiche sullo stesso SHA (minuti 2×).
+# Gruppo per PR (fallback: SHA per push su main/dispatch, così run di commit diversi non
+# si cancellano mai tra loro) + cancel-in-progress: il doppione della coppia di label
+# supera la prima run, e un push nuovo cancella la run ormai stantia del head precedente.
+concurrency:
+  group: windows-tests-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   windows-tests:
     # Su push/dispatch gira sempre; su PR (labeled/synchronize/reopened) solo se una label di
