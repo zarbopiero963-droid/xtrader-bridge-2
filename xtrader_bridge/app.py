@@ -1538,7 +1538,11 @@ class App(ctk.CTk):
                 and now - cached[1] < _CSV_PROBE_TTL_S):
             return cached[2]
         result = health_check.csv_writable(path)
-        self._csv_probe_cache = (path, now, result)
+        # Timestamp DOPO il probe (review GPT #94): se la sonda stessa blocca più del
+        # TTL (share morta = proprio lo scenario target), un timestamp preso PRIMA
+        # nascerebbe già scaduto → il refresh successivo rifarebbe subito l'I/O
+        # bloccante, vanificando il throttle quando serve di più.
+        self._csv_probe_cache = (path, time.monotonic(), result)
         return result
 
     def _live_health_items(self, force_probe: bool = False) -> list:

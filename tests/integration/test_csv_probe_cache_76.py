@@ -66,6 +66,30 @@ def test_ttl_scaduto_riprova_davvero(make_app, app_mod, monkeypatch):
     assert len(chiamate) == 2, "a TTL scaduto lo stato CSV deve tornare fresco"
 
 
+def test_probe_lento_timestamp_dopo_il_probe(make_app, app_mod, monkeypatch):
+    """Review GPT #94: se la SONDA stessa blocca più del TTL (share morta — proprio lo
+    scenario target), il timestamp deve nascere DOPO il probe: preso prima sarebbe già
+    scaduto e il refresh successivo rifarebbe subito l'I/O bloccante."""
+    a = make_app(running=False)
+    clock = _orologio(app_mod, monkeypatch)
+    chiamate = []
+
+    def _probe_lento(path, **_k):
+        chiamate.append(path)
+        clock["now"] += app_mod._CSV_PROBE_TTL_S + 2      # la sonda blocca oltre il TTL
+        return ("RED", "share morta")
+
+    monkeypatch.setattr(app_mod.health_check, "csv_writable", _probe_lento)
+
+    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")
+    r2 = app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")   # subito dopo il rientro
+
+    assert chiamate == ["Z:/share/out.csv"], (
+        "dopo un probe più lento del TTL la cache deve essere FRESCA: niente secondo "
+        "I/O bloccante immediato (timestamp preso dopo il probe)")
+    assert r2 == ("RED", "share morta")
+
+
 def test_cambio_path_probe_immediato(make_app, app_mod, monkeypatch):
     """Il cambio di csv_path (save/profilo) non deve mostrare il semaforo del path
     VECCHIO per il resto del TTL."""
