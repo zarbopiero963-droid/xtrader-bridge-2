@@ -90,12 +90,16 @@ class GuidedMappingPanel(ctk.CTkFrame):
             deb.cancel_pending()
         super().destroy()
 
-    def refresh(self):
-        """Aggiorna SOLO l'elenco profili dalla config su disco (anti-stale dei nomi profilo dopo
-        rename/delete fatti in un'altra sotto-scheda). **Non ri-precompila gli alias e non tocca le
-        squadre**: un refresh esterno (es. salvataggio in «⚽ Calcio» che propaga `on_saved`) NON deve
-        azzerare gli alias digitati e non ancora salvati nell'albero guidato (Fable #389)."""
-        cfg = self._load_cfg()
+    def refresh(self, cfg=None):
+        """Aggiorna SOLO l'elenco profili (anti-stale dei nomi profilo dopo rename/delete fatti
+        in un'altra sotto-scheda). **Non ri-precompila gli alias e non tocca le squadre**: un
+        refresh esterno (es. salvataggio in «⚽ Calcio» che propaga `on_saved`) NON deve azzerare
+        gli alias digitati e non ancora salvati nell'albero guidato (Fable #389).
+
+        `cfg` fornita = fonte viva (P3-7 #76: dopo un profilo applicato ma NON persistito il
+        disco è ancora pre-profilo); `None` = disco (comportamento storico)."""
+        if cfg is None:
+            cfg = self._load_cfg()
         names = name_mapping_store.profile_names(cfg) if cfg is not None else []
         self._profile_menu.configure(values=names or [_NO_PROFILE])
         if self._current not in names:          # profilo eliminato altrove → deseleziona (senza clobber)

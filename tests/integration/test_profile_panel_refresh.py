@@ -11,13 +11,16 @@ vecchio codice NON loggava nulla; ora deve loggare un warning nominando la sched
 
 
 class _OkPanel:
-    """Pannello Strumenti finto: `refresh()` riesce e conta le chiamate."""
+    """Pannello Strumenti finto: `refresh(cfg)` riesce e registra la config ricevuta
+    (contratto P3-7 #76: i pannelli ricevono la config VIVA, non rileggono il disco)."""
 
     def __init__(self):
         self.refreshed = 0
+        self.cfgs = []
 
-    def refresh(self):
+    def refresh(self, cfg=None):
         self.refreshed += 1
+        self.cfgs.append(cfg)
 
 
 class _BoomPanel:
@@ -26,7 +29,7 @@ class _BoomPanel:
     def __init__(self):
         self.refreshed = 0
 
-    def refresh(self):
+    def refresh(self, cfg=None):
         self.refreshed += 1
         raise OSError("config illeggibile")
 
@@ -35,9 +38,18 @@ def test_refresh_ok_non_logga_e_chiama_tutti(make_app):
     a = make_app(running=False)
     prov, src, mapp = _OkPanel(), _OkPanel(), _OkPanel()
     panel_refs = {"provider": prov, "sources": src, "mapping": mapp}
-    a._refresh_tool_panels_after_profile(panel_refs, {})
+    saved = {"source_chats": [{"chat_id": "-100222", "enabled": True}]}
+    a._refresh_tool_panels_after_profile(panel_refs, saved)
     assert prov.refreshed == 1 and src.refreshed == 1 and mapp.refreshed == 1
     assert a.logs == []                              # nessun warning se tutto ok
+    # P3-7 #76: ogni pannello riceve la config VIVA appena applicata (uguale a `saved`),
+    # ma come DEEPCOPY indipendente — mai lo stesso dict annidato condiviso con la config
+    # viva o con un altro pannello (una mutazione locale non deve propagarsi).
+    for p in (prov, src, mapp):
+        assert p.cfgs == [saved]
+        assert p.cfgs[0] is not saved
+        assert p.cfgs[0]["source_chats"] is not saved["source_chats"]
+    assert prov.cfgs[0] is not src.cfgs[0]
 
 
 def test_refresh_fallito_logga_la_scheda_stantia(make_app):
