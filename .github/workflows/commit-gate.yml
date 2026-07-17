@@ -68,8 +68,9 @@ jobs:
           cache-dependency-path: |
             requirements*.txt
             requirements*.in
+            requirements*.lock
       - run: python -m pip install --upgrade pip
-      - run: pip install -r requirements-dev.txt
+      - run: pip install -r requirements-dev.txt -c requirements-dev.lock
       - run: python -m py_compile main.py
       # --ignore: i moduli manual/slow/e2e non vengono nemmeno importati (un loro
       # import-time error non deve bloccare il gate); il marker fa il resto.

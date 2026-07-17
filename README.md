@@ -904,6 +904,7 @@ sono espresse come file sorgente `.in` (vincoli "morbidi" top-level) da cui si g
 | `requirements-build-linux.lock` | **lockfile con hash** per la build Linux, generato su **Linux + Python 3.11** (#36) | **NO** — si rigenera dal workflow |
 | `requirements.txt` | install "soft" della CI di test/dev: ora **richiama `requirements.in`** (`-r requirements.in`), quindi una dipendenza runtime ha **un solo posto** dove cambiare ed è la stessa sorgente del lock (niente drift) | sì |
 | `requirements-dev.txt` | `-r requirements.txt` + `pytest` (test) | sì |
+| `requirements-dev.lock` | **constraints pinnate** (`pkg==ver`, senza hash) per i **job di TEST** (P3-39 audit #76): generate con pip-compile su **Linux + Python 3.11** (stessa piattaforma dei job ubuntu). La CI installa `pip install -r requirements-dev.txt -c requirements-dev.lock`: una release breaking upstream **non** fa più rossi tutti i PR insieme — l'upgrade avviene solo rigenerando il lock in un PR dedicato. Usato come `-c` anche su `windows-tests` (le constraints pinnano solo ciò che viene installato: eventuali transitive solo-Windows restano libere, best-effort) | **NO** — si rigenera: `pip-compile --strip-extras --no-annotate --output-file=requirements-dev.lock requirements-dev.txt` |
 
 > ⚠️ Ogni lockfile va generato **sulla sua piattaforma**: gli hash/wheel devono corrispondere
 > a quelli che la build installa davvero. Il lock **Windows** si genera in CI su **Windows**

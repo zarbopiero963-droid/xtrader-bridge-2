@@ -38,8 +38,9 @@ jobs:
           cache-dependency-path: |
             requirements*.txt
             requirements*.in
+            requirements*.lock
       - run: python -m pip install --upgrade pip
-      - run: pip install -r requirements-dev.txt
+      - run: pip install -r requirements-dev.txt -c requirements-dev.lock
       - run: python -m compileall main.py xtrader_bridge tests
 
   contract:
@@ -58,8 +59,9 @@ jobs:
           cache-dependency-path: |
             requirements*.txt
             requirements*.in
+            requirements*.lock
       - run: python -m pip install --upgrade pip
-      - run: pip install -r requirements-dev.txt
+      - run: pip install -r requirements-dev.txt -c requirements-dev.lock
       - run: python -m pytest tests/unit/test_csv_contract.py -q -m "not manual"
 
   unit:
@@ -75,8 +77,9 @@ jobs:
           cache-dependency-path: |
             requirements*.txt
             requirements*.in
+            requirements*.lock
       - run: python -m pip install --upgrade pip
-      - run: pip install -r requirements-dev.txt
+      - run: pip install -r requirements-dev.txt -c requirements-dev.lock
       # Esclude il contract test: quella barriera è coperta dal job dedicato `contract`.
       - run: python -m pytest tests/unit --ignore=tests/unit/test_csv_contract.py -q -m "not manual"
 
@@ -95,8 +98,9 @@ jobs:
           cache-dependency-path: |
             requirements*.txt
             requirements*.in
+            requirements*.lock
       - run: python -m pip install --upgrade pip
-      - run: pip install -r requirements-dev.txt
+      - run: pip install -r requirements-dev.txt -c requirements-dev.lock
       - run: python -m pytest tests/safety -q -m "not manual"
 
   integration:
@@ -113,8 +117,9 @@ jobs:
           cache-dependency-path: |
             requirements*.txt
             requirements*.in
+            requirements*.lock
       - run: python -m pip install --upgrade pip
-      - run: pip install -r requirements-dev.txt
+      - run: pip install -r requirements-dev.txt -c requirements-dev.lock
       - run: python -m pytest tests/integration -q -m "not manual"
 
   smoke:
@@ -130,8 +135,9 @@ jobs:
           cache-dependency-path: |
             requirements*.txt
             requirements*.in
+            requirements*.lock
       - run: python -m pip install --upgrade pip
-      - run: pip install -r requirements-dev.txt
+      - run: pip install -r requirements-dev.txt -c requirements-dev.lock
       - run: python -m py_compile main.py
       - run: python -m pytest tests/smoke -q -m "not manual"
 
@@ -158,6 +164,7 @@ jobs:
           cache-dependency-path: |
             requirements*.txt
             requirements*.in
+            requirements*.lock
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements-lint.txt
       # ruff su tutto il package + test + entrypoint: intercetta import/variabili inutilizzati e
