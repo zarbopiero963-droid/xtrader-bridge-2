@@ -13,7 +13,58 @@ permissions:
   contents: read
 
 jobs:
+  # P3-36 audit #76: il cron notturno girava OGNI notte su windows-latest (minuti 2×)
+  # anche con zero commit dal giorno prima (~600+ min/mese potenzialmente a vuoto).
+  # Guard economica su ubuntu: nella run SCHEDULATA, se l'ultimo commit del default
+  # branch è più vecchio di 25h (margine sul cron delle 03:00), la hard-run è saltata.
+  # FAIL-OPEN verso l'esecuzione: dispatch manuale sempre eseguito; output mancante o
+  # errore del check → run eseguita comunque (mai copertura persa per un errore).
+  fresh-commits-check:
+    runs-on: ubuntu-latest
+    outputs:
+      has_new: ${{ steps.check.outputs.has_new }}
+    steps:
+      - id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" != "schedule" ]; then
+            echo "has_new=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          # Data del PUSH (`pushed_at` dell'API repo), NON del commit (final review
+          # Fable #87): un rebase/cherry-pick pushato oggi con committer-date vecchie
+          # DEVE contare come lavoro nuovo. `pushed_at` copre i push su qualunque
+          # branch → al limite si esegue una notte in più (direzione fail-open).
+          # FAIL-OPEN totale: qualunque errore (rete/parse/API) → true → run eseguita.
+          has_new="$(python3 -c "
+          import datetime, json, os, urllib.request
+          try:
+              req = urllib.request.Request(
+                  'https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'],
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                           'Accept': 'application/vnd.github+json'})
+              data = json.load(urllib.request.urlopen(req, timeout=15))
+              pushed = datetime.datetime.fromisoformat(
+                  str(data['pushed_at']).replace('Z', '+00:00'))
+              age = datetime.datetime.now(datetime.timezone.utc) - pushed
+              print('true' if age.total_seconds() < 25 * 3600 else 'false')
+          except Exception:
+              print('true')   # fail-open: mai perdere la copertura per un errore
+          " || echo true)"
+          echo "has_new=${has_new}" >> "${GITHUB_OUTPUT}"
+          if [ "${has_new}" = "false" ]; then
+            echo "Nessun push nelle ultime 25h: hard-run notturna saltata (P3-36 #76)."
+          fi
+
   hard:
+    needs: fresh-commits-check
+    # FAIL-OPEN completo (review GPT #87): senza `!cancelled()`, un job-guard FALLITO
+    # (checkout/rete) farebbe skippare `hard` per dipendenza fallita, a dispetto
+    # dell'if. Con `!cancelled()` la run parte anche a guard fallita (output vuoto →
+    # != 'false'); `!= 'false'` (non == 'true') copre l'output vuoto a guard verde.
+    if: ${{ !cancelled() && needs.fresh-commits-check.outputs.has_new != 'false' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
