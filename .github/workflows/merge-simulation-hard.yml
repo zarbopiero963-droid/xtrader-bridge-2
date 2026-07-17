@@ -24,24 +24,38 @@ jobs:
     outputs:
       has_new: ${{ steps.check.outputs.has_new }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-        with:
-          persist-credentials: false
       - id: check
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ "${GITHUB_EVENT_NAME}" != "schedule" ]; then
             echo "has_new=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
-          # fetch-depth di default (1): basta l'ULTIMO commit — se è più recente di
-          # 25h c'è lavoro nuovo; altrimenti la notte scorsa ha già collaudato tutto.
-          last="$(git log -1 --since='25 hours ago' --format=%H || true)"
-          if [ -n "${last}" ]; then
-            echo "has_new=true" >> "${GITHUB_OUTPUT}"
-          else
-            echo "has_new=false" >> "${GITHUB_OUTPUT}"
-            echo "Nessun commit nelle ultime 25h: hard-run notturna saltata (P3-36 #76)."
+          # Data del PUSH (`pushed_at` dell'API repo), NON del commit (final review
+          # Fable #87): un rebase/cherry-pick pushato oggi con committer-date vecchie
+          # DEVE contare come lavoro nuovo. `pushed_at` copre i push su qualunque
+          # branch → al limite si esegue una notte in più (direzione fail-open).
+          # FAIL-OPEN totale: qualunque errore (rete/parse/API) → true → run eseguita.
+          has_new="$(python3 -c "
+          import datetime, json, os, urllib.request
+          try:
+              req = urllib.request.Request(
+                  'https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'],
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                           'Accept': 'application/vnd.github+json'})
+              data = json.load(urllib.request.urlopen(req, timeout=15))
+              pushed = datetime.datetime.fromisoformat(
+                  str(data['pushed_at']).replace('Z', '+00:00'))
+              age = datetime.datetime.now(datetime.timezone.utc) - pushed
+              print('true' if age.total_seconds() < 25 * 3600 else 'false')
+          except Exception:
+              print('true')   # fail-open: mai perdere la copertura per un errore
+          " || echo true)"
+          echo "has_new=${has_new}" >> "${GITHUB_OUTPUT}"
+          if [ "${has_new}" = "false" ]; then
+            echo "Nessun push nelle ultime 25h: hard-run notturna saltata (P3-36 #76)."
           fi
 
   hard:

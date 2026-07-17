@@ -39,16 +39,28 @@ def test_hard_run_notturna_ha_la_guard_sui_commit_freschi():
 
 def test_guard_notturna_fail_open_e_solo_su_schedule():
     """Il dispatch manuale è SEMPRE eseguito (il proprietario che lancia a mano non deve
-    trovarsi la run saltata); la finestra è 25h (margine sul cron delle 03:00)."""
+    trovarsi la run saltata); la finestra è 25h (margine sul cron delle 03:00); e la
+    guard usa la data del PUSH (`pushed_at`), non del commit (final review Fable #87:
+    un rebase/cherry-pick pushato oggi con committer-date vecchie DEVE contare come
+    lavoro nuovo — con `git log --since` la notturna lo salterebbe in silenzio)."""
     text = _text("merge-simulation-hard.yml")
     guard = text[text.index("fresh-commits-check"):text.index("  hard:")]
     assert '"${GITHUB_EVENT_NAME}" != "schedule"' in guard, (
         "merge-simulation-hard.yml: la guard deve valere SOLO per il cron (schedule)")
     assert "has_new=true" in guard.split("schedule")[1].split("fi")[0], (
         "merge-simulation-hard.yml: fuori dal cron l'output deve essere true (run sempre)")
-    assert "--since='25 hours ago'" in guard
-    assert re.search(r"^\s*persist-credentials:\s*false\s*$", guard, re.MULTILINE), (
-        "merge-simulation-hard.yml: anche il checkout della guard senza credenziali persistite")
+    assert "pushed_at" in guard, (
+        "merge-simulation-hard.yml: la guard deve confrontare la data del PUSH "
+        "(pushed_at), non la data del commit")
+    assert "--since" not in guard, (
+        "merge-simulation-hard.yml: niente git log --since (commit-date: salterebbe "
+        "rebase/cherry-pick retrodatati)")
+    assert "25 * 3600" in guard
+    # doppio fail-open: eccezione python → 'true', e crash dell'interprete → || echo true
+    assert re.search(r"except Exception:\s*\n\s*print\('true'\)", guard), (
+        "merge-simulation-hard.yml: l'except della guard deve stampare 'true' (fail-open)")
+    assert '|| echo true' in guard, (
+        "merge-simulation-hard.yml: fallback shell fail-open assente")
 
 
 # ── P3-37: permessi minimi e credenziali non persistite su build.yaml ───────────────────────
