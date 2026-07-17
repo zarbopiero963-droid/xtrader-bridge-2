@@ -27,6 +27,7 @@ bloccante; questo modulo resta puro e testabile headless.
 
 import json
 import os
+import threading
 import time
 import uuid
 
@@ -92,6 +93,10 @@ def _ends_without_newline(path: str) -> bool:
         return False
 
 
+# Serializza gli append al diario tra i thread del processo (P3-4 #76).
+_WRITE_LOCK = threading.Lock()
+
+
 def _append_line(path: str, line: str) -> None:
     """Appende UNA riga al file (creando la cartella se serve) con `flush`+`fsync`.
 
@@ -109,14 +114,20 @@ def _append_line(path: str, line: str) -> None:
     lasciare una riga finale parziale (dipende da filesystem/hardware), ma quella coda troncata
     è già gestita — `read_events` la salta e il prossimo append vi antepone un separatore
     (precisazione review Sourcery)."""
-    directory = os.path.dirname(path)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
-    prefix = "\n" if _ends_without_newline(path) else ""
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(prefix + line + "\n")        # M6: separatore+riga+newline in una sola write
-        f.flush()
-        os.fsync(f.fileno())
+    # P3-4 audit #76: il diario ha TRE thread scriventi (GUI, listener Telegram, timer
+    # expiry) e l'append è un check-then-write (sonda del newline finale + write): senza
+    # serializzazione due append concorrenti possono interlacciarsi (separatore deciso su
+    # uno stato già cambiato, write interlacciate su Windows) → riga JSONL corrotta/persa.
+    # Lock di modulo: l'append è raro (per evento) e dura ~µs, nessuna contesa percepibile.
+    with _WRITE_LOCK:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        prefix = "\n" if _ends_without_newline(path) else ""
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(prefix + line + "\n")    # M6: separatore+riga+newline in una sola write
+            f.flush()
+            os.fsync(f.fileno())
 
 
 def append_event(path: str, event_type, data=None, *, now=None, event_id=None) -> dict:

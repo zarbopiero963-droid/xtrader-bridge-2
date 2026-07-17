@@ -2927,7 +2927,11 @@ class App(ctk.CTk):
         payload_full = as_bool_optin(route.get("debug_message_payload"))
         # Debug (PR-3): traccia il messaggio in ingresso e la chat di origine. `_dbg`
         # va sul main thread (`_process` gira sul thread del listener Telegram).
-        self.after(0, lambda m=log_privacy.redact_message(text, full=payload_full), c=chat_id:
+        # P3-1 audit #76: chat_id REDATTO anche qui — `_dbg` finisce nel log PERSISTENTE
+        # (AppData) quando il debug è attivo, e il chat_id è dato sensibile (stessa
+        # impronta stabile del diario eventi: correlabile tra log e diario, mai in chiaro).
+        self.after(0, lambda m=log_privacy.redact_message(text, full=payload_full),
+                   c=log_privacy.redact_chat_id(chat_id):
                    self._dbg(f"IN (chat {c or '?'}): {m}"))
         # Arricchimento ID DISATTIVATO (rimozione «Betfair Sync»): il CSV live NON riempie più
         # EventId/MarketId/SelectionId dal dizionario (`id_resolver=None`) → la riga resta a NOMI.
