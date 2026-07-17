@@ -616,6 +616,10 @@ theme-aware dello stato listener). Semantica: dato assente = MAI verde (giallo o
 *Modalità* usa la semantica di rischio dei banner (verde Simulazione, giallo Collaudo,
 rosso Reale). Aggiornamento automatico sugli stessi hook della dashboard (START/STOP,
 campi «Ultimo …», salvataggio config) + manuale col pulsante. La sonda «CSV scrivibile»
+è **cacheata ~5 s** (P3-9 #76): sugli aggiornamenti automatici il semaforo CSV può
+ritardare fino a 5 s (mai I/O filesystem a raffica sul thread GUI — uno share di rete
+degradato congelerebbe l'app a ogni messaggio); il pulsante **«🔄 Aggiorna» bypassa la
+cache** e mostra sempre lo stato fresco. La sonda
 NON apre mai il file (nessun lock che disturbi XTrader); su **Windows**
 si ferma a **giallo onesto** su ENTRAMBI i rami — file esistente E file da creare
 («probabilmente scrivibile»: ACL/lock NTFS non rilevabili senza aprire/scrivere —

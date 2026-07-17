@@ -109,6 +109,13 @@ _CONNECT_CONFIRM_TIMEOUT = 15
 # su disco finché l'app non viene riavviata.
 _STOP_CLEAR_RETRY_MS = 5000
 
+# TTL (secondi) della cache della sonda csv_writable (P3-9 #76): il semaforo Salute si
+# aggiorna a OGNI messaggio sul thread Tk, e la sonda fa os.access/os.path.exists — su
+# uno share di rete degradato ogni chiamata può bloccare per secondi congelando la GUI.
+# Con la cache il probe reale parte al più una volta ogni TTL per path (il pulsante
+# «🔄 Aggiorna» del pannello Salute forza comunque il probe fresco).
+_CSV_PROBE_TTL_S = 5.0
+
 # Quanti eventi tenere nel ledger append-only (#230): potato allo startup per non far
 # crescere `event_journal.jsonl` all'infinito (~uno-pochi eventi per segnale).
 _EVENT_JOURNAL_KEEP = 5000
@@ -1374,7 +1381,10 @@ class App(ctk.CTk):
             self._health_lbls[key] = lbl
         ctk.CTkButton(tab_health, text=i18n.tr("🔄 Aggiorna"), width=110, height=26,
                       fg_color="#37474f", hover_color="#263238",
-                      command=self._refresh_health).pack(anchor="w", padx=12, pady=8)
+                      # P3-9 #76: il refresh ESPLICITO bypassa la cache TTL della sonda
+                      # CSV — l'utente che clicca vuole lo stato vero, non quello cached.
+                      command=lambda: self._refresh_health(force_probe=True)
+                      ).pack(anchor="w", padx=12, pady=8)
         self._refresh_health()
 
         # — Dashboard contatori di sessione (PR-14): esiti del flusso dall'ultimo START. —
@@ -1475,15 +1485,17 @@ class App(ctk.CTk):
                    health_check.YELLOW: ("🟡", ("#e65100", "#ffa726")),
                    health_check.RED: ("🔴", ("#c62828", "#ef5350"))}
 
-    def _refresh_health(self) -> None:
+    def _refresh_health(self, force_probe: bool = False) -> None:
         """Aggiorna i semafori del pannello Salute (#311 §3.3) dallo stato vivo.
         Decisioni in `health_check.evaluate` (pura); qui solo lettura stato + label.
-        Best-effort: chiamabile da qualsiasi hook, no-op su istanza parziale."""
+        Best-effort: chiamabile da qualsiasi hook, no-op su istanza parziale.
+        `force_probe=True` (pulsante «🔄 Aggiorna»): bypassa la cache TTL della sonda
+        CSV (P3-9 #76) — l'utente che chiede un refresh esplicito vuole lo stato vero."""
         lbls = self.__dict__.get("_health_lbls")
         if not lbls:
             return
         try:
-            self._refresh_health_inner(lbls)
+            self._refresh_health_inner(lbls, force_probe)
         except Exception:   # noqa: BLE001 — il pannello Salute è diagnostica BEST-EFFORT
             # (Fable #351): una sonda che solleva (share di rete instabile, config
             # corrotta) non deve MAI rompere il monitoraggio primario («Ultimo …»,
@@ -1507,7 +1519,29 @@ class App(ctk.CTk):
         self._status_lbl.configure(text=i18n.tr(self._LISTENER_TEXTS[state]),
                                    text_color=color)
 
-    def _live_health_items(self) -> list:
+    def _csv_writable_cached(self, path, force: bool = False):
+        """Sonda `health_check.csv_writable` con cache TTL (P3-9 #76).
+
+        `_set_last` → `_refresh_health` gira sul thread Tk a OGNI messaggio, e la sonda
+        fa I/O filesystem (`os.access`/`exists`): con `csv_path` su uno share di rete
+        degradato ogni chiamata può bloccare per secondi → GUI congelata. Qui il probe
+        REALE parte al più una volta ogni `_CSV_PROBE_TTL_S` per path: stesso path entro
+        il TTL → risultato in cache; path cambiato → probe immediato; `force=True`
+        (pulsante «🔄 Aggiorna») → probe fresco comunque.
+
+        Thread-safety: letta anche dal worker dell'assistente (`explain_health`, Fable
+        #72) — lettura/scrittura best-effort senza lock: lo swap della tupla
+        `(path, ts, result)` è atomico in CPython, al più un probe doppio innocuo."""
+        now = time.monotonic()
+        cached = self.__dict__.get("_csv_probe_cache")
+        if (not force and cached is not None and cached[0] == path
+                and now - cached[1] < _CSV_PROBE_TTL_S):
+            return cached[2]
+        result = health_check.csv_writable(path)
+        self._csv_probe_cache = (path, now, result)
+        return result
+
+    def _live_health_items(self, force_probe: bool = False) -> list:
         """I 7 semafori LIVE (stessa logica del pannello 🚦 Salute), come lista di `HealthItem`.
         Estratto da `_refresh_health_inner` (#41 PR-10 Blocco D) così l'assistente può leggere lo
         STESSO stato che l'utente vede (`explain_health`). Puro rispetto a `health_check.evaluate`;
@@ -1523,7 +1557,10 @@ class App(ctk.CTk):
         # in EN/ES la label è tradotta e il vecchio substring-match si romperebbe.
         status = (self.__dict__.get("_listener_state")
                   or health_check.LISTENER_OFFLINE)
-        csv_state, csv_detail = health_check.csv_writable(cfg.get("csv_path", ""))
+        # P3-9 #76: sonda con cache TTL — mai I/O filesystem a raffica sul thread Tk
+        # (share di rete degradata = GUI congelata a ogni messaggio).
+        csv_state, csv_detail = self._csv_writable_cached(cfg.get("csv_path", ""),
+                                                          force=force_probe)
         return health_check.evaluate(
             listener_status=status,
             last_message=self._last_vals.get("message", ""),
@@ -1536,8 +1573,8 @@ class App(ctk.CTk):
             last_confirmation=self._last_vals.get("confirmation", ""),
             mode=bridge_mode.mode_from_cfg(cfg))
 
-    def _refresh_health_inner(self, lbls) -> None:
-        items = self._live_health_items()
+    def _refresh_health_inner(self, lbls, force_probe: bool = False) -> None:
+        items = self._live_health_items(force_probe)
         for item in items:
             lbl = lbls.get(item.key)
             if lbl is None:
