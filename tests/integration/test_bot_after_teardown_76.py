@@ -91,6 +91,61 @@ def test_loop_close_dentro_finally():
     finale = m.group(1) if m else corpo[corpo.index("finally:"):]
     assert "loop.close()" in finale, "_run_bot: loop.close() deve stare nel finally (P3-10)"
     assert "self._loop = None" in finale
+    assert "self._async_stop_event = None" in finale, (
+        "CodeRabbit #95: l'evento di stop della sessione morta va azzerato col loop — "
+        "altrimenti uno STOP nella finestra del prossimo START accoppia il loop NUOVO "
+        "con l'evento STANTIO e non sveglia il supervisor nuovo")
     # e il while del supervisor deve stare DENTRO il try corrispondente
     assert re.search(r"try:\s*\n\s+while _is_current\(\):", corpo), (
         "_run_bot: il supervisor deve essere avvolto dal try del finally")
+
+
+# ── comportamento REALE del teardown (_run_bot eseguito davvero, CodeRabbit #95) ─────
+
+def _pronta_per_run_bot(make_app, app_mod, monkeypatch, *, running):
+    """App headless pronta a eseguire il VERO `_run_bot` sotto gli stub del conftest:
+    l'`ApplicationBuilder` MagicMock fa fallire `await app.initialize()` con TypeError
+    (permanente per `reconnect_policy` → niente retry). Ritorna (app, loop_creati)."""
+    a = make_app(running=running)
+    a._set_last = lambda *x, **k: None
+    a._stop = lambda: None
+    a._set_status_reconnecting = lambda: None
+    a._set_status_connected = lambda: None
+    creati = []
+    vero_new_loop = app_mod.asyncio.new_event_loop
+
+    def _registra():
+        loop = vero_new_loop()
+        creati.append(loop)
+        return loop
+
+    monkeypatch.setattr(app_mod.asyncio, "new_event_loop", _registra)
+    return a, creati
+
+
+def test_run_bot_eccezione_imprevista_chiude_loop_e_handle(make_app, app_mod, monkeypatch):
+    """Esecuzione REALE del supervisor: l'errore permanente dentro `_async_run` deve
+    finire nel `finally` — loop chiuso, `self._loop` e `self._async_stop_event`
+    entrambi azzerati (nessun handle stantio per lo START successivo)."""
+    a, creati = _pronta_per_run_bot(make_app, app_mod, monkeypatch, running=True)
+
+    app_mod.App._run_bot(a, {"bot_token": "finto", "chat_id": "-1"}, 1)   # epoch corrente
+
+    assert len(creati) == 1 and creati[0].is_closed(), "il loop della sessione va CHIUSO"
+    assert a._loop is None
+    assert a._async_stop_event is None, (
+        "l'evento della sessione morta è rimasto appeso: uno STOP successivo lo "
+        "accoppierebbe al loop del nuovo START (CodeRabbit #95)")
+
+
+def test_run_bot_sessione_non_corrente_chiude_comunque(make_app, app_mod, monkeypatch):
+    """STOP/START rapido: la sessione parte già NON corrente (`_running` False — stesso
+    esito di un epoch superato) → il supervisor non entra nemmeno nel while, ma il
+    `finally` chiude comunque il loop e azzera gli handle."""
+    a, creati = _pronta_per_run_bot(make_app, app_mod, monkeypatch, running=False)
+    a._async_stop_event = object()          # residuo simulato di una vita precedente
+
+    app_mod.App._run_bot(a, {"bot_token": "finto", "chat_id": "-1"}, 1)
+
+    assert len(creati) == 1 and creati[0].is_closed()
+    assert a._loop is None and a._async_stop_event is None

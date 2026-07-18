@@ -2970,6 +2970,15 @@ class App(ctk.CTk):
             except Exception:                    # noqa: BLE001 — chiusura best-effort
                 pass
             if self._loop is loop:
+                # Azzera anche l'evento di stop DELLA STESSA sessione (CodeRabbit #95):
+                # `_stop` legge `(self._loop, self._async_stop_event)` in coppia — lasciare
+                # l'evento della sessione morta farebbe sì che uno STOP nella finestra del
+                # prossimo START (che assegna `_loop` subito ma l'evento solo in-loop)
+                # accoppi il loop NUOVO con l'evento STANTIO e non svegli il supervisor
+                # nuovo. Con `None` la guardia `evt is not None` salta il wake in sicurezza
+                # (l'epoch/`_running` fermano comunque la sessione). Solo sotto il check di
+                # identità del loop: se un nuovo START ha già riassegnato, niente da pulire.
+                self._async_stop_event = None
                 self._loop = None
 
     def _safe_shutdown_tg(self, app, loop) -> None:
