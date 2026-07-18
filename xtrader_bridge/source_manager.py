@@ -19,6 +19,7 @@ parte resta interamente testabile headless e a rischio zero per il CSV.
 
 import logging
 import math
+import re
 import threading
 
 _LOG = logging.getLogger(__name__)
@@ -225,8 +226,22 @@ def provider_for_chat(cfg: dict, chat_id: str, default: str = "") -> str:
     return _MODE_PROVIDER.get(src["mode"], default)
 
 
+# Formato di un ID chat Telegram: intero con segno opzionale (es. -1001234567890).
+# Un @username o un nome canale NON matcherebbero mai gli update runtime (l'ID di
+# `effective_chat` è sempre numerico): una sorgente col typo sarebbe "configurata"
+# ma silenziosamente morta (P3-29 #76). Stessa regola del Wizard.
+_CHAT_ID_RE = re.compile(r"-?\d+")
+
+
+def is_valid_chat_id(value) -> bool:
+    """True se `value` è un ID chat Telegram plausibile (intero, segno opzionale)."""
+    s = str(value or "").strip()
+    return bool(_CHAT_ID_RE.fullmatch(s))
+
+
 def validate_sources(raw_sources) -> list:
-    """Errori **bloccanti** sulle sorgenti: `chat_id` mancante, `chat_id`
+    """Errori **bloccanti** sulle sorgenti: `chat_id` mancante, di formato non
+    numerico (P3-29 #76: un typo non matcherebbe mai gli update → sorgente morta),
     duplicato (ogni chat una sola sorgente, altrimenti il provider sarebbe
     ambiguo), modalità non valida. Lista vuota = sorgenti valide."""
     errors = []
@@ -239,6 +254,12 @@ def validate_sources(raw_sources) -> list:
         chat = str(raw.get("chat_id", "") or "").strip()
         if not chat:
             errors.append(f"{where}: chat_id mancante.")
+        elif not is_valid_chat_id(chat):
+            # P3-29 #76: un typo (es. @canale, nome, spazi) non matcherebbe MAI gli
+            # update runtime: la sorgente sembrerebbe configurata ma sarebbe morta.
+            errors.append(
+                f"{where}: chat_id non numerico {chat!r} — usa l'ID numerico Telegram "
+                f"(es. -1001234567890), non il nome o l'@username del canale.")
         elif chat in seen_ids:
             errors.append(
                 f"{where}: chat_id duplicato {chat!r} (ogni chat una sola sorgente).")
