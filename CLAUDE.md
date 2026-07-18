@@ -318,10 +318,12 @@ persi pre-merge. Flusso pre-merge:
 
 - **Codex = assente** (usage-limit dell'abbonamento): non posta **mai** → **non è un gate**, non
   aspettarlo, non contarlo.
-- **CodeRabbit rate-limited**: se pubblica «review limit reached» con un orario, **non** bloccare
-  all'infinito — se il ritardo è **breve (≤10 min)** aspetta quell'orario; se è **lungo (>10 min,
-  tipico 39–50)** **dillo al proprietario** e passa il testimone al tracciamento post-merge (decide
-  lui se mergiare prima).
+- **CodeRabbit rate-limited → ASSENTE, non si aspetta MAI (decisione proprietario 2026-07-18)**:
+  se pubblica «review limit reached» (con o senza orario), trattalo **subito** come assente —
+  **niente** attesa della finestra, **niente** timer, **niente** trigger differito
+  `@coderabbitai review` a finestra scaduta. Si prosegue col verdetto sui reviewer disponibili e
+  i suoi eventuali commenti tardivi li copre il **tracciamento post-merge**. L'attesa event-driven
+  del punto 4 vale **solo** quando CodeRabbit sta davvero processando (nessun avviso di rate-limit).
 - **Tetto anti-stallo (obbligatorio):** l'attesa event-driven di CodeRabbit ha comunque un **cap di
   ~15 min dall'ultimo push sul head PR**. Se entro quel cap CodeRabbit non ha né pubblicato commenti
   azionabili né il riepilogo «No actionable comments» (rate-limit senza avviso, outage, coda lunga),
@@ -1126,9 +1128,10 @@ Inline comments checked:
 Unresolved threads checked:
 - YES / NO
 
-Label finali fatte partire + reviewer risposti (Fable/Fugu/GPT/GLM) + CodeRabbit COMPLETATO (o cap ~15 min scaduto):
+Label finali fatte partire + reviewer risposti (Fable/Fugu/GPT/GLM) + CodeRabbit COMPLETATO (o rate-limited/assente = non si aspetta, o cap ~15 min scaduto):
 - YES / NO   (l'attesa finestra 16 min è ABROGATA — vedi OVERRIDE PROPRIETARIO; il gate non è
-  soddisfatto finché CodeRabbit non ha completato o non è scattato il cap anti-stallo)
+  soddisfatto finché CodeRabbit non ha completato, salvo rate-limit — in tal caso è ASSENTE e
+  non si aspetta (decisione proprietario 2026-07-18) — o cap anti-stallo scaduto)
 
 Last-5 PR post-merge sweep:
 - YES / NO

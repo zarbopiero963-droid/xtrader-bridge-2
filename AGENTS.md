@@ -849,9 +849,12 @@ that's the spending limit / billing, an **owner action** (github.com/settings/bi
 > the four said no-blocker); this wait is **event-driven** (subscription active → you wake when it
 > posts), not a clock, and never blocks the owner; (4) only with the four reviewers **and**
 > CodeRabbit's real review in → report merge yes/no. **Codex = absent** (usage limit) never posts →
-> NOT a gate. **CodeRabbit rate-limited** (posts "review limit reached" with a time): don't block
-> forever — wait if the delay is **short (≤10 min)**, else (**>10 min**, typical 39–50) tell the owner
-> and hand to the post-merge sweep. **Anti-stall cap (mandatory):** the event-driven CodeRabbit wait is
+> NOT a gate. **CodeRabbit rate-limited → ABSENT, never wait (owner decision 2026-07-18)**: if it
+> posts "review limit reached" (with or without a time), treat it as absent **immediately** — no
+> window wait, no timer, no deferred `@coderabbitai review` trigger. Proceed to the verdict on the
+> available reviewers; any late comments are caught by post-merge tracking. The event-driven wait in
+> (3) applies **only** when CodeRabbit is actually processing (no rate-limit notice).
+> **Anti-stall cap (mandatory):** the event-driven CodeRabbit wait is
 > still capped at **~15 min from the last push to the PR head**; if by then CodeRabbit has posted
 > neither actionable comments nor "No actionable comments" (silent rate-limit, outage, long queue),
 > treat it as absent — tell the owner "CodeRabbit did not complete within the cap → coverage deferred to
@@ -1129,9 +1132,10 @@ Inline comments checked:
 Unresolved threads checked:
 - YES / NO
 
-Final labels fired + reviewers responded (Fable/Fugu/GPT/GLM) + CodeRabbit COMPLETE (or ~15-min cap elapsed):
+Final labels fired + reviewers responded (Fable/Fugu/GPT/GLM) + CodeRabbit COMPLETE (or rate-limited/absent = never wait, or ~15-min cap elapsed):
 - YES / NO   (the 16-min window wait is REPEALED — see OWNER OVERRIDE; the gate is not satisfied
-  until CodeRabbit has completed or the anti-stall cap has elapsed)
+  until CodeRabbit has completed, unless it is rate-limited — then it is ABSENT and never waited
+  for (owner decision 2026-07-18) — or the anti-stall cap has elapsed)
 
 Last-5 PR post-merge sweep:
 - YES / NO
