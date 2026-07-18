@@ -49,11 +49,14 @@ NB: la **precedenza D1** ("il dizionario vince" sulla regola-colonna) è una sce
 **runtime** (``custom_pipeline``), non di questo store: qui si risolve solo la frase.
 """
 
+import logging
 import re
 from collections import namedtuple
 
 from . import dizionario, recognition
 from .custom_parser_engine import extract_between
+
+_LOG = logging.getLogger(__name__)
 
 # Chiave di config che ospita i profili di mappatura mercati.
 _STORE_KEY = "market_mappings"
@@ -90,10 +93,20 @@ def _find_store_key(store: dict, name: str):
     target = _norm_profile_name(name)
     if not target:
         return None
-    for k in store:
-        if _norm_profile_name(k) == target:
-            return k
-    return None
+    matches = [k for k in store if _norm_profile_name(k) == target]
+    if not matches:
+        return None
+    # P3-22 #76: come in `name_mapping_store` — il match ESATTO vince sui doppioni
+    # normalizzati-uguali da config manomessa (niente shadowing silenzioso) + warning.
+    if len(matches) > 1:
+        _LOG.warning(
+            "market_mappings: profili DUPLICATI dopo normalizzazione (%s) -> uso %r "
+            "(match esatto se presente); rinomina/rimuovi i doppioni in config.json "
+            "(P3-22 #76).", ", ".join(repr(k) for k in matches),
+            name if name in matches else matches[0])
+    if name in matches:
+        return name
+    return matches[0]
 
 
 def _malformed_fields(entry: dict) -> list:
@@ -281,10 +294,25 @@ def _canonical_market(market_name: str, selection_name: str, rows=None):
         return None
     nmn = dizionario.normalize(mn)
     nsn = dizionario.normalize(sn)
-    canon_market = next((m for m in dizionario.market_names(rows=rows, fixed_only=True)
-                         if dizionario.normalize(m) == nmn), None)
-    if canon_market is None:
+    # P3-20 #76: guardia anti-ambiguità, leggendo i TIPI direttamente dalle voci del
+    # catalogo (NON via `market_type_for_name`, che è first-match sui nomi normalizzati
+    # e per due duplicati ritornerebbe lo stesso tipo, mascherando l'ambiguità). Oggi il
+    # catalogo non ha MarketName duplicati; se in futuro due nomi normalizzati-uguali
+    # finissero sotto MarketType DIVERSI, il primo-match sceglierebbe in silenzio un
+    # mercato — e il CSV punterebbe un mercato potenzialmente sbagliato. Fail-closed:
+    # con tipi divergenti nessuna risoluzione (meglio nessuna riga che quella sbagliata).
+    matches = [m for m in dizionario.market_catalog(rows)
+               if not m["dynamic"] and dizionario.normalize(m["MarketName"]) == nmn]
+    if not matches:
         return None
+    tipi = {m["MarketType"] for m in matches}
+    if len(tipi) > 1:
+        _LOG.warning(
+            "market_mappings: MarketName %r AMBIGUO nel catalogo (%d voci, MarketType "
+            "divergenti %s) -> risoluzione RIFIUTATA (fail-closed, P3-20 #76).",
+            mn, len(matches), sorted(tipi))
+        return None
+    canon_market = matches[0]["MarketName"]
     for s in dizionario.selections_for_market(canon_market, rows):
         if s.get("dynamic") or not s.get("SelectionName"):
             continue
