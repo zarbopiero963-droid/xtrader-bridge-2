@@ -872,7 +872,13 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
   col runtime che non lo piazzerebbe).
 - **Anteprima righe generate (#192):** tabella `# · Tipo (Base/Mercato/Selezione) · Esito ·
   Riga CSV`. È la fonte **autorevole** per l'esito delle righe generate (la tabella diagnostica
-  per-colonna qui sotto è a livello della sola riga base). Il riepilogo «Colonna=valore» (colonna
+  per-colonna qui sotto è a livello della sola riga base). Caso limite (P3-11 #76): se con
+  l'output multi attivo la **base è bloccata** e la generazione non parte, l'unica riga in
+  tabella è etichettata **Base** (non «Mercato»/«Selezione») e il verdetto usa il formato
+  single-row `⛔ Non pronto (STATO) · mancanti: <campi>` — il dettaglio dei campi mancanti non
+  viene più perso dietro «⛔ Nessuna delle 1 righe è piazzabile». Inoltre (P3-12 #76) «mancanti:»
+  elenca solo campi davvero assenti: limiti prezzo **presenti ma incoerenti**
+  (`INVALID_PRICE_BOUNDS`, es. Min > Max) mostrano lo stato senza comparire tra i «mancanti». Il riepilogo «Colonna=valore» (colonna
   *Riga CSV* e verdetto `✅ Pronto · …`) mostra i **decimali nel formato della lingua CSV**
   configurata (#342: virgola per IT/ES — «Price=1,50» — punto per EN), cioè **come usciranno nel
   file**: l'operatore vede in anteprima esattamente ciò che XTrader leggerà.

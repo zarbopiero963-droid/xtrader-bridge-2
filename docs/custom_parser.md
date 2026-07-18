@@ -628,10 +628,17 @@ Il **verdetto sintetico** in cima segue questa precedenza:
   **righe generate**, non sulla sola base, e ha un formato diverso (es. «✅ Pronto · N righe
   generate, tutte piazzabili.», «⚠ X/N righe piazzabili …» o «⛔ Nessuna delle N righe è
   piazzabile …») — il dettaglio per-riga è nella tabella anteprima qui sotto.
+  **Base bloccata (P3-11 #76):** se la base è bloccata e la generazione multi non parte
+  (`build_validated_rows` ritorna la sola base, marcata `base_fallback`), la riga in tabella
+  è etichettata **Base** e il verdetto torna al formato single-row con i campi «mancanti:»
+  — prima veniva etichettata «market»/«selezione» per posizione e il dettaglio andava perso.
 - **⛔ Non pronto (`STATO`)**: superata la struttura (single-row), la riga è scartata dalla pipeline.
   Oltre allo stato, il verdetto **elenca i campi mancanti** — sia gli obbligatori del parser
   sia i campi di **riconoscimento** richiesti dalla Modalità (`INVALID_MISSING_FIELDS`), così
-  si sa quale colonna aggiungere.
+  si sa quale colonna aggiungere. **Solo veri mancanti (P3-12 #76):** anche per le righe multi
+  derivate, `missing_required` è riempito solo da `INVALID_MISSING_FIELDS`; le colonne
+  **presenti ma incoerenti** di `INVALID_PRICE_BOUNDS` (es. `MinPrice` > `MaxPrice`) restano
+  nel `detail` per la diagnostica e non compaiono più come «mancanti».
 - **✅ Pronto**: la riga è piazzabile (col riepilogo dei campi valorizzati).
 
 ---

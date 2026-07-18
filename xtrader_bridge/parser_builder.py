@@ -669,7 +669,11 @@ class ParserBuilder:
         lang = csv_writer.get_csv_language()
         out = []
         for i, res in enumerate(results):
-            if not multi_active:
+            # P3-11 #76: `base_fallback` = il motore ha ritornato la sola BASE bloccata
+            # (generazione multi mai partita) — va etichettata «base», non «market»/
+            # «selection» per posizione: così `test_verdict` prende il ramo single-row
+            # e mostra i campi «mancanti:» invece del solo status aggregato.
+            if not multi_active or getattr(res, "base_fallback", False):
                 kind = "base"
             elif i < n_markets:
                 kind = "market"
