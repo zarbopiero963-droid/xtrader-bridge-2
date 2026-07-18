@@ -100,6 +100,21 @@ def test_loop_close_dentro_finally():
         "_run_bot: il supervisor deve essere avvolto dal try del finally")
 
 
+def test_evento_di_stop_creato_adiacente_al_loop():
+    """Review Fable/Fugu #95: l'evento di stop deve nascere in `_run_bot`, in coppia
+    ADIACENTE con `self._loop` (stesso thread, istruzioni vicine) — creato solo dentro
+    `_async_run` lasciava la finestra "loop NUOVO + evento della sessione PRECEDENTE"
+    in cui uno STOP accoppiava loop ed evento sbagliati."""
+    corpo = _run_bot_src()
+    prologo = corpo[:corpo.index("def _is_current")]
+    assert "self._loop = loop" in prologo
+    assert "self._async_stop_event = stop_evt" in prologo, (
+        "l'assegnamento dell'evento deve stare nel PROLOGO di _run_bot, adiacente al loop")
+    dentro_async = corpo[corpo.index("async def _async_run"):corpo.index("while _is_current")]
+    assert "asyncio.Event()" not in dentro_async, (
+        "_async_run non deve più creare un proprio evento: userebbe di nuovo la finestra")
+
+
 # ── comportamento REALE del teardown (_run_bot eseguito davvero, CodeRabbit #95) ─────
 
 def _pronta_per_run_bot(make_app, app_mod, monkeypatch, *, running):

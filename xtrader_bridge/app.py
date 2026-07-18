@@ -2714,6 +2714,17 @@ class App(ctk.CTk):
         loop = asyncio.new_event_loop()
         self._loop = loop
         asyncio.set_event_loop(loop)
+        # Evento di stop della sessione creato QUI, in coppia ADIACENTE con `self._loop`
+        # (review Fable/Fugu #95): crearlo/assegnarlo solo dentro `_async_run` lasciava
+        # la finestra "loop NUOVO già assegnato + evento della sessione PRECEDENTE" tra
+        # i due assegnamenti — uno STOP lì dentro accoppiava loop e evento sbagliati.
+        # Stesso thread, istruzioni adiacenti: la finestra non esiste più. `asyncio.Event`
+        # in py3.11 è loop-agnostico (nessun binding al loop alla creazione): crearlo
+        # fuori dal loop e attenderlo dentro è supportato. Resta l'invariante di Codex
+        # #191: l'attesa usa la variabile LOCALE `stop_evt` — un nuovo START che
+        # riassegna l'attributo non dirotta l'attesa di QUESTA sessione.
+        stop_evt = asyncio.Event()
+        self._async_stop_event = stop_evt
         # App Telegram di QUESTA sessione tenuta in un riferimento LOCALE, non solo in
         # `self._tg_app` (condiviso e sovrascrivibile da un nuovo START). Lo shutdown in-loop
         # e quello d'errore devono fermare l'app COSTRUITA da questa sessione, mai quella di un
@@ -2740,11 +2751,11 @@ class App(ctk.CTk):
             # con `call_soon_threadsafe` così il supervisor esce SUBITO dall'attesa e ferma
             # l'updater promptamente (niente finestra di ~1s con il vecchio poller ancora
             # attivo), restando un percorso atteso in-loop (nessuna coroutine scartata da
-            # `loop.close`). LOCALE alla coroutine (l'attesa sotto ci si aggancia direttamente),
-            # con `self._async_stop_event` solo come handle per `_stop`: un nuovo START che
-            # riassegna l'attributo non dirotta l'attesa di QUESTA sessione.
-            stop_evt = asyncio.Event()
-            self._async_stop_event = stop_evt
+            # `loop.close`). `stop_evt` è la variabile LOCALE di `_run_bot`, creata in coppia
+            # ADIACENTE con `self._loop` (review Fable/Fugu #95: niente finestra loop
+            # nuovo + evento stantio); `self._async_stop_event` resta solo l'handle per
+            # `_stop` — un nuovo START che riassegna l'attributo non dirotta l'attesa di
+            # QUESTA sessione, che si aggancia direttamente alla variabile locale.
             app = ApplicationBuilder().token(cfg["bot_token"]).build()
             session_app = app
             self._tg_app = app          # handle per lettori esterni; un START successivo lo rimpiazza
