@@ -774,8 +774,10 @@ retro-compatibile).
   messaggio la **lista di risultati esatti** e generare **una riga CSV per ciascuno** — invece di
   un `selection_name` fisso. Si attiva quando la regola ha `selection_name` **vuoto** **e**
   `start_after`/`end_before` valorizzati («Inizia dopo / Finisce prima»): dalla regione fra i
-  delimitatori si estraggono i punteggi (separatore interno **solo `-`**, con **spazi orizzontali**
-  attorno al trattino; es. «1-0», «1 - 0»), **normalizzati** al formato del dizionario («01 - 0» →
+  delimitatori si estraggono i punteggi (separatore interno **trattino ASCII `-` o EN DASH `–`** —
+  molte tastiere/client lo sostituiscono automaticamente — con **spazi orizzontali**
+  attorno al trattino; es. «1-0», «1 - 0», «1–0»; altri dash Unicode restano esclusi,
+  fail-closed), **normalizzati** al formato del dizionario («01 - 0» →
   «1 - 0») e **deduplicati** nell'ordine del messaggio. Il separatore *fra* i risultati
   (virgola/spazio/newline/slash…) **non conta** (i punteggi si riconoscono per forma). Difese
   anti-abuso (input non attendibile): il «:» **non** è riconosciuto come separatore di punteggio
