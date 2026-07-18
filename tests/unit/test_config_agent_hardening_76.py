@@ -52,7 +52,18 @@ def test_extra_secrets_fail_safe_su_config_malformata():
                                    "parser_list_by_chat": {"  ": ["P"]},
                                    "chat_id": ""}) == []
     assert _history_extra_secrets({"source_chats": [None, {"chat_id": "  "},
-                                                    {"chat_id": "-1"}]}) == ["-1"]
+                                                    {"chat_id": "-10099"}]}) == ["-10099"]
+
+
+def test_extra_secrets_id_corti_esclusi_dalla_redazione():
+    """Review Fugu (PR #107): `redact_extra` maschera i literal come SOTTOSTRINGHE —
+    un ID-spazzatura corto («-1») sovra-redigerebbe numeri legittimi in tutta la
+    cronologia. Sotto i 5 caratteri non è un chat ID Telegram reale → escluso;
+    gli ID reali (≥5) restano redatti; i top-level passano da str/strip."""
+    extra = _history_extra_secrets({"chat_id": "  -100123  ",
+                                    "source_chats": [{"chat_id": "-1"}],
+                                    "parser_by_chat": {"42": "P"}})
+    assert extra == ["-100123"]                            # corti esclusi, top-level strip-ato
 
 
 # ── P3-24: timeout esplicito sul client Anthropic ────────────────────────────────────

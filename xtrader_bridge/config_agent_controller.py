@@ -36,19 +36,21 @@ def _history_extra_secrets(cfg) -> list:
     chat ID) restavano fuori — un ID citato in conversazione finiva su disco in
     chiaro. Funzione pura fail-safe su config malformata (voci non-dict ignorate)."""
     cfg = cfg if isinstance(cfg, dict) else {}
-    extra = [v for v in (cfg.get("chat_id", ""),
-                         cfg.get("xtrader_notification_chat_id", "")) if v]
+    candidati = [str(cfg.get("chat_id", "") or "").strip(),
+                 str(cfg.get("xtrader_notification_chat_id", "") or "").strip()]
     srcs = cfg.get("source_chats")
     for src in (srcs if isinstance(srcs, (list, tuple)) else ()):
         if isinstance(src, dict):
-            cid = str(src.get("chat_id", "") or "").strip()
-            if cid:
-                extra.append(cid)
+            candidati.append(str(src.get("chat_id", "") or "").strip())
     for key in ("parser_by_chat", "parser_list_by_chat"):
         mapping = cfg.get(key)
         if isinstance(mapping, dict):
-            extra.extend(str(k) for k in mapping if str(k).strip())
-    return extra
+            candidati.extend(str(k).strip() for k in mapping)
+    # Lunghezza minima (review Fugu): `redact_extra` maschera i literal come
+    # SOTTOSTRINGHE — un ID-spazzatura corto («-1» da config manomessa) sovra-
+    # redigerebbe numeri legittimi in tutta la cronologia. Gli ID Telegram reali
+    # hanno ben più di 5 caratteri: sotto quella soglia non è un chat ID.
+    return [c for c in candidati if len(c) >= 5]
 
 
 class AgentController:
