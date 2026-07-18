@@ -23,7 +23,6 @@ _IMPURE = {"xtrader_bridge.app", "xtrader_bridge.custom_parser_gui",
 
 # Moduli core che DEVONO sempre essere presenti (guardia contro discovery rotta).
 _CORE = {
-    "xtrader_bridge.parser",
     "xtrader_bridge.csv_writer",
     "xtrader_bridge.config_store",
     "xtrader_bridge.recognition",

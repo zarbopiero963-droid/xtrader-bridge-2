@@ -3570,3 +3570,28 @@ e ora l'ultimo log di feedback UI. Ciò che resta IT è **per contratto** (domin
 `save_status_message`, errori/warning di validazione/store `{err}`/`{warn}`/`{exc}`, parola-quando dei
 recovery, log `_dbg`, e il dialog «già in esecuzione» pre-`set_language`). La **chiusura dell'epica #3**
 resta una decisione del proprietario (merge sempre manuale).
+
+## P3-15 (#76) — RIMOZIONE del modulo P.Bet hardcoded (`xtrader_bridge/parser.py`)
+
+**Decisione del proprietario:** rimozione (non deprecazione). Il modulo (~393 righe:
+`parse_message` + regex P.Bet) era **fuori dal flusso live da CP-09b** — senza Parser
+Personalizzato attivo il messaggio è ignorato da `signal_router` — ma restava nel repo
+«per compatibilità/test»: codice morto attivo, superficie di manutenzione (ReDoS #318
+L1-4 viveva lì) e ambiguità su quale parser giri davvero.
+
+**Cosa è stato rimosso.** `xtrader_bridge/parser.py`; i test che esercitavano SOLO il
+modulo (`test_parser_basic`, `test_parser_pbet_robust`, `test_parser_fuzz`,
+`test_parser_no_dangerous_partial`, i 10 test L1-4 di `test_security_318_l1l2` — i 2
+test L2-2 su `value_maps` restano); il test end-to-end `parse_message→build_csv_row`
+in `test_signal_to_csv_mapping` (mapping coperto dai test a dict parsato); la voce
+`xtrader_bridge.parser` dal set `_CORE` dello smoke import.
+
+**Cosa RESTA.** `csv_writer.build_csv_row` + dizionario/mapping (usati da recognition
+e dai test di mapping — sono il contratto CSV, non il parser); i messaggi di test in
+formato «P.Bet.» dei parser custom (sono dati, non codice del modulo). Invariante live
+pinnata da `tests/unit/test_pbet_removed_76.py`: modulo non importabile
+(anti-reintroduzione) + nessun custom attivo → `NO_PARSER`, nessuna riga.
+
+**Docs.** README (4 punti riscritti: il parser integrato non esiste più), docstring
+`signal_router`/`__init__`. `CLAUDE.md` cita ancora `parse_message` negli ESEMPI di
+test hard: file del proprietario, non toccato (esempi ormai storici).
