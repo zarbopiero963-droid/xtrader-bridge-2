@@ -94,6 +94,8 @@ _CATALOG = {
         "Elimina parser": "Delete parser",
         "Eliminare il parser «{name}»?\nL'azione non è annullabile.":
             "Delete parser «{name}»?\nThis action cannot be undone.",
+        "⛔ Parser «{name}» non più in lista: eliminazione annullata.":
+            "⛔ Parser «{name}» no longer in the list: deletion cancelled.",
         # Tab configurazione + monitoraggio
         "⚙️ Generale": "⚙️ General",
         "🎯 Riconoscimento": "🎯 Recognition",
@@ -822,6 +824,8 @@ _CATALOG = {
         "Elimina parser": "Eliminar parser",
         "Eliminare il parser «{name}»?\nL'azione non è annullabile.":
             "¿Eliminar el parser «{name}»?\nEsta acción no se puede deshacer.",
+        "⛔ Parser «{name}» non più in lista: eliminazione annullata.":
+            "⛔ Parser «{name}» ya no está en la lista: eliminación cancelada.",
         "⚙️ Generale": "⚙️ General",
         "🎯 Riconoscimento": "🎯 Reconocimiento",
         "🛡️ Sicurezza": "🛡️ Seguridad",

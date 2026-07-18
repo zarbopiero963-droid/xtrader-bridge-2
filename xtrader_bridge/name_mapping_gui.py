@@ -211,6 +211,11 @@ class NameMappingPanel(ctk.CTkFrame):
     def _reload_rows(self, cfg=None):
         """Ridisegna la tabella dalle righe salvate del profilo corrente
         (da `cfg` viva se fornita, altrimenti da disco)."""
+        # P3-30 #76: l'avviso-cap di un profilo grande non deve sopravvivere al
+        # passaggio a un profilo ≤ cap — reset a ogni render. Sicuro: gli errori di
+        # `_load_cfg` arrivano DOPO questo punto e l'esito di `_persist` viene
+        # scritto DOPO il reload, quindi nessun messaggio vivo viene clobberato.
+        self._status.configure(text="", text_color="gray")
         for child in self._rows_frame.winfo_children():
             child.destroy()
         self._row_widgets = []
@@ -689,6 +694,9 @@ class MarketMappingPanel(ctk.CTkFrame):
         self._reload_rows(cfg)
 
     def _reload_rows(self, cfg=None):
+        # P3-30 #76: come nel pannello nomi — l'avviso-cap non deve sopravvivere al
+        # cambio profilo (reset sicuro: errori/esiti vengono scritti dopo).
+        self._status.configure(text="", text_color="gray")
         for child in self._rows_frame.winfo_children():
             child.destroy()
         self._row_widgets = []

@@ -742,7 +742,12 @@ def delete_parser_file(path, dir_path: str = None) -> bool:
     propaga al chiamante (la GUI lo mostra)."""
     base = os.path.realpath(dir_path if dir_path is not None else default_parsers_dir())
     real = os.path.realpath(str(path or ""))
-    if not real.endswith(".json") or os.path.dirname(real) != base:
+    # Confronto con `normcase` su ENTRAMBI i lati: su Windows il filesystem è
+    # case-insensitive (`C:` vs `c:`, `pippo.JSON`) e il confronto letterale
+    # rifiuterebbe file legittimi; su POSIX `normcase` è un no-op, quindi la
+    # guardia resta stretta com'era. La rimozione usa il path originale `real`.
+    if (not os.path.normcase(real).endswith(".json")
+            or os.path.normcase(os.path.dirname(real)) != os.path.normcase(base)):
         raise ValueError(f"path fuori dalla cartella parser: {path!r}")
     try:
         os.remove(real)

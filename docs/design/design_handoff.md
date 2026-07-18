@@ -946,7 +946,7 @@ e **🎯 Mercati** è ora tradotta EN/ES via `i18n.tr`: titoli, sottotitoli, **e
 pulsanti (Profilo/Nuovo/Rinomina/Elimina/Aggiungi riga/Precompila da Betfair/Salva profilo),
 placeholder e **tutti i messaggi di stato/dialogo** (creato/rinominato/eliminato, save FALLITO,
 avvisi `MAPPING_MISSING`/`MARKET_MAPPING_MISSING`, righe incomplete/senza delimitatori). Restano
-robusti anche i casi limite. **Cap di render (P3-30 #76):** le tabelle dei due dizionari mostrano al più **500 righe** (stesso cap del «Mapping guidato»); oltre, avviso ambra *«ℹ️ Mostrate le prime 500 righe di N: le altre M restano nel profilo e al Salva sono conservate intatte.»* — le righe non mostrate NON vanno perse al Salva. Casi limite (P3-26/P3-32 #76, batch design 2): **config illeggibile al cambio
+robusti anche i casi limite. **Cap di render (P3-30 #76):** le tabelle dei due dizionari mostrano al più **500 righe** (stesso cap del «Mapping guidato»); oltre, avviso ambra *«ℹ️ Mostrate le prime 500 righe di N: le altre M restano nel profilo e al Salva sono conservate intatte.»* — le righe non mostrate NON vanno perse al Salva; l'avviso viene **azzerato a ogni nuovo render** (passando a un profilo ≤ 500 righe non resta il messaggio stantio del profilo grande). Casi limite (P3-26/P3-32 #76, batch design 2): **config illeggibile al cambio
 profilo** → lo switch è **annullato** con messaggio rosso *«❌ Config illeggibile: cambio profilo
 annullato, modifiche mantenute a schermo.»* (le righe in editing restano, come per il save
 fallito); **verifica dei parser fallita durante Rinomina** → mai il verde di successo con stato
@@ -1212,6 +1212,9 @@ l'annullo senza toccare nulla.
   mercati?` + coda identica.
 - **🧩 Parser Personalizzato / 🗑 Elimina** → titolo `Elimina parser`, testo
   `Eliminare il parser «{name}»?` + coda identica; annullo: `Eliminazione annullata.`
+  Caso limite: se durante il dialogo (modale) la lista parser viene aggiornata e il
+  nome selezionato non c'è più, nessuna eliminazione e messaggio
+  `⛔ Parser «{name}» non più in lista: eliminazione annullata.`
 
 **Modifiche non salvate nel costruttore parser («🆕 Nuovo» / «📂 Carica»):** se l'editor
 diverge dall'ultimo stato salvato/caricato (confronto di snapshot, fail-safe: stato non
