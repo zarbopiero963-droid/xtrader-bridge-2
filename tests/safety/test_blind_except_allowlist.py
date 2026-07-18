@@ -111,7 +111,9 @@ _ALLOWLIST = {
                              "#283 PR 13: sync in corso/DB assente → nessun suggerimento; "
                              "risoluzione profili nomi + lingua-fonte anteprima da config, "
                              "#3 slice 5b: config illeggibile → nessun filtro, fail-safe)"),
-    "custom_pipeline.py": (1, "id_resolver iniettato: un resolver che solleva NON blocca la riga (fail-open)"),
+    "custom_pipeline.py": (2, "id_resolver iniettato: un resolver che solleva NON blocca la riga (fail-open); "
+                              "_default_registry (P3-14 #76): dizionario bundled corrotto/mancante -> fallback "
+                              "built-in in cache con warning, MAI eccezione per-messaggio nell'handler Telegram"),
     "dpi_awareness.py": (3, "#311 §3.5 fail-open per contratto: un fallimento DPI "
                             "(ctypes/windll assente, shcore mancante su Win<8.1, "
                             "awareness già impostata, API che solleva) non deve MAI "
