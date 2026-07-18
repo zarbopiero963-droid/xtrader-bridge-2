@@ -82,3 +82,43 @@ def test_pipeline_sopravvive_al_dizionario_rotto(monkeypatch):
     res = custom_pipeline.build_validated_row(defn, "msg qualsiasi")   # non solleva
 
     assert res.status is not None                          # esito regolare, mai crash
+
+
+def test_fallback_fail_closed_nessuna_riga_piazzabile(monkeypatch):
+    """Review GPT-5.5 su PR #108: la semantica FAIL-CLOSED del fallback va provata
+    esplicitamente sul CSV finale — col registro in fallback (built-in only), una
+    regola che dipende da una value-map del DIZIONARIO (`markettype`) risolve a ""
+    → campo obbligatorio «Non pronto» → `placeable` False, MAI una riga XTrader
+    con un mercato non tradotto."""
+    vero_registry = value_maps.registry
+
+    def _rotto(include_dizionario=False, rows=None):
+        if include_dizionario:
+            raise ValueError("dizionario corrotto")
+        return vero_registry(include_dizionario=False, rows=rows)
+
+    monkeypatch.setattr(custom_pipeline.value_maps, "registry", _rotto)
+
+    from xtrader_bridge import custom_parser as cp
+    defn = cp.CustomParserDef(name="T", rules=[
+        cp.FieldRule(target="Provider", fixed_value="TG"),
+        cp.FieldRule(target="EventName", fixed_value="A v B", required=True),
+        cp.FieldRule(target="MarketType", fixed_value="Risultato esatto",
+                     required=True, value_map="markettype"),
+        cp.FieldRule(target="SelectionName", fixed_value="1 - 0", required=True),
+        cp.FieldRule(target="Price", fixed_value="2.0", required=True),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
+    ])
+
+    # Controprova: con una value-map `markettype` presente la STESSA regola produce
+    # una riga piazzabile → l'unico motivo del fail-closed qui sotto è la mappa assente.
+    reg_ok = dict(vero_registry(include_dizionario=False))
+    reg_ok["markettype"] = {"risultato esatto": "CORRECT_SCORE"}
+    ok = custom_pipeline.build_validated_row(defn, "msg", value_maps_registry=reg_ok)
+    assert ok.placeable is True
+
+    res = custom_pipeline.build_validated_row(defn, "msg")   # registro in FALLBACK
+    assert res.placeable is False
+    assert res.status == custom_pipeline.NOT_READY
+    assert "MarketType" in res.missing_required
+    assert res.row.get("MarketType", "") == ""               # mai un valore inventato
