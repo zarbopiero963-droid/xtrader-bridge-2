@@ -16,7 +16,7 @@ caricata a `enable()` e salvata **redatta** dopo ogni turno (`ConversationHistor
 import queue
 import threading
 
-from . import config_agent, config_store, event_log, token_store
+from . import config_agent, config_store, event_log, source_manager, token_store
 
 # Stati del controller.
 STOPPED = "stopped"
@@ -46,11 +46,13 @@ def _history_extra_secrets(cfg) -> list:
         mapping = cfg.get(key)
         if isinstance(mapping, dict):
             candidati.extend(str(k).strip() for k in mapping)
-    # Lunghezza minima (review Fugu): `redact_extra` maschera i literal come
-    # SOTTOSTRINGHE — un ID-spazzatura corto («-1» da config manomessa) sovra-
-    # redigerebbe numeri legittimi in tutta la cronologia. Gli ID Telegram reali
-    # hanno ben più di 5 caratteri: sotto quella soglia non è un chat ID.
-    return [c for c in candidati if len(c) >= 5]
+    # Filtro sul FORMATO, non sulla lunghezza (review Fable+Fugu convergenti,
+    # PR #107): si tiene OGNI chat ID valido (`-?\d+`, anche corto — un user ID
+    # storico a poche cifre resta un segreto e va redatto), scartando solo la
+    # spazzatura non-numerica di una config manomessa. La sovra-redazione da
+    # sottostringa è risolta ALLA CAUSA in `event_log.redact_extra`: i literal
+    # numerici sono mascherati a CONFINI DI CIFRA, mai dentro numeri più lunghi.
+    return [c for c in candidati if source_manager.is_valid_chat_id(c)]
 
 
 class AgentController:

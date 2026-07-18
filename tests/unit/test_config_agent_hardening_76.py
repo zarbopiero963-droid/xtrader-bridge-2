@@ -55,15 +55,32 @@ def test_extra_secrets_fail_safe_su_config_malformata():
                                                     {"chat_id": "-10099"}]}) == ["-10099"]
 
 
-def test_extra_secrets_id_corti_esclusi_dalla_redazione():
-    """Review Fugu (PR #107): `redact_extra` maschera i literal come SOTTOSTRINGHE —
-    un ID-spazzatura corto («-1») sovra-redigerebbe numeri legittimi in tutta la
-    cronologia. Sotto i 5 caratteri non è un chat ID Telegram reale → escluso;
-    gli ID reali (≥5) restano redatti; i top-level passano da str/strip."""
+def test_extra_secrets_formato_id_anche_corti_ma_niente_spazzatura():
+    """Review Fable+Fugu convergenti (PR #107): NIENTE soglia di lunghezza — un
+    user ID storico corto resta un segreto e va redatto (under-redaction = leak);
+    si scarta solo la spazzatura NON numerica di una config manomessa (che come
+    literal-sottostringa corromperebbe la cronologia). Top-level str/strip."""
     extra = _history_extra_secrets({"chat_id": "  -100123  ",
-                                    "source_chats": [{"chat_id": "-1"}],
-                                    "parser_by_chat": {"42": "P"}})
-    assert extra == ["-100123"]                            # corti esclusi, top-level strip-ato
+                                    "source_chats": [{"chat_id": "-1"},
+                                                     {"chat_id": "abc"}],
+                                    "parser_by_chat": {"42": "P", "boh?": "X"}})
+    assert extra == ["-100123", "-1", "42"]                # corti VALIDI tenuti, junk fuori
+
+
+def test_redazione_id_corto_a_confini_di_cifra():
+    """La causa reale (Fable/Fugu): `redact_extra` mascherava i literal come
+    SOTTOSTRINGHE — l'ID «-1» mangiava «-100», date e importi. Ora i literal
+    NUMERICI matchano a confini di cifra: l'ID corto è redatto solo come token
+    a sé, mai dentro numeri più lunghi; i literal non numerici (token) restano
+    substring (devono matchare dentro URL/path)."""
+    from xtrader_bridge import event_log
+
+    out = event_log.redact_extra("saldo -100, quota 1.85, chat -1 ok", ["-1"])
+
+    assert "-100" in out and "1.85" in out                 # numeri legittimi INTATTI
+    assert "chat -1 ok" not in out                         # l'ID a sé è redatto
+    # ID dentro un numero più lungo: mai redatto a metà
+    assert event_log.redact_extra("id 100123", ["10012"]) == "id 100123"
 
 
 # ── P3-24: timeout esplicito sul client Anthropic ────────────────────────────────────

@@ -163,7 +163,15 @@ def redact_extra(text: str, literals) -> str:
         if not lit:
             continue
         for form in _secret_forms(str(lit)):
-            s = _crlf_tolerant_re(form).sub(_REDACTED, s)
+            pattern = _crlf_tolerant_re(form).pattern
+            # Literal NUMERICO (es. chat_id, review Fable/Fugu PR #107): match a
+            # CONFINI DI CIFRA — un ID corto ("-1") non deve mangiare sottostringhe
+            # di numeri legittimi ("-100", date, importi), ma un ID corto REALE va
+            # comunque redatto quando compare come token a sé. I literal non
+            # numerici (token) restano substring: possono stare dentro URL/path.
+            if re.fullmatch(r"-?\d+", form):
+                pattern = r"(?<!\d)" + pattern + r"(?!\d)"
+            s = re.sub(pattern, _REDACTED, s)
     return s
 
 

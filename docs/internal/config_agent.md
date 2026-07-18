@@ -106,7 +106,12 @@ iniettabile (l'app reale ci aggancerà `event_log`).
   config malformata) e copre — oltre a `chat_id` e `xtrader_notification_chat_id` — gli ID di
   **tutte** le sorgenti `source_chats` (anche disattivate: restano segreti) e le **chiavi** dei
   mapping `parser_by_chat`/`parser_list_by_chat` (che sono chat ID). Un ID citato in
-  conversazione non finisce più su disco in chiaro.
+  conversazione non finisce più su disco in chiaro. I candidati sono filtrati sul **formato**
+  (`source_manager.is_valid_chat_id` — anche ID corti: un user ID storico resta un segreto),
+  mai su una soglia di lunghezza; la sovra-redazione da sottostringa è risolta alla causa in
+  `event_log.redact_extra`, che maschera i literal **numerici** a **confini di cifra** (un ID
+  corto non mangia mai numeri più lunghi, date o importi; i token non numerici restano
+  substring perché devono matchare dentro URL/path).
 - **Cap cronologia (P3-25 #76)**: `run_turn` capa la cronologia in ingresso con `_cap_history`
   (tetti `_MAX_HISTORY_MESSAGES = 60` e `_MAX_HISTORY_BYTES = 200 KB`, coda recente preservata)
   tagliando SOLO su un confine sicuro — il primo messaggio è sempre un turno `user` testuale,
