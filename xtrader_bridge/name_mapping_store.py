@@ -142,10 +142,21 @@ def _find_store_key(store: dict, name: str):
     target = _norm_profile_name(name)
     if not target:
         return None
-    for k in store:
-        if _norm_profile_name(k) == target:
-            return k
-    return None
+    matches = [k for k in store if _norm_profile_name(k) == target]
+    if not matches:
+        return None
+    # P3-22 #76: con DOPPIONI normalizzati-uguali (config manomessa: "Prof" e " Prof ")
+    # il primo-match faceva shadowing silenzioso dell'altro profilo. Il match ESATTO
+    # (il nome che la GUI mostra/seleziona) vince sempre; il doppione viene segnalato.
+    if len(matches) > 1:
+        _LOG.warning(
+            "name_mappings: profili DUPLICATI dopo normalizzazione (%s) -> uso %r "
+            "(match esatto se presente); rinomina/rimuovi i doppioni in config.json "
+            "(P3-22 #76).", ", ".join(repr(k) for k in matches),
+            name if name in matches else matches[0])
+    if name in matches:
+        return name
+    return matches[0]
 
 
 def _malformed_fields(entry: dict) -> list:
