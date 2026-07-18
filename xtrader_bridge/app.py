@@ -40,6 +40,7 @@ from .csv_writer import (
     write_rows,
 )
 from . import (
+    atomic_io,
     autostart,
     bridge_mode,
     config_agent_gui,
@@ -369,6 +370,9 @@ class App(ctk.CTk):
         # riavvio dopo riavvio. Best-effort, mai bloccante. Il listener è ancora spento,
         # quindi nessuna scrittura è in volo: ogni tmp che combacia è orfano.
         self._sweep_orphan_csv_temps()
+        # P3-17 #76: stessa igiene anche per i temporanei degli store (config/dedupe/
+        # daily/dirty in AppData + profili): prima non venivano MAI ripuliti.
+        self._sweep_orphan_store_temps()
         # Selettore lingua al PRIMO avvio (#343 slice 3): quando `app_language` non è
         # mai stata scelta, sopra la finestra principale appena costruita e PRIMA
         # dell'eventuale auto-start (che al primo avvio è comunque OFF di default).
@@ -564,6 +568,32 @@ class App(ctk.CTk):
         removed = sweep_orphan_temps(path)
         if removed:
             self._log(i18n.tr("🧹 Rimossi {count} file temporanei CSV orfani all'avvio.").format(count=removed))
+
+    # Coppie (cartella-funzione, prefisso, suffisso) dei temporanei atomici degli STORE
+    # (P3-17 #76): config (`.config_`), anti-duplicato (`.dedupe_`), tetto giornaliero
+    # (`.guard_`), dirty-CSV (default `tmp_`) — tutti in `config_dir()` — e i profili
+    # (`.profile_*.json`) in `profiles/`. I file FINALI non combaciano mai: `config.json`
+    # e i profili (`_safe_filename`: solo alfanumerici/-/_/spazi, mai un punto iniziale)
+    # non hanno quei prefissi.
+    _STORE_TMP_PATTERNS = ((".config_", ".tmp"), (".dedupe_", ".tmp"),
+                           (".guard_", ".tmp"), ("tmp_", ".tmp"))
+
+    def _sweep_orphan_store_temps(self) -> None:
+        """Igiene del disco per gli STORE (P3-17 #76): come `_sweep_orphan_csv_temps`,
+        ma sulla cartella config (config/dedupe/daily/dirty) e su `profiles/` — prima
+        gli orfani di un crash tra `mkstemp` e `os.replace` vi si accumulavano per
+        sempre. Best-effort (`sweep_orphan_temps` non solleva mai), allo startup con
+        nessuna scrittura in volo: ogni tmp che combacia è orfano."""
+        from . import profile_store   # import locale: solo per la cartella profili
+        removed = 0
+        cfg_dir = config_dir()
+        for prefix, suffix in self._STORE_TMP_PATTERNS:
+            removed += atomic_io.sweep_orphan_temps(cfg_dir, prefix, suffix)
+        removed += atomic_io.sweep_orphan_temps(profile_store.profiles_dir(),
+                                                ".profile_", ".json")
+        if removed:
+            self._log(i18n.tr("🧹 Rimossi {count} file temporanei orfani degli store all'avvio.")
+                      .format(count=removed))
 
     # ── CONFIG ────────────────────────────────
     def _register_secret_token(self, cfg) -> None:

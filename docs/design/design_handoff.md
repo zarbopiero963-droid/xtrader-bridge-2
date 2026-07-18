@@ -509,8 +509,10 @@ nei layer puri (`outcome.*_log`, `signal_outcome.confirmation_removed_log`/`_ign
 Dalla **slice 4n — log RESILIENZA runtime** è localizzato il quinto gruppo: i log del pannello
 **📋 Log** legati a **caduta e ripristino della connessione** e al recovery del CSV — «🔄 Riconnesso:
 … recuperati …», «🔌 Connessione persa (…): riconnessione tra Ns (tentativo N)…», «❌ Errore non
-recuperabile del listener: … Bridge fermato.», «🧹 CSV ripulito al retry dopo lo STOP: …» e «🧹 Rimossi
-N file temporanei CSV orfani all'avvio.». Marker (🔄/❌/🔌/🧹) conservato → colore/livello invariato.
+recuperabile del listener: … Bridge fermato.», «🧹 CSV ripulito al retry dopo lo STOP: …», «🧹 Rimossi
+N file temporanei CSV orfani all'avvio.» e (P3-17 #76) «🧹 Rimossi N file temporanei orfani degli
+store all'avvio.» (config/anti-duplicato/tetto giornaliero/dirty-CSV/profili — stessa igiene del
+CSV, i18n EN/ES completa). Marker (🔄/❌/🔌/🧹) conservato → colore/livello invariato.
 **Restano IT** per contratto: i log di recovery con la **parola-quando** («🧹 CSV riportato a solo
 header {quando}: …», «⚠️ Impossibile ripulire il CSV {quando} …»), perché `{quando}` è una
 **chiave-valore** confrontata nel codice (`== "all'avvio"`) per distinguere un crash-recovery da un
