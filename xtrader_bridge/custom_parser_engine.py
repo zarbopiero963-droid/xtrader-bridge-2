@@ -142,7 +142,11 @@ def extract_between(text: str, start_after: str = "", end_before: str = "") -> s
 
 
 # #325: pattern di un risultato esatto «N - N» dentro la regione estratta.
-# - separatore INTERNO **solo `-`** (trattino), tollerante agli spazi: NON si usa `:` per evitare
+# - separatore INTERNO **solo trattino ASCII `-` o EN DASH `–`** (U+2013 — P3-13 audit #76: le
+#   tastiere iOS/molti client Telegram sostituiscono automaticamente il trattino con l'EN DASH,
+#   e «1–0, 2–1» non generava righe: segnali persi in silenzio), tollerante agli spazi. Altri
+#   dash Unicode (em dash «—», minus «−») restano esclusi di proposito (fail-closed, si
+#   aggiungono solo su esigenza di un canale reale). NON si usa `:` per evitare
 #   di agganciare ORARI/quote come «20:30» o «45:12» (rischio di SelectionName fantasma → riga
 #   spuria piazzabile per nome in NAME_ONLY, potenziale scommessa errata — review #341);
 # - **1–2 cifre per lato** con **confini di cifra** (`(?<!\d)`/`(?!\d)`): NON aggancia numeri più
@@ -166,7 +170,7 @@ def extract_between(text: str, start_after: str = "", end_before: str = "") -> s
 # confine morde su `[.,]` immediatamente prima; il separatore di lista comma-SPAZIO «1-0, 2-1» resta
 # valido (il numero successivo è preceduto da uno SPAZIO, non da «[.,]»). Una lista a virgola SENZA
 # spazio «1-0,2-1» è ambigua con un decimale → fail-closed (non estratta): usare «, » o newline.
-_SCORE_RE = re.compile(r"(?<!\d)(?<![.,])(\d{1,2})[^\S\r\n]*-[^\S\r\n]*(\d{1,2})(?!\d)(?![.,]\d)")
+_SCORE_RE = re.compile(r"(?<!\d)(?<![.,])(\d{1,2})[^\S\r\n]*[-–][^\S\r\n]*(\d{1,2})(?!\d)(?![.,]\d)")
 
 # #325: cap DIFENSIVO sul numero di risultati estratti da UN messaggio (input Telegram NON
 # attendibile, review #341). Un elenco reale di risultati esatti (Correct Score FT/1º tempo) ha
@@ -179,7 +183,8 @@ def extract_scores(text: str, start_after: str = "", end_before: str = "") -> "l
     """#325: estrae la LISTA dei risultati esatti dalla regione fra `start_after`/`end_before`
     (stessa semantica di `extract_between`) e li **normalizza** al formato canonico del dizionario
     XTrader «N - N» (spazi ORIZZONTALI attorno al trattino, zeri iniziali rimossi, es. «1-0»/«01 - 0»
-    → «1 - 0»; SOLO il trattino, mai «:» — vedi `_SCORE_RE`). I punteggi sono riconosciuti per forma
+    → «1 - 0»; separatore trattino ASCII o EN DASH «–», mai «:» — vedi `_SCORE_RE`). I punteggi
+    sono riconosciuti per forma
     su una singola riga, quindi il separatore FRA i risultati non conta (ma cifre di righe diverse non
     si fondono).
     **Deduplica preservando l'ordine** (nessuna riga CSV doppia — quindi nessuna doppia scommessa —
