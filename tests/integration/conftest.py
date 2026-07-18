@@ -48,7 +48,12 @@ def _stub_specs():
             set_appearance_mode=lambda *a, **k: None,
             set_default_color_theme=lambda *a, **k: None,
         ),
-        "tkinter": lambda: _stub_module("tkinter"),
+        # `TclError` come VERA classe-eccezione (P3-10 #76): `_safe_after` la usa in un
+        # `except (tk.TclError, RuntimeError)` — un MagicMock nella tupla dell'except
+        # solleverebbe TypeError alla prima eccezione reale ("catching classes that do
+        # not inherit from BaseException"), rompendo proprio il percorso sotto test.
+        "tkinter": lambda: _stub_module("tkinter",
+                                        TclError=type("TclError", (Exception,), {})),
         "tkinter.messagebox": lambda: _stub_module("tkinter.messagebox"),
         "telegram": lambda: _stub_module("telegram", Update=object),
         "telegram.ext": lambda: _stub_module(
