@@ -16,7 +16,7 @@ caricata a `enable()` e salvata **redatta** dopo ogni turno (`ConversationHistor
 import queue
 import threading
 
-from . import config_agent, config_store, event_log, token_store
+from . import config_agent, config_store, event_log, source_manager, token_store
 
 # Stati del controller.
 STOPPED = "stopped"
@@ -25,6 +25,34 @@ ERROR = "error"
 
 # Sentinella per fermare il loop del worker (teardown pulito).
 _STOP = object()
+
+
+def _history_extra_secrets(cfg) -> list:
+    """Chat ID da redigere in aggiunta nella cronologia su disco (P3-23 #76).
+
+    Prima copriva solo `chat_id` e `xtrader_notification_chat_id`: gli ID delle
+    sorgenti MULTI-CHAT (`source_chats`, anche disattivate — restano segreti) e le
+    CHIAVI dei mapping parser (`parser_by_chat`/`parser_list_by_chat`, che SONO
+    chat ID) restavano fuori — un ID citato in conversazione finiva su disco in
+    chiaro. Funzione pura fail-safe su config malformata (voci non-dict ignorate)."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    candidati = [str(cfg.get("chat_id", "") or "").strip(),
+                 str(cfg.get("xtrader_notification_chat_id", "") or "").strip()]
+    srcs = cfg.get("source_chats")
+    for src in (srcs if isinstance(srcs, (list, tuple)) else ()):
+        if isinstance(src, dict):
+            candidati.append(str(src.get("chat_id", "") or "").strip())
+    for key in ("parser_by_chat", "parser_list_by_chat"):
+        mapping = cfg.get(key)
+        if isinstance(mapping, dict):
+            candidati.extend(str(k).strip() for k in mapping)
+    # Filtro sul FORMATO, non sulla lunghezza (review Fable+Fugu convergenti,
+    # PR #107): si tiene OGNI chat ID valido (`-?\d+`, anche corto — un user ID
+    # storico a poche cifre resta un segreto e va redatto), scartando solo la
+    # spazzatura non-numerica di una config manomessa. La sovra-redazione da
+    # sottostringa è risolta ALLA CAUSA in `event_log.redact_extra`: i literal
+    # numerici sono mascherati a CONFINI DI CIFRA, mai dentro numeri più lunghi.
+    return [c for c in candidati if source_manager.is_valid_chat_id(c)]
 
 
 class AgentController:
@@ -255,8 +283,7 @@ class AgentController:
                 return None                                  # sessione cambiata → scarta
             self._history.replace(turn.messages)
             cfg = self._config_loader() or {}
-            extra = [v for v in (cfg.get("chat_id", ""),
-                                 cfg.get("xtrader_notification_chat_id", "")) if v]
+            extra = _history_extra_secrets(cfg)
             try:
                 self._history.save(extra_secrets=extra)
             except Exception as exc:   # noqa: BLE001 — persistenza best-effort: MAI scartare il turno

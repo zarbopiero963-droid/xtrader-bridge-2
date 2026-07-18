@@ -101,6 +101,27 @@ iniettabile (l'app reale ci aggancerà `event_log`).
   bot token/chat non finiscono mai in chiaro nel file.**
 - **Fail-safe** in `load`: file assente, JSON corrotto o forma inattesa → cronologia **vuota**
   (l'assistente riparte pulito, non crasha).
+- **`extra_secrets` completi (P3-23 #76)**: la lista di segreti aggiuntivi passata a `save()` è
+  costruita da `config_agent_controller._history_extra_secrets(cfg)` (funzione pura, fail-safe su
+  config malformata) e copre — oltre a `chat_id` e `xtrader_notification_chat_id` — gli ID di
+  **tutte** le sorgenti `source_chats` (anche disattivate: restano segreti) e le **chiavi** dei
+  mapping `parser_by_chat`/`parser_list_by_chat` (che sono chat ID). Un ID citato in
+  conversazione non finisce più su disco in chiaro. I candidati sono filtrati sul **formato**
+  (`source_manager.is_valid_chat_id` — anche ID corti: un user ID storico resta un segreto),
+  mai su una soglia di lunghezza; la sovra-redazione da sottostringa è risolta alla causa in
+  `event_log.redact_extra`, che maschera i literal **numerici** a **confini di cifra** (un ID
+  corto non mangia mai numeri più lunghi, date o importi; i token non numerici restano
+  substring perché devono matchare dentro URL/path).
+- **Cap cronologia (P3-25 #76)**: `run_turn` capa la cronologia in ingresso con `_cap_history`
+  (tetti `_MAX_HISTORY_MESSAGES = 60` e `_MAX_HISTORY_BYTES = 200 KB`, coda recente preservata)
+  tagliando SOLO su un confine sicuro — il primo messaggio è sempre un turno `user` testuale,
+  mai coppie `tool_use`/`tool_result` spezzate (l'API le rifiuterebbe). Il cap si propaga al
+  file su disco via `history.replace(turn.messages)`: senza, la cronologia rispedita integrale a
+  ogni turno faceva crescere i costi fino a un 400/413 permanente.
+- **Timeout API esplicito (P3-24 #76)**: `RealAnthropicClient` crea il client con
+  `timeout=_API_TIMEOUT_S` (60s) — il default SDK (~10 min) avrebbe pinnato il worker su una
+  chiamata morta, facendo fallire il `join(timeout=5)` del teardown e lasciando l'assistente
+  non riavviabile per minuti.
 - **Redazione API key**: `event_log.redact_secrets` ora maschera anche il pattern `sk-ant-...`
   (euristica), così la chiave Anthropic è coperta **anche prima** della registrazione.
 

@@ -135,6 +135,16 @@ Anche se glielo chiedi esplicitamente, l'assistente **non può**:
 Queste azioni sono **bloccate dal bridge a prescindere**. Abilitare la chat **non** avvia mai
 l'ascolto live né la modalità reale.
 
+## 10. Cronologia e tempi di risposta
+
+- La **cronologia** della chat è salvata su disco **sempre redatta**: token, API key e **tutti**
+  i chat ID configurati (chat sorgente — anche disattivate — chat notifiche e chat dei parser)
+  vengono mascherati. Con conversazioni molto lunghe l'assistente **ricorda gli ultimi turni**
+  (la coda recente): i turni più antichi vengono lasciati cadere per tenere costi e affidabilità
+  sotto controllo — se ti serve un'informazione data molto tempo prima, ripetila.
+- Una singola risposta ha un **tempo massimo (~1 minuto)**: se la rete è ferma non resta
+  appesa per sempre — ricevi un errore e puoi riprovare (o riavviare l'assistente subito).
+
 ## In breve
 
 L'assistente **legge** e **consiglia**, **propone** solo impostazioni non critiche, e **tu**

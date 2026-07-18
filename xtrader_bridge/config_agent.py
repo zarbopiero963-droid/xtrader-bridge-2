@@ -1114,6 +1114,12 @@ def build_system_prompt(app_language="") -> str:
 SYSTEM_PROMPT = build_system_prompt("IT")
 
 
+# P3-24 #76: tetto per singola richiesta HTTP al modello (secondi). Generoso per un
+# turno tool-use reale (tipico ~5-20s), ma finito: senza, il default SDK ~10 min
+# pinna il worker su una connessione morta.
+_API_TIMEOUT_S = 60.0
+
+
 class RealAnthropicClient:
     """Client reale verso l'Anthropic Messages API (tool use). **Lazy import** di ``anthropic``
     (dipendenza opzionale, come ``keyring`` in ``token_store``): l'assenza della libreria NON
@@ -1136,7 +1142,13 @@ class RealAnthropicClient:
                     "Installa 'anthropic' per usare l'assistente.") from exc
             if not self._api_key:
                 raise RuntimeError("API key Anthropic assente: impostala prima di usare l'assistente.")
-            self._client = anthropic.Anthropic(api_key=self._api_key)
+            # P3-24 #76: timeout ESPLICITO — il default dell'SDK (~10 min) terrebbe il
+            # worker appeso a una chiamata morta: il join(timeout=5) del teardown
+            # fallirebbe e l'assistente resterebbe non riavviabile per minuti (GUI
+            # senza risposte). Con 60s la chiamata appesa muore presto, il worker
+            # rientra e stop()/enable() tornano a funzionare.
+            self._client = anthropic.Anthropic(api_key=self._api_key,
+                                               timeout=_API_TIMEOUT_S)
         return self._client
 
     def create_message(self, *, system, messages, tools) -> dict:
@@ -1170,6 +1182,45 @@ class AgentTurn:
         self.capped = capped
 
 
+# P3-25 #76: tetti della cronologia rispedita al modello (e, via `replace()` del
+# chiamante, persistita su disco). Ordini di grandezza: 60 messaggi ≈ 20-30 turni
+# reali; 200KB ≈ ben sotto la context window ma abbastanza per il contesto utile.
+_MAX_HISTORY_MESSAGES = 60
+_MAX_HISTORY_BYTES = 200_000
+
+
+def _cap_history(history) -> list:
+    """Coda della cronologia entro i tetti (messaggi E byte), tagliata SOLO su un
+    confine SICURO: il primo messaggio del risultato è sempre un turno `user` con
+    contenuto TESTUALE. Tagliare altrove spezzerebbe le coppie tool_use/tool_result
+    (l'API rifiuta un `tool_result` orfano o un `tool_use` senza risposta) o farebbe
+    iniziare la conversazione da un blocco `assistant`. Lista vuota se nulla è
+    utilizzabile (l'assistente riparte dal solo messaggio corrente: fail-safe)."""
+    msgs = [m for m in (history or []) if isinstance(m, dict)]
+    if len(msgs) > _MAX_HISTORY_MESSAGES:
+        msgs = msgs[-_MAX_HISTORY_MESSAGES:]
+    # Budget byte dal fondo (i turni recenti valgono di più di quelli antichi).
+    total, kept = 0, []
+    for m in reversed(msgs):
+        try:
+            total += len(json.dumps(m, ensure_ascii=False).encode("utf-8"))
+        except (TypeError, ValueError):
+            # Messaggio non serializzabile (solo da uso improprio dell'API: il file
+            # storia nasce da json.load): STOP — scartarlo e proseguire coi più
+            # vecchi aprirebbe un BUCO interno che può orfanare un tool_result
+            # (review Fable, round finale). Il risultato resta un suffisso CONTIGUO.
+            break
+        if kept and total > _MAX_HISTORY_BYTES:
+            break
+        kept.append(m)
+    kept.reverse()
+    # Confine sicuro: scarta la testa finché non inizia con un turno utente testuale.
+    while kept and not (kept[0].get("role") == "user"
+                        and isinstance(kept[0].get("content"), str)):
+        kept.pop(0)
+    return kept
+
+
 class ConfigAgent:
     """Loop tool-use dell'assistente. ``client`` è qualunque oggetto con
     ``create_message(system, messages, tools) -> {"stop_reason", "content"}`` (reale o finto).
@@ -1183,8 +1234,14 @@ class ConfigAgent:
 
     def run_turn(self, user_text, history=None) -> AgentTurn:
         """Esegue UN turno completo: manda il messaggio utente, risolve le eventuali chiamate a
-        tool (guardate), e ritorna quando il modello smette di chiamare tool (o al cap)."""
-        messages = list(history or [])
+        tool (guardate), e ritorna quando il modello smette di chiamare tool (o al cap).
+
+        P3-25 #76: la cronologia in ingresso è CAPATA (`_cap_history`) — senza cap
+        veniva rispedita INTEGRALE al modello a ogni turno: costi crescenti e, oltre
+        la context window, un 400/413 permanente che uccideva l'assistente. Il cap si
+        propaga anche al file su disco: il chiamante fa `history.replace(turn.messages)`
+        e `turn.messages` parte dalla cronologia già capata."""
+        messages = _cap_history(history)
         messages.append({"role": "user", "content": str(user_text)})
         tool_results_all = []
         for _ in range(MAX_TOOL_ITERATIONS):
