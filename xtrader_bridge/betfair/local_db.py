@@ -31,6 +31,7 @@ dipendenza. Nessun dato sensibile/credenziale finisce qui.
 """
 
 import logging
+import math
 import os
 import sqlite3
 import threading
@@ -155,7 +156,7 @@ CREATE TABLE IF NOT EXISTS betfair_meta (
 _LOG = logging.getLogger(__name__)
 
 
-def _norm_handicap(handicap):
+def _norm_handicap(handicap) -> "float | None":
     """Handicap normalizzato a float (None/'' → 0.0): rende stabile la chiave della
     selezione (la tripla market_id+selection_id+handicap).
 
@@ -167,9 +168,17 @@ def _norm_handicap(handicap):
     if handicap in (None, ""):
         return 0.0
     try:
-        return float(handicap)
+        val = float(handicap)
     except (TypeError, ValueError):
         return None
+    # Non-finito (NaN/inf, review GPT-5.5): in SQLite un NaN viene memorizzato come
+    # NULL, e i NULL in una PK composita sono tutti DISTINTI → upsert ripetuti di
+    # "NaN" non andrebbero mai in conflitto e inserirebbero duplicati illimitati.
+    # Stessa classe del bug: fail-closed (riga scartata), come per i now non finiti
+    # di dedupe/daily.
+    if not math.isfinite(val):
+        return None
+    return val
 
 
 class BetfairLocalDB:

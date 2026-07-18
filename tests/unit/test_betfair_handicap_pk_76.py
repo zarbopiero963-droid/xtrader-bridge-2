@@ -50,6 +50,17 @@ def test_handicap_assente_resta_il_default_legittimo(db):
     assert db.count_active("betfair_selections") == 2
 
 
+def test_handicap_non_finito_scartato(db, caplog):
+    """FAIL-FIRST (round review, GPT-5.5): NaN in SQLite è memorizzato come NULL, e i
+    NULL in una PK composita sono tutti DISTINTI → upsert ripetuti di "NaN" non
+    andrebbero mai in conflitto e inserirebbero duplicati illimitati. Non-finito →
+    riga scartata (stessa classe del bug, stesso fail-closed dei now di dedupe/daily)."""
+    for cattivo in ("NaN", "inf", "-inf", float("nan"), float("inf")):
+        with caplog.at_level("WARNING"):
+            assert db.upsert_selection("1.10", "7", "X", handicap=cattivo, seen_at=1) is False
+    assert db.count_active("betfair_selections") == 0      # nessuna riga scritta
+
+
 def test_handicap_numerico_stringa_invariato(db):
     """Regressione bloccata: '2.5' numerico continua a scrivere la linea giusta e
     l'upsert sulla stessa tripla non duplica."""
