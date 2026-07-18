@@ -22,7 +22,8 @@ chiavi: ogni altra impostazione (token, chat, sorgenti, parser, ecc.) è preserv
 
 import copy
 
-from . import autostart, bridge_mode, config_store, recognition, safety_guard, signal_queue
+from . import (autostart, bridge_mode, config_store, recognition, safety_guard,
+               signal_queue, source_manager)
 
 # Default del timeout conferme: fonte unica = config_store.DEFAULTS.
 DEFAULT_CONFIRMATION_TIMEOUT = config_store.DEFAULTS["confirmation_timeout"]
@@ -209,9 +210,16 @@ def apply_advanced(cfg: dict, form: dict) -> tuple:
         else:
             updates["max_active_signals"] = max_act
 
-    # La chat notifiche è testo libero: stringa vuota = conferme disattivate.
-    updates["xtrader_notification_chat_id"] = str(
-        form.get("xtrader_notification_chat_id", "") or "").strip()
+    # Chat notifiche: vuota = conferme disattivate; se impostata DEVE essere un ID
+    # numerico Telegram (P3-29 #76): con un typo le conferme XTrader non arriverebbero
+    # MAI e il segnale resterebbe attivo fino al timeout, in silenzio.
+    notif_chat = str(form.get("xtrader_notification_chat_id", "") or "").strip()
+    if notif_chat and not source_manager.is_valid_chat_id(notif_chat):
+        errors.append(
+            f"Chat notifiche XTrader: ID non numerico {notif_chat!r} — usa l'ID numerico "
+            f"Telegram (es. -1001234567890), non il nome o l'@username del canale.")
+    else:
+        updates["xtrader_notification_chat_id"] = notif_chat
 
     timeout, err = _parse_positive_int(
         form.get("confirmation_timeout"), "Timeout conferme XTrader")

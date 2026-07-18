@@ -886,6 +886,12 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
 Titolo **"📡  Chat sorgenti (multi-chat)"**. Tabella con colonne: **Attiva · Nome · Chat ID
 · Modalità (PRE/LIVE) · Provider · Parser · Traduzioni** · ✕ (elimina). Pulsanti
 **"➕ Aggiungi sorgente"**, **"💾 Salva"**. Riga di stato con esito salvataggio.
+**Validazione formato Chat ID (P3-29 #76):** al Salva (e al fail-fast di AVVIA) un Chat ID
+NON numerico (`@canale`, nome, spazi) è un **errore bloccante** con messaggio che insegna il
+formato — *«chat_id non numerico '@canale' — usa l'ID numerico Telegram (es. -1001234567890),
+non il nome o l'@username del canale.»* — perché un typo non matcherebbe mai gli update
+(sorgente "configurata" ma silenziosamente morta). Stessa regola per la **Chat notifiche
+XTrader** nella scheda Conferme (vuota = disattivate resta ammessa).
 - **Colonna «Parser» (PR-2, router multi-parser):** non più una singola tendina, ma un
   **pulsante** che mostra il riassunto dei parser della chat — **«(predefinito)»** se nessuno
   (usa il globale), altrimenti la lista **numerata in ordine di priorità** (es. **«1. A · 2. B»**).
