@@ -397,6 +397,17 @@ class NameMappingPanel(ctk.CTkFrame):
             return
         if self._current:                          # auto-salva il profilo che stai lasciando
             cfg = self._load_cfg()
+            if cfg is None:
+                # P3-26 #76: config illeggibile → l'auto-save NON può avvenire; proseguire
+                # farebbe ricaricare le righe CANCELLANDO l'editing. ANNULLA lo switch
+                # (stesso pattern del ramo save-fallito qui sotto): profilo corrente a
+                # schermo, righe intatte, l'utente può riprovare.
+                self._profile_var.set(self._current)
+                self._status.configure(
+                    text=i18n.tr("❌ Config illeggibile: cambio profilo annullato, modifiche "
+                                 "mantenute a schermo."),
+                    text_color="#ef5350")
+                return
             if cfg is not None:
                 cfg = name_mapping_store.set_entries(cfg, self._current, self._collect_rows())
                 saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
@@ -473,8 +484,18 @@ class NameMappingPanel(ctk.CTkFrame):
             # restano a chiedere un profilo inesistente (→ MAPPING_MISSING silenzioso).
             try:
                 updated, failed = custom_parser.rename_mapping_profile_in_files(old, new)
-            except Exception:                    # noqa: BLE001 — il rename del profilo resta valido
-                updated, failed = [], []
+            except Exception as exc:             # noqa: BLE001 — il rename config resta valido
+                # P3-32 #76: MAI il verde con stato IGNOTO — prima l'eccezione veniva
+                # inghiottita (updated=failed=[]) e restava il messaggio di successo
+                # mentre i parser salvati potevano puntare ancora al vecchio nome
+                # (segnali scartati in silenzio, MAPPING_MISSING). Avviso onesto + stop.
+                self._status.configure(
+                    text=i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma la verifica dei "
+                                 "parser salvati è FALLITA ({exc}): controlla a mano quali usano "
+                                 "ancora «{old}» o quei segnali verranno scartati "
+                                 "(MAPPING_MISSING).").format(old=old, new=new, exc=exc),
+                    text_color="#ffa726")
+                return
             if failed:
                 # Alcuni parser non si sono potuti riscrivere: restano sul vecchio nome
                 # mentre la config ha il nuovo → quei segnali andrebbero scartati. Avvisa.
@@ -818,6 +839,17 @@ class MarketMappingPanel(ctk.CTkFrame):
             return
         if self._current:                          # auto-salva il profilo che stai lasciando
             cfg = self._load_cfg()
+            if cfg is None:
+                # P3-26 #76: config illeggibile → l'auto-save NON può avvenire; proseguire
+                # farebbe ricaricare le righe CANCELLANDO l'editing. ANNULLA lo switch
+                # (stesso pattern del ramo save-fallito qui sotto): profilo corrente a
+                # schermo, righe intatte, l'utente può riprovare.
+                self._profile_var.set(self._current)
+                self._status.configure(
+                    text=i18n.tr("❌ Config illeggibile: cambio profilo annullato, modifiche "
+                                 "mantenute a schermo."),
+                    text_color="#ef5350")
+                return
             if cfg is not None:
                 cfg = market_mapping_store.set_entries(cfg, self._current, self._collect_rows())
                 saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
@@ -881,8 +913,15 @@ class MarketMappingPanel(ctk.CTkFrame):
             # chiedere un profilo inesistente (→ MARKET_MAPPING_MISSING silenzioso).
             try:
                 updated, failed = custom_parser.rename_market_mapping_profile_in_files(old, new)
-            except Exception:                    # noqa: BLE001 — il rename del profilo resta valido
-                updated, failed = [], []
+            except Exception as exc:             # noqa: BLE001 — il rename config resta valido
+                # P3-32 #76: come per il dizionario nomi — mai successo con stato ignoto.
+                self._status.configure(
+                    text=i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma la verifica dei "
+                                 "parser salvati è FALLITA ({exc}): controlla a mano quali usano "
+                                 "ancora «{old}» o quei segnali verranno scartati "
+                                 "(MARKET_MAPPING_MISSING).").format(old=old, new=new, exc=exc),
+                    text_color="#ffa726")
+                return
             if failed:
                 self._status.configure(
                     text=i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma {count} parser NON "

@@ -940,6 +940,12 @@ e **🎯 Mercati** è ora tradotta EN/ES via `i18n.tr`: titoli, sottotitoli, **e
 pulsanti (Profilo/Nuovo/Rinomina/Elimina/Aggiungi riga/Precompila da Betfair/Salva profilo),
 placeholder e **tutti i messaggi di stato/dialogo** (creato/rinominato/eliminato, save FALLITO,
 avvisi `MAPPING_MISSING`/`MARKET_MAPPING_MISSING`, righe incomplete/senza delimitatori). Restano
+robusti anche i casi limite (P3-26/P3-32 #76, batch design 2): **config illeggibile al cambio
+profilo** → lo switch è **annullato** con messaggio rosso *«❌ Config illeggibile: cambio profilo
+annullato, modifiche mantenute a schermo.»* (le righe in editing restano, come per il save
+fallito); **verifica dei parser fallita durante Rinomina** → mai il verde di successo con stato
+ignoto, ma avviso ambra *«⚠️ Profilo rinominato … ma la verifica dei parser salvati è FALLITA
+({exc}): controlla a mano quali usano ancora "old" …»*. Restano
 **IT** — esclusione di **dominio/value-as-key**: le **sentinelle** delle tendine («(tutti gli
 sport)»/«(qualsiasi tipo)»/«(tutte le lingue)»/«(nessun profilo)», usate in confronti), i **valori**
 Sport/Tipo/Lingua e i nomi **Mercato/Selezione del Catalogo** (canonici), i **tab del container**
