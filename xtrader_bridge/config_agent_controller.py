@@ -27,6 +27,30 @@ ERROR = "error"
 _STOP = object()
 
 
+def _history_extra_secrets(cfg) -> list:
+    """Chat ID da redigere in aggiunta nella cronologia su disco (P3-23 #76).
+
+    Prima copriva solo `chat_id` e `xtrader_notification_chat_id`: gli ID delle
+    sorgenti MULTI-CHAT (`source_chats`, anche disattivate — restano segreti) e le
+    CHIAVI dei mapping parser (`parser_by_chat`/`parser_list_by_chat`, che SONO
+    chat ID) restavano fuori — un ID citato in conversazione finiva su disco in
+    chiaro. Funzione pura fail-safe su config malformata (voci non-dict ignorate)."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    extra = [v for v in (cfg.get("chat_id", ""),
+                         cfg.get("xtrader_notification_chat_id", "")) if v]
+    srcs = cfg.get("source_chats")
+    for src in (srcs if isinstance(srcs, (list, tuple)) else ()):
+        if isinstance(src, dict):
+            cid = str(src.get("chat_id", "") or "").strip()
+            if cid:
+                extra.append(cid)
+    for key in ("parser_by_chat", "parser_list_by_chat"):
+        mapping = cfg.get(key)
+        if isinstance(mapping, dict):
+            extra.extend(str(k) for k in mapping if str(k).strip())
+    return extra
+
+
 class AgentController:
     """Ciclo di vita dell'assistente. NON tocca tkinter: emette eventi via `on_event(kind, data)`
     (la view li marshalla sul thread GUI). `client` è iniettabile; se assente, `enable()` costruisce
@@ -255,8 +279,7 @@ class AgentController:
                 return None                                  # sessione cambiata → scarta
             self._history.replace(turn.messages)
             cfg = self._config_loader() or {}
-            extra = [v for v in (cfg.get("chat_id", ""),
-                                 cfg.get("xtrader_notification_chat_id", "")) if v]
+            extra = _history_extra_secrets(cfg)
             try:
                 self._history.save(extra_secrets=extra)
             except Exception as exc:   # noqa: BLE001 — persistenza best-effort: MAI scartare il turno
