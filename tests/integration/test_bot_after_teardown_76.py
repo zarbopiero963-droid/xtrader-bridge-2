@@ -100,16 +100,19 @@ def test_loop_close_dentro_finally():
         "_run_bot: il supervisor deve essere avvolto dal try del finally")
 
 
-def test_evento_di_stop_creato_adiacente_al_loop():
-    """Review Fable/Fugu #95: l'evento di stop deve nascere in `_run_bot`, in coppia
-    ADIACENTE con `self._loop` (stesso thread, istruzioni vicine) — creato solo dentro
-    `_async_run` lasciava la finestra "loop NUOVO + evento della sessione PRECEDENTE"
-    in cui uno STOP accoppiava loop ed evento sbagliati."""
+def test_evento_di_stop_pubblicato_prima_del_loop():
+    """Review Fable/Fugu #95 (2° round): l'evento di stop nasce nel PROLOGO di `_run_bot`
+    ed è PUBBLICATO PRIMA di `self._loop`. La guardia di `_stop` richiede ENTRAMBI: col
+    loop pubblicato per ULTIMO, uno STOP concorrente non può mai osservare la coppia
+    incoerente "loop NUOVO + evento VECCHIO" — è l'ordine di pubblicazione, non un lock,
+    a garantire la coerenza."""
     corpo = _run_bot_src()
     prologo = corpo[:corpo.index("def _is_current")]
-    assert "self._loop = loop" in prologo
-    assert "self._async_stop_event = stop_evt" in prologo, (
-        "l'assegnamento dell'evento deve stare nel PROLOGO di _run_bot, adiacente al loop")
+    i_evt = prologo.index("self._async_stop_event = stop_evt")
+    i_loop = prologo.index("self._loop = loop")
+    assert i_evt < i_loop, (
+        "l'evento va PUBBLICATO PRIMA del loop: pubblicare prima il loop riapre la "
+        "finestra 'loop nuovo + evento stantio' per uno STOP concorrente (P3-10 #95)")
     dentro_async = corpo[corpo.index("async def _async_run"):corpo.index("while _is_current")]
     assert "asyncio.Event()" not in dentro_async, (
         "_async_run non deve più creare un proprio evento: userebbe di nuovo la finestra")

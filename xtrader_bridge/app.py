@@ -2712,19 +2712,20 @@ class App(ctk.CTk):
         # toccare solo questo loop, non un eventuale loop di un nuovo START che nel
         # frattempo abbia riassegnato `self._loop` (audit C1).
         loop = asyncio.new_event_loop()
-        self._loop = loop
-        asyncio.set_event_loop(loop)
-        # Evento di stop della sessione creato QUI, in coppia ADIACENTE con `self._loop`
-        # (review Fable/Fugu #95): crearlo/assegnarlo solo dentro `_async_run` lasciava
-        # la finestra "loop NUOVO già assegnato + evento della sessione PRECEDENTE" tra
-        # i due assegnamenti — uno STOP lì dentro accoppiava loop e evento sbagliati.
-        # Stesso thread, istruzioni adiacenti: la finestra non esiste più. `asyncio.Event`
-        # in py3.11 è loop-agnostico (nessun binding al loop alla creazione): crearlo
-        # fuori dal loop e attenderlo dentro è supportato. Resta l'invariante di Codex
-        # #191: l'attesa usa la variabile LOCALE `stop_evt` — un nuovo START che
-        # riassegna l'attributo non dirotta l'attesa di QUESTA sessione.
+        asyncio.set_event_loop(loop)      # prima dell'Event (binding del loop su py≤3.9)
+        # Evento di stop della sessione creato QUI e PUBBLICATO PRIMA del loop (review
+        # Fable/Fugu #95, 2° round): la guardia di `_stop` richiede ENTRAMBI
+        # (`loop is not None and evt is not None`) — pubblicando `self._loop` per ULTIMO,
+        # nessuno STOP concorrente può mai osservare "loop NUOVO + evento VECCHIO": quando
+        # il loop nuovo è visibile, l'evento nuovo lo è già. È l'ORDINE di pubblicazione a
+        # dare la coerenza, senza lock; per uno STOP che arriva ancora prima (loop non
+        # pubblicato) la guardia salta il wake e la sessione esce comunque al primo check
+        # `_is_current()` (`_running` False), entro ~1 s. Resta l'invariante di Codex #191:
+        # l'attesa usa la variabile LOCALE `stop_evt` — un nuovo START che riassegna
+        # l'attributo non dirotta l'attesa di QUESTA sessione.
         stop_evt = asyncio.Event()
         self._async_stop_event = stop_evt
+        self._loop = loop                 # ULTIMA pubblicazione: coppia sempre coerente
         # App Telegram di QUESTA sessione tenuta in un riferimento LOCALE, non solo in
         # `self._tg_app` (condiviso e sovrascrivibile da un nuovo START). Lo shutdown in-loop
         # e quello d'errore devono fermare l'app COSTRUITA da questa sessione, mai quella di un
