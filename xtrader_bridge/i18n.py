@@ -65,6 +65,13 @@ def tr(text: str) -> str:
 # segnaposto (test di parità).
 _CATALOG = {
     "EN": {
+        # Batch design 2 (P3-26/P3-32 #76)
+        "❌ Config illeggibile: cambio profilo annullato, modifiche mantenute a schermo.":
+            "❌ Unreadable config: profile switch cancelled, your edits are kept on screen.",
+        "⚠️ Profilo rinominato «{old}» → «{new}», ma la verifica dei parser salvati è FALLITA ({exc}): controlla a mano quali usano ancora «{old}» o quei segnali verranno scartati (MAPPING_MISSING).":
+            "⚠️ Profile renamed «{old}» → «{new}», but checking the saved parsers FAILED ({exc}): manually verify which ones still use «{old}» or those signals will be discarded (MAPPING_MISSING).",
+        "⚠️ Profilo rinominato «{old}» → «{new}», ma la verifica dei parser salvati è FALLITA ({exc}): controlla a mano quali usano ancora «{old}» o quei segnali verranno scartati (MARKET_MAPPING_MISSING).":
+            "⚠️ Profile renamed «{old}» → «{new}», but checking the saved parsers FAILED ({exc}): manually verify which ones still use «{old}» or those signals will be discarded (MARKET_MAPPING_MISSING).",
         # Conferme azioni distruttive (P3-27/P3-28 #76)
         "Elimina profilo": "Delete profile",
         "Eliminare il profilo «{name}»?\nL'azione non è annullabile.":
@@ -781,6 +788,13 @@ _CATALOG = {
         " — lingua CSV allineata": " — CSV language aligned",
     },
     "ES": {
+        # Batch design 2 (P3-26/P3-32 #76)
+        "❌ Config illeggibile: cambio profilo annullato, modifiche mantenute a schermo.":
+            "❌ Config ilegible: cambio de perfil cancelado, tus cambios se mantienen en pantalla.",
+        "⚠️ Profilo rinominato «{old}» → «{new}», ma la verifica dei parser salvati è FALLITA ({exc}): controlla a mano quali usano ancora «{old}» o quei segnali verranno scartati (MAPPING_MISSING).":
+            "⚠️ Perfil renombrado «{old}» → «{new}», pero la verificación de los parsers guardados FALLÓ ({exc}): comprueba a mano cuáles siguen usando «{old}» o esas señales se descartarán (MAPPING_MISSING).",
+        "⚠️ Profilo rinominato «{old}» → «{new}», ma la verifica dei parser salvati è FALLITA ({exc}): controlla a mano quali usano ancora «{old}» o quei segnali verranno scartati (MARKET_MAPPING_MISSING).":
+            "⚠️ Perfil renombrado «{old}» → «{new}», pero la verificación de los parsers guardados FALLÓ ({exc}): comprueba a mano cuáles siguen usando «{old}» o esas señales se descartarán (MARKET_MAPPING_MISSING).",
         # Conferme azioni distruttive (P3-27/P3-28 #76)
         "Elimina profilo": "Eliminar perfil",
         "Eliminare il profilo «{name}»?\nL'azione non è annullabile.":
