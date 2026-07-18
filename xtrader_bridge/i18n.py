@@ -65,6 +65,11 @@ def tr(text: str) -> str:
 # segnaposto (test di parità).
 _CATALOG = {
     "EN": {
+        # Batch design 4 (P3-30 #76)
+        "ℹ️ Mostrate le prime {cap} righe di {total}: le altre {hidden} restano nel profilo e al Salva sono conservate intatte.":
+            "ℹ️ Showing the first {cap} rows of {total}: the other {hidden} stay in the profile and are kept intact on Save.",
+        "ℹ️ {total} nomi noti — mostrati i primi {cap}: restringi con lo Sport.":
+            "ℹ️ {total} known names — showing the first {cap}: narrow down with Sport.",
         # Batch design 2 (P3-26/P3-32 #76)
         "❌ Config illeggibile: cambio profilo annullato, modifiche mantenute a schermo.":
             "❌ Unreadable config: profile switch cancelled, your edits are kept on screen.",
@@ -788,6 +793,11 @@ _CATALOG = {
         " — lingua CSV allineata": " — CSV language aligned",
     },
     "ES": {
+        # Batch design 4 (P3-30 #76)
+        "ℹ️ Mostrate le prime {cap} righe di {total}: le altre {hidden} restano nel profilo e al Salva sono conservate intatte.":
+            "ℹ️ Mostrando las primeras {cap} filas de {total}: las otras {hidden} permanecen en el perfil y se conservan intactas al Guardar.",
+        "ℹ️ {total} nomi noti — mostrati i primi {cap}: restringi con lo Sport.":
+            "ℹ️ {total} nombres conocidos — mostrando los primeros {cap}: acota con el Deporte.",
         # Batch design 2 (P3-26/P3-32 #76)
         "❌ Config illeggibile: cambio profilo annullato, modifiche mantenute a schermo.":
             "❌ Config ilegible: cambio de perfil cancelado, tus cambios se mantienen en pantalla.",

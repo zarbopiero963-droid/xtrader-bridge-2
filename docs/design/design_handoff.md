@@ -946,7 +946,7 @@ e **🎯 Mercati** è ora tradotta EN/ES via `i18n.tr`: titoli, sottotitoli, **e
 pulsanti (Profilo/Nuovo/Rinomina/Elimina/Aggiungi riga/Precompila da Betfair/Salva profilo),
 placeholder e **tutti i messaggi di stato/dialogo** (creato/rinominato/eliminato, save FALLITO,
 avvisi `MAPPING_MISSING`/`MARKET_MAPPING_MISSING`, righe incomplete/senza delimitatori). Restano
-robusti anche i casi limite (P3-26/P3-32 #76, batch design 2): **config illeggibile al cambio
+robusti anche i casi limite. **Cap di render (P3-30 #76):** le tabelle dei due dizionari mostrano al più **500 righe** (stesso cap del «Mapping guidato»); oltre, avviso ambra *«ℹ️ Mostrate le prime 500 righe di N: le altre M restano nel profilo e al Salva sono conservate intatte.»* — le righe non mostrate NON vanno perse al Salva. Casi limite (P3-26/P3-32 #76, batch design 2): **config illeggibile al cambio
 profilo** → lo switch è **annullato** con messaggio rosso *«❌ Config illeggibile: cambio profilo
 annullato, modifiche mantenute a schermo.»* (le righe in editing restano, come per il save
 fallito); **verifica dei parser fallita durante Rinomina** → mai il verde di successo con stato
@@ -1085,6 +1085,8 @@ Titolo **"🧹  Nomi squadra noti (permanenti) — ripulitura"**. Gestione dei n
   bloccante sul lock del DB); con dizionario vuoto mostra un avviso e non opera.
 - **Non tocca** ID (`MarketId`/`SelectionId`), CSV, o il flusso di piazzamento: agisce solo
   sulla tabella dei nomi permanenti.
+
+**Cap di render (P3-30 #76):** elenco mostrato fino a **500 righe** (solo display, il pannello non ha un salva-tutto); oltre, il contatore dice il totale vero: *«ℹ️ N nomi noti — mostrati i primi 500: restringi con lo Sport.»*
 
 ### 7.10 📋 Riepilogo configurazione (`config_summary_gui.py`) — #293 slice 3, SOLA LETTURA
 Colpo d'occhio su ciò che il bridge farà davvero, senza saltare tra Generale/Betfair/Chat

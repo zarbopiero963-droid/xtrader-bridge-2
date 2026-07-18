@@ -61,6 +61,12 @@ _MARKET_HEADER_COLUMNS = (("Inizia dopo", 120), ("Finisce prima", 120), ("Testo 
                           ("Mercato (catalogo)", 200), ("Selezione (catalogo)", 200),
                           ("Lingua", 130))
 
+# Cap di RENDER delle righe profilo (P3-30 #76, stesso pattern di `_TEAM_RENDER_CAP` nel
+# «Mapping guidato»): migliaia di widget congelano il thread Tk. Le righe oltre il cap
+# NON vanno perse: restano in memoria (`self._overflow_entries`) e `_collect_rows` le
+# accoda INTATTE alle righe a schermo, così il Salva conserva l'intero profilo.
+_ROW_RENDER_CAP = 500
+
 
 def _sport_to_label(sport: str) -> str:
     return _SPORT_ALL if not sport else sport
@@ -215,12 +221,22 @@ class NameMappingPanel(ctk.CTkFrame):
         if cfg is None:
             cfg = self._load_cfg()
         entries = name_mapping_store.get_entries(cfg, self._current) if cfg is not None else []
-        for e in entries:
+        # P3-30 #76: render cappato — la coda resta in memoria e il Salva la conserva
+        # INTATTA (vedi `_collect_rows`); un profilo enorme non congela più il thread Tk.
+        self._overflow_entries = [dict(e) for e in entries[_ROW_RENDER_CAP:]]
+        for e in entries[:_ROW_RENDER_CAP]:
             self._append_row_widget(e.get("country", ""), e.get("betfair", ""),
                                     e.get("provider", ""), e.get("sport", ""),
                                     e.get("entity_type", ""), e.get("language", ""))
         if not entries:
             self._append_row_widget()                   # una riga vuota pronta da compilare
+        if self._overflow_entries:
+            self._status.configure(
+                text=i18n.tr("ℹ️ Mostrate le prime {cap} righe di {total}: le altre {hidden} "
+                             "restano nel profilo e al Salva sono conservate intatte.")
+                .format(cap=_ROW_RENDER_CAP, total=len(entries),
+                        hidden=len(self._overflow_entries)),
+                text_color="#ffa726")
 
     def _append_row_widget(self, country="", betfair="", provider="", sport="",
                            entity_type="", language=""):
@@ -270,7 +286,7 @@ class NameMappingPanel(ctk.CTkFrame):
              "entity_type": _label_to_entity(r["entity_type"].get()),
              "language": _label_to_language(r["language"].get())}
             for r in self._row_widgets
-        ]
+        ] + [dict(e) for e in self.__dict__.get("_overflow_entries") or []]
 
     # ── azioni righe ─────────────────────────────────────────────────────────
     def _add_row(self):
@@ -683,12 +699,21 @@ class MarketMappingPanel(ctk.CTkFrame):
         if cfg is None:
             cfg = self._load_cfg()
         entries = market_mapping_store.get_entries(cfg, self._current) if cfg is not None else []
-        for e in entries:
+        # P3-30 #76: come per il dizionario nomi — render cappato, coda conservata.
+        self._overflow_entries = [dict(e) for e in entries[_ROW_RENDER_CAP:]]
+        for e in entries[:_ROW_RENDER_CAP]:
             self._append_row_widget(e.get("start_after", ""), e.get("end_before", ""),
                                     e.get("phrase", ""), e.get("market_name", ""),
                                     e.get("selection_name", ""), e.get("language", ""))
         if not entries:
             self._append_row_widget("", "", "", "", "", "")
+        if self._overflow_entries:
+            self._status.configure(
+                text=i18n.tr("ℹ️ Mostrate le prime {cap} righe di {total}: le altre {hidden} "
+                             "restano nel profilo e al Salva sono conservate intatte.")
+                .format(cap=_ROW_RENDER_CAP, total=len(entries),
+                        hidden=len(self._overflow_entries)),
+                text_color="#ffa726")
 
     def _append_row_widget(self, start_after="", end_before="", phrase="",
                            market="", selection="", language=""):
@@ -771,6 +796,7 @@ class MarketMappingPanel(ctk.CTkFrame):
                 "selection_name": r["selection"].get(),
                 "language": _label_to_language(r["language"].get()),
             })
+        out.extend(dict(e) for e in self.__dict__.get("_overflow_entries") or [])
         return out
 
     # ── azioni righe ─────────────────────────────────────────────────────────
