@@ -1,10 +1,10 @@
 """Test del frammento regex decimale condiviso (audit L4): `numbers_re` è la fonte unica
-usata da parser/validator/custom_pipeline/csv_writer. Qui si verifica che i frammenti
+usata da validator/custom_pipeline/csv_writer (il consumer `parser` è stato rimosso, P3-15 #76). Qui si verifica che i frammenti
 matchino i casi attesi e che i consumer continuino a usarli (anti-drift)."""
 
 import re
 
-from xtrader_bridge import csv_writer, custom_pipeline, numbers_re, parser, validator
+from xtrader_bridge import csv_writer, custom_pipeline, numbers_re, validator
 
 
 def test_decimal_match_atteso():
@@ -46,9 +46,9 @@ def test_decimal_rifiuta_cifre_non_ascii():
 
 
 def test_consumer_usano_il_frammento_condiviso():
-    # I quattro moduli compongono il frammento unico (fonte unica, anti-drift): se uno
+    # I tre moduli compongono il frammento unico (fonte unica, anti-drift): se uno
     # divergesse, questi pattern non corrisponderebbero più al frammento.
-    assert numbers_re.DECIMAL in parser._NUM
+    # (P3-15 #76: il quarto consumer, `parser._NUM`, è stato rimosso col modulo P.Bet.)
     assert numbers_re.DECIMAL in validator._DECIMAL_PRICE.pattern
     assert numbers_re.SIGNED_DECIMAL in custom_pipeline._HANDICAP_RE.pattern
     assert numbers_re.SIGNED_DECIMAL in csv_writer._NUMERIC_RE.pattern

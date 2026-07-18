@@ -58,9 +58,9 @@ XTrader Signal Bridge (gira sul tuo PC)
    • DECIDE come instradarlo (`telegram_dispatch.decide`): scarta gli arretrati
      troppo vecchi, ignora se manca un filtro chat, manda gli ESITI della chat
      notifiche XTrader al percorso di conferma, e processa solo le chat configurate
-   • lo analizza con il **Parser Personalizzato** configurato per la chat (il parser
-     hardcoded P.Bet. resta solo per compatibilità/test: NON gira nel flusso live —
-     una chat senza Parser Personalizzato viene ignorata)
+   • lo analizza con il **Parser Personalizzato** configurato per la chat (il vecchio
+     parser hardcoded P.Bet. è stato **rimosso** — P3-15 #76: una chat senza Parser
+     Personalizzato viene ignorata)
    • estrae i campi e li traduce nei valori XTrader (dizionario)
    • valida (quota, mercato, tipo scommessa)
         │
@@ -289,7 +289,7 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | `max_per_day` | `200` | intero | Tetto di segnali nuovi accettati in un giorno (**ora locale** del sistema: reset a **mezzanotte locale**, ora legale gestita dal SO). Oltre, i segnali in eccesso non scrivono. |
 | `queue_mode` | `OVERWRITE_LAST` | `OVERWRITE_LAST`, `APPEND_ACTIVE`, `QUEUE_UNTIL_CONFIRMED` | Quanti segnali attivi tenere nel CSV. `OVERWRITE_LAST` = uno solo (sicuro). Le altre due scrivono **più righe** = più scommesse simultanee. Attivare una modalità multi-riga dalla GUI chiede una **conferma**. |
 | `max_active_signals` | `2` | intero ≥ 1 | **Tetto di righe/scommesse attive** simultanee nelle modalità multi-riga (#136 p5): un nuovo segnale oltre il tetto viene **bloccato** (ritentabile quando una riga scade/è confermata). Default basso (2). Ininfluente in `OVERWRITE_LAST` (sempre 1 riga). La GUI mostra un indicatore **"Righe attive: N/M"**. |
-| `active_parser` | `""` | nome parser | Parser Personalizzato attivo **globalmente**. Di norma si imposta dalla GUI. **`""` (vuoto) = nessun parser custom globale.** Una chat con un parser **dedicato** in `parser_by_chat` funziona comunque; una chat **senza** né `active_parser` né voce in `parser_by_chat` viene **IGNORATA** in live (il parser hardcoded P.Bet **non** gira live, vedi nota sotto). |
+| `active_parser` | `""` | nome parser | Parser Personalizzato attivo **globalmente**. Di norma si imposta dalla GUI. **`""` (vuoto) = nessun parser custom globale.** Una chat con un parser **dedicato** in `parser_by_chat` funziona comunque; una chat **senza** né `active_parser` né voce in `parser_by_chat` viene **IGNORATA** in live (il parser hardcoded P.Bet è stato **rimosso**, vedi nota sotto). |
 | `parser_by_chat` | `{}` | `{chat_id: nome_parser}` | Override del parser (singolo) per singola chat. Modificabile dal pulsante **"📡 Chat sorgenti"** (colonna Parser di ogni sorgente). Contiene **solo** le sorgenti **attive** (una sorgente disattivata non autorizza la sua chat). |
 | `parser_list_by_chat` | `{}` | `{chat_id: [nome_parser, ...]}` | **PR-2 (router multi-parser):** più parser per una chat, valutati **in ordine**; scattano **TUTTI** quelli le cui condizioni combaciano (una riga CSV per parser che scatta, deduplicata per-riga). Ha **precedenza** su `parser_by_chat` (che resta sincronizzato al **primo** nome per autorizzazione/retro-compat). Vuoto = singolo/globale come prima. Gestito dall'editor **"📡 Chat sorgenti"** (colonna Parser → editor a lista ordinata). |
 | `parser_by_chat_disabled` | `{}` | `{chat_id: nome_parser}` | Gestito dall'editor **"📡 Chat sorgenti"**: parcheggia la scelta parser (singola) delle sorgenti **disattivate** così, riabilitandole, non si perde (non autorizza né influisce sul routing/avvio — la chat resta esclusa finché disattivata). |
@@ -385,9 +385,9 @@ Regole:
 
 ## Parser Personalizzato
 
-Oltre al parser integrato per il formato **P.Bet.**, puoi definire dalla GUI **come**
-estrarre ogni colonna del CSV da un messaggio, **senza toccare il codice**. Apri
-**🧩 Parser Personalizzato**.
+Puoi definire dalla GUI **come** estrarre ogni colonna del CSV da un messaggio,
+**senza toccare il codice** — anche per il formato **P.Bet.** (il vecchio parser
+integrato è stato rimosso). Apri **🧩 Parser Personalizzato**.
 
 > **⛔ Serve un parser per avviare (#311-1.3).** Il parser automatico P.Bet è disattivato
 > nel percorso live: **senza almeno un Parser Personalizzato configurato** (globale o
@@ -436,12 +436,11 @@ Quando un Parser Personalizzato è attivo per una chat è **autoritativo** (nien
 fallback all'hardcoded). I parser si salvano/condividono come file in
 `data/parsers/<nome>.json`. Guida completa: **[`docs/custom_parser.md`](docs/custom_parser.md)**.
 
-> ⚠️ **Il parser integrato P.Bet è solo per compatibilità/test, NON è attivo nel live.** Nel
-> percorso live (`signal_router`, CP-09b), se per una chat **non** c'è un Parser
-> Personalizzato attivo, il messaggio viene **ignorato** (nessuna riga CSV) — il parser
-> hardcoded `parse_message` **non** entra in gioco. Resta nel repo (e nei test) solo per
-> retro-compatibilità: **per processare segnali live serve sempre un Parser Personalizzato
-> attivo** sulla chat sorgente.
+> ⚠️ **Il parser integrato P.Bet è stato RIMOSSO (P3-15 #76).** Era già disattivato nel
+> percorso live da CP-09b; ora il modulo (`xtrader_bridge/parser.py`, `parse_message`) non
+> esiste più nel repo. Nel percorso live (`signal_router`), se per una chat **non** c'è un
+> Parser Personalizzato attivo, il messaggio viene **ignorato** (nessuna riga CSV): **per
+> processare segnali live serve sempre un Parser Personalizzato attivo** sulla chat sorgente.
 
 ---
 

@@ -6,9 +6,9 @@ Decide la riga CSV da scrivere per un messaggio Telegram:
   se produce una riga piazzabile la si scrive, altrimenti il segnale è scartato.
   Un custom attivo è **autoritativo**;
 - se nessun custom è attivo, il messaggio è **ignorato**: il parser automatico
-  P.Bet (`parse_message`) è DISATTIVATO nel percorso live (CP-09b). Per processare
-  una chat serve un Parser Personalizzato attivo (globale o per-chat). Il codice di
-  `parse_message`/`build_csv_row` resta nel repo ma non è più nel flusso live.
+  P.Bet (`parse_message`) è stato prima DISATTIVATO nel percorso live (CP-09b) e poi
+  RIMOSSO dal repo (P3-15 #76, decisione del proprietario). Per processare una chat
+  serve un Parser Personalizzato attivo (globale o per-chat).
 
 Funzione pura (nessuna GUI/scrittura): ritorna la riga e lo stato; è `app` a
 scrivere il CSV. Così l'instradamento è interamente testabile.
