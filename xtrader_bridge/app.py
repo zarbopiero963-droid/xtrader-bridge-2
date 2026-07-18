@@ -2693,6 +2693,20 @@ class App(ctk.CTk):
         self.destroy()
 
     # ── BOT TELEGRAM ──────────────────────────
+    def _safe_after(self, delay, func) -> None:
+        """`self.after` TOLLERANTE alla root distrutta — per le notifiche UI emesse dal
+        THREAD DEL BOT (P3-10 #76). `Tk.after` da un altro thread non è garantito: con la
+        finestra già chiusa (`_on_close` → destroy) solleva `TclError` (o `RuntimeError`
+        a interprete in teardown). Nel supervisor di `_run_bot` quell'eccezione usciva
+        dal `while` e SALTAVA `loop.close()` → leak di selector/fd a ogni ciclo. Una
+        notifica verso una UI che non esiste più non ha destinatario: si perde in
+        silenzio, il teardown del listener prosegue pulito. Eccezioni SPECIFICHE, non
+        blind-except: ogni altro errore resta visibile."""
+        try:
+            self.after(delay, func)
+        except (tk.TclError, RuntimeError):
+            pass
+
     def _run_bot(self, cfg: dict, epoch: int):
         # Riferimento LOCALE al loop di QUESTA sessione: la chiusura nel finally deve
         # toccare solo questo loop, non un eventuale loop di un nuovo START che nel
@@ -2791,21 +2805,21 @@ class App(ctk.CTk):
                 if decision == telegram_dispatch.IGNORE_STALE:
                     # Anti-segnale-stantio (Codex P1): un arretrato recuperato da PTB dopo una
                     # disconnessione non è un segnale "live".
-                    self.after(0, lambda: self._log(i18n.tr(
+                    self._safe_after(0, lambda: self._log(i18n.tr(
                         "⏳ Messaggio ignorato: troppo vecchio (probabile arretrato "
                         "dopo una disconnessione).")))
                     return
                 if decision == telegram_dispatch.IGNORE_NO_FILTER:
                     # Difesa-in-profondità (CodeRabbit): con la config viva azzerata di
                     # chat_id/parser_by_chat/sorgenti, "nessun filtro" è fail-closed.
-                    self.after(0, lambda: self._log(i18n.tr(
+                    self._safe_after(0, lambda: self._log(i18n.tr(
                         "⚠️ Config live senza filtro chat: messaggio ignorato per sicurezza "
                         "(configura chat/sorgenti, poi salva).")))
                     return
                 if decision == telegram_dispatch.IGNORE_CONFLICT:
                     # Codex P2: notif-chat che COINCIDE con una sorgente ammessa è AMBIGUA
                     # (segnale o esito?) → fail-closed, né scrittura né conferma.
-                    self.after(0, lambda: self._log(i18n.tr(
+                    self._safe_after(0, lambda: self._log(i18n.tr(
                         "❌ La Chat notifiche XTrader coincide con una sorgente ammessa: "
                         "config ambigua, messaggio IGNORATO (né segnale né conferma). "
                         "Correggi xtrader_notification_chat_id (dev'essere una chat separata).")))
@@ -2821,7 +2835,7 @@ class App(ctk.CTk):
                     # Esito non riconosciuto (refuso / drift futuro del contratto di
                     # `decide`): FAIL-CLOSED — non instradare a `_process` (che scrive), ma
                     # ignorare con avviso (review CodeRabbit #158).
-                    self.after(0, lambda d=decision: self._log(i18n.tr(
+                    self._safe_after(0, lambda d=decision: self._log(i18n.tr(
                         "⚠️ Esito instradamento sconosciuto ({decision}): messaggio ignorato per sicurezza.")
                         .format(decision=d)))
                     return
@@ -2829,7 +2843,7 @@ class App(ctk.CTk):
                 # PR-14c: traccia l'ultimo messaggio pertinente ricevuto (diagnostica).
                 clean = (text or "").strip()
                 first_line = clean.splitlines()[0] if clean else ""
-                self.after(0, lambda m=first_line[:120]: self._set_last("message", m))
+                self._safe_after(0, lambda m=first_line[:120]: self._set_last("message", m))
                 self._process(text, cfg, chat_id=runtime_chat, route_cfg=route, epoch=epoch)
 
             app.add_handler(MessageHandler(filters.ALL, _handle))
@@ -2874,13 +2888,13 @@ class App(ctk.CTk):
             # saltata. Solo una riconnessione DOPO una connessione confermata (blip di rete a bridge
             # già connesso) usa False e recupera l'outage backlog.
             if not drop_pending:
-                self.after(0, lambda: self._log(i18n.tr(
+                self._safe_after(0, lambda: self._log(i18n.tr(
                     "🔄 Riconnesso: i messaggi arrivati durante la disconnessione vengono "
                     "recuperati (i troppo vecchi restano scartati per freschezza).")))
             first_connection = False
             # Connessione stabilita: azzera il backoff e segnala (utile dopo una riconnessione).
             self._reconnect_attempt = 0
-            self.after(0, self._set_status_connected)
+            self._safe_after(0, self._set_status_connected)
             # Attesa INTERROMPIBILE: si sveglia subito quando `_stop` setta `_async_stop_event`
             # (via `call_soon_threadsafe`), oppure ogni secondo per ricontrollare `_is_current()`
             # (nuovo START/STOP da altri percorsi). Così l'updater viene fermato senza la
@@ -2903,56 +2917,60 @@ class App(ctk.CTk):
         # permanente (es. token invalido). La decisione è in `reconnect_policy` (pura,
         # testata in CI); qui solo I/O: shutdown pulito del vecchio updater (no doppio
         # polling) e attesa interrompibile.
-        while _is_current():
-            try:
-                loop.run_until_complete(_async_run())
-                break                      # uscita pulita: STOP richiesto
-            except Exception as ex:        # noqa: BLE001 — gestito sotto
-                self._safe_shutdown_tg(session_app, loop)   # chiude l'app DI QUESTA sessione prima di ritentare
-                # Un nuovo START (epoch cambiato) o uno STOP invalidano QUESTA
-                # sessione: esci senza ritentare (Codex P1, niente doppio poller).
-                if not _is_current():
-                    break
-                if not reconnect_policy.should_reconnect(self._running, ex):
-                    # errore non recuperabile mentre eravamo attivi (es. token invalido)
-                    tb = traceback.format_exc()
-                    self.after(0, lambda e=ex: self._set_last("error", f"bot: {e}"))
-                    self.after(0, lambda e=ex: self._log(i18n.tr(
-                        "❌ Errore non recuperabile del listener: {exc}. Bridge fermato.")
-                        .format(exc=e)))
-                    # Traceback completo nel log per la diagnostica (redatto dal
-                    # log handler): aiuta a capire un errore inatteso.
-                    self.after(0, lambda t=tb: self._log(t))
-                    self.after(0, self._stop)
-                    break
-                self._reconnect_attempt += 1
-                # Event journal (#230): tentativo di riconnessione (tipo errore + tentativo).
-                self._journal("RECONNECT", attempt=self._reconnect_attempt,
-                              error=type(ex).__name__)
-                # Backoff + flood-control di Telegram (Codex P2): se l'errore porta un
-                # `retry_after` più lungo del backoff locale, attendi quello, così non si
-                # riprova prima del tempo richiesto dal server. Decisione pura e testata
-                # in `reconnect_policy.effective_delay`.
-                retry_after = getattr(ex, "retry_after", None)
-                delay = reconnect_policy.effective_delay(self._reconnect_attempt, retry_after)
-                self.after(0, lambda e=ex: self._set_last("error", f"rete: {e}"))
-                self.after(0, lambda e=ex, d=delay, n=self._reconnect_attempt: self._log(i18n.tr(
-                    "🔌 Connessione persa ({error}): riconnessione tra {delay}s (tentativo {attempt})…")
-                    .format(error=type(e).__name__, delay=f"{d:.0f}", attempt=n)))
-                self.after(0, self._set_status_reconnecting)
-                self._reconnect_wait(delay)
-        # Sessione finita (STOP / nuovo START / errore non recuperabile): CHIUDI l'event
-        # loop di QUESTA sessione, così selector/fd vengono rilasciati e non si accumula un
-        # leak per ogni ciclo START/STOP (audit C1). Si chiude `loop` (riferimento locale),
-        # non `self._loop`, che un nuovo START potrebbe aver già riassegnato; `self._loop`
-        # si azzera solo se punta ancora a QUESTO loop. Il while gestisce già le sue
-        # eccezioni, quindi qui siamo a loop fermo.
         try:
-            loop.close()
-        except Exception:                    # noqa: BLE001 — chiusura best-effort
-            pass
-        if self._loop is loop:
-            self._loop = None
+            while _is_current():
+                try:
+                    loop.run_until_complete(_async_run())
+                    break                      # uscita pulita: STOP richiesto
+                except Exception as ex:        # noqa: BLE001 — gestito sotto
+                    self._safe_shutdown_tg(session_app, loop)   # chiude l'app DI QUESTA sessione prima di ritentare
+                    # Un nuovo START (epoch cambiato) o uno STOP invalidano QUESTA
+                    # sessione: esci senza ritentare (Codex P1, niente doppio poller).
+                    if not _is_current():
+                        break
+                    if not reconnect_policy.should_reconnect(self._running, ex):
+                        # errore non recuperabile mentre eravamo attivi (es. token invalido)
+                        tb = traceback.format_exc()
+                        self._safe_after(0, lambda e=ex: self._set_last("error", f"bot: {e}"))
+                        self._safe_after(0, lambda e=ex: self._log(i18n.tr(
+                            "❌ Errore non recuperabile del listener: {exc}. Bridge fermato.")
+                            .format(exc=e)))
+                        # Traceback completo nel log per la diagnostica (redatto dal
+                        # log handler): aiuta a capire un errore inatteso.
+                        self._safe_after(0, lambda t=tb: self._log(t))
+                        self._safe_after(0, self._stop)
+                        break
+                    self._reconnect_attempt += 1
+                    # Event journal (#230): tentativo di riconnessione (tipo errore + tentativo).
+                    self._journal("RECONNECT", attempt=self._reconnect_attempt,
+                                  error=type(ex).__name__)
+                    # Backoff + flood-control di Telegram (Codex P2): se l'errore porta un
+                    # `retry_after` più lungo del backoff locale, attendi quello, così non si
+                    # riprova prima del tempo richiesto dal server. Decisione pura e testata
+                    # in `reconnect_policy.effective_delay`.
+                    retry_after = getattr(ex, "retry_after", None)
+                    delay = reconnect_policy.effective_delay(self._reconnect_attempt, retry_after)
+                    self._safe_after(0, lambda e=ex: self._set_last("error", f"rete: {e}"))
+                    self._safe_after(0, lambda e=ex, d=delay, n=self._reconnect_attempt: self._log(i18n.tr(
+                        "🔌 Connessione persa ({error}): riconnessione tra {delay}s (tentativo {attempt})…")
+                        .format(error=type(e).__name__, delay=f"{d:.0f}", attempt=n)))
+                    self._safe_after(0, self._set_status_reconnecting)
+                    self._reconnect_wait(delay)
+        finally:
+            # Sessione finita (STOP / nuovo START / errore non recuperabile): CHIUDI l'event
+            # loop di QUESTA sessione, così selector/fd vengono rilasciati e non si accumula un
+            # leak per ogni ciclo START/STOP (audit C1). Si chiude `loop` (riferimento locale),
+            # non `self._loop`, che un nuovo START potrebbe aver già riassegnato; `self._loop`
+            # si azzera solo se punta ancora a QUESTO loop. Il while gestisce già le sue
+            # eccezioni; il finally (P3-10 #76) garantisce la chiusura anche su
+            # eccezioni impreviste (es. TclError da una after tardiva a root
+            # distrutta) che prima la SALTAVANO → leak di selector/fd.
+            try:
+                loop.close()
+            except Exception:                    # noqa: BLE001 — chiusura best-effort
+                pass
+            if self._loop is loop:
+                self._loop = None
 
     def _safe_shutdown_tg(self, app, loop) -> None:
         """Chiude in modo best-effort l'app Telegram di QUESTA sessione (riferimento LOCALE
