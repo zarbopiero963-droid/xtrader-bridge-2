@@ -543,11 +543,21 @@ def load_config(path: str = CONFIG_FILE) -> dict:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             if isinstance(data, dict):
+                # P3-16 #76: i marker SOLO-IN-RAM non si accettano MAI da disco — li può
+                # mettere solo QUESTO load, in base allo stato runtime reale (file corrotto,
+                # keyring illeggibile). `save_config` non li scrive mai: se sono nel file è
+                # manomissione, e un "_token_load_incomplete": true fasullo trasformerebbe
+                # un clear token VOLUTO in «preserva» nel ramo CLEAR di save_config.
+                for k in RAM_ONLY_KEYS:
+                    data.pop(k, None)
                 cfg.update(data)
             else:
                 _backup_corrupted(path)
                 corrupted = True
-        except (json.JSONDecodeError, ValueError, OSError):
+        # P3-18 #76: anche RecursionError (JSON annidato oltre il limite: subclass di
+        # RuntimeError, NON di ValueError) — senza, un file patologico crashava l'avvio
+        # invece di finire nel recovery `.bak` come ogni altra corruzione.
+        except (json.JSONDecodeError, ValueError, OSError, RecursionError):
             _backup_corrupted(path)
             corrupted = True
     # `config_version` è già garantito dai DEFAULTS; se il file ne porta uno
