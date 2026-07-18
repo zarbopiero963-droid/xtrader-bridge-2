@@ -462,6 +462,13 @@ class ParserBuilder:
         return custom_parser.delete_parser(name, dir_path)
 
     @staticmethod
+    def delete_saved_path(path: str, dir_path: str = None) -> bool:
+        """Elimina un parser salvato per PATH (P3-31 #76): la GUI seleziona per path
+        (nome-nel-file → path) e un file rinominato a mano non deve far cancellare un
+        file diverso. Guardia anti-traversal in `custom_parser.delete_parser_file`."""
+        return custom_parser.delete_parser_file(path, dir_path)
+
+    @staticmethod
     def duplicate_saved(src_path: str, new_name: str, dir_path: str = None) -> str:
         """Duplica un parser salvato sotto `new_name` e salva la copia.
 

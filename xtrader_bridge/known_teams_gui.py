@@ -19,6 +19,10 @@ from .betfair.dictionary_viewer import DictionaryBusy
 
 # Voce «tutti gli sport» del filtro (= nessun filtro). È un VALUE-AS-KEY: usata nel confronto di
 # uguaglianza `_selected_sport` (`s == _SPORT_ALL`) per distinguere «nessun filtro» da uno sport
+
+# Cap di RENDER dell'elenco (P3-30 #76, pattern _TEAM_RENDER_CAP del «Mapping guidato»):
+# il pannello è di sola consultazione/eliminazione, il cap è solo display.
+_ROW_RENDER_CAP = 500
 # reale. Resta in ITALIANO e NON è a catalogo (#343 slice 4t): localizzarla romperebbe il
 # confronto — stessa regola delle sentinelle di name_mapping_gui.
 _SPORT_ALL = "(tutti gli sport)"
@@ -93,8 +97,15 @@ class KnownTeamsPanel(ctk.CTkFrame):
             self._counts.configure(
                 text=i18n.tr("⚠️ Errore lettura nomi: {exc}").format(exc=type(exc).__name__))
             return
-        self._counts.configure(text=i18n.tr("{count} nomi noti.").format(count=len(teams)))
-        for team in teams:
+        # P3-30 #76: cap di render (solo display, nessun salva-tutto qui): migliaia di
+        # righe congelerebbero il thread Tk. Il contatore dice il totale VERO.
+        if len(teams) > _ROW_RENDER_CAP:
+            self._counts.configure(
+                text=i18n.tr("ℹ️ {total} nomi noti — mostrati i primi {cap}: restringi con "
+                             "lo Sport.").format(total=len(teams), cap=_ROW_RENDER_CAP))
+        else:
+            self._counts.configure(text=i18n.tr("{count} nomi noti.").format(count=len(teams)))
+        for team in teams[:_ROW_RENDER_CAP]:
             self._append_row(team)
 
     def _append_row(self, team):

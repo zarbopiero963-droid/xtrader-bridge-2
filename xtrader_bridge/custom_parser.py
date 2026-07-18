@@ -729,3 +729,30 @@ def delete_parser(name: str, dir_path: str = None) -> bool:
     except FileNotFoundError:
         return False
 
+def delete_parser_file(path, dir_path: str = None) -> bool:
+    """Elimina un parser salvato per **PATH** (P3-31 #76). La lista della GUI mappa
+    nome-nel-file → path: con un file RINOMINATO a mano, il delete per NOME
+    (`delete_parser`, che risolve via `_safe_filename`) cancellerebbe un file DIVERSO
+    da quello selezionato. Qui si rimuove esattamente il file scelto.
+
+    Guardia anti-traversal: il path (realpath, symlink risolti) deve stare DENTRO la
+    cartella parser ed essere un `.json` — altrimenti `ValueError` (questa funzione non
+    deve poter cancellare nulla fuori dalla cartella). Stesso contratto di
+    `delete_parser`: `True` rimosso, `False` non esisteva, ogni altro `OSError`
+    propaga al chiamante (la GUI lo mostra)."""
+    base = os.path.realpath(dir_path if dir_path is not None else default_parsers_dir())
+    real = os.path.realpath(str(path or ""))
+    # Confronto con `normcase` su ENTRAMBI i lati: su Windows il filesystem è
+    # case-insensitive (`C:` vs `c:`, `pippo.JSON`) e il confronto letterale
+    # rifiuterebbe file legittimi; su POSIX `normcase` è un no-op, quindi la
+    # guardia resta stretta com'era. La rimozione usa il path originale `real`.
+    if (not os.path.normcase(real).endswith(".json")
+            or os.path.normcase(os.path.dirname(real)) != os.path.normcase(base)):
+        raise ValueError(f"path fuori dalla cartella parser: {path!r}")
+    try:
+        os.remove(real)
+        return True
+    except FileNotFoundError:
+        return False
+
+

@@ -1356,9 +1356,21 @@ class CustomParserPanel(ctk.CTkFrame):
                 .format(name=name)):
             self._result.configure(text=i18n.tr("Eliminazione annullata."))
             return
+        # Il dialog di conferma è MODALE: mentre era aperto un refresh della lista può
+        # aver ricostruito `_saved_map` — rileggi con `.get` invece di fidarti della
+        # guardia pre-dialog (KeyError → crash del callback).
+        path = self._saved_map.get(name)
+        if path is None:
+            self._result.configure(
+                text=i18n.tr("⛔ Parser «{name}» non più in lista: eliminazione annullata.")
+                .format(name=name))
+            return
         try:
-            removed = ParserBuilder.delete_saved(name)
-        except OSError as exc:
+            # P3-31 #76: elimina per PATH (quello mostrato/selezionato in lista), non per
+            # nome: con un file rinominato a mano `delete_saved(name)` risolverebbe un
+            # file DIVERSO da quello scelto.
+            removed = ParserBuilder.delete_saved_path(path)
+        except (OSError, ValueError) as exc:
             # Permessi / filesystem: mostra un errore pulito invece di crashare il
             # callback (stesso pattern di _save/_load/_duplicate_selected).
             self._result.configure(text=i18n.tr("❌ Errore eliminazione: {exc}").format(exc=exc))

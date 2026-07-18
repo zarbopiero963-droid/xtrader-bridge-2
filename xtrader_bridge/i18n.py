@@ -65,6 +65,11 @@ def tr(text: str) -> str:
 # segnaposto (test di parità).
 _CATALOG = {
     "EN": {
+        # Batch design 4 (P3-30 #76)
+        "ℹ️ Mostrate le prime {cap} righe di {total}: le altre {hidden} restano nel profilo e al Salva sono conservate intatte.":
+            "ℹ️ Showing the first {cap} rows of {total}: the other {hidden} stay in the profile and are kept intact on Save.",
+        "ℹ️ {total} nomi noti — mostrati i primi {cap}: restringi con lo Sport.":
+            "ℹ️ {total} known names — showing the first {cap}: narrow down with Sport.",
         # Batch design 2 (P3-26/P3-32 #76)
         "❌ Config illeggibile: cambio profilo annullato, modifiche mantenute a schermo.":
             "❌ Unreadable config: profile switch cancelled, your edits are kept on screen.",
@@ -89,6 +94,8 @@ _CATALOG = {
         "Elimina parser": "Delete parser",
         "Eliminare il parser «{name}»?\nL'azione non è annullabile.":
             "Delete parser «{name}»?\nThis action cannot be undone.",
+        "⛔ Parser «{name}» non più in lista: eliminazione annullata.":
+            "⛔ Parser «{name}» no longer in the list: deletion cancelled.",
         # Tab configurazione + monitoraggio
         "⚙️ Generale": "⚙️ General",
         "🎯 Riconoscimento": "🎯 Recognition",
@@ -788,6 +795,11 @@ _CATALOG = {
         " — lingua CSV allineata": " — CSV language aligned",
     },
     "ES": {
+        # Batch design 4 (P3-30 #76)
+        "ℹ️ Mostrate le prime {cap} righe di {total}: le altre {hidden} restano nel profilo e al Salva sono conservate intatte.":
+            "ℹ️ Mostrando las primeras {cap} filas de {total}: las otras {hidden} permanecen en el perfil y se conservan intactas al Guardar.",
+        "ℹ️ {total} nomi noti — mostrati i primi {cap}: restringi con lo Sport.":
+            "ℹ️ {total} nombres conocidos — mostrando los primeros {cap}: acota con el Deporte.",
         # Batch design 2 (P3-26/P3-32 #76)
         "❌ Config illeggibile: cambio profilo annullato, modifiche mantenute a schermo.":
             "❌ Config ilegible: cambio de perfil cancelado, tus cambios se mantienen en pantalla.",
@@ -812,6 +824,8 @@ _CATALOG = {
         "Elimina parser": "Eliminar parser",
         "Eliminare il parser «{name}»?\nL'azione non è annullabile.":
             "¿Eliminar el parser «{name}»?\nEsta acción no se puede deshacer.",
+        "⛔ Parser «{name}» non più in lista: eliminazione annullata.":
+            "⛔ Parser «{name}» ya no está en la lista: eliminación cancelada.",
         "⚙️ Generale": "⚙️ General",
         "🎯 Riconoscimento": "🎯 Reconocimiento",
         "🛡️ Sicurezza": "🛡️ Seguridad",

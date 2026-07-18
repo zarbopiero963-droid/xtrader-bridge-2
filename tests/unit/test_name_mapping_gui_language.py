@@ -74,6 +74,8 @@ def test_reload_rows_carica_language_dalle_entries(gui, monkeypatch):
     calls = []
     fake = types.SimpleNamespace(
         _rows_frame=types.SimpleNamespace(winfo_children=lambda: []),
+        # P3-30 #76: _reload_rows ora azzera lo status a ogni render
+        _status=types.SimpleNamespace(configure=lambda **k: None),
         _current="P",
         _load_cfg=lambda: {"name_mappings": {"P": []}},
         _append_row_widget=lambda *a, **k: calls.append(a),
