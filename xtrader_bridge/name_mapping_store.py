@@ -42,34 +42,43 @@ Regole di sicurezza (safety-critical: un evento sbagliato = scommessa sbagliata)
 import re
 
 import logging
+import threading
 
 from . import recognition, sports
 from .dizionario import compose_event_name, normalize
 
 _LOG = logging.getLogger(__name__)
 
-# Coppie (campo, valore troncato) già segnalate a log: il resolver gira in hot path
+# Coppie (campo, valore) già segnalate a log: il resolver gira in hot path
 # (una risoluzione per messaggio) e una riga malformata non deve riempire il log con
 # lo stesso warning a ogni evento (stesso pattern anti-flooding di `source_manager`).
 _WARNED_MALFORMED = set()
 _WARNED_CAP = 256
+# P3-19 #76: check-and-add sotto lock come in `source_manager._WARNED_LOCK` — il
+# resolver può girare dal thread del bot mentre la GUI valida dal thread Tk.
+_WARNED_LOCK = threading.Lock()
 
 
 def _reset_warnings() -> None:
     """Svuota il dedup dei warning (per i test)."""
-    _WARNED_MALFORMED.clear()
+    with _WARNED_LOCK:
+        _WARNED_MALFORMED.clear()
 
 
 def _warn_malformed(field: str, value) -> None:
     """Segnala UNA volta (per campo+valore) una riga di mappatura scartata perché
     `sport`/`entity_type` non è riconosciuto (fail-closed, audit #259 B4)."""
     shown = ascii(value)
+    # P3-19 #76: la chiave di dedup usa il valore INTERO, non quello troncato per il
+    # display — due valori lunghi distinti con lo stesso prefisso di 57 char non
+    # devono più collassare in un solo warning (il secondo sparirebbe dal log).
+    key = (field, hash(shown))
     if len(shown) > 60:
         shown = shown[:57] + "..."
-    key = (field, hash(shown))
-    if key in _WARNED_MALFORMED or len(_WARNED_MALFORMED) >= _WARNED_CAP:
-        return
-    _WARNED_MALFORMED.add(key)
+    with _WARNED_LOCK:
+        if key in _WARNED_MALFORMED or len(_WARNED_MALFORMED) >= _WARNED_CAP:
+            return
+        _WARNED_MALFORMED.add(key)
     _LOG.warning(
         "name_mappings: %s=%s non riconosciuto -> riga di mappatura IGNORATA "
         "(fail-closed, #259 B4): correggi il valore per riattivarla.", field, shown)

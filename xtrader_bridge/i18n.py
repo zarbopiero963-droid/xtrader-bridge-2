@@ -568,6 +568,8 @@ _CATALOG = {
         "🔌 Connessione persa ({error}): riconnessione tra {delay}s (tentativo {attempt})…": "🔌 Connection lost ({error}): reconnecting in {delay}s (attempt {attempt})…",
         "🧹 CSV ripulito al retry dopo lo STOP: {path}": "🧹 CSV cleaned on retry after STOP: {path}",
         "🧹 Rimossi {count} file temporanei CSV orfani all'avvio.": "🧹 Removed {count} orphan temporary CSV files at startup.",
+        "🧹 Rimossi {count} file temporanei orfani degli store all'avvio.":
+            "🧹 Removed {count} orphan temporary store files at startup.",
         # Log LOG & DIAGNOSTICA (#343 slice 4o): cartella log, export audit, diagnostica, retention,
         # debug, svuota log. «Debug»/«ON»/«OFF» verbatim (stati tecnici). I valori {path}/{exc}/{count}/
         # {days} sono dominio. I suffissi config_store.save_status_message di retention/debug restano IT
@@ -1277,6 +1279,8 @@ _CATALOG = {
         "🔌 Connessione persa ({error}): riconnessione tra {delay}s (tentativo {attempt})…": "🔌 Conexión perdida ({error}): reconexión en {delay}s (intento {attempt})…",
         "🧹 CSV ripulito al retry dopo lo STOP: {path}": "🧹 CSV limpiado en el reintento tras STOP: {path}",
         "🧹 Rimossi {count} file temporanei CSV orfani all'avvio.": "🧹 Eliminados {count} archivos temporales CSV huérfanos al inicio.",
+        "🧹 Rimossi {count} file temporanei orfani degli store all'avvio.":
+            "🧹 Eliminados {count} archivos temporales huérfanos de los stores al inicio.",
         # Log LOG & DIAGNOSTICA (#343 slice 4o) — vedi nota nel blocco EN.
         "📂 Cartella log: {path}": "📂 Carpeta de logs: {path}",
         "❌ Impossibile aprire la cartella log: {exc}": "❌ No se puede abrir la carpeta de logs: {exc}",
