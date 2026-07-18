@@ -498,6 +498,15 @@ class NameMappingPanel(ctk.CTkFrame):
         if cfg is None:
             return
         name = self._current
+        # P3-27 #76: eliminazione distruttiva senza undo — conferma fail-closed prima
+        # di toccare la config (dialog rotto/headless → NON confermato).
+        if not gui_utils.ask_confirm(
+                i18n.tr("Elimina profilo"),
+                i18n.tr("Eliminare il profilo «{name}» del dizionario nomi?\n"
+                        "L'azione non è annullabile.").format(name=name)):
+            self._status.configure(
+                text=i18n.tr("Eliminazione annullata."), text_color="gray")
+            return
         # Avvisa se il profilo è ancora usato da parser salvati: la cancellazione li
         # lascerebbe a chiedere un profilo inesistente → segnali scartati (MAPPING_MISSING,
         # fail-closed). Non lo rimuoviamo in silenzio dai parser (disattivare la mappatura
@@ -895,6 +904,15 @@ class MarketMappingPanel(ctk.CTkFrame):
         if cfg is None:
             return
         name = self._current
+        # P3-27 #76: come per il dizionario nomi — conferma fail-closed prima di toccare
+        # la config.
+        if not gui_utils.ask_confirm(
+                i18n.tr("Elimina profilo"),
+                i18n.tr("Eliminare il profilo «{name}» del dizionario mercati?\n"
+                        "L'azione non è annullabile.").format(name=name)):
+            self._status.configure(
+                text=i18n.tr("Eliminazione annullata."), text_color="gray")
+            return
         try:
             affected = custom_parser.parsers_using_market_mapping_profile(name)
         except Exception:                        # noqa: BLE001 — l'avviso è best-effort
