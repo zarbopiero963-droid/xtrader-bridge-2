@@ -65,6 +65,23 @@ def tr(text: str) -> str:
 # segnaposto (test di parità).
 _CATALOG = {
     "EN": {
+        # Conferme azioni distruttive (P3-27/P3-28 #76)
+        "Elimina profilo": "Delete profile",
+        "Eliminare il profilo «{name}»?\nL'azione non è annullabile.":
+            "Delete profile «{name}»?\nThis action cannot be undone.",
+        "Eliminazione annullata.": "Deletion cancelled.",
+        "Eliminare il profilo «{name}» del dizionario nomi?\nL'azione non è annullabile.":
+            "Delete the team-name dictionary profile «{name}»?\nThis action cannot be undone.",
+        "Eliminare il profilo «{name}» del dizionario mercati?\nL'azione non è annullabile.":
+            "Delete the market dictionary profile «{name}»?\nThis action cannot be undone.",
+        "Modifiche non salvate": "Unsaved changes",
+        "Il parser nell'editor ha modifiche NON salvate che andranno perse.\nContinuare senza salvare?":
+            "The parser in the editor has UNSAVED changes that will be lost.\nContinue without saving?",
+        "⛔ Annullato: salva prima il parser (💾).":
+            "⛔ Cancelled: save the parser first (💾).",
+        "Elimina parser": "Delete parser",
+        "Eliminare il parser «{name}»?\nL'azione non è annullabile.":
+            "Delete parser «{name}»?\nThis action cannot be undone.",
         # Tab configurazione + monitoraggio
         "⚙️ Generale": "⚙️ General",
         "🎯 Riconoscimento": "🎯 Recognition",
@@ -764,6 +781,23 @@ _CATALOG = {
         " — lingua CSV allineata": " — CSV language aligned",
     },
     "ES": {
+        # Conferme azioni distruttive (P3-27/P3-28 #76)
+        "Elimina profilo": "Eliminar perfil",
+        "Eliminare il profilo «{name}»?\nL'azione non è annullabile.":
+            "¿Eliminar el perfil «{name}»?\nEsta acción no se puede deshacer.",
+        "Eliminazione annullata.": "Eliminación cancelada.",
+        "Eliminare il profilo «{name}» del dizionario nomi?\nL'azione non è annullabile.":
+            "¿Eliminar el perfil «{name}» del diccionario de nombres?\nEsta acción no se puede deshacer.",
+        "Eliminare il profilo «{name}» del dizionario mercati?\nL'azione non è annullabile.":
+            "¿Eliminar el perfil «{name}» del diccionario de mercados?\nEsta acción no se puede deshacer.",
+        "Modifiche non salvate": "Cambios sin guardar",
+        "Il parser nell'editor ha modifiche NON salvate che andranno perse.\nContinuare senza salvare?":
+            "El parser del editor tiene cambios SIN guardar que se perderán.\n¿Continuar sin guardar?",
+        "⛔ Annullato: salva prima il parser (💾).":
+            "⛔ Cancelado: guarda antes el parser (💾).",
+        "Elimina parser": "Eliminar parser",
+        "Eliminare il parser «{name}»?\nL'azione non è annullabile.":
+            "¿Eliminar el parser «{name}»?\nEsta acción no se puede deshacer.",
         "⚙️ Generale": "⚙️ General",
         "🎯 Riconoscimento": "🎯 Reconocimiento",
         "🛡️ Sicurezza": "🛡️ Seguridad",

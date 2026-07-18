@@ -50,3 +50,16 @@ def fit_to_screen(window, width, height, min_width, min_height, margin=80):
                                screen_w, screen_h, margin)
     window.geometry(f"{w}x{h}")
     window.minsize(min_width, min_height)
+
+
+def ask_confirm(title: str, text: str) -> bool:
+    """Conferma sì/no MODALE e FAIL-CLOSED (P3-27/P3-28 #76): `True` solo se l'utente
+    conferma esplicitamente. Punto unico per le azioni distruttive della GUI (eliminazioni,
+    scarto di modifiche non salvate), stesso pattern di `App._confirm_collaudo_mode`:
+    qualunque errore del dialog (headless, root distrutta, Tk in teardown) → `False`,
+    cioè NON confermato — un'azione distruttiva non parte mai per un dialog rotto."""
+    from tkinter import messagebox
+    try:
+        return bool(messagebox.askyesno(title, text))
+    except Exception:   # noqa: BLE001 — dialog non disponibile: fail-closed, non confermare
+        return False

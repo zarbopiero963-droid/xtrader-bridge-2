@@ -19,6 +19,8 @@ NB: questo modulo non è testato in CI (richiede un display). La logica che usa 
 coperta da `tests/unit/test_parser_builder.py`. Verifica manuale su Windows.
 """
 
+import dataclasses
+
 import customtkinter as ctk
 
 from . import (
@@ -435,6 +437,11 @@ class CustomParserPanel(ctk.CTkFrame):
         super().__init__(master)
         is_new = builder is None
         self.builder = builder or ParserBuilder()
+        # P3-28 #76: fotografia dello stato SALVATO del builder — il confronto con lo
+        # stato corrente decide se «🆕 Nuovo»/«📂 Carica» devono chiedere conferma prima
+        # di scartare modifiche non salvate. sync=False: i widget non esistono ancora
+        # (e a fine costruzione rispecchiano esattamente il builder).
+        self._saved_snapshot = self._builder_snapshot(sync=False)
         self._provider = provider
         # Provider OPZIONALE dei valori permanenti mercato/selezione del dizionario Betfair
         # (#283 PR 13): `callable(sport) -> {"market_types", "market_names", "selection_names"}`
@@ -1201,6 +1208,9 @@ class CustomParserPanel(ctk.CTkFrame):
             self._result.configure(text=i18n.tr("❌ Errore salvataggio: {exc}").format(exc=exc))
             return
         self._refresh_saved()
+        # P3-28 #76: lo stato appena scritto su disco è la nuova baseline (il builder è
+        # già sincronizzato dai widget a inizio _save).
+        self._saved_snapshot = self._builder_snapshot(sync=False)
         self._result.configure(text=i18n.tr("💾 Salvato in {path}").format(path=path))
 
     # ── catalogo XTrader (B2) ───────────────────────────────────────────────
@@ -1243,8 +1253,42 @@ class CustomParserPanel(ctk.CTkFrame):
         """Path del parser selezionato, o None se non c'è selezione valida."""
         return self._saved_map.get(self._saved_var.get())
 
+    def _builder_snapshot(self, sync: bool = True):
+        """Fotografia serializzabile dello stato del builder (P3-28 #76). Con `sync`
+        legge prima i widget correnti (`_sync_to_builder`); `to_def()` è costruzione
+        pura (mai valida/solleva). Qualsiasi errore → `None` = stato non fotografabile,
+        trattato dal chiamante come MODIFICATO (fail-safe: meglio una conferma in più
+        che una perdita silenziosa)."""
+        try:
+            if sync:
+                self._sync_to_builder()
+            return dataclasses.asdict(self.builder.to_def())
+        except Exception:   # noqa: BLE001 — fail-safe: non fotografabile = modificato
+            return None
+
+    def _has_unsaved_changes(self) -> bool:
+        """True se lo stato corrente dell'editor diverge dall'ultimo salvato/caricato."""
+        cur = self._builder_snapshot()
+        base = self.__dict__.get("_saved_snapshot")
+        return cur is None or base is None or cur != base
+
+    def _confirm_discard(self) -> bool:
+        """Conferma per scartare modifiche non salvate (P3-28 #76): True se si può
+        procedere (nessuna modifica, o utente che conferma). Fail-closed via
+        `gui_utils.ask_confirm`."""
+        if not self._has_unsaved_changes():
+            return True
+        return gui_utils.ask_confirm(
+            i18n.tr("Modifiche non salvate"),
+            i18n.tr("Il parser nell'editor ha modifiche NON salvate che andranno perse.\n"
+                    "Continuare senza salvare?"))
+
     def _new(self):
         """Svuota il costruttore per un nuovo parser (non tocca i file salvati)."""
+        # P3-28 #76: mai scartare in silenzio il lavoro non salvato dell'utente.
+        if not self._confirm_discard():
+            self._result.configure(text=i18n.tr("⛔ Annullato: salva prima il parser (💾)."))
+            return
         self.builder = ParserBuilder()
         # Parser nuovo: crea le 14 colonne e POI applica l'auto-Obblig. della modalità di
         # default una volta (set_mode da solo, senza regole, non marcherebbe nulla — Codex #72).
@@ -1252,9 +1296,14 @@ class CustomParserPanel(ctk.CTkFrame):
             self.builder.apply_mode_defaults(self.builder.mode)
         self._name_var.set("")
         self._reload_rows_from_builder()
+        self._saved_snapshot = self._builder_snapshot(sync=False)   # nuova baseline (P3-28)
         self._result.configure(text=i18n.tr("🆕 Nuovo parser (non ancora salvato)."))
 
     def _load_selected(self):
+        # P3-28 #76: il caricamento SOSTITUISCE l'editor — stessa guardia di «🆕 Nuovo».
+        if not self._confirm_discard():
+            self._result.configure(text=i18n.tr("⛔ Annullato: salva prima il parser (💾)."))
+            return
         path = self._selected_path()
         if not path:
             self._result.configure(text=i18n.tr("⛔ Nessun parser selezionato."))
@@ -1266,6 +1315,7 @@ class CustomParserPanel(ctk.CTkFrame):
             return
         self._name_var.set(self.builder.name)
         self._reload_rows_from_builder()
+        self._saved_snapshot = self._builder_snapshot(sync=False)   # baseline = file caricato (P3-28)
         self._result.configure(text=i18n.tr("📂 Caricato {name!r}.").format(name=self.builder.name))
 
     def _duplicate_selected(self):
@@ -1294,6 +1344,14 @@ class CustomParserPanel(ctk.CTkFrame):
         name = self._saved_var.get()
         if name == self._NONE_SAVED or name not in self._saved_map:
             self._result.configure(text=i18n.tr("⛔ Nessun parser selezionato."))
+            return
+        # P3-27 #76: eliminazione di un FILE parser, distruttiva e senza undo — conferma
+        # fail-closed (dialog rotto/headless → NON confermato).
+        if not gui_utils.ask_confirm(
+                i18n.tr("Elimina parser"),
+                i18n.tr("Eliminare il parser «{name}»?\nL'azione non è annullabile.")
+                .format(name=name)):
+            self._result.configure(text=i18n.tr("Eliminazione annullata."))
             return
         try:
             removed = ParserBuilder.delete_saved(name)

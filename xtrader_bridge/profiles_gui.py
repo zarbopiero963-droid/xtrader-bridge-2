@@ -175,6 +175,15 @@ class ProfilesPanel(ctk.CTkFrame):
             text_color="#66bb6a")
 
     def _delete(self, name: str):
+        # P3-27 #76: eliminazione DISTRUTTIVA e senza undo — mai a un solo click.
+        # Conferma fail-closed (dialog rotto/headless → NON confermato).
+        if not gui_utils.ask_confirm(
+                i18n.tr("Elimina profilo"),
+                i18n.tr("Eliminare il profilo «{name}»?\nL'azione non è annullabile.")
+                .format(name=name)):
+            self._status.configure(
+                text=i18n.tr("Eliminazione annullata."), text_color="gray")
+            return
         try:
             removed = profile_store.delete_profile(name)
         except OSError as exc:

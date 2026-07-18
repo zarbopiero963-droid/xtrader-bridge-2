@@ -1182,6 +1182,32 @@ Passando a `APPEND_ACTIVE` o `QUEUE_UNTIL_CONFIRMED` (più righe/scommesse insie
 - **Titolo:** `Conferma modalità MULTI-segnale` — dialogo Sì/No. Se No → resta a
   `OVERWRITE_LAST` (un solo segnale attivo).
 
+### 9.2-bis Conferme sulle azioni distruttive (P3-27/P3-28 #76)
+
+Tutte le azioni che distruggono lavoro dell'utente chiedono ora una **conferma Sì/No
+modale e fail-closed** (dialog rotto/headless → NON confermato; punto unico
+`gui_utils.ask_confirm`). Se l'utente rifiuta, un messaggio di stato grigio/⛔ conferma
+l'annullo senza toccare nulla.
+
+**Eliminazioni (4 punti, copy verbatim):**
+- **📁 Profili** → titolo `Elimina profilo`, testo `Eliminare il profilo «{name}»?` +
+  `L'azione non è annullabile.`; annullo: `Eliminazione annullata.`
+- **🗺️ Mapping / ⚽ Calcio** → stesso titolo, testo `Eliminare il profilo «{name}» del
+  dizionario nomi?` + coda identica.
+- **🗺️ Mapping / 🎯 Mercati** → testo `Eliminare il profilo «{name}» del dizionario
+  mercati?` + coda identica.
+- **🧩 Parser Personalizzato / 🗑 Elimina** → titolo `Elimina parser`, testo
+  `Eliminare il parser «{name}»?` + coda identica; annullo: `Eliminazione annullata.`
+
+**Modifiche non salvate nel costruttore parser («🆕 Nuovo» / «📂 Carica»):** se l'editor
+diverge dall'ultimo stato salvato/caricato (confronto di snapshot, fail-safe: stato non
+fotografabile = considerato modificato), compare il dialogo — titolo `Modifiche non
+salvate`, testo `Il parser nell'editor ha modifiche NON salvate che andranno perse.` +
+`Continuare senza salvare?`. Rifiuto → `⛔ Annullato: salva prima il parser (💾).` e
+nulla viene toccato. Con editor "pulito" nessun dialogo (niente attrito inutile).
+
+Tutte le stringhe sono localizzate EN/ES nel catalogo i18n.
+
 ### 9.3 Avvio in modalità reale (conferma Sì/No a OGNI avvio, automatico e manuale)
 In modalità reale ogni avvio del listener chiede una conferma Sì/No (audit #259 C5,
 decisione proprietario: un `dry_run:false` già salvato non ripassa dal phrase gate, quindi

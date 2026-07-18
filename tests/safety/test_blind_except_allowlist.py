@@ -105,7 +105,7 @@ _ALLOWLIST = {
     "dizionario.py": (1, "gate #311-2.3 `is_validated` fail-safe: dizionario assente/header rotto → "
                          "non validato (False) → default recognition_mode resta NAME_ONLY, mai BOTH su "
                          "dati inaffidabili"),
-    "custom_parser_gui.py": (11, "GUI Tk del costruttore parser: render/azioni best-effort "
+    "custom_parser_gui.py": (12, "GUI Tk del costruttore parser: render/azioni best-effort (P3-28 #76: _builder_snapshot fail-safe — stato non fotografabile = modificato, meglio una conferma in più che una perdita silenziosa); "
                              "(incl. resolver ID anteprima fail-open, #192; termini Betfair "
                              "per le tendine MarketType/MarketName/SelectionName best-effort, "
                              "#283 PR 13: sync in corso/DB assente → nessun suggerimento; "
@@ -116,7 +116,7 @@ _ALLOWLIST = {
                             "(ctypes/windll assente, shcore mancante su Win<8.1, "
                             "awareness già impostata, API che solleva) non deve MAI "
                             "impedire l'avvio del bridge — esito testuale, mai raise"),
-    "gui_utils.py": (1, "helper GUI best-effort"),
+    "gui_utils.py": (2, "helper GUI best-effort; ask_confirm FAIL-CLOSED (P3-27/28 #76): dialog rotto/headless → False, un'azione distruttiva non parte mai senza conferma esplicita"),
     "journal_view_gui.py": (2, "GUI Tk scheda Diario (#236): lettura ledger best-effort "
                             "(avviso invece di crash) e apertura cartella best-effort"),
     "known_teams_gui.py": (2, "GUI Tk ripulitura nomi Betfair (#282 PR 11-bis): lettura e "
