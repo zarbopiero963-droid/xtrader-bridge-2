@@ -16,6 +16,7 @@ La riga viene comunque costruita (a 14 colonne) per diagnostica, ma va scritta
 SOLO se `result.placeable` è True (status VALID).
 """
 
+import logging
 import re
 import threading
 from dataclasses import dataclass, field, replace
@@ -53,15 +54,35 @@ _DEFAULT_REGISTRY = None
 _REGISTRY_LOCK = threading.Lock()
 
 
+_LOG = logging.getLogger(__name__)
+
+
 def _default_registry() -> dict:
     """Registro value-map di default (lazy, in cache). Double-checked locking (A8):
     `value_maps.registry` ritorna un dict già completo, quindi l'assegnazione di
-    `_DEFAULT_REGISTRY` pubblica direttamente il valore finito."""
+    `_DEFAULT_REGISTRY` pubblica direttamente il valore finito.
+
+    P3-14 #76: la costruzione col dizionario può FALLIRE (CSV bundled corrotto/
+    mancante/header invalido: `load_dizionario` solleva apposta). Senza guardia,
+    l'eccezione esplodeva a OGNI messaggio dentro l'handler Telegram — outage
+    silenzioso del bridge. Fallback: registro dei SOLI built-in (fail-closed a
+    valle: le mappe-dizionario assenti risolvono a "" → campo «Non pronto» →
+    nessuna riga sbagliata nel CSV), messo IN CACHE (niente retry-storm per
+    messaggio) con un warning che dice come rimediare."""
     global _DEFAULT_REGISTRY
     if _DEFAULT_REGISTRY is None:
         with _REGISTRY_LOCK:
             if _DEFAULT_REGISTRY is None:
-                _DEFAULT_REGISTRY = value_maps.registry(include_dizionario=True)
+                try:
+                    _DEFAULT_REGISTRY = value_maps.registry(include_dizionario=True)
+                except Exception as exc:   # noqa: BLE001 — vedi allowlist blind-except (P3-14)
+                    _LOG.warning(
+                        "value-map: dizionario XTrader NON caricabile (%s: %s) -> "
+                        "registro di FALLBACK coi soli built-in (le mappe-dizionario "
+                        "risolveranno a vuoto: fail-closed). Ripristina il CSV del "
+                        "dizionario e riavvia per riabilitarle (P3-14 #76).",
+                        type(exc).__name__, exc)
+                    _DEFAULT_REGISTRY = value_maps.registry(include_dizionario=False)
     return _DEFAULT_REGISTRY
 
 NOT_READY = "NOT_READY"   # gate parser: manca un campo obbligatorio della regola
