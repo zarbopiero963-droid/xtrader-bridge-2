@@ -2538,6 +2538,10 @@ class App(ctk.CTk):
         # solo la config viva (Codex P1).
         self._session_real = not safety_guard.is_dry_run(cfg)
         self._session_mode = bridge_mode.mode_from_cfg(cfg)   # per il banner COLLAUDO sticky
+        # P3-2 #76: anche la LINGUA CSV è parte dello snapshot di sessione — un profilo
+        # caricato a metà sessione non deve cambiare il separatore decimale del CSV che
+        # XTrader sta già leggendo. La nuova lingua vale dal prossimo START.
+        csv_writer.freeze_csv_language()
         self._stop_event.clear()      # nuova sessione: riarma l'attesa del backoff
         self._set_listener_state(health_check.LISTENER_ACTIVE, _COLOR_STATUS_ACTIVE)
         self._btn_start.configure(state="disabled")
@@ -2592,6 +2596,10 @@ class App(ctk.CTk):
         if was_running:
             self._journal("STOP")
         self._session_real = False         # sessione finita: il banner torna a seguire la config viva
+        # P3-2 #76: fine sessione → torna la lingua CSV base (l'ultima caricata/salvata).
+        # Sicuro qui: le scritture post-STOP (clear/retry) emettono solo l'header, senza
+        # decimali. Idempotente anche a bridge mai avviato (`_on_close` chiama sempre _stop).
+        csv_writer.unfreeze_csv_language()
         self._csv_lock.reset()             # #153 H2: lo stato di lock non sopravvive alla sessione (Codex #156)
         self._update_real_mode_banner()
         self._update_active_indicator(0)   # nessuna riga attiva dopo lo STOP (#136 p5)

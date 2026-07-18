@@ -64,6 +64,12 @@ _LOCALIZABLE_RE = re.compile(numbers_re.SIGNED_DECIMAL)
 
 _csv_language = DEFAULT_CSV_LANGUAGE
 _csv_language_lock = threading.Lock()
+# P3-2 #76: lingua della SESSIONE. `set_csv_language` è chiamata da load/save config —
+# anche quando si CARICA UN PROFILO a sessione attiva. Senza freeze, il separatore
+# decimale del CSV cambierebbe a metà sessione (righe «1.85» in un file che XTrader
+# sta leggendo come virgola). A START la lingua viene congelata: le scritture della
+# sessione usano SEMPRE quella; la nuova lingua si applica dalla prossima sessione.
+_frozen_csv_language = None
 
 
 def normalize_csv_language(value) -> str:
@@ -88,9 +94,27 @@ def set_csv_language(value) -> str:
 
 
 def get_csv_language() -> str:
-    """Lingua CSV corrente (``IT``/``EN``/``ES``)."""
+    """Lingua CSV corrente (``IT``/``EN``/``ES``). Con una sessione ATTIVA ritorna la
+    lingua CONGELATA a START (P3-2 #76), non l'ultima caricata: vedi `freeze_csv_language`."""
     with _csv_language_lock:
-        return _csv_language
+        return _frozen_csv_language if _frozen_csv_language is not None else _csv_language
+
+
+def freeze_csv_language() -> str:
+    """Congela la lingua corrente per la sessione (chiamata da `_start`). Ritorna la
+    lingua congelata. Idempotente: ri-congelare aggiorna al valore base corrente."""
+    global _frozen_csv_language
+    with _csv_language_lock:
+        _frozen_csv_language = _csv_language
+        return _frozen_csv_language
+
+
+def unfreeze_csv_language() -> None:
+    """Rimuove il congelamento di sessione (chiamata da `_stop`): da qui in poi vale
+    di nuovo la lingua base (l'ultima caricata/salvata). Idempotente."""
+    global _frozen_csv_language
+    with _csv_language_lock:
+        _frozen_csv_language = None
 
 
 def decimal_separator(language: str = "") -> str:
