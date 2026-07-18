@@ -70,7 +70,9 @@ def test_norm_handicap():
     assert _norm_handicap(None) == 0.0
     assert _norm_handicap("") == 0.0
     assert _norm_handicap("2.5") == 2.5
-    assert _norm_handicap("x") == 0.0
+    # P3-21 #76: il non-numerico NON è più coercito a 0.0 (collisione di PK con la
+    # selezione legittima a handicap 0) → sentinella None, il chiamante scarta.
+    assert _norm_handicap("x") is None
 
 
 # ── record non più visti diventano inattivi ───────────────────────────────────

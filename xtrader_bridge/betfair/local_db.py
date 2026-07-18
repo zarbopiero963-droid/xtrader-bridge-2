@@ -30,6 +30,7 @@ per la tripla), e i record non più visti in una sync vengono marcati
 dipendenza. Nessun dato sensibile/credenziale finisce qui.
 """
 
+import logging
 import os
 import sqlite3
 import threading
@@ -151,15 +152,24 @@ CREATE TABLE IF NOT EXISTS betfair_meta (
 """
 
 
-def _norm_handicap(handicap) -> float:
+_LOG = logging.getLogger(__name__)
+
+
+def _norm_handicap(handicap):
     """Handicap normalizzato a float (None/'' → 0.0): rende stabile la chiave della
-    selezione (la tripla market_id+selection_id+handicap)."""
+    selezione (la tripla market_id+selection_id+handicap).
+
+    P3-21 #76: un valore NON numerico («abc») ritorna ``None`` — NON più coercito a
+    ``0.0``: l'handicap è parte della **chiave primaria** della selezione, e la
+    coercizione faceva collidere la riga malformata con la selezione legittima a
+    handicap 0 (upsert che ne sovrascrive il runner_name → dizionario corrotto).
+    Il chiamante (`upsert_selection`) SCARTA la riga (fail-closed) con warning."""
     if handicap in (None, ""):
         return 0.0
     try:
         return float(handicap)
     except (TypeError, ValueError):
-        return 0.0
+        return None
 
 
 class BetfairLocalDB:
@@ -380,7 +390,20 @@ class BetfairLocalDB:
              market_type, int(seen_at)))
 
     def upsert_selection(self, market_id, selection_id, runner_name,
-                         handicap=0.0, *, seen_at=0):
+                         handicap=0.0, *, seen_at=0) -> bool:
+        """Inserisce/aggiorna una selezione. Ritorna ``True`` se la riga è stata
+        scritta, ``False`` se SCARTATA per handicap non numerico (P3-21 #76:
+        l'handicap è parte della PK — coercirlo a 0.0 farebbe collidere la riga
+        malformata con la selezione legittima a handicap 0, sovrascrivendone il
+        runner_name). Fail-closed: meglio una selezione in meno nel dizionario che
+        una voce corrotta; il warning dice quale riga è stata saltata."""
+        hcap = _norm_handicap(handicap)
+        if hcap is None:
+            _LOG.warning(
+                "betfair_selections: handicap NON numerico %r per market=%s "
+                "selection=%s -> riga SCARTATA (fail-closed, P3-21 #76).",
+                handicap, market_id, selection_id)
+            return False
         self._exec(
             """INSERT INTO betfair_selections
                  (market_id, selection_id, handicap, runner_name, active, last_seen_at)
@@ -388,8 +411,9 @@ class BetfairLocalDB:
                ON CONFLICT(market_id, selection_id, handicap) DO UPDATE SET
                  runner_name=excluded.runner_name, active=1,
                  last_seen_at=excluded.last_seen_at""",
-            (str(market_id), str(selection_id), _norm_handicap(handicap),
+            (str(market_id), str(selection_id), hcap,
              runner_name, int(seen_at)))
+        return True
 
     def upsert_name_mapping(self, sport, normalized_name, mapped_name,
                             entity_type=None, *, seen_at=0):
