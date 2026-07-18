@@ -128,6 +128,11 @@ class PipelineResult:
     missing_required: "list[str]" = field(default_factory=list)  # gate parser
     detail: object = None                         # dettaglio del validator (campi/valore)
     warnings: "list[str]" = field(default_factory=list)   # avvisi non-fatali (issue #38), per preview/log
+    # P3-11 #76: True quando l'output multi era attivo ma la generazione NON è mai
+    # partita perché la BASE è bloccata (`build_validated_rows` → `[base]`): il
+    # risultato È la riga base, e l'anteprima deve etichettarla/valutarla come tale
+    # (verdetto single-row con «mancanti:»), non come riga market/selection.
+    base_fallback: bool = False
 
     @property
     def placeable(self) -> bool:
@@ -590,7 +595,13 @@ def _validated_multi_row(base_row: dict, rule, mode: str, require_price: bool,
     # QUESTA riga (additivo/fail-open/non-distruttivo, stessa logica della base).
     row = _resolve_ids_into(row, sport=sport, id_resolver=id_resolver)
     status, detail = validator.validate(row, mode, require_price)
-    missing = list(detail) if isinstance(detail, (list, tuple)) else []
+    # P3-12 #76: SOLO il detail di INVALID_MISSING_FIELDS è un elenco di campi
+    # mancanti. Le altre tuple/liste (es. le colonne offendenti di
+    # INVALID_PRICE_BOUNDS: presenti ma incoerenti) NON vanno in `missing_required`,
+    # o la GUI/l'assistente direbbero «mancanti: MinPrice» per un limite che c'è
+    # (stessa regola già applicata dal ramo single-row di `test_verdict`).
+    missing = (list(detail) if status == validator.INVALID_MISSING_FIELDS
+               and isinstance(detail, (list, tuple)) else [])
     return PipelineResult(status, row, missing, detail)
 
 
@@ -678,6 +689,10 @@ def build_validated_rows(defn: CustomParserDef, text: str, **kwargs) -> "list[Pi
             retry_kwargs["multi_supplied"] = frozenset(supplied)
             base = build_validated_row(defn, text, **retry_kwargs)
     if base.status in _BASE_BLOCKING:
+        # P3-11 #76: la generazione multi non parte — si ritorna la BASE bloccata,
+        # marcata come tale così l'anteprima non la etichetta «market»/«selection»
+        # (che devierebbe il verdetto sul ramo multi, perdendo i campi «mancanti:»).
+        base.base_fallback = True
         return [base]
     mode = kwargs.get("mode", recognition.DEFAULT_MODE)
     require_price = kwargs.get("require_price", True)
