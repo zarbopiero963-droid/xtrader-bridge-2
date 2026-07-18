@@ -61,6 +61,18 @@ def test_handicap_non_finito_scartato(db, caplog):
     assert db.count_active("betfair_selections") == 0      # nessuna riga scritta
 
 
+def test_handicap_booleano_scartato(db):
+    """FAIL-FIRST (round review, Fable/GLM convergenti): `float(True) == 1.0` — un
+    booleano passato per errore di tipo collide in silenzio con la LINEA 1.0
+    legittima (Asian), sovrascrivendone il runner. Scartato come gli altri malformati."""
+    assert db.upsert_selection("1.10", "5", "Linea 1", handicap=1.0, seen_at=1) is True
+
+    assert db.upsert_selection("1.10", "5", "Corrotto", handicap=True, seen_at=2) is False
+
+    assert db.count_active("betfair_selections") == 1
+    assert _runner_names(db) == ["Linea 1"]                # la linea 1.0 è INTATTA
+
+
 def test_handicap_numerico_stringa_invariato(db):
     """Regressione bloccata: '2.5' numerico continua a scrivere la linea giusta e
     l'upsert sulla stessa tripla non duplica."""

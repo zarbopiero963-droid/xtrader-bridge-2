@@ -167,6 +167,11 @@ def _norm_handicap(handicap) -> "float | None":
     Il chiamante (`upsert_selection`) SCARTA la riga (fail-closed) con warning."""
     if handicap in (None, ""):
         return 0.0
+    # Booleano (review Fable/GLM, convergenti): `float(True) == 1.0` — un True passato
+    # per errore di tipo collerebbe in silenzio con la LINEA 1.0 legittima (esiste
+    # negli Asian), sovrascrivendone il runner_name: stessa classe del bug. Scarto.
+    if isinstance(handicap, bool):
+        return None
     try:
         val = float(handicap)
     except (TypeError, ValueError):
