@@ -1300,13 +1300,16 @@ class CustomParserPanel(ctk.CTkFrame):
         self._result.configure(text=i18n.tr("🆕 Nuovo parser (non ancora salvato)."))
 
     def _load_selected(self):
-        # P3-28 #76: il caricamento SOSTITUISCE l'editor — stessa guardia di «🆕 Nuovo».
-        if not self._confirm_discard():
-            self._result.configure(text=i18n.tr("⛔ Annullato: salva prima il parser (💾)."))
-            return
+        # Validazione PRIMA della conferma di scarto (CodeRabbit #96): senza selezione
+        # il dialogo sarebbe inutile e confusionario ("conferma lo scarto" → "nessun
+        # parser selezionato"), stesso ordine di _delete_selected.
         path = self._selected_path()
         if not path:
             self._result.configure(text=i18n.tr("⛔ Nessun parser selezionato."))
+            return
+        # P3-28 #76: il caricamento SOSTITUISCE l'editor — stessa guardia di «🆕 Nuovo».
+        if not self._confirm_discard():
+            self._result.configure(text=i18n.tr("⛔ Annullato: salva prima il parser (💾)."))
             return
         try:
             self.builder = ParserBuilder.load(path)

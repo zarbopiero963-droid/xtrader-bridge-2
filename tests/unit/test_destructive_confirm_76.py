@@ -202,13 +202,48 @@ def test_nuovo_su_editor_pulito_nessun_dialogo(monkeypatch):
 
 
 def test_carica_su_editor_sporco_rifiutato_non_carica(monkeypatch):
+    """Selezione valida + editor sporco + rifiuto → NIENTE caricamento, editor intatto.
+    (La validazione della selezione avviene PRIMA del dialogo — CodeRabbit #96 —
+    quindi qui serve un path valido; il rifiuto ferma tutto prima della load.)"""
     mod = _mod(monkeypatch, "custom_parser_gui")
     panel = _panel_con_builder(mod)
     panel.builder.name = "LavoroNonSalvato"
-    panel._selected_path = lambda: pytest.fail("rifiuto: non si arriva alla selezione")
+    panel._selected_path = lambda: "/tmp/parser.json"
+    monkeypatch.setattr(mod.ParserBuilder, "load",
+                        classmethod(lambda cls, p: pytest.fail("rifiuto: mai la load")))
     monkeypatch.setattr(mod.gui_utils, "ask_confirm", lambda *a: False)
 
     panel._load_selected()
 
     assert panel.builder.name == "LavoroNonSalvato"
     assert "annullato" in panel._result.text.lower()
+
+
+def test_carica_senza_selezione_niente_dialogo(monkeypatch):
+    """CodeRabbit #96: senza parser selezionato il dialogo di scarto NON deve comparire
+    (validazione prima della conferma) — messaggio diretto «Nessun parser selezionato»."""
+    mod = _mod(monkeypatch, "custom_parser_gui")
+    panel = _panel_con_builder(mod)
+    panel.builder.name = "LavoroNonSalvato"                # editor sporco
+    panel._selected_path = lambda: ""                      # ma nessuna selezione
+    monkeypatch.setattr(mod.gui_utils, "ask_confirm",
+                        lambda *a: pytest.fail("dialogo mostrato senza selezione"))
+
+    panel._load_selected()
+
+    assert "nessun parser selezionato" in panel._result.text.lower()
+    assert panel.builder.name == "LavoroNonSalvato"
+
+
+def test_snapshot_non_fotografabile_e_trattato_come_modificato(monkeypatch):
+    """Review GLM #96: `to_def()` che solleva → snapshot None → fail-safe MODIFICATO
+    (meglio una conferma in più che una perdita silenziosa)."""
+    mod = _mod(monkeypatch, "custom_parser_gui")
+    panel = _panel_con_builder(mod)
+
+    def _boom():
+        raise ValueError("stato non serializzabile")
+
+    panel.builder.to_def = _boom
+    assert panel._builder_snapshot() is None
+    assert panel._has_unsaved_changes() is True

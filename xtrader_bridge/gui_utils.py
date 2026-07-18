@@ -57,9 +57,11 @@ def ask_confirm(title: str, text: str) -> bool:
     conferma esplicitamente. Punto unico per le azioni distruttive della GUI (eliminazioni,
     scarto di modifiche non salvate), stesso pattern di `App._confirm_collaudo_mode`:
     qualunque errore del dialog (headless, root distrutta, Tk in teardown) → `False`,
-    cioè NON confermato — un'azione distruttiva non parte mai per un dialog rotto."""
-    from tkinter import messagebox
+    cioè NON confermato — un'azione distruttiva non parte mai per un dialog rotto.
+    Anche l'IMPORT sta nel try (review Fable #96): una build senza Tk deve dare
+    `False`, non propagare ImportError al chiamante."""
     try:
+        from tkinter import messagebox
         return bool(messagebox.askyesno(title, text))
     except Exception:   # noqa: BLE001 — dialog non disponibile: fail-closed, non confermare
         return False
