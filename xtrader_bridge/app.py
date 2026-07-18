@@ -2596,10 +2596,6 @@ class App(ctk.CTk):
         if was_running:
             self._journal("STOP")
         self._session_real = False         # sessione finita: il banner torna a seguire la config viva
-        # P3-2 #76: fine sessione → torna la lingua CSV base (l'ultima caricata/salvata).
-        # Sicuro qui: le scritture post-STOP (clear/retry) emettono solo l'header, senza
-        # decimali. Idempotente anche a bridge mai avviato (`_on_close` chiama sempre _stop).
-        csv_writer.unfreeze_csv_language()
         self._csv_lock.reset()             # #153 H2: lo stato di lock non sopravvive alla sessione (Codex #156)
         self._update_real_mode_banner()
         self._update_active_indicator(0)   # nessuna riga attiva dopo lo STOP (#136 p5)
@@ -2652,6 +2648,14 @@ class App(ctk.CTk):
             # stantia resterebbe su disco fino al riavvio dell'app. Il retry si ferma da
             # solo se una nuova sessione riprende il path o l'app chiude.
             self._schedule_stop_clear_retry(stop_path)
+        # P3-2 #76 (finding Fable, round review): l'unfreeze va DOPO il clear serializzato
+        # qui sopra — un'ultima scrittura del bot in volo (che ha visto `_running=True` un
+        # attimo prima) è serializzata sotto `_queue_lock` e deve localizzare ancora con la
+        # lingua CONGELATA della sessione, mai con la base nuova (altrimenti, con un clear
+        # fallito per lock XTrader, la riga stantia su disco avrebbe il separatore misto).
+        # Da qui in poi le scritture residue (retry di clear) emettono solo l'header.
+        # Idempotente anche a bridge mai avviato (`_on_close` chiama sempre _stop).
+        csv_writer.unfreeze_csv_language()
         self._set_listener_state(health_check.LISTENER_OFFLINE, _COLOR_STATUS_OFFLINE)
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")

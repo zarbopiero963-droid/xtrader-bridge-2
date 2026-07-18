@@ -103,6 +103,12 @@ def test_wiring_start_stop_pinnato_nel_sorgente():
             < src_start.index("freeze_csv_language")
             < src_start.index("_bot_thread"))
     assert "csv_writer.unfreeze_csv_language()" in src_stop
+    # Finding Fable (round review PR #102): l'unfreeze deve stare DOPO il clear
+    # serializzato sotto `_queue_lock` — un'ultima scrittura in volo, serializzata
+    # col clear, deve localizzare ancora con la lingua congelata della sessione.
+    assert (src_stop.index("_queue_lock")
+            < src_stop.index("_schedule_stop_clear_retry")
+            < src_stop.index("unfreeze_csv_language"))
 
 
 # ── P3-3: auto-start con sola lista multi-parser ─────────────────────────────────────
