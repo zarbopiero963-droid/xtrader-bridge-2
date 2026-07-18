@@ -174,7 +174,10 @@ def redact_extra(text: str, literals) -> str:
             # possono stare dentro URL/path. I flag del compilato originale sono
             # preservati (oggi nessuno: `_crlf_tolerant_re` non ne usa).
             if re.fullmatch(r"-?\d+", form):
-                rx = re.compile(r"(?<!\d)(?<![\d][.,])" + rx.pattern + r"(?![.,]?\d)",
+                # Gruppo non-catturante attorno al pattern (blindatura, review Fable):
+                # oggi `_crlf_tolerant_re` non produce alternanze top-level, ma così i
+                # lookaround restano legati all'INTERO pattern anche se cambiasse.
+                rx = re.compile(r"(?<!\d)(?<![\d][.,])(?:" + rx.pattern + r")(?![.,]?\d)",
                                 rx.flags)
             s = rx.sub(_REDACTED, s)
     return s

@@ -1205,7 +1205,11 @@ def _cap_history(history) -> list:
         try:
             total += len(json.dumps(m, ensure_ascii=False).encode("utf-8"))
         except (TypeError, ValueError):
-            continue                       # messaggio non serializzabile: scartato
+            # Messaggio non serializzabile (solo da uso improprio dell'API: il file
+            # storia nasce da json.load): STOP — scartarlo e proseguire coi più
+            # vecchi aprirebbe un BUCO interno che può orfanare un tool_result
+            # (review Fable, round finale). Il risultato resta un suffisso CONTIGUO.
+            break
         if kept and total > _MAX_HISTORY_BYTES:
             break
         kept.append(m)

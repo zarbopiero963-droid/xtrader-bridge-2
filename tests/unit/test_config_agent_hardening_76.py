@@ -168,6 +168,22 @@ def test_cap_byte_e_pairing_tool_intatto():
     assert ids_res <= ids_use
 
 
+def test_messaggio_non_serializzabile_ferma_il_cap_senza_buchi():
+    """FAIL-FIRST (Fable, round finale): scartare un messaggio non serializzabile
+    IN MEZZO e proseguire coi più vecchi apriva un buco interno che poteva
+    orfanare un tool_result. Ora il cap si FERMA lì: resta solo il suffisso
+    contiguo più recente (invariante assoluto)."""
+    rotto = {"role": "assistant", "content": object()}     # non JSON-serializzabile
+    storia = (_turno_assistant(1)                          # più vecchio del rotto
+              + [rotto]
+              + _turno_assistant(2))                       # suffisso buono
+
+    capata = config_agent._cap_history(storia)
+
+    assert capata == _turno_assistant(2)                   # solo il suffisso contiguo
+    assert rotto not in capata
+
+
 def test_cap_storia_corta_invariata():
     """Regressione bloccata: sotto i tetti la cronologia passa identica."""
     storia = _turno_assistant(1) + _turno_assistant(2)
