@@ -83,6 +83,19 @@ def test_redazione_id_corto_a_confini_di_cifra():
     assert event_log.redact_extra("id 100123", ["10012"]) == "id 100123"
 
 
+def test_redazione_non_corrompe_i_decimali():
+    """FAIL-FIRST (Fable, round 3): col solo confine-cifra, literal «42» in
+    «quota 42.5» diventava «[REDACTED].5» — corruzione di importi/quote. Il
+    confine esclude anche il separatore decimale ([.,] seguito da cifra) su
+    entrambi i lati; l'ID come token a sé resta redatto."""
+    from xtrader_bridge import event_log
+
+    out = event_log.redact_extra("quota 42.5, prezzo 3.42, linea 1,42 — id 42 qui", ["42"])
+
+    assert "42.5" in out and "3.42" in out and "1,42" in out   # decimali INTATTI
+    assert "id 42 qui" not in out                              # il token a sé è redatto
+
+
 # ── P3-24: timeout esplicito sul client Anthropic ────────────────────────────────────
 
 def test_client_creato_con_timeout_esplicito(monkeypatch):
