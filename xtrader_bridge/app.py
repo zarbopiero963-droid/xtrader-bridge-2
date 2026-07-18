@@ -2538,6 +2538,10 @@ class App(ctk.CTk):
         # solo la config viva (Codex P1).
         self._session_real = not safety_guard.is_dry_run(cfg)
         self._session_mode = bridge_mode.mode_from_cfg(cfg)   # per il banner COLLAUDO sticky
+        # P3-2 #76: anche la LINGUA CSV è parte dello snapshot di sessione — un profilo
+        # caricato a metà sessione non deve cambiare il separatore decimale del CSV che
+        # XTrader sta già leggendo. La nuova lingua vale dal prossimo START.
+        csv_writer.freeze_csv_language()
         self._stop_event.clear()      # nuova sessione: riarma l'attesa del backoff
         self._set_listener_state(health_check.LISTENER_ACTIVE, _COLOR_STATUS_ACTIVE)
         self._btn_start.configure(state="disabled")
@@ -2644,6 +2648,14 @@ class App(ctk.CTk):
             # stantia resterebbe su disco fino al riavvio dell'app. Il retry si ferma da
             # solo se una nuova sessione riprende il path o l'app chiude.
             self._schedule_stop_clear_retry(stop_path)
+        # P3-2 #76 (finding Fable, round review): l'unfreeze va DOPO il clear serializzato
+        # qui sopra — un'ultima scrittura del bot in volo (che ha visto `_running=True` un
+        # attimo prima) è serializzata sotto `_queue_lock` e deve localizzare ancora con la
+        # lingua CONGELATA della sessione, mai con la base nuova (altrimenti, con un clear
+        # fallito per lock XTrader, la riga stantia su disco avrebbe il separatore misto).
+        # Da qui in poi le scritture residue (retry di clear) emettono solo l'header.
+        # Idempotente anche a bridge mai avviato (`_on_close` chiama sempre _stop).
+        csv_writer.unfreeze_csv_language()
         self._set_listener_state(health_check.LISTENER_OFFLINE, _COLOR_STATUS_OFFLINE)
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")

@@ -326,7 +326,10 @@ personalizzata preservata: EN»); su salvataggio FALLITO il log è onesto («⚠
 salvataggio config FALLITO: nulla è cambiato (la sessione resta nella lingua
 precedente) e il selettore riapparirà…») — mai un falso successo, e la config viva
 NON viene adottata (memoria, runtime CSV e disco restano coerenti sulla lingua
-precedente).
+precedente). Invariante di sessione (P3-2 #76): **a bridge AVVIATO la lingua CSV è
+congelata per la sessione** — caricare un profilo o salvare con un'altra lingua non
+cambia il separatore del CSV in corso (niente righe miste «1.85»/«1,85»); la nuova
+lingua vale dal prossimo START.
 Chiudere SENZA scegliere è sicuro (comportamento storico IT, il selettore ricompare al
 prossimo avvio — la non-scelta non viene mai persistita). Con **auto-start attivo** il
 selettore NON compare (mai un grab modale sopra un avvio non presidiato: STOP deve

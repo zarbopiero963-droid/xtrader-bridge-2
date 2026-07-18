@@ -9,7 +9,7 @@ solo senza consenso. Qui solo la decisione; il dialog e l'avvio vivono in `app`.
 
 import math
 
-from . import safety_guard, source_manager
+from . import parser_manager, safety_guard, source_manager
 
 
 # Valori stringa che abilitano esplicitamente l'auto-start (fail-closed).
@@ -57,6 +57,13 @@ def _has_admitted_chat(cfg: dict) -> bool:
     if str(cfg.get("chat_id", "") or "").strip():
         return True
     if cfg.get("parser_by_chat"):
+        return True
+    # P3-3 #76: il router (PR-2) approva anche le chat con LISTA multi-parser
+    # (`parser_list_by_chat`) — una config valida SOLO così faceva rifiutare
+    # l'auto-start in silenzio («nessuna chat sorgente attiva») mentre lo START
+    # manuale partiva. Si usa l'accessor (non il dict grezzo): normalizza e
+    # scarta voci malformate, quindi resta fail-closed su config manomessa.
+    if parser_manager.parser_list_by_chat(cfg):
         return True
     if source_manager.enabled_chat_ids(cfg):
         return True
