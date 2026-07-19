@@ -1596,10 +1596,13 @@ class App(ctk.CTk):
                 # Bound duro raggiunto (review Fugu PR #111): troppi controlli
                 # appesi su share morte — nessun probe possibile per questo path →
                 # GIALLO ONESTO subito, mai uno stantio spacciato per fresco.
+                # Scrittura sotto lock (Fable final, 2° giro): stessa invariante
+                # di tutte le altre scritture della cache.
                 stalled = (health_check.YELLOW,
                            "sonda CSV non eseguibile: troppi controlli bloccati "
                            "(share non rispondono?)")
-                self._csv_probe_cache = (path, time.monotonic(), stalled)
+                with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
+                    self._csv_probe_cache = (path, time.monotonic(), stalled)
                 return stalled
             # Watchdog di stallo (review Fable PR #111): worker di QUESTO path in
             # volo da oltre la soglia (share che non risponde) → GIALLO ONESTO in
@@ -1610,19 +1613,18 @@ class App(ctk.CTk):
             avvio = next((s for (t, p, s) in vivi
                           if p == path and t.is_alive()), None)
             if avvio is not None and now - avvio > _CSV_PROBE_STALL_S:
-                # Ri-lettura prima di degradare (race Fable final): il worker può
-                # aver scritto l'esito VERO tra la lettura in testa e qui — un
-                # esito fresco non va mai sovrascritto con lo stallo.
-                cur = self.__dict__.get("_csv_probe_cache")
-                if (cur is not None and cur[0] == path
-                        and time.monotonic() - cur[1] < _CSV_PROBE_TTL_S):
-                    return cur[2]
                 stalled = (health_check.YELLOW,
                            "sonda CSV bloccata da troppo tempo (share non risponde?)")
-                # Scrittura sotto lock (Fable final PR #111): serializzata con la
-                # guardia+set del worker — tutte le SCRITTURE della cache passano
-                # dal lock, le letture restano best-effort (swap atomici).
+                # Check+set INTERAMENTE sotto lock (Fable final, 2° giro): la
+                # ri-lettura anti-race e la scrittura dello stallo stanno nella
+                # STESSA sezione critica del worker — un esito VERO appena scritto
+                # non può mai essere sovrascritto dal giallo di stallo (niente
+                # finestra tra ri-lettura e set).
                 with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
+                    cur = self.__dict__.get("_csv_probe_cache")
+                    if (cur is not None and cur[0] == path
+                            and time.monotonic() - cur[1] < _CSV_PROBE_TTL_S):
+                        return cur[2]
                     self._csv_probe_cache = (path, time.monotonic(), stalled)
                 return stalled
             return cached[2]

@@ -362,10 +362,17 @@ def test_guardia_worker_e_scritture_cache_sotto_lock():
     # L'I/O del probe resta FUORI dal lock (prima del `with lock:`).
     assert blocco_worker.index("health_check.csv_writable(path)") < \
         blocco_worker.index("with lock:")
-    # Le altre scritture della cache (sync e stallo) passano anch'esse dal lock.
+    # TUTTE le altre scritture della cache (sync, stallo watchdog, cap rifiutato)
+    # passano dal lock — e nel watchdog la RI-LETTURA anti-race sta nella stessa
+    # sezione critica del set (Fable final 2° giro: niente finestra check→set).
     fn_cached = src[src.index("def _csv_writable_cached"):src.index("def _kick_csv_probe_async")]
-    assert fn_cached.count('setdefault("_csv_probe_lock"') >= 2, (
-        "le scritture sync/stallo della cache devono essere serializzate dal lock")
+    assert fn_cached.count('setdefault("_csv_probe_lock"') == 3, (
+        "le 3 scritture della cache in _csv_writable_cached (cap, stallo, sync) "
+        "devono essere serializzate dal lock")
+    assert re.search(
+        r"with self\.__dict__\.setdefault\(\"_csv_probe_lock\".*\n\s+cur = "
+        r"self\.__dict__\.get\(\"_csv_probe_cache\"\)", fn_cached), (
+        "la ri-lettura anti-race del watchdog deve stare DENTRO la sezione critica")
 
 
 def test_worker_probe_che_solleva_non_uccide_niente(make_app, app_mod, monkeypatch):
