@@ -129,10 +129,11 @@ _CSV_PROBE_STALL_S = 3 * _CSV_PROBE_TTL_S
 # Cap dei worker probe VIVI (review Fugu PR #111): ogni path abbandonato su share
 # morta può lasciare un worker daemon appeso (os.access non interrompibile) — senza
 # tetto, cambi ripetuti di csv_path accumulerebbero thread senza limite in un
-# processo GUI long-running. Bound duro = cap + 1: l'ultimo slot è riservato al
-# path CORRENTE (priorità al path attivo anche con cap saturo di path abbandonati);
-# esaurito anche quello, nessun nuovo worker e giallo onesto («troppi controlli
-# bloccati»).
+# processo GUI long-running. Bound duro = cap + 1: uno slot EXTRA oltre il cap, di
+# norma disponibile per il path corrente quando il cap è saturo di path abbandonati
+# — ma NON una riserva garantita: sotto churn rapido di path può essere consumato
+# da un path poi abbandonato (Fable/Fugu PR #111). Esaurito anche quello, nessun
+# nuovo worker e giallo onesto («troppi controlli bloccati»).
 _CSV_PROBE_MAX_WORKERS = 4
 
 # Quanti eventi tenere nel ledger append-only (#230): potato allo startup per non far
@@ -1646,11 +1647,12 @@ class App(ctk.CTk):
         `_csv_probe_lock`.
 
         Bound ESPLICITO (review Fugu PR #111): al più `_CSV_PROBE_MAX_WORKERS`
-        worker vivi, più UNO slot riservato al path corrente (bound duro = cap+1):
-        con il cap saturo di worker appesi su path ABBANDONATI (share morte), il
-        path corrente può comunque sondare — cambi ripetuti di path restano
-        bounded. Ritorna False se nemmeno lo slot riservato è disponibile (il
-        chiamante degrada a giallo onesto)."""
+        worker vivi, più UNO slot extra (bound duro = cap+1): con il cap saturo
+        di worker appesi su path ABBANDONATI (share morte), il path corrente può
+        di norma sondare comunque — ma lo slot NON è una riserva garantita: sotto
+        churn rapido può essere consumato da un path poi abbandonato (Fable/Fugu).
+        Cambi ripetuti di path restano bounded. Ritorna False a bound esaurito
+        (il chiamante degrada a giallo onesto)."""
         lock = self.__dict__.setdefault("_csv_probe_lock", threading.Lock())
         with lock:
             vivi = [(t, p, s) for (t, p, s)
@@ -1659,9 +1661,9 @@ class App(ctk.CTk):
             self._csv_probe_threads = vivi        # potatura a ogni tentativo
             if any(p == path for _t, p, _s in vivi):
                 return True               # sonda già in volo per QUESTO path
-            # Bound duro cap+1: l'ultimo slot è di fatto riservato al path
-            # corrente (i path abbandonati non possono occuparlo: ogni kick
-            # arriva sempre dal path corrente e al più uno per path).
+            # Bound duro cap+1: ogni kick arriva dal path corrente (al più uno
+            # per path), quindi lo slot extra serve di norma il path attivo — ma
+            # un path poi abbandonato può averlo già consumato (vedi docstring).
             if len(vivi) > _CSV_PROBE_MAX_WORKERS:
                 return False
             def _worker():

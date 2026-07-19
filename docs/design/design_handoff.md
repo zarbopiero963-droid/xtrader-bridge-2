@@ -631,10 +631,11 @@ sugli aggiornamenti automatici. Se il controllo in background resta **appeso olt
 ~15 s** (share che non risponde), il semaforo degrada a **giallo onesto** («sonda CSV
 bloccata da troppo tempo») invece di mostrare un verde stantio; appena la share
 risponde, lo stato vero riprende il posto da solo. Caso estremo (cambi ripetuti di
-path su share morte): i controlli appesi hanno un **tetto massimo** con uno slot
-sempre **riservato al path corrente** (il path attivo può sondare anche a tetto
-pieno di path abbandonati); esaurito anche quello, niente nuovi controlli e giallo
-onesto «sonda CSV non eseguibile: troppi controlli bloccati». Limite onesto residuo: il **primo** controllo di un
+path su share morte): i controlli appesi hanno un **tetto massimo** più uno slot
+extra che di norma consente al path attivo di sondare anche a tetto pieno di path
+abbandonati (non è però una riserva garantita: con cambi di path molto rapidi può
+già essere occupato); esaurito il tetto, niente nuovi controlli e giallo onesto
+«sonda CSV non eseguibile: troppi controlli bloccati». Limite onesto residuo: il **primo** controllo di un
 path (avvio/cambio path) e il pulsante **«🔄 Aggiorna»** restano sincroni (serve
 l'esito vero subito): su share degradato quel singolo controllo può ancora bloccare
 brevemente. La sonda
