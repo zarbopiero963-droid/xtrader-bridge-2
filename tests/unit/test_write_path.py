@@ -388,11 +388,16 @@ def test_daily_limited_giorno_corrotto_resta_normalizzato_non_si_blocca():
     assert safety_guard._is_valid_day(daily.state()["day"])
 
 
-def test_dry_run_giorno_corrotto_resta_normalizzato_e_slot_restituita():
-    """#184 low-tracker-nonwrite (Codex P2): anche in DRY_RUN il rollback non deve riportare un
-    giorno corrotto. `release()` disfa la sola slot consumata, mantenendo la normalizzazione.
+def test_dry_run_non_tocca_il_daily_giorno_corrotto_si_risana_al_primo_uso_reale():
+    """P3-rs1 audit #114: in DRY_RUN `evaluate` valuta il dry-run PRIMA di `daily.allow()`, quindi la
+    simulazione NON tocca affatto il `DailyLimiter` — né consuma una slot né chiama `release()` (che,
+    senza consumo, restituirebbe la slot di un WRITE reale precedente → overtrading). Un `daily_state`
+    corrotto resta com'è durante la simulazione (inerte: in DRY_RUN il tetto non è mai applicato) e si
+    RISANA al primo uso reale: `_roll` in `allow`/`remaining` adotta il giorno corrente CONSERVANDO il
+    count (fail-closed, mai un reset a cap pieno → mai overtrading).
 
-    Fail-first: col rollback pieno del daily, `_day` tornava al valore corrotto (UNKNOWN)."""
+    Fail-first: col vecchio evaluate (allow PRIMA del dry-run) + `release()`, la DRY_RUN normalizzava
+    il giorno e «restituiva» la slot; ora non tocca nulla (il giorno resta corrotto fino al 1º uso reale)."""
     tracker = signal_dedupe.SignalTracker()
     daily = safety_guard.DailyLimiter(max_per_day=5)
     assert daily.restore_state({"day": "bad-day", "count": 0}) is True
@@ -401,8 +406,56 @@ def test_dry_run_giorno_corrotto_resta_normalizzato_e_slot_restituita():
     res = write_path.commit_signal(
         tracker, daily, queue, CFG_DRY, "S", _row("S"), "out.csv", 100.0, _ok_writer([]))
     assert res.decision == live_guard.DRY_RUN
-    assert safety_guard._is_valid_day(daily.state()["day"])         # giorno normalizzato, non corrotto
-    assert daily.remaining() == 5                                    # slot restituita (release)
+    # DRY_RUN non ha toccato il daily: giorno ANCORA corrotto, count invariato (nessun allow/release).
+    assert not safety_guard._is_valid_day(daily.state()["day"])
+    assert daily.state()["count"] == 0
+    # Al PRIMO uso reale il giorno si risana (fail-closed: count conservato, mai reset a cap pieno).
+    assert daily.remaining() == 5                                    # `_roll` normalizza il giorno
+    assert safety_guard._is_valid_day(daily.state()["day"])
+
+
+def test_dry_run_non_restituisce_la_slot_di_un_write_reale():
+    """P3-rs1 audit #114 (ANTI-OVERTRADING, single-row): il fix (dry-run PRIMA di `daily.allow()` in
+    `evaluate` + rimozione del `release()` DRY_RUN nel chiamante) va tenuto in LOCKSTEP. Se `evaluate`
+    non consuma più su DRY_RUN ma il chiamante chiamasse ancora `release()`, decrementerebbe una slot
+    MAI consumata → restituirebbe la slot di un WRITE reale precedente → una scommessa reale EXTRA.
+    Qui si prova che una DRY_RUN dopo un WRITE reale lascia il tetto INVARIATO.
+
+    Fail-first: ripristinando il `daily.release()` nel ramo DRY_RUN di `commit_signal`, `remaining`
+    salirebbe da 1 a 2 (over-release) e l'assert fallirebbe."""
+    tracker, daily, queue = _fresh(max_per_day=2)
+    # 1 WRITE reale consuma 1/2.
+    r1 = write_path.commit_signal(
+        tracker, daily, queue, CFG_REAL, "reale", _row("A"), "out.csv", 100.0, _ok_writer([]))
+    assert r1.decision == live_guard.WRITE
+    assert daily.remaining() == 1
+    # 1 segnale in DRY_RUN: NON deve restituire la slot del WRITE reale (nessun over-release).
+    res = write_path.commit_signal(
+        tracker, daily, queue, CFG_DRY, "sim", _row("B"), "out.csv", 101.0, _ok_writer([]))
+    assert res.decision == live_guard.DRY_RUN
+    assert daily.remaining() == 1                        # INVARIATO: anti-overtrading
+
+
+def test_dry_run_multi_non_restituisce_slot_di_write_reali():
+    """P3-rs1 audit #114 (ANTI-OVERTRADING, multi-row `commit_signals`): stesso invariante di lockstep
+    sul percorso multi. Un blocco in DRY_RUN, dopo righe reali che hanno consumato quota, NON deve
+    restituire alcuna slot reale.
+
+    Fail-first: ripristinando il loop `daily.release()` DRY_RUN in `commit_signals`, `remaining`
+    risalirebbe (over-release) e l'assert fallirebbe."""
+    tracker, daily, queue = _fresh(mode=signal_queue.APPEND_ACTIVE, max_active=0, max_per_day=3)
+    # 2 righe REALI (auto-raise del tetto in append) consumano 2/3.
+    r1 = write_path.commit_signals(
+        tracker, daily, queue, CFG_REAL, "reale", [_row("A"), _row("B")], "out.csv", 100.0,
+        _ok_writer([]))
+    assert r1.decision == live_guard.WRITE
+    assert daily.remaining() == 1
+    # Blocco in DRY_RUN con 2 righe nuove: il daily resta INVARIATO (nessun over-release).
+    res = write_path.commit_signals(
+        tracker, daily, queue, CFG_DRY, "sim", [_row("C"), _row("D")], "out.csv", 101.0,
+        _ok_writer([]))
+    assert res.decision == live_guard.DRY_RUN
+    assert daily.remaining() == 1                        # INVARIATO: anti-overtrading
 
 
 def test_write_reale_resta_deduplicato_nessuna_doppia_scommessa():

@@ -64,6 +64,14 @@ def test_daily_none_nessun_limite_giorno():
     assert lg.evaluate(_real_cfg(), t, None, "x", now=1000) == lg.WRITE
 
 
+def test_daily_none_con_dry_run_resta_dry_run():
+    """P3-rs1 audit #114 (gap review GLM): con `daily=None` (nessun tetto) il nuovo ordine
+    (is_dry_run PRIMA del `daily is not None`) deve restare robusto: in simulazione → DRY_RUN,
+    in reale → WRITE. Nessun accesso a `daily` (che è None) su nessuno dei due rami."""
+    assert lg.evaluate({"dry_run": True}, _tracker(), None, "x", now=1000) == lg.DRY_RUN
+    assert lg.evaluate(_real_cfg(), _tracker(), None, "y", now=1000) == lg.WRITE
+
+
 def test_rollback_dopo_write_fallita_consente_il_retry():
     # Semantica usata da app._process: si fa lo snapshot PRIMA di evaluate; se la
     # scrittura CSV fallisce si ripristina, così lo stesso segnale non resta
@@ -88,3 +96,26 @@ def test_duplicato_non_consuma_la_slot_giornaliera():
     assert lg.evaluate(_real_cfg(), t, d, "a", now=1001) == lg.DUPLICATE
     # un messaggio NUOVO ora trova il tetto giornaliero pieno
     assert lg.evaluate(_real_cfg(), t, d, "b", now=1002) == lg.DAILY_LIMITED
+
+
+def test_dry_run_non_consuma_la_slot_giornaliera():
+    """P3-rs1 audit #114: DRY_RUN è valutato PRIMA di `daily.allow()`, quindi la simulazione NON
+    consuma alcuna slot giornaliera (nessun consumo-e-restituzione delegato al chiamante).
+
+    Fail-first: col vecchio ordine (allow PRIMA del dry-run) ogni segnale in simulazione consumava
+    una slot → `remaining` sarebbe sceso a 2."""
+    d = safety_guard.DailyLimiter(max_per_day=3)
+    assert lg.evaluate({"dry_run": True}, _tracker(), d, "x", now=1000) == lg.DRY_RUN
+    assert d.remaining(now=1000) == 3                    # nessuna slot consumata in simulazione
+
+
+def test_dry_run_ha_precedenza_su_daily_limited():
+    """P3-rs1 audit #114: con il tetto giornaliero PIENO, un segnale in simulazione è DRY_RUN, non
+    DAILY_LIMITED — la simulazione non è mai vincolata dal tetto reale (che non consulta nemmeno).
+
+    Fail-first: col vecchio ordine `daily.allow()` (che a tetto pieno ritorna False) veniva PRIMA del
+    check dry-run → l'esito era DAILY_LIMITED."""
+    d = safety_guard.DailyLimiter(max_per_day=1)
+    assert lg.evaluate(_real_cfg(), _tracker(), d, "reale", now=1000) == lg.WRITE   # riempie il tetto
+    # tetto pieno + simulazione (tracker fresco per non incrociare il dedup) → DRY_RUN, non DAILY_LIMITED
+    assert lg.evaluate({"dry_run": True}, _tracker(), d, "sim", now=1001) == lg.DRY_RUN
