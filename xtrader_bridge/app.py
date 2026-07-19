@@ -1602,6 +1602,14 @@ class App(ctk.CTk):
                            "sonda CSV non eseguibile: troppi controlli bloccati "
                            "(share non rispondono?)")
                 with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
+                    # Stessa ri-lettura anti-clobber del watchdog (Fugu PR #111):
+                    # un worker di QUESTO path appena completato può aver scritto
+                    # un esito VERO fresco tra la lettura in testa e qui — mai
+                    # sovrascriverlo col giallo.
+                    cur = self.__dict__.get("_csv_probe_cache")
+                    if (cur is not None and cur[0] == path
+                            and time.monotonic() - cur[1] < _CSV_PROBE_TTL_S):
+                        return cur[2]
                     self._csv_probe_cache = (path, time.monotonic(), stalled)
                 return stalled
             # Watchdog di stallo (review Fable PR #111): worker di QUESTO path in

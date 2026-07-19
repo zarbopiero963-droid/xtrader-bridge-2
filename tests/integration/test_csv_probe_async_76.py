@@ -369,10 +369,12 @@ def test_guardia_worker_e_scritture_cache_sotto_lock():
     assert fn_cached.count('setdefault("_csv_probe_lock"') == 3, (
         "le 3 scritture della cache in _csv_writable_cached (cap, stallo, sync) "
         "devono essere serializzate dal lock")
-    assert re.search(
-        r"with self\.__dict__\.setdefault\(\"_csv_probe_lock\".*\n\s+cur = "
-        r"self\.__dict__\.get\(\"_csv_probe_cache\"\)", fn_cached), (
-        "la ri-lettura anti-race del watchdog deve stare DENTRO la sezione critica")
+    dentro_lock = re.findall(
+        r"with self\.__dict__\.setdefault\(\"_csv_probe_lock\".*\n(?:\s+#.*\n)*\s+cur = "
+        r"self\.__dict__\.get\(\"_csv_probe_cache\"\)", fn_cached)
+    assert len(dentro_lock) == 2, (
+        "la ri-lettura anti-clobber deve stare DENTRO la sezione critica in ENTRAMBI "
+        "i rami di degrado (watchdog di stallo E cap rifiutato — review Fugu)")
 
 
 def test_worker_probe_che_solleva_non_uccide_niente(make_app, app_mod, monkeypatch):
