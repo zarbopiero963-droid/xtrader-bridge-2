@@ -202,7 +202,79 @@ def test_worker_appeso_oltre_stallo_giallo_onesto_poi_recovery(
     blocco.set()                                                    # la share risponde
     _attendi_worker(a)
     assert a._csv_probe_cache[2] == ("GREEN", "ok"), "auto-recovery: esito vero in cache"
-    assert a.__dict__.get("_csv_probe_inflight") is False
+    assert a.__dict__.get("_csv_probe_inflight_path") is None
+
+
+def test_worker_appeso_su_path_vecchio_non_blocca_il_path_nuovo(
+        make_app, app_mod, monkeypatch):
+    """FAIL-FIRST — review Fable final PR #111: con lo stato inflight GLOBALE un
+    worker appeso su un path ABBANDONATO bloccava per sempre i probe del path
+    nuovo E il watchdog ingialliva il path nuovo SANO (kick_ts vecchio). Con lo
+    stato per-path il path nuovo vive di vita propria."""
+    a = make_app(running=False)
+    clock = _orologio(app_mod, monkeypatch)
+    blocco = threading.Event()
+    chiamate = []
+
+    def _probe(path, **_k):
+        chiamate.append(path)
+        if path == "C:/vecchio.csv" and len(chiamate) > 1:
+            blocco.wait(timeout=10)              # worker sul path vecchio: appeso
+        return ("GREEN", f"ok:{path}")
+
+    monkeypatch.setattr(app_mod.health_check, "csv_writable", _probe)
+
+    app_mod.App._csv_writable_cached(a, "C:/vecchio.csv")           # sincrono
+    clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
+    app_mod.App._csv_writable_cached(a, "C:/vecchio.csv")           # worker appeso
+    app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")             # cambio path: sincrono
+
+    # TTL scaduto sul path NUOVO, ben oltre la soglia di stallo del kick VECCHIO:
+    clock["now"] += app_mod._CSV_PROBE_STALL_S + 0.1
+    r = app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")
+
+    # 1) il watchdog NON ingiallisce il path nuovo per colpa del worker vecchio;
+    assert r == ("GREEN", "ok:C:/nuovo.csv")
+    # 2) un worker NUOVO è partito per il path nuovo (non bloccato dal vecchio).
+    _attendi_worker(a)                            # join dell'ultimo worker (nuovo)
+    assert chiamate.count("C:/nuovo.csv") == 2, (
+        "il probe del path nuovo deve ripartire anche col worker vecchio appeso")
+    assert a._csv_probe_cache[0] == "C:/nuovo.csv"
+    blocco.set()                                  # cleanup: sblocca il worker vecchio
+
+
+def test_watchdog_non_sovrascrive_esito_fresco_appena_arrivato(
+        make_app, app_mod, monkeypatch):
+    """FAIL-FIRST — race Fable final PR #111: il worker scrive l'esito VERO tra la
+    lettura della cache in testa e il watchdog — lo stallo non deve sovrascriverlo
+    (ri-lettura prima di degradare)."""
+    a = make_app(running=False)
+    clock = _orologio(app_mod, monkeypatch)
+    monkeypatch.setattr(app_mod.health_check, "csv_writable",
+                        lambda path, **_k: ("GREEN", "vecchio"))
+
+    app_mod.App._csv_writable_cached(a, "Z:/s.csv")                 # sincrono
+    clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
+    app_mod.App._csv_writable_cached(a, "Z:/s.csv")                 # worker (istantaneo)
+    _attendi_worker(a)
+
+    # Simula: worker in volo col kick oltre soglia, che completa DURANTE la
+    # chiamata (il fake kick scrive l'esito fresco come farebbe il worker).
+    clock["now"] += app_mod._CSV_PROBE_STALL_S + 1
+    a._csv_probe_kick = ("Z:/s.csv", clock["now"] - app_mod._CSV_PROBE_STALL_S - 1)
+    a._csv_probe_inflight_path = "Z:/s.csv"
+
+    def _fake_kick(path):
+        a._csv_probe_cache = (path, clock["now"], ("GREEN", "FRESCO"))
+
+    a._kick_csv_probe_async = _fake_kick
+
+    r = app_mod.App._csv_writable_cached(a, "Z:/s.csv")
+
+    assert r == ("GREEN", "FRESCO"), (
+        "un esito vero appena scritto dal worker non va MAI sovrascritto col giallo di stallo")
+    assert a._csv_probe_cache[2] == ("GREEN", "FRESCO")
+    a._csv_probe_inflight_path = None             # cleanup stato simulato
 
 
 def test_worker_probe_che_solleva_non_uccide_niente(make_app, app_mod, monkeypatch):
@@ -225,7 +297,7 @@ def test_worker_probe_che_solleva_non_uccide_niente(make_app, app_mod, monkeypat
     app_mod.App._csv_writable_cached(a, "Z:/s.csv")                 # 2: async, solleva
     _attendi_worker(a)
 
-    assert a.__dict__.get("_csv_probe_inflight") is False           # flag sbloccato
+    assert a.__dict__.get("_csv_probe_inflight_path") is None       # stato sbloccato
     clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
     app_mod.App._csv_writable_cached(a, "Z:/s.csv")                 # 3: riprova
     _attendi_worker(a)

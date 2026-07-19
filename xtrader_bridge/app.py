@@ -1582,14 +1582,22 @@ class App(ctk.CTk):
             # VERO su un worker in background, così nemmeno il singolo probe a TTL
             # scaduto può congelare la GUI su uno share degradato. La cache viene
             # aggiornata dal worker; il semaforo si rinfresca via `_safe_after`.
-            self._kick_csv_probe_async(path)      # no-op se un worker è già in volo
+            self._kick_csv_probe_async(path)  # no-op se già in volo per QUESTO path
             # Watchdog di stallo (review Fable PR #111): worker appeso oltre la
             # soglia (share che non risponde) → GIALLO ONESTO in cache, mai un 🟢
-            # stantio spacciato per fresco mentre i write falliscono. Timestamp
-            # rinnovato: niente riscritture/flicker a ogni messaggio.
-            kick = self.__dict__.get("_csv_probe_kick_ts")
-            if (self.__dict__.get("_csv_probe_inflight") and kick is not None
-                    and now - kick > _CSV_PROBE_STALL_S):
+            # stantio spacciato per fresco mentre i write falliscono. Il kick è
+            # PER-PATH (Fable final): un worker appeso su un path abbandonato non
+            # deve ingiallire il semaforo del path corrente sano.
+            kick = self.__dict__.get("_csv_probe_kick")
+            if (kick is not None and kick[0] == path
+                    and now - kick[1] > _CSV_PROBE_STALL_S):
+                # Ri-lettura prima di degradare (race Fable final): il worker può
+                # aver scritto l'esito VERO tra la lettura in testa e qui — un
+                # esito fresco non va mai sovrascritto con lo stallo.
+                cur = self.__dict__.get("_csv_probe_cache")
+                if (cur is not None and cur[0] == path
+                        and time.monotonic() - cur[1] < _CSV_PROBE_TTL_S):
+                    return cur[2]
                 stalled = (health_check.YELLOW,
                            "sonda CSV bloccata da troppo tempo (share non risponde?)")
                 self._csv_probe_cache = (path, time.monotonic(), stalled)
@@ -1613,12 +1621,21 @@ class App(ctk.CTk):
         cache: swap atomico sotto GIL): al più un worker alla volta dal thread Tk;
         una rara doppia partenza cross-thread (worker assistente) è innocua — due
         probe identici, ultimo vince. Un probe che solleva non propaga mai: sblocca
-        il flag e il giro successivo riprova (diagnostica best-effort)."""
-        if self.__dict__.get("_csv_probe_inflight"):
-            return
-        self._csv_probe_inflight = True
-        # Timestamp del kick per il watchdog di stallo (review Fable PR #111).
-        self._csv_probe_kick_ts = time.monotonic()
+        il flag e il giro successivo riprova (diagnostica best-effort).
+
+        Stato PER-PATH (review Fable final PR #111): `_csv_probe_inflight_path` è
+        il path del worker in volo (None = libero). Un worker appeso su un path
+        ABBANDONATO (share morta + cambio path) non blocca i probe del path
+        corrente: se ne lancia uno nuovo — accumulo bounded dai cambi path reali,
+        al più un worker vivo per path. Il token di rilascio garantisce che il
+        `finally` di un worker vecchio non azzeri lo stato di uno più nuovo."""
+        if self.__dict__.get("_csv_probe_inflight_path") == path:
+            return                        # worker già in volo per QUESTO path
+        token = object()
+        self._csv_probe_worker_token = token
+        self._csv_probe_inflight_path = path
+        # Kick per-path per il watchdog di stallo (review Fable PR #111).
+        self._csv_probe_kick = (path, time.monotonic())
 
         def _worker():
             try:
@@ -1638,7 +1655,11 @@ class App(ctk.CTk):
                 # la cache resta quella vecchia e si riproverà al prossimo giro.
                 pass
             finally:
-                self._csv_probe_inflight = False
+                # Rilascio SOLO se questo worker è ancora l'ultimo lanciato: il
+                # finally tardivo di un worker vecchio (share morta) non deve
+                # azzerare lo stato del worker nuovo di un altro path.
+                if self.__dict__.get("_csv_probe_worker_token") is token:
+                    self._csv_probe_inflight_path = None
 
         t = threading.Thread(target=_worker, daemon=True, name="csv-probe-async")
         self._csv_probe_thread = t          # esposto per i test (join deterministico)
