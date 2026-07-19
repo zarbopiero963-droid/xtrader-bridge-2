@@ -50,6 +50,12 @@ def test_refresh_health_colora_dallo_stato_vivo(app_mod, tmp_path, monkeypatch):
     monkeypatch.setattr(app_mod.health_check, "csv_writable",
                         lambda *a, **k: (hc.GREEN, "cartella scrivibile (harness POSIX)"))
     app._refresh_health()
+    # A1 #114: il PRIMO probe CSV è async → la prima passata mostra il giallo
+    # provvisorio; join del worker + refresh per leggere l'esito vero (qui 🟢).
+    t = app.__dict__.get("_csv_probe_thread")
+    if t is not None:
+        t.join(timeout=5)
+    app._refresh_health()
     texts = {k: lbl.kw.get("text", "") for k, lbl in app._health_lbls.items()}
     assert texts["telegram"].startswith("🟢")
     assert texts["message"].startswith("🟢") and "msg di prova" in texts["message"]

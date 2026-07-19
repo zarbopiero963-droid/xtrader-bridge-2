@@ -9,9 +9,14 @@ del singolo probe, una volta ogni TTL.
 Fix testato: a TTL scaduto (stesso path, no force) `_csv_writable_cached` ritorna
 SUBITO il risultato stantio in cache e lancia il probe vero su un thread worker
 daemon; al completamento la cache viene aggiornata e un refresh del pannello
-Salute è schedulato via `_safe_after` (TclError-safe, P3-10). Il primo probe di
-un path (avvio/cambio path) e `force=True` (pulsante «🔄 Aggiorna») restano
-sincroni: lì serve un esito vero subito e non è il percorso per-messaggio.
+Salute è schedulato via `_safe_after` (TclError-safe, P3-10).
+
+Aggiornato per A1 audit #114: ORA anche il PRIMO probe di un path (avvio finestra
+o cambio `csv_path`) è async (giallo provvisorio + worker) — così la GUI non si
+congela mai all'avvio su uno share morto. Qui i test lo usano come SEED della
+cache facendo il `join` del worker prima di avanzare il TTL. L'UNICO controllo
+ancora sincrono è `force=True` (pulsante «🔄 Aggiorna»): azione utente esplicita
+che chiede l'esito vero all'istante (fuori dal percorso per-messaggio).
 """
 
 import re
@@ -51,17 +56,20 @@ def test_ttl_scaduto_ritorna_stantio_subito_e_aggiorna_in_background(
 
     monkeypatch.setattr(app_mod.health_check, "csv_writable", _probe)
 
-    r1 = app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")   # primo: sincrono
+    r1 = app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")   # primo probe: ASYNC (A1)
+    assert r1[0] == app_mod.health_check.YELLOW                     # giallo provvisorio
+    _attendi_worker(a)                                             # seed cache con l'esito vero
+    assert a._csv_probe_cache[2] == ("RED", "share degradata")
     clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1                 # TTL scaduto
 
     r2 = app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")
 
     # Risposta IMMEDIATA col valore stantio: il chiamante (thread Tk) non ha
-    # eseguito il secondo probe in linea.
-    assert r1 == r2 == ("RED", "share degradata")
+    # eseguito il probe in linea a TTL scaduto.
+    assert r2 == ("RED", "share degradata")
     _attendi_worker(a)
     assert len(chiamate) == 2
-    # Il secondo probe è girato su un thread DIVERSO dal chiamante (worker daemon).
+    # Il probe a TTL scaduto è girato su un thread DIVERSO dal chiamante (worker daemon).
     assert chiamate[1][1] != threading.current_thread().name
     # La cache ora è fresca: la chiamata successiva non rilancia niente.
     r3 = app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")
@@ -84,12 +92,13 @@ def test_ttl_scaduto_niente_pileup_di_worker(make_app, app_mod, monkeypatch):
 
     monkeypatch.setattr(app_mod.health_check, "csv_writable", _probe_lento)
 
-    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # sincrono
-    blocco.set()                                                    # sblocca il primo
+    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # primo probe async (worker#1)
+    blocco.set()                                                    # sblocca worker#1
+    _attendi_worker(a)                                             # seed cache, worker#1 finito
     blocco.clear()
     clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
 
-    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # kick async
+    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # kick async (worker#2, appeso)
     app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # NON accoda
     app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # NON accoda
 
@@ -108,31 +117,41 @@ def test_worker_completo_schedula_refresh_salute(make_app, app_mod, monkeypatch)
     schedulati = []
     a._safe_after = lambda delay, func: schedulati.append((delay, func))
 
-    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # sincrono: NO refresh
-    assert schedulati == []
+    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # primo probe async (worker#1)
+    _attendi_worker(a)                                            # seed; worker#1 schedula un refresh
+    schedulati.clear()                                            # conta SOLO il worker a TTL scaduto
     clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
-    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # async
+    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # async (worker#2)
     _attendi_worker(a)
 
     assert len(schedulati) == 1
     assert schedulati[0][1] == a._refresh_health
 
 
-def test_primo_probe_e_force_restano_sincroni(make_app, app_mod, monkeypatch):
-    """Contratto invariato dove serve l'esito vero subito: primo probe di un path
-    (avvio/cambio path) e force=True (🔄) girano in linea, nessun worker."""
+def test_solo_force_resta_sincrono(make_app, app_mod, monkeypatch):
+    """Contratto post-A1 #114: SOLO `force=True` (🔄) gira in linea (esito vero subito,
+    nessun worker); il primo probe di un path (avvio/cambio path) è ora ASYNC (giallo
+    provvisorio + worker), così la finestra non si congela mai all'avvio su share morta.
+    (Il primo-probe-async è coperto in dettaglio da `test_csv_probe_first_async_114`.)"""
     a = make_app(running=False)
     _orologio(app_mod, monkeypatch)
     chiamate = []
     monkeypatch.setattr(app_mod.health_check, "csv_writable",
                         lambda path, **_k: chiamate.append(path) or ("GREEN", "ok"))
 
-    app_mod.App._csv_writable_cached(a, "C:/a.csv")                 # primo path
-    app_mod.App._csv_writable_cached(a, "C:/b.csv")                 # cambio path
-    app_mod.App._csv_writable_cached(a, "C:/b.csv", force=True)     # 🔄
+    # Primo probe di un path: ASYNC (worker), ritorno provvisorio giallo.
+    r_primo = app_mod.App._csv_writable_cached(a, "C:/a.csv")
+    assert r_primo[0] == app_mod.health_check.YELLOW and "in corso" in r_primo[1]
+    t = a.__dict__.get("_csv_probe_thread")
+    assert t is not None, "il primo probe di un path deve girare su un worker"
+    t.join(timeout=5)
+    assert chiamate == ["C:/a.csv"]                                # sonda vera sul worker
 
-    assert chiamate == ["C:/a.csv", "C:/b.csv", "C:/b.csv"]
-    assert a.__dict__.get("_csv_probe_thread") is None, "nessun worker lanciato"
+    # force=True: SINCRONO, esito vero subito, nessun nuovo worker.
+    r_force = app_mod.App._csv_writable_cached(a, "C:/a.csv", force=True)
+    assert r_force == ("GREEN", "ok")
+    assert chiamate == ["C:/a.csv", "C:/a.csv"]                    # 2° probe sul chiamante
+    assert not a.__dict__["_csv_probe_thread"].is_alive(), "force non lancia worker"
 
 
 def test_cambio_path_con_worker_in_volo_scarta_il_risultato_vecchio(
@@ -153,20 +172,25 @@ def test_cambio_path_con_worker_in_volo_scarta_il_risultato_vecchio(
 
     monkeypatch.setattr(app_mod.health_check, "csv_writable", _probe)
 
-    app_mod.App._csv_writable_cached(a, "C:/vecchio.csv")           # sincrono
+    app_mod.App._csv_writable_cached(a, "C:/vecchio.csv")           # primo probe async
+    _attendi_worker(a)                                             # seed vecchio
     clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
-    app_mod.App._csv_writable_cached(a, "C:/vecchio.csv")           # worker appeso
-    r_nuovo = app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")   # cambio path: sincrono
-    assert r_nuovo == ("GREEN", "ok:C:/nuovo.csv")
+    app_mod.App._csv_writable_cached(a, "C:/vecchio.csv")           # worker VECCHIO appeso
+    t_vecchio = a.__dict__["_csv_probe_thread"]
+    app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")            # cambio path: async (worker nuovo)
+    a.__dict__["_csv_probe_thread"].join(timeout=5)               # worker nuovo completa
+    assert a._csv_probe_cache[0] == "C:/nuovo.csv"
+    assert a._csv_probe_cache[2] == ("GREEN", "ok:C:/nuovo.csv")
 
     parti.set()                                                     # worker vecchio completa
-    _attendi_worker(a)
+    t_vecchio.join(timeout=5)
 
-    # La cache resta del path NUOVO: il worker vecchio ha scartato il suo esito e
-    # la chiamata successiva NON deve rifare un probe sincrono.
+    # La cache resta del path NUOVO: il worker vecchio ha SCARTATO il suo esito
+    # (guardia cambio-path) e la chiamata successiva NON deve rifare un probe.
     assert a._csv_probe_cache[0] == "C:/nuovo.csv"
+    assert a._csv_probe_cache[2] == ("GREEN", "ok:C:/nuovo.csv")
     n = len(chiamate)
-    app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")
+    app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")           # entro TTL: nessun probe
     assert len(chiamate) == n, "nessun probe extra dopo il worker del path vecchio"
 
 
@@ -191,7 +215,8 @@ def test_worker_appeso_oltre_stallo_giallo_onesto_poi_recovery(
 
     monkeypatch.setattr(app_mod.health_check, "csv_writable", _probe)
 
-    app_mod.App._csv_writable_cached(a, "Z:/s.csv")                 # sincrono: 🟢
+    app_mod.App._csv_writable_cached(a, "Z:/s.csv")                 # primo probe async: 🟢
+    _attendi_worker(a)                                             # seed cache 🟢
     clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
     r_stantio = app_mod.App._csv_writable_cached(a, "Z:/s.csv")     # worker appeso
     assert r_stantio == ("GREEN", "ok")                             # sotto soglia: stantio
@@ -228,10 +253,12 @@ def test_worker_appeso_su_path_vecchio_non_blocca_il_path_nuovo(
 
     monkeypatch.setattr(app_mod.health_check, "csv_writable", _probe)
 
-    app_mod.App._csv_writable_cached(a, "C:/vecchio.csv")           # sincrono
+    app_mod.App._csv_writable_cached(a, "C:/vecchio.csv")           # primo probe async
+    _attendi_worker(a)                                             # seed vecchio
     clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
-    app_mod.App._csv_writable_cached(a, "C:/vecchio.csv")           # worker appeso
-    app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")             # cambio path: sincrono
+    app_mod.App._csv_writable_cached(a, "C:/vecchio.csv")           # worker VECCHIO appeso
+    app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")            # cambio path: async
+    a.__dict__["_csv_probe_thread"].join(timeout=5)               # seed nuovo (worker fast)
 
     # TTL scaduto sul path NUOVO, ben oltre la soglia di stallo del kick VECCHIO:
     clock["now"] += app_mod._CSV_PROBE_STALL_S + 0.1
@@ -290,6 +317,50 @@ def test_watchdog_non_sovrascrive_esito_fresco_appena_arrivato(
     a._csv_probe_threads = []                     # cleanup stato simulato
 
 
+def test_worker_in_volo_non_sovrascrive_force_fresco(make_app, app_mod, monkeypatch):
+    """FAIL-FIRST — review Fable PR #115: un worker del primo probe ANCORA IN VOLO
+    sullo stesso path non deve sovrascrivere la cache con un esito più VECCHIO dopo
+    che un `force=True` («🔄 Aggiorna») ha già scritto l'esito fresco. La guardia
+    cambio-path (path diverso) non copre questo caso (stesso path): serve la guardia
+    TEMPORALE (cache aggiornata dopo l'avvio del worker → si scarta)."""
+    a = make_app(running=False)
+    clock = _orologio(app_mod, monkeypatch)
+    entrato = threading.Event()                   # il worker ha iniziato il suo probe
+    parti = threading.Event()                     # sblocca il worker (dopo il force)
+    chiamate = []
+
+    def _probe(path, **_k):
+        n = len(chiamate)
+        chiamate.append(path)
+        if n == 0:                                # SOLO il worker async resta appeso
+            entrato.set()                         # segnala: worker entrato PER PRIMO
+            parti.wait(timeout=5)
+            return ("GREEN", "vecchio")           # esito PIÙ VECCHIO (probe iniziato prima)
+        return ("RED", "fresco force")            # il force, sincrono, esito fresco
+
+    monkeypatch.setattr(app_mod.health_check, "csv_writable", _probe)
+
+    app_mod.App._csv_writable_cached(a, "Z:/s.csv")            # primo probe async: worker appeso
+    t = a.__dict__["_csv_probe_thread"]
+    # Sincronizzazione DETERMINISTICA (review Fugu PR #115): senza questo, su un
+    # runner lento il main thread potrebbe chiamare il force PRIMA che il worker
+    # entri nel probe → il force diventerebbe la 1ª chiamata (n==0) e il test
+    # diventerebbe flaky. Aspettiamo che il worker sia dentro il probe.
+    assert entrato.wait(timeout=5), "il worker deve entrare nel probe per primo"
+    clock["now"] += 1                                          # il force arriva DOPO l'avvio del worker
+    r_force = app_mod.App._csv_writable_cached(a, "Z:/s.csv", force=True)
+    assert r_force == ("RED", "fresco force")                 # force scrive subito il fresco
+    assert a._csv_probe_cache[2] == ("RED", "fresco force")
+
+    parti.set()                                               # il worker vecchio completa ORA
+    t.join(timeout=5)
+    assert not t.is_alive()
+
+    # Guardia temporale: l'esito VECCHIO del worker NON ha clobberato il fresco del force.
+    assert a._csv_probe_cache[2] == ("RED", "fresco force"), (
+        "un worker in volo non deve sovrascrivere l'esito fresco di un force più recente")
+
+
 def test_cap_worker_appesi_su_path_multipli(make_app, app_mod, monkeypatch):
     """FAIL-FIRST — review Fugu PR #111: cambi ripetuti di csv_path su share morte
     non devono accumulare thread appesi senza limite. Oltre `_CSV_PROBE_MAX_WORKERS`
@@ -312,25 +383,26 @@ def test_cap_worker_appesi_su_path_multipli(make_app, app_mod, monkeypatch):
     cap = app_mod._CSV_PROBE_MAX_WORKERS
     for i in range(cap):                          # un worker appeso per ogni path
         p = f"C:/morto{i}.csv"
-        app_mod.App._csv_writable_cached(a, p)                    # sincrono (n=1)
+        app_mod.App._csv_writable_cached(a, p)                    # primo probe async (n=1)
+        _attendi_worker(a)                                       # n=1 completa (fast)
         clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
-        app_mod.App._csv_writable_cached(a, p)                    # worker appeso
+        app_mod.App._csv_writable_cached(a, p)                    # worker appeso (n=2)
 
     assert len([t for t, _p, _s in a._csv_probe_threads if t.is_alive()]) == cap
 
     # Cap saturo di path ABBANDONATI: il path corrente usa lo SLOT RISERVATO
     # (priorità al path attivo, review Fugu) — il suo worker parte comunque.
-    app_mod.App._csv_writable_cached(a, "C:/riserva.csv")         # sincrono (n=1)
+    app_mod.App._csv_writable_cached(a, "C:/riserva.csv")         # primo probe async (n=1)
+    _attendi_worker(a)                                           # n=1 completa (fast)
     clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
-    r_ris = app_mod.App._csv_writable_cached(a, "C:/riserva.csv") # worker (appeso)
+    r_ris = app_mod.App._csv_writable_cached(a, "C:/riserva.csv") # worker (appeso, n=2)
     assert r_ris == ("GREEN", "ok:C:/riserva.csv"), (
         "col cap saturo il path corrente deve poter sondare (slot riservato)")
     assert len([t for t, _p, _s in a._csv_probe_threads if t.is_alive()]) == cap + 1
 
-    # Esaurito anche lo slot riservato: NIENTE nuovo worker e GIALLO ONESTO
-    # (pre-patch: partiva l'ennesimo worker appeso senza limite).
-    app_mod.App._csv_writable_cached(a, "C:/extra.csv")           # sincrono (n=1)
-    clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
+    # Esaurito anche lo slot riservato (cap+1 worker appesi su path abbandonati): il
+    # PRIMO probe async di un path nuovo non trova slot → niente worker e GIALLO
+    # ONESTO subito (A1 #114: prima il primo probe girava sincrono e partiva).
     r = app_mod.App._csv_writable_cached(a, "C:/extra.csv")
 
     assert r[0] == app_mod.health_check.YELLOW
@@ -366,9 +438,10 @@ def test_guardia_worker_e_scritture_cache_sotto_lock():
     # passano dal lock — e nel watchdog la RI-LETTURA anti-race sta nella stessa
     # sezione critica del set (Fable final 2° giro: niente finestra check→set).
     fn_cached = src[src.index("def _csv_writable_cached"):src.index("def _kick_csv_probe_async")]
-    assert fn_cached.count('setdefault("_csv_probe_lock"') == 3, (
-        "le 3 scritture della cache in _csv_writable_cached (cap, stallo, sync) "
-        "devono essere serializzate dal lock")
+    assert fn_cached.count('setdefault("_csv_probe_lock"') == 5, (
+        "le 5 scritture della cache in _csv_writable_cached devono essere serializzate "
+        "dal lock: cap rifiutato + stallo watchdog (rami TTL-scaduto), force (sync), e i "
+        "due nuovi rami del primo probe async A1 #114 (provvisorio + cap saturo)")
     dentro_lock = re.findall(
         r"with self\.__dict__\.setdefault\(\"_csv_probe_lock\".*\n(?:\s+#.*\n)*\s+cur = "
         r"self\.__dict__\.get\(\"_csv_probe_cache\"\)", fn_cached)
@@ -392,7 +465,8 @@ def test_worker_probe_che_solleva_non_uccide_niente(make_app, app_mod, monkeypat
 
     monkeypatch.setattr(app_mod.health_check, "csv_writable", _probe)
 
-    app_mod.App._csv_writable_cached(a, "Z:/s.csv")                 # 1: sincrono ok
+    app_mod.App._csv_writable_cached(a, "Z:/s.csv")                 # 1: primo probe async ok
+    _attendi_worker(a)                                             # seed (n=1)
     clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
     app_mod.App._csv_writable_cached(a, "Z:/s.csv")                 # 2: async, solleva
     _attendi_worker(a)

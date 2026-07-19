@@ -40,17 +40,20 @@ def _orologio(app_mod, monkeypatch, start=1000.0):
 
 
 def test_nel_ttl_un_solo_probe_reale(make_app, app_mod, monkeypatch):
-    """FAIL-FIRST: pre-patch ogni chiamata colpiva il filesystem (niente cache,
-    niente `_csv_writable_cached`)."""
+    """Dentro il TTL il probe REALE parte UNA sola volta. Post-A1 #114: il primo
+    probe di un path è async (giallo provvisorio + worker) → join deterministico,
+    poi entro il TTL la cache serve l'esito VERO senza rifare l'I/O."""
     a = make_app(running=False)
     chiamate = _probe_contato(app_mod, monkeypatch)
     clock = _orologio(app_mod, monkeypatch)
 
-    r1 = app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")
-    clock["now"] += app_mod._CSV_PROBE_TTL_S / 2          # dentro il TTL
+    r1 = app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")   # primo probe: async
+    assert r1[0] == app_mod.health_check.YELLOW and "in corso" in r1[1]
+    a.__dict__["_csv_probe_thread"].join(timeout=5)               # worker → esito vero
+    clock["now"] += app_mod._CSV_PROBE_TTL_S / 2                  # dentro il TTL
     r2 = app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")
 
-    assert r1 == r2 == ("GREEN", "ok")
+    assert r2 == ("GREEN", "ok"), "entro il TTL la cache serve l'esito vero del worker"
     assert chiamate == ["Z:/share/out.csv"], "dentro il TTL il probe reale parte UNA volta"
 
 
@@ -59,8 +62,9 @@ def test_ttl_scaduto_riprova_davvero(make_app, app_mod, monkeypatch):
     chiamate = _probe_contato(app_mod, monkeypatch)
     clock = _orologio(app_mod, monkeypatch)
 
-    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")
-    clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1        # TTL scaduto
+    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")   # primo probe: async (A1 #114)
+    a.__dict__["_csv_probe_thread"].join(timeout=5)           # worker #1 completato
+    clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1            # TTL scaduto
     app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")
 
     # Follow-up #76 (nota Fable PR #94): a TTL scaduto il probe fresco parte su un
@@ -86,7 +90,11 @@ def test_probe_lento_timestamp_dopo_il_probe(make_app, app_mod, monkeypatch):
 
     monkeypatch.setattr(app_mod.health_check, "csv_writable", _probe_lento)
 
-    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")
+    # Post-A1 #114: il primo probe gira sul WORKER (mai sul thread chiamante); il
+    # timestamp della cache lo prende il worker DOPO l'I/O → join, poi la 2ª lettura
+    # resta fresca senza rifare la sonda bloccante.
+    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # async: worker esegue la sonda
+    a.__dict__["_csv_probe_thread"].join(timeout=5)
     r2 = app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")   # subito dopo il rientro
 
     assert chiamate == ["Z:/share/out.csv"], (
@@ -102,8 +110,12 @@ def test_cambio_path_probe_immediato(make_app, app_mod, monkeypatch):
     chiamate = _probe_contato(app_mod, monkeypatch)
     _orologio(app_mod, monkeypatch)                       # orologio fermo: TTL mai scaduto
 
+    # Post-A1 #114: il primo probe di OGNI path è async → join dei due worker prima
+    # di contare (la sonda appende su `chiamate` dal worker).
     app_mod.App._csv_writable_cached(a, "C:/vecchio.csv")
+    a.__dict__["_csv_probe_thread"].join(timeout=5)
     app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")
+    a.__dict__["_csv_probe_thread"].join(timeout=5)
 
     assert chiamate == ["C:/vecchio.csv", "C:/nuovo.csv"]
 
@@ -115,6 +127,7 @@ def test_force_bypassa_la_cache(make_app, app_mod, monkeypatch):
     _orologio(app_mod, monkeypatch)                       # orologio fermo
 
     app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")
+    a.__dict__["_csv_probe_thread"].join(timeout=5)       # primo probe (async) completato
     app_mod.App._csv_writable_cached(a, "Z:/share/out.csv", force=True)
 
     assert len(chiamate) == 2
@@ -122,20 +135,21 @@ def test_force_bypassa_la_cache(make_app, app_mod, monkeypatch):
 
 def test_live_health_items_usa_la_cache(make_app, app_mod, monkeypatch):
     """Il percorso REALE per-messaggio (`_live_health_items`) passa dalla cache:
-    due refresh ravvicinati = un solo I/O filesystem."""
+    dopo il primo probe (async, A1 #114) l'esito VERO della sonda si propaga e i
+    refresh ravvicinati non rifanno l'I/O (un solo probe reale entro il TTL)."""
     a = make_app(running=False, config={"csv_path": "Z:/share/out.csv"})
     a._last_vals = {}
     a._listener_state = app_mod.health_check.LISTENER_OFFLINE
-    chiamate = _probe_contato(app_mod, monkeypatch, esito=("YELLOW", "share lenta"))
+    chiamate = _probe_contato(app_mod, monkeypatch, esito=("RED", "share morta"))
     _orologio(app_mod, monkeypatch)                       # orologio fermo: stesso TTL
 
-    items1 = app_mod.App._live_health_items(a)
+    app_mod.App._live_health_items(a)                     # primo probe: async (giallo provvisorio)
+    a.__dict__["_csv_probe_thread"].join(timeout=5)       # worker → esito vero in cache
     items2 = app_mod.App._live_health_items(a)
 
     assert chiamate == ["Z:/share/out.csv"], "refresh ravvicinati: un solo probe reale"
-    csv1 = next(i for i in items1 if i.key == "csv")
     csv2 = next(i for i in items2 if i.key == "csv")
-    assert csv1.state == csv2.state == "YELLOW"           # esito della sonda propagato
+    assert csv2.state == "RED"                            # esito della sonda propagato via cache
     # force_probe=True (pulsante 🔄) attraversa tutta la catena e riprova davvero.
     app_mod.App._live_health_items(a, True)
     assert len(chiamate) == 2
