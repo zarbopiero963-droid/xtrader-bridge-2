@@ -325,13 +325,15 @@ def test_worker_in_volo_non_sovrascrive_force_fresco(make_app, app_mod, monkeypa
     TEMPORALE (cache aggiornata dopo l'avvio del worker → si scarta)."""
     a = make_app(running=False)
     clock = _orologio(app_mod, monkeypatch)
-    parti = threading.Event()
+    entrato = threading.Event()                   # il worker ha iniziato il suo probe
+    parti = threading.Event()                     # sblocca il worker (dopo il force)
     chiamate = []
 
     def _probe(path, **_k):
         n = len(chiamate)
         chiamate.append(path)
         if n == 0:                                # SOLO il worker async resta appeso
+            entrato.set()                         # segnala: worker entrato PER PRIMO
             parti.wait(timeout=5)
             return ("GREEN", "vecchio")           # esito PIÙ VECCHIO (probe iniziato prima)
         return ("RED", "fresco force")            # il force, sincrono, esito fresco
@@ -340,6 +342,11 @@ def test_worker_in_volo_non_sovrascrive_force_fresco(make_app, app_mod, monkeypa
 
     app_mod.App._csv_writable_cached(a, "Z:/s.csv")            # primo probe async: worker appeso
     t = a.__dict__["_csv_probe_thread"]
+    # Sincronizzazione DETERMINISTICA (review Fugu PR #115): senza questo, su un
+    # runner lento il main thread potrebbe chiamare il force PRIMA che il worker
+    # entri nel probe → il force diventerebbe la 1ª chiamata (n==0) e il test
+    # diventerebbe flaky. Aspettiamo che il worker sia dentro il probe.
+    assert entrato.wait(timeout=5), "il worker deve entrare nel probe per primo"
     clock["now"] += 1                                          # il force arriva DOPO l'avvio del worker
     r_force = app_mod.App._csv_writable_cached(a, "Z:/s.csv", force=True)
     assert r_force == ("RED", "fresco force")                 # force scrive subito il fresco
