@@ -64,7 +64,7 @@ def test_daily_none_nessun_limite_giorno():
     assert lg.evaluate(_real_cfg(), t, None, "x", now=1000) == lg.WRITE
 
 
-def test_daily_none_con_dry_run_resta_dry_run(monkeypatch=None):
+def test_daily_none_con_dry_run_resta_dry_run():
     """P3-rs1 audit #114 (gap review GLM): con `daily=None` (nessun tetto) il nuovo ordine
     (is_dry_run PRIMA del `daily is not None`) deve restare robusto: in simulazione → DRY_RUN,
     in reale → WRITE. Nessun accesso a `daily` (che è None) su nessuno dei due rami."""
