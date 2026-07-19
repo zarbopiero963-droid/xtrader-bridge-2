@@ -14,6 +14,7 @@ import math
 import os
 import shutil
 import sys
+import time
 
 from . import (atomic_io, autostart, bridge_mode, confirmation_reader, csv_writer,
                dizionario, language_select, recognition, safety_guard, token_store)
@@ -594,7 +595,99 @@ def load_config(path: str = CONFIG_FILE) -> dict:
     return cfg
 
 
+# ── Lock CROSS-PROCESS del salvataggio config (follow-up #76, nota Fable PR #83) ──
+# Due istanze dell'app che salvano insieme intreccerebbero le sequenze keyring↔disco
+# (rollback sul token altrui, sentinel incoerente). Il lock esclusivo OS su un file
+# `<config>.lock` serializza gli interi save tra processi: msvcrt su Windows (target
+# principale), fcntl su POSIX. FAIL-OPEN dopo il timeout — motivazione ONESTA (review
+# Fugu PR #113): i lock OS si RILASCIANO da soli alla morte del processo (niente lock
+# "orfani"), quindi il timeout scatta solo se un processo VIVO tiene il lock oltre 5s —
+# cioè un save PATOLOGICAMENTE appeso nell'altra istanza (es. keyring bloccato: un save
+# normale dura millisecondi). In quel caso residuo si accetta l'interleaving (la
+# scrittura resta atomica via `os.replace`) pur di non congelare la GUI a tempo
+# indefinito: priorità 6 del repo (START/STOP e GUI mai bloccati). Tradeoff dichiarato,
+# non una garanzia assoluta di serializzazione sotto contention patologica.
+_CONFIG_LOCK_SUFFIX = ".lock"
+_CONFIG_LOCK_TIMEOUT_S = 5.0
+
+
+def _acquire_config_lock(path: str, timeout_s: float = None):
+    """Acquisisce il lock cross-process del config. Ritorna l'handle del file di
+    lock (da passare a `_release_config_lock`) o ``None`` in FAIL-OPEN (timeout
+    con l'altra istanza VIVA appesa oltre la soglia, filesystem senza lock,
+    cartella non scrivibile): il save procede comunque, solo non serializzato —
+    mai bloccare la GUI per il lock (vedi il commento sul tradeoff qui sopra)."""
+    if timeout_s is None:
+        timeout_s = _CONFIG_LOCK_TIMEOUT_S       # letto a runtime (testabile)
+    lock_path = str(path) + _CONFIG_LOCK_SUFFIX
+    try:
+        _ensure_dir(path)
+        handle = open(lock_path, "a+b")
+    except OSError:
+        return None                              # fail-open: niente lock possibile
+    deadline = time.monotonic() + timeout_s
+    while True:
+        try:
+            if sys.platform == "win32":          # pragma: no cover - ramo Windows
+                import msvcrt
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return handle
+        except OSError:
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "Lock cross-process del config non acquisito entro %.0fs (%s): "
+                    "un'altra istanza sta salvando? Si procede senza lock "
+                    "(scrittura comunque atomica).", timeout_s, lock_path)
+                try:
+                    handle.close()
+                except OSError:
+                    pass
+                return None
+            time.sleep(0.05)
+
+
+def _release_config_lock(handle) -> None:
+    """Rilascia il lock cross-process (no-op su handle ``None``). Best-effort:
+    la chiusura del file rilascia comunque il lock OS anche se l'unlock esplicito
+    fallisse."""
+    if handle is None:
+        return
+    try:
+        if sys.platform == "win32":              # pragma: no cover - ramo Windows
+            import msvcrt
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+    try:
+        handle.close()
+    except OSError:
+        pass
+
+
 def save_config(cfg: dict, path: str = CONFIG_FILE):
+    """Salva la configurazione in modo atomico, SERIALIZZATO tra processi.
+
+    Wrapper con lock cross-process (follow-up #76, nota Fable PR #83): l'intera
+    sequenza keyring→disco→rollback di `_save_config_locked` (che porta il
+    contratto completo: SaveResult, token routing, post-corruzione) gira sotto
+    lock esclusivo su `<config>.lock`, così due istanze dell'app non intrecciano
+    mai i loro salvataggi. Fail-open sul lock: vedi `_acquire_config_lock`."""
+    handle = _acquire_config_lock(path)
+    try:
+        return _save_config_locked(cfg, path)
+    finally:
+        _release_config_lock(handle)
+
+
+def _save_config_locked(cfg: dict, path: str = CONFIG_FILE):
     """Salva la configurazione su file (best-effort) in modo **atomico**.
 
     Ritorna un ``SaveResult``, RETRO-COMPATIBILE con la vecchia tupla ``(config_salvata, ok)``

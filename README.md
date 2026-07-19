@@ -240,6 +240,10 @@ La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Co
 [Dove vengono salvati i file](#dove-vengono-salvati-i-file)). Ogni campo mostra un **esempio-guida**
 (placeholder) quando è vuoto; è solo un aiuto visivo e non viene salvato.
 
+> Accanto alla config può comparire un piccolo file `config.json.lock`: serve a
+> serializzare i salvataggi se per errore girano **due istanze** dell'app insieme
+> (follow-up audit #76). È innocuo e può restare lì; non contiene dati.
+
 | Campo GUI | Chiave config | Default | A cosa serve |
 |---|---|---|---|
 | 🔑 **Bot Token** | `bot_token` | *(vuoto)* | Token del bot Telegram (@BotFather). Senza, START è bloccato. Mai mostrato nei log. Salvato nel **keyring del sistema** (Windows Credential Manager); **senza un backend keyring** ripiega sul token **in chiaro** in `config.json` con avviso nel log — vedi [Sicurezza](#sicurezza-simulazione-duplicati-e-limiti). |
