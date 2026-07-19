@@ -55,9 +55,11 @@ def parse_timeout(raw, default: int = DEFAULT_TIMEOUT):
         # Tetto massimo (B2 audit #114): un timeout enorme disattiverebbe di fatto lo
         # svuotamento del CSV (segnale stantio a vita). Messaggio generico e SENZA il
         # valore grezzo, come i rami sopra (stessa invariante: mai valori/segreti nei log).
-        # Il limite è interpolato da `MAX_TIMEOUT` (review Fable/Sourcery PR #116): niente
-        # numero hardcodato che possa driftare se il tetto cambia.
-        return None, f"Timeout troppo grande: max {MAX_TIMEOUT} secondi (24 ore)."
+        # Limite E glossa-ore DERIVATI da `MAX_TIMEOUT` (review Fable/Fugu/GLM/Sourcery
+        # PR #116, convergenti): niente «86400» né «24 ore» hardcodati che possano driftare
+        # se il tetto cambia.
+        return None, (f"Timeout troppo grande: max {MAX_TIMEOUT} secondi "
+                      f"({MAX_TIMEOUT // 3600} ore).")
     return value, None
 
 
