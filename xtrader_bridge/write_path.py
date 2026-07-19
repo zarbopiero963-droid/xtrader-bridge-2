@@ -225,7 +225,8 @@ def _same_rows_unordered(a: list, b: list) -> bool:
     return ca == cb
 
 
-def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows):
+def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows,
+                   disk_dirty=False):
     """Commit MULTI-RIGA (#192): un singolo messaggio produce più righe (MultiMarket/
     MultiSelection). Valuta OGNI riga con **deduplica PER-RIGA** (`signal_dedupe.row_dedup_key`),
     accoda le righe `WRITE` e riscrive ATOMICAMENTE tutte le righe attive, con rollback fail-safe.
@@ -259,7 +260,16 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
     slot, solo normalizzato il giorno). Se NESSUNA riga NUOVA è accettata (tutte duplicati/limiti),
     il CSV operativo NON viene toccato (come il single-row su DUPLICATE). In `DRY_RUN` non si scrive
     e i guardrail sono ripristinati. Se la scrittura fallisce, coda E guardrail tornano allo stato
-    precedente. Per il single-row usare `commit_signal` (percorso legacy invariato)."""
+    precedente. Per il single-row usare `commit_signal` (percorso legacy invariato).
+
+    `disk_dirty` (D1 audit #114, simmetria con `commit_signal`): True se il chiamante sa che il CSV
+    su disco può essere STANTIO rispetto alla coda — una riscrittura precedente (post-conferma o
+    post-scadenza) è fallita e il retry non è ancora riuscito. In quel caso i rami no-op (OVERWRITE
+    col blocco == attivo, oppure APPEND senza righe nuove) NON saltano la scrittura: il presupposto
+    «disco già identico» non vale e si RIALLINEA il disco riscrivendo le righe attive correnti (i
+    guardrail vengono comunque ripristinati e l'esito resta l'esito non-WRITE onesto — DUPLICATE/
+    limite — così `_process` non lo tratta come un nuovo piazzamento, ma sa che il disco è stato
+    riallineato per azzerare `_csv_dirty` su successo)."""
     rows = list(rows or [])
     # kyW #192: fallback cross-namespace PRE-scrittura per uno stato dedupe PERSISTITO da una versione
     # precedente SOLO single-row (che ha registrato l'hash-messaggio ma NON le chiavi per-riga). Se
@@ -356,6 +366,22 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
         return CommitResult(decision=live_guard.DRY_RUN, blocked_by_cap=False,
                             rows=[], write_error=None)
 
+    def _realign_dirty_disk(dec):
+        """D1 audit #114: disco STANTIO (retry pendente) + commit multi senza cambiamento LOGICO →
+        riscrive le righe attive correnti per RIALLINEARE il disco, senza toccare la coda (già
+        post-expire) né i guardrail (già ripristinati dal chiamante). Esito NON-WRITE onesto (`dec`)
+        con `write_attempted=True`: `_process` non lo tratta come nuovo piazzamento ma, su successo,
+        azzera `_csv_dirty`. Su write ancora fallita, il disco resta stantio (`_csv_dirty` invariato,
+        retry pendente) — nessun rollback ulteriore: non abbiamo accodato nulla di nuovo."""
+        active_now = queue.active_rows(now=now)
+        try:
+            write_rows(active_now, path)
+        except Exception as ex:   # noqa: BLE001 — riportato al chiamante, no crash
+            return CommitResult(decision=dec, blocked_by_cap=False, rows=[],
+                                write_error=ex, write_attempted=True)
+        return CommitResult(decision=dec, blocked_by_cap=False, rows=active_now,
+                            write_error=None, write_attempted=True)
+
     if overwrite:
         # Il blocco È l'istruzione corrente (righe nuove + duplicate ANCORA attive). Si riscrive il
         # CSV SOLO se differisce — per contenuto — dalle righe già attive: reinvio identico → nessuna
@@ -364,11 +390,10 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
         # il CSV: lo svuotamento a timeout è compito dell'expire-tick, non di un reinvio.
         current_active = queue.active_rows(now=now)
         if not block or _same_rows_unordered(block, current_active):
-            # NESSUN cambiamento reale (blocco == attivo, anche solo RIORDINATO) → non riscrivere e
-            # RIPRISTINA i guardrail: una riga WRITE con chiave dedup SCADUTA (clear_delay > finestra
-            # dedup) ha già registrato tracker/daily pur non scrivendo nulla; senza rollback conterebbe
-            # un non-write contro i limiti e `_process` lo vedrebbe come WRITE riuscito (Codex #281).
-            queue.restore_state(queue_snap)
+            # NESSUN cambiamento reale (blocco == attivo, anche solo RIORDINATO) → RIPRISTINA i
+            # guardrail: una riga WRITE con chiave dedup SCADUTA (clear_delay > finestra dedup) ha
+            # già registrato tracker/daily pur non scrivendo nulla; senza rollback conterebbe un
+            # non-write contro i limiti e `_process` lo vedrebbe come WRITE riuscito (Codex #281).
             if tracker is not None:
                 tracker.restore_state(tracker_snap)
                 # daily: `release()` per ogni slot consumata dalle righe WRITE (aged-out), mantenendo
@@ -376,10 +401,24 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
                 if daily is not None:
                     for _ in range(len(new_rows)):
                         daily.release()
+            if disk_dirty:
+                # D1: blocco == attivo ma il DISCO è STANTIO (retry pendente) → si RIALLINEA
+                # riscrivendo le righe attive correnti. La coda resta post-expire (== current_active)
+                # per combaciare col disco riscritto: NON si ripristina la coda qui.
+                return _realign_dirty_disk(_noop_decision(decisions))
+            # Disco già identico all'attivo → non riscrivere (XTrader non riconsuma) e RIPRISTINA la
+            # coda: l'expire di un reinvio identico non è compito suo, ma dell'expire-tick.
+            queue.restore_state(queue_snap)
             return CommitResult(decision=_noop_decision(decisions), blocked_by_cap=False,
                                 rows=current_active, write_error=None)
         queue.replace_block(block, now=now, keys=block_keys)
     elif not new_rows:
+        if disk_dirty:
+            # D1 audit #114: nessuna riga NUOVA ma DISCO STANTIO (retry pendente) → si RIALLINEA
+            # riscrivendo le righe attive correnti (post-expire). Nessun guardrail nuovo da annullare
+            # (in append le righe WRITE sono sempre accodate → finiscono in `new_rows`, qui vuoto).
+            # La coda resta post-expire per combaciare col disco riscritto.
+            return _realign_dirty_disk(_summary_decision(decisions, 0))
         # APPEND/QUEUE: nessuna riga NUOVA accodata (tutte duplicati/limiti) → CSV invariato (come il
         # single-row su DUPLICATE). Nessun guardrail da annullare: in append le righe WRITE sono
         # sempre accodate (`force=True`) quindi finiscono in `new_rows`; qui non ce n'erano.

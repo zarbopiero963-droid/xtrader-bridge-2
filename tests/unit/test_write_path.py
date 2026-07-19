@@ -164,6 +164,118 @@ def test_blocco_da_tetto_disco_sporco_sincronizza_anche_senza_scaduti():
     assert reg.status != signal_dedupe.DUPLICATE
 
 
+# ── D1 audit #114: `commit_signals` (multi-riga) riallinea il disco stantio ────
+# Simmetria col single-row: i rami no-op del commit MULTI (OVERWRITE col blocco == attivo,
+# APPEND senza righe nuove) NON devono saltare la scrittura quando il disco è STANTIO.
+
+
+def test_overwrite_reinvio_identico_disco_sporco_riallinea():
+    """FAIL-FIRST D1 #114: in OVERWRITE un reinvio IDENTICO normalmente NON riscrive (XTrader non
+    riconsuma). Ma col DISCO STANTIO (`disk_dirty=True`: una riscrittura precedente è fallita,
+    retry pendente) il commit MULTI deve RIALLINEARE il disco riscrivendo le righe attive
+    correnti, invece di lasciarlo stantio."""
+    tracker, daily, queue = _fresh(mode=signal_queue.OVERWRITE_LAST, max_active=0)
+    rowA = _row("A")
+    write_path.commit_signals(
+        tracker, daily, queue, CFG_REAL, "msgA", [rowA], "out.csv", 100.0, _ok_writer([]))
+    written = []
+    res = write_path.commit_signals(
+        tracker, daily, queue, CFG_REAL, "msgA", [rowA], "out.csv", 101.0, _ok_writer(written),
+        disk_dirty=True)
+    assert res.write_attempted is True
+    assert res.write_error is None
+    assert written == [[rowA]]                 # disco riallineato alle attive correnti
+    assert res.decision != live_guard.WRITE    # esito onesto: reinvio identico, NON nuovo piazzamento
+    assert queue.active_rows() == [rowA]       # una sola riga attiva: nessuna doppia scommessa
+
+
+def test_overwrite_reinvio_identico_disco_pulito_non_riscrive():
+    """Controprova: senza `disk_dirty`, il reinvio identico OVERWRITE NON tocca il CSV
+    (comportamento storico invariato)."""
+    tracker, daily, queue = _fresh(mode=signal_queue.OVERWRITE_LAST, max_active=0)
+    rowA = _row("A")
+    write_path.commit_signals(
+        tracker, daily, queue, CFG_REAL, "msgA", [rowA], "out.csv", 100.0, _ok_writer([]))
+    written = []
+    res = write_path.commit_signals(
+        tracker, daily, queue, CFG_REAL, "msgA", [rowA], "out.csv", 101.0, _ok_writer(written))
+    assert written == []                       # nessuna riscrittura
+    assert res.write_attempted is False
+    assert res.decision != live_guard.WRITE
+
+
+def test_append_reinvio_identico_disco_sporco_riallinea():
+    """FAIL-FIRST D1 #114: in APPEND/QUEUE un reinvio senza righe NUOVE (tutte duplicati)
+    normalmente non tocca il CSV. Col DISCO STANTIO (`disk_dirty=True`) il commit MULTI deve
+    RIALLINEARE riscrivendo le righe attive correnti."""
+    tracker, daily, queue = _fresh(mode=signal_queue.APPEND_ACTIVE, max_active=0)
+    rowA = _row("A")
+    write_path.commit_signals(
+        tracker, daily, queue, CFG_REAL, "msgA", [rowA], "out.csv", 100.0, _ok_writer([]))
+    written = []
+    res = write_path.commit_signals(
+        tracker, daily, queue, CFG_REAL, "msgA", [rowA], "out.csv", 101.0, _ok_writer(written),
+        disk_dirty=True)
+    assert res.write_attempted is True
+    assert res.write_error is None
+    assert written == [[rowA]]
+    assert res.decision != live_guard.WRITE
+    assert queue.active_rows() == [rowA]       # nessuna doppia riga
+
+
+def test_append_reinvio_identico_disco_pulito_non_riscrive():
+    """Controprova: senza `disk_dirty`, il reinvio senza righe nuove APPEND NON tocca il CSV."""
+    tracker, daily, queue = _fresh(mode=signal_queue.APPEND_ACTIVE, max_active=0)
+    rowA = _row("A")
+    write_path.commit_signals(
+        tracker, daily, queue, CFG_REAL, "msgA", [rowA], "out.csv", 100.0, _ok_writer([]))
+    written = []
+    res = write_path.commit_signals(
+        tracker, daily, queue, CFG_REAL, "msgA", [rowA], "out.csv", 101.0, _ok_writer(written))
+    assert written == []
+    assert res.write_attempted is False
+    assert res.decision != live_guard.WRITE
+
+
+def test_realign_disco_sporco_write_fallita_riporta_errore():
+    """Se la riscrittura di RIALLINEAMENTO (disk_dirty) fallisce di nuovo, l'errore è riportato
+    (`write_attempted=True`, `write_error` valorizzato) e il disco resta stantio: il chiamante
+    tiene `_csv_dirty` e il retry riproverà. Nessuna doppia riga introdotta."""
+    tracker, daily, queue = _fresh(mode=signal_queue.OVERWRITE_LAST, max_active=0)
+    rowA = _row("A")
+    write_path.commit_signals(
+        tracker, daily, queue, CFG_REAL, "msgA", [rowA], "out.csv", 100.0, _ok_writer([]))
+    res = write_path.commit_signals(
+        tracker, daily, queue, CFG_REAL, "msgA", [rowA], "out.csv", 101.0, _boom_writer(),
+        disk_dirty=True)
+    assert res.write_attempted is True
+    assert res.write_error is not None
+    # Contratto completo del CommitResult sul fallimento (review Sourcery #117): nessuna riga
+    # committata e esito NON-WRITE onesto (reinvio identico = DUPLICATE), mai spacciato per WRITE.
+    assert res.rows == []
+    assert res.decision == live_guard.DUPLICATE
+    assert queue.active_rows() == [rowA]       # coda coerente: una sola riga attiva
+
+
+def test_realign_disco_sporco_coda_vuota_ripulisce_il_csv():
+    """Review GLM #117: disco STANTIO ma coda VUOTA (nessun segnale attivo) → il realign scrive
+    le righe attive correnti = VUOTE, cioè RIPULISCE il CSV stantio (solo header). È il
+    riallineamento CORRETTO: senza segnali attivi il disco deve riflettere lo stato vuoto, non
+    restare con contenuto stantio. Nessuna riga fantasma introdotta. (Il realign scrive SEMPRE
+    le attive correnti della coda — fonte di verità — quindi non può mai svuotare un CSV che
+    la coda considera ancora pieno.)"""
+    tracker, daily, queue = _fresh(mode=signal_queue.OVERWRITE_LAST, max_active=0)
+    written = []
+    res = write_path.commit_signals(
+        tracker, daily, queue, CFG_REAL, "msg", [], "out.csv", 100.0, _ok_writer(written),
+        disk_dirty=True)
+    assert res.write_attempted is True
+    assert res.write_error is None
+    assert written == [[]]                     # coda vuota → riscrive vuoto (clear del disco stantio)
+    assert res.decision != live_guard.WRITE
+    assert queue.active_rows() == []
+
+
 def test_duplicato_non_scrive_e_non_tocca_la_coda():
     tracker, daily, queue = _fresh()
     row = _row("A")
