@@ -202,7 +202,7 @@ def test_worker_appeso_oltre_stallo_giallo_onesto_poi_recovery(
     blocco.set()                                                    # la share risponde
     _attendi_worker(a)
     assert a._csv_probe_cache[2] == ("GREEN", "ok"), "auto-recovery: esito vero in cache"
-    assert a.__dict__.get("_csv_probe_inflight_path") is None
+    assert not any(t.is_alive() for t, _p, _s in a._csv_probe_threads)
 
 
 def test_worker_appeso_su_path_vecchio_non_blocca_il_path_nuovo(
@@ -258,11 +258,14 @@ def test_watchdog_non_sovrascrive_esito_fresco_appena_arrivato(
     app_mod.App._csv_writable_cached(a, "Z:/s.csv")                 # worker (istantaneo)
     _attendi_worker(a)
 
-    # Simula: worker in volo col kick oltre soglia, che completa DURANTE la
-    # chiamata (il fake kick scrive l'esito fresco come farebbe il worker).
+    # Simula: worker in volo (registro per-path) con avvio oltre soglia, che
+    # completa DURANTE la chiamata (il fake kick scrive l'esito fresco come
+    # farebbe il worker).
+    import types
     clock["now"] += app_mod._CSV_PROBE_STALL_S + 1
-    a._csv_probe_kick = ("Z:/s.csv", clock["now"] - app_mod._CSV_PROBE_STALL_S - 1)
-    a._csv_probe_inflight_path = "Z:/s.csv"
+    finto_vivo = types.SimpleNamespace(is_alive=lambda: True)
+    a._csv_probe_threads = [(finto_vivo, "Z:/s.csv",
+                             clock["now"] - app_mod._CSV_PROBE_STALL_S - 1)]
 
     def _fake_kick(path):
         a._csv_probe_cache = (path, clock["now"], ("GREEN", "FRESCO"))
@@ -275,7 +278,7 @@ def test_watchdog_non_sovrascrive_esito_fresco_appena_arrivato(
     assert r == ("GREEN", "FRESCO"), (
         "un esito vero appena scritto dal worker non va MAI sovrascritto col giallo di stallo")
     assert a._csv_probe_cache[2] == ("GREEN", "FRESCO")
-    a._csv_probe_inflight_path = None             # cleanup stato simulato
+    a._csv_probe_threads = []                     # cleanup stato simulato
 
 
 def test_cap_worker_appesi_su_path_multipli(make_app, app_mod, monkeypatch):
@@ -304,24 +307,32 @@ def test_cap_worker_appesi_su_path_multipli(make_app, app_mod, monkeypatch):
         clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
         app_mod.App._csv_writable_cached(a, p)                    # worker appeso
 
-    vivi = [t for t in a._csv_probe_threads if t.is_alive()]
-    assert len(vivi) == cap
+    assert len([t for t, _p, _s in a._csv_probe_threads if t.is_alive()]) == cap
 
-    # Path nuovo oltre il cap: sincrono ok, ma a TTL scaduto NIENTE nuovo worker
-    # e semaforo GIALLO ONESTO (pre-patch: partiva l'ennesimo worker appeso).
-    app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")           # sincrono (n=1)
+    # Cap saturo di path ABBANDONATI: il path corrente usa lo SLOT RISERVATO
+    # (priorità al path attivo, review Fugu) — il suo worker parte comunque.
+    app_mod.App._csv_writable_cached(a, "C:/riserva.csv")         # sincrono (n=1)
     clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
-    r = app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")
+    r_ris = app_mod.App._csv_writable_cached(a, "C:/riserva.csv") # worker (appeso)
+    assert r_ris == ("GREEN", "ok:C:/riserva.csv"), (
+        "col cap saturo il path corrente deve poter sondare (slot riservato)")
+    assert len([t for t, _p, _s in a._csv_probe_threads if t.is_alive()]) == cap + 1
+
+    # Esaurito anche lo slot riservato: NIENTE nuovo worker e GIALLO ONESTO
+    # (pre-patch: partiva l'ennesimo worker appeso senza limite).
+    app_mod.App._csv_writable_cached(a, "C:/extra.csv")           # sincrono (n=1)
+    clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
+    r = app_mod.App._csv_writable_cached(a, "C:/extra.csv")
 
     assert r[0] == app_mod.health_check.YELLOW
     assert "troppi controlli" in r[1]
-    assert len([t for t in a._csv_probe_threads if t.is_alive()]) == cap, (
-        "oltre il cap NESSUN nuovo worker deve partire")
+    assert len([t for t, _p, _s in a._csv_probe_threads if t.is_alive()]) == cap + 1, (
+        "oltre il bound duro (cap+1) NESSUN nuovo worker deve partire")
 
     blocco.set()                                  # le share «rispondono»: cleanup
-    for t in list(a._csv_probe_threads):
+    for t, _p, _s in list(a._csv_probe_threads):
         t.join(timeout=5)
-    assert not any(t.is_alive() for t in a._csv_probe_threads)
+    assert not any(t.is_alive() for t, _p, _s in a._csv_probe_threads)
 
 
 def test_worker_probe_che_solleva_non_uccide_niente(make_app, app_mod, monkeypatch):
@@ -344,7 +355,9 @@ def test_worker_probe_che_solleva_non_uccide_niente(make_app, app_mod, monkeypat
     app_mod.App._csv_writable_cached(a, "Z:/s.csv")                 # 2: async, solleva
     _attendi_worker(a)
 
-    assert a.__dict__.get("_csv_probe_inflight_path") is None       # stato sbloccato
+    # Rilascio NATURALE: il worker morto esce dal registro alla potatura del
+    # prossimo kick — nessun thread vivo resta a bloccare il retry.
+    assert not any(t.is_alive() for t, _p, _s in a._csv_probe_threads)
     clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
     app_mod.App._csv_writable_cached(a, "Z:/s.csv")                 # 3: riprova
     _attendi_worker(a)

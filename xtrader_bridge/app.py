@@ -129,8 +129,10 @@ _CSV_PROBE_STALL_S = 3 * _CSV_PROBE_TTL_S
 # Cap dei worker probe VIVI (review Fugu PR #111): ogni path abbandonato su share
 # morta può lasciare un worker daemon appeso (os.access non interrompibile) — senza
 # tetto, cambi ripetuti di csv_path accumulerebbero thread senza limite in un
-# processo GUI long-running. Oltre il cap non si lancia nessun nuovo worker e il
-# semaforo degrada a giallo onesto («troppi controlli bloccati»).
+# processo GUI long-running. Bound duro = cap + 1: l'ultimo slot è riservato al
+# path CORRENTE (priorità al path attivo anche con cap saturo di path abbandonati);
+# esaurito anche quello, nessun nuovo worker e giallo onesto («troppi controlli
+# bloccati»).
 _CSV_PROBE_MAX_WORKERS = 4
 
 # Quanti eventi tenere nel ledger append-only (#230): potato allo startup per non far
@@ -1590,7 +1592,7 @@ class App(ctk.CTk):
             # scaduto può congelare la GUI su uno share degradato. La cache viene
             # aggiornata dal worker; il semaforo si rinfresca via `_safe_after`.
             if not self._kick_csv_probe_async(path):
-                # Cap di worker raggiunto (review Fugu PR #111): troppi controlli
+                # Bound duro raggiunto (review Fugu PR #111): troppi controlli
                 # appesi su share morte — nessun probe possibile per questo path →
                 # GIALLO ONESTO subito, mai uno stantio spacciato per fresco.
                 stalled = (health_check.YELLOW,
@@ -1598,14 +1600,15 @@ class App(ctk.CTk):
                            "(share non rispondono?)")
                 self._csv_probe_cache = (path, time.monotonic(), stalled)
                 return stalled
-            # Watchdog di stallo (review Fable PR #111): worker appeso oltre la
-            # soglia (share che non risponde) → GIALLO ONESTO in cache, mai un 🟢
-            # stantio spacciato per fresco mentre i write falliscono. Il kick è
-            # PER-PATH (Fable final): un worker appeso su un path abbandonato non
-            # deve ingiallire il semaforo del path corrente sano.
-            kick = self.__dict__.get("_csv_probe_kick")
-            if (kick is not None and kick[0] == path
-                    and now - kick[1] > _CSV_PROBE_STALL_S):
+            # Watchdog di stallo (review Fable PR #111): worker di QUESTO path in
+            # volo da oltre la soglia (share che non risponde) → GIALLO ONESTO in
+            # cache, mai un 🟢 stantio spacciato per fresco mentre i write
+            # falliscono. Il registro è PER-PATH: un worker appeso su un path
+            # abbandonato non ingiallisce il semaforo del path corrente sano.
+            vivi = self.__dict__.get("_csv_probe_threads", ())
+            avvio = next((s for (t, p, s) in vivi
+                          if p == path and t.is_alive()), None)
+            if avvio is not None and now - avvio > _CSV_PROBE_STALL_S:
                 # Ri-lettura prima di degradare (race Fable final): il worker può
                 # aver scritto l'esito VERO tra la lettura in testa e qui — un
                 # esito fresco non va mai sovrascritto con lo stallo.
@@ -1632,36 +1635,35 @@ class App(ctk.CTk):
         """Lancia il probe `csv_writable` su un thread worker daemon (follow-up #76,
         nota Fable PR #94): aggiorna la cache TTL e schedula un refresh del pannello
         Salute via `_safe_after` (TclError-safe, P3-10) senza aspettare il prossimo
-        messaggio. Un probe che solleva non propaga mai: rilascia lo stato e il
-        giro successivo riprova (diagnostica best-effort).
+        messaggio. Un probe che solleva non propaga mai (diagnostica best-effort).
 
-        Stato PER-PATH (review Fable final PR #111): `_csv_probe_inflight_path` è
-        il path del worker in volo (None = libero). Un worker appeso su un path
-        ABBANDONATO (share morta + cambio path) non blocca i probe del path
-        corrente: se ne lancia uno nuovo. Il contrassegno di rilascio (claim)
-        garantisce che il `finally` di un worker vecchio non azzeri lo stato di
-        uno più nuovo.
+        Registro PER-PATH `_csv_probe_threads` = lista di tuple
+        `(thread, path, avvio)` potata dai morti a OGNI tentativo (review Fable/
+        Fugu PR #111): è l'unica fonte di verità — dedup («al più una sonda per
+        path», anche su sequenze A→B→A), watchdog di stallo (timestamp d'avvio
+        per-path) e rilascio NATURALE alla morte del thread (niente flag/claim da
+        azzerare → niente race di rilascio). Check-then-set serializzato da
+        `_csv_probe_lock`.
 
         Bound ESPLICITO (review Fugu PR #111): al più `_CSV_PROBE_MAX_WORKERS`
-        worker VIVI in totale — cambi ripetuti di path su share morte non
-        accumulano thread senza limite. Ritorna False se il cap impedisce il
-        probe (il chiamante degrada a giallo onesto). Check-then-set serializzato
-        da `_csv_probe_lock` (niente più race sul kick cross-thread)."""
+        worker vivi, più UNO slot riservato al path corrente (bound duro = cap+1):
+        con il cap saturo di worker appesi su path ABBANDONATI (share morte), il
+        path corrente può comunque sondare — cambi ripetuti di path restano
+        bounded. Ritorna False se nemmeno lo slot riservato è disponibile (il
+        chiamante degrada a giallo onesto)."""
         lock = self.__dict__.setdefault("_csv_probe_lock", threading.Lock())
         with lock:
-            if self.__dict__.get("_csv_probe_inflight_path") == path:
-                return True               # worker già in volo per QUESTO path
-            vivi = [t for t in self.__dict__.get("_csv_probe_threads", ())
+            vivi = [(t, p, s) for (t, p, s)
+                    in self.__dict__.get("_csv_probe_threads", ())
                     if t.is_alive()]
-            if len(vivi) >= _CSV_PROBE_MAX_WORKERS:
-                self._csv_probe_threads = vivi
-                return False              # cap raggiunto: nessun nuovo worker
-            claim = object()
-            self._csv_probe_worker_claim = claim
-            self._csv_probe_inflight_path = path
-            # Kick per-path per il watchdog di stallo (review Fable PR #111).
-            self._csv_probe_kick = (path, time.monotonic())
-
+            self._csv_probe_threads = vivi        # potatura a ogni tentativo
+            if any(p == path for _t, p, _s in vivi):
+                return True               # sonda già in volo per QUESTO path
+            # Bound duro cap+1: l'ultimo slot è di fatto riservato al path
+            # corrente (i path abbandonati non possono occuparlo: ogni kick
+            # arriva sempre dal path corrente e al più uno per path).
+            if len(vivi) > _CSV_PROBE_MAX_WORKERS:
+                return False
             def _worker():
                 try:
                     result = health_check.csv_writable(path)
@@ -1679,16 +1681,9 @@ class App(ctk.CTk):
                     # share instabile che solleva a metà probe non deve uccidere
                     # niente; cache invariata, si riproverà al prossimo giro.
                     pass
-                finally:
-                    # Rilascio SOLO se questo worker è ancora l'ultimo lanciato:
-                    # il finally tardivo di un worker vecchio (share morta) non
-                    # deve azzerare lo stato del worker nuovo di un altro path.
-                    with lock:
-                        if self.__dict__.get("_csv_probe_worker_claim") is claim:
-                            self._csv_probe_inflight_path = None
 
             t = threading.Thread(target=_worker, daemon=True, name="csv-probe-async")
-            self._csv_probe_threads = vivi + [t]
+            self._csv_probe_threads = vivi + [(t, path, time.monotonic())]
             self._csv_probe_thread = t      # esposto per i test (join deterministico)
             t.start()
             return True
