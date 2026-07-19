@@ -17,6 +17,7 @@ un passo successivo (come `parser_manager` CP-07 ha preceduto CP-09), così ques
 parte resta interamente testabile headless e a rischio zero per il CSV.
 """
 
+import hashlib
 import logging
 import math
 import re
@@ -114,6 +115,13 @@ _WARNED_CAP = 256
 _WARNED_LOCK = threading.Lock()
 
 
+def _digest(s: str) -> str:
+    """Digest sha256 esadecimale per le chiavi di dedup dei warning: memoria fissa
+    e niente collisioni pratiche (follow-up #76, nota PR #104; a scope di modulo
+    per non riallocare la closure a ogni chiamata — review Sourcery PR #110)."""
+    return hashlib.sha256(s.encode("utf-8", "backslashreplace")).hexdigest()
+
+
 def _reset_warnings() -> None:
     """Svuota il dedup dei warning: per i test e per un eventuale futuro hook di
     reload config (così una chat corretta e poi ri-corrotta torna a essere segnalata)."""
@@ -156,10 +164,13 @@ def _normalize_source(raw: dict) -> dict:
         # e TRONCATI (niente righe giganti né leak lunghi): mai altri campi della
         # config nel log. Freccia ASCII: handler Windows non-UTF8 (review GPT).
         chat = str(raw.get("chat_id", "") or "").strip()
-        # Chiave di dedup su HASH dei valori COMPLETI: dimensione fissa in memoria
+        # Chiave di dedup su DIGEST dei valori COMPLETI: dimensione fissa in memoria
         # (nessun chat_id/valore gigante trattenuto) e nessuna collisione di prefisso
-        # tra valori distinti che condividono i primi 57 caratteri.
-        key = (hash(chat), hash(ascii(raw_enabled)))
+        # tra valori distinti che condividono i primi 57 caratteri. Follow-up #76
+        # (nota PR #104): sha256 al posto di `hash()` — niente collisioni pratiche
+        # che sopprimerebbero il warning di una coppia chat+valore DIVERSA (pattern
+        # allineato con `name_mapping_store._warn_malformed`).
+        key = (_digest(chat), _digest(ascii(raw_enabled)))
         with _WARNED_LOCK:                       # una volta per chat+valore: no spam
             warn = key not in _WARNED_ENABLED and len(_WARNED_ENABLED) < _WARNED_CAP
             if warn:
