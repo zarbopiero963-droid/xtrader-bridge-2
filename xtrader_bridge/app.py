@@ -1627,12 +1627,12 @@ class App(ctk.CTk):
         il path del worker in volo (None = libero). Un worker appeso su un path
         ABBANDONATO (share morta + cambio path) non blocca i probe del path
         corrente: se ne lancia uno nuovo — accumulo bounded dai cambi path reali,
-        al più un worker vivo per path. Il token di rilascio garantisce che il
+        al più un worker vivo per path. Il contrassegno di rilascio (claim) garantisce che il
         `finally` di un worker vecchio non azzeri lo stato di uno più nuovo."""
         if self.__dict__.get("_csv_probe_inflight_path") == path:
             return                        # worker già in volo per QUESTO path
-        token = object()
-        self._csv_probe_worker_token = token
+        claim = object()
+        self._csv_probe_worker_claim = claim
         self._csv_probe_inflight_path = path
         # Kick per-path per il watchdog di stallo (review Fable PR #111).
         self._csv_probe_kick = (path, time.monotonic())
@@ -1658,7 +1658,7 @@ class App(ctk.CTk):
                 # Rilascio SOLO se questo worker è ancora l'ultimo lanciato: il
                 # finally tardivo di un worker vecchio (share morta) non deve
                 # azzerare lo stato del worker nuovo di un altro path.
-                if self.__dict__.get("_csv_probe_worker_token") is token:
+                if self.__dict__.get("_csv_probe_worker_claim") is claim:
                     self._csv_probe_inflight_path = None
 
         t = threading.Thread(target=_worker, daemon=True, name="csv-probe-async")
