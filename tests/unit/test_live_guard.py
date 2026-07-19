@@ -88,3 +88,26 @@ def test_duplicato_non_consuma_la_slot_giornaliera():
     assert lg.evaluate(_real_cfg(), t, d, "a", now=1001) == lg.DUPLICATE
     # un messaggio NUOVO ora trova il tetto giornaliero pieno
     assert lg.evaluate(_real_cfg(), t, d, "b", now=1002) == lg.DAILY_LIMITED
+
+
+def test_dry_run_non_consuma_la_slot_giornaliera():
+    """P3-rs1 audit #114: DRY_RUN è valutato PRIMA di `daily.allow()`, quindi la simulazione NON
+    consuma alcuna slot giornaliera (nessun consumo-e-restituzione delegato al chiamante).
+
+    Fail-first: col vecchio ordine (allow PRIMA del dry-run) ogni segnale in simulazione consumava
+    una slot → `remaining` sarebbe sceso a 2."""
+    d = safety_guard.DailyLimiter(max_per_day=3)
+    assert lg.evaluate({"dry_run": True}, _tracker(), d, "x", now=1000) == lg.DRY_RUN
+    assert d.remaining(now=1000) == 3                    # nessuna slot consumata in simulazione
+
+
+def test_dry_run_ha_precedenza_su_daily_limited():
+    """P3-rs1 audit #114: con il tetto giornaliero PIENO, un segnale in simulazione è DRY_RUN, non
+    DAILY_LIMITED — la simulazione non è mai vincolata dal tetto reale (che non consulta nemmeno).
+
+    Fail-first: col vecchio ordine `daily.allow()` (che a tetto pieno ritorna False) veniva PRIMA del
+    check dry-run → l'esito era DAILY_LIMITED."""
+    d = safety_guard.DailyLimiter(max_per_day=1)
+    assert lg.evaluate(_real_cfg(), _tracker(), d, "reale", now=1000) == lg.WRITE   # riempie il tetto
+    # tetto pieno + simulazione (tracker fresco per non incrociare il dedup) → DRY_RUN, non DAILY_LIMITED
+    assert lg.evaluate({"dry_run": True}, _tracker(), d, "sim", now=1001) == lg.DRY_RUN

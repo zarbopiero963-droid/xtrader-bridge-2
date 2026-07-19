@@ -815,10 +815,16 @@ def test_overwrite_last_noop_preserva_giorno_normalizzato(tmp_path):
     assert st["count"] == 2
 
 
-def test_commit_signals_dry_run_preserva_giorno_normalizzato(tmp_path):
-    """P2 (Codex #281, app.py:2163 / DRY_RUN): in DRY_RUN il rollback daily del commit multi deve
-    usare `release()` (giorno normalizzato mantenuto), non `restore_state` (che reintrodurrebbe il
-    giorno malformato dello snapshot)."""
+def test_commit_signals_dry_run_non_tocca_il_daily_si_risana_al_primo_uso_reale(tmp_path):
+    """P3-rs1 audit #114 (commit multi): in DRY_RUN `evaluate` valuta il dry-run PRIMA di
+    `daily.allow()`, quindi il commit multi NON tocca affatto il `DailyLimiter` — niente consumo e
+    niente `release()` (che, senza consumo, restituirebbe la slot di un WRITE reale → overtrading).
+    Un giorno malformato resta com'è durante la simulazione (inerte: il tetto non è mai applicato in
+    DRY_RUN) e si RISANA al primo uso reale (`_roll` in `remaining`/`allow` adotta il giorno corrente
+    conservando il count → fail-closed).
+
+    Fail-first: col vecchio ordine (allow PRIMA del dry-run) + loop di `release()`, la DRY_RUN
+    normalizzava il giorno; ora non tocca nulla (giorno malformato finché non c'è un uso reale)."""
     from xtrader_bridge import safety_guard
     path = str(tmp_path / "segnali.csv")
     rows = _rows(pipe.build_validated_rows(
@@ -830,9 +836,12 @@ def test_commit_signals_dry_run_preserva_giorno_normalizzato(tmp_path):
     res = write_path.commit_signals(tracker, daily, q, cfg, MSG, rows, path, now=0,
                                     write_rows=csv_writer.write_rows)
     assert res.decision == live_guard.DRY_RUN
-    st = daily.state()
-    assert safety_guard._is_valid_day(st["day"])          # giorno normalizzato, non _UNKNOWN_DAY
-    assert st["count"] == 2                                # slot DRY_RUN restituita
+    # DRY_RUN non ha toccato il daily: giorno ANCORA malformato, count invariato (nessun allow/release).
+    assert not safety_guard._is_valid_day(daily.state()["day"])
+    assert daily.state()["count"] == 2
+    # Al PRIMO uso reale il giorno si risana (fail-closed: count conservato, mai reset a cap pieno).
+    assert daily.remaining() == 3                          # `_roll` normalizza (max 5 - count 2)
+    assert safety_guard._is_valid_day(daily.state()["day"])
 
 
 def test_overwrite_last_shrink_riscrive_e_segnala_write(tmp_path):

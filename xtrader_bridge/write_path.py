@@ -14,10 +14,12 @@ INVARIANTI (non negoziabili):
   guardrail riflette SOLO i WRITE reali: il consumo fatto da `evaluate` su un esito che NON
   scrive viene disfatto. DAILY_LIMITED → si annulla solo l'hash del tracker (il tetto non aveva
   consumato slot, solo normalizzato il giorno: si preserva, altrimenti un giorno corrotto
-  bloccherebbe per sempre). DRY_RUN → si annulla l'hash e si **restituisce** la slot giornaliera
-  con `DailyLimiter.release()` (mantenendo il giorno normalizzato). Così la simulazione non
-  consuma tetto/dedupe reali e un segnale soppresso resta ritentabile, senza rischio di doppia
-  scommessa (#184 low-tracker-nonwrite).
+  bloccherebbe per sempre). DRY_RUN → si annulla solo l'hash del tracker: (P3-rs1 audit #114)
+  `evaluate` valuta DRY_RUN PRIMA di `daily.allow()`, quindi in simulazione NESSUNA slot
+  giornaliera è consumata e non serve alcun `release()` (che, senza consumo, restituirebbe la
+  slot di un WRITE reale precedente → overtrading). Così la simulazione non consuma tetto/dedupe
+  reali e un segnale soppresso resta ritentabile, senza rischio di doppia scommessa
+  (#184 low-tracker-nonwrite).
 - **Rollback fail-safe.** Se la scrittura CSV fallisce, coda E guardrail tornano allo
   stato precedente (allineati al CSV ancora su disco): il segnale resta RITENTABILE e in
   OVERWRITE_LAST il precedente non va perso. Stesso rollback dei guardrail quando il
@@ -176,13 +178,12 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows,
         # malformato) e lascerebbe il bridge bloccato per sempre (#184 low-tracker-nonwrite, Codex).
         tracker.restore_state(tracker_snap)
     elif tracker is not None and decision == live_guard.DRY_RUN:
-        # Simulazione: `evaluate` ha registrato l'hash E consumato una slot giornaliera REALE per un
-        # segnale MAI scritto. Si annulla l'hash e si RESTITUISCE la slot con `release()` (decremento
-        # che MANTIENE il giorno normalizzato): così la simulazione non intacca tetto/dedupe reali
-        # senza scartare la normalizzazione del giorno. DUPLICATE/RATE_LIMITED non aggiungono nulla.
+        # Simulazione: `evaluate` ha registrato l'hash nel tracker ma (P3-rs1 audit #114) NON consuma
+        # più alcuna slot giornaliera — il check DRY_RUN precede `daily.allow()`. Basta annullare
+        # l'hash del tracker perché la simulazione non intacchi dedupe reali; il `daily` non è stato
+        # toccato, quindi nessun `release()` (che, senza consumo, restituirebbe la slot di un WRITE
+        # reale precedente → overtrading). DUPLICATE/RATE_LIMITED non aggiungono nulla.
         tracker.restore_state(tracker_snap)
-        if daily is not None:
-            daily.release()
 
     return CommitResult(decision=decision, blocked_by_cap=blocked_by_cap,
                         rows=rows, write_error=write_error,
@@ -352,17 +353,14 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
             # annulla SOLO il tracker (come single-row), non il daily (giorno normalizzato).
             tracker.restore_state(row_tracker_snap)
 
-    # DRY_RUN: simulazione → NON scrivere il CSV operativo; ripristina coda E tracker, e RESTITUISCI
-    # le slot daily consumate (una per riga passata a DRY_RUN) con `release()` invece di ripristinare
-    # lo snapshot: `release` mantiene il giorno già normalizzato da `allow`, mentre `restore_state`
-    # reintrodurrebbe un giorno malformato dello stato di partenza (allineato al single-row, Codex #281).
+    # DRY_RUN: simulazione → NON scrivere il CSV operativo; ripristina coda E tracker. (P3-rs1 audit
+    # #114) `evaluate` valuta DRY_RUN PRIMA di `daily.allow()`, quindi in simulazione NESSUNA slot
+    # giornaliera è stata consumata: niente `release()` (che, senza consumo, restituirebbe la slot di
+    # un WRITE reale precedente → overtrading). Basta ripristinare coda e tracker (dedupe coerente).
     if safety_guard.is_dry_run(cfg):
         queue.restore_state(queue_snap)
         if tracker is not None:
             tracker.restore_state(tracker_snap)
-            if daily is not None:
-                for _ in range(sum(1 for d in decisions if d == live_guard.DRY_RUN)):
-                    daily.release()
         return CommitResult(decision=live_guard.DRY_RUN, blocked_by_cap=False,
                             rows=[], write_error=None)
 
