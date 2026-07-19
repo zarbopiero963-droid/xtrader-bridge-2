@@ -64,6 +64,14 @@ def test_daily_none_nessun_limite_giorno():
     assert lg.evaluate(_real_cfg(), t, None, "x", now=1000) == lg.WRITE
 
 
+def test_daily_none_con_dry_run_resta_dry_run(monkeypatch=None):
+    """P3-rs1 audit #114 (gap review GLM): con `daily=None` (nessun tetto) il nuovo ordine
+    (is_dry_run PRIMA del `daily is not None`) deve restare robusto: in simulazione → DRY_RUN,
+    in reale → WRITE. Nessun accesso a `daily` (che è None) su nessuno dei due rami."""
+    assert lg.evaluate({"dry_run": True}, _tracker(), None, "x", now=1000) == lg.DRY_RUN
+    assert lg.evaluate(_real_cfg(), _tracker(), None, "y", now=1000) == lg.WRITE
+
+
 def test_rollback_dopo_write_fallita_consente_il_retry():
     # Semantica usata da app._process: si fa lo snapshot PRIMA di evaluate; se la
     # scrittura CSV fallisce si ripristina, così lo stesso segnale non resta
