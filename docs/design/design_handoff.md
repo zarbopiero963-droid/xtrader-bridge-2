@@ -1230,9 +1230,15 @@ l'annullo senza toccare nulla.
 - **📁 Profili** → titolo `Elimina profilo`, testo `Eliminare il profilo «{name}»?` +
   `L'azione non è annullabile.`; annullo: `Eliminazione annullata.`
 - **🗺️ Mapping / ⚽ Calcio** → stesso titolo, testo `Eliminare il profilo «{name}» del
-  dizionario nomi?` + coda identica.
+  dizionario nomi?` + coda identica. Se il profilo è **ancora selezionato in parser
+  salvati**, il dialogo aggiunge (follow-up #76) un paragrafo di avviso PRIMA della
+  scelta: `⚠️ «{name}» è ancora selezionato in {count} parser ({names}): dopo
+  l'eliminazione quei segnali verranno scartati (MAPPING_MISSING) finché non togli il
+  profilo da quei parser.` — l'utente decide sapendolo; l'avviso ambra post-eliminazione
+  resta invariato.
 - **🗺️ Mapping / 🎯 Mercati** → testo `Eliminare il profilo «{name}» del dizionario
-  mercati?` + coda identica.
+  mercati?` + coda identica; stesso paragrafo di avviso nel dialogo quando il profilo è
+  in uso (con `MARKET_MAPPING_MISSING`).
 - **🧩 Parser Personalizzato / 🗑 Elimina** → titolo `Elimina parser`, testo
   `Eliminare il parser «{name}»?` + coda identica; annullo: `Eliminazione annullata.`
   Caso limite: se durante il dialogo (modale) la lista parser viene aggiornata e il
