@@ -21,10 +21,30 @@ un `RouteResult` reale.
 """
 
 import csv
+from pathlib import Path
 
 import pytest
 
 from xtrader_bridge import safety_guard, signal_dedupe, signal_queue
+
+_APP_SRC = Path(__file__).resolve().parents[2] / "xtrader_bridge" / "app.py"
+
+
+def test_disk_dirty_letto_via_dict_get_non_getattr():
+    """Regressione #117 (review GPT/GLM/Fable/Fugu, colta dalla CI `integration`): il flag
+    `_csv_dirty` per `disk_dirty` DEVE essere letto con `self.__dict__.get(...)`, MAI con
+    `getattr(self, "_csv_dirty", ...)`. Su un'istanza headless (`object.__new__(App)`, senza
+    `__init__`) l'attributo è assente e `getattr` innescherebbe il `__getattr__` di customtkinter
+    (CTk), privo dei widget Tk → RecursionError. `__dict__.get` legge lo slot d'istanza senza
+    toccare `__getattr__`. Pin SORGENTE deterministico (pattern #311): un test runtime non
+    riprodurrebbe la ricorsione fuori dalla versione CTk della CI, quindi si vincola il sorgente
+    così una futura «correzione» a `getattr` viene bloccata ovunque, non solo sulla CI."""
+    src = _APP_SRC.read_text(encoding="utf-8")
+    assert 'self.__dict__.get("_csv_dirty")' in src, (
+        "app.py: `disk_dirty` deve leggere `_csv_dirty` via __dict__.get (headless-safe)")
+    assert 'getattr(self, "_csv_dirty"' not in src, (
+        "app.py: NON usare getattr per `_csv_dirty` — innesca __getattr__ CTk → RecursionError "
+        "sulle istanze headless (regressione #117)")
 
 
 # ── helper ────────────────────────────────────────────────────────────────────
