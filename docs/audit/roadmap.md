@@ -836,6 +836,15 @@ dedupe/coda:
     consumati da eventuali chiavi scadute (`clear_delay` > finestra dedup) sono **ripristinati** —
     così un non-write non intacca dedup/limiti né risulta `WRITE` a `_process`;
   - uno shrink `A+B→A` **rimuove** `B`; un blocco vuoto **non** svuota il CSV.
+  - **Eccezione disco stantio (D1 audit #114, simmetria col single-row `commit_signal`):** il
+    salto della scrittura nei rami no-op (OVERWRITE col blocco == attivo, oppure APPEND senza righe
+    nuove) presuppone «disco già identico alla coda». Se il chiamante passa **`disk_dirty=True`**
+    — una riscrittura precedente (post-conferma/scadenza) è fallita e il retry non è ancora riuscito
+    — quel presupposto è falso: il commit **riallinea** il disco riscrivendo le righe attive correnti
+    invece di lasciarlo stantio. I guardrail restano ripristinati e l'esito riportato è quello
+    **non-WRITE onesto** (DUPLICATE/limite) con `write_attempted=True`, così `_process` non lo tratta
+    come nuovo piazzamento ma, su scrittura riuscita, azzera `_csv_dirty`. `app._process` instrada
+    `disk_dirty=bool(self._csv_dirty)` sia al single-row sia al multi-riga (prima solo al single).
 - **Auto-raise del tetto (cap, decisione del proprietario).** In `APPEND_ACTIVE`/
   `QUEUE_UNTIL_CONFIRMED` il tetto `max_active` **non spezza** il blocco di UN singolo messaggio:
   `queue.add(..., force=True)` accoda tutte le righe nuove dell'istruzione anche oltre il tetto,

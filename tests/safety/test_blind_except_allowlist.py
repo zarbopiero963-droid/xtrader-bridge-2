@@ -167,9 +167,11 @@ _ALLOWLIST = {
     "token_store.py": (8, "soft-import/fallback keyring: qualsiasi errore = backend non disponibile "
                           "(bot token + API key Anthropic #41: save/load-status/delete per la chiave)"),
     "tools_gui.py": (3, "GUI Tk finestra strumenti: apertura sotto-finestre best-effort"),
-    "write_path.py": (2, "write-failure fail-safe: la scrittura CSV fallita non deve crashare → "
-                         "rollback di coda/guardrail ed errore riportato, in commit_signal e "
-                         "commit_signals (multi-riga #192)"),
+    "write_path.py": (3, "write-failure fail-safe: la scrittura CSV fallita non deve crashare → "
+                         "rollback di coda/guardrail ed errore riportato, in commit_signal, "
+                         "commit_signals (multi-riga #192) e nel riallineamento del disco stantio "
+                         "(_realign_dirty_disk, D1 audit #114: la riscrittura di realign fallita è "
+                         "riportata al chiamante, disco resta stantio col retry pendente)"),
     "betfair/dictionary_viewer_gui.py": (2, "GUI Tk viewer dizionario best-effort: lettura "
                                             "dizionario e stile Treeview (Fase 2) non devono "
                                             "crashare la finestra Strumenti"),

@@ -3382,9 +3382,13 @@ class App(ctk.CTk):
             else:
                 # #192: parser multi-riga → dedup PER-RIGA + scrittura atomica di TUTTE le righe
                 # del messaggio (anche se ORA è una sola: provenienza multi preservata).
+                # `disk_dirty` (D1 audit #114, simmetria col single-row): se una riscrittura
+                # precedente è fallita (retry pendente), i rami no-op del commit multi non devono
+                # saltare la risincronizzazione del disco stantio.
                 commit = write_path.commit_signals(
                     self._tracker, self._daily, self._queue,
-                    cfg, text, rows_to_commit, path, now, write_rows)
+                    cfg, text, rows_to_commit, path, now, write_rows,
+                    disk_dirty=bool(self.__dict__.get("_csv_dirty")))
             # #153 H2: registra l'esito del lock CSV mentre la scrittura è ancora serializzata
             # (Codex #156). Conta solo se `write_rows` è stata davvero CHIAMATA: un WRITE
             # bloccato dal tetto senza righe scadute non tocca il disco (#259 C2) e non deve
