@@ -15,6 +15,8 @@ Il registro è PURO e testato per davvero su file temporanei; il wiring in app.p
 
 import json
 import re
+import threading
+import time
 from pathlib import Path
 
 from xtrader_bridge import dirty_csv_store
@@ -75,6 +77,78 @@ def test_scrittura_mai_raise_su_store_path_invalido(tmp_path):
     invalido = str(tmp_path / ("non-esiste/" * 5) / "x\0invalido" / "dirty.json")
     dirty_csv_store.mark_dirty("/qualcosa.csv", store_path=invalido)   # no raise
     dirty_csv_store.clear_dirty("/qualcosa.csv", store_path=invalido)  # no raise
+
+
+# ── D2 audit #114: read-modify-write serializzato (lock) ─────────────────────────────
+
+def _slow_write(monkeypatch):
+    """Allarga la finestra read→write (sleep dentro la scrittura) così la race lost-update
+    è deterministica SENZA il lock. Col lock la sequenza è serializzata e la sleep non nuoce."""
+    real = dirty_csv_store.atomic_io.atomic_write_json
+
+    def _w(path, data):
+        time.sleep(0.02)
+        return real(path, data)
+
+    monkeypatch.setattr(dirty_csv_store.atomic_io, "atomic_write_json", _w)
+
+
+def test_mark_dirty_concorrente_non_perde_path(tmp_path, monkeypatch):
+    """FAIL-FIRST D2 #114: `mark_dirty` fa read-modify-write; senza lock due chiamate
+    concorrenti leggono lo stesso stato e si sovrascrivono (lost update) → un path sporco
+    PERSO = scommessa-fantasma non ripulita alla recovery. Col lock la sequenza è
+    serializzata: N marcature concorrenti salvano TUTTI gli N path."""
+    sp = str(tmp_path / "dirty_csv.json")
+    _slow_write(monkeypatch)
+    n = 12
+    barrier = threading.Barrier(n)
+
+    def _mark(i):
+        barrier.wait()                    # tutti entrano nella sezione ~contemporaneamente
+        dirty_csv_store.mark_dirty(f"C:/dirty{i}.csv", store_path=sp)
+
+    threads = [threading.Thread(target=_mark, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    saved = dirty_csv_store.dirty_paths(store_path=sp)
+    assert set(saved) == {f"C:/dirty{i}.csv" for i in range(n)}, (
+        f"lost update: salvati {len(saved)}/{n} path sporchi")
+
+
+def test_mark_e_clear_concorrenti_restano_coerenti(tmp_path, monkeypatch):
+    """FAIL-FIRST D2 #114: `mark_dirty` e `clear_dirty` concorrenti sullo STESSO registro non
+    devono corrompere lo stato (una clear di X non deve far sparire una mark di Y letta nello
+    stesso istante). Col lock ogni operazione vede lo stato aggiornato dalla precedente."""
+    sp = str(tmp_path / "dirty_csv.json")
+    # Semina k path «vecchi» che verranno rimossi in concorrenza con k marcature nuove.
+    k = 8
+    for i in range(k):
+        dirty_csv_store.mark_dirty(f"C:/old{i}.csv", store_path=sp)
+    _slow_write(monkeypatch)
+    barrier = threading.Barrier(2 * k)
+
+    def _clear(i):
+        barrier.wait()
+        dirty_csv_store.clear_dirty(f"C:/old{i}.csv", store_path=sp)
+
+    def _mark(i):
+        barrier.wait()
+        dirty_csv_store.mark_dirty(f"C:/new{i}.csv", store_path=sp)
+
+    threads = ([threading.Thread(target=_clear, args=(i,)) for i in range(k)]
+               + [threading.Thread(target=_mark, args=(i,)) for i in range(k)])
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    saved = set(dirty_csv_store.dirty_paths(store_path=sp))
+    # Tutti i «new» presenti, tutti i «old» rimossi: nessun lost update in nessuna direzione.
+    assert saved == {f"C:/new{i}.csv" for i in range(k)}, (
+        f"stato incoerente dopo mark/clear concorrenti: {sorted(saved)}")
 
 
 # ── wiring in app.py (sorgente pinnato, pattern #311) ────────────────────────────────

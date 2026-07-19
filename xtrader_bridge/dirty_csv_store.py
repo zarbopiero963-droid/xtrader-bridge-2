@@ -14,15 +14,30 @@ Contratto:
   di armare il retry, così anche un crash immediato lascia il marker su disco;
 - **dedup normalizzato** (``normcase``+``abspath``, come `_same_csv_path` dell'app):
   lo stesso file con case o forma diversa non produce doppioni;
+- **thread-safe in-processo** (D2 audit #114): il read-modify-write di ``mark_dirty``/
+  ``clear_dirty`` è serializzato da un lock di modulo, così due chiamate concorrenti non
+  si sovrascrivono perdendo un path (lost update). Vedi ``_LOCK``;
 - il registro NON tocca mai i CSV: dice solo *quali* path la recovery deve ripulire.
 """
 
 import json
 import os
+import threading
 
 from . import atomic_io, config_store
 
 _FILENAME = "dirty_csv.json"
+
+# Lock IN-PROCESSO che serializza il read-modify-write del registro (D2 audit #114).
+# `atomic_write_json` rende atomica la SINGOLA scrittura (temp+rename), ma la sequenza
+# «leggi `dirty_paths` → calcola → scrivi» di `mark_dirty`/`clear_dirty` NON lo è: due
+# chiamate concorrenti (es. retry-tick e STOP, o due marcature ravvicinate) potrebbero
+# leggere lo stesso stato e sovrascriversi (lost update), PERDENDO un path sporco → una
+# scommessa-fantasma non ripulita dalla recovery d'avvio. Il lock serializza l'intera
+# sequenza. È solo IN-PROCESSO (thread): il registro è per-istanza; una seconda istanza
+# dell'app è gestita altrove (lock cross-process del config, #113). Non rientrante — le
+# sezioni critiche NON chiamano funzioni che riacquisiscono `_LOCK`.
+_LOCK = threading.Lock()
 
 
 def _store_path() -> str:
@@ -57,10 +72,11 @@ def mark_dirty(path, store_path=None) -> None:
         if not s:
             return
         sp = store_path or _store_path()
-        cur = dirty_paths(sp)
-        if _norm(s) in {_norm(p) for p in cur}:
-            return
-        atomic_io.atomic_write_json(sp, {"paths": cur + [s]})
+        with _LOCK:                      # D2 audit #114: read-modify-write serializzato
+            cur = dirty_paths(sp)
+            if _norm(s) in {_norm(p) for p in cur}:
+                return
+            atomic_io.atomic_write_json(sp, {"paths": cur + [s]})
     except Exception:   # noqa: BLE001 — un I/O rotto non deve bloccare STOP/chiusura
         pass
 
@@ -72,9 +88,10 @@ def clear_dirty(path, store_path=None) -> None:
         if not target:
             return
         sp = store_path or _store_path()
-        cur = dirty_paths(sp)
-        kept = [p for p in cur if _norm(p) != target]
-        if len(kept) != len(cur):
-            atomic_io.atomic_write_json(sp, {"paths": kept})
+        with _LOCK:                      # D2 audit #114: read-modify-write serializzato
+            cur = dirty_paths(sp)
+            kept = [p for p in cur if _norm(p) != target]
+            if len(kept) != len(cur):
+                atomic_io.atomic_write_json(sp, {"paths": kept})
     except Exception:   # noqa: BLE001 — come sopra
         pass
