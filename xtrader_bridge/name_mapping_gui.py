@@ -429,25 +429,26 @@ class NameMappingPanel(ctk.CTkFrame):
                                  "mantenute a schermo."),
                     text_color="#ef5350")
                 return
-            if cfg is not None:
-                cfg = name_mapping_store.set_entries(cfg, self._current, self._collect_rows())
-                saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
-                if not ok:
-                    # Auto-save fallito: ANNULLA il cambio profilo invece di proseguire,
-                    # altrimenti `_reload_rows` cancellerebbe le righe non salvate. Tieni
-                    # il profilo corrente a schermo così l'utente può riprovare (Codex).
-                    self._profile_var.set(self._current)
-                    self._status.configure(
-                        text=i18n.tr("❌ Salvataggio FALLITO: cambio profilo annullato, modifiche "
+            # (follow-up #76, nota Fable PR #97: il vecchio `if cfg is not None`
+            # qui era sempre vero dopo l'early-return sul ramo `cfg is None`.)
+            cfg = name_mapping_store.set_entries(cfg, self._current, self._collect_rows())
+            saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
+            if not ok:
+                # Auto-save fallito: ANNULLA il cambio profilo invece di proseguire,
+                # altrimenti `_reload_rows` cancellerebbe le righe non salvate. Tieni
+                # il profilo corrente a schermo così l'utente può riprovare (Codex).
+                self._profile_var.set(self._current)
+                self._status.configure(
+                    text=i18n.tr("❌ Salvataggio FALLITO: cambio profilo annullato, modifiche "
                                  "mantenute a schermo. Controlla permessi/spazio del file config."),
-                        text_color="#ef5350")
-                    return
-                # Propaga al parent anche l'auto-save (non solo i salvataggi espliciti),
-                # altrimenti la GUI principale resta con un `self._config` stantio e un
-                # successivo "Salva Config"/START potrebbe sovrascrivere le mappature
-                # appena auto-salvate (Codex).
-                if callable(self._on_saved):
-                    self._on_saved(saved)
+                    text_color="#ef5350")
+                return
+            # Propaga al parent anche l'auto-save (non solo i salvataggi espliciti),
+            # altrimenti la GUI principale resta con un `self._config` stantio e un
+            # successivo "Salva Config"/START potrebbe sovrascrivere le mappature
+            # appena auto-salvate (Codex).
+            if callable(self._on_saved):
+                self._on_saved(saved)
         self._current = new
         self._profile_var.set(new or self._NO_PROFILE)
         self._reload_rows()
@@ -884,18 +885,19 @@ class MarketMappingPanel(ctk.CTkFrame):
                                  "mantenute a schermo."),
                     text_color="#ef5350")
                 return
-            if cfg is not None:
-                cfg = market_mapping_store.set_entries(cfg, self._current, self._collect_rows())
-                saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
-                if not ok:
-                    self._profile_var.set(self._current)
-                    self._status.configure(
-                        text=i18n.tr("❌ Salvataggio FALLITO: cambio profilo annullato, modifiche "
+            # (follow-up #76, nota Fable PR #97: `if cfg is not None` sempre vero
+            # dopo l'early-return — ramo morto rimosso, comportamento identico.)
+            cfg = market_mapping_store.set_entries(cfg, self._current, self._collect_rows())
+            saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
+            if not ok:
+                self._profile_var.set(self._current)
+                self._status.configure(
+                    text=i18n.tr("❌ Salvataggio FALLITO: cambio profilo annullato, modifiche "
                                  "mantenute a schermo. Controlla permessi/spazio del file config."),
-                        text_color="#ef5350")
-                    return
-                if callable(self._on_saved):
-                    self._on_saved(saved)
+                    text_color="#ef5350")
+                return
+            if callable(self._on_saved):
+                self._on_saved(saved)
         self._current = new
         self._profile_var.set(new or self._NO_PROFILE)
         self._reload_rows()
