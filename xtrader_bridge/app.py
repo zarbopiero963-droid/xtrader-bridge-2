@@ -1636,17 +1636,38 @@ class App(ctk.CTk):
                     self._csv_probe_cache = (path, time.monotonic(), stalled)
                 return stalled
             return cached[2]
-        # Primo probe di un path (avvio/cambio path) o force=True («🔄 Aggiorna»):
-        # SINCRONO — qui serve un esito vero subito e non è il percorso caldo.
-        result = health_check.csv_writable(path)
-        # Timestamp DOPO il probe (review GPT #94): se la sonda stessa blocca più del
-        # TTL (share morta = proprio lo scenario target), un timestamp preso PRIMA
-        # nascerebbe già scaduto → il refresh successivo rifarebbe subito l'I/O
-        # bloccante, vanificando il throttle quando serve di più. Scrittura sotto
-        # lock (Fable final PR #111): serializzata con la guardia del worker.
+        if force:
+            # `force=True` («🔄 Aggiorna»): azione utente ESPLICITA → SINCRONO, serve
+            # l'esito vero subito. Timestamp DOPO il probe (review GPT #94): se la
+            # sonda blocca più del TTL (share morta), un timestamp preso PRIMA
+            # nascerebbe già scaduto → il refresh successivo rifarebbe subito l'I/O
+            # bloccante. Scrittura sotto lock (Fable PR #111): serializzata col worker.
+            result = health_check.csv_writable(path)
+            with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
+                self._csv_probe_cache = (path, time.monotonic(), result)
+            return result
+        # Primo probe AUTOMATICO di un path (avvio finestra o cambio `csv_path`) — A1
+        # audit #114: NON eseguire l'I/O sincrono sul thread Tk. Prima qui si chiamava
+        # `health_check.csv_writable(path)` in linea: con `csv_path` su uno share di
+        # rete morto, `os.access`/`exists` bloccavano per il timeout del SO e
+        # CONGELAVANO la finestra proprio all'avvio (dentro `_build_ui`→`_refresh_health`)
+        # e a ogni cambio path. Ora: stato PROVVISORIO in cache + probe VERO su worker
+        # in background; il semaforo si aggiorna via `_safe_after` appena il worker
+        # termina (millisecondi su path locale, senza mai bloccare la GUI).
+        provvisorio = (health_check.YELLOW,
+                       "verifica scrivibilità CSV in corso…")
         with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
-            self._csv_probe_cache = (path, time.monotonic(), result)
-        return result
+            self._csv_probe_cache = (path, time.monotonic(), provvisorio)
+        if not self._kick_csv_probe_async(path):
+            # Bound worker saturo (share morte multiple): niente probe → giallo
+            # onesto, coerente col ramo TTL-scaduto sopra.
+            stalled = (health_check.YELLOW,
+                       "sonda CSV non eseguibile: troppi controlli bloccati "
+                       "(share non rispondono?)")
+            with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
+                self._csv_probe_cache = (path, time.monotonic(), stalled)
+            return stalled
+        return provvisorio
 
     def _kick_csv_probe_async(self, path) -> bool:
         """Lancia il probe `csv_writable` su un thread worker daemon (follow-up #76,

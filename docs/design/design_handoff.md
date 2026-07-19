@@ -635,10 +635,14 @@ path su share morte): i controlli appesi hanno un **tetto massimo** più uno slo
 extra che di norma consente al path attivo di sondare anche a tetto pieno di path
 abbandonati (non è però una riserva garantita: con cambi di path molto rapidi può
 già essere occupato); esaurito il tetto, niente nuovi controlli e giallo onesto
-«sonda CSV non eseguibile: troppi controlli bloccati». Limite onesto residuo: il **primo** controllo di un
-path (avvio/cambio path) e il pulsante **«🔄 Aggiorna»** restano sincroni (serve
-l'esito vero subito): su share degradato quel singolo controllo può ancora bloccare
-brevemente. La sonda
+«sonda CSV non eseguibile: troppi controlli bloccati». Anche il **primo** controllo di
+un path (avvio finestra o cambio `csv_path`) gira ora su un **worker in background**
+(A1 audit #114): il semaforo mostra subito un **giallo provvisorio** («verifica
+scrivibilità CSV in corso…») e si auto-aggiorna all'esito vero appena il worker termina
+— così la finestra non si congela mai all'avvio né al cambio path su uno share di rete
+degradato. Unico controllo ancora **sincrono**: il pulsante **«🔄 Aggiorna»**
+(`force=True`), azione utente esplicita che chiede l'esito vero all'istante — su share
+degradato quel singolo controllo può ancora bloccare brevemente. La sonda
 NON apre mai il file (nessun lock che disturbi XTrader); su **Windows**
 si ferma a **giallo onesto** su ENTRAMBI i rami — file esistente E file da creare
 («probabilmente scrivibile»: ACL/lock NTFS non rilevabili senza aprire/scrivere —
