@@ -113,6 +113,7 @@ def test_mark_dirty_concorrente_non_perde_path(tmp_path, monkeypatch):
     for t in threads:
         t.join(timeout=10)
 
+    assert not any(t.is_alive() for t in threads), "un thread è rimasto appeso (deadlock?)"
     saved = dirty_csv_store.dirty_paths(store_path=sp)
     assert set(saved) == {f"C:/dirty{i}.csv" for i in range(n)}, (
         f"lost update: salvati {len(saved)}/{n} path sporchi")
@@ -145,6 +146,7 @@ def test_mark_e_clear_concorrenti_restano_coerenti(tmp_path, monkeypatch):
     for t in threads:
         t.join(timeout=10)
 
+    assert not any(t.is_alive() for t in threads), "un thread è rimasto appeso (deadlock?)"
     saved = set(dirty_csv_store.dirty_paths(store_path=sp))
     # Tutti i «new» presenti, tutti i «old» rimossi: nessun lost update in nessuna direzione.
     assert saved == {f"C:/new{i}.csv" for i in range(k)}, (
