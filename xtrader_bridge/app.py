@@ -117,6 +117,25 @@ _STOP_CLEAR_RETRY_MS = 5000
 # «🔄 Aggiorna» del pannello Salute forza comunque il probe fresco).
 _CSV_PROBE_TTL_S = 5.0
 
+# Soglia di STALLO del worker probe (review Fable PR #111): su share SMB morta la
+# sonda può appendersi indefinitamente — il worker non ha timeout (os.access non è
+# interrompibile) e il flag inflight resterebbe alzato per sempre, inchiodando il
+# semaforo sull'ultimo stato noto (magari 🟢) mentre i write CSV falliscono. Oltre
+# questa soglia il semaforo degrada a GIALLO ONESTO («sonda bloccata») SENZA
+# lanciare altri worker (niente pile-up di thread appesi sulla stessa share);
+# quando/se il worker torna, l'esito vero riprende il posto (auto-recovery).
+_CSV_PROBE_STALL_S = 3 * _CSV_PROBE_TTL_S
+
+# Cap dei worker probe VIVI (review Fugu PR #111): ogni path abbandonato su share
+# morta può lasciare un worker daemon appeso (os.access non interrompibile) — senza
+# tetto, cambi ripetuti di csv_path accumulerebbero thread senza limite in un
+# processo GUI long-running. Bound duro = cap + 1: uno slot EXTRA oltre il cap, di
+# norma disponibile per il path corrente quando il cap è saturo di path abbandonati
+# — ma NON una riserva garantita: sotto churn rapido di path può essere consumato
+# da un path poi abbandonato (Fable/Fugu PR #111). Esaurito anche quello, nessun
+# nuovo worker e giallo onesto («troppi controlli bloccati»).
+_CSV_PROBE_MAX_WORKERS = 4
+
 # Quanti eventi tenere nel ledger append-only (#230): potato allo startup per non far
 # crescere `event_journal.jsonl` all'infinito (~uno-pochi eventi per segnale).
 _EVENT_JOURNAL_KEEP = 5000
@@ -1567,13 +1586,128 @@ class App(ctk.CTk):
         if (not force and cached is not None and cached[0] == path
                 and now - cached[1] < _CSV_PROBE_TTL_S):
             return cached[2]
+        if not force and cached is not None and cached[0] == path:
+            # TTL scaduto, stesso path — è il percorso PER-MESSAGGIO sul thread Tk
+            # (follow-up #76, nota Fable PR #94): risultato STANTIO subito e probe
+            # VERO su un worker in background, così nemmeno il singolo probe a TTL
+            # scaduto può congelare la GUI su uno share degradato. La cache viene
+            # aggiornata dal worker; il semaforo si rinfresca via `_safe_after`.
+            if not self._kick_csv_probe_async(path):
+                # Bound duro raggiunto (review Fugu PR #111): troppi controlli
+                # appesi su share morte — nessun probe possibile per questo path →
+                # GIALLO ONESTO subito, mai uno stantio spacciato per fresco.
+                # Scrittura sotto lock (Fable final, 2° giro): stessa invariante
+                # di tutte le altre scritture della cache.
+                stalled = (health_check.YELLOW,
+                           "sonda CSV non eseguibile: troppi controlli bloccati "
+                           "(share non rispondono?)")
+                with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
+                    # Stessa ri-lettura anti-clobber del watchdog (Fugu PR #111):
+                    # un worker di QUESTO path appena completato può aver scritto
+                    # un esito VERO fresco tra la lettura in testa e qui — mai
+                    # sovrascriverlo col giallo.
+                    cur = self.__dict__.get("_csv_probe_cache")
+                    if (cur is not None and cur[0] == path
+                            and time.monotonic() - cur[1] < _CSV_PROBE_TTL_S):
+                        return cur[2]
+                    self._csv_probe_cache = (path, time.monotonic(), stalled)
+                return stalled
+            # Watchdog di stallo (review Fable PR #111): worker di QUESTO path in
+            # volo da oltre la soglia (share che non risponde) → GIALLO ONESTO in
+            # cache, mai un 🟢 stantio spacciato per fresco mentre i write
+            # falliscono. Il registro è PER-PATH: un worker appeso su un path
+            # abbandonato non ingiallisce il semaforo del path corrente sano.
+            vivi = self.__dict__.get("_csv_probe_threads", ())
+            avvio = next((s for (t, p, s) in vivi
+                          if p == path and t.is_alive()), None)
+            if avvio is not None and now - avvio > _CSV_PROBE_STALL_S:
+                stalled = (health_check.YELLOW,
+                           "sonda CSV bloccata da troppo tempo (share non risponde?)")
+                # Check+set INTERAMENTE sotto lock (Fable final, 2° giro): la
+                # ri-lettura anti-race e la scrittura dello stallo stanno nella
+                # STESSA sezione critica del worker — un esito VERO appena scritto
+                # non può mai essere sovrascritto dal giallo di stallo (niente
+                # finestra tra ri-lettura e set).
+                with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
+                    cur = self.__dict__.get("_csv_probe_cache")
+                    if (cur is not None and cur[0] == path
+                            and time.monotonic() - cur[1] < _CSV_PROBE_TTL_S):
+                        return cur[2]
+                    self._csv_probe_cache = (path, time.monotonic(), stalled)
+                return stalled
+            return cached[2]
+        # Primo probe di un path (avvio/cambio path) o force=True («🔄 Aggiorna»):
+        # SINCRONO — qui serve un esito vero subito e non è il percorso caldo.
         result = health_check.csv_writable(path)
         # Timestamp DOPO il probe (review GPT #94): se la sonda stessa blocca più del
         # TTL (share morta = proprio lo scenario target), un timestamp preso PRIMA
         # nascerebbe già scaduto → il refresh successivo rifarebbe subito l'I/O
-        # bloccante, vanificando il throttle quando serve di più.
-        self._csv_probe_cache = (path, time.monotonic(), result)
+        # bloccante, vanificando il throttle quando serve di più. Scrittura sotto
+        # lock (Fable final PR #111): serializzata con la guardia del worker.
+        with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
+            self._csv_probe_cache = (path, time.monotonic(), result)
         return result
+
+    def _kick_csv_probe_async(self, path) -> bool:
+        """Lancia il probe `csv_writable` su un thread worker daemon (follow-up #76,
+        nota Fable PR #94): aggiorna la cache TTL e schedula un refresh del pannello
+        Salute via `_safe_after` (TclError-safe, P3-10) senza aspettare il prossimo
+        messaggio. Un probe che solleva non propaga mai (diagnostica best-effort).
+
+        Registro PER-PATH `_csv_probe_threads` = lista di tuple
+        `(thread, path, avvio)` potata dai morti a OGNI tentativo (review Fable/
+        Fugu PR #111): è l'unica fonte di verità — dedup («al più una sonda per
+        path», anche su sequenze A→B→A), watchdog di stallo (timestamp d'avvio
+        per-path) e rilascio NATURALE alla morte del thread (niente flag/claim da
+        azzerare → niente race di rilascio). Check-then-set serializzato da
+        `_csv_probe_lock`.
+
+        Bound ESPLICITO (review Fugu PR #111): al più `_CSV_PROBE_MAX_WORKERS`
+        worker vivi, più UNO slot extra (bound duro = cap+1): con il cap saturo
+        di worker appesi su path ABBANDONATI (share morte), il path corrente può
+        di norma sondare comunque — ma lo slot NON è una riserva garantita: sotto
+        churn rapido può essere consumato da un path poi abbandonato (Fable/Fugu).
+        Cambi ripetuti di path restano bounded. Ritorna False a bound esaurito
+        (il chiamante degrada a giallo onesto)."""
+        lock = self.__dict__.setdefault("_csv_probe_lock", threading.Lock())
+        with lock:
+            vivi = [(t, p, s) for (t, p, s)
+                    in self.__dict__.get("_csv_probe_threads", ())
+                    if t.is_alive()]
+            self._csv_probe_threads = vivi        # potatura a ogni tentativo
+            if any(p == path for _t, p, _s in vivi):
+                return True               # sonda già in volo per QUESTO path
+            # Bound duro cap+1: ogni kick arriva dal path corrente (al più uno
+            # per path), quindi lo slot extra serve di norma il path attivo — ma
+            # un path poi abbandonato può averlo già consumato (vedi docstring).
+            if len(vivi) > _CSV_PROBE_MAX_WORKERS:
+                return False
+            def _worker():
+                try:
+                    result = health_check.csv_writable(path)
+                    # Guardia cambio-path (review GPT/Fable PR #111) SOTTO LOCK
+                    # (Fable final: niente TOCTOU tra check e set): se nel
+                    # frattempo l'utente ha cambiato csv_path la cache è già del
+                    # path NUOVO — un risultato del path vecchio la
+                    # sovrascriverebbe, costando un probe sincrono extra sul
+                    # thread Tk al messaggio dopo. Si scarta. Il lock è tenuto
+                    # SOLO per il check+set (microsecondi), mai durante l'I/O.
+                    with lock:
+                        cached = self.__dict__.get("_csv_probe_cache")
+                        if cached is not None and cached[0] != path:
+                            return
+                        self._csv_probe_cache = (path, time.monotonic(), result)
+                    self._safe_after(0, self._refresh_health)
+                except Exception:   # noqa: BLE001 — sonda Salute best-effort (come _refresh_health):
+                    # share instabile che solleva a metà probe non deve uccidere
+                    # niente; cache invariata, si riproverà al prossimo giro.
+                    pass
+
+            t = threading.Thread(target=_worker, daemon=True, name="csv-probe-async")
+            self._csv_probe_threads = vivi + [(t, path, time.monotonic())]
+            self._csv_probe_thread = t      # esposto per i test (join deterministico)
+            t.start()
+            return True
 
     def _live_health_items(self, force_probe: bool = False) -> list:
         """I 7 semafori LIVE (stessa logica del pannello 🚦 Salute), come lista di `HealthItem`.
