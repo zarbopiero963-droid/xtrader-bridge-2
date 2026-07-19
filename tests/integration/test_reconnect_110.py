@@ -185,7 +185,7 @@ def test_drop_pending_updates_resta_true_se_la_prima_connessione_fallisce(make_a
     a._reconnect_attempt = 0
     # ramo "transitorio → riconnetti" forzato (classificazione testata altrove)
     monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
-    a._reconnect_wait = lambda delay: None                 # niente attesa reale: test rapido
+    a._reconnect_wait = lambda delay, stop_event=None: None                 # niente attesa reale: test rapido
     apps = []
     _install_builder(monkeypatch, app_mod, apps,
                      lambda index: _TgApp(fail=(index == 0),
@@ -221,7 +221,7 @@ def test_drop_pending_updates_false_su_riconnessione_dopo_connessione_riuscita(m
     a._reconnect_attempt = 0
     # ramo "transitorio → riconnetti" forzato (classificazione testata altrove)
     monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
-    a._reconnect_wait = lambda delay: None                 # niente attesa reale: test rapido
+    a._reconnect_wait = lambda delay, stop_event=None: None                 # niente attesa reale: test rapido
     apps = []
 
     def _make_tg(index):
@@ -265,7 +265,7 @@ def test_start_polling_ritorna_senza_connettere_non_abbassa_il_flag(make_app, ap
     a._listener_epoch = 11
     a._reconnect_attempt = 0
     monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
-    a._reconnect_wait = lambda delay: None                 # niente attesa reale: test rapido
+    a._reconnect_wait = lambda delay, stop_event=None: None                 # niente attesa reale: test rapido
     apps = []
 
     def _make_tg(index):
@@ -315,7 +315,7 @@ def test_get_me_timedout_e_transitorio_riconnette_non_stop(make_app, app_mod, mo
     a._listener_epoch = 13
     a._reconnect_attempt = 0
     # NIENTE monkeypatch di should_reconnect: si esercita la classificazione REALE di `TimedOut`.
-    a._reconnect_wait = lambda delay: None                 # niente attesa reale: test rapido
+    a._reconnect_wait = lambda delay, stop_event=None: None                 # niente attesa reale: test rapido
     apps = []
 
     def _make_tg(index):
@@ -343,7 +343,7 @@ def test_first_connection_si_resetta_a_ogni_nuovo_START(make_app, app_mod, monke
     una sola volta), la 2ª sessione partirebbe da `False` (flippato dalla 1ª) → l'assert `is
     True` del 2° START fallirebbe."""
     a = make_app()
-    a._reconnect_wait = lambda delay: None
+    a._reconnect_wait = lambda delay, stop_event=None: None
     monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
 
     def _run_una_sessione(epoch):
@@ -384,7 +384,7 @@ def test_reconnect_lifecycle_chiude_il_vecchio_updater_e_ritenta(make_app, app_m
     teardown_at_backoff = {}
     apps = []
 
-    def _wait(delay):
+    def _wait(delay, stop_event=None):
         tg1 = apps[0]
         teardown_at_backoff["updater_stop"] = tg1.updater.stop_calls
         teardown_at_backoff["app_stop"] = tg1.stop_calls
@@ -529,7 +529,7 @@ def test_epoch_cambiato_dopo_fallimento_non_ritenta(make_app, app_mod, monkeypat
 
     # Durante il backoff "arriva" un nuovo START: l'epoch corrente cambia rispetto a
     # quello (9) con cui gira questo supervisor.
-    a._reconnect_wait = lambda delay: setattr(a, "_listener_epoch", 99)
+    a._reconnect_wait = lambda delay, stop_event=None: setattr(a, "_listener_epoch", 99)
 
     app_mod.App._run_bot(a, {"bot_token": "x"}, 9)
 
@@ -549,7 +549,7 @@ def test_reconnect_journals_reconnect_event(make_app, app_mod, monkeypatch, tmp_
     a._reconnect_attempt = 0
     a._journal_path = str(tmp_path / "event_journal.jsonl")
     monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
-    a._reconnect_wait = lambda delay: None          # niente attesa reale: il test resta rapido
+    a._reconnect_wait = lambda delay, stop_event=None: None          # niente attesa reale: il test resta rapido
 
     apps = []
     _install_builder(monkeypatch, app_mod, apps,
@@ -561,3 +561,87 @@ def test_reconnect_journals_reconnect_event(make_app, app_mod, monkeypatch, tmp_
     assert len(apps) == 2                            # ha ritentato dopo l'errore transitorio
     types = [e["type"] for e in event_journal.read_events(a._journal_path)]
     assert "RECONNECT" in types                      # il tentativo di riconnessione è nel diario
+
+
+# ── P3-ap2 audit #114: LOST-WAKE su STOP→START rapido durante il backoff ──────────────
+
+def test_backoff_attende_l_evento_di_sessione_catturato_non_quello_riassegnato(
+        make_app, app_mod, monkeypatch):
+    """P3-ap2 #114 — il supervisor deve attendere il backoff sull'evento di stop CATTURATO
+    all'avvio della PROPRIA sessione (`backoff_stop_event = self._stop_event`), NON su
+    `self._stop_event` riletto ad ogni giro. In uno STOP→START rapido il nuovo `_start`
+    RIASSEGNA `self._stop_event` a un evento fresco: se il backoff leggesse l'attributo vivo,
+    il thread VECCHIO attenderebbe l'evento del SUCCESSORE (non settato dallo STOP che lo
+    riguardava) → LOST-WAKE, appeso per tutto il delay.
+
+    Fail-first deterministico: `_reconnect_wait` è stubbato per REGISTRARE l'evento ricevuto.
+    Al 1º backoff si simula il nuovo START riassegnando `self._stop_event`; al 2º giro l'evento
+    passato deve essere ANCORA quello di sessione (cattura locale). Se il call site regredisse a
+    passare `self._stop_event`, il 2º giro vedrebbe l'evento fresco e l'assert fallirebbe."""
+    a = make_app()
+    a._running = True
+    a._listener_epoch = 5
+    a._reconnect_attempt = 0
+    session_ev = threading.Event()
+    a._stop_event = session_ev
+    monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
+    monkeypatch.setattr(app_mod.reconnect_policy, "effective_delay", lambda *a_, **k: 0.0)
+
+    seen = []
+
+    def _capture_wait(delay, stop_event):
+        seen.append(stop_event)
+        if len(seen) == 1:
+            # un START rapido riassegna l'attributo DOPO l'avvio della sessione vecchia
+            a._stop_event = threading.Event()
+        else:
+            a._running = False        # esci dopo il 2º giro (evita loop infinito col delay 0)
+
+    a._reconnect_wait = _capture_wait
+
+    apps = []
+    _install_builder(monkeypatch, app_mod, apps,
+                     lambda index: _TgApp(fail=True, on_success=lambda: None))
+
+    app_mod.App._run_bot(a, {"bot_token": "x"}, 5)
+
+    assert len(seen) >= 2, "il backoff non è stato raggiunto due volte"
+    assert seen[0] is session_ev, "il 1º backoff non ha atteso l'evento di sessione catturato"
+    assert seen[1] is session_ev, (
+        "LOST-WAKE (P3-ap2): dopo la riassegnazione di self._stop_event il backoff ha atteso "
+        "l'evento del successore invece di quello catturato all'avvio della sessione")
+
+
+def test_start_riassegna_stop_event_fresco_e_reconnect_wait_usa_il_parametro(app_mod):
+    """P3-ap2 #114 (pin SORGENTE, pattern #311): la doppia invariante che evita il LOST-WAKE.
+    1) `_start` deve RIASSEGNARE `self._stop_event = threading.Event()`, NON fare `.clear()`
+       in place (un `.clear()` cancellerebbe il set dello STOP sull'evento ancora catturato dal
+       thread vecchio); 2) `_reconnect_wait` deve attendere il PARAMETRO `stop_event`, mai
+       `self._stop_event` (che un nuovo START può aver riassegnato).
+
+    Il pin usa `inspect.getsource` sulle SINGOLE funzioni (review Sourcery): niente slicing del
+    file intero, così un refactor cosmetico altrove non rende fragile il test."""
+    import inspect
+
+    run_bot_src = inspect.getsource(app_mod.App._run_bot)
+    reconnect_src = inspect.getsource(app_mod.App._reconnect_wait)
+    start_src = inspect.getsource(app_mod.App._start)
+
+    # 1) `_run_bot` cattura l'evento in locale e lo passa al backoff
+    assert "backoff_stop_event = self._stop_event" in run_bot_src, (
+        "app.py/_run_bot: manca la cattura locale dell'evento di stop della sessione (P3-ap2)")
+    assert "self._reconnect_wait(delay, backoff_stop_event)" in run_bot_src, (
+        "app.py/_run_bot: il backoff deve passare l'evento CATTURATO a _reconnect_wait (P3-ap2)")
+
+    # 2) `_reconnect_wait` attende il parametro, non self._stop_event
+    assert "stop_event.wait(delay)" in reconnect_src, (
+        "app.py/_reconnect_wait: deve attendere il parametro `stop_event` (P3-ap2)")
+    assert "self._stop_event.wait" not in reconnect_src, (
+        "app.py/_reconnect_wait: NON rileggere self._stop_event (lost-wake su START rapido)")
+
+    # 3) `_start` riassegna un evento fresco, niente `.clear()` in place
+    assert "self._stop_event = threading.Event()" in start_src, (
+        "app.py/_start: la nuova sessione deve RIASSEGNARE self._stop_event (P3-ap2)")
+    assert "self._stop_event.clear()" not in start_src, (
+        "app.py/_start: NON usare .clear() in place (cancellerebbe il set dello STOP catturato "
+        "dal thread vecchio → lost-wake) — riassegna un evento fresco (P3-ap2)")
