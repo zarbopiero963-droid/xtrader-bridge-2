@@ -245,6 +245,11 @@ def test_worker_appeso_su_path_vecchio_non_blocca_il_path_nuovo(
         "il probe del path nuovo deve ripartire anche col worker vecchio appeso")
     assert a._csv_probe_cache[0] == "C:/nuovo.csv"
     blocco.set()                                  # cleanup: sblocca il worker vecchio
+    # Join di TUTTI i worker del registro (review Fugu final): niente thread
+    # ancora vivi che sopravvivono al test (determinismo, no flakiness CI).
+    for t, _p, _s in list(a._csv_probe_threads):
+        t.join(timeout=5)
+    assert not any(t.is_alive() for t, _p, _s in a._csv_probe_threads)
 
 
 def test_watchdog_non_sovrascrive_esito_fresco_appena_arrivato(
