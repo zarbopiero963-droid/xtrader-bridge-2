@@ -166,6 +166,45 @@ def test_cambio_path_con_worker_in_volo_scarta_il_risultato_vecchio(
     assert len(chiamate) == n, "nessun probe extra dopo il worker del path vecchio"
 
 
+def test_worker_appeso_oltre_stallo_giallo_onesto_poi_recovery(
+        make_app, app_mod, monkeypatch):
+    """Review Fable PR #111 (bloccante): su share SMB morta il worker può appendersi
+    per sempre (os.access senza timeout) col flag inflight alzato — il semaforo
+    resterebbe inchiodato sull'ultimo stato noto (magari 🟢) mentre i write CSV
+    falliscono. Oltre `_CSV_PROBE_STALL_S` il semaforo deve degradare a GIALLO
+    ONESTO senza lanciare altri worker; al ritorno del worker l'esito vero
+    riprende il posto (auto-recovery)."""
+    a = make_app(running=False)
+    clock = _orologio(app_mod, monkeypatch)
+    blocco = threading.Event()
+    chiamate = []
+
+    def _probe(path, **_k):
+        chiamate.append(path)
+        if len(chiamate) > 1:
+            blocco.wait(timeout=10)              # worker appeso: share che non risponde
+        return ("GREEN", "ok")
+
+    monkeypatch.setattr(app_mod.health_check, "csv_writable", _probe)
+
+    app_mod.App._csv_writable_cached(a, "Z:/s.csv")                 # sincrono: 🟢
+    clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
+    r_stantio = app_mod.App._csv_writable_cached(a, "Z:/s.csv")     # worker appeso
+    assert r_stantio == ("GREEN", "ok")                             # sotto soglia: stantio
+
+    clock["now"] += app_mod._CSV_PROBE_STALL_S + 0.1                # oltre lo stallo
+    r_stallo = app_mod.App._csv_writable_cached(a, "Z:/s.csv")
+    assert r_stallo[0] == app_mod.health_check.YELLOW, (
+        "worker appeso oltre soglia: MAI un 🟢 stantio spacciato per fresco")
+    assert "bloccata" in r_stallo[1]
+    assert len(chiamate) == 2, "niente pile-up: nessun nuovo worker mentre uno è appeso"
+
+    blocco.set()                                                    # la share risponde
+    _attendi_worker(a)
+    assert a._csv_probe_cache[2] == ("GREEN", "ok"), "auto-recovery: esito vero in cache"
+    assert a.__dict__.get("_csv_probe_inflight") is False
+
+
 def test_worker_probe_che_solleva_non_uccide_niente(make_app, app_mod, monkeypatch):
     """Fail-safe: un probe che solleva nel worker non propaga (thread daemon) e
     sblocca il flag inflight — il giro successivo può riprovare."""

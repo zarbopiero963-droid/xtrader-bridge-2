@@ -117,6 +117,15 @@ _STOP_CLEAR_RETRY_MS = 5000
 # «🔄 Aggiorna» del pannello Salute forza comunque il probe fresco).
 _CSV_PROBE_TTL_S = 5.0
 
+# Soglia di STALLO del worker probe (review Fable PR #111): su share SMB morta la
+# sonda può appendersi indefinitamente — il worker non ha timeout (os.access non è
+# interrompibile) e il flag inflight resterebbe alzato per sempre, inchiodando il
+# semaforo sull'ultimo stato noto (magari 🟢) mentre i write CSV falliscono. Oltre
+# questa soglia il semaforo degrada a GIALLO ONESTO («sonda bloccata») SENZA
+# lanciare altri worker (niente pile-up di thread appesi sulla stessa share);
+# quando/se il worker torna, l'esito vero riprende il posto (auto-recovery).
+_CSV_PROBE_STALL_S = 3 * _CSV_PROBE_TTL_S
+
 # Quanti eventi tenere nel ledger append-only (#230): potato allo startup per non far
 # crescere `event_journal.jsonl` all'infinito (~uno-pochi eventi per segnale).
 _EVENT_JOURNAL_KEEP = 5000
@@ -1573,7 +1582,18 @@ class App(ctk.CTk):
             # VERO su un worker in background, così nemmeno il singolo probe a TTL
             # scaduto può congelare la GUI su uno share degradato. La cache viene
             # aggiornata dal worker; il semaforo si rinfresca via `_safe_after`.
-            self._kick_csv_probe_async(path)
+            self._kick_csv_probe_async(path)      # no-op se un worker è già in volo
+            # Watchdog di stallo (review Fable PR #111): worker appeso oltre la
+            # soglia (share che non risponde) → GIALLO ONESTO in cache, mai un 🟢
+            # stantio spacciato per fresco mentre i write falliscono. Timestamp
+            # rinnovato: niente riscritture/flicker a ogni messaggio.
+            kick = self.__dict__.get("_csv_probe_kick_ts")
+            if (self.__dict__.get("_csv_probe_inflight") and kick is not None
+                    and now - kick > _CSV_PROBE_STALL_S):
+                stalled = (health_check.YELLOW,
+                           "sonda CSV bloccata da troppo tempo (share non risponde?)")
+                self._csv_probe_cache = (path, time.monotonic(), stalled)
+                return stalled
             return cached[2]
         # Primo probe di un path (avvio/cambio path) o force=True («🔄 Aggiorna»):
         # SINCRONO — qui serve un esito vero subito e non è il percorso caldo.
@@ -1597,6 +1617,8 @@ class App(ctk.CTk):
         if self.__dict__.get("_csv_probe_inflight"):
             return
         self._csv_probe_inflight = True
+        # Timestamp del kick per il watchdog di stallo (review Fable PR #111).
+        self._csv_probe_kick_ts = time.monotonic()
 
         def _worker():
             try:

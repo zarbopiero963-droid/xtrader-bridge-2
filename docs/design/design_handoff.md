@@ -627,7 +627,10 @@ degradato congelerebbe l'app a ogni messaggio); il pulsante **«🔄 Aggiorna» 
 cache** e mostra sempre lo stato fresco. A cache scaduta il probe fresco gira su un
 **worker in background** (follow-up #76): il semaforo mostra per un istante l'ultimo
 stato noto e si auto-aggiorna appena il controllo termina — la GUI non si blocca mai
-sugli aggiornamenti automatici. Limite onesto residuo: il **primo** controllo di un
+sugli aggiornamenti automatici. Se il controllo in background resta **appeso oltre
+~15 s** (share che non risponde), il semaforo degrada a **giallo onesto** («sonda CSV
+bloccata da troppo tempo») invece di mostrare un verde stantio; appena la share
+risponde, lo stato vero riprende il posto da solo. Limite onesto residuo: il **primo** controllo di un
 path (avvio/cambio path) e il pulsante **«🔄 Aggiorna»** restano sincroni (serve
 l'esito vero subito): su share degradato quel singolo controllo può ancora bloccare
 brevemente. La sonda
