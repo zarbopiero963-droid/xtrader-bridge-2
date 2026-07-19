@@ -47,6 +47,50 @@ def test_disk_dirty_letto_via_dict_get_non_getattr():
         "sulle istanze headless (regressione #117)")
 
 
+# ── P3-ap1 audit #114: notifiche UI dal thread del bot TclError-safe ─────────────
+
+def test_after_non_write_tollera_root_distrutta(make_app, app_mod):
+    """P3-ap1 #114: le notifiche UI emesse DAL THREAD DEL BOT passano da `_safe_after`,
+    che tollera la root Tk già distrutta (`TclError`/`RuntimeError`). Se la finestra si
+    chiude a metà elaborazione, un metodo del bot-thread come `_after_non_write` NON deve
+    propagare l'eccezione: nel supervisor `_run_bot` uscirebbe dal `while` e SALTEREBBE
+    `loop.close()` → leak di selector/fd a ogni ciclo START/STOP.
+
+    Fail-first: con `self.after` grezzo (pre-P3-ap1) la `TclError` si propaga e il metodo
+    solleva; instradando su `_safe_after` (metodo REALE, non stubbato) viene inghiottita e
+    il metodo ritorna pulito."""
+    # `tkinter` è stubbato+rimosso da sys.modules dal conftest: si usa la `TclError` reale
+    # che `app` ha catturato all'import (`app_mod.tk.TclError`), la stessa della tupla except.
+    a = make_app()
+    reached = []
+
+    def _root_distrutta(delay=None, func=None, *x, **k):
+        # ogni `after` reale su root chiusa (thread del bot) solleverebbe così
+        raise app_mod.tk.TclError("application has been destroyed")
+
+    a.after = _root_distrutta
+    a._bump = lambda *x, **k: reached.append("bump")   # non deve essere raggiunto: after solleva prima
+
+    # decision con esito noto (DUPLICATE) → il metodo emette ≥1 notifica via _safe_after.
+    # Nessuna eccezione propagata = il teardown del listener resterebbe pulito.
+    app_mod.App._after_non_write(a, app_mod.live_guard.DUPLICATE, {"EventName": "Inter v Milan"})
+
+    assert reached == [], "la callback non deve girare su root distrutta (after solleva prima)"
+
+
+def test_notifiche_bot_thread_instradano_su_safe_after_non_after_grezzo():
+    """P3-ap1 #114 (pin SORGENTE, pattern #311): tutte le notifiche UI dal thread del bot
+    usano `self._safe_after(0, ...)`, MAI `self.after(0, ...)` grezzo. Un `self.after(0,`
+    residuo in un metodo del bot-thread è una regressione: su root distrutta solleverebbe
+    `TclError` fuori dal `_safe_after`, saltando `loop.close()` nel supervisor. Le `self.after`
+    con ritardo NON-zero (405/408/504) restano legittime: girano sul thread Tk (main loop),
+    non dal bot."""
+    src = _APP_SRC.read_text(encoding="utf-8")
+    assert "self.after(0," not in src, (
+        "app.py: le notifiche UI dal thread del bot devono usare `self._safe_after(0, ...)`, "
+        "non `self.after(0, ...)` (P3-ap1 #114: TclError-safe su root distrutta)")
+
+
 # ── helper ────────────────────────────────────────────────────────────────────
 
 def _row(name, selection=None, price="1,90"):

@@ -1803,7 +1803,8 @@ class App(ctk.CTk):
 
     def _bump(self, name: str) -> None:
         """Incrementa un contatore della dashboard e rinfresca le label. DEVE girare
-        sul thread Tk: dal thread del bot va chiamato via `self.after(0, ...)`."""
+        sul thread Tk: dal thread del bot va chiamato via `self._safe_after(0, ...)`
+        (P3-ap1 audit #114: `after` TclError-safe se la root è già distrutta)."""
         self._stats.bump(name)
         self._refresh_dashboard()
 
@@ -2517,7 +2518,7 @@ class App(ctk.CTk):
         if (not signal_dedupe.save_state(self._tracker, self._dedupe_state_path())
                 and not self._dedupe_save_warned):
             self._dedupe_save_warned = True
-            self.after(0, lambda: self._log(i18n.tr(
+            self._safe_after(0, lambda: self._log(i18n.tr(
                 "⚠️ Impossibile salvare lo stato anti-duplicato su disco: "
                 "protezione dopo riavvio degradata.")))
         # Daily: salvataggio ATOMICO+fsync (audit #105 P2), allineato a signal_dedupe; un
@@ -2526,7 +2527,7 @@ class App(ctk.CTk):
                 and not safety_guard.save_state(self._daily, self._daily_state_path())
                 and not self._daily_save_warned):
             self._daily_save_warned = True
-            self.after(0, lambda: self._log(i18n.tr(
+            self._safe_after(0, lambda: self._log(i18n.tr(
                 "⚠️ Impossibile salvare lo stato del limite giornaliero su disco: "
                 "protezione anti-overtrading dopo riavvio degradata.")))
 
@@ -2751,7 +2752,14 @@ class App(ctk.CTk):
         # caricato a metà sessione non deve cambiare il separatore decimale del CSV che
         # XTrader sta già leggendo. La nuova lingua vale dal prossimo START.
         csv_writer.freeze_csv_language()
-        self._stop_event.clear()      # nuova sessione: riarma l'attesa del backoff
+        # Nuova sessione: evento di stop del backoff FRESCO, non `.clear()` (P3-ap2 audit
+        # #114). Con `.clear()` un STOP→START rapido poteva «cancellare» il set dello STOP
+        # prima che il thread vecchio (in attesa del backoff su `self._stop_event`) lo
+        # osservasse → lost-wake (thread appeso fino a ~15s). Riassegnando un evento nuovo, il
+        # thread vecchio resta sul PROPRIO evento (catturato in `_run_bot`), già settato dallo
+        # STOP; il thread nuovo cattura questo evento fresco. `_stop` setta `self._stop_event`
+        # (l'evento della sessione corrente). Il thread vecchio non fa doppio-poller (epoch).
+        self._stop_event = threading.Event()
         self._set_listener_state(health_check.LISTENER_ACTIVE, _COLOR_STATUS_ACTIVE)
         self._btn_start.configure(state="disabled")
         self._btn_stop.configure(state="normal")
@@ -2902,6 +2910,14 @@ class App(ctk.CTk):
         # Registro svuotato dopo la cancellazione (review GPT #93): difensivo se la
         # chiusura venisse rieseguita — mai after_cancel doppi su id già consumati.
         (self.__dict__.get("_stop_clear_after_ids") or {}).clear()
+        # P3-ap3 audit #114: `_on_close` chiama `_stop()` PER PRIMO (sopra), che sveglia sia
+        # l'attesa in-loop (`_async_stop_event`) sia il backoff di riconnessione (ora su un
+        # evento PER-SESSIONE, P3-ap2: niente più lost-wake che teneva il thread appeso fino a
+        # ~15s). Quindi il thread esce entro ~1s + shutdown updater, ben dentro il join di 5s.
+        # Se una `updater.stop()` di rete restasse comunque bloccata oltre il timeout, il join
+        # cede e si procede: il thread è daemon (morirà con il processo) e ogni sua `after`
+        # residua passa da `_safe_after` (P3-ap1: TclError-safe su root distrutta), quindi
+        # nessun crash e nessun leak oltre la vita del processo.
         t = self._bot_thread
         if t is not None and t.is_alive():
             t.join(timeout=5.0)
@@ -2947,6 +2963,16 @@ class App(ctk.CTk):
         stop_evt = asyncio.Event()
         self._async_stop_event = stop_evt
         self._loop = loop                 # ULTIMA pubblicazione: coppia sempre coerente
+        # Evento di stop del BACKOFF di riconnessione (threading.Event) catturato in LOCALE
+        # per QUESTA sessione (P3-ap2 audit #114), stesso principio del `stop_evt` async:
+        # `_stop` lo setta per svegliare l'attesa del backoff, ma in uno STOP→START rapido il
+        # nuovo `_start` RIASSEGNA `self._stop_event` a un evento fresco (non fa più `.clear()`).
+        # Se il backoff leggesse `self._stop_event` ad ogni attesa, il set dello STOP potrebbe
+        # essere «cancellato» dalla riassegnazione del START successivo → LOST-WAKE: il thread
+        # vecchio resterebbe appeso per tutto il delay (fino a ~15s), senza però doppio-poller
+        # (l'epoch lo ferma al risveglio). Con la cattura LOCALE, il thread vecchio attende
+        # sempre sul PROPRIO evento — già settato dallo STOP che ha preceduto il nuovo START.
+        backoff_stop_event = self._stop_event
         # App Telegram di QUESTA sessione tenuta in un riferimento LOCALE, non solo in
         # `self._tg_app` (condiviso e sovrascrivibile da un nuovo START). Lo shutdown in-loop
         # e quello d'errore devono fermare l'app COSTRUITA da questa sessione, mai quella di un
@@ -3188,7 +3214,7 @@ class App(ctk.CTk):
                         "🔌 Connessione persa ({error}): riconnessione tra {delay}s (tentativo {attempt})…")
                         .format(error=type(e).__name__, delay=f"{d:.0f}", attempt=n)))
                     self._safe_after(0, self._set_status_reconnecting)
-                    self._reconnect_wait(delay)
+                    self._reconnect_wait(delay, backoff_stop_event)
         finally:
             # Sessione finita (STOP / nuovo START / errore non recuperabile): CHIUDI l'event
             # loop di QUESTA sessione, così selector/fd vengono rilasciati e non si accumula un
@@ -3238,11 +3264,13 @@ class App(ctk.CTk):
         if self._tg_app is app:
             self._tg_app = None
 
-    def _reconnect_wait(self, delay: float) -> None:
+    def _reconnect_wait(self, delay: float, stop_event) -> None:
         """Attesa del backoff interrompibile, senza busy-poll: `Event.wait` dorme fino
         allo scadere del `delay` e si sblocca **subito** se arriva uno STOP (che
-        imposta `_stop_event`)."""
-        self._stop_event.wait(delay)
+        imposta l'evento). `stop_event` è l'evento di stop CATTURATO da `_run_bot` per
+        QUESTA sessione (P3-ap2 audit #114): mai `self._stop_event`, che un nuovo START
+        può aver riassegnato → lost-wake del thread vecchio."""
+        stop_event.wait(delay)
 
     def _set_status_reconnecting(self) -> None:
         self._set_listener_state(health_check.LISTENER_RECONNECTING, _COLOR_STATUS_RECONNECT)
@@ -3281,7 +3309,7 @@ class App(ctk.CTk):
         # CP-09: instrada al Parser Personalizzato attivo (autoritativo) o, in
         # assenza, al parser hardcoded. Non scrive righe non piazzabili: meglio
         # scartare un segnale incompleto che generare una riga ambigua.
-        self.after(0, lambda: self._bump("received"))   # PR-14: candidato instradato
+        self._safe_after(0, lambda: self._bump("received"))   # PR-14: candidato instradato
         # Event journal (#230): solo la chat (niente testo), e in forma REDATTA — il diario è un
         # log DUREVOLE sotto AppData e il chat_id reale è sensibile (Telegram safety, Codex P2).
         self._journal("SIGNAL_RECEIVED", chat=log_privacy.redact_chat_id(chat_id))
@@ -3297,7 +3325,7 @@ class App(ctk.CTk):
         # P3-1 audit #76: chat_id REDATTO anche qui — `_dbg` finisce nel log PERSISTENTE
         # (AppData) quando il debug è attivo, e il chat_id è dato sensibile (stessa
         # impronta stabile del diario eventi: correlabile tra log e diario, mai in chiaro).
-        self.after(0, lambda m=log_privacy.redact_message(text, full=payload_full),
+        self._safe_after(0, lambda m=log_privacy.redact_message(text, full=payload_full),
                    c=log_privacy.redact_chat_id(chat_id):
                    self._dbg(f"IN (chat {c or '?'}): {m}"))
         # Arricchimento ID DISATTIVATO (rimozione «Betfair Sync»): il CSV live NON riempie più
@@ -3315,14 +3343,14 @@ class App(ctk.CTk):
         if not result.placeable:
             detail = (", ".join(result.missing_required)
                       if result.missing_required else result.detail)
-            self.after(0, lambda: self._bump("discarded"))
-            self.after(0, lambda: self._log(i18n.tr(
+            self._safe_after(0, lambda: self._bump("discarded"))
+            self._safe_after(0, lambda: self._log(i18n.tr(
                 "⚠️ Segnale scartato ({source}/{status}): {detail}").format(
                     source=result.source, status=result.status, detail=detail)))
             # Avvisi #38 anche sulla riga scartata (parità col path piazzabile): l'operatore
             # che debugga uno scarto vede comunque l'avviso separatore, se presente.
             for _warn in getattr(result, "warnings", None) or []:
-                self.after(0, lambda w=_warn: self._log(
+                self._safe_after(0, lambda w=_warn: self._log(
                     i18n.tr("⚠️ EventName: {warning}").format(warning=w)))
             return
 
@@ -3330,7 +3358,7 @@ class App(ctk.CTk):
         # potuto dividere le squadre → il segnale è comunque piazzabile (nome lasciato invariato),
         # ma l'operatore vede l'avviso nel log (parità con la preview «Prova messaggio»).
         for _warn in getattr(result, "warnings", None) or []:
-            self.after(0, lambda w=_warn: self._log(
+            self._safe_after(0, lambda w=_warn: self._log(
                 i18n.tr("⚠️ EventName: {warning}").format(warning=w)))
 
         # #192: il parser può produrre PIÙ righe (MultiMarket/MultiSelection). Per il single-row
@@ -3421,9 +3449,9 @@ class App(ctk.CTk):
             self._after_non_write(decision, row)
             return
         if write_error is not None:
-            self.after(0, lambda: self._bump("errors"))
-            self.after(0, lambda e=write_error: self._set_last("error", f"scrittura CSV: {e}"))
-            self.after(0, lambda e=write_error: self._log(i18n.tr(
+            self._safe_after(0, lambda: self._bump("errors"))
+            self._safe_after(0, lambda e=write_error: self._set_last("error", f"scrittura CSV: {e}"))
+            self._safe_after(0, lambda e=write_error: self._log(i18n.tr(
                 "❌ Scrittura CSV fallita: {exc}. Segnale non registrato (riprovabile).")
                 .format(exc=e)))
             # I segnali ripristinati devono comunque scadere. Ma se il disco è STANTIO
@@ -3441,25 +3469,25 @@ class App(ctk.CTk):
             # la scadenza così una riga si libera e il segnale potrà passare.
             if self._tracker is not None:
                 self._save_guard_state()
-            self.after(0, lambda: self._bump("discarded"))
-            self.after(0, lambda m=multi_signal.blocked_message(self._queue.max_active):
+            self._safe_after(0, lambda: self._bump("discarded"))
+            self._safe_after(0, lambda m=multi_signal.blocked_message(self._queue.max_active):
                        self._log(m))
-            self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
-            self.after(0, lambda n=len(rows): self._update_active_indicator(n))
+            self._safe_after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
+            self._safe_after(0, lambda n=len(rows): self._update_active_indicator(n))
             self._schedule_expiry(path)
             return
         # Scrittura riuscita: ora è sicuro persistere lo stato dei guardrail. Il recovery
         # del CSV-lock è già stato applicato sopra (`_apply_csv_lock_event`).
         if self._tracker is not None:
             self._save_guard_state()
-        self.after(0, lambda: self._bump("written"))   # PR-14: riga scritta nel CSV
+        self._safe_after(0, lambda: self._bump("written"))   # PR-14: riga scritta nel CSV
         # Event journal (#230): riga scritta nel CSV (numero righe attive + sorgente).
         self._journal("CSV_WRITTEN", rows=len(rows), source=result.source)
         # #234: il CSV operativo ora HA una riga attiva su disco → memorizzalo, così il prossimo
         # ritorno a solo header (scadenza/conferma/manuale/STOP/START) registra un clear reale.
         self._csv_had_active_row = True
-        self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
-        self.after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5 indicatore
+        self._safe_after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
+        self._safe_after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5 indicatore
 
         # Presentazione della scrittura riuscita (pura, testata in `signal_outcome`):
         # «ultimo segnale» + log segnale (con sorgente) + log aggiornamento CSV.
@@ -3473,15 +3501,15 @@ class App(ctk.CTk):
         # e il caso multi con TUTTE le righe scritte → written_row == row → invariato).
         written_row = next((r for r in rows_to_commit if r in rows), row)
         outcome = signal_outcome.describe_write(written_row, result.source, len(rows))
-        self.after(0, lambda i=outcome.last_signal: self._set_last("signal", i, "white"))
-        self.after(0, lambda m=outcome.signal_log: self._log(m))
-        self.after(0, lambda m=outcome.csv_log: self._log(m))
+        self._safe_after(0, lambda i=outcome.last_signal: self._set_last("signal", i, "white"))
+        self._safe_after(0, lambda m=outcome.signal_log: self._log(m))
+        self._safe_after(0, lambda m=outcome.csv_log: self._log(m))
         # Tracciabilità (PR-3): messaggio Telegram ↔ riga CSV scritta (data+ora già
         # nell'header `[HH:MM:SS]` della entry e nel nome file `bridge-AAAA-MM-GG.log`).
         # Il MESSAGGIO è redatto di default (privacy, audit #105 P1): solo hash + 1ª riga
         # troncata, payload completo solo con `debug_message_payload`. La RIGA CSV (dati
         # operativi della scommessa) resta per la tracciabilità; i token sono redatti dal sink.
-        self.after(0, lambda m=log_privacy.redact_message(text, full=payload_full),
+        self._safe_after(0, lambda m=log_privacy.redact_message(text, full=payload_full),
                    r=dict(written_row): self._log(
             i18n.tr("🧾 Messaggio→CSV  |  msg: {msg}  |  riga: {row}").format(
                 msg=m, row=", ".join(f"{k}={v}" for k, v in r.items() if v != ""))))
@@ -3489,7 +3517,7 @@ class App(ctk.CTk):
         # Scadenza per-segnale: (ri)programma il tick alla scadenza più vicina (non un
         # ritardo fisso, così un segnale più vecchio non resta oltre il suo timeout).
         self._schedule_expiry(path)
-        self.after(0, lambda d=self._queue_timeout: self._log(
+        self._safe_after(0, lambda d=self._queue_timeout: self._log(
             i18n.tr("⏱️  Scadenza segnale tra ~{seconds}s").format(seconds=d)))
 
     def _after_non_write(self, decision: str, row: dict) -> None:
@@ -3500,11 +3528,11 @@ class App(ctk.CTk):
         outcome = signal_outcome.describe_non_write(decision, row)
         if outcome is None:
             return
-        self.after(0, lambda c=outcome.counter: self._bump(c))
+        self._safe_after(0, lambda c=outcome.counter: self._bump(c))
         if outcome.last_signal is not None:
-            self.after(0, lambda s=outcome.last_signal, col=outcome.last_color:
+            self._safe_after(0, lambda s=outcome.last_signal, col=outcome.last_color:
                        self._set_last("signal", s, col))
-        self.after(0, lambda m=outcome.log: self._log(m))
+        self._safe_after(0, lambda m=outcome.log: self._log(m))
 
     def _record_csv_lock(self, wrote: bool, write_error) -> str:
         """Registra l'esito di scrittura nel contatore CSV-lock (#153 H2) MENTRE si è ancora
@@ -3523,12 +3551,12 @@ class App(ctk.CTk):
         """Applica FUORI dal lock l'evento del contatore CSV-lock (#153 H2): stato «CSV
         bloccato» all'escalation, oppure recovery (log + campo «Ultimo errore» verde)."""
         if event == "escalate":
-            self.after(0, lambda: self._set_last("error", "🔒 CSV bloccato da XTrader"))
-            self.after(0, lambda m=self._csv_lock.text(): self._log(m))
+            self._safe_after(0, lambda: self._set_last("error", "🔒 CSV bloccato da XTrader"))
+            self._safe_after(0, lambda m=self._csv_lock.text(): self._log(m))
         elif event == "recover":
             msg = self._csv_lock.recovery_text()
-            self.after(0, lambda m=msg: self._log(m))
-            self.after(0, lambda m=msg: self._set_last("error", m, "#66bb6a"))
+            self._safe_after(0, lambda m=msg: self._log(m))
+            self._safe_after(0, lambda m=msg: self._set_last("error", m, "#66bb6a"))
 
     def _process_confirmation(self, text: str, cfg: dict, route_cfg: dict = None,
                               epoch=None) -> None:
@@ -3564,7 +3592,7 @@ class App(ctk.CTk):
             # #311 §3.3: traccia l'esito per scheda Stato + semaforo «Conferme XTrader».
             _esito = ("CONFERMATO" if result.status == confirmation_reader.CONFIRMED
                       else "RIFIUTATO")
-            self.after(0, lambda s=f"{_esito} @ {datetime.now():%H:%M:%S}":
+            self._safe_after(0, lambda s=f"{_esito} @ {datetime.now():%H:%M:%S}":
                        self._set_last("confirmation", s, "white"))
             path = cfg["csv_path"]
             write_error = None
@@ -3603,9 +3631,9 @@ class App(ctk.CTk):
                 # riga stantia un intero intervallo) così la riga sparisce in fretta.
                 # Il flag `_csv_had_active_row` resta com'era: il CSV su disco ha ancora la riga;
                 # sarà il retry (`_expire_tick`) a riportarlo a solo header e a loggare il clear (#234 C).
-                self.after(0, lambda: self._bump("errors"))
-                self.after(0, lambda e=write_error: self._set_last("error", f"CSV dopo conferma: {e}"))
-                self.after(0, lambda e=write_error: self._log(i18n.tr(
+                self._safe_after(0, lambda: self._bump("errors"))
+                self._safe_after(0, lambda e=write_error: self._set_last("error", f"CSV dopo conferma: {e}"))
+                self._safe_after(0, lambda e=write_error: self._log(i18n.tr(
                     "❌ Aggiornamento CSV dopo conferma fallito: {exc}. Riprovo a breve.")
                     .format(exc=e)))
                 self._schedule_expiry(path, delay=_WRITE_RETRY_DELAY)
@@ -3621,9 +3649,9 @@ class App(ctk.CTk):
             # terminali senza messaggio, non si logga `None`.
             removed_log = signal_outcome.confirmation_removed_log(result.status)
             if removed_log is not None:
-                self.after(0, lambda m=removed_log: self._log(m))
-            self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
-            self.after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5
+                self._safe_after(0, lambda m=removed_log: self._log(m))
+            self._safe_after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
+            self._safe_after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5
             self._schedule_expiry(path)   # riprogramma per i segnali eventualmente rimasti
         else:
             # UNKNOWN o UNMATCHED: notifica che NON rimuove nulla → solo log informativo.
@@ -3631,7 +3659,7 @@ class App(ctk.CTk):
             # non enumerati (difesa, review Sourcery).
             ignored_log = signal_outcome.confirmation_ignored_log(result.status)
             if ignored_log is not None:
-                self.after(0, lambda m=ignored_log: self._log(m))
+                self._safe_after(0, lambda m=ignored_log: self._log(m))
 
     def _schedule_expiry(self, path: str, delay=None) -> None:
         """(Ri)programma il tick di scadenza (PR-22). Con `delay=None` lo programma
@@ -3739,17 +3767,17 @@ class App(ctk.CTk):
             # RIPROVA con un ritardo limitato (non a scadenza, che sarebbe nel passato
             # → busy-loop), così il disco converge allo stato della coda. Riprogramma
             # anche a coda vuota (un segnale scaduto non deve restare nel CSV).
-            self.after(0, lambda: self._bump("errors"))
-            self.after(0, lambda e=write_error: self._set_last("error", f"CSV alla scadenza: {e}"))
-            self.after(0, lambda e=write_error: self._log(i18n.tr(
+            self._safe_after(0, lambda: self._bump("errors"))
+            self._safe_after(0, lambda e=write_error: self._set_last("error", f"CSV alla scadenza: {e}"))
+            self._safe_after(0, lambda e=write_error: self._log(i18n.tr(
                 "❌ Aggiornamento CSV alla scadenza fallito: {exc}. Riprovo a breve.")
                 .format(exc=e)))
             self._schedule_expiry(path, delay=_WRITE_RETRY_DELAY)
             return
         if expired:
-            self.after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
-            self.after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5
-            self.after(0, lambda n=len(expired): self._log(i18n.tr(
+            self._safe_after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
+            self._safe_after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5
+            self._safe_after(0, lambda n=len(expired): self._log(i18n.tr(
                 "🗑️  {n} segnale/i scaduto/i rimosso/i dal CSV").format(n=n)))
         # Stato del CSV dopo una scrittura RIUSCITA (#230/#234 D): se restano righe il CSV è ancora
         # attivo; se è tornato a solo header registra il clear sulla transizione reale. Gestito QUI
