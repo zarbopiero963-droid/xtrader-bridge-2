@@ -102,7 +102,9 @@ def test_loop_close_dentro_finally():
     # condivisi vanno azzerati SOLO se appartengono ancora a QUESTA sessione —
     # il finally tardivo di un run vecchio non deve azzerare loop/evento di un
     # nuovo START che nel frattempo li ha riassegnati (audit C1).
-    assert re.search(r"if self\._loop is loop:", finale), (
+    # Ancorata a riga intera (review Sourcery PR #112): una guardia COMMENTATA o
+    # inglobata in altro testo non deve far passare il pin — solo istruzione reale.
+    assert re.search(r"(?m)^\s*if self\._loop is loop:\s*$", finale), (
         "_run_bot: il finally deve azzerare gli handle solo sotto la guardia "
         "`if self._loop is loop` (niente teardown cross-sessione)")
 
