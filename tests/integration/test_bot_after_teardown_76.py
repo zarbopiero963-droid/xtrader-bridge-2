@@ -98,6 +98,13 @@ def test_loop_close_dentro_finally():
     # e il while del supervisor deve stare DENTRO il try corrispondente
     assert re.search(r"try:\s*\n\s+while _is_current\(\):", corpo), (
         "_run_bot: il supervisor deve essere avvolto dal try del finally")
+    # Guardia d'IDENTITÀ nel finally (follow-up #76, nota Fugu PR #95): gli handle
+    # condivisi vanno azzerati SOLO se appartengono ancora a QUESTA sessione —
+    # il finally tardivo di un run vecchio non deve azzerare loop/evento di un
+    # nuovo START che nel frattempo li ha riassegnati (audit C1).
+    assert re.search(r"if self\._loop is loop:", finale), (
+        "_run_bot: il finally deve azzerare gli handle solo sotto la guardia "
+        "`if self._loop is loop` (niente teardown cross-sessione)")
 
 
 def test_evento_di_stop_pubblicato_prima_del_loop():

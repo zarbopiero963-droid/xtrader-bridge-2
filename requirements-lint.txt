@@ -3,5 +3,8 @@
 # Volutamente NON inclusi in requirements-dev.txt / requirements-build.in: non servono
 # all'EXE né ai test, quindi restano FUORI dal lock di build Windows
 # (`requirements-build.lock`) e non lo appesantiscono né lo rendono stantio (#311-3.5-c).
-ruff>=0.6
-mypy>=1.10
+# Bound superiore di major (follow-up #76, nota PR #88): il job lint è soft
+# (continue-on-error) ma una major breaking upstream sporcherebbe comunque le
+# annotazioni; il floor+cap lascia passare le minor senza sorprese di major.
+ruff>=0.6,<1
+mypy>=1.10,<2
