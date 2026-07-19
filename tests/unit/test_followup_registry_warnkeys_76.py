@@ -49,7 +49,9 @@ def test_fallback_rotto_registro_vuoto_cacheato(monkeypatch, caplog):
         reg = custom_pipeline._default_registry()          # NON deve sollevare
 
     assert reg == {}                                       # ultimo-resort: vuoto
-    assert any(r.levelname == "ERROR" for r in caplog.records)
+    # Contratto «errore unico» (review Sourcery PR #110): ESATTAMENTE un ERROR —
+    # una regressione che logga doppio o degrada il livello deve fallire qui.
+    assert sum(1 for r in caplog.records if r.levelname == "ERROR") == 1
     n_rec = len(caplog.records)
     assert custom_pipeline._default_registry() is reg      # cacheato: no retry-storm
     assert len(caplog.records) == n_rec                    # e nessun nuovo log

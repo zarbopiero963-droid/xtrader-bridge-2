@@ -115,6 +115,13 @@ _WARNED_CAP = 256
 _WARNED_LOCK = threading.Lock()
 
 
+def _digest(s: str) -> str:
+    """Digest sha256 esadecimale per le chiavi di dedup dei warning: memoria fissa
+    e niente collisioni pratiche (follow-up #76, nota PR #104; a scope di modulo
+    per non riallocare la closure a ogni chiamata — review Sourcery PR #110)."""
+    return hashlib.sha256(s.encode("utf-8", "backslashreplace")).hexdigest()
+
+
 def _reset_warnings() -> None:
     """Svuota il dedup dei warning: per i test e per un eventuale futuro hook di
     reload config (così una chat corretta e poi ri-corrotta torna a essere segnalata)."""
@@ -163,9 +170,7 @@ def _normalize_source(raw: dict) -> dict:
         # (nota PR #104): sha256 al posto di `hash()` — niente collisioni pratiche
         # che sopprimerebbero il warning di una coppia chat+valore DIVERSA (pattern
         # allineato con `name_mapping_store._warn_malformed`).
-        def _dig(s):
-            return hashlib.sha256(s.encode("utf-8", "backslashreplace")).hexdigest()
-        key = (_dig(chat), _dig(ascii(raw_enabled)))
+        key = (_digest(chat), _digest(ascii(raw_enabled)))
         with _WARNED_LOCK:                       # una volta per chat+valore: no spam
             warn = key not in _WARNED_ENABLED and len(_WARNED_ENABLED) < _WARNED_CAP
             if warn:
