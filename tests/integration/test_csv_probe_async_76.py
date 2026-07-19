@@ -131,6 +131,41 @@ def test_primo_probe_e_force_restano_sincroni(make_app, app_mod, monkeypatch):
     assert a.__dict__.get("_csv_probe_thread") is None, "nessun worker lanciato"
 
 
+def test_cambio_path_con_worker_in_volo_scarta_il_risultato_vecchio(
+        make_app, app_mod, monkeypatch):
+    """Review GPT/Fable PR #111: se l'utente cambia csv_path mentre un worker sul
+    path VECCHIO è in volo, il suo risultato va SCARTATO — non deve sovrascrivere
+    la cache del path nuovo (costerebbe un probe sincrono extra sul thread Tk)."""
+    a = make_app(running=False)
+    clock = _orologio(app_mod, monkeypatch)
+    parti = threading.Event()
+    chiamate = []
+
+    def _probe(path, **_k):
+        chiamate.append(path)
+        if path == "C:/vecchio.csv" and len(chiamate) > 1:
+            parti.wait(timeout=5)                # worker sul path vecchio: appeso
+        return ("GREEN", f"ok:{path}")
+
+    monkeypatch.setattr(app_mod.health_check, "csv_writable", _probe)
+
+    app_mod.App._csv_writable_cached(a, "C:/vecchio.csv")           # sincrono
+    clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
+    app_mod.App._csv_writable_cached(a, "C:/vecchio.csv")           # worker appeso
+    r_nuovo = app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")   # cambio path: sincrono
+    assert r_nuovo == ("GREEN", "ok:C:/nuovo.csv")
+
+    parti.set()                                                     # worker vecchio completa
+    _attendi_worker(a)
+
+    # La cache resta del path NUOVO: il worker vecchio ha scartato il suo esito e
+    # la chiamata successiva NON deve rifare un probe sincrono.
+    assert a._csv_probe_cache[0] == "C:/nuovo.csv"
+    n = len(chiamate)
+    app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")
+    assert len(chiamate) == n, "nessun probe extra dopo il worker del path vecchio"
+
+
 def test_worker_probe_che_solleva_non_uccide_niente(make_app, app_mod, monkeypatch):
     """Fail-safe: un probe che solleva nel worker non propaga (thread daemon) e
     sblocca il flag inflight — il giro successivo può riprovare."""

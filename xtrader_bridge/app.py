@@ -1601,6 +1601,14 @@ class App(ctk.CTk):
         def _worker():
             try:
                 result = health_check.csv_writable(path)
+                # Guardia cambio-path (review GPT/Fable PR #111): se nel frattempo
+                # l'utente ha cambiato csv_path (save/profilo) la cache è già del
+                # path NUOVO — un risultato del path vecchio la sovrascriverebbe,
+                # costando un probe sincrono extra sul thread Tk al messaggio dopo.
+                # Best-effort come il resto (swap atomico sotto GIL): si scarta.
+                cached = self.__dict__.get("_csv_probe_cache")
+                if cached is not None and cached[0] != path:
+                    return
                 self._csv_probe_cache = (path, time.monotonic(), result)
                 self._safe_after(0, self._refresh_health)
             except Exception:   # noqa: BLE001 — sonda Salute best-effort (come _refresh_health):
