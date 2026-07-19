@@ -612,30 +612,36 @@ def test_backoff_attende_l_evento_di_sessione_catturato_non_quello_riassegnato(
         "l'evento del successore invece di quello catturato all'avvio della sessione")
 
 
-def test_start_riassegna_stop_event_fresco_e_reconnect_wait_usa_il_parametro():
+def test_start_riassegna_stop_event_fresco_e_reconnect_wait_usa_il_parametro(app_mod):
     """P3-ap2 #114 (pin SORGENTE, pattern #311): la doppia invariante che evita il LOST-WAKE.
     1) `_start` deve RIASSEGNARE `self._stop_event = threading.Event()`, NON fare `.clear()`
        in place (un `.clear()` cancellerebbe il set dello STOP sull'evento ancora catturato dal
        thread vecchio); 2) `_reconnect_wait` deve attendere il PARAMETRO `stop_event`, mai
-       `self._stop_event` (che un nuovo START può aver riassegnato)."""
-    import re
-    src = (_APP := __import__("pathlib").Path(__file__).resolve().parents[2]
-           / "xtrader_bridge" / "app.py").read_text(encoding="utf-8")
+       `self._stop_event` (che un nuovo START può aver riassegnato).
+
+    Il pin usa `inspect.getsource` sulle SINGOLE funzioni (review Sourcery): niente slicing del
+    file intero, così un refactor cosmetico altrove non rende fragile il test."""
+    import inspect
+
+    run_bot_src = inspect.getsource(app_mod.App._run_bot)
+    reconnect_src = inspect.getsource(app_mod.App._reconnect_wait)
+    start_src = inspect.getsource(app_mod.App._start)
 
     # 1) `_run_bot` cattura l'evento in locale e lo passa al backoff
-    assert "backoff_stop_event = self._stop_event" in src, (
+    assert "backoff_stop_event = self._stop_event" in run_bot_src, (
         "app.py/_run_bot: manca la cattura locale dell'evento di stop della sessione (P3-ap2)")
-    assert "self._reconnect_wait(delay, backoff_stop_event)" in src, (
+    assert "self._reconnect_wait(delay, backoff_stop_event)" in run_bot_src, (
         "app.py/_run_bot: il backoff deve passare l'evento CATTURATO a _reconnect_wait (P3-ap2)")
 
     # 2) `_reconnect_wait` attende il parametro, non self._stop_event
-    corpo = src[src.index("def _reconnect_wait("):src.index("def _set_status_reconnecting(")]
-    assert "stop_event.wait(delay)" in corpo, (
+    assert "stop_event.wait(delay)" in reconnect_src, (
         "app.py/_reconnect_wait: deve attendere il parametro `stop_event` (P3-ap2)")
-    assert "self._stop_event.wait" not in corpo, (
+    assert "self._stop_event.wait" not in reconnect_src, (
         "app.py/_reconnect_wait: NON rileggere self._stop_event (lost-wake su START rapido)")
 
     # 3) `_start` riassegna un evento fresco, niente `.clear()` in place
-    assert re.search(r"self\._stop_event = threading\.Event\(\)\s*\n\s*"
-                     r"self\._set_listener_state", src), (
-        "app.py/_start: la nuova sessione deve RIASSEGNARE self._stop_event (non .clear()) — P3-ap2")
+    assert "self._stop_event = threading.Event()" in start_src, (
+        "app.py/_start: la nuova sessione deve RIASSEGNARE self._stop_event (P3-ap2)")
+    assert "self._stop_event.clear()" not in start_src, (
+        "app.py/_start: NON usare .clear() in place (cancellerebbe il set dello STOP catturato "
+        "dal thread vecchio → lost-wake) — riassegna un evento fresco (P3-ap2)")

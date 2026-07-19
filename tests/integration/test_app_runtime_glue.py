@@ -78,6 +78,27 @@ def test_after_non_write_tollera_root_distrutta(make_app, app_mod):
     assert reached == [], "la callback non deve girare su root distrutta (after solleva prima)"
 
 
+def test_after_non_write_tollera_runtime_error_teardown(make_app, app_mod):
+    """P3-ap1 #114 (companion, review Sourcery): `_safe_after` cattura `(TclError, RuntimeError)`.
+    Oltre alla root distrutta (`TclError`), un `after` durante il teardown dell'interprete può
+    sollevare `RuntimeError` («main thread is not in main loop»): anche questa dev'essere
+    inghiottita, così `_after_non_write` non propaga e il supervisor non salta `loop.close()`.
+    Copre il secondo ramo della tupla `except`, simmetrico al test `TclError` sopra."""
+    a = make_app()
+    reached = []
+
+    def _interprete_in_teardown(delay=None, func=None, *x, **k):
+        raise RuntimeError("main thread is not in main loop")
+
+    a.after = _interprete_in_teardown
+    a._bump = lambda *x, **k: reached.append("bump")   # non deve essere raggiunto
+
+    # Nessuna eccezione propagata = _safe_after ha assorbito anche la RuntimeError.
+    app_mod.App._after_non_write(a, app_mod.live_guard.DUPLICATE, {"EventName": "Inter v Milan"})
+
+    assert reached == [], "la callback non deve girare durante il teardown (after solleva prima)"
+
+
 def test_notifiche_bot_thread_instradano_su_safe_after_non_after_grezzo():
     """P3-ap1 #114 (pin SORGENTE, pattern #311): tutte le notifiche UI dal thread del bot
     usano `self._safe_after(0, ...)`, MAI `self.after(0, ...)` grezzo. Un `self.after(0,`
