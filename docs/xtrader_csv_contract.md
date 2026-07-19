@@ -115,9 +115,14 @@ possono restare vuoti in entrambe le modalità (gli esempi reali li lasciano vuo
   "Piazza Scommessa su Segnali").
 - **Per il bridge** la quota obbligatoria sì/no è governata da un **unico comando**: la
   casella **«Obblig.» sulla riga `Price`** del Parser Personalizzato. Se `Price` è
-  obbligatorio, un segnale **senza** `Price` valido (numerico, > 1.0) viene **scartato**
-  (stato `INVALID_MISSING_PRICE` / "Non pronto"). Se `Price` **non** è obbligatorio, la
-  quota è opzionale e si scrive la riga col `Price` vuoto.
+  obbligatorio, un segnale **senza** `Price` valido (numerico, **> 1.0 e ≤ 1000.0**)
+  viene **scartato** (stato `INVALID_MISSING_PRICE` / "Non pronto"). Se `Price` **non**
+  è obbligatorio, la quota è opzionale e si scrive la riga col `Price` vuoto.
+
+  Il **tetto ≤ 1000.0** (B1 audit #114) è il massimo delle quote decimali Betfair: una
+  quota sopra 1000 non è reale — tipicamente un misparse del separatore migliaia
+  (es. «1.000.000») — e viene **scartata** (stato `INVALID_PRICE`, fail-closed) invece
+  di raggiungere XTrader come scommessa con quota folle.
 
 Nel **Parser Personalizzato**, per lasciare `Price` vuoto: lascia la riga `Price` **non
 obbligatoria** (casella «Obblig.» spenta). Non esiste più un interruttore globale
@@ -128,7 +133,8 @@ obbligatoria** (casella «Obblig.» spenta). Non esiste più un interruttore glo
 validati prima di dichiarare la riga piazzabile (il percorso hardcoded li lascia vuoti, ma
 un parser custom può estrarre testo arbitrario):
 
-- **`MinPrice`/`MaxPrice`**: oltre a essere quote valide singolarmente (numeriche, > 1.0),
+- **`MinPrice`/`MaxPrice`**: oltre a essere quote valide singolarmente (numeriche,
+  **> 1.0 e ≤ 1000.0**, stesso tetto di `Price`),
   devono essere **coerenti** — l'intervallo non può essere invertito (`MinPrice > MaxPrice`)
   né escludere la quota selezionata (`MinPrice > Price` o `MaxPrice < Price`). I bordi sono
   inclusivi (`MinPrice == Price`/`MaxPrice == Price` sono validi). Un intervallo incoerente

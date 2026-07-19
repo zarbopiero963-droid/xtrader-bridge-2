@@ -674,7 +674,7 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 | 🔑 Bot Token | `bot_token` | campo password (mascherato) |
 | 💬 Chat ID | `chat_id` | testo |
 | 📄 CSV Path | `csv_path` | testo (percorso file, casella **più corta** delle altre) **+ pulsante «📁 Sfoglia…»** (#284) **+ pulsante «📄 Crea CSV»** (#286) — la riga è compatta perché porta due pulsanti e la finestra ha **larghezza fissa** (720px) |
-| ⏱️ Timeout (sec) | `clear_delay` | intero > 0 |
+| ⏱️ Timeout (sec) | `clear_delay` | intero **> 0 e ≤ 86400** (24 h — B2 audit #114: un timeout enorme disattiverebbe di fatto lo svuotamento del CSV) |
 | 🏷️ Provider | `provider` | testo |
 
 - **Segnaposto d'aiuto nei campi (#288 Delta 2):** ogni casella mostra un **placeholder** grigio a
@@ -1280,7 +1280,7 @@ serve attrito a ogni avvio):
 
 ### 9.4 Perché il bridge non parte (errori di preflight) e avvisi non bloccanti
 AVVIA è bloccato (con messaggio nel log) se: manca il Bot Token, manca il CSV Path, il
-Timeout non è un intero > 0, **nessuna chat/sorgente è configurata**, oppure — **#311-1.3** —
+Timeout non è un intero **> 0 e ≤ 86400** (24 h — B2 audit #114), **nessuna chat/sorgente è configurata**, oppure — **#311-1.3** —
 **nessun Parser Personalizzato è configurato** (globale o per-chat): il parser automatico è
 disattivato nel live, quindi un listener senza parser sembrerebbe «ATTIVO» ma ignorerebbe
 ogni segnale in silenzio. Messaggio verbatim: *«❌ Nessun Parser Personalizzato configurato

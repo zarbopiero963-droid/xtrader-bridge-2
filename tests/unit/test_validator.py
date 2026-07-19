@@ -65,6 +65,30 @@ def test_prezzo_valido_appena_sopra_uno():
     assert validator.is_valid(_row(Price="1.01"), "NAME_ONLY") is True
 
 
+def test_prezzo_al_tetto_massimo_valido():
+    """B1 audit #114: 1000.0 (quota decimale MASSIMA Betfair) è il bordo INCLUSIVO."""
+    assert validator.price_status("1000") == validator.VALID
+    assert validator.price_status("1000.0") == validator.VALID
+    assert validator.validate(_row(Price="1000"), "NAME_ONLY") == (validator.VALID, None)
+    # Appena sotto il tetto: valido.
+    assert validator.price_status("999.99") == validator.VALID
+
+
+def test_prezzo_oltre_il_tetto_bloccato():
+    """FAIL-FIRST B1 audit #114: pre-patch il validatore controllava solo `> 1.0`, quindi
+    una quota assurda (tipico misparse del separatore migliaia, es. «1.000.000» →
+    1000000.0) superava la validazione e finiva nella riga di scommessa CSV. Ora oltre
+    `_MAX_PRICE` (1000.0) → INVALID_PRICE (fail-closed), su Price e su Min/MaxPrice."""
+    for oltre in ("1000.01", "1001", "5000", "1000000", "1000000.0"):
+        assert validator.price_status(oltre) == validator.INVALID_PRICE, oltre
+        assert validator.validate(_row(Price=oltre), "NAME_ONLY")[0] == \
+            validator.INVALID_PRICE, oltre
+        assert validator.validate(_row(MinPrice=oltre), "NAME_ONLY")[0] == \
+            validator.INVALID_PRICE, oltre
+        assert validator.validate(_row(MaxPrice=oltre), "NAME_ONLY")[0] == \
+            validator.INVALID_PRICE, oltre
+
+
 def test_require_price_disattivabile():
     # Con require_price=False una riga senza prezzo (ma riconoscibile) passa. A runtime
     # questo flag è guidato dalla riga Price del parser (CustomParserDef.price_required).

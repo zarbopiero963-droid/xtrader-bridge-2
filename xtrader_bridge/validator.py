@@ -3,11 +3,13 @@
 Gate esplicito sopra il riconoscimento (PR-06). Oltre ai campi nome/ID richiesti
 dalla modalità, verifica due cose safety-critical:
 
-- il **prezzo** (`Price`) è una quota valida, cioè un numero **> 1.0** (una quota
-  a 1.00 non dà guadagno e non è piazzabile; sotto 1 è una linea di mercato, non
-  una quota). Il parametro `require_price` rende il controllo disattivabile: a
-  runtime è guidato dalla riga Price del parser (`CustomParserDef.price_required`),
-  non più da una chiave di config globale;
+- il **prezzo** (`Price`) è una quota valida, cioè un numero **> 1.0 e ≤ 1000.0**
+  (una quota a 1.00 non dà guadagno e non è piazzabile; sotto 1 è una linea di
+  mercato, non una quota; sopra 1000 non è una quota reale — è il tetto delle quote
+  decimali Betfair — e con ogni probabilità è un misparse del separatore migliaia,
+  es. «1.000.000», B1 audit #114). Il parametro `require_price` rende il controllo
+  disattivabile: a runtime è guidato dalla riga Price del parser
+  (`CustomParserDef.price_required`), non più da una chiave di config globale;
 - il **BetType** è uno dei quattro lati validi `PUNTA`/`BANCA`/`BACK`/`LAY` (indifferenti su
   tutte le versioni BT/XT, issue #3); un lato sconosciuto — inclusi i termini ES `FAVOR`/`CONTRA`
   non ancora supportati — pizzerebbe la scommessa sbagliata, quindi è rifiutato (fail-closed).
@@ -31,6 +33,14 @@ VALID = "VALID"
 # XTrader documenta quote decimali punto-normalizzate, non notazioni arbitrarie.
 # Frammento decimale condiviso (anti-drift, audit L4).
 _DECIMAL_PRICE = re.compile(r"^" + numbers_re.DECIMAL + r"$")
+
+# Tetto superiore della quota (B1 audit #114): 1000.0 è il massimo delle quote
+# decimali Betfair. `_decimal_sep_to_point` (custom_pipeline) interpreta i separatori
+# migliaia senza tetto di grandezza e il validatore controllava solo `> 1.0`: una
+# quota assurda ma «valida» (es. «1.000.000» → 1000000.0, tipico misparse del
+# separatore migliaia) sarebbe finita nella riga di scommessa CSV. Sopra questo tetto
+# → INVALID_PRICE (fail-closed): mai una quota irreale verso XTrader.
+_MAX_PRICE = 1000.0
 INVALID_MISSING_FIELDS = "INVALID_MISSING_FIELDS"   # campi nome/ID per la modalità
 INVALID_MISSING_PRICE = "INVALID_MISSING_PRICE"
 INVALID_PRICE = "INVALID_PRICE"
@@ -62,9 +72,12 @@ def canonical_bettype(value) -> str:
 
 
 def _price_status(value) -> str:
-    """VALID se `value` è una quota valida (> 1.0); altrimenti il codice di errore.
+    """VALID se `value` è una quota valida (`1.0 < price ≤ 1000.0`); altrimenti il
+    codice di errore.
 
-    `None` e stringa vuota contano come **prezzo mancante** (non malformato).
+    `None` e stringa vuota contano come **prezzo mancante** (non malformato). Il tetto
+    `_MAX_PRICE` (B1 audit #114) rifiuta le quote irreali da misparse del separatore
+    migliaia (es. «1.000.000»), che superavano il solo controllo `> 1.0`.
     """
     if value is None:
         return INVALID_MISSING_PRICE
@@ -76,13 +89,14 @@ def _price_status(value) -> str:
     if not _DECIMAL_PRICE.match(s):
         return INVALID_PRICE
     price = float(s.replace(",", "."))
-    return VALID if price > 1.0 else INVALID_PRICE
+    return VALID if 1.0 < price <= _MAX_PRICE else INVALID_PRICE
 
 
 def price_status(value) -> str:
-    """Pubblico: `VALID` se `value` è una quota valida (> 1.0), altrimenti il codice
-    di errore (`INVALID_MISSING_PRICE`/`INVALID_PRICE`). Usato dalla diagnostica per
-    attribuire un errore prezzo alla colonna giusta (Price vs Min/MaxPrice)."""
+    """Pubblico: `VALID` se `value` è una quota valida (`1.0 < price ≤ 1000.0`),
+    altrimenti il codice di errore (`INVALID_MISSING_PRICE`/`INVALID_PRICE`). Usato
+    dalla diagnostica per attribuire un errore prezzo alla colonna giusta (Price vs
+    Min/MaxPrice)."""
     return _price_status(value)
 
 

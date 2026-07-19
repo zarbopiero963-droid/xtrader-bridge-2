@@ -48,6 +48,31 @@ def test_timeout_non_positivo_non_espone_il_valore():
     assert "-5" not in sv.parse_timeout("-5")[1]
 
 
+def test_timeout_al_tetto_massimo_valido():
+    """B2 audit #114: MAX_TIMEOUT (86400 s = 24 h) è il bordo INCLUSIVO."""
+    assert sv.parse_timeout(str(sv.MAX_TIMEOUT)) == (sv.MAX_TIMEOUT, None)
+    assert sv.parse_timeout(str(sv.MAX_TIMEOUT - 1)) == (sv.MAX_TIMEOUT - 1, None)
+
+
+def test_timeout_oltre_il_tetto_errore():
+    """FAIL-FIRST B2 audit #114: pre-patch `parse_timeout` accettava QUALUNQUE int > 0,
+    quindi un valore enorme (es. 999999999 ≈ 31 anni) passava e disattivava di fatto lo
+    svuotamento del CSV (segnale stantio a vita). Ora oltre MAX_TIMEOUT → errore."""
+    for oltre in (sv.MAX_TIMEOUT + 1, 999999999):
+        value, err = sv.parse_timeout(str(oltre))
+        assert value is None, oltre
+        assert err is not None and "86400" in err, oltre
+
+
+def test_timeout_oltre_il_tetto_non_espone_il_valore():
+    """Come per i rami non-numerico/<=0: il messaggio NON contiene il valore grezzo
+    (invariante: mai valori/identificatori nei log)."""
+    grezzo = "1001001001"
+    value, err = sv.parse_timeout(grezzo)
+    assert value is None
+    assert grezzo not in err
+
+
 # ── validate_settings ────────────────────────────────────────────────────────
 
 def test_settings_valide_nessun_errore():
@@ -74,6 +99,14 @@ def test_timeout_non_positivo_blocca():
         raw = {"bot_token": "T", "csv_path": "x.csv", "clear_delay": bad}
         errors = sv.validate_settings(raw)
         assert any("Timeout" in e for e in errors), bad
+
+
+def test_timeout_oltre_il_tetto_blocca():
+    """validate_settings si appoggia a parse_timeout: un timeout oltre il tetto (B2
+    audit #114) deve essere un errore bloccante come il non-numerico e il <= 0."""
+    raw = {"bot_token": "T", "csv_path": "x.csv", "clear_delay": "999999999"}
+    errors = sv.validate_settings(raw)
+    assert any("Timeout" in e for e in errors)
 
 
 def test_token_assente_non_e_errore_di_validazione():
@@ -110,3 +143,9 @@ def test_can_start_timeout_non_positivo_disabilita():
     for bad in ("0", "-1"):
         raw = {"bot_token": "T", "csv_path": "x.csv", "clear_delay": bad}
         assert sv.can_start(raw) is False, bad
+
+
+def test_can_start_timeout_oltre_il_tetto_disabilita():
+    # B2 audit #114: timeout oltre MAX_TIMEOUT → parse_timeout lo rifiuta → START bloccato.
+    raw = {"bot_token": "T", "csv_path": "x.csv", "clear_delay": str(sv.MAX_TIMEOUT + 1)}
+    assert sv.can_start(raw) is False

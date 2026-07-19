@@ -226,9 +226,13 @@ def test_decimal_sep_to_point_unit():
     assert f("1.85.3") == "1.85.3"
 
 
-def test_prezzo_migliaia_e_decimale_europeo_non_corrotto():
-    """#184 low-pipeline-comma: end-to-end — un prezzo `1.234,56` (migliaia `.` + decimale `,`) NON
-    deve diventare `1.234.56` (multi-dot → scartato), ma `1234.56` valido."""
+def test_prezzo_migliaia_normalizzato_ma_oltre_il_tetto_rifiutato():
+    """#184 low-pipeline-comma + B1 audit #114: end-to-end — un prezzo `1.234,56`
+    (migliaia `.` + decimale `,`) NON deve diventare `1.234.56` (multi-dot → corruzione),
+    ma essere normalizzato a `1234.56` (regressione #184 ancora guardata dalla riga). Con
+    B1, però, `1234.56` supera il tetto quota `_MAX_PRICE` (1000.0 = max Betfair): NON è
+    una quota reale → il validatore lo RIFIUTA (INVALID_PRICE, fail-closed). La
+    normalizzazione resta corretta; è il verdetto a valle a bloccare la quota irreale."""
     defn = cp.CustomParserDef(name="X", rules=[
         cp.FieldRule(target="Provider", fixed_value="TG"),
         cp.FieldRule(target="EventName", fixed_value="Inter v Milan", required=True),
@@ -238,8 +242,8 @@ def test_prezzo_migliaia_e_decimale_europeo_non_corrotto():
         cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
     ])
     res = pipe.build_validated_row(defn, "Quota: 1.234,56")
-    assert res.status == validator.VALID
-    assert res.row["Price"] == "1234.56"
+    assert res.row["Price"] == "1234.56"          # #184: normalizzato, NON "1.234.56"
+    assert res.status == validator.INVALID_PRICE  # B1: oltre il tetto quota → rifiutato
 
 
 def test_prezzo_separatori_misti_malformati_rifiutati():
