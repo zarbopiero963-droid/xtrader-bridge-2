@@ -3370,25 +3370,27 @@ class App(ctk.CTk):
             # superata. Ricontrollo sotto LO STESSO lock della scrittura, non solo all'ingresso.
             if not self._epoch_current(epoch):
                 return
+            # `disk_dirty` (Codex P1 #300 single-row · D1 audit #114 multi-riga): se una
+            # riscrittura precedente è fallita (retry pendente), i rami no-op del commit non
+            # devono saltare la risincronizzazione del disco stantio. `getattr(..., False)`
+            # (review Fable/Sourcery #117): idiomatico e robusto per le istanze headless di
+            # test create senza `__init__` (attributo assente → False), come il vecchio
+            # `__dict__.get`, ma senza accesso diretto a `__dict__`.
+            disk_dirty = bool(getattr(self, "_csv_dirty", False))
             if not is_multi:
                 # Parser single-row (legacy): dedup a hash-messaggio, comportamento bit-identico.
-                # `disk_dirty` (Codex P1 #300): se una riscrittura precedente è fallita (retry
-                # pendente), il ramo cap-senza-scaduti non deve saltare la risincronizzazione.
-                # `__dict__.get`: robusto per le istanze headless di test senza `__init__`.
                 commit = write_path.commit_signal(
                     self._tracker, self._daily, self._queue,
                     cfg, text, row, path, now, write_rows,
-                    disk_dirty=bool(self.__dict__.get("_csv_dirty")))
+                    disk_dirty=disk_dirty)
             else:
                 # #192: parser multi-riga → dedup PER-RIGA + scrittura atomica di TUTTE le righe
-                # del messaggio (anche se ORA è una sola: provenienza multi preservata).
-                # `disk_dirty` (D1 audit #114, simmetria col single-row): se una riscrittura
-                # precedente è fallita (retry pendente), i rami no-op del commit multi non devono
-                # saltare la risincronizzazione del disco stantio.
+                # del messaggio (anche se ORA è una sola: provenienza multi preservata). Stessa
+                # semantica `disk_dirty` del single-row (D1 audit #114).
                 commit = write_path.commit_signals(
                     self._tracker, self._daily, self._queue,
                     cfg, text, rows_to_commit, path, now, write_rows,
-                    disk_dirty=bool(self.__dict__.get("_csv_dirty")))
+                    disk_dirty=disk_dirty)
             # #153 H2: registra l'esito del lock CSV mentre la scrittura è ancora serializzata
             # (Codex #156). Conta solo se `write_rows` è stata davvero CHIAMATA: un WRITE
             # bloccato dal tetto senza righe scadute non tocca il disco (#259 C2) e non deve

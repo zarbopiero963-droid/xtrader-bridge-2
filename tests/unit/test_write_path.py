@@ -250,7 +250,30 @@ def test_realign_disco_sporco_write_fallita_riporta_errore():
         disk_dirty=True)
     assert res.write_attempted is True
     assert res.write_error is not None
+    # Contratto completo del CommitResult sul fallimento (review Sourcery #117): nessuna riga
+    # committata e esito NON-WRITE onesto (reinvio identico = DUPLICATE), mai spacciato per WRITE.
+    assert res.rows == []
+    assert res.decision == live_guard.DUPLICATE
     assert queue.active_rows() == [rowA]       # coda coerente: una sola riga attiva
+
+
+def test_realign_disco_sporco_coda_vuota_ripulisce_il_csv():
+    """Review GLM #117: disco STANTIO ma coda VUOTA (nessun segnale attivo) → il realign scrive
+    le righe attive correnti = VUOTE, cioè RIPULISCE il CSV stantio (solo header). È il
+    riallineamento CORRETTO: senza segnali attivi il disco deve riflettere lo stato vuoto, non
+    restare con contenuto stantio. Nessuna riga fantasma introdotta. (Il realign scrive SEMPRE
+    le attive correnti della coda — fonte di verità — quindi non può mai svuotare un CSV che
+    la coda considera ancora pieno.)"""
+    tracker, daily, queue = _fresh(mode=signal_queue.OVERWRITE_LAST, max_active=0)
+    written = []
+    res = write_path.commit_signals(
+        tracker, daily, queue, CFG_REAL, "msg", [], "out.csv", 100.0, _ok_writer(written),
+        disk_dirty=True)
+    assert res.write_attempted is True
+    assert res.write_error is None
+    assert written == [[]]                     # coda vuota → riscrive vuoto (clear del disco stantio)
+    assert res.decision != live_guard.WRITE
+    assert queue.active_rows() == []
 
 
 def test_duplicato_non_scrive_e_non_tocca_la_coda():
