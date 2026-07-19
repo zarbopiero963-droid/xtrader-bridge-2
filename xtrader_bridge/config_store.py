@@ -599,18 +599,24 @@ def load_config(path: str = CONFIG_FILE) -> dict:
 # Due istanze dell'app che salvano insieme intreccerebbero le sequenze keyring↔disco
 # (rollback sul token altrui, sentinel incoerente). Il lock esclusivo OS su un file
 # `<config>.lock` serializza gli interi save tra processi: msvcrt su Windows (target
-# principale), fcntl su POSIX. FAIL-OPEN dopo il timeout: la scrittura resta comunque
-# atomica a livello di file (`os.replace`), quindi meglio un save non serializzato che
-# una GUI bloccata per sempre da un lock orfano di un processo morto/appeso.
+# principale), fcntl su POSIX. FAIL-OPEN dopo il timeout — motivazione ONESTA (review
+# Fugu PR #113): i lock OS si RILASCIANO da soli alla morte del processo (niente lock
+# "orfani"), quindi il timeout scatta solo se un processo VIVO tiene il lock oltre 5s —
+# cioè un save PATOLOGICAMENTE appeso nell'altra istanza (es. keyring bloccato: un save
+# normale dura millisecondi). In quel caso residuo si accetta l'interleaving (la
+# scrittura resta atomica via `os.replace`) pur di non congelare la GUI a tempo
+# indefinito: priorità 6 del repo (START/STOP e GUI mai bloccati). Tradeoff dichiarato,
+# non una garanzia assoluta di serializzazione sotto contention patologica.
 _CONFIG_LOCK_SUFFIX = ".lock"
 _CONFIG_LOCK_TIMEOUT_S = 5.0
 
 
 def _acquire_config_lock(path: str, timeout_s: float = None):
     """Acquisisce il lock cross-process del config. Ritorna l'handle del file di
-    lock (da passare a `_release_config_lock`) o ``None`` in FAIL-OPEN (timeout,
-    filesystem che non supporta il lock, cartella non scrivibile): il save procede
-    comunque, solo non serializzato — mai bloccare la GUI per il lock."""
+    lock (da passare a `_release_config_lock`) o ``None`` in FAIL-OPEN (timeout
+    con l'altra istanza VIVA appesa oltre la soglia, filesystem senza lock,
+    cartella non scrivibile): il save procede comunque, solo non serializzato —
+    mai bloccare la GUI per il lock (vedi il commento sul tradeoff qui sopra)."""
     if timeout_s is None:
         timeout_s = _CONFIG_LOCK_TIMEOUT_S       # letto a runtime (testabile)
     lock_path = str(path) + _CONFIG_LOCK_SUFFIX

@@ -3,7 +3,8 @@
 #6 (nota Fable PR #83): lock CROSS-PROCESS su `config_store.save_config` — due
 istanze dell'app che salvano insieme non devono intrecciare le sequenze
 keyring↔disco. Lock esclusivo OS su `<config>.lock` (msvcrt/fcntl), FAIL-OPEN
-dopo timeout (mai GUI bloccata da un lock orfano: la scrittura resta atomica).
+dopo timeout — che scatta solo con l'altra istanza VIVA appesa (i lock OS si
+rilasciano da soli alla morte del processo): la scrittura resta atomica.
 
 #8 (nota Fugu PR #96): l'avviso «profilo ancora selezionato in N parser» viene
 calcolato PRIMA della conferma di eliminazione e integrato NEL testo del dialogo
