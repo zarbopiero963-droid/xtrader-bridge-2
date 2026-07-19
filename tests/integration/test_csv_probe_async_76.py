@@ -117,10 +117,11 @@ def test_worker_completo_schedula_refresh_salute(make_app, app_mod, monkeypatch)
     schedulati = []
     a._safe_after = lambda delay, func: schedulati.append((delay, func))
 
-    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # sincrono: NO refresh
-    assert schedulati == []
+    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # primo probe async (worker#1)
+    _attendi_worker(a)                                            # seed; worker#1 schedula un refresh
+    schedulati.clear()                                            # conta SOLO il worker a TTL scaduto
     clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
-    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # async
+    app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")        # async (worker#2)
     _attendi_worker(a)
 
     assert len(schedulati) == 1
@@ -314,6 +315,43 @@ def test_watchdog_non_sovrascrive_esito_fresco_appena_arrivato(
         "un esito vero appena scritto dal worker non va MAI sovrascritto col giallo di stallo")
     assert a._csv_probe_cache[2] == ("GREEN", "FRESCO")
     a._csv_probe_threads = []                     # cleanup stato simulato
+
+
+def test_worker_in_volo_non_sovrascrive_force_fresco(make_app, app_mod, monkeypatch):
+    """FAIL-FIRST — review Fable PR #115: un worker del primo probe ANCORA IN VOLO
+    sullo stesso path non deve sovrascrivere la cache con un esito più VECCHIO dopo
+    che un `force=True` («🔄 Aggiorna») ha già scritto l'esito fresco. La guardia
+    cambio-path (path diverso) non copre questo caso (stesso path): serve la guardia
+    TEMPORALE (cache aggiornata dopo l'avvio del worker → si scarta)."""
+    a = make_app(running=False)
+    clock = _orologio(app_mod, monkeypatch)
+    parti = threading.Event()
+    chiamate = []
+
+    def _probe(path, **_k):
+        n = len(chiamate)
+        chiamate.append(path)
+        if n == 0:                                # SOLO il worker async resta appeso
+            parti.wait(timeout=5)
+            return ("GREEN", "vecchio")           # esito PIÙ VECCHIO (probe iniziato prima)
+        return ("RED", "fresco force")            # il force, sincrono, esito fresco
+
+    monkeypatch.setattr(app_mod.health_check, "csv_writable", _probe)
+
+    app_mod.App._csv_writable_cached(a, "Z:/s.csv")            # primo probe async: worker appeso
+    t = a.__dict__["_csv_probe_thread"]
+    clock["now"] += 1                                          # il force arriva DOPO l'avvio del worker
+    r_force = app_mod.App._csv_writable_cached(a, "Z:/s.csv", force=True)
+    assert r_force == ("RED", "fresco force")                 # force scrive subito il fresco
+    assert a._csv_probe_cache[2] == ("RED", "fresco force")
+
+    parti.set()                                               # il worker vecchio completa ORA
+    t.join(timeout=5)
+    assert not t.is_alive()
+
+    # Guardia temporale: l'esito VECCHIO del worker NON ha clobberato il fresco del force.
+    assert a._csv_probe_cache[2] == ("RED", "fresco force"), (
+        "un worker in volo non deve sovrascrivere l'esito fresco di un force più recente")
 
 
 def test_cap_worker_appesi_su_path_multipli(make_app, app_mod, monkeypatch):

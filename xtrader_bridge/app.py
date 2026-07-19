@@ -136,6 +136,13 @@ _CSV_PROBE_STALL_S = 3 * _CSV_PROBE_TTL_S
 # nuovo worker e giallo onesto («troppi controlli bloccati»).
 _CSV_PROBE_MAX_WORKERS = 4
 
+# Messaggi-dettaglio del semaforo «CSV scrivibile» condivisi tra i rami di
+# `_csv_writable_cached` (review Sourcery PR #115: erano hardcodati e duplicati).
+# Restano IT come gli altri dettagli di Salute (stringhe di dominio, non i18n).
+_CSV_PROBE_MSG_INCORSO = "verifica scrivibilità CSV in corso…"
+_CSV_PROBE_MSG_SATURO = ("sonda CSV non eseguibile: troppi controlli bloccati "
+                         "(share non rispondono?)")
+
 # Quanti eventi tenere nel ledger append-only (#230): potato allo startup per non far
 # crescere `event_journal.jsonl` all'infinito (~uno-pochi eventi per segnale).
 _EVENT_JOURNAL_KEEP = 5000
@@ -1598,9 +1605,7 @@ class App(ctk.CTk):
                 # GIALLO ONESTO subito, mai uno stantio spacciato per fresco.
                 # Scrittura sotto lock (Fable final, 2° giro): stessa invariante
                 # di tutte le altre scritture della cache.
-                stalled = (health_check.YELLOW,
-                           "sonda CSV non eseguibile: troppi controlli bloccati "
-                           "(share non rispondono?)")
+                stalled = (health_check.YELLOW, _CSV_PROBE_MSG_SATURO)
                 with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
                     # Stessa ri-lettura anti-clobber del watchdog (Fugu PR #111):
                     # un worker di QUESTO path appena completato può aver scritto
@@ -1644,6 +1649,11 @@ class App(ctk.CTk):
             # bloccante. Scrittura sotto lock (Fable PR #111): serializzata col worker.
             result = health_check.csv_writable(path)
             with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
+                # Bump dell'epoch force (review Fable PR #115) SOTTO LOCK, insieme
+                # alla scrittura: un worker dello stesso path ancora in volo, al
+                # ritorno, vedrà l'epoch cambiato e NON sovrascriverà questo esito
+                # fresco con la sua osservazione più vecchia.
+                self._csv_force_epoch = self.__dict__.get("_csv_force_epoch", 0) + 1
                 self._csv_probe_cache = (path, time.monotonic(), result)
             return result
         # Primo probe AUTOMATICO di un path (avvio finestra o cambio `csv_path`) — A1
@@ -1654,16 +1664,13 @@ class App(ctk.CTk):
         # e a ogni cambio path. Ora: stato PROVVISORIO in cache + probe VERO su worker
         # in background; il semaforo si aggiorna via `_safe_after` appena il worker
         # termina (millisecondi su path locale, senza mai bloccare la GUI).
-        provvisorio = (health_check.YELLOW,
-                       "verifica scrivibilità CSV in corso…")
+        provvisorio = (health_check.YELLOW, _CSV_PROBE_MSG_INCORSO)
         with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
             self._csv_probe_cache = (path, time.monotonic(), provvisorio)
         if not self._kick_csv_probe_async(path):
             # Bound worker saturo (share morte multiple): niente probe → giallo
             # onesto, coerente col ramo TTL-scaduto sopra.
-            stalled = (health_check.YELLOW,
-                       "sonda CSV non eseguibile: troppi controlli bloccati "
-                       "(share non rispondono?)")
+            stalled = (health_check.YELLOW, _CSV_PROBE_MSG_SATURO)
             with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
                 self._csv_probe_cache = (path, time.monotonic(), stalled)
             return stalled
@@ -1703,19 +1710,36 @@ class App(ctk.CTk):
             # un path poi abbandonato può averlo già consumato (vedi docstring).
             if len(vivi) > _CSV_PROBE_MAX_WORKERS:
                 return False
+            # Timestamp d'avvio del probe (kick): registro per il watchdog di stallo.
+            avvio = time.monotonic()
+            # Epoch dei `force=True` al momento del kick (review Fable PR #115): la
+            # GUARDIA anti-clobber del worker confronta QUESTA, non il timestamp —
+            # solo un force esplicito («🔄 Aggiorna») deve superare un worker in
+            # volo. Un placeholder del watchdog (giallo «bloccata»/«in corso») NON
+            # tocca l'epoch, così l'esito VERO del worker che infine torna può
+            # sempre RIPULIRE lo stallo (auto-recovery, `test_..._recovery`).
+            epoch0 = self.__dict__.get("_csv_force_epoch", 0)
             def _worker():
                 try:
                     result = health_check.csv_writable(path)
-                    # Guardia cambio-path (review GPT/Fable PR #111) SOTTO LOCK
-                    # (Fable final: niente TOCTOU tra check e set): se nel
-                    # frattempo l'utente ha cambiato csv_path la cache è già del
-                    # path NUOVO — un risultato del path vecchio la
-                    # sovrascriverebbe, costando un probe sincrono extra sul
-                    # thread Tk al messaggio dopo. Si scarta. Il lock è tenuto
-                    # SOLO per il check+set (microsecondi), mai durante l'I/O.
+                    # Guardie SOTTO LOCK (Fable final: niente TOCTOU tra check e
+                    # set); il lock è tenuto SOLO per check+set (microsecondi),
+                    # mai durante l'I/O:
                     with lock:
                         cached = self.__dict__.get("_csv_probe_cache")
+                        # 1) cambio-path (review GPT/Fable PR #111): se l'utente
+                        #    ha cambiato csv_path la cache è già del path NUOVO —
+                        #    un esito del path vecchio la sovrascriverebbe,
+                        #    costando un probe sincrono extra sul thread Tk dopo.
                         if cached is not None and cached[0] != path:
+                            return
+                        # 2) force più recente (review Fable PR #115): se un
+                        #    `force=True` è passato mentre il worker era in volo
+                        #    sullo STESSO path, la cache porta già l'esito FRESCO
+                        #    del force — il nostro è un'osservazione più VECCHIA e
+                        #    non deve clobberarlo. (Il watchdog di stallo non bumpa
+                        #    l'epoch → l'auto-recovery resta possibile.)
+                        if self.__dict__.get("_csv_force_epoch", 0) != epoch0:
                             return
                         self._csv_probe_cache = (path, time.monotonic(), result)
                     self._safe_after(0, self._refresh_health)
@@ -1725,7 +1749,7 @@ class App(ctk.CTk):
                     pass
 
             t = threading.Thread(target=_worker, daemon=True, name="csv-probe-async")
-            self._csv_probe_threads = vivi + [(t, path, time.monotonic())]
+            self._csv_probe_threads = vivi + [(t, path, avvio)]
             self._csv_probe_thread = t      # esposto per i test (join deterministico)
             t.start()
             return True

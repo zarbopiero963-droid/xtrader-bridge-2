@@ -21,6 +21,20 @@ def _orologio(app_mod, monkeypatch, start=1000.0):
     return clock
 
 
+def _attendi_worker(a, esito=None):
+    """Attende il worker del probe (esposto come `_csv_probe_thread`), verifica che
+    sia TERMINATO (review GLM/Sourcery PR #115: il `join` da solo passa anche se il
+    worker non finisce) e, se `esito` è dato, che la cache porti l'esito VERO.
+    Ritorna il thread per le asserzioni che ne usano il `.name`."""
+    t = a.__dict__.get("_csv_probe_thread")
+    assert t is not None, "il primo probe di un path deve girare su un worker"
+    t.join(timeout=5)
+    assert not t.is_alive(), "il worker del probe non deve restare attivo dopo il join"
+    if esito is not None:
+        assert a._csv_probe_cache[2] == esito
+    return t
+
+
 def test_primo_probe_automatico_e_asincrono(make_app, app_mod, monkeypatch):
     """FAIL-FIRST: pre-patch il primo probe girava SINCRONO sul thread chiamante
     (`r` era il risultato vero, la `csv_writable` girava sul thread principale)."""
@@ -41,14 +55,11 @@ def test_primo_probe_automatico_e_asincrono(make_app, app_mod, monkeypatch):
     # il thread chiamante non ha eseguito l'I/O in linea.
     assert r[0] == app_mod.health_check.YELLOW
     assert "in corso" in r[1]
-    # Il probe VERO è girato su un worker (thread diverso dal chiamante).
-    t = a.__dict__.get("_csv_probe_thread")
-    assert t is not None
-    t.join(timeout=5)
+    # Il probe VERO è girato su un worker (thread diverso dal chiamante) e a
+    # completamento la cache porta l'esito VERO (aggiornato via _safe_after).
+    t = _attendi_worker(a, ("GREEN", "ok"))
     assert chiamate == [("Z:/share/out.csv", t.name)]
     assert chiamate[0][1] != principale
-    # A worker completato, la cache porta l'esito VERO (aggiornato via _safe_after).
-    assert a._csv_probe_cache[2] == ("GREEN", "ok")
 
 
 def test_force_resta_sincrono(make_app, app_mod, monkeypatch):
@@ -79,11 +90,9 @@ def test_cambio_path_primo_probe_async_per_ogni_path(make_app, app_mod, monkeypa
                         lambda p, **k: chiamate.append(p) or ("GREEN", f"ok:{p}"))
 
     r1 = app_mod.App._csv_writable_cached(a, "C:/vecchio.csv")
-    t1 = a.__dict__.get("_csv_probe_thread")
-    t1.join(timeout=5)
+    _attendi_worker(a)
     r2 = app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")      # cambio path
-    t2 = a.__dict__.get("_csv_probe_thread")
-    t2.join(timeout=5)
+    _attendi_worker(a)
 
     assert r1[0] == r2[0] == app_mod.health_check.YELLOW          # entrambi provvisori
     assert chiamate == ["C:/vecchio.csv", "C:/nuovo.csv"]         # probe di entrambi (su worker)
