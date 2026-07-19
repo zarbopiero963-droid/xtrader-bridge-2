@@ -624,9 +624,13 @@ campi «Ultimo …», salvataggio config) + manuale col pulsante. La sonda «CSV
 è **cacheata ~5 s** (P3-9 #76): sugli aggiornamenti automatici il semaforo CSV può
 ritardare fino a 5 s (mai I/O filesystem a raffica sul thread GUI — uno share di rete
 degradato congelerebbe l'app a ogni messaggio); il pulsante **«🔄 Aggiorna» bypassa la
-cache** e mostra sempre lo stato fresco. Limite onesto (review #94): la cache riduce la
-**frequenza** dei probe, non la durata del singolo probe — a cache scaduta (o col 🔄) un
-singolo controllo su share degradato può ancora bloccare brevemente la GUI. La sonda
+cache** e mostra sempre lo stato fresco. A cache scaduta il probe fresco gira su un
+**worker in background** (follow-up #76): il semaforo mostra per un istante l'ultimo
+stato noto e si auto-aggiorna appena il controllo termina — la GUI non si blocca mai
+sugli aggiornamenti automatici. Limite onesto residuo: il **primo** controllo di un
+path (avvio/cambio path) e il pulsante **«🔄 Aggiorna»** restano sincroni (serve
+l'esito vero subito): su share degradato quel singolo controllo può ancora bloccare
+brevemente. La sonda
 NON apre mai il file (nessun lock che disturbi XTrader); su **Windows**
 si ferma a **giallo onesto** su ENTRAMBI i rami — file esistente E file da creare
 («probabilmente scrivibile»: ACL/lock NTFS non rilevabili senza aprire/scrivere —

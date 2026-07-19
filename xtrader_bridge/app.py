@@ -1567,6 +1567,16 @@ class App(ctk.CTk):
         if (not force and cached is not None and cached[0] == path
                 and now - cached[1] < _CSV_PROBE_TTL_S):
             return cached[2]
+        if not force and cached is not None and cached[0] == path:
+            # TTL scaduto, stesso path — è il percorso PER-MESSAGGIO sul thread Tk
+            # (follow-up #76, nota Fable PR #94): risultato STANTIO subito e probe
+            # VERO su un worker in background, così nemmeno il singolo probe a TTL
+            # scaduto può congelare la GUI su uno share degradato. La cache viene
+            # aggiornata dal worker; il semaforo si rinfresca via `_safe_after`.
+            self._kick_csv_probe_async(path)
+            return cached[2]
+        # Primo probe di un path (avvio/cambio path) o force=True («🔄 Aggiorna»):
+        # SINCRONO — qui serve un esito vero subito e non è il percorso caldo.
         result = health_check.csv_writable(path)
         # Timestamp DOPO il probe (review GPT #94): se la sonda stessa blocca più del
         # TTL (share morta = proprio lo scenario target), un timestamp preso PRIMA
@@ -1574,6 +1584,35 @@ class App(ctk.CTk):
         # bloccante, vanificando il throttle quando serve di più.
         self._csv_probe_cache = (path, time.monotonic(), result)
         return result
+
+    def _kick_csv_probe_async(self, path) -> None:
+        """Lancia il probe `csv_writable` su un thread worker daemon (follow-up #76,
+        nota Fable PR #94): aggiorna la cache TTL e schedula un refresh del pannello
+        Salute via `_safe_after` (TclError-safe, P3-10) senza aspettare il prossimo
+        messaggio. Flag `_csv_probe_inflight` best-effort (stesso modello della
+        cache: swap atomico sotto GIL): al più un worker alla volta dal thread Tk;
+        una rara doppia partenza cross-thread (worker assistente) è innocua — due
+        probe identici, ultimo vince. Un probe che solleva non propaga mai: sblocca
+        il flag e il giro successivo riprova (diagnostica best-effort)."""
+        if self.__dict__.get("_csv_probe_inflight"):
+            return
+        self._csv_probe_inflight = True
+
+        def _worker():
+            try:
+                result = health_check.csv_writable(path)
+                self._csv_probe_cache = (path, time.monotonic(), result)
+                self._safe_after(0, self._refresh_health)
+            except Exception:   # noqa: BLE001 — sonda Salute best-effort (come _refresh_health):
+                # share instabile che solleva a metà probe non deve uccidere niente;
+                # la cache resta quella vecchia e si riproverà al prossimo giro.
+                pass
+            finally:
+                self._csv_probe_inflight = False
+
+        t = threading.Thread(target=_worker, daemon=True, name="csv-probe-async")
+        self._csv_probe_thread = t          # esposto per i test (join deterministico)
+        t.start()
 
     def _live_health_items(self, force_probe: bool = False) -> list:
         """I 7 semafori LIVE (stessa logica del pannello 🚦 Salute), come lista di `HealthItem`.

@@ -33,7 +33,10 @@ _ALLOWLIST = {
                               "lettura su file assente/corrotto/schema inatteso → nessun path; "
                               "mark/clear best-effort — un I/O rotto non deve bloccare STOP/chiusura "
                               "(la marcatura avviene comunque PRIMA di armare il retry, crash-safe)"),
-    "app.py": (36, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+    "app.py": (37, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+                   "worker probe csv_writable async (follow-up #76, nota Fable PR #94): sonda Salute "
+                   "best-effort come _refresh_health — probe che solleva su share instabile non "
+                   "uccide il worker, sblocca il flag inflight e si riprova al giro dopo; "
                    "pannello Assistente (#41 PR-3) best-effort: costruzione che fallisce → label di "
                    "fallback invece di rompere la finestra; teardown del suo thread worker best-effort "
                    "in _on_close; "

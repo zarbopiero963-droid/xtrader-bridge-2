@@ -63,6 +63,11 @@ def test_ttl_scaduto_riprova_davvero(make_app, app_mod, monkeypatch):
     clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1        # TTL scaduto
     app_mod.App._csv_writable_cached(a, "Z:/share/out.csv")
 
+    # Follow-up #76 (nota Fable PR #94): a TTL scaduto il probe fresco parte su un
+    # WORKER in background — join deterministico prima di contare (niente race).
+    t = a.__dict__.get("_csv_probe_thread")
+    if t is not None:
+        t.join(timeout=5)
     assert len(chiamate) == 2, "a TTL scaduto lo stato CSV deve tornare fresco"
 
 
