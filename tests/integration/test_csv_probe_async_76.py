@@ -266,6 +266,7 @@ def test_watchdog_non_sovrascrive_esito_fresco_appena_arrivato(
 
     def _fake_kick(path):
         a._csv_probe_cache = (path, clock["now"], ("GREEN", "FRESCO"))
+        return True                               # contratto reale: kick riuscito
 
     a._kick_csv_probe_async = _fake_kick
 
@@ -275,6 +276,52 @@ def test_watchdog_non_sovrascrive_esito_fresco_appena_arrivato(
         "un esito vero appena scritto dal worker non va MAI sovrascritto col giallo di stallo")
     assert a._csv_probe_cache[2] == ("GREEN", "FRESCO")
     a._csv_probe_inflight_path = None             # cleanup stato simulato
+
+
+def test_cap_worker_appesi_su_path_multipli(make_app, app_mod, monkeypatch):
+    """FAIL-FIRST — review Fugu PR #111: cambi ripetuti di csv_path su share morte
+    non devono accumulare thread appesi senza limite. Oltre `_CSV_PROBE_MAX_WORKERS`
+    worker vivi: nessun nuovo worker e degrado a giallo onesto («troppi controlli
+    bloccati»)."""
+    a = make_app(running=False)
+    clock = _orologio(app_mod, monkeypatch)
+    blocco = threading.Event()
+    visti = {}
+
+    def _probe(path, **_k):
+        n = visti.get(path, 0) + 1
+        visti[path] = n
+        if n > 1:
+            blocco.wait(timeout=15)              # il probe async resta appeso
+        return ("GREEN", f"ok:{path}")
+
+    monkeypatch.setattr(app_mod.health_check, "csv_writable", _probe)
+
+    cap = app_mod._CSV_PROBE_MAX_WORKERS
+    for i in range(cap):                          # un worker appeso per ogni path
+        p = f"C:/morto{i}.csv"
+        app_mod.App._csv_writable_cached(a, p)                    # sincrono (n=1)
+        clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
+        app_mod.App._csv_writable_cached(a, p)                    # worker appeso
+
+    vivi = [t for t in a._csv_probe_threads if t.is_alive()]
+    assert len(vivi) == cap
+
+    # Path nuovo oltre il cap: sincrono ok, ma a TTL scaduto NIENTE nuovo worker
+    # e semaforo GIALLO ONESTO (pre-patch: partiva l'ennesimo worker appeso).
+    app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")           # sincrono (n=1)
+    clock["now"] += app_mod._CSV_PROBE_TTL_S + 0.1
+    r = app_mod.App._csv_writable_cached(a, "C:/nuovo.csv")
+
+    assert r[0] == app_mod.health_check.YELLOW
+    assert "troppi controlli" in r[1]
+    assert len([t for t in a._csv_probe_threads if t.is_alive()]) == cap, (
+        "oltre il cap NESSUN nuovo worker deve partire")
+
+    blocco.set()                                  # le share «rispondono»: cleanup
+    for t in list(a._csv_probe_threads):
+        t.join(timeout=5)
+    assert not any(t.is_alive() for t in a._csv_probe_threads)
 
 
 def test_worker_probe_che_solleva_non_uccide_niente(make_app, app_mod, monkeypatch):
