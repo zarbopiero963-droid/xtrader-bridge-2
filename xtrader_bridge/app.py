@@ -1619,7 +1619,11 @@ class App(ctk.CTk):
                     return cur[2]
                 stalled = (health_check.YELLOW,
                            "sonda CSV bloccata da troppo tempo (share non risponde?)")
-                self._csv_probe_cache = (path, time.monotonic(), stalled)
+                # Scrittura sotto lock (Fable final PR #111): serializzata con la
+                # guardia+set del worker — tutte le SCRITTURE della cache passano
+                # dal lock, le letture restano best-effort (swap atomici).
+                with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
+                    self._csv_probe_cache = (path, time.monotonic(), stalled)
                 return stalled
             return cached[2]
         # Primo probe di un path (avvio/cambio path) o force=True («🔄 Aggiorna»):
@@ -1628,8 +1632,10 @@ class App(ctk.CTk):
         # Timestamp DOPO il probe (review GPT #94): se la sonda stessa blocca più del
         # TTL (share morta = proprio lo scenario target), un timestamp preso PRIMA
         # nascerebbe già scaduto → il refresh successivo rifarebbe subito l'I/O
-        # bloccante, vanificando il throttle quando serve di più.
-        self._csv_probe_cache = (path, time.monotonic(), result)
+        # bloccante, vanificando il throttle quando serve di più. Scrittura sotto
+        # lock (Fable final PR #111): serializzata con la guardia del worker.
+        with self.__dict__.setdefault("_csv_probe_lock", threading.Lock()):
+            self._csv_probe_cache = (path, time.monotonic(), result)
         return result
 
     def _kick_csv_probe_async(self, path) -> bool:
@@ -1669,15 +1675,18 @@ class App(ctk.CTk):
             def _worker():
                 try:
                     result = health_check.csv_writable(path)
-                    # Guardia cambio-path (review GPT/Fable PR #111): se nel
+                    # Guardia cambio-path (review GPT/Fable PR #111) SOTTO LOCK
+                    # (Fable final: niente TOCTOU tra check e set): se nel
                     # frattempo l'utente ha cambiato csv_path la cache è già del
                     # path NUOVO — un risultato del path vecchio la
                     # sovrascriverebbe, costando un probe sincrono extra sul
-                    # thread Tk al messaggio dopo. Si scarta.
-                    cached = self.__dict__.get("_csv_probe_cache")
-                    if cached is not None and cached[0] != path:
-                        return
-                    self._csv_probe_cache = (path, time.monotonic(), result)
+                    # thread Tk al messaggio dopo. Si scarta. Il lock è tenuto
+                    # SOLO per il check+set (microsecondi), mai durante l'I/O.
+                    with lock:
+                        cached = self.__dict__.get("_csv_probe_cache")
+                        if cached is not None and cached[0] != path:
+                            return
+                        self._csv_probe_cache = (path, time.monotonic(), result)
                     self._safe_after(0, self._refresh_health)
                 except Exception:   # noqa: BLE001 — sonda Salute best-effort (come _refresh_health):
                     # share instabile che solleva a metà probe non deve uccidere

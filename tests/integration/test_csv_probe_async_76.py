@@ -14,7 +14,11 @@ un path (avvio/cambio path) e `force=True` (pulsante «🔄 Aggiorna») restano
 sincroni: lì serve un esito vero subito e non è il percorso per-messaggio.
 """
 
+import re
 import threading
+from pathlib import Path
+
+_APP_SRC = Path(__file__).resolve().parents[2] / "xtrader_bridge" / "app.py"
 
 
 def _orologio(app_mod, monkeypatch, start=1000.0):
@@ -333,6 +337,30 @@ def test_cap_worker_appesi_su_path_multipli(make_app, app_mod, monkeypatch):
     for t, _p, _s in list(a._csv_probe_threads):
         t.join(timeout=5)
     assert not any(t.is_alive() for t, _p, _s in a._csv_probe_threads)
+
+
+def test_guardia_worker_e_scritture_cache_sotto_lock():
+    """Review Fable final PR #111 (pin strutturale, pattern #311): la guardia
+    cambio-path + scrittura cache del worker devono stare SOTTO `with lock:`
+    (niente TOCTOU check→set), e anche le scritture sync/stallo della cache
+    devono passare dal lock. Il probe I/O invece NON deve mai girare sotto lock
+    (bloccherebbe il kick del thread Tk)."""
+    src = _APP_SRC.read_text(encoding="utf-8")
+    corpo = src[src.index("def _kick_csv_probe_async"):]
+    corpo = corpo[:corpo.index("def _live_health_items")]
+    # Nel worker: `with lock:` prima del check `cached[0] != path` e del set.
+    i_worker = corpo.index("def _worker():")
+    blocco_worker = corpo[i_worker:]
+    assert re.search(
+        r"with lock:\s*\n\s+cached = self\.__dict__\.get\(\"_csv_probe_cache\"\)",
+        blocco_worker), "guardia cambio-path del worker fuori dal lock (TOCTOU)"
+    # L'I/O del probe resta FUORI dal lock (prima del `with lock:`).
+    assert blocco_worker.index("health_check.csv_writable(path)") < \
+        blocco_worker.index("with lock:")
+    # Le altre scritture della cache (sync e stallo) passano anch'esse dal lock.
+    fn_cached = src[src.index("def _csv_writable_cached"):src.index("def _kick_csv_probe_async")]
+    assert fn_cached.count('setdefault("_csv_probe_lock"') >= 2, (
+        "le scritture sync/stallo della cache devono essere serializzate dal lock")
 
 
 def test_worker_probe_che_solleva_non_uccide_niente(make_app, app_mod, monkeypatch):
