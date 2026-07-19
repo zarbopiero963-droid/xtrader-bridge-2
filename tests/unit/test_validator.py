@@ -74,6 +74,13 @@ def test_prezzo_al_tetto_massimo_valido():
     assert validator.price_status("999.99") == validator.VALID
 
 
+def test_intervallo_min_max_al_tetto_valido():
+    """Bordo inclusivo sull'INTERVALLO (review GLM PR #116): Price=MinPrice=MaxPrice=1000.0
+    (tutti al tetto) è una riga valida — cap inclusivo e bounds coerenti insieme."""
+    row = _row(Price="1000", MinPrice="1000", MaxPrice="1000")
+    assert validator.validate(row, "NAME_ONLY") == (validator.VALID, None)
+
+
 def test_prezzo_oltre_il_tetto_bloccato():
     """FAIL-FIRST B1 audit #114: pre-patch il validatore controllava solo `> 1.0`, quindi
     una quota assurda (tipico misparse del separatore migliaia, es. «1.000.000» →

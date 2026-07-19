@@ -61,7 +61,9 @@ def test_timeout_oltre_il_tetto_errore():
     for oltre in (sv.MAX_TIMEOUT + 1, 999999999):
         value, err = sv.parse_timeout(str(oltre))
         assert value is None, oltre
-        assert err is not None and "86400" in err, oltre
+        # Il messaggio riporta il tetto interpolato da MAX_TIMEOUT (review Fable/Sourcery),
+        # non un numero hardcodato: il test lo verifica dalla costante, non da "86400".
+        assert err is not None and str(sv.MAX_TIMEOUT) in err, oltre
 
 
 def test_timeout_oltre_il_tetto_non_espone_il_valore():
@@ -107,6 +109,14 @@ def test_timeout_oltre_il_tetto_blocca():
     raw = {"bot_token": "T", "csv_path": "x.csv", "clear_delay": "999999999"}
     errors = sv.validate_settings(raw)
     assert any("Timeout" in e for e in errors)
+
+
+def test_timeout_al_tetto_esatto_non_blocca():
+    """Controprova (review GLM PR #116): `clear_delay` ESATTAMENTE al tetto (86400) è
+    valido anche attraverso `validate_settings` — nessun errore Timeout, bordo inclusivo."""
+    raw = {"bot_token": "T", "csv_path": "x.csv", "clear_delay": str(sv.MAX_TIMEOUT)}
+    errors = sv.validate_settings(raw)
+    assert not any("Timeout" in e for e in errors)
 
 
 def test_token_assente_non_e_errore_di_validazione():
