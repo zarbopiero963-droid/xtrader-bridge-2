@@ -3372,11 +3372,14 @@ class App(ctk.CTk):
                 return
             # `disk_dirty` (Codex P1 #300 single-row · D1 audit #114 multi-riga): se una
             # riscrittura precedente è fallita (retry pendente), i rami no-op del commit non
-            # devono saltare la risincronizzazione del disco stantio. `getattr(..., False)`
-            # (review Fable/Sourcery #117): idiomatico e robusto per le istanze headless di
-            # test create senza `__init__` (attributo assente → False), come il vecchio
-            # `__dict__.get`, ma senza accesso diretto a `__dict__`.
-            disk_dirty = bool(getattr(self, "_csv_dirty", False))
+            # devono saltare la risincronizzazione del disco stantio.
+            # `self.__dict__.get(...)` è DELIBERATO, NON `getattr(self, ..., False)`: le istanze
+            # headless di test create con `object.__new__(App)` (senza `__init__`) non hanno
+            # `_csv_dirty`, e `getattr` innescherebbe il `__getattr__` di customtkinter (CTk)
+            # che, senza i widget Tk inizializzati, RICORRE fino a RecursionError (regressione
+            # colta dalla CI `integration` su #117 — review GPT/GLM/Fable). `__dict__.get` legge
+            # direttamente lo slot d'istanza senza toccare `__getattr__`: assente → None → False.
+            disk_dirty = bool(self.__dict__.get("_csv_dirty"))
             if not is_multi:
                 # Parser single-row (legacy): dedup a hash-messaggio, comportamento bit-identico.
                 commit = write_path.commit_signal(
