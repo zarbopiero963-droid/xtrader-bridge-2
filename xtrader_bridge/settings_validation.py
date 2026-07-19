@@ -12,6 +12,13 @@ Nessuna dipendenza da customtkinter/Telegram/CSV: solo dict di stringhe grezze.
 
 DEFAULT_TIMEOUT = 90
 
+# Tetto massimo del timeout di auto-clear (B2 audit #114): 86400 s = 24 h. Senza tetto,
+# `parse_timeout` accettava QUALUNQUE int > 0: un valore enorme (es. 999999999 ≈ 31 anni)
+# incollato per sbaglio avrebbe di fatto DISATTIVATO lo svuotamento del CSV, lasciando un
+# segnale stantio attivo a vita → rischio scommessa-fantasma (invariante n.5 del repo: «il
+# CSV viene svuotato dopo il timeout configurato»). Oltre questo tetto → errore fail-closed.
+MAX_TIMEOUT = 86400
+
 
 def parse_timeout(raw, default: int = DEFAULT_TIMEOUT):
     """Interpreta il timeout di auto-clear (secondi).
@@ -19,7 +26,9 @@ def parse_timeout(raw, default: int = DEFAULT_TIMEOUT):
     Ritorna ``(valore, errore)``: con `errore=None` `valore` è un int valido;
     altrimenti `valore` è ``None`` ed `errore` è un messaggio. Vuoto → `default`
     (comodo all'avvio). Non numerico o ``<= 0`` → errore (un timeout nullo o
-    negativo svuoterebbe il CSV in modo imprevedibile).
+    negativo svuoterebbe il CSV in modo imprevedibile). Oltre ``MAX_TIMEOUT``
+    (24 h) → errore (B2 audit #114): un timeout enorme disattiverebbe di fatto lo
+    svuotamento, lasciando un segnale stantio a vita.
 
     SICUREZZA LOG: i messaggi d'errore sono SEMPRE generici e NON includono mai il valore
     grezzo — la GUI li scrive nel log, e l'utente potrebbe aver incollato per sbaglio nel
@@ -42,6 +51,15 @@ def parse_timeout(raw, default: int = DEFAULT_TIMEOUT):
         # ramo. Messaggio generico come per il caso non numerico (invariante: mai
         # identificatori/segreti nei log) — Codex #27.
         return None, "Timeout deve essere un numero intero maggiore di 0 (secondi)."
+    if value > MAX_TIMEOUT:
+        # Tetto massimo (B2 audit #114): un timeout enorme disattiverebbe di fatto lo
+        # svuotamento del CSV (segnale stantio a vita). Messaggio generico e SENZA il
+        # valore grezzo, come i rami sopra (stessa invariante: mai valori/segreti nei log).
+        # Limite E glossa-ore DERIVATI da `MAX_TIMEOUT` (review Fable/Fugu/GLM/Sourcery
+        # PR #116, convergenti): niente «86400» né «24 ore» hardcodati che possano driftare
+        # se il tetto cambia.
+        return None, (f"Timeout troppo grande: max {MAX_TIMEOUT} secondi "
+                      f"({MAX_TIMEOUT // 3600} ore).")
     return value, None
 
 
