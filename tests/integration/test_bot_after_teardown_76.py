@@ -104,9 +104,20 @@ def test_loop_close_dentro_finally():
     # nuovo START che nel frattempo li ha riassegnati (audit C1).
     # Ancorata a riga intera (review Sourcery PR #112): una guardia COMMENTATA o
     # inglobata in altro testo non deve far passare il pin — solo istruzione reale.
-    assert re.search(r"(?m)^\s*if self\._loop is loop:\s*$", finale), (
+    # E gli azzeramenti devono stare DENTRO il blocco guardato (review CodeRabbit
+    # PR #112): si cattura il blocco indentato sotto la guardia e si verifica che
+    # ENTRAMBI i reset avvengano lì — un azzeramento incondizionato con una
+    # guardia scollegata altrove non deve passare.
+    m_guardia = re.search(
+        r"(?m)^(\s*)if self\._loop is loop:\s*\n((?:\1[ \t]+\S.*\n|\s*\n)+)", finale)
+    assert m_guardia, (
         "_run_bot: il finally deve azzerare gli handle solo sotto la guardia "
         "`if self._loop is loop` (niente teardown cross-sessione)")
+    blocco_guardia = m_guardia.group(2)
+    assert "self._loop = None" in blocco_guardia, (
+        "_run_bot: `self._loop = None` deve stare DENTRO la guardia d'identità")
+    assert "self._async_stop_event = None" in blocco_guardia, (
+        "_run_bot: `self._async_stop_event = None` deve stare DENTRO la guardia")
 
 
 def test_evento_di_stop_pubblicato_prima_del_loop():
