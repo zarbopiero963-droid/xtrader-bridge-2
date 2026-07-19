@@ -82,7 +82,19 @@ def _default_registry() -> dict:
                         "risolveranno a vuoto: fail-closed). Ripristina il CSV del "
                         "dizionario e riavvia per riabilitarle (P3-14 #76).",
                         type(exc).__name__, exc)
-                    _DEFAULT_REGISTRY = value_maps.registry(include_dizionario=False)
+                    # Ultimo-resort (nota Fable PR #108): se anche i built-in
+                    # fallissero (teorico: nessun I/O), MAI un'eccezione
+                    # per-messaggio — registro VUOTO cacheato: `resolve` ritorna
+                    # "" per qualunque mappa → «Non pronto» (fail-closed).
+                    try:
+                        _DEFAULT_REGISTRY = value_maps.registry(include_dizionario=False)
+                    except Exception as exc2:   # noqa: BLE001 — vedi allowlist blind-except
+                        _LOG.error(
+                            "value-map: anche il registro built-in NON e' costruibile "
+                            "(%s: %s) -> registro VUOTO di ultimo-resort (ogni value-map "
+                            "risolve a vuoto: fail-closed). Reinstalla/ripara l'app.",
+                            type(exc2).__name__, exc2)
+                        _DEFAULT_REGISTRY = {}
     return _DEFAULT_REGISTRY
 
 NOT_READY = "NOT_READY"   # gate parser: manca un campo obbligatorio della regola

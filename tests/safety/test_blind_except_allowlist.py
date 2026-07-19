@@ -111,9 +111,12 @@ _ALLOWLIST = {
                              "#283 PR 13: sync in corso/DB assente → nessun suggerimento; "
                              "risoluzione profili nomi + lingua-fonte anteprima da config, "
                              "#3 slice 5b: config illeggibile → nessun filtro, fail-safe)"),
-    "custom_pipeline.py": (2, "id_resolver iniettato: un resolver che solleva NON blocca la riga (fail-open); "
+    "custom_pipeline.py": (3, "id_resolver iniettato: un resolver che solleva NON blocca la riga (fail-open); "
                               "_default_registry (P3-14 #76): dizionario bundled corrotto/mancante -> fallback "
-                              "built-in in cache con warning, MAI eccezione per-messaggio nell'handler Telegram"),
+                              "built-in in cache con warning, MAI eccezione per-messaggio nell'handler Telegram; "
+                              "ultimo-resort sul ramo built-in (follow-up nota Fable PR #108): anche se il "
+                              "fallback stesso solleva -> registro VUOTO cacheato con error log, ogni value-map "
+                              "risolve a vuoto (fail-closed), mai un crash per-messaggio"),
     "dpi_awareness.py": (3, "#311 §3.5 fail-open per contratto: un fallimento DPI "
                             "(ctypes/windll assente, shcore mancante su Win<8.1, "
                             "awareness già impostata, API che solleva) non deve MAI "

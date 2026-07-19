@@ -17,6 +17,7 @@ un passo successivo (come `parser_manager` CP-07 ha preceduto CP-09), così ques
 parte resta interamente testabile headless e a rischio zero per il CSV.
 """
 
+import hashlib
 import logging
 import math
 import re
@@ -156,10 +157,15 @@ def _normalize_source(raw: dict) -> dict:
         # e TRONCATI (niente righe giganti né leak lunghi): mai altri campi della
         # config nel log. Freccia ASCII: handler Windows non-UTF8 (review GPT).
         chat = str(raw.get("chat_id", "") or "").strip()
-        # Chiave di dedup su HASH dei valori COMPLETI: dimensione fissa in memoria
+        # Chiave di dedup su DIGEST dei valori COMPLETI: dimensione fissa in memoria
         # (nessun chat_id/valore gigante trattenuto) e nessuna collisione di prefisso
-        # tra valori distinti che condividono i primi 57 caratteri.
-        key = (hash(chat), hash(ascii(raw_enabled)))
+        # tra valori distinti che condividono i primi 57 caratteri. Follow-up #76
+        # (nota PR #104): sha256 al posto di `hash()` — niente collisioni pratiche
+        # che sopprimerebbero il warning di una coppia chat+valore DIVERSA (pattern
+        # allineato con `name_mapping_store._warn_malformed`).
+        def _dig(s):
+            return hashlib.sha256(s.encode("utf-8", "backslashreplace")).hexdigest()
+        key = (_dig(chat), _dig(ascii(raw_enabled)))
         with _WARNED_LOCK:                       # una volta per chat+valore: no spam
             warn = key not in _WARNED_ENABLED and len(_WARNED_ENABLED) < _WARNED_CAP
             if warn:

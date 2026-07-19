@@ -41,6 +41,7 @@ Regole di sicurezza (safety-critical: un evento sbagliato = scommessa sbagliata)
 
 import re
 
+import hashlib
 import logging
 import threading
 
@@ -72,7 +73,10 @@ def _warn_malformed(field: str, value) -> None:
     # P3-19 #76: la chiave di dedup usa il valore INTERO, non quello troncato per il
     # display — due valori lunghi distinti con lo stesso prefisso di 57 char non
     # devono più collassare in un solo warning (il secondo sparirebbe dal log).
-    key = (field, hash(shown))
+    # Follow-up #76 (nota PR #104): digest sha256 al posto di `hash()` — stessa
+    # memoria fissa, ma niente collisioni pratiche che sopprimerebbero il warning
+    # di un valore DIVERSO (pattern allineato con `source_manager`).
+    key = (field, hashlib.sha256(shown.encode("utf-8", "backslashreplace")).hexdigest())
     if len(shown) > 60:
         shown = shown[:57] + "..."
     with _WARNED_LOCK:
