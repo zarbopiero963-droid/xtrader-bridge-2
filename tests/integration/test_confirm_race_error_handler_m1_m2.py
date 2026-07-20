@@ -25,9 +25,15 @@ import inspect
 
 from xtrader_bridge import confirmation_reader, csv_writer, i18n, signal_queue
 
-# Messaggi localizzati asseriti dai test (review Fable/Fugu #124): si referenziano le
-# chiavi i18n reali invece di literal IT, così i test restano deterministici anche se
-# la lingua attiva del processo dovesse cambiare (isolamento fra test / locale CI).
+# Messaggi asseriti dai test (review Fable/Fugu/GLM/GPT #124). Questo repo usa i18n
+# VALUE-AS-KEY: la frase italiana È la chiave del catalogo (che mappa IT→EN/ES), quindi
+# passare la frase sorgente a `i18n.tr()` è corretto e la traduce nella lingua attiva. I
+# test confrontano contro `i18n.tr(<chiave>)` invece che contro literal IT, così restano
+# deterministici anche con lingua diversa (isolamento fra test / locale CI). Se una frase
+# sorgente cambiasse, `tr(chiave-vecchia)` la restituirebbe verbatim (fallback) mentre
+# l'app logga la nuova → il test FALLISCE (drift catturato, direzione sicura), NON un falso
+# verde. Le costanti devono restare VERBATIM identiche alle stringhe passate a `i18n.tr`
+# in `app.py::_process_confirmation`.
 _MSG_INVARIATO = "ℹ️ Conferma XTrader per un segnale già scaduto/rimosso: CSV invariato."
 _MSG_RIALLINEATO = "ℹ️ Conferma XTrader per un segnale già rimosso: CSV riallineato."
 
@@ -151,6 +157,29 @@ def test_error_handler_ptb_registrato_e_cablato():
     assert '_set_last("error"' in body          # semaforo «Ultimo errore»
     assert "self._log" in body or "._log(" in body  # log GUI (sink che redige)
     assert "_safe_after" in body                # mai chiamate Tk dirette dal bot thread
+
+
+def test_costanti_messaggio_allineate_alla_sorgente():
+    """Guard anti-drift (review GLM #124): le costanti `_MSG_*` asserite dai test devono
+    esistere VERBATIM come stringhe passate a `i18n.tr` in `app.py`. Se un refactor
+    cambiasse il messaggio in sorgente senza aggiornare qui, questo test FALLISCE subito
+    (invece di lasciare i test degli scenari a verificare una stringa non più prodotta)."""
+    import xtrader_bridge.app as app_module
+    src = inspect.getsource(app_module)
+    assert _MSG_INVARIATO in src, "app.py non contiene più _MSG_INVARIATO verbatim"
+    assert _MSG_RIALLINEATO in src, "app.py non contiene più _MSG_RIALLINEATO verbatim"
+    # E le chiavi devono essere nel catalogo i18n EN/ES (traduzioni non orfane). Il
+    # cambio lingua è in try/finally: un assert fallito NON deve lasciare una lingua
+    # attiva stantia per gli altri test (leak fra test — proprio il rischio segnalato).
+    prev = i18n.get_language()
+    try:
+        for key in (_MSG_INVARIATO, _MSG_RIALLINEATO):
+            i18n.set_language("EN")
+            assert i18n.tr(key) != key, f"manca traduzione EN: {key!r}"
+            i18n.set_language("ES")
+            assert i18n.tr(key) != key, f"manca traduzione ES: {key!r}"
+    finally:
+        i18n.set_language(prev)
 
 
 def test_ghost_realign_write_fallita_non_dichiara_riallineato(

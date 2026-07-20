@@ -396,15 +396,21 @@ def test_error_handler_ptb_registrato_e_inoltra_a_gui(make_app, app_mod, monkeyp
 
     assert bumps == [("errors",)]               # contatore errori incrementato
     assert lasts and lasts[0][0] == "error" and "RuntimeError" in lasts[0][1]
-    # Asserzioni LOCALE-ROBUSTE (review Fable/Fugu #124): confronto contro il template
-    # tradotto nella lingua attiva (IT di default nei test), non contro un literal IT —
-    # così un eventuale locale diverso in CI non rompe il test.
+    # Asserzioni LOCALE-ROBUSTE (review Fable/Fugu/GLM/GPT #124). Questo repo usa i18n
+    # VALUE-AS-KEY: la frase italiana È la chiave del catalogo (che mappa IT→EN/ES); passare
+    # la frase sorgente a `tr()` è quindi corretto e ritorna la stringa nella lingua attiva.
+    # Si ricostruisce il messaggio COMPLETO atteso (template tradotto + `.format`) e lo si
+    # confronta per intero — niente `split()` su segnaposto (fragile se il template cambia)
+    # né literal IT hardcoded. Se la frase sorgente cambiasse, `tr(chiave-vecchia)` la
+    # restituirebbe verbatim (fallback) mentre l'app logga la nuova → il test FALLISCE
+    # (drift catturato, direzione sicura).
     tr = app_mod.i18n.tr
-    prefix = tr("❌ Errore imprevisto nel gestore messaggi: {exc}").split("{exc}")[0]
-    assert any(prefix in m for m in a.logs)
-    # Errore senza attributo `.error` (contratto PTB degradato): non crasha, logga comunque.
+    _TPL = "❌ Errore imprevisto nel gestore messaggi: {exc}"
+    assert tr(_TPL).format(exc="RuntimeError: boom") in a.logs
+    # Errore senza attributo `.error` (contratto PTB degradato): non crasha, logga comunque
+    # il fallback localizzato.
     asyncio.run(tg.error_handlers[0](None, types.SimpleNamespace(error=None)))
-    assert any(tr("errore sconosciuto") in m for m in a.logs)
+    assert tr(_TPL).format(exc=tr("errore sconosciuto")) in a.logs
 
 
 def test_error_handler_stantio_non_tocca_la_sessione_nuova(make_app, app_mod, monkeypatch):
