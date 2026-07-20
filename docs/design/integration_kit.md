@@ -17,6 +17,14 @@
 
 Tutti gli HEX qui sono verificati contro il codice attuale (`git grep` di `fg_color`) e contro il design system.
 
+> **Stato applicazione.** **PR-1** (branch `claude/ui-redesign-pr1-theme`) ha creato il modulo
+> `xtrader_bridge/ui_theme.py` (§1) e applicato la migrazione colori di **`app.py`** (§2) — con i
+> token "testo di stato" e "banner" WCAG-safe aggiunti oltre allo snippet originale (vedi §1). Un
+> guard test (`tests/integration/test_palette.py::test_app_py_migrato_ai_token…`) blocca ogni
+> re-hardcode. Le **PR successive** applicano gli altri moduli GUI (name_mapping_gui, guided_mapping_gui,
+> profiles_gui, custom_parser_gui, …) con gli stessi token. La mappa §4 cita `betfair/sync_tab_gui.py`
+> e la tab «Betfair Sync» che **non esistono più** (rimossi): ignorarle.
+
 ---
 
 ## 1. Modulo tema (nuovo file `xtrader_bridge/ui_theme.py`)
@@ -52,6 +60,21 @@ INFO       = ("#0e9bd6", "#38bdf8")   # etichette locale/read-only
 PURPLE     = ("#6d4aff", "#7c5cff")   # Strumenti / Wizard
 PURPLE_HOV = ("#5a37e0", "#684ae0")
 TEAL       = ("#0d9488", "#12a594")   # Wizard prima configurazione
+TEAL_HOV   = ("#0b7c72", "#0f8b7d")
+
+# Testo di STATO su superficie chiara — WCAG-safe (aggiunto in PR-1). I colori-brand chiari
+# sopra vanno bene come RIEMPIMENTO (testo bianco sopra: bottoni/badge), ma come TESTO su
+# header chiaro scendono sotto la soglia WCAG: questi usano il valore design nel dark e una
+# variante chiara più scura. Semantica invariata (verde=ok, rosso=errore, arancio=warn).
+TITLE_TEXT  = ("#0d47a1", "#3d8bff")   # titolo app
+STATUS_OK   = ("#0f7a52", "#2bcf86")   # ⬤ ATTIVO
+STATUS_ERR  = ("#c62828", "#ff5468")   # ⬤ OFFLINE / errore
+STATUS_WARN = ("#b5560a", "#ffb02e")   # ⬤ RICONNESSIONE / righe attive / warning chat
+
+# Sfondi BANNER a testo bianco — rosso/arancio PROFONDI (leggibilità = invariante §13):
+# il banner REALE NON usa il DANGER brillante dei bottoni (bianco su di esso < soglia WCAG).
+DANGER_BANNER = ("#b71c1c", "#7f1d1d")  # banner MODALITÀ REALE
+WARN_BANNER   = ("#e65100", "#8a4b00")  # banner COLLAUDO XTrader
 
 # Geometria
 RADIUS_CTRL = 8    # bottoni, entry, dropdown
