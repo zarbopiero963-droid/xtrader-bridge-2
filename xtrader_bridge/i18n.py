@@ -560,6 +560,10 @@ _CATALOG = {
         "❌ Scrittura CSV fallita: {exc}. Segnale non registrato (riprovabile).": "❌ CSV write failed: {exc}. Signal not recorded (retryable).",
         "🧾 Messaggio→CSV  |  msg: {msg}  |  riga: {row}": "🧾 Message→CSV  |  msg: {msg}  |  row: {row}",
         "❌ Aggiornamento CSV dopo conferma fallito: {exc}. Riprovo a breve.": "❌ CSV update after confirmation failed: {exc}. Retrying shortly.",
+        "❌ Errore imprevisto nel gestore messaggi: {exc}": "❌ Unexpected error in the message handler: {exc}",
+        "errore sconosciuto": "unknown error",
+        "ℹ️ Conferma XTrader per un segnale già scaduto/rimosso: CSV invariato.": "ℹ️ XTrader confirmation for an already expired/removed signal: CSV unchanged.",
+        "ℹ️ Conferma XTrader per un segnale già rimosso: CSV riallineato.": "ℹ️ XTrader confirmation for an already removed signal: CSV realigned.",
         "❌ Aggiornamento CSV alla scadenza fallito: {exc}. Riprovo a breve.": "❌ CSV update on expiry failed: {exc}. Retrying shortly.",
         "🗑️  {n} segnale/i scaduto/i rimosso/i dal CSV": "🗑️  {n} expired signal(s) removed from the CSV",
         # Log RESILIENZA runtime (#343 slice 4n): riconnessione/backoff + recovery CSV.
@@ -1275,6 +1279,10 @@ _CATALOG = {
         "❌ Scrittura CSV fallita: {exc}. Segnale non registrato (riprovabile).": "❌ Escritura CSV fallida: {exc}. Señal no registrada (reintentable).",
         "🧾 Messaggio→CSV  |  msg: {msg}  |  riga: {row}": "🧾 Mensaje→CSV  |  msg: {msg}  |  fila: {row}",
         "❌ Aggiornamento CSV dopo conferma fallito: {exc}. Riprovo a breve.": "❌ Actualización del CSV tras confirmación fallida: {exc}. Reintento en breve.",
+        "❌ Errore imprevisto nel gestore messaggi: {exc}": "❌ Error inesperado en el gestor de mensajes: {exc}",
+        "errore sconosciuto": "error desconocido",
+        "ℹ️ Conferma XTrader per un segnale già scaduto/rimosso: CSV invariato.": "ℹ️ Confirmación de XTrader para una señal ya vencida/eliminada: CSV sin cambios.",
+        "ℹ️ Conferma XTrader per un segnale già rimosso: CSV riallineato.": "ℹ️ Confirmación de XTrader para una señal ya eliminada: CSV realineado.",
         "❌ Aggiornamento CSV alla scadenza fallito: {exc}. Riprovo a breve.": "❌ Actualización del CSV al vencimiento fallida: {exc}. Reintento en breve.",
         "🗑️  {n} segnale/i scaduto/i rimosso/i dal CSV": "🗑️  {n} señal(es) vencida(s) eliminada(s) del CSV",
         # Log RESILIENZA runtime (#343 slice 4n) — vedi nota nel blocco EN.

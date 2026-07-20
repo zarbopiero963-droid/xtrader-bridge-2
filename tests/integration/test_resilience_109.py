@@ -38,6 +38,10 @@ class _FakeTgApp:
     def add_handler(self, h):
         pass
 
+    def add_error_handler(self, h):
+        # AC-M1 #114: `_run_bot` registra ora un error handler PTB (qui irrilevante).
+        pass
+
     async def initialize(self):
         if self._fail_init:
             # Errore PERMANENTE simulato (es. token invalido): non è un'eccezione

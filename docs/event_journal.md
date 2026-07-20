@@ -51,7 +51,7 @@ journal non blocca mai il trading) tramite l'helper privato `App._journal(...)`:
 | `_start` | `CSV_CLEARED` (`reason="start"`) se l'`init_csv` di START rimuove una riga stantia sopravvissuta a un cleanup lockato, poi `START` (con `dry_run`/`auto`) |
 | `_stop` | `STOP` (solo se una sessione era attiva) |
 | `_process` | `SIGNAL_RECEIVED` → `SIGNAL_PARSED` → `SIGNAL_VALIDATED` → `CSV_WRITTEN` (un segnale scartato si ferma a `SIGNAL_PARSED`, `placeable=false`) |
-| `_process_confirmation` | `XTRADER_CONFIRMED` / `XTRADER_REJECTED` (registrato anche se la riscrittura CSV fallisce: l'esito è già avvenuto) + `CSV_CLEARED` `reason="confirmation"` se era l'ultima riga |
+| `_process_confirmation` | `XTRADER_CONFIRMED` / `XTRADER_REJECTED` (registrato anche se la riscrittura CSV fallisce: l'esito è già avvenuto) + `CSV_CLEARED` `reason="confirmation"` se era l'ultima riga. **Solo se il segnale era ancora attivo** (AC-M2 #114): una conferma arrivata per un segnale **già scaduto/rimosso** (race col tick di scadenza) NON registra alcun esito — sarebbe falso — e non riscrive il CSV (a disco allineato; a disco stantio lo riallinea senza esito). Se quel riallineamento riporta il CSV a solo header, il `CSV_CLEARED` usa `reason="realign"`: la causa reale della rimozione non è conoscibile in quel punto (scadenza nel caso tipico, o una rimozione precedente con riscrittura fallita) e un reason specifico sarebbe un'attribuzione falsa |
 | `_clear_stale_csv` | `CRASH_RECOVERY_CSV_CLEARED` (all'avvio) / `CSV_CLEARED` (allo stop) |
 | `_expire_tick` | `CSV_CLEARED` (`reason="expiry"`) quando il CSV torna a solo header (anche su un retry post-write-failure) |
 | `_manual_clear` | `CSV_CLEARED` (`reason="manual"`) sullo svuotamento manuale riuscito («Svuota CSV ora») |
