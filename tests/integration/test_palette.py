@@ -96,7 +96,12 @@ def test_app_py_migrato_ai_token_nessun_hex_hardcoded_nei_colori(app_mod):
     import pathlib
     import re
     src = pathlib.Path(app_mod.__file__).read_text(encoding="utf-8")
-    offenders = re.findall(r'(?:fg_color|hover_color|text_color)\s*=\s*"#[0-9a-fA-F]{6}"', src)
+    # Copre sia il literal stringa (`fg_color="#…"`) SIA la tupla inline
+    # (`fg_color=("#…", "#…")`) — review GLM #126: un re-hardcode futuro come tupla inline
+    # non deve sfuggire al guard. I colori DEVONO passare da un token/costante, mai da un
+    # HEX letterale in una proprietà colore.
+    offenders = re.findall(
+        r'(?:fg_color|hover_color|text_color|border_color)\s*=\s*\(?\s*"#[0-9a-fA-F]{6}"', src)
     assert offenders == [], (
         "app.py contiene ancora colori HEX hardcoded (usa ui_theme / _COLOR_*): "
         + ", ".join(offenders))
@@ -139,7 +144,7 @@ def test_set_last_accetta_tupla_light_dark_come_colore(app_mod):
     fake = types.SimpleNamespace(
         _last_vals={},
         _last_lbls={"error": _Lbl()},
-        _refresh_health=lambda: None,
+        _refresh_health=lambda *a, **k: None,   # difensivo (review GLM #126)
     )
     # Metodo REALE della classe App, invocato sul finto self.
     m.App._set_last(fake, "error", "recuperato", ui_theme.STATUS_OK)

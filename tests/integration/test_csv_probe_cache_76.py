@@ -160,10 +160,13 @@ def test_pulsante_aggiorna_forza_il_probe():
     (sorgente pinnato, pattern #311: la costruzione GUI non è esercitabile headless)."""
     src = _APP_SRC.read_text(encoding="utf-8")
     i = src.index('i18n.tr("🔄 Aggiorna")')
-    # Blocco = dall'etichetta fino alla chiusura `.pack(` del bottone (robusto ai refactor
-    # UI che aggiungono proprietà fg/hover/text_color — review GPT/GLM #126): niente più
-    # finestra a caratteri fissi. Il wiring `force_probe=True` deve stare dentro quel blocco.
-    fine = src.index(".pack(", i)
-    blocco = src[i:fine]
+    # Blocco = dall'etichetta fino al PRIMO piazzamento del bottone (`.pack(` o `.grid(` —
+    # robusto ai refactor UI che aggiungono proprietà fg/hover/text_color o cambiano layout
+    # manager, review GPT/GLM #126): niente più finestra a caratteri fissi. Fallback esplicito
+    # se il piazzamento non c'è (errore chiaro invece di ValueError da `str.index`).
+    fine_candidates = [src.find(mgr, i) for mgr in (".pack(", ".grid(")]
+    fine_candidates = [c for c in fine_candidates if c != -1]
+    assert fine_candidates, "app.py: bottone «🔄 Aggiorna» senza .pack()/.grid() dopo l'etichetta"
+    blocco = src[i:min(fine_candidates)]
     assert re.search(r"command=lambda: self\._refresh_health\(force_probe=True\)", blocco), (
         "app.py: il refresh esplicito dell'utente deve bypassare la cache TTL (P3-9 #76)")
