@@ -23,7 +23,7 @@ chiavi: ogni altra impostazione (token, chat, sorgenti, parser, ecc.) è preserv
 import copy
 
 from . import (autostart, bridge_mode, config_store, recognition, safety_guard,
-               signal_queue, source_manager)
+               settings_validation, signal_queue, source_manager)
 
 # Default del timeout conferme: fonte unica = config_store.DEFAULTS.
 DEFAULT_CONFIRMATION_TIMEOUT = config_store.DEFAULTS["confirmation_timeout"]
@@ -221,8 +221,13 @@ def apply_advanced(cfg: dict, form: dict) -> tuple:
     else:
         updates["xtrader_notification_chat_id"] = notif_chat
 
+    # AC-M7 audit #114: stesso tetto anti-«segnale immortale» di B2 (#116). In
+    # QUEUE_UNTIL_CONFIRMED la vita della riga CSV è governata da QUESTO timeout, non da
+    # `clear_delay`: senza tetto un valore enorme incollato per sbaglio (es. un chat ID)
+    # disattiverebbe di fatto lo svuotamento (invariante n.5 del repo).
     timeout, err = _parse_positive_int(
-        form.get("confirmation_timeout"), "Timeout conferme XTrader")
+        form.get("confirmation_timeout"), "Timeout conferme XTrader",
+        max_value=settings_validation.MAX_TIMEOUT)
     if err:
         errors.append(err)
     else:
@@ -247,12 +252,16 @@ _as_bool = config_store.as_bool
 _as_bool_optin = config_store.as_bool_optin
 
 
-def _parse_positive_int(value, label: str):
+def _parse_positive_int(value, label: str, max_value: int = None):
     """Parser generico di un intero > 0 → `(intero, None)` oppure `(None, messaggio)`.
 
     Autonomo (non riusa `parse_timeout`, che è semanticamente legato all'auto-clear):
     vuoto, non numerico, decimale o `<= 0` sono errori — questi campi (limite/giorno,
-    timeout conferme) non hanno un default "vuoto" sensato in input."""
+    timeout conferme) non hanno un default "vuoto" sensato in input.
+
+    `max_value` (AC-M7 audit #114): tetto superiore opzionale, fail-closed. I messaggi
+    NON includono mai il valore grezzo (stessa regola log-safety di `parse_timeout`:
+    nel campo potrebbe essere stato incollato per sbaglio un token o un chat ID)."""
     s = str(value if value is not None else "").strip()
     try:
         n = int(s)
@@ -260,4 +269,6 @@ def _parse_positive_int(value, label: str):
         return None, f"{label}: deve essere un intero maggiore di 0."
     if n <= 0:
         return None, f"{label}: deve essere un intero maggiore di 0."
+    if max_value is not None and n > max_value:
+        return None, f"{label}: massimo {max_value} secondi (24 ore)."
     return n, None
