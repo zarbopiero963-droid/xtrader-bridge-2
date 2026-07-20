@@ -86,13 +86,73 @@ def test_nessun_colore_di_stato_hardcoded_fuori_dalle_costanti(app_mod):
             f"colore di stato {hx} hardcoded come fg_color (usa le costanti _COLOR_*)"
 
 
-def test_dark_variant_invariata_rispetto_allo_storico(app_mod):
-    # La variante DARK resta quella storica (nessuna regressione visiva nel tema di default).
+def test_app_py_migrato_ai_token_nessun_hex_hardcoded_nei_colori(app_mod):
+    """Redesign UI PR-1 (review GPT/GLM #126): PROVA che `app.py` è davvero migrato ai token
+    `ui_theme` — nessun HEX letterale resta come `fg_color`/`hover_color`/`text_color`. Il
+    diff che i reviewer ricevono tronca `app.py` (troppo grande), quindi non "vedono" la
+    migrazione: questo guard la rende verificabile in CI e blocca ogni re-hardcode futuro dei
+    colori dei controlli (drift). I colori DEVONO passare dai token o dalle costanti `_COLOR_*`.
+    """
+    import pathlib
+    import re
+    src = pathlib.Path(app_mod.__file__).read_text(encoding="utf-8")
+    # Match ESAUSTIVO (review GLM #126): QUALSIASI kwarg che termina in `color`
+    # (`fg_color`, `hover_color`, `text_color`, `border_color`, `progress_color`,
+    # `button_color`, …) impostato a un HEX letterale — literal stringa `="#…"` O tupla
+    # inline `=("#…"`. Così un re-hardcode futuro su una proprietà colore qualsiasi non
+    # sfugge. I colori DEVONO passare da un token/costante, mai da un HEX letterale.
+    _COLOR_KWARG_HEX = re.compile(r'\w*color\s*=\s*\(?\s*"#[0-9a-fA-F]{6}"')
+    offenders = _COLOR_KWARG_HEX.findall(src)
+    assert offenders == [], (
+        "app.py contiene ancora colori HEX hardcoded (usa ui_theme / _COLOR_*): "
+        + ", ".join(offenders))
+    # Meta-check: la regex del guard cattura davvero gli offender sintetici (negative case,
+    # review GLM #126) — così il guard non passa "a vuoto" per un pattern troppo stretto.
+    for bad in ('progress_color="#ff0000"', 'border_color=("#ff0000", "#00ff00")',
+                'button_color = "#abcdef"'):
+        assert _COLOR_KWARG_HEX.search(bad), f"il guard NON cattura {bad!r}"
+
+
+def test_dark_variant_allineata_al_design_system(app_mod):
+    # Redesign UI (integration_kit.md): la variante DARK (tema primario) segue ora il design
+    # system centralizzato in `ui_theme`. Questo test resta un guard contro drift ACCIDENTALI,
+    # ma dalla NUOVA baseline design — non più dai valori storici pre-redesign. La leggibilità
+    # WCAG in entrambi i temi è comunque verificata da `test_palette_contrasto_sufficiente…`.
+    from xtrader_bridge import ui_theme as t
     m = app_mod
-    assert m._COLOR_HEADER_BG[1] == "#1a1a2e"
-    assert m._COLOR_HEADER_TITLE[1] == "#4fc3f7"
-    assert m._COLOR_STATUS_OFFLINE[1] == "#ef5350"
-    assert m._COLOR_STATUS_ACTIVE[1] == "#66bb6a"
-    assert m._COLOR_STATUS_RECONNECT[1] == "#ffa726"
-    assert m._COLOR_ACTIVE_ROWS[1] == "#ffb74d"
+    assert m._COLOR_HEADER_BG == t.TITLEBAR
+    assert m._COLOR_HEADER_TITLE == t.TITLE_TEXT
+    assert m._COLOR_STATUS_OFFLINE == t.STATUS_ERR
+    assert m._COLOR_STATUS_ACTIVE == t.STATUS_OK
+    assert m._COLOR_STATUS_RECONNECT == t.STATUS_WARN
+    assert m._COLOR_ACTIVE_ROWS == t.STATUS_WARN
+    assert m._COLOR_REAL_BANNER_BG == t.DANGER_BANNER
+    # Il banner REALE resta un rosso PROFONDO (testo bianco leggibile = invariante §13):
+    # variante dark scura, non il DANGER brillante dei bottoni.
     assert m._COLOR_REAL_BANNER_BG[1] == "#7f1d1d"
+
+
+def test_set_last_accetta_tupla_light_dark_come_colore(app_mod):
+    """Review Fugu #126: `_set_last(..., color)` prima riceveva una stringa (es. "white",
+    "#66bb6a"); il redesign passa ora una coppia `(light,dark)` da `ui_theme`. CTk accetta
+    la coppia per `text_color` (è il meccanismo già usato ovunque nell'app coi `_COLOR_*`),
+    e `_set_last` la INOLTRA invariata a `configure(text_color=…)` senza parsing su stringa.
+    Qui si prova col metodo REALE su un `self` finto: la label riceve la TUPLA tale e quale."""
+    import types
+    from xtrader_bridge import ui_theme
+    m = app_mod
+    captured = {}
+
+    class _Lbl:
+        def configure(self, **k):
+            captured.update(k)
+
+    fake = types.SimpleNamespace(
+        _last_vals={},
+        _last_lbls={"error": _Lbl()},
+        _refresh_health=lambda *a, **k: None,   # difensivo (review GLM #126)
+    )
+    # Metodo REALE della classe App, invocato sul finto self.
+    m.App._set_last(fake, "error", "recuperato", ui_theme.STATUS_OK)
+    assert captured.get("text_color") == ui_theme.STATUS_OK   # tupla inoltrata invariata
+    assert isinstance(captured["text_color"], tuple) and len(captured["text_color"]) == 2

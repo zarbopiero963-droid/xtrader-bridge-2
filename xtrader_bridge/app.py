@@ -79,6 +79,7 @@ from . import (
     signal_router,
     source_manager,
     telegram_dispatch,
+    ui_theme,
     write_path,
 )
 
@@ -231,15 +232,20 @@ _FIELD_PLACEHOLDERS = {
 # la variante light è scelta per il contrasto sul relativo sfondo. La leggibilità (contrasto WCAG)
 # è verificata automaticamente da `tests/integration/test_palette.py`. Non cambia struttura/label né la
 # SEMANTICA dei colori (rosso=errore/OFFLINE, verde=attivo, arancione=warning/riconnessione).
-_COLOR_HEADER_BG        = ("#e8eaf6", "#1a1a2e")   # sfondo header
-_COLOR_HEADER_TITLE     = ("#0d47a1", "#4fc3f7")   # titolo app
-_COLOR_STATUS_OFFLINE   = ("#c62828", "#ef5350")   # ⬤ OFFLINE / errore (rosso)
-_COLOR_STATUS_ACTIVE    = ("#2e7d32", "#66bb6a")   # ⬤ ATTIVO (verde)
-_COLOR_STATUS_RECONNECT = ("#e65100", "#ffa726")   # ⬤ RICONNESSIONE… (arancione)
-_COLOR_ACTIVE_ROWS      = ("#e65100", "#ffb74d")   # righe attive N/M (arancione)
-_COLOR_WARNING          = ("#bf360a", "#ffa726")   # warning «nessuna chat» (arancione scuro su bg chiaro)
-_COLOR_REAL_BANNER_BG   = ("#b71c1c", "#7f1d1d")   # sfondo banner MODALITÀ REALE (testo bianco)
-_COLOR_COLLAUDO_BANNER_BG = ("#e65100", "#8a4b00")  # sfondo banner COLLAUDO XTrader (#311 §3.1)
+# Redesign UI (integration_kit.md): i colori vivono ora in `ui_theme` (fonte unica). Questi
+# alias di modulo restano i NOMI storici usati dal codice e dal test WCAG (`test_palette.py`),
+# ma i VALORI derivano dai token del design system. La semantica è invariata (rosso=errore/
+# OFFLINE, verde=attivo, arancione=warning/riconnessione); i valori "testo di stato" usano le
+# varianti WCAG-safe di `ui_theme` (design nel dark, variante chiara più scura nel light).
+_COLOR_HEADER_BG        = ui_theme.TITLEBAR         # sfondo header
+_COLOR_HEADER_TITLE     = ui_theme.TITLE_TEXT       # titolo app
+_COLOR_STATUS_OFFLINE   = ui_theme.STATUS_ERR       # ⬤ OFFLINE / errore (rosso)
+_COLOR_STATUS_ACTIVE    = ui_theme.STATUS_OK        # ⬤ ATTIVO (verde)
+_COLOR_STATUS_RECONNECT = ui_theme.STATUS_WARN      # ⬤ RICONNESSIONE… (arancione)
+_COLOR_ACTIVE_ROWS      = ui_theme.STATUS_WARN       # righe attive N/M (arancione)
+_COLOR_WARNING          = ui_theme.STATUS_WARN       # warning «nessuna chat» (arancione)
+_COLOR_REAL_BANNER_BG   = ui_theme.DANGER_BANNER     # sfondo banner MODALITÀ REALE (testo bianco)
+_COLOR_COLLAUDO_BANNER_BG = ui_theme.WARN_BANNER     # sfondo banner COLLAUDO XTrader (#311 §3.1)
 
 
 class App(ctk.CTk):
@@ -1320,14 +1326,14 @@ class App(ctk.CTk):
 
         self._btn_start = ctk.CTkButton(
             btn_frame, text=i18n.tr("▶  AVVIA"), width=160, height=42,
-            fg_color="#2e7d32", hover_color="#1b5e20",
+            fg_color=ui_theme.SUCCESS, hover_color=ui_theme.SUCCESS_HOV,
             font=ctk.CTkFont(size=14, weight="bold"),
             command=self._start)
         self._btn_start.pack(side="left", padx=5)
 
         self._btn_stop = ctk.CTkButton(
             btn_frame, text=i18n.tr("■  STOP"), width=160, height=42,
-            fg_color="#c62828", hover_color="#7f0000",
+            fg_color=ui_theme.DANGER, hover_color=ui_theme.DANGER_HOV,
             font=ctk.CTkFont(size=14, weight="bold"),
             state="disabled",
             command=self._stop)
@@ -1335,12 +1341,13 @@ class App(ctk.CTk):
 
         self._btn_clear = ctk.CTkButton(
             btn_frame, text=i18n.tr("🗑️  Svuota CSV ora"), width=175, height=42,
+            fg_color=ui_theme.ACCENT, hover_color=ui_theme.ACCENT_HOV,
             command=self._manual_clear)
         self._btn_clear.pack(side="left", padx=5)
 
         ctk.CTkButton(
             btn_frame, text=i18n.tr("💾  Salva Config"), width=140, height=42,
-            fg_color="#37474f", hover_color="#263238",
+            fg_color=ui_theme.SURFACE3, hover_color=ui_theme.BORDER, text_color=ui_theme.TEXT,
             command=self._on_save_clicked,
         ).pack(side="right", padx=5)
 
@@ -1351,12 +1358,12 @@ class App(ctk.CTk):
         tools_frame.pack(fill="x", padx=15, pady=(0, 4))
         ctk.CTkButton(
             tools_frame, text=i18n.tr("🧰  Strumenti"), width=220, height=40,
-            fg_color="#4527a0", hover_color="#311b92",
+            fg_color=ui_theme.PURPLE, hover_color=ui_theme.PURPLE_HOV,
             command=self._open_tools).pack(side="left", padx=5)
         # Wizard di prima configurazione (#311 §3.4): 5 step guidati.
         ctk.CTkButton(
             tools_frame, text=i18n.tr("🧙 Wizard prima configurazione"), width=240, height=40,
-            fg_color="#00695c", hover_color="#004d40",
+            fg_color=ui_theme.TEAL, hover_color=ui_theme.TEAL_HOV,
             command=self._open_wizard).pack(side="left", padx=5)
 
         # Monitoraggio a schede (B3): Chat ascoltate / Stato / Dashboard / Log erano
@@ -1405,13 +1412,13 @@ class App(ctk.CTk):
         sig_hdr = ctk.CTkFrame(tab_stato, fg_color="transparent")
         sig_hdr.pack(fill="x", padx=12, pady=(8, 4))
         ctk.CTkButton(sig_hdr, text=i18n.tr("📋 Copia diagnostica"), width=160, height=28,
-                      fg_color="#37474f", hover_color="#263238",
+                      fg_color=ui_theme.SURFACE3, hover_color=ui_theme.BORDER, text_color=ui_theme.TEXT,
                       command=self._copy_diagnostics).pack(side="right", padx=(6, 0))
         ctk.CTkButton(sig_hdr, text=i18n.tr("📂 Apri cartella log"), width=160, height=28,
-                      fg_color="#37474f", hover_color="#263238",
+                      fg_color=ui_theme.SURFACE3, hover_color=ui_theme.BORDER, text_color=ui_theme.TEXT,
                       command=self._open_log_folder).pack(side="right", padx=(6, 0))
         ctk.CTkButton(sig_hdr, text=i18n.tr("🧾 Esporta audit reale"), width=170, height=28,
-                      fg_color="#37474f", hover_color="#263238",
+                      fg_color=ui_theme.SURFACE3, hover_color=ui_theme.BORDER, text_color=ui_theme.TEXT,
                       command=self._export_real_audit).pack(side="right", padx=(6, 0))
         _sty = dict(font=ctk.CTkFont(size=11), text_color="gray",
                     wraplength=_CONTENT_WRAP, anchor="w", justify="left")
@@ -1436,7 +1443,7 @@ class App(ctk.CTk):
             lbl.pack(anchor="w", padx=12, pady=(8 if i == 0 else 2, 0))
             self._health_lbls[key] = lbl
         ctk.CTkButton(tab_health, text=i18n.tr("🔄 Aggiorna"), width=110, height=26,
-                      fg_color="#37474f", hover_color="#263238",
+                      fg_color=ui_theme.SURFACE3, hover_color=ui_theme.BORDER, text_color=ui_theme.TEXT,
                       # P3-9 #76: il refresh ESPLICITO bypassa la cache TTL della sonda
                       # CSV — l'utente che clicca vuole lo stato vero, non quello cached.
                       command=lambda: self._refresh_health(force_probe=True)
@@ -1477,7 +1484,7 @@ class App(ctk.CTk):
                           variable=self._retention_var,
                           command=self._on_retention_change).pack(side="left")
         ctk.CTkButton(log_hdr, text=i18n.tr("🧹 Svuota log"), width=110, height=28,
-                      fg_color="#37474f", hover_color="#263238",
+                      fg_color=ui_theme.SURFACE3, hover_color=ui_theme.BORDER, text_color=ui_theme.TEXT,
                       command=self._clear_logs_now).pack(side="left", padx=(8, 0))
         self._debug_var = tk.BooleanVar(master=self, value=as_bool(self._config.get("debug_log", False)))
         ctk.CTkCheckBox(log_hdr, text=i18n.tr("🐞 Debug"), variable=self._debug_var,
@@ -1537,9 +1544,9 @@ class App(ctk.CTk):
             text_color="gray")
 
     # ── DASHBOARD (PR-14) ─────────────────────
-    _HEALTH_DOT = {health_check.GREEN: ("🟢", ("#2e7d32", "#66bb6a")),
-                   health_check.YELLOW: ("🟡", ("#e65100", "#ffa726")),
-                   health_check.RED: ("🔴", ("#c62828", "#ef5350"))}
+    _HEALTH_DOT = {health_check.GREEN: ("🟢", ui_theme.STATUS_OK),
+                   health_check.YELLOW: ("🟡", ui_theme.STATUS_WARN),
+                   health_check.RED: ("🔴", ui_theme.STATUS_ERR)}
 
     def _refresh_health(self, force_probe: bool = False) -> None:
         """Aggiorna i semafori del pannello Salute (#311 §3.3) dallo stato vivo.
@@ -1809,7 +1816,8 @@ class App(ctk.CTk):
         self._refresh_dashboard()
 
     # ── DIAGNOSTICA (PR-14c) ──────────────────
-    def _set_last(self, kind: str, value: str, color: str = "gray") -> None:
+    def _set_last(self, kind: str, value: str,
+                  color: "str | tuple[str, str]" = "gray") -> None:
         """Aggiorna un campo "ultimo …" della diagnostica (signal/message/csv/error):
         memorizza il valore (redatto, mai token) e la label, col prefisso UNICO di
         `_LAST_PREFIX`. Thread Tk (dal bot via `self.after`)."""
@@ -3580,7 +3588,7 @@ class App(ctk.CTk):
         elif event == "recover":
             msg = self._csv_lock.recovery_text()
             self._safe_after(0, lambda m=msg: self._log(m))
-            self._safe_after(0, lambda m=msg: self._set_last("error", m, "#66bb6a"))
+            self._safe_after(0, lambda m=msg: self._set_last("error", m, ui_theme.STATUS_OK))
 
     def _process_confirmation(self, text: str, cfg: dict, route_cfg: dict = None,
                               epoch=None) -> None:

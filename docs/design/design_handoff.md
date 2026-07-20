@@ -38,6 +38,7 @@
 11. [Inventario copy / microcopy](#11-inventario-copy--microcopy)
 12. [Glossario di dominio](#12-glossario-di-dominio)
 13. [Invarianti di sicurezza — cosa NON toccare](#13-invarianti-di-sicurezza--cosa-non-toccare)
+    - [13-bis. Integrazione del redesign — stato (design system v1 → codice)](#13-bis-integrazione-del-redesign--stato-design-system-v1--codice)
 14. [Pain point e opportunità di design](#14-pain-point-e-opportunità-di-design)
     - [14-bis. Lavori di design APERTI e tracciati (pacchetto DESIGN — issue #114)](#14-bis-lavori-di-design-aperti-e-tracciati-pacchetto-design--issue-114)
 15. [Deliverable utili al team](#15-deliverable-utili-al-team)
@@ -1440,6 +1441,33 @@ Il design può cambiare **aspetto e disposizione**, ma NON deve indebolire quest
 8. **Errori parlanti** sul perché non parte / perché non scrive.
 9. **Nessuna automazione "di puntata diretta"** verso Betfair/XTrader dalla UI: l'app scrive
    solo il CSV.
+
+---
+
+## 13-bis. Integrazione del redesign — stato (design system v1 → codice)
+
+Il redesign UI/UX di Claude-design è consegnato; l'applicazione al codice avviene in **PR
+incrementali** (merge manuale del proprietario). Il ponte design→CustomTkinter è
+`docs/design/integration_kit.md` (token colore, tabella HEX→token, spec widget, mappa file).
+
+| PR | Ambito | Stato |
+|----|--------|-------|
+| **PR-1** | Modulo tema `xtrader_bridge/ui_theme.py` (fonte unica dei colori/geometria) + migrazione dei colori di `app.py` (header, banner, semafori, barra azioni, health-dot) ai token | ✅ **applicata** |
+| PR-2+ | Migrazione colori degli altri moduli GUI (`name_mapping_gui` 47 HEX, `guided_mapping_gui`, `profiles_gui`, `custom_parser_gui`, …) ai token di `ui_theme` | ⏳ da fare |
+| — | **Cornice rossa 3px** finestra in MODALITÀ REALE (§13, kit §3 «◐ adattato») + **toggle tema** dark/chiaro in header (kit §1) | ⏳ da fare (elementi strutturali/comportamentali, non solo colore) |
+| — | Restyling strutturale schermate (Parser §7.1 griglia 14 col, tab a workflow numerato, badge, mockup stati) | ⏳ da fare |
+
+**Invarianti §13 preservate in PR-1** (verificate da `tests/integration/test_palette.py` +
+`tests/unit/test_ui_theme.py`): semantica colori bloccata (verde=AVVIA/ATTIVO, rosso=STOP/
+REALE, arancio=riconnessione/scarti); banner REALE resta un **rosso profondo** a testo bianco
+leggibile (contrasto ≥ 4.5), NON il rosso brillante dei bottoni; leggibilità WCAG ≥ 3.0 del
+testo di stato in **entrambi** i temi. Nessun cambio di label (i18n intatta).
+
+> **Nota tecnica del token.** I colori-brand chiari del design system sono ottimi come
+> **riempimento** di bottoni/badge (testo bianco sopra), ma come **testo di stato** su header
+> chiaro scendono sotto la soglia WCAG: perciò `ui_theme` espone token "fill" (design puri) e
+> token "testo di stato" con variante chiara più scura (design nel dark, primario). Dettaglio in
+> `ui_theme.py` e `integration_kit.md`.
 
 ---
 
