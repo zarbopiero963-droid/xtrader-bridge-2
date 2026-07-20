@@ -256,12 +256,17 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
       silenzioso (alcune righe scritte, altre troncate dal tetto senza avviso; Codex #281). Il
       tetto continua a limitare l'accumulo TRA messaggi distinti sul percorso single-row.
 
-    Accounting guardrail per-riga (mirror del single-row): una riga `DAILY_LIMITED` NON è scritta →
-    il suo consumo di tracker viene annullato (segnale ritentabile; il daily non aveva consumato
-    slot, solo normalizzato il giorno). Se NESSUNA riga NUOVA è accettata (tutte duplicati/limiti),
-    il CSV operativo NON viene toccato (come il single-row su DUPLICATE). In `DRY_RUN` non si scrive
-    e i guardrail sono ripristinati. Se la scrittura fallisce, coda E guardrail tornano allo stato
-    precedente. Per il single-row usare `commit_signal` (percorso legacy invariato).
+    Accounting guardrail PER-BLOCCO (AC-M3 audit #114, decisione proprietario 2026-07-20; mirror
+    del single-row, dove `evaluate` gira UNA volta per messaggio): il MESSAGGIO — non la singola
+    gamba — consuma 1 slot rate e 1 slot daily. I limiti rate/daily NON spezzano MAI il blocco:
+    a limite già esaurito l'INTERO blocco è soppresso con esito onesto (`RATE_LIMITED`/
+    `DAILY_LIMITED`) e resta ritentabile (tracker ripristinato; il daily non aveva consumato slot,
+    solo normalizzato il giorno) — mai un partial-drop silenzioso di alcune gambe (un dutching o
+    esce intero o non esce). La deduplica resta PER-RIGA (provenienza, espansione A→A+B,
+    cross-namespace, intra-blocco: invariate). Se NESSUNA riga NUOVA è presente (tutte duplicati),
+    il CSV operativo NON viene toccato (come il single-row su DUPLICATE). In `DRY_RUN` non si
+    scrive e i guardrail sono ripristinati. Se la scrittura fallisce, coda E guardrail tornano
+    allo stato precedente. Per il single-row usare `commit_signal` (percorso legacy invariato).
 
     `disk_dirty` (D1 audit #114, simmetria con `commit_signal`): True se il chiamante sa che il CSV
     su disco può essere STANTIO rispetto alla coda — una riscrittura precedente (post-conferma o
@@ -305,7 +310,8 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
     queue_active = set() if overwrite else {k for k in queue.active_keys(now=now) if k}
 
     decisions = []
-    new_rows = []          # righe NUOVE (WRITE) di QUESTO messaggio, effettivamente piazzate
+    fresh = []             # righe NUOVE (non duplicate) di QUESTO messaggio, in ordine
+    fresh_keys = []        # chiavi parallele a `fresh` (provenienza)
     block = []             # OVERWRITE_LAST: righe dell'istruzione corrente da tenere attive
     block_keys = []        # chiavi parallele a `block` (provenienza, memorizzate per il commit dopo)
     seen_in_block = set()  # dedup INTRA-blocco: una stessa chiave non entra due volte (no doppia riga)
@@ -313,7 +319,8 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
         if tracker is None:
             # Chiamanti senza guardrail (test): ogni riga è NUOVA, nessuna dedup disponibile.
             decisions.append(live_guard.WRITE)
-            new_rows.append(row)
+            fresh.append(row)
+            fresh_keys.append("")
             block.append(row)
             block_keys.append("")
             if not overwrite:
@@ -325,33 +332,52 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
             # consumare tracker/daily (nessun `evaluate`): non accodata, non scritta.
             decisions.append(live_guard.DUPLICATE)
             continue
-        row_tracker_snap = tracker.state()
-        d = live_guard.evaluate(cfg, tracker, daily, text, dedup_key=key)
-        decisions.append(d)
-        if d == live_guard.WRITE:
-            new_rows.append(row)
-            if overwrite:
-                if key not in seen_in_block:          # dedup intra-blocco (due regole → stessa riga)
-                    block.append(row)
-                    block_keys.append(key)
-                    seen_in_block.add(key)
-            else:
-                # Auto-raise del tetto (#192): `force=True` → la riga NUOVA entra sempre; la chiave
-                # è memorizzata sul segnale per la provenienza al commit successivo.
-                queue.add(row, now=now, force=True, dedup_key=key)
-        elif d == live_guard.DUPLICATE:
+        if key in seen_in_block:
+            # Dedup intra-blocco (due regole → stessa riga, Codex #281 P1): la seconda
+            # occorrenza non entra due volte né nel blocco né in coda.
+            decisions.append(live_guard.DUPLICATE)
+            continue
+        if tracker.is_seen(key):
+            decisions.append(live_guard.DUPLICATE)
             # OVERWRITE_LAST: una riga duplicata resta nel blocco SOLO se è ANCORA attiva con la
             # STESSA provenienza (kyh #192): altrimenti riscriverebbe un segnale scaduto (viola il
             # clear-timeout) o duplicherebbe una riga già presente (Codex #281 P1). Si usa la riga
-            # del MESSAGGIO corrente (valori aggiornati), non quella stantia in coda; dedup intra-blocco.
-            if overwrite and key in active_keys and key not in seen_in_block:
+            # del MESSAGGIO corrente (valori aggiornati), non quella stantia in coda.
+            if overwrite and key in active_keys:
                 block.append(row)
                 block_keys.append(key)
                 seen_in_block.add(key)
-        elif d == live_guard.DAILY_LIMITED:
-            # `daily.allow` ha rifiutato senza consumare slot ma `evaluate` ha registrato l'hash:
-            # annulla SOLO il tracker (come single-row), non il daily (giorno normalizzato).
-            tracker.restore_state(row_tracker_snap)
+            continue
+        # Riga NUOVA: la classificazione qui NON consuma guardrail — l'ammissione rate/daily
+        # è PER-BLOCCO, una sola volta per messaggio (AC-M3, vedi sotto).
+        decisions.append(live_guard.WRITE)
+        fresh.append(row)
+        fresh_keys.append(key)
+        seen_in_block.add(key)
+        if overwrite:
+            block.append(row)
+            block_keys.append(key)
+
+    # ── Ammissione PER-BLOCCO dei guardrail (AC-M3 audit #114, decisione proprietario
+    # 2026-07-20). Mirror del single-row, dove `evaluate` gira UNA volta per messaggio:
+    # il MESSAGGIO — non la singola gamba — consuma 1 slot rate e 1 slot daily. Un dutching
+    # non viene MAI spezzato dai limiti: o esce intero, o (limite già esaurito) è soppresso
+    # INTERO con esito onesto — mai gambe scartate in silenzio (partial-drop). La prima
+    # chiave nuova passa da `evaluate` (dedup + rate + dry-run + daily); le altre sono
+    # ombreggiate con `mark_seen` (valgono per la dedup dei reinvii, NON contano verso il
+    # rate-limit: la slot del messaggio è già stata consumata dalla prima).
+    block_decision = live_guard.WRITE
+    if tracker is not None and fresh:
+        block_decision = live_guard.evaluate(cfg, tracker, daily, text,
+                                             dedup_key=fresh_keys[0])
+        if block_decision == live_guard.WRITE:
+            for k in fresh_keys[1:]:
+                tracker.mark_seen(k)
+            if not overwrite:
+                # Auto-raise del tetto (#192): `force=True` → la riga NUOVA entra sempre; la
+                # chiave è memorizzata sul segnale per la provenienza al commit successivo.
+                for row, key in zip(fresh, fresh_keys):
+                    queue.add(row, now=now, force=True, dedup_key=key)
 
     # DRY_RUN: simulazione → NON scrivere il CSV operativo; ripristina coda E tracker. (P3-rs1 audit
     # #114) `evaluate` valuta DRY_RUN PRIMA di `daily.allow()`, quindi in simulazione NESSUNA slot
@@ -380,6 +406,20 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
         return CommitResult(decision=dec, blocked_by_cap=False, rows=active_now,
                             write_error=None, write_attempted=True)
 
+    if block_decision in (live_guard.RATE_LIMITED, live_guard.DAILY_LIMITED):
+        # AC-M3: blocco INTERO soppresso — nessuna gamba accodata né scritta (niente partial).
+        # Si annulla la registrazione della prima chiave nel tracker (messaggio ritentabile);
+        # su DAILY_LIMITED il daily NON ha consumato slot (solo normalizzato il giorno):
+        # come nel single-row, non si ripristina il suo snapshot.
+        tracker.restore_state(tracker_snap)
+        if disk_dirty:
+            # D1 #114: disco stantio (retry pendente) → si riallinea comunque alle righe
+            # attive correnti (coda post-expire), con l'esito non-WRITE onesto.
+            return _realign_dirty_disk(block_decision)
+        queue.restore_state(queue_snap)
+        return CommitResult(decision=block_decision, blocked_by_cap=False,
+                            rows=[], write_error=None)
+
     if overwrite:
         # Il blocco È l'istruzione corrente (righe nuove + duplicate ANCORA attive). Si riscrive il
         # CSV SOLO se differisce — per contenuto — dalle righe già attive: reinvio identico → nessuna
@@ -394,11 +434,12 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
             # non-write contro i limiti e `_process` lo vedrebbe come WRITE riuscito (Codex #281).
             if tracker is not None:
                 tracker.restore_state(tracker_snap)
-                # daily: `release()` per ogni slot consumata dalle righe WRITE (aged-out), mantenendo
-                # il giorno normalizzato — non `restore_state` (reintrodurrebbe un giorno malformato).
-                if daily is not None:
-                    for _ in range(len(new_rows)):
-                        daily.release()
+                # daily: `release()` della slot consumata dal blocco (AC-M3: l'ammissione è
+                # per-MESSAGGIO → al più UNA slot, se c'era almeno una riga nuova aged-out),
+                # mantenendo il giorno normalizzato — non `restore_state` (reintrodurrebbe un
+                # giorno malformato).
+                if daily is not None and fresh:
+                    daily.release()
             if disk_dirty:
                 # D1: blocco == attivo ma il DISCO è STANTIO (retry pendente) → si RIALLINEA
                 # riscrivendo le righe attive correnti. La coda resta post-expire (== current_active)
@@ -410,16 +451,16 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
             return CommitResult(decision=_noop_decision(decisions), blocked_by_cap=False,
                                 rows=current_active, write_error=None)
         queue.replace_block(block, now=now, keys=block_keys)
-    elif not new_rows:
+    elif not fresh:
         if disk_dirty:
             # D1 audit #114: nessuna riga NUOVA ma DISCO STANTIO (retry pendente) → si RIALLINEA
             # riscrivendo le righe attive correnti (post-expire). Nessun guardrail nuovo da annullare
-            # (in append le righe WRITE sono sempre accodate → finiscono in `new_rows`, qui vuoto).
+            # (in append le righe NUOVE sono sempre accodate → finiscono in `fresh`, qui vuoto).
             # La coda resta post-expire per combaciare col disco riscritto.
             return _realign_dirty_disk(_summary_decision(decisions, 0))
-        # APPEND/QUEUE: nessuna riga NUOVA accodata (tutte duplicati/limiti) → CSV invariato (come il
-        # single-row su DUPLICATE). Nessun guardrail da annullare: in append le righe WRITE sono
-        # sempre accodate (`force=True`) quindi finiscono in `new_rows`; qui non ce n'erano.
+        # APPEND/QUEUE: nessuna riga NUOVA accodata (tutte duplicati) → CSV invariato (come il
+        # single-row su DUPLICATE). Nessun guardrail da annullare: in append le righe NUOVE sono
+        # sempre accodate (`force=True`) quindi finiscono in `fresh`; qui non ce n'erano.
         queue.restore_state(queue_snap)
         return CommitResult(decision=_summary_decision(decisions, 0), blocked_by_cap=False,
                             rows=[], write_error=None)

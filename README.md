@@ -290,7 +290,7 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 | *(quota obbligatoria)* | — | — | NON è più una chiave globale: la comanda la casella **«Obblig.» sulla riga `Price`** di ogni Parser Personalizzato. `Price` obbligatorio → segnale senza quota valida (> 1.0) **scartato**; non obbligatorio → quota opzionale. |
 | `dry_run` | `true` | `true`/`false` | **Simulazione**: se `true`, il CSV operativo **non** viene scritto. Mettilo a `false` solo per l'uso reale, consapevolmente. |
 | `bridge_mode` | derivato da `dry_run` (config nuova: `SIMULAZIONE`) | `SIMULAZIONE`/`COLLAUDO`/`REALE` | Modalità **nominata** (#311 §3.1), derivata e coerente con `dry_run` (che resta autoritativo: incoerenza → Simulazione). `COLLAUDO` scrive il CSV col banner «XTrader in simulazione». |
-| `max_per_day` | `200` | intero | Tetto di segnali nuovi accettati in un giorno (**ora locale** del sistema: reset a **mezzanotte locale**, ora legale gestita dal SO). Oltre, i segnali in eccesso non scrivono. |
+| `max_per_day` | `200` | intero | Tetto di segnali nuovi accettati in un giorno (**ora locale** del sistema: reset a **mezzanotte locale**, ora legale gestita dal SO). Oltre, i segnali in eccesso non scrivono. Conta **istruzioni (messaggi)**, non gambe: un messaggio **multi-gamba** (dutching) consuma **una** slot e **non viene mai spezzato** dal tetto — o esce intero, o (tetto esaurito) è rifiutato intero con esito visibile (AC-M3 audit #114). |
 | `queue_mode` | `OVERWRITE_LAST` | `OVERWRITE_LAST`, `APPEND_ACTIVE`, `QUEUE_UNTIL_CONFIRMED` | Quanti segnali attivi tenere nel CSV. `OVERWRITE_LAST` = uno solo (sicuro). Le altre due scrivono **più righe** = più scommesse simultanee. Attivare una modalità multi-riga dalla GUI chiede una **conferma**. |
 | `max_active_signals` | `2` | intero ≥ 1 | **Tetto di righe/scommesse attive** simultanee nelle modalità multi-riga (#136 p5): un nuovo segnale oltre il tetto viene **bloccato** (ritentabile quando una riga scade/è confermata). Default basso (2). Ininfluente in `OVERWRITE_LAST` (sempre 1 riga). La GUI mostra un indicatore **"Righe attive: N/M"**. |
 | `active_parser` | `""` | nome parser | Parser Personalizzato attivo **globalmente**. Di norma si imposta dalla GUI. **`""` (vuoto) = nessun parser custom globale.** Una chat con un parser **dedicato** in `parser_by_chat` funziona comunque; una chat **senza** né `active_parser` né voce in `parser_by_chat` viene **IGNORATA** in live (il parser hardcoded P.Bet è stato **rimosso**, vedi nota sotto). |
@@ -538,7 +538,10 @@ Tutte queste protezioni sono **attive a runtime**:
    il reinvio arriva oltre la finestra di deduplica (es. `confirmation_timeout` più
    lungo), la riga uguale già attiva non viene mai raddoppiata.
 5. **Limite al minuto e al giorno** — oltre soglia i segnali in eccesso non scrivono
-   (`max_per_day` per il giorno).
+   (`max_per_day` per il giorno). I limiti contano **istruzioni (messaggi)**, non
+   gambe: un messaggio **multi-gamba** (dutching) consuma **una** slot per limite e
+   **non viene mai spezzato** — mai alcune gambe scritte e altre scartate in silenzio;
+   a limite esaurito l'intero blocco è rifiutato con esito visibile (AC-M3 audit #114).
 6. **Scrittura atomica** — il CSV si scrive su file temporaneo e poi `rename`, così
    XTrader non legge mai un file parziale; l'header è sempre presente. **Anti data-loss
    sui file estranei** (audit #76): se `csv_path` punta per errore a un file esistente che

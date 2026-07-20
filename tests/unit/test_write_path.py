@@ -444,18 +444,19 @@ def test_dry_run_multi_non_restituisce_slot_di_write_reali():
     Fail-first: ripristinando il loop `daily.release()` DRY_RUN in `commit_signals`, `remaining`
     risalirebbe (over-release) e l'assert fallirebbe."""
     tracker, daily, queue = _fresh(mode=signal_queue.APPEND_ACTIVE, max_active=0, max_per_day=3)
-    # 2 righe REALI (auto-raise del tetto in append) consumano 2/3.
+    # Blocco REALE da 2 righe (auto-raise del tetto in append): con l'ammissione PER-BLOCCO
+    # (AC-M3 audit #114) il MESSAGGIO consuma UNA slot, non una per gamba → 1/3.
     r1 = write_path.commit_signals(
         tracker, daily, queue, CFG_REAL, "reale", [_row("A"), _row("B")], "out.csv", 100.0,
         _ok_writer([]))
     assert r1.decision == live_guard.WRITE
-    assert daily.remaining() == 1
+    assert daily.remaining() == 2
     # Blocco in DRY_RUN con 2 righe nuove: il daily resta INVARIATO (nessun over-release).
     res = write_path.commit_signals(
         tracker, daily, queue, CFG_DRY, "sim", [_row("C"), _row("D")], "out.csv", 101.0,
         _ok_writer([]))
     assert res.decision == live_guard.DRY_RUN
-    assert daily.remaining() == 1                        # INVARIATO: anti-overtrading
+    assert daily.remaining() == 2                        # INVARIATO: anti-overtrading
 
 
 def test_write_reale_resta_deduplicato_nessuna_doppia_scommessa():
