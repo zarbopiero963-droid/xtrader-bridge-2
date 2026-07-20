@@ -23,7 +23,13 @@ livello sorgente come per l'invariante `__dict__.get("_csv_dirty")` già in suit
 
 import inspect
 
-from xtrader_bridge import confirmation_reader, csv_writer, signal_queue
+from xtrader_bridge import confirmation_reader, csv_writer, i18n, signal_queue
+
+# Messaggi localizzati asseriti dai test (review Fable/Fugu #124): si referenziano le
+# chiavi i18n reali invece di literal IT, così i test restano deterministici anche se
+# la lingua attiva del processo dovesse cambiare (isolamento fra test / locale CI).
+_MSG_INVARIATO = "ℹ️ Conferma XTrader per un segnale già scaduto/rimosso: CSV invariato."
+_MSG_RIALLINEATO = "ℹ️ Conferma XTrader per un segnale già rimosso: CSV riallineato."
 
 
 def _row(event, selection=None):
@@ -78,7 +84,7 @@ def test_conferma_fantasma_disco_allineato_non_riscrive_ne_journala(
 
     assert writes == []                       # CSV MAI riscritto (no-op evitato)
     assert journal == []                      # nessun esito falso nel diario
-    assert any("già scaduto/rimosso" in m for m in a.logs)
+    assert any(i18n.tr(_MSG_INVARIATO) in m for m in a.logs)
     # La riga attiva reale resta al suo posto (la conferma-fantasma non tocca nulla).
     assert [r["EventName"] for r in q.active_rows()] == ["Roma v Lazio"]
 
@@ -104,7 +110,7 @@ def test_conferma_fantasma_disco_stantio_riallinea_senza_esito_falso(
 
     assert writes == [1]                      # UNA scrittura di riallineamento
     assert journal == []                      # nessun XTRADER_CONFIRMED falso
-    assert any("riallineato" in m for m in a.logs)
+    assert any(i18n.tr(_MSG_RIALLINEATO) in m for m in a.logs)
     assert a._csv_dirty is False              # disco di nuovo allineato
 
 
@@ -166,7 +172,7 @@ def test_ghost_realign_write_fallita_non_dichiara_riallineato(
 
     app_mod.App._process_confirmation(a, "notifica xtrader", {"csv_path": path})
 
-    assert not any("riallineato" in m for m in a.logs)   # niente dichiarazione falsa
+    assert not any(i18n.tr(_MSG_RIALLINEATO) in m for m in a.logs)   # niente dichiarazione falsa
     assert a._csv_dirty is True                          # disco ancora stantio
     assert (path, app_mod._WRITE_RETRY_DELAY) in a.expiry_calls   # retry programmato
 
@@ -196,4 +202,4 @@ def test_ghost_realign_che_svuota_journala_realign_non_confirmation(
 
     assert cleared == [("CSV_CLEARED", {"reason": "realign"})]  # nessuna attribuzione falsa
     assert a._csv_dirty is False                                # riallineato davvero
-    assert any("riallineato" in m for m in a.logs)
+    assert any(i18n.tr(_MSG_RIALLINEATO) in m for m in a.logs)

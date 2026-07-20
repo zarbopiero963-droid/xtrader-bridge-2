@@ -396,10 +396,15 @@ def test_error_handler_ptb_registrato_e_inoltra_a_gui(make_app, app_mod, monkeyp
 
     assert bumps == [("errors",)]               # contatore errori incrementato
     assert lasts and lasts[0][0] == "error" and "RuntimeError" in lasts[0][1]
-    assert any("Errore imprevisto nel gestore messaggi" in m for m in a.logs)
+    # Asserzioni LOCALE-ROBUSTE (review Fable/Fugu #124): confronto contro il template
+    # tradotto nella lingua attiva (IT di default nei test), non contro un literal IT —
+    # così un eventuale locale diverso in CI non rompe il test.
+    tr = app_mod.i18n.tr
+    prefix = tr("❌ Errore imprevisto nel gestore messaggi: {exc}").split("{exc}")[0]
+    assert any(prefix in m for m in a.logs)
     # Errore senza attributo `.error` (contratto PTB degradato): non crasha, logga comunque.
     asyncio.run(tg.error_handlers[0](None, types.SimpleNamespace(error=None)))
-    assert any("errore sconosciuto" in m for m in a.logs)
+    assert any(tr("errore sconosciuto") in m for m in a.logs)
 
 
 def test_error_handler_stantio_non_tocca_la_sessione_nuova(make_app, app_mod, monkeypatch):
