@@ -34,6 +34,13 @@ DEFAULT_MODE = OVERWRITE_LAST
 # DEFAULT_TIMEOUT = 90): è lo stesso "default timeout" del bridge. Resta una costante
 # PROPRIA di questo modulo (pura, autocontenuta) per non dipendere dal layer settings.
 DEFAULT_TIMEOUT = 90        # secondi di vita di un segnale se non confermato/sostituito
+# AC-M7 audit #114: tetto massimo runtime (24 h) — ULTIMO MIGLIO dell'invariante n.5 («il
+# CSV viene svuotato dopo il timeout»). Il layer GUI (B2 #116 + AC-M7) rifiuta già i valori
+# oltre tetto, ma un `clear_delay`/`confirmation_timeout` enorme scritto A MANO in
+# config.json arriverebbe qui senza filtri: si CLAMPA (mai segnale immortale). Costante
+# PROPRIA per la stessa ragione di DEFAULT_TIMEOUT; deve restare UGUALE a
+# `settings_validation.MAX_TIMEOUT` (uguaglianza verificata da un test dedicato, AC-B43).
+MAX_TIMEOUT = 86400
 
 
 def normalize_mode(mode) -> str:
@@ -52,7 +59,9 @@ def timeout_from_config(cfg) -> float:
       (auto-clear), come storicamente.
 
     Fail-safe: un valore mancante/non valido (non numerico, ``NaN``/``inf``, ``<=0``)
-    ricade su ``DEFAULT_TIMEOUT`` — un segnale deve scadere COMUNQUE (mai immortale)."""
+    ricade su ``DEFAULT_TIMEOUT``; un valore oltre ``MAX_TIMEOUT`` (24 h, config editata
+    a mano oltre il tetto GUI) viene CLAMPATO al tetto (AC-M7 audit #114) — un segnale
+    deve scadere COMUNQUE (mai immortale)."""
     cfg = cfg if isinstance(cfg, dict) else {}
     key = "confirmation_timeout" if normalize_mode(cfg.get("queue_mode")) == QUEUE_UNTIL_CONFIRMED \
         else "clear_delay"
@@ -66,7 +75,7 @@ def timeout_from_config(cfg) -> float:
         t = float(raw)
     except (TypeError, ValueError):
         return DEFAULT_TIMEOUT
-    return t if math.isfinite(t) and t > 0 else DEFAULT_TIMEOUT
+    return min(t, MAX_TIMEOUT) if math.isfinite(t) and t > 0 else DEFAULT_TIMEOUT
 
 
 def delay_until(expires_at: float, now: float) -> float:

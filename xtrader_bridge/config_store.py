@@ -375,6 +375,13 @@ _KEYWORD_KEYS = ("confirmation_keywords", "rejection_keywords")
 # `queue_mode`/`active_parser`/`provider` con padding non matcherebbe il valore atteso.
 # Esclusi di proposito: `bot_token` (segreto, gestito da `token_store`/keyring, fuori scope)
 # e `csv_path` (path: la validazione è un finding separato).
+# AC-M6 audit #114: valori RICONOSCIUTI del sentinel `bot_token_storage`. Un sentinel NON
+# vuoto e non riconosciuto (typo da edit manuale, es. "keyrng") è uno stato di storage
+# SCONOSCIUTO: va trattato fail-preserve come il post-corruzione (mai come plaintext/none),
+# altrimenti un save col campo token vuoto cancellerebbe dal keyring una credenziale che
+# l'utente non ha mai chiesto di rimuovere.
+_KNOWN_TOKEN_SENTINELS = frozenset({"", "keyring", "plaintext", "none"})
+
 _STRIP_STR_KEYS = frozenset({
     "chat_id", "xtrader_notification_chat_id", "provider",
     "recognition_mode", "queue_mode", "active_parser",
@@ -564,6 +571,12 @@ def load_config(path: str = CONFIG_FILE) -> dict:
     # `config_version` è già garantito dai DEFAULTS; se il file ne porta uno
     # (futuro schema v2+) viene preservato così non perdiamo lo skew su disco.
     cfg = _migrate(cfg)
+    # AC-M6 audit #114: normalizza il sentinel del token PRIMA di ogni confronto. I match a
+    # valle sono ESATTI ("keyring"/"plaintext"/"none"): un valore "sporco" da edit manuale
+    # ("Keyring", "keyring ") salterebbe la reidratazione SENZA marker e, al primo save (la
+    # GUI re-invia sempre il campo token, vuoto), il ramo CLEAR reale CANCELLEREBBE il token
+    # dal keyring senza che l'utente l'abbia mai chiesto.
+    cfg["bot_token_storage"] = str(cfg.get("bot_token_storage") or "").strip().lower()
     # Token storage sicuro (audit #105 P1): reidrata il token dal keyring SOLO se il
     # sentinel di stato dice "keyring" e la chiave su disco è vuota (CodeRabbit). Gating
     # sul sentinel (non sul solo `bot_token == ""`): così un token CANCELLATO — sentinel
@@ -782,7 +795,9 @@ def _save_config_locked(cfg: dict, path: str = CONFIG_FILE):
     # incoerenti. Il sentinel `bot_token_storage` (`keyring`/`plaintext`/`none`, CodeRabbit)
     # disambigua `bot_token == ""`: `load_config` reidrata SOLO se vale "keyring".
     token = str(in_memory.get("bot_token") or "")
-    prior_sentinel = str(in_memory.get("bot_token_storage") or "")
+    # AC-M6: normalizzazione difensiva anche qui (config in RAM costruite da chiamanti
+    # diversi da `load_config` non passano dalla normalizzazione del load).
+    prior_sentinel = str(in_memory.get("bot_token_storage") or "").strip().lower()
     keyring_changed = False        # se True, su disco-fallito va eseguito il rollback
     prior_keyring = None           # valore del keyring PRIMA della modifica (per il rollback)
     token_not_persisted = False    # il token NON è stato persistito → il save va segnalato non riuscito
@@ -791,7 +806,9 @@ def _save_config_locked(cfg: dict, path: str = CONFIG_FILE):
     # plaintext" (Codex P2) — il keyring potrebbe ancora contenere la credenziale migrata e un
     # fallback in chiaro la declasserebbe silenziosamente. Si protegge come il caso "keyring":
     # ogni ramo che altrimenti scriverebbe il token in chiaro lo DIFFERISCE invece (mai plaintext).
-    prior_is_keyring_or_unknown = prior_sentinel == "keyring" or post_corruption
+    # AC-M6: anche un sentinel NON riconosciuto (typo) è stato-sconosciuto → fail-preserve.
+    prior_is_keyring_or_unknown = (prior_sentinel == "keyring" or post_corruption
+                                   or prior_sentinel not in _KNOWN_TOKEN_SENTINELS)
     if token_present:
         if token:
             if token_store.available():
@@ -864,9 +881,10 @@ def _save_config_locked(cfg: dict, path: str = CONFIG_FILE):
                 to_save["bot_token_storage"] = "plaintext"
                 logger.warning("Keyring non disponibile: il bot token resta in chiaro in %s. "
                                "Installa un backend keyring per cifrarlo.", path)
-        elif post_corruption or load_incomplete:
+        elif post_corruption or load_incomplete or prior_sentinel not in _KNOWN_TOKEN_SENTINELS:
             # `bot_token` vuoto che NON è un clear voluto, ma il RESIDUO di un load in cui il token
-            # reale non è stato reidratato. Due cause:
+            # reale non è stato reidratato (o — AC-M6 — un sentinel NON riconosciuto: stato di
+            # storage sconosciuto, si decide leggendo il keyring, mai cancellando). Due cause:
             # - #199 POST-CORRUZIONE: config illeggibile → backup `.bak` → default con `bot_token=""`
             #   e sentinel perso;
             # - #140 LOAD-INCOMPLETO: sentinel "keyring" ma keyring ILLEGGIBILE al load (outage), quindi
