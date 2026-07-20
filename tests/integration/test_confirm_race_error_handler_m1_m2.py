@@ -145,3 +145,53 @@ def test_error_handler_ptb_registrato_e_cablato():
     assert '_set_last("error"' in body          # semaforo «Ultimo errore»
     assert "self._log" in body or "._log(" in body  # log GUI (sink che redige)
     assert "_safe_after" in body                # mai chiamate Tk dirette dal bot thread
+
+
+def test_ghost_realign_write_fallita_non_dichiara_riallineato(
+        make_app, app_mod, monkeypatch, tmp_path):
+    """Blocker Fable PR #124: ghost-confirm + disco stantio + scrittura FALLITA → il log
+    NON deve dichiarare «riallineato» (sarebbe falso), `_csv_dirty` resta True e il
+    retry breve è programmato. Fail-first: prima del fix il log «riallineato» usciva
+    prima del check di `write_error`."""
+    path = str(tmp_path / "segnali.csv")
+    q = _queue_with(_row("Roma v Lazio"))
+    csv_writer.write_rows(q.active_rows(), path)
+    a = make_app(csv_path=path, queue=q)
+    a._csv_dirty = True
+    a._journal = lambda *ar, **kw: None
+    monkeypatch.setattr(app_mod, "write_rows",
+                        lambda rows, p: (_ for _ in ()).throw(OSError("CSV locked")))
+    _ghost_confirm(monkeypatch, app_mod)
+    monkeypatch.setattr(app_mod.time, "monotonic", lambda: 1005.0)
+
+    app_mod.App._process_confirmation(a, "notifica xtrader", {"csv_path": path})
+
+    assert not any("riallineato" in m for m in a.logs)   # niente dichiarazione falsa
+    assert a._csv_dirty is True                          # disco ancora stantio
+    assert (path, app_mod._WRITE_RETRY_DELAY) in a.expiry_calls   # retry programmato
+
+
+def test_ghost_realign_che_svuota_journala_expiry_non_confirmation(
+        make_app, app_mod, monkeypatch, tmp_path):
+    """Blocker Fable PR #124: ghost-realign che riporta il CSV a solo header (coda ormai
+    vuota) → il `CSV_CLEARED` nel diario deve avere `reason="expiry"` (la causa vera è
+    la scadenza), NON `reason="confirmation"` (il segnale non è stato confermato).
+    Fail-first: prima del fix il reason era sempre "confirmation"."""
+    path = str(tmp_path / "segnali.csv")
+    q = _queue_with(_row("Roma v Lazio"))
+    csv_writer.write_rows(q.active_rows(), path)
+    q.expire(now=2000)                       # il segnale scade e viene rimosso dal tick...
+    a = make_app(csv_path=path, queue=q)
+    a._csv_dirty = True                      # ...ma la riscrittura post-scadenza era fallita
+    a._csv_had_active_row = True
+    cleared = []
+    a._journal_csv_cleared_if_had_row = lambda ev, **data: cleared.append((ev, data))
+    a._journal = lambda *ar, **kw: None
+    _ghost_confirm(monkeypatch, app_mod)
+    monkeypatch.setattr(app_mod.time, "monotonic", lambda: 2000.0)
+
+    app_mod.App._process_confirmation(a, "notifica xtrader", {"csv_path": path})
+
+    assert cleared == [("CSV_CLEARED", {"reason": "expiry"})]   # causa veritiera
+    assert a._csv_dirty is False                                # riallineato davvero
+    assert any("riallineato" in m for m in a.logs)

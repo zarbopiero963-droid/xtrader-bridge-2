@@ -3655,10 +3655,13 @@ class App(ctk.CTk):
                     "XTRADER_CONFIRMED" if result.status == confirmation_reader.CONFIRMED
                     else "XTRADER_REJECTED",
                     signal_id=result.signal_id, remaining=len(rows))
-            else:
+            elif write_error is None:
                 # AC-M2: segnale già rimosso ma disco STANTIO (retry pendente): la riscrittura
                 # qui sopra è solo un RIALLINEAMENTO del CSV — niente XTRADER_CONFIRMED falso
                 # nel diario (l'esito reale del segnale è già stato registrato o è la scadenza).
+                # Log SOLO a scrittura RIUSCITA (blocker Fable #124): su write fallita dichiarare
+                # «riallineato» sarebbe falso — il ramo write_error qui sotto logga il fallimento
+                # e programma il retry breve (il disco resta stantio, `_csv_dirty` True).
                 self._safe_after(0, lambda: self._log(i18n.tr(
                     "ℹ️ Conferma XTrader per un segnale già rimosso: CSV riallineato.")))
             if write_error is not None:
@@ -3680,7 +3683,11 @@ class App(ctk.CTk):
             if rows:
                 self._csv_had_active_row = True
             else:
-                self._journal_csv_cleared_if_had_row("CSV_CLEARED", reason="confirmation")
+                # Reason VERITIERO (blocker Fable #124): nel ghost-realign (`removed=False`) lo
+                # svuotamento non è causato dalla conferma — il segnale era GIÀ scaduto/rimosso e
+                # questa scrittura ha solo riallineato il disco: il clear appartiene alla scadenza.
+                self._journal_csv_cleared_if_had_row(
+                    "CSV_CLEARED", reason="confirmation" if removed else "expiry")
             # Guard su None (review Sourcery): se in futuro si aggiungono status
             # terminali senza messaggio, non si logga `None`. Guard su `removed` (AC-M2):
             # nel ramo riallineamento il log «confermato e rimosso» sarebbe falso.
