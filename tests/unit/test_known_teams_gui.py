@@ -52,6 +52,10 @@ def KnownTeamsPanel(monkeypatch):
     monkeypatch.setitem(sys.modules, "customtkinter", _FakeCtkModule("customtkinter"))
     monkeypatch.delitem(sys.modules, "xtrader_bridge.known_teams_gui", raising=False)
     mod = importlib.import_module("xtrader_bridge.known_teams_gui")
+    # AC-M12 #114: `_on_delete` ora chiede conferma (fail-closed → False headless). Per i test
+    # che verificano il percorso di eliminazione, si conferma di default; il test dedicato alla
+    # conferma sovrascrive questo stub con `False`.
+    monkeypatch.setattr(mod.gui_utils, "ask_confirm", lambda *a, **k: True)
     return mod.KnownTeamsPanel
 
 
@@ -161,6 +165,33 @@ def test_on_delete_db_occupato_avvisa_non_elimina(KnownTeamsPanel):
     _bind(KnownTeamsPanel, fake)
     fake._on_delete("Calcio", "inter")
     assert "occupato" in counts[-1]["text"]
+
+
+def test_on_delete_richiede_conferma_e_annullo_non_elimina(KnownTeamsPanel, monkeypatch):
+    """AC-M12 audit #114: l'eliminazione di un nome PERMANENTE deve chiedere conferma;
+    se l'utente ANNULLA (o il dialog è fail-closed headless) NON si elimina nulla e si
+    avvisa. Prima del fix: eliminazione a un solo click, senza conferma."""
+    import xtrader_bridge.known_teams_gui as kt
+    monkeypatch.setattr(kt.gui_utils, "ask_confirm", lambda *a, **k: False)   # annulla
+    fake, counts, deleted = _fake_self()
+    _bind(KnownTeamsPanel, fake)
+    refreshed = []
+    fake._refresh = lambda: refreshed.append(True)
+    fake._on_delete("Calcio", "inter")
+    assert deleted == []                              # NIENTE eliminazione
+    assert refreshed == []                            # niente refresh
+    assert "annullat" in counts[-1]["text"].lower()   # avviso di annullamento
+
+
+def test_on_delete_conferma_positiva_elimina(KnownTeamsPanel, monkeypatch):
+    """AC-M12: conferma positiva → l'eliminazione procede come prima (la fixture conferma
+    già di default; qui esplicito per chiarezza dell'invariante)."""
+    import xtrader_bridge.known_teams_gui as kt
+    monkeypatch.setattr(kt.gui_utils, "ask_confirm", lambda *a, **k: True)
+    fake, counts, deleted = _fake_self()
+    _bind(KnownTeamsPanel, fake)
+    fake._on_delete("Calcio", "inter")
+    assert deleted == [("Calcio", "inter")]
 
 
 def test_on_delete_senza_callback_avvisa(KnownTeamsPanel):

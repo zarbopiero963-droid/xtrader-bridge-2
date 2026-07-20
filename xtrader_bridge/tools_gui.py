@@ -81,6 +81,14 @@ class ToolsWindow(ctk.CTkToplevel):
     def __init__(self, master=None, panels=None, initial=None, title="🧰 Strumenti"):
         super().__init__(master)
         self.title(i18n.tr(title))
+        # AC-M13 audit #114: `CTkToplevel` NON registra un handler `WM_DELETE_WINDOW` (lo fa
+        # solo `CTkInputDialog`), quindi la chiusura con la «X» del window manager distrugge
+        # la finestra a livello Tcl SENZA invocare il `destroy()` Python dei pannelli figli —
+        # dove i pannelli con debounce (Dizionario, Mapping guidato) annullano gli `after`
+        # pendenti (#184 M12). Instradando la «X» su `self.destroy` si esegue la catena Python
+        # (`BaseWidget.destroy` ricorre sui figli), così un refresh in debounce non scatta più
+        # contro widget distrutti (Tcl background error) alla chiusura via «X».
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
         # Larghezza default 1140 (era 1040): la scheda Mapping ha righe con 5 colonne +
         # elimina (Country|Betfair|Provider|Sport|Tipo|🗑 ≈ 1032 px) e lo scroll è solo
         # verticale; a 1040 Tipo/elimina venivano tagliati nel tab Strumenti (Codex #178 §2).

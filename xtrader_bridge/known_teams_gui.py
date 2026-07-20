@@ -14,7 +14,7 @@ display): la logica esercitabile è testata a parte.
 
 import customtkinter as ctk
 
-from . import i18n, sports
+from . import gui_utils, i18n, sports
 from .betfair.dictionary_viewer import DictionaryBusy
 
 # Voce «tutti gli sport» del filtro (= nessun filtro). È un VALUE-AS-KEY: usata nel confronto di
@@ -124,6 +124,17 @@ class KnownTeamsPanel(ctk.CTkFrame):
         """Elimina un nome permanente e ricarica. Fail-fast durante una sync; best-effort."""
         if not callable(self._delete_team):
             self._counts.configure(text=i18n.tr("⛔ Eliminazione non disponibile."))
+            return
+        # AC-M12 audit #114: eliminazione DISTRUTTIVA e senza undo di un nome PERMANENTE
+        # (questa scheda è l'unico modo per rimuoverlo) — mai a un solo click, come profili/
+        # mapping/parser (pattern P3-27). Conferma fail-closed: dialog rotto/headless → NON
+        # confermato, l'eliminazione non parte.
+        if not gui_utils.ask_confirm(
+                i18n.tr("Elimina nome noto"),
+                i18n.tr("Eliminare il nome «{name}»?\nÈ permanente e non annullabile: il "
+                        "resolver non riconoscerà più quella squadra finché non la reinserisci.")
+                .format(name=normalized_name)):
+            self._counts.configure(text=i18n.tr("Eliminazione annullata."))
             return
         try:
             ok = self._delete_team(sport, normalized_name)

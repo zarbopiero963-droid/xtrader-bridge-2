@@ -1475,7 +1475,7 @@ design: il redesign deve **tenerne conto** (incorporarli nel nuovo design o non 
 difetto). Fonte e stato di avanzamento: issue **#114**, commento «🎨 Pacchetto DESIGN». Ogni
 fix che li chiuderà aggiornerà questo handoff nello stesso PR (gate obbligatorio).
 
-Legenda stato: ⏳ = aperto · 🔜 = pianificato come PR-5 dell'ondata 2 (#114). Lo stato **vivo**
+Legenda stato: ⏳ = aperto · 🔜 = pianificato · ✅ = risolto e mergiato. Lo stato **vivo**
 (checkbox) resta su #114: a ogni fix questo elenco va aggiornato nello stesso PR (gate).
 
 **Indicatori di stato ingannevoli / feedback mancante**
@@ -1487,21 +1487,24 @@ Legenda stato: ⏳ = aperto · 🔜 = pianificato come PR-5 dell'ondata 2 (#114)
   vuoto etichettato «non disponibile» (copy fuorviante).
 
 **Conferme mancanti su azioni distruttive (pattern §9.2-bis da completare)**
-- 🔜 **AC-M12** `known_teams_gui.py:119-144` — eliminazione di un nome squadra **permanente** a
-  un solo click, senza dialogo di conferma (incoerente con profili/mapping/parser). Analogo
-  minore: rimozione provider (`provider_gui.py:107-109`).
+- ✅ **AC-M12** `known_teams_gui.py` — **RISOLTO** (PR-5 ondata 2, #114): l'eliminazione di un
+  nome squadra permanente passa ora da `gui_utils.ask_confirm` (dialogo Sì/No fail-closed,
+  copy «È permanente e non annullabile: il resolver non riconoscerà più quella squadra…»),
+  come profili/mapping/parser. Annullo → «Eliminazione annullata», nessuna rimozione.
 - ⏳ **P3-gu4** `profiles_gui.py:149-175` — «Carica profilo» sovrascrive il form senza conferma
   di scarto delle modifiche non salvate.
 
 **Freeze percepiti / responsività**
-- 🔜 **AC-M11** `journal_view_gui.py:96-97, 127-133` — il Diario è l'**unico** pannello-lista
-  senza cap di render (gli altri: 500 righe + «mostrati N di M»): filtro «Tutti» su ledger
-  grandi congela la finestra Strumenti.
+- ✅ **AC-M11** `journal_view_gui.py` — **RISOLTO** (PR-5): il Diario ha ora il cap di render
+  `_ROW_RENDER_CAP = 500` come gli altri pannelli-lista. Col filtro «Tutti» disegna al massimo
+  500 righe e mostra il conteggio TOTALE veritiero con avviso «mostrati i primi 500 (restringi
+  con Tipo/Ultimi)».
 - ⏳ **AC-I16** `app.py:2136-2145` — «Esporta audit REALE» legge tutti i log in RAM sul thread
   GUI: con retention «Mai» blocca la finestra per secondi.
-- 🔜 **AC-M13** `betfair/dictionary_viewer_gui.py:54-63` + `guided_mapping_gui.py:85-91` —
-  chiusura della finestra Strumenti con la «X» aggira il teardown dei debounce (possibile
-  errore Tcl in background; fix tecnico da 1 riga in `tools_gui.py`, nessun impatto visivo).
+- ✅ **AC-M13** `tools_gui.py` — **RISOLTO** (PR-5): `ToolsWindow.__init__` registra
+  `self.protocol("WM_DELETE_WINDOW", self.destroy)`, così la chiusura con la «X» esegue la
+  catena `destroy()` Python dei pannelli figli (Dizionario/Mapping guidato annullano i debounce
+  pendenti) — niente più Tcl background error alla chiusura via «X». Nessun impatto visivo.
 
 **Copy / diagnostica fuorviante**
 - ⏳ **AC-B12** `csv_writer.py:577-583` — CSV pre-creato «vuoto» da Notepad (solo BOM) → AVVIA

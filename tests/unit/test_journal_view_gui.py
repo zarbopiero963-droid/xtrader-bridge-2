@@ -196,3 +196,80 @@ def test_modulo_non_apre_ledger_in_scrittura(JournalPanel):
     assert ".write(" not in src                          # nessuna scrittura file
     assert ".read_events" in src                         # legge solo via l'API read-only
     assert "de_redact" not in src and "unredact" not in src
+
+
+# ── AC-M11: cap di render del Diario (audit #114) ─────────────────────────────
+
+class _CountingFrame:
+    """`_rows_frame` che conta le righe (frame) create al suo interno, per verificare il
+    cap di render senza aprire Tk."""
+    def __init__(self):
+        self.rows = 0
+
+    def winfo_children(self):
+        return ()
+
+
+def _fake_self_counting(JournalPanel, path, mod, *, last_val="Tutti"):
+    counts = []
+    frame = _CountingFrame()
+    fake = types.SimpleNamespace(
+        _path=path,
+        _type=types.SimpleNamespace(get=lambda: "(tutti i tipi)"),
+        _last=types.SimpleNamespace(get=lambda: last_val),
+        _all_types="(tutti i tipi)",
+        _header=_Widget(),
+        _rows_frame=frame,
+        _counts=types.SimpleNamespace(configure=lambda **k: counts.append(k)),
+    )
+    for name in ("_selected_types", "_selected_last", "_refresh"):
+        setattr(fake, name, types.MethodType(getattr(JournalPanel, name), fake))
+    fake._clear = lambda f: None
+    # Conta quante righe passano a `table_rows` (== righe effettivamente disegnate): il
+    # pannello itera l'output di `table_rows(render_events)`, quindi la sua lunghezza è il
+    # numero di widget-riga creati.
+    orig = mod.journal_view.table_rows
+    def _counting_table_rows(events):
+        out = list(orig(events))
+        frame.rows = len(out)
+        return out
+    mod.journal_view.table_rows = _counting_table_rows
+    return fake, counts, frame, orig
+
+
+def test_refresh_cappa_le_righe_renderizzate(JournalPanel, tmp_path, monkeypatch):
+    """AC-M11 audit #114: con «Tutti» su un ledger enorme, il Diario disegna al massimo
+    `_ROW_RENDER_CAP` righe (non una per evento → niente freeze del thread Tk), ma il
+    conteggio TOTALE resta veritiero e avvisa del taglio. Prima del fix: nessun cap →
+    una riga-widget per ogni evento."""
+    mod = sys.modules["xtrader_bridge.journal_view_gui"]
+    cap = mod._ROW_RENDER_CAP
+    p = str(tmp_path / "event_journal.jsonl")
+    total = cap + 250
+    for i in range(total):
+        ej.append_event(p, "CSV_WRITTEN", {"rows": 1}, now=1000.0 + i, event_id=f"e{i}")
+    fake, counts, frame, orig = _fake_self_counting(JournalPanel, p, mod)
+    try:
+        fake._refresh()
+    finally:
+        mod.journal_view.table_rows = orig
+    assert frame.rows == cap                          # righe disegnate cappate a 500
+    text = counts[-1]["text"]
+    assert str(total) in text                         # totale VERO mostrato
+    assert str(cap) in text                           # e il numero mostrato
+    assert "primi" in text or "first" in text or "primeros" in text   # avviso di taglio
+
+
+def test_refresh_sotto_cap_mostra_tutte(JournalPanel, tmp_path):
+    """Sotto il cap: nessun taglio, tutte le righe disegnate e messaggio normale."""
+    mod = sys.modules["xtrader_bridge.journal_view_gui"]
+    p = str(tmp_path / "event_journal.jsonl")
+    for i in range(5):
+        ej.append_event(p, "START", {"mode": "DRY_RUN"}, now=1000.0 + i, event_id=f"s{i}")
+    fake, counts, frame, orig = _fake_self_counting(JournalPanel, p, mod)
+    try:
+        fake._refresh()
+    finally:
+        mod.journal_view.table_rows = orig
+    assert frame.rows == 5
+    assert "mostrati 5" in counts[-1]["text"] or "showing 5" in counts[-1]["text"]

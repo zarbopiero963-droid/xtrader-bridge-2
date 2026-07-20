@@ -263,6 +263,8 @@ _CATALOG = {
         "⚠️ Errore lettura diario: {kind}": "⚠️ Journal read error: {kind}",
         "Diario: {tot} eventi totali (mostrati {shown}).":
             "Journal: {tot} total events (showing {shown}).",
+        "Diario: {tot} eventi totali — mostrati i primi {cap} (restringi con Tipo/Ultimi).":
+            "Journal: {tot} total events — showing the first {cap} (narrow with Type/Latest).",
         "Quando": "When",
         "Dati (redatti)": "Data (redacted)",
         # Finestra Parser Personalizzato (#343 slice 4g; SOLO chrome puro). Non tradotti
@@ -644,6 +646,10 @@ _CATALOG = {
         "⚠️ Errore lettura nomi: {exc}": "⚠️ Error reading names: {exc}",
         "{count} nomi noti.": "{count} known names.",
         "🗑 Elimina": "🗑 Delete",
+        "Elimina nome noto": "Delete known name",
+        "Eliminare il nome «{name}»?\nÈ permanente e non annullabile: il resolver non riconoscerà più quella squadra finché non la reinserisci.":
+            "Delete the name «{name}»?\nIt is permanent and cannot be undone: the resolver will no longer recognize that team until you add it again.",
+        "Eliminazione annullata.": "Deletion cancelled.",
         "⛔ Eliminazione non disponibile.": "⛔ Deletion not available.",
         "⚠️ Eliminazione fallita: {exc}": "⚠️ Deletion failed: {exc}",
         "⚠️ Eliminazione non riuscita: dizionario locale non disponibile.": "⚠️ Deletion failed: local dictionary not available.",
@@ -996,6 +1002,8 @@ _CATALOG = {
         "⚠️ Errore lettura diario: {kind}": "⚠️ Error de lectura del diario: {kind}",
         "Diario: {tot} eventi totali (mostrati {shown}).":
             "Diario: {tot} eventos en total (mostrados {shown}).",
+        "Diario: {tot} eventi totali — mostrati i primi {cap} (restringi con Tipo/Ultimi).":
+            "Diario: {tot} eventos en total — mostrados los primeros {cap} (filtra con Tipo/Últimos).",
         "Quando": "Cuándo",
         "Dati (redatti)": "Datos (redactados)",
         # Finestra Parser Personalizzato (#343 slice 4g; SOLO chrome puro). Come per EN,
@@ -1339,6 +1347,10 @@ _CATALOG = {
         "⚠️ Errore lettura nomi: {exc}": "⚠️ Error al leer los nombres: {exc}",
         "{count} nomi noti.": "{count} nombres conocidos.",
         "🗑 Elimina": "🗑 Eliminar",
+        "Elimina nome noto": "Eliminar nombre conocido",
+        "Eliminare il nome «{name}»?\nÈ permanente e non annullabile: il resolver non riconoscerà più quella squadra finché non la reinserisci.":
+            "¿Eliminar el nombre «{name}»?\nEs permanente y no se puede deshacer: el resolutor ya no reconocerá ese equipo hasta que lo vuelvas a añadir.",
+        "Eliminazione annullata.": "Eliminación cancelada.",
         "⛔ Eliminazione non disponibile.": "⛔ Eliminación no disponible.",
         "⚠️ Eliminazione fallita: {exc}": "⚠️ Eliminación fallida: {exc}",
         "⚠️ Eliminazione non riuscita: dizionario locale non disponibile.": "⚠️ Eliminación fallida: diccionario local no disponible.",
