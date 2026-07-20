@@ -3106,6 +3106,24 @@ class App(ctk.CTk):
                 self._process(text, cfg, chat_id=runtime_chat, route_cfg=route, epoch=epoch)
 
             app.add_handler(MessageHandler(filters.ALL, _handle))
+
+            async def _on_handler_error(update, context):
+                # AC-M1 audit #114: senza error handler PTB, un'eccezione IMPREVISTA dentro
+                # `_handle`/`_process` (fuori dai try mirati) finirebbe solo sul logger
+                # `telegram.ext` — invisibile in un EXE --windowed (niente stdio): messaggi
+                # che muoiono in silenzio col bridge «⬤ ATTIVO» e contatori fermi. Inoltro
+                # al sink del bridge (che REDIGE i segreti), al semaforo errori e al
+                # contatore. Fail-closed invariato: il messaggio in errore NON viene
+                # riprocessato (nessuna scrittura CSV da qui).
+                err = getattr(context, "error", None)
+                desc = (f"{type(err).__name__}: {err}" if err is not None
+                        else "errore sconosciuto")
+                self._safe_after(0, lambda: self._bump("errors"))
+                self._safe_after(0, lambda d=desc: self._set_last("error", f"handler: {d}"))
+                self._safe_after(0, lambda d=desc: self._log(i18n.tr(
+                    "❌ Errore imprevisto nel gestore messaggi: {exc}").format(exc=d)))
+
+            app.add_error_handler(_on_handler_error)
             await app.initialize()
             await app.start()
             # #311-1.2: drop_pending_updates scarta i messaggi accodati mentre il bridge era
@@ -3602,7 +3620,18 @@ class App(ctk.CTk):
                 # sessione. Il segnale NON è ancora stato rimosso, quindi resta ritentabile.
                 if not self._epoch_current(epoch):
                     return
-                self._queue.confirm(result.signal_id)   # rimuove il segnale dalla coda
+                removed = self._queue.confirm(result.signal_id)   # rimuove il segnale dalla coda
+                if not removed and not self.__dict__.get("_csv_dirty"):
+                    # AC-M2 audit #114 (race conferma/scadenza): il segnale era GIÀ stato
+                    # rimosso (expire-tick / sostituzione) tra lo snapshot di `pending()` —
+                    # preso fuori dal lock — e questo punto. Il disco è allineato (non-dirty):
+                    # riscrivere un CSV IDENTICO sarebbe un no-op che tocca mtime/inode e
+                    # riapre la finestra di ri-lettura lato XTrader (#259 C2); e registrare
+                    # XTRADER_CONFIRMED nel diario sarebbe un esito FALSO (il segnale è
+                    # scaduto, non confermato). Solo log informativo, nessuna scrittura.
+                    self._safe_after(0, lambda: self._log(i18n.tr(
+                        "ℹ️ Conferma XTrader per un segnale già scaduto/rimosso: CSV invariato.")))
+                    return
                 # `now=` esclude dalle righe scritte un eventuale FRATELLO già scaduto ma non
                 # ancora rimosso dal tick: una conferma non deve ri-scrivere nel CSV un segnale
                 # oltre il suo timeout (#30, Codex). La sua rimozione dalla coda resta al tick.
@@ -3621,10 +3650,17 @@ class App(ctk.CTk):
             # Event journal (#230/#234 C): l'esito XTrader è GIÀ avvenuto (`queue.confirm` ha rimosso
             # il segnale dalla coda) → registralo SEMPRE, anche se la riscrittura CSV fallisce, prima
             # del return del retry. Altrimenti, su write-failure→retry, l'outcome andrebbe perso.
-            self._journal(
-                "XTRADER_CONFIRMED" if result.status == confirmation_reader.CONFIRMED
-                else "XTRADER_REJECTED",
-                signal_id=result.signal_id, remaining=len(rows))
+            if removed:
+                self._journal(
+                    "XTRADER_CONFIRMED" if result.status == confirmation_reader.CONFIRMED
+                    else "XTRADER_REJECTED",
+                    signal_id=result.signal_id, remaining=len(rows))
+            else:
+                # AC-M2: segnale già rimosso ma disco STANTIO (retry pendente): la riscrittura
+                # qui sopra è solo un RIALLINEAMENTO del CSV — niente XTRADER_CONFIRMED falso
+                # nel diario (l'esito reale del segnale è già stato registrato o è la scadenza).
+                self._safe_after(0, lambda: self._log(i18n.tr(
+                    "ℹ️ Conferma XTrader per un segnale già rimosso: CSV riallineato.")))
             if write_error is not None:
                 # Il segnale è già rimosso dalla coda ma il CSV (write fallita) ha
                 # ancora la riga: riprova PRESTO (non a timeout pieno, che terrebbe la
@@ -3646,9 +3682,10 @@ class App(ctk.CTk):
             else:
                 self._journal_csv_cleared_if_had_row("CSV_CLEARED", reason="confirmation")
             # Guard su None (review Sourcery): se in futuro si aggiungono status
-            # terminali senza messaggio, non si logga `None`.
+            # terminali senza messaggio, non si logga `None`. Guard su `removed` (AC-M2):
+            # nel ramo riallineamento il log «confermato e rimosso» sarebbe falso.
             removed_log = signal_outcome.confirmation_removed_log(result.status)
-            if removed_log is not None:
+            if removed and removed_log is not None:
                 self._safe_after(0, lambda m=removed_log: self._log(m))
             self._safe_after(0, lambda p=path, n=len(rows): self._note_csv(p, n))
             self._safe_after(0, lambda n=len(rows): self._update_active_indicator(n))   # #136 p5

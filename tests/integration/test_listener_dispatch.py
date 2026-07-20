@@ -47,9 +47,16 @@ class _FakeTgApp:
     def __init__(self, on_poll):
         self.updater = _FakeUpdater(on_poll)
         self.handlers = []
+        self.error_handlers = []
 
     def add_handler(self, h):
         self.handlers.append(h)
+
+    def add_error_handler(self, h):
+        # AC-M1 #114: `_run_bot` registra ora un error handler PTB; lo stub lo cattura
+        # (senza questo metodo la registrazione solleverebbe AttributeError e il
+        # supervisor la tratterebbe come errore di connessione → retry-loop nel test).
+        self.error_handlers.append(h)
 
     async def initialize(self):
         pass
@@ -318,6 +325,10 @@ class _RecApp:
     def add_handler(self, h):
         self.handlers.append(h)
 
+    def add_error_handler(self, h):
+        # AC-M1 #114: `_run_bot` registra ora un error handler PTB (qui irrilevante).
+        pass
+
     async def initialize(self):
         pass
 
@@ -366,3 +377,26 @@ def test_shutdown_ferma_app_locale_non_quella_di_un_nuovo_start(make_app, app_mo
 
     assert old_app.stops == ["updater_stop", "stop", "shutdown"]   # ferma la PROPRIA app
     assert new_app.stops == []                                     # NON tocca l'app del nuovo START
+
+
+def test_error_handler_ptb_registrato_e_inoltra_a_gui(make_app, app_mod, monkeypatch):
+    """AC-M1 audit #114: `_run_bot` registra un error handler PTB e il suo corpo inoltra
+    davvero a contatore errori, semaforo «Ultimo errore» e log del bridge (sink che
+    redige). Prima del fix: `add_error_handler` non esisteva in tutto il repo → un'
+    eccezione imprevista negli handler moriva sul logger `telegram.ext`, invisibile
+    nell'EXE --windowed. Qui l'handler REALE viene invocato con un errore sintetico."""
+    a, tg = _drive_run_bot(make_app, app_mod, monkeypatch, CFG)
+    assert len(tg.error_handlers) == 1          # registrato una e una sola volta
+    bumps, lasts = [], []
+    a._bump = lambda *x: bumps.append(x)
+    a._set_last = lambda *x, **k: lasts.append(x)
+
+    ctx = types.SimpleNamespace(error=RuntimeError("boom"))
+    asyncio.run(tg.error_handlers[0](None, ctx))
+
+    assert bumps == [("errors",)]               # contatore errori incrementato
+    assert lasts and lasts[0][0] == "error" and "RuntimeError" in lasts[0][1]
+    assert any("Errore imprevisto nel gestore messaggi" in m for m in a.logs)
+    # Errore senza attributo `.error` (contratto PTB degradato): non crasha, logga comunque.
+    asyncio.run(tg.error_handlers[0](None, types.SimpleNamespace(error=None)))
+    assert any("errore sconosciuto" in m for m in a.logs)

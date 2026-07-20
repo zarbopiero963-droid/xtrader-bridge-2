@@ -127,6 +127,9 @@ class _TgApp:
     def add_handler(self, h):
         """Riceve il MessageHandler (qui irrilevante: nessun update viene iniettato)."""
 
+    def add_error_handler(self, h):
+        """AC-M1 #114: `_run_bot` registra ora un error handler PTB (qui irrilevante)."""
+
     async def initialize(self):
         """Inizializzazione riuscita (l'errore #110/6 arriva dal polling, non da qui)."""
         self.init_calls += 1
