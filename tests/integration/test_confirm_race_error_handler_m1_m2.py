@@ -171,12 +171,14 @@ def test_ghost_realign_write_fallita_non_dichiara_riallineato(
     assert (path, app_mod._WRITE_RETRY_DELAY) in a.expiry_calls   # retry programmato
 
 
-def test_ghost_realign_che_svuota_journala_expiry_non_confirmation(
+def test_ghost_realign_che_svuota_journala_realign_non_confirmation(
         make_app, app_mod, monkeypatch, tmp_path):
-    """Blocker Fable PR #124: ghost-realign che riporta il CSV a solo header (coda ormai
-    vuota) → il `CSV_CLEARED` nel diario deve avere `reason="expiry"` (la causa vera è
-    la scadenza), NON `reason="confirmation"` (il segnale non è stato confermato).
-    Fail-first: prima del fix il reason era sempre "confirmation"."""
+    """Blocker Fable PR #124 (round 1+2): ghost-realign che riporta il CSV a solo header
+    (coda ormai vuota) → il `CSV_CLEARED` nel diario deve avere `reason="realign"` —
+    NON `"confirmation"` (il segnale non è stato confermato da questa notifica) e
+    nemmeno `"expiry"` hardcodato (round 2: la causa reale della rimozione non è
+    conoscibile qui — poteva essere anche una rimozione precedente con write fallita).
+    Fail-first: round 1 journalava "confirmation", round 2 "expiry"."""
     path = str(tmp_path / "segnali.csv")
     q = _queue_with(_row("Roma v Lazio"))
     csv_writer.write_rows(q.active_rows(), path)
@@ -192,6 +194,6 @@ def test_ghost_realign_che_svuota_journala_expiry_non_confirmation(
 
     app_mod.App._process_confirmation(a, "notifica xtrader", {"csv_path": path})
 
-    assert cleared == [("CSV_CLEARED", {"reason": "expiry"})]   # causa veritiera
+    assert cleared == [("CSV_CLEARED", {"reason": "realign"})]  # nessuna attribuzione falsa
     assert a._csv_dirty is False                                # riallineato davvero
     assert any("riallineato" in m for m in a.logs)

@@ -3683,11 +3683,15 @@ class App(ctk.CTk):
             if rows:
                 self._csv_had_active_row = True
             else:
-                # Reason VERITIERO (blocker Fable #124): nel ghost-realign (`removed=False`) lo
-                # svuotamento non è causato dalla conferma — il segnale era GIÀ scaduto/rimosso e
-                # questa scrittura ha solo riallineato il disco: il clear appartiene alla scadenza.
+                # Reason VERITIERO (blocker Fable #124, round 2): nel ghost-realign
+                # (`removed=False`) lo svuotamento NON è causato da questa conferma — ma la causa
+                # reale della rimozione non è conoscibile qui (scadenza nel caso tipico, oppure
+                # una rimozione precedente — conferma/clear — la cui riscrittura era fallita e il
+                # disco era rimasto stantio). Un reason specifico sarebbe un'ATTRIBUZIONE FALSA
+                # in quei casi: si registra la sola cosa certa — il clear è avvenuto
+                # riallineando il disco allo stato della coda ("realign").
                 self._journal_csv_cleared_if_had_row(
-                    "CSV_CLEARED", reason="confirmation" if removed else "expiry")
+                    "CSV_CLEARED", reason="confirmation" if removed else "realign")
             # Guard su None (review Sourcery): se in futuro si aggiungono status
             # terminali senza messaggio, non si logga `None`. Guard su `removed` (AC-M2):
             # nel ramo riallineamento il log «confermato e rimosso» sarebbe falso.
