@@ -1496,9 +1496,10 @@ Legenda stato: ⏳ = aperto · 🔜 = pianificato · ✅ = risolto e mergiato. L
 
 **Freeze percepiti / responsività**
 - ✅ **AC-M11** `journal_view_gui.py` — **RISOLTO** (PR-5): il Diario ha ora il cap di render
-  `_ROW_RENDER_CAP = 500` come gli altri pannelli-lista. Col filtro «Tutti» disegna al massimo
-  500 righe e mostra il conteggio TOTALE veritiero con avviso «mostrati i primi 500 (restringi
-  con Tipo/Ultimi)».
+  `_ROW_RENDER_CAP = 500` come gli altri pannelli-lista. Oltre il cap disegna al massimo 500
+  righe e il conteggio mostra sia i **match del filtro** sia il **totale del ledger** con avviso
+  di taglio: «N eventi nel filtro su M totali — mostrati i primi 500 (restringi con Tipo/Ultimi)»
+  (copy preciso anche con un filtro Tipo attivo — review Fugu #125).
 - ⏳ **AC-I16** `app.py:2136-2145` — «Esporta audit REALE» legge tutti i log in RAM sul thread
   GUI: con retention «Mai» blocca la finestra per secondi.
 - ✅ **AC-M13** `tools_gui.py` — **RISOLTO** (PR-5): `ToolsWindow.__init__` registra

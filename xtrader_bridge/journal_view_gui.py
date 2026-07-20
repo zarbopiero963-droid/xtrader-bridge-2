@@ -125,10 +125,12 @@ class JournalPanel(ctk.CTkFrame):
         capped = len(events) > _ROW_RENDER_CAP
         render_events = events[:_ROW_RENDER_CAP]
         if capped:
+            # Review Fugu #125: mostra anche i match del filtro (`shown`), non solo il totale
+            # del ledger — con un filtro Tipo attivo «X totali» da solo sarebbe fuorviante.
             self._counts.configure(
-                text=i18n.tr("Diario: {tot} eventi totali — mostrati i primi {cap} "
-                             "(restringi con Tipo/Ultimi).")
-                .format(tot=len(all_events), cap=_ROW_RENDER_CAP))
+                text=i18n.tr("Diario: {shown} eventi nel filtro su {tot} totali — mostrati "
+                             "i primi {cap} (restringi con Tipo/Ultimi).")
+                .format(shown=len(events), tot=len(all_events), cap=_ROW_RENDER_CAP))
         else:
             self._counts.configure(
                 text=i18n.tr("Diario: {tot} eventi totali (mostrati {shown}).")

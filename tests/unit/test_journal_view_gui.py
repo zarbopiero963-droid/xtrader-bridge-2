@@ -255,8 +255,11 @@ def test_refresh_cappa_le_righe_renderizzate(JournalPanel, tmp_path, monkeypatch
         mod.journal_view.table_rows = orig
     assert frame.rows == cap                          # righe disegnate cappate a 500
     text = counts[-1]["text"]
-    assert str(total) in text                         # totale VERO mostrato
-    assert str(cap) in text                           # e il numero mostrato
+    assert str(total) in text                         # totale VERO del ledger mostrato
+    assert str(cap) in text                           # e il numero renderizzato
+    # Review Fugu #125: con nessun filtro Tipo attivo, i match (`shown`) == totale ledger;
+    # il messaggio mostra ENTRAMBI (match nel filtro + totale) per non essere fuorviante.
+    assert text.count(str(total)) >= 1
     assert "primi" in text or "first" in text or "primeros" in text   # avviso di taglio
 
 
@@ -273,3 +276,31 @@ def test_refresh_sotto_cap_mostra_tutte(JournalPanel, tmp_path):
         mod.journal_view.table_rows = orig
     assert frame.rows == 5
     assert "mostrati 5" in counts[-1]["text"] or "showing 5" in counts[-1]["text"]
+
+
+def test_refresh_capped_con_filtro_tipo_mostra_match_e_totale(JournalPanel, tmp_path):
+    """Review Fugu #125: con un filtro Tipo attivo, il messaggio «capped» deve mostrare sia
+    i MATCH del filtro sia il totale del ledger — non solo il totale (fuorviante). Ledger
+    con `cap+100` START (match) + 300 altri eventi (non-match): il conteggio deve riportare
+    entrambi i numeri distinti."""
+    mod = sys.modules["xtrader_bridge.journal_view_gui"]
+    cap = mod._ROW_RENDER_CAP
+    p = str(tmp_path / "event_journal.jsonl")
+    match = cap + 100
+    for i in range(match):
+        ej.append_event(p, "START", {"mode": "DRY_RUN"}, now=1000.0 + i, event_id=f"s{i}")
+    for i in range(300):
+        ej.append_event(p, "CSV_WRITTEN", {"rows": 1}, now=5000.0 + i, event_id=f"c{i}")
+    total = match + 300
+    # Filtro Tipo = START → `events` = solo i match (cap+100), oltre il cap.
+    fake, counts, frame, orig = _fake_self_counting(JournalPanel, p, mod, last_val="Tutti")
+    fake._type = types.SimpleNamespace(get=lambda: "START")
+    try:
+        fake._refresh()
+    finally:
+        mod.journal_view.table_rows = orig
+    assert frame.rows == cap                           # disegnate 500 dei match
+    text = counts[-1]["text"]
+    assert str(match) in text                          # match del filtro mostrati
+    assert str(total) in text                          # e il totale del ledger
+    assert str(match) != str(total)                    # sono due numeri distinti (non fuorviante)

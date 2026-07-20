@@ -263,8 +263,8 @@ _CATALOG = {
         "⚠️ Errore lettura diario: {kind}": "⚠️ Journal read error: {kind}",
         "Diario: {tot} eventi totali (mostrati {shown}).":
             "Journal: {tot} total events (showing {shown}).",
-        "Diario: {tot} eventi totali — mostrati i primi {cap} (restringi con Tipo/Ultimi).":
-            "Journal: {tot} total events — showing the first {cap} (narrow with Type/Latest).",
+        "Diario: {shown} eventi nel filtro su {tot} totali — mostrati i primi {cap} (restringi con Tipo/Ultimi).":
+            "Journal: {shown} events in filter of {tot} total — showing the first {cap} (narrow with Type/Latest).",
         "Quando": "When",
         "Dati (redatti)": "Data (redacted)",
         # Finestra Parser Personalizzato (#343 slice 4g; SOLO chrome puro). Non tradotti
@@ -1002,8 +1002,8 @@ _CATALOG = {
         "⚠️ Errore lettura diario: {kind}": "⚠️ Error de lectura del diario: {kind}",
         "Diario: {tot} eventi totali (mostrati {shown}).":
             "Diario: {tot} eventos en total (mostrados {shown}).",
-        "Diario: {tot} eventi totali — mostrati i primi {cap} (restringi con Tipo/Ultimi).":
-            "Diario: {tot} eventos en total — mostrados los primeros {cap} (filtra con Tipo/Últimos).",
+        "Diario: {shown} eventi nel filtro su {tot} totali — mostrati i primi {cap} (restringi con Tipo/Ultimi).":
+            "Diario: {shown} eventos en el filtro de {tot} en total — mostrados los primeros {cap} (filtra con Tipo/Últimos).",
         "Quando": "Cuándo",
         "Dati (redatti)": "Datos (redactados)",
         # Finestra Parser Personalizzato (#343 slice 4g; SOLO chrome puro). Come per EN,
