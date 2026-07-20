@@ -39,7 +39,7 @@
 12. [Glossario di dominio](#12-glossario-di-dominio)
 13. [Invarianti di sicurezza — cosa NON toccare](#13-invarianti-di-sicurezza--cosa-non-toccare)
 14. [Pain point e opportunità di design](#14-pain-point-e-opportunità-di-design)
-    - [14-bis. Lavori design APERTI e tracciati (pacchetto DESIGN — issue #114)](#14-bis-lavori-design-aperti-e-tracciati-pacchetto-design--issue-114)
+    - [14-bis. Lavori di design APERTI e tracciati (pacchetto DESIGN — issue #114)](#14-bis-lavori-di-design-aperti-e-tracciati-pacchetto-design--issue-114)
 15. [Deliverable utili al team](#15-deliverable-utili-al-team)
 
 ---
@@ -720,7 +720,9 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 - Campo **"📅 Limite segnali al giorno"** (`max_per_day`) — conta **istruzioni (messaggi)**,
   non gambe (AC-M3 #114): un messaggio **multi-gamba** (dutching) consuma **una** slot e non
   viene mai spezzato dai limiti — o esce intero, o (tetto esaurito) è rifiutato intero con
-  esito visibile. Stessa semantica per il limite al minuto (non esposto in GUI).
+  esito visibile. Stessa semantica per il limite al minuto (non esposto in GUI): i due
+  limiti condividono lo **stesso invariante** «messaggio multi-gamba atomico» — se in
+  futuro uno dei due cambiasse unità di conteggio, l'altro va tenuto allineato.
 - Campo **"🔢 Max segnali attivi (modalità coda multi-riga)"** (`max_active_signals`) — tetto
   sull'accumulo **tra messaggi**; il blocco di un **singolo** messaggio multi-riga non viene mai
   spezzato da questo tetto (auto-raise, #192), quindi le righe attive possono superarlo per un
@@ -1466,58 +1468,64 @@ Aree dove un redesign porterebbe più valore (spunti, non requisiti):
 
 ---
 
-## 14-bis. Lavori design APERTI e tracciati (pacchetto DESIGN — issue #114)
+## 14-bis. Lavori di design APERTI e tracciati (pacchetto DESIGN — issue #114)
 
 Oltre agli spunti del §14, questi sono i **finding concreti già tracciati** che toccano il
 design: il redesign deve **tenerne conto** (incorporarli nel nuovo design o non riprodurre il
 difetto). Fonte e stato di avanzamento: issue **#114**, commento «🎨 Pacchetto DESIGN». Ogni
 fix che li chiuderà aggiornerà questo handoff nello stesso PR (gate obbligatorio).
 
+Legenda stato: ⏳ = aperto · 🔜 = pianificato come PR-5 dell'ondata 2 (#114). Lo stato **vivo**
+(checkbox) resta su #114: a ogni fix questo elenco va aggiornato nello stesso PR (gate).
+
 **Indicatori di stato ingannevoli / feedback mancante**
-- **P3-gu3** `source_chats_gui.py:266-280` — la chip «Traduzioni» riflette solo il parser
+- ⏳ **P3-gu3** `source_chats_gui.py:266-280` — la chip «Traduzioni» riflette solo il parser
   primario: con multi-parser per chat lo stato mostrato non corrisponde al runtime.
-- **P3-ca4** `config_agent_gui.py:237-277` — «Abilita» assistente rifiutato per drain
+- ⏳ **P3-ca4** `config_agent_gui.py:237-277` — «Abilita» assistente rifiutato per drain
   **senza alcun feedback** in GUI (stato invisibile all'utente).
-- **AC-I13** — assistente, `why_discarded`: diario esistente ma vuoto etichettato «non
-  disponibile» (copy fuorviante).
+- ⏳ **AC-I13** `config_agent.py:831-834` — assistente, `why_discarded`: diario esistente ma
+  vuoto etichettato «non disponibile» (copy fuorviante).
 
 **Conferme mancanti su azioni distruttive (pattern §9.2-bis da completare)**
-- **AC-M12** `known_teams_gui.py:119-144` — eliminazione di un nome squadra **permanente** a
+- 🔜 **AC-M12** `known_teams_gui.py:119-144` — eliminazione di un nome squadra **permanente** a
   un solo click, senza dialogo di conferma (incoerente con profili/mapping/parser). Analogo
   minore: rimozione provider (`provider_gui.py:107-109`).
-- **P3-gu4** `profiles_gui.py:149-175` — «Carica profilo» sovrascrive il form senza conferma
+- ⏳ **P3-gu4** `profiles_gui.py:149-175` — «Carica profilo» sovrascrive il form senza conferma
   di scarto delle modifiche non salvate.
 
 **Freeze percepiti / responsività**
-- **AC-M11** `journal_view_gui.py` — il Diario è l'**unico** pannello-lista senza cap di
-  render (gli altri: 500 righe + «mostrati N di M»): filtro «Tutti» su ledger grandi congela
-  la finestra Strumenti.
-- **AC-I16** `app.py:2136-2145` — «Esporta audit REALE» legge tutti i log in RAM sul thread
+- 🔜 **AC-M11** `journal_view_gui.py:96-97, 127-133` — il Diario è l'**unico** pannello-lista
+  senza cap di render (gli altri: 500 righe + «mostrati N di M»): filtro «Tutti» su ledger
+  grandi congela la finestra Strumenti.
+- ⏳ **AC-I16** `app.py:2136-2145` — «Esporta audit REALE» legge tutti i log in RAM sul thread
   GUI: con retention «Mai» blocca la finestra per secondi.
-- **AC-M13** — chiusura della finestra Strumenti con la «X» aggira il teardown dei debounce
-  (possibile errore Tcl in background; fix tecnico da 1 riga, nessun impatto visivo).
+- 🔜 **AC-M13** `betfair/dictionary_viewer_gui.py:54-63` + `guided_mapping_gui.py:85-91` —
+  chiusura della finestra Strumenti con la «X» aggira il teardown dei debounce (possibile
+  errore Tcl in background; fix tecnico da 1 riga in `tools_gui.py`, nessun impatto visivo).
 
 **Copy / diagnostica fuorviante**
-- **AC-B12** — CSV pre-creato «vuoto» da Notepad (solo BOM) → AVVIA rifiutato con «non è un
-  CSV del bridge» (diagnosi errata per l'utente).
-- **AC-B17** — wizard step 2: con molto arretrato Telegram (>20 update pendenti) il messaggio
-  di prova non viene trovato → «Nessun messaggio dalla chat…» anche a configurazione corretta.
+- ⏳ **AC-B12** `csv_writer.py:577-583` — CSV pre-creato «vuoto» da Notepad (solo BOM) → AVVIA
+  rifiutato con «non è un CSV del bridge» (diagnosi errata per l'utente).
+- ⏳ **AC-B17** `wizard.py:71-74, 110-121` — wizard step 2: con molto arretrato Telegram (>20
+  update pendenti) il messaggio di prova non viene trovato → «Nessun messaggio dalla chat…»
+  anche a configurazione corretta.
 
 **Localizzazione incompleta (filone #343, slice da completare)**
-- **AC-B25/B26** — pannello Parser: messaggi di «Prova messaggio» e chrome residua (header
-  tabelle, label multi-riga, hint) hard-coded in italiano.
-- **AC-B27** — pannello «📖 Dizionario» interamente non localizzato.
-- **AC-B29** — voce «Tutti» del filtro log non tradotta (il Diario la traduce).
-- **AC-B28/B30** — igiene cataloghi (chiavi duplicate, commento sentinella spezzato) — solo
-  manutenzione, nessun impatto visivo.
+- ⏳ **AC-B25** `custom_parser_gui.py:1412-1420, 1522-1530, 1548-1552` — messaggi di «Prova
+  messaggio» hard-coded in italiano (i gemelli di «Salva» sono a catalogo).
+- ⏳ **AC-B26** `custom_parser_gui.py:695-703, 709-725, 767-769, 1027-1029, 1484, 1503, 1597`
+  — chrome residua del pannello Parser (header tabelle, label multi-riga, hint) non a catalogo.
+- ⏳ **AC-B27** `betfair/dictionary_viewer_gui.py` (intero modulo, nessun import `i18n`) —
+  pannello «📖 Dizionario» interamente non localizzato.
+- ⏳ **AC-B29** `log_view.py:13` + `app.py:1466-1467` — voce «Tutti» del filtro log non
+  tradotta (il Diario la traduce).
+- ⏳ **AC-B28** `i18n.py` (coppie duplicate EN 422/635, 119/636, 455/639, 210/642 e speculari
+  ES) + **AC-B30** `known_teams_gui.py:20-28` — igiene cataloghi (chiavi duplicate, commento
+  sentinella spezzato) — solo manutenzione, nessun impatto visivo.
 
 **Default esposti all'utente**
-- **AC-I8** — retention log default «Mai»: crescita illimitata su disco senza scelta esplicita
-  (valutare default 30 giorni per le nuove installazioni).
-
-> **Stato:** AC-M11, AC-M12 e AC-M13 sono pianificati come PR-5 dell'ondata 2 (#114) e
-> potrebbero già essere chiusi quando il redesign parte — verificare su #114 le checkbox.
-> Gli altri restano aperti e vanno considerati requisiti/spunti del redesign.
+- ⏳ **AC-I8** `event_log.py:315-334` — retention log default «Mai»: crescita illimitata su
+  disco senza scelta esplicita (valutare default 30 giorni per le nuove installazioni).
 
 ---
 
