@@ -108,7 +108,7 @@ def _panel_per_rename(mod, cls_name, monkeypatch):
     panel._load_cfg = lambda: {}
     panel._collect_rows = lambda: []
     panel._persist = lambda cfg, ok_msg, fail_msg, select=None: (
-        panel._status.configure(text=ok_msg, text_color="#66bb6a") or True)
+        panel._status.configure(text=ok_msg, text_color=mod.ui_theme.STATUS_OK) or True)
     store = mod.name_mapping_store if cls_name == "NameMappingPanel" else mod.market_mapping_store
     monkeypatch.setattr(store, "profile_names", lambda cfg: ["VECCHIO"])
     monkeypatch.setattr(store, "set_entries", lambda cfg, name, rows: cfg)
@@ -140,7 +140,7 @@ def test_verifica_parser_fallita_avvisa_in_ambra(monkeypatch, cls_name, fn, mark
     assert "fallita" in panel._status.text.lower(), "serve l'avviso onesto, non il verde"
     assert "VECCHIO" in panel._status.text            # il vecchio nome da controllare a mano
     assert marker in panel._status.text               # conseguenza esplicita
-    assert panel._status.color == "#ffa726"           # AMBRA, mai il verde di successo
+    assert panel._status.color == mod.ui_theme.STATUS_WARN   # AMBRA, mai il verde di successo
 
 
 @pytest.mark.parametrize("cls_name,fn", [
@@ -156,4 +156,4 @@ def test_verifica_parser_riuscita_flusso_storico(monkeypatch, cls_name, fn):
     panel._rename_profile()
 
     assert "rinominato" in panel._status.text.lower()
-    assert panel._status.color == "#66bb6a"           # verde legittimo
+    assert panel._status.color == mod.ui_theme.STATUS_OK   # verde legittimo

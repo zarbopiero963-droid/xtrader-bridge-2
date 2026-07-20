@@ -79,7 +79,7 @@ def test_render_cappato_e_coda_conservata(monkeypatch):
     assert len(panel._overflow_entries) == 250            # coda IN MEMORIA, non persa
     assert panel._overflow_entries[0]["betfair"] == "Team 500"   # ordine preservato
     assert "500" in panel._status.text and "750" in panel._status.text
-    assert panel._status.color == "#ffa726"               # avviso ambra
+    assert panel._status.color == mod.ui_theme.STATUS_WARN   # avviso ambra (token migrato PR-2)
 
 
 def test_collect_rows_riconsegna_la_coda_intatta(monkeypatch):

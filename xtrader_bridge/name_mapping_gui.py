@@ -31,6 +31,7 @@ from . import (
     name_mapping_store,
     recognition,
     sports,
+    ui_theme,
 )
 
 # Etichetta della tendina Sport per la riga agnostica ("" = vale per tutti gli sport).
@@ -148,8 +149,8 @@ class NameMappingPanel(ctk.CTkFrame):
         self._profile_menu.pack(side="left", padx=4)
         ctk.CTkButton(prof, text=i18n.tr("🆕 Nuovo"), width=84, command=self._new_profile).pack(side="left", padx=3)
         ctk.CTkButton(prof, text=i18n.tr("✏️ Rinomina"), width=96, command=self._rename_profile).pack(side="left", padx=3)
-        ctk.CTkButton(prof, text=i18n.tr("🗑 Elimina"), width=90, fg_color="#7f0000",
-                      hover_color="#5a0000", command=self._delete_profile).pack(side="left", padx=3)
+        ctk.CTkButton(prof, text=i18n.tr("🗑 Elimina"), width=90, fg_color=ui_theme.DANGER,
+                      hover_color=ui_theme.DANGER_HOV, command=self._delete_profile).pack(side="left", padx=3)
 
         # Intestazione tabella. Etichette colonna (costanti `_HEADER_COLUMNS`) tradotte alla
         # resa; la chiave dati e i test di regressione usano la costante IT invariata.
@@ -170,10 +171,10 @@ class NameMappingPanel(ctk.CTkFrame):
         # Precompila la colonna Betfair coi nomi squadra permanenti (#282 PR 11): riempie
         # le righe coi nomi reali già raccolti dalla sync, tu affianchi solo l'alias del
         # canale nella colonna «Come lo scrive il canale». Niente tendina: scritti direttamente.
-        ctk.CTkButton(actions, text=i18n.tr("📥 Precompila da Betfair"), width=190, fg_color="#1565c0",
-                      hover_color="#0d47a1", command=self._prefill_betfair_names).pack(side="left", padx=3)
-        ctk.CTkButton(actions, text=i18n.tr("💾 Salva profilo"), width=140, fg_color="#2e7d32",
-                      hover_color="#1b5e20", command=self._save).pack(side="left", padx=3)
+        ctk.CTkButton(actions, text=i18n.tr("📥 Precompila da Betfair"), width=190, fg_color=ui_theme.ACCENT,
+                      hover_color=ui_theme.ACCENT_HOV, command=self._prefill_betfair_names).pack(side="left", padx=3)
+        ctk.CTkButton(actions, text=i18n.tr("💾 Salva profilo"), width=140, fg_color=ui_theme.SUCCESS,
+                      hover_color=ui_theme.SUCCESS_HOV, command=self._save).pack(side="left", padx=3)
 
         self._status = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=11),
                                     text_color="gray", wraplength=720, anchor="w", justify="left")
@@ -186,7 +187,7 @@ class NameMappingPanel(ctk.CTkFrame):
             return config_store.load_config(config_store.CONFIG_FILE)
         except Exception as exc:                 # noqa: BLE001 — fallback con messaggio
             self._status.configure(text=i18n.tr("❌ Config illeggibile: {exc}").format(exc=exc),
-                                   text_color="#ef5350")
+                                   text_color=ui_theme.STATUS_ERR)
             return None
 
     def _reload_profiles(self, select=None, select_first=False, cfg=None):
@@ -241,7 +242,7 @@ class NameMappingPanel(ctk.CTkFrame):
                              "restano nel profilo e al Salva sono conservate intatte.")
                 .format(cap=_ROW_RENDER_CAP, total=len(entries),
                         hidden=len(self._overflow_entries)),
-                text_color="#ffa726")
+                text_color=ui_theme.STATUS_WARN)
 
     def _append_row_widget(self, country="", betfair="", provider="", sport="",
                            entity_type="", language=""):
@@ -277,7 +278,7 @@ class NameMappingPanel(ctk.CTkFrame):
         refs = {"frame": row, "country": e_country, "betfair": e_betfair,
                 "provider": e_provider, "sport": sport_var, "entity_type": entity_var,
                 "language": language_var}
-        ctk.CTkButton(row, text="🗑", width=36, fg_color="#c62828", hover_color="#7f0000",
+        ctk.CTkButton(row, text="🗑", width=36, fg_color=ui_theme.DANGER, hover_color=ui_theme.DANGER_HOV,
                       command=lambda r=refs: self._delete_row(r)).pack(side="left", padx=3)
         self._row_widgets.append(refs)
 
@@ -297,7 +298,7 @@ class NameMappingPanel(ctk.CTkFrame):
     def _add_row(self):
         if not self._current:
             self._status.configure(text=i18n.tr("⛔ Crea prima un profilo con «Nuovo»."),
-                                   text_color="#ef5350")
+                                   text_color=ui_theme.STATUS_ERR)
             return
         # Riga vuota da compilare: nessun argomento posizionale (tutti i campi ai
         # default vuoti), come la riga iniziale in `_render`. Evita l'under-fill
@@ -321,13 +322,13 @@ class NameMappingPanel(ctk.CTkFrame):
         aggiunge nulla, invece di crashare. Le righe aggiunte vanno **salvate** con 💾."""
         if not self._current:
             self._status.configure(text=i18n.tr("⛔ Crea prima un profilo con «Nuovo»."),
-                                   text_color="#ef5350")
+                                   text_color=ui_theme.STATUS_ERR)
             return
         provider = self._known_teams_provider
         if not callable(provider):
             self._status.configure(
                 text=i18n.tr("⛔ Dizionario locale vuoto o non disponibile: popola prima il dizionario locale."),
-                text_color="#ef5350")
+                text_color=ui_theme.STATUS_ERR)
             return
         # `DictionaryBusy`: un altro thread tiene ora il lock del DB → avviso «riprova»
         # invece di congelare la GUI (fail-fast, come il viewer dizionario, #175/#321).
@@ -337,12 +338,12 @@ class NameMappingPanel(ctk.CTkFrame):
         except DictionaryBusy:
             self._status.configure(
                 text=i18n.tr("⏳ Dizionario occupato: riprova tra poco."),
-                text_color="#ffa726")
+                text_color=ui_theme.STATUS_WARN)
             return
         except Exception as exc:                 # noqa: BLE001 — best-effort, niente crash GUI
             self._status.configure(
                 text=i18n.tr("❌ Nomi Betfair non leggibili: {kind}").format(kind=type(exc).__name__),
-                text_color="#ef5350")
+                text_color=ui_theme.STATUS_ERR)
             return
         # Dedup vs righe già presenti: chiave (sport, nome Betfair normalizzato), così un
         # secondo «Precompila» non duplica e non calpesta gli alias già compilati.
@@ -366,7 +367,7 @@ class NameMappingPanel(ctk.CTkFrame):
             self._status.configure(
                 text=i18n.tr("📥 Aggiunti {added} nomi Betfair (scrivi l'alias del canale in "
                              "«Come lo scrive il canale»); {skipped} già presenti. Poi salva con 💾.")
-                .format(added=added, skipped=skipped), text_color="#66bb6a")
+                .format(added=added, skipped=skipped), text_color=ui_theme.STATUS_OK)
         else:
             self._status.configure(
                 text=i18n.tr("ℹ️ Nessun nuovo nome da aggiungere: ")
@@ -388,13 +389,13 @@ class NameMappingPanel(ctk.CTkFrame):
                 self._on_saved(saved)
             self._reload_profiles(select=select)
         self._status.configure(text=ok_msg if ok else fail_msg,
-                               text_color="#66bb6a" if ok else "#ef5350")
+                               text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
         return ok
 
     def _save(self):
         """Salva la tabella corrente nel profilo selezionato."""
         if not self._current:
-            self._status.configure(text=i18n.tr("⛔ Nessun profilo selezionato."), text_color="#ef5350")
+            self._status.configure(text=i18n.tr("⛔ Nessun profilo selezionato."), text_color=ui_theme.STATUS_ERR)
             return
         cfg = self._load_cfg()
         if cfg is None:
@@ -427,7 +428,7 @@ class NameMappingPanel(ctk.CTkFrame):
                 self._status.configure(
                     text=i18n.tr("❌ Config illeggibile: cambio profilo annullato, modifiche "
                                  "mantenute a schermo."),
-                    text_color="#ef5350")
+                    text_color=ui_theme.STATUS_ERR)
                 return
             # (follow-up #76, nota Fable PR #97: il vecchio `if cfg is not None`
             # qui era sempre vero dopo l'early-return sul ramo `cfg is None`.)
@@ -441,7 +442,7 @@ class NameMappingPanel(ctk.CTkFrame):
                 self._status.configure(
                     text=i18n.tr("❌ Salvataggio FALLITO: cambio profilo annullato, modifiche "
                                  "mantenute a schermo. Controlla permessi/spazio del file config."),
-                    text_color="#ef5350")
+                    text_color=ui_theme.STATUS_ERR)
                 return
             # Propaga al parent anche l'auto-save (non solo i salvataggi espliciti),
             # altrimenti la GUI principale resta con un `self._config` stantio e un
@@ -457,7 +458,7 @@ class NameMappingPanel(ctk.CTkFrame):
         dialog = ctk.CTkInputDialog(text=i18n.tr("Nome del nuovo profilo:"), title=i18n.tr("Nuovo profilo"))
         name = (dialog.get_input() or "").strip()
         if not name:
-            self._status.configure(text=i18n.tr("⛔ Profilo non creato (nome vuoto)."), text_color="#ef5350")
+            self._status.configure(text=i18n.tr("⛔ Profilo non creato (nome vuoto)."), text_color=ui_theme.STATUS_ERR)
             return
         cfg = self._load_cfg()
         if cfg is None:
@@ -477,12 +478,12 @@ class NameMappingPanel(ctk.CTkFrame):
 
     def _rename_profile(self):
         if not self._current:
-            self._status.configure(text=i18n.tr("⛔ Nessun profilo selezionato."), text_color="#ef5350")
+            self._status.configure(text=i18n.tr("⛔ Nessun profilo selezionato."), text_color=ui_theme.STATUS_ERR)
             return
         dialog = ctk.CTkInputDialog(text=i18n.tr("Nuovo nome per «{name}»:").format(name=self._current), title=i18n.tr("Rinomina profilo"))
         new = (dialog.get_input() or "").strip()
         if not new:
-            self._status.configure(text=i18n.tr("⛔ Rinomina annullata (nome vuoto)."), text_color="#ef5350")
+            self._status.configure(text=i18n.tr("⛔ Rinomina annullata (nome vuoto)."), text_color=ui_theme.STATUS_ERR)
             return
         cfg = self._load_cfg()
         if cfg is None:
@@ -516,7 +517,7 @@ class NameMappingPanel(ctk.CTkFrame):
                                  "parser salvati è FALLITA ({exc}): controlla a mano quali usano "
                                  "ancora «{old}» o quei segnali verranno scartati "
                                  "(MAPPING_MISSING).").format(old=old, new=new, exc=exc),
-                    text_color="#ffa726")
+                    text_color=ui_theme.STATUS_WARN)
                 return
             if failed:
                 # Alcuni parser non si sono potuti riscrivere: restano sul vecchio nome
@@ -526,16 +527,16 @@ class NameMappingPanel(ctk.CTkFrame):
                                  "aggiornati ({names}): correggili a mano o quei segnali verranno "
                                  "scartati (MAPPING_MISSING).").format(
                         old=old, new=new, count=len(failed), names=', '.join(failed)),
-                    text_color="#ffa726")
+                    text_color=ui_theme.STATUS_WARN)
             elif updated:
                 self._status.configure(
                     text=i18n.tr("✏️ Profilo rinominato «{old}» → «{new}» · {count} parser "
                                  "aggiornati.").format(old=old, new=new, count=len(updated)),
-                    text_color="#66bb6a")
+                    text_color=ui_theme.STATUS_OK)
 
     def _delete_profile(self):
         if not self._current:
-            self._status.configure(text=i18n.tr("⛔ Nessun profilo selezionato."), text_color="#ef5350")
+            self._status.configure(text=i18n.tr("⛔ Nessun profilo selezionato."), text_color=ui_theme.STATUS_ERR)
             return
         cfg = self._load_cfg()
         if cfg is None:
@@ -579,7 +580,7 @@ class NameMappingPanel(ctk.CTkFrame):
                              "({names}): quei segnali verranno scartati (MAPPING_MISSING) finché "
                              "non togli il profilo da quei parser.").format(
                     name=name, count=len(affected), names=', '.join(affected)),
-                text_color="#ffa726")
+                text_color=ui_theme.STATUS_WARN)
 
 
 class MarketMappingPanel(ctk.CTkFrame):
@@ -650,8 +651,8 @@ class MarketMappingPanel(ctk.CTkFrame):
         self._profile_menu.pack(side="left", padx=4)
         ctk.CTkButton(prof, text=i18n.tr("🆕 Nuovo"), width=84, command=self._new_profile).pack(side="left", padx=3)
         ctk.CTkButton(prof, text=i18n.tr("✏️ Rinomina"), width=96, command=self._rename_profile).pack(side="left", padx=3)
-        ctk.CTkButton(prof, text=i18n.tr("🗑 Elimina"), width=90, fg_color="#7f0000",
-                      hover_color="#5a0000", command=self._delete_profile).pack(side="left", padx=3)
+        ctk.CTkButton(prof, text=i18n.tr("🗑 Elimina"), width=90, fg_color=ui_theme.DANGER,
+                      hover_color=ui_theme.DANGER_HOV, command=self._delete_profile).pack(side="left", padx=3)
 
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=12, pady=(4, 0))
@@ -667,8 +668,8 @@ class MarketMappingPanel(ctk.CTkFrame):
         actions.pack(fill="x", padx=12, pady=(0, 4))
         ctk.CTkButton(actions, text=i18n.tr("➕ Aggiungi riga"), width=140,
                       command=self._add_row).pack(side="left", padx=3)
-        ctk.CTkButton(actions, text=i18n.tr("💾 Salva profilo"), width=140, fg_color="#2e7d32",
-                      hover_color="#1b5e20", command=self._save).pack(side="left", padx=3)
+        ctk.CTkButton(actions, text=i18n.tr("💾 Salva profilo"), width=140, fg_color=ui_theme.SUCCESS,
+                      hover_color=ui_theme.SUCCESS_HOV, command=self._save).pack(side="left", padx=3)
 
         self._status = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=11),
                                     text_color="gray", wraplength=720, anchor="w", justify="left")
@@ -680,7 +681,7 @@ class MarketMappingPanel(ctk.CTkFrame):
             return config_store.load_config(config_store.CONFIG_FILE)
         except Exception as exc:                 # noqa: BLE001 — fallback con messaggio
             self._status.configure(text=i18n.tr("❌ Config illeggibile: {exc}").format(exc=exc),
-                                   text_color="#ef5350")
+                                   text_color=ui_theme.STATUS_ERR)
             return None
 
     def _reload_profiles(self, select=None, select_first=False, cfg=None):
@@ -729,7 +730,7 @@ class MarketMappingPanel(ctk.CTkFrame):
                              "restano nel profilo e al Salva sono conservate intatte.")
                 .format(cap=_ROW_RENDER_CAP, total=len(entries),
                         hidden=len(self._overflow_entries)),
-                text_color="#ffa726")
+                text_color=ui_theme.STATUS_WARN)
 
     def _append_row_widget(self, start_after="", end_before="", phrase="",
                            market="", selection="", language=""):
@@ -783,7 +784,7 @@ class MarketMappingPanel(ctk.CTkFrame):
                 "market": market_var, "market_menu": market_menu, "selection": selection_var,
                 "selection_menu": selection_menu, "language": language_var}
         market_menu.configure(command=lambda _v, r=refs: self._on_row_market_change(r))
-        ctk.CTkButton(row, text="🗑", width=36, fg_color="#c62828", hover_color="#7f0000",
+        ctk.CTkButton(row, text="🗑", width=36, fg_color=ui_theme.DANGER, hover_color=ui_theme.DANGER_HOV,
                       command=lambda r=refs: self._delete_row(r)).pack(side="left", padx=3)
         self._row_widgets.append(refs)
 
@@ -819,7 +820,7 @@ class MarketMappingPanel(ctk.CTkFrame):
     def _add_row(self):
         if not self._current:
             self._status.configure(text=i18n.tr("⛔ Crea prima un profilo con «Nuovo»."),
-                                   text_color="#ef5350")
+                                   text_color=ui_theme.STATUS_ERR)
             return
         self._append_row_widget("", "", "", "", "")
 
@@ -835,12 +836,12 @@ class MarketMappingPanel(ctk.CTkFrame):
                 self._on_saved(saved)
             self._reload_profiles(select=select)
         self._status.configure(text=ok_msg if ok else fail_msg,
-                               text_color="#66bb6a" if ok else "#ef5350")
+                               text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
         return ok
 
     def _save(self):
         if not self._current:
-            self._status.configure(text=i18n.tr("⛔ Nessun profilo selezionato."), text_color="#ef5350")
+            self._status.configure(text=i18n.tr("⛔ Nessun profilo selezionato."), text_color=ui_theme.STATUS_ERR)
             return
         cfg = self._load_cfg()
         if cfg is None:
@@ -890,7 +891,7 @@ class MarketMappingPanel(ctk.CTkFrame):
                 self._status.configure(
                     text=i18n.tr("❌ Config illeggibile: cambio profilo annullato, modifiche "
                                  "mantenute a schermo."),
-                    text_color="#ef5350")
+                    text_color=ui_theme.STATUS_ERR)
                 return
             # (follow-up #76, nota Fable PR #97: `if cfg is not None` sempre vero
             # dopo l'early-return — ramo morto rimosso, comportamento identico.)
@@ -901,7 +902,7 @@ class MarketMappingPanel(ctk.CTkFrame):
                 self._status.configure(
                     text=i18n.tr("❌ Salvataggio FALLITO: cambio profilo annullato, modifiche "
                                  "mantenute a schermo. Controlla permessi/spazio del file config."),
-                    text_color="#ef5350")
+                    text_color=ui_theme.STATUS_ERR)
                 return
             if callable(self._on_saved):
                 self._on_saved(saved)
@@ -913,7 +914,7 @@ class MarketMappingPanel(ctk.CTkFrame):
         dialog = ctk.CTkInputDialog(text=i18n.tr("Nome del nuovo profilo mercati:"), title=i18n.tr("Nuovo profilo"))
         name = (dialog.get_input() or "").strip()
         if not name:
-            self._status.configure(text=i18n.tr("⛔ Profilo non creato (nome vuoto)."), text_color="#ef5350")
+            self._status.configure(text=i18n.tr("⛔ Profilo non creato (nome vuoto)."), text_color=ui_theme.STATUS_ERR)
             return
         cfg = self._load_cfg()
         if cfg is None:
@@ -931,12 +932,12 @@ class MarketMappingPanel(ctk.CTkFrame):
 
     def _rename_profile(self):
         if not self._current:
-            self._status.configure(text=i18n.tr("⛔ Nessun profilo selezionato."), text_color="#ef5350")
+            self._status.configure(text=i18n.tr("⛔ Nessun profilo selezionato."), text_color=ui_theme.STATUS_ERR)
             return
         dialog = ctk.CTkInputDialog(text=i18n.tr("Nuovo nome per «{name}»:").format(name=self._current), title=i18n.tr("Rinomina profilo"))
         new = (dialog.get_input() or "").strip()
         if not new:
-            self._status.configure(text=i18n.tr("⛔ Rinomina annullata (nome vuoto)."), text_color="#ef5350")
+            self._status.configure(text=i18n.tr("⛔ Rinomina annullata (nome vuoto)."), text_color=ui_theme.STATUS_ERR)
             return
         cfg = self._load_cfg()
         if cfg is None:
@@ -963,7 +964,7 @@ class MarketMappingPanel(ctk.CTkFrame):
                                  "parser salvati è FALLITA ({exc}): controlla a mano quali usano "
                                  "ancora «{old}» o quei segnali verranno scartati "
                                  "(MARKET_MAPPING_MISSING).").format(old=old, new=new, exc=exc),
-                    text_color="#ffa726")
+                    text_color=ui_theme.STATUS_WARN)
                 return
             if failed:
                 self._status.configure(
@@ -971,16 +972,16 @@ class MarketMappingPanel(ctk.CTkFrame):
                                  "aggiornati ({names}): correggili a mano o quei segnali verranno "
                                  "scartati (MARKET_MAPPING_MISSING).").format(
                         old=old, new=new, count=len(failed), names=', '.join(failed)),
-                    text_color="#ffa726")
+                    text_color=ui_theme.STATUS_WARN)
             elif updated:
                 self._status.configure(
                     text=i18n.tr("✏️ Profilo rinominato «{old}» → «{new}» · {count} parser "
                                  "aggiornati.").format(old=old, new=new, count=len(updated)),
-                    text_color="#66bb6a")
+                    text_color=ui_theme.STATUS_OK)
 
     def _delete_profile(self):
         if not self._current:
-            self._status.configure(text=i18n.tr("⛔ Nessun profilo selezionato."), text_color="#ef5350")
+            self._status.configure(text=i18n.tr("⛔ Nessun profilo selezionato."), text_color=ui_theme.STATUS_ERR)
             return
         cfg = self._load_cfg()
         if cfg is None:
@@ -1021,7 +1022,7 @@ class MarketMappingPanel(ctk.CTkFrame):
                              "({names}): quei segnali verranno scartati (MARKET_MAPPING_MISSING) "
                              "finché non togli il profilo da quei parser.").format(
                     name=name, count=len(affected), names=', '.join(affected)),
-                text_color="#ffa726")
+                text_color=ui_theme.STATUS_WARN)
 
 
 class MappingPanel(ctk.CTkFrame):

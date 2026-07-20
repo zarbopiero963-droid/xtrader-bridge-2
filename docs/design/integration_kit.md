@@ -21,9 +21,13 @@ Tutti gli HEX qui sono verificati contro il codice attuale (`git grep` di `fg_co
 > `xtrader_bridge/ui_theme.py` (§1) e applicato la migrazione colori di **`app.py`** (§2) — con i
 > token "testo di stato" e "banner" WCAG-safe aggiunti oltre allo snippet originale (vedi §1). Un
 > guard test (`tests/integration/test_palette.py::test_app_py_migrato_ai_token…`) blocca ogni
-> re-hardcode. Le **PR successive** applicano gli altri moduli GUI (name_mapping_gui, guided_mapping_gui,
-> profiles_gui, custom_parser_gui, …) con gli stessi token. La mappa §4 cita `betfair/sync_tab_gui.py`
-> e la tab «Betfair Sync» che **non esistono più** (rimossi): ignorarle.
+> re-hardcode. **PR-2** (branch `claude/ui-redesign-pr2-name-mapping`) ha applicato **`name_mapping_gui.py`**
+> (47 HEX → token, pannelli Nome + Mercato) con lo stesso pattern e un guard dedicato
+> (`tests/integration/test_name_mapping_palette_pr2.py`, che blocca il re-hardcode e la semantica
+> dei pulsanti). Le **PR successive** applicano i restanti moduli GUI (guided_mapping_gui,
+> profiles_gui, custom_parser_gui, source_chats_gui, provider_gui, journal_view_gui, …) con gli
+> stessi token. La mappa §4 cita `betfair/sync_tab_gui.py` e la tab «Betfair Sync» che **non
+> esistono più** (rimossi): ignorarle.
 
 ---
 
