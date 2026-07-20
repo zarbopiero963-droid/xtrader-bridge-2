@@ -1816,7 +1816,8 @@ class App(ctk.CTk):
         self._refresh_dashboard()
 
     # ── DIAGNOSTICA (PR-14c) ──────────────────
-    def _set_last(self, kind: str, value: str, color: str = "gray") -> None:
+    def _set_last(self, kind: str, value: str,
+                  color: "str | tuple[str, str]" = "gray") -> None:
         """Aggiorna un campo "ultimo …" della diagnostica (signal/message/csv/error):
         memorizza il valore (redatto, mai token) e la label, col prefisso UNICO di
         `_LAST_PREFIX`. Thread Tk (dal bot via `self.after`)."""

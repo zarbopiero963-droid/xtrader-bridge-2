@@ -164,7 +164,7 @@ def test_pulsante_aggiorna_forza_il_probe():
     # robusto ai refactor UI che aggiungono proprietà fg/hover/text_color o cambiano layout
     # manager, review GPT/GLM #126): niente più finestra a caratteri fissi. Fallback esplicito
     # se il piazzamento non c'è (errore chiaro invece di ValueError da `str.index`).
-    fine_candidates = [src.find(mgr, i) for mgr in (".pack(", ".grid(")]
+    fine_candidates = [src.find(mgr, i) for mgr in (".pack(", ".grid(", ".place(")]
     fine_candidates = [c for c in fine_candidates if c != -1]
     assert fine_candidates, "app.py: bottone «🔄 Aggiorna» senza .pack()/.grid() dopo l'etichetta"
     blocco = src[i:min(fine_candidates)]

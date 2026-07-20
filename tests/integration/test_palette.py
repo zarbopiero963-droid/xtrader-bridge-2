@@ -96,15 +96,21 @@ def test_app_py_migrato_ai_token_nessun_hex_hardcoded_nei_colori(app_mod):
     import pathlib
     import re
     src = pathlib.Path(app_mod.__file__).read_text(encoding="utf-8")
-    # Copre sia il literal stringa (`fg_color="#…"`) SIA la tupla inline
-    # (`fg_color=("#…", "#…")`) — review GLM #126: un re-hardcode futuro come tupla inline
-    # non deve sfuggire al guard. I colori DEVONO passare da un token/costante, mai da un
-    # HEX letterale in una proprietà colore.
-    offenders = re.findall(
-        r'(?:fg_color|hover_color|text_color|border_color)\s*=\s*\(?\s*"#[0-9a-fA-F]{6}"', src)
+    # Match ESAUSTIVO (review GLM #126): QUALSIASI kwarg che termina in `color`
+    # (`fg_color`, `hover_color`, `text_color`, `border_color`, `progress_color`,
+    # `button_color`, …) impostato a un HEX letterale — literal stringa `="#…"` O tupla
+    # inline `=("#…"`. Così un re-hardcode futuro su una proprietà colore qualsiasi non
+    # sfugge. I colori DEVONO passare da un token/costante, mai da un HEX letterale.
+    _COLOR_KWARG_HEX = re.compile(r'\w*color\s*=\s*\(?\s*"#[0-9a-fA-F]{6}"')
+    offenders = _COLOR_KWARG_HEX.findall(src)
     assert offenders == [], (
         "app.py contiene ancora colori HEX hardcoded (usa ui_theme / _COLOR_*): "
         + ", ".join(offenders))
+    # Meta-check: la regex del guard cattura davvero gli offender sintetici (negative case,
+    # review GLM #126) — così il guard non passa "a vuoto" per un pattern troppo stretto.
+    for bad in ('progress_color="#ff0000"', 'border_color=("#ff0000", "#00ff00")',
+                'button_color = "#abcdef"'):
+        assert _COLOR_KWARG_HEX.search(bad), f"il guard NON cattura {bad!r}"
 
 
 def test_dark_variant_allineata_al_design_system(app_mod):
