@@ -160,6 +160,8 @@ def test_pulsante_aggiorna_forza_il_probe():
     (sorgente pinnato, pattern #311: la costruzione GUI non è esercitabile headless)."""
     src = _APP_SRC.read_text(encoding="utf-8")
     i = src.index('i18n.tr("🔄 Aggiorna")')
-    blocco = src[i:i + 400]
+    # Finestra ampia: il redesign UI ha aggiunto righe fg/hover/text_color al pulsante,
+    # allontanando il `command=` dall'etichetta (il wiring force_probe=True è invariato).
+    blocco = src[i:i + 600]
     assert re.search(r"command=lambda: self\._refresh_health\(force_probe=True\)", blocco), (
         "app.py: il refresh esplicito dell'utente deve bypassare la cache TTL (P3-9 #76)")

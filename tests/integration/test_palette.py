@@ -86,13 +86,20 @@ def test_nessun_colore_di_stato_hardcoded_fuori_dalle_costanti(app_mod):
             f"colore di stato {hx} hardcoded come fg_color (usa le costanti _COLOR_*)"
 
 
-def test_dark_variant_invariata_rispetto_allo_storico(app_mod):
-    # La variante DARK resta quella storica (nessuna regressione visiva nel tema di default).
+def test_dark_variant_allineata_al_design_system(app_mod):
+    # Redesign UI (integration_kit.md): la variante DARK (tema primario) segue ora il design
+    # system centralizzato in `ui_theme`. Questo test resta un guard contro drift ACCIDENTALI,
+    # ma dalla NUOVA baseline design — non più dai valori storici pre-redesign. La leggibilità
+    # WCAG in entrambi i temi è comunque verificata da `test_palette_contrasto_sufficiente…`.
+    from xtrader_bridge import ui_theme as t
     m = app_mod
-    assert m._COLOR_HEADER_BG[1] == "#1a1a2e"
-    assert m._COLOR_HEADER_TITLE[1] == "#4fc3f7"
-    assert m._COLOR_STATUS_OFFLINE[1] == "#ef5350"
-    assert m._COLOR_STATUS_ACTIVE[1] == "#66bb6a"
-    assert m._COLOR_STATUS_RECONNECT[1] == "#ffa726"
-    assert m._COLOR_ACTIVE_ROWS[1] == "#ffb74d"
+    assert m._COLOR_HEADER_BG == t.TITLEBAR
+    assert m._COLOR_HEADER_TITLE == t.TITLE_TEXT
+    assert m._COLOR_STATUS_OFFLINE == t.STATUS_ERR
+    assert m._COLOR_STATUS_ACTIVE == t.STATUS_OK
+    assert m._COLOR_STATUS_RECONNECT == t.STATUS_WARN
+    assert m._COLOR_ACTIVE_ROWS == t.STATUS_WARN
+    assert m._COLOR_REAL_BANNER_BG == t.DANGER_BANNER
+    # Il banner REALE resta un rosso PROFONDO (testo bianco leggibile = invariante §13):
+    # variante dark scura, non il DANGER brillante dei bottoni.
     assert m._COLOR_REAL_BANNER_BG[1] == "#7f1d1d"
