@@ -34,6 +34,11 @@ from . import event_journal, i18n, journal_view
 _LAST_NUMERIC = ["50", "100", "200", "500"]
 _COL_TS_WIDTH = 150
 _COL_TYPE_WIDTH = 190
+# Cap di RENDER (AC-M11 audit #114, stesso pattern di name_mapping_gui/known_teams_gui):
+# il Diario è l'unico pannello-lista senza tetto — col filtro «Tutti» su un ledger di
+# migliaia di eventi creava un widget CTk per riga, congelando il thread Tk. Solo display:
+# il conteggio TOTALE resta veritiero (letto dal ledger), si limitano solo le righe disegnate.
+_ROW_RENDER_CAP = 500
 
 
 class JournalPanel(ctk.CTkFrame):
@@ -115,16 +120,28 @@ class JournalPanel(ctk.CTkFrame):
             self._counts.configure(text=i18n.tr("⚠️ Errore lettura diario: {kind}")
                                    .format(kind=type(exc).__name__))
             return
-        self._counts.configure(
-            text=i18n.tr("Diario: {tot} eventi totali (mostrati {shown}).")
-            .format(tot=len(all_events), shown=len(events)))
+        # AC-M11: cap di RENDER (solo display). Il conteggio mostra il totale VERO del ledger
+        # e quanti sono effettivamente disegnati; oltre il cap si avvisa di restringere il filtro.
+        capped = len(events) > _ROW_RENDER_CAP
+        render_events = events[:_ROW_RENDER_CAP]
+        if capped:
+            # Review Fugu #125: mostra anche i match del filtro (`shown`), non solo il totale
+            # del ledger — con un filtro Tipo attivo «X totali» da solo sarebbe fuorviante.
+            self._counts.configure(
+                text=i18n.tr("Diario: {shown} eventi nel filtro su {tot} totali — mostrati "
+                             "i primi {cap} (restringi con Tipo/Ultimi).")
+                .format(shown=len(events), tot=len(all_events), cap=_ROW_RENDER_CAP))
+        else:
+            self._counts.configure(
+                text=i18n.tr("Diario: {tot} eventi totali (mostrati {shown}).")
+                .format(tot=len(all_events), shown=len(events)))
         for title, width in ((i18n.tr("Quando"), _COL_TS_WIDTH),
                              (i18n.tr("Tipo"), _COL_TYPE_WIDTH)):
             ctk.CTkLabel(self._header, text=title, width=width, anchor="w",
                          font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
         ctk.CTkLabel(self._header, text=i18n.tr("Dati (redatti)"), anchor="w",
                      font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
-        for ts, typ, data_str in journal_view.table_rows(events):
+        for ts, typ, data_str in journal_view.table_rows(render_events):
             rf = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
             rf.pack(fill="x", pady=1)
             ctk.CTkLabel(rf, text=ts, width=_COL_TS_WIDTH, anchor="w").pack(side="left", padx=3)

@@ -157,3 +157,37 @@ def test_resolve_tab_title_coerente_coi_titoli_localizzati(tools_mod):
     assert w._resolve_tab_title("② 🧩 Parser") == "② 🧩 Parser"
     assert w._resolve_tab_title("📖 Dictionary") == "③ 📖 Dictionary"     # base tradotto → scheda giusta
     assert w._resolve_tab_title("📡 Chat sorgenti") is None               # base IT non matcha in EN
+
+
+# ── AC-M13: teardown finestra Strumenti alla chiusura con la «X» (audit #114) ──
+
+def test_tools_window_registra_wm_delete_window(tools_mod):
+    """AC-M13 audit #114: `CTkToplevel` NON registra `WM_DELETE_WINDOW`, quindi chiudere
+    la finestra Strumenti con la «X» distruggerebbe i widget a livello Tcl SENZA invocare
+    il `destroy()` Python dei pannelli figli (dove i debounce annullano gli `after`).
+    `ToolsWindow.__init__` deve instradare la «X» su `self.destroy` così la catena Python
+    (`BaseWidget.destroy` → figli) parte anche via «X». Guard a sorgente (l'apertura reale
+    richiede un root Tk → smoke manuale su Windows), stesso pattern degli altri meta-test."""
+    import inspect
+    src = inspect.getsource(tools_mod.ToolsWindow.__init__)
+    assert 'self.protocol("WM_DELETE_WINDOW", self.destroy)' in src, (
+        "tools_gui: ToolsWindow.__init__ deve instradare la «X» su self.destroy (AC-M13 #114)")
+
+
+def test_pannelli_debounce_annullano_after_nel_destroy():
+    """AC-M13: la catena di `destroy` è utile solo se i pannelli figli con debounce
+    annullano davvero il timer pendente nel loro `destroy()`. Blinda che i due pannelli
+    interessati mantengano `cancel_pending()` sul debouncer nel teardown (regressione del
+    fix #184 M12 che AC-M13 estende alla chiusura via «X»). I moduli GUI importano
+    tkinter (non headless): si legge il sorgente da disco via il path del package."""
+    import os
+    import xtrader_bridge
+    pkg = os.path.dirname(xtrader_bridge.__file__)
+    for rel in ("betfair/dictionary_viewer_gui.py", "guided_mapping_gui.py"):
+        with open(os.path.join(pkg, rel), encoding="utf-8") as f:
+            src = f.read()
+        body = src.split("def destroy(self)", 1)
+        assert len(body) == 2, f"{rel}: manca il destroy() del pannello"
+        after = body[1]
+        assert "cancel_pending()" in after and "super().destroy()" in after, (
+            f"{rel}: destroy() deve annullare il debounce e chiamare super().destroy()")

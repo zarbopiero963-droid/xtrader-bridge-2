@@ -86,7 +86,7 @@ def test_sentinel_value_as_key_resta_it_e_non_a_catalogo():
 
 
 def test_import_i18n():
-    assert "from . import i18n, sports" in _KT_SRC
+    assert "from . import gui_utils, i18n, sports" in _KT_SRC
 
 
 def test_dynamic_labels_chiamano_format():
