@@ -400,3 +400,28 @@ def test_error_handler_ptb_registrato_e_inoltra_a_gui(make_app, app_mod, monkeyp
     # Errore senza attributo `.error` (contratto PTB degradato): non crasha, logga comunque.
     asyncio.run(tg.error_handlers[0](None, types.SimpleNamespace(error=None)))
     assert any("errore sconosciuto" in m for m in a.logs)
+
+
+def test_error_handler_stantio_non_tocca_la_sessione_nuova(make_app, app_mod, monkeypatch):
+    """Review CodeRabbit #124: un callback d'errore PTB di una sessione SUPERATA
+    (STOP→START rapido: epoch avanzato o bridge fermo) NON deve incrementare il
+    contatore errori né sovrascrivere «Ultimo errore» della sessione corrente —
+    stesso gate `_is_current()` degli altri handler. Fail-first: senza il gate,
+    `bumps`/`lasts` verrebbero popolati anche a sessione superata."""
+    a, tg = _drive_run_bot(make_app, app_mod, monkeypatch, CFG)
+    bumps, lasts = [], []
+    a._bump = lambda *x: bumps.append(x)
+    a._set_last = lambda *x, **k: lasts.append(x)
+    a.logs.clear()
+
+    # Un nuovo START ha avanzato l'epoch: questo handler appartiene alla sessione vecchia.
+    a._listener_epoch = 2
+    asyncio.run(tg.error_handlers[0](None, types.SimpleNamespace(error=RuntimeError("stale"))))
+    # E il caso bridge fermo.
+    a._listener_epoch = 1
+    a._running = False
+    asyncio.run(tg.error_handlers[0](None, types.SimpleNamespace(error=RuntimeError("stopped"))))
+
+    assert bumps == []                          # nessun contatore toccato
+    assert lasts == []                          # nessun «Ultimo errore» sovrascritto
+    assert a.logs == []                         # nessun log dalla sessione superata

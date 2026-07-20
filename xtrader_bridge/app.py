@@ -3115,9 +3115,15 @@ class App(ctk.CTk):
                 # al sink del bridge (che REDIGE i segreti), al semaforo errori e al
                 # contatore. Fail-closed invariato: il messaggio in errore NON viene
                 # riprocessato (nessuna scrittura CSV da qui).
+                # Gate di sessione (review CodeRabbit #124, come `_handle`): un callback
+                # d'errore STANTIO di una sessione superata (STOP→START rapido) non deve
+                # incrementare il contatore né sovrascrivere «Ultimo errore» della sessione
+                # nuova. `_is_current()` = bridge attivo E stesso epoch di questo `_run_bot`.
+                if not _is_current():
+                    return
                 err = getattr(context, "error", None)
                 desc = (f"{type(err).__name__}: {err}" if err is not None
-                        else "errore sconosciuto")
+                        else i18n.tr("errore sconosciuto"))
                 self._safe_after(0, lambda: self._bump("errors"))
                 self._safe_after(0, lambda d=desc: self._set_last("error", f"handler: {d}"))
                 self._safe_after(0, lambda d=desc: self._log(i18n.tr(
