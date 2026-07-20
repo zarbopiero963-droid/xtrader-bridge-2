@@ -166,7 +166,8 @@ def test_pulsante_aggiorna_forza_il_probe():
     # se il piazzamento non c'è (errore chiaro invece di ValueError da `str.index`).
     fine_candidates = [src.find(mgr, i) for mgr in (".pack(", ".grid(", ".place(")]
     fine_candidates = [c for c in fine_candidates if c != -1]
-    assert fine_candidates, "app.py: bottone «🔄 Aggiorna» senza .pack()/.grid() dopo l'etichetta"
+    assert fine_candidates, (
+        "app.py: bottone «🔄 Aggiorna» senza .pack()/.grid()/.place() dopo l'etichetta")
     blocco = src[i:min(fine_candidates)]
     assert re.search(r"command=lambda: self\._refresh_health\(force_probe=True\)", blocco), (
         "app.py: il refresh esplicito dell'utente deve bypassare la cache TTL (P3-9 #76)")
