@@ -187,7 +187,10 @@ La tab **«🤖 Assistente»** (nel riquadro di monitoraggio) offre una **chat a
 sulla configurazione del bridge. Richiede una **API key Anthropic**, che incolli nell'apposito campo
 mascherato e che viene salvata **solo nel keyring del sistema** (mai in `config.json`, log o
 cronologia). Premi **«▶ Abilita»** per attivare la chat (indicatore **🟢 ATTIVO**), **«⏹ Stop»** per
-fermarla. La conversazione è **persistente ma sempre redatta** su disco.
+fermarla. La conversazione è **persistente ma sempre redatta** su disco (e si **ripara da sola** se
+una risposta viene troncata, così non resta bloccata in errore). Anche i **chat ID** che scrivi in
+chat restano fuori dal log dell'app, e la diagnosi «ultimo messaggio» invia al servizio AI solo una
+forma **ridotta** del testo, non il messaggio Telegram per intero.
 
 **Cosa può (e non può) fare.** Oltre a **leggere** lo stato del bridge (config, salute, parser),
 l'assistente può **proporre** modifiche a un piccolo insieme di impostazioni non critiche — **tema**

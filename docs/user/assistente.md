@@ -139,9 +139,16 @@ l'ascolto live né la modalità reale.
 
 - La **cronologia** della chat è salvata su disco **sempre redatta**: token, API key e **tutti**
   i chat ID configurati (chat sorgente — anche disattivate — chat notifiche e chat dei parser)
-  vengono mascherati. Con conversazioni molto lunghe l'assistente **ricorda gli ultimi turni**
-  (la coda recente): i turni più antichi vengono lasciati cadere per tenere costi e affidabilità
-  sotto controllo — se ti serve un'informazione data molto tempo prima, ripetila.
+  vengono mascherati. Lo stesso vale ora per il **log dell'app** (`bridge-…​.log`): un chat ID che
+  scrivi nella chat dell'assistente **non** finisce più in chiaro nel log. Con conversazioni molto
+  lunghe l'assistente **ricorda gli ultimi turni** (la coda recente): i turni più antichi vengono
+  lasciati cadere per tenere costi e affidabilità sotto controllo — se ti serve un'informazione data
+  molto tempo prima, ripetila. La cronologia si **ripara da sola**: se una risposta viene troncata a
+  metà, l'assistente non resta bloccato in errore al riavvio.
+- Quando chiedi *«come sta il bridge?»*, il semaforo **«ultimo messaggio»** conferma **che** è
+  arrivato un messaggio senza inviare il suo **testo completo** al servizio AI: ne trasmette solo una
+  forma **ridotta** (impronta + un breve estratto). Nella tab **🚦 Salute** dell'app continui a
+  vedere il messaggio per intero.
 - Una singola risposta ha un **tempo massimo (~1 minuto)**: se la rete è ferma non resta
   appesa per sempre — ricevi un errore e puoi riprovare (o riavviare l'assistente subito).
 

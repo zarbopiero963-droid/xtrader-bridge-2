@@ -149,7 +149,7 @@ _ALLOWLIST = {
                            "disponibile, mai crash; diagnosi (#41 PR-10 Blocco D): un health_provider "
                            "dell'app difettoso → ripiego su valutazione da config; risoluzione del "
                            "path del diario che fallisce → fail-safe (nessun evento), mai crash"),
-    "config_agent_controller.py": (6, "controller assistente (#41 PR-3/PR-4): emit di un evento verso "
+    "config_agent_controller.py": (7, "controller assistente (#41 PR-3/PR-4): emit di un evento verso "
                                       "la view best-effort (un handler della GUI che solleva non deve "
                                       "rompere il controller); un turno che solleva nel worker non "
                                       "uccide il loop (errore restituito come turno); persistenza "
@@ -159,7 +159,9 @@ _ALLOWLIST = {
                                       "come config non disponibile / save fallito, mai crash del "
                                       "thread GUI (GPT/Fable/Fugu #65); in enable() un config_loader "
                                       "difettoso nel leggere app_language non impedisce l'avvio "
-                                      "dell'assistente (default lingua IT, #41 PR-7 Blocco A)"),
+                                      "dell'assistente (default lingua IT, #41 PR-7 Blocco A); in "
+                                      "redact_for_log un config_loader difettoso non impedisce di "
+                                      "loggare la riga coi soli segreti registrati redatti (AC-M9 #114)"),
     "config_agent_gui.py": (3, "view assistente (#41 PR-3/PR-4): marshalling evento via after() su "
                                "root Tk distrutta/assente (teardown) best-effort; log della riga di "
                                "trascritto best-effort; nascondere il banner di conferma su widget "

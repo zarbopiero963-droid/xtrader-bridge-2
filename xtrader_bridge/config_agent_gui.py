@@ -297,7 +297,10 @@ class AssistantPanel:
         self._transcript.configure(state="disabled")
         if self._log is not None:
             try:
-                self._log(event_log.redact_secrets(line))
+                # AC-M9 #114: redige token/API key E i chat ID della config viva (il controller usa
+                # la stessa fonte della history su disco) prima di scrivere nel log persistente —
+                # un chat ID digitato in chat non deve finire in chiaro nel log.
+                self._log(self.controller.redact_for_log(line))
             except Exception:   # noqa: BLE001 — logging best-effort
                 pass
 

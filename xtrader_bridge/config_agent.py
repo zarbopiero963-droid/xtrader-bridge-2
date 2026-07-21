@@ -764,8 +764,18 @@ def _health_items_to_dicts(items) -> list:
         state = getattr(it, "state", None) if not isinstance(it, dict) else it.get("state", "")
         detail = getattr(it, "detail", None) if not isinstance(it, dict) else it.get("detail", "")
         advice = _HEALTH_ADVICE.get(key, "") if state and state != health_check.GREEN else ""
+        detail = detail or ""
+        # AC-M10 #114 — privacy: il semaforo «Ultimo messaggio» in stato VERDE contiene il
+        # testo GREZZO dell'ultimo messaggio Telegram (nomi, note, materiale del canale). Questo
+        # dict finisce nell'output del tool `explain_health` → inviato all'API Anthropic e
+        # PERSISTITO in `assistant_history.json`. Va redatto (hash + prima riga troncata, come il
+        # log privacy `debug_message_payload`) PRIMA di lasciare la macchina: l'assistente resta
+        # utile («è arrivato un messaggio») senza riversare il contenuto a terzi. Il pannello 🚦
+        # locale dell'app NON passa di qui, quindi l'utente continua a vedere il testo pieno.
+        if key == "message" and state == health_check.GREEN and detail:
+            detail = log_privacy.redact_message(detail)
         out.append({"key": key or "", "label": label or "", "state": state or "",
-                    "detail": detail or "", "advice": advice})
+                    "detail": detail, "advice": advice})
     return out
 
 
@@ -1226,6 +1236,64 @@ def _cap_history(history) -> list:
     return kept
 
 
+# AC-M8 #114 — testo del `tool_result` sintetico per un `tool_use` rimasto ORFANO (troncamento
+# `max_tokens` a metà chiamata): un blocco `tool_use` senza `tool_result` corrispondente fa
+# rifiutare TUTTA la cronologia dall'API (400) — e siccome la history è persistita e rispedita a
+# ogni turno, l'assistente resterebbe in «[errore interno]» PERMANENTEMENTE, anche tra sessioni.
+_ORPHAN_TOOL_RESULT = "[chiamata interrotta: risposta troncata, nessun risultato]"
+
+
+def _repair_history(messages) -> list:
+    """AC-M8 #114 — rende una cronologia RIPETIBILE dall'API Anthropic, riparando le due forme
+    che causano un 400 PERMANENTE (assistente bloccato tra sessioni, senza pulsante di reset):
+
+    - **`tool_use` orfano**: ogni blocco `tool_use` di un messaggio `assistant` DEVE essere
+      seguito, nel messaggio `user` immediatamente successivo, da un `tool_result` con lo stesso
+      `tool_use_id`. Un troncamento `max_tokens` a metà chiamata lascia il `tool_use` senza
+      risposta → per ogni id non risposto si sintetizza un `tool_result` di ERRORE (unendolo a
+      eventuali risultati già presenti nello stesso turno, senza spezzare la coppia);
+    - **content VUOTO**: un messaggio con content lista vuota o stringa vuota/spazi è rifiutato
+      dall'API → viene scartato.
+
+    Pura e fail-safe (voci non-dict ignorate). Idempotente: su una cronologia già ben formata è
+    un no-op. Applicata sia quando si SCRIVE la history (`run_turn`) sia quando si LEGGE un file
+    già corrotto (`ConversationHistory.load`) → auto-guarigione dell'assistente."""
+    src = []
+    for m in (messages or []):
+        if not isinstance(m, dict):
+            continue
+        c = m.get("content")
+        if (isinstance(c, list) and not c) or (isinstance(c, str) and not c.strip()):
+            continue  # content vuoto → scartato (l'API lo rifiuta)
+        src.append(m)
+    out = []
+    i = 0
+    while i < len(src):
+        m = src[i]
+        out.append(m)
+        content = m.get("content")
+        if m.get("role") == "assistant" and isinstance(content, list):
+            tu_ids = [b.get("id", "") for b in content
+                      if isinstance(b, dict) and b.get("type") == "tool_use"]
+            if tu_ids:
+                results, answered = [], set()
+                nxt = src[i + 1] if i + 1 < len(src) else None
+                if (isinstance(nxt, dict) and nxt.get("role") == "user"
+                        and isinstance(nxt.get("content"), list)):
+                    results = [b for b in nxt["content"] if isinstance(b, dict)]
+                    answered = {b.get("tool_use_id", "") for b in results
+                                if b.get("type") == "tool_result"}
+                    i += 1  # il turno risultati viene RI-EMESSO qui sotto, unito agli orfani
+                missing = [tid for tid in tu_ids if tid not in answered]
+                if missing or results:
+                    out.append({"role": "user", "content": results + [
+                        {"type": "tool_result", "tool_use_id": tid,
+                         "content": _ORPHAN_TOOL_RESULT, "is_error": True}
+                        for tid in missing]})
+        i += 1
+    return out
+
+
 class ConfigAgent:
     """Loop tool-use dell'assistente. ``client`` è qualunque oggetto con
     ``create_message(system, messages, tools) -> {"stop_reason", "content"}`` (reale o finto).
@@ -1258,7 +1326,10 @@ class ConfigAgent:
             tool_uses = [b for b in content if b.get("type") == "tool_use"]
             if resp.get("stop_reason") != "tool_use" or not tool_uses:
                 text = "".join(b.get("text", "") for b in content if b.get("type") == "text")
-                return AgentTurn(text, messages, tool_results_all)
+                # AC-M8 #114: `stop_reason == "max_tokens"` con `tool_use` PARZIALI lascerebbe un
+                # blocco orfano (nessun `tool_result`) → 400 permanente alla ripetizione. `_repair_history`
+                # sintetizza i `tool_result` di errore mancanti prima di persistere/ritornare.
+                return AgentTurn(text, _repair_history(messages), tool_results_all)
             # Risolve OGNI tool_use del turno tramite le guardie del registry.
             results_blocks = []
             for tu in tool_uses:
@@ -1269,7 +1340,7 @@ class ConfigAgent:
                                        "content": res.content})
             messages.append({"role": "user", "content": results_blocks})
         # Cap raggiunto: il modello continua a chiamare tool → si ferma per sicurezza.
-        return AgentTurn("", messages, tool_results_all, capped=True)
+        return AgentTurn("", _repair_history(messages), tool_results_all, capped=True)
 
 
 # ── Persistenza cronologia conversazione (#41 PR-2) ─────────────────────────────
@@ -1405,5 +1476,9 @@ class ConversationHistory:
         if not isinstance(msgs, list):
             return cls([])
         # Tiene SOLO i messaggi ben formati (dict con "role"): un file editato a mano con elementi
-        # malformati non deve iniettare payload incompatibili nel client LLM (GPT #63).
-        return cls([m for m in msgs if isinstance(m, dict) and "role" in m])
+        # malformati non deve iniettare payload incompatibili nel client LLM (GPT #63). Poi
+        # `_repair_history` (AC-M8 #114) AUTO-GUARISCE un file già corrotto in una sessione
+        # precedente (tool_use orfano / content vuoto), così l'assistente non resta bloccato in
+        # «[errore interno]» in eterno appena si riapre l'app.
+        well_formed = [m for m in msgs if isinstance(m, dict) and "role" in m]
+        return cls(_repair_history(well_formed))
