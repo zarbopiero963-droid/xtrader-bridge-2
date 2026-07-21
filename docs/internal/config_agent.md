@@ -104,14 +104,24 @@ iniettabile (l'app reale ci aggancerà `event_log`).
 - **Fail-safe** in `load`: file assente, JSON corrotto o forma inattesa → cronologia **vuota**
   (l'assistente riparte pulito, non crasha).
 - **Cronologia ripetibile / auto-guarigione (AC-M8 #114)**: `_repair_history` rende la history
-  sempre accettabile dall'API Anthropic, riparando le due forme che causavano un **400 permanente**
-  (l'assistente restava in «[errore interno]» tra le sessioni, senza reset): un blocco `tool_use`
-  rimasto **orfano** (troncamento `max_tokens` a metà chiamata) riceve un `tool_result` di **errore
-  sintetico** con lo stesso `tool_use_id` (unito a eventuali risultati già presenti nello stesso
-  turno, mai due `user` consecutivi), e i messaggi con **content vuoto** (lista/stringa vuota, che
-  l'API rifiuta) vengono scartati. È applicata sia quando si **scrive** la history (`run_turn`, così
-  non nasce mai un file corrotto) sia quando si **legge** (`load`, così un file già corrotto da una
-  vecchia sessione si auto-guarisce). Pura e **idempotente** (no-op su una history ben formata).
+  sempre accettabile dall'API Anthropic, riparando **tutte** le forme che causavano un **400
+  permanente** (l'assistente restava in «[errore interno]» tra le sessioni, senza reset). Garantisce
+  sull'output: (1) **content valido** — cadono `[]`/`""`/spazi, `None` (`content: null`) e tipi
+  inattesi (int/dict); (2) **ogni `tool_use` risposto** — quelli orfani (troncamento `max_tokens`)
+  ricevono un `tool_result` di **errore sintetico** con lo stesso `tool_use_id`, e gli id duplicati
+  in un turno sono deduplicati; (3) **nessun `tool_result` orfano** — un `tool_result` senza un
+  `tool_use` a monte (file editato) viene scartato; (4) **ruoli alternati** — due messaggi
+  consecutivi dello stesso ruolo vengono uniti (un `tool_result` sintetico in coda + il testo utente
+  del turno dopo darebbero due `user` di fila, rifiutati dall'API). È applicata quando si **scrive**
+  la history (`run_turn`, che ripara anche la history capata prima di spedirla — defense-in-depth — e
+  usa `_append_user_text` per non creare `user` consecutivi) e quando si **legge** (`load`, così un
+  file già corrotto si auto-guarisce). Pura e **idempotente** (no-op su una history ben formata).
+- **Nota di aggiornamento (privacy retroattiva)**: la redazione AC-M10 del semaforo «Ultimo
+  messaggio» è **in avanti** — un `assistant_history.json` scritto **prima** di questo fix può
+  contenere ancora testo Telegram grezzo dentro vecchi `tool_result` di `explain_health`. Il fix
+  non riscrive i file già su disco. Chi è sensibile alla privacy delle sessioni passate può
+  **cancellare una volta** `assistant_history.json` (nella cartella dati utente) dopo l'aggiornamento:
+  l'assistente riparte con cronologia vuota, già redatta d'ora in poi (review CodeRabbit #133).
 - **`extra_secrets` completi (P3-23 #76)**: la lista di segreti aggiuntivi passata a `save()` è
   costruita da `config_agent_controller._history_extra_secrets(cfg)` (funzione pura, fail-safe su
   config malformata) e copre — oltre a `chat_id` e `xtrader_notification_chat_id` — gli ID di
