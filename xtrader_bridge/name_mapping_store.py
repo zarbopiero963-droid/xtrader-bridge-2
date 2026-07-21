@@ -305,7 +305,12 @@ _AMBIGUOUS = object()
 def _scope_signature(e):
     """Firma di scoping di una riga: ``(sport, entity_type, language)``. Due righe con firma
     DIVERSA sono override distinguibili (il chiamante può separarle passando lo scope), non un
-    conflitto; solo righe con firma UGUALE sono indistinguibili."""
+    conflitto; solo righe con firma UGUALE sono indistinguibili.
+
+    Le righe arrivano già ripulite da `_clean_entry` (sport via `sports.normalize_sport`, tipo e
+    lingua via i rispettivi normalizzatori), quindi due scope **equivalenti** scritti con casing o
+    spazi diversi (``"Calcio"``/``"calcio"``) collassano allo STESSO valore → l'ambiguità fra
+    Betfair diversi viene comunque rilevata, non sfugge per una differenza cosmetica."""
     return (str(e.get("sport", "") or ""),
             str(e.get("entity_type", "") or ""),
             str(e.get("language", "") or ""))
@@ -321,9 +326,13 @@ def _resolve_in_tier(nt, group, key):
       chiamante fail-closa: mai indovinare la squadra, come il lato mercati con ``"ambiguous"``);
     - altrimenti → il ``betfair`` della **prima** riga che combacia (ordine salvato = precedenza
       legacy invariata). Righe con firma di scoping DIVERSA sono override distinguibili, non
-      ambigue; duplicati verso lo **stesso** Betfair non sono ambigui."""
+      ambigue; duplicati verso lo **stesso** Betfair non sono ambigui.
+
+    Il campo ``key`` DEVE essere non vuoto (guard legacy ``alias and betfair``): così una riga con
+    ``provider=""`` non combacia mai nella fase alias e nessun nome squadra vuoto viene tradotto,
+    a prescindere dal guard sul ``nt`` in `resolve_team` (fail-closed anche in isolamento)."""
     matches = [e for e in group
-               if e.get("betfair", "") and normalize(e.get(key, "")) == nt]
+               if e.get(key, "") and e.get("betfair", "") and normalize(e.get(key, "")) == nt]
     if not matches:
         return None
     by_sig = {}
