@@ -38,6 +38,7 @@ Due livelli di verifica del contratto CSV:
 
 import csv
 import io
+import re
 
 import pytest
 
@@ -85,11 +86,14 @@ CASES = [
         },
     },
     {
-        "id": "gol_gol_valido → BTTS Sì",
+        "id": "gol_gol_valido → BTTS Sì (14 colonne)",
         "message": "P.Bet. Roma v Lazio\nMercato: gol gol\nQuota 1,72",
         "expect": {
-            "EventName": "Roma v Lazio", "MarketName": "Entrambe le squadre a segno",
-            "SelectionName": "Sì", "Price": "1.72", "BetType": "PUNTA",
+            "Provider": "PBet", "EventId": "", "EventName": "Roma v Lazio",
+            "MarketId": "", "MarketName": "Entrambe le squadre a segno",
+            "MarketType": "BOTH_TEAMS_TO_SCORE", "SelectionId": "", "SelectionName": "Sì",
+            "Handicap": "0", "Price": "1.72", "MinPrice": "", "MaxPrice": "",
+            "BetType": "PUNTA", "Points": "",
         },
     },
     {
@@ -135,8 +139,12 @@ def test_golden_message_to_csv(case):
     row = rows[0]
     # header CSV integro (ordine colonne = contratto XTrader)
     assert list(row.keys()) == cpe.CSV_HEADER
-    for col, atteso in case["expect"].items():
-        assert row[col] == atteso, f"colonna {col}: atteso {atteso!r}, ottenuto {row[col]!r}"
+    # confronto RIGA COMPLETA su tutte le 14 colonne, non un sottoinsieme: una regressione su un
+    # QUALSIASI campo (anche EventId/MarketId/…/Points vuoti) fallisce (coding guideline · CodeRabbit
+    # #136). I casi validi dichiarano l'intero contratto atteso.
+    assert set(case["expect"]) == set(cpe.CSV_HEADER), \
+        "un caso golden valido deve dichiarare tutte le 14 colonne del contratto CSV"
+    assert row == case["expect"], f"riga completa: attesa {case['expect']}, ottenuta {row}"
 
 
 def test_setup_golden_e_coerente():
@@ -147,36 +155,76 @@ def test_setup_golden_e_coerente():
     assert _run(validi[0]["message"]), "il primo caso valido deve produrre una riga piazzabile"
 
 
+@pytest.fixture
+def set_csv_lang():
+    """Imposta la lingua CSV del writer e la **ripristina in teardown** — eseguito anche se il
+    test solleva un'eccezione, così lo stato globale del modulo non sporca gli altri test (review
+    GPT-5.5 + GLM 5.2 #136: niente flakiness da stato condiviso, più robusto di un try/finally
+    locale)."""
+    prev = csv_writer.get_csv_language()
+    yield csv_writer.set_csv_language
+    csv_writer.set_csv_language(prev)
+
+
+# Ogni campo di una riga CSV valida è delimitato da virgolette (QUOTE_ALL), per l'intera riga.
+_QUOTED_LINE = re.compile(r'^"[^"]*"(?:,"[^"]*")*$')
+
+
 @pytest.mark.parametrize("lang,price_reso", [("IT", "1,85"), ("EN", "1.85"), ("ES", "1,85")])
-def test_golden_riga_serializza_csv_reale(lang, price_reso, tmp_path):
+def test_golden_riga_serializza_csv_reale(lang, price_reso, tmp_path, set_csv_lang):
     """La riga golden passata nel **vero writer** produce il file **byte per byte** che XTrader
     legge (review GPT-5.5 #136): non basta il dict-riga della pipeline, conta la serializzazione
     reale — BOM utf-8-sig, `QUOTE_ALL`, terminatore `\\r\\n` e la **localizzazione decimale**
     (`Price` = `1,85` in IT/ES, `1.85` in EN). Blinda il contratto CSV effettivo, non solo l'ordine
     delle chiavi del dict."""
     row = _run("P.Bet. Inter v Milan\nMercato: over 2,5\nQuota 1,85")[0]
-    prev = csv_writer.get_csv_language()
-    try:
-        csv_writer.set_csv_language(lang)
-        path = tmp_path / "segnali.csv"
-        csv_writer.write_csv(row, str(path))
-        raw = path.read_bytes()
-    finally:
-        csv_writer.set_csv_language(prev)   # ripristina lo stato globale del modulo
+    set_csv_lang(lang)
+    path = tmp_path / "segnali.csv"
+    csv_writer.write_csv(row, str(path))
+    raw = path.read_bytes()
     assert raw.startswith(b"\xef\xbb\xbf"), "manca il BOM utf-8-sig atteso da XTrader"
     text = raw.decode("utf-8-sig")
+    assert text.endswith("\r\n") and text.count("\r\n") == 2, "attese esattamente header + 1 riga"
+    header_line, data_line, _tail = text.split("\r\n")
+    # QUOTE_ALL FORTE: OGNI campo di entrambe le righe è tra virgolette (non solo il primo)
+    assert _QUOTED_LINE.match(header_line), f"header non interamente quotato: {header_line!r}"
+    assert _QUOTED_LINE.match(data_line), f"riga dati non interamente quotata: {data_line!r}"
     righe = list(csv.reader(io.StringIO(text)))
     assert righe[0] == cpe.CSV_HEADER, "prima riga del file ≠ header contratto XTrader"
-    assert len(righe) == 2, f"attese header + 1 riga dati, ottenute {len(righe)} righe"
-    # ogni campo è quotato (QUOTE_ALL) e la riga termina con CRLF
-    header_line, data_line = text.split("\r\n")[0], text.split("\r\n")[1]
-    assert header_line.startswith('"Provider"') and data_line.startswith('"PBet"')
-    assert text.endswith("\r\n") and text.count("\r\n") == 2
-    # localizzazione decimale reale: è il valore che XTrader parserà davvero
     campi = righe[1]
+    assert len(campi) == len(cpe.CSV_HEADER), "numero colonne ≠ contratto XTrader"
+    # localizzazione decimale reale: è il valore che XTrader parserà davvero
     assert campi[cpe.CSV_HEADER.index("Price")] == price_reso
     assert campi[cpe.CSV_HEADER.index("MarketType")] == "OVER_UNDER_25"
     assert campi[cpe.CSV_HEADER.index("SelectionName")] == "Over 2,5 goal"
+
+
+def test_quote_all_preserva_colonne_con_virgola(tmp_path, set_csv_lang):
+    """Un campo che contiene virgola/`;` (es. EventName `Inter, Milan; e altro`) NON deve spezzare
+    le colonne: `QUOTE_ALL` lo protegge → sempre 14 campi, contenuto integro (review GLM 5.2 #136
+    sul quoting reale)."""
+    row = dict(_run("P.Bet. Inter v Milan\nMercato: over 2,5\nQuota 1,85")[0],
+               EventName="Inter, Milan; e altro")
+    set_csv_lang("IT")
+    path = tmp_path / "s.csv"
+    csv_writer.write_csv(row, str(path))
+    righe = list(csv.reader(io.StringIO(path.read_bytes().decode("utf-8-sig"))))
+    assert righe[0] == cpe.CSV_HEADER
+    assert len(righe[1]) == len(cpe.CSV_HEADER), "la virgola nel campo ha spezzato le colonne"
+    assert righe[1][cpe.CSV_HEADER.index("EventName")] == "Inter, Milan; e altro"
+
+
+@pytest.mark.parametrize("lang,atteso", [("IT", "12,50"), ("EN", "12.50")])
+def test_localizzazione_prezzo_maggiore_di_dieci(lang, atteso, tmp_path, set_csv_lang):
+    """Prezzo > 10 (review GLM 5.2 #136): la localizzazione è uno **swap di carattere**, non un
+    reformat — `12.50` → `12,50` in IT, resta `12.50` in EN. Nessun separatore delle migliaia
+    introdotto (XTrader non lo tollererebbe)."""
+    row = dict(_run("P.Bet. Inter v Milan\nMercato: over 2,5\nQuota 1,85")[0], Price="12.50")
+    set_csv_lang(lang)
+    path = tmp_path / f"p_{lang}.csv"
+    csv_writer.write_csv(row, str(path))
+    righe = list(csv.reader(io.StringIO(path.read_bytes().decode("utf-8-sig"))))
+    assert righe[1][cpe.CSV_HEADER.index("Price")] == atteso
 
 
 def test_mappature_vuote_fail_closed():
