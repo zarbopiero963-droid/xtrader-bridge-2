@@ -144,7 +144,7 @@ def test_nessun_import_non_qualificato_di_normalize_mode():
     Source-scan via AST (non regex): i moduli GUI importano `customtkinter` e non sono
     importabili headless, quindi si analizza il sorgente, come i guard di palette."""
     offenders = []
-    for path in sorted(_PKG_DIR.glob("*.py")):
+    for path in sorted(_PKG_DIR.rglob("*.py")):  # ricorsivo: copre i sottopackage (es. betfair/) — nit Fable #132
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
