@@ -25,7 +25,7 @@ import os
 from . import (atomic_io, bridge_mode, config_store, csv_writer, custom_parser, dizionario,
                event_journal, event_log, health_check, journal_view, language_select, log_privacy,
                market_mapping_store, name_mapping_store, parser_builder, parser_manager, recognition,
-               source_manager, value_maps, wizard)
+               signal_router, source_manager, value_maps, wizard)
 
 # ── Classi di permesso dei tool ────────────────────────────────────────────────
 READ_ONLY = "read_only"        # sola lettura: sempre permesso
@@ -258,7 +258,7 @@ def build_read_only_tools(*, config_loader=None, parsers_dir=None) -> list:
     def _get_health(_inp):
         cfg = load_cfg()
         items = health_check.evaluate(
-            parser_active=bool(cfg.get("active_parser")),
+            parser_active=signal_router.has_active_parser_config(cfg),
             mode=str(cfg.get("bridge_mode", "") or cfg.get("mode", "")))
         return json.dumps([{"key": it.key, "label": it.label, "state": it.state,
                             "detail": it.detail} for it in items], ensure_ascii=False, indent=2)
@@ -277,10 +277,15 @@ def build_read_only_tools(*, config_loader=None, parsers_dir=None) -> list:
         cfg = load_cfg() or {}
         # Requisiti nominati (per CHIAVE, non per indice — review #66 GLM/GPT/Fable: niente
         # accoppiamento all'ordine posizionale di `wizard.final_checklist`). Stessi criteri del gate
-        # reale di START/`health_check`: parser = `active_parser` non vuoto; CSV = sonda non invasiva.
+        # reale di START/`health_check`: parser = `signal_router.has_active_parser_config` (attivo
+        # globale OPPURE override per-chat OPPURE lista multi-parser); CSV = sonda non invasiva.
         token_set = bool(str(cfg.get("bot_token", "") or "").strip())
         chat_set = bool(str(cfg.get("chat_id", "") or "").strip() or cfg.get("source_chats"))
-        parser_active = bool(str(cfg.get("active_parser", "") or "").strip())
+        # A6 audit #114/#69: «parser attivo» = la STESSA fonte canonica del gate START e del
+        # pannello 🚦 Salute (`signal_router.has_active_parser_config`), che conta anche gli
+        # override per-chat e le liste multi-parser — non il solo `active_parser` globale, che
+        # faceva divergere questa checklist dall'indicatore reale (falso «nessun parser»).
+        parser_active = signal_router.has_active_parser_config(cfg)
         csv_state, _csv_reason = health_check.csv_writable(cfg.get("csv_path", ""))
         csv_usable = csv_state != health_check.RED
         in_simulation = bridge_mode.mode_from_cfg(cfg) == bridge_mode.SIMULAZIONE
@@ -787,7 +792,7 @@ def build_health_report(cfg, *, health_provider=None) -> dict:
         # (`app._live_health_items`) e di `get_setup_status`: nel fallback la Modalità non deve
         # divergere né mascherare il REALE (Fugu #72).
         items = health_check.evaluate(
-            parser_active=bool(cfg.get("active_parser")),
+            parser_active=signal_router.has_active_parser_config(cfg),
             csv_state=csv_state, csv_detail=csv_detail,
             confirmations_enabled=bool(str(cfg.get("xtrader_notification_chat_id", "") or "").strip()),
             mode=bridge_mode.mode_from_cfg(cfg))
