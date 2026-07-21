@@ -649,6 +649,10 @@ _CATALOG = {
         "Elimina nome noto": "Delete known name",
         "Eliminare il nome «{name}»?\nÈ permanente e non annullabile: il resolver non riconoscerà più quella squadra finché non la reinserisci.":
             "Delete the name «{name}»?\nIt is permanent and cannot be undone: the resolver will no longer recognize that team until you add it again.",
+        "Rimuovi provider": "Remove provider",
+        "Rimuovere il provider «{name}»?\nÈ permanente: i messaggi da quella sorgente non verranno più riconosciuti finché non lo reinserisci.":
+            "Remove provider «{name}»?\nIt is permanent: messages from that source will no longer be recognized until you add it again.",
+        "Rimozione annullata.": "Removal cancelled.",
         "Eliminazione annullata.": "Deletion cancelled.",
         "⛔ Eliminazione non disponibile.": "⛔ Deletion not available.",
         "⚠️ Eliminazione fallita: {exc}": "⚠️ Deletion failed: {exc}",
@@ -1350,6 +1354,10 @@ _CATALOG = {
         "Elimina nome noto": "Eliminar nombre conocido",
         "Eliminare il nome «{name}»?\nÈ permanente e non annullabile: il resolver non riconoscerà più quella squadra finché non la reinserisci.":
             "¿Eliminar el nombre «{name}»?\nEs permanente y no se puede deshacer: el resolutor ya no reconocerá ese equipo hasta que lo vuelvas a añadir.",
+        "Rimuovi provider": "Eliminar proveedor",
+        "Rimuovere il provider «{name}»?\nÈ permanente: i messaggi da quella sorgente non verranno più riconosciuti finché non lo reinserisci.":
+            "¿Eliminar el proveedor «{name}»?\nEs permanente: los mensajes de esa fuente ya no se reconocerán hasta que lo vuelvas a añadir.",
+        "Rimozione annullata.": "Eliminación cancelada.",
         "Eliminazione annullata.": "Eliminación cancelada.",
         "⛔ Eliminazione non disponibile.": "⛔ Eliminación no disponible.",
         "⚠️ Eliminazione fallita: {exc}": "⚠️ Eliminación fallida: {exc}",

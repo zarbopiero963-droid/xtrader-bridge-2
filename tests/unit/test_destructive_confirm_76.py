@@ -247,3 +247,77 @@ def test_snapshot_non_fotografabile_e_trattato_come_modificato(monkeypatch):
     panel.builder.to_def = _boom
     assert panel._builder_snapshot() is None
     assert panel._has_unsaved_changes() is True
+
+
+# ── AC-M12 audit #114 (PR-5): rimozione Provider — conferma prima di distruggere ────────
+# La rimozione di un provider è distruttiva e senza undo (i messaggi da quella sorgente non
+# vengono più riconosciuti finché non lo reinserisci). Come nomi noti/profili/mapping, deve
+# passare da `gui_utils.ask_confirm` fail-closed. Prima di PR-5 `_remove` rimuoveva al click.
+
+def _provider_panel(mod):
+    panel = mod.ProviderPanel.__new__(mod.ProviderPanel)
+    panel._status = _Status()
+    return panel
+
+
+def test_provider_remove_rifiutato_non_tocca_lo_store(monkeypatch):
+    """FAIL-FIRST (pre-PR-5 `_remove` non chiedeva conferma): confermare NO → né load
+    config, né `remove_provider`, né `_persist`; la config resta intatta."""
+    mod = _mod(monkeypatch, "provider_gui")
+    panel = _provider_panel(mod)
+    tocchi = []
+    monkeypatch.setattr(mod.config_store, "load_config",
+                        lambda *a, **k: tocchi.append("load") or {"providers": ["MioBot"]})
+    monkeypatch.setattr(mod.provider_store, "remove_provider",
+                        lambda cfg, name: tocchi.append(("remove", name)) or cfg)
+    panel._persist = lambda *a, **k: tocchi.append("persist") or True
+    monkeypatch.setattr(mod.gui_utils, "ask_confirm", lambda *a: False)
+
+    panel._remove("MioBot")
+
+    assert tocchi == [], "conferma rifiutata: nessun accesso a config/store/persist (P3-27)"
+    assert "annullata" in panel._status.text.lower()
+
+
+def test_provider_remove_confermato_procede(monkeypatch):
+    """Regressione: confermato → flusso storico intatto (load → remove_provider → persist)."""
+    mod = _mod(monkeypatch, "provider_gui")
+    panel = _provider_panel(mod)
+    rimossi = []
+    persisted = []
+    monkeypatch.setattr(mod.config_store, "load_config", lambda *a, **k: {"providers": ["MioBot"]})
+    monkeypatch.setattr(mod.provider_store, "remove_provider",
+                        lambda cfg, name: rimossi.append(name) or {"providers": []})
+    panel._persist = lambda cfg, ok_msg, fail_msg: persisted.append(ok_msg) or True
+    monkeypatch.setattr(mod.gui_utils, "ask_confirm", lambda *a: True)
+
+    panel._remove("MioBot")
+
+    assert rimossi == ["MioBot"]                 # store chiamato solo dopo conferma
+    assert persisted and "MioBot" in persisted[0]
+
+
+def test_provider_remove_fail_closed_dialog_rotto(monkeypatch):
+    """Catena fail-closed REALE: si esercita il vero `gui_utils.ask_confirm` con un
+    `messagebox.askyesno` che SOLLEVA (headless/root distrutta) → ask_confirm ritorna False
+    → `_remove` non tocca lo store. Nessuna rimozione silenziosa per un dialog rotto."""
+    mod = _mod(monkeypatch, "provider_gui")
+    panel = _provider_panel(mod)
+    tocchi = []
+    monkeypatch.setattr(mod.config_store, "load_config",
+                        lambda *a, **k: tocchi.append("load") or {})
+    monkeypatch.setattr(mod.provider_store, "remove_provider",
+                        lambda cfg, name: tocchi.append("remove") or cfg)
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("no display")
+
+    fake_mb = types.SimpleNamespace(askyesno=_boom)
+    monkeypatch.setitem(sys.modules, "tkinter", types.ModuleType("tkinter"))
+    sys.modules["tkinter"].messagebox = fake_mb
+    monkeypatch.setitem(sys.modules, "tkinter.messagebox", fake_mb)
+
+    panel._remove("MioBot")   # usa il VERO ask_confirm (non monkeypatchato)
+
+    assert tocchi == [], "dialog che solleva → fail-closed → rimozione non parte"
+    assert "annullata" in panel._status.text.lower()
