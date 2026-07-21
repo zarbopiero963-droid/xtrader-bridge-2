@@ -271,7 +271,13 @@ def matches_message(defn: CustomParserDef, text: str, mode: str = None,
     **Condizioni di gate (PR-1).** Se il parser ha condizioni attive (contiene/NON contiene) e il
     messaggio NON le soddisfa, il parser NON scatta: `return False` immediato, PRIMA della logica
     di riconoscimento. Così un parser configurato agisce solo sui messaggi pertinenti (filtro
-    fail-closed), a prescindere da cosa riuscirebbe a estrarre."""
+    fail-closed), a prescindere da cosa riuscirebbe a estrarre.
+
+    ``market_matched`` (P1 percorso soldi): ``True`` se una frase mercato combacia DAVVERO col
+    messaggio (lo calcola il chiamante live `signal_router._resolve_one` via `resolve_market`),
+    ``False`` se nessun mercato combacia (→ gli ID fissi restano, un non-segnale è bloccato).
+    ``None`` = **solo anteprima/builder** che non valuta la mappatura → comportamento storico
+    permissivo (non tocca soldi). Sul percorso soldi il router passa SEMPRE un bool esplicito."""
     if not conditions_pass(defn, text):
         return False
     mode = recognition.normalize_mode(defn.mode if mode is None else mode)

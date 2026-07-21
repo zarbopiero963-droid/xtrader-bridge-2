@@ -3676,8 +3676,11 @@ frase mappata che finisce con un intero combaciava dentro una linea decimale DIV
 (→ Over/Under 2,5) matchava in un messaggio `over 2,75` mai mappato → `resolve_market` ritornava
 `ok` col mercato 2,5 invece del `none` fail-closed → riga CSV piazzabile sul mercato sbagliato
 (specularmente, mappando sia `over 2` sia `over 2,5`, ogni `over 2,5` diventava ambiguo → segnali
-persi). **Fix:** i lookaround escludono ora anche `,`/`.` (`(?<![\w/.,-])…(?![\w/.,-])`); i match
-legittimi (spazio/`!`/fine, cifra-dopo già esclusa) restano.
+persi). **Fix:** i lookaround escludono `,`/`.` dai confini **solo quando è un decimale** — cioè
+seguìto o preceduto da una cifra (`(?<![\w/-])(?<!\d[.,])…(?![\w/-])(?![.,]\d)`). Così `over 2` non
+matcha in `over 2,75`/`over 2.75` (decimale) ma **continua** a matchare in `over 2.`/`gol gol.` dove
+`.`/`,` è **punteggiatura** (review GPT-5.5: non rompere i messaggi reali); la cifra dopo era già
+esclusa da `\w`.
 
 **P1 #2 — scommessa SPURIA** · `custom_parser_engine.matches_message` + `signal_router._resolve_one`.
 Il gate anti-non-segnale (#74/A10) azzerava SEMPRE gli `MarketId`/`SelectionId` fissi quando un

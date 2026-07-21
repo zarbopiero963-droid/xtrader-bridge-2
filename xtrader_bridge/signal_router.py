@@ -320,7 +320,11 @@ def _resolve_one(defn, text: str, *, cfg: dict, chat: str, provider: str, id_res
     # messaggio. Solo in quel caso i `MarketId`/`SelectionId` fissi vanno "azzerati" nel gate #74;
     # altrimenti (nessun mercato nel messaggio) gli ID fissi restano e un'estrazione OPZIONALE non
     # deve far scattare il bet fisso su un non-segnale. `entries_for_profiles` ha già risolto i
-    # profili; `resolve_market` su tutto il testo dice se una voce combacia (status "ok").
+    # profili; `resolve_market` su tutto il testo dice se una voce combacia (status "ok"). Gli
+    # input (text, profili risolti, language) sono IDENTICI a quelli usati dalla pipeline in
+    # `build_validated_rows` → funzione pura deterministica: gate e piazzamento non possono
+    # divergere (review Fable #135). L'esito `ambiguous` resta `market_matched=False` ma è
+    # comunque fail-closed a valle (la pipeline non produce riga su ambiguità).
     market_matched = bool(market_mapping_profiles) and market_mapping_store.resolve_market(
         text, market_mapping_profiles, language=source_language).status == "ok"
     matched = custom_parser_engine.matches_message(defn, text, mode, market_matched=market_matched)

@@ -53,6 +53,19 @@ def test_phrase_in_text_esclude_separatore_decimale():
     assert mms._phrase_in_text("over 0,5", n("over 0,55")) is False   # cifra dopo (già ok)
 
 
+def test_separatore_come_punteggiatura_finale_resta_confine():
+    """Review GPT-5.5: il `,`/`.` come PUNTEGGIATURA (non decimale, cioè non seguìto da cifra) NON
+    deve rompere il match — un provider che scrive `over 2.` o `gol gol.` deve ancora combaciare.
+    Solo il separatore DECIMALE (seguìto/preceduto da cifra) è un non-confine."""
+    n = mms._normalize_text
+    assert mms._phrase_in_text("over 2", n("over 2.")) is True        # punto finale = confine
+    assert mms._phrase_in_text("over 2", n("over 2,")) is True        # virgola finale = confine
+    assert mms._phrase_in_text("gol gol", n("gol gol.")) is True      # frase + punto
+    assert mms._phrase_in_text("over 2", n("over 2, quota 1,85")) is True  # virgola+spazio
+    # ma il decimale vero resta escluso
+    assert mms._phrase_in_text("over 2", n("over 2,75")) is False
+
+
 def test_match_legittimo_preservato():
     """Regressione: una frase che identifica il proprio mercato continua a risolvere `ok`."""
     prof = _market_profile("over/under 2,5", "Over/Under 2,5 gol")
@@ -112,3 +125,31 @@ def test_end_to_end_non_segnale_non_produce_riga_piazzabile():
     res2 = signal_router._resolve_one(defn, segnale, cfg=cfg, chat="123",
                                       provider="Canale", id_resolver=None)
     assert res2["fired"] is True and res2["rows"], "un vero segnale mappato deve ancora scattare"
+
+
+def test_mercato_ambiguo_e_fail_closed_end_to_end():
+    """Review Fable #135: sul ramo `ambiguous` (`market_matched=False` col mio gate) la pipeline
+    fail-closa comunque (`MARKET_MAPPING_MISSING`, mai il bet fisso). Anche con un EventName
+    OBBLIGATORIO (che farebbe passare il gate), due frasi che indicano mercati DIVERSI nello stesso
+    messaggio NON devono produrre alcuna riga piazzabile — mai tirare a indovinare il mercato."""
+    from xtrader_bridge import dizionario as dz
+    sel25 = dz.selections_for_market("Over/Under 2,5 gol", None)[0]["SelectionName"]
+    sel15 = dz.selections_for_market("Over/Under 1,5 gol", None)[0]["SelectionName"]
+    defn = cpe.CustomParserDef(
+        name="FissoAmb", mode="BOTH",
+        rules=[FR(target="MarketId", fixed_value="1.234567"),
+               FR(target="SelectionId", fixed_value="55555"),
+               FR(target="Price", fixed_value="1.85"),
+               FR(target="BetType", fixed_value="PUNTA"),
+               FR(target="EventName", start_after="Match:", required=True)],  # OBBLIGATORIO
+        market_mapping_profiles=["Canale"])
+    cfg = {"recognition_mode": "BOTH", "market_mappings": {"Canale": [
+        {"start_after": "Mercato:", "end_before": "\n", "phrase": "gol",
+         "market_type": "", "market_name": "Over/Under 2,5 gol", "selection_name": sel25},
+        {"start_after": "Mercato:", "end_before": "\n", "phrase": "over",
+         "market_type": "", "market_name": "Over/Under 1,5 gol", "selection_name": sel15}]}}
+    ambiguo = "Match: Inter v Milan\nMercato: over gol\n"   # contiene sia 'over' sia 'gol'
+    res = signal_router._resolve_one(defn, ambiguo, cfg=cfg, chat="123",
+                                     provider="Canale", id_resolver=None)
+    assert res["fired"] is False and res["rows"] == [], \
+        "un mercato AMBIGUO non deve mai produrre una riga piazzabile (mai il bet fisso)"

@@ -227,18 +227,25 @@ def _canonical_market(market_name: str, selection_name: str, rows=None):
 def _phrase_in_text(phrase: str, text_norm: str) -> bool:
     """``True`` se ``phrase`` compare in ``text_norm`` (già normalizzato) come
     sottostringa su **confini di token**. I lookaround escludono dai confini i caratteri
-    di parola (``\\w``), ``/`` e ``-`` E i **separatori decimali** ``,``/``.``: così "over"
-    non combacia dentro "overflow", una frase corta come "x" non combacia dentro "1/x"/"1-x"
-    (HT/FT), **e** una frase che finisce con un intero non combacia dentro una linea decimale
-    diversa — es. "over 2" NON matcha in "over 2,75"/"over 2.75", e "5 HT" NON matcha in
-    "1,5 HT" (P1 percorso soldi: senza escludere ``,``/``.`` una linea non mappata risolveva
-    al mercato di una voce più corta = scommessa sul mercato SBAGLIATO). Una cifra dopo la
-    frase era già esclusa (``\\w``); ora lo è anche il separatore decimale. Frasi che finiscono
-    con altra punteggiatura (spazio, "!") continuano a combaciare."""
+    di parola (``\\w``), ``/`` e ``-``, **e** il separatore decimale ``,``/``.`` SOLO quando è
+    davvero un decimale — cioè seguìto (a destra) o preceduto (a sinistra) da una **cifra**:
+
+    - "over" non combacia dentro "overflow" (``\\w``); "x" non combacia dentro "1/x"/"1-x" (``/``/``-``);
+    - **P1 percorso soldi**: una frase che finisce con un intero non combacia dentro una linea
+      **decimale** diversa — "over 2" NON matcha in "over 2,75"/"over 2.75", e "5 HT" NON matcha in
+      "1,5 HT" (senza questo, una linea non mappata risolveva al mercato di una voce più corta =
+      scommessa sul mercato SBAGLIATO);
+    - ma il ``,``/``.`` come **punteggiatura** (non seguìto da cifra) resta un confine valido:
+      "over 2" combacia ancora in "over 2." / "over 2," e "gol gol" in "gol gol." (review GPT-5.5:
+      non rompere i messaggi reali con punteggiatura finale). Una cifra dopo la frase era già
+      esclusa da ``\\w`` (es. "over 0,5" non matcha "over 0,55")."""
     p = _normalize_text(phrase)
     if not p:
         return False
-    return re.search(r"(?<![\w/.,-])" + re.escape(p) + r"(?![\w/.,-])", text_norm) is not None
+    # Confine: niente \w/-/ ai bordi; il separatore ,/. conta come confine SOLO se punteggiatura
+    # (a sinistra: non preceduto da `cifra+separatore`; a destra: non seguìto da `separatore+cifra`).
+    return re.search(r"(?<![\w/-])(?<!\d[.,])" + re.escape(p) + r"(?![\w/-])(?![.,]\d)",
+                     text_norm) is not None
 
 
 def resolve_market(text: str, profiles, rows=None, language=None) -> MarketResolution:
