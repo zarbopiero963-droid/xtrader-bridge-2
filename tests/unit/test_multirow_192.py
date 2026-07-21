@@ -479,7 +479,7 @@ def test_resolve_row_multi_ritorna_rows(monkeypatch):
     defn = _multiselection_parser()
     monkeypatch.setattr(signal_router, "active_custom_parsers", lambda cfg, chat, pd=None: [defn])
     monkeypatch.setattr(signal_router.custom_parser_engine, "matches_message",
-                        lambda d, t, m: True)
+                        lambda d, t, m, market_matched=None: True)
     monkeypatch.setattr(signal_router.source_manager, "source_for_chat", lambda cfg, chat: None)
     res = signal_router.resolve_row(MSG, {"chat_id": "1", "recognition_mode": "NAME_ONLY"})
     assert res.placeable
@@ -499,7 +499,7 @@ def test_resolve_row_multi_una_riga_preserva_provenienza(monkeypatch):
     assert defn.is_multi_row() is True
     monkeypatch.setattr(signal_router, "active_custom_parsers", lambda cfg, chat, pd=None: [defn])
     monkeypatch.setattr(signal_router.custom_parser_engine, "matches_message",
-                        lambda d, t, m: True)
+                        lambda d, t, m, market_matched=None: True)
     monkeypatch.setattr(signal_router.source_manager, "source_for_chat", lambda cfg, chat: None)
     res = signal_router.resolve_row(MSG, {"chat_id": "1", "recognition_mode": "NAME_ONLY"})
     assert res.placeable
@@ -529,7 +529,7 @@ def test_is_multi_row_solo_con_righe_attive(monkeypatch):
     defn.multi_selections = []
     monkeypatch.setattr(signal_router, "active_custom_parsers", lambda cfg, chat, pd=None: [defn])
     monkeypatch.setattr(signal_router.custom_parser_engine, "matches_message",
-                        lambda d, t, m: True)
+                        lambda d, t, m, market_matched=None: True)
     monkeypatch.setattr(signal_router.source_manager, "source_for_chat", lambda cfg, chat: None)
     res = signal_router.resolve_row(MSG, {"chat_id": "1", "recognition_mode": "NAME_ONLY"})
     assert res.placeable and res.rows is None        # nessuna riga attiva → single-row legacy
@@ -544,7 +544,7 @@ def test_resolve_row_single_resta_invariato(monkeypatch):
     ]))
     monkeypatch.setattr(signal_router, "active_custom_parsers", lambda cfg, chat, pd=None: [defn])
     monkeypatch.setattr(signal_router.custom_parser_engine, "matches_message",
-                        lambda d, t, m: True)
+                        lambda d, t, m, market_matched=None: True)
     monkeypatch.setattr(signal_router.source_manager, "source_for_chat", lambda cfg, chat: None)
     res = signal_router.resolve_row(MSG, {"chat_id": "1", "recognition_mode": "NAME_ONLY"})
     assert res.placeable and res.rows is None
