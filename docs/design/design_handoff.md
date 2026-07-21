@@ -1453,7 +1453,8 @@ incrementali** (merge manuale del proprietario). Il ponte design→CustomTkinter
 | PR | Ambito | Stato |
 |----|--------|-------|
 | **PR-1** | Modulo tema `xtrader_bridge/ui_theme.py` (fonte unica dei colori/geometria) + migrazione dei colori di `app.py` (header, banner, semafori, barra azioni, health-dot) ai token | ✅ **applicata** |
-| PR-2+ | Migrazione colori degli altri moduli GUI (`name_mapping_gui` 47 HEX, `guided_mapping_gui`, `profiles_gui`, `custom_parser_gui`, …) ai token di `ui_theme` | ⏳ da fare |
+| **PR-2** | Migrazione colori di `name_mapping_gui.py` (47 HEX → token: «Elimina»→`DANGER`, «Salva profilo»→`SUCCESS`, «Precompila da Betfair»→`ACCENT`, testo di stato ok/warn/err→`STATUS_OK`/`STATUS_WARN`/`STATUS_ERR`) — pannelli Nome + Mercato | ✅ **applicata** |
+| PR-3+ | Migrazione colori dei restanti moduli GUI (`guided_mapping_gui`, `profiles_gui`, `custom_parser_gui`, `source_chats_gui`, `provider_gui`, `journal_view_gui`, `tools_gui`, …) ai token di `ui_theme` | ⏳ da fare |
 | — | **Cornice rossa 3px** finestra in MODALITÀ REALE (§13, kit §3 «◐ adattato») + **toggle tema** dark/chiaro in header (kit §1) | ⏳ da fare (elementi strutturali/comportamentali, non solo colore) |
 | — | Restyling strutturale schermate (Parser §7.1 griglia 14 col, tab a workflow numerato, badge, mockup stati) | ⏳ da fare |
 
@@ -1462,6 +1463,13 @@ incrementali** (merge manuale del proprietario). Il ponte design→CustomTkinter
 REALE, arancio=riconnessione/scarti); banner REALE resta un **rosso profondo** a testo bianco
 leggibile (contrasto ≥ 4.5), NON il rosso brillante dei bottoni; leggibilità WCAG ≥ 3.0 del
 testo di stato in **entrambi** i temi. Nessun cambio di label (i18n intatta).
+
+**Invarianti preservate in PR-2** (`name_mapping_gui.py`): la migrazione è **solo colore** — nessun
+cambio di label, comando, logica o struttura. La **semantica di sicurezza** dei pulsanti è
+bloccata da `tests/integration/test_name_mapping_palette_pr2.py` (azione distruttiva «Elimina»/🗑
+resta **rossa** `DANGER`, «Salva profilo» **verde** `SUCCESS`, «Precompila da Betfair» **blu**
+`ACCENT`) e un guard source-scan blocca ogni re-hardcode HEX futuro. Il modulo non è testabile
+headless (richiede display): la logica dei pannelli resta coperta da `tests/unit/test_name_mapping.py`.
 
 > **Nota tecnica del token.** I colori-brand chiari del design system sono ottimi come
 > **riempimento** di bottoni/badge (testo bianco sopra), ma come **testo di stato** su header
