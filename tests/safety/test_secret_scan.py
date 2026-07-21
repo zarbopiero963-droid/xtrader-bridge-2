@@ -253,6 +253,18 @@ def test_allowlist_marker_salta_l_intera_riga(tmp_path):
     assert _run(next_line).returncode == 1, "una riga non marcata resta bloccata"
 
 
+def test_token_telegram_embedded_in_stringa_piu_lunga_blocca(tmp_path):
+    """Review Fable #131: senza `\\b` finale il gate intercetta un token Telegram anche se
+    EMBEDDED in una stringa più lunga (es. dentro un blob), non solo se isolato — un gate deve
+    coprire di più, non di meno. FAIL-FIRST rispetto alla variante con `\\b` finale su {35}."""
+    token = "123456789" + ":" + ("H" * 35)
+    f = tmp_path / "leak.txt"
+    f.write_text(f'blob = "prefix{token}suffixMOREtext"\n')   # nessun boundary attorno al token
+    r = _run(f)
+    assert r.returncode == 1, "token embedded deve comunque bloccare"
+    assert token not in (r.stdout + r.stderr)
+
+
 def test_binario_inatteso_emette_notice_ma_non_fallisce(tmp_path):
     """AC-B36: un file NON-asset (es. `.py`) con byte NUL è saltato ma con `::notice::` visibile
     (non sparisce in silenzio); un asset atteso (`.png`) è saltato SENZA rumore."""

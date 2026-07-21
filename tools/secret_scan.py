@@ -64,12 +64,13 @@ def _notice_binary_skip(path: str) -> None:
 # e sono già coperti dal blocco file di `forbidden-files`.
 PATTERNS = [
     # AC-B37 audit #114: allargato il bot-id a `{8,12}` (prima `{8,10}`) per intercettare i
-    # bot-id più lunghi dei bot Telegram recenti — che il redactor dei workflow (`\d{8,12}:…`)
-    # già considerava sensibili ma il gate al commit no. La parte auth resta `{35}` (formato
-    # REALE del token): NON allargata a `{30,}` come il redactor (volutamente lasco per la sola
-    # redazione), così il GATE non blocca falsi positivi — le fixture di test dei redattori
-    # usano valori a 32-34 char, sotto i 35 reali, e non devono far fallire il commit.
-    ("Telegram bot token", re.compile(rb"\b[0-9]{8,12}:[A-Za-z0-9_-]{35}\b")),
+    # bot-id più lunghi dei bot Telegram recenti. La parte auth resta `{35}` (formato REALE del
+    # token): NON allargata a `{30,}` come il redactor dei workflow (volutamente lasco per la
+    # sola redazione), così il GATE non blocca falsi positivi — le fixture di test usano 32-34
+    # char, sotto i 35 reali. NIENTE `\b` (review Fable #131): come il pattern storico, il match
+    # su substring intercetta anche un token EMBEDDED in una stringa più lunga (il `\b` finale
+    # su `{35}` lo mancherebbe) — per un GATE la copertura più ampia è preferibile.
+    ("Telegram bot token", re.compile(rb"[0-9]{8,12}:[A-Za-z0-9_-]{35}")),
     ("PEM private key", re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     # AKIA = chiave permanente; ASIA = credenziale TEMPORANEA STS (entrambe sono AWS access
     # key id valide e vanno intercettate — review CodeRabbit).
