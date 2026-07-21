@@ -227,6 +227,32 @@ def test_allowlist_marker_salta_solo_la_riga(tmp_path):
     assert FAKE_GH_TOKEN not in (r.stdout + r.stderr)
 
 
+def test_bot_id_8_cifre_limite_inferiore_blocca(tmp_path):
+    """Review GLM #131: il limite INFERIORE del bot-id (`{8,12}`) è 8 cifre → deve bloccare."""
+    secret = "12345678" + ":" + ("G" * 35)          # 8 cifre (minimo)
+    f = tmp_path / "leak.txt"
+    f.write_text(f"tok = {secret}\n")
+    r = _run(f)
+    assert r.returncode == 1
+    assert secret not in (r.stdout + r.stderr)
+
+
+def test_allowlist_marker_salta_l_intera_riga(tmp_path):
+    """Review GLM/GPT #131: il marker salta l'INTERA riga (comportamento voluto e documentato):
+    un secondo segreto SULLA STESSA riga marcata NON viene intercettato. È il motivo per cui il
+    marker va usato solo su righe a fixture singola — questo test blocca il comportamento così
+    una regressione (marker che smette di saltare, o che allowlista troppo) verrebbe notata."""
+    same_line = tmp_path / "one_line.txt"
+    same_line.write_text(f'a = "{FAKE_ANTHROPIC}"; b = "{FAKE_GH_TOKEN}"  # pragma: allowlist secret\n')
+    assert _run(same_line).returncode == 0, "riga marcata: l'intera riga è saltata (per design)"
+    # ...ma la riga SUCCESSIVA non marcata resta protetta:
+    next_line = tmp_path / "two_lines.txt"
+    next_line.write_text(
+        f'fixture = "{FAKE_ANTHROPIC}"  # pragma: allowlist secret\n'
+        f'leak = "{FAKE_TELEGRAM_12}"\n')
+    assert _run(next_line).returncode == 1, "una riga non marcata resta bloccata"
+
+
 def test_binario_inatteso_emette_notice_ma_non_fallisce(tmp_path):
     """AC-B36: un file NON-asset (es. `.py`) con byte NUL è saltato ma con `::notice::` visibile
     (non sparisce in silenzio); un asset atteso (`.png`) è saltato SENZA rumore."""

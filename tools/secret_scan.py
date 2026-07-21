@@ -95,6 +95,9 @@ def _git(args):
 # falso positivo NOTO e VOLUTO (es. una fixture di test che verifica proprio la redazione di un
 # finto segreto). Marcatura per-RIGA, esplicita e auditabile: NON allowlista un intero file, così
 # un segreto REALE su una riga non marcata dello stesso file resta bloccato.
+# ⚠️ DISCIPLINA (review GLM/GPT #131): il marker salta l'INTERA riga — non va MAI messo su una
+# riga che contiene anche un segreto reale (lo maschererebbe). Usarlo solo su fixture a segreto
+# singolo/finto; in review una riga marcata è un punto di attenzione esplicito.
 _ALLOW_MARKER = b"pragma: allowlist secret"
 
 
