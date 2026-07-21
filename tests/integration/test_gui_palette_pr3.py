@@ -50,6 +50,17 @@ def test_zero_hex_hardcoded_nei_colori(mod):
 
 
 @pytest.mark.parametrize("mod", _MODULES)
+def test_tutti_i_token_referenziati_esistono(mod):
+    """Review Fugu #128: i moduli GUI non sono importabili headless, quindi un token
+    INESISTENTE (es. un refuso `ui_theme.SUCESS`) darebbe `AttributeError` solo a runtime
+    (all'apertura della GUI) — il source-scan «zero HEX» NON lo intercetterebbe. Qui si
+    estrae ogni `ui_theme.X` referenziato dal modulo e si prova che è un attributo REALE."""
+    refs = set(re.findall(r'\bui_theme\.([A-Z_][A-Z0-9_]*)', _src(mod)))
+    missing = sorted(r for r in refs if not hasattr(ui_theme, r))
+    assert not missing, f"{mod}.py referenzia token ui_theme inesistenti (AttributeError a runtime): {missing}"
+
+
+@pytest.mark.parametrize("mod", _MODULES)
 def test_importa_e_usa_ui_theme(mod):
     """Ogni modulo migrato importa e referenzia `ui_theme` (fonte unica dei colori)."""
     src = _src(mod)
