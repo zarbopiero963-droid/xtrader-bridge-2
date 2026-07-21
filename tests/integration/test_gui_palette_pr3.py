@@ -26,9 +26,13 @@ _MODULES = ["guided_mapping_gui", "profiles_gui", "source_chats_gui", "provider_
 _DESTRUCTIVE_MODULES = ["profiles_gui", "source_chats_gui", "provider_gui",
                         "custom_parser_gui", "known_teams_gui"]
 
-# Guard ESAUSTIVO identico a PR-2: HEX (6 o 3 cifre) in QUALSIASI posizione di stringa/tupla.
-_HEX = r'#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])'
-_COLOR_KWARG_HEX = re.compile(r'\w*color\s*=\s*(?:"' + _HEX + r'|\([^)\n]*"' + _HEX + r')')
+# Guard RAW (rafforzato dopo review #128 — Fable/GPT/Fugu): un guard sui soli kwarg `*color=`
+# NON intercettava gli HEX in un ramo ternario (`… if ok else "#ef5350"`), nei valori di un dict
+# (`{"text_color": "#ffa726"}`), in una tupla assegnata a variabile (`_COLOR_ERR = ("#c62828",
+# "#ef5350")`) o passata a un helper (`color=None if … else "#ef5350"`) — casi tutti presenti nel
+# codice. Perciò il guard è ora un raw-scan: **NESSUN** literal `"#rrggbb"`/`"#rgb"` deve restare in
+# questi moduli (tutti i colori passano dai token). Ancorato alle virgolette → lunghezza esatta 3/6.
+_RAW_HEX = re.compile(r'"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})"')
 
 
 def _src(mod):
@@ -37,8 +41,9 @@ def _src(mod):
 
 @pytest.mark.parametrize("mod", _MODULES)
 def test_zero_hex_hardcoded_nei_colori(mod):
-    """Nessun HEX letterale resta in un kwarg `*color` — tutti passano dai token `ui_theme`."""
-    offenders = _COLOR_KWARG_HEX.findall(_src(mod))
+    """Nessun literal HEX resta in QUALSIASI forma (kwarg, ternario, dict, tupla-costante,
+    param helper) — tutti i colori passano dai token `ui_theme`."""
+    offenders = _RAW_HEX.findall(_src(mod))
     assert offenders == [], f"{mod}.py: colori HEX hardcoded residui (usa ui_theme): {offenders}"
 
 
@@ -54,14 +59,19 @@ def test_importa_e_usa_ui_theme(mod):
 
 
 def test_meta_guard_cattura_offender_sintetici():
-    """Negative case: la regex cattura gli offender (incl. HEX come 2° elemento di tupla e a 3
-    cifre) e NON scatta su token/nomi legittimi — così il guard non passa "a vuoto"."""
-    for bad in ('text_color="#ef5350"', 'fg_color=("gray", "#000")',
-                'hover_color=("#000000", "#111111")', 'text_color="#f00"'):
-        assert _COLOR_KWARG_HEX.search(bad), f"il guard NON cattura {bad!r}"
-    for good in ('fg_color=ui_theme.DANGER', 'text_color="gray"',
-                 'fg_color=("gray", "white")', 'text_color="#12345"'):
-        assert not _COLOR_KWARG_HEX.search(good), f"il guard scatta a vuoto su {good!r}"
+    """Negative case: il raw-scan cattura l'HEX in TUTTE le forme reali che il vecchio guard
+    `*color=` mancava (ternario, dict, tupla-costante, param helper) e a 3/6 cifre — e NON scatta
+    su nomi/token legittimi né su HEX a lunghezza non-colore (4/5 cifre)."""
+    for bad in ('text_color="#ef5350"',                       # kwarg diretto
+                'x if ok else "#ef5350"',                     # ramo ternario (mancava!)
+                '{"text_color": "#ffa726"}',                  # valore di dict (mancava!)
+                '_COLOR_ERR = ("#c62828", "#ef5350")',        # tupla-costante (mancava!)
+                'color=None if placeable else "#ef5350"',     # param helper (mancava!)
+                'fg_color="#f00"'):                           # 3 cifre
+        assert _RAW_HEX.search(bad), f"il guard NON cattura {bad!r}"
+    for good in ('fg_color=ui_theme.DANGER', 'text_color="gray"', '_COLOR = ui_theme.STATUS_OK',
+                 '"#12345"', '"#abcd"'):                      # 5/4 cifre: non-colore
+        assert not _RAW_HEX.search(good), f"il guard scatta a vuoto su {good!r}"
 
 
 @pytest.mark.parametrize("mod", _DESTRUCTIVE_MODULES)

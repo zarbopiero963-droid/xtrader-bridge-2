@@ -30,7 +30,7 @@ from .source_editor import SourceEditor, _clean_names
 
 # Chip «Traduzioni» per canale (#293 slice 6): mostra se il parser del canale ha mappature
 # nomi/mercati RISOLTE attive. Colori theme-aware (light, dark): verde se almeno una attiva.
-_CHIP_ON_COLOR = ("#2e7d32", "#66bb6a")
+_CHIP_ON_COLOR = ui_theme.STATUS_OK
 _CHIP_OFF_COLOR = "gray"
 
 

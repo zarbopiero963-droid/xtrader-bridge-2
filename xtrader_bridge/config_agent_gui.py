@@ -10,8 +10,8 @@ from . import config_agent_controller as ctl
 from . import event_log, i18n, token_store, ui_theme
 
 # Palette semantica theme-aware `(chiaro, scuro)`, coerente col resto della GUI.
-_COLOR_OK = ("#2e7d32", "#66bb6a")     # verde = attivo
-_COLOR_ERR = ("#c62828", "#ef5350")    # rosso = errore
+_COLOR_OK = ui_theme.STATUS_OK          # verde = attivo (token)
+_COLOR_ERR = ui_theme.STATUS_ERR        # rosso = errore (token)
 _COLOR_MUTED = "gray"                  # grigio = offline
 
 

@@ -331,7 +331,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
         self._status.configure(
             text=(i18n.tr("🆕 Profilo «{name}» creato.").format(name=name) if ok
                   else i18n.tr("❌ Salvataggio FALLITO: «{name}» non creato.").format(name=name)),
-            text_color=ui_theme.STATUS_OK if ok else "#ef5350")
+            text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
 
     # ── sport / competizioni / squadre ─────────────────────────────────────────
     def _selected_sport(self):

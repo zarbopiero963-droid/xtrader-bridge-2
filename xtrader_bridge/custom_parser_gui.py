@@ -49,7 +49,7 @@ _BETFAIR_TERM_TARGETS = {
 
 # Colori dell'indicatore «🔗 Traduzioni attive» (#293): verde theme-aware se almeno un profilo è
 # selezionato, grigio se nessuno. Tuple CustomTkinter (light, dark).
-_TRANSLATION_ON_COLOR = ("#2e7d32", "#66bb6a")
+_TRANSLATION_ON_COLOR = ui_theme.STATUS_OK
 _TRANSLATION_OFF_COLOR = "gray"
 
 
@@ -231,7 +231,7 @@ class CustomParserPanel(ctk.CTkFrame):
         for name in names:
             present = name in self._existing_profiles
             var = ctk.BooleanVar(value=name in selected_set)
-            kw = {} if present else {"text_color": "#ffa726"}   # ⚠ profilo mancante
+            kw = {} if present else {"text_color": ui_theme.STATUS_WARN}   # ⚠ profilo mancante
             # `command` (#293): al toggle aggiorna l'indicatore «🔗 Traduzioni attive».
             ctk.CTkCheckBox(self._profiles_box, text=name if present else f"⚠ {name}",
                             variable=var, width=20, command=self._update_translations_status,
@@ -340,7 +340,7 @@ class CustomParserPanel(ctk.CTkFrame):
         for name in names:
             present = name in self._existing_market_profiles
             var = ctk.BooleanVar(value=name in selected_set)
-            kw = {} if present else {"text_color": "#ffa726"}   # ⚠ profilo mancante
+            kw = {} if present else {"text_color": ui_theme.STATUS_WARN}   # ⚠ profilo mancante
             # `command` (#293): al toggle aggiorna l'indicatore «🔗 Traduzioni attive».
             ctk.CTkCheckBox(self._market_profiles_box, text=name if present else f"⚠ {name}",
                             variable=var, width=20, command=self._update_translations_status,
@@ -1507,7 +1507,7 @@ class CustomParserPanel(ctk.CTkFrame):
             kind = self._MULTI_KIND_LABEL.get(pr.kind, pr.kind)
             esito = "✅" if pr.placeable else f"⛔ {pr.status}"
             add_cells([str(pr.index + 1), kind, esito, pr.summary],
-                      color=None if pr.placeable else "#ef5350")
+                      color=None if pr.placeable else ui_theme.STATUS_ERR)
 
     def _test_batch(self):
         """Tester multiplo (#311 §3.2): valuta OGNI messaggio incollato nel box (separati
@@ -1572,12 +1572,12 @@ class CustomParserPanel(ctk.CTkFrame):
         for rep in reports:
             add_cells([f"M{rep.index + 1}", "Messaggio",
                        "✅" if rep.ok else "⛔", f"{rep.first_line} → {rep.verdict}"],
-                      header=True, color=None if rep.ok else "#ef5350")
+                      header=True, color=None if rep.ok else ui_theme.STATUS_ERR)
             for pr in rep.rows:
                 kind = self._MULTI_KIND_LABEL.get(pr.kind, pr.kind)
                 esito = "✅" if pr.placeable else f"⛔ {pr.status}"
                 add_cells([str(pr.index + 1), kind, esito, pr.summary],
-                          color=None if pr.placeable else "#ef5350")
+                          color=None if pr.placeable else ui_theme.STATUS_ERR)
 
     def _render_diag_table(self, rows):
         """Disegna la tabella diagnostica da righe già pronte (logica in
@@ -1597,7 +1597,7 @@ class CustomParserPanel(ctk.CTkFrame):
         for r in rows:
             target = r.target if (r.required or r.banner) else f"{r.target}  (opz)"
             add_cells([target, r.status, r.reason, r.start_after, r.end_before, r.extracted],
-                      color=None if r.ok else "#ef5350")
+                      color=None if r.ok else ui_theme.STATUS_ERR)
 
     def _copy_diag(self):
         """Copia l'ultimo report di diagnostica negli appunti (per incollarlo)."""

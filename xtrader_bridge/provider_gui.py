@@ -119,7 +119,7 @@ class ProviderPanel(ctk.CTkFrame):
             self._on_saved(saved)
         self._reload()
         self._status.configure(text=ok_msg if ok else fail_msg,
-                               text_color=ui_theme.STATUS_OK if ok else "#ef5350")
+                               text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
 
     def _add(self):
         """Aggiunge il nome digitato all'anagrafica (dedup case-insensitive)."""
