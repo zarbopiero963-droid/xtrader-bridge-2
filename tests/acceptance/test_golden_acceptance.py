@@ -25,10 +25,23 @@ NB: `GOLDEN_PARSER`/`GOLDEN_MARKET_MAPPINGS` qui sono un setup **rappresentativo
 + mappatura mercati) finché non arrivano il parser e i messaggi reali del proprietario; i casi
 sono comunque veri e passano sul codice attuale. Due casi blindano i P1 chiusi in #135
 (mercato sbagliato su linea decimale non mappata; bet spurio su non-segnale).
+
+Due livelli di verifica del contratto CSV:
+1. `test_golden_message_to_csv` confronta il **dict-riga** prodotto dalla pipeline (valori
+   canonici, `Price` col punto) — un caso ha l'`expect` su **tutte** le 14 colonne così anche
+   `EventId`/`MarketId`/`Handicap`/`MinPrice`/… (non solo quelle "interessanti") sono blindate.
+2. `test_golden_riga_serializza_csv_reale` rende la stessa riga attraverso il **vero writer**
+   (`csv_writer.write_csv`) e confronta i **byte** del file (BOM utf-8-sig, `QUOTE_ALL`, `\\r\\n`,
+   e la **localizzazione decimale**: `Price` diventa `1,85` in IT/ES e `1.85` in EN) — cioè
+   esattamente ciò che XTrader legge, non solo il dict interno.
 """
+
+import csv
+import io
 
 import pytest
 
+from xtrader_bridge import csv_writer
 from xtrader_bridge import custom_parser_engine as cpe
 from xtrader_bridge import custom_pipeline
 from xtrader_bridge import market_mapping_store
@@ -59,13 +72,16 @@ GOLDEN_MARKET_MAPPINGS = {"Canale": [
 # Ogni caso: message → riga attesa (`expect`, sottoinsieme di colonne CSV) OPPURE `expect_rejected`.
 CASES = [
     {
-        "id": "over_2_5_valido → riga CSV esatta",
+        # `expect` su TUTTE le 14 colonne (contratto XTrader completo): così una regressione su
+        # QUALSIASI campo — anche EventId/MarketId/SelectionId/Handicap/MinPrice/MaxPrice/Points,
+        # non solo quelli "interessanti" — viene beccata (review GLM 5.2 / Fugu Ultra #136).
+        "id": "over_2_5_valido → riga CSV esatta (14 colonne)",
         "message": "P.Bet. Inter v Milan\nMercato: over 2,5\nQuota 1,85",
         "expect": {
-            "Provider": "PBet", "EventName": "Inter v Milan",
-            "MarketType": "OVER_UNDER_25", "MarketName": "Over/Under 2,5 gol",
-            "SelectionName": "Over 2,5 goal", "Handicap": "0",
-            "Price": "1.85", "BetType": "PUNTA",
+            "Provider": "PBet", "EventId": "", "EventName": "Inter v Milan",
+            "MarketId": "", "MarketName": "Over/Under 2,5 gol", "MarketType": "OVER_UNDER_25",
+            "SelectionId": "", "SelectionName": "Over 2,5 goal", "Handicap": "0",
+            "Price": "1.85", "MinPrice": "", "MaxPrice": "", "BetType": "PUNTA", "Points": "",
         },
     },
     {
@@ -129,3 +145,49 @@ def test_setup_golden_e_coerente():
     assert any(not c.get("expect_rejected") for c in CASES)
     validi = [c for c in CASES if not c.get("expect_rejected")]
     assert _run(validi[0]["message"]), "il primo caso valido deve produrre una riga piazzabile"
+
+
+@pytest.mark.parametrize("lang,price_reso", [("IT", "1,85"), ("EN", "1.85"), ("ES", "1,85")])
+def test_golden_riga_serializza_csv_reale(lang, price_reso, tmp_path):
+    """La riga golden passata nel **vero writer** produce il file **byte per byte** che XTrader
+    legge (review GPT-5.5 #136): non basta il dict-riga della pipeline, conta la serializzazione
+    reale — BOM utf-8-sig, `QUOTE_ALL`, terminatore `\\r\\n` e la **localizzazione decimale**
+    (`Price` = `1,85` in IT/ES, `1.85` in EN). Blinda il contratto CSV effettivo, non solo l'ordine
+    delle chiavi del dict."""
+    row = _run("P.Bet. Inter v Milan\nMercato: over 2,5\nQuota 1,85")[0]
+    prev = csv_writer.get_csv_language()
+    try:
+        csv_writer.set_csv_language(lang)
+        path = tmp_path / "segnali.csv"
+        csv_writer.write_csv(row, str(path))
+        raw = path.read_bytes()
+    finally:
+        csv_writer.set_csv_language(prev)   # ripristina lo stato globale del modulo
+    assert raw.startswith(b"\xef\xbb\xbf"), "manca il BOM utf-8-sig atteso da XTrader"
+    text = raw.decode("utf-8-sig")
+    righe = list(csv.reader(io.StringIO(text)))
+    assert righe[0] == cpe.CSV_HEADER, "prima riga del file ≠ header contratto XTrader"
+    assert len(righe) == 2, f"attese header + 1 riga dati, ottenute {len(righe)} righe"
+    # ogni campo è quotato (QUOTE_ALL) e la riga termina con CRLF
+    header_line, data_line = text.split("\r\n")[0], text.split("\r\n")[1]
+    assert header_line.startswith('"Provider"') and data_line.startswith('"PBet"')
+    assert text.endswith("\r\n") and text.count("\r\n") == 2
+    # localizzazione decimale reale: è il valore che XTrader parserà davvero
+    campi = righe[1]
+    assert campi[cpe.CSV_HEADER.index("Price")] == price_reso
+    assert campi[cpe.CSV_HEADER.index("MarketType")] == "OVER_UNDER_25"
+    assert campi[cpe.CSV_HEADER.index("SelectionName")] == "Over 2,5 goal"
+
+
+def test_mappature_vuote_fail_closed():
+    """Fail-closed del resolver (review GLM 5.2 #136): se il profilo mercati è VUOTO, un messaggio
+    che dipende dalla mappatura mercato (`over 2,5`) NON deve produrre alcuna riga piazzabile —
+    mai tirare a indovinare un mercato quando non è mappato."""
+    profiles = market_mapping_store.entries_for_profiles(
+        {"market_mappings": {"Canale": []}}, GOLDEN_PARSER.market_mapping_profiles)
+    results = custom_pipeline.build_validated_rows(
+        GOLDEN_PARSER, "P.Bet. Inter v Milan\nMercato: over 2,5\nQuota 1,85",
+        mode=GOLDEN_PARSER.mode, market_mapping_profiles=profiles,
+        provider="PBet", require_price=True)
+    assert [r.row for r in results if r.placeable] == [], \
+        "con mappature vuote il resolver deve fail-closare (nessuna riga)"
