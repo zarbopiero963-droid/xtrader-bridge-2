@@ -118,6 +118,25 @@ class AgentController:
         """`True` se l'assistente è nello stato RUNNING (chat attiva)."""
         return self.state == RUNNING
 
+    def redact_for_log(self, line) -> str:
+        """AC-M9 #114 — redige una riga di trascritto PRIMA che la view la scriva nel log
+        persistente (`bridge-AAAA-MM-GG.log`). Copre due classi di segreti:
+
+        - i segreti REGISTRATI (bot token / API key) via `event_log.redact_secrets`;
+        - i **chat ID** della config viva via `event_log.redact_extra` — un chat ID che l'utente
+          scrive nella chat dell'assistente NON deve finire in chiaro nel log (mentre la history su
+          disco già lo redige: era l'asimmetria del finding). Usa la STESSA fonte di chat ID della
+          persistenza history (`_history_extra_secrets`), così log e history restano coerenti.
+
+        Fail-safe: se il config_loader manca o solleva, ritorna almeno la forma con i soli segreti
+        registrati redatti (mai la riga grezza, mai un'eccezione propagata al logging della view)."""
+        red = event_log.redact_secrets(str(line))
+        try:
+            chat_ids = _history_extra_secrets(self._config_loader())
+        except Exception:   # noqa: BLE001 — config illeggibile: log comunque coi soli secret redatti
+            return red
+        return event_log.redact_extra(red, chat_ids) if chat_ids else red
+
     def _emit(self, kind, data=None):
         """Notifica un evento alla view (`on_event(kind, data)`), best-effort."""
         if self._on_event is not None:

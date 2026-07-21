@@ -764,8 +764,20 @@ def _health_items_to_dicts(items) -> list:
         state = getattr(it, "state", None) if not isinstance(it, dict) else it.get("state", "")
         detail = getattr(it, "detail", None) if not isinstance(it, dict) else it.get("detail", "")
         advice = _HEALTH_ADVICE.get(key, "") if state and state != health_check.GREEN else ""
+        detail = detail or ""
+        # AC-M10 #114 — privacy: il semaforo «Ultimo messaggio» contiene il testo GREZZO
+        # dell'ultimo messaggio Telegram (nomi, note, materiale del canale). Questo dict finisce
+        # nell'output del tool `explain_health` → inviato all'API Anthropic e PERSISTITO in
+        # `assistant_history.json`. Va redatto (hash + prima riga troncata, come il log privacy
+        # `debug_message_payload`) PRIMA di lasciare la macchina: l'assistente resta utile («è
+        # arrivato un messaggio») senza riversare il contenuto a terzi. Si redige per QUALSIASI
+        # stato tranne il GIALLO (l'unico che porta il placeholder «nessun messaggio», non testo
+        # reale): così un provider che esponesse testo grezzo anche in ROSSO/altro non fa leak
+        # (review Fugu #133). Il pannello 🚦 locale dell'app NON passa di qui → testo pieno per l'utente.
+        if key == "message" and detail and state != health_check.YELLOW:
+            detail = log_privacy.redact_message(detail)
         out.append({"key": key or "", "label": label or "", "state": state or "",
-                    "detail": detail or "", "advice": advice})
+                    "detail": detail, "advice": advice})
     return out
 
 
@@ -1226,6 +1238,130 @@ def _cap_history(history) -> list:
     return kept
 
 
+# AC-M8 #114 — testo del `tool_result` sintetico per un `tool_use` rimasto ORFANO (troncamento
+# `max_tokens` a metà chiamata): un blocco `tool_use` senza `tool_result` corrispondente fa
+# rifiutare TUTTA la cronologia dall'API (400) — e siccome la history è persistita e rispedita a
+# ogni turno, l'assistente resterebbe in «[errore interno]» PERMANENTEMENTE, anche tra sessioni.
+_ORPHAN_TOOL_RESULT = "[chiamata interrotta: risposta troncata, nessun risultato]"
+
+
+def _as_blocks(content) -> list:
+    """Content di un messaggio come LISTA di blocchi (una stringa → un blocco testo): serve per
+    UNIRE due messaggi dello stesso ruolo senza perdere nulla. Tipi inattesi → lista vuota."""
+    if isinstance(content, list):
+        return list(content)
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    return []
+
+
+def _synthetic_tool_result(tid) -> dict:
+    return {"type": "tool_result", "tool_use_id": tid, "content": _ORPHAN_TOOL_RESULT, "is_error": True}
+
+
+def _repair_history(messages) -> list:
+    """AC-M8 #114 — rende una cronologia RIPETIBILE dall'API Anthropic, riparando TUTTE le forme
+    che causano un 400 PERMANENTE (l'assistente resterebbe in «[errore interno]» tra le sessioni,
+    senza pulsante di reset). Pura, fail-safe e idempotente; applicata sia quando si SCRIVE la
+    history (`run_turn`) sia quando si LEGGE un file già corrotto (`ConversationHistory.load` →
+    auto-guarigione). Garantisce sull'output:
+
+    1. **content valido**: si tengono solo i messaggi con stringa non vuota o lista non vuota →
+       cadono `[]`/`""`/spazi, `None` (`content: null` di un file editato) e tipi inattesi
+       (int/dict), tutti rifiutati dall'API (review Fable #133);
+    2. **`tool_use` validi e sempre risposti**: dal content `assistant` si **scartano** i blocchi
+       `tool_use` che l'API rifiuterebbe — id vuoto/non-stringa e id **duplicato** nel turno (si
+       tiene la prima occorrenza, review GLM+Fable #133); per ogni `tool_use` valido rimasto senza
+       risposta (troncamento `max_tokens`) si **sintetizza** un `tool_result` di errore;
+    3. **nessun `tool_result` orfano**: un `tool_result` senza un `tool_use` a monte (file
+       editato / testa tagliata a metà turno) viene **scartato** (review Fugu #133);
+    4. **ruoli alternati**: due messaggi consecutivi dello stesso ruolo vengono **uniti** (l'API
+       richiede l'alternanza; un `tool_result` sintetico in coda + il testo utente del turno dopo
+       darebbero due `user` di fila — review Fable #133)."""
+    # (1) tiene solo dict con content valido per l'API.
+    src = []
+    for m in (messages or []):
+        if not isinstance(m, dict):
+            continue
+        c = m.get("content")
+        if not ((isinstance(c, str) and c.strip()) or (isinstance(c, list) and c)):
+            continue
+        src.append(m)
+
+    # (2)+(3) riconcilia le coppie tool_use/tool_result in ENTRAMBE le direzioni.
+    out = []
+    pending = []   # tool_use id dell'ultimo assistant, ancora da rispondere (dedup, ordine preservato)
+
+    def _flush_pending():
+        if pending:
+            out.append({"role": "user", "content": [_synthetic_tool_result(t) for t in pending]})
+            pending.clear()
+
+    for m in src:
+        role, content = m.get("role"), m.get("content")
+        if role == "user" and isinstance(content, list):
+            kept = []
+            for b in content:
+                if isinstance(b, dict) and b.get("type") == "tool_result":
+                    tid = b.get("tool_use_id")
+                    if tid in pending:
+                        kept.append(b)
+                        pending.remove(tid)          # risposto
+                    # else: tool_result ORFANO (nessun tool_use a monte) → scartato (Fugu #133)
+                else:
+                    kept.append(b)                   # blocchi non-tool_result (testo) restano
+            blocks = [_synthetic_tool_result(t) for t in pending] + kept  # orfani rimasti → sintetici
+            pending.clear()
+            if blocks:
+                out.append({"role": "user", "content": blocks})
+            continue
+        _flush_pending()          # un messaggio non-(user-lista) chiude eventuali tool_use pendenti
+        if role == "assistant" and isinstance(content, list):
+            # Ricostruisce il content scartando i blocchi `tool_use` INVALIDI, che l'API
+            # rifiuterebbe comunque (400 residuo — review Fable #133): id vuoto/non-stringa, e id
+            # DUPLICATO nello stesso turno (si tiene la prima occorrenza). Serve scartare i BLOCCHI,
+            # non solo deduplicare i result: due `tool_use` con lo stesso id nel messaggio assistant
+            # sono già un 400.
+            seen, new_content = set(), []
+            for b in content:
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    tid = b.get("id", "")
+                    if not (isinstance(tid, str) and tid) or tid in seen:
+                        continue
+                    seen.add(tid)
+                new_content.append(b)
+            if not new_content:
+                continue                              # assistant senza blocchi validi → scartato
+            out.append({"role": "assistant", "content": new_content})
+            pending[:] = [b.get("id") for b in new_content
+                          if isinstance(b, dict) and b.get("type") == "tool_use"]
+        else:
+            out.append(m)
+    _flush_pending()
+
+    # (4) niente due messaggi consecutivi dello STESSO ruolo: unisci i blocchi.
+    merged = []
+    for m in out:
+        if merged and merged[-1].get("role") == m.get("role"):
+            merged[-1] = {"role": m["role"],
+                          "content": _as_blocks(merged[-1]["content"]) + _as_blocks(m["content"])}
+        else:
+            merged.append(m)
+    return merged
+
+
+def _append_user_text(messages, text) -> None:
+    """Appende il testo utente come turno `user`, UNENDOLO al turno precedente se è già `user`
+    (es. una history riparata che termina con un `tool_result` sintetico): l'API richiede
+    l'alternanza dei ruoli, due `user` consecutivi la romperebbero (review Fable #133)."""
+    if messages and messages[-1].get("role") == "user":
+        prev = messages[-1]
+        messages[-1] = {"role": "user",
+                        "content": _as_blocks(prev.get("content")) + [{"type": "text", "text": text}]}
+    else:
+        messages.append({"role": "user", "content": text})
+
+
 class ConfigAgent:
     """Loop tool-use dell'assistente. ``client`` è qualunque oggetto con
     ``create_message(system, messages, tools) -> {"stop_reason", "content"}`` (reale o finto).
@@ -1246,8 +1382,12 @@ class ConfigAgent:
         la context window, un 400/413 permanente che uccideva l'assistente. Il cap si
         propaga anche al file su disco: il chiamante fa `history.replace(turn.messages)`
         e `turn.messages` parte dalla cronologia già capata."""
-        messages = _cap_history(history)
-        messages.append({"role": "user", "content": str(user_text)})
+        # Ripara SEMPRE la history capata prima di spedirla (defense-in-depth: anche se il chiamante
+        # passasse una history non riparata, l'API non riceve tool_use/tool_result orfani, content
+        # vuoti o ruoli non alternati). `_append_user_text` unisce il testo se la history riparata
+        # finisce con un turno `user` (es. un `tool_result` sintetico da un orfano in coda).
+        messages = _repair_history(_cap_history(history))
+        _append_user_text(messages, str(user_text))
         tool_results_all = []
         for _ in range(MAX_TOOL_ITERATIONS):
             resp = self.client.create_message(
@@ -1258,7 +1398,10 @@ class ConfigAgent:
             tool_uses = [b for b in content if b.get("type") == "tool_use"]
             if resp.get("stop_reason") != "tool_use" or not tool_uses:
                 text = "".join(b.get("text", "") for b in content if b.get("type") == "text")
-                return AgentTurn(text, messages, tool_results_all)
+                # AC-M8 #114: `stop_reason == "max_tokens"` con `tool_use` PARZIALI lascerebbe un
+                # blocco orfano (nessun `tool_result`) → 400 permanente alla ripetizione. `_repair_history`
+                # sintetizza i `tool_result` di errore mancanti prima di persistere/ritornare.
+                return AgentTurn(text, _repair_history(messages), tool_results_all)
             # Risolve OGNI tool_use del turno tramite le guardie del registry.
             results_blocks = []
             for tu in tool_uses:
@@ -1269,7 +1412,7 @@ class ConfigAgent:
                                        "content": res.content})
             messages.append({"role": "user", "content": results_blocks})
         # Cap raggiunto: il modello continua a chiamare tool → si ferma per sicurezza.
-        return AgentTurn("", messages, tool_results_all, capped=True)
+        return AgentTurn("", _repair_history(messages), tool_results_all, capped=True)
 
 
 # ── Persistenza cronologia conversazione (#41 PR-2) ─────────────────────────────
@@ -1405,5 +1548,9 @@ class ConversationHistory:
         if not isinstance(msgs, list):
             return cls([])
         # Tiene SOLO i messaggi ben formati (dict con "role"): un file editato a mano con elementi
-        # malformati non deve iniettare payload incompatibili nel client LLM (GPT #63).
-        return cls([m for m in msgs if isinstance(m, dict) and "role" in m])
+        # malformati non deve iniettare payload incompatibili nel client LLM (GPT #63). Poi
+        # `_repair_history` (AC-M8 #114) AUTO-GUARISCE un file già corrotto in una sessione
+        # precedente (tool_use orfano / content vuoto), così l'assistente non resta bloccato in
+        # «[errore interno]» in eterno appena si riapre l'app.
+        well_formed = [m for m in msgs if isinstance(m, dict) and "role" in m]
+        return cls(_repair_history(well_formed))
