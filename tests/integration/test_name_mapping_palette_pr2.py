@@ -22,11 +22,15 @@ _SRC_PATH = pathlib.Path(__file__).resolve().parents[2] / "xtrader_bridge" / "na
 _SRC = _SRC_PATH.read_text(encoding="utf-8")
 
 # Stesso match ESAUSTIVO del guard di app.py: QUALSIASI kwarg che termina in `color`
-# impostato a un HEX letterale (stringa `="#…"` O tupla inline `=("#…"`). Copre sia gli HEX a
-# **6 cifre** sia quelli a **3 cifre** (`#f00`), validi in Tk/CTk (follow-up Fable #127): un
-# re-hardcode compatto non deve sfuggire. Il lookahead nega 4-5 cifre (non-colore).
-_COLOR_KWARG_HEX = re.compile(
-    r'\w*color\s*=\s*\(?\s*"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])')
+# impostato a un HEX letterale. Copre:
+#  - la stringa singola `="#…"`;
+#  - un HEX in QUALSIASI posizione di una tupla `=("#…", …)` O `=(token, "#…")` — non solo il
+#    PRIMO elemento (follow-up Fugu #127 / Fable #126: un re-hardcode nella variante dark
+#    `("gray", "#000")` non deve sfuggire, altrimenti la garanzia «blocca ogni re-hardcode» è falsa);
+#  - HEX a **6** e a **3** cifre (`#f00`), entrambi validi in Tk/CTk; il lookahead nega 4-5 cifre.
+# `[^)\n]*` limita la ricerca dentro la STESSA tupla su una riga (niente over-reach a call successive).
+_HEX = r'#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])'
+_COLOR_KWARG_HEX = re.compile(r'\w*color\s*=\s*(?:"' + _HEX + r'|\([^)\n]*"' + _HEX + r')')
 
 
 def test_zero_hex_hardcoded_nei_colori():
@@ -36,13 +40,16 @@ def test_zero_hex_hardcoded_nei_colori():
     assert offenders == [], (
         "name_mapping_gui.py contiene ancora colori HEX hardcoded (usa i token ui_theme): "
         + ", ".join(offenders))
-    # Meta-check (negative case): la regex cattura davvero offender sintetici → il guard
-    # non passa "a vuoto" per un pattern troppo stretto. Include un HEX a 3 cifre (Fable #127).
+    # Meta-check (negative case): la regex cattura davvero gli offender sintetici → il guard
+    # non passa "a vuoto". Include HEX a 3 cifre (Fable #127) e HEX come 2° elemento di tupla
+    # mista (Fugu #127): un re-hardcode nella variante dark non deve sfuggire.
     for bad in ('text_color="#ef5350"', 'fg_color=("#2e7d32", "#1b5e20")',
-                'hover_color = "#7f0000"', 'text_color="#f00"'):
+                'hover_color = "#7f0000"', 'text_color="#f00"',
+                'fg_color=("gray", "#000")', 'text_color=(ui_theme.TEXT, "#000000")'):
         assert _COLOR_KWARG_HEX.search(bad), f"il guard NON cattura {bad!r}"
-    # ...e NON scatta su non-colori a 4-5 cifre (che Tk non accetta): niente falsi positivi.
-    for ok in ('text_color="#12345"', 'fg_color="#abcd"'):
+    # ...e NON scatta su non-colori (4-5 cifre) o su token/nomi legittimi: niente falsi positivi.
+    for ok in ('text_color="#12345"', 'fg_color="#abcd"', 'fg_color=ui_theme.DANGER',
+               'text_color="gray"', 'fg_color=("gray", "white")'):
         assert not _COLOR_KWARG_HEX.search(ok), f"il guard scatta a vuoto su {ok!r}"
 
 

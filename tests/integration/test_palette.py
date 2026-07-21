@@ -98,19 +98,25 @@ def test_app_py_migrato_ai_token_nessun_hex_hardcoded_nei_colori(app_mod):
     src = pathlib.Path(app_mod.__file__).read_text(encoding="utf-8")
     # Match ESAUSTIVO (review GLM #126): QUALSIASI kwarg che termina in `color`
     # (`fg_color`, `hover_color`, `text_color`, `border_color`, `progress_color`,
-    # `button_color`, …) impostato a un HEX letterale — literal stringa `="#…"` O tupla
-    # inline `=("#…"`. Così un re-hardcode futuro su una proprietà colore qualsiasi non
-    # sfugge. I colori DEVONO passare da un token/costante, mai da un HEX letterale.
-    _COLOR_KWARG_HEX = re.compile(r'\w*color\s*=\s*\(?\s*"#[0-9a-fA-F]{6}"')
+    # `button_color`, …) impostato a un HEX letterale. Copre la stringa singola `="#…"` E un
+    # HEX in QUALSIASI posizione di una tupla `=("#…", …)` O `=(token, "#…")` — non solo il
+    # PRIMO elemento (follow-up Fugu #127 / Fable #126: un re-hardcode nella variante dark
+    # `("gray", "#000")` non deve sfuggire). HEX a 6 e a 3 cifre; il lookahead nega 4-5 cifre;
+    # `[^)\n]*` limita alla stessa tupla su una riga. I colori DEVONO passare da un token/costante.
+    _HEX = r'#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])'
+    _COLOR_KWARG_HEX = re.compile(r'\w*color\s*=\s*(?:"' + _HEX + r'|\([^)\n]*"' + _HEX + r')')
     offenders = _COLOR_KWARG_HEX.findall(src)
     assert offenders == [], (
         "app.py contiene ancora colori HEX hardcoded (usa ui_theme / _COLOR_*): "
         + ", ".join(offenders))
-    # Meta-check: la regex del guard cattura davvero gli offender sintetici (negative case,
-    # review GLM #126) — così il guard non passa "a vuoto" per un pattern troppo stretto.
+    # Meta-check: la regex cattura davvero gli offender sintetici (negative case) — inclusi
+    # l'HEX come 2° elemento di tupla mista (Fugu #127) e l'HEX a 3 cifre — così il guard non
+    # passa "a vuoto" per un pattern troppo stretto; e NON scatta su token/nomi legittimi.
     for bad in ('progress_color="#ff0000"', 'border_color=("#ff0000", "#00ff00")',
-                'button_color = "#abcdef"'):
+                'button_color = "#abcdef"', 'text_color=("gray", "#000")', 'fg_color="#f00"'):
         assert _COLOR_KWARG_HEX.search(bad), f"il guard NON cattura {bad!r}"
+    for good in ('fg_color=ui_theme.DANGER', 'text_color="gray"', 'fg_color=("gray", "white")'):
+        assert not _COLOR_KWARG_HEX.search(good), f"il guard scatta a vuoto su {good!r}"
 
 
 def test_dark_variant_allineata_al_design_system(app_mod):
