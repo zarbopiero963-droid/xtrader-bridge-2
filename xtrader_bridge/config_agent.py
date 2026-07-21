@@ -1269,10 +1269,10 @@ def _repair_history(messages) -> list:
     1. **content valido**: si tengono solo i messaggi con stringa non vuota o lista non vuota →
        cadono `[]`/`""`/spazi, `None` (`content: null` di un file editato) e tipi inattesi
        (int/dict), tutti rifiutati dall'API (review Fable #133);
-    2. **`tool_use` sempre risposto**: ogni `tool_use` di un `assistant` riceve, nel `user`
-       successivo, un `tool_result` con lo stesso `tool_use_id` — quelli mancanti (troncamento
-       `max_tokens`) sono **sintetizzati** come errore; gli id duplicati in un turno sono
-       deduplicati (review GLM #133);
+    2. **`tool_use` validi e sempre risposti**: dal content `assistant` si **scartano** i blocchi
+       `tool_use` che l'API rifiuterebbe — id vuoto/non-stringa e id **duplicato** nel turno (si
+       tiene la prima occorrenza, review GLM+Fable #133); per ogni `tool_use` valido rimasto senza
+       risposta (troncamento `max_tokens`) si **sintetizza** un `tool_result` di errore;
     3. **nessun `tool_result` orfano**: un `tool_result` senza un `tool_use` a monte (file
        editato / testa tagliata a metà turno) viene **scartato** (review Fugu #133);
     4. **ruoli alternati**: due messaggi consecutivi dello stesso ruolo vengono **uniti** (l'API
@@ -1316,11 +1316,27 @@ def _repair_history(messages) -> list:
                 out.append({"role": "user", "content": blocks})
             continue
         _flush_pending()          # un messaggio non-(user-lista) chiude eventuali tool_use pendenti
-        out.append(m)
         if role == "assistant" and isinstance(content, list):
-            ids = [b.get("id", "") for b in content
-                   if isinstance(b, dict) and b.get("type") == "tool_use"]
-            pending[:] = list(dict.fromkeys(ids))    # dedup (GLM #133), ordine preservato
+            # Ricostruisce il content scartando i blocchi `tool_use` INVALIDI, che l'API
+            # rifiuterebbe comunque (400 residuo — review Fable #133): id vuoto/non-stringa, e id
+            # DUPLICATO nello stesso turno (si tiene la prima occorrenza). Serve scartare i BLOCCHI,
+            # non solo deduplicare i result: due `tool_use` con lo stesso id nel messaggio assistant
+            # sono già un 400.
+            seen, new_content = set(), []
+            for b in content:
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    tid = b.get("id", "")
+                    if not (isinstance(tid, str) and tid) or tid in seen:
+                        continue
+                    seen.add(tid)
+                new_content.append(b)
+            if not new_content:
+                continue                              # assistant senza blocchi validi → scartato
+            out.append({"role": "assistant", "content": new_content})
+            pending[:] = [b.get("id") for b in new_content
+                          if isinstance(b, dict) and b.get("type") == "tool_use"]
+        else:
+            out.append(m)
     _flush_pending()
 
     # (4) niente due messaggi consecutivi dello STESSO ruolo: unisci i blocchi.

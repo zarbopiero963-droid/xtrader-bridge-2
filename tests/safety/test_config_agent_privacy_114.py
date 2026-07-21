@@ -124,14 +124,44 @@ def test_repair_history_scarta_tool_result_orfano():
 
 
 def test_repair_history_dedup_tool_use_id_duplicati():
-    """Review GLM #133: id `tool_use` DUPLICATI in un turno (file corrotto) → un SOLO `tool_result`
-    sintetico per id, mai un output che l'API rifiuta di nuovo."""
+    """Review GLM+Fable #133: id `tool_use` DUPLICATI in un turno (file corrotto) → si tiene UN
+    SOLO blocco `tool_use` (non solo un result): due `tool_use` con lo stesso id nel messaggio
+    assistant sono GIÀ un 400. Sia il blocco assistant sia il result devono avere l'id una volta."""
     msgs = [{"role": "assistant", "content": [
         {"type": "tool_use", "id": "dup", "name": "x", "input": {}},
         {"type": "tool_use", "id": "dup", "name": "y", "input": {}}]}]
     out = ca._repair_history(msgs)
-    results = out[-1]["content"]
+    asst = next(m for m in out if m["role"] == "assistant")
+    tu_ids = [b["id"] for b in asst["content"] if b.get("type") == "tool_use"]
+    assert tu_ids == ["dup"], f"blocchi tool_use duplicati non rimossi: {tu_ids}"
+    results = next(m for m in out if m["role"] == "user")["content"]
     assert [b["tool_use_id"] for b in results] == ["dup"]
+
+
+def test_repair_history_scarta_tool_use_id_vuoto_o_mancante():
+    """FAIL-FIRST (review Fable #133): un `tool_use` con `id` vuoto/mancante/non-stringa entrerebbe
+    in coda come `""` e genererebbe un `tool_result` sintetico con `tool_use_id: ""`, che l'API
+    rifiuta → altro 400 permanente. Va scartato il BLOCCO, senza produrre result a id vuoto."""
+    msgs = [{"role": "assistant", "content": [
+        {"type": "tool_use", "id": "", "name": "x", "input": {}},      # id vuoto
+        {"type": "tool_use", "name": "y", "input": {}},                 # id mancante
+        {"type": "text", "text": "resto"}]}]
+    out = ca._repair_history(msgs)
+    for m in out:
+        blocks = m["content"] if isinstance(m["content"], list) else []
+        assert not any(b.get("type") == "tool_use" and not b.get("id") for b in blocks)
+        assert not any(b.get("type") == "tool_result" and not b.get("tool_use_id") for b in blocks)
+    # il blocco testo resta; nessun tool_result sintetico a id vuoto
+    assert any(b.get("type") == "text" for m in out for b in
+               (m["content"] if isinstance(m["content"], list) else []))
+
+
+def test_repair_history_assistant_solo_tool_use_invalidi_scartato():
+    """Un messaggio assistant fatto SOLO di `tool_use` invalidi (id vuoti/duplicati) resta senza
+    blocchi validi → viene scartato del tutto (non un content vuoto verso l'API)."""
+    msgs = [{"role": "user", "content": "hi"},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "", "name": "x", "input": {}}]}]
+    assert ca._repair_history(msgs) == [{"role": "user", "content": "hi"}]
 
 
 def test_repair_history_nessun_ruolo_consecutivo_uguale():
