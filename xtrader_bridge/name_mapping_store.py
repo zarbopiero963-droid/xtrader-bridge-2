@@ -45,7 +45,7 @@ import hashlib
 import logging
 import threading
 
-from . import recognition, sports
+from . import mapping_store_base, recognition, sports
 from .dizionario import compose_event_name, normalize
 
 _LOG = logging.getLogger(__name__)
@@ -125,44 +125,6 @@ def _entity_filter(want_entity):
     return frozenset(allowed) if allowed else None
 
 
-def _store(cfg: dict) -> dict:
-    """Sezione ``name_mappings`` della config (dict vuoto se assente/malformata)."""
-    raw = (cfg or {}).get(_STORE_KEY, {})
-    return raw if isinstance(raw, dict) else {}
-
-
-def _norm_profile_name(name) -> str:
-    """Nome profilo normalizzato per il confronto: stringa ripulita (strip)."""
-    return str(name or "").strip()
-
-
-def _find_store_key(store: dict, name: str):
-    """Chiave REALE in ``store`` che corrisponde a ``name`` una volta normalizzata, o
-    ``None``. Serve a ritrovare profili salvati con spazi attorno al nome (``config.json``
-    legacy/editato a mano), che ``profile_names`` mostra già ripuliti: senza, lookup/CRUD
-    mancherebbero il profilo o creerebbero un doppione, disabilitando in silenzio la
-    mappatura nomi per quel profilo (audit L1, come ``market_mapping_store``). Compatibilità
-    con vecchie config preservata."""
-    target = _norm_profile_name(name)
-    if not target:
-        return None
-    matches = [k for k in store if _norm_profile_name(k) == target]
-    if not matches:
-        return None
-    # P3-22 #76: con DOPPIONI normalizzati-uguali (config manomessa: "Prof" e " Prof ")
-    # il primo-match faceva shadowing silenzioso dell'altro profilo. Il match ESATTO
-    # (il nome che la GUI mostra/seleziona) vince sempre; il doppione viene segnalato.
-    if len(matches) > 1:
-        _LOG.warning(
-            "name_mappings: profili DUPLICATI dopo normalizzazione (%s) -> uso %r "
-            "(match esatto se presente); rinomina/rimuovi i doppioni in config.json "
-            "(P3-22 #76).", ", ".join(repr(k) for k in matches),
-            name if name in matches else matches[0])
-    if name in matches:
-        return name
-    return matches[0]
-
-
 def _malformed_fields(entry: dict) -> list:
     """Coppie ``(campo, valore_grezzo)`` NON riconosciute di una riga di mappatura:
     ``sport`` non in ``sports.SPORTS`` o ``entity_type`` non in ``ENTITY_TYPES``
@@ -223,27 +185,23 @@ def _clean_entry(entry) -> dict:
             "language": recognition.normalize_source_language(entry.get("language"))}
 
 
-def profile_names(cfg: dict) -> list:
-    """Nomi dei profili di mappatura salvati, ordinati (case-insensitive). Per le
-    tendine/checkbox della GUI."""
-    names = [str(k).strip() for k in _store(cfg).keys() if str(k).strip()]
-    return sorted(names, key=str.casefold)
-
-
-def get_entries(cfg: dict, name: str) -> list:
-    """Righe (ripulite) di un profilo, nell'ordine salvato. Profilo assente → ``[]``.
-    Le righe vuote vengono filtrate, così il resolver non itera su rumore."""
-    store = _store(cfg)
-    key = _find_store_key(store, name)
-    rows = store.get(key, []) if key is not None else []
-    if not isinstance(rows, (list, tuple)):
-        return []
-    out = []
-    for e in rows:
-        ce = _clean_entry(e)
-        if ce is not None:
-            out.append(ce)
-    return out
+# CRUD condiviso (store refactor #114): le dieci funzioni identiche fra i due store vivono in
+# `mapping_store_base`; qui si iniettano le TRE differenze dello store nomi — la chiave di config,
+# il proprio `_clean_entry` (schema nomi) e il prefisso di log dei profili duplicati — e si legano
+# le funzioni al modulo con le firme storiche. `_store`/`_norm_profile_name`/`_find_store_key`
+# restano accessibili (li usano i resolver e i test) puntando all'implementazione condivisa.
+_crud = mapping_store_base.make_profile_crud(
+    store_key=_STORE_KEY, clean_entry=_clean_entry, dup_warn_prefix="name_mappings", logger=_LOG)
+_store = _crud._store
+_norm_profile_name = _crud._norm_profile_name
+_find_store_key = _crud._find_store_key
+profile_names = _crud.profile_names
+get_entries = _crud.get_entries
+entries_for_profiles = _crud.entries_for_profiles
+set_entries = _crud.set_entries
+add_profile = _crud.add_profile
+delete_profile = _crud.delete_profile
+rename_profile = _crud.rename_profile
 
 
 def malformed_entry_warnings(cfg: dict) -> list:
@@ -273,67 +231,6 @@ def malformed_entry_warnings(cfg: dict) -> list:
                     f"{dove} non riconosciuto -> riga IGNORATA (fail-closed). "
                     f"Correggi il valore per riattivarla.")
     return warnings
-
-
-def entries_for_profiles(cfg: dict, names) -> list:
-    """Lista di liste-di-righe per i profili indicati (ordine preservato): è la
-    forma attesa da `resolve_team`/`resolve_event_name`. Un profilo mancante
-    contribuisce con ``[]`` (nessun match da lì → fail-closed a valle)."""
-    return [get_entries(cfg, n) for n in (names or []) if str(n or "").strip()]
-
-
-def set_entries(cfg: dict, name: str, entries) -> dict:
-    """Copia di ``cfg`` con il profilo ``name`` impostato/sostituito da ``entries``
-    (ripulite). Nome vuoto → config invariata. Crea il profilo se non esiste."""
-    out = dict(cfg or {})
-    nm = _norm_profile_name(name)
-    if not nm:
-        return out
-    store = dict(_store(out))
-    existing = _find_store_key(store, nm)
-    if existing is not None and existing != nm:
-        store.pop(existing)   # migra una chiave legacy con spazi al nome normalizzato (no doppioni)
-    store[nm] = [ce for ce in (_clean_entry(e) for e in (entries or [])) if ce is not None]
-    out[_STORE_KEY] = store
-    return out
-
-
-def add_profile(cfg: dict, name: str) -> dict:
-    """Copia di ``cfg`` con un profilo vuoto ``name`` (no-op se esiste già o nome
-    vuoto): la creazione non deve mai cancellare le righe di un profilo omonimo."""
-    out = dict(cfg or {})
-    nm = _norm_profile_name(name)
-    store = dict(_store(out))
-    if nm and _find_store_key(store, nm) is None:
-        store[nm] = []
-    out[_STORE_KEY] = store
-    return out
-
-
-def delete_profile(cfg: dict, name: str) -> dict:
-    """Copia di ``cfg`` senza il profilo ``name`` (idempotente)."""
-    out = dict(cfg or {})
-    nm = _norm_profile_name(name)
-    store = {k: v for k, v in _store(out).items() if _norm_profile_name(k) != nm}
-    out[_STORE_KEY] = store
-    return out
-
-
-def rename_profile(cfg: dict, old: str, new: str) -> dict:
-    """Copia di ``cfg`` con il profilo ``old`` rinominato ``new`` (conserva le righe).
-    No-op se ``old`` non esiste, ``new`` è vuoto, o ``new`` esiste già (non si
-    sovrascrive in silenzio un altro profilo)."""
-    out = dict(cfg or {})
-    o = _norm_profile_name(old)
-    n = _norm_profile_name(new)
-    store = dict(_store(out))
-    old_key = _find_store_key(store, o)
-    new_key = _find_store_key(store, n)
-    if o == n or old_key is None or not n or new_key is not None:
-        return out
-    store[n] = store.pop(old_key)
-    out[_STORE_KEY] = store
-    return out
 
 
 def _entity_eligible(entry, allowed) -> bool:

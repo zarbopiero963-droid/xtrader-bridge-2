@@ -3635,3 +3635,30 @@ sono deliberate e vanno preservate:
 funzioni REALI, fail-first: cade se qualcuno unifica o indebolisce un gate — verificato con
 mutation test) e la convenzione "accesso solo qualificato" (source-scan AST del package: nessun
 `from ... import normalize_mode`). **Nessuna modifica runtime**: i quattro gate restano invariati.
+
+## Store refactor (#114) — CRUD condiviso dei profili di mappatura
+
+**Contesto.** `name_mapping_store` (dizionario nomi squadra) e `market_mapping_store` (dizionario
+mercati) avevano **dieci funzioni CRUD byte-identiche** sul `dict` di config (`_store`,
+`_norm_profile_name`, `_find_store_key`, `profile_names`, `get_entries`, `entries_for_profiles`,
+`set_entries`, `add_profile`, `delete_profile`, `rename_profile`), divergenti solo per: la **chiave
+di config** (`name_mappings`/`market_mappings`), la funzione **`_clean_entry`** per-store (schemi
+diversi) e il **prefisso di log** dei profili duplicati. Due copie identiche di logica
+safety-critical (un profilo perso/scambiato = riga CSV sbagliata o non riconosciuta) potevano
+**divergere in silenzio** a una modifica futura.
+
+**Fix (behavior-preserving).** Le dieci funzioni vivono ora in `mapping_store_base.make_profile_crud`
+(fonte unica): ogni store la chiama una volta iniettando le proprie tre differenze e lega le funzioni
+al modulo con le firme storiche. Estrazione **pura, senza cambio di comportamento** — nessun I/O
+(la persistenza resta di `config_store`, già centralizzata all'audit #105), API pubblica invariata.
+Restano per-store: `_clean_entry`, `_malformed_fields`, `malformed_entry_warnings`, i resolver
+(`resolve_team`/`resolve_event_name`/entità/lingua/sport per i nomi; `resolve_market`/
+`_canonical_market`/`_normalize_text` per i mercati) e il dedup dei warning. Stesso modello di
+estrazione già usato nel repo per `atomic_io` e `validators.safe_filename_core` (core condiviso,
+dettagli per-dominio iniettati).
+
+**Lock.** `tests/unit/test_mapping_store_base_shared_crud.py` (parametrizzato sui due store, come
+`test_store_lookup_guards_76`) blinda l'estrazione contro un mis-wire: ogni store scrive/legge sotto
+la PROPRIA chiave, usa il PROPRIO `_clean_entry` (una riga dello schema dell'altro store è scartata),
+e le operazioni CRUD non mutano la config originale. Le suite storiche `test_name_mapping.py` (70+) e
+`test_market_mapping.py` (40+) restano verdi invariate (regressione bloccata).
