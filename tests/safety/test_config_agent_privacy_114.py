@@ -164,6 +164,48 @@ def test_repair_history_assistant_solo_tool_use_invalidi_scartato():
     assert ca._repair_history(msgs) == [{"role": "user", "content": "hi"}]
 
 
+def test_repair_history_tool_use_id_int_scartato():
+    """Review GLM #133: un `id` NON stringa (es. int, da un file editato) non è un id API valido →
+    il blocco `tool_use` va scartato (`isinstance(tid, str)`), senza generare un result con id int."""
+    out = ca._repair_history([{"role": "assistant", "content": [
+        {"type": "tool_use", "id": 123, "name": "x", "input": {}},
+        {"type": "text", "text": "resto"}]}])
+    assert not any(b.get("type") == "tool_use"
+                   for m in out for b in (m["content"] if isinstance(m["content"], list) else []))
+    assert any(b.get("type") == "text"
+               for m in out for b in (m["content"] if isinstance(m["content"], list) else []))
+
+
+def test_repair_history_tool_result_orfano_dopo_assistant_scartato():
+    """Review GLM #133: se un assistant viene scartato INTERAMENTE (solo tool_use invalidi), un
+    `tool_result` che lo seguiva resta senza `tool_use` a monte → orfano → scartato anch'esso."""
+    msgs = [{"role": "user", "content": "hi"},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "", "name": "x", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "", "content": "r"}]}]
+    assert ca._repair_history(msgs) == [{"role": "user", "content": "hi"}]
+
+
+def test_run_turn_history_riparata_vuota_manda_solo_il_turno_corrente():
+    """Review GLM #133 (caso limite): se la history si ripara a `[]` (unico messaggio era un
+    assistant invalido), `run_turn` NON deve mandare `[]` all'API (400) — `_append_user_text`
+    aggiunge comunque il turno utente corrente, quindi l'API riceve almeno `[user]`."""
+    seen = {}
+
+    class _Client:
+        def create_message(self, *, system, messages, tools):
+            seen["messages"] = list(messages)
+            return {"stop_reason": "end_turn", "content": [{"type": "text", "text": "ok"}]}
+
+    class _Reg:
+        def tool_specs(self, include_writes=False):
+            return []
+
+    hist = [{"role": "assistant", "content": [{"type": "tool_use", "id": "", "name": "x", "input": {}}]}]
+    ca.ConfigAgent(_Reg(), _Client()).run_turn("domanda", history=hist)
+    assert seen["messages"] and seen["messages"][0]["role"] == "user"
+    assert len(seen["messages"]) == 1
+
+
 def test_repair_history_nessun_ruolo_consecutivo_uguale():
     """FAIL-FIRST (review Fable #133): il fix di un `tool_use` orfano in coda produce un turno
     `user` sintetico; se poi arriva un altro `user` (testo) si avrebbero DUE `user` consecutivi,
