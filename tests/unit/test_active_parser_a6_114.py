@@ -58,3 +58,36 @@ def test_build_health_report_fallback_coerente():
     parser_sem = next(s for s in rep["semafori"] if s["key"] == "parser")
     atteso = next(i for i in health_check.evaluate(parser_active=True) if i.key == "parser")
     assert parser_sem["state"] == atteso.state
+
+
+# Config con LISTA multi-parser per-chat (l'altro ramo di has_active_parser_config, review GLM/GPT).
+_CFG_MULTI = {"parser_list_by_chat": {"123456789": ["ParserA", "ParserB"]}, "csv_path": ""}
+# Regressione: attivo GLOBALE presente → resta ATTIVO (il caso che il vecchio narrow gestiva già).
+_CFG_GLOBAL = {"active_parser": "MioParser", "csv_path": ""}
+
+
+def test_lista_multi_parser_conta_come_attivo():
+    """Review GLM/GPT #130: anche una sola chat con LISTA multi-parser è «parser attivo»."""
+    assert signal_router.has_active_parser_config(_CFG_MULTI) is True
+    tools = config_agent.build_read_only_tools(config_loader=lambda: dict(_CFG_MULTI))
+    out = json.loads(_tool(tools, "get_setup_status").handler({}))
+    assert out["requirements"]["parser_active"] is True
+
+
+def test_regressione_attivo_globale_resta_attivo():
+    """Regressione: con `active_parser` globale il comportamento storico è intatto (ATTIVO)."""
+    tools = config_agent.build_read_only_tools(config_loader=lambda: dict(_CFG_GLOBAL))
+    out = json.loads(_tool(tools, "get_setup_status").handler({}))
+    assert out["requirements"]["parser_active"] is True
+
+
+def test_config_parziale_o_vuota_non_solleva_ed_e_false():
+    """Review Fugu #130: `has_active_parser_config` è fail-safe su config parziale/manomessa
+    (None, {}, dict/stringhe/liste vuote) → False, mai un'eccezione. Il tool `get_setup_status`
+    su config vuota deve restituire `parser_active` False senza crash."""
+    for cfg in (None, {}, {"parser_by_chat": {}}, {"parser_by_chat": {"1": ""}},
+                {"active_parser": ""}, {"parser_list_by_chat": {"1": []}}):
+        assert signal_router.has_active_parser_config(cfg) is False, cfg
+    tools = config_agent.build_read_only_tools(config_loader=lambda: {})
+    out = json.loads(_tool(tools, "get_setup_status").handler({}))
+    assert out["requirements"]["parser_active"] is False

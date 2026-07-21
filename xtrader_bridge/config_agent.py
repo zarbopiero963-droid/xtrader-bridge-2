@@ -277,7 +277,8 @@ def build_read_only_tools(*, config_loader=None, parsers_dir=None) -> list:
         cfg = load_cfg() or {}
         # Requisiti nominati (per CHIAVE, non per indice — review #66 GLM/GPT/Fable: niente
         # accoppiamento all'ordine posizionale di `wizard.final_checklist`). Stessi criteri del gate
-        # reale di START/`health_check`: parser = `active_parser` non vuoto; CSV = sonda non invasiva.
+        # reale di START/`health_check`: parser = `signal_router.has_active_parser_config` (attivo
+        # globale OPPURE override per-chat OPPURE lista multi-parser); CSV = sonda non invasiva.
         token_set = bool(str(cfg.get("bot_token", "") or "").strip())
         chat_set = bool(str(cfg.get("chat_id", "") or "").strip() or cfg.get("source_chats"))
         # A6 audit #114/#69: «parser attivo» = la STESSA fonte canonica del gate START e del
