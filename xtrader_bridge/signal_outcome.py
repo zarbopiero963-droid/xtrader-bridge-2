@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import confirmation_reader, live_guard
+from . import confirmation_reader, live_guard, ui_theme
 
 
 def _attivi_label(n_active) -> str:
@@ -69,7 +69,7 @@ def describe_non_write(decision, row):
             log=f"🧪 DRY_RUN: segnale riconosciuto ma CSV NON scritto (simulazione): "
                 f"{ev} | {sel}",
             last_signal=f"🧪 DRY_RUN — {ev}  |  {sel}  q.{price}",
-            last_color="#ffb74d",
+            last_color=ui_theme.STATUS_WARN,
         )
     if decision == live_guard.DUPLICATE:
         return NonWriteOutcome(

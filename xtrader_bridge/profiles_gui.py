@@ -19,7 +19,7 @@ coperta da `tests/unit/test_profile_store.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import gui_utils, i18n, profile_store
+from . import gui_utils, i18n, profile_store, ui_theme
 
 
 class ProfilesPanel(ctk.CTkFrame):
@@ -62,8 +62,8 @@ class ProfilesPanel(ctk.CTkFrame):
         self._name = ctk.CTkEntry(save_row, width=320,
                                   placeholder_text=i18n.tr("Nome profilo (es. Prematch)"))
         self._name.pack(side="left", padx=(0, 6))
-        ctk.CTkButton(save_row, text=i18n.tr("💾  Salva profilo"), width=160, fg_color="#2e7d32",
-                      hover_color="#1b5e20", command=self._save).pack(side="left")
+        ctk.CTkButton(save_row, text=i18n.tr("💾  Salva profilo"), width=160, fg_color=ui_theme.SUCCESS,
+                      hover_color=ui_theme.SUCCESS_HOV, command=self._save).pack(side="left")
 
         ctk.CTkLabel(self, text=i18n.tr("Profili salvati"), anchor="w",
                      font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=12, pady=(6, 2))
@@ -92,8 +92,8 @@ class ProfilesPanel(ctk.CTkFrame):
         names, err = self._safe_list_profiles()
         if err:
             ctk.CTkLabel(self._list_frame, text=i18n.tr("(impossibile elencare i profili)"),
-                         text_color="#ef5350").pack(anchor="w", padx=6, pady=6)
-            self._status.configure(text=err, text_color="#ef5350")
+                         text_color=ui_theme.STATUS_ERR).pack(anchor="w", padx=6, pady=6)
+            self._status.configure(text=err, text_color=ui_theme.STATUS_ERR)
             return
         if not names:
             ctk.CTkLabel(self._list_frame, text=i18n.tr("(nessun profilo salvato)"),
@@ -103,11 +103,11 @@ class ProfilesPanel(ctk.CTkFrame):
             row = ctk.CTkFrame(self._list_frame, fg_color="transparent")
             row.pack(fill="x", pady=2)
             ctk.CTkLabel(row, text=nm, anchor="w", width=300).pack(side="left", padx=4)
-            ctk.CTkButton(row, text=i18n.tr("↺ Carica"), width=90, fg_color="#1565c0",
-                          hover_color="#0d47a1",
+            ctk.CTkButton(row, text=i18n.tr("↺ Carica"), width=90, fg_color=ui_theme.ACCENT,
+                          hover_color=ui_theme.ACCENT_HOV,
                           command=lambda n=nm: self._load(n)).pack(side="left", padx=3)
-            ctk.CTkButton(row, text=i18n.tr("🗑 Elimina"), width=90, fg_color="#c62828",
-                          hover_color="#7f0000",
+            ctk.CTkButton(row, text=i18n.tr("🗑 Elimina"), width=90, fg_color=ui_theme.DANGER,
+                          hover_color=ui_theme.DANGER_HOV,
                           command=lambda n=nm: self._delete(n)).pack(side="left", padx=3)
 
     # ── azioni ─────────────────────────────────────────────────────────────
@@ -121,7 +121,7 @@ class ProfilesPanel(ctk.CTkFrame):
         try:
             profile_store.ensure_valid_new_name(name)
         except ValueError as exc:
-            self._status.configure(text=f"❌ {exc}", text_color="#ef5350")
+            self._status.configure(text=f"❌ {exc}", text_color=ui_theme.STATUS_ERR)
             return
         # Snapshot della config viva (con token) senza persistere: base per il profilo.
         cfg = self._get_current_cfg()
@@ -129,20 +129,20 @@ class ProfilesPanel(ctk.CTkFrame):
             # save_profile rimuove i segreti prima di scrivere il profilo.
             profile_store.save_profile(name, cfg)
         except ValueError as exc:
-            self._status.configure(text=f"❌ {exc}", text_color="#ef5350")
+            self._status.configure(text=f"❌ {exc}", text_color=ui_theme.STATUS_ERR)
             return
         except OSError as exc:
             # Persistenza fallita (permessi AppData, disco pieno, nome riservato su
             # Windows): mostra l'errore senza far crashare la callback Tk (Codex P2).
             self._status.configure(
                 text=i18n.tr("❌ Salvataggio profilo fallito: {exc}").format(exc=exc),
-                text_color="#ef5350")
+                text_color=ui_theme.STATUS_ERR)
             return
         self._name.delete(0, "end")
         self._refresh_list()
         self._status.configure(
             text=i18n.tr("✅ Profilo {name!r} salvato (senza token).").format(name=name),
-            text_color="#66bb6a")
+            text_color=ui_theme.STATUS_OK)
         if self._on_saved:
             self._on_saved(cfg)
 
@@ -155,14 +155,14 @@ class ProfilesPanel(ctk.CTkFrame):
             self._status.configure(
                 text=i18n.tr("⚠️ Ferma il bridge (STOP) prima di caricare un profilo: "
                              "le impostazioni live cambiano solo al prossimo AVVIA."),
-                text_color="#ffa726")
+                text_color=ui_theme.STATUS_WARN)
             return
         try:
             profile = profile_store.load_profile(name)
         except (ValueError, OSError) as exc:
             # OSError copre file mancante (FileNotFoundError) e illeggibile (ACL/lock):
             # mostra l'errore senza far crashare la callback Tk (Codex P2).
-            self._status.configure(text=f"❌ {exc}", text_color="#ef5350")
+            self._status.configure(text=f"❌ {exc}", text_color=ui_theme.STATUS_ERR)
             self._refresh_list()
             return
         # Fonde sul config vivo preservando il token corrente, poi notifica la GUI
@@ -172,7 +172,7 @@ class ProfilesPanel(ctk.CTkFrame):
             self._on_loaded(merged)
         self._status.configure(
             text=i18n.tr("✅ Profilo {name!r} caricato e applicato (token invariato).").format(name=name),
-            text_color="#66bb6a")
+            text_color=ui_theme.STATUS_OK)
 
     def _delete(self, name: str):
         # P3-27 #76: eliminazione DISTRUTTIVA e senza undo — mai a un solo click.
@@ -191,7 +191,7 @@ class ProfilesPanel(ctk.CTkFrame):
             # l'errore senza far crashare la callback Tk (Codex P2).
             self._status.configure(
                 text=i18n.tr("❌ Eliminazione fallita: {exc}").format(exc=exc),
-                text_color="#ef5350")
+                text_color=ui_theme.STATUS_ERR)
             return
         self._refresh_list()
         if removed:
@@ -201,7 +201,7 @@ class ProfilesPanel(ctk.CTkFrame):
         else:
             self._status.configure(
                 text=i18n.tr("⚠️ Profilo {name!r} non trovato.").format(name=name),
-                text_color="#ffa726")
+                text_color=ui_theme.STATUS_WARN)
 
 
 class ProfilesWindow(ctk.CTkToplevel):

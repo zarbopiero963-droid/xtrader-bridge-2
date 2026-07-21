@@ -4,7 +4,7 @@ Pura, headless: esercita `describe_non_write` con le decisioni reali di `live_gu
 verificando contatore, testo di log e aggiornamento «ultimo segnale» (solo DRY_RUN).
 """
 
-from xtrader_bridge import confirmation_reader, live_guard, signal_outcome
+from xtrader_bridge import confirmation_reader, live_guard, signal_outcome, ui_theme
 
 ROW = {"EventName": "Milan v Inter", "SelectionName": "Milan", "Price": "1,85"}
 
@@ -14,10 +14,11 @@ def test_dry_run_aggiorna_ultimo_segnale_e_contatore():
     assert o is not None
     assert o.counter == "dry_run"
     assert "DRY_RUN" in o.log and "Milan v Inter" in o.log and "Milan" in o.log
-    # solo DRY_RUN aggiorna «ultimo segnale», con colore arancio
+    # solo DRY_RUN aggiorna «ultimo segnale», con colore arancio (token migrato PR-3:
+    # STATUS_WARN theme-aware; il valore fluisce in _set_last che accetta le coppie light/dark).
     assert o.last_signal is not None
     assert "Milan" in o.last_signal and "1,85" in o.last_signal
-    assert o.last_color == "#ffb74d"
+    assert o.last_color == ui_theme.STATUS_WARN
 
 
 def test_duplicate_non_aggiorna_ultimo_segnale():

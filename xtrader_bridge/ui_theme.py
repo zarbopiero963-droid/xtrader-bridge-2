@@ -63,6 +63,11 @@ STATUS_WARN  = ("#b5560a", "#ffb02e")   # ⬤ RICONNESSIONE / righe attive / war
 DANGER_BANNER = ("#b71c1c", "#7f1d1d")  # banner MODALITÀ REALE (testo bianco)
 WARN_BANNER   = ("#e65100", "#8a4b00")  # banner COLLAUDO XTrader (testo bianco)
 
+# Sfondo warning TENUE (non-banner): barra informativa a bassa enfasi con testo scuro/normale
+# sopra (es. barra "in attesa/drain" dell'assistente). Giallo pallido nel chiaro, marrone scuro
+# nel dark — NON è un banner di sicurezza (nessun testo bianco), quindi non usa `WARN_BANNER`.
+WARN_WEAK     = ("#fff3cd", "#4d3f00")  # PR-3: barra warning tenue (config_agent "in attesa")
+
 # ── Geometria ────────────────────────────────────────────────────────────────
 RADIUS_CTRL = 8    # bottoni, entry, dropdown
 RADIUS_CARD = 10   # frame / card

@@ -7,11 +7,11 @@ di modulo (testabili headless), mentre la costruzione dei widget è **verifica m
 """
 
 from . import config_agent_controller as ctl
-from . import event_log, i18n, token_store
+from . import event_log, i18n, token_store, ui_theme
 
 # Palette semantica theme-aware `(chiaro, scuro)`, coerente col resto della GUI.
-_COLOR_OK = ("#2e7d32", "#66bb6a")     # verde = attivo
-_COLOR_ERR = ("#c62828", "#ef5350")    # rosso = errore
+_COLOR_OK = ui_theme.STATUS_OK          # verde = attivo (token)
+_COLOR_ERR = ui_theme.STATUS_ERR        # rosso = errore (token)
 _COLOR_MUTED = "gray"                  # grigio = offline
 
 
@@ -150,7 +150,7 @@ class AssistantPanel:
         # Banner CONFERMA (nascosto di default): compare quando l'assistente PROPONE una modifica
         # config; SOLO il click su «✅ Applica» scrive (server-side gate, review #65). Viene
         # ri-`pack`-ato sopra la riga di input (`before=`) quando arriva una proposta.
-        self._pending_bar = ctk.CTkFrame(outer, fg_color=("#fff3cd", "#4d3f00"))
+        self._pending_bar = ctk.CTkFrame(outer, fg_color=ui_theme.WARN_WEAK)
         self._pending_lbl = ctk.CTkLabel(self._pending_bar, text="", wraplength=420, justify="left")
         self._pending_lbl.pack(side="left", padx=(6, 6), pady=4)
         ctk.CTkButton(self._pending_bar, text=i18n.tr("✅ Applica"), width=100,

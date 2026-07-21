@@ -21,7 +21,7 @@ NB: modulo non testato in CI (richiede display); la logica sottostante è copert
 
 import customtkinter as ctk
 
-from . import config_store, i18n, name_mapping_store, sports
+from . import config_store, i18n, name_mapping_store, sports, ui_theme
 from .betfair.dictionary_viewer import Debouncer, DictionaryBusy
 from .betfair.guided_mapping import (
     competition_labels,
@@ -168,8 +168,8 @@ class GuidedMappingPanel(ctk.CTkFrame):
 
         actions = ctk.CTkFrame(self, fg_color="transparent")
         actions.pack(fill="x", padx=12, pady=(0, 4))
-        ctk.CTkButton(actions, text=i18n.tr("💾 Salva nel profilo"), width=170, fg_color="#2e7d32",
-                      hover_color="#1b5e20", command=self._save).pack(side="left", padx=3)
+        ctk.CTkButton(actions, text=i18n.tr("💾 Salva nel profilo"), width=170, fg_color=ui_theme.SUCCESS,
+                      hover_color=ui_theme.SUCCESS_HOV, command=self._save).pack(side="left", padx=3)
 
         self._status = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=11),
                                     text_color="gray", wraplength=760, anchor="w", justify="left")
@@ -181,7 +181,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
             return config_store.load_config(config_store.CONFIG_FILE)
         except Exception as exc:                 # noqa: BLE001 — fallback con messaggio
             self._status.configure(
-                text=i18n.tr("❌ Config illeggibile: {exc}").format(exc=exc), text_color="#ef5350")
+                text=i18n.tr("❌ Config illeggibile: {exc}").format(exc=exc), text_color=ui_theme.STATUS_ERR)
             return None
 
     def _reload_profiles(self, select=None, select_first=False, prefill=True):
@@ -274,7 +274,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
                     self._status.configure(
                         text=i18n.tr("❌ Config illeggibile: cambio profilo annullato, alias "
                                      "mantenuti a schermo. Riprova."),
-                        text_color="#ef5350")
+                        text_color=ui_theme.STATUS_ERR)
                     return
                 delta = {team: var.get() for team, var in self._team_vars.items()
                          if var.get() != self._baseline.get(team, "")}
@@ -291,14 +291,14 @@ class GuidedMappingPanel(ctk.CTkFrame):
                     text=i18n.tr("ℹ️ Alias non ancora salvati mantenuti a schermo: premi "
                                  "«💾 Salva nel profilo» per scriverli in «{profile}».").format(
                                      profile=new),
-                    text_color="#ffa726")
+                    text_color=ui_theme.STATUS_WARN)
                 return
             if not self._autosave_leaving(self._selected_sport()):
                 self._profile_var.set(self._current)     # annulla lo switch
                 self._status.configure(
                     text=i18n.tr("❌ Auto-salvataggio FALLITO: cambio profilo annullato, alias "
                                  "mantenuti a schermo. Controlla permessi/spazio del file config."),
-                    text_color="#ef5350")
+                    text_color=ui_theme.STATUS_ERR)
                 return
         self._current = new
         self._prefill_aliases()
@@ -310,7 +310,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
         name = (dialog.get_input() or "").strip()
         if not name:
             self._status.configure(text=i18n.tr("⛔ Profilo non creato (nome vuoto)."),
-                                   text_color="#ef5350")
+                                   text_color=ui_theme.STATUS_ERR)
             return
         cfg = self._load_cfg()
         if cfg is None:
@@ -331,7 +331,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
         self._status.configure(
             text=(i18n.tr("🆕 Profilo «{name}» creato.").format(name=name) if ok
                   else i18n.tr("❌ Salvataggio FALLITO: «{name}» non creato.").format(name=name)),
-            text_color="#66bb6a" if ok else "#ef5350")
+            text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
 
     # ── sport / competizioni / squadre ─────────────────────────────────────────
     def _selected_sport(self):
@@ -351,7 +351,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
                 self._status.configure(
                     text=i18n.tr("⛔ Alias digitati ma nessun profilo selezionato: cambio sport "
                                  "annullato. Salva in un profilo (o svuota gli alias) e riprova."),
-                    text_color="#ef5350")
+                    text_color=ui_theme.STATUS_ERR)
                 return
             # `prev_sport is None` con alias dirty è uno stato IMPOSSIBILE nel ciclo di
             # vita reale (il modello nasce solo dopo che `__init__` → `_on_sport_change`
@@ -364,7 +364,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
                 self._status.configure(
                     text=i18n.tr("❌ Auto-salvataggio FALLITO: cambio sport annullato, alias "
                                  "mantenuti a schermo. Controlla permessi/spazio del file config."),
-                    text_color="#ef5350")
+                    text_color=ui_theme.STATUS_ERR)
                 return
         self._last_sport = self._selected_sport()
         self._comp_by_label = {}
@@ -378,7 +378,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
             self._render_team_rows()
             self._status.configure(
                 text=i18n.tr("⏳ Dizionario occupato: riprova tra poco."),
-                text_color="#ffa726")
+                text_color=ui_theme.STATUS_WARN)
             return
         except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → nessuna competizione
             comps = []
@@ -417,7 +417,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
                 self._status.configure(
                     text=i18n.tr("ℹ️ Alias non ancora salvati mantenuti a schermo (stessa "
                                  "competizione): premi «💾 Salva nel profilo»."),
-                    text_color="#ffa726")
+                    text_color=ui_theme.STATUS_WARN)
                 return
             if not self._current:
                 if prev_comp is not None:
@@ -426,7 +426,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
                     text=i18n.tr("⛔ Alias digitati ma nessun profilo selezionato: cambio "
                                  "competizione annullato. Salva in un profilo (o svuota gli "
                                  "alias) e riprova."),
-                    text_color="#ef5350")
+                    text_color=ui_theme.STATUS_ERR)
                 return
             if not self._autosave_leaving(self._selected_sport()):
                 if prev_comp is not None:
@@ -434,7 +434,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
                 self._status.configure(
                     text=i18n.tr("❌ Auto-salvataggio FALLITO: cambio competizione annullato, alias "
                                  "mantenuti a schermo. Controlla permessi/spazio del file config."),
-                    text_color="#ef5350")
+                    text_color=ui_theme.STATUS_ERR)
                 return
         self._last_comp = comp_label
         comp_id = self._selected_competition_id()
@@ -449,7 +449,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
             self._render_team_rows()
             self._status.configure(
                 text=i18n.tr("⏳ Dizionario occupato: riprova tra poco."),
-                text_color="#ffa726")
+                text_color=ui_theme.STATUS_WARN)
             return
         except Exception:   # noqa: BLE001 — best-effort: DB assente/illeggibile → nessuna squadra
             teams = []
@@ -526,7 +526,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
                 text=i18n.tr("… mostrate {shown} di {total} squadre: usa «Filtra» per "
                              "restringere (gli alias già scritti restano salvati anche se non visibili).").format(
                                  shown=_TEAM_RENDER_CAP, total=len(teams)),
-                text_color="#ffa726", wraplength=560, anchor="w", justify="left").pack(
+                text_color=ui_theme.STATUS_WARN, wraplength=560, anchor="w", justify="left").pack(
                 anchor="w", padx=6, pady=(4, 2))
 
     # ── salvataggio ────────────────────────────────────────────────────────────
@@ -534,11 +534,11 @@ class GuidedMappingPanel(ctk.CTkFrame):
         if not self._current:
             self._status.configure(
                 text=i18n.tr("⛔ Nessun profilo selezionato: crea o scegli un profilo di destinazione."),
-                text_color="#ef5350")
+                text_color=ui_theme.STATUS_ERR)
             return
         if not self._team_vars:
             self._status.configure(text=i18n.tr("⛔ Nessuna squadra caricata da salvare."),
-                                   text_color="#ef5350")
+                                   text_color=ui_theme.STATUS_ERR)
             return
         cfg = self._load_cfg()
         if cfg is None:
@@ -559,10 +559,10 @@ class GuidedMappingPanel(ctk.CTkFrame):
                 text=i18n.tr("💾 Salvato nel profilo «{profile}»: {written} squadre mappate in "
                              "questa competizione ({total} righe totali nel profilo).").format(
                                  profile=self._current, written=n_written, total=n_total),
-                text_color="#66bb6a")
+                text_color=ui_theme.STATUS_OK)
         else:
             self._status.configure(
                 text=i18n.tr("❌ Salvataggio FALLITO: «{profile}» non salvato (andrebbe perso al "
                              "riavvio). Controlla permessi/spazio del file config.").format(
                                  profile=self._current),
-                text_color="#ef5350")
+                text_color=ui_theme.STATUS_ERR)
