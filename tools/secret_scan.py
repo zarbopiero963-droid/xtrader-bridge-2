@@ -67,9 +67,12 @@ PATTERNS = [
     # bot-id più lunghi dei bot Telegram recenti. La parte auth resta `{35}` (formato REALE del
     # token): NON allargata a `{30,}` come il redactor dei workflow (volutamente lasco per la
     # sola redazione), così il GATE non blocca falsi positivi — le fixture di test usano 32-34
-    # char, sotto i 35 reali. NIENTE `\b` (review Fable #131): come il pattern storico, il match
-    # su substring intercetta anche un token EMBEDDED in una stringa più lunga (il `\b` finale
-    # su `{35}` lo mancherebbe) — per un GATE la copertura più ampia è preferibile.
+    # char, sotto i 35 reali. NESSUN `\b`, né iniziale né finale (review Fable/GLM #131),
+    # INTENZIONALMENTE come il pattern STORICO (`[0-9]{8,10}:…{35}`, che non ne aveva): il match
+    # su substring intercetta anche un token EMBEDDED in una stringa più lunga (il `\b` finale su
+    # `{35}` lo mancherebbe; quello iniziale mancherebbe un token preceduto da altre cifre). Per
+    # un GATE la copertura più ampia è preferibile; la forma resta molto specifica
+    # (`<8-12 cifre>:<35 char>`) → nessun falso positivo su sequenze numeriche nude (repo: 0 FP).
     ("Telegram bot token", re.compile(rb"[0-9]{8,12}:[A-Za-z0-9_-]{35}")),
     ("PEM private key", re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     # AKIA = chiave permanente; ASIA = credenziale TEMPORANEA STS (entrambe sono AWS access
@@ -77,11 +80,14 @@ PATTERNS = [
     ("AWS access key id", re.compile(rb"(?:AKIA|ASIA)[0-9A-Z]{16}")),
     # AC-M14 audit #114: le chiavi che il repo maneggia DAVVERO (Anthropic/OpenAI/OpenRouter,
     # GitHub token/PAT) erano redatte nei diff di review ma NON bloccate al commit dal gate.
-    # Allineate 1:1 al redactor dei workflow. `sk-…` copre OpenAI (`sk-`/`sk-proj-`), Anthropic
-    # (`sk-ant-…`) e OpenRouter (`sk-or-v1-…`): tutte iniziano con `sk-` + ≥20 char.
-    ("OpenAI/Anthropic/OpenRouter API key", re.compile(rb"\bsk-[A-Za-z0-9_-]{20,}\b")),
-    ("GitHub fine-grained PAT", re.compile(rb"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
-    ("GitHub token", re.compile(rb"\bgh[pousr]_[A-Za-z0-9_]{30,}\b")),
+    # `sk-…` copre OpenAI (`sk-`/`sk-proj-`), Anthropic (`sk-ant-…`) e OpenRouter (`sk-or-v1-…`).
+    # `\b` INIZIALE mantenuto (evita match dentro parole tipo `disk-`/`task-`/`mask-`+20char =
+    # falsi positivi); `\b` FINALE RIMOSSO (review Fugu #131): una chiave reale che TERMINA con
+    # `-` (la classe include `-`) seguita da `"`/newline NON produrrebbe word-boundary → falso
+    # NEGATIVO (chiave non bloccata). Senza `\b` finale il match su prefisso resta valido.
+    ("OpenAI/Anthropic/OpenRouter API key", re.compile(rb"\bsk-[A-Za-z0-9_-]{20,}")),
+    ("GitHub fine-grained PAT", re.compile(rb"\bgithub_pat_[A-Za-z0-9_]{20,}")),
+    ("GitHub token", re.compile(rb"\bgh[pousr]_[A-Za-z0-9_]{30,}")),
 ]
 
 _UNRELIABLE = "scan non affidabile"
@@ -98,18 +104,26 @@ def _git(args):
 # un segreto REALE su una riga non marcata dello stesso file resta bloccato.
 # ⚠️ DISCIPLINA (review GLM/GPT #131): il marker salta l'INTERA riga — non va MAI messo su una
 # riga che contiene anche un segreto reale (lo maschererebbe). Usarlo solo su fixture a segreto
-# singolo/finto; in review una riga marcata è un punto di attenzione esplicito.
+# singolo/finto; in review una riga marcata è un punto di attenzione esplicito. Inoltre il marker
+# è onorato SOLO nei file sotto `tests/` (review Fugu #131): un file di PRODUZIONE non può
+# auto-bypassarsi aggiungendo il marker a un segreto reale.
 _ALLOW_MARKER = b"pragma: allowlist secret"
 
 
-def scan_bytes(data: bytes) -> list:
+def _is_test_path(path: str) -> bool:
+    """True se `path` ha un componente `tests` (il marker allowlist è onorato solo lì)."""
+    return "tests" in path.replace("\\", "/").split("/")
+
+
+def scan_bytes(data: bytes, *, honor_allowlist: bool = True) -> list:
     """Nomi dei pattern che matchano in `data`. File binario (byte NUL) → saltato (`[]`).
-    Scansione per-riga: le righe con `_ALLOW_MARKER` (falso positivo noto) sono saltate."""
+    Scansione per-riga; se `honor_allowlist` le righe con `_ALLOW_MARKER` (falso positivo noto)
+    sono saltate — il chiamante lo passa True SOLO per i path di test (`_is_test_path`)."""
     if b"\x00" in data:
         return []
     hits = []
     for line in data.splitlines():
-        if _ALLOW_MARKER in line:
+        if honor_allowlist and _ALLOW_MARKER in line:
             continue
         for name, rx in PATTERNS:
             if name not in hits and rx.search(line):
@@ -131,7 +145,7 @@ def _scan_path(path: str):
     if b"\x00" in data:
         _notice_binary_skip(path)
         return [], False
-    return scan_bytes(data), False
+    return scan_bytes(data, honor_allowlist=_is_test_path(path)), False
 
 
 def _report(path: str) -> None:
@@ -195,7 +209,7 @@ def _scan_staged() -> int:
         if b"\x00" in blob.stdout:   # AC-B36: binario in staging saltato, notice se inatteso
             _notice_binary_skip(path)
             continue
-        if scan_bytes(blob.stdout):
+        if scan_bytes(blob.stdout, honor_allowlist=_is_test_path(path)):
             found = True
             _report(path)
     return 1 if (found or error) else 0

@@ -214,11 +214,12 @@ def test_nuove_chiavi_bloccano_e_non_stampano_il_valore(tmp_path, secret):
 def test_allowlist_marker_salta_solo_la_riga(tmp_path):
     """Una riga col marker `pragma: allowlist secret` (fixture nota) è saltata, ma il marker NON
     allowlista l'intero file: un segreto su un'altra riga non marcata resta bloccato."""
-    only_marked = tmp_path / "fixtures.txt"
+    td = tmp_path / "tests"; td.mkdir()               # marker onorato solo sotto tests/ (Fugu #131)
+    only_marked = td / "fixtures.txt"
     only_marked.write_text(f'API = "{FAKE_ANTHROPIC}"   # pragma: allowlist secret\n')
     assert _run(only_marked).returncode == 0, "riga marcata: falso positivo noto → saltata"
 
-    mixed = tmp_path / "mixed.txt"
+    mixed = td / "mixed.txt"
     mixed.write_text(
         f'fixture = "{FAKE_ANTHROPIC}"   # pragma: allowlist secret\n'
         f'REAL_LEAK = "{FAKE_GH_TOKEN}"\n')            # riga NON marcata → deve bloccare
@@ -242,11 +243,12 @@ def test_allowlist_marker_salta_l_intera_riga(tmp_path):
     un secondo segreto SULLA STESSA riga marcata NON viene intercettato. È il motivo per cui il
     marker va usato solo su righe a fixture singola — questo test blocca il comportamento così
     una regressione (marker che smette di saltare, o che allowlista troppo) verrebbe notata."""
-    same_line = tmp_path / "one_line.txt"
+    td = tmp_path / "tests"; td.mkdir()               # marker onorato solo sotto tests/ (Fugu #131)
+    same_line = td / "one_line.txt"
     same_line.write_text(f'a = "{FAKE_ANTHROPIC}"; b = "{FAKE_GH_TOKEN}"  # pragma: allowlist secret\n')
     assert _run(same_line).returncode == 0, "riga marcata: l'intera riga è saltata (per design)"
     # ...ma la riga SUCCESSIVA non marcata resta protetta:
-    next_line = tmp_path / "two_lines.txt"
+    next_line = td / "two_lines.txt"
     next_line.write_text(
         f'fixture = "{FAKE_ANTHROPIC}"  # pragma: allowlist secret\n'
         f'leak = "{FAKE_TELEGRAM_12}"\n')
@@ -263,6 +265,48 @@ def test_token_telegram_embedded_in_stringa_piu_lunga_blocca(tmp_path):
     r = _run(f)
     assert r.returncode == 1, "token embedded deve comunque bloccare"
     assert token not in (r.stdout + r.stderr)
+
+
+@pytest.mark.parametrize("non_token", [
+    "0" * 64,                                    # hash/hex lungo: cifre nude, nessun `:35char`
+    "1234567890123456:" + ("Z" * 34),           # 16 cifre ma auth a 34 char (< 35) → non token
+    "12345678:" + ("!" * 35),                    # 35 char ma `!` fuori da [A-Za-z0-9_-]
+    "commit 9f0c028ce66731872730bf4ff16a83baae0fa3d",   # SHA git: nessun `:` col formato token
+])
+def test_negativi_niente_falso_positivo(tmp_path, non_token):
+    """Review GLM/GPT #131: senza `\\b` la forma resta molto specifica (`<8-12 cifre>:<35 char
+    di [A-Za-z0-9_-]>`). Stringhe lunghe simili ma NON conformi (hash, auth a 34 char, char fuori
+    classe, SHA) NON devono bloccare → nessun falso positivo sul gate più avido."""
+    f = tmp_path / "data.txt"
+    f.write_text(f"value = {non_token}\n")
+    assert _run(f).returncode == 0, f"falso positivo su non-token: {non_token!r}"
+
+
+def test_chiave_che_termina_con_trattino_viene_bloccata(tmp_path):
+    """FAIL-FIRST (review Fugu #131): col `\\b` finale una chiave `sk-…` che TERMINA con `-`
+    (la classe include `-`) seguita da `"`/newline non produceva boundary → non bloccata (falso
+    negativo). Senza `\\b` finale il gate la intercetta."""
+    secret = "sk-" + "ant-" + ("A" * 30) + "-"      # termina con '-'
+    f = tmp_path / "leak.txt"
+    f.write_text(f'KEY = "{secret}"\n')
+    r = _run(f)
+    assert r.returncode == 1, "chiave che termina con '-' deve bloccare"
+    assert secret not in (r.stdout + r.stderr)
+
+
+def test_allowlist_confinato_ai_path_di_test(tmp_path):
+    """Review Fugu #131: il marker `pragma: allowlist secret` è onorato SOLO sotto `tests/`. Un
+    file di PRODUZIONE non può auto-bypassarsi aggiungendo il marker a un segreto reale."""
+    line = f'K = "{FAKE_ANTHROPIC}"   # pragma: allowlist secret\n'
+    prod = tmp_path / "src" / "prod.py"
+    prod.parent.mkdir()
+    prod.write_text(line)
+    assert _run(prod).returncode == 1, "in un path NON-test il marker non deve bypassare"
+
+    fixture = tmp_path / "tests" / "fix.py"
+    fixture.parent.mkdir()
+    fixture.write_text(line)
+    assert _run(fixture).returncode == 0, "in un path di test il marker è onorato"
 
 
 def test_binario_inatteso_emette_notice_ma_non_fallisce(tmp_path):
