@@ -32,7 +32,9 @@ _DESTRUCTIVE_MODULES = ["profiles_gui", "source_chats_gui", "provider_gui",
 # "#ef5350")`) o passata a un helper (`color=None if … else "#ef5350"`) — casi tutti presenti nel
 # codice. Perciò il guard è ora un raw-scan: **NESSUN** literal `"#rrggbb"`/`"#rgb"` deve restare in
 # questi moduli (tutti i colori passano dai token). Ancorato alle virgolette → lunghezza esatta 3/6.
-_RAW_HEX = re.compile(r'"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})"')
+# Copre virgolette DOPPIE **e SINGOLE** (`'#ef5350'`) — review GLM/GPT #128: uno stile di quote
+# diverso non deve aprire un bypass. Il backreference `\1` impone quote di apertura/chiusura uguali.
+_RAW_HEX = re.compile(r'''(['"])#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\1''')
 
 
 def _src(mod):
@@ -67,10 +69,12 @@ def test_meta_guard_cattura_offender_sintetici():
                 '{"text_color": "#ffa726"}',                  # valore di dict (mancava!)
                 '_COLOR_ERR = ("#c62828", "#ef5350")',        # tupla-costante (mancava!)
                 'color=None if placeable else "#ef5350"',     # param helper (mancava!)
+                "text_color='#ef5350'",                       # APICI SINGOLI (review #128)
                 'fg_color="#f00"'):                           # 3 cifre
         assert _RAW_HEX.search(bad), f"il guard NON cattura {bad!r}"
     for good in ('fg_color=ui_theme.DANGER', 'text_color="gray"', '_COLOR = ui_theme.STATUS_OK',
-                 '"#12345"', '"#abcd"'):                      # 5/4 cifre: non-colore
+                 '"#12345"', '"#abcd"',                       # 5/4 cifre: non-colore
+                 '''"#fff'"'''):                              # quote disallineate → non matcha
         assert not _RAW_HEX.search(good), f"il guard scatta a vuoto su {good!r}"
 
 
