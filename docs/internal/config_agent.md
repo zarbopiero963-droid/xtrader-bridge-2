@@ -241,7 +241,11 @@ l'assistente non sapeva se fosse impostato. Ritorna:
 - **`requirements`** — i **4 requisiti operativi** dello START come booleani **nominati per chiave**
   (`bot_token`, `chat`, `parser_active`, `csv_usable`): derivati direttamente dalla config +
   `health_check.csv_writable`, **non** dall'ordine posizionale di una lista (review #66
-  GLM/GPT/Fable/Fugu: niente accoppiamento agli indici);
+  GLM/GPT/Fable/Fugu: niente accoppiamento agli indici). **`parser_active`** usa la **stessa fonte
+  canonica** del gate START e del pannello 🚦 Salute — `signal_router.has_active_parser_config` — che
+  conta anche gli **override per-chat** e le **liste multi-parser**, non il solo `active_parser`
+  globale (A6 audit #114/#69: prima divergeva, segnalando «nessun parser» pur essendone configurato
+  uno per-chat);
 - **`ready_to_start`** — `and` dei 4 requisiti. La **modalità NON** vi entra: lo START gira anche in
   **Simulazione** (default sicuro; il passaggio a Reale ha il suo gate frase a parte);
 - **`mode_simulation`** — informativo (sei in Simulazione sì/no);
