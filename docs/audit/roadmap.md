@@ -3662,3 +3662,32 @@ dettagli per-dominio iniettati).
 la PROPRIA chiave, usa il PROPRIO `_clean_entry` (una riga dello schema dell'altro store è scartata),
 e le operazioni CRUD non mutano la config originale. Le suite storiche `test_name_mapping.py` (70+) e
 `test_market_mapping.py` (40+) restano verdi invariate (regressione bloccata).
+
+## Caccia adversariale pre-live — 2 P1 sul percorso soldi (fix)
+
+Prima del go-live, una caccia adversariale multi-agente (6 aree del percorso soldi × verifica a 3
+lenti con repro eseguita) ha confermato **due P1** che con soldi VERI producevano una scommessa
+sbagliata/spuria. Entrambi corretti fail-closed, con test fail-first (`tests/safety/test_money_path_p1_bughunt.py`,
+mutation-verified) e suite storiche verdi invariate.
+
+**P1 #1 — mercato SBAGLIATO** · `market_mapping_store._phrase_in_text`. Il confine di token del
+match-frase escludeva le cifre (`\w`), `/` e `-` ma **non** il separatore decimale `,`/`.`. Una
+frase mappata che finisce con un intero combaciava dentro una linea decimale DIVERSA: `over 2`
+(→ Over/Under 2,5) matchava in un messaggio `over 2,75` mai mappato → `resolve_market` ritornava
+`ok` col mercato 2,5 invece del `none` fail-closed → riga CSV piazzabile sul mercato sbagliato
+(specularmente, mappando sia `over 2` sia `over 2,5`, ogni `over 2,5` diventava ambiguo → segnali
+persi). **Fix:** i lookaround escludono ora anche `,`/`.` (`(?<![\w/.,-])…(?![\w/.,-])`); i match
+legittimi (spazio/`!`/fine, cifra-dopo già esclusa) restano.
+
+**P1 #2 — scommessa SPURIA** · `custom_parser_engine.matches_message` + `signal_router._resolve_one`.
+Il gate anti-non-segnale (#74/A10) azzerava SEMPRE gli `MarketId`/`SelectionId` fissi quando un
+profilo mercati era selezionato, assumendo che la mappatura li rimpiazzasse — ma sul ramo «nessun
+mercato nel messaggio» gli ID fissi restavano e un'estrazione OPZIONALE (es. `EventName` dopo
+`Match:`) faceva passare un messaggio non-segnale (recap/chiacchiere del canale) → riga piazzabile
+col bet FISSO. **Fix:** la sottrazione avviene solo se una frase mercato combacia DAVVERO col
+messaggio (`market_matched`, calcolato dal router via `resolve_market(...).status == "ok"`); su
+nessun match gli ID fissi restano e il non-segnale è bloccato (`NO_CONTENT_MATCH`). Il path
+supportato «ID fissi + mappatura mercati + EventName» resta valido quando un mercato combacia.
+
+**Escluso (non confermato):** CR/LF interni ai campi verso il CSV — meccanica reale ma neutralizzata
+da `QUOTE_ALL` + `_sanitize_cell`; nessuna scommessa sbagliata.

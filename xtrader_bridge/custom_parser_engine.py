@@ -239,7 +239,8 @@ def conditions_pass(defn: CustomParserDef, text: str) -> bool:
     return all(results)
 
 
-def matches_message(defn: CustomParserDef, text: str, mode: str = None) -> bool:
+def matches_message(defn: CustomParserDef, text: str, mode: str = None,
+                    market_matched: bool = None) -> bool:
     """True se il messaggio ha attivato un'estrazione che rappresenta **contenuto di
     segnale**: una regola con `start_after`/`end_before` (non `fixed_value`) che ha
     trovato un valore non vuoto **e** è o **obbligatoria** (`required`) o su un **campo
@@ -282,7 +283,15 @@ def matches_message(defn: CustomParserDef, text: str, mode: str = None) -> bool:
     # riconoscimento "completo a prescindere dal messaggio", quindi non vanno contati — altrimenti
     # si bloccherebbe il path supportato «ID fissi + mappatura mercati + EventName estratto»
     # restituendo NO_CONTENT_MATCH per una riga mappata valida (#74 review Codex).
-    if defn.market_mapping_profiles:
+    #
+    # P1 percorso soldi (caccia adversariale): la sottrazione va fatta SOLO se una frase mercato
+    # combacia DAVVERO con QUESTO messaggio (`market_matched=True`). Sul ramo «nessun mercato nel
+    # messaggio» (`market_matched=False`) gli ID fissi RESTANO e completano il riconoscimento: senza
+    # questo guard un messaggio non-segnale che contiene solo il delimitatore di un'estrazione
+    # OPZIONALE (es. `Match:`) passava il gate e scriveva il bet FISSO (scommessa spuria con soldi
+    # veri). `market_matched=None` (chiamante di anteprima/builder che non valuta la mappatura)
+    # conserva il comportamento storico permissivo — non tocca soldi, solo la preview.
+    if defn.market_mapping_profiles and market_matched is not False:
         fixed_targets -= {"MarketId", "SelectionId"}
     fixed_complete = recognition.is_valid({t: "x" for t in fixed_targets}, mode)
     for rule in defn.rules:

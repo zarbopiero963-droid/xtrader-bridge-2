@@ -226,16 +226,19 @@ def _canonical_market(market_name: str, selection_name: str, rows=None):
 
 def _phrase_in_text(phrase: str, text_norm: str) -> bool:
     """``True`` se ``phrase`` compare in ``text_norm`` (già normalizzato) come
-    sottostringa su **confini di token**. I lookaround escludono dai confini sia i
-    caratteri di parola (``\\w``) sia ``/`` e ``-``: così "over" non combacia dentro
-    "overflow" **e** una frase corta come "x" non combacia dentro codici tipo "1/x" o
-    "1-x" (HT/FT), evitando falsi positivi che imposterebbero il mercato sbagliato
-    (Codex). Funziona comunque con frasi che finiscono con cifre/punteggiatura
-    (es. "over 2.5" seguito da spazio o "!")."""
+    sottostringa su **confini di token**. I lookaround escludono dai confini i caratteri
+    di parola (``\\w``), ``/`` e ``-`` E i **separatori decimali** ``,``/``.``: così "over"
+    non combacia dentro "overflow", una frase corta come "x" non combacia dentro "1/x"/"1-x"
+    (HT/FT), **e** una frase che finisce con un intero non combacia dentro una linea decimale
+    diversa — es. "over 2" NON matcha in "over 2,75"/"over 2.75", e "5 HT" NON matcha in
+    "1,5 HT" (P1 percorso soldi: senza escludere ``,``/``.`` una linea non mappata risolveva
+    al mercato di una voce più corta = scommessa sul mercato SBAGLIATO). Una cifra dopo la
+    frase era già esclusa (``\\w``); ora lo è anche il separatore decimale. Frasi che finiscono
+    con altra punteggiatura (spazio, "!") continuano a combaciare."""
     p = _normalize_text(phrase)
     if not p:
         return False
-    return re.search(r"(?<![\w/-])" + re.escape(p) + r"(?![\w/-])", text_norm) is not None
+    return re.search(r"(?<![\w/.,-])" + re.escape(p) + r"(?![\w/.,-])", text_norm) is not None
 
 
 def resolve_market(text: str, profiles, rows=None, language=None) -> MarketResolution:
