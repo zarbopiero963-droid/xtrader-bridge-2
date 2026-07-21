@@ -15,7 +15,7 @@ strumenti è coperta dai rispettivi test unitari. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import gui_utils, i18n
+from . import gui_utils, i18n, ui_theme
 
 # Information architecture dell'hub Strumenti (#293 slice 4): gli strumenti sono raggruppati
 # PER FLUSSO in 4 gruppi. L'ordine di questa struttura è l'ordine delle schede; il numero del
@@ -114,7 +114,7 @@ class ToolsWindow(ctk.CTkToplevel):
                 ctk.CTkLabel(
                     container,
                     text=i18n.tr("⚠️ Impossibile aprire questo strumento:\n{exc}").format(exc=exc),
-                    text_color="#ef5350", wraplength=600, justify="left",
+                    text_color=ui_theme.STATUS_ERR, wraplength=600, justify="left",
                     anchor="w").pack(padx=12, pady=12, fill="x")
         self.select_tab(initial)
 

@@ -26,8 +26,12 @@ Tutti gli HEX qui sono verificati contro il codice attuale (`git grep` di `fg_co
 > (`tests/integration/test_name_mapping_palette_pr2.py`, che blocca il re-hardcode e la semantica
 > dei pulsanti). Le **PR successive** applicano i restanti moduli GUI (guided_mapping_gui,
 > profiles_gui, custom_parser_gui, source_chats_gui, provider_gui, journal_view_gui, …) con gli
-> stessi token. La mappa §4 cita `betfair/sync_tab_gui.py` e la tab «Betfair Sync» che **non
-> esistono più** (rimossi): ignorarle.
+> stessi token. **PR-3** (branch `claude/ui-redesign-pr3-gui-modules`) ha applicato **8 moduli GUI**
+> (`guided_mapping_gui`, `profiles_gui`, `source_chats_gui`, `provider_gui`, `custom_parser_gui`,
+> `known_teams_gui`, `tools_gui`, `config_agent_gui`) + `signal_outcome` (63 HEX), con guard
+> parametrizzato `tests/integration/test_gui_palette_pr3.py` e un nuovo token `WARN_WEAK` (vedi §1).
+> La mappa §4 cita `betfair/sync_tab_gui.py` e la tab «Betfair Sync» che **non esistono più**
+> (rimossi): ignorarle.
 
 ---
 
@@ -79,6 +83,7 @@ STATUS_WARN = ("#b5560a", "#ffb02e")   # ⬤ RICONNESSIONE / righe attive / warn
 # il banner REALE NON usa il DANGER brillante dei bottoni (bianco su di esso < soglia WCAG).
 DANGER_BANNER = ("#b71c1c", "#7f1d1d")  # banner MODALITÀ REALE
 WARN_BANNER   = ("#e65100", "#8a4b00")  # banner COLLAUDO XTrader
+WARN_WEAK     = ("#fff3cd", "#4d3f00")  # (PR-3) barra warning TENUE, testo scuro (non banner)
 
 # Geometria
 RADIUS_CTRL = 8    # bottoni, entry, dropdown

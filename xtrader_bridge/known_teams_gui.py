@@ -14,7 +14,7 @@ display): la logica esercitabile è testata a parte.
 
 import customtkinter as ctk
 
-from . import gui_utils, i18n, sports
+from . import gui_utils, i18n, sports, ui_theme
 from .betfair.dictionary_viewer import DictionaryBusy
 
 # Voce «tutti gli sport» del filtro (= nessun filtro). È un VALUE-AS-KEY: usata nel confronto di
@@ -116,8 +116,8 @@ class KnownTeamsPanel(ctk.CTkFrame):
         row.pack(fill="x", pady=1)
         ctk.CTkLabel(row, text=sport, width=_COL_SPORT_WIDTH, anchor="w").pack(side="left", padx=3)
         ctk.CTkLabel(row, text=name, width=_COL_NAME_WIDTH, anchor="w").pack(side="left", padx=3)
-        ctk.CTkButton(row, text=i18n.tr("🗑 Elimina"), width=100, fg_color="#c62828",
-                      hover_color="#7f0000",
+        ctk.CTkButton(row, text=i18n.tr("🗑 Elimina"), width=100, fg_color=ui_theme.DANGER,
+                      hover_color=ui_theme.DANGER_HOV,
                       command=lambda s=sport, n=norm: self._on_delete(s, n)).pack(side="left", padx=3)
 
     def _on_delete(self, sport, normalized_name):

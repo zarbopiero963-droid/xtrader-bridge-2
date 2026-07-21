@@ -33,6 +33,7 @@ from . import (
     provider_store,
     recognition,
     sports,
+    ui_theme,
 )
 from .custom_parser import Condition, MultiRowRule
 from .parser_builder import ParserBuilder
@@ -563,7 +564,7 @@ class CustomParserPanel(ctk.CTkFrame):
         ctk.CTkButton(manage, text=i18n.tr("🆕 Nuovo"), width=90, command=self._new).pack(side="left", padx=3)
         ctk.CTkButton(manage, text=i18n.tr("📂 Carica"), width=90, command=self._load_selected).pack(side="left", padx=3)
         ctk.CTkButton(manage, text=i18n.tr("📑 Duplica"), width=90, command=self._duplicate_selected).pack(side="left", padx=3)
-        ctk.CTkButton(manage, text=i18n.tr("🗑 Elimina"), width=90, fg_color="#7f0000",
+        ctk.CTkButton(manage, text=i18n.tr("🗑 Elimina"), width=90, fg_color=ui_theme.DANGER,
                       command=self._delete_selected).pack(side="left", padx=3)
 
         # Catalogo XTrader (B2): scegli Mercato → Selezione (solo NON dinamici) e
@@ -770,7 +771,7 @@ class CustomParserPanel(ctk.CTkFrame):
 
         # Banner avvisi (es. entrambi attivi → righe separate, non cartesiane).
         self._multi_warn = ctk.CTkLabel(sec, text="", anchor="w", justify="left",
-                                        text_color="#ffa726")
+                                        text_color=ui_theme.STATUS_WARN)
         self._multi_warn.pack(fill="x", padx=8, pady=(0, 6))
 
     def _add_multi_row_widget(self, container, refs_list, rule, fields=None):
@@ -805,7 +806,7 @@ class CustomParserPanel(ctk.CTkFrame):
         ctk.CTkCheckBox(row, text=i18n.tr("Attiva"), variable=refs["enabled"], width=40,
                         command=self._refresh_multi_warnings).pack(
             side="left", padx=6)
-        ctk.CTkButton(row, text=i18n.tr("🗑 Rimuovi"), width=90, fg_color="#7f0000",
+        ctk.CTkButton(row, text=i18n.tr("🗑 Rimuovi"), width=90, fg_color=ui_theme.DANGER,
                       command=lambda: self._remove_multi_row(refs_list, refs)).pack(
                           side="left", padx=4)
         refs_list.append(refs)
@@ -972,7 +973,7 @@ class CustomParserPanel(ctk.CTkFrame):
         entry.insert(0, getattr(cond, "text", "") or "")
         entry.pack(side="left", padx=4)
         refs["text"] = entry
-        ctk.CTkButton(row, text=i18n.tr("🗑 Rimuovi"), width=90, fg_color="#7f0000",
+        ctk.CTkButton(row, text=i18n.tr("🗑 Rimuovi"), width=90, fg_color=ui_theme.DANGER,
                       command=lambda: self._remove_condition_row(refs)).pack(side="left", padx=4)
         self._condition_rows.append(refs)
 

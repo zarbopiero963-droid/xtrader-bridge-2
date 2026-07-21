@@ -22,7 +22,7 @@ coperta da `tests/unit/test_provider_store.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import config_store, gui_utils, i18n, provider_store
+from . import config_store, gui_utils, i18n, provider_store, ui_theme
 
 
 class ProviderPanel(ctk.CTkFrame):
@@ -68,8 +68,8 @@ class ProviderPanel(ctk.CTkFrame):
         self._name_entry = ctk.CTkEntry(add, placeholder_text=i18n.tr("Nome del nuovo Provider"))
         self._name_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
         self._name_entry.bind("<Return>", lambda _e: self._add())
-        ctk.CTkButton(add, text=i18n.tr("➕  Aggiungi"), width=120, fg_color="#2e7d32",
-                      hover_color="#1b5e20", command=self._add).pack(side="left")
+        ctk.CTkButton(add, text=i18n.tr("➕  Aggiungi"), width=120, fg_color=ui_theme.SUCCESS,
+                      hover_color=ui_theme.SUCCESS_HOV, command=self._add).pack(side="left")
 
         self._rows_frame = ctk.CTkScrollableFrame(self, height=360,
                                                   label_text=i18n.tr("Provider salvati"))
@@ -104,8 +104,8 @@ class ProviderPanel(ctk.CTkFrame):
             row.pack(fill="x", pady=2)
             ctk.CTkLabel(row, text=name, anchor="w").pack(side="left", fill="x",
                                                           expand=True, padx=6)
-            ctk.CTkButton(row, text=i18n.tr("🗑  Rimuovi"), width=110, fg_color="#c62828",
-                          hover_color="#7f0000",
+            ctk.CTkButton(row, text=i18n.tr("🗑  Rimuovi"), width=110, fg_color=ui_theme.DANGER,
+                          hover_color=ui_theme.DANGER_HOV,
                           command=lambda n=name: self._remove(n)).pack(side="right", padx=3)
 
     # ── azioni (persistono subito, come il builder) ─────────────────────────
@@ -119,21 +119,21 @@ class ProviderPanel(ctk.CTkFrame):
             self._on_saved(saved)
         self._reload()
         self._status.configure(text=ok_msg if ok else fail_msg,
-                               text_color="#66bb6a" if ok else "#ef5350")
+                               text_color=ui_theme.STATUS_OK if ok else "#ef5350")
 
     def _add(self):
         """Aggiunge il nome digitato all'anagrafica (dedup case-insensitive)."""
         name = (self._name_entry.get() or "").strip()
         if not name:
             self._status.configure(text=i18n.tr("⛔ Nome vuoto: provider non aggiunto."),
-                                   text_color="#ef5350")
+                                   text_color=ui_theme.STATUS_ERR)
             return
         try:
             cfg = config_store.load_config(config_store.CONFIG_FILE)
         except Exception as exc:                 # noqa: BLE001
             self._status.configure(
                 text=i18n.tr("❌ Config illeggibile: {exc}").format(exc=exc),
-                text_color="#ef5350")
+                text_color=ui_theme.STATUS_ERR)
             return
         if name.casefold() in {n.casefold() for n in provider_store.provider_names(cfg)}:
             self._status.configure(
@@ -156,7 +156,7 @@ class ProviderPanel(ctk.CTkFrame):
         except Exception as exc:                 # noqa: BLE001
             self._status.configure(
                 text=i18n.tr("❌ Config illeggibile: {exc}").format(exc=exc),
-                text_color="#ef5350")
+                text_color=ui_theme.STATUS_ERR)
             return
         cfg = provider_store.remove_provider(cfg, name)
         self._persist(

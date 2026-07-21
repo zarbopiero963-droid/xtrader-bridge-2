@@ -25,7 +25,7 @@ import copy
 
 import customtkinter as ctk
 
-from . import config_store, config_summary, custom_parser, gui_utils, i18n
+from . import config_store, config_summary, custom_parser, gui_utils, i18n, ui_theme
 from .source_editor import SourceEditor, _clean_names
 
 # Chip «Traduzioni» per canale (#293 slice 6): mostra se il parser del canale ha mappature
@@ -214,8 +214,8 @@ class SourceChatsPanel(ctk.CTkFrame):
         btns.pack(fill="x", padx=12, pady=(0, 4))
         ctk.CTkButton(btns, text=i18n.tr("➕  Aggiungi sorgente"), width=180,
                       command=lambda: self._add_row()).pack(side="left", padx=4)
-        ctk.CTkButton(btns, text=i18n.tr("💾  Salva"), width=140, fg_color="#2e7d32",
-                      hover_color="#1b5e20", command=self._save).pack(side="right", padx=4)
+        ctk.CTkButton(btns, text=i18n.tr("💾  Salva"), width=140, fg_color=ui_theme.SUCCESS,
+                      hover_color=ui_theme.SUCCESS_HOV, command=self._save).pack(side="right", padx=4)
 
         self._status = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=11),
                                     text_color="gray", wraplength=860, anchor="w", justify="left")
@@ -259,7 +259,7 @@ class SourceChatsPanel(ctk.CTkFrame):
         # Il bottone apre l'editor della lista ordinata di parser per QUESTA riga.
         parser_btn.configure(command=lambda r=refs: self._open_parser_list_editor(r))
         self._update_row_chip(refs)
-        ctk.CTkButton(row, text="✕", width=40, fg_color="#c62828", hover_color="#7f0000",
+        ctk.CTkButton(row, text="✕", width=40, fg_color=ui_theme.DANGER, hover_color=ui_theme.DANGER_HOV,
                       command=lambda r=refs: self._remove_row(r)).pack(side="left", padx=3)
         self._rows.append(refs)
 
@@ -318,7 +318,7 @@ class SourceChatsPanel(ctk.CTkFrame):
             self._status.configure(
                 text="❌ " + "  ·  ".join(errors) + "\n"
                      + i18n.tr("Niente salvato: correggi gli errori."),
-                text_color="#ef5350")
+                text_color=ui_theme.STATUS_ERR)
             return
         # Esito reale della persistenza (A1): se la scrittura su disco fallisce NON si
         # deve mostrare "Salvate". Queste sorgenti definiscono le chat ascoltate: un falso
@@ -329,7 +329,7 @@ class SourceChatsPanel(ctk.CTkFrame):
                 text=i18n.tr("❌ Salvataggio su disco FALLITO: sorgenti NON salvate "
                              "(andrebbero perse al riavvio). Controlla permessi/spazio "
                              "del file config."),
-                text_color="#ef5350")
+                text_color=ui_theme.STATUS_ERR)
             return
         if self._on_saved:
             self._on_saved(new_cfg)
@@ -337,7 +337,7 @@ class SourceChatsPanel(ctk.CTkFrame):
         if warnings:
             # `warnings` dal layer di dominio (IT): fuori scope; solo il prefisso è chrome.
             msg += "\n⚠️ " + "  ·  ".join(warnings)
-        self._status.configure(text=msg, text_color="#66bb6a")
+        self._status.configure(text=msg, text_color=ui_theme.STATUS_OK)
 
 
 class _ParserListDialog(ctk.CTkToplevel):
@@ -379,8 +379,8 @@ class _ParserListDialog(ctk.CTkToplevel):
         self._add_menu.pack(side="left", padx=4)
         ctk.CTkButton(add, text=i18n.tr("➕ Aggiungi parser"), width=160,
                       command=self._add).pack(side="left", padx=4)
-        ctk.CTkButton(self, text=i18n.tr("💾  Salva"), fg_color="#2e7d32",
-                      hover_color="#1b5e20", command=self._ok).pack(side="right", padx=12, pady=8)
+        ctk.CTkButton(self, text=i18n.tr("💾  Salva"), fg_color=ui_theme.SUCCESS,
+                      hover_color=ui_theme.SUCCESS_HOV, command=self._ok).pack(side="right", padx=12, pady=8)
         self._render()
 
     def _remaining(self) -> list:
@@ -413,7 +413,7 @@ class _ParserListDialog(ctk.CTkToplevel):
                           command=lambda idx=i: self._move(idx, -1)).pack(side="left", padx=1)
             ctk.CTkButton(r, text="↓", width=34,
                           command=lambda idx=i: self._move(idx, 1)).pack(side="left", padx=1)
-            ctk.CTkButton(r, text="✕", width=34, fg_color="#c62828", hover_color="#7f0000",
+            ctk.CTkButton(r, text="✕", width=34, fg_color=ui_theme.DANGER, hover_color=ui_theme.DANGER_HOV,
                           command=lambda idx=i: self._remove(idx)).pack(side="left", padx=1)
 
     def _add(self):
