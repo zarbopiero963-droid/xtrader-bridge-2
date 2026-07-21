@@ -49,7 +49,7 @@ from xtrader_bridge import market_mapping_store
 
 FR = cpe.FieldRule
 
-# Parser rappresentativo (SOSTITUISCILImax col tuo reale): NAME_ONLY, EventName+Price estratti,
+# Parser rappresentativo (SOSTITUISCILO col tuo reale): NAME_ONLY, EventName+Price estratti,
 # mercato dalla mappatura a frase, BetType/Provider fissi.
 GOLDEN_PARSER = cpe.CustomParserDef(
     name="P.Bet.", mode="NAME_ONLY",
@@ -225,6 +225,26 @@ def test_localizzazione_prezzo_maggiore_di_dieci(lang, atteso, tmp_path, set_csv
     csv_writer.write_csv(row, str(path))
     righe = list(csv.reader(io.StringIO(path.read_bytes().decode("utf-8-sig"))))
     assert righe[1][cpe.CSV_HEADER.index("Price")] == atteso
+
+
+def test_csv_injection_neutralizzata_nel_writer_reale(tmp_path, set_csv_lang):
+    """Un campo attacker-controlled da Telegram che inizia con `=`/`+`/`-`/`@` NON deve restare una
+    formula nel CSV che XTrader (o un reader formula-aware) legge: il writer antepone un `'`
+    (mitigazione OWASP, audit B1). Un NUMERO legittimo (Handicap `-1`) resta invece intatto, così il
+    contratto numerico non si rompe (review Fugu Ultra #136 · matrice hard-test CSV di CLAUDE.md)."""
+    base = _run("P.Bet. Inter v Milan\nMercato: over 2,5\nQuota 1,85")[0]
+    set_csv_lang("IT")
+    # formula-injection nel testo libero → neutralizzata con apice iniziale
+    inj = tmp_path / "inj.csv"
+    csv_writer.write_csv(dict(base, EventName="=cmd()|calc"), str(inj))
+    campi = list(csv.reader(io.StringIO(inj.read_bytes().decode("utf-8-sig"))))[1]
+    assert campi[cpe.CSV_HEADER.index("EventName")] == "'=cmd()|calc", \
+        "prefisso formula non neutralizzato dal writer"
+    # numero negativo legittimo → NON prefissato (XTrader deve leggerlo come numero)
+    neg = tmp_path / "neg.csv"
+    csv_writer.write_csv(dict(base, Handicap="-1"), str(neg))
+    campi2 = list(csv.reader(io.StringIO(neg.read_bytes().decode("utf-8-sig"))))[1]
+    assert campi2[cpe.CSV_HEADER.index("Handicap")] == "-1", "un numero negativo non va prefissato"
 
 
 def test_mappature_vuote_fail_closed():
