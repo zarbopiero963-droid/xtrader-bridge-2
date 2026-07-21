@@ -144,7 +144,8 @@ def test_nessun_import_non_qualificato_di_normalize_mode():
     Source-scan via AST (non regex): i moduli GUI importano `customtkinter` e non sono
     importabili headless, quindi si analizza il sorgente, come i guard di palette."""
     offenders = []
-    for path in sorted(_PKG_DIR.rglob("*.py")):  # ricorsivo: copre i sottopackage (es. betfair/) — nit Fable #132
+    scanned = sorted(_PKG_DIR.rglob("*.py"))  # ricorsivo: copre i sottopackage (es. betfair/) — nit Fable #132
+    for path in scanned:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
@@ -154,6 +155,14 @@ def test_nessun_import_non_qualificato_di_normalize_mode():
     assert not offenders, (
         "import non qualificato di normalize_mode (userebbe UNA delle quattro semantiche in "
         "modo ambiguo). Usare `modulo.normalize_mode`:\n  " + "\n  ".join(offenders))
+    # Blinda la RICORSIVITÀ (nit Fable/GLM #132): lo scan DEVE raggiungere i sottopackage,
+    # non solo i moduli top-level. `betfair/` è conforme, quindi senza questa asserzione un
+    # ritorno silenzioso a `glob("*.py")` (che perde i sottopackage) passerebbe INVISIBILE.
+    subpackage_py = [p for p in scanned
+                     if p.parent != _PKG_DIR and p.parent.name != "__pycache__"]
+    assert subpackage_py, (
+        "lo scan anti-import deve essere ricorsivo e raggiungere i sottopackage del package "
+        "(es. xtrader_bridge/betfair/); nessun .py di sottopackage trovato → scan non ricorsivo")
 
 
 def test_il_source_scan_e_efficace_non_passa_a_vuoto():
