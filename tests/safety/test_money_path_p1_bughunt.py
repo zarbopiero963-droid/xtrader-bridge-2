@@ -66,6 +66,20 @@ def test_separatore_come_punteggiatura_finale_resta_confine():
     assert mms._phrase_in_text("over 2", n("over 2,75")) is False
 
 
+def test_confine_decimale_sinistro_virgola_e_punto():
+    """Review GPT-5.5 + GLM #135: il confine SINISTRO `(?<!\\d[.,])` blocca una frase che inizia
+    con la parte decimale di un numero più lungo, sia con virgola sia con PUNTO; una frase che è
+    essa stessa un decimale, a inizio regione, resta un match legittimo."""
+    n = mms._normalize_text
+    assert mms._phrase_in_text("5 ht", n("1,5 ht")) is False     # leading virgola
+    assert mms._phrase_in_text("5 ht", n("1.5 ht")) is False     # leading punto (variante EN)
+    assert mms._phrase_in_text("5", n("2,5")) is False           # '5' dentro il decimale '2,5'
+    assert mms._phrase_in_text("2,5", n("1,25 over")) is False   # '2,5' non dentro '1,25'
+    # legittimi: una frase-decimale a inizio regione combacia
+    assert mms._phrase_in_text("2,5", n("2,5 over")) is True
+    assert mms._phrase_in_text("2,5", n("over/under 2,5")) is True
+
+
 def test_match_legittimo_preservato():
     """Regressione: una frase che identifica il proprio mercato continua a risolvere `ok`."""
     prof = _market_profile("over/under 2,5", "Over/Under 2,5 gol")
