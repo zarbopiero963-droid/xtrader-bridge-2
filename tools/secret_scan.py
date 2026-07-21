@@ -9,14 +9,20 @@ Sostituisce il vecchio `tools/secret_scan.sh`: quest'ultimo invocava `bash`, che
 **Windows GitHub Actions** veniva risolto come `wsl bash` (senza distro installate) e faceva
 fallire i test safety. Essendo Python puro, gira identico su Linux, macOS e Windows.
 
-Comportamento (invariato rispetto allo scanner shell):
-- esce **1** se trova un token bot Telegram, una chiave privata PEM o un AWS Access Key Id;
+Comportamento:
+- esce **1** se trova un token bot Telegram, una chiave privata PEM, un AWS Access Key Id,
+  una API key `sk-…` (OpenAI/Anthropic/OpenRouter) o un GitHub token/PAT (`gh?_…`/`github_pat_…`)
+  — le stesse classi che i workflow di review redigono nei diff (AC-M14/AC-B37 audit #114);
 - stampa **solo il path** del file sospetto — il valore del segreto non viene MAI stampato;
 - esce **0** se il repo/i file sono puliti;
 - **fail-closed**: un file non leggibile/assente, o un errore di `git`, NON passa per "pulito"
   ma stampa "scan non affidabile" ed esce 1 (un gate di sicurezza non deve aprire su errore).
 
-I file binari (con byte NUL) vengono saltati, come faceva `grep -I`.
+I file binari (con byte NUL) vengono saltati, come faceva `grep -I`; se il file NON è un asset
+binario atteso (immagine/archivio/font/…) il salto è segnalato con un `::notice::` non-bloccante
+(AC-B36 audit #114: un `.py`/`.md`/… con byte NUL è sospetto e non deve sparire in silenzio).
+Una riga con il marker `pragma: allowlist secret` è un falso positivo NOTO (fixture di test) e
+viene saltata per-riga (non allowlista l'intero file).
 
 Uso:
   python tools/secret_scan.py [file...]   # scansiona i file indicati
@@ -24,20 +30,57 @@ Uso:
   python tools/secret_scan.py --staged    # scansiona i BLOB in staging (hook pre-commit)
 """
 
+import os
 import re
 import subprocess
 import sys
+
+# Estensioni di ASSET binari ATTESI: un file con questa estensione + byte NUL è normale (immagini,
+# archivi, font, eseguibili) → nessun notice. Un file NON-asset con byte NUL (es. un `.py`/`.md`/
+# `.json`/`.csv` che dovrebbe essere testo) è SOSPETTO e va segnalato (AC-B36): potrebbe nascondere
+# un segreto dietro un NUL. Solo i binari inattesi ricevono il `::notice::`.
+_KNOWN_BINARY_EXT = frozenset({
+    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".bmp", ".svgz", ".pdf",
+    ".zip", ".gz", ".tar", ".tgz", ".7z", ".xz", ".bz2",
+    ".exe", ".dll", ".so", ".dylib", ".bin", ".dat", ".class", ".jar", ".whl", ".pyc",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    ".mp3", ".mp4", ".wav", ".ogg", ".webm", ".mov",
+    ".db", ".sqlite", ".sqlite3",
+})
+
+
+def _notice_binary_skip(path: str) -> None:
+    """AC-B36 #114: rende VISIBILE (non in silenzio) che un file binario non è stato scansionato,
+    MA solo per i binari INATTESI (non asset noti) — così un `.py`/`.md`/… con byte NUL emerge,
+    senza rumore sui PNG/ICO/… attesi. `::notice::` non fa fallire il gate."""
+    if os.path.splitext(path)[1].lower() in _KNOWN_BINARY_EXT:
+        return
+    print(f"::notice::file binario INATTESO non scansionato per segreti (byte NUL): {path}",
+          file=sys.stderr)
 
 # Pattern ad ALTO segnale, scelti per ~zero falsi positivi (verificati a 0 match sul repo).
 # Su BYTES (come `grep -E`): nessun problema di encoding e niente decodifica del segreto.
 # chat-id e path utente NON sono qui: come stringhe sono comuni nei doc/test (falsi positivi)
 # e sono già coperti dal blocco file di `forbidden-files`.
 PATTERNS = [
-    ("Telegram bot token", re.compile(rb"[0-9]{8,10}:[A-Za-z0-9_-]{35}")),
+    # AC-B37 audit #114: allargato il bot-id a `{8,12}` (prima `{8,10}`) per intercettare i
+    # bot-id più lunghi dei bot Telegram recenti — che il redactor dei workflow (`\d{8,12}:…`)
+    # già considerava sensibili ma il gate al commit no. La parte auth resta `{35}` (formato
+    # REALE del token): NON allargata a `{30,}` come il redactor (volutamente lasco per la sola
+    # redazione), così il GATE non blocca falsi positivi — le fixture di test dei redattori
+    # usano valori a 32-34 char, sotto i 35 reali, e non devono far fallire il commit.
+    ("Telegram bot token", re.compile(rb"\b[0-9]{8,12}:[A-Za-z0-9_-]{35}\b")),
     ("PEM private key", re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     # AKIA = chiave permanente; ASIA = credenziale TEMPORANEA STS (entrambe sono AWS access
     # key id valide e vanno intercettate — review CodeRabbit).
     ("AWS access key id", re.compile(rb"(?:AKIA|ASIA)[0-9A-Z]{16}")),
+    # AC-M14 audit #114: le chiavi che il repo maneggia DAVVERO (Anthropic/OpenAI/OpenRouter,
+    # GitHub token/PAT) erano redatte nei diff di review ma NON bloccate al commit dal gate.
+    # Allineate 1:1 al redactor dei workflow. `sk-…` copre OpenAI (`sk-`/`sk-proj-`), Anthropic
+    # (`sk-ant-…`) e OpenRouter (`sk-or-v1-…`): tutte iniziano con `sk-` + ≥20 char.
+    ("OpenAI/Anthropic/OpenRouter API key", re.compile(rb"\bsk-[A-Za-z0-9_-]{20,}\b")),
+    ("GitHub fine-grained PAT", re.compile(rb"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
+    ("GitHub token", re.compile(rb"\bgh[pousr]_[A-Za-z0-9_]{30,}\b")),
 ]
 
 _UNRELIABLE = "scan non affidabile"
@@ -48,11 +91,26 @@ def _git(args):
     return subprocess.run(["git", *args], capture_output=True)
 
 
+# Marker di allowlist per-riga (convenzione detect-secrets): una riga che lo contiene è un
+# falso positivo NOTO e VOLUTO (es. una fixture di test che verifica proprio la redazione di un
+# finto segreto). Marcatura per-RIGA, esplicita e auditabile: NON allowlista un intero file, così
+# un segreto REALE su una riga non marcata dello stesso file resta bloccato.
+_ALLOW_MARKER = b"pragma: allowlist secret"
+
+
 def scan_bytes(data: bytes) -> list:
-    """Nomi dei pattern che matchano in `data`. File binario (byte NUL) → saltato (`[]`)."""
+    """Nomi dei pattern che matchano in `data`. File binario (byte NUL) → saltato (`[]`).
+    Scansione per-riga: le righe con `_ALLOW_MARKER` (falso positivo noto) sono saltate."""
     if b"\x00" in data:
         return []
-    return [name for name, rx in PATTERNS if rx.search(data)]
+    hits = []
+    for line in data.splitlines():
+        if _ALLOW_MARKER in line:
+            continue
+        for name, rx in PATTERNS:
+            if name not in hits and rx.search(line):
+                hits.append(name)
+    return hits
 
 
 def _scan_path(path: str):
@@ -63,6 +121,12 @@ def _scan_path(path: str):
             data = f.read()
     except OSError:
         return [], True
+    # AC-B36 audit #114: un file binario (byte NUL) è saltato come `grep -I`, ma NON più in
+    # SILENZIO: un `::notice::` rende visibile nel log CI che quel file non è stato scansionato
+    # (un segreto nascosto in un binario non passa "invisibile"). Notice = non fa fallire il gate.
+    if b"\x00" in data:
+        _notice_binary_skip(path)
+        return [], False
     return scan_bytes(data), False
 
 
@@ -123,6 +187,9 @@ def _scan_staged() -> int:
             error = True
             print(f"::error::estrazione blob in staging fallita ({_UNRELIABLE}): {path}",
                   file=sys.stderr)
+            continue
+        if b"\x00" in blob.stdout:   # AC-B36: binario in staging saltato, notice se inatteso
+            _notice_binary_skip(path)
             continue
         if scan_bytes(blob.stdout):
             found = True

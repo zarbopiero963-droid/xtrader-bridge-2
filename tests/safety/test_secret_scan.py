@@ -186,3 +186,58 @@ def test_hook_pre_commit_delega_allo_scanner_staged():
         pytest.skip(".githooks/pre-commit non presente")
     text = hook.read_text(encoding="utf-8")
     assert "secret_scan.py" in text and "--staged" in text
+
+
+# ── AC-M14 audit #114: le chiavi che il repo maneggia DAVVERO ora BLOCCANO il commit ────────
+# Fittizi spezzati (il sorgente non contiene il pattern contiguo → il gate non segnala questo file).
+FAKE_ANTHROPIC = "sk-" + "ant-api03-" + ("A" * 40)     # Anthropic
+FAKE_OPENAI = "sk-" + "proj-" + ("B" * 30)             # OpenAI
+FAKE_OPENROUTER = "sk-or" + "-v1-" + ("c" * 40)        # OpenRouter
+FAKE_GH_PAT = "github_" + "pat_" + ("D" * 30)          # GitHub fine-grained PAT
+FAKE_GH_TOKEN = "ghp" + "_" + ("E" * 36)               # GitHub token
+FAKE_TELEGRAM_12 = "123456789012" + ":" + ("F" * 35)   # bot-id a 12 cifre (AC-B37)
+
+
+@pytest.mark.parametrize("secret", [FAKE_ANTHROPIC, FAKE_OPENAI, FAKE_OPENROUTER,
+                                    FAKE_GH_PAT, FAKE_GH_TOKEN, FAKE_TELEGRAM_12])
+def test_nuove_chiavi_bloccano_e_non_stampano_il_valore(tmp_path, secret):
+    """FAIL-FIRST: prima di AC-M14 il gate NON bloccava sk-…/gh?_…/github_pat_… né i bot-id a
+    11-12 cifre → questi test uscivano 0. Ora exit 1 col solo path (mai il valore)."""
+    f = tmp_path / "leak.txt"
+    f.write_text(f"key = {secret}\n")
+    r = _run(f)
+    assert r.returncode == 1, f"atteso blocco per {secret!r}"
+    assert "leak.txt" in (r.stdout + r.stderr)
+    assert secret not in (r.stdout + r.stderr)   # il valore non si stampa mai
+
+
+def test_allowlist_marker_salta_solo_la_riga(tmp_path):
+    """Una riga col marker `pragma: allowlist secret` (fixture nota) è saltata, ma il marker NON
+    allowlista l'intero file: un segreto su un'altra riga non marcata resta bloccato."""
+    only_marked = tmp_path / "fixtures.txt"
+    only_marked.write_text(f'API = "{FAKE_ANTHROPIC}"   # pragma: allowlist secret\n')
+    assert _run(only_marked).returncode == 0, "riga marcata: falso positivo noto → saltata"
+
+    mixed = tmp_path / "mixed.txt"
+    mixed.write_text(
+        f'fixture = "{FAKE_ANTHROPIC}"   # pragma: allowlist secret\n'
+        f'REAL_LEAK = "{FAKE_GH_TOKEN}"\n')            # riga NON marcata → deve bloccare
+    r = _run(mixed)
+    assert r.returncode == 1, "il marker non deve allowlistare un segreto su un'altra riga"
+    assert FAKE_GH_TOKEN not in (r.stdout + r.stderr)
+
+
+def test_binario_inatteso_emette_notice_ma_non_fallisce(tmp_path):
+    """AC-B36: un file NON-asset (es. `.py`) con byte NUL è saltato ma con `::notice::` visibile
+    (non sparisce in silenzio); un asset atteso (`.png`) è saltato SENZA rumore."""
+    suspicious = tmp_path / "weird.py"
+    suspicious.write_bytes(b"\x00" + f"tok = {FAKE_GH_TOKEN}".encode() + b"\x00")
+    r = _run(suspicious)
+    assert r.returncode == 0                          # binario saltato: non blocca
+    assert "::notice::" in r.stderr and "INATTESO" in r.stderr and "weird.py" in r.stderr
+
+    asset = tmp_path / "image.png"
+    asset.write_bytes(b"\x00\x89PNG" + FAKE_AWS.encode() + b"\x00")
+    r2 = _run(asset)
+    assert r2.returncode == 0
+    assert "::notice::" not in r2.stderr              # asset atteso: nessun rumore
