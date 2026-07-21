@@ -186,3 +186,152 @@ def test_hook_pre_commit_delega_allo_scanner_staged():
         pytest.skip(".githooks/pre-commit non presente")
     text = hook.read_text(encoding="utf-8")
     assert "secret_scan.py" in text and "--staged" in text
+
+
+# ── AC-M14 audit #114: le chiavi che il repo maneggia DAVVERO ora BLOCCANO il commit ────────
+# Fittizi spezzati (il sorgente non contiene il pattern contiguo → il gate non segnala questo file).
+FAKE_ANTHROPIC = "sk-" + "ant-api03-" + ("A" * 40)     # Anthropic
+FAKE_OPENAI = "sk-" + "proj-" + ("B" * 30)             # OpenAI
+FAKE_OPENROUTER = "sk-or" + "-v1-" + ("c" * 40)        # OpenRouter
+FAKE_GH_PAT = "github_" + "pat_" + ("D" * 30)          # GitHub fine-grained PAT
+FAKE_GH_TOKEN = "ghp" + "_" + ("E" * 36)               # GitHub token
+FAKE_TELEGRAM_12 = "123456789012" + ":" + ("F" * 35)   # bot-id a 12 cifre (AC-B37)
+
+
+@pytest.mark.parametrize("secret", [FAKE_ANTHROPIC, FAKE_OPENAI, FAKE_OPENROUTER,
+                                    FAKE_GH_PAT, FAKE_GH_TOKEN, FAKE_TELEGRAM_12])
+def test_nuove_chiavi_bloccano_e_non_stampano_il_valore(tmp_path, secret):
+    """FAIL-FIRST: prima di AC-M14 il gate NON bloccava sk-…/gh?_…/github_pat_… né i bot-id a
+    11-12 cifre → questi test uscivano 0. Ora exit 1 col solo path (mai il valore)."""
+    f = tmp_path / "leak.txt"
+    f.write_text(f"key = {secret}\n")
+    r = _run(f)
+    assert r.returncode == 1, f"atteso blocco per {secret!r}"
+    assert "leak.txt" in (r.stdout + r.stderr)
+    assert secret not in (r.stdout + r.stderr)   # il valore non si stampa mai
+
+
+def test_allowlist_marker_salta_solo_la_riga(tmp_path):
+    """Una riga col marker `pragma: allowlist secret` (fixture nota) è saltata, ma il marker NON
+    allowlista l'intero file: un segreto su un'altra riga non marcata resta bloccato."""
+    td = tmp_path / "tests"; td.mkdir()               # marker onorato solo sotto tests/ (Fugu #131)
+    only_marked = td / "fixtures.txt"
+    only_marked.write_text(f'API = "{FAKE_ANTHROPIC}"   # pragma: allowlist secret\n')
+    assert _run(only_marked).returncode == 0, "riga marcata: falso positivo noto → saltata"
+
+    mixed = td / "mixed.txt"
+    mixed.write_text(
+        f'fixture = "{FAKE_ANTHROPIC}"   # pragma: allowlist secret\n'
+        f'REAL_LEAK = "{FAKE_GH_TOKEN}"\n')            # riga NON marcata → deve bloccare
+    r = _run(mixed)
+    assert r.returncode == 1, "il marker non deve allowlistare un segreto su un'altra riga"
+    assert FAKE_GH_TOKEN not in (r.stdout + r.stderr)
+
+
+def test_bot_id_8_cifre_limite_inferiore_blocca(tmp_path):
+    """Review GLM #131: il limite INFERIORE del bot-id (`{8,12}`) è 8 cifre → deve bloccare."""
+    secret = "12345678" + ":" + ("G" * 35)          # 8 cifre (minimo)
+    f = tmp_path / "leak.txt"
+    f.write_text(f"tok = {secret}\n")
+    r = _run(f)
+    assert r.returncode == 1
+    assert secret not in (r.stdout + r.stderr)
+
+
+def test_allowlist_marker_salta_l_intera_riga(tmp_path):
+    """Review GLM/GPT #131: il marker salta l'INTERA riga (comportamento voluto e documentato):
+    un secondo segreto SULLA STESSA riga marcata NON viene intercettato. È il motivo per cui il
+    marker va usato solo su righe a fixture singola — questo test blocca il comportamento così
+    una regressione (marker che smette di saltare, o che allowlista troppo) verrebbe notata."""
+    td = tmp_path / "tests"; td.mkdir()               # marker onorato solo sotto tests/ (Fugu #131)
+    same_line = td / "one_line.txt"
+    same_line.write_text(f'a = "{FAKE_ANTHROPIC}"; b = "{FAKE_GH_TOKEN}"  # pragma: allowlist secret\n')
+    assert _run(same_line).returncode == 0, "riga marcata: l'intera riga è saltata (per design)"
+    # ...ma la riga SUCCESSIVA non marcata resta protetta:
+    next_line = td / "two_lines.txt"
+    next_line.write_text(
+        f'fixture = "{FAKE_ANTHROPIC}"  # pragma: allowlist secret\n'
+        f'leak = "{FAKE_TELEGRAM_12}"\n')
+    assert _run(next_line).returncode == 1, "una riga non marcata resta bloccata"
+
+
+def test_token_telegram_embedded_in_stringa_piu_lunga_blocca(tmp_path):
+    """Review Fable #131: senza `\\b` finale il gate intercetta un token Telegram anche se
+    EMBEDDED in una stringa più lunga (es. dentro un blob), non solo se isolato — un gate deve
+    coprire di più, non di meno. FAIL-FIRST rispetto alla variante con `\\b` finale su {35}."""
+    token = "123456789" + ":" + ("H" * 35)
+    f = tmp_path / "leak.txt"
+    f.write_text(f'blob = "prefix{token}suffixMOREtext"\n')   # nessun boundary attorno al token
+    r = _run(f)
+    assert r.returncode == 1, "token embedded deve comunque bloccare"
+    assert token not in (r.stdout + r.stderr)
+
+
+@pytest.mark.parametrize("non_token", [
+    "0" * 64,                                    # hash/hex lungo: cifre nude, nessun `:35char`
+    "1234567890123456:" + ("Z" * 34),           # 16 cifre ma auth a 34 char (< 35) → non token
+    "12345678:" + ("!" * 35),                    # 35 char ma `!` fuori da [A-Za-z0-9_-]
+    "commit 9f0c028ce66731872730bf4ff16a83baae0fa3d",   # SHA git: nessun `:` col formato token
+])
+def test_negativi_niente_falso_positivo(tmp_path, non_token):
+    """Review GLM/GPT #131: senza `\\b` la forma resta molto specifica (`<8-12 cifre>:<35 char
+    di [A-Za-z0-9_-]>`). Stringhe lunghe simili ma NON conformi (hash, auth a 34 char, char fuori
+    classe, SHA) NON devono bloccare → nessun falso positivo sul gate più avido."""
+    f = tmp_path / "data.txt"
+    f.write_text(f"value = {non_token}\n")
+    assert _run(f).returncode == 0, f"falso positivo su non-token: {non_token!r}"
+
+
+def test_chiave_che_termina_con_trattino_viene_bloccata(tmp_path):
+    """FAIL-FIRST (review Fugu #131): col `\\b` finale una chiave `sk-…` che TERMINA con `-`
+    (la classe include `-`) seguita da `"`/newline non produceva boundary → non bloccata (falso
+    negativo). Senza `\\b` finale il gate la intercetta."""
+    secret = "sk-" + "ant-" + ("A" * 30) + "-"      # termina con '-'
+    f = tmp_path / "leak.txt"
+    f.write_text(f'KEY = "{secret}"\n')
+    r = _run(f)
+    assert r.returncode == 1, "chiave che termina con '-' deve bloccare"
+    assert secret not in (r.stdout + r.stderr)
+
+
+def test_scan_bytes_default_e_fail_closed(tmp_path):
+    """Review GLM #131: `scan_bytes` di default NON onora il marker (safe-by-default) — un
+    chiamante che dimentica il flag blocca comunque il segreto. Chiamata REALE della funzione."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ss", SCANNER)
+    ss = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ss)
+    marked = f'k = "{FAKE_ANTHROPIC}"  # pragma: allowlist secret'.encode()
+    assert ss.scan_bytes(marked) != [], "default fail-closed: il marker NON è onorato"
+    assert ss.scan_bytes(marked, honor_allowlist=True) == [], "solo col flag esplicito è saltato"
+
+
+def test_allowlist_confinato_ai_path_di_test(tmp_path):
+    """Review Fugu #131: il marker `pragma: allowlist secret` è onorato SOLO sotto `tests/`. Un
+    file di PRODUZIONE non può auto-bypassarsi aggiungendo il marker a un segreto reale."""
+    line = f'K = "{FAKE_ANTHROPIC}"   # pragma: allowlist secret\n'
+    prod = tmp_path / "src" / "prod.py"
+    prod.parent.mkdir()
+    prod.write_text(line)
+    assert _run(prod).returncode == 1, "in un path NON-test il marker non deve bypassare"
+
+    fixture = tmp_path / "tests" / "fix.py"
+    fixture.parent.mkdir()
+    fixture.write_text(line)
+    assert _run(fixture).returncode == 0, "in un path di test il marker è onorato"
+
+
+def test_binario_inatteso_emette_notice_ma_non_fallisce(tmp_path):
+    """AC-B36: un file NON-asset (es. `.py`) con byte NUL è saltato ma con `::notice::` visibile
+    (non sparisce in silenzio); un asset atteso (`.png`) è saltato SENZA rumore."""
+    suspicious = tmp_path / "weird.py"
+    suspicious.write_bytes(b"\x00" + f"tok = {FAKE_GH_TOKEN}".encode() + b"\x00")
+    r = _run(suspicious)
+    assert r.returncode == 0                          # binario saltato: non blocca
+    assert "::notice::" in r.stderr and "INATTESO" in r.stderr and "weird.py" in r.stderr
+
+    asset = tmp_path / "image.png"
+    asset.write_bytes(b"\x00\x89PNG" + FAKE_AWS.encode() + b"\x00")
+    r2 = _run(asset)
+    assert r2.returncode == 0
+    assert "::notice::" not in r2.stderr              # asset atteso: nessun rumore

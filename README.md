@@ -605,7 +605,8 @@ Tutte queste protezioni sono **attive a runtime**:
 
 > 🧰 **Per chi sviluppa — hook pre-commit anti-segreti (opzionale).** Oltre al check CI
 > *Forbidden Files* (che blocca config reali/`.env`/CSV generati/EXE e fa lo *scan dei
-> segreti* — token Telegram, chiavi private PEM, AWS key id), puoi attivare lo stesso
+> segreti* — token Telegram, chiavi private PEM, AWS key id, API key `sk-…`
+> OpenAI/Anthropic/OpenRouter e GitHub token/PAT), puoi attivare lo stesso
 > scan **prima di ogni commit** in locale:
 > ```bash
 > git config core.hooksPath .githooks

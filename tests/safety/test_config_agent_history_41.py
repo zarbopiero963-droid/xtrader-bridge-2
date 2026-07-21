@@ -14,7 +14,7 @@ from xtrader_bridge import event_log
 
 # Segreti realistici ma FINTI (nessuna chiave reale).
 _BOT_TOKEN = "123456789:ABCdefGHIjklMNOpqrstUVWxyz01"   # shape <id>:<20+ char>
-_API_KEY = "sk-ant-api03-ABCDEFGHIJKLMNOP1234567890"     # shape sk-ant-...
+_API_KEY = "sk-ant-api03-ABCDEFGHIJKLMNOP1234567890"     # shape sk-ant-... # pragma: allowlist secret
 _CHAT_ID = "-1001234567890"                              # chat ID lungo (Telegram supergroup)
 
 
