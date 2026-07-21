@@ -1256,6 +1256,15 @@ l'annullo senza toccare nulla.
   nome selezionato non c'è più, nessuna eliminazione e messaggio
   `⛔ Parser «{name}» non più in lista: eliminazione annullata.`
 
+**Eliminazioni aggiuntive (AC-M12 audit #114, stesso pattern fail-closed):**
+- **🧹 Nomi squadra / 🗑 Elimina** → titolo `Elimina nome noto`, testo `Eliminare il nome
+  «{name}»?` + `È permanente e non annullabile: il resolver non riconoscerà più quella
+  squadra finché non la reinserisci.`; annullo: `Eliminazione annullata.`
+- **📇 Anagrafica Provider / 🗑 Rimuovi** → titolo `Rimuovi provider`, testo `Rimuovere il
+  provider «{name}»?` + `È permanente: i messaggi da quella sorgente non verranno più
+  riconosciuti finché non lo reinserisci.`; annullo (ambra): `Rimozione annullata.` La
+  rimozione è distruttiva (la sorgente non è più riconosciuta) → mai a un solo click.
+
 **Modifiche non salvate nel costruttore parser («🆕 Nuovo» / «📂 Carica»):** se l'editor
 diverge dall'ultimo stato salvato/caricato (confronto di snapshot, fail-safe: stato non
 fotografabile = considerato modificato), compare il dialogo — titolo `Modifiche non

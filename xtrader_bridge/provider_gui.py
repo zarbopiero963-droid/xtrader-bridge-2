@@ -151,6 +151,17 @@ class ProviderPanel(ctk.CTkFrame):
 
     def _remove(self, name: str):
         """Rimuove `name` dall'anagrafica (confronto case-insensitive)."""
+        # AC-M12 audit #114: rimozione DISTRUTTIVA di un provider — mai a un solo click,
+        # come nomi noti/profili/mapping (pattern P3-27). Conferma fail-closed: dialog
+        # rotto/headless → NON confermato, la rimozione non parte.
+        if not gui_utils.ask_confirm(
+                i18n.tr("Rimuovi provider"),
+                i18n.tr("Rimuovere il provider «{name}»?\nÈ permanente: i messaggi da quella "
+                        "sorgente non verranno più riconosciuti finché non lo reinserisci.")
+                .format(name=name)):
+            self._status.configure(text=i18n.tr("Rimozione annullata."),
+                                   text_color=ui_theme.STATUS_WARN)
+            return
         try:
             cfg = config_store.load_config(config_store.CONFIG_FILE)
         except Exception as exc:                 # noqa: BLE001
