@@ -3604,3 +3604,34 @@ pinnata da `tests/unit/test_pbet_removed_76.py`: modulo non importabile
 **Docs.** README (4 punti riscritti: il parser integrato non esiste più), docstring
 `signal_router`/`__init__`. `CLAUDE.md` cita ancora `parse_message` negli ESEMPI di
 test hard: file del proprietario, non toccato (esempi ormai storici).
+
+## Wave-3 mode-namespacing (#114) — LOCK dei quattro `normalize_mode`
+
+**Contesto.** Il package ha **quattro** funzioni omonime `normalize_mode`, una per modulo,
+con **namespace e contratti diversi**:
+
+| Modulo           | Modi validi                                          | Ignoto →           | Case         |
+|------------------|------------------------------------------------------|--------------------|--------------|
+| `recognition`    | ID_ONLY / NAME_ONLY / BOTH                            | `NAME_ONLY`        | **sensibile**|
+| `signal_queue`   | OVERWRITE_LAST / APPEND_ACTIVE / QUEUE_UNTIL_CONFIRMED| `OVERWRITE_LAST`   | insensibile  |
+| `source_manager` | PRE / LIVE                                            | `PRE`              | insensibile  |
+| `bridge_mode`    | SIMULAZIONE / COLLAUDO / REALE                       | `""` (fail-closed) | insensibile  |
+
+**Non è un bug vivo:** tutti i call-site usano la forma **qualificata**
+(`modulo.normalize_mode`), mai `from ... import normalize_mode` → nessuna collisione. È un
+**footgun latente**: quattro gate safety-critical (riconoscimento CSV, coda segnali, filtro
+sorgenti, modalità di esecuzione) con nome identico ma comportamento divergente, che un
+"refactor di pulizia" potrebbe unificare cambiando in **silenzio** un gate. Due divergenze
+sono deliberate e vanno preservate:
+
+- `recognition` è l'**unico case-sensitive** — il chiamante (`settings_controller.current_values`)
+  pre-uppercasa APPOSTA. Renderlo insensibile farebbe passare un `"both"` scritto a mano da
+  `NAME_ONLY` (default sicuro) a `BOTH` (più permissivo): allargamento silenzioso del gate;
+- `bridge_mode` è l'**unico che fail-closa a `""`** (non a un modo valido): `mode_from_cfg`
+  usa proprio il `""` per distinguere "etichetta assente/sporca" (→ decide `dry_run`) da
+  "COLLAUDO esplicito". Un default valido romperebbe la catena fail-closed di scrittura CSV.
+
+**Lock.** `tests/unit/test_mode_namespacing.py` congela i quattro contratti (chiamando le
+funzioni REALI, fail-first: cade se qualcuno unifica o indebolisce un gate — verificato con
+mutation test) e la convenzione "accesso solo qualificato" (source-scan AST del package: nessun
+`from ... import normalize_mode`). **Nessuna modifica runtime**: i quattro gate restano invariati.
