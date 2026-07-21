@@ -294,6 +294,18 @@ def test_chiave_che_termina_con_trattino_viene_bloccata(tmp_path):
     assert secret not in (r.stdout + r.stderr)
 
 
+def test_scan_bytes_default_e_fail_closed(tmp_path):
+    """Review GLM #131: `scan_bytes` di default NON onora il marker (safe-by-default) — un
+    chiamante che dimentica il flag blocca comunque il segreto. Chiamata REALE della funzione."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ss", SCANNER)
+    ss = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ss)
+    marked = f'k = "{FAKE_ANTHROPIC}"  # pragma: allowlist secret'.encode()
+    assert ss.scan_bytes(marked) != [], "default fail-closed: il marker NON è onorato"
+    assert ss.scan_bytes(marked, honor_allowlist=True) == [], "solo col flag esplicito è saltato"
+
+
 def test_allowlist_confinato_ai_path_di_test(tmp_path):
     """Review Fugu #131: il marker `pragma: allowlist secret` è onorato SOLO sotto `tests/`. Un
     file di PRODUZIONE non può auto-bypassarsi aggiungendo il marker a un segreto reale."""

@@ -115,10 +115,12 @@ def _is_test_path(path: str) -> bool:
     return "tests" in path.replace("\\", "/").split("/")
 
 
-def scan_bytes(data: bytes, *, honor_allowlist: bool = True) -> list:
+def scan_bytes(data: bytes, *, honor_allowlist: bool = False) -> list:
     """Nomi dei pattern che matchano in `data`. File binario (byte NUL) → saltato (`[]`).
     Scansione per-riga; se `honor_allowlist` le righe con `_ALLOW_MARKER` (falso positivo noto)
-    sono saltate — il chiamante lo passa True SOLO per i path di test (`_is_test_path`)."""
+    sono saltate — il chiamante lo passa True SOLO per i path di test (`_is_test_path`).
+    Default **False = safe-by-default** (review GLM #131): un chiamante che dimentica il flag NON
+    onora i marker → fail-closed, il segreto resta bloccato."""
     if b"\x00" in data:
         return []
     hits = []
