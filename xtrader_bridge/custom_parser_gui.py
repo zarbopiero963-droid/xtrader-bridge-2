@@ -241,7 +241,8 @@ class CustomParserPanel(ctk.CTkFrame):
 
     def _selected_profiles(self) -> list:
         """Profili spuntati, **preservando l'ordine** scelto nel parser: l'ordine dei
-        profili è significativo (in `resolve_team` vince la prima corrispondenza), quindi
+        profili è significativo (in `resolve_team` vince il primo profilo che traduce; un
+        alias ambiguo nello stesso tier fa invece fail-closed, audit #137), quindi
         i profili già presenti in `builder.name_mapping_profiles` mantengono la loro
         posizione; gli eventuali profili appena spuntati si aggiungono in coda (ordine di
         visualizzazione). Così aprire e ri-salvare un parser con profili ['B','A'] NON li

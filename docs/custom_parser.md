@@ -172,6 +172,15 @@ provider nei nomi Betfair/XTrader **prima** della scrittura:
 profili (per lo sport del parser), lo stato è `MAPPING_MISSING` → **nessuna riga CSV** (un
 evento sbagliato = scommessa sbagliata). Nessun nome squadra viene mai tradotto "a caso".
 
+**Alias ambiguo (audit #137):** se in uno **stesso profilo/tier** un nome combacia con
+**due o più nomi Betfair diversi** (es. due righe `Inter → Inter Milano` e `Inter → Inter
+Miami`), la traduzione **fail-closa** (nessuna riga CSV) invece di scegliere la prima —
+come già fa il Dizionario mercati sui match ambigui. Righe duplicate che puntano allo
+**stesso** nome Betfair non sono ambigue. La precedenza fra profili (il **primo** profilo
+selezionato che traduce vince) e fra tier (sport/tipo/lingua esatti prima degli agnostici)
+resta invariata: l'ambiguità riguarda solo righe dello stesso rango. Correggi la voce
+doppia nel **Dizionario nomi**.
+
 Altre due difese fail-closed (audit #259):
 
 - **righe con sport/tipo NON riconosciuto** (typo: `sport="Calc1o"`, `entity_type="boh"`)
