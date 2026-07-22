@@ -241,3 +241,97 @@ def test_localize_row_lang_esplicita_es_e_default_corrente():
     csv_writer.set_csv_language("IT")
     default_it = csv_writer.localize_row(row)
     assert default_it["Price"] == "1,85"
+
+
+# ── load_config: opt-out del side-effect lingua per i tool sola-lettura (audit #137) ──
+
+def test_load_config_sincronizza_lingua_di_default(tmp_path):
+    """Percorso app normale: `load_config` (default `sync_csv_language=True`) allinea la
+    lingua-CSV globale del writer alla config caricata (comportamento #342 invariato)."""
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"csv_language": "EN"}), encoding="utf-8")
+    csv_writer.set_csv_language("IT")
+    config_store.load_config(str(p))
+    assert csv_writer.get_csv_language() == "EN"
+
+
+def test_load_config_readonly_non_muta_lingua_globale(tmp_path):
+    """Audit #137: `sync_csv_language=False` (usato dall'assistente #41 sola-lettura) legge la
+    config SENZA toccare la lingua-CSV globale del writer — nessun effetto collaterale operativo."""
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"csv_language": "EN"}), encoding="utf-8")
+    csv_writer.set_csv_language("IT")
+    cfg = config_store.load_config(str(p), sync_csv_language=False)
+    assert cfg.get("csv_language") == "EN"                 # la config è letta correttamente
+    assert csv_writer.get_csv_language() == "IT"           # ma la lingua globale resta invariata
+
+
+def test_controller_readonly_loader_opta_out_sync_lingua(monkeypatch):
+    """Il loader di default del controller assistente (#41) chiama `load_config` con
+    `sync_csv_language=False` → legge la config ma NON muta la lingua-CSV globale (audit #137)."""
+    from xtrader_bridge import config_agent_controller
+    calls = {}
+
+    def _fake_load(path=None, *, sync_csv_language=True, recover_corrupt=True):
+        calls["sync"] = sync_csv_language
+        return {"csv_language": "EN"}
+
+    monkeypatch.setattr(config_agent_controller.config_store, "load_config", _fake_load)
+    out = config_agent_controller._readonly_config_loader()
+    assert calls["sync"] is False        # opt-out esplicito del side-effect operativo
+    assert out == {"csv_language": "EN"}  # la config è comunque restituita
+
+
+def test_load_config_readonly_lingua_assente_non_muta_globale(tmp_path):
+    """audit #137: anche con `csv_language` ASSENTE nella config, il loader sola-lettura
+    (`sync_csv_language=False`) non tocca la lingua globale del writer (review GLM #139)."""
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"active_parser": "x"}), encoding="utf-8")   # nessun csv_language
+    csv_writer.set_csv_language("EN")
+    config_store.load_config(str(p), sync_csv_language=False)
+    assert csv_writer.get_csv_language() == "EN"                         # invariata
+    # con sync di default (percorso app) la lingua torna al default IT derivato dai DEFAULTS
+    config_store.load_config(str(p))
+    assert csv_writer.get_csv_language() == "IT"
+
+
+def test_readonly_load_config_corrotto_non_scrive_bak(tmp_path):
+    """Review CodeRabbit #139: una lettura sola-lettura (`recover_corrupt=False`) su un
+    config.json CORROTTO NON deve scrivere alcun `.bak` (invariante «i tool read-only non
+    scrivono mai») — riparte dai default in RAM senza toccare il filesystem."""
+    p = tmp_path / "config.json"
+    p.write_text("{ questo non e' json valido", encoding="utf-8")   # corrotto
+    before = sorted(x.name for x in tmp_path.iterdir())
+    cfg = config_store.load_config(str(p), sync_csv_language=False, recover_corrupt=False)
+    after = sorted(x.name for x in tmp_path.iterdir())
+    assert after == before                      # nessun .bak creato
+    assert not (tmp_path / "config.json.bak").exists()
+    assert isinstance(cfg, dict) and cfg.get("csv_language") == "IT"   # default in RAM
+    # controprova: il percorso app normale (recover_corrupt=True) SÌ mette in backup
+    config_store.load_config(str(p))
+    assert any(n.endswith(".bak") for n in (x.name for x in tmp_path.iterdir()))
+
+
+def test_controller_seleziona_readonly_loader_di_default():
+    """Review CodeRabbit #139: `AgentController()` senza `config_loader` esplicito seleziona il
+    loader SOLA-LETTURA di default (`_readonly_config_loader`), che passa sia
+    `sync_csv_language=False` sia `recover_corrupt=False`."""
+    from xtrader_bridge import config_agent_controller as cac
+    c = cac.AgentController()                     # nessun config_loader → default read-only
+    assert c._config_loader is cac._readonly_config_loader
+
+
+def test_readonly_loader_passa_entrambi_gli_optout(monkeypatch):
+    """Il loader sola-lettura chiama `load_config` con ENTRAMBI gli opt-out (audit #137 +
+    CodeRabbit #139): niente sync lingua, niente scrittura `.bak`."""
+    from xtrader_bridge import config_agent_controller as cac
+    seen = {}
+
+    def _fake_load(path=None, *, sync_csv_language=True, recover_corrupt=True):
+        seen["sync"] = sync_csv_language
+        seen["recover"] = recover_corrupt
+        return {"csv_language": "EN"}
+
+    monkeypatch.setattr(cac.config_store, "load_config", _fake_load)
+    cac._readonly_config_loader()
+    assert seen == {"sync": False, "recover": False}

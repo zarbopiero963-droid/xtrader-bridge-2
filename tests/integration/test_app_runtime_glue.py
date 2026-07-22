@@ -23,8 +23,6 @@ un `RouteResult` reale.
 import csv
 from pathlib import Path
 
-import pytest
-
 from xtrader_bridge import safety_guard, signal_dedupe, signal_queue
 
 _APP_SRC = Path(__file__).resolve().parents[2] / "xtrader_bridge" / "app.py"
@@ -1790,3 +1788,74 @@ def test_same_csv_path_normalizzazione(monkeypatch):
     assert same("C:/XTrader/OUT.CSV", "c:/xtrader/out.csv") is True
 
 
+
+
+# ── audit #137: gate epoch su reconnect/label da un vecchio thread bot ────────
+
+def test_set_status_connected_gate_epoch(make_app):
+    """Un VECCHIO thread bot (epoch stantio, STOP→START rapido) che si connette in ritardo NON
+    deve flippare la label «⬤ ATTIVO»/loggare «Connesso» della NUOVA sessione. Gate epoch:
+    no-op se l'epoch non è quello corrente o se il bridge è fermo; con epoch corrente (o `None`
+    legacy) e `_running` → agisce. Metodo REALE su App headless."""
+    a = make_app(running=True)
+    a._listener_epoch = 5
+    states = []
+    a._set_listener_state = lambda state, color: states.append(state)
+    # epoch STANTIO (vecchia sessione) → no-op totale
+    a._set_status_connected(epoch=4)
+    assert states == [] and a.logs == []
+    # epoch CORRENTE → agisce (label + log)
+    a._set_status_connected(epoch=5)
+    assert states and any("Connesso" in m for m in a.logs)
+    # STOP (running False) con epoch giusto → no-op
+    a._running = False
+    states.clear()
+    a.logs.clear()
+    a._set_status_connected(epoch=5)
+    assert states == [] and a.logs == []
+    # legacy (epoch=None) → solo _running (comportamento storico) → agisce se running
+    a._running = True
+    states.clear()
+    a.logs.clear()
+    a._set_status_connected()
+    assert states
+
+
+def test_set_status_reconnecting_gate_epoch(make_app):
+    """Review CodeRabbit #139: anche la label «RICONNESSIONE» dev'essere epoch-gated — un vecchio
+    thread bot non deve flipparla sulla nuova sessione. `_set_status_reconnecting(epoch)` no-op su
+    epoch stantio / `running=False`; agisce su epoch corrente (o `None` legacy) e running."""
+    a = make_app(running=True)
+    a._listener_epoch = 7
+    states = []
+    a._set_listener_state = lambda state, color: states.append(state)
+    a._set_status_reconnecting(epoch=6)          # epoch stantio → no-op
+    assert states == []
+    a._set_status_reconnecting(epoch=7)          # epoch corrente → agisce
+    assert states == [_app_mod_reconnecting_state()]
+    a._running = False                           # STOP → no-op anche con epoch giusto
+    states.clear()
+    a._set_status_reconnecting(epoch=7)
+    assert states == []
+
+
+def _app_mod_reconnecting_state():
+    from xtrader_bridge import health_check
+    return health_check.LISTENER_RECONNECTING
+
+
+def test_reconnect_reset_e_status_gated_su_is_current():
+    """Pin SORGENTE (audit #137): l'azzeramento di `_reconnect_attempt` e lo scheduling di
+    `_set_status_connected(epoch)` a connessione stabilita DEVONO stare dentro un `if _is_current():`
+    e passare l'`epoch`, così un vecchio thread bot non tocca lo stato della nuova sessione. Il
+    percorso è threading/rete puro (non riproducibile in modo deterministico offline): si vincola
+    la sorgente perché una futura rimozione del guard venga bloccata in CI."""
+    import re
+    src = _APP_SRC.read_text(encoding="utf-8")
+    # `\s+` (non `\s*\n\s*`): tollerante a reindentazione/riformattazione (review GLM/Fable #139) —
+    # vincola l'ordine (guard epoch → reset → status con epoch) senza dipendere dagli spazi esatti.
+    assert re.search(
+        r"if self\._listener_epoch == epoch:\s+self\._reconnect_attempt = 0\s+"
+        r"self\._safe_after\(0, lambda: self\._set_status_connected\(epoch\)\)", src), (
+        "app.py: reset backoff + status a connessione stabilita devono essere gated sull'epoch "
+        "e passare epoch a _set_status_connected (audit #137)")

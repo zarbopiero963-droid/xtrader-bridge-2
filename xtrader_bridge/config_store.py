@@ -521,11 +521,23 @@ def _default_recognition_mode() -> str:
         return recognition.NAME_ONLY
 
 
-def load_config(path: str = CONFIG_FILE) -> dict:
+def load_config(path: str = CONFIG_FILE, *, sync_csv_language: bool = True,
+                recover_corrupt: bool = True) -> dict:
     """Ritorna i default, sovrascritti dal file se presente e leggibile.
 
-    Se il file esiste ma è corrotto (JSON non valido), ne fa un backup `.bak`
-    e riparte dai default, così una config rotta non blocca l'avvio. Prima di
+    ``sync_csv_language`` (audit #137): se ``True`` (default, percorso app normale) allinea la
+    lingua-CSV globale del writer alla config caricata (#342). I chiamanti **sola-lettura** —
+    l'assistente di configurazione (#41), che non deve MAI mutare stato operativo — passano
+    ``False`` per leggere la config **senza** questo effetto collaterale sul separatore decimale.
+
+    ``recover_corrupt`` (review CodeRabbit #139): se ``True`` (default, percorso app) una config
+    corrotta viene messa in backup `.bak` prima di ripartire dai default. I chiamanti
+    **sola-lettura** passano ``False`` così una lettura dell'assistente su un file corrotto **non
+    scrive** alcun `.bak` (invariante «i tool read-only non scrivono mai»): riparte comunque dai
+    default in RAM, senza toccare il filesystem.
+
+    Se il file esiste ma è corrotto (JSON non valido), con ``recover_corrupt`` ne fa un backup
+    `.bak` e riparte dai default, così una config rotta non blocca l'avvio. Prima di
     restituire, `_migrate` coerce i tipi noti (audit C5) così un file vecchio/editato
     a mano non immette tipi sbagliati nei consumer.
 
@@ -560,13 +572,15 @@ def load_config(path: str = CONFIG_FILE) -> dict:
                     data.pop(k, None)
                 cfg.update(data)
             else:
-                _backup_corrupted(path)
+                if recover_corrupt:
+                    _backup_corrupted(path)   # read-only (recover_corrupt=False) → nessuna scrittura
                 corrupted = True
         # P3-18 #76: anche RecursionError (JSON annidato oltre il limite: subclass di
         # RuntimeError, NON di ValueError) — senza, un file patologico crashava l'avvio
         # invece di finire nel recovery `.bak` come ogni altra corruzione.
         except (json.JSONDecodeError, ValueError, OSError, RecursionError):
-            _backup_corrupted(path)
+            if recover_corrupt:
+                _backup_corrupted(path)       # read-only (recover_corrupt=False) → nessuna scrittura
             corrupted = True
     # `config_version` è già garantito dai DEFAULTS; se il file ne porta uno
     # (futuro schema v2+) viene preservato così non perdiamo lo skew su disco.
@@ -604,7 +618,10 @@ def load_config(path: str = CONFIG_FILE) -> dict:
         cfg[POST_CORRUPTION_KEY] = True
     # Lingua CSV (#342): allinea il writer alla config APPENA caricata, così le scritture
     # successive usano il separatore decimale giusto fin dallo startup (nessun altro wiring).
-    csv_writer.set_csv_language(cfg.get("csv_language"))
+    # Saltato dai chiamanti sola-lettura (assistente #41): leggere la config non deve mutare
+    # lo stato operativo del writer (audit #137).
+    if sync_csv_language:
+        csv_writer.set_csv_language(cfg.get("csv_language"))
     return cfg
 
 

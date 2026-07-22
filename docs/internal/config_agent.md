@@ -26,6 +26,12 @@ client Anthropic *tool-use* iniettabile, registry dei tool con classificazione d
   nei profili dell'utente e spiega come sono mappati), e i tool di **diagnosi** `explain_health` +
   `why_discarded` (**PR-10 Blocco D**: i 7 semafori live + consigli, e il diario eventi per capire
   perché un segnale non è passato — vedi sotto). Esercitano funzioni reali del progetto.
+  I tool sola-lettura caricano la config con
+  `config_store.load_config(sync_csv_language=False, recover_corrupt=False)` (loader di default del
+  controller, `_readonly_config_loader`): leggere la config per l'assistente **non** deve mutare
+  alcuno stato operativo — **non** riallinea la lingua-CSV globale del writer (separatore decimale,
+  audit #137) e **non** scrive alcun backup `.bak` se il file è corrotto (review CodeRabbit #139) —
+  riparte dai default in RAM. A differenza del percorso app normale (entrambi i default `True`).
 - **`RealAnthropicClient`** — client verso l'Anthropic Messages API con **lazy import** di
   `anthropic` (dipendenza opzionale, fail-safe come `keyring` in `token_store`). **Non** usato nei
   test: `ConfigAgent` accetta qualunque client con `create_message(system, messages, tools)`.

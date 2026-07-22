@@ -209,7 +209,7 @@ class SignalTracker:
         """Stato serializzabile: lista di [hash, timestamp, real]."""
         return [[h, t, r] for (h, t, r) in self._seen]
 
-    def restore_state(self, data) -> None:
+    def restore_state(self, data, *, now: float = None) -> None:
         """Ripristina lo stato da `state()` (tollerante a voci malformate).
 
         Scarta le voci con timestamp NON FINITO (NaN/inf): `json.load` accetta di default
@@ -217,7 +217,31 @@ class SignalTracker:
         bloccherebbe per sempre quell'hash come DUPLICATE attraverso i riavvii
         (`inf >= qualsiasi cutoff`), mentre con `-inf` indebolirebbe il rate-limit. È il
         layer di persistenza dell'anti-doppia-scommessa, quindi fail-closed: voce non finita
-        → scartata (mirror di `validators.require_finite_now`), issue #184 H4."""
+        → scartata (mirror di `validators.require_finite_now`), issue #184 H4.
+
+        Tetto ai timestamp FINITI ma nel FUTURO (audit #137, affinato review CodeRabbit #139):
+        un valore ENORME (es. `1e18` da corruzione/manomissione) è così avanti nel futuro che
+        `now` non lo raggiunge mai → `_prune` lo conserva (`t > now`) e quell'hash resterebbe
+        DUPLICATE **per sempre**. Ma uno skew d'orologio all'INDIETRO **moderato** (correzione NTP)
+        lascia voci LEGGERMENTE nel futuro che `_prune` conserva **apposta** per proteggere dai
+        duplicati (e che si auto-sanano quando `now` le raggiunge). Quindi si clampa **solo** ciò
+        che è CHIARAMENTE corrotto — oltre l'orizzonte `now + max(dedupe_window, 60)` (nessun tempo
+        di elaborazione plausibile è più avanti di una finestra) — riportandolo a `now`; lo skew
+        moderato (entro l'orizzonte) resta INVARIATO, con piena protezione anti-duplicato per la
+        finestra originale. Così: niente immortalità sui valori corrotti, nessun indebolimento
+        della deduplica sullo skew legittimo."""
+        # `now` assente / non finito / non numerico (chiamante/test futuro con NaN/inf/str) →
+        # fallback fail-safe a `time.time()`: il clamp deve restare ATTIVO (un cap non finito lo
+        # disabiliterebbe) e la persistenza NON deve MAI crashare lo START (review GPT-5.5/CodeRabbit
+        # #139). Si sceglie il fallback, non `require_finite_now` che SOLLEVA (inadatto a un percorso
+        # di recovery).
+        try:
+            cap = float(now)
+            if not math.isfinite(cap):
+                cap = time.time()
+        except (TypeError, ValueError):
+            cap = time.time()
+        horizon = cap + max(self.dedupe_window, 60)   # oltre = corruzione, non skew d'orologio
         restored = []
         for item in data or []:
             try:
@@ -232,6 +256,8 @@ class SignalTracker:
                 continue
             if not math.isfinite(tf):
                 continue                    # NaN/inf da state corrotto/manomesso → scartato
+            if tf > horizon:
+                tf = cap                    # SOLO corruzione (oltre una finestra nel futuro) → clamp a now
             restored.append((str(h), tf, r))
         self._seen = restored
 
