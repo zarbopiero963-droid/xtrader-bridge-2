@@ -28,9 +28,11 @@ _STOP = object()
 
 
 def _readonly_config_loader() -> dict:
-    """Carica la config per l'assistente #41 SENZA effetti collaterali operativi: in particolare
-    non riallinea la lingua-CSV globale del writer (audit #137). Vedi `config_store.load_config`."""
-    return config_store.load_config(sync_csv_language=False)
+    """Carica la config per l'assistente #41 SENZA effetti collaterali operativi: non riallinea la
+    lingua-CSV globale del writer (`sync_csv_language=False`, audit #137) e non scrive alcun backup
+    `.bak` se il file è corrotto (`recover_corrupt=False`, review CodeRabbit #139) — invariante «i
+    tool read-only non scrivono mai». Vedi `config_store.load_config`."""
+    return config_store.load_config(sync_csv_language=False, recover_corrupt=False)
 
 
 def _history_extra_secrets(cfg) -> list:

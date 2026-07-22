@@ -3252,7 +3252,7 @@ class App(ctk.CTk):
                     self._safe_after(0, lambda e=ex, d=delay, n=self._reconnect_attempt: self._log(i18n.tr(
                         "🔌 Connessione persa ({error}): riconnessione tra {delay}s (tentativo {attempt})…")
                         .format(error=type(e).__name__, delay=f"{d:.0f}", attempt=n)))
-                    self._safe_after(0, self._set_status_reconnecting)
+                    self._safe_after(0, lambda: self._set_status_reconnecting(epoch))
                     self._reconnect_wait(delay, backoff_stop_event)
         finally:
             # Sessione finita (STOP / nuovo START / errore non recuperabile): CHIUDI l'event
@@ -3311,8 +3311,13 @@ class App(ctk.CTk):
         può aver riassegnato → lost-wake del thread vecchio."""
         stop_event.wait(delay)
 
-    def _set_status_reconnecting(self) -> None:
-        self._set_listener_state(health_check.LISTENER_RECONNECTING, _COLOR_STATUS_RECONNECT)
+    def _set_status_reconnecting(self, epoch=None) -> None:
+        # Gate epoch (audit #137 / review CodeRabbit #139): come `_set_status_connected`, un
+        # VECCHIO thread bot (epoch superato) non deve flippare la label «RICONNESSIONE» della
+        # NUOVA sessione tra lo scheduling e l'esecuzione sul thread UI. `epoch=None`
+        # (legacy/test) → solo `_running`.
+        if self._epoch_current(epoch):
+            self._set_listener_state(health_check.LISTENER_RECONNECTING, _COLOR_STATUS_RECONNECT)
 
     def _set_status_connected(self, epoch=None) -> None:
         # Gate epoch (audit #137): se una sessione più NUOVA ha già preso il posto (epoch cambiato)

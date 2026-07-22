@@ -172,6 +172,45 @@ def test_timestamp_futuro_finito_non_blocca_per_sempre():
     assert t.register(MSG, now=1000.0 + 400).status == sd.NEW   # oltre la finestra: potato (non immortale)
 
 
+def test_restore_state_timestamp_passato_estremo_non_clampato():
+    # Review GLM #139: un timestamp finito ESTREMO nel PASSATO (es. -1e18) NON viene clampato (il
+    # clamp tocca solo il futuro) e non blocca nulla: viene potato al primo register.
+    t = sd.SignalTracker(dedupe_window=300)
+    h = sd.message_hash(MSG)
+    t.restore_state([[h, -1e18, True]], now=1000.0)
+    assert t.state() == [[h, -1e18, True]]                     # passato invariato (non clampato)
+    assert t.register(MSG, now=1000.0).status == sd.NEW        # potato subito, non blocca
+
+
+def test_restore_state_now_non_finito_usa_fallback_e_clampa():
+    # Review GPT-5.5 #139: un `now` NON finito (NaN) non deve disabilitare il clamp — si usa il
+    # fallback `time.time()`, quindi un timestamp futuro enorme viene comunque clampato (no 1e18
+    # immortale).
+    t = sd.SignalTracker()
+    t.restore_state([["h", 1e18, True]], now=float("nan"))
+    assert t.state()[0][1] < 1e17     # clampato a ~now reale (≈1.7e9), non immortale
+
+
+def test_restore_state_now_non_numerico_usa_fallback_senza_crash():
+    # Review CodeRabbit #139: un `now` NON NUMERICO (es. stringa) non deve crashare (TypeError da
+    # math.isfinite) — fallback fail-safe a time.time(), clamp comunque attivo.
+    t = sd.SignalTracker()
+    t.restore_state([["h", 1e18, True]], now="oops")
+    assert t.state()[0][1] < 1e17     # clampato via fallback, nessuna eccezione
+
+
+def test_restore_state_skew_moderato_futuro_preservato():
+    # Review CodeRabbit #139: uno skew d'orologio all'INDIETRO MODERATO lascia voci leggermente nel
+    # futuro (entro una finestra): `_prune` le conserva APPOSTA per proteggere dai duplicati → NON
+    # vanno clampate. Solo la corruzione ESTREMA (oltre l'orizzonte now+finestra) viene clampata.
+    t = sd.SignalTracker(dedupe_window=300)
+    h = sd.message_hash(MSG)
+    t.restore_state([[h, 1100.0, True]], now=1000.0)      # 100s futuro < orizzonte (1000+300)
+    assert t.state() == [[h, 1100.0, True]]               # skew legittimo PRESERVATO (non clampato)
+    # protezione piena fino a 1100+300: un duplicato a now=1350 (oltre il naive 1000+300) è bloccato
+    assert t.register(MSG, now=1350.0).status == sd.DUPLICATE
+
+
 def test_load_state_con_infinity_non_blocca_il_messaggio_per_sempre(tmp_path):
     # End-to-end: un dedupe_state.json manomesso con Infinity sull'hash di un messaggio
     # NON deve renderlo DUPLICATE per sempre. json.load accetta Infinity di default → la
