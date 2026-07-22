@@ -151,6 +151,27 @@ def test_restore_state_scarta_timestamp_non_finiti():
     assert t.state() == [["buono", 1000.0, True], ["buono2", 1001.5, True]]   # solo i finiti
 
 
+def test_restore_state_clampa_timestamp_futuro_finito():
+    # audit #137: un timestamp FINITO ma enorme nel futuro (es. 1e18 da corruzione) NON deve
+    # sopravvivere per sempre (`_prune` conserva `t > now`). Al ripristino viene clampato a `now`;
+    # le voci nel passato restano invariate.
+    t = sd.SignalTracker()
+    t.restore_state([["passato", 500.0], ["futuro", 1e18], ["atnow", 1500.0]], now=1000.0)
+    assert t.state() == [["passato", 500.0, True], ["futuro", 1000.0, True],
+                         ["atnow", 1000.0, True]]   # futuri clampati a now, passato invariato
+
+
+def test_timestamp_futuro_finito_non_blocca_per_sempre():
+    # FAIL-FIRST (audit #137): pre-fix un dedupe_state con timestamp 1e18 sull'hash di un
+    # messaggio lo bloccherebbe come DUPLICATE a ogni riavvio, per sempre. Clampato a now:
+    # protegge entro la finestra dal riavvio, poi viene potato normalmente.
+    t = sd.SignalTracker(dedupe_window=300)
+    h = sd.message_hash(MSG)
+    t.restore_state([[h, 1e18, True]], now=1000.0)          # clampato a 1000
+    assert t.register(MSG, now=1001.0).status == sd.DUPLICATE   # entro la finestra: ancora bloccato
+    assert t.register(MSG, now=1000.0 + 400).status == sd.NEW   # oltre la finestra: potato (non immortale)
+
+
 def test_load_state_con_infinity_non_blocca_il_messaggio_per_sempre(tmp_path):
     # End-to-end: un dedupe_state.json manomesso con Infinity sull'hash di un messaggio
     # NON deve renderlo DUPLICATE per sempre. json.load accetta Infinity di default → la

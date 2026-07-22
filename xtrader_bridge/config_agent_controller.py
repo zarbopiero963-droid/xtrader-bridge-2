@@ -27,6 +27,12 @@ ERROR = "error"
 _STOP = object()
 
 
+def _readonly_config_loader() -> dict:
+    """Carica la config per l'assistente #41 SENZA effetti collaterali operativi: in particolare
+    non riallinea la lingua-CSV globale del writer (audit #137). Vedi `config_store.load_config`."""
+    return config_store.load_config(sync_csv_language=False)
+
+
 def _history_extra_secrets(cfg) -> list:
     """Chat ID da redigere in aggiunta nella cronologia su disco (P3-23 #76).
 
@@ -64,7 +70,10 @@ class AgentController:
     def __init__(self, *, client=None, client_factory=None, config_loader=None,
                  config_saver=None, history=None, parsers_dir=None, on_event=None,
                  health_provider=None, journal_path=None, logger=None):
-        self._config_loader = config_loader or config_store.load_config
+        # Loader di default SOLA-LETTURA (audit #137): l'assistente #41 legge la config senza
+        # mutare la lingua-CSV globale del writer (`sync_csv_language=False`). Un `config_loader`
+        # esplicito (test/host) resta libero di scegliere.
+        self._config_loader = config_loader or _readonly_config_loader
         self._config_saver = config_saver or config_store.save_config
         self._parsers_dir = parsers_dir
         self._on_event = on_event

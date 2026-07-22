@@ -209,7 +209,7 @@ class SignalTracker:
         """Stato serializzabile: lista di [hash, timestamp, real]."""
         return [[h, t, r] for (h, t, r) in self._seen]
 
-    def restore_state(self, data) -> None:
+    def restore_state(self, data, *, now: float = None) -> None:
         """Ripristina lo stato da `state()` (tollerante a voci malformate).
 
         Scarta le voci con timestamp NON FINITO (NaN/inf): `json.load` accetta di default
@@ -217,7 +217,16 @@ class SignalTracker:
         bloccherebbe per sempre quell'hash come DUPLICATE attraverso i riavvii
         (`inf >= qualsiasi cutoff`), mentre con `-inf` indebolirebbe il rate-limit. È il
         layer di persistenza dell'anti-doppia-scommessa, quindi fail-closed: voce non finita
-        → scartata (mirror di `validators.require_finite_now`), issue #184 H4."""
+        → scartata (mirror di `validators.require_finite_now`), issue #184 H4.
+
+        Tetto ai timestamp FINITI ma nel FUTURO (audit #137): un valore enorme (es. `1e18`
+        da corruzione/manomissione) è `> now` e `_prune` lo conserva sempre (`t > now`) →
+        quell'hash resterebbe DUPLICATE **per sempre**, sovra-bloccando un segnale reale a ogni
+        riavvio. Al ripristino si clampa ogni timestamp a `now`: la voce resta valida (protegge
+        dai duplicati entro la finestra dal riavvio) ma ora invecchia e viene potata normalmente,
+        senza mai diventare immortale. Non indebolisce mai la deduplica (una voce clampata a `now`
+        blocca comunque entro la finestra); riallinea solo le voci future al presente."""
+        cap = time.time() if now is None else now
         restored = []
         for item in data or []:
             try:
@@ -232,6 +241,8 @@ class SignalTracker:
                 continue
             if not math.isfinite(tf):
                 continue                    # NaN/inf da state corrotto/manomesso → scartato
+            if math.isfinite(cap) and tf > cap:
+                tf = cap                    # timestamp finito nel futuro → clampato a now (no immortalità)
             restored.append((str(h), tf, r))
         self._seen = restored
 

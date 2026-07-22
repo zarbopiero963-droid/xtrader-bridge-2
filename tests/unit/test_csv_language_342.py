@@ -241,3 +241,42 @@ def test_localize_row_lang_esplicita_es_e_default_corrente():
     csv_writer.set_csv_language("IT")
     default_it = csv_writer.localize_row(row)
     assert default_it["Price"] == "1,85"
+
+
+# ── load_config: opt-out del side-effect lingua per i tool sola-lettura (audit #137) ──
+
+def test_load_config_sincronizza_lingua_di_default(tmp_path):
+    """Percorso app normale: `load_config` (default `sync_csv_language=True`) allinea la
+    lingua-CSV globale del writer alla config caricata (comportamento #342 invariato)."""
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"csv_language": "EN"}), encoding="utf-8")
+    csv_writer.set_csv_language("IT")
+    config_store.load_config(str(p))
+    assert csv_writer.get_csv_language() == "EN"
+
+
+def test_load_config_readonly_non_muta_lingua_globale(tmp_path):
+    """Audit #137: `sync_csv_language=False` (usato dall'assistente #41 sola-lettura) legge la
+    config SENZA toccare la lingua-CSV globale del writer — nessun effetto collaterale operativo."""
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"csv_language": "EN"}), encoding="utf-8")
+    csv_writer.set_csv_language("IT")
+    cfg = config_store.load_config(str(p), sync_csv_language=False)
+    assert cfg.get("csv_language") == "EN"                 # la config è letta correttamente
+    assert csv_writer.get_csv_language() == "IT"           # ma la lingua globale resta invariata
+
+
+def test_controller_readonly_loader_opta_out_sync_lingua(monkeypatch):
+    """Il loader di default del controller assistente (#41) chiama `load_config` con
+    `sync_csv_language=False` → legge la config ma NON muta la lingua-CSV globale (audit #137)."""
+    from xtrader_bridge import config_agent_controller
+    calls = {}
+
+    def _fake_load(path=None, *, sync_csv_language=True):
+        calls["sync"] = sync_csv_language
+        return {"csv_language": "EN"}
+
+    monkeypatch.setattr(config_agent_controller.config_store, "load_config", _fake_load)
+    out = config_agent_controller._readonly_config_loader()
+    assert calls["sync"] is False        # opt-out esplicito del side-effect operativo
+    assert out == {"csv_language": "EN"}  # la config è comunque restituita

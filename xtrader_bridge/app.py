@@ -3184,8 +3184,15 @@ class App(ctk.CTk):
                     "recuperati (i troppo vecchi restano scartati per freschezza).")))
             first_connection = False
             # Connessione stabilita: azzera il backoff e segnala (utile dopo una riconnessione).
-            self._reconnect_attempt = 0
-            self._safe_after(0, self._set_status_connected)
+            # Gate EPOCH (audit #137): un VECCHIO thread bot (STOP→START rapido) ha un epoch
+            # SUPERATO e non deve azzerare il backoff né flippare la label «⬤ ATTIVO» della NUOVA
+            # sessione (che potrebbe essere in RICONNESSIONE). Si confronta il solo epoch (NON
+            # `_is_current()`, che include `_running`): così uno STOP in corso sulla sessione
+            # CORRENTE non impedisce il reset del contatore; la label resta comunque gated su
+            # `_running` dentro `_set_status_connected`. Nessun impatto su CSV/bet (già epoch-gated).
+            if self._listener_epoch == epoch:
+                self._reconnect_attempt = 0
+                self._safe_after(0, lambda: self._set_status_connected(epoch))
             # Attesa INTERROMPIBILE: si sveglia subito quando `_stop` setta `_async_stop_event`
             # (via `call_soon_threadsafe`), oppure ogni secondo per ricontrollare `_is_current()`
             # (nuovo START/STOP da altri percorsi). Così l'updater viene fermato senza la
@@ -3307,8 +3314,11 @@ class App(ctk.CTk):
     def _set_status_reconnecting(self) -> None:
         self._set_listener_state(health_check.LISTENER_RECONNECTING, _COLOR_STATUS_RECONNECT)
 
-    def _set_status_connected(self) -> None:
-        if self._running:
+    def _set_status_connected(self, epoch=None) -> None:
+        # Gate epoch (audit #137): se una sessione più NUOVA ha già preso il posto (epoch cambiato)
+        # tra lo scheduling sul thread del bot e l'esecuzione su quello UI, questo callback NON deve
+        # flippare la label. `epoch=None` (chiamanti legacy/test) → solo `_running` (storico).
+        if self._epoch_current(epoch):
             self._set_listener_state(health_check.LISTENER_ACTIVE, _COLOR_STATUS_ACTIVE)
             self._log(i18n.tr("✅ Connesso a Telegram."))
 

@@ -521,8 +521,13 @@ def _default_recognition_mode() -> str:
         return recognition.NAME_ONLY
 
 
-def load_config(path: str = CONFIG_FILE) -> dict:
+def load_config(path: str = CONFIG_FILE, *, sync_csv_language: bool = True) -> dict:
     """Ritorna i default, sovrascritti dal file se presente e leggibile.
+
+    ``sync_csv_language`` (audit #137): se ``True`` (default, percorso app normale) allinea la
+    lingua-CSV globale del writer alla config caricata (#342). I chiamanti **sola-lettura** —
+    l'assistente di configurazione (#41), che non deve MAI mutare stato operativo — passano
+    ``False`` per leggere la config **senza** questo effetto collaterale sul separatore decimale.
 
     Se il file esiste ma è corrotto (JSON non valido), ne fa un backup `.bak`
     e riparte dai default, così una config rotta non blocca l'avvio. Prima di
@@ -604,7 +609,10 @@ def load_config(path: str = CONFIG_FILE) -> dict:
         cfg[POST_CORRUPTION_KEY] = True
     # Lingua CSV (#342): allinea il writer alla config APPENA caricata, così le scritture
     # successive usano il separatore decimale giusto fin dallo startup (nessun altro wiring).
-    csv_writer.set_csv_language(cfg.get("csv_language"))
+    # Saltato dai chiamanti sola-lettura (assistente #41): leggere la config non deve mutare
+    # lo stato operativo del writer (audit #137).
+    if sync_csv_language:
+        csv_writer.set_csv_language(cfg.get("csv_language"))
     return cfg
 
 
