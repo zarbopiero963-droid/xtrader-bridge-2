@@ -297,6 +297,52 @@ def _scoped_entry_groups(entries, want_sport, want_entity=None, want_language=""
     return [groups[rank] for rank in sorted(groups)]   # tier dal più specifico all'agnostico
 
 
+# Sentinella: un tier contiene un alias/canonico che combacia con ≥2 betfair DIVERSI (conflitto
+# reale). Distinta da ``None`` (nessun match nel tier) così `resolve_team` fail-closa senza indovinare.
+_AMBIGUOUS = object()
+
+
+def _scope_signature(e):
+    """Firma di scoping di una riga: ``(sport, entity_type, language)``. Due righe con firma
+    DIVERSA sono override distinguibili (il chiamante può separarle passando lo scope), non un
+    conflitto; solo righe con firma UGUALE sono indistinguibili.
+
+    Le righe arrivano già ripulite da `_clean_entry` (sport via `sports.normalize_sport`, tipo e
+    lingua via i rispettivi normalizzatori), quindi due scope **equivalenti** scritti con casing o
+    spazi diversi (``"Calcio"``/``"calcio"``) collassano allo STESSO valore → l'ambiguità fra
+    Betfair diversi viene comunque rilevata, non sfugge per una differenza cosmetica."""
+    return (str(e.get("sport", "") or ""),
+            str(e.get("entity_type", "") or ""),
+            str(e.get("language", "") or ""))
+
+
+def _resolve_in_tier(nt, group, key):
+    """Risolve una fase (``key``: ``"provider"`` = alias · ``"betfair"`` = canonico) dentro un
+    tier (gruppo di righe dello stesso rango), preservando l'ordine salvato:
+
+    - 0 righe combaciano con il nome normalizzato ``nt`` → ``None``;
+    - righe che combaciano ma, **a parità di firma di scoping** (`_scope_signature`), indicano
+      ≥2 ``betfair`` DIVERSI → ``_AMBIGUOUS`` (duplicato indistinguibile in conflitto → il
+      chiamante fail-closa: mai indovinare la squadra, come il lato mercati con ``"ambiguous"``);
+    - altrimenti → il ``betfair`` della **prima** riga che combacia (ordine salvato = precedenza
+      legacy invariata). Righe con firma di scoping DIVERSA sono override distinguibili, non
+      ambigue; duplicati verso lo **stesso** Betfair non sono ambigui.
+
+    Il campo ``key`` DEVE essere non vuoto (guard legacy ``alias and betfair``): così una riga con
+    ``provider=""`` non combacia mai nella fase alias e nessun nome squadra vuoto viene tradotto,
+    a prescindere dal guard sul ``nt`` in `resolve_team` (fail-closed anche in isolamento)."""
+    matches = [e for e in group
+               if e.get(key, "") and e.get("betfair", "") and normalize(e.get(key, "")) == nt]
+    if not matches:
+        return None
+    by_sig = {}
+    for e in matches:
+        by_sig.setdefault(_scope_signature(e), set()).add(e.get("betfair", ""))
+    if any(len(betfairs) > 1 for betfairs in by_sig.values()):
+        return _AMBIGUOUS
+    return matches[0].get("betfair", "")
+
+
 def resolve_team(team: str, profiles, sport=None, entity_type=None, language=None) -> str:
     """Traduce un nome squadra grezzo nel nome Betfair/XTrader, o ``None`` se ignoto.
 
@@ -310,6 +356,16 @@ def resolve_team(team: str, profiles, sport=None, entity_type=None, language=Non
     2. **nome canonico**: altrimenti riga del profilo il cui ``betfair`` combacia (il
        provider ha già mandato il nome canonico, o la riga non ha alias);
     3. nessun match in TUTTI i profili → ``None`` (non si indovina mai un nome squadra).
+
+    **Fail-closed su alias ambiguo (audit #137):** se DENTRO uno stesso tier una fase (alias
+    o canonico) combacia con ≥2 ``betfair`` DIVERSI (es. due righe dello stesso profilo con
+    provider "Inter" → "Inter Milano" e "Inter" → "Inter Miami"), è un conflitto reale →
+    ritorna ``None`` invece di indovinare la prima riga (allineato a
+    `market_mapping_store.resolve_market`, che su frasi che indicano mercati diversi ritorna
+    ``"ambiguous"``). Righe duplicate che puntano allo **stesso** Betfair NON sono ambigue.
+    La precedenza **cross-profilo** (primo profilo vince), **tier** (sport/tipo/lingua esatti
+    prima degli agnostici) e **alias-prima-di-canonico** resta invariata: l'ambiguità è solo
+    fra righe dello stesso rango nella stessa fase.
 
     ``sport`` (PR-P10): se valorizzato (uno fra ``sports.SPORTS``), si considerano SOLO
     le righe di quello sport o **agnostiche** (sport vuoto), con **priorità allo sport
@@ -339,17 +395,19 @@ def resolve_team(team: str, profiles, sport=None, entity_type=None, language=Non
         # Si esaurisce un TIER di priorità (alias, poi canonico) PRIMA di scendere al tier
         # più agnostico: così un alias agnostico non scavalca un canonico esatto-sport dello
         # stesso nome (Codex P2 #174). Dentro il tier resta alias→canonico (l'alias del
-        # provider ha precedenza sul nome canonico).
+        # provider ha precedenza sul nome canonico). Un alias/canonico ambiguo nel tier
+        # (≥2 betfair diversi) fa fail-closed (None), non si indovina (audit #137).
         for group in _scoped_entry_groups(entries, want, entity_type, language):
-            for e in group:
-                alias = e.get("provider", "")
-                betfair = e.get("betfair", "")
-                if alias and betfair and normalize(alias) == nt:
-                    return betfair
-            for e in group:
-                betfair = e.get("betfair", "")
-                if betfair and normalize(betfair) == nt:
-                    return betfair
+            for key in ("provider", "betfair"):   # alias PRIMA del canonico (precedenza invariata)
+                hit = _resolve_in_tier(nt, group, key)
+                if hit is _AMBIGUOUS:
+                    _LOG.warning(
+                        "name_mappings: alias ambiguo (≥2 Betfair diversi per lo stesso nome "
+                        "nello stesso profilo/tier) → fail-closed, nessuna traduzione. "
+                        "Correggi il Dizionario nomi.")
+                    return None
+                if hit is not None:
+                    return hit
     return None
 
 

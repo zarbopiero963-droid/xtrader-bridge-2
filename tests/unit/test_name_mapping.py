@@ -137,6 +137,125 @@ def test_resolve_team_canonico_del_primo_profilo_batte_alias_del_secondo():
         "Rangers", nm.entries_for_profiles(cfg, ["B", "A"])) == "Queens Park Rangers"
 
 
+# ── resolve_team: alias ambiguo → fail-closed (audit #137) ───────────────────
+
+def test_resolve_team_alias_ambiguo_stesso_profilo_fail_closed():
+    """FAIL-FIRST (#137): due righe dello STESSO profilo con lo stesso alias normalizzato ma
+    ``betfair`` DIVERSO → conflitto reale → ``None`` (mai indovinare l'evento). Sul codice
+    pre-fix ritornava la prima riga ('Inter Milano') = potenziale bet sull'evento sbagliato."""
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter Milano", "provider": "Inter"},
+        {"betfair": "Inter Miami", "provider": "Inter"},
+    ]}}
+    assert nm.resolve_team("Inter", nm.entries_for_profiles(cfg, ["P"])) is None
+
+
+def test_resolve_team_duplicato_stesso_betfair_non_e_ambiguo():
+    """Regressione: righe duplicate con lo stesso alias che puntano allo STESSO ``betfair`` NON
+    sono ambigue → traducono normalmente (il fail-closed scatta solo su betfair DIVERSI)."""
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter", "provider": "Inter FC"},
+        {"betfair": "Inter", "provider": "Inter FC"},
+    ]}}
+    assert nm.resolve_team("Inter FC", nm.entries_for_profiles(cfg, ["P"])) == "Inter"
+
+
+def test_resolve_team_canonico_ambiguo_stesso_profilo_fail_closed():
+    """Anche la fase CANONICA fail-closa: due righe il cui ``betfair`` normalizza uguale al nome
+    ma con stringhe diverse (es. casing incoerente) → ``None`` invece di scegliere la prima."""
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Milan", "provider": ""},
+        {"betfair": "MILAN", "provider": ""},
+    ]}}
+    assert nm.resolve_team("milan", nm.entries_for_profiles(cfg, ["P"])) is None
+
+
+def test_resolve_team_ambiguo_cross_profilo_NON_scatta_primo_profilo_vince():
+    """Regressione critica: due PROFILI diversi che mappano lo stesso nome a betfair diversi NON
+    sono ambigui — resta la precedenza documentata «il primo profilo vince» (invariata)."""
+    cfg = {"name_mappings": {
+        "A": [{"betfair": "Inter Milano", "provider": "Inter"}],
+        "B": [{"betfair": "Inter Miami", "provider": "Inter"}],
+    }}
+    assert nm.resolve_team("Inter", nm.entries_for_profiles(cfg, ["A", "B"])) == "Inter Milano"
+    assert nm.resolve_team("Inter", nm.entries_for_profiles(cfg, ["B", "A"])) == "Inter Miami"
+
+
+def test_resolve_team_override_scoped_NON_e_ambiguo():
+    """Regressione: due righe con lo stesso alias ma FIRMA di scoping diversa (una taggata per
+    sport, una agnostica) NON sono ambigue — sono override distinguibili, non un conflitto.
+    Con filtro sport vince il tier esatto; SENZA filtro resta la precedenza legacy (prima riga
+    salvata), non fail-closed. L'ambiguità scatta solo a parità di firma di scoping."""
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter Calcio", "provider": "Inter", "sport": "Calcio"},
+        {"betfair": "Inter generico", "provider": "Inter"},   # agnostica
+    ]}}
+    prof = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Inter", prof, sport="Calcio") == "Inter Calcio"  # tier esatto
+    assert nm.resolve_team("Inter", prof) == "Inter Calcio"                  # senza filtro: legacy, NON ambiguo
+
+
+def test_resolve_event_name_squadra_ambigua_fail_closed_end_to_end():
+    """End-to-end: se una delle due squadre è ambigua, `resolve_event_name` fail-closa (``None``)
+    → nessuna riga CSV piazzabile (mai un evento indovinato)."""
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter Milano", "provider": "Inter"},
+        {"betfair": "Inter Miami", "provider": "Inter"},
+        {"betfair": "Milan", "provider": "Milan"},
+    ]}}
+    prof = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_event_name("Inter v Milan", "v", prof) is None
+
+
+def test_resolve_team_input_degenere_non_matcha_provider_vuoto():
+    """Review Fable 5 / Fugu Ultra #138: un nome che normalizza a vuoto (o degenere) NON deve mai
+    combaciare con righe dal ``provider`` vuoto (guard legacy `alias and`) → sempre ``None``,
+    mai un Betfair arbitrario. Fail-closed anche sugli input degeneri."""
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Squadra Canonica", "provider": ""},   # solo canonico (provider vuoto)
+        {"betfair": "Altra", "provider": "  "},             # provider whitespace → ripulito a ""
+    ]}}
+    prof = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("", prof) is None
+    assert nm.resolve_team("   ", prof) is None
+    assert nm.resolve_team("\t\n", prof) is None
+    # e un canonico legittimo resta traducibile (il guard non rompe il match reale)
+    assert nm.resolve_team("Squadra Canonica", prof) == "Squadra Canonica"
+
+
+def test_resolve_event_name_squadra_vuota_fail_closed():
+    """Review Fugu #138: un EventName malformato con una squadra vuota (`" v Milan"`, `"Milan v "`)
+    fail-closa (``None``) → nessuna riga CSV su evento sbagliato."""
+    cfg = {"name_mappings": {"P": [{"betfair": "Milan", "provider": "Milan"}]}}
+    prof = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_event_name(" v Milan", "v", prof) is None
+    assert nm.resolve_event_name("Milan v ", "v", prof) is None
+
+
+def test_resolve_team_alias_ambiguo_con_filtro_sport():
+    """Review GLM #138: l'ambiguità è rilevata anche DENTRO un tier sport-specifico — due righe
+    dello stesso sport, stesso alias, Betfair diversi → ``None`` con `sport` valorizzato."""
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter Milano", "provider": "Inter", "sport": "Calcio"},
+        {"betfair": "Inter Miami", "provider": "Inter", "sport": "Calcio"},
+    ]}}
+    prof = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Inter", prof, sport="Calcio") is None
+
+
+def test_resolve_team_ambiguo_scope_equivalente_casing_rilevato():
+    """Review GPT-5.5 / GLM #138: due righe con scope EQUIVALENTE ma casing diverso
+    (`sport="Calcio"` vs `"calcio"`) sono normalizzate da `_clean_entry` alla stessa firma →
+    l'ambiguità fra Betfair diversi viene comunque rilevata (non sfugge per differenza cosmetica)."""
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter Milano", "provider": "Inter", "sport": "Calcio"},
+        {"betfair": "Inter Miami", "provider": "Inter", "sport": "calcio"},
+    ]}}
+    prof = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Inter", prof, sport="Calcio") is None
+    assert nm.resolve_team("Inter", prof) is None
+
+
 # ── split_event / resolve_event_name ────────────────────────────────────────
 
 def test_split_event_separatori_liberi():
