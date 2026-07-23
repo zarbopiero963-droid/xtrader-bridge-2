@@ -202,6 +202,22 @@ def test_save_overwrite_resta_atomico(tmp_path):
     assert leftovers == []                                                # nessun temp orfano
 
 
+def test_save_overwrite_completa_anche_se_chmod_solleva(tmp_path, monkeypatch):
+    # GLM/GPT #145: il restringimento permessi è BEST-EFFORT — se `os.chmod` solleva (file aperto su
+    # Windows / network drive), il salvataggio della chiave deve comunque COMPLETARE (il temp è già
+    # 0o600 via mkstemp su POSIX). Regressione sulla resilienza del path overwrite.
+    path = core.signing_key_path(str(tmp_path))
+    core.save_signing_key(path, _TEST_SEED_HEX, _TEST_PUBLIC_HEX, _NOW)
+    seed2, pub2 = core.generate_keypair()
+
+    def _boom(*_a, **_k):
+        raise OSError("chmod non supportato (simulato)")
+    monkeypatch.setattr(core.os, "chmod", _boom)
+    core.save_signing_key(path, seed2, pub2, _NOW + 1, overwrite=True)    # non deve sollevare
+    monkeypatch.setattr(core.os, "chmod", os.chmod)                       # ripristina per la verifica
+    assert core.load_signing_key(path)["seed"] == seed2                   # scritta comunque
+
+
 def test_load_json_corrotto_solleva_non_scarta(tmp_path):
     # Regola chiave: un file-chiave corrotto NON è mai «assente» → solleva, e resta su disco
     # (perdere una chiave = non poter più rinnovare i bridge distribuiti).
