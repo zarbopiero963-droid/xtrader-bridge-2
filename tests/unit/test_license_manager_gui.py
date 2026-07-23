@@ -7,6 +7,8 @@ cartella-chiave temporanea. Nessun segreto reale: il seed è generato al volo o 
 """
 
 import importlib
+import os
+import stat
 import sys
 import types
 
@@ -88,6 +90,58 @@ def test_ensure_keypair_non_sovrascrive_file_corrotto(gui, tmp_path):
 def test_current_key_state_assente(gui, tmp_path):
     st = gui.LicenseManagerApp._current_key_state(_fake(gui, tmp_path))
     assert st == {"public": None, "error": None}
+
+
+def test_secure_data_dir_all_avvio(gui, tmp_path):
+    # #140 PR 3c (rilievo Fugu #146): all'avvio la GUI crea e restringe la cartella-dati del tool,
+    # così il seed privato non è leggibile da altri account locali. Ritorna l'esito (review GPT/GLM
+    # #147): True quando la blindatura è riuscita.
+    d = str(tmp_path / "lmdata")
+    fake = types.SimpleNamespace(_key_dir=d)
+    ok = gui.LicenseManagerApp._secure_data_dir(fake)
+    assert ok is True and os.path.isdir(d)
+    if os.name == "posix":
+        assert stat.S_IMODE(os.stat(d).st_mode) == 0o700
+
+
+def test_refresh_key_state_avvisa_se_cartella_non_blindata(gui, tmp_path):
+    # review GPT/GLM #147: se la blindatura della cartella-chiave è fallita (_dir_secured False) e
+    # non c'è un errore di chiave, l'avvio mostra un AVVISO invece di dare un falso senso di sicurezza.
+    msgs = []
+    fake = types.SimpleNamespace(
+        _dir_secured=False,
+        _public_value=None,
+        _current_key_state=lambda: {"public": None, "error": None},
+        _set_msg=lambda text: msgs.append(text),
+    )
+    gui.LicenseManagerApp._refresh_key_state(fake)
+    assert msgs and "proteggere la cartella" in msgs[-1].lower()
+
+
+def test_refresh_key_state_errore_chiave_ha_priorita(gui, tmp_path):
+    # Se c'è un errore di chiave (es. corrotta), quello prevale sull'avviso cartella (un solo msg).
+    msgs = []
+    fake = types.SimpleNamespace(
+        _dir_secured=False,
+        _public_value=None,
+        _current_key_state=lambda: {"public": None, "error": "File-chiave corrotto"},
+        _set_msg=lambda text: msgs.append(text),
+    )
+    gui.LicenseManagerApp._refresh_key_state(fake)
+    assert msgs == ["File-chiave corrotto"]
+
+
+def test_refresh_key_state_cartella_blindata_nessun_avviso(gui, tmp_path):
+    # Blindatura riuscita + nessun errore chiave → nessun messaggio (avvio pulito).
+    msgs = []
+    fake = types.SimpleNamespace(
+        _dir_secured=True,
+        _public_value=None,
+        _current_key_state=lambda: {"public": None, "error": None},
+        _set_msg=lambda text: msgs.append(text),
+    )
+    gui.LicenseManagerApp._refresh_key_state(fake)
+    assert msgs == []
 
 
 def _raise_oserror(_p):

@@ -22,12 +22,17 @@ chiave valida senza `overwrite=True` esplicito.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import subprocess
+import sys
 import tempfile
 
 from xtrader_bridge.licensing import ed25519
 from xtrader_bridge.licensing.hwid import is_identifiable
 from xtrader_bridge.licensing.license import build_license
+
+_log = logging.getLogger(__name__)
 
 # Cartella utente del License Manager (SEPARATA da quella del bridge, `XTraderBridge`), così la
 # chiave privata del proprietario non finisce mai vicino ai dati del bridge distribuito.
@@ -82,6 +87,127 @@ def manager_dir() -> str:
 def signing_key_path(directory: "str | None" = None) -> str:
     """Percorso del file-chiave (`signing_key.json`) nella cartella data o in `manager_dir()`."""
     return os.path.join(directory or manager_dir(), SIGNING_KEY_FILE)
+
+
+def _current_user() -> str:
+    """Nome dell'utente corrente per `icacls` (review GLM/GPT #147: `getpass.getuser()` è più robusto
+    di leggere direttamente l'env). Fallback su `USERNAME`/`USER` se `getpass` fallisce."""
+    try:
+        import getpass
+        return getpass.getuser()
+    except (OSError, ImportError, KeyError):
+        return os.environ.get("USERNAME") or os.environ.get("USER") or ""
+
+
+def _acl_principal() -> str:
+    """Principal per `icacls /grant`, **domain-qualified** quando possibile (review Fugu #147, blocco
+    #2): `getpass.getuser()` da solo torna il nome **senza dominio** e su un account di dominio/AzureAD
+    `icacls /grant "<utente>"` può non risolvere → il grant fallisce. Se `%USERDOMAIN%` è presente si
+    usa `DOMINIO\\utente` (forma valida sia per account locali — `DOMINIO` = nome PC — sia di dominio
+    e AzureAD, dove `USERDOMAIN` vale `AzureAD`); altrimenti il nome nudo. `""` se l'utente non è
+    ricavabile → nessun grant ambiguo."""
+    user = _current_user()
+    if not user:
+        return ""
+    domain = os.environ.get("USERDOMAIN")
+    return f"{domain}\\{user}" if domain else user
+
+
+def _rc_ok(result) -> bool:
+    """`True` se il comando è andato a buon fine (returncode 0). Un runner iniettato che non
+    restituisce un oggetto con `returncode` (test) è considerato riuscito."""
+    return getattr(result, "returncode", 0) == 0
+
+
+def _apply_windows_acl(path: str, *, run) -> bool:
+    """Restringe `path` al **solo** utente proprietario su Windows via `icacls` (best-effort).
+
+    `os.chmod` su Windows non tocca le ACL NTFS: senza questo, su un PC multi-utente il seed privato
+    sarebbe leggibile da altri account locali (rilievo Fugu #146). Il file-chiave `0o600` su NTFS è
+    inefficace, quindi la protezione dipende **interamente** da questa DACL.
+
+    **Sequenza fail-closed, mai allargante (review Fugu #147, blocco #1).** Un **solo** comando:
+    `icacls … /inheritance:r /grant:r "<principal>:(OI)(CI)F"` — `/inheritance:r` rimuove le ACE
+    **ereditate**, `/grant:r` concede il controllo al **solo** utente corrente. NON si esegue prima
+    alcun `icacls /reset`: quel comando **ripristinerebbe l'ereditarietà larga** (fail-OPEN) e, se il
+    `/grant` successivo fallisse, lascerebbe la cartella-chiave più esposta di prima. Con l'unico
+    comando qui, se `icacls` fallisce la cartella resta **al più ristretta** (fail-closed: al peggio
+    DACL vuota → inaccessibile anche all'owner, che viene avvisato), **mai** allargata. La cartella è
+    creata da noi in `%APPDATA%` (eredita già ACL solo-owner), quindi non esistono ACE **esplicite**
+    pregresse di altri utenti da azzerare: rinunciare al `/reset` non riespone il seed.
+
+    **Limite accettato (review GPT/GLM #147).** `/inheritance:r /grant:r` rimuove le ACE *ereditate*
+    e (ri)concede l'owner, ma **non** rimuove eventuali ACE **esplicite** di *altri* principal già
+    presenti su una cartella preesistente. Nel flusso reale non ne esistono (cartella creata da noi;
+    le versioni precedenti del tool non scrivevano ACL → solo ACE ereditate, che `/inheritance:r`
+    rimuove). Rimuoverle richiederebbe `/reset` (reintroduce il fail-open) o l'enumerazione dei
+    principal (fragile su nomi di gruppo localizzati/dominio): si sceglie di **non allargare mai**. Il
+    residuo — cartella preesistente **manomessa** con ACE esplicite di terzi — è coperto dallo **smoke
+    manuale su Windows**, non dal lockdown automatico.
+
+    Il `<principal>` è **domain-qualified** (`_acl_principal`) così `/grant` risolve anche su account
+    di dominio/AzureAD (blocco #2). `run` è iniettabile (test) e di default è `subprocess.run`
+    (**lista** di argomenti, mai `shell=True` → nessuna injection). **Best-effort e non solleva**:
+    se `icacls` manca/fallisce il tool prosegue ma con protezione **non garantita** (loggato, solo il
+    tipo eccezione). Ritorna `True` solo se `icacls` ha restituito exit code 0 (protezione davvero
+    applicata), altrimenti `False` (utente non ricavabile, eccezione, o returncode ≠ 0)."""
+    principal = _acl_principal()
+    if not principal:
+        _log.warning("icacls sulla cartella-chiave saltato: utente corrente non ricavabile")
+        return False
+    try:
+        r = run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{principal}:(OI)(CI)F"],
+                check=False, capture_output=True, timeout=15)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        _log.warning("icacls sulla cartella-chiave non riuscito: %s", type(exc).__name__)
+        return False
+    return _rc_ok(r)
+
+
+def secure_dir(path: str, *, run=None, platform: "str | None" = None) -> bool:
+    """Restringe una cartella al solo utente proprietario (**best-effort**, non solleva).
+
+    - POSIX: `chmod 0o700` (solo l'owner entra/legge la cartella; il file-chiave è già `0o600`);
+    - Windows: ACL via `icacls` (vedi `_apply_windows_acl`), perché `chmod` non basta su NTFS.
+
+    Serve solo per la **cartella-dati del License Manager** (issue #140 PR 3c, rilievo Fugu #146):
+    NON va usata su cartelle di export scelte dall'utente (effetti collaterali su cartelle condivise).
+    `run`/`platform` sono iniettabili per i test (nessun Windows reale necessario).
+
+    Ritorna `True` se la restrizione è **davvero** riuscita (così l'avvio può avvisare l'utente in
+    caso contrario, review GPT/GLM #147), `False` altrimenti: mai un falso senso di sicurezza."""
+    ok = True
+    try:
+        os.chmod(path, 0o700)
+    except OSError as exc:
+        _log.warning("chmod 0o700 sulla cartella-chiave non riuscito: %s", type(exc).__name__)
+        ok = False
+    if (platform or sys.platform) == "win32":
+        # Su Windows le ACL NTFS sono ciò che conta davvero: l'esito `icacls` domina il verdetto.
+        ok = _apply_windows_acl(path, run=run or subprocess.run)
+    return ok
+
+
+def ensure_secure_dir(directory: "str | None" = None, *, run=None, platform: "str | None" = None) -> bool:
+    """Crea (se manca) e **restringe** la cartella-dati del License Manager.
+
+    Idempotente e best-effort: da chiamare all'avvio del tool, così il seed privato vive fin da subito
+    in una cartella accessibile al solo proprietario. `directory=None` → `manager_dir()`.
+
+    Ritorna `True` se la cartella è stata creata **e** ristretta con successo, `False` se la
+    creazione o la restrizione sono fallite (review GPT/GLM #147: l'avvio della GUI deve poter
+    avvisare l'utente invece di procedere con una cartella-chiave non protetta in silenzio).
+
+    La leaf viene creata **owner-only fin dalla prima syscall** (`mode=0o700`, review CodeRabbit
+    #147): senza, `os.makedirs` la creerebbe a `0o777`&umask e resterebbe una breve finestra
+    group/world prima del `chmod` di `secure_dir`. Su Windows `mode` è ininfluente (ci pensa l'ACL)."""
+    d = directory or manager_dir()
+    try:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+    except OSError as exc:
+        _log.warning("Creazione cartella-chiave non riuscita: %s", type(exc).__name__)
+        return False
+    return secure_dir(d, run=run, platform=platform)
 
 
 def _seed_from_hex(seed_hex: str) -> bytes:

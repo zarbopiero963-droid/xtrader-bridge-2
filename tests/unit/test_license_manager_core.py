@@ -258,6 +258,148 @@ def test_save_dopo_corruzione_propaga_non_sovrascrive(tmp_path):
         core.save_signing_key(path, _TEST_SEED_HEX, _TEST_PUBLIC_HEX, _NOW)
 
 
+# ── blindatura permessi cartella-dati (#140 PR 3c, rilievo Fugu #146) ─────────────────────────
+class _OkResult:
+    """Finto risultato di `subprocess.run` con `returncode` (per l'esito bool di secure_dir)."""
+    def __init__(self, returncode=0):
+        self.returncode = returncode
+
+
+def test_secure_dir_posix_0700(tmp_path):
+    if os.name != "posix":
+        pytest.skip("permessi 0o700 verificabili solo su POSIX")
+    d = str(tmp_path / "lmdata")
+    os.makedirs(d)
+    assert core.secure_dir(d) is True                   # chmod riuscito → True (review GPT/GLM #147)
+    assert stat.S_IMODE(os.stat(d).st_mode) == 0o700
+
+
+def test_secure_dir_windows_usa_icacls(tmp_path, monkeypatch):
+    # Su Windows chmod non basta (ACL NTFS): secure_dir invoca icacls. UN SOLO comando fail-closed
+    # (review Fugu #147): /inheritance:r rimuove l'ereditarietà + /grant:r al SOLO utente. NIENTE
+    # /reset che allargherebbe (fail-open). Verificato via runner iniettato (nessun Windows reale).
+    monkeypatch.setattr(core, "_current_user", lambda: "pippo")
+    monkeypatch.delenv("USERDOMAIN", raising=False)     # nome nudo → assert deterministico
+    calls = []
+
+    def _run(*a, **k):
+        calls.append(a[0])
+        return _OkResult(0)
+
+    assert core.secure_dir(str(tmp_path), run=_run, platform="win32") is True   # rc=0 → True
+    assert len(calls) == 1                              # un solo comando di lockdown
+    (grant_cmd,) = calls
+    assert grant_cmd[0] == "icacls" and str(tmp_path) in grant_cmd
+    assert "/inheritance:r" in grant_cmd and "/grant:r" in grant_cmd
+    assert "pippo:(OI)(CI)F" in grant_cmd
+    assert "/reset" not in grant_cmd                    # mai il passo che allarga (Fugu #147)
+
+
+def test_secure_dir_windows_limite_ace_pregresse_documentato(tmp_path, monkeypatch):
+    # review GPT/GLM #147 (limite accettato): il lockdown NON tenta di rimuovere ACE esplicite di
+    # ALTRI principal su una cartella preesistente — niente `/reset` (fail-open) né `/remove`. È una
+    # scelta di design (non allargare mai): questo test blinda il contratto del comando così un
+    # ritorno silenzioso a `/reset`/`/remove` fallirebbe qui.
+    monkeypatch.setattr(core, "_current_user", lambda: "pippo")
+    calls = []
+
+    def _run(*a, **k):
+        calls.append(a[0])
+        return _OkResult(0)
+
+    core.secure_dir(str(tmp_path), run=_run, platform="win32")
+    (grant_cmd,) = calls
+    assert "/reset" not in grant_cmd                    # non ripristina l'ereditarietà larga
+    assert not any(str(arg).startswith("/remove") for arg in grant_cmd)   # non enumera/rimuove terzi
+
+
+def test_secure_dir_windows_principal_domain_qualified(tmp_path, monkeypatch):
+    # review Fugu #147 blocco #2: su account di dominio/AzureAD il principal deve essere
+    # DOMINIO\utente, non il nome nudo, altrimenti /grant non risolve.
+    monkeypatch.setattr(core, "_current_user", lambda: "pippo")
+    monkeypatch.setenv("USERDOMAIN", "AzureAD")
+    calls = []
+
+    def _run(*a, **k):
+        calls.append(a[0])
+        return _OkResult(0)
+
+    assert core.secure_dir(str(tmp_path), run=_run, platform="win32") is True
+    (grant_cmd,) = calls
+    assert "AzureAD\\pippo:(OI)(CI)F" in grant_cmd      # domain-qualified
+
+
+def test_secure_dir_windows_icacls_rc_diverso_da_zero_false(tmp_path, monkeypatch):
+    # review Fugu/GLM #147: se icacls torna un exit code ≠ 0 (ACL NON applicata), secure_dir deve
+    # ritornare False → la GUI avvisa l'utente invece di credere la cartella protetta. Fail-closed:
+    # nessun passo precedente ha allargato i permessi.
+    monkeypatch.setattr(core, "_current_user", lambda: "pippo")
+    assert core.secure_dir(str(tmp_path), run=lambda *a, **k: _OkResult(5),
+                           platform="win32") is False
+
+
+def test_secure_dir_windows_senza_utente_niente_icacls(tmp_path, monkeypatch):
+    # Se l'utente corrente non è determinabile, non si invoca icacls (niente comando ambiguo) e
+    # l'esito è False (protezione non garantita).
+    monkeypatch.setattr(core, "_current_user", lambda: "")
+    calls = []
+    ok = core.secure_dir(str(tmp_path), run=lambda *a, **k: calls.append(a[0]), platform="win32")
+    assert calls == [] and ok is False
+
+
+def test_secure_dir_non_windows_niente_icacls(tmp_path):
+    calls = []
+    ok = core.secure_dir(str(tmp_path), run=lambda *a, **k: calls.append(a), platform="linux")
+    assert calls == []                              # su POSIX solo chmod, nessun icacls
+    assert ok is True                               # chmod su tmp_path riuscito
+
+
+def test_secure_dir_best_effort_non_solleva(tmp_path, monkeypatch):
+    # chmod che solleva e run che solleva NON devono propagare (best-effort) → esito False.
+    monkeypatch.setattr(core.os, "chmod", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+    def _boom_run(*a, **k):
+        raise OSError("icacls assente (simulato)")
+    assert core.secure_dir(str(tmp_path), run=_boom_run, platform="win32") is False   # non solleva
+
+
+def test_ensure_secure_dir_crea_e_restringe(tmp_path):
+    d = str(tmp_path / "nuova" / "lmdata")
+    ret = core.ensure_secure_dir(d)
+    assert ret is True and os.path.isdir(d)            # creata + ristretta → True
+    if os.name == "posix":
+        assert stat.S_IMODE(os.stat(d).st_mode) == 0o700
+
+
+def test_ensure_secure_dir_makedirs_owner_only_dalla_prima_syscall(tmp_path, monkeypatch):
+    # review CodeRabbit #147 (Major): la leaf va creata owner-only FIN DALLA PRIMA syscall
+    # (mode=0o700), non a 0o777&umask con una finestra prima del chmod. Spia su os.makedirs che
+    # verifica il mode passato e delega alla creazione reale (regressione bloccata se qualcuno
+    # torna al default).
+    real_makedirs = core.os.makedirs
+    seen = {}
+
+    def _spy(path, *args, **kwargs):
+        # os.makedirs ricorre chiamando il makedirs a livello di modulo per i genitori (senza mode):
+        # ci interessa la PRIMA invocazione (la leaf target), quindi setdefault.
+        seen.setdefault("mode", kwargs.get("mode"))
+        return real_makedirs(path, *args, **kwargs)
+
+    monkeypatch.setattr(core.os, "makedirs", _spy)
+    d = str(tmp_path / "nuova" / "lmdata")
+    assert core.ensure_secure_dir(d) is True
+    assert seen["mode"] == 0o700                        # creata owner-only, non default 0o777
+
+
+def test_ensure_secure_dir_makedirs_fallisce_best_effort(tmp_path, monkeypatch):
+    # GLM #147: se makedirs fallisce (permessi insufficienti), ensure_secure_dir NON solleva e
+    # ritorna False (best-effort: il tool prosegue, ma la blindatura NON è garantita → la GUI avvisa).
+    def _boom(*_a, **_k):
+        raise OSError("permesso negato (simulato)")
+    monkeypatch.setattr(core.os, "makedirs", _boom)
+    d = str(tmp_path / "x")
+    assert core.ensure_secure_dir(d) is False          # non solleva, ma segnala il fallimento
+
+
 # ── export/backup ───────────────────────────────────────────────────────────────────────────
 def test_export_backup_copia_identica(tmp_path):
     src = core.signing_key_path(str(tmp_path))
