@@ -163,15 +163,16 @@ def _persist_key_file(path: str, data: str, *, overwrite: bool) -> None:
     encoded = data.encode("utf-8")
 
     if overwrite:
-        # Temp nella STESSA dir con permessi ESPLICITI 0o600 (mkstemp li crea già così, ma il chmod
-        # esplicito prima del replace elimina ogni dubbio su una finestra a umask sul seed privato),
-        # poi scrittura + fsync + replace atomico + fsync della dir.
+        # `mkstemp` crea il temp a 0o600 su POSIX (mai umask largo sul seed privato); il chmod
+        # esplicito prima del replace è solo assicurazione extra ed è **best-effort** — non deve far
+        # fallire il salvataggio se `chmod` su un file aperto è un no-op/errore su Windows (review
+        # GPT/GLM #145). Poi scrittura + fsync + replace atomico + fsync della dir.
         fd, tmp = tempfile.mkstemp(dir=d, prefix=_TMP_PREFIX, suffix=_TMP_SUFFIX)
         try:
             # `fdopen` prende SUBITO possesso di `fd` (review GPT #145): così il `with` chiude il
-            # descrittore anche se `chmod`/`write`/`fsync` sollevano — nessun fd orfano fino al GC.
+            # descrittore anche se `write`/`fsync` sollevano — nessun fd orfano fino al GC.
             with os.fdopen(fd, "wb") as f:
-                os.chmod(tmp, 0o600)
+                _restrict_perms(tmp)
                 f.write(encoded)
                 f.flush()
                 os.fsync(f.fileno())
