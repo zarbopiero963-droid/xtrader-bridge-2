@@ -1531,6 +1531,41 @@ def _lm_build_commands_by_job():
     return out
 
 
+def _on_triggers(text: str):
+    """Chiavi-trigger dichiarate nella sezione `on:` di un workflow (dependency-free, coerente con la
+    filosofia no-parser-YAML del gate). Copre:
+
+    - forma **inline** — `on: workflow_dispatch` / `on: [a, b]` (robusto a quoting/liste);
+    - forma **a blocco** — SOLO le chiavi al PRIMO livello di indentazione sotto `on:`, ignorando
+      commenti e la **config annidata** di un trigger (es. `workflow_dispatch:` → `inputs:` →
+      `version:`), che NON è un trigger (review CodeRabbit #148).
+
+    Ritorna la lista delle chiavi-trigger nell'ordine di apparizione; `[]` se manca `on:`."""
+    lines = text.splitlines()
+    on_idx = next((i for i, ln in enumerate(lines) if re.match(r"^on:\s*(.*)$", ln)), None)
+    if on_idx is None:
+        return []
+    inline = re.match(r"^on:\s*(\S.*)$", lines[on_idx])   # `on: <valore>` sulla stessa riga
+    if inline:
+        val = inline.group(1).strip().strip("[]").replace('"', " ").replace("'", " ")
+        return [t.strip().rstrip(":") for t in re.split(r"[,\s]+", val) if t.strip()]
+    triggers, trig_indent = [], None
+    for ln in lines[on_idx + 1:]:
+        if re.match(r"^\S", ln):                     # tornati a colonna 0 → fine sezione on:
+            break
+        if not ln.strip() or ln.lstrip().startswith("#"):   # vuote/commenti non sono trigger
+            continue
+        indent = len(ln) - len(ln.lstrip())
+        if trig_indent is None:
+            trig_indent = indent                     # indentazione del primo trigger sotto on:
+        if indent != trig_indent:
+            continue                                 # chiave annidata (inputs/version/…) → non trigger
+        m = re.match(r"""^\s+["']?([A-Za-z_]+)["']?:""", ln)   # push/schedule/pull_request/…
+        if m:
+            triggers.append(m.group(1))
+    return triggers
+
+
 def test_lm_build_yaml_esiste():
     """Il workflow di build del License Manager deve esistere (issue #140 PR 3d)."""
     assert os.path.isfile(_LM_BUILD_YAML), \
@@ -1542,27 +1577,29 @@ def test_lm_build_solo_workflow_dispatch():
     (review Fable #148). Non basta negare `push:`/`tags:`: un `schedule:` o `pull_request:` farebbe
     partire da solo il build del **tool di firma** (accesso al lock di firma, consumo minuti CI) →
     vietato. Si estraggono le chiavi-trigger sotto `on:` e si esige ESATTAMENTE `[workflow_dispatch]`."""
-    lines = _read(_LM_BUILD_YAML).splitlines()
-    on_idx = next((i for i, ln in enumerate(lines) if re.match(r"^on:\s*(.*)$", ln)), None)
-    assert on_idx is not None, "il build LM deve dichiarare una sezione `on:`"
-    inline = re.match(r"^on:\s*(\S.*)$", lines[on_idx])   # forma inline: `on: <valore>`
-    if inline:
-        # `on: workflow_dispatch` oppure `on: [workflow_dispatch]` (robusto a quoting/liste — GPT #148)
-        val = inline.group(1).strip().strip("[]").replace('"', " ").replace("'", " ")
-        triggers = [t.strip().rstrip(":") for t in re.split(r"[,\s]+", val) if t.strip()]
-    else:
-        # forma a blocco: chiavi-trigger indentate sotto `on:` (commenti ignorati; quoting ammesso)
-        triggers = []
-        for ln in lines[on_idx + 1:]:
-            if re.match(r"^\S", ln):                 # tornati a colonna 0 → fine sezione on:
-                break
-            if ln.lstrip().startswith("#"):           # i commenti non sono trigger
-                continue
-            m = re.match(r"""^\s+["']?([A-Za-z_]+)["']?:""", ln)   # push/schedule/pull_request/…
-            if m:
-                triggers.append(m.group(1))
+    triggers = _on_triggers(_read(_LM_BUILD_YAML))
     assert triggers == ["workflow_dispatch"], \
         f"trigger del build LM: atteso ESCLUSIVAMENTE ['workflow_dispatch'], trovati {triggers}"
+
+
+def test_on_triggers_parsing():
+    """Self-test del parser `_on_triggers` (mutation-guard, review GPT/GLM/CodeRabbit #148): forme
+    inline / lista / blocco, **config annidata** di `workflow_dispatch` (inputs → version) che NON
+    deve contare come trigger, commenti ignorati, e casi negativi multi-trigger intercettati."""
+    assert _on_triggers("on:\n  workflow_dispatch:\n") == ["workflow_dispatch"]
+    assert _on_triggers("on: workflow_dispatch\n") == ["workflow_dispatch"]
+    assert _on_triggers("on: [workflow_dispatch]\n") == ["workflow_dispatch"]
+    assert _on_triggers("on:\n  # commento\n  workflow_dispatch:\n") == ["workflow_dispatch"]
+    # workflow_dispatch CON inputs annidati → resta UN solo trigger (regressione CodeRabbit #148)
+    assert _on_triggers(
+        "on:\n  workflow_dispatch:\n    inputs:\n      version:\n        required: false\n"
+    ) == ["workflow_dispatch"]
+    # NEGATIVI: qualunque secondo trigger è intercettato (l'assert stretto poi fallirebbe)
+    assert _on_triggers("on:\n  push:\n  workflow_dispatch:\n") == ["push", "workflow_dispatch"]
+    assert _on_triggers("on: [workflow_dispatch, push]\n") == ["workflow_dispatch", "push"]
+    assert _on_triggers(
+        "on:\n  schedule:\n    - cron: '0 0 * * *'\n  workflow_dispatch:\n"
+    ) == ["schedule", "workflow_dispatch"]
 
 
 def test_requirements_build_lock_committato():
@@ -1758,6 +1795,8 @@ def test_lm_is_license_manager_build_logica():
     assert _is_license_manager_build(
         "pyinstaller --onefile --name XTrader-License-Manager license_manager_main.py")
     assert not _is_license_manager_build("pyinstaller --onefile --name XTrader-Signal-Bridge main.py")
-    # build mista (due script) NON è «solo LM»: resta nel gate bridge, che ne fa fallire la
-    # forma-canonica (scripts != [main.py]) → nessuna build sfugge a un gate.
+    # build mista (due script) è classificata come LM (contiene license_manager_main.py) → ESCE dal
+    # gate bridge (`_build_commands*` usano `not _is_license_manager_build`) ed è coperta dal gate LM,
+    # che ne fa fallire la forma-canonica (scripts != [license_manager_main.py]) → nessuna build
+    # sfugge a un gate.
     assert _is_license_manager_build("pyinstaller main.py license_manager_main.py")
