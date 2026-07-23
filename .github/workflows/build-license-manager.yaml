@@ -1,0 +1,84 @@
+name: Build XTrader License Manager EXE
+
+on:
+  # EXE del TOOL DEL PROPRIETARIO (License Manager, issue #140 PR 3d). NON parte mai in automatico:
+  # solo `workflow_dispatch` (Actions → «Run workflow»). Motivi:
+  #  - è il tool del proprietario, non un artifact utente: non serve ricostruirlo a ogni push;
+  #  - un runner Windows costa 2× minuti CI → si lancia SOLO quando serve (niente spreco);
+  #  - resta comunque fail-closed: i test girano prima e sono bloccanti.
+  # Nessun trigger su tag/push → zero minuti CI automatici finché il proprietario non lo lancia.
+  workflow_dispatch:
+
+# Default a sola lettura: questo build NON crea Release e non scrive nulla nel repo.
+permissions:
+  contents: read
+
+jobs:
+  build-license-manager:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      with:
+        persist-credentials: false   # nessuno step git dopo il checkout
+
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+      with:
+        python-version: '3.11'
+
+    - name: Installa Dipendenze
+      # Stessa logica del build del bridge (build.yaml): install riproducibile con
+      # `requirements-build.lock` (--require-hashes) se presente, altrimenti legacy così la build
+      # non si rompe. Il lock include runtime + pytest + pyinstaller + customtkinter, quindi copre
+      # sia lo step dei test sia la compilazione dell'EXE del License Manager.
+      shell: pwsh
+      run: |
+        if (Test-Path "requirements-build.lock") {
+          Write-Host "requirements-build.lock trovato: install riproducibile con --require-hashes."
+          python -m pip install --require-hashes -r requirements-build.lock
+        } else {
+          python -m pip install --upgrade pip
+          Write-Warning "requirements-build.lock assente: install legacy (passera' a --require-hashes appena il lock sara' committato)."
+          python -m pip install -r requirements-dev.txt pyinstaller
+        }
+
+    - name: Verifica compilazione (compileall)
+      run: python -m compileall license_manager_main.py license_manager xtrader_bridge tests
+
+    - name: Esegui i test (bloccante)
+      run: python -m pytest -m "not manual"
+
+    - name: Versione app + data build (nome artifact)
+      id: meta
+      shell: bash
+      run: |
+        # Stessa fonte di verità del bridge (xtrader_bridge/__init__.py): il License Manager fa
+        # parte dello stesso repo/versione. `sys.stdout.write` senza newline + strip di CR/LF
+        # (su windows-latest il print() emette CRLF) → nome artifact pulito.
+        ver=$(python -c "import sys, xtrader_bridge as p; sys.stdout.write(p.__version__)" | tr -d '\r\n')
+        [ -n "$ver" ] || { echo "::error::__version__ mancante"; exit 1; }
+        date=$(date -u +%Y%m%d)
+        echo "artifact=XTrader-License-Manager-Windows-v${ver}-${date}" >> "$GITHUB_OUTPUT"
+
+    - name: Compila EXE con PyInstaller
+      # Tool del PROPRIETARIO: impacchetta SOLO il package `license_manager` (+ i suoi submoduli) e
+      # le risorse GUI di customtkinter. NON colleziona esplicitamente il package del bridge: i moduli
+      # `xtrader_bridge.licensing.*` importati da license_manager sono seguiti automaticamente da
+      # PyInstaller (import statici), e collezionarlo a mano farebbe scattare il detector di isolamento
+      # (invariante #1: la chiave privata non deve poter finire nell'EXE del bridge). Nessun
+      # `--add-data` (il tool non impacchetta il dizionario XTrader né altri dati) e nessun segreto: la
+      # chiave privata NON è nel repo, la genera il tool a runtime in `%APPDATA%`.
+      run: >
+        pyinstaller --onefile --windowed
+        --name "XTrader-License-Manager"
+        --paths .
+        --collect-submodules license_manager
+        --collect-all customtkinter
+        license_manager_main.py
+
+    - name: Carica EXE come Artifact
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: ${{ steps.meta.outputs.artifact }}
+        path: dist/XTrader-License-Manager.exe
+        retention-days: 7

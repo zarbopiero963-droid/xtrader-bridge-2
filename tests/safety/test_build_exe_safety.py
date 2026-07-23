@@ -23,8 +23,15 @@ Parsing dei workflow (dependency-free, nessun parser YAML esterno):
 - le opzioni sono tokenizzate ignorando il quoting (`"…"`/`'…'`/nudo) e la forma
   `--opt=value`, inclusi gli alias corti (`-n`).
 
-Controlli (su OGNI workflow che invoca PyInstaller, oggi `build.yaml` e
-`merge-simulation-hard.yml`, e automaticamente ogni nuovo build):
+La build del **License Manager** (tool del proprietario, script `license_manager_main.py`, EXE
+`XTrader-License-Manager`, workflow `build-license-manager.yaml`) è un **prodotto diverso** dal
+bridge: è **scorporata** dai controlli bridge (`_build_commands*` la escludono) e verificata da un
+**gate parallelo** in fondo a questo file, con la stessa filosofia fail-closed ma la sua allowlist
+(issue #140 PR 3d). L'invariante #1 (chiave privata mai nell'EXE del bridge) resta in
+`test_license_manager_isolation.py`.
+
+Controlli (sui workflow che invocano PyInstaller **per il bridge**, oggi `build.yaml` e
+`merge-simulation-hard.yml`, e automaticamente ogni nuovo build del bridge):
 
 - forma canonica CLI `pyinstaller … main.py`, niente `.spec`/modulo/API; `main.py` unico
   script (niente `admin.py main.py`);
@@ -95,6 +102,35 @@ _ALLOWED_HIDDEN_IMPORTS = {
 _ALLOWED_COLLECT = {
     ("--collect-all", "customtkinter"),
     ("--collect-submodules", "xtrader_bridge"),
+}
+
+# ── Gate build License Manager (issue #140 PR 3d) ─────────────────────────────────────────────
+# Il License Manager (tool del PROPRIETARIO che firma le licenze) ha un EXE DEDICATO e SEPARATO da
+# quello del bridge, con un suo workflow (`build-license-manager.yaml`, solo `workflow_dispatch`).
+# È un PRODOTTO DIVERSO: script `license_manager_main.py`, nome `XTrader-License-Manager`, impacchetta
+# il package `license_manager` (NON `xtrader_bridge`, che PyInstaller segue da solo via import). Le
+# build del bridge continuano a rispettare le invarianti bridge INVARIATE: qui si SCORPORA la build
+# LM dai controlli bridge (`_build_commands*` la escludono) e la si sottopone a un gate PARALLELO con
+# la stessa filosofia fail-closed. L'invariante #1 (chiave privata mai nell'EXE del bridge) resta
+# garantita da `test_license_manager_isolation.py`, che il collect-LM di questo workflow NON allenta
+# (il build LM non usa `--collect-submodules xtrader_bridge`, quindi non è mai «un build del bridge»).
+_LM_SCRIPT = "license_manager_main.py"
+_LM_EXE_NAME = "XTrader-License-Manager"
+_LM_EXE_PATH = "dist/" + _LM_EXE_NAME + ".exe"
+_LM_BUILD_YAML = os.path.join(_REPO_ROOT, ".github", "workflows", "build-license-manager.yaml")
+# Opzioni ammesse per la build LM: come il bridge, MENO `--add-data`/`--hidden-import` (il tool non
+# impacchetta dati né moduli runtime extra). Fail-closed: qualunque opzione fuori da qui fa fallire.
+_LM_ALLOWED_OPTS = {
+    "--onefile", "--windowed", "--name", "-n", "--paths",
+    "--collect-submodules", "--collect-all",
+}
+_LM_ALLOWED_PATHS_VALUES = {"."}
+# Coppie (opzione, pacchetto) ammesse per la build LM: SOLO il package del tool + le risorse GUI.
+# NIENTE `xtrader_bridge` (né submodules né all): i moduli licensing li tira PyInstaller via import,
+# e includerlo qui farebbe scattare `_BUILDS_BRIDGE` dell'isolamento (invariante #1).
+_LM_ALLOWED_COLLECT = {
+    ("--collect-all", "customtkinter"),
+    ("--collect-submodules", "license_manager"),
 }
 
 # ── Gate Nuitka (Fase 6 slice 2) ────────────────────────────────────────────────────────────
@@ -457,26 +493,36 @@ def _dynamic_args(cmd: str):
     return _DYNAMIC_ARG.findall(cmd)
 
 
+def _is_license_manager_build(cmd: str) -> bool:
+    """Vero se il comando PyInstaller costruisce il **License Manager** (script
+    `license_manager_main.py`), non il bridge. Le build LM sono SCORPORATE dai controlli bridge
+    (`_build_commands*`) e verificate dal gate LM parallelo: così un build con quello script non
+    sfugge — è solo gated con le regole del prodotto giusto. Qualunque build con uno script diverso
+    da `main.py`/`license_manager_main.py` resta nel gate bridge e ne fa fallire la forma-canonica."""
+    return _LM_SCRIPT in _py_scripts(cmd)
+
+
 def _build_commands():
-    """`(workflow_name, command)` per OGNI comando di shell che invoca PyInstaller (qualsiasi
-    forma)."""
+    """`(workflow_name, command)` per ogni comando PyInstaller **del bridge** (qualsiasi forma). Le
+    build del License Manager sono escluse qui e coperte dal gate LM parallelo (issue #140 PR 3d)."""
     out = []
     for path in _workflow_files():
         for cmd in _shell_commands(_read(path)):
-            if _PYINSTALLER_DETECT.search(cmd):
+            if _PYINSTALLER_DETECT.search(cmd) and not _is_license_manager_build(cmd):
                 out.append((os.path.basename(path), cmd))
     return out
 
 
 def _build_commands_by_job():
-    """`(workflow_name, job_name, command)` per OGNI build PyInstaller, ATTRIBUITA al suo job.
-    Serve a contare le build PER JOB: un secondo EXE dentro lo STESSO job resta vietato, ma job
-    paralleli legittimi (build Windows + `build-linux`, #36) sono ammessi."""
+    """`(workflow_name, job_name, command)` per ogni build PyInstaller **del bridge**, ATTRIBUITA al
+    suo job. Serve a contare le build PER JOB: un secondo EXE dentro lo STESSO job resta vietato, ma
+    job paralleli legittimi (build Windows + `build-linux`, #36) sono ammessi. Le build LM sono
+    escluse (gate LM parallelo)."""
     out = []
     for path in _workflow_files():
         for job_name, body in _jobs(_read(path)):
             for cmd in _shell_commands(body):
-                if _PYINSTALLER_DETECT.search(cmd):
+                if _PYINSTALLER_DETECT.search(cmd) and not _is_license_manager_build(cmd):
                     out.append((os.path.basename(path), job_name, cmd))
     return out
 
@@ -1016,9 +1062,12 @@ def test_artifact_e_release_solo_un_exe():
         f"l'artifact deve pubblicare esattamente {_ALLOWED_EXE_PATH!r}, non {artifact_exes}"
     assert release_exes == [_ALLOWED_EXE_PATH], \
         f"la release deve pubblicare esattamente {_ALLOWED_EXE_PATH!r}, non {release_exes}"
+    # EXE ammessi in QUALSIASI workflow: quello del bridge e quello DEDICATO del License Manager
+    # (issue #140 PR 3d). Qualunque altro `dist/*.exe` è inatteso (secondo EXE, wildcard, «Admin»).
+    _allowed_exes = {_ALLOWED_EXE_NAME + ".exe", _LM_EXE_NAME + ".exe"}
     for path in _workflow_files():
         foreign = [e for e in re.findall(r"dist/(\S+\.exe)", _read(path))
-                   if e != _ALLOWED_EXE_NAME + ".exe"]
+                   if e not in _allowed_exes]
         assert not foreign, f"{os.path.basename(path)}: EXE inatteso (anche wildcard): {foreign}"
 
 
@@ -1433,3 +1482,224 @@ def test_nuitka_opzioni_e_valori_maligni_rifiutati():
         "main.py") == []
     # argomento dinamico nella build Nuitka intercettato
     assert _dynamic_args("python -m nuitka ${{ inputs.flags }} main.py")
+
+
+# ── Gate build License Manager (issue #140 PR 3d) ─────────────────────────────────────────────
+# EXE DEDICATO del tool del proprietario: stesse invarianti dell'EXE personale (uno solo, onefile,
+# nessun segreto/binario extra, test prima della build, argomenti statici), ma con la sua allowlist
+# (script `license_manager_main.py`, nome `XTrader-License-Manager`, collect del package `license_
+# manager`). Filosofia fail-closed identica: qualunque forma non-canonica o opzione/valore fuori
+# allowlist fa fallire. Le build LM sono ESCLUSE dai controlli bridge (`_build_commands*`) e coperte
+# QUI. La forma canonica/wrapper e gli argomenti dinamici riusano gli stessi detector di PyInstaller.
+
+def _lm_build_commands():
+    """`(workflow_name, command)` per ogni comando PyInstaller che costruisce il License Manager."""
+    out = []
+    for path in _workflow_files():
+        for cmd in _shell_commands(_read(path)):
+            if _PYINSTALLER_DETECT.search(cmd) and _is_license_manager_build(cmd):
+                out.append((os.path.basename(path), cmd))
+    return out
+
+
+def _lm_build_commands_by_job():
+    """`(workflow_name, job_name, command)` per ogni build LM, ATTRIBUITA al suo job."""
+    out = []
+    for path in _workflow_files():
+        for job_name, body in _jobs(_read(path)):
+            for cmd in _shell_commands(body):
+                if _PYINSTALLER_DETECT.search(cmd) and _is_license_manager_build(cmd):
+                    out.append((os.path.basename(path), job_name, cmd))
+    return out
+
+
+def test_lm_build_yaml_esiste():
+    """Il workflow di build del License Manager deve esistere (issue #140 PR 3d)."""
+    assert os.path.isfile(_LM_BUILD_YAML), \
+        "manca .github/workflows/build-license-manager.yaml"
+
+
+def test_lm_build_solo_workflow_dispatch():
+    """La build LM NON parte in automatico: solo `workflow_dispatch` (niente push/tag → zero minuti
+    CI automatici finché il proprietario non la lancia). Regressione: se qualcuno aggiungesse un
+    trigger `push:`/`tags:` il test fallisce."""
+    lines = _read(_LM_BUILD_YAML).splitlines()
+    start = next((i for i, ln in enumerate(lines) if re.match(r"^on:\s*$", ln)), None)
+    assert start is not None, "manca la sezione on: nel workflow del License Manager"
+    body_lines = []
+    for ln in lines[start + 1:]:
+        if re.match(r"^\S", ln):        # tornati a colonna 0 → fine sezione on:
+            break
+        body_lines.append(ln)
+    body = "\n".join(body_lines)
+    assert "workflow_dispatch" in body, "il build LM deve avere workflow_dispatch"
+    assert not re.search(r"(?m)^\s+push:", body), \
+        "il build LM NON deve avere trigger push (resterebbe automatico, consuma minuti CI)"
+    assert not re.search(r"(?m)^\s+tags:", body), \
+        "il build LM NON deve avere trigger su tag"
+
+
+def test_lm_build_rilevata_e_unica():
+    """La scoperta trova ESATTAMENTE una build LM, e sta nel suo workflow dedicato."""
+    builds = _lm_build_commands()
+    assert len(builds) == 1, f"attesa UNA build License Manager, trovate {len(builds)}: {builds}"
+    name, _cmd = builds[0]
+    assert name == "build-license-manager.yaml", \
+        f"la build LM deve stare in build-license-manager.yaml, non in {name!r}"
+
+
+def test_lm_forma_build_canonica():
+    """Forma CLI `pyinstaller … license_manager_main.py` (fail-closed): no spec/modulo/API, e
+    `license_manager_main.py` come UNICO script (niente secondo script iniettato)."""
+    builds = _lm_build_commands()
+    assert builds, "nessuna build License Manager trovata"
+    for name, cmd in builds:
+        assert _PYINSTALLER_CLI.match(cmd), \
+            f"{name}: forma di build LM non analizzabile (spec/modulo/API): {cmd!r}"
+        assert ".spec" not in cmd.lower(), f"{name}: build LM da spec file non ammessa: {cmd!r}"
+        scripts = _py_scripts(cmd)
+        assert scripts == [_LM_SCRIPT], \
+            f"{name}: lo script della build LM dev'essere solo {_LM_SCRIPT}, trovati {scripts}"
+
+
+def test_lm_niente_argomenti_dinamici():
+    """Il comando PyInstaller del License Manager non può contenere argomenti DINAMICI
+    (`$VAR`, `${{ … }}`, `%VAR%`): sfuggirebbero a ogni allowlist statica del gate."""
+    builds = _lm_build_commands()
+    assert builds, "nessuna build License Manager trovata"
+    for name, cmd in builds:
+        dyn = _dynamic_args(cmd)
+        assert not dyn, f"{name}: argomenti dinamici nella build LM: {dyn} ({cmd!r})"
+
+
+def test_lm_una_sola_build_onefile_per_job():
+    """Un solo comando di build LM `--onefile` per job (EXE singolo, nessun secondo EXE)."""
+    builds = _lm_build_commands_by_job()
+    assert builds, "nessuna build License Manager trovata"
+    per_job = {}
+    for wf, job, cmd in builds:
+        per_job.setdefault((wf, job), []).append(cmd)
+    for (wf, job), cmds in per_job.items():
+        assert len(cmds) == 1, f"{wf}:{job}: attesa UNA sola build LM, trovate {len(cmds)}"
+        assert _has_flag(cmds[0], "--onefile"), f"{wf}:{job}: build LM non --onefile"
+
+
+def test_lm_nome_exe():
+    """Il nome EXE del License Manager (`--name`/`-n`) dev'essere esattamente
+    `XTrader-License-Manager` (blocca nomi ambigui o «Admin»)."""
+    for name, cmd in _lm_build_commands():
+        names = _name_values(cmd)
+        assert names, f"{name}: build LM senza --name (nome EXE ambiguo)"
+        for got in names:
+            assert _norm(got) == _LM_EXE_NAME, \
+                f"{name}: nome EXE LM dev'essere {_LM_EXE_NAME!r}, non {got!r}"
+
+
+def test_lm_solo_opzioni_note():
+    """Allowlist opzioni della build LM: SOLO quelle note e sicure. Qualunque altra
+    (`--add-binary`, `--collect-datas`, `--runtime-hook`, `--uac-admin`, …) è rifiutata."""
+    for name, cmd in _lm_build_commands():
+        for opt in _option_tokens(cmd):
+            assert opt in _LM_ALLOWED_OPTS, \
+                f"{name}: opzione PyInstaller LM non in allowlist: {opt!r} ({cmd!r})"
+
+
+def test_lm_paths_in_allowlist():
+    """I VALORI di `--paths` della build LM devono stare nell'allowlist esatta (`.`)."""
+    for name, cmd in _lm_build_commands():
+        for val in _opt_values(cmd, "--paths"):
+            assert _norm(val) in _LM_ALLOWED_PATHS_VALUES, \
+                f"{name}: valore --paths LM fuori allowlist: {val!r} ({cmd!r})"
+
+
+def test_lm_collect_in_allowlist():
+    """Ogni `--collect-*` della build LM deve combaciare ESATTAMENTE con una coppia ammessa: SOLO
+    `--collect-submodules license_manager` (codice del tool) e `--collect-all customtkinter` (GUI).
+    In particolare NIENTE `xtrader_bridge` (né submodules né all): includerlo farebbe scattare
+    `_BUILDS_BRIDGE` dell'isolamento (invariante #1). I moduli `xtrader_bridge.licensing` li tira
+    PyInstaller da solo via import."""
+    collect_opts = ("--collect-all", "--collect-data", "--collect-binaries",
+                    "--collect-submodules")
+    for name, cmd in _lm_build_commands():
+        for opt in collect_opts:
+            for pkg in _opt_values(cmd, opt):
+                base = _norm(pkg).split(":", 1)[0].split("=", 1)[0]
+                assert (opt, base) in _LM_ALLOWED_COLLECT, \
+                    f"{name}: combinazione LM {opt} {pkg!r} non ammessa"
+
+
+def test_lm_niente_xtrader_bridge_esplicito():
+    """Rete di sicurezza sull'invariante #1: la build LM NON deve collezionare `xtrader_bridge`
+    esplicitamente (nessun `--collect-* xtrader_bridge` né `--hidden-import xtrader_bridge`), così
+    non è mai «un build del bridge» per il detector di isolamento e resta un prodotto distinto."""
+    for name, cmd in _lm_build_commands():
+        for opt in ("--collect-all", "--collect-data", "--collect-binaries",
+                    "--collect-submodules", "--hidden-import"):
+            vals = [_norm(v).split(":", 1)[0].split("=", 1)[0] for v in _opt_values(cmd, opt)]
+            assert "xtrader_bridge" not in vals, \
+                f"{name}: la build LM non deve collezionare esplicitamente xtrader_bridge ({opt})"
+
+
+def test_lm_niente_add_data_ne_binary():
+    """La build LM non impacchetta dati né binari extra: nessun `--add-data`/`--add-binary` (il tool
+    non usa il dizionario XTrader e non deve bundlare segreti/DLL)."""
+    for name, cmd in _lm_build_commands():
+        assert not _opt_values(cmd, "--add-data"), \
+            f"{name}: la build LM non deve avere --add-data (nessun dato impacchettato)"
+        assert not _opt_values(cmd, "--add-binary"), \
+            f"{name}: la build LM non deve avere --add-binary"
+
+
+def test_lm_test_prima_della_build():
+    """Nel job che compila il License Manager, TUTTI gli step `python -m pytest` (comandi reali)
+    devono precedere la build (fail-closed: niente EXE se i test non passano)."""
+    builds = _lm_build_commands()
+    assert builds, "nessuna build License Manager trovata"
+    seen_build_job = False
+    for path in _workflow_files():
+        for jobname, body in _jobs(_read(path)):
+            cmds = _shell_commands(body)
+            b_idx = [k for k, c in enumerate(cmds)
+                     if _PYINSTALLER_DETECT.search(c) and _is_license_manager_build(c)]
+            if not b_idx:
+                continue
+            seen_build_job = True
+            p_idx = [k for k, c in enumerate(cmds) if _PYTEST_CMD.match(c)]
+            assert p_idx, \
+                f"{os.path.basename(path)}/{jobname}: build LM senza `python -m pytest` nel job"
+            assert max(p_idx) < min(b_idx), \
+                f"{os.path.basename(path)}/{jobname}: i test devono girare PRIMA della build LM"
+    assert seen_build_job, "nessun job con build LM individuato"
+
+
+def test_lm_artifact_solo_lm_exe():
+    """Il workflow del License Manager pubblica ESATTAMENTE `dist/XTrader-License-Manager.exe` come
+    artifact, e nessun EXE del bridge (niente mescolanza di prodotti)."""
+    text = _read(_LM_BUILD_YAML)
+    artifact_exes = [p for p in re.findall(r"(?m)^\s*path:\s*(\S+)", text)
+                     if p.lower().endswith(".exe")]
+    assert artifact_exes == [_LM_EXE_PATH], \
+        f"l'artifact LM deve pubblicare esattamente {_LM_EXE_PATH!r}, non {artifact_exes}"
+    assert _ALLOWED_EXE_NAME + ".exe" not in text, \
+        "il workflow del License Manager non deve pubblicare l'EXE del bridge"
+
+
+def test_lm_build_non_crea_release():
+    """La build LM è solo artifact scaricabile, MAI una Release pubblica (nessun `softprops/
+    action-gh-release` né `files:` con .exe): è il tool interno del proprietario."""
+    text = _read(_LM_BUILD_YAML)
+    assert "action-gh-release" not in text, "il build LM non deve creare Release pubbliche"
+    release_exes = [p for p in re.findall(r"(?m)^\s*files:\s*(\S+)", text)
+                    if p.lower().endswith(".exe")]
+    assert not release_exes, f"il build LM non deve pubblicare EXE in Release: {release_exes}"
+
+
+def test_lm_is_license_manager_build_logica():
+    """Self-test del classificatore `_is_license_manager_build`: riconosce lo script LM e NON
+    scambia la build del bridge per LM (mutation-guard committato)."""
+    assert _is_license_manager_build(
+        "pyinstaller --onefile --name XTrader-License-Manager license_manager_main.py")
+    assert not _is_license_manager_build("pyinstaller --onefile --name XTrader-Signal-Bridge main.py")
+    # build mista (due script) NON è «solo LM»: resta nel gate bridge, che ne fa fallire la
+    # forma-canonica (scripts != [main.py]) → nessuna build sfugge a un gate.
+    assert _is_license_manager_build("pyinstaller main.py license_manager_main.py")
