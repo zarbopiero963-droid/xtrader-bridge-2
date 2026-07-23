@@ -2,15 +2,21 @@
 
 Il License Manager custodisce e usa la chiave PRIVATA di firma. Quel codice non deve MAI finire
 nell'EXE del bridge distribuito. La build dell'EXE colleziona solo `xtrader_bridge`
-(`--collect-submodules xtrader_bridge`), quindi la garanzia si riduce a: **nessun modulo di
-`xtrader_bridge` importa `license_manager`**. Questo test lo verifica staticamente sul sorgente e
-sui workflow di build; se un domani un import accidentale trascinasse il tool del proprietario nel
-package del bridge, fallisce.
+(`--collect-submodules xtrader_bridge`), e PyInstaller segue gli import: quindi la garanzia si
+riduce a **nessun modulo di `xtrader_bridge` importa `license_manager`** (statico o dinamico). Più,
+come rete secondaria, **nessun comando di build del bridge impacchetta esplicitamente
+`license_manager`**.
+
+Il rilevamento degli import usa l'**AST** (review CodeRabbit/GLM/GPT #145), non una regex: così un
+`import_module` dentro una stringa/commento o un nome simile (`custom_import_module`) non è un falso
+positivo, e un import dinamico letterale (`importlib.import_module("license_manager")` /
+`__import__("license_manager")`) non è un falso negativo.
 
 La direzione OPPOSTA è lecita e voluta: `license_manager` importa `xtrader_bridge` (riusa Ed25519,
 `build_license`, `atomic_io`). Solo il tool del proprietario gira sul suo PC.
 """
 
+import ast
 import os
 import re
 
@@ -18,18 +24,41 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__f
 _BRIDGE_DIR = os.path.join(_REPO_ROOT, "xtrader_bridge")
 _WORKFLOWS_DIR = os.path.join(_REPO_ROOT, ".github", "workflows")
 
-# Un import di `license_manager` in qualsiasi forma:
-# - statico:  `import license_manager`, `from license_manager import …`, `import license_manager.core`;
-# - DINAMICO: `importlib.import_module("license_manager…")`, `__import__("license_manager…")`
-#   (review GLM #145: un import dinamico sfuggirebbe a un match solo sullo statico).
-_LM_IMPORT = re.compile(
-    r"^\s*(?:from\s+license_manager\b|import\s+license_manager\b)"          # statico
-    r"|(?:import_module|__import__)\s*\(\s*[\"']license_manager\b",         # dinamico
-    re.MULTILINE)
+_LM = "license_manager"
 
 
-def _py_files(root):
-    for dirpath, _dirs, names in os.walk(root):
+def _targets_lm(name) -> bool:
+    """`True` se `name` è il package `license_manager` o un suo sottomodulo (`license_manager.x`)."""
+    return isinstance(name, str) and (name == _LM or name.startswith(_LM + "."))
+
+
+def source_imports_license_manager(source: str) -> bool:
+    """`True` se il sorgente Python importa `license_manager` — via `import`/`from` **o** via
+    import dinamico LETTERALE (`importlib.import_module("license_manager…")` /
+    `__import__("license_manager…")`). Basato su **AST**: stringhe, commenti e nomi-funzione simili
+    (`custom_import_module`) non producono falsi positivi."""
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(_targets_lm(a.name) for a in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            # `from license_manager import …` (livello 0; gli import relativi hanno module None)
+            if node.level == 0 and _targets_lm(node.module):
+                return True
+        elif isinstance(node, ast.Call):
+            func = node.func
+            fname = func.attr if isinstance(func, ast.Attribute) else (
+                func.id if isinstance(func, ast.Name) else None)
+            if fname in ("import_module", "__import__") and node.args:
+                arg0 = node.args[0]
+                if isinstance(arg0, ast.Constant) and _targets_lm(arg0.value):
+                    return True
+    return False
+
+
+def _bridge_py_files():
+    for dirpath, _dirs, names in os.walk(_BRIDGE_DIR):
         if "__pycache__" in dirpath:
             continue
         for n in names:
@@ -39,37 +68,59 @@ def _py_files(root):
 
 def test_il_bridge_non_importa_il_license_manager():
     offenders = []
-    for path in _py_files(_BRIDGE_DIR):
+    for path in _bridge_py_files():
         with open(path, "r", encoding="utf-8") as f:
-            if _LM_IMPORT.search(f.read()):
+            if source_imports_license_manager(f.read()):
                 offenders.append(os.path.relpath(path, _REPO_ROOT))
     assert not offenders, (
         "il package del bridge NON deve importare license_manager (finirebbe nell'EXE, "
         f"trascinando la firma/chiave privata): {offenders}")
 
 
-# Riga di comando che compila l'EXE del BRIDGE (PyInstaller/Nuitka su `main.py`, oppure che
-# colleziona `xtrader_bridge`, oppure che produce l'eseguibile personale `XTrader-Signal-Bridge`).
-# Solo queste righe non devono mai referenziare license_manager: un futuro workflow DEDICATO al
-# License Manager (PR 3b) userà legittimamente `license_manager` per il PROPRIO EXE (review
-# CodeRabbit #145), quindi NON si può vietare la parola in ogni workflow.
-_BRIDGE_BUILD_CMD = re.compile(
-    r"(?:pyinstaller|nuitka)\b.*(?:\bmain\.py\b|xtrader_bridge|XTrader-Signal-Bridge)"
-    r"|--collect-\w+\s+xtrader_bridge",
-    re.IGNORECASE)
-# Un riferimento a license_manager come PACCHETTO da impacchettare (collect/include/hidden-import).
+def test_ast_detector_veritiero():
+    # Import che DEVONO essere rilevati (statici + dinamici letterali).
+    for src in (
+        "import license_manager",
+        "import license_manager.core",
+        "from license_manager import core",
+        "from license_manager.core import issue_license",
+        'importlib.import_module("license_manager")',
+        "importlib.import_module('license_manager.core')",
+        '__import__("license_manager")',
+    ):
+        assert source_imports_license_manager(src), f"non rilevato: {src!r}"
+    # Controcampi che NON devono scattare (niente falsi positivi da AST).
+    for src in (
+        "import license_manager_helper",                       # ALTRO package
+        "from license_manager_helper import x",
+        '# importlib.import_module("license_manager")',        # commento
+        'doc = "usa importlib.import_module(\\"license_manager\\")"',  # stringa
+        'custom_import_module("license_manager")',             # funzione con nome simile
+        'importlib.import_module("license_managerX")',         # nome che inizia per… ma diverso
+        "from . import license_manager as _lm",                # import RELATIVO interno (non il pkg top-level)
+    ):
+        assert not source_imports_license_manager(src), f"falso positivo: {src!r}"
+
+
+# ── Rete secondaria: nessun comando di build del BRIDGE impacchetta license_manager ────────────
+# Robusto ai comandi MULTILINEA (review GPT/GLM #145): il controllo è a livello di FILE, non riga
+# per riga, così una direttiva su una riga di continuazione non sfugge. Un workflow è «build del
+# bridge» se produce l'eseguibile personale o colleziona il package del bridge; il futuro workflow
+# DEDICATO del License Manager (PR 3b) non lo è (builda il PROPRIO eseguibile) → resta lecito.
+_BUILDS_BRIDGE = re.compile(r"XTrader-Signal-Bridge|--collect-submodules\s+xtrader_bridge",
+                            re.IGNORECASE)
+# license_manager passato a una direttiva di PACKAGING (collect/include/hidden-import): l'unico modo
+# per trascinarlo nell'EXE. Una semplice menzione (commento) non conta.
 _LM_PACKAGED = re.compile(
-    r"--collect-\w+[=\s]+license_manager\b|--include-package[=\s]+license_manager\b"
+    r"--collect-\w+[=\s]+license_manager\b"
+    r"|--include-package[=\s]+license_manager\b"
     r"|--hidden-import[=\s]+license_manager\b",
     re.IGNORECASE)
 
 
-def test_i_workflow_di_build_non_collezionano_il_license_manager():
-    # Solo i comandi che compilano l'EXE del BRIDGE non devono impacchettare license_manager.
-    # (NON si vieta la parola in ogni workflow: PR 3b avrà un build dedicato al License Manager.)
+def test_i_workflow_di_build_non_impacchettano_il_license_manager():
     if not os.path.isdir(_WORKFLOWS_DIR):
-        # Checkout ridotto/fork senza i workflow (review GPT #145): nessun workflow = niente da
-        # collezionare. Non è un fallimento del gate.
+        # Checkout ridotto/fork senza i workflow (review GPT #145): niente da controllare.
         return
     offenders = []
     for n in sorted(os.listdir(_WORKFLOWS_DIR)):
@@ -77,48 +128,42 @@ def test_i_workflow_di_build_non_collezionano_il_license_manager():
             continue
         with open(os.path.join(_WORKFLOWS_DIR, n), "r", encoding="utf-8") as f:
             text = f.read()
-        for line in text.splitlines():
-            if _BRIDGE_BUILD_CMD.search(line) and (
-                    _LM_PACKAGED.search(line) or re.search(r"\blicense_manager\b", line)):
-                offenders.append(f"{n}: {line.strip()}")
+        if _BUILDS_BRIDGE.search(text) and _LM_PACKAGED.search(text):
+            offenders.append(n)
     assert not offenders, (
-        "un comando di build dell'EXE del BRIDGE referenzia license_manager (lo trascinerebbe "
+        "un workflow che builda l'EXE del BRIDGE impacchetta license_manager (lo trascinerebbe "
         f"nell'eseguibile del bridge): {offenders}")
 
 
-def test_rileva_anche_gli_import_dinamici():
-    # Regressione (review GLM #145): il detector deve intercettare ANCHE gli import dinamici, non
-    # solo `import`/`from` statici — così un accidentale caricamento del tool nel bridge non sfugge.
-    assert _LM_IMPORT.search('importlib.import_module("license_manager")')
-    assert _LM_IMPORT.search("importlib.import_module('license_manager.core')")
-    assert _LM_IMPORT.search('__import__("license_manager")')
-    assert _LM_IMPORT.search("import license_manager")
-    assert _LM_IMPORT.search("from license_manager import core")
-    # controcampo: un nome che INIZIA per license_manager… ma è un altro package non è un match
-    assert not _LM_IMPORT.search("import license_manager_helper")
-    assert not _LM_IMPORT.search('importlib.import_module("license_managerX")')
-    # controcampo: una menzione in un commento/stringa non-import non deve scattare
-    assert not _LM_IMPORT.search("# vedi license_manager per i dettagli")
-
-
 def test_scoping_build_bridge_vs_license_manager():
-    # CR #145: il gate colpisce SOLO i comandi che compilano l'EXE del bridge, non ogni menzione
-    # di license_manager. Un futuro build DEDICATO del License Manager (PR 3b) è lecito.
+    # Il gate colpisce un build del BRIDGE che impacchetta il LM, ma NON un build dedicato del
+    # License Manager (PR 3b) che impacchetta legittimamente license_manager per il PROPRIO EXE.
     bridge_bad = ("pyinstaller --onefile --name XTrader-Signal-Bridge "
                   "--collect-submodules xtrader_bridge --collect-submodules license_manager main.py")
-    assert _BRIDGE_BUILD_CMD.search(bridge_bad)          # è un build del bridge…
-    assert re.search(r"\blicense_manager\b", bridge_bad)  # …che referenzia il LM → verrebbe flaggato
+    assert _BUILDS_BRIDGE.search(bridge_bad) and _LM_PACKAGED.search(bridge_bad)
+
+    # multilinea: la direttiva su riga separata resta nel testo del file → ancora intercettata
+    bridge_bad_multiline = (
+        "pyinstaller --onefile --name XTrader-Signal-Bridge\n"
+        "  --collect-submodules xtrader_bridge\n"
+        "  --collect-submodules license_manager\n"
+        "  main.py")
+    assert _BUILDS_BRIDGE.search(bridge_bad_multiline) and _LM_PACKAGED.search(bridge_bad_multiline)
 
     # build DEDICATO del License Manager (PR 3b): NON è un build del bridge → lecito
     lm_build = ("pyinstaller --onefile --name XTrader-License-Manager "
                 "--collect-submodules license_manager license_manager_main.py")
-    assert not _BRIDGE_BUILD_CMD.search(lm_build)
+    assert not _BUILDS_BRIDGE.search(lm_build)
 
     # build del bridge SENZA license_manager: ok
     bridge_ok = ("pyinstaller --onefile --name XTrader-Signal-Bridge "
                  "--collect-submodules xtrader_bridge main.py")
-    assert _BRIDGE_BUILD_CMD.search(bridge_ok)
-    assert not re.search(r"\blicense_manager\b", bridge_ok)
+    assert _BUILDS_BRIDGE.search(bridge_ok) and not _LM_PACKAGED.search(bridge_ok)
+
+    # una MENZIONE non-packaging (commento) in un build del bridge non deve scattare
+    bridge_comment = ("pyinstaller --onefile --name XTrader-Signal-Bridge main.py  "
+                      "# non collezionare license_manager qui")
+    assert _BUILDS_BRIDGE.search(bridge_comment) and not _LM_PACKAGED.search(bridge_comment)
 
 
 def test_direzione_lecita_lm_importa_il_bridge():
