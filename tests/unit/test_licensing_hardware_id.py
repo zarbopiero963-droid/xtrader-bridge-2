@@ -34,11 +34,24 @@ def test_fingerprint_ordine_conta():
     assert hw.fingerprint(["a", "b"]) != hw.fingerprint(["b", "a"])
 
 
-def test_fingerprint_lista_vuota_resta_valida():
+def test_fingerprint_lista_vuota_ritorna_sentinella():
+    # Fail-closed (review Fable/Fugu #143): nessuna sorgente → sentinella riconoscibile, NON un
+    # hash "normale" che sembrerebbe un ID valido condiviso da tutte le macchine cieche.
     fid = hw.fingerprint([])
-    assert _PATTERN.match(fid), fid
-    # deterministica anche nel caso "nessuna sorgente"
-    assert fid == hw.fingerprint([])
+    assert fid == hw.NO_HARDWARE_ID
+    assert fid == "HW1-0000-0000-0000-0000"
+    assert hw.is_identifiable(fid) is False
+
+
+def test_sentinella_distinta_da_impronta_reale():
+    real = hw.fingerprint(["mguid=abc"])
+    assert real != hw.NO_HARDWARE_ID
+    assert hw.is_identifiable(real) is True
+
+
+def test_is_identifiable_su_valori_vuoti():
+    assert hw.is_identifiable("") is False
+    assert hw.is_identifiable(hw.NO_HARDWARE_ID) is False
 
 
 def test_hardware_id_stabile_e_ben_formato():

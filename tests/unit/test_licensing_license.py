@@ -13,6 +13,7 @@ import pytest
 
 from xtrader_bridge.licensing import license as lic
 from xtrader_bridge.licensing import ed25519
+from xtrader_bridge.licensing.hwid import NO_HARDWARE_ID
 
 # Seed di TEST (NON è la chiave reale del proprietario) → la sua pubblica è il placeholder
 # committato in `license.LICENSE_PUBLIC_KEY_HEX`. Il round-trip usa la coppia coerente.
@@ -126,6 +127,43 @@ def test_versione_formato_sbagliata_rifiutata():
     st = lic.verify_license(token, _HW, now=_NOW)
     assert st.valid is False
     assert st.reason == lic.MALFORMED
+
+
+def test_macchina_non_identificabile_rifiutata():
+    # Fail-closed (review Fable/Fugu #143): se l'HWID di QUESTA macchina è la sentinella
+    # (nessuna sorgente), nessuna licenza è accettabile — nemmeno una firmata correttamente.
+    token = _valid_token(hw=NO_HARDWARE_ID)
+    st = lic.verify_license(token, NO_HARDWARE_ID, now=_NOW)
+    assert st.valid is False
+    assert st.reason == lic.WRONG_HARDWARE
+
+
+def test_licenza_legata_a_impronta_nulla_rifiutata():
+    # Anche se la macchina reale avesse un HWID valido, una licenza EMESSA per la sentinella non
+    # deve mai combaciare (sarebbe universale).
+    token = _valid_token(hw=NO_HARDWARE_ID)
+    st = lic.verify_license(token, _HW, now=_NOW)
+    assert st.valid is False
+    assert st.reason == lic.WRONG_HARDWARE
+
+
+def test_flag_placeholder_coerente_con_la_chiave_di_test():
+    # Guardia deliberata (review #143): finché la chiave è il placeholder di TEST, il flag è True.
+    # Sostituendo la chiave con quella reale, il proprietario DEVE portarlo a False → questo test
+    # lo costringe a un'azione consapevole (non uno swap silenzioso).
+    is_test_key = (lic.LICENSE_PUBLIC_KEY_HEX == ed25519.public_key(_TEST_SEED).hex())
+    assert lic.LICENSE_PUBLIC_KEY_IS_PLACEHOLDER is is_test_key
+
+
+def test_build_license_struttura_token():
+    # Copertura esplicita del generatore (gap segnalato da GLM): due parti base64url separate da
+    # un punto, entrambe non vuote, e il round-trip verifica.
+    token = lic.build_license(_TEST_SEED, "Anna Bianchi", _HW, _NOW, _NOW + _DAY)
+    assert token.count(".") == 1
+    part_payload, part_sig = token.split(".")
+    assert part_payload and part_sig
+    assert "=" not in token                      # base64url senza padding
+    assert lic.verify_license(token, _HW, now=_NOW).valid is True
 
 
 def test_chiave_pubblica_esplicita_override():

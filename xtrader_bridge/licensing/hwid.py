@@ -26,6 +26,12 @@ import uuid
 # le vecchie e nuove impronte distinguibili (una licenza vecchia non "combacia per caso").
 _HW_VERSION = "HW1"
 
+# Impronta SENTINELLA per «nessuna sorgente hardware identificata» (es. VM senza MAC reale né
+# registro leggibile). NON è un'impronta reale: è deliberatamente riconoscibile e costante così il
+# chiamante (verify_license / attivazione GUI) può **rifiutarla fail-closed** invece di trattarla
+# come un ID valido — altrimenti una licenza legata a essa varrebbe su TUTTE le macchine cieche.
+NO_HARDWARE_ID = f"{_HW_VERSION}-0000-0000-0000-0000"
+
 
 def _mac_component() -> "str | None":
     """MAC address via `uuid.getnode()`. Omesso se è un valore casuale (nessuna NIC reale):
@@ -91,16 +97,29 @@ def fingerprint(parts) -> str:
     """Funzione **pura**: dai componenti a una stringa d'impronta breve e stabile.
 
     Formato: ``HW1-XXXX-XXXX-XXXX-XXXX`` (16 hex maiuscoli da SHA-256, a gruppi di 4). Se
-    `parts` è vuoto (nessuna sorgente disponibile) resta comunque una stringa valida ma marcata
-    ``HW1-0000-…`` derivata da un seme costante, così il chiamante può accorgersene.
+    `parts` è **vuoto** (nessuna sorgente hardware disponibile) ritorna la sentinella
+    `NO_HARDWARE_ID` (`HW1-0000-…`): NON un'impronta reale, ma un valore **riconoscibile** che il
+    chiamante deve trattare come non-licenziabile (vedi `is_identifiable`). Così macchine "cieche"
+    non condividono un ID valido su cui una singola licenza varrebbe per tutte.
     """
-    joined = "|".join(str(p) for p in parts) if parts else "no-hardware-sources"
+    if not parts:
+        return NO_HARDWARE_ID
+    joined = "|".join(str(p) for p in parts)
     digest = hashlib.sha256(joined.encode("utf-8")).hexdigest().upper()
     block = digest[:16]
     grouped = "-".join(block[i:i + 4] for i in range(0, 16, 4))
     return f"{_HW_VERSION}-{grouped}"
 
 
+def is_identifiable(hw: str) -> bool:
+    """`True` se `hw` è un'impronta reale (non la sentinella «nessuna sorgente»)."""
+    return bool(hw) and hw != NO_HARDWARE_ID
+
+
 def hardware_id() -> str:
-    """Impronta hardware corrente della macchina (deterministica sullo stesso PC)."""
+    """Impronta hardware corrente della macchina (deterministica sullo stesso PC).
+
+    Ritorna `NO_HARDWARE_ID` se nessuna sorgente hardware è identificabile: il chiamante
+    (attivazione licenza) deve rifiutare fail-closed, non emettere/accettare licenze per essa.
+    """
     return fingerprint(components())

@@ -10,11 +10,10 @@ License Manager del proprietario e la chiave privata non è **mai** nel reposito
 
 # Il modulo si chiama `hwid` (non `hardware_id`) per non collidere con la funzione esportata
 # `hardware_id()`: un sottomodulo e un attributo di package con lo stesso nome si ombreggiano.
-from .hwid import hardware_id
+from .hwid import hardware_id, is_identifiable, NO_HARDWARE_ID
 from .license import (
     LicenseStatus,
     verify_license,
-    build_license,
     VALID,
     MALFORMED,
     INVALID_SIGNATURE,
@@ -22,13 +21,18 @@ from .license import (
     EXPIRED,
     CLOCK_ROLLBACK,
     LICENSE_PUBLIC_KEY_HEX,
+    LICENSE_PUBLIC_KEY_IS_PLACEHOLDER,
 )
 
+# NB: `build_license` (la FIRMA) NON è esportato dalla API pubblica del bridge (review GPT-5.5 #143:
+# tenere la firma fuori dalla superficie del bridge). Vive in `license.py` per i test e il License
+# Manager (PR 3), che lo importano dal sottomodulo. Il bridge usa solo `verify_license`.
 __all__ = [
     "hardware_id",
+    "is_identifiable",
+    "NO_HARDWARE_ID",
     "LicenseStatus",
     "verify_license",
-    "build_license",
     "VALID",
     "MALFORMED",
     "INVALID_SIGNATURE",
@@ -36,4 +40,5 @@ __all__ = [
     "EXPIRED",
     "CLOCK_ROLLBACK",
     "LICENSE_PUBLIC_KEY_HEX",
+    "LICENSE_PUBLIC_KEY_IS_PLACEHOLDER",
 ]

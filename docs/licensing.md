@@ -26,7 +26,9 @@ spostarla su un altro PC.
 - 🔑 **Invariante #1 — la chiave privata non entra MAI nel repository né nell'EXE del bridge.**
   Vive solo nel License Manager, sul PC del proprietario.
 - **Hardware ID**: impronta stabile del PC (MachineGuid + seriale volume + MAC, hash SHA-256) → la
-  licenza vale solo su quella macchina.
+  licenza vale solo su quella macchina. Se **nessuna** sorgente è identificabile (VM cieca), l'ID è
+  la sentinella riconoscibile `NO_HARDWARE_ID` (`HW1-0000-…`): `verify_license` la **rifiuta
+  fail-closed** (review #143), così una licenza non può valere «per tutte» le macchine anonime.
 - **Scadenza in giorni + anti-rollback**: il bridge (nelle PR successive) salva l'ultimo timestamp
   visto e rifiuta se l'orologio va indietro oltre una tolleranza (mitiga lo spostamento della data).
 - **Onestà**: è una protezione lato client → scoraggia la condivisione/rivendita casuale, **non**
@@ -71,6 +73,11 @@ Ordine dei controlli: formato → firma → hardware → anti-rollback → scade
 nei test, così il flusso è esercitabile in sviluppo). **Prima di distribuire copie licenziate**, il
 proprietario genera la keypair reale (via License Manager, PR 3) e **sostituisce quella riga** con
 la propria chiave **pubblica**. La chiave privata resta solo sul suo PC.
+
+Marcatore rilevabile (review #143): `license.LICENSE_PUBLIC_KEY_IS_PLACEHOLDER` è `True` finché è in uso la
+chiave di TEST. Sostituendo la chiave, il proprietario **deve portarlo a `False`** (un test lega i
+due, così lo swap è deliberato e non silenzioso); un gate di release / il lock GUI (PR 4) potrà
+rifiutarsi di operare in distribuzione finché è `True` (chiave di test = licenze forgiabili).
 
 ## Azione una-tantum del proprietario (NON una PR)
 

@@ -31,15 +31,17 @@ _I = pow(2, (_P - 1) // 4, _P)                            # sqrt(-1) mod p
 
 
 def _sha512(data: bytes) -> bytes:
+    """SHA-512 di `data` (32→64 byte), come richiesto da Ed25519 per hash e nonce."""
     return hashlib.sha512(data).digest()
 
 
 def _sha512_int(data: bytes) -> int:
+    """SHA-512 di `data` interpretato come intero little-endian (per r/k modulo L)."""
     return int.from_bytes(_sha512(data), "little")
 
 
 def _inv(x: int) -> int:
-    """Inverso moltiplicativo modulo p (piccolo teorema di Fermat)."""
+    """Inverso moltiplicativo di `x` modulo p (piccolo teorema di Fermat)."""
     return pow(x, _P - 2, _P)
 
 
@@ -83,7 +85,11 @@ def _point_add(pt1, pt2):
 
 
 def _scalar_mult(pt, e: int):
-    """Moltiplicazione scalare (double-and-add), tempo ~costante sul numero di bit."""
+    """Moltiplicazione scalare (double-and-add). **Tempo variabile** (dipende dai bit di `e`):
+    non è resistente a side-channel temporali. Irrilevante per `verify()` (opera su dati
+    PUBBLICI). Per `sign()` lo scalare è segreto, ma la firma gira **offline sul PC del
+    proprietario** nel License Manager (PR 3), fuori dal modello di minaccia — non nel bridge.
+    """
     result = _IDENT
     while e > 0:
         if e & 1:
@@ -94,6 +100,7 @@ def _scalar_mult(pt, e: int):
 
 
 def _point_equal(pt1, pt2) -> bool:
+    """`True` se due punti in coordinate estese sono uguali (confronto senza divisioni)."""
     x1, y1, z1, _t1 = pt1
     x2, y2, z2, _t2 = pt2
     # x1/z1 == x2/z2  e  y1/z1 == y2/z2  (evita divisioni: prodotto incrociato).
@@ -133,6 +140,7 @@ def _point_decompress(data: bytes):
 
 
 def _on_curve(pt) -> bool:
+    """`True` se il punto appartiene davvero alla curva edwards25519 (anti punti forgiati)."""
     x, y, z, t = pt
     # -x^2 + y^2 = z^2 + d*t^2 , con t = x*y/z
     if (x * y - z * t) % _P != 0:

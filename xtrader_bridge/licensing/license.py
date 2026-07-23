@@ -25,6 +25,7 @@ import math
 from collections import namedtuple
 
 from . import ed25519
+from .hwid import NO_HARDWARE_ID
 
 # ── Chiave pubblica di verifica ──────────────────────────────────────────────────────────────
 # ⚠️ PLACEHOLDER — chiave pubblica di **TEST** (il seed corrispondente è noto nei test).
@@ -33,6 +34,12 @@ from . import ed25519
 # firmate col seed di TEST: va bene **solo in sviluppo**, non in distribuzione.
 # La chiave PRIVATA non è e non deve mai essere nel repository (invariante #1, issue #140).
 LICENSE_PUBLIC_KEY_HEX = "42aaead72ceea9f9423f281440c6cfac7a5f99b796b81862f452328972b21b61"
+
+# Marcatore RILEVABILE del placeholder (review Fable/Fugu #143): resta `True` finché sopra c'è la
+# chiave di TEST. Sostituendo la chiave con la propria pubblica reale, il proprietario DEVE portarlo
+# a `False`. Un gate di release / il lock GUI (PR 4) può rifiutarsi di operare in distribuzione
+# finché è `True` (chiave di test = licenze forgiabili). Un test lega i due (coerenza deliberata).
+LICENSE_PUBLIC_KEY_IS_PLACEHOLDER = True
 
 # Versione del formato payload accettata.
 LICENSE_FORMAT_VERSION = 1
@@ -57,10 +64,12 @@ LicenseStatus = namedtuple("LicenseStatus",
 
 
 def _b64u_encode(raw: bytes) -> str:
+    """Base64url senza padding (token compatto copia-incollabile)."""
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
 def _b64u_decode(text: str) -> bytes:
+    """Decodifica base64url ripristinando il padding rimosso da `_b64u_encode`."""
     pad = "=" * (-len(text) % 4)
     return base64.urlsafe_b64decode(text + pad)
 
@@ -85,6 +94,7 @@ def build_license(private_seed: bytes, name: str, hardware_id: str,
 
 
 def _invalid(reason: str) -> LicenseStatus:
+    """Stato «non valida» con il motivo dato e i campi UI azzerati."""
     return LicenseStatus(valid=False, reason=reason, name=None,
                          issued=None, expiry=None, days_left=0)
 
@@ -131,7 +141,12 @@ def verify_license(token: str, hardware_id: str, now: int,
     if not ed25519.verify(public, payload_bytes, signature):
         return _invalid(INVALID_SIGNATURE)
 
-    # 3) hardware — confronto esatto sull'Hardware ID legato
+    # 3) hardware — confronto esatto sull'Hardware ID legato.
+    # Fail-closed (review Fable/Fugu #143): una macchina non identificabile (`NO_HARDWARE_ID`) o una
+    # licenza legata all'impronta nulla NON è mai accettabile, altrimenti una singola licenza
+    # varrebbe su TUTTE le macchine "cieche" che collassano sulla stessa impronta.
+    if hardware_id == NO_HARDWARE_ID or hw == NO_HARDWARE_ID:
+        return _invalid(WRONG_HARDWARE)
     if hw != hardware_id:
         return _invalid(WRONG_HARDWARE)
 
