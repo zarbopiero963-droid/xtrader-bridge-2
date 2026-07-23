@@ -1543,18 +1543,24 @@ def test_lm_build_solo_workflow_dispatch():
     partire da solo il build del **tool di firma** (accesso al lock di firma, consumo minuti CI) →
     vietato. Si estraggono le chiavi-trigger sotto `on:` e si esige ESATTAMENTE `[workflow_dispatch]`."""
     lines = _read(_LM_BUILD_YAML).splitlines()
-    start = next((i for i, ln in enumerate(lines) if re.match(r"^on:\s*$", ln)), None)
-    assert start is not None, \
-        "il build LM deve dichiarare `on:` in forma a blocco con SOLO workflow_dispatch"
-    triggers = []
-    for ln in lines[start + 1:]:
-        if re.match(r"^\S", ln):                 # tornati a colonna 0 → fine sezione on:
-            break
-        if ln.lstrip().startswith("#"):           # i commenti non sono trigger
-            continue
-        m = re.match(r"^\s+([A-Za-z_]+):", ln)    # chiave-trigger indentata (push/schedule/…)
-        if m:
-            triggers.append(m.group(1))
+    on_idx = next((i for i, ln in enumerate(lines) if re.match(r"^on:\s*(.*)$", ln)), None)
+    assert on_idx is not None, "il build LM deve dichiarare una sezione `on:`"
+    inline = re.match(r"^on:\s*(\S.*)$", lines[on_idx])   # forma inline: `on: <valore>`
+    if inline:
+        # `on: workflow_dispatch` oppure `on: [workflow_dispatch]` (robusto a quoting/liste — GPT #148)
+        val = inline.group(1).strip().strip("[]").replace('"', " ").replace("'", " ")
+        triggers = [t.strip().rstrip(":") for t in re.split(r"[,\s]+", val) if t.strip()]
+    else:
+        # forma a blocco: chiavi-trigger indentate sotto `on:` (commenti ignorati; quoting ammesso)
+        triggers = []
+        for ln in lines[on_idx + 1:]:
+            if re.match(r"^\S", ln):                 # tornati a colonna 0 → fine sezione on:
+                break
+            if ln.lstrip().startswith("#"):           # i commenti non sono trigger
+                continue
+            m = re.match(r"""^\s+["']?([A-Za-z_]+)["']?:""", ln)   # push/schedule/pull_request/…
+            if m:
+                triggers.append(m.group(1))
     assert triggers == ["workflow_dispatch"], \
         f"trigger del build LM: atteso ESCLUSIVAMENTE ['workflow_dispatch'], trovati {triggers}"
 
@@ -1567,10 +1573,14 @@ def test_requirements_build_lock_committato():
     lock = os.path.join(_REPO_ROOT, "requirements-build.lock")
     assert os.path.isfile(lock), \
         "manca requirements-build.lock (richiesto dalla build fail-closed del License Manager)"
-    text = _read(lock)
+    # Solo righe REALI (non commenti): un `# pyinstaller==` commentato non deve soddisfare l'assert
+    # (review GLM #148). Il pin è `nome==versione` a inizio riga.
+    real = "\n".join(ln for ln in _read(lock).splitlines()
+                     if ln.strip() and not ln.lstrip().startswith("#"))
     for pkg in ("pyinstaller==", "customtkinter==", "pytest=="):
-        assert pkg in text, f"requirements-build.lock non pinna {pkg!r} (serve alla build LM)"
-    assert "--hash=sha256:" in text, \
+        assert re.search(r"(?mi)^" + re.escape(pkg), real), \
+            f"requirements-build.lock non pinna {pkg!r} a inizio riga (serve alla build LM)"
+    assert "--hash=sha256:" in real, \
         "requirements-build.lock deve contenere gli hash sha256 (--require-hashes)"
 
 
