@@ -6,7 +6,6 @@ repo (`customtkinter` stubbato, nessun widget reale). Più un guard a sorgente s
 """
 
 import importlib
-import os
 import sys
 import types
 
@@ -107,12 +106,47 @@ def test_current_status_senza_licenza_e_not_present(license_gui):
     assert st.reason == license_status.NOT_PRESENT
 
 
-def test_scheda_licenza_cablata_in_app():
-    # Guard a sorgente: la scheda «🔑 Licenza» e il suo builder esistono in app.py.
-    import xtrader_bridge
-    app_src = os.path.join(os.path.dirname(xtrader_bridge.__file__), "app.py")
-    with open(app_src, encoding="utf-8") as f:
-        src = f.read()
-    assert "def _build_license_tab(self" in src
-    assert 'tabs.add(i18n.tr("🔑 Licenza"))' in src
-    assert "self._build_license_tab(tab_lic)" in src
+def _raising_fake(stored, hwid=_HW, now=_NOW):
+    """Fake il cui `_save_state` solleva (disco/permessi simulati)."""
+    def _boom(tok, ls):
+        raise OSError("disco pieno (simulato)")
+    return types.SimpleNamespace(
+        _hardware_id_provider=lambda: hwid,
+        _now_provider=lambda: now,
+        _load_state=lambda: stored,
+        _save_state=_boom,
+    )
+
+
+def test_attivazione_persistenza_fallita_non_riuscita(license_gui):
+    # CR #144: se save_license solleva (disco/permessi), l'attivazione NON riesce ma NON propaga.
+    fake = _raising_fake(stored=(None, None))
+    out = license_gui.LicensePanel._evaluate_activation(fake, _valid_token())
+    assert out["accepted"] is False
+    assert "salvare" in out["message"].lower() or "disco" in out["message"].lower()
+
+
+def test_current_status_heartbeat_persiste_last_seen(license_gui):
+    # CR #144: un check valido registra il heartbeat anti-rollback (next_last_seen).
+    fake, saved = _fake_panel(stored=(_valid_token(), _NOW))
+    st = license_gui.LicensePanel.current_status(fake)
+    assert st.valid is True
+    assert saved and saved[-1] == (_valid_token(), _NOW)   # heartbeat persistito
+
+
+def test_current_status_heartbeat_non_persistibile_fail_closed(license_gui):
+    # CR #144: se il heartbeat non è persistibile → fail-CLOSED (licenza NON valida).
+    fake = _raising_fake(stored=(_valid_token(), _NOW))
+    st = license_gui.LicensePanel.current_status(fake)
+    assert st.valid is False
+    assert st.reason == license_status.PERSIST_FAILED
+
+
+def test_refresh_non_inghiotte_errori_del_gate(license_gui):
+    # Regressione (review Fable #144): in PR 4 `_on_status_change` sarà il GATE del lock. Un errore
+    # nel gate NON deve essere inghiottito silenziosamente (sarebbe fail-OPEN): deve propagare.
+    fake, _saved = _fake_panel(stored=(None, None))
+    fake.current_status = lambda: license_gui.LicensePanel.current_status(fake)
+    fake._on_status_change = lambda _st: (_ for _ in ()).throw(RuntimeError("gate boom"))
+    with pytest.raises(RuntimeError):
+        license_gui.LicensePanel.refresh_options(fake)

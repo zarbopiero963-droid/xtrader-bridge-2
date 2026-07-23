@@ -8,10 +8,18 @@
 > proprietario**.
 >
 > **PR 2 — pezzi aggiunti:** `license_store.py` (persistenza atomica di token + `last_seen` in
-> `%APPDATA%\XTraderBridge\license_state.json`, lettura fail-safe), `license_status.py` (stato UI
-> puro: `compute_status`, severità, messaggi, `last_seen` monotòno anti-rollback), `license_gui.py`
-> (`LicensePanel` embeddable), e la scheda «🔑 Licenza» in `app.py`. Nessun controllo viene
-> disabilitato: l'app funziona come prima.
+> `%APPDATA%\XTraderBridge\license_state.json`, lettura fail-safe; un file **JSON corrotto** viene
+> messo in **backup `.bak`** prima di ripartire da «nessuna licenza», mai su errori di I/O),
+> `license_status.py` (stato UI puro: `compute_status`, severità, messaggi, `last_seen` monotòno,
+> stato `PERSIST_FAILED`), `license_gui.py` (`LicensePanel` embeddable), e la scheda «🔑 Licenza» in
+> `app.py`. Nessun controllo viene disabilitato: l'app funziona come prima.
+>
+> **Anti-rollback — heartbeat (review CodeRabbit #144):** ad ogni **check valido** (`current_status`,
+> che in PR 4 sarà il gate del lock) si **registra** `next_last_seen(last_seen, now)`. Senza, dopo
+> l'attivazione basterebbe tenere l'orologio a un istante pre-scadenza per non scadere mai. Se
+> l'heartbeat **non è persistibile** (disco/permessi) → **fail-closed** (licenza non valida). Anche
+> il salvataggio all'**attivazione** è fail-closed: se `save_license` non riesce, l'attivazione
+> **non riesce** e lo stato precedente resta intatto.
 
 ## A cosa serve
 

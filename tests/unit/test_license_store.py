@@ -22,18 +22,33 @@ def test_file_assente_ritorna_none(tmp_path):
     assert license_store.load_license(p) == (None, None)
 
 
-def test_file_corrotto_fail_safe(tmp_path):
+def test_file_corrotto_fail_safe_e_backup(tmp_path):
+    # JSON corrotto → (None, None) MA il file viene messo in backup .bak prima (recuperabile).
     p = license_store.license_state_path(str(tmp_path))
     with open(p, "w", encoding="utf-8") as f:
         f.write("{ questo non è json valido …")
     assert license_store.load_license(p) == (None, None)
+    assert os.path.exists(p + ".bak")               # backup creato
+    assert not os.path.exists(p)                     # l'originale corrotto è stato spostato
+    with open(p + ".bak", encoding="utf-8") as f:
+        assert "non è json valido" in f.read()       # contenuto corrotto conservato
 
 
-def test_json_non_dict_fail_safe(tmp_path):
+def test_json_non_dict_fail_safe_e_backup(tmp_path):
     p = license_store.license_state_path(str(tmp_path))
     with open(p, "w", encoding="utf-8") as f:
         f.write('["lista", "non", "dict"]')
     assert license_store.load_license(p) == (None, None)
+    assert os.path.exists(p + ".bak")               # schema errato = corruzione → backup
+
+
+def test_file_valido_non_viene_backuppato(tmp_path):
+    # Regressione: un file VALIDO non deve mai essere rinominato in .bak.
+    p = license_store.license_state_path(str(tmp_path))
+    license_store.save_license(p, "tok", 100)
+    assert license_store.load_license(p) == ("tok", 100)
+    assert not os.path.exists(p + ".bak")
+    assert os.path.exists(p)
 
 
 def test_campi_mancanti_o_tipi_errati(tmp_path):

@@ -135,30 +135,57 @@ class LicensePanel(ctk.CTkFrame):
         if not status.valid:
             return {"accepted": False, "message": license_status.status_message(status)}
         if self._save_state:
-            self._save_state(pasted_token, license_status.next_last_seen(last_seen, now))
+            try:
+                self._save_state(pasted_token, license_status.next_last_seen(last_seen, now))
+            except Exception:       # noqa: BLE001 — persistenza fallita (disco/permessi): attivazione
+                # NON riuscita, lo stato precedente su disco resta intatto (save atomico). Il metodo
+                # mantiene il contratto «non solleva»: ritorna un esito di errore leggibile.
+                return {"accepted": False,
+                        "message": i18n.tr("⚠️ Impossibile salvare la licenza su disco (permessi?). "
+                                           "Riprova.")}
         return {"accepted": True,
                 "message": i18n.tr("✅ Licenza attivata — {name}.").format(name=status.name or "")}
 
     def current_status(self):
-        """Stato licenza corrente dallo storico persistito (logica pura, usabile anche da PR 4)."""
+        """Stato licenza corrente + **heartbeat anti-rollback** (usabile anche da PR 4 come gate).
+
+        Su un check **valido** registra `next_last_seen(last_seen, now)` (monotòno): senza questo,
+        dopo l'attivazione basterebbe tenere l'orologio a un istante pre-scadenza per non scadere mai
+        (review CodeRabbit #144). Se l'heartbeat **non è persistibile** (disco/permessi) → **fail-closed**
+        (`PERSIST_FAILED`): una licenza il cui heartbeat non si può registrare non risulta valida.
+        """
         hwid = self._hardware_id_provider() if self._hardware_id_provider else ""
         now = int(self._now_provider()) if self._now_provider else 0
         token, last_seen = self._load_state() if self._load_state else (None, None)
-        return license_status.compute_status(token, hwid, now, last_seen=last_seen)
+        status = license_status.compute_status(token, hwid, now, last_seen=last_seen)
+        if status.valid and token and self._save_state:
+            try:
+                self._save_state(token, license_status.next_last_seen(last_seen, now))
+            except Exception:       # noqa: BLE001 — heartbeat non persistibile → fail-closed
+                return license_status.LicenseStatus(
+                    valid=False, reason=license_status.PERSIST_FAILED, name=status.name,
+                    issued=status.issued, expiry=status.expiry, days_left=0)
+        return status
 
     def refresh_options(self) -> None:
         """Ricalcola e mostra Hardware ID + stato dalla persistenza (hook al cambio scheda)."""
+        # Stato calcolato coi provider iniettati (fail-safe by design: hardware_id best-effort,
+        # load_state fail-safe, verify_license fail-closed).
+        status = self.current_status()
+        # SOLO il rendering Tk è best-effort (un widget distrutto/headless non deve rompere la
+        # scheda, come gli altri pannelli sola-lettura).
         try:
             hwid = self._hardware_id_provider() if self._hardware_id_provider else "—"
             if getattr(self, "_hw_value", None) is not None:
                 self._hw_value.configure(text=hwid or "—")
-            status = self.current_status()
             if self._status_lbl is not None:
                 sev = license_status.status_severity(status)
                 self._status_lbl.configure(text=license_status.status_message(status),
                                            text_color=_SEVERITY_COLOR.get(sev, _COLOR_MUTED))
-            if self._on_status_change:
-                self._on_status_change(status)
-        except Exception:       # noqa: BLE001 — render best-effort: un provider che solleva non
-            # deve rompere la scheda (coerente con gli altri pannelli sola-lettura).
+        except Exception:       # noqa: BLE001 — render Tk best-effort
             pass
+        # Hook di stato FUORI dal try (review Fable #144): in PR 4 questo sarà il **gate del lock** —
+        # se sollevasse, un `except` che lo inghiotte lo renderebbe silenziosamente fail-OPEN.
+        # Lasciandolo propagare, un gate difettoso è visibile (fail-closed-friendly), non nascosto.
+        if self._on_status_change:
+            self._on_status_change(status)

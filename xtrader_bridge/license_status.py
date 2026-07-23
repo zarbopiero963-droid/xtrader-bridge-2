@@ -11,7 +11,6 @@ from . import i18n
 from .licensing import (
     verify_license,
     LicenseStatus,
-    VALID,
     EXPIRED,
     WRONG_HARDWARE,
     INVALID_SIGNATURE,
@@ -19,8 +18,13 @@ from .licensing import (
     MALFORMED,
 )
 
-# Stato UI aggiuntivo: nessun token memorizzato (l'utente non ha ancora attivato).
+# Stati UI aggiuntivi (oltre a quelli di `licensing`):
+# - NOT_PRESENT: nessun token memorizzato (l'utente non ha ancora attivato);
+# - PERSIST_FAILED: verifica ok ma impossibile registrare l'heartbeat anti-rollback su disco →
+#   fail-CLOSED (una licenza il cui heartbeat non è persistibile non deve risultare valida, altrimenti
+#   l'anti-rollback è aggirabile: vedi `license_gui.current_status`).
 NOT_PRESENT = "NOT_PRESENT"
+PERSIST_FAILED = "PERSIST_FAILED"
 
 
 def next_last_seen(last_seen, now: int) -> int:
@@ -63,6 +67,7 @@ def status_message(status: LicenseStatus) -> str:
             name=status.name or "", days=status.days_left)
     return {
         NOT_PRESENT: i18n.tr("🔒 Nessuna licenza inserita."),
+        PERSIST_FAILED: i18n.tr("⛔ Impossibile aggiornare lo stato licenza su disco (permessi?)."),
         EXPIRED: i18n.tr("⛔ Licenza scaduta."),
         WRONG_HARDWARE: i18n.tr("⛔ Licenza emessa per un'altra macchina (hardware diverso)."),
         INVALID_SIGNATURE: i18n.tr("⛔ Licenza non valida (firma non riconosciuta)."),

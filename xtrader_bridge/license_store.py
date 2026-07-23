@@ -30,25 +30,45 @@ def save_license(path: str, token: str, last_seen: int) -> None:
                                 prefix=".license_", suffix=".tmp")
 
 
-def load_license(path: str):
-    """Ritorna `(token, last_seen)` dal file, oppure `(None, None)` se assente/corrotto.
+def _backup_corrupted(path: str) -> None:
+    """Sposta un `license_state.json` corrotto in `<path>.bak` (best-effort, atomico).
 
-    Fail-safe: qualunque errore di lettura/parse/tipo → `(None, None)` (nessuna licenza), così una
-    licenza illeggibile non sblocca né fa crashare — coerente col fail-closed della verifica.
+    `os.replace` sovrascrive un `.bak` preesistente in modo atomico e cross-platform. Solo per
+    corruzione di parse/schema: **non** va chiamato su errori di permessi/lock (non si tocca il file)."""
+    import os  # noqa: PLC0415
+    try:
+        os.replace(path, path + ".bak")
+    except OSError:     # backup best-effort: se anche il rename fallisce, si prosegue fail-safe
+        pass
+
+
+def load_license(path: str):
+    """Ritorna `(token, last_seen)` dal file, oppure `(None, None)` se assente/illeggibile/corrotto.
+
+    Fail-safe (coerente col fail-closed della verifica): una licenza illeggibile non sblocca né fa
+    crashare. Distinzione (review CodeRabbit #144, linee guida «backup corrupt configuration»):
+    - **assente** (`FileNotFoundError`) o **errore di I/O/permessi** → `(None, None)`, **senza** rinomina;
+    - **JSON/schema corrotto** → il file viene **messo in backup** `.bak` PRIMA di ripartire da
+      «nessuna licenza», così una successiva attivazione non sovrascrive l'unica copia recuperabile.
     """
     try:
         with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            raw = f.read()
+    except FileNotFoundError:
+        return (None, None)
+    except OSError:         # permessi/lock/I/O: fail-safe, ma NON rinominare il file
+        return (None, None)
+    try:
+        data = json.loads(raw)
         if not isinstance(data, dict):
-            return (None, None)
+            raise ValueError("license_state.json non è un oggetto JSON")
         token = data.get("token")
         last_seen = data.get("last_seen")
         token = str(token) if isinstance(token, str) and token else None
         last_seen = int(last_seen) if isinstance(last_seen, (int, float)) else None
         return (token, last_seen)
-    except FileNotFoundError:
-        return (None, None)
-    except Exception:       # noqa: BLE001 — file corrotto/illeggibile: fail-safe «nessuna licenza»
+    except Exception:       # noqa: BLE001 — JSON/schema corrotto: backup poi fail-safe «nessuna licenza»
+        _backup_corrupted(path)
         return (None, None)
 
 
