@@ -370,6 +370,26 @@ def test_ensure_secure_dir_crea_e_restringe(tmp_path):
         assert stat.S_IMODE(os.stat(d).st_mode) == 0o700
 
 
+def test_ensure_secure_dir_makedirs_owner_only_dalla_prima_syscall(tmp_path, monkeypatch):
+    # review CodeRabbit #147 (Major): la leaf va creata owner-only FIN DALLA PRIMA syscall
+    # (mode=0o700), non a 0o777&umask con una finestra prima del chmod. Spia su os.makedirs che
+    # verifica il mode passato e delega alla creazione reale (regressione bloccata se qualcuno
+    # torna al default).
+    real_makedirs = core.os.makedirs
+    seen = {}
+
+    def _spy(path, *args, **kwargs):
+        # os.makedirs ricorre chiamando il makedirs a livello di modulo per i genitori (senza mode):
+        # ci interessa la PRIMA invocazione (la leaf target), quindi setdefault.
+        seen.setdefault("mode", kwargs.get("mode"))
+        return real_makedirs(path, *args, **kwargs)
+
+    monkeypatch.setattr(core.os, "makedirs", _spy)
+    d = str(tmp_path / "nuova" / "lmdata")
+    assert core.ensure_secure_dir(d) is True
+    assert seen["mode"] == 0o700                        # creata owner-only, non default 0o777
+
+
 def test_ensure_secure_dir_makedirs_fallisce_best_effort(tmp_path, monkeypatch):
     # GLM #147: se makedirs fallisce (permessi insufficienti), ensure_secure_dir NON solleva e
     # ritorna False (best-effort: il tool prosegue, ma la blindatura NON è garantita → la GUI avvisa).

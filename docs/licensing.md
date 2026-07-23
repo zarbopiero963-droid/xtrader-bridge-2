@@ -160,7 +160,9 @@ headless.
 `core.secure_dir(path)` / `core.ensure_secure_dir(directory)` restringono la **cartella-dati** del
 License Manager al **solo utente proprietario**, e la GUI la chiama all'avvio (`_secure_data_dir`):
 
-- **POSIX**: `chmod 0o700` sulla cartella (il file-chiave è già `0o600`);
+- **POSIX**: la cartella è creata **owner-only fin dalla prima syscall** (`os.makedirs(..., mode=0o700)`,
+  review CodeRabbit #147 — senza, resterebbe una breve finestra `0o777`&umask prima del chmod), poi
+  `chmod 0o700` (il file-chiave è già `0o600`);
 - **Windows**: ACL via `icacls`, perché `chmod` non tocca le ACL NTFS (rilievo Fugu #146; su NTFS il
   `0o600` del file è inefficace, quindi la protezione dipende **interamente** da questa DACL). **Un
   solo comando fail-closed** (review Fugu #147): `icacls … /inheritance:r /grant:r

@@ -196,10 +196,14 @@ def ensure_secure_dir(directory: "str | None" = None, *, run=None, platform: "st
 
     Ritorna `True` se la cartella è stata creata **e** ristretta con successo, `False` se la
     creazione o la restrizione sono fallite (review GPT/GLM #147: l'avvio della GUI deve poter
-    avvisare l'utente invece di procedere con una cartella-chiave non protetta in silenzio)."""
+    avvisare l'utente invece di procedere con una cartella-chiave non protetta in silenzio).
+
+    La leaf viene creata **owner-only fin dalla prima syscall** (`mode=0o700`, review CodeRabbit
+    #147): senza, `os.makedirs` la creerebbe a `0o777`&umask e resterebbe una breve finestra
+    group/world prima del `chmod` di `secure_dir`. Su Windows `mode` è ininfluente (ci pensa l'ACL)."""
     d = directory or manager_dir()
     try:
-        os.makedirs(d, exist_ok=True)
+        os.makedirs(d, mode=0o700, exist_ok=True)
     except OSError as exc:
         _log.warning("Creazione cartella-chiave non riuscita: %s", type(exc).__name__)
         return False
