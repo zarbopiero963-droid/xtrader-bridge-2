@@ -172,6 +172,13 @@ class LicensePanel(ctk.CTkFrame):
 
         Non solleva: i **provider** (hwid/now/load_state) sono racchiusi qui — un provider difettoso
         (es. WMI/registro Windows) degrada a stato neutro «nessuna licenza» senza rompere il chiamante.
+
+        Limite onesto (review GPT/GLM #144): il contatore `_heartbeat_failures` è **in memoria**, quindi
+        si azzera al riavvio dell'app; inoltre nessun check offline è perfetto (issue #140). In questa
+        PR **non c'è alcun blocco** (la scheda è informativa), perciò questo non ha conseguenze reali; la
+        politica anti-rollback robusta — e se renderla restart-safe — è una decisione della **PR 4**
+        (il lock), dove il meccanismo gate ha davvero effetto. Persistere il contatore qui non aiuterebbe
+        (se il disco non è scrivibile, non si potrebbe scriverlo comunque).
         """
         try:
             hwid = self._hardware_id_provider() if self._hardware_id_provider else ""
@@ -182,10 +189,20 @@ class LicensePanel(ctk.CTkFrame):
             return license_status.LicenseStatus(valid=False, reason=license_status.NOT_PRESENT,
                                                 name=None, issued=None, expiry=None, days_left=0)
 
-        status = license_status.compute_status(token, hwid, now, last_seen=last_seen)
+        # `prev` sanitizzato al confine (review Fable #144): un `last_seen` NON numerico (stato
+        # corrotto, provider anomalo) → None, mai un `int()` che solleverebbe dentro `verify_license`
+        # (anti-rollback) o nell'heartbeat. `load_license` già sanifica in produzione; qui è
+        # belt-and-suspenders in un solo punto, così sia `compute_status` sia il heartbeat vedono
+        # lo stesso valore pulito, senza un catch ampio che mascheri gli errori veri di compute.
+        try:
+            prev = int(last_seen) if last_seen is not None else None
+        except (TypeError, ValueError):
+            prev = None
+
+        status = license_status.compute_status(token, hwid, now, last_seen=prev)
         if status.valid and token and self._save_state:
-            advanced = license_status.next_last_seen(last_seen, now)
-            if last_seen is None or advanced > int(last_seen):
+            advanced = license_status.next_last_seen(prev, now)
+            if prev is None or advanced > prev:
                 try:
                     self._save_state(token, advanced)
                     self._heartbeat_failures = 0                    # write riuscito → reset conto

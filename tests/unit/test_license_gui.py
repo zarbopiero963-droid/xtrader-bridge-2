@@ -161,6 +161,39 @@ def test_current_status_heartbeat_persistente_fail_closed(license_gui):
     assert last.reason == license_status.PERSIST_FAILED
 
 
+def test_current_status_last_seen_corrotto_non_solleva(license_gui):
+    # Fable #144: un `last_seen` NON numerico nello stato (corruzione/provider anomalo) non deve
+    # far sollevare `int()`/il confronto in current_status → viene trattato come prev=None e il
+    # heartbeat riparte da `now` (belt-and-suspenders oltre alla sanificazione di load_license).
+    fake, saved = _fake_panel(stored=(_valid_token(), "non-un-numero"), now=_NOW)
+    st = license_gui.LicensePanel.current_status(fake)
+    assert st.valid is True
+    assert saved and saved[-1] == (_valid_token(), _NOW)   # prev=None → scrive advanced=now
+
+
+def test_current_status_heartbeat_reset_dopo_write_riuscito(license_gui):
+    # GLM #144: un write RIUSCITO azzera il conto dei fallimenti consecutivi, così due lock
+    # transitori sparsi (non consecutivi) non sommano fino alla soglia e non fanno fail-closed.
+    seq = {"fail": [True, False, True]}   # fallisce, riesce (reset), fallisce → conto = 1, non 2
+    calls = {"i": 0}
+
+    def _save(tok, ls):
+        i = calls["i"]
+        calls["i"] += 1
+        if seq["fail"][i]:
+            raise OSError("lock transitorio (simulato)")
+
+    fake = types.SimpleNamespace(
+        _hardware_id_provider=lambda: _HW, _now_provider=lambda: _NOW,
+        _load_state=lambda: (_valid_token(), _NOW - _DAY), _save_state=_save,
+        _heartbeat_failures=0)
+    r1 = license_gui.LicensePanel.current_status(fake)   # save #0: fail → conto 1
+    r2 = license_gui.LicensePanel.current_status(fake)   # save #1: ok   → conto 0
+    r3 = license_gui.LicensePanel.current_status(fake)   # save #2: fail → conto 1 (non 2)
+    assert r1.valid is True and r2.valid is True and r3.valid is True
+    assert fake._heartbeat_failures == 1
+
+
 def test_current_status_orologio_retrocede_rollback(license_gui):
     # GLM #144: caso critico anti-rollback — last_seen nel futuro rispetto a now → CLOCK_ROLLBACK,
     # licenza NON valida e nessun heartbeat scritto.
