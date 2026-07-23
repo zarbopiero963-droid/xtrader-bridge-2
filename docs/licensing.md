@@ -14,15 +14,21 @@
 > stato `PERSIST_FAILED`), `license_gui.py` (`LicensePanel` embeddable), e la scheda «🔑 Licenza» in
 > `app.py`. Nessun controllo viene disabilitato: l'app funziona come prima.
 >
-> **Anti-rollback — heartbeat (review CodeRabbit + Fable #144):** su un **check valido**
-> (`current_status`, che in PR 4 sarà il gate del lock) si **registra** `next_last_seen(last_seen,
-> now)` — senza, dopo l'attivazione basterebbe tenere l'orologio a un istante pre-scadenza per non
-> scadere mai. Due accortezze: (a) si scrive **solo quando l'orologio è avanzato** (niente write ad
-> ogni refresh → niente `os.replace` concorrenti su Windows); (b) la scrittura è **best-effort** — un
-> lock transitorio (antivirus/indexer su `%APPDATA%`) **non** invalida una licenza valida (sarebbe un
-> falso negativo): l'anti-rollback resta garantito dai write riusciti. Il **fail-closed** vero resta
-> all'**attivazione**: se `save_license` non riesce, l'attivazione **non riesce** e lo stato
-> precedente atomico resta intatto.
+> **Anti-rollback — heartbeat (sintesi review CodeRabbit + GPT-5.5 + Fable #144):** su un **check
+> valido** (`current_status`, che in PR 4 sarà il gate del lock) si **registra** `next_last_seen(
+> last_seen, now)` — senza, dopo l'attivazione basterebbe tenere l'orologio a un istante pre-scadenza
+> per non scadere mai. Politica dei fallimenti di scrittura, che concilia i reviewer:
+> - si scrive **solo quando l'orologio è avanzato** (niente write ad ogni refresh → niente
+>   `os.replace` concorrenti su Windows);
+> - un fallimento **transitorio** (lock antivirus/indexer su `%APPDATA%`) è **tollerato** (la licenza
+>   valida resta valida — niente falsi negativi): si conta il numero di fallimenti **consecutivi**;
+> - un fallimento **persistente** (≥ `_HEARTBEAT_FAIL_LIMIT` consecutivi, oggi 3) è **fail-closed**
+>   (`PERSIST_FAILED`): così non si può negare la scrittura di `last_seen` per non far mai avanzare
+>   l'orologio-di-riferimento e aggirare la scadenza. Un write riuscito azzera il conto.
+>
+> Il **fail-closed** immediato resta all'**attivazione**: se `save_license` non riesce, l'attivazione
+> **non riesce** e lo stato precedente atomico resta intatto. I fallimenti dei provider e del heartbeat
+> vengono **loggati** (senza segreti) per la diagnosi.
 
 ## A cosa serve
 

@@ -744,7 +744,9 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   **"📋 Copia"**, con nota «Comunica questo codice al fornitore per ricevere la chiave».
 - **Riga di stato** (colorata per severità): `✅ Licenza attiva — Nome · scade tra N giorni` /
   `🔒 Nessuna licenza inserita` (arancio) / `⛔ Licenza scaduta` · `⛔ … hardware diverso` ·
-  `⛔ … formato errato` · `⛔ Orologio spostato indietro: licenza sospesa` (rosso).
+  `⛔ … formato errato` · `⛔ Orologio spostato indietro: licenza sospesa` · `⛔ Impossibile
+  aggiornare lo stato licenza su disco (permessi?)` — solo se la scrittura dell'heartbeat fallisce
+  in modo **persistente** (rosso).
 - **Campo «Incolla qui la chiave di attivazione»** + pulsante **"✅ Attiva"** (blu `ACCENT`); l'esito
   appare sotto (verde/rosso). L'attivazione **verifica** (firma + hardware + scadenza, fail-closed) e
   solo se valida **persiste** in `%APPDATA%\XTraderBridge\license_state.json`.

@@ -13,9 +13,18 @@ esercitabile headless su un `self` finto (stesso pattern dei meta-test GUI del r
 
 from __future__ import annotations
 
+import logging
+
 import customtkinter as ctk
 
 from . import i18n, ui_theme, license_status
+
+_log = logging.getLogger(__name__)
+
+# Heartbeat anti-rollback: quanti fallimenti di scrittura CONSECUTIVI si tollerano (lock transitori
+# di antivirus/indexer su `%APPDATA%`) prima di considerare la persistenza rotta in modo PERSISTENTE
+# e passare a fail-closed (review GPT-5.5/Fable #144). Sotto soglia la licenza valida resta valida.
+_HEARTBEAT_FAIL_LIMIT = 3
 
 # Colori di stato (token WCAG-safe del design system; semantica invariata: verde=ok, rosso=errore,
 # arancio=avviso). ACCENT = pulsante primario «Attiva».
@@ -48,6 +57,7 @@ class LicensePanel(ctk.CTkFrame):
         self._entry = None
         self._status_lbl = None
         self._msg_lbl = None
+        self._heartbeat_failures = 0     # fallimenti heartbeat CONSECUTIVI (anti-rollback)
         self._build_ui()
         self.refresh_options()
 
@@ -150,41 +160,53 @@ class LicensePanel(ctk.CTkFrame):
         """Stato licenza corrente + **heartbeat anti-rollback** (usabile anche da PR 4 come gate).
 
         Il heartbeat registra `next_last_seen(last_seen, now)` così, dopo l'attivazione, tenere
-        l'orologio a un istante pre-scadenza non basta a non scadere mai (review CodeRabbit #144).
-
-        Due accortezze (review Fable #144):
+        l'orologio a un istante pre-scadenza non basta a non scadere mai. Politica (sintesi delle
+        review CodeRabbit/GPT/Fable #144):
         - si scrive **solo quando l'orologio è AVANZATO** (`advanced > last_seen`): niente write ad
           ogni refresh/gate → niente `os.replace` concorrenti su Windows;
-        - la scrittura è **best-effort**: un lock transitorio (antivirus/indexer su `%APPDATA%`) **non**
-          invalida una licenza valida (sarebbe un falso negativo). L'anti-rollback resta garantito dai
-          write riusciti: un tick perso è sicuro (`last_seen` avanza al prossimo). Il fail-closed reale
-          resta all'**attivazione** (`_evaluate_activation`).
+        - un fallimento di scrittura **transitorio** (lock antivirus/indexer) è **tollerato** (la
+          licenza valida resta valida): si conta il numero di fallimenti CONSECUTIVI;
+        - un fallimento **PERSISTENTE** (≥ `_HEARTBEAT_FAIL_LIMIT` consecutivi) è **fail-closed**
+          (`PERSIST_FAILED`): un utente non può negare la scrittura di `last_seen` per non far mai
+          avanzare l'orologio-di-riferimento e aggirare la scadenza. Un write riuscito azzera il conto.
+
+        Non solleva: i **provider** (hwid/now/load_state) sono racchiusi qui — un provider difettoso
+        (es. WMI/registro Windows) degrada a stato neutro «nessuna licenza» senza rompere il chiamante.
         """
-        hwid = self._hardware_id_provider() if self._hardware_id_provider else ""
-        now = int(self._now_provider()) if self._now_provider else 0
-        token, last_seen = self._load_state() if self._load_state else (None, None)
+        try:
+            hwid = self._hardware_id_provider() if self._hardware_id_provider else ""
+            now = int(self._now_provider()) if self._now_provider else 0
+            token, last_seen = self._load_state() if self._load_state else (None, None)
+        except Exception as exc:    # noqa: BLE001 — provider difettoso: non determinabile → neutro
+            _log.warning("License providers non disponibili: %s: %s", type(exc).__name__, exc)
+            return license_status.LicenseStatus(valid=False, reason=license_status.NOT_PRESENT,
+                                                name=None, issued=None, expiry=None, days_left=0)
+
         status = license_status.compute_status(token, hwid, now, last_seen=last_seen)
         if status.valid and token and self._save_state:
             advanced = license_status.next_last_seen(last_seen, now)
             if last_seen is None or advanced > int(last_seen):
                 try:
                     self._save_state(token, advanced)
-                except Exception:   # noqa: BLE001 — heartbeat best-effort: un lock transitorio NON
-                    # invalida una licenza valida; last_seen avanzerà al prossimo tick riuscito.
-                    pass
+                    self._heartbeat_failures = 0                    # write riuscito → reset conto
+                except Exception as exc:    # noqa: BLE001 — heartbeat: tollera i transitori, fail-closed
+                    # sui persistenti (né `pass` cieco né fail-closed al primo lock).
+                    self._heartbeat_failures = getattr(self, "_heartbeat_failures", 0) + 1
+                    _log.warning("Heartbeat licenza non persistibile (%d/%d): %s: %s",
+                                 self._heartbeat_failures, _HEARTBEAT_FAIL_LIMIT,
+                                 type(exc).__name__, exc)
+                    if self._heartbeat_failures >= _HEARTBEAT_FAIL_LIMIT:
+                        return license_status.LicenseStatus(
+                            valid=False, reason=license_status.PERSIST_FAILED, name=status.name,
+                            issued=status.issued, expiry=status.expiry, days_left=0)
         return status
 
     def refresh_options(self) -> None:
         """Ricalcola e mostra Hardware ID + stato dalla persistenza (hook al cambio scheda)."""
-        # Stato calcolato coi provider iniettati. I provider del progetto sono fail-safe, ma un
-        # provider difettoso (es. WMI/registro Windows che solleva) NON deve rompere il cambio
-        # scheda (review Fable #144): si degrada a uno stato neutro «nessuna licenza».
-        try:
-            status = self.current_status()
-        except Exception:       # noqa: BLE001 — provider difettoso: non propagare al cambio scheda
-            status = license_status.LicenseStatus(
-                valid=False, reason=license_status.NOT_PRESENT, name=None,
-                issued=None, expiry=None, days_left=0)
+        # `current_status` non solleva: racchiude i provider al suo interno (un provider difettoso
+        # degrada a stato neutro), quindi qui NON serve un catch ampio che maschererebbe anche gli
+        # errori di `compute_status`/heartbeat (review Fable #144).
+        status = self.current_status()
         # SOLO il rendering Tk è best-effort (un widget distrutto/headless non deve rompere la
         # scheda, come gli altri pannelli sola-lettura).
         try:

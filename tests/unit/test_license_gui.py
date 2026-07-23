@@ -142,11 +142,33 @@ def test_current_status_heartbeat_non_scrive_se_orologio_non_avanza(license_gui)
     assert saved == []                                     # nessun heartbeat scritto
 
 
-def test_current_status_heartbeat_best_effort_non_invalida(license_gui):
-    # Fable #144: un lock transitorio (save che solleva) NON invalida una licenza valida.
+def test_current_status_heartbeat_transitorio_non_invalida(license_gui):
+    # Fable #144: un lock TRANSITORIO (un solo save fallito) NON invalida una licenza valida.
     fake = _raising_fake(stored=(_valid_token(), _NOW - _DAY), now=_NOW)
     st = license_gui.LicensePanel.current_status(fake)
-    assert st.valid is True                                # best-effort: resta valida
+    assert st.valid is True                                # sotto soglia: resta valida
+
+
+def test_current_status_heartbeat_persistente_fail_closed(license_gui):
+    # GPT/Fable #144: fallimenti heartbeat PERSISTENTI (≥ soglia) → fail-CLOSED, così non si può
+    # negare la scrittura di last_seen per aggirare la scadenza tenendo l'orologio fermo.
+    fake = _raising_fake(stored=(_valid_token(), _NOW - _DAY), now=_NOW)
+    fake._heartbeat_failures = 0
+    last = None
+    for _ in range(license_gui._HEARTBEAT_FAIL_LIMIT):
+        last = license_gui.LicensePanel.current_status(fake)
+    assert last.valid is False
+    assert last.reason == license_status.PERSIST_FAILED
+
+
+def test_current_status_orologio_retrocede_rollback(license_gui):
+    # GLM #144: caso critico anti-rollback — last_seen nel futuro rispetto a now → CLOCK_ROLLBACK,
+    # licenza NON valida e nessun heartbeat scritto.
+    fake, saved = _fake_panel(stored=(_valid_token(), _NOW + 30 * _DAY), now=_NOW)
+    st = license_gui.LicensePanel.current_status(fake)
+    assert st.valid is False
+    assert st.reason == lic.CLOCK_ROLLBACK
+    assert saved == []
 
 
 def test_current_status_senza_save_state_non_scrive(license_gui):
@@ -158,14 +180,27 @@ def test_current_status_senza_save_state_non_scrive(license_gui):
     assert st.valid is True
 
 
+def test_current_status_provider_difettoso_stato_neutro(license_gui):
+    # Fable #144: un provider che solleva → current_status degrada a stato neutro (non propaga).
+    def _boom():
+        raise RuntimeError("WMI/registro giù (simulato)")
+    fake = types.SimpleNamespace(
+        _hardware_id_provider=_boom, _now_provider=lambda: _NOW,
+        _load_state=lambda: (None, None), _save_state=lambda *a: None)
+    st = license_gui.LicensePanel.current_status(fake)
+    assert st.valid is False
+    assert st.reason == license_status.NOT_PRESENT
+
+
 def test_refresh_provider_difettoso_non_propaga(license_gui):
-    # Fable #144: un provider che solleva NON deve rompere il cambio scheda (refresh_options).
+    # Fable #144: di conseguenza refresh_options (che chiama current_status) non si rompe.
     def _boom():
         raise RuntimeError("WMI/registro giù (simulato)")
     fake = types.SimpleNamespace(
         _hardware_id_provider=_boom, _now_provider=lambda: _NOW,
         _load_state=lambda: (None, None), _save_state=lambda *a: None,
         _on_status_change=None)
+    fake.current_status = lambda: license_gui.LicensePanel.current_status(fake)
     license_gui.LicensePanel.refresh_options(fake)         # non deve sollevare
 
 

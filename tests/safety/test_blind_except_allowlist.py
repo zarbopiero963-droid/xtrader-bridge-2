@@ -192,12 +192,12 @@ _ALLOWLIST = {
                             "in load → (None, None) «nessuna licenza», mai crash; (2) rimozione "
                             "best-effort in clear. Coerente col fail-closed della verifica"),
     "license_gui.py": (6, "schermata Licenza (#140 PR 2): (1) copia appunti best-effort, (2) lettura "
-                          "campo in teardown/headless, (3) render Tk best-effort, (4) provider difettoso "
-                          "in refresh_options degrada a stato neutro senza rompere il cambio scheda "
-                          "(review Fable #144) — non rompono la scheda; (5) save all'ATTIVAZIONE "
-                          "FAIL-CHIUSA (persistenza fallita = attivazione non riuscita, stato precedente "
-                          "intatto, CodeRabbit #144); (6) heartbeat anti-rollback BEST-EFFORT (un lock "
-                          "transitorio Windows NON invalida una licenza valida, Fable #144)"),
+                          "campo in teardown/headless, (3) render Tk best-effort — non rompono la scheda; "
+                          "(4) save all'ATTIVAZIONE FAIL-CHIUSA (persistenza fallita = attivazione non "
+                          "riuscita, stato precedente intatto, CodeRabbit #144); (5) provider difettoso in "
+                          "current_status degrada a stato neutro senza rompere il chiamante (Fable #144); "
+                          "(6) heartbeat anti-rollback: tollera i fallimenti transitori, FAIL-CHIUSO sui "
+                          "PERSISTENTI (≥ _HEARTBEAT_FAIL_LIMIT consecutivi) — review GPT/Fable #144"),
 }
 
 

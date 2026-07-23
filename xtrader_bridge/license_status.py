@@ -18,8 +18,13 @@ from .licensing import (
     MALFORMED,
 )
 
-# Stato UI aggiuntivo (oltre a quelli di `licensing`): nessun token memorizzato (non ancora attivato).
+# Stati UI aggiuntivi (oltre a quelli di `licensing`):
+# - NOT_PRESENT: nessun token memorizzato (non ancora attivato);
+# - PERSIST_FAILED: l'heartbeat anti-rollback fallisce in modo PERSISTENTE (N tick consecutivi) →
+#   fail-closed (un utente non deve poter negare la scrittura di `last_seen` per non far mai avanzare
+#   l'orologio-di-riferimento e aggirare la scadenza). Un fallimento TRANSITORIO non scatta (best-effort).
 NOT_PRESENT = "NOT_PRESENT"
+PERSIST_FAILED = "PERSIST_FAILED"
 
 
 def next_last_seen(last_seen, now: int) -> int:
@@ -62,6 +67,7 @@ def status_message(status: LicenseStatus) -> str:
             name=status.name or "", days=status.days_left)
     return {
         NOT_PRESENT: i18n.tr("🔒 Nessuna licenza inserita."),
+        PERSIST_FAILED: i18n.tr("⛔ Impossibile aggiornare lo stato licenza su disco (permessi?)."),
         EXPIRED: i18n.tr("⛔ Licenza scaduta."),
         WRONG_HARDWARE: i18n.tr("⛔ Licenza emessa per un'altra macchina (hardware diverso)."),
         INVALID_SIGNATURE: i18n.tr("⛔ Licenza non valida (firma non riconosciuta)."),
