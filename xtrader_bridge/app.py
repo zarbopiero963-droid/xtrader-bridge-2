@@ -4142,6 +4142,10 @@ class App(ctk.CTk):
             "provider": _make_provider,
             "parser": _make_parser,
             "mapping": _make_mapping,
+            # "dictionary" è RITENUTA ma la scheda è NASCOSTA: `tools_gui.TOOL_GROUPS` non la
+            # elenca più (viewer del DB Betfair vuoto senza «Betfair Sync»), quindi
+            # `build_tool_panels` non la costruisce. La factory resta cablata qui così la
+            # riattivazione è una sola riga in TOOL_GROUPS (nessuna modifica ad app.py).
             "dictionary": _make_dictionary,
             "journal": _make_journal,
             "known_teams": _make_known_teams,

@@ -167,9 +167,10 @@ SIMULAZIONE→SIMULATION/SIMULACIÓN, slice 4s), la scheda **🧹 Nomi squadra**
 (pannello di ripulitura dei nomi squadra noti, slice 4t), il pannello **📋 Riepilogo configurazione**
 (modalità, stato dizionario, traduzioni, «Pronto?», slice 4u), il pannello
 **🌳 Mapping guidato** completo (chrome + messaggi di stato dinamici: profilo, competizioni, squadre,
-salvataggio, slice 4v–4w) e — dalla slice 4x — l'**hub 🧰 Strumenti** (titolo finestra + i 9
-titoli-scheda: 📡 Chat sorgenti, 📇 Provider, 🧩 Parser, 🗺️ Mapping, 📖 Dizionario, 📒 Diario,
-🧹 Nomi squadra, 📁 Profili, 📋 Riepilogo; «Provider»/«Parser» restano termini prodotto) e — dalla
+salvataggio, slice 4v–4w) e — dalla slice 4x — l'**hub 🧰 Strumenti** (titolo finestra + i
+titoli-scheda: 📡 Chat sorgenti, 📇 Provider, 🧩 Parser, 🗺️ Mapping, 📒 Diario,
+🧹 Nomi squadra, 📁 Profili, 📋 Riepilogo — **8 schede mostrate**; l'etichetta «📖 Dizionario» resta
+ritenuta e tradotta ma la scheda è **oggi nascosta**, vedi sotto; «Provider»/«Parser» restano termini prodotto) e — dalla
 slice 4y — i **dialoghi modali di conferma modalità** (attivazione REALE con frase da digitare,
 COLLAUDO, MULTI-segnale e i due gate di avvio automatico/START in modalità reale; la parola da
 digitare resta **`REALE`** in ogni lingua per sicurezza) e — dalla slice 4z — i **dialoghi GUI di
@@ -319,7 +320,13 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 > Una `config.json` corrotta viene messa da parte come `.bak` e il bridge riparte
 > dai default sicuri. Le chiavi mancanti ereditano sempre il default.
 
-### 📖 Dizionario (consultazione, sola lettura)
+### 📖 Dizionario (consultazione, sola lettura) — scheda attualmente NASCOSTA
+
+> **Nota (scheda nascosta).** La scheda **«📖 Dizionario»** è **temporaneamente nascosta**
+> dall'hub 🧰 Strumenti: essendo un semplice viewer del DB Betfair locale, senza il «Betfair Sync»
+> (rimosso) resterebbe vuota e sembrerebbe rotta. **Codice, etichetta e factory restano intatti**
+> (non elencata in `tools_gui.TOOL_GROUPS`): riattivarla quando ci sarà una sorgente dati per il DB
+> è **una sola riga**. La descrizione qui sotto vale per quando sarà di nuovo visibile.
 
 > **Nota (rimozione «Betfair Sync»).** La vecchia funzione **🔵 Betfair Sync** — login a
 > Betfair, download del catalogo e costruzione automatica del dizionario — **è stata rimossa**:
@@ -333,11 +340,13 @@ chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 > **Come si popola oggi.** Non esiste (ancora) una procedura di import/seed integrata nella GUI:
 > finché non verrà aggiunta, un **DB pre-popolato è di fatto un prerequisito** per l'arricchimento
 > ID. Senza dizionario popolato il bridge funziona comunque **a nomi** (`recognition_mode`
-> `NAME_ONLY`, il default per le config nuove): consulta/ripulisci i nomi già presenti dalle
-> schede «📖 Dizionario» e «🧹 Nomi squadra». La definizione dello schema custom e del suo
-> import è lavoro dell'utente/futuro, fuori dallo scope di questa rimozione.
+> `NAME_ONLY`, il default per le config nuove): i nomi già presenti si ripuliscono dalla scheda
+> «🧹 Nomi squadra» (la scheda «📖 Dizionario» di sola consultazione è oggi nascosta, vedi sopra).
+> La definizione dello schema custom e del suo import è lavoro dell'utente/futuro, fuori dallo
+> scope di questa rimozione.
 
-Dalla finestra **"🧰 Strumenti" → scheda "📖 Dizionario"** puoi **consultare** il dizionario
+Quando la scheda sarà di nuovo visibile, dalla finestra **"🧰 Strumenti" → scheda "📖 Dizionario"**
+potrai **consultare** il dizionario
 locale (Sport → Competizioni → Eventi → Mercati → Selezioni). Scegli il **Livello** e il
 **Sport**, spunta **"Solo attivi"**, **cerca** per nome o ID e premi **"🔄 Aggiorna"**. È una
 vista **di sola lettura**: non modifica il dizionario, non piazza scommesse e non fa rete. Se
