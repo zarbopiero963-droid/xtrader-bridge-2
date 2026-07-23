@@ -149,29 +149,42 @@ class LicensePanel(ctk.CTkFrame):
     def current_status(self):
         """Stato licenza corrente + **heartbeat anti-rollback** (usabile anche da PR 4 come gate).
 
-        Su un check **valido** registra `next_last_seen(last_seen, now)` (monotòno): senza questo,
-        dopo l'attivazione basterebbe tenere l'orologio a un istante pre-scadenza per non scadere mai
-        (review CodeRabbit #144). Se l'heartbeat **non è persistibile** (disco/permessi) → **fail-closed**
-        (`PERSIST_FAILED`): una licenza il cui heartbeat non si può registrare non risulta valida.
+        Il heartbeat registra `next_last_seen(last_seen, now)` così, dopo l'attivazione, tenere
+        l'orologio a un istante pre-scadenza non basta a non scadere mai (review CodeRabbit #144).
+
+        Due accortezze (review Fable #144):
+        - si scrive **solo quando l'orologio è AVANZATO** (`advanced > last_seen`): niente write ad
+          ogni refresh/gate → niente `os.replace` concorrenti su Windows;
+        - la scrittura è **best-effort**: un lock transitorio (antivirus/indexer su `%APPDATA%`) **non**
+          invalida una licenza valida (sarebbe un falso negativo). L'anti-rollback resta garantito dai
+          write riusciti: un tick perso è sicuro (`last_seen` avanza al prossimo). Il fail-closed reale
+          resta all'**attivazione** (`_evaluate_activation`).
         """
         hwid = self._hardware_id_provider() if self._hardware_id_provider else ""
         now = int(self._now_provider()) if self._now_provider else 0
         token, last_seen = self._load_state() if self._load_state else (None, None)
         status = license_status.compute_status(token, hwid, now, last_seen=last_seen)
         if status.valid and token and self._save_state:
-            try:
-                self._save_state(token, license_status.next_last_seen(last_seen, now))
-            except Exception:       # noqa: BLE001 — heartbeat non persistibile → fail-closed
-                return license_status.LicenseStatus(
-                    valid=False, reason=license_status.PERSIST_FAILED, name=status.name,
-                    issued=status.issued, expiry=status.expiry, days_left=0)
+            advanced = license_status.next_last_seen(last_seen, now)
+            if last_seen is None or advanced > int(last_seen):
+                try:
+                    self._save_state(token, advanced)
+                except Exception:   # noqa: BLE001 — heartbeat best-effort: un lock transitorio NON
+                    # invalida una licenza valida; last_seen avanzerà al prossimo tick riuscito.
+                    pass
         return status
 
     def refresh_options(self) -> None:
         """Ricalcola e mostra Hardware ID + stato dalla persistenza (hook al cambio scheda)."""
-        # Stato calcolato coi provider iniettati (fail-safe by design: hardware_id best-effort,
-        # load_state fail-safe, verify_license fail-closed).
-        status = self.current_status()
+        # Stato calcolato coi provider iniettati. I provider del progetto sono fail-safe, ma un
+        # provider difettoso (es. WMI/registro Windows che solleva) NON deve rompere il cambio
+        # scheda (review Fable #144): si degrada a uno stato neutro «nessuna licenza».
+        try:
+            status = self.current_status()
+        except Exception:       # noqa: BLE001 — provider difettoso: non propagare al cambio scheda
+            status = license_status.LicenseStatus(
+                valid=False, reason=license_status.NOT_PRESENT, name=None,
+                issued=None, expiry=None, days_left=0)
         # SOLO il rendering Tk è best-effort (un widget distrutto/headless non deve rompere la
         # scheda, come gli altri pannelli sola-lettura).
         try:

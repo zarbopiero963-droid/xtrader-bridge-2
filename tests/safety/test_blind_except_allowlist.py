@@ -191,12 +191,13 @@ _ALLOWLIST = {
     "license_store.py": (2, "persistenza licenza (#140 PR 2) FAIL-SAFE: (1) file corrotto/illeggibile "
                             "in load → (None, None) «nessuna licenza», mai crash; (2) rimozione "
                             "best-effort in clear. Coerente col fail-closed della verifica"),
-    "license_gui.py": (5, "schermata Licenza (#140 PR 2): (1) copia appunti best-effort, (2) lettura "
-                          "campo in teardown/headless, (3) render Tk best-effort — non rompono la "
-                          "scheda; (4) save all'attivazione FAIL-CHIUSA (persistenza fallita = "
-                          "attivazione non riuscita, stato precedente intatto) e (5) heartbeat "
-                          "anti-rollback in current_status FAIL-CHIUSO (non persistibile = licenza "
-                          "non valida) — review CodeRabbit #144"),
+    "license_gui.py": (6, "schermata Licenza (#140 PR 2): (1) copia appunti best-effort, (2) lettura "
+                          "campo in teardown/headless, (3) render Tk best-effort, (4) provider difettoso "
+                          "in refresh_options degrada a stato neutro senza rompere il cambio scheda "
+                          "(review Fable #144) — non rompono la scheda; (5) save all'ATTIVAZIONE "
+                          "FAIL-CHIUSA (persistenza fallita = attivazione non riuscita, stato precedente "
+                          "intatto, CodeRabbit #144); (6) heartbeat anti-rollback BEST-EFFORT (un lock "
+                          "transitorio Windows NON invalida una licenza valida, Fable #144)"),
 }
 
 
