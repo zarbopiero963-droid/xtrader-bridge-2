@@ -1538,23 +1538,40 @@ def test_lm_build_yaml_esiste():
 
 
 def test_lm_build_solo_workflow_dispatch():
-    """La build LM NON parte in automatico: solo `workflow_dispatch` (niente push/tag → zero minuti
-    CI automatici finché il proprietario non la lancia). Regressione: se qualcuno aggiungesse un
-    trigger `push:`/`tags:` il test fallisce."""
+    """La build LM NON parte MAI in automatico: `workflow_dispatch` dev'essere l'**UNICO** trigger
+    (review Fable #148). Non basta negare `push:`/`tags:`: un `schedule:` o `pull_request:` farebbe
+    partire da solo il build del **tool di firma** (accesso al lock di firma, consumo minuti CI) →
+    vietato. Si estraggono le chiavi-trigger sotto `on:` e si esige ESATTAMENTE `[workflow_dispatch]`."""
     lines = _read(_LM_BUILD_YAML).splitlines()
     start = next((i for i, ln in enumerate(lines) if re.match(r"^on:\s*$", ln)), None)
-    assert start is not None, "manca la sezione on: nel workflow del License Manager"
-    body_lines = []
+    assert start is not None, \
+        "il build LM deve dichiarare `on:` in forma a blocco con SOLO workflow_dispatch"
+    triggers = []
     for ln in lines[start + 1:]:
-        if re.match(r"^\S", ln):        # tornati a colonna 0 → fine sezione on:
+        if re.match(r"^\S", ln):                 # tornati a colonna 0 → fine sezione on:
             break
-        body_lines.append(ln)
-    body = "\n".join(body_lines)
-    assert "workflow_dispatch" in body, "il build LM deve avere workflow_dispatch"
-    assert not re.search(r"(?m)^\s+push:", body), \
-        "il build LM NON deve avere trigger push (resterebbe automatico, consuma minuti CI)"
-    assert not re.search(r"(?m)^\s+tags:", body), \
-        "il build LM NON deve avere trigger su tag"
+        if ln.lstrip().startswith("#"):           # i commenti non sono trigger
+            continue
+        m = re.match(r"^\s+([A-Za-z_]+):", ln)    # chiave-trigger indentata (push/schedule/…)
+        if m:
+            triggers.append(m.group(1))
+    assert triggers == ["workflow_dispatch"], \
+        f"trigger del build LM: atteso ESCLUSIVAMENTE ['workflow_dispatch'], trovati {triggers}"
+
+
+def test_requirements_build_lock_committato():
+    """(review GPT/GLM #148) La build LM è fail-closed sul lock hashato: il lock DEVE essere
+    committato, pinnato e con hash — altrimenti la build (dispatch manuale) fallirebbe sempre. Questo
+    test rende la dipendenza esplicita e blocca in CI la cancellazione/assenza del lock, invece di
+    scoprirla solo al lancio del workflow."""
+    lock = os.path.join(_REPO_ROOT, "requirements-build.lock")
+    assert os.path.isfile(lock), \
+        "manca requirements-build.lock (richiesto dalla build fail-closed del License Manager)"
+    text = _read(lock)
+    for pkg in ("pyinstaller==", "customtkinter==", "pytest=="):
+        assert pkg in text, f"requirements-build.lock non pinna {pkg!r} (serve alla build LM)"
+    assert "--hash=sha256:" in text, \
+        "requirements-build.lock deve contenere gli hash sha256 (--require-hashes)"
 
 
 def test_lm_build_rilevata_e_unica():
