@@ -175,11 +175,21 @@ License Manager al **solo utente proprietario**, e la GUI la chiama all'avvio (`
   valida per account locali, di dominio e AzureAD), così `/grant` risolve anche fuori da un account
   locale; l'utente si ricava da `getpass.getuser()` (fallback `USERNAME`/`USER`).
 
+**Limite accettato (review GPT/GLM #147).** `/inheritance:r /grant:r` rimuove le ACE **ereditate** e
+(ri)concede l'owner, ma **non** rimuove eventuali ACE **esplicite** di *altri* principal già presenti
+su una cartella preesistente. Nel flusso reale non ne esistono (la cartella la creiamo noi; le
+versioni precedenti non scrivevano ACL, lasciando solo ACE ereditate che `/inheritance:r` rimuove).
+Rimuoverle richiederebbe `/reset` (che reintrodurrebbe il fail-open) o l'enumerazione dei principal
+(fragile su gruppi localizzati/dominio): si preferisce **non allargare mai**. Il caso residuo —
+cartella preesistente **manomessa** con ACE esplicite di terzi — è coperto dallo **smoke manuale su
+Windows**, non dal lockdown automatico.
+
 **Best-effort e non solleva** — se `icacls`/`chmod` mancano o falliscono il tool **prosegue ma con
 la protezione della cartella NON garantita** (loggato, solo il tipo eccezione). Il comando `icacls`
 è verificato in test via runner **iniettato** (nessun Windows reale necessario); il comportamento
-reale su Windows — **incluso un account di dominio/AzureAD** — resta **smoke manuale**. La blindatura
-riguarda **solo** la cartella-dati del tool, mai le cartelle di **export** scelte dall'utente.
+reale su Windows — **incluso un account di dominio/AzureAD e una cartella preesistente con ACE
+larghe** — resta **smoke manuale**. La blindatura riguarda **solo** la cartella-dati del tool, mai le
+cartelle di **export** scelte dall'utente.
 
 `secure_dir` / `ensure_secure_dir` **ritornano un booleano** che dice se la blindatura è **davvero**
 riuscita (review GPT/GLM #147): `True` solo se `chmod`/`icacls` sono andati a buon fine

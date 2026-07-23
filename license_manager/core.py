@@ -136,6 +136,15 @@ def _apply_windows_acl(path: str, *, run) -> bool:
     creata da noi in `%APPDATA%` (eredita già ACL solo-owner), quindi non esistono ACE **esplicite**
     pregresse di altri utenti da azzerare: rinunciare al `/reset` non riespone il seed.
 
+    **Limite accettato (review GPT/GLM #147).** `/inheritance:r /grant:r` rimuove le ACE *ereditate*
+    e (ri)concede l'owner, ma **non** rimuove eventuali ACE **esplicite** di *altri* principal già
+    presenti su una cartella preesistente. Nel flusso reale non ne esistono (cartella creata da noi;
+    le versioni precedenti del tool non scrivevano ACL → solo ACE ereditate, che `/inheritance:r`
+    rimuove). Rimuoverle richiederebbe `/reset` (reintroduce il fail-open) o l'enumerazione dei
+    principal (fragile su nomi di gruppo localizzati/dominio): si sceglie di **non allargare mai**. Il
+    residuo — cartella preesistente **manomessa** con ACE esplicite di terzi — è coperto dallo **smoke
+    manuale su Windows**, non dal lockdown automatico.
+
     Il `<principal>` è **domain-qualified** (`_acl_principal`) così `/grant` risolve anche su account
     di dominio/AzureAD (blocco #2). `run` è iniettabile (test) e di default è `subprocess.run`
     (**lista** di argomenti, mai `shell=True` → nessuna injection). **Best-effort e non solleva**:

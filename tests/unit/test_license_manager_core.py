@@ -295,6 +295,24 @@ def test_secure_dir_windows_usa_icacls(tmp_path, monkeypatch):
     assert "/reset" not in grant_cmd                    # mai il passo che allarga (Fugu #147)
 
 
+def test_secure_dir_windows_limite_ace_pregresse_documentato(tmp_path, monkeypatch):
+    # review GPT/GLM #147 (limite accettato): il lockdown NON tenta di rimuovere ACE esplicite di
+    # ALTRI principal su una cartella preesistente — niente `/reset` (fail-open) né `/remove`. È una
+    # scelta di design (non allargare mai): questo test blinda il contratto del comando così un
+    # ritorno silenzioso a `/reset`/`/remove` fallirebbe qui.
+    monkeypatch.setattr(core, "_current_user", lambda: "pippo")
+    calls = []
+
+    def _run(*a, **k):
+        calls.append(a[0])
+        return _OkResult(0)
+
+    core.secure_dir(str(tmp_path), run=_run, platform="win32")
+    (grant_cmd,) = calls
+    assert "/reset" not in grant_cmd                    # non ripristina l'ereditarietà larga
+    assert not any(str(arg).startswith("/remove") for arg in grant_cmd)   # non enumera/rimuove terzi
+
+
 def test_secure_dir_windows_principal_domain_qualified(tmp_path, monkeypatch):
     # review Fugu #147 blocco #2: su account di dominio/AzureAD il principal deve essere
     # DOMINIO\utente, non il nome nudo, altrimenti /grant non risolve.
