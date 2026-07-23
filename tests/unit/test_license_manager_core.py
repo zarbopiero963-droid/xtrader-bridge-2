@@ -259,12 +259,18 @@ def test_save_dopo_corruzione_propaga_non_sovrascrive(tmp_path):
 
 
 # ── blindatura permessi cartella-dati (#140 PR 3c, rilievo Fugu #146) ─────────────────────────
+class _OkResult:
+    """Finto risultato di `subprocess.run` con `returncode` (per l'esito bool di secure_dir)."""
+    def __init__(self, returncode=0):
+        self.returncode = returncode
+
+
 def test_secure_dir_posix_0700(tmp_path):
     if os.name != "posix":
         pytest.skip("permessi 0o700 verificabili solo su POSIX")
     d = str(tmp_path / "lmdata")
     os.makedirs(d)
-    core.secure_dir(d)
+    assert core.secure_dir(d) is True                   # chmod riuscito → True (review GPT/GLM #147)
     assert stat.S_IMODE(os.stat(d).st_mode) == 0o700
 
 
@@ -274,7 +280,12 @@ def test_secure_dir_windows_usa_icacls(tmp_path, monkeypatch):
     # Verificato via runner iniettato (nessun Windows reale).
     monkeypatch.setattr(core, "_current_user", lambda: "pippo")
     calls = []
-    core.secure_dir(str(tmp_path), run=lambda *a, **k: calls.append(a[0]), platform="win32")
+
+    def _run(*a, **k):
+        calls.append(a[0])
+        return _OkResult(0)
+
+    assert core.secure_dir(str(tmp_path), run=_run, platform="win32") is True   # entrambi rc=0 → True
     assert len(calls) == 2                              # /reset + /grant
     reset_cmd, grant_cmd = calls
     assert reset_cmd[0] == "icacls" and "/reset" in reset_cmd and str(tmp_path) in reset_cmd
@@ -283,44 +294,59 @@ def test_secure_dir_windows_usa_icacls(tmp_path, monkeypatch):
     assert "pippo:(OI)(CI)F" in grant_cmd
 
 
+def test_secure_dir_windows_icacls_rc_diverso_da_zero_false(tmp_path, monkeypatch):
+    # review GPT/GLM #147: se il /grant torna un exit code ≠ 0 (ACL NON applicata), secure_dir deve
+    # ritornare False → la GUI avvisa l'utente invece di credere la cartella protetta.
+    monkeypatch.setattr(core, "_current_user", lambda: "pippo")
+    seq = [_OkResult(0), _OkResult(5)]                  # /reset ok, /grant fallito
+    it = iter(seq)
+
+    def _run(*a, **k):
+        return next(it)
+
+    assert core.secure_dir(str(tmp_path), run=_run, platform="win32") is False
+
+
 def test_secure_dir_windows_senza_utente_niente_icacls(tmp_path, monkeypatch):
-    # Se l'utente corrente non è determinabile, non si invoca icacls (niente comando ambiguo).
+    # Se l'utente corrente non è determinabile, non si invoca icacls (niente comando ambiguo) e
+    # l'esito è False (protezione non garantita).
     monkeypatch.setattr(core, "_current_user", lambda: "")
     calls = []
-    core.secure_dir(str(tmp_path), run=lambda *a, **k: calls.append(a[0]), platform="win32")
-    assert calls == []
+    ok = core.secure_dir(str(tmp_path), run=lambda *a, **k: calls.append(a[0]), platform="win32")
+    assert calls == [] and ok is False
 
 
 def test_secure_dir_non_windows_niente_icacls(tmp_path):
     calls = []
-    core.secure_dir(str(tmp_path), run=lambda *a, **k: calls.append(a), platform="linux")
+    ok = core.secure_dir(str(tmp_path), run=lambda *a, **k: calls.append(a), platform="linux")
     assert calls == []                              # su POSIX solo chmod, nessun icacls
+    assert ok is True                               # chmod su tmp_path riuscito
 
 
 def test_secure_dir_best_effort_non_solleva(tmp_path, monkeypatch):
-    # chmod che solleva e run che solleva NON devono propagare (best-effort).
+    # chmod che solleva e run che solleva NON devono propagare (best-effort) → esito False.
     monkeypatch.setattr(core.os, "chmod", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
     def _boom_run(*a, **k):
         raise OSError("icacls assente (simulato)")
-    core.secure_dir(str(tmp_path), run=_boom_run, platform="win32")   # non deve sollevare
+    assert core.secure_dir(str(tmp_path), run=_boom_run, platform="win32") is False   # non solleva
 
 
 def test_ensure_secure_dir_crea_e_restringe(tmp_path):
     d = str(tmp_path / "nuova" / "lmdata")
     ret = core.ensure_secure_dir(d)
-    assert ret == d and os.path.isdir(d)
+    assert ret is True and os.path.isdir(d)            # creata + ristretta → True
     if os.name == "posix":
         assert stat.S_IMODE(os.stat(d).st_mode) == 0o700
 
 
 def test_ensure_secure_dir_makedirs_fallisce_best_effort(tmp_path, monkeypatch):
     # GLM #147: se makedirs fallisce (permessi insufficienti), ensure_secure_dir NON solleva e
-    # ritorna comunque il path (best-effort: il tool prosegue, la blindatura non è garantita).
+    # ritorna False (best-effort: il tool prosegue, ma la blindatura NON è garantita → la GUI avvisa).
     def _boom(*_a, **_k):
         raise OSError("permesso negato (simulato)")
     monkeypatch.setattr(core.os, "makedirs", _boom)
     d = str(tmp_path / "x")
-    assert core.ensure_secure_dir(d) == d              # non solleva
+    assert core.ensure_secure_dir(d) is False          # non solleva, ma segnala il fallimento
 
 
 # ── export/backup ───────────────────────────────────────────────────────────────────────────

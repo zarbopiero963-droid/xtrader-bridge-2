@@ -64,16 +64,21 @@ class LicenseManagerApp(ctk.CTk):
         self._token_box = None
         self._msg_lbl = None
         self.title("XTrader License Manager")
-        self._secure_data_dir()
+        # Esito della blindatura della cartella-chiave: se `False`, `_refresh_key_state` avvisa
+        # l'utente invece di lasciarlo con un falso senso di sicurezza (review GPT/GLM #147).
+        self._dir_secured = self._secure_data_dir()
         self._build_ui()
         self._refresh_key_state()
 
     # ── logica pura (testabile headless su self finto) ─────────────────────────────────────────
-    def _secure_data_dir(self) -> None:
+    def _secure_data_dir(self) -> bool:
         """Crea e **restringe** la cartella-dati del tool all'avvio (issue #140 PR 3c, rilievo Fugu
         #146): `0o700` su POSIX / ACL solo-owner su Windows, così il seed privato non è leggibile da
-        altri account locali. Best-effort — `core.ensure_secure_dir` non solleva."""
-        core.ensure_secure_dir(self._key_dir)
+        altri account locali. Best-effort — `core.ensure_secure_dir` non solleva.
+
+        Ritorna `True` se la cartella è stata creata **e** ristretta con successo, `False` altrimenti
+        (review GPT/GLM #147): l'avvio usa l'esito per avvisare l'utente se la blindatura è fallita."""
+        return core.ensure_secure_dir(self._key_dir)
 
     def _key_path(self) -> str:
         """Percorso del file-chiave (nella cartella iniettata o in `core.manager_dir()`)."""
@@ -230,6 +235,12 @@ class LicenseManagerApp(ctk.CTk):
             pass
         if state["error"]:
             self._set_msg(state["error"])
+        elif not getattr(self, "_dir_secured", True):
+            # Nessun errore di chiave, ma la cartella-dati non è stata blindata: avvisa invece di
+            # dare un falso senso di sicurezza (review GPT/GLM #147).
+            self._set_msg("⚠️ Attenzione: non è stato possibile proteggere la cartella-chiave "
+                          "(permessi/ACL). Su un PC condiviso il seed privato potrebbe essere "
+                          "leggibile da altri account: controlla i permessi della cartella.")
 
     def _on_generate(self) -> None:
         result = self._ensure_keypair()

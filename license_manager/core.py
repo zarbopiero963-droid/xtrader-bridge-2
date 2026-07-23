@@ -99,7 +99,13 @@ def _current_user() -> str:
         return os.environ.get("USERNAME") or os.environ.get("USER") or ""
 
 
-def _apply_windows_acl(path: str, *, run) -> None:
+def _rc_ok(result) -> bool:
+    """`True` se il comando è andato a buon fine (returncode 0). Un runner iniettato che non
+    restituisce un oggetto con `returncode` (test) è considerato riuscito."""
+    return getattr(result, "returncode", 0) == 0
+
+
+def _apply_windows_acl(path: str, *, run) -> bool:
     """Restringe `path` al **solo** utente proprietario su Windows via `icacls` (best-effort).
 
     `os.chmod` su Windows non tocca le ACL NTFS: senza questo, su un PC multi-utente il seed privato
@@ -114,19 +120,24 @@ def _apply_windows_acl(path: str, *, run) -> None:
 
     `run` è iniettabile (test) e di default è `subprocess.run` (**lista** di argomenti, mai
     `shell=True` → nessuna injection). **Best-effort e non solleva**: se `icacls` manca/fallisce, il
-    tool prosegue ma con protezione della cartella **non garantita** (loggato, solo il tipo eccezione)."""
+    tool prosegue ma con protezione della cartella **non garantita** (loggato, solo il tipo eccezione).
+    Ritorna `True` solo se **entrambi** i comandi `icacls` hanno restituito exit code 0 (protezione
+    davvero applicata), altrimenti `False` (utente non ricavabile, eccezione, o returncode ≠ 0)."""
     user = _current_user()
     if not user:
-        return
+        _log.warning("icacls sulla cartella-chiave saltato: utente corrente non ricavabile")
+        return False
     try:
-        run(["icacls", str(path), "/reset"], check=False, capture_output=True, timeout=15)
-        run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:(OI)(CI)F"],
-            check=False, capture_output=True, timeout=15)
+        r1 = run(["icacls", str(path), "/reset"], check=False, capture_output=True, timeout=15)
+        r2 = run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:(OI)(CI)F"],
+                 check=False, capture_output=True, timeout=15)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         _log.warning("icacls sulla cartella-chiave non riuscito: %s", type(exc).__name__)
+        return False
+    return _rc_ok(r1) and _rc_ok(r2)
 
 
-def secure_dir(path: str, *, run=None, platform: "str | None" = None) -> None:
+def secure_dir(path: str, *, run=None, platform: "str | None" = None) -> bool:
     """Restringe una cartella al solo utente proprietario (**best-effort**, non solleva).
 
     - POSIX: `chmod 0o700` (solo l'owner entra/legge la cartella; il file-chiave è già `0o600`);
@@ -134,28 +145,38 @@ def secure_dir(path: str, *, run=None, platform: "str | None" = None) -> None:
 
     Serve solo per la **cartella-dati del License Manager** (issue #140 PR 3c, rilievo Fugu #146):
     NON va usata su cartelle di export scelte dall'utente (effetti collaterali su cartelle condivise).
-    `run`/`platform` sono iniettabili per i test (nessun Windows reale necessario)."""
+    `run`/`platform` sono iniettabili per i test (nessun Windows reale necessario).
+
+    Ritorna `True` se la restrizione è **davvero** riuscita (così l'avvio può avvisare l'utente in
+    caso contrario, review GPT/GLM #147), `False` altrimenti: mai un falso senso di sicurezza."""
+    ok = True
     try:
         os.chmod(path, 0o700)
     except OSError as exc:
         _log.warning("chmod 0o700 sulla cartella-chiave non riuscito: %s", type(exc).__name__)
+        ok = False
     if (platform or sys.platform) == "win32":
-        _apply_windows_acl(path, run=run or subprocess.run)
+        # Su Windows le ACL NTFS sono ciò che conta davvero: l'esito `icacls` domina il verdetto.
+        ok = _apply_windows_acl(path, run=run or subprocess.run)
+    return ok
 
 
-def ensure_secure_dir(directory: "str | None" = None, *, run=None, platform: "str | None" = None) -> str:
-    """Crea (se manca) e **restringe** la cartella-dati del License Manager; ritorna il suo percorso.
+def ensure_secure_dir(directory: "str | None" = None, *, run=None, platform: "str | None" = None) -> bool:
+    """Crea (se manca) e **restringe** la cartella-dati del License Manager.
 
     Idempotente e best-effort: da chiamare all'avvio del tool, così il seed privato vive fin da subito
-    in una cartella accessibile al solo proprietario. `directory=None` → `manager_dir()`."""
+    in una cartella accessibile al solo proprietario. `directory=None` → `manager_dir()`.
+
+    Ritorna `True` se la cartella è stata creata **e** ristretta con successo, `False` se la
+    creazione o la restrizione sono fallite (review GPT/GLM #147: l'avvio della GUI deve poter
+    avvisare l'utente invece di procedere con una cartella-chiave non protetta in silenzio)."""
     d = directory or manager_dir()
     try:
         os.makedirs(d, exist_ok=True)
     except OSError as exc:
         _log.warning("Creazione cartella-chiave non riuscita: %s", type(exc).__name__)
-        return d
-    secure_dir(d, run=run, platform=platform)
-    return d
+        return False
+    return secure_dir(d, run=run, platform=platform)
 
 
 def _seed_from_hex(seed_hex: str) -> bytes:

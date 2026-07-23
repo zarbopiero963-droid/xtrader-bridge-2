@@ -174,6 +174,15 @@ la protezione della cartella NON garantita** (loggato, solo il tipo eccezione). 
 reale su Windows resta **smoke manuale**. La blindatura riguarda **solo** la cartella-dati del tool,
 mai le cartelle di **export** scelte dall'utente.
 
+`secure_dir` / `ensure_secure_dir` **ritornano un booleano** che dice se la blindatura è **davvero**
+riuscita (review GPT/GLM #147): `True` solo se `chmod`/`icacls` sono andati a buon fine
+(su Windows entrambi i comandi `icacls` con exit code 0), `False` altrimenti (utente non ricavabile,
+eccezione, exit code ≠ 0, o `makedirs` fallito). All'avvio la GUI usa questo esito: se è `False` e non
+c'è già un errore di chiave, `_refresh_key_state` mostra un **avviso** («non è stato possibile
+proteggere la cartella-chiave…») invece di lasciare l'utente con un **falso senso di sicurezza**. Il
+booleano non cambia il carattere best-effort: il tool resta comunque utilizzabile, ma l'utente sa che
+su un PC condiviso il seed potrebbe non essere protetto.
+
 ### PR 3d — workflow di build EXE (da fare)
 
 L'EXE dedicato del License Manager (`XTrader-License-Manager`, script `license_manager_main.py`,
