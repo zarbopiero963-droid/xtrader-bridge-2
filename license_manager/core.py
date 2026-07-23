@@ -188,15 +188,23 @@ def load_signing_key(path: str) -> "dict | None":
             "created": created if isinstance(created, int) and not isinstance(created, bool) else None}
 
 
-def export_signing_key(src_path: str, dest_path: str) -> None:
+def export_signing_key(src_path: str, dest_path: str, *, overwrite: bool = False) -> None:
     """Copia il file-chiave in `dest_path` (backup su chiavetta/altra cartella), in modo atomico.
 
     Rilegge e riscrive il contenuto **validato** (via `load_signing_key`): un backup di un file
     corrotto solleverebbe, così non si esporta spazzatura al posto della chiave. Assente → solleva
-    `FileNotFoundError` (non c'è nulla da esportare)."""
+    `FileNotFoundError` (non c'è nulla da esportare).
+
+    Come `save_signing_key`, **non sovrascrive** una chiave valida già presente in `dest_path`
+    senza `overwrite=True` (review CodeRabbit #145): un backup esistente — magari di un'ALTRA
+    keypair — non va perso in silenzio (perderla = non poter più rinnovare quei bridge)."""
     key = load_signing_key(src_path)
     if key is None:
         raise FileNotFoundError(f"nessun file-chiave da esportare: {src_path}")
+    if not overwrite and load_signing_key(dest_path) is not None:
+        raise KeyExistsError(
+            f"esiste già una chiave di firma in {dest_path}: usa overwrite=True per sostituirla "
+            "deliberatamente")
     payload = {
         "v": KEY_FORMAT_VERSION,
         "seed": key["seed"],

@@ -216,6 +216,29 @@ def test_export_assente_solleva(tmp_path):
         core.export_signing_key(core.signing_key_path(str(tmp_path)), str(tmp_path / "b.json"))
 
 
+def test_export_non_sovrascrive_dest_esistente_senza_flag(tmp_path):
+    # CR #145: come save, l'export non deve sovrascrivere in silenzio una chiave valida già
+    # presente nella destinazione (un backup di UN'ALTRA keypair non va perso).
+    src = core.signing_key_path(str(tmp_path / "src"))
+    core.save_signing_key(src, _TEST_SEED_HEX, _TEST_PUBLIC_HEX, _NOW)
+    dest = str(tmp_path / "dest" / "backup.json")
+    other_seed, other_pub = core.generate_keypair()
+    core.save_signing_key(dest, other_seed, other_pub, _NOW)     # backup preesistente diverso
+    with pytest.raises(core.KeyExistsError):
+        core.export_signing_key(src, dest)
+    assert core.load_signing_key(dest)["seed"] == other_seed     # backup intatto
+
+
+def test_export_sovrascrive_dest_con_flag(tmp_path):
+    src = core.signing_key_path(str(tmp_path / "src"))
+    core.save_signing_key(src, _TEST_SEED_HEX, _TEST_PUBLIC_HEX, _NOW)
+    dest = str(tmp_path / "dest" / "backup.json")
+    other_seed, other_pub = core.generate_keypair()
+    core.save_signing_key(dest, other_seed, other_pub, _NOW)
+    core.export_signing_key(src, dest, overwrite=True)
+    assert core.load_signing_key(dest)["seed"] == _TEST_SEED_HEX  # ora è la chiave esportata
+
+
 # ── cartella utente dedicata ────────────────────────────────────────────────────────────────
 def test_manager_dir_usa_appdata(monkeypatch):
     monkeypatch.setenv("APPDATA", os.path.join("X", "roaming"))
