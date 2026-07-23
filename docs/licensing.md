@@ -1,6 +1,8 @@
 # Sistema di licenze del bridge (issue #140)
 
-> Stato: **PR 1 + PR 2 fatte, PR 3a (core License Manager) in corso** — ancora **nessun blocco**.
+> Stato: **PR 1 + PR 2 + PR 3a (core License Manager) + PR 3b (mini-GUI License Manager) fatte** —
+> ancora **nessun blocco**. Manca solo il **workflow di build EXE** del License Manager (PR 3c) e il
+> **lock totale della GUI** (PR 4).
 > PR 1 = logica (Ed25519 + Hardware ID + verifica). PR 2 = **schermata «🔑 Licenza»** (scheda del Tabview di configurazione):
 > mostra l'Hardware ID, permette di incollare e **attivare** la chiave, mostra lo stato, e **persiste**
 > la licenza attivata. La verifica resta **isolata dal percorso soldi** (Telegram→CSV). License
@@ -111,10 +113,9 @@ in un package **separato** (`license_manager/`, NON sotto `xtrader_bridge/`) cos
 e di custodia della chiave privata **non entra mai nell'EXE del bridge** (la build colleziona solo
 `xtrader_bridge`, invariante #1). Il bridge **verifica** soltanto; il License Manager **firma**.
 
-### PR 3a — logica pura (fatta in questa PR)
+### PR 3a — logica pura (fatta)
 
-`license_manager/core.py` (solo logica, nessuna GUI; la mini-GUI + il workflow di build sono la
-**PR 3b**):
+`license_manager/core.py` (solo logica, nessuna GUI):
 
 | Funzione | Ruolo |
 |---|---|
@@ -132,6 +133,36 @@ il controllo e la scrittura). Il seed nasce con permessi `0o600` **espliciti** s
 finestra a umask largo) e la scrittura fa `fsync` di file **e directory** (durabilità su crash).
 Motivo: perdere il seed = non poter più rinnovare le licenze dei bridge già distribuiti. La coerenza
 seed↔pubblica è verificata sia al salvataggio sia al caricamento (intercetta manomissioni/bit-rot).
+
+### PR 3b — mini-GUI (fatta)
+
+`license_manager/gui.py` (`LicenseManagerApp`, CustomTkinter) + entrypoint `license_manager_main.py`.
+Il proprietario la lancia **da sorgente** sul suo PC: `python license_manager_main.py`. Riusa **solo**
+`license_manager.core`:
+
+1. **Genera / mostra la keypair**: al primo avvio genera la keypair e mostra la **chiave pubblica**
+   (da incollare in `xtrader_bridge/licensing/license.py`); il seed privato resta in `%APPDATA%`. Non
+   rigenera mai sopra una chiave esistente; un file-chiave **corrotto** non viene sovrascritto (si
+   ripristina un backup a mano).
+2. **Emetti licenza**: `Nome`, `Cognome`, `Giorni`, `Hardware ID` dell'utente → **token firmato** da
+   inviare. Fail-closed: senza chiave, giorni non interi, o Hardware ID non identificabile non emette
+   nulla.
+3. **Backup** della chiave privata su un percorso a scelta (usa `export_signing_key`, no-overwrite).
+
+Come per la GUI del bridge, gli **handler puri** (`_ensure_keypair`, `_evaluate_issue`,
+`_evaluate_export`) sono testati **headless** (`tests/unit/test_license_manager_gui.py`); il rendering
+Tk reale è **smoke manuale su Windows**. Il modulo importa `customtkinter` → **non** è importato da
+`license_manager/__init__.py`, così `import license_manager` (e i test della logica pura) restano
+headless.
+
+### PR 3c — workflow di build EXE (da fare)
+
+L'EXE dedicato del License Manager (`XTrader-License-Manager`, script `license_manager_main.py`,
+`--collect-submodules license_manager`) richiede un **refactor mirato** del gate anti-drift
+`tests/safety/test_build_exe_safety.py` (oggi assume un solo EXE, quello del bridge) per supportare
+due build distinti. Rimandato a una PR dedicata per tenerla piccola e sicura. Fino ad allora il
+License Manager si usa **da sorgente**. Da rifinire in questa fase anche i permessi `0o700` della
+cartella-dati del tool su POSIX / ACL su Windows (vedi note review #145 su issue #140).
 
 **Isolamento (test):** un test di sicurezza (`tests/safety/test_license_manager_isolation.py`)
 verifica che **nessun modulo di `xtrader_bridge` importi `license_manager`** e che i workflow di
