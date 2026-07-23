@@ -132,3 +132,10 @@ def test_license_manager_core_import():
     # (nessuna GUI, nessun customtkinter): si importa headless senza skip.
     assert importlib.import_module("license_manager.core") is not None
     assert importlib.import_module("license_manager") is not None
+
+
+def test_license_manager_gui_import_opzionale():
+    # La mini-GUI del License Manager (#140 PR 3b) dipende da customtkinter: skip se assente.
+    # NB: NON è importata da `license_manager/__init__`, così `import license_manager` resta headless.
+    pytest.importorskip("customtkinter")
+    assert importlib.import_module("license_manager.gui") is not None
