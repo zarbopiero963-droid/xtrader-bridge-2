@@ -43,21 +43,25 @@ def _factories():
 def test_ordine_e_prefissi_delle_schede(tools_mod):
     panels = tools_mod.build_tool_panels(_factories())
     titles = [t for t, _f in panels]
+    # «📖 Dizionario» è NASCOSTA (non in TOOL_GROUPS): non compare tra le schede renderizzate.
     assert titles == [
         "① 📡 Chat sorgenti", "① 📇 Provider",
         "② 🧩 Parser", "② 🗺️ Mapping",
-        "③ 📖 Dizionario", "③ 📒 Diario", "③ 🧹 Nomi squadra",
+        "③ 📒 Diario", "③ 🧹 Nomi squadra",
         "④ 📁 Profili", "④ 📋 Riepilogo",
     ]
 
 
 def test_tutte_le_factory_sono_instradate(tools_mod):
-    # Nessuno strumento perso o duplicato dal riordino: 9 schede, ogni factory alla sua scheda.
+    # Nessuno strumento perso o duplicato dal riordino: 8 schede mostrate (la 9ª, "dictionary",
+    # è nascosta), ogni factory instradata alla sua scheda. Una factory extra non elencata in
+    # TOOL_GROUPS (qui "dictionary") viene IGNORATA da build_tool_panels, non renderizzata.
     panels = tools_mod.build_tool_panels(_factories())
-    assert len(panels) == 9
+    assert len(panels) == 8
     routed = [f(None) for _t, f in panels]
     assert routed == ["sources", "provider", "parser", "mapping",
-                      "dictionary", "journal", "known_teams", "profiles", "summary"]
+                      "journal", "known_teams", "profiles", "summary"]
+    assert "dictionary" not in routed          # scheda nascosta: mai renderizzata
 
 
 def test_ogni_prefisso_e_coerente_col_gruppo(tools_mod):
@@ -76,7 +80,44 @@ def test_gruppi_e_titoli_coerenti(tools_mod):
     assert prefixes == ["①", "②", "③", "④"]
     grouped = [k for _p, _n, keys in tools_mod.TOOL_GROUPS for k in keys]
     assert len(grouped) == len(set(grouped))                    # nessuno strumento in due gruppi
-    assert sorted(grouped) == sorted(tools_mod.TOOL_TITLES)     # copertura completa, nessun orfano
+    # Ogni scheda MOSTRATA ha un'etichetta in TOOL_TITLES (nessun orfano tra le renderizzate).
+    assert set(grouped) <= set(tools_mod.TOOL_TITLES)
+    # Invariante «hidden ma ritenuta»: l'unica etichetta in TOOL_TITLES non mostrata è "dictionary"
+    # (viewer Betfair nascosto finché non torna il Sync). Se un giorno la si riattiva, questo test
+    # va aggiornato di proposito — così la scheda non riappare/sparisce per sbaglio.
+    hidden = set(tools_mod.TOOL_TITLES) - set(grouped)
+    assert hidden == {"dictionary"}
+
+
+def test_dictionary_nascosta_ma_ritenuta_e_riattivabile(tools_mod):
+    """La scheda «📖 Dizionario» è NASCOSTA (viewer del DB Betfair vuoto senza «Betfair Sync»),
+    ma NON cancellata: etichetta, factory e codice del pannello restano, così la riattivazione è
+    una sola riga. Questo test blinda l'invariante: la scheda non deve né riapparire per sbaglio
+    né perdere il codice sottostante (che la renderebbe non-riattivabile).
+
+    Guard a sorgente/file (i moduli GUI importano tkinter → non headless), stesso pattern dei
+    meta-test AC-M13."""
+    import os
+    import inspect
+    import xtrader_bridge
+    from xtrader_bridge import app as app_mod
+
+    # 1) NASCOSTA: nessun gruppo la elenca → build_tool_panels non la renderizza, anche se una
+    #    factory "dictionary" è fornita (mirror del cablaggio reale in app.py).
+    grouped = [k for _p, _n, keys in tools_mod.TOOL_GROUPS for k in keys]
+    assert "dictionary" not in grouped
+    titles = [t for t, _f in tools_mod.build_tool_panels(_factories())]
+    assert all("Dizionario" not in t for t in titles)
+
+    # 2) RITENUTA: l'etichetta resta in TOOL_TITLES (pronta e tradotta) …
+    assert tools_mod.TOOL_TITLES.get("dictionary") == "📖 Dizionario"
+    # … il pannello del viewer esiste ancora su disco …
+    pkg = os.path.dirname(xtrader_bridge.__file__)
+    assert os.path.exists(os.path.join(pkg, "betfair", "dictionary_viewer_gui.py"))
+    # … e la factory resta cablata in app.py (riattivazione = 1 riga in TOOL_GROUPS).
+    src = inspect.getsource(app_mod.App._open_tools)
+    assert 'def _make_dictionary(parent)' in src
+    assert '"dictionary": _make_dictionary' in src
 
 
 def test_fail_fast_se_manca_una_factory(tools_mod):
@@ -123,7 +164,7 @@ def test_build_tool_panels_localizza_in_en(tools_mod):
     assert titles == [
         "① 📡 Source chats", "① 📇 Provider",
         "② 🧩 Parser", "② 🗺️ Mapping",
-        "③ 📖 Dictionary", "③ 📒 Journal", "③ 🧹 Team names",
+        "③ 📒 Journal", "③ 🧹 Team names",
         "④ 📁 Profiles", "④ 📋 Summary",
     ]
 
@@ -134,7 +175,7 @@ def test_build_tool_panels_localizza_in_es(tools_mod):
     assert titles == [
         "① 📡 Chats de origen", "① 📇 Proveedor",
         "② 🧩 Parser", "② 🗺️ Mapeo",
-        "③ 📖 Diccionario", "③ 📒 Diario", "③ 🧹 Nombres de equipo",
+        "③ 📒 Diario", "③ 🧹 Nombres de equipo",
         "④ 📁 Perfiles", "④ 📋 Resumen",
     ]
 
@@ -155,7 +196,7 @@ def test_resolve_tab_title_coerente_coi_titoli_localizzati(tools_mod):
     titles = [t for t, _f in tools_mod.build_tool_panels(_factories())]
     w = _window_with(tools_mod, titles)
     assert w._resolve_tab_title("② 🧩 Parser") == "② 🧩 Parser"
-    assert w._resolve_tab_title("📖 Dictionary") == "③ 📖 Dictionary"     # base tradotto → scheda giusta
+    assert w._resolve_tab_title("📒 Journal") == "③ 📒 Journal"           # base tradotto → scheda giusta
     assert w._resolve_tab_title("📡 Chat sorgenti") is None               # base IT non matcha in EN
 
 

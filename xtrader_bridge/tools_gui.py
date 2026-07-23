@@ -25,7 +25,13 @@ from . import gui_utils, i18n, ui_theme
 TOOL_GROUPS = (
     ("①", "Sorgenti", ("sources", "provider")),
     ("②", "Lettura messaggi", ("parser", "mapping")),
-    ("③", "Dizionario", ("dictionary", "journal", "known_teams")),
+    # NB: la scheda "dictionary" («📖 Dizionario», viewer sola-lettura del DB Betfair locale) è
+    # attualmente NASCOSTA: senza il «Betfair Sync» (rimosso) il DB non si popola e il pannello
+    # resterebbe vuoto. Etichetta (TOOL_TITLES["dictionary"]), factory (`app._make_dictionary`),
+    # pannello (`betfair/dictionary_viewer_gui.py`), DB e resolver sono TUTTI ritenuti: per
+    # riattivarla quando tornerà una sorgente dati basta rimettere "dictionary" come prima voce
+    # di questo gruppo. `build_tool_panels` renderizza solo ciò che è elencato qui.
+    ("③", "Dizionario", ("journal", "known_teams")),
     ("④", "Impostazioni", ("profiles", "summary")),
 )
 
@@ -42,6 +48,8 @@ TOOL_TITLES = {
     "provider": "📇 Provider",
     "parser": "🧩 Parser",
     "mapping": "🗺️ Mapping",
+    # "dictionary" è una scheda NASCOSTA (non elencata in TOOL_GROUPS): l'etichetta resta qui,
+    # tradotta nei cataloghi i18n, pronta per la riattivazione quando tornerà il Betfair Sync.
     "dictionary": "📖 Dizionario",
     "journal": "📒 Diario",
     "known_teams": "🧹 Nomi squadra",

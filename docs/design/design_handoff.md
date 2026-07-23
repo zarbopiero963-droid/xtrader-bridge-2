@@ -180,9 +180,10 @@ HUB "🧰 STRUMENTI"  (tab PIATTE ma RAGGRUPPATE per flusso ①..④, #293 slice
       ├─ ② 🧩 Parser             → Parser Personalizzato (regole + 🔗 Traduzioni attive + multi-riga)
       └─ ② 🗺️ Mapping            → dizionari mappatura (sotto-tab: ⚽ Calcio nomi · 🎯 Mercati · 🌳 Mapping guidato)
    ③ Dizionario
-      ├─ ③ 📖 Dizionario         → browser sola-lettura del dizionario locale
       ├─ ③ 📒 Diario             → vista sola-lettura del diario eventi (event journal)
       └─ ③ 🧹 Nomi squadra       → ripulitura dei nomi squadra del dizionario (sfoglia + elimina)
+      · (③ 📖 Dizionario         → NASCOSTA: viewer sola-lettura del DB Betfair, vuoto senza
+                                    «Betfair Sync» (rimosso). Codice/etichetta ritenuti: riattivabile.)
    ④ Impostazioni
       ├─ ④ 📁 Profili            → profili impostazioni salvabili
       └─ ④ 📋 Riepilogo          → colpo d'occhio sola-lettura: modalità + dizionario locale + canali «Pronto?»
@@ -194,8 +195,9 @@ HUB "🧰 STRUMENTI"  (tab PIATTE ma RAGGRUPPATE per flusso ①..④, #293 slice
 > annidate. La IA (gruppi → strumenti, ordine, prefissi) è la fonte unica `tools_gui.TOOL_GROUPS`/
 > `TOOL_TITLES`/`build_tool_panels`. Le funzioni e le callback dei pannelli sono **invariate**.
 
-> **#343 slice 4x (localizzazione hub).** Il **titolo finestra** («🧰 Strumenti») e i **9 titoli-scheda**
-> (l'etichetta base dopo il prefisso ①..④) sono ora **localizzati** in EN/ES, resi a build-time via
+> **#343 slice 4x (localizzazione hub).** Il **titolo finestra** («🧰 Strumenti») e i titoli-scheda
+> (**8 mostrati** + «📖 Dizionario» nascosta ma ritenuta, vedi nota sotto: 9 etichette localizzate in
+> totale) — l'etichetta base dopo il prefisso ①..④ — sono ora **localizzati** in EN/ES, resi a build-time via
 > `i18n.tr` (in IT identità → label storiche invariate). Il **prefisso di gruppo ①..④ resta invariato**
 > in ogni lingua. **«Provider» e «Parser» restano termini prodotto** (EN invariati; ES traduce solo
 > «Provider»→«Proveedor»). I **nomi dei 4 gruppi** («Sorgenti»/«Lettura messaggi»/«Dizionario»/
@@ -209,7 +211,7 @@ HUB "🧰 STRUMENTI"  (tab PIATTE ma RAGGRUPPATE per flusso ①..④, #293 slice
 - **Quotidiano / sempre a vista:** stato ATTIVO/OFFLINE, banner reale, righe attive,
   AVVIA/STOP, ultimo errore, log.
 - **Setup iniziale (poi raro):** tab Generale (token/chat/csv), Parser Personalizzato,
-  Chat sorgenti, Dizionario, Mapping.
+  Chat sorgenti, Mapping.
 - **Occasionale:** Sicurezza (cambio modalità), Profili, Conferme XTrader, Dashboard.
 - **Assistente di configurazione (#41):** occasionale, in setup/modifica config a linguaggio naturale.
 
@@ -783,7 +785,8 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 ## 7. Hub Strumenti e finestre secondarie
 
 L'hub **"🧰 Strumenti"** è una finestra a tab caricata su richiesta, **raggruppate per flusso
-①..④** (vedi §5). I 10 pannelli:
+①..④** (vedi §5). I pannelli (§7.1–7.10; **7.6 «Betfair Sync» rimossa**, **7.7 «📖 Dizionario»
+attualmente nascosta ma ritenuta** → 8 schede mostrate):
 
 ### 7.1 🧩 Parser Personalizzato (`custom_parser_gui.py`) — il pannello più complesso
 Costruttore visuale che definisce **come estrarre ogni colonna del CSV** da un messaggio,
@@ -1060,11 +1063,20 @@ gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia so
 La scheda **«🔵 Betfair Sync»** (login a Betfair, download del catalogo, sync e auto-sync del
 dizionario, gestione credenziali) **è stata rimossa**: il bridge non contatta più Betfair, non
 fa login e non fa auto-sync. Il **dizionario locale** (`betfair_dictionary.db`) resta ma è
-**popolato a mano** dall'utente coi propri campi personalizzati; le schede superstiti (📖
-Dizionario, 🧹 Nomi squadra, 🌳 Mapping guidato) lo leggono in sola lettura. Nel gruppo
-Strumenti non esiste più una scheda «Betfair Sync».
+**popolato a mano** dall'utente coi propri campi personalizzati; le schede che lo leggono in sola
+lettura (🧹 Nomi squadra, 🌳 Mapping guidato) restano. La scheda **📖 Dizionario** — semplice viewer
+di quel DB — è oggi **nascosta** perché senza sync resterebbe vuota (§7.7, codice ritenuto e
+riattivabile). Nel gruppo Strumenti non esiste più una scheda «Betfair Sync».
 
-### 7.7 📖 Dizionario (`dictionary_viewer_gui.py`)
+### 7.7 📖 Dizionario (`dictionary_viewer_gui.py`) — attualmente NASCOSTA
+La scheda **«📖 Dizionario»** è **nascosta dall'hub**: senza il «Betfair Sync» (§7.6, rimosso) il DB
+locale non si popola e il pannello resterebbe vuoto, dando l'impressione di una funzione rotta. Il
+**codice, l'etichetta e la factory restano ritenuti** (`tools_gui.TOOL_TITLES["dictionary"]` +
+`app._make_dictionary` + questo modulo): la scheda **non è più elencata** in `tools_gui.TOOL_GROUPS`,
+quindi `build_tool_panels` non la costruisce. Riattivarla quando tornerà una sorgente dati è **una
+sola riga** (rimettere `"dictionary"` nel gruppo ③). La descrizione seguente resta valida per quel
+momento.
+
 Titolo **"🔵  Dizionario (locale, sola lettura)"**. Browser gerarchico
 Sport→Competizioni→Eventi→Mercati→Selezioni con filtro **Livello**, filtro **Sport**,
 checkbox **"Solo attivi"**, **"🔄 Aggiorna"**, ricerca (con **"Pulisci"**), riga conteggi,

@@ -185,11 +185,15 @@ PNG/ICO monocromatici caricati via `CTkImage` — è ◐ adattato, opzionale.
 | Tab config — 4 tab (⚙️ Generale / 🎯 Riconoscimento / 🛡️ Sicurezza / ✅ Conferme XTrader) | `app.py` | `CTkTabview` :1220 · `add()` :1226-1229 |
 | Tab monitor — 6 tab (📡 Chat ascoltate / 🚦 Salute / 📡 Stato / 📊 Dashboard / 📋 Log / 🤖 Assistente) | `app.py` | `CTkTabview` `mon` :1377 · `add()` :1379-1384 |
 | **Parser Personalizzato** (priorità §7.1) | `custom_parser_gui.py` | intera finestra |
-| **🧰 Strumenti** (hub a schede: Sorgenti/Provider/Parser/Mapping/Dizionario/Diario/Nomi squadra/Profili/Riepilogo) | `tools_gui.py` | `ToolsWindow` + `build_tool_panels` (9 pannelli, gruppi ①-④) |
-| Scheda «📖 Dizionario» (dentro l'hub Strumenti) | `betfair/dictionary_viewer_gui.py` | pannello dizionario |
+| **🧰 Strumenti** (hub a schede: Sorgenti/Provider/Parser/Mapping/Diario/Nomi squadra/Profili/Riepilogo) | `tools_gui.py` | `ToolsWindow` + `build_tool_panels` (**8 schede mostrate**, gruppi ①-④) |
+| Scheda «📖 Dizionario» — **NASCOSTA** (codice ritenuto) | `betfair/dictionary_viewer_gui.py` | pannello viewer, non elencato in `TOOL_GROUPS` |
 
 > **Nota storica:** la tab «Betfair Sync» (`betfair/sync_tab_gui.py`) è stata **rimossa** e non è più
-> nella mappa. Il Dizionario **non** è più una finestra Betfair a sé: è una scheda dell'hub Strumenti.
+> nella mappa. La scheda **«📖 Dizionario»** (viewer sola-lettura del DB Betfair) è oggi **nascosta**
+> dall'hub — senza il Sync il DB resta vuoto — ma codice ed etichetta sono **ritenuti**: non è
+> elencata in `tools_gui.TOOL_GROUPS`, quindi `build_tool_panels` non la costruisce; riattivarla è
+> una sola riga. È cosa diversa da «🗺️ Dizionario nomi / 🎯 Dizionario mercati» (mapping manuali,
+> dentro «🗺️ Mapping»), che restano attivi.
 
 Ordine consigliato: (1) `ui_theme.py` + setup, (2) barra azioni e header di `app.py`
 (massima resa visiva), (3) tab config/monitor, (4) `custom_parser_gui.py` (la più densa).
