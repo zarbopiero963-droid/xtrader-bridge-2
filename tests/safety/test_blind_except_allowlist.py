@@ -188,6 +188,16 @@ _ALLOWLIST = {
     "licensing/license.py": (2, "verifica licenza (#140 PR 1) FAIL-CLOSED: (1) token corrotto/"
                                 "incompleto = MALFORMED; (2) chiave pubblica hex malformata = "
                                 "INVALID_SIGNATURE → una licenza non verificabile non sblocca mai"),
+    "license_store.py": (2, "persistenza licenza (#140 PR 2) FAIL-SAFE: (1) file corrotto/illeggibile "
+                            "in load → (None, None) «nessuna licenza», mai crash; (2) rimozione "
+                            "best-effort in clear. Coerente col fail-closed della verifica"),
+    "license_gui.py": (6, "schermata Licenza (#140 PR 2): (1) copia appunti best-effort, (2) lettura "
+                          "campo in teardown/headless, (3) render Tk best-effort — non rompono la scheda; "
+                          "(4) save all'ATTIVAZIONE FAIL-CHIUSA (persistenza fallita = attivazione non "
+                          "riuscita, stato precedente intatto, CodeRabbit #144); (5) provider difettoso in "
+                          "current_status degrada a stato neutro senza rompere il chiamante (Fable #144); "
+                          "(6) heartbeat anti-rollback: tollera i fallimenti transitori, FAIL-CHIUSO sui "
+                          "PERSISTENTI (≥ _HEARTBEAT_FAIL_LIMIT consecutivi) — review GPT/Fable #144"),
 }
 
 

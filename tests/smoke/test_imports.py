@@ -19,7 +19,7 @@ _IMPURE = {"xtrader_bridge.app", "xtrader_bridge.custom_parser_gui",
            "xtrader_bridge.provider_gui", "xtrader_bridge.name_mapping_gui",
            "xtrader_bridge.tools_gui", "xtrader_bridge.journal_view_gui",
            "xtrader_bridge.known_teams_gui", "xtrader_bridge.wizard_gui",
-           "xtrader_bridge.guided_mapping_gui"}
+           "xtrader_bridge.guided_mapping_gui", "xtrader_bridge.license_gui"}
 
 # Moduli core che DEVONO sempre essere presenti (guardia contro discovery rotta).
 _CORE = {
@@ -58,6 +58,12 @@ def test_app_import_opzionale():
     # app dipende da customtkinter: se assente nell'ambiente, lo skippiamo.
     pytest.importorskip("customtkinter")
     assert importlib.import_module("xtrader_bridge.app") is not None
+
+
+def test_license_gui_import_opzionale():
+    # La schermata Licenza (#140 PR 2) dipende da customtkinter: skip se assente.
+    pytest.importorskip("customtkinter")
+    assert importlib.import_module("xtrader_bridge.license_gui") is not None
 
 
 def test_custom_parser_gui_import_opzionale():

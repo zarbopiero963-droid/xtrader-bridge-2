@@ -288,6 +288,12 @@ Nella tab *Conferme XTrader* le parole chiave si scrivono **separate da virgola*
 chiave `active_parser` si imposta di norma dalla GUI del Parser Personalizzato. Ogni
 chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 
+La tab **🔑 Licenza** (in lavorazione, #140) mostra l'**Hardware ID** di questa macchina
+(da comunicare al fornitore), un campo per **incollare la chiave di attivazione** e lo **stato**
+della licenza; l'attivazione la salva in `%APPDATA%\XTraderBridge\license_state.json`. **Al momento
+non blocca nulla** (l'app funziona comunque): il blocco vero arriverà in una fase successiva.
+Dettagli in [`docs/licensing.md`](docs/licensing.md).
+
 | Chiave | Default | Valori | A cosa serve |
 |---|---|---|---|
 | `recognition_mode` | `NAME_ONLY`* | `ID_ONLY`, `NAME_ONLY`, `BOTH` | Come XTrader riconosce il segnale. Gli ID non arrivano dal messaggio Telegram; il flusso del Parser Personalizzato può **arricchirli dal dizionario locale** quando trova un match univoco. **Nota (rimozione «Betfair Sync»):** l'arricchimento ID è **attualmente disattivato** (`id_resolver=None`) **sia** nel **CSV live** **sia** nell'anteprima «Prova messaggio» — entrambi restano a **nomi** finché non popoli a mano il dizionario locale e **riattivi il *seam* in entrambi i punti** (così anteprima e runtime coincidono: nessun «Pronto» in GUI su una riga che il live scarterebbe). `NAME_ONLY` (nomi), `ID_ONLY` richiede `MarketId`/`SelectionId`, `BOTH` accetta la riga con ID **oppure** nomi. **\*Default per le config NUOVE (#311-2.3):** è `NAME_ONLY` finché il **dizionario non è pienamente validato** contro un export XTrader reale (#311-2.2), poi passa **automaticamente a `BOTH`** («ID se univoci, altrimenti nomi»). Un valore malformato ricade su `NAME_ONLY` (fail-safe). Le config esistenti mantengono la loro scelta. |

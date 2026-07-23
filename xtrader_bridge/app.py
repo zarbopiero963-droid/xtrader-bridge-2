@@ -1173,6 +1173,24 @@ class App(ctk.CTk):
         return self._save_config(persist=False)
 
     # ── UI ────────────────────────────────────
+    def _build_license_tab(self, parent):
+        """Costruisce la scheda «🔑 Licenza» (#140 PR 2): Hardware ID + campo chiave + «Attiva» +
+        stato. NESSUN blocco (il lock è PR 4). Persistenza in `config_dir` via `license_store`;
+        verifica fail-closed via `licensing`/`license_status`. Provider cablati qui (config viva)."""
+        import time as _time  # noqa: PLC0415 — import locale
+        from . import license_gui, license_store, licensing  # noqa: PLC0415 — GUI licenza on-demand
+
+        def _lic_path():
+            return license_store.license_state_path(config_dir())
+
+        self._license_panel = license_gui.LicensePanel(
+            parent,
+            hardware_id_provider=licensing.hardware_id,
+            load_state=lambda: license_store.load_license(_lic_path()),
+            save_state=lambda tok, ls: license_store.save_license(_lic_path(), tok, ls),
+            now_provider=lambda: int(_time.time()))
+        self._license_panel.pack(fill="both", expand=True)
+
     def _build_ui(self):
         # Header
         hdr = ctk.CTkFrame(self, fg_color=_COLOR_HEADER_BG, corner_radius=10)
@@ -1227,6 +1245,12 @@ class App(ctk.CTk):
         tab_rec = tabs.add(i18n.tr("🎯 Riconoscimento"))
         tab_safe = tabs.add(i18n.tr("🛡️ Sicurezza"))
         tab_conf = tabs.add(i18n.tr("✅ Conferme XTrader"))
+        tab_lic = tabs.add(i18n.tr("🔑 Licenza"))
+
+        # — Licenza (#140 PR 2): schermata di attivazione (Hardware ID + chiave + stato).
+        # NESSUN blocco in questa PR: mostra e attiva soltanto (il lock totale è la PR 4, che
+        # riuserà questo stesso pannello). Persistenza in `config_dir` via `license_store`.
+        self._build_license_tab(tab_lic)
 
         # — Generale: i campi storici (token, chat, CSV, timeout, provider) —
         self._entries = {}

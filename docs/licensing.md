@@ -1,9 +1,34 @@
-# Sistema di licenze del bridge — fondamenta (issue #140, PR 1)
+# Sistema di licenze del bridge (issue #140)
 
-> Stato: **PR 1 di 4** — solo **logica**, nessun blocco, nessuna GUI. Il pacchetto
-> `xtrader_bridge/licensing/` è **isolato dal percorso soldi** (Telegram→CSV) e **non è importato
-> da `app.py`** in questa fase. Schermata «Licenza» (PR 2), License Manager (PR 3) e lock della
-> GUI (PR 4) arrivano dopo. Il merge resta **manuale del proprietario**.
+> Stato: **PR 1 + PR 2 di 4 fatte** — ancora **nessun blocco**. PR 1 = logica (Ed25519 + Hardware
+> ID + verifica). PR 2 = **schermata «🔑 Licenza»** (scheda del Tabview di configurazione):
+> mostra l'Hardware ID, permette di incollare e **attivare** la chiave, mostra lo stato, e **persiste**
+> la licenza attivata. La verifica resta **isolata dal percorso soldi** (Telegram→CSV). License
+> Manager (PR 3) e **lock totale della GUI** (PR 4) arrivano dopo. Il merge resta **manuale del
+> proprietario**.
+>
+> **PR 2 — pezzi aggiunti:** `license_store.py` (persistenza atomica di token + `last_seen` in
+> `%APPDATA%\XTraderBridge\license_state.json`, lettura fail-safe; un file **JSON corrotto** viene
+> messo in **backup `.bak`** prima di ripartire da «nessuna licenza», mai su errori di I/O),
+> `license_status.py` (stato UI puro: `compute_status`, severità, messaggi, `last_seen` monotòno,
+> stato `PERSIST_FAILED`), `license_gui.py` (`LicensePanel` embeddable), e la scheda «🔑 Licenza» in
+> `app.py`. Nessun controllo viene disabilitato: l'app funziona come prima.
+>
+> **Anti-rollback — heartbeat (sintesi review CodeRabbit + GPT-5.5 + Fable #144):** su un **check
+> valido** (`current_status`, che in PR 4 sarà il gate del lock) si **registra** `next_last_seen(
+> last_seen, now)` — senza, dopo l'attivazione basterebbe tenere l'orologio a un istante pre-scadenza
+> per non scadere mai. Politica dei fallimenti di scrittura, che concilia i reviewer:
+> - si scrive **solo quando l'orologio è avanzato** (niente write ad ogni refresh → niente
+>   `os.replace` concorrenti su Windows);
+> - un fallimento **transitorio** (lock antivirus/indexer su `%APPDATA%`) è **tollerato** (la licenza
+>   valida resta valida — niente falsi negativi): si conta il numero di fallimenti **consecutivi**;
+> - un fallimento **persistente** (≥ `_HEARTBEAT_FAIL_LIMIT` consecutivi, oggi 3) è **fail-closed**
+>   (`PERSIST_FAILED`): così non si può negare la scrittura di `last_seen` per non far mai avanzare
+>   l'orologio-di-riferimento e aggirare la scadenza. Un write riuscito azzera il conto.
+>
+> Il **fail-closed** immediato resta all'**attivazione**: se `save_license` non riesce, l'attivazione
+> **non riesce** e lo stato precedente atomico resta intatto. I fallimenti dei provider e del heartbeat
+> vengono **loggati** (senza segreti) per la diagnosi.
 
 ## A cosa serve
 
