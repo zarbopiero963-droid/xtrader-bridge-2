@@ -8,6 +8,11 @@ config.json
 .env
 *.secret
 
+# Chiave PRIVATA di firma del License Manager (issue #140): vive SOLO in %APPDATA%\XTraderLicenseManager\,
+# MAI nel repo. Belt-and-suspenders nel caso venga eseguito/esportato con un path relativo al repo.
+signing_key.json
+*signing_key*.json
+
 # CSV generati dal bridge
 *.csv
 segnali.csv
