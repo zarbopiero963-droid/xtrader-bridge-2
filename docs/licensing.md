@@ -161,14 +161,18 @@ headless.
 License Manager al **solo utente proprietario**, e la GUI la chiama all'avvio (`_secure_data_dir`):
 
 - **POSIX**: `chmod 0o700` sulla cartella (il file-chiave è già `0o600`);
-- **Windows**: ACL via `icacls … /inheritance:r /grant:r "<utente>:(OI)(CI)F"` (rimuove
-  l'ereditarietà, concede il controllo al solo utente corrente), perché `chmod` non tocca le ACL
-  NTFS — rilievo Fugu #146: senza, su un PC multi-utente il seed sarebbe leggibile da altri account.
+- **Windows**: ACL via `icacls`, perché `chmod` non tocca le ACL NTFS (rilievo Fugu #146). Due
+  comandi (review GPT #147, perché `/inheritance:r` da solo rimuove le ACE **ereditate** ma non
+  quelle **esplicite** pregresse): `icacls … /reset` azzera le ACE esplicite preesistenti, poi
+  `icacls … /inheritance:r /grant:r "<utente>:(OI)(CI)F"` rimuove l'ereditarietà e concede il
+  controllo al **solo** utente corrente — netto: DACL = solo owner, anche su una cartella che
+  esisteva già con permessi larghi. L'utente si ricava da `getpass.getuser()` (fallback `USERNAME`/`USER`).
 
-Best-effort e non solleva (un `icacls` assente o un `chmod` fallito non impedisce l'avvio). Il
-comando `icacls` è verificato in test via runner **iniettato** (nessun Windows reale necessario); il
-comportamento reale su Windows resta **smoke manuale**. La blindatura riguarda **solo** la
-cartella-dati del tool, mai le cartelle di **export** scelte dall'utente.
+**Best-effort e non solleva** — se `icacls`/`chmod` mancano o falliscono il tool **prosegue ma con
+la protezione della cartella NON garantita** (loggato, solo il tipo eccezione). Il comando `icacls`
+è verificato in test via runner **iniettato** (nessun Windows reale necessario); il comportamento
+reale su Windows resta **smoke manuale**. La blindatura riguarda **solo** la cartella-dati del tool,
+mai le cartelle di **export** scelte dall'utente.
 
 ### PR 3d — workflow di build EXE (da fare)
 

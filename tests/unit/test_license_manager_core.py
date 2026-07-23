@@ -269,16 +269,26 @@ def test_secure_dir_posix_0700(tmp_path):
 
 
 def test_secure_dir_windows_usa_icacls(tmp_path, monkeypatch):
-    # Su Windows chmod non basta (ACL NTFS): secure_dir invoca icacls per restringere al solo
-    # utente. Verificato via runner iniettato (nessun Windows reale): comando + flag corretti.
-    monkeypatch.setenv("USERNAME", "pippo")
+    # Su Windows chmod non basta (ACL NTFS): secure_dir invoca icacls. Due comandi (review GPT #147):
+    # /reset azzera le ACE ESPLICITE pregresse, poi /inheritance:r + /grant al SOLO utente corrente.
+    # Verificato via runner iniettato (nessun Windows reale).
+    monkeypatch.setattr(core, "_current_user", lambda: "pippo")
     calls = []
-    core.secure_dir(str(tmp_path), run=lambda *a, **k: calls.append((a, k)), platform="win32")
-    assert calls, "icacls non invocato su Windows"
-    argv = calls[-1][0][0]
-    assert argv[0] == "icacls" and str(tmp_path) in argv
-    assert "/inheritance:r" in argv and "/grant:r" in argv
-    assert "pippo:(OI)(CI)F" in argv
+    core.secure_dir(str(tmp_path), run=lambda *a, **k: calls.append(a[0]), platform="win32")
+    assert len(calls) == 2                              # /reset + /grant
+    reset_cmd, grant_cmd = calls
+    assert reset_cmd[0] == "icacls" and "/reset" in reset_cmd and str(tmp_path) in reset_cmd
+    assert grant_cmd[0] == "icacls" and str(tmp_path) in grant_cmd
+    assert "/inheritance:r" in grant_cmd and "/grant:r" in grant_cmd
+    assert "pippo:(OI)(CI)F" in grant_cmd
+
+
+def test_secure_dir_windows_senza_utente_niente_icacls(tmp_path, monkeypatch):
+    # Se l'utente corrente non è determinabile, non si invoca icacls (niente comando ambiguo).
+    monkeypatch.setattr(core, "_current_user", lambda: "")
+    calls = []
+    core.secure_dir(str(tmp_path), run=lambda *a, **k: calls.append(a[0]), platform="win32")
+    assert calls == []
 
 
 def test_secure_dir_non_windows_niente_icacls(tmp_path):
@@ -301,6 +311,16 @@ def test_ensure_secure_dir_crea_e_restringe(tmp_path):
     assert ret == d and os.path.isdir(d)
     if os.name == "posix":
         assert stat.S_IMODE(os.stat(d).st_mode) == 0o700
+
+
+def test_ensure_secure_dir_makedirs_fallisce_best_effort(tmp_path, monkeypatch):
+    # GLM #147: se makedirs fallisce (permessi insufficienti), ensure_secure_dir NON solleva e
+    # ritorna comunque il path (best-effort: il tool prosegue, la blindatura non è garantita).
+    def _boom(*_a, **_k):
+        raise OSError("permesso negato (simulato)")
+    monkeypatch.setattr(core.os, "makedirs", _boom)
+    d = str(tmp_path / "x")
+    assert core.ensure_secure_dir(d) == d              # non solleva
 
 
 # ── export/backup ───────────────────────────────────────────────────────────────────────────

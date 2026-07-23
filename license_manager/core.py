@@ -89,18 +89,37 @@ def signing_key_path(directory: "str | None" = None) -> str:
     return os.path.join(directory or manager_dir(), SIGNING_KEY_FILE)
 
 
+def _current_user() -> str:
+    """Nome dell'utente corrente per `icacls` (review GLM/GPT #147: `getpass.getuser()` è più robusto
+    di leggere direttamente l'env). Fallback su `USERNAME`/`USER` se `getpass` fallisce."""
+    try:
+        import getpass
+        return getpass.getuser()
+    except (OSError, ImportError, KeyError):
+        return os.environ.get("USERNAME") or os.environ.get("USER") or ""
+
+
 def _apply_windows_acl(path: str, *, run) -> None:
-    """Restringe `path` al solo utente proprietario su Windows via `icacls` (best-effort).
+    """Restringe `path` al **solo** utente proprietario su Windows via `icacls` (best-effort).
 
     `os.chmod` su Windows non tocca le ACL NTFS: senza questo, su un PC multi-utente il seed privato
-    sarebbe leggibile da altri account locali (rilievo Fugu #146). `icacls … /inheritance:r
-    /grant:r "<utente>:(OI)(CI)F"` rimuove l'ereditarietà e concede il controllo al **solo** utente
-    corrente. `run` è iniettabile (test) e di default è `subprocess.run` (lista di argomenti, mai
-    `shell=True` → nessuna injection). Non solleva."""
-    user = os.environ.get("USERNAME") or os.environ.get("USER") or ""
+    sarebbe leggibile da altri account locali (rilievo Fugu #146). Sequenza (review GPT #147 — perché
+    `/inheritance:r` da solo non basta: rimuove le ACE **ereditate** ma non quelle **esplicite**
+    pregresse per altri utenti):
+
+    1. `icacls … /reset` → azzera le ACE **esplicite** pregresse (ripristina l'ereditarietà);
+    2. `icacls … /inheritance:r /grant:r "<utente>:(OI)(CI)F"` → rimuove l'ereditarietà e concede il
+       controllo al **solo** utente corrente. Netto: DACL = {solo owner}, anche su una cartella che
+       esisteva già con permessi larghi espliciti.
+
+    `run` è iniettabile (test) e di default è `subprocess.run` (**lista** di argomenti, mai
+    `shell=True` → nessuna injection). **Best-effort e non solleva**: se `icacls` manca/fallisce, il
+    tool prosegue ma con protezione della cartella **non garantita** (loggato, solo il tipo eccezione)."""
+    user = _current_user()
     if not user:
         return
     try:
+        run(["icacls", str(path), "/reset"], check=False, capture_output=True, timeout=15)
         run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:(OI)(CI)F"],
             check=False, capture_output=True, timeout=15)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
