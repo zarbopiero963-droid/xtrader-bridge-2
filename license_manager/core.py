@@ -168,8 +168,10 @@ def _persist_key_file(path: str, data: str, *, overwrite: bool) -> None:
         # poi scrittura + fsync + replace atomico + fsync della dir.
         fd, tmp = tempfile.mkstemp(dir=d, prefix=_TMP_PREFIX, suffix=_TMP_SUFFIX)
         try:
-            os.chmod(tmp, 0o600)
+            # `fdopen` prende SUBITO possesso di `fd` (review GPT #145): così il `with` chiude il
+            # descrittore anche se `chmod`/`write`/`fsync` sollevano — nessun fd orfano fino al GC.
             with os.fdopen(fd, "wb") as f:
+                os.chmod(tmp, 0o600)
                 f.write(encoded)
                 f.flush()
                 os.fsync(f.fileno())
