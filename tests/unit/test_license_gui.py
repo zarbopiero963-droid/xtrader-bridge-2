@@ -194,6 +194,19 @@ def test_current_status_heartbeat_reset_dopo_write_riuscito(license_gui):
     assert fake._heartbeat_failures == 1
 
 
+def test_current_status_last_seen_lungo_non_inonda_i_log(license_gui, caplog):
+    # GPT #144: un `last_seen` non numerico ABNORME (file di stato locale non attendibile) non deve
+    # inondare i log: il valore loggato è troncato. La licenza resta valida (prev=None → heartbeat).
+    import logging
+    fake, saved = _fake_panel(stored=(_valid_token(), "X" * 10_000), now=_NOW)
+    with caplog.at_level(logging.WARNING, logger="xtrader_bridge.license_gui"):
+        st = license_gui.LicensePanel.current_status(fake)
+    assert st.valid is True
+    assert saved and saved[-1] == (_valid_token(), _NOW)
+    warnings = [r.getMessage() for r in caplog.records if "last_seen non numerico" in r.getMessage()]
+    assert warnings and all(len(m) < 200 for m in warnings)   # troncato, non 10k caratteri
+
+
 def test_current_status_last_seen_float_tronca_e_avanza(license_gui):
     # GLM/GPT #144: un `last_seen` float (numerico ma non int) è ammesso via int() (tronca), NON
     # sanizzato a None: resta un timestamp valido e l'heartbeat avanza correttamente.

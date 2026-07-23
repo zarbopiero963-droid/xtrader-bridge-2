@@ -198,9 +198,14 @@ class LicensePanel(ctk.CTkFrame):
             prev = int(last_seen) if last_seen is not None else None
         except (TypeError, ValueError):
             # Visibile, non silenzioso (review GLM #144): un `last_seen` non convertibile segnala
-            # corruzione del file di stato → si logga (il valore, non un segreto) e si riparte da None.
-            _log.warning("last_seen non numerico nello stato licenza (%r): trattato come assente",
-                         last_seen)
+            # corruzione del file di stato → si logga e si riparte da None. Il valore viene dal file
+            # di stato locale (non attendibile): lo si tronca (review GPT #144) così un contenuto
+            # abnorme/lungo non inonda i log.
+            shown = repr(last_seen)
+            if len(shown) > 64:
+                shown = shown[:61] + "..."
+            _log.warning("last_seen non numerico nello stato licenza (%s): trattato come assente",
+                         shown)
             prev = None
 
         status = license_status.compute_status(token, hwid, now, last_seen=prev)
