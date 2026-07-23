@@ -11,8 +11,8 @@
 ## 0. Come usarlo
 
 1. Aggiungi un modulo tema centralizzato (§1) — un solo punto di verità per i colori.
-2. Sostituisci gli HEX hardcoded con le costanti (tabella §2 — **mappa storica**: in `app.py` è
-   già applicata, vedi «Stato applicazione»).
+2. Verifica la migrazione già applicata usando la tabella §2 come **mappa storica**; non sostituire
+   ulteriormente gli HEX in `app.py` (vedi «Stato applicazione»).
 3. Applica lo spec widget-per-widget (§3) e la mappa schermata→file (§4, con file:riga attuali).
 4. Prima di toccare label visibili, leggi la nota i18n (§5).
 
