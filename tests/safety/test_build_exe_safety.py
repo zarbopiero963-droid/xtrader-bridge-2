@@ -1062,13 +1062,31 @@ def test_artifact_e_release_solo_un_exe():
         f"l'artifact deve pubblicare esattamente {_ALLOWED_EXE_PATH!r}, non {artifact_exes}"
     assert release_exes == [_ALLOWED_EXE_PATH], \
         f"la release deve pubblicare esattamente {_ALLOWED_EXE_PATH!r}, non {release_exes}"
-    # EXE ammessi in QUALSIASI workflow: quello del bridge e quello DEDICATO del License Manager
-    # (issue #140 PR 3d). Qualunque altro `dist/*.exe` è inatteso (secondo EXE, wildcard, «Admin»).
-    _allowed_exes = {_ALLOWED_EXE_NAME + ".exe", _LM_EXE_NAME + ".exe"}
+    # EXE ammesso PER-WORKFLOW (review Fable #148): ogni prodotto solo nel SUO workflow — l'EXE del
+    # License Manager SOLO in `build-license-manager.yaml`, l'EXE del bridge in tutti gli altri. Così
+    # l'allargamento per il LM non permette il suo EXE in uno step di release di un workflow del
+    # bridge (né viceversa): ogni `dist/*.exe` fuori posto resta «inatteso».
     for path in _workflow_files():
-        foreign = [e for e in re.findall(r"dist/(\S+\.exe)", _read(path))
-                   if e not in _allowed_exes]
-        assert not foreign, f"{os.path.basename(path)}: EXE inatteso (anche wildcard): {foreign}"
+        fname = os.path.basename(path)
+        allowed = ({_LM_EXE_NAME + ".exe"} if fname == "build-license-manager.yaml"
+                   else {_ALLOWED_EXE_NAME + ".exe"})
+        foreign = [e for e in re.findall(r"dist/(\S+\.exe)", _read(path)) if e not in allowed]
+        assert not foreign, f"{fname}: EXE inatteso (anche wildcard): {foreign}"
+
+
+def test_exe_vincolato_al_suo_workflow():
+    """(review Fable #148) Ogni EXE è ammesso SOLO nel suo workflow: l'EXE del bridge NON deve
+    comparire in `build-license-manager.yaml`, e l'EXE del License Manager NON deve comparire in un
+    workflow del bridge. Mutation-guard esplicito del vincolo per-prodotto del foreign-scan."""
+    for path in _workflow_files():
+        fname = os.path.basename(path)
+        exes = set(re.findall(r"dist/(\S+\.exe)", _read(path)))
+        if fname == "build-license-manager.yaml":
+            assert _ALLOWED_EXE_NAME + ".exe" not in exes, \
+                "l'EXE del bridge non deve comparire nel workflow del License Manager"
+        else:
+            assert _LM_EXE_NAME + ".exe" not in exes, \
+                f"{fname}: l'EXE del License Manager non deve comparire in un workflow del bridge"
 
 
 # ── Gate build Nuitka (Fase 6 slice 2) ──────────────────────────────────────────────────────
@@ -1682,6 +1700,19 @@ def test_lm_artifact_solo_lm_exe():
         f"l'artifact LM deve pubblicare esattamente {_LM_EXE_PATH!r}, non {artifact_exes}"
     assert _ALLOWED_EXE_NAME + ".exe" not in text, \
         "il workflow del License Manager non deve pubblicare l'EXE del bridge"
+
+
+def test_lm_install_fail_closed_supply_chain():
+    """(review Fugu #148) L'install della build LM è **fail-closed** sulla supply-chain: installa con
+    `--require-hashes` (versioni+hash pinnati) e NON ha un fallback legacy non-hashato. Il tool che
+    firma le licenze non deve mai compilare con dipendenze non pinnate. Regressione bloccata: se
+    qualcuno reintroducesse `requirements-dev.txt`/un install non-hashato il test fallisce."""
+    text = _read(_LM_BUILD_YAML)
+    assert "--require-hashes" in text, \
+        "la build LM deve installare con --require-hashes (supply-chain pinnata)"
+    assert "requirements-build.lock" in text, "la build LM deve usare requirements-build.lock"
+    assert "requirements-dev.txt" not in text, \
+        "la build LM non deve avere un fallback legacy non-hashato (requirements-dev.txt)"
 
 
 def test_lm_build_non_crea_release():

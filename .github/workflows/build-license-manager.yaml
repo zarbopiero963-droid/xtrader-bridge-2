@@ -26,21 +26,20 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Installa Dipendenze
-      # Stessa logica del build del bridge (build.yaml): install riproducibile con
-      # `requirements-build.lock` (--require-hashes) se presente, altrimenti legacy così la build
-      # non si rompe. Il lock include runtime + pytest + pyinstaller + customtkinter, quindi copre
-      # sia lo step dei test sia la compilazione dell'EXE del License Manager.
+    - name: Installa Dipendenze (lock hashato OBBLIGATORIO — fail-closed supply-chain)
+      # Il License Manager FIRMA le licenze: la sua build è **fail-closed sulla supply-chain**
+      # (review Fugu #148). Install SOLO da `requirements-build.lock` con `--require-hashes`
+      # (versioni + hash pinnati, generati su Windows dal workflow "Generate Windows Lockfile"), che
+      # include runtime + pytest + pyinstaller + customtkinter. NESSUN fallback legacy non-hashato:
+      # se il lock manca/è corrotto la build **FALLISCE**, invece di tirare dipendenze non verificate
+      # nell'EXE che compila il tool di custodia della chiave privata.
       shell: pwsh
       run: |
-        if (Test-Path "requirements-build.lock") {
-          Write-Host "requirements-build.lock trovato: install riproducibile con --require-hashes."
-          python -m pip install --require-hashes -r requirements-build.lock
-        } else {
-          python -m pip install --upgrade pip
-          Write-Warning "requirements-build.lock assente: install legacy (passera' a --require-hashes appena il lock sara' committato)."
-          python -m pip install -r requirements-dev.txt pyinstaller
+        if (-not (Test-Path "requirements-build.lock")) {
+          Write-Error "requirements-build.lock assente: la build del License Manager e' fail-closed sulla supply-chain (nessun install non-hashato per il tool di firma). Genera il lock col workflow 'Generate Windows Lockfile' e committalo."
+          exit 1
         }
+        python -m pip install --require-hashes -r requirements-build.lock
 
     - name: Verifica compilazione (compileall)
       run: python -m compileall license_manager_main.py license_manager xtrader_bridge tests

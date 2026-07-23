@@ -214,6 +214,12 @@ proprietario non lancia la build a mano (un runner Windows costa 2× minuti). Re
 test girano prima della compilazione e sono bloccanti; è solo **artifact** scaricabile, **mai una
 Release** pubblica.
 
+**Supply-chain fail-closed (review Fugu #148).** Poiché questo EXE compila il tool che **firma le
+licenze**, l'install delle dipendenze è **solo** `--require-hashes -r requirements-build.lock`
+(versioni + hash pinnati): **nessun fallback legacy non-hashato**. Se il lock manca/è corrotto la
+build **fallisce** invece di tirare dipendenze non verificate nell'EXE di custodia della chiave. Il
+lock si (ri)genera col workflow «Generate Windows Lockfile».
+
 Il gate anti-drift `tests/safety/test_build_exe_safety.py` ora riconosce **due prodotti**: le build del
 bridge restano soggette alle invarianti bridge **invariate**, mentre la build del License Manager è
 **scorporata** e verificata da un **gate parallelo** con la sua allowlist (nome/script/collect del
