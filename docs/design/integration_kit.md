@@ -11,11 +11,14 @@
 ## 0. Come usarlo
 
 1. Aggiungi un modulo tema centralizzato (§1) — un solo punto di verità per i colori.
-2. Sostituisci gli HEX hardcoded con le costanti (tabella §2, con file:riga attuali).
-3. Applica lo spec widget-per-widget (§3) e la mappa schermata→file (§4).
+2. Sostituisci gli HEX hardcoded con le costanti (tabella §2 — **mappa storica**: in `app.py` è
+   già applicata, vedi «Stato applicazione»).
+3. Applica lo spec widget-per-widget (§3) e la mappa schermata→file (§4, con file:riga attuali).
 4. Prima di toccare label visibili, leggi la nota i18n (§5).
 
-Tutti gli HEX qui sono verificati contro il codice attuale (`git grep` di `fg_color`) e contro il design system.
+Gli HEX della §2 sono la **provenienza** della migrazione già applicata: oggi `app.py` non contiene
+più quei valori grezzi, ma li instrada tramite gli alias `_COLOR_*` → token `ui_theme` (`app.py`
+~240-248). I token restano verificati contro il design system.
 
 > **Stato applicazione.** **PR-1** (branch `claude/ui-redesign-pr1-theme`) ha creato il modulo
 > `xtrader_bridge/ui_theme.py` (§1) e applicato la migrazione colori di **`app.py`** (§2) — con i
@@ -30,8 +33,14 @@ Tutti gli HEX qui sono verificati contro il codice attuale (`git grep` di `fg_co
 > (`guided_mapping_gui`, `profiles_gui`, `source_chats_gui`, `provider_gui`, `custom_parser_gui`,
 > `known_teams_gui`, `tools_gui`, `config_agent_gui`) + `signal_outcome` (63 HEX), con guard
 > parametrizzato `tests/integration/test_gui_palette_pr3.py` e un nuovo token `WARN_WEAK` (vedi §1).
-> La mappa §4 cita `betfair/sync_tab_gui.py` e la tab «Betfair Sync» che **non esistono più**
-> (rimossi): ignorarle.
+>
+> **Allineamento §2/§4 al codice attuale (aggiornato):** i riferimenti `file:riga` della §4 sono
+> stati riportati sull'`app.py` corrente (~4200 righe). La tab e il modulo **«Betfair Sync»**
+> (`betfair/sync_tab_gui.py`) sono stati **rimossi** e non compaiono più nella mappa. Il **Dizionario**
+> esiste ancora ma **non** è più una finestra Betfair a sé: è la scheda «📖 Dizionario» dentro l'hub
+> **🧰 Strumenti** (`tools_gui.py`), alimentata da `betfair/dictionary_viewer_gui.py`. La tabella §2
+> resta come **mappa storica** della migrazione colori di `app.py` (i suoi numeri di riga sono quelli
+> della vecchia `app.py` pre-migrazione, tenuti solo come provenienza).
 
 ---
 
@@ -97,7 +106,7 @@ FONT_UI   = "Segoe UI"     # design: Hanken Grotesk
 FONT_MONO = "Consolas"     # design: IBM Plex Mono
 ```
 
-**Setup globale** — sostituisci (`app.py:65-66`):
+**Setup globale** — sostituisci (`app.py:93-94`):
 
 ```python
 # PRIMA
@@ -115,9 +124,15 @@ ctk.set_default_color_theme("blue")       # base; gli accent li impostiamo espli
 
 ---
 
-## 2. Migrazione colori — HEX attuali → token
+## 2. Migrazione colori — HEX (storici) → token
 
-| Dove (file:riga) | Elemento | HEX attuale | → Token |
+> **Mappa storica — già applicata in `app.py`.** Questa tabella documenta la migrazione colori di
+> `app.py` così com'era **prima** del refactor: i numeri di riga si riferiscono alla vecchia `app.py`
+> e restano solo come provenienza. Nel codice attuale ogni pulsante usa già i token via gli alias
+> `_COLOR_*` (`app.py` ~240-248) e `ui_theme.*` (es. AVVIA=`SUCCESS`, STOP=`DANGER`, Svuota CSV=`ACCENT`,
+> Strumenti=`PURPLE`, Wizard=`TEAL`). Nessun HEX grezzo va più sostituito qui.
+
+| Dove (file:riga, vecchia app.py) | Elemento | HEX (storico) | → Token |
 |---|---|---|---|
 | app.py:590 | Header frame | `#1a1a2e` | `SURFACE` (o `TITLEBAR`) |
 | app.py:611 | Banner REALE (bg) | `#7f1d1d` | `DANGER` |
@@ -128,8 +143,8 @@ ctk.set_default_color_theme("blue")       # base; gli accent li impostiamo espli
 | app.py:762-770 | Copia diagnostica / Apri log / Esporta audit | `#37474f`/`#263238` | `SURFACE3` (secondari) |
 | app.py:815-817 | Svuota log | `#37474f`/`#263238` | `SURFACE3` |
 
-> Il pulsante **Svuota CSV** (app.py:712) oggi non ha `fg_color` → eredita il blu tema.
-> Nel design è **primario blu**: impostare `fg_color=ACCENT, hover_color=ACCENT_HOV`.
+> Il pulsante **Svuota CSV** — richiesto **primario blu** dal design — usa già
+> `fg_color=ACCENT, hover_color=ACCENT_HOV` nel codice attuale (`app.py:1342-1344`). Voce risolta.
 
 ---
 
@@ -159,15 +174,22 @@ PNG/ICO monocromatici caricati via `CTkImage` — è ◐ adattato, opzionale.
 
 ## 4. Mappa schermata → file:widget
 
+> Riferimenti allineati all'`app.py` corrente (~4200 righe). I numeri possono spostarsi di poche
+> righe a ogni patch: usa gli **àncora simbolici** (nomi di metodo/label) come guida primaria.
+
 | Schermata (mockup) | File | Punto di ancoraggio |
 |---|---|---|
-| Finestra principale, header + banner REALE | `app.py` | `_build_ui` :588 · header :590 · banner :610 |
-| Barra azioni AVVIA/STOP/Svuota/Salva/Strumenti | `app.py` | :694-731 |
-| Tab config (Generale/Riconoscimento/Sicurezza/Conferme) | `app.py` | `CTkTabview` :617-692 |
-| Monitor (Chat/Stato/Dashboard/Log + Salute) | `app.py` | `CTkTabview` :741-820 |
+| Finestra principale, header + banner REALE | `app.py` | `_build_ui` :1176 · header `hdr` :1178 · titolo :1181 · banner `_real_banner` :1207-1208 |
+| Barra azioni AVVIA/STOP/Svuota/Salva | `app.py` | `btn_frame` :1324 → AVVIA :1328 · STOP :1335 · Svuota CSV :1343 · Salva Config :1349 |
+| Barra Strumenti/Wizard | `app.py` | `tools_frame` :1357 → 🧰 Strumenti :1360 · 🧙 Wizard :1365 |
+| Tab config — 4 tab (⚙️ Generale / 🎯 Riconoscimento / 🛡️ Sicurezza / ✅ Conferme XTrader) | `app.py` | `CTkTabview` :1220 · `add()` :1226-1229 |
+| Tab monitor — 6 tab (📡 Chat ascoltate / 🚦 Salute / 📡 Stato / 📊 Dashboard / 📋 Log / 🤖 Assistente) | `app.py` | `CTkTabview` `mon` :1377 · `add()` :1379-1384 |
 | **Parser Personalizzato** (priorità §7.1) | `custom_parser_gui.py` | intera finestra |
-| Betfair Sync | `betfair/sync_tab_gui.py` | intera tab |
-| Dizionario Betfair | `betfair/dictionary_viewer_gui.py` | intera finestra |
+| **🧰 Strumenti** (hub a schede: Sorgenti/Provider/Parser/Mapping/Dizionario/Diario/Nomi squadra/Profili/Riepilogo) | `tools_gui.py` | `ToolsWindow` + `build_tool_panels` (9 pannelli, gruppi ①-④) |
+| Scheda «📖 Dizionario» (dentro l'hub Strumenti) | `betfair/dictionary_viewer_gui.py` | pannello dizionario |
+
+> **Nota storica:** la tab «Betfair Sync» (`betfair/sync_tab_gui.py`) è stata **rimossa** e non è più
+> nella mappa. Il Dizionario **non** è più una finestra Betfair a sé: è una scheda dell'hub Strumenti.
 
 Ordine consigliato: (1) `ui_theme.py` + setup, (2) barra azioni e header di `app.py`
 (massima resa visiva), (3) tab config/monitor, (4) `custom_parser_gui.py` (la più densa).
