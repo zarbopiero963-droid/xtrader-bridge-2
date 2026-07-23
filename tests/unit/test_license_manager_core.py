@@ -162,6 +162,34 @@ def test_save_sovrascrive_con_flag(tmp_path):
     assert core.load_signing_key(path)["seed"] == seed2
 
 
+def test_save_o_excl_blocca_overwrite_anche_saltando_il_precheck(tmp_path, monkeypatch):
+    # Fable #145 (TOCTOU): l'enforcement no-overwrite è ATOMICO via O_EXCL, non solo il pre-check.
+    # Simuliamo la race in cui il pre-check `load_signing_key` vede il file ancora assente (ritorna
+    # None) ma il file esiste già al momento della scrittura: O_EXCL deve comunque rifiutare, così
+    # una chiave esistente non viene mai sovrascritta/persa.
+    path = core.signing_key_path(str(tmp_path))
+    core.save_signing_key(path, _TEST_SEED_HEX, _TEST_PUBLIC_HEX, _NOW)   # chiave già presente
+    monkeypatch.setattr(core, "load_signing_key", lambda p: None)          # pre-check "cieco"
+    other_seed, other_pub = core.generate_keypair()
+    with pytest.raises(core.KeyExistsError):
+        core.save_signing_key(path, other_seed, other_pub, _NOW + 1)
+    # e il file su disco è ancora la chiave originale (non sovrascritta)
+    monkeypatch.undo()
+    assert core.load_signing_key(path)["seed"] == _TEST_SEED_HEX
+
+
+def test_save_overwrite_resta_atomico(tmp_path):
+    # overwrite=True usa la sostituzione atomica (temp+replace): la chiave finale è quella nuova,
+    # nessun temporaneo orfano rimasto nella cartella.
+    path = core.signing_key_path(str(tmp_path))
+    core.save_signing_key(path, _TEST_SEED_HEX, _TEST_PUBLIC_HEX, _NOW)
+    seed2, pub2 = core.generate_keypair()
+    core.save_signing_key(path, seed2, pub2, _NOW + 1, overwrite=True)
+    assert core.load_signing_key(path)["seed"] == seed2
+    leftovers = [n for n in os.listdir(str(tmp_path)) if n.startswith(".signing_key_")]
+    assert leftovers == []                                                # nessun temp orfano
+
+
 def test_load_json_corrotto_solleva_non_scarta(tmp_path):
     # Regola chiave: un file-chiave corrotto NON è mai «assente» → solleva, e resta su disco
     # (perdere una chiave = non poter più rinnovare i bridge distribuiti).

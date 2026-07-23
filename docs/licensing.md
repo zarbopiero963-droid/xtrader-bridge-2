@@ -127,8 +127,9 @@ e di custodia della chiave privata **non entra mai nell'EXE del bridge** (la bui
 di sicurezza specifica del file-chiave — diversa dallo stato-licenza del bridge: un file-chiave
 **corrotto NON viene mai scartato in silenzio** (`load_signing_key` **solleva** `KeyFileCorruptError`)
 e `save_signing_key` (e `export_signing_key` verso il backup) **rifiuta** di sovrascrivere una
-chiave valida senza `overwrite=True`. Motivo: perdere il seed = non poter più rinnovare le licenze
-dei bridge già distribuiti. La coerenza
+chiave valida senza `overwrite=True` — enforcement **atomico** via `O_EXCL` (nessuna race TOCTOU tra
+il controllo e la scrittura). Motivo: perdere il seed = non poter più rinnovare le licenze dei bridge
+già distribuiti. La coerenza
 seed↔pubblica è verificata sia al salvataggio sia al caricamento (intercetta manomissioni/bit-rot).
 
 **Isolamento (test):** un test di sicurezza (`tests/safety/test_license_manager_isolation.py`)

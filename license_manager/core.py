@@ -111,6 +111,54 @@ def _public_for_seed(seed_hex: str) -> str:
     return ed25519.public_key(_seed_from_hex(seed_hex)).hex()
 
 
+def _restrict_perms(path: str) -> None:
+    """Permessi `0o600` best-effort (POSIX; su Windows il modello ACL è diverso → no-op)."""
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass    # Windows / filesystem senza permessi POSIX: best-effort, non è un errore
+
+
+def _persist_key_file(path: str, payload: dict, *, overwrite: bool) -> None:
+    """Scrive il file-chiave. Due modalità (review Fable #145, TOCTOU):
+
+    - `overwrite=False` → **creazione ESCLUSIVA** `O_CREAT|O_EXCL`: se il file esiste già la `open`
+      fallisce **atomicamente** con `KeyExistsError`, senza la finestra check-then-write in cui due
+      processi concorrenti potrebbero entrambi passare il controllo e sovrascrivere (perdere) una
+      chiave esistente. Un crash a metà di una create (nessuna chiave preesistente per definizione)
+      lascia un file parziale → `load_signing_key` lo segnala corrotto e il proprietario rigenera;
+    - `overwrite=True` → **sostituzione atomica** (temp + `os.replace`): rimpiazzo DELIBERATO e
+      crash-safe di una chiave esistente.
+    """
+    d = os.path.dirname(os.path.abspath(path)) or "."
+    os.makedirs(d, exist_ok=True)
+    data = json.dumps(payload, indent=2, sort_keys=True)
+    if overwrite:
+        atomic_io.atomic_write_text(path, data, prefix=_TMP_PREFIX, suffix=_TMP_SUFFIX)
+        _restrict_perms(path)
+        return
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError as exc:
+        raise KeyExistsError(
+            f"esiste già una chiave di firma in {path}: rigenerarla invaliderebbe i bridge "
+            "distribuiti; usa overwrite=True per sostituirla deliberatamente") from exc
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+    except BaseException:
+        # create fallita a metà: rimuovi il file parziale appena creato (non c'era una chiave
+        # prima, quindi non si distrugge nulla di irrecuperabile) e propaga.
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise
+    _restrict_perms(path)
+
+
 def save_signing_key(path: str, seed_hex: str, public_hex: str, now: int,
                      *, overwrite: bool = False) -> None:
     """Salva la keypair sul file-chiave in modo **atomico** e con permessi ristretti.
@@ -118,8 +166,10 @@ def save_signing_key(path: str, seed_hex: str, public_hex: str, now: int,
     - Verifica di **coerenza**: `public_hex` deve corrispondere davvero al seed (previene di
       salvare una coppia incongruente che poi firmerebbe licenze non verificabili).
     - **Non sovrascrive** una chiave valida già presente senza `overwrite=True` (protezione contro
-      la rigenerazione accidentale che invaliderebbe i bridge distribuiti). Se il file esistente è
-      **corrotto**, `load_signing_key` solleva e questa funzione propaga: si decide a mano.
+      la rigenerazione accidentale che invaliderebbe i bridge distribuiti). L'enforcement è
+      **atomico** via `O_EXCL` in `_persist_key_file` (niente race TOCTOU, review Fable #145); la
+      `load_signing_key` qui sotto serve a dare un errore precoce e a distinguere il caso **corrotto**
+      (`KeyFileCorruptError`, si decide a mano) da quello di una chiave valida già presente.
     - Permessi `0o600` best-effort (POSIX; su Windows il modello ACL è diverso).
     """
     seed_hex = str(seed_hex).strip().lower()
@@ -138,14 +188,7 @@ def save_signing_key(path: str, seed_hex: str, public_hex: str, now: int,
         "public": public_hex,
         "created": int(now),
     }
-    atomic_io.atomic_write_json(path, payload, prefix=_TMP_PREFIX, suffix=_TMP_SUFFIX,
-                                indent=2, sort_keys=True)
-    # Restringe i permessi del file-chiave (best-effort). `mkstemp` crea già a 0o600, ma un chmod
-    # esplicito lo rende indipendente da umask/replace e verificabile in test su POSIX.
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass    # Windows / filesystem senza permessi POSIX: best-effort, non è un errore
+    _persist_key_file(path, payload, overwrite=overwrite)
 
 
 def load_signing_key(path: str) -> "dict | None":
@@ -197,7 +240,8 @@ def export_signing_key(src_path: str, dest_path: str, *, overwrite: bool = False
 
     Come `save_signing_key`, **non sovrascrive** una chiave valida già presente in `dest_path`
     senza `overwrite=True` (review CodeRabbit #145): un backup esistente — magari di un'ALTRA
-    keypair — non va perso in silenzio (perderla = non poter più rinnovare quei bridge)."""
+    keypair — non va perso in silenzio (perderla = non poter più rinnovare quei bridge).
+    L'enforcement no-overwrite è **atomico** (`O_EXCL`, review Fable #145): niente race TOCTOU."""
     key = load_signing_key(src_path)
     if key is None:
         raise FileNotFoundError(f"nessun file-chiave da esportare: {src_path}")
@@ -211,12 +255,7 @@ def export_signing_key(src_path: str, dest_path: str, *, overwrite: bool = False
         "public": key["public"],
         "created": int(key["created"]) if isinstance(key["created"], int) else 0,
     }
-    atomic_io.atomic_write_json(dest_path, payload, prefix=_TMP_PREFIX, suffix=_TMP_SUFFIX,
-                                indent=2, sort_keys=True)
-    try:
-        os.chmod(dest_path, 0o600)
-    except OSError:
-        pass
+    _persist_key_file(dest_path, payload, overwrite=overwrite)
 
 
 def issue_license(seed_hex: str, name: str, days: int, hardware_id: str, now: int) -> str:
