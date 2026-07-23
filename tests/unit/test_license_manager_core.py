@@ -257,6 +257,24 @@ def test_export_non_sovrascrive_dest_esistente_senza_flag(tmp_path):
     assert core.load_signing_key(dest)["seed"] == other_seed     # backup intatto
 
 
+def test_export_o_excl_blocca_overwrite_anche_saltando_il_precheck(tmp_path, monkeypatch):
+    # GLM #145: parità con save — anche export usa `_persist_key_file(overwrite=False)`, quindi
+    # l'enforcement no-overwrite è ATOMICO via O_EXCL pure sul backup. Simuliamo la race (pre-check
+    # cieco) e verifichiamo che un backup esistente non venga sovrascritto/perso.
+    src = core.signing_key_path(str(tmp_path / "src"))
+    core.save_signing_key(src, _TEST_SEED_HEX, _TEST_PUBLIC_HEX, _NOW)
+    dest = str(tmp_path / "dest" / "backup.json")
+    other_seed, other_pub = core.generate_keypair()
+    core.save_signing_key(dest, other_seed, other_pub, _NOW)      # backup preesistente diverso
+    # pre-check "cieco" solo sulla DEST (ritorna None), ma reale sulla SRC (serve il contenuto).
+    monkeypatch.setattr(core, "load_signing_key",
+                        lambda p, _r=core.load_signing_key: None if p == dest else _r(p))
+    with pytest.raises(core.KeyExistsError):
+        core.export_signing_key(src, dest)
+    monkeypatch.undo()
+    assert core.load_signing_key(dest)["seed"] == other_seed      # backup intatto
+
+
 def test_export_sovrascrive_dest_con_flag(tmp_path):
     src = core.signing_key_path(str(tmp_path / "src"))
     core.save_signing_key(src, _TEST_SEED_HEX, _TEST_PUBLIC_HEX, _NOW)
