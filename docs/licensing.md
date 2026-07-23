@@ -1,8 +1,8 @@
 # Sistema di licenze del bridge (issue #140)
 
-> Stato: **PR 1 + PR 2 + PR 3a (core License Manager) + PR 3b (mini-GUI License Manager) fatte** —
-> ancora **nessun blocco**. Manca solo il **workflow di build EXE** del License Manager (PR 3c) e il
-> **lock totale della GUI** (PR 4).
+> Stato: **PR 1 + PR 2 + PR 3a + PR 3b + PR 3c (blindatura permessi cartella-chiave) fatte** — ancora
+> **nessun blocco**. Mancano il **workflow di build EXE** del License Manager (PR 3d) e il **lock
+> totale della GUI** (PR 4).
 > PR 1 = logica (Ed25519 + Hardware ID + verifica). PR 2 = **schermata «🔑 Licenza»** (scheda del Tabview di configurazione):
 > mostra l'Hardware ID, permette di incollare e **attivare** la chiave, mostra lo stato, e **persiste**
 > la licenza attivata. La verifica resta **isolata dal percorso soldi** (Telegram→CSV). License
@@ -155,14 +155,28 @@ Tk reale è **smoke manuale su Windows**. Il modulo importa `customtkinter` → 
 `license_manager/__init__.py`, così `import license_manager` (e i test della logica pura) restano
 headless.
 
-### PR 3c — workflow di build EXE (da fare)
+### PR 3c — blindatura permessi della cartella-chiave (fatta)
+
+`core.secure_dir(path)` / `core.ensure_secure_dir(directory)` restringono la **cartella-dati** del
+License Manager al **solo utente proprietario**, e la GUI la chiama all'avvio (`_secure_data_dir`):
+
+- **POSIX**: `chmod 0o700` sulla cartella (il file-chiave è già `0o600`);
+- **Windows**: ACL via `icacls … /inheritance:r /grant:r "<utente>:(OI)(CI)F"` (rimuove
+  l'ereditarietà, concede il controllo al solo utente corrente), perché `chmod` non tocca le ACL
+  NTFS — rilievo Fugu #146: senza, su un PC multi-utente il seed sarebbe leggibile da altri account.
+
+Best-effort e non solleva (un `icacls` assente o un `chmod` fallito non impedisce l'avvio). Il
+comando `icacls` è verificato in test via runner **iniettato** (nessun Windows reale necessario); il
+comportamento reale su Windows resta **smoke manuale**. La blindatura riguarda **solo** la
+cartella-dati del tool, mai le cartelle di **export** scelte dall'utente.
+
+### PR 3d — workflow di build EXE (da fare)
 
 L'EXE dedicato del License Manager (`XTrader-License-Manager`, script `license_manager_main.py`,
 `--collect-submodules license_manager`) richiede un **refactor mirato** del gate anti-drift
 `tests/safety/test_build_exe_safety.py` (oggi assume un solo EXE, quello del bridge) per supportare
 due build distinti. Rimandato a una PR dedicata per tenerla piccola e sicura. Fino ad allora il
-License Manager si usa **da sorgente**. Da rifinire in questa fase anche i permessi `0o700` della
-cartella-dati del tool su POSIX / ACL su Windows (vedi note review #145 su issue #140).
+License Manager si usa **da sorgente** (`python license_manager_main.py`).
 
 **Isolamento (test):** un test di sicurezza (`tests/safety/test_license_manager_isolation.py`)
 verifica che **nessun modulo di `xtrader_bridge` importi `license_manager`** e che i workflow di

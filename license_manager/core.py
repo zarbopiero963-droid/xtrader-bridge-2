@@ -22,12 +22,17 @@ chiave valida senza `overwrite=True` esplicito.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import subprocess
+import sys
 import tempfile
 
 from xtrader_bridge.licensing import ed25519
 from xtrader_bridge.licensing.hwid import is_identifiable
 from xtrader_bridge.licensing.license import build_license
+
+_log = logging.getLogger(__name__)
 
 # Cartella utente del License Manager (SEPARATA da quella del bridge, `XTraderBridge`), così la
 # chiave privata del proprietario non finisce mai vicino ai dati del bridge distribuito.
@@ -82,6 +87,56 @@ def manager_dir() -> str:
 def signing_key_path(directory: "str | None" = None) -> str:
     """Percorso del file-chiave (`signing_key.json`) nella cartella data o in `manager_dir()`."""
     return os.path.join(directory or manager_dir(), SIGNING_KEY_FILE)
+
+
+def _apply_windows_acl(path: str, *, run) -> None:
+    """Restringe `path` al solo utente proprietario su Windows via `icacls` (best-effort).
+
+    `os.chmod` su Windows non tocca le ACL NTFS: senza questo, su un PC multi-utente il seed privato
+    sarebbe leggibile da altri account locali (rilievo Fugu #146). `icacls … /inheritance:r
+    /grant:r "<utente>:(OI)(CI)F"` rimuove l'ereditarietà e concede il controllo al **solo** utente
+    corrente. `run` è iniettabile (test) e di default è `subprocess.run` (lista di argomenti, mai
+    `shell=True` → nessuna injection). Non solleva."""
+    user = os.environ.get("USERNAME") or os.environ.get("USER") or ""
+    if not user:
+        return
+    try:
+        run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:(OI)(CI)F"],
+            check=False, capture_output=True, timeout=15)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        _log.warning("icacls sulla cartella-chiave non riuscito: %s", type(exc).__name__)
+
+
+def secure_dir(path: str, *, run=None, platform: "str | None" = None) -> None:
+    """Restringe una cartella al solo utente proprietario (**best-effort**, non solleva).
+
+    - POSIX: `chmod 0o700` (solo l'owner entra/legge la cartella; il file-chiave è già `0o600`);
+    - Windows: ACL via `icacls` (vedi `_apply_windows_acl`), perché `chmod` non basta su NTFS.
+
+    Serve solo per la **cartella-dati del License Manager** (issue #140 PR 3c, rilievo Fugu #146):
+    NON va usata su cartelle di export scelte dall'utente (effetti collaterali su cartelle condivise).
+    `run`/`platform` sono iniettabili per i test (nessun Windows reale necessario)."""
+    try:
+        os.chmod(path, 0o700)
+    except OSError as exc:
+        _log.warning("chmod 0o700 sulla cartella-chiave non riuscito: %s", type(exc).__name__)
+    if (platform or sys.platform) == "win32":
+        _apply_windows_acl(path, run=run or subprocess.run)
+
+
+def ensure_secure_dir(directory: "str | None" = None, *, run=None, platform: "str | None" = None) -> str:
+    """Crea (se manca) e **restringe** la cartella-dati del License Manager; ritorna il suo percorso.
+
+    Idempotente e best-effort: da chiamare all'avvio del tool, così il seed privato vive fin da subito
+    in una cartella accessibile al solo proprietario. `directory=None` → `manager_dir()`."""
+    d = directory or manager_dir()
+    try:
+        os.makedirs(d, exist_ok=True)
+    except OSError as exc:
+        _log.warning("Creazione cartella-chiave non riuscita: %s", type(exc).__name__)
+        return d
+    secure_dir(d, run=run, platform=platform)
+    return d
 
 
 def _seed_from_hex(seed_hex: str) -> bytes:

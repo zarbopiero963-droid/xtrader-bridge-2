@@ -258,6 +258,51 @@ def test_save_dopo_corruzione_propaga_non_sovrascrive(tmp_path):
         core.save_signing_key(path, _TEST_SEED_HEX, _TEST_PUBLIC_HEX, _NOW)
 
 
+# ── blindatura permessi cartella-dati (#140 PR 3c, rilievo Fugu #146) ─────────────────────────
+def test_secure_dir_posix_0700(tmp_path):
+    if os.name != "posix":
+        pytest.skip("permessi 0o700 verificabili solo su POSIX")
+    d = str(tmp_path / "lmdata")
+    os.makedirs(d)
+    core.secure_dir(d)
+    assert stat.S_IMODE(os.stat(d).st_mode) == 0o700
+
+
+def test_secure_dir_windows_usa_icacls(tmp_path, monkeypatch):
+    # Su Windows chmod non basta (ACL NTFS): secure_dir invoca icacls per restringere al solo
+    # utente. Verificato via runner iniettato (nessun Windows reale): comando + flag corretti.
+    monkeypatch.setenv("USERNAME", "pippo")
+    calls = []
+    core.secure_dir(str(tmp_path), run=lambda *a, **k: calls.append((a, k)), platform="win32")
+    assert calls, "icacls non invocato su Windows"
+    argv = calls[-1][0][0]
+    assert argv[0] == "icacls" and str(tmp_path) in argv
+    assert "/inheritance:r" in argv and "/grant:r" in argv
+    assert "pippo:(OI)(CI)F" in argv
+
+
+def test_secure_dir_non_windows_niente_icacls(tmp_path):
+    calls = []
+    core.secure_dir(str(tmp_path), run=lambda *a, **k: calls.append(a), platform="linux")
+    assert calls == []                              # su POSIX solo chmod, nessun icacls
+
+
+def test_secure_dir_best_effort_non_solleva(tmp_path, monkeypatch):
+    # chmod che solleva e run che solleva NON devono propagare (best-effort).
+    monkeypatch.setattr(core.os, "chmod", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+    def _boom_run(*a, **k):
+        raise OSError("icacls assente (simulato)")
+    core.secure_dir(str(tmp_path), run=_boom_run, platform="win32")   # non deve sollevare
+
+
+def test_ensure_secure_dir_crea_e_restringe(tmp_path):
+    d = str(tmp_path / "nuova" / "lmdata")
+    ret = core.ensure_secure_dir(d)
+    assert ret == d and os.path.isdir(d)
+    if os.name == "posix":
+        assert stat.S_IMODE(os.stat(d).st_mode) == 0o700
+
+
 # ── export/backup ───────────────────────────────────────────────────────────────────────────
 def test_export_backup_copia_identica(tmp_path):
     src = core.signing_key_path(str(tmp_path))

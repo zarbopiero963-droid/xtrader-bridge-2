@@ -64,10 +64,17 @@ class LicenseManagerApp(ctk.CTk):
         self._token_box = None
         self._msg_lbl = None
         self.title("XTrader License Manager")
+        self._secure_data_dir()
         self._build_ui()
         self._refresh_key_state()
 
     # ── logica pura (testabile headless su self finto) ─────────────────────────────────────────
+    def _secure_data_dir(self) -> None:
+        """Crea e **restringe** la cartella-dati del tool all'avvio (issue #140 PR 3c, rilievo Fugu
+        #146): `0o700` su POSIX / ACL solo-owner su Windows, così il seed privato non è leggibile da
+        altri account locali. Best-effort — `core.ensure_secure_dir` non solleva."""
+        core.ensure_secure_dir(self._key_dir)
+
     def _key_path(self) -> str:
         """Percorso del file-chiave (nella cartella iniettata o in `core.manager_dir()`)."""
         return core.signing_key_path(self._key_dir)

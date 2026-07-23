@@ -7,6 +7,8 @@ cartella-chiave temporanea. Nessun segreto reale: il seed è generato al volo o 
 """
 
 import importlib
+import os
+import stat
 import sys
 import types
 
@@ -88,6 +90,17 @@ def test_ensure_keypair_non_sovrascrive_file_corrotto(gui, tmp_path):
 def test_current_key_state_assente(gui, tmp_path):
     st = gui.LicenseManagerApp._current_key_state(_fake(gui, tmp_path))
     assert st == {"public": None, "error": None}
+
+
+def test_secure_data_dir_all_avvio(gui, tmp_path):
+    # #140 PR 3c (rilievo Fugu #146): all'avvio la GUI crea e restringe la cartella-dati del tool,
+    # così il seed privato non è leggibile da altri account locali.
+    d = str(tmp_path / "lmdata")
+    fake = types.SimpleNamespace(_key_dir=d)
+    gui.LicenseManagerApp._secure_data_dir(fake)
+    assert os.path.isdir(d)
+    if os.name == "posix":
+        assert stat.S_IMODE(os.stat(d).st_mode) == 0o700
 
 
 def _raise_oserror(_p):
