@@ -25,7 +25,7 @@ import math
 from collections import namedtuple
 
 from . import ed25519
-from .hwid import NO_HARDWARE_ID
+from .hwid import NO_HARDWARE_ID, is_identifiable
 
 # ── Chiave pubblica di verifica ──────────────────────────────────────────────────────────────
 # ⚠️ PLACEHOLDER — chiave pubblica di **TEST** (il seed corrispondente è noto nei test).
@@ -142,10 +142,11 @@ def verify_license(token: str, hardware_id: str, now: int,
         return _invalid(INVALID_SIGNATURE)
 
     # 3) hardware — confronto esatto sull'Hardware ID legato.
-    # Fail-closed (review Fable/Fugu #143): una macchina non identificabile (`NO_HARDWARE_ID`) o una
-    # licenza legata all'impronta nulla NON è mai accettabile, altrimenti una singola licenza
-    # varrebbe su TUTTE le macchine "cieche" che collassano sulla stessa impronta.
-    if hardware_id == NO_HARDWARE_ID or hw == NO_HARDWARE_ID:
+    # Fail-closed (review Fable/Fugu #143): un'impronta NON identificabile — la sentinella
+    # `NO_HARDWARE_ID` **oppure** un valore vuoto — non è mai accettabile su nessuno dei due lati,
+    # altrimenti una licenza legata a essa varrebbe su tutte le macchine "cieche". Si usa
+    # `is_identifiable` (copre sentinella, stringa vuota e non-stringa) per coerenza col gate.
+    if not is_identifiable(hardware_id) or not is_identifiable(hw):
         return _invalid(WRONG_HARDWARE)
     if hw != hardware_id:
         return _invalid(WRONG_HARDWARE)

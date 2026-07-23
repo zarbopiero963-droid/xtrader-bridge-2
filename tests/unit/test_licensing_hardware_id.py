@@ -51,6 +51,7 @@ def test_sentinella_distinta_da_impronta_reale():
 
 def test_is_identifiable_su_valori_vuoti():
     assert hw.is_identifiable("") is False
+    assert hw.is_identifiable(None) is False
     assert hw.is_identifiable(hw.NO_HARDWARE_ID) is False
 
 

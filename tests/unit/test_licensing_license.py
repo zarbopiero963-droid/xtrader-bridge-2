@@ -147,6 +147,22 @@ def test_licenza_legata_a_impronta_nulla_rifiutata():
     assert st.reason == lic.WRONG_HARDWARE
 
 
+def test_hw_vuoto_nel_payload_rifiutato():
+    # Hardening (review Fable/Fugu #143): una licenza emessa per hw="" non deve mai combaciare,
+    # nemmeno verificata contro hardware_id="" — `is_identifiable` chiude il caso vuoto.
+    token = _valid_token(hw="")
+    st = lic.verify_license(token, "", now=_NOW)
+    assert st.valid is False
+    assert st.reason == lic.WRONG_HARDWARE
+
+
+def test_hardware_id_macchina_vuoto_rifiutato():
+    # Anche se la licenza ha un hw valido, un `hardware_id` della macchina vuoto è non-identificabile.
+    st = lic.verify_license(_valid_token(), "", now=_NOW)
+    assert st.valid is False
+    assert st.reason == lic.WRONG_HARDWARE
+
+
 def test_flag_placeholder_coerente_con_la_chiave_di_test():
     # Guardia deliberata (review #143): finché la chiave è il placeholder di TEST, il flag è True.
     # Sostituendo la chiave con quella reale, il proprietario DEVE portarlo a False → questo test
