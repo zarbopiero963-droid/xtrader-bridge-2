@@ -214,7 +214,8 @@ def test_save_overwrite_completa_anche_se_chmod_solleva(tmp_path, monkeypatch):
         raise OSError("chmod non supportato (simulato)")
     monkeypatch.setattr(core.os, "chmod", _boom)
     core.save_signing_key(path, seed2, pub2, _NOW + 1, overwrite=True)    # non deve sollevare
-    monkeypatch.setattr(core.os, "chmod", os.chmod)                       # ripristina per la verifica
+    # `load_signing_key` non usa `chmod` → la verifica è valida col patch ancora attivo (pytest lo
+    # ripristina a fine test); niente "ripristino" fittizio (core.os È os → risettarlo è un no-op).
     assert core.load_signing_key(path)["seed"] == seed2                   # scritta comunque
 
 
