@@ -1,7 +1,7 @@
 # Sistema di licenze del bridge (issue #140)
 
-> Stato: **PR 1 + PR 2 di 4 fatte** — ancora **nessun blocco**. PR 1 = logica (Ed25519 + Hardware
-> ID + verifica). PR 2 = **schermata «🔑 Licenza»** (scheda del Tabview di configurazione):
+> Stato: **PR 1 + PR 2 fatte, PR 3a (core License Manager) in corso** — ancora **nessun blocco**.
+> PR 1 = logica (Ed25519 + Hardware ID + verifica). PR 2 = **schermata «🔑 Licenza»** (scheda del Tabview di configurazione):
 > mostra l'Hardware ID, permette di incollare e **attivare** la chiave, mostra lo stato, e **persiste**
 > la licenza attivata. La verifica resta **isolata dal percorso soldi** (Telegram→CSV). License
 > Manager (PR 3) e **lock totale della GUI** (PR 4) arrivano dopo. Il merge resta **manuale del
@@ -104,11 +104,42 @@ chiave di TEST. Sostituendo la chiave, il proprietario **deve portarlo a `False`
 due, così lo swap è deliberato e non silenzioso); un gate di release / il lock GUI (PR 4) potrà
 rifiutarsi di operare in distribuzione finché è `True` (chiave di test = licenze forgiabili).
 
+## License Manager — tool del proprietario (PR 3)
+
+Il **License Manager** è il tool con cui il proprietario genera le chiavi e firma le licenze. Vive
+in un package **separato** (`license_manager/`, NON sotto `xtrader_bridge/`) così la logica di firma
+e di custodia della chiave privata **non entra mai nell'EXE del bridge** (la build colleziona solo
+`xtrader_bridge`, invariante #1). Il bridge **verifica** soltanto; il License Manager **firma**.
+
+### PR 3a — logica pura (fatta in questa PR)
+
+`license_manager/core.py` (solo logica, nessuna GUI; la mini-GUI + il workflow di build sono la
+**PR 3b**):
+
+| Funzione | Ruolo |
+|---|---|
+| `generate_keypair()` | Nuova keypair Ed25519 → `(seed_privato_hex, chiave_pubblica_hex)` (seed da `os.urandom`). Il proprietario incolla la **pubblica** nel bridge e custodisce il **seed**. |
+| `save_signing_key` / `load_signing_key` | Custodia del seed privato in `%APPDATA%\XTraderLicenseManager\signing_key.json` (file **separato** da quelli del bridge), scrittura **atomica**, permessi `0o600` (POSIX). |
+| `export_signing_key` | Copia/**backup** del file-chiave su un percorso a scelta (chiavetta/altra cartella). |
+| `issue_license(seed, nome, giorni, hardware_id, now)` | Firma la licenza (`iss=now`, `exp=now+giorni·86400`) riusando `build_license` (PR 1). Validazioni **fail-closed**: nome non vuoto, giorni intero `1..MAX_LICENSE_DAYS` (~10 anni), Hardware ID **identificabile**. |
+
+**Custodia della chiave (decisione proprietario): file locale + backup**, mai nel repo/EXE. Regola
+di sicurezza specifica del file-chiave — diversa dallo stato-licenza del bridge: un file-chiave
+**corrotto NON viene mai scartato in silenzio** (`load_signing_key` **solleva** `KeyFileCorruptError`)
+e `save_signing_key` **rifiuta** di sovrascrivere una chiave valida senza `overwrite=True`. Motivo:
+perdere il seed = non poter più rinnovare le licenze dei bridge già distribuiti. La coerenza
+seed↔pubblica è verificata sia al salvataggio sia al caricamento (intercetta manomissioni/bit-rot).
+
+**Isolamento (test):** un test di sicurezza (`tests/safety/test_license_manager_isolation.py`)
+verifica che **nessun modulo di `xtrader_bridge` importi `license_manager`** e che i workflow di
+build non lo collezionino — così la firma/chiave privata non finisce mai nell'EXE del bridge.
+
 ## Azione una-tantum del proprietario (NON una PR)
 
-Generare la **keypair Ed25519**: rimandabile (serve un PC). La farà il License Manager al primo
-avvio. Fino ad allora si sviluppa/mergia con le **chiavi di TEST** + placeholder; il PC serve solo
-**prima di distribuire** copie licenziate reali.
+Generare la **keypair Ed25519**: rimandabile (serve un PC). La farà il License Manager (PR 3b, GUI)
+al primo avvio, riusando `generate_keypair()` + `save_signing_key()` sopra. Fino ad allora si
+sviluppa/mergia con le **chiavi di TEST** + placeholder; il PC serve solo **prima di distribuire**
+copie licenziate reali.
 
 ## Test hard (questa PR)
 

@@ -19,7 +19,8 @@ _IMPURE = {"xtrader_bridge.app", "xtrader_bridge.custom_parser_gui",
            "xtrader_bridge.provider_gui", "xtrader_bridge.name_mapping_gui",
            "xtrader_bridge.tools_gui", "xtrader_bridge.journal_view_gui",
            "xtrader_bridge.known_teams_gui", "xtrader_bridge.wizard_gui",
-           "xtrader_bridge.guided_mapping_gui", "xtrader_bridge.license_gui"}
+           "xtrader_bridge.guided_mapping_gui", "xtrader_bridge.license_gui",
+           "xtrader_bridge.config_summary_gui"}
 
 # Moduli core che DEVONO sempre essere presenti (guardia contro discovery rotta).
 _CORE = {
@@ -118,3 +119,16 @@ def test_guided_mapping_gui_import_opzionale():
     # La sotto-scheda "🌳 Mapping guidato" dipende da customtkinter: skip se assente.
     pytest.importorskip("customtkinter")
     assert importlib.import_module("xtrader_bridge.guided_mapping_gui") is not None
+
+
+def test_config_summary_gui_import_opzionale():
+    # Il pannello "📋 Riepilogo configurazione" (#293) dipende da customtkinter: skip se assente.
+    pytest.importorskip("customtkinter")
+    assert importlib.import_module("xtrader_bridge.config_summary_gui") is not None
+
+
+def test_license_manager_core_import():
+    # Il License Manager (#140 PR 3a) è un package top-level SEPARATO dal bridge, logica PURA
+    # (nessuna GUI, nessun customtkinter): si importa headless senza skip.
+    assert importlib.import_module("license_manager.core") is not None
+    assert importlib.import_module("license_manager") is not None
