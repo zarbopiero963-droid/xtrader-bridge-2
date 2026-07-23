@@ -90,6 +90,30 @@ def test_current_key_state_assente(gui, tmp_path):
     assert st == {"public": None, "error": None}
 
 
+def _raise_oserror(_p):
+    raise OSError("permesso negato (simulato)")
+
+
+def test_ensure_keypair_file_illeggibile_fail_safe(gui, tmp_path):
+    # GLM #146: file-chiave ILLEGGIBILE (OSError su %APPDATA%, es. lock/permessi) → la GUI non
+    # crasha all'avvio e NON rigenera sopra (fail-safe): stato d'errore, nessuna scrittura.
+    fake = _fake(gui, tmp_path)
+    fake._load_key = _raise_oserror
+    out = gui.LicenseManagerApp._ensure_keypair(fake)
+    assert out["public"] is None and out["created"] is False
+    assert "leggere" in out["error"].lower()
+    assert core.load_signing_key(core.signing_key_path(str(tmp_path))) is None   # niente scritto
+
+
+def test_evaluate_issue_file_illeggibile_fail_safe(gui, tmp_path):
+    # GLM #146: idem in emissione — un OSError sulla lettura chiave non solleva, non emette.
+    fake = _fake(gui, tmp_path)
+    fake._load_key = _raise_oserror
+    out = gui.LicenseManagerApp._evaluate_issue(fake, "Mario", "Rossi", "15", _HW)
+    assert out["accepted"] is False and not out["token"]
+    assert "leggere" in out["message"].lower()
+
+
 # ── emissione licenza ────────────────────────────────────────────────────────────────────────
 def test_evaluate_issue_senza_chiave(gui, tmp_path):
     out = gui.LicenseManagerApp._evaluate_issue(_fake(gui, tmp_path), "Mario", "Rossi", "15", _HW)

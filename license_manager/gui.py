@@ -83,6 +83,13 @@ class LicenseManagerApp(ctk.CTk):
             return {"public": None,
                     "error": "Il file-chiave è corrotto: non verrà sovrascritto. Ripristina un "
                              "backup o rimuovilo a mano prima di rigenerare."}
+        except OSError as exc:
+            # File-chiave illeggibile (permessi/lock su %APPDATA%): fail-SAFE per non far crashare
+            # la GUI all'avvio (review GLM #146) e per NON rigenerare sopra una chiave che potrebbe
+            # esistere ma non è leggibile ora.
+            _log.warning("File-chiave non leggibile: %s", type(exc).__name__)  # solo il tipo (CR #146)
+            return {"public": None,
+                    "error": "Impossibile leggere il file-chiave (permessi/percorso su %APPDATA%?)."}
         if key is None:
             return {"public": None, "error": None}
         return {"public": key.get("public"), "error": None}
@@ -118,6 +125,10 @@ class LicenseManagerApp(ctk.CTk):
         except core.KeyFileCorruptError:
             return {"accepted": False, "token": "",
                     "message": "File-chiave corrotto: ripristina un backup o rigenera."}
+        except OSError as exc:
+            _log.warning("File-chiave non leggibile in emissione: %s", type(exc).__name__)  # solo tipo
+            return {"accepted": False, "token": "",
+                    "message": "Impossibile leggere il file-chiave (permessi/percorso?)."}
         if key is None:
             return {"accepted": False, "token": "",
                     "message": "Nessuna chiave: genera prima la keypair."}
