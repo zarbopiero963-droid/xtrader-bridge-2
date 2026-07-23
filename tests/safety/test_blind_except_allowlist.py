@@ -188,6 +188,12 @@ _ALLOWLIST = {
     "licensing/license.py": (2, "verifica licenza (#140 PR 1) FAIL-CLOSED: (1) token corrotto/"
                                 "incompleto = MALFORMED; (2) chiave pubblica hex malformata = "
                                 "INVALID_SIGNATURE → una licenza non verificabile non sblocca mai"),
+    "license_store.py": (2, "persistenza licenza (#140 PR 2) FAIL-SAFE: (1) file corrotto/illeggibile "
+                            "in load → (None, None) «nessuna licenza», mai crash; (2) rimozione "
+                            "best-effort in clear. Coerente col fail-closed della verifica"),
+    "license_gui.py": (3, "schermata Licenza (#140 PR 2) best-effort GUI Tk: (1) copia negli appunti, "
+                          "(2) lettura campo in teardown/headless, (3) render dello stato — un "
+                          "provider/clipboard che solleva non deve rompere la scheda; nessun blocco"),
 }
 
 

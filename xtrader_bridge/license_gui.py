@@ -1,0 +1,164 @@
+"""Schermata «🔑 Licenza» (#140 PR 2) — pannello embeddable, **SENZA blocco**.
+
+Mostra l'**Hardware ID** della macchina (da comunicare al proprietario), un campo per **incollare
+la chiave** di attivazione, un pulsante **«Attiva»** e lo **stato** corrente (nome, scadenza,
+giorni / motivo). L'attivazione verifica la chiave (`license_status.compute_status`, fail-closed) e,
+solo se valida, la **persiste** (`license_store`). In questa PR **non disabilita nulla**: l'app
+funziona come prima. Il lock totale della GUI è la PR 4 (che riuserà questo stesso pannello).
+
+Logica pura testata a parte (`license_status`, `license_store`); qui c'è solo il cablaggio Tk
+(best-effort, verifica manuale su Windows) e l'handler di attivazione — scritto per essere
+esercitabile headless su un `self` finto (stesso pattern dei meta-test GUI del repo).
+"""
+
+from __future__ import annotations
+
+import customtkinter as ctk
+
+from . import i18n, ui_theme, license_status
+
+# Colori di stato (token WCAG-safe del design system; semantica invariata: verde=ok, rosso=errore,
+# arancio=avviso). ACCENT = pulsante primario «Attiva».
+_COLOR_OK = ui_theme.STATUS_OK
+_COLOR_ERR = ui_theme.STATUS_ERR
+_COLOR_WARN = ui_theme.STATUS_WARN
+_COLOR_MUTED = ui_theme.TEXT2
+_SEVERITY_COLOR = {"ok": _COLOR_OK, "warn": _COLOR_WARN, "error": _COLOR_ERR}
+
+
+class LicensePanel(ctk.CTkFrame):
+    """Pannello della schermata Licenza (embeddable in una scheda o, in PR 4, a tutta finestra).
+
+    Dipendenze iniettate (così è testabile e disaccoppiato dalla GUI principale):
+        hardware_id_provider: () -> str      — impronta macchina (mai vuota; sentinella se cieca).
+        load_state:           () -> (token, last_seen)   — stato persistito (o (None, None)).
+        save_state:           (token, last_seen) -> None — persiste una licenza attivata.
+        now_provider:         () -> int       — unix seconds UTC correnti.
+        on_status_change:     (LicenseStatus) -> None    — hook opzionale (PR 4: gate lock).
+    """
+
+    def __init__(self, master=None, *, hardware_id_provider=None, load_state=None,
+                 save_state=None, now_provider=None, on_status_change=None):
+        super().__init__(master)
+        self._hardware_id_provider = hardware_id_provider
+        self._load_state = load_state
+        self._save_state = save_state
+        self._now_provider = now_provider
+        self._on_status_change = on_status_change
+        self._entry = None
+        self._status_lbl = None
+        self._msg_lbl = None
+        self._build_ui()
+        self.refresh_options()
+
+    # ── costruzione UI (verifica manuale su Windows) ──────────────────────────────────────────
+    def _build_ui(self) -> None:
+        ctk.CTkLabel(self, text=i18n.tr("🔑 Licenza"),
+                     font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(
+                         fill="x", padx=10, pady=(10, 2))
+
+        # Hardware ID + copia
+        hw_row = ctk.CTkFrame(self, fg_color="transparent")
+        hw_row.pack(fill="x", padx=10, pady=(6, 2))
+        ctk.CTkLabel(hw_row, text=i18n.tr("Hardware ID di questa macchina:"),
+                     anchor="w").pack(side="top", fill="x")
+        self._hw_value = ctk.CTkLabel(hw_row, text="—", anchor="w",
+                                      font=ctk.CTkFont(family=ui_theme.FONT_MONO, size=13,
+                                                       weight="bold"))
+        self._hw_value.pack(side="left", padx=(0, 8))
+        ctk.CTkButton(hw_row, text=i18n.tr("📋 Copia"), width=90, height=ui_theme.H_CTRL,
+                      fg_color=ui_theme.SURFACE3, hover_color=ui_theme.BORDER,
+                      text_color=ui_theme.TEXT, command=self._copy_hardware_id).pack(side="left")
+        ctk.CTkLabel(self, text=i18n.tr("Comunica questo codice al fornitore per ricevere la chiave."),
+                     text_color=_COLOR_MUTED, anchor="w").pack(fill="x", padx=10, pady=(0, 8))
+
+        # Stato corrente
+        self._status_lbl = ctk.CTkLabel(self, text="—", anchor="w",
+                                        font=ctk.CTkFont(weight="bold"))
+        self._status_lbl.pack(fill="x", padx=10, pady=(4, 8))
+
+        # Campo chiave + Attiva
+        ctk.CTkLabel(self, text=i18n.tr("Incolla qui la chiave di attivazione:"),
+                     anchor="w").pack(fill="x", padx=10, pady=(2, 2))
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", padx=10, pady=(0, 4))
+        self._entry = ctk.CTkEntry(row, height=ui_theme.H_CTRL,
+                                   placeholder_text=i18n.tr("chiave licenza…"))
+        self._entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(row, text=i18n.tr("✅ Attiva"), width=110, height=ui_theme.H_CTRL,
+                      fg_color=ui_theme.ACCENT, hover_color=ui_theme.ACCENT_HOV,
+                      command=self._on_activate).pack(side="left")
+
+        # Esito dell'ultima attivazione
+        self._msg_lbl = ctk.CTkLabel(self, text="", anchor="w", text_color=_COLOR_MUTED)
+        self._msg_lbl.pack(fill="x", padx=10, pady=(2, 10))
+
+    # ── azioni ────────────────────────────────────────────────────────────────────────────────
+    def _copy_hardware_id(self) -> None:
+        """Copia l'Hardware ID negli appunti (best-effort)."""
+        try:
+            hwid = self._hardware_id_provider() if self._hardware_id_provider else ""
+            self.clipboard_clear()
+            self.clipboard_append(hwid)
+            if self._msg_lbl is not None:
+                self._msg_lbl.configure(text=i18n.tr("📋 Hardware ID copiato."),
+                                        text_color=_COLOR_MUTED)
+        except Exception:       # noqa: BLE001 — clipboard best-effort: non deve rompere la finestra
+            pass
+
+    def _on_activate(self) -> None:
+        """Verifica la chiave incollata e, se valida, la persiste. Nessun blocco: aggiorna lo stato."""
+        outcome = self._evaluate_activation(self._read_entry())
+        if self._msg_lbl is not None:
+            sev = "ok" if outcome["accepted"] else "error"
+            self._msg_lbl.configure(text=outcome["message"],
+                                    text_color=_SEVERITY_COLOR.get(sev, _COLOR_MUTED))
+        self.refresh_options()
+
+    def _read_entry(self) -> str:
+        """Testo del campo chiave (best-effort headless)."""
+        try:
+            return (self._entry.get() or "").strip() if self._entry is not None else ""
+        except Exception:       # noqa: BLE001 — entry non disponibile (headless/teardown)
+            return ""
+
+    def _evaluate_activation(self, pasted_token: str) -> dict:
+        """Logica PURA dell'attivazione (esercitabile su self finto): verifica la chiave incollata
+        contro l'Hardware ID corrente; se valida la persiste con `last_seen` monotòno. Ritorna
+        ``{accepted, message}``. Non solleva: input vuoto → messaggio d'invito."""
+        if not pasted_token:
+            return {"accepted": False, "message": i18n.tr("⚠️ Incolla prima una chiave.")}
+        hwid = self._hardware_id_provider() if self._hardware_id_provider else ""
+        now = int(self._now_provider()) if self._now_provider else 0
+        _token, last_seen = self._load_state() if self._load_state else (None, None)
+        status = license_status.compute_status(pasted_token, hwid, now, last_seen=last_seen)
+        if not status.valid:
+            return {"accepted": False, "message": license_status.status_message(status)}
+        if self._save_state:
+            self._save_state(pasted_token, license_status.next_last_seen(last_seen, now))
+        return {"accepted": True,
+                "message": i18n.tr("✅ Licenza attivata — {name}.").format(name=status.name or "")}
+
+    def current_status(self):
+        """Stato licenza corrente dallo storico persistito (logica pura, usabile anche da PR 4)."""
+        hwid = self._hardware_id_provider() if self._hardware_id_provider else ""
+        now = int(self._now_provider()) if self._now_provider else 0
+        token, last_seen = self._load_state() if self._load_state else (None, None)
+        return license_status.compute_status(token, hwid, now, last_seen=last_seen)
+
+    def refresh_options(self) -> None:
+        """Ricalcola e mostra Hardware ID + stato dalla persistenza (hook al cambio scheda)."""
+        try:
+            hwid = self._hardware_id_provider() if self._hardware_id_provider else "—"
+            if getattr(self, "_hw_value", None) is not None:
+                self._hw_value.configure(text=hwid or "—")
+            status = self.current_status()
+            if self._status_lbl is not None:
+                sev = license_status.status_severity(status)
+                self._status_lbl.configure(text=license_status.status_message(status),
+                                           text_color=_SEVERITY_COLOR.get(sev, _COLOR_MUTED))
+            if self._on_status_change:
+                self._on_status_change(status)
+        except Exception:       # noqa: BLE001 — render best-effort: un provider che solleva non
+            # deve rompere la scheda (coerente con gli altri pannelli sola-lettura).
+            pass

@@ -154,11 +154,12 @@ FINESTRA PRINCIPALE  (720×760, larghezza fissa, altezza ridimensionabile)
 │
 ├── Banner rosso "MODALITÀ REALE ATTIVA"   (visibile solo in modalità reale)
 │
-├── Tabview CONFIGURAZIONE (4 tab)
+├── Tabview CONFIGURAZIONE (5 tab)
 │     ├─ ⚙️ Generale            (Token, Chat ID, CSV Path, Timeout, Provider)
 │     ├─ 🎯 Riconoscimento      (modalità riconoscimento)
 │     ├─ 🛡️ Sicurezza           (DRY_RUN, auto-start, privacy log, limiti, coda)
-│     └─ ✅ Conferme XTrader     (chat notifiche, timeout, keyword conferma/rifiuto)
+│     ├─ ✅ Conferme XTrader     (chat notifiche, timeout, keyword conferma/rifiuto)
+│     └─ 🔑 Licenza             (Hardware ID + «Copia», campo chiave, «Attiva», stato — #140 PR 2)
 │
 ├── Barra pulsanti principali
 │     ├─ ▶ AVVIA   ■ STOP   🗑️ Svuota CSV ora   💾 Salva Config
@@ -737,6 +738,19 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 - **"⏳ Timeout conferma (sec)"** (`confirmation_timeout`)
 - **"✅ Parole conferma (separate da virgola)"** (`confirmation_keywords`)
 - **"❌ Parole rifiuto (separate da virgola)"** (`rejection_keywords`)
+
+**Tab 🔑 Licenza** (`license_gui.LicensePanel`, #140 PR 2) — schermata di attivazione:
+- **Hardware ID di questa macchina** (etichetta monospace, es. `HW1-XXXX-XXXX-XXXX-XXXX`) + pulsante
+  **"📋 Copia"**, con nota «Comunica questo codice al fornitore per ricevere la chiave».
+- **Riga di stato** (colorata per severità): `✅ Licenza attiva — Nome · scade tra N giorni` /
+  `🔒 Nessuna licenza inserita` (arancio) / `⛔ Licenza scaduta` · `⛔ … hardware diverso` ·
+  `⛔ … formato errato` · `⛔ Orologio spostato indietro: licenza sospesa` (rosso).
+- **Campo «Incolla qui la chiave di attivazione»** + pulsante **"✅ Attiva"** (blu `ACCENT`); l'esito
+  appare sotto (verde/rosso). L'attivazione **verifica** (firma + hardware + scadenza, fail-closed) e
+  solo se valida **persiste** in `%APPDATA%\XTraderBridge\license_state.json`.
+- ⚠️ **In questa PR NON blocca nulla**: è informativa/di attivazione, tutti gli altri controlli
+  restano attivi. Il **lock totale** (tutti i controlli grigi finché la licenza non è valida) è la
+  **PR 4**, che riuserà questo stesso pannello come stato «Licenza richiesta».
 
 ### 6.4 Barra pulsanti principali
 - **"▶  AVVIA"** (verde `#2e7d32`, bold)
