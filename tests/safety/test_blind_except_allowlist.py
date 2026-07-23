@@ -177,6 +177,17 @@ _ALLOWLIST = {
     "betfair/dictionary_viewer_gui.py": (2, "GUI Tk viewer dizionario best-effort: lettura "
                                             "dizionario e stile Treeview (Fase 2) non devono "
                                             "crashare la finestra Strumenti"),
+    "licensing/ed25519.py": (1, "verifica firma Ed25519 (#140 PR 1) FAIL-CLOSED: qualunque input "
+                                "malformato (punto non sulla curva, lunghezze errate, s fuori "
+                                "range) = firma NON valida → False, mai un'eccezione che aggiri il "
+                                "gate licenza"),
+    "licensing/hwid.py": (3, "impronta Hardware ID (#140 PR 1): le 3 sorgenti reali (MachineGuid "
+                             "registro, seriale volume ctypes, MAC) sono best-effort e solo-Windows "
+                             "→ sorgente assente/non leggibile = omessa, l'impronta resta stabile "
+                             "sulle altre senza crashare"),
+    "licensing/license.py": (2, "verifica licenza (#140 PR 1) FAIL-CLOSED: (1) token corrotto/"
+                                "incompleto = MALFORMED; (2) chiave pubblica hex malformata = "
+                                "INVALID_SIGNATURE → una licenza non verificabile non sblocca mai"),
 }
 
 
