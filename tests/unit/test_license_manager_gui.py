@@ -94,6 +94,15 @@ def _raise_oserror(_p):
     raise OSError("permesso negato (simulato)")
 
 
+def test_current_key_state_file_illeggibile(gui, tmp_path):
+    # GPT/GLM #146: copertura DIRETTA del ramo OSError di _current_key_state (oltre a quella
+    # indiretta via _ensure_keypair) → stato d'errore, mai un crash.
+    fake = _fake(gui, tmp_path)
+    fake._load_key = _raise_oserror
+    st = gui.LicenseManagerApp._current_key_state(fake)
+    assert st["public"] is None and "leggere" in st["error"].lower()
+
+
 def test_ensure_keypair_file_illeggibile_fail_safe(gui, tmp_path):
     # GLM #146: file-chiave ILLEGGIBILE (OSError su %APPDATA%, es. lock/permessi) → la GUI non
     # crasha all'avvio e NON rigenera sopra (fail-safe): stato d'errore, nessuna scrittura.
