@@ -161,22 +161,29 @@ headless.
 License Manager al **solo utente proprietario**, e la GUI la chiama all'avvio (`_secure_data_dir`):
 
 - **POSIX**: `chmod 0o700` sulla cartella (il file-chiave è già `0o600`);
-- **Windows**: ACL via `icacls`, perché `chmod` non tocca le ACL NTFS (rilievo Fugu #146). Due
-  comandi (review GPT #147, perché `/inheritance:r` da solo rimuove le ACE **ereditate** ma non
-  quelle **esplicite** pregresse): `icacls … /reset` azzera le ACE esplicite preesistenti, poi
-  `icacls … /inheritance:r /grant:r "<utente>:(OI)(CI)F"` rimuove l'ereditarietà e concede il
-  controllo al **solo** utente corrente — netto: DACL = solo owner, anche su una cartella che
-  esisteva già con permessi larghi. L'utente si ricava da `getpass.getuser()` (fallback `USERNAME`/`USER`).
+- **Windows**: ACL via `icacls`, perché `chmod` non tocca le ACL NTFS (rilievo Fugu #146; su NTFS il
+  `0o600` del file è inefficace, quindi la protezione dipende **interamente** da questa DACL). **Un
+  solo comando fail-closed** (review Fugu #147): `icacls … /inheritance:r /grant:r
+  "<principal>:(OI)(CI)F"` — `/inheritance:r` rimuove le ACE **ereditate**, `/grant:r` concede il
+  controllo al **solo** utente corrente. **Niente `icacls /reset` prima del grant**: quel comando
+  ripristinerebbe l'ereditarietà **larga** (fail-open) e, se il `/grant` successivo fallisse,
+  lascerebbe la cartella-chiave più esposta di prima. Con l'unico comando, se `icacls` fallisce la
+  cartella resta **al più ristretta** (fail-closed: al peggio inaccessibile anche all'owner, che è
+  avvisato), **mai** allargata. La cartella è creata da noi in `%APPDATA%` (eredita già ACL
+  solo-owner), quindi non ci sono ACE **esplicite** pregresse di altri utenti da azzerare. Il
+  `<principal>` è **domain-qualified** (`USERDOMAIN\utente` quando `%USERDOMAIN%` è presente — forma
+  valida per account locali, di dominio e AzureAD), così `/grant` risolve anche fuori da un account
+  locale; l'utente si ricava da `getpass.getuser()` (fallback `USERNAME`/`USER`).
 
 **Best-effort e non solleva** — se `icacls`/`chmod` mancano o falliscono il tool **prosegue ma con
 la protezione della cartella NON garantita** (loggato, solo il tipo eccezione). Il comando `icacls`
 è verificato in test via runner **iniettato** (nessun Windows reale necessario); il comportamento
-reale su Windows resta **smoke manuale**. La blindatura riguarda **solo** la cartella-dati del tool,
-mai le cartelle di **export** scelte dall'utente.
+reale su Windows — **incluso un account di dominio/AzureAD** — resta **smoke manuale**. La blindatura
+riguarda **solo** la cartella-dati del tool, mai le cartelle di **export** scelte dall'utente.
 
 `secure_dir` / `ensure_secure_dir` **ritornano un booleano** che dice se la blindatura è **davvero**
 riuscita (review GPT/GLM #147): `True` solo se `chmod`/`icacls` sono andati a buon fine
-(su Windows entrambi i comandi `icacls` con exit code 0), `False` altrimenti (utente non ricavabile,
+(su Windows il comando `icacls` con exit code 0), `False` altrimenti (utente non ricavabile,
 eccezione, exit code ≠ 0, o `makedirs` fallito). All'avvio la GUI usa questo esito: se è `False` e non
 c'è già un errore di chiave, `_refresh_key_state` mostra un **avviso** («non è stato possibile
 proteggere la cartella-chiave…») invece di lasciare l'utente con un **falso senso di sicurezza**. Il

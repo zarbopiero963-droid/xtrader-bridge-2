@@ -99,6 +99,20 @@ def _current_user() -> str:
         return os.environ.get("USERNAME") or os.environ.get("USER") or ""
 
 
+def _acl_principal() -> str:
+    """Principal per `icacls /grant`, **domain-qualified** quando possibile (review Fugu #147, blocco
+    #2): `getpass.getuser()` da solo torna il nome **senza dominio** e su un account di dominio/AzureAD
+    `icacls /grant "<utente>"` può non risolvere → il grant fallisce. Se `%USERDOMAIN%` è presente si
+    usa `DOMINIO\\utente` (forma valida sia per account locali — `DOMINIO` = nome PC — sia di dominio
+    e AzureAD, dove `USERDOMAIN` vale `AzureAD`); altrimenti il nome nudo. `""` se l'utente non è
+    ricavabile → nessun grant ambiguo."""
+    user = _current_user()
+    if not user:
+        return ""
+    domain = os.environ.get("USERDOMAIN")
+    return f"{domain}\\{user}" if domain else user
+
+
 def _rc_ok(result) -> bool:
     """`True` se il comando è andato a buon fine (returncode 0). Un runner iniettato che non
     restituisce un oggetto con `returncode` (test) è considerato riuscito."""
@@ -109,32 +123,36 @@ def _apply_windows_acl(path: str, *, run) -> bool:
     """Restringe `path` al **solo** utente proprietario su Windows via `icacls` (best-effort).
 
     `os.chmod` su Windows non tocca le ACL NTFS: senza questo, su un PC multi-utente il seed privato
-    sarebbe leggibile da altri account locali (rilievo Fugu #146). Sequenza (review GPT #147 — perché
-    `/inheritance:r` da solo non basta: rimuove le ACE **ereditate** ma non quelle **esplicite**
-    pregresse per altri utenti):
+    sarebbe leggibile da altri account locali (rilievo Fugu #146). Il file-chiave `0o600` su NTFS è
+    inefficace, quindi la protezione dipende **interamente** da questa DACL.
 
-    1. `icacls … /reset` → azzera le ACE **esplicite** pregresse (ripristina l'ereditarietà);
-    2. `icacls … /inheritance:r /grant:r "<utente>:(OI)(CI)F"` → rimuove l'ereditarietà e concede il
-       controllo al **solo** utente corrente. Netto: DACL = {solo owner}, anche su una cartella che
-       esisteva già con permessi larghi espliciti.
+    **Sequenza fail-closed, mai allargante (review Fugu #147, blocco #1).** Un **solo** comando:
+    `icacls … /inheritance:r /grant:r "<principal>:(OI)(CI)F"` — `/inheritance:r` rimuove le ACE
+    **ereditate**, `/grant:r` concede il controllo al **solo** utente corrente. NON si esegue prima
+    alcun `icacls /reset`: quel comando **ripristinerebbe l'ereditarietà larga** (fail-OPEN) e, se il
+    `/grant` successivo fallisse, lascerebbe la cartella-chiave più esposta di prima. Con l'unico
+    comando qui, se `icacls` fallisce la cartella resta **al più ristretta** (fail-closed: al peggio
+    DACL vuota → inaccessibile anche all'owner, che viene avvisato), **mai** allargata. La cartella è
+    creata da noi in `%APPDATA%` (eredita già ACL solo-owner), quindi non esistono ACE **esplicite**
+    pregresse di altri utenti da azzerare: rinunciare al `/reset` non riespone il seed.
 
-    `run` è iniettabile (test) e di default è `subprocess.run` (**lista** di argomenti, mai
-    `shell=True` → nessuna injection). **Best-effort e non solleva**: se `icacls` manca/fallisce, il
-    tool prosegue ma con protezione della cartella **non garantita** (loggato, solo il tipo eccezione).
-    Ritorna `True` solo se **entrambi** i comandi `icacls` hanno restituito exit code 0 (protezione
-    davvero applicata), altrimenti `False` (utente non ricavabile, eccezione, o returncode ≠ 0)."""
-    user = _current_user()
-    if not user:
+    Il `<principal>` è **domain-qualified** (`_acl_principal`) così `/grant` risolve anche su account
+    di dominio/AzureAD (blocco #2). `run` è iniettabile (test) e di default è `subprocess.run`
+    (**lista** di argomenti, mai `shell=True` → nessuna injection). **Best-effort e non solleva**:
+    se `icacls` manca/fallisce il tool prosegue ma con protezione **non garantita** (loggato, solo il
+    tipo eccezione). Ritorna `True` solo se `icacls` ha restituito exit code 0 (protezione davvero
+    applicata), altrimenti `False` (utente non ricavabile, eccezione, o returncode ≠ 0)."""
+    principal = _acl_principal()
+    if not principal:
         _log.warning("icacls sulla cartella-chiave saltato: utente corrente non ricavabile")
         return False
     try:
-        r1 = run(["icacls", str(path), "/reset"], check=False, capture_output=True, timeout=15)
-        r2 = run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:(OI)(CI)F"],
-                 check=False, capture_output=True, timeout=15)
+        r = run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{principal}:(OI)(CI)F"],
+                check=False, capture_output=True, timeout=15)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         _log.warning("icacls sulla cartella-chiave non riuscito: %s", type(exc).__name__)
         return False
-    return _rc_ok(r1) and _rc_ok(r2)
+    return _rc_ok(r)
 
 
 def secure_dir(path: str, *, run=None, platform: "str | None" = None) -> bool:

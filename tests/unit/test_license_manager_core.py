@@ -275,36 +275,49 @@ def test_secure_dir_posix_0700(tmp_path):
 
 
 def test_secure_dir_windows_usa_icacls(tmp_path, monkeypatch):
-    # Su Windows chmod non basta (ACL NTFS): secure_dir invoca icacls. Due comandi (review GPT #147):
-    # /reset azzera le ACE ESPLICITE pregresse, poi /inheritance:r + /grant al SOLO utente corrente.
-    # Verificato via runner iniettato (nessun Windows reale).
+    # Su Windows chmod non basta (ACL NTFS): secure_dir invoca icacls. UN SOLO comando fail-closed
+    # (review Fugu #147): /inheritance:r rimuove l'ereditarietà + /grant:r al SOLO utente. NIENTE
+    # /reset che allargherebbe (fail-open). Verificato via runner iniettato (nessun Windows reale).
     monkeypatch.setattr(core, "_current_user", lambda: "pippo")
+    monkeypatch.delenv("USERDOMAIN", raising=False)     # nome nudo → assert deterministico
     calls = []
 
     def _run(*a, **k):
         calls.append(a[0])
         return _OkResult(0)
 
-    assert core.secure_dir(str(tmp_path), run=_run, platform="win32") is True   # entrambi rc=0 → True
-    assert len(calls) == 2                              # /reset + /grant
-    reset_cmd, grant_cmd = calls
-    assert reset_cmd[0] == "icacls" and "/reset" in reset_cmd and str(tmp_path) in reset_cmd
+    assert core.secure_dir(str(tmp_path), run=_run, platform="win32") is True   # rc=0 → True
+    assert len(calls) == 1                              # un solo comando di lockdown
+    (grant_cmd,) = calls
     assert grant_cmd[0] == "icacls" and str(tmp_path) in grant_cmd
     assert "/inheritance:r" in grant_cmd and "/grant:r" in grant_cmd
     assert "pippo:(OI)(CI)F" in grant_cmd
+    assert "/reset" not in grant_cmd                    # mai il passo che allarga (Fugu #147)
+
+
+def test_secure_dir_windows_principal_domain_qualified(tmp_path, monkeypatch):
+    # review Fugu #147 blocco #2: su account di dominio/AzureAD il principal deve essere
+    # DOMINIO\utente, non il nome nudo, altrimenti /grant non risolve.
+    monkeypatch.setattr(core, "_current_user", lambda: "pippo")
+    monkeypatch.setenv("USERDOMAIN", "AzureAD")
+    calls = []
+
+    def _run(*a, **k):
+        calls.append(a[0])
+        return _OkResult(0)
+
+    assert core.secure_dir(str(tmp_path), run=_run, platform="win32") is True
+    (grant_cmd,) = calls
+    assert "AzureAD\\pippo:(OI)(CI)F" in grant_cmd      # domain-qualified
 
 
 def test_secure_dir_windows_icacls_rc_diverso_da_zero_false(tmp_path, monkeypatch):
-    # review GPT/GLM #147: se il /grant torna un exit code ≠ 0 (ACL NON applicata), secure_dir deve
-    # ritornare False → la GUI avvisa l'utente invece di credere la cartella protetta.
+    # review Fugu/GLM #147: se icacls torna un exit code ≠ 0 (ACL NON applicata), secure_dir deve
+    # ritornare False → la GUI avvisa l'utente invece di credere la cartella protetta. Fail-closed:
+    # nessun passo precedente ha allargato i permessi.
     monkeypatch.setattr(core, "_current_user", lambda: "pippo")
-    seq = [_OkResult(0), _OkResult(5)]                  # /reset ok, /grant fallito
-    it = iter(seq)
-
-    def _run(*a, **k):
-        return next(it)
-
-    assert core.secure_dir(str(tmp_path), run=_run, platform="win32") is False
+    assert core.secure_dir(str(tmp_path), run=lambda *a, **k: _OkResult(5),
+                           platform="win32") is False
 
 
 def test_secure_dir_windows_senza_utente_niente_icacls(tmp_path, monkeypatch):
