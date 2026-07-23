@@ -143,6 +143,18 @@ def test_save_permessi_ristretti_posix(tmp_path):
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
 
 
+def test_save_overwrite_permessi_ristretti_posix(tmp_path):
+    # Fable/Fugu #145: anche il path overwrite=True (temp+replace) crea il seed a 0o600 esplicito,
+    # senza finestra a permessi larghi. Verifica il modo finale dopo un rimpiazzo deliberato.
+    if os.name != "posix":
+        pytest.skip("permessi 0o600 verificabili solo su POSIX")
+    path = core.signing_key_path(str(tmp_path))
+    core.save_signing_key(path, _TEST_SEED_HEX, _TEST_PUBLIC_HEX, _NOW)
+    seed2, pub2 = core.generate_keypair()
+    core.save_signing_key(path, seed2, pub2, _NOW + 1, overwrite=True)
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+
 # ── regola di sicurezza chiave: no-overwrite, corruzione MAI scartata ───────────────────────
 def test_save_non_sovrascrive_senza_flag(tmp_path):
     path = core.signing_key_path(str(tmp_path))
@@ -237,6 +249,36 @@ def test_export_backup_copia_identica(tmp_path):
     core.export_signing_key(src, dest)
     exported = core.load_signing_key(dest)
     assert exported["seed"] == _TEST_SEED_HEX and exported["public"] == _TEST_PUBLIC_HEX
+
+
+def test_export_e_fedele_byte_per_byte(tmp_path):
+    # Fable #145: un backup deve essere FEDELE, non ricostruito — nessun metadato (es. `created`)
+    # alterato silenziosamente. Verifica che il backup sia byte-identico alla sorgente.
+    src = core.signing_key_path(str(tmp_path))
+    core.save_signing_key(src, _TEST_SEED_HEX, _TEST_PUBLIC_HEX, _NOW)
+    dest = str(tmp_path / "backup" / "b.json")
+    core.export_signing_key(src, dest)
+    with open(src, "r", encoding="utf-8") as f:
+        src_bytes = f.read()
+    with open(dest, "r", encoding="utf-8") as f:
+        dest_bytes = f.read()
+    assert dest_bytes == src_bytes                                   # backup fedele, non ricostruito
+    assert core.load_signing_key(dest)["created"] == _NOW           # metadato preservato
+
+
+def test_export_preserva_created_non_standard(tmp_path):
+    # Regressione Fable #145: PRIMA export ricostruiva `created: 0` se il campo non era int valido.
+    # Una sorgente con keypair valida ma `created` malformato (manomissione) deve restare FEDELE
+    # nel backup, non essere silenziosamente degradata.
+    src = str(tmp_path / "src.json")
+    tampered = json.dumps({"v": 1, "seed": _TEST_SEED_HEX, "public": _TEST_PUBLIC_HEX,
+                           "created": "non-un-int"}, indent=2, sort_keys=True)
+    with open(src, "w", encoding="utf-8") as f:
+        f.write(tampered)
+    dest = str(tmp_path / "b.json")
+    core.export_signing_key(src, dest)                               # sorgente valida (keypair ok)
+    with open(dest, "r", encoding="utf-8") as f:
+        assert json.load(f)["created"] == "non-un-int"              # fedele, NON degradato a 0
 
 
 def test_export_assente_solleva(tmp_path):

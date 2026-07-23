@@ -4,10 +4,12 @@ Funzioni senza GUI e senza stato globale: generazione della keypair Ed25519, cus
 seed PRIVATO e firma delle licenze. La GUI e il workflow di build sono la **PR 3b**.
 
 Riuso deliberato: la firma passa da `xtrader_bridge.licensing.license.build_license` (già presente,
-PR 1) e la keypair da `xtrader_bridge.licensing.ed25519` (Ed25519 pure-Python). La scrittura su
-disco usa `xtrader_bridge.atomic_io` (atomica come il resto del repo). Importare queste utility del
-bridge nel tool del proprietario va bene: è il **bridge** che non deve importare **questo** package
-(niente firma/chiave privata nell'EXe del bridge) — non il contrario.
+PR 1) e la keypair da `xtrader_bridge.licensing.ed25519` (Ed25519 pure-Python). La scrittura del
+file-chiave è **self-contained** (`_persist_key_file`): permessi `0o600` espliciti sul temporaneo,
+`O_EXCL` per il no-overwrite atomico e `fsync` di file **e directory** — requisiti specifici della
+custodia del seed privato, resi visibili qui invece di delegarli. Importare le utility del bridge nel
+tool del proprietario va bene: è il **bridge** che non deve importare **questo** package (niente
+firma/chiave privata nell'EXE del bridge) — non il contrario.
 
 Custodia della chiave (decisione proprietario): **file locale** in `%APPDATA%\\XTraderLicenseManager\\
 signing_key.json`, MAI nel repo/EXE, con funzione di **export/backup**. Regola di sicurezza chiave:
@@ -21,8 +23,8 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 
-from xtrader_bridge import atomic_io
 from xtrader_bridge.licensing import ed25519
 from xtrader_bridge.licensing.hwid import is_identifiable
 from xtrader_bridge.licensing.license import build_license
@@ -119,24 +121,69 @@ def _restrict_perms(path: str) -> None:
         pass    # Windows / filesystem senza permessi POSIX: best-effort, non è un errore
 
 
-def _persist_key_file(path: str, payload: dict, *, overwrite: bool) -> None:
-    """Scrive il file-chiave. Due modalità (review Fable #145, TOCTOU):
+def _fsync_dir(d: str) -> None:
+    """`fsync` della directory contenitore → rende **durabile** la voce di directory (create/rename)
+    dopo l'`fsync` del file (review Fugu #145): senza, un crash/power-loss subito dopo può perdere il
+    file-chiave appena scritto (perdita dichiarata catastrofica: rinnovo licenze impossibile).
 
-    - `overwrite=False` → **creazione ESCLUSIVA** `O_CREAT|O_EXCL`: se il file esiste già la `open`
-      fallisce **atomicamente** con `KeyExistsError`, senza la finestra check-then-write in cui due
-      processi concorrenti potrebbero entrambi passare il controllo e sovrascrivere (perdere) una
-      chiave esistente. Un crash a metà di una create (nessuna chiave preesistente per definizione)
-      lascia un file parziale → `load_signing_key` lo segnala corrotto e il proprietario rigenera;
-    - `overwrite=True` → **sostituzione atomica** (temp + `os.replace`): rimpiazzo DELIBERATO e
-      crash-safe di una chiave esistente.
+    Best-effort e non solleva: dove non è supportato (Windows non apre una dir come fd; alcuni FS
+    rifiutano l'fsync di una dir) è un no-op — viene chiamato DOPO una scrittura già riuscita, quindi
+    un suo errore non deve propagare né perdere il file (stessa semantica di `atomic_io._fsync_dir`)."""
+    try:
+        dir_fd = os.open(d, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(dir_fd)
+    except OSError:
+        pass
+    finally:
+        try:
+            os.close(dir_fd)
+        except OSError:
+            pass
+
+
+def _persist_key_file(path: str, data: str, *, overwrite: bool) -> None:
+    """Scrive il file-chiave (contenuto `data` già serializzato). Due modalità:
+
+    - `overwrite=False` → **creazione ESCLUSIVA** `O_CREAT|O_EXCL` a `0o600`: se il file esiste già la
+      `open` fallisce **atomicamente** con `KeyExistsError`, senza la finestra check-then-write in cui
+      due processi concorrenti potrebbero entrambi passare il controllo e sovrascrivere (perdere) una
+      chiave esistente (review Fable #145). Un crash a metà di una create (nessuna chiave preesistente
+      per definizione) lascia un file parziale → `load_signing_key` lo segnala corrotto e si rigenera;
+    - `overwrite=True` → **sostituzione atomica** temp + `os.replace`: rimpiazzo DELIBERATO e crash-safe.
+
+    In **entrambi** i casi il seed nasce con permessi `0o600` **espliciti** (mai una finestra a umask
+    largo sul temp — review Fable/Fugu #145) e la voce di directory viene resa **durabile** con
+    `fsync` della dir (review Fugu #145). Contenuto scritto come UTF-8.
     """
     d = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(d, exist_ok=True)
-    data = json.dumps(payload, indent=2, sort_keys=True)
+    encoded = data.encode("utf-8")
+
     if overwrite:
-        atomic_io.atomic_write_text(path, data, prefix=_TMP_PREFIX, suffix=_TMP_SUFFIX)
+        # Temp nella STESSA dir con permessi ESPLICITI 0o600 (mkstemp li crea già così, ma il chmod
+        # esplicito prima del replace elimina ogni dubbio su una finestra a umask sul seed privato),
+        # poi scrittura + fsync + replace atomico + fsync della dir.
+        fd, tmp = tempfile.mkstemp(dir=d, prefix=_TMP_PREFIX, suffix=_TMP_SUFFIX)
+        try:
+            os.chmod(tmp, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(encoded)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
+        _fsync_dir(d)
         _restrict_perms(path)
         return
+
     try:
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     except FileExistsError as exc:
@@ -144,8 +191,8 @@ def _persist_key_file(path: str, payload: dict, *, overwrite: bool) -> None:
             f"esiste già una chiave di firma in {path}: rigenerarla invaliderebbe i bridge "
             "distribuiti; usa overwrite=True per sostituirla deliberatamente") from exc
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(data)
+        with os.fdopen(fd, "wb") as f:
+            f.write(encoded)
             f.flush()
             os.fsync(f.fileno())
     except BaseException:
@@ -156,6 +203,7 @@ def _persist_key_file(path: str, payload: dict, *, overwrite: bool) -> None:
         except OSError:
             pass
         raise
+    _fsync_dir(d)
     _restrict_perms(path)
 
 
@@ -188,7 +236,7 @@ def save_signing_key(path: str, seed_hex: str, public_hex: str, now: int,
         "public": public_hex,
         "created": int(now),
     }
-    _persist_key_file(path, payload, overwrite=overwrite)
+    _persist_key_file(path, json.dumps(payload, indent=2, sort_keys=True), overwrite=overwrite)
 
 
 def load_signing_key(path: str) -> "dict | None":
@@ -234,28 +282,25 @@ def load_signing_key(path: str) -> "dict | None":
 def export_signing_key(src_path: str, dest_path: str, *, overwrite: bool = False) -> None:
     """Copia il file-chiave in `dest_path` (backup su chiavetta/altra cartella), in modo atomico.
 
-    Rilegge e riscrive il contenuto **validato** (via `load_signing_key`): un backup di un file
-    corrotto solleverebbe, così non si esporta spazzatura al posto della chiave. Assente → solleva
-    `FileNotFoundError` (non c'è nulla da esportare).
+    **Backup FEDELE** (review Fable #145): dopo aver **validato** la sorgente con `load_signing_key`
+    (corrotta → solleva, così non si esporta spazzatura; assente → `FileNotFoundError`), copia i
+    **byte esatti** del file sorgente. Niente ricostruzione del payload: un metadato come `created`
+    non viene mai alterato silenziosamente (es. degradato a `0`) rispetto all'originale.
 
     Come `save_signing_key`, **non sovrascrive** una chiave valida già presente in `dest_path`
     senza `overwrite=True` (review CodeRabbit #145): un backup esistente — magari di un'ALTRA
     keypair — non va perso in silenzio (perderla = non poter più rinnovare quei bridge).
     L'enforcement no-overwrite è **atomico** (`O_EXCL`, review Fable #145): niente race TOCTOU."""
-    key = load_signing_key(src_path)
-    if key is None:
+    if load_signing_key(src_path) is None:
         raise FileNotFoundError(f"nessun file-chiave da esportare: {src_path}")
     if not overwrite and load_signing_key(dest_path) is not None:
         raise KeyExistsError(
             f"esiste già una chiave di firma in {dest_path}: usa overwrite=True per sostituirla "
             "deliberatamente")
-    payload = {
-        "v": KEY_FORMAT_VERSION,
-        "seed": key["seed"],
-        "public": key["public"],
-        "created": int(key["created"]) if isinstance(key["created"], int) else 0,
-    }
-    _persist_key_file(dest_path, payload, overwrite=overwrite)
+    # Copia FEDELE dei byte della sorgente validata (nessuna ricostruzione che altererebbe metadati).
+    with open(src_path, "r", encoding="utf-8") as f:
+        raw = f.read()
+    _persist_key_file(dest_path, raw, overwrite=overwrite)
 
 
 def issue_license(seed_hex: str, name: str, days: int, hardware_id: str, now: int) -> str:

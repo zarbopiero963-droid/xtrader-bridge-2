@@ -120,7 +120,7 @@ e di custodia della chiave privata **non entra mai nell'EXE del bridge** (la bui
 |---|---|
 | `generate_keypair()` | Nuova keypair Ed25519 → `(seed_privato_hex, chiave_pubblica_hex)` (seed da `os.urandom`). Il proprietario incolla la **pubblica** nel bridge e custodisce il **seed**. |
 | `save_signing_key` / `load_signing_key` | Custodia del seed privato in `%APPDATA%\XTraderLicenseManager\signing_key.json` (file **separato** da quelli del bridge), scrittura **atomica**, permessi `0o600` (POSIX). |
-| `export_signing_key` | Copia/**backup** del file-chiave su un percorso a scelta (chiavetta/altra cartella), atomico; come `save` **non sovrascrive** un backup esistente senza `overwrite=True`. |
+| `export_signing_key` | **Backup FEDELE** (copia byte-per-byte della sorgente validata: nessun metadato alterato) su un percorso a scelta; atomico; come `save` **non sovrascrive** un backup esistente senza `overwrite=True`. |
 | `issue_license(seed, nome, giorni, hardware_id, now)` | Firma la licenza (`iss=now`, `exp=now+giorni·86400`) riusando `build_license` (PR 1). Validazioni **fail-closed**: nome non vuoto, giorni intero `1..MAX_LICENSE_DAYS` (~10 anni), Hardware ID **identificabile**. |
 
 **Custodia della chiave (decisione proprietario): file locale + backup**, mai nel repo/EXE. Regola
@@ -128,8 +128,9 @@ di sicurezza specifica del file-chiave — diversa dallo stato-licenza del bridg
 **corrotto NON viene mai scartato in silenzio** (`load_signing_key` **solleva** `KeyFileCorruptError`)
 e `save_signing_key` (e `export_signing_key` verso il backup) **rifiuta** di sovrascrivere una
 chiave valida senza `overwrite=True` — enforcement **atomico** via `O_EXCL` (nessuna race TOCTOU tra
-il controllo e la scrittura). Motivo: perdere il seed = non poter più rinnovare le licenze dei bridge
-già distribuiti. La coerenza
+il controllo e la scrittura). Il seed nasce con permessi `0o600` **espliciti** sul temporaneo (niente
+finestra a umask largo) e la scrittura fa `fsync` di file **e directory** (durabilità su crash).
+Motivo: perdere il seed = non poter più rinnovare le licenze dei bridge già distribuiti. La coerenza
 seed↔pubblica è verificata sia al salvataggio sia al caricamento (intercetta manomissioni/bit-rot).
 
 **Isolamento (test):** un test di sicurezza (`tests/safety/test_license_manager_isolation.py`)
