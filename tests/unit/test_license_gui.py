@@ -194,6 +194,26 @@ def test_current_status_heartbeat_reset_dopo_write_riuscito(license_gui):
     assert fake._heartbeat_failures == 1
 
 
+def test_current_status_last_seen_float_tronca_e_avanza(license_gui):
+    # GLM/GPT #144: un `last_seen` float (numerico ma non int) è ammesso via int() (tronca), NON
+    # sanizzato a None: resta un timestamp valido e l'heartbeat avanza correttamente.
+    fake, saved = _fake_panel(stored=(_valid_token(), float(_NOW - _DAY)), now=_NOW)
+    st = license_gui.LicensePanel.current_status(fake)
+    assert st.valid is True
+    assert saved and saved[-1] == (_valid_token(), _NOW)   # advanced = now
+
+
+def test_current_status_last_seen_futuro_come_stringa_numerica_blocca_rollback(license_gui):
+    # GPT #144: la sanificazione NON deve diventare un bypass. Un `last_seen` FUTURO ma numerico
+    # (qui una STRINGA numerica) è convertibile con int() → NON None → l'anti-rollback lo vede
+    # ancora nel futuro → CLOCK_ROLLBACK, licenza non valida, nessun heartbeat scritto.
+    fake, saved = _fake_panel(stored=(_valid_token(), str(_NOW + 30 * _DAY)), now=_NOW)
+    st = license_gui.LicensePanel.current_status(fake)
+    assert st.valid is False
+    assert st.reason == lic.CLOCK_ROLLBACK
+    assert saved == []                                     # nessun bypass: niente scrittura
+
+
 def test_current_status_orologio_retrocede_rollback(license_gui):
     # GLM #144: caso critico anti-rollback — last_seen nel futuro rispetto a now → CLOCK_ROLLBACK,
     # licenza NON valida e nessun heartbeat scritto.
