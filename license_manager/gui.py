@@ -25,7 +25,7 @@ import time as _time
 
 import customtkinter as ctk
 
-from license_manager import core
+from license_manager import core, registry
 
 _log = logging.getLogger(__name__)
 
@@ -42,11 +42,14 @@ class LicenseManagerApp(ctk.CTk):
         save_key:         (path, seed, public, now) -> None.
         export_key:       (src, dest) -> None.
         issue_license:    (seed, nome, giorni, hardware_id, now) -> token.
+        record_issued:    (record, *, directory) -> record   — append al registro licenze.
+        read_records:     (*, directory) -> list             — lettura del registro licenze.
     """
 
     def __init__(self, master=None, *, key_dir=None, now_provider=None,
                  generate_keypair=None, load_key=None, save_key=None,
-                 export_key=None, issue_license=None):
+                 export_key=None, issue_license=None,
+                 record_issued=None, read_records=None):
         super().__init__()
         self._key_dir = key_dir
         self._now = now_provider or (lambda: int(_time.time()))
@@ -55,6 +58,9 @@ class LicenseManagerApp(ctk.CTk):
         self._save_key = save_key or core.save_signing_key
         self._export_key = export_key or core.export_signing_key
         self._issue_license = issue_license or core.issue_license
+        # Registro licenze emesse (opzione A): append + lettura, iniettabili per i test.
+        self._record_issued = record_issued or registry.append_record
+        self._read_records = read_records or registry.read_records
         # widget refs (popolati da _build_ui)
         self._public_value = None
         self._nome_entry = None
@@ -63,6 +69,8 @@ class LicenseManagerApp(ctk.CTk):
         self._hwid_entry = None
         self._token_box = None
         self._msg_lbl = None
+        self._reg_query_entry = None
+        self._registry_box = None
         self.title("XTrader License Manager")
         # Esito della blindatura della cartella-chiave: se `False`, `_refresh_key_state` avvisa
         # l'utente invece di lasciarlo con un falso senso di sicurezza (review GPT/GLM #147).
@@ -155,9 +163,51 @@ class LicenseManagerApp(ctk.CTk):
                                         str(hardware_id).strip(), self._now())
         except ValueError as exc:
             return {"accepted": False, "token": "", "message": str(exc)}
+        recorded = self._record_issued_safe(token)
+        suffix = "" if recorded else (" ⚠️ registro NON aggiornato (permessi/percorso della "
+                                      "cartella?): il token è comunque valido, salvalo a mano.")
         return {"accepted": True, "token": token,
                 "message": f"Chiave generata per «{nome_completo}» · {giorni} giorni. "
-                           "Inviala all'utente."}
+                           f"Inviala all'utente.{suffix}"}
+
+    def _record_issued_safe(self, token) -> bool:
+        """Registra la licenza appena emessa nel **registro locale** (opzione A), best-effort.
+
+        Un fallimento (registro non scrivibile, token non interpretabile) **non** blocca l'emissione:
+        il token è già firmato e va consegnato all'utente comunque; si logga solo il tipo eccezione.
+        Ritorna `True` se il record è stato scritto."""
+        try:
+            record = registry.record_from_token(token, now=self._now())
+            self._record_issued(record, directory=self._key_dir)
+            return True
+        except (OSError, ValueError) as exc:
+            # Tipo eccezione + path del registro per diagnosticare, MA non il messaggio grezzo
+            # `str(exc)` (review GLM/GPT-5.5 #152): un provider custom potrebbe includervi dati; il
+            # path è sufficiente a capire cosa non è stato scritto, senza rischiare leak dal messaggio.
+            _log.warning("Registrazione licenza nel registro non riuscita [%s] (dir=%s)",
+                         type(exc).__name__, registry.registry_path(self._key_dir))
+            return False
+
+    def _registry_view(self, query: str = "") -> list:
+        """Righe del **registro licenze** filtrate per `query` (sola lettura, headless-testabile).
+        Fail-safe: se la lettura del registro fallisce, `read_records` ritorna `[]` (nessun crash)."""
+        records = self._read_records(directory=self._key_dir)
+        return registry.view_rows(records, query=str(query or ""), now=self._now())
+
+    @staticmethod
+    def _format_registry_rows(rows: list) -> str:
+        """Rende le righe del registro come testo leggibile per la vista. **Non** mostra mai il
+        token di attivazione (già escluso da `view_rows`). Vuoto = messaggio esplicito."""
+        if not rows:
+            return "(nessuna licenza registrata)"
+        lines = []
+        for r in rows:
+            exp = r.get("expiry")
+            exp_str = _time.strftime("%Y-%m-%d", _time.gmtime(exp)) if isinstance(exp, int) else "?"
+            lines.append(
+                f"{r['status']:8} · {r['serial']} · {r['name']} · HW {r['hardware_id']} · "
+                f"{r['days_left']}g rimasti · scad. {exp_str}")
+        return "\n".join(lines)
 
     def _evaluate_export(self, dest_path) -> dict:
         """**Backup** del file-chiave in `dest_path`. Ritorna ``{"ok", "message"}``."""
@@ -210,6 +260,16 @@ class LicenseManagerApp(ctk.CTk):
         # Token risultante
         self._token_box = ctk.CTkTextbox(self, height=70)
         self._token_box.pack(fill="x", padx=12, pady=(0, 6))
+
+        # Registro licenze emesse (opzione A): elenco + ricerca (sola lettura, nessun token mostrato)
+        ctk.CTkLabel(self, text="Registro licenze emesse:", font=ctk.CTkFont(weight="bold"),
+                     anchor="w").pack(fill="x", padx=12, pady=(10, 2))
+        self._reg_query_entry = ctk.CTkEntry(self, placeholder_text="Cerca (nome / hardware ID / serial)")
+        self._reg_query_entry.pack(fill="x", padx=12, pady=2)
+        ctk.CTkButton(self, text="🔍 Cerca / 🔄 Aggiorna", command=self._on_registry_refresh).pack(
+            anchor="w", padx=12, pady=(4, 4))
+        self._registry_box = ctk.CTkTextbox(self, height=120)
+        self._registry_box.pack(fill="x", padx=12, pady=(0, 6))
 
         # Backup + messaggi
         ctk.CTkButton(self, text="💾 Backup della chiave privata", command=self._on_export).pack(
@@ -274,6 +334,26 @@ class LicenseManagerApp(ctk.CTk):
         except Exception:       # noqa: BLE001 — render Tk best-effort
             pass
         self._set_msg(result["message"])
+        # Aggiorna la vista del registro così la licenza appena emessa compare subito.
+        self._on_registry_refresh()
+
+    def _on_registry_refresh(self) -> None:
+        """Ricarica e mostra il registro licenze, filtrato per il testo di ricerca.
+
+        **Interamente best-effort** (review GPT-5.5 #152): gira anche subito dopo l'emissione, quindi
+        né il fetch (`_registry_view`→`read_records`) né il rendering Tk devono mai far fallire
+        l'azione. Il `read_records` di default è già fail-safe; questo guard copre anche un provider
+        iniettato/custom che non rispettasse il contratto."""
+        try:
+            rows = self._registry_view(self._read(self._reg_query_entry))
+            text = self._format_registry_rows(rows)
+            if self._registry_box is not None:
+                self._registry_box.delete("1.0", "end")
+                self._registry_box.insert("1.0", text)
+        except Exception as exc:       # noqa: BLE001 — vista registro best-effort (fetch + render)
+            # Non silenzioso (review GLM/GPT-5.5 #152): un errore soppresso resta visibile a livello
+            # DEBUG per diagnosi, senza far fallire l'azione (che gira anche dopo l'emissione).
+            _log.debug("Refresh registro non riuscito [%s]", type(exc).__name__)
 
     def _on_export(self) -> None:
         # Il percorso reale lo sceglie un file-dialog (Tk, verifica manuale); headless resta '' → messaggio.
