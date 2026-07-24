@@ -59,13 +59,18 @@ def test_fetch_signed_default_url_costante():
 
 # ── is_placeholder_url (attivazione DERIVATA dall'URL) ────────────────────────────────────────────
 def test_is_placeholder_url_deriva_attivazione_dall_url():
-    """Vuoto / URL di TEST / qualunque host `.invalid` → placeholder (revoca inattiva); un URL reale
-    → attivo. Nessun secondo flag: impostare l'URL reale attiva da solo la revoca (Fugu/GLM #156)."""
+    """Vuoto / non parsabile / senza host / host in TLD `.invalid` → placeholder (revoca inattiva); un
+    URL reale → attivo. Nessun secondo flag: impostare l'URL reale attiva da solo la revoca (Fugu/GLM
+    #156)."""
     assert revocation_client.is_placeholder_url("") is True
     assert revocation_client.is_placeholder_url(None) is True
     assert revocation_client.is_placeholder_url(revocation_client.REVOCATION_LIST_URL) is True
     assert revocation_client.is_placeholder_url("https://x.invalid/list.txt") is True
     assert revocation_client.is_placeholder_url("https://revoke.mysite.com/list.txt") is False
+    # match sull'HOST, non substring (rilievo Fable/Fugu #156): «invalid» nel PATH o in un host che solo
+    # la contiene NON è placeholder → un URL reale non viene disattivato per sbaglio.
+    assert revocation_client.is_placeholder_url("https://revoke.mysite.com/x.invalid.txt") is False
+    assert revocation_client.is_placeholder_url("https://revoke.invalid-x.com/list.txt") is False
     # il marcatore derivato riflette l'URL di default (placeholder)
     assert revocation_client.REVOCATION_URL_IS_PLACEHOLDER is True
 

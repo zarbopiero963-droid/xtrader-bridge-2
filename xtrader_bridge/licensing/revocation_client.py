@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.parse
 
 from . import license as _license
 from . import revocation
@@ -40,12 +41,24 @@ REVOCATION_LIST_URL = _PLACEHOLDER_URL
 
 
 def is_placeholder_url(url: "str | None") -> bool:
-    """`True` se `url` è ancora un **placeholder di sviluppo** (vuoto, l'URL di TEST, o un host
-    `.invalid`) → revoca online **inattiva**. L'attivazione è **derivata dall'URL stesso**, non da un
-    secondo flag dimenticabile (rilievo Fugu/GLM #156): impostare un URL reale **attiva** la revoca —
-    impossibile lasciare «URL reale ma flag a True» e disattivarla in silenzio."""
-    u = (url or "").strip().lower()
-    return not u or u == _PLACEHOLDER_URL.lower() or ".invalid" in u
+    """`True` se `url` è ancora un **placeholder di sviluppo** → revoca online **inattiva**. L'attivazione
+    è **derivata dall'URL stesso**, non da un secondo flag dimenticabile (rilievo Fugu/GLM #156):
+    impostare un URL reale **attiva** la revoca — impossibile lasciare «URL reale ma flag a True» e
+    disattivarla in silenzio.
+
+    Placeholder = URL vuoto, non parsabile, senza host, o con **host** in un TLD riservato `.invalid`
+    (RFC 2606). Il controllo è sull'**host** (`endswith(".invalid")`), non una substring sull'intero URL
+    (rilievo Fable/Fugu #156): un URL reale con «invalid» nel path (`…/x.invalid.txt`) o in un host che
+    solo contiene la parola (`revoke.invalid-x.com`) **non** è placeholder. Non parsabile → placeholder
+    (fail-closed)."""
+    u = (url or "").strip()
+    if not u:
+        return True
+    try:
+        host = (urllib.parse.urlsplit(u).hostname or "").lower()
+    except ValueError:
+        return True     # URL non parsabile → placeholder (fail-closed: revoca inattiva, gate release blocca)
+    return not host or host.endswith(".invalid")
 
 
 # Marcatore booleano **DERIVATO** dall'URL (per il gate di release e i log) — NON una seconda fonte di
