@@ -54,6 +54,8 @@ def _fake(gui, tmp_path, now=_NOW):
         _issue_license=core.issue_license,
         _record_issued=registry.append_record,
         _read_records=registry.read_records,
+        _record_revocation=registry.append_revocation,
+        _read_revocations=registry.read_revocations,
     )
     fake._reg_query_entry = None
     fake._registry_box = None
@@ -75,6 +77,9 @@ def _fake(gui, tmp_path, now=_NOW):
     fake._show_token = lambda tok: gui.LicenseManagerApp._show_token(fake, tok)
     fake._evaluate_renew = lambda s, g: gui.LicenseManagerApp._evaluate_renew(fake, s, g)
     fake._evaluate_resend = lambda s: gui.LicenseManagerApp._evaluate_resend(fake, s)
+    fake._record_revocation_safe = lambda rec: gui.LicenseManagerApp._record_revocation_safe(fake, rec)
+    fake._evaluate_revoke = lambda s: gui.LicenseManagerApp._evaluate_revoke(fake, s)
+    fake._evaluate_publish_revocation = lambda d: gui.LicenseManagerApp._evaluate_publish_revocation(fake, d)
     return fake
 
 
@@ -479,3 +484,102 @@ def test_on_resend_wiring_mostra_token_esistente(gui, tmp_path):
     gui.LicenseManagerApp._on_resend(fake)
     assert box.text == first["token"]
     assert len(registry.read_records(directory=str(tmp_path))) == 1   # nessun nuovo record
+
+
+# ── revoca (R3b) ─────────────────────────────────────────────────────────────────────────────────
+def test_evaluate_revoke_registra_la_revoca(gui, tmp_path):
+    """Revocare un serial esistente scrive UN record nello store revoche (serial + metadati)."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    issued = gui.LicenseManagerApp._evaluate_issue(fake, "Mario", "Rossi", "15", _HW)
+    serial = registry.license_serial(issued["token"])
+    out = gui.LicenseManagerApp._evaluate_revoke(fake, serial)
+    assert out["accepted"] is True
+    revs = registry.read_revocations(directory=str(tmp_path))
+    assert len(revs) == 1
+    assert revs[0]["serial"] == serial
+    assert revs[0]["hardware_id"] == _HW and revs[0]["name"] == "Mario Rossi"
+    assert registry.is_serial_revoked(revs, serial) is True
+
+
+def test_evaluate_revoke_serial_non_trovato_non_scrive(gui, tmp_path):
+    """Serial non nel registro → fail-closed: nessuna scrittura nello store revoche."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    out = gui.LicenseManagerApp._evaluate_revoke(fake, "LIC-DOESNOTEXIST")
+    assert out["accepted"] is False and "non trovato" in out["message"].lower()
+    assert registry.read_revocations(directory=str(tmp_path)) == []
+
+
+def test_evaluate_revoke_gia_revocata_nessun_duplicato(gui, tmp_path):
+    """Revocare due volte lo stesso serial non aggiunge un secondo record (idempotente)."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    issued = gui.LicenseManagerApp._evaluate_issue(fake, "Anna", "Bianchi", "30", _HW)
+    serial = registry.license_serial(issued["token"])
+    assert gui.LicenseManagerApp._evaluate_revoke(fake, serial)["accepted"] is True
+    out2 = gui.LicenseManagerApp._evaluate_revoke(fake, serial)
+    assert out2["accepted"] is False and "già revocata" in out2["message"].lower()
+    assert len(registry.read_revocations(directory=str(tmp_path))) == 1
+
+
+def test_evaluate_revoke_store_fallito_non_accetta(gui, tmp_path):
+    """Se lo store revoche non è scrivibile, la revoca NON è dichiarata accettata (best-effort)."""
+    def _boom(record, *, directory=None):
+        raise OSError("store non scrivibile")
+    fake = _fake(gui, tmp_path)
+    fake._record_revocation = _boom
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    issued = gui.LicenseManagerApp._evaluate_issue(fake, "Ok", "Ko", "10", _HW)
+    serial = registry.license_serial(issued["token"])
+    out = gui.LicenseManagerApp._evaluate_revoke(fake, serial)
+    assert out["accepted"] is False and "non registrata" in out["message"].lower()
+
+
+# ── pubblicazione lista revoche firmata (R3b) ────────────────────────────────────────────────────
+def test_evaluate_publish_revocation_round_trip(gui, tmp_path):
+    """Esporta la lista firmata; `revocation.verify_revocation_list` (R3a) la verifica con la chiave
+    pubblica e ritrova il serial revocato → contratto build/verify end-to-end."""
+    from xtrader_bridge.licensing import revocation
+    fake = _fake(gui, tmp_path)
+    key = gui.LicenseManagerApp._ensure_keypair(fake)
+    public_hex = key["public"]
+    issued = gui.LicenseManagerApp._evaluate_issue(fake, "Mario", "Rossi", "15", _HW)
+    serial = registry.license_serial(issued["token"])
+    gui.LicenseManagerApp._evaluate_revoke(fake, serial)
+    dest = str(tmp_path / "revocation_list.txt")
+    out = gui.LicenseManagerApp._evaluate_publish_revocation(fake, dest)
+    assert out["ok"] is True
+    signed = open(dest, encoding="utf-8").read().strip()
+    rev = revocation.verify_revocation_list(signed, public_key_hex=public_hex)
+    assert rev is not None
+    assert revocation.is_revoked(rev, serial=serial) is True
+    # una licenza non revocata NON risulta revocata
+    assert revocation.is_revoked(rev, serial="LIC-ALIVE000000") is False
+
+
+def test_evaluate_publish_revocation_store_vuoto_lista_valida(gui, tmp_path):
+    """Store revoche vuoto → lista firmata comunque valida (stato «niente revocato»): l'URL esiste
+    sempre, così il bridge fail-closed non si blocca solo perché non c'è nulla da revocare."""
+    from xtrader_bridge.licensing import revocation
+    fake = _fake(gui, tmp_path)
+    key = gui.LicenseManagerApp._ensure_keypair(fake)
+    dest = str(tmp_path / "revocation_list.txt")
+    out = gui.LicenseManagerApp._evaluate_publish_revocation(fake, dest)
+    assert out["ok"] is True
+    rev = revocation.verify_revocation_list(open(dest, encoding="utf-8").read().strip(),
+                                            public_key_hex=key["public"])
+    assert rev is not None and rev.serials == set() and rev.hardware_ids == set()
+
+
+def test_evaluate_publish_revocation_senza_percorso_o_chiave_fail_closed(gui, tmp_path):
+    """Fail-closed: senza percorso, o senza chiave, non produce nulla."""
+    fake = _fake(gui, tmp_path)
+    # percorso vuoto (chiave presente)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    assert gui.LicenseManagerApp._evaluate_publish_revocation(fake, "")["ok"] is False
+    # senza chiave (nuova cartella vuota)
+    fake2 = _fake(gui, tmp_path / "vuota")
+    out = gui.LicenseManagerApp._evaluate_publish_revocation(fake2, str(tmp_path / "x.txt"))
+    assert out["ok"] is False and "chiave" in out["message"].lower()
+    assert not os.path.exists(str(tmp_path / "x.txt"))   # niente file prodotto

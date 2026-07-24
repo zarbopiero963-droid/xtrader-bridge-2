@@ -21,11 +21,13 @@ NB: questo modulo importa `customtkinter` → NON è importato da `license_manag
 from __future__ import annotations
 
 import logging
+import os
 import time as _time
 
 import customtkinter as ctk
 
 from license_manager import core, registry
+from xtrader_bridge.licensing import revocation
 
 _log = logging.getLogger(__name__)
 
@@ -49,7 +51,8 @@ class LicenseManagerApp(ctk.CTk):
     def __init__(self, master=None, *, key_dir=None, now_provider=None,
                  generate_keypair=None, load_key=None, save_key=None,
                  export_key=None, issue_license=None,
-                 record_issued=None, read_records=None):
+                 record_issued=None, read_records=None,
+                 record_revocation=None, read_revocations=None):
         super().__init__()
         self._key_dir = key_dir
         self._now = now_provider or (lambda: int(_time.time()))
@@ -61,6 +64,9 @@ class LicenseManagerApp(ctk.CTk):
         # Registro licenze emesse (opzione A): append + lettura, iniettabili per i test.
         self._record_issued = record_issued or registry.append_record
         self._read_records = read_records or registry.read_records
+        # Store revoche (R3b): append + lettura, iniettabili per i test.
+        self._record_revocation = record_revocation or registry.append_revocation
+        self._read_revocations = read_revocations or registry.read_revocations
         # widget refs (popolati da _build_ui)
         self._public_value = None
         self._nome_entry = None
@@ -228,6 +234,42 @@ class LicenseManagerApp(ctk.CTk):
         return {"found": True, "token": token,
                 "message": f"Token di «{rec.get('name', '')}» ({rec.get('serial', '')}). Rinvialo all'utente."}
 
+    def _evaluate_revoke(self, serial) -> dict:
+        """**Revoca** (R3b) la licenza identificata dal `serial`: la registra nello store revoche, così
+        la lista firmata prodotta con «📤 Esporta lista revoche» la bloccherà sul bridge.
+
+        Fail-closed: serial non nel registro → **niente scrittura**; serial già revocato → messaggio,
+        nessun duplicato. Ritorna ``{"accepted", "message"}``. La revoca è **per serial** (reversibile:
+        emetti una nuova licenza → serial nuovo, non revocato)."""
+        rec = registry.find_by_serial(self._read_records(directory=self._key_dir), serial)
+        if rec is None:
+            return {"accepted": False,
+                    "message": f"Serial non trovato nel registro: {str(serial).strip()}"}
+        if registry.is_serial_revoked(self._read_revocations(directory=self._key_dir),
+                                      rec.get("serial", "")):
+            return {"accepted": False,
+                    "message": f"Licenza già revocata: {rec.get('serial', '')} ({rec.get('name', '')})."}
+        recorded = self._record_revocation_safe(rec)
+        if not recorded:
+            return {"accepted": False,
+                    "message": "Revoca NON registrata (permessi/percorso della cartella?): riprova."}
+        return {"accepted": True,
+                "message": f"Licenza revocata: {rec.get('serial', '')} ({rec.get('name', '')}). "
+                           "Esporta e ripubblica la lista revoche per applicarla ai bridge."}
+
+    def _record_revocation_safe(self, rec) -> bool:
+        """Registra una revoca nello store (R3b), best-effort. Un fallimento (store non scrivibile,
+        record senza serial) **non** solleva: si logga solo il tipo eccezione + il path. Ritorna
+        `True` se la revoca è stata scritta."""
+        try:
+            record = registry.revocation_record(rec, now=self._now())
+            self._record_revocation(record, directory=self._key_dir)
+            return True
+        except (OSError, ValueError) as exc:
+            _log.warning("Registrazione revoca non riuscita [%s] (dir=%s)",
+                         type(exc).__name__, registry.revoked_registry_path(self._key_dir))
+            return False
+
     def _record_issued_safe(self, token) -> bool:
         """Registra la licenza appena emessa nel **registro locale** (opzione A), best-effort.
 
@@ -282,6 +324,39 @@ class LicenseManagerApp(ctk.CTk):
             _log.warning("Backup chiave non riuscito: %s: %s", type(exc).__name__, exc)
             return {"ok": False, "message": "Backup non riuscito (chiave corrotta o percorso non scrivibile)."}
         return {"ok": True, "message": f"Backup salvato in: {dest}"}
+
+    def _evaluate_publish_revocation(self, dest_path) -> dict:
+        """Produce la **lista di revoche firmata** (R3b) in `dest_path`: la firma con il seed privato
+        (`revocation.build_revocation_list`) sulle entry dello store revoche. È il file che il
+        proprietario **carica sull'URL statico**; il bridge lo scarica e lo verifica (R3c).
+
+        Fail-closed: senza percorso o senza chiave non produce nulla. Uno store **vuoto** dà comunque
+        una lista firmata **valida** (stato «niente revocato», così l'URL esiste sempre). Ritorna
+        ``{"ok", "message"}``."""
+        dest = str(dest_path or "").strip()
+        if not dest:
+            return {"ok": False, "message": "Scegli un percorso per la lista revoche firmata."}
+        key, err = self._load_key_or_error()
+        if err is not None:
+            return {"ok": False, "message": err["message"]}
+        entries = registry.revocation_entries(self._read_revocations(directory=self._key_dir))
+        try:
+            seed = bytes.fromhex(str(key["seed"]))
+            signed = revocation.build_revocation_list(seed, entries, now=self._now())
+        except (ValueError, KeyError, TypeError) as exc:
+            _log.warning("Firma lista revoche non riuscita: %s", type(exc).__name__)  # solo il tipo
+            return {"ok": False, "message": "Firma non riuscita (chiave non valida?)."}
+        try:
+            with open(dest, "w", encoding="utf-8") as f:
+                f.write(signed + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+        except OSError as exc:
+            _log.warning("Scrittura lista revoche non riuscita: %s", type(exc).__name__)
+            return {"ok": False, "message": "Scrittura non riuscita (percorso non scrivibile?)."}
+        return {"ok": True,
+                "message": f"Lista revoche firmata ({len(entries)} revoc.) salvata in: {dest}. "
+                           "Caricala sull'URL statico che il bridge controlla."}
 
     # ── cablaggio Tk (verifica manuale su Windows) ─────────────────────────────────────────────
     def _build_ui(self) -> None:
@@ -339,7 +414,15 @@ class LicenseManagerApp(ctk.CTk):
         ctk.CTkButton(self, text="🔄 Rinnova (nuovo token)", command=self._on_renew).pack(
             anchor="w", padx=12, pady=(4, 2))
         ctk.CTkButton(self, text="📋 Ri-mostra token esistente", command=self._on_resend).pack(
+            anchor="w", padx=12, pady=(0, 2))
+        ctk.CTkButton(self, text="🚫 Revoca licenza", command=self._on_revoke).pack(
             anchor="w", padx=12, pady=(0, 6))
+
+        # Revoca online (R3b): esporta la lista firmata da caricare sull'URL statico che il bridge controlla
+        ctk.CTkLabel(self, text="Revoca online — esporta la lista firmata da caricare sull'URL:",
+                     anchor="w").pack(fill="x", padx=12, pady=(6, 2))
+        ctk.CTkButton(self, text="📤 Esporta lista revoche firmata",
+                      command=self._on_publish_revocation).pack(anchor="w", padx=12, pady=(0, 6))
 
         # Backup + messaggi
         ctk.CTkButton(self, text="💾 Backup della chiave privata", command=self._on_export).pack(
@@ -460,4 +543,23 @@ class LicenseManagerApp(ctk.CTk):
         except Exception:       # noqa: BLE001 — dialog Tk best-effort
             dest = ""
         result = self._evaluate_export(dest)
+        self._set_msg(result["message"])
+
+    def _on_revoke(self) -> None:
+        """Revoca (R3b) la licenza del serial indicato (stesso campo di rinnovo/ri-mostra)."""
+        result = self._evaluate_revoke(self._read(self._renew_serial_entry))
+        self._set_msg(result["message"])
+        self._on_registry_refresh()
+
+    def _on_publish_revocation(self) -> None:
+        # Il percorso reale lo sceglie un file-dialog (Tk, verifica manuale); headless resta '' → messaggio.
+        dest = ""
+        try:
+            from tkinter import filedialog
+            dest = filedialog.asksaveasfilename(
+                title="Esporta lista revoche firmata", defaultextension=".txt",
+                initialfile="revocation_list.txt")
+        except Exception:       # noqa: BLE001 — dialog Tk best-effort
+            dest = ""
+        result = self._evaluate_publish_revocation(dest)
         self._set_msg(result["message"])

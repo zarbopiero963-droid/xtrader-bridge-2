@@ -210,3 +210,63 @@ def test_find_by_serial():
     assert registry.find_by_serial(recs, "LIC-INESISTENTE") is None
     assert registry.find_by_serial(recs, "") is None
     assert registry.find_by_serial([], a["serial"]) is None
+
+
+# ── store revoche (R3b) ──────────────────────────────────────────────────────────────────────────
+def test_revocation_record_dal_record_licenza():
+    """`revocation_record` prende serial (autoritativo) + metadati nome/hw + timestamp."""
+    rec = {"serial": "lic-abc123", "name": "Mario Rossi", "hardware_id": _HW, "expiry": _NOW + _DAY}
+    out = registry.revocation_record(rec, now=_NOW)
+    assert out == {"serial": "LIC-ABC123", "name": "Mario Rossi",
+                   "hardware_id": _HW, "revoked_at": _NOW}
+
+
+def test_revocation_record_senza_serial_solleva():
+    """Fail-closed: un record senza serial non è revocabile → `ValueError` (non si revoca «nulla»)."""
+    for bad in ({}, {"serial": ""}, {"serial": "   "}, {"name": "x"}):
+        try:
+            registry.revocation_record(bad, now=_NOW)
+        except ValueError:
+            continue
+        raise AssertionError(f"atteso ValueError per record senza serial: {bad!r}")
+
+
+def test_append_e_read_revocations_round_trip(tmp_path):
+    """Append + lettura dello store revoche, nell'ordine d'inserimento (file separato dal registro)."""
+    registry.append_revocation({"serial": "LIC-A", "hardware_id": _HW, "revoked_at": _NOW},
+                               directory=str(tmp_path))
+    registry.append_revocation({"serial": "LIC-B", "hardware_id": "", "revoked_at": _NOW + 1},
+                               directory=str(tmp_path))
+    revs = registry.read_revocations(directory=str(tmp_path))
+    assert [r["serial"] for r in revs] == ["LIC-A", "LIC-B"]
+    # store separato: il registro licenze resta vuoto
+    assert registry.read_records(directory=str(tmp_path)) == []
+
+
+def test_read_revocations_file_assente_e_riga_troncata(tmp_path):
+    """Fail-safe: store assente → `[]`; ultima riga troncata da un crash → saltata, resto letto."""
+    assert registry.read_revocations(directory=str(tmp_path)) == []
+    path = registry.revoked_registry_path(str(tmp_path))
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"serial": "LIC-OK", "revoked_at": _NOW}) + "\n")
+        f.write('{"serial": "LIC-TRONCA')     # riga troncata, senza newline
+    revs = registry.read_revocations(directory=str(tmp_path))
+    assert [r["serial"] for r in revs] == ["LIC-OK"]
+
+
+def test_is_serial_revoked_normalizza():
+    """`is_serial_revoked` confronta normalizzando spazi/maiuscole; vuoto → False."""
+    revs = [{"serial": "LIC-X"}, {"serial": "LIC-Y"}]
+    assert registry.is_serial_revoked(revs, "  lic-x ") is True
+    assert registry.is_serial_revoked(revs, "LIC-Z") is False
+    assert registry.is_serial_revoked(revs, "") is False
+
+
+def test_revocation_entries_dedup_serial_only():
+    """`revocation_entries`: entry `{"serial"}` deduplicate; l'hardware_id NON è emesso (revoca
+    per-serial di R3b); record senza serial ignorati."""
+    revs = [{"serial": "LIC-A", "hardware_id": _HW}, {"serial": "lic-a", "hardware_id": "HWX"},
+            {"serial": "LIC-B"}, {"hardware_id": "HWY"}, {"serial": ""}]
+    entries = registry.revocation_entries(revs)
+    assert entries == [{"serial": "LIC-A"}, {"serial": "LIC-B"}]
+    assert all("hw" not in e and "hardware_id" not in e for e in entries)
