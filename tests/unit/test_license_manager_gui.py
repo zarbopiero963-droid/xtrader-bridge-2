@@ -392,6 +392,8 @@ def test_evaluate_renew_serial_non_trovato(gui, tmp_path):
     out = gui.LicenseManagerApp._evaluate_renew(fake, "LIC-INESISTENTE", "15")
     assert out["accepted"] is False and not out["token"]
     assert "non trovato" in out["message"].lower()
+    # non-writing su rifiuto (review CodeRabbit #153): un rinnovo fallito non tocca il registro
+    assert registry.read_records(directory=str(tmp_path)) == []
 
 
 def test_evaluate_renew_giorni_non_validi(gui, tmp_path):
@@ -400,6 +402,8 @@ def test_evaluate_renew_giorni_non_validi(gui, tmp_path):
     first = gui.LicenseManagerApp._evaluate_issue(fake, "Anna", "Verdi", "10", _HW)
     out = gui.LicenseManagerApp._evaluate_renew(fake, registry.license_serial(first["token"]), "xx")
     assert out["accepted"] is False and "giorni" in out["message"].lower()
+    # non-writing su rifiuto (review CodeRabbit #153): resta solo il record dell'emissione iniziale
+    assert len(registry.read_records(directory=str(tmp_path))) == 1
 
 
 def test_evaluate_resend_ritorna_token_esistente(gui, tmp_path):

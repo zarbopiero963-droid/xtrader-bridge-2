@@ -195,6 +195,12 @@ _ALLOWLIST = {
     "licensing/license.py": (2, "verifica licenza (#140 PR 1) FAIL-CLOSED: (1) token corrotto/"
                                 "incompleto = MALFORMED; (2) chiave pubblica hex malformata = "
                                 "INVALID_SIGNATURE → una licenza non verificabile non sblocca mai"),
+    "licensing/revocation.py": (3, "lista di revoche (#140 revoca online) FAIL-CLOSED in "
+                                   "verify_revocation_list: (1) envelope corrotto/non decodificabile, "
+                                   "(2) chiave pubblica hex malformata, (3) payload non conforme "
+                                   "(versione/tipi) → in tutti i casi la lista NON è fidata (ritorna "
+                                   "None): una lista di revoche non verificabile non blocca né sblocca "
+                                   "per errore, la policy è del bridge chiamante"),
     "license_store.py": (2, "persistenza licenza (#140 PR 2) FAIL-SAFE: (1) file corrotto/illeggibile "
                             "in load → (None, None) «nessuna licenza», mai crash; (2) rimozione "
                             "best-effort in clear. Coerente col fail-closed della verifica"),
