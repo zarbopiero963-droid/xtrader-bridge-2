@@ -321,3 +321,24 @@ def test_on_registry_refresh_non_crasha_su_read_error(gui, tmp_path):
     fake._read_records = _boom
     fake._registry_view = lambda query="": gui.LicenseManagerApp._registry_view(fake, query)
     gui.LicenseManagerApp._on_registry_refresh(fake)   # non deve sollevare
+
+
+def test_record_issued_safe_non_logga_il_messaggio_eccezione(gui, tmp_path, caplog):
+    """Regression-guard privacy (review GLM/GPT #152): se la scrittura del registro solleva, il
+    warning logga il TIPO eccezione + il path, ma MAI il messaggio grezzo (che un provider custom
+    potrebbe riempire di dati)."""
+    import logging
+    sentinel = "DATO_SENSIBILE_NEL_MESSAGGIO"
+
+    def _boom(record, *, directory=None):
+        raise OSError(sentinel)
+
+    fake = _fake(gui, tmp_path)
+    fake._record_issued = _boom
+    seed, _pub = core.generate_keypair()
+    token = core.issue_license(seed, "Tizio", 10, _HW, _NOW)   # token reale → record_from_token ok
+    with caplog.at_level(logging.WARNING):
+        ok = gui.LicenseManagerApp._record_issued_safe(fake, token)
+    assert ok is False
+    assert sentinel not in caplog.text, "il messaggio dell'eccezione non deve finire nei log"
+    assert "OSError" in caplog.text, "il tipo eccezione sì (diagnostica)"
