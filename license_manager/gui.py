@@ -212,7 +212,11 @@ class LicenseManagerApp(ctk.CTk):
 
     def _evaluate_resend(self, serial) -> dict:
         """**Ri-mostra** il token già emesso per un `serial` (per rinviarlo all'utente). Sola lettura:
-        non firma nulla di nuovo. Ritorna ``{"found", "token", "message"}``."""
+        non firma nulla di nuovo. Ritorna ``{"found", "token", "message"}``.
+
+        Nota (review Sourcery #153): lo shape usa `found` (non `accepted` come emissione/rinnovo) **di
+        proposito** — qui non si «emette/accetta» nulla, si **ritrova** un token esistente. L'handler
+        GUI (`_on_resend`) usa solo `token`/`message`, quindi la divergenza non complica i chiamanti."""
         rec = registry.find_by_serial(self._read_records(directory=self._key_dir), serial)
         if rec is None:
             return {"found": False, "token": "",

@@ -304,6 +304,10 @@ Dato il **serial** di una licenza dell'elenco, il License Manager permette due a
   record, con **nuovi giorni** → **nuovo token** (nuovo serial). Il record vecchio **resta** nel
   registro (storico); il nuovo viene aggiunto. Fail-closed se il serial non è nel registro o i giorni
   non sono validi. Riusa lo stesso percorso firma+registrazione dell'emissione (`_sign_and_record`).
+  **Nota (review GLM #153):** il rinnovo **non invalida** il token vecchio — quello resta valido fino
+  alla **sua** scadenza (stesso hardware/utente: nessun rischio di doppia scommessa, è la stessa
+  macchina). L'**invalidazione anticipata** di una licenza ancora attiva è la **revoca** (fase
+  successiva, opzione R3).
 - **📋 Ri-mostra token** (`_evaluate_resend`): **sola lettura** — ritrova il record dal serial e
   **ri-mostra il token già emesso** (per rinviarlo all'utente), **senza** firmare nulla di nuovo né
   creare record. Messaggio esplicito se il serial non c'è o se il record (vecchio) non contiene il token.
