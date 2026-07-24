@@ -19,6 +19,7 @@
 - [Più chat sorgenti (multi-chat)](#più-chat-sorgenti-multi-chat)
 - [Parser Personalizzato](#parser-personalizzato)
 - [Conferma da XTrader](#conferma-da-xtrader)
+- [Licenza (necessaria per operare)](#licenza-necessaria-per-operare)
 - [Sicurezza: simulazione, duplicati e limiti](#sicurezza-simulazione-duplicati-e-limiti)
 - [Formato CSV generato](#formato-csv-generato)
 - [Dove vengono salvati i file](#dove-vengono-salvati-i-file)
@@ -116,6 +117,10 @@ ogni 10–15 secondi). Per il collaudo, tieni XTrader in **Modalità Simulazione
 2. Inserisci **Bot Token**, **Chat ID** e **CSV Path**.
 3. Clicca **💾 Salva Config**, poi **▶ AVVIA**.
 
+> 🔑 Il bridge **richiede una licenza valida** per operare: senza, i controlli sono
+> disabilitati e **AVVIA** è bloccato. Attivala nella scheda **🔑 Licenza** (vedi
+> [Licenza](#licenza-necessaria-per-operare)).
+>
 > ⚠️ Il bridge **non parte** se non hai configurato almeno una chat/sorgente
 > (Chat ID, parser per-chat o una sorgente multi-chat): senza, accetterebbe segnali
 > da qualsiasi chat. È una protezione voluta.
@@ -288,11 +293,12 @@ Nella tab *Conferme XTrader* le parole chiave si scrivono **separate da virgola*
 chiave `active_parser` si imposta di norma dalla GUI del Parser Personalizzato. Ogni
 chiave è comunque **preservata** quando salvi dalla GUI, quindi non si perde.
 
-La tab **🔑 Licenza** (in lavorazione, #140) mostra l'**Hardware ID** di questa macchina
+La tab **🔑 Licenza** (#140, **completa**) mostra l'**Hardware ID** di questa macchina
 (da comunicare al fornitore), un campo per **incollare la chiave di attivazione** e lo **stato**
-della licenza; l'attivazione la salva in `%APPDATA%\XTraderBridge\license_state.json`. **Al momento
-non blocca nulla** (l'app funziona comunque): il blocco vero arriverà in una fase successiva.
-Dettagli in [`docs/licensing.md`](docs/licensing.md).
+della licenza; l'attivazione la salva in `%APPDATA%\XTraderBridge\license_state.json`. **Il lock
+è attivo**: senza una licenza valida i controlli operativi sono **disabilitati** e il bridge non
+avvia (dettagli e flusso completo in [Licenza](#licenza-necessaria-per-operare) e in
+[`docs/licensing.md`](docs/licensing.md)).
 
 | Chiave | Default | Valori | A cosa serve |
 |---|---|---|---|
@@ -486,6 +492,45 @@ può leggerla e togliere dal CSV il segnale confermato/rifiutato.
   richiedono un riavvio — i parametri di **esecuzione** (`dry_run`, limiti, `csv_path`,
   token), per non far scattare per sbaglio una scommessa reale o un CSV stantio a metà
   sessione.
+
+---
+
+## Licenza (necessaria per operare)
+
+Il bridge è protetto da un **sistema di licenze offline** (issue #140, completo): per **operare**
+serve una **licenza valida**, legata all'**Hardware ID** della macchina e a una **scadenza in
+giorni**, con **chiave di attivazione firmata** (Ed25519). Senza licenza valida il bridge **non
+scrive segnali**.
+
+**Come si attiva (flusso):**
+1. Apri il bridge → scheda **🔑 Licenza** → copia il tuo **Hardware ID**.
+2. Invialo al fornitore (il proprietario del software).
+3. Il fornitore genera la **chiave di attivazione** col suo **License Manager** (tool separato) e
+   te la restituisce.
+4. **Incolla** la chiave nella scheda 🔑 Licenza e premi **Attiva** → il bridge verifica **firma +
+   hardware + scadenza** e sblocca per N giorni. L'attivazione è salvata in
+   `%APPDATA%\XTraderBridge\license_state.json`.
+
+**Il LOCK (attivo, fail-closed).** Finché la licenza **non è valida** (assente, scaduta, corrotta o
+non verificabile) **tutti i controlli operativi sono disabilitati (grigi)**: campi ⚙️ Generale,
+opzioni, 📁 Sfoglia / 📄 Crea CSV, 🗑️ Svuota CSV, 💾 Salva Config, 🧰 Strumenti, 🧙 Wizard e
+**▶ AVVIA**. Restano sempre usabili **■ STOP**, lo **switcher delle tab**, la scheda **🔑 Licenza**
+e il **monitoraggio**, così puoi arrivare ad attivare la licenza e fermare in sicurezza. Se la
+licenza **scade a bridge avviato**, un controllo periodico (ogni ~60 s) se ne accorge e **ferma il
+listener** (fail-closed). Qualsiasi errore nel determinare lo stato licenza → **bloccato**, mai
+aperto per sbaglio.
+
+> 🔑 **Modello di sicurezza.** Il fornitore ha la chiave **privata** che firma le licenze; il
+> bridge contiene solo la chiave **pubblica** che verifica. La chiave privata **non** è nel
+> repository né nell'EXE del bridge. La protezione è lato client (scoraggia la condivisione
+> casuale, non ferma un cracker esperto). Guida completa e dettagli tecnici:
+> [`docs/licensing.md`](docs/licensing.md).
+
+> ℹ️ **Per chi sviluppa.** In sviluppo il bridge usa una chiave pubblica di **TEST** (marcatore
+> `LICENSE_PUBLIC_KEY_IS_PLACEHOLDER`): puoi lavorare attivando licenze firmate col seed di test.
+> **Prima di distribuire copie** agli utenti il fornitore sostituisce la chiave pubblica reale e
+> porta il flag a `False`; un **gate di release** nei workflow di build **blocca la pubblicazione**
+> di un EXE che avesse ancora la chiave di TEST (vedi [Build dell'EXE](#build-dellexe-sviluppatori)).
 
 ---
 
@@ -820,9 +865,10 @@ manuale interrompe subito, senza riconnessioni.
 **XTrader rischia di ripetere scommesse vecchie?** No: con un solo segnale attivo +
 timeout + svuotamento, XTrader vede sempre solo il segnale più recente o nessuno.
 
-**Perché il bridge non parte?** Probabili cause: manca il Bot Token, manca il CSV
-Path, il Timeout non è un numero > 0, oppure non hai configurato nessuna chat/sorgente.
-Il motivo esatto compare nel log.
+**Perché il bridge non parte?** Probabili cause: manca una **licenza valida** (i controlli
+sono grigi e AVVIA è bloccato — vedi [Licenza](#licenza-necessaria-per-operare)), manca il Bot
+Token, manca il CSV Path, il Timeout non è un numero > 0, oppure non hai configurato nessuna
+chat/sorgente. Il motivo esatto compare nel log.
 
 **Perché non scrive niente nel CSV?** Se sei in `dry_run` (default), è normale: è la
 simulazione. Per scrivere davvero metti `dry_run=false`.
@@ -890,6 +936,20 @@ token del bot e la config restano **fuori** dall'eseguibile, nella cartella uten
 (`tests/safety/test_build_exe_safety.py`) verifica a ogni PR che la build non impacchetti
 `.env`/chiavi/certificati/`config.json`/DB/token (nel bundle è ammesso solo il dizionario
 ufficiale) e che i test girino prima della compilazione.
+
+> 🔑 **Gate di release sulla licenza (#150).** Uno step nei job di build **fallisce** una
+> **release** (push di un tag `v*`, con cui viene pubblicato l'EXE) se la chiave pubblica di
+> licenza è ancora quella di **TEST** (`LICENSE_PUBLIC_KEY_IS_PLACEHOLDER=True`): impedisce di
+> distribuire per errore un EXE che accetterebbe licenze forgiabili. Le **build manuali** di
+> sviluppo (`workflow_dispatch`) emettono solo un avviso e proseguono. Vedi
+> [Licenza](#licenza-necessaria-per-operare).
+
+**License Manager (tool del fornitore, EXE separato #148).** Il tool con cui il fornitore genera
+le chiavi e **firma** le licenze ha un **workflow di build dedicato**
+(`build-license-manager.yaml`, EXE `XTrader-License-Manager`, solo **Run workflow** manuale). È un
+**prodotto diverso** dal bridge e la chiave **privata** di firma **non** entra mai nell'EXE del
+bridge (invariante verificata in CI). Il fornitore può comunque usarlo **da sorgente**
+(`python license_manager_main.py`). Dettagli in [`docs/licensing.md`](docs/licensing.md).
 
 ### Build EXE Nuitka (anteprima, in valutazione)
 
@@ -1052,10 +1112,12 @@ sicurezza e valori consigliati: **`docs/ai_audit_workflows.md`**.
 ```text
 xtrader-bridge/
 ├── main.py                 ← entrypoint (avvia la GUI)
-├── xtrader_bridge/         ← pacchetto Python (parser, CSV, config, GUI, router, guardrail)
+├── xtrader_bridge/         ← pacchetto Python (parser, CSV, config, GUI, router, guardrail, licensing/)
+├── license_manager/        ← tool SEPARATO del fornitore (firma licenze; mai nell'EXE del bridge)
+├── license_manager_main.py ← entrypoint del License Manager (`python license_manager_main.py`)
 ├── tests/                  ← test automatici (pytest: unit, integration, safety, smoke)
 ├── data/                   ← dizionario XTrader + parser personalizzati (data/parsers/)
-├── docs/                   ← contratto CSV, guida parser, audit
+├── docs/                   ← contratto CSV, guida parser, licensing, audit
 ├── requirements.in         ← dipendenze runtime top-level (sorgente del lock)
 ├── requirements-build.in   ← dipendenze build EXE (sorgente del lock di build)
 ├── requirements-build.lock ← lockfile con hash (generato su Windows; va committato)
