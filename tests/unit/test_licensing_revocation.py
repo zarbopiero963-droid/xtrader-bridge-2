@@ -19,6 +19,16 @@ def _seed_pub():
     return core.generate_keypair()   # (seed_hex, public_hex)
 
 
+def _sign_payload(seed_hex, payload_obj):
+    """Firma un payload arbitrario (dict) come envelope `<b64u(json)>.<b64u(sig)>`, così i test
+    possono costruire payload firmati **ma non canonici** (tipi errati, entry spazzatura) che solo
+    la firma valida ma la verifica fail-closed deve comunque rifiutare."""
+    payload = json.dumps(payload_obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    sig = ed25519.sign(bytes.fromhex(seed_hex), payload)
+    return (base64.urlsafe_b64encode(payload).rstrip(b"=").decode() + "."
+            + base64.urlsafe_b64encode(sig).rstrip(b"=").decode())
+
+
 # ── build + verify round-trip ───────────────────────────────────────────────────────────────────
 def test_build_verify_round_trip():
     seed_hex, public_hex = _seed_pub()
@@ -158,23 +168,37 @@ def test_verify_entry_mista_serial_e_hw():
     assert revocation.is_revoked(rev, hardware_id=_HW) is True
 
 
-def test_verify_revoked_elementi_non_dict_ignorati():
-    """`verify_revocation_list` tollera elementi **non-dict** dentro `revoked` (payload firmato ma
-    con spazzatura): onora le entry dict valide e ignora `"junk"`/`123` senza crash (review
-    Sourcery #154)."""
+def test_verify_revoked_entry_malformata_fail_closed():
+    """**Fail-closed sul contratto** (review CodeRabbit Major #154): un payload **firmato** ma con
+    `revoked` che contiene un elemento non-dict (`"junk"`, `123`) NON deve produrre una lista
+    parziale «attendibile» — l'intera lista è corrotta → `None`. Silenziosamente saltare una entry
+    potrebbe far sparire una revoca legittima (un utente revocato resterebbe attivo)."""
     seed_hex, public_hex = _seed_pub()
-    # payload firmato "a mano" con revoked eterogeneo (build_revocation_list normalizzerebbe via)
-    payload = json.dumps(
-        {"v": revocation.REVOCATION_FORMAT_VERSION, "iss": _NOW,
-         "revoked": [{"serial": "LIC-DEAD"}, "junk", 123]},
-        sort_keys=True, separators=(",", ":")).encode("utf-8")
-    sig = ed25519.sign(bytes.fromhex(seed_hex), payload)
-    signed = (base64.urlsafe_b64encode(payload).rstrip(b"=").decode() + "."
-              + base64.urlsafe_b64encode(sig).rstrip(b"=").decode())
-    rev = revocation.verify_revocation_list(signed, public_key_hex=public_hex)
-    assert rev is not None
-    assert rev.serials == {"LIC-DEAD"} and rev.hardware_ids == set()
-    assert revocation.is_revoked(rev, serial="LIC-DEAD") is True
+    for bad_revoked in ([{"serial": "LIC-DEAD"}, "junk"],      # elemento stringa
+                        [{"serial": "LIC-DEAD"}, 123],         # elemento int
+                        [{"serial": "LIC-DEAD"}, None],        # elemento None
+                        [{}],                                  # dict senza alcun criterio
+                        [{"serial": "", "hw": ""}]):           # criteri vuoti
+        signed = _sign_payload(seed_hex, {"v": revocation.REVOCATION_FORMAT_VERSION,
+                                          "iss": _NOW, "revoked": bad_revoked})
+        assert revocation.verify_revocation_list(signed, public_key_hex=public_hex) is None
+
+
+def test_verify_tipi_v_e_iss_non_interi_fail_closed():
+    """**Fail-closed sui tipi header** (review CodeRabbit Major #154): un payload **firmato** con
+    `v`/`iss` non interi ESATTI deve essere rifiutato, senza coercizione né confusione bool→int
+    (`True == 1`, `int("1700..")`, `int(1.9)`). Altrimenti uno schema non canonico verrebbe
+    trattato come lista fidata."""
+    seed_hex, public_hex = _seed_pub()
+    # v = True passerebbe `!= 1` (True == 1) senza il controllo di tipo esatto → deve dare None
+    assert revocation.verify_revocation_list(
+        _sign_payload(seed_hex, {"v": True, "iss": _NOW, "revoked": [{"hw": _HW}]}),
+        public_key_hex=public_hex) is None
+    # iss non-intero: stringa, float, bool → tutti rifiutati (nessuna coercizione)
+    for bad_iss in ("1700000000", 1700000000.0, True, None):
+        signed = _sign_payload(seed_hex, {"v": revocation.REVOCATION_FORMAT_VERSION,
+                                          "iss": bad_iss, "revoked": [{"hw": _HW}]})
+        assert revocation.verify_revocation_list(signed, public_key_hex=public_hex) is None
 
 
 def test_verify_envelope_troppi_punti_fail_closed():

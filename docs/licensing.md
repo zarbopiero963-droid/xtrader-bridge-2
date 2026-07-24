@@ -336,15 +336,26 @@ Questa prima fetta (**R3a**) è la **logica pura e condivisa** in
 - `verify_revocation_list(signed, public_key_hex=None)` → **fail-closed**: envelope corrotto, firma non
   valida, versione/tipi errati → **`None`** (lista **non fidata**); altrimenti una
   `RevocationList(issued, serials, hardware_ids)`. La firma si verifica sul **payload verbatim** (nessun
-  mismatch firma/verifica), come per le licenze.
+  mismatch firma/verifica), come per le licenze. Il contratto fail-closed è **stretto** (review
+  CodeRabbit #154): `v` e `iss` devono essere **interi esatti** (nessuna coercizione da stringa/float,
+  nessuna confusione bool→int come `True == 1`), e ogni entry di `revoked` dev'essere una revoca
+  **canonica** — un elemento non-dict o senza alcun criterio valido (né serial né hw) **non** viene
+  silenziosamente saltato: l'intera lista è considerata corrotta → `None`. Saltare una entry potrebbe
+  altrimenti far **sparire una revoca legittima** (un utente revocato resterebbe attivo). La
+  normalizzazione permissiva (trim/upper, scarto entry vuote) resta **solo lato costruzione**
+  (`normalize_entries`, usata dal License Manager sui propri input); la verifica lato bridge non si fida
+  di nulla.
 - `is_revoked(revlist, serial=, hardware_id=)` → `True` se il serial **o** l'Hardware ID è nella lista;
   `revlist=None` → `False` (la policy su lista assente/non verificabile è del **bridge**, non di questa
   funzione pura).
 
 **Test hard:** `tests/unit/test_licensing_revocation.py` — round-trip firma/verifica, firma sbagliata →
-`None`, payload manomesso (firma non valida) → `None`, malformato/versione errata → `None`, normalizza e
-scarta le entry vuote, `is_revoked` per serial (case-insensitive) e per Hardware ID (esatto), lista `None`
-e criteri vuoti → `False`, lista vuota firmata è valida. Prossime fette: **R3b** (azione «🚫 Revoca» +
+`None`, payload manomesso (firma non valida) → `None`, malformato/versione errata → `None`, chiave pubblica
+hex malformata → `None`, envelope con parti extra → `None`, **payload firmato ma non canonico** rifiutato
+(`v`/`iss` non interi esatti, entry non-dict o senza criterio → `None`), dedup insiemi, entry mista
+serial+hw, normalizza e scarta le entry vuote (lato build), `is_revoked` per serial (case-insensitive) e
+per Hardware ID (esatto), lista `None` e criteri vuoti → `False`, lista vuota firmata è valida. Prossime
+fette: **R3b** (azione «🚫 Revoca» +
 store + pubblicazione firmata nel License Manager) e **R3c** (fetch/verifica/cache/lock nel bridge,
 fail-closed senza grazia).
 

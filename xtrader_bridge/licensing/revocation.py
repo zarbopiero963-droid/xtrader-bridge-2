@@ -123,20 +123,33 @@ def verify_revocation_list(signed: str, *, public_key_hex: "str | None" = None) 
         return None
     try:
         payload = json.loads(payload_bytes.decode("utf-8"))
-        if not isinstance(payload, dict) or payload.get("v") != REVOCATION_FORMAT_VERSION:
+        if not isinstance(payload, dict):
             return None
-        issued = int(payload["iss"])
+        # `v` e `iss`: interi ESATTI, senza coercizione né confusione bool→int (`True == 1`,
+        # `int("1700..")`, `int(1.9)`): un payload firmato ma con tipi non canonici è NON fidato
+        # (fail-closed sul contratto di tipo, non «lista parziale attendibile»).
+        v = payload.get("v")
+        if type(v) is not int or v != REVOCATION_FORMAT_VERSION:
+            return None
+        issued = payload.get("iss")
+        if type(issued) is not int:
+            return None
         revoked = payload.get("revoked")
         if not isinstance(revoked, list):
             return None
     except Exception:       # noqa: BLE001 — payload non conforme: fail-closed
         return None
+    # Ogni entry deve essere una revoca canonica: un elemento non-dict o senza alcun criterio
+    # valido (né serial né hw) NON viene silenziosamente saltato — la lista è corrotta e va
+    # RIFIUTATA tutta (fail-closed), altrimenti una revoca legittima potrebbe sparire senza traccia.
     serials, hardware_ids = set(), set()
     for e in revoked:
         if not isinstance(e, dict):
-            continue
+            return None
         s = _norm_serial(e.get("serial"))
         h = _norm_hw(e.get("hw"))
+        if not s and not h:
+            return None
         if s:
             serials.add(s)
         if h:
