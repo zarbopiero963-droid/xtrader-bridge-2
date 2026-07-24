@@ -1089,6 +1089,112 @@ def test_exe_vincolato_al_suo_workflow():
                 f"{fname}: l'EXE del License Manager non deve comparire in un workflow del bridge"
 
 
+# ── Gate release licenza: la chiave pubblica di TEST non può finire in un EXE DISTRIBUITO ─────
+# Decisione proprietario 1A (#140): la chiave di TEST NON blocca l'app in sviluppo (il lock GUI
+# usa la sola validità della licenza), ma un EXE di RELEASE (tag `v*`) con quella chiave
+# accetterebbe licenze forgiabili col seed di test. I workflow di build del bridge devono avere un
+# guard che, su un evento di release, FALLISCE finché `LICENSE_PUBLIC_KEY_IS_PLACEHOLDER` è True, e
+# sulle build manuali di sviluppo emette solo un warning (dev con chiavi TEST resta possibile).
+# Questi test bloccano la regressione: se il guard viene rimosso, l'hard-fail su tag indebolito, o
+# lo sviluppo hard-failato (violazione 1A), falliscono.
+_LICENSE_PLACEHOLDER_FLAG = "LICENSE_PUBLIC_KEY_IS_PLACEHOLDER"
+_RELEASE_TAG_COND = "startsWith(github.ref, 'refs/tags/')"
+
+
+def _job_body(workflow_path, job_name):
+    """Corpo del job `job_name` in `workflow_path`, o `None` se assente."""
+    return next((b for n, b in _jobs(_read(workflow_path)) if n == job_name), None)
+
+
+def _release_key_guard_step(job_body):
+    """Lo step-body del guard release (quello che nomina il flag placeholder) nel job, o `None`.
+    Riusa `_step_bodies` sul corpo del job così le condizioni (tag/exit/warning) restano legate
+    allo STESSO step, non sparse nel job."""
+    if job_body is None:
+        return None
+    return next((s for s in _step_bodies(job_body) if _LICENSE_PLACEHOLDER_FLAG in s), None)
+
+
+def _release_capable_bridge_build_jobs():
+    """`(workflow_name, job_name)` per ogni job che compila un EXE del BRIDGE in un workflow che
+    può partire su un evento di RELEASE (`push`, quindi anche i tag `v*`). I workflow solo
+    `workflow_dispatch` (anteprima/dev) sono esclusi: lì il guard non è obbligatorio."""
+    out = []
+    for wf, job, _cmd in _build_commands_by_job():
+        if "push" in _on_triggers(_read(os.path.join(_WORKFLOWS_DIR, wf))):
+            out.append((wf, job))
+    return out
+
+
+def test_release_key_guard_nei_build_bridge_release_capable():
+    """Ogni job che compila un EXE del BRIDGE in un workflow release-capable (`push`/tag `v*` →
+    EXE pubblicato agli utenti) DEVE avere il guard: fail-closed (`exit 1`) su un tag finché
+    `LICENSE_PUBLIC_KEY_IS_PLACEHOLDER` è True, e solo un warning sulle build di sviluppo
+    (`workflow_dispatch`) così il test-build con chiavi TEST resta possibile (decisione 1A). Un
+    futuro workflow di release senza guard (es. Nuitka promosso a build ufficiale su tag) fa
+    fallire questo test."""
+    jobs = _release_capable_bridge_build_jobs()
+    assert jobs, "nessun job di build bridge release-capable trovato (atteso build.yaml)"
+    for wf, job in jobs:
+        guard = _release_key_guard_step(_job_body(os.path.join(_WORKFLOWS_DIR, wf), job))
+        assert guard is not None, \
+            f"{wf}:{job}: workflow release-capable senza guard su {_LICENSE_PLACEHOLDER_FLAG}"
+        assert _RELEASE_TAG_COND in guard, \
+            f"{wf}:{job}: il guard deve fallire SOLO su un tag di release ({_RELEASE_TAG_COND})"
+        assert re.search(r"(?<![\w$])exit\s+1\b", guard), \
+            f"{wf}:{job}: il guard deve fallire (exit 1) su una release con chiave di TEST"
+        assert "::warning::" in guard, \
+            f"{wf}:{job}: il guard deve solo AVVISARE (non hard-fail) le build di sviluppo (1A)"
+
+
+def test_release_key_guard_precede_la_build():
+    """Il guard release gira PRIMA della compilazione dell'EXE in ogni job release-capable: su una
+    release con chiave di TEST la build fallisce SUBITO, senza produrre né caricare un EXE
+    distribuibile con licenze forgiabili."""
+    jobs = _release_capable_bridge_build_jobs()
+    assert jobs, "nessun job di build bridge release-capable trovato"
+    for wf, job in jobs:
+        cmds = _shell_commands(_job_body(os.path.join(_WORKFLOWS_DIR, wf), job))
+        g_idx = [k for k, c in enumerate(cmds) if _LICENSE_PLACEHOLDER_FLAG in c]
+        b_idx = [k for k, c in enumerate(cmds) if _PYINSTALLER_DETECT.search(c)]
+        assert g_idx, f"{wf}:{job}: guard release non trovato tra i comandi"
+        assert b_idx, f"{wf}:{job}: build non trovata"
+        assert min(g_idx) < min(b_idx), \
+            f"{wf}:{job}: il guard release deve precedere la build dell'EXE"
+
+
+def test_flag_placeholder_importabile_offline():
+    """Il guard legge `LICENSE_PUBLIC_KEY_IS_PLACEHOLDER` dal modulo PURO, importabile con la sola
+    stdlib (nessuna dipendenza runtime): così può girare PRIMA dell'install nel workflow e fallire
+    fail-fast. Regressione: se il modulo licenza diventasse dipendente da pacchetti esterni
+    all'import, il guard non potrebbe più girare presto."""
+    import importlib
+    lic = importlib.import_module("xtrader_bridge.licensing.license")
+    assert hasattr(lic, "LICENSE_PUBLIC_KEY_IS_PLACEHOLDER"), \
+        "il modulo licenza deve esporre LICENSE_PUBLIC_KEY_IS_PLACEHOLDER"
+    assert isinstance(lic.LICENSE_PUBLIC_KEY_IS_PLACEHOLDER, bool), \
+        "il flag placeholder deve essere un bool (il guard lo legge come '1'/'0')"
+
+
+def test_release_key_guard_logica_helper():
+    """Self-test degli helper del guard (mutation-guard): `_release_key_guard_step` trova lo step
+    giusto e i controlli tag/exit/warning distinguono un guard corretto da uno indebolito."""
+    good = ("      - name: gate\n"
+            "        shell: bash\n"
+            "        run: |\n"
+            "          x=$(python -c 'import x; LICENSE_PUBLIC_KEY_IS_PLACEHOLDER')\n"
+            "          if [ \"${{ startsWith(github.ref, 'refs/tags/') }}\" = true ]; then\n"
+            "            exit 1\n"
+            "          else\n"
+            "            echo '::warning::dev'\n"
+            "          fi\n")
+    step = _release_key_guard_step(good)
+    assert step is not None and _RELEASE_TAG_COND in step
+    assert re.search(r"(?<![\w$])exit\s+1\b", step) and "::warning::" in step
+    # job senza il flag → nessuno step guard
+    assert _release_key_guard_step("      - name: x\n        run: echo hi\n") is None
+
+
 # ── Gate build Nuitka (Fase 6 slice 2) ──────────────────────────────────────────────────────
 # Stesse invarianti EXE personale della build PyInstaller, applicate alla forma canonica Nuitka.
 

@@ -102,8 +102,29 @@ la propria chiave **pubblica**. La chiave privata resta solo sul suo PC.
 
 Marcatore rilevabile (review #143): `license.LICENSE_PUBLIC_KEY_IS_PLACEHOLDER` è `True` finché è in uso la
 chiave di TEST. Sostituendo la chiave, il proprietario **deve portarlo a `False`** (un test lega i
-due, così lo swap è deliberato e non silenzioso); un gate di release / il lock GUI (PR 4) potrà
-rifiutarsi di operare in distribuzione finché è `True` (chiave di test = licenze forgiabili).
+due, così lo swap è deliberato e non silenzioso).
+
+### Gate di release (fatto) — la chiave di TEST non può finire in un EXE distribuito
+
+I workflow di build del bridge (`.github/workflows/build.yaml`, job `build` Windows e `build-linux`)
+hanno uno step **«Gate release licenza»** che, subito dopo `setup-python` e **prima**
+dell'install/compilazione, legge `LICENSE_PUBLIC_KEY_IS_PLACEHOLDER` dal modulo puro (solo stdlib →
+gira fail-fast, senza dipendenze) e decide così:
+
+- su un **tag di release `v*`** (l'EXE viene pubblicato agli utenti, anche la Release pubblica su
+  GitHub) con flag ancora `True` → la build **FALLISCE** (`::error::` + `exit 1`): una release con la
+  chiave di TEST accetterebbe licenze **forgiabili** col seed di test;
+- su **build manuali** (`workflow_dispatch`, sviluppo) con flag `True` → solo un **`::warning::`**, la
+  build prosegue: coerente con la **decisione 1A** (lo sviluppo con chiavi di TEST resta possibile, il
+  lock GUI non dipende dal placeholder);
+- flag `False` (chiave reale) → gate OK.
+
+Il gate è **anti-distrazione**, non una difesa da un avversario con accesso in scrittura ai workflow
+(chi edita i workflow può editare anche il gate): impedisce di **taggare per sbaglio** una release con
+la chiave di TEST ancora dentro. Il gate anti-drift `tests/safety/test_build_exe_safety.py` verifica
+che ogni job di build del bridge **release-capable** (workflow con trigger `push`) contenga il guard
+(fail su tag + warning in sviluppo) e che il guard **preceda** la compilazione — così un futuro
+workflow di release senza guard (es. Nuitka promosso a build ufficiale su tag) fa fallire i test.
 
 ## License Manager — tool del proprietario (PR 3)
 
