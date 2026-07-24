@@ -178,9 +178,14 @@ def test_verify_revoked_entry_malformata_fail_closed():
                         [{"serial": "LIC-DEAD"}, 123],         # elemento int
                         [{"serial": "LIC-DEAD"}, None],        # elemento None
                         [{}],                                  # dict senza alcun criterio
-                        [{"serial": "", "hw": ""}]):           # criteri vuoti
+                        [{"serial": "", "hw": ""}],            # criteri vuoti
+                        [{"serial": 123}],                     # campo serial non-stringa
+                        [{"hw": 123}],                         # campo hw non-stringa
+                        [{"serial": [1, 2], "hw": None}]):     # campi di tipo errato → nessun criterio
         signed = _sign_payload(seed_hex, {"v": revocation.REVOCATION_FORMAT_VERSION,
                                           "iss": _NOW, "revoked": bad_revoked})
+        # NB: nessun crash (i campi non-stringa sono neutralizzati da `_norm_serial`/`_norm_hw`
+        # via `isinstance`), solo fail-closed → None (il loop fuori dal try/except è sicuro).
         assert revocation.verify_revocation_list(signed, public_key_hex=public_hex) is None
 
 
