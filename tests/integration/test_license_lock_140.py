@@ -130,11 +130,19 @@ def test_apply_lock_ferma_sessione_viva_se_scade(App, app_mod):
     def _stop():
         a.stop_calls.append(True)
         a._btn_start.state = "normal"
+        a._running = False           # il vero `_stop` azzera `_running`: qui lo emuliamo
     a._stop = _stop
     locked = App._apply_license_lock(a)
     assert locked is True
     assert a.stop_calls == [True]                 # listener fermato
     assert a._btn_start.state == "disabled"       # e START disabilitato DOPO lo stop (ordine giusto)
+    # STOP-race (review CodeRabbit #149): un tick successivo con licenza ANCORA invalida ma sessione
+    # GIÀ fermata NON deve richiamare `_stop()` una seconda volta (il ramo locked ri-applica il lock
+    # fail-closed, ma `_running` è False → niente secondo STOP).
+    a._btn_start.state = "normal"                 # qualcuno riabilita START tra un tick e l'altro
+    App._apply_license_lock(a)
+    assert a.stop_calls == [True]                 # _stop chiamato UNA sola volta
+    assert a._btn_start.state == "disabled"       # …e il lock ri-disabilita START (fail-closed)
 
 
 def test_apply_lock_valida_e_running_non_forza_start(App, app_mod):

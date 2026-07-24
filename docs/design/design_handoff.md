@@ -160,7 +160,8 @@ FINESTRA PRINCIPALE  (720×760, larghezza fissa, altezza ridimensionabile)
 │     ├─ 🛡️ Sicurezza           (DRY_RUN, auto-start, privacy log, limiti, coda)
 │     ├─ ✅ Conferme XTrader     (chat notifiche, timeout, keyword conferma/rifiuto)
 │     └─ 🔑 Licenza             (Hardware ID + «Copia», campo chiave, «Attiva», stato — #140 PR 2;
-│                                gate del LOCK TOTALE #140 PR 4: senza licenza valida tutto il resto è grigio)
+│                                gate del LOCK TOTALE #140 PR 4: senza licenza valida i controlli operativi
+│                                sono disabilitati — STOP, switcher tab, scheda Licenza e monitoraggio restano usabili)
 │
 ├── Barra pulsanti principali
 │     ├─ ▶ AVVIA   ■ STOP   🗑️ Svuota CSV ora   💾 Salva Config
