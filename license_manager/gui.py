@@ -181,10 +181,11 @@ class LicenseManagerApp(ctk.CTk):
             self._record_issued(record, directory=self._key_dir)
             return True
         except (OSError, ValueError) as exc:
-            # Tipo + messaggio + cartella per diagnosticare (review Sourcery #152); il messaggio di
-            # OSError/ValueError contiene il path del registro, non il token (nessun segreto loggato).
-            _log.warning("Registrazione licenza nel registro non riuscita [%s]: %s (dir=%s)",
-                         type(exc).__name__, exc, registry.registry_path(self._key_dir))
+            # Tipo eccezione + path del registro per diagnosticare, MA non il messaggio grezzo
+            # `str(exc)` (review GLM/GPT-5.5 #152): un provider custom potrebbe includervi dati; il
+            # path è sufficiente a capire cosa non è stato scritto, senza rischiare leak dal messaggio.
+            _log.warning("Registrazione licenza nel registro non riuscita [%s] (dir=%s)",
+                         type(exc).__name__, registry.registry_path(self._key_dir))
             return False
 
     def _registry_view(self, query: str = "") -> list:
@@ -349,8 +350,10 @@ class LicenseManagerApp(ctk.CTk):
             if self._registry_box is not None:
                 self._registry_box.delete("1.0", "end")
                 self._registry_box.insert("1.0", text)
-        except Exception:       # noqa: BLE001 — vista registro best-effort (fetch + render)
-            pass
+        except Exception as exc:       # noqa: BLE001 — vista registro best-effort (fetch + render)
+            # Non silenzioso (review GLM/GPT-5.5 #152): un errore soppresso resta visibile a livello
+            # DEBUG per diagnosi, senza far fallire l'azione (che gira anche dopo l'emissione).
+            _log.debug("Refresh registro non riuscito [%s]", type(exc).__name__)
 
     def _on_export(self) -> None:
         # Il percorso reale lo sceglie un file-dialog (Tk, verifica manuale); headless resta '' → messaggio.
