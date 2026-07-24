@@ -46,19 +46,25 @@ def is_placeholder_url(url: "str | None") -> bool:
     impostare un URL reale **attiva** la revoca — impossibile lasciare «URL reale ma flag a True» e
     disattivarla in silenzio.
 
-    Placeholder = URL vuoto, non parsabile, senza host, o con **host** in un TLD riservato `.invalid`
-    (RFC 2606). Il controllo è sull'**host** (`endswith(".invalid")`), non una substring sull'intero URL
-    (rilievo Fable/Fugu #156): un URL reale con «invalid» nel path (`…/x.invalid.txt`) o in un host che
-    solo contiene la parola (`revoke.invalid-x.com`) **non** è placeholder. Non parsabile → placeholder
-    (fail-closed)."""
+    Placeholder = URL vuoto, **esattamente** l'URL di TEST `_PLACEHOLDER_URL`, non parsabile, **senza
+    host** (es. senza schema `revoke.x/list` o `https:///p`), o con **host** riservato `.invalid`
+    (RFC 2606: host esatto `invalid` **o** che termina con `.invalid`). Il controllo è sull'**host**, non
+    una substring sull'intero URL (rilievo Fable/Fugu #156): un URL reale con «invalid» nel path
+    (`…/x.invalid.txt`) o in un host che solo la contiene (`revoke.invalid-x.com`) **non** è placeholder.
+    Non parsabile / senza host → placeholder (fail-closed).
+
+    NB (rilievo Fable/Fugu #156): `REVOCATION_LIST_URL` è una **costante di compilazione** (decisione 1a),
+    NON configurabile a runtime — non esiste una «misconfigurazione runtime». Un URL placeholder/malformato
+    → `True` → il **gate di release** (che legge questo stesso valore) **BLOCCA il tag**: non può finire in
+    un EXE distribuito con revoca silenziosamente inattiva (fail-closed alla release, non fail-open)."""
     u = (url or "").strip()
-    if not u:
-        return True
+    if not u or u.lower() == _PLACEHOLDER_URL.lower():
+        return True     # vuoto o esattamente il placeholder di TEST (belt-and-suspenders)
     try:
         host = (urllib.parse.urlsplit(u).hostname or "").lower()
     except ValueError:
         return True     # URL non parsabile → placeholder (fail-closed: revoca inattiva, gate release blocca)
-    return not host or host.endswith(".invalid")
+    return not host or host == "invalid" or host.endswith(".invalid")
 
 
 # Marcatore booleano **DERIVATO** dall'URL (per il gate di release e i log) — NON una seconda fonte di

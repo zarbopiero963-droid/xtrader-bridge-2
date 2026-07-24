@@ -66,12 +66,18 @@ def test_is_placeholder_url_deriva_attivazione_dall_url():
     assert revocation_client.is_placeholder_url(None) is True
     assert revocation_client.is_placeholder_url(revocation_client.REVOCATION_LIST_URL) is True
     assert revocation_client.is_placeholder_url("https://x.invalid/list.txt") is True
+    assert revocation_client.is_placeholder_url("https://invalid/list.txt") is True   # host esatto "invalid"
     assert revocation_client.is_placeholder_url("https://revoke.mysite.com/list.txt") is False
+    assert revocation_client.is_placeholder_url("http://revoke.mysite.com/l.txt") is False   # http reale
+    # senza schema → `urlsplit` non trova host → placeholder (fail-closed: il proprietario deve usare
+    # un URL con schema, es. https://…; il gate release blocca un default così malformato).
+    assert revocation_client.is_placeholder_url("revoke.mysite.com/list.txt") is True
+    assert revocation_client.is_placeholder_url("https:///solo-path") is True
     # match sull'HOST, non substring (rilievo Fable/Fugu #156): «invalid» nel PATH o in un host che solo
     # la contiene NON è placeholder → un URL reale non viene disattivato per sbaglio.
     assert revocation_client.is_placeholder_url("https://revoke.mysite.com/x.invalid.txt") is False
     assert revocation_client.is_placeholder_url("https://revoke.invalid-x.com/list.txt") is False
-    # il marcatore derivato riflette l'URL di default (placeholder)
+    # il marcatore derivato riflette l'URL di default (placeholder) — garantito, non presupposto
     assert revocation_client.REVOCATION_URL_IS_PLACEHOLDER is True
 
 

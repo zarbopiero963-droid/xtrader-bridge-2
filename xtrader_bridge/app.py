@@ -1419,8 +1419,11 @@ class App(ctk.CTk):
 
     def _start_revocation_supervisor(self) -> None:
         """Avvia il supervisore periodico della lista di revoche (solo se la revoca è attiva). Carica
-        prima il *floor* anti-replay dalla cache, poi lancia il thread daemon di refresh."""
+        prima il *floor* anti-replay dalla cache, poi lancia il thread daemon di refresh. Logga lo stato
+        (attiva/inattiva) così l'attivazione non è mai **silenziosa** (rilievo Fable/Fugu #156) — senza
+        mai stampare l'URL (potrebbe, in futuro, contenere path sensibili)."""
         if not self._revocation_enabled():
+            self._dbg("Revoca online INATTIVA (URL placeholder/non configurato): gate revoca bypassato.")
             return
         cached = revocation_client.load_cached_signed(self._revocation_cache_path())
         boot = revocation_client.accept_signed(cached, min_iss=0) if cached else None
@@ -1431,6 +1434,7 @@ class App(ctk.CTk):
             target=self._revocation_loop, args=(self._rev_stop_event,),
             daemon=True, name="revocation-supervisor")
         self._rev_thread.start()
+        self._dbg("Revoca online ATTIVA: supervisore avviato (fail-closed senza grazia).")
 
     def _revocation_loop(self, stop_event) -> None:
         """Ciclo del supervisore: scarica → verifica+anti-replay → aggiorna stato in memoria + cache →
