@@ -286,8 +286,11 @@ def test_scheda_licenza_mai_lockable(App, app_mod):
                        "xtrader_bridge")
     with open(os.path.join(pkg, "app.py"), encoding="utf-8") as fh:
         tree = ast.parse(fh.read())
-    fn = next(n for n in ast.walk(tree)
-              if isinstance(n, ast.FunctionDef) and n.name == "_build_license_tab")
+    fn = next((n for n in ast.walk(tree)
+               if isinstance(n, ast.FunctionDef) and n.name == "_build_license_tab"), None)
+    # Fallimento LEGGIBILE se il metodo viene rinominato (review Fable/GLM #149): un assert chiaro
+    # invece di uno `StopIteration` grezzo. Se sparisce, il guard va aggiornato deliberatamente.
+    assert fn is not None, "_build_license_tab non trovato in app.py: aggiornare il guard anti-lock-out"
     lockable_calls = [n for n in ast.walk(fn)
                       if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                       and n.func.attr == "_register_lockable"]
