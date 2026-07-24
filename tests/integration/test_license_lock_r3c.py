@@ -261,3 +261,58 @@ def test_revocation_hwid_memoizzato(App, monkeypatch):
     assert App._revocation_hwid(app) == "HW1-MEMO"
     assert App._revocation_hwid(app) == "HW1-MEMO"
     assert len(calls) == 1
+
+
+# ── auto-start × revoca online (rilievo Fugu #156) ───────────────────────────────────────────────
+def _autostart_app(App, *, enabled=True, token="tok", rev_state=None, waits=0):
+    app = _rev_app(App, enabled=enabled, token=token)
+    app._rev_state = rev_state
+    app._license_panel = types.SimpleNamespace(
+        current_status=lambda: types.SimpleNamespace(valid=True))
+    app._config = {"auto_start_listener": True}
+    app._running = False
+    app._closing = False
+    app._autostart_rev_waits = waits
+    app._autostart_after_id = None
+    app.after_calls = []
+    app.after = lambda ms, fn: (app.after_calls.append(ms) or "id")
+    app.start_calls = []
+    app._start = lambda auto=False: app.start_calls.append(auto)
+    return app
+
+
+def test_auto_start_aspetta_la_prima_fetch_revoca(App, app_mod):
+    """Revoca ATTIVA + lista non ancora scaricata (`_rev_state` None) + licenza valida: l'auto-start
+    NON rinuncia one-shot ma **ri-programma** per aspettare la prima fetch (rilievo Fugu #156)."""
+    app = _autostart_app(App, enabled=True, rev_state=None)
+    App._maybe_auto_start(app)
+    assert app.start_calls == []                                    # non parte ancora
+    assert app.after_calls == [app_mod._AUTOSTART_REVOCATION_WAIT_MS]   # ri-programmato
+    assert app._autostart_rev_waits == 1
+
+
+def test_auto_start_parte_quando_lista_arrivata(App, app_mod):
+    """Quando la lista è arrivata (fresca, non revocato), l'auto-start parte."""
+    seed_hex, public_hex = _keypair()
+    token = _token(seed_hex)
+    revlist = revocation_client.accept_signed(_signed(seed_hex, []), public_key_hex=public_hex)
+    app = _autostart_app(App, enabled=True, token=token, rev_state=(revlist, _NOW))
+    App._maybe_auto_start(app)
+    assert app.start_calls == [True]                                # lista fresca + non revocato → parte
+
+
+def test_auto_start_rinuncia_dopo_max_attese(App, app_mod):
+    """Oltre il tetto di attese (irraggiungibilità persistente della prima fetch), l'auto-start
+    rinuncia fail-closed: niente start, niente altra ri-programmazione."""
+    app = _autostart_app(App, enabled=True, rev_state=None,
+                         waits=app_mod._AUTOSTART_REVOCATION_MAX_WAITS)
+    App._maybe_auto_start(app)
+    assert app.start_calls == [] and app.after_calls == []
+
+
+def test_auto_start_placeholder_non_aspetta(App, app_mod):
+    """Con URL placeholder (revoca inattiva) il comportamento è quello storico: licenza valida → parte
+    subito, nessuna attesa della fetch."""
+    app = _autostart_app(App, enabled=False, rev_state=None)
+    App._maybe_auto_start(app)
+    assert app.start_calls == [True] and app.after_calls == []

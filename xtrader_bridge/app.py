@@ -210,6 +210,14 @@ _CSV_ROW_BTN_WIDTH = 100           # larghezza dei pulsanti «📁 Sfoglia…» 
 # solo quando l'orologio avanza). Fail-closed: alla scadenza ferma il listener e blocca la GUI.
 _LICENSE_TICK_MS = 60_000
 
+# Auto-start + revoca online (#140 R3c, rilievo Fugu #156): con la revoca ATTIVA la prima lista si
+# scarica in modo asincrono e a 400 ms (tick auto-start) può non essere ancora arrivata → il gate è
+# `False` solo perché lo stato revoca non è ancora determinato. In quel caso l'auto-start ASPETTA la
+# prima fetch (retry ogni `_AUTOSTART_REVOCATION_WAIT_MS`, fino a `_AUTOSTART_REVOCATION_MAX_WAITS`)
+# invece di rinunciare one-shot; oltre il tetto (irraggiungibilità persistente) rinuncia fail-closed.
+_AUTOSTART_REVOCATION_WAIT_MS = 1_000
+_AUTOSTART_REVOCATION_MAX_WAITS = 30
+
 _TABVIEW_PADX = 15                 # tabs.pack(padx=_TABVIEW_PADX) — per lato
 _GEN_LABEL_PADX = (10, 5)          # etichetta del campo
 _GEN_ENTRY_PADX = (0, 8)           # casella del campo
@@ -451,6 +459,7 @@ class App(ctk.CTk):
         self._start_revocation_supervisor()
         # Avvio automatico del listener (se abilitato e config minima presente): dopo
         # che la UI è pronta, così log/stato sono visibili. Default OFF.
+        self._autostart_rev_waits = 0   # #140 R3c: attese dell'auto-start sulla prima fetch revoca
         self._autostart_after_id = self.after(400, self._maybe_auto_start)
 
     def _maybe_auto_start(self) -> None:
@@ -468,6 +477,18 @@ class App(ctk.CTk):
         # Gate licenza (#140 PR 4): niente auto-start senza licenza valida. `_start` lo blocca
         # comunque, ma qui si evita il tentativo (e il rumore nel log) a monte.
         if not self._license_is_valid():
+            # Con revoca ATTIVA la prima fetch è asincrona: a 400 ms può non essere ancora arrivata →
+            # il gate è `False` SOLO perché lo stato revoca non è ancora determinato (`_rev_state` None).
+            # In quel caso ASPETTA la prima fetch (retry bounded) invece di rinunciare one-shot (rilievo
+            # Fugu #156): appena la lista arriva, la decisione diventa definitiva (start o blocco reale).
+            # Quando `_rev_state` è già presente, il `False` è definitivo (licenza invalida/revocata) →
+            # nessuna attesa. Un'azione manuale annulla comunque il retry (`_cancel_pending_autostart`).
+            waits = self.__dict__.get("_autostart_rev_waits", 0)
+            if (self._revocation_enabled() and self.__dict__.get("_rev_state") is None
+                    and waits < _AUTOSTART_REVOCATION_MAX_WAITS):
+                self._autostart_rev_waits = waits + 1
+                self._autostart_after_id = self.after(_AUTOSTART_REVOCATION_WAIT_MS,
+                                                      self._maybe_auto_start)
             return
         self._start(auto=True)
 
