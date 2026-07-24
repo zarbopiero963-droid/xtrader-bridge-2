@@ -140,7 +140,41 @@ def test_verify_dedup_entry_duplicate():
         [{"serial": "LIC-X"}, {"serial": "lic-x"}, {"hw": _HW}, {"hw": _HW}],
         now=_NOW)
     rev = revocation.verify_revocation_list(signed, public_key_hex=public_hex)
+    assert rev is not None                                # diagnostica esplicita (review GPT-5.5 #154)
     assert rev.serials == {"LIC-X"} and rev.hardware_ids == {_HW}
+
+
+def test_verify_entry_mista_serial_e_hw():
+    """Una singola entry con **sia** `serial` **sia** `hw` deve popolare **entrambi** gli insiemi
+    revocati (review Sourcery #154): la stessa emissione blocca sia il serial sia la macchina."""
+    seed_hex, public_hex = _seed_pub()
+    signed = revocation.build_revocation_list(
+        bytes.fromhex(seed_hex), [{"serial": "LIC-DEAD", "hw": _HW}], now=_NOW)
+    rev = revocation.verify_revocation_list(signed, public_key_hex=public_hex)
+    assert rev is not None
+    assert rev.serials == {"LIC-DEAD"} and rev.hardware_ids == {_HW}
+    # entrambi i criteri matchano indipendentemente
+    assert revocation.is_revoked(rev, serial="lic-dead") is True
+    assert revocation.is_revoked(rev, hardware_id=_HW) is True
+
+
+def test_verify_revoked_elementi_non_dict_ignorati():
+    """`verify_revocation_list` tollera elementi **non-dict** dentro `revoked` (payload firmato ma
+    con spazzatura): onora le entry dict valide e ignora `"junk"`/`123` senza crash (review
+    Sourcery #154)."""
+    seed_hex, public_hex = _seed_pub()
+    # payload firmato "a mano" con revoked eterogeneo (build_revocation_list normalizzerebbe via)
+    payload = json.dumps(
+        {"v": revocation.REVOCATION_FORMAT_VERSION, "iss": _NOW,
+         "revoked": [{"serial": "LIC-DEAD"}, "junk", 123]},
+        sort_keys=True, separators=(",", ":")).encode("utf-8")
+    sig = ed25519.sign(bytes.fromhex(seed_hex), payload)
+    signed = (base64.urlsafe_b64encode(payload).rstrip(b"=").decode() + "."
+              + base64.urlsafe_b64encode(sig).rstrip(b"=").decode())
+    rev = revocation.verify_revocation_list(signed, public_key_hex=public_hex)
+    assert rev is not None
+    assert rev.serials == {"LIC-DEAD"} and rev.hardware_ids == set()
+    assert revocation.is_revoked(rev, serial="LIC-DEAD") is True
 
 
 def test_verify_envelope_troppi_punti_fail_closed():

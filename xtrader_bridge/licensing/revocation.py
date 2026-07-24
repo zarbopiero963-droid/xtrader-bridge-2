@@ -67,7 +67,7 @@ def normalize_entries(entries) -> list:
     Per ogni entry tiene solo i campi `serial`/`hw` **non vuoti** (serial upper, hw verbatim); scarta
     un'entry **senza né serial né hw** (non revocherebbe nulla). Ordina in modo deterministico
     (firma riproducibile). Solleva `ValueError` se `entries` non è una lista."""
-    if not isinstance(entries, (list, tuple)):
+    if not isinstance(entries, list):
         raise ValueError("entries deve essere una lista di dict")
     out = []
     for e in entries:
