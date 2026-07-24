@@ -120,3 +120,32 @@ def test_build_lista_vuota_verificabile():
     rev = revocation.verify_revocation_list(signed, public_key_hex=public_hex)
     assert rev is not None and rev.serials == set() and rev.hardware_ids == set()
     assert revocation.is_revoked(rev, serial="LIC-X", hardware_id=_HW) is False
+
+
+def test_verify_public_key_hex_malformato_fail_closed():
+    """`public_key_hex` non-hex (ramo `except` su `bytes.fromhex`): fail-closed → `None`, nessun
+    crash (review GLM #154)."""
+    seed_hex, _pub = _seed_pub()
+    signed = revocation.build_revocation_list(bytes.fromhex(seed_hex), [{"hw": _HW}], now=_NOW)
+    assert revocation.verify_revocation_list(signed, public_key_hex="non-hex!!") is None
+    assert revocation.verify_revocation_list(signed, public_key_hex="abc") is None   # hex dispari
+
+
+def test_verify_dedup_entry_duplicate():
+    """Entry duplicate (stesso serial in casi diversi / stesso hw ripetuto): gli insiemi le
+    deduplicano e normalizzano (review GLM #154)."""
+    seed_hex, public_hex = _seed_pub()
+    signed = revocation.build_revocation_list(
+        bytes.fromhex(seed_hex),
+        [{"serial": "LIC-X"}, {"serial": "lic-x"}, {"hw": _HW}, {"hw": _HW}],
+        now=_NOW)
+    rev = revocation.verify_revocation_list(signed, public_key_hex=public_hex)
+    assert rev.serials == {"LIC-X"} and rev.hardware_ids == {_HW}
+
+
+def test_verify_envelope_troppi_punti_fail_closed():
+    """Contratto envelope «due parti esatte» (review GPT-5.5 #154): un envelope con un punto in più
+    non deve mai verificare → `None`."""
+    seed_hex, public_hex = _seed_pub()
+    signed = revocation.build_revocation_list(bytes.fromhex(seed_hex), [{"hw": _HW}], now=_NOW)
+    assert revocation.verify_revocation_list(signed + ".coda", public_key_hex=public_hex) is None
