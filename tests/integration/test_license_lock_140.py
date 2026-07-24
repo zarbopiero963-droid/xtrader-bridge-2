@@ -52,6 +52,7 @@ def _fake_app(app_mod, *, valid=True, running=False, raises=False, panel=True):
 
     app._running = running
     app._closing = False
+    app._ui_ready = True          # UI "costruita": il lock agisce sui widget (default nei test)
     app.logs = []
     app._log = app.logs.append
     app._license_locked = None
@@ -153,15 +154,38 @@ def test_apply_lock_logga_solo_sulle_transizioni(App, app_mod):
     assert any("bloccata" in m.lower() for m in a.logs)
 
 
-def test_apply_lock_non_ritocca_widget_se_stato_invariato(App, app_mod):
-    # review Fable #149: il tick rivaluta di continuo ma NON deve ri-imporre "normal" a ogni giro
-    # (scavalcherebbe un disable applicato per altri motivi mentre la licenza resta valida).
+def test_apply_lock_non_ritocca_widget_se_valida_invariata(App, app_mod):
+    # review Fable #149: con licenza VALIDA invariata il tick NON deve ri-imporre "normal" a ogni
+    # giro (scavalcherebbe un disable applicato per altri motivi).
     a = _fake_app(app_mod, valid=True)
     App._apply_license_lock(a)                     # was None→False: applica (widget "normal")
     assert a._w_entry.state == "normal"
     a._w_entry.state = "disabled"                  # qualcun altro lo disabilita
-    App._apply_license_lock(a)                     # stato licenza INVARIATO (valida) → non ritocca
+    App._apply_license_lock(a)                     # VALIDA invariata → non ritocca
     assert a._w_entry.state == "disabled"          # lasciato com'era (no override periodico)
+
+
+def test_apply_lock_riapplica_sempre_se_bloccata(App, app_mod):
+    # review Fable/Fugu #149 (fail-closed asimmetrico): con licenza INVALIDA il lock si RI-APPLICA a
+    # ogni giro — se un altro percorso riabilita i widget, il tick li ri-blocca.
+    a = _fake_app(app_mod, valid=False)
+    App._apply_license_lock(a)                     # was None→True: blocca
+    assert a._w_entry.state == "disabled" and a._btn_start.state == "disabled"
+    a._w_entry.state = "normal"                    # qualcuno riabilita un widget con licenza invalida
+    a._btn_start.state = "normal"                  # …e pure START
+    App._apply_license_lock(a)                     # ancora INVALIDA → RI-BLOCCA (fail-closed)
+    assert a._w_entry.state == "disabled" and a._btn_start.state == "disabled"
+
+
+def test_apply_lock_non_agisce_se_ui_non_pronta(App, app_mod):
+    # review Fable/Fugu #149: durante `_build_ui` i widget non esistono → il lock non deve agire né
+    # "consumare" la transizione (altrimenti START resterebbe abilitato con licenza invalida).
+    a = _fake_app(app_mod, valid=False)
+    a._ui_ready = False
+    locked = App._apply_license_lock(a)
+    assert locked is True                          # valuta lo stato (invalida)…
+    assert a._w_entry.state is None                # …ma NON tocca i widget
+    assert a._license_locked is None               # e non "consuma" la transizione
 
 
 def test_apply_lock_logga_al_primo_avvio_bloccato(App, app_mod):

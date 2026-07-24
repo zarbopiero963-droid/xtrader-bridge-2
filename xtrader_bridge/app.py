@@ -388,12 +388,16 @@ class App(ctk.CTk):
         # risincronizzazione la riga confermata resterebbe su disco fino alla scadenza).
         self._csv_dirty = False
 
-        # Lock licenza (#140 PR 4): l'attributo esiste PRIMA di `_build_ui` (che, costruendo la scheda
-        # Licenza, può far scattare `on_status_change` → `_license_is_valid`). Così il gate legge un
-        # `None` esplicito (→ fail-closed) invece di far cadere il `getattr` nel `__getattr__` di Tk su
-        # una root ancora non pronta (RecursionError). Sovrascritto in `_build_license_tab`.
+        # Lock licenza (#140 PR 4): gli attributi esistono PRIMA di `_build_ui` (che, costruendo la
+        # scheda Licenza, può far scattare `on_status_change` → `_apply_license_lock`). Così il gate
+        # legge valori espliciti (→ fail-closed) invece di far cadere il `getattr` nel `__getattr__`
+        # di Tk su una root non pronta (RecursionError). `_ui_ready=False` finché la UI non è
+        # costruita: durante il build il lock NON agisce sui widget (non esistono ancora) e NON
+        # "consuma" la transizione — altrimenti START resterebbe abilitato con licenza invalida
+        # (fail-open, review Fable #149). La valutazione autorevole è a fine `_build_ui`.
         self._license_panel = None
         self._license_locked = None
+        self._ui_ready = False
 
         self._build_ui()
         self._update_real_mode_banner(self._config)   # banner REALE all'avvio se persistito (#136 p4)
@@ -425,8 +429,10 @@ class App(ctk.CTk):
         # licenza non è valida (assente/scaduta/corrotta), poi arma il tick periodico di
         # re-valutazione (scadenza a sessione viva → STOP + lock). Fail-closed. Precede l'auto-start
         # (che comunque passa dal gate di `_start`), così una macchina senza licenza non parte.
-        self._license_locked = None
         self._license_tick_after_id = None
+        self._ui_ready = True   # UI costruita: da qui il lock agisce sui widget reali e applica lo
+                                # stato iniziale autorevole (i widget creati durante il build erano
+                                # ignorati dal gate `_ui_ready`).
         self._apply_license_lock()
         self._schedule_license_tick()
         # Avvio automatico del listener (se abilitato e config minima presente): dopo
@@ -1260,25 +1266,32 @@ class App(ctk.CTk):
         - licenza **valida** → controlli riabilitati; START torna disponibile SOLO se non c'è una
           sessione in corso (non scavalca la macchina START/STOP).
 
-        Robusto a essere chiamato durante la costruzione della UI (widget non ancora presenti):
-        `getattr`/try-except assorbono i riferimenti mancanti. Ritorna `True` se BLOCCATA.
+        **Skip ASIMMETRICO** (review Fable/Fugu #149):
+        - **`locked=True`** → il blocco si **ri-applica SEMPRE** a ogni giro (tick incluso), non solo
+          sulla transizione: è **fail-closed** — non ci si fida che i widget restino disabilitati; se
+          un altro percorso li ri-abilitasse con licenza invalida, il tick li ri-blocca;
+        - **`locked=False`** e già sbloccata (`was == locked`) → **early return**: non si ri-impone
+          `state="normal"` a ogni giro (non scavalca disabilitazioni applicate per altri motivi con
+          licenza valida).
 
-        Agisce **solo sulle transizioni** di stato (review Fable #149): il tick periodico rivaluta di
-        continuo, ma NON deve ri-imporre `state="normal"` a ogni giro (scavalcherebbe eventuali
-        disabilitazioni applicate per altri motivi mentre la licenza resta valida). Alla PRIMA
-        valutazione (`was is None`) applica comunque lo stato iniziale."""
+        **Gate `_ui_ready`**: durante `_build_ui` i widget operativi non esistono ancora; il lock non
+        agisce e NON "consuma" la transizione (altrimenti START resterebbe abilitato con licenza
+        invalida — fail-open, review Fable/Fugu #149). L'applicazione autorevole è a UI pronta."""
         locked = not self._license_is_valid()
+        if not getattr(self, "_ui_ready", False):
+            return locked   # UI non pronta: valuta lo stato ma non tocca widget inesistenti
         was = getattr(self, "_license_locked", None)
-        if was == locked:
-            return locked   # stato invariato → non ri-toccare i widget (no override periodico)
+        if not locked and was == locked:
+            return locked   # valida e GIÀ sbloccata → non ri-toccare i widget (no override periodico)
 
+        # Da qui: o è LOCKED (ri-applica sempre, fail-closed) o è una transizione verso VALIDA.
         self._set_operational_lock(locked=locked)
         btn_start = getattr(self, "_btn_start", None)
         if locked:
             if getattr(self, "_running", False):
-                # Scadenza/invalidazione a sessione viva: STOP fail-closed (non lasciare il listener
-                # che scrive CSV senza licenza). PRIMA di disabilitare START: `_stop` rimette START a
-                # "normal", quindi il disable qui sotto deve venire DOPO, altrimenti resterebbe attivo.
+                # Licenza invalida ma sessione viva → STOP fail-closed (non lasciare il listener che
+                # scrive CSV senza licenza). Una sola volta: `_stop` azzera `_running`. PRIMA di
+                # disabilitare START, perché `_stop` rimette START a "normal".
                 self._log(i18n.tr("🔒 Licenza non più valida: listener fermato (fail-closed)."))
                 self._stop()
             if btn_start is not None:
@@ -1286,18 +1299,18 @@ class App(ctk.CTk):
                     btn_start.configure(state="disabled")
                 except Exception:   # noqa: BLE001 — best-effort
                     pass
-            # Log ANCHE al primo avvio bloccato (`was is None`): l'utente deve capire perché è tutto
-            # grigio (review Fable #149).
-            self._log(i18n.tr("🔒 GUI bloccata: attiva una licenza valida nella scheda «🔑 Licenza»."))
+            if was != locked:
+                # Log solo sulla transizione (incluso il primo avvio bloccato, `was is None`): non a
+                # ogni tick. L'utente capisce perché è tutto grigio (review Fable #149).
+                self._log(i18n.tr("🔒 GUI bloccata: attiva una licenza valida nella scheda «🔑 Licenza»."))
         else:
             if btn_start is not None and not getattr(self, "_running", False):
                 try:
                     btn_start.configure(state="normal")
                 except Exception:   # noqa: BLE001 — best-effort
                     pass
-            # Non loggare «sbloccata» al primo avvio già valido (nessuna transizione da bloccato):
-            # solo su un vero passaggio bloccata→valida.
             if was is not None:
+                # «Sbloccata» solo su un vero passaggio bloccata→valida (non al primo avvio già valido).
                 self._log(i18n.tr("🔓 Licenza valida: GUI sbloccata."))
         self._license_locked = locked
         return locked
