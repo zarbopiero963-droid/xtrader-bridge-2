@@ -945,7 +945,9 @@ ufficiale) e che i test girino prima della compilazione.
 > [Licenza](#licenza-necessaria-per-operare).
 
 **License Manager (tool del fornitore, EXE separato #148).** Il tool con cui il fornitore genera
-le chiavi e **firma** le licenze ha un **workflow di build dedicato**
+le chiavi, **firma** le licenze, le **rinnova** e le **revoca** (produce la **lista di revoche
+firmata** da caricare sull'URL statico che il bridge controllerà — revoca online, #140 R3b) ha un
+**workflow di build dedicato**
 (`build-license-manager.yaml`, EXE `XTrader-License-Manager`, solo **Run workflow** manuale). È un
 **prodotto diverso** dal bridge e la chiave **privata** di firma **non** entra mai nell'EXE del
 bridge (invariante verificata in CI). Il fornitore può comunque usarlo **da sorgente**
