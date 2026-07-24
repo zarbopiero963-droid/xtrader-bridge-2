@@ -430,9 +430,13 @@ class App(ctk.CTk):
         # re-valutazione (scadenza a sessione viva → STOP + lock). Fail-closed. Precede l'auto-start
         # (che comunque passa dal gate di `_start`), così una macchina senza licenza non parte.
         self._license_tick_after_id = None
-        self._ui_ready = True   # UI costruita: da qui il lock agisce sui widget reali e applica lo
-                                # stato iniziale autorevole (i widget creati durante il build erano
-                                # ignorati dal gate `_ui_ready`).
+        # Reset ESPLICITO prima dell'apply autorevole (review Fable #149): il gate `_ui_ready` già
+        # garantisce che nessuna chiamata durante `_build_ui` abbia impostato `_license_locked`, ma
+        # azzerarlo qui rende l'apply post-build self-evidently autorevole (parte SEMPRE da `None` →
+        # applica lo stato iniziale sui widget reali, sia bloccato sia sbloccato) a prova di
+        # modifiche future.
+        self._license_locked = None
+        self._ui_ready = True   # UI costruita: da qui il lock agisce sui widget reali.
         self._apply_license_lock()
         self._schedule_license_tick()
         # Avvio automatico del listener (se abilitato e config minima presente): dopo

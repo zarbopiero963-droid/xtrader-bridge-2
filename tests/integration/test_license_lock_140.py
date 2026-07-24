@@ -7,6 +7,8 @@ logica sotto test è quella vera: gate fail-closed `_license_is_valid`, `_set_op
 `_maybe_auto_start` e il tick periodico. Nessuna finestra Tk, nessun segreto.
 """
 
+import ast
+import os
 import types
 
 import pytest
@@ -272,3 +274,22 @@ def test_register_lockable_accumula(App, app_mod):
     App._register_lockable(a, "w1")
     App._register_lockable(a, "w2")
     assert a._lockable_widgets == ["w1", "w2"]
+
+
+def test_scheda_licenza_mai_lockable(App, app_mod):
+    # review Fugu #149 (invariante CRITICA anti-lock-out): la scheda «🔑 Licenza» (campo chiave +
+    # «Attiva») NON deve MAI finire tra i widget bloccati — altrimenti, senza licenza, l'utente non
+    # potrebbe attivarne una e resterebbe bloccato per SEMPRE. Guard di sorgente (AST): il metodo
+    # `_build_license_tab` NON chiama `_register_lockable` (il pannello Licenza costruisce i propri
+    # widget, che quindi non sono mai in `_lockable_widgets` e `_set_operational_lock` non li tocca).
+    pkg = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                       "xtrader_bridge")
+    with open(os.path.join(pkg, "app.py"), encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "_build_license_tab")
+    lockable_calls = [n for n in ast.walk(fn)
+                      if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                      and n.func.attr == "_register_lockable"]
+    assert not lockable_calls, \
+        "_build_license_tab NON deve registrare widget lockable (lock-out permanente del tab Licenza)"
