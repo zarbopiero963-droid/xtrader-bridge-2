@@ -14,7 +14,7 @@ import types
 
 import pytest
 
-from license_manager import core
+from license_manager import core, registry
 from xtrader_bridge.licensing import license as lic
 
 _NOW = 1_000_000_000
@@ -52,9 +52,13 @@ def _fake(gui, tmp_path, now=_NOW):
         _save_key=core.save_signing_key,
         _export_key=core.export_signing_key,
         _issue_license=core.issue_license,
+        _record_issued=registry.append_record,
+        _read_records=registry.read_records,
     )
     fake._key_path = lambda: core.signing_key_path(fake._key_dir)
     fake._current_key_state = lambda: gui.LicenseManagerApp._current_key_state(fake)
+    fake._record_issued_safe = lambda token: gui.LicenseManagerApp._record_issued_safe(fake, token)
+    fake._registry_view = lambda query="": gui.LicenseManagerApp._registry_view(fake, query)
     return fake
 
 
@@ -248,3 +252,51 @@ def test_evaluate_export_dest_esistente(gui, tmp_path):
     out = gui.LicenseManagerApp._evaluate_export(fake, dest)
     assert out["ok"] is False and "già" in out["message"].lower()
     assert core.load_signing_key(dest)["seed"] == seed2   # non sovrascritto
+
+
+# ── registro licenze (opzione A) ─────────────────────────────────────────────────────────────────
+def test_evaluate_issue_registra_nel_registro(gui, tmp_path):
+    """Emettere una licenza la registra nel registro locale; la vista la ritrova."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    out = gui.LicenseManagerApp._evaluate_issue(fake, "Mario", "Rossi", "15", _HW)
+    assert out["accepted"] is True and out["token"]
+    recs = registry.read_records(directory=str(tmp_path))
+    assert len(recs) == 1
+    assert recs[0]["name"] == "Mario Rossi"
+    assert recs[0]["hardware_id"] == _HW
+    assert recs[0]["serial"] == registry.license_serial(out["token"])
+    # la vista la mostra
+    rows = fake._registry_view("mario")
+    assert [r["name"] for r in rows] == ["Mario Rossi"]
+
+
+def test_evaluate_issue_registro_fallito_non_blocca(gui, tmp_path):
+    """Se la scrittura del registro fallisce, l'emissione riesce comunque (token valido) e il
+    messaggio avvisa che il registro non è stato aggiornato (best-effort, non bloccante)."""
+    def _boom(record, *, directory=None):
+        raise OSError("registro non scrivibile")
+    fake = _fake(gui, tmp_path)
+    fake._record_issued = _boom
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    out = gui.LicenseManagerApp._evaluate_issue(fake, "Anna", "Bianchi", "30", _HW)
+    assert out["accepted"] is True and out["token"], "l'emissione non deve fallire per il registro"
+    assert "registro non aggiornato" in out["message"].lower()
+    assert registry.read_records(directory=str(tmp_path)) == []   # nulla registrato
+
+
+def test_registry_view_fail_safe_registro_assente(gui, tmp_path):
+    """Con registro assente la vista non crasha e ritorna lista vuota."""
+    fake = _fake(gui, tmp_path)
+    assert fake._registry_view() == []
+
+
+def test_format_registry_rows_non_mostra_il_token(gui, tmp_path):
+    """La resa testuale del registro non contiene mai il token di attivazione."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    out = gui.LicenseManagerApp._evaluate_issue(fake, "Carla", "Neri", "10", _HW)
+    rows = fake._registry_view()
+    text = gui.LicenseManagerApp._format_registry_rows(rows)
+    assert "Carla Neri" in text and "SCADUTA" not in text  # appena emessa → attiva
+    assert out["token"] not in text, "il token non deve comparire nella vista del registro"

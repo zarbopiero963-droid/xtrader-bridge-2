@@ -265,6 +265,38 @@ Il License Manager si può comunque usare **da sorgente** (`python license_manag
 verifica che **nessun modulo di `xtrader_bridge` importi `license_manager`** e che i workflow di
 build non lo collezionino — così la firma/chiave privata non finisce mai nell'EXE del bridge.
 
+### Registro delle licenze emesse (opzione A)
+
+Fino a qui l'emissione di una licenza era **stateless**: il tool produceva un token e non registrava
+nulla. Il modulo **`license_manager/registry.py`** aggiunge un **registro locale** append-only —
+`licenses.jsonl` nella cartella del License Manager (`%APPDATA%\XTraderLicenseManager`, la stessa del
+seed privato, **mai** nel repo/EXE) — così il proprietario può **ritrovare** chi ha ricevuto cosa e
+con che scadenza.
+
+- **Serial deterministico** (`license_serial`): l'identificatore di una licenza è
+  `LIC-<12 hex di sha256(token)>`, calcolato **dal token firmato**. Deterministico e stabile: il tool
+  (che ha appena emesso il token) e — in una fase successiva — il bridge (che ha il token attivato)
+  calcolano lo **stesso** serial, **senza** aggiungere campi al formato token (nessuna migrazione).
+- **Record dal payload** (`record_from_token`): il record si costruisce leggendo il payload del token
+  (nome/hardware/emissione/scadenza **autoritativi**), così il registro combacia sempre con la licenza
+  realmente firmata. Campi: `serial`, `name`, `hardware_id`, `issued`, `expiry`, `days`, `token`
+  (per ri-invio/rinnovo futuri) e `recorded_at`.
+- **Append-only robusto** (`append_record`/`read_records`): stesso idiom di
+  `xtrader_bridge.event_journal` — guardia sulla riga troncata (crash a metà append) + `flush`/`fsync`,
+  lettura tollerante che **salta** le righe malformate. File assente → `[]` (fail-safe).
+- **Vista + ricerca** (`view_rows`): elenco filtrabile **case-insensitive per sottostringa** su
+  `serial`/`name`/`hardware_id`, annotato con **stato** (`ATTIVA`/`SCADUTA`, calcolato su «adesso») e
+  **giorni rimasti**. Le righe della vista **non** espongono mai il token di attivazione.
+- **GUI:** la mini-GUI del License Manager ora, dopo ogni emissione, **registra** la licenza
+  (best-effort: un fallimento di scrittura **non** blocca l'emissione — il token è già valido e va
+  consegnato; l'utente viene avvisato) e mostra un **elenco con ricerca** («🔍 Cerca / 🔄 Aggiorna»).
+
+**Test hard:** `tests/unit/test_license_manager_registry.py` (serial deterministico, decode/record dal
+token, append+read tollerante alla riga troncata, stato/giorni, filtro ricerca, nessun token in vista)
+e i casi GUI in `tests/unit/test_license_manager_gui.py` (registrazione all'emissione, fallimento
+registro non bloccante, vista fail-safe). È il primo passo verso **rinnovo/ri-emissione** (opzione B) e
+**revoca** (fase successiva).
+
 ### PR 4 — Lock totale della GUI (fatta)
 
 Il bridge **non opera senza licenza valida**. Cablato in `xtrader_bridge/app.py`:
