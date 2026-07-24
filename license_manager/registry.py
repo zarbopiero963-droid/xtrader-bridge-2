@@ -172,6 +172,19 @@ def read_records(*, directory: "str | None" = None, path: "str | None" = None) -
     return out
 
 
+def find_by_serial(records: list, serial: str) -> "dict | None":
+    """Primo record col `serial` dato (confronto esatto, spazi/maiuscole normalizzati), o `None`.
+    Serve al rinnovo/ri-emissione (opzione B): dato un serial dell'elenco si ritrova la licenza per
+    riusarne nome + hardware ID (rinnovo) o ri-mostrarne il token (ri-invio)."""
+    key = str(serial or "").strip().upper()
+    if not key:
+        return None
+    for rec in records:
+        if str(rec.get("serial", "")).strip().upper() == key:
+            return rec
+    return None
+
+
 def record_status(record: dict, *, now: int) -> str:
     """`ATTIVA` se `now < expiry`, altrimenti `SCADUTA`. Un `expiry` mancante/non numerico è trattato
     come **scaduto** (fail-safe: nel dubbio non risulta attiva)."""

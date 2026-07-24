@@ -294,8 +294,28 @@ con che scadenza.
 **Test hard:** `tests/unit/test_license_manager_registry.py` (serial deterministico, decode/record dal
 token, append+read tollerante alla riga troncata, stato/giorni, filtro ricerca, nessun token in vista)
 e i casi GUI in `tests/unit/test_license_manager_gui.py` (registrazione all'emissione, fallimento
-registro non bloccante, vista fail-safe). È il primo passo verso **rinnovo/ri-emissione** (opzione B) e
-**revoca** (fase successiva).
+registro non bloccante, vista fail-safe).
+
+### Rinnovo / ri-emissione (opzione B)
+
+Dato il **serial** di una licenza dell'elenco, il License Manager permette due azioni:
+
+- **🔄 Rinnova** (`_evaluate_renew`): ri-emette una licenza per lo **stesso nome + hardware ID** del
+  record, con **nuovi giorni** → **nuovo token** (nuovo serial). Il record vecchio **resta** nel
+  registro (storico); il nuovo viene aggiunto. Fail-closed se il serial non è nel registro o i giorni
+  non sono validi. Riusa lo stesso percorso firma+registrazione dell'emissione (`_sign_and_record`).
+  **Nota (review GLM #153):** il rinnovo **non invalida** il token vecchio — quello resta valido fino
+  alla **sua** scadenza (stesso hardware/utente: nessun rischio di doppia scommessa, è la stessa
+  macchina). L'**invalidazione anticipata** di una licenza ancora attiva è la **revoca** (fase
+  successiva, opzione R3).
+- **📋 Ri-mostra token** (`_evaluate_resend`): **sola lettura** — ritrova il record dal serial e
+  **ri-mostra il token già emesso** (per rinviarlo all'utente), **senza** firmare nulla di nuovo né
+  creare record. Messaggio esplicito se il serial non c'è o se il record (vecchio) non contiene il token.
+
+`registry.find_by_serial` fa il lookup (confronto esatto, spazi/maiuscole normalizzati). **Test hard:**
+rinnovo ri-emette stesso hw/nome con nuovi giorni e preserva lo storico, serial non trovato → fail-closed,
+giorni non validi → fail-closed, ri-mostra ritorna il token esistente senza nuovi record, serial assente →
+`found=False`. È il secondo passo verso la **revoca** (fase successiva).
 
 ### PR 4 — Lock totale della GUI (fatta)
 

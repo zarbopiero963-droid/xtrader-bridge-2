@@ -71,6 +71,8 @@ class LicenseManagerApp(ctk.CTk):
         self._msg_lbl = None
         self._reg_query_entry = None
         self._registry_box = None
+        self._renew_serial_entry = None
+        self._renew_giorni_entry = None
         self.title("XTrader License Manager")
         # Esito della blindatura della cartella-chiave: se `False`, `_refresh_key_state` avvisa
         # l'utente invece di lasciarlo con un falso senso di sicurezza (review GPT/GLM #147).
@@ -137,29 +139,37 @@ class LicenseManagerApp(ctk.CTk):
                     "error": "Impossibile salvare la chiave su disco (permessi/percorso?)."}
         return {"public": public_hex, "created": True, "error": None}
 
-    def _evaluate_issue(self, nome, cognome, giorni_str, hardware_id) -> dict:
-        """Valida gli input ed **emette** la licenza firmata. Fail-closed: senza chiave, o con dati
-        non validi, non emette nulla. Ritorna ``{"accepted", "token", "message"}``."""
+    def _load_key_or_error(self) -> tuple:
+        """`(key, None)` se la chiave è leggibile, altrimenti `(None, error_result)` con lo shape
+        `{"accepted", "token", "message"}` fail-closed (chiave corrotta/illeggibile/assente)."""
         try:
             key = self._load_key(self._key_path())
         except core.KeyFileCorruptError:
-            return {"accepted": False, "token": "",
-                    "message": "File-chiave corrotto: ripristina un backup o rigenera."}
+            return None, {"accepted": False, "token": "",
+                          "message": "File-chiave corrotto: ripristina un backup o rigenera."}
         except OSError as exc:
             _log.warning("File-chiave non leggibile in emissione: %s", type(exc).__name__)  # solo tipo
-            return {"accepted": False, "token": "",
-                    "message": "Impossibile leggere il file-chiave (permessi/percorso?)."}
+            return None, {"accepted": False, "token": "",
+                          "message": "Impossibile leggere il file-chiave (permessi/percorso?)."}
         if key is None:
-            return {"accepted": False, "token": "",
-                    "message": "Nessuna chiave: genera prima la keypair."}
+            return None, {"accepted": False, "token": "",
+                          "message": "Nessuna chiave: genera prima la keypair."}
+        return key, None
+
+    @staticmethod
+    def _parse_days(giorni_str) -> tuple:
+        """`(giorni, None)` se `giorni_str` è un intero, altrimenti `(None, error_result)`."""
         try:
-            giorni = int(str(giorni_str).strip())
+            return int(str(giorni_str).strip()), None
         except (TypeError, ValueError):
-            return {"accepted": False, "token": "",
-                    "message": "I giorni devono essere un numero intero."}
-        nome_completo = " ".join(p for p in (str(nome).strip(), str(cognome).strip()) if p)
+            return None, {"accepted": False, "token": "",
+                          "message": "I giorni devono essere un numero intero."}
+
+    def _sign_and_record(self, nome_completo, giorni, hardware_id, *, seed, verb="generata") -> dict:
+        """Firma la licenza (fail-closed sulle validazioni di `issue_license`) e la **registra**
+        (best-effort). Riusato da emissione e rinnovo. `verb` = «generata»/«rinnovata» nel messaggio."""
         try:
-            token = self._issue_license(key["seed"], nome_completo, giorni,
+            token = self._issue_license(seed, nome_completo, giorni,
                                         str(hardware_id).strip(), self._now())
         except ValueError as exc:
             return {"accepted": False, "token": "", "message": str(exc)}
@@ -167,8 +177,56 @@ class LicenseManagerApp(ctk.CTk):
         suffix = "" if recorded else (" ⚠️ registro NON aggiornato (permessi/percorso della "
                                       "cartella?): il token è comunque valido, salvalo a mano.")
         return {"accepted": True, "token": token,
-                "message": f"Chiave generata per «{nome_completo}» · {giorni} giorni. "
+                "message": f"Chiave {verb} per «{nome_completo}» · {giorni} giorni. "
                            f"Inviala all'utente.{suffix}"}
+
+    def _evaluate_issue(self, nome, cognome, giorni_str, hardware_id) -> dict:
+        """Valida gli input ed **emette** la licenza firmata. Fail-closed: senza chiave, o con dati
+        non validi, non emette nulla. Ritorna ``{"accepted", "token", "message"}``."""
+        key, err = self._load_key_or_error()
+        if err is not None:
+            return err
+        giorni, gerr = self._parse_days(giorni_str)
+        if gerr is not None:
+            return gerr
+        nome_completo = " ".join(p for p in (str(nome).strip(), str(cognome).strip()) if p)
+        return self._sign_and_record(nome_completo, giorni, hardware_id, seed=key["seed"])
+
+    def _evaluate_renew(self, serial, giorni_str) -> dict:
+        """**Rinnovo/ri-emissione** (opzione B): ri-emette una licenza identificata dal `serial`, per
+        lo STESSO nome + hardware ID del record, con **nuovi giorni** → nuovo token (nuovo serial; il
+        record vecchio resta nello storico). Fail-closed se il serial non è nel registro."""
+        rec = registry.find_by_serial(self._read_records(directory=self._key_dir), serial)
+        if rec is None:
+            return {"accepted": False, "token": "",
+                    "message": f"Serial non trovato nel registro: {str(serial).strip()}"}
+        key, err = self._load_key_or_error()
+        if err is not None:
+            return err
+        giorni, gerr = self._parse_days(giorni_str)
+        if gerr is not None:
+            return gerr
+        return self._sign_and_record(str(rec.get("name", "")), giorni,
+                                     str(rec.get("hardware_id", "")), seed=key["seed"],
+                                     verb="rinnovata")
+
+    def _evaluate_resend(self, serial) -> dict:
+        """**Ri-mostra** il token già emesso per un `serial` (per rinviarlo all'utente). Sola lettura:
+        non firma nulla di nuovo. Ritorna ``{"found", "token", "message"}``.
+
+        Nota (review Sourcery #153): lo shape usa `found` (non `accepted` come emissione/rinnovo) **di
+        proposito** — qui non si «emette/accetta» nulla, si **ritrova** un token esistente. L'handler
+        GUI (`_on_resend`) usa solo `token`/`message`, quindi la divergenza non complica i chiamanti."""
+        rec = registry.find_by_serial(self._read_records(directory=self._key_dir), serial)
+        if rec is None:
+            return {"found": False, "token": "",
+                    "message": f"Serial non trovato nel registro: {str(serial).strip()}"}
+        token = str(rec.get("token") or "")
+        if not token:
+            return {"found": True, "token": "",
+                    "message": "Il record non contiene il token (registro vecchio?): ri-emetti con «Rinnova»."}
+        return {"found": True, "token": token,
+                "message": f"Token di «{rec.get('name', '')}» ({rec.get('serial', '')}). Rinvialo all'utente."}
 
     def _record_issued_safe(self, token) -> bool:
         """Registra la licenza appena emessa nel **registro locale** (opzione A), best-effort.
@@ -271,6 +329,18 @@ class LicenseManagerApp(ctk.CTk):
         self._registry_box = ctk.CTkTextbox(self, height=120)
         self._registry_box.pack(fill="x", padx=12, pady=(0, 6))
 
+        # Rinnovo / ri-emissione da serial (opzione B): riusa nome+hardware del record esistente
+        ctk.CTkLabel(self, text="Rinnova / ri-mostra da serial (copia il serial dall'elenco):",
+                     anchor="w").pack(fill="x", padx=12, pady=(6, 2))
+        self._renew_serial_entry = ctk.CTkEntry(self, placeholder_text="Serial (LIC-…)")
+        self._renew_serial_entry.pack(fill="x", padx=12, pady=2)
+        self._renew_giorni_entry = ctk.CTkEntry(self, placeholder_text="Nuovi giorni per il rinnovo (es. 15)")
+        self._renew_giorni_entry.pack(fill="x", padx=12, pady=2)
+        ctk.CTkButton(self, text="🔄 Rinnova (nuovo token)", command=self._on_renew).pack(
+            anchor="w", padx=12, pady=(4, 2))
+        ctk.CTkButton(self, text="📋 Ri-mostra token esistente", command=self._on_resend).pack(
+            anchor="w", padx=12, pady=(0, 6))
+
         # Backup + messaggi
         ctk.CTkButton(self, text="💾 Backup della chiave privata", command=self._on_export).pack(
             anchor="w", padx=12, pady=(0, 6))
@@ -354,6 +424,30 @@ class LicenseManagerApp(ctk.CTk):
             # Non silenzioso (review GLM/GPT-5.5 #152): un errore soppresso resta visibile a livello
             # DEBUG per diagnosi, senza far fallire l'azione (che gira anche dopo l'emissione).
             _log.debug("Refresh registro non riuscito [%s]", type(exc).__name__)
+
+    def _show_token(self, token: str) -> None:
+        """Mostra un token nel box (best-effort headless)."""
+        try:
+            if self._token_box is not None:
+                self._token_box.delete("1.0", "end")
+                if token:
+                    self._token_box.insert("1.0", token)
+        except Exception:       # noqa: BLE001 — render Tk best-effort
+            pass
+
+    def _on_renew(self) -> None:
+        """Rinnova (ri-emette) la licenza del serial indicato, con i nuovi giorni → nuovo token."""
+        result = self._evaluate_renew(self._read(self._renew_serial_entry),
+                                      self._read(self._renew_giorni_entry))
+        self._show_token(result.get("token", ""))
+        self._set_msg(result["message"])
+        self._on_registry_refresh()
+
+    def _on_resend(self) -> None:
+        """Ri-mostra il token già emesso per il serial indicato (per rinviarlo all'utente)."""
+        result = self._evaluate_resend(self._read(self._renew_serial_entry))
+        self._show_token(result.get("token", ""))
+        self._set_msg(result["message"])
 
     def _on_export(self) -> None:
         # Il percorso reale lo sceglie un file-dialog (Tk, verifica manuale); headless resta '' → messaggio.
