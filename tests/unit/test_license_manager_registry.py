@@ -196,3 +196,17 @@ def test_view_rows_sort_tollerante_expiry_non_numerico():
     assert names[:2] == ["Nuova", "Vecchia"]
     # i non-numerici/None in coda (ordine tra loro non garantito, ma dopo i validi)
     assert set(names[2:]) == {"Rotto", "SenzaExp"}
+
+
+# ── find_by_serial (opzione B) ────────────────────────────────────────────────────────────────
+def test_find_by_serial():
+    a = registry.record_from_token(_issue(name="Uno"), now=_NOW)
+    b = registry.record_from_token(_issue(name="Due"), now=_NOW)
+    recs = [a, b]
+    assert registry.find_by_serial(recs, a["serial"]) is a
+    # normalizzazione spazi/maiuscole
+    assert registry.find_by_serial(recs, "  " + b["serial"].lower() + " ") is b
+    # non trovato / vuoto → None
+    assert registry.find_by_serial(recs, "LIC-INESISTENTE") is None
+    assert registry.find_by_serial(recs, "") is None
+    assert registry.find_by_serial([], a["serial"]) is None

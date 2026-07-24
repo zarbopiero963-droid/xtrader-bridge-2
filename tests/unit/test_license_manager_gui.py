@@ -60,6 +60,11 @@ def _fake(gui, tmp_path, now=_NOW):
     fake._key_path = lambda: core.signing_key_path(fake._key_dir)
     fake._current_key_state = lambda: gui.LicenseManagerApp._current_key_state(fake)
     fake._record_issued_safe = lambda token: gui.LicenseManagerApp._record_issued_safe(fake, token)
+    fake._load_key_or_error = lambda: gui.LicenseManagerApp._load_key_or_error(fake)
+    fake._parse_days = gui.LicenseManagerApp._parse_days
+    fake._sign_and_record = (lambda nome, giorni, hw, *, seed, verb="generata":
+                             gui.LicenseManagerApp._sign_and_record(fake, nome, giorni, hw,
+                                                                    seed=seed, verb=verb))
     fake._registry_view = lambda query="": gui.LicenseManagerApp._registry_view(fake, query)
     fake._read = lambda entry: gui.LicenseManagerApp._read(fake, entry)
     fake._format_registry_rows = gui.LicenseManagerApp._format_registry_rows
@@ -342,3 +347,54 @@ def test_record_issued_safe_non_logga_il_messaggio_eccezione(gui, tmp_path, capl
     assert ok is False
     assert sentinel not in caplog.text, "il messaggio dell'eccezione non deve finire nei log"
     assert "OSError" in caplog.text, "il tipo eccezione sì (diagnostica)"
+
+
+# ── rinnovo / ri-emissione (opzione B) ───────────────────────────────────────────────────────────
+def test_evaluate_renew_riemette_stesso_hw_nuovi_giorni(gui, tmp_path):
+    """Rinnovo: dato il serial di una licenza, ri-emette per lo STESSO nome+hardware con nuovi
+    giorni → nuovo token/serial; il record vecchio resta (storico)."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    first = gui.LicenseManagerApp._evaluate_issue(fake, "Mario", "Rossi", "15", _HW)
+    serial0 = registry.license_serial(first["token"])
+    out = gui.LicenseManagerApp._evaluate_renew(fake, serial0, "30")
+    assert out["accepted"] is True and out["token"] and out["token"] != first["token"]
+    assert "rinnovata" in out["message"].lower()
+    recs = registry.read_records(directory=str(tmp_path))
+    assert len(recs) == 2                                   # storico preservato
+    new_rec = registry.find_by_serial(recs, registry.license_serial(out["token"]))
+    assert new_rec["name"] == "Mario Rossi" and new_rec["hardware_id"] == _HW
+    assert new_rec["days"] == 30
+
+
+def test_evaluate_renew_serial_non_trovato(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    out = gui.LicenseManagerApp._evaluate_renew(fake, "LIC-INESISTENTE", "15")
+    assert out["accepted"] is False and not out["token"]
+    assert "non trovato" in out["message"].lower()
+
+
+def test_evaluate_renew_giorni_non_validi(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    first = gui.LicenseManagerApp._evaluate_issue(fake, "Anna", "Verdi", "10", _HW)
+    out = gui.LicenseManagerApp._evaluate_renew(fake, registry.license_serial(first["token"]), "xx")
+    assert out["accepted"] is False and "giorni" in out["message"].lower()
+
+
+def test_evaluate_resend_ritorna_token_esistente(gui, tmp_path):
+    """Ri-mostra: dato il serial, ritorna il token GIÀ emesso (nessuna nuova firma)."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    first = gui.LicenseManagerApp._evaluate_issue(fake, "Carla", "Neri", "20", _HW)
+    out = gui.LicenseManagerApp._evaluate_resend(fake, registry.license_serial(first["token"]))
+    assert out["found"] is True and out["token"] == first["token"]
+    # nessun nuovo record creato dalla ri-mostra
+    assert len(registry.read_records(directory=str(tmp_path))) == 1
+
+
+def test_evaluate_resend_serial_non_trovato(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    out = gui.LicenseManagerApp._evaluate_resend(fake, "LIC-NULLA")
+    assert out["found"] is False and not out["token"] and "non trovato" in out["message"].lower()
