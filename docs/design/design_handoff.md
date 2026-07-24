@@ -159,7 +159,9 @@ FINESTRA PRINCIPALE  (720×760, larghezza fissa, altezza ridimensionabile)
 │     ├─ 🎯 Riconoscimento      (modalità riconoscimento)
 │     ├─ 🛡️ Sicurezza           (DRY_RUN, auto-start, privacy log, limiti, coda)
 │     ├─ ✅ Conferme XTrader     (chat notifiche, timeout, keyword conferma/rifiuto)
-│     └─ 🔑 Licenza             (Hardware ID + «Copia», campo chiave, «Attiva», stato — #140 PR 2)
+│     └─ 🔑 Licenza             (Hardware ID + «Copia», campo chiave, «Attiva», stato — #140 PR 2;
+│                                gate del LOCK TOTALE #140 PR 4: senza licenza valida i controlli operativi
+│                                sono disabilitati — STOP, switcher tab, scheda Licenza e monitoraggio restano usabili)
 │
 ├── Barra pulsanti principali
 │     ├─ ▶ AVVIA   ■ STOP   🗑️ Svuota CSV ora   💾 Salva Config
@@ -750,9 +752,25 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 - **Campo «Incolla qui la chiave di attivazione»** + pulsante **"✅ Attiva"** (blu `ACCENT`); l'esito
   appare sotto (verde/rosso). L'attivazione **verifica** (firma + hardware + scadenza, fail-closed) e
   solo se valida **persiste** in `%APPDATA%\XTraderBridge\license_state.json`.
-- ⚠️ **In questa PR NON blocca nulla**: è informativa/di attivazione, tutti gli altri controlli
-  restano attivi. Il **lock totale** (tutti i controlli grigi finché la licenza non è valida) è la
-  **PR 4**, che riuserà questo stesso pannello come stato «Licenza richiesta».
+- 🔒 **LOCK TOTALE (#140 PR 4, attivo).** Finché la licenza **non è valida** (assente, scaduta,
+  hardware diverso, formato errato, orologio spostato indietro, heartbeat non persistibile o stato
+  corrotto), **tutti i controlli operativi sono disabilitati (grigi)**: campi ⚙️ Generale (Token,
+  Chat ID, CSV Path, Timeout, Provider), 📁 Sfoglia / 📄 Crea CSV, tutte le opzioni 🎯 Riconoscimento
+  / 🛡️ Sicurezza / ✅ Conferme, **▶ AVVIA**, **🗑️ Svuota CSV ora**, **💾 Salva Config**,
+  **🧰 Strumenti** e **🧙 Wizard**. Restano **sempre attivi solo**: la scheda **🔑 Licenza** (Hardware
+  ID + Copia + campo chiave + Attiva) e il pulsante **■ STOP** (così una sessione eventualmente in
+  corso resta interrompibile). Lo **switcher dei tab** resta navigabile (l'utente deve poter
+  raggiungere la scheda Licenza).
+- **Fail-closed e dinamico.** Il gate è la **sola validità** della licenza (`_license_is_valid`):
+  qualunque errore/assenza/stato non determinabile → **bloccato** (mai aperto per errore). La finestra
+  si **apre già bloccata** se la licenza non è valida; **AVVIA** e l'**auto-start** sono bloccati a
+  monte (nessun listener senza licenza). Attivare una chiave valida **sblocca live**; una licenza che
+  **scade a sessione viva** viene colta da un **tick periodico (~60 s)** che **ferma il listener
+  (STOP) e riblocca** la GUI. Nel **📋 Log** compaiono `🔒 GUI bloccata: attiva una licenza valida
+  nella scheda «🔑 Licenza».` / `🔓 Licenza valida: GUI sbloccata.` sulle transizioni.
+- La chiave pubblica di **TEST** (`LICENSE_PUBLIC_KEY_IS_PLACEHOLDER`) **non** blocca di per sé: il
+  gate è solo la validità della licenza; sostituire la chiave pubblica reale prima della distribuzione
+  resta un passo manuale del proprietario.
 
 ### 6.4 Barra pulsanti principali
 - **"▶  AVVIA"** (verde `#2e7d32`, bold)

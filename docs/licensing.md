@@ -1,13 +1,12 @@
 # Sistema di licenze del bridge (issue #140)
 
-> Stato: **PR 1 + PR 2 + PR 3a + PR 3b + PR 3c (blindatura permessi cartella-chiave) fatte** — ancora
-> **nessun blocco**. Mancano il **workflow di build EXE** del License Manager (PR 3d) e il **lock
-> totale della GUI** (PR 4).
+> Stato: **PR 1 + PR 2 + PR 3a + PR 3b + PR 3c + PR 3d + PR 4 (lock totale GUI) fatte** — il **lock è
+> attivo**: senza licenza valida la GUI operativa è bloccata.
 > PR 1 = logica (Ed25519 + Hardware ID + verifica). PR 2 = **schermata «🔑 Licenza»** (scheda del Tabview di configurazione):
 > mostra l'Hardware ID, permette di incollare e **attivare** la chiave, mostra lo stato, e **persiste**
 > la licenza attivata. La verifica resta **isolata dal percorso soldi** (Telegram→CSV). License
-> Manager (PR 3) e **lock totale della GUI** (PR 4) arrivano dopo. Il merge resta **manuale del
-> proprietario**.
+> Manager (PR 3) firma le chiavi; il **lock totale della GUI** (PR 4) usa `current_status().valid`
+> come gate fail-closed. Il merge resta **manuale del proprietario**.
 >
 > **PR 2 — pezzi aggiunti:** `license_store.py` (persistenza atomica di token + `last_seen` in
 > `%APPDATA%\XTraderBridge\license_state.json`, lettura fail-safe; un file **JSON corrotto** viene
@@ -236,6 +235,35 @@ Il License Manager si può comunque usare **da sorgente** (`python license_manag
 **Isolamento (test):** un test di sicurezza (`tests/safety/test_license_manager_isolation.py`)
 verifica che **nessun modulo di `xtrader_bridge` importi `license_manager`** e che i workflow di
 build non lo collezionino — così la firma/chiave privata non finisce mai nell'EXE del bridge.
+
+### PR 4 — Lock totale della GUI (fatta)
+
+Il bridge **non opera senza licenza valida**. Cablato in `xtrader_bridge/app.py`:
+
+- **Gate fail-closed** `_license_is_valid()`: `True` **solo** se `self._license_panel.current_status().valid`
+  è vero; qualunque assenza (pannello non ancora costruito), errore o stato non determinabile → `False`
+  (bloccato). Non apre mai per errore.
+- **Lock dei controlli** `_set_operational_lock(locked)`: (dis)abilita i widget operativi **registrati**
+  (`_register_lockable`) — campi ⚙️ Generale, opzioni 🎯/🛡️/✅, 📁 Sfoglia / 📄 Crea CSV, **🗑️ Svuota
+  CSV**, **💾 Salva Config**, **🧰 Strumenti**, **🧙 Wizard** — **escludendo** START/STOP (governati
+  dalla macchina sessione) e la scheda **🔑 Licenza** (mai registrata → sempre usabile). Best-effort
+  per-widget (un `CTkLabel` senza `state` non rompe il lock).
+- **`_apply_license_lock()`**: rivaluta e (dis)blocca; **START** disabilitato quando bloccato, e se una
+  sessione è **viva** al momento dell'invalidazione → **`_stop()`** immediato (fail-closed). Quando
+  torna valida, **START** riabilitato solo se non c'è una sessione in corso.
+- **Cablaggio**: `on_status_change=self._on_license_status` sul `LicensePanel` (rivaluta a ogni
+  attivazione/refresh); valutazione autorevole a fine `_build_ui`; gate in cima a **`_start`** e
+  short-circuit in **`_maybe_auto_start`** (niente auto-start senza licenza); **tick periodico**
+  `_license_tick` ogni `_LICENSE_TICK_MS` (60 s) che coglie una scadenza a sessione viva. Il tick è
+  cancellato in `_on_close`.
+- **Chiave TEST**: `LICENSE_PUBLIC_KEY_IS_PLACEHOLDER=True` **non** blocca di per sé (decisione
+  proprietario 1A) — il gate è la sola validità della licenza; sostituire la chiave pubblica reale
+  prima della distribuzione resta un passo manuale.
+
+**Test hard** (`tests/integration/test_license_lock_140.py`, headless): gate fail-closed
+(valida/invalida/pannello assente/`current_status` che solleva), lock/unlock dei widget + tolleranza
+widget senza `state`, STOP a sessione viva, START gated, auto-start gated, tick che rivaluta e si
+ri-arma, no-riarmo in chiusura. Handoff design aggiornato (`docs/design/design_handoff.md`).
 
 ## Azione una-tantum del proprietario (NON una PR)
 
