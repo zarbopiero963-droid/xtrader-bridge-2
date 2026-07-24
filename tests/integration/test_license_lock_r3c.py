@@ -52,8 +52,7 @@ def _rev_app(App, *, enabled=True, token="tok", hwid=_HW, now=_NOW):
     app._revocation_enabled = lambda: enabled
     app._revocation_identity = lambda: (token, hwid)
     app._revocation_now = lambda: now
-    app._rev_list = None
-    app._rev_verified_at = None
+    app._rev_state = None          # (lista_verificata, verificata_a) — tupla atomica
     app._rev_min_iss = 0
     return app
 
@@ -75,8 +74,8 @@ def test_gate_ok_con_lista_fresca_non_revocata(App):
     seed_hex, public_hex = _keypair()
     token = _token(seed_hex)
     app = _rev_app(App, enabled=True, token=token)
-    app._rev_list = revocation_client.accept_signed(_signed(seed_hex, []), public_key_hex=public_hex)
-    app._rev_verified_at = _NOW
+    revlist = revocation_client.accept_signed(_signed(seed_hex, []), public_key_hex=public_hex)
+    app._rev_state = (revlist, _NOW)
     assert App._revocation_gate_ok(app) is True
 
 
@@ -85,9 +84,9 @@ def test_gate_bloccato_se_serial_revocato(App):
     token = _token(seed_hex)
     serial = lic.license_serial(token)
     app = _rev_app(App, enabled=True, token=token)
-    app._rev_list = revocation_client.accept_signed(_signed(seed_hex, [{"serial": serial}]),
-                                                    public_key_hex=public_hex)
-    app._rev_verified_at = _NOW
+    revlist = revocation_client.accept_signed(_signed(seed_hex, [{"serial": serial}]),
+                                              public_key_hex=public_hex)
+    app._rev_state = (revlist, _NOW)
     assert App._revocation_gate_ok(app) is False
 
 
@@ -96,8 +95,8 @@ def test_gate_bloccato_se_lista_stantia(App):
     token = _token(seed_hex)
     app = _rev_app(App, enabled=True, token=token,
                    now=_NOW + revocation_client.FRESHNESS_MAX_AGE_S + 1)
-    app._rev_list = revocation_client.accept_signed(_signed(seed_hex, []), public_key_hex=public_hex)
-    app._rev_verified_at = _NOW           # verificata a _NOW, "adesso" oltre la soglia → stantia
+    revlist = revocation_client.accept_signed(_signed(seed_hex, []), public_key_hex=public_hex)
+    app._rev_state = (revlist, _NOW)      # verificata a _NOW, "adesso" oltre la soglia fetch → stantia
     assert App._revocation_gate_ok(app) is False
 
 
@@ -107,8 +106,7 @@ def test_gate_fail_closed_se_identity_solleva(App):
     def _boom():
         raise RuntimeError("hwid non determinabile")
     app._revocation_identity = _boom
-    app._rev_list = object()
-    app._rev_verified_at = _NOW
+    app._rev_state = (object(), _NOW)
     assert App._revocation_gate_ok(app) is False
 
 
@@ -119,9 +117,9 @@ def test_license_is_valid_licenza_valida_ma_revocata_e_falso(App):
     serial = lic.license_serial(token)
     app = _rev_app(App, enabled=True, token=token)
     app._license_panel = types.SimpleNamespace(current_status=lambda: types.SimpleNamespace(valid=True))
-    app._rev_list = revocation_client.accept_signed(_signed(seed_hex, [{"serial": serial}]),
-                                                    public_key_hex=public_hex)
-    app._rev_verified_at = _NOW
+    revlist = revocation_client.accept_signed(_signed(seed_hex, [{"serial": serial}]),
+                                              public_key_hex=public_hex)
+    app._rev_state = (revlist, _NOW)
     assert App._license_is_valid(app) is False       # licenza ok ma revocata → gate chiude
 
 
@@ -139,9 +137,9 @@ def test_apply_lock_ferma_sessione_se_revocata(App):
     serial = lic.license_serial(token)
     app = _rev_app(App, enabled=True, token=token)
     app._license_panel = types.SimpleNamespace(current_status=lambda: types.SimpleNamespace(valid=True))
-    app._rev_list = revocation_client.accept_signed(_signed(seed_hex, [{"serial": serial}]),
-                                                    public_key_hex=public_hex)
-    app._rev_verified_at = _NOW
+    revlist = revocation_client.accept_signed(_signed(seed_hex, [{"serial": serial}]),
+                                              public_key_hex=public_hex)
+    app._rev_state = (revlist, _NOW)
     app._running = True
     app._ui_ready = True
     app._closing = False
@@ -161,8 +159,7 @@ def _loop_app(App, tmp_path, *, fetch, now=_NOW, min_iss=0):
     app = object.__new__(App)
     app._revocation_fetch = fetch
     app._revocation_now = lambda: now
-    app._rev_list = None
-    app._rev_verified_at = None
+    app._rev_state = None
     app._rev_min_iss = min_iss
     app._revocation_cache_path = lambda: str(tmp_path / "revocation_cache.json")
     app.after = lambda *a, **k: None      # marshaling GUI noop in headless
@@ -178,8 +175,9 @@ def test_supervisor_ciclo_ok_aggiorna_stato_e_cache(App, tmp_path):
         return signed
     app = _loop_app(App, tmp_path, fetch=fetch)
     App._revocation_loop(app, stop)
-    assert app._rev_list is not None and "LIC-X" in app._rev_list.serials
-    assert app._rev_verified_at == _NOW and app._rev_min_iss == _NOW
+    assert app._rev_state is not None
+    revlist, verified_at = app._rev_state
+    assert "LIC-X" in revlist.serials and verified_at == _NOW and app._rev_min_iss == _NOW
     # cache scritta e ricaricabile
     assert revocation_client.load_cached_signed(app._revocation_cache_path()) == signed
 
@@ -192,7 +190,7 @@ def test_supervisor_fetch_fallita_lascia_stato_none(App, tmp_path):
         raise OSError("network down")
     app = _loop_app(App, tmp_path, fetch=fetch)
     App._revocation_loop(app, stop)
-    assert app._rev_list is None and app._rev_verified_at is None
+    assert app._rev_state is None
 
 
 def test_supervisor_anti_replay_scarta_iss_vecchio(App, tmp_path):
@@ -205,7 +203,7 @@ def test_supervisor_anti_replay_scarta_iss_vecchio(App, tmp_path):
         return signed_old
     app = _loop_app(App, tmp_path, fetch=fetch, min_iss=_NOW)   # già vista una più recente
     App._revocation_loop(app, stop)
-    assert app._rev_list is None            # replay rifiutato → nessun aggiornamento
+    assert app._rev_state is None           # replay rifiutato → nessun aggiornamento
 
 
 def test_stop_supervisor_setta_evento(App):
@@ -214,3 +212,52 @@ def test_stop_supervisor_setta_evento(App):
     app._rev_thread = None
     App._stop_revocation_supervisor(app)
     assert app._rev_stop_event.is_set() is True
+
+
+def test_supervisor_backoff_su_fallimenti_ripetuti(App, tmp_path):
+    """Su fallimenti di fetch RIPETUTI il supervisore attende con **backoff crescente**
+    (`reconnect_policy.backoff_delay(1..N)`), non a intervallo fisso (decisione 2a)."""
+    from xtrader_bridge import reconnect_policy
+
+    class _FakeEvent:
+        def __init__(self, max_iters):
+            self.iters, self.max, self.delays = 0, max_iters, []
+
+        def is_set(self):
+            return self.iters >= self.max
+
+        def wait(self, d):
+            self.delays.append(d)
+            self.iters += 1
+            return False
+
+    def fetch_fails(url, *, timeout):
+        raise OSError("network down")
+    app = _loop_app(App, tmp_path, fetch=fetch_fails)
+    ev = _FakeEvent(3)
+    App._revocation_loop(app, ev)
+    assert ev.delays == [reconnect_policy.backoff_delay(1),
+                         reconnect_policy.backoff_delay(2),
+                         reconnect_policy.backoff_delay(3)]
+    assert app._rev_state is None            # nessuna lista valida → stato non aggiornato
+
+
+def test_revocation_enabled_deriva_dall_url(App, monkeypatch):
+    """`_revocation_enabled` deriva dall'URL (nessun flag separato): placeholder → disattivo, URL reale
+    → attivo (rilievo Fugu/GLM #156)."""
+    app = object.__new__(App)
+    assert App._revocation_enabled(app) is False       # default placeholder
+    monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL", "https://revoke.mysite.com/l.txt")
+    assert App._revocation_enabled(app) is True
+
+
+def test_revocation_hwid_memoizzato(App, monkeypatch):
+    """`_revocation_hwid` calcola l'Hardware ID **una sola volta** e lo riusa (niente WMI/subprocess a
+    ogni tick sul thread GUI, rilievo Fable #156)."""
+    from xtrader_bridge import licensing
+    calls = []
+    monkeypatch.setattr(licensing, "hardware_id", lambda: (calls.append(1), "HW1-MEMO")[1])
+    app = object.__new__(App)
+    assert App._revocation_hwid(app) == "HW1-MEMO"
+    assert App._revocation_hwid(app) == "HW1-MEMO"
+    assert len(calls) == 1

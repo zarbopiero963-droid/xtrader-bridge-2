@@ -782,9 +782,12 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   **generico** («attiva una licenza valida»), che per un utente **revocato** (la cui licenza è tecnicamente
   valida ma bloccata dal fornitore) è impreciso — un **messaggio distinto** «licenza revocata dal
   fornitore» / «lista revoche non raggiungibile» è un **affinamento UX previsto** in una fetta successiva.
-- Come per la chiave pubblica di TEST, l'**URL della lista di revoche placeholder**
-  (`REVOCATION_URL_IS_PLACEHOLDER`) **non** blocca: la revoca online è **inattiva** in sviluppo finché il
-  proprietario non imposta l'URL reale e porta il marcatore a `False` (passo manuale, coerente con 1A).
+- Come per la chiave pubblica di TEST, con l'**URL della lista di revoche placeholder** la revoca online
+  è **inattiva** (non blocca) in sviluppo: l'attivazione è **derivata dall'URL stesso** — impostare l'URL
+  reale la attiva, senza un flag separato da ricordare (coerente con 1A). Un gate di release impedisce di
+  distribuire un EXE con l'URL ancora placeholder. Il proprietario deve inoltre **ri-pubblicare la lista
+  firmata ogni ≤24 h** (anche invariata): oltre quel tetto la lista è considerata «stantia» e la GUI si
+  blocca (fail-closed), come per l'irraggiungibilità dell'URL.
 
 ### 6.4 Barra pulsanti principali
 - **"▶  AVVIA"** (verde `#2e7d32`, bold)

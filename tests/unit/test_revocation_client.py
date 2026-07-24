@@ -57,6 +57,19 @@ def test_fetch_signed_default_url_costante():
     assert seen["u"] == revocation_client.REVOCATION_LIST_URL
 
 
+# ── is_placeholder_url (attivazione DERIVATA dall'URL) ────────────────────────────────────────────
+def test_is_placeholder_url_deriva_attivazione_dall_url():
+    """Vuoto / URL di TEST / qualunque host `.invalid` → placeholder (revoca inattiva); un URL reale
+    → attivo. Nessun secondo flag: impostare l'URL reale attiva da solo la revoca (Fugu/GLM #156)."""
+    assert revocation_client.is_placeholder_url("") is True
+    assert revocation_client.is_placeholder_url(None) is True
+    assert revocation_client.is_placeholder_url(revocation_client.REVOCATION_LIST_URL) is True
+    assert revocation_client.is_placeholder_url("https://x.invalid/list.txt") is True
+    assert revocation_client.is_placeholder_url("https://revoke.mysite.com/list.txt") is False
+    # il marcatore derivato riflette l'URL di default (placeholder)
+    assert revocation_client.REVOCATION_URL_IS_PLACEHOLDER is True
+
+
 # ── accept_signed (verifica + anti-replay) ────────────────────────────────────────────────────────
 def test_accept_signed_round_trip():
     seed_hex, public_hex = _keypair()
@@ -142,6 +155,26 @@ def test_gate_allows_stantia_fail_closed():
                                          token=token, hardware_id=_HW) is True
     assert revocation_client.gate_allows(rev, verified_at=verified_at, now=stale_now,
                                          token=token, hardware_id=_HW) is False
+
+
+def test_gate_allows_contenuto_troppo_vecchio_fail_closed():
+    """**Anti-replay per età del CONTENUTO firmato** (decisione proprietario 24h): una lista appena
+    scaricata (fetch fresco) ma **firmata** oltre `MAX_LIST_AGE_S` fa → `False`. Chiude il replay di una
+    lista vecchia da parte dell'utente revocato."""
+    seed_hex, public_hex = _keypair()
+    token = _token(seed_hex)
+    old_iss = _NOW - revocation_client.MAX_LIST_AGE_S - 1        # firmata 24h+ fa
+    rev_old = revocation_client.accept_signed(_signed_list(seed_hex, [], now=old_iss),
+                                              public_key_hex=public_hex, min_iss=0)
+    # fetch fresco (verified_at ora), ma iss troppo vecchio → bloccato
+    assert revocation_client.gate_allows(rev_old, verified_at=_NOW, now=_NOW,
+                                         token=token, hardware_id=_HW) is False
+    # esattamente al limite (24h) → ancora consentito
+    edge_iss = _NOW - revocation_client.MAX_LIST_AGE_S
+    rev_edge = revocation_client.accept_signed(_signed_list(seed_hex, [], now=edge_iss),
+                                               public_key_hex=public_hex, min_iss=0)
+    assert revocation_client.gate_allows(rev_edge, verified_at=_NOW, now=_NOW,
+                                         token=token, hardware_id=_HW) is True
 
 
 def test_gate_allows_fresca_e_non_revocata_true_revocata_false():

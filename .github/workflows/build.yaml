@@ -59,6 +59,25 @@ jobs:
           echo "::warning::Build con chiave pubblica NON reale (valore letto: $placeholder): OK solo in sviluppo. NON distribuire questo artifact. Per una release sostituisci la chiave pubblica reale e porta il flag a False."
         fi
 
+    - name: Gate release revoca — l'URL placeholder non può finire in un EXE distribuito
+      id: revocation-release-gate
+      # Come il gate chiave pubblica (1A/#150): con l'URL placeholder la revoca online è BYPASSATA in
+      # sviluppo, ma un EXE DISTRIBUITO con l'URL placeholder avrebbe la revoca online SILENZIOSAMENTE
+      # INATTIVA (rilievo Fugu/GLM #156). Il gate FALLISCE su una release (push di tag `v*`) finché
+      # `REVOCATION_URL_IS_PLACEHOLDER` (DERIVATO dall'URL) non è False; su build manuali AVVISA.
+      shell: bash
+      run: |
+        # Fail-closed: "0" (URL reale) è l'UNICO valore sicuro; ogni altro esito → su release BLOCCA.
+        placeholder="$(python -c 'import sys, xtrader_bridge.licensing.revocation_client as R; sys.stdout.write("1" if R.REVOCATION_URL_IS_PLACEHOLDER else "0")')" || placeholder="ERRORE_LETTURA_FLAG"
+        if [ "$placeholder" = "0" ]; then
+          echo "URL lista revoche reale (REVOCATION_URL_IS_PLACEHOLDER=False): gate release OK."
+        elif [ "${{ github.event_name }}" = "push" ] && [ "${{ startsWith(github.ref, 'refs/tags/') }}" = "true" ]; then
+          echo "::error::Release bloccata: URL lista revoche NON reale (valore letto: $placeholder). Imposta REVOCATION_LIST_URL reale in xtrader_bridge/licensing/revocation_client.py PRIMA di taggare una release: un EXE con l'URL placeholder ha la revoca online silenziosamente inattiva."
+          exit 1
+        else
+          echo "::warning::Build con URL lista revoche NON reale (valore letto: $placeholder): OK solo in sviluppo. NON distribuire questo artifact con la revoca online inattiva."
+        fi
+
     - name: Installa Dipendenze
       # Build riproducibile (A7): se `requirements-build.lock` è committato, si installa
       # SOLO da lì con `--require-hashes` (versioni+hash bloccati, generati su Windows dal
@@ -183,6 +202,25 @@ jobs:
           exit 1
         else
           echo "::warning::Build con chiave pubblica NON reale (valore letto: $placeholder): OK solo in sviluppo. NON distribuire questo artifact. Per una release sostituisci la chiave pubblica reale e porta il flag a False."
+        fi
+
+    - name: Gate release revoca — l'URL placeholder non può finire in un EXE distribuito
+      id: revocation-release-gate
+      # Come il gate chiave pubblica (1A/#150): con l'URL placeholder la revoca online è BYPASSATA in
+      # sviluppo, ma un EXE DISTRIBUITO con l'URL placeholder avrebbe la revoca online SILENZIOSAMENTE
+      # INATTIVA (rilievo Fugu/GLM #156). Il gate FALLISCE su una release (push di tag `v*`) finché
+      # `REVOCATION_URL_IS_PLACEHOLDER` (DERIVATO dall'URL) non è False; su build manuali AVVISA.
+      shell: bash
+      run: |
+        # Fail-closed: "0" (URL reale) è l'UNICO valore sicuro; ogni altro esito → su release BLOCCA.
+        placeholder="$(python -c 'import sys, xtrader_bridge.licensing.revocation_client as R; sys.stdout.write("1" if R.REVOCATION_URL_IS_PLACEHOLDER else "0")')" || placeholder="ERRORE_LETTURA_FLAG"
+        if [ "$placeholder" = "0" ]; then
+          echo "URL lista revoche reale (REVOCATION_URL_IS_PLACEHOLDER=False): gate release OK."
+        elif [ "${{ github.event_name }}" = "push" ] && [ "${{ startsWith(github.ref, 'refs/tags/') }}" = "true" ]; then
+          echo "::error::Release bloccata: URL lista revoche NON reale (valore letto: $placeholder). Imposta REVOCATION_LIST_URL reale in xtrader_bridge/licensing/revocation_client.py PRIMA di taggare una release: un EXE con l'URL placeholder ha la revoca online silenziosamente inattiva."
+          exit 1
+        else
+          echo "::warning::Build con URL lista revoche NON reale (valore letto: $placeholder): OK solo in sviluppo. NON distribuire questo artifact con la revoca online inattiva."
         fi
 
     - name: Verifica Tk disponibile (fail-closed)

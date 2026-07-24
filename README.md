@@ -525,9 +525,13 @@ pubblicando una **lista di revoche firmata** su un URL statico. Il bridge la **s
 periodicamente: una licenza **revocata** — o l'**impossibilità di raggiungere/verificare** la lista —
 **blocca** la GUI e ferma il listener a sessione viva (**senza finestra di grazia**: il bridge deve
 raggiungere e verificare l'URL per operare; i blip di rete transitori sono assorbiti da retry con
-backoff, un'irraggiungibilità persistente blocca). Dettagli in [`docs/licensing.md`](docs/licensing.md).
-La revoca online è **attiva solo** quando il fornitore imposta l'URL reale nel codice prima di
-distribuire l'EXE (come la chiave pubblica); con l'URL placeholder di sviluppo resta inattiva.
+backoff, un'irraggiungibilità persistente blocca). Il bridge accetta solo liste firmate **di recente**
+(entro 24 h): questo impedisce a un utente revocato di **rimettere una lista vecchia** e sbloccarsi,
+ma richiede al fornitore di **ri-pubblicare la lista firmata almeno ogni 24 h** (anche invariata).
+Dettagli in [`docs/licensing.md`](docs/licensing.md). La revoca online è **attiva solo** quando il
+fornitore imposta l'URL reale nel codice prima di distribuire l'EXE (l'attivazione è derivata dall'URL,
+e un gate di release blocca un tag finché l'URL è ancora quello di sviluppo); con l'URL placeholder resta
+inattiva.
 
 > 🔑 **Modello di sicurezza.** Il fornitore ha la chiave **privata** che firma le licenze; il
 > bridge contiene solo la chiave **pubblica** che verifica. La chiave privata **non** è nel

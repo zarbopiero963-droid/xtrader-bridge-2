@@ -437,11 +437,11 @@ class App(ctk.CTk):
         # applica lo stato iniziale sui widget reali, sia bloccato sia sbloccato) a prova di
         # modifiche future.
         self._license_locked = None
-        # Stato REVOCA online (#140 R3c): lista verificata + istante + floor anti-replay + supervisore.
+        # Stato REVOCA online (#140 R3c): `_rev_state = (lista_verificata, verificata_a)` come tupla
+        # unica sostituita atomicamente (letture coerenti tra thread) + floor anti-replay + supervisore.
         # Inizializzati PRIMA del primo `_apply_license_lock` così il gate revoca legge stato coerente
         # (con URL placeholder il gate è comunque bypassato). Il supervisore parte solo se attivo.
-        self._rev_list = None
-        self._rev_verified_at = None
+        self._rev_state = None
         self._rev_min_iss = 0
         self._rev_stop_event = None
         self._rev_thread = None
@@ -1363,39 +1363,53 @@ class App(ctk.CTk):
 
     # ── REVOCA ONLINE (#140 R3c) ───────────────────────────────────────────────────────────────
     # Un supervisore in background scarica periodicamente la lista di revoche firmata dall'URL statico
-    # e mantiene in memoria `(_rev_list, _rev_verified_at)`; il gate `_license_is_valid` le legge
-    # SINCRONO (niente rete nel gate) e blocca fail-closed no-grace. Il lock è già ri-valutato ogni
-    # `_LICENSE_TICK_MS` dal tick licenza e a ogni fine ciclo del supervisore.
+    # e mantiene in memoria lo stato `_rev_state = (lista_verificata, verificata_a)` come **tupla unica
+    # sostituita atomicamente** (rilievo Fable/CodeRabbit #156: niente letture di coppia incoerenti tra
+    # il thread supervisore e il thread GUI). Il gate `_license_is_valid` la legge SINCRONO (niente rete
+    # nel gate) e blocca fail-closed no-grace. Il lock è già ri-valutato dal tick licenza e a ogni fine
+    # ciclo del supervisore.
     def _revocation_enabled(self) -> bool:
-        """La revoca online è ATTIVA solo con un URL reale configurato (marcatore a `False`). Con l'URL
-        placeholder di TEST il gate è **bypassato** — coerente con la decisione 1A per la chiave
-        pubblica di test (dev usabile; il proprietario imposta URL reale + marcatore prima di
-        distribuire)."""
-        return not revocation_client.REVOCATION_URL_IS_PLACEHOLDER
+        """La revoca online è ATTIVA solo con un **URL reale** configurato. L'attivazione è **derivata
+        dall'URL** (`is_placeholder_url`), non da un flag separato dimenticabile (rilievo Fugu/GLM #156):
+        con l'URL placeholder di sviluppo il gate è **bypassato** — coerente con la decisione 1A per la
+        chiave pubblica di test (dev usabile; il proprietario imposta l'URL reale prima di distribuire)."""
+        return not revocation_client.is_placeholder_url(revocation_client.REVOCATION_LIST_URL)
 
     def _revocation_now(self) -> int:
         """Unix seconds correnti (iniettabile per i test)."""
         import time as _t  # noqa: PLC0415 — import locale
         return int(_t.time())
 
+    def _revocation_hwid(self) -> str:
+        """Hardware ID della macchina, **memoizzato** (rilievo Fable #156): `hardware_id()` legge
+        MachineGuid/volume/MAC (potenzialmente WMI/subprocess su Windows) — calcolarlo a ogni tick sul
+        thread GUI causerebbe micro-freeze. È **stabile per macchina**, quindi si calcola una volta e si
+        riusa."""
+        hw = self.__dict__.get("_rev_hwid_cache")
+        if hw is None:
+            from . import licensing  # noqa: PLC0415 — on-demand
+            hw = licensing.hardware_id()
+            self._rev_hwid_cache = hw
+        return hw
+
     def _revocation_identity(self) -> tuple:
         """`(token, hardware_id)` della licenza corrente per il check di revoca. Best-effort/fail-safe
-        (`load_license` → `(None, None)` se assente); iniettabile nei test."""
-        from . import license_store, licensing  # noqa: PLC0415 — on-demand
+        (`load_license` → `(None, None)` se assente); Hardware ID memoizzato; iniettabile nei test."""
+        from . import license_store  # noqa: PLC0415 — on-demand
         token, _ls = license_store.load_license(license_store.license_state_path(config_dir()))
-        return token, licensing.hardware_id()
+        return token, self._revocation_hwid()
 
     def _revocation_gate_ok(self) -> bool:
         """Gate revoca **sincrono, fail-closed no-grace**. `True` se la revoca non è attiva (URL
-        placeholder) oppure se esiste una lista verificata **fresca** e la licenza **non** è revocata.
-        Qualunque errore → `False` (bloccato)."""
+        placeholder) oppure se esiste una lista verificata **fresca** (fetch + contenuto firmato) e la
+        licenza **non** è revocata. Qualunque errore → `False` (bloccato)."""
         if not self._revocation_enabled():
             return True
         try:
+            revlist, verified_at = self.__dict__.get("_rev_state") or (None, None)
             token, hwid = self._revocation_identity()
             return revocation_client.gate_allows(
-                self.__dict__.get("_rev_list"),
-                verified_at=self.__dict__.get("_rev_verified_at"),
+                revlist, verified_at=verified_at,
                 now=self._revocation_now(), token=token, hardware_id=hwid)
         except Exception:   # noqa: BLE001 — qualunque errore nel gate revoca → fail-closed
             return False
@@ -1436,8 +1450,9 @@ class App(ctk.CTk):
                 rev = revocation_client.accept_signed(signed, min_iss=self._rev_min_iss) \
                     if signed else None
                 if rev is not None:
-                    self._rev_list = rev
-                    self._rev_verified_at = self._revocation_now()
+                    # Sostituzione ATOMICA della coppia (lista, verificata_a): il gate GUI la legge come
+                    # tupla unica → mai una lista fresca abbinata a un timestamp vecchio (Fable/CR #156).
+                    self._rev_state = (rev, self._revocation_now())
                     self._rev_min_iss = max(self._rev_min_iss, rev.issued)
                     try:
                         revocation_client.save_cached_signed(self._revocation_cache_path(), signed)

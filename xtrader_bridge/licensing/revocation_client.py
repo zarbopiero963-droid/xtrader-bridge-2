@@ -31,16 +31,26 @@ from . import license as _license
 from . import revocation
 
 # ── URL statico della lista di revoche (decisione proprietario 1a: COSTANTE nel codice) ───────────
-# ⚠️ PLACEHOLDER — come `LICENSE_PUBLIC_KEY_HEX`. SOSTITUIRE con l'URL statico reale del proprietario
-# (dove carica la lista firmata prodotta dal License Manager) **prima di distribuire copie
-# licenziate**, e portare il marcatore sotto a `False`. Il TLD `.invalid` (RFC 2606) è **non
-# risolvibile**: se il placeholder resta, il bridge fallisce **chiuso** (URL irraggiungibile →
-# bloccato), non «aperto».
-REVOCATION_LIST_URL = "https://revoche.example.invalid/xtrader/revocation_list.txt"
+# ⚠️ PLACEHOLDER di sviluppo — come `LICENSE_PUBLIC_KEY_HEX`. SOSTITUIRE con l'URL statico reale del
+# proprietario (dove carica la lista firmata prodotta dal License Manager) **prima di distribuire copie
+# licenziate**. Il TLD `.invalid` (RFC 2606) è **non risolvibile**: se il placeholder resta, il bridge
+# fallisce **chiuso** (URL irraggiungibile → bloccato), non «aperto».
+_PLACEHOLDER_URL = "https://revoche.example.invalid/xtrader/revocation_list.txt"
+REVOCATION_LIST_URL = _PLACEHOLDER_URL
 
-# Marcatore RILEVABILE del placeholder (come `LICENSE_PUBLIC_KEY_IS_PLACEHOLDER`): resta `True` finché
-# sopra c'è l'URL di TEST. Sostituendolo col proprio URL reale il proprietario DEVE portarlo a `False`.
-REVOCATION_URL_IS_PLACEHOLDER = True
+
+def is_placeholder_url(url: "str | None") -> bool:
+    """`True` se `url` è ancora un **placeholder di sviluppo** (vuoto, l'URL di TEST, o un host
+    `.invalid`) → revoca online **inattiva**. L'attivazione è **derivata dall'URL stesso**, non da un
+    secondo flag dimenticabile (rilievo Fugu/GLM #156): impostare un URL reale **attiva** la revoca —
+    impossibile lasciare «URL reale ma flag a True» e disattivarla in silenzio."""
+    u = (url or "").strip().lower()
+    return not u or u == _PLACEHOLDER_URL.lower() or ".invalid" in u
+
+
+# Marcatore booleano **DERIVATO** dall'URL (per il gate di release e i log) — NON una seconda fonte di
+# verità: cambia automaticamente quando si imposta un URL reale.
+REVOCATION_URL_IS_PLACEHOLDER = is_placeholder_url(REVOCATION_LIST_URL)
 
 # File di cache della lista accettata (accanto a `license_state.json` in `config_dir()`).
 REVOCATION_CACHE_FILE = "revocation_cache.json"
@@ -48,7 +58,13 @@ REVOCATION_CACHE_FILE = "revocation_cache.json"
 # Tempi (costanti di modulo; non config utente, coerente con 1a).
 DEFAULT_FETCH_TIMEOUT_S = 10          # timeout della singola fetch HTTP
 REFRESH_INTERVAL_S = 5 * 60           # cadenza normale di ri-scarico del supervisore
-FRESHNESS_MAX_AGE_S = 15 * 60         # oltre questa età una lista verificata è «stantia» → gate chiuso
+FRESHNESS_MAX_AGE_S = 15 * 60         # freschezza del FETCH: oltre → non si raggiunge l'URL → gate chiuso
+# Freschezza del CONTENUTO firmato (`iss`): una lista firmata da più di questo tetto è considerata
+# **stantia** anche se appena scaricata → gate chiuso (decisione proprietario: 24h). Chiude il
+# **replay di una lista vecchia** (un utente revocato che serve alla propria copia una lista firmata
+# precedente alla revoca): il proprietario **deve ri-pubblicare la lista firmata almeno ogni 24h**
+# (anche invariata, idealmente automatizzato), altrimenti i bridge legittimi si bloccano fail-closed.
+MAX_LIST_AGE_S = 24 * 3600
 
 # Tetto di dimensione della lista scaricata (una lista di revoche resta piccola; evita di ingoiare un
 # corpo enorme se l'URL è dirottato su altro).
@@ -146,18 +162,22 @@ def license_revoked(revlist: "revocation.RevocationList | None", *, token: "str 
 
 def gate_allows(revlist: "revocation.RevocationList | None", *, verified_at: "int | None",
                 now: int, token: "str | None", hardware_id: "str | None",
-                max_age: int = FRESHNESS_MAX_AGE_S) -> bool:
+                max_age: int = FRESHNESS_MAX_AGE_S, max_iss_age: int = MAX_LIST_AGE_S) -> bool:
     """**Decisione di gate sincrona, fail-closed no-grace.** `True` **solo se**:
 
     1. esiste una lista **verificata** (`revlist is not None` e `verified_at is not None`);
-    2. è **fresca** (`now - verified_at <= max_age`): una lista stantia (irraggiungibilità persistente)
-       → `False` (decisione proprietario: no grazia, ma il supervisore ha ritentato con backoff entro
-       la finestra);
-    3. la licenza corrente **non è revocata** in quella lista.
+    2. il **FETCH** è fresco (`now - verified_at <= max_age`): non si raggiunge più l'URL da troppo tempo
+       (irraggiungibilità persistente) → `False` (no grazia; il supervisore ha ritentato con backoff);
+    3. il **CONTENUTO firmato** è fresco (`now - issued <= max_iss_age`): una lista firmata troppo tempo
+       fa — anche se appena scaricata — è **stantia/replay** → `False` (chiude il replay di una lista
+       vecchia da parte dell'utente revocato; richiede ri-pubblicazione periodica lato proprietario);
+    4. la licenza corrente **non è revocata** in quella lista.
 
     Nessuna rete qui: legge solo lo stato mantenuto dal supervisore → il gate resta istantaneo."""
     if revlist is None or verified_at is None:
         return False
     if int(now) - int(verified_at) > int(max_age):
+        return False
+    if int(now) - int(revlist.issued) > int(max_iss_age):
         return False
     return not license_revoked(revlist, token=token, hardware_id=hardware_id)
