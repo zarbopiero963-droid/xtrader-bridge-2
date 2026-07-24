@@ -354,10 +354,47 @@ Questa prima fetta (**R3a**) è la **logica pura e condivisa** in
 hex malformata → `None`, envelope con parti extra → `None`, **payload firmato ma non canonico** rifiutato
 (`v`/`iss` non interi esatti, entry non-dict o senza criterio → `None`), dedup insiemi, entry mista
 serial+hw, normalizza e scarta le entry vuote (lato build), `is_revoked` per serial (case-insensitive) e
-per Hardware ID (esatto), lista `None` e criteri vuoti → `False`, lista vuota firmata è valida. Prossime
-fette: **R3b** (azione «🚫 Revoca» +
-store + pubblicazione firmata nel License Manager) e **R3c** (fetch/verifica/cache/lock nel bridge,
-fail-closed senza grazia).
+per Hardware ID (esatto), lista `None` e criteri vuoti → `False`, lista vuota firmata è valida. Prossima
+fetta: **R3c** (fetch/verifica/cache/lock nel bridge, fail-closed senza grazia).
+
+### Revoca — License Manager (store + lista firmata) — R3b
+
+Il License Manager ora **revoca** una licenza e **produce la lista firmata** che il proprietario carica
+sull'URL statico (il bridge la scaricherà e verificherà in R3c). Tutto **sul PC del proprietario**, mai
+nel repo/EXE.
+
+- **Store revoche** (`license_manager/registry.py`, file `revoked.jsonl` accanto a `licenses.jsonl` in
+  `%APPDATA%\XTraderLicenseManager`): stesso idiom append-only fail-safe del registro licenze
+  (lock di processo, `flush`+`fsync`, guardia anti riga-troncata, lettura tollerante). Contiene **solo**
+  serial/hardware/nome + `revoked_at` — **mai** il seed privato.
+  - `revocation_record(record, now)` → record di revoca dal record di licenza (serial autoritativo +
+    metadati); `ValueError` se il record non ha serial (fail-closed).
+  - `append_revocation` / `read_revocations` → append + lettura fail-safe.
+  - `is_serial_revoked(revocations, serial)` → dedup/stato (normalizza spazi/maiuscole).
+  - `revocation_entries(revocations)` → entry `[{"serial": ..}]` **deduplicate** per la firma.
+- **Azione «🚫 Revoca licenza»** (`gui.py::_evaluate_revoke`): dato un serial dell'elenco, registra la
+  revoca nello store. **Fail-closed**: serial non nel registro → niente scrittura; serial già revocato →
+  nessun duplicato; store non scrivibile → non dichiarata accettata (best-effort come l'emissione).
+  La revoca è **per serial** (la singola emissione): è sufficiente a tagliare fuori un utente — solo il
+  proprietario emette token, quindi non può auto-rigenerarsi un serial nuovo — ed è **reversibile**
+  (emetti una nuova licenza → serial nuovo, non revocato). L'`hardware_id` è conservato nello store come
+  metadato ma **non** emesso nella lista (un blacklist di macchina è un'azione più forte, non il default
+  di R3b).
+- **Azione «📤 Esporta lista revoche firmata»** (`gui.py::_evaluate_publish_revocation`): firma le entry
+  dello store con `revocation.build_revocation_list` (seed privato dal file-chiave) e scrive il file
+  `<b64u(payload)>.<b64u(firma)>` da caricare sull'URL. **Fail-closed**: senza percorso o senza chiave non
+  produce nulla; uno store **vuoto** dà comunque una lista firmata **valida** («niente revocato»), così
+  l'URL esiste sempre e il bridge fail-closed di R3c non si blocca solo perché non c'è nulla da revocare.
+- **Import/isolamento:** `license_manager` importa `xtrader_bridge.licensing.revocation` (direzione
+  **consentita**, come già `core` importa `license`/`ed25519`); il bridge continua a **non** importare
+  `license_manager` (test isolamento invariato).
+
+**Test hard:** `tests/unit/test_license_manager_registry.py` (store: `revocation_record` valido/senza
+serial, append/read round-trip separato dal registro, file assente/riga troncata, `is_serial_revoked`,
+`revocation_entries` dedup serial-only) e `tests/unit/test_license_manager_gui.py` (revoca registra /
+serial assente non scrive / già-revocata nessun duplicato / store fallito non accetta; **round-trip
+publish→`verify_revocation_list`** ritrova il serial, store vuoto → lista valida, senza percorso/chiave →
+fail-closed).
 
 ### PR 4 — Lock totale della GUI (fatta)
 

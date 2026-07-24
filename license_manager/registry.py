@@ -34,6 +34,12 @@ _log = logging.getLogger(__name__)
 
 REGISTRY_FILE = "licenses.jsonl"
 
+# Store delle **revoche** (issue #140 R3b): stesso idiom append-only fail-safe del registro licenze,
+# file separato nella cartella del License Manager. Contiene SOLO serial/hardware/nome + timestamp —
+# **mai** il seed privato. La lista firmata che il bridge scarica si produce da qui (R3b) verificandola
+# con `xtrader_bridge.licensing.revocation` (R3a).
+REVOKED_FILE = "revoked.jsonl"
+
 # Prefisso leggibile del serial + lunghezza dell'impronta (48 bit esadecimali: spazio ampio, nessuna
 # collisione realistica alla scala di un singolo proprietario). Il serial è deterministico dal token.
 _SERIAL_PREFIX = "LIC-"
@@ -169,6 +175,80 @@ def read_records(*, directory: "str | None" = None, path: "str | None" = None) -
             continue
         if isinstance(obj, dict):
             out.append(obj)
+    return out
+
+
+def revoked_registry_path(directory: "str | None" = None) -> str:
+    """Percorso dello store revoche (`revoked.jsonl`) nella cartella data o in `manager_dir()`."""
+    return os.path.join(directory or manager_dir(), REVOKED_FILE)
+
+
+def revocation_record(record: dict, *, now: int) -> dict:
+    """Costruisce il **record di revoca** da un record di licenza del registro (opzione B/R3b).
+
+    Tiene `serial` (autoritativo per la revoca) più `name`/`hardware_id` come **metadati per la vista**
+    del proprietario e `revoked_at` (unix). Solleva `ValueError` se il record non ha un `serial`
+    (fail-closed: non si revoca «nulla»)."""
+    serial = str(record.get("serial", "")).strip().upper()
+    if not serial:
+        raise ValueError("record senza serial: impossibile revocare")
+    return {
+        "serial": serial,
+        "name": str(record.get("name", "")),
+        "hardware_id": str(record.get("hardware_id", "")),
+        "revoked_at": int(now),
+    }
+
+
+def append_revocation(record: dict, *, directory: "str | None" = None) -> dict:
+    """Appende UN record di revoca allo store (`revoked.jsonl`), con lo **stesso** append atomico
+    (`flush`+`fsync` + guardia anti riga-troncata) del registro licenze. Gli errori di I/O propagano
+    (il chiamante GUI li tratta best-effort). Ritorna il record scritto."""
+    path = revoked_registry_path(directory)
+    line = json.dumps(record, ensure_ascii=False)
+    with _WRITE_LOCK:
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        prefix = "\n" if _ends_without_newline(path) else ""
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(prefix + line + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+    return record
+
+
+def read_revocations(*, directory: "str | None" = None, path: "str | None" = None) -> list:
+    """Legge lo store revoche come lista di record (dict), nell'ordine d'inserimento. Fail-safe: file
+    assente → `[]`; righe vuote/malformate saltate (stesso guard di `read_records`)."""
+    target = path or revoked_registry_path(directory)
+    return read_records(path=target)
+
+
+def is_serial_revoked(revocations: list, serial: str) -> bool:
+    """`True` se `serial` (normalizzato spazi/maiuscole) compare tra i record di revoca. Serve alla GUI
+    per non registrare due volte la stessa revoca e per annotare lo stato nella vista."""
+    key = str(serial or "").strip().upper()
+    if not key:
+        return False
+    return any(str(r.get("serial", "")).strip().upper() == key for r in revocations)
+
+
+def revocation_entries(revocations: list) -> list:
+    """Converte i record di revoca nelle **entry** per `revocation.build_revocation_list`:
+    `[{"serial": ..}, ...]` deduplicate per serial.
+
+    Revoca **per serial** (la specifica emissione), che è sufficiente a tagliare fuori un utente — solo
+    il proprietario emette token, quindi non può auto-generarsi un serial nuovo — ed è **reversibile**
+    (una nuova licenza = serial nuovo, non revocato). L'`hardware_id` è conservato nello store come
+    metadato ma **non** viene emesso nella lista (un blacklist di macchina è un'azione più forte, non il
+    default di R3b). Le entry senza serial valido sono ignorate (fail-safe)."""
+    seen, out = set(), []
+    for r in revocations:
+        serial = str(r.get("serial", "")).strip().upper()
+        if serial and serial not in seen:
+            seen.add(serial)
+            out.append({"serial": serial})
     return out
 
 
