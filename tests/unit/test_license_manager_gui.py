@@ -55,10 +55,15 @@ def _fake(gui, tmp_path, now=_NOW):
         _record_issued=registry.append_record,
         _read_records=registry.read_records,
     )
+    fake._reg_query_entry = None
+    fake._registry_box = None
     fake._key_path = lambda: core.signing_key_path(fake._key_dir)
     fake._current_key_state = lambda: gui.LicenseManagerApp._current_key_state(fake)
     fake._record_issued_safe = lambda token: gui.LicenseManagerApp._record_issued_safe(fake, token)
     fake._registry_view = lambda query="": gui.LicenseManagerApp._registry_view(fake, query)
+    fake._read = lambda entry: gui.LicenseManagerApp._read(fake, entry)
+    fake._format_registry_rows = gui.LicenseManagerApp._format_registry_rows
+    fake._on_registry_refresh = lambda: gui.LicenseManagerApp._on_registry_refresh(fake)
     return fake
 
 
@@ -300,3 +305,19 @@ def test_format_registry_rows_non_mostra_il_token(gui, tmp_path):
     text = gui.LicenseManagerApp._format_registry_rows(rows)
     assert "Carla Neri" in text and "SCADUTA" not in text  # appena emessa → attiva
     assert out["token"] not in text, "il token non deve comparire nella vista del registro"
+
+
+def test_format_registry_rows_vuoto_messaggio_esplicito(gui):
+    """Registro vuoto → messaggio esplicito (review Sourcery #152), non stringa vuota."""
+    assert gui.LicenseManagerApp._format_registry_rows([]) == "(nessuna licenza registrata)"
+
+
+def test_on_registry_refresh_non_crasha_su_read_error(gui, tmp_path):
+    """`_on_registry_refresh` è interamente best-effort (review GPT-5.5 #152): un `read_records`
+    che solleva (provider custom non fail-safe) NON deve far crashare l'azione."""
+    fake = _fake(gui, tmp_path)
+    def _boom(**_k):
+        raise OSError("registro illeggibile (simulato)")
+    fake._read_records = _boom
+    fake._registry_view = lambda query="": gui.LicenseManagerApp._registry_view(fake, query)
+    gui.LicenseManagerApp._on_registry_refresh(fake)   # non deve sollevare

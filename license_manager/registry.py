@@ -221,5 +221,16 @@ def view_rows(records: list, *, query: str = "", now: int) -> list:
             "status": record_status(rec, now=now),
             "days_left": days_left(rec, now=now),
         })
-    rows.sort(key=lambda r: (r["expiry"] is None, r["expiry"] or 0), reverse=True)
+
+    def _sort_key(row):
+        # A prova di TypeError (review Sourcery #152): un `expiry` NON numerico (riga editata a
+        # mano/formato futuro) non deve far crashare la sort mischiando int e str. I record con
+        # `expiry` valido vanno in testa ordinati per scadenza DECRESCENTE (`-int`); quelli con
+        # `expiry` None/non numerico finiscono in fondo (gruppo 1), stabili tra loro.
+        try:
+            return (0, -int(row["expiry"]))
+        except (TypeError, ValueError):
+            return (1, 0)
+
+    rows.sort(key=_sort_key)
     return rows

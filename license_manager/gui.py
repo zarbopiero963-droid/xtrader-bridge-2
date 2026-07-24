@@ -181,7 +181,10 @@ class LicenseManagerApp(ctk.CTk):
             self._record_issued(record, directory=self._key_dir)
             return True
         except (OSError, ValueError) as exc:
-            _log.warning("Registrazione licenza nel registro non riuscita: %s", type(exc).__name__)
+            # Tipo + messaggio + cartella per diagnosticare (review Sourcery #152); il messaggio di
+            # OSError/ValueError contiene il path del registro, non il token (nessun segreto loggato).
+            _log.warning("Registrazione licenza nel registro non riuscita [%s]: %s (dir=%s)",
+                         type(exc).__name__, exc, registry.registry_path(self._key_dir))
             return False
 
     def _registry_view(self, query: str = "") -> list:
@@ -334,14 +337,19 @@ class LicenseManagerApp(ctk.CTk):
         self._on_registry_refresh()
 
     def _on_registry_refresh(self) -> None:
-        """Ricarica e mostra il registro licenze, filtrato per il testo di ricerca (best-effort)."""
-        rows = self._registry_view(self._read(self._reg_query_entry))
-        text = self._format_registry_rows(rows)
+        """Ricarica e mostra il registro licenze, filtrato per il testo di ricerca.
+
+        **Interamente best-effort** (review GPT-5.5 #152): gira anche subito dopo l'emissione, quindi
+        né il fetch (`_registry_view`→`read_records`) né il rendering Tk devono mai far fallire
+        l'azione. Il `read_records` di default è già fail-safe; questo guard copre anche un provider
+        iniettato/custom che non rispettasse il contratto."""
         try:
+            rows = self._registry_view(self._read(self._reg_query_entry))
+            text = self._format_registry_rows(rows)
             if self._registry_box is not None:
                 self._registry_box.delete("1.0", "end")
                 self._registry_box.insert("1.0", text)
-        except Exception:       # noqa: BLE001 — render Tk best-effort
+        except Exception:       # noqa: BLE001 — vista registro best-effort (fetch + render)
             pass
 
     def _on_export(self) -> None:

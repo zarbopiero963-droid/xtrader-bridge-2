@@ -77,6 +77,22 @@ def test_record_from_token_malformato_solleva():
     raise AssertionError("record_from_token deve sollevare su token malformato")
 
 
+def test_record_from_token_payload_incompleto_fail_closed():
+    """Payload VALIDO come JSON ma con un campo obbligatorio MANCANTE (es. `exp`): il decode riesce,
+    ma `record_from_token` deve **fallire fail-closed** invece di registrare un record monco
+    (review GLM #152)."""
+    import base64
+    payload = {"v": 1, "name": "Senza Exp", "hw": _HW, "iss": _NOW}   # manca 'exp'
+    seg = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).rstrip(b"=").decode("ascii")
+    token = seg + ".firmafinta"
+    assert registry.decode_token_payload(token)["name"] == "Senza Exp"   # il decode riesce
+    try:
+        registry.record_from_token(token, now=_NOW)
+    except ValueError:
+        return
+    raise AssertionError("record_from_token deve sollevare su payload incompleto (manca 'exp')")
+
+
 # ── append / read append-only ─────────────────────────────────────────────────────────────────
 
 def test_append_e_read_round_trip(tmp_path):
@@ -162,3 +178,21 @@ def test_view_rows_annota_stato_e_giorni():
     # oltre ogni scadenza → tutte SCADUTA, giorni 0
     rows_future = registry.view_rows(recs, now=_NOW + 40 * _DAY)
     assert all(r["status"] == registry.STATUS_EXPIRED and r["days_left"] == 0 for r in rows_future)
+
+
+def test_view_rows_sort_tollerante_expiry_non_numerico():
+    """La sort NON deve crashare se un record ha `expiry` non numerico (riga editata a mano/formato
+    futuro): i validi in testa per scadenza DECRESCENTE, i non numerici/None in fondo (review
+    Sourcery #152)."""
+    recs = [
+        {"serial": "LIC-BAD1", "name": "Rotto", "hardware_id": _HW, "expiry": "boh"},
+        {"serial": "LIC-OK-A", "name": "Vecchia", "hardware_id": _HW, "expiry": _NOW + 5 * _DAY},
+        {"serial": "LIC-NONE", "name": "SenzaExp", "hardware_id": _HW, "expiry": None},
+        {"serial": "LIC-OK-B", "name": "Nuova", "hardware_id": _HW, "expiry": _NOW + 30 * _DAY},
+    ]
+    rows = registry.view_rows(recs, now=_NOW)   # non deve sollevare TypeError
+    names = [r["name"] for r in rows]
+    # i due validi per primi, scadenza DECRESCENTE (Nuova prima di Vecchia)
+    assert names[:2] == ["Nuova", "Vecchia"]
+    # i non-numerici/None in coda (ordine tra loro non garantito, ma dopo i validi)
+    assert set(names[2:]) == {"Rotto", "SenzaExp"}
