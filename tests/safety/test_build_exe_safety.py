@@ -1099,6 +1099,19 @@ def test_exe_vincolato_al_suo_workflow():
 # lo sviluppo hard-failato (violazione 1A), falliscono.
 _LICENSE_PLACEHOLDER_FLAG = "LICENSE_PUBLIC_KEY_IS_PLACEHOLDER"
 _RELEASE_TAG_COND = "startsWith(github.ref, 'refs/tags/')"
+# Il guard fira sulla RELEASE = push di tag (stessa condizione con cui la Release pubblica è
+# creata); `workflow_dispatch`, anche da un ref di tag, resta warn-only (decisione 1A). Il gate
+# è quindi legato all'EVENTO, non al solo ref (review GPT-5.5/Sourcery #150). Il marcatore è
+# l'ESPRESSIONE `${{ github.event_name }}` — presente solo nel test bash reale, NON nei commenti
+# (che scrivono `github.event_name` senza `${{ }}`): così rimuovere il check dell'evento fa
+# davvero fallire il test, invece di essere mascherato da una menzione nel commento.
+_RELEASE_EVENT_COND = "${{ github.event_name }}"
+# Marcatore stabile dello step guard: `id:` dedicato, più robusto della ricerca a stringa del flag
+# (review Sourcery #150 — il flag potrebbe comparire anche in commenti/altri comandi).
+_RELEASE_GATE_ID = "license-release-gate"
+# Fail-closed: "0" (chiave reale) è l'UNICO valore sicuro; un check che fallisce (≠ "0") NON deve
+# far passare la release (review Sourcery #150). Il guard confronta con "0", non `!= "1"`.
+_FAILCLOSED_SAFE_CHECK = '= "0"'
 
 
 def _job_body(workflow_path, job_name):
@@ -1107,12 +1120,14 @@ def _job_body(workflow_path, job_name):
 
 
 def _release_key_guard_step(job_body):
-    """Lo step-body del guard release (quello che nomina il flag placeholder) nel job, o `None`.
-    Riusa `_step_bodies` sul corpo del job così le condizioni (tag/exit/warning) restano legate
-    allo STESSO step, non sparse nel job."""
+    """Lo step-body del guard release nel job, o `None`. Individuato dal marcatore STABILE
+    `id: license-release-gate` (non da una ricerca a stringa del flag, che potrebbe matchare
+    commenti/altri comandi — review Sourcery #150). Riusa `_step_bodies` sul corpo del job così le
+    condizioni (evento/tag/exit/warning/fail-closed) restano legate allo STESSO step."""
     if job_body is None:
         return None
-    return next((s for s in _step_bodies(job_body) if _LICENSE_PLACEHOLDER_FLAG in s), None)
+    marker = "id: " + _RELEASE_GATE_ID
+    return next((s for s in _step_bodies(job_body) if marker in s), None)
 
 
 def _release_capable_bridge_build_jobs():
@@ -1138,9 +1153,15 @@ def test_release_key_guard_nei_build_bridge_release_capable():
     for wf, job in jobs:
         guard = _release_key_guard_step(_job_body(os.path.join(_WORKFLOWS_DIR, wf), job))
         assert guard is not None, \
-            f"{wf}:{job}: workflow release-capable senza guard su {_LICENSE_PLACEHOLDER_FLAG}"
-        assert _RELEASE_TAG_COND in guard, \
-            f"{wf}:{job}: il guard deve fallire SOLO su un tag di release ({_RELEASE_TAG_COND})"
+            f"{wf}:{job}: workflow release-capable senza guard (id: {_RELEASE_GATE_ID})"
+        assert _LICENSE_PLACEHOLDER_FLAG in guard, \
+            f"{wf}:{job}: il guard deve leggere {_LICENSE_PLACEHOLDER_FLAG}"
+        assert _RELEASE_TAG_COND in guard and _RELEASE_EVENT_COND in guard, \
+            f"{wf}:{job}: il guard deve fallire SOLO sul push di un tag di release " \
+            f"({_RELEASE_EVENT_COND} + {_RELEASE_TAG_COND}), non su un dispatch da tag (1A)"
+        assert _FAILCLOSED_SAFE_CHECK in guard, \
+            f"{wf}:{job}: il guard dev'essere fail-closed sul valore sicuro {_FAILCLOSED_SAFE_CHECK!r} " \
+            f"(un check fallito NON deve far passare la release — review Sourcery #150)"
         assert re.search(r"(?<![\w$])exit\s+1\b", guard), \
             f"{wf}:{job}: il guard deve fallire (exit 1) su una release con chiave di TEST"
         assert "::warning::" in guard, \
@@ -1180,19 +1201,25 @@ def test_release_key_guard_logica_helper():
     """Self-test degli helper del guard (mutation-guard): `_release_key_guard_step` trova lo step
     giusto e i controlli tag/exit/warning distinguono un guard corretto da uno indebolito."""
     good = ("      - name: gate\n"
+            "        id: license-release-gate\n"
             "        shell: bash\n"
             "        run: |\n"
-            "          x=$(python -c 'import x; LICENSE_PUBLIC_KEY_IS_PLACEHOLDER')\n"
-            "          if [ \"${{ startsWith(github.ref, 'refs/tags/') }}\" = true ]; then\n"
+            "          x=$(python -c 'import x; LICENSE_PUBLIC_KEY_IS_PLACEHOLDER') || x=ERR\n"
+            "          if [ \"$x\" = \"0\" ]; then echo ok\n"
+            "          elif [ \"${{ github.event_name }}\" = push ] && "
+            "[ \"${{ startsWith(github.ref, 'refs/tags/') }}\" = true ]; then\n"
             "            exit 1\n"
             "          else\n"
             "            echo '::warning::dev'\n"
             "          fi\n")
     step = _release_key_guard_step(good)
-    assert step is not None and _RELEASE_TAG_COND in step
+    assert step is not None
+    assert _RELEASE_TAG_COND in step and _RELEASE_EVENT_COND in step
+    assert _FAILCLOSED_SAFE_CHECK in step
     assert re.search(r"(?<![\w$])exit\s+1\b", step) and "::warning::" in step
-    # job senza il flag → nessuno step guard
-    assert _release_key_guard_step("      - name: x\n        run: echo hi\n") is None
+    # step SENZA il marcatore id → non è il guard (anche se nomina il flag in un commento)
+    assert _release_key_guard_step(
+        "      - name: x\n        run: echo LICENSE_PUBLIC_KEY_IS_PLACEHOLDER\n") is None
 
 
 # ── Gate build Nuitka (Fase 6 slice 2) ──────────────────────────────────────────────────────

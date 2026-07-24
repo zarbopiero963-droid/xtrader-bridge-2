@@ -107,17 +107,25 @@ due, così lo swap è deliberato e non silenzioso).
 ### Gate di release (fatto) — la chiave di TEST non può finire in un EXE distribuito
 
 I workflow di build del bridge (`.github/workflows/build.yaml`, job `build` Windows e `build-linux`)
-hanno uno step **«Gate release licenza»** che, subito dopo `setup-python` e **prima**
-dell'install/compilazione, legge `LICENSE_PUBLIC_KEY_IS_PLACEHOLDER` dal modulo puro (solo stdlib →
-gira fail-fast, senza dipendenze) e decide così:
+hanno uno step **«Gate release licenza»** (`id: license-release-gate`) che, subito dopo `setup-python`
+e **prima** dell'install/compilazione, legge `LICENSE_PUBLIC_KEY_IS_PLACEHOLDER` dal modulo puro (solo
+stdlib → gira fail-fast, senza dipendenze) e decide così:
 
-- su un **tag di release `v*`** (l'EXE viene pubblicato agli utenti, anche la Release pubblica su
-  GitHub) con flag ancora `True` → la build **FALLISCE** (`::error::` + `exit 1`): una release con la
-  chiave di TEST accetterebbe licenze **forgiabili** col seed di test;
-- su **build manuali** (`workflow_dispatch`, sviluppo) con flag `True` → solo un **`::warning::`**, la
-  build prosegue: coerente con la **decisione 1A** (lo sviluppo con chiavi di TEST resta possibile, il
-  lock GUI non dipende dal placeholder);
-- flag `False` (chiave reale) → gate OK.
+- **valore sicuro** = `"0"` (chiave pubblica reale, flag `False`) → gate OK, la build prosegue;
+- **release** = un **push di tag** (`github.event_name == push` + `refs/tags/`, la **stessa
+  condizione** con cui più sotto viene creata la Release pubblica; il workflow è già filtrato a `v*`
+  da `on.push.tags`) con flag ancora `True` **o non leggibile** → la build **FALLISCE** (`::error::` +
+  `exit 1`): una release con la chiave di TEST accetterebbe licenze **forgiabili** col seed di test;
+- **build manuali** (`workflow_dispatch`, **anche se lanciate da un ref di tag**) con flag `True` →
+  solo un **`::warning::`**, la build prosegue: coerente con la **decisione 1A** (lo sviluppo con
+  chiavi di TEST resta possibile, il lock GUI non dipende dal placeholder).
+
+Il gate è **fail-closed** (review Sourcery #150): `"0"` è l'**unico** valore che sblocca; se il check
+Python fallisce (interprete assente, import error) il valore letto è ≠ `"0"` e viene trattato come
+**non sicuro** — su una release **blocca**, in sviluppo **avvisa** — così un errore di lettura del
+flag non apre mai la strada a una release con chiave di test. Legare il gate all'**evento** (push di
+tag) e non al solo ref evita che un `workflow_dispatch` da un ref di tag venga scambiato per una
+release (review GPT-5.5/Sourcery #150).
 
 Il gate è **anti-distrazione**, non una difesa da un avversario con accesso in scrittura ai workflow
 (chi edita i workflow può editare anche il gate): impedisce di **taggare per sbaglio** una release con
