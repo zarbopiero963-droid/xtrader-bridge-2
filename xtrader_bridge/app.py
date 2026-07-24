@@ -204,6 +204,11 @@ _CSV_ROW_BTN_WIDTH = 100           # larghezza dei pulsanti «📁 Sfoglia…» 
 # costanti così `_build_ui` e il test di budget layout condividono UNA SOLA fonte di verità e non
 # possono andare fuori sync (drift): se qui cambia un padding, il test lo recepisce da solo
 # (GPT-5.5 + GLM 5.2 su #330). `padx` come tuple `(sinistra, destra)`, `_TABVIEW_PADX` per lato.
+# Periodo del tick di re-valutazione licenza (#140 PR 4): 60s è ampiamente sotto la granularità
+# della scadenza (giorni) e coglie una scadenza a sessione viva senza pesare (l'heartbeat scrive
+# solo quando l'orologio avanza). Fail-closed: alla scadenza ferma il listener e blocca la GUI.
+_LICENSE_TICK_MS = 60_000
+
 _TABVIEW_PADX = 15                 # tabs.pack(padx=_TABVIEW_PADX) — per lato
 _GEN_LABEL_PADX = (10, 5)          # etichetta del campo
 _GEN_ENTRY_PADX = (0, 8)           # casella del campo
@@ -409,6 +414,14 @@ class App(ctk.CTk):
         # mai stata scelta, sopra la finestra principale appena costruita e PRIMA
         # dell'eventuale auto-start (che al primo avvio è comunque OFF di default).
         self.after(300, self._maybe_open_language_selector)
+        # Lock licenza (#140 PR 4): valuta SUBITO lo stato e apri già BLOCCATA la GUI operativa se la
+        # licenza non è valida (assente/scaduta/corrotta), poi arma il tick periodico di
+        # re-valutazione (scadenza a sessione viva → STOP + lock). Fail-closed. Precede l'auto-start
+        # (che comunque passa dal gate di `_start`), così una macchina senza licenza non parte.
+        self._license_locked = None
+        self._license_tick_after_id = None
+        self._apply_license_lock()
+        self._schedule_license_tick()
         # Avvio automatico del listener (se abilitato e config minima presente): dopo
         # che la UI è pronta, così log/stato sono visibili. Default OFF.
         self._autostart_after_id = self.after(400, self._maybe_auto_start)
@@ -424,6 +437,10 @@ class App(ctk.CTk):
         # Gate grezzo sulla config caricata: l'auto-start è una proprietà dell'apertura.
         # Se non era richiesto, non tocchiamo nulla (niente _save_config inutile).
         if not autostart.is_enabled(self._config):
+            return
+        # Gate licenza (#140 PR 4): niente auto-start senza licenza valida. `_start` lo blocca
+        # comunque, ma qui si evita il tentativo (e il rumore nel log) a monte.
+        if not self._license_is_valid():
             return
         self._start(auto=True)
 
@@ -1175,8 +1192,9 @@ class App(ctk.CTk):
     # ── UI ────────────────────────────────────
     def _build_license_tab(self, parent):
         """Costruisce la scheda «🔑 Licenza» (#140 PR 2): Hardware ID + campo chiave + «Attiva» +
-        stato. NESSUN blocco (il lock è PR 4). Persistenza in `config_dir` via `license_store`;
-        verifica fail-closed via `licensing`/`license_status`. Provider cablati qui (config viva)."""
+        stato. Il **lock totale** (PR 4) è cablato qui via `on_status_change`: ogni refresh del
+        pannello (avvio/attivazione) rivaluta il gate e (dis)blocca la GUI operativa. Persistenza in
+        `config_dir` via `license_store`; verifica fail-closed via `licensing`/`license_status`."""
         import time as _time  # noqa: PLC0415 — import locale
         from . import license_gui, license_store, licensing  # noqa: PLC0415 — GUI licenza on-demand
 
@@ -1188,10 +1206,114 @@ class App(ctk.CTk):
             hardware_id_provider=licensing.hardware_id,
             load_state=lambda: license_store.load_license(_lic_path()),
             save_state=lambda tok, ls: license_store.save_license(_lic_path(), tok, ls),
-            now_provider=lambda: int(_time.time()))
+            now_provider=lambda: int(_time.time()),
+            on_status_change=self._on_license_status)   # #140 PR 4: rivaluta il lock a ogni refresh
         self._license_panel.pack(fill="both", expand=True)
 
+    # ── LOCK LICENZA (#140 PR 4) ──────────────────────────────────────────────────────────────
+    def _register_lockable(self, widget) -> None:
+        """Registra un widget operativo tra quelli disabilitati dal lock licenza (#140 PR 4).
+        `setdefault` così è robusto anche se chiamato prima dell'init esplicito della lista."""
+        self.__dict__.setdefault("_lockable_widgets", []).append(widget)
+
+    def _license_is_valid(self) -> bool:
+        """Gate licenza **fail-closed** (#140 PR 4): `True` SOLO se la licenza corrente è valida.
+        Qualunque assenza (pannello non ancora costruito), errore o stato non determinabile → `False`
+        (bloccato). `current_status()` è già fail-safe internamente; il try/except è belt-and-suspenders
+        così un guasto imprevisto blocca invece di aprire. La chiave di TEST
+        (`LICENSE_PUBLIC_KEY_IS_PLACEHOLDER`) **non** blocca di per sé (decisione proprietario 1A):
+        il gate è la sola validità della licenza; la sostituzione della chiave pubblica reale prima
+        della distribuzione resta un passo manuale del proprietario."""
+        panel = getattr(self, "_license_panel", None)
+        if panel is None:
+            return False
+        try:
+            status = panel.current_status()
+        except Exception:   # noqa: BLE001 — errore imprevisto nel calcolo stato → fail-closed
+            return False
+        return bool(getattr(status, "valid", False))
+
+    def _set_operational_lock(self, *, locked: bool) -> None:
+        """(Dis)abilita i widget operativi registrati (campi config, avanzate, azioni), **escluso**
+        START/STOP (governati dalla macchina sessione) e la scheda «🔑 Licenza» (mai registrata, così
+        resta sempre usabile). Best-effort per-widget: un `CTkLabel`/widget senza `state` o già
+        distrutto non deve rompere il lock."""
+        state = "disabled" if locked else "normal"
+        for w in getattr(self, "_lockable_widgets", ()):
+            try:
+                w.configure(state=state)
+            except Exception:   # noqa: BLE001 — widget senza `state`/distrutto: best-effort
+                pass
+
+    def _apply_license_lock(self) -> bool:
+        """Rivaluta la licenza e (dis)blocca la GUI operativa (#140 PR 4). Fail-closed:
+
+        - licenza **non valida** → tutti i controlli operativi disabilitati + START disabilitato; se
+          una sessione è **viva** (scadenza a metà sessione) → `_stop()` immediato;
+        - licenza **valida** → controlli riabilitati; START torna disponibile SOLO se non c'è una
+          sessione in corso (non scavalca la macchina START/STOP).
+
+        Robusto a essere chiamato durante la costruzione della UI (widget non ancora presenti):
+        `getattr`/try-except assorbono i riferimenti mancanti. Ritorna `True` se BLOCCATA."""
+        locked = not self._license_is_valid()
+        was = getattr(self, "_license_locked", None)
+        self._set_operational_lock(locked=locked)
+        btn_start = getattr(self, "_btn_start", None)
+        if locked:
+            if getattr(self, "_running", False):
+                # Scadenza/invalidazione a sessione viva: STOP fail-closed (non lasciare il listener
+                # che scrive CSV senza licenza). PRIMA di disabilitare START: `_stop` rimette START a
+                # "normal", quindi il disable qui sotto deve venire DOPO, altrimenti resterebbe attivo.
+                self._log(i18n.tr("🔒 Licenza non più valida: listener fermato (fail-closed)."))
+                self._stop()
+            if btn_start is not None:
+                try:
+                    btn_start.configure(state="disabled")
+                except Exception:   # noqa: BLE001 — best-effort
+                    pass
+        elif btn_start is not None and not getattr(self, "_running", False):
+            try:
+                btn_start.configure(state="normal")
+            except Exception:   # noqa: BLE001 — best-effort
+                pass
+        if was is not None and was != locked:
+            self._log(i18n.tr("🔒 GUI bloccata: attiva una licenza valida nella scheda «🔑 Licenza».")
+                      if locked else i18n.tr("🔓 Licenza valida: GUI sbloccata."))
+        self._license_locked = locked
+        return locked
+
+    def _on_license_status(self, status=None) -> None:
+        """Callback dal pannello licenza a ogni `refresh_options` (costruzione/attivazione): rivaluta
+        il lock. Un'attivazione valida sblocca live; una licenza scaduta/invalida ri-blocca."""
+        self._apply_license_lock()
+
+    def _schedule_license_tick(self) -> None:
+        """(Ri)programma il tick periodico di re-valutazione licenza (#140 PR 4): una scadenza a
+        sessione viva viene colta anche senza eventi del pannello. Best-effort; non riprogramma in
+        chiusura."""
+        if getattr(self, "_closing", False):
+            return
+        try:
+            self._license_tick_after_id = self.after(_LICENSE_TICK_MS, self._license_tick)
+        except Exception:   # noqa: BLE001 — finestra distrutta: niente ri-arma
+            self._license_tick_after_id = None
+
+    def _license_tick(self) -> None:
+        """Tick periodico: rivaluta il lock (fail-closed) e si ri-arma. Un errore nel gate non deve
+        interrompere il ciclo."""
+        self._license_tick_after_id = None
+        try:
+            self._apply_license_lock()
+        except Exception:   # noqa: BLE001 — un errore del gate non deve fermare il tick
+            pass
+        self._schedule_license_tick()
+
     def _build_ui(self):
+        # Widget operativi disabilitabili dal lock licenza (#140 PR 4). Inizializzato QUI, prima di
+        # costruire qualsiasi controllo: la scheda «Licenza» (costruita per prima) può far scattare
+        # `on_status_change` → `_set_operational_lock`, che tollera una lista ancora vuota/parziale;
+        # la valutazione autorevole avviene a fine costruzione (`_apply_license_lock`).
+        self._lockable_widgets = []
         # Header
         hdr = ctk.CTkFrame(self, fg_color=_COLOR_HEADER_BG, corner_radius=10)
         hdr.pack(fill="x", padx=15, pady=(12, 5))
@@ -1247,9 +1369,10 @@ class App(ctk.CTk):
         tab_conf = tabs.add(i18n.tr("✅ Conferme XTrader"))
         tab_lic = tabs.add(i18n.tr("🔑 Licenza"))
 
-        # — Licenza (#140 PR 2): schermata di attivazione (Hardware ID + chiave + stato).
-        # NESSUN blocco in questa PR: mostra e attiva soltanto (il lock totale è la PR 4, che
-        # riuserà questo stesso pannello). Persistenza in `config_dir` via `license_store`.
+        # — Licenza (#140 PR 2 + PR 4): schermata di attivazione (Hardware ID + chiave + stato) e
+        # **gate del lock totale**. Costruita per PRIMA così `on_status_change` può bloccare gli altri
+        # controlli man mano che vengono registrati; la valutazione autorevole è a fine `_build_ui`.
+        # Persistenza in `config_dir` via `license_store`.
         self._build_license_tab(tab_lic)
 
         # — Generale: i campi storici (token, chat, CSV, timeout, provider) —
@@ -1280,18 +1403,21 @@ class App(ctk.CTk):
                 e.insert(0, val)
             e.grid(row=r, column=1, padx=_GEN_ENTRY_PADX, pady=4, sticky="w")
             self._entries[key] = e
+            self._register_lockable(e)   # #140 PR 4: campo operativo → bloccato senza licenza
             # CSV Path: pulsante «📁 Sfoglia…» (#284) che apre il selettore file e salva
             # subito il percorso scelto (opzione b), invece di digitarlo a mano.
             if key == "csv_path":
-                ctk.CTkButton(tab_gen, text=i18n.tr("📁 Sfoglia…"), width=_CSV_ROW_BTN_WIDTH,
-                              command=self._browse_csv_path).grid(
-                                  row=r, column=2, padx=_CSV_BROWSE_PADX, pady=4, sticky="w")
+                btn_browse = ctk.CTkButton(tab_gen, text=i18n.tr("📁 Sfoglia…"),
+                                           width=_CSV_ROW_BTN_WIDTH, command=self._browse_csv_path)
+                btn_browse.grid(row=r, column=2, padx=_CSV_BROWSE_PADX, pady=4, sticky="w")
+                self._register_lockable(btn_browse)
                 # «📄 Crea CSV» (#286): genera un CSV a solo header nel formato XTrader
                 # nella cartella scelta e lo imposta come csv_path (azione complementare a
                 # «Sfoglia…»: creare un file nuovo invece di selezionarne uno esistente).
-                ctk.CTkButton(tab_gen, text=i18n.tr("📄 Crea CSV"), width=_CSV_ROW_BTN_WIDTH,
-                              command=self._browse_create_csv).grid(
-                                  row=r, column=3, padx=_CSV_CREATE_PADX, pady=4, sticky="w")
+                btn_create = ctk.CTkButton(tab_gen, text=i18n.tr("📄 Crea CSV"),
+                                           width=_CSV_ROW_BTN_WIDTH, command=self._browse_create_csv)
+                btn_create.grid(row=r, column=3, padx=_CSV_CREATE_PADX, pady=4, sticky="w")
+                self._register_lockable(btn_create)
         self._e_token    = self._entries["bot_token"]
         self._e_chat     = self._entries["chat_id"]
         self._e_csv      = self._entries["csv_path"]
@@ -1368,27 +1494,33 @@ class App(ctk.CTk):
             fg_color=ui_theme.ACCENT, hover_color=ui_theme.ACCENT_HOV,
             command=self._manual_clear)
         self._btn_clear.pack(side="left", padx=5)
+        self._register_lockable(self._btn_clear)   # #140 PR 4: scrive/pulisce il CSV → bloccato
 
-        ctk.CTkButton(
+        self._btn_save = ctk.CTkButton(
             btn_frame, text=i18n.tr("💾  Salva Config"), width=140, height=42,
             fg_color=ui_theme.SURFACE3, hover_color=ui_theme.BORDER, text_color=ui_theme.TEXT,
-            command=self._on_save_clicked,
-        ).pack(side="right", padx=5)
+            command=self._on_save_clicked)
+        self._btn_save.pack(side="right", padx=5)
+        self._register_lockable(self._btn_save)
 
         # Consolidazione GUI (roadmap, Tappa 3): tutti gli strumenti vivono come schede di
         # un'unica finestra "🧰 Strumenti" (Parser, Chat sorgenti, Provider, Profili,
         # Mapping). Un solo pulsante al posto dei cinque precedenti.
         tools_frame = ctk.CTkFrame(self, fg_color="transparent")
         tools_frame.pack(fill="x", padx=15, pady=(0, 4))
-        ctk.CTkButton(
+        self._btn_tools = ctk.CTkButton(
             tools_frame, text=i18n.tr("🧰  Strumenti"), width=220, height=40,
             fg_color=ui_theme.PURPLE, hover_color=ui_theme.PURPLE_HOV,
-            command=self._open_tools).pack(side="left", padx=5)
+            command=self._open_tools)
+        self._btn_tools.pack(side="left", padx=5)
+        self._register_lockable(self._btn_tools)   # #140 PR 4: apre editor operativi → bloccato
         # Wizard di prima configurazione (#311 §3.4): 5 step guidati.
-        ctk.CTkButton(
+        self._btn_wizard = ctk.CTkButton(
             tools_frame, text=i18n.tr("🧙 Wizard prima configurazione"), width=240, height=40,
             fg_color=ui_theme.TEAL, hover_color=ui_theme.TEAL_HOV,
-            command=self._open_wizard).pack(side="left", padx=5)
+            command=self._open_wizard)
+        self._btn_wizard.pack(side="left", padx=5)
+        self._register_lockable(self._btn_wizard)
 
         # Monitoraggio a schede (B3): Chat ascoltate / Stato / Dashboard / Log erano
         # quattro pannelli impilati che allungavano molto la finestra. Ora vivono in un
@@ -1519,28 +1651,34 @@ class App(ctk.CTk):
 
     # ── widget helper per le impostazioni avanzate (PR-13) ────────────────
     def _add_entry(self, parent, label, value, row):
-        """Campo di testo etichettato; ritorna l'Entry (si legge con `.get()`)."""
+        """Campo di testo etichettato; ritorna l'Entry (si legge con `.get()`). Il widget è
+        registrato come lockable (#140 PR 4): disabilitato quando la licenza non è valida."""
         ctk.CTkLabel(parent, text=label, width=240, anchor="w").grid(
             row=row, column=0, padx=(10, 5), pady=5, sticky="w")
         e = ctk.CTkEntry(parent, width=360)
         e.insert(0, str(value))
         e.grid(row=row, column=1, padx=(0, 10), pady=5, sticky="w")
+        self._register_lockable(e)
         return e
 
     def _add_option(self, parent, label, options, value, row):
-        """Menu a tendina etichettato; ritorna la StringVar (`.get()`)."""
+        """Menu a tendina etichettato; ritorna la StringVar (`.get()`). L'OptionMenu è registrato
+        come lockable (#140 PR 4) — la StringVar tornata serve solo alla lettura, non è il widget."""
         ctk.CTkLabel(parent, text=label, width=240, anchor="w").grid(
             row=row, column=0, padx=(10, 5), pady=5, sticky="w")
         var = tk.StringVar(master=self, value=value)
-        ctk.CTkOptionMenu(parent, values=options, variable=var, width=360).grid(
-            row=row, column=1, padx=(0, 10), pady=5, sticky="w")
+        menu = ctk.CTkOptionMenu(parent, values=options, variable=var, width=360)
+        menu.grid(row=row, column=1, padx=(0, 10), pady=5, sticky="w")
+        self._register_lockable(menu)
         return var
 
     def _add_check(self, parent, label, value, row):
-        """Checkbox; ritorna la BooleanVar (`.get()`)."""
+        """Checkbox; ritorna la BooleanVar (`.get()`). Il CheckBox è registrato come lockable
+        (#140 PR 4)."""
         var = tk.BooleanVar(master=self, value=bool(value))
-        ctk.CTkCheckBox(parent, text=label, variable=var).grid(
-            row=row, column=0, columnspan=2, padx=10, pady=8, sticky="w")
+        chk = ctk.CTkCheckBox(parent, text=label, variable=var)
+        chk.grid(row=row, column=0, columnspan=2, padx=10, pady=8, sticky="w")
+        self._register_lockable(chk)
         return var
 
     # ── CHAT ASCOLTATE (B1) ───────────────────
@@ -2568,6 +2706,14 @@ class App(ctk.CTk):
         # Un AVVIA (manuale o automatico) consuma l'auto-start pendente: dopo questo
         # nessun callback ritardato deve (ri)avviare il listener (Codex P2).
         self._cancel_pending_autostart()
+        # Gate licenza FAIL-CLOSED (#140 PR 4): nessun avvio del listener senza licenza valida —
+        # prima di ogni altro controllo, così né AVVIA manuale né auto-start possono operare senza
+        # licenza. Ri-applica il lock per tenere la GUI coerente con lo stato.
+        if not self._license_is_valid():
+            self._log(i18n.tr("❌ Licenza non valida o assente: avvio bloccato. "
+                              "Attiva una licenza nella scheda «🔑 Licenza»."))
+            self._apply_license_lock()
+            return
         if not TELEGRAM_OK:
             # Libreria python-telegram-bot assente: errore chiaro, niente crash
             # silenzioso nel thread del bot (PR-11, #11).
@@ -2913,6 +3059,15 @@ class App(ctk.CTk):
 
     def _on_close(self):
         self._closing = True   # blocca un auto-start ritardato ancora pendente (Codex P2)
+        # Cancella il tick di re-valutazione licenza (#140 PR 4): dopo destroy non deve rifirare su
+        # una root distrutta. `_schedule_license_tick` non ri-arma perché `_closing` è True.
+        _lic_tick = self.__dict__.get("_license_tick_after_id")
+        if _lic_tick is not None:
+            try:
+                self.after_cancel(_lic_tick)
+            except Exception:   # noqa: BLE001 — id già scaduto/invalido: best-effort
+                pass
+            self._license_tick_after_id = None
         self._stop()
         # Teardown dell'assistente (#41 PR-3): ferma il suo thread worker e fa il join, come per il
         # bot thread. Best-effort: un errore qui non deve impedire la chiusura della finestra.

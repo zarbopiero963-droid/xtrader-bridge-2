@@ -33,7 +33,7 @@ _ALLOWLIST = {
                               "lettura su file assente/corrotto/schema inatteso → nessun path; "
                               "mark/clear best-effort — un I/O rotto non deve bloccare STOP/chiusura "
                               "(la marcatura avviene comunque PRIMA di armare il retry, crash-safe)"),
-    "app.py": (37, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+    "app.py": (44, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
                    "worker probe csv_writable async (follow-up #76, nota Fable PR #94): sonda Salute "
                    "best-effort come _refresh_health — probe che solleva su share instabile non "
                    "uccide il worker, sblocca il flag inflight e si riprova al giro dopo; "
@@ -70,7 +70,14 @@ _ALLOWLIST = {
                    "focus non deve degradare in un secondo Toplevel modale doppione); "
                    "selettore lingua al primo avvio (#343): apertura best-effort (senza "
                    "scelta resta il comportamento storico IT e si ripropone al prossimo "
-                   "avvio) + destroy best-effort del selettore su widget già distrutto"),
+                   "avvio) + destroy best-effort del selettore su widget già distrutto; "
+                   "LOCK LICENZA (#140 PR 4): gate `_license_is_valid` FAIL-CLOSED (qualunque "
+                   "errore nel calcolo stato → bloccato, mai aperto); `_set_operational_lock` e i "
+                   "`configure(state=)` di START in `_apply_license_lock` best-effort per-widget "
+                   "(un CTkLabel/widget senza `state` o distrutto non deve rompere il lock); "
+                   "`after`/`after_cancel` del tick licenza best-effort su root distrutta "
+                   "(stesso pattern dei timer in _on_close); il tick `_license_tick` non deve "
+                   "morire se il gate solleva (si ri-arma comunque)"),
     "guided_mapping_gui.py": (3, "GUI Tk «Mapping guidato» best-effort (Fase 3): lettura config "
                                  "illeggibile → messaggio; lettura competizioni/squadre Betfair "
                                  "con DB assente/illeggibile → tendina/elenco vuoti; nessuno di "
