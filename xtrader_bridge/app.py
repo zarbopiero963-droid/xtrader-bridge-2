@@ -1476,14 +1476,21 @@ class App(ctk.CTk):
             stop_event.wait(delay)
 
     def _stop_revocation_supervisor(self) -> None:
-        """Ferma il supervisore (STOP interrompibile + join best-effort), come il bot thread."""
+        """Ferma il supervisore: STOP interrompibile + join **breve** best-effort. Il thread passa
+        quasi tutto il tempo in `stop_event.wait` (si sveglia subito allo STOP → esce in ms); l'unico
+        caso in cui il join attende è se è **dentro una fetch urllib** (non interrompibile). A
+        differenza del bot thread — che fa `join(5s)` perché deve chiudere l'event loop asyncio — il
+        supervisore è un **daemon senza cleanup** (nessun loop da chiudere) e il suo lavoro in volo è
+        scartabile alla chiusura: un join corto (2 s) evita di **congelare la chiusura finestra fino a
+        ~5 s** su Windows se si chiude durante una fetch (rilievo Fable #156); il resto lo termina
+        l'uscita del processo (thread daemon)."""
         ev = self.__dict__.get("_rev_stop_event")
         if ev is not None:
             ev.set()
         th = self.__dict__.get("_rev_thread")
         if th is not None:
             try:
-                th.join(timeout=5.0)
+                th.join(timeout=2.0)
             except RuntimeError:
                 pass    # thread mai avviato / join su se stesso: best-effort
 

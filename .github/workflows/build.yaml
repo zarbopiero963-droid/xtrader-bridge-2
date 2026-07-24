@@ -67,7 +67,10 @@ jobs:
       # `REVOCATION_URL_IS_PLACEHOLDER` (DERIVATO dall'URL) non è False; su build manuali AVVISA.
       shell: bash
       run: |
-        # Fail-closed: "0" (URL reale) è l'UNICO valore sicuro; ogni altro esito → su release BLOCCA.
+        # Import PURE-STDLIB (revocation_client→license/revocation/ed25519/hwid: solo stdlib —
+        # json/os/urllib/base64/hashlib/math/uuid — Ed25519 è pure-Python), come il gate chiave
+        # pubblica: gira PRIMA dell'install, fail-fast, nessuna dipendenza terza. Fail-closed: "0"
+        # (URL reale) è l'UNICO valore sicuro; ogni altro esito (anche un import rotto) → su release BLOCCA.
         placeholder="$(python -c 'import sys, xtrader_bridge.licensing.revocation_client as R; sys.stdout.write("1" if R.REVOCATION_URL_IS_PLACEHOLDER else "0")')" || placeholder="ERRORE_LETTURA_FLAG"
         if [ "$placeholder" = "0" ]; then
           echo "URL lista revoche reale (REVOCATION_URL_IS_PLACEHOLDER=False): gate release OK."
@@ -212,7 +215,10 @@ jobs:
       # `REVOCATION_URL_IS_PLACEHOLDER` (DERIVATO dall'URL) non è False; su build manuali AVVISA.
       shell: bash
       run: |
-        # Fail-closed: "0" (URL reale) è l'UNICO valore sicuro; ogni altro esito → su release BLOCCA.
+        # Import PURE-STDLIB (revocation_client→license/revocation/ed25519/hwid: solo stdlib —
+        # json/os/urllib/base64/hashlib/math/uuid — Ed25519 è pure-Python), come il gate chiave
+        # pubblica: gira PRIMA dell'install, fail-fast, nessuna dipendenza terza. Fail-closed: "0"
+        # (URL reale) è l'UNICO valore sicuro; ogni altro esito (anche un import rotto) → su release BLOCCA.
         placeholder="$(python -c 'import sys, xtrader_bridge.licensing.revocation_client as R; sys.stdout.write("1" if R.REVOCATION_URL_IS_PLACEHOLDER else "0")')" || placeholder="ERRORE_LETTURA_FLAG"
         if [ "$placeholder" = "0" ]; then
           echo "URL lista revoche reale (REVOCATION_URL_IS_PLACEHOLDER=False): gate release OK."
