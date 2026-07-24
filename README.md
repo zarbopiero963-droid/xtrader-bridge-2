@@ -520,6 +520,15 @@ licenza **scade a bridge avviato**, un controllo periodico (ogni ~60 s) se ne ac
 listener** (fail-closed). Qualsiasi errore nel determinare lo stato licenza → **bloccato**, mai
 aperto per sbaglio.
 
+**Revoca online (fail-closed, #140 R3c).** Il fornitore può **revocare** una licenza ancora valida
+pubblicando una **lista di revoche firmata** su un URL statico. Il bridge la **scarica e verifica**
+periodicamente: una licenza **revocata** — o l'**impossibilità di raggiungere/verificare** la lista —
+**blocca** la GUI e ferma il listener a sessione viva (**senza finestra di grazia**: il bridge deve
+raggiungere e verificare l'URL per operare; i blip di rete transitori sono assorbiti da retry con
+backoff, un'irraggiungibilità persistente blocca). Dettagli in [`docs/licensing.md`](docs/licensing.md).
+La revoca online è **attiva solo** quando il fornitore imposta l'URL reale nel codice prima di
+distribuire l'EXE (come la chiave pubblica); con l'URL placeholder di sviluppo resta inattiva.
+
 > 🔑 **Modello di sicurezza.** Il fornitore ha la chiave **privata** che firma le licenze; il
 > bridge contiene solo la chiave **pubblica** che verifica. La chiave privata **non** è nel
 > repository né nell'EXE del bridge. La protezione è lato client (scoraggia la condivisione

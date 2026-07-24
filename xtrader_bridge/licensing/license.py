@@ -20,6 +20,7 @@ committata. Il bridge contiene solo la chiave PUBBLICA e fa solo `verify_license
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import math
 from collections import namedtuple
@@ -43,6 +44,24 @@ LICENSE_PUBLIC_KEY_IS_PLACEHOLDER = True
 
 # Versione del formato payload accettata.
 LICENSE_FORMAT_VERSION = 1
+
+# ── Serial deterministico della licenza (revoca online, #140 R3c) ────────────────────────────────
+# Il **serial** è l'identificatore deterministico di UNA emissione, calcolato dal token firmato:
+# `LIC-` + primi 12 esadecimali di sha256(token). Lo calcolano IDENTICO sia il License Manager (che
+# emette la lista di revoche, `license_manager.registry` importa questa funzione) sia il **bridge**
+# (che verifica di non essere revocato) — senza aggiungere campi al formato token. Vive QUI, nel
+# pacchetto condiviso `xtrader_bridge.licensing`, così il bridge lo usa **senza** importare
+# `license_manager` (invariante d'isolamento #140 preservata).
+_SERIAL_PREFIX = "LIC-"
+_SERIAL_HEX_LEN = 12
+
+
+def license_serial(token: str) -> str:
+    """Serial deterministico di una licenza dal suo token firmato: `LIC-` + primi 12 hex di
+    sha256(token) (maiuscolo). Stabile: lo stesso token dà sempre lo stesso serial; un token diverso
+    (es. dopo un rinnovo) dà un serial diverso — è una licenza diversa."""
+    digest = hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+    return _SERIAL_PREFIX + digest[:_SERIAL_HEX_LEN].upper()
 
 # Tolleranza anti-rollback: quanto indietro può andare l'orologio senza far scattare l'allarme
 # (assorbe piccole correzioni NTP; i timestamp sono UTC → nessun problema di fuso/DST). Oltre

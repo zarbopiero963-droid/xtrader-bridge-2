@@ -33,7 +33,7 @@ _ALLOWLIST = {
                               "lettura su file assente/corrotto/schema inatteso → nessun path; "
                               "mark/clear best-effort — un I/O rotto non deve bloccare STOP/chiusura "
                               "(la marcatura avviene comunque PRIMA di armare il retry, crash-safe)"),
-    "app.py": (44, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+    "app.py": (46, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
                    "worker probe csv_writable async (follow-up #76, nota Fable PR #94): sonda Salute "
                    "best-effort come _refresh_health — probe che solleva su share instabile non "
                    "uccide il worker, sblocca il flag inflight e si riprova al giro dopo; "
@@ -77,7 +77,11 @@ _ALLOWLIST = {
                    "(un CTkLabel/widget senza `state` o distrutto non deve rompere il lock); "
                    "`after`/`after_cancel` del tick licenza best-effort su root distrutta "
                    "(stesso pattern dei timer in _on_close); il tick `_license_tick` non deve "
-                   "morire se il gate solleva (si ri-arma comunque)"),
+                   "morire se il gate solleva (si ri-arma comunque); "
+                   "REVOCA online (#140 R3c): (1) gate `_revocation_gate_ok` FAIL-CLOSED (qualunque "
+                   "errore nel determinare token/hwid o nel calcolo → bloccato, mai aperto); "
+                   "(2) ciclo del supervisore `_revocation_loop` non deve morire per un errore "
+                   "imprevisto (ritenta al giro dopo con l'intervallo di refresh)"),
     "guided_mapping_gui.py": (3, "GUI Tk «Mapping guidato» best-effort (Fase 3): lettura config "
                                  "illeggibile → messaggio; lettura competizioni/squadre Betfair "
                                  "con DB assente/illeggibile → tendina/elenco vuoti; nessuno di "
@@ -201,6 +205,12 @@ _ALLOWLIST = {
                                    "(versione/tipi) → in tutti i casi la lista NON è fidata (ritorna "
                                    "None): una lista di revoche non verificabile non blocca né sblocca "
                                    "per errore, la policy è del bridge chiamante"),
+    "licensing/revocation_client.py": (1, "client bridge revoca online (#140 R3c) FAIL-CLOSED in "
+                                          "fetch_signed: qualunque errore di scarico dell'URL (rete, "
+                                          "DNS, HTTP, timeout, TLS, decodifica, lista troppo grande) → "
+                                          "None; nessuna lista fresca verificata → il gate no-grace "
+                                          "blocca (il bridge deve raggiungere+verificare l'URL per "
+                                          "operare), mai sbloccare per un errore di rete"),
     "license_store.py": (2, "persistenza licenza (#140 PR 2) FAIL-SAFE: (1) file corrotto/illeggibile "
                             "in load → (None, None) «nessuna licenza», mai crash; (2) rimozione "
                             "best-effort in clear. Coerente col fail-closed della verifica"),

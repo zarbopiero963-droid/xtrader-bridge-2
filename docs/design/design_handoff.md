@@ -771,6 +771,20 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 - La chiave pubblica di **TEST** (`LICENSE_PUBLIC_KEY_IS_PLACEHOLDER`) **non** blocca di per sé: il
   gate è solo la validità della licenza; sostituire la chiave pubblica reale prima della distribuzione
   resta un passo manuale del proprietario.
+- 🚫 **REVOCA ONLINE (#140 R3c, dimensione aggiuntiva del gate).** Oltre alla validità della licenza, il
+  lock si attiva anche quando la licenza risulta **revocata** dal proprietario o quando la **lista di
+  revoche firmata non è raggiungibile/verificabile o è stantia** (fail-closed **senza grazia**: il
+  bridge deve raggiungere e verificare l'URL statico per operare). Un supervisore in background scarica
+  periodicamente la lista, la verifica (firma Ed25519 + anti-replay), e il gate `_license_is_valid` la
+  legge sincrono. **Visivamente il lock è identico** a quello per licenza non valida (stessi controlli
+  grigi, stessa scheda 🔑 Licenza + ■ STOP sempre attivi) e usa **gli stessi messaggi di transizione**
+  nel **📋 Log** (`🔒 GUI bloccata…` / `🔓 …`). *Nota per il design:* al momento il messaggio è
+  **generico** («attiva una licenza valida»), che per un utente **revocato** (la cui licenza è tecnicamente
+  valida ma bloccata dal fornitore) è impreciso — un **messaggio distinto** «licenza revocata dal
+  fornitore» / «lista revoche non raggiungibile» è un **affinamento UX previsto** in una fetta successiva.
+- Come per la chiave pubblica di TEST, l'**URL della lista di revoche placeholder**
+  (`REVOCATION_URL_IS_PLACEHOLDER`) **non** blocca: la revoca online è **inattiva** in sviluppo finché il
+  proprietario non imposta l'URL reale e porta il marcatore a `False` (passo manuale, coerente con 1A).
 
 ### 6.4 Barra pulsanti principali
 - **"▶  AVVIA"** (verde `#2e7d32`, bold)
