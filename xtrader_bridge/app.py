@@ -388,6 +388,13 @@ class App(ctk.CTk):
         # risincronizzazione la riga confermata resterebbe su disco fino alla scadenza).
         self._csv_dirty = False
 
+        # Lock licenza (#140 PR 4): l'attributo esiste PRIMA di `_build_ui` (che, costruendo la scheda
+        # Licenza, può far scattare `on_status_change` → `_license_is_valid`). Così il gate legge un
+        # `None` esplicito (→ fail-closed) invece di far cadere il `getattr` nel `__getattr__` di Tk su
+        # una root ancora non pronta (RecursionError). Sovrascritto in `_build_license_tab`.
+        self._license_panel = None
+        self._license_locked = None
+
         self._build_ui()
         self._update_real_mode_banner(self._config)   # banner REALE all'avvio se persistito (#136 p4)
         self._update_active_indicator(0)              # indicatore righe attive (#136 p5)
@@ -1254,9 +1261,17 @@ class App(ctk.CTk):
           sessione in corso (non scavalca la macchina START/STOP).
 
         Robusto a essere chiamato durante la costruzione della UI (widget non ancora presenti):
-        `getattr`/try-except assorbono i riferimenti mancanti. Ritorna `True` se BLOCCATA."""
+        `getattr`/try-except assorbono i riferimenti mancanti. Ritorna `True` se BLOCCATA.
+
+        Agisce **solo sulle transizioni** di stato (review Fable #149): il tick periodico rivaluta di
+        continuo, ma NON deve ri-imporre `state="normal"` a ogni giro (scavalcherebbe eventuali
+        disabilitazioni applicate per altri motivi mentre la licenza resta valida). Alla PRIMA
+        valutazione (`was is None`) applica comunque lo stato iniziale."""
         locked = not self._license_is_valid()
         was = getattr(self, "_license_locked", None)
+        if was == locked:
+            return locked   # stato invariato → non ri-toccare i widget (no override periodico)
+
         self._set_operational_lock(locked=locked)
         btn_start = getattr(self, "_btn_start", None)
         if locked:
@@ -1271,14 +1286,19 @@ class App(ctk.CTk):
                     btn_start.configure(state="disabled")
                 except Exception:   # noqa: BLE001 — best-effort
                     pass
-        elif btn_start is not None and not getattr(self, "_running", False):
-            try:
-                btn_start.configure(state="normal")
-            except Exception:   # noqa: BLE001 — best-effort
-                pass
-        if was is not None and was != locked:
-            self._log(i18n.tr("🔒 GUI bloccata: attiva una licenza valida nella scheda «🔑 Licenza».")
-                      if locked else i18n.tr("🔓 Licenza valida: GUI sbloccata."))
+            # Log ANCHE al primo avvio bloccato (`was is None`): l'utente deve capire perché è tutto
+            # grigio (review Fable #149).
+            self._log(i18n.tr("🔒 GUI bloccata: attiva una licenza valida nella scheda «🔑 Licenza»."))
+        else:
+            if btn_start is not None and not getattr(self, "_running", False):
+                try:
+                    btn_start.configure(state="normal")
+                except Exception:   # noqa: BLE001 — best-effort
+                    pass
+            # Non loggare «sbloccata» al primo avvio già valido (nessuna transizione da bloccato):
+            # solo su un vero passaggio bloccata→valida.
+            if was is not None:
+                self._log(i18n.tr("🔓 Licenza valida: GUI sbloccata."))
         self._license_locked = locked
         return locked
 

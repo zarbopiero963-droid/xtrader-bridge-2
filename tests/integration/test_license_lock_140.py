@@ -44,6 +44,11 @@ def _fake_app(app_mod, *, valid=True, running=False, raises=False, panel=True):
                 raise RuntimeError("provider licenza in errore (simulato)")
             return _status(valid)
         app._license_panel = types.SimpleNamespace(current_status=current_status)
+    else:
+        # `_license_panel = None` ESPLICITO: su un `object.__new__(App)` con tkinter reale (CI), un
+        # attributo mancante cadrebbe nel `__getattr__` di Tk e ricorrerebbe (root non pronta). In
+        # produzione l'attributo è inizializzato a None in `__init__` prima di `_build_ui`.
+        app._license_panel = None
 
     app._running = running
     app._closing = False
@@ -141,10 +146,29 @@ def test_apply_lock_valida_e_running_non_forza_start(App, app_mod):
 
 def test_apply_lock_logga_solo_sulle_transizioni(App, app_mod):
     a = _fake_app(app_mod, valid=True)
-    App._apply_license_lock(a)                     # was=None → nessun log di transizione
+    App._apply_license_lock(a)                     # was=None + valida → nessun log «sbloccata»
     assert not a.logs
     a._license_panel.current_status = lambda: _status(False)
     App._apply_license_lock(a)                     # valida→bloccata: logga
+    assert any("bloccata" in m.lower() for m in a.logs)
+
+
+def test_apply_lock_non_ritocca_widget_se_stato_invariato(App, app_mod):
+    # review Fable #149: il tick rivaluta di continuo ma NON deve ri-imporre "normal" a ogni giro
+    # (scavalcherebbe un disable applicato per altri motivi mentre la licenza resta valida).
+    a = _fake_app(app_mod, valid=True)
+    App._apply_license_lock(a)                     # was None→False: applica (widget "normal")
+    assert a._w_entry.state == "normal"
+    a._w_entry.state = "disabled"                  # qualcun altro lo disabilita
+    App._apply_license_lock(a)                     # stato licenza INVARIATO (valida) → non ritocca
+    assert a._w_entry.state == "disabled"          # lasciato com'era (no override periodico)
+
+
+def test_apply_lock_logga_al_primo_avvio_bloccato(App, app_mod):
+    # review Fable #149: al PRIMO avvio senza licenza (was is None) l'utente deve vedere PERCHÉ è
+    # tutto grigio — il log di blocco compare anche sulla transizione iniziale.
+    a = _fake_app(app_mod, valid=False)
+    App._apply_license_lock(a)
     assert any("bloccata" in m.lower() for m in a.logs)
 
 
