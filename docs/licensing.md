@@ -202,13 +202,36 @@ proteggere la cartella-chiave…») invece di lasciare l'utente con un **falso s
 booleano non cambia il carattere best-effort: il tool resta comunque utilizzabile, ma l'utente sa che
 su un PC condiviso il seed potrebbe non essere protetto.
 
-### PR 3d — workflow di build EXE (da fare)
+### PR 3d — workflow di build EXE (fatta)
 
-L'EXE dedicato del License Manager (`XTrader-License-Manager`, script `license_manager_main.py`,
-`--collect-submodules license_manager`) richiede un **refactor mirato** del gate anti-drift
-`tests/safety/test_build_exe_safety.py` (oggi assume un solo EXE, quello del bridge) per supportare
-due build distinti. Rimandato a una PR dedicata per tenerla piccola e sicura. Fino ad allora il
-License Manager si usa **da sorgente** (`python license_manager_main.py`).
+L'EXE dedicato del License Manager ha il suo workflow **`.github/workflows/build-license-manager.yaml`**:
+PyInstaller `--onefile --windowed`, nome **`XTrader-License-Manager`**, script `license_manager_main.py`,
+`--collect-submodules license_manager` + `--collect-all customtkinter`, **nessun `--add-data`** e
+**nessun** collect esplicito di `xtrader_bridge` (i moduli `xtrader_bridge.licensing.*` li segue
+PyInstaller da solo via import; collezionarli a mano farebbe scattare il detector di isolamento).
+Trigger **solo `workflow_dispatch`** (niente `push`/`tags`): **zero minuti CI automatici** finché il
+proprietario non lancia la build a mano (un runner Windows costa 2× minuti). Resta **fail-closed**: i
+test girano prima della compilazione e sono bloccanti; è solo **artifact** scaricabile, **mai una
+Release** pubblica.
+
+**Supply-chain fail-closed (review Fugu #148).** Poiché questo EXE compila il tool che **firma le
+licenze**, l'install delle dipendenze è **solo** `--require-hashes -r requirements-build.lock`
+(versioni + hash pinnati): **nessun fallback legacy non-hashato**. Se il lock manca/è corrotto la
+build **fallisce** invece di tirare dipendenze non verificate nell'EXE di custodia della chiave. Il
+lock si (ri)genera col workflow «Generate Windows Lockfile».
+
+Il gate anti-drift `tests/safety/test_build_exe_safety.py` ora riconosce **due prodotti**: le build del
+bridge restano soggette alle invarianti bridge **invariate**, mentre la build del License Manager è
+**scorporata** e verificata da un **gate parallelo** con la sua allowlist (nome/script/collect del
+tool). Il classificatore è lo script (`license_manager_main.py` → prodotto LM); qualunque build con uno
+script inatteso resta nel gate bridge e ne fa fallire la forma-canonica, così **nessuna build sfugge a
+un gate**.
+
+> **Build non eseguita in questo ambiente** (CI Linux/sandbox): la compilazione PyInstaller reale gira
+> **solo su Windows** quando il proprietario lancia il workflow. Il gate verifica la **forma** del
+> comando in modo deterministico e offline, non produce l'EXE.
+
+Il License Manager si può comunque usare **da sorgente** (`python license_manager_main.py`).
 
 **Isolamento (test):** un test di sicurezza (`tests/safety/test_license_manager_isolation.py`)
 verifica che **nessun modulo di `xtrader_bridge` importi `license_manager`** e che i workflow di
