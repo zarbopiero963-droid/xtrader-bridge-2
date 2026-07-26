@@ -17,6 +17,7 @@ from datetime import datetime
 import customtkinter as ctk
 
 from . import __version__
+from .licensing import revocation_client
 from .config_store import (
     CONFIG_FILE,
     DEFAULTS,
@@ -208,6 +209,14 @@ _CSV_ROW_BTN_WIDTH = 100           # larghezza dei pulsanti «📁 Sfoglia…» 
 # della scadenza (giorni) e coglie una scadenza a sessione viva senza pesare (l'heartbeat scrive
 # solo quando l'orologio avanza). Fail-closed: alla scadenza ferma il listener e blocca la GUI.
 _LICENSE_TICK_MS = 60_000
+
+# Auto-start + revoca online (#140 R3c, rilievo Fugu #156): con la revoca ATTIVA la prima lista si
+# scarica in modo asincrono e a 400 ms (tick auto-start) può non essere ancora arrivata → il gate è
+# `False` solo perché lo stato revoca non è ancora determinato. In quel caso l'auto-start ASPETTA la
+# prima fetch (retry ogni `_AUTOSTART_REVOCATION_WAIT_MS`, fino a `_AUTOSTART_REVOCATION_MAX_WAITS`)
+# invece di rinunciare one-shot; oltre il tetto (irraggiungibilità persistente) rinuncia fail-closed.
+_AUTOSTART_REVOCATION_WAIT_MS = 1_000
+_AUTOSTART_REVOCATION_MAX_WAITS = 30
 
 _TABVIEW_PADX = 15                 # tabs.pack(padx=_TABVIEW_PADX) — per lato
 _GEN_LABEL_PADX = (10, 5)          # etichetta del campo
@@ -436,11 +445,21 @@ class App(ctk.CTk):
         # applica lo stato iniziale sui widget reali, sia bloccato sia sbloccato) a prova di
         # modifiche future.
         self._license_locked = None
+        # Stato REVOCA online (#140 R3c): `_rev_state = (lista_verificata, verificata_a)` come tupla
+        # unica sostituita atomicamente (letture coerenti tra thread) + floor anti-replay + supervisore.
+        # Inizializzati PRIMA del primo `_apply_license_lock` così il gate revoca legge stato coerente
+        # (con URL placeholder il gate è comunque bypassato). Il supervisore parte solo se attivo.
+        self._rev_state = None
+        self._rev_min_iss = 0
+        self._rev_stop_event = None
+        self._rev_thread = None
         self._ui_ready = True   # UI costruita: da qui il lock agisce sui widget reali.
         self._apply_license_lock()
         self._schedule_license_tick()
+        self._start_revocation_supervisor()
         # Avvio automatico del listener (se abilitato e config minima presente): dopo
         # che la UI è pronta, così log/stato sono visibili. Default OFF.
+        self._autostart_rev_waits = 0   # #140 R3c: attese dell'auto-start sulla prima fetch revoca
         self._autostart_after_id = self.after(400, self._maybe_auto_start)
 
     def _maybe_auto_start(self) -> None:
@@ -458,6 +477,18 @@ class App(ctk.CTk):
         # Gate licenza (#140 PR 4): niente auto-start senza licenza valida. `_start` lo blocca
         # comunque, ma qui si evita il tentativo (e il rumore nel log) a monte.
         if not self._license_is_valid():
+            # Con revoca ATTIVA la prima fetch è asincrona: a 400 ms può non essere ancora arrivata →
+            # il gate è `False` SOLO perché lo stato revoca non è ancora determinato (`_rev_state` None).
+            # In quel caso ASPETTA la prima fetch (retry bounded) invece di rinunciare one-shot (rilievo
+            # Fugu #156): appena la lista arriva, la decisione diventa definitiva (start o blocco reale).
+            # Quando `_rev_state` è già presente, il `False` è definitivo (licenza invalida/revocata) →
+            # nessuna attesa. Un'azione manuale annulla comunque il retry (`_cancel_pending_autostart`).
+            waits = self.__dict__.get("_autostart_rev_waits", 0)
+            if (self._revocation_enabled() and self.__dict__.get("_rev_state") is None
+                    and waits < _AUTOSTART_REVOCATION_MAX_WAITS):
+                self._autostart_rev_waits = waits + 1
+                self._autostart_after_id = self.after(_AUTOSTART_REVOCATION_WAIT_MS,
+                                                      self._maybe_auto_start)
             return
         self._start(auto=True)
 
@@ -1248,7 +1279,13 @@ class App(ctk.CTk):
             status = panel.current_status()
         except Exception:   # noqa: BLE001 — errore imprevisto nel calcolo stato → fail-closed
             return False
-        return bool(getattr(status, "valid", False))
+        if not bool(getattr(status, "valid", False)):
+            return False
+        # Gate REVOCA online (#140 R3c): una licenza altrimenti valida è comunque bloccata se revocata
+        # o se non c'è una lista di revoche verificata e fresca (fail-closed no-grace). Attivo solo con
+        # un URL reale configurato (con l'URL placeholder il gate è bypassato — dev, come la chiave
+        # pubblica di TEST, decisione 1A).
+        return self._revocation_gate_ok()
 
     def _set_operational_lock(self, *, locked: bool) -> None:
         """(Dis)abilita i widget operativi registrati (campi config, avanzate, azioni), **escluso**
@@ -1344,6 +1381,139 @@ class App(ctk.CTk):
         except Exception:   # noqa: BLE001 — un errore del gate non deve fermare il tick
             pass
         self._schedule_license_tick()
+
+    # ── REVOCA ONLINE (#140 R3c) ───────────────────────────────────────────────────────────────
+    # Un supervisore in background scarica periodicamente la lista di revoche firmata dall'URL statico
+    # e mantiene in memoria lo stato `_rev_state = (lista_verificata, verificata_a)` come **tupla unica
+    # sostituita atomicamente** (rilievo Fable/CodeRabbit #156: niente letture di coppia incoerenti tra
+    # il thread supervisore e il thread GUI). Il gate `_license_is_valid` la legge SINCRONO (niente rete
+    # nel gate) e blocca fail-closed no-grace. Il lock è già ri-valutato dal tick licenza e a ogni fine
+    # ciclo del supervisore.
+    def _revocation_enabled(self) -> bool:
+        """La revoca online è ATTIVA solo con un **URL reale** configurato. L'attivazione è **derivata
+        dall'URL** (`is_placeholder_url`), non da un flag separato dimenticabile (rilievo Fugu/GLM #156):
+        con l'URL placeholder di sviluppo il gate è **bypassato** — coerente con la decisione 1A per la
+        chiave pubblica di test (dev usabile; il proprietario imposta l'URL reale prima di distribuire)."""
+        return not revocation_client.is_placeholder_url(revocation_client.REVOCATION_LIST_URL)
+
+    def _revocation_now(self) -> int:
+        """Unix seconds correnti (iniettabile per i test)."""
+        import time as _t  # noqa: PLC0415 — import locale
+        return int(_t.time())
+
+    def _revocation_hwid(self) -> str:
+        """Hardware ID della macchina, **memoizzato** (rilievo Fable #156): `hardware_id()` legge
+        MachineGuid/volume/MAC (potenzialmente WMI/subprocess su Windows) — calcolarlo a ogni tick sul
+        thread GUI causerebbe micro-freeze. È **stabile per macchina**, quindi si calcola una volta e si
+        riusa."""
+        hw = self.__dict__.get("_rev_hwid_cache")
+        if hw is None:
+            from . import licensing  # noqa: PLC0415 — on-demand
+            hw = licensing.hardware_id()
+            self._rev_hwid_cache = hw
+        return hw
+
+    def _revocation_identity(self) -> tuple:
+        """`(token, hardware_id)` della licenza corrente per il check di revoca. Best-effort/fail-safe
+        (`load_license` → `(None, None)` se assente); Hardware ID memoizzato; iniettabile nei test."""
+        from . import license_store  # noqa: PLC0415 — on-demand
+        token, _ls = license_store.load_license(license_store.license_state_path(config_dir()))
+        return token, self._revocation_hwid()
+
+    def _revocation_gate_ok(self) -> bool:
+        """Gate revoca **sincrono, fail-closed no-grace**. `True` se la revoca non è attiva (URL
+        placeholder) oppure se esiste una lista verificata **fresca** (fetch + contenuto firmato) e la
+        licenza **non** è revocata. Qualunque errore → `False` (bloccato)."""
+        if not self._revocation_enabled():
+            return True
+        try:
+            revlist, verified_at = self.__dict__.get("_rev_state") or (None, None)
+            token, hwid = self._revocation_identity()
+            return revocation_client.gate_allows(
+                revlist, verified_at=verified_at,
+                now=self._revocation_now(), token=token, hardware_id=hwid)
+        except Exception:   # noqa: BLE001 — qualunque errore nel gate revoca → fail-closed
+            return False
+
+    def _revocation_cache_path(self) -> str:
+        return revocation_client.revocation_cache_path(config_dir())
+
+    def _start_revocation_supervisor(self) -> None:
+        """Avvia il supervisore periodico della lista di revoche (solo se la revoca è attiva). Carica
+        prima il *floor* anti-replay dalla cache, poi lancia il thread daemon di refresh. Logga lo stato
+        (attiva/inattiva) così l'attivazione non è mai **silenziosa** (rilievo Fable/Fugu #156) — senza
+        mai stampare l'URL (potrebbe, in futuro, contenere path sensibili)."""
+        if not self._revocation_enabled():
+            self._dbg("Revoca online INATTIVA (URL placeholder/non configurato): gate revoca bypassato.")
+            return
+        cached = revocation_client.load_cached_signed(self._revocation_cache_path())
+        boot = revocation_client.accept_signed(cached, min_iss=0) if cached else None
+        if boot is not None:
+            self._rev_min_iss = boot.issued
+        self._rev_stop_event = threading.Event()
+        self._rev_thread = threading.Thread(
+            target=self._revocation_loop, args=(self._rev_stop_event,),
+            daemon=True, name="revocation-supervisor")
+        self._rev_thread.start()
+        self._dbg("Revoca online ATTIVA: supervisore avviato (fail-closed senza grazia).")
+
+    def _revocation_loop(self, stop_event) -> None:
+        """Ciclo del supervisore: scarica → verifica+anti-replay → aggiorna stato in memoria + cache →
+        ri-valuta il lock; su successo attende `REFRESH_INTERVAL_S`, su fallimento fa **backoff**
+        (decisione 2a: blip transitorio ritentato, irraggiungibilità persistente → lo stato diventa
+        stantio e il gate blocca). Interrompibile subito dallo STOP/chiusura (`stop_event.wait`)."""
+        attempt = 0
+        while not stop_event.is_set():
+            try:
+                # `_revocation_fetch` (probe iniettabile) è assente in produzione → `fetch=None` fa
+                # usare a `fetch_signed` il suo scaricatore urllib di default; i test ne iniettano uno
+                # finto (nessun socket reale).
+                signed = revocation_client.fetch_signed(
+                    revocation_client.REVOCATION_LIST_URL,
+                    fetch=self.__dict__.get("_revocation_fetch"),
+                    timeout=revocation_client.DEFAULT_FETCH_TIMEOUT_S)
+                rev = revocation_client.accept_signed(signed, min_iss=self._rev_min_iss) \
+                    if signed else None
+                if rev is not None:
+                    # Sostituzione ATOMICA della coppia (lista, verificata_a): il gate GUI la legge come
+                    # tupla unica → mai una lista fresca abbinata a un timestamp vecchio (Fable/CR #156).
+                    self._rev_state = (rev, self._revocation_now())
+                    self._rev_min_iss = max(self._rev_min_iss, rev.issued)
+                    try:
+                        revocation_client.save_cached_signed(self._revocation_cache_path(), signed)
+                    except OSError:
+                        pass    # cache best-effort: il floor anti-replay resta in memoria
+                    attempt = 0
+                    delay = revocation_client.REFRESH_INTERVAL_S
+                else:
+                    attempt += 1
+                    delay = reconnect_policy.backoff_delay(attempt)
+                # Ri-valuta il lock sul thread GUI (una lista appena scaricata sblocca/blocca subito,
+                # senza attendere il tick licenza). `_safe_after` è TclError/RuntimeError-safe su root
+                # distrutta (stesso pattern delle notifiche del bot-thread, P3-ap1 #114).
+                self._safe_after(0, self._apply_license_lock)
+            except Exception:   # noqa: BLE001 — il supervisore non deve morire per un errore imprevisto
+                delay = revocation_client.REFRESH_INTERVAL_S
+            stop_event.wait(delay)
+
+    def _stop_revocation_supervisor(self) -> None:
+        """Ferma il supervisore: STOP interrompibile + join **breve** best-effort. Il thread passa
+        quasi tutto il tempo in `stop_event.wait` (si sveglia subito allo STOP → esce in ms); l'unico
+        caso in cui il join attende è se è **dentro una fetch urllib** (non interrompibile). A
+        differenza del bot thread — che fa `join(5s)` perché deve chiudere l'event loop asyncio — il
+        supervisore è un **daemon senza cleanup** (nessun loop da chiudere) e il suo lavoro in volo è
+        scartabile alla chiusura: un join corto (2 s) evita di **congelare la chiusura finestra fino a
+        ~5 s** su Windows se si chiude durante una fetch (rilievo Fable #156); il resto lo termina
+        l'uscita del processo (thread daemon)."""
+        ev = self.__dict__.get("_rev_stop_event")
+        if ev is not None:
+            ev.set()
+        th = self.__dict__.get("_rev_thread")
+        if th is not None:
+            try:
+                th.join(timeout=2.0)
+            except RuntimeError:
+                pass    # thread mai avviato / join su se stesso: best-effort
 
     def _build_ui(self):
         # Widget operativi disabilitabili dal lock licenza (#140 PR 4). Inizializzato QUI, prima di
@@ -3105,6 +3275,9 @@ class App(ctk.CTk):
             except Exception:   # noqa: BLE001 — id già scaduto/invalido: best-effort
                 pass
             self._license_tick_after_id = None
+        # Ferma il supervisore revoca (#140 R3c): STOP interrompibile + join, come il bot thread, così
+        # non resta un thread che ri-schedula `after` su una root in distruzione.
+        self._stop_revocation_supervisor()
         self._stop()
         # Teardown dell'assistente (#41 PR-3): ferma il suo thread worker e fa il join, come per il
         # bot thread. Best-effort: un errore qui non deve impedire la chiusura della finestra.

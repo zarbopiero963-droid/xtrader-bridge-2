@@ -22,11 +22,15 @@ Logica **pura e fail-safe**, senza GUI:
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import logging
 import os
 import threading
+
+# Serial deterministico condiviso: vive in `xtrader_bridge.licensing.license` (pacchetto condiviso) così
+# il **bridge** (revoca online R3c) lo calcola IDENTICO senza importare `license_manager`. Ri-esportato
+# qui come `registry.license_serial` per compatibilità con i chiamanti/test esistenti.
+from xtrader_bridge.licensing.license import license_serial
 
 from .core import manager_dir
 
@@ -39,11 +43,6 @@ REGISTRY_FILE = "licenses.jsonl"
 # **mai** il seed privato. La lista firmata che il bridge scarica si produce da qui (R3b) verificandola
 # con `xtrader_bridge.licensing.revocation` (R3a).
 REVOKED_FILE = "revoked.jsonl"
-
-# Prefisso leggibile del serial + lunghezza dell'impronta (48 bit esadecimali: spazio ampio, nessuna
-# collisione realistica alla scala di un singolo proprietario). Il serial è deterministico dal token.
-_SERIAL_PREFIX = "LIC-"
-_SERIAL_HEX_LEN = 12
 
 _SECONDS_PER_DAY = 86_400
 
@@ -58,16 +57,6 @@ _WRITE_LOCK = threading.Lock()
 def registry_path(directory: "str | None" = None) -> str:
     """Percorso del registro (`licenses.jsonl`) nella cartella data o in `manager_dir()`."""
     return os.path.join(directory or manager_dir(), REGISTRY_FILE)
-
-
-def license_serial(token: str) -> str:
-    """Identificatore **deterministico** di una licenza a partire dal suo token firmato.
-
-    `LIC-` + primi `_SERIAL_HEX_LEN` esadecimali di `sha256(token)`. Deterministico e stabile: lo
-    stesso token dà sempre lo stesso serial (il tool e il bridge lo calcolano identico). Un token
-    diverso (es. dopo un rinnovo) dà un serial diverso — è una licenza diversa."""
-    digest = hashlib.sha256(str(token).encode("utf-8")).hexdigest()
-    return _SERIAL_PREFIX + digest[:_SERIAL_HEX_LEN].upper()
 
 
 def _b64u_decode(segment: str) -> bytes:

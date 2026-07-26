@@ -396,6 +396,62 @@ serial assente non scrive / già-revocata nessun duplicato / store fallito non a
 publish→`verify_revocation_list`** ritrova il serial, store vuoto → lista valida, senza percorso/chiave →
 fail-closed).
 
+### Revoca — bridge: fetch + verifica + cache + lock — R3c
+
+Il bridge **applica** la revoca: scarica la lista firmata dall'**URL statico**, la verifica, la mantiene
+in cache e la integra nel **lock licenza** — **fail-closed senza grazia** (decisione proprietario: il
+bridge deve **raggiungere e verificare** l'URL per operare).
+
+- **Serial condiviso** (`xtrader_bridge/licensing/license.py::license_serial`): il serial deterministico
+  (`LIC-` + sha256(token)) vive ora nel **pacchetto condiviso**, così bridge e License Manager lo
+  calcolano **identico** senza che il bridge importi `license_manager` (isolamento #140 preservato;
+  `license_manager.registry` lo ri-esporta per compatibilità).
+- **Client** (`xtrader_bridge/licensing/revocation_client.py`, logica pura + probe iniettabile):
+  - `REVOCATION_LIST_URL` — **URL costante nel codice** (decisione 1a), placeholder `.invalid` (non
+    risolvibile → fail-closed se dimenticato). L'**attivazione è DERIVATA dall'URL** (`is_placeholder_url`,
+    `REVOCATION_URL_IS_PLACEHOLDER` è un marcatore **calcolato**, non una seconda fonte di verità):
+    impostare un URL reale **attiva** la revoca — impossibile lasciare «URL reale ma flag a True» e
+    disattivarla in silenzio (rilievo Fugu/GLM). Un **gate di release** (`build.yaml`) fa fallire una
+    release taggata finché l'URL è ancora placeholder (come per la chiave pubblica).
+  - `fetch_signed(url, fetch=…)` → **fail-closed**: qualunque errore di scarico (rete/DNS/HTTP/timeout/
+    TLS/decodifica/lista troppo grande) → `None`. Il *probe* è iniettabile (test senza socket reali).
+  - `accept_signed(signed, min_iss=…)` → `verify_revocation_list` + **anti-replay** (`iss >= min_iss`):
+    nessuno può «de-revocare» ripubblicando una lista vecchia firmata.
+  - `license_revoked(revlist, token=…, hardware_id=…)` → serial dal token **o** Hardware ID nella lista.
+  - `gate_allows(revlist, verified_at=…, now=…, …)` → **decisione sincrona no-grace**: `True` solo se la
+    lista è verificata, il **FETCH** è fresco (entro `FRESHNESS_MAX_AGE_S`, 15 min), il **CONTENUTO
+    firmato** è fresco (entro `MAX_LIST_AGE_S`, **24 h** sull'`iss`) e la licenza **non** è revocata;
+    altrimenti `False`. Il **cap sull'età del contenuto** chiude il *replay di una lista vecchia* (un
+    utente revocato che serve alla propria copia una lista firmata precedente alla revoca): richiede al
+    proprietario di **ri-pubblicare la lista firmata almeno ogni 24 h** (anche invariata, idealmente
+    automatizzato). Cache firmata in `config_dir()` per il **floor anti-replay**.
+- **Integrazione nel lock** (`xtrader_bridge/app.py`): un **supervisore** in background
+  (`_revocation_loop`, thread daemon come `_run_bot`) scarica ogni `REFRESH_INTERVAL_S`, verifica,
+  aggiorna in memoria lo stato `_rev_state = (lista, verificata_a)` — **tupla unica sostituita
+  atomicamente** (nessuna lettura di coppia incoerente tra thread) — e la cache; su fallimento
+  **backoff** (`reconnect_policy`, decisione 2a: blip transitorio ritentato, irraggiungibilità
+  **persistente** → stantio → gate chiude). Il gate `_license_is_valid()` ora è: licenza valida **e**
+  `_revocation_gate_ok()`; il **tick licenza (~60 s)** e ogni fine ciclo del supervisore (`_safe_after`)
+  ri-valutano il lock — una licenza revocata a sessione viva → **STOP fail-closed** (stesso path del PR
+  4). L'Hardware ID è **memoizzato** (niente WMI/subprocess a ogni tick sul thread GUI). Con l'URL
+  **placeholder** il gate è **bypassato** (dev, come la chiave di TEST).
+
+**Test hard:** `tests/unit/test_revocation_client.py` (fetch fail-closed/probe, accept + anti-replay,
+`license_revoked` per serial/hw, `gate_allows` assente/stantia/fresca/revocata, cache round-trip/corrotta)
+e `tests/integration/test_license_lock_r3c.py` (bypass placeholder, fail-closed senza lista, revoca per
+serial, staleness fetch **e contenuto (24 h)**, anti-replay per età dell'`iss`, attivazione derivata
+dall'URL, Hardware ID memoizzato, backoff su fallimenti ripetuti, integrazione in
+`_license_is_valid`/`_apply_license_lock` con **STOP a sessione viva**, ciclo del supervisore
+ok/fallito/anti-replay, stop supervisore).
+
+**Azioni proprietario prima/durante la distribuzione:** (1) impostare `REVOCATION_LIST_URL` **reale** in
+`revocation_client.py` (il marcatore placeholder e l'attivazione si aggiornano da soli; il gate di
+release blocca un tag finché è placeholder); (2) **ri-pubblicare la lista firmata almeno ogni 24 h**
+(anche invariata, idealmente automatizzato) — oltre `MAX_LIST_AGE_S` i bridge legittimi si bloccano
+fail-closed. Nota disponibilità: essendo **no-grace su URL singolo**, un'irraggiungibilità **persistente**
+(oltre `FRESHNESS_MAX_AGE_S`, 15 min) blocca i client a sessione viva — è la conseguenza **accettata**
+della scelta «niente grazia» (decisione proprietario 2); le due finestre sono costanti tarabili.
+
 ### PR 4 — Lock totale della GUI (fatta)
 
 Il bridge **non opera senza licenza valida**. Cablato in `xtrader_bridge/app.py`:
