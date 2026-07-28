@@ -31,6 +31,10 @@ MASKED_USER = "<utente>"
 #: Sotto questa lunghezza un valore NON è trattato come chat_id (vedi `redact_chat_ids`).
 MIN_CHAT_ID_LEN = 5
 
+# Prefisso dei chat_id di supergruppo/canale: `-100` + id interno. È l'id INTERNO (senza
+# prefisso) a comparire nei link `t.me/c/<id>/<msg>` generati da Telegram.
+_SUPERGROUP_PREFIX = "-100"
+
 # Home utente Windows: `C:\Users\<nome>\` o `C:/Users/<nome>/` (qualsiasi unità). Il prefisso
 # `X:` rende il match non ambiguo, quindi non serve alcun guard a sinistra.
 _WIN_HOME_RE = re.compile(r"([A-Za-z]:[\\/]{1,2}Users[\\/]{1,2})([^\\/\r\n]+)", re.IGNORECASE)
@@ -94,9 +98,12 @@ def redact_chat_ids(text, chat_ids) -> str:
 
     - **confini numerici**: `12345` non viene sostituito dentro `9912345678` (contatori,
       timestamp, id evento restano leggibili);
-    - **forma senza segno**: un supergruppo è `-100…` in config ma l'API Telegram lo cita
-      spesso senza il meno → si redigono entrambe le forme, altrimenti la redazione
-      sarebbe solo apparente;
+    - **tutte le grafie dello stesso id**: un supergruppo è `-1001234567890` in config, ma
+      l'API Telegram lo cita spesso senza il meno (`1001234567890`) e i link generati da
+      Telegram usano l'id **interno** senza il prefisso `-100`
+      (`t.me/c/1234567890/45`) — un campo libero come «Ultimo messaggio» basterebbe a farlo
+      trapelare. Si redigono tutte e tre, con la **stessa** impronta: è la stessa chat, e un
+      report che sembrasse parlare di due chat diverse sarebbe fuorviante;
     - **soglia `MIN_CHAT_ID_LEN`**: un valore di 1-2 cifre non è un chat_id Telegram reale
       (campo di prova, config mezza compilata) e sostituirlo cancellerebbe ogni cifra
       uguale del report.
@@ -112,8 +119,12 @@ def redact_chat_ids(text, chat_ids) -> str:
         impronta = log_privacy.redact_chat_id(canonico)
         if not impronta:
             continue
-        # Stesso id, due grafie possibili nei messaggi dell'API: con e senza il segno.
-        for forma in {canonico, canonico.lstrip("-")}:
+        # Stesso id, tre grafie possibili: come in config, senza il segno (API Telegram) e
+        # senza il prefisso `-100` dei supergruppi (id interno dei link `t.me/c/<id>/<msg>`).
+        forme = {canonico, canonico.lstrip("-")}
+        if canonico.startswith(_SUPERGROUP_PREFIX):
+            forme.add(canonico[len(_SUPERGROUP_PREFIX):])
+        for forma in forme:
             if len(forma) >= MIN_CHAT_ID_LEN:
                 voci.append((forma, impronta))
     for forma, impronta in sorted(voci, key=lambda v: (-len(v[0]), v[0])):

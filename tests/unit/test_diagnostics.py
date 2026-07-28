@@ -84,18 +84,41 @@ def test_username_windows_mascherato_nel_path():
     assert r"C:\Users" in report
 
 
-@pytest.mark.parametrize("path,utente", [
-    (r"C:\Users\Mario Rossi\segnali.csv", "Mario Rossi"),
-    ("C:/Users/piero/segnali.csv", "piero"),
-    (r"D:\Users\admin\x.csv", "admin"),
-    ("/home/piero/segnali.csv", "piero"),
-    ("/Users/piero/Documents/segnali.csv", "piero"),
+@pytest.mark.parametrize("path,utente,atteso", [
+    (r"C:\Users\Mario Rossi\segnali.csv", "Mario Rossi", r"C:\Users\<utente>\segnali.csv"),
+    ("C:/Users/piero/segnali.csv", "piero", "C:/Users/<utente>/segnali.csv"),
+    (r"D:\Users\admin\x.csv", "admin", r"D:\Users\<utente>\x.csv"),
+    ("/home/piero/segnali.csv", "piero", "/home/<utente>/segnali.csv"),
+    ("/Users/piero/Documents/segnali.csv", "piero", "/Users/<utente>/Documents/segnali.csv"),
+    # Username con accenti: su Windows il nome utente segue il nome della persona
+    # (Niccolò, José…) e la regex non deve essere ASCII-only (GPT-5.5 #164).
+    (r"C:\Users\Niccolò\segnali.csv", "Niccolò", r"C:\Users\<utente>\segnali.csv"),
+    (r"C:\Users\José Muñoz\segnali.csv", "José Muñoz", r"C:\Users\<utente>\segnali.csv"),
 ])
-def test_username_mascherato_in_tutte_le_forme_di_path(path, utente):
-    """Windows (barra rovescia e dritta, altra unità), Linux e macOS: la home è la home."""
+def test_username_mascherato_in_tutte_le_forme_di_path(path, utente, atteso):
+    """Windows (barra rovescia e dritta, altra unità, accenti), Linux e macOS: la home è la home.
+
+    Si asserisce il path mascherato **per intero**, non solo «il nome non c'è»: una regex
+    che coprisse solo la parte ASCII lascerebbe `C:\\Users\\<utente>ò\\…` — il nome intero
+    non comparirebbe più (assert soddisfatto) ma un suo **frammento** sì. Il confronto
+    esatto è l'unico che vede quel caso."""
     report = diagnostics.build_report([("CSV path", path)])
+    assert f"CSV path: {atteso}" in report
     assert utente not in report
-    assert diagnostics.MASKED_USER in report
+
+
+def test_onedrive_maschera_solo_lo_username():
+    """Caso Windows più comune di tutti (GPT-5.5 #164): la cartella Documenti redirezionata
+    su OneDrive. Deve sparire SOLO il nome utente — che «il CSV sta su OneDrive» è
+    proprio l'informazione che serve al supporto quando il file risulta lockato o lento."""
+    report = diagnostics.build_report([
+        ("CSV path", r"C:\Users\Piero\OneDrive\Documenti\XTrader\segnali.csv"),
+        ("Cartella log", r"C:\Users\Piero\OneDrive - Azienda SpA\logs"),
+    ])
+    assert "Piero" not in report
+    assert r"OneDrive\Documenti\XTrader\segnali.csv" in report
+    assert "OneDrive - Azienda SpA" in report
+    assert report.count(diagnostics.MASKED_USER) == 2
 
 
 def test_path_senza_home_utente_resta_intatto():
@@ -132,6 +155,23 @@ def test_chat_id_supergruppo_redatto_anche_senza_il_meno():
         ("Ultimo messaggio", "peer id 1001234567890"),
     ], chat_ids=[chat])
     assert "1001234567890" not in report
+    assert report.count(log_privacy.redact_chat_id(chat)) == 2
+
+
+def test_supergruppo_redatto_anche_nella_forma_del_link_t_me():
+    """Terza grafia dello stesso supergruppo (Fugu Ultra #164): i link `t.me/c/<id>/<msg>` —
+    che Telegram genera e che finiscono nei messaggi e negli errori — usano l'id **senza il
+    prefisso `-100`**. Senza questa forma la redazione sarebbe aggirabile da un campo libero
+    come «Ultimo messaggio», proprio in un report nato per essere condiviso."""
+    chat = "-1001234567890"
+    interno = "1234567890"
+    report = diagnostics.build_report([
+        ("Ultimo messaggio", f"vedi https://t.me/c/{interno}/45"),
+        ("Ultimo errore", f"bot: forbidden in {chat}"),
+    ], chat_ids=[chat])
+    assert interno not in report
+    # Tutte le grafie puntano alla STESSA chat → stessa impronta, altrimenti il report
+    # sembrerebbe parlare di due chat diverse.
     assert report.count(log_privacy.redact_chat_id(chat)) == 2
 
 
