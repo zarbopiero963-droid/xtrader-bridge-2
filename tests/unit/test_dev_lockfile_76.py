@@ -46,27 +46,81 @@ _HARD_BUILD_WORKFLOW = "merge-simulation-hard.yml"
 #
 # Riconoscere per contenuto rende irrilevanti ordine, numero e valore delle opzioni, e non ha
 # più nulla da allargare al prossimo flag che qualcuno userà.
-_DEV_REQ = "-r requirements-dev.txt"
-_DEV_CONSTRAINTS = "-c requirements-dev.lock"
+# Il confronto è su ARGOMENTI, non su sottostringhe (rilievo GPT-5.5 #165): `-c` seguito da
+# `requirements-dev.lock.bak` contiene la sottostringa del lock giusto pur puntando a un file
+# diverso, e un `# -c requirements-dev.lock` in coda è solo un commento shell. Entrambi facevano
+# passare per "costretto" un install che pip esegue senza constraints.
+_REQ_OPTS = ("-r", "--requirement")
+_CONSTRAINT_OPTS = ("-c", "--constraint")
+_DEV_REQ_FILE = "requirements-dev.txt"
+_DEV_LOCK_FILE = "requirements-dev.lock"
+
+
+def _srotola_folded(testo: str) -> str:
+    """Ricongiunge i blocchi YAML `run: >` in una riga sola.
+
+    È **semantica YAML**, non un'euristica: in uno scalare *folded* (`>`) le righe successive
+    sono un unico comando, in uno *literal* (`|`) sono comandi distinti. Trattarli allo stesso
+    modo rendeva invisibile al guard un install nudo scritto in forma folded (GPT-5.5 #165) —
+    il fallimento peggiore per un controllo di supply-chain, perché silenzioso."""
+    righe, out, i = testo.splitlines(), [], 0
+    while i < len(righe):
+        m = re.match(r"^(\s*)(?:-\s+)?run:\s*>[-+]?\s*$", righe[i])
+        if not m:
+            out.append(righe[i])
+            i += 1
+            continue
+        indent, blocco, i = len(m.group(1)), [], i + 1
+        while i < len(righe) and (not righe[i].strip()
+                                  or len(righe[i]) - len(righe[i].lstrip()) > indent):
+            blocco.append(righe[i].strip())
+            i += 1
+        out.append(f"{m.group(0).rstrip()} " + " ".join(x for x in blocco if x))
+    return "\n".join(out)
 
 
 def _comandi_pip(testo: str):
-    """I comandi `pip install` del testo, con le continuazioni `\\` ricongiunte e gli spazi
-    normalizzati. Copre sia `pip install` sia `python -m pip install`."""
-    unito = re.sub(r"\\\n\s*", " ", testo)
+    """I comandi `pip install` del testo, come LISTE DI ARGOMENTI.
+
+    Ricongiunge le continuazioni `\\` e i blocchi folded, poi tronca al primo `#`: tutto ciò
+    che segue è un commento shell, non un argomento che pip riceve."""
+    unito = re.sub(r"\\\n\s*", " ", _srotola_folded(testo))
     for riga in unito.splitlines():
-        if "pip install" in riga:
-            yield " ".join(riga.split())
+        if "pip install" not in riga:
+            continue
+        args = []
+        for tok in riga.split():
+            if tok.startswith("#"):
+                break
+            args.append(tok)
+        yield args
+
+
+def _usa_file(args, opzioni, atteso: str) -> bool:
+    """True se fra gli argomenti c'è `<opzione> <atteso>` (o `--opzione=<atteso>`), confrontando
+    il nome del file per INTERO."""
+    for i, tok in enumerate(args):
+        if tok in opzioni and i + 1 < len(args) and args[i + 1] == atteso:
+            return True
+        if tok.startswith("--") and "=" in tok:
+            nome, _, valore = tok.partition("=")
+            if nome in opzioni and valore == atteso:
+                return True
+    return False
 
 
 def _install_nudo(testo: str) -> list:
     """Install di `requirements-dev.txt` che NON citano le constraints — la cosa da vietare."""
-    return [c for c in _comandi_pip(testo) if _DEV_REQ in c and _DEV_CONSTRAINTS not in c]
+    return [" ".join(a) for a in _comandi_pip(testo)
+            if _usa_file(a, _REQ_OPTS, _DEV_REQ_FILE)
+            and not _usa_file(a, _CONSTRAINT_OPTS, _DEV_LOCK_FILE)]
 
 
 def _install_costretto(testo: str) -> bool:
     """True se esiste almeno un install di `requirements-dev.txt` CON le constraints."""
-    return any(_DEV_REQ in c and _DEV_CONSTRAINTS in c for c in _comandi_pip(testo))
+    return any(_usa_file(a, _REQ_OPTS, _DEV_REQ_FILE)
+               and _usa_file(a, _CONSTRAINT_OPTS, _DEV_LOCK_FILE)
+               for a in _comandi_pip(testo))
 
 
 def _lock_pins():
@@ -193,6 +247,18 @@ def test_il_job_notturno_builda_da_dipendenze_pinnate_e_hashate():
     "      - run: pip install --index-url https://mirror.interno -r requirements-dev.txt",
     # Opzioni DOPO il requirements (CodeRabbit #165): stesso comando, ordine diverso.
     "      - run: pip install -r requirements-dev.txt --disable-pip-version-check",
+    # `-c` che punta a un file DIVERSO ma con lo stesso prefisso (GPT-5.5 #165): pip non usa
+    # il lock, e un confronto per sottostringa lo scambiava per install costretto.
+    "      - run: pip install -r requirements-dev.txt -c requirements-dev.lock.bak",
+    # `-c` dentro un COMMENTO shell: pip non lo riceve affatto.
+    "      - run: pip install -r requirements-dev.txt # -c requirements-dev.lock",
+    # Blocco YAML *folded*: le righe sono UN comando solo, e senza srotolarlo l'install nudo
+    # diventava invisibile al guard — il fallimento peggiore, perché silenzioso.
+    "      - run: >\n          pip install\n          -r requirements-dev.txt",
+    # Blocco *literal*: righe = comandi DISTINTI, quindi il `-c` di quella dopo non salva
+    # l'install nudo di quella prima.
+    "      - run: |\n          pip install -r requirements-dev.txt\n"
+    "          pip install -c requirements-dev.lock altro",
 ])
 def test_il_guard_riconosce_tutte_le_forme_dell_install_nudo(riga):
     """Il guard è a sua volta testato, perché una regex che non morde è indistinguibile da
@@ -229,6 +295,12 @@ def test_il_guard_non_segnala_gli_install_corretti(riga):
     "-c requirements-dev.lock",
     "      - run: pip install --index-url https://mirror.interno "
     "-r requirements-dev.txt -c requirements-dev.lock",
+    # Forma lunga con `=`: `--requirement=` / `--constraint=` sono equivalenti a `-r`/`-c`.
+    "      - run: pip install --requirement=requirements-dev.txt "
+    "--constraint=requirements-dev.lock",
+    # Blocco folded corretto: srotolato diventa un comando con entrambe le opzioni.
+    "      - run: >\n          pip install\n          -r requirements-dev.txt\n"
+    "          -c requirements-dev.lock",
 ])
 def test_il_check_positivo_accetta_anche_le_forme_spezzate(riga):
     """Rilievo GPT-5.5 (#165): il riconoscimento dell'install CORRETTO era un confronto di
