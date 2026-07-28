@@ -2539,7 +2539,11 @@ class App(ctk.CTk):
 
     def _copy_diagnostics(self):
         """Copia negli appunti un report diagnostico (stato, contatori, ultimi eventi,
-        percorsi), già redatto dei segreti — utile per il supporto (PR-14c)."""
+        percorsi), già redatto dei segreti — utile per il supporto (PR-14c).
+
+        C1 (#114): il report è destinato a essere INCOLLATO in una segnalazione, quindi
+        oltre ai token escono redatti anche il **chat_id** (impronta stabile) e lo
+        **username** dentro i path — `build_report` li riceve da `collect_chat_ids`."""
         cfg = self._config if isinstance(self._config, dict) else {}
         info = [
             ("Stato listener", "ATTIVO" if self._running else "OFFLINE"),
@@ -2552,7 +2556,7 @@ class App(ctk.CTk):
         # qui lo aggiunge il report → niente prefisso duplicato).
         info += [(prefix, self._last_vals.get(kind, "")) for kind, prefix in _LAST_FIELDS]
         info.append(("Cartella log", event_log.log_dir()))
-        report = diagnostics.build_report(info)
+        report = diagnostics.build_report(info, chat_ids=diagnostics.collect_chat_ids(cfg))
         try:
             self.clipboard_clear()
             self.clipboard_append(report)

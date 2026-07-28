@@ -626,6 +626,13 @@ Tutte queste protezioni sono **attive a runtime**:
    consapevolmente usa **«📄 Crea CSV»**, che chiede conferma esplicita. Un file vuoto
    (0 byte) resta inizializzabile senza attrito.
 7. **Nessun token nei log** — i segreti sono redatti sia a schermo sia su file.
+   **Report diagnostico condivisibile:** il testo copiato da **«📋 Copia diagnostica»**
+   nasce per essere incollato in una segnalazione, quindi esce **senza dati personali** —
+   token redatti, **chat_id** sostituito da un'impronta stabile (`chat:sha256:…`, la stessa
+   del diario eventi: correla gli eventi della stessa chat senza rivelarne l'ID) e
+   **username Windows** dentro i path sostituito da `<utente>` (`C:\Users\<utente>\…`). Il
+   resto del path resta leggibile, così il supporto vede *dove* sta il CSV senza sapere
+   *chi* sei.
 8. **Privacy del contenuto messaggi** — di default il **testo** dei messaggi Telegram
    **non** viene scritto in chiaro nei log: solo impronta (`sha256`) + lunghezza + prima
    riga troncata, abbastanza per diagnosticare senza conservare il contenuto di canali
