@@ -16,7 +16,9 @@ client Anthropic *tool-use* iniettabile, registry dei tool con classificazione d
 - **`ToolRegistry`** — l'**unico** punto da cui un tool viene eseguito. Espone al modello solo le
   spec permesse (`tool_specs`), esegue le guardie e registra ogni chiamata in `audit_log`.
 - **Tool sola-lettura**: `get_config_state` (config **redatta**), `get_health` (semafori
-  `health_check`), `list_parsers` (PR-1), `get_setup_status` (**PR-5**: checklist di prima
+  `health_check`; il semaforo **Modalità** viene dalla fonte **autoritativa**
+  `bridge_mode.mode_from_cfg(cfg)` — vedi «Modalità: chi comanda» sotto), `list_parsers` (PR-1),
+  `get_setup_status` (**PR-5**: checklist di prima
   configurazione — token/chat/parser/CSV/modalità come booleani `done`+label, **nessun segreto** —
   riusa `wizard.final_checklist`), i tool di **conoscenza** `list_guides`/`read_guide` (**PR-7
   Blocco A**: leggono la documentazione reale del progetto da una **allowlist** di file per spiegare
@@ -409,6 +411,25 @@ diagnostica che l'utente ha nella GUI.
   esattamente ciò che l'utente vede; senza provider (headless/test) ripiega su una valutazione da
   **config + sonda CSV non invasiva** (`live: false`, fedeltà parziale: Telegram/segnale/conferme
   non sono noti senza app viva). Un provider difettoso → **fail-safe** sul fallback config.
+### Modalità: chi comanda (ambiguità A5 della #69)
+
+Due chiavi descrivono l'asse simulazione/reale, ma **non pesano uguale**: **`dry_run` è
+autoritativo** e fail-closed (`True`/assente/malformato → SIMULAZIONE), **`bridge_mode` è solo
+un'etichetta** e in una config editata a mano può **mentire**. Le uniche fonti di verità sono
+`bridge_mode.mode_from_cfg(cfg)` e `safety_guard.is_dry_run(cfg)`.
+
+`get_health` leggeva l'etichetta **grezza**: con la coppia incoerente
+`bridge_mode="SIMULAZIONE"` + `dry_run=False` mostrava un semaforo **VERDE** «non scrive il CSV
+operativo» mentre la modalità effettiva era **REALE** e il CSV veniva scritto. Ora usa
+`mode_from_cfg`, come già faceva `build_health_report`.
+
+Con il loader reale il caso non si presenta — `config_store.load_config` **ri-deriva**
+`bridge_mode` dalla coppia salvata — quindi era un difetto **latente**, sicuro per via di una
+normalizzazione che sta altrove. Ma il tool accetta un `config_loader` iniettabile, e due strade
+per la stessa domanda di cui una sicura per caso sono una di troppo. Fissato da
+`tests/unit/test_bridge_mode_dry_run_a5_69.py`, che include un **source-scan**: `cfg.get(
+"bridge_mode")` è ammesso solo in `bridge_mode.py` e `config_store.py`.
+
 - **`why_discarded`** — legge il **diario eventi** (`event_journal`, già redatto; path da
   `journal_path` iniettato o `journal_view.default_path()`) e ne **riassume il ciclo di vita**
   (`_journal_summary`): conteggi per tipo, se l'**ultimo segnale ricevuto è arrivato al CSV**
