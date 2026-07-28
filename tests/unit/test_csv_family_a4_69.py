@@ -105,7 +105,10 @@ def test_clear_stale_csv_azzera_e_dice_di_averlo_fatto(tmp_path):
 def test_le_tre_funzioni_prudenti_non_toccano_un_file_estraneo(tmp_path):
     """Un file dell'utente scelto per errore nel campo «CSV Path» non va distrutto."""
     path = _file_estraneo(tmp_path)
-    originale = open(path, encoding="utf-8").read()
+    # `with` e non `open(...).read()` (rilievo Fable #161): su Windows — il target del bridge —
+    # un handle non chiuso può tenere il file bloccato e far fallire le operazioni successive.
+    with open(path, encoding="utf-8") as f:
+        originale = f.read()
 
     assert cw.create_header_only_csv(path) == cw.CSV_CREATE_REFUSED_FOREIGN
     assert cw.init_csv_for_session(path) == cw.CSV_INIT_FOREIGN
@@ -113,7 +116,8 @@ def test_le_tre_funzioni_prudenti_non_toccano_un_file_estraneo(tmp_path):
     assert cw.clear_stale_csv(path, on_mismatch=avvisi.append) is False
     assert avvisi, "clear_stale_csv deve AVVISARE che il file non è del bridge"
 
-    assert open(path, encoding="utf-8").read() == originale, "file estraneo modificato!"
+    with open(path, encoding="utf-8") as f:
+        assert f.read() == originale, "file estraneo modificato!"
 
 
 def test_init_csv_invece_sovrascrive_un_file_estraneo(tmp_path):
