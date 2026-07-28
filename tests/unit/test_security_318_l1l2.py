@@ -108,3 +108,47 @@ def test_i_confini_restano_unicode_di_proposito():
     produrre «2 - 0». Le due scelte puntano nella stessa direzione fail-closed."""
     assert custom_parser_engine.extract_scores("١2-0") == []
     assert custom_parser_engine.extract_scores("2-0١") == []
+
+
+def test_chat_id_a_cifre_miste_rifiutato_per_intero():
+    """Sanity check chiesto da Fugu Ultra (#167): la validazione deve ancorare l'INTERO valore.
+
+    `is_valid_chat_id` usa `fullmatch`, quindi «12٣» non passa per il prefisso ASCII «12». Se
+    un domani diventasse `match`, un id misto verrebbe accettato sulla sola parte iniziale e
+    tornerebbe la sorgente morta."""
+    for misto in ("12٣", "١2", "-100١", "12 3"):
+        assert source_manager.is_valid_chat_id(misto) is False, misto
+
+
+def test_una_config_esistente_con_chat_id_non_ascii_da_un_errore_esplicito():
+    """Migrazione (rilievo GPT-5.5 #167): chi ha già in config una chat con cifre non-ASCII non
+    deve trovarsi la sorgente rifiutata *in silenzio*.
+
+    La validazione produce un errore che NOMINA il valore e dice cosa usare al suo posto: il fix
+    trasforma una morte silenziosa in un messaggio azionabile — che è il punto, visto che prima
+    quella sorgente risultava «configurata» e non riceveva nulla."""
+    errori = source_manager.validate_sources(
+        [{"chat_id": "١٢٣٤٥٦٧٨٩", "name": "Canale", "mode": "PRE"}])
+    testo = " ".join(errori)
+    assert "chat_id non numerico" in testo
+    assert "١٢٣٤٥٦٧٨٩" in testo          # nomina il valore colpevole
+    assert "-1001234567890" in testo      # e mostra la forma corretta
+
+
+def test_il_normalizzatore_migliaia_resta_scartato_a_valle():
+    """Il secondo sanity check di Fugu: `custom_pipeline._decimal_sep_to_point` accetta cifre
+    non-ASCII (usa `\\d` e `str.isdigit()`, entrambi Unicode) e NON è stato toccato in questo fix.
+
+    La ragione è qui, eseguibile invece che affermata in un commento: il validatore a valle usa
+    `numbers_re.SIGNED_DECIMAL` (`[0-9]`) e scarta comunque il risultato, quindi cambiarlo non
+    modificherebbe alcun comportamento osservabile. Se un domani quel confine si spostasse,
+    questo test diventa rosso e la decisione va rivista."""
+    import re
+
+    from xtrader_bridge import numbers_re
+    from xtrader_bridge.custom_pipeline import _decimal_sep_to_point
+
+    uscita = _decimal_sep_to_point("١.٢٣٤,٥٦")
+    assert uscita == "١٢٣٤.٥٦"            # normalizza, come per gli ASCII
+    accettato = re.compile(r"^" + numbers_re.SIGNED_DECIMAL + r"$").fullmatch(uscita)
+    assert accettato is None, "il validatore deve continuare a scartarlo: è ciò che rende innocua la non-modifica"
