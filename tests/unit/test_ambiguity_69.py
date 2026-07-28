@@ -17,6 +17,8 @@ I test esercitano le funzioni REALI: se un domani i due contratti convergessero 
 rosso, perché la differenza fra i due è proprio ciò che rende necessari due nomi.
 """
 
+import pathlib
+
 import pytest
 
 from xtrader_bridge import health_check, live_guard, recognition, validator
@@ -97,3 +99,43 @@ def test_decide_write_e_il_gate_di_scrittura():
 def test_i_nomi_nuovi_sono_esportati(modulo, atteso):
     """Rete anti-refuso: il nome nuovo esiste davvero (un typo nella rinomina non passa)."""
     assert hasattr(modulo, atteso), f"{modulo.__name__} deve esporre `{atteso}`"
+
+
+# ── source-scan: nessun chiamante residuo, ovunque nel package ───────────────────────────────────
+# Vecchi nomi qualificati che NON devono più comparire in un sorgente del package. Il `not hasattr`
+# qui sopra dice che l'attributo non esiste; questo dice che **nessuno lo chiama** — che è la
+# domanda vera (rilievo Fugu Ultra #160: un residuo in un ramo raro darebbe `AttributeError` solo
+# a runtime, magari sul percorso di scrittura, dove costa di più).
+_CHIAMATE_VIETATE = ("health_check.evaluate(", "live_guard.evaluate(", "recognition.is_valid(")
+_PKG_DIR = pathlib.Path(__file__).resolve().parents[2] / "xtrader_bridge"
+
+
+def test_nessun_chiamante_residuo_dei_nomi_vecchi():
+    """Scandisce **tutti** i sorgenti del package (ricorsivo, sottopackage inclusi) e vieta le
+    chiamate ai nomi rimossi.
+
+    Perché serve oltre al `not hasattr`: quello prova che il nome non esiste più sul modulo, non
+    che nessuno provi a usarlo. Un chiamante dimenticato in un ramo poco percorso passerebbe i
+    test e romperebbe **a runtime**. Qui la CI fa a ogni push il grep che altrimenti resterebbe
+    una verifica una-tantum fatta a mano."""
+    offenders = []
+    scanned = sorted(_PKG_DIR.rglob("*.py"))
+    for path in scanned:
+        testo = path.read_text(encoding="utf-8")
+        for vietata in _CHIAMATE_VIETATE:
+            if vietata in testo:
+                offenders.append(f"{path.relative_to(_PKG_DIR.parent)}: {vietata}")
+    assert not offenders, (
+        "chiamate a nomi rimossi (#69) — darebbero AttributeError a runtime:\n  "
+        + "\n  ".join(offenders))
+    # Lo scan deve essere ricorsivo: senza questa asserzione un ritorno silenzioso a `glob("*.py")`
+    # perderebbe i sottopackage (es. `licensing/`) e passerebbe INVISIBILE.
+    assert [p for p in scanned if p.parent != _PKG_DIR and p.parent.name != "__pycache__"], \
+        "lo scan deve raggiungere i sottopackage del package, non solo i moduli top-level"
+
+
+def test_il_source_scan_non_passa_a_vuoto():
+    """Meta-check: lo scan riconosce davvero una chiamata vietata sintetica (se un domani il
+    confronto smettesse di funzionare, questo test lo direbbe invece di restare verde)."""
+    finto = "x = health_check.evaluate(listener_status='ATTIVO')\n"
+    assert any(v in finto for v in _CHIAMATE_VIETATE)

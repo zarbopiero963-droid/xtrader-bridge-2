@@ -158,8 +158,15 @@ def _exec_audit_script(name, tmp_path, monkeypatch, extra_env=None):
 # ---------------------------------------------------------------------------
 
 def test_ogni_workflow_ai_su_disco_e_censito():
-    """Controllo **INVERSO**: ogni `pr-review-*.yml` presente su disco deve stare in
-    `_AI_WORKFLOWS` (rilievo GPT-5.5 #160).
+    """Controllo **INVERSO**: ogni workflow AI presente su disco deve stare in `_AI_WORKFLOWS`
+    (rilievo GPT-5.5 #160; estensione agli audit full-repo su rilievo Fugu Ultra #160).
+
+    Coperti **entrambi** i tipi, non solo i PR review:
+
+    - `pr-review-*` → manda alla review il **diff** della PR;
+    - `*audit*` → manda **l'intero repository** a un provider esterno. Sono i più delicati dei
+      due, e restavano fuori dal censimento: un audit YAML nuovo sarebbe sfuggito ai gate su
+      trigger (solo `workflow_dispatch`), permessi, redazione dei segreti e fail-closed.
 
     Senza questo, il registro protegge solo ciò che qualcuno si è ricordato di censire: un
     reviewer AI nuovo — che manda il diff del repository a un provider esterno — potrebbe essere
@@ -175,12 +182,14 @@ def test_ogni_workflow_ai_su_disco_e_censito():
     # rossa la suite safety senza che esista alcun workflow nuovo. `.yaml` è incluso perché GitHub
     # accetta entrambe le estensioni: un reviewer non deve poter sfuggire al gate cambiando suffisso.
     su_disco = {f for f in os.listdir(_WF_DIR)
-                if f.startswith("pr-review-") and f.endswith((".yml", ".yaml"))}
+                if f.endswith((".yml", ".yaml"))
+                and (f.startswith("pr-review-") or "audit" in f)}
     non_censiti = su_disco - set(_AI_WORKFLOWS)
     assert not non_censiti, (
-        f"workflow di PR review presenti ma NON censiti in _AI_WORKFLOWS: {sorted(non_censiti)}. "
-        "Un reviewer AI manda il diff del repo a un provider esterno: va aggiunto al registro "
-        "(kind/provider/trigger/reasoning) così i gate di sicurezza lo coprono."
+        f"workflow AI presenti ma NON censiti in _AI_WORKFLOWS: {sorted(non_censiti)}. "
+        "Un reviewer manda il diff del repo a un provider esterno, un audit ci manda il "
+        "repository INTERO: vanno aggiunti al registro (kind/provider/trigger/reasoning) così "
+        "i gate di sicurezza li coprono."
     )
     # e il registro non deve elencare file inesistenti (rimozione reale ≠ voce dimenticata)
     mancanti = {n for n in _AI_WORKFLOWS if not os.path.exists(_wf_path(n))}
