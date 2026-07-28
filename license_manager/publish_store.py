@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 from xtrader_bridge import atomic_io
 from xtrader_bridge.licensing import revocation_client
@@ -60,6 +61,13 @@ DEFAULTS = {
 _BRIDGE_FRESHNESS_HOURS = max(1, revocation_client.MAX_LIST_AGE_S // 3600)   # 24 h
 MIN_INTERVAL_HOURS = 1
 MAX_INTERVAL_HOURS = max(MIN_INTERVAL_HOURS, _BRIDGE_FRESHNESS_HOURS // 3)   # 8 h
+
+# Charset REALE di un segmento `owner`/`nome` su GitHub (rilievo Fable #158). Il `repo` finisce
+# grezzo in DUE URL (Contents API e raw): un carattere come `%`, `?` o `#` li deformerebbe entrambi
+# (query-string/fragment al posto del path) → 404 → nessuna lista pubblicata e bridge bloccati
+# fail-closed. Nessun repository GitHub legittimo contiene quei caratteri: rifiutarli qui, con un
+# messaggio chiaro mentre si digita, è meglio di un 404 incomprensibile a pubblicazione avvenuta.
+_REPO_SEGMENT = re.compile(r"[A-Za-z0-9._-]+")
 
 
 def _keyring():
@@ -181,14 +189,15 @@ def save_publish_config(cfg: dict, directory: "str | None" = None) -> None:
 def validate_config(cfg: dict) -> "str | None":
     """`None` se le impostazioni sono utilizzabili per pubblicare, altrimenti un **messaggio d'errore**
     leggibile. Controlla che `repo` sia nella forma `owner/nome` (un solo `/`, entrambe le parti non
-    vuote, nessuno spazio) e che `path`/`branch` non siano vuoti."""
+    vuote e composte solo dai caratteri ammessi da GitHub) e che `path`/`branch` non siano vuoti."""
     norm = normalize_config(cfg)
     repo = norm["repo"]
     if not repo:
         return "Indica il repository nella forma «owner/nome» (es. tuonome/xtrader-revocation)."
     parts = repo.split("/")
-    if len(parts) != 2 or not parts[0] or not parts[1] or " " in repo:
-        return f"Repository non valido: «{repo}». Usa la forma «owner/nome»."
+    if len(parts) != 2 or not all(_REPO_SEGMENT.fullmatch(p) for p in parts):
+        return (f"Repository non valido: «{repo}». Usa la forma «owner/nome», "
+                "con lettere, numeri, «.», «_» o «-».")
     if not norm["path"]:
         return "Indica il percorso del file nel repository (es. revocation_list.txt)."
     if not norm["branch"]:

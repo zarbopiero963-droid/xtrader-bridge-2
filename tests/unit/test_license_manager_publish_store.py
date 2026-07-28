@@ -64,6 +64,18 @@ def test_validate_config_repo():
         assert publish_store.validate_config({"repo": bad}) is not None
 
 
+def test_validate_config_repo_solo_caratteri_ammessi_da_github():
+    """Il `repo` finisce **grezzo** in due URL (Contents API e raw): un `%`, `?` o `#` li deformerebbe
+    entrambi (query-string/fragment al posto del path) → 404 → nessuna lista pubblicata e bridge
+    bloccati fail-closed (rilievo Fable #158). Nessun repository GitHub legittimo li contiene."""
+    for cattivo in ("owner/na%me", "owner/na?me", "owner/na#me", "owner/na me", "owner/na\tme",
+                    "own er/x", "owner/", "/nome", "owner/x:y", "owner/x@y"):
+        assert publish_store.validate_config({"repo": cattivo}) is not None, cattivo
+    # ...e tutto ciò che GitHub ammette davvero resta valido
+    for buono in ("Owner-1/repo_name.v2", "a/b", "zarbopiero963-droid/xtrader-revocation"):
+        assert publish_store.validate_config({"repo": buono}) is None, buono
+
+
 # ── persistenza (atomica, fail-safe) ────────────────────────────────────────────────────────────
 def test_save_e_load_round_trip(tmp_path):
     cfg = {"enabled": True, "repo": "tizio/x", "path": "l.txt", "branch": "main", "interval_hours": 8}

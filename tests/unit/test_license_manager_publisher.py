@@ -194,6 +194,24 @@ def test_il_branch_viaggia_codificato_nella_query_ref_non_nel_path():
     assert urllib.parse.parse_qs(parsed.query)["ref"] == ["feature/mia branch"]
 
 
+def test_i_due_url_quotano_anche_il_repo_e_allo_stesso_modo():
+    """Seconda rete dopo `validate_config` (rilievo Fable #158): se qualcuno arriva qui **senza**
+    passare dalla validazione (config scritta a mano, chiamata diretta al modulo), un `?` grezzo nel
+    `repo` trasformerebbe il resto dell'URL in query-string → richiesta a un path diverso. E i due URL
+    devono quotare **negli stessi termini**: se lo facesse uno solo tornerebbe la divergenza raw↔API."""
+    brutto = "owner/na?me"
+    raw = publisher.raw_url(brutto, _PATH, _BRANCH)
+    api = publisher.contents_url(brutto, _PATH)
+    assert "?" not in raw and "?" not in api, "il carattere riservato deve essere codificato"
+    assert raw.startswith("https://raw.githubusercontent.com/owner/na%3Fme/")
+    assert api.startswith("https://api.github.com/repos/owner/na%3Fme/contents/")
+    # lo `/` fra owner e nome resta uno slash (non %2F) in entrambi
+    assert "/owner/na%3Fme/" in raw and "/owner/na%3Fme/" in api
+    # un repository legittimo NON viene toccato dalla quotatura
+    assert publisher.raw_url(_REPO, _PATH, _BRANCH) == \
+        "https://raw.githubusercontent.com/tizio/xtrader-revocation/main/revocation_list.txt"
+
+
 def test_publish_manda_il_branch_letterale_nel_corpo_json():
     """Nel `PUT` il branch sta nel **corpo JSON**, non in un URL: lì va **letterale** (percent-encodarlo
     creerebbe un branch inesistente). È l'unico punto in cui NON si quota, e questo test lo fissa."""

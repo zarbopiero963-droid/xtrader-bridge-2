@@ -46,17 +46,28 @@ def raw_url(repo: str, path: str, branch: str) -> str:
     all'indirizzo *codificato*, quindi un raw URL con caratteri grezzi (spazi/accenti) punterebbe a un
     file **inesistente** → il bridge non scaricherebbe più la lista → **lockout fail-closed di tutti i
     bridge**. I due URL devono codificare allo stesso modo. `quote` mantiene `/` (path annidati)."""
-    repo = str(repo or "").strip().strip("/")
     path = urllib.parse.quote(str(path or "").strip().lstrip("/"))
     branch = urllib.parse.quote(str(branch or "").strip())
-    return f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
+    return f"https://raw.githubusercontent.com/{_quote_repo(repo)}/{branch}/{path}"
+
+
+def _quote_repo(repo: str) -> str:
+    """`owner/nome` normalizzato e **quotato** (rilievo Fable #158).
+
+    `publish_store.validate_config` già rifiuta tutto ciò che non è un repository GitHub legittimo:
+    questa è la seconda rete, per chi arrivasse qui **senza** passare dalla validazione (config
+    scritta a mano, chiamata diretta al modulo). Un `?` o un `#` grezzo trasformerebbe il resto
+    dell'URL in query-string/fragment, cioè una richiesta a un path diverso da quello voluto.
+    Quotare **negli stessi termini** in entrambi gli URL è essenziale: se lo facesse uno solo dei due
+    tornerebbe la divergenza raw↔API che porta al lockout. `quote` mantiene lo `/` fra owner e nome."""
+    return urllib.parse.quote(str(repo or "").strip().strip("/"))
 
 
 def contents_url(repo: str, path: str) -> str:
-    """Endpoint Contents API per il file (path **quotato**: gli spazi/accenti non rompono l'URL)."""
-    repo = str(repo or "").strip().strip("/")
+    """Endpoint Contents API per il file (repo/path **quotati**: spazi e caratteri riservati non
+    rompono l'URL — vedi `_quote_repo`)."""
     quoted = urllib.parse.quote(str(path or "").strip().lstrip("/"))
-    return f"{GITHUB_API}/repos/{repo}/contents/{quoted}"
+    return f"{GITHUB_API}/repos/{_quote_repo(repo)}/contents/{quoted}"
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):

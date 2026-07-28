@@ -468,8 +468,10 @@ fetta la **automatizza dentro il License Manager**, senza spostare il seed priva
 | **Lista firmata** | Repo GitHub **pubblico** | Il bridge la scarica senza credenziali; è firmata → infalsificabile |
 
 - **`license_manager/publish_store.py`** — impostazioni + keyring. `normalize_config` (default
-  fail-closed: pubblicazione **spenta**; `enabled` solo su `True` vero; intervallo limitato
-  1..168 h; **scarta** qualunque campo `token`), `validate_config` (repo nella forma `owner/nome`),
+  fail-closed: pubblicazione **spenta**; `enabled` solo su `True` vero; intervallo limitato a
+  `MIN_INTERVAL_HOURS..MAX_INTERVAL_HOURS`; **scarta** qualunque campo `token`), `validate_config`
+  (repo nella forma `owner/nome` **con i soli caratteri ammessi da GitHub** — `A-Z a-z 0-9 . _ -`;
+  niente whitespace in `path`/`branch`),
   `load/save_publish_config` (atomico via `atomic_io`, fail-safe su file assente/corrotto),
   **cadenza vincolata alla finestra del bridge**: `MAX_INTERVAL_HOURS` è **derivato** da
   `revocation_client.MAX_LIST_AGE_S` (un terzo della finestra → 8 h su 24 h), non un numero ricopiato,
@@ -485,7 +487,11 @@ fetta la **automatizza dentro il License Manager**, senza spostare il seed priva
   3xx **ri-inviando `Authorization: Bearer <token>`** all'host di destinazione — anche diverso da
   `api.github.com` — cioè un **leak del token**; un 3xx è quindi trattato come errore (soglia `>= 300`,
   non `>= 400`: un redirect non è una pubblicazione riuscita).
-  `raw_url(repo, path, branch)` restituisce **l'URL da mettere in `REVOCATION_LIST_URL`**. Errori
+  `raw_url(repo, path, branch)` restituisce **l'URL da mettere in `REVOCATION_LIST_URL`** e codifica
+  `repo`/`path`/`branch` **esattamente come `contents_url`** (rilievi Fugu/Fable #158): l'API pubblica
+  all'indirizzo *codificato*, quindi un raw URL con caratteri grezzi punterebbe a un file inesistente
+  → il bridge smette di scaricare la lista → **lockout fail-closed di tutti i bridge**. Se a quotare
+  fosse **uno solo** dei due, la divergenza tornerebbe. Errori
   mappati per codice (401/403 permessi, 404 repo/branch, 409/422 conflitto, 429, 5xx) — **il token non
   compare MAI** nei messaggi. HTTP dietro **probe iniettabile** (test senza socket).
 - **GUI** (`license_manager/gui.py`, sezione «📤 Pubblicazione automatica (GitHub)»): campi repo/path/
