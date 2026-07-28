@@ -97,3 +97,35 @@ def test_market_name_for_type_resta_fail_closed_su_ignoto():
     assert dizionario.market_name_for_type("NON_ESISTE") is None
     assert dizionario.market_name_for_type("") is None
     assert dizionario.market_name_for_type(None) is None
+
+
+# ── source-scan: nessun chiamante residuo dei nomi rimossi ──────────────────────────────────────
+# `not hasattr` prova che il nome non esiste più sul modulo, non che nessuno provi a chiamarlo:
+# un chiamante dimenticato in un ramo poco percorso — o in un modulo GUI non importabile headless —
+# darebbe `AttributeError` solo **a runtime**. Richiesto da GPT-5.5 e Fable sulla #163, ed è lo
+# stesso guard già adottato per A2/A3 in `test_ambiguity_69.py`.
+_CHIAMATE_RIMOSSE = ("mapping.resolve(", "value_maps.resolve(",
+                     "parser_manager.load_active(", "parser_manager.load_active_list(",
+                     ".load_active(", ".load_active_list(")
+
+
+def test_nessun_chiamante_residuo_dei_nomi_rimossi():
+    """Scandisce tutti i sorgenti del package (ricorsivo) e vieta le chiamate ai nomi rimossi.
+
+    Trasforma in controllo permanente il grep che altrimenti andrebbe rifatto a mano a ogni
+    rinomina futura."""
+    import pathlib
+    pkg = pathlib.Path(mapping.__file__).parent
+    scanned = sorted(pkg.rglob("*.py"))
+    offenders = []
+    for path in scanned:
+        testo = path.read_text(encoding="utf-8")
+        for chiamata in _CHIAMATE_RIMOSSE:
+            if chiamata in testo:
+                riga = testo[:testo.index(chiamata)].count("\n") + 1
+                offenders.append(f"{path.name}:{riga}: {chiamata}")
+    assert not offenders, (
+        "chiamate a nomi rimossi (#69) — darebbero AttributeError a runtime:\n  "
+        + "\n  ".join(offenders))
+    assert [p for p in scanned if p.parent != pkg and p.parent.name != "__pycache__"], \
+        "lo scan deve raggiungere i sottopackage, non solo i moduli top-level"

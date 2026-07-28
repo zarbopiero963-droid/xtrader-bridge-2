@@ -34,7 +34,7 @@ def test_event_type_id_per_sport_noto():
 def test_cambio_profilo_cambia_parser_attivo(tmp_path):
     """Bullet PR-P9 "Cambio profilo cambia parser" asserito direttamente: due profili
     con `active_parser` diverso risolvono a due parser (e due sport) diversi via le
-    funzioni reali `profile_store.apply_profile` + `parser_manager.load_active`."""
+    funzioni reali `profile_store.apply_profile` + `parser_manager.load_primary_parser`."""
     from xtrader_bridge import parser_manager as pm
     from xtrader_bridge import profile_store as ps
 

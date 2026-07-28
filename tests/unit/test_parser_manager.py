@@ -85,7 +85,7 @@ def test_available_parser_names_esclude_invalidi(tmp_path):
 
 def test_available_parser_names_esclude_file_rinominato(tmp_path):
     import json
-    # File il cui nome interno NON ri-mappa al filename: load_active non lo
+    # File il cui nome interno NON ri-mappa al filename: load_primary_parser non lo
     # troverebbe → non va offerto nel menu.
     good = {"name": "Shown", "rules": [{"target": "Price", "required": True}]}
     (tmp_path / "Wrong.json").write_text(json.dumps(good), encoding="utf-8")
@@ -155,7 +155,7 @@ def test_load_active_rifiuta_nome_che_collide(tmp_path):
 
 def test_load_active_rifiuta_parser_invalido(tmp_path):
     # File scritto a mano, valido come JSON ma semanticamente invalido (target
-    # duplicato): load_active deve ritornare None, non un parser ambiguo.
+    # duplicato): load_primary_parser deve ritornare None, non un parser ambiguo.
     import json
     bad = {"name": "Dup", "rules": [
         {"target": "BetType", "fixed_value": "PUNTA"},
