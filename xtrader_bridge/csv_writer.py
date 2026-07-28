@@ -428,8 +428,43 @@ def sweep_orphan_temps(path: str) -> int:
     return atomic_io.sweep_orphan_temps(d, _CSV_TMP_PREFIX, _CSV_TMP_SUFFIX)
 
 
+# ── FAMIGLIA «lascia solo l'header» — matrice delle precondizioni (ambiguità A4, #69) ───────────
+#
+# Cinque strade portano allo stesso RISULTATO (un CSV col solo header) ma hanno precondizioni di
+# sicurezza **opposte**. Il report della #69 le segnalava come l'ambiguità più rischiosa del
+# repository: chi ne sceglie una per il nome, invece che per il contratto, può cancellare un
+# segnale che XTrader non ha ancora letto. Qui c'è la differenza, in un posto solo:
+#
+# | funzione                 | crea se manca | file ESTRANEO      | CSV con riga ATTIVA | chi la usa |
+# |--------------------------|---------------|--------------------|---------------------|------------|
+# | `init_csv`               | sì            | **sovrascrive**    | **cancella**        | solo il ramo non-GUI di `_write_csv_for_path` |
+# | `init_csv_for_session`   | sì            | rifiuta (FOREIGN)  | azzera (voluto)     | START/clear di sessione |
+# | `create_header_only_csv` | sì            | rifiuta (FOREIGN)  | **rifiuta** (ACTIVE)| pulsante «📄 Crea CSV», wizard |
+# | `clear_stale_csv`        | **no**        | rifiuta + avvisa   | azzera (voluto)     | avvio/STOP: rimuove la riga stantia |
+# | `write_rows([], path)`   | sì            | **sovrascrive**    | **cancella**        | coda segnali (lista vuota = svuota) |
+#
+# Come sceglierla, in una riga:
+# - **START / clear di sessione** → `init_csv_for_session`: la riga stantia DEVE sparire, ma un
+#   file dell'utente scelto per errore no;
+# - **azione esplicita dell'utente** → `create_header_only_csv`: rifiuta e chiede conferma,
+#   perché l'utente potrebbe non sapere che c'è un segnale in volo;
+# - **pulizia all'avvio/STOP** → `clear_stale_csv`: non crea nulla su un path mai usato;
+# - **`init_csv` / `write_rows([])`** → solo dove il path è già stato validato altrove. **Non
+#   controllano niente**: sono le uniche due che possono cancellare un segnale attivo in
+#   silenzio. Se stai per usarle in un percorso nuovo, quasi certamente ne vuoi un'altra.
+#
+# Le differenze sono fissate da `tests/unit/test_csv_family_a4_69.py`: se un domani venissero
+# uniformate, quei test diventano rossi e la scelta torna umana invece di passare inosservata.
+
+
 def init_csv(path: str):
-    """Crea/svuota il CSV lasciando solo l'header (scrittura atomica)."""
+    """Crea/svuota il CSV lasciando solo l'header (scrittura atomica).
+
+    ⚠️ **Non controlla nulla**: sovrascrive un file estraneo e cancella un segnale attivo non
+    ancora letto da XTrader. Usala solo su un path **già validato dal chiamante** — nel bridge
+    ha un solo chiamante di produzione, il ramo di `_write_csv_for_path` in cui il path non
+    viene dalla GUI. Per gli altri casi vedi la matrice qui sopra: `init_csv_for_session`
+    (START/clear), `create_header_only_csv` (azione utente), `clear_stale_csv` (avvio/STOP)."""
     _atomic_write(path, lambda writer: None)
 
 
@@ -684,7 +719,12 @@ def write_rows(rows, path: str):
     """Scrive PIÙ segnali nel CSV (header + una riga per ciascuno), sovrascrivendo
     in modo atomico. `rows` vuota → solo header (equivale a `init_csv`). Usato dalla
     coda dei segnali attivi (PR-22): in OVERWRITE_LAST è una sola riga, in
-    APPEND_ACTIVE/QUEUE_UNTIL_CONFIRMED sono i segnali attivi correnti."""
+    APPEND_ACTIVE/QUEUE_UNTIL_CONFIRMED sono i segnali attivi correnti.
+
+    ⚠️ Con `rows` vuota è **il gemello di `init_csv`**: nessun controllo su file estraneo o
+    riga attiva (vedi la matrice della famiglia, ambiguità A4 #69). Qui è corretto — la coda
+    è la fonte di verità di cosa deve stare nel CSV — ma non usarla come «svuota il CSV» in un
+    percorso nuovo: per quello esistono `init_csv_for_session` e `clear_stale_csv`."""
     rows = list(rows or [])
     # Lingua catturata UNA volta per l'intera scrittura (#342): tutte le righe dello stesso
     # file usano lo stesso separatore anche se la config cambiasse a metà.
