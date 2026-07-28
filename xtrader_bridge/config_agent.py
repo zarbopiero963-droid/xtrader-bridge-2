@@ -259,7 +259,15 @@ def build_read_only_tools(*, config_loader=None, parsers_dir=None) -> list:
         cfg = load_cfg()
         items = health_check.build_semaphores(
             parser_active=signal_router.has_active_parser_config(cfg),
-            mode=str(cfg.get("bridge_mode", "") or cfg.get("mode", "")))
+            # Modalità dalla fonte AUTORITATIVA, non dall'etichetta grezza (ambiguità A5 #69):
+            # `dry_run` comanda, `bridge_mode` è solo un'etichetta. Con una coppia incoerente
+            # (`bridge_mode="SIMULAZIONE"` + `dry_run=False`) la lettura grezza mostrava un
+            # semaforo VERDE «non scrive il CSV operativo» mentre il bridge scriveva davvero.
+            # Oggi `config_store.load_config` ri-deriva `bridge_mode`, quindi il caso non si
+            # presenta col loader reale — ma questo tool accetta un `config_loader` iniettabile
+            # e l'altro percorso salute dello stesso modulo (`build_health_report`) usa già
+            # `mode_from_cfg`: due strade per la stessa domanda, di cui una sicura per caso.
+            mode=bridge_mode.mode_from_cfg(cfg))
         return json.dumps([{"key": it.key, "label": it.label, "state": it.state,
                             "detail": it.detail} for it in items], ensure_ascii=False, indent=2)
 
