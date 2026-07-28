@@ -56,8 +56,9 @@ _SUPERGROUP_PREFIX = "-100"
 # lì il carattere precedente non è un separatore.
 _WIN_HOME_RE = re.compile(r"(?<=[\\/])(Users[\\/]{1,2})([^\\/\r\n]+)", re.IGNORECASE)
 #: Stessa regola per un path RELATIVO che apre il valore (`Users\<nome>\…`). Separata perché
-#: `\A` non è esprimibile in un lookbehind insieme al separatore.
-_WIN_HOME_START_RE = re.compile(r"\A(Users[\\/]{1,2})([^\\/\r\n]+)", re.IGNORECASE)
+#: l'inizio non è esprimibile in un lookbehind insieme al separatore. `MULTILINE` invece di `\A`
+#: (Fable #164): un valore multilinea va coperto su **ogni** riga, non solo la prima.
+_WIN_HOME_START_RE = re.compile(r"^(Users[\\/]{1,2})([^\\/\r\n]+)", re.IGNORECASE | re.MULTILINE)
 # Home utente Linux: `/home/<nome>/`. Qui il lookbehind serve: "home" è una parola comune e una
 # cartella che si CHIAMA così in mezzo a un path (`C:/Progetti/home/segnali.csv`) non contiene
 # nessuno username da proteggere, quindi storpiarla confonderebbe soltanto la diagnosi.

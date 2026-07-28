@@ -210,6 +210,31 @@ def test_nome_con_spazi_mascherato_per_intero_anche_senza_separatore_finale(path
     assert f"CSV path: {atteso}" in report
 
 
+def test_contratto_pubblico_di_mask_user_paths():
+    """`mask_user_paths` è pubblica: qui sta il suo contratto, verificato invece che assunto
+    (GPT-5.5 e Claude Fable 5 #164). Oggi l'unico chiamante nel package è `build_report`, che
+    la invoca **per valore** — ma la funzione resta esposta, quindi cosa copre e cosa no va
+    scritto."""
+    m = diagnostics.mask_user_paths
+
+    # 1. Path ASSOLUTO dentro un testo composto: coperto — `Users` è preceduto da un separatore.
+    assert m(r"Errore: C:\Users\Mario Rossi\file.csv") == r"Errore: C:\Users\<utente>\file.csv"
+
+    # 2. Valore MULTILINEA: il path relativo è riconosciuto su ogni riga, non solo la prima
+    #    (rilievo Fable: con l'ancora `\A` la seconda riga restava in chiaro).
+    assert m("prima riga\n" + r"Users\john.doe\x.csv") == "prima riga\n" + r"Users\<utente>\x.csv"
+
+    # 3. LIMITE DICHIARATO: un path relativo preceduto da altro testo sulla stessa riga non è
+    #    riconoscibile — «Users» lì è indistinguibile da una parola. Non è un buco pratico
+    #    (`build_report` passa i valori singolarmente, mai composti), ma è un motivo per non
+    #    iniziare a chiamare questa funzione su testo già assemblato.
+    assert m(r"Errore: Users\Mario Rossi\x.csv") == r"Errore: Users\Mario Rossi\x.csv"
+
+    # 4. Over-masking accettato: in un URL `/Users/<x>/` il segmento sembra una home. Si perde
+    #    un pezzo di URL, non si espone una persona — la direzione voluta.
+    assert m("https://host/Users/list/api") == "https://host/Users/<utente>/api"
+
+
 def test_path_relativo_senza_separatore_iniziale():
     """Edge case sollevato da Fugu Ultra (#164): in «CSV Path» si può digitare un percorso
     **relativo**. Senza separatore iniziale il match non scattava e lo username restava in
