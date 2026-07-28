@@ -181,9 +181,14 @@ def test_ogni_workflow_ai_su_disco_e_censito():
     # `.orig` di un merge o un file temporaneo dell'editor col prefisso `pr-review-` renderebbe
     # rossa la suite safety senza che esista alcun workflow nuovo. `.yaml` è incluso perché GitHub
     # accetta entrambe le estensioni: un reviewer non deve poter sfuggire al gate cambiando suffisso.
+    # Confronto in minuscolo (rilievo GPT-5.5 #160): `Security-Audit.yml` deve essere censito
+    # come `security-audit.yml` — un gate anti-fuga non può dipendere da come è scritto il nome.
+    # Se un domani esistesse un workflow con «audit» nel nome che NON manda nulla all'esterno, il
+    # test fallirebbe: è voluto e si risolve in due modi leciti (censirlo o rinominarlo), mai
+    # allentando il filtro — meglio un rosso rumoroso che un workflow di esfiltrazione invisibile.
     su_disco = {f for f in os.listdir(_WF_DIR)
-                if f.endswith((".yml", ".yaml"))
-                and (f.startswith("pr-review-") or "audit" in f)}
+                if f.lower().endswith((".yml", ".yaml"))
+                and (f.lower().startswith("pr-review-") or "audit" in f.lower())}
     non_censiti = su_disco - set(_AI_WORKFLOWS)
     assert not non_censiti, (
         f"workflow AI presenti ma NON censiti in _AI_WORKFLOWS: {sorted(non_censiti)}. "

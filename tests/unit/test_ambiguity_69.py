@@ -17,6 +17,7 @@ I test esercitano le funzioni REALI: se un domani i due contratti convergessero 
 rosso, perché la differenza fra i due è proprio ciò che rende necessari due nomi.
 """
 
+import ast
 import pathlib
 
 import pytest
@@ -139,3 +140,32 @@ def test_il_source_scan_non_passa_a_vuoto():
     confronto smettesse di funzionare, questo test lo direbbe invece di restare verde)."""
     finto = "x = health_check.evaluate(listener_status='ATTIVO')\n"
     assert any(v in finto for v in _CHIAMATE_VIETATE)
+
+
+# Nomi vecchi per modulo di provenienza: un `from .health_check import evaluate` sfuggirebbe al
+# confronto testuale qui sopra, che cerca la forma QUALIFICATA (rilievo GPT-5.5 #160). Il modulo
+# conta: `from .validator import is_valid` è legittimo — è il controllo forte, quello che resta.
+_IMPORT_VIETATI = {"health_check": {"evaluate"}, "live_guard": {"evaluate"},
+                   "recognition": {"is_valid"}}
+
+
+def test_nessun_import_diretto_dei_nomi_vecchi():
+    """Chiude la strada indiretta: `from .health_check import evaluate` (o un alias) porterebbe
+    il nome rimosso nel namespace di un modulo senza mai scrivere la forma qualificata.
+
+    AST e non regex, come `test_mode_namespacing`: i moduli GUI importano `customtkinter` e non
+    sono importabili headless, quindi si analizza il **sorgente**."""
+    offenders = []
+    for path in sorted(_PKG_DIR.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            sorgente = node.module.rsplit(".", 1)[-1]
+            vietati = _IMPORT_VIETATI.get(sorgente, ())
+            for alias in node.names:
+                if alias.name in vietati:
+                    offenders.append(
+                        f"{path.relative_to(_PKG_DIR.parent)}: from {node.module} import {alias.name}")
+    assert not offenders, (
+        "import di nomi rimossi (#69) — ImportError all'avvio del modulo:\n  " + "\n  ".join(offenders))
