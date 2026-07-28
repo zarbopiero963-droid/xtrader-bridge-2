@@ -97,16 +97,9 @@ def test_url_reale_configurato_e_revoca_attiva():
     # l'attivazione è DERIVATA dall'URL: niente flag separato da ricordarsi
     assert revocation_client.is_placeholder_url(url) is False
     assert revocation_client.REVOCATION_URL_IS_PLACEHOLDER is False
-
-
-def test_url_reale_e_quello_che_il_license_manager_pubblica():
-    """L'URL nel bridge e quello prodotto dal License Manager devono essere lo **stesso**: sono i due
-    capi della stessa catena (chi pubblica ↔ chi scarica). Se divergono, il bridge scarica da un
-    indirizzo dove nessuno pubblica → lockout. Qui li confrontiamo generando il raw URL con la stessa
-    funzione usata dalla GUI del tool."""
-    from license_manager import publisher
-    atteso = publisher.raw_url("zarbopiero963-droid/xtrader-revocation", "revocation_list.txt", "main")
-    assert revocation_client.REVOCATION_LIST_URL == atteso
+    # NB: la coerenza con l'URL che il License Manager **pubblica** è verificata in
+    # `tests/unit/test_license_manager_publisher.py` — là l'import è nella direzione consentita
+    # (license_manager → xtrader_bridge); questa suite non deve dipendere dal tool (isolamento #140).
 
 
 # ── accept_signed (verifica + anti-replay) ────────────────────────────────────────────────────────

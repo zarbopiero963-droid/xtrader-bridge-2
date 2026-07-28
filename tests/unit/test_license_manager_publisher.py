@@ -174,6 +174,19 @@ def test_raw_url_quota_anche_il_branch():
     assert " " not in raw and "feature/mia%20branch" in raw
 
 
+def test_url_pubblicato_coincide_con_quello_che_il_bridge_scarica():
+    """I **due capi della stessa catena** devono coincidere: l'URL che questo tool pubblica e la
+    costante `REVOCATION_LIST_URL` da cui il bridge scarica (#157). Se divergono, il bridge cerca la
+    lista dove nessuno la pubblica → nessuna lista fresca → **lockout fail-closed di tutti i bridge**.
+
+    Il confronto sta QUI e non nella suite del bridge di proposito (rilievo Fable #159): l'import
+    `license_manager → xtrader_bridge` è la direzione **consentita** dall'isolamento #140; l'opposto
+    farebbe dipendere i test del bridge dal tool del proprietario."""
+    from xtrader_bridge.licensing import revocation_client
+    atteso = publisher.raw_url("zarbopiero963-droid/xtrader-revocation", "revocation_list.txt", "main")
+    assert revocation_client.REVOCATION_LIST_URL == atteso
+
+
 def test_raw_url_branch_con_slash_resta_un_percorso_valido():
     """`quote` lascia intatti gli `/`: un branch tipo `feature/x` resta due segmenti di path, che è
     esattamente la forma che raw.githubusercontent.com si aspetta (rilievo GPT-5.5 #158)."""
