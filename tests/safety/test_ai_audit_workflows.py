@@ -1,12 +1,12 @@
 """Gate di sicurezza dei workflow AI (PR review push-range + full-repo audit).
 
-Sei workflow AI mandano diff/contenuti del repository a servizi esterni:
+Cinque workflow AI mandano diff/contenuti del repository a servizi esterni:
 
-- **PR review push-range** (automatici su ogni push della PR, un commento per
+- **PR review push-range** (partono sui push della PR, un commento per
   range `before...after` via GitHub Compare API):
-  `pr-review-gpt55.yml` (OpenAI), `pr-review-claude-fable5.yml` (Anthropic),
-  `pr-review-openrouter-glm52.yml` e `pr-review-openrouter-fugu-ultra.yml`
-  (OpenRouter);
+  `pr-review-gpt55.yml` (OpenAI), `pr-review-claude-fable5.yml` (Anthropic) e
+  `pr-review-openrouter-fugu-ultra.yml` (OpenRouter). *GLM 5.2 era il quarto:
+  rimosso dal proprietario il 2026-07-28 — vedi la nota in `_AI_WORKFLOWS`;*
 - **audit full-repo** (solo manuali, artifact scaricabile):
   `manual-full-repo-ai-audit.yml` (OpenAI) e `claude-fable-full-repo-audit.yml`
   (Anthropic).
@@ -49,9 +49,14 @@ _AI_WORKFLOWS = {
     # il budget di output col tetto basso e troncano). "low" = effort ridotto,
     # "disabled" = reasoning spento del tutto (GLM col tetto 700 ha ignorato "low" e
     # troncava lo stesso, PR #310), None = provider senza campo reasoning (Anthropic).
+    # GLM 5.2 (`pr-review-openrouter-glm52.yml`) è stato **rimosso dal proprietario** (commit
+    # 474ca34, decisione confermata 2026-07-28): il file non esiste più, quindi non è più in
+    # questo elenco — un guard che cerca un workflow inesistente rende rossa tutta la suite
+    # `safety` senza proteggere nulla. Se un domani si rimettesse, va ri-aggiunta la riga qui
+    # (era: openrouter · trigger auto · reasoning "disabled" — col tetto 700 ignorava "low" e
+    # troncava, PR #310), non basta ricreare il YAML.
     "pr-review-gpt55.yml": {"kind": "pr_review", "provider": "openai", "trigger": "auto", "reasoning": "low"},
     "pr-review-claude-fable5.yml": {"kind": "pr_review", "provider": "anthropic", "trigger": "label", "label": "final-fable-review", "reasoning": None},
-    "pr-review-openrouter-glm52.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "auto", "reasoning": "disabled"},
     "pr-review-openrouter-fugu-ultra.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "label", "label": "final-fugu-review", "reasoning": "low"},
     "manual-full-repo-ai-audit.yml": {"kind": "audit", "provider": "openai"},
     "claude-fable-full-repo-audit.yml": {"kind": "audit", "provider": "anthropic"},
@@ -645,9 +650,10 @@ def test_pr_review_reviewer_opzionale_non_fa_fallire_la_pr():
 
 
 def test_pr_review_trigger_split():
-    """GPT-5.5 e GLM 5.2 automatici a ogni push (spendono sempre); Claude Fable 5
-    e Fugu Ultra partono sui push ma spendono (chiamano il modello) SOLO se il
-    push tocca file core del bridge oppure se è aggiunta la label finale."""
+    """GPT-5.5 automatico a ogni push (spende sempre — dalla rimozione di GLM 5.2 è l'unico
+    reviewer sempre attivo); Claude Fable 5 e Fugu Ultra partono sui push ma spendono
+    (chiamano il modello) SOLO se il push tocca file core del bridge oppure se è aggiunta
+    la label finale."""
     for name, meta in _AI_WORKFLOWS.items():
         if meta["kind"] != "pr_review":
             continue
