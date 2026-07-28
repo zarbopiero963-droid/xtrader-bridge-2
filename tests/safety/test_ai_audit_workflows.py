@@ -154,8 +154,33 @@ def _exec_audit_script(name, tmp_path, monkeypatch, extra_env=None):
 
 
 # ---------------------------------------------------------------------------
-# Invarianti statiche sui 6 workflow
+# Invarianti statiche sui workflow censiti
 # ---------------------------------------------------------------------------
+
+def test_ogni_workflow_ai_su_disco_e_censito():
+    """Controllo **INVERSO**: ogni `pr-review-*.yml` presente su disco deve stare in
+    `_AI_WORKFLOWS` (rilievo GPT-5.5 #160).
+
+    Senza questo, il registro protegge solo ciò che qualcuno si è ricordato di censire: un
+    reviewer AI nuovo — che manda il diff del repository a un provider esterno — potrebbe essere
+    aggiunto **senza** alcun controllo su trigger, permessi, redazione dei segreti e fail-closed.
+    E toglierne uno dall'elenco lasciando il YAML al suo posto sarebbe un **bypass silenzioso** del
+    gate invece che l'allineamento a una rimozione reale (è esattamente la differenza fra le due
+    che rende legittima la rimozione di GLM 5.2: il file non c'è più davvero).
+
+    Il controllo diretto — «ogni voce censita esiste su disco» — è già garantito da `_read`, che
+    solleva `FileNotFoundError` in tutti i test che leggono i workflow."""
+    su_disco = {f for f in os.listdir(_WF_DIR) if f.startswith("pr-review-")}
+    non_censiti = su_disco - set(_AI_WORKFLOWS)
+    assert not non_censiti, (
+        f"workflow di PR review presenti ma NON censiti in _AI_WORKFLOWS: {sorted(non_censiti)}. "
+        "Un reviewer AI manda il diff del repo a un provider esterno: va aggiunto al registro "
+        "(kind/provider/trigger/reasoning) così i gate di sicurezza lo coprono."
+    )
+    # e il registro non deve elencare file inesistenti (rimozione reale ≠ voce dimenticata)
+    mancanti = {n for n in _AI_WORKFLOWS if not os.path.exists(_wf_path(n))}
+    assert not mancanti, f"censiti in _AI_WORKFLOWS ma assenti da disco: {sorted(mancanti)}"
+
 
 def test_yaml_dei_workflow_ai_e_parsabile():
     yaml = pytest.importorskip(
