@@ -171,6 +171,24 @@ def test_path_senza_home_utente_resta_intatto():
     assert diagnostics.MASKED_USER not in report
 
 
+@pytest.mark.parametrize("testo,atteso", [
+    ("Active Users/list non raggiungibile", "Active Users/<utente> non raggiungibile"),
+    (r"errore in Users\cache", r"errore in Users\<utente>"),
+])
+def test_over_masking_su_testo_libero_e_accettato_e_documentato(testo, atteso):
+    """Prezzo dichiarato della scelta fail-safe (Claude Fable 5 #164): accettando anche uno
+    **spazio** prima di `Users` — necessario per il path relativo digitato in «CSV Path» —
+    una frase come «Active Users/list» in un campo libero viene mascherata anche se non è
+    un path.
+
+    È **perdita di informazione, non fuga di PII**: la direzione sbagliata sarebbe l'altra.
+    Il test esiste perché questo comportamento sia una scelta scritta e non una sorpresa:
+    chi in futuro lo vedesse in un report non deve trattarlo come un bug da "correggere"
+    allargando la porta che questa PR ha chiuso."""
+    report = diagnostics.build_report([("Ultimo errore", testo)])
+    assert f"Ultimo errore: {atteso}" in report
+
+
 def test_path_relativo_senza_separatore_iniziale():
     """Edge case sollevato da Fugu Ultra (#164): in «CSV Path» si può digitare un percorso
     **relativo**. Senza separatore iniziale il match non scattava e lo username restava in

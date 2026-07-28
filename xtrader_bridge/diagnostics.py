@@ -51,7 +51,16 @@ _SUPERGROUP_PREFIX = "-100"
 # `Users\<nome>` digitato a mano in «CSV Path» (Fugu #164), e continua a rifiutare `Users`
 # come suffisso di un altro nome (`ProjectUsers\<x>`, `SuperUsers\<x>`) — lì non c'è nessuna
 # home e mascherare storpierebbe soltanto.
-_WIN_HOME_RE = re.compile(r"((?<![^\s\\/])Users[\\/]{1,2})([^\\/\r\n]+)", re.IGNORECASE)
+#
+# Due alternative per il nome, non una (Fable #164): un nome utente PUÒ contenere spazi
+# (`C:\Users\Mario Rossi\`), ma consentirli senza vincoli faceva divorare l'INTERA riga a una
+# frase come «Active Users/list non raggiungibile» — over-masking distruttivo per la
+# diagnosi, non solo un dettaglio. Quindi:
+#   1. nome seguito da un separatore → spazi ammessi, è inequivocabilmente un path;
+#   2. nome a fine riga o prima di uno spazio → niente spazi, si maschera una sola parola.
+_WIN_HOME_RE = re.compile(
+    r"(?<![^\s\\/])(Users[\\/]{1,2})"
+    r"(?:[^\\/\r\n]+?(?=[\\/])|[^\s\\/\r\n]+(?=\s|$))", re.IGNORECASE)
 # Home utente Linux: `/home/<nome>/`. Qui il lookbehind serve: "home" è una parola comune e una
 # cartella che si CHIAMA così in mezzo a un path (`C:/Progetti/home/segnali.csv`) non contiene
 # nessuno username da proteggere, quindi storpiarla confonderebbe soltanto la diagnosi.
