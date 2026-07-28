@@ -35,32 +35,29 @@ MIN_CHAT_ID_LEN = 5
 # prefisso) a comparire nei link `t.me/c/<id>/<msg>` generati da Telegram.
 _SUPERGROUP_PREFIX = "-100"
 
-# Home utente stile Windows/macOS: un segmento di path chiamato `Users` seguito da un nome,
-# **ovunque si trovi**. Copre `C:\Users\<nome>`, `C:/Users/<nome>`, `/Users/<nome>` (macOS) e
-# tutte le forme di rete: `\\Server\Users\<nome>` (CodeRabbit #164) ma anche `\\Server\C$\Users\
-# <nome>` (admin share) e `\\Server\Condivisa\Users\<nome>` (home annidate, Fable #164). Un primo
-# tentativo ancorava `Users` subito dopo l'unità o il server: copriva il caso semplice e lasciava
-# in chiaro proprio quelli aziendali.
+# Home utente stile Windows/macOS: il segmento `Users` di un path, seguito dal nome utente.
+# Copre `C:\Users\<nome>`, `C:/Users/<nome>`, `/Users/<nome>` (macOS) e tutte le forme di rete —
+# `\\Server\Users\<nome>` (CodeRabbit #164), `\\Server\C$\Users\<nome>` (admin share) e
+# `\\Server\Condivisa\Users\<nome>` (home annidate, Fable #164).
 #
-# Scelta deliberatamente FAIL-SAFE VERSO LA PRIVACY: se una cartella si chiama davvero `Users`
-# senza essere una home, si perde un nome di file nel report; nella direzione opposta si
-# perderebbe il nome di una persona. Il CSV su share di rete non è un caso di laboratorio — è lo
-# scenario da cui nasce l'intero Tema A dell'audit #114.
+# **`Users` deve stare in un CONTESTO DI PATH**, non in una frase: o è preceduto da un separatore,
+# o apre il valore (path relativo digitato in «CSV Path», Fugu #164). È la lezione dei giri
+# precedenti: finché la regex poteva agganciarsi anche al testo libero, ogni tentativo di
+# aggiustarla rompeva l'altro lato —
+#   · permettendo gli spazi nel nome, «Active Users/list non raggiungibile su api/v2» veniva
+#     divorato fino al `/` successivo (Fable #164): il messaggio d'errore spariva dal report;
+#   · vietandoli, `C:\Users\Mario Rossi` lasciava «Rossi» in chiaro (GPT-5.5 #164): PII residua,
+#     che in un report da condividere è il danno peggiore dei due.
+# Con il vincolo di contesto il dilemma non si pone: nel testo libero non si maschera nulla, e nei
+# path il nome può contenere spazi senza rischio (la classe esclude già i separatori, quindi il
+# match finisce da solo a fine segmento o a fine valore).
 #
-# Il lookbehind accetta separatore, spazio o inizio campo: copre anche un path RELATIVO
-# `Users\<nome>` digitato a mano in «CSV Path» (Fugu #164), e continua a rifiutare `Users`
-# come suffisso di un altro nome (`ProjectUsers\<x>`, `SuperUsers\<x>`) — lì non c'è nessuna
-# home e mascherare storpierebbe soltanto.
-#
-# Due alternative per il nome, non una (Fable #164): un nome utente PUÒ contenere spazi
-# (`C:\Users\Mario Rossi\`), ma consentirli senza vincoli faceva divorare l'INTERA riga a una
-# frase come «Active Users/list non raggiungibile» — over-masking distruttivo per la
-# diagnosi, non solo un dettaglio. Quindi:
-#   1. nome seguito da un separatore → spazi ammessi, è inequivocabilmente un path;
-#   2. nome a fine riga o prima di uno spazio → niente spazi, si maschera una sola parola.
-_WIN_HOME_RE = re.compile(
-    r"(?<![^\s\\/])(Users[\\/]{1,2})"
-    r"(?:[^\\/\r\n]+?(?=[\\/])|[^\s\\/\r\n]+(?=\s|$))", re.IGNORECASE)
+# `Users` come SUFFISSO di un altro nome (`ProjectUsers\<x>`, `SuperUsers\<x>`) resta escluso:
+# lì il carattere precedente non è un separatore.
+_WIN_HOME_RE = re.compile(r"(?<=[\\/])(Users[\\/]{1,2})([^\\/\r\n]+)", re.IGNORECASE)
+#: Stessa regola per un path RELATIVO che apre il valore (`Users\<nome>\…`). Separata perché
+#: `\A` non è esprimibile in un lookbehind insieme al separatore.
+_WIN_HOME_START_RE = re.compile(r"\A(Users[\\/]{1,2})([^\\/\r\n]+)", re.IGNORECASE)
 # Home utente Linux: `/home/<nome>/`. Qui il lookbehind serve: "home" è una parola comune e una
 # cartella che si CHIAMA così in mezzo a un path (`C:/Progetti/home/segnali.csv`) non contiene
 # nessuno username da proteggere, quindi storpiarla confonderebbe soltanto la diagnosi.
@@ -75,10 +72,18 @@ _CHAT_KEYED_MAPS = ("parser_by_chat", "parser_list_by_chat")
 def mask_user_paths(text) -> str:
     """Sostituisce lo username dentro le home directory con `MASKED_USER`.
 
+    Va applicata a **un singolo valore** (un path), non a un testo composto: il
+    riconoscimento del path relativo si appoggia all'inizio del valore. `build_report` la
+    chiama infatti su ogni valore prima di comporre la riga.
+
     Il resto del path resta leggibile (al supporto serve sapere *dove* sta il CSV, non
     *chi* è l'utente): sparisce solo il segmento subito dopo `Users`/`home`. Un path senza
-    home utente — ``D:\\XTrader\\dati``, una share ``\\\\NAS\\condivisa`` — passa **invariato**."""
+    home utente — ``D:\\XTrader\\dati``, una share ``\\\\NAS\\condivisa`` — passa
+    **invariato**, e così anche una frase che nomina `Users` fuori da un path."""
     s = str(text or "")
+    # Solo `group(1)` (il segmento `Users<sep>`) viene riusato: il nome utente — `group(2)` —
+    # è deliberatamente scartato, mai reinserito nel testo.
+    s = _WIN_HOME_START_RE.sub(lambda m: m.group(1) + MASKED_USER, s)
     s = _WIN_HOME_RE.sub(lambda m: m.group(1) + MASKED_USER, s)
     return _POSIX_HOME_RE.sub(lambda m: m.group(1) + MASKED_USER, s)
 
@@ -168,11 +173,12 @@ def build_report(info, *, chat_ids=()) -> str:
     """Report multilinea da una sequenza ordinata di `(etichetta, valore)` (o un
     dict). Un valore vuoto/None è mostrato come ``—``.
 
-    Il testo finale passa per tre livelli, in quest'ordine: `redact_secrets` (token),
-    `redact_chat_ids` (identità della chat) e `mask_user_paths` (username del PC). I
-    segreti per primi perché la loro forma canonica (``<id>:<20+ char>``) non deve essere
-    spezzata da una sostituzione precedente; i path per ultimi perché non interagiscono
-    con le altre due.
+    Tre livelli di redazione. `mask_user_paths` gira **per valore**, prima di comporre la
+    riga: il riconoscimento di un path relativo (`Users\\<nome>\\…`) si appoggia all'inizio
+    del valore, che sul testo già composto sarebbe sepolto sotto ``etichetta: `` (Fable/
+    GPT-5.5 #164). Poi, sul testo completo, `redact_secrets` (token) e `redact_chat_ids`
+    (identità della chat): i segreti per primi perché la loro forma canonica
+    (``<id>:<20+ char>``) non deve essere spezzata da una sostituzione precedente.
 
     `chat_ids` sono i chat_id **noti da config** (vedi `collect_chat_ids`): la redazione è
     esatta, non indovina quali numeri siano un id."""
@@ -184,7 +190,6 @@ def build_report(info, *, chat_ids=()) -> str:
         # copre None/""/whitespace-only con un unico controllo (#184 LOW).
         text = str(value).strip() if value is not None else ""
         text = text or "—"
-        lines.append(f"{label}: {text}")
+        lines.append(f"{label}: {mask_user_paths(text)}")
     report = event_log.redact_secrets("\n".join(lines))
-    report = redact_chat_ids(report, chat_ids)
-    return mask_user_paths(report)
+    return redact_chat_ids(report, chat_ids)

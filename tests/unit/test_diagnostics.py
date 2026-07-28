@@ -171,22 +171,43 @@ def test_path_senza_home_utente_resta_intatto():
     assert diagnostics.MASKED_USER not in report
 
 
-@pytest.mark.parametrize("testo,atteso", [
-    ("Active Users/list non raggiungibile", "Active Users/<utente> non raggiungibile"),
-    (r"errore in Users\cache", r"errore in Users\<utente>"),
+@pytest.mark.parametrize("testo", [
+    # Il caso che divorava la frase fino al `/` successivo (Claude Fable 5 #164).
+    "Active Users/list non raggiungibile su api/v2",
+    "Active Users/list non raggiungibile",
+    r"errore in Users\cache",
 ])
-def test_over_masking_su_testo_libero_e_accettato_e_documentato(testo, atteso):
-    """Prezzo dichiarato della scelta fail-safe (Claude Fable 5 #164): accettando anche uno
-    **spazio** prima di `Users` — necessario per il path relativo digitato in «CSV Path» —
-    una frase come «Active Users/list» in un campo libero viene mascherata anche se non è
-    un path.
+def test_testo_libero_che_nomina_users_resta_intatto(testo):
+    """`Users` in una FRASE non è un path e non va toccato (Claude Fable 5 #164).
 
-    È **perdita di informazione, non fuga di PII**: la direzione sbagliata sarebbe l'altra.
-    Il test esiste perché questo comportamento sia una scelta scritta e non una sorpresa:
-    chi in futuro lo vedesse in un report non deve trattarlo come un bug da "correggere"
-    allargando la porta che questa PR ha chiuso."""
+    Era il fallimento più insidioso di questa PR: «Active Users/list non raggiungibile su
+    api/v2» veniva mascherato fino al `/` successivo, cioè **il messaggio d'errore spariva
+    dal report**. In un testo che esiste per far diagnosticare un problema, quello è danno
+    reale, non un dettaglio cosmetico — e nessun campo libero contiene una home utente."""
     report = diagnostics.build_report([("Ultimo errore", testo)])
-    assert f"Ultimo errore: {atteso}" in report
+    assert f"Ultimo errore: {testo}" in report
+    assert diagnostics.MASKED_USER not in report
+
+
+@pytest.mark.parametrize("path,atteso", [
+    (r"C:\Users\Mario Rossi", r"C:\Users\<utente>"),
+    (r"C:\Users\Mario Rossi\file.csv", r"C:\Users\<utente>\file.csv"),
+    (r"Users\Mario Rossi", r"Users\<utente>"),
+    (r"Users\Mario Rossi\file.csv", r"Users\<utente>\file.csv"),
+])
+def test_nome_con_spazi_mascherato_per_intero_anche_senza_separatore_finale(path, atteso):
+    """Under-masking trovato da GPT-5.5 (#164): un nome utente Windows PUÒ contenere spazi
+    («Mario Rossi»), e un path incollato da Explorer o digitato in «CSV Path» spesso **non**
+    finisce con un separatore. Un tentativo precedente vietava gli spazi per non divorare il
+    testo libero, e su `C:\\Users\\Mario Rossi` lasciava «Rossi» in chiaro: mezzo cognome nel
+    report è la direzione di errore peggiore delle due.
+
+    Ora il nome può contenere spazi senza rischio, perché il match parte solo in un contesto
+    di path — e in un path la classe di caratteri esclude già i separatori, quindi finisce da
+    sola a fine segmento o a fine valore."""
+    report = diagnostics.build_report([("CSV path", path)])
+    assert "Rossi" not in report
+    assert f"CSV path: {atteso}" in report
 
 
 def test_path_relativo_senza_separatore_iniziale():
