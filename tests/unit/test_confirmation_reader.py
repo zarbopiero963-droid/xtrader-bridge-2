@@ -1,5 +1,7 @@
 """Test del lettore di conferme XTrader (PR-17/#... PHASE 7): logica pura."""
 
+import pytest
+
 from xtrader_bridge import confirmation_reader as cr
 
 
@@ -287,3 +289,57 @@ def test_fallback_selezione_dentro_evento_non_basta():
     # se la selezione è nominata separatamente, allora combacia
     ok = cr.interpret("Inter v Milan - Esito finale - Inter piazzata", pending)
     assert ok.status == cr.CONFIRMED
+
+
+# ── P3-cw4 (#166): `_remove_first` e `_has_keyword` devono usare gli STESSI confini ─────────────
+# `_kw_pattern` usa confini ADATTIVI (li mette solo se il bordo è alfanumerico); `_remove_first`
+# imponeva `\b` sempre. Su una frase che inizia o finisce con un SIMBOLO i due divergevano: il
+# campo veniva TROVATO ma non CONSUMATO, quindi la stessa porzione di testo poteva soddisfare
+# due campi diversi. Il test qui sopra (`..._dentro_evento_non_basta`) copriva già l'intenzione,
+# ma solo per la forma di bordo in cui le due implementazioni per caso coincidono.
+
+def test_una_conferma_non_associa_un_segnale_di_cui_non_nomina_la_selezione():
+    """Il caso operativo che conta: un CONFIRMED errato **chiude un segnale attivo** e lo
+    rimuove da coda e CSV.
+
+    Qui la notifica nomina evento e mercato ma NON la selezione. Poiché l'evento finisce con
+    «)» — un bordo simbolo — non veniva consumato, e la selezione «Inter» veniva ritrovata
+    dentro il nome dell'evento: il segnale risultava confermato da una notifica che non lo
+    riguardava."""
+    pending = [{"signal_id": "x", "ref": "",
+                "EventName": "Inter v Milan (Serie A)", "MarketName": "Esito Finale",
+                "SelectionName": "Inter"}]
+    res = cr.interpret("Piazzata: Inter v Milan (Serie A) - Esito Finale", pending)
+    assert res.status == cr.UNMATCHED
+
+    # Se invece la selezione è nominata a sé, il match è legittimo e deve restare tale.
+    ok = cr.interpret("Piazzata: Inter v Milan (Serie A) - Esito Finale - Inter", pending)
+    assert ok.status == cr.CONFIRMED
+
+
+@pytest.mark.parametrize("frase", [
+    "inter v milan (serie a)",   # finisce con «)»
+    "+1,5",                      # handicap: inizia con «+»
+    "✅ goal",                    # inizia con un'emoji
+    "over 2,5",                  # tutto alfanumerico: caso di controllo, già funzionante
+])
+def test_cio_che_viene_trovato_viene_anche_consumato(frase):
+    """L'invariante che rende corretto `all_name_fields_present`: se `_has_keyword` trova una
+    frase, `_remove_first` deve saperla togliere.
+
+    Finché le due usavano definizioni diverse di «confine» — adattivo l'una, `\\b` fisso
+    l'altra — l'invariante valeva solo per le frasi con bordi alfanumerici, ed è esattamente il
+    motivo per cui il caso con «)» sfuggiva ai test esistenti."""
+    testo = f"piazzata: {frase} - esito finale"
+    assert cr._has_keyword(testo, frase), "presupposto del test: la frase è trovata"
+    ripulito = cr._remove_first(testo, frase)
+    assert not cr._has_keyword(ripulito, frase), (
+        f"trovata ma non consumata: {frase!r} resta in {ripulito!r}")
+
+
+def test_remove_first_ignora_una_frase_vuota():
+    """Guardia: `_kw_pattern("")` è vuoto e `re.sub("", …)` sostituirebbe a OGNI posizione,
+    sfregiando il testo. Non è raggiungibile da `all_name_fields_present` (che controlla i campi
+    prima), ma la funzione è pubblica dentro il modulo e non deve avere quel comportamento."""
+    assert cr._remove_first("inter v milan", "") == "inter v milan"
+    assert cr._remove_first("inter v milan", "   ") == "inter v milan"
