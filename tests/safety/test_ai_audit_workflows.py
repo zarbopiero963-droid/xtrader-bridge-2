@@ -181,8 +181,13 @@ def test_ogni_workflow_ai_su_disco_e_censito():
     # `.orig` di un merge o un file temporaneo dell'editor col prefisso `pr-review-` renderebbe
     # rossa la suite safety senza che esista alcun workflow nuovo. `.yaml` è incluso perché GitHub
     # accetta entrambe le estensioni: un reviewer non deve poter sfuggire al gate cambiando suffisso.
-    # Confronto in minuscolo (rilievo GPT-5.5 #160): `Security-Audit.yml` deve essere censito
-    # come `security-audit.yml` — un gate anti-fuga non può dipendere da come è scritto il nome.
+    # Il RICONOSCIMENTO è case-insensitive (rilievo GPT-5.5 #160): `Security-Audit.yml` viene
+    # visto come workflow AI anche con le maiuscole — un gate anti-fuga non può dipendere da come
+    # è scritto il nome. Il CENSIMENTO invece resta **case-sensitive di proposito**: la chiave in
+    # `_AI_WORKFLOWS` dev'essere il nome file ESATTO, perché `_read`/`_wf_path` aprono il file per
+    # nome e su Linux (la CI) `security-audit.yml` ≠ `Security-Audit.yml` → `FileNotFoundError` in
+    # tutti gli altri test. Normalizzare anche il confronto accetterebbe una chiave che poi non
+    # apre nulla: la seconda asserzione di questo test (`mancanti`) è lì apposta per impedirlo.
     # Se un domani esistesse un workflow con «audit» nel nome che NON manda nulla all'esterno, il
     # test fallirebbe: è voluto e si risolve in due modi leciti (censirlo o rinominarlo), mai
     # allentando il filtro — meglio un rosso rumoroso che un workflow di esfiltrazione invisibile.
