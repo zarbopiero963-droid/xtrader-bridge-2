@@ -452,6 +452,56 @@ fail-closed. Nota disponibilità: essendo **no-grace su URL singolo**, un'irragg
 (oltre `FRESHNESS_MAX_AGE_S`, 15 min) blocca i client a sessione viva — è la conseguenza **accettata**
 della scelta «niente grazia» (decisione proprietario 2); le due finestre sono costanti tarabili.
 
+### Revoca — pubblicazione automatica su GitHub (#157)
+
+Il punto (2) qui sopra — *ri-pubblicare la lista firmata entro la finestra* — è la sola parte che
+dipendeva dalla memoria del proprietario: **dimenticarla blocca tutti i bridge** (fail-closed). Questa
+fetta la **automatizza dentro il License Manager**, senza spostare il seed privato.
+
+**Dove sta cosa (invariante):**
+
+| | Dove | Perché |
+|---|---|---|
+| **Seed privato** (firma) | Solo sul PC, `signing_key.json` | Non lascia mai la macchina: la firma avviene **qui** |
+| **Token GitHub** (upload) | Solo nel **keyring** (`SERVICE="XTraderLicenseManager"`) | Credenziale: mai su disco, mai nei log |
+| **Impostazioni** (repo/path/branch/intervallo/on-off) | `publish_config.json` in `manager_dir()` | Non segrete, scritte **atomicamente** |
+| **Lista firmata** | Repo GitHub **pubblico** | Il bridge la scarica senza credenziali; è firmata → infalsificabile |
+
+- **`license_manager/publish_store.py`** — impostazioni + keyring. `normalize_config` (default
+  fail-closed: pubblicazione **spenta**; `enabled` solo su `True` vero; intervallo limitato
+  1..168 h; **scarta** qualunque campo `token`), `validate_config` (repo nella forma `owner/nome`),
+  `load/save_publish_config` (atomico via `atomic_io`, fail-safe su file assente/corrotto),
+  `save/load/delete_publish_token` + `keyring_available` (import `keyring` **soft**, ogni errore del
+  backend = «non disponibile», mai un crash).
+- **`license_manager/publisher.py`** — upload via **GitHub Contents API**: `GET` per lo `sha`
+  (404 → si crea) poi `PUT` con contenuto base64, `message`, `branch` e `sha` in aggiornamento.
+  `raw_url(repo, path, branch)` restituisce **l'URL da mettere in `REVOCATION_LIST_URL`**. Errori
+  mappati per codice (401/403 permessi, 404 repo/branch, 409/422 conflitto, 429, 5xx) — **il token non
+  compare MAI** nei messaggi. HTTP dietro **probe iniettabile** (test senza socket).
+- **GUI** (`license_manager/gui.py`, sezione «📤 Pubblicazione automatica (GitHub)»): campi repo/path/
+  branch/intervallo + token (`show="*"`, svuotato dopo il salvataggio), checkbox on/off, **💾 Salva
+  impostazioni** e **🚀 Pubblica ora**; un **tick** (`_publish_tick`/`_schedule_publish_tick`) ri-firma
+  e ri-carica alla cadenza scelta, si **ri-arma sempre** (anche dopo un errore) e viene annullato alla
+  chiusura (`_on_close`). `_build_signed_revocation_list()` è la **sorgente unica** della lista firmata,
+  condivisa con l'esportazione su file (📤) così le due strade non divergono.
+
+**Fail-closed dove conta:** impostazioni non valide → non si salva; abilitare senza token → rifiutato;
+keyring non disponibile → **si rifiuta** invece di scrivere il token in chiaro; token vuoto al ri-salvataggio
+→ **non** cancella quello già nel keyring.
+
+**Test hard:** `tests/unit/test_license_manager_publish_store.py` (normalizzazione/validazione,
+round-trip, file assente/corrotto, keyring finto assente/rotto, **token mai su disco**),
+`tests/unit/test_license_manager_publisher.py` (URL raw/contents, create-vs-update con `sha`, errori
+HTTP mappati, rete KO, **token mai nel risultato**) e `tests/unit/test_license_manager_gui.py`
+(salvataggio valido/invalido, abilitata-senza-token, keyring KO, token vuoto non cancella, pubblica-ora
+end-to-end **verificando la firma della lista caricata**, upload fallito, tick abilitato/disabilitato +
+ri-arma dopo errore, annullamento in chiusura).
+
+**Nota operativa:** il tick gira **mentre il License Manager è aperto**. Se il PC resta spento oltre la
+finestra di freschezza, i bridge si bloccano comunque (è la scelta «niente grazia»): per una copertura
+24/7 servirebbe una modalità headless su una macchina sempre accesa — tracciata in #157, **non** in
+questa fetta.
+
 ### PR 4 — Lock totale della GUI (fatta)
 
 Il bridge **non opera senza licenza valida**. Cablato in `xtrader_bridge/app.py`:

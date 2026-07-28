@@ -26,7 +26,7 @@ import time as _time
 
 import customtkinter as ctk
 
-from license_manager import core, registry
+from license_manager import core, publish_store, publisher, registry
 from xtrader_bridge.licensing import revocation
 
 _log = logging.getLogger(__name__)
@@ -52,7 +52,9 @@ class LicenseManagerApp(ctk.CTk):
                  generate_keypair=None, load_key=None, save_key=None,
                  export_key=None, issue_license=None,
                  record_issued=None, read_records=None,
-                 record_revocation=None, read_revocations=None):
+                 record_revocation=None, read_revocations=None,
+                 load_publish_config=None, save_publish_config=None,
+                 load_publish_token=None, save_publish_token=None, publish_upload=None):
         super().__init__()
         self._key_dir = key_dir
         self._now = now_provider or (lambda: int(_time.time()))
@@ -67,6 +69,15 @@ class LicenseManagerApp(ctk.CTk):
         # Store revoche (R3b): append + lettura, iniettabili per i test.
         self._record_revocation = record_revocation or registry.append_revocation
         self._read_revocations = read_revocations or registry.read_revocations
+        # Pubblicazione automatica (#157): impostazioni su disco, token nel keyring, upload HTTP —
+        # tutti iniettabili, così i test girano senza keyring reale e senza socket.
+        self._load_publish_config = load_publish_config or publish_store.load_publish_config
+        self._save_publish_config = save_publish_config or publish_store.save_publish_config
+        self._load_publish_token = load_publish_token or publish_store.load_publish_token
+        self._save_publish_token = save_publish_token or publish_store.save_publish_token
+        self._publish_upload = publish_upload or publisher.publish
+        self._publish_after_id = None
+        self._closing = False
         # widget refs (popolati da _build_ui)
         self._public_value = None
         self._nome_entry = None
@@ -85,6 +96,22 @@ class LicenseManagerApp(ctk.CTk):
         self._dir_secured = self._secure_data_dir()
         self._build_ui()
         self._refresh_key_state()
+        # Pubblicazione automatica (#157): arma il tick (ri-pubblica alla cadenza configurata se
+        # abilitata) e cablalo alla chiusura, così non resta un `after` su una finestra distrutta.
+        try:
+            self.protocol("WM_DELETE_WINDOW", self._on_close)
+        except Exception:       # noqa: BLE001 — headless/senza window manager: best-effort
+            pass
+        self._schedule_publish_tick()
+
+    def _on_close(self) -> None:
+        """Chiusura finestra: annulla il tick di pubblicazione e distrugge la finestra."""
+        self._closing = True
+        self._cancel_publish_tick()
+        try:
+            self.destroy()
+        except Exception:       # noqa: BLE001 — finestra già distrutta: best-effort
+            pass
 
     # ── logica pura (testabile headless su self finto) ─────────────────────────────────────────
     def _secure_data_dir(self) -> bool:
@@ -325,6 +352,26 @@ class LicenseManagerApp(ctk.CTk):
             return {"ok": False, "message": "Backup non riuscito (chiave corrotta o percorso non scrivibile)."}
         return {"ok": True, "message": f"Backup salvato in: {dest}"}
 
+    def _build_signed_revocation_list(self) -> tuple:
+        """`(signed, n_revoche, errore)` — la **lista di revoche firmata** con il seed privato, dalle
+        entry dello store revoche. Sorgente UNICA sia per l'esportazione su file (📤) sia per la
+        pubblicazione automatica su GitHub (#157), così le due strade non possono divergere.
+
+        `(None, 0, messaggio)` se la chiave manca/è corrotta o la firma fallisce (fail-closed). Uno
+        store **vuoto** produce comunque una lista firmata **valida** («niente revocato»), che è
+        esattamente ciò che serve per tenere l'URL sempre popolato e fresco."""
+        key, err = self._load_key_or_error()
+        if err is not None:
+            return None, 0, err["message"]
+        entries = registry.revocation_entries(self._read_revocations(directory=self._key_dir))
+        try:
+            seed = bytes.fromhex(str(key["seed"]))
+            signed = revocation.build_revocation_list(seed, entries, now=self._now())
+        except (ValueError, KeyError, TypeError) as exc:
+            _log.warning("Firma lista revoche non riuscita: %s", type(exc).__name__)  # solo il tipo
+            return None, 0, "Firma non riuscita (chiave non valida?)."
+        return signed, len(entries), None
+
     def _evaluate_publish_revocation(self, dest_path) -> dict:
         """Produce la **lista di revoche firmata** (R3b) in `dest_path`: la firma con il seed privato
         (`revocation.build_revocation_list`) sulle entry dello store revoche. È il file che il
@@ -336,16 +383,9 @@ class LicenseManagerApp(ctk.CTk):
         dest = str(dest_path or "").strip()
         if not dest:
             return {"ok": False, "message": "Scegli un percorso per la lista revoche firmata."}
-        key, err = self._load_key_or_error()
-        if err is not None:
-            return {"ok": False, "message": err["message"]}
-        entries = registry.revocation_entries(self._read_revocations(directory=self._key_dir))
-        try:
-            seed = bytes.fromhex(str(key["seed"]))
-            signed = revocation.build_revocation_list(seed, entries, now=self._now())
-        except (ValueError, KeyError, TypeError) as exc:
-            _log.warning("Firma lista revoche non riuscita: %s", type(exc).__name__)  # solo il tipo
-            return {"ok": False, "message": "Firma non riuscita (chiave non valida?)."}
+        signed, count, err_msg = self._build_signed_revocation_list()
+        if err_msg is not None:
+            return {"ok": False, "message": err_msg}
         try:
             with open(dest, "w", encoding="utf-8") as f:
                 f.write(signed + "\n")
@@ -355,8 +395,118 @@ class LicenseManagerApp(ctk.CTk):
             _log.warning("Scrittura lista revoche non riuscita: %s", type(exc).__name__)
             return {"ok": False, "message": "Scrittura non riuscita (percorso non scrivibile?)."}
         return {"ok": True,
-                "message": f"Lista revoche firmata ({len(entries)} revoc.) salvata in: {dest}. "
+                "message": f"Lista revoche firmata ({count} revoc.) salvata in: {dest}. "
                            "Caricala sull'URL statico che il bridge controlla."}
+
+    # ── PUBBLICAZIONE AUTOMATICA su GitHub (#157) ──────────────────────────────────────────────
+    # Il bridge accetta solo liste firmate DI RECENTE (finestra `MAX_LIST_AGE_S`): oltre quel tetto i
+    # bridge legittimi si bloccano fail-closed. Qui il tool ri-firma e ri-carica da solo, così non
+    # serve ricordarsene. Il **token** sta SOLO nel keyring; le impostazioni (repo/path/branch/
+    # intervallo) su disco, mai segreti. Il **seed privato non lascia questo PC**: la firma avviene
+    # qui e su GitHub va solo il file già firmato.
+    def _evaluate_save_publish_settings(self, repo, path, branch, interval_str, enabled,
+                                        token="") -> dict:
+        """Valida e salva le impostazioni di pubblicazione (+ eventuale token nel keyring).
+
+        Ritorna ``{"ok", "message", "config"}``. Fail-closed: impostazioni non valide → non si salva
+        nulla. Un `token` non vuoto va nel **keyring** (mai su disco); un token vuoto **non cancella**
+        quello già salvato (evita di perderlo lasciando il campo vuoto per comodità)."""
+        cfg = publish_store.normalize_config({
+            "enabled": bool(enabled), "repo": repo, "path": path, "branch": branch,
+            "interval_hours": interval_str,
+        })
+        problema = publish_store.validate_config(cfg)
+        if problema is not None:
+            return {"ok": False, "message": problema, "config": cfg}
+        note = ""
+        tok = str(token or "").strip()
+        if tok:
+            if not self._save_publish_token(tok):
+                return {"ok": False, "config": cfg,
+                        "message": ("Keyring non disponibile: il token NON è stato salvato "
+                                    "(non lo scriviamo mai in chiaro su disco). Impostazioni non salvate.")}
+            note = " Token salvato nel keyring."
+        elif cfg["enabled"] and not self._load_publish_token():
+            return {"ok": False, "config": cfg,
+                    "message": "Manca il token: incollalo nel campo per abilitare la pubblicazione."}
+        try:
+            self._save_publish_config(cfg, directory=self._key_dir)
+        except OSError as exc:
+            _log.warning("Salvataggio impostazioni pubblicazione non riuscito: %s", type(exc).__name__)
+            return {"ok": False, "config": cfg,
+                    "message": "Impostazioni non salvate (cartella non scrivibile?)."}
+        stato = "attiva" if cfg["enabled"] else "disattivata"
+        return {"ok": True, "config": cfg,
+                "message": (f"Impostazioni salvate · pubblicazione automatica {stato} "
+                            f"(ogni {cfg['interval_hours']}h).{note}")}
+
+    def _evaluate_publish_now(self) -> dict:
+        """Ri-firma la lista di revoche e la **carica** su GitHub adesso. Ritorna ``{"ok","message"}``.
+
+        Fail-safe: nessuna eccezione verso la GUI; il **token non compare mai** nei messaggi."""
+        cfg = self._load_publish_config(directory=self._key_dir)
+        problema = publish_store.validate_config(cfg)
+        if problema is not None:
+            return {"ok": False, "message": problema}
+        token = self._load_publish_token()
+        if not token:
+            return {"ok": False,
+                    "message": "Token assente nel keyring: salvalo nelle impostazioni di pubblicazione."}
+        signed, count, err_msg = self._build_signed_revocation_list()
+        if err_msg is not None:
+            return {"ok": False, "message": err_msg}
+        result = self._publish_upload(
+            signed + "\n", repo=cfg["repo"], path=cfg["path"], branch=cfg["branch"], token=token,
+            message=f"XTrader: lista revoche ({count} revoc.)")
+        if not result.get("ok"):
+            return {"ok": False, "message": str(result.get("message", "Pubblicazione non riuscita."))}
+        return {"ok": True,
+                "message": (f"{result.get('message', '')} "
+                            f"URL per il bridge: {publisher.raw_url(cfg['repo'], cfg['path'], cfg['branch'])}")}
+
+    def _publish_tick(self) -> None:
+        """Tick della pubblicazione automatica: se abilitata, ri-pubblica e si **ri-arma** sempre.
+        Interamente best-effort: un errore (rete, keyring, firma) non deve fermare il ciclo né
+        rompere la finestra."""
+        self._publish_after_id = None
+        try:
+            cfg = self._load_publish_config(directory=self._key_dir)
+            if cfg.get("enabled"):
+                result = self._evaluate_publish_now()
+                self._set_msg(("🔄 " if result.get("ok") else "⚠️ ") + str(result.get("message", "")))
+        except Exception as exc:    # noqa: BLE001 — il ciclo non deve morire per un errore imprevisto
+            _log.warning("Tick pubblicazione non riuscito [%s]", type(exc).__name__)
+        self._schedule_publish_tick()
+
+    def _schedule_publish_tick(self) -> None:
+        """(Ri)programma il tick alla cadenza configurata. Non riprogramma in chiusura; `after` è
+        best-effort (finestra distrutta → nessun ri-arm)."""
+        if self.__dict__.get("_closing"):
+            return
+        # La lettura della cadenza è essa stessa best-effort: se le impostazioni non sono leggibili
+        # (disco/provider in errore) si ripiega sulla cadenza di default invece di far MORIRE il ciclo
+        # — il tick deve ri-armarsi sempre.
+        try:
+            cfg = self._load_publish_config(directory=self._key_dir)
+            hours = int(cfg.get("interval_hours") or publish_store.DEFAULTS["interval_hours"])
+        except Exception:       # noqa: BLE001 — impostazioni illeggibili: cadenza di default
+            hours = publish_store.DEFAULTS["interval_hours"]
+        delay_ms = max(publish_store.MIN_INTERVAL_HOURS,
+                       min(publish_store.MAX_INTERVAL_HOURS, hours)) * 3_600_000
+        try:
+            self._publish_after_id = self.after(delay_ms, self._publish_tick)
+        except Exception:       # noqa: BLE001 — finestra distrutta/headless: niente ri-arm
+            self._publish_after_id = None
+
+    def _cancel_publish_tick(self) -> None:
+        """Annulla il tick pendente (chiusura finestra): best-effort su id già scaduto."""
+        after_id = self.__dict__.get("_publish_after_id")
+        if after_id is not None:
+            try:
+                self.after_cancel(after_id)
+            except Exception:   # noqa: BLE001 — id scaduto/invalido: ininfluente
+                pass
+            self._publish_after_id = None
 
     # ── cablaggio Tk (verifica manuale su Windows) ─────────────────────────────────────────────
     def _build_ui(self) -> None:
@@ -423,6 +573,35 @@ class LicenseManagerApp(ctk.CTk):
                      anchor="w").pack(fill="x", padx=12, pady=(6, 2))
         ctk.CTkButton(self, text="📤 Esporta lista revoche firmata",
                       command=self._on_publish_revocation).pack(anchor="w", padx=12, pady=(0, 6))
+
+        # Pubblicazione automatica su GitHub (#157): ri-firma e ri-carica da sola la lista, così la
+        # finestra di freschezza del bridge non scade mai per dimenticanza.
+        ctk.CTkLabel(self, text="📤 Pubblicazione automatica (GitHub):",
+                     font=ctk.CTkFont(weight="bold"), anchor="w").pack(fill="x", padx=12, pady=(10, 2))
+        ctk.CTkLabel(self, text="Il repo dev'essere PUBBLICO (il bridge lo scarica senza credenziali). "
+                                "Il token resta nel keyring di questo PC, mai su disco.",
+                     anchor="w", wraplength=560).pack(fill="x", padx=12, pady=(0, 4))
+        self._pub_repo_entry = ctk.CTkEntry(self, placeholder_text="Repository (owner/nome, es. tuonome/xtrader-revocation)")
+        self._pub_repo_entry.pack(fill="x", padx=12, pady=2)
+        self._pub_path_entry = ctk.CTkEntry(self, placeholder_text="File nel repo (es. revocation_list.txt)")
+        self._pub_path_entry.pack(fill="x", padx=12, pady=2)
+        self._pub_branch_entry = ctk.CTkEntry(self, placeholder_text="Branch (es. main)")
+        self._pub_branch_entry.pack(fill="x", padx=12, pady=2)
+        self._pub_interval_entry = ctk.CTkEntry(self, placeholder_text="Ogni quante ore (es. 12)")
+        self._pub_interval_entry.pack(fill="x", padx=12, pady=2)
+        self._pub_token_entry = ctk.CTkEntry(self, placeholder_text="Token GitHub (si salva nel keyring)",
+                                             show="*")
+        self._pub_token_entry.pack(fill="x", padx=12, pady=2)
+        self._pub_enabled_var = ctk.StringVar(value="off")
+        self._pub_enabled_check = ctk.CTkCheckBox(self, text="Pubblica automaticamente",
+                                                  variable=self._pub_enabled_var,
+                                                  onvalue="on", offvalue="off")
+        self._pub_enabled_check.pack(anchor="w", padx=12, pady=(4, 2))
+        ctk.CTkButton(self, text="💾 Salva impostazioni pubblicazione",
+                      command=self._on_save_publish_settings).pack(anchor="w", padx=12, pady=(2, 2))
+        ctk.CTkButton(self, text="🚀 Pubblica ora",
+                      command=self._on_publish_now).pack(anchor="w", padx=12, pady=(0, 6))
+        self._refresh_publish_fields()
 
         # Backup + messaggi
         ctk.CTkButton(self, text="💾 Backup della chiave privata", command=self._on_export).pack(
@@ -550,6 +729,53 @@ class LicenseManagerApp(ctk.CTk):
         result = self._evaluate_revoke(self._read(self._renew_serial_entry))
         self._set_msg(result["message"])
         self._on_registry_refresh()
+
+    def _refresh_publish_fields(self) -> None:
+        """Precompila i campi della pubblicazione con le impostazioni salvate (best-effort headless).
+        **Il token non viene mai ri-mostrato**: resta nel keyring, il campo parte vuoto."""
+        try:
+            cfg = self._load_publish_config(directory=self._key_dir)
+            for entry, value in ((self.__dict__.get("_pub_repo_entry"), cfg["repo"]),
+                                 (self.__dict__.get("_pub_path_entry"), cfg["path"]),
+                                 (self.__dict__.get("_pub_branch_entry"), cfg["branch"]),
+                                 (self.__dict__.get("_pub_interval_entry"), str(cfg["interval_hours"]))):
+                if entry is not None:
+                    entry.delete(0, "end")
+                    entry.insert(0, str(value))
+            var = self.__dict__.get("_pub_enabled_var")
+            if var is not None:
+                var.set("on" if cfg["enabled"] else "off")
+        except Exception as exc:    # noqa: BLE001 — precompilazione best-effort (headless/widget assenti)
+            _log.debug("Precompilazione campi pubblicazione non riuscita [%s]", type(exc).__name__)
+
+    def _on_save_publish_settings(self) -> None:
+        """Salva le impostazioni di pubblicazione e ri-programma il tick con la nuova cadenza."""
+        var = self.__dict__.get("_pub_enabled_var")
+        enabled = (var.get() == "on") if var is not None else False
+        result = self._evaluate_save_publish_settings(
+            self._read(self.__dict__.get("_pub_repo_entry")),
+            self._read(self.__dict__.get("_pub_path_entry")),
+            self._read(self.__dict__.get("_pub_branch_entry")),
+            self._read(self.__dict__.get("_pub_interval_entry")),
+            enabled,
+            token=self._read(self.__dict__.get("_pub_token_entry")))
+        # Il campo token si svuota SEMPRE dopo il salvataggio: non resta a schermo né in memoria del
+        # widget (è già nel keyring se il salvataggio è riuscito).
+        try:
+            entry = self.__dict__.get("_pub_token_entry")
+            if entry is not None:
+                entry.delete(0, "end")
+        except Exception:       # noqa: BLE001 — widget headless/distrutto: best-effort
+            pass
+        self._set_msg(result["message"])
+        if result.get("ok"):
+            self._cancel_publish_tick()
+            self._schedule_publish_tick()
+
+    def _on_publish_now(self) -> None:
+        """Pubblica adesso la lista firmata su GitHub (esito nella riga messaggi)."""
+        result = self._evaluate_publish_now()
+        self._set_msg(("✅ " if result.get("ok") else "⚠️ ") + str(result.get("message", "")))
 
     def _on_publish_revocation(self) -> None:
         # Il percorso reale lo sceglie un file-dialog (Tk, verifica manuale); headless resta '' → messaggio.

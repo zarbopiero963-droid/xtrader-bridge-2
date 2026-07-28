@@ -14,7 +14,7 @@ import types
 
 import pytest
 
-from license_manager import core, registry
+from license_manager import core, publish_store, registry
 from xtrader_bridge.licensing import license as lic
 
 _NOW = 1_000_000_000
@@ -77,9 +77,34 @@ def _fake(gui, tmp_path, now=_NOW):
     fake._show_token = lambda tok: gui.LicenseManagerApp._show_token(fake, tok)
     fake._evaluate_renew = lambda s, g: gui.LicenseManagerApp._evaluate_renew(fake, s, g)
     fake._evaluate_resend = lambda s: gui.LicenseManagerApp._evaluate_resend(fake, s)
+    fake._build_signed_revocation_list = lambda: gui.LicenseManagerApp._build_signed_revocation_list(fake)
     fake._record_revocation_safe = lambda rec: gui.LicenseManagerApp._record_revocation_safe(fake, rec)
     fake._evaluate_revoke = lambda s: gui.LicenseManagerApp._evaluate_revoke(fake, s)
     fake._evaluate_publish_revocation = lambda d: gui.LicenseManagerApp._evaluate_publish_revocation(fake, d)
+    # Pubblicazione automatica (#157): store su file temporaneo REALE, keyring e HTTP FINTI (nessun
+    # keyring di sistema toccato, nessun socket aperto).
+    fake._load_publish_config = publish_store.load_publish_config
+    fake._save_publish_config = publish_store.save_publish_config
+    fake._kr_token = None
+    fake._load_publish_token = lambda: fake._kr_token
+    fake._save_publish_token = lambda tok: (setattr(fake, "_kr_token", tok) or True)
+    fake._publish_calls = []
+    fake._publish_upload = (lambda content, **kw: (fake._publish_calls.append({"content": content, **kw})
+                                                   or {"ok": True, "action": "updated",
+                                                       "message": "Lista revoche aggiornata."}))
+    fake._publish_after_id = None
+    fake._closing = False
+    fake._msgs = []
+    fake._set_msg = fake._msgs.append
+    fake.after = lambda ms, fn: (fake._msgs and None) or "after-id"
+    fake._evaluate_save_publish_settings = (
+        lambda repo, path, branch, interval, enabled, token="":
+        gui.LicenseManagerApp._evaluate_save_publish_settings(fake, repo, path, branch, interval,
+                                                              enabled, token=token))
+    fake._evaluate_publish_now = lambda: gui.LicenseManagerApp._evaluate_publish_now(fake)
+    fake._publish_tick = lambda: gui.LicenseManagerApp._publish_tick(fake)
+    fake._schedule_publish_tick = lambda: gui.LicenseManagerApp._schedule_publish_tick(fake)
+    fake._cancel_publish_tick = lambda: gui.LicenseManagerApp._cancel_publish_tick(fake)
     return fake
 
 
@@ -583,3 +608,150 @@ def test_evaluate_publish_revocation_senza_percorso_o_chiave_fail_closed(gui, tm
     out = gui.LicenseManagerApp._evaluate_publish_revocation(fake2, str(tmp_path / "x.txt"))
     assert out["ok"] is False and "chiave" in out["message"].lower()
     assert not os.path.exists(str(tmp_path / "x.txt"))   # niente file prodotto
+
+
+# ── pubblicazione automatica su GitHub (#157) ────────────────────────────────────────────────────
+_PUB_OK = dict(repo="tizio/xtrader-revocation", path="revocation_list.txt", branch="main",
+               interval="12")
+
+
+def test_save_publish_settings_valide_salvano_e_abilitano(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    out = fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                               _PUB_OK["interval"], True, token="ghp_ABC")
+    assert out["ok"] is True
+    cfg = publish_store.load_publish_config(directory=str(tmp_path))
+    assert cfg == {"enabled": True, "repo": _PUB_OK["repo"], "path": _PUB_OK["path"],
+                   "branch": "main", "interval_hours": 12}
+    assert fake._kr_token == "ghp_ABC"                       # token nel keyring (finto)
+    # ...e MAI su disco
+    testo = open(publish_store.publish_config_path(str(tmp_path)), encoding="utf-8").read()
+    assert "ghp_ABC" not in testo
+
+
+def test_save_publish_settings_repo_invalido_non_salva(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    out = fake._evaluate_save_publish_settings("solo-nome", "l.txt", "main", "12", True, token="ghp_X")
+    assert out["ok"] is False and "owner/nome" in out["message"]
+    assert not os.path.exists(publish_store.publish_config_path(str(tmp_path)))   # niente scritto
+
+
+def test_save_publish_settings_abilitata_senza_token_rifiutata(gui, tmp_path):
+    """Abilitare la pubblicazione senza alcun token nel keyring è fail-closed: non si salva."""
+    fake = _fake(gui, tmp_path)
+    out = fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                               "12", True, token="")
+    assert out["ok"] is False and "token" in out["message"].lower()
+    assert not os.path.exists(publish_store.publish_config_path(str(tmp_path)))
+
+
+def test_save_publish_settings_keyring_ko_non_salva(gui, tmp_path):
+    """Keyring non disponibile → il token NON è salvabile: si rifiuta invece di scriverlo in chiaro."""
+    fake = _fake(gui, tmp_path)
+    fake._save_publish_token = lambda tok: False
+    out = fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                               "12", True, token="ghp_ABC")
+    assert out["ok"] is False and "keyring" in out["message"].lower()
+    assert not os.path.exists(publish_store.publish_config_path(str(tmp_path)))
+
+
+def test_save_publish_settings_token_vuoto_non_cancella_esistente(gui, tmp_path):
+    """Ri-salvare lasciando il campo token vuoto NON deve perdere il token già nel keyring."""
+    fake = _fake(gui, tmp_path)
+    fake._kr_token = "ghp_ESISTENTE"
+    out = fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                               "6", True, token="")
+    assert out["ok"] is True and fake._kr_token == "ghp_ESISTENTE"
+    assert publish_store.load_publish_config(directory=str(tmp_path))["interval_hours"] == 6
+
+
+def test_publish_now_carica_la_lista_firmata(gui, tmp_path):
+    """`_evaluate_publish_now` firma la lista e la passa all'upload; il messaggio riporta l'URL raw."""
+    from xtrader_bridge.licensing import revocation
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    key = core.load_signing_key(core.signing_key_path(str(tmp_path)))
+    issued = gui.LicenseManagerApp._evaluate_issue(fake, "Mario", "Rossi", "15", _HW)
+    serial = registry.license_serial(issued["token"])
+    gui.LicenseManagerApp._evaluate_revoke(fake, serial)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"], "12", True)
+    out = fake._evaluate_publish_now()
+    assert out["ok"] is True
+    assert "raw.githubusercontent.com/tizio/xtrader-revocation/main/revocation_list.txt" in out["message"]
+    # il contenuto caricato è una lista firmata VERIFICABILE che contiene il serial revocato
+    caricato = fake._publish_calls[-1]["content"].strip()
+    rev = revocation.verify_revocation_list(caricato, public_key_hex=key["public"])
+    assert rev is not None and serial in rev.serials
+    assert fake._publish_calls[-1]["repo"] == _PUB_OK["repo"]
+
+
+def test_publish_now_senza_token_o_config_fail_closed(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    # config non ancora impostata → messaggio di validazione, nessun upload
+    assert fake._evaluate_publish_now()["ok"] is False
+    assert fake._publish_calls == []
+    # config ok ma token assente nel keyring → fail-closed
+    publish_store.save_publish_config({"enabled": True, **{k: v for k, v in (
+        ("repo", _PUB_OK["repo"]), ("path", _PUB_OK["path"]), ("branch", "main"))}},
+        directory=str(tmp_path))
+    fake._kr_token = None
+    out = fake._evaluate_publish_now()
+    assert out["ok"] is False and "token" in out["message"].lower()
+    assert fake._publish_calls == []
+
+
+def test_publish_now_upload_fallito_riporta_errore(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"], "12", True)
+    fake._publish_upload = lambda content, **kw: {"ok": False, "action": "",
+                                                  "message": "Token non valido o senza permessi."}
+    out = fake._evaluate_publish_now()
+    assert out["ok"] is False and "permessi" in out["message"]
+
+
+def test_publish_tick_pubblica_solo_se_abilitata_e_si_riarma(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    after_calls = []
+    fake.after = lambda ms, fn: (after_calls.append(ms) or "id")
+    # DISABILITATA → nessun upload, ma il tick si ri-arma comunque
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"], "12", False)
+    gui.LicenseManagerApp._publish_tick(fake)
+    assert fake._publish_calls == [] and after_calls == [12 * 3_600_000]
+    # ABILITATA → pubblica e si ri-arma
+    after_calls.clear()
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"], "6", True)
+    gui.LicenseManagerApp._publish_tick(fake)
+    assert len(fake._publish_calls) == 1 and after_calls == [6 * 3_600_000]
+
+
+def test_publish_tick_errore_non_ferma_il_ciclo(gui, tmp_path):
+    """Un errore imprevisto nel tick non deve rompere la finestra: si logga e ci si ri-arma."""
+    fake = _fake(gui, tmp_path)
+    after_calls = []
+    fake.after = lambda ms, fn: (after_calls.append(ms) or "id")
+    def _boom(**kw):
+        raise RuntimeError("errore imprevisto")
+    fake._load_publish_config = _boom
+    gui.LicenseManagerApp._publish_tick(fake)
+    assert after_calls, "il tick deve ri-armarsi anche dopo un errore"
+
+
+def test_cancel_publish_tick_e_chiusura(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    cancelled = []
+    fake._publish_after_id = "id-1"
+    fake.after_cancel = cancelled.append
+    gui.LicenseManagerApp._cancel_publish_tick(fake)
+    assert cancelled == ["id-1"] and fake._publish_after_id is None
+    # in chiusura il tick NON si ri-arma
+    fake._closing = True
+    after_calls = []
+    fake.after = lambda ms, fn: (after_calls.append(ms) or "id")
+    gui.LicenseManagerApp._schedule_publish_tick(fake)
+    assert after_calls == []
