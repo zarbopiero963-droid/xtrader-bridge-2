@@ -10,6 +10,8 @@ proprietario: rimozione, il modulo era fuori dal flusso live da CP-09b). La guar
 anti-reintroduzione è in `tests/unit/test_pbet_removed_76.py`.
 """
 
+import re
+
 import pytest
 
 from xtrader_bridge import custom_parser_engine, source_manager, transforms
@@ -130,9 +132,12 @@ def test_una_config_esistente_con_chat_id_non_ascii_da_un_errore_esplicito():
     errori = source_manager.validate_sources(
         [{"chat_id": "١٢٣٤٥٦٧٨٩", "name": "Canale", "mode": "PRE"}])
     testo = " ".join(errori)
-    assert "chat_id non numerico" in testo
-    assert "١٢٣٤٥٦٧٨٩" in testo          # nomina il valore colpevole
-    assert "-1001234567890" in testo      # e mostra la forma corretta
+    assert errori, "una sorgente con chat_id non-ASCII deve produrre un errore, non passare"
+    assert "١٢٣٤٥٦٧٨٩" in testo, "l'errore deve NOMINARE il valore colpevole"
+    # Il suggerimento deve mostrare un ID numerico d'esempio. Si cerca la FORMA (un intero con
+    # segno, ≥ 6 cifre), non la stringa esatta: il copy della UX può essere rifinito senza che
+    # questo test diventi un ostacolo (rilievo GPT-5.5 #167 sulla fragilità del contratto testuale).
+    assert re.search(r"-?[0-9]{6,}", testo), "l'errore deve mostrare la forma corretta di un ID"
 
 
 def test_il_normalizzatore_migliaia_resta_scartato_a_valle():
@@ -152,3 +157,15 @@ def test_il_normalizzatore_migliaia_resta_scartato_a_valle():
     assert uscita == "١٢٣٤.٥٦"            # normalizza, come per gli ASCII
     accettato = re.compile(r"^" + numbers_re.SIGNED_DECIMAL + r"$").fullmatch(uscita)
     assert accettato is None, "il validatore deve continuare a scartarlo: è ciò che rende innocua la non-modifica"
+
+
+@pytest.mark.parametrize("misto", ["6-٠", "٦-0", "1-０", "１-1"])
+def test_un_punteggio_a_cifre_miste_non_e_un_punteggio(misto):
+    """Cifre miste ASCII/non-ASCII (rilievo GPT-5.5 #167): il requisito è rifiutare QUALSIASI
+    cifra non-ASCII, non solo i punteggi interamente non-ASCII.
+
+    Vale su entrambi i consumer, che hanno regex e percorsi diversi: `extract_scores` (corpo
+    `[0-9]` + lookaround Unicode) e `score_to_over` (ancorato `^…$`). Un mezzo punteggio è
+    ancora più ambiguo di uno intero: fail-closed su entrambi."""
+    assert custom_parser_engine.extract_scores(misto) == []
+    assert transforms.apply(misto, "score_to_over") == ""
