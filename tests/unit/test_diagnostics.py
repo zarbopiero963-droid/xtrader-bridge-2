@@ -121,6 +121,21 @@ def test_onedrive_maschera_solo_lo_username():
     assert report.count(diagnostics.MASKED_USER) == 2
 
 
+def test_username_mascherato_anche_su_share_di_rete_unc():
+    """Buco trovato da CodeRabbit (#164): il CSV su **share di rete** è uno scenario che
+    l'app supporta esplicitamente (tutto il Tema A dell'audit nasce da lì), e su
+    `\\\\Server\\Users\\<nome>` lo username è esposto esattamente come in locale. Le due
+    regex precedenti pretendevano una lettera di unità o un `/home` iniziale → la forma UNC
+    passava intatta, proprio la PII che questa PR esiste per togliere."""
+    report = diagnostics.build_report([
+        ("CSV path", r"\\FileServer\Users\john.doe\segnali.csv"),
+        ("Cartella log", "//FileServer/Users/john.doe/logs"),
+    ])
+    assert "john.doe" not in report
+    assert r"CSV path: \\FileServer\Users\<utente>\segnali.csv" in report
+    assert "Cartella log: //FileServer/Users/<utente>/logs" in report
+
+
 def test_path_senza_home_utente_resta_intatto():
     """La mascheratura è mirata alla home, non a «qualsiasi cartella»: un path di servizio
     deve restare integro o il report diventa inutile per diagnosticare."""
@@ -196,6 +211,29 @@ def test_collisione_fra_forma_derivata_e_id_configurato():
     assert log_privacy.redact_chat_id(esplicita) in report
     # Il supergruppo resta comunque redatto con la propria impronta, dov'è scritto per intero.
     assert log_privacy.redact_chat_id(supergruppo) in report
+
+
+def test_la_precedenza_non_dipende_dall_ordine_di_configurazione():
+    """Congela la regola indipendentemente dall'ordine (GPT-5.5 #164): invertendo le due
+    voci di `chat_ids` il report deve essere **identico**. Se l'esito dipendesse dall'ordine
+    di iterazione, due utenti con la stessa config ma inserita in ordine diverso vedrebbero
+    impronte diverse per lo stesso testo."""
+    supergruppo, esplicita = "-1001234567890", "1234567890"
+    campi = [("Ultimo messaggio", f"link https://t.me/c/{esplicita}/45"),
+             ("Ultimo errore", f"bot: forbidden in {supergruppo}")]
+    diretto = diagnostics.build_report(campi, chat_ids=[supergruppo, esplicita])
+    invertito = diagnostics.build_report(campi, chat_ids=[esplicita, supergruppo])
+    assert diretto == invertito
+
+
+def test_chat_id_con_spazi_e_duplicati_normalizzati():
+    """Config editata a mano (GPT-5.5 #164): lo stesso id ripetuto e con spazi attorno non
+    deve né sfuggire alla redazione né produrre sostituzioni doppie."""
+    report = diagnostics.build_report(
+        [("Ultimo errore", "bot: chat 1234567890 irraggiungibile")],
+        chat_ids=["  1234567890  ", "1234567890"])
+    assert "1234567890" not in report
+    assert report.count(log_privacy.redact_chat_id("1234567890")) == 1
 
 
 def test_chat_id_non_redige_un_numero_che_lo_contiene():

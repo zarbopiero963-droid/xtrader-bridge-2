@@ -35,9 +35,13 @@ MIN_CHAT_ID_LEN = 5
 # prefisso) a comparire nei link `t.me/c/<id>/<msg>` generati da Telegram.
 _SUPERGROUP_PREFIX = "-100"
 
-# Home utente Windows: `C:\Users\<nome>\` o `C:/Users/<nome>/` (qualsiasi unità). Il prefisso
-# `X:` rende il match non ambiguo, quindi non serve alcun guard a sinistra.
-_WIN_HOME_RE = re.compile(r"([A-Za-z]:[\\/]{1,2}Users[\\/]{1,2})([^\\/\r\n]+)", re.IGNORECASE)
+# Home utente Windows: `C:\Users\<nome>\` o `C:/Users/<nome>/` (qualsiasi unità) **e** la forma
+# UNC `\\Server\Users\<nome>\` (CodeRabbit #164): il CSV su share di rete è uno scenario che
+# l'app supporta esplicitamente, e lì lo username è esposto esattamente come in locale. Un
+# prefisso `X:` o `\\server` rende il match non ambiguo, quindi non serve alcun guard a sinistra;
+# una share che NON si chiama `Users` (`\\NAS\condivisa`) resta intatta.
+_WIN_HOME_RE = re.compile(
+    r"((?:[A-Za-z]:|[\\/]{2}[^\\/\r\n]+)[\\/]{1,2}Users[\\/]{1,2})([^\\/\r\n]+)", re.IGNORECASE)
 # Home utente POSIX/macOS: `/home/<nome>/` o `/Users/<nome>/`. Il lookbehind evita di mordere
 # una cartella che si CHIAMA "home" in mezzo a un path (`C:/Progetti/home/segnali.csv`): lì
 # non c'è nessuno username da proteggere e storpiarlo confonderebbe la diagnosi.
