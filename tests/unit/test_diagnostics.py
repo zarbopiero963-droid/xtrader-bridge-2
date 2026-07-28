@@ -136,6 +136,27 @@ def test_username_mascherato_anche_su_share_di_rete_unc():
     assert "Cartella log: //FileServer/Users/<utente>/logs" in report
 
 
+@pytest.mark.parametrize("path,atteso", [
+    # Admin share Windows (`C$`): tipica su macchine gestite da un IT aziendale.
+    (r"\\Server\C$\Users\john.doe\segnali.csv", r"\\Server\C$\Users\<utente>\segnali.csv"),
+    # Share con le home annidate sotto una cartella qualsiasi.
+    (r"\\Server\Condivisa\Users\john.doe\x.csv", r"\\Server\Condivisa\Users\<utente>\x.csv"),
+    (r"D:\Backup\Users\john.doe\x.csv", r"D:\Backup\Users\<utente>\x.csv"),
+])
+def test_username_mascherato_anche_in_share_annidate(path, atteso):
+    """Secondo giro sul tema UNC (Claude Fable 5 #164): ancorare `Users` **subito dopo** il
+    server copriva `\\\\Server\\Users\\<nome>` ma non `\\\\Server\\C$\\Users\\<nome>` né una
+    share con le home annidate — e lì lo username resta in chiaro identico.
+
+    La regola è ora «un segmento di path chiamato `Users` seguito da un nome», ovunque si
+    trovi. È deliberatamente **fail-safe verso la privacy**: se una cartella si chiama
+    davvero `Users` senza essere una home, si perde un nome di file nel report; nella
+    direzione opposta si perderebbe il nome di una persona."""
+    report = diagnostics.build_report([("CSV path", path)])
+    assert "john.doe" not in report
+    assert f"CSV path: {atteso}" in report
+
+
 def test_path_senza_home_utente_resta_intatto():
     """La mascheratura è mirata alla home, non a «qualsiasi cartella»: un path di servizio
     deve restare integro o il report diventa inutile per diagnosticare."""

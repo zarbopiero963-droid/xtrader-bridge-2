@@ -35,17 +35,22 @@ MIN_CHAT_ID_LEN = 5
 # prefisso) a comparire nei link `t.me/c/<id>/<msg>` generati da Telegram.
 _SUPERGROUP_PREFIX = "-100"
 
-# Home utente Windows: `C:\Users\<nome>\` o `C:/Users/<nome>/` (qualsiasi unità) **e** la forma
-# UNC `\\Server\Users\<nome>\` (CodeRabbit #164): il CSV su share di rete è uno scenario che
-# l'app supporta esplicitamente, e lì lo username è esposto esattamente come in locale. Un
-# prefisso `X:` o `\\server` rende il match non ambiguo, quindi non serve alcun guard a sinistra;
-# una share che NON si chiama `Users` (`\\NAS\condivisa`) resta intatta.
-_WIN_HOME_RE = re.compile(
-    r"((?:[A-Za-z]:|[\\/]{2}[^\\/\r\n]+)[\\/]{1,2}Users[\\/]{1,2})([^\\/\r\n]+)", re.IGNORECASE)
-# Home utente POSIX/macOS: `/home/<nome>/` o `/Users/<nome>/`. Il lookbehind evita di mordere
-# una cartella che si CHIAMA "home" in mezzo a un path (`C:/Progetti/home/segnali.csv`): lì
-# non c'è nessuno username da proteggere e storpiarlo confonderebbe la diagnosi.
-_POSIX_HOME_RE = re.compile(r"(?<![\w.\-])((?:/home|/Users)/)([^/\s\r\n]+)")
+# Home utente stile Windows/macOS: un segmento di path chiamato `Users` seguito da un nome,
+# **ovunque si trovi**. Copre `C:\Users\<nome>`, `C:/Users/<nome>`, `/Users/<nome>` (macOS) e
+# tutte le forme di rete: `\\Server\Users\<nome>` (CodeRabbit #164) ma anche `\\Server\C$\Users\
+# <nome>` (admin share) e `\\Server\Condivisa\Users\<nome>` (home annidate, Fable #164). Un primo
+# tentativo ancorava `Users` subito dopo l'unità o il server: copriva il caso semplice e lasciava
+# in chiaro proprio quelli aziendali.
+#
+# Scelta deliberatamente FAIL-SAFE VERSO LA PRIVACY: se una cartella si chiama davvero `Users`
+# senza essere una home, si perde un nome di file nel report; nella direzione opposta si
+# perderebbe il nome di una persona. Il CSV su share di rete non è un caso di laboratorio — è lo
+# scenario da cui nasce l'intero Tema A dell'audit #114.
+_WIN_HOME_RE = re.compile(r"([\\/]Users[\\/]{1,2})([^\\/\r\n]+)", re.IGNORECASE)
+# Home utente Linux: `/home/<nome>/`. Qui il lookbehind serve: "home" è una parola comune e una
+# cartella che si CHIAMA così in mezzo a un path (`C:/Progetti/home/segnali.csv`) non contiene
+# nessuno username da proteggere, quindi storpiarla confonderebbe soltanto la diagnosi.
+_POSIX_HOME_RE = re.compile(r"(?<![\w.\-])(/home/)([^/\s\r\n]+)")
 
 # Chiavi di config che contengono un chat_id singolo.
 _CHAT_ID_KEYS = ("chat_id", "xtrader_notification_chat_id")
@@ -57,8 +62,8 @@ def mask_user_paths(text) -> str:
     """Sostituisce lo username dentro le home directory con `MASKED_USER`.
 
     Il resto del path resta leggibile (al supporto serve sapere *dove* sta il CSV, non
-    *chi* è l'utente). Un path senza home utente — ``D:\\XTrader\\dati``, una share di rete
-    ``\\\\NAS\\condivisa`` — passa **invariato**."""
+    *chi* è l'utente): sparisce solo il segmento subito dopo `Users`/`home`. Un path senza
+    home utente — ``D:\\XTrader\\dati``, una share ``\\\\NAS\\condivisa`` — passa **invariato**."""
     s = str(text or "")
     s = _WIN_HOME_RE.sub(lambda m: m.group(1) + MASKED_USER, s)
     return _POSIX_HOME_RE.sub(lambda m: m.group(1) + MASKED_USER, s)
