@@ -40,6 +40,13 @@ _BARE_INSTALL_RE = re.compile(
     r"pip install[\s\\]+(?:--upgrade[\s\\]+)?-r requirements-dev\.txt"
     r"(?![\s\\]+-c requirements-dev\.lock)[^\n]*")
 
+# La controparte POSITIVA. Anche questa tollera la continuazione `\` (rilievo GPT-5.5 #165):
+# prima era un confronto di sottostringa esatta su una riga, quindi un workflow **corretto** ma
+# scritto su più righe sarebbe stato bocciato. Un guard che boccia il codice giusto costa quanto
+# uno che lascia passare quello sbagliato — spinge a disattivarlo.
+_GOOD_INSTALL_RE = re.compile(
+    r"pip install[\s\\]+-r requirements-dev\.txt[\s\\]+-c requirements-dev\.lock")
+
 
 def _lock_pins():
     pins = {}
@@ -112,7 +119,7 @@ def test_ci_installa_con_le_constraints():
         text = (_WF_DIR / name).read_text(encoding="utf-8")
         bare = _BARE_INSTALL_RE.findall(text)
         assert not bare, f"{name}: install di requirements-dev.txt SENZA constraints → {bare}"
-        assert "pip install -r requirements-dev.txt -c requirements-dev.lock" in text, (
+        assert _GOOD_INSTALL_RE.search(text), (
             f"{name}: nessun install con constraints trovato")
         assert "requirements*.lock" in text, (
             f"{name}: cache-dependency-path senza requirements*.lock")
@@ -152,6 +159,11 @@ def test_il_job_notturno_builda_da_dipendenze_pinnate_e_hashate():
     # Continuazione YAML: lo stesso difetto scritto su due righe (rilievo Fable #165).
     "      - run: pip install \\\n          -r requirements-dev.txt pyinstaller",
     "      - run: pip install --upgrade \\\n          -r requirements-dev.txt",
+    # Forma `python -m pip`, usata altrove nel repo (rilievo GPT-5.5 #165): è già coperta
+    # perché il pattern aggancia la sottostringa `pip install`, ma senza un test la
+    # copertura resterebbe accidentale — e la prossima riscrittura potrebbe perderla.
+    "      - run: python -m pip install -r requirements-dev.txt",
+    "      - run: python -m pip install \\\n          -r requirements-dev.txt",
 ])
 def test_il_guard_riconosce_tutte_le_forme_dell_install_nudo(riga):
     """Il guard è a sua volta testato, perché una regex che non morde è indistinguibile da
@@ -170,6 +182,19 @@ def test_il_guard_riconosce_tutte_le_forme_dell_install_nudo(riga):
 def test_il_guard_non_segnala_gli_install_corretti(riga):
     """L'altra metà: un guard che grida su tutto viene disattivato entro una settimana."""
     assert not _BARE_INSTALL_RE.search(riga), f"falso positivo su: {riga!r}"
+
+
+@pytest.mark.parametrize("riga", [
+    "      - run: pip install -r requirements-dev.txt -c requirements-dev.lock",
+    "      - run: pip install \\\n          -r requirements-dev.txt \\\n          -c requirements-dev.lock",
+    "      - run: python -m pip install -r requirements-dev.txt -c requirements-dev.lock",
+])
+def test_il_check_positivo_accetta_anche_le_forme_spezzate(riga):
+    """Rilievo GPT-5.5 (#165): il riconoscimento dell'install CORRETTO era un confronto di
+    sottostringa esatta su una riga sola, quindi un workflow sicuro ma scritto su più righe
+    veniva bocciato. Un guard che boccia il codice giusto costa quanto uno che lascia passare
+    quello sbagliato: entrambi finiscono per essere disattivati."""
+    assert _GOOD_INSTALL_RE.search(riga), f"forma corretta non riconosciuta: {riga!r}"
 
 
 def test_il_lock_di_build_copre_davvero_pyinstaller_e_httpx():
