@@ -170,7 +170,12 @@ def test_ogni_workflow_ai_su_disco_e_censito():
 
     Il controllo diretto — «ogni voce censita esiste su disco» — è già garantito da `_read`, che
     solleva `FileNotFoundError` in tutti i test che leggono i workflow."""
-    su_disco = {f for f in os.listdir(_WF_DIR) if f.startswith("pr-review-")}
+    # Solo YAML VERI (rilievo GPT-5.5 #160): senza il filtro sull'estensione un `.bak`, uno
+    # `.orig` di un merge o un file temporaneo dell'editor col prefisso `pr-review-` renderebbe
+    # rossa la suite safety senza che esista alcun workflow nuovo. `.yaml` è incluso perché GitHub
+    # accetta entrambe le estensioni: un reviewer non deve poter sfuggire al gate cambiando suffisso.
+    su_disco = {f for f in os.listdir(_WF_DIR)
+                if f.startswith("pr-review-") and f.endswith((".yml", ".yaml"))}
     non_censiti = su_disco - set(_AI_WORKFLOWS)
     assert not non_censiti, (
         f"workflow di PR review presenti ma NON censiti in _AI_WORKFLOWS: {sorted(non_censiti)}. "
