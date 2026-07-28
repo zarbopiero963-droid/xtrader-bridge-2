@@ -50,8 +50,8 @@ def test_cambio_profilo_cambia_parser_attivo(tmp_path):
     cfg_a = ps.apply_profile(base, {"active_parser": "CalcioP"})
     cfg_b = ps.apply_profile(base, {"active_parser": "TennisP"})
 
-    defn_a = pm.load_active(cfg_a, dir_path=d)
-    defn_b = pm.load_active(cfg_b, dir_path=d)
+    defn_a = pm.load_primary_parser(cfg_a, dir_path=d)
+    defn_b = pm.load_primary_parser(cfg_b, dir_path=d)
     assert defn_a.name == "CalcioP" and defn_a.sport == "Calcio"
     assert defn_b.name == "TennisP" and defn_b.sport == "Tennis"
     # cambiare profilo non perde il segreto della config viva (apply_profile lo preserva)

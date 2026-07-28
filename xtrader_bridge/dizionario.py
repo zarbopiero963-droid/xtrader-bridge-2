@@ -260,10 +260,18 @@ def market_names(rows=None, fixed_only=False) -> list:
 
 
 def market_name_for_type(market_type, rows=None):
-    """MarketName accoppiato a un MarketType, o None se non esiste."""
-    key = (market_type or "").strip()
+    """MarketName accoppiato a un MarketType, o None se non esiste.
+
+    Confronto **case/space-insensitive** come il gemello `market_type_for_name` (ambiguità M4
+    della #69): prima questo usava un confronto esatto e l'altro `_norm`, quindi due funzioni
+    speculari rispondevano con criteri diversi alla stessa domanda. Un `"match_odds"` scritto in
+    minuscolo tornava `None` — cioè «mercato non nel dizionario», che è una risposta sbagliata e
+    per giunta silenziosa. Reso simmetrico a rischio nullo: al momento della modifica la funzione
+    non aveva **alcun chiamante di produzione** (solo test), quindi qui non si allenta nulla che
+    fosse in uso — si toglie una trappola al primo che la userà."""
+    key = _norm(market_type)
     for m in market_catalog(rows):
-        if m["MarketType"] == key:
+        if _norm(m["MarketType"]) == key:
             return m["MarketName"]
     return None
 

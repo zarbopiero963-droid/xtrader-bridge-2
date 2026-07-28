@@ -349,7 +349,7 @@ CSV?», per spiegare colonne/delimitatori, o come **tester** mentre l'utente sis
 
 - **Riuso della pipeline read-only del runtime.** `build_message_preview(cfg, message, *, chat,
   parsers_dir)` replica il wiring di `signal_router._resolve_one` / del tester GUI: parser attivo per
-  la chat (`parser_manager.load_active`), profili di mapping nomi/mercati
+  la chat (`parser_manager.load_primary_parser`), profili di mapping nomi/mercati
   (`name/market_mapping_store.entries_for_profiles`), lingua sorgente
   (`recognition.effective_source_language`), provider (`source_manager.provider_for_chat`) e la
   **modalità effettiva** (P2-7 audit #76: `normalize_mode(defn.mode or recognition_mode globale)`,

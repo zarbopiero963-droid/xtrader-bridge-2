@@ -138,11 +138,11 @@ def summarize_channel(cfg: dict, row: dict, *, existing_names: set,
 
     parser_names = tuple(parser_manager.resolve_parser_names(cfg, chat_id))   # PR-2: lista completa
     parser_name = parser_names[0] if parser_names else ""                     # primario (retro-compat)
-    # UNA sola lettura da disco (GLM #391: niente doppio I/O `load_active` + `load_active_list`):
-    # `load_active_list` carica in ordine i parser CARICABILI; da lì ricaviamo il primario e
+    # UNA sola lettura da disco (GLM #391: niente doppio I/O `load_primary_parser` + `load_all_parsers`):
+    # `load_all_parsers` carica in ordine i parser CARICABILI; da lì ricaviamo il primario e
     # quali NON si caricano — primario O secondari (Fable #391: un secondario rotto perderebbe
     # bet in silenzio → reso visibile in readiness + riga Parser).
-    loaded_by_name = {d.name: d for d in parser_manager.load_active_list(cfg, chat_id, parsers_dir)}
+    loaded_by_name = {d.name: d for d in parser_manager.load_all_parsers(cfg, chat_id, parsers_dir)}
     defn = loaded_by_name.get(parser_name) if parser_name else None
     parser_loaded = defn is not None
     unloaded = tuple(n for n in parser_names if n not in loaded_by_name)
@@ -192,12 +192,12 @@ def parser_translation_flags(cfg: dict, parser_name, *, parsers_dir: str = None)
     parser seleziona almeno un profilo di mappatura **risolto** (esistente) di quel tipo — la
     stessa nozione di «traduzione attiva» del Riepilogo (#293). Parser vuoto o non caricabile →
     `(False, False)` (fail-closed: nessun falso ✓). Usato dai chip «Traduzioni» di Chat sorgenti
-    (#293 slice 6). Puro: nessuna GUI; `load_active` è già fail-safe (file mancante/invalido →
+    (#293 slice 6). Puro: nessuna GUI; `load_primary_parser` è già fail-safe (file mancante/invalido →
     None), quindi non solleva."""
     name = str(parser_name or "").strip()
     if not name:
         return (False, False)
-    defn = parser_manager.load_active({"active_parser": name}, "", parsers_dir)
+    defn = parser_manager.load_primary_parser({"active_parser": name}, "", parsers_dir)
     if defn is None:
         return (False, False)
     cfg = cfg if isinstance(cfg, dict) else {}

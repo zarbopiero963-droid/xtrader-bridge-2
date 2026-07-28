@@ -475,7 +475,7 @@ def build_message_preview(cfg, message, *, chat="", parsers_dir=None) -> dict:
                            "Incolla un solo segnale (o pochi, separati da una riga «---»).",
                 "csv_context": ctx}
     chat_id = str(chat or "").strip() or str(cfg.get("chat_id", "") or "")
-    defn = parser_manager.load_active(cfg, chat_id, parsers_dir)
+    defn = parser_manager.load_primary_parser(cfg, chat_id, parsers_dir)
     if defn is None:
         return {
             "error": "no_active_parser",

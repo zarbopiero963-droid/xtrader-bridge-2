@@ -288,7 +288,7 @@ def test_builder_factory_usa_la_chat_live_del_wizard(app_mod, monkeypatch):
 
     _fake_gui_mod(monkeypatch, _Win)
     chieste = []
-    monkeypatch.setattr(app_mod.parser_manager, "load_active",
+    monkeypatch.setattr(app_mod.parser_manager, "load_primary_parser",
                         lambda cfg, cid: chieste.append((cfg, cid)) or None)
     app._open_wizard()
     factory = captured["builder_factory"]

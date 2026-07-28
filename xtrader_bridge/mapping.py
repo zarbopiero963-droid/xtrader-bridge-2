@@ -6,7 +6,7 @@ placeholder dinamici ({HOME_TEAM}/{AWAY_TEAM}). Rende operativo il dizionario di
 PR-07: niente più SelectionName inglesi tipo "Over 0.5 Goals" quando l'alias è
 riconosciuto.
 
-`resolve(market_alias, selection_alias)` lavora sugli alias propri del dizionario.
+`resolve_selection(market_alias, selection_alias)` lavora sugli alias propri del dizionario.
 `resolve_shorthand(text)` accetta le forme brevi dei messaggi Telegram
 (es. "OVER 2.5", "GG", "1") tramite la tabella SYNONYMS.
 Alias sconosciuto → None (il chiamante decide; il blocco duro è PR-10).
@@ -103,8 +103,13 @@ def _subst(value: str, home: str, away: str) -> str:
     return out
 
 
-def resolve(market_alias: str, selection_alias: str, home: str = "", away: str = ""):
-    """Risolve una coppia di alias del dizionario in una selezione XTrader.
+def resolve_selection(market_alias: str, selection_alias: str, home: str = "", away: str = ""):
+    """Risolve una coppia di alias del dizionario in una **selezione** XTrader.
+
+    Rinominata da `resolve` (ambiguità M1 della #69): il nome generico era condiviso con
+    `value_maps.resolve`, che traduce un singolo valore tramite una value-map — due cose
+    diverse con lo stesso nome, e un import sbagliato non dava errore, dava un risultato
+    sbagliato.
 
     Ritorna un dict (MarketType/MarketName/SelectionName/Handicap/BetType) con i
     placeholder sostituiti, oppure None se la coppia non è nel dizionario **o**
@@ -135,10 +140,10 @@ def is_known_shorthand(text: str) -> bool:
 def resolve_shorthand(text: str, home: str = "", away: str = ""):
     """Risolve una forma breve Telegram (es. "OVER 2.5", "GG", "1") via SYNONYMS.
 
-    Ritorna lo stesso dict di `resolve()`, oppure None se la forma non è mappata
+    Ritorna lo stesso dict di `resolve_selection()`, oppure None se la forma non è mappata
     o se i placeholder non sono risolvibili.
     """
     pair = SYNONYMS.get(_norm_shorthand(text))
     if not pair:
         return None
-    return resolve(pair[0], pair[1], home, away)
+    return resolve_selection(pair[0], pair[1], home, away)
