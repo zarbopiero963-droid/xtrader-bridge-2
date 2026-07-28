@@ -65,8 +65,12 @@ jobs:
           cache-dependency-path: |
             requirements*.txt
             requirements*.in
+            requirements*.lock
       - run: python -m pip install --upgrade pip
-      - run: pip install -r requirements-dev.txt
+      # P3-ci2 (audit #114): constraints pinnate come in pr-checks/commit-gate/windows-tests.
+      # Senza, una release breaking a monte fa diventare rosso questo job da solo, senza che
+      # nulla sia cambiato nel repo — esattamente il bug che il lock esiste per impedire.
+      - run: pip install -r requirements-dev.txt -c requirements-dev.lock
       - run: python -m compileall main.py xtrader_bridge tests
       # Profilo PR: tutta la suite offline ESCLUSI i test live/manuali (anche a
       # livello di collection, così un import-time error in tests/manual non blocca).

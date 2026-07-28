@@ -19,7 +19,16 @@ _ROOT = Path(__file__).resolve().parents[2]
 _WF_DIR = _ROOT / ".github" / "workflows"
 
 # I workflow di test che DEVONO installare con le constraints.
-_TEST_WORKFLOWS = ("pr-checks.yml", "commit-gate.yml", "windows-tests.yml")
+# `merge-simulation.yml` aggiunto per il finding P3-ci2 della #114: girava senza `-c` e
+# senza i `.lock` nella cache-key. Era sfuggito proprio perché questa lista non lo
+# includeva — il guard esisteva già ed era giusto, semplicemente non guardava lì.
+_TEST_WORKFLOWS = ("pr-checks.yml", "commit-gate.yml", "windows-tests.yml",
+                   "merge-simulation.yml")
+
+# Il job notturno che builda l'EXE non usa le constraints ma il lock HASHATO: compila un
+# artefatto distribuibile, quindi ha bisogno della garanzia più forte (`--require-hashes`),
+# non solo di versioni pinnate. Stesso trattamento di `build.yaml` / `build-license-manager`.
+_HARD_BUILD_WORKFLOW = "merge-simulation-hard.yml"
 
 
 def _lock_pins():
@@ -98,3 +107,45 @@ def test_ci_installa_con_le_constraints():
             f"{name}: nessun install con constraints trovato")
         assert "requirements*.lock" in text, (
             f"{name}: cache-dependency-path senza requirements*.lock")
+
+
+# ── CI-1 (#114 P2): il job notturno che builda l'EXE ────────────────────────────────────────────
+def test_il_job_notturno_builda_da_dipendenze_pinnate_e_hashate():
+    """CI-1: `merge-simulation-hard` compila un EXE su windows-latest ogni notte.
+
+    Installava `pip install -r requirements-dev.txt pyinstaller httpx`: nessun lock, nessun
+    hash, e `pyinstaller`/`httpx` senza alcun vincolo di versione. Un artefatto distribuibile
+    costruito da dipendenze che possono cambiare da sola una notte all'altra — mentre il lock
+    hashato per Windows (`requirements-build.lock`, che contiene pyinstaller e httpx) era già
+    nel repo ed era già usato da `build.yaml` e `build-license-manager.yaml`.
+
+    Serve la garanzia FORTE (`--require-hashes`), non le sole constraints: qui non si tratta di
+    stabilizzare la CI ma di sapere cosa finisce dentro l'eseguibile."""
+    text = (_WF_DIR / _HARD_BUILD_WORKFLOW).read_text(encoding="utf-8")
+
+    assert "--require-hashes -r requirements-build.lock" in text, (
+        f"{_HARD_BUILD_WORKFLOW}: l'EXE notturno deve essere buildato dal lock HASHATO")
+
+    # Il vecchio install nudo non deve tornare, in nessuna delle sue forme.
+    nudi = re.findall(r"pip install\s+(?:--upgrade\s+)?-r requirements-dev\.txt"
+                      r"(?!\s+-c requirements-dev\.lock)[^\n]*", text)
+    assert not nudi, (
+        f"{_HARD_BUILD_WORKFLOW}: install non pinnato reintrodotto → {nudi}")
+
+    assert "requirements*.lock" in text, (
+        f"{_HARD_BUILD_WORKFLOW}: cache-dependency-path senza requirements*.lock — un lock "
+        "rigenerato riuserebbe la cache pip stantia")
+
+
+def test_il_lock_di_build_copre_davvero_pyinstaller_e_httpx():
+    """Il fix regge solo se il lock contiene ciò che l'install nudo aggiungeva a mano.
+
+    Se una rigenerazione futura togliesse `pyinstaller` da `requirements-build.lock`, il job
+    notturno fallirebbe all'improvviso in fase di build — e il motivo (una riga sparita da un
+    file autogenerato) sarebbe tutt'altro che ovvio a chi guarda il log."""
+    lock = (_ROOT / "requirements-build.lock").read_text(encoding="utf-8")
+    for pkg in ("pyinstaller", "httpx", "pytest"):
+        assert re.search(rf"(?mi)^{pkg}==", lock), (
+            f"requirements-build.lock: manca il pin di {pkg}, che il job notturno usa")
+    assert "--hash=" in lock, (
+        "requirements-build.lock deve restare hashato: senza hash `--require-hashes` fallisce")

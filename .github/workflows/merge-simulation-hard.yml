@@ -94,8 +94,19 @@ jobs:
           cache-dependency-path: |
             requirements*.txt
             requirements*.in
-      - run: python -m pip install --upgrade pip
-      - run: pip install -r requirements-dev.txt pyinstaller httpx
+            requirements*.lock
+      # CI-1 (audit #114): questo job builda un EXE, quindi installa dal lock HASHATO per
+      # Windows — non da `requirements-dev.txt` + `pyinstaller httpx` senza vincoli, com'era
+      # prima. Un artefatto distribuibile non deve dipendere da quale versione era su PyPI la
+      # notte in cui il cron è partito. `requirements-build.lock` copre runtime + pytest +
+      # pyinstaller + httpx, ed è lo stesso lock già usato da `build.yaml` e
+      # `build-license-manager.yaml`.
+      #
+      # NIENTE `pip install --upgrade pip` qui: nel ramo riproducibile tirerebbe l'ultima pip
+      # da PyPI al momento della build, reintroducendo un componente non deterministico proprio
+      # dove si vuole determinismo (stessa scelta, e stessa motivazione, di `build.yaml`). La pip
+      # inclusa nel Python 3.11 pinnato da `setup-python` installa il set con `--require-hashes`.
+      - run: python -m pip install --require-hashes -r requirements-build.lock
 
       - run: python -m compileall main.py xtrader_bridge tests
       # Prima le categorie critiche con stop al primo errore (early-fail reale),
