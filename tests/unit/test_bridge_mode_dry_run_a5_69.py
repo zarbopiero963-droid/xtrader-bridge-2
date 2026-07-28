@@ -64,29 +64,27 @@ def test_get_health_dice_simulazione_quando_lo_e_davvero():
 
 
 # ── la rete di sicurezza che rende il caso irraggiungibile in produzione ─────────────────────────
-def test_load_config_ri_deriva_l_etichetta_dalla_coppia(tmp_path, monkeypatch):
+def test_load_config_ri_deriva_l_etichetta_dalla_coppia(tmp_path):
     """`load_config` **ri-deriva** `bridge_mode` da `mode_from_cfg`: una coppia incoerente su
     disco viene sanata al caricamento. È il motivo per cui il difetto sopra era latente e non
     vivo — e va blindato, perché se questa normalizzazione sparisse la lettura grezza tornerebbe
-    a mentire (e non solo nell'assistente)."""
-    import importlib
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.delenv("APPDATA", raising=False)
-    from xtrader_bridge import config_store
-    importlib.reload(config_store)
-    try:
-        percorso = config_store.config_path()
-        import os
-        os.makedirs(os.path.dirname(percorso), exist_ok=True)
-        with open(percorso, "w", encoding="utf-8") as f:
-            json.dump(_CFG_INCOERENTE, f)
+    a mentire (e non solo nell'assistente).
 
-        cfg = config_store.load_config()
-        assert cfg["bridge_mode"] == bridge_mode.REALE, \
-            "l'etichetta salvata non è stata ri-derivata: una config incoerente resterebbe tale"
-        assert cfg["dry_run"] is False
-    finally:
-        importlib.reload(config_store)      # non lasciare il modulo agganciato alla tmp
+    NB: `path=` esplicito, **niente** patch di `XDG_CONFIG_HOME`/`APPDATA` né `importlib.reload`
+    (rilievo GPT-5.5 #162): `config_store.CONFIG_FILE` è calcolato **all'import**, quindi un
+    reload sotto env patchata lascerebbe il modulo agganciato alla cartella temporanea per tutti
+    i test successivi del processo — un classico test order-dependent. Il parametro `path` esiste
+    proprio per questo e rende il test isolato per costruzione."""
+    from xtrader_bridge import config_store
+    percorso = tmp_path / "config.json"
+    percorso.write_text(json.dumps(_CFG_INCOERENTE), encoding="utf-8")
+
+    cfg = config_store.load_config(path=str(percorso), sync_csv_language=False)
+    assert cfg["bridge_mode"] == bridge_mode.REALE, \
+        "l'etichetta salvata non è stata ri-derivata: una config incoerente resterebbe tale"
+    assert cfg["dry_run"] is False
+    # il modulo NON deve essere rimasto agganciato alla tmp (nessun reload, nessuna env toccata)
+    assert config_store.CONFIG_FILE != str(percorso)
 
 
 # ── nessuno deve tornare a leggere l'etichetta grezza per DECIDERE ───────────────────────────────
