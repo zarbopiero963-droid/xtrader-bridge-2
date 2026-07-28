@@ -178,3 +178,12 @@ def test_intervallo_oltre_la_finestra_viene_limitato():
         publish_store.MAX_INTERVAL_HOURS
     assert publish_store.normalize_config({"interval_hours": 168})["interval_hours"] == \
         publish_store.MAX_INTERVAL_HOURS
+
+
+def test_validate_config_rifiuta_spazi_in_path_e_branch():
+    """Spazi in `path`/`branch` finiscono in DUE URL diversi (API e raw): meglio rifiutarli subito
+    che produrre un URL non scaricabile dal bridge → lockout (rilievo Fugu #158)."""
+    base = {"repo": "tizio/x"}
+    assert publish_store.validate_config({**base, "path": "lista revoche.txt"}) is not None
+    assert publish_store.validate_config({**base, "branch": "main dev"}) is not None
+    assert publish_store.validate_config({**base, "path": "sub/lista.txt", "branch": "main"}) is None

@@ -193,4 +193,10 @@ def validate_config(cfg: dict) -> "str | None":
         return "Indica il percorso del file nel repository (es. revocation_list.txt)."
     if not norm["branch"]:
         return "Indica il branch (es. main)."
+    # Niente spazi in `path`/`branch` (rilievo Fugu #158): finiscono in DUE URL diversi (Contents API
+    # e raw), e un disallineamento di codifica renderebbe il file non scaricabile dal bridge →
+    # lockout fail-closed. Meglio rifiutarli qui, chiaramente, che produrre un URL che non funziona.
+    for campo, etichetta in (("path", "percorso del file"), ("branch", "branch")):
+        if any(c.isspace() for c in norm[campo]):
+            return f"Il {etichetta} non può contenere spazi: «{norm[campo]}»."
     return None

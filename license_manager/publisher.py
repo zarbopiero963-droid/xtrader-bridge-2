@@ -40,10 +40,15 @@ _MAX_RESPONSE_BYTES = 2_000_000
 
 def raw_url(repo: str, path: str, branch: str) -> str:
     """URL **raw** pubblico del file pubblicato — è quello da mettere in `REVOCATION_LIST_URL` nel
-    bridge. Esempio: `https://raw.githubusercontent.com/tizio/xtrader-revocation/main/revocation_list.txt`."""
+    bridge. Esempio: `https://raw.githubusercontent.com/tizio/xtrader-revocation/main/revocation_list.txt`.
+
+    `path`/`branch` sono **quotati come in `contents_url`** (rilievo Fugu #158): l'API pubblica il file
+    all'indirizzo *codificato*, quindi un raw URL con caratteri grezzi (spazi/accenti) punterebbe a un
+    file **inesistente** → il bridge non scaricherebbe più la lista → **lockout fail-closed di tutti i
+    bridge**. I due URL devono codificare allo stesso modo. `quote` mantiene `/` (path annidati)."""
     repo = str(repo or "").strip().strip("/")
-    path = str(path or "").strip().lstrip("/")
-    branch = str(branch or "").strip()
+    path = urllib.parse.quote(str(path or "").strip().lstrip("/"))
+    branch = urllib.parse.quote(str(branch or "").strip())
     return f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
 
 

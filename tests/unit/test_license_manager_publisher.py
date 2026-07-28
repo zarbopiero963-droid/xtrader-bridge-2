@@ -152,3 +152,22 @@ def test_messaggio_3xx_spiega_il_blocco_senza_esporre_il_token():
                                 message="m", http=_FakeHttp((404, None), (status, None)))
         assert out["ok"] is False and "redirect" in out["message"].lower()
         assert _TOKEN not in out["message"]
+
+
+def test_raw_url_e_contents_url_codificano_allo_stesso_modo():
+    """I due URL devono codificare **identicamente** (rilievo Fugu #158): l'API pubblica al path
+    codificato, quindi un raw URL grezzo punterebbe a un file inesistente → il bridge non scarica più
+    la lista → lockout fail-closed di tutti i bridge."""
+    path_con_spazi = "cartella con spazi/lista revoche.txt"
+    raw = publisher.raw_url(_REPO, path_con_spazi, _BRANCH)
+    api = publisher.contents_url(_REPO, path_con_spazi)
+    assert " " not in raw, "il raw URL non può contenere spazi grezzi"
+    # la parte «path» dei due URL è codificata allo stesso modo
+    assert raw.split(f"/{_BRANCH}/", 1)[1] == api.split("/contents/", 1)[1]
+    # gli slash dei path annidati restano slash (non %2F)
+    assert "/" in raw.split(f"/{_BRANCH}/", 1)[1]
+
+
+def test_raw_url_quota_anche_il_branch():
+    raw = publisher.raw_url(_REPO, "l.txt", "feature/mia branch")
+    assert " " not in raw and "feature/mia%20branch" in raw
