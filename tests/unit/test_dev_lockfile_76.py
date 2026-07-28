@@ -79,21 +79,30 @@ def _srotola_folded(testo: str) -> str:
     return "\n".join(out)
 
 
+# Separatori di comando: due `pip install` sulla stessa riga sono due comandi DISTINTI, e le
+# opzioni dell'uno non valgono per l'altro (GPT-5.5 #165). Senza questo split,
+# `pip install -r requirements-dev.txt && pip install -c requirements-dev.lock altro` passava
+# per costretto — il `-c` del secondo comando copriva l'install nudo del primo.
+_SEPARATORI_SHELL = re.compile(r"&&|\|\||;|\|")
+
+
 def _comandi_pip(testo: str):
     """I comandi `pip install` del testo, come LISTE DI ARGOMENTI.
 
-    Ricongiunge le continuazioni `\\` e i blocchi folded, poi tronca al primo `#`: tutto ciò
-    che segue è un commento shell, non un argomento che pip riceve."""
+    Ricongiunge le continuazioni `\\` e i blocchi folded, separa i comandi concatenati, poi
+    tronca al primo `#`: tutto ciò che segue è un commento shell, non un argomento che pip
+    riceve."""
     unito = re.sub(r"\\\n\s*", " ", _srotola_folded(testo))
     for riga in unito.splitlines():
-        if "pip install" not in riga:
-            continue
-        args = []
-        for tok in riga.split():
-            if tok.startswith("#"):
-                break
-            args.append(tok)
-        yield args
+        for pezzo in _SEPARATORI_SHELL.split(riga):
+            if "pip install" not in pezzo:
+                continue
+            args = []
+            for tok in pezzo.split():
+                if tok.startswith("#"):
+                    break
+                args.append(tok)
+            yield args
 
 
 def _usa_file(args, opzioni, atteso: str) -> bool:
@@ -259,6 +268,10 @@ def test_il_job_notturno_builda_da_dipendenze_pinnate_e_hashate():
     # l'install nudo di quella prima.
     "      - run: |\n          pip install -r requirements-dev.txt\n"
     "          pip install -c requirements-dev.lock altro",
+    # Comandi CONCATENATI sulla stessa riga (GPT-5.5 #165): stessa logica del blocco literal —
+    # sono due comandi, e le opzioni del secondo non valgono per il primo.
+    "      - run: pip install -r requirements-dev.txt && pip install -c requirements-dev.lock x",
+    "      - run: pip install -r requirements-dev.txt ; echo -c requirements-dev.lock",
 ])
 def test_il_guard_riconosce_tutte_le_forme_dell_install_nudo(riga):
     """Il guard è a sua volta testato, perché una regex che non morde è indistinguibile da
@@ -297,6 +310,8 @@ def test_il_guard_non_segnala_gli_install_corretti(riga):
     "-r requirements-dev.txt -c requirements-dev.lock",
     # Forma lunga con `=`: `--requirement=` / `--constraint=` sono equivalenti a `-r`/`-c`.
     "      - run: pip install --requirement=requirements-dev.txt "
+    "--constraint=requirements-dev.lock",
+    "      - run: python -m pip install --requirement=requirements-dev.txt "
     "--constraint=requirements-dev.lock",
     # Blocco folded corretto: srotolato diventa un comando con entrambe le opzioni.
     "      - run: >\n          pip install\n          -r requirements-dev.txt\n"
