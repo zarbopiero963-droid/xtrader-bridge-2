@@ -96,16 +96,22 @@ def test_nessuna_lettura_grezza_di_bridge_mode_fuori_dal_suo_modulo():
     A5 esatto. Chi deve sapere la modalità chiama `mode_from_cfg`; chi deve sapere se si scrive
     chiama `is_dry_run`."""
     import pathlib
+    import re
     pkg = pathlib.Path(config_agent.__file__).parent
     consentiti = {"bridge_mode.py", "config_store.py"}
+    # Apici singoli E doppi (rilievo Fable #162): un `cfg.get('bridge_mode')` scritto con gli
+    # apici dell'altro tipo aggirerebbe un confronto testuale letterale — un guard che si evade
+    # cambiando virgolette non è un guard. Coperta anche la vecchia chiave alias `"mode"`, che
+    # era il *secondo* modo di leggere la stessa etichetta grezza (rimosso da questa PR).
+    vietati = re.compile(r"""cfg(?:\.get\(|\[)\s*['"](?:bridge_mode|mode)['"]""")
     offenders = []
     for path in sorted(pkg.rglob("*.py")):
         if path.name in consentiti:
             continue
         testo = path.read_text(encoding="utf-8")
-        for forma in ('cfg.get("bridge_mode"', 'cfg["bridge_mode"]'):
-            if forma in testo:
-                offenders.append(f"{path.name}: {forma}")
+        for m in vietati.finditer(testo):
+            riga = testo[:m.start()].count("\n") + 1
+            offenders.append(f"{path.name}:{riga}: {m.group(0)}")
     assert not offenders, (
         "lettura grezza di `bridge_mode` (può mentire: `dry_run` è autoritativo) — usa "
         "`bridge_mode.mode_from_cfg(cfg)` o `safety_guard.is_dry_run(cfg)`:\n  "
