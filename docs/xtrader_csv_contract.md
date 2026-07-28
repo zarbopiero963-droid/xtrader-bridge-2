@@ -241,6 +241,30 @@ esclusiva), il bridge:
 - `init_csv()`/`write_csv()` scrivono in `utf-8-sig` con `QUOTE_ALL`. ✅
 - README aggiornato sul formato reale. ✅
 
+### Svuotare il CSV: cinque funzioni, precondizioni opposte (A4 della #69)
+
+Portano tutte allo stesso risultato — un file col **solo header** — ma **non** sono
+intercambiabili: due cancellano senza chiedere, tre proteggono. Sceglierle per il nome invece
+che per il contratto può far sparire un segnale che XTrader non ha ancora letto.
+
+| funzione | crea se manca | file **estraneo** | CSV con riga **attiva** |
+|---|---|---|---|
+| `init_csv` | sì | **sovrascrive** | **cancella** |
+| `write_rows([], path)` | sì | **sovrascrive** | **cancella** |
+| `init_csv_for_session` | sì | rifiuta (`CSV_INIT_FOREIGN`) | azzera (voluto: a START la riga stantia deve sparire) |
+| `create_header_only_csv` | sì | rifiuta (`..._REFUSED_FOREIGN`) | **rifiuta** (`..._REFUSED_ACTIVE`), salvo `force=True` |
+| `clear_stale_csv` | **no** | rifiuta e avvisa | azzera (voluto: pulizia avvio/STOP) |
+
+In pratica: **START/clear di sessione** → `init_csv_for_session`; **azione esplicita
+dell'utente** («📄 Crea CSV», wizard) → `create_header_only_csv`, che rifiuta e fa confermare;
+**pulizia avvio/STOP** → `clear_stale_csv`, che non crea nulla su un path mai usato.
+`init_csv` e `write_rows([])` **non controllano niente** e vanno usate solo dove il path è già
+stato validato altrove.
+
+La matrice vive anche nel sorgente (sopra `init_csv` in `csv_writer.py`) ed è fissata da
+`tests/unit/test_csv_family_a4_69.py`: se i contratti venissero uniformati, quei test
+diventano rossi.
+
 ### Output multi-riga (#192) — contratto per-riga invariato
 
 Un singolo messaggio Telegram può ora produrre **più righe CSV** (MultiMarket/MultiSelection,
