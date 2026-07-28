@@ -818,6 +818,12 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   > ⚠️ Nessuna chat configurata — il bridge non si avvierà finché non imposti una Chat ID
   > o una Chat sorgente.
 - Pulsanti: **"🧾 Esporta audit reale"**, **"📂 Apri cartella log"**, **"📋 Copia diagnostica"**.
+  > **"📋 Copia diagnostica" è un pulsante «da condividere»** (C1 #114): il testo che finisce
+  > negli appunti è pensato per essere incollato in una segnalazione, quindi esce **redatto** —
+  > token mascherati, **chat_id** → impronta `chat:sha256:…`, **username** nei path → `<utente>`
+  > (`C:\Users\<utente>\…`, il resto del path resta leggibile). Se il redesign aggiunge campi a
+  > questo report (nuovi path, nuove chat, id evento), devono passare per la stessa redazione:
+  > è l'unico output della UI che l'utente è **incoraggiato** a mandare a terzi.
 
 **Tab 📡 Stato** — 4 righe dinamiche (formato `Prefisso: valore o —`):
 - **Ultimo segnale**, **Ultimo messaggio**, **Ultimo CSV**, **Ultimo errore**.
@@ -1508,7 +1514,10 @@ Il design può cambiare **aspetto e disposizione**, ma NON deve indebolire quest
 4. **AVVIA bloccato senza chat configurata** (niente segnali da chat arbitrarie).
 5. **Un solo segnale attivo di default** (`OVERWRITE_LAST`); l'indicatore N/M nelle
    modalità multi-riga.
-6. **Token mai in chiaro nella UI/log**; testo messaggi non loggato di default.
+6. **Token mai in chiaro nella UI/log**; testo messaggi non loggato di default. Vale anche per
+   ciò che la UI **invita a condividere**: il report di «📋 Copia diagnostica» esce senza
+   token, senza **chat_id** (impronta `chat:sha256:…`) e senza **username** nei path
+   (`<utente>`) — vedi §6.5.
 7. **STOP e chiusura finestra fermano davvero** il bridge.
 8. **Errori parlanti** sul perché non parte / perché non scrive.
 9. **Nessuna automazione "di puntata diretta"** verso Betfair/XTrader dalla UI: l'app scrive
