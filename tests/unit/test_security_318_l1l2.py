@@ -10,7 +10,15 @@ proprietario: rimozione, il modulo era fuori dal flusso live da CP-09b). La guar
 anti-reintroduzione è in `tests/unit/test_pbet_removed_76.py`.
 """
 
+import pytest
+
+from xtrader_bridge import custom_parser_engine, source_manager, transforms
 from xtrader_bridge import value_maps as vm
+
+# Cifre non-ASCII che `\d` matcha e che i costruttori Python convertono senza batter ciglio:
+# `int("٢") == 2`, `float("١٩") == 19.0`. Sono raggiungibili da un vero messaggio Telegram.
+ARABO_INDIANE = "٢-٠"      # U+0662, U+0660
+FULLWIDTH = "１-０"          # U+FF11, U+FF10
 
 
 # ── L2-2: `_is_placeholder` fail-closed (`or`, non `and`) ──────────────────────
@@ -34,3 +42,69 @@ def test_value_map_esclude_placeholder_parziale():
     pairs = [("gg", "Goal/Goal"), ("bad", "{HOME_TEAM"), ("ok", "Milan")]
     filtered = vm.value_map_from_pairs([(a, v) for a, v in pairs if not vm._is_placeholder(v)])
     assert "bad" not in filtered and filtered.get("gg") == "Goal/Goal"
+
+
+# ── L2-1 residuo (#166 P3-cp1): le regex scritte a mano rimaste fuori dal fix #318 ─────────────
+# Il fix #318 aveva chiuso il fail-open sostituendo `\d` con `[0-9]` nella fonte unica
+# `numbers_re.DECIMAL`, coprendo validator / custom_pipeline / csv_writer / parser. Tre regex
+# però sono scritte a mano e non compongono da lì: due sui PUNTEGGI e una sul CHAT_ID. Erano
+# rimaste indietro, e non in modo innocuo — vedi i tre test qui sotto.
+
+def test_i_punteggi_non_ascii_non_generano_una_selezione_piazzabile():
+    """Il caso più grave: `extract_scores` NORMALIZZA al formato del dizionario XTrader, quindi
+    «٢-٠» usciva come «2 - 0» — una selezione Correct Score valida e **piazzabile**, da un
+    messaggio che la stringa «2-0» non la contiene affatto.
+
+    Fail-closed: un punteggio deve essere scritto in cifre ASCII o non è un punteggio."""
+    assert custom_parser_engine.extract_scores("Risultati: 2-0") == ["2 - 0"]
+    assert custom_parser_engine.extract_scores(f"Risultati: {ARABO_INDIANE}") == []
+    assert custom_parser_engine.extract_scores(f"Risultati: {FULLWIDTH}") == []
+
+
+def test_la_linea_over_non_nasce_da_cifre_non_ascii():
+    """Stessa radice sul secondo consumer: `score_to_over` somma i gol e produce la linea Over
+    che finisce nel CSV. «٦-٠» dava «Over 6,5» — una linea inventata."""
+    assert transforms.apply("6-0", "score_to_over") == "Over 6,5"
+    assert transforms.apply("٦-٠", "score_to_over") == ""
+    assert transforms.apply("６-０", "score_to_over") == ""
+
+
+def test_un_chat_id_non_ascii_non_e_un_chat_id_valido():
+    """`is_valid_chat_id` esiste per impedire la sorgente «configurata ma morta» (P3-29 #76):
+    un valore che passa la validazione ma non combacia mai con l'`effective_chat.id` runtime.
+
+    Con `\\d` accettava «١٢٣٤٥٦٧٨٩», che è esattamente quel caso — la regex ricreava il bug che
+    era stata scritta per prevenire."""
+    assert source_manager.is_valid_chat_id("-1001234567890") is True
+    assert source_manager.is_valid_chat_id("123456789") is True
+    assert source_manager.is_valid_chat_id("١٢٣٤٥٦٧٨٩") is False
+    assert source_manager.is_valid_chat_id("１２３４５６７８９") is False
+
+
+@pytest.mark.parametrize("testo,atteso", [
+    ("1-0", ["1 - 0"]),
+    ("1–0", ["1 - 0"]),                    # EN DASH (#76 P3-13: tastiere iOS)
+    ("01 - 0", ["1 - 0"]),                 # zeri iniziali rimossi
+    ("1-0, 2-1", ["1 - 0", "2 - 1"]),      # lista
+    ("100-1", []),                         # numero più lungo → non è un punteggio
+    ("0-0.5", []),                         # handicap decimale (#341)
+    ("0-0,5", []),                         # idem, virgola italiana
+    ("3\n- 0", []),                        # cifre di righe adiacenti non si fondono
+])
+def test_i_punteggi_ascii_legittimi_restano_invariati(testo, atteso):
+    """Nessuna regressione: tutte le forme che il parser già supportava — e tutte quelle che già
+    rifiutava — devono comportarsi esattamente come prima. Il fix restringe l'alfabeto delle
+    cifre, non la grammatica dei punteggi."""
+    assert custom_parser_engine.extract_scores(testo) == atteso
+
+
+def test_i_confini_restano_unicode_di_proposito():
+    """Asimmetria deliberata: il CORPO della regex accetta solo `[0-9]`, ma i lookaround
+    `(?<!\\d)`/`(?!\\d)` restano Unicode.
+
+    Motivo: una cifra non-ASCII **adiacente** significa che quel «2» fa parte di un numero più
+    lungo e scritto in modo misto — quindi il match va rifiutato, non accettato. Restringere
+    anche i confini a `[0-9]` li renderebbe più PERMISSIVI, non più severi: «١2-0» tornerebbe a
+    produrre «2 - 0». Le due scelte puntano nella stessa direzione fail-closed."""
+    assert custom_parser_engine.extract_scores("١2-0") == []
+    assert custom_parser_engine.extract_scores("2-0١") == []

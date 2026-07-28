@@ -170,7 +170,18 @@ def extract_between(text: str, start_after: str = "", end_before: str = "") -> s
 # confine morde su `[.,]` immediatamente prima; il separatore di lista comma-SPAZIO «1-0, 2-1» resta
 # valido (il numero successivo è preceduto da uno SPAZIO, non da «[.,]»). Una lista a virgola SENZA
 # spazio «1-0,2-1» è ambigua con un decimale → fail-closed (non estratta): usare «, » o newline.
-_SCORE_RE = re.compile(r"(?<!\d)(?<![.,])(\d{1,2})[^\S\r\n]*[-–][^\S\r\n]*(\d{1,2})(?!\d)(?![.,]\d)")
+# Cifre ASCII SOLTANTO nel corpo (`[0-9]`, non `\d`) — stessa ragione di `numbers_re.DECIMAL`
+# (#318 L2-1, fail-OPEN): `\d` matcha tutte le cifre Unicode e `int("٢") == 2`, quindi «٢-٠»
+# veniva NORMALIZZATO a «2 - 0» — una selezione Correct Score valida e piazzabile da un messaggio
+# che «2-0» non lo contiene. Il fix #318 aveva chiuso il buco sui consumer che compongono da
+# `numbers_re`; questa regex è scritta a mano ed era rimasta indietro (#166 P3-cp1).
+#
+# I LOOKAROUND restano `\d` (Unicode) DI PROPOSITO: una cifra non-ASCII adiacente significa che
+# il numero è più lungo e scritto in modo misto, quindi il match va RIFIUTATO. Restringerli a
+# `[0-9]` li renderebbe più permissivi, non più severi («١2-0» tornerebbe a dare «2 - 0»).
+# Corpo e confini puntano nella stessa direzione fail-closed per vie opposte.
+_SCORE_RE = re.compile(
+    r"(?<!\d)(?<![.,])([0-9]{1,2})[^\S\r\n]*[-–][^\S\r\n]*([0-9]{1,2})(?!\d)(?![.,]\d)")
 
 # #325: cap DIFENSIVO sul numero di risultati estratti da UN messaggio (input Telegram NON
 # attendibile, review #341). Un elenco reale di risultati esatti (Correct Score FT/1º tempo) ha

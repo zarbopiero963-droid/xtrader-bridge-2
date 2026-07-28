@@ -241,7 +241,11 @@ def provider_for_chat(cfg: dict, chat_id: str, default: str = "") -> str:
 # Un @username o un nome canale NON matcherebbero mai gli update runtime (l'ID di
 # `effective_chat` è sempre numerico): una sorgente col typo sarebbe "configurata"
 # ma silenziosamente morta (P3-29 #76). Stessa regola del Wizard.
-_CHAT_ID_RE = re.compile(r"-?\d+")
+# Cifre ASCII SOLTANTO (`[0-9]`, non `\d`): come `numbers_re.DECIMAL` (#318 L2-1). Con `\d` un
+# «١٢٣٤٥٦٧٨٩» passava la validazione, ma non combacerà MAI con l'`effective_chat.id` numerico
+# degli update — cioè proprio la sorgente «configurata ma silenziosamente morta» che questa
+# regex esiste per impedire (#166 P3-cp1).
+_CHAT_ID_RE = re.compile(r"-?[0-9]+")
 
 
 def is_valid_chat_id(value) -> bool:
