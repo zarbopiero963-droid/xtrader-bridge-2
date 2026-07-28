@@ -1,12 +1,12 @@
 """Gate di sicurezza dei workflow AI (PR review push-range + full-repo audit).
 
-Sei workflow AI mandano diff/contenuti del repository a servizi esterni:
+Cinque workflow AI mandano diff/contenuti del repository a servizi esterni:
 
-- **PR review push-range** (automatici su ogni push della PR, un commento per
+- **PR review push-range** (partono sui push della PR, un commento per
   range `before...after` via GitHub Compare API):
-  `pr-review-gpt55.yml` (OpenAI), `pr-review-claude-fable5.yml` (Anthropic),
-  `pr-review-openrouter-glm52.yml` e `pr-review-openrouter-fugu-ultra.yml`
-  (OpenRouter);
+  `pr-review-gpt55.yml` (OpenAI), `pr-review-claude-fable5.yml` (Anthropic) e
+  `pr-review-openrouter-fugu-ultra.yml` (OpenRouter). *GLM 5.2 era il quarto:
+  rimosso dal proprietario il 2026-07-28 — vedi la nota in `_AI_WORKFLOWS`;*
 - **audit full-repo** (solo manuali, artifact scaricabile):
   `manual-full-repo-ai-audit.yml` (OpenAI) e `claude-fable-full-repo-audit.yml`
   (Anthropic).
@@ -49,9 +49,14 @@ _AI_WORKFLOWS = {
     # il budget di output col tetto basso e troncano). "low" = effort ridotto,
     # "disabled" = reasoning spento del tutto (GLM col tetto 700 ha ignorato "low" e
     # troncava lo stesso, PR #310), None = provider senza campo reasoning (Anthropic).
+    # GLM 5.2 (`pr-review-openrouter-glm52.yml`) è stato **rimosso dal proprietario** (commit
+    # 474ca34, decisione confermata 2026-07-28): il file non esiste più, quindi non è più in
+    # questo elenco — un guard che cerca un workflow inesistente rende rossa tutta la suite
+    # `safety` senza proteggere nulla. Se un domani si rimettesse, va ri-aggiunta la riga qui
+    # (era: openrouter · trigger auto · reasoning "disabled" — col tetto 700 ignorava "low" e
+    # troncava, PR #310), non basta ricreare il YAML.
     "pr-review-gpt55.yml": {"kind": "pr_review", "provider": "openai", "trigger": "auto", "reasoning": "low"},
     "pr-review-claude-fable5.yml": {"kind": "pr_review", "provider": "anthropic", "trigger": "label", "label": "final-fable-review", "reasoning": None},
-    "pr-review-openrouter-glm52.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "auto", "reasoning": "disabled"},
     "pr-review-openrouter-fugu-ultra.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "label", "label": "final-fugu-review", "reasoning": "low"},
     "manual-full-repo-ai-audit.yml": {"kind": "audit", "provider": "openai"},
     "claude-fable-full-repo-audit.yml": {"kind": "audit", "provider": "anthropic"},
@@ -149,8 +154,57 @@ def _exec_audit_script(name, tmp_path, monkeypatch, extra_env=None):
 
 
 # ---------------------------------------------------------------------------
-# Invarianti statiche sui 6 workflow
+# Invarianti statiche sui workflow censiti
 # ---------------------------------------------------------------------------
+
+def test_ogni_workflow_ai_su_disco_e_censito():
+    """Controllo **INVERSO**: ogni workflow AI presente su disco deve stare in `_AI_WORKFLOWS`
+    (rilievo GPT-5.5 #160; estensione agli audit full-repo su rilievo Fugu Ultra #160).
+
+    Coperti **entrambi** i tipi, non solo i PR review:
+
+    - `pr-review-*` → manda alla review il **diff** della PR;
+    - `*audit*` → manda **l'intero repository** a un provider esterno. Sono i più delicati dei
+      due, e restavano fuori dal censimento: un audit YAML nuovo sarebbe sfuggito ai gate su
+      trigger (solo `workflow_dispatch`), permessi, redazione dei segreti e fail-closed.
+
+    Senza questo, il registro protegge solo ciò che qualcuno si è ricordato di censire: un
+    reviewer AI nuovo — che manda il diff del repository a un provider esterno — potrebbe essere
+    aggiunto **senza** alcun controllo su trigger, permessi, redazione dei segreti e fail-closed.
+    E toglierne uno dall'elenco lasciando il YAML al suo posto sarebbe un **bypass silenzioso** del
+    gate invece che l'allineamento a una rimozione reale (è esattamente la differenza fra le due
+    che rende legittima la rimozione di GLM 5.2: il file non c'è più davvero).
+
+    Il controllo diretto — «ogni voce censita esiste su disco» — è già garantito da `_read`, che
+    solleva `FileNotFoundError` in tutti i test che leggono i workflow."""
+    # Solo YAML VERI (rilievo GPT-5.5 #160): senza il filtro sull'estensione un `.bak`, uno
+    # `.orig` di un merge o un file temporaneo dell'editor col prefisso `pr-review-` renderebbe
+    # rossa la suite safety senza che esista alcun workflow nuovo. `.yaml` è incluso perché GitHub
+    # accetta entrambe le estensioni: un reviewer non deve poter sfuggire al gate cambiando suffisso.
+    # Il RICONOSCIMENTO è case-insensitive (rilievo GPT-5.5 #160): `Security-Audit.yml` viene
+    # visto come workflow AI anche con le maiuscole — un gate anti-fuga non può dipendere da come
+    # è scritto il nome. Il CENSIMENTO invece resta **case-sensitive di proposito**: la chiave in
+    # `_AI_WORKFLOWS` dev'essere il nome file ESATTO, perché `_read`/`_wf_path` aprono il file per
+    # nome e su Linux (la CI) `security-audit.yml` ≠ `Security-Audit.yml` → `FileNotFoundError` in
+    # tutti gli altri test. Normalizzare anche il confronto accetterebbe una chiave che poi non
+    # apre nulla: la seconda asserzione di questo test (`mancanti`) è lì apposta per impedirlo.
+    # Se un domani esistesse un workflow con «audit» nel nome che NON manda nulla all'esterno, il
+    # test fallirebbe: è voluto e si risolve in due modi leciti (censirlo o rinominarlo), mai
+    # allentando il filtro — meglio un rosso rumoroso che un workflow di esfiltrazione invisibile.
+    su_disco = {f for f in os.listdir(_WF_DIR)
+                if f.lower().endswith((".yml", ".yaml"))
+                and (f.lower().startswith("pr-review-") or "audit" in f.lower())}
+    non_censiti = su_disco - set(_AI_WORKFLOWS)
+    assert not non_censiti, (
+        f"workflow AI presenti ma NON censiti in _AI_WORKFLOWS: {sorted(non_censiti)}. "
+        "Un reviewer manda il diff del repo a un provider esterno, un audit ci manda il "
+        "repository INTERO: vanno aggiunti al registro (kind/provider/trigger/reasoning) così "
+        "i gate di sicurezza li coprono."
+    )
+    # e il registro non deve elencare file inesistenti (rimozione reale ≠ voce dimenticata)
+    mancanti = {n for n in _AI_WORKFLOWS if not os.path.exists(_wf_path(n))}
+    assert not mancanti, f"censiti in _AI_WORKFLOWS ma assenti da disco: {sorted(mancanti)}"
+
 
 def test_yaml_dei_workflow_ai_e_parsabile():
     yaml = pytest.importorskip(
@@ -645,9 +699,10 @@ def test_pr_review_reviewer_opzionale_non_fa_fallire_la_pr():
 
 
 def test_pr_review_trigger_split():
-    """GPT-5.5 e GLM 5.2 automatici a ogni push (spendono sempre); Claude Fable 5
-    e Fugu Ultra partono sui push ma spendono (chiamano il modello) SOLO se il
-    push tocca file core del bridge oppure se è aggiunta la label finale."""
+    """GPT-5.5 automatico a ogni push (spende sempre — dalla rimozione di GLM 5.2 è l'unico
+    reviewer sempre attivo); Claude Fable 5 e Fugu Ultra partono sui push ma spendono
+    (chiamano il modello) SOLO se il push tocca file core del bridge oppure se è aggiunta
+    la label finale."""
     for name, meta in _AI_WORKFLOWS.items():
         if meta["kind"] != "pr_review":
             continue

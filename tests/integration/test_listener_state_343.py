@@ -69,21 +69,21 @@ def test_refresh_health_usa_lo_stato_canonico_non_il_testo(app_mod, monkeypatch)
     assert "ATTIVO" not in app._status_lbl.kw["text"]            # il testo NON basta più
     catturato = {}
 
-    def _fake_evaluate(**kw):
+    def _fake_build_semaphores(**kw):
         catturato.update(kw)
         return []
 
-    monkeypatch.setattr(app_mod.health_check, "evaluate", _fake_evaluate)
+    monkeypatch.setattr(app_mod.health_check, "build_semaphores", _fake_build_semaphores)
     app._refresh_health_inner({})
     assert catturato["listener_status"] == health_check.LISTENER_ACTIVE
 
 
 def test_semaforo_verde_in_inglese_end_to_end(app_mod):
     """Con lingua EN e listener attivo il semaforo Telegram resta VERDE: lo stato
-    canonico attraversa evaluate() senza dipendere dalla lingua della label."""
+    canonico attraversa build_semaphores() senza dipendere dalla lingua della label."""
     app = _app(app_mod)
     i18n.set_language("EN")
     app._set_listener_state(health_check.LISTENER_ACTIVE, "green")
-    items = health_check.evaluate(listener_status=app._listener_state)
+    items = health_check.build_semaphores(listener_status=app._listener_state)
     telegram = next(it for it in items if it.key == "telegram")
     assert telegram.state == health_check.GREEN

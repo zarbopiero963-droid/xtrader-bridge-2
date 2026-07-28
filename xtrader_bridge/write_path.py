@@ -11,11 +11,11 @@ INVARIANTI (non negoziabili):
   due callback interlacciati potrebbero passare entrambi il dedup → doppia scommessa.
 - **Solo WRITE scrive.** Ogni altro esito `live_guard` (DUPLICATE/RATE_LIMITED/
   DAILY_LIMITED/DRY_RUN) sopprime la scrittura e non tocca la coda. Inoltre lo stato dei
-  guardrail riflette SOLO i WRITE reali: il consumo fatto da `evaluate` su un esito che NON
+  guardrail riflette SOLO i WRITE reali: il consumo fatto da `decide_write` su un esito che NON
   scrive viene disfatto. DAILY_LIMITED → si annulla solo l'hash del tracker (il tetto non aveva
   consumato slot, solo normalizzato il giorno: si preserva, altrimenti un giorno corrotto
   bloccherebbe per sempre). DRY_RUN → si annulla solo l'hash del tracker: (P3-rs1 audit #114)
-  `evaluate` valuta DRY_RUN PRIMA di `daily.allow()`, quindi in simulazione NESSUNA slot
+  `decide_write` valuta DRY_RUN PRIMA di `daily.allow()`, quindi in simulazione NESSUNA slot
   giornaliera è consumata e non serve alcun `release()` (che, senza consumo, restituirebbe la
   slot di un WRITE reale precedente → overtrading). Così la simulazione non consuma tetto/dedupe
   reali e un segnale soppresso resta ritentabile, senza rischio di doppia scommessa
@@ -28,7 +28,7 @@ INVARIANTI (non negoziabili):
   guardrail (resta a carico di `App` dopo il commit), niente eccezioni propagate per un
   fallimento di scrittura (riportato in `CommitResult.write_error`).
 
-`evaluate` (dedup/limiti/dry-run) è chiamato SENZA `now`: il dedup usa il proprio
+`decide_write` (dedup/limiti/dry-run) è chiamato SENZA `now`: il dedup usa il proprio
 wallclock persistito; `now` (monotòno) serve solo alla coda (expire/add), come in origine.
 """
 
@@ -122,7 +122,7 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows,
                 and key in {k for k in queue.active_keys(now=now) if k}):
             decision = live_guard.DUPLICATE
         else:
-            decision = live_guard.evaluate(cfg, tracker, daily, text)
+            decision = live_guard.decide_write(cfg, tracker, daily, text)
 
     if decision == live_guard.WRITE:
         # Coda dei segnali attivi: expire dei già scaduti, add del nuovo, riscrittura
@@ -171,14 +171,14 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows,
                 # scommessa. Lo shadow non conta verso il rate-limit (`mark_seen`).
                 tracker.mark_seen(signal_dedupe.row_dedup_key(text, row))
     elif tracker is not None and decision == live_guard.DAILY_LIMITED:
-        # `evaluate` aveva registrato l'hash nel tracker (segnale NEW) ma `daily.allow()` ha
+        # `decide_write` aveva registrato l'hash nel tracker (segnale NEW) ma `daily.allow()` ha
         # RIFIUTATO **senza consumare** una slot — ha solo (eventualmente) normalizzato il giorno
         # corrente. Si annulla SOLO l'hash del tracker (segnale ritentabile dopo il reset), NON si
         # tocca il daily: ripristinare il suo snapshot riporterebbe un giorno corrotto (state file
         # malformato) e lascerebbe il bridge bloccato per sempre (#184 low-tracker-nonwrite, Codex).
         tracker.restore_state(tracker_snap)
     elif tracker is not None and decision == live_guard.DRY_RUN:
-        # Simulazione: `evaluate` ha registrato l'hash nel tracker ma (P3-rs1 audit #114) NON consuma
+        # Simulazione: `decide_write` ha registrato l'hash nel tracker ma (P3-rs1 audit #114) NON consuma
         # più alcuna slot giornaliera — il check DRY_RUN precede `daily.allow()`. Basta annullare
         # l'hash del tracker perché la simulazione non intacchi dedupe reali; il `daily` non è stato
         # toccato, quindi nessun `release()` (che, senza consumo, restituirebbe la slot di un WRITE
@@ -257,7 +257,7 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
       tetto continua a limitare l'accumulo TRA messaggi distinti sul percorso single-row.
 
     Accounting guardrail PER-BLOCCO (AC-M3 audit #114, decisione proprietario 2026-07-20; mirror
-    del single-row, dove `evaluate` gira UNA volta per messaggio): il MESSAGGIO — non la singola
+    del single-row, dove `decide_write` gira UNA volta per messaggio): il MESSAGGIO — non la singola
     gamba — consuma 1 slot rate e 1 slot daily. I limiti rate/daily NON spezzano MAI il blocco:
     a limite già esaurito l'INTERO blocco è soppresso con esito onesto (`RATE_LIMITED`/
     `DAILY_LIMITED`) e resta ritentabile (tracker ripristinato; il daily non aveva consumato slot,
@@ -329,7 +329,7 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
         key = signal_dedupe.row_dedup_key(text, row)
         if key in queue_active:
             # P2-1 #76: riga identica ANCORA attiva (provenienza esatta) → duplicato, senza
-            # consumare tracker/daily (nessun `evaluate`): non accodata, non scritta.
+            # consumare tracker/daily (nessun `decide_write`): non accodata, non scritta.
             decisions.append(live_guard.DUPLICATE)
             continue
         if key in seen_in_block:
@@ -359,16 +359,16 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
             block_keys.append(key)
 
     # ── Ammissione PER-BLOCCO dei guardrail (AC-M3 audit #114, decisione proprietario
-    # 2026-07-20). Mirror del single-row, dove `evaluate` gira UNA volta per messaggio:
+    # 2026-07-20). Mirror del single-row, dove `decide_write` gira UNA volta per messaggio:
     # il MESSAGGIO — non la singola gamba — consuma 1 slot rate e 1 slot daily. Un dutching
     # non viene MAI spezzato dai limiti: o esce intero, o (limite già esaurito) è soppresso
     # INTERO con esito onesto — mai gambe scartate in silenzio (partial-drop). La prima
-    # chiave nuova passa da `evaluate` (dedup + rate + dry-run + daily); le altre sono
+    # chiave nuova passa da `decide_write` (dedup + rate + dry-run + daily); le altre sono
     # ombreggiate con `mark_seen` (valgono per la dedup dei reinvii, NON contano verso il
     # rate-limit: la slot del messaggio è già stata consumata dalla prima).
     block_decision = live_guard.WRITE
     if tracker is not None and fresh:
-        block_decision = live_guard.evaluate(cfg, tracker, daily, text,
+        block_decision = live_guard.decide_write(cfg, tracker, daily, text,
                                              dedup_key=fresh_keys[0])
         if block_decision == live_guard.WRITE:
             for k in fresh_keys[1:]:
@@ -380,7 +380,7 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
                     queue.add(row, now=now, force=True, dedup_key=key)
 
     # DRY_RUN: simulazione → NON scrivere il CSV operativo; ripristina coda E tracker. (P3-rs1 audit
-    # #114) `evaluate` valuta DRY_RUN PRIMA di `daily.allow()`, quindi in simulazione NESSUNA slot
+    # #114) `decide_write` valuta DRY_RUN PRIMA di `daily.allow()`, quindi in simulazione NESSUNA slot
     # giornaliera è stata consumata: niente `release()` (che, senza consumo, restituirebbe la slot di
     # un WRITE reale precedente → overtrading). Basta ripristinare coda e tracker (dedupe coerente).
     if safety_guard.is_dry_run(cfg):

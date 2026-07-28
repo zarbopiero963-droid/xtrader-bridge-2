@@ -30,12 +30,12 @@ def test_normalize_mode_sconosciuto_fallback_name_only():
 
 
 def test_name_only_completo_valido():
-    assert rec.is_valid(_name_row(), "NAME_ONLY") is True
+    assert rec.fields_complete(_name_row(), "NAME_ONLY") is True
 
 
 def test_name_only_senza_eventname_invalido():
     assert rec.missing_fields(_name_row(EventName=""), "NAME_ONLY") == ["EventName"]
-    assert rec.is_valid(_name_row(EventName=""), "NAME_ONLY") is False
+    assert rec.fields_complete(_name_row(EventName=""), "NAME_ONLY") is False
 
 
 def test_name_only_senza_selectionname_invalido():
@@ -43,7 +43,7 @@ def test_name_only_senza_selectionname_invalido():
 
 
 def test_id_only_completo_valido():
-    assert rec.is_valid(_id_row(), "ID_ONLY") is True
+    assert rec.fields_complete(_id_row(), "ID_ONLY") is True
 
 
 def test_id_only_senza_marketid_invalido():
@@ -52,23 +52,23 @@ def test_id_only_senza_marketid_invalido():
 
 def test_both_valido_se_solo_nomi():
     # Nessun ID ma nomi completi -> valido in BOTH.
-    assert rec.is_valid(_name_row(), "BOTH") is True
+    assert rec.fields_complete(_name_row(), "BOTH") is True
 
 
 def test_both_valido_se_solo_id():
-    assert rec.is_valid(_id_row(), "BOTH") is True
+    assert rec.fields_complete(_id_row(), "BOTH") is True
 
 
 def test_both_invalido_se_nessun_set_completo():
     row = _name_row(EventName="", MarketId="", SelectionId="")  # né nomi né ID completi
-    assert rec.is_valid(row, "BOTH") is False
+    assert rec.fields_complete(row, "BOTH") is False
     # Solo EventName manca nel set nomi (MarketType/SelectionName presenti).
     assert rec.missing_fields(row, "BOTH") == ["EventName"]
 
 
 def test_modalita_sconosciuta_tratta_come_name_only():
-    assert rec.is_valid(_name_row(), "QUALCOSA") is True
-    assert rec.is_valid(_id_row(), "QUALCOSA") is False  # nomi mancanti
+    assert rec.fields_complete(_name_row(), "QUALCOSA") is True
+    assert rec.fields_complete(_id_row(), "QUALCOSA") is False  # nomi mancanti
 
 
 def test_segnale_reale_costruito_e_valido_name_only():
@@ -79,7 +79,7 @@ def test_segnale_reale_costruito_e_valido_name_only():
               "quota": "1.85", "bet_type": "BACK"}
     row = build_csv_row(parsed, "PBet")
     assert row["SelectionName"] == "Sì"
-    assert rec.is_valid(row, "NAME_ONLY") is True
+    assert rec.fields_complete(row, "NAME_ONLY") is True
 
 
 def test_segnale_senza_squadre_scartato_name_only():
@@ -87,7 +87,7 @@ def test_segnale_senza_squadre_scartato_name_only():
     from xtrader_bridge.csv_writer import build_csv_row
     parsed = {"signal_type": "MATCH ODDS", "teams": "", "quota": "1.85", "bet_type": "BACK"}
     row = build_csv_row(parsed, "PBet")
-    assert rec.is_valid(row, "NAME_ONLY") is False
+    assert rec.fields_complete(row, "NAME_ONLY") is False
 
 
 # ── required_targets: campi auto-obbligatori per modalità (PR-4) ─────────────

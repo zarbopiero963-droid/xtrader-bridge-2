@@ -257,7 +257,7 @@ def build_read_only_tools(*, config_loader=None, parsers_dir=None) -> list:
 
     def _get_health(_inp):
         cfg = load_cfg()
-        items = health_check.evaluate(
+        items = health_check.build_semaphores(
             parser_active=signal_router.has_active_parser_config(cfg),
             mode=str(cfg.get("bridge_mode", "") or cfg.get("mode", "")))
         return json.dumps([{"key": it.key, "label": it.label, "state": it.state,
@@ -803,7 +803,7 @@ def build_health_report(cfg, *, health_provider=None) -> dict:
         # `mode` via `bridge_mode.mode_from_cfg` — la STESSA fonte del pannello 🚦 Salute
         # (`app._live_health_items`) e di `get_setup_status`: nel fallback la Modalità non deve
         # divergere né mascherare il REALE (Fugu #72).
-        items = health_check.evaluate(
+        items = health_check.build_semaphores(
             parser_active=signal_router.has_active_parser_config(cfg),
             csv_state=csv_state, csv_detail=csv_detail,
             confirmations_enabled=bool(str(cfg.get("xtrader_notification_chat_id", "") or "").strip()),

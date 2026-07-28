@@ -82,10 +82,15 @@ def csv_writable(path, *, platform=None) -> "tuple[str, str]":
     return RED, f"cartella NON scrivibile: {parent}"
 
 
-def evaluate(*, listener_status=LISTENER_OFFLINE, last_message="", parser_active=False,
-             last_signal="", last_error="", csv_state=RED, csv_detail="",
-             confirmations_enabled=False, last_confirmation="", mode="") -> list:
-    """I sette semafori (#311 §3.3) dagli input GIÀ disponibili nell'app. Puro."""
+def build_semaphores(*, listener_status=LISTENER_OFFLINE, last_message="", parser_active=False,
+                     last_signal="", last_error="", csv_state=RED, csv_detail="",
+                     confirmations_enabled=False, last_confirmation="", mode="") -> list:
+    """I sette semafori (#311 §3.3) dagli input GIÀ disponibili nell'app. Puro.
+
+    Rinominata da `evaluate` (ambiguità A3 della #69): il nome generico era condiviso con
+    `live_guard.decide_write`, che **non** è diagnostica — decide se scrivere il CSV. Due `evaluate`
+    di cui uno governa la doppia scommessa è un nome di troppo: qui si **costruiscono semafori**
+    per la UI, e questa funzione non decide nulla di operativo."""
     items = []
 
     status = str(listener_status or "").upper()

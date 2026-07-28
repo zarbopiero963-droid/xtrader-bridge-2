@@ -1760,7 +1760,7 @@ mutazioni KILLED (split in-line, tetto rimosso).
 
 Scheda «🚦 Salute»: i 7 semafori dell'issue (Telegram · ultimo messaggio · parser ·
 ultimo segnale col motivo · CSV scrivibile · conferme XTrader · modalità) da
-`health_check.evaluate` (modulo PURO: dato assente = mai verde; modalità con semantica
+`health_check.build_semaphores` (modulo PURO: dato assente = mai verde; modalità con semantica
 di rischio dei banner §3.1). Sonda `csv_writable` non invasiva (solo `os.access`, mai
 open → nessun lock contro XTrader). Nuovo campo «Ultima conferma XTrader» in
 `_LAST_FIELDS` (alimentato da CONFERMATO/RIFIUTATO in `_handle_confirmation`).
@@ -1849,7 +1849,7 @@ label localizzata si sarebbe rotto in EN/ES. Ora: `_listener_state` (fonte unica
 riconnesso); `_refresh_health_inner` legge il canonico via `__dict__` (rimosso il
 blind-except sul cget: allowlist app.py 46→45, ratchet stretto); la label è SOLO
 display localizzato («⬤  ACTIVE»/«⬤  ACTIVO», «⬤  RECONNECTING…»/«⬤  RECONEXIÓN…»,
-OFFLINE universale via fallback). `health_check.evaluate` invariato (il canonico È
+OFFLINE universale via fallback). `health_check.build_semaphores` invariato (il canonico È
 il substring). Harness del glue Salute aggiornato al nuovo contratto. Test: 3 glue
 (canonico+display, semaforo riceve il canonico con label EN — fail-first sul vecchio
 cget —, verde end-to-end in EN), mutazioni AH–AI KILLED.

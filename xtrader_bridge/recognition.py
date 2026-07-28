@@ -89,7 +89,15 @@ def missing_fields(row: dict, mode: str) -> list:
     return name_missing
 
 
-def is_valid(row: dict, mode: str) -> bool:
+def fields_complete(row: dict, mode: str) -> bool:
+    """`True` se la riga ha **tutti i campi richiesti dalla modalità** di riconoscimento.
+
+    ⚠️ **Non è una validazione**, è solo un controllo di **presenza** (rinominata da `is_valid`,
+    ambiguità A2 della #69). La validazione vera — `BetType`, `Price`, `MinPrice`/`MaxPrice`,
+    `Points`, bounds — sta in `validator.is_valid(row, mode)`, che ha la **stessa firma
+    posizionale** `(row, mode)`: prima della rinomina bastava sbagliare import per usare il
+    controllo debole dove serviva quello forte, e una riga con prezzo o bettype malformato
+    sarebbe passata verso il CSV. Il nome ora dice cosa fa: *campi completi*, non *riga valida*."""
     return not missing_fields(row, mode)
 
 

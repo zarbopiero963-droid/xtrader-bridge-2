@@ -18,7 +18,7 @@ def _by_key(items):
 
 
 def test_evaluate_default_tutto_fermo_niente_verde_gratuito():
-    d = _by_key(hc.evaluate())
+    d = _by_key(hc.build_semaphores())
     assert d["telegram"].state == hc.RED and "AVVIA" in d["telegram"].detail
     assert d["message"].state == hc.YELLOW
     assert d["parser"].state == hc.RED and "bloccato" in d["parser"].detail
@@ -26,12 +26,12 @@ def test_evaluate_default_tutto_fermo_niente_verde_gratuito():
     assert d["csv"].state == hc.RED
     assert d["confirmation"].state == hc.YELLOW and "non attive" in d["confirmation"].detail
     assert d["mode"].state == hc.GREEN            # fail-closed: default Simulazione
-    assert [i.key for i in hc.evaluate()] == [
+    assert [i.key for i in hc.build_semaphores()] == [
         "telegram", "message", "parser", "signal", "csv", "confirmation", "mode"]
 
 
 def test_evaluate_operativo_tutto_verde():
-    d = _by_key(hc.evaluate(
+    d = _by_key(hc.build_semaphores(
         listener_status="⬤  ATTIVO", last_message="P.Bet…", parser_active=True,
         last_signal="Inter v Milan @1.85", csv_state=hc.GREEN, csv_detail="ok",
         confirmations_enabled=True, last_confirmation="CONFERMATO @ 10:00:00",
@@ -41,7 +41,7 @@ def test_evaluate_operativo_tutto_verde():
 
 
 def test_evaluate_riconnessione_gialla_e_motivo_errore_visibile():
-    d = _by_key(hc.evaluate(listener_status="⬤  RICONNESSIONE…",
+    d = _by_key(hc.build_semaphores(listener_status="⬤  RICONNESSIONE…",
                             last_error="rete: timeout"))
     assert d["telegram"].state == hc.YELLOW
     # Nessun segnale ma errore recente: il MOTIVO è mostrato, mai nascosto.
@@ -49,15 +49,15 @@ def test_evaluate_riconnessione_gialla_e_motivo_errore_visibile():
 
 
 def test_evaluate_conferme_attive_senza_esito_gialle():
-    d = _by_key(hc.evaluate(confirmations_enabled=True))
+    d = _by_key(hc.build_semaphores(confirmations_enabled=True))
     assert d["confirmation"].state == hc.YELLOW
     assert "nessuna conferma" in d["confirmation"].detail
 
 
 def test_evaluate_modalita_semantica_di_rischio():
-    assert _by_key(hc.evaluate(mode=bm.COLLAUDO))["mode"].state == hc.YELLOW
-    assert _by_key(hc.evaluate(mode=bm.REALE))["mode"].state == hc.RED
-    m = _by_key(hc.evaluate(mode="garbage"))["mode"]     # fail-closed → Simulazione
+    assert _by_key(hc.build_semaphores(mode=bm.COLLAUDO))["mode"].state == hc.YELLOW
+    assert _by_key(hc.build_semaphores(mode=bm.REALE))["mode"].state == hc.RED
+    m = _by_key(hc.build_semaphores(mode="garbage"))["mode"]     # fail-closed → Simulazione
     assert m.state == hc.GREEN and m.detail == bm.label_for(bm.SIMULAZIONE)
 
 
@@ -101,7 +101,7 @@ def test_csv_writable_windows_giallo_onesto(tmp_path):
 
 
 def test_evaluate_csv_state_sporco_fail_closed():
-    assert _by_key(hc.evaluate(csv_state="garbage"))["csv"].state == hc.RED
+    assert _by_key(hc.build_semaphores(csv_state="garbage"))["csv"].state == hc.RED
 
 
 def test_csv_writable_casi_rossi(tmp_path):
