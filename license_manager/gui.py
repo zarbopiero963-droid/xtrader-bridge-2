@@ -79,6 +79,10 @@ class LicenseManagerApp(ctk.CTk):
         self._publish_upload = publish_upload or publisher.publish
         self._publish_after_id = None
         self._publish_inflight = False      # un solo upload alla volta (niente accavallamenti)
+        # Lucchetto creato **subito** (non pigramente): così non esiste nemmeno in teoria la finestra
+        # in cui due thread ne creerebbero due diversi (rilievo GPT-5.5 #158). La creazione pigra in
+        # `_publish_lock()` resta solo come rete per i `self` finti dei test.
+        self._publish_lock_obj = threading.Lock()
         self._closing = False
         # widget refs (popolati da _build_ui)
         self._public_value = None

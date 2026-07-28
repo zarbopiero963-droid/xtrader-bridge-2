@@ -829,12 +829,18 @@ def test_publish_async_thread_non_avviabile_libera_il_lucchetto(gui, tmp_path):
     """Se il thread non parte (risorse esaurite), il lucchetto va liberato e si ritorna `False`,
     altrimenti la pubblicazione resterebbe bloccata per sempre (rilievo GPT-5.5 #158)."""
     fake = _fake(gui, tmp_path)
+    tentativi = []
+
     def _no_thread(_target):
+        tentativi.append(1)
         raise RuntimeError("impossibile avviare il thread")
     fake._spawn_publish_thread = _no_thread
     assert fake._publish_async() is False
     assert fake._publish_inflight is False              # lucchetto liberato → si può riprovare
-    assert fake._publish_async() is False               # e un nuovo tentativo riparte (non è bloccato)
+    assert fake._publish_async() is False
+    # il secondo tentativo ha DAVVERO rifatto check+start (non è stato rifiutato dal lucchetto
+    # rimasto alzato): lo spawner è stato invocato due volte (rilievo GPT-5.5 #158)
+    assert len(tentativi) == 2
 
 
 def test_publish_finish_tollera_risultato_malformato(gui, tmp_path):
