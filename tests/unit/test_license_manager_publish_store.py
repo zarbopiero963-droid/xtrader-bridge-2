@@ -187,3 +187,16 @@ def test_validate_config_rifiuta_spazi_in_path_e_branch():
     assert publish_store.validate_config({**base, "path": "lista revoche.txt"}) is not None
     assert publish_store.validate_config({**base, "branch": "main dev"}) is not None
     assert publish_store.validate_config({**base, "path": "sub/lista.txt", "branch": "main"}) is None
+
+
+def test_validate_config_rifiuta_anche_tab_newline_e_spazi_unicode():
+    """Il controllo usa `isspace()`, quindi non copre solo lo spazio semplice (rilievo GPT-5.5 #158):
+    tab, a-capo e spazi Unicode (NBSP) romperebbero i due URL allo stesso modo. `strip()` toglie solo
+    quelli **ai bordi**: questi stanno in mezzo e devono essere rifiutati esplicitamente."""
+    base = {"repo": "tizio/x"}
+    for cattivo in ("lista\trevoche.txt", "lista\nrevoche.txt", "lista\u00a0revoche.txt"):
+        assert publish_store.validate_config({**base, "path": cattivo}) is not None, cattivo
+    for cattivo in ("main\tdev", "main\ndev", "main\u00a0dev"):
+        assert publish_store.validate_config({**base, "branch": cattivo}) is not None, cattivo
+    # un branch con `/` (es. `feature/x`) NON è whitespace: resta valido
+    assert publish_store.validate_config({**base, "branch": "feature/x"}) is None

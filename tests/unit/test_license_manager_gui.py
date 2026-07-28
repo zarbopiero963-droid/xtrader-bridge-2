@@ -721,6 +721,27 @@ def test_publish_now_senza_token_o_config_fail_closed(gui, tmp_path):
     assert fake._publish_calls == []
 
 
+def test_publish_now_config_con_spazi_bloccata_prima_di_toccare_la_rete(gui, tmp_path):
+    """Flusso completo config → pubblicazione con un `path` che contiene spazi (config scritta a mano
+    o proveniente da una versione precedente): la validazione ferma TUTTI i percorsi — il pulsante
+    «Pubblica ora» e il tick automatico — prima di qualunque chiamata di rete (rilievi GPT-5.5/GLM 5.2
+    #158). Meglio un errore leggibile che un file pubblicato a un URL che il bridge non sa scaricare."""
+    fake = _fake(gui, tmp_path)
+    fake._kr_token = "ghp_X"
+    publish_store.save_publish_config({"enabled": True, "repo": _PUB_OK["repo"],
+                                       "path": "lista revoche.txt", "branch": _PUB_OK["branch"]},
+                                      directory=str(tmp_path))
+    out = fake._evaluate_publish_now()
+    assert out["ok"] is False and "spazi" in out["message"].lower()
+    assert fake._publish_calls == [], "nessun upload con impostazioni non valide"
+
+    # ...e nemmeno il tick automatico pubblica: si limita a ri-armarsi
+    gui.LicenseManagerApp._publish_tick(fake)
+    assert fake._publish_calls == []
+    assert fake._timer_calls, "il ciclo deve comunque restare armato"
+    assert fake._publish_inflight is False
+
+
 def test_publish_now_upload_fallito_riporta_errore(gui, tmp_path):
     fake = _fake(gui, tmp_path)
     gui.LicenseManagerApp._ensure_keypair(fake)
@@ -746,7 +767,6 @@ def test_publish_tick_pubblica_solo_se_abilitata_e_si_riarma(gui, tmp_path):
     fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"], "6", True)
     gui.LicenseManagerApp._publish_tick(fake)
     assert len(fake._publish_calls) == 1 and fake._timer_calls == [6 * 3_600_000]
-    assert fake._publish_inflight is False, "il lucchetto va liberato a esito applicato"
     assert fake._publish_inflight is False, "il lucchetto va liberato a esito applicato"
 
 

@@ -6,6 +6,7 @@ l'invariante «**il token non compare MAI** nel risultato»."""
 
 import base64
 import json
+import urllib.parse
 
 from license_manager import publisher
 
@@ -171,3 +172,32 @@ def test_raw_url_e_contents_url_codificano_allo_stesso_modo():
 def test_raw_url_quota_anche_il_branch():
     raw = publisher.raw_url(_REPO, "l.txt", "feature/mia branch")
     assert " " not in raw and "feature/mia%20branch" in raw
+
+
+def test_raw_url_branch_con_slash_resta_un_percorso_valido():
+    """`quote` lascia intatti gli `/`: un branch tipo `feature/x` resta due segmenti di path, che è
+    esattamente la forma che raw.githubusercontent.com si aspetta (rilievo GPT-5.5 #158)."""
+    assert publisher.raw_url(_REPO, _PATH, "feature/x") == \
+        "https://raw.githubusercontent.com/tizio/xtrader-revocation/feature/x/revocation_list.txt"
+
+
+def test_il_branch_viaggia_codificato_nella_query_ref_non_nel_path():
+    """Dove finisce il branch nella chiamata all'API (rilievo GLM 5.2 #158): `contents_url` **non lo
+    prende** — va in `?ref=`, codificato da `urlencode`. Quindi non può divergere da `raw_url`: qui è
+    una query-string, là un segmento di path, e il valore che GitHub ri-decodifica è identico."""
+    http = _FakeHttp((200, {"sha": "s"}))
+    publisher.get_file_sha(_REPO, _PATH, "feature/mia branch", token=_TOKEN, http=http)
+    url = http.calls[0]["url"]
+    assert " " not in url, "il branch deve essere codificato, mai grezzo nell'URL"
+    parsed = urllib.parse.urlparse(url)
+    assert parsed.path.endswith("/contents/revocation_list.txt")          # branch NON nel path
+    assert urllib.parse.parse_qs(parsed.query)["ref"] == ["feature/mia branch"]
+
+
+def test_publish_manda_il_branch_letterale_nel_corpo_json():
+    """Nel `PUT` il branch sta nel **corpo JSON**, non in un URL: lì va **letterale** (percent-encodarlo
+    creerebbe un branch inesistente). È l'unico punto in cui NON si quota, e questo test lo fissa."""
+    http = _FakeHttp((404, None), (201, {}))
+    publisher.publish(_SIGNED, repo=_REPO, path=_PATH, branch="feature/x", token=_TOKEN,
+                      message="m", http=http)
+    assert http.calls[1]["body"]["branch"] == "feature/x"
