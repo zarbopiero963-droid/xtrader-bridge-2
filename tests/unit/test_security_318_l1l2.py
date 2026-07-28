@@ -134,10 +134,15 @@ def test_una_config_esistente_con_chat_id_non_ascii_da_un_errore_esplicito():
     testo = " ".join(errori)
     assert errori, "una sorgente con chat_id non-ASCII deve produrre un errore, non passare"
     assert "١٢٣٤٥٦٧٨٩" in testo, "l'errore deve NOMINARE il valore colpevole"
-    # Il suggerimento deve mostrare un ID numerico d'esempio. Si cerca la FORMA (un intero con
-    # segno, ≥ 6 cifre), non la stringa esatta: il copy della UX può essere rifinito senza che
-    # questo test diventi un ostacolo (rilievo GPT-5.5 #167 sulla fragilità del contratto testuale).
-    assert re.search(r"-?[0-9]{6,}", testo), "l'errore deve mostrare la forma corretta di un ID"
+    # Il suggerimento deve mostrare un ID d'esempio VALIDO. Non si asserisce la stringa esatta
+    # (legherebbe il test al copy della UX, che può essere rifinito) né una forma qualsiasi
+    # (passerebbe anche un numero irrilevante): si estrae l'esempio e lo si passa alla stessa
+    # `is_valid_chat_id` che il codice usa in produzione. Entrambi i rilievi di GPT-5.5 (#167,
+    # round 2 «troppo fragile» e round 3 «troppo lasco») cadono: il test è indipendente dal testo
+    # e verifica la proprietà che conta davvero — l'esempio suggerito deve essere accettabile.
+    esempi = [e for e in re.findall(r"-?[0-9]+", testo)
+              if source_manager.is_valid_chat_id(e) and len(e.lstrip("-")) >= 6]
+    assert esempi, "l'errore deve suggerire un ID che la validazione stessa accetterebbe"
 
 
 def test_il_normalizzatore_migliaia_resta_scartato_a_valle():
@@ -159,13 +164,20 @@ def test_il_normalizzatore_migliaia_resta_scartato_a_valle():
     assert accettato is None, "il validatore deve continuare a scartarlo: è ciò che rende innocua la non-modifica"
 
 
-@pytest.mark.parametrize("misto", ["6-٠", "٦-0", "1-０", "１-1"])
-def test_un_punteggio_a_cifre_miste_non_e_un_punteggio(misto):
-    """Cifre miste ASCII/non-ASCII (rilievo GPT-5.5 #167): il requisito è rifiutare QUALSIASI
-    cifra non-ASCII, non solo i punteggi interamente non-ASCII.
-
-    Vale su entrambi i consumer, che hanno regex e percorsi diversi: `extract_scores` (corpo
-    `[0-9]` + lookaround Unicode) e `score_to_over` (ancorato `^…$`). Un mezzo punteggio è
-    ancora più ambiguo di uno intero: fail-closed su entrambi."""
+# Separatori accettati dai due consumer, che NON coincidono: l'engine riconosce solo `-` e l'EN
+# DASH `–` (il `:` è escluso di proposito per non scambiare gli orari per punteggi), mentre
+# `score_to_over` accetta anche `:` e `x`. I casi misti vanno provati su OGNI separatore di
+# ciascuno, altrimenti la regressione può nascondersi nella variante non coperta (GPT-5.5 #167).
+@pytest.mark.parametrize("misto", ["6-٠", "٦-0", "1-０", "１-1", "٦–0", "6–٠", "٦ - 0"])
+def test_un_punteggio_misto_non_e_un_punteggio_per_l_engine(misto):
+    """Cifre miste ASCII/non-ASCII: il requisito è rifiutare QUALSIASI cifra non-ASCII, non solo
+    i punteggi interamente non-ASCII. Un mezzo punteggio è più ambiguo di uno intero, non meno."""
     assert custom_parser_engine.extract_scores(misto) == []
+
+
+@pytest.mark.parametrize("misto", ["6-٠", "٦-0", "1-０", "１-1",
+                                   "6:٠", "٦:0", "6 x ٠", "٦x0"])
+def test_un_punteggio_misto_non_produce_una_linea_over(misto):
+    """Stessa regola sull'altro consumer, coi SUOI separatori (`-`, `:`, `x`): `score_to_over`
+    ha una regex ancorata e un percorso diverso, quindi va verificato separatamente."""
     assert transforms.apply(misto, "score_to_over") == ""
