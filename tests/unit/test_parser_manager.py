@@ -85,7 +85,7 @@ def test_available_parser_names_esclude_invalidi(tmp_path):
 
 def test_available_parser_names_esclude_file_rinominato(tmp_path):
     import json
-    # File il cui nome interno NON ri-mappa al filename: load_active non lo
+    # File il cui nome interno NON ri-mappa al filename: load_primary_parser non lo
     # troverebbe → non va offerto nel menu.
     good = {"name": "Shown", "rules": [{"target": "Price", "required": True}]}
     (tmp_path / "Wrong.json").write_text(json.dumps(good), encoding="utf-8")
@@ -114,16 +114,16 @@ def test_set_active_copia_parser_by_chat():
 
 
 def test_load_active_none_se_non_selezionato(tmp_path):
-    assert pm.load_active({}, dir_path=str(tmp_path)) is None
+    assert pm.load_primary_parser({}, dir_path=str(tmp_path)) is None
 
 
 def test_load_active_none_se_file_mancante(tmp_path):
-    assert pm.load_active({"active_parser": "NonEsiste"}, dir_path=str(tmp_path)) is None
+    assert pm.load_primary_parser({"active_parser": "NonEsiste"}, dir_path=str(tmp_path)) is None
 
 
 def test_load_active_carica_il_parser(tmp_path):
     _save_parser("Yangon", str(tmp_path))
-    defn = pm.load_active({"active_parser": "Yangon"}, dir_path=str(tmp_path))
+    defn = pm.load_primary_parser({"active_parser": "Yangon"}, dir_path=str(tmp_path))
     assert defn is not None and defn.name == "Yangon"
 
 
@@ -143,38 +143,38 @@ def test_load_active_file_non_oggetto_e_none(tmp_path):
     # File JSON valido ma non-oggetto (es. "[]"): fail-safe → None, non crash.
     bad = tmp_path / "Rotto.json"
     bad.write_text("[]", encoding="utf-8")
-    assert pm.load_active({"active_parser": "Rotto"}, dir_path=str(tmp_path)) is None
+    assert pm.load_primary_parser({"active_parser": "Rotto"}, dir_path=str(tmp_path)) is None
 
 
 def test_load_active_rifiuta_nome_che_collide(tmp_path):
     # Esiste solo il parser "AB"; richiedere "A/B" (che si sanitizza ad AB.json)
     # NON deve caricare "AB": fail-closed → None.
     _save_parser("AB", str(tmp_path))
-    assert pm.load_active({"active_parser": "A/B"}, dir_path=str(tmp_path)) is None
+    assert pm.load_primary_parser({"active_parser": "A/B"}, dir_path=str(tmp_path)) is None
 
 
 def test_load_active_rifiuta_parser_invalido(tmp_path):
     # File scritto a mano, valido come JSON ma semanticamente invalido (target
-    # duplicato): load_active deve ritornare None, non un parser ambiguo.
+    # duplicato): load_primary_parser deve ritornare None, non un parser ambiguo.
     import json
     bad = {"name": "Dup", "rules": [
         {"target": "BetType", "fixed_value": "PUNTA"},
         {"target": "BetType", "fixed_value": "BANCA"},
     ]}
     (tmp_path / "Dup.json").write_text(json.dumps(bad), encoding="utf-8")
-    assert pm.load_active({"active_parser": "Dup"}, dir_path=str(tmp_path)) is None
+    assert pm.load_primary_parser({"active_parser": "Dup"}, dir_path=str(tmp_path)) is None
 
 
 def test_load_active_rules_malformato_none(tmp_path):
     # rules:null non deve crashare (TypeError) ma fallire chiuso.
     (tmp_path / "Nullo.json").write_text('{"name":"Nullo","rules":null}', encoding="utf-8")
     # rules None → [] → parser senza regole → invalido → None.
-    assert pm.load_active({"active_parser": "Nullo"}, dir_path=str(tmp_path)) is None
+    assert pm.load_primary_parser({"active_parser": "Nullo"}, dir_path=str(tmp_path)) is None
 
 
 def test_load_active_override_per_chat(tmp_path):
     _save_parser("Globale", str(tmp_path))
     _save_parser("PerChat", str(tmp_path))
     cfg = {"active_parser": "Globale", "parser_by_chat": {"123": "PerChat"}}
-    assert pm.load_active(cfg, chat_id="123", dir_path=str(tmp_path)).name == "PerChat"
-    assert pm.load_active(cfg, chat_id="999", dir_path=str(tmp_path)).name == "Globale"
+    assert pm.load_primary_parser(cfg, chat_id="123", dir_path=str(tmp_path)).name == "PerChat"
+    assert pm.load_primary_parser(cfg, chat_id="999", dir_path=str(tmp_path)).name == "Globale"

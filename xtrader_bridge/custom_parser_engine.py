@@ -362,7 +362,7 @@ def apply_parser(defn: CustomParserDef, text: str, value_maps_registry: dict = N
         if rule.transform:
             value = transforms.apply(value, rule.transform)
         if rule.value_map:
-            value = value_maps.resolve(value, rule.value_map, value_maps_registry)
+            value = value_maps.map_value(value, rule.value_map, value_maps_registry)
         values[rule.target] = value
         if rule.required and rule.target not in required_targets:
             required_targets.append(rule.target)

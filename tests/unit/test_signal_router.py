@@ -237,7 +237,7 @@ def test_quota_governata_dalla_riga_price_del_parser(tmp_path):
 
 
 def test_custom_inesistente_ignora_il_messaggio(tmp_path):
-    # active_parser punta a un parser non salvato → load_active None → nessun parser
+    # active_parser punta a un parser non salvato → load_primary_parser None → nessun parser
     # custom → messaggio ignorato (niente fallback automatico).
     cfg = {"provider": "TG", "active_parser": "NonEsiste", "recognition_mode": "NAME_ONLY"}
     res = signal_router.resolve_row("qualsiasi", cfg, parsers_dir=str(tmp_path))

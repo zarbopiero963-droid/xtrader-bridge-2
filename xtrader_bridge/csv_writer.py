@@ -206,7 +206,7 @@ def build_csv_row(parsed: dict, provider: str) -> dict:
         market_type = resolved["MarketType"]
         market_name = resolved["MarketName"]
         selection = resolved["SelectionName"]
-        handicap = resolved["Handicap"]   # già normalizzato in mapping.resolve()
+        handicap = resolved["Handicap"]   # già normalizzato in mapping.resolve_selection()
     elif mapping.is_known_shorthand(parsed['signal_type']):
         # Alias noto ma non risolvibile (es. nome squadra mancante per 1/2):
         # NON ripiegare su una selezione errata né scrivere il placeholder.

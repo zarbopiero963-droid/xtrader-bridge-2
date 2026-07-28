@@ -26,23 +26,23 @@ def test_index_alias_duplicato_fallisce_rumorosamente(monkeypatch):
 
 
 def test_resolve_esito_1_sostituisce_home():
-    r = mapping.resolve("esito_finale", "1", home="Inter", away="Milan")
+    r = mapping.resolve_selection("esito_finale", "1", home="Inter", away="Milan")
     assert r["MarketType"] == "MATCH_ODDS"
     assert r["SelectionName"] == "Inter"        # {HOME_TEAM} sostituito
 
 
 def test_resolve_esito_2_sostituisce_away():
-    r = mapping.resolve("esito_finale", "2", home="Inter", away="Milan")
+    r = mapping.resolve_selection("esito_finale", "2", home="Inter", away="Milan")
     assert r["SelectionName"] == "Milan"        # {AWAY_TEAM} sostituito
 
 
 def test_resolve_esito_x_pareggio():
-    r = mapping.resolve("esito_finale", "x", home="Inter", away="Milan")
+    r = mapping.resolve_selection("esito_finale", "x", home="Inter", away="Milan")
     assert r["SelectionName"] == "Pareggio"
 
 
 def test_resolve_alias_sconosciuto_none():
-    assert mapping.resolve("non_esiste", "boh") is None
+    assert mapping.resolve_selection("non_esiste", "boh") is None
 
 
 # ── forme brevi Telegram (SYNONYMS) ──
@@ -94,7 +94,7 @@ def test_shorthand_sconosciuto_none():
 
 def test_bettype_dal_dizionario_e_punta():
     # Selezione statica (no placeholder) per testare il BetType senza squadre.
-    assert mapping.resolve("esito_finale", "x")["BetType"] == "PUNTA"
+    assert mapping.resolve_selection("esito_finale", "x")["BetType"] == "PUNTA"
 
 
 def test_shorthand_suffisso_ft_ignorato():
@@ -118,7 +118,7 @@ def test_shorthand_ht_primo_tempo():
 
 def test_resolve_placeholder_non_risolto_torna_none():
     # away shorthand senza nome squadra ospite -> placeholder non risolto -> None.
-    assert mapping.resolve("esito_finale", "2", home="Inter") is None
+    assert mapping.resolve_selection("esito_finale", "2", home="Inter") is None
 
 
 def test_is_known_shorthand():

@@ -179,7 +179,7 @@ def active_custom_parser(cfg: dict, chat: str, parsers_dir: str = None):
     per il routing multi-parser (PR-2) usa `active_custom_parsers`."""
     if not _chat_approved_for_custom(cfg, chat):
         return None
-    return parser_manager.load_active(cfg, chat, parsers_dir)
+    return parser_manager.load_primary_parser(cfg, chat, parsers_dir)
 
 
 def active_custom_parsers(cfg: dict, chat: str, parsers_dir: str = None) -> list:
@@ -189,7 +189,7 @@ def active_custom_parsers(cfg: dict, chat: str, parsers_dir: str = None) -> list
     (`_chat_approved_for_custom`) resta invariata (nessun indebolimento del filtro chat)."""
     if not _chat_approved_for_custom(cfg, chat):
         return []
-    return parser_manager.load_active_list(cfg, chat, parsers_dir)
+    return parser_manager.load_all_parsers(cfg, chat, parsers_dir)
 
 
 def has_active_parser_config(cfg: dict) -> bool:

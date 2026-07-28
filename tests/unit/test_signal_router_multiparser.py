@@ -8,7 +8,7 @@ diversi voluti).
 
 Esercitano il codice reale end-to-end:
 - `parser_manager`: `parser_list_by_chat`, `resolve_parser_names`, `resolve_parser_name`,
-  `load_active_list`, `set_list_for_chat`;
+  `load_all_parsers`, `set_list_for_chat`;
 - `signal_router.resolve_row` con più parser salvati su disco;
 - invarianti di sicurezza: filtro chat non indebolito, retro-compat single-parser, no doppia
   scommessa accidentale (dedup per-riga).
@@ -92,7 +92,7 @@ def test_set_list_for_chat_scrive_lista_e_sincronizza_singolo():
 def test_load_active_list_salta_nomi_non_caricabili(tmp_path):
     _mk(str(tmp_path), "A", [cp.Condition(text="GG")])
     cfg = _cfg_list("42", ["A", "MANCANTE", "A"])              # "MANCANTE" non esiste; "A" duplicato
-    defns = parser_manager.load_active_list(cfg, "42", str(tmp_path))
+    defns = parser_manager.load_all_parsers(cfg, "42", str(tmp_path))
     assert [d.name for d in defns] == ["A"]                    # solo i caricabili, deduplicati
 
 

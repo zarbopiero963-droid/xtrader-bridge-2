@@ -151,8 +151,11 @@ def available_value_maps(include_dizionario: bool = False, rows=None) -> list:
     return sorted(registry(include_dizionario=include_dizionario, rows=rows))
 
 
-def resolve(value: str, map_name: str, reg: dict = None) -> str:
+def map_value(value: str, map_name: str, reg: dict = None) -> str:
     """Traduce `value` tramite la value-map `map_name`.
+
+    Rinominata da `resolve` (ambiguità M1 della #69): vedi `mapping.resolve_selection`, che
+    risolve una COPPIA di alias in una selezione completa. Qui si traduce UN valore.
 
     Sicuro per default: mappa sconosciuta, valore vuoto o alias non mappato →
     stringa vuota (→ un campo obbligatorio resta "Non pronto"). Mai pass-through

@@ -2276,7 +2276,7 @@ class App(ctk.CTk):
             # inserito nello step 2, non per lo snapshot al momento dell'apertura.
             live = self._config if isinstance(self._config, dict) else {}
             cid = str(chat_id or "").strip() or str(live.get("chat_id", "") or "")
-            defn = parser_manager.load_active(live, cid)
+            defn = parser_manager.load_primary_parser(live, cid)
             from .parser_builder import ParserBuilder
             return ParserBuilder(defn) if defn is not None else None
 

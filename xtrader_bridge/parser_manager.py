@@ -173,7 +173,7 @@ def available_parser_names(dir_path: str = None) -> list:
             defn = custom_parser.load_parser(path)
         except (OSError, ValueError):
             continue
-        # Elenca solo i nomi che load_active() saprebbe ricaricare: il parser
+        # Elenca solo i nomi che load_primary_parser() saprebbe ricaricare: il parser
         # dev'essere valido E il suo nome deve ri-mappare proprio a questo file
         # (un file rinominato a mano, es. Wrong.json con name "Shown", offrirebbe
         # altrimenti un nome che porta a un fallback silenzioso).
@@ -205,20 +205,20 @@ def _load_by_name(name: str, dir_path: str = None):
     return defn
 
 
-def load_active(cfg: dict, chat_id: str = "", dir_path: str = None):
+def load_primary_parser(cfg: dict, chat_id: str = "", dir_path: str = None):
     """Carica la definizione del parser PRIMARIO per `chat_id`, oppure None se
     nessun parser è selezionato o il file non esiste. Un file corrotto → None
-    (fail-safe). Per il multi-parser usa `load_active_list`."""
+    (fail-safe). Per il multi-parser usa `load_all_parsers`."""
     return _load_by_name(resolve_parser_name(cfg, chat_id), dir_path)
 
 
-def load_active_list(cfg: dict, chat_id: str = "", dir_path: str = None) -> list:
+def load_all_parsers(cfg: dict, chat_id: str = "", dir_path: str = None) -> list:
     """PR-2: carica TUTTE le definizioni per `chat_id`, in ordine (`resolve_parser_names`),
-    saltando i nomi mancanti/corrotti/invalidi (stessa logica fail-closed di `load_active`).
+    saltando i nomi mancanti/corrotti/invalidi (stessa logica fail-closed di `load_primary_parser`).
     Niente duplicati per nome. `[]` se nessun parser è configurato o caricabile.
 
     Un nome non caricabile viene SALTATO (non blocca gli altri parser della chat): così un
-    file rimosso a mano non ferma gli altri segnali, coerente col fail-safe di `load_active`."""
+    file rimosso a mano non ferma gli altri segnali, coerente col fail-safe di `load_primary_parser`."""
     out = []
     seen = set()
     for name in resolve_parser_names(cfg, chat_id):

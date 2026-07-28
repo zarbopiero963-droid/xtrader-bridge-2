@@ -19,19 +19,19 @@ from xtrader_bridge import value_maps as vm
     ("LAY", "BANCA"), ("Banca", "BANCA"),
 ])
 def test_bettype_traduce_sinonimi(raw, expected):
-    assert vm.resolve(raw, "bettype") == expected
+    assert vm.map_value(raw, "bettype") == expected
 
 
 @pytest.mark.parametrize("raw", ["forse", "b", "p", "1", "x"])
 def test_bettype_alias_ambigui_o_sconosciuti_vuoto(raw):
     # Monolettera "B"/"P" sono ambigui (potrebbero invertire il lato) e non
     # mappati; un lato non riconosciuto NON viene indovinato → "Non pronto".
-    assert vm.resolve(raw, "bettype") == ""
+    assert vm.map_value(raw, "bettype") == ""
 
 
 def test_resolve_valore_vuoto_o_mappa_sconosciuta_vuoto():
-    assert vm.resolve("", "bettype") == ""
-    assert vm.resolve("BACK", "non_esiste") == ""
+    assert vm.map_value("", "bettype") == ""
+    assert vm.map_value("BACK", "non_esiste") == ""
 
 
 # ── costruzione da coppie ──────────────────────────────────────────────────
@@ -61,9 +61,9 @@ _FAKE_ROWS = [
 
 def test_dizionario_value_maps_per_colonna():
     reg = vm.registry(include_dizionario=True, rows=_FAKE_ROWS)
-    assert vm.resolve("over 2.5", "markettype", reg) == "OVER_UNDER_25"
-    assert vm.resolve("SI", "selectionname", reg) == "Sì"
-    assert vm.resolve("gg", "marketname", reg) == "Goal/NoGoal"
+    assert vm.map_value("over 2.5", "markettype", reg) == "OVER_UNDER_25"
+    assert vm.map_value("SI", "selectionname", reg) == "Sì"
+    assert vm.map_value("gg", "marketname", reg) == "Goal/NoGoal"
 
 
 def test_dizionario_value_maps_fail_closed_su_alias_duplicato():
@@ -104,8 +104,8 @@ def test_dizionario_value_maps_esclude_placeholder():
          "SelectionName_XTrader": "Pareggio"},
     ]
     reg = vm.registry(include_dizionario=True, rows=rows)
-    assert vm.resolve("1", "selectionname", reg) == ""        # placeholder escluso
-    assert vm.resolve("x", "selectionname", reg) == "Pareggio"  # valore reale ok
+    assert vm.map_value("1", "selectionname", reg) == ""        # placeholder escluso
+    assert vm.map_value("x", "selectionname", reg) == "Pareggio"  # valore reale ok
 
 
 def test_value_map_riconosce_shorthand_telegram():
@@ -114,9 +114,9 @@ def test_value_map_riconosce_shorthand_telegram():
              "MarketType_XTrader": "BOTH_TEAMS_TO_SCORE",
              "MarketName_XTrader": "Entrambe le squadre a segno", "SelectionName_XTrader": "Sì"}]
     reg = vm.registry(include_dizionario=True, rows=rows)
-    assert vm.resolve("GG", "selectionname", reg) == "Sì"      # shorthand Telegram
-    assert vm.resolve("goal", "selectionname", reg) == "Sì"    # alias interno
-    assert vm.resolve("gg", "marketname", reg) == "Entrambe le squadre a segno"
+    assert vm.map_value("GG", "selectionname", reg) == "Sì"      # shorthand Telegram
+    assert vm.map_value("goal", "selectionname", reg) == "Sì"    # alias interno
+    assert vm.map_value("gg", "marketname", reg) == "Entrambe le squadre a segno"
 
 
 def test_shorthand_con_placeholder_resta_non_mappato():
@@ -125,8 +125,8 @@ def test_shorthand_con_placeholder_resta_non_mappato():
              "MarketType_XTrader": "MATCH_ODDS", "MarketName_XTrader": "Esito finale",
              "SelectionName_XTrader": "{HOME_TEAM}"}]
     reg = vm.registry(include_dizionario=True, rows=rows)
-    assert vm.resolve("1", "selectionname", reg) == ""
-    assert vm.resolve("1", "marketname", reg) == "Esito finale"  # MarketName non è placeholder
+    assert vm.map_value("1", "selectionname", reg) == ""
+    assert vm.map_value("1", "marketname", reg) == "Esito finale"  # MarketName non è placeholder
 
 
 def test_shorthand_grafie_virgola_e_ft():
@@ -136,16 +136,16 @@ def test_shorthand_grafie_virgola_e_ft():
              "MarketType_XTrader": "OVER_UNDER_25", "MarketName_XTrader": "Over/Under 2.5",
              "SelectionName_XTrader": "Over 2,5 gol"}]
     reg = vm.registry(include_dizionario=True, rows=rows)
-    assert vm.resolve("OVER 2.5", "marketname", reg) == "Over/Under 2.5"
-    assert vm.resolve("OVER 2,5", "marketname", reg) == "Over/Under 2.5"   # virgola
-    assert vm.resolve("OVER 2.5 FT", "marketname", reg) == "Over/Under 2.5"  # suffisso FT
-    assert vm.resolve("over 2,5", "selectionname", reg) == "Over 2,5 gol"
+    assert vm.map_value("OVER 2.5", "marketname", reg) == "Over/Under 2.5"
+    assert vm.map_value("OVER 2,5", "marketname", reg) == "Over/Under 2.5"   # virgola
+    assert vm.map_value("OVER 2.5 FT", "marketname", reg) == "Over/Under 2.5"  # suffisso FT
+    assert vm.map_value("over 2,5", "selectionname", reg) == "Over 2,5 gol"
 
 
 def test_shorthand_su_dizionario_reale():
     # Smoke sul dizionario ufficiale: "GG" → selezione "Sì".
     reg = vm.registry(include_dizionario=True)
-    assert vm.resolve("GG", "selectionname", reg) == "Sì"
+    assert vm.map_value("GG", "selectionname", reg) == "Sì"
 
 
 def test_dizionario_value_maps_carica_il_dizionario_reale():

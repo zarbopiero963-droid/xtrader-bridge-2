@@ -685,7 +685,7 @@ def test_build_message_preview_failsafe_parser_malformato(tmp_path, monkeypatch)
             raise RuntimeError("parser rotto")
 
     # defn non-None (bypassa il ramo no_active_parser) e builder che esplode in batch_report.
-    monkeypatch.setattr(ca.parser_manager, "load_active", lambda *a, **k: _Boom())
+    monkeypatch.setattr(ca.parser_manager, "load_primary_parser", lambda *a, **k: _Boom())
     monkeypatch.setattr(ca.parser_builder, "ParserBuilder", lambda defn: _Boom())
     data = ca.build_message_preview(_cfg_esempio(), "Match: Inter v Milan", parsers_dir=str(tmp_path))
     assert data["error"] == "internal"
@@ -707,16 +707,16 @@ def test_build_message_preview_def_legacy_senza_mapping_profiles(tmp_path):
             pass
     import xtrader_bridge.config_agent as _ca
 
-    def _fake_load_active(cfg, chat="", parsers_dir=None):
+    def _fake_load_primary_parser(cfg, chat="", parsers_dir=None):
         return defn
 
-    orig = _ca.parser_manager.load_active
-    _ca.parser_manager.load_active = _fake_load_active
+    orig = _ca.parser_manager.load_primary_parser
+    _ca.parser_manager.load_primary_parser = _fake_load_primary_parser
     try:
         data = _ca.build_message_preview(_cfg_esempio(), _parser_io.fixture_message(),
                                          parsers_dir=str(tmp_path))
     finally:
-        _ca.parser_manager.load_active = orig
+        _ca.parser_manager.load_primary_parser = orig
     assert "error" not in data            # nessun AttributeError → report normale
     assert data["reports"][0]["recognized"] is True
 

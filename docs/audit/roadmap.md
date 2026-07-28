@@ -395,7 +395,7 @@ toccano il contratto; bridge avviabile invariato.
 **Tecnico:** `xtrader_bridge/parser_manager.py` — funzioni pure su config:
 `active_parser_name`, `parser_by_chat`, `resolve_parser_name(cfg, chat_id)`
 (override per chat → attivo globale → ""), `set_active`/`set_for_chat`
-(immutabili), `available_parser_names`, `load_active(cfg, chat_id, dir)` (→
+(immutabili), `available_parser_names`, `load_primary_parser(cfg, chat_id, dir)` (→
 `CustomParserDef` o None = parser hardcoded). Config: `active_parser` (""),
 `parser_by_chat` ({}) in DEFAULTS; `app._save_config` li preserva.
 **Test hard:** `tests/unit/test_parser_manager.py` — default, risoluzione
@@ -422,7 +422,7 @@ produce una riga **piazzabile** end-to-end ("GG"→"Sì", "BACK"→PUNTA, 1,85�
 live; hardcoded come fallback.
 **Tecnico:** `xtrader_bridge/signal_router.py` — `resolve_row(text, cfg, *,
 parsers_dir)` → `RouteResult(row, status, source, detail, missing_required)`.
-Se per la chat è attivo un parser (CP-07, `parser_manager.load_active`) è
+Se per la chat è attivo un parser (CP-07, `parser_manager.load_primary_parser`) è
 **autoritativo**: produce la riga via `custom_pipeline.build_validated_row`; se
 non piazzabile il segnale è scartato (niente ripiego sull'hardcoded). Se nessun
 custom è attivo → parser hardcoded storico (`parse_message`→`build_csv_row`→
@@ -1446,7 +1446,7 @@ nell'hub 🧰 Strumenti** (il riordino «4 gruppi» è uno slice successivo).
   betfair_logged_in, parsers_dir)` → `ConfigSummary` (dataclass) con modalità, flag Betfair e una
   `ChannelSummary` per canale (parser risolto/caricabile, traduzioni risolte vs fantasma `⚠`,
   `ready`+`reason`). Riusa gli **stessi predicati del runtime** (`signal_router.allowed_chats`,
-  `parser_manager.resolve_parser_name`/`load_active`, `safety_guard.is_dry_run`,
+  `parser_manager.resolve_parser_name`/`load_primary_parser`, `safety_guard.is_dry_run`,
   `name/market_mapping_store.profile_names`) così il riepilogo non diverge dal comportamento reale.
 - `config_summary_gui.py` (NUOVO): `ConfigSummaryPanel` sola-lettura + helper puri di
   testo/colore (`mode_label`/`betfair_label`/`translations_label`/`readiness_label`/…). Si
@@ -3694,3 +3694,55 @@ supportato «ID fissi + mappatura mercati + EventName» resta valido quando un m
 
 **Escluso (non confermato):** CR/LF interni ai campi verso il CSV — meccanica reale ma neutralizzata
 da `QUOTE_ALL` + `_sanitize_cell`; nessuna scommessa sbagliata.
+
+---
+
+## Pulizia ambiguità di naming — issue #69 (chiusa)
+
+Il report della #69 elencava **19 ambiguità**: funzioni con lo stesso nome e contratto diverso.
+Non erano bug — erano **trappole per il futuro**: alzavano la probabilità che una modifica
+chiamasse la funzione sbagliata. Chiuse in quattro PR, con una regola sola: **rinominare solo dove
+il rischio del rename è minore del rischio che previene**, altrimenti documentare e blindare.
+
+| Voce | Esito | PR |
+|---|---|---|
+| **A2** `recognition.is_valid` → `fields_complete` | rinominata: aveva la stessa firma di `validator.is_valid` ma è solo presenza-campi | #160 |
+| **A3** `evaluate` ×2 → `build_semaphores` / `decide_write` | rinominate: una fa diagnostica UI, l'altra governa la doppia scommessa | #160 |
+| **A4** famiglia CSV «solo header» (5 funzioni) | **documentata + guard**, NON rinominata | #161 |
+| **A5** `bridge_mode` vs `dry_run` | **difetto reale corretto**: il semaforo dell'assistente seguiva l'etichetta invece della modalità effettiva | #162 |
+| **A6** «parser attivo» incoerente · **M7** preview ≠ runtime | già risolte prima della pulizia (verificate nel codice) | — |
+| **A1/A7/M5** famiglia «mode» | già coperte da `tests/unit/test_mode_namespacing.py` (#114): i 4 contratti sono congelati e l'import non qualificato è vietato | — |
+| **M2/M8** store gemelli | comportamento pericoloso già coperto da `test_store_lookup_guards_76.py` (#76); la duplicazione resta **debito noto** | — |
+| **M1** `resolve` ×2 → `resolve_selection` / `map_value` | rinominate | #163 |
+| **M3** `load_active` → `load_primary_parser` · `load_active_list` → `load_all_parsers` | rinominate: «primario» e «tutti» confusi = parser secondari ignorati in silenzio | #163 |
+| **M4** `market_name_for_type` | resa **simmetrica** al gemello (case/space-insensitive) | #163 |
+| **M6/M9/M10/M11/B1** | vedi «accettate consapevolmente» qui sotto | #163 |
+
+### Perché A4 e A1/A7 non sono state rinominate
+
+`init_csv` ha **25 punti di contatto** su un percorso safety-critical e **un solo chiamante di
+produzione**, su un path già validato: lo scenario pericoloso non è raggiungibile dal flusso
+normale, quindi il rename avrebbe introdotto rischio *oggi* per prevenire un errore che *non
+esiste ancora*. La famiglia «mode» ha **161 punti di contatto** su quattro gate safety-critical, e
+il suo guard test (#114) avverte esplicitamente che il pericolo è **un futuro refactor che li
+unifichi** — cioè esattamente il rename che si sarebbe fatto.
+
+### Accettate consapevolmente (non è debito nascosto, è una scelta)
+
+- **M6** — «Prova messaggio» ha 5+ entry-point (`parser_builder.test_message`/`preview_rows`/
+  `batch_report`, `config_agent.build_message_preview`, `wizard.check_parser`), ma **convergono
+  tutti** su `custom_pipeline.build_validated_rows`: nessuna divergenza nel core, solo wrapper per
+  contesti diversi. Unificarli non toglierebbe rischio.
+- **M9** — le tre chiavi parser (`active_parser`, `parser_by_chat`, `parser_list_by_chat`) hanno
+  già un accessor unico (`resolve_parser_name`/`resolve_parser_names`): la precedenza è in un
+  posto solo.
+- **M10** — `signal_router.allowed_chats` è già la fonte unica dell'allowlist; la semantica del
+  set vuoto (≠ «tutte») è fail-closed e testata.
+- **M11** — le letture del provider passano da `source_manager.provider_for_chat` nei percorsi che
+  decidono; le restanti sono display GUI.
+- **B1** — `_norm` privato con regole diverse in più moduli: sono normalizzazioni **di dominio**
+  (nome squadra ≠ keyword conferma ≠ shorthand), unificarle sarebbe un errore, non una pulizia.
+
+Ogni rinomina è protetta da un guard test che **fallisce se il nome ambiguo torna**
+(`test_ambiguity_69.py`, `test_ambiguity_minori_69.py`, `test_csv_family_a4_69.py`,
+`test_bridge_mode_dry_run_a5_69.py`).

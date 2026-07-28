@@ -118,7 +118,7 @@ def _classify_extraction(rule, raw, reason, after, final) -> str:
 def _field_diag(rule, text, registry) -> FieldDiagnostic:
     raw, reason = extract_value_traced(text, rule)
     after = transforms.apply(raw, rule.transform) if rule.transform else raw
-    final = value_maps.resolve(after, rule.value_map, registry) if rule.value_map else after
+    final = value_maps.map_value(after, rule.value_map, registry) if rule.value_map else after
     return FieldDiagnostic(
         target=rule.target, raw=raw, after_transform=after, final=final,
         required=bool(rule.required),

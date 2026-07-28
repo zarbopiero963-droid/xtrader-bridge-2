@@ -34,7 +34,7 @@ def test_event_type_id_per_sport_noto():
 def test_cambio_profilo_cambia_parser_attivo(tmp_path):
     """Bullet PR-P9 "Cambio profilo cambia parser" asserito direttamente: due profili
     con `active_parser` diverso risolvono a due parser (e due sport) diversi via le
-    funzioni reali `profile_store.apply_profile` + `parser_manager.load_active`."""
+    funzioni reali `profile_store.apply_profile` + `parser_manager.load_primary_parser`."""
     from xtrader_bridge import parser_manager as pm
     from xtrader_bridge import profile_store as ps
 
@@ -50,8 +50,8 @@ def test_cambio_profilo_cambia_parser_attivo(tmp_path):
     cfg_a = ps.apply_profile(base, {"active_parser": "CalcioP"})
     cfg_b = ps.apply_profile(base, {"active_parser": "TennisP"})
 
-    defn_a = pm.load_active(cfg_a, dir_path=d)
-    defn_b = pm.load_active(cfg_b, dir_path=d)
+    defn_a = pm.load_primary_parser(cfg_a, dir_path=d)
+    defn_b = pm.load_primary_parser(cfg_b, dir_path=d)
     assert defn_a.name == "CalcioP" and defn_a.sport == "Calcio"
     assert defn_b.name == "TennisP" and defn_b.sport == "Tennis"
     # cambiare profilo non perde il segreto della config viva (apply_profile lo preserva)
