@@ -484,6 +484,13 @@ fetta la **automatizza dentro il License Manager**, senza spostare il seed priva
   e ri-carica alla cadenza scelta, si **ri-arma sempre** (anche dopo un errore) e viene annullato alla
   chiusura (`_on_close`). `_build_signed_revocation_list()` è la **sorgente unica** della lista firmata,
   condivisa con l'esportazione su file (📤) così le due strade non divergono.
+- **La rete NON gira sul thread Tk** (rilievo GPT-5.5 #158): firma + `GET`/`PUT` (fino a
+  `DEFAULT_TIMEOUT_S` ciascuna) girerebbero per decine di secondi con GitHub lento/irraggiungibile,
+  **congelando la finestra**. `_publish_async` avvia un **thread daemon** (`_publish_worker`) e l'esito
+  rientra sul thread GUI via `after(0, …)` (`_publish_finish`); il tick **si ri-arma subito**, senza
+  aspettare la rete. Un **lucchetto** (`_publish_inflight`) impedisce upload accavallati (click ripetuto
+  o tick che cade durante una pubblicazione in corso) e viene **sempre liberato**, anche su errore
+  imprevisto o finestra distrutta.
 
 **Fail-closed dove conta:** impostazioni non valide → non si salva; abilitare senza token → rifiutato;
 keyring non disponibile → **si rifiuta** invece di scrivere il token in chiaro; token vuoto al ri-salvataggio

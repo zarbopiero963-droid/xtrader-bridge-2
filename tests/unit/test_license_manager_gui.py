@@ -96,12 +96,29 @@ def _fake(gui, tmp_path, now=_NOW):
     fake._closing = False
     fake._msgs = []
     fake._set_msg = fake._msgs.append
-    fake.after = lambda ms, fn: (fake._msgs and None) or "after-id"
+
+    def _fake_after(ms, fn):
+        """`after(0, …)` = marshalling verso il thread GUI → esegue SUBITO (come farebbe Tk appena
+        libero); `after(>0, …)` = timer → si registra soltanto."""
+        if ms == 0:
+            fn()
+        else:
+            fake._timer_calls.append(ms)
+        return "after-id"
+    fake._timer_calls = []
+    fake.after = _fake_after
     fake._evaluate_save_publish_settings = (
         lambda repo, path, branch, interval, enabled, token="":
         gui.LicenseManagerApp._evaluate_save_publish_settings(fake, repo, path, branch, interval,
                                                               enabled, token=token))
     fake._evaluate_publish_now = lambda: gui.LicenseManagerApp._evaluate_publish_now(fake)
+    # Il thread di pubblicazione è iniettato come runner INLINE: il test esercita il vero worker
+    # (firma + upload finto + marshalling dell'esito) in modo deterministico, senza thread reali.
+    fake._publish_inflight = False
+    fake._spawn_publish_thread = lambda target: target()
+    fake._publish_async = lambda: gui.LicenseManagerApp._publish_async(fake)
+    fake._publish_worker = lambda: gui.LicenseManagerApp._publish_worker(fake)
+    fake._publish_finish = lambda res: gui.LicenseManagerApp._publish_finish(fake, res)
     fake._publish_tick = lambda: gui.LicenseManagerApp._publish_tick(fake)
     fake._schedule_publish_tick = lambda: gui.LicenseManagerApp._schedule_publish_tick(fake)
     fake._cancel_publish_tick = lambda: gui.LicenseManagerApp._cancel_publish_tick(fake)
@@ -717,29 +734,26 @@ def test_publish_tick_pubblica_solo_se_abilitata_e_si_riarma(gui, tmp_path):
     fake = _fake(gui, tmp_path)
     gui.LicenseManagerApp._ensure_keypair(fake)
     fake._kr_token = "ghp_ABC"
-    after_calls = []
-    fake.after = lambda ms, fn: (after_calls.append(ms) or "id")
     # DISABILITATA → nessun upload, ma il tick si ri-arma comunque
     fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"], "12", False)
     gui.LicenseManagerApp._publish_tick(fake)
-    assert fake._publish_calls == [] and after_calls == [12 * 3_600_000]
-    # ABILITATA → pubblica e si ri-arma
-    after_calls.clear()
+    assert fake._publish_calls == [] and fake._timer_calls == [12 * 3_600_000]
+    # ABILITATA → pubblica (in background) e si ri-arma
+    fake._timer_calls.clear()
     fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"], "6", True)
     gui.LicenseManagerApp._publish_tick(fake)
-    assert len(fake._publish_calls) == 1 and after_calls == [6 * 3_600_000]
+    assert len(fake._publish_calls) == 1 and fake._timer_calls == [6 * 3_600_000]
+    assert fake._publish_inflight is False, "il lucchetto va liberato a esito applicato"
 
 
 def test_publish_tick_errore_non_ferma_il_ciclo(gui, tmp_path):
     """Un errore imprevisto nel tick non deve rompere la finestra: si logga e ci si ri-arma."""
     fake = _fake(gui, tmp_path)
-    after_calls = []
-    fake.after = lambda ms, fn: (after_calls.append(ms) or "id")
     def _boom(**kw):
         raise RuntimeError("errore imprevisto")
     fake._load_publish_config = _boom
     gui.LicenseManagerApp._publish_tick(fake)
-    assert after_calls, "il tick deve ri-armarsi anche dopo un errore"
+    assert fake._timer_calls, "il tick deve ri-armarsi anche dopo un errore"
 
 
 def test_cancel_publish_tick_e_chiusura(gui, tmp_path):
@@ -755,3 +769,55 @@ def test_cancel_publish_tick_e_chiusura(gui, tmp_path):
     fake.after = lambda ms, fn: (after_calls.append(ms) or "id")
     gui.LicenseManagerApp._schedule_publish_tick(fake)
     assert after_calls == []
+
+
+def test_publish_async_non_accavalla_due_upload(gui, tmp_path):
+    """Un secondo avvio mentre una pubblicazione è in corso NON parte (lucchetto `_publish_inflight`)."""
+    fake = _fake(gui, tmp_path)
+    fake._publish_inflight = True                       # simula una pubblicazione già in volo
+    assert fake._publish_async() is False
+    assert fake._publish_calls == []                    # nessun upload avviato
+
+
+def test_publish_worker_libera_il_lucchetto_anche_su_errore(gui, tmp_path):
+    """Il worker non muore e **libera sempre** il lucchetto: un errore imprevisto diventa un esito
+    negativo mostrato all'utente, non una GUI bloccata per sempre in «in corso»."""
+    fake = _fake(gui, tmp_path)
+    def _boom():
+        raise RuntimeError("errore imprevisto")
+    fake._evaluate_publish_now = _boom
+    fake._publish_inflight = True
+    gui.LicenseManagerApp._publish_worker(fake)
+    assert fake._publish_inflight is False
+    assert fake._msgs and "⚠️" in fake._msgs[-1]
+
+
+def test_publish_worker_finestra_distrutta_libera_il_lucchetto(gui, tmp_path):
+    """Se la finestra è distrutta (`after` solleva) non si tocca la UI, ma il lucchetto va liberato."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"], "12", True)
+    def _after_ko(ms, fn):
+        raise RuntimeError("finestra distrutta")
+    fake.after = _after_ko
+    fake._publish_inflight = True
+    gui.LicenseManagerApp._publish_worker(fake)
+    assert fake._publish_inflight is False
+
+
+def test_on_publish_now_non_blocca_la_gui(gui, tmp_path):
+    """`🚀 Pubblica ora` avvia in BACKGROUND: la callback ritorna subito con «in corso…» e l'esito
+    arriva dopo (qui il runner è inline, quindi si vede già l'esito finale)."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"], "12", True)
+    spawned = []
+    fake._spawn_publish_thread = lambda target: spawned.append(target)   # NON esegue: come un thread vero
+    gui.LicenseManagerApp._on_publish_now(fake)
+    assert spawned, "l'upload deve girare su un thread, non sul thread Tk"
+    assert "in corso" in fake._msgs[-1].lower()
+    assert fake._publish_calls == []          # la rete non è ancora partita: la GUI non ha atteso
+    spawned[0]()                              # il worker gira "dopo"
+    assert len(fake._publish_calls) == 1 and fake._publish_inflight is False

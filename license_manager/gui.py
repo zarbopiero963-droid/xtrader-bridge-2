@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time as _time
 
 import customtkinter as ctk
@@ -77,6 +78,7 @@ class LicenseManagerApp(ctk.CTk):
         self._save_publish_token = save_publish_token or publish_store.save_publish_token
         self._publish_upload = publish_upload or publisher.publish
         self._publish_after_id = None
+        self._publish_inflight = False      # un solo upload alla volta (niente accavallamenti)
         self._closing = False
         # widget refs (popolati da _build_ui)
         self._public_value = None
@@ -464,16 +466,56 @@ class LicenseManagerApp(ctk.CTk):
                 "message": (f"{result.get('message', '')} "
                             f"URL per il bridge: {publisher.raw_url(cfg['repo'], cfg['path'], cfg['branch'])}")}
 
+    # La pubblicazione fa **rete** (GET+PUT, fino a `DEFAULT_TIMEOUT_S` ciascuna): eseguirla sul
+    # thread Tk **congelerebbe la finestra** con GitHub lento o irraggiungibile (rilievo GPT-5.5
+    # #158). Perciò la parte lenta gira su un **thread daemon** e l'esito rientra sul thread GUI via
+    # `after`. Un solo upload alla volta (`_publish_inflight`): un click ripetuto o un tick che cade
+    # durante una pubblicazione in corso non ne accavalla una seconda.
+    def _spawn_publish_thread(self, target) -> None:
+        """Avvia il worker di pubblicazione (iniettabile nei test: eseguono `target()` inline)."""
+        threading.Thread(target=target, daemon=True, name="revocation-publish").start()
+
+    def _publish_async(self) -> bool:
+        """Avvia una pubblicazione in background. `True` se avviata, `False` se ce n'è già una in
+        corso (nessun accavallamento)."""
+        if self.__dict__.get("_publish_inflight"):
+            return False
+        self._publish_inflight = True
+        try:
+            self._spawn_publish_thread(self._publish_worker)
+        except Exception as exc:    # noqa: BLE001 — thread non avviabile: libera il flag e segnala
+            self._publish_inflight = False
+            _log.warning("Avvio thread pubblicazione non riuscito [%s]", type(exc).__name__)
+            return False
+        return True
+
+    def _publish_worker(self) -> None:
+        """Corpo del thread: fa la parte lenta (firma + rete) FUORI dal thread Tk e rimanda l'esito
+        alla GUI. Non solleva mai: un errore imprevisto diventa un esito negativo."""
+        try:
+            result = self._evaluate_publish_now()
+        except Exception as exc:    # noqa: BLE001 — il thread non deve morire in silenzio
+            _log.warning("Pubblicazione in background non riuscita [%s]", type(exc).__name__)
+            result = {"ok": False, "message": "Pubblicazione non riuscita (errore imprevisto)."}
+        try:
+            self.after(0, lambda: self._publish_finish(result))
+        except Exception:       # noqa: BLE001 — finestra distrutta: nessuna UI da aggiornare
+            self._publish_inflight = False
+
+    def _publish_finish(self, result) -> None:
+        """Applica l'esito sul thread GUI e libera il lucchetto."""
+        self._publish_inflight = False
+        self._set_msg(("✅ " if (result or {}).get("ok") else "⚠️ ") + str((result or {}).get("message", "")))
+
     def _publish_tick(self) -> None:
-        """Tick della pubblicazione automatica: se abilitata, ri-pubblica e si **ri-arma** sempre.
-        Interamente best-effort: un errore (rete, keyring, firma) non deve fermare il ciclo né
-        rompere la finestra."""
+        """Tick della pubblicazione automatica: se abilitata avvia la pubblicazione **in background**
+        e si **ri-arma** sempre (non aspetta l'esito della rete). Best-effort: un errore non deve
+        fermare il ciclo né rompere la finestra."""
         self._publish_after_id = None
         try:
             cfg = self._load_publish_config(directory=self._key_dir)
             if cfg.get("enabled"):
-                result = self._evaluate_publish_now()
-                self._set_msg(("🔄 " if result.get("ok") else "⚠️ ") + str(result.get("message", "")))
+                self._publish_async()
         except Exception as exc:    # noqa: BLE001 — il ciclo non deve morire per un errore imprevisto
             _log.warning("Tick pubblicazione non riuscito [%s]", type(exc).__name__)
         self._schedule_publish_tick()
@@ -773,9 +815,12 @@ class LicenseManagerApp(ctk.CTk):
             self._schedule_publish_tick()
 
     def _on_publish_now(self) -> None:
-        """Pubblica adesso la lista firmata su GitHub (esito nella riga messaggi)."""
-        result = self._evaluate_publish_now()
-        self._set_msg(("✅ " if result.get("ok") else "⚠️ ") + str(result.get("message", "")))
+        """Pubblica adesso la lista firmata su GitHub, **in background** (la finestra non si congela
+        se la rete è lenta). L'esito compare nella riga messaggi quando la chiamata termina."""
+        if self._publish_async():
+            self._set_msg("⏳ Pubblicazione in corso…")
+        else:
+            self._set_msg("⏳ Una pubblicazione è già in corso: attendi l'esito.")
 
     def _on_publish_revocation(self) -> None:
         # Il percorso reale lo sceglie un file-dialog (Tk, verifica manuale); headless resta '' → messaggio.
