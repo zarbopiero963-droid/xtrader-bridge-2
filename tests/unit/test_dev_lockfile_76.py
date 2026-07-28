@@ -36,16 +36,20 @@ _HARD_BUILD_WORKFLOW = "merge-simulation-hard.yml"
 # `\s+` perché in YAML un comando può essere spezzato con la continuazione `\` (rilievo Fable
 # #165): `pip install \` + a capo + `-r requirements-dev.txt` è lo stesso identico difetto
 # scritto su due righe, e un guard che non lo vede protegge solo chi non va a capo.
+# Opzioni ammesse fra `pip install` e `-r`: un numero qualsiasi di flag lunghi
+# (`--upgrade`, `--disable-pip-version-check`, …). Frammento CONDIVISO dalle due regex, perché
+# la lezione di questa PR è che le due metà del guard devono riconoscere esattamente le stesse
+# forme (GPT-5.5 #165): se la negativa accetta un flag che la positiva rifiuta, lo stesso
+# workflow risulta insieme "non sbagliato" e "non giusto" — e la CI fallisce su codice sicuro.
+_INSTALL_FLAGS = r"(?:[\s\\]+--[\w-]+)*"
+# `[\s\\]+` e non `\s+`: in YAML un comando può essere spezzato con la continuazione `\`
+# (rilievo Fable #165), e lo stesso difetto scritto su due righe resta lo stesso difetto.
 _BARE_INSTALL_RE = re.compile(
-    r"pip install[\s\\]+(?:--upgrade[\s\\]+)?-r requirements-dev\.txt"
+    rf"pip install{_INSTALL_FLAGS}[\s\\]+-r requirements-dev\.txt"
     r"(?![\s\\]+-c requirements-dev\.lock)[^\n]*")
-
-# La controparte POSITIVA. Anche questa tollera la continuazione `\` (rilievo GPT-5.5 #165):
-# prima era un confronto di sottostringa esatta su una riga, quindi un workflow **corretto** ma
-# scritto su più righe sarebbe stato bocciato. Un guard che boccia il codice giusto costa quanto
-# uno che lascia passare quello sbagliato — spinge a disattivarlo.
 _GOOD_INSTALL_RE = re.compile(
-    r"pip install[\s\\]+-r requirements-dev\.txt[\s\\]+-c requirements-dev\.lock")
+    rf"pip install{_INSTALL_FLAGS}[\s\\]+-r requirements-dev\.txt"
+    r"[\s\\]+-c requirements-dev\.lock")
 
 
 def _lock_pins():
@@ -164,6 +168,9 @@ def test_il_job_notturno_builda_da_dipendenze_pinnate_e_hashate():
     # copertura resterebbe accidentale — e la prossima riscrittura potrebbe perderla.
     "      - run: python -m pip install -r requirements-dev.txt",
     "      - run: python -m pip install \\\n          -r requirements-dev.txt",
+    # Flag arbitrario, non solo `--upgrade`: prima il pattern conosceva quel singolo flag,
+    # quindi un install nudo con QUALSIASI altra opzione sarebbe passato (GPT-5.5 #165).
+    "      - run: pip install --disable-pip-version-check -r requirements-dev.txt",
 ])
 def test_il_guard_riconosce_tutte_le_forme_dell_install_nudo(riga):
     """Il guard è a sua volta testato, perché una regex che non morde è indistinguibile da
@@ -188,6 +195,12 @@ def test_il_guard_non_segnala_gli_install_corretti(riga):
     "      - run: pip install -r requirements-dev.txt -c requirements-dev.lock",
     "      - run: pip install \\\n          -r requirements-dev.txt \\\n          -c requirements-dev.lock",
     "      - run: python -m pip install -r requirements-dev.txt -c requirements-dev.lock",
+    # Flag fra `pip install` e `-r`: il guard negativo li tollerava, il positivo no
+    # (asimmetria rilevata da GPT-5.5 #165). Un install COSTRETTO ma con `--upgrade`
+    # risultava insieme "non sbagliato" e "non giusto" → CI rossa su codice sicuro.
+    "      - run: pip install --upgrade -r requirements-dev.txt -c requirements-dev.lock",
+    "      - run: python -m pip install --disable-pip-version-check \\\n"
+    "          -r requirements-dev.txt -c requirements-dev.lock",
 ])
 def test_il_check_positivo_accetta_anche_le_forme_spezzate(riga):
     """Rilievo GPT-5.5 (#165): il riconoscimento dell'install CORRETTO era un confronto di
