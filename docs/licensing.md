@@ -452,6 +452,82 @@ fail-closed. Nota disponibilità: essendo **no-grace su URL singolo**, un'irragg
 (oltre `FRESHNESS_MAX_AGE_S`, 15 min) blocca i client a sessione viva — è la conseguenza **accettata**
 della scelta «niente grazia» (decisione proprietario 2); le due finestre sono costanti tarabili.
 
+### Revoca — pubblicazione automatica su GitHub (#157)
+
+Il punto (2) qui sopra — *ri-pubblicare la lista firmata entro la finestra* — è la sola parte che
+dipendeva dalla memoria del proprietario: **dimenticarla blocca tutti i bridge** (fail-closed). Questa
+fetta la **automatizza dentro il License Manager**, senza spostare il seed privato.
+
+**Dove sta cosa (invariante):**
+
+| | Dove | Perché |
+|---|---|---|
+| **Seed privato** (firma) | Solo sul PC, `signing_key.json` | Non lascia mai la macchina: la firma avviene **qui** |
+| **Token GitHub** (upload) | Solo nel **keyring** (`SERVICE="XTraderLicenseManager"`) | Credenziale: mai su disco, mai nei log |
+| **Impostazioni** (repo/path/branch/intervallo/on-off) | `publish_config.json` in `manager_dir()` | Non segrete, scritte **atomicamente** |
+| **Lista firmata** | Repo GitHub **pubblico** | Il bridge la scarica senza credenziali; è firmata → infalsificabile |
+
+- **`license_manager/publish_store.py`** — impostazioni + keyring. `normalize_config` (default
+  fail-closed: pubblicazione **spenta**; `enabled` solo su `True` vero; intervallo limitato a
+  `MIN_INTERVAL_HOURS..MAX_INTERVAL_HOURS`; **scarta** qualunque campo `token`), `validate_config`
+  (repo nella forma `owner/nome` **con i soli caratteri ammessi da GitHub** — `A-Z a-z 0-9 . _ -`;
+  niente whitespace in `path`/`branch`),
+  `load/save_publish_config` (atomico via `atomic_io`, fail-safe su file assente/corrotto),
+  **cadenza vincolata alla finestra del bridge**: `MAX_INTERVAL_HOURS` è **derivato** da
+  `revocation_client.MAX_LIST_AGE_S` (un terzo della finestra → 8 h su 24 h), non un numero ricopiato,
+  così i due valori non possono divergere. Prima erano ammesse fino a 168 h: una cadenza **più lunga
+  della finestra** avrebbe salvato con «successo» una configurazione che **garantisce il lockout** di
+  tutti i bridge fra una pubblicazione e l'altra (rilievo CodeRabbit/Fable/Fugu #158). Col cap a un
+  terzo, la lista resta fresca **anche saltando un giro**;
+  `save/load/delete_publish_token` + `keyring_available` (import `keyring` **soft**, ogni errore del
+  backend = «non disponibile», mai un crash).
+- **`license_manager/publisher.py`** — upload via **GitHub Contents API**: `GET` per lo `sha`
+  (404 → si crea) poi `PUT` con contenuto base64, `message`, `branch` e `sha` in aggiornamento.
+  **Nessun follow dei redirect** (`_NoRedirectHandler`, rilievo Fable #158): `urllib` seguirebbe i
+  3xx **ri-inviando `Authorization: Bearer <token>`** all'host di destinazione — anche diverso da
+  `api.github.com` — cioè un **leak del token**; un 3xx è quindi trattato come errore (soglia `>= 300`,
+  non `>= 400`: un redirect non è una pubblicazione riuscita).
+  `raw_url(repo, path, branch)` restituisce **l'URL da mettere in `REVOCATION_LIST_URL`** e codifica
+  `repo`/`path`/`branch` **esattamente come `contents_url`** (rilievi Fugu/Fable #158): l'API pubblica
+  all'indirizzo *codificato*, quindi un raw URL con caratteri grezzi punterebbe a un file inesistente
+  → il bridge smette di scaricare la lista → **lockout fail-closed di tutti i bridge**. Se a quotare
+  fosse **uno solo** dei due, la divergenza tornerebbe. Errori
+  mappati per codice (401/403 permessi, 404 repo/branch, 409/422 conflitto, 429, 5xx) — **il token non
+  compare MAI** nei messaggi. HTTP dietro **probe iniettabile** (test senza socket).
+- **GUI** (`license_manager/gui.py`, sezione «📤 Pubblicazione automatica (GitHub)»): campi repo/path/
+  branch/intervallo + token (`show="*"`, svuotato dopo il salvataggio), checkbox on/off, **💾 Salva
+  impostazioni** e **🚀 Pubblica ora**; un **tick** (`_publish_tick`/`_schedule_publish_tick`) ri-firma
+  e ri-carica alla cadenza scelta, si **ri-arma sempre** (anche dopo un errore) e viene annullato alla
+  chiusura (`_on_close`). All'avvio il primo tick è **ravvicinato** (catch-up: se il PC è stato spento
+  a lungo la lista è già scaduta e i bridge sono bloccati — attendere l'intero intervallo li terrebbe
+  bloccati per ore); se un giro viene **saltato** (pubblicazione già in volo) si **riprova fra pochi
+  minuti** invece che dopo l'intero intervallo (rilievi Fugu/Fable #158). `_build_signed_revocation_list()` è la **sorgente unica** della lista firmata,
+  condivisa con l'esportazione su file (📤) così le due strade non divergono.
+- **La rete NON gira sul thread Tk** (rilievo GPT-5.5 #158): firma + `GET`/`PUT` (fino a
+  `DEFAULT_TIMEOUT_S` ciascuna) girerebbero per decine di secondi con GitHub lento/irraggiungibile,
+  **congelando la finestra**. `_publish_async` avvia un **thread daemon** (`_publish_worker`) e l'esito
+  rientra sul thread GUI via `after(0, …)` (`_publish_finish`); il tick **si ri-arma subito**, senza
+  aspettare la rete. Un **lucchetto** (`_publish_inflight`) impedisce upload accavallati (click ripetuto
+  o tick che cade durante una pubblicazione in corso) e viene **sempre liberato**, anche su errore
+  imprevisto o finestra distrutta.
+
+**Fail-closed dove conta:** impostazioni non valide → non si salva; abilitare senza token → rifiutato;
+keyring non disponibile → **si rifiuta** invece di scrivere il token in chiaro; token vuoto al ri-salvataggio
+→ **non** cancella quello già nel keyring.
+
+**Test hard:** `tests/unit/test_license_manager_publish_store.py` (normalizzazione/validazione,
+round-trip, file assente/corrotto, keyring finto assente/rotto, **token mai su disco**),
+`tests/unit/test_license_manager_publisher.py` (URL raw/contents, create-vs-update con `sha`, errori
+HTTP mappati, rete KO, **token mai nel risultato**) e `tests/unit/test_license_manager_gui.py`
+(salvataggio valido/invalido, abilitata-senza-token, keyring KO, token vuoto non cancella, pubblica-ora
+end-to-end **verificando la firma della lista caricata**, upload fallito, tick abilitato/disabilitato +
+ri-arma dopo errore, annullamento in chiusura).
+
+**Nota operativa:** il tick gira **mentre il License Manager è aperto**. Se il PC resta spento oltre la
+finestra di freschezza, i bridge si bloccano comunque (è la scelta «niente grazia»): per una copertura
+24/7 servirebbe una modalità headless su una macchina sempre accesa — tracciata in #157, **non** in
+questa fetta.
+
 ### PR 4 — Lock totale della GUI (fatta)
 
 Il bridge **non opera senza licenza valida**. Cablato in `xtrader_bridge/app.py`:
