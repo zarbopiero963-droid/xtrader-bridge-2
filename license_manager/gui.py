@@ -34,6 +34,15 @@ _log = logging.getLogger(__name__)
 
 _MONO = ("Consolas", "Courier New", "monospace")
 
+# Pubblicazione automatica (#157). All'avvio si pubblica SUBITO (catch-up): se il PC è rimasto spento
+# oltre la finestra di freschezza del bridge, la lista è già scaduta e i bridge sono bloccati —
+# aspettare l'intero intervallo li terrebbe bloccati per ore (rilievo Fugu #158). Il ritardo è solo
+# quel poco che serve alla finestra per finire di costruirsi.
+_PUBLISH_STARTUP_MS = 3_000
+# Se un giro viene SALTATO (una pubblicazione era già in volo, o il thread non è partito) si riprova
+# a breve invece di aspettare l'intero intervallo (rilievo Fable #158).
+_PUBLISH_RETRY_MS = 5 * 60_000
+
 
 class LicenseManagerApp(ctk.CTk):
     """Finestra del License Manager. Dipendenze iniettate (testabilità + disaccoppiamento):
@@ -108,7 +117,7 @@ class LicenseManagerApp(ctk.CTk):
             self.protocol("WM_DELETE_WINDOW", self._on_close)
         except Exception:       # noqa: BLE001 — headless/senza window manager: best-effort
             pass
-        self._schedule_publish_tick()
+        self._schedule_publish_tick(first=True)
 
     def _on_close(self) -> None:
         """Chiusura finestra: annulla il tick di pubblicazione e distrugge la finestra."""
@@ -534,18 +543,42 @@ class LicenseManagerApp(ctk.CTk):
         e si **ri-arma** sempre (non aspetta l'esito della rete). Best-effort: un errore non deve
         fermare il ciclo né rompere la finestra."""
         self._publish_after_id = None
+        saltata = False
         try:
             cfg = self._load_publish_config(directory=self._key_dir)
             if cfg.get("enabled"):
-                self._publish_async()
+                # `False` = pubblicazione NON avviata (una era già in volo, o il thread non è
+                # partito): non si può aspettare un intero intervallo, altrimenti si allunga la
+                # distanza fra due liste fresche verso la finestra del bridge (rilievo Fable #158)
+                # → si riprova **a breve**.
+                saltata = not self._publish_async()
         except Exception as exc:    # noqa: BLE001 — il ciclo non deve morire per un errore imprevisto
             _log.warning("Tick pubblicazione non riuscito [%s]", type(exc).__name__)
-        self._schedule_publish_tick()
+            saltata = True
+        self._schedule_publish_tick(retry_soon=saltata)
 
-    def _schedule_publish_tick(self) -> None:
-        """(Ri)programma il tick alla cadenza configurata. Non riprogramma in chiusura; `after` è
-        best-effort (finestra distrutta → nessun ri-arm)."""
+    def _schedule_publish_tick(self, *, retry_soon: bool = False, first: bool = False) -> None:
+        """(Ri)programma il tick: alla cadenza configurata, **quasi subito** all'avvio
+        (`first=True`, catch-up di una lista già scaduta) oppure **fra pochi minuti** se la
+        pubblicazione di questo giro è stata **saltata** (`retry_soon=True`), così un salto non
+        allunga la distanza fra due liste fresche. Non riprogramma in chiusura; `after` è best-effort
+        (finestra distrutta → nessun ri-arm)."""
         if self.__dict__.get("_closing"):
+            return
+        if first:
+            # Catch-up d'avvio: pubblica quasi subito. Se il PC è stato spento a lungo la lista sul
+            # repo è già scaduta e i bridge sono bloccati: attendere l'intero intervallo li terrebbe
+            # bloccati per ore (rilievo Fugu #158).
+            try:
+                self._publish_after_id = self.after(_PUBLISH_STARTUP_MS, self._publish_tick)
+            except Exception:   # noqa: BLE001 — finestra distrutta/headless: niente ri-arm
+                self._publish_after_id = None
+            return
+        if retry_soon:
+            try:
+                self._publish_after_id = self.after(_PUBLISH_RETRY_MS, self._publish_tick)
+            except Exception:   # noqa: BLE001 — finestra distrutta/headless: niente ri-arm
+                self._publish_after_id = None
             return
         # La lettura della cadenza è essa stessa best-effort: se le impostazioni non sono leggibili
         # (disco/provider in errore) si ripiega sulla cadenza di default invece di far MORIRE il ciclo

@@ -122,7 +122,7 @@ def _fake(gui, tmp_path, now=_NOW):
     fake._publish_worker = lambda: gui.LicenseManagerApp._publish_worker(fake)
     fake._publish_finish = lambda res: gui.LicenseManagerApp._publish_finish(fake, res)
     fake._publish_tick = lambda: gui.LicenseManagerApp._publish_tick(fake)
-    fake._schedule_publish_tick = lambda: gui.LicenseManagerApp._schedule_publish_tick(fake)
+    fake._schedule_publish_tick = lambda **kw: gui.LicenseManagerApp._schedule_publish_tick(fake, **kw)
     fake._cancel_publish_tick = lambda: gui.LicenseManagerApp._cancel_publish_tick(fake)
     return fake
 
@@ -641,7 +641,7 @@ def test_save_publish_settings_valide_salvano_e_abilitano(gui, tmp_path):
     assert out["ok"] is True
     cfg = publish_store.load_publish_config(directory=str(tmp_path))
     assert cfg == {"enabled": True, "repo": _PUB_OK["repo"], "path": _PUB_OK["path"],
-                   "branch": "main", "interval_hours": 12}
+                   "branch": "main", "interval_hours": publish_store.MAX_INTERVAL_HOURS}
     assert fake._kr_token == "ghp_ABC"                       # token nel keyring (finto)
     # ...e MAI su disco
     testo = open(publish_store.publish_config_path(str(tmp_path)), encoding="utf-8").read()
@@ -739,12 +739,14 @@ def test_publish_tick_pubblica_solo_se_abilitata_e_si_riarma(gui, tmp_path):
     # DISABILITATA → nessun upload, ma il tick si ri-arma comunque
     fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"], "12", False)
     gui.LicenseManagerApp._publish_tick(fake)
-    assert fake._publish_calls == [] and fake._timer_calls == [12 * 3_600_000]
+    assert fake._publish_calls == []
+    assert fake._timer_calls == [publish_store.MAX_INTERVAL_HOURS * 3_600_000]
     # ABILITATA → pubblica (in background) e si ri-arma
     fake._timer_calls.clear()
     fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"], "6", True)
     gui.LicenseManagerApp._publish_tick(fake)
     assert len(fake._publish_calls) == 1 and fake._timer_calls == [6 * 3_600_000]
+    assert fake._publish_inflight is False, "il lucchetto va liberato a esito applicato"
     assert fake._publish_inflight is False, "il lucchetto va liberato a esito applicato"
 
 
@@ -879,3 +881,29 @@ def test_spawn_publish_thread_reale_esegue_il_worker(gui, tmp_path):
     gui.LicenseManagerApp._spawn_publish_thread(fake, _target)
     assert fatto.wait(timeout=5), "il worker deve essere eseguito dal thread avviato"
     assert thread_ids and thread_ids[0] != _t.get_ident(), "deve girare su un ALTRO thread"
+
+
+def test_tick_avvio_pubblica_subito_catch_up(gui, tmp_path):
+    """All'avvio il primo tick è **ravvicinato** (catch-up): se il PC è stato spento a lungo la lista
+    è già scaduta e i bridge sono bloccati — aspettare l'intero intervallo li terrebbe bloccati per
+    ore (rilievo Fugu #158)."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._schedule_publish_tick(fake, first=True)
+    assert fake._timer_calls == [gui._PUBLISH_STARTUP_MS]
+    assert gui._PUBLISH_STARTUP_MS < 60_000, "il catch-up d'avvio dev'essere quasi immediato"
+
+
+def test_tick_saltato_riprova_a_breve(gui, tmp_path):
+    """Se la pubblicazione del giro viene SALTATA (una era già in volo), il tick si ri-arma **fra
+    pochi minuti**, non dopo l'intero intervallo: un salto non deve avvicinare la scadenza della
+    lista (rilievo Fable #158)."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"], "8", True)
+    fake._publish_inflight = True          # una pubblicazione è già in volo → questo giro salta
+    fake._timer_calls.clear()
+    gui.LicenseManagerApp._publish_tick(fake)
+    assert fake._publish_calls == []                       # non ha pubblicato
+    assert fake._timer_calls == [gui._PUBLISH_RETRY_MS]    # ...ma riprova a breve
+    assert gui._PUBLISH_RETRY_MS < publish_store.MAX_INTERVAL_HOURS * 3_600_000

@@ -471,10 +471,20 @@ fetta la **automatizza dentro il License Manager**, senza spostare il seed priva
   fail-closed: pubblicazione **spenta**; `enabled` solo su `True` vero; intervallo limitato
   1..168 h; **scarta** qualunque campo `token`), `validate_config` (repo nella forma `owner/nome`),
   `load/save_publish_config` (atomico via `atomic_io`, fail-safe su file assente/corrotto),
+  **cadenza vincolata alla finestra del bridge**: `MAX_INTERVAL_HOURS` è **derivato** da
+  `revocation_client.MAX_LIST_AGE_S` (un terzo della finestra → 8 h su 24 h), non un numero ricopiato,
+  così i due valori non possono divergere. Prima erano ammesse fino a 168 h: una cadenza **più lunga
+  della finestra** avrebbe salvato con «successo» una configurazione che **garantisce il lockout** di
+  tutti i bridge fra una pubblicazione e l'altra (rilievo CodeRabbit/Fable/Fugu #158). Col cap a un
+  terzo, la lista resta fresca **anche saltando un giro**;
   `save/load/delete_publish_token` + `keyring_available` (import `keyring` **soft**, ogni errore del
   backend = «non disponibile», mai un crash).
 - **`license_manager/publisher.py`** — upload via **GitHub Contents API**: `GET` per lo `sha`
   (404 → si crea) poi `PUT` con contenuto base64, `message`, `branch` e `sha` in aggiornamento.
+  **Nessun follow dei redirect** (`_NoRedirectHandler`, rilievo Fable #158): `urllib` seguirebbe i
+  3xx **ri-inviando `Authorization: Bearer <token>`** all'host di destinazione — anche diverso da
+  `api.github.com` — cioè un **leak del token**; un 3xx è quindi trattato come errore (soglia `>= 300`,
+  non `>= 400`: un redirect non è una pubblicazione riuscita).
   `raw_url(repo, path, branch)` restituisce **l'URL da mettere in `REVOCATION_LIST_URL`**. Errori
   mappati per codice (401/403 permessi, 404 repo/branch, 409/422 conflitto, 429, 5xx) — **il token non
   compare MAI** nei messaggi. HTTP dietro **probe iniettabile** (test senza socket).
@@ -482,7 +492,10 @@ fetta la **automatizza dentro il License Manager**, senza spostare il seed priva
   branch/intervallo + token (`show="*"`, svuotato dopo il salvataggio), checkbox on/off, **💾 Salva
   impostazioni** e **🚀 Pubblica ora**; un **tick** (`_publish_tick`/`_schedule_publish_tick`) ri-firma
   e ri-carica alla cadenza scelta, si **ri-arma sempre** (anche dopo un errore) e viene annullato alla
-  chiusura (`_on_close`). `_build_signed_revocation_list()` è la **sorgente unica** della lista firmata,
+  chiusura (`_on_close`). All'avvio il primo tick è **ravvicinato** (catch-up: se il PC è stato spento
+  a lungo la lista è già scaduta e i bridge sono bloccati — attendere l'intero intervallo li terrebbe
+  bloccati per ore); se un giro viene **saltato** (pubblicazione già in volo) si **riprova fra pochi
+  minuti** invece che dopo l'intero intervallo (rilievi Fugu/Fable #158). `_build_signed_revocation_list()` è la **sorgente unica** della lista firmata,
   condivisa con l'esportazione su file (📤) così le due strade non divergono.
 - **La rete NON gira sul thread Tk** (rilievo GPT-5.5 #158): firma + `GET`/`PUT` (fino a
   `DEFAULT_TIMEOUT_S` ciascuna) girerebbero per decine di secondi con GitHub lento/irraggiungibile,

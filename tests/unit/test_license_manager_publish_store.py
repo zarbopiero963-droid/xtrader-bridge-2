@@ -158,3 +158,23 @@ def test_keyring_import_fallito_non_rompe(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", _boom)
     assert publish_store._keyring() is None
     assert isinstance(types.SimpleNamespace(), object)      # sanity: il test non ha rotto l'import
+
+
+# ── vincolo cadenza ↔ finestra di freschezza del bridge (rilievo CodeRabbit/Fable/Fugu #158) ─────
+def test_intervallo_massimo_derivato_dalla_finestra_del_bridge():
+    """Il cap NON è un numero ricopiato: è **derivato** da `MAX_LIST_AGE_S` del bridge, e resta con
+    margine sotto la finestra — così anche **saltando un giro** la lista è ancora fresca."""
+    from xtrader_bridge.licensing import revocation_client
+    finestra_h = revocation_client.MAX_LIST_AGE_S // 3600
+    assert publish_store.MAX_INTERVAL_HOURS < finestra_h, "una cadenza ≥ finestra garantisce il lockout"
+    assert 2 * publish_store.MAX_INTERVAL_HOURS < finestra_h, "un tick saltato non deve far scadere"
+    assert publish_store.DEFAULTS["interval_hours"] <= publish_store.MAX_INTERVAL_HOURS
+
+
+def test_intervallo_oltre_la_finestra_viene_limitato():
+    """Chiedere 48 h (oltre la finestra di 24 h) non può passare: viene limitato al cap sicuro,
+    invece di salvare una configurazione che bloccherebbe tutti i bridge."""
+    assert publish_store.normalize_config({"interval_hours": 48})["interval_hours"] == \
+        publish_store.MAX_INTERVAL_HOURS
+    assert publish_store.normalize_config({"interval_hours": 168})["interval_hours"] == \
+        publish_store.MAX_INTERVAL_HOURS

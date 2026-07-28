@@ -127,3 +127,28 @@ def test_publish_non_espone_mai_il_token():
         out = publisher.publish(_SIGNED, repo=_REPO, path=_PATH, branch=_BRANCH, token=_TOKEN,
                                 message="m", http=_FakeHttp(*responses))
         assert _TOKEN not in json.dumps(out)
+
+
+# ── sicurezza: nessun follow dei redirect (leak del token) — rilievo Fable #158 ─────────────────
+def test_redirect_non_seguito_per_non_esporre_il_token():
+    """`urllib` di default segue i 3xx **ri-inviando `Authorization: Bearer <token>`** all'host di
+    destinazione (anche diverso da api.github.com) → leak del token. L'handler deve rifiutare il
+    redirect ritornando `None`, così il 3xx diventa un errore invece di una richiesta altrove."""
+    handler = publisher._NoRedirectHandler()
+    esito = handler.redirect_request(None, None, 302, "Found", {},
+                                     "https://host-ostile.example/rubami-il-token")
+    assert esito is None, "il redirect NON deve essere seguito (il token viaggerebbe altrove)"
+
+
+def test_opener_monta_lhandler_no_redirect():
+    """L'opener usato per le chiamate reali monta l'handler che blocca i redirect."""
+    opener = publisher._build_opener()
+    assert any(isinstance(h, publisher._NoRedirectHandler) for h in opener.handlers)
+
+
+def test_messaggio_3xx_spiega_il_blocco_senza_esporre_il_token():
+    for status in (301, 302, 307):
+        out = publisher.publish(_SIGNED, repo=_REPO, path=_PATH, branch=_BRANCH, token=_TOKEN,
+                                message="m", http=_FakeHttp((404, None), (status, None)))
+        assert out["ok"] is False and "redirect" in out["message"].lower()
+        assert _TOKEN not in out["message"]

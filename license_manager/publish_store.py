@@ -25,6 +25,7 @@ import json
 import os
 
 from xtrader_bridge import atomic_io
+from xtrader_bridge.licensing import revocation_client
 
 from .core import manager_dir
 
@@ -44,13 +45,21 @@ DEFAULTS = {
     "repo": "",                          # "owner/nome-repo" (es. "tizio/xtrader-revocation")
     "path": "revocation_list.txt",       # percorso del file dentro il repo
     "branch": "main",
-    "interval_hours": 12,                # ri-pubblica ogni N ore (< finestra di freschezza del bridge)
+    "interval_hours": 6,                 # ri-pubblica ogni N ore (ben dentro la finestra del bridge)
 }
 
-# Limiti dell'intervallo: almeno 1 h (evita di martellare l'API) e al massimo 168 h (7 giorni: oltre
-# non avrebbe senso, la finestra di freschezza del bridge è molto più stretta).
+# Limite dell'intervallo **DERIVATO dalla finestra di freschezza del bridge** (rilievo CodeRabbit
+# #158). Il bridge rifiuta una lista firmata da più di `MAX_LIST_AGE_S` (24 h) e si blocca
+# fail-closed: permettere una cadenza più lunga significherebbe accettare impostazioni che
+# **garantiscono** il lockout tra una pubblicazione e l'altra — proprio il guasto che questa
+# funzione esiste per evitare.
+#
+# Il massimo è **un TERZO** della finestra, non il suo valore pieno: così anche **saltando un tick**
+# (PC sospeso, rete giù per un giro) la lista resta fresca. Deriviamo dalla costante reale del bridge
+# invece di ricopiarne il numero, così i due valori non possono divergere in futuro.
+_BRIDGE_FRESHNESS_HOURS = max(1, revocation_client.MAX_LIST_AGE_S // 3600)   # 24 h
 MIN_INTERVAL_HOURS = 1
-MAX_INTERVAL_HOURS = 168
+MAX_INTERVAL_HOURS = max(MIN_INTERVAL_HOURS, _BRIDGE_FRESHNESS_HOURS // 3)   # 8 h
 
 
 def _keyring():
