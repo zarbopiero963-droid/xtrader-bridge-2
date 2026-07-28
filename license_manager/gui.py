@@ -475,16 +475,34 @@ class LicenseManagerApp(ctk.CTk):
         """Avvia il worker di pubblicazione (iniettabile nei test: eseguono `target()` inline)."""
         threading.Thread(target=target, daemon=True, name="revocation-publish").start()
 
+    def _publish_lock(self):
+        """Il lucchetto che protegge `_publish_inflight`, creato pigramente se assente.
+
+        `_publish_inflight` è letto/scritto dal **thread GUI** (avvio, esito) e dal **worker** (ramo
+        di fallback a finestra distrutta): il check-and-set va fatto **atomico** con un `Lock`, non
+        affidato al GIL (rilievo GLM/GPT-5.5 #158). Così due click ravvicinati — o un tick che cade
+        mentre l'utente clicca — non possono mai avviare due upload."""
+        lock = self.__dict__.get("_publish_lock_obj")
+        if lock is None:
+            lock = self._publish_lock_obj = threading.Lock()
+        return lock
+
+    def _set_publish_inflight(self, value: bool) -> None:
+        """Scrive `_publish_inflight` sotto lucchetto (rilascio dell'upload)."""
+        with self._publish_lock():
+            self._publish_inflight = bool(value)
+
     def _publish_async(self) -> bool:
         """Avvia una pubblicazione in background. `True` se avviata, `False` se ce n'è già una in
-        corso (nessun accavallamento)."""
-        if self.__dict__.get("_publish_inflight"):
-            return False
-        self._publish_inflight = True
+        corso (nessun accavallamento). Il **check-and-set è atomico** sotto lucchetto."""
+        with self._publish_lock():
+            if self.__dict__.get("_publish_inflight"):
+                return False
+            self._publish_inflight = True
         try:
             self._spawn_publish_thread(self._publish_worker)
         except Exception as exc:    # noqa: BLE001 — thread non avviabile: libera il flag e segnala
-            self._publish_inflight = False
+            self._set_publish_inflight(False)
             _log.warning("Avvio thread pubblicazione non riuscito [%s]", type(exc).__name__)
             return False
         return True
@@ -500,11 +518,11 @@ class LicenseManagerApp(ctk.CTk):
         try:
             self.after(0, lambda: self._publish_finish(result))
         except Exception:       # noqa: BLE001 — finestra distrutta: nessuna UI da aggiornare
-            self._publish_inflight = False
+            self._set_publish_inflight(False)
 
     def _publish_finish(self, result) -> None:
         """Applica l'esito sul thread GUI e libera il lucchetto."""
-        self._publish_inflight = False
+        self._set_publish_inflight(False)
         self._set_msg(("✅ " if (result or {}).get("ok") else "⚠️ ") + str((result or {}).get("message", "")))
 
     def _publish_tick(self) -> None:

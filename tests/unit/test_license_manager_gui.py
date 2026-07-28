@@ -115,6 +115,8 @@ def _fake(gui, tmp_path, now=_NOW):
     # Il thread di pubblicazione è iniettato come runner INLINE: il test esercita il vero worker
     # (firma + upload finto + marshalling dell'esito) in modo deterministico, senza thread reali.
     fake._publish_inflight = False
+    fake._publish_lock = lambda: gui.LicenseManagerApp._publish_lock(fake)
+    fake._set_publish_inflight = lambda v: gui.LicenseManagerApp._set_publish_inflight(fake, v)
     fake._spawn_publish_thread = lambda target: target()
     fake._publish_async = lambda: gui.LicenseManagerApp._publish_async(fake)
     fake._publish_worker = lambda: gui.LicenseManagerApp._publish_worker(fake)
@@ -821,3 +823,53 @@ def test_on_publish_now_non_blocca_la_gui(gui, tmp_path):
     assert fake._publish_calls == []          # la rete non è ancora partita: la GUI non ha atteso
     spawned[0]()                              # il worker gira "dopo"
     assert len(fake._publish_calls) == 1 and fake._publish_inflight is False
+
+
+def test_publish_async_thread_non_avviabile_libera_il_lucchetto(gui, tmp_path):
+    """Se il thread non parte (risorse esaurite), il lucchetto va liberato e si ritorna `False`,
+    altrimenti la pubblicazione resterebbe bloccata per sempre (rilievo GPT-5.5 #158)."""
+    fake = _fake(gui, tmp_path)
+    def _no_thread(_target):
+        raise RuntimeError("impossibile avviare il thread")
+    fake._spawn_publish_thread = _no_thread
+    assert fake._publish_async() is False
+    assert fake._publish_inflight is False              # lucchetto liberato → si può riprovare
+    assert fake._publish_async() is False               # e un nuovo tentativo riparte (non è bloccato)
+
+
+def test_publish_finish_tollera_risultato_malformato(gui, tmp_path):
+    """`_publish_finish` con `None`/dict incompleto non deve sollevare: libera il lucchetto e mostra
+    un messaggio (rilievo GLM #158)."""
+    fake = _fake(gui, tmp_path)
+    for bad in (None, {}, {"ok": True}):
+        fake._publish_inflight = True
+        gui.LicenseManagerApp._publish_finish(fake, bad)
+        assert fake._publish_inflight is False
+
+
+def test_publish_async_check_and_set_atomico_sotto_lucchetto(gui, tmp_path):
+    """Il check-and-set di `_publish_inflight` avviene sotto `Lock`: con un runner che NON esegue il
+    worker, la seconda chiamata è rifiutata (nessun accavallamento) — rilievo GLM/GPT #158."""
+    fake = _fake(gui, tmp_path)
+    fake._spawn_publish_thread = lambda target: None    # simula un thread ancora in volo
+    assert fake._publish_async() is True
+    assert fake._publish_async() is False               # secondo click: rifiutato
+    assert fake._publish_inflight is True
+    # il lucchetto è un vero Lock riusato (stesso oggetto a ogni chiamata), non ricreato ogni volta
+    assert gui.LicenseManagerApp._publish_lock(fake) is gui.LicenseManagerApp._publish_lock(fake)
+
+
+def test_spawn_publish_thread_reale_esegue_il_worker(gui, tmp_path):
+    """Il **vero** spawner (thread daemon) esegue davvero il target: il worker gira fuori dal thread
+    chiamante (rilievo GLM #158 «i test iniettano il runner, non provano il thread reale»)."""
+    import threading as _t
+    fake = _fake(gui, tmp_path)
+    fatto = _t.Event()
+    thread_ids = []
+
+    def _target():
+        thread_ids.append(_t.get_ident())
+        fatto.set()
+    gui.LicenseManagerApp._spawn_publish_thread(fake, _target)
+    assert fatto.wait(timeout=5), "il worker deve essere eseguito dal thread avviato"
+    assert thread_ids and thread_ids[0] != _t.get_ident(), "deve girare su un ALTRO thread"
