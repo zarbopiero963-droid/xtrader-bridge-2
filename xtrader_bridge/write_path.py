@@ -122,7 +122,7 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows,
                 and key in {k for k in queue.active_keys(now=now) if k}):
             decision = live_guard.DUPLICATE
         else:
-            decision = live_guard.evaluate(cfg, tracker, daily, text)
+            decision = live_guard.decide_write(cfg, tracker, daily, text)
 
     if decision == live_guard.WRITE:
         # Coda dei segnali attivi: expire dei già scaduti, add del nuovo, riscrittura
@@ -368,7 +368,7 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
     # rate-limit: la slot del messaggio è già stata consumata dalla prima).
     block_decision = live_guard.WRITE
     if tracker is not None and fresh:
-        block_decision = live_guard.evaluate(cfg, tracker, daily, text,
+        block_decision = live_guard.decide_write(cfg, tracker, daily, text,
                                              dedup_key=fresh_keys[0])
         if block_decision == live_guard.WRITE:
             for k in fresh_keys[1:]:

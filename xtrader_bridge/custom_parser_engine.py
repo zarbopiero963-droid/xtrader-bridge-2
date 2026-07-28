@@ -299,7 +299,7 @@ def matches_message(defn: CustomParserDef, text: str, mode: str = None,
     # conserva il comportamento storico permissivo — non tocca soldi, solo la preview.
     if defn.market_mapping_profiles and market_matched is not False:
         fixed_targets -= {"MarketId", "SelectionId"}
-    fixed_complete = recognition.is_valid({t: "x" for t in fixed_targets}, mode)
+    fixed_complete = recognition.fields_complete({t: "x" for t in fixed_targets}, mode)
     for rule in defn.rules:
         if not rule.has_extraction() or rule.is_fixed() or extract_value(text, rule) == "":
             continue

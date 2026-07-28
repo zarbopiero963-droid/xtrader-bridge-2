@@ -46,7 +46,7 @@ def test_get_health_parser_semaforo_coerente_col_reale():
     tools = config_agent.build_read_only_tools(config_loader=lambda: dict(_CFG_PER_CHAT))
     items = json.loads(_tool(tools, "get_health").handler({}))
     parser_item = next(i for i in items if i["key"] == "parser")
-    atteso = next(i for i in health_check.evaluate(parser_active=True) if i.key == "parser")
+    atteso = next(i for i in health_check.build_semaphores(parser_active=True) if i.key == "parser")
     assert parser_item["state"] == atteso.state, \
         "il semaforo parser dell'assistente deve dire ATTIVO come il pannello reale"
 
@@ -56,7 +56,7 @@ def test_build_health_report_fallback_coerente():
     riflettere il parser per-chat come ATTIVO, non «nessun parser»."""
     rep = config_agent.build_health_report(dict(_CFG_PER_CHAT))
     parser_sem = next(s for s in rep["semafori"] if s["key"] == "parser")
-    atteso = next(i for i in health_check.evaluate(parser_active=True) if i.key == "parser")
+    atteso = next(i for i in health_check.build_semaphores(parser_active=True) if i.key == "parser")
     assert parser_sem["state"] == atteso.state
 
 

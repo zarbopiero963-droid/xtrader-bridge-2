@@ -403,7 +403,7 @@ Due tool **SOLA-LETTURA** che chiudono la serie #41 dando all'assistente la stes
 diagnostica che l'utente ha nella GUI.
 
 - **`explain_health`** — i **7 semafori** (`telegram`/`message`/`parser`/`signal`/`csv`/
-  `confirmation`/`mode`, da `health_check.evaluate`) con stato, dettaglio e un **consiglio** per
+  `confirmation`/`mode`, da `health_check.build_semaphores`) con stato, dettaglio e un **consiglio** per
   ogni stato **non-verde** (`_HEALTH_ADVICE`). Se l'app inietta un **`health_provider`** (callable →
   gli stessi `HealthItem` del pannello 🚦 Salute) il report è **LIVE** (`live: true`) e riflette
   esattamente ciò che l'utente vede; senza provider (headless/test) ripiega su una valutazione da

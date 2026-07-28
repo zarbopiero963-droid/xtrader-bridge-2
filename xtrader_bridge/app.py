@@ -1795,7 +1795,7 @@ class App(ctk.CTk):
             self._last_lbls[kind] = lbl
 
         # — Salute a semafori (#311 §3.3): sette indicatori 🟢/🟡/🔴 dagli stati già
-        # esistenti. Decisioni in `health_check.evaluate` (pura, testata in CI); qui
+        # esistenti. Decisioni in `health_check.build_semaphores` (pura, testata in CI); qui
         # solo le label, aggiornate da `_refresh_health` sugli stessi hook della
         # dashboard (START/STOP, _set_last, salvataggio config).
         self._health_lbls = {}
@@ -1919,7 +1919,7 @@ class App(ctk.CTk):
 
     def _refresh_health(self, force_probe: bool = False) -> None:
         """Aggiorna i semafori del pannello Salute (#311 §3.3) dallo stato vivo.
-        Decisioni in `health_check.evaluate` (pura); qui solo lettura stato + label.
+        Decisioni in `health_check.build_semaphores` (pura); qui solo lettura stato + label.
         Best-effort: chiamabile da qualsiasi hook, no-op su istanza parziale.
         `force_probe=True` (pulsante «🔄 Aggiorna»): bypassa la cache TTL della sonda
         CSV (P3-9 #76) — l'utente che chiede un refresh esplicito vuole lo stato vero."""
@@ -2133,7 +2133,7 @@ class App(ctk.CTk):
     def _live_health_items(self, force_probe: bool = False) -> list:
         """I 7 semafori LIVE (stessa logica del pannello 🚦 Salute), come lista di `HealthItem`.
         Estratto da `_refresh_health_inner` (#41 PR-10 Blocco D) così l'assistente può leggere lo
-        STESSO stato che l'utente vede (`explain_health`). Puro rispetto a `health_check.evaluate`;
+        STESSO stato che l'utente vede (`explain_health`). Puro rispetto a `health_check.build_semaphores`;
         legge solo stato in RAM/config, non scrive nulla.
 
         Thread-safety (Fable #72): può essere invocato dal thread worker dell'assistente mentre il
@@ -2150,7 +2150,7 @@ class App(ctk.CTk):
         # (share di rete degradata = GUI congelata a ogni messaggio).
         csv_state, csv_detail = self._csv_writable_cached(cfg.get("csv_path", ""),
                                                           force=force_probe)
-        return health_check.evaluate(
+        return health_check.build_semaphores(
             listener_status=status,
             last_message=self._last_vals.get("message", ""),
             parser_active=signal_router.has_active_parser_config(cfg),

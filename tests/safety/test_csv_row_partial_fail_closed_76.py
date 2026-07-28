@@ -17,7 +17,7 @@ def _row(signal_type="", teams="", quota=""):
 
 
 def _writable(row):
-    return recognition.is_valid(row, "NAME_ONLY")
+    return recognition.fields_complete(row, "NAME_ONLY")
 
 
 def _placeable(row):

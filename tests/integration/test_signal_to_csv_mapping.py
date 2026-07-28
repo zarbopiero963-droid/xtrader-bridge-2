@@ -21,7 +21,7 @@ def test_over25_diventa_riga_italiana():
     assert row["Handicap"] == "0"      # dal dizionario (over/under: Handicap 0, non la linea)
     assert row["Points"] == ""
     assert list(row.keys()) == CSV_HEADER
-    assert recognition.is_valid(row, "NAME_ONLY") is True
+    assert recognition.fields_complete(row, "NAME_ONLY") is True
 
 
 def test_gg_diventa_btts_si():
@@ -49,7 +49,7 @@ def test_away_shorthand_senza_squadra_ospite_e_scartabile():
     row = build_csv_row(_parsed("2", teams="Inter - Milan"), "PBet")
     assert row["SelectionName"] == ""
     assert "{" not in row["SelectionName"]
-    assert recognition.is_valid(row, "NAME_ONLY") is False
+    assert recognition.fields_complete(row, "NAME_ONLY") is False
 
 
 # (P3-15 #76: il test end-to-end `parse_message` → `build_csv_row` è stato rimosso col
@@ -62,7 +62,7 @@ def test_segnale_non_supportato_e_scartabile():
     row = build_csv_row(_parsed("MERCATO INESISTENTE", teams="Inter v Milan"), "PBet")
     assert row["MarketType"] == ""
     assert row["SelectionName"] == ""
-    assert recognition.is_valid(row, "NAME_ONLY") is False
+    assert recognition.fields_complete(row, "NAME_ONLY") is False
 
 
 def test_fallback_goals_non_inventa_over_05():
@@ -71,7 +71,7 @@ def test_fallback_goals_non_inventa_over_05():
     row = build_csv_row(_parsed("GOL SECONDO TEMPO", teams="Inter v Milan"), "PBet")
     assert row["MarketType"] == "NEXT_GOAL"
     assert row["SelectionName"] == ""
-    assert recognition.is_valid(row, "NAME_ONLY") is False
+    assert recognition.fields_complete(row, "NAME_ONLY") is False
 
 
 def test_segnale_non_mappato_non_inventa_selezione():
@@ -83,4 +83,4 @@ def test_segnale_non_mappato_non_inventa_selezione():
     assert row["MarketType"] == "MATCH_ODDS"
     assert row["MarketName"] == "MATCH ODDS"
     assert row["SelectionName"] == ""
-    assert recognition.is_valid(row, "NAME_ONLY") is False
+    assert recognition.fields_complete(row, "NAME_ONLY") is False

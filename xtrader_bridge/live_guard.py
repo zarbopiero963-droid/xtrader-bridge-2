@@ -35,8 +35,13 @@ RATE_LIMITED = "RATE_LIMITED"
 DAILY_LIMITED = "DAILY_LIMITED"
 
 
-def evaluate(cfg, tracker, daily, text, *, now=None, dedup_key=None) -> str:
+def decide_write(cfg, tracker, daily, text, *, now=None, dedup_key=None) -> str:
     """Decide l'esito del percorso di scrittura per `text` (vedi modulo).
+
+    Rinominata da `evaluate` (ambiguità A3 della #69): il nome generico non diceva che **questa**
+    è la funzione che governa la doppia scommessa (WRITE / DUPLICATE / RATE_LIMITED /
+    DAILY_LIMITED / DRY_RUN), ed era condiviso con `health_check.build_semaphores`, che invece è pura
+    diagnostica per la UI. Ora il nome dichiara la responsabilità: *decidere se si scrive*.
 
     `tracker`: `signal_dedupe.SignalTracker` (dedup + limite/minuto); obbligatorio.
     `daily`: `safety_guard.DailyLimiter` o None (None = nessun limite giornaliero).
