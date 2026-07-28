@@ -15,6 +15,8 @@ nei workflow (regex su testo reale, pattern `test_workflow_pins`)."""
 import re
 from pathlib import Path
 
+import pytest
+
 _ROOT = Path(__file__).resolve().parents[2]
 _WF_DIR = _ROOT / ".github" / "workflows"
 
@@ -29,6 +31,14 @@ _TEST_WORKFLOWS = ("pr-checks.yml", "commit-gate.yml", "windows-tests.yml",
 # artefatto distribuibile, quindi ha bisogno della garanzia più forte (`--require-hashes`),
 # non solo di versioni pinnate. Stesso trattamento di `build.yaml` / `build-license-manager`.
 _HARD_BUILD_WORKFLOW = "merge-simulation-hard.yml"
+
+# Install di `requirements-dev.txt` SENZA constraints, in qualunque forma. `[\s\\]+` invece di
+# `\s+` perché in YAML un comando può essere spezzato con la continuazione `\` (rilievo Fable
+# #165): `pip install \` + a capo + `-r requirements-dev.txt` è lo stesso identico difetto
+# scritto su due righe, e un guard che non lo vede protegge solo chi non va a capo.
+_BARE_INSTALL_RE = re.compile(
+    r"pip install[\s\\]+(?:--upgrade[\s\\]+)?-r requirements-dev\.txt"
+    r"(?![\s\\]+-c requirements-dev\.lock)[^\n]*")
 
 
 def _lock_pins():
@@ -100,9 +110,8 @@ def test_ci_installa_con_le_constraints():
     lock rigenerato riuserebbe la cache pip stantia)."""
     for name in _TEST_WORKFLOWS:
         text = (_WF_DIR / name).read_text(encoding="utf-8")
-        bare = re.findall(r"pip install -r requirements-dev\.txt(?!\s+-c requirements-dev\.lock)",
-                          text)
-        assert not bare, f"{name}: install di requirements-dev.txt SENZA constraints"
+        bare = _BARE_INSTALL_RE.findall(text)
+        assert not bare, f"{name}: install di requirements-dev.txt SENZA constraints → {bare}"
         assert "pip install -r requirements-dev.txt -c requirements-dev.lock" in text, (
             f"{name}: nessun install con constraints trovato")
         assert "requirements*.lock" in text, (
@@ -127,14 +136,40 @@ def test_il_job_notturno_builda_da_dipendenze_pinnate_e_hashate():
         f"{_HARD_BUILD_WORKFLOW}: l'EXE notturno deve essere buildato dal lock HASHATO")
 
     # Il vecchio install nudo non deve tornare, in nessuna delle sue forme.
-    nudi = re.findall(r"pip install\s+(?:--upgrade\s+)?-r requirements-dev\.txt"
-                      r"(?!\s+-c requirements-dev\.lock)[^\n]*", text)
+    nudi = _BARE_INSTALL_RE.findall(text)
     assert not nudi, (
         f"{_HARD_BUILD_WORKFLOW}: install non pinnato reintrodotto → {nudi}")
 
     assert "requirements*.lock" in text, (
         f"{_HARD_BUILD_WORKFLOW}: cache-dependency-path senza requirements*.lock — un lock "
         "rigenerato riuserebbe la cache pip stantia")
+
+
+@pytest.mark.parametrize("riga", [
+    "      - run: pip install -r requirements-dev.txt",
+    "      - run: pip install -r requirements-dev.txt pyinstaller httpx",
+    "      - run: pip install --upgrade -r requirements-dev.txt",
+    # Continuazione YAML: lo stesso difetto scritto su due righe (rilievo Fable #165).
+    "      - run: pip install \\\n          -r requirements-dev.txt pyinstaller",
+    "      - run: pip install --upgrade \\\n          -r requirements-dev.txt",
+])
+def test_il_guard_riconosce_tutte_le_forme_dell_install_nudo(riga):
+    """Il guard è a sua volta testato, perché una regex che non morde è indistinguibile da
+    un repository sano.
+
+    Prima di questo giro il pattern pretendeva tutto su una riga: bastava spezzare il comando
+    con un `\\` per reintrodurre l'install non pinnato passando i controlli."""
+    assert _BARE_INSTALL_RE.search(riga), f"forma non intercettata: {riga!r}"
+
+
+@pytest.mark.parametrize("riga", [
+    "      - run: pip install -r requirements-dev.txt -c requirements-dev.lock",
+    "      - run: pip install \\\n          -r requirements-dev.txt \\\n          -c requirements-dev.lock",
+    "      - run: python -m pip install --require-hashes -r requirements-build.lock",
+])
+def test_il_guard_non_segnala_gli_install_corretti(riga):
+    """L'altra metà: un guard che grida su tutto viene disattivato entro una settimana."""
+    assert not _BARE_INSTALL_RE.search(riga), f"falso positivo su: {riga!r}"
 
 
 def test_il_lock_di_build_copre_davvero_pyinstaller_e_httpx():
