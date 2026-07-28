@@ -343,3 +343,43 @@ def test_remove_first_ignora_una_frase_vuota():
     prima), ma la funzione è pubblica dentro il modulo e non deve avere quel comportamento."""
     assert cr._remove_first("inter v milan", "") == "inter v milan"
     assert cr._remove_first("inter v milan", "   ") == "inter v milan"
+
+
+def test_il_fix_recupera_una_conferma_legittima_resa_ambigua_dal_doppio_conteggio():
+    """Rilievo GPT-5.5 (#168): il fix è più restrittivo, quindi può trasformare un caso
+    AMBIGUO in una conferma singola. Va verificato che sia quella giusta — ed è così.
+
+    Due segnali sullo stesso evento, selezioni «Inter» e «Milan»: entrambe contenute nel nome
+    dell'evento. Prima, con l'evento non consumato, **entrambi** i segnali risultavano presenti
+    → ambiguo → nessuna conferma, e quella legittima andava persa. Ora l'evento viene consumato
+    e resta solo la selezione davvero nominata."""
+    pending = [
+        {"signal_id": "inter", "ref": "", "EventName": "Inter v Milan (Serie A)",
+         "MarketName": "Esito Finale", "SelectionName": "Inter"},
+        {"signal_id": "milan", "ref": "", "EventName": "Inter v Milan (Serie A)",
+         "MarketName": "Esito Finale", "SelectionName": "Milan"},
+    ]
+    scelto = cr.match_pending(
+        "Piazzata: Inter v Milan (Serie A) - Esito Finale - Inter", pending)
+    assert scelto is not None and scelto["signal_id"] == "inter"
+
+    # E il gemello: se la notifica nomina «Milan», si associa l'altro. La distinzione regge in
+    # entrambe le direzioni, non per fortuna sull'ordine della lista.
+    altro = cr.match_pending(
+        "Piazzata: Inter v Milan (Serie A) - Esito Finale - Milan", pending)
+    assert altro is not None and altro["signal_id"] == "milan"
+
+
+@pytest.mark.parametrize("frase", ["Inter v Milan (Serie A)", "INTER V MILAN (SERIE A)",
+                                   "inter v milan (serie a)"])
+def test_trova_e_consuma_normalizzano_il_case_allo_stesso_modo(frase):
+    """Punto di verifica chiesto da Claude Fable 5 (#168): `_has_keyword` e `_remove_first`
+    devono normalizzare il case in modo coerente, altrimenti tornerebbero a divergere per un
+    motivo diverso da quello appena corretto.
+
+    Entrambe passano da `_kw_pattern`, che minuscola la frase; il testo arriva già normalizzato
+    da `match_pending` (`_norm`). Qualunque grafia della stessa frase deve quindi essere sia
+    trovata sia consumata."""
+    testo = cr._norm("Piazzata: Inter v Milan (Serie A) - Esito Finale")
+    assert cr._has_keyword(testo, frase)
+    assert not cr._has_keyword(cr._remove_first(testo, frase), frase)
