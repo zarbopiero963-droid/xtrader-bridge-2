@@ -407,8 +407,11 @@ bridge deve **raggiungere e verificare** l'URL per operare).
   calcolano **identico** senza che il bridge importi `license_manager` (isolamento #140 preservato;
   `license_manager.registry` lo ri-esporta per compatibilità).
 - **Client** (`xtrader_bridge/licensing/revocation_client.py`, logica pura + probe iniettabile):
-  - `REVOCATION_LIST_URL` — **URL costante nel codice** (decisione 1a), placeholder `.invalid` (non
-    risolvibile → fail-closed se dimenticato). L'**attivazione è DERIVATA dall'URL** (`is_placeholder_url`,
+  - `REVOCATION_LIST_URL` — **URL costante nel codice** (decisione 1a). **Dal #157 è l'URL REALE**
+    (`https://raw.githubusercontent.com/zarbopiero963-droid/xtrader-revocation/main/revocation_list.txt`,
+    lo stesso che il License Manager produce con `publisher.raw_url`) → **la revoca online è ATTIVA**.
+    Il vecchio placeholder `.invalid` resta come costante di confronto (`_PLACEHOLDER_URL`: non
+    risolvibile → fail-closed se qualcuno lo ripristinasse). L'**attivazione è DERIVATA dall'URL** (`is_placeholder_url`,
     `REVOCATION_URL_IS_PLACEHOLDER` è un marcatore **calcolato**, non una seconda fonte di verità):
     impostare un URL reale **attiva** la revoca — impossibile lasciare «URL reale ma flag a True» e
     disattivarla in silenzio (rilievo Fugu/GLM). Un **gate di release** (`build.yaml`) fa fallire una
@@ -454,7 +457,8 @@ bridge deve **raggiungere e verificare** l'URL per operare).
   `_revocation_gate_ok()`; il **tick licenza (~60 s)** e ogni fine ciclo del supervisore (`_safe_after`)
   ri-valutano il lock — una licenza revocata a sessione viva → **STOP fail-closed** (stesso path del PR
   4). L'Hardware ID è **memoizzato** (niente WMI/subprocess a ogni tick sul thread GUI). Con l'URL
-  **placeholder** il gate è **bypassato** (dev, come la chiave di TEST).
+  **placeholder** il gate sarebbe **bypassato** (dev, come la chiave di TEST) — **oggi non è il caso**:
+  l'URL è reale, quindi il gate è **attivo e fail-closed**.
 
 **Test hard:** `tests/unit/test_revocation_client.py` (fetch fail-closed/probe, accept + anti-replay,
 `license_revoked` per serial/hw, `gate_allows` assente/stantia/fresca/revocata, cache round-trip/corrotta)
@@ -465,10 +469,15 @@ dall'URL, Hardware ID memoizzato, backoff su fallimenti ripetuti, integrazione i
 `_license_is_valid`/`_apply_license_lock` con **STOP a sessione viva**, ciclo del supervisore
 ok/fallito/anti-replay, stop supervisore).
 
-**Azioni proprietario prima/durante la distribuzione:** (1) impostare `REVOCATION_LIST_URL` **reale** in
-`revocation_client.py` (il marcatore placeholder e l'attivazione si aggiornano da soli; il gate di
-release blocca un tag finché è placeholder); (2) **ri-pubblicare la lista firmata almeno ogni finestra
-(3 giorni)** (anche invariata, automatizzato dalla pubblicazione #158) — oltre `MAX_LIST_AGE_S` i bridge legittimi si bloccano
+**Azioni proprietario prima/durante la distribuzione:** (1) ~~impostare `REVOCATION_LIST_URL` reale~~ —
+**FATTO (#157)**: l'URL punta al repository pubblico `zarbopiero963-droid/xtrader-revocation`, quindi il
+marcatore placeholder è `False`, l'attivazione è avvenuta e il gate di release non blocca più il tag per
+questo motivo. ⚠️ **Prerequisito operativo, da soddisfare PRIMA di avviare o distribuire**: il file
+`revocation_list.txt` deve **esistere** a quell'indirizzo — si crea con **🚀 Pubblica ora** dalla sezione
+«📤 Pubblicazione automatica» del License Manager (#158). Finché l'URL risponde 404 **nessun bridge parte**
+(fail-closed, nessuna grazia: è il comportamento voluto); (2) **ri-pubblicare la lista firmata almeno ogni
+finestra (3 giorni)** (anche invariata, automatizzato dalla pubblicazione #158) — oltre `MAX_LIST_AGE_S`
+i bridge legittimi si bloccano
 fail-closed. Nota disponibilità: essendo **no-grace su URL singolo**, un'irraggiungibilità **persistente**
 (oltre `FRESHNESS_MAX_AGE_S`, 15 min) blocca i client a sessione viva — è la conseguenza **accettata**
 della scelta «niente grazia» (decisione proprietario 2); le due finestre sono costanti tarabili.

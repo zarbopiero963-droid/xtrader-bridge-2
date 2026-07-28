@@ -33,12 +33,20 @@ from . import license as _license
 from . import revocation
 
 # ── URL statico della lista di revoche (decisione proprietario 1a: COSTANTE nel codice) ───────────
-# ⚠️ PLACEHOLDER di sviluppo — come `LICENSE_PUBLIC_KEY_HEX`. SOSTITUIRE con l'URL statico reale del
-# proprietario (dove carica la lista firmata prodotta dal License Manager) **prima di distribuire copie
-# licenziate**. Il TLD `.invalid` (RFC 2606) è **non risolvibile**: se il placeholder resta, il bridge
-# fallisce **chiuso** (URL irraggiungibile → bloccato), non «aperto».
+# URL **REALE** del proprietario: il repository GitHub pubblico su cui il License Manager pubblica la
+# lista firmata (sezione «📤 Pubblicazione automatica», #157/#158). Pubblico e senza credenziali di
+# proposito: il contenuto è **firmato Ed25519**, quindi l'hosting non è fidato — nessuno può falsificare
+# «non revocato» senza il seed privato, che resta sul PC del proprietario e non entra mai nel repo/EXE.
+#
+# ⚠️ Impostare questo URL **ATTIVA** la revoca online (l'attivazione è derivata dall'URL, vedi
+# `is_placeholder_url`): da qui in poi il gate è **fail-closed senza grazia** (decisione proprietario).
+# Prerequisito operativo: il file deve **esistere** a questo indirizzo ed essere **ri-pubblicato almeno
+# ogni `MAX_LIST_AGE_S`** (3 giorni). Se l'URL risponde 404 o la lista invecchia oltre il tetto, i bridge
+# legittimi si **bloccano** — è il comportamento voluto, non un guasto.
 _PLACEHOLDER_URL = "https://revoche.example.invalid/xtrader/revocation_list.txt"
-REVOCATION_LIST_URL = _PLACEHOLDER_URL
+REVOCATION_LIST_URL = (
+    "https://raw.githubusercontent.com/zarbopiero963-droid/xtrader-revocation/main/revocation_list.txt"
+)
 
 
 def is_placeholder_url(url: "str | None") -> bool:

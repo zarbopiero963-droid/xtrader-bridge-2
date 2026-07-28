@@ -818,15 +818,17 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   **generico** («attiva una licenza valida»), che per un utente **revocato** (la cui licenza è tecnicamente
   valida ma bloccata dal fornitore) è impreciso — un **messaggio distinto** «licenza revocata dal
   fornitore» / «lista revoche non raggiungibile» è un **affinamento UX previsto** in una fetta successiva.
-- Come per la chiave pubblica di TEST, con l'**URL della lista di revoche placeholder** la revoca online
-  è **inattiva** (non blocca) in sviluppo: l'attivazione è **derivata dall'URL stesso** — impostare l'URL
-  reale la attiva, senza un flag separato da ricordare (coerente con 1A). Un gate di release impedisce di
-  distribuire un EXE con l'URL ancora placeholder. Il proprietario deve inoltre **ri-pubblicare la lista
-  firmata ogni ≤3 giorni** (anche invariata): oltre quel tetto la lista è considerata «stantia» e la GUI
-  si blocca (fail-closed), come per l'irraggiungibilità dell'URL. È anche rifiutata una lista **datata
-  nel futuro** oltre un'ora — stesso esito visivo (GUI bloccata), causa diversa (orologio sbagliato sul
-  PC che firma). *Nota per il design:* è un altro caso in cui il messaggio generico «attiva una licenza
-  valida» non dice all'utente cosa sta succedendo — rientra nell'affinamento UX previsto qui sopra.
+- La revoca online **è ora ATTIVA**: l'URL reale della lista è impostato nel codice (#157), quindi il lock
+  può scattare anche in sviluppo, non solo nell'EXE distribuito — chi disegna la UI deve considerarlo uno
+  stato **raggiungibile qui e ora**, non ipotetico. L'attivazione è **derivata dall'URL stesso** (nessun
+  flag separato da ricordare, coerente con 1A): tornare all'URL placeholder la disattiverebbe, e un gate di
+  release impedisce di distribuire un EXE con l'URL ancora di sviluppo. Il proprietario deve inoltre
+  **ri-pubblicare la lista firmata ogni ≤3 giorni** (anche invariata): oltre quel tetto la lista è
+  considerata «stantia» e la GUI si blocca (fail-closed), come per l'irraggiungibilità dell'URL. È anche
+  rifiutata una lista **datata nel futuro** oltre un'ora — stesso esito visivo (GUI bloccata), causa
+  diversa (orologio sbagliato sul PC che firma). *Nota per il design:* è un altro caso in cui il messaggio
+  generico «attiva una licenza valida» non dice all'utente cosa sta succedendo — rientra nell'affinamento
+  UX previsto qui sopra.
 
 ### 6.4 Barra pulsanti principali
 - **"▶  AVVIA"** (verde `#2e7d32`, bold)

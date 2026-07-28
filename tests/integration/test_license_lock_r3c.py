@@ -243,10 +243,13 @@ def test_supervisor_backoff_su_fallimenti_ripetuti(App, tmp_path):
 
 
 def test_revocation_enabled_deriva_dall_url(App, monkeypatch):
-    """`_revocation_enabled` deriva dall'URL (nessun flag separato): placeholder → disattivo, URL reale
-    → attivo (rilievo Fugu/GLM #156)."""
+    """`_revocation_enabled` deriva dall'URL (nessun flag separato): URL reale → attivo, placeholder
+    → disattivo (rilievo Fugu/GLM #156). Dall'attivazione (#157) il default è l'URL **reale**, quindi
+    la revoca è **attiva** senza bisogno di toccare altro."""
     app = object.__new__(App)
-    assert App._revocation_enabled(app) is False       # default placeholder
+    assert App._revocation_enabled(app) is True        # default: URL reale → revoca ATTIVA
+    monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL", revocation_client._PLACEHOLDER_URL)
+    assert App._revocation_enabled(app) is False
     monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL", "https://revoke.mysite.com/l.txt")
     assert App._revocation_enabled(app) is True
 

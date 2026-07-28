@@ -52,7 +52,7 @@ def test_fetch_signed_vuoto_o_solo_spazi_none():
 
 
 def test_fetch_signed_default_url_costante():
-    """`fetch_signed()` senza URL usa la costante placeholder (1a); il probe la riceve verbatim."""
+    """`fetch_signed()` senza URL usa la costante di modulo (1a); il probe la riceve verbatim."""
     seen = {}
     revocation_client.fetch_signed(fetch=lambda u, *, timeout: seen.setdefault("u", u) or "x.y")
     assert seen["u"] == revocation_client.REVOCATION_LIST_URL
@@ -65,7 +65,7 @@ def test_is_placeholder_url_deriva_attivazione_dall_url():
     #156)."""
     assert revocation_client.is_placeholder_url("") is True
     assert revocation_client.is_placeholder_url(None) is True
-    assert revocation_client.is_placeholder_url(revocation_client.REVOCATION_LIST_URL) is True
+    assert revocation_client.is_placeholder_url(revocation_client._PLACEHOLDER_URL) is True
     assert revocation_client.is_placeholder_url("https://x.invalid/list.txt") is True
     assert revocation_client.is_placeholder_url("https://invalid/list.txt") is True   # host esatto "invalid"
     assert revocation_client.is_placeholder_url("https://revoke.mysite.com/list.txt") is False
@@ -78,8 +78,35 @@ def test_is_placeholder_url_deriva_attivazione_dall_url():
     # la contiene NON è placeholder → un URL reale non viene disattivato per sbaglio.
     assert revocation_client.is_placeholder_url("https://revoke.mysite.com/x.invalid.txt") is False
     assert revocation_client.is_placeholder_url("https://revoke.invalid-x.com/list.txt") is False
-    # il marcatore derivato riflette l'URL di default (placeholder) — garantito, non presupposto
-    assert revocation_client.REVOCATION_URL_IS_PLACEHOLDER is True
+    # il marcatore derivato riflette l'URL configurato — garantito, non presupposto
+    assert revocation_client.REVOCATION_URL_IS_PLACEHOLDER is \
+        revocation_client.is_placeholder_url(revocation_client.REVOCATION_LIST_URL)
+
+
+def test_url_reale_configurato_e_revoca_attiva():
+    """L'URL di produzione è impostato e la revoca è **attiva** (#157).
+
+    Blinda il valore esatto: un refuso in repository, branch o nome file non darebbe un errore
+    evidente, darebbe un **404 silenzioso** → nessuna lista scaricabile → tutti i bridge bloccati
+    fail-closed. Devono corrispondere schema, host, proprietario, repo, branch e nome del file —
+    gli stessi che il License Manager usa per pubblicare (`publisher.raw_url`)."""
+    url = revocation_client.REVOCATION_LIST_URL
+    assert url == ("https://raw.githubusercontent.com/"
+                   "zarbopiero963-droid/xtrader-revocation/main/revocation_list.txt")
+    assert url.startswith("https://"), "solo HTTPS: su HTTP la lista sarebbe alterabile in transito"
+    # l'attivazione è DERIVATA dall'URL: niente flag separato da ricordarsi
+    assert revocation_client.is_placeholder_url(url) is False
+    assert revocation_client.REVOCATION_URL_IS_PLACEHOLDER is False
+
+
+def test_url_reale_e_quello_che_il_license_manager_pubblica():
+    """L'URL nel bridge e quello prodotto dal License Manager devono essere lo **stesso**: sono i due
+    capi della stessa catena (chi pubblica ↔ chi scarica). Se divergono, il bridge scarica da un
+    indirizzo dove nessuno pubblica → lockout. Qui li confrontiamo generando il raw URL con la stessa
+    funzione usata dalla GUI del tool."""
+    from license_manager import publisher
+    atteso = publisher.raw_url("zarbopiero963-droid/xtrader-revocation", "revocation_list.txt", "main")
+    assert revocation_client.REVOCATION_LIST_URL == atteso
 
 
 # ── accept_signed (verifica + anti-replay) ────────────────────────────────────────────────────────

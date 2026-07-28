@@ -543,16 +543,18 @@ periodicamente: una licenza **revocata** — o l'**impossibilità di raggiungere
 raggiungere e verificare l'URL per operare; i blip di rete transitori sono assorbiti da retry con
 backoff, un'irraggiungibilità persistente blocca). Il bridge accetta solo liste firmate **di recente**
 (entro **3 giorni**) e **non datate oltre un'ora nel futuro** (tolleranza di sfasamento d'orologio): questo
-impedisce a un utente revocato di **rimettere una lista vecchia** e sbloccarsi, ma richiede al fornitore di **ri-pubblicare la lista firmata almeno ogni 3
-giorni** (anche invariata — la pubblicazione automatica del License Manager lo fa da sola mentre è aperto).
+impedisce a un utente revocato di **rimettere una lista vecchia** e sbloccarsi, ma richiede al fornitore di
+**ri-pubblicare la lista firmata almeno ogni 3 giorni** (anche invariata — la pubblicazione automatica del
+License Manager lo fa da sola mentre è aperto).
 Poiché quel meccanismo gira **solo a License Manager aperto**, la sua scheda mostra un'etichetta
 permanente **«Ultima pubblicazione riuscita: …»** che diventa **arancione** quando è saltato un giro e
 **rossa** quando è passata la finestra (con scritto che i bridge si bloccano): serve ad accorgersi a
 colpo d'occhio se la pubblicazione si è fermata, invece di scoprirlo dai bridge bloccati giorni dopo.
-Dettagli in [`docs/licensing.md`](docs/licensing.md). La revoca online è **attiva solo** quando il
-fornitore imposta l'URL reale nel codice prima di distribuire l'EXE (l'attivazione è derivata dall'URL,
-e un gate di release blocca un tag finché l'URL è ancora quello di sviluppo); con l'URL placeholder resta
-inattiva.
+Dettagli in [`docs/licensing.md`](docs/licensing.md). La revoca online **è attiva**: l'URL reale della
+lista è impostato nel codice (l'attivazione è derivata dall'URL, e un gate di release bloccherebbe un tag
+finché l'URL fosse ancora quello di sviluppo). Perché il bridge parta, la lista firmata deve essere
+**pubblicata a quell'indirizzo** e ri-pubblicata entro i 3 giorni: se ne occupa il License Manager con la
+pubblicazione automatica su GitHub.
 
 > 🔑 **Modello di sicurezza.** Il fornitore ha la chiave **privata** che firma le licenze; il
 > bridge contiene solo la chiave **pubblica** che verifica. La chiave privata **non** è nel
