@@ -79,7 +79,9 @@ cercati nel messaggio con **tolleranza agli spazi**:
 Derivano un valore calcolato da quello estratto. Built-in:
 
 - `score_to_over`: punteggio `"6-0"`/`"6:0"`/`"6 x 0"` → `"Over 6,5"` (somma gol +
-  linea `,5`). Input non interpretabile → vuoto (→ "Non pronto").
+  linea `,5`). Input non interpretabile → vuoto (→ "Non pronto"). Le cifre devono essere
+  **ASCII**: un «٦-٠» (arabo-indiane) o «６-０» (fullwidth) **non** è un punteggio e non
+  produce alcuna linea Over (#318 L2-1 · #166 P3-cp1).
 
 L'ordine è sempre **estrazione → trasformazione → value-map**.
 
@@ -796,7 +798,10 @@ retro-compatibile).
   col punto **o** la virgola italiana: «0-0,5», «0,5-1», «1-0.25») **non** produce un punteggio spurio
   «0 - 0»/«5 - 1»; numero di risultati per messaggio **limitato** (cap difensivo, ~50). *Separatore
   fra i risultati:* usare **«, » (virgola + spazio)**, spazio o newline; una virgola **senza spazio**
-  fra cifre («1-0,2-1») è ambigua con un decimale → **fail-closed** (non estratta).
+  fra cifre («1-0,2-1») è ambigua con un decimale → **fail-closed** (non estratta). Le cifre
+  devono essere **ASCII**: «٢-٠» o «１-０» **non** sono punteggi — prima venivano normalizzati a
+  «2 - 0», cioè una selezione Correct Score piazzabile da un messaggio che «2-0» non lo contiene
+  (#318 L2-1 · #166 P3-cp1).
   L'estrazione dinamica si attiva **solo** sui mercati-punteggio **canonici** **Correct Score
   full-time** (`CORRECT_SCORE`) e **primo tempo** (`HALF_TIME_SCORE`) — gli unici che elencano
   risultati «N - N»; il confronto è **esatto** (un `MarketType` non canonico, es. «correct_score»

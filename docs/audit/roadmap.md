@@ -2225,6 +2225,19 @@ ri-sincronizzare nel cloud. Test hard: `test_numbers_re` (frammento + `_HANDICAP
 araba → non piazzabile) — mutation-guard KILLED su `\d`. Docs: `docs/xtrader_csv_contract.md`. Suite 2411
 passed.
 
+> **Completamento 2026-07-28 (#166 P3-cp1).** Il fix originale copriva i consumer che compongono da
+> `numbers_re`; **tre regex scritte a mano** erano rimaste indietro, e non in modo innocuo:
+> `custom_parser_engine._SCORE_RE` normalizzava «٢-٠» in **«2 - 0»** (selezione Correct Score
+> piazzabile da un messaggio che «2-0» non lo contiene), `transforms._SCORE_RE` produceva **«Over 6,5»**
+> da «٦-٠» (linea inventata nel CSV) e `source_manager._CHAT_ID_RE` accettava «١٢٣٤٥٦٧٨٩», che non
+> combacia mai con l'`effective_chat.id` runtime → **sorgente configurata ma silenziosamente morta**,
+> cioè il bug P3-29 che quella regex esiste per prevenire. Fix: `[0-9]` nel CORPO delle tre; i
+> **lookaround restano `\d`** di proposito (una cifra non-ASCII adiacente indica un numero più lungo →
+> il match va rifiutato: restringerli sarebbe più permissivo, non più severo). `_decimal_sep_to_point`
+> NON è stato toccato: accetta cifre non-ASCII ma il validatore a valle le scarta già, quindi il
+> comportamento osservabile non cambia. Test hard in `test_security_318_l1l2.py` (3 mutation-guard
+> KILLED + regressione ASCII su 8 forme). Suite 3740 passed.
+
 ---
 
 ## #318-L1-1 — `OverflowError` non catturato in `validators` (crash su int enorme) — FATTO

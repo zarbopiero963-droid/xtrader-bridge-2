@@ -163,6 +163,30 @@ def test_transform_score_to_over_end_to_end(tmp_path):
     assert res.row["Price"] == "1.85"
 
 
+def test_punteggio_cifre_non_ascii_non_produce_riga_end_to_end(tmp_path):
+    """#166 P3-cp1 end-to-end, gemello di `test_quota_cifre_non_ascii_scartata_end_to_end`:
+    quello copre il path QUOTA, questo il path PUNTEGGIO.
+
+    Prima del fix «٦-٠» diventava «Over 6,5» — una linea inventata che finiva nella riga CSV
+    letta da XTrader. Il test unitario prova che la regex rifiuta; questo prova che l'intera
+    catena messaggio → parser → trasformazione → validatore → router non produce nulla di
+    piazzabile, che è l'unica cosa che conta davvero."""
+    defn = cp.CustomParserDef(name="SommaNonAscii", rules=[
+        cp.FieldRule(target="Provider", fixed_value="TG"),
+        cp.FieldRule(target="EventName", start_after="Match:", end_before="\n", required=True),
+        cp.FieldRule(target="MarketType", fixed_value="OVER_UNDER", required=True),
+        cp.FieldRule(target="SelectionName", start_after="Risultato:", end_before="\n",
+                     transform="score_to_over", required=True),
+        cp.FieldRule(target="Price", start_after="Quota:", end_before="\n", required=True),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
+    ])
+    cp.save_parser(defn, str(tmp_path))
+    msg = "Match: Inter v Milan\nRisultato: ٦-٠\nQuota: 1,85\n"
+    res = signal_router.resolve_row(msg, _cfg("SommaNonAscii"),
+                                    chat_id="42", parsers_dir=str(tmp_path))
+    assert res.placeable is False       # SelectionName vuoto → "Non pronto" → nessuna riga
+
+
 # ── caso reale: provider P.Bet con emoji 🆚 e quota assente ─────────────────
 
 def test_pbet_gol_secondo_tempo_yangon_end_to_end(tmp_path):

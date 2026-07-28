@@ -15,7 +15,10 @@ una riga CSV inventata.
 import re
 
 # Punteggio "X-Y" / "X:Y" / "X x Y" (con spazi opzionali).
-_SCORE_RE = re.compile(r"^\s*(\d{1,3})\s*[-:x]\s*(\d{1,3})\s*$", re.IGNORECASE)
+# Cifre ASCII SOLTANTO (`[0-9]`, non `\d`): come `numbers_re.DECIMAL` (#318 L2-1). Con `\d` un
+# «٦-٠» produceva «Over 6,5» — la linea Over finisce nella riga CSV, quindi era una selezione
+# inventata a partire da cifre che nel messaggio non sono un punteggio (#166 P3-cp1).
+_SCORE_RE = re.compile(r"^\s*([0-9]{1,3})\s*[-:x]\s*([0-9]{1,3})\s*$", re.IGNORECASE)
 
 # Gol per lato oltre cui il punteggio è implausibile per una partita reale: un input
 # come "999-999" (ben formato ma assurdo) non deve generare una linea Over inventata (A5).
