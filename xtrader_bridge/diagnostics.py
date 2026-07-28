@@ -46,7 +46,12 @@ _SUPERGROUP_PREFIX = "-100"
 # senza essere una home, si perde un nome di file nel report; nella direzione opposta si
 # perderebbe il nome di una persona. Il CSV su share di rete non è un caso di laboratorio — è lo
 # scenario da cui nasce l'intero Tema A dell'audit #114.
-_WIN_HOME_RE = re.compile(r"([\\/]Users[\\/]{1,2})([^\\/\r\n]+)", re.IGNORECASE)
+#
+# Il lookbehind accetta separatore, spazio o inizio campo: copre anche un path RELATIVO
+# `Users\<nome>` digitato a mano in «CSV Path» (Fugu #164), e continua a rifiutare `Users`
+# come suffisso di un altro nome (`ProjectUsers\<x>`, `SuperUsers\<x>`) — lì non c'è nessuna
+# home e mascherare storpierebbe soltanto.
+_WIN_HOME_RE = re.compile(r"((?<![^\s\\/])Users[\\/]{1,2})([^\\/\r\n]+)", re.IGNORECASE)
 # Home utente Linux: `/home/<nome>/`. Qui il lookbehind serve: "home" è una parola comune e una
 # cartella che si CHIAMA così in mezzo a un path (`C:/Progetti/home/segnali.csv`) non contiene
 # nessuno username da proteggere, quindi storpiarla confonderebbe soltanto la diagnosi.

@@ -171,6 +171,31 @@ def test_path_senza_home_utente_resta_intatto():
     assert diagnostics.MASKED_USER not in report
 
 
+def test_path_relativo_senza_separatore_iniziale():
+    """Edge case sollevato da Fugu Ultra (#164): in «CSV Path» si può digitare un percorso
+    **relativo**. Senza separatore iniziale il match non scattava e lo username restava in
+    chiaro — stessa PII, solo scritta in modo più corto."""
+    report = diagnostics.build_report([("CSV path", r"Users\john.doe\segnali.csv")])
+    assert "john.doe" not in report
+    assert r"CSV path: Users\<utente>\segnali.csv" in report
+
+
+@pytest.mark.parametrize("path", [
+    "/data/ProjectUsers/john/x.csv",      # "Users" come SUFFISSO di un altro nome
+    r"D:\SuperUsers\john\x.csv",
+    r"C:\Users",                          # nessun nome dopo: niente da mascherare
+    "/data/MyUsers/john/x.csv",
+])
+def test_users_come_pezzo_di_un_altro_nome_non_viene_toccato(path):
+    """Guard di regressione (GPT-5.5 #164): `Users` deve valere come **segmento intero** di
+    path, non come sottostringa. Senza il separatore obbligatorio a sinistra, `ProjectUsers`
+    o `SuperUsers` farebbero sparire il segmento successivo — un match parziale che
+    storpierebbe path del tutto innocui."""
+    report = diagnostics.build_report([("CSV path", path)])
+    assert f"CSV path: {path}" in report
+    assert diagnostics.MASKED_USER not in report
+
+
 def test_chat_id_redatto_con_la_stessa_impronta_del_diario():
     """Il chat_id sparisce ma resta CORRELABILE: stessa impronta usata dal diario eventi
     (`log_privacy.redact_chat_id`), così supporto e ledger parlano della stessa chat senza
