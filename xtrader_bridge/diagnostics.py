@@ -111,6 +111,7 @@ def redact_chat_ids(text, chat_ids) -> str:
     I più lunghi sono sostituiti per primi, così `-1001234567890` non viene mangiato a
     metà dalla forma corta (stessa logica di `event_log.redact_secrets`)."""
     s = str(text or "")
+    canonici = {str(raw).strip() for raw in chat_ids or () if raw is not None}
     voci = []
     for raw in chat_ids or ():
         canonico = str(raw).strip() if raw is not None else ""
@@ -125,8 +126,16 @@ def redact_chat_ids(text, chat_ids) -> str:
         if canonico.startswith(_SUPERGROUP_PREFIX):
             forme.add(canonico[len(_SUPERGROUP_PREFIX):])
         for forma in forme:
-            if len(forma) >= MIN_CHAT_ID_LEN:
-                voci.append((forma, impronta))
+            if len(forma) < MIN_CHAT_ID_LEN:
+                continue
+            # Collisione (GPT-5.5 #164): la forma DERIVATA di una chat può coincidere con
+            # l'id CONFIGURATO di un'altra (supergruppo `-1001234567890` + chat `1234567890`).
+            # In quel caso vince l'id configurato esplicitamente: entrambe le chat restano
+            # comunque redatte, ma l'impronta mostrata è quella della chat che l'utente ha
+            # davvero scritto in config — l'alternativa sarebbe un'attribuzione a sorte.
+            if forma != canonico and forma in canonici:
+                continue
+            voci.append((forma, impronta))
     for forma, impronta in sorted(voci, key=lambda v: (-len(v[0]), v[0])):
         s = re.sub(r"(?<![0-9])" + re.escape(forma) + r"(?![0-9])", impronta, s)
     return s

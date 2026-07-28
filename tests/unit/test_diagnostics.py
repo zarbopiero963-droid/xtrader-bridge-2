@@ -175,6 +175,29 @@ def test_supergruppo_redatto_anche_nella_forma_del_link_t_me():
     assert report.count(log_privacy.redact_chat_id(chat)) == 2
 
 
+def test_collisione_fra_forma_derivata_e_id_configurato():
+    """Caso limite sollevato da GPT-5.5 (#164): l'utente configura sia il supergruppo
+    `-1001234567890` sia una chat il cui id è **esattamente** la forma interna del primo
+    (`1234567890`). Quel testo è genuinamente ambiguo.
+
+    Comportamento definito: **vince l'id configurato esplicitamente**. Entrambe le chat
+    restano redatte (la privacy non dipende dalla disambiguazione), ma l'impronta mostrata
+    è quella della chat che l'utente ha davvero scritto in config — l'alternativa sarebbe
+    attribuire il testo a una delle due a sorte, rendendo ambigua la diagnostica condivisa."""
+    supergruppo, esplicita = "-1001234567890", "1234567890"
+    report = diagnostics.build_report([
+        ("Ultimo messaggio", f"link https://t.me/c/{esplicita}/45"),
+        ("Ultimo errore", f"bot: forbidden in {supergruppo}"),
+    ], chat_ids=[supergruppo, esplicita])
+
+    # Nessuna delle due esce in chiaro.
+    assert esplicita not in report and supergruppo not in report
+    # Il testo ambiguo è attribuito alla chat CONFIGURATA, non alla forma derivata.
+    assert log_privacy.redact_chat_id(esplicita) in report
+    # Il supergruppo resta comunque redatto con la propria impronta, dov'è scritto per intero.
+    assert log_privacy.redact_chat_id(supergruppo) in report
+
+
 def test_chat_id_non_redige_un_numero_che_lo_contiene():
     """Confini numerici: `12345` non deve mordere dentro `9912345678` (contatori, id evento,
     timestamp) — una redazione che storpia i numeri rende il report inservibile."""
