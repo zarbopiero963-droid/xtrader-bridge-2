@@ -32,24 +32,41 @@ _TEST_WORKFLOWS = ("pr-checks.yml", "commit-gate.yml", "windows-tests.yml",
 # non solo di versioni pinnate. Stesso trattamento di `build.yaml` / `build-license-manager`.
 _HARD_BUILD_WORKFLOW = "merge-simulation-hard.yml"
 
-# Install di `requirements-dev.txt` SENZA constraints, in qualunque forma. `[\s\\]+` invece di
-# `\s+` perché in YAML un comando può essere spezzato con la continuazione `\` (rilievo Fable
-# #165): `pip install \` + a capo + `-r requirements-dev.txt` è lo stesso identico difetto
-# scritto su due righe, e un guard che non lo vede protegge solo chi non va a capo.
-# Opzioni ammesse fra `pip install` e `-r`: un numero qualsiasi di flag lunghi
-# (`--upgrade`, `--disable-pip-version-check`, …). Frammento CONDIVISO dalle due regex, perché
-# la lezione di questa PR è che le due metà del guard devono riconoscere esattamente le stesse
-# forme (GPT-5.5 #165): se la negativa accetta un flag che la positiva rifiuta, lo stesso
-# workflow risulta insieme "non sbagliato" e "non giusto" — e la CI fallisce su codice sicuro.
-_INSTALL_FLAGS = r"(?:[\s\\]+--[\w-]+)*"
-# `[\s\\]+` e non `\s+`: in YAML un comando può essere spezzato con la continuazione `\`
-# (rilievo Fable #165), e lo stesso difetto scritto su due righe resta lo stesso difetto.
-_BARE_INSTALL_RE = re.compile(
-    rf"pip install{_INSTALL_FLAGS}[\s\\]+-r requirements-dev\.txt"
-    r"(?![\s\\]+-c requirements-dev\.lock)[^\n]*")
-_GOOD_INSTALL_RE = re.compile(
-    rf"pip install{_INSTALL_FLAGS}[\s\\]+-r requirements-dev\.txt"
-    r"[\s\\]+-c requirements-dev\.lock")
+# ── Riconoscimento degli install, per CONTENUTO e non per posizione ─────────────────────────────
+# Storia di questo guard, che vale più della sua implementazione: nato nel #76 come confronto di
+# sottostringa esatta, ha collezionato quattro cecità diverse, ognuna trovata da un reviewer
+# diverso — il comando spezzato con `\`, la metà positiva rimasta rigida, i flag ammessi
+# asimmetrici fra le due metà, e infine (CodeRabbit + GPT-5.5 #165, indipendentemente) le
+# opzioni con valore e quelle scritte DOPO `-r`.
+#
+# Ogni giro allargava la regex di un pezzo, e il difetto ricompariva altrove. Il problema non
+# erano i singoli flag: era che il pattern pretendeva un ORDINE. Un comando `pip install` è un
+# insieme di argomenti, non una sequenza fissa — quindi la domanda giusta non è «combacia con
+# questa forma?» ma «installa requirements-dev.txt? e allora cita anche il lock?».
+#
+# Riconoscere per contenuto rende irrilevanti ordine, numero e valore delle opzioni, e non ha
+# più nulla da allargare al prossimo flag che qualcuno userà.
+_DEV_REQ = "-r requirements-dev.txt"
+_DEV_CONSTRAINTS = "-c requirements-dev.lock"
+
+
+def _comandi_pip(testo: str):
+    """I comandi `pip install` del testo, con le continuazioni `\\` ricongiunte e gli spazi
+    normalizzati. Copre sia `pip install` sia `python -m pip install`."""
+    unito = re.sub(r"\\\n\s*", " ", testo)
+    for riga in unito.splitlines():
+        if "pip install" in riga:
+            yield " ".join(riga.split())
+
+
+def _install_nudo(testo: str) -> list:
+    """Install di `requirements-dev.txt` che NON citano le constraints — la cosa da vietare."""
+    return [c for c in _comandi_pip(testo) if _DEV_REQ in c and _DEV_CONSTRAINTS not in c]
+
+
+def _install_costretto(testo: str) -> bool:
+    """True se esiste almeno un install di `requirements-dev.txt` CON le constraints."""
+    return any(_DEV_REQ in c and _DEV_CONSTRAINTS in c for c in _comandi_pip(testo))
 
 
 def _lock_pins():
@@ -121,9 +138,9 @@ def test_ci_installa_con_le_constraints():
     lock rigenerato riuserebbe la cache pip stantia)."""
     for name in _TEST_WORKFLOWS:
         text = (_WF_DIR / name).read_text(encoding="utf-8")
-        bare = _BARE_INSTALL_RE.findall(text)
-        assert not bare, f"{name}: install di requirements-dev.txt SENZA constraints → {bare}"
-        assert _GOOD_INSTALL_RE.search(text), (
+        nudi = _install_nudo(text)
+        assert not nudi, f"{name}: install di requirements-dev.txt SENZA constraints → {nudi}"
+        assert _install_costretto(text), (
             f"{name}: nessun install con constraints trovato")
         assert "requirements*.lock" in text, (
             f"{name}: cache-dependency-path senza requirements*.lock")
@@ -147,7 +164,7 @@ def test_il_job_notturno_builda_da_dipendenze_pinnate_e_hashate():
         f"{_HARD_BUILD_WORKFLOW}: l'EXE notturno deve essere buildato dal lock HASHATO")
 
     # Il vecchio install nudo non deve tornare, in nessuna delle sue forme.
-    nudi = _BARE_INSTALL_RE.findall(text)
+    nudi = _install_nudo(text)
     assert not nudi, (
         f"{_HARD_BUILD_WORKFLOW}: install non pinnato reintrodotto → {nudi}")
 
@@ -171,6 +188,11 @@ def test_il_job_notturno_builda_da_dipendenze_pinnate_e_hashate():
     # Flag arbitrario, non solo `--upgrade`: prima il pattern conosceva quel singolo flag,
     # quindi un install nudo con QUALSIASI altra opzione sarebbe passato (GPT-5.5 #165).
     "      - run: pip install --disable-pip-version-check -r requirements-dev.txt",
+    # Opzione CON VALORE — es. un mirror pip privato (CodeRabbit + GPT-5.5 #165). La regex
+    # posizionale si fermava al valore e perdeva il match: install nudo invisibile al guard.
+    "      - run: pip install --index-url https://mirror.interno -r requirements-dev.txt",
+    # Opzioni DOPO il requirements (CodeRabbit #165): stesso comando, ordine diverso.
+    "      - run: pip install -r requirements-dev.txt --disable-pip-version-check",
 ])
 def test_il_guard_riconosce_tutte_le_forme_dell_install_nudo(riga):
     """Il guard è a sua volta testato, perché una regex che non morde è indistinguibile da
@@ -178,7 +200,7 @@ def test_il_guard_riconosce_tutte_le_forme_dell_install_nudo(riga):
 
     Prima di questo giro il pattern pretendeva tutto su una riga: bastava spezzare il comando
     con un `\\` per reintrodurre l'install non pinnato passando i controlli."""
-    assert _BARE_INSTALL_RE.search(riga), f"forma non intercettata: {riga!r}"
+    assert _install_nudo(riga), f"forma non intercettata: {riga!r}"
 
 
 @pytest.mark.parametrize("riga", [
@@ -188,7 +210,7 @@ def test_il_guard_riconosce_tutte_le_forme_dell_install_nudo(riga):
 ])
 def test_il_guard_non_segnala_gli_install_corretti(riga):
     """L'altra metà: un guard che grida su tutto viene disattivato entro una settimana."""
-    assert not _BARE_INSTALL_RE.search(riga), f"falso positivo su: {riga!r}"
+    assert not _install_nudo(riga), f"falso positivo su: {riga!r}"
 
 
 @pytest.mark.parametrize("riga", [
@@ -201,13 +223,19 @@ def test_il_guard_non_segnala_gli_install_corretti(riga):
     "      - run: pip install --upgrade -r requirements-dev.txt -c requirements-dev.lock",
     "      - run: python -m pip install --disable-pip-version-check \\\n"
     "          -r requirements-dev.txt -c requirements-dev.lock",
+    # Constraints DOPO altre opzioni, e opzione con valore in mezzo (CodeRabbit #165):
+    # comandi sicuri che il matching posizionale bocciava.
+    "      - run: pip install -r requirements-dev.txt --disable-pip-version-check "
+    "-c requirements-dev.lock",
+    "      - run: pip install --index-url https://mirror.interno "
+    "-r requirements-dev.txt -c requirements-dev.lock",
 ])
 def test_il_check_positivo_accetta_anche_le_forme_spezzate(riga):
     """Rilievo GPT-5.5 (#165): il riconoscimento dell'install CORRETTO era un confronto di
     sottostringa esatta su una riga sola, quindi un workflow sicuro ma scritto su più righe
     veniva bocciato. Un guard che boccia il codice giusto costa quanto uno che lascia passare
     quello sbagliato: entrambi finiscono per essere disattivati."""
-    assert _GOOD_INSTALL_RE.search(riga), f"forma corretta non riconosciuta: {riga!r}"
+    assert _install_costretto(riga), f"forma corretta non riconosciuta: {riga!r}"
 
 
 def test_il_lock_di_build_copre_davvero_pyinstaller_e_httpx():
