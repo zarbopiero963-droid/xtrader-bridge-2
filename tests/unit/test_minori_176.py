@@ -55,7 +55,10 @@ def test_atomic_write_funziona_ancora(tmp_path):
     """Il caso felice: la correzione non deve rompere la scrittura normale."""
     percorso = str(tmp_path / "ok.txt")
     atomic_io.atomic_write(percorso, lambda f: f.write("ciao"))
-    assert open(percorso, encoding="utf-8").read() == "ciao"
+    # `with`: un handle non chiuso in un test SUI DESCRITTORI PERSI sarebbe una beffa
+    # (rilievo Fable 5), e falserebbe il conteggio se questo test girasse per primo.
+    with open(percorso, encoding="utf-8") as f:
+        assert f.read() == "ciao"
 
 
 # ── config_agent_gui: guardia `(data or {})` mancante su un ramo ─────────────
