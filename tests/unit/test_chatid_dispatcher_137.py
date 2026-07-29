@@ -456,3 +456,91 @@ def test_nel_ripiego_i_segreti_restano_redatti_prima_degli_id():
         assert CHAT_SUPERGRUPPO not in uscita, "e l'ID viene mascherato dal ripiego"
     finally:
         event_log.clear_secrets()
+
+
+# ── il provider di DEFAULT non deve mutare nulla (#171, rilievo CodeRabbit) ────
+
+def test_il_provider_di_default_non_ha_effetti_operativi(tmp_path, monkeypatch):
+    """🟠 Major trovato da CodeRabbit, e il più serio di tutta la PR — perché è nel **fix**,
+    non nella blindatura.
+
+    Il wiring usava `config_loader or config_store.load_config`: senza loader iniettato si
+    prendevano i default **operativi** (`sync_csv_language=True`, `recover_corrupt=True`).
+    Misurato, e succedeva davvero, **una volta per chiamata di tool**:
+
+        lingua-CSV globale del writer:  IT → EN   (stato operativo mutato)
+        config corrotta:                scrive `config.json.bak`  (SCRITTURA)
+
+    Sono esattamente i due effetti che la #139 aveva chiuso **per questa stessa issue #137**:
+    la mia PR li reintroduceva. I test non lo prendevano perché iniettano sempre un loader —
+    esattamente il punto cieco che CodeRabbit ha indicato.
+
+    Ora il default è `readonly_config_loader`, fonte unica condivisa col controller."""
+    from xtrader_bridge import config_store, csv_writer
+
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text('{"chat_id": "-1001234567890", "csv_language": "EN"}', encoding="utf-8")
+    monkeypatch.setattr(config_store, "CONFIG_FILE", str(cfg_path))
+
+    csv_writer.set_csv_language("IT")
+    prima = csv_writer.get_csv_language()
+
+    config_agent.readonly_config_loader()
+
+    assert csv_writer.get_csv_language() == prima, (
+        "il loader sola-lettura NON deve riallineare la lingua-CSV globale del writer")
+
+
+def test_il_provider_di_default_non_scrive_bak_su_config_corrotta(tmp_path, monkeypatch):
+    """L'altra metà dello stesso Major: su una config corrotta il loader operativo scrive un
+    `.bak`. Da un percorso dichiarato **sola lettura** è una scrittura di troppo."""
+    from xtrader_bridge import config_store
+
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text("{ non json ", encoding="utf-8")
+    monkeypatch.setattr(config_store, "CONFIG_FILE", str(cfg_path))
+
+    config_agent.readonly_config_loader()
+
+    creati = [f.name for f in tmp_path.iterdir() if f.name != "config.json"]
+    assert not creati, f"nessun file va creato da un loader sola-lettura: {creati}"
+
+
+def test_il_registry_di_default_usa_il_loader_sola_lettura():
+    """Il guard che chiude il buco per davvero: non basta che la funzione esista, deve essere
+    **quella usata** dal wiring. È lo stesso tipo di guard di `test_il_registry_dell_app_reale
+    _wira_il_provider` — classe corretta, app che non la usa."""
+    import inspect
+
+    sorgente = inspect.getsource(config_agent.build_default_registry)
+    assert "config_loader or readonly_config_loader" in sorgente, (
+        "il ripiego del wiring deve essere il loader SOLA-LETTURA, non "
+        "`config_store.load_config` coi default operativi")
+
+
+def test_controller_e_registry_condividono_la_stessa_fonte():
+    """Anti-drift: il controller e il registry devono puntare allo **stesso oggetto**. Due
+    definizioni separate di «sola lettura» sono due cose che possono divergere — ed è come il
+    buco è nato (il controller ce l'aveva giusto dalla #139, il registry no)."""
+    from xtrader_bridge import config_agent_controller
+
+    assert config_agent_controller._readonly_config_loader is config_agent.readonly_config_loader
+
+
+def test_un_handler_con_str_difettoso_non_crasha_il_dispatch():
+    """Rilievo CodeRabbit (#171): `str(raw)` stava fuori dal `try` di `dispatch`. Un handler
+    che ritorna un oggetto col `__str__` difettoso sfuggiva alle guardie, rompendo l'invariante
+    documentata «nessun tool deve poter far crashare l'agente».
+
+    Stessa classe di difetto già chiusa dentro `_crude_chat_mask`, un livello più in basso."""
+    class RispostaVelenosa:
+        def __str__(self):
+            raise RuntimeError("__str__ difettoso")
+
+    reg = _registry([CHAT_SUPERGRUPPO])
+    reg.register(config_agent.AgentTool(
+        name="velenoso", description="d", input_schema={},
+        handler=lambda _i: RispostaVelenosa(), permission=config_agent.READ_ONLY))
+
+    res = reg.dispatch("velenoso", {})          # non deve sollevare
+    assert "velenoso" in res.content or "Errore" in res.content

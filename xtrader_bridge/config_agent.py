@@ -106,6 +106,21 @@ class ToolResult:
         self.reason = reason
 
 
+def readonly_config_loader() -> dict:
+    """Carica la config per l'assistente #41 SENZA effetti collaterali operativi.
+
+    **Fonte unica** del loader sola-lettura (audit #137): non riallinea la lingua-CSV globale
+    del writer (`sync_csv_language=False`) e non scrive alcun backup `.bak` se il file è
+    corrotto (`recover_corrupt=False`). Vedi `config_store.load_config`.
+
+    Vive qui e non nel controller perché serve anche a `build_default_registry`, che sta in
+    questo modulo: il ripiego `config_loader or config_store.load_config` usava i default
+    OPERATIVI e reintroduceva, una volta per chiamata di tool, esattamente i due effetti che la
+    #139 aveva chiuso per questa stessa issue (rilievo CodeRabbit #171). Un solo posto che
+    definisce «sola lettura» significa che non possono più divergere."""
+    return config_store.load_config(sync_csv_language=False, recover_corrupt=False)
+
+
 # Segnaposto del ripiego fail-closed sui chat ID: usato SOLO se `diagnostics.redact_chat_ids`
 # solleva (percorso degradato). Volutamente diverso dall'impronta `chat:sha256:…` del percorso
 # normale, così nel log si distingue subito una redazione degradata da una regolare.
@@ -315,7 +330,10 @@ class ToolRegistry:
                               refused=True, reason=reason)
         # 4. esecuzione + redazione segreti sul risultato.
         try:
-            raw = tool.handler(tool_input)
+            # `str(...)` DENTRO il try: un handler che ritorna un oggetto col
+            # `__str__` difettoso sfuggirebbe altrimenti a `dispatch`, rompendo
+            # l'invariante «nessun tool puo' far crashare l'agente» (CodeRabbit #171).
+            raw = str(tool.handler(tool_input))
         except ToolError as exc:
             self._audit(name, tool_input, True, f"error:{exc}")
             return ToolResult(name, self._safe_out(f"Errore nel tool: {exc}"))
@@ -323,7 +341,7 @@ class ToolRegistry:
             self._audit(name, tool_input, True, f"exception:{type(exc).__name__}")
             return ToolResult(name, self._safe_out(
                 f"Errore interno nel tool «{name}»: {type(exc).__name__}"))
-        safe = self._safe_out(str(raw))
+        safe = self._safe_out(raw)
         self._audit(name, tool_input, True, "ok")
         return ToolResult(name, safe)
 
@@ -1178,7 +1196,7 @@ def build_default_registry(*, config_loader=None, parsers_dir=None, on_proposal=
     # Redazione chat_id centralizzata (#137): il provider legge dalla STESSA fonte del
     # report diagnostico (`diagnostics.collect_chat_ids`), così non diverge quando si
     # aggiunge una chiave di config che contiene chat.
-    _load_cfg = config_loader or config_store.load_config
+    _load_cfg = config_loader or readonly_config_loader
     reg = ToolRegistry(logger=logger,
                        chat_ids_provider=lambda: diagnostics.collect_chat_ids(_load_cfg()))
     for tool in build_read_only_tools(config_loader=config_loader, parsers_dir=parsers_dir):
