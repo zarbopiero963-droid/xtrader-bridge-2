@@ -420,11 +420,31 @@ bridge deve **raggiungere e verificare** l'URL per operare).
   - `license_revoked(revlist, token=…, hardware_id=…)` → serial dal token **o** Hardware ID nella lista.
   - `gate_allows(revlist, verified_at=…, now=…, …)` → **decisione sincrona no-grace**: `True` solo se la
     lista è verificata, il **FETCH** è fresco (entro `FRESHNESS_MAX_AGE_S`, 15 min), il **CONTENUTO
-    firmato** è fresco (entro `MAX_LIST_AGE_S`, **24 h** sull'`iss`) e la licenza **non** è revocata;
+    firmato** è fresco (entro `MAX_LIST_AGE_S`, **3 giorni** sull'`iss`), il contenuto **non è datato nel
+    futuro** oltre `MAX_FUTURE_SKEW_S` (1 h) e la licenza **non** è revocata;
     altrimenti `False`. Il **cap sull'età del contenuto** chiude il *replay di una lista vecchia* (un
     utente revocato che serve alla propria copia una lista firmata precedente alla revoca): richiede al
-    proprietario di **ri-pubblicare la lista firmata almeno ogni 24 h** (anche invariata, idealmente
-    automatizzato). Cache firmata in `config_dir()` per il **floor anti-replay**.
+    proprietario di **ri-pubblicare la lista firmata almeno ogni finestra** (anche invariata, automatizzato
+    dalla pubblicazione #158). Cache firmata in `config_dir()` per il **floor anti-replay**.
+
+  > **Perché la finestra è di 3 giorni e non di 24 h.** È **una sola costante per due effetti opposti**:
+  > quanto a lungo un revocato può resistere replayando una lista pre-revoca, e quanto a lungo il
+  > proprietario può stare senza ri-firmare prima di bloccare gli utenti **legittimi**. La ri-firma
+  > richiede il seed privato, che vive solo sul PC del proprietario: con 24 h bastava un weekend col PC
+  > spento per bloccare tutti. Allargarla ancora è possibile, ma allarga **nella stessa misura** la
+  > finestra di replay — è una decisione del proprietario, non un parametro da ritoccare.
+  >
+  > **Perché esiste anche un tetto sul FUTURO** (`MAX_FUTURE_SKEW_S`, 1 h). Il cap di freschezza
+  > confronta un solo verso (`now - issued`): una lista datata **avanti** nel tempo dà differenza
+  > negativa e passerebbe indisturbata. Non serve un attaccante — basta l'orologio sbagliato sul PC che
+  > firma. Il danno però è **durevole**, perché l'anti-replay è monotòno: accettata quella lista, il
+  > floor `min_iss` sale a una data futura e **ogni lista legittima successiva viene rifiutata** → su
+  > quella copia il proprietario non può più revocare, e il guasto sopravvive al riavvio (il floor si
+  > ri-deriva dalla cache su disco). Perciò il controllo sta in **due punti**: `accept_signed` impedisce
+  > alla lista di **entrare** (floor e cache restano puliti), `gate_allows` impedisce che conceda
+  > **immunità** se fosse entrata per altra via. Il margine è generoso di proposito: il confronto è fra
+  > l'orologio del *bridge* e la data messa dal *proprietario*, e un margine stretto trasformerebbe un
+  > banale drift sul PC dell'utente in un lockout.
 - **Integrazione nel lock** (`xtrader_bridge/app.py`): un **supervisore** in background
   (`_revocation_loop`, thread daemon come `_run_bot`) scarica ogni `REFRESH_INTERVAL_S`, verifica,
   aggiorna in memoria lo stato `_rev_state = (lista, verificata_a)` — **tupla unica sostituita
@@ -439,15 +459,16 @@ bridge deve **raggiungere e verificare** l'URL per operare).
 **Test hard:** `tests/unit/test_revocation_client.py` (fetch fail-closed/probe, accept + anti-replay,
 `license_revoked` per serial/hw, `gate_allows` assente/stantia/fresca/revocata, cache round-trip/corrotta)
 e `tests/integration/test_license_lock_r3c.py` (bypass placeholder, fail-closed senza lista, revoca per
-serial, staleness fetch **e contenuto (24 h)**, anti-replay per età dell'`iss`, attivazione derivata
+serial, staleness fetch **e contenuto (3 giorni)**, anti-replay per età dell'`iss`, **data nel futuro
+rifiutata all'ingresso e nel gate**, attivazione derivata
 dall'URL, Hardware ID memoizzato, backoff su fallimenti ripetuti, integrazione in
 `_license_is_valid`/`_apply_license_lock` con **STOP a sessione viva**, ciclo del supervisore
 ok/fallito/anti-replay, stop supervisore).
 
 **Azioni proprietario prima/durante la distribuzione:** (1) impostare `REVOCATION_LIST_URL` **reale** in
 `revocation_client.py` (il marcatore placeholder e l'attivazione si aggiornano da soli; il gate di
-release blocca un tag finché è placeholder); (2) **ri-pubblicare la lista firmata almeno ogni 24 h**
-(anche invariata, idealmente automatizzato) — oltre `MAX_LIST_AGE_S` i bridge legittimi si bloccano
+release blocca un tag finché è placeholder); (2) **ri-pubblicare la lista firmata almeno ogni finestra
+(3 giorni)** (anche invariata, automatizzato dalla pubblicazione #158) — oltre `MAX_LIST_AGE_S` i bridge legittimi si bloccano
 fail-closed. Nota disponibilità: essendo **no-grace su URL singolo**, un'irraggiungibilità **persistente**
 (oltre `FRESHNESS_MAX_AGE_S`, 15 min) blocca i client a sessione viva — è la conseguenza **accettata**
 della scelta «niente grazia» (decisione proprietario 2); le due finestre sono costanti tarabili.
@@ -474,7 +495,7 @@ fetta la **automatizza dentro il License Manager**, senza spostare il seed priva
   niente whitespace in `path`/`branch`),
   `load/save_publish_config` (atomico via `atomic_io`, fail-safe su file assente/corrotto),
   **cadenza vincolata alla finestra del bridge**: `MAX_INTERVAL_HOURS` è **derivato** da
-  `revocation_client.MAX_LIST_AGE_S` (un terzo della finestra → 8 h su 24 h), non un numero ricopiato,
+  `revocation_client.MAX_LIST_AGE_S` (un terzo della finestra → 24 h su 72 h), non un numero ricopiato,
   così i due valori non possono divergere. Prima erano ammesse fino a 168 h: una cadenza **più lunga
   della finestra** avrebbe salvato con «successo» una configurazione che **garantisce il lockout** di
   tutti i bridge fra una pubblicazione e l'altra (rilievo CodeRabbit/Fable/Fugu #158). Col cap a un

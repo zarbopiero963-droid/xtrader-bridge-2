@@ -183,8 +183,20 @@ def test_intervallo_massimo_derivato_dalla_finestra_del_bridge():
     assert publish_store.DEFAULTS["interval_hours"] <= publish_store.MAX_INTERVAL_HOURS
 
 
+def test_cap_assoluto_ventiquattro_ore_con_finestra_di_tre_giorni():
+    """Pin **assoluto** del cap, accanto a quello relativo qui sopra (rilievo CodeRabbit #180).
+
+    Le asserzioni relative confrontano il cap con la finestra: restano vere anche se la coppia
+    regredisse *insieme* (finestra 24 h + cap 8 h). Questo test fissa il valore che la decisione del
+    proprietario implica — finestra di 3 giorni → cap di 24 h — così una regressione della finestra o
+    della formula di derivazione diventa rossa qui, non silenziosa."""
+    from xtrader_bridge.licensing import revocation_client
+    assert revocation_client.MAX_LIST_AGE_S == 3 * 24 * 3600
+    assert publish_store.MAX_INTERVAL_HOURS == 24
+
+
 def test_intervallo_oltre_la_finestra_viene_limitato():
-    """Chiedere 48 h (oltre la finestra di 24 h) non può passare: viene limitato al cap sicuro,
+    """Chiedere 48 h (oltre il cap di 24 h) non può passare: viene limitato al cap sicuro,
     invece di salvare una configurazione che bloccherebbe tutti i bridge."""
     assert publish_store.normalize_config({"interval_hours": 48})["interval_hours"] == \
         publish_store.MAX_INTERVAL_HOURS

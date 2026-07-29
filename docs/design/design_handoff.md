@@ -822,8 +822,11 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   è **inattiva** (non blocca) in sviluppo: l'attivazione è **derivata dall'URL stesso** — impostare l'URL
   reale la attiva, senza un flag separato da ricordare (coerente con 1A). Un gate di release impedisce di
   distribuire un EXE con l'URL ancora placeholder. Il proprietario deve inoltre **ri-pubblicare la lista
-  firmata ogni ≤24 h** (anche invariata): oltre quel tetto la lista è considerata «stantia» e la GUI si
-  blocca (fail-closed), come per l'irraggiungibilità dell'URL.
+  firmata ogni ≤3 giorni** (anche invariata): oltre quel tetto la lista è considerata «stantia» e la GUI
+  si blocca (fail-closed), come per l'irraggiungibilità dell'URL. È anche rifiutata una lista **datata
+  nel futuro** oltre un'ora — stesso esito visivo (GUI bloccata), causa diversa (orologio sbagliato sul
+  PC che firma). *Nota per il design:* è un altro caso in cui il messaggio generico «attiva una licenza
+  valida» non dice all'utente cosa sta succedendo — rientra nell'affinamento UX previsto qui sopra.
 
 ### 6.4 Barra pulsanti principali
 - **"▶  AVVIA"** (verde `#2e7d32`, bold)
