@@ -135,7 +135,7 @@ _ALLOWLIST = {
                             "(ctypes/windll assente, shcore mancante su Win<8.1, "
                             "awareness già impostata, API che solleva) non deve MAI "
                             "impedire l'avvio del bridge — esito testuale, mai raise"),
-    "gui_utils.py": (2, "helper GUI best-effort; ask_confirm FAIL-CLOSED (P3-27/28 #76): dialog rotto/headless → False, un'azione distruttiva non parte mai senza conferma esplicita"),
+    "gui_utils.py": (3, "helper GUI best-effort; ask_confirm FAIL-CLOSED (P3-27/28 #76): dialog rotto/headless → False, un'azione distruttiva non parte mai senza conferma esplicita · +1 #176 running_edit_notice: la sonda `is_running` è iniettata dal chiamante e solo INFORMATIVA (decide un avviso, non una scrittura); se solleva si assume bridge fermo e si ritorna \"\" — una sonda difettosa non deve né impedire un salvataggio né inventare un avviso"),
     "journal_view_gui.py": (2, "GUI Tk scheda Diario (#236): lettura ledger best-effort "
                             "(avviso invece di crash) e apertura cartella best-effort"),
     "known_teams_gui.py": (2, "GUI Tk ripulitura nomi Betfair (#282 PR 11-bis): lettura e "

@@ -354,6 +354,36 @@ universale): il semaforo 🚦 Salute non fa più il parsing del testo della labe
 lo **stato canonico** `_listener_state` (`health_check.LISTENER_*`), impostato dal
 punto unico `_set_listener_state` — la label è SOLO display. Dalla **slice 4c** la
 localizzazione si estende alle **finestre secondarie**, a una per volta: la prima è
+### Avviso «bridge ATTIVO» sul salvataggio (issue #176)
+
+Chi disegna la UI deve saperlo perché cambia **cosa può comparire** nel messaggio di stato di
+cinque finestre, non solo il loro contenuto.
+
+Quando l'operatore salva una configurazione **mentre il listener è in esecuzione**, al messaggio
+di esito viene **accodato** (non sostituito) un avviso:
+
+> ⚠️ Bridge ATTIVO: le modifiche hanno effetto dal prossimo AVVIA.
+
+**Avvisa e lascia procedere** — decisione del proprietario. Il salvataggio avviene comunque: la
+sessione live usa lo snapshot di config preso allo START, quindi non c'è nulla di incoerente da
+impedire; quello che mancava era solo l'informazione.
+
+Finestre interessate: **📇 Anagrafica Provider** · **📡 Chat sorgenti** · **🧩 Parser
+Personalizzato** · **🗂️ Mapping** in tutte e tre le schede (⚽ Calcio · 🎯 Mercati · 🌳 Mapping
+guidato). Vincoli per il design:
+
+- l'avviso **si accoda** all'esito, che resta la prima cosa leggibile: la riga di stato può
+  diventare **sensibilmente più lunga** e deve reggerlo senza troncare l'esito;
+- compare **anche su un salvataggio FALLITO** (l'esito rosso resta primo). Per questo il testo è
+  **neutro sull'esito** — dice *quando* le modifiche hanno effetto, non *se* sono state salvate:
+  una formulazione tipo «la modifica è salvata» accanto a «FALLITO» sarebbe una bugia operativa;
+- **non** compare sull'**auto-save** del Mapping guidato al cambio sport — l'utente non l'ha
+  richiesto e un avviso lì sarebbe rumore su un'azione che non ha compiuto;
+- **📁 Profili impostazioni** resta l'eccezione: lì il caricamento di un profilo è **BLOCCATO** col
+  bridge attivo (si applica una config intera, e mostrare «applicato» mentre `dry_run`/chat/CSV
+  restano quelli vecchi sarebbe una bugia pericolosa). Due comportamenti diversi per due rischi
+  diversi, non un'incoerenza da uniformare.
+
 **📇 Anagrafica Provider** (titolo, testi, bottoni, placeholder e i messaggi di stato
 dinamici — questi ultimi via template tradotto + `.format(...)`, così restano
 coerenti e non producono UI mista). Le stringhe con variabili usano il template come

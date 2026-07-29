@@ -187,9 +187,10 @@ class CustomParserPanel(ctk.CTkFrame):
         self._providers = provider_store.provider_names(saved if ok else cfg)
         self._sync_to_builder()                  # non perdere le modifiche correnti
         self._reload_rows_from_builder()         # ridisegna con la tendina aggiornata
-        self._result.configure(
-            text=i18n.tr("➕ Provider «{name}» salvato.").format(name=name) if ok
-            else i18n.tr("⚠️ Provider «{name}» aggiunto solo in memoria (salvataggio fallito).").format(name=name))
+        self._result.configure(text=gui_utils.with_running_notice(
+            i18n.tr("➕ Provider «{name}» salvato.").format(name=name) if ok
+            else i18n.tr("⚠️ Provider «{name}» aggiunto solo in memoria (salvataggio fallito).").format(name=name),
+            self._is_running))
 
     # ── mappatura nomi squadra (profili) ───────────────────────────────────
     @staticmethod
@@ -435,8 +436,10 @@ class CustomParserPanel(ctk.CTkFrame):
 
     def __init__(self, master=None, builder: ParserBuilder = None, provider: str = "",
                  global_mode: str = "", on_saved=None, id_resolver_factory=None,
-                 market_terms_provider=None):
+                 market_terms_provider=None, is_running=None):
         super().__init__(master)
+        # #176: sonda «bridge ATTIVO» per l'avviso post-salvataggio (avvisa, non blocca).
+        self._is_running = is_running
         is_new = builder is None
         self.builder = builder or ParserBuilder()
         # P3-28 #76: fotografia dello stato SALVATO del builder — il confronto con lo
@@ -1213,7 +1216,8 @@ class CustomParserPanel(ctk.CTkFrame):
         # P3-28 #76: lo stato appena scritto su disco è la nuova baseline (il builder è
         # già sincronizzato dai widget a inizio _save).
         self._saved_snapshot = self._builder_snapshot(sync=False)
-        self._result.configure(text=i18n.tr("💾 Salvato in {path}").format(path=path))
+        self._result.configure(text=gui_utils.with_running_notice(
+            i18n.tr("💾 Salvato in {path}").format(path=path), self._is_running))
 
     # ── catalogo XTrader (B2) ───────────────────────────────────────────────
     def _on_market_change(self, _value=None):

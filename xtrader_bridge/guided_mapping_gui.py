@@ -21,7 +21,7 @@ NB: modulo non testato in CI (richiede display); la logica sottostante è copert
 
 import customtkinter as ctk
 
-from . import config_store, i18n, name_mapping_store, sports, ui_theme
+from . import config_store, gui_utils, i18n, name_mapping_store, sports, ui_theme
 from .betfair.dictionary_viewer import Debouncer, DictionaryBusy
 from .betfair.guided_mapping import (
     competition_labels,
@@ -57,8 +57,12 @@ class GuidedMappingPanel(ctk.CTkFrame):
     """
 
     def __init__(self, master=None, *, competitions_provider=None, teams_provider=None,
-                 on_saved=None):
+                 on_saved=None, is_running=None):
         super().__init__(master)
+        # #176: sonda «bridge ATTIVO» per l'avviso post-salvataggio (avvisa, non blocca).
+        # NON si avvisa sull'AUTO-save al cambio sport: l'utente non l'ha chiesto, un
+        # avviso li' sarebbe rumore su un'azione che non ha compiuto.
+        self._is_running = is_running
         self._competitions_provider = competitions_provider
         self._teams_provider = teams_provider
         self._on_saved = on_saved
@@ -329,8 +333,10 @@ class GuidedMappingPanel(ctk.CTkFrame):
             # azzerarli, così puoi salvarli subito nel profilo appena creato.
             self._reload_profiles(select=name, prefill=False)
         self._status.configure(
-            text=(i18n.tr("🆕 Profilo «{name}» creato.").format(name=name) if ok
-                  else i18n.tr("❌ Salvataggio FALLITO: «{name}» non creato.").format(name=name)),
+            text=gui_utils.with_running_notice(
+                i18n.tr("🆕 Profilo «{name}» creato.").format(name=name) if ok
+                else i18n.tr("❌ Salvataggio FALLITO: «{name}» non creato.").format(name=name),
+                self._is_running),
             text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
 
     # ── sport / competizioni / squadre ─────────────────────────────────────────
@@ -556,13 +562,17 @@ class GuidedMappingPanel(ctk.CTkFrame):
             n_written = sum(1 for a in team_aliases.values() if str(a or "").strip())
             n_total = len(name_mapping_store.get_entries(cfg, self._current))
             self._status.configure(
-                text=i18n.tr("💾 Salvato nel profilo «{profile}»: {written} squadre mappate in "
-                             "questa competizione ({total} righe totali nel profilo).").format(
-                                 profile=self._current, written=n_written, total=n_total),
+                text=gui_utils.with_running_notice(
+                    i18n.tr("💾 Salvato nel profilo «{profile}»: {written} squadre mappate in "
+                            "questa competizione ({total} righe totali nel profilo).").format(
+                                profile=self._current, written=n_written, total=n_total),
+                    self._is_running),
                 text_color=ui_theme.STATUS_OK)
         else:
             self._status.configure(
-                text=i18n.tr("❌ Salvataggio FALLITO: «{profile}» non salvato (andrebbe perso al "
-                             "riavvio). Controlla permessi/spazio del file config.").format(
-                                 profile=self._current),
+                text=gui_utils.with_running_notice(
+                    i18n.tr("❌ Salvataggio FALLITO: «{profile}» non salvato (andrebbe perso al "
+                            "riavvio). Controlla permessi/spazio del file config.").format(
+                                profile=self._current),
+                    self._is_running),
                 text_color=ui_theme.STATUS_ERR)

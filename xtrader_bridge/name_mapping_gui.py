@@ -103,9 +103,12 @@ class NameMappingPanel(ctk.CTkFrame):
 
     _NO_PROFILE = "(nessun profilo)"
 
-    def __init__(self, master=None, on_saved=None, known_teams_provider=None):
+    def __init__(self, master=None, on_saved=None, known_teams_provider=None,
+                 is_running=None):
         super().__init__(master)
         self._on_saved = on_saved
+        # #176: sonda «bridge ATTIVO» per l'avviso post-salvataggio (avvisa, non blocca).
+        self._is_running = is_running
         # Fonte dei nomi squadra PERMANENTI del dizionario locale (#282 PR 11):
         # callable() → lista di dict {sport, display_name, ...}. Opzionale: se assente/None
         # il pulsante «Precompila» avvisa invece di precompilare (nessun crash, fail-safe).
@@ -388,8 +391,9 @@ class NameMappingPanel(ctk.CTkFrame):
             if callable(self._on_saved):
                 self._on_saved(saved)
             self._reload_profiles(select=select)
-        self._status.configure(text=ok_msg if ok else fail_msg,
-                               text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
+        self._status.configure(
+            text=gui_utils.with_running_notice(ok_msg if ok else fail_msg, self._is_running),
+            text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
         return ok
 
     def _save(self):
@@ -513,25 +517,28 @@ class NameMappingPanel(ctk.CTkFrame):
                 # mentre i parser salvati potevano puntare ancora al vecchio nome
                 # (segnali scartati in silenzio, MAPPING_MISSING). Avviso onesto + stop.
                 self._status.configure(
-                    text=i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma la verifica dei "
+                    text=gui_utils.with_running_notice(i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma la verifica dei "
                                  "parser salvati è FALLITA ({exc}): controlla a mano quali usano "
                                  "ancora «{old}» o quei segnali verranno scartati "
                                  "(MAPPING_MISSING).").format(old=old, new=new, exc=exc),
+                        self._is_running),
                     text_color=ui_theme.STATUS_WARN)
                 return
             if failed:
                 # Alcuni parser non si sono potuti riscrivere: restano sul vecchio nome
                 # mentre la config ha il nuovo → quei segnali andrebbero scartati. Avvisa.
                 self._status.configure(
-                    text=i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma {count} parser NON "
+                    text=gui_utils.with_running_notice(i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma {count} parser NON "
                                  "aggiornati ({names}): correggili a mano o quei segnali verranno "
                                  "scartati (MAPPING_MISSING).").format(
                         old=old, new=new, count=len(failed), names=', '.join(failed)),
+                        self._is_running),
                     text_color=ui_theme.STATUS_WARN)
             elif updated:
                 self._status.configure(
-                    text=i18n.tr("✏️ Profilo rinominato «{old}» → «{new}» · {count} parser "
+                    text=gui_utils.with_running_notice(i18n.tr("✏️ Profilo rinominato «{old}» → «{new}» · {count} parser "
                                  "aggiornati.").format(old=old, new=new, count=len(updated)),
+                        self._is_running),
                     text_color=ui_theme.STATUS_OK)
 
     def _delete_profile(self):
@@ -576,10 +583,11 @@ class NameMappingPanel(ctk.CTkFrame):
             fail_msg=i18n.tr("❌ Salvataggio FALLITO: «{name}» non eliminato.").format(name=name))
         if ok and affected:
             self._status.configure(
-                text=i18n.tr("⚠️ «{name}» eliminato, ma è ancora selezionato in {count} parser "
+                text=gui_utils.with_running_notice(i18n.tr("⚠️ «{name}» eliminato, ma è ancora selezionato in {count} parser "
                              "({names}): quei segnali verranno scartati (MAPPING_MISSING) finché "
                              "non togli il profilo da quei parser.").format(
                     name=name, count=len(affected), names=', '.join(affected)),
+                    self._is_running),
                 text_color=ui_theme.STATUS_WARN)
 
 
@@ -602,9 +610,11 @@ class MarketMappingPanel(ctk.CTkFrame):
 
     _NO_PROFILE = "(nessun profilo)"
 
-    def __init__(self, master=None, on_saved=None):
+    def __init__(self, master=None, on_saved=None, is_running=None):
         super().__init__(master)
         self._on_saved = on_saved
+        # #176: sonda «bridge ATTIVO» per l'avviso post-salvataggio (avvisa, non blocca).
+        self._is_running = is_running
         self._current = None
         self._row_widgets = []           # [{frame, phrase, market, market_menu, selection, selection_menu}, ...]
         # Mercati FISSI del Catalogo (esclusi i dinamici con placeholder squadra), come nel
@@ -835,8 +845,9 @@ class MarketMappingPanel(ctk.CTkFrame):
             if callable(self._on_saved):
                 self._on_saved(saved)
             self._reload_profiles(select=select)
-        self._status.configure(text=ok_msg if ok else fail_msg,
-                               text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
+        self._status.configure(
+            text=gui_utils.with_running_notice(ok_msg if ok else fail_msg, self._is_running),
+            text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
         return ok
 
     def _save(self):
@@ -960,23 +971,26 @@ class MarketMappingPanel(ctk.CTkFrame):
             except Exception as exc:             # noqa: BLE001 — il rename config resta valido
                 # P3-32 #76: come per il dizionario nomi — mai successo con stato ignoto.
                 self._status.configure(
-                    text=i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma la verifica dei "
+                    text=gui_utils.with_running_notice(i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma la verifica dei "
                                  "parser salvati è FALLITA ({exc}): controlla a mano quali usano "
                                  "ancora «{old}» o quei segnali verranno scartati "
                                  "(MARKET_MAPPING_MISSING).").format(old=old, new=new, exc=exc),
+                        self._is_running),
                     text_color=ui_theme.STATUS_WARN)
                 return
             if failed:
                 self._status.configure(
-                    text=i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma {count} parser NON "
+                    text=gui_utils.with_running_notice(i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma {count} parser NON "
                                  "aggiornati ({names}): correggili a mano o quei segnali verranno "
                                  "scartati (MARKET_MAPPING_MISSING).").format(
                         old=old, new=new, count=len(failed), names=', '.join(failed)),
+                        self._is_running),
                     text_color=ui_theme.STATUS_WARN)
             elif updated:
                 self._status.configure(
-                    text=i18n.tr("✏️ Profilo rinominato «{old}» → «{new}» · {count} parser "
+                    text=gui_utils.with_running_notice(i18n.tr("✏️ Profilo rinominato «{old}» → «{new}» · {count} parser "
                                  "aggiornati.").format(old=old, new=new, count=len(updated)),
+                        self._is_running),
                     text_color=ui_theme.STATUS_OK)
 
     def _delete_profile(self):
@@ -1018,10 +1032,11 @@ class MarketMappingPanel(ctk.CTkFrame):
             fail_msg=i18n.tr("❌ Salvataggio FALLITO: «{name}» non eliminato.").format(name=name))
         if ok and affected:
             self._status.configure(
-                text=i18n.tr("⚠️ «{name}» eliminato, ma è ancora selezionato in {count} parser "
+                text=gui_utils.with_running_notice(i18n.tr("⚠️ «{name}» eliminato, ma è ancora selezionato in {count} parser "
                              "({names}): quei segnali verranno scartati (MARKET_MAPPING_MISSING) "
                              "finché non togli il profilo da quei parser.").format(
                     name=name, count=len(affected), names=', '.join(affected)),
+                    self._is_running),
                 text_color=ui_theme.STATUS_WARN)
 
 
@@ -1039,18 +1054,22 @@ class MappingPanel(ctk.CTkFrame):
     `competitions_provider`/`teams_provider`: letture Betfair (fail-fast su sync) per l'albero guidato."""
 
     def __init__(self, master=None, on_saved=None, known_teams_provider=None,
-                 competitions_provider=None, teams_provider=None):
+                 competitions_provider=None, teams_provider=None, is_running=None):
         super().__init__(master)
+        # #176: la sonda «bridge ATTIVO» scende a TUTTE e tre le sotto-aree, altrimenti
+        # l'avviso comparirebbe in una scheda e non nelle sorelle — incoerenza peggiore
+        # sia di averlo ovunque sia di non averlo affatto.
         self._tabs = ctk.CTkTabview(self)
         self._tabs.pack(fill="both", expand=True, padx=4, pady=4)
 
         calcio = self._tabs.add("⚽ Calcio")
         self._calcio = NameMappingPanel(calcio, on_saved=on_saved,
-                                        known_teams_provider=known_teams_provider)
+                                        known_teams_provider=known_teams_provider,
+                                        is_running=is_running)
         self._calcio.pack(fill="both", expand=True)
 
         mercati = self._tabs.add("🎯 Mercati")
-        self._mercati = MarketMappingPanel(mercati, on_saved=on_saved)
+        self._mercati = MarketMappingPanel(mercati, on_saved=on_saved, is_running=is_running)
         self._mercati.pack(fill="both", expand=True)
 
         # Import locale per non appesantire l'avvio di chi non apre il Mapping.
@@ -1058,7 +1077,7 @@ class MappingPanel(ctk.CTkFrame):
         guidato = self._tabs.add("🌳 Mapping guidato")
         self._guidato = GuidedMappingPanel(
             guidato, competitions_provider=competitions_provider,
-            teams_provider=teams_provider, on_saved=on_saved)
+            teams_provider=teams_provider, on_saved=on_saved, is_running=is_running)
         self._guidato.pack(fill="both", expand=True)
 
     def refresh(self, cfg=None):
