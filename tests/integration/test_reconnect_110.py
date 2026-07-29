@@ -688,6 +688,10 @@ def _app_fino_al_nuovo_epoch(app_mod, tmp_path, *, reconnect_attempt):
         "csv_path": str(tmp_path / "out.csv"),
         "dry_run": True,
     }
+    # `_config` reale sull'istanza: oggi `_resync_token_field` e' stubbato e non lo
+    # legge, ma un domani basterebbe togliere lo stub perche' l'harness si rompa in
+    # modo oscuro (rilievo CodeRabbit #173).
+    a._config = cfg
     a.logs = []
     a._log = a.logs.append
     a._dbg = lambda *x, **k: None
@@ -785,3 +789,47 @@ def test_ogni_START_riparte_da_capo_non_solo_il_primo(app_mod, tmp_path, session
     assert a._reconnect_attempt == 0, (
         "il secondo START non ha azzerato: il reset e' legato al primo avvio invece "
         "che a ogni nuova sessione")
+
+
+def test_un_supervisor_STANTIO_non_tocca_il_contatore_della_nuova_sessione(
+        make_app, app_mod, monkeypatch):
+    """Il dubbio sollevato da TUTTI E QUATTRO i reviewer sulla PR #173: il reset allo
+    START serve a poco se un vecchio `_run_bot` puo' ancora incrementare
+    `_reconnect_attempt`, che e' un campo CONDIVISO fra le sessioni.
+
+    Qui si esercita esattamente quella sequenza: un supervisor gira con epoch 9, il
+    polling fallisce, e prima che il supervisor decida se ritentare arriva un nuovo
+    START (l'epoch corrente diventa 99 e il contatore viene azzerato come fa `_start`).
+
+    L'incremento di `_reconnect_attempt` sta DOPO la guardia `if not _is_current():
+    break`, quindi il supervisor stantio esce prima di toccarlo: il contatore della
+    nuova sessione resta 0 e il primo intoppo costa il backoff INIZIALE.
+
+    Senza la guardia questo test e' rosso — ed e' la prova che il reset non viene
+    vanificato dalla sessione precedente."""
+    a = make_app()
+    a._running = True
+    a._listener_epoch = 9
+    a._reconnect_attempt = 4          # il vecchio supervisor aveva gia' accumulato
+    monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect", lambda running, exc: True)
+
+    # Seam esatto: `_safe_shutdown_tg` gira DOPO il fallimento del polling e PRIMA
+    # della guardia `if not _is_current(): break`. E' la finestra in cui il nuovo START
+    # deve poter arrivare perche' il test dimostri qualcosa.
+    def _nuovo_start_durante_il_fallimento(session_app, loop):
+        a._listener_epoch = 99        # cio' che fa `_start`: nuovo epoch...
+        a._reconnect_attempt = 0      # ...e contatore azzerato
+    a._safe_shutdown_tg = _nuovo_start_durante_il_fallimento
+
+    apps = []
+    _install_builder(monkeypatch, app_mod, apps,
+                     lambda index: _TgApp(fail=True, on_success=lambda: None))
+
+    app_mod.App._run_bot(a, {"bot_token": "x"}, 9)
+
+    assert a._reconnect_attempt == 0, (
+        f"il supervisor STANTIO ha portato il contatore a {a._reconnect_attempt}: "
+        "la nuova sessione non ripartirebbe dal backoff iniziale")
+    from xtrader_bridge import reconnect_policy
+    assert reconnect_policy.effective_delay(a._reconnect_attempt + 1) == \
+        reconnect_policy.DEFAULT_BASE_DELAY
