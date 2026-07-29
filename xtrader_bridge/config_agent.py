@@ -125,15 +125,32 @@ def _crude_chat_mask(text: str, chat_ids) -> str:
     `try` esterno, un `cid` che solleva a metà iterazione interromperebbe il ciclo e lascerebbe
     in chiaro **tutti gli ID successivi** — un fail-open residuo proprio dentro il ripiego
     fail-closed. Così invece un elemento difettoso salta da solo e gli altri vengono mascherati
-    comunque."""
-    out = str(text)
-    for cid in chat_ids or ():
-        try:
-            valore = str(cid or "").strip()
-            if valore:
-                out = out.replace(valore, MASKED_CHAT_FALLBACK)
-        except Exception:   # noqa: BLE001 — un elemento difettoso non ferma gli altri
-            continue
+    comunque.
+
+    Le **tre** guardie coprono i tre punti in cui la funzione potrebbe sollevare (rilievo
+    GPT-5.5 e Fable 5 #171): `str(text)`, l'**iterazione** di `chat_ids`, e il singolo
+    elemento. Sono tutte irraggiungibili dall'unico chiamante — `text` arriva già da
+    `redact_secrets`, quindi è una `str`, e `chat_ids` è la tupla materializzata della cache —
+    ma il contratto qui sopra è **incondizionato**, e un'ultima riga di difesa che solleva in
+    un caso non previsto non è un'ultima riga di difesa."""
+    try:
+        out = str(text)
+    except Exception:   # noqa: BLE001 — `__str__` difettoso: non possiamo nemmeno leggere il testo
+        # Fail-closed fino in fondo: se il testo non è rappresentabile non lo si emette. Meglio
+        # una risposta vuota che una potenzialmente piena di ID non mascherati.
+        return ""
+    try:
+        for cid in chat_ids or ():
+            try:
+                valore = str(cid or "").strip()
+                if valore:
+                    out = out.replace(valore, MASKED_CHAT_FALLBACK)
+            except Exception:   # noqa: BLE001 — un elemento difettoso non ferma gli altri
+                continue
+    except Exception:   # noqa: BLE001 — iterabile che solleva DURANTE l'iterazione
+        # Si tiene quanto già mascherato: parziale è meglio di niente, e comunque non peggiore
+        # del testo di partenza.
+        pass
     return out
 
 

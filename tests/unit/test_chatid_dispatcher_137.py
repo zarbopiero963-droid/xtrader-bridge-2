@@ -359,30 +359,60 @@ def test_nemmeno_una_redazione_che_solleva_rompe_l_assistente(monkeypatch):
 
 # ── il ripiego fail-closed non deve fare danni (#171 round 5) ──────────────────
 
-@pytest.mark.parametrize("ids", [
-    ("",), ("   ",), (None,), ("", CHAT_SUPERGRUPPO), (None, "  ", CHAT_SUPERGRUPPO),
-])
-def test_il_ripiego_non_esplode_su_id_vuoti_o_nulli(ids):
-    """Rilievo Fugu Ultra (#171): un `cid` vuoto o di soli spazi renderebbe
-    `out.replace("", segnaposto)` un'iniezione del segnaposto **fra ogni carattere**,
-    distruggendo l'output proprio nel percorso già degradato.
+@pytest.mark.parametrize("ids", [("",), ("   ",), (None,), (None, "  ", "")])
+def test_un_id_vuoto_non_inietta_il_segnaposto_ovunque(ids):
+    """Rilievo Fugu Ultra (#171): senza la guardia `if valore`, `out.replace("", segnaposto)`
+    inietterebbe il segnaposto **fra ogni carattere**, distruggendo l'output proprio nel
+    percorso già degradato.
 
-    La guardia `if valore:` c'è, ma non era testata — e un reviewer che non la vede nel diff
-    fa bene a non fidarsene. Verificato anche il caso misto: un ID valido nella stessa lista
-    dev'essere comunque mascherato, senza che quello vuoto rovini il resto."""
+    Qui gli ID sono TUTTI vuoti/nulli, quindi il testo deve uscire identico: se la guardia
+    saltasse, questo assert lo prende subito."""
     testo = "segnali 12, quota 1.85, righe 3/5"
-    out = config_agent._crude_chat_mask(testo, ids)
+    assert config_agent._crude_chat_mask(testo, ids) == testo
 
-    if CHAT_SUPERGRUPPO in ids:
-        assert out == testo, "nessun ID compare nel testo: deve restare identico"
-    else:
-        assert out == testo
 
-    # e con l'ID davvero presente nel testo, il mascheramento avviene lo stesso
-    if CHAT_SUPERGRUPPO in ids:
-        con_id = config_agent._crude_chat_mask(f"chat {CHAT_SUPERGRUPPO}", ids)
-        assert CHAT_SUPERGRUPPO not in con_id
-        assert config_agent.MASKED_CHAT_FALLBACK in con_id
+def test_un_id_vuoto_in_lista_non_impedisce_di_mascherare_quelli_validi():
+    """L'altra metà, che il parametrico sopra NON copre: un ID vuoto **insieme** a uno valido.
+
+    Il test precedente aveva un `if/else` in cui entrambi i rami asserivano la stessa cosa
+    (rilievo Fable 5 #171) — quindi non verificava affatto il caso misto. Separato in due test
+    che asseriscono cose diverse."""
+    out = config_agent._crude_chat_mask(
+        f"chat {CHAT_SUPERGRUPPO}", ("", None, "   ", CHAT_SUPERGRUPPO))
+    assert CHAT_SUPERGRUPPO not in out
+    assert config_agent.MASKED_CHAT_FALLBACK in out
+
+
+def test_un_iterabile_difettoso_non_propaga_l_eccezione():
+    """Rilievo GPT-5.5 e Fable 5 (#171), convergente: l'iterazione stessa era scoperta. Un
+    `chat_ids` non iterabile, o un iteratore il cui `__next__` solleva, farebbe propagare
+    l'eccezione — violando il contratto «non solleva mai» dell'ultima riga di difesa.
+
+    Le due forme sono diverse e vanno provate entrambe: la prima fallisce sull'`iter()`, la
+    seconda a metà ciclo (e lì il testo dev'essere già parzialmente mascherato)."""
+    class NonIterabile:
+        pass
+
+    assert config_agent._crude_chat_mask("testo", NonIterabile()) == "testo"
+
+    def iteratore_che_esplode():
+        yield CHAT_SUPERGRUPPO
+        raise RuntimeError("__next__ difettoso")
+
+    out = config_agent._crude_chat_mask(f"chat {CHAT_SUPERGRUPPO}", iteratore_che_esplode())
+    assert CHAT_SUPERGRUPPO not in out, "ciò che è stato mascherato prima dell'errore resta mascherato"
+
+
+def test_un_testo_non_rappresentabile_non_solleva():
+    """Terzo punto d'eccezione (GPT-5.5): `str(text)` era fuori da ogni guardia.
+
+    Con un `__str__` difettoso si ritorna la stringa **vuota**, non il testo: fail-closed fino
+    in fondo — se non si può nemmeno rappresentare il contenuto, non lo si emette."""
+    class TestoVelenoso:
+        def __str__(self):
+            raise RuntimeError("__str__ difettoso")
+
+    assert config_agent._crude_chat_mask(TestoVelenoso(), (CHAT_SUPERGRUPPO,)) == ""
 
 
 def test_un_id_difettoso_non_ferma_il_mascheramento_degli_altri():
