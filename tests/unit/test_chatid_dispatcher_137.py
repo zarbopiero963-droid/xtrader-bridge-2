@@ -258,3 +258,62 @@ def test_il_perimetro_del_provider_copre_tutte_le_fonti_di_chat(tmp_path):
     uscita = reg.dispatch("sonda", {}).content
     for atteso in tutti:
         assert atteso not in uscita, f"{atteso} uscito dal dispatcher"
+
+
+# ── il contratto «iterabile» va onorato davvero (#171 round 2) ─────────────────
+
+def test_un_provider_generatore_redige_gia_al_primo_giro():
+    """Bloccante trovato da Claude Fable 5 e GPT-5.5 (#171), ed era un difetto della
+    blindatura del round precedente — non del codice originale.
+
+    Il contratto dichiara «iterabile», quindi un generatore è legittimo. Materializzando la
+    cache con `tuple(chat_ids or ())` e poi redigendo con la variabile grezza, si passava a
+    `redact_chat_ids` un iteratore **esaurito**: zero sostituzioni, in silenzio.
+
+    Misurato, ed era peggio di come l'avevano descritto: non falliva solo al primo giro, ma a
+    **ogni** dispatch — ogni chiamata crea un generatore nuovo, lo consuma nella cache e passa
+    alla redazione quello vuoto. Con un provider-generatore la seconda rete non funzionava mai.
+
+    La correzione legge sempre dalla tupla materializzata, in entrambi i percorsi: un solo
+    valore, nessuna divergenza possibile."""
+    def provider():
+        yield CHAT_SUPERGRUPPO
+
+    reg = config_agent.ToolRegistry(chat_ids_provider=provider)
+    reg.register(_tool("t", f"chat {CHAT_SUPERGRUPPO}"))
+
+    assert CHAT_SUPERGRUPPO not in reg.dispatch("t", {}).content, "primo giro"
+    assert CHAT_SUPERGRUPPO not in reg.dispatch("t", {}).content, "giri successivi"
+
+
+def test_un_generatore_che_poi_fallisce_continua_a_redigere():
+    """La combinazione dei due difetti di questo round, chiesta esplicitamente da GPT-5.5:
+    provider-generatore che riesce una volta e poi solleva. Entrambe le dispatch devono
+    redigere — la prima dal generatore materializzato, la seconda dalla cache."""
+    stato = {"rotto": False}
+
+    def provider():
+        if stato["rotto"]:
+            raise OSError("config in scrittura")
+        yield CHAT_SUPERGRUPPO
+
+    reg = config_agent.ToolRegistry(chat_ids_provider=provider)
+    reg.register(_tool("t", f"chat {CHAT_SUPERGRUPPO}"))
+
+    assert CHAT_SUPERGRUPPO not in reg.dispatch("t", {}).content, "provider sano"
+    stato["rotto"] = True
+    assert CHAT_SUPERGRUPPO not in reg.dispatch("t", {}).content, "provider caduto → cache"
+
+
+@pytest.mark.parametrize("forma", [
+    lambda ids: list(ids), lambda ids: tuple(ids), lambda ids: set(ids),
+    lambda ids: (x for x in ids), lambda ids: iter(ids),
+])
+def test_ogni_forma_di_iterabile_e_accettata(forma):
+    """Il contratto è «iterabile»: lista, tupla, set, generatore e iteratore devono comportarsi
+    tutti allo stesso modo. Parametrico perché il difetto sopra era invisibile con lista/tupla
+    e totale con generatore/iteratore — esattamente il tipo di differenza che un test su una
+    sola forma non prende."""
+    reg = config_agent.ToolRegistry(chat_ids_provider=lambda: forma([CHAT_SUPERGRUPPO]))
+    reg.register(_tool("t", f"chat {CHAT_SUPERGRUPPO}"))
+    assert CHAT_SUPERGRUPPO not in reg.dispatch("t", {}).content

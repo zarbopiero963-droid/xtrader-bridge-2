@@ -163,10 +163,15 @@ class ToolRegistry:
         if provider is None:
             return out
         try:
-            chat_ids = provider()
-            self._chat_ids_cache = tuple(chat_ids or ())
+            # `tuple(...)` MATERIALIZZA subito: il contratto dichiara «iterabile», quindi un
+            # provider può legittimamente restituire un generatore. Redigere usando il valore
+            # grezzo dopo averlo consumato qui darebbe un iteratore ESAURITO → zero
+            # sostituzioni, in silenzio (rilievo Fable 5 + GPT-5.5 #171). Si legge sempre dalla
+            # tupla, sia nel percorso sano sia nel ripiego: un solo valore, nessuna divergenza.
+            self._chat_ids_cache = tuple(provider() or ())
         except Exception:   # noqa: BLE001 — la seconda rete non deve poter rompere l'assistente
-            chat_ids = self._chat_ids_cache
+            pass            # si tiene l'ultima tupla buona (vedi docstring)
+        chat_ids = self._chat_ids_cache
         if not chat_ids:
             return out
         return diagnostics.redact_chat_ids(out, chat_ids)
