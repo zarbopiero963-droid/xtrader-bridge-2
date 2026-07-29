@@ -81,6 +81,12 @@ def atomic_write(path, write_fn, *, prefix="tmp_", suffix=".tmp", mode="w",
     d = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(d, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=d, prefix=prefix, suffix=suffix)
+    # `mkstemp` restituisce un fd GIA' APERTO: fino a quando `os.fdopen` non ne prende
+    # possesso, un errore qui lascerebbe il descrittore orfano (il blocco d'errore in
+    # fondo rimuove il file temporaneo ma NON chiuderebbe il fd). L'audit #137 lo
+    # chiamava «teorico»; misurato, 20 chiamate fallite perdevano 20 descrittori — e un
+    # processo che ne esaurisce la quota non riesce piu' ad aprire il CSV.
+    preso_in_carico = False
     try:
         open_kwargs = {}
         if "b" not in mode:
@@ -88,7 +94,9 @@ def atomic_write(path, write_fn, *, prefix="tmp_", suffix=".tmp", mode="w",
             # passarli in binario solleverebbe ValueError.
             open_kwargs["encoding"] = encoding
             open_kwargs["newline"] = newline
-        with os.fdopen(fd, mode, **open_kwargs) as f:
+        f = os.fdopen(fd, mode, **open_kwargs)
+        preso_in_carico = True           # da qui la chiusura spetta al context manager
+        with f:
             write_fn(f)
             f.flush()
             os.fsync(f.fileno())
@@ -97,6 +105,13 @@ def atomic_write(path, write_fn, *, prefix="tmp_", suffix=".tmp", mode="w",
         # solleva: il file è già al suo posto, un fallimento qui non deve perderlo.
         _fsync_dir(d)
     except BaseException:
+        if not preso_in_carico:
+            # `fdopen` non e' arrivato a prendersi il fd: va chiuso a mano, altrimenti resta
+            # aperto per tutta la vita del processo.
+            try:
+                os.close(fd)
+            except OSError:
+                pass
         try:
             os.remove(tmp)
         except OSError:

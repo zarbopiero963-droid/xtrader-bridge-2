@@ -258,7 +258,11 @@ class AssistantPanel:
                 self._hide_pending()
             return
         if kind == "state":
-            self._refresh_state(data.get("state"), data.get("error", ""))
+            # `(data or {})` come i rami gemelli (#176): `_emit` ha `data=None` come DEFAULT,
+            # e il controller avvolge la chiamata alla view in un blind except — un
+            # `AttributeError` qui non crasherebbe, verrebbe INGHIOTTITO e la view smetterebbe
+            # di aggiornarsi in silenzio. Peggio di un errore visibile.
+            self._refresh_state((data or {}).get("state"), (data or {}).get("error", ""))
         elif kind == "turn":
             txt = (data or {}).get("text", "")
             if txt:
