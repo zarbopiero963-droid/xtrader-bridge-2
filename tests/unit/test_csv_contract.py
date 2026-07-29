@@ -282,11 +282,12 @@ def test_i_control_char_interni_sopravvivono_al_giro_completo(tmp_path):
     assert out["MarketName"] == "Esito\tFinale"
 
 
+@pytest.mark.parametrize("carico", ["=1+1", "+payload", "-payload", "@SUM(A1)"])
 @pytest.mark.parametrize("spazio,nome", [
     ("\xa0", "NBSP U+00A0"), (" ", "thin space U+2009"),
     ("　", "ideographic space U+3000"), ("\x0b", "vertical tab"), ("\x0c", "form feed"),
 ])
-def test_anche_lo_spazio_unicode_e_coperto(spazio, nome):
+def test_anche_lo_spazio_unicode_e_coperto(spazio, nome, carico):
     """Perimetro del fix, misurato. L'invariante è che la nostra nozione di «spazio iniziale»
     sia **almeno larga quanto** quella del reader che valuta la formula: se il reader ne
     saltasse uno che noi non togliamo, resterebbe un buco.
@@ -294,7 +295,7 @@ def test_anche_lo_spazio_unicode_e_coperto(spazio, nome):
     `str.strip()` senza argomenti toglie lo spazio bianco **Unicode**, non solo ASCII — quindi
     il fix copre anche NBSP & co., che sono realistici in un messaggio Telegram
     (copia-incolla, tastiere mobili). Verificato eseguendo, non dedotto."""
-    assert csv_writer._sanitize_cell(spazio + "=1+1").startswith("'"), nome
+    assert csv_writer._sanitize_cell(spazio + carico).startswith("'"), (nome, carico)
 
 
 def test_lo_zero_width_space_non_e_spazio_ed_e_un_confine_noto():
@@ -339,3 +340,25 @@ def test_le_colonne_numeriche_arrivano_nel_file_senza_spazi(tmp_path, colonna, s
 
     assert out[colonna] == atteso_it, f"{colonna}={sporco!r}"
     assert not out[colonna].startswith("'"), "un numero non deve mai essere prefissato"
+
+
+@pytest.mark.parametrize("numero", ["-1", "+1,5", "1.85"])
+@pytest.mark.parametrize("spazio", ["\xa0", " ", "　"])
+def test_l_esenzione_numerica_regge_anche_dopo_spazio_unicode(spazio, numero):
+    """Il ramo che la parametrizzazione sui caratteri formula NON tocca, e che è il più
+    delicato: `-1` e `+1,5` iniziano con un carattere formula ma sono numeri, quindi l'apice
+    non va messo.
+
+    Con lo spazio unicode davanti si percorrono **entrambe** le novità del fix insieme —
+    `strip()` che vede oltre l'ASCII, e l'esenzione numerica che deve continuare a valere sul
+    valore spogliato. Era l'unica combinazione rimasta scoperta (rilievo GPT-5.5 #170, esteso:
+    lui chiedeva i quattro caratteri formula, ma il ramo scoperto era questo)."""
+    assert not csv_writer._sanitize_cell(spazio + numero).startswith("'"), spazio + numero
+
+
+@pytest.mark.parametrize("vuoto", ["", " ", "   ", "\xa0\xa0", "　"])
+def test_una_cella_di_solo_spazio_resta_invariata(vuoto):
+    """La guardia `if nudo and ...`: spogliando una cella di soli spazi resta la stringa vuota,
+    e `nudo[0]` solleverebbe `IndexError`. Non deve né esplodere né prefissare nulla —
+    una cella vuota non è una formula (rilievo GPT-5.5 #170 sui campi whitespace-only)."""
+    assert csv_writer._sanitize_cell(vuoto) == vuoto
