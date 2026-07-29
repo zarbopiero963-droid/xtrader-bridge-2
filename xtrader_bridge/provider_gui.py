@@ -32,9 +32,11 @@ class ProviderPanel(ctk.CTkFrame):
     `on_saved(new_cfg)`: callback opzionale chiamata dopo ogni salvataggio
     riuscito, così la GUI principale aggiorna la propria config in memoria."""
 
-    def __init__(self, master=None, on_saved=None):
+    def __init__(self, master=None, on_saved=None, is_running=None):
         super().__init__(master)
         self._on_saved = on_saved
+        # #176: sonda «bridge ATTIVO» per l'avviso post-salvataggio (avvisa, non blocca).
+        self._is_running = is_running
         self._build_ui()
         self._reload()
 
@@ -118,8 +120,9 @@ class ProviderPanel(ctk.CTkFrame):
         if ok and callable(self._on_saved):
             self._on_saved(saved)
         self._reload()
-        self._status.configure(text=ok_msg if ok else fail_msg,
-                               text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
+        self._status.configure(
+            text=gui_utils.with_running_notice(ok_msg if ok else fail_msg, self._is_running),
+            text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
 
     def _add(self):
         """Aggiunge il nome digitato all'anagrafica (dedup case-insensitive)."""

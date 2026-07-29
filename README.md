@@ -269,6 +269,15 @@ Pulsanti aggiuntivi:
 - **🧩 Parser Personalizzato** — apre il costruttore di parser (vedi
   [Parser Personalizzato](#parser-personalizzato)).
 
+> **Se salvi mentre il bridge è AVVIATO** (Provider, Chat sorgenti, Parser Personalizzato,
+> Mapping in tutte e tre le schede) la modifica **viene salvata comunque**, ma accanto
+> all'esito compare l'avviso «⚠️ Bridge ATTIVO: la modifica è salvata, ma avrà effetto dal
+> prossimo AVVIA». Il motivo è che la sessione in corso usa la configurazione fotografata
+> allo START: cambiare il file non cambia ciò che sta girando. L'unica eccezione è **📁 Profili
+> impostazioni**, dove il caricamento di un profilo resta **bloccato** col bridge acceso —
+> lì si applicherebbe una configurazione intera, e vedere «applicato» mentre modalità, chat e
+> percorso CSV restano quelli vecchi sarebbe fuorviante in modo pericoloso.
+
 > **Nota sul Provider:** per una **chat sorgente multi-chat** il Provider può essere
 > deciso dalla sorgente (esplicito, oppure derivato dalla modalità: `PRE → TG_PRE`,
 > `LIVE → TG_LIVE`) e in quel caso **ha la precedenza** sul Provider globale e su un

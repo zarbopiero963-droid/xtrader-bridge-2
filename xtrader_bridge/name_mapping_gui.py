@@ -103,9 +103,12 @@ class NameMappingPanel(ctk.CTkFrame):
 
     _NO_PROFILE = "(nessun profilo)"
 
-    def __init__(self, master=None, on_saved=None, known_teams_provider=None):
+    def __init__(self, master=None, on_saved=None, known_teams_provider=None,
+                 is_running=None):
         super().__init__(master)
         self._on_saved = on_saved
+        # #176: sonda «bridge ATTIVO» per l'avviso post-salvataggio (avvisa, non blocca).
+        self._is_running = is_running
         # Fonte dei nomi squadra PERMANENTI del dizionario locale (#282 PR 11):
         # callable() → lista di dict {sport, display_name, ...}. Opzionale: se assente/None
         # il pulsante «Precompila» avvisa invece di precompilare (nessun crash, fail-safe).
@@ -388,8 +391,9 @@ class NameMappingPanel(ctk.CTkFrame):
             if callable(self._on_saved):
                 self._on_saved(saved)
             self._reload_profiles(select=select)
-        self._status.configure(text=ok_msg if ok else fail_msg,
-                               text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
+        self._status.configure(
+            text=gui_utils.with_running_notice(ok_msg if ok else fail_msg, self._is_running),
+            text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
         return ok
 
     def _save(self):
@@ -602,9 +606,11 @@ class MarketMappingPanel(ctk.CTkFrame):
 
     _NO_PROFILE = "(nessun profilo)"
 
-    def __init__(self, master=None, on_saved=None):
+    def __init__(self, master=None, on_saved=None, is_running=None):
         super().__init__(master)
         self._on_saved = on_saved
+        # #176: sonda «bridge ATTIVO» per l'avviso post-salvataggio (avvisa, non blocca).
+        self._is_running = is_running
         self._current = None
         self._row_widgets = []           # [{frame, phrase, market, market_menu, selection, selection_menu}, ...]
         # Mercati FISSI del Catalogo (esclusi i dinamici con placeholder squadra), come nel
@@ -835,8 +841,9 @@ class MarketMappingPanel(ctk.CTkFrame):
             if callable(self._on_saved):
                 self._on_saved(saved)
             self._reload_profiles(select=select)
-        self._status.configure(text=ok_msg if ok else fail_msg,
-                               text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
+        self._status.configure(
+            text=gui_utils.with_running_notice(ok_msg if ok else fail_msg, self._is_running),
+            text_color=ui_theme.STATUS_OK if ok else ui_theme.STATUS_ERR)
         return ok
 
     def _save(self):
@@ -1039,18 +1046,22 @@ class MappingPanel(ctk.CTkFrame):
     `competitions_provider`/`teams_provider`: letture Betfair (fail-fast su sync) per l'albero guidato."""
 
     def __init__(self, master=None, on_saved=None, known_teams_provider=None,
-                 competitions_provider=None, teams_provider=None):
+                 competitions_provider=None, teams_provider=None, is_running=None):
         super().__init__(master)
+        # #176: la sonda «bridge ATTIVO» scende a TUTTE e tre le sotto-aree, altrimenti
+        # l'avviso comparirebbe in una scheda e non nelle sorelle — incoerenza peggiore
+        # sia di averlo ovunque sia di non averlo affatto.
         self._tabs = ctk.CTkTabview(self)
         self._tabs.pack(fill="both", expand=True, padx=4, pady=4)
 
         calcio = self._tabs.add("⚽ Calcio")
         self._calcio = NameMappingPanel(calcio, on_saved=on_saved,
-                                        known_teams_provider=known_teams_provider)
+                                        known_teams_provider=known_teams_provider,
+                                        is_running=is_running)
         self._calcio.pack(fill="both", expand=True)
 
         mercati = self._tabs.add("🎯 Mercati")
-        self._mercati = MarketMappingPanel(mercati, on_saved=on_saved)
+        self._mercati = MarketMappingPanel(mercati, on_saved=on_saved, is_running=is_running)
         self._mercati.pack(fill="both", expand=True)
 
         # Import locale per non appesantire l'avvio di chi non apre il Mapping.
@@ -1058,7 +1069,7 @@ class MappingPanel(ctk.CTkFrame):
         guidato = self._tabs.add("🌳 Mapping guidato")
         self._guidato = GuidedMappingPanel(
             guidato, competitions_provider=competitions_provider,
-            teams_provider=teams_provider, on_saved=on_saved)
+            teams_provider=teams_provider, on_saved=on_saved, is_running=is_running)
         self._guidato.pack(fill="both", expand=True)
 
     def refresh(self, cfg=None):

@@ -99,9 +99,11 @@ class SourceChatsPanel(ctk.CTkFrame):
         avoid = list(real_names) + [str(v).strip() for v in override_values if str(v).strip()]
         return _none_sentinel(avoid)
 
-    def __init__(self, master=None, on_saved=None):
+    def __init__(self, master=None, on_saved=None, is_running=None):
         super().__init__(master)
         self._on_saved = on_saved
+        # #176: sonda «bridge ATTIVO» per l'avviso post-salvataggio (avvisa, non blocca).
+        self._is_running = is_running
         # Snapshot config per i chip «Traduzioni» (#293 slice 6): profili di mappatura esistenti
         # + parser globale. Aggiornato in refresh()/refresh_options().
         self._cfg = config_store.load_config(config_store.CONFIG_FILE)
@@ -337,7 +339,8 @@ class SourceChatsPanel(ctk.CTkFrame):
         if warnings:
             # `warnings` dal layer di dominio (IT): fuori scope; solo il prefisso è chrome.
             msg += "\n⚠️ " + "  ·  ".join(warnings)
-        self._status.configure(text=msg, text_color=ui_theme.STATUS_OK)
+        self._status.configure(text=gui_utils.with_running_notice(msg, self._is_running),
+                               text_color=ui_theme.STATUS_OK)
 
 
 class _ParserListDialog(ctk.CTkToplevel):

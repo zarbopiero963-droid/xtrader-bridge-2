@@ -4478,7 +4478,8 @@ class App(ctk.CTk):
 
         def _make_provider(parent):
             """Crea il pannello Provider e ne tiene il riferimento per il refresh."""
-            panel_refs["provider"] = ProviderPanel(parent, on_saved=_provider_saved)
+            panel_refs["provider"] = ProviderPanel(parent, on_saved=_provider_saved,
+                                                   is_running=lambda: self._running)
             return panel_refs["provider"]
 
         def _make_parser(parent):
@@ -4490,11 +4491,13 @@ class App(ctk.CTk):
             return CustomParserPanel(parent, provider=_parser_provider,
                                      global_mode=_parser_global_mode, on_saved=_parser_saved,
                                      id_resolver_factory=self._preview_id_resolver_factory,
-                                     market_terms_provider=self._known_market_terms)
+                                     market_terms_provider=self._known_market_terms,
+                                     is_running=lambda: self._running)
 
         def _make_sources(parent):
             """Crea il pannello Chat sorgenti e ne tiene il riferimento per il refresh."""
-            panel_refs["sources"] = SourceChatsPanel(parent, on_saved=_sources_saved)
+            panel_refs["sources"] = SourceChatsPanel(parent, on_saved=_sources_saved,
+                                                     is_running=lambda: self._running)
             return panel_refs["sources"]
 
         def _make_mapping(parent):
@@ -4506,7 +4509,8 @@ class App(ctk.CTk):
                 parent, on_saved=_mapping_saved,
                 known_teams_provider=self._known_betfair_teams,
                 competitions_provider=self._betfair_competitions,
-                teams_provider=self._betfair_teams_for_competition)
+                teams_provider=self._betfair_teams_for_competition,
+                is_running=lambda: self._running)
             return panel_refs["mapping"]
 
         def _make_dictionary(parent):

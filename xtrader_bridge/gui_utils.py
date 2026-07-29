@@ -65,3 +65,43 @@ def ask_confirm(title: str, text: str) -> bool:
         return bool(messagebox.askyesno(title, text))
     except Exception:   # noqa: BLE001 — dialog non disponibile: fail-closed, non confermare
         return False
+
+
+def running_edit_notice(is_running) -> str:
+    """Avviso da mostrare quando si SALVA una configurazione mentre il bridge è ATTIVO
+    (issue #176, decisione del proprietario: **avvisare e lasciar procedere**, non bloccare).
+
+    Ritorna il testo dell'avviso, oppure ``""`` se il bridge è fermo (o non si sa).
+
+    Perché non blocca: la sessione live usa lo snapshot di config preso allo START, quindi
+    salvare NON cambia il comportamento a caldo — non c'è nulla di incoerente da impedire.
+    Quello che manca all'operatore è solo l'informazione: senza questo avviso modifica un
+    parser o un dizionario con il bridge acceso e non ha nulla che gli ricordi che avrà
+    effetto dal prossimo AVVIA. (`profiles_gui` invece BLOCCA di proposito: lì si applica un
+    profilo INTERO, e vedere "applicato" mentre dry_run/chat/csv_path restano quelli vecchi
+    sarebbe una bugia pericolosa — Codex P1. Sono due casi diversi, non un'incoerenza.)
+
+    ``is_running`` è una callable iniettata dalla GUI principale. **Fail-safe**: se manca,
+    non è chiamabile o solleva, si assume bridge fermo e si ritorna ``""`` — una sonda di
+    stato difettosa non deve impedire un salvataggio né inventare un avviso."""
+    from . import i18n
+    try:
+        attivo = bool(is_running()) if callable(is_running) else False
+    except Exception:   # noqa: BLE001 — una sonda difettosa non deve rompere il salvataggio
+        return ""
+    if not attivo:
+        return ""
+    return i18n.tr("⚠️ Bridge ATTIVO: la modifica è salvata, ma avrà effetto dal prossimo AVVIA.")
+
+
+def with_running_notice(message: str, is_running) -> str:
+    """`message` con l'avviso «bridge attivo» accodato, se il bridge gira.
+
+    Accoda invece di sostituire: l'esito del salvataggio (riuscito/fallito) resta la prima
+    cosa che l'operatore legge, l'avviso è il contesto. Con bridge fermo ritorna `message`
+    invariato, quindi il sito di chiamata non deve sapere nulla dello stato."""
+    avviso = running_edit_notice(is_running)
+    testo = str(message or "")
+    if not avviso:
+        return testo
+    return f"{testo}  {avviso}" if testo else avviso
