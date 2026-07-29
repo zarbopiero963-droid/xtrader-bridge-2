@@ -249,7 +249,8 @@ def _self_rename(*, running):
 
 
 @pytest.mark.parametrize("classe", ["NameMappingPanel", "MarketMappingPanel"])
-def test_la_RINOMINA_riuscita_non_perde_l_avviso(monkeypatch, classe):
+@pytest.mark.parametrize("running", [True, False])
+def test_la_RINOMINA_riuscita_non_perde_l_avviso(monkeypatch, classe, running):
     """Buco trovato da CodeRabbit: `_persist` mette l'avviso, poi il ramo «parser aggiornati»
     SOVRASCRIVE lo stato con testo semplice — e l'avviso spariva in silenzio, proprio su
     un'operazione che questa feature deve coprire.
@@ -274,8 +275,38 @@ def test_la_RINOMINA_riuscita_non_perde_l_avviso(monkeypatch, classe):
     monkeypatch.setattr(mod.market_mapping_store, "rename_profile", lambda cfg, o, n: cfg,
                         raising=False)
 
-    getattr(mod, classe)._rename_profile(finto := _self_rename(running=True))
+    getattr(mod, classe)._rename_profile(finto := _self_rename(running=running))
+
+    testi = " ".join(finto._status.testi)
+    if running:
+        assert "Bridge ATTIVO" in testi, (
+            f"{classe}: la rinomina riuscita ha perso l'avviso — {testi}")
+    else:
+        # Il caso negativo chiesto da Fable 5: la sonda e' una CALLABLE, non un booleano.
+        # Se `with_running_notice` la valutasse per verita' invece di chiamarla, un metodo
+        # bound sarebbe sempre truthy e l'avviso comparirebbe anche a bridge FERMO.
+        assert "Bridge ATTIVO" not in testi, (
+            f"{classe}: avviso mostrato a bridge FERMO — la sonda non viene chiamata? {testi}")
+
+
+@pytest.mark.parametrize("classe", ["NameMappingPanel", "MarketMappingPanel"])
+def test_l_ELIMINAZIONE_con_parser_referenzianti_non_perde_l_avviso(monkeypatch, classe):
+    """`_delete_profile` e' stato modificato allo stesso modo di `_rename_profile` e puo'
+    regredire in modo indipendente (rilievo GPT-5.5). Il ramo con `affected` NON vuoto e'
+    proprio quello che sovrascriveva lo stato dopo il `_persist`."""
+    mod = _importa(monkeypatch, "name_mapping_gui")
+    monkeypatch.setattr(mod.gui_utils, "ask_confirm", lambda *a, **k: True)
+    monkeypatch.setattr(mod.custom_parser, "parsers_using_mapping_profile",
+                        lambda name: ["ParserA"], raising=False)
+    monkeypatch.setattr(mod.custom_parser, "parsers_using_market_mapping_profile",
+                        lambda name: ["ParserA"], raising=False)
+    monkeypatch.setattr(mod.name_mapping_store, "delete_profile", lambda cfg, n: cfg)
+    monkeypatch.setattr(mod.market_mapping_store, "delete_profile", lambda cfg, n: cfg,
+                        raising=False)
+
+    finto = _self_rename(running=True)
+    getattr(mod, classe)._delete_profile(finto)
 
     testi = " ".join(finto._status.testi)
     assert "Bridge ATTIVO" in testi, (
-        f"{classe}: la rinomina riuscita ha perso l'avviso — {testi}")
+        f"{classe}: l'eliminazione ha perso l'avviso — {testi}")
