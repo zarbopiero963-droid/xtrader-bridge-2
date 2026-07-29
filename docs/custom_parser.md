@@ -183,6 +183,21 @@ selezionato che traduce vince) e fra tier (sport/tipo/lingua esatti prima degli 
 resta invariata: l'ambiguità riguarda solo righe dello stesso rango. Correggi la voce
 doppia nel **Dizionario nomi**.
 
+**Il conflitto è segnalato all'AVVIO, non solo quando arriva un segnale.** Il fail-closed
+sopra è corretto ma silenzioso per chi usa l'app: il warning finisce nel logger Python, che
+nell'app windowed non si vede — l'operatore osserverebbe soltanto un segnale scartato per
+«nome non tradotto», senza capire perché, e a segnale ormai perso. Perciò allo START il log
+eventi elenca i conflitti trovati (`⚠️ Mappatura nomi «…», alias «…»: punta a N nomi Betfair
+diversi (…) con lo stesso scope -> il nome NON viene tradotto (fail-closed)…`), così la voce
+doppia si corregge **prima** di perdere un segnale. L'avviso è **non bloccante**: l'avvio
+prosegue, esattamente come per gli altri avvisi di configurazione.
+
+Il rilevamento usa le **stesse funzioni del runtime** (righe ripulite da `_clean_entry`,
+nome normalizzato, firma di scoping): avvisa quando — e solo quando — la traduzione
+fail-closerebbe davvero. Due righe con **scope diverso** (sport/tipo/lingua) sono override
+distinguibili e non generano avviso; due scope **equivalenti scritti diversamente**
+(`Calcio`/`calcio`) sì, perché a runtime collidono.
+
 Altre due difese fail-closed (audit #259):
 
 - **righe con sport/tipo NON riconosciuto** (typo: `sport="Calc1o"`, `entity_type="boh"`)

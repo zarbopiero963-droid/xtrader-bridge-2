@@ -1001,3 +1001,184 @@ def test_language_batte_sport_nel_tie_break():
     ]}}
     profs = nm.entries_for_profiles(cfg, ["P"])
     assert nm.resolve_team("Team", profs, sport="Calcio", language="EN") == "Lingua esatta"
+
+
+# ── Avvisi di alias ambiguo al load (audit #137, PR 2/4) ─────────────────────
+#
+# `resolve_team` fail-closa già sull'alias ambiguo, ma lo comunica con `_LOG.warning`:
+# nell'app windowed quel messaggio NON si vede. L'operatore osserva soltanto il segnale
+# scartato per «nome non tradotto», senza nessun indizio sul perché. Questi test coprono
+# la funzione che porta l'avviso nel log eventi al momento del load.
+
+def test_alias_ambiguo_produce_avviso():
+    """Il caso base dell'audit: due righe dello stesso profilo, stesso alias, DUE Betfair
+    diversi. A runtime `resolve_team` ritorna None; al load ora c'è un avviso."""
+    cfg = {"name_mappings": {"Serie A": [
+        {"betfair": "Inter Milano", "provider": "Inter"},
+        {"betfair": "Inter Miami", "provider": "Inter"},
+    ]}}
+    warns = nm.ambiguous_alias_warnings(cfg)
+
+    assert len(warns) == 1, warns
+    testo = warns[0]
+    assert "Serie A" in testo
+    assert "Inter" in testo
+    # l'avviso deve NOMINARE le destinazioni in conflitto: senza, l'operatore sa che
+    # qualcosa e' ambiguo ma non quali righe correggere.
+    assert "Inter Milano" in testo and "Inter Miami" in testo
+    # e deve dire cosa succede davvero, non solo che c'e' un problema
+    assert "fail-closed" in testo
+
+
+def test_nessun_avviso_quando_non_c_e_ambiguita():
+    """Tre non-ambiguita' che NON devono generare rumore: duplicato verso lo STESSO
+    Betfair, nomi diversi, e config vuota. Un avviso che grida al lupo su una config
+    sana verrebbe ignorato — e con lui quello vero."""
+    cfg_dup_uguale = {"name_mappings": {"P": [
+        {"betfair": "Inter Milano", "provider": "Inter"},
+        {"betfair": "Inter Milano", "provider": "Inter"},   # stesso target: non ambiguo
+    ]}}
+    assert nm.ambiguous_alias_warnings(cfg_dup_uguale) == []
+
+    cfg_distinti = {"name_mappings": {"P": [
+        {"betfair": "Inter Milano", "provider": "Inter"},
+        {"betfair": "Milan", "provider": "Milan"},
+    ]}}
+    assert nm.ambiguous_alias_warnings(cfg_distinti) == []
+
+    assert nm.ambiguous_alias_warnings({}) == []
+    assert nm.ambiguous_alias_warnings({"name_mappings": {}}) == []
+
+
+def test_scope_diverso_non_e_ambiguo_scope_uguale_si():
+    """La regola vera di `_resolve_in_tier`: l'ambiguita' esiste solo a PARITA' di firma di
+    scoping. Due righe su sport diversi sono override distinguibili — avvisare li' sarebbe
+    un falso positivo su una configurazione corretta e intenzionale."""
+    cfg_sport_diversi = {"name_mappings": {"P": [
+        {"betfair": "Inter Milano", "provider": "Inter", "sport": "Calcio"},
+        {"betfair": "Inter Miami", "provider": "Inter", "sport": "Tennis"},
+    ]}}
+    assert nm.ambiguous_alias_warnings(cfg_sport_diversi) == []
+
+    cfg_stesso_sport = {"name_mappings": {"P": [
+        {"betfair": "Inter Milano", "provider": "Inter", "sport": "Calcio"},
+        {"betfair": "Inter Miami", "provider": "Inter", "sport": "Calcio"},
+    ]}}
+    assert len(nm.ambiguous_alias_warnings(cfg_stesso_sport)) == 1
+
+
+def test_scope_equivalente_scritto_diverso_e_comunque_ambiguo():
+    """La trappola trovata in Phase 0, e il motivo per cui questa funzione legge da
+    `get_entries` e non dalle righe grezze come `malformed_entry_warnings`.
+
+    `sport="Calcio"` e `sport="calcio"` sono lo STESSO scope dopo `_clean_entry`, quindi a
+    runtime le due righe finiscono nello stesso tier e `resolve_team` fail-closa. Una
+    detection sulle righe GREZZE vedrebbe due firme diverse e non direbbe niente: avviso
+    muto su un'ambiguita' viva. Questo test e' rosso su quell'implementazione."""
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter Milano", "provider": "Inter", "sport": "Calcio"},
+        {"betfair": "Inter Miami", "provider": "Inter", "sport": "calcio"},
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    # prima la prova che a runtime l'ambiguita' e' REALE...
+    assert nm.resolve_team("Inter", profs, sport="Calcio") is None
+    # ...e poi che l'avviso la vede
+    assert len(nm.ambiguous_alias_warnings(cfg)) == 1
+
+
+def test_ambiguita_anche_sul_nome_canonico():
+    """`_resolve_in_tier` gira su DUE fasi (`provider` = alias, `betfair` = canonico).
+    Coprire solo l'alias lascerebbe scoperta meta' della condizione di fail-closed."""
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter", "provider": "Inter Milano"},
+        {"betfair": "Inter", "provider": "Inter Miami"},
+    ]}}
+    # stesso `betfair` su due righe: nella fase canonica c'e' un solo target -> non ambiguo
+    assert nm.ambiguous_alias_warnings(cfg) == []
+
+    # qui invece il canonico "Inter" di una riga collide con l'alias->betfair dell'altra
+    cfg2 = {"name_mappings": {"P": [
+        {"betfair": "Inter"},                                  # canonico "Inter" -> "Inter"
+        {"betfair": "Inter Miami", "provider": "Inter Miami"},
+        {"betfair": "Altro", "provider": "Inter"},
+    ]}}
+    warns = nm.ambiguous_alias_warnings(cfg2)
+    assert warns == [], warns   # nessuna fase ha 2 target diversi per lo STESSO nome
+
+
+def test_righe_malformate_non_generano_avviso_di_ambiguita():
+    """Una riga con `sport` typo viene SCARTATA da `_clean_entry`: a runtime non partecipa
+    a nessun tier, quindi non puo' essere ambigua. Avvisare sarebbe un falso positivo — e
+    per quella riga esiste gia' `malformed_entry_warnings`, che e' l'avviso giusto."""
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter Milano", "provider": "Inter"},
+        {"betfair": "Inter Miami", "provider": "Inter", "sport": "Calc1o"},   # scartata
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("Inter", profs) == "Inter Milano"   # a runtime NON e' ambiguo
+    assert nm.ambiguous_alias_warnings(cfg) == []              # quindi nessun avviso
+    assert nm.malformed_entry_warnings(cfg) != []              # ma la riga typo e' segnalata
+
+
+def test_avviso_e_runtime_dicono_la_STESSA_cosa():
+    """Il test che conta davvero, e la ragione d'essere di questa PR.
+
+    Un avviso al load che diverge dal comportamento runtime e' peggio di nessun avviso:
+    o tace su un'ambiguita' viva, o accusa una config sana. Qui si scorre una matrice di
+    configurazioni e si pretende l'equivalenza esatta fra «l'avviso scatta» e «resolve_team
+    fail-closa per ambiguita'».
+
+    Il caso `None` per nome SCONOSCIUTO non e' ambiguita': si interroga solo un nome che
+    almeno una riga contiene, cosi' `None` significa necessariamente fail-closed."""
+    casi = [
+        # (righe, nome interrogato, atteso_ambiguo)
+        ([{"betfair": "A", "provider": "X"}, {"betfair": "B", "provider": "X"}], "X", True),
+        ([{"betfair": "A", "provider": "X"}, {"betfair": "A", "provider": "X"}], "X", False),
+        ([{"betfair": "A", "provider": "X"}, {"betfair": "B", "provider": "Y"}], "X", False),
+        ([{"betfair": "A", "provider": "X", "sport": "Calcio"},
+          {"betfair": "B", "provider": "X", "sport": "Tennis"}], "X", False),
+        ([{"betfair": "A", "provider": "X", "sport": "Calcio"},
+          {"betfair": "B", "provider": "X", "sport": "calcio"}], "X", True),
+        ([{"betfair": "A", "provider": "X", "language": "IT"},
+          {"betfair": "B", "provider": "X", "language": "EN"}], "X", False),
+        ([{"betfair": "A", "provider": "X", "entity_type": "team"},
+          {"betfair": "B", "provider": "X", "entity_type": "player"}], "X", False),
+        ([{"betfair": "A", "provider": "X", "entity_type": "team"},
+          {"betfair": "B", "provider": "X", "entity_type": "TEAM"}], "X", True),
+        ([{"betfair": "A"}, {"betfair": "A", "provider": "A"}], "A", False),
+        # riga con alias ma SENZA destinazione: `_resolve_in_tier` non la fa mai combaciare
+        # (guard `e.get("betfair")`), quindi non concorre all'ambiguita'. Senza lo stesso
+        # guard nell'avviso, il target vuoto conterebbe come seconda destinazione e la
+        # config sana verrebbe accusata. Caso trovato da una mutazione sopravvissuta.
+        ([{"betfair": "A", "provider": "X"}, {"provider": "X"}], "X", False),
+        ([{"betfair": "A", "provider": "X"}, {"provider": "X", "betfair": ""}], "X", False),
+    ]
+    for righe, nome, atteso in casi:
+        cfg = {"name_mappings": {"P": list(righe)}}
+        profs = nm.entries_for_profiles(cfg, ["P"])
+        avvisato = bool(nm.ambiguous_alias_warnings(cfg))
+        fail_closed = nm.resolve_team(nome, profs) is None
+        assert avvisato == atteso, f"avviso sbagliato per {righe}"
+        assert fail_closed == atteso, f"runtime sbagliato per {righe}"
+
+
+def test_avvisi_su_piu_profili_e_deterministici():
+    """Piu' profili -> un avviso per conflitto, e l'ordine e' stabile: un log eventi che
+    cambia ordine a ogni avvio e' illeggibile."""
+    cfg = {"name_mappings": {
+        "Alfa": [{"betfair": "A1", "provider": "X"}, {"betfair": "A2", "provider": "X"}],
+        "Beta": [{"betfair": "B1", "provider": "Y"}, {"betfair": "B2", "provider": "Y"}],
+    }}
+    warns = nm.ambiguous_alias_warnings(cfg)
+    assert len(warns) == 2, warns
+    assert warns == nm.ambiguous_alias_warnings(cfg)   # stabile fra due chiamate
+    assert any("Alfa" in w for w in warns) and any("Beta" in w for w in warns)
+
+
+def test_config_spazzatura_non_esplode():
+    """Fail-safe: la config arriva da un file che l'utente puo' aver modificato a mano.
+    Un avviso diagnostico non deve MAI impedire l'avvio dell'app."""
+    for rotta in ({"name_mappings": None}, {"name_mappings": []},
+                  {"name_mappings": {"P": None}}, {"name_mappings": {"P": ["non-un-dict"]}},
+                  {"name_mappings": {"P": [{}]}}, None):
+        assert nm.ambiguous_alias_warnings(rotta) == []
