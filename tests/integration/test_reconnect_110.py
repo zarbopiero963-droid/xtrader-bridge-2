@@ -22,6 +22,8 @@ indipendentemente da `python-telegram-bot` (presente o meno nell'ambiente).
 import threading
 import time
 
+import pytest
+
 
 class _SignalingEvent(threading.Event):
     """`threading.Event` che segnala `entered` DALL'INTERNO di `wait()` (prima riga),
@@ -648,3 +650,138 @@ def test_start_riassegna_stop_event_fresco_e_reconnect_wait_usa_il_parametro(app
     assert "self._stop_event.clear()" not in start_src, (
         "app.py/_start: NON usare .clear() in place (cancellerebbe il set dello STOP catturato "
         "dal thread vecchio → lost-wake) — riassegna un evento fresco (P3-ap2)")
+
+
+# ── Reset del contatore di riconnessione allo START (audit #137, PR 3/4) ─────
+#
+# `_reconnect_attempt` si azzera solo in `__init__` e sul successo epoch-gated. Ne'
+# `_start` ne' `_stop` lo toccano: dopo una sessione caduta piu' volte, un nuovo START
+# eredita il contatore alto e il PRIMO intoppo aspetta il backoff massimo invece di
+# quello iniziale.
+
+@pytest.fixture
+def sessione_pulita(app_mod):
+    """Ripristina lo stato GLOBALE che `_start` lascia sporco.
+
+    `_start` chiama `csv_writer.freeze_csv_language()` (riga ~3156) e il corrispondente
+    `unfreeze` sta in `_stop`, che questi test non raggiungono mai: senza questo cleanup
+    la lingua CSV resta CONGELATA per il resto della sessione pytest e fa cadere 10 test
+    di altri file. Misurato: passavano da soli, rossi in suite completa — il modo in cui
+    un test «verde» rompe qualcun altro."""
+    prima = app_mod.csv_writer.get_csv_language()
+    yield
+    app_mod.csv_writer.unfreeze_csv_language()
+    app_mod.csv_writer.set_csv_language(prima)
+
+
+def _app_fino_al_nuovo_epoch(app_mod, tmp_path, *, reconnect_attempt):
+    """`App` headless portata oltre i fail-fast di `_start` fino al bump dell'epoch.
+
+    Config in DRY-RUN cosi' non scatta il dialogo di conferma modalita' reale."""
+    import types
+    a = object.__new__(app_mod.App)
+    cfg = {
+        "chat_id": "-1001111111111",
+        "active_parser": "P",
+        "custom_parsers": {"P": {"rules": [{"target": "EventName", "required": True,
+                                            "prefix": "Match:"}]}},
+        "csv_path": str(tmp_path / "out.csv"),
+        "dry_run": True,
+    }
+    a.logs = []
+    a._log = a.logs.append
+    a._dbg = lambda *x, **k: None
+    a._journal = lambda *x, **k: None
+    a._journal_csv_cleared_if_had_row = lambda *x, **k: None
+    a._running = False
+    a._closing = False
+    a._ui_ready = True
+    a._license_locked = None
+    a._license_panel = types.SimpleNamespace(
+        current_status=lambda: types.SimpleNamespace(valid=True, reason="", detail=""))
+    a._cancel_pending_autostart = lambda: None
+    a._resync_token_field = lambda: None
+    a._e_token = types.SimpleNamespace(get=lambda: "123456:" + "A" * 35)
+    a._e_csv = types.SimpleNamespace(get=lambda: cfg["csv_path"])
+    a._e_delay = types.SimpleNamespace(get=lambda: "90")
+    a._save_config = lambda: cfg
+    a._save_ok = True
+    a._adv_errors = []
+    a._csv_lock = app_mod.csv_lock_escalation.CsvLockEscalation()
+    a._csv_dirty = False
+    a._listener_epoch = 7
+    a._reconnect_attempt = reconnect_attempt
+    return a
+
+
+def _start_fino_al_bump(app_mod, a):
+    """Esegue `_start` e conferma di aver DAVVERO superato il bump dell'epoch.
+
+    L'ancora e' l'epoch: se `_start` fosse uscito a monte per un fail-fast, l'epoch
+    resterebbe invariato e il test fallirebbe con un messaggio chiaro invece di
+    passare a vuoto asserendo su uno stato mai raggiunto."""
+    prima = a._listener_epoch
+    try:
+        app_mod.App._start(a)
+    except Exception:       # noqa: BLE001 — `_start` muore piu' avanti (nessun Telegram reale)
+        pass
+    assert a._listener_epoch == prima + 1, (
+        f"_start non ha raggiunto il bump dell'epoch: {[m for m in a.logs if '❌' in m]}")
+
+
+def test_start_azzera_il_contatore_di_riconnessione(app_mod, tmp_path, sessione_pulita):
+    """Il difetto: una sessione caduta 8 volte lascia il contatore a 8. Il nuovo START
+    lo eredita, e al primo fallimento `effective_delay(9)` da' il backoff MASSIMO (60s)
+    invece di quello iniziale (2s) — 30 volte tanto, senza che nulla lo spieghi
+    all'operatore. Il bridge risulta «avviato» ma resta fermo un minuto."""
+    a = _app_fino_al_nuovo_epoch(app_mod, tmp_path, reconnect_attempt=8)
+    _start_fino_al_bump(app_mod, a)
+
+    assert a._reconnect_attempt == 0, (
+        f"contatore stantio ({a._reconnect_attempt}): il primo intoppo della nuova "
+        "sessione aspetterebbe il backoff massimo invece di ripartire da capo")
+
+
+def test_il_contatore_azzerato_riporta_il_backoff_a_quello_iniziale(app_mod, tmp_path, sessione_pulita):
+    """La CONSEGUENZA misurata, non solo il valore della variabile: dopo lo START il
+    primo tentativo fallito deve costare il backoff iniziale.
+
+    Senza questa asserzione il test sopra fisserebbe un numero senza dire perche'
+    conta; qui si esercita `reconnect_policy.effective_delay` come lo chiama `_supervisor`
+    (contatore gia' incrementato)."""
+    from xtrader_bridge import reconnect_policy
+
+    a = _app_fino_al_nuovo_epoch(app_mod, tmp_path, reconnect_attempt=8)
+    stantio = reconnect_policy.effective_delay(a._reconnect_attempt + 1)
+
+    _start_fino_al_bump(app_mod, a)
+    fresco = reconnect_policy.effective_delay(a._reconnect_attempt + 1)
+
+    assert stantio == reconnect_policy.DEFAULT_MAX_DELAY, stantio   # 60s: il massimo
+    assert fresco == reconnect_policy.DEFAULT_BASE_DELAY, fresco    # 2s: da capo
+    assert fresco < stantio
+
+
+def test_ogni_START_riparte_da_capo_non_solo_il_primo(app_mod, tmp_path, sessione_pulita):
+    """Il reset deve valere a OGNI ciclo START, non una volta sola.
+
+    Si simula la sequenza reale: START, la sessione cade piu' volte (il supervisor alza
+    il contatore), nuovo START. Anche il secondo deve ripartire da capo — un reset che
+    valesse solo al primo avvio lascerebbe il difetto vivo dal secondo in poi, ed e' il
+    modo in cui una correzione «funziona quando la provi una volta» e poi no."""
+    a = _app_fino_al_nuovo_epoch(app_mod, tmp_path, reconnect_attempt=8)
+    _start_fino_al_bump(app_mod, a)
+    assert a._reconnect_attempt == 0, a._reconnect_attempt
+
+    # la sessione perde la rete piu' volte: e' il supervisor a incrementare
+    a._reconnect_attempt += 1
+    a._reconnect_attempt += 1
+    a._reconnect_attempt += 1
+    assert a._reconnect_attempt == 3
+
+    # secondo START (dopo uno STOP): deve azzerare di nuovo
+    a._running = False
+    _start_fino_al_bump(app_mod, a)
+    assert a._reconnect_attempt == 0, (
+        "il secondo START non ha azzerato: il reset e' legato al primo avvio invece "
+        "che a ogni nuova sessione")
