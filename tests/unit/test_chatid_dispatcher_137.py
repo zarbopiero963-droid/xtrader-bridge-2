@@ -164,3 +164,97 @@ def test_collect_chat_ids_e_la_fonte_del_provider(tmp_path):
     reg.register(_tool("sonda", f"{CHAT_SUPERGRUPPO} / {CHAT_PRIVATA}"))
     uscita = reg.dispatch("sonda", {}).content
     assert CHAT_SUPERGRUPPO not in uscita and CHAT_PRIVATA not in uscita, uscita
+
+
+# ── i due rilievi dei reviewer (#171), misurati e pinnati ──────────────────────
+
+def test_un_provider_che_fallisce_DOPO_non_riapre_la_finestra():
+    """Rilievo Fugu Ultra (#171), marcato bloccante — e aveva ragione su un angolo che non
+    avevo considerato.
+
+    Il fail-safe iniziale degradava a «nessuna redazione» quando il provider sollevava. Ma il
+    caso realistico non è «config sempre illeggibile»: è la **finestra di `os.replace`** di una
+    scrittura config concorrente su Windows — per esempio l'utente che applica una proposta
+    dell'assistente mentre un tool è in volo. In quell'istante il chat_id sarebbe uscito in
+    chiaro.
+
+    Ora il provider che fallisce ripiega sull'**ultimo elenco letto con successo**: gli ID
+    cambiano di rado, quindi il valore in cache è quasi sempre ancora corretto — e comunque
+    più protettivo di niente."""
+    stato = {"rotto": False}
+
+    def provider():
+        if stato["rotto"]:
+            raise OSError("config in scrittura (finestra di os.replace)")
+        return (CHAT_SUPERGRUPPO,)
+
+    reg = config_agent.ToolRegistry(chat_ids_provider=provider)
+    reg.register(_tool("t", f"chat {CHAT_SUPERGRUPPO}"))
+
+    # Primo giro: provider sano → l'ID viene redatto e memorizzato.
+    assert CHAT_SUPERGRUPPO not in reg.dispatch("t", {}).content
+
+    # La config diventa illeggibile a metà sessione.
+    stato["rotto"] = True
+    uscita = reg.dispatch("t", {}).content
+    assert CHAT_SUPERGRUPPO not in uscita, (
+        "la finestra di scrittura config non deve far uscire l'ID: si usa l'ultimo noto")
+
+
+def test_senza_nessuna_lettura_riuscita_resta_ai_soli_segreti():
+    """L'altro lato, dichiarato invece che nascosto: se il provider non ha **mai** avuto
+    successo la cache è vuota e non c'è nulla da cui redigere. Si resta ai soli segreti — non
+    si rifiuta il tool, sarebbe sproporzionato per una seconda rete."""
+    reg = config_agent.ToolRegistry(chat_ids_provider=lambda: (_ for _ in ()).throw(OSError("ko")))
+    reg.register(_tool("t", "nessun dato sensibile"))
+    assert reg.dispatch("t", {}).content == "nessun dato sensibile"
+
+
+@pytest.mark.parametrize("testo", [
+    "99987654321000",             # l'ID corto è CONTENUTO in un numero più lungo
+    "9876543210",                 # un numero più lungo che inizia uguale
+    "quota 1.85, righe attive 3/5, timeout 90s",
+    "MarketId 1.234567890",       # forma tipo Betfair
+])
+def test_un_id_corto_non_morde_dentro_numeri_piu_lunghi(testo):
+    """Rilievo Fable 5 e Fugu Ultra (#171): un chat_id privato **corto** (9 cifre, senza il
+    prefisso `-100` dei supergruppi) potrebbe over-redigere numeri legittimi — MarketId
+    Betfair, quote, contatori — corrompendo proprio l'output diagnostico che l'assistente
+    serve a produrre.
+
+    `redact_chat_ids` usa confini numerici (#164), quindi non morde. Il test lo **pinna**:
+    era una proprietà vera ma non verificata, e i reviewer hanno avuto ragione a chiederla."""
+    reg = _registry([CHAT_PRIVATA])          # "987654321", 9 cifre, il caso peggiore
+    reg.register(_tool("t", testo))
+    assert reg.dispatch("t", {}).content == testo
+
+
+def test_il_perimetro_del_provider_copre_tutte_le_fonti_di_chat(tmp_path):
+    """Rilievo GPT-5.5 (#171): «se esistono chat ID in config non inclusi in
+    `collect_chat_ids`, restano fuori dal perimetro». Giusto — ed è la forma di difetto che
+    questa serie ha incontrato più volte.
+
+    Misurato: le fonti sono cinque, e ci sono tutte. Incluse le **chiavi** dei dict
+    `parser_by_chat`/`parser_list_by_chat`, che sono chat ID travestiti da chiavi e sono il
+    posto più facile da dimenticare."""
+    cfg = {
+        "chat_id": "-1001111111111",
+        "xtrader_notification_chat_id": "-1002222222222",
+        "source_chats": [{"chat_id": "-1003333333333", "name": "A"}],
+        "parser_by_chat": {"-1004444444444": "p1"},
+        "parser_list_by_chat": {"-1005555555555": ["p1", "p2"]},
+    }
+    tutti = ["-1001111111111", "-1002222222222", "-1003333333333",
+             "-1004444444444", "-1005555555555"]
+
+    raccolti = diagnostics.collect_chat_ids(cfg)
+    for atteso in tutti:
+        assert atteso in raccolti, f"{atteso} fuori dal perimetro di collect_chat_ids"
+
+    # E la garanzia end-to-end, non solo sulla funzione di raccolta.
+    reg = config_agent.build_default_registry(config_loader=lambda *a, **k: dict(cfg),
+                                              parsers_dir=str(tmp_path))
+    reg.register(_tool("sonda", " ".join(tutti)))
+    uscita = reg.dispatch("sonda", {}).content
+    for atteso in tutti:
+        assert atteso not in uscita, f"{atteso} uscito dal dispatcher"

@@ -125,6 +125,9 @@ class ToolRegistry:
         # Callable() -> iterabile di chat_id configurati, per la redazione centralizzata (#137).
         # Opzionale: senza, il comportamento resta quello di prima (solo segreti).
         self._chat_ids_provider = chat_ids_provider
+        # Ultimo elenco letto con successo: ripiego quando il provider fallisce, così una
+        # config momentaneamente illeggibile non apre una finestra senza redazione (#171).
+        self._chat_ids_cache = ()
 
     def _safe_out(self, text) -> str:
         """Unica uscita verso il modello: redige **segreti** e **chat_id** (audit #137).
@@ -142,16 +145,29 @@ class ToolRegistry:
         realmente configurati e mai «i numeri che sembrano un id»: un output coi contatori
         storpiati non servirebbe a diagnosticare nulla, che è lo scopo dell'assistente.
 
-        Fail-safe dichiarato: se il provider solleva (config illeggibile), si degrada alla
-        sola redazione dei segreti invece di far crashare l'assistente. È accettabile perché
-        questa è la *seconda* rete, non la prima."""
+        Fail-safe **con memoria** (rilievo Fugu Ultra #171): se il provider solleva — config
+        momentaneamente illeggibile, tipicamente la finestra di `os.replace` di una scrittura
+        config concorrente su Windows — si ripiega sull'**ultimo elenco di ID letto con
+        successo**, non su «nessuna redazione».
+
+        La differenza è sostanziale: degradare a zero redazione aprirebbe una finestra di leak
+        proprio nell'istante in cui la config viene riscritta (es. l'utente applica una
+        proposta dell'assistente mentre un tool è in volo). Gli ID cambiano di rado; l'ultimo
+        valore noto è quasi sempre ancora corretto, e comunque **più** protettivo di niente.
+
+        Solo se il provider non ha MAI avuto successo (cache vuota) si resta ai soli segreti:
+        a quel punto non c'è nulla da cui redigere e l'alternativa sarebbe rifiutare il tool,
+        cosa sproporzionata per una seconda rete."""
         out = event_log.redact_secrets(str(text))
         provider = self._chat_ids_provider
         if provider is None:
             return out
         try:
             chat_ids = provider()
+            self._chat_ids_cache = tuple(chat_ids or ())
         except Exception:   # noqa: BLE001 — la seconda rete non deve poter rompere l'assistente
+            chat_ids = self._chat_ids_cache
+        if not chat_ids:
             return out
         return diagnostics.redact_chat_ids(out, chat_ids)
 
