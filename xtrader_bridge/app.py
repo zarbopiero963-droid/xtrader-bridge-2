@@ -3138,6 +3138,13 @@ class App(ctk.CTk):
         # Nuova sessione: azzera il contatore CSV-lock così i fallimenti di una sessione
         # precedente non "colano" in questa e non causano una falsa escalation (Codex #156).
         self._csv_lock.reset()
+        # Stessa ragione per il contatore di RICONNESSIONE (audit #137). Si azzerava solo in
+        # `__init__` e a connessione stabilita: dopo una sessione caduta più volte, un nuovo
+        # START ereditava il contatore alto e il PRIMO intoppo aspettava il backoff MASSIMO
+        # (60s) invece di quello iniziale (2s) — 30 volte tanto, senza nulla che lo spieghi:
+        # il bridge risulta «avviato» e resta fermo un minuto. Uno START manuale è per
+        # definizione una nuova sequenza di tentativi, quindi riparte da capo.
+        self._reconnect_attempt = 0
         # Modalità della SESSIONE (snapshot a START): l'esecuzione resta legata a questa
         # finché non si fa STOP/START. Il banner REALE deve riflettere ciò che ESEGUE, non
         # solo la config viva (Codex P1).
