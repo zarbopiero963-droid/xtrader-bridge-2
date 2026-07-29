@@ -525,19 +525,35 @@ def test_anche_gli_altri_builder_hanno_il_default_sola_lettura(monkeypatch, buil
     """Il perimetro completo: lo stesso ripiego non sicuro esisteva in **altri cinque** builder
     di tool (preesistenti, non introdotti da questa PR — rilievo Fugu Ultra #171).
 
-    Nessuno è raggiungibile in produzione, per la stessa ragione: il controller inietta sempre.
-    Ma correggerne uno e lasciarne cinque identici è esattamente il perimetro incompleto che
-    questa serie ha incontrato più volte — e la prossima volta la trappola scatterebbe da uno
-    dei cinque, non da quello corretto."""
+    Nessuno è raggiungibile in produzione — il controller inietta sempre il suo loader — ma
+    correggerne uno e lasciarne cinque identici è il perimetro incompleto che questa serie ha
+    incontrato più volte: la prossima trappola scatterebbe da uno dei cinque.
+
+    `assert visti` NON è decorativo (rilievo Fugu Ultra, e aveva ragione): `all([])` è `True`,
+    quindi senza quell'assert un builder che non legge mai la config passerebbe **vacuamente**.
+    Misurato: con input vuoto `build_write_tools` faceva esattamente zero letture — il suo
+    handler fallisce sulla validazione prima di arrivare alla config. Con input valido legge, e
+    legge giusto. È la terza volta in questa PR che spunta un test che non testa."""
     visti = _spia_load_config(monkeypatch, {})
 
-    tools = getattr(config_agent, builder)()
-    for t in tools:                       # forza almeno una lettura di config
-        try:
-            t.handler({})
-        except Exception:                 # noqa: BLE001 — qui interessa solo COME legge la config
-            pass
+    # Input plausibili: alcuni handler richiedono argomenti e fallirebbero prima di leggere
+    # la config, lasciando `visti` vuota e il test vacuo.
+    ingressi = ({}, {"key": "clear_delay", "value": 90}, {"testo": "prova"}, {"termine": "inter"})
+    for t in getattr(config_agent, builder)():
+        for ingresso in ingressi:
+            prima = len(visti)
+            try:
+                t.handler(ingresso)
+            except Exception:   # noqa: BLE001 — qui interessa solo COME legge la config
+                continue
+            if len(visti) > prima:
+                break           # si esce quando la config e' stata DAVVERO letta, non al
+                                # primo input che semplicemente non solleva: `set_config_value({})`
+                                # restituisce un messaggio d'errore senza leggere nulla
 
+    assert visti, (
+        f"{builder}: nessuna lettura di config intercettata — il test passerebbe vacuamente, "
+        "va esercitato con un input che arrivi davvero a leggere")
     assert all(v == {"sync_csv_language": False, "recover_corrupt": False} for v in visti), (
         f"{builder}: il ripiego deve essere sola-lettura, visto {visti}")
 
