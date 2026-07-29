@@ -161,6 +161,17 @@ un parser custom può estrarre testo arbitrario):
   **e non è un numero** viene prefissata con un apice singolo (`'`) — mitigazione standard.
   I **numeri** del contratto (es. `Handicap` `-1`/`+1,5`, `Price` `1.85`) **non** vengono
   toccati, così restano valori numerici validi per XTrader.
+  **Gli spazi iniziali non contano (P3-cw1 #166).** Excel, LibreOffice e Sheets *ignorano* gli
+  spazi in testa quando decidono se una cella è una formula: « =1+1» viene valutata come
+  «=1+1». La decisione si prende quindi sul valore **spogliato** (`strip()`) — lo stesso su cui
+  si è sempre deciso se fosse un numero — mentre ciò che finisce nel file resta il valore
+  **originale**, solo preceduto dall'apice: il contenuto non viene mai riscritto. Il controllo
+  dei control-char iniziali resta invece sul primo carattere *grezzo*, perché TAB/CR/LF **sono**
+  spazio bianco e `strip()` li nasconderebbe.
+  **I control-char *interni* non vengono neutralizzati**, ed è deliberato: dentro un campo
+  quotato un a-capo è CSV valido per RFC-4180 e un parser conforme lo rilegge come un solo
+  campo (verificato con un round-trip scrittura→rilettura nei test). Resta fuori dalla garanzia
+  il caso di un reader non conforme.
 - **Separatore decimale — lingua CSV (#342/#343).** Il formato scritto nel file è governato
   dalla config **`csv_language`** (`IT`/`EN`/`ES`, default **`IT`**, allineata dal **selettore
   lingua al primo avvio**, #343): con `IT`/`ES` le colonne decimali (`Price`, `MinPrice`,

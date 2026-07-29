@@ -6,6 +6,8 @@ volutamente un letterale indipendente: è la guardia che fa fallire il test se
 l'header di produzione cambia per errore.
 """
 
+import pytest
+
 from xtrader_bridge import csv_writer
 
 # Contratto ufficiale a 14 colonne (vedi docs/xtrader_csv_contract.md).
@@ -182,3 +184,99 @@ def test_write_csv_delega_a_write_rows(tmp_path):
     path = str(tmp_path / "segnali.csv")
     csv_writer.write_csv(_row(), path)
     assert len(_read_data_lines(path)) == 2         # header + 1
+
+
+# ── P3-cw1 (#166): la neutralizzazione anti-formula non deve dipendere da `s[0]` ──────────────
+
+@pytest.mark.parametrize("prefisso", [" ", "  ", " \t", "\t ", "   \t  "])
+@pytest.mark.parametrize("carico", ["=1+1", "=cmd|'/c calc'!A1", "@SUM(1+1)", "+payload",
+                                    "-payload"])
+def test_uno_spazio_davanti_non_aggira_la_neutralizzazione(prefisso, carico):
+    """Excel, LibreOffice e Google Sheets **ignorano gli spazi iniziali** quando decidono se
+    una cella è una formula: « =1+1» viene valutata esattamente come «=1+1».
+
+    `_sanitize_cell` guardava solo `s[0]`, quindi bastava uno spazio davanti per passare.
+    L'asimmetria era interna alla funzione stessa: il ramo NUMERICO usava già `s.strip()`,
+    quello del carattere-formula no.
+
+    Provato su tutti e quattro i caratteri formula e su più forme di spaziatura iniziale,
+    perché il buco non era in un carattere particolare ma nel modo di guardarli."""
+    sporco = prefisso + carico
+    assert csv_writer._sanitize_cell(sporco).startswith("'"), sporco
+    # Il contenuto non viene alterato: si antepone l'apice, non si riscrive il valore.
+    assert csv_writer._sanitize_cell(sporco) == "'" + sporco
+
+
+@pytest.mark.parametrize("numero", ["-1", "+1,5", "1.85", "2,5", "-0.5"])
+@pytest.mark.parametrize("spazi", ["", " ", "  ", " \t"])
+def test_il_contratto_numerico_resta_intatto_anche_con_spazi(numero, spazi):
+    """Il vincolo che rende il fix delicato: Handicap «-1»/«+1,5» e Price «1.85» iniziano con
+    un carattere formula ma sono **numeri legittimi**. Prefissarli romperebbe il contratto —
+    XTrader leggerebbe testo dove si aspetta un numero.
+
+    Guardare il valore spogliato non deve cambiare questo: si decide su `strip()`, e `strip()`
+    è esattamente ciò che la regex numerica già usava."""
+    assert not csv_writer._sanitize_cell(spazi + numero).startswith("'"), spazi + numero
+
+
+def test_nessun_falso_positivo_sui_nomi_legittimi():
+    """La direzione opposta: il fix è più severo, quindi va verificato che non prenda nomi
+    veri. Nessuno di questi inizia con un carattere formula, spogliato o no."""
+    for nome in ["Inter v Milan", " Inter v Milan", "Over 2,5 goal", " L'Aquila v Ternana",
+                 "Bodø/Glimt v Malmö FF", "  Esito Finale", ""]:
+        assert csv_writer._sanitize_cell(nome) == nome, nome
+
+
+def test_il_bypass_non_arriva_piu_nel_file_scritto(tmp_path):
+    """Il test che conta: la funzione pura può essere corretta e il file sbagliato lo stesso.
+
+    Questo è il percorso reale — `write_rows` → `_sanitize_row` → file su disco — ed è quello
+    su cui il difetto era stato misurato: il valore ci arrivava verbatim."""
+    import csv as _csv
+
+    row = dict.fromkeys(CONTRACT_HEADER, "")
+    row.update({
+        "EventName": " =cmd|'/c calc'!A1 v Milan",   # spazio iniziale: il bypass
+        "SelectionName": "  @SUM(1+1)",
+        "MarketName": " -payload",
+        "Handicap": " -1",                            # numero con spazio: NON va prefissato
+    })
+    path = str(tmp_path / "segnali.csv")
+    csv_writer.write_rows([row], path)
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        out = dict(zip(CONTRACT_HEADER, list(_csv.reader(f))[1]))
+
+    assert out["EventName"].startswith("'"), out["EventName"]
+    assert out["SelectionName"].startswith("'"), out["SelectionName"]
+    assert out["MarketName"].startswith("'"), out["MarketName"]
+    assert not out["Handicap"].startswith("'"), out["Handicap"]
+
+
+def test_i_control_char_interni_sopravvivono_al_giro_completo(tmp_path):
+    """P3-cw2 (#166) — comportamento **invariato**, ma misurato invece che presunto.
+
+    L'audit segnalava che i CR/LF *interni* a una cella non vengono neutralizzati (solo quelli
+    in testa lo sono). È vero, ed è deliberato: `QUOTE_ALL` mette ogni campo fra virgolette, e
+    un a-capo dentro un campo quotato è CSV **valido** secondo RFC-4180 — un parser conforme lo
+    rilegge come un singolo campo, non come due righe.
+
+    Questo test lo dimostra facendo il giro completo scrittura → rilettura: se un domani la
+    scrittura smettesse di quotare, o qualcuno togliesse `QUOTE_ALL`, il valore tornerebbe
+    spezzato e questo test diventerebbe rosso. È la ragione per cui non serve neutralizzarli —
+    resa eseguibile, non lasciata in un commento.
+
+    Resta fuori dalla garanzia il caso in cui il parser di XTrader non sia conforme a
+    RFC-4180: non è verificabile senza XTrader, ed è annotato nella #166."""
+    import csv as _csv
+
+    row = dict.fromkeys(CONTRACT_HEADER, "")
+    row.update({"EventName": "Inter\r\nMilan", "MarketName": "Esito\tFinale"})
+    path = str(tmp_path / "segnali.csv")
+    csv_writer.write_rows([row], path)
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        righe = list(_csv.reader(f))
+
+    assert len(righe) == 2, "il CR/LF interno non deve produrre righe extra"
+    out = dict(zip(CONTRACT_HEADER, righe[1]))
+    assert out["EventName"] == "Inter\r\nMilan"    # round-trip esatto
+    assert out["MarketName"] == "Esito\tFinale"
