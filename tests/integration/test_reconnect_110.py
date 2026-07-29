@@ -833,3 +833,62 @@ def test_un_supervisor_STANTIO_non_tocca_il_contatore_della_nuova_sessione(
     from xtrader_bridge import reconnect_policy
     assert reconnect_policy.effective_delay(a._reconnect_attempt + 1) == \
         reconnect_policy.DEFAULT_BASE_DELAY
+
+
+# ── Contatore di backoff LOCALE alla sessione (issue #174) ───────────────────
+
+def test_un_supervisor_stantio_nella_FINESTRA_non_falsa_il_backoff_nuovo(
+        make_app, app_mod, monkeypatch):
+    """Issue #174: la finestra di interleaving fra la guardia e l'incremento.
+
+    La #173 ha chiuso il caso semplice — un supervisor con epoch superato esce alla guardia
+    `if not _is_current(): break` prima di toccare il contatore. Ma fra QUELLA guardia e il
+    `+= 1` resta una finestra: se il nuovo START arriva li' in mezzo, il vecchio supervisor
+    ha gia' superato il controllo e incrementa comunque.
+
+    La finestra e' riprodotta in modo DETERMINISTICO invece che sperando in un interleaving
+    di thread: il seam e' `should_reconnect`, che gira esattamente fra la guardia e
+    l'incremento. Da li' si simula cio' che fa `_start` (nuovo epoch + contatore azzerato).
+
+    Col contatore CONDIVISO il vecchio supervisor lo riportava a 1 e la sessione nuova, al
+    primo intoppo, aspettava piu' del backoff iniziale. Col contatore LOCALE non puo' piu':
+    ogni `_run_bot` conta i propri tentativi, come gia' fa `first_connection`.
+
+    Il supervisor esce comunque subito dopo (epoch superato al giro successivo del `while`),
+    quindi il test non puo' avvitarsi: nessun rischio di loop infinito."""
+    a = make_app()
+    a._running = True
+    a._listener_epoch = 9
+    a._reconnect_attempt = 4          # il vecchio supervisor aveva gia' accumulato
+
+    def _nuovo_start_DENTRO_la_finestra(running, exc):
+        # gira DOPO `if not _is_current(): break` e PRIMA del `+= 1`: e' la finestra.
+        a._listener_epoch = 99        # cio' che fa `_start`...
+        a._reconnect_attempt = 0      # ...compreso il reset della #173
+        return True                   # e il vecchio supervisor prosegue verso l'incremento
+    monkeypatch.setattr(app_mod.reconnect_policy, "should_reconnect",
+                        _nuovo_start_DENTRO_la_finestra)
+
+    _install_builder(monkeypatch, app_mod, [],
+                     lambda index: _TgApp(fail=True, on_success=lambda: None))
+    a._reconnect_wait = lambda delay, stop_event=None: None
+
+    # Si registra il tentativo con cui viene calcolato il ritardo: e' LI' che sta il danno.
+    # Asserire solo sul contatore d'istanza lascerebbe passare un fix che tiene pulito lo
+    # specchio ma continua a decidere il backoff su di esso (mutazione sopravvissuta al
+    # primo giro).
+    from xtrader_bridge import reconnect_policy
+    vero = reconnect_policy.effective_delay
+    tentativi_usati = []
+    monkeypatch.setattr(app_mod.reconnect_policy, "effective_delay",
+                        lambda tentativo, retry_after=None: (
+                            tentativi_usati.append(tentativo) or vero(tentativo, retry_after)))
+
+    app_mod.App._run_bot(a, {"bot_token": "x"}, 9)
+
+    assert tentativi_usati == [1], (
+        f"il backoff e' stato calcolato su {tentativi_usati} invece che sul PRIMO tentativo "
+        "di questa sessione: la decisione non usa il contatore locale")
+    assert a._reconnect_attempt == 0, (
+        f"il supervisor STANTIO ha sporcato lo specchio della nuova sessione "
+        f"({a._reconnect_attempt}): chi lo legge da fuori vedrebbe un valore non suo")
