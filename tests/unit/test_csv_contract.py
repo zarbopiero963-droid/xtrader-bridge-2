@@ -280,3 +280,62 @@ def test_i_control_char_interni_sopravvivono_al_giro_completo(tmp_path):
     out = dict(zip(CONTRACT_HEADER, righe[1]))
     assert out["EventName"] == "Inter\r\nMilan"    # round-trip esatto
     assert out["MarketName"] == "Esito\tFinale"
+
+
+@pytest.mark.parametrize("spazio,nome", [
+    ("\xa0", "NBSP U+00A0"), (" ", "thin space U+2009"),
+    ("　", "ideographic space U+3000"), ("\x0b", "vertical tab"), ("\x0c", "form feed"),
+])
+def test_anche_lo_spazio_unicode_e_coperto(spazio, nome):
+    """Perimetro del fix, misurato. L'invariante è che la nostra nozione di «spazio iniziale»
+    sia **almeno larga quanto** quella del reader che valuta la formula: se il reader ne
+    saltasse uno che noi non togliamo, resterebbe un buco.
+
+    `str.strip()` senza argomenti toglie lo spazio bianco **Unicode**, non solo ASCII — quindi
+    il fix copre anche NBSP & co., che sono realistici in un messaggio Telegram
+    (copia-incolla, tastiere mobili). Verificato eseguendo, non dedotto."""
+    assert csv_writer._sanitize_cell(spazio + "=1+1").startswith("'"), nome
+
+
+def test_lo_zero_width_space_non_e_spazio_ed_e_un_confine_noto():
+    """L'altro lato del perimetro, dichiarato invece che scoperto per caso.
+
+    `U+200B` (zero-width space) **non** è spazio bianco per Python, quindi `strip()` non lo
+    toglie e la cella non viene prefissata. Non è un buco: non essendo spazio, un reader non
+    lo salta e la cella non viene letta come formula — il nostro comportamento e il suo
+    coincidono.
+
+    Il test esiste per fissare il confine: se un domani si scoprisse un reader che **salta**
+    i caratteri a larghezza zero, questo test va cambiato **deliberatamente**, con la nota del
+    perché — invece di trovarsi il buco senza sapere che c'era una decisione."""
+    assert csv_writer._sanitize_cell("​=1+1") == "​=1+1"
+
+
+@pytest.mark.parametrize("colonna,sporco,atteso_it", [
+    ("Handicap", " -1", "-1"), ("Handicap", "-1 ", "-1"), ("Handicap", " +1,5 ", "+1,5"),
+    ("Price", " 1.85", "1,85"), ("Price", "1.85 ", "1,85"),
+    ("MinPrice", " 1.50 ", "1,50"), ("MaxPrice", " 2.00", "2,00"),
+])
+def test_le_colonne_numeriche_arrivano_nel_file_senza_spazi(tmp_path, colonna, sporco,
+                                                            atteso_it):
+    """Rilievo GPT-5.5 (#170): «un numero con spazio iniziale resta non prefissato, quindi viene
+    scritto CON lo spazio — se XTrader non trimma, non lo legge come numero».
+
+    Osservazione giusta, ma non si verifica: le colonne decimali passano da `_localize_decimal`
+    **prima** di `_sanitize_cell` (`_sanitize_row(_localize_row(...))`), e la localizzazione
+    strippa già. Nel file arriva `-1`, non ` -1`.
+
+    Il test lo fissa dove conta — sul **file scritto**, non sulla funzione pura — così la
+    garanzia non dipende dall'ordine attuale delle due trasformazioni: se un domani qualcuno le
+    invertisse o togliesse lo strip, questo diventa rosso."""
+    import csv as _csv
+
+    row = dict.fromkeys(CONTRACT_HEADER, "")
+    row.update({"EventName": "Inter v Milan", colonna: sporco})
+    path = str(tmp_path / "segnali.csv")
+    csv_writer.write_rows([row], path)
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        out = dict(zip(CONTRACT_HEADER, list(_csv.reader(f))[1]))
+
+    assert out[colonna] == atteso_it, f"{colonna}={sporco!r}"
+    assert not out[colonna].startswith("'"), "un numero non deve mai essere prefissato"
