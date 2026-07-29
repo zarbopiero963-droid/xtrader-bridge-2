@@ -355,3 +355,74 @@ def test_nemmeno_una_redazione_che_solleva_rompe_l_assistente(monkeypatch):
             "il segnaposto degradato dev'essere distinguibile dall'impronta normale")
     finally:
         event_log.clear_secrets()
+
+
+# ── il ripiego fail-closed non deve fare danni (#171 round 5) ──────────────────
+
+@pytest.mark.parametrize("ids", [
+    ("",), ("   ",), (None,), ("", CHAT_SUPERGRUPPO), (None, "  ", CHAT_SUPERGRUPPO),
+])
+def test_il_ripiego_non_esplode_su_id_vuoti_o_nulli(ids):
+    """Rilievo Fugu Ultra (#171): un `cid` vuoto o di soli spazi renderebbe
+    `out.replace("", segnaposto)` un'iniezione del segnaposto **fra ogni carattere**,
+    distruggendo l'output proprio nel percorso già degradato.
+
+    La guardia `if valore:` c'è, ma non era testata — e un reviewer che non la vede nel diff
+    fa bene a non fidarsene. Verificato anche il caso misto: un ID valido nella stessa lista
+    dev'essere comunque mascherato, senza che quello vuoto rovini il resto."""
+    testo = "segnali 12, quota 1.85, righe 3/5"
+    out = config_agent._crude_chat_mask(testo, ids)
+
+    if CHAT_SUPERGRUPPO in ids:
+        assert out == testo, "nessun ID compare nel testo: deve restare identico"
+    else:
+        assert out == testo
+
+    # e con l'ID davvero presente nel testo, il mascheramento avviene lo stesso
+    if CHAT_SUPERGRUPPO in ids:
+        con_id = config_agent._crude_chat_mask(f"chat {CHAT_SUPERGRUPPO}", ids)
+        assert CHAT_SUPERGRUPPO not in con_id
+        assert config_agent.MASKED_CHAT_FALLBACK in con_id
+
+
+def test_un_id_difettoso_non_ferma_il_mascheramento_degli_altri():
+    """Rilievo Fable 5 (#171): con un solo `try` attorno al CICLO, un `cid` che solleva a metà
+    interromperebbe tutto e lascerebbe in chiaro **tutti gli ID successivi** — un fail-open
+    residuo dentro il ripiego fail-closed.
+
+    La guardia è per elemento: quello difettoso salta da solo."""
+    class CidVelenoso:
+        def __str__(self):
+            raise RuntimeError("__str__ difettoso")
+
+    out = config_agent._crude_chat_mask(
+        f"primo {CHAT_PRIVATA} poi {CHAT_SUPERGRUPPO}",
+        (CHAT_PRIVATA, CidVelenoso(), CHAT_SUPERGRUPPO))
+
+    assert CHAT_PRIVATA not in out, "l'ID prima di quello difettoso"
+    assert CHAT_SUPERGRUPPO not in out, "l'ID DOPO quello difettoso: è il punto del test"
+
+
+def test_nel_ripiego_i_segreti_restano_redatti_prima_degli_id():
+    """Rilievo Fugu Ultra (#171): «va garantito che i segreti siano già redatti in `out` prima,
+    altrimenti il fail-closed copre l'ID ma lascia trapelare segreti».
+
+    L'ordine in `_safe_out` è: prima `redact_secrets`, poi il percorso chat_id (ripiego
+    incluso). Il test lo verifica dall'esterno, sul risultato, invece di fidarsi dell'ordine
+    delle righe: se un domani venissero invertite, qui diventa rosso."""
+    from xtrader_bridge import event_log
+
+    def redazione_rotta(text, chat_ids):
+        raise RuntimeError("regressione futura")
+
+    reg = _registry([CHAT_SUPERGRUPPO])
+    event_log.register_secret(TOKEN_FINTO)
+    try:
+        import unittest.mock as mock
+        with mock.patch.object(config_agent.diagnostics, "redact_chat_ids", redazione_rotta):
+            reg.register(_tool("t", f"token {TOKEN_FINTO} chat {CHAT_SUPERGRUPPO}"))
+            uscita = reg.dispatch("t", {}).content
+        assert TOKEN_FINTO not in uscita, "i segreti devono essere già fuori quando parte il ripiego"
+        assert CHAT_SUPERGRUPPO not in uscita, "e l'ID viene mascherato dal ripiego"
+    finally:
+        event_log.clear_secrets()

@@ -119,15 +119,21 @@ def _crude_chat_mask(text: str, chat_ids) -> str:
     aggressiva (può mordere dentro un numero più lungo) perché gira solo quando la redazione
     esatta è già fallita, e in quel punto over-redigere è il verso sicuro.
 
-    Non solleva mai: è l'ultima riga di difesa, e una difesa che può sollevare non difende."""
+    Non solleva mai: è l'ultima riga di difesa, e una difesa che può sollevare non difende.
+
+    La guardia è **per elemento**, non attorno al ciclo (rilievo Fable 5 #171): con un solo
+    `try` esterno, un `cid` che solleva a metà iterazione interromperebbe il ciclo e lascerebbe
+    in chiaro **tutti gli ID successivi** — un fail-open residuo proprio dentro il ripiego
+    fail-closed. Così invece un elemento difettoso salta da solo e gli altri vengono mascherati
+    comunque."""
     out = str(text)
-    try:
-        for cid in chat_ids or ():
-            token = str(cid or "").strip()
-            if token:
-                out = out.replace(token, MASKED_CHAT_FALLBACK)
-    except Exception:   # noqa: BLE001 — ultima riga di difesa: mai un'eccezione da qui
-        return out
+    for cid in chat_ids or ():
+        try:
+            valore = str(cid or "").strip()
+            if valore:
+                out = out.replace(valore, MASKED_CHAT_FALLBACK)
+        except Exception:   # noqa: BLE001 — un elemento difettoso non ferma gli altri
+            continue
     return out
 
 
