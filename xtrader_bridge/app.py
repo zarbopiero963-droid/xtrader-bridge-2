@@ -3402,6 +3402,14 @@ class App(ctk.CTk):
         # al filtro `max_signal_age` (`is_stale` via `telegram_dispatch.decide`), che scarta comunque
         # i messaggi troppo vecchi anche quando drop_pending_updates è False.
         first_connection = True
+        # Tentativi di riconnessione di QUESTA sessione (#174). Locale come
+        # `first_connection` qui sopra, e per la stessa ragione: fra la guardia
+        # `if not _is_current(): break` e l'incremento c'e' una finestra in cui un nuovo
+        # START puo' intervenire. Con un contatore condiviso il vecchio supervisor lo
+        # incrementava DOPO che `_start` l'aveva azzerato, e la sessione nuova aspettava
+        # piu' del backoff iniziale al primo intoppo. Locale, la finestra non ha effetto:
+        # ogni sessione conta i propri tentativi.
+        tentativo = 0
 
         def _is_current():
             # Sessione ancora valida: bridge attivo E nessun nuovo START intervenuto.
@@ -3596,6 +3604,12 @@ class App(ctk.CTk):
             # `_is_current()`, che include `_running`): così uno STOP in corso sulla sessione
             # CORRENTE non impedisce il reset del contatore; la label resta comunque gated su
             # `_running` dentro `_set_status_connected`. Nessun impatto su CSV/bet (già epoch-gated).
+            # Connessione stabilita: backoff di QUESTA sessione a zero. `nonlocal` e'
+            # obbligatorio — senza, l'assegnazione creerebbe una variabile della funzione
+            # ANNIDATA e il reset non avrebbe alcun effetto sul supervisor (#174).
+            nonlocal tentativo
+            tentativo = 0
+            # Lo specchio d'istanza resta epoch-gated: e' solo diagnostica, non decide nulla.
             if self._listener_epoch == epoch:
                 self._reconnect_attempt = 0
                 self._safe_after(0, lambda: self._set_status_connected(epoch))
@@ -3644,18 +3658,24 @@ class App(ctk.CTk):
                         self._safe_after(0, lambda t=tb: self._log(t))
                         self._safe_after(0, self._stop)
                         break
-                    self._reconnect_attempt += 1
+                    tentativo += 1
+                    # Lo specchio d'istanza si aggiorna SOLO se questa sessione e' ancora
+                    # quella corrente: un supervisor stantio che ha superato la guardia un
+                    # istante prima del nuovo START non deve sporcare cio' che si legge da
+                    # fuori (#174). La DECISIONE sotto usa comunque il contatore locale.
+                    if self._listener_epoch == epoch:
+                        self._reconnect_attempt = tentativo
                     # Event journal (#230): tentativo di riconnessione (tipo errore + tentativo).
-                    self._journal("RECONNECT", attempt=self._reconnect_attempt,
+                    self._journal("RECONNECT", attempt=tentativo,
                                   error=type(ex).__name__)
                     # Backoff + flood-control di Telegram (Codex P2): se l'errore porta un
                     # `retry_after` più lungo del backoff locale, attendi quello, così non si
                     # riprova prima del tempo richiesto dal server. Decisione pura e testata
                     # in `reconnect_policy.effective_delay`.
                     retry_after = getattr(ex, "retry_after", None)
-                    delay = reconnect_policy.effective_delay(self._reconnect_attempt, retry_after)
+                    delay = reconnect_policy.effective_delay(tentativo, retry_after)
                     self._safe_after(0, lambda e=ex: self._set_last("error", f"rete: {e}"))
-                    self._safe_after(0, lambda e=ex, d=delay, n=self._reconnect_attempt: self._log(i18n.tr(
+                    self._safe_after(0, lambda e=ex, d=delay, n=tentativo: self._log(i18n.tr(
                         "🔌 Connessione persa ({error}): riconnessione tra {delay}s (tentativo {attempt})…")
                         .format(error=type(e).__name__, delay=f"{d:.0f}", attempt=n)))
                     self._safe_after(0, lambda: self._set_status_reconnecting(epoch))
