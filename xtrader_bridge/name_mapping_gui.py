@@ -517,25 +517,28 @@ class NameMappingPanel(ctk.CTkFrame):
                 # mentre i parser salvati potevano puntare ancora al vecchio nome
                 # (segnali scartati in silenzio, MAPPING_MISSING). Avviso onesto + stop.
                 self._status.configure(
-                    text=i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma la verifica dei "
+                    text=gui_utils.with_running_notice(i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma la verifica dei "
                                  "parser salvati è FALLITA ({exc}): controlla a mano quali usano "
                                  "ancora «{old}» o quei segnali verranno scartati "
                                  "(MAPPING_MISSING).").format(old=old, new=new, exc=exc),
+                        self._is_running),
                     text_color=ui_theme.STATUS_WARN)
                 return
             if failed:
                 # Alcuni parser non si sono potuti riscrivere: restano sul vecchio nome
                 # mentre la config ha il nuovo → quei segnali andrebbero scartati. Avvisa.
                 self._status.configure(
-                    text=i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma {count} parser NON "
+                    text=gui_utils.with_running_notice(i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma {count} parser NON "
                                  "aggiornati ({names}): correggili a mano o quei segnali verranno "
                                  "scartati (MAPPING_MISSING).").format(
                         old=old, new=new, count=len(failed), names=', '.join(failed)),
+                        self._is_running),
                     text_color=ui_theme.STATUS_WARN)
             elif updated:
                 self._status.configure(
-                    text=i18n.tr("✏️ Profilo rinominato «{old}» → «{new}» · {count} parser "
+                    text=gui_utils.with_running_notice(i18n.tr("✏️ Profilo rinominato «{old}» → «{new}» · {count} parser "
                                  "aggiornati.").format(old=old, new=new, count=len(updated)),
+                        self._is_running),
                     text_color=ui_theme.STATUS_OK)
 
     def _delete_profile(self):
@@ -580,10 +583,11 @@ class NameMappingPanel(ctk.CTkFrame):
             fail_msg=i18n.tr("❌ Salvataggio FALLITO: «{name}» non eliminato.").format(name=name))
         if ok and affected:
             self._status.configure(
-                text=i18n.tr("⚠️ «{name}» eliminato, ma è ancora selezionato in {count} parser "
+                text=gui_utils.with_running_notice(i18n.tr("⚠️ «{name}» eliminato, ma è ancora selezionato in {count} parser "
                              "({names}): quei segnali verranno scartati (MAPPING_MISSING) finché "
                              "non togli il profilo da quei parser.").format(
                     name=name, count=len(affected), names=', '.join(affected)),
+                    self._is_running),
                 text_color=ui_theme.STATUS_WARN)
 
 
@@ -967,23 +971,26 @@ class MarketMappingPanel(ctk.CTkFrame):
             except Exception as exc:             # noqa: BLE001 — il rename config resta valido
                 # P3-32 #76: come per il dizionario nomi — mai successo con stato ignoto.
                 self._status.configure(
-                    text=i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma la verifica dei "
+                    text=gui_utils.with_running_notice(i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma la verifica dei "
                                  "parser salvati è FALLITA ({exc}): controlla a mano quali usano "
                                  "ancora «{old}» o quei segnali verranno scartati "
                                  "(MARKET_MAPPING_MISSING).").format(old=old, new=new, exc=exc),
+                        self._is_running),
                     text_color=ui_theme.STATUS_WARN)
                 return
             if failed:
                 self._status.configure(
-                    text=i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma {count} parser NON "
+                    text=gui_utils.with_running_notice(i18n.tr("⚠️ Profilo rinominato «{old}» → «{new}», ma {count} parser NON "
                                  "aggiornati ({names}): correggili a mano o quei segnali verranno "
                                  "scartati (MARKET_MAPPING_MISSING).").format(
                         old=old, new=new, count=len(failed), names=', '.join(failed)),
+                        self._is_running),
                     text_color=ui_theme.STATUS_WARN)
             elif updated:
                 self._status.configure(
-                    text=i18n.tr("✏️ Profilo rinominato «{old}» → «{new}» · {count} parser "
+                    text=gui_utils.with_running_notice(i18n.tr("✏️ Profilo rinominato «{old}» → «{new}» · {count} parser "
                                  "aggiornati.").format(old=old, new=new, count=len(updated)),
+                        self._is_running),
                     text_color=ui_theme.STATUS_OK)
 
     def _delete_profile(self):
@@ -1025,10 +1032,11 @@ class MarketMappingPanel(ctk.CTkFrame):
             fail_msg=i18n.tr("❌ Salvataggio FALLITO: «{name}» non eliminato.").format(name=name))
         if ok and affected:
             self._status.configure(
-                text=i18n.tr("⚠️ «{name}» eliminato, ma è ancora selezionato in {count} parser "
+                text=gui_utils.with_running_notice(i18n.tr("⚠️ «{name}» eliminato, ma è ancora selezionato in {count} parser "
                              "({names}): quei segnali verranno scartati (MARKET_MAPPING_MISSING) "
                              "finché non togli il profilo da quei parser.").format(
                     name=name, count=len(affected), names=', '.join(affected)),
+                    self._is_running),
                 text_color=ui_theme.STATUS_WARN)
 
 

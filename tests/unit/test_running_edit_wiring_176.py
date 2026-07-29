@@ -209,18 +209,73 @@ def test_guided_mapping_da_fermo_il_messaggio_e_invariato(monkeypatch):
 
 
 def test_l_AUTO_save_al_cambio_sport_NON_passa_da_save(monkeypatch):
-    """L'invariante dichiarata nel design handoff, ora fissata (dubbio di Fable 5 #177).
+    """L'invariante dichiarata nel design handoff: l'avviso non deve comparire sull'auto-save
+    al cambio sport, perche' l'utente non l'ha chiesto.
 
-    L'avviso non deve comparire sull'auto-save al cambio sport: l'utente non l'ha chiesto.
-    Regge perche' `_autosave_leaving` ha un percorso di scrittura PROPRIO e `_save` e'
-    invocato solo dal pulsante. Se un domani l'auto-save venisse instradato su `_save`,
-    questo test diventa rosso e obbliga a riconsiderare la scelta invece di scoprirla dalla
-    UI."""
-    import inspect
+    Verificata ESEGUENDO (rilievo GPT-5.5): si sostituisce `_save` con una sentinella che
+    esplode se chiamata, e si fa girare l'auto-save reale. Il controllo precedente guardava
+    il TESTO del sorgente — lo stesso `inspect.getsource` che questa serie ha gia' criticato
+    due volte: un alias o una delega gli sfuggirebbero, e una riformattazione lo romperebbe
+    senza che nulla sia regredito."""
     mod = _importa(monkeypatch, "guided_mapping_gui")
+    monkeypatch.setattr(mod.config_store, "save_config", lambda cfg, path=None: (cfg, True))
 
-    sorgente_autosave = inspect.getsource(mod.GuidedMappingPanel._autosave_leaving)
-    assert "self._save(" not in sorgente_autosave, (
-        "l'auto-save ora passa da _save: mostrerebbe l'avviso su un'azione non richiesta")
-    # e ha davvero una scrittura propria: non e' un guscio che delega altrove
-    assert "save_config" in sorgente_autosave, sorgente_autosave
+    chiamate = []
+    monkeypatch.setattr(mod.GuidedMappingPanel, "_save",
+                        lambda self: chiamate.append("_save"))
+
+    finto = _self_guided(running=True)
+    finto._baseline = {}
+    finto._team_vars = {"Inter": types.SimpleNamespace(get=lambda: "Inter Milano")}
+    mod.GuidedMappingPanel._autosave_leaving(finto, "Calcio")
+
+    assert chiamate == [], (
+        "l'auto-save e' passato da _save: mostrerebbe l'avviso su un'azione non richiesta")
+    testi = " ".join(finto._status.testi)
+    assert "Bridge ATTIVO" not in testi, f"l'auto-save ha mostrato l'avviso: {testi}"
+
+
+def _self_rename(*, running):
+    """`self` finto per `_rename_profile`: persist riuscito, con parser aggiornati."""
+    return types.SimpleNamespace(
+        _current="Vecchio",
+        _status=_Widget(),
+        _is_running=(lambda: running),
+        _persist=lambda *a, **k: True,
+        _load_cfg=lambda: {},
+        _name_entry=types.SimpleNamespace(get=lambda: "Nuovo"),
+        _collect_rows=lambda: [],
+    )
+
+
+@pytest.mark.parametrize("classe", ["NameMappingPanel", "MarketMappingPanel"])
+def test_la_RINOMINA_riuscita_non_perde_l_avviso(monkeypatch, classe):
+    """Buco trovato da CodeRabbit: `_persist` mette l'avviso, poi il ramo «parser aggiornati»
+    SOVRASCRIVE lo stato con testo semplice — e l'avviso spariva in silenzio, proprio su
+    un'operazione che questa feature deve coprire.
+
+    Misurato: quattro operazioni (rinomina ed elimina, in entrambi i pannelli) lo perdevano."""
+    mod = _importa(monkeypatch, "name_mapping_gui")
+    monkeypatch.setattr(mod.custom_parser, "rename_mapping_profile_in_files",
+                        lambda old, new: (["ParserA"], []))
+    monkeypatch.setattr(mod.custom_parser, "rename_market_mapping_profile_in_files",
+                        lambda old, new: (["ParserA"], []), raising=False)
+    monkeypatch.setattr(mod.market_mapping_store, "set_entries", lambda cfg, n, r: cfg,
+                        raising=False)
+    # il dialogo del nuovo nome: lo stub ctk non ha `get_input`, e senza questo il metodo
+    # morirebbe subito lasciando lo stato VUOTO — il test passerebbe/fallirebbe per il
+    # motivo sbagliato.
+    monkeypatch.setattr(mod.ctk, "CTkInputDialog",
+                        lambda **k: types.SimpleNamespace(get_input=lambda: "Nuovo"),
+                        raising=False)
+    monkeypatch.setattr(mod.name_mapping_store, "profile_names", lambda cfg: [])
+    monkeypatch.setattr(mod.name_mapping_store, "rename_profile", lambda cfg, o, n: cfg)
+    monkeypatch.setattr(mod.market_mapping_store, "profile_names", lambda cfg: [], raising=False)
+    monkeypatch.setattr(mod.market_mapping_store, "rename_profile", lambda cfg, o, n: cfg,
+                        raising=False)
+
+    getattr(mod, classe)._rename_profile(finto := _self_rename(running=True))
+
+    testi = " ".join(finto._status.testi)
+    assert "Bridge ATTIVO" in testi, (
+        f"{classe}: la rinomina riuscita ha perso l'avviso — {testi}")
