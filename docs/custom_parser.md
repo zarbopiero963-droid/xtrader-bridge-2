@@ -543,6 +543,26 @@ Tutti questi gate devono passare perché una riga venga scritta:
      Serve un'estrazione **obbligatoria**. Quando invece il riconoscimento **non** è già
      completo coi soli fissi, l'estrazione di un campo di riconoscimento conta come prima
      (così i parser basati su **mappatura mercati**, che estraggono solo l'evento, restano validi).
+
+     **Cosa succede quando la mappatura mercati non trova nulla — contratto fissato.**
+     Con `MarketId`/`SelectionId` **fissi** *più* un profilo di mappatura mercati, se
+     **nessuna frase mercato combacia** col messaggio gli ID fissi **restano** e la riga è
+     piazzabile (purché ci sia l'estrazione obbligatoria di cui sopra). In pratica: se il
+     mercato scritto nel messaggio non è a dizionario — o è scritto diversamente, `over 2,75`
+     invece di `over 2,5` — **si scommette sul mercato FISSO** e quello nominato nel messaggio
+     viene ignorato (`MarketName` resta vuoto: la riga è identificata dagli ID).
+
+     È **corretto** per il caso d'uso «questo canale scommette sempre lo stesso mercato, il
+     messaggio mi dice solo *quale evento*»; è **sbagliato** se la mappatura serviva perché il
+     canale manda mercati diversi. La configurazione non distingue le due intenzioni: la
+     scelta (decisione del proprietario) è tenere questo comportamento invece di fail-closare,
+     perché il fail-closed farebbe sparire **in silenzio** ogni segnale con un mercato non
+     mappato. Se una frase mercato **combacia**, invece, vince il dizionario e la coppia ID
+     viene **azzerata**, così la riga non porta identificatori incoerenti col mercato a nome.
+
+     Il ramo è congelato da `tests/safety/test_golden_fixed_id_fallback_74.py`: cambiarlo fa
+     diventare rossi quei test, che è il punto — la decisione va dichiarata, non scoperta dal
+     CSV.
 4. **Approvazione chat**: un parser è usato solo per la chat **configurata**
    (`chat_id`) o per le chat con voce esplicita in `parser_by_chat`. Un
    `active_parser` globale **non** fa scommettere chat non approvate.
