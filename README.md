@@ -863,7 +863,11 @@ non inizia a scommettere da solo per sbaglio. Di default è disattivato.
 
 **Cosa succede se cade la connessione?** Il listener **si riconnette da solo** con
 attese crescenti (backoff: 2s, 4s, 8s… fino a 60s) finché resta avviato; durante
-l'attesa lo stato mostra **RICONNESSIONE…**, poi torna **ATTIVO**. **Solo alla prima
+l'attesa lo stato mostra **RICONNESSIONE…**, poi torna **ATTIVO**. Se Telegram risponde con
+un *flood control* che chiede di aspettare **più a lungo** del backoff, il bridge onora quella
+richiesta — **fino a un massimo di un'ora**. Il tetto serve contro un valore fuori scala: senza
+di esso un'attesa assurda (o non finita) fermerebbe le riconnessioni **in silenzio**, lasciando
+il bridge «avviato» ma sordo. **Solo alla prima
 connessione riuscita** della sessione i messaggi accumulati mentre il bridge era spento
 vengono **scartati** (`drop_pending_updates`, così non si parte processando segnali vecchi);
 se il primissimo tentativo fallisce, lo scarto avviene comunque al primo tentativo che va a

@@ -3759,3 +3759,40 @@ unifichi** — cioè esattamente il rename che si sarebbe fatto.
 Ogni rinomina è protetta da un guard test che **fallisce se il nome ambiguo torna**
 (`test_ambiguity_69.py`, `test_ambiguity_minori_69.py`, `test_csv_family_a4_69.py`,
 `test_bridge_mode_dry_run_a5_69.py`).
+
+---
+
+## P3-rs3 (#166) — il `retry_after` di Telegram va limitato, non solo confrontato
+
+`reconnect_policy.effective_delay` onora il *flood control* del server quando chiede
+un'attesa più lunga del backoff locale. Restituiva però il valore **così com'era**, e quel
+numero arriva da un attributo popolato dalla risposta dell'API: non è un dato di cui fidarsi.
+
+Il ritardo finisce in `app._reconnect_wait` → `threading.Event.wait(delay)`, che si rompe in
+**due modi distinti** — misurati, non dedotti:
+
+| `retry_after` | `Event.wait(delay)` | Effetto |
+|---|---|---|
+| `inf`, `1e300` | **OverflowError** | eccezione non gestita → il thread supervisor muore: il bridge resta «avviato» nella GUI e non riconnette più |
+| `1e9` (≈31 anni) | nessun errore, **attende davvero** | nessuna eccezione, nessun log: il supervisor dorme e il bridge sembra vivo |
+
+Il secondo è il peggiore perché è **muto**. Entrambi producono lo stesso stato osservabile —
+«running ma sordo» — già identificato come pericoloso nella nota di `is_transient_error`.
+
+**La protezione esisteva già nel file, ma solo su un lato.** `backoff_delay` cappa
+l'esponente proprio per non uccidere il supervisor con un `OverflowError`; `effective_delay`
+aggirava quella difesa restituendo un valore esterno non filtrato. Il fix chiude l'altra
+strada verso lo stesso guasto:
+
+- **non finiti** (`inf`, `-inf`, `nan`) → trattati come il caso già previsto «assente o non
+  numerico»: dato corrotto, non una richiesta del server → resta il backoff locale;
+- **finiti** → limitati a `MAX_RETRY_AFTER = 3600.0` (1 ora), ~60× il cap del backoff, quindi
+  ben sopra qualunque flood control reale: nessuna richiesta plausibile viene toccata.
+
+Guard test in `test_reconnect_policy.py`, mutation-verified su **entrambe** le metà (togliendo
+il tetto cadono 2 test, togliendo la guardia sui non-finiti ne cade 1).
+
+> **Nota di metodo.** La prima stesura del test passava il ritardo a un `Event.wait` reale.
+> Sotto mutazione quel test non falliva: si **impiccava** per un'ora. Un test che si blocca è
+> peggio di uno che fallisce — in CI diventa un timeout opaco invece di un messaggio, e costa
+> minuti runner. Ora asserisce la proprietà (finito e ≤ tetto) senza attendere davvero.
