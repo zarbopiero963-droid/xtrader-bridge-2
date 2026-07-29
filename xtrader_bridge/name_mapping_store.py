@@ -260,8 +260,10 @@ def ambiguous_alias_warnings(cfg: dict) -> list:
         # `dict` preserva l'ordine d'inserimento: l'ordine degli avvisi è deterministico,
         # un log eventi che si rimescola a ogni avvio non si legge.
         conflitti = {}
+        righe = get_entries(cfg, profile)       # una sola lettura+pulizia per profilo: le due
+                                                # fasi scorrono le STESSE righe (GPT-5.5/Fable)
         for key in ("provider", "betfair"):    # alias e canonico: le due fasi del resolver
-            for e in get_entries(cfg, profile):
+            for e in righe:
                 # Stesso guard di `_resolve_in_tier`: una riga senza `key` o senza `betfair`
                 # non combacia MAI in quella fase, quindi non può essere ambigua.
                 if not e.get(key, "") or not e.get("betfair", ""):

@@ -1152,6 +1152,13 @@ def test_avviso_e_runtime_dicono_la_STESSA_cosa():
         # config sana verrebbe accusata. Caso trovato da una mutazione sopravvissuta.
         ([{"betfair": "A", "provider": "X"}, {"provider": "X"}], "X", False),
         ([{"betfair": "A", "provider": "X"}, {"provider": "X", "betfair": ""}], "X", False),
+        # target che differiscono solo per il CASE (rilievo Fable 5 #172). `_resolve_in_tier`
+        # accumula i `betfair` GREZZI (`.add(e.get("betfair"))`, nessun normalize sul target),
+        # quindi per il runtime sono due destinazioni diverse -> fail-closed. L'avviso usa lo
+        # stesso confronto grezzo: se un domani uno dei due lati normalizzasse il target e
+        # l'altro no, questa riga diventa rossa.
+        ([{"betfair": "Inter Milano", "provider": "X"},
+          {"betfair": "inter milano", "provider": "X"}], "X", True),
     ]
     for righe, nome, atteso in casi:
         cfg = {"name_mappings": {"P": list(righe)}}
@@ -1182,3 +1189,42 @@ def test_config_spazzatura_non_esplode():
                   {"name_mappings": {"P": None}}, {"name_mappings": {"P": ["non-un-dict"]}},
                   {"name_mappings": {"P": [{}]}}, None):
         assert nm.ambiguous_alias_warnings(rotta) == []
+
+
+def test_conflitto_su_entrambe_le_fasi_viene_riportato_due_volte():
+    """Comportamento **voluto e misurato**, non un incidente (emerso dal rilievo Fable 5 #172).
+
+    Con due righe i cui `betfair` differiscono solo per il case, l'alias condiviso e' ambiguo
+    nella fase ALIAS, e i due canonici — che normalizzano allo stesso nome — sono ambigui
+    anche nella fase CANONICO. Sono due lookup distinti che fail-closano entrambi:
+
+        resolve_team("X", ...)             -> None   (fase alias)
+        resolve_team("Inter Milano", ...)  -> None   (fase canonico)
+
+    Riportarli entrambi e' corretto: chi correggesse solo l'alias avrebbe ancora la seconda
+    ambiguita' viva. Il test la fissa, cosi' un cambio futuro nel numero di avvisi e' una
+    decisione e non una sorpresa."""
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter Milano", "provider": "X"},
+        {"betfair": "inter milano", "provider": "X"},
+    ]}}
+    profs = nm.entries_for_profiles(cfg, ["P"])
+    assert nm.resolve_team("X", profs) is None
+    assert nm.resolve_team("Inter Milano", profs) is None
+
+    warns = nm.ambiguous_alias_warnings(cfg)
+    assert len(warns) == 2, warns
+    assert any("alias «X»" in w for w in warns), warns
+    assert any("nome canonico" in w for w in warns), warns
+
+
+def test_una_sola_fase_ambigua_da_un_solo_avviso():
+    """Il contrasto che rende non-vacuo il test sopra: quando SOLO la fase alias e' ambigua
+    (i due canonici sono nomi realmente diversi) esce **un** avviso, non due."""
+    cfg = {"name_mappings": {"P": [
+        {"betfair": "Inter Milano", "provider": "X"},
+        {"betfair": "Inter Miami", "provider": "X"},
+    ]}}
+    warns = nm.ambiguous_alias_warnings(cfg)
+    assert len(warns) == 1, warns
+    assert "alias «X»" in warns[0]
