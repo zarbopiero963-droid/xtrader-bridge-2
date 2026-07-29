@@ -3792,7 +3792,29 @@ strada verso lo stesso guasto:
 Guard test in `test_reconnect_policy.py`, mutation-verified su **entrambe** le metà (togliendo
 il tetto cadono 2 test, togliendo la guardia sui non-finiti ne cade 1).
 
-> **Nota di metodo.** La prima stesura del test passava il ritardo a un `Event.wait` reale.
-> Sotto mutazione quel test non falliva: si **impiccava** per un'ora. Un test che si blocca è
-> peggio di uno che fallisce — in CI diventa un timeout opaco invece di un messaggio, e costa
-> minuti runner. Ora asserisce la proprietà (finito e ≤ tetto) senza attendere davvero.
+### Il difetto nella guardia stessa (CodeRabbit, #169)
+
+La prima stesura del fix chiamava `math.isfinite(retry_after)` su **qualunque** numero. Ma
+`isfinite` converte l'argomento a `float`, e gli `int` di Python sono illimitati: sopra
+~1.8e308 quella conversione solleva `OverflowError: int too large to convert to float`.
+
+**La guardia scritta per impedire un `OverflowError` ne sollevava uno suo**, nello stesso punto
+e con la stessa conseguenza — supervisor morto. Ed è raggiungibile per la stessa via del resto
+del fix: `retry_after` viene dal JSON della risposta API, e il modulo `json` produce `int` di
+grandezza arbitraria senza batter ciglio.
+
+Un `int` è finito per definizione: `isfinite` serve solo sui `float`. Il confronto e `min` con
+un intero gigante sono invece **esatti** e non convertono nulla — `min` restituisce
+`MAX_RETRY_AFTER` senza mai toccare il valore fuori scala.
+
+> **Nota di metodo — due volte lo stesso insegnamento.** Entrambi i difetti di questa PR sono
+> stati trovati **eseguendo**, non rileggendo: il secondo modo di rottura (attesa reale
+> pluriennale, muta) è emerso da una sonda rimasta bloccata 120 s; l'`OverflowError` sugli
+> interi giganti da uno script di CodeRabbit che ha chiamato `math.isfinite(10 ** 10000)`.
+> Nessuno dei due si vede leggendo il codice.
+>
+> Terzo episodio, sui test: la prima stesura passava il ritardo a un `Event.wait` **reale**.
+> Sotto mutazione quel test non falliva — si **impiccava** per un'ora. Un test che si blocca è
+> peggio di uno che fallisce: in CI diventa un timeout opaco invece di un messaggio, e costa
+> minuti runner. Ora l'ancora è `threading.TIMEOUT_MAX`, che è **documentata** e varia per
+> piattaforma (Linux ~292 anni, Windows ~49 giorni) — quindi va confrontata, mai ipotizzata.

@@ -111,8 +111,20 @@ def effective_delay(attempt: int, retry_after=None,
     delay = backoff_delay(attempt, base, cap)
     if isinstance(retry_after, bool):
         return delay
-    if isinstance(retry_after, (int, float)) and math.isfinite(retry_after) \
-            and retry_after > delay:
+    # `isfinite` va chiamata SOLO sui float: converte l'argomento a `float`, e gli `int` di
+    # Python sono illimitati, quindi sopra ~1.8e308 quella conversione solleva `OverflowError:
+    # int too large to convert to float` — la guardia scritta per impedire un OverflowError ne
+    # solleverebbe uno suo, nello stesso punto e con la stessa conseguenza (CodeRabbit #169).
+    # Un `int` è finito per definizione: non ha bisogno del controllo.
+    if isinstance(retry_after, int):
+        finito = True
+    elif isinstance(retry_after, float):
+        finito = math.isfinite(retry_after)
+    else:
+        return delay
+    # Il confronto e `min` con un int gigante sono esatti e non convertono: `min` restituisce
+    # `MAX_RETRY_AFTER` (un float) senza mai passare dal valore fuori scala.
+    if finito and retry_after > delay:
         return float(min(retry_after, MAX_RETRY_AFTER))
     return delay
 
