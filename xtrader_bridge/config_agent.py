@@ -106,6 +106,31 @@ class ToolResult:
         self.reason = reason
 
 
+# Segnaposto del ripiego fail-closed sui chat ID: usato SOLO se `diagnostics.redact_chat_ids`
+# solleva (percorso degradato). Volutamente diverso dall'impronta `chat:sha256:…` del percorso
+# normale, così nel log si distingue subito una redazione degradata da una regolare.
+MASKED_CHAT_FALLBACK = "<chat-id>"
+
+
+def _crude_chat_mask(text: str, chat_ids) -> str:
+    """Sostituzione LETTERALE degli ID, senza confini numerici — ripiego fail-closed (#171).
+
+    Non è un secondo `redact_chat_ids`: non prova a essere preciso. È deliberatamente più
+    aggressiva (può mordere dentro un numero più lungo) perché gira solo quando la redazione
+    esatta è già fallita, e in quel punto over-redigere è il verso sicuro.
+
+    Non solleva mai: è l'ultima riga di difesa, e una difesa che può sollevare non difende."""
+    out = str(text)
+    try:
+        for cid in chat_ids or ():
+            token = str(cid or "").strip()
+            if token:
+                out = out.replace(token, MASKED_CHAT_FALLBACK)
+    except Exception:   # noqa: BLE001 — ultima riga di difesa: mai un'eccezione da qui
+        return out
+    return out
+
+
 class ToolRegistry:
     """Registro dei tool + **guardie di sicurezza**. È l'unico punto da cui un tool viene eseguito.
 
@@ -182,9 +207,15 @@ class ToolRegistry:
             # `None`/int/list/dict fra gli ID — ma il contratto di questo metodo dice «la
             # seconda rete non deve poter rompere l'assistente», e una garanzia che dipende
             # dalla robustezza *attuale* di un'altra funzione non è una garanzia: è una
-            # coincidenza. Si ritorna il testo con i soli segreti redatti, mai un'eccezione
-            # che risalirebbe fino al turno dell'agente.
-            return out
+            # coincidenza.
+            #
+            # Il ripiego è fail-CLOSED (Fugu Ultra + Fable 5 + GPT-5.5 #171): ritornare il
+            # testo con i soli segreti redatti lascerebbe i chat ID in chiaro proprio nel
+            # percorso d'errore, contraddicendo lo scopo di questa rete. Si sostituisce
+            # letteralmente, senza confini: può over-redigere (un numero legittimo che
+            # CONTIENE l'ID), ma in un percorso già degradato l'over-redazione è il verso
+            # giusto — meglio un contatore storpiato che un ID in chiaro verso l'API.
+            return _crude_chat_mask(out, chat_ids)
 
     def register(self, tool: AgentTool) -> None:
         if tool.permission not in (READ_ONLY, WRITE_CONFIG):

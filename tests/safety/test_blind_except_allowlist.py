@@ -147,7 +147,7 @@ _ALLOWLIST = {
     "provider_gui.py": (3, "GUI Tk provider: render/azioni best-effort"),
     "reconnect_policy.py": (1, "classificazione errore di reconnect tollerante"),
     "source_chats_gui.py": (2, "GUI Tk sorgenti: best-effort (refresh-options + modal transient/grab_set)"),
-    "config_agent.py": (9, "assistente di configurazione (#41 PR-1): dispatch di un tool "
+    "config_agent.py": (10, "assistente di configurazione (#41 PR-1): dispatch di un tool "
                            "sola-lettura best-effort (un handler che solleva NON deve crashare "
                            "l'agente → errore restituito come contenuto); logging dell'audit "
                            "best-effort (un logger che solleva non deve far fallire il dispatch); "

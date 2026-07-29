@@ -344,5 +344,14 @@ def test_nemmeno_una_redazione_che_solleva_rompe_l_assistente(monkeypatch):
         reg.register(_tool("t", f"token {TOKEN_FINTO} e chat {CHAT_SUPERGRUPPO}"))
         uscita = reg.dispatch("t", {}).content          # non deve sollevare
         assert TOKEN_FINTO not in uscita, "la PRIMA rete deve reggere anche se cade la seconda"
+
+        # Il ripiego è fail-CLOSED (rilievo convergente di Fugu Ultra, Fable 5 e GPT-5.5
+        # #171): ritornare il testo con i soli segreti redatti lascerebbe l'ID in chiaro
+        # PROPRIO nel percorso d'errore — contraddicendo lo scopo di questa rete. Avevo
+        # inizialmente dichiarato il fail-open come scelta; avevano ragione loro.
+        assert CHAT_SUPERGRUPPO not in uscita, (
+            "il ripiego deve mascherare comunque l'ID: fail-closed, non fail-open")
+        assert config_agent.MASKED_CHAT_FALLBACK in uscita, (
+            "il segnaposto degradato dev'essere distinguibile dall'impronta normale")
     finally:
         event_log.clear_secrets()
