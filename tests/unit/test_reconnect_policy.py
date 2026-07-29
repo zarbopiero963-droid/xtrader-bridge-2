@@ -1,5 +1,7 @@
 """Test della politica di riconnessione del listener (logica pura)."""
 
+import pytest
+
 from xtrader_bridge import reconnect_policy as rp
 
 
@@ -158,3 +160,115 @@ def test_should_reconnect_solo_se_running_e_transitorio(monkeypatch):
     assert rp.should_reconnect(False, NetworkError("x")) is False
     # Errore permanente, anche se attivo → no.
     assert rp.should_reconnect(True, InvalidToken("x")) is False
+
+
+# ── P3-rs3 (#166): un `retry_after` fuori scala non deve uccidere il supervisor ──────────────
+
+def test_effective_delay_rifiuta_un_retry_after_non_finito():
+    """`inf`/`-inf`/`nan` non sono richieste del server: sono dati corrotti.
+
+    `getattr(ex, "retry_after", None)` legge un attributo popolato dalla **risposta
+    dell'API**. Un valore non finito che arriva fin lì viene trattato come il caso già
+    previsto «assente o non numerico»: si resta sul backoff locale. Il motivo per cui non lo
+    si può lasciar passare è nel test qui sotto."""
+    for guasto in (float("inf"), float("-inf"), float("nan")):
+        assert rp.effective_delay(1, guasto) == rp.backoff_delay(1), guasto
+        assert rp.effective_delay(5, guasto) == rp.backoff_delay(5), guasto
+
+
+def test_un_delay_non_finito_ucciderebbe_il_thread_di_riconnessione():
+    """La ragione della guardia, eseguita invece che affermata in un commento.
+
+    Il ritardo finisce in `app._reconnect_wait` → `threading.Event.wait(delay)`. Con un
+    valore che non entra nel `time_t` della piattaforma, `wait` solleva **OverflowError**:
+    un'eccezione non gestita nel supervisor di riconnessione, che muore. Il bridge resta
+    «avviato» nella GUI e non riconnette più — il modo peggiore di rompersi, perché è muto.
+
+    `backoff_delay` cappa già l'esponente per questa identica ragione (vedi il commento nel
+    sorgente): `effective_delay` aggirava quella protezione.
+
+    Nota sul metodo (rilievo GPT-5.5 #169). Il test **non chiama** `wait` con un valore fuori
+    scala, per due ragioni indipendenti:
+
+    1. il tipo di eccezione sarebbe un dettaglio di implementazione su cui non vale la pena
+       legare la CI;
+    2. soprattutto, una chiamata reale che *non* sollevasse si **bloccherebbe** — e un test che
+       si impicca è peggio di uno che fallisce: in CI diventa un timeout opaco invece di un
+       messaggio, e brucia minuti runner (Windows al doppio).
+
+    L'ancora è invece `threading.TIMEOUT_MAX`, che è **documentata**: un timeout superiore a
+    quel valore solleva `OverflowError`. Varia per piattaforma (su Linux ~292 anni, su Windows
+    ~49 giorni), ed è proprio per questo che va **confrontata** e mai ipotizzata."""
+    import math
+    import threading
+
+    # Il confine documentato oltre il quale `wait` rifiuta il timeout. Un `retry_after` non
+    # finito ci finisce sempre oltre, su qualunque piattaforma.
+    assert float("inf") > threading.TIMEOUT_MAX
+
+    # La garanzia che conta: qualunque cosa esca da `effective_delay` è attendibile davvero —
+    # finita, positiva, sotto il tetto, e sotto il massimo che `wait` accetta QUI.
+    assert rp.MAX_RETRY_AFTER <= threading.TIMEOUT_MAX
+    for guasto in (float("inf"), float("-inf"), float("nan"), 1e300, 1e9):
+        d = rp.effective_delay(1, guasto)
+        assert math.isfinite(d) and 0 < d <= rp.MAX_RETRY_AFTER, (guasto, d)
+        assert d <= threading.TIMEOUT_MAX, (guasto, d)
+
+
+def test_effective_delay_limita_un_retry_after_assurdamente_lungo():
+    """Secondo modo di rompersi, più insidioso del primo perché **non solleva nulla**.
+
+    Un `retry_after` grande ma finito (es. 1e9 secondi ≈ 31 anni) passa la validazione di
+    `Event.wait` e viene **atteso davvero**: nessuna eccezione, nessun log, il supervisor
+    dorme e il bridge sembra vivo. Un tetto lo trasforma in un'attesa lunga ma finita, dopo
+    la quale si riprova (e se il server è ancora in flood control lo ridirà, in modo
+    visibile e ripetibile)."""
+    assert rp.effective_delay(1, 1e9) == rp.MAX_RETRY_AFTER
+    assert rp.effective_delay(1, rp.MAX_RETRY_AFTER * 10) == rp.MAX_RETRY_AFTER
+    # Il tetto è generoso: molto sopra qualunque flood control reale di Telegram.
+    assert rp.MAX_RETRY_AFTER >= 600
+
+
+def test_un_retry_after_legittimo_resta_intatto():
+    """Nessuna regressione: la ragion d'essere di `effective_delay` è onorare la richiesta
+    del server quando è più lunga del backoff. Un valore plausibile non deve essere toccato
+    né dalla guardia sui non-finiti né dal tetto."""
+    assert rp.effective_delay(1, 50) == 50.0
+    assert rp.effective_delay(1, 3.5) == 3.5
+    assert rp.effective_delay(1, 300) == 300.0
+    assert rp.effective_delay(1, rp.MAX_RETRY_AFTER) == rp.MAX_RETRY_AFTER
+    # e uno più corto del backoff continua a non ridurlo
+    assert rp.effective_delay(4, 5) == rp.backoff_delay(4)
+
+
+@pytest.mark.parametrize("attempt", [1, 3, 6])
+@pytest.mark.parametrize("corto", [0, -1, -3600, -1e9, float("-inf")])
+def test_un_retry_after_nullo_o_negativo_non_accorcia_mai_il_backoff(attempt, corto):
+    """Copertura chiesta da GPT-5.5 (#169). Il verso della guardia conta: `effective_delay`
+    può solo ALLUNGARE l'attesa, mai accorciarla.
+
+    Se un valore ≤ 0 riuscisse a passare, la riconnessione partirebbe **subito** a ogni
+    tentativo — un loop stretto contro un server che ci sta già rifiutando, cioè il modo più
+    veloce per farsi bannare dal flood control. Provato su più tentativi perché il backoff
+    cresce e il confronto deve reggere a ogni scalino."""
+    assert rp.effective_delay(attempt, corto) == rp.backoff_delay(attempt)
+    assert rp.effective_delay(attempt, corto) >= rp.DEFAULT_BASE_DELAY
+
+
+@pytest.mark.parametrize("esponente", [309, 400, 10000])
+def test_un_intero_gigante_non_fa_esplodere_la_guardia_stessa(esponente):
+    """Rilievo CodeRabbit (#169), ed era un difetto **della guardia appena aggiunta**.
+
+    `math.isfinite()` converte l'argomento a `float` prima di rispondere. Gli `int` di Python
+    sono illimitati, quindi sopra ~1.8e308 quella conversione solleva `OverflowError: int too
+    large to convert to float` — la guardia scritta per impedire un `OverflowError` ne
+    sollevava uno suo, nello stesso punto e con la stessa conseguenza (supervisor morto).
+
+    È raggiungibile per la stessa via del resto del fix: `retry_after` arriva dal JSON della
+    risposta API, e il modulo `json` produce `int` di grandezza arbitraria senza batter ciglio.
+
+    Un `int` è finito per definizione: `isfinite` serve solo sui `float`."""
+    gigante = 10 ** esponente
+    assert rp.effective_delay(1, gigante) == rp.MAX_RETRY_AFTER
+    # e il gemello negativo non deve accorciare il backoff (né esplodere)
+    assert rp.effective_delay(3, -gigante) == rp.backoff_delay(3)

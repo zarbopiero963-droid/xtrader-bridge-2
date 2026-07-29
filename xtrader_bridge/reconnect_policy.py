@@ -12,9 +12,17 @@ asyncio, nessuna dipendenza da `python-telegram-bot`. Così è interamente testa
 La parte di I/O (ricostruire l'updater, attendere) vive nella vista sottile `app`.
 """
 
+import math
+
 # Backoff esponenziale, in secondi: 2, 4, 8, 16, 32, … limitato a un tetto.
 DEFAULT_BASE_DELAY = 2.0
 DEFAULT_MAX_DELAY = 60.0
+
+# Tetto al `retry_after` di Telegram (1 ora). Il flood control reale chiede secondi o
+# minuti: questo tetto è ~60× il cap del backoff locale, quindi non tocca nessuna richiesta
+# plausibile. Serve contro i valori fuori scala (P3-rs3 #166), che romperebbero il
+# supervisor in due modi diversi — vedi `effective_delay`.
+MAX_RETRY_AFTER = 3600.0
 
 # Errori considerati **transitori** (rete/timeout): vale la pena riprovare. La
 # classificazione preferisce `isinstance` sulle CLASSI REALI di `telegram.error` (vedi
@@ -82,12 +90,42 @@ def effective_delay(attempt: int, retry_after=None,
     maggiore del backoff non ha effetto (resta il backoff).
 
     I `bool` sono rifiutati prima del confronto (come altrove nel progetto): `True`
-    non è un `retry_after` valido, solo un intero accidentale da `getattr`."""
+    non è un `retry_after` valido, solo un intero accidentale da `getattr`.
+
+    **Valori fuori scala (P3-rs3 #166).** `retry_after` arriva da `getattr(exc,
+    "retry_after", None)`, cioè da un attributo popolato dalla risposta dell'API: non è un
+    numero di cui ci si possa fidare. Il ritardo restituito finisce in `app._reconnect_wait`
+    → `threading.Event.wait(delay)`, che si rompe in due modi diversi:
+
+    - **non finito** (`inf`, `nan`) o oltre il `time_t` della piattaforma → `wait` solleva
+      **OverflowError**, eccezione non gestita che uccide il thread supervisor: il bridge
+      resta «avviato» nella GUI e non riconnette più;
+    - **grande ma finito** (es. `1e9` ≈ 31 anni) → nessuna eccezione, `wait` **attende
+      davvero**. È il caso peggiore perché è muto: nessun errore, nessun log, il supervisor
+      dorme e il bridge sembra vivo.
+
+    Perciò i non finiti sono trattati come il caso già previsto «assente o non numerico»
+    (dato corrotto, non una richiesta del server → resta il backoff locale) e i finiti sono
+    limitati a `MAX_RETRY_AFTER`. `backoff_delay` cappa già l'esponente per questa identica
+    ragione: qui si chiude l'altra strada verso lo stesso guasto."""
     delay = backoff_delay(attempt, base, cap)
     if isinstance(retry_after, bool):
         return delay
-    if isinstance(retry_after, (int, float)) and retry_after > delay:
-        return float(retry_after)
+    # `isfinite` va chiamata SOLO sui float: converte l'argomento a `float`, e gli `int` di
+    # Python sono illimitati, quindi sopra ~1.8e308 quella conversione solleva `OverflowError:
+    # int too large to convert to float` — la guardia scritta per impedire un OverflowError ne
+    # solleverebbe uno suo, nello stesso punto e con la stessa conseguenza (CodeRabbit #169).
+    # Un `int` è finito per definizione: non ha bisogno del controllo.
+    if isinstance(retry_after, int):
+        finito = True
+    elif isinstance(retry_after, float):
+        finito = math.isfinite(retry_after)
+    else:
+        return delay
+    # Il confronto e `min` con un int gigante sono esatti e non convertono: `min` restituisce
+    # `MAX_RETRY_AFTER` (un float) senza mai passare dal valore fuori scala.
+    if finito and retry_after > delay:
+        return float(min(retry_after, MAX_RETRY_AFTER))
     return delay
 
 

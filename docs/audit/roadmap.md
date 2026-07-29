@@ -3759,3 +3759,62 @@ unifichi** — cioè esattamente il rename che si sarebbe fatto.
 Ogni rinomina è protetta da un guard test che **fallisce se il nome ambiguo torna**
 (`test_ambiguity_69.py`, `test_ambiguity_minori_69.py`, `test_csv_family_a4_69.py`,
 `test_bridge_mode_dry_run_a5_69.py`).
+
+---
+
+## P3-rs3 (#166) — il `retry_after` di Telegram va limitato, non solo confrontato
+
+`reconnect_policy.effective_delay` onora il *flood control* del server quando chiede
+un'attesa più lunga del backoff locale. Restituiva però il valore **così com'era**, e quel
+numero arriva da un attributo popolato dalla risposta dell'API: non è un dato di cui fidarsi.
+
+Il ritardo finisce in `app._reconnect_wait` → `threading.Event.wait(delay)`, che si rompe in
+**due modi distinti** — misurati, non dedotti:
+
+| `retry_after` | `Event.wait(delay)` | Effetto |
+|---|---|---|
+| `inf`, `1e300` | **OverflowError** | eccezione non gestita → il thread supervisor muore: il bridge resta «avviato» nella GUI e non riconnette più |
+| `1e9` (≈31 anni) | nessun errore, **attende davvero** | nessuna eccezione, nessun log: il supervisor dorme e il bridge sembra vivo |
+
+Il secondo è il peggiore perché è **muto**. Entrambi producono lo stesso stato osservabile —
+«running ma sordo» — già identificato come pericoloso nella nota di `is_transient_error`.
+
+**La protezione esisteva già nel file, ma solo su un lato.** `backoff_delay` cappa
+l'esponente proprio per non uccidere il supervisor con un `OverflowError`; `effective_delay`
+aggirava quella difesa restituendo un valore esterno non filtrato. Il fix chiude l'altra
+strada verso lo stesso guasto:
+
+- **non finiti** (`inf`, `-inf`, `nan`) → trattati come il caso già previsto «assente o non
+  numerico»: dato corrotto, non una richiesta del server → resta il backoff locale;
+- **finiti** → limitati a `MAX_RETRY_AFTER = 3600.0` (1 ora), ~60× il cap del backoff, quindi
+  ben sopra qualunque flood control reale: nessuna richiesta plausibile viene toccata.
+
+Guard test in `test_reconnect_policy.py`, mutation-verified su **entrambe** le metà (togliendo
+il tetto cadono 2 test, togliendo la guardia sui non-finiti ne cade 1).
+
+### Il difetto nella guardia stessa (CodeRabbit, #169)
+
+La prima stesura del fix chiamava `math.isfinite(retry_after)` su **qualunque** numero. Ma
+`isfinite` converte l'argomento a `float`, e gli `int` di Python sono illimitati: sopra
+~1.8e308 quella conversione solleva `OverflowError: int too large to convert to float`.
+
+**La guardia scritta per impedire un `OverflowError` ne sollevava uno suo**, nello stesso punto
+e con la stessa conseguenza — supervisor morto. Ed è raggiungibile per la stessa via del resto
+del fix: `retry_after` viene dal JSON della risposta API, e il modulo `json` produce `int` di
+grandezza arbitraria senza batter ciglio.
+
+Un `int` è finito per definizione: `isfinite` serve solo sui `float`. Il confronto e `min` con
+un intero gigante sono invece **esatti** e non convertono nulla — `min` restituisce
+`MAX_RETRY_AFTER` senza mai toccare il valore fuori scala.
+
+> **Nota di metodo — due volte lo stesso insegnamento.** Entrambi i difetti di questa PR sono
+> stati trovati **eseguendo**, non rileggendo: il secondo modo di rottura (attesa reale
+> pluriennale, muta) è emerso da una sonda rimasta bloccata 120 s; l'`OverflowError` sugli
+> interi giganti da uno script di CodeRabbit che ha chiamato `math.isfinite(10 ** 10000)`.
+> Nessuno dei due si vede leggendo il codice.
+>
+> Terzo episodio, sui test: la prima stesura passava il ritardo a un `Event.wait` **reale**.
+> Sotto mutazione quel test non falliva — si **impiccava** per un'ora. Un test che si blocca è
+> peggio di uno che fallisce: in CI diventa un timeout opaco invece di un messaggio, e costa
+> minuti runner. Ora l'ancora è `threading.TIMEOUT_MAX`, che è **documentata** e varia per
+> piattaforma (Linux ~292 anni, Windows ~49 giorni) — quindi va confrontata, mai ipotizzata.
