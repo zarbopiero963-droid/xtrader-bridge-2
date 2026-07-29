@@ -22,7 +22,8 @@ lasciano mai la macchina in chiaro.
 import json
 import os
 
-from . import (atomic_io, bridge_mode, config_store, csv_writer, custom_parser, dizionario,
+from . import (atomic_io, bridge_mode, config_store, csv_writer, custom_parser,
+               diagnostics, dizionario,
                event_journal, event_log, health_check, journal_view, language_select, log_privacy,
                market_mapping_store, name_mapping_store, parser_builder, parser_manager, recognition,
                signal_router, source_manager, value_maps, wizard)
@@ -117,10 +118,42 @@ class ToolRegistry:
     Ogni chiamata (permessa o rifiutata) è annotata in ``audit_log`` e, se presente, notificata al
     ``logger`` iniettabile — così l'app reale può scrivere l'evento nel log senza I/O nei test."""
 
-    def __init__(self, *, logger=None):
+    def __init__(self, *, logger=None, chat_ids_provider=None):
         self._tools = {}
         self.audit_log = []       # lista di dict {name, input, allowed, reason} — ispezionabile nei test
         self._logger = logger     # callable(str) opzionale per il log reale (event_log nell'app)
+        # Callable() -> iterabile di chat_id configurati, per la redazione centralizzata (#137).
+        # Opzionale: senza, il comportamento resta quello di prima (solo segreti).
+        self._chat_ids_provider = chat_ids_provider
+
+    def _safe_out(self, text) -> str:
+        """Unica uscita verso il modello: redige **segreti** e **chat_id** (audit #137).
+
+        Prima i chat_id erano redatti solo da `_redact_config`, chiamato da UN tool
+        (`get_config_state`): un tool futuro che se ne dimenticava li esponeva. Qui la
+        redazione diventa una proprietà del **dispatcher**, cioè dell'unico punto da cui un
+        tool può restituire qualcosa — così non dipende più dalla memoria di chi lo scrive.
+
+        `_redact_config` **resta** e non è ridondante: è la difesa di primo livello, che
+        redige il JSON di config in modo strutturato (anche le CHIAVI dei dict
+        `parser_by_chat`). Questa è la seconda rete.
+
+        La sostituzione usa `diagnostics.redact_chat_ids`, che tocca **solo** gli ID
+        realmente configurati e mai «i numeri che sembrano un id»: un output coi contatori
+        storpiati non servirebbe a diagnosticare nulla, che è lo scopo dell'assistente.
+
+        Fail-safe dichiarato: se il provider solleva (config illeggibile), si degrada alla
+        sola redazione dei segreti invece di far crashare l'assistente. È accettabile perché
+        questa è la *seconda* rete, non la prima."""
+        out = event_log.redact_secrets(str(text))
+        provider = self._chat_ids_provider
+        if provider is None:
+            return out
+        try:
+            chat_ids = provider()
+        except Exception:   # noqa: BLE001 — la seconda rete non deve poter rompere l'assistente
+            return out
+        return diagnostics.redact_chat_ids(out, chat_ids)
 
     def register(self, tool: AgentTool) -> None:
         if tool.permission not in (READ_ONLY, WRITE_CONFIG):
@@ -180,32 +213,32 @@ class ToolRegistry:
         if name in FORBIDDEN_TOOLS:
             reason = "forbidden"
             self._audit(name, tool_input, False, reason)
-            return ToolResult(name, event_log.redact_secrets(_REFUSAL_FORBIDDEN.format(name=name)),
+            return ToolResult(name, self._safe_out(_REFUSAL_FORBIDDEN.format(name=name)),
                               refused=True, reason=reason)
         tool = self._tools.get(name)
         # 2. sconosciuto.
         if tool is None:
             reason = "unknown"
             self._audit(name, tool_input, False, reason)
-            return ToolResult(name, event_log.redact_secrets(_REFUSAL_UNKNOWN.format(name=name)),
+            return ToolResult(name, self._safe_out(_REFUSAL_UNKNOWN.format(name=name)),
                               refused=True, reason=reason)
         # 3. scrittura non abilitata.
         if tool.permission == WRITE_CONFIG and not allow_writes:
             reason = "write_disabled"
             self._audit(name, tool_input, False, reason)
-            return ToolResult(name, event_log.redact_secrets(_REFUSAL_WRITE_DISABLED.format(name=name)),
+            return ToolResult(name, self._safe_out(_REFUSAL_WRITE_DISABLED.format(name=name)),
                               refused=True, reason=reason)
         # 4. esecuzione + redazione segreti sul risultato.
         try:
             raw = tool.handler(tool_input)
         except ToolError as exc:
             self._audit(name, tool_input, True, f"error:{exc}")
-            return ToolResult(name, event_log.redact_secrets(f"Errore nel tool: {exc}"))
+            return ToolResult(name, self._safe_out(f"Errore nel tool: {exc}"))
         except Exception as exc:   # noqa: BLE001 — nessun tool deve poter far crashare l'agente
             self._audit(name, tool_input, True, f"exception:{type(exc).__name__}")
-            return ToolResult(name, event_log.redact_secrets(
+            return ToolResult(name, self._safe_out(
                 f"Errore interno nel tool «{name}»: {type(exc).__name__}"))
-        safe = event_log.redact_secrets(str(raw))
+        safe = self._safe_out(str(raw))
         self._audit(name, tool_input, True, "ok")
         return ToolResult(name, safe)
 
@@ -1057,7 +1090,12 @@ def build_default_registry(*, config_loader=None, parsers_dir=None, on_proposal=
     `tool_specs`); il gate `dispatch(allow_writes=...)` resta l'ultima difesa; e la scrittura vera è
     gated dalla UI (`on_proposal` → conferma umana), mai dal modello. `base_dir`/`health_provider`/
     `journal_path` sono iniettabili (test / stato live dell'app)."""
-    reg = ToolRegistry(logger=logger)
+    # Redazione chat_id centralizzata (#137): il provider legge dalla STESSA fonte del
+    # report diagnostico (`diagnostics.collect_chat_ids`), così non diverge quando si
+    # aggiunge una chiave di config che contiene chat.
+    _load_cfg = config_loader or config_store.load_config
+    reg = ToolRegistry(logger=logger,
+                       chat_ids_provider=lambda: diagnostics.collect_chat_ids(_load_cfg()))
     for tool in build_read_only_tools(config_loader=config_loader, parsers_dir=parsers_dir):
         reg.register(tool)
     for tool in build_guide_tools(base_dir=base_dir):
