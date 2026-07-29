@@ -385,7 +385,7 @@ def _redact_config(cfg: dict) -> dict:
 def build_read_only_tools(*, config_loader=None, parsers_dir=None) -> list:
     """Costruisce i tool **sola-lettura** dell'agente (stato live/contesto). ``config_loader`` e
     ``parsers_dir`` sono iniettabili per i test; se assenti si usa lo stato reale dell'app."""
-    load_cfg = config_loader or config_store.load_config
+    load_cfg = config_loader or readonly_config_loader
 
     def _get_config_state(_inp):
         cfg = load_cfg()
@@ -681,7 +681,7 @@ def build_message_preview(cfg, message, *, chat="", parsers_dir=None) -> dict:
 def build_tester_tools(*, config_loader=None, parsers_dir=None) -> list:
     """Tool SOLA-LETTURA `test_message` (#41 PR-8 Blocco B). `config_loader`/`parsers_dir`
     iniettabili per i test. Non scrive né tocca alcun file."""
-    load_cfg = config_loader or config_store.load_config
+    load_cfg = config_loader or readonly_config_loader
 
     def _test_message(inp):
         cfg = load_cfg() or {}
@@ -846,7 +846,7 @@ def build_dictionary_lookup(cfg, query) -> dict:
 
 def build_dictionary_tools(*, config_loader=None) -> list:
     """Tool SOLA-LETTURA `lookup_dictionary` (#41 PR-9 Blocco C). `config_loader` iniettabile."""
-    load_cfg = config_loader or config_store.load_config
+    load_cfg = config_loader or readonly_config_loader
 
     def _lookup_dictionary(inp):
         cfg = load_cfg() or {}
@@ -1006,7 +1006,7 @@ def build_journal_report(*, journal_path=None, limit=MAX_JOURNAL_EVENTS) -> dict
 def build_diagnostic_tools(*, config_loader=None, health_provider=None, journal_path=None) -> list:
     """Tool SOLA-LETTURA di diagnosi (#41 PR-10 Blocco D): `explain_health` + `why_discarded`.
     `health_provider`/`journal_path` iniettati dall'app (o dai test)."""
-    load_cfg = config_loader or config_store.load_config
+    load_cfg = config_loader or readonly_config_loader
 
     def _explain_health(_inp):
         return json.dumps(build_health_report(load_cfg() or {}, health_provider=health_provider),
@@ -1136,7 +1136,7 @@ def build_write_tools(*, config_loader=None, on_proposal=None) -> list:
     dall'utente tramite la UI (pulsante «Applica» → `AgentController.apply_pending`), non da un
     booleano deciso dal modello. Così un `confirm` allucinato o indotto (prompt injection) non può
     applicare nulla: al massimo mette in coda una PROPOSTA che l'utente vede e conferma a mano."""
-    load_cfg = config_loader or config_store.load_config
+    load_cfg = config_loader or readonly_config_loader
 
     def _set_config_value(inp):
         key = str(inp.get("key", "")).strip()

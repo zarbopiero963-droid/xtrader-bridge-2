@@ -460,62 +460,86 @@ def test_nel_ripiego_i_segreti_restano_redatti_prima_degli_id():
 
 # ── il provider di DEFAULT non deve mutare nulla (#171, rilievo CodeRabbit) ────
 
-def test_il_provider_di_default_non_ha_effetti_operativi(tmp_path, monkeypatch):
-    """🟠 Major trovato da CodeRabbit, e il più serio di tutta la PR — perché è nel **fix**,
-    non nella blindatura.
+def _spia_load_config(monkeypatch, cfg=None):
+    """Sostituisce `config_store.load_config` con una spia che REGISTRA i kwargs ricevuti.
+
+    È l'unico modo onesto di testare questo contratto: `load_config` ha il `path` come
+    **default argument**, legato a def-time, quindi monkeypatchare `config_store.CONFIG_FILE`
+    non ha alcun effetto — un test scritto così leggerebbe il config REALE e passerebbe
+    qualunque cosa faccia il codice. (Errore che ho commesso nella prima stesura di questi
+    test: la mutazione che rimetteva il loader operativo NON li faceva cadere.)"""
+    visti = []
+
+    def spia(path=None, *, sync_csv_language=True, recover_corrupt=True):
+        visti.append({"sync_csv_language": sync_csv_language,
+                      "recover_corrupt": recover_corrupt})
+        return dict(cfg or {})
+
+    monkeypatch.setattr(config_agent.config_store, "load_config", spia)
+    return visti
+
+
+def test_il_loader_di_default_e_sola_lettura(monkeypatch):
+    """🟠 Major trovato da CodeRabbit — il difetto più serio della PR, ed era nel **fix**.
 
     Il wiring usava `config_loader or config_store.load_config`: senza loader iniettato si
-    prendevano i default **operativi** (`sync_csv_language=True`, `recover_corrupt=True`).
-    Misurato, e succedeva davvero, **una volta per chiamata di tool**:
+    prendevano i default **operativi** (`sync_csv_language=True`, `recover_corrupt=True`), che
+    riallineano la lingua-CSV globale del writer e scrivono un `.bak` su config corrotta — le
+    due mutazioni che la #139 aveva chiuso **per questa stessa issue #137**.
 
-        lingua-CSV globale del writer:  IT → EN   (stato operativo mutato)
-        config corrotta:                scrive `config.json.bak`  (SCRITTURA)
-
-    Sono esattamente i due effetti che la #139 aveva chiuso **per questa stessa issue #137**:
-    la mia PR li reintroduceva. I test non lo prendevano perché iniettano sempre un loader —
-    esattamente il punto cieco che CodeRabbit ha indicato.
-
-    Ora il default è `readonly_config_loader`, fonte unica condivisa col controller."""
-    from xtrader_bridge import config_store, csv_writer
-
-    cfg_path = tmp_path / "config.json"
-    cfg_path.write_text('{"chat_id": "-1001234567890", "csv_language": "EN"}', encoding="utf-8")
-    monkeypatch.setattr(config_store, "CONFIG_FILE", str(cfg_path))
-
-    csv_writer.set_csv_language("IT")
-    prima = csv_writer.get_csv_language()
+    Nota di portata, verificata: in **produzione** il controller inietta sempre il suo loader
+    sola-lettura, quindi quel ripiego non veniva raggiunto. Era una **trappola latente**, non
+    un difetto vivo. Resta da chiudere perché il prossimo che costruisce un registry senza
+    iniettare nulla la troverebbe."""
+    visti = _spia_load_config(monkeypatch)
 
     config_agent.readonly_config_loader()
 
-    assert csv_writer.get_csv_language() == prima, (
-        "il loader sola-lettura NON deve riallineare la lingua-CSV globale del writer")
+    assert visti == [{"sync_csv_language": False, "recover_corrupt": False}], visti
 
 
-def test_il_provider_di_default_non_scrive_bak_su_config_corrotta(tmp_path, monkeypatch):
-    """L'altra metà dello stesso Major: su una config corrotta il loader operativo scrive un
-    `.bak`. Da un percorso dichiarato **sola lettura** è una scrittura di troppo."""
-    from xtrader_bridge import config_store
+def test_il_registry_di_default_usa_il_loader_sola_lettura(monkeypatch):
+    """Il guard **comportamentale** chiesto da GPT-5.5 e Fable 5 al posto di quello su
+    `inspect.getsource`, che verificava il *testo* del codice e si sarebbe rotto a ogni
+    refactor senza che nulla fosse regredito.
 
-    cfg_path = tmp_path / "config.json"
-    cfg_path.write_text("{ non json ", encoding="utf-8")
-    monkeypatch.setattr(config_store, "CONFIG_FILE", str(cfg_path))
+    Qui si costruisce il registry **senza** iniettare un loader — cioè si esercita proprio il
+    ripiego — e si guarda con quali flag arriva a `load_config`."""
+    visti = _spia_load_config(monkeypatch, {"chat_id": CHAT_SUPERGRUPPO})
 
-    config_agent.readonly_config_loader()
+    reg = config_agent.build_default_registry()
+    reg.register(_tool("sonda", f"chat {CHAT_SUPERGRUPPO}"))
+    uscita = reg.dispatch("sonda", {}).content
 
-    creati = [f.name for f in tmp_path.iterdir() if f.name != "config.json"]
-    assert not creati, f"nessun file va creato da un loader sola-lettura: {creati}"
+    assert visti, "il provider deve aver letto la config almeno una volta"
+    assert all(v == {"sync_csv_language": False, "recover_corrupt": False} for v in visti), visti
+    # e la redazione funziona comunque attraverso il ripiego
+    assert CHAT_SUPERGRUPPO not in uscita, uscita
 
 
-def test_il_registry_di_default_usa_il_loader_sola_lettura():
-    """Il guard che chiude il buco per davvero: non basta che la funzione esista, deve essere
-    **quella usata** dal wiring. È lo stesso tipo di guard di `test_il_registry_dell_app_reale
-    _wira_il_provider` — classe corretta, app che non la usa."""
-    import inspect
+@pytest.mark.parametrize("builder", [
+    "build_read_only_tools", "build_tester_tools", "build_dictionary_tools",
+    "build_diagnostic_tools", "build_write_tools",
+])
+def test_anche_gli_altri_builder_hanno_il_default_sola_lettura(monkeypatch, builder):
+    """Il perimetro completo: lo stesso ripiego non sicuro esisteva in **altri cinque** builder
+    di tool (preesistenti, non introdotti da questa PR — rilievo Fugu Ultra #171).
 
-    sorgente = inspect.getsource(config_agent.build_default_registry)
-    assert "config_loader or readonly_config_loader" in sorgente, (
-        "il ripiego del wiring deve essere il loader SOLA-LETTURA, non "
-        "`config_store.load_config` coi default operativi")
+    Nessuno è raggiungibile in produzione, per la stessa ragione: il controller inietta sempre.
+    Ma correggerne uno e lasciarne cinque identici è esattamente il perimetro incompleto che
+    questa serie ha incontrato più volte — e la prossima volta la trappola scatterebbe da uno
+    dei cinque, non da quello corretto."""
+    visti = _spia_load_config(monkeypatch, {})
+
+    tools = getattr(config_agent, builder)()
+    for t in tools:                       # forza almeno una lettura di config
+        try:
+            t.handler({})
+        except Exception:                 # noqa: BLE001 — qui interessa solo COME legge la config
+            pass
+
+    assert all(v == {"sync_csv_language": False, "recover_corrupt": False} for v in visti), (
+        f"{builder}: il ripiego deve essere sola-lettura, visto {visti}")
 
 
 def test_controller_e_registry_condividono_la_stessa_fonte():
