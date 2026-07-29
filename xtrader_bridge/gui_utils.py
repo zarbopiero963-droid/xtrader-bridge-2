@@ -91,7 +91,10 @@ def running_edit_notice(is_running) -> str:
         return ""
     if not attivo:
         return ""
-    return i18n.tr("⚠️ Bridge ATTIVO: la modifica è salvata, ma avrà effetto dal prossimo AVVIA.")
+    # NEUTRO sull'esito: lo stesso avviso viene accodato anche al messaggio di ERRORE, e
+    # un testo che afferma «la modifica è salvata» accanto a «FALLITO» è una bugia
+    # operativa — l'utente se ne andrebbe convinto di aver salvato (rilievo Fugu #177).
+    return i18n.tr("⚠️ Bridge ATTIVO: le modifiche hanno effetto dal prossimo AVVIA.")
 
 
 def with_running_notice(message: str, is_running) -> str:

@@ -362,7 +362,7 @@ cinque finestre, non solo il loro contenuto.
 Quando l'operatore salva una configurazione **mentre il listener è in esecuzione**, al messaggio
 di esito viene **accodato** (non sostituito) un avviso:
 
-> ⚠️ Bridge ATTIVO: la modifica è salvata, ma avrà effetto dal prossimo AVVIA.
+> ⚠️ Bridge ATTIVO: le modifiche hanno effetto dal prossimo AVVIA.
 
 **Avvisa e lascia procedere** — decisione del proprietario. Il salvataggio avviene comunque: la
 sessione live usa lo snapshot di config preso allo START, quindi non c'è nulla di incoerente da
@@ -374,8 +374,9 @@ guidato). Vincoli per il design:
 
 - l'avviso **si accoda** all'esito, che resta la prima cosa leggibile: la riga di stato può
   diventare **sensibilmente più lunga** e deve reggerlo senza troncare l'esito;
-- compare **anche su un salvataggio FALLITO** (l'esito rosso resta primo): non va trattato come
-  un indicatore di successo;
+- compare **anche su un salvataggio FALLITO** (l'esito rosso resta primo). Per questo il testo è
+  **neutro sull'esito** — dice *quando* le modifiche hanno effetto, non *se* sono state salvate:
+  una formulazione tipo «la modifica è salvata» accanto a «FALLITO» sarebbe una bugia operativa;
 - **non** compare sull'**auto-save** del Mapping guidato al cambio sport — l'utente non l'ha
   richiesto e un avviso lì sarebbe rumore su un'azione che non ha compiuto;
 - **📁 Profili impostazioni** resta l'eccezione: lì il caricamento di un profilo è **BLOCCATO** col

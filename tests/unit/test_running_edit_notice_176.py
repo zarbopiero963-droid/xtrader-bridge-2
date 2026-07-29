@@ -51,10 +51,27 @@ def test_with_running_notice_regge_i_messaggi_vuoti():
     assert solo_avviso and not solo_avviso.startswith(" "), repr(solo_avviso)
 
 
-def test_l_avviso_dice_che_la_MODIFICA_E_SALVATA():
-    """Il contenuto conta: la decisione e' «avvisa e prosegui», quindi il testo deve dire
-    che il salvataggio E' AVVENUTO. Un avviso ambiguo farebbe credere all'operatore di aver
-    perso il lavoro, e glielo farebbe rifare."""
+def test_l_avviso_dice_QUANDO_ha_effetto_non_se_e_stato_salvato():
+    """Il testo deve parlare di **quando la modifica ha effetto**, non di *se* e' stata
+    salvata — perche' lo stesso avviso viene accodato sia all'esito riuscito sia a quello
+    FALLITO (vedi il test qui sotto)."""
     testo = gui_utils.running_edit_notice(lambda: True)
-    assert "salvata" in testo.lower(), testo
-    assert "prossimo" in testo.lower(), testo
+    assert "prossimo" in testo.lower() and "avvia" in testo.lower(), testo
+
+
+def test_l_avviso_NON_contraddice_un_salvataggio_FALLITO():
+    """FAIL-FIRST — difetto reale trovato da Fugu Ultra sulla PR #177.
+
+    Il primo testo diceva «la modifica e' salvata», e veniva accodato **anche** al messaggio
+    di errore. Risultato:
+
+        «❌ Salvataggio FALLITO: non salvato.  ⚠️ Bridge ATTIVO: la modifica e' salvata…»
+
+    Una bugia operativa: l'utente legge «salvata» accanto a «FALLITO» e se ne va convinto di
+    aver salvato. Il testo deve essere NEUTRO sull'esito, cosi' e' vero in entrambi i casi."""
+    fallito = "❌ Salvataggio FALLITO: non salvato (andrebbe perso al riavvio)."
+    composto = gui_utils.with_running_notice(fallito, lambda: True)
+
+    assert composto.startswith(fallito), composto
+    assert "salvata" not in composto[len(fallito):].lower(), (
+        "l'avviso afferma che la modifica e' stata salvata accanto a un errore: " + composto)

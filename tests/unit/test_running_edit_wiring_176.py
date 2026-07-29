@@ -86,6 +86,32 @@ def test_il_persist_REALE_accoda_l_avviso_col_bridge_attivo(monkeypatch, modulo,
     ("provider_gui", "ProviderPanel"),
     ("name_mapping_gui", "NameMappingPanel"),
     ("name_mapping_gui", "MarketMappingPanel"),
+])
+def test_anche_il_ramo_FALLITO_avvisa_e_non_si_contraddice(monkeypatch, modulo, classe):
+    """Il ramo d'errore, che il primo giro di test non esercitava (rilievo Fugu Ultra #177).
+
+    Due cose insieme: l'avviso deve arrivare **anche** quando il salvataggio fallisce (il
+    bridge e' attivo comunque, l'informazione serve lo stesso), e non deve **contraddire**
+    l'errore. La versione precedente diceva «la modifica e' salvata» accanto a «FALLITO»."""
+    mod = _importa(monkeypatch, modulo)
+    monkeypatch.setattr(mod.config_store, "save_config", lambda cfg, path=None: (cfg, False))
+    persist = getattr(mod, classe)._persist
+
+    finto = _self_persist(running=True)
+    persist(finto, {}, "✅ Salvato.", "❌ Salvataggio FALLITO.")
+    testo = finto._status.testi[-1]
+
+    assert testo.startswith("❌ Salvataggio FALLITO."), testo
+    assert "Bridge ATTIVO" in testo, f"{classe}: nessun avviso sul ramo fallito — {testo}"
+    coda = testo[len("❌ Salvataggio FALLITO."):]
+    assert "salvat" not in coda.lower(), (
+        f"{classe}: l'avviso afferma un salvataggio accanto a un errore — {testo}")
+
+
+@pytest.mark.parametrize("modulo,classe", [
+    ("provider_gui", "ProviderPanel"),
+    ("name_mapping_gui", "NameMappingPanel"),
+    ("name_mapping_gui", "MarketMappingPanel"),
     ("name_mapping_gui", "MappingPanel"),
     ("source_chats_gui", "SourceChatsPanel"),
     ("custom_parser_gui", "CustomParserPanel"),

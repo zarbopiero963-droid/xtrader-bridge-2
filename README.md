@@ -271,8 +271,9 @@ Pulsanti aggiuntivi:
 
 > **Se salvi mentre il bridge è AVVIATO** (Provider, Chat sorgenti, Parser Personalizzato,
 > Mapping in tutte e tre le schede) la modifica **viene salvata comunque**, ma accanto
-> all'esito compare l'avviso «⚠️ Bridge ATTIVO: la modifica è salvata, ma avrà effetto dal
-> prossimo AVVIA». Il motivo è che la sessione in corso usa la configurazione fotografata
+> all'esito compare l'avviso «⚠️ Bridge ATTIVO: le modifiche hanno effetto dal prossimo
+> AVVIA». Il testo è **neutro sull'esito** perché compare anche accanto a un salvataggio
+> **fallito**: dice *quando* le modifiche valgono, non *se* sono state salvate. Il motivo è che la sessione in corso usa la configurazione fotografata
 > allo START: cambiare il file non cambia ciò che sta girando. L'unica eccezione è **📁 Profili
 > impostazioni**, dove il caricamento di un profilo resta **bloccato** col bridge acceso —
 > lì si applicherebbe una configurazione intera, e vedere «applicato» mentre modalità, chat e

@@ -570,7 +570,9 @@ class GuidedMappingPanel(ctk.CTkFrame):
                 text_color=ui_theme.STATUS_OK)
         else:
             self._status.configure(
-                text=i18n.tr("❌ Salvataggio FALLITO: «{profile}» non salvato (andrebbe perso al "
-                             "riavvio). Controlla permessi/spazio del file config.").format(
-                                 profile=self._current),
+                text=gui_utils.with_running_notice(
+                    i18n.tr("❌ Salvataggio FALLITO: «{profile}» non salvato (andrebbe perso al "
+                            "riavvio). Controlla permessi/spazio del file config.").format(
+                                profile=self._current),
+                    self._is_running),
                 text_color=ui_theme.STATUS_ERR)
