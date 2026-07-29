@@ -1,7 +1,7 @@
 """License Manager — **impostazioni della pubblicazione automatica** delle revoche (#157).
 
 La lista di revoche firmata va **ri-pubblicata periodicamente** all'URL statico che il bridge
-controlla (finestra `MAX_LIST_AGE_S`, oggi 24 h): oltre quel tetto i bridge legittimi si bloccano
+controlla (finestra `MAX_LIST_AGE_S`, oggi **3 giorni**): oltre quel tetto i bridge legittimi si bloccano
 fail-closed. Questo modulo tiene **dove** e **ogni quanto** pubblicare, più il **token** di accesso.
 
 Divisione netta (invariante di sicurezza):
@@ -50,7 +50,7 @@ DEFAULTS = {
 }
 
 # Limite dell'intervallo **DERIVATO dalla finestra di freschezza del bridge** (rilievo CodeRabbit
-# #158). Il bridge rifiuta una lista firmata da più di `MAX_LIST_AGE_S` (24 h) e si blocca
+# #158). Il bridge rifiuta una lista firmata da più di `MAX_LIST_AGE_S` (3 giorni) e si blocca
 # fail-closed: permettere una cadenza più lunga significherebbe accettare impostazioni che
 # **garantiscono** il lockout tra una pubblicazione e l'altra — proprio il guasto che questa
 # funzione esiste per evitare.
@@ -58,9 +58,9 @@ DEFAULTS = {
 # Il massimo è **un TERZO** della finestra, non il suo valore pieno: così anche **saltando un tick**
 # (PC sospeso, rete giù per un giro) la lista resta fresca. Deriviamo dalla costante reale del bridge
 # invece di ricopiarne il numero, così i due valori non possono divergere in futuro.
-_BRIDGE_FRESHNESS_HOURS = max(1, revocation_client.MAX_LIST_AGE_S // 3600)   # 24 h
+_BRIDGE_FRESHNESS_HOURS = max(1, revocation_client.MAX_LIST_AGE_S // 3600)   # 72 h (3 giorni)
 MIN_INTERVAL_HOURS = 1
-MAX_INTERVAL_HOURS = max(MIN_INTERVAL_HOURS, _BRIDGE_FRESHNESS_HOURS // 3)   # 8 h
+MAX_INTERVAL_HOURS = max(MIN_INTERVAL_HOURS, _BRIDGE_FRESHNESS_HOURS // 3)   # 24 h
 
 # Charset REALE di un segmento `owner`/`nome` su GitHub (rilievo Fable #158). Il `repo` finisce
 # grezzo in DUE URL (Contents API e raw): un carattere come `%`, `?` o `#` li deformerebbe entrambi

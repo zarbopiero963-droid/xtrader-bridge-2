@@ -316,3 +316,68 @@ def test_auto_start_placeholder_non_aspetta(App, app_mod):
     app = _autostart_app(App, enabled=False, rev_state=None)
     App._maybe_auto_start(app)
     assert app.start_calls == [True] and app.after_calls == []
+
+
+# ── cache avvelenata da una data futura (avvio del supervisore) ──────────────────────────────────
+def _boot_app(App, tmp_path, *, now=_NOW):
+    """`self` minimale per esercitare `_start_revocation_supervisor` SENZA far partire il thread: il
+    percorso che interessa è il bootstrap del floor anti-replay dalla cache su disco."""
+    app = object.__new__(App)
+    app._revocation_now = lambda: now
+    app._rev_min_iss = 0
+    app._revocation_cache_path = lambda: str(tmp_path / "revocation_cache.json")
+    app._revocation_enabled = lambda: True
+    app._dbg = lambda *a, **k: None
+    return app
+
+
+def test_avvio_con_cache_datata_nel_futuro_non_avvelena_il_floor(App, tmp_path, monkeypatch):
+    """Il guasto **durevole**: il floor `min_iss` si ri-deriva dalla cache su disco a ogni avvio, quindi
+    una lista datata nel futuro finita in cache renderebbe il bridge **non più revocabile** — e il danno
+    sopravviverebbe al riavvio. Qui il thread non parte (sostituito): si esercita solo il bootstrap.
+
+    Il floor deve restare 0, così una revoca legittima successiva viene ancora accettata."""
+    futura = _signed_default([], now=_NOW + 7 * 86_400)          # datata fra una settimana
+    app = _boot_app(App, tmp_path)
+    revocation_client.save_cached_signed(app._revocation_cache_path(), futura)
+    monkeypatch.setattr(threading, "Thread",
+                        lambda *a, **k: types.SimpleNamespace(start=lambda: None))
+
+    App._start_revocation_supervisor(app)
+
+    assert app._rev_min_iss == 0, "una cache datata nel futuro non deve alzare il floor anti-replay"
+    legittima = _signed_default([{"serial": "LIC-REVOCATO"}], now=_NOW)
+    accolta = revocation_client.accept_signed(legittima, min_iss=app._rev_min_iss, now=_NOW)
+    assert accolta is not None and "LIC-REVOCATO" in accolta.serials, \
+        "la revoca legittima successiva deve restare accettabile"
+
+
+def test_avvio_con_cache_legittima_alza_il_floor(App, tmp_path, monkeypatch):
+    """Controprova: il bootstrap dalla cache **funziona ancora** per una lista normale — la guardia sul
+    futuro non ha rotto il caso buono (senza questo, il test sopra passerebbe anche se `accept_signed`
+    rifiutasse tutto)."""
+    legittima = _signed_default([{"serial": "LIC-X"}], now=_NOW - 60)
+    app = _boot_app(App, tmp_path)
+    revocation_client.save_cached_signed(app._revocation_cache_path(), legittima)
+    monkeypatch.setattr(threading, "Thread",
+                        lambda *a, **k: types.SimpleNamespace(start=lambda: None))
+
+    App._start_revocation_supervisor(app)
+
+    assert app._rev_min_iss == _NOW - 60
+
+
+def test_supervisor_scarta_lista_datata_nel_futuro(App, tmp_path):
+    """Stesso guasto sul percorso di rete: una lista futura scaricata dall'URL non deve aggiornare né
+    lo stato né il floor (né finire in cache, da cui rientrerebbe al riavvio)."""
+    futura = _signed_default([{"serial": "LIC-X"}], now=_NOW + 7 * 86_400)
+    stop = threading.Event()
+
+    def fetch(url, *, timeout):
+        stop.set()
+        return futura
+    app = _loop_app(App, tmp_path, fetch=fetch)
+    App._revocation_loop(app, stop)
+
+    assert app._rev_state is None and app._rev_min_iss == 0
+    assert revocation_client.load_cached_signed(app._revocation_cache_path()) is None

@@ -1447,7 +1447,12 @@ class App(ctk.CTk):
             self._dbg("Revoca online INATTIVA (URL placeholder/non configurato): gate revoca bypassato.")
             return
         cached = revocation_client.load_cached_signed(self._revocation_cache_path())
-        boot = revocation_client.accept_signed(cached, min_iss=0) if cached else None
+        # `now=` esplicito: la cache su disco è il punto in cui una lista datata nel FUTURO farebbe il
+        # danno durevole (il floor `min_iss` viene ri-derivato da qui a ogni avvio, quindi una volta
+        # avvelenato tornerebbe alto anche dopo un riavvio). `accept_signed` la respinge → `boot` resta
+        # `None` → il floor resta 0 e le liste legittime successive continuano a essere accettate.
+        boot = revocation_client.accept_signed(
+            cached, min_iss=0, now=self._revocation_now()) if cached else None
         if boot is not None:
             self._rev_min_iss = boot.issued
         self._rev_stop_event = threading.Event()
@@ -1472,7 +1477,8 @@ class App(ctk.CTk):
                     revocation_client.REVOCATION_LIST_URL,
                     fetch=self.__dict__.get("_revocation_fetch"),
                     timeout=revocation_client.DEFAULT_FETCH_TIMEOUT_S)
-                rev = revocation_client.accept_signed(signed, min_iss=self._rev_min_iss) \
+                rev = revocation_client.accept_signed(
+                    signed, min_iss=self._rev_min_iss, now=self._revocation_now()) \
                     if signed else None
                 if rev is not None:
                     # Sostituzione ATOMICA della coppia (lista, verificata_a): il gate GUI la legge come

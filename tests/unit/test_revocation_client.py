@@ -4,6 +4,7 @@ anti-replay (`accept_signed`), revoca della licenza corrente (`license_revoked`)
 (`gate_allows`), cache. Nessun segreto reale: keypair generata al volo."""
 
 import json
+import time
 
 from xtrader_bridge.licensing import license as lic
 from xtrader_bridge.licensing import revocation, revocation_client
@@ -169,9 +170,9 @@ def test_gate_allows_stantia_fail_closed():
 
 
 def test_gate_allows_contenuto_troppo_vecchio_fail_closed():
-    """**Anti-replay per età del CONTENUTO firmato** (decisione proprietario 24h): una lista appena
+    """**Anti-replay per età del CONTENUTO firmato** (decisione proprietario: 3 giorni): una lista appena
     scaricata (fetch fresco) ma **firmata** oltre `MAX_LIST_AGE_S` fa → `False`. Chiude il replay di una
-    lista vecchia da parte dell'utente revocato."""
+    lista vecchia da parte dell'utente revocato. I limiti si derivano dalla costante, non ricopiati."""
     seed_hex, public_hex = _keypair()
     token = _token(seed_hex)
     old_iss = _NOW - revocation_client.MAX_LIST_AGE_S - 1        # firmata 24h+ fa
@@ -219,3 +220,102 @@ def test_cache_assente_o_corrotta_none(tmp_path):
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"altro": 1}, f)                                   # senza 'signed'
     assert revocation_client.load_cached_signed(path) is None
+
+
+# ── data nel FUTURO: skew tollerato, avvelenamento del floor impedito ─────────────────────────────
+def test_accept_signed_rifiuta_lista_datata_oltre_lo_skew_nel_futuro():
+    """`gate_allows` confronta un solo verso (`now - issued > max_iss_age`): una lista datata **avanti**
+    darebbe differenza negativa e passerebbe indisturbata. La guardia sul futuro chiude quel verso.
+    Il limite esatto è **incluso** (`<= skew` accettato), come per l'età massima."""
+    seed_hex, public_hex = _keypair()
+    skew = revocation_client.MAX_FUTURE_SKEW_S
+    al_limite = _signed_list(seed_hex, [], now=_NOW + skew)
+    oltre = _signed_list(seed_hex, [], now=_NOW + skew + 1)
+    assert revocation_client.accept_signed(
+        al_limite, public_key_hex=public_hex, now=_NOW) is not None
+    assert revocation_client.accept_signed(
+        oltre, public_key_hex=public_hex, now=_NOW) is None
+
+
+def test_accept_signed_tollera_orologio_del_bridge_indietro():
+    """Il confronto è fra l'orologio del BRIDGE e la data messa dal PROPRIETARIO: un bridge con
+    l'orologio **indietro** vede la lista legittima come «futura». Con uno skew stretto quel banale
+    drift diventerebbe un **lockout**; qui un bridge indietro di mezz'ora accetta ancora."""
+    seed_hex, public_hex = _keypair()
+    legittima = _signed_list(seed_hex, [], now=_NOW)
+    bridge_indietro = _NOW - 1800        # orologio del bridge 30 min indietro
+    assert revocation_client.accept_signed(
+        legittima, public_key_hex=public_hex, now=bridge_indietro) is not None
+
+
+def test_accept_signed_futuro_NON_avvelena_il_floor_min_iss():
+    """La regressione che conta. L'anti-replay è **monotòno**: se una lista datata nel futuro entra, il
+    floor `min_iss` sale a quella data e ogni lista **legittima successiva** — con `iss` reale, più
+    basso — viene rifiutata. Il proprietario perde la capacità di revocare su quella copia, e il danno
+    sopravvive al riavvio perché il floor si ri-deriva dalla cache su disco.
+
+    Qui si esercitano ENTRAMBI i rami sullo stesso scenario: con la guardia attiva il floor non si
+    muove e la lista legittima passa; disattivandola (skew enorme) si riproduce l'avvelenamento. Senza
+    il secondo ramo il test non dimostrerebbe che è la guardia a fare la differenza."""
+    seed_hex, public_hex = _keypair()
+    futura = _signed_list(seed_hex, [], now=_NOW + 7 * 86_400)          # datata fra una settimana
+    legittima = _signed_list(seed_hex, [{"serial": "LIC-REVOCATO"}], now=_NOW)
+
+    # --- con la guardia (comportamento voluto) ---
+    floor = 0
+    accolta = revocation_client.accept_signed(futura, public_key_hex=public_hex,
+                                              min_iss=floor, now=_NOW)
+    assert accolta is None, "una lista datata a +7 giorni non deve essere accettata"
+    floor = max(floor, accolta.issued) if accolta is not None else floor
+    assert floor == 0, "il floor non deve muoversi per una lista respinta"
+    dopo = revocation_client.accept_signed(legittima, public_key_hex=public_hex,
+                                           min_iss=floor, now=_NOW)
+    assert dopo is not None and "LIC-REVOCATO" in dopo.serials, \
+        "la revoca legittima successiva deve continuare a essere accettata"
+
+    # --- senza la guardia: l'avvelenamento che il fix impedisce ---
+    floor_rotto = 0
+    avvelenata = revocation_client.accept_signed(futura, public_key_hex=public_hex,
+                                                 min_iss=floor_rotto, now=_NOW,
+                                                 max_future_skew=10 * 365 * 86_400)
+    assert avvelenata is not None                      # entra solo perché la guardia è disattivata
+    floor_rotto = max(floor_rotto, avvelenata.issued)
+    assert revocation_client.accept_signed(legittima, public_key_hex=public_hex,
+                                           min_iss=floor_rotto, now=_NOW) is None, \
+        "senza guardia la revoca legittima viene rifiutata: è esattamente il guasto da impedire"
+
+
+def test_accept_signed_senza_now_controlla_comunque_il_futuro():
+    """`now=None` (chiamante che non passa un riferimento temporale) **non** salta il controllo: legge
+    l'orologio di sistema. Un percorso che salta la verifica sarebbe fail-open."""
+    seed_hex, public_hex = _keypair()
+    fra_un_anno = int(time.time()) + 365 * 86_400
+    assert revocation_client.accept_signed(
+        _signed_list(seed_hex, [], now=fra_un_anno), public_key_hex=public_hex) is None
+    adesso = int(time.time())
+    assert revocation_client.accept_signed(
+        _signed_list(seed_hex, [], now=adesso), public_key_hex=public_hex) is not None
+
+
+def test_gate_allows_rifiuta_contenuto_datato_nel_futuro():
+    """Ridondanza voluta col controllo in `accept_signed`: quella impedisce alla lista di **entrare**
+    (floor/cache), questa impedisce che conceda **immunità** se fosse già entrata per altra via."""
+    seed_hex, public_hex = _keypair()
+    token = _token(seed_hex)
+    skew = revocation_client.MAX_FUTURE_SKEW_S
+    # costruita bypassando la guardia d'ingresso, per esercitare il gate da solo
+    futura = revocation_client.accept_signed(
+        _signed_list(seed_hex, [], now=_NOW + skew + 1), public_key_hex=public_hex,
+        now=_NOW, max_future_skew=10 * 365 * 86_400)
+    assert futura is not None                       # precondizione del test, non l'asserzione
+    assert revocation_client.gate_allows(futura, verified_at=_NOW, now=_NOW,
+                                         token=token, hardware_id=_HW) is False
+
+
+def test_finestra_freschezza_contenuto_e_di_tre_giorni():
+    """Contratto della finestra (decisione proprietario 2026-07-29). Non è un numero qualsiasi: regge
+    il compromesso fra quanto un revocato resiste replayando e quanto il proprietario può stare senza
+    ri-firmare prima di bloccare gli utenti **legittimi** (la ri-firma richiede il seed, che vive solo
+    sul suo PC). Cambiarlo è una decisione del proprietario: questo test lo rende esplicito."""
+    assert revocation_client.MAX_LIST_AGE_S == 3 * 24 * 3600
+    assert revocation_client.MAX_FUTURE_SKEW_S < revocation_client.MAX_LIST_AGE_S
