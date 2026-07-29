@@ -365,14 +365,27 @@ def _sanitize_cell(value):
     """Neutralizza l'iniezione formula/control-char nel CSV (audit B1): se una cella inizia
     con `= + - @` (e NON è un numero) o con un control-char (TAB/CR/LF), antepone un apice
     ``'`` (mitigazione standard OWASP). I numeri (Handicap negativo, Price…) restano intatti.
-    Non-stringa/vuoto: invariato."""
+    Non-stringa/vuoto: invariato.
+
+    **Spazi iniziali (P3-cw1 #166).** Excel, LibreOffice e Google Sheets **ignorano gli spazi
+    iniziali** quando decidono se una cella è una formula: « =1+1» viene valutata esattamente
+    come «=1+1». Guardare solo `s[0]` lasciava quindi passare l'iniezione con un singolo spazio
+    davanti — e il valore arrivava verbatim fino al file scritto.
+
+    L'asimmetria era interna a questa funzione: il ramo NUMERICO usava già `s.strip()`, quello
+    del carattere-formula no. Ora entrambi decidono sul valore **spogliato**, mentre ciò che si
+    scrive resta l'originale (solo preceduto dall'apice): il contenuto non viene mai riscritto.
+
+    Il ramo control-char resta su `s[0]`: TAB/CR/LF **sono** spazio bianco, quindi `strip()` li
+    toglierebbe e non li vedrebbe più. Sono due domande diverse — «questa cella inizia con un
+    control-char?» e «il suo contenuto è una formula?» — e vanno poste su viste diverse."""
     s = "" if value is None else str(value)
     if not s:
         return s
-    first = s[0]
-    if first in _CSV_CTRL_CHARS:
+    if s[0] in _CSV_CTRL_CHARS:
         return "'" + s
-    if first in _CSV_FORMULA_CHARS and not _NUMERIC_RE.fullmatch(s.strip()):
+    nudo = s.strip()
+    if nudo and nudo[0] in _CSV_FORMULA_CHARS and not _NUMERIC_RE.fullmatch(nudo):
         return "'" + s
     return s
 
