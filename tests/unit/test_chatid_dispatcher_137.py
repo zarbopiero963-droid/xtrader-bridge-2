@@ -317,3 +317,32 @@ def test_ogni_forma_di_iterabile_e_accettata(forma):
     reg = config_agent.ToolRegistry(chat_ids_provider=lambda: forma([CHAT_SUPERGRUPPO]))
     reg.register(_tool("t", f"chat {CHAT_SUPERGRUPPO}"))
     assert CHAT_SUPERGRUPPO not in reg.dispatch("t", {}).content
+
+
+def test_nemmeno_una_redazione_che_solleva_rompe_l_assistente(monkeypatch):
+    """Rilievo Fable 5 (#171, review sull'intera PR): `redact_chat_ids` era chiamata FUORI dal
+    `try`. Se sollevasse, il dispatch crasherebbe — in contraddizione col contratto scritto nel
+    docstring di `_safe_out` («la seconda rete non deve poter rompere l'assistente»).
+
+    Oggi `redact_chat_ids` non solleva su nessun input anomalo (verificato con `None`, int,
+    list, dict fra gli ID). Ma una garanzia che dipende dalla robustezza *attuale* di un'altra
+    funzione non è una garanzia: è una coincidenza. Il test la rende **strutturale** simulando
+    una regressione futura in `diagnostics`.
+
+    L'esito atteso non è «nessuna eccezione» e basta: è che il testo torni comunque **con i
+    segreti redatti**, cioè che la caduta della seconda rete non porti giù anche la prima."""
+    from xtrader_bridge import event_log
+
+    def redazione_rotta(text, chat_ids):
+        raise RuntimeError("regressione futura in diagnostics")
+
+    monkeypatch.setattr(config_agent.diagnostics, "redact_chat_ids", redazione_rotta)
+
+    reg = _registry([CHAT_SUPERGRUPPO])
+    event_log.register_secret(TOKEN_FINTO)
+    try:
+        reg.register(_tool("t", f"token {TOKEN_FINTO} e chat {CHAT_SUPERGRUPPO}"))
+        uscita = reg.dispatch("t", {}).content          # non deve sollevare
+        assert TOKEN_FINTO not in uscita, "la PRIMA rete deve reggere anche se cade la seconda"
+    finally:
+        event_log.clear_secrets()

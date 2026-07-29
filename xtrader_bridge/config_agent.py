@@ -174,7 +174,17 @@ class ToolRegistry:
         chat_ids = self._chat_ids_cache
         if not chat_ids:
             return out
-        return diagnostics.redact_chat_ids(out, chat_ids)
+        try:
+            return diagnostics.redact_chat_ids(out, chat_ids)
+        except Exception:   # noqa: BLE001 — vedi sotto: la garanzia dev'essere STRUTTURALE
+            # Anche la sostituzione sta dentro una guardia (rilievo Fable 5 #171). Oggi
+            # `redact_chat_ids` non solleva su nessun input anomalo — verificato con
+            # `None`/int/list/dict fra gli ID — ma il contratto di questo metodo dice «la
+            # seconda rete non deve poter rompere l'assistente», e una garanzia che dipende
+            # dalla robustezza *attuale* di un'altra funzione non è una garanzia: è una
+            # coincidenza. Si ritorna il testo con i soli segreti redatti, mai un'eccezione
+            # che risalirebbe fino al turno dell'agente.
+            return out
 
     def register(self, tool: AgentTool) -> None:
         if tool.permission not in (READ_ONLY, WRITE_CONFIG):
