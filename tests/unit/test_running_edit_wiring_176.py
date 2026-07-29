@@ -164,3 +164,63 @@ def test_il_contenitore_INOLTRA_la_sonda_a_tutte_e_tre_le_schede(monkeypatch):
     assert set(visti) == {"calcio", "mercati", "guidato"}, visti
     for nome, ricevuta in visti.items():
         assert ricevuta is sonda, f"la scheda «{nome}» non ha ricevuto la sonda: {ricevuta!r}"
+
+
+def _self_guided(*, running, profilo="Serie A"):
+    """`self` finto per il `_save` REALE del Mapping guidato."""
+    return types.SimpleNamespace(
+        _current=profilo,
+        _team_vars={"Inter": types.SimpleNamespace(get=lambda: "Inter Milano")},
+        _load_cfg=lambda: {"name_mappings": {profilo: []}},
+        _selected_sport=lambda: "Calcio",
+        _on_saved=None,
+        _baseline={},
+        _status=_Widget(),
+        _is_running=(lambda: running),
+    )
+
+
+def test_guided_mapping_ramo_FALLITO_avvisa_senza_contraddire(monkeypatch):
+    """Copertura diretta chiesta da GPT-5.5 sul ramo che questa PR ha toccato per ultimo.
+
+    E' l'unico pannello senza un `_persist` condiviso, quindi il suo ramo d'errore va
+    esercitato a parte: e' proprio dove una divergenza passerebbe inosservata."""
+    mod = _importa(monkeypatch, "guided_mapping_gui")
+    monkeypatch.setattr(mod.config_store, "save_config", lambda cfg, path=None: (cfg, False))
+
+    finto = _self_guided(running=True)
+    mod.GuidedMappingPanel._save(finto)
+    testo = finto._status.testi[-1]
+
+    assert testo.startswith("❌"), testo
+    assert "Bridge ATTIVO" in testo, f"nessun avviso sul ramo fallito: {testo}"
+    assert "salvat" not in testo.split("⚠️")[-1].lower(), (
+        f"l'avviso afferma un salvataggio accanto a un errore: {testo}")
+
+
+def test_guided_mapping_da_fermo_il_messaggio_e_invariato(monkeypatch):
+    """Il contrasto: senza bridge attivo il ramo fallito non guadagna nessuna coda."""
+    mod = _importa(monkeypatch, "guided_mapping_gui")
+    monkeypatch.setattr(mod.config_store, "save_config", lambda cfg, path=None: (cfg, False))
+
+    finto = _self_guided(running=False)
+    mod.GuidedMappingPanel._save(finto)
+    assert "Bridge ATTIVO" not in finto._status.testi[-1], finto._status.testi[-1]
+
+
+def test_l_AUTO_save_al_cambio_sport_NON_passa_da_save(monkeypatch):
+    """L'invariante dichiarata nel design handoff, ora fissata (dubbio di Fable 5 #177).
+
+    L'avviso non deve comparire sull'auto-save al cambio sport: l'utente non l'ha chiesto.
+    Regge perche' `_autosave_leaving` ha un percorso di scrittura PROPRIO e `_save` e'
+    invocato solo dal pulsante. Se un domani l'auto-save venisse instradato su `_save`,
+    questo test diventa rosso e obbliga a riconsiderare la scelta invece di scoprirla dalla
+    UI."""
+    import inspect
+    mod = _importa(monkeypatch, "guided_mapping_gui")
+
+    sorgente_autosave = inspect.getsource(mod.GuidedMappingPanel._autosave_leaving)
+    assert "self._save(" not in sorgente_autosave, (
+        "l'auto-save ora passa da _save: mostrerebbe l'avviso su un'azione non richiesta")
+    # e ha davvero una scrittura propria: non e' un guscio che delega altrove
+    assert "save_config" in sorgente_autosave, sorgente_autosave
