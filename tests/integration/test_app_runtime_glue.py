@@ -1859,3 +1859,88 @@ def test_reconnect_reset_e_status_gated_su_is_current():
         r"self\._safe_after\(0, lambda: self\._set_status_connected\(epoch\)\)", src), (
         "app.py: reset backoff + status a connessione stabilita devono essere gated sull'epoch "
         "e passare epoch a _set_status_connected (audit #137)")
+
+
+# ── Avvisi alias ambiguo al load (audit #137, PR 2/4) ────────────────────────
+
+def _app_fino_agli_avvisi(app_mod, cfg, csv_path):
+    """`App` headless portata OLTRE i fail-fast di `_start`, fino al blocco degli avvisi
+    non bloccanti. Serve a verificare il WIRING misurandolo, non leggendo il sorgente:
+    `inspect.getsource` direbbe verde anche se `_start` chiamasse la funzione e buttasse
+    via il risultato — ed e' esattamente il modo in cui una guardia passa senza proteggere
+    (lezione #171)."""
+    import types
+    a = object.__new__(app_mod.App)
+    a.logs = []
+    a._log = a.logs.append
+    a._dbg = lambda *x, **k: None
+    a._running = False
+    a._closing = False
+    a._ui_ready = True
+    a._license_locked = None
+    a._license_panel = types.SimpleNamespace(
+        current_status=lambda: types.SimpleNamespace(valid=True, reason="", detail=""))
+    a._cancel_pending_autostart = lambda: None
+    a._resync_token_field = lambda: None
+    # campi GREZZI validati prima del save: token costruito a runtime (nessun letterale
+    # che somigli a una credenziale nel repo), path in tmp, delay valido.
+    a._e_token = types.SimpleNamespace(get=lambda: "123456:" + "A" * 35)
+    a._e_csv = types.SimpleNamespace(get=lambda: str(csv_path))
+    a._e_delay = types.SimpleNamespace(get=lambda: "90")
+    a._save_config = lambda: cfg
+    a._save_ok = True
+    a._adv_errors = []
+    return a
+
+
+def _avvia_e_raccogli(app_mod, cfg, csv_path):
+    """Esegue `_start` e restituisce il log eventi.
+
+    `_start` prosegue oltre il blocco avvisi verso il listener reale e li' fallisce: si
+    assorbe SOLO quella coda. Ma prima si pretende che nessun fail-fast abbia interrotto
+    l'avvio (`❌`): senza questo controllo un `_start` che esce a monte darebbe un log vuoto
+    e il test dell'assenza-avvisi passerebbe VACUAMENTE — il difetto che in #171 e' spuntato
+    tre volte."""
+    a = _app_fino_agli_avvisi(app_mod, cfg, csv_path)
+    try:
+        app_mod.App._start(a)
+    except Exception:       # noqa: BLE001 — `_start` muore piu' avanti (nessun listener reale)
+        pass
+    bloccanti = [m for m in a.logs if "❌" in m]
+    assert not bloccanti, f"_start si e' fermato PRIMA degli avvisi: {bloccanti}"
+    return a.logs
+
+
+_CFG_MINIMA = {
+    "chat_id": "-1001111111111",
+    "active_parser": "P",
+    "custom_parsers": {"P": {"rules": [{"target": "EventName", "required": True,
+                                        "prefix": "Match:"}]}},
+}
+
+
+def test_start_mostra_l_avviso_di_alias_ambiguo(app_mod, tmp_path):
+    """Il conflitto deve comparire nel LOG EVENTI all'avvio. Senza questo, l'operatore lo
+    scopre da un segnale scartato per «nome non tradotto» — cioe' a segnale gia' perso."""
+    cfg = dict(_CFG_MINIMA)
+    cfg["name_mappings"] = {"Serie A": [
+        {"betfair": "Inter Milano", "provider": "Inter"},
+        {"betfair": "Inter Miami", "provider": "Inter"},
+    ]}
+    logs = _avvia_e_raccogli(app_mod, cfg, tmp_path / "out.csv")
+
+    ambigui = [m for m in logs if "Serie A" in m and "Inter" in m and "fail-closed" in m]
+    assert ambigui, logs
+
+
+def test_start_non_inventa_avvisi_su_una_config_sana(app_mod, tmp_path):
+    """Il rovescio: su un Dizionario nomi corretto il log resta pulito. Un avviso che
+    compare sempre viene ignorato sempre, e con lui quello vero."""
+    cfg = dict(_CFG_MINIMA)
+    cfg["name_mappings"] = {"Serie A": [
+        {"betfair": "Inter Milano", "provider": "Inter"},
+        {"betfair": "Milan", "provider": "Milan"},
+    ]}
+    logs = _avvia_e_raccogli(app_mod, cfg, tmp_path / "out.csv")
+
+    assert not [m for m in logs if "nomi Betfair diversi" in m], logs

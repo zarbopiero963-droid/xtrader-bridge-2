@@ -498,7 +498,13 @@ avviare!», «❌ Nessuna chat configurata …», «❌ Nessun Parser Personaliz
 «❌ {problem} Avvio annullato.» e «❌ Impossibile inizializzare il CSV ({path}): {exc} …». Marker di
 severità (❌/⚠️/⏸️/▶️) conservato in EN/ES → colore/livello della riga invariato. **Restano IT** per
 contratto: i log di **puro dominio** `f"❌ {err}"` (errore di validazione) e `f"⚠️ {warn}"` (avvisi
-degli store), coi valori interpolati `{err}`/`{problem}`/`{exc}` di dominio. I **dialoghi modali di
+degli store), coi valori interpolati `{err}`/`{problem}`/`{exc}` di dominio. A quegli avvisi di
+store se ne aggiunge uno (audit #137, **non bloccante**, stessa forma `f"⚠️ {warn}"` e stessa
+regola «resta IT»): i **conflitti del Dizionario nomi** — un nome che punta a ≥2 nomi Betfair
+diversi con lo stesso scope, che a runtime farebbe fail-closare la traduzione. Per chi disegna la
+UI il punto è che allo START il log può ora contenere **N righe ⚠️ di configurazione** prima delle
+righe di stato: l'elenco cresce col numero di conflitti, quindi il pannello non può assumere un
+numero fisso di avvisi né troncarli in silenzio — sono la ragione per cui un segnale verrà scartato. I **dialoghi modali di
 conferma modalità** (REALE/COLLAUDO/MULTI-segnale + i due gate autostart/START reale) sono invece
 **localizzati dalla slice 4y** — vedi §9.
 

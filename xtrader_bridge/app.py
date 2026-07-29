@@ -3013,6 +3013,12 @@ class App(ctk.CTk):
         # l'operatore deve vederlo qui, non scoprirlo dal nome non tradotto.
         for warn in name_mapping_store.malformed_entry_warnings(cfg):
             self._log(f"⚠️ {warn}")
+        # Avviso NON bloccante (audit #137): un nome che punta a ≥2 Betfair diversi con lo
+        # stesso scope fa fail-closare `resolve_team`, che lo dice solo al logger Python —
+        # invisibile nell'app windowed. Senza questo avviso l'operatore scopre il conflitto
+        # da un segnale scartato per «nome non tradotto», cioè quando è già perso.
+        for warn in name_mapping_store.ambiguous_alias_warnings(cfg):
+            self._log(f"⚠️ {warn}")
         # Avviso NON bloccante (epica #3 slice 5c): voci del dizionario mercati con `language`
         # non riconosciuta vengono SCARTATE (fail-closed) dal resolver — l'operatore deve
         # vederlo qui, non scoprirlo dal mercato non riconosciuto.

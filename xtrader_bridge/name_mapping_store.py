@@ -233,6 +233,62 @@ def malformed_entry_warnings(cfg: dict) -> list:
     return warnings
 
 
+def ambiguous_alias_warnings(cfg: dict) -> list:
+    """Avvisi **non bloccanti** (audit #137): nomi che, dentro lo **stesso profilo** e a
+    parità di firma di scoping, combaciano con ≥2 ``betfair`` DIVERSI. Su questi
+    `resolve_team` fail-closa (ritorna ``None``, vedi `_resolve_in_tier`) e logga con
+    `_LOG.warning` — che nell'app **windowed non è visibile**: l'operatore vede soltanto il
+    segnale scartato per «nome non tradotto», senza alcun indizio sul perché. Stesso
+    principio di `malformed_entry_warnings`: `_start` porta questi messaggi nel log eventi,
+    così il conflitto si scopre **al load** invece che a segnale già perso.
+
+    **Riusa le funzioni del runtime, e non è un dettaglio.** Le righe arrivano da
+    `get_entries` (già passate da `_clean_entry`, esattamente come le riceve il resolver), il
+    nome è confrontato con `normalize` e il raggruppamento usa `_scope_signature`: sono le
+    tre cose su cui `_resolve_in_tier` decide l'ambiguità. Una detection scritta a parte
+    divergerebbe — e un avviso che diverge è peggio di nessun avviso, perché o tace su un
+    conflitto vivo o accusa una configurazione sana.
+
+    In particolare **non** si leggono le righe grezze da `_store` (come fa invece
+    `malformed_entry_warnings`, che deve proprio segnalare i valori non riconosciuti): senza
+    `_clean_entry`, ``sport="Calcio"`` e ``sport="calcio"`` darebbero due firme diverse e
+    l'ambiguità sfuggirebbe per una differenza puramente cosmetica.
+    """
+    warnings = []
+    for profile in profile_names(cfg):
+        # (fase, nome normalizzato, firma di scoping) → destinazioni Betfair distinte.
+        # `dict` preserva l'ordine d'inserimento: l'ordine degli avvisi è deterministico,
+        # un log eventi che si rimescola a ogni avvio non si legge.
+        conflitti = {}
+        righe = get_entries(cfg, profile)       # una sola lettura+pulizia per profilo: le due
+                                                # fasi scorrono le STESSE righe (GPT-5.5/Fable)
+        for key in ("provider", "betfair"):    # alias e canonico: le due fasi del resolver
+            for e in righe:
+                # Stesso guard di `_resolve_in_tier`: una riga senza `key` o senza `betfair`
+                # non combacia MAI in quella fase, quindi non può essere ambigua.
+                if not e.get(key, "") or not e.get("betfair", ""):
+                    continue
+                nt = normalize(e.get(key, ""))
+                if not nt:
+                    continue
+                voce = conflitti.setdefault(
+                    (key, nt, _scope_signature(e)),
+                    {"nome": str(e.get(key, "")).strip(), "betfair": []})
+                if e["betfair"] not in voce["betfair"]:
+                    voce["betfair"].append(e["betfair"])
+        for (key, _nt, _sig), voce in conflitti.items():
+            if len(voce["betfair"]) < 2:
+                continue                       # una sola destinazione = nessun conflitto
+            fase = "alias" if key == "provider" else "nome canonico"
+            dove = ", ".join(f"«{b}»" for b in voce["betfair"])
+            warnings.append(
+                f"Mappatura nomi «{_norm_profile_name(profile)}», {fase} «{voce['nome']}»: "
+                f"punta a {len(voce['betfair'])} nomi Betfair diversi ({dove}) con lo stesso "
+                f"scope -> il nome NON viene tradotto (fail-closed). Correggi il Dizionario "
+                f"nomi, oppure distingui le righe per sport/tipo/lingua.")
+    return warnings
+
+
 def _entity_eligible(entry, allowed) -> bool:
     """Una riga è eleggibile se il suo ``entity_type`` è fra quelli ``allowed`` (insieme
     dei tipi richiesti) oppure se è **agnostica** (``entity_type`` vuoto, vale per ogni
