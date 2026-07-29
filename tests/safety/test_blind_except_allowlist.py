@@ -147,7 +147,7 @@ _ALLOWLIST = {
     "provider_gui.py": (3, "GUI Tk provider: render/azioni best-effort"),
     "reconnect_policy.py": (1, "classificazione errore di reconnect tollerante"),
     "source_chats_gui.py": (2, "GUI Tk sorgenti: best-effort (refresh-options + modal transient/grab_set)"),
-    "config_agent.py": (7, "assistente di configurazione (#41 PR-1): dispatch di un tool "
+    "config_agent.py": (12, "assistente di configurazione (#41 PR-1): dispatch di un tool "
                            "sola-lettura best-effort (un handler che solleva NON deve crashare "
                            "l'agente → errore restituito come contenuto); logging dell'audit "
                            "best-effort (un logger che solleva non deve far fallire il dispatch); "
@@ -159,7 +159,12 @@ _ALLOWLIST = {
                            "illeggibile (es. EXE senza data/) → fail-safe, sezione marcata non "
                            "disponibile, mai crash; diagnosi (#41 PR-10 Blocco D): un health_provider "
                            "dell'app difettoso → ripiego su valutazione da config; risoluzione del "
-                           "path del diario che fallisce → fail-safe (nessun evento), mai crash"),
+                           "path del diario che fallisce → fail-safe (nessun evento), mai crash; "
+                           "redazione chat_id centralizzata (audit #137): il provider dei chat_id "
+                           "legge la config, e una config illeggibile non deve far crashare "
+                           "l'assistente → si degrada alla sola redazione dei segreti. Accettabile "
+                           "perché quella nel dispatcher è la SECONDA rete: la prima "
+                           "(`_redact_config`, redazione strutturata del JSON) resta in piedi"),
     "config_agent_controller.py": (7, "controller assistente (#41 PR-3/PR-4): emit di un evento verso "
                                       "la view best-effort (un handler della GUI che solleva non deve "
                                       "rompere il controller); un turno che solleva nel worker non "

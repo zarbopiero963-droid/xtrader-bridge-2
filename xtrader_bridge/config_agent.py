@@ -22,7 +22,8 @@ lasciano mai la macchina in chiaro.
 import json
 import os
 
-from . import (atomic_io, bridge_mode, config_store, csv_writer, custom_parser, dizionario,
+from . import (atomic_io, bridge_mode, config_store, csv_writer, custom_parser,
+               diagnostics, dizionario,
                event_journal, event_log, health_check, journal_view, language_select, log_privacy,
                market_mapping_store, name_mapping_store, parser_builder, parser_manager, recognition,
                signal_router, source_manager, value_maps, wizard)
@@ -105,6 +106,69 @@ class ToolResult:
         self.reason = reason
 
 
+def readonly_config_loader() -> dict:
+    """Carica la config per l'assistente #41 SENZA effetti collaterali operativi.
+
+    **Fonte unica** del loader sola-lettura (audit #137): non riallinea la lingua-CSV globale
+    del writer (`sync_csv_language=False`) e non scrive alcun backup `.bak` se il file è
+    corrotto (`recover_corrupt=False`). Vedi `config_store.load_config`.
+
+    Vive qui e non nel controller perché serve anche a `build_default_registry`, che sta in
+    questo modulo: il ripiego `config_loader or config_store.load_config` usava i default
+    OPERATIVI e reintroduceva, una volta per chiamata di tool, esattamente i due effetti che la
+    #139 aveva chiuso per questa stessa issue (rilievo CodeRabbit #171). Un solo posto che
+    definisce «sola lettura» significa che non possono più divergere."""
+    return config_store.load_config(sync_csv_language=False, recover_corrupt=False)
+
+
+# Segnaposto del ripiego fail-closed sui chat ID: usato SOLO se `diagnostics.redact_chat_ids`
+# solleva (percorso degradato). Volutamente diverso dall'impronta `chat:sha256:…` del percorso
+# normale, così nel log si distingue subito una redazione degradata da una regolare.
+MASKED_CHAT_FALLBACK = "<chat-id>"
+
+
+def _crude_chat_mask(text: str, chat_ids) -> str:
+    """Sostituzione LETTERALE degli ID, senza confini numerici — ripiego fail-closed (#171).
+
+    Non è un secondo `redact_chat_ids`: non prova a essere preciso. È deliberatamente più
+    aggressiva (può mordere dentro un numero più lungo) perché gira solo quando la redazione
+    esatta è già fallita, e in quel punto over-redigere è il verso sicuro.
+
+    Non solleva mai: è l'ultima riga di difesa, e una difesa che può sollevare non difende.
+
+    La guardia è **per elemento**, non attorno al ciclo (rilievo Fable 5 #171): con un solo
+    `try` esterno, un `cid` che solleva a metà iterazione interromperebbe il ciclo e lascerebbe
+    in chiaro **tutti gli ID successivi** — un fail-open residuo proprio dentro il ripiego
+    fail-closed. Così invece un elemento difettoso salta da solo e gli altri vengono mascherati
+    comunque.
+
+    Le **tre** guardie coprono i tre punti in cui la funzione potrebbe sollevare (rilievo
+    GPT-5.5 e Fable 5 #171): `str(text)`, l'**iterazione** di `chat_ids`, e il singolo
+    elemento. Sono tutte irraggiungibili dall'unico chiamante — `text` arriva già da
+    `redact_secrets`, quindi è una `str`, e `chat_ids` è la tupla materializzata della cache —
+    ma il contratto qui sopra è **incondizionato**, e un'ultima riga di difesa che solleva in
+    un caso non previsto non è un'ultima riga di difesa."""
+    try:
+        out = str(text)
+    except Exception:   # noqa: BLE001 — `__str__` difettoso: non possiamo nemmeno leggere il testo
+        # Fail-closed fino in fondo: se il testo non è rappresentabile non lo si emette. Meglio
+        # una risposta vuota che una potenzialmente piena di ID non mascherati.
+        return ""
+    try:
+        for cid in chat_ids or ():
+            try:
+                valore = str(cid or "").strip()
+                if valore:
+                    out = out.replace(valore, MASKED_CHAT_FALLBACK)
+            except Exception:   # noqa: BLE001 — un elemento difettoso non ferma gli altri
+                continue
+    except Exception:   # noqa: BLE001 — iterabile che solleva DURANTE l'iterazione
+        # Si tiene quanto già mascherato: parziale è meglio di niente, e comunque non peggiore
+        # del testo di partenza.
+        pass
+    return out
+
+
 class ToolRegistry:
     """Registro dei tool + **guardie di sicurezza**. È l'unico punto da cui un tool viene eseguito.
 
@@ -117,10 +181,79 @@ class ToolRegistry:
     Ogni chiamata (permessa o rifiutata) è annotata in ``audit_log`` e, se presente, notificata al
     ``logger`` iniettabile — così l'app reale può scrivere l'evento nel log senza I/O nei test."""
 
-    def __init__(self, *, logger=None):
+    def __init__(self, *, logger=None, chat_ids_provider=None):
         self._tools = {}
         self.audit_log = []       # lista di dict {name, input, allowed, reason} — ispezionabile nei test
         self._logger = logger     # callable(str) opzionale per il log reale (event_log nell'app)
+        # Callable() -> iterabile di chat_id configurati, per la redazione centralizzata (#137).
+        # Opzionale: senza, il comportamento resta quello di prima (solo segreti).
+        self._chat_ids_provider = chat_ids_provider
+        # Ultimo elenco letto con successo: ripiego quando il provider fallisce, così una
+        # config momentaneamente illeggibile non apre una finestra senza redazione (#171).
+        self._chat_ids_cache = ()
+
+    def _safe_out(self, text) -> str:
+        """Unica uscita verso il modello: redige **segreti** e **chat_id** (audit #137).
+
+        Prima i chat_id erano redatti solo da `_redact_config`, chiamato da UN tool
+        (`get_config_state`): un tool futuro che se ne dimenticava li esponeva. Qui la
+        redazione diventa una proprietà del **dispatcher**, cioè dell'unico punto da cui un
+        tool può restituire qualcosa — così non dipende più dalla memoria di chi lo scrive.
+
+        `_redact_config` **resta** e non è ridondante: è la difesa di primo livello, che
+        redige il JSON di config in modo strutturato (anche le CHIAVI dei dict
+        `parser_by_chat`). Questa è la seconda rete.
+
+        La sostituzione usa `diagnostics.redact_chat_ids`, che tocca **solo** gli ID
+        realmente configurati e mai «i numeri che sembrano un id»: un output coi contatori
+        storpiati non servirebbe a diagnosticare nulla, che è lo scopo dell'assistente.
+
+        Fail-safe **con memoria** (rilievo Fugu Ultra #171): se il provider solleva — config
+        momentaneamente illeggibile, tipicamente la finestra di `os.replace` di una scrittura
+        config concorrente su Windows — si ripiega sull'**ultimo elenco di ID letto con
+        successo**, non su «nessuna redazione».
+
+        La differenza è sostanziale: degradare a zero redazione aprirebbe una finestra di leak
+        proprio nell'istante in cui la config viene riscritta (es. l'utente applica una
+        proposta dell'assistente mentre un tool è in volo). Gli ID cambiano di rado; l'ultimo
+        valore noto è quasi sempre ancora corretto, e comunque **più** protettivo di niente.
+
+        Solo se il provider non ha MAI avuto successo (cache vuota) si resta ai soli segreti:
+        a quel punto non c'è nulla da cui redigere e l'alternativa sarebbe rifiutare il tool,
+        cosa sproporzionata per una seconda rete."""
+        out = event_log.redact_secrets(str(text))
+        provider = self._chat_ids_provider
+        if provider is None:
+            return out
+        try:
+            # `tuple(...)` MATERIALIZZA subito: il contratto dichiara «iterabile», quindi un
+            # provider può legittimamente restituire un generatore. Redigere usando il valore
+            # grezzo dopo averlo consumato qui darebbe un iteratore ESAURITO → zero
+            # sostituzioni, in silenzio (rilievo Fable 5 + GPT-5.5 #171). Si legge sempre dalla
+            # tupla, sia nel percorso sano sia nel ripiego: un solo valore, nessuna divergenza.
+            self._chat_ids_cache = tuple(provider() or ())
+        except Exception:   # noqa: BLE001 — la seconda rete non deve poter rompere l'assistente
+            pass            # si tiene l'ultima tupla buona (vedi docstring)
+        chat_ids = self._chat_ids_cache
+        if not chat_ids:
+            return out
+        try:
+            return diagnostics.redact_chat_ids(out, chat_ids)
+        except Exception:   # noqa: BLE001 — vedi sotto: la garanzia dev'essere STRUTTURALE
+            # Anche la sostituzione sta dentro una guardia (rilievo Fable 5 #171). Oggi
+            # `redact_chat_ids` non solleva su nessun input anomalo — verificato con
+            # `None`/int/list/dict fra gli ID — ma il contratto di questo metodo dice «la
+            # seconda rete non deve poter rompere l'assistente», e una garanzia che dipende
+            # dalla robustezza *attuale* di un'altra funzione non è una garanzia: è una
+            # coincidenza.
+            #
+            # Il ripiego è fail-CLOSED (Fugu Ultra + Fable 5 + GPT-5.5 #171): ritornare il
+            # testo con i soli segreti redatti lascerebbe i chat ID in chiaro proprio nel
+            # percorso d'errore, contraddicendo lo scopo di questa rete. Si sostituisce
+            # letteralmente, senza confini: può over-redigere (un numero legittimo che
+            # CONTIENE l'ID), ma in un percorso già degradato l'over-redazione è il verso
+            # giusto — meglio un contatore storpiato che un ID in chiaro verso l'API.
+            return _crude_chat_mask(out, chat_ids)
 
     def register(self, tool: AgentTool) -> None:
         if tool.permission not in (READ_ONLY, WRITE_CONFIG):
@@ -180,32 +313,35 @@ class ToolRegistry:
         if name in FORBIDDEN_TOOLS:
             reason = "forbidden"
             self._audit(name, tool_input, False, reason)
-            return ToolResult(name, event_log.redact_secrets(_REFUSAL_FORBIDDEN.format(name=name)),
+            return ToolResult(name, self._safe_out(_REFUSAL_FORBIDDEN.format(name=name)),
                               refused=True, reason=reason)
         tool = self._tools.get(name)
         # 2. sconosciuto.
         if tool is None:
             reason = "unknown"
             self._audit(name, tool_input, False, reason)
-            return ToolResult(name, event_log.redact_secrets(_REFUSAL_UNKNOWN.format(name=name)),
+            return ToolResult(name, self._safe_out(_REFUSAL_UNKNOWN.format(name=name)),
                               refused=True, reason=reason)
         # 3. scrittura non abilitata.
         if tool.permission == WRITE_CONFIG and not allow_writes:
             reason = "write_disabled"
             self._audit(name, tool_input, False, reason)
-            return ToolResult(name, event_log.redact_secrets(_REFUSAL_WRITE_DISABLED.format(name=name)),
+            return ToolResult(name, self._safe_out(_REFUSAL_WRITE_DISABLED.format(name=name)),
                               refused=True, reason=reason)
         # 4. esecuzione + redazione segreti sul risultato.
         try:
-            raw = tool.handler(tool_input)
+            # `str(...)` DENTRO il try: un handler che ritorna un oggetto col
+            # `__str__` difettoso sfuggirebbe altrimenti a `dispatch`, rompendo
+            # l'invariante «nessun tool puo' far crashare l'agente» (CodeRabbit #171).
+            raw = str(tool.handler(tool_input))
         except ToolError as exc:
             self._audit(name, tool_input, True, f"error:{exc}")
-            return ToolResult(name, event_log.redact_secrets(f"Errore nel tool: {exc}"))
+            return ToolResult(name, self._safe_out(f"Errore nel tool: {exc}"))
         except Exception as exc:   # noqa: BLE001 — nessun tool deve poter far crashare l'agente
             self._audit(name, tool_input, True, f"exception:{type(exc).__name__}")
-            return ToolResult(name, event_log.redact_secrets(
+            return ToolResult(name, self._safe_out(
                 f"Errore interno nel tool «{name}»: {type(exc).__name__}"))
-        safe = event_log.redact_secrets(str(raw))
+        safe = self._safe_out(raw)
         self._audit(name, tool_input, True, "ok")
         return ToolResult(name, safe)
 
@@ -249,7 +385,7 @@ def _redact_config(cfg: dict) -> dict:
 def build_read_only_tools(*, config_loader=None, parsers_dir=None) -> list:
     """Costruisce i tool **sola-lettura** dell'agente (stato live/contesto). ``config_loader`` e
     ``parsers_dir`` sono iniettabili per i test; se assenti si usa lo stato reale dell'app."""
-    load_cfg = config_loader or config_store.load_config
+    load_cfg = config_loader or readonly_config_loader
 
     def _get_config_state(_inp):
         cfg = load_cfg()
@@ -545,7 +681,7 @@ def build_message_preview(cfg, message, *, chat="", parsers_dir=None) -> dict:
 def build_tester_tools(*, config_loader=None, parsers_dir=None) -> list:
     """Tool SOLA-LETTURA `test_message` (#41 PR-8 Blocco B). `config_loader`/`parsers_dir`
     iniettabili per i test. Non scrive né tocca alcun file."""
-    load_cfg = config_loader or config_store.load_config
+    load_cfg = config_loader or readonly_config_loader
 
     def _test_message(inp):
         cfg = load_cfg() or {}
@@ -710,7 +846,7 @@ def build_dictionary_lookup(cfg, query) -> dict:
 
 def build_dictionary_tools(*, config_loader=None) -> list:
     """Tool SOLA-LETTURA `lookup_dictionary` (#41 PR-9 Blocco C). `config_loader` iniettabile."""
-    load_cfg = config_loader or config_store.load_config
+    load_cfg = config_loader or readonly_config_loader
 
     def _lookup_dictionary(inp):
         cfg = load_cfg() or {}
@@ -870,7 +1006,7 @@ def build_journal_report(*, journal_path=None, limit=MAX_JOURNAL_EVENTS) -> dict
 def build_diagnostic_tools(*, config_loader=None, health_provider=None, journal_path=None) -> list:
     """Tool SOLA-LETTURA di diagnosi (#41 PR-10 Blocco D): `explain_health` + `why_discarded`.
     `health_provider`/`journal_path` iniettati dall'app (o dai test)."""
-    load_cfg = config_loader or config_store.load_config
+    load_cfg = config_loader or readonly_config_loader
 
     def _explain_health(_inp):
         return json.dumps(build_health_report(load_cfg() or {}, health_provider=health_provider),
@@ -1000,7 +1136,7 @@ def build_write_tools(*, config_loader=None, on_proposal=None) -> list:
     dall'utente tramite la UI (pulsante «Applica» → `AgentController.apply_pending`), non da un
     booleano deciso dal modello. Così un `confirm` allucinato o indotto (prompt injection) non può
     applicare nulla: al massimo mette in coda una PROPOSTA che l'utente vede e conferma a mano."""
-    load_cfg = config_loader or config_store.load_config
+    load_cfg = config_loader or readonly_config_loader
 
     def _set_config_value(inp):
         key = str(inp.get("key", "")).strip()
@@ -1057,7 +1193,12 @@ def build_default_registry(*, config_loader=None, parsers_dir=None, on_proposal=
     `tool_specs`); il gate `dispatch(allow_writes=...)` resta l'ultima difesa; e la scrittura vera è
     gated dalla UI (`on_proposal` → conferma umana), mai dal modello. `base_dir`/`health_provider`/
     `journal_path` sono iniettabili (test / stato live dell'app)."""
-    reg = ToolRegistry(logger=logger)
+    # Redazione chat_id centralizzata (#137): il provider legge dalla STESSA fonte del
+    # report diagnostico (`diagnostics.collect_chat_ids`), così non diverge quando si
+    # aggiunge una chiave di config che contiene chat.
+    _load_cfg = config_loader or readonly_config_loader
+    reg = ToolRegistry(logger=logger,
+                       chat_ids_provider=lambda: diagnostics.collect_chat_ids(_load_cfg()))
     for tool in build_read_only_tools(config_loader=config_loader, parsers_dir=parsers_dir):
         reg.register(tool)
     for tool in build_guide_tools(base_dir=base_dir):
