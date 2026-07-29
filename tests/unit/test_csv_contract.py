@@ -362,3 +362,50 @@ def test_una_cella_di_solo_spazio_resta_invariata(vuoto):
     e `nudo[0]` solleverebbe `IndexError`. Non deve né esplodere né prefissare nulla —
     una cella vuota non è una formula (rilievo GPT-5.5 #170 sui campi whitespace-only)."""
     assert csv_writer._sanitize_cell(vuoto) == vuoto
+
+
+def test_ogni_riga_dati_passa_dalla_sanitizzazione():
+    """Rilievo GPT-5.5 (#170): i test su `_sanitize_cell` non garantiscono da soli che **tutti**
+    i percorsi di scrittura CSV passino da lì.
+
+    Osservazione giusta, ed è la forma di difetto che questo repository ha già incontrato più
+    volte: una guardia corretta con un **perimetro incompleto** è indistinguibile da una
+    guardia che passa. Il grep di oggi non basta — serve un invariante che si accorga di un
+    secondo writer aggiunto domani.
+
+    Regola: nel modulo può esistere **una sola** scrittura di riga dati, e deve essere
+    sanitizzata. `writeheader()` è escluso: scrive i nomi di colonna del contratto, non dati
+    che arrivano da Telegram."""
+    import inspect
+    import re as _re
+
+    sorgente = inspect.getsource(csv_writer)
+    scritture = [ln.strip() for ln in sorgente.splitlines()
+                 if _re.search(r"\.writerows?\(", ln)]
+
+    assert len(scritture) == 1, (
+        "aggiunto un secondo punto di scrittura righe: deve passare da `_sanitize_row`, "
+        f"poi aggiorna questo guard. Trovati: {scritture}")
+    assert "_sanitize_row(" in scritture[0], (
+        f"la scrittura delle righe dati non passa dalla sanitizzazione: {scritture[0]}")
+
+
+def test_nessun_altro_modulo_scrive_direttamente_il_csv():
+    """L'altra metà del perimetro: la sanitizzazione vale solo se `csv_writer` resta l'unico
+    a scrivere il CSV operativo. Un secondo scrittore altrove nel package la aggirerebbe
+    per intero, non solo in un ramo."""
+    import pathlib
+    import re as _re
+
+    pacchetto = pathlib.Path(csv_writer.__file__).parent
+    colpevoli = []
+    for f in sorted(pacchetto.glob("*.py")):
+        if f.name == "csv_writer.py":
+            continue
+        testo = f.read_text(encoding="utf-8")
+        if _re.search(r"csv\.(DictWriter|writer)\s*\(", testo):
+            colpevoli.append(f.name)
+
+    assert not colpevoli, (
+        "questi moduli creano un writer CSV senza passare da `csv_writer`, "
+        f"quindi bypassano la sanitizzazione anti-formula: {colpevoli}")
