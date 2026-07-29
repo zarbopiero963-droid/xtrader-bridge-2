@@ -483,6 +483,12 @@ può leggerla e togliere dal CSV il segnale confermato/rifiutato.
 - Su **CONFIRMED** o **REJECTED** il segnale viene rimosso dalla coda e dal CSV.
 - Una notifica non associabile o ambigua viene solo loggata; la conferma **non**
   genera mai una nuova scommessa.
+- L'associazione senza `ref` richiede **tutti e tre** i campi identità (evento, mercato,
+  selezione) su **porzioni distinte** del testo: una selezione contenuta nel nome
+  dell'evento (es. «Inter» dentro «Inter v Milan») **non** basta da sola. Vale anche
+  quando i nomi hanno bordi non alfanumerici — «Inter v Milan (Serie A)», «+1,5», un'emoji
+  iniziale (P3-cw4 #166): prima quei nomi venivano riconosciuti ma non consumati, e un
+  segnale poteva risultare confermato da una notifica che non nominava la sua selezione.
 - `confirmation_keywords`, `rejection_keywords` regolano l'interpretazione delle
   notifiche; `confirmation_timeout` è il timeout del segnale in `QUEUE_UNTIL_CONFIRMED`
   (vedi tabella della configurazione avanzata).

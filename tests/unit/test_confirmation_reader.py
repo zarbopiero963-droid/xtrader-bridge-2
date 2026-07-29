@@ -1,5 +1,7 @@
 """Test del lettore di conferme XTrader (PR-17/#... PHASE 7): logica pura."""
 
+import pytest
+
 from xtrader_bridge import confirmation_reader as cr
 
 
@@ -287,3 +289,166 @@ def test_fallback_selezione_dentro_evento_non_basta():
     # se la selezione è nominata separatamente, allora combacia
     ok = cr.interpret("Inter v Milan - Esito finale - Inter piazzata", pending)
     assert ok.status == cr.CONFIRMED
+
+
+# ── P3-cw4 (#166): `_remove_first` e `_has_keyword` devono usare gli STESSI confini ─────────────
+# `_kw_pattern` usa confini ADATTIVI (li mette solo se il bordo è alfanumerico); `_remove_first`
+# imponeva `\b` sempre. Su una frase che inizia o finisce con un SIMBOLO i due divergevano: il
+# campo veniva TROVATO ma non CONSUMATO, quindi la stessa porzione di testo poteva soddisfare
+# due campi diversi. Il test qui sopra (`..._dentro_evento_non_basta`) copriva già l'intenzione,
+# ma solo per la forma di bordo in cui le due implementazioni per caso coincidono.
+
+def test_una_conferma_non_associa_un_segnale_di_cui_non_nomina_la_selezione():
+    """Il caso operativo che conta: un CONFIRMED errato **chiude un segnale attivo** e lo
+    rimuove da coda e CSV.
+
+    Qui la notifica nomina evento e mercato ma NON la selezione. Poiché l'evento finisce con
+    «)» — un bordo simbolo — non veniva consumato, e la selezione «Inter» veniva ritrovata
+    dentro il nome dell'evento: il segnale risultava confermato da una notifica che non lo
+    riguardava."""
+    pending = [{"signal_id": "x", "ref": "",
+                "EventName": "Inter v Milan (Serie A)", "MarketName": "Esito Finale",
+                "SelectionName": "Inter"}]
+    res = cr.interpret("Piazzata: Inter v Milan (Serie A) - Esito Finale", pending)
+    assert res.status == cr.UNMATCHED
+
+    # Se invece la selezione è nominata a sé, il match è legittimo e deve restare tale.
+    ok = cr.interpret("Piazzata: Inter v Milan (Serie A) - Esito Finale - Inter", pending)
+    assert ok.status == cr.CONFIRMED
+
+
+@pytest.mark.parametrize("frase", [
+    "inter v milan (serie a)",   # finisce con «)»
+    "+1,5",                      # handicap: inizia con «+»
+    "✅ goal",                    # inizia con un'emoji
+    "over 2,5",                  # tutto alfanumerico: caso di controllo, già funzionante
+])
+def test_cio_che_viene_trovato_viene_anche_consumato(frase):
+    """L'invariante che rende corretto `all_name_fields_present`: se `_has_keyword` trova una
+    frase, `_remove_first` deve saperla togliere.
+
+    Finché le due usavano definizioni diverse di «confine» — adattivo l'una, `\\b` fisso
+    l'altra — l'invariante valeva solo per le frasi con bordi alfanumerici, ed è esattamente il
+    motivo per cui il caso con «)» sfuggiva ai test esistenti."""
+    testo = f"piazzata: {frase} - esito finale"
+    assert cr._has_keyword(testo, frase), "presupposto del test: la frase è trovata"
+    ripulito = cr._remove_first(testo, frase)
+    assert not cr._has_keyword(ripulito, frase), (
+        f"trovata ma non consumata: {frase!r} resta in {ripulito!r}")
+
+
+def test_remove_first_ignora_una_frase_vuota():
+    """Guardia: `_kw_pattern("")` è vuoto e `re.sub("", …)` sostituirebbe a OGNI posizione,
+    sfregiando il testo. Non è raggiungibile da `all_name_fields_present` (che controlla i campi
+    prima), ma la funzione è pubblica dentro il modulo e non deve avere quel comportamento."""
+    assert cr._remove_first("inter v milan", "") == "inter v milan"
+    assert cr._remove_first("inter v milan", "   ") == "inter v milan"
+
+
+def test_il_fix_recupera_una_conferma_legittima_resa_ambigua_dal_doppio_conteggio():
+    """Rilievo GPT-5.5 (#168): il fix è più restrittivo, quindi può trasformare un caso
+    AMBIGUO in una conferma singola. Va verificato che sia quella giusta — ed è così.
+
+    Due segnali sullo stesso evento, selezioni «Inter» e «Milan»: entrambe contenute nel nome
+    dell'evento. Prima, con l'evento non consumato, **entrambi** i segnali risultavano presenti
+    → ambiguo → nessuna conferma, e quella legittima andava persa. Ora l'evento viene consumato
+    e resta solo la selezione davvero nominata."""
+    pending = [
+        {"signal_id": "inter", "ref": "", "EventName": "Inter v Milan (Serie A)",
+         "MarketName": "Esito Finale", "SelectionName": "Inter"},
+        {"signal_id": "milan", "ref": "", "EventName": "Inter v Milan (Serie A)",
+         "MarketName": "Esito Finale", "SelectionName": "Milan"},
+    ]
+    scelto = cr.match_pending(
+        "Piazzata: Inter v Milan (Serie A) - Esito Finale - Inter", pending)
+    assert scelto is not None and scelto["signal_id"] == "inter"
+
+    # E il gemello: se la notifica nomina «Milan», si associa l'altro. La distinzione regge in
+    # entrambe le direzioni, non per fortuna sull'ordine della lista.
+    altro = cr.match_pending(
+        "Piazzata: Inter v Milan (Serie A) - Esito Finale - Milan", pending)
+    assert altro is not None and altro["signal_id"] == "milan"
+
+
+@pytest.mark.parametrize("frase", ["Inter v Milan (Serie A)", "INTER V MILAN (SERIE A)",
+                                   "inter v milan (serie a)"])
+def test_trova_e_consuma_normalizzano_il_case_allo_stesso_modo(frase):
+    """Punto di verifica chiesto da Claude Fable 5 (#168): `_has_keyword` e `_remove_first`
+    devono normalizzare il case in modo coerente, altrimenti tornerebbero a divergere per un
+    motivo diverso da quello appena corretto.
+
+    Entrambe passano da `_kw_pattern`, che minuscola la frase; il testo arriva già normalizzato
+    da `match_pending` (`_norm`). Qualunque grafia della stessa frase deve quindi essere sia
+    trovata sia consumata."""
+    testo = cr._norm("Piazzata: Inter v Milan (Serie A) - Esito Finale")
+    assert cr._has_keyword(testo, frase)
+    assert not cr._has_keyword(cr._remove_first(testo, frase), frase)
+
+
+# ── Pin del perimetro (suggerimenti GPT-5.5 #168, non bloccanti) ───────────────────────────────
+# Misurato: tutti e tre i casi sotto si comportano IDENTICAMENTE prima e dopo il fix — il bug si
+# manifestava solo quando il **bordo** della frase è un simbolo (la `)` finale di «Inter v Milan
+# (Serie A)»), e qui i bordi sono alfanumerici. Non sono quindi regressioni possibili di questo
+# PR: sono un pin del perimetro. Servono perché il prossimo che tocca la definizione di confine
+# in `_kw_pattern` veda subito se ha allargato la porta, invece di scoprirlo su una conferma
+# reale. Una guardia corretta con perimetro non misurato è indistinguibile da una che passa.
+
+@pytest.mark.parametrize("nome,notifica,pending,atteso", [
+    (
+        "selezione dentro una parola più lunga",
+        "Piazzata: Inter v Milan - Esito Finale - Interista",
+        {"EventName": "Inter v Milan", "MarketName": "Esito Finale", "SelectionName": "Inter"},
+        None,   # «Interista» non nomina «Inter»: fail-closed, nessuna conferma
+    ),
+    (
+        "controprova: la selezione esatta si associa",
+        "Piazzata: Inter v Milan - Esito Finale - Inter",
+        {"EventName": "Inter v Milan", "MarketName": "Esito Finale", "SelectionName": "Inter"},
+        "sig",
+    ),
+    (
+        "accenti e slash nei nomi reali",
+        "✅ Piazzata: Bodø/Glimt v Malmö FF | Under/Over 2,5 → Over 2,5",
+        {"EventName": "Bodø/Glimt v Malmö FF", "MarketName": "Under/Over 2,5",
+         "SelectionName": "Over 2,5"},
+        "sig",
+    ),
+    (
+        "apostrofo nel nome squadra",
+        "Piazzata: L'Aquila v Ternana - Esito Finale - L'Aquila",
+        {"EventName": "L'Aquila v Ternana", "MarketName": "Esito Finale",
+         "SelectionName": "L'Aquila"},
+        "sig",
+    ),
+    (
+        "MarketName identico alla SelectionName, nominato una volta sola",
+        "Piazzata: Inter v Milan - Over 2,5",
+        {"EventName": "Inter v Milan", "MarketName": "Over 2,5", "SelectionName": "Over 2,5"},
+        None,   # il consumo progressivo mangia il mercato: la selezione non è più nominata
+    ),
+    (
+        "MarketName identico alla SelectionName, nominata due volte",
+        "Piazzata: Inter v Milan - Over 2,5 - Over 2,5",
+        {"EventName": "Inter v Milan", "MarketName": "Over 2,5", "SelectionName": "Over 2,5"},
+        "sig",
+    ),
+    (
+        "MarketName che CONTIENE la SelectionName",
+        "Piazzata: Inter v Milan - Under/Over 2,5 - Over 2,5",
+        {"EventName": "Inter v Milan", "MarketName": "Under/Over 2,5",
+         "SelectionName": "Over 2,5"},
+        "sig",
+    ),
+])
+def test_il_perimetro_dei_confini_resta_dove_e_stato_misurato(nome, notifica, pending, atteso):
+    """Casi limite reali attorno al fix: selezione come sottostringa, accenti/apostrofi/slash da
+    notifiche Telegram vere, e MarketName uguale o sovrapposto alla SelectionName.
+
+    Il caso più delicato è l'ultimo gruppo: `all_name_fields_present` consuma evento → mercato →
+    selezione, quindi un mercato identico alla selezione la mangia. L'esito è `None` — la
+    conferma non si associa, il segnale resta in coda e scade per timeout. È la direzione
+    sicura: non si chiude la scommessa sbagliata. Se un domani diventasse un'associazione, questo
+    test diventa rosso e la decisione va rivista, non subita."""
+    segnale = dict(pending, signal_id="sig", ref="")
+    esito = cr.match_pending(notifica, [segnale])
+    assert (esito["signal_id"] if esito else None) == atteso, nome

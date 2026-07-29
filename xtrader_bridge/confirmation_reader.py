@@ -103,6 +103,24 @@ def _has_keyword(text: str, keyword: str) -> bool:
     return bool(pat) and re.search(pat, text) is not None
 
 
+def _remove_first(text: str, phrase: str) -> str:
+    """Rimuove la prima occorrenza di `phrase` da `text`, usando gli STESSI confini di
+    `_has_keyword` — cioè lo stesso `_kw_pattern` (P3-cw4 #166).
+
+    Prima imponeva `\\b` da entrambi i lati mentre il match usava confini **adattivi**: su una
+    frase con un bordo SIMBOLO le due divergevano, e ciò che veniva TROVATO non veniva
+    CONSUMATO. Conseguenza concreta: in `all_name_fields_present` un `EventName` come
+    «Inter v Milan (Serie A)» restava nel testo, e la `SelectionName` «Inter» veniva ritrovata
+    lì dentro — un segnale risultava confermato da una notifica che non nominava affatto la sua
+    selezione, e veniva chiuso e rimosso da coda e CSV.
+
+    Componendo da `_kw_pattern` la definizione di «confine» è UNA sola: le due non possono più
+    divergere. Frase vuota → testo invariato (`re.sub` con pattern vuoto sostituirebbe a ogni
+    posizione)."""
+    pat = _kw_pattern(phrase)
+    return re.sub(pat, " ", text, count=1) if pat else text
+
+
 def _occ_negation(text: str, keyword: str, negators, window=None):
     """Esamina OGNI occorrenza di `keyword` e dice se è negata da una parola di `negators`
     che la precede nella STESSA clausola (oltre un confine `,.;:!?` la negazione non conta).
@@ -224,10 +242,6 @@ def match_pending(text: str, pending):
         return by_ref[0]
     if len(by_ref) > 1:
         return None
-
-    def _remove_first(text: str, phrase: str) -> str:
-        """Rimuove la prima occorrenza (parola intera) di `phrase` da `text`."""
-        return re.sub(r"\b" + re.escape(phrase) + r"\b", " ", text, count=1)
 
     def all_name_fields_present(p) -> bool:
         # Fallback: servono TUTTI E TRE i campi identità, non vuoti e presenti nel
