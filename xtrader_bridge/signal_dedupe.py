@@ -61,6 +61,16 @@ RATE_LIMITED = "RATE_LIMITED"
 DEFAULT_DEDUPE_WINDOW = 300     # secondi: finestra entro cui un messaggio è "lo stesso"
 DEFAULT_MAX_PER_MINUTE = 20     # segnali nuovi ammessi al minuto
 
+# Oltre quanto, nel FUTURO, un timestamp persistito è «file corrotto» e non «orologio arretrato»
+# (B4 #194, decisione proprietario D1). Deliberatamente SCOLLEGATO da `dedupe_window`: sono due
+# domande diverse e legarle a una soglia sola è ciò che ha prodotto il bug. Uno step NTP
+# all'indietro, un ripristino di snapshot VM o una correzione manuale valgono secondi o ore; un
+# file corrotto/manomesso sbaglia di anni. 24 h separa nettamente i due casi.
+# Prezzo accettato e dichiarato: un file manomesso con timestamp entro 24 h nel futuro sopravvive
+# e blocca quegli hash fino a 24 h — errore nel verso CONSERVATIVO (segnale ripetuto perso, mai
+# una doppia scommessa).
+CORRUPTION_HORIZON_S = 86_400
+
 _WS = re.compile(r"\s+")
 
 
@@ -209,8 +219,15 @@ class SignalTracker:
         """Stato serializzabile: lista di [hash, timestamp, real]."""
         return [[h, t, r] for (h, t, r) in self._seen]
 
-    def restore_state(self, data, *, now: float = None) -> None:
+    def restore_state(self, data, *, now: float = None, trusted: bool = False) -> None:
         """Ripristina lo stato da `state()` (tollerante a voci malformate).
+
+        `trusted=True` salta **solo** il clamp anti-corruzione descritto sotto, e va usato
+        SOLTANTO quando i dati vengono da uno snapshot preso da noi stessi pochi istanti prima
+        (`tracker.state()` nei rollback di `write_path`): non è un file, nessuno può manometterlo.
+        Tutto il resto della sanificazione — voci non finite, malformate, troppo corte — resta
+        attivo in entrambi i casi. Default `False`: un chiamante nuovo che dimentica il parametro
+        eredita il comportamento **prudente**, non la fiducia.
 
         Scarta le voci con timestamp NON FINITO (NaN/inf): `json.load` accetta di default
         `Infinity`/`NaN`, e uno `dedupe_state.json` corrotto/manomesso con `inf`
@@ -225,11 +242,19 @@ class SignalTracker:
         DUPLICATE **per sempre**. Ma uno skew d'orologio all'INDIETRO **moderato** (correzione NTP)
         lascia voci LEGGERMENTE nel futuro che `_prune` conserva **apposta** per proteggere dai
         duplicati (e che si auto-sanano quando `now` le raggiunge). Quindi si clampa **solo** ciò
-        che è CHIARAMENTE corrotto — oltre l'orizzonte `now + max(dedupe_window, 60)` (nessun tempo
-        di elaborazione plausibile è più avanti di una finestra) — riportandolo a `now`; lo skew
-        moderato (entro l'orizzonte) resta INVARIATO, con piena protezione anti-duplicato per la
+        che è CHIARAMENTE corrotto — oltre l'orizzonte `now + CORRUPTION_HORIZON_S` — riportandolo
+        a `now`; lo skew moderato resta INVARIATO, con piena protezione anti-duplicato per la
         finestra originale. Così: niente immortalità sui valori corrotti, nessun indebolimento
-        della deduplica sullo skew legittimo."""
+        della deduplica sullo skew legittimo.
+
+        B4 (#194 / #192 M1): l'orizzonte era `now + max(dedupe_window, 60)` — 300 s con i default
+        — e questo confondeva due domande diverse usando una soglia sola. L'orizzonte è calcolato
+        **a partire da `now`**, il che presuppone che `now` sia attendibile: se l'orologio arretra
+        di più di una finestra, voci del tutto legittime (registrate contro l'orologio *vecchio*)
+        finiscono oltre l'orizzonte e vengono riportate al `now` arretrato. Corretto l'orologio in
+        avanti, quelle voci risultano troppo vecchie, escono dalla finestra, e lo stesso messaggio
+        si ri-registra come `NEW`: **scritto due volte**. Non erano avanti per tempo di
+        elaborazione — era `now` ad essere arretrato sotto di loro."""
         # `now` assente / non finito / non numerico (chiamante/test futuro con NaN/inf/str) →
         # fallback fail-safe a `time.time()`: il clamp deve restare ATTIVO (un cap non finito lo
         # disabiliterebbe) e la persistenza NON deve MAI crashare lo START (review GPT-5.5/CodeRabbit
@@ -241,7 +266,7 @@ class SignalTracker:
                 cap = time.time()
         except (TypeError, ValueError):
             cap = time.time()
-        horizon = cap + max(self.dedupe_window, 60)   # oltre = corruzione, non skew d'orologio
+        horizon = cap + CORRUPTION_HORIZON_S          # oltre = corruzione, non skew d'orologio
         restored = []
         for item in data or []:
             try:
@@ -256,8 +281,8 @@ class SignalTracker:
                 continue
             if not math.isfinite(tf):
                 continue                    # NaN/inf da state corrotto/manomesso → scartato
-            if tf > horizon:
-                tf = cap                    # SOLO corruzione (oltre una finestra nel futuro) → clamp a now
+            if not trusted and tf > horizon:
+                tf = cap                    # SOLO corruzione (oltre l'orizzonte 24 h) → clamp a now
             restored.append((str(h), tf, r))
         self._seen = restored
 

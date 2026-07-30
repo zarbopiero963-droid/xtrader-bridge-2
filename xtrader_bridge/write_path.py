@@ -91,7 +91,7 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows,
         # RITENTABILE. Unico punto di rollback dei guardrail per tutti i rami
         # (cap-senza-scaduti, cap-con-scaduti, write fallita): tenerli in lockstep.
         if tracker is not None:
-            tracker.restore_state(tracker_snap)
+            tracker.restore_state(tracker_snap, trusted=True)
             if daily is not None and daily_snap is not None:
                 daily.restore_state(daily_snap)
 
@@ -176,14 +176,14 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows,
         # corrente. Si annulla SOLO l'hash del tracker (segnale ritentabile dopo il reset), NON si
         # tocca il daily: ripristinare il suo snapshot riporterebbe un giorno corrotto (state file
         # malformato) e lascerebbe il bridge bloccato per sempre (#184 low-tracker-nonwrite, Codex).
-        tracker.restore_state(tracker_snap)
+        tracker.restore_state(tracker_snap, trusted=True)
     elif tracker is not None and decision == live_guard.DRY_RUN:
         # Simulazione: `decide_write` ha registrato l'hash nel tracker ma (P3-rs1 audit #114) NON consuma
         # più alcuna slot giornaliera — il check DRY_RUN precede `daily.allow()`. Basta annullare
         # l'hash del tracker perché la simulazione non intacchi dedupe reali; il `daily` non è stato
         # toccato, quindi nessun `release()` (che, senza consumo, restituirebbe la slot di un WRITE
         # reale precedente → overtrading). DUPLICATE/RATE_LIMITED non aggiungono nulla.
-        tracker.restore_state(tracker_snap)
+        tracker.restore_state(tracker_snap, trusted=True)
 
     return CommitResult(decision=decision, blocked_by_cap=blocked_by_cap,
                         rows=rows, write_error=write_error,
@@ -386,7 +386,7 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
     if safety_guard.is_dry_run(cfg):
         queue.restore_state(queue_snap)
         if tracker is not None:
-            tracker.restore_state(tracker_snap)
+            tracker.restore_state(tracker_snap, trusted=True)
         return CommitResult(decision=live_guard.DRY_RUN, blocked_by_cap=False,
                             rows=[], write_error=None)
 
@@ -411,7 +411,7 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
         # Si annulla la registrazione della prima chiave nel tracker (messaggio ritentabile);
         # su DAILY_LIMITED il daily NON ha consumato slot (solo normalizzato il giorno):
         # come nel single-row, non si ripristina il suo snapshot.
-        tracker.restore_state(tracker_snap)
+        tracker.restore_state(tracker_snap, trusted=True)
         if disk_dirty:
             # D1 #114: disco stantio (retry pendente) → si riallinea comunque alle righe
             # attive correnti (coda post-expire), con l'esito non-WRITE onesto.
@@ -433,7 +433,7 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
             # già registrato tracker/daily pur non scrivendo nulla; senza rollback conterebbe un
             # non-write contro i limiti e `_process` lo vedrebbe come WRITE riuscito (Codex #281).
             if tracker is not None:
-                tracker.restore_state(tracker_snap)
+                tracker.restore_state(tracker_snap, trusted=True)
                 # daily: `release()` della slot consumata dal blocco (AC-M3: l'ammissione è
                 # per-MESSAGGIO → al più UNA slot, se c'era almeno una riga nuova aged-out),
                 # mantenendo il giorno normalizzato — non `restore_state` (reintrodurrebbe un
@@ -471,7 +471,7 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
     except Exception as ex:   # noqa: BLE001 — riportato al chiamante, no crash
         queue.restore_state(queue_snap)
         if tracker is not None:
-            tracker.restore_state(tracker_snap)
+            tracker.restore_state(tracker_snap, trusted=True)
             if daily is not None and daily_snap is not None:
                 daily.restore_state(daily_snap)
         return CommitResult(decision=live_guard.WRITE, blocked_by_cap=False,
