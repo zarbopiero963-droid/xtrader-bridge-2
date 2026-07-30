@@ -53,6 +53,12 @@ STATUS_EXPIRED = "SCADUTA"
 # Serializza gli append tra thread del processo (coerente con event_journal).
 _WRITE_LOCK = threading.Lock()
 
+# Alias **pubblico** dello stesso lock. Serve a chi deve fare un read-modify-write su questi store
+# senza perdere un append concorrente — oggi `backup.restore_backup`, che fonde i registri
+# append-only (#184). Dev'essere lo **stesso** oggetto, non un lock nuovo: un lock diverso non
+# serializzerebbe nulla. Esposto invece di far raggiungere il privato da fuori.
+WRITE_LOCK = _WRITE_LOCK
+
 
 def registry_path(directory: "str | None" = None) -> str:
     """Percorso del registro (`licenses.jsonl`) nella cartella data o in `manager_dir()`."""

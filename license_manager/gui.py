@@ -29,6 +29,7 @@ import customtkinter as ctk
 
 from xtrader_bridge import ui_theme
 
+from license_manager import backup as backup_mod
 from license_manager import core, publish_store, publisher, registry
 from xtrader_bridge.licensing import revocation
 
@@ -70,6 +71,9 @@ class LicenseManagerApp(ctk.CTk):
         issue_license:    (seed, nome, giorni, hardware_id, now) -> token.
         record_issued:    (record, *, directory) -> record   — append al registro licenze.
         read_records:     (*, directory) -> list             — lettura del registro licenze.
+        build_backup / save_backup / load_backup / restore_backup / auto_backup
+                          — accessi a disco del backup completo (#183), stessa firma di
+                            `license_manager.backup`.
     """
 
     def __init__(self, master=None, *, key_dir=None, now_provider=None,
@@ -79,7 +83,9 @@ class LicenseManagerApp(ctk.CTk):
                  record_revocation=None, read_revocations=None,
                  load_publish_config=None, save_publish_config=None,
                  load_publish_token=None, save_publish_token=None, publish_upload=None,
-                 load_last_publish=None, save_last_publish=None):
+                 load_last_publish=None, save_last_publish=None,
+                 build_backup=None, save_backup=None, load_backup=None,
+                 restore_backup=None, auto_backup=None, restore_in_progress=None):
         super().__init__()
         self._key_dir = key_dir
         self._now = now_provider or (lambda: int(_time.time()))
@@ -105,6 +111,13 @@ class LicenseManagerApp(ctk.CTk):
         # così i test non toccano la cartella reale del License Manager.
         self._load_last_publish = load_last_publish or publish_store.load_last_publish
         self._save_last_publish = save_last_publish or publish_store.save_last_publish
+        # Backup completo / ripristino (#183): iniettabili come gli altri accessi a disco.
+        self._build_backup = build_backup or backup_mod.build_backup
+        self._save_backup = save_backup or backup_mod.save_backup
+        self._load_backup = load_backup or backup_mod.load_backup
+        self._restore_backup = restore_backup or backup_mod.restore_backup
+        self._auto_backup = auto_backup or backup_mod.auto_backup
+        self._restore_in_progress = restore_in_progress or backup_mod.restore_in_progress
         self._pub_last_lbl = None
         self._publish_after_id = None
         self._publish_inflight = False      # un solo upload alla volta (niente accavallamenti)
@@ -242,6 +255,7 @@ class LicenseManagerApp(ctk.CTk):
         except ValueError as exc:
             return {"accepted": False, "token": "", "message": str(exc)}
         recorded = self._record_issued_safe(token)
+        self._auto_backup_safe()        # #183: emissione = lo stato è cambiato
         suffix = "" if recorded else (" ⚠️ registro NON aggiornato (permessi/percorso della "
                                       "cartella?): il token è comunque valido, salvalo a mano.")
         return {"accepted": True, "token": token,
@@ -312,12 +326,135 @@ class LicenseManagerApp(ctk.CTk):
             return {"accepted": False,
                     "message": f"Licenza già revocata: {rec.get('serial', '')} ({rec.get('name', '')})."}
         recorded = self._record_revocation_safe(rec)
+        self._auto_backup_safe()        # #183: revoca = lo stato è cambiato
         if not recorded:
             return {"accepted": False,
                     "message": "Revoca NON registrata (permessi/percorso della cartella?): riprova."}
         return {"accepted": True,
                 "message": f"Licenza revocata: {rec.get('serial', '')} ({rec.get('name', '')}). "
                            "Esporta e ripubblica la lista revoche per applicarla ai bridge."}
+
+    def _auto_backup_safe(self) -> bool:
+        """Backup automatico dello stato mutevole (#183). Agganciato a **emissione e revoca** — i due
+        momenti in cui i dati cambiano — non alla pubblicazione della lista, che ri-firma e carica ma
+        non tocca il disco.
+
+        `backup.auto_backup` è già best-effort, ma qui c'è comunque una rete **strutturale** (rilievo
+        Claude Fable 5 #184). Misurato: senza questo `except`, un'eccezione imprevista dal backup
+        **fa fallire l'emissione della licenza** — cioè la rete di sicurezza romperebbe esattamente
+        l'operazione che dovrebbe proteggere. Oggi non succede perché `auto_backup` cattura i tipi
+        che sa di poter incontrare; ma quella garanzia vive in un altro modulo e un domani può
+        cambiare, mentre il danno cadrebbe qui. Stessa scelta già fatta per il fail-open del gate
+        revoca (#159), dove la sola diagnostica poteva vanificare il fail-open.
+
+        Nel log finisce **solo il tipo** dell'eccezione: il messaggio può contenere il percorso della
+        cartella-dati, che su Windows include il nome account."""
+        try:
+            return self._auto_backup(self._key_dir, now=self._now())
+        except Exception as exc:    # noqa: BLE001 — il backup NON deve poter far fallire emissione/revoca
+            _log.warning("Backup automatico non riuscito: %s", type(exc).__name__)
+            return False
+
+    def _evaluate_export_backup(self, dest_path, *, overwrite: bool = False) -> dict:
+        """📦 Esporta backup **completo** (migrazione): seed + registro + revoche + impostazioni.
+
+        ⚠️ Il file contiene il **seed**: il messaggio lo dice esplicitamente, perché è l'unico momento
+        in cui l'utente decide dove metterlo. Il token GitHub **non** entra (vive nel keyring)."""
+        dest = str(dest_path or "").strip()
+        if not dest:
+            return {"ok": False, "message": "Scegli un percorso per il backup."}
+        try:
+            contenuto = self._build_backup(self._key_dir, now=self._now())
+            self._save_backup(dest, contenuto, overwrite=overwrite)
+        except backup_mod.BackupExistsError as exc:
+            # Recuperabile con una conferma: `needs_confirm` lo dice all'handler, che chiede.
+            return {"ok": False, "needs_confirm": True, "message": str(exc)}
+        except backup_mod.BackupError as exc:
+            return {"ok": False, "message": str(exc)}
+        except (OSError, core.KeyFileCorruptError) as exc:
+            _log.warning("Backup non riuscito: %s", type(exc).__name__)      # mai il messaggio
+            return {"ok": False, "message": "Backup non riuscito (percorso non scrivibile o chiave "
+                                            "corrotta)."}
+        quanti = len(contenuto.get("files", {}))
+        return {"ok": True,
+                "message": (f"Backup completo salvato in: {dest} ({quanti} file). "
+                            "⚠️ Contiene la CHIAVE PRIVATA: tienilo su un supporto offline, mai in "
+                            "cartelle sincronizzate o condivise. Il token GitHub non è incluso: sul "
+                            "nuovo PC va re-inserito.")}
+
+    def _evaluate_restore_backup(self, src_path, *, overwrite_key: bool = False) -> dict:
+        """📥 Ripristina un backup.
+
+        Sostituisce il passo fragile di oggi — copiare a mano un file in `%APPDATA%` **prima** di
+        avviare il programma: sbagliare l'ordine genera una seconda keypair, e le licenze firmate con
+        quella non verificano contro la chiave pubblica compilata nell'EXE distribuito."""
+        src = str(src_path or "").strip()
+        if not src:
+            return {"ok": False, "message": "Scegli il file di backup da ripristinare."}
+        try:
+            contenuto = self._load_backup(src)
+            esito = self._restore_backup(contenuto, self._key_dir, overwrite_key=overwrite_key)
+        except backup_mod.BackupKeyMismatchError as exc:
+            return {"ok": False, "needs_confirm": True, "message": str(exc)}
+        except backup_mod.BackupError as exc:
+            return {"ok": False, "message": str(exc)}
+        except (OSError, core.KeyFileCorruptError) as exc:
+            _log.warning("Ripristino non riuscito: %s", type(exc).__name__)
+            return {"ok": False, "message": "Ripristino non riuscito (cartella non scrivibile o "
+                                            "chiave attuale corrotta)."}
+        return {"ok": True,
+                "message": ("Ripristinati: " + ", ".join(esito["scritti"]) +
+                            ". Gli eventuali dati già presenti e NON contenuti nel backup (es. "
+                            "revoche più recenti) sono stati lasciati invariati. Riavvia il "
+                            "License Manager per rileggere lo stato.")}
+
+    def _confirm_backup(self, testo: str) -> bool:
+        """Conferma esplicita per le due azioni **distruttive** del backup (sovrascrivere un file
+        esistente, sostituire una keypair diversa). Seam iniettabile e **fail-closed**: se il dialogo
+        non è disponibile (headless, Tk rotto) la risposta è «no» — meglio non fare che fare un danno
+        irreversibile senza che nessuno l'abbia confermato."""
+        try:
+            from tkinter import messagebox
+            return bool(messagebox.askyesno("Conferma", testo, icon="warning", default="no"))
+        except Exception:       # noqa: BLE001 — dialog Tk best-effort, fail-closed
+            return False
+
+    def _on_export_backup(self) -> None:
+        """📦 Esporta backup completo. Il percorso lo sceglie un file-dialog; headless resta '' →
+        messaggio, nessuna scrittura."""
+        dest = ""
+        try:
+            from tkinter import filedialog
+            dest = filedialog.asksaveasfilename(
+                title="Backup completo (contiene la CHIAVE PRIVATA)", defaultextension=".json",
+                initialfile="xtrader_licenser_backup.json")
+        except Exception:       # noqa: BLE001 — dialog Tk best-effort
+            dest = ""
+        result = self._evaluate_export_backup(dest)
+        if result.get("needs_confirm") and self._confirm_backup(
+                f"{result['message']}\n\nSovrascriverlo? Se quel file è il backup di un'ALTRA "
+                "keypair, perderesti l'unica copia di quella chiave e non potresti più rinnovare "
+                "le licenze firmate con essa."):
+            result = self._evaluate_export_backup(dest, overwrite=True)
+        self._set_msg(result["message"])
+
+    def _on_restore_backup(self) -> None:
+        """📥 Ripristina un backup scelto dal file-dialog."""
+        src = ""
+        try:
+            from tkinter import filedialog
+            src = filedialog.askopenfilename(title="Ripristina backup completo",
+                                             filetypes=[("Backup XTrader", "*.json")])
+        except Exception:       # noqa: BLE001 — dialog Tk best-effort
+            src = ""
+        result = self._evaluate_restore_backup(src)
+        if result.get("needs_confirm") and self._confirm_backup(
+                f"{result['message']}\n\nSostituire comunque la keypair attuale con quella del "
+                "backup?"):
+            result = self._evaluate_restore_backup(src, overwrite_key=True)
+        self._set_msg(result["message"])
+        self._refresh_key_state()
+        self._on_registry_refresh()
 
     def _record_revocation_safe(self, rec) -> bool:
         """Registra una revoca nello store (R3b), best-effort. Un fallimento (store non scrivibile,
@@ -394,7 +531,19 @@ class LicenseManagerApp(ctk.CTk):
 
         `(None, 0, messaggio)` se la chiave manca/è corrotta o la firma fallisce (fail-closed). Uno
         store **vuoto** produce comunque una lista firmata **valida** («niente revocato»), che è
-        esattamente ciò che serve per tenere l'URL sempre popolato e fresco."""
+        esattamente ciò che serve per tenere l'URL sempre popolato e fresco.
+
+        ⚠️ **Ma non se un ripristino è rimasto a metà** (bloccante Fugu Ultra #184). Lì «store vuoto»
+        non significa «nessuno revocato»: significa «le revoche non sono ancora state scritte».
+        Firmare quella lista la renderebbe indistinguibile da una legittima — valida, firmata, più
+        recente — e ri-attiverebbe tutti i revocati. Il controllo sta **qui** e non nei due chiamanti
+        perché questo metodo è la sorgente unica di entrambi: un gate messo più in là potrebbe essere
+        aggirato da una strada nuova."""
+        if self._restore_in_progress(self._key_dir):
+            return (None, 0,
+                    "⛔ Ripristino di un backup rimasto INCOMPLETO: la lista revoche non viene "
+                    "firmata, perché in questo stato potrebbe risultare vuota e ri-attivare tutti i "
+                    "revocati. Rifai «📥 Ripristina backup completo» fino in fondo.")
         key, err = self._load_key_or_error()
         if err is not None:
             return None, 0, err["message"]
@@ -739,6 +888,15 @@ class LicenseManagerApp(ctk.CTk):
         # Backup + messaggi
         ctk.CTkButton(self, text="💾 Backup della chiave privata", command=self._on_export).pack(
             anchor="w", padx=12, pady=(0, 6))
+        # Backup COMPLETO (#183): il pulsante sopra salva solo il seed — sufficiente a non perdere la
+        # chiave, NON a migrare il tool. Questi due coprono la migrazione (registro + revoche +
+        # impostazioni), che col solo seed ri-attiverebbe in silenzio tutti i revocati.
+        ctk.CTkLabel(self, text="Migrazione su un altro PC (backup completo)", anchor="w").pack(
+            fill="x", padx=12, pady=(4, 0))
+        ctk.CTkButton(self, text="📦 Esporta backup completo",
+                      command=self._on_export_backup).pack(anchor="w", padx=12, pady=(0, 4))
+        ctk.CTkButton(self, text="📥 Ripristina backup completo",
+                      command=self._on_restore_backup).pack(anchor="w", padx=12, pady=(0, 6))
         self._msg_lbl = ctk.CTkLabel(self, text="", anchor="w")
         self._msg_lbl.pack(fill="x", padx=12, pady=(2, 12))
 

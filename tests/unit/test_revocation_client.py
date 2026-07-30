@@ -245,6 +245,38 @@ def test_gate_allows_fresca_e_non_revocata_true_revocata_false():
                                          token=token, hardware_id=_HW) is False
 
 
+def test_una_revoca_gia_in_cache_blocca_ANCHE_quando_la_lista_e_stantia(tmp_path):
+    """La contro-faccia del fail-open, e l'invariante che la documentazione afferma (rilievo
+    CodeRabbit #184 sulla frase «chi è stato revocato continua a lavorare»: è troppo larga).
+
+    Fail-open significa che **l'assenza** di lista non blocca — non che una revoca già arrivata
+    scada. Una revoca che ha raggiunto il bridge **una volta sola** resta applicata anche offline e
+    anche molto oltre la finestra di freschezza: la lista verificata sta nella cache su disco e viene
+    ricaricata a ogni avvio. Senza questo test, «fail-open» potrebbe scivolare in «le revoche
+    scadono», che è tutt'altra cosa e svuoterebbe la revoca online.
+
+    La lista passa **davvero dalla cache su disco** (rilievo CodeRabbit #184 sulla prima stesura): il
+    docstring prometteva la persistenza ma il test costruiva la `RevocationList` in memoria, quindi
+    di quella promessa non verificava niente. Ora scrive, rilegge e ri-accetta — cioè la stessa
+    catena che il bridge percorre a ogni avvio."""
+    seed_hex, public_hex = _keypair()
+    token = _token(seed_hex)
+    firmata = _signed_list(seed_hex, [{"serial": lic.license_serial(token)}])
+
+    percorso = revocation_client.revocation_cache_path(str(tmp_path))
+    revocation_client.save_cached_signed(percorso, firmata)
+    dalla_cache = revocation_client.load_cached_signed(percorso)
+    assert dalla_cache is not None, "precondizione: la cache su disco si rilegge"
+    revocata = revocation_client.accept_signed(dalla_cache, public_key_hex=public_hex)
+    assert revocata is not None, "precondizione: la lista ricaricata dalla cache viene accettata"
+
+    un_anno_dopo = _NOW + 365 * 86_400
+    assert un_anno_dopo - _NOW > revocation_client.MAX_LIST_AGE_S     # ben oltre la finestra
+    assert revocation_client.gate_allows(revocata, verified_at=_NOW, now=un_anno_dopo,
+                                         token=token, hardware_id=_HW) is False, \
+        "una revoca già in cache non scade con la finestra di freschezza"
+
+
 # ── cache (fail-safe) ─────────────────────────────────────────────────────────────────────────────
 def test_cache_round_trip(tmp_path):
     path = revocation_client.revocation_cache_path(str(tmp_path))

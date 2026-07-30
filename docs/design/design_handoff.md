@@ -833,7 +833,9 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   considerarlo uno stato **raggiungibile qui e ora**, non ipotetico. L'attivazione è **derivata dall'URL
   stesso** (nessun flag separato da ricordare, coerente con 1A). Il proprietario deve ri-pubblicare la
   lista firmata ogni ≤3 giorni: oltre quel tetto **non si blocca nulla**, ma le revoche smettono di
-  propagarsi — chi è stato revocato continua a lavorare finché non riceve una lista aggiornata. È questo
+  propagarsi — un bridge che **non ha ancora ricevuto** la revoca continua a funzionare finché non riceve una
+  lista aggiornata; le revoche **già arrivate restano applicate** anche offline, quindi il lock da revoca non
+  «scade» col passare del tempo. È questo
   il motivo per cui il License Manager mostra l'etichetta «Ultima pubblicazione riuscita».
 
 ### 6.4 Barra pulsanti principali

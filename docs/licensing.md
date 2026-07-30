@@ -517,8 +517,8 @@ restano costanti tarabili, ma ora misurano la **tempestività della propagazione
 
 Il punto (2) qui sopra — *ri-pubblicare la lista firmata entro la finestra* — è la sola parte che
 dipende dalla memoria del proprietario. Col fail-open dimenticarla **non blocca più nessuno**: rende però
-le revoche **inefficaci**, perché chi è stato revocato continua a lavorare finché non riceve una lista
-aggiornata. Questa fetta la **automatizza dentro il License Manager**, senza spostare il seed privato.
+le **nuove** revoche inefficaci, perché un bridge che non l'ha ancora ricevuta continua a funzionare finché
+non riceve una lista aggiornata (quelle già arrivate restano applicate). Questa fetta la **automatizza dentro il License Manager**, senza spostare il seed privato.
 
 **Dove sta cosa (invariante):**
 
@@ -611,10 +611,114 @@ HTTP mappati, rete KO, **token mai nel risultato**) e `tests/unit/test_license_m
 end-to-end **verificando la firma della lista caricata**, upload fallito, tick abilitato/disabilitato +
 ri-arma dopo errore, annullamento in chiusura).
 
-**Nota operativa:** il tick gira **mentre il License Manager è aperto**. Se il PC resta spento oltre la
-finestra di freschezza, i bridge si bloccano comunque (è la scelta «niente grazia»): per una copertura
+**Nota operativa:** il tick gira **mentre il License Manager è aperto**. ⚠️ **Aggiornato 2026-07-30
+(fail-open):** se il PC resta spento oltre la finestra di freschezza i bridge **non si bloccano più**
+(prima, con la scelta «niente grazia», si bloccavano) — si ferma solo la **propagazione delle revoche**:
+un bridge che **non ha ancora ricevuto** quella revoca continua a funzionare finché non riceve una lista
+aggiornata. ⚠️ Attenzione a non leggerlo più largo di quanto sia: le revoche **già arrivate in cache
+restano applicate** anche offline e anche molto oltre la finestra: `gate_allows` decide solo sulla
+presenza esplicita della licenza fra i revocati, non sull'età della lista (pinnato da
+`test_una_revoca_gia_in_cache_blocca_ANCHE_quando_la_lista_e_stantia`). Per una propagazione
 24/7 servirebbe una modalità headless su una macchina sempre accesa — tracciata in #157, **non** in
 questa fetta.
+
+### Backup completo e migrazione su un altro PC (#183)
+
+**Il problema.** Il backup preesistente (`export_signing_key`, pulsante «💾 Backup della chiave
+privata») copia **solo il seed**, ed è corretto per quello che fa. Non basta però a **migrare** il tool
+su un altro PC, e usarlo per quello causa un guasto **silenzioso e grave**: sul PC nuovo `revoked.jsonl`
+è vuoto, quindi al primo «🚀 Pubblica ora» si pubblica una lista firmata che dice **«nessuno è
+revocato»**. È valida, è firmata, e ha `iss` più recente della precedente: l'anti-replay monotòno del
+bridge rifiuta solo le liste *più vecchie*, quindi la accetta. Risultato: **tutti i revocati tornano
+attivi**, senza un errore e senza un avviso. E senza `licenses.jsonl` smettono di funzionare «Rinnova» e
+«Ri-mostra token» per le licenze già emesse.
+
+**Il modulo.** `license_manager/backup.py` — nessuna GUI, quindi testabile headless:
+
+| Funzione | Ruolo |
+|---|---|
+| `build_backup(dir, *, now, include_key=True)` | Legge lo stato completo: `signing_key.json` (**obbligatorio**) + `licenses.jsonl` + `revoked.jsonl` + `publish_config.json` + `publish_state.json` (gli ultimi quattro possono legittimamente non esistere ancora). Il campo `public` in testa dice **quale keypair** contiene il backup senza doverne leggere il seed. |
+| `save_backup(dest, contenuto, *, overwrite=False)` | Scrittura **atomica** + permessi `0o600` fin dalla prima syscall; come `export_signing_key` **non sovrascrive** senza conferma (→ `BackupExistsError`). Il no-overwrite passa dallo **stesso primitivo che custodisce il seed** (`core._persist_key_file`, `O_CREAT\|O_EXCL`): un «controlla se esiste, poi scrivi» lascerebbe una finestra TOCTOU (rilievo CodeRabbit #184). |
+| `load_backup(path)` | Validazione **severa e tutta prima** di qualsiasi scrittura: JSON valido, versione di formato nota, nomi-file solo dall'allowlist, contenuti testuali, e **contenuto di ogni stato interpretabile** (righe JSONL che siano record, JSON di primo livello che sia un oggetto). Quest'ultimo controllo non è pignoleria: gli store leggono **fail-safe** e salterebbero in silenzio le righe illeggibili, quindi un `revoked.jsonl` corrotto dentro il backup avrebbe sostituito uno store valido e prodotto una lista **senza quelle revoche**, senza nemmeno un errore (rilievo CodeRabbit #184). Un backup rotto non arriva mai a toccare lo stato reale. |
+| `backup_public(contenuto)` | La pubblica del backup, **ri-derivata dal seed** e non letta dal campo `public` (dichiarativo: un backup manomesso potrebbe averlo incoerente). |
+| `restore_backup(contenuto, dir, *, overwrite_key=False)` | Ripristina e ritorna **quali file** ha scritto. Se in `dir` c'è già una keypair **diversa**, rifiuta (`BackupKeyMismatchError`) salvo conferma esplicita. I due store **append-only** (`licenses.jsonl`, `revoked.jsonl`) vengono **fusi**, non sovrascritti (bloccante Fugu Ultra #184): ripristinare uno snapshot più vecchio non deve far sparire una revoca fatta dopo il backup — alla prima pubblicazione quel cliente tornerebbe attivo. Le **impostazioni** (`publish_config.json`, `publish_state.json`) si sovrascrivono: sono configurazione, non registri. |
+| `restore_marker_path` / `restore_in_progress(dir)` | Marcatore «ripristino in corso»: posato prima della prima scrittura, rimosso solo a ripristino completo. Chi firma la lista revoche lo consulta e si **rifiuta** di procedere finché è lì — uno stato a metà può contenere zero revoche. Fail-closed anche sull'errore di lettura. |
+| `auto_backup(dir, *, now)` | Backup automatico dello stato **mutevole**, `auto_backup.json` nella cartella del tool. **Best-effort**: non solleva mai. |
+
+**Due scelte di sicurezza, entrambe deliberate.**
+
+- **Il file di backup contiene il seed**, ed è l'oggetto più prezioso del sistema in forma portabile:
+  chi lo ottiene può emettere licenze indistinguibili da quelle del proprietario. Il messaggio della
+  GUI lo dice esplicitamente («⚠️ Contiene la CHIAVE PRIVATA … supporto offline, mai in cartelle
+  sincronizzate o condivise»), perché è l'unico momento in cui l'utente decide **dove** metterlo. Per
+  la stessa ragione il **backup automatico esclude il seed**: ogni copia in più è un posto in più da
+  cui può uscire, e il seed va salvato **una volta**, consapevolmente.
+- **Il token GitHub non entra mai nel backup**: vive nel **keyring** del sistema operativo, che è il
+  posto giusto (cifrato, legato all'utente, non copiabile per sbaglio insieme a un file). Sul PC nuovo
+  si re-incolla — ed è un segreto **sostituibile** in un minuto, a differenza del seed.
+- ⚠️ **Su Windows i permessi `0o600` NON proteggono, e va detto** (bloccante Fugu Ultra #184).
+  `chmod` non tocca le ACL NTFS: sul target principale del prodotto quel numero è un **no-op**. Dentro
+  `%APPDATA%\XTraderLicenseManager` la protezione reale viene dalla **DACL** applicata da
+  `core.secure_dir` (`icacls`, vedi PR 3c) — ma il file **esportato** finisce dove sceglie l'utente
+  (chiavetta, Desktop, cartella condivisa), e lì **nessuna ACL viene applicata da noi**: su una
+  chiavetta exFAT/FAT32 non esistono nemmeno. La protezione del backup esportato è quindi **la scelta
+  del supporto**, non il filesystem — ed è esattamente ciò che dice il messaggio della GUI («supporto
+  offline, mai in cartelle sincronizzate o condivise»). Il test sui permessi è `skipif` su Windows con
+  questa motivazione scritta: lì vale lo **smoke manuale**, non una promessa automatica.
+
+**Quando scatta l'automatismo:** su **emissione** e su **revoca** — i due momenti in cui lo stato su
+disco cambia davvero — e **non** sulla pubblicazione della lista, che ri-firma e carica ma non tocca il
+disco (un backup lì riscriverebbe gli stessi byte a ogni ciclo, senza proteggere niente).
+
+**GUI** (`_on_export_backup` / `_on_restore_backup`, pulsanti «📦 Esporta backup completo» e «📥
+Ripristina backup completo»). Le due azioni distruttive — sovrascrivere un file esistente, sostituire
+una keypair diversa — chiedono una **conferma esplicita** che dice *cosa si perde*, non un generico
+«sei sicuro?». Il caso reale coperto dalla seconda: sul PC nuovo si è già premuto «Genera keypair»
+prima di ripristinare; senza la via d'uscita col conferma-e-riprova si resterebbe bloccati, e senza la
+conferma le licenze emesse dopo non verificherebbero più contro la pubblica compilata nell'EXE
+distribuito. La conferma è **fail-closed**: dialogo non disponibile → risposta «no».
+
+**Migrazione, passi esatti:** sul PC vecchio «📦 Esporta backup completo» → copia il file su un
+supporto **offline** → sul PC nuovo apri il License Manager, «📥 Ripristina backup completo», riavvia
+il tool, re-incolla il **token GitHub** nelle impostazioni di pubblicazione. Questo sostituisce il passo
+fragile di prima (copiare a mano un file in `%APPDATA%` **prima** di avviare il programma: sbagliare
+l'ordine genera una seconda keypair).
+
+**Limiti onesti:**
+
+- Il ripristino **lascia intatti** i file che il backup non contiene: su una destinazione già usata
+  lo stato risulta «misto» (rilievo GPT-5.5/CodeRabbit sulla #184). È voluto — trattare l'assenza
+  come cancellazione azzererebbe `revoked.jsonl` ripristinando un backup fatto *prima* delle revoche,
+  e la prima pubblicazione ri-attiverebbe tutti i revocati. Il messaggio della GUI lo dice, e un test
+  lo fissa. ⚠️ **Correzione**: una versione precedente di questa pagina affermava che «la destinazione
+  può avere più revoche del backup, mai meno». Era **falso**, ed è stato misurato (bloccante Fugu
+  Ultra): quando `revoked.jsonl` **è** nel backup, veniva sovrascritto e le revoche fatte dopo
+  sparivano. Ora i due store append-only si **fondono**, quindi l'affermazione è vera perché il codice
+  la mantiene, non perché la pagina lo dichiara.
+- Il ripristino **non è una transazione unica** — un guasto di I/O a metà lascia alcuni file
+  ripristinati e altri no. Ogni file è scritto in modo **atomico** (nessuno troncato), e dal
+  bloccante Fugu Ultra #184 quello stato **non è più pubblicabile**: prima della prima scrittura
+  viene posato il marcatore `restore_in_progress.json`, rimosso solo a ripristino completo, e finché
+  è lì la firma della lista revoche si **rifiuta**. Misurato: senza il marcatore, un guasto dopo il
+  seed e prima delle revoche lasciava una cartella con chiave valida e store revoche **vuoto**, dalla
+  quale il tool firmava e pubblicava «nessuno è revocato» — la de-revoca di massa, per una strada
+  nuova. Il marcatore che sopravvive è **voluto**: rifai il ripristino fino in fondo.
+- **Fra processi** (due License Manager aperti insieme) la fusione read-modify-write ha un residuo:
+  il controllo appena prima della riscrittura riduce la finestra a pochi microsecondi e trasforma la
+  perdita silenziosa in un **errore esplicito e ripetibile** («un'altra istanza sta scrivendo»), ma
+  non la elimina. Il tool non ha un instance-lock: è un cambiamento a sé, non incluso qui.
+- Il **backup automatico** sta nella **stessa cartella** del tool: protegge da una cancellazione
+  accidentale dei file di stato, **non** da un guasto del disco. Contro quello serve l'export
+  completo su un supporto esterno.
+
+**Test hard:** `tests/unit/test_license_manager_backup_183.py` — il test centrale **riproduce il
+guasto** (migrare col solo seed → la lista pubblicata dice «nessuno revocato»; col backup completo i
+revocati restano revocati), più round-trip byte-a-byte, token mai nel file, backup malformato/troncato
+che non scrive nulla, seed↔pubblica incoerenti, keypair diversa rifiutata (e accettata con conferma),
+auto-backup senza seed / best-effort / cartella vuota. In `tests/unit/test_license_manager_gui.py`:
+aggancio a emissione e revoca, **nessun** backup sulla pubblicazione, avviso «CHIAVE PRIVATA» nel
+messaggio, round-trip dagli handler, e la strada dialogo → handler → disco con le due conferme
+(sovrascrittura e keypair diversa) verificate **sui byte**, non solo sul messaggio.
 
 ### PR 4 — Lock totale della GUI (fatta)
 

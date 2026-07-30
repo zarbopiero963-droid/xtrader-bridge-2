@@ -568,8 +568,9 @@ licenza **revocata** blocca la GUI e ferma il listener a sessione viva.
 
 Il bridge accetta solo liste firmate **di recente** (entro **3 giorni**) e **non datate oltre un'ora nel
 futuro**. Attenzione: quelle finestre **non bloccano più** nessuno — misurano **quanto in fretta una
-revoca si propaga**. Se il fornitore non ri-pubblica, chi è stato revocato continua a lavorare finché non
-riceve una lista aggiornata; perciò conviene comunque **ri-pubblicare almeno ogni 3 giorni** (anche
+revoca si propaga**. Se il fornitore non ri-pubblica, un bridge che **non ha ancora ricevuto** la revoca
+continua a funzionare finché non riceve una lista aggiornata (le revoche **già arrivate restano applicate**,
+anche offline e anche oltre la finestra); perciò conviene comunque **ri-pubblicare almeno ogni 3 giorni** (anche
 invariata — la pubblicazione automatica del License Manager lo fa da sola mentre è aperto).
 Poiché quel meccanismo gira **solo a License Manager aperto**, la sua scheda mostra un'etichetta
 permanente **«Ultima pubblicazione riuscita: …»** che diventa **arancione** quando è saltato un giro e
@@ -1027,6 +1028,18 @@ privata **non lascia mai il PC**) ha un **workflow di build dedicato**
 **prodotto diverso** dal bridge e la chiave **privata** di firma **non** entra mai nell'EXE del
 bridge (invariante verificata in CI). Il fornitore può comunque usarlo **da sorgente**
 (`python license_manager_main.py`). Dettagli in [`docs/licensing.md`](docs/licensing.md).
+
+> 📦 **Backup completo e migrazione su un altro PC (#183).** Il tool tiene tre stati distinti: il
+> **seed** di firma, il **registro delle licenze emesse** e l'elenco dei **revocati**. Il vecchio
+> pulsante «💾 Backup della chiave privata» salva **solo il seed** — basta a non perdere la chiave,
+> **non** a spostare il tool: sul PC nuovo l'elenco dei revocati sarebbe vuoto, e la prima
+> pubblicazione manderebbe ai bridge una lista firmata che dice «nessuno è revocato», **ri-attivando
+> in silenzio tutti i revocati**. Per questo ci sono «📦 **Esporta backup completo**» e «📥
+> **Ripristina backup completo**» (seed + registro + revoche + impostazioni), più un **backup
+> automatico** dello stato mutevole a ogni emissione e a ogni revoca. Due avvertenze: il file
+> esportato **contiene la chiave privata** → tienilo su un supporto **offline**, mai in cartelle
+> sincronizzate o condivise; il **token GitHub non è incluso** (sta nel keyring del sistema) → sul PC
+> nuovo va re-inserito.
 
 ### Build EXE Nuitka (anteprima, in valutazione)
 
