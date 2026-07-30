@@ -416,6 +416,29 @@ bridge deve **raggiungere e verificare** l'URL per operare).
     impostare un URL reale **attiva** la revoca — impossibile lasciare «URL reale ma flag a True» e
     disattivarla in silenzio (rilievo Fugu/GLM). Un **gate di release** (`build.yaml`) fa fallire una
     release taggata finché l'URL è ancora placeholder (come per la chiave pubblica).
+
+    > **Il gate sul placeholder non basta da solo — e lo si è visto attivando l'URL** (rilievi
+    > bloccanti Fable 5 e Fugu Ultra, #159, indipendenti e concordi). Quel gate verifica che l'URL non
+    > sia quello di sviluppo; **non** verifica che a quell'indirizzo ci sia davvero una lista. Nel
+    > momento in cui si imposta l'URL reale il flag diventa `False`, il gate stampa «OK» e passa: da
+    > lì l'unica garanzia sarebbe che il proprietario si ricordi di pubblicare **prima** di taggare.
+    > Un EXE distribuito mentre l'URL risponde 404 renderebbe **non avviabile il bridge di ogni
+    > cliente** — fail-closed corretto, esito disastroso.
+    >
+    > Perciò `build.yaml` ha un **secondo gate**, `id: revocation-live-gate`, in **entrambi** i job
+    > (`build` e `build-linux`, così nessuna delle due strade di distribuzione resta scoperta). Verifica
+    > la catena vera end-to-end: la lista è **scaricabile** dall'URL configurato → la **firma è valida**
+    > per la chiave pubblica incorporata → il contenuto è **fresco** entro `MAX_LIST_AGE_S` e non datato
+    > nel futuro (riusa `fetch_signed`/`accept_signed`, cioè la stessa porta che attraversa il bridge in
+    > produzione, non una riscrittura che potrebbe divergere). Su tag `v*` **blocca**; su build manuali o
+    > di PR **avvisa** soltanto, così lo sviluppo non dipende dalla rete. È l'unica chiamata di rete del
+    > workflow. Con l'URL ancora placeholder non fa rete e non si applica: competente è il gate
+    > precedente.
+    >
+    > Test: `tests/safety/test_revocation_release_gate_159.py` **estrae lo script dall'heredoc del
+    > workflow e lo esegue** — così non può divergere dalla logica che gira davvero in CI — con i casi
+    > lista assente / non verificabile / stantia / valida / vuota-ma-valida / placeholder, più la
+    > verifica che i due job applichino lo **stesso** gate.
   - `fetch_signed(url, fetch=…)` → **fail-closed**: qualunque errore di scarico (rete/DNS/HTTP/timeout/
     TLS/decodifica/lista troppo grande) → `None`. Il *probe* è iniettabile (test senza socket reali).
   - `accept_signed(signed, min_iss=…)` → `verify_revocation_list` + **anti-replay** (`iss >= min_iss`):
