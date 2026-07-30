@@ -53,7 +53,7 @@ Per domande, spiegazioni o analisi read-only non serve aprire PR.
 - Ogni task che modifica codice DEVE generare automaticamente test hard veritieri nuovi o aggiornati che esercitino il comportamento reale del cambiamento — inclusi, quando pertinenti, gli scenari resilienza (crash/power-loss, riconnessione, concorrenza/race, teardown START/STOP, recovery CSV/dedupe/daily, write-failure con rollback): un cambiamento di codice senza test hard corrispondenti è un PR incompleto e NON può dichiarare `DONE`.
 - Se una modifica tocca l'aspetto design/UI/UX, DEVI aggiornare `docs/design/design_handoff.md` nello stesso PR **prima** di dirmi che la PR è pronta/mergiabile (o dichiarare `N/A` con motivazione se non ha impatto sul design): un handoff stantio è un PR incompleto. Vedi «GATE DESIGN HANDOFF».
 - Non dichiarare `READY_TO_MERGE`: il merge resta sempre manuale.
-- Rispetta sempre le **CINQUE REGOLE ANTI-REGRESSIONE** (sezione dedicata qui sotto): test fail-first · cerca la classe non il sito · fonte unica · una PR alla volta · non toccare ciò che l'audit ha dichiarato sano. Sono verificate nel `POST_FIX_MICRO_AUDIT` e nel `FINAL_HARD_VERIFY`: una PR che non le soddisfa non può dichiarare `DONE`.
+- Rispetta sempre le **CINQUE REGOLE ANTI-REGRESSIONE** (sezione dedicata qui sotto): test fail-first · cerca la classe non il sito · fonte unica · una PR alla volta · non toccare ciò che l'audit ha dichiarato sano. Le regole **1, 2, 3 e 5** sono verificate nel `POST_FIX_MICRO_AUDIT` (sono ispezionabili dal diff); **tutte e cinque** nel `FINAL_HARD_VERIFY`, dove rientra anche la 4 che è una regola di processo. Una PR che non le soddisfa non può dichiarare `DONE`.
 
 ---
 
@@ -91,6 +91,12 @@ correzione va scritta in due posti, il posto giusto è **zero** — va estratta 
 Già prescritto altrove in questo file; qui con la ragione tecnica. PR che toccano lo stesso modulo
 (es. `signal_dedupe`/`signal_queue`) in parallelo si conflittano, e **il merge risolto a mano è
 dove nascono i bug nuovi**. Sequenziali, sempre.
+
+**Va dimostrata, non dichiarata** (rilievo GPT-5.5 sulla PR #195): a differenza delle altre
+quattro non è ispezionabile dal diff, ma è comunque **verificabile**. Nel `FINAL_HARD_VERIFY` va
+riportato l'**elenco effettivo delle PR aperte** al momento del controllo (via API GitHub o
+`gh pr list --state open`), non un `PASS` asserito. Elenco vuoto o contenente solo questa PR →
+`PASS`; qualsiasi altra PR aperta → si dichiara quale e perché non è in conflitto, oppure `FAIL`.
 
 ### 5. Non toccare ciò che l'audit ha dichiarato sano
 
@@ -1176,6 +1182,7 @@ Cinque regole anti-regressione rispettate:
 - Regola 2 cercata la classe, non il sito (grep su tutto il repo): PASS / FAIL / N/A con motivo
 - Regola 3 fonte unica, nessuna correzione duplicata: PASS / FAIL / N/A con motivo
 - Regola 4 una sola PR aperta, nessun parallelo sullo stesso modulo: PASS / FAIL
+  (riporta l'ELENCO EFFETTIVO delle PR aperte, non un PASS asserito — vedi regola 4)
 - Regola 5 aree dichiarate sane dall'audit non toccate: PASS / FAIL
 
 GitHub checks completed:

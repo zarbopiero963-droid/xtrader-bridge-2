@@ -34,7 +34,7 @@ The repository is small, but runtime behavior is safety-critical because a wrong
 - Every task that modifies code MUST automatically add or update truthful hard tests that exercise the real behavior of the change — including, where relevant, resilience scenarios (crash/power-loss, reconnect, concurrency/race, START/STOP teardown, CSV/dedupe/daily recovery, write-failure with rollback): a code change without matching hard tests is an incomplete PR and cannot be declared `DONE`.
 - Never commit secrets, real Telegram tokens, real chat IDs, `.env`, local `config.json`, generated CSV files, build artifacts, logs, caches, EXE files, or ZIP artifacts unless explicitly requested.
 - Never add direct betting, browser automation, mouse/keyboard automation, Betfair login, XTrader login automation, or real-money execution beyond CSV output unless explicitly requested by the owner and protected by a dedicated safety plan.
-- Always follow the **FIVE ANTI-REGRESSION RULES** (dedicated section below): fail-first test · hunt the class, not the site · single source · one PR at a time · do not touch what the audit declared sound. They are verified in `POST_FIX_MICRO_AUDIT` and `FINAL_HARD_VERIFY`: a PR that does not satisfy them cannot be declared `DONE`.
+- Always follow the **FIVE ANTI-REGRESSION RULES** (dedicated section below): fail-first test · hunt the class, not the site · single source · one PR at a time · do not touch what the audit declared sound. Rules **1, 2, 3 and 5** are verified in `POST_FIX_MICRO_AUDIT` (they are inspectable from the diff); **all five** in `FINAL_HARD_VERIFY`, which also covers Rule 4, a process rule. A PR that does not satisfy them cannot be declared `DONE`.
 
 ---
 
@@ -72,6 +72,12 @@ has to be written in two places, the right number of places is **zero** — extr
 Already required elsewhere in this file; here is the technical reason. PRs touching the same module
 (e.g. `signal_dedupe`/`signal_queue`) conflict when run in parallel, and **a hand-resolved merge is
 where new bugs are born**. Sequential, always.
+
+**It must be demonstrated, not asserted** (GPT-5.5 finding on PR #195): unlike the other four it is
+not inspectable from the diff, but it is still **verifiable**. `FINAL_HARD_VERIFY` must report the
+**actual list of open PRs** at check time (via the GitHub API or `gh pr list --state open`), not a
+bare `PASS`. Empty list, or only this PR → `PASS`; any other open PR → state which one and why it
+does not conflict, otherwise `FAIL`.
 
 ### 5. Do not touch what the audit declared sound
 
@@ -1180,6 +1186,7 @@ Five anti-regression rules satisfied:
 - Rule 2 hunted the class, not the site (grep across the whole repo): PASS / FAIL / N/A with reason
 - Rule 3 single source, no duplicated fix: PASS / FAIL / N/A with reason
 - Rule 4 one open PR, no parallel work on the same module: PASS / FAIL
+  (report the ACTUAL list of open PRs, not a bare PASS — see Rule 4)
 - Rule 5 areas declared sound by the audit not touched: PASS / FAIL
 
 GitHub checks completed:
