@@ -106,12 +106,22 @@ def restore_in_progress(directory: "str | None" = None) -> bool:
 
     Chi firma la lista di revoche deve consultarlo e **rifiutarsi** di pubblicare: uno stato a metà è
     indistinguibile, per il codice che firma, da uno stato legittimo — ma può contenere zero revoche
-    e ri-attivare tutti. Fail-closed anche sull'errore di lettura: se non riusciamo a stabilire che il
-    ripristino è finito, ci comportiamo come se non lo fosse."""
+    e ri-attivare tutti. Fail-closed sull'errore: se non riusciamo a stabilire che il ripristino è
+    finito, ci comportiamo come se non lo fosse.
+
+    `os.stat` e **non** `os.path.exists` (bloccante GPT-5.5 #184). `os.path.exists` inghiotte gli
+    `OSError` e ritorna `False`: il `try/except` intorno era codice morto, e su un errore di I/O vero
+    il gate si apriva invece di chiudersi. Misurato senza monkeypatch, con un percorso troppo lungo
+    (`ENAMETOOLONG`): `os.path.exists` → `False`, `os.stat` → solleva. Solo «il file non c'è»
+    (`FileNotFoundError`, e `NotADirectoryError` quando manca la cartella) significa davvero
+    «nessun ripristino in corso»; qualunque altro errore è un dubbio, e nel dubbio si blocca."""
     try:
-        return os.path.exists(restore_marker_path(directory))
-    except OSError:
-        return True
+        os.stat(restore_marker_path(directory))
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    except (OSError, ValueError):
+        return True         # dubbio → si assume il peggio
+    return True
 
 
 def _leggi(path: str) -> "str | None":

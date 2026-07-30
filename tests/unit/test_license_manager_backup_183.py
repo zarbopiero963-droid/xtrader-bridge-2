@@ -401,15 +401,28 @@ def test_un_ripristino_INTERROTTO_lascia_il_marcatore_e_blocca_la_firma(tmp_path
         "legittimo con zero revoche")
 
 
-def test_se_non_si_riesce_a_leggere_il_marcatore_si_assume_il_PEGGIO(tmp_path, monkeypatch):
-    """Fail-closed sul dubbio. Se non riusciamo a stabilire che il ripristino è finito, la risposta
-    dev'essere «è ancora in corso»: sbagliare in questo verso costa una pubblicazione rimandata,
-    sbagliare nell'altro costa una lista che ri-attiva i revocati."""
-    def esplode(percorso):
-        raise OSError(5, "I/O error")
-    monkeypatch.setattr(backup.os.path, "exists", esplode)
+def test_se_non_si_riesce_a_leggere_il_marcatore_si_assume_il_PEGGIO(tmp_path):
+    """Fail-closed sul dubbio: sbagliare in questo verso costa una pubblicazione rimandata,
+    sbagliare nell'altro costa una lista che ri-attiva i revocati.
 
-    assert backup.restore_in_progress(str(tmp_path)) is True
+    ⚠️ **La prima versione di questo test non provava niente** (bloccante GPT-5.5 #184). Faceva
+    monkeypatch di `os.path.exists` perché sollevasse — ma `os.path.exists` **inghiotte** gli
+    `OSError` e ritorna `False`, quindi quello scenario non esiste: il test forzava un'eccezione
+    impossibile, passava, e intanto sul codice reale il gate si **apriva** invece di chiudersi.
+
+    Qui l'errore è **vero e non simulato**: un percorso oltre `PATH_MAX` fa fallire `os.stat` con
+    `ENAMETOOLONG`. È lo stesso identico errore che `os.path.exists` nascondeva."""
+    percorso_impossibile = str(tmp_path / ("x" * 5000))
+
+    assert backup.restore_in_progress(percorso_impossibile) is True, (
+        "un errore di I/O nel leggere il marcatore deve valere «ripristino in corso», non «finito»")
+
+
+def test_marcatore_assente_significa_davvero_nessun_ripristino(tmp_path):
+    """Controprova del fail-closed: senza, la funzione potrebbe rispondere **sempre** `True` e
+    bloccherebbe la pubblicazione per sempre, su ogni installazione."""
+    assert backup.restore_in_progress(str(tmp_path)) is False
+    assert backup.restore_in_progress(str(tmp_path / "cartella_inesistente")) is False
 
 
 def test_ripristino_COMPLETO_toglie_il_marcatore(tmp_path):
