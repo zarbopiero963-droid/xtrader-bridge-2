@@ -1871,6 +1871,12 @@ def _app_fino_agli_avvisi(app_mod, cfg, csv_path):
     (lezione #171)."""
     import types
     a = object.__new__(app_mod.App)
+    # Seam della REVOCA ONLINE, iniettati come «fuori scope» (#159). Da quando
+    # `REVOCATION_LIST_URL` e' l'URL reale la revoca e' ATTIVA di default, quindi `_start`
+    # richiede anche un gate revoca aperto e uscirebbe a monte. Qui si misura gli avvisi non bloccanti, non la
+    # revoca: quella ha la sua suite dedicata (`test_license_lock_r3c.py`).
+    a._revocation_enabled = lambda: False
+    a._revocation_gate_ok = lambda: True
     a.logs = []
     a._log = a.logs.append
     a._dbg = lambda *x, **k: None

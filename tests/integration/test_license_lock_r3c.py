@@ -384,3 +384,52 @@ def test_supervisor_scarta_lista_datata_nel_futuro(App, tmp_path):
 
     assert app._rev_state is None and app._rev_min_iss == 0
     assert revocation_client.load_cached_signed(app._revocation_cache_path()) is None
+
+
+# ── `_start` onorato dal gate REVOCA (l'interruttore acceso da #157/#159) ────────────────────────
+def _app_start_con_licenza_valida(App, app_mod, *, gate_aperto):
+    """`App` headless con **licenza valida** e gate revoca pilotabile: isola l'unica variabile che
+    interessa qui, cioè la revoca."""
+    a = object.__new__(App)
+    a._license_panel = types.SimpleNamespace(
+        current_status=lambda: types.SimpleNamespace(valid=True, reason="", days_left=30))
+    a._revocation_enabled = lambda: True
+    a._revocation_gate_ok = lambda: gate_aperto
+    a.logs = []
+    a._log = a.logs.append
+    a._cancel_pending_autostart = lambda: None
+    a._apply_license_lock = lambda: None
+    a._resync_token_field = lambda: None
+    a._e_token = types.SimpleNamespace(get=lambda: "")
+    a._e_csv = types.SimpleNamespace(get=lambda: "")
+    a._e_delay = types.SimpleNamespace(get=lambda: "")
+    return a
+
+
+def test_start_bloccato_da_revoca_anche_con_licenza_VALIDA(App, app_mod):
+    """L'end-to-end che manca altrove. `_start` si ferma perché `_license_is_valid` è «licenza valida
+    **E** gate revoca aperto»: qui la licenza è valida e a bloccare è **solo** la revoca.
+
+    Serve perché è esattamente il comportamento che l'attivazione dell'URL reale (#157) accende: da
+    bypassato a fail-closed. Le altre suite lo coprono a pezzi — `_revocation_gate_ok` da solo,
+    `_license_is_valid` da solo, e i test di `_start` in `test_license_lock_140.py` iniettano i seam
+    della revoca per isolare la licenza. Nessuno dimostra la composizione sul percorso di avvio: se
+    un domani `_start` smettesse di consultare il gate revoca, tutti resterebbero verdi."""
+    a = _app_start_con_licenza_valida(App, app_mod, gate_aperto=False)
+
+    App._start(a)
+
+    assert any("avvio bloccato" in m.lower() for m in a.logs), \
+        f"con gate revoca CHIUSO l'avvio deve essere rifiutato; log: {a.logs}"
+
+
+def test_start_prosegue_con_gate_revoca_APERTO(App, app_mod):
+    """Controprova indispensabile: senza, il test sopra passerebbe anche se `_start` rifiutasse
+    **sempre** — e non dimostrerebbe che a bloccare è la revoca."""
+    a = _app_start_con_licenza_valida(App, app_mod, gate_aperto=True)
+
+    App._start(a)
+
+    assert a.logs, "_start deve aver proceduto oltre il gate (si ferma più avanti, senza Telegram)"
+    assert not any("avvio bloccato" in m.lower() for m in a.logs), \
+        f"con gate revoca APERTO il blocco licenza/revoca non deve scattare; log: {a.logs}"
