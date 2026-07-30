@@ -210,13 +210,13 @@ _CSV_ROW_BTN_WIDTH = 100           # larghezza dei pulsanti «📁 Sfoglia…» 
 # solo quando l'orologio avanza). Fail-closed: alla scadenza ferma il listener e blocca la GUI.
 _LICENSE_TICK_MS = 60_000
 
-# Auto-start + revoca online (#140 R3c, rilievo Fugu #156): con la revoca ATTIVA la prima lista si
-# scarica in modo asincrono e a 400 ms (tick auto-start) può non essere ancora arrivata → il gate è
-# `False` solo perché lo stato revoca non è ancora determinato. In quel caso l'auto-start ASPETTA la
-# prima fetch (retry ogni `_AUTOSTART_REVOCATION_WAIT_MS`, fino a `_AUTOSTART_REVOCATION_MAX_WAITS`)
-# invece di rinunciare one-shot; oltre il tetto (irraggiungibilità persistente) rinuncia fail-closed.
-_AUTOSTART_REVOCATION_WAIT_MS = 1_000
-_AUTOSTART_REVOCATION_MAX_WAITS = 30
+# Auto-start + revoca online: NESSUNA attesa della prima fetch (#159, 2026-07-30). L'attesa esisteva
+# perché con il vecchio fail-closed una lista non ancora arrivata BLOCCAVA, e rinunciare one-shot
+# sarebbe stato ingiusto verso chi aveva solo la rete lenta (rilievo Fugu #156). Col fail-open una
+# lista assente non blocca: aspettarla aggiungerebbe solo ritardo prima di un avvio che avverrà
+# comunque. Le costanti `_AUTOSTART_REVOCATION_WAIT_MS`/`_MAX_WAITS` e il contatore
+# `_autostart_rev_waits` sono stati rimossi con la logica che li usava, invece di restare come stato
+# morto che un domani qualcuno reintrodurrebbe credendolo ancora in uso.
 
 _TABVIEW_PADX = 15                 # tabs.pack(padx=_TABVIEW_PADX) — per lato
 _GEN_LABEL_PADX = (10, 5)          # etichetta del campo
@@ -459,7 +459,6 @@ class App(ctk.CTk):
         self._start_revocation_supervisor()
         # Avvio automatico del listener (se abilitato e config minima presente): dopo
         # che la UI è pronta, così log/stato sono visibili. Default OFF.
-        self._autostart_rev_waits = 0   # #140 R3c: attese dell'auto-start sulla prima fetch revoca
         self._autostart_after_id = self.after(400, self._maybe_auto_start)
 
     def _maybe_auto_start(self) -> None:
@@ -1474,13 +1473,15 @@ class App(ctk.CTk):
             target=self._revocation_loop, args=(self._rev_stop_event,),
             daemon=True, name="revocation-supervisor")
         self._rev_thread.start()
-        self._dbg("Revoca online ATTIVA: supervisore avviato (fail-closed senza grazia).")
+        self._dbg("Revoca online ATTIVA: supervisore avviato (fail-open: blocca solo una licenza "
+                  "esplicitamente revocata).")
 
     def _revocation_loop(self, stop_event) -> None:
         """Ciclo del supervisore: scarica → verifica+anti-replay → aggiorna stato in memoria + cache →
         ri-valuta il lock; su successo attende `REFRESH_INTERVAL_S`, su fallimento fa **backoff**
-        (decisione 2a: blip transitorio ritentato, irraggiungibilità persistente → lo stato diventa
-        stantio e il gate blocca). Interrompibile subito dallo STOP/chiusura (`stop_event.wait`)."""
+        (blip transitorio ritentato). Dal 2026-07-30 un'irraggiungibilità persistente **non blocca**:
+        lo stato resta vecchio e il gate, fail-open, continua ad ammettere — si ferma la propagazione
+        delle revoche, non il bridge. Interrompibile subito dallo STOP/chiusura (`stop_event.wait`)."""
         attempt = 0
         while not stop_event.is_set():
             try:

@@ -294,7 +294,7 @@ def test_revocation_hwid_memoizzato(App, monkeypatch):
 
 
 # ── auto-start × revoca online (rilievo Fugu #156) ───────────────────────────────────────────────
-def _autostart_app(App, *, enabled=True, token="tok", rev_state=None, waits=0):
+def _autostart_app(App, *, enabled=True, token="tok", rev_state=None):
     app = _rev_app(App, enabled=enabled, token=token)
     app._rev_state = rev_state
     app._license_panel = types.SimpleNamespace(
@@ -302,7 +302,6 @@ def _autostart_app(App, *, enabled=True, token="tok", rev_state=None, waits=0):
     app._config = {"auto_start_listener": True}
     app._running = False
     app._closing = False
-    app._autostart_rev_waits = waits
     app._autostart_after_id = None
     app.after_calls = []
     app.after = lambda ms, fn: (app.after_calls.append(ms) or "id")
@@ -344,11 +343,10 @@ def test_auto_start_con_URL_IRRAGGIUNGIBILE_parte_comunque(App, app_mod):
     Prima, oltre il tetto di attese, l'auto-start rinunciava fail-closed. Era il guasto peggiore
     possibile: l'utente accende il PC la mattina, il bridge non parte, e non c'è nulla che lui possa
     fare — il problema è sul server di qualcun altro."""
-    app = _autostart_app(App, enabled=True, rev_state=None,
-                         waits=app_mod._AUTOSTART_REVOCATION_MAX_WAITS)
+    app = _autostart_app(App, enabled=True, rev_state=None)
     App._maybe_auto_start(app)
     assert app.start_calls == [True], "un URL irraggiungibile non deve impedire l'avvio"
-    assert app.after_calls == []
+    assert app.after_calls == [], "e nemmeno ri-programmare un'attesa che non serve più"
 
 
 def test_auto_start_placeholder_non_aspetta(App, app_mod):

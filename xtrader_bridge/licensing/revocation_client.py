@@ -44,10 +44,12 @@ from . import revocation
 # «non revocato» senza il seed privato, che resta sul PC del proprietario e non entra mai nel repo/EXE.
 #
 # ⚠️ Impostare questo URL **ATTIVA** la revoca online (l'attivazione è derivata dall'URL, vedi
-# `is_placeholder_url`): da qui in poi il gate è **fail-closed senza grazia** (decisione proprietario).
+# `is_placeholder_url`). Il gate è **fail-open** (decisione proprietario 2026-07-30): blocca **solo** una
+# licenza esplicitamente revocata in una lista verificata — vedi `gate_allows`.
 # Prerequisito operativo: il file deve **esistere** a questo indirizzo ed essere **ri-pubblicato almeno
 # ogni `MAX_LIST_AGE_S`** (3 giorni). Se l'URL risponde 404 o la lista invecchia oltre il tetto, i bridge
-# legittimi si **bloccano** — è il comportamento voluto, non un guasto.
+# **NON si bloccano**: quello che si ferma è la **propagazione delle revoche** — chi è stato revocato
+# continua a lavorare finché non riceve una lista aggiornata. È una protezione che non c'è, non un blocco.
 _PLACEHOLDER_URL = "https://revoche.example.invalid/xtrader/revocation_list.txt"
 REVOCATION_LIST_URL = (
     "https://raw.githubusercontent.com/zarbopiero963-droid/xtrader-revocation/main/revocation_list.txt"

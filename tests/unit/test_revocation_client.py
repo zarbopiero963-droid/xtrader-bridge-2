@@ -219,6 +219,16 @@ def test_gate_allows_contenuto_VECCHIO_o_FUTURO_non_blocca():
     assert revocation_client.gate_allows(vecchissima, verified_at=_NOW, now=_NOW,
                                          token=token, hardware_id=_HW) is True
 
+    # ...e il ramo FUTURO, che il nome del test promette (rilievo CodeRabbit #159): una lista datata
+    # avanti non passa da `accept_signed` con lo skew di default, quindi per esercitare il GATE la si
+    # fa entrare allargando lo skew. Senza questo, il test copriva solo metà di ciò che dichiarava.
+    futura = revocation_client.accept_signed(
+        _signed_list(seed_hex, [], now=_NOW + 7 * 86_400),
+        public_key_hex=public_hex, now=_NOW, max_future_skew=10 * 365 * 86_400)
+    assert futura is not None
+    assert revocation_client.gate_allows(futura, verified_at=_NOW, now=_NOW,
+                                         token=token, hardware_id=_HW) is True
+
 
 def test_gate_allows_fresca_e_non_revocata_true_revocata_false():
     seed_hex, public_hex = _keypair()
@@ -297,8 +307,9 @@ def test_accept_signed_futuro_NON_avvelena_il_floor_min_iss():
     accolta = revocation_client.accept_signed(futura, public_key_hex=public_hex,
                                               min_iss=floor, now=_NOW)
     assert accolta is None, "una lista datata a +7 giorni non deve essere accettata"
-    floor = max(floor, accolta.issued) if accolta is not None else floor
-    assert floor == 0, "il floor non deve muoversi per una lista respinta"
+    # `floor` resta 0 per costruzione: `accolta` è None, quindi il chiamante non ha nulla con cui
+    # alzarlo. Lo si ribadisce come contratto — è il floor che non deve muoversi, non l'assenza.
+    assert floor == 0
     dopo = revocation_client.accept_signed(legittima, public_key_hex=public_hex,
                                            min_iss=floor, now=_NOW)
     assert dopo is not None and "LIC-REVOCATO" in dopo.serials, \
