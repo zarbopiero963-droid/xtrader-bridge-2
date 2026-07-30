@@ -198,6 +198,35 @@ def test_ripristino_su_keypair_DIVERSA_e_rifiutato(tmp_path):
     assert core.load_signing_key(core.signing_key_path(altra))["public"] != pubblica_altra
 
 
+def test_una_chiave_CORROTTA_non_blocca_il_ripristino_che_dovrebbe_ripararla(tmp_path):
+    """Rilievo CodeRabbit #184 (Major), e un cortocircuito nell'esperienza dell'utente.
+
+    Quando il file-chiave è corrotto l'app dice: «Il file-chiave è corrotto: non verrà sovrascritto.
+    **Ripristina un backup** o rimuovilo a mano prima di rigenerare». Ma `load_signing_key` veniva
+    chiamata **sempre**, anche con `overwrite_key=True`, quindi sollevava e rendeva irraggiungibile
+    proprio il recupero consigliato. Misurato prima della patch: `KeyFileCorruptError` in **entrambi**
+    i casi — l'unica via d'uscita era cancellare il file a mano.
+
+    Ora è un caso **confermabile**: senza conferma si chiede (con un messaggio che dice perché), con
+    la conferma il ripristino ripara."""
+    origine = str(tmp_path / "origine")
+    destinazione = str(tmp_path / "dest")
+    os.makedirs(origine), os.makedirs(destinazione)
+    _, pubblica_attesa = _tool_configurato(origine)
+    contenuto = backup.build_backup(origine, now=_NOW)
+    with open(core.signing_key_path(destinazione), "w", encoding="utf-8") as f:
+        f.write("{file-chiave corrotto")
+
+    with pytest.raises(backup.BackupKeyMismatchError) as e:
+        backup.restore_backup(contenuto, destinazione)
+    assert "CORROTTO" in str(e.value), "il messaggio deve dire perché non si può verificare"
+
+    backup.restore_backup(contenuto, destinazione, overwrite_key=True)
+
+    assert core.load_signing_key(core.signing_key_path(destinazione))["public"] == pubblica_attesa, \
+        "con la conferma il ripristino deve riparare la cartella, non fallire di nuovo"
+
+
 def test_ripristino_sulla_STESSA_keypair_non_chiede_conferma(tmp_path):
     """Se la chiave è la stessa non c'è nulla da decidere: è il caso normale di un ripristino sullo
     stesso PC (recupero del registro), e chiedere conferma sarebbe rumore."""
@@ -283,7 +312,7 @@ def test_righe_vuote_nei_jsonl_restano_tollerate(tmp_path):
     assert backup.load_backup(p)["files"][registry.REVOKED_FILE].endswith("\n\n")
 
 
-def test_no_overwrite_e_atomico_non_un_controllo_separato(tmp_path):
+def test_no_overwrite_e_atomico_non_un_controllo_separato(tmp_path, monkeypatch):
     """Rilievo CodeRabbit #184 (Major): `os.path.exists()` seguito da scrittura è una finestra TOCTOU
     — un altro processo può creare il file **dopo** il controllo e vederselo sostituire dal rename.
 
@@ -299,12 +328,10 @@ def test_no_overwrite_e_atomico_non_un_controllo_separato(tmp_path):
 
     contenuto = backup.build_backup(d, now=_NOW)
     vero_exists = os.path.exists
-    try:
-        os.path.exists = lambda percorso: False if percorso == p else vero_exists(percorso)
-        with pytest.raises(backup.BackupExistsError):
-            backup.save_backup(p, contenuto)
-    finally:
-        os.path.exists = vero_exists
+    monkeypatch.setattr(os.path, "exists",
+                        lambda percorso: False if percorso == p else vero_exists(percorso))
+    with pytest.raises(backup.BackupExistsError):
+        backup.save_backup(p, contenuto)
 
     with open(p, encoding="utf-8") as f:
         assert f.read() == "BACKUP-DI-UN-ALTRA-CHIAVE", \
@@ -536,7 +563,11 @@ def test_la_fusione_avviene_sotto_il_lock_degli_append(tmp_path, monkeypatch):
 # caso che `rglob` serve a coprire (rilievo GPT-5.5 #184 su una mia patch precedente).
 _SCRITTORI_LEGITTIMI = {"registry.py", "backup.py"}
 _TOKEN_STORE = (".jsonl", "REGISTRY_FILE", "REVOKED_FILE", "registry_path", "revoked_registry_path")
-_TOKEN_SCRITTURA = ("open(", "atomic_write_text", "atomic_write_json")
+# Idiomi di scrittura riconosciuti. Allargato su rilievo CodeRabbit #184: un futuro scrittore che
+# usasse `Path(...).write_text(...)`, `os.replace(...)` o `shutil.copy(...)` sarebbe passato
+# inosservato — cioe' proprio la regressione silenziosa che questa guardia esiste per cogliere.
+_TOKEN_SCRITTURA = ("open(", "atomic_write_text", "atomic_write_json",
+                    "write_text(", "write_bytes(", "os.replace(", "shutil.copy", "shutil.move")
 
 
 def _righe_che_scrivono_gli_store(radice) -> list:
@@ -665,9 +696,13 @@ def test_il_seed_RIPRISTINATO_non_e_leggibile_da_altri(tmp_path):
     os.makedirs(origine)
     _tool_configurato(origine)
     destinazione = str(tmp_path / "nuova")
-    os.umask(0o022)         # umask larga: se ci fosse una finestra, si vedrebbe qui
-
-    backup.restore_backup(backup.build_backup(origine, now=_NOW), destinazione)
+    # `os.umask` e' PROCESS-GLOBALE (rilievo CodeRabbit #184): senza rimetterla, questa umask larga
+    # resterebbe per tutti i test successivi e renderebbe quelli sui permessi dipendenti dall'ordine.
+    precedente = os.umask(0o022)        # larga: se ci fosse una finestra, si vedrebbe qui
+    try:
+        backup.restore_backup(backup.build_backup(origine, now=_NOW), destinazione)
+    finally:
+        os.umask(precedente)
 
     modo = _stat.S_IMODE(os.stat(core.signing_key_path(destinazione)).st_mode)
     assert modo & (_stat.S_IRWXG | _stat.S_IRWXO) == 0, f"permessi troppo larghi sul seed: {modo:o}"

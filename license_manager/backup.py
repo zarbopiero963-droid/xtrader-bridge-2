@@ -320,9 +320,21 @@ def restore_backup(contenuto: dict, directory: "str | None" = None, *,
     files = contenuto.get("files", {})
     pubblica_backup = backup_public(contenuto)
 
-    if KEY_FILE in files:
-        esistente = core.load_signing_key(os.path.join(base, KEY_FILE))   # corrotta → solleva
-        if esistente is not None and esistente["public"] != pubblica_backup and not overwrite_key:
+    if KEY_FILE in files and not overwrite_key:
+        # Il controllo si fa SOLO quando la conferma non c'è già: con `overwrite_key=True` la
+        # decisione è presa, e leggere la chiave esistente servirebbe solo a poter fallire.
+        try:
+            esistente = core.load_signing_key(os.path.join(base, KEY_FILE))
+        except core.KeyFileCorruptError as exc:
+            # Rilievo CodeRabbit #184: prima questo propagava e rendeva **irraggiungibile** proprio
+            # il recupero. L'app dice all'utente «Il file-chiave è corrotto: ripristina un backup» —
+            # e il ripristino era l'unica cosa che non poteva riuscire. Ora è un caso confermabile:
+            # non si può verificare la corrispondenza, quindi si chiede invece di arrendersi.
+            raise BackupKeyMismatchError(
+                "il file-chiave in questa cartella è CORROTTO: non è possibile verificare se "
+                "corrisponde alla keypair del backup. Conferma esplicitamente se vuoi sostituirlo "
+                "con quello del backup.") from exc
+        if esistente is not None and esistente["public"] != pubblica_backup:
             raise BackupKeyMismatchError(
                 "in questa cartella esiste già una keypair DIVERSA da quella del backup. "
                 "Sovrascriverla renderebbe impossibile rinnovare le licenze emesse con la chiave "

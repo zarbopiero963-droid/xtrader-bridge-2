@@ -1249,6 +1249,30 @@ def test_restore_backup_su_keypair_diversa_chiede_conferma(gui, tmp_path):
     assert out2["ok"] is True
 
 
+def test_chiave_CORROTTA_arriva_alla_conferma_invece_che_a_un_vicolo_cieco(gui, tmp_path):
+    """Rilievo CodeRabbit #184 (Major), lato GUI: con la chiave corrotta l'errore finiva nel ramo
+    generico, che **non** imposta `needs_confirm` — quindi il giro conferma-e-riprova era
+    irraggiungibile e l'utente restava bloccato, malgrado l'app gli dicesse di ripristinare un
+    backup."""
+    origine = _fake(gui, tmp_path / "origine")
+    gui.LicenseManagerApp._ensure_keypair(origine)
+    dest = str(tmp_path / "b.json")
+    gui.LicenseManagerApp._evaluate_export_backup(origine, dest)
+
+    rotta = _fake(gui, tmp_path / "rotta")
+    os.makedirs(str(tmp_path / "rotta"), exist_ok=True)
+    with open(core.signing_key_path(str(tmp_path / "rotta")), "w", encoding="utf-8") as f:
+        f.write("{corrotto")
+
+    out = gui.LicenseManagerApp._evaluate_restore_backup(rotta, dest)
+    assert out["ok"] is False and out.get("needs_confirm") is True, \
+        "dev'essere una conferma, non un errore senza via d'uscita"
+    assert "CORROTTO" in out["message"]
+
+    assert gui.LicenseManagerApp._evaluate_restore_backup(rotta, dest,
+                                                          overwrite_key=True)["ok"] is True
+
+
 def test_export_backup_su_percorso_non_scrivibile_non_solleva_e_non_logga_il_messaggio(
         gui, tmp_path, caplog):
     """Rilievo GPT-5.5 sulla #184: il ramo `OSError` (permessi negati, disco pieno, path invalido)
@@ -1426,12 +1450,19 @@ def test_i_giunti_del_backup_sono_iniettabili_dal_COSTRUTTORE(gui):
     anche il default, così un parametro aggiunto ma non usato non passerebbe."""
     import inspect
     parametri = inspect.signature(gui.LicenseManagerApp.__init__).parameters
-    for nome in ("build_backup", "save_backup", "load_backup", "restore_backup", "auto_backup"):
+    # `restore_in_progress` incluso (rilievo CodeRabbit #184): è un giunto a tutti gli effetti — lo
+    # consuma `_build_signed_revocation_list` per il gate sul ripristino incompleto — e senza
+    # elencarlo qui un parametro decorativo sarebbe passato inosservato.
+    giunti = ("build_backup", "save_backup", "load_backup", "restore_backup", "auto_backup",
+              "restore_in_progress")
+    for nome in giunti:
         assert nome in parametri, f"il giunto «{nome}» non è iniettabile dal costruttore"
         assert parametri[nome].default is None
 
-    sorgente = inspect.getsource(gui.LicenseManagerApp.__init__)
-    for nome in ("build_backup", "save_backup", "load_backup", "restore_backup", "auto_backup"):
+    # Confronto sulla sorgente NORMALIZZATA (spazi collassati): accetta un fallback andato a capo,
+    # che è formattazione, e continua a rifiutare un parametro mai usato.
+    sorgente = " ".join(inspect.getsource(gui.LicenseManagerApp.__init__).split())
+    for nome in giunti:
         assert f"{nome} or backup_mod.{nome}" in sorgente, (
             f"«{nome}» è nella firma ma il valore iniettato non viene usato: il parametro sarebbe "
             "decorativo")
