@@ -14,11 +14,12 @@ Due chiamanti, due livelli di fiducia (per questo la correzione e' in due parti)
 - `write_path` (**7** siti di rollback del tracker): lo snapshot e' preso dallo stesso processo
   pochi secondi prima via `tracker.state()`. Non e' un file, nessuno puo' manometterlo ->
   `trusted=True`, restauro verbatim, nessun clamp.
-  Sette, non sedici: dei 16 `restore_state` di `write_path` gli altri 9 sono `daily` (2) e
-  `queue` (6), classi diverse le cui firme non accettano nemmeno `now` — passare loro `trusted`
-  sarebbe un `TypeError` all'avvio. Il test `test_tutti_i_rollback_del_tracker_sono_fidati`
-  qui sotto fissa il conteggio, cosi' un ottavo sito aggiunto in futuro e dimenticato
-  diventa rosso invece di riaprire B4 in silenzio.
+  Sette **oggi**, non sedici: dei 16 `restore_state` di `write_path` gli altri 9 sono `daily`
+  (2) e `queue` (6), classi diverse le cui firme non accettano nemmeno `now` — passare loro
+  `trusted` sarebbe un `TypeError` all'avvio. Il numero e' una fotografia, non un vincolo: il
+  test `test_tutti_i_rollback_del_tracker_sono_fidati` qui sotto NON conta i siti, pretende
+  che nessuno sia senza `trusted`. Cosi' un ottavo sito aggiunto in futuro e' legittimo, ma
+  se dimentica il parametro diventa rosso invece di riaprire B4 in silenzio.
 - `load_state` (allo START): legge `dedupe_state.json` dal disco -> il clamp RESTA, ma con
   orizzonte a 24 h (decisione proprietario D1 in #194): uno step NTP o un ripristino di
   snapshot VM valgono secondi/ore, un file corrotto sbaglia di anni.
@@ -163,34 +164,43 @@ def test_tutti_i_rollback_del_tracker_sono_fidati():
     clampare e B4 si riapre **solo li'** — mentre tutti i test qui sopra restano verdi, perche'
     esercitano `restore_state` direttamente e non il nuovo sito.
 
-    Questo test guarda il sorgente: ogni chiamata `tracker.restore_state(...)` in `write_path`
-    deve passare `trusted=True`. Volutamente NON fissa un numero: un sito in piu' e' legittimo,
-    un sito senza `trusted` no.
+    Questo test guarda il sorgente: in `write_path` ogni `restore_state(...)` deve passare
+    `trusted=True`, TRANNE quelli su `daily`/`queue` — classi diverse, le cui firme non
+    accettano `trusted` e a cui passarglielo sarebbe un `TypeError`.
 
-    `daily`/`queue` sono esclusi apposta: sono classi diverse, le loro firme non accettano
-    `trusted` e passarglielo sarebbe un `TypeError`.
+    Il filtro e' volutamente per ESCLUSIONE e non per inclusione (rilievo Fable 5 + GPT-5.5
+    sulla PR #196): cercare il solo nome letterale `tracker` lascerebbe sfuggire un alias, un
+    `self.tracker` o un helper introdotto da un refactor — e una guardia che smette di guardare
+    in silenzio e' peggio di nessuna guardia. Cosi' invece qualunque oggetto NUOVO su cui si
+    chiami `restore_state` fa diventare il test rosso finche' un umano non decide a quale delle
+    due categorie appartiene: fallisce CHIUSO.
+
+    Volutamente non fissa un numero: un sito in piu' e' legittimo, un sito senza `trusted` no.
     """
     albero = ast.parse(_WRITE_PATH.read_text(encoding="utf-8"))
-    infedeli = []
-    totale = 0
+    SENZA_TRUSTED_OK = {"daily", "queue"}       # firme diverse: non accettano `trusted`
+    infedeli, esaminati = [], 0
+
     for nodo in ast.walk(albero):
         if not isinstance(nodo, ast.Call) or not isinstance(nodo.func, ast.Attribute):
             continue
         if nodo.func.attr != "restore_state":
             continue
-        oggetto = getattr(nodo.func.value, "id", None)
-        if oggetto != "tracker":          # daily/queue: altre classi, altre firme
+        esaminati += 1
+        oggetto = getattr(nodo.func.value, "id", None)      # None per self.x / expr.x
+        if oggetto in SENZA_TRUSTED_OK:
             continue
-        totale += 1
         fidato = any(kw.arg == "trusted" and getattr(kw.value, "value", None) is True
                      for kw in nodo.keywords)
         if not fidato:
-            infedeli.append(nodo.lineno)
+            infedeli.append((nodo.lineno, oggetto or "<espressione>"))
 
-    assert totale > 0, "nessuna chiamata tracker.restore_state trovata: test da aggiornare"
+    assert esaminati > 0, "nessuna chiamata restore_state trovata: test da aggiornare"
     assert not infedeli, (
-        f"in write_path.py ci sono rollback del tracker SENZA trusted=True alle righe {infedeli}: "
-        "su quei percorsi un rollback con l'orologio arretrato riazzera la deduplica (B4)")
+        f"in write_path.py ci sono restore_state SENZA trusted=True: {infedeli}. "
+        "Se e' un rollback del tracker, su quel percorso un orologio arretrato riazzera la "
+        "deduplica (B4). Se e' una classe nuova che non accetta `trusted`, aggiungila a "
+        "SENZA_TRUSTED_OK spiegando perche'.")
 
 
 def test_il_default_resta_non_fidato():
