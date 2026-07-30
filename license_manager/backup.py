@@ -125,18 +125,24 @@ def build_backup(directory: "str | None" = None, *, now: int, include_key: bool 
 
 
 def save_backup(dest_path: str, contenuto: dict, *, overwrite: bool = False) -> None:
-    """Scrive il backup in modo **atomico** (`atomic_io`), con permessi ristretti.
+    """Scrive il backup in modo **atomico**, con permessi `0o600` fin dalla prima syscall.
 
-    `overwrite=False` (default) **non sovrascrive** un backup esistente: potrebbe essere di un'ALTRA
-    keypair, e perderla significherebbe non poter più rinnovare quelle licenze — la stessa cautela
-    di `core.export_signing_key`."""
-    if not overwrite and os.path.exists(dest_path):
-        raise BackupExistsError(f"esiste già un file in quel percorso: {dest_path}")
-    parent = os.path.dirname(dest_path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    atomic_io.atomic_write_json(dest_path, contenuto, indent=2, ensure_ascii=False)
-    core._restrict_perms(dest_path)     # 0o600 best-effort: il file contiene il seed
+    `overwrite=False` (default) **non sovrascrive** un file esistente: potrebbe essere il backup di
+    un'ALTRA keypair, e perderla significherebbe non poter più rinnovare quelle licenze — la stessa
+    cautela di `core.export_signing_key`.
+
+    Il no-overwrite passa da `core._persist_key_file`, cioè dallo **stesso** primitivo che custodisce
+    il seed: `O_CREAT|O_EXCL` invece di «controlla se esiste, poi scrivi». Il controllo separato
+    lasciava una finestra TOCTOU (rilievo CodeRabbit #184) in cui un altro processo poteva creare il
+    file **dopo** il controllo e vederselo sostituire dal rename. Con `O_EXCL` la creazione fallisce
+    atomicamente. Riusare quel primitivo — invece di riscriverne uno qui — porta con sé anche i
+    permessi espliciti sul temporaneo e l'`fsync` di file **e** directory, requisiti che valgono
+    identici per un file che contiene il seed."""
+    try:
+        core._persist_key_file(dest_path, json.dumps(contenuto, indent=2, ensure_ascii=False),
+                               overwrite=overwrite)
+    except core.KeyExistsError as exc:
+        raise BackupExistsError(f"esiste già un file in quel percorso: {dest_path}") from exc
 
 
 def load_backup(path: str) -> dict:
@@ -166,7 +172,43 @@ def load_backup(path: str) -> dict:
             raise BackupError(f"backup con file non riconosciuto: {nome!r}.")
         if not isinstance(contenuto, str):
             raise BackupError(f"contenuto non testuale per {nome!r}.")
+        _valida_contenuto(nome, contenuto)
     return raw
+
+
+def _valida_contenuto(nome: str, testo: str) -> None:
+    """Controlla che il contenuto di uno stato sia **interpretabile**, non solo che sia una stringa.
+
+    Perché serve (rilievo CodeRabbit #184). I file di stato sono letti in modo **fail-safe**: una riga
+    JSONL illeggibile viene saltata in silenzio. Un `revoked.jsonl` corrotto dentro il backup
+    sopravvivrebbe quindi alla validazione, sostituirebbe uno store valido, e alla prima pubblicazione
+    produrrebbe una lista firmata **senza quelle revoche** — cioè esattamente il guasto che questo
+    modulo esiste per impedire, con la differenza che qui non ci sarebbe nemmeno un errore a
+    segnalarlo. Meglio rifiutare il ripristino: un backup illeggibile è un problema **visibile**, uno
+    stato mezzo perso non lo è.
+
+    Il controllo è sulla **forma**, non sul merito: righe JSONL che siano oggetti, JSON di primo
+    livello che sia un oggetto. Non entra nei campi — quello resta compito dei rispettivi store, che
+    hanno già i propri default sicuri."""
+    if nome == KEY_FILE:
+        return          # coerenza seed↔pubblica: la verifica vera è in `backup_public`
+    if nome.endswith(".jsonl"):
+        for numero, riga in enumerate(testo.splitlines(), start=1):
+            if not riga.strip():
+                continue        # righe vuote: già tollerate dagli store
+            try:
+                voce = json.loads(riga)
+            except ValueError as exc:
+                raise BackupError(f"{nome}: riga {numero} illeggibile nel backup.") from exc
+            if not isinstance(voce, dict):
+                raise BackupError(f"{nome}: riga {numero} non è un record.")
+        return
+    try:
+        dati = json.loads(testo)
+    except ValueError as exc:
+        raise BackupError(f"{nome}: contenuto non è un JSON valido nel backup.") from exc
+    if not isinstance(dati, dict):
+        raise BackupError(f"{nome}: contenuto con struttura inattesa nel backup.")
 
 
 def backup_public(contenuto: dict) -> "str | None":

@@ -568,8 +568,9 @@ licenza **revocata** blocca la GUI e ferma il listener a sessione viva.
 
 Il bridge accetta solo liste firmate **di recente** (entro **3 giorni**) e **non datate oltre un'ora nel
 futuro**. Attenzione: quelle finestre **non bloccano più** nessuno — misurano **quanto in fretta una
-revoca si propaga**. Se il fornitore non ri-pubblica, chi è stato revocato continua a lavorare finché non
-riceve una lista aggiornata; perciò conviene comunque **ri-pubblicare almeno ogni 3 giorni** (anche
+revoca si propaga**. Se il fornitore non ri-pubblica, un bridge che **non ha ancora ricevuto** la revoca
+continua a funzionare finché non riceve una lista aggiornata (le revoche **già arrivate restano applicate**,
+anche offline e anche oltre la finestra); perciò conviene comunque **ri-pubblicare almeno ogni 3 giorni** (anche
 invariata — la pubblicazione automatica del License Manager lo fa da sola mentre è aperto).
 Poiché quel meccanismo gira **solo a License Manager aperto**, la sua scheda mostra un'etichetta
 permanente **«Ultima pubblicazione riuscita: …»** che diventa **arancione** quando è saltato un giro e

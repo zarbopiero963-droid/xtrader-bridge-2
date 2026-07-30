@@ -212,6 +212,105 @@ def test_ripristino_sulla_STESSA_keypair_non_chiede_conferma(tmp_path):
     assert registry.read_revocations(directory=d), "le revoche devono essere tornate"
 
 
+@pytest.mark.parametrize("nome, contenuto, atteso", [
+    (registry.REVOKED_FILE, '{"serial": "LIC-A"}\nnon-json\n', "riga 2 illeggibile"),
+    (registry.REVOKED_FILE, '{"serial": "LIC-A"}\n["non", "un", "record"]\n', "riga 2 non è un record"),
+    (registry.REGISTRY_FILE, '{"serial": "LIC-A"}\n{"serial": "tronc\n', "riga 2 illeggibile"),
+    (publish_store.PUBLISH_CONFIG_FILE, "{non-json", "non è un JSON valido"),
+    (publish_store.PUBLISH_STATE_FILE, "[1, 2, 3]", "struttura inattesa"),
+])
+def test_contenuto_di_stato_corrotto_nel_backup_e_rifiutato(tmp_path, nome, contenuto, atteso):
+    """Rilievo CodeRabbit #184 (Major): `load_backup` accettava **qualunque** stringa per i file di
+    stato.
+
+    Perché è grave, e non un dettaglio di robustezza: gli store leggono in modo **fail-safe** — una
+    riga JSONL illeggibile viene saltata in silenzio. Un `revoked.jsonl` corrotto dentro il backup
+    sarebbe quindi passato, avrebbe sostituito uno store valido, e alla prima pubblicazione avrebbe
+    prodotto una lista firmata **senza quelle revoche**: lo stesso guasto della migrazione col solo
+    seed, ma **senza nemmeno un errore** a segnalarlo. Ora il ripristino si rifiuta di partire."""
+    d = str(tmp_path / "tool")
+    os.makedirs(d)
+    _tool_configurato(d)
+    valido = backup.build_backup(d, now=_NOW)
+    valido["files"][nome] = contenuto
+    p = str(tmp_path / "manomesso.json")
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(valido, f)
+
+    with pytest.raises(backup.BackupError) as e:
+        backup.load_backup(p)
+    assert atteso in str(e.value)
+
+
+def test_stato_corrotto_NON_arriva_a_scrivere(tmp_path):
+    """La controprova che conta: il rifiuto deve avvenire **prima** di toccare il disco, altrimenti
+    lo store buono della destinazione sarebbe già stato sostituito."""
+    origine = str(tmp_path / "origine")
+    os.makedirs(origine)
+    seed_hex, public_hex = _tool_configurato(origine, revocati=["LIC-BUONA"])
+    manomesso = backup.build_backup(origine, now=_NOW)
+    manomesso["files"][registry.REVOKED_FILE] = "spazzatura non-json\n"
+    p = str(tmp_path / "manomesso.json")
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(manomesso, f)
+
+    destinazione = str(tmp_path / "dest")
+    os.makedirs(destinazione)
+    core.save_signing_key(core.signing_key_path(destinazione), seed_hex, public_hex, _NOW)
+    registry.append_revocation({"serial": "LIC-SUL-POSTO", "name": "T", "hardware_id": "HW1-X"},
+                               directory=destinazione)
+
+    with pytest.raises(backup.BackupError):
+        backup.load_backup(p)
+
+    assert _lista_pubblicata(destinazione).serials == {"LIC-SUL-POSTO"}, \
+        "lo store della destinazione non deve essere stato toccato"
+
+
+def test_righe_vuote_nei_jsonl_restano_tollerate(tmp_path):
+    """Controprova indispensabile: senza, la validazione nuova passerebbe anche se rifiutasse
+    **tutto**, e un backup legittimo (gli store append-only lasciano righe vuote) diventerebbe
+    irripristinabile."""
+    d = str(tmp_path / "tool")
+    os.makedirs(d)
+    _tool_configurato(d, revocati=["LIC-A"])
+    contenuto = backup.build_backup(d, now=_NOW)
+    contenuto["files"][registry.REVOKED_FILE] += "\n\n"
+    p = str(tmp_path / "b.json")
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(contenuto, f)
+
+    assert backup.load_backup(p)["files"][registry.REVOKED_FILE].endswith("\n\n")
+
+
+def test_no_overwrite_e_atomico_non_un_controllo_separato(tmp_path):
+    """Rilievo CodeRabbit #184 (Major): `os.path.exists()` seguito da scrittura è una finestra TOCTOU
+    — un altro processo può creare il file **dopo** il controllo e vederselo sostituire dal rename.
+
+    Il test lo misura senza corse: monkeypatch di `os.path.exists` a «non esiste mai», così un
+    controllo separato passerebbe e sovrascriverebbe. Con la creazione esclusiva (`O_EXCL`) il file
+    preesistente sopravvive comunque."""
+    d = str(tmp_path / "tool")
+    os.makedirs(d)
+    _tool_configurato(d)
+    p = str(tmp_path / "occupato.json")
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("BACKUP-DI-UN-ALTRA-CHIAVE")
+
+    contenuto = backup.build_backup(d, now=_NOW)
+    vero_exists = os.path.exists
+    try:
+        os.path.exists = lambda percorso: False if percorso == p else vero_exists(percorso)
+        with pytest.raises(backup.BackupExistsError):
+            backup.save_backup(p, contenuto)
+    finally:
+        os.path.exists = vero_exists
+
+    with open(p, encoding="utf-8") as f:
+        assert f.read() == "BACKUP-DI-UN-ALTRA-CHIAVE", \
+            "il no-overwrite non deve dipendere da un controllo separato"
+
+
 @pytest.mark.skipif(os.name == "nt", reason="permessi POSIX; su Windows il modello è ACL (no-op)")
 def test_il_file_di_backup_e_leggibile_solo_dall_utente(tmp_path):
     """Rilievo GPT-5.5 sulla #184: il docstring promette `0o600`, e la promessa va **misurata** —

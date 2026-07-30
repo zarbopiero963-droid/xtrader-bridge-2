@@ -517,8 +517,8 @@ restano costanti tarabili, ma ora misurano la **tempestività della propagazione
 
 Il punto (2) qui sopra — *ri-pubblicare la lista firmata entro la finestra* — è la sola parte che
 dipende dalla memoria del proprietario. Col fail-open dimenticarla **non blocca più nessuno**: rende però
-le revoche **inefficaci**, perché chi è stato revocato continua a lavorare finché non riceve una lista
-aggiornata. Questa fetta la **automatizza dentro il License Manager**, senza spostare il seed privato.
+le **nuove** revoche inefficaci, perché un bridge che non l'ha ancora ricevuta continua a funzionare finché
+non riceve una lista aggiornata (quelle già arrivate restano applicate). Questa fetta la **automatizza dentro il License Manager**, senza spostare il seed privato.
 
 **Dove sta cosa (invariante):**
 
@@ -614,7 +614,11 @@ ri-arma dopo errore, annullamento in chiusura).
 **Nota operativa:** il tick gira **mentre il License Manager è aperto**. ⚠️ **Aggiornato 2026-07-30
 (fail-open):** se il PC resta spento oltre la finestra di freschezza i bridge **non si bloccano più**
 (prima, con la scelta «niente grazia», si bloccavano) — si ferma solo la **propagazione delle revoche**:
-chi è stato revocato continua a lavorare finché non riceve una lista aggiornata. Per una propagazione
+un bridge che **non ha ancora ricevuto** quella revoca continua a funzionare finché non riceve una lista
+aggiornata. ⚠️ Attenzione a non leggerlo più largo di quanto sia: le revoche **già arrivate in cache
+restano applicate** anche offline e anche molto oltre la finestra: `gate_allows` decide solo sulla
+presenza esplicita della licenza fra i revocati, non sull'età della lista (pinnato da
+`test_una_revoca_gia_in_cache_blocca_ANCHE_quando_la_lista_e_stantia`). Per una propagazione
 24/7 servirebbe una modalità headless su una macchina sempre accesa — tracciata in #157, **non** in
 questa fetta.
 
@@ -634,8 +638,8 @@ attivi**, senza un errore e senza un avviso. E senza `licenses.jsonl` smettono d
 | Funzione | Ruolo |
 |---|---|
 | `build_backup(dir, *, now, include_key=True)` | Legge lo stato completo: `signing_key.json` (**obbligatorio**) + `licenses.jsonl` + `revoked.jsonl` + `publish_config.json` + `publish_state.json` (gli ultimi quattro possono legittimamente non esistere ancora). Il campo `public` in testa dice **quale keypair** contiene il backup senza doverne leggere il seed. |
-| `save_backup(dest, contenuto, *, overwrite=False)` | Scrittura **atomica** + permessi `0o600`; come `export_signing_key` **non sovrascrive** senza conferma (→ `BackupExistsError`). |
-| `load_backup(path)` | Validazione **severa e tutta prima** di qualsiasi scrittura: JSON valido, versione di formato nota, nomi-file solo dall'allowlist, contenuti testuali. Un backup rotto non arriva mai a toccare lo stato reale. |
+| `save_backup(dest, contenuto, *, overwrite=False)` | Scrittura **atomica** + permessi `0o600` fin dalla prima syscall; come `export_signing_key` **non sovrascrive** senza conferma (→ `BackupExistsError`). Il no-overwrite passa dallo **stesso primitivo che custodisce il seed** (`core._persist_key_file`, `O_CREAT\|O_EXCL`): un «controlla se esiste, poi scrivi» lascerebbe una finestra TOCTOU (rilievo CodeRabbit #184). |
+| `load_backup(path)` | Validazione **severa e tutta prima** di qualsiasi scrittura: JSON valido, versione di formato nota, nomi-file solo dall'allowlist, contenuti testuali, e **contenuto di ogni stato interpretabile** (righe JSONL che siano record, JSON di primo livello che sia un oggetto). Quest'ultimo controllo non è pignoleria: gli store leggono **fail-safe** e salterebbero in silenzio le righe illeggibili, quindi un `revoked.jsonl` corrotto dentro il backup avrebbe sostituito uno store valido e prodotto una lista **senza quelle revoche**, senza nemmeno un errore (rilievo CodeRabbit #184). Un backup rotto non arriva mai a toccare lo stato reale. |
 | `backup_public(contenuto)` | La pubblica del backup, **ri-derivata dal seed** e non letta dal campo `public` (dichiarativo: un backup manomesso potrebbe averlo incoerente). |
 | `restore_backup(contenuto, dir, *, overwrite_key=False)` | Ripristina e ritorna **quali file** ha scritto. Se in `dir` c'è già una keypair **diversa**, rifiuta (`BackupKeyMismatchError`) salvo conferma esplicita. |
 | `auto_backup(dir, *, now)` | Backup automatico dello stato **mutevole**, `auto_backup.json` nella cartella del tool. **Best-effort**: non solleva mai. |

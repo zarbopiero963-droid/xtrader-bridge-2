@@ -71,6 +71,9 @@ class LicenseManagerApp(ctk.CTk):
         issue_license:    (seed, nome, giorni, hardware_id, now) -> token.
         record_issued:    (record, *, directory) -> record   — append al registro licenze.
         read_records:     (*, directory) -> list             — lettura del registro licenze.
+        build_backup / save_backup / load_backup / restore_backup / auto_backup
+                          — accessi a disco del backup completo (#183), stessa firma di
+                            `license_manager.backup`.
     """
 
     def __init__(self, master=None, *, key_dir=None, now_provider=None,
@@ -80,7 +83,9 @@ class LicenseManagerApp(ctk.CTk):
                  record_revocation=None, read_revocations=None,
                  load_publish_config=None, save_publish_config=None,
                  load_publish_token=None, save_publish_token=None, publish_upload=None,
-                 load_last_publish=None, save_last_publish=None):
+                 load_last_publish=None, save_last_publish=None,
+                 build_backup=None, save_backup=None, load_backup=None,
+                 restore_backup=None, auto_backup=None):
         super().__init__()
         self._key_dir = key_dir
         self._now = now_provider or (lambda: int(_time.time()))
@@ -107,11 +112,11 @@ class LicenseManagerApp(ctk.CTk):
         self._load_last_publish = load_last_publish or publish_store.load_last_publish
         self._save_last_publish = save_last_publish or publish_store.save_last_publish
         # Backup completo / ripristino (#183): iniettabili come gli altri accessi a disco.
-        self._build_backup = backup_mod.build_backup
-        self._save_backup = backup_mod.save_backup
-        self._load_backup = backup_mod.load_backup
-        self._restore_backup = backup_mod.restore_backup
-        self._auto_backup = backup_mod.auto_backup
+        self._build_backup = build_backup or backup_mod.build_backup
+        self._save_backup = save_backup or backup_mod.save_backup
+        self._load_backup = load_backup or backup_mod.load_backup
+        self._restore_backup = restore_backup or backup_mod.restore_backup
+        self._auto_backup = auto_backup or backup_mod.auto_backup
         self._pub_last_lbl = None
         self._publish_after_id = None
         self._publish_inflight = False      # un solo upload alla volta (niente accavallamenti)

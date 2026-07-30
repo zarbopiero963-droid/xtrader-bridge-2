@@ -1319,6 +1319,27 @@ def test_confirm_backup_e_fail_closed_senza_dialogo(gui, tmp_path):
     assert gui.LicenseManagerApp._confirm_backup(fake, "sovrascrivo?") is False
 
 
+def test_i_giunti_del_backup_sono_iniettabili_dal_COSTRUTTORE(gui):
+    """Rilievo CodeRabbit #184: il commento nel codice diceva «iniettabili come gli altri accessi a
+    disco», ma i cinque helper erano cablati diritti a `backup_mod` senza parametri in `__init__` —
+    cioè il commento era **falso**, e nessun chiamante reale poteva sostituirli alla costruzione.
+
+    Guardia sulla **firma** e non sul comportamento, per lo stesso motivo degli altri test-sorgente
+    qui: costruire `LicenseManagerApp` richiede un root Tk reale e non è eseguibile headless. Verifica
+    anche il default, così un parametro aggiunto ma non usato non passerebbe."""
+    import inspect
+    parametri = inspect.signature(gui.LicenseManagerApp.__init__).parameters
+    for nome in ("build_backup", "save_backup", "load_backup", "restore_backup", "auto_backup"):
+        assert nome in parametri, f"il giunto «{nome}» non è iniettabile dal costruttore"
+        assert parametri[nome].default is None
+
+    sorgente = inspect.getsource(gui.LicenseManagerApp.__init__)
+    for nome in ("build_backup", "save_backup", "load_backup", "restore_backup", "auto_backup"):
+        assert f"{nome} or backup_mod.{nome}" in sorgente, (
+            f"«{nome}» è nella firma ma il valore iniettato non viene usato: il parametro sarebbe "
+            "decorativo")
+
+
 def test_i_pulsanti_backup_sono_collegati_agli_handler(gui):
     """Guardia sul SORGENTE (stessa motivazione dell'analoga sull'etichetta): `_build_ui` costruisce
     widget customtkinter reali e non è eseguibile headless, quindi non esiste un giunto
