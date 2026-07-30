@@ -642,6 +642,7 @@ attivi**, senza un errore e senza un avviso. E senza `licenses.jsonl` smettono d
 | `load_backup(path)` | Validazione **severa e tutta prima** di qualsiasi scrittura: JSON valido, versione di formato nota, nomi-file solo dall'allowlist, contenuti testuali, e **contenuto di ogni stato interpretabile** (righe JSONL che siano record, JSON di primo livello che sia un oggetto). Quest'ultimo controllo non è pignoleria: gli store leggono **fail-safe** e salterebbero in silenzio le righe illeggibili, quindi un `revoked.jsonl` corrotto dentro il backup avrebbe sostituito uno store valido e prodotto una lista **senza quelle revoche**, senza nemmeno un errore (rilievo CodeRabbit #184). Un backup rotto non arriva mai a toccare lo stato reale. |
 | `backup_public(contenuto)` | La pubblica del backup, **ri-derivata dal seed** e non letta dal campo `public` (dichiarativo: un backup manomesso potrebbe averlo incoerente). |
 | `restore_backup(contenuto, dir, *, overwrite_key=False)` | Ripristina e ritorna **quali file** ha scritto. Se in `dir` c'è già una keypair **diversa**, rifiuta (`BackupKeyMismatchError`) salvo conferma esplicita. I due store **append-only** (`licenses.jsonl`, `revoked.jsonl`) vengono **fusi**, non sovrascritti (bloccante Fugu Ultra #184): ripristinare uno snapshot più vecchio non deve far sparire una revoca fatta dopo il backup — alla prima pubblicazione quel cliente tornerebbe attivo. Le **impostazioni** (`publish_config.json`, `publish_state.json`) si sovrascrivono: sono configurazione, non registri. |
+| `restore_marker_path` / `restore_in_progress(dir)` | Marcatore «ripristino in corso»: posato prima della prima scrittura, rimosso solo a ripristino completo. Chi firma la lista revoche lo consulta e si **rifiuta** di procedere finché è lì — uno stato a metà può contenere zero revoche. Fail-closed anche sull'errore di lettura. |
 | `auto_backup(dir, *, now)` | Backup automatico dello stato **mutevole**, `auto_backup.json` nella cartella del tool. **Best-effort**: non solleva mai. |
 
 **Due scelte di sicurezza, entrambe deliberate.**
@@ -694,9 +695,18 @@ l'ordine genera una seconda keypair).
   Ultra): quando `revoked.jsonl` **è** nel backup, veniva sovrascritto e le revoche fatte dopo
   sparivano. Ora i due store append-only si **fondono**, quindi l'affermazione è vera perché il codice
   la mantiene, non perché la pagina lo dichiara.
-- La validazione è tutta prima della scrittura, ma il ripristino dei singoli file **non è una
-  transazione unica** — un guasto di I/O a metà lascia alcuni file ripristinati e altri no. Ogni
-  singolo file è però scritto in modo **atomico**, quindi nessuno resta troncato.
+- Il ripristino **non è una transazione unica** — un guasto di I/O a metà lascia alcuni file
+  ripristinati e altri no. Ogni file è scritto in modo **atomico** (nessuno troncato), e dal
+  bloccante Fugu Ultra #184 quello stato **non è più pubblicabile**: prima della prima scrittura
+  viene posato il marcatore `restore_in_progress.json`, rimosso solo a ripristino completo, e finché
+  è lì la firma della lista revoche si **rifiuta**. Misurato: senza il marcatore, un guasto dopo il
+  seed e prima delle revoche lasciava una cartella con chiave valida e store revoche **vuoto**, dalla
+  quale il tool firmava e pubblicava «nessuno è revocato» — la de-revoca di massa, per una strada
+  nuova. Il marcatore che sopravvive è **voluto**: rifai il ripristino fino in fondo.
+- **Fra processi** (due License Manager aperti insieme) la fusione read-modify-write ha un residuo:
+  il controllo appena prima della riscrittura riduce la finestra a pochi microsecondi e trasforma la
+  perdita silenziosa in un **errore esplicito e ripetibile** («un'altra istanza sta scrivendo»), ma
+  non la elimina. Il tool non ha un instance-lock: è un cambiamento a sé, non incluso qui.
 - Il **backup automatico** sta nella **stessa cartella** del tool: protegge da una cancellazione
   accidentale dei file di stato, **non** da un guasto del disco. Contro quello serve l'export
   completo su un supporto esterno.

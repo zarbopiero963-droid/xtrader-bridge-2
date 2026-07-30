@@ -366,6 +366,108 @@ def test_un_backup_VECCHIO_non_fa_sparire_le_revoche_piu_recenti(tmp_path):
     assert presenti.count("R1") == 1, "le voci in comune non vanno duplicate"
 
 
+def test_un_ripristino_INTERROTTO_lascia_il_marcatore_e_blocca_la_firma(tmp_path, monkeypatch):
+    """Bloccante Fugu Ultra #184, riprodotto: il ripristino non è una transazione unica, e un guasto
+    di I/O **dopo il seed e prima delle revoche** lasciava una cartella con chiave valida e store
+    revoche vuoto.
+
+    Misurato prima della patch: da quello stato il tool firmava una lista che dice «nessuno è
+    revocato» — valida, firmata, più recente della precedente, quindi accettata da tutti i bridge.
+    Il guasto della #183 per una strada nuova, e nessun errore a segnalarlo. Ora il marcatore resta
+    su disco e `restore_in_progress` è `True`."""
+    origine = str(tmp_path / "origine")
+    os.makedirs(origine)
+    _tool_configurato(origine, revocati=["R1", "R2"])
+    contenuto = backup.build_backup(origine, now=_NOW)
+    destinazione = str(tmp_path / "dest")
+
+    vero = backup.atomic_io.atomic_write_text
+
+    def rompi_sui_jsonl(percorso, testo, **kw):
+        if percorso.endswith(".jsonl"):
+            raise OSError(28, "No space left on device")
+        return vero(percorso, testo, **kw)
+    monkeypatch.setattr(backup.atomic_io, "atomic_write_text", rompi_sui_jsonl)
+
+    with pytest.raises(OSError):
+        backup.restore_backup(contenuto, destinazione)
+
+    assert core.load_signing_key(core.signing_key_path(destinazione)) is not None, \
+        "precondizione: il seed è entrato, quindi la cartella sembra utilizzabile"
+    assert not registry.read_revocations(directory=destinazione), \
+        "precondizione: le revoche NON sono entrate — è lo stato pericoloso"
+    assert backup.restore_in_progress(destinazione) is True, (
+        "il marcatore deve sopravvivere al guasto: è l'unica cosa che distingue questo stato da uno "
+        "legittimo con zero revoche")
+
+
+def test_se_non_si_riesce_a_leggere_il_marcatore_si_assume_il_PEGGIO(tmp_path, monkeypatch):
+    """Fail-closed sul dubbio. Se non riusciamo a stabilire che il ripristino è finito, la risposta
+    dev'essere «è ancora in corso»: sbagliare in questo verso costa una pubblicazione rimandata,
+    sbagliare nell'altro costa una lista che ri-attiva i revocati."""
+    def esplode(percorso):
+        raise OSError(5, "I/O error")
+    monkeypatch.setattr(backup.os.path, "exists", esplode)
+
+    assert backup.restore_in_progress(str(tmp_path)) is True
+
+
+def test_ripristino_COMPLETO_toglie_il_marcatore(tmp_path):
+    """Controprova indispensabile: senza, il test qui sopra passerebbe anche con un marcatore che non
+    viene rimosso **mai** — e la pubblicazione resterebbe bloccata per sempre."""
+    origine = str(tmp_path / "origine")
+    os.makedirs(origine)
+    _tool_configurato(origine, revocati=["R1"])
+    destinazione = str(tmp_path / "dest")
+
+    backup.restore_backup(backup.build_backup(origine, now=_NOW), destinazione)
+
+    assert backup.restore_in_progress(destinazione) is False
+    assert not os.path.exists(backup.restore_marker_path(destinazione))
+
+
+def test_una_revoca_di_un_ALTRO_processo_durante_la_fusione_non_si_perde(tmp_path, monkeypatch):
+    """Bloccante Fugu Ultra #184: il lock degli append è **intra-processo**, quindi due License
+    Manager aperti insieme possono ancora incrociarsi — e una revoca persa qui è un revocato
+    ri-attivato.
+
+    L'append è fatto **a mano sul file**, non con `registry.append_revocation`: quest'ultimo prende
+    `_WRITE_LOCK`, che il ripristino sta già tenendo, e il test andrebbe in **deadlock** invece di
+    misurare qualcosa (verificato: la prima stesura si è piantata fino al timeout). Un altro processo
+    non condivide quel lock — scrivere diretti è la simulazione fedele, non una scorciatoia.
+
+    Il ripristino se ne accorge e si ferma: non elimina la finestra, ma trasforma una perdita
+    silenziosa in un errore ripetibile che dice cosa fare."""
+    origine = str(tmp_path / "origine")
+    destinazione = str(tmp_path / "dest")
+    os.makedirs(origine), os.makedirs(destinazione)
+    seed_hex, public_hex = _tool_configurato(origine, revocati=["R1"])
+    contenuto = backup.build_backup(origine, now=_NOW)
+    core.save_signing_key(core.signing_key_path(destinazione), seed_hex, public_hex, _NOW)
+
+    vero_leggi = backup._leggi
+    chiamate = {"n": 0}
+
+    def leggi_e_intromettiti(percorso):
+        risultato = vero_leggi(percorso)
+        if percorso.endswith(registry.REVOKED_FILE):
+            chiamate["n"] += 1
+            if chiamate["n"] == 1:      # dopo la PRIMA lettura, l'«altra istanza» revoca
+                with open(percorso, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"serial": "R-CONCORRENTE", "name": "T",
+                                        "hardware_id": "HW1-X"}) + "\n")
+        return risultato
+    monkeypatch.setattr(backup, "_leggi", leggi_e_intromettiti)
+
+    with pytest.raises(backup.BackupError) as e:
+        backup.restore_backup(contenuto, destinazione)
+    assert "un'altra istanza" in str(e.value).lower() or "altra istanza" in str(e.value)
+
+    assert any(r.get("serial") == "R-CONCORRENTE"
+               for r in registry.read_revocations(directory=destinazione)), \
+        "la revoca concorrente deve essere ancora lì: mai persa in silenzio"
+
+
 def test_la_fusione_avviene_sotto_il_lock_degli_append(tmp_path, monkeypatch):
     """Rilievo GPT-5.5 #184: la fusione è un read-modify-write, quindi una revoca registrata **fra**
     la lettura e la riscrittura andrebbe persa — la de-revoca silenziosa, di nuovo.

@@ -58,6 +58,16 @@ ALL_FILES = (KEY_FILE,) + STATE_FILES
 # mai il seed (vedi il docstring del modulo).
 AUTO_BACKUP_FILE = "auto_backup.json"
 
+# Marcatore di «ripristino in corso». Scritto PRIMA della prima scrittura e rimosso solo a
+# ripristino completo: se resta su disco, il ripristino non è finito (bloccante Fugu Ultra #184).
+#
+# Perché serve, misurato. Il ripristino non è una transazione unica: un guasto di I/O dopo il seed e
+# prima delle revoche lascia una cartella con una **chiave valida** e uno store revoche **vuoto**. In
+# quello stato il tool firma e pubblica volentieri una lista che dice «nessuno è revocato» — valida,
+# firmata, più recente della precedente, quindi accettata da tutti i bridge. È il guasto della #183
+# per una strada nuova, e senza il marcatore non lo segnalerebbe nulla.
+RESTORE_MARKER_FILE = "restore_in_progress.json"
+
 
 class BackupError(Exception):
     """Backup illeggibile, di formato sconosciuto, o incoerente. Sollevata **prima** di scrivere
@@ -84,6 +94,24 @@ class BackupKeyMismatchError(BackupError):
 def backup_path(directory: "str | None" = None) -> str:
     """Percorso del backup automatico nella cartella data o in `manager_dir()`."""
     return os.path.join(directory or core.manager_dir(), AUTO_BACKUP_FILE)
+
+
+def restore_marker_path(directory: "str | None" = None) -> str:
+    """Percorso del marcatore «ripristino in corso»."""
+    return os.path.join(directory or core.manager_dir(), RESTORE_MARKER_FILE)
+
+
+def restore_in_progress(directory: "str | None" = None) -> bool:
+    """`True` se in quella cartella c'è un ripristino **iniziato e non concluso**.
+
+    Chi firma la lista di revoche deve consultarlo e **rifiutarsi** di pubblicare: uno stato a metà è
+    indistinguibile, per il codice che firma, da uno stato legittimo — ma può contenere zero revoche
+    e ri-attivare tutti. Fail-closed anche sull'errore di lettura: se non riusciamo a stabilire che il
+    ripristino è finito, ci comportiamo come se non lo fosse."""
+    try:
+        return os.path.exists(restore_marker_path(directory))
+    except OSError:
+        return True
 
 
 def _leggi(path: str) -> "str | None":
@@ -260,17 +288,24 @@ def restore_backup(contenuto: dict, directory: "str | None" = None, *,
     destinazione già usata lo stato risulta «misto»). Trattarli come cancellazioni produrrebbe la
     stessa de-revoca silenziosa dal lato opposto.
 
+    **Un ripristino interrotto blocca la pubblicazione.** Prima della prima scrittura viene posato il
+    marcatore `restore_in_progress.json`, rimosso solo a ripristino completo. Finché è lì,
+    `restore_in_progress()` è `True` e chi firma la lista di revoche si rifiuta di procedere
+    (bloccante Fugu Ultra #184). Misurato: senza il marcatore, un guasto di I/O dopo il seed e prima
+    delle revoche lasciava una cartella con chiave valida e store revoche **vuoto**, dalla quale il
+    tool pubblicava volentieri «nessuno è revocato». Il marcatore che sopravvive è **voluto**: uno
+    stato a metà deve restare visibile e bloccante finché il ripristino non viene rifatto.
+
     Onestà sui limiti:
 
-    - la validazione avviene tutta prima (nessuna scrittura su backup rotto), ma la scrittura dei
-      singoli file **non è una transazione unica**: un guasto di I/O a metà lascia alcuni file
-      ripristinati e altri no. Ogni singolo file è però scritto in modo atomico, quindi nessuno resta
-      troncato;
-    - la fusione è un read-modify-write, quindi **fra processi** resta una finestra: due License
-      Manager aperti insieme, uno che revoca mentre l'altro ripristina, possono perdere quella
-      revoca. Dentro il processo la finestra è chiusa (stesso lock degli append, sotto). Fra processi
-      no: il tool non ha un instance-lock, e aggiungerlo è fuori da questa fetta. In pratica è un
-      tool a **utente singolo** su una macchina sola — ma il limite va detto, non presunto."""
+    - la scrittura dei singoli file **non è una transazione unica**: un guasto a metà lascia alcuni
+      file ripristinati e altri no. Ogni file è però scritto in modo atomico (nessuno troncato) e il
+      marcatore impedisce che quello stato venga pubblicato;
+    - la fusione è un read-modify-write. **Dentro** il processo la finestra è chiusa dal lock degli
+      append. **Fra** processi (due License Manager aperti insieme) resta un residuo: il controllo
+      appena prima della riscrittura la riduce a pochi microsecondi e trasforma la perdita silenziosa
+      in un errore esplicito e ripetibile, ma non la elimina. Il tool non ha un instance-lock, e
+      quello è un cambiamento a sé."""
     base = directory or core.manager_dir()
     files = contenuto.get("files", {})
     pubblica_backup = backup_public(contenuto)
@@ -284,6 +319,9 @@ def restore_backup(contenuto: dict, directory: "str | None" = None, *,
                 "attuale: conferma esplicitamente se è ciò che vuoi.")
 
     os.makedirs(base, exist_ok=True)
+    atomic_io.atomic_write_json(restore_marker_path(base),
+                                {"started": int(contenuto.get("created") or 0),
+                                 "files": sorted(files)}, indent=2)
     scritti = []
     for nome in ALL_FILES:                      # ordine stabile, non quello del dict
         if nome not in files:
@@ -300,12 +338,29 @@ def restore_backup(contenuto: dict, directory: "str | None" = None, *,
             # (rilievo GPT-5.5 #184): senza, una revoca registrata fra il `_leggi` e il `replace`
             # verrebbe persa — proprio la de-revoca silenziosa che l'unione esiste per evitare.
             with registry.WRITE_LOCK:
-                atomic_io.atomic_write_text(percorso, _fondi_append_only(percorso, files[nome]))
+                prima = _leggi(percorso)
+                fuso = _fondi_append_only(percorso, files[nome])
+                # Controllo appena prima di sostituire: se un ALTRO PROCESSO ha appeso nel frattempo
+                # (il lock è solo intra-processo), il file è cambiato e la nostra fusione è già
+                # vecchia. Meglio un errore ripetibile che una revoca persa in silenzio.
+                if _leggi(percorso) != prima:
+                    raise BackupError(
+                        f"{nome} è cambiato durante il ripristino: un'altra istanza del License "
+                        "Manager sta scrivendo. Chiudila e rifai il ripristino.")
+                atomic_io.atomic_write_text(percorso, fuso)
             core._restrict_perms(percorso)
         else:
             atomic_io.atomic_write_text(percorso, files[nome])
             core._restrict_perms(percorso)
         scritti.append(nome)
+    try:
+        os.remove(restore_marker_path(base))
+    except OSError as exc:
+        # Il marcatore non si toglie → la pubblicazione resta bloccata. È il verso giusto in cui
+        # sbagliare, ma va detto: un «tutto a posto» silenzioso qui sarebbe una bugia.
+        raise BackupError("ripristino completato, ma non è stato possibile rimuovere il marcatore "
+                          f"«{RESTORE_MARKER_FILE}»: la pubblicazione resterà bloccata finché non "
+                          "viene cancellato a mano.") from exc
     return {"scritti": scritti, "public": pubblica_backup}
 
 

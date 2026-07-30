@@ -85,7 +85,7 @@ class LicenseManagerApp(ctk.CTk):
                  load_publish_token=None, save_publish_token=None, publish_upload=None,
                  load_last_publish=None, save_last_publish=None,
                  build_backup=None, save_backup=None, load_backup=None,
-                 restore_backup=None, auto_backup=None):
+                 restore_backup=None, auto_backup=None, restore_in_progress=None):
         super().__init__()
         self._key_dir = key_dir
         self._now = now_provider or (lambda: int(_time.time()))
@@ -117,6 +117,7 @@ class LicenseManagerApp(ctk.CTk):
         self._load_backup = load_backup or backup_mod.load_backup
         self._restore_backup = restore_backup or backup_mod.restore_backup
         self._auto_backup = auto_backup or backup_mod.auto_backup
+        self._restore_in_progress = restore_in_progress or backup_mod.restore_in_progress
         self._pub_last_lbl = None
         self._publish_after_id = None
         self._publish_inflight = False      # un solo upload alla volta (niente accavallamenti)
@@ -530,7 +531,19 @@ class LicenseManagerApp(ctk.CTk):
 
         `(None, 0, messaggio)` se la chiave manca/è corrotta o la firma fallisce (fail-closed). Uno
         store **vuoto** produce comunque una lista firmata **valida** («niente revocato»), che è
-        esattamente ciò che serve per tenere l'URL sempre popolato e fresco."""
+        esattamente ciò che serve per tenere l'URL sempre popolato e fresco.
+
+        ⚠️ **Ma non se un ripristino è rimasto a metà** (bloccante Fugu Ultra #184). Lì «store vuoto»
+        non significa «nessuno revocato»: significa «le revoche non sono ancora state scritte».
+        Firmare quella lista la renderebbe indistinguibile da una legittima — valida, firmata, più
+        recente — e ri-attiverebbe tutti i revocati. Il controllo sta **qui** e non nei due chiamanti
+        perché questo metodo è la sorgente unica di entrambi: un gate messo più in là potrebbe essere
+        aggirato da una strada nuova."""
+        if self._restore_in_progress(self._key_dir):
+            return (None, 0,
+                    "⛔ Ripristino di un backup rimasto INCOMPLETO: la lista revoche non viene "
+                    "firmata, perché in questo stato potrebbe risultare vuota e ri-attivare tutti i "
+                    "revocati. Rifai «📥 Ripristina backup completo» fino in fondo.")
         key, err = self._load_key_or_error()
         if err is not None:
             return None, 0, err["message"]

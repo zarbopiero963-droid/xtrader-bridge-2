@@ -105,6 +105,7 @@ def _fake(gui, tmp_path, now=_NOW):
     fake._load_backup = _backup_mod.load_backup
     fake._restore_backup = _backup_mod.restore_backup
     fake._auto_backup = _backup_mod.auto_backup
+    fake._restore_in_progress = _backup_mod.restore_in_progress
     fake._auto_backup_safe = lambda: gui.LicenseManagerApp._auto_backup_safe(fake)
     fake._evaluate_export_backup = (lambda d, **kw:
                                     gui.LicenseManagerApp._evaluate_export_backup(fake, d, **kw))
@@ -1154,6 +1155,43 @@ def test_auto_backup_NON_scatta_sulla_pubblicazione(gui, tmp_path):
     assert gui.LicenseManagerApp._evaluate_publish_now(fake)["ok"] is True
 
     assert not os.path.exists(percorso), "la pubblicazione non deve generare un backup"
+
+
+@pytest.mark.parametrize("strada", ["pubblica_ora", "esporta_lista"])
+def test_ripristino_INCOMPLETO_blocca_la_firma_della_lista_revoche(gui, tmp_path, strada):
+    """Bloccante Fugu Ultra #184, lato firma. Con un ripristino rimasto a metà, «store revoche
+    vuoto» **non** significa «nessuno revocato»: significa «le revoche non sono ancora state
+    scritte». Firmarlo produrrebbe una lista valida, firmata e più recente — indistinguibile da una
+    legittima — che ri-attiva tutti i revocati.
+
+    Le due strade sono verificate **entrambe** perché il gate sta nella loro sorgente comune: se un
+    domani qualcuno ne aggiungesse una terza che non passa di lì, questi test non basterebbero, ma
+    almeno le due esistenti non possono divergere."""
+    from license_manager import backup as backup_mod
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    emessa = gui.LicenseManagerApp._evaluate_issue(fake, "Mario", "Rossi", "30", _HW)
+    fake._evaluate_revoke(lic.license_serial(emessa["token"]))
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         "6", True)
+    # precondizione: senza marcatore la pubblicazione funziona (altrimenti il test non proverebbe
+    # nulla — un metodo sempre rotto passerebbe lo stesso)
+    assert gui.LicenseManagerApp._evaluate_publish_now(fake)["ok"] is True
+
+    with open(backup_mod.restore_marker_path(str(tmp_path)), "w", encoding="utf-8") as f:
+        f.write('{"started": 0}')
+
+    if strada == "pubblica_ora":
+        out = gui.LicenseManagerApp._evaluate_publish_now(fake)
+    else:
+        out = gui.LicenseManagerApp._evaluate_publish_revocation(fake, str(tmp_path / "l.txt"))
+
+    assert out["ok"] is False, "con un ripristino incompleto non si firma nulla"
+    assert "INCOMPLETO" in out["message"] and "Ripristina backup completo" in out["message"], \
+        "il messaggio deve dire cosa è successo e cosa fare, non un generico errore"
+    if strada == "esporta_lista":
+        assert not os.path.exists(tmp_path / "l.txt"), "nessun file di lista scritto"
 
 
 def test_export_backup_avvisa_che_contiene_la_chiave_privata(gui, tmp_path):
