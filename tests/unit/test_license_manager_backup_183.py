@@ -401,7 +401,7 @@ def test_un_ripristino_INTERROTTO_lascia_il_marcatore_e_blocca_la_firma(tmp_path
         "legittimo con zero revoche")
 
 
-def test_se_non_si_riesce_a_leggere_il_marcatore_si_assume_il_PEGGIO(tmp_path):
+def test_se_non_si_riesce_a_leggere_il_marcatore_si_assume_il_PEGGIO(tmp_path, monkeypatch):
     """Fail-closed sul dubbio: sbagliare in questo verso costa una pubblicazione rimandata,
     sbagliare nell'altro costa una lista che ri-attiva i revocati.
 
@@ -410,12 +410,34 @@ def test_se_non_si_riesce_a_leggere_il_marcatore_si_assume_il_PEGGIO(tmp_path):
     `OSError` e ritorna `False`, quindi quello scenario non esiste: il test forzava un'eccezione
     impossibile, passava, e intanto sul codice reale il gate si **apriva** invece di chiudersi.
 
-    Qui l'errore è **vero e non simulato**: un percorso oltre `PATH_MAX` fa fallire `os.stat` con
-    `ENAMETOOLONG`. È lo stesso identico errore che `os.path.exists` nascondeva."""
-    percorso_impossibile = str(tmp_path / ("x" * 5000))
+    L'errore è **iniettato su `os.stat`** — e stavolta è legittimo, perché `os.stat` solleva
+    davvero: il difetto della versione precedente non era il monkeypatch in sé, ma l'aver simulato
+    un'eccezione da una funzione che non la solleva mai.
 
-    assert backup.restore_in_progress(percorso_impossibile) is True, (
+    Portabile per scelta (rilievo GPT-5.5 #184 sulla stesura precedente, che usava un percorso oltre
+    `PATH_MAX`): su Windows quel caso può mappare su `FileNotFoundError` invece che su
+    `ENAMETOOLONG`, e il test sarebbe diventato rosso su `windows-tests` misurando la mappatura degli
+    errori del sistema operativo invece del contratto. La dimostrazione con l'errore reale resta nel
+    test qui sotto, dove è affidabile."""
+    def stat_ko(percorso, *a, **k):
+        raise OSError(5, "I/O error")
+    monkeypatch.setattr(backup.os, "stat", stat_ko)
+
+    assert backup.restore_in_progress(str(tmp_path)) is True, (
         "un errore di I/O nel leggere il marcatore deve valere «ripristino in corso», non «finito»")
+
+
+@pytest.mark.skipif(os.name == "nt",
+                    reason="su Windows un path oltre il limite può mappare su FileNotFoundError: "
+                           "la mappatura degli errori è del sistema operativo, non del contratto")
+def test_un_errore_di_IO_REALE_non_viene_scambiato_per_marcatore_assente(tmp_path):
+    """La dimostrazione con un errore **vero e non simulato**, che è ciò che ha rivelato il difetto:
+    un percorso oltre `PATH_MAX` fa fallire `os.stat` con `ENAMETOOLONG` — lo stesso identico errore
+    che `os.path.exists` nascondeva ritornando `False`.
+
+    Misurato prima della patch: `restore_in_progress` rispondeva `False`, cioè «nessun ripristino in
+    corso», e la pubblicazione sarebbe passata."""
+    assert backup.restore_in_progress(str(tmp_path / ("x" * 5000))) is True
 
 
 def test_marcatore_assente_significa_davvero_nessun_ripristino(tmp_path):
