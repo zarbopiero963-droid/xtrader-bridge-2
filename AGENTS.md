@@ -34,6 +34,51 @@ The repository is small, but runtime behavior is safety-critical because a wrong
 - Every task that modifies code MUST automatically add or update truthful hard tests that exercise the real behavior of the change — including, where relevant, resilience scenarios (crash/power-loss, reconnect, concurrency/race, START/STOP teardown, CSV/dedupe/daily recovery, write-failure with rollback): a code change without matching hard tests is an incomplete PR and cannot be declared `DONE`.
 - Never commit secrets, real Telegram tokens, real chat IDs, `.env`, local `config.json`, generated CSV files, build artifacts, logs, caches, EXE files, or ZIP artifacts unless explicitly requested.
 - Never add direct betting, browser automation, mouse/keyboard automation, Betfair login, XTrader login automation, or real-money execution beyond CSV output unless explicitly requested by the owner and protected by a dedicated safety plan.
+- Always follow the **FIVE ANTI-REGRESSION RULES** (dedicated section below): fail-first test · hunt the class, not the site · single source · one PR at a time · do not touch what the audit declared sound. They are verified in `POST_FIX_MICRO_AUDIT` and `FINAL_HARD_VERIFY`: a PR that does not satisfy them cannot be declared `DONE`.
+
+---
+
+## The five anti-regression rules — mandatory
+
+**Why they exist.** Audits #186–#193 (2026-07-30). Of six fixes made for #16, **three left
+unaligned siblings**: `validators.py` was fixed but not `autostart`/`signal_queue`; `value_maps`
+was fixed but not `dizionario`/`mapping`; `numbers_re` was fixed but not `custom_pipeline`. Those
+three omissions produced bugs B6, B10 and B17 tracked in #194.
+
+These rules exist to stop **one fix from creating others**. They apply to **every** PR that touches
+code, in addition to everything else in this file.
+
+### 1. Fail-first test, always
+
+Write the test that reproduces the bug first, and **verify it red against the current code**; then
+write the patch. A test written after the patch only proves the patch does what it does, not that
+the bug is closed. Report the test outcome **before** the fix, not just after.
+
+### 2. Hunt the class, not the site
+
+Before closing a PR, `grep` the offending pattern across **the whole repository**. If the bug is an
+`except (TypeError, ValueError)` around a `float()`, search for **every** `float()`; if it is a
+wrong predicate, search for **every** equivalent predicate. This is exactly the step that was
+skipped on #16 and that produced three new bugs.
+
+### 3. Single source where one exists
+
+`numbers_re`, `validators`, the placeholder predicate, the anti-secret pattern lists: if the fix
+has to be written in two places, the right number of places is **zero** — extract a single source
+**before** fixing. Two copies fixed today are two copies that diverge tomorrow.
+
+### 4. One open PR at a time
+
+Already required elsewhere in this file; here is the technical reason. PRs touching the same module
+(e.g. `signal_dedupe`/`signal_queue`) conflict when run in parallel, and **a hand-resolved merge is
+where new bugs are born**. Sequential, always.
+
+### 5. Do not touch what the audit declared sound
+
+The `chat_id` filter, Ed25519 signing, SQL, CI and the configuration assistant withstood 440,000
+differential fuzz pairs, a full sweep of all 1,114,112 Unicode codepoints, 16 SQLi payloads and 25
+forbidden tools attempted server-side (#192). Every line changed there is **pure risk with no
+gain**. If a task appears to require it, **stop and ask** instead of proceeding.
 
 ---
 
@@ -484,6 +529,22 @@ Design handoff updated:
   (PASS = docs/design/design_handoff.md updated in the same PR when the design/UI/UX aspect
    changed · FAIL = design aspect changed but handoff stale · N/A = no design impact, with a
    written reason)
+
+Rule 1 — fail-first test (red BEFORE the patch):
+- PASS / FAIL / N/A with reason
+  (PASS = I ran the test against the OLD code and saw it fail, with the output reported)
+
+Rule 2 — hunted the CLASS, not the site (grep across the whole repo):
+- PASS / FAIL / N/A with reason
+  (PASS = report the pattern searched and how many sites it returned; N/A only if the bug is
+   structurally unique, with a written reason)
+
+Rule 3 — single source (no fix duplicated in two places):
+- PASS / FAIL / N/A with reason
+
+Rule 5 — areas declared sound by the audit NOT touched:
+- PASS / FAIL
+  (chat_id filter, Ed25519 signing, SQL, CI, configuration assistant)
 
 Result:
 - PASS / FAIL
@@ -1113,6 +1174,13 @@ Docs updated for the change:
 
 Design handoff updated for the change:
 - PASS / FAIL / N/A with reason
+
+Five anti-regression rules satisfied:
+- Rule 1 fail-first test (red before the patch): PASS / FAIL / N/A with reason
+- Rule 2 hunted the class, not the site (grep across the whole repo): PASS / FAIL / N/A with reason
+- Rule 3 single source, no duplicated fix: PASS / FAIL / N/A with reason
+- Rule 4 one open PR, no parallel work on the same module: PASS / FAIL
+- Rule 5 areas declared sound by the audit not touched: PASS / FAIL
 
 GitHub checks completed:
 - YES / NO
