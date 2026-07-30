@@ -79,6 +79,13 @@ not inspectable from the diff, but it is still **verifiable**. `FINAL_HARD_VERIF
 bare `PASS`. Empty list, or only this PR → `PASS`; any other open PR → state which one and why it
 does not conflict, otherwise `FAIL`.
 
+**If the list cannot be obtained** (no network, no credentials, `gh` absent — the environment may
+not have it: the GitHub MCP tools are a valid alternative), write **`UNKNOWN` with the reason**,
+**never `PASS`** (GPT-5.5 finding on PR #195: a rule created against "PASS without evidence" must
+not silently decay into that same defect). `UNKNOWN` blocks `DONE` exactly like a `FAIL` — which is
+consistent with the rest of `FINAL_HARD_VERIFY`, since without GitHub access it cannot be completed
+anyway (checks, comments and threads need the same connection).
+
 ### 5. Do not touch what the audit declared sound
 
 The `chat_id` filter, Ed25519 signing, SQL, CI and the configuration assistant withstood 440,000
@@ -1185,8 +1192,9 @@ Five anti-regression rules satisfied:
 - Rule 1 fail-first test (red before the patch): PASS / FAIL / N/A with reason
 - Rule 2 hunted the class, not the site (grep across the whole repo): PASS / FAIL / N/A with reason
 - Rule 3 single source, no duplicated fix: PASS / FAIL / N/A with reason
-- Rule 4 one open PR, no parallel work on the same module: PASS / FAIL
-  (report the ACTUAL list of open PRs, not a bare PASS — see Rule 4)
+- Rule 4 one open PR, no parallel work on the same module: PASS / FAIL / UNKNOWN with reason
+  (report the ACTUAL list of open PRs, not a bare PASS; list not obtainable → UNKNOWN, never PASS,
+   and UNKNOWN blocks DONE like a FAIL — see Rule 4)
 - Rule 5 areas declared sound by the audit not touched: PASS / FAIL
 
 GitHub checks completed:

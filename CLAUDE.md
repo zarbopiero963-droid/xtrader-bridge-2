@@ -98,6 +98,13 @@ riportato l'**elenco effettivo delle PR aperte** al momento del controllo (via A
 `gh pr list --state open`), non un `PASS` asserito. Elenco vuoto o contenente solo questa PR →
 `PASS`; qualsiasi altra PR aperta → si dichiara quale e perché non è in conflitto, oppure `FAIL`.
 
+**Se l'elenco non è ottenibile** (niente rete, niente credenziali, `gh` assente — l'ambiente può
+non averlo: i tool MCP GitHub sono un'alternativa valida) si scrive **`UNKNOWN` con il motivo**,
+**mai `PASS`** (rilievo GPT-5.5 sulla PR #195: una regola nata contro il «PASS senza evidenza» non
+deve degradare in silenzio nello stesso difetto). `UNKNOWN` blocca il `DONE` esattamente come un
+`FAIL` — coerente col resto del `FINAL_HARD_VERIFY`, che senza accesso a GitHub non è comunque
+completabile (check, commenti e thread richiedono la stessa connessione).
+
 ### 5. Non toccare ciò che l'audit ha dichiarato sano
 
 Filtro `chat_id`, firma Ed25519, SQL, CI e assistente di configurazione hanno retto a 440.000
@@ -1181,8 +1188,9 @@ Cinque regole anti-regressione rispettate:
 - Regola 1 test fail-first (rosso prima della patch): PASS / FAIL / N/A con motivo
 - Regola 2 cercata la classe, non il sito (grep su tutto il repo): PASS / FAIL / N/A con motivo
 - Regola 3 fonte unica, nessuna correzione duplicata: PASS / FAIL / N/A con motivo
-- Regola 4 una sola PR aperta, nessun parallelo sullo stesso modulo: PASS / FAIL
-  (riporta l'ELENCO EFFETTIVO delle PR aperte, non un PASS asserito — vedi regola 4)
+- Regola 4 una sola PR aperta, nessun parallelo sullo stesso modulo: PASS / FAIL / UNKNOWN con motivo
+  (riporta l'ELENCO EFFETTIVO delle PR aperte, non un PASS asserito; elenco non ottenibile →
+   UNKNOWN, mai PASS, e UNKNOWN blocca il DONE come un FAIL — vedi regola 4)
 - Regola 5 aree dichiarate sane dall'audit non toccate: PASS / FAIL
 
 GitHub checks completed:
