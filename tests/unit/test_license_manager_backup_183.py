@@ -266,6 +266,29 @@ def test_ripristino_NON_cancella_lo_stato_assente_dal_backup(tmp_path):
         "ri-attiverebbe un revocato alla prima pubblicazione")
 
 
+def test_un_backup_validato_scrive_sempre_almeno_un_file(tmp_path):
+    """Rilievo GPT-5.5 (secondo giro): il messaggio della GUI concatena `", ".join(esito["scritti"])`
+    e con una lista vuota leggerebbe «Ripristinati: .».
+
+    Misurato: è **irraggiungibile** oggi, perché `load_backup` rifiuta un backup con `files` vuoto e
+    accetta solo nomi dell'allowlist — quindi `scritti` non può essere vuoto. Il test **fissa quel
+    legame**: se un domani qualcuno allentasse la validazione, il messaggio degenere diventerebbe
+    raggiungibile e questo test se ne accorgerebbe prima dell'utente."""
+    p = str(tmp_path / "vuoto.json")
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump({"v": backup.BACKUP_FORMAT_VERSION, "created": _NOW, "public": None, "files": {}}, f)
+
+    with pytest.raises(backup.BackupError) as e:
+        backup.load_backup(p)
+    assert "senza contenuti" in str(e.value)
+
+    d = str(tmp_path / "tool")
+    os.makedirs(d)
+    _tool_configurato(d)
+    assert backup.restore_backup(backup.build_backup(d, now=_NOW), str(tmp_path / "dest"))["scritti"], \
+        "un backup valido ripristina sempre almeno il file-chiave"
+
+
 def test_backup_senza_keypair_e_un_errore(tmp_path):
     """Un backup «completo» senza seed non consente di ripartire: meglio fallire che dare una falsa
     sicurezza."""
