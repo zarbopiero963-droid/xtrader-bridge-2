@@ -260,10 +260,17 @@ def restore_backup(contenuto: dict, directory: "str | None" = None, *,
     destinazione già usata lo stato risulta «misto»). Trattarli come cancellazioni produrrebbe la
     stessa de-revoca silenziosa dal lato opposto.
 
-    Onestà sui limiti: la validazione avviene tutta prima (nessuna scrittura su backup rotto), ma la
-    scrittura dei singoli file **non è una transazione unica**: un guasto di I/O a metà lascia alcuni
-    file ripristinati e altri no. Ogni singolo file è però scritto in modo atomico, quindi nessuno
-    resta troncato."""
+    Onestà sui limiti:
+
+    - la validazione avviene tutta prima (nessuna scrittura su backup rotto), ma la scrittura dei
+      singoli file **non è una transazione unica**: un guasto di I/O a metà lascia alcuni file
+      ripristinati e altri no. Ogni singolo file è però scritto in modo atomico, quindi nessuno resta
+      troncato;
+    - la fusione è un read-modify-write, quindi **fra processi** resta una finestra: due License
+      Manager aperti insieme, uno che revoca mentre l'altro ripristina, possono perdere quella
+      revoca. Dentro il processo la finestra è chiusa (stesso lock degli append, sotto). Fra processi
+      no: il tool non ha un instance-lock, e aggiungerlo è fuori da questa fetta. In pratica è un
+      tool a **utente singolo** su una macchina sola — ma il limite va detto, non presunto."""
     base = directory or core.manager_dir()
     files = contenuto.get("files", {})
     pubblica_backup = backup_public(contenuto)
@@ -289,7 +296,11 @@ def restore_backup(contenuto: dict, directory: "str | None" = None, *,
             # crash subito dopo il ripristino.
             core._persist_key_file(percorso, files[nome], overwrite=True)
         elif nome.endswith(".jsonl"):
-            atomic_io.atomic_write_text(percorso, _fondi_append_only(percorso, files[nome]))
+            # Lettura e riscrittura sotto lo **stesso** lock che serializza gli append del registro
+            # (rilievo GPT-5.5 #184): senza, una revoca registrata fra il `_leggi` e il `replace`
+            # verrebbe persa — proprio la de-revoca silenziosa che l'unione esiste per evitare.
+            with registry.WRITE_LOCK:
+                atomic_io.atomic_write_text(percorso, _fondi_append_only(percorso, files[nome]))
             core._restrict_perms(percorso)
         else:
             atomic_io.atomic_write_text(percorso, files[nome])

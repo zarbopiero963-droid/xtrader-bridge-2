@@ -366,6 +366,40 @@ def test_un_backup_VECCHIO_non_fa_sparire_le_revoche_piu_recenti(tmp_path):
     assert presenti.count("R1") == 1, "le voci in comune non vanno duplicate"
 
 
+def test_la_fusione_avviene_sotto_il_lock_degli_append(tmp_path, monkeypatch):
+    """Rilievo GPT-5.5 #184: la fusione è un read-modify-write, quindi una revoca registrata **fra**
+    la lettura e la riscrittura andrebbe persa — la de-revoca silenziosa, di nuovo.
+
+    Il test guarda l'invariante direttamente: al momento della scrittura il lock che serializza gli
+    append **dev'essere già preso**. Un test a thread veri qui misurerebbe soprattutto la fortuna
+    dello scheduler; questo invece è deterministico e fallisce se qualcuno toglie il lock."""
+    d = str(tmp_path / "tool")
+    os.makedirs(d)
+    _tool_configurato(d, revocati=["R1"])
+    contenuto = backup.build_backup(d, now=_NOW)
+
+    visto = {}
+    vero = backup.atomic_io.atomic_write_text
+
+    def sorvegliato(percorso, testo, **kw):
+        if percorso.endswith(".jsonl"):
+            visto[os.path.basename(percorso)] = registry.WRITE_LOCK.locked()
+        return vero(percorso, testo, **kw)
+    monkeypatch.setattr(backup.atomic_io, "atomic_write_text", sorvegliato)
+
+    backup.restore_backup(contenuto, str(tmp_path / "dest"))
+
+    assert visto, "precondizione: almeno uno store append-only dev'essere stato scritto"
+    assert all(visto.values()), (
+        f"la fusione deve tenere il lock degli append mentre riscrive: {visto}")
+
+
+def test_il_lock_pubblico_e_lo_STESSO_dei_privati(tmp_path):
+    """Un alias che puntasse a un lock **diverso** non serializzerebbe niente, e il test qui sopra
+    passerebbe lo stesso: sarebbe sicurezza di facciata."""
+    assert registry.WRITE_LOCK is registry._WRITE_LOCK
+
+
 def test_unione_vale_anche_per_il_registro_delle_licenze_emesse(tmp_path):
     """Stessa logica per `licenses.jsonl`: perdere un record significa che «Rinnova» e «Ri-mostra
     token» smettono di funzionare per quella licenza — uno dei due danni elencati nella #183."""
