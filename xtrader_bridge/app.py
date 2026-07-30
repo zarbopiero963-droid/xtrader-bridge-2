@@ -1430,7 +1430,14 @@ class App(ctk.CTk):
             revlist, _verified_at = self.__dict__.get("_rev_state") or (None, None)
             token, hwid = self._revocation_identity()
             return revocation_client.gate_allows(revlist, token=token, hardware_id=hwid)
-        except Exception:   # noqa: BLE001 — un errore imprevisto NON deve fermare un utente legittimo
+        except Exception as ex:     # noqa: BLE001 — un errore imprevisto NON deve fermare un utente
+            # Fail-open MA NON MUTO (rilievo bloccante Fable #159). Un bug in `license_revoked` o in
+            # `_revocation_identity` disattiverebbe l'enforcement della revoca **per sempre e in
+            # silenzio**: il bridge continuerebbe a funzionare e nessuno avrebbe modo di accorgersene.
+            # Il fail-open è la policy voluta per l'utente; l'assenza di traccia no. Si logga il **solo
+            # tipo** dell'eccezione — mai il messaggio, che potrebbe contenere token o Hardware ID.
+            self._dbg(f"Gate revoca: errore imprevisto [{type(ex).__name__}] → fail-open "
+                      "(nessun blocco). L'enforcement della revoca è INATTIVO finché l'errore persiste.")
             return True
 
     def _revocation_cache_path(self) -> str:

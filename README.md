@@ -554,10 +554,17 @@ licenza **revocata** blocca la GUI e ferma il listener a sessione viva.
 > pubblicata non viene intercettato: «irraggiungibile perché GitHub è giù» e «irraggiungibile perché me
 > lo nascondo» sono indistinguibili dall'interno del bridge.
 >
-> **Quello che resta, ed è la parte che conta.** Una revoca che raggiunge il bridge **anche una sola
-> volta** è **permanente**: finisce nella cache firmata su disco, viene ricaricata a ogni avvio, e
-> l'anti-replay monotòno impedisce di sostituirla con una lista più vecchia. Per «de-revocarsi»
-> servirebbe una lista firmata più recente, cioè la chiave privata del fornitore.
+> **Quello che resta, e fin dove.** Una revoca che raggiunge il bridge **una sola volta** persiste:
+> finisce nella cache su disco, viene ricaricata a ogni avvio, e l'anti-replay impedisce di
+> **sostituirla con una lista più vecchia**. Copre il caso reale — l'utente che smette di pagare e
+> continua a usare l'app — anche se resta offline per settimane.
+>
+> ⚠️ **Non è una permanenza crittografica.** Cache e stato vivono sul **disco dell'utente**: chi
+> **cancella il file di cache e si rende irraggiungibile l'URL** riparte pulito e il gate apre. **Per
+> de-revocarsi basta cancellare un file**, non serve la chiave privata del fornitore. La firma impedisce
+> di *forgiare* una lista che dica «non revocato» — ma sotto fail-open non serve forgiarla, basta farla
+> mancare. È il limite di qualunque protezione che gira sulla macchina dell'utente: la revoca online è
+> una misura **contro l'utente non ostile**, non contro chi sabota la propria copia.
 
 Il bridge accetta solo liste firmate **di recente** (entro **3 giorni**) e **non datate oltre un'ora nel
 futuro**. Attenzione: quelle finestre **non bloccano più** nessuno — misurano **quanto in fretta una

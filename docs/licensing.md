@@ -322,8 +322,8 @@ giorni non validi → fail-closed, ri-mostra ritorna il token esistente senza nu
 La **revoca** permette di invalidare una licenza **ancora valida** prima della sua scadenza. Il
 modello è **online e firmato**: il proprietario pubblica una **lista di revoche firmata** su un URL
 statico; il bridge la scarica, ne verifica la firma con la chiave pubblica incorporata e **blocca** le
-licenze revocate (l'integrazione runtime nel bridge — fetch/cache/reconnect/lock, **fail-open: blocca solo
-grazia** — è la fase successiva, R3c).
+licenze revocate (l'integrazione runtime nel bridge — fetch/cache/reconnect/lock, con gate **fail-open**
+che blocca **solo** una licenza esplicitamente revocata — è la fase successiva, R3c).
 
 Questa prima fetta (**R3a**) è la **logica pura e condivisa** in
 [`xtrader_bridge/licensing/revocation.py`](../xtrader_bridge/licensing/revocation.py):
@@ -459,12 +459,19 @@ bridge deve **raggiungere e verificare** l'URL per operare).
     > nascondendo» sono lo stesso stato, e scegliere di non punire il primo implica non vedere il
     > secondo.
     >
-    > **Cosa resta.** Una revoca che arriva **una sola volta** è **permanente**: entra nella cache
-    > firmata su disco, viene ricaricata a ogni avvio, e l'anti-replay monotòno (`min_iss`) impedisce di
-    > sostituirla con una più vecchia. De-revocarsi richiederebbe una lista firmata **più recente**,
-    > cioè il seed privato. La revoca resta quindi efficace contro chi smette di pagare, e cede solo
-    > contro chi sabota attivamente la propria copia — che ha già accesso fisico alla macchina, dove
-    > nessuna protezione lato client regge.
+    > **Cosa resta, e fin dove.** Una revoca che arriva **una sola volta** persiste: entra nella cache su
+    > disco, viene ricaricata a ogni avvio, e l'anti-replay monotòno (`min_iss`) impedisce di
+    > **sostituirla con una più vecchia**. Copre il caso reale: chi smette di pagare e continua a usare
+    > l'app, anche restando offline.
+    >
+    > ⚠️ **Non è permanenza crittografica** (rilievi bloccanti Fable 5 e Fugu Ultra #159, indipendenti e
+    > concordi — la versione precedente di questa nota affermava il falso). Cache e floor stanno in
+    > `config_dir()`, sul disco dell'utente: **cancellare `revocation_cache.json` + rendere l'URL
+    > irraggiungibile** riporta `revlist=None` e `min_iss=0` → gate aperto. **Basta cancellare un file**;
+    > il seed privato non c'entra. La firma impedisce di *forgiare* un «non revocato», ma sotto fail-open
+    > non serve forgiare: basta far mancare la lista. È il limite invalicabile di una protezione che gira
+    > sulla macchina dell'utente — misura contro l'utente **non ostile**, non contro il sabotatore.
+    > Pinnato da `test_cache_cancellata_e_URL_irraggiungibile_apre_il_gate`.
     >
     > Le finestre (`FRESHNESS_MAX_AGE_S`, `MAX_LIST_AGE_S`) **non sono più condizioni di avvio**:
     > misurano **quanto in fretta una revoca si propaga**. `verified_at`/`now` restano accettati per
@@ -495,8 +502,10 @@ ok/fallito/anti-replay, stop supervisore).
 marcatore placeholder è `False`, l'attivazione è avvenuta e il gate di release non blocca più il tag per
 questo motivo. ⚠️ **Prerequisito operativo, da soddisfare PRIMA di avviare o distribuire**: il file
 `revocation_list.txt` deve **esistere** a quell'indirizzo — si crea con **🚀 Pubblica ora** dalla sezione
-«📤 Pubblicazione automatica» del License Manager (#158). Finché l'URL risponde 404 **nessun bridge parte**
-(fail-closed, nessuna grazia: è il comportamento voluto); (2) **ri-pubblicare la lista firmata almeno ogni
+«📤 Pubblicazione automatica» del License Manager (#158). ⚠️ **Aggiornato 2026-07-30 (fail-open):** finché
+l'URL risponde 404 i bridge **partono comunque** — quello che non funziona è la **revoca**, che resta
+silenziosamente inefficace perché nessun client riceve mai una lista. Non è più un blocco, è una
+protezione che non c'è; per questo il gate di release rifiuta di taggare in quello stato; (2) **ri-pubblicare la lista firmata almeno ogni
 finestra (3 giorni)** (anche invariata, automatizzato dalla pubblicazione #158) — oltre `MAX_LIST_AGE_S`
 le revoche smettono di **propagarsi**. Nota disponibilità (aggiornata 2026-07-30): il gate è ora
 **fail-open**, quindi un'irraggiungibilità dell'URL — anche persistente — **non blocca più** i client a

@@ -54,6 +54,10 @@ def _rev_app(App, *, enabled=True, token="tok", hwid=_HW, now=_NOW):
     app._revocation_now = lambda: now
     app._rev_state = None          # (lista_verificata, verificata_a) — tupla atomica
     app._rev_min_iss = 0
+    # Il gate logga in `_dbg` quando cade nel ramo fail-open per errore imprevisto (#159): si
+    # REGISTRA invece di ignorarlo, così un test può asserire che quel percorso non sia muto.
+    app.dbg_msgs = []
+    app._dbg = app.dbg_msgs.append
     return app
 
 
@@ -122,6 +126,15 @@ def test_gate_errore_imprevisto_NON_blocca(App):
     app._revocation_identity = _boom
     app._rev_state = (object(), _NOW)
     assert App._revocation_gate_ok(app) is True
+
+    # ...ma NON in silenzio (rilievo bloccante Fable #159): un bug qui disattiverebbe l'enforcement
+    # della revoca per sempre, e senza traccia nessuno potrebbe accorgersene. Si logga il solo TIPO
+    # dell'eccezione — mai il messaggio, che potrebbe contenere token o Hardware ID.
+    assert app.dbg_msgs, "il ramo fail-open per errore imprevisto non deve essere muto"
+    traccia = " ".join(app.dbg_msgs)
+    assert "RuntimeError" in traccia and "fail-open" in traccia
+    assert "hwid non determinabile" not in traccia, \
+        "solo il tipo dell'eccezione: il messaggio potrebbe contenere dati sensibili"
 
 
 # ── integrazione in _license_is_valid ───────────────────────────────────────────────────────────
@@ -472,7 +485,8 @@ def test_una_revoca_ARRIVATA_resta_dopo_il_riavvio_e_non_si_riavvolge(App, tmp_p
     3. un **replay** di una lista più vecchia (che non lo revoca) viene **rifiutato** dall'anti-replay
        monotòno → lo stato resta quello revocato.
 
-    Per uscirne servirebbe una lista firmata più recente: cioè il seed privato del proprietario."""
+    ⚠️ Attenzione al perimetro: questo dimostra la persistenza **a cache intatta**. Il bypass per
+    cancellazione della cache è pinnato dal test subito sotto — i due vanno letti insieme."""
     seed = _TEST_SEED_HEX
     token = lic.build_license(bytes.fromhex(seed), "Mario Rossi", _HW, _NOW, _NOW + 30 * 86_400)
     serial = lic.license_serial(token)
@@ -522,3 +536,51 @@ def test_utente_NON_revocato_non_e_toccato_da_una_lista_che_revoca_altri(App):
     app._rev_state = (revocation_client.accept_signed(
         _signed_default([{"serial": "LIC-DI-UN-ALTRO"}], now=_NOW), now=_NOW), _NOW)
     assert App._revocation_gate_ok(app) is True
+
+
+def test_cache_cancellata_e_URL_irraggiungibile_apre_il_gate(App, tmp_path, monkeypatch):
+    """Il limite REALE della revoca, pinnato per quello che è (rilievi bloccanti Fable 5 e Fugu Ultra
+    #159, arrivati indipendentemente alla stessa conclusione).
+
+    La documentazione affermava che de-revocarsi richiedesse «una lista firmata più recente, cioè il
+    seed privato». **Era falso.** Cache e floor anti-replay vivono in `config_dir()`, sul disco
+    dell'utente: chi cancella `revocation_cache.json` e si rende irraggiungibile l'URL riparte con
+    `revlist=None` e `min_iss=0`, e sotto fail-open il gate apre. Basta cancellare un file.
+
+    Questo test **non descrive un difetto da correggere**: nessuna protezione lato client regge contro
+    chi controlla il filesystem, e tentare di nasconderlo sarebbe teatro. Esiste per impedire che la
+    documentazione torni a promettere una garanzia che il codice non dà: se qualcuno un domani
+    riscrivesse «la revoca è permanente», questo test resterebbe lì a dire il contrario."""
+    seed = _TEST_SEED_HEX
+    token = lic.build_license(bytes.fromhex(seed), "Mario Rossi", _HW, _NOW, _NOW + 30 * 86_400)
+    serial = lic.license_serial(token)
+    cache = tmp_path / "revocation_cache.json"
+
+    # la revoca è arrivata ed è in cache: a questo punto il bridge blocca
+    stop = threading.Event()
+
+    def fetch(url, *, timeout):
+        stop.set()
+        return _signed_default([{"serial": serial}], now=_NOW)
+    App._revocation_loop(_loop_app(App, tmp_path, fetch=fetch), stop)
+    assert cache.exists(), "precondizione: la revoca dev'essere in cache"
+
+    # l'utente cancella la cache e rende l'URL irraggiungibile
+    cache.unlink()
+
+    ripartito = object.__new__(App)
+    ripartito._revocation_now = lambda: _NOW + 86_400
+    ripartito._rev_min_iss = 0
+    ripartito._revocation_cache_path = lambda: str(cache)
+    ripartito._revocation_enabled = lambda: True
+    ripartito._revocation_identity = lambda: (token, _HW)
+    ripartito._dbg = lambda *a, **k: None
+    monkeypatch.setattr(threading, "Thread",
+                        lambda *a, **k: types.SimpleNamespace(start=lambda: None))
+    App._start_revocation_supervisor(ripartito)
+    ripartito._rev_state = None                      # URL irraggiungibile: nessuna lista
+
+    assert ripartito._rev_min_iss == 0, "senza cache il floor anti-replay riparte da zero"
+    assert App._revocation_gate_ok(ripartito) is True, (
+        "questo è il comportamento REALE e voluto sotto fail-open: senza lista non si blocca. "
+        "Documentarlo come 'permanenza crittografica' sarebbe una promessa falsa")

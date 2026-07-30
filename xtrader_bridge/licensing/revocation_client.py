@@ -22,8 +22,9 @@ Modello di sicurezza:
   lista assente, irraggiungibile o stantia **non blocca**: chi ha licenza valida e non è revocato non
   dev'essere fermato per un disservizio dell'hosting o una dimenticanza del proprietario.
   Il prezzo (chi si nasconde l'URL prima della propria revoca non viene intercettato) e la garanzia che
-  resta (una revoca arrivata è **permanente**, per cache firmata + anti-replay) sono spiegati per esteso
-  nel docstring di `gate_allows`.
+  resta (una revoca arrivata **persiste** su cache + anti-replay, ma **solo** finché l'utente non
+  cancella la cache: non è permanenza crittografica) sono spiegati per esteso nel docstring di
+  `gate_allows`.
 """
 
 from __future__ import annotations
@@ -254,13 +255,24 @@ def gate_allows(revlist: "revocation.RevocationList | None", *, verified_at: "in
     indistinguibili dall'interno del bridge, e la scelta di non punire il primo caso implica non
     intercettare il secondo.
 
-    **Cosa continua a funzionare, ed è la parte che conta.** Una revoca che raggiunge il bridge **anche
-    una sola volta** è **permanente**: la lista verificata finisce nella cache firmata su disco e viene
-    ricaricata a ogni avvio, mentre l'anti-replay monotòno (`min_iss`) impedisce di sostituirla con una
-    più vecchia. Per «de-revocarsi» servirebbe una lista firmata più recente — cioè il seed privato del
-    proprietario. Quindi la revoca resta efficace contro l'utente che smette di pagare, e cede solo
-    contro chi sabota attivamente la propria copia (che però ha già accesso fisico alla macchina, e
-    contro cui nessuna protezione lato client regge).
+    **Cosa continua a funzionare, e fin dove — senza abbellimenti.** Una revoca che raggiunge il bridge
+    **una sola volta** persiste: la lista verificata finisce nella cache su disco, viene ricaricata a
+    ogni avvio, e l'anti-replay monotòno (`min_iss`) impedisce di **sostituirla con una più vecchia**.
+    Questo copre il caso reale e frequente: l'utente che smette di pagare, resta offline o non riceve
+    più aggiornamenti continua a risultare revocato.
+
+    ⚠️ **Non è però una permanenza crittografica, e va detto chiaro** (rilievi bloccanti Fable 5 e Fugu
+    Ultra, #159, arrivati indipendentemente alla stessa conclusione). Cache e floor vivono in
+    `config_dir()`, cioè sul **disco dell'utente**: chi **cancella `revocation_cache.json` e rende l'URL
+    irraggiungibile** riparte con `revlist=None` e `min_iss=0` → il gate apre. **Per de-revocarsi basta
+    cancellare un file**, non serve il seed privato. La firma impedisce di **forgiare** una lista che
+    dica «non revocato», ma sotto fail-open non serve forgiarla: basta farla mancare.
+
+    Questa è la conseguenza inevitabile di un'applicazione che gira sulla macchina dell'utente: nessuna
+    protezione lato client regge contro chi controlla il filesystem. La revoca online è quindi una
+    misura **contro l'utente non ostile**, non contro chi sabota deliberatamente la propria copia. Il
+    test `test_cache_cancellata_e_URL_irraggiungibile_apre_il_gate` fissa questo comportamento per
+    quello che è, così la documentazione non può tornare a promettere più di quanto il codice mantenga.
 
     Le finestre di freschezza (`FRESHNESS_MAX_AGE_S`, `MAX_LIST_AGE_S`) **non bloccano più**: restano
     come misura di *quanto in fretta una revoca si propaga*, non come condizione di avvio. I parametri
