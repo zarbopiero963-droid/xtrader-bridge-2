@@ -14,7 +14,7 @@ import types
 
 import pytest
 
-from license_manager import core, publish_store, registry
+from license_manager import backup, core, publish_store, registry
 from xtrader_bridge.licensing import license as lic
 
 _NOW = 1_000_000_000
@@ -97,6 +97,27 @@ def _fake(gui, tmp_path, now=_NOW):
     # esercita davvero la scrittura/rilettura invece di un doppio in memoria che non proverebbe la
     # persistenza. L'etichetta non e' un widget: si registra il testo dipinto, per poterlo asserire.
     fake._load_last_publish = publish_store.load_last_publish
+    # Backup/ripristino (#183): moduli REALI su cartella temporanea — il backup automatico deve
+    # esercitare la scrittura vera, non un doppio in memoria che non proverebbe la persistenza.
+    from license_manager import backup as _backup_mod
+    fake._build_backup = _backup_mod.build_backup
+    fake._save_backup = _backup_mod.save_backup
+    fake._load_backup = _backup_mod.load_backup
+    fake._restore_backup = _backup_mod.restore_backup
+    fake._auto_backup = _backup_mod.auto_backup
+    fake._auto_backup_safe = lambda: gui.LicenseManagerApp._auto_backup_safe(fake)
+    fake._evaluate_export_backup = (lambda d, **kw:
+                                    gui.LicenseManagerApp._evaluate_export_backup(fake, d, **kw))
+    fake._evaluate_restore_backup = (lambda s, **kw:
+                                     gui.LicenseManagerApp._evaluate_restore_backup(fake, s, **kw))
+    # Conferma delle due azioni distruttive: risposta pilotata dal test + traccia delle domande, così
+    # si può asserire *che cosa* è stato chiesto all'utente, non solo che qualcosa è stato chiesto.
+    fake._confirm_calls = []
+    fake._confirm_answer = False
+    fake._confirm_backup = lambda testo: (fake._confirm_calls.append(testo) or fake._confirm_answer)
+    fake._public_value = None
+    fake._refresh_key_state = lambda: gui.LicenseManagerApp._refresh_key_state(fake)
+    fake._dir_secured = True
     fake._save_last_publish = publish_store.save_last_publish
     fake._pub_last_lbl = None
     fake._pub_status_painted = []
@@ -1061,3 +1082,234 @@ def test_build_ui_dipinge_l_etichetta_all_apertura(gui):
         "senza, resta vuota finché non capita una pubblicazione — e il caso che conta è proprio "
         "quello in cui le pubblicazioni si sono fermate")
     assert "_pub_last_lbl" in sorgente, "il widget dell'etichetta dev'essere creato in _build_ui"
+
+
+# ── backup completo / ripristino (#183) ─────────────────────────────────────────────────────────
+def test_auto_backup_scatta_su_EMISSIONE_e_su_REVOCA(gui, tmp_path):
+    """L'automatismo è agganciato ai due momenti in cui lo stato cambia davvero."""
+    from license_manager import backup as backup_mod
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    assert not os.path.exists(backup_mod.backup_path(str(tmp_path)))
+
+    out = gui.LicenseManagerApp._evaluate_issue(fake, "Mario", "Rossi", "30", _HW)
+    assert out["accepted"] is True
+    assert os.path.exists(backup_mod.backup_path(str(tmp_path))), \
+        "l'emissione cambia il registro → il backup automatico deve scattare"
+
+    os.remove(backup_mod.backup_path(str(tmp_path)))
+    serial = lic.license_serial(out["token"])
+    assert fake._evaluate_revoke(serial)["accepted"] is True
+    assert os.path.exists(backup_mod.backup_path(str(tmp_path))), \
+        "anche la revoca cambia lo stato"
+
+
+def test_auto_backup_NON_scatta_sulla_pubblicazione(gui, tmp_path):
+    """Pubblicare ri-firma e carica, ma **non cambia nulla su disco**: un backup lì riscriverebbe gli
+    stessi byte a ogni ciclo, senza proteggere niente. È la correzione al disegno iniziale."""
+    from license_manager import backup as backup_mod
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         "6", True)
+    percorso = backup_mod.backup_path(str(tmp_path))
+    if os.path.exists(percorso):
+        os.remove(percorso)
+
+    assert gui.LicenseManagerApp._evaluate_publish_now(fake)["ok"] is True
+
+    assert not os.path.exists(percorso), "la pubblicazione non deve generare un backup"
+
+
+def test_export_backup_avvisa_che_contiene_la_chiave_privata(gui, tmp_path):
+    """Il messaggio è l'unico momento in cui l'utente decide **dove** mettere il seed: deve dirgli
+    cosa ha in mano, non un generico «salvato»."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    dest = str(tmp_path / "migrazione.json")
+
+    out = gui.LicenseManagerApp._evaluate_export_backup(fake, dest)
+
+    assert out["ok"] is True and os.path.exists(dest)
+    assert "CHIAVE PRIVATA" in out["message"]
+    assert "offline" in out["message"] and "token" in out["message"].lower()
+
+
+def test_export_backup_senza_percorso_o_senza_chiave(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    assert gui.LicenseManagerApp._evaluate_export_backup(fake, "")["ok"] is False
+    # nessuna keypair generata → fail-closed con messaggio parlante
+    out = gui.LicenseManagerApp._evaluate_export_backup(fake, str(tmp_path / "b.json"))
+    assert out["ok"] is False and "keypair" in out["message"]
+
+
+def test_restore_backup_round_trip_dalla_GUI(gui, tmp_path):
+    """Il percorso completo dagli handler: esporta da una cartella, ripristina in un'altra."""
+    origine = _fake(gui, tmp_path / "origine")
+    gui.LicenseManagerApp._ensure_keypair(origine)
+    gui.LicenseManagerApp._evaluate_issue(origine, "Mario", "Rossi", "30", _HW)
+    dest = str(tmp_path / "b.json")
+    assert gui.LicenseManagerApp._evaluate_export_backup(origine, dest)["ok"] is True
+
+    nuova = _fake(gui, tmp_path / "nuova")
+    out = gui.LicenseManagerApp._evaluate_restore_backup(nuova, dest)
+
+    assert out["ok"] is True and "signing_key.json" in out["message"]
+    assert core.load_signing_key(core.signing_key_path(str(tmp_path / "nuova")))["public"] == \
+        core.load_signing_key(core.signing_key_path(str(tmp_path / "origine")))["public"]
+
+
+def test_restore_backup_su_keypair_diversa_chiede_conferma(gui, tmp_path):
+    """L'errore deve **spiegare** cosa succederebbe, non limitarsi a rifiutare."""
+    origine = _fake(gui, tmp_path / "origine")
+    gui.LicenseManagerApp._ensure_keypair(origine)
+    dest = str(tmp_path / "b.json")
+    gui.LicenseManagerApp._evaluate_export_backup(origine, dest)
+
+    altra = _fake(gui, tmp_path / "altra")
+    gui.LicenseManagerApp._ensure_keypair(altra)          # keypair DIVERSA già presente
+
+    out = gui.LicenseManagerApp._evaluate_restore_backup(altra, dest)
+    assert out["ok"] is False and "DIVERSA" in out["message"] and "rinnovare" in out["message"]
+
+    out2 = gui.LicenseManagerApp._evaluate_restore_backup(altra, dest, overwrite_key=True)
+    assert out2["ok"] is True
+
+
+def _finto_tkinter(monkeypatch, *, save="", open_="", askyesno=None):
+    """Inietta un finto `tkinter` con `filedialog`/`messagebox`.
+
+    Serve perché in questo ambiente `tkinter` non è installato: senza, gli handler cadono sempre nel
+    ramo «nessun percorso» e la strada che conta — dialogo → handler → disco — non verrebbe mai
+    esercitata. Il finto modulo NON apre nulla: ritorna i percorsi che decide il test."""
+    finto = types.ModuleType("tkinter")
+    finto.filedialog = types.SimpleNamespace(
+        asksaveasfilename=lambda **kw: save,
+        askopenfilename=lambda **kw: open_)
+    finto.messagebox = types.SimpleNamespace(
+        askyesno=(askyesno if askyesno is not None
+                  else (lambda *a, **k: pytest.fail("conferma non attesa"))))
+    monkeypatch.setitem(sys.modules, "tkinter", finto)
+    return finto
+
+
+def test_on_export_backup_scrive_il_file_scelto_nel_dialogo(gui, tmp_path, monkeypatch):
+    """Il pulsante 📦 dev'essere collegato davvero: dialogo → backup su disco."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    dest = str(tmp_path / "migrazione.json")
+    _finto_tkinter(monkeypatch, save=dest)
+
+    gui.LicenseManagerApp._on_export_backup(fake)
+
+    assert os.path.exists(dest), "il backup deve finire nel percorso scelto nel dialogo"
+    assert core.SIGNING_KEY_FILE in backup.load_backup(dest)["files"]
+    assert fake._confirm_calls == [], "su un percorso nuovo non si chiede nessuna conferma"
+
+
+def test_on_export_backup_NON_sovrascrive_senza_conferma(gui, tmp_path, monkeypatch):
+    """Quel file potrebbe essere il backup di un'ALTRA keypair: sovrascriverlo in silenzio ne
+    perderebbe l'unica copia. Il test verifica i **byte**, non solo il messaggio."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    dest = str(tmp_path / "esistente.json")
+    with open(dest, "w", encoding="utf-8") as f:
+        f.write("BACKUP-DI-UN-ALTRA-CHIAVE")
+    _finto_tkinter(monkeypatch, save=dest)
+    fake._confirm_answer = False
+
+    gui.LicenseManagerApp._on_export_backup(fake)
+
+    with open(dest, encoding="utf-8") as f:
+        assert f.read() == "BACKUP-DI-UN-ALTRA-CHIAVE", "senza conferma il file non si tocca"
+    assert len(fake._confirm_calls) == 1
+    assert "ALTRA" in fake._confirm_calls[0] and "rinnovare" in fake._confirm_calls[0], \
+        "la domanda deve dire cosa si perde, non un generico «sovrascrivere?»"
+
+
+def test_on_export_backup_sovrascrive_solo_con_conferma(gui, tmp_path, monkeypatch):
+    """Controprova: senza, il test qui sopra passerebbe anche con un pulsante che non scrive mai."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    dest = str(tmp_path / "esistente.json")
+    with open(dest, "w", encoding="utf-8") as f:
+        f.write("vecchio")
+    _finto_tkinter(monkeypatch, save=dest)
+    fake._confirm_answer = True
+
+    gui.LicenseManagerApp._on_export_backup(fake)
+
+    assert core.SIGNING_KEY_FILE in backup.load_backup(dest)["files"]
+
+
+def test_on_restore_backup_keypair_diversa_senza_conferma_NON_tocca_la_chiave(gui, tmp_path,
+                                                                             monkeypatch):
+    """Il caso più pericoloso: sul PC nuovo si è già premuto «Genera keypair». Se il ripristino
+    sostituisse la chiave senza conferma, le licenze emesse dopo non verificherebbero più contro la
+    pubblica compilata nell'EXE distribuito."""
+    origine = _fake(gui, tmp_path / "origine")
+    gui.LicenseManagerApp._ensure_keypair(origine)
+    src = str(tmp_path / "b.json")
+    gui.LicenseManagerApp._evaluate_export_backup(origine, src)
+
+    altra = _fake(gui, tmp_path / "altra")
+    gui.LicenseManagerApp._ensure_keypair(altra)
+    prima = core.load_signing_key(core.signing_key_path(str(tmp_path / "altra")))["public"]
+    _finto_tkinter(monkeypatch, open_=src)
+    altra._confirm_answer = False
+
+    gui.LicenseManagerApp._on_restore_backup(altra)
+
+    dopo = core.load_signing_key(core.signing_key_path(str(tmp_path / "altra")))["public"]
+    assert dopo == prima, "senza conferma la keypair esistente resta quella"
+    assert len(altra._confirm_calls) == 1 and "DIVERSA" in altra._confirm_calls[0]
+
+
+def test_on_restore_backup_sostituisce_la_keypair_con_conferma(gui, tmp_path, monkeypatch):
+    """Controprova del test precedente, e strada reale di chi ha generato la chiave per sbaglio."""
+    origine = _fake(gui, tmp_path / "origine")
+    gui.LicenseManagerApp._ensure_keypair(origine)
+    src = str(tmp_path / "b.json")
+    gui.LicenseManagerApp._evaluate_export_backup(origine, src)
+    attesa = core.load_signing_key(core.signing_key_path(str(tmp_path / "origine")))["public"]
+
+    altra = _fake(gui, tmp_path / "altra")
+    gui.LicenseManagerApp._ensure_keypair(altra)
+    _finto_tkinter(monkeypatch, open_=src)
+    altra._confirm_answer = True
+
+    gui.LicenseManagerApp._on_restore_backup(altra)
+
+    assert core.load_signing_key(core.signing_key_path(str(tmp_path / "altra")))["public"] == attesa
+
+
+def test_confirm_backup_e_fail_closed_senza_dialogo(gui, tmp_path):
+    """`tkinter` assente/rotto (qui è il caso reale: non è installato) → la risposta è **no**.
+    Un default «sì» farebbe passare in silenzio proprio le due azioni irreversibili."""
+    fake = _fake(gui, tmp_path)
+    assert gui.LicenseManagerApp._confirm_backup(fake, "sovrascrivo?") is False
+
+
+def test_i_pulsanti_backup_sono_collegati_agli_handler(gui):
+    """Guardia sul SORGENTE (stessa motivazione dell'analoga sull'etichetta): `_build_ui` costruisce
+    widget customtkinter reali e non è eseguibile headless, quindi non esiste un giunto
+    comportamentale. Senza questa guardia gli handler potrebbero esistere ed essere **irraggiungibili
+    dalla GUI** — cioè la funzione richiesta non esisterebbe per l'utente — e nessun test lo direbbe.
+    Verificato con mutazione: togliendo i due `CTkButton` nessun altro test diventa rosso."""
+    import inspect
+    sorgente = inspect.getsource(gui.LicenseManagerApp._build_ui)
+    assert "command=self._on_export_backup" in sorgente
+    assert "command=self._on_restore_backup" in sorgente
+
+
+def test_restore_backup_file_assente_o_rotto(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    assert gui.LicenseManagerApp._evaluate_restore_backup(fake, "")["ok"] is False
+    assert gui.LicenseManagerApp._evaluate_restore_backup(
+        fake, str(tmp_path / "inesistente.json"))["ok"] is False
+    rotto = str(tmp_path / "rotto.json")
+    with open(rotto, "w", encoding="utf-8") as f:
+        f.write("{non-json")
+    out = gui.LicenseManagerApp._evaluate_restore_backup(fake, rotto)
+    assert out["ok"] is False and "JSON" in out["message"]

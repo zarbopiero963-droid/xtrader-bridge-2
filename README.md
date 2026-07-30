@@ -1028,6 +1028,18 @@ privata **non lascia mai il PC**) ha un **workflow di build dedicato**
 bridge (invariante verificata in CI). Il fornitore può comunque usarlo **da sorgente**
 (`python license_manager_main.py`). Dettagli in [`docs/licensing.md`](docs/licensing.md).
 
+> 📦 **Backup completo e migrazione su un altro PC (#183).** Il tool tiene tre stati distinti: il
+> **seed** di firma, il **registro delle licenze emesse** e l'elenco dei **revocati**. Il vecchio
+> pulsante «💾 Backup della chiave privata» salva **solo il seed** — basta a non perdere la chiave,
+> **non** a spostare il tool: sul PC nuovo l'elenco dei revocati sarebbe vuoto, e la prima
+> pubblicazione manderebbe ai bridge una lista firmata che dice «nessuno è revocato», **ri-attivando
+> in silenzio tutti i revocati**. Per questo ci sono «📦 **Esporta backup completo**» e «📥
+> **Ripristina backup completo**» (seed + registro + revoche + impostazioni), più un **backup
+> automatico** dello stato mutevole a ogni emissione e a ogni revoca. Due avvertenze: il file
+> esportato **contiene la chiave privata** → tienilo su un supporto **offline**, mai in cartelle
+> sincronizzate o condivise; il **token GitHub non è incluso** (sta nel keyring del sistema) → sul PC
+> nuovo va re-inserito.
+
 ### Build EXE Nuitka (anteprima, in valutazione)
 
 È in corso il passaggio dell'EXE ufficiale da **PyInstaller** a **Nuitka** (compilatore C:

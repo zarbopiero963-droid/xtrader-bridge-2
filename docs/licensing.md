@@ -611,10 +611,77 @@ HTTP mappati, rete KO, **token mai nel risultato**) e `tests/unit/test_license_m
 end-to-end **verificando la firma della lista caricata**, upload fallito, tick abilitato/disabilitato +
 ri-arma dopo errore, annullamento in chiusura).
 
-**Nota operativa:** il tick gira **mentre il License Manager è aperto**. Se il PC resta spento oltre la
-finestra di freschezza, i bridge si bloccano comunque (è la scelta «niente grazia»): per una copertura
+**Nota operativa:** il tick gira **mentre il License Manager è aperto**. ⚠️ **Aggiornato 2026-07-30
+(fail-open):** se il PC resta spento oltre la finestra di freschezza i bridge **non si bloccano più**
+(prima, con la scelta «niente grazia», si bloccavano) — si ferma solo la **propagazione delle revoche**:
+chi è stato revocato continua a lavorare finché non riceve una lista aggiornata. Per una propagazione
 24/7 servirebbe una modalità headless su una macchina sempre accesa — tracciata in #157, **non** in
 questa fetta.
+
+### Backup completo e migrazione su un altro PC (#183)
+
+**Il problema.** Il backup preesistente (`export_signing_key`, pulsante «💾 Backup della chiave
+privata») copia **solo il seed**, ed è corretto per quello che fa. Non basta però a **migrare** il tool
+su un altro PC, e usarlo per quello causa un guasto **silenzioso e grave**: sul PC nuovo `revoked.jsonl`
+è vuoto, quindi al primo «🚀 Pubblica ora» si pubblica una lista firmata che dice **«nessuno è
+revocato»**. È valida, è firmata, e ha `iss` più recente della precedente: l'anti-replay monotòno del
+bridge rifiuta solo le liste *più vecchie*, quindi la accetta. Risultato: **tutti i revocati tornano
+attivi**, senza un errore e senza un avviso. E senza `licenses.jsonl` smettono di funzionare «Rinnova» e
+«Ri-mostra token» per le licenze già emesse.
+
+**Il modulo.** `license_manager/backup.py` — nessuna GUI, quindi testabile headless:
+
+| Funzione | Ruolo |
+|---|---|
+| `build_backup(dir, *, now, include_key=True)` | Legge lo stato completo: `signing_key.json` (**obbligatorio**) + `licenses.jsonl` + `revoked.jsonl` + `publish_config.json` + `publish_state.json` (gli ultimi quattro possono legittimamente non esistere ancora). Il campo `public` in testa dice **quale keypair** contiene il backup senza doverne leggere il seed. |
+| `save_backup(dest, contenuto, *, overwrite=False)` | Scrittura **atomica** + permessi `0o600`; come `export_signing_key` **non sovrascrive** senza conferma (→ `BackupExistsError`). |
+| `load_backup(path)` | Validazione **severa e tutta prima** di qualsiasi scrittura: JSON valido, versione di formato nota, nomi-file solo dall'allowlist, contenuti testuali. Un backup rotto non arriva mai a toccare lo stato reale. |
+| `backup_public(contenuto)` | La pubblica del backup, **ri-derivata dal seed** e non letta dal campo `public` (dichiarativo: un backup manomesso potrebbe averlo incoerente). |
+| `restore_backup(contenuto, dir, *, overwrite_key=False)` | Ripristina e ritorna **quali file** ha scritto. Se in `dir` c'è già una keypair **diversa**, rifiuta (`BackupKeyMismatchError`) salvo conferma esplicita. |
+| `auto_backup(dir, *, now)` | Backup automatico dello stato **mutevole**, `auto_backup.json` nella cartella del tool. **Best-effort**: non solleva mai. |
+
+**Due scelte di sicurezza, entrambe deliberate.**
+
+- **Il file di backup contiene il seed**, ed è l'oggetto più prezioso del sistema in forma portabile:
+  chi lo ottiene può emettere licenze indistinguibili da quelle del proprietario. Il messaggio della
+  GUI lo dice esplicitamente («⚠️ Contiene la CHIAVE PRIVATA … supporto offline, mai in cartelle
+  sincronizzate o condivise»), perché è l'unico momento in cui l'utente decide **dove** metterlo. Per
+  la stessa ragione il **backup automatico esclude il seed**: ogni copia in più è un posto in più da
+  cui può uscire, e il seed va salvato **una volta**, consapevolmente.
+- **Il token GitHub non entra mai nel backup**: vive nel **keyring** del sistema operativo, che è il
+  posto giusto (cifrato, legato all'utente, non copiabile per sbaglio insieme a un file). Sul PC nuovo
+  si re-incolla — ed è un segreto **sostituibile** in un minuto, a differenza del seed.
+
+**Quando scatta l'automatismo:** su **emissione** e su **revoca** — i due momenti in cui lo stato su
+disco cambia davvero — e **non** sulla pubblicazione della lista, che ri-firma e carica ma non tocca il
+disco (un backup lì riscriverebbe gli stessi byte a ogni ciclo, senza proteggere niente).
+
+**GUI** (`_on_export_backup` / `_on_restore_backup`, pulsanti «📦 Esporta backup completo» e «📥
+Ripristina backup completo»). Le due azioni distruttive — sovrascrivere un file esistente, sostituire
+una keypair diversa — chiedono una **conferma esplicita** che dice *cosa si perde*, non un generico
+«sei sicuro?». Il caso reale coperto dalla seconda: sul PC nuovo si è già premuto «Genera keypair»
+prima di ripristinare; senza la via d'uscita col conferma-e-riprova si resterebbe bloccati, e senza la
+conferma le licenze emesse dopo non verificherebbero più contro la pubblica compilata nell'EXE
+distribuito. La conferma è **fail-closed**: dialogo non disponibile → risposta «no».
+
+**Migrazione, passi esatti:** sul PC vecchio «📦 Esporta backup completo» → copia il file su un
+supporto **offline** → sul PC nuovo apri il License Manager, «📥 Ripristina backup completo», riavvia
+il tool, re-incolla il **token GitHub** nelle impostazioni di pubblicazione. Questo sostituisce il passo
+fragile di prima (copiare a mano un file in `%APPDATA%` **prima** di avviare il programma: sbagliare
+l'ordine genera una seconda keypair).
+
+**Limite onesto:** la validazione è tutta prima della scrittura, ma il ripristino dei singoli file
+**non è una transazione unica** — un guasto di I/O a metà lascia alcuni file ripristinati e altri no.
+Ogni singolo file è però scritto in modo **atomico**, quindi nessuno resta troncato.
+
+**Test hard:** `tests/unit/test_license_manager_backup_183.py` — il test centrale **riproduce il
+guasto** (migrare col solo seed → la lista pubblicata dice «nessuno revocato»; col backup completo i
+revocati restano revocati), più round-trip byte-a-byte, token mai nel file, backup malformato/troncato
+che non scrive nulla, seed↔pubblica incoerenti, keypair diversa rifiutata (e accettata con conferma),
+auto-backup senza seed / best-effort / cartella vuota. In `tests/unit/test_license_manager_gui.py`:
+aggancio a emissione e revoca, **nessun** backup sulla pubblicazione, avviso «CHIAVE PRIVATA» nel
+messaggio, round-trip dagli handler, e la strada dialogo → handler → disco con le due conferme
+(sovrascrittura e keypair diversa) verificate **sui byte**, non solo sul messaggio.
 
 ### PR 4 — Lock totale della GUI (fatta)
 

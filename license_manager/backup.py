@@ -1,0 +1,251 @@
+"""License Manager — **backup completo e ripristino** dello stato (#183).
+
+Perché esiste. Il backup preesistente (`core.export_signing_key`) copia **solo il seed**, ed è
+corretto per quello che fa: mettere al sicuro la chiave. Non basta però a **migrare** il tool su
+un'altra macchina, e usarlo per quello causa un guasto **silenzioso e grave**.
+
+Il License Manager tiene tre stati distinti in `manager_dir()`:
+
+- `signing_key.json` — il **seed**: generato una volta, non cambia mai;
+- `licenses.jsonl` — registro delle licenze **emesse**: cresce a ogni emissione;
+- `revoked.jsonl` — chi è stato **revocato**: cresce a ogni revoca.
+
+Migrando col solo seed, sul nuovo PC `revoked.jsonl` è vuoto. Al primo «🚀 Pubblica ora» si
+pubblica una lista firmata che dice **«nessuno è revocato»** — valida, firmata, e con `iss` più
+recente della precedente. L'anti-replay monotòno del bridge rifiuta solo le liste *più vecchie*,
+quindi la accetta: **tutti i revocati tornano attivi**, senza un errore, senza un avviso. E si
+perde `licenses.jsonl`, quindi «Rinnova»/«ri-mostra token» smettono di funzionare per le licenze
+già emesse.
+
+Questo modulo produce un backup che contiene **tutto lo stato necessario a ripartire identici**, e
+un ripristino che rifiuta di fare danni.
+
+⚠️ **Il file di backup contiene il seed.** È l'oggetto più prezioso del sistema, in forma portabile:
+chi lo ottiene può emettere licenze valide indistinguibili da quelle del proprietario, e non è
+revocabile in modo efficace. Va trattato di conseguenza — supporto offline, mai cartelle
+sincronizzate o condivise. Per la stessa ragione il **backup automatico** (`auto_backup`) esclude
+deliberatamente il seed: ogni copia in più è un posto in più da cui può uscire, e il seed va salvato
+**una volta**, consapevolmente.
+
+**Il token GitHub non entra mai qui**: vive nel keyring del sistema operativo (`publish_store`),
+che è il posto giusto — cifrato, legato all'utente, non copiabile per sbaglio insieme a un file. Sul
+nuovo PC si re-incolla, ed è un segreto **sostituibile** (si rigenera in un minuto), a differenza del
+seed.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+
+from xtrader_bridge import atomic_io
+
+from . import core, publish_store, registry
+
+# Versione del formato di backup: un ripristino da una versione sconosciuta viene rifiutato invece
+# di essere interpretato a indovinare.
+BACKUP_FORMAT_VERSION = 1
+
+# I file dello stato, in ordine di importanza. `signing_key.json` è l'unico **obbligatorio**: senza
+# seed il backup non serve a migrare. Gli altri possono legittimamente non esistere ancora (nessuna
+# licenza emessa, nessuna revoca, pubblicazione mai configurata).
+KEY_FILE = core.SIGNING_KEY_FILE
+STATE_FILES = (registry.REGISTRY_FILE, registry.REVOKED_FILE,
+               publish_store.PUBLISH_CONFIG_FILE, publish_store.PUBLISH_STATE_FILE)
+ALL_FILES = (KEY_FILE,) + STATE_FILES
+
+# File del backup automatico, dentro la cartella del tool. Contiene SOLO gli stati che cambiano —
+# mai il seed (vedi il docstring del modulo).
+AUTO_BACKUP_FILE = "auto_backup.json"
+
+
+class BackupError(Exception):
+    """Backup illeggibile, di formato sconosciuto, o incoerente. Sollevata **prima** di scrivere
+    qualsiasi cosa: un backup rotto non deve lasciare lo stato a metà."""
+
+
+class BackupExistsError(BackupError):
+    """C'è già un file in quel percorso e `overwrite` non è stato chiesto.
+
+    Sottoclasse **dedicata** e non un `BackupError` generico perché la GUI deve poter distinguere
+    «non si può fare» da «si può fare, ma serve una conferma consapevole»: senza distinguerle,
+    l'unica uscita sarebbe scegliere un altro nome — o, peggio, un `overwrite=True` di default che
+    cancella in silenzio il backup di un'altra keypair."""
+
+
+class BackupKeyMismatchError(BackupError):
+    """Nella cartella di destinazione c'è già una keypair **diversa** da quella del backup.
+
+    Distinta per la stessa ragione di `BackupExistsError`: è il caso reale di chi, sul PC nuovo, ha
+    premuto «Genera keypair» prima di ripristinare. È recuperabile, ma solo con una conferma
+    esplicita che dica cosa si sta per perdere."""
+
+
+def backup_path(directory: "str | None" = None) -> str:
+    """Percorso del backup automatico nella cartella data o in `manager_dir()`."""
+    return os.path.join(directory or core.manager_dir(), AUTO_BACKUP_FILE)
+
+
+def _leggi(path: str) -> "str | None":
+    """Contenuto testuale di un file, o `None` se assente. Un errore di I/O diverso da «non esiste»
+    **propaga**: non va confuso con «il file non c'era» (stessa scelta di `core.load_signing_key`)."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+
+
+def build_backup(directory: "str | None" = None, *, now: int, include_key: bool = True) -> dict:
+    """Costruisce il contenuto del backup leggendo lo stato da `directory`.
+
+    `include_key=False` produce un backup di **solo stato mutevole** (registro + revoche +
+    impostazioni), quello usato dall'automatismo: non contiene il seed e non è sufficiente a migrare.
+
+    Il campo `public` in testa serve a riconoscere **quale keypair** contiene un backup senza doverne
+    leggere il seed: il ripristino lo usa per accorgersi che si stanno mescolando due identità
+    diverse. Solleva `BackupError` se il seed è richiesto ma assente o corrotto — un backup che non
+    consente di ripartire è peggio di nessun backup, perché dà una falsa sicurezza."""
+    base = directory or core.manager_dir()
+    files, public = {}, None
+
+    if include_key:
+        chiave = core.load_signing_key(os.path.join(base, KEY_FILE))   # corrotto → solleva
+        if chiave is None:
+            raise BackupError("nessuna keypair da salvare: genera prima la chiave.")
+        public = chiave["public"]
+        files[KEY_FILE] = _leggi(os.path.join(base, KEY_FILE))
+
+    for nome in STATE_FILES:
+        contenuto = _leggi(os.path.join(base, nome))
+        if contenuto is not None:
+            files[nome] = contenuto
+
+    return {"v": BACKUP_FORMAT_VERSION, "created": int(now), "public": public, "files": files}
+
+
+def save_backup(dest_path: str, contenuto: dict, *, overwrite: bool = False) -> None:
+    """Scrive il backup in modo **atomico** (`atomic_io`), con permessi ristretti.
+
+    `overwrite=False` (default) **non sovrascrive** un backup esistente: potrebbe essere di un'ALTRA
+    keypair, e perderla significherebbe non poter più rinnovare quelle licenze — la stessa cautela
+    di `core.export_signing_key`."""
+    if not overwrite and os.path.exists(dest_path):
+        raise BackupExistsError(f"esiste già un file in quel percorso: {dest_path}")
+    parent = os.path.dirname(dest_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    atomic_io.atomic_write_json(dest_path, contenuto, indent=2, ensure_ascii=False)
+    core._restrict_perms(dest_path)     # 0o600 best-effort: il file contiene il seed
+
+
+def load_backup(path: str) -> dict:
+    """Legge e **valida** un backup. Solleva `BackupError` su qualunque anomalia.
+
+    La validazione è deliberatamente severa e avviene **tutta prima** di qualsiasi scrittura: un
+    backup troncato, di versione sconosciuta o con un seed incoerente non deve mai arrivare a
+    toccare lo stato reale."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except FileNotFoundError as exc:
+        raise BackupError(f"backup non trovato: {path}") from exc
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise BackupError(f"backup non è un JSON valido: {path}") from exc
+
+    if not isinstance(raw, dict):
+        raise BackupError("backup con struttura inattesa.")
+    if raw.get("v") != BACKUP_FORMAT_VERSION:
+        raise BackupError(f"versione di backup non supportata: {raw.get('v')!r} "
+                          f"(attesa {BACKUP_FORMAT_VERSION}).")
+    files = raw.get("files")
+    if not isinstance(files, dict) or not files:
+        raise BackupError("backup senza contenuti.")
+    for nome, contenuto in files.items():
+        if nome not in ALL_FILES:
+            raise BackupError(f"backup con file non riconosciuto: {nome!r}.")
+        if not isinstance(contenuto, str):
+            raise BackupError(f"contenuto non testuale per {nome!r}.")
+    return raw
+
+
+def backup_public(contenuto: dict) -> "str | None":
+    """La chiave **pubblica** contenuta nel backup, o `None` se è un backup di solo stato.
+
+    Ricavata dal file-chiave vero e non dal campo `public` in testa: quel campo è comodo ma
+    **dichiarativo**, e un backup manomesso potrebbe averlo incoerente col seed. Solleva
+    `BackupError` se il file-chiave c'è ma non è valido."""
+    grezzo = contenuto.get("files", {}).get(KEY_FILE)
+    if grezzo is None:
+        return None
+    try:
+        dati = json.loads(grezzo)
+        seed = dati["seed"]
+        pubblica = core._public_for_seed(seed)
+    except (ValueError, KeyError, TypeError) as exc:
+        raise BackupError("il file-chiave dentro il backup non è leggibile.") from exc
+    if pubblica != str(dati.get("public", "")).strip().lower():
+        raise BackupError("seed e chiave pubblica del backup non sono coerenti.")
+    return pubblica
+
+
+def restore_backup(contenuto: dict, directory: "str | None" = None, *,
+                   overwrite_key: bool = False) -> dict:
+    """Ripristina lo stato da un backup **già validato** con `load_backup`.
+
+    Ritorna ``{"scritti": [...], "public": …}``: dice **quali file** ha toccato, invece di un
+    generico «ok» — dopo un ripristino serve sapere cosa è entrato.
+
+    Protezione centrale: se in `directory` esiste già una keypair **diversa** da quella del backup,
+    il ripristino è **rifiutato** salvo `overwrite_key=True` esplicito. Sovrascriverla in silenzio
+    significherebbe perdere la capacità di rinnovare le licenze emesse con quella chiave — un danno
+    irreversibile. Se la keypair è la **stessa**, non c'è nulla da decidere e si procede.
+
+    Onestà sui limiti: la validazione avviene tutta prima (nessuna scrittura su backup rotto), ma la
+    scrittura dei singoli file **non è una transazione unica**: un guasto di I/O a metà lascia alcuni
+    file ripristinati e altri no. Ogni singolo file è però scritto in modo atomico, quindi nessuno
+    resta troncato."""
+    base = directory or core.manager_dir()
+    files = contenuto.get("files", {})
+    pubblica_backup = backup_public(contenuto)
+
+    if KEY_FILE in files:
+        esistente = core.load_signing_key(os.path.join(base, KEY_FILE))   # corrotta → solleva
+        if esistente is not None and esistente["public"] != pubblica_backup and not overwrite_key:
+            raise BackupKeyMismatchError(
+                "in questa cartella esiste già una keypair DIVERSA da quella del backup. "
+                "Sovrascriverla renderebbe impossibile rinnovare le licenze emesse con la chiave "
+                "attuale: conferma esplicitamente se è ciò che vuoi.")
+
+    os.makedirs(base, exist_ok=True)
+    scritti = []
+    for nome in ALL_FILES:                      # ordine stabile, non quello del dict
+        if nome not in files:
+            continue
+        percorso = os.path.join(base, nome)
+        atomic_io.atomic_write_text(percorso, files[nome])
+        core._restrict_perms(percorso)
+        scritti.append(nome)
+    return {"scritti": scritti, "public": pubblica_backup}
+
+
+def auto_backup(directory: "str | None" = None, *, now: int) -> bool:
+    """Backup automatico dello **stato che cambia** — registro licenze e revoche — dentro la cartella
+    del tool. `True` se scritto, `False` se non c'era nulla da salvare.
+
+    Agganciato all'**emissione** e alla **revoca**, non alla pubblicazione della lista: pubblicare
+    ri-firma e carica, ma **non cambia nulla su disco** — un backup lì riscriverebbe gli stessi byte
+    a ogni ciclo, senza proteggere niente.
+
+    **Best-effort**: un errore di I/O non propaga. È una rete di sicurezza, e una rete che rompe
+    l'operazione che dovrebbe proteggere è peggio che non averla — emettere una licenza non deve
+    fallire perché il backup non si scrive."""
+    base = directory or core.manager_dir()
+    try:
+        contenuto = build_backup(base, now=now, include_key=False)
+        if not contenuto["files"]:
+            return False
+        atomic_io.atomic_write_json(backup_path(base), contenuto, indent=2, ensure_ascii=False)
+        return True
+    except (OSError, ValueError, TypeError, BackupError):
+        return False
