@@ -337,11 +337,30 @@ def test_timestamp_assurdo_non_lascia_l_etichetta_vuota():
     guardare. Rilievo Fugu #181, declassato da lui a non bloccante ma reale."""
     import time as _t
     assurdo = 2 ** 63 - 1
-    with pytest.raises(OSError):                    # precondizione: senza guardia esploderebbe
+    # La precondizione accetta l'INTERA tupla del contratto del codice, non una sola eccezione:
+    # quale delle tre sollevi `localtime` per un valore fuori range dipende dalla piattaforma
+    # (Linux tipicamente `OSError`, Windows può dare `OverflowError`). Fissarne una sola renderebbe
+    # il test rosso su Windows **pur essendo il codice corretto** (rilievo GPT-5.5 #181).
+    with pytest.raises((OSError, OverflowError, ValueError)):
         _t.localtime(assurdo)
 
     testo, stato = publish_store.format_last_publish(assurdo, _T0)
 
     assert testo, "l'etichetta non deve MAI restare vuota"
-    assert "non leggibile" in testo and "orologio" in testo
+    assert "non leggibile" in testo
+    assert "Pubblica ora" in testo, "deve dire COSA fare, non solo che c'è un problema"
     assert stato == publish_store.FRESHNESS_EXPIRED
+
+
+@pytest.mark.parametrize("errore", [OSError, OverflowError, ValueError])
+def test_ogni_errore_di_localtime_degrada_senza_svuotare_l_etichetta(errore, monkeypatch):
+    """Verifica DETERMINISTICA dello stesso contratto, indipendente dalla piattaforma: si forza
+    `localtime` a sollevare ciascuna delle tre eccezioni catturate. Il test sopra dipende da come si
+    comporta il sistema operativo reale; questo pinna il contratto e basta."""
+    def esplode(_ts):
+        raise errore("fuori range")
+    monkeypatch.setattr(publish_store._time, "localtime", esplode)
+
+    testo, stato = publish_store.format_last_publish(_T0 - 3600, _T0)
+
+    assert "non leggibile" in testo and stato == publish_store.FRESHNESS_EXPIRED
