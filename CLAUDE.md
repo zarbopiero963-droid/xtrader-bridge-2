@@ -53,6 +53,64 @@ Per domande, spiegazioni o analisi read-only non serve aprire PR.
 - Ogni task che modifica codice DEVE generare automaticamente test hard veritieri nuovi o aggiornati che esercitino il comportamento reale del cambiamento — inclusi, quando pertinenti, gli scenari resilienza (crash/power-loss, riconnessione, concorrenza/race, teardown START/STOP, recovery CSV/dedupe/daily, write-failure con rollback): un cambiamento di codice senza test hard corrispondenti è un PR incompleto e NON può dichiarare `DONE`.
 - Se una modifica tocca l'aspetto design/UI/UX, DEVI aggiornare `docs/design/design_handoff.md` nello stesso PR **prima** di dirmi che la PR è pronta/mergiabile (o dichiarare `N/A` con motivazione se non ha impatto sul design): un handoff stantio è un PR incompleto. Vedi «GATE DESIGN HANDOFF».
 - Non dichiarare `READY_TO_MERGE`: il merge resta sempre manuale.
+- Rispetta sempre le **CINQUE REGOLE ANTI-REGRESSIONE** (sezione dedicata qui sotto): test fail-first · cerca la classe non il sito · fonte unica · una PR alla volta · non toccare ciò che l'audit ha dichiarato sano. Le regole **1, 2, 3 e 5** sono verificate nel `POST_FIX_MICRO_AUDIT` (sono ispezionabili dal diff); **tutte e cinque** nel `FINAL_HARD_VERIFY`, dove rientra anche la 4 che è una regola di processo. Una PR che non le soddisfa non può dichiarare `DONE`.
+
+---
+
+## LE CINQUE REGOLE ANTI-REGRESSIONE — OBBLIGATORIE
+
+**Perché esistono.** Audit #186–#193 (30/07/2026). Su sei correzioni della #16, **tre avevano
+lasciato siblings non allineati**: `validators.py` corretto ma non `autostart`/`signal_queue`;
+`value_maps` corretto ma non `dizionario`/`mapping`; `numbers_re` corretto ma non
+`custom_pipeline`. Da quelle tre omissioni sono nati i bug B6, B10 e B17 tracciati nella #194.
+
+Queste regole esistono per impedire che **una correzione ne generi altre**. Valgono per **ogni**
+PR che tocca codice, in aggiunta a tutto il resto di questo file.
+
+### 1. Test fail-first, sempre
+
+Prima il test che riproduce il bug, **verificato rosso sul codice attuale**; poi la patch. Un test
+scritto dopo la patch dimostra solo che la patch fa quello che fa, non che il bug è chiuso. Nel
+report va scritto l'esito del test **prima** della correzione, non solo dopo.
+
+### 2. Cerca la classe, non il sito
+
+Prima di chiudere una PR, `grep` del pattern corretto su **tutto il repository**. Se il bug è un
+`except (TypeError, ValueError)` attorno a un `float()`, vanno cercati **tutti** i `float()`; se è
+un predicato sbagliato, vanno cercati **tutti** i predicati equivalenti. È esattamente il passo che
+è mancato sulla #16 e che ha prodotto tre bug nuovi.
+
+### 3. Fonte unica dove esiste
+
+`numbers_re`, `validators`, il predicato placeholder, le liste di pattern anti-segreto: se la
+correzione va scritta in due posti, il posto giusto è **zero** — va estratta in una fonte unica
+**prima** di correggere. Due copie corrette oggi sono due copie divergenti domani.
+
+### 4. Una PR aperta alla volta
+
+Già prescritto altrove in questo file; qui con la ragione tecnica. PR che toccano lo stesso modulo
+(es. `signal_dedupe`/`signal_queue`) in parallelo si conflittano, e **il merge risolto a mano è
+dove nascono i bug nuovi**. Sequenziali, sempre.
+
+**Va dimostrata, non dichiarata** (rilievo GPT-5.5 sulla PR #195): a differenza delle altre
+quattro non è ispezionabile dal diff, ma è comunque **verificabile**. Nel `FINAL_HARD_VERIFY` va
+riportato l'**elenco effettivo delle PR aperte** al momento del controllo (via API GitHub o
+`gh pr list --state open`), non un `PASS` asserito. Elenco vuoto o contenente solo questa PR →
+`PASS`; qualsiasi altra PR aperta → si dichiara quale e perché non è in conflitto, oppure `FAIL`.
+
+**Se l'elenco non è ottenibile** (niente rete, niente credenziali, `gh` assente — l'ambiente può
+non averlo: i tool MCP GitHub sono un'alternativa valida) si scrive **`UNKNOWN` con il motivo**,
+**mai `PASS`** (rilievo GPT-5.5 sulla PR #195: una regola nata contro il «PASS senza evidenza» non
+deve degradare in silenzio nello stesso difetto). `UNKNOWN` blocca il `DONE` esattamente come un
+`FAIL` — coerente col resto del `FINAL_HARD_VERIFY`, che senza accesso a GitHub non è comunque
+completabile (check, commenti e thread richiedono la stessa connessione).
+
+### 5. Non toccare ciò che l'audit ha dichiarato sano
+
+Filtro `chat_id`, firma Ed25519, SQL, CI e assistente di configurazione hanno retto a 440.000
+coppie di fuzz differenziale, uno sweep completo dei 1.114.112 codepoint Unicode, 16 payload SQLi
+e 25 tool vietati provati server-side (#192). Ogni riga cambiata lì è **rischio puro senza
+guadagno**. Se un task sembra richiederlo, **fermati e chiedi** invece di procedere.
 
 ---
 
@@ -529,6 +587,22 @@ Design handoff updated:
   (PASS = docs/design/design_handoff.md aggiornato nello stesso PR quando l'aspetto design è
    cambiato · FAIL = aspetto design cambiato ma handoff stantio · N/A = nessun impatto sul
    design, con motivazione scritta)
+
+Regola 1 — test fail-first (rosso PRIMA della patch):
+- PASS / FAIL / N/A con motivo
+  (PASS = ho eseguito il test sul codice VECCHIO e l'ho visto fallire, con l'output riportato)
+
+Regola 2 — cercata la CLASSE, non il sito (grep su tutto il repo):
+- PASS / FAIL / N/A con motivo
+  (PASS = riporto il pattern cercato e quanti siti sono risultati; N/A solo se il bug è
+   strutturalmente unico, con motivazione scritta)
+
+Regola 3 — fonte unica (nessuna correzione duplicata in due posti):
+- PASS / FAIL / N/A con motivo
+
+Regola 5 — aree dichiarate sane dall'audit NON toccate:
+- PASS / FAIL
+  (filtro chat_id, firma Ed25519, SQL, CI, assistente di configurazione)
 
 Result:
 - PASS / FAIL
@@ -1109,6 +1183,15 @@ Docs updated for the change:
 
 Design handoff updated for the change:
 - PASS / FAIL / N/A con motivo
+
+Cinque regole anti-regressione rispettate:
+- Regola 1 test fail-first (rosso prima della patch): PASS / FAIL / N/A con motivo
+- Regola 2 cercata la classe, non il sito (grep su tutto il repo): PASS / FAIL / N/A con motivo
+- Regola 3 fonte unica, nessuna correzione duplicata: PASS / FAIL / N/A con motivo
+- Regola 4 una sola PR aperta, nessun parallelo sullo stesso modulo: PASS / FAIL / UNKNOWN con motivo
+  (riporta l'ELENCO EFFETTIVO delle PR aperte, non un PASS asserito; elenco non ottenibile →
+   UNKNOWN, mai PASS, e UNKNOWN blocca il DONE come un FAIL — vedi regola 4)
+- Regola 5 aree dichiarate sane dall'audit non toccate: PASS / FAIL
 
 GitHub checks completed:
 - YES / NO
