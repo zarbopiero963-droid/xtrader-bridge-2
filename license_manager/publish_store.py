@@ -327,7 +327,17 @@ def format_last_publish(last_ts: "int | None", now: int,
     stato = fresh["state"]
     if stato == FRESHNESS_NEVER:
         return ("Ultima pubblicazione riuscita: mai da questo PC", stato)
-    quando = _time.strftime("%d/%m/%Y %H:%M", _time.localtime(int(last_ts)))
+    try:
+        quando = _time.strftime("%d/%m/%Y %H:%M", _time.localtime(int(last_ts)))
+    except (OSError, OverflowError, ValueError):
+        # Timestamp fuori dall'intervallo rappresentabile dalla piattaforma (`localtime` solleva
+        # `OSError` per valori enormi, e **Windows è più restrittivo di Linux**). Non si può mostrare
+        # la data — ma soprattutto non si può lasciare che l'eccezione arrivi al chiamante e faccia
+        # finire l'etichetta **vuota**: il silenzio è esattamente il guasto che questa etichetta
+        # esiste per eliminare. Si degrada a un messaggio che nomina la causa plausibile, nello stato
+        # più grave: rosso, così porta a guardare (rilievo Fugu #181).
+        return ("Ultima pubblicazione riuscita: data non leggibile — controlla l'orologio del PC",
+                FRESHNESS_EXPIRED)
     testo = f"Ultima pubblicazione riuscita: {quando} · {_eta_leggibile(fresh['age_s'])}"
     if stato == FRESHNESS_EXPIRED:
         return (f"{testo}  ⛔ oltre la finestra: i bridge legittimi si bloccano", stato)

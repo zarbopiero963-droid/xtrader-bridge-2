@@ -326,3 +326,22 @@ def test_stato_e_impostazioni_restano_file_separati(tmp_path):
     publish_store.save_publish_config({"repo": "tizio/x", "enabled": True}, directory=d)
     assert "last_publish_ok" not in publish_store.load_publish_config(directory=d)
     assert publish_store.load_last_publish(directory=d) == _T0      # non travolto dal salvataggio
+
+
+def test_timestamp_assurdo_non_lascia_l_etichetta_vuota():
+    """`localtime` solleva `OSError` per valori enormi (e su **Windows** l'intervallo è più stretto
+    che su Linux). Se l'eccezione arrivasse al chiamante, `_refresh_publish_status` la catturerebbe e
+    l'etichetta resterebbe **vuota** — cioè silenzio, il guasto stesso che questa etichetta elimina.
+
+    Deve invece degradare a un messaggio parlante, nello stato più grave (rosso), che porta a
+    guardare. Rilievo Fugu #181, declassato da lui a non bloccante ma reale."""
+    import time as _t
+    assurdo = 2 ** 63 - 1
+    with pytest.raises(OSError):                    # precondizione: senza guardia esploderebbe
+        _t.localtime(assurdo)
+
+    testo, stato = publish_store.format_last_publish(assurdo, _T0)
+
+    assert testo, "l'etichetta non deve MAI restare vuota"
+    assert "non leggibile" in testo and "orologio" in testo
+    assert stato == publish_store.FRESHNESS_EXPIRED
