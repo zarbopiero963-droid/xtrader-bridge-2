@@ -64,10 +64,14 @@ def test_gate_bypassato_su_url_placeholder(App):
     assert App._revocation_gate_ok(app) is True
 
 
-def test_gate_fail_closed_senza_lista_fresca(App):
-    """Revoca attiva ma nessuna lista verificata → fail-closed no-grace (False)."""
+def test_gate_senza_lista_NON_blocca(App):
+    """Revoca attiva ma nessuna lista verificata → **NON blocca** (decisione proprietario 2026-07-30).
+
+    È il ribaltamento del vecchio «fail-closed no-grace»: prima un URL irraggiungibile fermava i bridge
+    a sessione viva — utenti legittimi puniti per un disservizio dell'hosting o una dimenticanza del
+    proprietario. Ora l'unico blocco possibile è una revoca **esplicita e dimostrata**."""
     app = _rev_app(App, enabled=True)
-    assert App._revocation_gate_ok(app) is False
+    assert App._revocation_gate_ok(app) is True
 
 
 def test_gate_ok_con_lista_fresca_non_revocata(App):
@@ -90,24 +94,34 @@ def test_gate_bloccato_se_serial_revocato(App):
     assert App._revocation_gate_ok(app) is False
 
 
-def test_gate_bloccato_se_lista_stantia(App):
+def test_gate_lista_STANTIA_non_blocca(App):
+    """Una lista vecchia — fetch non più fresco, o contenuto firmato oltre la finestra — **non blocca**.
+
+    Le finestre restano la misura di *quanto in fretta una revoca si propaga*, non una condizione di
+    avvio. Un proprietario che non ri-pubblica per una settimana rallenta la propagazione; non deve
+    fermare chi sta lavorando."""
     seed_hex, public_hex = _keypair()
     token = _token(seed_hex)
-    app = _rev_app(App, enabled=True, token=token,
-                   now=_NOW + revocation_client.FRESHNESS_MAX_AGE_S + 1)
+    molto_dopo = _NOW + revocation_client.MAX_LIST_AGE_S + 10 * 86_400
+    app = _rev_app(App, enabled=True, token=token, now=molto_dopo)
     revlist = revocation_client.accept_signed(_signed(seed_hex, []), public_key_hex=public_hex)
-    app._rev_state = (revlist, _NOW)      # verificata a _NOW, "adesso" oltre la soglia fetch → stantia
-    assert App._revocation_gate_ok(app) is False
+    app._rev_state = (revlist, _NOW)      # verificata tantissimo tempo fa
+    assert App._revocation_gate_ok(app) is True
 
 
-def test_gate_fail_closed_se_identity_solleva(App):
-    """Qualunque errore nel determinare token/hwid → fail-closed (False), mai aperto."""
+def test_gate_errore_imprevisto_NON_blocca(App):
+    """Un errore nel determinare token/hwid **non deve fermare** un utente legittimo.
+
+    Prima era fail-closed: un bug nostro diventava un fermo per chi non c'entrava niente. Con la policy
+    del 2026-07-30 l'unico blocco ammesso è quello dimostrato da una lista firmata, quindi anche
+    l'`except` è fail-open."""
     app = _rev_app(App, enabled=True)
+
     def _boom():
         raise RuntimeError("hwid non determinabile")
     app._revocation_identity = _boom
     app._rev_state = (object(), _NOW)
-    assert App._revocation_gate_ok(app) is False
+    assert App._revocation_gate_ok(app) is True
 
 
 # ── integrazione in _license_is_valid ───────────────────────────────────────────────────────────
@@ -284,14 +298,20 @@ def _autostart_app(App, *, enabled=True, token="tok", rev_state=None, waits=0):
     return app
 
 
-def test_auto_start_aspetta_la_prima_fetch_revoca(App, app_mod):
-    """Revoca ATTIVA + lista non ancora scaricata (`_rev_state` None) + licenza valida: l'auto-start
-    NON rinuncia one-shot ma **ri-programma** per aspettare la prima fetch (rilievo Fugu #156)."""
+def test_auto_start_NON_aspetta_la_prima_fetch_revoca(App, app_mod):
+    """Revoca ATTIVA + lista non ancora scaricata + licenza valida → l'auto-start **parte subito**.
+
+    Ribalta il comportamento del #156: l'attesa esisteva perché una lista non ancora arrivata BLOCCAVA,
+    e rinunciare sarebbe stato ingiusto verso chi aveva solo la rete lenta. Con il fail-open (2026-07-30)
+    una lista assente non blocca, quindi non c'è più niente da aspettare: far attendere un utente
+    legittimo per una lista che comunque non lo fermerebbe sarebbe solo un ritardo gratuito.
+
+    Un utente davvero revocato che parte in questa finestra viene fermato dal ri-controllo periodico
+    (`_apply_license_lock`, STOP a sessione viva) appena la lista arriva."""
     app = _autostart_app(App, enabled=True, rev_state=None)
     App._maybe_auto_start(app)
-    assert app.start_calls == []                                    # non parte ancora
-    assert app.after_calls == [app_mod._AUTOSTART_REVOCATION_WAIT_MS]   # ri-programmato
-    assert app._autostart_rev_waits == 1
+    assert app.start_calls == [True], "senza lista l'auto-start deve partire, non attendere"
+    assert app.after_calls == [], "nessuna ri-programmazione: non c'è più niente da aspettare"
 
 
 def test_auto_start_parte_quando_lista_arrivata(App, app_mod):
@@ -304,13 +324,18 @@ def test_auto_start_parte_quando_lista_arrivata(App, app_mod):
     assert app.start_calls == [True]                                # lista fresca + non revocato → parte
 
 
-def test_auto_start_rinuncia_dopo_max_attese(App, app_mod):
-    """Oltre il tetto di attese (irraggiungibilità persistente della prima fetch), l'auto-start
-    rinuncia fail-closed: niente start, niente altra ri-programmazione."""
+def test_auto_start_con_URL_IRRAGGIUNGIBILE_parte_comunque(App, app_mod):
+    """Il caso che la decisione del proprietario mette al centro: l'URL non si raggiunge (GitHub giù,
+    rete assente, DNS rotto) e la licenza è valida e non revocata → **il bridge parte**.
+
+    Prima, oltre il tetto di attese, l'auto-start rinunciava fail-closed. Era il guasto peggiore
+    possibile: l'utente accende il PC la mattina, il bridge non parte, e non c'è nulla che lui possa
+    fare — il problema è sul server di qualcun altro."""
     app = _autostart_app(App, enabled=True, rev_state=None,
                          waits=app_mod._AUTOSTART_REVOCATION_MAX_WAITS)
     App._maybe_auto_start(app)
-    assert app.start_calls == [] and app.after_calls == []
+    assert app.start_calls == [True], "un URL irraggiungibile non deve impedire l'avvio"
+    assert app.after_calls == []
 
 
 def test_auto_start_placeholder_non_aspetta(App, app_mod):
@@ -433,3 +458,67 @@ def test_start_prosegue_con_gate_revoca_APERTO(App, app_mod):
     assert a.logs, "_start deve aver proceduto oltre il gate (si ferma più avanti, senza Telegram)"
     assert not any("avvio bloccato" in m.lower() for m in a.logs), \
         f"con gate revoca APERTO il blocco licenza/revoca non deve scattare; log: {a.logs}"
+
+
+# ── ciò che il fail-open NON concede: una revoca arrivata è permanente ───────────────────────────
+def test_una_revoca_ARRIVATA_resta_dopo_il_riavvio_e_non_si_riavvolge(App, tmp_path, monkeypatch):
+    """La garanzia che regge l'intero disegno fail-open, verificata end-to-end.
+
+    Rinunciare a bloccare su irraggiungibilità sarebbe indifendibile se bastasse poi staccare la rete
+    per «de-revocarsi». Non basta, e questo test lo dimostra sui percorsi reali:
+
+    1. la lista che revoca l'utente arriva e viene **scritta in cache** dal supervisore;
+    2. al **riavvio** il bridge la ricarica dalla cache → il gate blocca ancora, senza rete;
+    3. un **replay** di una lista più vecchia (che non lo revoca) viene **rifiutato** dall'anti-replay
+       monotòno → lo stato resta quello revocato.
+
+    Per uscirne servirebbe una lista firmata più recente: cioè il seed privato del proprietario."""
+    seed = _TEST_SEED_HEX
+    token = lic.build_license(bytes.fromhex(seed), "Mario Rossi", _HW, _NOW, _NOW + 30 * 86_400)
+    serial = lic.license_serial(token)
+    cache = str(tmp_path / "revocation_cache.json")
+
+    # 1. la lista che revoca arriva: un ciclo del supervisore la verifica e la mette in cache
+    revocante = _signed_default([{"serial": serial}], now=_NOW)
+    stop = threading.Event()
+
+    def fetch(url, *, timeout):
+        stop.set()
+        return revocante
+    sup = _loop_app(App, tmp_path, fetch=fetch)
+    App._revocation_loop(sup, stop)
+    assert revocation_client.load_cached_signed(cache) == revocante, "la lista dev'essere in cache"
+
+    # 2. RIAVVIO: nuova App, nessuna rete — il floor e la lista vengono dalla cache su disco
+    riavviata = object.__new__(App)
+    riavviata._revocation_now = lambda: _NOW + 5 * 86_400      # giorni dopo, lista ormai "stantia"
+    riavviata._rev_min_iss = 0
+    riavviata._revocation_cache_path = lambda: cache
+    riavviata._revocation_enabled = lambda: True
+    riavviata._revocation_identity = lambda: (token, _HW)
+    riavviata._dbg = lambda *a, **k: None
+    monkeypatch.setattr(threading, "Thread",
+                        lambda *a, **k: types.SimpleNamespace(start=lambda: None))
+    App._start_revocation_supervisor(riavviata)
+    dalla_cache = revocation_client.accept_signed(
+        revocation_client.load_cached_signed(cache), now=riavviata._revocation_now())
+    riavviata._rev_state = (dalla_cache, _NOW)
+    assert App._revocation_gate_ok(riavviata) is False, \
+        "una revoca già arrivata deve bloccare anche dopo il riavvio e senza rete"
+
+    # 3. REPLAY di una lista precedente alla revoca: rifiutata dal floor monotòno
+    precedente = _signed_default([], now=_NOW - 3600)          # firmata PRIMA della revoca
+    assert revocation_client.accept_signed(
+        precedente, min_iss=riavviata._rev_min_iss, now=_NOW) is None, \
+        "una lista più vecchia non deve poter de-revocare"
+
+
+def test_utente_NON_revocato_non_e_toccato_da_una_lista_che_revoca_altri(App):
+    """Controprova: la lista blocca **solo** chi c'è dentro. Senza, il test sopra passerebbe anche con
+    un gate che blocca chiunque appena esiste una lista."""
+    seed = _TEST_SEED_HEX
+    mio = lic.build_license(bytes.fromhex(seed), "Mario Rossi", _HW, _NOW, _NOW + 30 * 86_400)
+    app = _rev_app(App, enabled=True, token=mio)
+    app._rev_state = (revocation_client.accept_signed(
+        _signed_default([{"serial": "LIC-DI-UN-ALTRO"}], now=_NOW), now=_NOW), _NOW)
+    assert App._revocation_gate_ok(app) is True

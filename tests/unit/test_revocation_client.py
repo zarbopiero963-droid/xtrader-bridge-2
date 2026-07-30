@@ -165,47 +165,58 @@ def test_license_revoked_token_vuoto_o_lista_none_false():
 
 
 # ── gate_allows (decisione sincrona fail-closed no-grace) ─────────────────────────────────────────
-def test_gate_allows_lista_assente_o_verified_at_none_fail_closed():
-    assert revocation_client.gate_allows(None, verified_at=_NOW, now=_NOW,
-                                         token="t", hardware_id=_HW) is False
-    seed_hex, public_hex = _keypair()
-    rev = revocation_client.accept_signed(_signed_list(seed_hex, []), public_key_hex=public_hex)
-    assert revocation_client.gate_allows(rev, verified_at=None, now=_NOW,
-                                         token="t", hardware_id=_HW) is False
+def test_gate_allows_lista_assente_NON_blocca():
+    """Il cuore della policy fail-open (decisione proprietario 2026-07-30): **nessuna lista → si passa**.
+
+    Copre i tre modi in cui non c'è una lista: mai scaricata, URL irraggiungibile, cache assente. In
+    tutti e tre l'utente non ha fatto nulla di male e non dev'essere fermato."""
+    assert revocation_client.gate_allows(None, token="t", hardware_id=_HW) is True
+    # anche passando i parametri temporali (compatibilità chiamanti) la decisione non cambia
+    assert revocation_client.gate_allows(None, verified_at=None, now=_NOW,
+                                         token="t", hardware_id=_HW) is True
 
 
-def test_gate_allows_stantia_fail_closed():
-    """Lista verificata ma **troppo vecchia** (oltre `max_age`) → bloccato (no grazia su
-    irraggiungibilità persistente)."""
+def test_gate_allows_i_parametri_temporali_NON_decidono():
+    """Pin esplicito: `verified_at`/`now` restano nella firma per compatibilità ma **non partecipano**
+    alla decisione. Senza questo test la loro irrilevanza tornerebbe implicita, e un domani qualcuno
+    potrebbe ricablarli credendo di «rimettere a posto» un controllo — reintroducendo il blocco che il
+    proprietario ha esplicitamente vietato."""
     seed_hex, public_hex = _keypair()
     token = _token(seed_hex)
     rev = revocation_client.accept_signed(_signed_list(seed_hex, []), public_key_hex=public_hex)
-    verified_at = _NOW
-    fresh_now = _NOW + revocation_client.FRESHNESS_MAX_AGE_S           # esattamente al limite → ok
-    stale_now = _NOW + revocation_client.FRESHNESS_MAX_AGE_S + 1       # oltre → stantia
-    assert revocation_client.gate_allows(rev, verified_at=verified_at, now=fresh_now,
+    fra_dieci_anni = _NOW + 10 * 365 * 86_400
+    for verified_at in (None, 0, _NOW, fra_dieci_anni):
+        for adesso in (0, _NOW, fra_dieci_anni):
+            assert revocation_client.gate_allows(rev, verified_at=verified_at, now=adesso,
+                                                 token=token, hardware_id=_HW) is True
+
+
+def test_gate_allows_fetch_STANTIO_non_blocca():
+    """Irraggiungibilità persistente dell'URL → **non blocca**. Era il caso peggiore del vecchio
+    fail-closed: un disservizio di GitHub fermava bridge a sessione viva, con posizioni potenzialmente
+    aperte e nessuno a gestirle."""
+    seed_hex, public_hex = _keypair()
+    token = _token(seed_hex)
+    rev = revocation_client.accept_signed(_signed_list(seed_hex, []), public_key_hex=public_hex)
+    stantio = _NOW + revocation_client.FRESHNESS_MAX_AGE_S + 1
+    assert revocation_client.gate_allows(rev, verified_at=_NOW, now=stantio,
                                          token=token, hardware_id=_HW) is True
-    assert revocation_client.gate_allows(rev, verified_at=verified_at, now=stale_now,
-                                         token=token, hardware_id=_HW) is False
 
 
-def test_gate_allows_contenuto_troppo_vecchio_fail_closed():
-    """**Anti-replay per età del CONTENUTO firmato** (decisione proprietario: 3 giorni): una lista appena
-    scaricata (fetch fresco) ma **firmata** oltre `MAX_LIST_AGE_S` fa → `False`. Chiude il replay di una
-    lista vecchia da parte dell'utente revocato. I limiti si derivano dalla costante, non ricopiati."""
+def test_gate_allows_contenuto_VECCHIO_o_FUTURO_non_blocca():
+    """Né una lista firmata molto tempo fa né una datata nel futuro bloccano più: il gate decide **solo**
+    sulla presenza esplicita della licenza fra i revocati.
+
+    La guardia sul futuro non sparisce dal sistema — resta in `accept_signed`, dove serve davvero: lì
+    impedisce a una data assurda di avvelenare il floor anti-replay e la cache su disco (#180). Qui, dove
+    l'unico effetto sarebbe stato bloccare, non ha più ragione di esistere."""
     seed_hex, public_hex = _keypair()
     token = _token(seed_hex)
-    old_iss = _NOW - revocation_client.MAX_LIST_AGE_S - 1        # firmata 24h+ fa
-    rev_old = revocation_client.accept_signed(_signed_list(seed_hex, [], now=old_iss),
-                                              public_key_hex=public_hex, min_iss=0)
-    # fetch fresco (verified_at ora), ma iss troppo vecchio → bloccato
-    assert revocation_client.gate_allows(rev_old, verified_at=_NOW, now=_NOW,
-                                         token=token, hardware_id=_HW) is False
-    # esattamente al limite (24h) → ancora consentito
-    edge_iss = _NOW - revocation_client.MAX_LIST_AGE_S
-    rev_edge = revocation_client.accept_signed(_signed_list(seed_hex, [], now=edge_iss),
-                                               public_key_hex=public_hex, min_iss=0)
-    assert revocation_client.gate_allows(rev_edge, verified_at=_NOW, now=_NOW,
+    vecchissima = revocation_client.accept_signed(
+        _signed_list(seed_hex, [], now=_NOW - 10 * revocation_client.MAX_LIST_AGE_S),
+        public_key_hex=public_hex, now=_NOW)
+    assert vecchissima is not None
+    assert revocation_client.gate_allows(vecchissima, verified_at=_NOW, now=_NOW,
                                          token=token, hardware_id=_HW) is True
 
 
@@ -315,21 +326,6 @@ def test_accept_signed_senza_now_controlla_comunque_il_futuro():
     adesso = int(time.time())
     assert revocation_client.accept_signed(
         _signed_list(seed_hex, [], now=adesso), public_key_hex=public_hex) is not None
-
-
-def test_gate_allows_rifiuta_contenuto_datato_nel_futuro():
-    """Ridondanza voluta col controllo in `accept_signed`: quella impedisce alla lista di **entrare**
-    (floor/cache), questa impedisce che conceda **immunità** se fosse già entrata per altra via."""
-    seed_hex, public_hex = _keypair()
-    token = _token(seed_hex)
-    skew = revocation_client.MAX_FUTURE_SKEW_S
-    # costruita bypassando la guardia d'ingresso, per esercitare il gate da solo
-    futura = revocation_client.accept_signed(
-        _signed_list(seed_hex, [], now=_NOW + skew + 1), public_key_hex=public_hex,
-        now=_NOW, max_future_skew=10 * 365 * 86_400)
-    assert futura is not None                       # precondizione del test, non l'asserzione
-    assert revocation_client.gate_allows(futura, verified_at=_NOW, now=_NOW,
-                                         token=token, hardware_id=_HW) is False
 
 
 def test_finestra_freschezza_contenuto_e_di_tre_giorni():

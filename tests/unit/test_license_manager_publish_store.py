@@ -305,7 +305,9 @@ def test_format_last_publish_dice_la_conseguenza_negli_stati_di_allarme():
 
     scaduto, stato_scaduto = publish_store.format_last_publish(_T0 - finestra - 60, _T0)
     assert stato_scaduto == publish_store.FRESHNESS_EXPIRED
-    assert "⛔" in scaduto and "si bloccano" in scaduto
+    assert "⛔" in scaduto and "non si propagano" in scaduto.lower(), (
+        "il testo deve dire la conseguenza VERA: col fail-open (2026-07-30) una lista scaduta non "
+        "blocca più i bridge, ma ferma la propagazione delle revoche")
 
 
 def test_eta_leggibile_singolari_e_plurali():

@@ -1011,7 +1011,7 @@ def test_etichetta_riflette_lo_stato_su_disco_con_colore_semantico(gui, tmp_path
 
     publish_store.save_last_publish(_NOW - finestra - 60, directory=str(tmp_path))
     testo, colore = gui.LicenseManagerApp._publish_status(fake)
-    assert "si bloccano" in testo and colore == ui_theme.STATUS_ERR
+    assert "non si propagano" in testo.lower() and colore == ui_theme.STATUS_ERR
 
 
 def test_etichetta_ridipinta_anche_dopo_un_tentativo_FALLITO(gui, tmp_path):

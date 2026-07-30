@@ -89,8 +89,9 @@ jobs:
       # residua è che il proprietario si ricordi di pubblicare la lista PRIMA di taggare (rilievi
       # bloccanti Fable 5 e Fugu Ultra #159, indipendenti e concordi).
       #
-      # Conseguenza se il buco resta aperto: un EXE distribuito mentre l'URL risponde 404 rende il
-      # bridge di OGNI cliente non avviabile — comportamento fail-closed corretto, esito disastroso.
+      # Conseguenza se il buco resta aperto: un EXE distribuito mentre l'URL risponde 404 ha la revoca
+      # online **silenziosamente inefficace** — nessun cliente si blocca (policy fail-open, 2026-07-30),
+      # ma nessuna revoca raggiunge mai nessuno, e non c'è modo di accorgersene guardando l'app.
       # Perciò qui si verifica la catena vera end-to-end: scaricabile → firma valida con la chiave
       # pubblica incorporata → contenuto fresco entro `MAX_LIST_AGE_S` e non datato nel futuro.
       #
@@ -141,10 +142,10 @@ jobs:
         if [ "$esito" = "0" ]; then
           echo "Gate live lista revoche: OK."
         elif [ "${{ github.event_name }}" = "push" ] && [ "${{ startsWith(github.ref, 'refs/tags/') }}" = "true" ]; then
-          echo "::error::Release bloccata: la lista di revoche non è pubblicata/verificabile/fresca all'URL configurato. Pubblicala dal License Manager («📤 Pubblicazione automatica» → «🚀 Pubblica ora») e verifica che l'URL risponda 200 PRIMA di taggare: un EXE distribuito ora renderebbe non avviabile il bridge di ogni cliente (fail-closed senza grazia)."
+          echo "::error::Release bloccata: la lista di revoche non è pubblicata/verificabile/fresca all'URL configurato. Pubblicala dal License Manager («📤 Pubblicazione automatica» → «🚀 Pubblica ora») e verifica che l'URL risponda 200 PRIMA di taggare: un EXE distribuito ora avrebbe la revoca online silenziosamente inefficace — nessuna revoca raggiungerebbe mai nessun cliente."
           exit 1
         else
-          echo "::warning::Lista di revoche non pubblicata/verificabile/fresca all'URL configurato: OK solo in sviluppo. NON distribuire questo artifact: i bridge non partirebbero."
+          echo "::warning::Lista di revoche non pubblicata/verificabile/fresca all'URL configurato: OK solo in sviluppo. NON distribuire questo artifact: la revoca online sarebbe inefficace."
         fi
 
     - name: Installa Dipendenze
@@ -303,8 +304,9 @@ jobs:
       # residua è che il proprietario si ricordi di pubblicare la lista PRIMA di taggare (rilievi
       # bloccanti Fable 5 e Fugu Ultra #159, indipendenti e concordi).
       #
-      # Conseguenza se il buco resta aperto: un EXE distribuito mentre l'URL risponde 404 rende il
-      # bridge di OGNI cliente non avviabile — comportamento fail-closed corretto, esito disastroso.
+      # Conseguenza se il buco resta aperto: un EXE distribuito mentre l'URL risponde 404 ha la revoca
+      # online **silenziosamente inefficace** — nessun cliente si blocca (policy fail-open, 2026-07-30),
+      # ma nessuna revoca raggiunge mai nessuno, e non c'è modo di accorgersene guardando l'app.
       # Perciò qui si verifica la catena vera end-to-end: scaricabile → firma valida con la chiave
       # pubblica incorporata → contenuto fresco entro `MAX_LIST_AGE_S` e non datato nel futuro.
       #
@@ -355,10 +357,10 @@ jobs:
         if [ "$esito" = "0" ]; then
           echo "Gate live lista revoche: OK."
         elif [ "${{ github.event_name }}" = "push" ] && [ "${{ startsWith(github.ref, 'refs/tags/') }}" = "true" ]; then
-          echo "::error::Release bloccata: la lista di revoche non è pubblicata/verificabile/fresca all'URL configurato. Pubblicala dal License Manager («📤 Pubblicazione automatica» → «🚀 Pubblica ora») e verifica che l'URL risponda 200 PRIMA di taggare: un EXE distribuito ora renderebbe non avviabile il bridge di ogni cliente (fail-closed senza grazia)."
+          echo "::error::Release bloccata: la lista di revoche non è pubblicata/verificabile/fresca all'URL configurato. Pubblicala dal License Manager («📤 Pubblicazione automatica» → «🚀 Pubblica ora») e verifica che l'URL risponda 200 PRIMA di taggare: un EXE distribuito ora avrebbe la revoca online silenziosamente inefficace — nessuna revoca raggiungerebbe mai nessun cliente."
           exit 1
         else
-          echo "::warning::Lista di revoche non pubblicata/verificabile/fresca all'URL configurato: OK solo in sviluppo. NON distribuire questo artifact: i bridge non partirebbero."
+          echo "::warning::Lista di revoche non pubblicata/verificabile/fresca all'URL configurato: OK solo in sviluppo. NON distribuire questo artifact: la revoca online sarebbe inefficace."
         fi
 
     - name: Verifica Tk disponibile (fail-closed)

@@ -477,18 +477,13 @@ class App(ctk.CTk):
         # Gate licenza (#140 PR 4): niente auto-start senza licenza valida. `_start` lo blocca
         # comunque, ma qui si evita il tentativo (e il rumore nel log) a monte.
         if not self._license_is_valid():
-            # Con revoca ATTIVA la prima fetch è asincrona: a 400 ms può non essere ancora arrivata →
-            # il gate è `False` SOLO perché lo stato revoca non è ancora determinato (`_rev_state` None).
-            # In quel caso ASPETTA la prima fetch (retry bounded) invece di rinunciare one-shot (rilievo
-            # Fugu #156): appena la lista arriva, la decisione diventa definitiva (start o blocco reale).
-            # Quando `_rev_state` è già presente, il `False` è definitivo (licenza invalida/revocata) →
-            # nessuna attesa. Un'azione manuale annulla comunque il retry (`_cancel_pending_autostart`).
-            waits = self.__dict__.get("_autostart_rev_waits", 0)
-            if (self._revocation_enabled() and self.__dict__.get("_rev_state") is None
-                    and waits < _AUTOSTART_REVOCATION_MAX_WAITS):
-                self._autostart_rev_waits = waits + 1
-                self._autostart_after_id = self.after(_AUTOSTART_REVOCATION_WAIT_MS,
-                                                      self._maybe_auto_start)
+            # Nessuna attesa della prima fetch revoca (rimossa il 2026-07-30 col passaggio a fail-open).
+            # Serviva quando una lista non ancora arrivata bloccava: si aspettava per non rinunciare a
+            # un auto-start solo perché la rete era lenta. Ora una lista assente **non blocca**, quindi
+            # arrivare qui significa che è la LICENZA a non essere valida — e su quello aspettare la
+            # lista di revoche non cambierebbe nulla, aggiungerebbe solo secondi di silenzio prima del
+            # messaggio. Un eventuale utente revocato che parte prima dell'arrivo della lista viene
+            # fermato dal ri-controllo periodico (`_apply_license_lock`, STOP a sessione viva).
             return
         self._start(auto=True)
 
@@ -1421,19 +1416,22 @@ class App(ctk.CTk):
         return token, self._revocation_hwid()
 
     def _revocation_gate_ok(self) -> bool:
-        """Gate revoca **sincrono, fail-closed no-grace**. `True` se la revoca non è attiva (URL
-        placeholder) oppure se esiste una lista verificata **fresca** (fetch + contenuto firmato) e la
-        licenza **non** è revocata. Qualunque errore → `False` (bloccato)."""
+        """Gate revoca **sincrono, fail-OPEN** (decisione proprietario 2026-07-30). `False` **solo se**
+        la licenza risulta esplicitamente revocata nell'ultima lista verificata; in ogni altro caso
+        `True` — revoca non attiva, lista mai scaricata, URL irraggiungibile, lista stantia.
+
+        Il razionale completo (e il prezzo accettato) sta in `revocation_client.gate_allows`. Qui conta
+        una conseguenza: anche l'`except` è **fail-open**. Prima un errore imprevisto in questo gate
+        bloccava il bridge; ora non deve, perché un bug nostro non può diventare un fermo per un utente
+        legittimo. L'unico blocco possibile è quello **esplicito e dimostrato** da una lista firmata."""
         if not self._revocation_enabled():
             return True
         try:
-            revlist, verified_at = self.__dict__.get("_rev_state") or (None, None)
+            revlist, _verified_at = self.__dict__.get("_rev_state") or (None, None)
             token, hwid = self._revocation_identity()
-            return revocation_client.gate_allows(
-                revlist, verified_at=verified_at,
-                now=self._revocation_now(), token=token, hardware_id=hwid)
-        except Exception:   # noqa: BLE001 — qualunque errore nel gate revoca → fail-closed
-            return False
+            return revocation_client.gate_allows(revlist, token=token, hardware_id=hwid)
+        except Exception:   # noqa: BLE001 — un errore imprevisto NON deve fermare un utente legittimo
+            return True
 
     def _revocation_cache_path(self) -> str:
         return revocation_client.revocation_cache_path(config_dir())

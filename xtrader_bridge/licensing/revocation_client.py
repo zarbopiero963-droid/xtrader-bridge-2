@@ -17,9 +17,13 @@ Modello di sicurezza:
   verifica con la **pubblica** incorporata (`revocation.verify_revocation_list`, già fail-closed);
 - **anti-replay/monotònia** (`min_iss`): una lista con `iss` **più vecchio** dell'ultima accettata è
   rifiutata → nessuno può «de-revocare» un utente ripubblicando una vecchia lista firmata;
-- **fail-closed no-grace**: senza una lista **verificata e fresca**, `gate_allows` → `False`
-  (bloccato). Il *cap* di freschezza assorbe i blip di rete transitori (il supervisore ritenta con
-  backoff), ma un'irraggiungibilità **persistente** oltre la soglia blocca (decisione proprietario 2a).
+- **fail-OPEN** (decisione proprietario 2026-07-30, che ribalta il precedente «fail-closed no-grace»):
+  `gate_allows` → `False` **solo** se la licenza è esplicitamente revocata in una lista verificata. Una
+  lista assente, irraggiungibile o stantia **non blocca**: chi ha licenza valida e non è revocato non
+  dev'essere fermato per un disservizio dell'hosting o una dimenticanza del proprietario.
+  Il prezzo (chi si nasconde l'URL prima della propria revoca non viene intercettato) e la garanzia che
+  resta (una revoca arrivata è **permanente**, per cache firmata + anti-replay) sono spiegati per esteso
+  nel docstring di `gate_allows`.
 """
 
 from __future__ import annotations
@@ -92,7 +96,8 @@ FRESHNESS_MAX_AGE_S = 15 * 60         # freschezza del FETCH: oltre → non si r
 # dalle 24h iniziali). Chiude il **replay di una lista vecchia** (un utente revocato che serve alla
 # propria copia una lista firmata precedente alla revoca): il proprietario **deve ri-pubblicare la
 # lista firmata almeno ogni finestra** (anche invariata, automatizzato dalla pubblicazione #158),
-# altrimenti i bridge legittimi si bloccano fail-closed.
+# altrimenti le revoche smettono di propagarsi (col fail-open i bridge NON si bloccano più: quello che
+# si perde è la tempestività con cui una revoca raggiunge chi deve fermarsi).
 #
 # Perché 3 giorni e non 24h (decisione proprietario 2026-07-29). La finestra è **una sola costante per
 # due effetti opposti**: quanto a lungo un revocato può resistere replayando una lista pre-revoca, e
@@ -229,31 +234,41 @@ def license_revoked(revlist: "revocation.RevocationList | None", *, token: "str 
     return revocation.is_revoked(revlist, serial=serial, hardware_id=hardware_id)
 
 
-def gate_allows(revlist: "revocation.RevocationList | None", *, verified_at: "int | None",
-                now: int, token: "str | None", hardware_id: "str | None",
-                max_age: int = FRESHNESS_MAX_AGE_S, max_iss_age: int = MAX_LIST_AGE_S,
-                max_future_skew: int = MAX_FUTURE_SKEW_S) -> bool:
-    """**Decisione di gate sincrona, fail-closed no-grace.** `True` **solo se**:
+def gate_allows(revlist: "revocation.RevocationList | None", *, verified_at: "int | None" = None,
+                now: "int | None" = None, token: "str | None", hardware_id: "str | None") -> bool:
+    """**Decisione di gate sincrona.** `False` **solo se** la licenza corrente risulta **esplicitamente
+    revocata** nell'ultima lista verificata. In ogni altro caso `True`.
 
-    1. esiste una lista **verificata** (`revlist is not None` e `verified_at is not None`);
-    2. il **FETCH** è fresco (`now - verified_at <= max_age`): non si raggiunge più l'URL da troppo tempo
-       (irraggiungibilità persistente) → `False` (no grazia; il supervisore ha ritentato con backoff);
-    3. il **CONTENUTO firmato** è fresco (`now - issued <= max_iss_age`): una lista firmata troppo tempo
-       fa — anche se appena scaricata — è **stantia/replay** → `False` (chiude il replay di una lista
-       vecchia da parte dell'utente revocato; richiede ri-pubblicazione periodica lato proprietario);
-    4. il contenuto **non è datato nel futuro** oltre `max_future_skew`: il punto 3 confronta un solo
-       verso, e una data futura darebbe differenza **negativa** passando indisturbata (vedi
-       `MAX_FUTURE_SKEW_S`). Ridondante con `accept_signed` di proposito: quella impedisce al valore di
-       **entrare** (floor/cache), questa impedisce che conceda **immunità** se fosse già entrato;
-    5. la licenza corrente **non è revocata** in quella lista.
+    ⚠️ **Questa funzione è deliberatamente fail-OPEN** (decisione proprietario 2026-07-30, che ribalta
+    il precedente «fail-closed no-grace»). La regola è: *chi ha una licenza valida e non è revocato non
+    dev'essere bloccato, per nessun motivo.*
+
+    Prima, l'assenza di una lista **fresca** bloccava: GitHub irraggiungibile per 15 minuti, o una lista
+    non ri-pubblicata entro la finestra, fermavano i bridge **a sessione viva** — potenzialmente con
+    posizioni Betfair aperte e nessuno a gestirle. Un disservizio dell'hosting, o una dimenticanza del
+    proprietario, diventavano un danno per utenti che non avevano fatto nulla di male.
+
+    **Il prezzo, dichiarato.** Un utente revocato che rende l'URL irraggiungibile **prima** che la sua
+    revoca sia pubblicata (file hosts, firewall, rete staccata) non viene bloccato. È inevitabile:
+    «irraggiungibile perché GitHub è giù» e «irraggiungibile perché me lo sto nascondendo» sono
+    indistinguibili dall'interno del bridge, e la scelta di non punire il primo caso implica non
+    intercettare il secondo.
+
+    **Cosa continua a funzionare, ed è la parte che conta.** Una revoca che raggiunge il bridge **anche
+    una sola volta** è **permanente**: la lista verificata finisce nella cache firmata su disco e viene
+    ricaricata a ogni avvio, mentre l'anti-replay monotòno (`min_iss`) impedisce di sostituirla con una
+    più vecchia. Per «de-revocarsi» servirebbe una lista firmata più recente — cioè il seed privato del
+    proprietario. Quindi la revoca resta efficace contro l'utente che smette di pagare, e cede solo
+    contro chi sabota attivamente la propria copia (che però ha già accesso fisico alla macchina, e
+    contro cui nessuna protezione lato client regge).
+
+    Le finestre di freschezza (`FRESHNESS_MAX_AGE_S`, `MAX_LIST_AGE_S`) **non bloccano più**: restano
+    come misura di *quanto in fretta una revoca si propaga*, non come condizione di avvio. I parametri
+    `verified_at`/`now` sono accettati per compatibilità dei chiamanti ma non partecipano alla
+    decisione: tenerli nella firma evita una modifica a catena, e la loro irrilevanza è pinnata da un
+    test così non può tornare implicita.
 
     Nessuna rete qui: legge solo lo stato mantenuto dal supervisore → il gate resta istantaneo."""
-    if revlist is None or verified_at is None:
-        return False
-    if int(now) - int(verified_at) > int(max_age):
-        return False
-    if int(now) - int(revlist.issued) > int(max_iss_age):
-        return False
-    if int(revlist.issued) - int(now) > int(max_future_skew):
-        return False
+    if revlist is None:
+        return True     # nessuna lista (mai scaricata, URL irraggiungibile, cache assente): NON bloccare
     return not license_revoked(revlist, token=token, hardware_id=hardware_id)
