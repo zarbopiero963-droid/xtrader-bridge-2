@@ -417,8 +417,11 @@ def test_NESSUN_altro_modulo_scrive_gli_store_append_only():
     scritture = ("open(", "atomic_write_text", "atomic_write_json")
     pacchetto = pathlib.Path(registry.__file__).parent
     colpevoli = []
-    for modulo in sorted(pacchetto.glob("*.py")):
-        if modulo.name in scrittori_legittimi:
+    # `rglob` e non `glob` (rilievo GPT-5.5 #184): oggi il package è piatto, ma un modulo NUOVO —
+    # cioè proprio il caso che questa guardia esiste per intercettare — è anche il più probabile
+    # candidato a nascere dentro un sottopacchetto, e con `glob` sarebbe passato inosservato.
+    for modulo in sorted(pacchetto.rglob("*.py")):
+        if modulo.name in scrittori_legittimi or "__pycache__" in modulo.parts:
             continue
         for numero, riga in enumerate(modulo.read_text(encoding="utf-8").splitlines(), start=1):
             if any(s in riga for s in scritture) and any(t in riga for t in store):
