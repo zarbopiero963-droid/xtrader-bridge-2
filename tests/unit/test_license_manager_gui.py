@@ -93,6 +93,15 @@ def _fake(gui, tmp_path, now=_NOW):
                                                    or {"ok": True, "action": "updated",
                                                        "message": "Lista revoche aggiornata."}))
     fake._publish_after_id = None
+    # Stato «ultima pubblicazione riuscita» (#157): store REALE su file temporaneo, così il test
+    # esercita davvero la scrittura/rilettura invece di un doppio in memoria che non proverebbe la
+    # persistenza. L'etichetta non e' un widget: si registra il testo dipinto, per poterlo asserire.
+    fake._load_last_publish = publish_store.load_last_publish
+    fake._save_last_publish = publish_store.save_last_publish
+    fake._pub_last_lbl = None
+    fake._pub_status_painted = []
+    fake._publish_status = lambda: gui.LicenseManagerApp._publish_status(fake)
+    fake._refresh_publish_status = lambda: fake._pub_status_painted.append(fake._publish_status())
     fake._closing = False
     fake._msgs = []
     fake._set_msg = fake._msgs.append
@@ -933,3 +942,122 @@ def test_tick_saltato_riprova_a_breve(gui, tmp_path):
     assert fake._publish_calls == []                       # non ha pubblicato
     assert fake._timer_calls == [gui._PUBLISH_RETRY_MS]    # ...ma riprova a breve
     assert gui._PUBLISH_RETRY_MS < publish_store.MAX_INTERVAL_HOURS * 3_600_000
+
+
+# ── etichetta «ultima pubblicazione riuscita» (#157) ─────────────────────────────────────────────
+def _pubblicazione_pronta(gui, fake):
+    """Config valida + chiave + token: tutto ciò che serve perché una pubblicazione possa riuscire."""
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         "6", True)
+
+
+def test_pubblicazione_riuscita_registra_l_istante(gui, tmp_path):
+    """Il timestamp si scrive **solo** in `_evaluate_publish_now`, che è il passaggio unico di
+    entrambe le strade (🚀 «Pubblica ora» e tick automatico) → l'etichetta non può divergere fra le
+    due. Qui si verifica che l'istante finisca davvero su disco, non in memoria."""
+    fake = _fake(gui, tmp_path)
+    _pubblicazione_pronta(gui, fake)
+    assert publish_store.load_last_publish(directory=str(tmp_path)) is None
+
+    out = gui.LicenseManagerApp._evaluate_publish_now(fake)
+
+    assert out["ok"] is True
+    assert publish_store.load_last_publish(directory=str(tmp_path)) == _NOW
+
+
+def test_pubblicazione_FALLITA_non_registra_l_istante(gui, tmp_path):
+    """Il caso che conta davvero. Se un tentativo fallito aggiornasse l'istante, l'etichetta direbbe
+    «tutto a posto» mentre sull'URL c'è ancora la lista vecchia: sarebbe **peggio** di non avere
+    l'etichetta, perché rassicurerebbe a torto proprio nel guasto che deve segnalare."""
+    fake = _fake(gui, tmp_path)
+    _pubblicazione_pronta(gui, fake)
+    publish_store.save_last_publish(_NOW - 100_000, directory=str(tmp_path))     # una riuscita vecchia
+    fake._publish_upload = lambda content, **kw: {"ok": False, "message": "GitHub irraggiungibile."}
+
+    out = gui.LicenseManagerApp._evaluate_publish_now(fake)
+
+    assert out["ok"] is False
+    assert publish_store.load_last_publish(directory=str(tmp_path)) == _NOW - 100_000, \
+        "un fallimento non deve spostare in avanti l'istante dell'ultima RIUSCITA"
+
+
+def test_pubblicazione_senza_token_o_config_non_registra_l_istante(gui, tmp_path):
+    """Gli altri due modi di uscire prima dell'upload: nessuno dei due ha pubblicato niente."""
+    for prepara in (lambda f: setattr(f, "_kr_token", None),                    # token assente
+                    lambda f: publish_store.save_publish_config({}, directory=str(tmp_path))):
+        fake = _fake(gui, tmp_path)
+        _pubblicazione_pronta(gui, fake)
+        prepara(fake)
+        assert gui.LicenseManagerApp._evaluate_publish_now(fake)["ok"] is False
+        assert publish_store.load_last_publish(directory=str(tmp_path)) is None
+
+
+def test_etichetta_riflette_lo_stato_su_disco_con_colore_semantico(gui, tmp_path):
+    """L'etichetta deve dire la verità di ciò che sta su disco, con il colore che porta il
+    significato: verde a posto, arancio un giro saltato, rosso i bridge si bloccano."""
+    from xtrader_bridge import ui_theme
+    from xtrader_bridge.licensing import revocation_client
+    finestra = revocation_client.MAX_LIST_AGE_S
+    fake = _fake(gui, tmp_path)
+
+    testo, colore = gui.LicenseManagerApp._publish_status(fake)
+    assert "mai" in testo and colore == ui_theme.STATUS_WARN
+
+    publish_store.save_last_publish(_NOW - 3600, directory=str(tmp_path))
+    testo, colore = gui.LicenseManagerApp._publish_status(fake)
+    assert "1 ora fa" in testo and colore == ui_theme.STATUS_OK
+
+    publish_store.save_last_publish(_NOW - finestra - 60, directory=str(tmp_path))
+    testo, colore = gui.LicenseManagerApp._publish_status(fake)
+    assert "si bloccano" in testo and colore == ui_theme.STATUS_ERR
+
+
+def test_etichetta_ridipinta_anche_dopo_un_tentativo_FALLITO(gui, tmp_path):
+    """Dopo un fallimento il refresh deve girare comunque: è proprio allora che serve vedere quanto è
+    vecchia l'ultima riuscita, per sapere quanto tempo resta prima del blocco."""
+    fake = _fake(gui, tmp_path)
+    publish_store.save_last_publish(_NOW - 7200, directory=str(tmp_path))
+
+    gui.LicenseManagerApp._publish_finish(fake, {"ok": False, "message": "rete giù"})
+
+    assert len(fake._pub_status_painted) == 1
+    testo, _colore = fake._pub_status_painted[0]
+    assert "2 ore fa" in testo
+
+
+def test_tick_automatico_registra_l_istante_come_il_pulsante(gui, tmp_path):
+    """La strada automatica passa per lo stesso metodo: `_publish_tick` → `_publish_async` →
+    `_publish_worker` → `_evaluate_publish_now`. Se un domani qualcuno pubblicasse fuori da quel
+    passaggio, l'etichetta resterebbe indietro e questo test diventerebbe rosso."""
+    fake = _fake(gui, tmp_path)
+    _pubblicazione_pronta(gui, fake)
+
+    gui.LicenseManagerApp._publish_tick(fake)
+
+    assert len(fake._publish_calls) == 1
+    assert publish_store.load_last_publish(directory=str(tmp_path)) == _NOW
+    assert fake._pub_status_painted, "l'etichetta va ridipinta anche dopo una pubblicazione automatica"
+
+
+def test_build_ui_dipinge_l_etichetta_all_apertura(gui):
+    """Guardia sul SORGENTE, non sul comportamento — e va motivata, perché di norma in questo repo è
+    il pattern sbagliato.
+
+    L'invariante è: aprendo il License Manager l'etichetta è **già** dipinta. È tutto il punto — il
+    guasto che deve segnalare (tick perso dopo una sospensione) non produce nessun evento, quindi lo
+    stato dev'essere visibile senza che succeda niente. Ma `_build_ui` costruisce widget
+    customtkinter reali e non è eseguibile headless: non esiste un giunto comportamentale da pilotare
+    come per gli altri test qui sopra. Verificato con mutazione: togliendo la chiamata da `_build_ui`
+    **nessun altro test diventa rosso**, quindi senza questa guardia la regressione passerebbe.
+
+    Resta un test debole per costruzione: prova che la chiamata c'è, non che dipinga davvero. La
+    verifica vera è lo smoke manuale documentato nel PR body."""
+    import inspect
+    sorgente = inspect.getsource(gui.LicenseManagerApp._build_ui)
+    assert "_refresh_publish_status()" in sorgente, (
+        "l'etichetta dell'ultima pubblicazione dev'essere dipinta alla costruzione della finestra: "
+        "senza, resta vuota finché non capita una pubblicazione — e il caso che conta è proprio "
+        "quello in cui le pubblicazioni si sono fermate")
+    assert "_pub_last_lbl" in sorgente, "il widget dell'etichetta dev'essere creato in _build_ui"

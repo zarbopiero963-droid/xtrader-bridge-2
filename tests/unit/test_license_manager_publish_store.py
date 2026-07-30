@@ -224,3 +224,143 @@ def test_validate_config_rifiuta_anche_tab_newline_e_spazi_unicode():
         assert publish_store.validate_config({**base, "branch": cattivo}) is not None, cattivo
     # un branch con `/` (es. `feature/x`) NON è whitespace: resta valido
     assert publish_store.validate_config({**base, "branch": "feature/x"}) is None
+
+
+# ── stato «ultima pubblicazione riuscita» (#157) ─────────────────────────────────────────────────
+_T0 = 1_700_000_000
+
+
+def test_last_publish_round_trip(tmp_path):
+    """Scritto e riletto: è la persistenza che rende l'etichetta utile dopo aver chiuso il programma."""
+    assert publish_store.load_last_publish(directory=str(tmp_path)) is None      # mai pubblicato
+    publish_store.save_last_publish(_T0, directory=str(tmp_path))
+    assert publish_store.load_last_publish(directory=str(tmp_path)) == _T0
+
+
+def test_last_publish_file_assente_corrotto_o_valore_assurdo_none(tmp_path):
+    """**Fail-safe nella direzione sicura**: qualunque anomalia → «mai pubblicato», che mostra una
+    situazione peggiore del reale e porta a controllare. Il contrario (fingere freschezza) sarebbe il
+    guasto muto che questa etichetta esiste per eliminare."""
+    d = str(tmp_path)
+    path = publish_store.publish_state_path(d)
+    assert publish_store.load_last_publish(directory=d) is None                  # assente
+    for contenuto in ("{non-json", '{"altro": 1}', '{"last_publish_ok": "ieri"}',
+                      '{"last_publish_ok": 0}', '{"last_publish_ok": -5}',
+                      '{"last_publish_ok": true}', '[1, 2, 3]'):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(contenuto)
+        assert publish_store.load_last_publish(directory=d) is None, contenuto
+
+
+def test_save_last_publish_non_solleva_su_percorso_non_scrivibile(tmp_path):
+    """La pubblicazione è già riuscita: non deve diventare un fallimento perché il file di stato non
+    si scrive. Si passa una cartella occupata da un FILE, così `makedirs` non può crearla."""
+    ostacolo = tmp_path / "occupato"
+    ostacolo.write_text("non sono una cartella", encoding="utf-8")
+    publish_store.save_last_publish(_T0, directory=str(ostacolo))    # non deve sollevare
+    assert publish_store.load_last_publish(directory=str(ostacolo)) is None
+
+
+def test_freshness_soglie_derivate_dalla_finestra_del_bridge():
+    """Le soglie NON sono numeri ricopiati: `expired` alla finestra (da lì il bridge blocca), `warn` a
+    un terzo (la cadenza massima ammessa → un giro saltato). Si derivano dalla costante, così non
+    possono divergere se la finestra cambia."""
+    from xtrader_bridge.licensing import revocation_client
+    finestra = revocation_client.MAX_LIST_AGE_S
+    terzo = finestra // 3
+
+    def stato(eta):
+        return publish_store.publish_freshness(_T0, _T0 + eta)["state"]
+
+    assert stato(0) == publish_store.FRESHNESS_OK
+    assert stato(terzo - 1) == publish_store.FRESHNESS_OK
+    assert stato(terzo) == publish_store.FRESHNESS_WARN          # limite incluso
+    assert stato(finestra - 1) == publish_store.FRESHNESS_WARN
+    assert stato(finestra) == publish_store.FRESHNESS_EXPIRED    # limite incluso
+    assert publish_store.publish_freshness(None, _T0)["state"] == publish_store.FRESHNESS_NEVER
+
+
+def test_freshness_orologio_spostato_indietro_non_finge_freschezza():
+    """`age` negativo (orologio riportato indietro) è trattato come 0: non si inventa un futuro, ma
+    nemmeno si allarma per un aggiustamento d'orario."""
+    fresh = publish_store.publish_freshness(_T0, _T0 - 5000)
+    assert fresh["age_s"] == 0 and fresh["state"] == publish_store.FRESHNESS_OK
+
+
+def test_format_last_publish_dice_la_conseguenza_negli_stati_di_allarme():
+    """«3 giorni fa» da solo non dice a chi legge che cosa comporta: negli stati di allarme il testo
+    deve nominare la conseguenza, altrimenti l'etichetta informa senza far agire."""
+    from xtrader_bridge.licensing import revocation_client
+    finestra = revocation_client.MAX_LIST_AGE_S
+
+    mai, stato_mai = publish_store.format_last_publish(None, _T0)
+    assert stato_mai == publish_store.FRESHNESS_NEVER and "mai" in mai
+
+    ok, stato_ok = publish_store.format_last_publish(_T0 - 7200, _T0)
+    assert stato_ok == publish_store.FRESHNESS_OK
+    assert "2 ore fa" in ok and "⛔" not in ok and "⚠️" not in ok
+
+    warn, stato_warn = publish_store.format_last_publish(_T0 - (finestra // 3) - 60, _T0)
+    assert stato_warn == publish_store.FRESHNESS_WARN and "⚠️" in warn and "saltato" in warn
+
+    scaduto, stato_scaduto = publish_store.format_last_publish(_T0 - finestra - 60, _T0)
+    assert stato_scaduto == publish_store.FRESHNESS_EXPIRED
+    assert "⛔" in scaduto and "si bloccano" in scaduto
+
+
+def test_eta_leggibile_singolari_e_plurali():
+    """Piccolo ma reale: «1 ore fa» o «1 giorni fa» in un'etichetta permanente si notano."""
+    casi = {0: "meno di un'ora fa", 3599: "meno di un'ora fa", 3600: "1 ora fa",
+            2 * 3600: "2 ore fa", 24 * 3600: "1 giorno fa", 25 * 3600: "1 giorno e 1 ora fa",
+            50 * 3600: "2 giorni e 2 ore fa", 48 * 3600: "2 giorni fa"}
+    for secondi, atteso in casi.items():
+        assert publish_store._eta_leggibile(secondi) == atteso, secondi
+
+
+def test_stato_e_impostazioni_restano_file_separati(tmp_path):
+    """Lo stato non deve inquinare le impostazioni: `normalize_config` scarterebbe la chiave, e un
+    utente non deve poter scrivere a mano «ho pubblicato adesso» dentro la configurazione."""
+    d = str(tmp_path)
+    assert publish_store.publish_state_path(d) != publish_store.publish_config_path(d)
+    publish_store.save_last_publish(_T0, directory=d)
+    publish_store.save_publish_config({"repo": "tizio/x", "enabled": True}, directory=d)
+    assert "last_publish_ok" not in publish_store.load_publish_config(directory=d)
+    assert publish_store.load_last_publish(directory=d) == _T0      # non travolto dal salvataggio
+
+
+def test_timestamp_assurdo_non_lascia_l_etichetta_vuota():
+    """`localtime` solleva `OSError` per valori enormi (e su **Windows** l'intervallo è più stretto
+    che su Linux). Se l'eccezione arrivasse al chiamante, `_refresh_publish_status` la catturerebbe e
+    l'etichetta resterebbe **vuota** — cioè silenzio, il guasto stesso che questa etichetta elimina.
+
+    Deve invece degradare a un messaggio parlante, nello stato più grave (rosso), che porta a
+    guardare. Rilievo Fugu #181, declassato da lui a non bloccante ma reale."""
+    import time as _t
+    assurdo = 2 ** 63 - 1
+    # La precondizione accetta l'INTERA tupla del contratto del codice, non una sola eccezione:
+    # quale delle tre sollevi `localtime` per un valore fuori range dipende dalla piattaforma
+    # (Linux tipicamente `OSError`, Windows può dare `OverflowError`). Fissarne una sola renderebbe
+    # il test rosso su Windows **pur essendo il codice corretto** (rilievo GPT-5.5 #181).
+    with pytest.raises((OSError, OverflowError, ValueError)):
+        _t.localtime(assurdo)
+
+    testo, stato = publish_store.format_last_publish(assurdo, _T0)
+
+    assert testo, "l'etichetta non deve MAI restare vuota"
+    assert "non leggibile" in testo
+    assert "Pubblica ora" in testo, "deve dire COSA fare, non solo che c'è un problema"
+    assert stato == publish_store.FRESHNESS_EXPIRED
+
+
+@pytest.mark.parametrize("errore", [OSError, OverflowError, ValueError])
+def test_ogni_errore_di_localtime_degrada_senza_svuotare_l_etichetta(errore, monkeypatch):
+    """Verifica DETERMINISTICA dello stesso contratto, indipendente dalla piattaforma: si forza
+    `localtime` a sollevare ciascuna delle tre eccezioni catturate. Il test sopra dipende da come si
+    comporta il sistema operativo reale; questo pinna il contratto e basta."""
+    def esplode(_ts):
+        raise errore("fuori range")
+    monkeypatch.setattr(publish_store._time, "localtime", esplode)
+
+    testo, stato = publish_store.format_last_publish(_T0 - 3600, _T0)
+
+    assert "non leggibile" in testo and stato == publish_store.FRESHNESS_EXPIRED
