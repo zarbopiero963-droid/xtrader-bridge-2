@@ -81,6 +81,73 @@ jobs:
           echo "::warning::Build con URL lista revoche NON reale (valore letto: $placeholder): OK solo in sviluppo. NON distribuire questo artifact con la revoca online inattiva."
         fi
 
+    - name: Gate release revoca — la lista dev'essere PUBBLICATA e verificabile all'URL reale
+      id: revocation-live-gate
+      # Il gate qui sopra verifica che l'URL non sia il placeholder. NON verifica che a quell'indirizzo
+      # ci sia davvero qualcosa — ed è esattamente il buco che si apre nel momento in cui si imposta
+      # l'URL reale: da lì il flag diventa False, il gate precedente stampa «OK», e la sola garanzia
+      # residua è che il proprietario si ricordi di pubblicare la lista PRIMA di taggare (rilievi
+      # bloccanti Fable 5 e Fugu Ultra #159, indipendenti e concordi).
+      #
+      # Conseguenza se il buco resta aperto: un EXE distribuito mentre l'URL risponde 404 ha la revoca
+      # online **silenziosamente inefficace** — nessun cliente si blocca (policy fail-open, 2026-07-30),
+      # ma nessuna revoca raggiunge mai nessuno, e non c'è modo di accorgersene guardando l'app.
+      # Perciò qui si verifica la catena vera end-to-end: scaricabile → firma valida con la chiave
+      # pubblica incorporata → contenuto fresco entro `MAX_LIST_AGE_S` e non datato nel futuro.
+      #
+      # Su tag `v*` BLOCCA; su build manuali/PR AVVISA soltanto (stessa politica degli altri due gate:
+      # lo sviluppo non deve dipendere dalla rete). L'unica chiamata di rete di questo workflow.
+      shell: bash
+      run: |
+        # Stessa filosofia degli altri gate: import pure-stdlib, prima dell'install, fail-closed —
+        # qualunque esito diverso da «lista scaricata, verificata e fresca» è un fallimento.
+        set +e
+        python - <<'PY'
+        import sys, time
+        from xtrader_bridge.licensing import revocation_client as R
+
+        if R.REVOCATION_URL_IS_PLACEHOLDER:
+            # URL ancora di sviluppo: se ne occupa il gate precedente, qui non c'è nulla da scaricare.
+            print("URL placeholder: controllo live non applicabile (gate precedente competente).")
+            sys.exit(0)
+
+        adesso = int(time.time())
+        firmata = R.fetch_signed(R.REVOCATION_LIST_URL, timeout=R.DEFAULT_FETCH_TIMEOUT_S)
+        if not firmata:
+            # `fetch_signed` è già fail-safe: None = 404, DNS, TLS, timeout, corpo vuoto.
+            print("KO: lista NON scaricabile dall'URL configurato (404 / rete / TLS / corpo vuoto).")
+            sys.exit(1)
+
+        # `accept_signed` verifica la firma Ed25519 con la chiave pubblica INCORPORATA e rifiuta
+        # una data nel futuro oltre `MAX_FUTURE_SKEW_S` (#180): la stessa porta che attraversa il
+        # bridge in produzione, non una riscrittura che potrebbe divergere.
+        lista = R.accept_signed(firmata, now=adesso)
+        if lista is None:
+            print("KO: lista scaricata ma NON verificabile (firma non valida per la chiave pubblica "
+                  "incorporata, formato errato, o data nel futuro oltre la tolleranza).")
+            sys.exit(1)
+
+        eta = adesso - int(lista.issued)
+        if eta > R.MAX_LIST_AGE_S:
+            print(f"KO: lista STANTIA — firmata {eta // 3600} h fa, oltre il tetto di "
+                  f"{R.MAX_LIST_AGE_S // 3600} h. Ri-pubblicala dal License Manager.")
+            sys.exit(1)
+
+        print(f"OK: lista pubblicata, firma valida, firmata {eta // 3600} h fa "
+              f"(tetto {R.MAX_LIST_AGE_S // 3600} h). Gate live superato.")
+        sys.exit(0)
+        PY
+        esito=$?
+        set -e
+        if [ "$esito" = "0" ]; then
+          echo "Gate live lista revoche: OK."
+        elif [ "${{ github.event_name }}" = "push" ] && [ "${{ startsWith(github.ref, 'refs/tags/') }}" = "true" ]; then
+          echo "::error::Release bloccata: la lista di revoche non è pubblicata/verificabile/fresca all'URL configurato. Pubblicala dal License Manager («📤 Pubblicazione automatica» → «🚀 Pubblica ora») e verifica che l'URL risponda 200 PRIMA di taggare: un EXE distribuito ora avrebbe la revoca online silenziosamente inefficace — nessuna revoca raggiungerebbe mai nessun cliente."
+          exit 1
+        else
+          echo "::warning::Lista di revoche non pubblicata/verificabile/fresca all'URL configurato: OK solo in sviluppo. NON distribuire questo artifact: la revoca online sarebbe inefficace."
+        fi
+
     - name: Installa Dipendenze
       # Build riproducibile (A7): se `requirements-build.lock` è committato, si installa
       # SOLO da lì con `--require-hashes` (versioni+hash bloccati, generati su Windows dal
@@ -227,6 +294,73 @@ jobs:
           exit 1
         else
           echo "::warning::Build con URL lista revoche NON reale (valore letto: $placeholder): OK solo in sviluppo. NON distribuire questo artifact con la revoca online inattiva."
+        fi
+
+    - name: Gate release revoca — la lista dev'essere PUBBLICATA e verificabile all'URL reale
+      id: revocation-live-gate
+      # Il gate qui sopra verifica che l'URL non sia il placeholder. NON verifica che a quell'indirizzo
+      # ci sia davvero qualcosa — ed è esattamente il buco che si apre nel momento in cui si imposta
+      # l'URL reale: da lì il flag diventa False, il gate precedente stampa «OK», e la sola garanzia
+      # residua è che il proprietario si ricordi di pubblicare la lista PRIMA di taggare (rilievi
+      # bloccanti Fable 5 e Fugu Ultra #159, indipendenti e concordi).
+      #
+      # Conseguenza se il buco resta aperto: un EXE distribuito mentre l'URL risponde 404 ha la revoca
+      # online **silenziosamente inefficace** — nessun cliente si blocca (policy fail-open, 2026-07-30),
+      # ma nessuna revoca raggiunge mai nessuno, e non c'è modo di accorgersene guardando l'app.
+      # Perciò qui si verifica la catena vera end-to-end: scaricabile → firma valida con la chiave
+      # pubblica incorporata → contenuto fresco entro `MAX_LIST_AGE_S` e non datato nel futuro.
+      #
+      # Su tag `v*` BLOCCA; su build manuali/PR AVVISA soltanto (stessa politica degli altri due gate:
+      # lo sviluppo non deve dipendere dalla rete). L'unica chiamata di rete di questo workflow.
+      shell: bash
+      run: |
+        # Stessa filosofia degli altri gate: import pure-stdlib, prima dell'install, fail-closed —
+        # qualunque esito diverso da «lista scaricata, verificata e fresca» è un fallimento.
+        set +e
+        python - <<'PY'
+        import sys, time
+        from xtrader_bridge.licensing import revocation_client as R
+
+        if R.REVOCATION_URL_IS_PLACEHOLDER:
+            # URL ancora di sviluppo: se ne occupa il gate precedente, qui non c'è nulla da scaricare.
+            print("URL placeholder: controllo live non applicabile (gate precedente competente).")
+            sys.exit(0)
+
+        adesso = int(time.time())
+        firmata = R.fetch_signed(R.REVOCATION_LIST_URL, timeout=R.DEFAULT_FETCH_TIMEOUT_S)
+        if not firmata:
+            # `fetch_signed` è già fail-safe: None = 404, DNS, TLS, timeout, corpo vuoto.
+            print("KO: lista NON scaricabile dall'URL configurato (404 / rete / TLS / corpo vuoto).")
+            sys.exit(1)
+
+        # `accept_signed` verifica la firma Ed25519 con la chiave pubblica INCORPORATA e rifiuta
+        # una data nel futuro oltre `MAX_FUTURE_SKEW_S` (#180): la stessa porta che attraversa il
+        # bridge in produzione, non una riscrittura che potrebbe divergere.
+        lista = R.accept_signed(firmata, now=adesso)
+        if lista is None:
+            print("KO: lista scaricata ma NON verificabile (firma non valida per la chiave pubblica "
+                  "incorporata, formato errato, o data nel futuro oltre la tolleranza).")
+            sys.exit(1)
+
+        eta = adesso - int(lista.issued)
+        if eta > R.MAX_LIST_AGE_S:
+            print(f"KO: lista STANTIA — firmata {eta // 3600} h fa, oltre il tetto di "
+                  f"{R.MAX_LIST_AGE_S // 3600} h. Ri-pubblicala dal License Manager.")
+            sys.exit(1)
+
+        print(f"OK: lista pubblicata, firma valida, firmata {eta // 3600} h fa "
+              f"(tetto {R.MAX_LIST_AGE_S // 3600} h). Gate live superato.")
+        sys.exit(0)
+        PY
+        esito=$?
+        set -e
+        if [ "$esito" = "0" ]; then
+          echo "Gate live lista revoche: OK."
+        elif [ "${{ github.event_name }}" = "push" ] && [ "${{ startsWith(github.ref, 'refs/tags/') }}" = "true" ]; then
+          echo "::error::Release bloccata: la lista di revoche non è pubblicata/verificabile/fresca all'URL configurato. Pubblicala dal License Manager («📤 Pubblicazione automatica» → «🚀 Pubblica ora») e verifica che l'URL risponda 200 PRIMA di taggare: un EXE distribuito ora avrebbe la revoca online silenziosamente inefficace — nessuna revoca raggiungerebbe mai nessun cliente."
+          exit 1
+        else
+          echo "::warning::Lista di revoche non pubblicata/verificabile/fresca all'URL configurato: OK solo in sviluppo. NON distribuire questo artifact: la revoca online sarebbe inefficace."
         fi
 
     - name: Verifica Tk disponibile (fail-closed)

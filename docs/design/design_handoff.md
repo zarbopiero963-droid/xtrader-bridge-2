@@ -808,25 +808,33 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   gate è solo la validità della licenza; sostituire la chiave pubblica reale prima della distribuzione
   resta un passo manuale del proprietario.
 - 🚫 **REVOCA ONLINE (#140 R3c, dimensione aggiuntiva del gate).** Oltre alla validità della licenza, il
-  lock si attiva anche quando la licenza risulta **revocata** dal proprietario o quando la **lista di
-  revoche firmata non è raggiungibile/verificabile o è stantia** (fail-closed **senza grazia**: il
-  bridge deve raggiungere e verificare l'URL statico per operare). Un supervisore in background scarica
-  periodicamente la lista, la verifica (firma Ed25519 + anti-replay), e il gate `_license_is_valid` la
-  legge sincrono. **Visivamente il lock è identico** a quello per licenza non valida (stessi controlli
-  grigi, stessa scheda 🔑 Licenza + ■ STOP sempre attivi) e usa **gli stessi messaggi di transizione**
-  nel **📋 Log** (`🔒 GUI bloccata…` / `🔓 …`). *Nota per il design:* al momento il messaggio è
-  **generico** («attiva una licenza valida»), che per un utente **revocato** (la cui licenza è tecnicamente
-  valida ma bloccata dal fornitore) è impreciso — un **messaggio distinto** «licenza revocata dal
-  fornitore» / «lista revoche non raggiungibile» è un **affinamento UX previsto** in una fetta successiva.
-- Come per la chiave pubblica di TEST, con l'**URL della lista di revoche placeholder** la revoca online
-  è **inattiva** (non blocca) in sviluppo: l'attivazione è **derivata dall'URL stesso** — impostare l'URL
-  reale la attiva, senza un flag separato da ricordare (coerente con 1A). Un gate di release impedisce di
-  distribuire un EXE con l'URL ancora placeholder. Il proprietario deve inoltre **ri-pubblicare la lista
-  firmata ogni ≤3 giorni** (anche invariata): oltre quel tetto la lista è considerata «stantia» e la GUI
-  si blocca (fail-closed), come per l'irraggiungibilità dell'URL. È anche rifiutata una lista **datata
-  nel futuro** oltre un'ora — stesso esito visivo (GUI bloccata), causa diversa (orologio sbagliato sul
-  PC che firma). *Nota per il design:* è un altro caso in cui il messaggio generico «attiva una licenza
-  valida» non dice all'utente cosa sta succedendo — rientra nell'affinamento UX previsto qui sopra.
+  lock si attiva **solo** quando la licenza risulta **esplicitamente revocata** dal proprietario in una
+  lista firmata e verificata. Un supervisore in background scarica periodicamente la lista, la verifica
+  (firma Ed25519 + anti-replay) e il gate `_license_is_valid` la legge sincrono. **Visivamente il lock è
+  identico** a quello per licenza non valida (stessi controlli grigi, stessa scheda 🔑 Licenza + ■ STOP
+  sempre attivi) e usa **gli stessi messaggi di transizione** nel **📋 Log** (`🔒 GUI bloccata…` /
+  `🔓 …`).
+
+  > ⚖️ **Fail-OPEN — invariante di sicurezza, decisione proprietario 2026-07-30.** Lista non
+  > raggiungibile, hosting giù, lista stantia, cache assente, errore imprevisto nel gate: **nessuno di
+  > questi stati blocca la GUI**. L'unico blocco ammesso è quello dimostrato da una revoca esplicita.
+  > Chi disegna la UI non deve inventare stati di blocco «per prudenza» su questi casi: sarebbero
+  > contrari alla policy. Prima era il contrario (fail-closed senza grazia), ed è stato ribaltato perché
+  > fermava utenti legittimi — a sessione viva, con posizioni potenzialmente aperte — per un guasto
+  > altrui.
+
+  *Nota per il design:* il messaggio di lock è **generico** («attiva una licenza valida»), che per un
+  utente **revocato** (la cui licenza è tecnicamente valida ma bloccata dal fornitore) è impreciso — un
+  **messaggio distinto** «licenza revocata dal fornitore» è un **affinamento UX previsto** in una fetta
+  successiva. Nota che le varianti «lista non raggiungibile / stantia» **non servono più**: quegli stati
+  non producono lock.
+- La revoca online **è ora ATTIVA**: l'URL reale della lista è impostato nel codice (#157), quindi il lock
+  da revoca può scattare anche in sviluppo, non solo nell'EXE distribuito — chi disegna la UI deve
+  considerarlo uno stato **raggiungibile qui e ora**, non ipotetico. L'attivazione è **derivata dall'URL
+  stesso** (nessun flag separato da ricordare, coerente con 1A). Il proprietario deve ri-pubblicare la
+  lista firmata ogni ≤3 giorni: oltre quel tetto **non si blocca nulla**, ma le revoche smettono di
+  propagarsi — chi è stato revocato continua a lavorare finché non riceve una lista aggiornata. È questo
+  il motivo per cui il License Manager mostra l'etichetta «Ultima pubblicazione riuscita».
 
 ### 6.4 Barra pulsanti principali
 - **"▶  AVVIA"** (verde `#2e7d32`, bold)

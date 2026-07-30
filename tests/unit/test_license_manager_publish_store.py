@@ -261,6 +261,27 @@ def test_save_last_publish_non_solleva_su_percorso_non_scrivibile(tmp_path):
     assert publish_store.load_last_publish(directory=str(ostacolo)) is None
 
 
+def test_scrittura_fallita_PRESERVA_lo_stato_precedente(tmp_path, monkeypatch):
+    """Il caso che il test sopra non copriva (rilievo CodeRabbit #159): non basta che un errore di
+    scrittura *non sollevi* — non deve nemmeno **distruggere** il timestamp già valido.
+
+    Se una scrittura fallita azzerasse lo stato, l'etichetta direbbe «mai pubblicato» pur avendo
+    pubblicato un'ora fa: un allarme falso, cioè l'errore nella direzione opposta a quella sicura.
+    `atomic_io.atomic_write_json` scrive su temporaneo e poi rinomina, quindi il file precedente
+    resta intatto — questo test lo pinna invece di presumerlo."""
+    d = str(tmp_path)
+    publish_store.save_last_publish(_T0, directory=d)
+
+    def scrittura_rotta(*_a, **_k):
+        raise OSError("disco pieno")
+    monkeypatch.setattr(publish_store.atomic_io, "atomic_write_json", scrittura_rotta)
+
+    publish_store.save_last_publish(_T0 + 9_999, directory=d)      # non deve sollevare...
+
+    assert publish_store.load_last_publish(directory=d) == _T0, \
+        "una scrittura fallita non deve distruggere l'ultimo istante valido"
+
+
 def test_freshness_soglie_derivate_dalla_finestra_del_bridge():
     """Le soglie NON sono numeri ricopiati: `expired` alla finestra (da lì il bridge blocca), `warn` a
     un terzo (la cadenza massima ammessa → un giro saltato). Si derivano dalla costante, così non
@@ -305,7 +326,9 @@ def test_format_last_publish_dice_la_conseguenza_negli_stati_di_allarme():
 
     scaduto, stato_scaduto = publish_store.format_last_publish(_T0 - finestra - 60, _T0)
     assert stato_scaduto == publish_store.FRESHNESS_EXPIRED
-    assert "⛔" in scaduto and "si bloccano" in scaduto
+    assert "⛔" in scaduto and "non si propagano" in scaduto.lower(), (
+        "il testo deve dire la conseguenza VERA: col fail-open (2026-07-30) una lista scaduta non "
+        "blocca più i bridge, ma ferma la propagazione delle revoche")
 
 
 def test_eta_leggibile_singolari_e_plurali():

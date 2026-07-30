@@ -536,23 +536,49 @@ licenza **scade a bridge avviato**, un controllo periodico (ogni ~60 s) se ne ac
 listener** (fail-closed). Qualsiasi errore nel determinare lo stato licenza → **bloccato**, mai
 aperto per sbaglio.
 
-**Revoca online (fail-closed, #140 R3c).** Il fornitore può **revocare** una licenza ancora valida
-pubblicando una **lista di revoche firmata** su un URL statico. Il bridge la **scarica e verifica**
-periodicamente: una licenza **revocata** — o l'**impossibilità di raggiungere/verificare** la lista —
-**blocca** la GUI e ferma il listener a sessione viva (**senza finestra di grazia**: il bridge deve
-raggiungere e verificare l'URL per operare; i blip di rete transitori sono assorbiti da retry con
-backoff, un'irraggiungibilità persistente blocca). Il bridge accetta solo liste firmate **di recente**
-(entro **3 giorni**) e **non datate oltre un'ora nel futuro** (tolleranza di sfasamento d'orologio): questo
-impedisce a un utente revocato di **rimettere una lista vecchia** e sbloccarsi, ma richiede al fornitore di **ri-pubblicare la lista firmata almeno ogni 3
-giorni** (anche invariata — la pubblicazione automatica del License Manager lo fa da sola mentre è aperto).
+**Revoca online (#140 R3c).** Il fornitore può **revocare** una licenza ancora valida pubblicando una
+**lista di revoche firmata** su un URL statico. Il bridge la **scarica e verifica** periodicamente: una
+licenza **revocata** blocca la GUI e ferma il listener a sessione viva.
+
+> ⚖️ **Fail-OPEN, per decisione del proprietario (2026-07-30).** L'**unico** motivo per cui la revoca
+> online può fermare un bridge è che quella licenza risulti **esplicitamente revocata** in una lista
+> firmata e verificata. Tutto il resto — URL irraggiungibile, GitHub giù, lista non ri-pubblicata da
+> settimane, cache assente, errore imprevisto nel gate — **non blocca**. Chi ha una licenza valida e non
+> è revocato lavora, punto.
+>
+> È il ribaltamento della scelta iniziale («fail-closed senza grazia»): quella fermava i bridge **a
+> sessione viva** per un disservizio dell'hosting o una dimenticanza del fornitore, potenzialmente con
+> posizioni aperte e nessuno a gestirle. Punire l'utente per un guasto altrui non è accettabile.
+>
+> **Il prezzo, dichiarato.** Chi rende l'URL irraggiungibile *prima* che la propria revoca sia
+> pubblicata non viene intercettato: «irraggiungibile perché GitHub è giù» e «irraggiungibile perché me
+> lo nascondo» sono indistinguibili dall'interno del bridge.
+>
+> **Quello che resta, e fin dove.** Una revoca che raggiunge il bridge **una sola volta** persiste:
+> finisce nella cache su disco, viene ricaricata a ogni avvio, e l'anti-replay impedisce di
+> **sostituirla con una lista più vecchia**. Copre il caso reale — l'utente che smette di pagare e
+> continua a usare l'app — anche se resta offline per settimane.
+>
+> ⚠️ **Non è una permanenza crittografica.** Cache e stato vivono sul **disco dell'utente**: chi
+> **cancella il file di cache e si rende irraggiungibile l'URL** riparte pulito e il gate apre. **Per
+> de-revocarsi basta cancellare un file**, non serve la chiave privata del fornitore. La firma impedisce
+> di *forgiare* una lista che dica «non revocato» — ma sotto fail-open non serve forgiarla, basta farla
+> mancare. È il limite di qualunque protezione che gira sulla macchina dell'utente: la revoca online è
+> una misura **contro l'utente non ostile**, non contro chi sabota la propria copia.
+
+Il bridge accetta solo liste firmate **di recente** (entro **3 giorni**) e **non datate oltre un'ora nel
+futuro**. Attenzione: quelle finestre **non bloccano più** nessuno — misurano **quanto in fretta una
+revoca si propaga**. Se il fornitore non ri-pubblica, chi è stato revocato continua a lavorare finché non
+riceve una lista aggiornata; perciò conviene comunque **ri-pubblicare almeno ogni 3 giorni** (anche
+invariata — la pubblicazione automatica del License Manager lo fa da sola mentre è aperto).
 Poiché quel meccanismo gira **solo a License Manager aperto**, la sua scheda mostra un'etichetta
 permanente **«Ultima pubblicazione riuscita: …»** che diventa **arancione** quando è saltato un giro e
-**rossa** quando è passata la finestra (con scritto che i bridge si bloccano): serve ad accorgersi a
-colpo d'occhio se la pubblicazione si è fermata, invece di scoprirlo dai bridge bloccati giorni dopo.
-Dettagli in [`docs/licensing.md`](docs/licensing.md). La revoca online è **attiva solo** quando il
-fornitore imposta l'URL reale nel codice prima di distribuire l'EXE (l'attivazione è derivata dall'URL,
-e un gate di release blocca un tag finché l'URL è ancora quello di sviluppo); con l'URL placeholder resta
-inattiva.
+**rossa** quando è passata la finestra (con scritto che le revoche non si propagano più): serve ad
+accorgersi a colpo d'occhio se la pubblicazione si è fermata.
+Dettagli in [`docs/licensing.md`](docs/licensing.md). La revoca online **è attiva**: l'URL reale della
+lista è impostato nel codice (l'attivazione è derivata dall'URL, e un gate di release bloccherebbe un tag
+finché l'URL fosse ancora quello di sviluppo, o finché la lista non è pubblicata e verificabile a
+quell'indirizzo).
 
 > 🔑 **Modello di sicurezza.** Il fornitore ha la chiave **privata** che firma le licenze; il
 > bridge contiene solo la chiave **pubblica** che verifica. La chiave privata **non** è nel

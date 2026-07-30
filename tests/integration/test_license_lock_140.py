@@ -37,8 +37,16 @@ def _status(valid):
 
 
 def _fake_app(app_mod, *, valid=True, running=False, raises=False, panel=True):
-    """`App` HEADLESS con un pannello licenza fittizio e widget lockable registranti."""
+    """`App` HEADLESS con un pannello licenza fittizio e widget lockable registranti.
+
+    I **seam della revoca online** sono iniettati esplicitamente come «fuori scope»: revoca non
+    attiva → gate aperto. Da quando `REVOCATION_LIST_URL` è l'URL reale (#157) la revoca è attiva di
+    default, quindi `_license_is_valid` è «licenza valida **e** gate revoca aperto» e l'auto-start
+    attende la prima lista: senza questi seam questi test misurerebbero **anche** la revoca, che ha
+    la sua suite dedicata (`test_license_lock_r3c.py`). Qui si isola la parte licenza."""
     app = object.__new__(app_mod.App)
+    app._revocation_enabled = lambda: False
+    app._revocation_gate_ok = lambda: True
 
     if panel:
         def current_status():

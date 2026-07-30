@@ -1,8 +1,10 @@
 """License Manager — **impostazioni della pubblicazione automatica** delle revoche (#157).
 
 La lista di revoche firmata va **ri-pubblicata periodicamente** all'URL statico che il bridge
-controlla (finestra `MAX_LIST_AGE_S`, oggi **3 giorni**): oltre quel tetto i bridge legittimi si bloccano
-fail-closed. Questo modulo tiene **dove** e **ogni quanto** pubblicare, più il **token** di accesso.
+controlla (finestra `MAX_LIST_AGE_S`, oggi **3 giorni**). Oltre quel tetto i bridge **non si bloccano**
+(policy fail-open, decisione proprietario 2026-07-30): quello che si ferma è la **propagazione delle
+revoche** — chi hai revocato continua a lavorare finché non riceve una lista aggiornata. Questo modulo
+tiene **dove** e **ogni quanto** pubblicare, più il **token** di accesso.
 
 Divisione netta (invariante di sicurezza):
 
@@ -233,7 +235,7 @@ PUBLISH_STATE_FILE = "publish_state.json"
 FRESHNESS_NEVER = "never"       # mai pubblicato da questo PC
 FRESHNESS_OK = "ok"             # dentro il margine
 FRESHNESS_WARN = "warn"         # oltre un giro di cadenza: qualcosa potrebbe essersi fermato
-FRESHNESS_EXPIRED = "expired"   # oltre la finestra del bridge: i bridge legittimi si bloccano
+FRESHNESS_EXPIRED = "expired"   # oltre la finestra: le revoche non si propagano più
 
 
 def publish_state_path(directory: "str | None" = None) -> str:
@@ -343,7 +345,7 @@ def format_last_publish(last_ts: "int | None", now: int,
                 " — premi «🚀 Pubblica ora» per riallineare l'indicatore", FRESHNESS_EXPIRED)
     testo = f"Ultima pubblicazione riuscita: {quando} · {_eta_leggibile(fresh['age_s'])}"
     if stato == FRESHNESS_EXPIRED:
-        return (f"{testo}  ⛔ oltre la finestra: i bridge legittimi si bloccano", stato)
+        return (f"{testo}  ⛔ oltre la finestra: le revoche NON si propagano più", stato)
     if stato == FRESHNESS_WARN:
         return (f"{testo}  ⚠️ un giro di pubblicazione è saltato", stato)
     return (testo, stato)

@@ -210,13 +210,13 @@ _CSV_ROW_BTN_WIDTH = 100           # larghezza dei pulsanti «📁 Sfoglia…» 
 # solo quando l'orologio avanza). Fail-closed: alla scadenza ferma il listener e blocca la GUI.
 _LICENSE_TICK_MS = 60_000
 
-# Auto-start + revoca online (#140 R3c, rilievo Fugu #156): con la revoca ATTIVA la prima lista si
-# scarica in modo asincrono e a 400 ms (tick auto-start) può non essere ancora arrivata → il gate è
-# `False` solo perché lo stato revoca non è ancora determinato. In quel caso l'auto-start ASPETTA la
-# prima fetch (retry ogni `_AUTOSTART_REVOCATION_WAIT_MS`, fino a `_AUTOSTART_REVOCATION_MAX_WAITS`)
-# invece di rinunciare one-shot; oltre il tetto (irraggiungibilità persistente) rinuncia fail-closed.
-_AUTOSTART_REVOCATION_WAIT_MS = 1_000
-_AUTOSTART_REVOCATION_MAX_WAITS = 30
+# Auto-start + revoca online: NESSUNA attesa della prima fetch (#159, 2026-07-30). L'attesa esisteva
+# perché con il vecchio fail-closed una lista non ancora arrivata BLOCCAVA, e rinunciare one-shot
+# sarebbe stato ingiusto verso chi aveva solo la rete lenta (rilievo Fugu #156). Col fail-open una
+# lista assente non blocca: aspettarla aggiungerebbe solo ritardo prima di un avvio che avverrà
+# comunque. Le costanti `_AUTOSTART_REVOCATION_WAIT_MS`/`_MAX_WAITS` e il contatore
+# `_autostart_rev_waits` sono stati rimossi con la logica che li usava, invece di restare come stato
+# morto che un domani qualcuno reintrodurrebbe credendolo ancora in uso.
 
 _TABVIEW_PADX = 15                 # tabs.pack(padx=_TABVIEW_PADX) — per lato
 _GEN_LABEL_PADX = (10, 5)          # etichetta del campo
@@ -459,7 +459,6 @@ class App(ctk.CTk):
         self._start_revocation_supervisor()
         # Avvio automatico del listener (se abilitato e config minima presente): dopo
         # che la UI è pronta, così log/stato sono visibili. Default OFF.
-        self._autostart_rev_waits = 0   # #140 R3c: attese dell'auto-start sulla prima fetch revoca
         self._autostart_after_id = self.after(400, self._maybe_auto_start)
 
     def _maybe_auto_start(self) -> None:
@@ -477,18 +476,13 @@ class App(ctk.CTk):
         # Gate licenza (#140 PR 4): niente auto-start senza licenza valida. `_start` lo blocca
         # comunque, ma qui si evita il tentativo (e il rumore nel log) a monte.
         if not self._license_is_valid():
-            # Con revoca ATTIVA la prima fetch è asincrona: a 400 ms può non essere ancora arrivata →
-            # il gate è `False` SOLO perché lo stato revoca non è ancora determinato (`_rev_state` None).
-            # In quel caso ASPETTA la prima fetch (retry bounded) invece di rinunciare one-shot (rilievo
-            # Fugu #156): appena la lista arriva, la decisione diventa definitiva (start o blocco reale).
-            # Quando `_rev_state` è già presente, il `False` è definitivo (licenza invalida/revocata) →
-            # nessuna attesa. Un'azione manuale annulla comunque il retry (`_cancel_pending_autostart`).
-            waits = self.__dict__.get("_autostart_rev_waits", 0)
-            if (self._revocation_enabled() and self.__dict__.get("_rev_state") is None
-                    and waits < _AUTOSTART_REVOCATION_MAX_WAITS):
-                self._autostart_rev_waits = waits + 1
-                self._autostart_after_id = self.after(_AUTOSTART_REVOCATION_WAIT_MS,
-                                                      self._maybe_auto_start)
+            # Nessuna attesa della prima fetch revoca (rimossa il 2026-07-30 col passaggio a fail-open).
+            # Serviva quando una lista non ancora arrivata bloccava: si aspettava per non rinunciare a
+            # un auto-start solo perché la rete era lenta. Ora una lista assente **non blocca**, quindi
+            # arrivare qui significa che è la LICENZA a non essere valida — e su quello aspettare la
+            # lista di revoche non cambierebbe nulla, aggiungerebbe solo secondi di silenzio prima del
+            # messaggio. Un eventuale utente revocato che parte prima dell'arrivo della lista viene
+            # fermato dal ri-controllo periodico (`_apply_license_lock`, STOP a sessione viva).
             return
         self._start(auto=True)
 
@@ -1421,19 +1415,38 @@ class App(ctk.CTk):
         return token, self._revocation_hwid()
 
     def _revocation_gate_ok(self) -> bool:
-        """Gate revoca **sincrono, fail-closed no-grace**. `True` se la revoca non è attiva (URL
-        placeholder) oppure se esiste una lista verificata **fresca** (fetch + contenuto firmato) e la
-        licenza **non** è revocata. Qualunque errore → `False` (bloccato)."""
+        """Gate revoca **sincrono, fail-OPEN** (decisione proprietario 2026-07-30). `False` **solo se**
+        la licenza risulta esplicitamente revocata nell'ultima lista verificata; in ogni altro caso
+        `True` — revoca non attiva, lista mai scaricata, URL irraggiungibile, lista stantia.
+
+        Il razionale completo (e il prezzo accettato) sta in `revocation_client.gate_allows`. Qui conta
+        una conseguenza: anche l'`except` è **fail-open**. Prima un errore imprevisto in questo gate
+        bloccava il bridge; ora non deve, perché un bug nostro non può diventare un fermo per un utente
+        legittimo. L'unico blocco possibile è quello **esplicito e dimostrato** da una lista firmata."""
         if not self._revocation_enabled():
             return True
         try:
-            revlist, verified_at = self.__dict__.get("_rev_state") or (None, None)
+            revlist, _verified_at = self.__dict__.get("_rev_state") or (None, None)
             token, hwid = self._revocation_identity()
-            return revocation_client.gate_allows(
-                revlist, verified_at=verified_at,
-                now=self._revocation_now(), token=token, hardware_id=hwid)
-        except Exception:   # noqa: BLE001 — qualunque errore nel gate revoca → fail-closed
-            return False
+            return revocation_client.gate_allows(revlist, token=token, hardware_id=hwid)
+        except Exception as ex:     # noqa: BLE001 — un errore imprevisto NON deve fermare un utente
+            # Fail-open MA NON MUTO (rilievo bloccante Fable #159). Un bug in `license_revoked` o in
+            # `_revocation_identity` disattiverebbe l'enforcement della revoca **per sempre e in
+            # silenzio**: il bridge continuerebbe a funzionare e nessuno avrebbe modo di accorgersene.
+            # Il fail-open è la policy voluta per l'utente; l'assenza di traccia no. Si logga il **solo
+            # tipo** dell'eccezione — mai il messaggio, che potrebbe contenere token o Hardware ID.
+            try:
+                self._dbg(f"Gate revoca: errore imprevisto [{type(ex).__name__}] → fail-open (nessun "
+                          "blocco). L'enforcement della revoca è INATTIVO finché l'errore persiste.")
+            except Exception:   # noqa: BLE001 — la DIAGNOSTICA non può rompere il fail-open
+                # Rilievo bloccante Fable 5 **e** GPT-5.5 (indipendenti): questa chiamata sta dentro un
+                # `except`, e `_dbg` può a sua volta sollevare — GUI non ancora costruita, attributo
+                # assente su un'istanza parziale. Senza questo secondo guscio l'eccezione USCIREBBE dal
+                # gate, e `_license_is_valid` non la assorbe: la propaga al chiamante. Una riga aggiunta
+                # per *osservabilità* diventerebbe il blocco che il proprietario ha vietato. Qui il
+                # silenzio è il male minore: meglio perdere la traccia che fermare un utente legittimo.
+                pass
+            return True
 
     def _revocation_cache_path(self) -> str:
         return revocation_client.revocation_cache_path(config_dir())
@@ -1460,13 +1473,15 @@ class App(ctk.CTk):
             target=self._revocation_loop, args=(self._rev_stop_event,),
             daemon=True, name="revocation-supervisor")
         self._rev_thread.start()
-        self._dbg("Revoca online ATTIVA: supervisore avviato (fail-closed senza grazia).")
+        self._dbg("Revoca online ATTIVA: supervisore avviato (fail-open: blocca solo una licenza "
+                  "esplicitamente revocata).")
 
     def _revocation_loop(self, stop_event) -> None:
         """Ciclo del supervisore: scarica → verifica+anti-replay → aggiorna stato in memoria + cache →
         ri-valuta il lock; su successo attende `REFRESH_INTERVAL_S`, su fallimento fa **backoff**
-        (decisione 2a: blip transitorio ritentato, irraggiungibilità persistente → lo stato diventa
-        stantio e il gate blocca). Interrompibile subito dallo STOP/chiusura (`stop_event.wait`)."""
+        (blip transitorio ritentato). Dal 2026-07-30 un'irraggiungibilità persistente **non blocca**:
+        lo stato resta vecchio e il gate, fail-open, continua ad ammettere — si ferma la propagazione
+        delle revoche, non il bridge. Interrompibile subito dallo STOP/chiusura (`stop_event.wait`)."""
         attempt = 0
         while not stop_event.is_set():
             try:

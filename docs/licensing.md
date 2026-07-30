@@ -322,8 +322,8 @@ giorni non validi → fail-closed, ri-mostra ritorna il token esistente senza nu
 La **revoca** permette di invalidare una licenza **ancora valida** prima della sua scadenza. Il
 modello è **online e firmato**: il proprietario pubblica una **lista di revoche firmata** su un URL
 statico; il bridge la scarica, ne verifica la firma con la chiave pubblica incorporata e **blocca** le
-licenze revocate (l'integrazione runtime nel bridge — fetch/cache/reconnect/lock, **fail-closed senza
-grazia** — è la fase successiva, R3c).
+licenze revocate (l'integrazione runtime nel bridge — fetch/cache/reconnect/lock, con gate **fail-open**
+che blocca **solo** una licenza esplicitamente revocata — è la fase successiva, R3c).
 
 Questa prima fetta (**R3a**) è la **logica pura e condivisa** in
 [`xtrader_bridge/licensing/revocation.py`](../xtrader_bridge/licensing/revocation.py):
@@ -355,7 +355,7 @@ hex malformata → `None`, envelope con parti extra → `None`, **payload firmat
 (`v`/`iss` non interi esatti, entry non-dict o senza criterio → `None`), dedup insiemi, entry mista
 serial+hw, normalizza e scarta le entry vuote (lato build), `is_revoked` per serial (case-insensitive) e
 per Hardware ID (esatto), lista `None` e criteri vuoti → `False`, lista vuota firmata è valida. Prossima
-fetta: **R3c** (fetch/verifica/cache/lock nel bridge, fail-closed senza grazia).
+fetta: **R3c** (fetch/verifica/cache/lock nel bridge; dal 2026-07-30 il gate è **fail-open**: blocca solo una licenza esplicitamente revocata).
 
 ### Revoca — License Manager (store + lista firmata) — R3b
 
@@ -399,7 +399,7 @@ fail-closed).
 ### Revoca — bridge: fetch + verifica + cache + lock — R3c
 
 Il bridge **applica** la revoca: scarica la lista firmata dall'**URL statico**, la verifica, la mantiene
-in cache e la integra nel **lock licenza** — **fail-closed senza grazia** (decisione proprietario: il
+in cache e la integra nel **lock licenza** — **fail-open** dal 2026-07-30 (prima era fail-closed senza grazia: il
 bridge deve **raggiungere e verificare** l'URL per operare).
 
 - **Serial condiviso** (`xtrader_bridge/licensing/license.py::license_serial`): il serial deterministico
@@ -407,44 +407,75 @@ bridge deve **raggiungere e verificare** l'URL per operare).
   calcolano **identico** senza che il bridge importi `license_manager` (isolamento #140 preservato;
   `license_manager.registry` lo ri-esporta per compatibilità).
 - **Client** (`xtrader_bridge/licensing/revocation_client.py`, logica pura + probe iniettabile):
-  - `REVOCATION_LIST_URL` — **URL costante nel codice** (decisione 1a), placeholder `.invalid` (non
-    risolvibile → fail-closed se dimenticato). L'**attivazione è DERIVATA dall'URL** (`is_placeholder_url`,
+  - `REVOCATION_LIST_URL` — **URL costante nel codice** (decisione 1a). **Dal #157 è l'URL REALE**
+    (`https://raw.githubusercontent.com/zarbopiero963-droid/xtrader-revocation/main/revocation_list.txt`,
+    lo stesso che il License Manager produce con `publisher.raw_url`) → **la revoca online è ATTIVA**.
+    Il vecchio placeholder `.invalid` resta come costante di confronto (`_PLACEHOLDER_URL`: non
+    risolvibile → fail-closed se qualcuno lo ripristinasse). L'**attivazione è DERIVATA dall'URL** (`is_placeholder_url`,
     `REVOCATION_URL_IS_PLACEHOLDER` è un marcatore **calcolato**, non una seconda fonte di verità):
     impostare un URL reale **attiva** la revoca — impossibile lasciare «URL reale ma flag a True» e
     disattivarla in silenzio (rilievo Fugu/GLM). Un **gate di release** (`build.yaml`) fa fallire una
     release taggata finché l'URL è ancora placeholder (come per la chiave pubblica).
+
+    > **Il gate sul placeholder non basta da solo — e lo si è visto attivando l'URL** (rilievi
+    > bloccanti Fable 5 e Fugu Ultra, #159, indipendenti e concordi). Quel gate verifica che l'URL non
+    > sia quello di sviluppo; **non** verifica che a quell'indirizzo ci sia davvero una lista. Nel
+    > momento in cui si imposta l'URL reale il flag diventa `False`, il gate stampa «OK» e passa: da
+    > lì l'unica garanzia sarebbe che il proprietario si ricordi di pubblicare **prima** di taggare.
+    > Un EXE distribuito mentre l'URL risponde 404 avrebbe la revoca online **silenziosamente inefficace**: nessun
+    > cliente** — fail-closed corretto, esito disastroso.
+    >
+    > Perciò `build.yaml` ha un **secondo gate**, `id: revocation-live-gate`, in **entrambi** i job
+    > (`build` e `build-linux`, così nessuna delle due strade di distribuzione resta scoperta). Verifica
+    > la catena vera end-to-end: la lista è **scaricabile** dall'URL configurato → la **firma è valida**
+    > per la chiave pubblica incorporata → il contenuto è **fresco** entro `MAX_LIST_AGE_S` e non datato
+    > nel futuro (riusa `fetch_signed`/`accept_signed`, cioè la stessa porta che attraversa il bridge in
+    > produzione, non una riscrittura che potrebbe divergere). Su tag `v*` **blocca**; su build manuali o
+    > di PR **avvisa** soltanto, così lo sviluppo non dipende dalla rete. È l'unica chiamata di rete del
+    > workflow. Con l'URL ancora placeholder non fa rete e non si applica: competente è il gate
+    > precedente.
+    >
+    > Test: `tests/safety/test_revocation_release_gate_159.py` **estrae lo script dall'heredoc del
+    > workflow e lo esegue** — così non può divergere dalla logica che gira davvero in CI — con i casi
+    > lista assente / non verificabile / stantia / valida / vuota-ma-valida / placeholder, più la
+    > verifica che i due job applichino lo **stesso** gate.
   - `fetch_signed(url, fetch=…)` → **fail-closed**: qualunque errore di scarico (rete/DNS/HTTP/timeout/
     TLS/decodifica/lista troppo grande) → `None`. Il *probe* è iniettabile (test senza socket reali).
   - `accept_signed(signed, min_iss=…)` → `verify_revocation_list` + **anti-replay** (`iss >= min_iss`):
     nessuno può «de-revocare» ripubblicando una lista vecchia firmata.
   - `license_revoked(revlist, token=…, hardware_id=…)` → serial dal token **o** Hardware ID nella lista.
-  - `gate_allows(revlist, verified_at=…, now=…, …)` → **decisione sincrona no-grace**: `True` solo se la
-    lista è verificata, il **FETCH** è fresco (entro `FRESHNESS_MAX_AGE_S`, 15 min), il **CONTENUTO
-    firmato** è fresco (entro `MAX_LIST_AGE_S`, **3 giorni** sull'`iss`), il contenuto **non è datato nel
-    futuro** oltre `MAX_FUTURE_SKEW_S` (1 h) e la licenza **non** è revocata;
-    altrimenti `False`. Il **cap sull'età del contenuto** chiude il *replay di una lista vecchia* (un
-    utente revocato che serve alla propria copia una lista firmata precedente alla revoca): richiede al
-    proprietario di **ri-pubblicare la lista firmata almeno ogni finestra** (anche invariata, automatizzato
-    dalla pubblicazione #158). Cache firmata in `config_dir()` per il **floor anti-replay**.
+  - `gate_allows(revlist, token=…, hardware_id=…)` → **decisione sincrona fail-OPEN** (decisione
+    proprietario 2026-07-30, che ribalta il precedente «fail-closed no-grace»): `False` **solo se** la
+    licenza risulta **esplicitamente revocata** in una lista verificata. Lista assente, URL
+    irraggiungibile, lista stantia, cache mancante, errore imprevisto → **`True`**, non si blocca.
 
-  > **Perché la finestra è di 3 giorni e non di 24 h.** È **una sola costante per due effetti opposti**:
-  > quanto a lungo un revocato può resistere replayando una lista pre-revoca, e quanto a lungo il
-  > proprietario può stare senza ri-firmare prima di bloccare gli utenti **legittimi**. La ri-firma
-  > richiede il seed privato, che vive solo sul PC del proprietario: con 24 h bastava un weekend col PC
-  > spento per bloccare tutti. Allargarla ancora è possibile, ma allarga **nella stessa misura** la
-  > finestra di replay — è una decisione del proprietario, non un parametro da ritoccare.
-  >
-  > **Perché esiste anche un tetto sul FUTURO** (`MAX_FUTURE_SKEW_S`, 1 h). Il cap di freschezza
-  > confronta un solo verso (`now - issued`): una lista datata **avanti** nel tempo dà differenza
-  > negativa e passerebbe indisturbata. Non serve un attaccante — basta l'orologio sbagliato sul PC che
-  > firma. Il danno però è **durevole**, perché l'anti-replay è monotòno: accettata quella lista, il
-  > floor `min_iss` sale a una data futura e **ogni lista legittima successiva viene rifiutata** → su
-  > quella copia il proprietario non può più revocare, e il guasto sopravvive al riavvio (il floor si
-  > ri-deriva dalla cache su disco). Perciò il controllo sta in **due punti**: `accept_signed` impedisce
-  > alla lista di **entrare** (floor e cache restano puliti), `gate_allows` impedisce che conceda
-  > **immunità** se fosse entrata per altra via. Il margine è generoso di proposito: il confronto è fra
-  > l'orologio del *bridge* e la data messa dal *proprietario*, e un margine stretto trasformerebbe un
-  > banale drift sul PC dell'utente in un lockout.
+    > **Perché.** Il fail-closed fermava i bridge **a sessione viva** — potenzialmente con posizioni
+    > Betfair aperte e nessuno a gestirle — per un disservizio di `raw.githubusercontent.com` o per una
+    > ri-pubblicazione dimenticata. Punire un utente legittimo per un guasto altrui non è accettabile:
+    > *chi ha licenza valida e non è revocato non dev'essere bloccato, per nessun motivo.*
+    >
+    > **Il prezzo.** Chi rende l'URL irraggiungibile **prima** che la propria revoca sia pubblicata non
+    > viene intercettato. È inevitabile: dall'interno del bridge «GitHub è giù» e «me lo sto
+    > nascondendo» sono lo stesso stato, e scegliere di non punire il primo implica non vedere il
+    > secondo.
+    >
+    > **Cosa resta, e fin dove.** Una revoca che arriva **una sola volta** persiste: entra nella cache su
+    > disco, viene ricaricata a ogni avvio, e l'anti-replay monotòno (`min_iss`) impedisce di
+    > **sostituirla con una più vecchia**. Copre il caso reale: chi smette di pagare e continua a usare
+    > l'app, anche restando offline.
+    >
+    > ⚠️ **Non è permanenza crittografica** (rilievi bloccanti Fable 5 e Fugu Ultra #159, indipendenti e
+    > concordi — la versione precedente di questa nota affermava il falso). Cache e floor stanno in
+    > `config_dir()`, sul disco dell'utente: **cancellare `revocation_cache.json` + rendere l'URL
+    > irraggiungibile** riporta `revlist=None` e `min_iss=0` → gate aperto. **Basta cancellare un file**;
+    > il seed privato non c'entra. La firma impedisce di *forgiare* un «non revocato», ma sotto fail-open
+    > non serve forgiare: basta far mancare la lista. È il limite invalicabile di una protezione che gira
+    > sulla macchina dell'utente — misura contro l'utente **non ostile**, non contro il sabotatore.
+    > Pinnato da `test_cache_cancellata_e_URL_irraggiungibile_apre_il_gate`.
+    >
+    > Le finestre (`FRESHNESS_MAX_AGE_S`, `MAX_LIST_AGE_S`) **non sono più condizioni di avvio**:
+    > misurano **quanto in fretta una revoca si propaga**. `verified_at`/`now` restano accettati per
+    > compatibilità dei chiamanti ma non decidono — un test lo pinna, così non torna implicito.
 - **Integrazione nel lock** (`xtrader_bridge/app.py`): un **supervisore** in background
   (`_revocation_loop`, thread daemon come `_run_bot`) scarica ogni `REFRESH_INTERVAL_S`, verifica,
   aggiorna in memoria lo stato `_rev_state = (lista, verificata_a)` — **tupla unica sostituita
@@ -454,30 +485,40 @@ bridge deve **raggiungere e verificare** l'URL per operare).
   `_revocation_gate_ok()`; il **tick licenza (~60 s)** e ogni fine ciclo del supervisore (`_safe_after`)
   ri-valutano il lock — una licenza revocata a sessione viva → **STOP fail-closed** (stesso path del PR
   4). L'Hardware ID è **memoizzato** (niente WMI/subprocess a ogni tick sul thread GUI). Con l'URL
-  **placeholder** il gate è **bypassato** (dev, come la chiave di TEST).
+  **placeholder** il gate sarebbe **bypassato** (dev, come la chiave di TEST) — **oggi non è il caso**:
+  l'URL è reale, quindi il gate è **attivo e fail-closed**.
 
 **Test hard:** `tests/unit/test_revocation_client.py` (fetch fail-closed/probe, accept + anti-replay,
 `license_revoked` per serial/hw, `gate_allows` assente/stantia/fresca/revocata, cache round-trip/corrotta)
-e `tests/integration/test_license_lock_r3c.py` (bypass placeholder, fail-closed senza lista, revoca per
+e `tests/integration/test_license_lock_r3c.py` (bypass placeholder, **nessun blocco senza lista**, revoca per
 serial, staleness fetch **e contenuto (3 giorni)**, anti-replay per età dell'`iss`, **data nel futuro
 rifiutata all'ingresso e nel gate**, attivazione derivata
 dall'URL, Hardware ID memoizzato, backoff su fallimenti ripetuti, integrazione in
 `_license_is_valid`/`_apply_license_lock` con **STOP a sessione viva**, ciclo del supervisore
 ok/fallito/anti-replay, stop supervisore).
 
-**Azioni proprietario prima/durante la distribuzione:** (1) impostare `REVOCATION_LIST_URL` **reale** in
-`revocation_client.py` (il marcatore placeholder e l'attivazione si aggiornano da soli; il gate di
-release blocca un tag finché è placeholder); (2) **ri-pubblicare la lista firmata almeno ogni finestra
-(3 giorni)** (anche invariata, automatizzato dalla pubblicazione #158) — oltre `MAX_LIST_AGE_S` i bridge legittimi si bloccano
-fail-closed. Nota disponibilità: essendo **no-grace su URL singolo**, un'irraggiungibilità **persistente**
-(oltre `FRESHNESS_MAX_AGE_S`, 15 min) blocca i client a sessione viva — è la conseguenza **accettata**
-della scelta «niente grazia» (decisione proprietario 2); le due finestre sono costanti tarabili.
+**Azioni proprietario prima/durante la distribuzione:** (1) ~~impostare `REVOCATION_LIST_URL` reale~~ —
+**FATTO (#157)**: l'URL punta al repository pubblico `zarbopiero963-droid/xtrader-revocation`, quindi il
+marcatore placeholder è `False`, l'attivazione è avvenuta e il gate di release non blocca più il tag per
+questo motivo. ⚠️ **Prerequisito operativo, da soddisfare PRIMA di avviare o distribuire**: il file
+`revocation_list.txt` deve **esistere** a quell'indirizzo — si crea con **🚀 Pubblica ora** dalla sezione
+«📤 Pubblicazione automatica» del License Manager (#158). ⚠️ **Aggiornato 2026-07-30 (fail-open):** finché
+l'URL risponde 404 i bridge **partono comunque** — quello che non funziona è la **revoca**, che resta
+silenziosamente inefficace perché nessun client riceve mai una lista. Non è più un blocco, è una
+protezione che non c'è; per questo il gate di release rifiuta di taggare in quello stato; (2) **ri-pubblicare la lista firmata almeno ogni
+finestra (3 giorni)** (anche invariata, automatizzato dalla pubblicazione #158) — oltre `MAX_LIST_AGE_S`
+le revoche smettono di **propagarsi**. Nota disponibilità (aggiornata 2026-07-30): il gate è ora
+**fail-open**, quindi un'irraggiungibilità dell'URL — anche persistente — **non blocca più** i client a
+sessione viva. Era la conseguenza «accettata» della scelta iniziale «niente grazia»; il proprietario l'ha
+ribaltata perché fermare utenti legittimi per un guasto dell'hosting non è accettabile. Le due finestre
+restano costanti tarabili, ma ora misurano la **tempestività della propagazione**, non l'avvio.
 
 ### Revoca — pubblicazione automatica su GitHub (#157)
 
 Il punto (2) qui sopra — *ri-pubblicare la lista firmata entro la finestra* — è la sola parte che
-dipendeva dalla memoria del proprietario: **dimenticarla blocca tutti i bridge** (fail-closed). Questa
-fetta la **automatizza dentro il License Manager**, senza spostare il seed privato.
+dipende dalla memoria del proprietario. Col fail-open dimenticarla **non blocca più nessuno**: rende però
+le revoche **inefficaci**, perché chi è stato revocato continua a lavorare finché non riceve una lista
+aggiornata. Questa fetta la **automatizza dentro il License Manager**, senza spostare il seed privato.
 
 **Dove sta cosa (invariante):**
 
@@ -540,7 +581,7 @@ fetta la **automatizza dentro il License Manager**, senza spostare il seed priva
   Stati e soglie **derivate** da `MAX_LIST_AGE_S`, non ricopiate: `ok` (verde) sotto un terzo della
   finestra; `warn` (arancio) da un terzo in su — è la cadenza massima ammessa, quindi **almeno un giro
   è saltato**, con ancora due terzi di finestra per rimediare; `expired` (rosso) oltre la finestra, con
-  la conseguenza scritta in chiaro («i bridge legittimi si bloccano»); `never` se non si è mai
+  la conseguenza scritta in chiaro («le revoche non si propagano più»); `never` se non si è mai
   pubblicato da quel PC. I colori sono i token semantici del design system (`STATUS_OK`/`WARN`/`ERR`),
   gli stessi che il bridge usa per ATTIVO/RICONNESSIONE/OFFLINE.
 
