@@ -394,6 +394,42 @@ def test_la_fusione_avviene_sotto_il_lock_degli_append(tmp_path, monkeypatch):
         f"la fusione deve tenere il lock degli append mentre riscrive: {visto}")
 
 
+def test_NESSUN_altro_modulo_scrive_gli_store_append_only():
+    """Rilievo GPT-5.5 #184: «se qualche `.jsonl` viene scritto da un altro modulo con un lock
+    diverso, la protezione è parziale».
+
+    Verificato: gli unici scrittori sono `registry` (i due append, sotto `_WRITE_LOCK`) e `backup`
+    (la fusione, sotto lo **stesso** lock via `WRITE_LOCK`). La protezione è quindi **completa**
+    dentro il processo, non parziale. Ma è un'invariante che vive nella disciplina di chi scrive
+    codice, non nel codice: un modulo nuovo che appendesse per conto suo riaprirebbe il buco in
+    silenzio, e nessun altro test se ne accorgerebbe.
+
+    Guardia sul **sorgente**, con i suoi limiti dichiarati: intercetta la scrittura scritta in chiaro
+    nel modulo, non una raggiunta per vie indirette. È un allarme, non una dimostrazione.
+
+    Il criterio è **per riga**, non per file: la prima versione guardava il file intero e segnalava
+    `gui.py`, che nomina i due percorsi solo dentro due messaggi di log e la cui unica `open(...,"w")`
+    scrive la **lista revoche esportata**, un altro file. Un allowlist di comodo avrebbe messo `gui.py`
+    fuori sorveglianza per sempre; guardare la riga lo tiene dentro."""
+    import pathlib
+    scrittori_legittimi = {"registry.py", "backup.py"}
+    store = (".jsonl", "REGISTRY_FILE", "REVOKED_FILE", "registry_path", "revoked_registry_path")
+    scritture = ("open(", "atomic_write_text", "atomic_write_json")
+    pacchetto = pathlib.Path(registry.__file__).parent
+    colpevoli = []
+    for modulo in sorted(pacchetto.glob("*.py")):
+        if modulo.name in scrittori_legittimi:
+            continue
+        for numero, riga in enumerate(modulo.read_text(encoding="utf-8").splitlines(), start=1):
+            if any(s in riga for s in scritture) and any(t in riga for t in store):
+                colpevoli.append(f"{modulo.name}:{numero}")
+
+    assert not colpevoli, (
+        f"queste righe scrivono su uno store append-only fuori da registry/backup: {colpevoli}. "
+        "Devono farlo sotto `registry.WRITE_LOCK`, altrimenti una revoca può sparire durante un "
+        "ripristino.")
+
+
 def test_il_lock_pubblico_e_lo_STESSO_dei_privati(tmp_path):
     """Un alias che puntasse a un lock **diverso** non serializzerebbe niente, e il test qui sopra
     passerebbe lo stesso: sarebbe sicurezza di facciata."""
