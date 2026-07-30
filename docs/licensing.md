@@ -524,6 +524,32 @@ fetta la **automatizza dentro il License Manager**, senza spostare il seed priva
   bloccati per ore); se un giro viene **saltato** (pubblicazione già in volo) si **riprova fra pochi
   minuti** invece che dopo l'intero intervallo (rilievi Fugu/Fable #158). `_build_signed_revocation_list()` è la **sorgente unica** della lista firmata,
   condivisa con l'esportazione su file (📤) così le due strade non divergono.
+- **Etichetta «Ultima pubblicazione riuscita»** (`publish_store.load/save_last_publish`,
+  `format_last_publish`, `gui._publish_status`/`_refresh_publish_status`). La pubblicazione automatica
+  gira **solo mentre il License Manager è aperto**: se si ferma — timer perso dopo una sospensione di
+  Windows, rete giù, token scaduto — il guasto sarebbe **muto**, e il primo segnale arriverebbe dai
+  bridge bloccati giorni dopo. La riga messaggi (`_msg_lbl`) non basta: è transitoria, la sovrascrive
+  qualunque altra azione, e nel caso peggiore (tick che non scatta) **non viene nemmeno scritta**.
+
+  Perciò l'istante dell'ultima pubblicazione **riuscita** è persistito in `publish_state.json` — file
+  **separato** da `publish_config.json`, perché quello è configurazione dell'utente (validata,
+  normalizzata) e questo è stato osservato scritto dal programma — e mostrato in un'etichetta
+  permanente, dipinta **all'apertura della finestra** e dopo ogni tentativo (riuscito **o** fallito:
+  dopo un fallimento serve proprio sapere quanto è vecchia l'ultima riuscita).
+
+  Stati e soglie **derivate** da `MAX_LIST_AGE_S`, non ricopiate: `ok` (verde) sotto un terzo della
+  finestra; `warn` (arancio) da un terzo in su — è la cadenza massima ammessa, quindi **almeno un giro
+  è saltato**, con ancora due terzi di finestra per rimediare; `expired` (rosso) oltre la finestra, con
+  la conseguenza scritta in chiaro («i bridge legittimi si bloccano»); `never` se non si è mai
+  pubblicato da quel PC. I colori sono i token semantici del design system (`STATUS_OK`/`WARN`/`ERR`),
+  gli stessi che il bridge usa per ATTIVO/RICONNESSIONE/OFFLINE.
+
+  **Fail-safe in direzione sicura** su tutta la linea: file assente/corrotto/valore assurdo → «mai
+  pubblicato»; errore di scrittura dello stato → **non** propaga (una pubblicazione riuscita non deve
+  diventare un fallimento perché non si scrive un timestamp). In entrambi i casi l'etichetta mostra una
+  situazione **peggiore** del reale e porta a controllare, invece di rassicurare a torto. L'istante si
+  registra **solo** in `_evaluate_publish_now` a esito riuscito — passaggio unico di 🚀 «Pubblica ora» e
+  del tick automatico, così le due strade non possono divergere.
 - **La rete NON gira sul thread Tk** (rilievo GPT-5.5 #158): firma + `GET`/`PUT` (fino a
   `DEFAULT_TIMEOUT_S` ciascuna) girerebbero per decine di secondi con GitHub lento/irraggiungibile,
   **congelando la finestra**. `_publish_async` avvia un **thread daemon** (`_publish_worker`) e l'esito

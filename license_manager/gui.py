@@ -27,6 +27,8 @@ import time as _time
 
 import customtkinter as ctk
 
+from xtrader_bridge import ui_theme
+
 from license_manager import core, publish_store, publisher, registry
 from xtrader_bridge.licensing import revocation
 
@@ -42,6 +44,18 @@ _PUBLISH_STARTUP_MS = 3_000
 # Se un giro viene SALTATO (una pubblicazione era già in volo, o il thread non è partito) si riprova
 # a breve invece di aspettare l'intero intervallo (rilievo Fable #158).
 _PUBLISH_RETRY_MS = 5 * 60_000
+
+# Colori SEMANTICI del design system, non decorativi: verde = a posto, arancio = un giro saltato,
+# rosso = i bridge si stanno bloccando. Sono gli stessi token che il bridge usa per ATTIVO /
+# RICONNESSIONE / OFFLINE, così il significato del colore resta uno solo in tutto il prodotto.
+# A livello di MODULO, non di classe: `_publish_status` è logica pura esercitata headless su un
+# `self` finto, e una costante di classe costringerebbe ogni harness a modellarla.
+_PUBLISH_STATUS_COLORS = {
+    publish_store.FRESHNESS_OK: ui_theme.STATUS_OK,
+    publish_store.FRESHNESS_WARN: ui_theme.STATUS_WARN,
+    publish_store.FRESHNESS_EXPIRED: ui_theme.STATUS_ERR,
+    publish_store.FRESHNESS_NEVER: ui_theme.STATUS_WARN,
+}
 
 
 class LicenseManagerApp(ctk.CTk):
@@ -64,7 +78,8 @@ class LicenseManagerApp(ctk.CTk):
                  record_issued=None, read_records=None,
                  record_revocation=None, read_revocations=None,
                  load_publish_config=None, save_publish_config=None,
-                 load_publish_token=None, save_publish_token=None, publish_upload=None):
+                 load_publish_token=None, save_publish_token=None, publish_upload=None,
+                 load_last_publish=None, save_last_publish=None):
         super().__init__()
         self._key_dir = key_dir
         self._now = now_provider or (lambda: int(_time.time()))
@@ -86,6 +101,11 @@ class LicenseManagerApp(ctk.CTk):
         self._load_publish_token = load_publish_token or publish_store.load_publish_token
         self._save_publish_token = save_publish_token or publish_store.save_publish_token
         self._publish_upload = publish_upload or publisher.publish
+        # Stato «ultima pubblicazione riuscita» (#157): iniettabili come gli altri accessi a disco,
+        # così i test non toccano la cartella reale del License Manager.
+        self._load_last_publish = load_last_publish or publish_store.load_last_publish
+        self._save_last_publish = save_last_publish or publish_store.save_last_publish
+        self._pub_last_lbl = None
         self._publish_after_id = None
         self._publish_inflight = False      # un solo upload alla volta (niente accavallamenti)
         # Lucchetto creato **subito** (non pigramente): così non esiste nemmeno in teoria la finestra
@@ -475,6 +495,10 @@ class LicenseManagerApp(ctk.CTk):
             message=f"XTrader: lista revoche ({count} revoc.)")
         if not result.get("ok"):
             return {"ok": False, "message": str(result.get("message", "Pubblicazione non riuscita."))}
+        # Registra l'istante SOLO su esito riuscito, e solo qui: questo metodo è il passaggio unico di
+        # entrambe le strade (🚀 «Pubblica ora» e tick automatico), quindi l'etichetta non può
+        # divergere fra le due. Best-effort: `save_last_publish` non solleva.
+        self._save_last_publish(int(self._now()), directory=self._key_dir)
         return {"ok": True,
                 "message": (f"{result.get('message', '')} "
                             f"URL per il bridge: {publisher.raw_url(cfg['repo'], cfg['path'], cfg['branch'])}")}
@@ -536,6 +560,11 @@ class LicenseManagerApp(ctk.CTk):
     def _publish_finish(self, result) -> None:
         """Applica l'esito sul thread GUI e libera il lucchetto."""
         self._set_publish_inflight(False)
+        # L'istante l'ha gia' scritto il worker (in `_evaluate_publish_now`, solo su successo): qui si
+        # rilegge da disco per ridipingere. Il refresh gira SEMPRE, anche su fallimento — cosi' dopo un
+        # tentativo andato male resta in vista quanto e' vecchia l'ultima riuscita, che e' proprio il
+        # dato che serve per capire quanto tempo resta prima che i bridge si blocchino.
+        self._refresh_publish_status()
         self._set_msg(("✅ " if (result or {}).get("ok") else "⚠️ ") + str((result or {}).get("message", "")))
 
     def _publish_tick(self) -> None:
@@ -698,7 +727,14 @@ class LicenseManagerApp(ctk.CTk):
                       command=self._on_save_publish_settings).pack(anchor="w", padx=12, pady=(2, 2))
         ctk.CTkButton(self, text="🚀 Pubblica ora",
                       command=self._on_publish_now).pack(anchor="w", padx=12, pady=(0, 6))
+        # Etichetta PERSISTENTE dell'ultima pubblicazione riuscita (#157). Non è un messaggio
+        # transitorio come `_msg_lbl`: quella riga la sovrascrive qualunque altra azione, e il modo di
+        # rottura più probabile della pubblicazione automatica (tick perso dopo una sospensione) non
+        # produce **nessun** messaggio. Qui invece lo stato è sempre presente e visibile all'apertura.
+        self._pub_last_lbl = ctk.CTkLabel(self, text="", anchor="w", wraplength=560)
+        self._pub_last_lbl.pack(fill="x", padx=12, pady=(0, 6))
         self._refresh_publish_fields()
+        self._refresh_publish_status()
 
         # Backup + messaggi
         ctk.CTkButton(self, text="💾 Backup della chiave privata", command=self._on_export).pack(
@@ -826,6 +862,22 @@ class LicenseManagerApp(ctk.CTk):
         result = self._evaluate_revoke(self._read(self._renew_serial_entry))
         self._set_msg(result["message"])
         self._on_registry_refresh()
+
+    def _publish_status(self) -> tuple:
+        """`(testo, colore)` dell'etichetta, da stato su disco + orologio iniettabile. Logica pura:
+        nessun widget, quindi testabile headless."""
+        testo, stato = publish_store.format_last_publish(
+            self._load_last_publish(directory=self._key_dir), int(self._now()))
+        return testo, _PUBLISH_STATUS_COLORS.get(stato, ui_theme.STATUS_WARN)
+
+    def _refresh_publish_status(self) -> None:
+        """Ridipinge l'etichetta dell'ultima pubblicazione (best-effort headless, come le altre)."""
+        try:
+            if self.__dict__.get("_pub_last_lbl") is not None:
+                testo, colore = self._publish_status()
+                self._pub_last_lbl.configure(text=testo, text_color=colore)
+        except Exception:       # noqa: BLE001 — render Tk best-effort, come `_set_msg`
+            pass
 
     def _refresh_publish_fields(self) -> None:
         """Precompila i campi della pubblicazione con le impostazioni salvate (best-effort headless).
