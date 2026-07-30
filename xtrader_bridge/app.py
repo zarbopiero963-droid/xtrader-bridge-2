@@ -1436,8 +1436,17 @@ class App(ctk.CTk):
             # silenzio**: il bridge continuerebbe a funzionare e nessuno avrebbe modo di accorgersene.
             # Il fail-open è la policy voluta per l'utente; l'assenza di traccia no. Si logga il **solo
             # tipo** dell'eccezione — mai il messaggio, che potrebbe contenere token o Hardware ID.
-            self._dbg(f"Gate revoca: errore imprevisto [{type(ex).__name__}] → fail-open "
-                      "(nessun blocco). L'enforcement della revoca è INATTIVO finché l'errore persiste.")
+            try:
+                self._dbg(f"Gate revoca: errore imprevisto [{type(ex).__name__}] → fail-open (nessun "
+                          "blocco). L'enforcement della revoca è INATTIVO finché l'errore persiste.")
+            except Exception:   # noqa: BLE001 — la DIAGNOSTICA non può rompere il fail-open
+                # Rilievo bloccante Fable 5 **e** GPT-5.5 (indipendenti): questa chiamata sta dentro un
+                # `except`, e `_dbg` può a sua volta sollevare — GUI non ancora costruita, attributo
+                # assente su un'istanza parziale. Senza questo secondo guscio l'eccezione USCIREBBE dal
+                # gate, e `_license_is_valid` non la assorbe: la propaga al chiamante. Una riga aggiunta
+                # per *osservabilità* diventerebbe il blocco che il proprietario ha vietato. Qui il
+                # silenzio è il male minore: meglio perdere la traccia che fermare un utente legittimo.
+                pass
             return True
 
     def _revocation_cache_path(self) -> str:

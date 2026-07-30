@@ -584,3 +584,44 @@ def test_cache_cancellata_e_URL_irraggiungibile_apre_il_gate(App, tmp_path, monk
     assert App._revocation_gate_ok(ripartito) is True, (
         "questo è il comportamento REALE e voluto sotto fail-open: senza lista non si blocca. "
         "Documentarlo come 'permanenza crittografica' sarebbe una promessa falsa")
+
+
+def test_un_log_ROTTO_non_puo_trasformare_il_fail_open_in_un_blocco(App):
+    """Il fail-open non deve dipendere dal fatto che il **logging diagnostico** funzioni.
+
+    Rilievo bloccante di Fable 5 **e** GPT-5.5, indipendenti e concordi. La traccia aggiunta nel ramo
+    `except` sta *dentro* l'except: se `_dbg` a sua volta solleva — GUI non ancora inizializzata,
+    attributo assente su un'istanza parziale — l'eccezione **esce dal gate**. E il chiamante
+    (`_license_is_valid`) non la assorbe: la propaga.
+
+    Risultato: una riga di diagnostica aggiunta per *osservabilità* trasformerebbe il fail-open in un
+    crash del chiamante — cioè esattamente il blocco che il proprietario ha vietato. La cura non può
+    essere peggiore della malattia."""
+    app = _rev_app(App, enabled=True)
+
+    def identity_rotta():
+        raise RuntimeError("hwid non determinabile")
+
+    def dbg_rotto(*_a, **_k):
+        raise RuntimeError("log non disponibile (GUI non inizializzata)")
+
+    app._revocation_identity = identity_rotta
+    app._dbg = dbg_rotto
+    app._rev_state = (object(), _NOW)
+
+    assert App._revocation_gate_ok(app) is True, \
+        "nemmeno un logger rotto deve poter bloccare un utente legittimo"
+
+
+def test_gate_senza_attributo_dbg_non_solleva(App):
+    """Variante: `_dbg` **assente del tutto** (istanza parziale). Stesso invariante — nessun blocco."""
+    app = _rev_app(App, enabled=True)
+
+    def identity_rotta():
+        raise RuntimeError("hwid non determinabile")
+
+    app._revocation_identity = identity_rotta
+    del app._dbg
+    app._rev_state = (object(), _NOW)
+
+    assert App._revocation_gate_ok(app) is True
