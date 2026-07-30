@@ -69,6 +69,15 @@ DEFAULT_MAX_PER_MINUTE = 20     # segnali nuovi ammessi al minuto
 # Prezzo accettato e dichiarato: un file manomesso con timestamp entro 24 h nel futuro sopravvive
 # e blocca quegli hash fino a 24 h — errore nel verso CONSERVATIVO (segnale ripetuto perso, mai
 # una doppia scommessa).
+#
+# SECONDO residuo, accettato esplicitamente (rilievo Fugu Ultra sulla PR #196): un salto
+# all'indietro OLTRE le 24 h — es. il ripristino di uno snapshot VM di piu' giorni — allo START
+# (percorso `load_state`, non fidato) ricade ancora nel comportamento originario: le voci vengono
+# clampate e la deduplica si azzera. Non e' un difetto residuo dell'orizzonte scelto ma della sua
+# esistenza: oltre QUALUNQUE soglia finita non c'e' piu' modo di distinguere «orologio spostato
+# molto» da «file corrotto», e sbagliare nel verso opposto (conservare un timestamp assurdo)
+# bloccherebbe quell'hash per sempre. Il rollback IN-PROCESS non e' interessato: e' `trusted`.
+# Chi ripristina uno snapshot VM vecchio dovrebbe cancellare `dedupe_state.json`, non fidarsene.
 CORRUPTION_HORIZON_S = 86_400
 
 _WS = re.compile(r"\s+")

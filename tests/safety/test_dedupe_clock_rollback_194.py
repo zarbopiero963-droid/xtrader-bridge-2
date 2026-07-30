@@ -11,9 +11,14 @@ finestra, e **lo stesso messaggio si ri-registra come NEW**: scritto due volte.
 
 Due chiamanti, due livelli di fiducia (per questo la correzione e' in due parti):
 
-- `write_path` (15 siti di rollback): lo snapshot e' preso dallo stesso processo pochi secondi
-  prima via `tracker.state()`. Non e' un file, nessuno puo' manometterlo -> `trusted=True`,
-  restauro verbatim, nessun clamp.
+- `write_path` (**7** siti di rollback del tracker): lo snapshot e' preso dallo stesso processo
+  pochi secondi prima via `tracker.state()`. Non e' un file, nessuno puo' manometterlo ->
+  `trusted=True`, restauro verbatim, nessun clamp.
+  Sette, non sedici: dei 16 `restore_state` di `write_path` gli altri 9 sono `daily` (2) e
+  `queue` (6), classi diverse le cui firme non accettano nemmeno `now` — passare loro `trusted`
+  sarebbe un `TypeError` all'avvio. Il test `test_tutti_i_rollback_del_tracker_sono_fidati`
+  qui sotto fissa il conteggio, cosi' un ottavo sito aggiunto in futuro e dimenticato
+  diventa rosso invece di riaprire B4 in silenzio.
 - `load_state` (allo START): legge `dedupe_state.json` dal disco -> il clamp RESTA, ma con
   orizzonte a 24 h (decisione proprietario D1 in #194): uno step NTP o un ripristino di
   snapshot VM valgono secondi/ore, un file corrotto sbaglia di anni.
@@ -23,9 +28,14 @@ d'orologio, deve anche continuare a bloccare i duplicati e a clampare la corruzi
 altrimenti avremmo "corretto" il bug disattivando la protezione.
 """
 
+import ast
+import pathlib
+
 import pytest
 
 from xtrader_bridge import signal_dedupe
+
+_WRITE_PATH = pathlib.Path(signal_dedupe.__file__).with_name("write_path.py")
 
 MSG = "Match: Inter v Milan\nEsito: Inter\nQuota: 1.85\nLato: BACK"
 T0 = 1_800_000_000.0
@@ -143,6 +153,44 @@ def test_un_valore_corrotto_non_sopravvive_al_giro_load_state_poi_rollback_fidat
 
     assert dopo_rollback.state()[0][1] == T0, (
         "un valore corrotto e' rientrato attraverso il rollback fidato")
+
+
+def test_tutti_i_rollback_del_tracker_sono_fidati():
+    """La regola «cerca la classe, non il sito» resa eseguibile.
+
+    B4 e' stato corretto passando `trusted=True` ai rollback del tracker in `write_path`. Se
+    domani qualcuno aggiunge un ramo di rollback e dimentica il parametro, quel percorso torna a
+    clampare e B4 si riapre **solo li'** — mentre tutti i test qui sopra restano verdi, perche'
+    esercitano `restore_state` direttamente e non il nuovo sito.
+
+    Questo test guarda il sorgente: ogni chiamata `tracker.restore_state(...)` in `write_path`
+    deve passare `trusted=True`. Volutamente NON fissa un numero: un sito in piu' e' legittimo,
+    un sito senza `trusted` no.
+
+    `daily`/`queue` sono esclusi apposta: sono classi diverse, le loro firme non accettano
+    `trusted` e passarglielo sarebbe un `TypeError`.
+    """
+    albero = ast.parse(_WRITE_PATH.read_text(encoding="utf-8"))
+    infedeli = []
+    totale = 0
+    for nodo in ast.walk(albero):
+        if not isinstance(nodo, ast.Call) or not isinstance(nodo.func, ast.Attribute):
+            continue
+        if nodo.func.attr != "restore_state":
+            continue
+        oggetto = getattr(nodo.func.value, "id", None)
+        if oggetto != "tracker":          # daily/queue: altre classi, altre firme
+            continue
+        totale += 1
+        fidato = any(kw.arg == "trusted" and getattr(kw.value, "value", None) is True
+                     for kw in nodo.keywords)
+        if not fidato:
+            infedeli.append(nodo.lineno)
+
+    assert totale > 0, "nessuna chiamata tracker.restore_state trovata: test da aggiornare"
+    assert not infedeli, (
+        f"in write_path.py ci sono rollback del tracker SENZA trusted=True alle righe {infedeli}: "
+        "su quei percorsi un rollback con l'orologio arretrato riazzera la deduplica (B4)")
 
 
 def test_il_default_resta_non_fidato():
