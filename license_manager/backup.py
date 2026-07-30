@@ -201,6 +201,13 @@ def restore_backup(contenuto: dict, directory: "str | None" = None, *,
     significherebbe perdere la capacità di rinnovare le licenze emesse con quella chiave — un danno
     irreversibile. Se la keypair è la **stessa**, non c'è nulla da decidere e si procede.
 
+    Il ripristino **sovrascrive** i file che il backup contiene e **lascia intatti** quelli che non
+    contiene (rilievo GPT-5.5 #184: su una destinazione già usata lo stato risulta «misto»). È
+    voluto, e l'unica direzione possibile è quella conservativa — la destinazione può avere **più**
+    revoche del backup, mai meno. Cancellare i file assenti produrrebbe invece esattamente il guasto
+    che questo modulo esiste per impedire: ripristinare un backup fatto **prima** delle revoche
+    azzererebbe `revoked.jsonl`, e la prima pubblicazione ri-attiverebbe tutti i revocati.
+
     Onestà sui limiti: la validazione avviene tutta prima (nessuna scrittura su backup rotto), ma la
     scrittura dei singoli file **non è una transazione unica**: un guasto di I/O a metà lascia alcuni
     file ripristinati e altri no. Ogni singolo file è però scritto in modo atomico, quindi nessuno

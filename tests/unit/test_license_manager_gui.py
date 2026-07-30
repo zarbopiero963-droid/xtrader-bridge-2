@@ -1177,6 +1177,34 @@ def test_restore_backup_su_keypair_diversa_chiede_conferma(gui, tmp_path):
     assert out2["ok"] is True
 
 
+def test_export_backup_su_percorso_non_scrivibile_non_solleva_e_non_logga_il_messaggio(
+        gui, tmp_path, caplog):
+    """Rilievo GPT-5.5 sulla #184: il ramo `OSError` (permessi negati, disco pieno, path invalido)
+    non era esercitato. Deve dare un messaggio parlante invece di far esplodere la GUI, e nel log
+    deve finire **solo il tipo** dell'eccezione: il suo testo contiene il percorso scelto
+    dall'utente, che su Windows include il nome account.
+
+    L'errore è **iniettato** sul giunto `_save_backup` invece di essere provocato con un `chmod`:
+    misurato in questo ambiente, la suite gira come **root**, e root scrive lo stesso in una cartella
+    `0o500` — un test basato sui permessi passerebbe verde senza aver mai esercitato il ramo. Il caso
+    reale (permessi negati su Windows, file lockato dall'antivirus) resta smoke manuale.
+    """
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+
+    def nega(dest, contenuto, *, overwrite=False):
+        raise PermissionError(13, "Permission denied", r"C:\Users\Piero Rossi\backup.json")
+    fake._save_backup = nega
+
+    with caplog.at_level("WARNING"):
+        out = gui.LicenseManagerApp._evaluate_export_backup(fake, str(tmp_path / "b.json"))
+
+    assert out["ok"] is False and "non scrivibile" in out["message"]
+    assert "PermissionError" in caplog.text, "il TIPO serve a diagnosticare"
+    assert "Piero" not in caplog.text and "Permission denied" not in caplog.text, \
+        "il messaggio dell'eccezione contiene il percorso utente: non deve finire nel log"
+
+
 def _finto_tkinter(monkeypatch, *, save="", open_="", askyesno=None):
     """Inietta un finto `tkinter` con `filedialog`/`messagebox`.
 

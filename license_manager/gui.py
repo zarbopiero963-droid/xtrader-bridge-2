@@ -386,7 +386,9 @@ class LicenseManagerApp(ctk.CTk):
                                             "chiave attuale corrotta)."}
         return {"ok": True,
                 "message": ("Ripristinati: " + ", ".join(esito["scritti"]) +
-                            ". Riavvia il License Manager per rileggere lo stato.")}
+                            ". Gli eventuali dati già presenti e NON contenuti nel backup (es. "
+                            "revoche più recenti) sono stati lasciati invariati. Riavvia il "
+                            "License Manager per rileggere lo stato.")}
 
     def _confirm_backup(self, testo: str) -> bool:
         """Conferma esplicita per le due azioni **distruttive** del backup (sovrascrivere un file

@@ -670,9 +670,21 @@ il tool, re-incolla il **token GitHub** nelle impostazioni di pubblicazione. Que
 fragile di prima (copiare a mano un file in `%APPDATA%` **prima** di avviare il programma: sbagliare
 l'ordine genera una seconda keypair).
 
-**Limite onesto:** la validazione è tutta prima della scrittura, ma il ripristino dei singoli file
-**non è una transazione unica** — un guasto di I/O a metà lascia alcuni file ripristinati e altri no.
-Ogni singolo file è però scritto in modo **atomico**, quindi nessuno resta troncato.
+**Limiti onesti:**
+
+- Il ripristino **sovrascrive** i file che il backup contiene e **lascia intatti** quelli che non
+  contiene: su una destinazione già usata lo stato risulta «misto» (rilievo GPT-5.5 sulla #184). È
+  voluto, e l'unica direzione possibile è quella conservativa — la destinazione può avere **più**
+  revoche del backup, mai meno. Cancellare i file assenti produrrebbe esattamente il guasto che
+  questo modulo esiste per impedire: ripristinare un backup fatto *prima* delle revoche azzererebbe
+  `revoked.jsonl`, e la prima pubblicazione ri-attiverebbe tutti i revocati. Il messaggio della GUI
+  lo dice, e un test lo fissa.
+- La validazione è tutta prima della scrittura, ma il ripristino dei singoli file **non è una
+  transazione unica** — un guasto di I/O a metà lascia alcuni file ripristinati e altri no. Ogni
+  singolo file è però scritto in modo **atomico**, quindi nessuno resta troncato.
+- Il **backup automatico** sta nella **stessa cartella** del tool: protegge da una cancellazione
+  accidentale dei file di stato, **non** da un guasto del disco. Contro quello serve l'export
+  completo su un supporto esterno.
 
 **Test hard:** `tests/unit/test_license_manager_backup_183.py` — il test centrale **riproduce il
 guasto** (migrare col solo seed → la lista pubblicata dice «nessuno revocato»; col backup completo i

@@ -212,6 +212,60 @@ def test_ripristino_sulla_STESSA_keypair_non_chiede_conferma(tmp_path):
     assert registry.read_revocations(directory=d), "le revoche devono essere tornate"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="permessi POSIX; su Windows il modello è ACL (no-op)")
+def test_il_file_di_backup_e_leggibile_solo_dall_utente(tmp_path):
+    """Rilievo GPT-5.5 sulla #184: il docstring promette `0o600`, e la promessa va **misurata** —
+    contiene il seed, un backup leggibile da altri account su un PC condiviso è una perdita di
+    chiave. Su Windows il modello è ACL e `chmod` è un no-op dichiarato: lì vale lo smoke manuale.
+
+    Onestà su cosa misura: verificato con mutazione, togliere il solo `_restrict_perms` **non** lo fa
+    diventare rosso — la garanzia vera viene da `atomic_write_text`, che scrive via `mkstemp` (già
+    `0o600`, senza finestra a umask largo); `_restrict_perms` è la cintura oltre alle bretelle. Il
+    test ha comunque denti: sostituendo la scrittura atomica con un `open()` normale il file esce
+    `0o644` con umask 022 e il test fallisce."""
+    import stat as _stat
+    d = str(tmp_path / "tool")
+    os.makedirs(d)
+    _tool_configurato(d)
+    p = str(tmp_path / "b.json")
+
+    backup.save_backup(p, backup.build_backup(d, now=_NOW))
+
+    modo = _stat.S_IMODE(os.stat(p).st_mode)
+    assert modo & (_stat.S_IRWXG | _stat.S_IRWXO) == 0, f"permessi troppo larghi: {modo:o}"
+
+
+def test_ripristino_NON_cancella_lo_stato_assente_dal_backup(tmp_path):
+    """Rilievo GPT-5.5 sulla #184: su una destinazione **già usata**, i file che il backup non
+    contiene restano quelli di prima — «stato misto».
+
+    È il comportamento **voluto**, e va nella direzione conservativa: l'unico caso possibile è che la
+    destinazione abbia **più** revoche del backup (se il backup ce l'ha, sovrascrive). Cancellare i
+    file assenti dal backup produrrebbe invece esattamente il guasto che questa PR esiste per
+    impedire: ripristinare un backup fatto **prima** delle revoche azzererebbe `revoked.jsonl`, e la
+    prima pubblicazione ri-attiverebbe tutti i revocati. Meglio uno stato che revoca **di più** che
+    uno che revoca **di meno**.
+
+    Il test lo fissa: se un domani qualcuno aggiungesse la cancellazione, diventa rosso."""
+    destinazione = str(tmp_path / "usata")
+    os.makedirs(destinazione)
+    seed_hex, public_hex = _tool_configurato(destinazione, revocati=["LIC-REVOCATO-QUI"])
+
+    # Backup della STESSA keypair ma senza revoche (fatto prima che quella revoca esistesse).
+    origine = str(tmp_path / "origine")
+    os.makedirs(origine)
+    core.save_signing_key(core.signing_key_path(origine), seed_hex, public_hex, _NOW)
+    contenuto = backup.build_backup(origine, now=_NOW)
+    assert registry.REVOKED_FILE not in contenuto["files"], "precondizione: il backup non ha revoche"
+
+    esito = backup.restore_backup(contenuto, destinazione)
+
+    assert registry.REVOKED_FILE not in esito["scritti"]
+    assert _lista_pubblicata(destinazione).serials == {"LIC-REVOCATO-QUI"}, (
+        "la revoca già presente sulla destinazione deve sopravvivere al ripristino: cancellarla "
+        "ri-attiverebbe un revocato alla prima pubblicazione")
+
+
 def test_backup_senza_keypair_e_un_errore(tmp_path):
     """Un backup «completo» senza seed non consente di ripartire: meglio fallire che dare una falsa
     sicurezza."""
