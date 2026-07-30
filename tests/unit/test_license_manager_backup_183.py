@@ -394,6 +394,32 @@ def test_la_fusione_avviene_sotto_il_lock_degli_append(tmp_path, monkeypatch):
         f"la fusione deve tenere il lock degli append mentre riscrive: {visto}")
 
 
+# Scrittori legittimi degli store append-only, per **percorso relativo** e non per basename: con
+# `rglob` un confronto per nome escluderebbe anche un `sotto/backup.py` — falso negativo proprio nel
+# caso che `rglob` serve a coprire (rilievo GPT-5.5 #184 su una mia patch precedente).
+_SCRITTORI_LEGITTIMI = {"registry.py", "backup.py"}
+_TOKEN_STORE = (".jsonl", "REGISTRY_FILE", "REVOKED_FILE", "registry_path", "revoked_registry_path")
+_TOKEN_SCRITTURA = ("open(", "atomic_write_text", "atomic_write_json")
+
+
+def _righe_che_scrivono_gli_store(radice) -> list:
+    """Righe che scrivono su uno store append-only fuori dagli scrittori legittimi, come
+    ``["sotto/x.py:12", ...]``.
+
+    Estratta dal test perché la **guardia stessa vada testata**: una guardia che non intercetta è
+    peggio di nessuna guardia, perché rassicura. Il criterio è per **riga** (non per file) e per
+    **percorso relativo** (non per basename)."""
+    trovate = []
+    for modulo in sorted(radice.rglob("*.py")):
+        relativo = modulo.relative_to(radice).as_posix()
+        if relativo in _SCRITTORI_LEGITTIMI or "__pycache__" in modulo.parts:
+            continue
+        for numero, riga in enumerate(modulo.read_text(encoding="utf-8").splitlines(), start=1):
+            if any(s in riga for s in _TOKEN_SCRITTURA) and any(t in riga for t in _TOKEN_STORE):
+                trovate.append(f"{relativo}:{numero}")
+    return trovate
+
+
 def test_NESSUN_altro_modulo_scrive_gli_store_append_only():
     """Rilievo GPT-5.5 #184: «se qualche `.jsonl` viene scritto da un altro modulo con un lock
     diverso, la protezione è parziale».
@@ -412,25 +438,37 @@ def test_NESSUN_altro_modulo_scrive_gli_store_append_only():
     scrive la **lista revoche esportata**, un altro file. Un allowlist di comodo avrebbe messo `gui.py`
     fuori sorveglianza per sempre; guardare la riga lo tiene dentro."""
     import pathlib
-    scrittori_legittimi = {"registry.py", "backup.py"}
-    store = (".jsonl", "REGISTRY_FILE", "REVOKED_FILE", "registry_path", "revoked_registry_path")
-    scritture = ("open(", "atomic_write_text", "atomic_write_json")
-    pacchetto = pathlib.Path(registry.__file__).parent
-    colpevoli = []
-    # `rglob` e non `glob` (rilievo GPT-5.5 #184): oggi il package è piatto, ma un modulo NUOVO —
-    # cioè proprio il caso che questa guardia esiste per intercettare — è anche il più probabile
-    # candidato a nascere dentro un sottopacchetto, e con `glob` sarebbe passato inosservato.
-    for modulo in sorted(pacchetto.rglob("*.py")):
-        if modulo.name in scrittori_legittimi or "__pycache__" in modulo.parts:
-            continue
-        for numero, riga in enumerate(modulo.read_text(encoding="utf-8").splitlines(), start=1):
-            if any(s in riga for s in scritture) and any(t in riga for t in store):
-                colpevoli.append(f"{modulo.name}:{numero}")
+    colpevoli = _righe_che_scrivono_gli_store(pathlib.Path(registry.__file__).parent)
 
     assert not colpevoli, (
         f"queste righe scrivono su uno store append-only fuori da registry/backup: {colpevoli}. "
         "Devono farlo sotto `registry.WRITE_LOCK`, altrimenti una revoca può sparire durante un "
         "ripristino.")
+
+
+@pytest.mark.parametrize("relativo, atteso", [
+    ("nuovo.py", True),                 # modulo nuovo, livello piatto
+    ("sotto/nuovo.py", True),           # dentro un sottopacchetto: `glob` lo mancava
+    ("sotto/backup.py", True),          # STESSO basename di uno scrittore legittimo, ma altro path
+    ("backup.py", False),               # lo scrittore legittimo vero: non va segnalato
+])
+def test_la_guardia_stessa_intercetta_i_casi_che_promette(tmp_path, relativo, atteso):
+    """Rilievo GPT-5.5 #184 sulla patch precedente: dopo il passaggio a `rglob`, l'allowlist per
+    **basename** avrebbe escluso `sotto/backup.py` — un falso negativo proprio nello scenario che
+    `rglob` era stato aggiunto a coprire.
+
+    Qui la guardia viene esercitata su un albero **sintetico**, così i suoi casi limite sono coperti
+    in modo permanente invece che da una verifica manuale una tantum. Una guardia che non intercetta
+    è peggio di nessuna guardia: rassicura."""
+    modulo = tmp_path / relativo
+    modulo.parent.mkdir(parents=True, exist_ok=True)
+    modulo.write_text('atomic_write_text(registry_path(d), "x")\n', encoding="utf-8")
+
+    trovate = _righe_che_scrivono_gli_store(tmp_path)
+
+    assert bool(trovate) is atteso, f"{relativo} → {trovate}"
+    if atteso:
+        assert trovate == [f"{relativo}:1"], "il rapporto deve dire path relativo e riga"
 
 
 def test_il_lock_pubblico_e_lo_STESSO_dei_privati(tmp_path):
