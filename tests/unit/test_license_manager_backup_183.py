@@ -334,6 +334,97 @@ def test_il_file_di_backup_e_leggibile_solo_dall_utente(tmp_path):
     assert modo & (_stat.S_IRWXG | _stat.S_IRWXO) == 0, f"permessi troppo larghi: {modo:o}"
 
 
+def test_un_backup_VECCHIO_non_fa_sparire_le_revoche_piu_recenti(tmp_path):
+    """Bloccante Fugu Ultra #184 — e una **mia affermazione sbagliata**: avevo scritto, qui e in un
+    thread di review, «la destinazione può avere più revoche del backup, mai meno».
+
+    Misurato prima della patch, era falso: `revoked.jsonl` è **presente** nel backup, quindi veniva
+    sovrascritto. Destinazione R1+R2, backup (più vecchio) R1 → dopo il ripristino restava **solo
+    R1**, e alla prima pubblicazione R2 sarebbe tornato attivo. Lo stesso guasto della migrazione col
+    solo seed, raggiunto da un'altra strada.
+
+    Ora i due store append-only si **uniscono**: è la semantica giusta per registri monotòni, dove
+    una revoca non si annulla e una licenza emessa non si dimentica."""
+    destinazione = str(tmp_path / "usata")
+    origine = str(tmp_path / "origine")
+    os.makedirs(destinazione), os.makedirs(origine)
+    seed_hex, public_hex = _tool_configurato(origine, revocati=["R1", "R3"])
+    backup_vecchio = backup.build_backup(origine, now=_NOW)
+
+    core.save_signing_key(core.signing_key_path(destinazione), seed_hex, public_hex, _NOW)
+    for serial in ("R1", "R2"):     # R2 revocato DOPO il backup, R1 in comune
+        registry.append_revocation({"serial": serial, "name": "T", "hardware_id": "HW1-X"},
+                                   directory=destinazione)
+
+    backup.restore_backup(backup_vecchio, destinazione)
+
+    serials = _lista_pubblicata(destinazione).serials
+    assert "R2" in serials, ("una revoca fatta DOPO il backup non deve sparire: alla prima "
+                             "pubblicazione quel cliente tornerebbe attivo")
+    assert serials == {"R1", "R2", "R3"}, "unione: destinazione + backup, senza perdite"
+    presenti = [r.get("serial") for r in registry.read_revocations(directory=destinazione)]
+    assert presenti.count("R1") == 1, "le voci in comune non vanno duplicate"
+
+
+def test_unione_vale_anche_per_il_registro_delle_licenze_emesse(tmp_path):
+    """Stessa logica per `licenses.jsonl`: perdere un record significa che «Rinnova» e «Ri-mostra
+    token» smettono di funzionare per quella licenza — uno dei due danni elencati nella #183."""
+    destinazione = str(tmp_path / "usata")
+    origine = str(tmp_path / "origine")
+    os.makedirs(destinazione), os.makedirs(origine)
+    seed_hex, public_hex = _tool_configurato(origine, emesse=["LIC-VECCHIA"])
+    vecchio = backup.build_backup(origine, now=_NOW)
+
+    core.save_signing_key(core.signing_key_path(destinazione), seed_hex, public_hex, _NOW)
+    registry.append_record({"serial": "LIC-NUOVA", "name": "Dopo", "hardware_id": "HW1-X",
+                            "issued_at": _NOW, "expires_at": _NOW + 86_400}, directory=destinazione)
+
+    backup.restore_backup(vecchio, destinazione)
+
+    serials = {r.get("serial") for r in registry.read_records(directory=destinazione)}
+    assert serials == {"LIC-VECCHIA", "LIC-NUOVA"}
+
+
+def test_le_IMPOSTAZIONI_invece_si_sovrascrivono(tmp_path):
+    """La controprova che l'unione non è stata applicata a tutto: `publish_config.json` è una
+    **configurazione**, non un registro append-only. Ripristinarla significa volere quella del
+    backup — fondere due configurazioni non vorrebbe dire niente."""
+    destinazione = str(tmp_path / "usata")
+    origine = str(tmp_path / "origine")
+    os.makedirs(destinazione), os.makedirs(origine)
+    seed_hex, public_hex = _tool_configurato(origine)          # repo «tizio/x»
+    contenuto = backup.build_backup(origine, now=_NOW)
+
+    core.save_signing_key(core.signing_key_path(destinazione), seed_hex, public_hex, _NOW)
+    publish_store.save_publish_config({"enabled": False, "repo": "altro/repo"},
+                                      directory=destinazione)
+
+    backup.restore_backup(contenuto, destinazione)
+
+    assert publish_store.load_publish_config(directory=destinazione)["repo"] == "tizio/x"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="permessi POSIX; su Windows il modello è ACL (no-op)")
+def test_il_seed_RIPRISTINATO_non_e_leggibile_da_altri(tmp_path):
+    """Bloccante Fugu Ultra #184: sospetto di una finestra a umask sul seed ripristinato.
+
+    Misurato: **non c'era** — `atomic_write_text` crea via `mkstemp`, già `0o600`. Il ripristino
+    passa comunque ora dallo stesso primitivo di `save_backup` (`core._persist_key_file`), così la
+    garanzia è esplicita invece che incidentale e arriva con l'`fsync` di file **e** directory. Il
+    test misura l'esito, che è ciò che conta a prescindere da quale strato lo fornisce."""
+    import stat as _stat
+    origine = str(tmp_path / "origine")
+    os.makedirs(origine)
+    _tool_configurato(origine)
+    destinazione = str(tmp_path / "nuova")
+    os.umask(0o022)         # umask larga: se ci fosse una finestra, si vedrebbe qui
+
+    backup.restore_backup(backup.build_backup(origine, now=_NOW), destinazione)
+
+    modo = _stat.S_IMODE(os.stat(core.signing_key_path(destinazione)).st_mode)
+    assert modo & (_stat.S_IRWXG | _stat.S_IRWXO) == 0, f"permessi troppo larghi sul seed: {modo:o}"
+
+
 def test_ripristino_NON_cancella_lo_stato_assente_dal_backup(tmp_path):
     """Rilievo GPT-5.5 sulla #184: su una destinazione **già usata**, i file che il backup non
     contiene restano quelli di prima — «stato misto».
@@ -418,6 +509,36 @@ def test_auto_backup_e_best_effort(tmp_path):
     ostacolo = tmp_path / "occupato"
     ostacolo.write_text("non sono una cartella", encoding="utf-8")
     assert backup.auto_backup(str(ostacolo), now=_NOW) is False
+
+
+@pytest.mark.parametrize("dove", ["lettura", "scrittura", "serializzazione"])
+def test_auto_backup_non_solleva_da_NESSUNA_delle_sue_fonti_di_guasto(tmp_path, monkeypatch, dove):
+    """Rilievo Claude Fable 5 #184: il docstring promette «non solleva mai», ma il test che c'era
+    copriva **una sola** fonte di guasto (percorso occupato da un file).
+
+    Qui le fonti vengono colpite una per una — errore di lettura dello stato, errore di scrittura del
+    backup, contenuto non serializzabile — perché la promessa vale solo se vale per tutte: chi la usa
+    (`gui._auto_backup_safe`, agganciato a emissione e revoca) non ha modo di sapere quale ramo
+    fallirà."""
+    d = str(tmp_path / "tool")
+    os.makedirs(d)
+    _tool_configurato(d, revocati=["LIC-A"])
+
+    if dove == "lettura":
+        def leggi_ko(path):
+            raise PermissionError(13, "Permission denied", path)
+        monkeypatch.setattr(backup, "_leggi", leggi_ko)
+    elif dove == "scrittura":
+        def scrivi_ko(path, obj, **kw):
+            raise OSError(28, "No space left on device")
+        monkeypatch.setattr(backup.atomic_io, "atomic_write_json", scrivi_ko)
+    else:
+        def serializza_ko(path, obj, **kw):
+            raise TypeError("Object of type set is not JSON serializable")
+        monkeypatch.setattr(backup.atomic_io, "atomic_write_json", serializza_ko)
+
+    assert backup.auto_backup(d, now=_NOW) is False, \
+        "il backup automatico deve dire «non fatto», mai far esplodere emissione o revoca"
 
 
 def test_auto_backup_su_cartella_vuota_non_scrive(tmp_path):

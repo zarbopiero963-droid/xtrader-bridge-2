@@ -1104,6 +1104,40 @@ def test_auto_backup_scatta_su_EMISSIONE_e_su_REVOCA(gui, tmp_path):
         "anche la revoca cambia lo stato"
 
 
+@pytest.mark.parametrize("azione", ["emissione", "revoca"])
+def test_un_backup_che_ESPLODE_non_fa_fallire_emissione_ne_revoca(gui, tmp_path, caplog, azione):
+    """Rilievo Claude Fable 5 #184: `_auto_backup_safe` non aveva un `except` proprio, quindi la
+    tenuta dell'emissione dipendeva **interamente** dalla promessa «best-effort» di un altro modulo.
+
+    Misurato prima della patch: iniettando un `auto_backup` che solleva, `_evaluate_issue` propagava
+    l'eccezione — la rete di sicurezza rompeva l'operazione che deve proteggere. `backup.auto_backup`
+    cattura già i tipi che sa di incontrare, ma quella garanzia può cambiare in un altro file mentre
+    il danno cadrebbe qui: emettere una licenza a un cliente non può fallire perché un backup non si
+    scrive.
+
+    Verifica anche che nel log finisca **solo il tipo**: il messaggio può contenere il percorso della
+    cartella-dati, che su Windows include il nome account."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    emessa = gui.LicenseManagerApp._evaluate_issue(fake, "Prima", "Licenza", "30", _HW)
+
+    def esplode(directory=None, *, now):
+        raise RuntimeError(r"guasto imprevisto in C:\Users\Piero Rossi\XTraderLicenseManager")
+    fake._auto_backup = esplode
+
+    with caplog.at_level("WARNING"):
+        if azione == "emissione":
+            out = gui.LicenseManagerApp._evaluate_issue(fake, "Mario", "Rossi", "30", _HW)
+            assert out["accepted"] is True and out["token"], \
+                "l'emissione non deve fallire perché il backup automatico è esploso"
+        else:
+            out = fake._evaluate_revoke(lic.license_serial(emessa["token"]))
+            assert out["accepted"] is True, "la revoca non deve fallire per lo stesso motivo"
+
+    assert "RuntimeError" in caplog.text, "il tipo serve a diagnosticare"
+    assert "Piero" not in caplog.text, "il messaggio dell'eccezione non deve finire nel log"
+
+
 def test_auto_backup_NON_scatta_sulla_pubblicazione(gui, tmp_path):
     """Pubblicare ri-firma e carica, ma **non cambia nulla su disco**: un backup lì riscriverebbe gli
     stessi byte a ogni ciclo, senza proteggere niente. È la correzione al disegno iniziale."""
@@ -1312,11 +1346,36 @@ def test_on_restore_backup_sostituisce_la_keypair_con_conferma(gui, tmp_path, mo
     assert core.load_signing_key(core.signing_key_path(str(tmp_path / "altra")))["public"] == attesa
 
 
-def test_confirm_backup_e_fail_closed_senza_dialogo(gui, tmp_path):
-    """`tkinter` assente/rotto (qui è il caso reale: non è installato) → la risposta è **no**.
-    Un default «sì» farebbe passare in silenzio proprio le due azioni irreversibili."""
+def test_confirm_backup_e_fail_closed_quando_il_dialogo_non_e_disponibile(gui, tmp_path,
+                                                                          monkeypatch):
+    """Dialogo non disponibile (Tk assente o rotto) → la risposta è **no**. Un default «sì» farebbe
+    passare in silenzio proprio le due azioni irreversibili.
+
+    ⚠️ Il guasto **non è ipotetico**: la prima versione di questo test chiamava `_confirm_backup`
+    senza iniettare nulla, contando sul fatto che in questo ambiente `tkinter` non è installato. Su
+    Linux passava; sul runner **Windows** — dove Tk c'è — ha aperto un **messagebox modale vero** e la
+    suite si è piantata fino al timeout (`windows-tests` rosso sulla #184). Un test che dipende
+    dall'assenza di una libreria non è deterministico: qui il fallimento del dialogo viene
+    **iniettato**, così il ramo è lo stesso su ogni piattaforma e nessuna finestra può aprirsi."""
     fake = _fake(gui, tmp_path)
+
+    def dialogo_rotto(*a, **k):
+        raise RuntimeError("display non disponibile")
+    _finto_tkinter(monkeypatch, askyesno=dialogo_rotto)
+
     assert gui.LicenseManagerApp._confirm_backup(fake, "sovrascrivo?") is False
+
+
+@pytest.mark.parametrize("risposta, atteso", [(True, True), (False, False)])
+def test_confirm_backup_riporta_la_risposta_dell_utente(gui, tmp_path, monkeypatch, risposta,
+                                                        atteso):
+    """Controprova del fail-closed: senza, un `_confirm_backup` che ritorna **sempre** `False`
+    passerebbe il test qui sopra — e nessuno potrebbe più sovrascrivere un backup o migrare su un PC
+    dove ha già generato una chiave."""
+    fake = _fake(gui, tmp_path)
+    _finto_tkinter(monkeypatch, askyesno=lambda *a, **k: risposta)
+
+    assert gui.LicenseManagerApp._confirm_backup(fake, "sovrascrivo?") is atteso
 
 
 def test_i_giunti_del_backup_sono_iniettabili_dal_COSTRUTTORE(gui):

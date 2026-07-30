@@ -641,7 +641,7 @@ attivi**, senza un errore e senza un avviso. E senza `licenses.jsonl` smettono d
 | `save_backup(dest, contenuto, *, overwrite=False)` | Scrittura **atomica** + permessi `0o600` fin dalla prima syscall; come `export_signing_key` **non sovrascrive** senza conferma (→ `BackupExistsError`). Il no-overwrite passa dallo **stesso primitivo che custodisce il seed** (`core._persist_key_file`, `O_CREAT\|O_EXCL`): un «controlla se esiste, poi scrivi» lascerebbe una finestra TOCTOU (rilievo CodeRabbit #184). |
 | `load_backup(path)` | Validazione **severa e tutta prima** di qualsiasi scrittura: JSON valido, versione di formato nota, nomi-file solo dall'allowlist, contenuti testuali, e **contenuto di ogni stato interpretabile** (righe JSONL che siano record, JSON di primo livello che sia un oggetto). Quest'ultimo controllo non è pignoleria: gli store leggono **fail-safe** e salterebbero in silenzio le righe illeggibili, quindi un `revoked.jsonl` corrotto dentro il backup avrebbe sostituito uno store valido e prodotto una lista **senza quelle revoche**, senza nemmeno un errore (rilievo CodeRabbit #184). Un backup rotto non arriva mai a toccare lo stato reale. |
 | `backup_public(contenuto)` | La pubblica del backup, **ri-derivata dal seed** e non letta dal campo `public` (dichiarativo: un backup manomesso potrebbe averlo incoerente). |
-| `restore_backup(contenuto, dir, *, overwrite_key=False)` | Ripristina e ritorna **quali file** ha scritto. Se in `dir` c'è già una keypair **diversa**, rifiuta (`BackupKeyMismatchError`) salvo conferma esplicita. |
+| `restore_backup(contenuto, dir, *, overwrite_key=False)` | Ripristina e ritorna **quali file** ha scritto. Se in `dir` c'è già una keypair **diversa**, rifiuta (`BackupKeyMismatchError`) salvo conferma esplicita. I due store **append-only** (`licenses.jsonl`, `revoked.jsonl`) vengono **fusi**, non sovrascritti (bloccante Fugu Ultra #184): ripristinare uno snapshot più vecchio non deve far sparire una revoca fatta dopo il backup — alla prima pubblicazione quel cliente tornerebbe attivo. Le **impostazioni** (`publish_config.json`, `publish_state.json`) si sovrascrivono: sono configurazione, non registri. |
 | `auto_backup(dir, *, now)` | Backup automatico dello stato **mutevole**, `auto_backup.json` nella cartella del tool. **Best-effort**: non solleva mai. |
 
 **Due scelte di sicurezza, entrambe deliberate.**
@@ -655,6 +655,15 @@ attivi**, senza un errore e senza un avviso. E senza `licenses.jsonl` smettono d
 - **Il token GitHub non entra mai nel backup**: vive nel **keyring** del sistema operativo, che è il
   posto giusto (cifrato, legato all'utente, non copiabile per sbaglio insieme a un file). Sul PC nuovo
   si re-incolla — ed è un segreto **sostituibile** in un minuto, a differenza del seed.
+- ⚠️ **Su Windows i permessi `0o600` NON proteggono, e va detto** (bloccante Fugu Ultra #184).
+  `chmod` non tocca le ACL NTFS: sul target principale del prodotto quel numero è un **no-op**. Dentro
+  `%APPDATA%\XTraderLicenseManager` la protezione reale viene dalla **DACL** applicata da
+  `core.secure_dir` (`icacls`, vedi PR 3c) — ma il file **esportato** finisce dove sceglie l'utente
+  (chiavetta, Desktop, cartella condivisa), e lì **nessuna ACL viene applicata da noi**: su una
+  chiavetta exFAT/FAT32 non esistono nemmeno. La protezione del backup esportato è quindi **la scelta
+  del supporto**, non il filesystem — ed è esattamente ciò che dice il messaggio della GUI («supporto
+  offline, mai in cartelle sincronizzate o condivise»). Il test sui permessi è `skipif` su Windows con
+  questa motivazione scritta: lì vale lo **smoke manuale**, non una promessa automatica.
 
 **Quando scatta l'automatismo:** su **emissione** e su **revoca** — i due momenti in cui lo stato su
 disco cambia davvero — e **non** sulla pubblicazione della lista, che ri-firma e carica ma non tocca il
@@ -676,13 +685,15 @@ l'ordine genera una seconda keypair).
 
 **Limiti onesti:**
 
-- Il ripristino **sovrascrive** i file che il backup contiene e **lascia intatti** quelli che non
-  contiene: su una destinazione già usata lo stato risulta «misto» (rilievo GPT-5.5 sulla #184). È
-  voluto, e l'unica direzione possibile è quella conservativa — la destinazione può avere **più**
-  revoche del backup, mai meno. Cancellare i file assenti produrrebbe esattamente il guasto che
-  questo modulo esiste per impedire: ripristinare un backup fatto *prima* delle revoche azzererebbe
-  `revoked.jsonl`, e la prima pubblicazione ri-attiverebbe tutti i revocati. Il messaggio della GUI
-  lo dice, e un test lo fissa.
+- Il ripristino **lascia intatti** i file che il backup non contiene: su una destinazione già usata
+  lo stato risulta «misto» (rilievo GPT-5.5/CodeRabbit sulla #184). È voluto — trattare l'assenza
+  come cancellazione azzererebbe `revoked.jsonl` ripristinando un backup fatto *prima* delle revoche,
+  e la prima pubblicazione ri-attiverebbe tutti i revocati. Il messaggio della GUI lo dice, e un test
+  lo fissa. ⚠️ **Correzione**: una versione precedente di questa pagina affermava che «la destinazione
+  può avere più revoche del backup, mai meno». Era **falso**, ed è stato misurato (bloccante Fugu
+  Ultra): quando `revoked.jsonl` **è** nel backup, veniva sovrascritto e le revoche fatte dopo
+  sparivano. Ora i due store append-only si **fondono**, quindi l'affermazione è vera perché il codice
+  la mantiene, non perché la pagina lo dichiara.
 - La validazione è tutta prima della scrittura, ma il ripristino dei singoli file **non è una
   transazione unica** — un guasto di I/O a metà lascia alcuni file ripristinati e altri no. Ogni
   singolo file è però scritto in modo **atomico**, quindi nessuno resta troncato.

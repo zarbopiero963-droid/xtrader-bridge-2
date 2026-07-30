@@ -243,12 +243,22 @@ def restore_backup(contenuto: dict, directory: "str | None" = None, *,
     significherebbe perdere la capacità di rinnovare le licenze emesse con quella chiave — un danno
     irreversibile. Se la keypair è la **stessa**, non c'è nulla da decidere e si procede.
 
-    Il ripristino **sovrascrive** i file che il backup contiene e **lascia intatti** quelli che non
-    contiene (rilievo GPT-5.5 #184: su una destinazione già usata lo stato risulta «misto»). È
-    voluto, e l'unica direzione possibile è quella conservativa — la destinazione può avere **più**
-    revoche del backup, mai meno. Cancellare i file assenti produrrebbe invece esattamente il guasto
-    che questo modulo esiste per impedire: ripristinare un backup fatto **prima** delle revoche
-    azzererebbe `revoked.jsonl`, e la prima pubblicazione ri-attiverebbe tutti i revocati.
+    **Gli store append-only si UNISCONO, non si sovrascrivono** (bloccante Fugu Ultra #184, e una mia
+    affermazione sbagliata: avevo scritto «la destinazione può avere più revoche del backup, mai
+    meno»). Misurato, era falso: con un `revoked.jsonl` **presente** nel backup, ripristinare uno
+    snapshot più vecchio *sostituiva* lo store e faceva sparire le revoche fatte dopo — R1+R2 sulla
+    destinazione, R1 nel backup, R1 dopo il ripristino. Alla prima pubblicazione R2 sarebbe tornato
+    attivo: esattamente il guasto che questo modulo esiste per impedire, raggiunto da un'altra
+    strada. Ora `licenses.jsonl` e `revoked.jsonl` vengono **fusi** (destinazione + voci del backup
+    non già presenti, per `serial`): è la semantica giusta per due registri **append-only**, in cui
+    una revoca non si annulla e una licenza emessa non si dimentica.
+
+    `publish_config.json` e `publish_state.json` sono invece **impostazioni**, non registri: lì
+    sovrascrivere è corretto — è il senso di ripristinare una configurazione.
+
+    I file che il backup **non contiene** restano intatti (rilievo GPT-5.5/CodeRabbit #184: su una
+    destinazione già usata lo stato risulta «misto»). Trattarli come cancellazioni produrrebbe la
+    stessa de-revoca silenziosa dal lato opposto.
 
     Onestà sui limiti: la validazione avviene tutta prima (nessuna scrittura su backup rotto), ma la
     scrittura dei singoli file **non è una transazione unica**: un guasto di I/O a metà lascia alcuni
@@ -272,10 +282,56 @@ def restore_backup(contenuto: dict, directory: "str | None" = None, *,
         if nome not in files:
             continue
         percorso = os.path.join(base, nome)
-        atomic_io.atomic_write_text(percorso, files[nome])
-        core._restrict_perms(percorso)
+        if nome == KEY_FILE:
+            # Stesso primitivo di `save_backup`: permessi espliciti e `fsync` di file **e** directory
+            # (rilievo Fugu #184). Misurato, `atomic_write_text` dava già `0o600` via `mkstemp`, ma
+            # qui la garanzia diventa esplicita invece che incidentale — e il seed sopravvive a un
+            # crash subito dopo il ripristino.
+            core._persist_key_file(percorso, files[nome], overwrite=True)
+        elif nome.endswith(".jsonl"):
+            atomic_io.atomic_write_text(percorso, _fondi_append_only(percorso, files[nome]))
+            core._restrict_perms(percorso)
+        else:
+            atomic_io.atomic_write_text(percorso, files[nome])
+            core._restrict_perms(percorso)
         scritti.append(nome)
     return {"scritti": scritti, "public": pubblica_backup}
+
+
+def _chiave_voce(riga: str) -> str:
+    """Chiave di deduplica di una riga JSONL: il `serial` se c'è, altrimenti la riga stessa.
+
+    Il fallback sulla riga integrale è deliberato: senza `serial` non esiste un'identità di dominio,
+    e **inventarne** una rischierebbe di scartare un record diverso. Meglio un duplicato in più — gli
+    store lo tollerano — che una revoca in meno."""
+    try:
+        voce = json.loads(riga)
+    except ValueError:
+        return riga
+    if isinstance(voce, dict) and str(voce.get("serial") or "").strip():
+        return f"serial:{str(voce['serial']).strip()}"
+    return riga
+
+
+def _fondi_append_only(percorso: str, dal_backup: str) -> str:
+    """Unione di due store append-only: **tutte** le righe della destinazione, più quelle del backup
+    non già presenti (per `serial`). L'ordine della destinazione è preservato.
+
+    Unione e non sostituzione perché `licenses.jsonl` e `revoked.jsonl` sono registri **monotòni**:
+    una revoca non si annulla, una licenza emessa non si dimentica. Sostituirli con uno snapshot più
+    vecchio farebbe sparire quello che è successo dopo il backup."""
+    esistente = _leggi(percorso) or ""
+    viste = {_chiave_voce(r) for r in esistente.splitlines() if r.strip()}
+    righe = [r for r in esistente.splitlines() if r.strip()]
+    for riga in dal_backup.splitlines():
+        if not riga.strip():
+            continue
+        chiave = _chiave_voce(riga)
+        if chiave in viste:
+            continue
+        viste.add(chiave)
+        righe.append(riga)
+    return "".join(r + "\n" for r in righe)
 
 
 def auto_backup(directory: "str | None" = None, *, now: int) -> bool:

@@ -338,9 +338,21 @@ class LicenseManagerApp(ctk.CTk):
         momenti in cui i dati cambiano — non alla pubblicazione della lista, che ri-firma e carica ma
         non tocca il disco.
 
-        Best-effort per costruzione: `backup.auto_backup` non solleva mai. Una rete di sicurezza che
-        rompe l'operazione che dovrebbe proteggere sarebbe peggio che non averla."""
-        return self._auto_backup(self._key_dir, now=self._now())
+        `backup.auto_backup` è già best-effort, ma qui c'è comunque una rete **strutturale** (rilievo
+        Claude Fable 5 #184). Misurato: senza questo `except`, un'eccezione imprevista dal backup
+        **fa fallire l'emissione della licenza** — cioè la rete di sicurezza romperebbe esattamente
+        l'operazione che dovrebbe proteggere. Oggi non succede perché `auto_backup` cattura i tipi
+        che sa di poter incontrare; ma quella garanzia vive in un altro modulo e un domani può
+        cambiare, mentre il danno cadrebbe qui. Stessa scelta già fatta per il fail-open del gate
+        revoca (#159), dove la sola diagnostica poteva vanificare il fail-open.
+
+        Nel log finisce **solo il tipo** dell'eccezione: il messaggio può contenere il percorso della
+        cartella-dati, che su Windows include il nome account."""
+        try:
+            return self._auto_backup(self._key_dir, now=self._now())
+        except Exception as exc:    # noqa: BLE001 — il backup NON deve poter far fallire emissione/revoca
+            _log.warning("Backup automatico non riuscito: %s", type(exc).__name__)
+            return False
 
     def _evaluate_export_backup(self, dest_path, *, overwrite: bool = False) -> dict:
         """📦 Esporta backup **completo** (migrazione): seed + registro + revoche + impostazioni.
