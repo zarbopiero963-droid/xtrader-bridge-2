@@ -19,9 +19,20 @@ Unicode, aprendo il fail-open #318 L2-1.
 # validazione ed entrava nel CSV letto da XTrader (raggiungibile da un vero messaggio
 # Telegram via parser custom). `[0-9]` chiude il buco fail-closed su TUTTI i consumer
 # (validator/custom_pipeline/csv_writer/parser) da questa fonte unica.
-DECIMAL = r"[0-9]+(?:[.,][0-9]+)?"
+#
+# I frammenti sono RACCHIUSI in un gruppo non catturante `(?:…)` (rilievo Fable 5 + GPT-5.5 su
+# #198). Cinque siti li compongono con le ancore — `signal_dedupe._HANDICAP_NUM`,
+# `custom_pipeline._HANDICAP_RE`, `validator._DECIMAL_PRICE` — scrivendo `r"^" + FRAMMENTO + r"$"`.
+# Finché il frammento non ha alternanze di primo livello quella composizione è corretta, ma il
+# giorno in cui qualcuno aggiungesse un ramo `|` le ancore si legherebbero a UN SOLO ramo e
+# `^[+-]?[0-9]+…|INF$` accetterebbe «12abc»: un Price/Handicap spurio superarebbe la validazione
+# ed entrerebbe nel CSV letto da XTrader. Fail-OPEN silenzioso, la stessa famiglia di #318 L2-1.
+# Il gruppo qui rende la composizione sicura PER COSTRUZIONE in tutti i consumer, presenti e
+# futuri, invece di ripetere `(?:…)` in ogni sito (che sarebbe la stessa duplicazione che questo
+# modulo esiste per eliminare). Non cattura nulla: nessuna numerazione di gruppi cambia.
+DECIMAL = r"(?:[0-9]+(?:[.,][0-9]+)?)"
 
 # Come `DECIMAL` ma con segno opzionale (es. Handicap "-1"/"+1,5", Price "1.85").
 # COMPOSTO da `DECIMAL` (non riscritto a mano) così un futuro cambio a `DECIMAL` non può
 # divergere qui — l'anti-drift vale anche dentro il modulo (review Fable 5 su #318).
-SIGNED_DECIMAL = r"[+-]?" + DECIMAL
+SIGNED_DECIMAL = r"(?:[+-]?" + DECIMAL + r")"

@@ -3896,3 +3896,169 @@ una riga che XTrader può aver già consumato è un rischio a sé, fuori dallo s
   6f93165 dà **2 righe** esattamente come dopo la patch, e già lì `row_dedup_key` le
   distingueva. È una classe diversa (normalizzazione debole dei campi identificativi), non la
   classe di B1 — registrata a parte invece di allargare lo scope di questa PR.
+
+---
+
+## PR-A2 (#194 · B46) — la stessa scommessa scritta in due modi non è due scommesse
+
+**Il difetto.** PR-A ha reso l'identità della scommessa indipendente dal **messaggio**, ma il
+confronto dei campi è rimasto **testuale puro** (`str(...).strip()`). La stessa giocata scritta
+con un formato diverso produceva ancora due identità e, in `APPEND_ACTIVE`/`QUEUE_UNTIL_CONFIRMED`,
+due righe nel CSV:
+
+```text
+'Inter'  vs 'INTER'    -> due scommesse      (repost in maiuscolo)
+'0'      vs '0.0'      -> due scommesse      (stesso handicap)
+'1'      vs '+1'       -> due scommesse
+'0.5'    vs '0.50'     -> due scommesse
+```
+
+Il caso del maiuscolo non è teorico: senza regola di rimappatura né dizionario **il CSV ricopia
+il messaggio verbatim** (chiarimento del proprietario), quindi il case che finisce nel CSV è
+quello che ha scritto il canale — e ri-pubblicare in maiuscolo con un'intestazione promozionale
+è il modo più comune di ri-pubblicare.
+
+**Non era un buco nuovo: era una correzione incompleta.** L'audit **#76 (P2-2)** aveva già
+normalizzato virgola→punto su `Handicap`/`Points` con la motivazione scritta *«così la chiave
+dedup per-riga è canonica e la stessa scommessa in stile «0,5»/«0.5» non genera due righe»*. Ha
+canonicalizzato il **separatore**, non il **valore**, e non ha toccato le colonne testuali.
+
+### La parte pericolosa: `row_dedup_key` è persistita
+
+La canonicalizzazione vive **solo** in `row_identity`, mai in `row_dedup_key`. Quest'ultima è
+scritta su disco (`dedupe_state.json`) e salvata su ogni segnale in coda come `dedup_key`.
+Canonicalizzarla avrebbe invalidato **in silenzio** tutte le chiavi già scritte: al primo avvio
+dopo l'aggiornamento una riga ancora attiva avrebbe la chiave vecchia mentre il codice calcola
+quella nuova, non combaciano, il duplicato non viene riconosciuto → **doppia scommessa causata
+dalla patch che la doveva impedire**. È la stessa trappola della canonicalizzazione del serial
+delle licenze (#192), presa in tempo la seconda volta.
+
+`row_identity` invece è calcolata a runtime dalle righe vive e non finisce mai su disco: lì la
+canonicalizzazione è gratuita. Il test `test_row_dedup_key_non_e_cambiata_di_un_byte` incolla gli
+hash **letterali** misurati su `main` `799f51d`: se un refactor futuro tocca quella chiave anche
+di un solo byte, diventa rosso e costringe a ragionare sulla migrazione.
+
+### La normalizzazione testuale non è nuova
+
+Campi testuali → **`dizionario.normalize`**, che il codice dichiara già «fonte unica della
+normalizzazione, riusata anche dalle value-map per evitare implementazioni divergenti». Scriverne
+una copia in `signal_dedupe` sarebbe stata la terza — esattamente ciò che la regola 3 esiste per
+impedire. Effetto collaterale desiderabile: «è lo stesso nome?» per la deduplica e per il lookup
+del dizionario tornano a essere **la stessa domanda**.
+
+L'handicap usa invece una canonicalizzazione **numerica**, con `nan`/`inf` e i valori non numerici
+lasciati a confronto **testuale** (fail-closed: mai interpretare un valore che diventa una
+scommessa).
+
+### Interazione con `csv_language`, verificata
+
+La localizzazione del separatore decimale avviene **solo** in `csv_writer`, al momento della
+scrittura (contratto CSV): coda e identità vedono sempre la forma interna col punto. Cambiare la
+lingua del CSV **non** cambia l'identità delle scommesse.
+
+### B47 — lasciato aperto deliberatamente
+
+La virgola **dentro un nome di selezione** (`Over 5,5` vs `Over 5.5`) resta un buco misurato: la
+trasformazione `score_to_over` produce la virgola, un messaggio può scrivere il punto. Non è stato
+chiuso qui perché il contratto CSV esclude **esplicitamente** le colonne testuali da ogni
+canonicalizzazione (*«le colonne testuali non vengono mai toccate»*): allargare lì è una decisione
+del proprietario, non una conseguenza di questa correzione.
+
+### Cosa ha cambiato la review (#198)
+
+Tre rilievi hanno modificato la patch, e uno di questi era un **bug mio**:
+
+- **`numbers_re` è la fonte unica, e non l'avevo usata** (a valle di un rilievo GPT-5.5 sulla
+  virgola). La prima stesura aveva una regex dell'handicap scritta a mano — una **quinta copia**
+  del frammento che l'audit L4 aveva già estratto proprio per impedire il drift, e per giunta
+  **più permissiva del validatore**: accettava «.5», che il pipeline **scarta** come
+  `INVALID_HANDICAP`. Su un campo che diventa una scommessa, essere più permissivi del validatore
+  è la direzione sbagliata. Ora `_HANDICAP_NUM` si compone da `numbers_re.SIGNED_DECIMAL`: le due
+  definizioni non possono più divergere, e si guadagna gratis la **virgola** — legittima qui,
+  perché `Handicap` è una colonna **decimale** (a differenza delle testuali di B47).
+- **Il `ValueError` che ne è seguito.** Il frammento condiviso accetta entrambi i separatori ma
+  `float()` capisce solo il punto: la prima stesura sollevava `ValueError` su un handicap con la
+  virgola, **sul percorso di scrittura**. L'ha preso il test che GPT-5.5 aveva chiesto — non la
+  rilettura del codice.
+- **Un test tautologico** (rilievo Fugu Ultra). `test_la_normalizzazione…` confrontava
+  `_stessa_scommessa(a, b)` con `normalize(a) == normalize(b)`: vero per costruzione, visto che
+  l'identità usa proprio `normalize`. Non dimostrava la cosa che conta — che `normalize` faccia
+  **solo** case e spazi e **non** risolva alias, perché se risolvesse alias due scommesse davvero
+  diverse collasserebbero e si perderebbe un segnale valido. Sostituito da un test che verifica
+  gli invarianti carattere per carattere (accenti, trattini, slash, cifre, punti).
+
+Aggiunti anche i due controlli mancanti chiesti in review: l'**aggiornamento con
+`dedupe_state.json` preesistente** (il giro completo salva → riavvio → rilettura → reinvio, cioè
+lo scenario che poteva produrre la doppia scommessa) e la **separazione da `csv_language`**
+(identità invariata in `IT`/`EN`/`ES`).
+
+> **Nota di metodo.** Come per la #166, entrambi i difetti reali di questa PR sono usciti
+> **eseguendo**, non rileggendo: la quinta copia della regex l'ha fatta emergere una domanda su un
+> caso che non avevo testato, e il `ValueError` l'ha preso il test scritto per rispondere a quella
+> domanda. Nessuno dei due si vede leggendo il diff — e infatti nessuno dei quattro reviewer li
+> aveva visti: avevano visto le *domande giuste*.
+
+### Un fail-open latente su cinque siti, trovato da una domanda sul mio
+
+Fable 5 e GPT-5.5 hanno chiesto la stessa cosa sul secondo push: `re.compile(r"^" +
+numbers_re.SIGNED_DECIMAL + r"$")` è sicuro, se il frammento contenesse un'alternanza di primo
+livello? Verificato: **oggi no**, `SIGNED_DECIMAL` è `[+-]?[0-9]+(?:[.,][0-9]+)?`, nessun `|`.
+Ma la composizione con le ancore non è usata solo dal mio sito — è usata da **cinque**:
+
+```text
+signal_dedupe._HANDICAP_NUM       (questa PR)
+custom_pipeline._HANDICAP_RE      x2   validazione handicap
+validator._DECIMAL_PRICE          x2   validazione quota
+```
+
+Il giorno in cui qualcuno aggiungesse un ramo `|` al frammento condiviso, le ancore si
+legherebbero a **un solo ramo** e tutte e cinque diventerebbero fail-**OPEN** insieme:
+
+```text
+'^[+-]?[0-9]+(?:[.,][0-9]+)?|INF$'   .match('12abc')  ->  True
+'^(?:[+-]?[0-9]+(?:[.,][0-9]+)?|INF)$' .match('12abc') ->  False
+```
+
+Un Price o un Handicap spurio che supera la validazione ed entra nel CSV letto da XTrader: la
+stessa famiglia di **#318 L2-1** (le cifre Unicode), che questo modulo esiste per aver chiuso.
+
+**Corretto alla fonte**, non nei cinque siti: i frammenti sono ora racchiusi in un gruppo **non
+catturante**, così la composizione è sicura **per costruzione** per ogni consumer presente e
+futuro. Ripetere `(?:…)` in ogni sito sarebbe stata la stessa duplicazione che `numbers_re`
+esiste per eliminare — ed è la regola 3 applicata al rimedio, non solo al difetto.
+
+**Zero cambiamento di comportamento**, verificato in modo differenziale: 38 input × 2 frammenti
+× 2 costruzioni (ancorata e nuda) × 2 metodi (`match` e `fullmatch`) → **0 divergenze**. Il
+gruppo non cattura, quindi nessuna numerazione di gruppi cambia in nessun consumer. Guardia in
+`tests/unit/test_numbers_re.py::test_i_frammenti_sono_componibili_con_le_ancore`, scritta sul
+**comportamento** e non sulla forma: se qualcuno togliesse il gruppo e aggiungesse un ramo,
+diventerebbe rossa.
+
+### Una collisione fra i due domini, trovata a review avanzata
+
+Fable 5, rivedendo l'**intera** PR, ha sollevato un caso che i tre giri precedenti non avevano
+toccato: `_canonical_handicap` produce `repr(float(...))`, e `repr` passa alla **notazione
+scientifica** oltre certe soglie. Verificato riproducibile prima di correggere:
+
+```text
+repr(float("0.00001"))          -> '1e-05'
+repr(float("10000000000000000")) -> '1e+16'
+
+Handicap '0.00001'  vs  '1e-05'  -> stessa scommessa? True   ← collisione
+Handicap '0.00001'  valido per _HANDICAP_RE? True
+Handicap '1e-05'    valido per _HANDICAP_RE? False
+```
+
+Un handicap **numerico e valido** collideva con un handicap **testuale** che gli somigliava dopo
+la conversione. La conseguenza non è la doppia scommessa ma il suo opposto e speculare: due
+scommesse diverse con la stessa identità significano che **una viene persa**, scartata come
+duplicato dell'altra.
+
+Corretto marcando il **ramo** dentro la chiave (`n` per numerico, `t` per testo). Il marcatore è
+su **entrambi** i rami di proposito: con un prefisso sul solo ramo numerico, un testo che comincia
+col prefisso lo imiterebbe e la collisione tornerebbe — ed è quello che il test verifica
+(`"n1e-05"` come testo non deve collidere con `0.00001` numerico).
+
+Nessun problema di migrazione: `row_identity` non è persistita, per la scelta di progetto
+descritta sopra. È il vantaggio concreto di quella separazione — l'identità si può correggere a
+review avanzata senza toccare nulla su disco.

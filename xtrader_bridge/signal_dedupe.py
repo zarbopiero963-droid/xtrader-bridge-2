@@ -45,7 +45,7 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from . import atomic_io, validators
+from . import atomic_io, dizionario, numbers_re, validators
 
 # Stati del ciclo di vita del segnale (vocabolario condiviso; usati appieno in
 # PR-16/PR-17). DUPLICATE/RATE_LIMITED sono gli esiti decisi qui.
@@ -106,8 +106,81 @@ def _row_fields(row: dict) -> list:
     """I campi identificativi della riga, normalizzati. Fonte UNICA usata sia da
     `row_identity` sia da `row_dedup_key`: se le due leggessero i campi in modo anche
     solo leggermente diverso, una riga potrebbe risultare «stessa scommessa» per una e
-    «scommessa diversa» per l'altra, e il difetto B1 rientrerebbe dalla finestra."""
+    «scommessa diversa» per l'altra, e il difetto B1 rientrerebbe dalla finestra.
+
+    Attenzione a toccare questa funzione: il suo output finisce in `row_dedup_key`, che è
+    **persistita** (`dedupe_state.json` e `dedup_key` sui segnali in coda). Cambiarla
+    invalida le chiavi già scritte su disco → vedi la nota in `_canonical_fields`."""
     return [str((row or {}).get(k, "") or "").strip() for k in _ROW_KEY_FIELDS]
+
+
+# Handicap numerico: si COMPONE dal frammento condiviso `numbers_re.SIGNED_DECIMAL` invece di
+# riscriverlo (fonte unica anti-drift, audit L4 — la prima stesura di questa patch aveva una
+# regex a mano, cioè una QUINTA copia, ed era per giunta più permissiva del validatore: accettava
+# «.5», che `_HANDICAP_RE` del pipeline SCARTA come INVALID_HANDICAP. Rilievo GPT-5.5 su #198).
+# Comporlo qui dà gratis anche la VIRGOLA («+1,5»), che il frammento condiviso già accetta:
+# `Handicap` è una colonna DECIMALE, e per quelle il contratto CSV ammette esplicitamente
+# entrambi i separatori — a differenza delle colonne testuali (vedi B47).
+_HANDICAP_NUM = re.compile(r"^" + numbers_re.SIGNED_DECIMAL + r"$")
+
+
+def _canonical_handicap(value: str):
+    """Forma canonica NUMERICA dell'handicap: «0», «0.0», «+0» e «-0» sono lo stesso handicap;
+    «0.50» e «0.5» pure. Ritorna `None` se il valore non è un numero — o se è `nan`/`inf`,
+    parsabili da `float()` ma non handicap — e in quel caso il chiamante lo confronta come
+    **testo** (fail-closed: mai interpretare un valore che diventa una scommessa).
+
+    Il separatore è il punto perché a monte della scrittura il bridge è già canonico col punto
+    (contratto CSV; la localizzazione per `csv_language` avviene SOLO in `csv_writer`, quindi la
+    coda e questa funzione vedono sempre la forma interna: cambiare lingua del CSV non cambia
+    l'identità delle scommesse)."""
+    if not _HANDICAP_NUM.match(value):
+        return None
+    # `numbers_re` accetta ENTRAMBI i separatori ma `float()` capisce solo il punto: senza
+    # questa riga un handicap con la virgola sollevava `ValueError` sul percorso di scrittura
+    # (bug della prima stesura, preso dal test chiesto da GPT-5.5 su #198).
+    numero = float(value.replace(",", "."))
+    if not math.isfinite(numero):        # irraggiungibile via la regex, esplicito per contratto
+        return None
+    return repr(numero + 0.0)            # «+0.0» e «-0.0» collassano sullo stesso zero
+
+
+def _canonical_fields(row: dict) -> list:
+    """I campi identificativi in forma **canonica**, per rispondere a «è la stessa SCOMMESSA?».
+
+    Usata SOLO da `row_identity`, mai da `row_dedup_key`, e la distinzione è la parte
+    pericolosa di B46 (#194): `row_dedup_key` è **persistita** su disco (`dedupe_state.json`)
+    e su ogni segnale in coda. Canonicalizzare anche lei invaliderebbe in silenzio tutte le
+    chiavi già scritte: al primo avvio dopo l'aggiornamento una riga ancora attiva avrebbe la
+    chiave vecchia mentre il codice calcola quella nuova, non combacerebbero, il duplicato non
+    verrebbe riconosciuto → doppia scommessa, causata dalla patch che la doveva impedire.
+    `row_identity` invece è calcolata a runtime dalle righe vive e non finisce mai su disco:
+    lì la canonicalizzazione è gratuita. La regola 3 (fonte unica) resta rispettata perché
+    `_row_fields` continua a essere l'unico posto che dice QUALI campi contano — qui si dice
+    solo COME confrontarli.
+
+    Campi testuali → `dizionario.normalize`, che il progetto dichiara già «fonte unica della
+    normalizzazione, riusata anche dalle value-map per evitare implementazioni divergenti»:
+    così «è lo stesso nome?» per la deduplica e per il lookup del dizionario restano la stessa
+    domanda. Handicap → forma numerica.
+
+    Fuori scope deliberatamente: la virgola DENTRO un nome («Over 5,5» vs «Over 5.5»). È un
+    buco reale (B47) ma il contratto CSV esclude esplicitamente le colonne testuali da ogni
+    canonicalizzazione: allargare lì è una decisione del proprietario, non una conseguenza."""
+    valori = _row_fields(row)
+    canonici = [dizionario.normalize(v) for v in valori]
+    i = _ROW_KEY_FIELDS.index("Handicap")
+    numerico = _canonical_handicap(valori[i])
+    # Il ramo (numerico o testo) è marcato NELLA chiave, perché i due domini possono altrimenti
+    # collidere: `repr(float("0.00001"))` è `'1e-05'`, e un handicap TESTUALE `"1e-05"` — che il
+    # validatore scarta ma che qui arriverebbe come testo — produrrebbe la stessa stringa. Due
+    # scommesse diverse con la stessa identità significano che UNA VIENE PERSA, scartata come
+    # duplicato dell'altra: l'errore speculare alla doppia scommessa (rilievo Fable 5 su #198,
+    # verificato riproducibile — `0.00001` è un handicap VALIDO per `_HANDICAP_RE`).
+    # Il marcatore è su ENTRAMBI i rami: con un prefisso sul solo ramo numerico, un testo che
+    # comincia col prefisso lo imiterebbe e la collisione tornerebbe.
+    canonici[i] = ("n" + numerico) if numerico is not None else ("t" + canonici[i])
+    return canonici
 
 
 def row_identity(row: dict) -> str:
@@ -125,8 +198,12 @@ def row_identity(row: dict) -> str:
 
     NON sostituisce `row_dedup_key`, la affianca: quella resta dipendente dal messaggio perche'
     serve al percorso multi-riga a non auto-deduplicare le righe diverse di uno STESSO messaggio.
-    Due chiavi, due domande."""
-    return hashlib.sha256("\x1f".join(_row_fields(row)).encode("utf-8")).hexdigest()
+    Due chiavi, due domande.
+
+    B46 (#194): il confronto usa la forma CANONICA dei campi (`_canonical_fields`), non quella
+    grezza. Senza, «Inter» e «INTER» — cioe' il modo piu' comune in cui un canale ri-pubblica un
+    pronostico — restavano due scommesse, e cosi' «0» e «0.0» per l'handicap."""
+    return hashlib.sha256("\x1f".join(_canonical_fields(row)).encode("utf-8")).hexdigest()
 
 
 def row_dedup_key(text: str, row: dict) -> str:
