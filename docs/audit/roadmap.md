@@ -4304,3 +4304,48 @@ Il presupposto non regge, per due ragioni indipendenti:
    verifica che l'identità non compaia nel file salvato;
 2. **su `main` la normalizzazione non esisteva affatto**, quindi nessuno stato è mai stato scritto
    con la forma intermedia: quella è vissuta solo in un commit di questa PR, mai rilasciato.
+
+---
+
+## Docs — le risposte del supporto XTrader entrano nel repository (luglio 2026)
+
+**Perché.** Le risposte del supporto XTrader su `Points`, riconoscimento, ID per-exchange e
+consumo del CSV vivevano in un ticket e in una chat. Un ticket non è consultabile da chi apre il
+repository fra sei mesi, e la domanda «`Points` serve o no?» era già stata posta due volte.
+
+**Cosa cambia.** Solo documentazione — **nessuna riga sotto `xtrader_bridge/**`**. In
+`docs/xtrader_csv_contract.md` nasce la sezione «Lato XTrader — risposte del supporto (ticket,
+luglio 2026)», che registra il comportamento del **lettore** (che il bridge non può verificare
+coi propri test) e **rimanda** alle sezioni esistenti invece di duplicarle:
+
+- le **automazioni scaricabili non funzionano coi Segnali**: serve l'azione «Piazza Scommessa su
+  Segnali» (la stessa che porta lo `Stake`);
+- **`Points` è un moltiplicatore dello stake solo se** nella strategia è spuntata «Modula lo
+  Stake con dato Points del segnale se disponibile»; senza quella spunta la colonna è inerte.
+  Era l'unico punto in cui il contratto diceva meno del vero: prima leggeva «moltiplicatore
+  stake» senza la condizione;
+- **una riga = un segnale**, e un CSV può contenerne molti (selezioni/mercati/eventi/`Provider`
+  diversi). La riga singola di `OVERWRITE_LAST` è una **scelta del bridge**, non un limite di
+  XTrader — distinzione che il contratto non rendeva esplicita;
+- **`MarketName` non obbligatorio**; **colonne interamente vuote omissibili** — con la nota che il
+  bridge scrive comunque tutte e 14 le colonne, ed è deliberato (forma degli esempi reali,
+  coperta dai test, cambiarla sarebbe breaking);
+- **ID preferibili quando noti**, ma **non portabili tra exchange** (`.it` ≠ `.com` per ID e a
+  volte per nomi) — coerente con slice 5d sopra, qui riportato dove lo cerca chi legge il
+  contratto;
+- il **metodo di riconoscimento si eredita dalla fonte** ed è modificabile per singolo segnale,
+  ⚠️ **con rischio di duplicato al refresh automatico**: è una raccomandazione operativa lato
+  XTrader, il bridge non può prevenirla;
+- ⚠️ **il nome del mercato Over/Under dipende dalla lingua della fonte** (`Over 2,5` per fonte IT,
+  `Over 2.5` per UK) — ma è una colonna **testuale**, che la localizzazione decimale non tocca
+  mai: la forma giusta la decide la regola del parser o il dizionario, e quella sbagliata fa
+  semplicemente **non trovare il mercato** a XTrader;
+- **quote a 2 decimali al massimo** (`1.25` sì, `1.225` mai): registrato perché è l'assunzione di
+  dominio dietro al `{1,2}` di `_VIRGOLA_DECIMALE` (PR-A2b), non un vincolo del CSV.
+
+Nel README entrano le due righe che servono davvero all'utente: la condizione su `Points` e il
+fatto che senza l'azione «Piazza Scommessa su Segnali» XTrader **non legge affatto** il file.
+
+**Test.** Nessuno nuovo: non è cambiata una riga di codice. La suite è stata comunque eseguita
+per intero per dimostrare che la PR è davvero di sole docs. La regola «test fail-first» è **N/A**
+per lo stesso motivo, e va detto invece di lasciarlo intendere.

@@ -802,7 +802,11 @@ Note:
   sconosciuto è rifiutato (fail-closed, mai indovinare il lato).
 - **`Stake`** **non** è una colonna del CSV: lo stake è gestito in XTrader.
 - **Non esiste** una colonna `Timestamp`: la deduplica è interna al bridge.
-- **`Points`** è lasciato vuoto; **`Handicap`** vale `0`.
+- **`Points`** è lasciato vuoto; **`Handicap`** vale `0`. Anche valorizzato, XTrader usa `Points`
+  come moltiplicatore dello stake **solo** se nella strategia è spuntata «Modula lo Stake con dato
+  Points del segnale se disponibile».
+- ⚠️ **Perché XTrader legga il CSV serve l'azione «Piazza Scommessa su Segnali»**: le automazioni
+  scaricabili dalla community **non** funzionano con i Segnali (conferma supporto, luglio 2026).
 - **Separatore decimale — lingua CSV (#342)**: il formato dei decimali **scritti nel file**
   (`Price`/`MinPrice`/`MaxPrice`/`Points`/`Handicap`) segue la config **`csv_language`**
   (`IT`/`EN`/`ES`, default **`IT`**): con `IT`/`ES` la **virgola** («1,85» — come richiede
