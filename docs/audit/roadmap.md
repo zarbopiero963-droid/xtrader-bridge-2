@@ -4062,3 +4062,121 @@ col prefisso lo imiterebbe e la collisione tornerebbe — ed è quello che il te
 Nessun problema di migrazione: `row_identity` non è persistita, per la scelta di progetto
 descritta sopra. È il vantaggio concreto di quella separazione — l'identità si può correggere a
 review avanzata senza toccare nulla su disco.
+
+---
+
+## PR-B2 (#194 · B45) — il residuo di PR-B non era inerente, era un limite del formato
+
+**Il residuo dichiarato.** PR-B ha corretto B4 portando l'orizzonte anti-corruzione a 24 h, e ha
+dichiarato onestamente ciò che restava fuori: *un ripristino di snapshot VM di oltre 24 ore ricade
+ancora nel comportamento originario*. La ragione è che l'orizzonte è calcolato a partire da `now`
+— e dopo un ripristino `now` è precisamente ciò che non è attendibile. Col solo contenuto del
+file, «orologio arretrato di molto» e «file corrotto» si presentano **entrambi** come voci nel
+futuro, e non c'è modo di distinguerli.
+
+Detto così sembrava inerente al problema. Non lo era: era un limite del **formato**. Mancava il
+dato che rende la domanda decidibile.
+
+**`saved_at`** — l'istante del salvataggio, scritto nel file — la rende decidibile:
+
+- una voce con `t > saved_at` è **impossibile**, perché sarebbe stata registrata dopo il
+  salvataggio → è corruzione a prescindere da quanto disti da `now`. È un criterio più stretto e
+  più fondato dell'orizzonte a 24 h, che su un `now` arretrato di 30 giorni non poteva funzionare;
+- `now < saved_at` significa che l'orologio è **arretrato** di quella quantità: le voci vengono
+  traslate della stessa, così la loro **età** resta quella vera e la finestra di deduplica
+  continua a funzionare come configurata.
+
+```text
+salto indietro   2 giorni  ->  deduplica INTATTA   (prima: persa)
+salto indietro  30 giorni  ->  deduplica INTATTA   (prima: persa)
+salto indietro 365 giorni  ->  deduplica INTATTA   (prima: persa)
+```
+
+### La scelta che vale più della correzione
+
+**Con l'orologio in avanti i timestamp restano verbatim.** La strada apparentemente più semplice
+— ribasare sempre l'età sul momento del caricamento — sarebbe stata un peggioramento silenzioso:
+dopo un fermo di due ore, una voce salvata 10 s prima dello spegnimento sarebbe tornata «vecchia
+di 10 s» e avrebbe bloccato come duplicato un segnale legittimo arrivato due ore dopo. Si sarebbe
+**perso un segnale valido** — l'errore speculare alla doppia scommessa, e quello che questa PR
+avrebbe introdotto mentre ne correggeva un altro. La traslazione si applica **solo** al salto
+all'indietro; `test_riavvio_normale_lascia_i_timestamp_VERBATIM` la blinda.
+
+### Compatibilità
+
+Il formato passa da lista nuda a `{"saved_at": …, "entries": [...]}`, ma `load_state` **accetta
+entrambi**: un `dedupe_state.json` scritto da una versione precedente non ha `saved_at` e ricade
+sul comportamento prudente di prima (orizzonte a 24 h), invariato. Un `saved_at` malformato — non
+numerico, `NaN`, `inf` — viene **ignorato, non creduto**: un file corrotto non deve poter
+disattivare il clamp dichiarando un istante sporco.
+
+### Regola 2 — la classe, non il sito
+
+L'altro stato persistito del runtime è `daily_state.json` (`safety_guard.DailyLimiter`), ma **non
+è la stessa classe**: memorizza un giorno di calendario e un conteggio, non timestamp assoluti in
+una finestra scorrevole, quindi non ha l'esposizione al salto d'orologio. Verificato, non assunto.
+
+### Il bug che la correzione stessa aveva introdotto (review #199)
+
+Fable 5 ha notato che con un `saved_at` valido il clamp a 24 h è bypassato, e ha ipotizzato che un
+file corrotto con `saved_at` enorme nel futuro finisse per bloccare quegli hash — «direzione
+conservativa, accettabile». Misurato: **la direzione era l'opposta.**
+
+```text
+file corrotto: saved_at = T0 + 1e9, voce legittima e recente a T0-10
+
+  formato NUOVO   -> register(...) = NEW         <- deduplica CANCELLATA, fail-OPEN
+  formato LEGACY  -> register(...) = DUPLICATE   <- fail-CLOSED
+```
+
+`saved_at` corrotto veniva **creduto**: `shift` diventava enorme e negativo, tutte le voci
+finivano in un passato remoto, `_prune` le buttava, la deduplica spariva. Cioè **doppia
+scommessa** — e per giunta in un punto dove il percorso legacy si comportava *meglio*: la mia
+correzione peggiorava il caso corruzione mentre migliorava il caso orologio.
+
+**La correzione della correzione** è un controllo di coerenza fra i due dati che ora stanno nel
+file: lo stato viene scritto **mentre l'app gira**, quindi ogni voce dista dal salvataggio molto
+meno dell'orizzonte. Se le due date non sono compatibili, `saved_at` non è credibile e si ricade
+sul comportamento prudente. È decidibile perché in un salto all'indietro **vero** `saved_at` e le
+voci vengono dallo **stesso orologio vecchio**: distano entrambi mesi da `now`, ma pochi secondi
+fra loro. Un rifiuto errato non fa danno — quelle voci sarebbero comunque scadute — mentre
+crederci a torto costa una scommessa doppia.
+
+Il controllo è **per-voce** e **a due code**, e nessuna delle due scelte è cosmetica: entrambe
+nascono da un fail-open riprodotto in review, dopo che la prima stesura del controllo ne aveva
+chiuso uno solo.
+
+> **Nota di metodo.** È il quarto difetto di questa serie trovato **eseguendo** invece che
+> rileggendo, e il secondo *introdotto da una correzione* (dopo il `ValueError` di PR-A2). Vale
+> anche al contrario: il rilievo era giusto nel puntare il dito, sbagliato nel diagnosticare il
+> verso — e senza misurarlo si sarebbe archiviato come «accettabile».
+
+### Quattro fail-open, tutti nella stessa correzione
+
+`saved_at` ha reso decidibile la domanda di B45, ma ha anche creato un dato **nuovo di cui
+fidarsi** — e ogni dato di cui ci si fida su un file di disco è una superficie. La review ne ha
+trovati quattro, uno alla volta, ciascuno riprodotto prima di correggerlo:
+
+| # | Caso | Prima | Chi l'ha visto |
+|---|---|---|---|
+| 1 | `saved_at` enorme nel futuro | `NEW` | Fable 5 (con il verso invertito) |
+| 2 | `saved_at` **booleano** (`float(True)` = `1.0`) | `NEW` | CodeRabbit |
+| 3 | orologio arretrato **durante** la sessione, poi corretto | `NEW` | CodeRabbit |
+| 4 | voce futura **iniettata** che maschera il controllo globale | `NEW` | Fugu Ultra |
+
+Tutti e quattro davano `NEW` dove serviva `DUPLICATE`: **doppia scommessa**. E tutti e quattro
+erano regressioni **introdotte dalla correzione**, non difetti preesistenti — il percorso legacy,
+in ciascuno di quei casi, si comportava correttamente.
+
+Il quarto è il più istruttivo. Il controllo di coerenza confrontava `saved_at` con il `max()`
+delle voci: sano in apparenza, **aggirabile** in pratica. Bastava iniettare una voce futura
+vicina al `saved_at` futuro perché il confronto globale risultasse coerente, e da lì la
+traslazione cancellava le voci legittime. La correzione non è stata rendere il confronto più
+severo ma **spostarne il livello**: da globale a per-voce, così nessuna voce può influenzare il
+trattamento di un'altra. Un controllo aggregato su dati che l'attaccante controlla è un controllo
+che non protegge.
+
+> **Nota di metodo.** Nessuno dei quattro era visibile leggendo il diff, e due dei tre reviewer
+> che li hanno segnalati hanno sbagliato la **diagnosi** pur azzeccando il **punto**: Fable ha
+> descritto il #1 come «direzione conservativa, accettabile» quando era l'opposto. Il valore della
+> review non è stato il verdetto — è stato indicare dove misurare.
