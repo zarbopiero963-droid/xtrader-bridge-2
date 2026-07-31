@@ -66,8 +66,8 @@ def test_la_trasformazione_del_prodotto_genera_la_virgola():
     """Fissa l'origine del difetto, così non si perde il perché: `score_to_over` scrive la
     virgola a mano. Se un giorno passasse al punto, questo test lo direbbe subito — e la
     normalizzazione resterebbe comunque necessaria per i messaggi copiati verbatim."""
-    assert transforms._score_to_over("2-3") == "Over 5,5"
-    assert _stessa(transforms._score_to_over("2-3"), "Over 5.5")
+    assert transforms.apply("2-3", "score_to_over") == "Over 5,5"
+    assert _stessa(transforms.apply("2-3", "score_to_over"), "Over 5.5")
 
 
 # --------------------------------------------------------------------------------------
@@ -235,5 +235,9 @@ def test_row_identity_non_e_persistita_da_nessuna_parte():
     with open(percorso, encoding="utf-8") as f:
         salvato = f.read()
     assert identita not in salvato, "l'identità è finita nello stato persistito"
-    for (_h, _t, _r) in signal_dedupe.SignalTracker().state():
-        pass    # nessuna identità nemmeno nello stato in memoria di un tracker fresco
+
+    # e nemmeno dopo un giro completo su disco: ciò che torna in memoria è la CHIAVE, non
+    # l'identità — quindi non esiste un formato di identità da migrare fra versioni.
+    dopo = signal_dedupe.SignalTracker()
+    assert signal_dedupe.load_state(dopo, percorso, now=adesso) is True
+    assert identita not in {h for (h, _t, _r) in dopo.state()}
