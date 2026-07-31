@@ -4895,3 +4895,29 @@ stato aggiornato con la motivazione scritta; ciò che verificava davvero (la gua
 continua a valere.
 
 Suite: **4326 passed, 14 skipped**.
+
+### La regola che mancava, scritta perché non dipenda dalla memoria
+
+Quattro dei difetti trovati in review su #202 e #203 li ho introdotti io, e hanno tutti la stessa
+radice: **ho cambiato il contratto di una funzione senza verificare chi si fidava di quello
+vecchio**. La regola 2 dice «cerca la classe, non il sito» — e la stavo applicando come «cerca il
+pattern del bug». Quel grep trova i posti che hanno lo **stesso difetto**; non trova i posti che
+**dipendevano dal comportamento che sto cambiando**.
+
+I quattro casi, per non dimenticare la forma:
+
+| PR | cosa ho cambiato | chi se ne fidava | conseguenza |
+|---|---|---|---|
+| #202 | `_hcap_value` ritorna `None` invece di `inf` | `_match_selection` coerceva `None` → `0.0` | handicap illeggibile combacia con la **linea zero** |
+| #203 | i temporanei nascono nella cartella risolta | `sweep_orphan_temps` guardava quella del link | orfani accumulati **per sempre** |
+| #203 | `realpath` in `sweep_orphan_temps` | `App._sweep_orphan_csv_temps`, **senza `try/except`** | crash all'avvio su un `csv_path` col NUL |
+| #203 | fail-closed con `os.path.exists` | — | `exists` non solleva mai: **ramo morto**, guardia illusoria |
+
+Aggiunta a `CLAUDE.md` la **regola 2-bis**: quando cambi un valore di ritorno, dove una funzione
+scrive, o una promessa del docstring (non solleva / best-effort / idempotente), si fa il `grep`
+dei **chiamanti** e per ciascuno si legge *cosa fa del risultato*. E il test fail-first va scritto
+**sul chiamante**, non solo sulla funzione: il difetto di #202 era invisibile testando
+`_hcap_value` da sola.
+
+È entrata anche nei due gate (`POST_FIX_MICRO_AUDIT` e `FINAL_HARD_VERIFY`) come voce a sé, perché
+una regola che non viene verificata è un promemoria, e i promemoria non hanno funzionato.
