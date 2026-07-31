@@ -30,7 +30,7 @@
 6. **Notifica al proprietario**: quando tutti i check sono **verdi** e la PR è
    *mergeable*, l'agente segnala lo stato con:
 
-   ```
+   ```text
    CHECKS_GREEN — PR mergeable. Merge MANUALE del proprietario.
    ```
 
@@ -597,7 +597,7 @@ simulazione XTrader superata.
 
 ## Ordine di esecuzione
 
-```
+```text
 PHASE 0  PR-00 baseline · PR-01 csv-contract · PR-02 test-suite
 PHASE 1  PR-03 refactor · PR-04 config-appdata · PR-05 atomic-csv
 PHASE 2  PR-06 recognition · PR-07 markettype · PR-08 selectionname
@@ -3865,7 +3865,7 @@ prezzo vecchio. La perdita è reale e va dichiarata; ma la premessa «la correzi
 scritta **invece** di essere applicata» è sbagliata. Misurato su `main` 6f93165, **prima** di
 questa PR:
 
-```
+```text
                        PRIMA                     DOPO
 OVERWRITE_LAST         1 riga  ['2,10']          1 riga  ['2,10']   ← aggiorna, invariato
 APPEND_ACTIVE          2 righe ['1,85','2,10']   1 riga  ['1,85']
