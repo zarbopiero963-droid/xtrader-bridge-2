@@ -101,7 +101,13 @@ def test_la_guardia_non_esplode_su_un_path_inesistente_o_malformato(make_app, tm
     assert a._is_active_session_csv(reale) is True          # stesso path, entrambi assenti
     assert a._is_active_session_csv(str(tmp_path / "altro.csv")) is False
     assert a._is_active_session_csv("") is False
-    assert a._is_active_session_csv("\x00path-non-valido") is False
+    # Un path MALFORMATO ora BLOCCA (era `False` prima del fail-closed di #203). È il
+    # comportamento voluto e non un indebolimento del test: se non si può nemmeno
+    # stabilire che cosa sia quel percorso, rifiutare «Crea CSV» è gratuito — la
+    # creazione fallirebbe comunque — mentre procedere significherebbe decidere alla
+    # cieca su un'azione distruttiva. La cosa che questo test verifica davvero, cioè che
+    # la guardia NON esploda, continua a valere.
+    assert a._is_active_session_csv("\x00path-non-valido") is True
 
 
 # ──────────────── il possesso del retry post-STOP: stesso verso, altro sito ───────────
@@ -234,3 +240,81 @@ def test_il_confronto_autorevole_distingue_i_tre_esiti(tmp_path, monkeypatch):
 
     monkeypatch.setattr(atomic_io.os.path, "samefile", muto)
     assert atomic_io.confronto_autorevole(str(uno), str(due)) is None
+
+
+# ══════════════════════════════════════════════════════════════════════════════════
+# Bloccante di Fable 5 su #203: il mio fail-closed era ILLUSORIO.
+#
+# `os.path.exists()` NON solleva — assorbe l'errore e ritorna `False` (verificato:
+# `exists('/tmp/\\x00x.csv')` → False, mentre `os.stat` sullo stesso path solleva
+# ValueError). Quindi il ramo `except (OSError, ValueError): return True` era codice
+# MORTO, e su un file esistente ma non ispezionabile — ACL Windows, il caso che la
+# correzione dichiarava di coprire — la guardia rispondeva `False` e NON bloccava.
+#
+# Serve `os.stat`, che distingue: `FileNotFoundError` = assente (percorso nuovo, si
+# può creare) da qualunque altro errore = non ispezionabile (si blocca).
+# ══════════════════════════════════════════════════════════════════════════════════
+
+def test_la_guardia_BLOCCA_se_il_file_non_e_nemmeno_ISPEZIONABILE(
+        make_app, tmp_path, monkeypatch):
+    from xtrader_bridge import atomic_io
+
+    attivo = str(tmp_path / "sessione.csv")
+    csv_writer.init_csv(attivo)
+    altro = str(tmp_path / "altro.csv")
+    csv_writer.init_csv(altro)
+    a = make_app(csv_path=attivo, running=True)
+
+    monkeypatch.setattr(atomic_io.os.path, "samefile",
+                        lambda *_a, **_k: (_ for _ in ()).throw(OSError(13, "Permission denied")))
+
+    # `stat` che fallisce per PERMESSI (non per assenza): il file c'è, non lo si può
+    # ispezionare. È il caso ACL di Windows.
+    vero_stat = os.stat
+
+    def stat_negato(percorso, *args, **kwargs):
+        if str(percorso) == altro:
+            raise PermissionError(13, "Permission denied")
+        return vero_stat(percorso, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", stat_negato)
+
+    assert a._is_active_session_csv(altro) is True, (
+        "il file non è ispezionabile: la guardia deve bloccare. Con `os.path.exists` "
+        "rispondeva False, perché exists() assorbe l'errore invece di sollevarlo")
+
+
+def test_un_percorso_ASSENTE_resta_creabile_anche_con_samefile_muto(
+        make_app, tmp_path, monkeypatch):
+    """La distinzione che rende accettabile il fail-closed: `FileNotFoundError` significa
+    «non c'è nulla da troncare», ed è il caso più comune (creare un CSV nuovo)."""
+    from xtrader_bridge import atomic_io
+
+    attivo = str(tmp_path / "sessione.csv")
+    csv_writer.init_csv(attivo)
+    a = make_app(csv_path=attivo, running=True)
+
+    monkeypatch.setattr(atomic_io.os.path, "samefile",
+                        lambda *_a, **_k: (_ for _ in ()).throw(OSError(2, "No such file")))
+
+    assert a._is_active_session_csv(str(tmp_path / "mai_creato.csv")) is False
+
+
+def test_SCELTA_DICHIARATA_se_il_CSV_ATTIVO_sparisce_la_guardia_blocca_di_piu(
+        make_app, tmp_path):
+    """Secondo rilievo di Fable: se il CSV **attivo** viene cancellato a sessione viva,
+    `samefile` solleva per lui e la guardia blocca la creazione su qualsiasi path
+    esistente diverso.
+
+    È over-blocking, ed è **voluto**: a bridge avviato con l'attivo sparito lo stato è già
+    anomalo, e rifiutare «Crea CSV» costa un click (STOP e si riprova) mentre permetterlo
+    può costare un segnale. Pinnato qui perché sia una scelta e non una sorpresa.
+    """
+    attivo = str(tmp_path / "sessione.csv")
+    altro = str(tmp_path / "altro.csv")
+    csv_writer.init_csv(altro)
+    a = make_app(csv_path=attivo, running=True)      # `attivo` NON creato
+
+    assert a._is_active_session_csv(altro) is True
+    # Ma un percorso ANCHE lui assente resta creabile: nulla da proteggere.
+    assert a._is_active_session_csv(str(tmp_path / "nuovo.csv")) is False

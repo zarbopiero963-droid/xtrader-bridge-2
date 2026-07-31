@@ -1157,14 +1157,23 @@ class App(ctk.CTk):
         # fail-closed, non al suo posto — collassarli aveva rotto proprio questo caso.
         if atomic_io.risolvi(path) == atomic_io.risolvi(self._active_csv_path):
             return True
-        # Percorsi diversi e identità non verificabile: si blocca solo se il file ESISTE.
-        # È qui che vive il caso hard-link + lock (Fugu): il confronto dei path direbbe
-        # «diverso» perché `realpath` non unifica gli hard link. Se invece il file non
-        # esiste non c'è nulla da troncare, e il percorso nuovo resta creabile.
+        # Percorsi diversi e identità non verificabile: si blocca a meno che il file sia
+        # dimostrabilmente ASSENTE. È qui che vive il caso hard-link + lock (Fugu): il
+        # confronto dei path direbbe «diverso» perché `realpath` non unifica gli hard link.
+        #
+        # `os.stat` e NON `os.path.exists` (bloccante Fable 5 su #203): `exists()` non
+        # solleva mai — assorbe l'errore e risponde `False` — quindi non distingue «assente»
+        # da «esiste ma non ispezionabile» (ACL Windows), e proprio nel caso da coprire
+        # rispondeva «non è il CSV attivo». Il fail-closed era illusorio. `os.stat` invece
+        # discrimina: `FileNotFoundError` = non c'è nulla da troncare, il percorso nuovo
+        # resta creabile; qualsiasi altro errore = non lo si può sapere, quindi si blocca.
         try:
-            return os.path.exists(path)
+            os.stat(path)
+        except FileNotFoundError:
+            return False           # dimostrabilmente assente: creare qui non distrugge nulla
         except (OSError, ValueError):
-            return True            # nemmeno questo si può sapere → si blocca (fail-closed)
+            return True            # esiste o non lo si può sapere → si blocca (fail-closed)
+        return True                # esiste ed è un file diverso non confrontabile → si blocca
 
     def _create_and_save_csv(self, path: str, *, force: bool = False) -> bool:
         """Genera un CSV **a solo header** nel formato XTrader su `path` e ne imposta+salva il

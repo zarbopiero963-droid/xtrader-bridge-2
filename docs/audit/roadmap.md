@@ -4862,3 +4862,36 @@ assente** — il CSV di sessione non ancora creato. Il confronto dei percorsi re
 ragione, tre giri prima.
 
 Suite: **4323 passed, 14 skipped**.
+
+### Il bloccante di Fable 5: il fail-closed era illusorio
+
+Correggendo il rilievo di Fugu avevo scritto il fail-closed con `os.path.exists()`. Fable 5 ha
+visto il difetto: **`os.path.exists` non solleva mai** — assorbe l'errore e ritorna `False`.
+Verificato:
+
+```text
+exists('/tmp/<NUL>x.csv')  → False   (nessuna eccezione)
+os.stat  sullo stesso path → ValueError
+```
+
+Quindi il ramo `except (OSError, ValueError): return True` era **codice morto**, e su un file
+esistente ma non ispezionabile — le ACL di Windows, cioè *proprio* il caso che la correzione
+dichiarava di coprire — la guardia rispondeva «non è il CSV attivo» e non bloccava. Il
+fail-closed esisteva solo nel commento.
+
+`os.stat` invece discrimina: `FileNotFoundError` = assente, non c'è nulla da troncare e il
+percorso nuovo resta creabile; qualsiasi altro errore = non lo si può sapere, quindi si blocca.
+
+**Secondo rilievo di Fable, accolto come scelta dichiarata:** se il CSV **attivo** sparisce a
+sessione viva, `samefile` solleva per lui e la guardia blocca la creazione su qualunque path
+esistente diverso. È over-blocking, ed è voluto — a bridge avviato con l'attivo sparito lo stato
+è già anomalo, e rifiutare costa un click mentre permettere può costare un segnale. Ora è pinnato
+da un test, così è una scelta e non una sorpresa.
+
+**Un'asserzione cambiata, dichiarata invece che silenziata:** un path malformato ora *blocca*
+(prima rispondeva `False`). È il nuovo comportamento voluto — se non si può nemmeno stabilire che
+cosa sia quel percorso, rifiutare è gratuito perché la creazione fallirebbe comunque. Il test è
+stato aggiornato con la motivazione scritta; ciò che verificava davvero (la guardia non esplode)
+continua a valere.
+
+Suite: **4326 passed, 14 skipped**.
