@@ -341,3 +341,35 @@ def test_una_voce_futura_INIETTATA_non_maschera_la_corruzione():
     assert ripristinato.register(MSG, now=T0).status == signal_dedupe.DUPLICATE, (
         "una voce futura iniettata ha mascherato la corruzione di saved_at: la voce legittima "
         "e' stata cancellata e lo stesso segnale verrebbe scritto una seconda volta")
+
+
+def test_ordinamento_non_conta_dopo_traslazione_e_clamp_MISTI():
+    """Rilievo Fable 5 su #199: le voci compatibili con `saved_at` vengono traslate, quelle
+    incompatibili clampate — quindi la lista può uscire NON ordinata cronologicamente. Se
+    `_prune` assumesse un ordine monotono (una coda svuotata finché la testa è scaduta), le voci
+    dopo la prima non scaduta non verrebbero potate.
+
+    Non lo assume — `_prune` è un filtro su tutte le voci — ma l'invariante merita di essere
+    fissata, perché un refactor verso una coda ordinata la romperebbe in silenzio. Qui il file
+    mescola di proposito i tre trattamenti: traslata, clampata e scartata.
+    """
+    percorso = _percorso()
+    vivo = signal_dedupe.message_hash(MSG)
+    with open(percorso, "w", encoding="utf-8") as f:
+        json.dump({"saved_at": T0, "entries": [
+            ["assurdo", T0 + 365 * GIORNO * 1000, True],   # incompatibile -> ramo prudente
+            [vivo, T0 - 10, True],                          # compatibile   -> traslata
+            ["vecchia", T0 - 10 * GIORNO, True],            # incompatibile -> ramo prudente
+            ["nan", float("nan"), True],                    # scartata in sanificazione
+        ]}, f)
+
+    ripristinato = signal_dedupe.SignalTracker()
+    signal_dedupe.load_state(ripristinato, percorso, now=T0)
+
+    # la voce viva protegge ancora, nonostante conviva con voci di epoche diverse
+    assert ripristinato.register(MSG, now=T0).status == signal_dedupe.DUPLICATE
+
+    # e la voce genuinamente vecchia è stata potata, nonostante non fosse in fondo alla lista
+    rimaste = {h for (h, _t, _r) in ripristinato.state()}
+    assert "vecchia" not in rimaste, "voce scaduta sopravvissuta: _prune dipende dall'ordine"
+    assert "nan" not in rimaste
