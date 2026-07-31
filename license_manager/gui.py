@@ -289,20 +289,27 @@ class LicenseManagerApp(ctk.CTk):
         if rec is None:
             return {"accepted": False, "token": "",
                     "message": f"Serial non trovato nel registro: {str(serial).strip()}"}
-        if not conferma_revoca:
-            # Lettura STRETTA: qui si autorizza, non si dipinge un elenco. Se lo store non è
-            # leggibile non si può escludere che questa licenza sia revocata → si chiede.
-            try:
-                revocati = self._revoked_serials(strict=True)
-            except Exception as exc:    # noqa: BLE001 — indisponibilità = «non lo so», mai «via libera»
-                _log.debug("Revoche illeggibili durante il rinnovo [%s]", type(exc).__name__)
-                return {"accepted": False, "token": "", "needs_confirm": True,
-                        "message": "⚠️ Impossibile leggere l'elenco delle revoche: non si può "
-                                   "escludere che questa licenza sia REVOCATA."}
-            if registry.normalize_serial(rec.get("serial")) in revocati:
-                return {"accepted": False, "token": "", "needs_confirm": True,
-                        "message": f"⚠️ La licenza {str(rec.get('serial', '')).strip()} è REVOCATA. "
-                                   "Rinnovarla emette un token nuovo che tornerà a funzionare."}
+        # La lettura si fa SEMPRE, anche quando la conferma è già stata data (secondo rilievo
+        # bloccante di Fable 5). Prima `conferma_revoca=True` saltava l'intero blocco: si poteva
+        # riemettere un revocato **senza aver mai letto lo store**, dietro un dialogo che per
+        # giunta afferma «il cliente che avevi revocato» quando in realtà non lo sappiamo.
+        #
+        # Una conferma autorizza l'ESITO di una verifica riuscita; non la sostituisce.
+        try:
+            revocati = self._revoked_serials(strict=True)
+        except Exception as exc:    # noqa: BLE001 — stato ignoto: si ferma, NON si chiede
+            _log.debug("Revoche illeggibili durante il rinnovo [%s]", type(exc).__name__)
+            # Niente `needs_confirm`: «non riesco a leggere» non è una domanda da porre
+            # all'utente — sarebbe un tasto per saltare il controllo. È un errore transitorio
+            # (lock, permessi) che si risolve e si riprova.
+            return {"accepted": False, "token": "",
+                    "message": "⚠️ Impossibile leggere l'elenco delle revoche: il rinnovo è "
+                               "sospeso. Chiudi i programmi che tengono aperto revoked.jsonl "
+                               "e riprova."}
+        if not conferma_revoca and registry.normalize_serial(rec.get("serial")) in revocati:
+            return {"accepted": False, "token": "", "needs_confirm": True,
+                    "message": f"⚠️ La licenza {str(rec.get('serial', '')).strip()} è REVOCATA. "
+                               "Rinnovarla emette un token nuovo che tornerà a funzionare."}
         key, err = self._load_key_or_error()
         if err is not None:
             return err

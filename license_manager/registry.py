@@ -199,7 +199,7 @@ def revocation_record(record: dict, *, now: int) -> dict:
     Tiene `serial` (autoritativo per la revoca) più `name`/`hardware_id` come **metadati per la vista**
     del proprietario e `revoked_at` (unix). Solleva `ValueError` se il record non ha un `serial`
     (fail-closed: non si revoca «nulla»)."""
-    serial = str(record.get("serial", "")).strip().upper()
+    serial = normalize_serial(record.get("serial"))
     if not serial:
         raise ValueError("record senza serial: impossibile revocare")
     return {
@@ -241,7 +241,9 @@ def is_serial_revoked(revocations: list, serial: str) -> bool:
     key = normalize_serial(serial)
     if not key:
         return False
-    return any(str(r.get("serial", "")).strip().upper() == key for r in revocations)
+    # Anche qui l'helper, non la regola riscritta a mano (rilievo Fugu): era l'ultima copia
+    # rimasta, e una copia sopravvissuta è esattamente il punto da cui riparte la divergenza.
+    return any(normalize_serial(r.get("serial")) == key for r in revocations)
 
 
 def revocation_entries(revocations: list) -> list:
@@ -272,7 +274,7 @@ def revocation_entries(revocations: list) -> list:
     """
     per_serial, out = {}, []
     for r in revocations:
-        serial = str(r.get("serial", "")).strip().upper()
+        serial = normalize_serial(r.get("serial"))
         if not serial:
             continue
         entry = per_serial.get(serial)

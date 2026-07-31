@@ -1919,15 +1919,17 @@ def test_store_revoche_ILLEGGIBILE_non_deve_riattivare_in_silenzio(gui, tmp_path
     `needs_confirm` e veniva riemesso **in silenzio**, cioè il contrario del «fail-closed»
     dichiarato nel docstring e in `docs/licensing.md`.
 
-    Non poter leggere le revoche significa **non poter escludere** che quella licenza sia
-    revocata: nel dubbio si chiede, non si procede."""
+    Non poter leggere le revoche significa **non poter escludere** che quella licenza sia revocata.
+
+    La prima correzione chiedeva conferma in questo caso; Fable 5 ha poi mostrato che era ancora
+    un buco — la conferma arrivava come `conferma_revoca=True` e **saltava la verifica**. Ora il
+    caso «non leggibile» si **ferma**, e la proprietà che questo test difende è la più forte:
+    nessun token esce, comunque."""
     fake, serial = _emetti_e_revoca(gui, tmp_path)
     fake._read_revocations = lambda **_kw: (_ for _ in ()).throw(OSError("file lockato"))
     esito = gui.LicenseManagerApp._evaluate_renew(fake, serial, "30")
-    assert esito.get("needs_confirm") is True, (
-        "store revoche illeggibile: il rinnovo NON deve procedere senza conferma — "
-        "non poter leggere le revoche non è «nessuno è revocato»")
-    assert esito["token"] == "", "nessun token deve uscire finché non c'è una conferma"
+    assert esito["accepted"] is False
+    assert esito["token"] == "", "con lo stato delle revoche ignoto non deve uscire alcun token"
 
 
 def test_generare_la_keypair_DIPINGE_davvero_la_chiave(gui, tmp_path):
@@ -1964,3 +1966,28 @@ def test_il_serial_si_risolve_per_NOME_di_colonna_non_per_posizione(gui, tmp_pat
     gui.LicenseManagerApp._on_registry_select(fake)
     assert campo.testo == "LIC-AAA111BBB222"
     assert tabella.chiamate_set, "deve risolvere per nome di colonna (Treeview.set), non per indice"
+
+
+def test_la_conferma_non_puo_SOSTITUIRE_la_lettura_dello_store(gui, tmp_path):
+    """**Secondo bloccante di Fable 5**, sull'head che correggeva il primo. Più sottile.
+
+    Con `revoked.jsonl` illeggibile rispondevo `needs_confirm`, e la conferma dell'utente arrivava
+    come `conferma_revoca=True` — che saltava **l'intera** verifica. Risultato: si riemetteva un
+    revocato **senza aver mai letto lo store**, dietro un dialogo che per giunta afferma «il
+    cliente che avevi revocato», quando in realtà non lo sappiamo.
+
+    Una conferma può autorizzare l'**esito** di una verifica riuscita; non può sostituirla. Con lo
+    stato ignoto l'unica risposta corretta è fermarsi e far riprovare — il caso è transitorio (un
+    lock, un permesso), non una condizione da superare cliccando."""
+    fake, serial = _emetti_e_revoca(gui, tmp_path)
+    fake._read_revocations = lambda **_kw: (_ for _ in ()).throw(OSError("file lockato"))
+
+    # Nemmeno con la conferma esplicita si deve emettere: lo store non è stato letto.
+    esito = gui.LicenseManagerApp._evaluate_renew(fake, serial, "30", conferma_revoca=True)
+    assert esito["accepted"] is False, (
+        "con lo store illeggibile la conferma NON deve bastare: si riemetterebbe un revocato "
+        "senza aver mai verificato se lo è")
+    assert esito["token"] == ""
+    assert not esito.get("needs_confirm"), (
+        "«non so leggere» non è una domanda da porre all'utente: è un errore da risolvere, "
+        "altrimenti il dialogo della riattivazione diventa un tasto per saltare il controllo")
