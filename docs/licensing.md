@@ -93,16 +93,35 @@ vive nel License Manager (PR 3), che gira sul PC del proprietario e può usare u
 Ordine dei controlli: formato → firma → hardware → anti-rollback → scadenza. Qualunque anomalia →
 `valid=False` (fail-closed): una licenza non verificabile **non sblocca mai**.
 
-## Chiave pubblica: placeholder e sostituzione
+## Chiave pubblica: sostituita il 2026-07-31 ✅
 
-`license.LICENSE_PUBLIC_KEY_HEX` è oggi un **placeholder di TEST** (il seed corrispondente è noto
-nei test, così il flusso è esercitabile in sviluppo). **Prima di distribuire copie licenziate**, il
-proprietario genera la keypair reale (via License Manager, PR 3) e **sostituisce quella riga** con
-la propria chiave **pubblica**. La chiave privata resta solo sul suo PC.
+`license.LICENSE_PUBLIC_KEY_HEX` contiene la **chiave pubblica reale del proprietario**, generata
+dal License Manager e messa nel codice il **2026-07-31** (issue #12 PARTE 0). Il seed privato
+corrispondente vive **solo** in `%APPDATA%\XTraderLicenseManager\signing_key.json` sul suo PC: non è,
+e non deve mai essere, nel repository.
 
-Marcatore rilevabile (review #143): `license.LICENSE_PUBLIC_KEY_IS_PLACEHOLDER` è `True` finché è in uso la
-chiave di TEST. Sostituendo la chiave, il proprietario **deve portarlo a `False`** (un test lega i
-due, così lo swap è deliberato e non silenzioso).
+`license.LICENSE_PUBLIC_KEY_IS_PLACEHOLDER` è ora **`False`**. Un test lega i due valori, così lo
+swap è deliberato e non silenzioso; il gate di release (§ sotto) lo legge e da qui in avanti
+**lascia passare** i tag `v*`, che prima bloccava.
+
+### Cosa è cambiato in pratica
+
+- il bridge **non accetta più** licenze firmate col **seed di TEST**: le attivazioni fatte in
+  sviluppo con quel seed vanno rifatte con una licenza emessa dal License Manager reale;
+- i test che esercitano la logica di licenza **non possono più affidarsi al default del modulo**.
+  Dichiarano esplicitamente la keypair di test tramite la fixture `chiave_pubblica_di_test`
+  (`tests/conftest.py`), che patcha `license.LICENSE_PUBLIC_KEY_HEX` **e**
+  `revocation.LICENSE_PUBLIC_KEY_HEX` — quest'ultimo perché `revocation.py` importa la costante
+  **per valore** (`from .license import …`) e patchare il solo `license` lascerebbe la verifica
+  delle liste di revoca sulla chiave reale;
+- la guardia di coerenza chiave↔flag legge le costanti **catturate all'import**, quindi non vede la
+  sostituzione della fixture e continua a sorvegliare ciò che verrà davvero distribuito.
+
+### ⚠️ Cambiare di nuovo questa chiave
+
+Invaliderebbe **tutte** le licenze già emesse **e** la lista di revoche pubblicata, che è firmata
+con lo stesso seed. Richiederebbe di riemettere ogni licenza e ri-pubblicare la lista. Non si tocca
+senza quel piano.
 
 ### Gate di release (fatto) — la chiave di TEST non può finire in un EXE distribuito
 

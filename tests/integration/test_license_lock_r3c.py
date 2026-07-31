@@ -62,6 +62,14 @@ def _rev_app(App, *, enabled=True, token="tok", hwid=_HW, now=_NOW):
 
 
 # ── _revocation_gate_ok ───────────────────────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _chiave_deployata_e_quella_di_test(chiave_pubblica_di_test):
+    """Dal 2026-07-31 il modulo porta la chiave pubblica REALE del proprietario (#12 PARTE 0).
+    Questo file esercita la logica di licenza con una keypair di TEST, quindi qui la chiave
+    "deployata" dev'essere quella di test: senza, si verificherebbero firme che nessun test di
+    questo file può produrre. Vedi `chiave_pubblica_di_test` in tests/conftest.py."""
+
 def test_gate_bypassato_su_url_placeholder(App):
     """URL placeholder (dev) → gate revoca BYPASSATO (True) senza alcuna lista (come chiave di TEST)."""
     app = _rev_app(App, enabled=False)

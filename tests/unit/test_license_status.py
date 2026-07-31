@@ -1,6 +1,7 @@
 """Test hard dello stato licenza per la UI (#140 PR 2): compute_status + severity + messaggi +
 last_seen monotòno. Logica pura, con licenze reali firmate dalla keypair di TEST."""
 
+import pytest
 from xtrader_bridge import license_status as ls
 from xtrader_bridge.licensing import license as lic
 from xtrader_bridge.licensing import ed25519
@@ -14,6 +15,14 @@ _DAY = 86_400
 def _token(hw=_HW, exp=_NOW + 15 * _DAY, name="Mario Rossi"):
     return lic.build_license(_TEST_SEED, name, hw, _NOW, exp)
 
+
+
+@pytest.fixture(autouse=True)
+def _chiave_deployata_e_quella_di_test(chiave_pubblica_di_test):
+    """Dal 2026-07-31 il modulo porta la chiave pubblica REALE del proprietario (#12 PARTE 0).
+    Questo file esercita la logica di licenza con una keypair di TEST, quindi qui la chiave
+    "deployata" dev'essere quella di test: senza, si verificherebbero firme che nessun test di
+    questo file può produrre. Vedi `chiave_pubblica_di_test` in tests/conftest.py."""
 
 def test_placeholder_coerente():
     # la keypair di TEST corrisponde al placeholder → i token di test verificano col default

@@ -1,8 +1,14 @@
 """Test hard della verifica licenza (#140 PR 1): firma + hardware + scadenza + anti-rollback.
 
 Round-trip col generatore reale (`build_license`) e matrice completa dei fallimenti, tutti
-**fail-closed**. La chiave usata è la keypair di **TEST** (seed noto), che corrisponde al
-placeholder `LICENSE_PUBLIC_KEY_HEX`: così il default del bridge è esercitato davvero.
+**fail-closed**. La chiave usata è la keypair di **TEST** (seed noto).
+
+Fino al 2026-07-31 quella pubblica ERA anche il default del modulo, quindi i round-trip
+esercitavano il default del bridge senza dire nulla. Dal momento in cui il proprietario ha messo
+la propria chiave **reale** (#12 PARTE 0) non è più così: la fixture autouse di questo file
+dichiara esplicitamente che qui la chiave deployata è quella di test. Il default reale resta
+sorvegliato da `test_flag_placeholder_coerente_con_la_chiave_di_test`, che legge le costanti
+catturate all'import e quindi NON vede la sostituzione.
 """
 
 import base64
@@ -19,6 +25,12 @@ from xtrader_bridge.licensing.hwid import NO_HARDWARE_ID
 # committato in `license.LICENSE_PUBLIC_KEY_HEX`. Il round-trip usa la coppia coerente.
 _TEST_SEED = bytes.fromhex("a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00")
 
+# Costanti REALI del modulo, catturate all'IMPORT — cioè prima che la fixture autouse di questo
+# file sostituisca la chiave deployata con quella di TEST. Servono alla guardia di coerenza
+# chiave↔flag, che deve sorvegliare ciò che verrà distribuito, non ciò che i test simulano.
+_CHIAVE_DEPLOYATA_REALE = lic.LICENSE_PUBLIC_KEY_HEX
+_FLAG_PLACEHOLDER_REALE = lic.LICENSE_PUBLIC_KEY_IS_PLACEHOLDER
+
 _HW = "HW1-1234-5678-9ABC-DEF0"
 _NOW = 1_000_000_000
 _DAY = 86_400
@@ -28,9 +40,22 @@ def _valid_token(hw=_HW, iss=_NOW, exp=_NOW + 15 * _DAY, name="Mario Rossi", see
     return lic.build_license(seed, name, hw, iss, exp)
 
 
-def test_placeholder_pubkey_corrisponde_al_seed_di_test():
-    # Guardia: se qualcuno cambia il seed di test o il placeholder senza allinearli, i round-trip
-    # sotto diventerebbero bugiardi. Qui si blinda la coerenza della coppia.
+
+@pytest.fixture(autouse=True)
+def _chiave_deployata_e_quella_di_test(chiave_pubblica_di_test):
+    """Dal 2026-07-31 il modulo porta la chiave pubblica REALE del proprietario (#12 PARTE 0).
+    Questo file esercita la logica di licenza con una keypair di TEST, quindi qui la chiave
+    "deployata" dev'essere quella di test: senza, si verificherebbero firme che nessun test di
+    questo file può produrre. Vedi `chiave_pubblica_di_test` in tests/conftest.py."""
+
+def test_la_fixture_deploya_davvero_la_pubblica_del_seed_di_test():
+    # Prima del 2026-07-31 questa guardia verificava che il PLACEHOLDER del modulo combaciasse col
+    # seed di test. Quel legame non esiste più: il modulo porta la chiave reale del proprietario.
+    #
+    # Il test resta, con lo scopo cambiato e dichiarato: verifica che la fixture autouse abbia
+    # davvero sostituito la chiave deployata. Senza, tutti i round-trip di questo file
+    # fallirebbero con `INVALID_SIGNATURE` e la causa vera — «la fixture non ha agito» — sarebbe
+    # sepolta sotto venti fallimenti identici.
     assert ed25519.public_key(_TEST_SEED).hex() == lic.LICENSE_PUBLIC_KEY_HEX
 
 
@@ -167,8 +192,13 @@ def test_flag_placeholder_coerente_con_la_chiave_di_test():
     # Guardia deliberata (review #143): finché la chiave è il placeholder di TEST, il flag è True.
     # Sostituendo la chiave con quella reale, il proprietario DEVE portarlo a False → questo test
     # lo costringe a un'azione consapevole (non uno swap silenzioso).
-    is_test_key = (lic.LICENSE_PUBLIC_KEY_HEX == ed25519.public_key(_TEST_SEED).hex())
-    assert lic.LICENSE_PUBLIC_KEY_IS_PLACEHOLDER is is_test_key
+    #
+    # Si legge la costante CATTURATA ALL'IMPORT, non `lic.LICENSE_PUBLIC_KEY_HEX`: la fixture
+    # autouse di questo file sostituisce quel valore con la pubblica di TEST, e leggerlo qui
+    # renderebbe la guardia cieca — direbbe sempre «è la chiave di test», che è il contrario di
+    # ciò che deve sorvegliare. Dal 2026-07-31 il valore reale è la chiave del proprietario.
+    is_test_key = (_CHIAVE_DEPLOYATA_REALE == ed25519.public_key(_TEST_SEED).hex())
+    assert _FLAG_PLACEHOLDER_REALE is is_test_key
 
 
 def test_build_license_struttura_token():

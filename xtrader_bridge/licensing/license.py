@@ -29,18 +29,25 @@ from . import ed25519
 from .hwid import NO_HARDWARE_ID, is_identifiable
 
 # ── Chiave pubblica di verifica ──────────────────────────────────────────────────────────────
-# ⚠️ PLACEHOLDER — chiave pubblica di **TEST** (il seed corrispondente è noto nei test).
-# SOSTITUIRE con la chiave pubblica reale del proprietario **prima di distribuire copie
-# licenziate** (una sola riga). Finché resta questo placeholder, il bridge accetta licenze
-# firmate col seed di TEST: va bene **solo in sviluppo**, non in distribuzione.
-# La chiave PRIVATA non è e non deve mai essere nel repository (invariante #1, issue #140).
-LICENSE_PUBLIC_KEY_HEX = "42aaead72ceea9f9423f281440c6cfac7a5f99b796b81862f452328972b21b61"
+# Chiave pubblica **REALE** del proprietario, sostituita il 2026-07-31 (issue #12 PARTE 0). Il seed
+# privato corrispondente è stato generato dal License Manager e vive **solo** in
+# `%APPDATA%\XTraderLicenseManager\signing_key.json` sul PC del proprietario: non è, e non deve mai
+# essere, nel repository (invariante #1, issue #140).
+#
+# ⚠️ Da questo commit il bridge **NON accetta più** le licenze firmate col seed di TEST: le
+# attivazioni fatte in sviluppo con quel seed vanno rifatte con una licenza emessa dal License
+# Manager reale. È il comportamento voluto — la chiave di test rendeva le licenze forgiabili da
+# chiunque leggesse i test.
+#
+# ⚠️ Cambiare di nuovo questa chiave invalida **tutte** le licenze già emesse **e** la lista di
+# revoche pubblicata, che è firmata con lo stesso seed. Non si tocca senza riemettere tutto.
+LICENSE_PUBLIC_KEY_HEX = "59e0c1f8d6860550292a5b1667cec33fa30f959c3c9b3203c9a980416213fe3a"
 
-# Marcatore RILEVABILE del placeholder (review Fable/Fugu #143): resta `True` finché sopra c'è la
-# chiave di TEST. Sostituendo la chiave con la propria pubblica reale, il proprietario DEVE portarlo
-# a `False`. Un gate di release / il lock GUI (PR 4) può rifiutarsi di operare in distribuzione
-# finché è `True` (chiave di test = licenze forgiabili). Un test lega i due (coerenza deliberata).
-LICENSE_PUBLIC_KEY_IS_PLACEHOLDER = True
+# Marcatore RILEVABILE del placeholder (review Fable/Fugu #143): `True` finché sopra c'è la chiave di
+# TEST. Ora è `False` perché la chiave è quella reale — il gate di release sui workflow di build del
+# bridge (#150) lo legge e da qui in avanti **lascia passare** i tag `v*`, che prima bloccava.
+# Un test lega i due valori, così lo scambio è deliberato e non silenzioso.
+LICENSE_PUBLIC_KEY_IS_PLACEHOLDER = False
 
 # Versione del formato payload accettata.
 LICENSE_FORMAT_VERSION = 1

@@ -90,3 +90,33 @@ def crea_symlink(src: str, dst: str) -> None:
         os.symlink(src, dst)
     except (OSError, NotImplementedError, AttributeError) as e:
         pytest.skip(f"symlink non creabile su questo filesystem: {e}")
+
+
+# ── Keypair di TEST per i test di licenza (dal 2026-07-31) ─────────────────────────────────────
+#
+# Fino al 2026-07-31 `license.LICENSE_PUBLIC_KEY_HEX` conteneva la chiave pubblica di **TEST**,
+# quindi i test potevano firmare col seed di test e verificare contro il default del modulo. Dal
+# momento in cui il proprietario ha messo la propria chiave **reale** (issue #12 PARTE 0) quel
+# default non combacia più: i test che esercitano la logica di licenza devono dichiarare
+# esplicitamente che la chiave "deployata" nel loro contesto è quella di test, altrimenti
+# verificherebbero firme che nessuno di loro può produrre.
+#
+# La fixture patcha **due** posti, e il secondo è facile da dimenticare: `revocation.py` fa
+# `from .license import LICENSE_PUBLIC_KEY_HEX`, cioè copia il valore all'import. Patchare il solo
+# `license` lascerebbe la verifica delle liste di revoca sulla chiave reale.
+LICENSE_TEST_SEED_HEX = "a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00"  # pragma: allowlist secret
+
+
+@pytest.fixture
+def chiave_pubblica_di_test(monkeypatch):
+    """Rende la chiave pubblica *deployata* quella del seed di TEST, per la durata del test.
+
+    Ritorna l'esadecimale della pubblica, per i test che devono passarla esplicitamente."""
+    from xtrader_bridge.licensing import ed25519
+    from xtrader_bridge.licensing import license as _lic
+    from xtrader_bridge.licensing import revocation as _rev
+
+    pub = ed25519.public_key(bytes.fromhex(LICENSE_TEST_SEED_HEX)).hex()
+    monkeypatch.setattr(_lic, "LICENSE_PUBLIC_KEY_HEX", pub)
+    monkeypatch.setattr(_rev, "LICENSE_PUBLIC_KEY_HEX", pub)   # copia by-value: va patchata a parte
+    return pub

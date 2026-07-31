@@ -85,6 +85,14 @@ def gate(monkeypatch):
     return corpi[0]
 
 
+
+@pytest.fixture(autouse=True)
+def _chiave_deployata_e_quella_di_test(chiave_pubblica_di_test):
+    """Dal 2026-07-31 il modulo porta la chiave pubblica REALE del proprietario (#12 PARTE 0).
+    Questo file esercita la logica di licenza con una keypair di TEST, quindi qui la chiave
+    "deployata" dev'essere quella di test: senza, si verificherebbero firme che nessun test di
+    questo file può produrre. Vedi `chiave_pubblica_di_test` in tests/conftest.py."""
+
 def test_il_gate_e_presente_in_ENTRAMBI_i_job():
     """Windows e Linux producono entrambi un artifact distribuibile: un gate su uno solo lascerebbe
     l'altra strada aperta."""
