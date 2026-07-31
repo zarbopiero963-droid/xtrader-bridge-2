@@ -80,6 +80,30 @@ Prima di chiudere una PR, `grep` del pattern corretto su **tutto il repository**
 un predicato sbagliato, vanno cercati **tutti** i predicati equivalenti. È esattamente il passo che
 è mancato sulla #16 e che ha prodotto tre bug nuovi.
 
+**E cerca i CONSUMATORI, non solo i siti** (aggiunto dopo le PR #202 e #203, dove è mancato due
+volte di fila). Il grep sopra trova i posti che hanno **lo stesso difetto**. Non trova i posti che
+si **fidavano del comportamento che stai cambiando** — ed è da lì che sono nati quattro bug nuovi
+in due PR consecutive:
+
+- **#202**: reso `_hcap_value` fail-closed (`None` invece di `inf`) senza leggere che il chiamante
+  convertiva il `None` in `0.0`. Risultato: un handicap illeggibile ha iniziato a **combaciare con
+  la linea zero**, peggio di prima.
+- **#203**: spostati i temporanei nella cartella risolta senza guardare che `sweep_orphan_temps`
+  cercava altrove → orfani accumulati per sempre. E aggiunto `realpath` a una funzione il cui
+  docstring prometteva «non solleva mai», invocata **all'avvio senza `try/except`**.
+
+Quindi, ogni volta che cambi **il valore di ritorno**, **dove una funzione scrive**, o **una
+promessa scritta nel docstring** (non solleva / è best-effort / è idempotente):
+
+1. `grep` di **chi chiama** quella funzione — non del pattern del bug;
+2. per ciascun chiamante, leggi **cosa fa del risultato**: lo coerce? si fida che non sollevi? si
+   aspetta il file in quella posizione?
+3. il test fail-first va scritto **sul chiamante**, non solo sulla funzione: il difetto di #202 era
+   invisibile testando `_hcap_value` da sola, e appariva solo passando per `_match_selection`.
+
+Una funzione corretta dentro un chiamante che la usava diversamente è **ancora un bug**, e le
+review lo trovano dopo, quando è già stato pushato.
+
 ### 3. Fonte unica dove esiste
 
 `numbers_re`, `validators`, il predicato placeholder, le liste di pattern anti-segreto: se la
@@ -596,6 +620,13 @@ Regola 2 — cercata la CLASSE, non il sito (grep su tutto il repo):
 - PASS / FAIL / N/A con motivo
   (PASS = riporto il pattern cercato e quanti siti sono risultati; N/A solo se il bug è
    strutturalmente unico, con motivazione scritta)
+
+Regola 2-bis — cercati i CONSUMATORI di ciò che ho cambiato:
+- PASS / FAIL / N/A con motivo
+  (obbligatoria se ho cambiato un valore di ritorno, dove una funzione scrive, o una promessa
+   del docstring — non solleva / best-effort / idempotente. PASS = elenco i chiamanti trovati
+   e, per ciascuno, cosa fa del risultato. N/A solo se la modifica non cambia nulla di
+   osservabile dall'esterno della funzione, con motivazione scritta)
 
 Regola 3 — fonte unica (nessuna correzione duplicata in due posti):
 - PASS / FAIL / N/A con motivo
@@ -1187,6 +1218,8 @@ Design handoff updated for the change:
 Cinque regole anti-regressione rispettate:
 - Regola 1 test fail-first (rosso prima della patch): PASS / FAIL / N/A con motivo
 - Regola 2 cercata la classe, non il sito (grep su tutto il repo): PASS / FAIL / N/A con motivo
+- Regola 2-bis cercati i CONSUMATORI di ciò che ho cambiato (valore di ritorno, posizione di
+  scrittura, promessa del docstring): PASS / FAIL / N/A con motivo
 - Regola 3 fonte unica, nessuna correzione duplicata: PASS / FAIL / N/A con motivo
 - Regola 4 una sola PR aperta, nessun parallelo sullo stesso modulo: PASS / FAIL / UNKNOWN con motivo
   (riporta l'ELENCO EFFETTIVO delle PR aperte, non un PASS asserito; elenco non ottenibile →

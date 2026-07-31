@@ -382,6 +382,60 @@ dell'utente** («📄 Crea CSV», wizard) → `create_header_only_csv`, che rifi
 `init_csv` e `write_rows([])` **non controllano niente** e vanno usate solo dove il path è già
 stato validato altrove.
 
+### `csv_path` che è un link (o dentro una cartella collegata) — #194 B7
+
+Se `csv_path` punta a un **link simbolico** (o a una *junction* Windows), la scrittura
+**attraversa il link e aggiorna il file puntato**, lasciando il link intatto. È il
+comportamento che serve: XTrader legge il file vero, quindi è quello che deve cambiare.
+
+Prima non era così, ed era pericoloso in silenzio: la lettura seguiva il link (header
+riconosciuto, decisione corretta) ma il rename atomico **sostituiva il link** con un file
+normale. `clear_stale_csv` riportava `True` — «ripulito» — mentre la riga stantia restava nel
+file che XTrader stava leggendo. Una difesa anti-segnale-stantio che dichiara successo senza
+aver fatto nulla è il modo peggiore di fallire, perché nessuno va a ricontrollare.
+
+La risoluzione avviene in `atomic_io.atomic_write`, quindi vale per **ogni** scrittura del
+contratto e non solo per lo svuotamento. Le guardie anti data-loss **non** si indeboliscono:
+un link a un file **estraneo** resta rifiutato e intoccato, esattamente come prima.
+
+⚠️ **Vale per i link SIMBOLICI e le junction, non per gli HARD link.** Un hard link non è un
+puntatore da seguire: sono due voci di directory per lo stesso file, e la sostituzione atomica
+(`os.replace`) ne aggiorna **una sola** — l'altro nome resta col contenuto vecchio. Se
+`csv_path` e il file che XTrader legge fossero due hard link allo stesso CSV, dopo la prima
+scrittura divergerebbero e XTrader leggerebbe un file fermo.
+
+Non è un difetto introdotto qui (la sostituzione atomica ha sempre funzionato così) e non
+viene corretto: l'unico modo di scrivere attraverso un hard link è scrivere **in place**, cioè
+rinunciare all'atomicità. Un crash a metà scrittura lascerebbe a XTrader un CSV **troncato** —
+una scommessa malformata invece di una configurazione insolita. Si preferisce la garanzia certa
+al caso raro.
+
+Le **guardie** (es. il rifiuto di «Crea CSV» sul CSV della sessione attiva) riconoscono invece
+anche gli hard link, e quando non possono stabilirlo **bloccano** invece di indovinare.
+Confrontano l'identità reale del file (`os.path.samefile`, che vede gli inode) e decidono così:
+
+| situazione | esito |
+|---|---|
+| `samefile` risponde | si usa la sua risposta — gli hard link sono riconosciuti |
+| non risponde, ma i due percorsi **risolvono uguali** | è certo che sia lo stesso file → **blocca** |
+| non risponde, percorsi diversi, il file è **dimostrabilmente assente** | nulla da troncare → **si può creare** |
+| non risponde, percorsi diversi, il file **esiste o non è ispezionabile** | **blocca** (fail-closed) |
+
+L'ultima riga è il caso che conta su Windows: un file tenuto aperto da XTrader o protetto da ACL
+non è ispezionabile, e lì il solo confronto dei percorsi direbbe «file diverso» perché `realpath`
+non unifica gli hard link. Bloccare costa un click (STOP e si riprova); non bloccare può costare
+un segnale.
+
+La distinzione «assente» vs «non ispezionabile» si fa con `os.stat`, **non** con
+`os.path.exists`: `exists()` non solleva mai — assorbe l'errore e risponde `False` — quindi
+tratterebbe un file protetto da ACL come inesistente, e il fail-closed non scatterebbe proprio
+dove serve.
+
+Due conseguenze dichiarate, entrambe pinnate da test: un percorso **malformato** blocca (se non
+si può stabilire che cosa sia, rifiutare è gratuito perché la creazione fallirebbe comunque); e
+se il CSV **attivo** sparisce a sessione viva, la guardia blocca la creazione su qualunque
+percorso esistente — over-blocking voluto, perché a quel punto lo stato è già anomalo.
+
 La matrice vive anche nel sorgente (sopra `init_csv` in `csv_writer.py`) ed è fissata da
 `tests/unit/test_csv_family_a4_69.py`: se i contratti venissero uniformati, quei test
 diventano rossi.

@@ -4644,3 +4644,309 @@ La guardia è stata **verificata**, non asserita: simulando la regressione (un
 asserzioni.
 
 Suite: **4293 passed, 14 skipped**.
+
+---
+
+## PR-F (#194 · B7+B8, chiude #188) — un link nel mezzo, e due guardie che mentivano
+
+**B7 — la pulizia che dichiarava successo senza fare nulla.** `clear_stale_csv` legge con
+`open()`, che **segue** il link: header riconosciuto, decisione corretta. Poi scrive con
+`atomic_write`, che fa `os.replace(tmp, path)` — e `os.replace` sostituisce **il link**, non il
+file puntato. Misurato sul codice pre-patch:
+
+```text
+clear_stale_csv ha detto: True («ripulito»)
+righe nel file REALE:     2      ← la riga stantia c'e' ancora
+il link e' ancora un link? False ← sostituito da un file normale
+has_active_row(reale):    True
+```
+
+Il segnale orfano resta dove XTrader lo legge, e l'app crede di averlo tolto. Una difesa
+anti-segnale-stantio che riporta successo a vuoto è il modo peggiore di fallire: nessuno va a
+ricontrollare. Ed è peggio ancora al secondo giro — sostituito il link, ogni scrittura
+successiva finisce su un file che XTrader non guarda.
+
+**B8 — la guardia che troncava il CSV vivo.** `_is_active_session_csv` confrontava
+`normcase`+`abspath`: un link al CSV della sessione ATTIVA risultava un file diverso, la
+guardia non scattava e «Crea CSV» cancellava un segnale non ancora letto.
+
+```text
+stesso path           → True
+LINK allo stesso file → False        ← la guardia non scatta
+os.path.samefile(link, reale) → True
+```
+
+### Il vincolo che ha dato forma alla patch
+
+`_same_csv_path` **documentava una decisione esplicita** di non usare `realpath`/`samefile`:
+«farebbero I/O proprio quando il file può essere lockato/assente (samefile solleva)», con
+l'assunzione «nel runtime non esiste alcun percorso che crei o attraversi link». L'audit #188
+mostra che l'assunzione non regge — `csv_path` è un campo di testo — ma **la preoccupazione
+tecnica era giusta**: `samefile` solleva davvero, e su un `csv_path` appena digitato o tenuto
+aperto da XTrader è il caso ordinario, non l'eccezione.
+
+Perciò la correzione non è «usare `realpath`» ma `atomic_io.stesso_file`: prova `samefile`
+(l'unica risposta autorevole — confronta gli inode, e vede anche gli **hard link**, che nessun
+confronto di stringhe può riconoscere) e sul suo `OSError` ricade sul confronto dei path
+risolti, cioè esattamente il criterio di prima. Una guardia che esplode è peggio di una che non
+scatta: toglie all'utente anche il rifiuto.
+
+### La classe, non il sito
+
+`grep` di `normcase`/`abspath`/`samefile`/`realpath` su tutto il repository → **quattro** siti
+della stessa famiglia, tutti nel medesimo verso pericoloso:
+
+- `_is_active_session_csv` (B8) — non riconosce il link → «Crea CSV» tronca il CSV vivo;
+- `_same_csv_path` — se dice «diverso» per un link, `_retry_stop_clear` crede che nessuna
+  sessione possieda il path e **cancella la riga viva** della sessione nuova;
+- `_stop_clear_key` — due nomi dello stesso file davano due chiavi, quindi **due catene di
+  retry** sullo stesso CSV: il suo docstring prometteva «mai due catene» e non era vero;
+- `dirty_csv_store._norm` — due marker «sporco» per lo stesso CSV: uno viene pulito, l'altro
+  resta, e al riavvio l'app crede di dover recuperare un crash su un file già a posto.
+
+Correggerne uno solo avrebbe lasciato gli altri tre. B7 si chiude invece **alla radice**, in
+`atomic_write`, così vale per ogni scrittura del contratto e non solo per lo svuotamento.
+
+### Le controprove, scritte prima di sapere che sarebbero servite
+
+Sette dei venti test erano **verdi già sul codice pre-patch**: un link a un file **estraneo**
+resta rifiutato e intoccato, una cartella collegata funzionava già, il confronto su forma
+relativa/`.`/case non cambia esito, la guardia resta inattiva a bridge fermo, e un link a un
+file **diverso** non deve bloccare nulla (il criterio è «è lo stesso file?», non «è un link?»).
+Servono a dimostrare che la correzione non ha allargato le guardie oltre il necessario — il
+modo in cui una patch di sicurezza diventa una regressione d'uso.
+
+**Test:** `tests/safety/test_path_link_194.py` + `tests/integration/test_path_link_app_194.py`
+(+20). Fail-first verificato: **13 rossi** su `3fb9db4`, 7 verdi (le controprove). Suite:
+**4313 passed, 14 skipped**.
+
+### Il giro di review: due falsi bloccanti da diff troncato, e un limite vero
+
+**Il falso bloccante, sollevato da tutti e tre.** GPT-5.5, Fable 5 e Fugu Ultra hanno segnalato
+un probabile `NameError`: «`dirty_csv_store._norm` chiama `atomic_io.risolvi` ma il diff non
+aggiunge alcun import di `atomic_io`». Tutti e tre dichiaravano di **non aver ricevuto**
+`app.py` e `atomic_io.py` (oltre budget). L'import c'è, **preesistente**, a
+`dirty_csv_store.py:27` (`from . import atomic_io, config_store`) — e un `NameError` sarebbe
+comunque emerso nella suite, che è verde. Risposto nel thread con l'evidenza, non con un commit:
+è il caso che `CLAUDE.md` descrive come «reviewer che ha visto solo una parte».
+
+**Il limite vero, trovato da Fugu Ultra: gli hard link.** `realpath` risolve i link simbolici e
+le junction, non gli hard link — quelli non sono un puntatore da seguire, sono due voci di
+directory per lo stesso inode. Misurato:
+
+```text
+os.path.samefile(a, b)      True   ← la GUARDIA dice «stesso file»
+realpath li unifica?        False  ← il WRITER no
+dopo clear_stale_csv(a):
+  has_active_row(a): False
+  has_active_row(b): True          ← XTrader leggerebbe ancora il segnale stantio
+```
+
+Il rilievo colpisce una **mia incoerenza**: avevo scritto io stesso, nel docstring di
+`stesso_file`, che `samefile` «vede anche gli hard link, che nessun confronto di stringhe può
+riconoscere» — e poi non avevo portato quella capacità nel writer.
+
+Non si corregge, e la ragione è uno scambio, non una dimenticanza: l'unico modo di scrivere
+attraverso un hard link è scrivere **in place** (`open`+`truncate`), cioè **rinunciare
+all'atomicità**. Un crash a metà scrittura lascerebbe a XTrader un CSV troncato — una scommessa
+malformata invece di una configurazione insolita. Si preferisce la garanzia certa al caso raro.
+Non è nemmeno una regressione: `os.replace` ha sempre rotto gli hard link.
+
+Quello che **cambia** è che ora è dichiarato invece che ignorato: due test lo **pinnano** (uno
+verifica il limite, l'altro l'asimmetria voluta writer/guardie), e le docs non dicono più «link»
+in generale ma distinguono simbolici/junction dagli hard link. L'asimmetria è deliberata: le
+guardie li riconoscono e quindi **bloccano di più**, che è la direzione sicura.
+
+**Il TOCTOU, sollevato da Fable 5.** Fra `realpath` e il `replace` finale c'è una finestra: se
+qualcuno sostituisse il link nel frattempo, si scriverebbe altrove. Prima non c'era, quindi la
+superficie si è allargata — ed è giusto dirlo. Non viene mitigata oltre perché per sfruttarla
+serve permesso di **scrittura sulla cartella del CSV**, e chi ce l'ha può già riscrivere il CSV
+direttamente: stesso livello di accesso, nessuna escalation. Dall'altra parte, non risolvere è
+B7, un bug **misurato**. Si scambia un difetto reale e osservato con una finestra che richiede
+un accesso già sufficiente a fare peggio. Motivazione e mitigazione futura (`O_NOFOLLOW` +
+verifica dopo il rename) scritte nel codice, per il giorno in cui il modello di minaccia
+cambiasse.
+
+**La copertura Windows**, segnalata da Fable e Fugu: il salto era incondizionato su
+`os.name == "nt"`, quindi l'ambiente più critico per il bridge non verificava **nulla** su link
+e junction, proprio dove il contratto li promette. Sostituito con una **sonda**: si prova
+davvero a creare un symlink e si salta solo se non riesce. Un runner Windows con Developer Mode
+o `SeCreateSymbolicLinkPrivilege` ora esegue i test invece di saltarli.
+
+Suite: **4315 passed, 14 skipped**.
+
+### I due rilievi sui miei test, entrambi giusti
+
+**Fable 5: la sonda era duplicata identica in due file.** È la regola 3 applicata al mio stesso
+helper, dopo quattro PR passate a predicarla. E il posto peggiore in cui duplicare: un helper che
+decide **se un test si esegue**. Una copia disallineata lì non fallisce — **salta, in silenzio**,
+e la copertura sparisce senza che nessuno se ne accorga. Spostata in `tests/conftest.py`, unica
+per `safety/` e `integration/`.
+
+**Fugu Ultra: la sonda gira in `%TEMP%`, i test in `tmp_path`.** Su Windows possono stare su
+volumi diversi con politiche diverse: la sonda passa, la creazione reale fallisce, e il test non
+salta — **fallisce**, per una ragione che non c'entra con ciò che verifica. Chiuso con
+`crea_symlink`, che degrada a `pytest.skip` esattamente come già facevano i test sugli hard link.
+
+Suite: **4315 passed, 14 skipped**.
+
+### I due Major di CodeRabbit — e uno era di nuovo una regressione mia
+
+**Major 1: lo sweep degli orfani guardava la cartella sbagliata.** Risolvendo la destinazione,
+`atomic_write` ha spostato i temporanei nella cartella del file **vero**. Ma
+`csv_writer.sweep_orphan_temps` continuava a guardare la cartella del **link**. Misurato sul
+caso di questa PR (link di *file*, non di cartella):
+
+```text
+atomic_write crea i tmp in: .../vera
+sweep_orphan_temps guarda : .../dove_punta_config
+orfani rimossi: 0          ← si accumulano a ogni crash, per sempre
+```
+
+Prima non succedeva: i temporanei nascevano accanto al link e lo sweep li trovava. **È lo stesso
+schema del Major sulla #202** — ho cambiato *dove una funzione scrive* senza guardare chi altro
+dipendeva da quella posizione. Due PR di fila, la stessa forma di errore: la regola 2 va letta
+come «cerca la classe **e i consumatori**», non solo la classe.
+
+La correzione spazza **entrambe** le cartelle: la risolta (dove nascono oggi) e quella del link
+(dove li ha lasciati la versione precedente — chi aggiorna li ha già lì, e guardando solo la
+risolta resterebbero per sempre). Quando coincidono, il caso normale senza link, si passa una
+volta sola: c'è un test che lo verifica idempotente.
+
+*Nota su come è stata confermata:* la sonda di CodeRabbit usava un link di **cartella**, dove il
+difetto **non** si riproduce — elencare una cartella collegata segue il link. Il caso che rompe
+davvero è il link di **file**, ed è quello che ho misurato prima di correggere. Il rilievo era
+giusto; l'esempio no.
+
+**Major 2: la mia frase sulle guardie non era qualificata.** Avevo scritto che «le guardie
+riconoscono gli hard link». Vero solo quando `samefile` può rispondere: se il file è assente o
+lockato, `stesso_file` ricade su `risolvi`, e `realpath` non unifica gli hard link — in quel ramo
+due alias risultano file diversi e la guardia non scatta.
+
+Il residuo è ora **dichiarato e pinnato da un test**, non risolto. Renderlo fail-closed
+(bloccare quando la domanda non ha risposta) impedirebbe di creare un CSV su un percorso
+**nuovo** — il caso più comune, dove `samefile` solleva semplicemente perché il file non esiste
+ancora — e sarebbe una regressione d'uso peggiore del residuo che chiude.
+
+Suite: **4319 passed, 14 skipped**.
+
+### Il bloccante di Fugu Ultra: «assente» e «lockato» non sono lo stesso caso
+
+Avevo dichiarato il residuo sugli hard link con questa giustificazione: renderlo fail-closed
+«impedirebbe di creare un CSV su un percorso **nuovo**, dove `samefile` solleva solo perché il
+file non esiste ancora». Fugu Ultra ha visto il punto debole: quella frase copre il caso
+**assente**, non il caso **esiste-ma-non-ispezionabile** (lock Windows, permessi). Sono due
+situazioni diverse e le avevo trattate come una — e nella seconda un hard-link alias risulta
+«file diverso», la guardia non scatta e «Crea CSV» tronca il CSV vivo.
+
+**La premessa specifica non è dimostrata** — misurato: su Linux `samefile` **non** solleva su un
+file aperto da un altro handle, solleva sul file assente; il comportamento di Windows su un file
+lockato non è verificabile qui. Ma la conclusione non dipende da chi ha ragione sul lock: se la
+domanda autorevole non ha risposta **e il file esiste**, bloccare è gratis e non bloccare può
+costare un segnale.
+
+**La correzione** introduce `atomic_io.confronto_autorevole`, **tri-stato**: sì / no / *non lo
+so*. È la distinzione che mancava — `stesso_file` collassava il «non lo so» sul confronto dei
+percorsi, che per gli hard link risponde «diversi». Su una guardia di sicurezza **un «no»
+inventato è la direzione sbagliata**: chi deve decidere se bloccare ha bisogno di sapere che non
+sa.
+
+La guardia ora, in ordine: risposta autorevole se c'è → altrimenti percorsi che risolvono uguali
+(certo: sono lo stesso file anche se non esiste ancora) → altrimenti blocca se il file esiste.
+
+*E una regressione che ho introdotto correggendo*, colta dalle controprove già in suite: la prima
+stesura saltava il confronto dei percorsi e rispondeva `False` su **stesso path con file
+assente** — il CSV di sessione non ancora creato. Il confronto dei percorsi resta valido dove è
+**certo**, e va usato prima del fail-closed, non al suo posto. Il test che l'ha intercettata
+(`test_la_guardia_non_esplode_su_un_path_inesistente_o_malformato`) era stato scritto per un'altra
+ragione, tre giri prima.
+
+Suite: **4323 passed, 14 skipped**.
+
+### Il bloccante di Fable 5: il fail-closed era illusorio
+
+Correggendo il rilievo di Fugu avevo scritto il fail-closed con `os.path.exists()`. Fable 5 ha
+visto il difetto: **`os.path.exists` non solleva mai** — assorbe l'errore e ritorna `False`.
+Verificato:
+
+```text
+exists('/tmp/<NUL>x.csv')  → False   (nessuna eccezione)
+os.stat  sullo stesso path → ValueError
+```
+
+Quindi il ramo `except (OSError, ValueError): return True` era **codice morto**, e su un file
+esistente ma non ispezionabile — le ACL di Windows, cioè *proprio* il caso che la correzione
+dichiarava di coprire — la guardia rispondeva «non è il CSV attivo» e non bloccava. Il
+fail-closed esisteva solo nel commento.
+
+`os.stat` invece discrimina: `FileNotFoundError` = assente, non c'è nulla da troncare e il
+percorso nuovo resta creabile; qualsiasi altro errore = non lo si può sapere, quindi si blocca.
+
+**Secondo rilievo di Fable, accolto come scelta dichiarata:** se il CSV **attivo** sparisce a
+sessione viva, `samefile` solleva per lui e la guardia blocca la creazione su qualunque path
+esistente diverso. È over-blocking, ed è voluto — a bridge avviato con l'attivo sparito lo stato
+è già anomalo, e rifiutare costa un click mentre permettere può costare un segnale. Ora è pinnato
+da un test, così è una scelta e non una sorpresa.
+
+**Un'asserzione cambiata, dichiarata invece che silenziata:** un path malformato ora *blocca*
+(prima rispondeva `False`). È il nuovo comportamento voluto — se non si può nemmeno stabilire che
+cosa sia quel percorso, rifiutare è gratuito perché la creazione fallirebbe comunque. Il test è
+stato aggiornato con la motivazione scritta; ciò che verificava davvero (la guardia non esplode)
+continua a valere.
+
+Suite: **4326 passed, 14 skipped**.
+
+### La regola che mancava, scritta perché non dipenda dalla memoria
+
+Quattro dei difetti trovati in review su #202 e #203 li ho introdotti io, e hanno tutti la stessa
+radice: **ho cambiato il contratto di una funzione senza verificare chi si fidava di quello
+vecchio**. La regola 2 dice «cerca la classe, non il sito» — e la stavo applicando come «cerca il
+pattern del bug». Quel grep trova i posti che hanno lo **stesso difetto**; non trova i posti che
+**dipendevano dal comportamento che sto cambiando**.
+
+I quattro casi, per non dimenticare la forma:
+
+| PR | cosa ho cambiato | chi se ne fidava | conseguenza |
+|---|---|---|---|
+| #202 | `_hcap_value` ritorna `None` invece di `inf` | `_match_selection` coerceva `None` → `0.0` | handicap illeggibile combacia con la **linea zero** |
+| #203 | i temporanei nascono nella cartella risolta | `sweep_orphan_temps` guardava quella del link | orfani accumulati **per sempre** |
+| #203 | `realpath` in `sweep_orphan_temps` | `App._sweep_orphan_csv_temps`, **senza `try/except`** | crash all'avvio su un `csv_path` col NUL |
+| #203 | fail-closed con `os.path.exists` | — | `exists` non solleva mai: **ramo morto**, guardia illusoria |
+
+Aggiunta a `CLAUDE.md` la **regola 2-bis**: quando cambi un valore di ritorno, dove una funzione
+scrive, o una promessa del docstring (non solleva / best-effort / idempotente), si fa il `grep`
+dei **chiamanti** e per ciascuno si legge *cosa fa del risultato*. E il test fail-first va scritto
+**sul chiamante**, non solo sulla funzione: il difetto di #202 era invisibile testando
+`_hcap_value` da sola.
+
+È entrata anche nei due gate (`POST_FIX_MICRO_AUDIT` e `FINAL_HARD_VERIFY`) come voce a sé, perché
+una regola che non viene verificata è un promemoria, e i promemoria non hanno funzionato.
+
+### Fugu, terzo giro: la doc che descriveva il comportamento di due commit prima
+
+Tre bloccanti, uno vero.
+
+**Falso — `_norm` perderebbe `normcase`.** `atomic_io.risolvi` lo applica su **tutti e tre** i
+rami di ritorno (`atomic_io.py:54, 59, 61`), quindi `dirty_csv_store._norm` non ha perso nulla:
+su Windows `OUT.CSV` e `out.csv` continuano a dare un solo marker.
+
+**Vero — il contratto CSV era stantio.** Diceva ancora che, quando `samefile` non risponde, la
+guardia «ricade sul confronto dei percorsi e **non scatta**». Era esatto quando l'ho scritto,
+due commit prima; poi il bloccante di Fugu e quello di Fable hanno reso la guardia **fail-closed
+via `os.stat`**, e non sono tornato a rileggere ciò che avevo scritto. Deriva delle docs
+introdotta correggendo il codice — la stessa cosa che ho passato tutta la sessione a correggere
+altrove.
+
+Riscritta come **tabella dei quattro esiti**, che è più difficile da lasciar divergere di un
+paragrafo: `samefile` risponde → si usa; percorsi che risolvono uguali → blocca (è certo);
+dimostrabilmente assente → si può creare; esiste o non ispezionabile → blocca. Aggiunta anche la
+ragione per cui serve `os.stat` e non `os.path.exists`, e le due conseguenze dichiarate (percorso
+malformato che blocca, over-blocking se l'attivo sparisce).
+
+**Terzo rilievo — «i file core non sono ispezionabili».** Non è un difetto del codice ma un limite
+del tool: `app.py`, `atomic_io.py` e `csv_writer.py` sono stati saltati per budget («File non
+inviati al modello»), e sia Fugu sia Fable lo dichiarano. È lo stesso motivo per cui, tre giri
+prima, tutti e tre avevano segnalato un `NameError` inesistente. Non c'è nulla da correggere:
+va risposto con l'evidenza.
+
+Suite: **4326 passed, 14 skipped**.
