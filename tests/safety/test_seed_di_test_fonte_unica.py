@@ -17,7 +17,14 @@ Perché un import e non un package: `tests/` non ha `__init__.py`, ma il repo ro
 `sys.path` per mano dello stesso `tests/conftest.py`, che pytest carica prima di qualsiasi modulo
 di test. `from tests.conftest import …` è già il modo in cui `tests/safety/test_path_link_194.py`
 e `tests/integration/test_path_link_app_194.py` condividono le loro sonde, e tutti e sei i
-workflow invocano `python -m pytest`. Non è un import fragile: è quello che il repository già usa.
+workflow invocano `python -m pytest`.
+
+Con un limite reale, segnalato da GPT-5.5 e verificato: essendo `tests/` un **namespace** package,
+un package **regolare** omonimo installato in `site-packages` lo scavalcherebbe e quegli import
+leggerebbero un altro progetto. Non è ipotetico — riprodotto, rompe la collection, e colpiva già i
+due file citati sopra. La difesa sta in `tests/conftest.py`
+(`_verifica_nessuno_shadowing_di_tests`), esercitata più sotto: l'import resta quello che il
+repository già usa, ma ora fallisce dicendo **perché**.
 """
 
 import ast
@@ -121,7 +128,7 @@ def test_la_fonte_unica_e_un_seed_ed25519_plausibile():
 
 # ── Robustezza dell'import condiviso (rilievi GPT-5.5 su #209) ─────────────────────────────────
 
-def test_la_guardia_anti_shadowing_riconosce_un_tests_estraneo():
+def test_la_guardia_anti_shadowing_riconosce_un_tests_estraneo(monkeypatch):
     """Primo rilievo GPT-5.5: `tests/` è un namespace package e perde contro un package REGOLARE
     omonimo installato in `site-packages`. Verificato in adversariale — con un
     `site-packages/tests/__init__.py` finto la collection muore con `ModuleNotFoundError`, e
@@ -132,15 +139,28 @@ def test_la_guardia_anti_shadowing_riconosce_un_tests_estraneo():
     pretende che sollevi, nominando la causa. Senza il `percorso_atteso` iniettabile servirebbe
     installare davvero un package ostile per coprire questo ramo.
     """
+    import importlib.util
+
     import tests.conftest as ct
 
     ct._verifica_nessuno_shadowing_di_tests()                 # ambiente sano: non solleva
 
     with pytest.raises(RuntimeError) as errore:
-        ct._verifica_nessuno_shadowing_di_tests(percorso_atteso="/percorso/che/non/e/questo")
+        ct._verifica_nessuno_shadowing_di_tests(percorso_atteso="/percorso/che/non/e/questo.py")
     messaggio = str(errore.value)
-    assert "NON risolve alla cartella dei test" in messaggio
+    assert "NON risolve al conftest di questo repository" in messaggio
     assert "`tests/__init__.py`" in messaggio                 # deve dire COSA cercare
+
+    # La guardia interroga `tests.conftest`, non il solo package `tests`: un namespace può avere
+    # più porzioni e sapere che la nostra è *fra* quelle non dice che sia la PRIMA, cioè quella che
+    # vince. Controprova: una porzione estranea davanti alla nostra deve essere vista.
+    def _spec_finta(nome):
+        assert nome == "tests.conftest"
+        return importlib.util.spec_from_file_location(nome, "/altro/progetto/tests/conftest.py")
+
+    monkeypatch.setattr(ct.importlib.util, "find_spec", _spec_finta)
+    with pytest.raises(RuntimeError, match="risolve a: /altro/progetto"):
+        ct._verifica_nessuno_shadowing_di_tests()
 
 
 def test_il_doppio_caricamento_del_conftest_non_diverge(chiave_pubblica_di_test):

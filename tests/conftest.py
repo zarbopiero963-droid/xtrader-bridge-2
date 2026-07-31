@@ -35,26 +35,49 @@ if _REPO_ROOT not in sys.path:
 # Questo file lo carica pytest **per path**, non via `import tests.conftest`: la guardia gira
 # sempre, anche quando lo shadowing c'è, ed è l'unico punto in cui può girare.
 def _verifica_nessuno_shadowing_di_tests(percorso_atteso=None):
-    """Solleva `RuntimeError` se il nome `tests` non risolve a QUESTA cartella.
+    """Solleva `RuntimeError` se `tests.conftest` non risolve a QUESTO file.
+
+    Si interroga `tests.conftest`, non `tests`: è esattamente ciò da cui dipendono gli import
+    condivisi. Chiedere del solo package sarebbe una **approssimazione** — un namespace può avere
+    più porzioni, e sapere che la nostra è *fra* quelle non dice che sia la **prima**, cioè quella
+    che vince. Qui si controlla il file che verrebbe caricato davvero.
 
     `percorso_atteso` esiste per poter esercitare la guardia nei test senza dover installare
     davvero un package ostile; in esercizio si usa il default.
     """
-    atteso = os.path.abspath(percorso_atteso or os.path.dirname(os.path.abspath(__file__)))
-    try:
-        spec = importlib.util.find_spec("tests")
-    except (ImportError, ValueError) as exc:            # pragma: no cover — ambiente rotto
-        raise RuntimeError(f"impossibile risolvere il nome 'tests': {exc!r}") from exc
-    percorsi = [os.path.abspath(p) for p in (getattr(spec, "submodule_search_locations", None) or ())]
-    if atteso not in percorsi:
-        raise RuntimeError(
-            "il nome 'tests' NON risolve alla cartella dei test di questo repository.\n"
-            f"  atteso:   {atteso}\n"
-            f"  risolve a: {percorsi or (spec.origin if spec else 'nulla')}\n"
+    atteso = os.path.abspath(percorso_atteso or os.path.abspath(__file__))
+
+    def _dove_risolve_tests():
+        """Da dove viene il package `tests` che ha vinto — è l'informazione azionabile: senza,
+        il messaggio dice che qualcosa non va ma non quale pacchetto rimuovere."""
+        try:
+            spec_pkg = importlib.util.find_spec("tests")
+        except Exception:                       # noqa: BLE001 — diagnostica: non deve mai mascherare
+            return "non determinabile"          #                l'errore vero con un secondo errore
+        if spec_pkg is None:
+            return "nessun package `tests` risolvibile"
+        return str(spec_pkg.origin or list(spec_pkg.submodule_search_locations or ()) or "ignoto")
+
+    def _spiegazione():
+        return (
+            f"  il package `tests` risolve a: {_dove_risolve_tests()}\n"
             "Causa tipica: un pacchetto installato espone un top-level `tests/__init__.py`, che "
             "essendo un package REGOLARE vince sul namespace package di questo repo. Rimuovilo "
             "dall'ambiente (o installa in un virtualenv pulito): senza, "
             "`from tests.conftest import …` legge le costanti di un altro progetto.")
+
+    try:
+        spec = importlib.util.find_spec("tests.conftest")
+    except (ImportError, ValueError, AttributeError) as exc:
+        raise RuntimeError(
+            f"il nome `tests.conftest` non è risolvibile ({exc!r}).\n"
+            f"  atteso: {atteso}\n" + _spiegazione()) from exc
+    origine = os.path.abspath(spec.origin) if spec is not None and spec.origin else None
+    if origine != atteso:
+        raise RuntimeError(
+            "`tests.conftest` NON risolve al conftest di questo repository.\n"
+            f"  atteso:    {atteso}\n"
+            f"  risolve a: {origine or 'nulla'}\n" + _spiegazione())
 
 
 _verifica_nessuno_shadowing_di_tests()
