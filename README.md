@@ -669,6 +669,13 @@ Tutte queste protezioni sono **attive a runtime**:
    diverse** restano distinte. Restano distinte anche due scommesse **diverse**, e una riga
    **scaduta** torna ripiazzabile. In `OVERWRITE_LAST` nulla cambia: lì la nuova istruzione
    **sostituisce** la precedente, quindi una seconda riga non può esistere.
+   Il confronto ignora anche il **formato** (audit #194 · B46): maiuscole/minuscole e spazi
+   doppi nei nomi — `Inter` = `INTER`, il modo più comune in cui un canale ri-pubblica — e le
+   scritture equivalenti dell'handicap (`0` = `0.0` = `+0`, `0.50` = `0.5`). Restano invece
+   scommesse **diverse** handicap davvero diversi (`-1` ≠ `+1`, `0.5` ≠ `1.5`) e un handicap
+   **non numerico**, che è confrontato come testo senza essere interpretato. Nel CSV finisce
+   sempre e comunque **il valore prodotto dalla regola del parser**, byte per byte: la forma
+   canonica serve solo a decidere se è la stessa scommessa.
    > **Quota e stake non fanno parte dell'identità.** Nelle modalità multi-riga un repost
    > con la **quota corretta** è quindi trattato come duplicato: la riga attiva **resta al
    > prezzo precedente** e la correzione non viene applicata. È deliberato — l'alternativa

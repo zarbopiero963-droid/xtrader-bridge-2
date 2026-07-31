@@ -118,7 +118,11 @@ _PRICE_COLS = ("Price", "MinPrice", "MaxPrice")
 # anche Handicap e Points. `_HANDICAP_RE` accetta la virgola («+1,5») e `Handicap` è parte della
 # chiave di deduplica per-riga (`signal_dedupe._ROW_KEY_FIELDS`, confronto su stringa grezza):
 # senza normalizzazione, la STESSA scommessa da due parser (stile «0.5» vs «0,5») avrebbe chiavi
-# diverse → nessuna dedup → due righe identiche nel CSV localizzato (doppia scommessa). La riga
+# diverse → nessuna dedup → due righe identiche nel CSV localizzato (doppia scommessa).
+# Questa normalizzazione resta PORTANTE anche dopo B46 (#194): la canonicalizzazione introdotta
+# lì vive solo in `signal_dedupe.row_identity`, mentre `row_dedup_key` — che è PERSISTITA su
+# disco e non poteva cambiare senza invalidare le chiavi già scritte — continua a confrontare
+# la stringa grezza. Toglierla qui riaprirebbe la doppia scommessa su quel percorso. La riga
 # interna deve restare canonica col punto (docstring `csv_writer.localize_row`); l'output CSV non
 # cambia: `_localize_decimal` serializza già in modo uniforme per lingua.
 _DECIMAL_NORM_COLS = _PRICE_COLS + ("Handicap", "Points")

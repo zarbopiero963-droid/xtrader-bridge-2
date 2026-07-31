@@ -3896,3 +3896,70 @@ una riga che XTrader può aver già consumato è un rischio a sé, fuori dallo s
   6f93165 dà **2 righe** esattamente come dopo la patch, e già lì `row_dedup_key` le
   distingueva. È una classe diversa (normalizzazione debole dei campi identificativi), non la
   classe di B1 — registrata a parte invece di allargare lo scope di questa PR.
+
+---
+
+## PR-A2 (#194 · B46) — la stessa scommessa scritta in due modi non è due scommesse
+
+**Il difetto.** PR-A ha reso l'identità della scommessa indipendente dal **messaggio**, ma il
+confronto dei campi è rimasto **testuale puro** (`str(...).strip()`). La stessa giocata scritta
+con un formato diverso produceva ancora due identità e, in `APPEND_ACTIVE`/`QUEUE_UNTIL_CONFIRMED`,
+due righe nel CSV:
+
+```
+'Inter'  vs 'INTER'    -> due scommesse      (repost in maiuscolo)
+'0'      vs '0.0'      -> due scommesse      (stesso handicap)
+'1'      vs '+1'       -> due scommesse
+'0.5'    vs '0.50'     -> due scommesse
+```
+
+Il caso del maiuscolo non è teorico: senza regola di rimappatura né dizionario **il CSV ricopia
+il messaggio verbatim** (chiarimento del proprietario), quindi il case che finisce nel CSV è
+quello che ha scritto il canale — e ri-pubblicare in maiuscolo con un'intestazione promozionale
+è il modo più comune di ri-pubblicare.
+
+**Non era un buco nuovo: era una correzione incompleta.** L'audit **#76 (P2-2)** aveva già
+normalizzato virgola→punto su `Handicap`/`Points` con la motivazione scritta *«così la chiave
+dedup per-riga è canonica e la stessa scommessa in stile «0,5»/«0.5» non genera due righe»*. Ha
+canonicalizzato il **separatore**, non il **valore**, e non ha toccato le colonne testuali.
+
+### La parte pericolosa: `row_dedup_key` è persistita
+
+La canonicalizzazione vive **solo** in `row_identity`, mai in `row_dedup_key`. Quest'ultima è
+scritta su disco (`dedupe_state.json`) e salvata su ogni segnale in coda come `dedup_key`.
+Canonicalizzarla avrebbe invalidato **in silenzio** tutte le chiavi già scritte: al primo avvio
+dopo l'aggiornamento una riga ancora attiva avrebbe la chiave vecchia mentre il codice calcola
+quella nuova, non combaciano, il duplicato non viene riconosciuto → **doppia scommessa causata
+dalla patch che la doveva impedire**. È la stessa trappola della canonicalizzazione del serial
+delle licenze (#192), presa in tempo la seconda volta.
+
+`row_identity` invece è calcolata a runtime dalle righe vive e non finisce mai su disco: lì la
+canonicalizzazione è gratuita. Il test `test_row_dedup_key_non_e_cambiata_di_un_byte` incolla gli
+hash **letterali** misurati su `main` `799f51d`: se un refactor futuro tocca quella chiave anche
+di un solo byte, diventa rosso e costringe a ragionare sulla migrazione.
+
+### La normalizzazione testuale non è nuova
+
+Campi testuali → **`dizionario.normalize`**, che il codice dichiara già «fonte unica della
+normalizzazione, riusata anche dalle value-map per evitare implementazioni divergenti». Scriverne
+una copia in `signal_dedupe` sarebbe stata la terza — esattamente ciò che la regola 3 esiste per
+impedire. Effetto collaterale desiderabile: «è lo stesso nome?» per la deduplica e per il lookup
+del dizionario tornano a essere **la stessa domanda**.
+
+L'handicap usa invece una canonicalizzazione **numerica**, con `nan`/`inf` e i valori non numerici
+lasciati a confronto **testuale** (fail-closed: mai interpretare un valore che diventa una
+scommessa).
+
+### Interazione con `csv_language`, verificata
+
+La localizzazione del separatore decimale avviene **solo** in `csv_writer`, al momento della
+scrittura (contratto CSV): coda e identità vedono sempre la forma interna col punto. Cambiare la
+lingua del CSV **non** cambia l'identità delle scommesse.
+
+### B47 — lasciato aperto deliberatamente
+
+La virgola **dentro un nome di selezione** (`Over 5,5` vs `Over 5.5`) resta un buco misurato: la
+trasformazione `score_to_over` produce la virgola, un messaggio può scrivere il punto. Non è stato
+chiuso qui perché il contratto CSV esclude **esplicitamente** le colonne testuali da ogni
+canonicalizzazione (*«le colonne testuali non vengono mai toccate»*): allargare lì è una decisione
+del proprietario, non una conseguenza di questa correzione.
