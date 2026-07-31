@@ -1136,11 +1136,35 @@ class App(ctk.CTk):
         B8 (#194, audit #188): il confronto risolve anche **link e junction**. Prima si
         fermava a `normcase`+`abspath`, quindi un link al CSV della sessione attiva NON
         veniva riconosciuto, la guardia non scattava e «Crea CSV» troncava il CSV VIVO.
-        `atomic_io.stesso_file` è la fonte unica del confronto e ricade sul vecchio
-        criterio quando `samefile` non può rispondere (file assente o lockato)."""
+        `atomic_io.confronto_autorevole` è la fonte unica del confronto.
+
+        Fail-closed quando la domanda NON ha risposta (bloccante Fugu Ultra su #203). Se
+        `samefile` non può stabilire l'identità **e il file esiste**, si blocca invece di
+        tirare a indovinare: il ripiego sul confronto dei path non unifica gli **hard link**,
+        quindi risponderebbe «file diverso» e «Crea CSV» — anche con `force` — troncherebbe
+        il CSV vivo. Il percorso **nuovo** resta creabile perché lì il file non esiste: è la
+        distinzione fra «assente» (innocuo) e «esiste ma non ispezionabile» (lock/permessi
+        su Windows) che prima mancava.
+        """
         if not (self._running and self._active_csv_path and path):
             return False
-        return atomic_io.stesso_file(path, self._active_csv_path)
+        risposta = atomic_io.confronto_autorevole(path, self._active_csv_path)
+        if risposta is not None:
+            return risposta
+        # Senza risposta autorevole il confronto dei percorsi resta valido dove è CERTO:
+        # due path che risolvono allo stesso nome SONO lo stesso file, anche se il file non
+        # esiste ancora (il CSV di sessione non ancora creato). Va usato PRIMA del
+        # fail-closed, non al suo posto — collassarli aveva rotto proprio questo caso.
+        if atomic_io.risolvi(path) == atomic_io.risolvi(self._active_csv_path):
+            return True
+        # Percorsi diversi e identità non verificabile: si blocca solo se il file ESISTE.
+        # È qui che vive il caso hard-link + lock (Fugu): il confronto dei path direbbe
+        # «diverso» perché `realpath` non unifica gli hard link. Se invece il file non
+        # esiste non c'è nulla da troncare, e il percorso nuovo resta creabile.
+        try:
+            return os.path.exists(path)
+        except (OSError, ValueError):
+            return True            # nemmeno questo si può sapere → si blocca (fail-closed)
 
     def _create_and_save_csv(self, path: str, *, force: bool = False) -> bool:
         """Genera un CSV **a solo header** nel formato XTrader su `path` e ne imposta+salva il

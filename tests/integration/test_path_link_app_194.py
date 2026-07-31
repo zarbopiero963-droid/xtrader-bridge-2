@@ -158,3 +158,79 @@ def test_il_marker_csv_sporco_non_confonde_file_diversi(tmp_path):
     assert dirty_csv_store._norm(a) != dirty_csv_store._norm(b)
     assert dirty_csv_store._norm("") == ""
     assert dirty_csv_store._norm(None) == ""
+
+
+# ══════════════════════════════════════════════════════════════════════════════════
+# Bloccante di Fugu Ultra su #203, e il rilievo è più fine di come avevo dichiarato
+# il residuo.
+#
+# La mia giustificazione per non rendere la guardia fail-closed era: «bloccherebbe la
+# creazione di un CSV su un percorso NUOVO, dove `samefile` solleva solo perché il file
+# non esiste ancora». Vero — ma copre il caso ASSENTE, non il caso ESISTENTE-ma-non-
+# confrontabile (su Windows un file che XTrader tiene aperto, o su cui manca il permesso).
+# Sono due situazioni diverse e le avevo trattate come una.
+#
+# La correzione non dipende da chi ha ragione sul lock di Windows: se la domanda
+# autorevole non ha risposta **e il file esiste**, si blocca. Il percorso nuovo continua
+# a funzionare perché lì il file NON esiste.
+# ══════════════════════════════════════════════════════════════════════════════════
+
+def test_la_guardia_BLOCCA_se_il_file_ESISTE_ma_l_identita_non_e_verificabile(
+        make_app, tmp_path, monkeypatch):
+    from xtrader_bridge import atomic_io
+
+    attivo = str(tmp_path / "sessione.csv")
+    alias = str(tmp_path / "alias.csv")
+    csv_writer.init_csv(attivo)
+    csv_writer.init_csv(alias)          # ESISTE, ma non sapremo dire se è lo stesso file
+    a = make_app(csv_path=attivo, running=True)
+
+    def samefile_muto(*_args, **_kwargs):
+        raise OSError(13, "Permission denied")   # file lockato / permesso negato
+
+    monkeypatch.setattr(atomic_io.os.path, "samefile", samefile_muto)
+
+    assert a._is_active_session_csv(alias) is True, (
+        "il file esiste ma non si è potuto stabilire se è il CSV attivo: la guardia deve "
+        "bloccare, non tirare a indovinare — «Crea CSV» lo troncherebbe")
+
+
+def test_ma_un_percorso_NUOVO_resta_creabile_anche_se_samefile_tace(
+        make_app, tmp_path, monkeypatch):
+    """La controprova che rende la correzione accettabile: il caso più comune — creare un
+    CSV su un percorso che non esiste ancora — NON deve essere bloccato. È lì che
+    `samefile` solleva per il motivo più innocuo che ci sia."""
+    from xtrader_bridge import atomic_io
+
+    attivo = str(tmp_path / "sessione.csv")
+    csv_writer.init_csv(attivo)
+    a = make_app(csv_path=attivo, running=True)
+
+    def samefile_muto(*_args, **_kwargs):
+        raise OSError(2, "No such file or directory")
+
+    monkeypatch.setattr(atomic_io.os.path, "samefile", samefile_muto)
+
+    nuovo = str(tmp_path / "mai_creato.csv")          # NON esiste
+    assert a._is_active_session_csv(nuovo) is False
+
+
+def test_il_confronto_autorevole_distingue_i_tre_esiti(tmp_path, monkeypatch):
+    """`confronto_autorevole` è tri-stato: sì / no / **non lo so**. È la distinzione che
+    mancava — `stesso_file` collassava «non lo so» su «no», e un «no» inventato su una
+    guardia di sicurezza è la direzione sbagliata."""
+    from xtrader_bridge import atomic_io
+
+    uno = tmp_path / "uno.csv"
+    uno.write_text("x", encoding="utf-8")
+    due = tmp_path / "due.csv"
+    due.write_text("y", encoding="utf-8")
+
+    assert atomic_io.confronto_autorevole(str(uno), str(uno)) is True
+    assert atomic_io.confronto_autorevole(str(uno), str(due)) is False
+
+    def muto(*_a, **_k):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(atomic_io.os.path, "samefile", muto)
+    assert atomic_io.confronto_autorevole(str(uno), str(due)) is None

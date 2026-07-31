@@ -4829,3 +4829,36 @@ Il residuo è ora **dichiarato e pinnato da un test**, non risolto. Renderlo fai
 ancora — e sarebbe una regressione d'uso peggiore del residuo che chiude.
 
 Suite: **4319 passed, 14 skipped**.
+
+### Il bloccante di Fugu Ultra: «assente» e «lockato» non sono lo stesso caso
+
+Avevo dichiarato il residuo sugli hard link con questa giustificazione: renderlo fail-closed
+«impedirebbe di creare un CSV su un percorso **nuovo**, dove `samefile` solleva solo perché il
+file non esiste ancora». Fugu Ultra ha visto il punto debole: quella frase copre il caso
+**assente**, non il caso **esiste-ma-non-ispezionabile** (lock Windows, permessi). Sono due
+situazioni diverse e le avevo trattate come una — e nella seconda un hard-link alias risulta
+«file diverso», la guardia non scatta e «Crea CSV» tronca il CSV vivo.
+
+**La premessa specifica non è dimostrata** — misurato: su Linux `samefile` **non** solleva su un
+file aperto da un altro handle, solleva sul file assente; il comportamento di Windows su un file
+lockato non è verificabile qui. Ma la conclusione non dipende da chi ha ragione sul lock: se la
+domanda autorevole non ha risposta **e il file esiste**, bloccare è gratis e non bloccare può
+costare un segnale.
+
+**La correzione** introduce `atomic_io.confronto_autorevole`, **tri-stato**: sì / no / *non lo
+so*. È la distinzione che mancava — `stesso_file` collassava il «non lo so» sul confronto dei
+percorsi, che per gli hard link risponde «diversi». Su una guardia di sicurezza **un «no»
+inventato è la direzione sbagliata**: chi deve decidere se bloccare ha bisogno di sapere che non
+sa.
+
+La guardia ora, in ordine: risposta autorevole se c'è → altrimenti percorsi che risolvono uguali
+(certo: sono lo stesso file anche se non esiste ancora) → altrimenti blocca se il file esiste.
+
+*E una regressione che ho introdotto correggendo*, colta dalle controprove già in suite: la prima
+stesura saltava il confronto dei percorsi e rispondeva `False` su **stesso path con file
+assente** — il CSV di sessione non ancora creato. Il confronto dei percorsi resta valido dove è
+**certo**, e va usato prima del fail-closed, non al suo posto. Il test che l'ha intercettata
+(`test_la_guardia_non_esplode_su_un_path_inesistente_o_malformato`) era stato scritto per un'altra
+ragione, tre giri prima.
+
+Suite: **4323 passed, 14 skipped**.

@@ -77,12 +77,35 @@ def stesso_file(a, b) -> bool:
     Input vuoti → `False` (nessuno dei due è un file): stessa convenzione delle guardie
     che questa funzione sostituisce.
     """
+    risposta = confronto_autorevole(a, b)
+    if risposta is not None:
+        return risposta
     if not str(a or "").strip() or not str(b or "").strip():
         return False
+    return risolvi(a) == risolvi(b)
+
+
+def confronto_autorevole(a, b):
+    """`True`/`False` se si può stabilire con certezza che `a` e `b` sono lo stesso file,
+    oppure **`None` se la domanda non ha avuto risposta** (bloccante Fugu Ultra su #203).
+
+    È `stesso_file` senza il ripiego: tri-stato invece che booleano. La distinzione conta
+    perché `stesso_file` collassa il «non lo so» sul confronto dei path — che per gli **hard
+    link** risponde «file diversi», visto che `realpath` non li unifica. Su una guardia di
+    sicurezza un «no» inventato è la direzione sbagliata: chi deve decidere se **bloccare**
+    ha bisogno di sapere che non sa, per poter bloccare lo stesso.
+
+    `os.path.samefile` è l'unica risposta autorevole (confronta gli inode, quindi vede anche
+    gli hard link). Solleva quando un file **non esiste** — il caso innocuo di un percorso
+    nuovo — ma anche quando esiste e non è ispezionabile (permessi, lock Windows): i
+    chiamanti distinguono i due guardando se il file c'è.
+    """
+    if not str(a or "").strip() or not str(b or "").strip():
+        return None
     try:
         return os.path.samefile(str(a), str(b))
     except (OSError, ValueError):
-        return risolvi(a) == risolvi(b)
+        return None
 
 
 def _fsync_dir(d):
