@@ -243,3 +243,106 @@ def test_le_GUARDIE_invece_riconoscono_gli_hard_link(tmp_path):
     # E `risolvi` da solo NON basta: è esattamente il motivo per cui `stesso_file` prova
     # `samefile` PRIMA di ricadere sul confronto dei path.
     assert atomic_io.risolvi(uno) != atomic_io.risolvi(due)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════
+# Major di CodeRabbit su #203 — una REGRESSIONE introdotta da questa stessa PR.
+#
+# Risolvendo la destinazione, `atomic_write` ha spostato i temporanei nella cartella
+# del file VERO. Ma `sweep_orphan_temps` continuava a guardare la cartella del LINK:
+#
+#   atomic_write crea i tmp in: .../vera
+#   sweep_orphan_temps guarda : .../dove_punta_config
+#   orfani rimossi: 0          ← si accumulano a ogni crash, per sempre
+#
+# Prima non succedeva: i tmp nascevano accanto al link e lo sweep li trovava. È lo
+# stesso schema del Major sulla #202 — ho cambiato dove una funzione SCRIVE senza
+# guardare chi altro dipendeva da quella posizione.
+# ══════════════════════════════════════════════════════════════════════════════════
+
+@richiede_link
+def test_lo_sweep_trova_gli_orfani_accanto_al_FILE_VERO(tmp_path):
+    cartella_vera = tmp_path / "vera"
+    cartella_vera.mkdir()
+    cartella_config = tmp_path / "dove_punta_config"
+    cartella_config.mkdir()
+
+    csv_vero = str(cartella_vera / "segnali.csv")
+    csv_path = str(cartella_config / "link.csv")     # ← quello scritto in config
+    csv_writer.init_csv(csv_vero)
+    crea_symlink(csv_vero, csv_path)
+
+    # Orfano com'è lasciato da un crash TRA `mkstemp` e il rename: sta dove
+    # `atomic_write` crea i temporanei, cioè accanto al file VERO.
+    orfano = cartella_vera / (csv_writer._CSV_TMP_PREFIX + "crash" + csv_writer._CSV_TMP_SUFFIX)
+    orfano.write_text("", encoding="utf-8")
+
+    assert csv_writer.sweep_orphan_temps(csv_path) == 1
+    assert not orfano.exists(), (
+        "l'orfano resta accanto al file vero: lo sweep guarda la cartella del link e non lo "
+        "trova, quindi si accumula a ogni crash")
+
+
+@richiede_link
+def test_lo_sweep_trova_anche_gli_orfani_LASCIATI_DALLA_VERSIONE_PRECEDENTE(tmp_path):
+    """Chi aggiorna ha già orfani accanto al LINK, lasciati dal comportamento vecchio.
+    Se lo sweep guardasse solo la cartella risolta, resterebbero lì per sempre: la
+    correzione deve ripulire entrambe."""
+    cartella_vera = tmp_path / "vera"
+    cartella_vera.mkdir()
+    cartella_config = tmp_path / "dove_punta_config"
+    cartella_config.mkdir()
+
+    csv_vero = str(cartella_vera / "segnali.csv")
+    csv_path = str(cartella_config / "link.csv")
+    csv_writer.init_csv(csv_vero)
+    crea_symlink(csv_vero, csv_path)
+
+    vecchio = cartella_config / (csv_writer._CSV_TMP_PREFIX + "vecchio" + csv_writer._CSV_TMP_SUFFIX)
+    nuovo = cartella_vera / (csv_writer._CSV_TMP_PREFIX + "nuovo" + csv_writer._CSV_TMP_SUFFIX)
+    vecchio.write_text("", encoding="utf-8")
+    nuovo.write_text("", encoding="utf-8")
+
+    assert csv_writer.sweep_orphan_temps(csv_path) == 2
+    assert not vecchio.exists() and not nuovo.exists()
+
+
+def test_lo_sweep_non_conta_due_volte_quando_le_cartelle_COINCIDONO(tmp_path):
+    """Controprova: senza link le due cartelle sono la stessa, e lo sweep non deve
+    passarci due volte (né contare doppio, né rimuovere ciò che ha già rimosso)."""
+    csv_path = str(tmp_path / "segnali.csv")
+    csv_writer.init_csv(csv_path)
+    orfano = tmp_path / (csv_writer._CSV_TMP_PREFIX + "solo" + csv_writer._CSV_TMP_SUFFIX)
+    orfano.write_text("", encoding="utf-8")
+
+    assert csv_writer.sweep_orphan_temps(csv_path) == 1
+    assert csv_writer.sweep_orphan_temps(csv_path) == 0      # idempotente
+
+
+@richiede_hardlink
+def test_LIMITE_le_guardie_NON_riconoscono_un_hard_link_se_samefile_non_risponde(tmp_path, monkeypatch):
+    """Il secondo Major di CodeRabbit, e ha ragione: avevo scritto che «le guardie
+    riconoscono gli hard link», senza qualificare.
+
+    `stesso_file` prova `samefile` — che li riconosce — ma se solleva (file assente o
+    lockato su Windows) ricade su `risolvi`, e `realpath` NON unifica gli hard link.
+    In quel ramo due alias hard-link risultano file diversi. È un residuo reale e va
+    pinnato, non dichiarato risolto.
+    """
+    uno = str(tmp_path / "uno.csv")
+    due = str(tmp_path / "due.csv")
+    csv_writer.init_csv(uno)
+    try:
+        os.link(uno, due)
+    except OSError:
+        pytest.skip("hard link non consentiti qui")
+
+    assert atomic_io.stesso_file(uno, due) is True          # con samefile disponibile
+
+    def samefile_lockato(*_a, **_k):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(atomic_io.os.path, "samefile", samefile_lockato)
+    assert atomic_io.stesso_file(uno, due) is False, (
+        "comportamento cambiato: se ora gli hard link sono riconosciuti anche senza "
+        "samefile, aggiornare la documentazione che dichiara questo limite")

@@ -433,12 +433,26 @@ def sweep_orphan_temps(path: str) -> int:
     in volo, quindi ogni `.segnali_*.tmp` è orfano di un processo morto. Best-effort: non
     solleva mai e non tocca il CSV reale (nome senza prefisso/suffisso). Ritorna quanti ne
     ha rimossi. È solo igiene del disco: il CSV finale era già intatto (il rename, se non
-    avvenuto, non lo ha mai sovrascritto)."""
+    avvenuto, non lo ha mai sovrascritto).
+
+    **Due cartelle, non una (B7 #194, Major CodeRabbit su #203).** Da quando `atomic_write`
+    risolve la destinazione, con un `csv_path` che è un link i temporanei nascono accanto al
+    file **VERO**, non accanto al link: guardando solo la cartella del link lo sweep non ne
+    trovava nessuno e gli orfani si accumulavano a ogni crash. Si spazzano entrambe:
+    - la **risolta**, dove `atomic_write` li crea oggi;
+    - quella del **link**, dove li ha lasciati la versione precedente — chi aggiorna li ha
+      già lì, e guardando solo la risolta resterebbero per sempre.
+    Quando coincidono (il caso normale, nessun link) si passa una volta sola."""
     p = str(path or "").strip()
     if not p:
         return 0
-    d = os.path.dirname(os.path.abspath(p)) or "."
-    return atomic_io.sweep_orphan_temps(d, _CSV_TMP_PREFIX, _CSV_TMP_SUFFIX)
+    # `dict.fromkeys` invece di `set`: deduplica mantenendo l'ordine (prima la cartella
+    # reale), così il conteggio è stabile e riproducibile nei test.
+    cartelle = dict.fromkeys(
+        (os.path.dirname(os.path.abspath(candidato)) or ".")
+        for candidato in (os.path.realpath(p), p))
+    return sum(atomic_io.sweep_orphan_temps(d, _CSV_TMP_PREFIX, _CSV_TMP_SUFFIX)
+               for d in cartelle)
 
 
 # ── FAMIGLIA «lascia solo l'header» — matrice delle precondizioni (ambiguità A4, #69) ───────────

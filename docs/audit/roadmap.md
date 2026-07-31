@@ -4789,3 +4789,43 @@ salta — **fallisce**, per una ragione che non c'entra con ciò che verifica. C
 `crea_symlink`, che degrada a `pytest.skip` esattamente come già facevano i test sugli hard link.
 
 Suite: **4315 passed, 14 skipped**.
+
+### I due Major di CodeRabbit — e uno era di nuovo una regressione mia
+
+**Major 1: lo sweep degli orfani guardava la cartella sbagliata.** Risolvendo la destinazione,
+`atomic_write` ha spostato i temporanei nella cartella del file **vero**. Ma
+`csv_writer.sweep_orphan_temps` continuava a guardare la cartella del **link**. Misurato sul
+caso di questa PR (link di *file*, non di cartella):
+
+```text
+atomic_write crea i tmp in: .../vera
+sweep_orphan_temps guarda : .../dove_punta_config
+orfani rimossi: 0          ← si accumulano a ogni crash, per sempre
+```
+
+Prima non succedeva: i temporanei nascevano accanto al link e lo sweep li trovava. **È lo stesso
+schema del Major sulla #202** — ho cambiato *dove una funzione scrive* senza guardare chi altro
+dipendeva da quella posizione. Due PR di fila, la stessa forma di errore: la regola 2 va letta
+come «cerca la classe **e i consumatori**», non solo la classe.
+
+La correzione spazza **entrambe** le cartelle: la risolta (dove nascono oggi) e quella del link
+(dove li ha lasciati la versione precedente — chi aggiorna li ha già lì, e guardando solo la
+risolta resterebbero per sempre). Quando coincidono, il caso normale senza link, si passa una
+volta sola: c'è un test che lo verifica idempotente.
+
+*Nota su come è stata confermata:* la sonda di CodeRabbit usava un link di **cartella**, dove il
+difetto **non** si riproduce — elencare una cartella collegata segue il link. Il caso che rompe
+davvero è il link di **file**, ed è quello che ho misurato prima di correggere. Il rilievo era
+giusto; l'esempio no.
+
+**Major 2: la mia frase sulle guardie non era qualificata.** Avevo scritto che «le guardie
+riconoscono gli hard link». Vero solo quando `samefile` può rispondere: se il file è assente o
+lockato, `stesso_file` ricade su `risolvi`, e `realpath` non unifica gli hard link — in quel ramo
+due alias risultano file diversi e la guardia non scatta.
+
+Il residuo è ora **dichiarato e pinnato da un test**, non risolto. Renderlo fail-closed
+(bloccare quando la domanda non ha risposta) impedirebbe di creare un CSV su un percorso
+**nuovo** — il caso più comune, dove `samefile` solleva semplicemente perché il file non esiste
+ancora — e sarebbe una regressione d'uso peggiore del residuo che chiude.
+
+Suite: **4319 passed, 14 skipped**.

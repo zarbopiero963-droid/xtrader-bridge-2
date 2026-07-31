@@ -408,9 +408,19 @@ Non è un difetto introdotto qui (la sostituzione atomica ha sempre funzionato c
 viene corretto: l'unico modo di scrivere attraverso un hard link è scrivere **in place**, cioè
 rinunciare all'atomicità. Un crash a metà scrittura lascerebbe a XTrader un CSV **troncato** —
 una scommessa malformata invece di una configurazione insolita. Si preferisce la garanzia certa
-al caso raro. Le **guardie** (es. il rifiuto di «Crea CSV» sul CSV della sessione attiva)
-riconoscono invece anche gli hard link, perché confrontano l'identità del file: bloccano di
-più, e bloccare è la direzione sicura.
+al caso raro.
+
+Le **guardie** (es. il rifiuto di «Crea CSV» sul CSV della sessione attiva) riconoscono invece
+anche gli hard link — **ma solo quando possono interrogare il filesystem**. Confrontano
+l'identità reale del file (`os.path.samefile`, che vede gli inode); se quella domanda non ha
+risposta perché un file è **assente o lockato**, ricadono sul confronto dei percorsi risolti, e
+`realpath` **non** unifica gli hard link. In quel ramo due alias hard-link risultano file
+diversi e la guardia non scatta.
+
+Il residuo è dichiarato e fissato da un test, non risolto: renderlo fail-closed (bloccare quando
+la domanda non ha risposta) impedirebbe di creare un CSV su un percorso **nuovo** — il caso più
+comune, dove `samefile` solleva semplicemente perché il file non esiste ancora — e sarebbe una
+regressione d'uso peggiore del residuo che chiude.
 
 La matrice vive anche nel sorgente (sopra `init_csv` in `csv_writer.py`) ed è fissata da
 `tests/unit/test_csv_family_a4_69.py`: se i contratti venissero uniformati, quei test
