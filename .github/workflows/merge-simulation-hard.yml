@@ -136,15 +136,10 @@ jobs:
 
       - name: Controllo file vietati tracciati
         shell: bash
+        # PR-D del piano #194: era la QUARTA copia degli stessi pattern (dopo `.gitignore`, il
+        # YAML di `forbidden-files` e lo scanner), e come le altre aveva già divergiuto — qui il
+        # bot-id Telegram era rimasto a `[0-9]{8,10}`. Ora entrambi i workflow invocano gli
+        # stessi due strumenti, che leggono la fonte unica `tools/secret_policy.py`.
         run: |
-          # Fonte di verità: .gitignore. File tracciati ma ignorati (eccezione
-          # !data/dizionario_xtrader.csv onorata da git) + token Telegram in chiaro.
-          ignored=$(git ls-files -i -c --exclude-standard)
-          ci=$(git ls-files | grep -iE '(^|/)\.env$|(^|/)config\.json$|\.(exe|zip|log|spec|secret|bak)$' || true)
-          csv=$(git ls-files | grep -iE '\.csv$' | grep -vx 'data/dizionario_xtrader.csv' || true)
-          tok=$(git grep -lIE '[0-9]{8,10}:[A-Za-z0-9_-]{35}' -- . 2>/dev/null || true)
-          if [ -n "$ignored$ci$csv$tok" ]; then
-            echo "::error::File vietati o token in chiaro tracciati nel repo (token redatto):"
-            echo "$ignored"; echo "$ci"; echo "$csv"; echo "$tok"; exit 1
-          fi
-          echo "OK: nessun file vietato e nessun token in chiaro."
+          python tools/forbidden_paths.py
+          python tools/secret_scan.py

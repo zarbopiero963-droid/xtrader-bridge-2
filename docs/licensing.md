@@ -656,6 +656,19 @@ attivi**, senza un errore e senza un avviso. E senza `licenses.jsonl` smettono d
 - **Il token GitHub non entra mai nel backup**: vive nel **keyring** del sistema operativo, che è il
   posto giusto (cifrato, legato all'utente, non copiabile per sbaglio insieme a un file). Sul PC nuovo
   si re-incolla — ed è un segreto **sostituibile** in un minuto, a differenza del seed.
+- **Il repository ora si difende da solo dal backup** (bug B3 del piano #194, 🔴). Fino ad allora un
+  backup completo salvato per sbaglio dentro la cartella del repo passava **tutte e tre** le difese
+  anti-segreto: non era in `.gitignore`, il workflow `forbidden-files` non ne conosceva il nome e lo
+  scanner dei contenuti non aveva alcun pattern per un seed Ed25519. Da PR-D:
+  `.gitignore` ignora `*backup*.json`, `auto_backup.json`, `licenses.jsonl`, `revoked.jsonl` e gli
+  altri stati del tool; il gate dei percorsi li blocca anche nelle varianti maiuscole; lo scanner
+  riconosce il seed **sia** nella forma di `signing_key.json` (`"seed": "<64 hex>"`) **sia** in quella
+  annidata del backup, dove le virgolette sono escapate. Restano difese di ultima istanza: il posto
+  del backup è un supporto offline, non una cartella di lavoro.
+- ⚠️ **I dati dei clienti sono PII, non segreti** (B14). `licenses.jsonl` e `revoked.jsonl` contengono
+  nome, contatto e hardware id di chi ha comprato: nessun pattern li riconoscerebbe mai come
+  "segreto", quindi l'unica difesa possibile è il **nome del file** — ed è per questo che sono
+  elencati sia in `.gitignore` sia in `tools/secret_policy.py`.
 - ⚠️ **Su Windows i permessi `0o600` NON proteggono, e va detto** (bloccante Fugu Ultra #184).
   `chmod` non tocca le ACL NTFS: sul target principale del prodotto quel numero è un **no-op**. Dentro
   `%APPDATA%\XTraderLicenseManager` la protezione reale viene dalla **DACL** applicata da

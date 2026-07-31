@@ -780,6 +780,15 @@ Tutte queste protezioni sono **attive a runtime**:
 > L'hook usa `tools/secret_scan.py` (scanner **cross-platform**, la stessa fonte di pattern
 > del CI; `tools/secret_scan.sh` resta come wrapper di compatibilità) e blocca il commit se un
 > file in staging contiene un segreto noto — stampando **solo il path**, mai il valore.
+>
+> I pattern non vivono dentro lo scanner: la **fonte unica** è `tools/secret_policy.py`, letta
+> sia dallo scanner dei contenuti sia dal gate dei percorsi (`tools/forbidden_paths.py`, che il
+> workflow `forbidden-files` invoca). Prima erano tre liste separate — `.gitignore`, il YAML del
+> workflow e lo scanner — e un file nuovo andava aggiunto a mano a tutte e tre: è così che il
+> **backup completo del License Manager**, che contiene il seed Ed25519, passava indisturbato
+> tutte e tre le difese. `.gitignore` non può importare Python, quindi non è una copia ma un
+> **mirror verificato**: un test hard controlla con `git check-ignore` che copra tutto ciò che la
+> policy elenca.
 
 ---
 
