@@ -202,3 +202,110 @@ def test_il_formato_del_serial_regge_anche_a_sole_cifre():
         coda = serial[4:]
         assert coda.isalnum() and coda == coda.upper(), \
             f"{serial}: il controllo di formato non deve dipendere dalla presenza di lettere"
+
+
+# ───────── B2 · secondo vettore: lo whitespace (rilievo Fable 5 + Fugu Ultra su #207) ─────────
+#
+# Il primo giro di questa PR chiudeva il padding `=` ma lasciava aperta la stessa identica falla
+# con uno spazio o un a-capo: `verify_license` fa `token.strip()` prima di tutto, mentre
+# `license_serial` calcola sulla stringa GREZZA. Misurato prima della correzione:
+#
+#     onesto         valid=True  serial=LIC-53AC51B63970
+#     token + '\n'   valid=True  serial=LIC-91CC2C1D754F   <-- revoca aggirata, come col '='
+#
+# E non è nemmeno un vettore solo ostile: `license_gui._evaluate_activation` salva il token
+# **esattamente come incollato**, quindi un utente che copia da un'email con un a-capo finale si
+# ritrova su disco un token il cui serial non corrisponde a quello registrato.
+#
+# La correzione è nel `license_serial`, non nella verifica: canonicalizza l'input **dove nasce il
+# serial**. Per ogni token reale lo strip è un no-op — quindi nessun serial esistente cambia — e
+# le varianti con whitespace collassano sul serial vero invece di produrne uno nuovo.
+
+@pytest.mark.parametrize("spazio", ["\n", " ", "\r\n", "\t", "  "])
+def test_lo_whitespace_non_produce_un_serial_diverso(coppia, spazio):
+    """Il cuore del secondo vettore: qualunque whitespace in testa o in coda deve dare **lo
+    stesso** serial del token onesto, altrimenti la revoca non lo intercetta."""
+    _seed, _public, token = coppia
+    atteso = lic.license_serial(token)
+    assert lic.license_serial(token + spazio) == atteso
+    assert lic.license_serial(spazio + token) == atteso
+
+
+def test_la_revoca_intercetta_anche_la_variante_con_whitespace(coppia):
+    """La prova end-to-end che Fugu chiedeva: una lista di revoche costruita col serial del token
+    onesto deve bloccare **anche** la variante con l'a-capo."""
+    seed_hex, public_hex, token = coppia
+    entries = registry.revocation_entries([{"serial": lic.license_serial(token),
+                                            "hardware_id": HW}])
+    firmata = revocation.build_revocation_list(bytes.fromhex(seed_hex), entries, now=DOPO)
+    lista = revocation.verify_revocation_list(firmata, public_key_hex=public_hex)
+
+    for variante in (token, token + "\n", token + " ", " " + token, token + "\r\n"):
+        assert revocation_client.license_revoked(lista, token=variante, hardware_id=HW) is True, \
+            "una variante con whitespace deve restare revocata"
+
+
+def test_lo_strip_non_cambia_il_serial_di_un_token_gia_registrato(coppia):
+    """La controprova che rende la correzione sicura: per un token **reale** lo strip è un no-op,
+    quindi nessun serial già scritto in `licenses.jsonl`, `revoked.jsonl` o in una lista già
+    pubblicata cambia valore. Se questo test cadesse, la correzione starebbe riattivando in
+    silenzio i clienti revocati — esattamente il guasto che la #194 vietava."""
+    _seed, _public, token = coppia
+    assert token == token.strip(), "un token emesso dal prodotto non ha whitespace"
+    assert lic.license_serial(token) == lic.license_serial(token.strip())
+    # e l'àncora letterale continua a valere
+    assert lic.license_serial("token-di-prova.firma-di-prova") == "LIC-14BC922B87A1"
+
+
+# ───────── il dedup non deve perdere una blacklist richiesta (rilievo Fable 5 su #207) ─────────
+
+def test_il_dedup_non_perde_la_blacklist_richiesta():
+    """Se lo stesso serial compare **prima senza** e **poi con** `blacklist_hw`, il dedup
+    scartava il secondo record: la blacklist chiesta esplicitamente non veniva emessa, **in
+    silenzio**. Per un'azione che il proprietario ha deciso di rendere opt-in, perderla senza
+    dirlo è il modo peggiore di sbagliare."""
+    s = "LIC-AAA111BBB222"
+    entries = registry.revocation_entries([
+        {"serial": s, "hardware_id": HW},
+        {"serial": s, "hardware_id": HW, "blacklist_hw": True},
+    ])
+    assert entries == [{"serial": s, "hw": HW}], \
+        "la blacklist richiesta da un record successivo deve essere fusa, non persa"
+
+
+def test_il_dedup_non_aggiunge_una_blacklist_non_richiesta():
+    """La controprova simmetrica: l'ordine inverso non deve *propagare* la blacklist a un record
+    che non l'ha chiesta — ma nemmeno perderla. Chiesta una volta = emessa."""
+    s = "LIC-BBB222CCC333"
+    entries = registry.revocation_entries([
+        {"serial": s, "hardware_id": HW, "blacklist_hw": True},
+        {"serial": s, "hardware_id": HW},
+    ])
+    assert entries == [{"serial": s, "hw": HW}]
+
+    # e se NESSUNO dei due la chiede, resta il default reversibile
+    solo = registry.revocation_entries([{"serial": s, "hardware_id": HW},
+                                        {"serial": s, "hardware_id": HW}])
+    assert solo == [{"serial": s}]
+
+
+# ───────── `blacklist_hw` è un booleano stretto (rilievo GPT-5.5 su #207) ─────────
+
+@pytest.mark.parametrize("valore", ["false", "0", "no", "off", "False"])
+def test_una_stringa_non_attiva_la_blacklist(valore):
+    """`if r.get("blacklist_hw"):` accendeva la blacklist anche con la **stringa** `"false"`, che
+    in Python è vera. Per un'azione **irreversibile** — la macchina resta fuori uso per sempre —
+    una svista di serializzazione non deve poterla attivare. Misurato prima della correzione:
+    `'false'`, `'0'` e `'no'` attivavano tutti la blacklist."""
+    entries = registry.revocation_entries([{"serial": "LIC-CCC333DDD444",
+                                            "hardware_id": HW, "blacklist_hw": valore}])
+    assert entries == [{"serial": "LIC-CCC333DDD444"}], \
+        f"{valore!r} non deve attivare una blacklist irreversibile"
+
+
+def test_solo_il_booleano_vero_attiva_la_blacklist():
+    """Controprova: il valore che il codice scrive davvero (`True`, cioè `true` in JSON) continua
+    a funzionare."""
+    entries = registry.revocation_entries([{"serial": "LIC-DDD444EEE555",
+                                            "hardware_id": HW, "blacklist_hw": True}])
+    assert entries == [{"serial": "LIC-DDD444EEE555", "hw": HW}]

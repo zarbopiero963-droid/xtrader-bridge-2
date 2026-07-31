@@ -255,20 +255,33 @@ def revocation_entries(revocations: list) -> list:
     I record già su disco non hanno il campo, quindi dopo l'aggiornamento **nessuna macchina finisce
     in blacklist a sorpresa**: nessuna migrazione, nessun cambio di comportamento retroattivo.
     """
-    seen, out = set(), []
+    per_serial, out = {}, []
     for r in revocations:
         serial = str(r.get("serial", "")).strip().upper()
-        if serial and serial not in seen:
-            seen.add(serial)
+        if not serial:
+            continue
+        entry = per_serial.get(serial)
+        if entry is None:
             entry = {"serial": serial}
-            # `hw` solo se richiesto ESPLICITAMENTE e se c'è davvero un hardware id: una entry con
-            # `hw` vuoto non revocherebbe nulla e verrebbe scartata da `normalize_entries` — meglio
-            # non generarla affatto.
-            if r.get("blacklist_hw"):
-                hw = str(r.get("hardware_id", "")).strip()
-                if hw:
-                    entry["hw"] = hw
+            per_serial[serial] = entry
             out.append(entry)
+        # `hw` solo se richiesto ESPLICITAMENTE e se c'è davvero un hardware id: una entry con `hw`
+        # vuoto non revocherebbe nulla e verrebbe scartata da `normalize_entries` — meglio non
+        # generarla affatto.
+        #
+        # Il flag si valuta su OGNI record dello stesso serial, non solo sul primo (rilievo Fable 5
+        # sulla PR-C): col dedup precedente, se lo stesso serial compariva prima **senza** e poi
+        # **con** `blacklist_hw`, il secondo record veniva scartato e la blacklist richiesta
+        # esplicitamente spariva **in silenzio**. Chiesta una volta = emessa.
+        #
+        # `is True` e non un `if` generico (rilievo GPT-5.5): la blacklist è **irreversibile** — la
+        # macchina resta fuori uso per sempre — e con la verifica lasca la **stringa** `"false"`,
+        # che in Python è vera, l'avrebbe attivata. Una svista di serializzazione non deve poter
+        # decidere una cosa del genere; il valore che il codice scrive è il booleano vero.
+        if r.get("blacklist_hw") is True and "hw" not in entry:
+            hw = str(r.get("hardware_id", "")).strip()
+            if hw:
+                entry["hw"] = hw
     return out
 
 

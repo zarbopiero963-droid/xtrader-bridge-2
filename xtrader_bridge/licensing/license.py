@@ -59,8 +59,29 @@ _SERIAL_HEX_LEN = 12
 def license_serial(token: str) -> str:
     """Serial deterministico di una licenza dal suo token firmato: `LIC-` + primi 12 hex di
     sha256(token) (maiuscolo). Stabile: lo stesso token dà sempre lo stesso serial; un token diverso
-    (es. dopo un rinnovo) dà un serial diverso — è una licenza diversa."""
-    digest = hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+    (es. dopo un rinnovo) dà un serial diverso — è una licenza diversa.
+
+    ⚠️ Lo `strip()` **non è cosmetico, è il secondo vettore di B2** (rilievo Fable 5 e Fugu Ultra,
+    indipendenti, sulla PR-C). `verify_license` ha sempre fatto `token.strip()` prima di validare,
+    mentre qui si calcolava sulla stringa **grezza**: un token con uno spazio o un a-capo in coda
+    restava quindi `valid=True` ma produceva un serial **diverso** da quello registrato, e la lista
+    di revoche non lo intercettava — la stessa falla del padding `=`, con un carattere diverso.
+    Misurato prima della correzione:
+
+        onesto         valid=True  serial=LIC-53AC51B63970
+        token + '\\n'   valid=True  serial=LIC-91CC2C1D754F   ← revoca aggirata
+
+    Non è nemmeno un vettore solo ostile: `license_gui._evaluate_activation` salva il token
+    **esattamente come incollato**, quindi bastava copiarlo da un'email con un a-capo finale.
+
+    La canonicalizzazione sta **qui**, dove il serial nasce, e non nella verifica, per due ragioni
+    misurate: (1) per un token reale lo strip è un **no-op**, quindi **nessun serial già scritto**
+    in `licenses.jsonl`/`revoked.jsonl` o in una lista già pubblicata cambia valore — il vincolo
+    che vieta di riattivare in silenzio i clienti revocati; (2) rifiutare gli spazi in
+    `verify_license` avrebbe invece bloccato l'utente legittimo che ha già su disco un token
+    salvato con un a-capo.
+    """
+    digest = hashlib.sha256(str(token).strip().encode("utf-8")).hexdigest()
     return _SERIAL_PREFIX + digest[:_SERIAL_HEX_LEN].upper()
 
 # Tolleranza anti-rollback: quanto indietro può andare l'orologio senza far scattare l'allarme
