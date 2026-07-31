@@ -412,9 +412,10 @@ class SignalTracker:
                 sa = None
         except (TypeError, ValueError):
             sa = None
-        # Solo un salto INDIETRO trasla; in avanti (riavvio normale) i timestamp restano verbatim.
-        shift = min(0.0, cap - sa) if sa is not None else 0.0
-        restored = []
+
+        # Sanificazione delle voci PRIMA di decidere se fidarsi di `saved_at`: serve la più
+        # recente per il controllo di coerenza qui sotto.
+        voci = []
         for item in data or []:
             try:
                 h, t = item[0], item[1]
@@ -428,6 +429,24 @@ class SignalTracker:
                 continue
             if not math.isfinite(tf):
                 continue                    # NaN/inf da state corrotto/manomesso → scartato
+            voci.append((str(h), tf, r))
+
+        # COERENZA fra `saved_at` e le voci (rilievo Fable 5 sulla PR #199, verificato riproducibile
+        # e nel verso OPPOSTO a come era stato descritto). Lo stato viene scritto mentre l'app gira,
+        # quindi la voce più recente è vicina al salvataggio. Un `saved_at` enorme nel futuro è
+        # corruzione, ma senza questo controllo veniva CREDUTO: `shift` diventava enorme e negativo,
+        # tutte le voci finivano in un passato remoto, `_prune` le buttava e la deduplica spariva —
+        # fail-OPEN, cioè doppia scommessa, proprio dove il percorso legacy è fail-CLOSED (clampa e
+        # le conserva). Se `saved_at` è più avanti della voce più recente oltre l'orizzonte, non è
+        # credibile: si ricade sul comportamento prudente. Un rifiuto errato non fa danno — quelle
+        # voci sarebbero comunque scadute — mentre crederci a torto costa una scommessa doppia.
+        if sa is not None and voci and sa - max(tf for (_h, tf, _r) in voci) > CORRUPTION_HORIZON_S:
+            sa = None
+        # Solo un salto INDIETRO trasla; in avanti (riavvio normale) i timestamp restano verbatim.
+        shift = min(0.0, cap - sa) if sa is not None else 0.0
+
+        restored = []
+        for (h, tf, r) in voci:
             if not trusted:
                 if sa is not None:
                     # Voce registrata DOPO il salvataggio: impossibile → corruzione, riportata a
@@ -435,7 +454,7 @@ class SignalTracker:
                     tf = min(tf, sa) + shift
                 elif tf > horizon:
                     tf = cap                # SOLO corruzione (oltre l'orizzonte 24 h) → clamp a now
-            restored.append((str(h), tf, r))
+            restored.append((h, tf, r))
         self._seen = restored
 
 

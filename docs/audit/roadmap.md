@@ -4115,3 +4115,34 @@ disattivare il clamp dichiarando un istante sporco.
 L'altro stato persistito del runtime è `daily_state.json` (`safety_guard.DailyLimiter`), ma **non
 è la stessa classe**: memorizza un giorno di calendario e un conteggio, non timestamp assoluti in
 una finestra scorrevole, quindi non ha l'esposizione al salto d'orologio. Verificato, non assunto.
+
+### Il bug che la correzione stessa aveva introdotto (review #199)
+
+Fable 5 ha notato che con un `saved_at` valido il clamp a 24 h è bypassato, e ha ipotizzato che un
+file corrotto con `saved_at` enorme nel futuro finisse per bloccare quegli hash — «direzione
+conservativa, accettabile». Misurato: **la direzione era l'opposta.**
+
+```text
+file corrotto: saved_at = T0 + 1e9, voce legittima e recente a T0-10
+
+  formato NUOVO   -> register(...) = NEW         <- deduplica CANCELLATA, fail-OPEN
+  formato LEGACY  -> register(...) = DUPLICATE   <- fail-CLOSED
+```
+
+`saved_at` corrotto veniva **creduto**: `shift` diventava enorme e negativo, tutte le voci
+finivano in un passato remoto, `_prune` le buttava, la deduplica spariva. Cioè **doppia
+scommessa** — e per giunta in un punto dove il percorso legacy si comportava *meglio*: la mia
+correzione peggiorava il caso corruzione mentre migliorava il caso orologio.
+
+**La correzione della correzione** è un controllo di coerenza fra i due dati che ora stanno nel
+file: lo stato viene scritto **mentre l'app gira**, quindi la voce più recente è vicina al
+salvataggio. Un `saved_at` più avanti della voce più recente oltre l'orizzonte non è credibile →
+si ricade sul comportamento prudente. È decidibile perché in un salto all'indietro **vero**
+`saved_at` e le voci vengono dallo **stesso orologio vecchio**: distano entrambi mesi da `now`, ma
+pochi secondi fra loro. Un rifiuto errato non fa danno — quelle voci sarebbero comunque scadute —
+mentre crederci a torto costa una scommessa doppia.
+
+> **Nota di metodo.** È il quarto difetto di questa serie trovato **eseguendo** invece che
+> rileggendo, e il secondo *introdotto da una correzione* (dopo il `ValueError` di PR-A2). Vale
+> anche al contrario: il rilievo era giusto nel puntare il dito, sbagliato nel diagnosticare il
+> verso — e senza misurarlo si sarebbe archiviato come «accettabile».

@@ -217,3 +217,42 @@ def test_saved_at_malformato_non_fa_crashare_lo_START(rotto):
     signal_dedupe.load_state(ripristinato, percorso, now=T0)   # non deve sollevare
     for (_h, ts, _r) in ripristinato.state():
         assert ts == ts and abs(ts) != float("inf"), "timestamp non finito sopravvissuto"
+
+
+def test_un_saved_at_CORROTTO_non_puo_cancellare_la_deduplica():
+    """FAIL-FIRST sulla prima stesura di questa PR — un bug introdotto dalla correzione stessa,
+    trovato in review (Fable 5 su #199) e verificato nel verso OPPOSTO a come era stato descritto.
+
+    `saved_at` enorme nel futuro è corruzione, ma veniva CREDUTO: `shift` diventava enorme e
+    negativo, tutte le voci finivano in un passato remoto, `_prune` le buttava e la deduplica
+    spariva. Misurato: `NEW` invece di `DUPLICATE` — cioè **fail-OPEN, doppia scommessa** —
+    proprio dove il percorso legacy è fail-CLOSED (clampa le voci e le conserva).
+
+    La coerenza fra `saved_at` e la voce più recente lo rende decidibile: lo stato è scritto
+    mentre l'app gira, quindi un `saved_at` molto più avanti della voce più recente non è
+    credibile e si ricade sul comportamento prudente.
+    """
+    percorso = _percorso()
+    voce = signal_dedupe.message_hash(MSG)
+    with open(percorso, "w", encoding="utf-8") as f:
+        json.dump({"saved_at": T0 + 1e9, "entries": [[voce, T0 - 10, True]]}, f)
+
+    ripristinato = signal_dedupe.SignalTracker()
+    signal_dedupe.load_state(ripristinato, percorso, now=T0)
+
+    assert ripristinato.register(MSG, now=T0).status == signal_dedupe.DUPLICATE, (
+        "un saved_at corrotto ha cancellato la deduplica: lo stesso segnale verrebbe scritto "
+        "una seconda volta (fail-OPEN, dove il percorso legacy e' fail-CLOSED)")
+
+
+def test_il_salto_indietro_LEGITTIMO_resta_credibile():
+    """CONTROPROVA del precedente, e delimita il controllo di coerenza: in un salto all'indietro
+    vero, `saved_at` E le voci vengono dallo STESSO orologio vecchio, quindi la voce più recente
+    è vicinissima al salvataggio anche se entrambi distano mesi da `now`. Il controllo non deve
+    scambiarlo per corruzione, o B45 non sarebbe corretto affatto."""
+    percorso = _percorso()
+    signal_dedupe.save_state(_tracker_con_voce(now=T0), percorso, now=T0 + 2)
+
+    ripristinato = signal_dedupe.SignalTracker()
+    signal_dedupe.load_state(ripristinato, percorso, now=T0 - 200 * GIORNO)
+    assert ripristinato.register(MSG, now=T0 - 200 * GIORNO + 60).status == signal_dedupe.DUPLICATE
