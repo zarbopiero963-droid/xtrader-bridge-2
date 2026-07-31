@@ -4719,3 +4719,58 @@ modo in cui una patch di sicurezza diventa una regressione d'uso.
 **Test:** `tests/safety/test_path_link_194.py` + `tests/integration/test_path_link_app_194.py`
 (+20). Fail-first verificato: **13 rossi** su `3fb9db4`, 7 verdi (le controprove). Suite:
 **4313 passed, 14 skipped**.
+
+### Il giro di review: due falsi bloccanti da diff troncato, e un limite vero
+
+**Il falso bloccante, sollevato da tutti e tre.** GPT-5.5, Fable 5 e Fugu Ultra hanno segnalato
+un probabile `NameError`: «`dirty_csv_store._norm` chiama `atomic_io.risolvi` ma il diff non
+aggiunge alcun import di `atomic_io`». Tutti e tre dichiaravano di **non aver ricevuto**
+`app.py` e `atomic_io.py` (oltre budget). L'import c'è, **preesistente**, a
+`dirty_csv_store.py:27` (`from . import atomic_io, config_store`) — e un `NameError` sarebbe
+comunque emerso nella suite, che è verde. Risposto nel thread con l'evidenza, non con un commit:
+è il caso che `CLAUDE.md` descrive come «reviewer che ha visto solo una parte».
+
+**Il limite vero, trovato da Fugu Ultra: gli hard link.** `realpath` risolve i link simbolici e
+le junction, non gli hard link — quelli non sono un puntatore da seguire, sono due voci di
+directory per lo stesso inode. Misurato:
+
+```text
+os.path.samefile(a, b)      True   ← la GUARDIA dice «stesso file»
+realpath li unifica?        False  ← il WRITER no
+dopo clear_stale_csv(a):
+  has_active_row(a): False
+  has_active_row(b): True          ← XTrader leggerebbe ancora il segnale stantio
+```
+
+Il rilievo colpisce una **mia incoerenza**: avevo scritto io stesso, nel docstring di
+`stesso_file`, che `samefile` «vede anche gli hard link, che nessun confronto di stringhe può
+riconoscere» — e poi non avevo portato quella capacità nel writer.
+
+Non si corregge, e la ragione è uno scambio, non una dimenticanza: l'unico modo di scrivere
+attraverso un hard link è scrivere **in place** (`open`+`truncate`), cioè **rinunciare
+all'atomicità**. Un crash a metà scrittura lascerebbe a XTrader un CSV troncato — una scommessa
+malformata invece di una configurazione insolita. Si preferisce la garanzia certa al caso raro.
+Non è nemmeno una regressione: `os.replace` ha sempre rotto gli hard link.
+
+Quello che **cambia** è che ora è dichiarato invece che ignorato: due test lo **pinnano** (uno
+verifica il limite, l'altro l'asimmetria voluta writer/guardie), e le docs non dicono più «link»
+in generale ma distinguono simbolici/junction dagli hard link. L'asimmetria è deliberata: le
+guardie li riconoscono e quindi **bloccano di più**, che è la direzione sicura.
+
+**Il TOCTOU, sollevato da Fable 5.** Fra `realpath` e il `replace` finale c'è una finestra: se
+qualcuno sostituisse il link nel frattempo, si scriverebbe altrove. Prima non c'era, quindi la
+superficie si è allargata — ed è giusto dirlo. Non viene mitigata oltre perché per sfruttarla
+serve permesso di **scrittura sulla cartella del CSV**, e chi ce l'ha può già riscrivere il CSV
+direttamente: stesso livello di accesso, nessuna escalation. Dall'altra parte, non risolvere è
+B7, un bug **misurato**. Si scambia un difetto reale e osservato con una finestra che richiede
+un accesso già sufficiente a fare peggio. Motivazione e mitigazione futura (`O_NOFOLLOW` +
+verifica dopo il rename) scritte nel codice, per il giorno in cui il modello di minaccia
+cambiasse.
+
+**La copertura Windows**, segnalata da Fable e Fugu: il salto era incondizionato su
+`os.name == "nt"`, quindi l'ambiente più critico per il bridge non verificava **nulla** su link
+e junction, proprio dove il contratto li promette. Sostituito con una **sonda**: si prova
+davvero a creare un symlink e si salta solo se non riesce. Un runner Windows con Developer Mode
+o `SeCreateSymbolicLinkPrivilege` ora esegue i test invece di saltarli.
+
+Suite: **4315 passed, 14 skipped**.

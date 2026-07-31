@@ -21,16 +21,40 @@ aggiornare il file puntato e lasciare il link al suo posto.
 """
 
 import os
+import tempfile
 
 import pytest
 
 from xtrader_bridge import atomic_io, csv_writer
 
-# I link simbolici su Windows richiedono privilegi che la CI non ha: i test che ne creano
-# uno si saltano lì. La logica pura di `atomic_io.risolvi`/`stesso_file` resta coperta.
+
+def _sa_creare_link() -> bool:
+    """Prova DAVVERO a creare un symlink, invece di dare per scontato che su Windows non
+    si possa (rilievo Fable 5 su #203).
+
+    Il salto incondizionato su `os.name == "nt"` lasciava Windows — l'ambiente più critico
+    per il bridge — senza NESSUNA verifica su link e junction, proprio dove il contratto li
+    promette. Con la sonda, un runner Windows che HA il privilegio (Developer Mode, o un
+    account con SeCreateSymbolicLinkPrivilege) esegue i test invece di saltarli, e il salto
+    resta solo dove è davvero inevitabile.
+    """
+    if not hasattr(os, "symlink"):
+        return False
+    with tempfile.TemporaryDirectory() as d:
+        bersaglio = os.path.join(d, "bersaglio")
+        with open(bersaglio, "w", encoding="utf-8") as f:
+            f.write("x")
+        try:
+            os.symlink(bersaglio, os.path.join(d, "link"))
+            return True
+        except (OSError, NotImplementedError, AttributeError):
+            return False
+
+
 richiede_link = pytest.mark.skipif(
-    not hasattr(os, "symlink") or os.name == "nt",
-    reason="creare symlink richiede privilegi non garantiti su Windows")
+    not _sa_creare_link(),
+    reason="questo filesystem/utente non puo' creare symlink (su Windows serve Developer "
+           "Mode o SeCreateSymbolicLinkPrivilege)")
 
 
 def _riga_segnale():
@@ -146,14 +170,15 @@ def test_risolvi_non_solleva_mai_su_un_path_impossibile(tmp_path):
         assert isinstance(risultato, str)
 
 
+@richiede_link
 def test_stesso_file_riconosce_il_link(tmp_path):
     reale = tmp_path / "a.csv"
     reale.write_text("x", encoding="utf-8")
-    if hasattr(os, "symlink") and os.name != "nt":
-        link = str(tmp_path / "b.csv")
-        os.symlink(str(reale), link)
-        assert atomic_io.stesso_file(link, str(reale)) is True
-        assert atomic_io.stesso_file(str(reale), link) is True
+    link = str(tmp_path / "b.csv")
+    os.symlink(str(reale), link)
+
+    assert atomic_io.stesso_file(link, str(reale)) is True
+    assert atomic_io.stesso_file(str(reale), link) is True
 
 
 def test_stesso_file_su_file_ASSENTI_ricade_sul_confronto_dei_path(tmp_path):
@@ -188,3 +213,64 @@ def test_stesso_file_non_solleva_se_samefile_esplode(tmp_path, monkeypatch):
 def test_stesso_file_su_input_vuoti_e_falso():
     for a, b in [("", ""), ("", "x.csv"), ("x.csv", ""), (None, None), (None, "x.csv")]:
         assert atomic_io.stesso_file(a, b) is False
+
+
+# ══════════════════════════════════════════════════════════════════════════════════
+# LIMITE DICHIARATO — gli hard link (rilievo Fugu Ultra su #203).
+#
+# `realpath` risolve i link SIMBOLICI e le junction, non gli hard link: quelli non sono
+# un puntatore da seguire, sono due voci di directory per lo stesso inode. `os.replace`
+# ne sostituisce una e l'altro nome resta col contenuto vecchio.
+#
+# Non si corregge, e la ragione è uno scambio: l'unico modo di scrivere attraverso un
+# hard link è scrivere IN PLACE, cioè rinunciare all'atomicità. Un crash a metà
+# scrittura lascerebbe a XTrader un CSV troncato — una scommessa malformata invece di
+# una configurazione insolita. Questi test PINNANO il comportamento reale, così è
+# dichiarato e non scoperto per caso da chi ci inciampa.
+# ══════════════════════════════════════════════════════════════════════════════════
+
+sa_creare_hardlink = pytest.mark.skipif(
+    not hasattr(os, "link"), reason="hard link non supportati su questo filesystem")
+
+
+@sa_creare_hardlink
+def test_LIMITE_gli_hard_link_non_sono_attraversati_dalla_scrittura(tmp_path):
+    bridge_scrive = str(tmp_path / "bridge.csv")
+    altro_nome = str(tmp_path / "altro_nome.csv")
+    csv_writer.write_rows([_riga_segnale()], bridge_scrive)
+    try:
+        os.link(bridge_scrive, altro_nome)
+    except OSError:
+        pytest.skip("hard link non consentiti qui")
+
+    assert os.stat(bridge_scrive).st_ino == os.stat(altro_nome).st_ino   # premessa
+
+    csv_writer.clear_stale_csv(bridge_scrive)
+
+    assert not csv_writer.has_active_row(bridge_scrive)
+    # IL LIMITE: l'altro nome conserva il contenuto vecchio. Se questo assert diventasse
+    # rosso, qualcuno ha reso la scrittura hard-link-aware — e va verificato che NON
+    # l'abbia fatto rinunciando all'atomicità.
+    assert csv_writer.has_active_row(altro_nome), (
+        "comportamento cambiato: la scrittura ora attraversa gli hard link. Verificare che "
+        "l'atomicità (tmp + os.replace) sia ancora garantita e aggiornare la documentazione")
+    assert os.stat(bridge_scrive).st_ino != os.stat(altro_nome).st_ino
+
+
+@sa_creare_hardlink
+def test_le_GUARDIE_invece_riconoscono_gli_hard_link(tmp_path):
+    """L'asimmetria è voluta: il writer non li attraversa, le guardie sì. Bloccano di più,
+    e bloccare è la direzione sicura — «Crea CSV» su un hard link al CSV attivo va
+    rifiutato anche se la scrittura, in altro contesto, non lo attraverserebbe."""
+    uno = str(tmp_path / "uno.csv")
+    due = str(tmp_path / "due.csv")
+    csv_writer.init_csv(uno)
+    try:
+        os.link(uno, due)
+    except OSError:
+        pytest.skip("hard link non consentiti qui")
+
+    assert atomic_io.stesso_file(uno, due) is True
+    # E `risolvi` da solo NON basta: è esattamente il motivo per cui `stesso_file` prova
+    # `samefile` PRIMA di ricadere sul confronto dei path.
+    assert atomic_io.risolvi(uno) != atomic_io.risolvi(due)

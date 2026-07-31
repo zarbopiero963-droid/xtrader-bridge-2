@@ -398,6 +398,20 @@ La risoluzione avviene in `atomic_io.atomic_write`, quindi vale per **ogni** scr
 contratto e non solo per lo svuotamento. Le guardie anti data-loss **non** si indeboliscono:
 un link a un file **estraneo** resta rifiutato e intoccato, esattamente come prima.
 
+⚠️ **Vale per i link SIMBOLICI e le junction, non per gli HARD link.** Un hard link non è un
+puntatore da seguire: sono due voci di directory per lo stesso file, e la sostituzione atomica
+(`os.replace`) ne aggiorna **una sola** — l'altro nome resta col contenuto vecchio. Se
+`csv_path` e il file che XTrader legge fossero due hard link allo stesso CSV, dopo la prima
+scrittura divergerebbero e XTrader leggerebbe un file fermo.
+
+Non è un difetto introdotto qui (la sostituzione atomica ha sempre funzionato così) e non
+viene corretto: l'unico modo di scrivere attraverso un hard link è scrivere **in place**, cioè
+rinunciare all'atomicità. Un crash a metà scrittura lascerebbe a XTrader un CSV **troncato** —
+una scommessa malformata invece di una configurazione insolita. Si preferisce la garanzia certa
+al caso raro. Le **guardie** (es. il rifiuto di «Crea CSV» sul CSV della sessione attiva)
+riconoscono invece anche gli hard link, perché confrontano l'identità del file: bloccano di
+più, e bloccare è la direzione sicura.
+
 La matrice vive anche nel sorgente (sopra `init_csv` in `csv_writer.py`) ed è fissata da
 `tests/unit/test_csv_family_a4_69.py`: se i contratti venissero uniformati, quei test
 diventano rossi.

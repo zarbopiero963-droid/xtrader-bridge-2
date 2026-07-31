@@ -145,6 +145,45 @@ def atomic_write(path, write_fn, *, prefix="tmp_", suffix=".tmp", mode="w",
     # atomico sullo stesso filesystem) e il link sopravvive, puntando al contenuto nuovo.
     # `realpath` di un path inesistente non solleva: ritorna il path risolto fin dove può,
     # quindi la creazione di un CSV nuovo continua a funzionare identica.
+    #
+    # TOCTOU, dichiarato invece che ignorato (rilievo Fable 5 su #203). Fra questa
+    # risoluzione e il `replace` finale c'è una finestra: se qualcuno sostituisse il link
+    # nel frattempo, si scriverebbe sulla destinazione nuova. Prima il `replace` sostituiva
+    # il link senza attraversarlo, quindi la finestra non c'era — la superficie si è
+    # allargata, ed è giusto dirlo.
+    #
+    # Non viene mitigata oltre, e la ragione è il rapporto fra i due rischi. Per sfruttarla
+    # serve permesso di **scrittura sulla cartella del CSV** — ma chi ce l'ha può già
+    # riscrivere il CSV direttamente, senza alcun link: il segnale che XTrader legge è
+    # comunque suo. Non è quindi un'escalation, è lo stesso livello di accesso. Dall'altra
+    # parte, NON risolvere è B7: un bug **misurato**, che lasciava una riga stantia sul
+    # disco mentre `clear_stale_csv` riportava «ripulito». Si scambia un difetto reale e
+    # osservato con una finestra che richiede un accesso già sufficiente a fare peggio.
+    #
+    # Se un giorno il CSV dovesse vivere in una cartella condivisa e non fidata, la
+    # mitigazione giusta non è togliere la risoluzione (torna B7) ma aprire la destinazione
+    # con `O_NOFOLLOW`/`FILE_FLAG_OPEN_REPARSE_POINT` e verificarne l'identità dopo il
+    # rename — un lavoro che ha senso solo con quel modello di minaccia, che oggi non è
+    # quello del bridge (CSV locale, macchina del proprietario).
+    #
+    # LIMITE DICHIARATO — gli HARD link non sono attraversabili (rilievo Fugu Ultra su
+    # #203). `realpath` risolve i link SIMBOLICI e le junction, non gli hard link: quelli
+    # non sono un puntatore da seguire, sono due voci di directory per lo stesso inode.
+    # `os.replace` ne sostituisce UNA, e l'altro nome resta col contenuto vecchio —
+    # misurato: svuotando `a.csv`, un `b.csv` hard-linkato conserva la riga stantia e i due
+    # inode divergono. Se XTrader leggesse il secondo nome, continuerebbe a vedere il
+    # segnale orfano.
+    #
+    # Non è una regressione di questa correzione: `os.replace` ha sempre rotto gli hard
+    # link. E non si sistema qui, perché l'unico modo di scrivere attraverso un hard link è
+    # scrivere IN PLACE (`open`+`truncate`), cioè rinunciare all'atomicità — uno scambio
+    # pessimo: un crash a metà scrittura lascerebbe a XTrader un CSV troncato, che è una
+    # scommessa malformata invece di una configurazione insolita. Si preferisce la garanzia
+    # certa al caso raro, e lo si dichiara.
+    #
+    # Le GUARDIE, invece, riconoscono gli hard link (`stesso_file` usa `samefile`, che
+    # confronta gli inode) — ed è la direzione giusta: bloccano di più, e bloccare è sicuro.
+    # L'asimmetria è voluta, non una svista, ed è fissata da un test.
     try:
         path = os.path.realpath(path)
     except (OSError, ValueError):
