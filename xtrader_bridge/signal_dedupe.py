@@ -155,6 +155,11 @@ def _canonical_handicap(value: str):
 # - le virgole delle MIGLIAIA («Over 1,000») sono seguite da TRE cifre, mentre un decimale in una
 #   linea ne ha una o due («,5», «,25»). Senza il limite, «Over 1,000» e «Over 1.000» — che sono
 #   1000 e 1.0, numeri diversi — verrebbero uniti (rilievo Fable 5 su #200).
+#
+# Il limite a 1-2 cifre non e' arbitrario: e' il DOMINIO. Confermato dal proprietario il
+# 2026-07-31 — «solo 2 cifre al massimo, 1.25 per esempio, ma mai 1.225». Se un giorno esistesse
+# un mercato a tre decimali, qui va alzato a `{1,3}` e va ripensata l'esclusione delle migliaia,
+# che con tre cifre diventerebbe indistinguibile dal decimale.
 _VIRGOLA_DECIMALE = re.compile(r"(?<=[0-9]),(?=[0-9]{1,2}(?![0-9]))")
 
 

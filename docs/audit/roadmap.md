@@ -4283,8 +4283,11 @@ diventa rosso invece di cambiare comportamento in silenzio.
 che c'era già prima di questa PR, non una regressione:
 
 - **decimali con 3+ cifre**: `5,125` e `5.125` non vengono uniti (la regex li legge come
-  migliaia). Assenti nelle linee Over/Under reali, che hanno al massimo due decimali — ma vale
-  la conferma del proprietario se un mercato dovesse usarne tre;
+  migliaia). **Residuo chiuso**: il proprietario ha confermato il 2026-07-31 che le linee usano
+  *«solo 2 cifre al massimo, 1.25 per esempio, ma mai 1.225»*. Il limite `{1,2}` della regex non
+  è quindi una scelta arbitraria ma il dominio — e se un giorno esistesse un mercato a tre
+  decimali, andrebbe alzato **e** ripensata l'esclusione delle migliaia, che a tre cifre
+  diventerebbe indistinguibile dal decimale;
 - **liste col trattino**: `Multigol 1,2` e `Multigol 1-2` restano distinti. Estendere al trattino
   sarebbe un'altra decisione con un'altra superficie (`Inter 1-2 Milan` è un punteggio).
 
