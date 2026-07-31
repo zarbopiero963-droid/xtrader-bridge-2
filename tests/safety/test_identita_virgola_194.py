@@ -192,3 +192,48 @@ def test_il_trattino_resta_una_forma_a_se():
     virgola, non il trattino. `Multigol 1-2` non viene unito a `Multigol 1,2` — comportamento
     invariato rispetto a prima di questa PR."""
     assert not _stessa("Multigol 1,2", "Multigol 1-2")
+
+
+@pytest.mark.parametrize("nome,atteso", [
+    ("over 1,5 gol", "over 1.5 gol"),        # decimale seguito da parola
+    ("over 1,00 gol", "over 1.00 gol"),      # due cifre: ancora decimale
+    ("over 1,00a", "over 1.00a"),            # il confine è la CIFRA, non lo spazio
+    ("over 1,000 gol", "over 1,000 gol"),    # tre cifre: migliaia, invariato
+    ("over 12,50", "over 12.50"),
+    ("inter, primo tempo", "inter, primo tempo"),
+])
+def test_il_confine_della_lookahead(nome, atteso):
+    """Chiesto da GPT-5.5 su #200: fissare esplicitamente dove la lookahead si ferma, invece di
+    lasciarlo dedurre dalla regex. Il confine è la **cifra successiva**, non lo spazio: `1,00a` è
+    un decimale seguito da una lettera, `1,000` sono migliaia. Un ritocco futuro alla regex che
+    spostasse questo confine diventerebbe rosso qui."""
+    assert signal_dedupe._VIRGOLA_DECIMALE.sub(".", nome) == atteso
+
+
+def test_row_identity_non_e_persistita_da_nessuna_parte():
+    """Rilievo Fable 5 su #200: «l'identità di `Over 1,000` cambia → un segnale salvato prima
+    dell'upgrade non combacia più → doppia scommessa al primo riavvio».
+
+    Il presupposto non regge: `row_identity` **non è persistita**. È calcolata a runtime nei due
+    soli siti che la usano (`write_path.commit_signal` e `commit_signals`), confrontata con
+    `queue.active_rows()` e buttata. Ciò che va su disco è `row_dedup_key` — che questa PR non
+    tocca, come fissa `test_row_dedup_key_resta_sensibile_alla_virgola`.
+
+    Questo test rende la proprietà eseguibile invece che argomentata: lo stato salvato non
+    contiene alcuna identità, quindi non esiste un formato da migrare.
+    """
+    percorso = os.path.join(tempfile.mkdtemp(), "dedupe_state.json")
+    riga = _riga("Over 1,000")
+    identita = signal_dedupe.row_identity(riga)
+
+    import time as _time
+    adesso = _time.time()
+    tracker = signal_dedupe.SignalTracker()
+    tracker.mark_seen(signal_dedupe.row_dedup_key("MSG", riga), now=adesso)
+    assert signal_dedupe.save_state(tracker, percorso, now=adesso) is True
+
+    with open(percorso, encoding="utf-8") as f:
+        salvato = f.read()
+    assert identita not in salvato, "l'identità è finita nello stato persistito"
+    for (_h, _t, _r) in signal_dedupe.SignalTracker().state():
+        pass    # nessuna identità nemmeno nello stato in memoria di un tracker fresco

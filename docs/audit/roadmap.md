@@ -4271,3 +4271,33 @@ probabilmente lo stesso mercato scritto in due modi, e restano **distinti**. È 
 **mancata**, non una fusione errata — quindi il rischio è un duplicato, non un segnale perso, ed
 è il comportamento che c'era già prima di questa PR. Estendere la regola al trattino sarebbe
 un'altra decisione, con un'altra superficie: `Inter 1-2 Milan` è un punteggio, non una lista.
+
+### Il confine della regola, e i due residui dichiarati
+
+`(?<=[0-9]),(?=[0-9]{1,2}(?![0-9]))` — il confine è la **cifra successiva**, non lo spazio:
+`1,00a` è un decimale seguito da una lettera, `1,000` sono migliaia. Fissato da un test
+parametrizzato (richiesta GPT-5.5), così un ritocco futuro alla regex che spostasse il confine
+diventa rosso invece di cambiare comportamento in silenzio.
+
+**Due residui, entrambi nel verso del duplicato e non del segnale perso** — cioè il comportamento
+che c'era già prima di questa PR, non una regressione:
+
+- **decimali con 3+ cifre**: `5,125` e `5.125` non vengono uniti (la regex li legge come
+  migliaia). Assenti nelle linee Over/Under reali, che hanno al massimo due decimali — ma vale
+  la conferma del proprietario se un mercato dovesse usarne tre;
+- **liste col trattino**: `Multigol 1,2` e `Multigol 1-2` restano distinti. Estendere al trattino
+  sarebbe un'altra decisione con un'altra superficie (`Inter 1-2 Milan` è un punteggio).
+
+### «L'identità cambia → serve una migrazione» — no, e il test lo dimostra
+
+Fable 5 ha segnalato che l'identità di `Over 1,000` cambia fra un commit e l'altro di questa PR,
+quindi «un segnale salvato prima dell'upgrade non combacerebbe più → doppia scommessa».
+
+Il presupposto non regge, per due ragioni indipendenti:
+
+1. **`row_identity` non è persistita.** Ha due soli chiamanti, entrambi in `write_path`, entrambi
+   confronti in memoria contro `queue.active_rows()`. Su disco va `row_dedup_key`, che questa PR
+   non tocca. `test_row_identity_non_e_persistita_da_nessuna_parte` lo rende **eseguibile**:
+   verifica che l'identità non compaia nel file salvato;
+2. **su `main` la normalizzazione non esisteva affatto**, quindi nessuno stato è mai stato scritto
+   con la forma intermedia: quella è vissuta solo in un commit di questa PR, mai rilasciato.
