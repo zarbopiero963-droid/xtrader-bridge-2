@@ -314,10 +314,11 @@ class _DizionarioFinto:
 
 
 def _resolver(handicap_selezione="0"):
+    # Costruttore REALE, non `__new__`: la classe documenta `db` come seam di iniezione per i
+    # test, e bypassare `__init__` significherebbe esercitare un oggetto costruito diversamente
+    # da come lo costruisce la produzione (rilievo Fable 5 su #202).
     from xtrader_bridge.betfair.dictionary_resolver import DictionaryResolver
-    r = DictionaryResolver.__new__(DictionaryResolver)
-    r.db = _DizionarioFinto(handicap_selezione)
-    return r
+    return DictionaryResolver(_DizionarioFinto(handicap_selezione))
 
 
 @pytest.mark.parametrize("handicap_riga", [
