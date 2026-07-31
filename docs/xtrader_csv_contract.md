@@ -382,6 +382,22 @@ dell'utente** («📄 Crea CSV», wizard) → `create_header_only_csv`, che rifi
 `init_csv` e `write_rows([])` **non controllano niente** e vanno usate solo dove il path è già
 stato validato altrove.
 
+### `csv_path` che è un link (o dentro una cartella collegata) — #194 B7
+
+Se `csv_path` punta a un **link simbolico** (o a una *junction* Windows), la scrittura
+**attraversa il link e aggiorna il file puntato**, lasciando il link intatto. È il
+comportamento che serve: XTrader legge il file vero, quindi è quello che deve cambiare.
+
+Prima non era così, ed era pericoloso in silenzio: la lettura seguiva il link (header
+riconosciuto, decisione corretta) ma il rename atomico **sostituiva il link** con un file
+normale. `clear_stale_csv` riportava `True` — «ripulito» — mentre la riga stantia restava nel
+file che XTrader stava leggendo. Una difesa anti-segnale-stantio che dichiara successo senza
+aver fatto nulla è il modo peggiore di fallire, perché nessuno va a ricontrollare.
+
+La risoluzione avviene in `atomic_io.atomic_write`, quindi vale per **ogni** scrittura del
+contratto e non solo per lo svuotamento. Le guardie anti data-loss **non** si indeboliscono:
+un link a un file **estraneo** resta rifiutato e intoccato, esattamente come prima.
+
 La matrice vive anche nel sorgente (sopra `init_csv` in `csv_writer.py`) ed è fissata da
 `tests/unit/test_csv_family_a4_69.py`: se i contratti venissero uniformati, quei test
 diventano rossi.

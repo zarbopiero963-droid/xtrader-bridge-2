@@ -18,12 +18,71 @@ Garanzie:
 - su qualsiasi eccezione (scrittura o rename) il temporaneo viene rimosso e
   l'eccezione ri-sollevata: il file preesistente resta intatto;
 - ``mkstemp`` dà un nome unico, quindi due scritture concorrenti sullo stesso
-  path non si pestano il temporaneo a vicenda.
+  path non si pestano il temporaneo a vicenda;
+- la destinazione è **risolta attraverso i link** prima del rename (B7 #194): senza,
+  ``os.replace`` sostituiva IL LINK con un file normale e il file puntato — quello che
+  XTrader legge davvero — restava indietro col suo contenuto stantio.
+
+Qui vivono anche `risolvi` e `stesso_file`: la **fonte unica** del confronto fra path per
+tutte le guardie di sicurezza del bridge (B7/B8 #194). Stanno accanto alla scrittura
+perché sono la stessa domanda vista dai due lati — «qual è il file VERO dietro questo
+path?» — e tenerle separate è come sono nati B7 e B8.
 """
 
 import json
 import os
 import tempfile
+
+
+def risolvi(path) -> str:
+    """Il path **reale** dietro `path` — link e junction risolti — normalizzato per il
+    confronto. Fonte unica (B7/B8, #194).
+
+    **Non solleva mai.** I chiamanti sono guardie di sicurezza invocate anche su path
+    inesistenti (un `csv_path` appena digitato nella GUI), su file lockati da XTrader e su
+    stringhe malformate: una guardia che esplode è peggio di una guardia che non scatta,
+    perché toglie all'utente anche il rifiuto. Su qualsiasi errore si ricade su
+    `abspath`, cioè esattamente il comportamento che c'era prima di questa correzione.
+
+    `normcase` resta perché su Windows `OUT.CSV` e `out.csv` sono lo stesso file; su POSIX
+    è un no-op e il confronto resta correttamente case-sensitive.
+    """
+    testo = str(path or "").strip()
+    if not testo:
+        return ""
+    try:
+        return os.path.normcase(os.path.realpath(testo))
+    except (OSError, ValueError):
+        # ValueError: path con NUL. OSError: loop di link, path troppo lungo, permessi
+        # sulla catena di risoluzione. In tutti i casi si degrada al confronto di prima.
+        try:
+            return os.path.normcase(os.path.abspath(testo))
+        except (OSError, ValueError):
+            return os.path.normcase(testo)
+
+
+def stesso_file(a, b) -> bool:
+    """`True` se `a` e `b` sono lo **stesso file**, anche raggiunto per strade diverse
+    (link, junction, case, forma relativa). Fonte unica (B7/B8, #194).
+
+    Prova prima `os.path.samefile`, che è l'unica risposta autorevole: confronta gli inode
+    (POSIX) / gli identificatori di file (Windows) e riconosce anche gli hard link, che
+    nessun confronto di stringhe può vedere. Ma `samefile` **solleva** se anche solo uno
+    dei due file non esiste — e le guardie del bridge vengono chiamate proprio in quel
+    caso: un `csv_path` mai creato, o un file che Windows tiene lockato. Perciò
+    l'`OSError` non è un errore ma il caso ordinario, e si ricade sul confronto dei path
+    risolti, che è ciò che il codice faceva prima e continua a coprire case e forma
+    relativa.
+
+    Input vuoti → `False` (nessuno dei due è un file): stessa convenzione delle guardie
+    che questa funzione sostituisce.
+    """
+    if not str(a or "").strip() or not str(b or "").strip():
+        return False
+    try:
+        return os.path.samefile(str(a), str(b))
+    except (OSError, ValueError):
+        return risolvi(a) == risolvi(b)
 
 
 def _fsync_dir(d):
@@ -78,6 +137,18 @@ def atomic_write(path, write_fn, *, prefix="tmp_", suffix=".tmp", mode="w",
     """
     if replace is None:
         replace = os.replace
+    # B7 (#194): la destinazione va risolta ATTRAVERSO i link prima del rename. `open()` in
+    # lettura segue il link, ma `os.replace(tmp, link)` sostituisce IL LINK con un file
+    # normale — così `clear_stale_csv` riportava «ripulito» mentre la riga stantia restava
+    # nel file puntato, quello che XTrader legge davvero. Risolvendo qui, il temporaneo
+    # nasce nella cartella del file VERO (necessario perché `os.replace` resti un rename
+    # atomico sullo stesso filesystem) e il link sopravvive, puntando al contenuto nuovo.
+    # `realpath` di un path inesistente non solleva: ritorna il path risolto fin dove può,
+    # quindi la creazione di un CSV nuovo continua a funzionare identica.
+    try:
+        path = os.path.realpath(path)
+    except (OSError, ValueError):
+        pass        # catena di link irrisolvibile: si scrive dove si scriveva prima
     d = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(d, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=d, prefix=prefix, suffix=suffix)

@@ -573,8 +573,12 @@ class App(ctk.CTk):
     def _stop_clear_key(path) -> str:
         """Chiave canonica del registro retry post-STOP (P3-8 #76): stessa
         normalizzazione di `_same_csv_path` — su Windows `OUT.CSV` e `out.csv` sono lo
-        stesso file, quindi lo stesso timer (mai due catene per lo stesso CSV)."""
-        return os.path.normcase(os.path.abspath(str(path)))
+        stesso file, quindi lo stesso timer (mai due catene per lo stesso CSV).
+
+        B8 (#194): risolve anche i link, per la stessa ragione. Due nomi diversi dello
+        stesso file davano due chiavi, quindi DUE catene di retry sullo stesso CSV — e la
+        promessa scritta qui sopra («mai due catene») non era mantenuta."""
+        return atomic_io.risolvi(path)
 
     @staticmethod
     def _same_csv_path(a, b) -> bool:
@@ -585,14 +589,20 @@ class App(ctk.CTk):
         cancellerebbe una riga VIVA della nuova sessione. `normcase` è no-op su POSIX
         (filesystem case-sensitive: lì il confronto resta esatto, correttamente).
         `abspath` (include normpath) copre anche il mix relativo/assoluto dello stesso
-        file (review GPT/Fugu round 2). Limite dichiarato: i symlink/junction NON sono
-        risolti — `realpath`/`samefile` farebbero I/O proprio quando il file può essere
-        lockato/assente (samefile solleva), e csv_path arriva da un campo testo della
-        GUI: nel runtime non esiste alcun percorso che crei o attraversi link."""
+        file (review GPT/Fugu round 2).
+
+        **Il limite dichiarato è caduto (B8 #194, audit #188).** Qui c'era scritto che i
+        symlink non venivano risolti perché «nel runtime non esiste alcun percorso che crei
+        o attraversi link»: l'assunzione non regge, `csv_path` è un campo di testo e
+        l'utente può puntarlo a un link. E il verso dell'errore è il peggiore — se questa
+        funzione dice «diverso» per un link allo stesso file, `_retry_stop_clear` crede che
+        nessuna sessione possieda il path e **cancella la riga viva** della sessione nuova.
+        La preoccupazione originale (`samefile` solleva su file assente/lockato) resta
+        valida ed è il motivo per cui `atomic_io.stesso_file` ha un fallback: risolve
+        quando può, altrimenti confronta i path esattamente come prima."""
         if not a or not b:
             return False
-        return (os.path.normcase(os.path.abspath(str(a)))
-                == os.path.normcase(os.path.abspath(str(b))))
+        return atomic_io.stesso_file(a, b)
 
     def _retry_stop_clear(self, path: str) -> None:
         """Ritenta lo svuotamento post-STOP finché riesce, l'app chiude, o una nuova
@@ -1121,12 +1131,16 @@ class App(ctk.CTk):
     def _is_active_session_csv(self, path: str) -> bool:
         """True se `path` è (case/relative-insensitive) il CSV della **sessione ATTIVA** a
         bridge avviato. Ricrearlo mentre il bridge gira cancellerebbe un segnale non ancora
-        letto da XTrader e desincronizzerebbe coda/expiry: va bloccato (Fable+Fugu #330)."""
+        letto da XTrader e desincronizzerebbe coda/expiry: va bloccato (Fable+Fugu #330).
+
+        B8 (#194, audit #188): il confronto risolve anche **link e junction**. Prima si
+        fermava a `normcase`+`abspath`, quindi un link al CSV della sessione attiva NON
+        veniva riconosciuto, la guardia non scattava e «Crea CSV» troncava il CSV VIVO.
+        `atomic_io.stesso_file` è la fonte unica del confronto e ricade sul vecchio
+        criterio quando `samefile` non può rispondere (file assente o lockato)."""
         if not (self._running and self._active_csv_path and path):
             return False
-        def _norm(p):
-            return os.path.normcase(os.path.abspath(str(p)))
-        return _norm(path) == _norm(self._active_csv_path)
+        return atomic_io.stesso_file(path, self._active_csv_path)
 
     def _create_and_save_csv(self, path: str, *, force: bool = False) -> bool:
         """Genera un CSV **a solo header** nel formato XTrader su `path` e ne imposta+salva il

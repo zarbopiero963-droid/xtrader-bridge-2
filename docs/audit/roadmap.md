@@ -4644,3 +4644,78 @@ La guardia è stata **verificata**, non asserita: simulando la regressione (un
 asserzioni.
 
 Suite: **4293 passed, 14 skipped**.
+
+---
+
+## PR-F (#194 · B7+B8, chiude #188) — un link nel mezzo, e due guardie che mentivano
+
+**B7 — la pulizia che dichiarava successo senza fare nulla.** `clear_stale_csv` legge con
+`open()`, che **segue** il link: header riconosciuto, decisione corretta. Poi scrive con
+`atomic_write`, che fa `os.replace(tmp, path)` — e `os.replace` sostituisce **il link**, non il
+file puntato. Misurato sul codice pre-patch:
+
+```text
+clear_stale_csv ha detto: True («ripulito»)
+righe nel file REALE:     2      ← la riga stantia c'e' ancora
+il link e' ancora un link? False ← sostituito da un file normale
+has_active_row(reale):    True
+```
+
+Il segnale orfano resta dove XTrader lo legge, e l'app crede di averlo tolto. Una difesa
+anti-segnale-stantio che riporta successo a vuoto è il modo peggiore di fallire: nessuno va a
+ricontrollare. Ed è peggio ancora al secondo giro — sostituito il link, ogni scrittura
+successiva finisce su un file che XTrader non guarda.
+
+**B8 — la guardia che troncava il CSV vivo.** `_is_active_session_csv` confrontava
+`normcase`+`abspath`: un link al CSV della sessione ATTIVA risultava un file diverso, la
+guardia non scattava e «Crea CSV» cancellava un segnale non ancora letto.
+
+```text
+stesso path           → True
+LINK allo stesso file → False        ← la guardia non scatta
+os.path.samefile(link, reale) → True
+```
+
+### Il vincolo che ha dato forma alla patch
+
+`_same_csv_path` **documentava una decisione esplicita** di non usare `realpath`/`samefile`:
+«farebbero I/O proprio quando il file può essere lockato/assente (samefile solleva)», con
+l'assunzione «nel runtime non esiste alcun percorso che crei o attraversi link». L'audit #188
+mostra che l'assunzione non regge — `csv_path` è un campo di testo — ma **la preoccupazione
+tecnica era giusta**: `samefile` solleva davvero, e su un `csv_path` appena digitato o tenuto
+aperto da XTrader è il caso ordinario, non l'eccezione.
+
+Perciò la correzione non è «usare `realpath`» ma `atomic_io.stesso_file`: prova `samefile`
+(l'unica risposta autorevole — confronta gli inode, e vede anche gli **hard link**, che nessun
+confronto di stringhe può riconoscere) e sul suo `OSError` ricade sul confronto dei path
+risolti, cioè esattamente il criterio di prima. Una guardia che esplode è peggio di una che non
+scatta: toglie all'utente anche il rifiuto.
+
+### La classe, non il sito
+
+`grep` di `normcase`/`abspath`/`samefile`/`realpath` su tutto il repository → **quattro** siti
+della stessa famiglia, tutti nel medesimo verso pericoloso:
+
+- `_is_active_session_csv` (B8) — non riconosce il link → «Crea CSV» tronca il CSV vivo;
+- `_same_csv_path` — se dice «diverso» per un link, `_retry_stop_clear` crede che nessuna
+  sessione possieda il path e **cancella la riga viva** della sessione nuova;
+- `_stop_clear_key` — due nomi dello stesso file davano due chiavi, quindi **due catene di
+  retry** sullo stesso CSV: il suo docstring prometteva «mai due catene» e non era vero;
+- `dirty_csv_store._norm` — due marker «sporco» per lo stesso CSV: uno viene pulito, l'altro
+  resta, e al riavvio l'app crede di dover recuperare un crash su un file già a posto.
+
+Correggerne uno solo avrebbe lasciato gli altri tre. B7 si chiude invece **alla radice**, in
+`atomic_write`, così vale per ogni scrittura del contratto e non solo per lo svuotamento.
+
+### Le controprove, scritte prima di sapere che sarebbero servite
+
+Sette dei venti test erano **verdi già sul codice pre-patch**: un link a un file **estraneo**
+resta rifiutato e intoccato, una cartella collegata funzionava già, il confronto su forma
+relativa/`.`/case non cambia esito, la guardia resta inattiva a bridge fermo, e un link a un
+file **diverso** non deve bloccare nulla (il criterio è «è lo stesso file?», non «è un link?»).
+Servono a dimostrare che la correzione non ha allargato le guardie oltre il necessario — il
+modo in cui una patch di sicurezza diventa una regressione d'uso.
+
+**Test:** `tests/safety/test_path_link_194.py` + `tests/integration/test_path_link_app_194.py`
+(+20). Fail-first verificato: **13 rossi** su `3fb9db4`, 7 verdi (le controprove). Suite:
+**4313 passed, 14 skipped**.

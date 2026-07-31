@@ -46,9 +46,13 @@ def _store_path() -> str:
 
 
 def _norm(path) -> str:
-    """Forma canonica per il confronto (mai per la pulizia: si usa il path originale)."""
-    s = str(path or "").strip()
-    return os.path.normcase(os.path.abspath(s)) if s else ""
+    """Forma canonica per il confronto (mai per la pulizia: si usa il path originale).
+
+    B8 (#194): risolve anche link e junction. Senza, lo stesso CSV raggiunto da due nomi
+    diversi produceva DUE marker «sporco» distinti: uno veniva pulito e l'altro restava,
+    facendo credere all'avvio successivo che ci fosse un crash da recuperare su un file
+    già a posto. `atomic_io.risolvi` è la fonte unica e non solleva mai."""
+    return atomic_io.risolvi(path)
 
 
 def dirty_paths(store_path=None):
