@@ -360,7 +360,7 @@ class LicenseManagerApp(ctk.CTk):
                     "message": "Revoca NON registrata (permessi/percorso della cartella?): riprova."}
         return {"accepted": True,
                 "message": f"Licenza revocata: {rec.get('serial', '')} ({rec.get('name', '')}). "
-                           "Esporta e ripubblica la lista revoche per applicarla ai bridge."}
+                           "Diventa attiva sui bridge quando la lista è pubblicata."}
 
     def _auto_backup_safe(self) -> bool:
         """Backup automatico dello stato mutevole (#183). Agganciato a **emissione e revoca** — i due
@@ -1342,10 +1342,51 @@ class LicenseManagerApp(ctk.CTk):
         self._set_msg(result["message"])
 
     def _on_revoke(self) -> None:
-        """Revoca (R3b) la licenza del serial indicato (stesso campo di rinnovo/ri-mostra)."""
+        """Revoca (R3b) la licenza del serial indicato (stesso campo di rinnovo/ri-mostra), poi
+        **propaga** la revoca ai bridge (#157). Vedi `_propaga_revoca`."""
         result = self._evaluate_revoke(self._read(self._renew_serial_entry))
-        self._set_msg(result["message"])
+        messaggio = result["message"]
+        if result.get("accepted"):
+            messaggio = f"{messaggio} {self._propaga_revoca()}"
+        self._set_msg(messaggio)
         self._on_registry_refresh()
+
+    def _propaga_revoca(self) -> str:
+        """Propaga ai bridge una revoca **appena registrata**; ritorna il testo da aggiungere al
+        messaggio. Chiamata solo dopo un esito `accepted` (una non-revoca non si pubblica).
+
+        Perché esiste (#157). Una revoca che resta su questo PC **non revoca nulla**: i bridge
+        applicano soltanto la lista *pubblicata*. Prima, `_on_revoke` si fermava alla scrittura su
+        disco e la propagazione dipendeva dal solo tick automatico — cioè fino a `interval_hours`
+        (default 6) in cui il proprietario crede di aver revocato un cliente che invece continua a
+        lavorare. Con la pubblicazione automatica spenta, mai.
+
+        Se l'automatica è **spenta** non si pubblica: quella spunta è una decisione dell'utente e un
+        upload non richiesto sarebbe un effetto collaterale a sorpresa. Ma **lo si dice**, invece del
+        generico «esporta e ripubblica» che non distingueva i due casi.
+
+        Se una pubblicazione è **già in volo** `_publish_async` ritorna `False`, ed è il caso
+        insidioso: quella in volo è partita *prima* di questa revoca, quindi **non la contiene**.
+        Senza un nuovo tentativo la revoca aspetterebbe l'intervallo pieno → si riprogramma il tick
+        a breve, la stessa strada che `_publish_tick` già usa quando salta un giro.
+
+        Non solleva mai: è invocata dentro un handler della GUI, e un errore qui non deve poter far
+        sembrare fallita una revoca che invece è stata registrata."""
+        try:
+            abilitata = bool(self._load_publish_config(directory=self._key_dir).get("enabled"))
+        except Exception as exc:    # noqa: BLE001 — config illeggibile: non si tace, si avvisa
+            _log.warning("Impostazioni di pubblicazione illeggibili dopo una revoca [%s]",
+                         type(exc).__name__)
+            return ("⚠️ Impossibile leggere le impostazioni di pubblicazione: la revoca NON è "
+                    "ancora attiva sui bridge. Pubblicala dalla scheda «Revoche».")
+        if not abilitata:
+            return ("⚠️ Pubblicazione automatica SPENTA: la revoca NON è ancora attiva sui bridge. "
+                    "Usa «🚀 Pubblica ora» nella scheda «Revoche».")
+        if self._publish_async():
+            return "Pubblicazione della lista in corso…"
+        self._schedule_publish_tick(retry_soon=True)
+        return ("Una pubblicazione era già in corso e non contiene questa revoca: "
+                "riprovo fra poco.")
 
     def _publish_status(self) -> tuple:
         """`(testo, colore)` dell'etichetta, da stato su disco + orologio iniettabile. Logica pura:

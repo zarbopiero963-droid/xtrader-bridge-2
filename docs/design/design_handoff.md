@@ -1322,9 +1322,33 @@ dentro le schede. Perciò:
 
 **Stati nella colonna «Stato»:** `ATTIVA` · `SCADUTA` · `REVOCATA`. Il terzo è stato aggiunto il
 2026-07-31: prima una licenza revocata continuava a comparire **ATTIVA** — la revoca veniva
-registrata e pubblicata correttamente, ma la vista non leggeva `revoked.jsonl`, quindi il
-proprietario non aveva modo di **vedere** chi avesse revocato. La revoca **vince anche sulla
-scadenza**: è l'informazione che spiega perché non riattivare quella licenza per distrazione.
+registrata, ma la vista non leggeva `revoked.jsonl`, quindi il proprietario non aveva modo di
+**vedere** chi avesse revocato. La revoca **vince anche sulla scadenza**: è l'informazione che
+spiega perché non riattivare quella licenza per distrazione.
+
+**Revocare PROPAGA (2026-07-31, #157).** Fino a quella data «🚫 Revoca licenza» scriveva la revoca
+su disco e si fermava lì: la propagazione dipendeva dal solo tick automatico, cioè **fino a 6 ore**
+(l'intervallo di default) in cui il proprietario crede di aver revocato un cliente che invece
+continua a lavorare — e con la pubblicazione automatica spenta, mai. Una revoca che resta sul PC
+del proprietario non revoca nulla: i bridge applicano **soltanto la lista pubblicata**.
+
+Il messaggio dopo una revoca dice ora **quale dei tre casi** si è verificato, invece del vecchio
+testo unico «Esporta e ripubblica la lista revoche», che non distingueva fra revoca già in viaggio e
+revoca ferma:
+
+| situazione | messaggio (verbatim) |
+|---|---|
+| automatica **accesa** | «Licenza revocata: … Diventa attiva sui bridge quando la lista è pubblicata. Pubblicazione della lista in corso…» |
+| automatica **spenta** | «… ⚠️ Pubblicazione automatica SPENTA: la revoca NON è ancora attiva sui bridge. Usa «🚀 Pubblica ora» nella scheda «Revoche».» |
+| impostazioni **illeggibili** | «… ⚠️ Impossibile leggere le impostazioni di pubblicazione: la revoca NON è ancora attiva sui bridge. Pubblicala dalla scheda «Revoche».» |
+
+Con l'automatica accesa il messaggio viene poi **sostituito** dall'esito reale dell'upload
+(`✅`/`⚠️`), che arriva dal thread di pubblicazione: l'ultima riga che l'utente legge è sempre quella
+che dice se la lista è davvero partita.
+
+Scelta deliberata: **con la spunta spenta non si pubblica**. È una decisione dell'utente e un upload
+di rete non richiesto sarebbe un effetto collaterale a sorpresa — ma il messaggio non lascia credere
+che la revoca sia attiva, che è il difetto vero da chiudere.
 
 **Non esiste un «annulla revoca».** Il modello è: la revoca è definitiva su *quel* serial, e la
 riattivazione avviene emettendo una licenza nuova (serial nuovo, non in lista). Il **rinnovo di un

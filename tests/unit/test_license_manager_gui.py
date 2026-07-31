@@ -16,6 +16,7 @@ import pytest
 
 from license_manager import backup, core, publish_store, registry
 from xtrader_bridge.licensing import license as lic
+from xtrader_bridge.licensing import revocation
 
 _NOW = 1_000_000_000
 _HW = "HW1-1234-5678-9ABC-DEF0"
@@ -2016,3 +2017,113 @@ def test_store_illeggibile_NON_propone_un_dialogo_che_non_serve(gui, tmp_path):
     assert dialoghi == [], "nessun dialogo: non c'è nulla da confermare, c'è un errore da risolvere"
     assert fake.__dict__.get("_token_mostrato") == "", "e nessun token, nemmeno col dialogo che direbbe sì"
     assert "revoche" in messaggi[-1].lower(), "l'utente dev'essere informato del perché"
+
+
+# ── #157: una revoca deve PROPAGARSI, non restare su questo PC ─────────────────────────────────
+#
+# Il difetto: `_on_revoke` scriveva la revoca su disco e si fermava lì. La propagazione dipendeva
+# solo dal tick automatico — cioè fino a `interval_hours` (default 6) in cui il proprietario crede
+# di aver revocato un cliente che invece continua a lavorare. Con l'automatico spento, mai.
+
+class _EntryFinta:
+    """Il minimo che `_read` usa: un `.get()`."""
+
+    def __init__(self, testo=""):
+        self._testo = testo
+
+    def get(self):
+        return self._testo
+
+
+def _fake_con_pubblicazione(gui, tmp_path, *, enabled=True, token="tok-finto"):
+    """`self` finto con keypair pronta e pubblicazione configurata (upload FINTO, nessuna rete)."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._on_revoke = lambda: gui.LicenseManagerApp._on_revoke(fake)
+    fake._propaga_revoca = lambda: gui.LicenseManagerApp._propaga_revoca(fake)
+    esito = fake._evaluate_save_publish_settings("tizio/revoche", "revocation_list.txt", "main",
+                                                 "6", enabled, token=token)
+    assert esito["ok"] is True, esito["message"]
+    return fake
+
+
+def _emetti_e_punta_il_serial(gui, fake, nome="Mario", cognome="Rossi"):
+    """Emette una licenza e mette il suo serial nel campo che `_on_revoke` legge."""
+    issued = gui.LicenseManagerApp._evaluate_issue(fake, nome, cognome, "15", _HW)
+    serial = registry.license_serial(issued["token"])
+    fake._renew_serial_entry = _EntryFinta(serial)
+    return serial
+
+
+def test_una_revoca_riuscita_pubblica_subito_la_lista(gui, tmp_path):
+    """Il cuore del difetto: revocare deve far partire la pubblicazione, non aspettare il tick.
+
+    Si asserisce anche che il CONTENUTO caricato contenga il serial revocato: senza, il test
+    passerebbe anche pubblicando una lista che non contiene la revoca appena fatta.
+    """
+    fake = _fake_con_pubblicazione(gui, tmp_path)
+    serial = _emetti_e_punta_il_serial(gui, fake)
+
+    fake._on_revoke()
+
+    assert len(fake._publish_calls) == 1, "la revoca non ha pubblicato nulla"
+    caricato = fake._publish_calls[0]["content"]
+    revlist = revocation.verify_revocation_list(caricato.strip(),
+                                                public_key_hex=fake._current_key_state()["public"])
+    assert revlist is not None, "la lista caricata non verifica"
+    assert serial in revlist.serials, "la lista caricata NON contiene la revoca appena fatta"
+
+
+def test_una_revoca_FALLITA_non_pubblica_niente(gui, tmp_path):
+    """Serial inesistente → nessuna scrittura e nessun upload: non si pubblica una non-revoca."""
+    fake = _fake_con_pubblicazione(gui, tmp_path)
+    fake._renew_serial_entry = _EntryFinta("LIC-NONESISTE")
+
+    fake._on_revoke()
+
+    assert fake._publish_calls == []
+    assert registry.read_revocations(directory=str(tmp_path)) == []
+
+
+def test_revoca_gia_revocata_non_ripubblica(gui, tmp_path):
+    """Seconda revoca dello stesso serial → `accepted` False → nessun secondo upload."""
+    fake = _fake_con_pubblicazione(gui, tmp_path)
+    _emetti_e_punta_il_serial(gui, fake)
+    fake._on_revoke()
+    assert len(fake._publish_calls) == 1
+
+    fake._on_revoke()       # stessa riga, già revocata
+
+    assert len(fake._publish_calls) == 1, "una revoca duplicata ha ripubblicato"
+
+
+def test_con_automatico_spento_non_pubblica_ma_lo_DICE(gui, tmp_path):
+    """La spunta è una decisione dell'utente: non si forza un upload. Ma non si può lasciar
+    credere che la revoca sia attiva — il messaggio deve dirlo."""
+    fake = _fake_con_pubblicazione(gui, tmp_path, enabled=False)
+    _emetti_e_punta_il_serial(gui, fake)
+
+    fake._on_revoke()
+
+    assert fake._publish_calls == [], "ha pubblicato con l'automatico spento"
+    testo = " ".join(fake._msgs)
+    assert "NON" in testo and "attiva" in testo.lower(), (
+        f"il messaggio non avvisa che la revoca non è attiva sui bridge: {testo!r}")
+
+
+def test_revoca_con_pubblicazione_gia_in_volo_riprogramma_un_retry(gui, tmp_path):
+    """La race insidiosa: se un upload è già in volo è partito PRIMA di questa revoca, quindi non
+    la contiene. `_publish_async` ritorna False e senza un nuovo tentativo la revoca aspetterebbe
+    l'intervallo pieno. Si pretende che venga riprogrammato un tentativo a breve."""
+    fake = _fake_con_pubblicazione(gui, tmp_path)
+    _emetti_e_punta_il_serial(gui, fake)
+    fake._spawn_publish_thread = lambda target: None    # simula un upload ancora in volo
+    assert fake._publish_async() is True                # ...e lascia il lucchetto preso
+    riprogrammati = []
+    fake._schedule_publish_tick = lambda **kw: riprogrammati.append(kw)
+
+    fake._on_revoke()
+
+    assert fake._publish_calls == []                    # nessun upload nuovo: era in volo
+    assert riprogrammati == [{"retry_soon": True}], (
+        "nessun ritentativo riprogrammato: la revoca resterebbe ferma fino al tick pieno")
