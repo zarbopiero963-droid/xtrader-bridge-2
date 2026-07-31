@@ -2025,6 +2025,11 @@ def test_store_illeggibile_NON_propone_un_dialogo_che_non_serve(gui, tmp_path):
 # solo dal tick automatico — cioè fino a `interval_hours` (default 6) in cui il proprietario crede
 # di aver revocato un cliente che invece continua a lavorare. Con l'automatico spento, mai.
 
+# Valore inequivocabilmente NON reale (rilievo Fugu Ultra): non è una credenziale GitHub, non
+# apre nulla, e nei test l'upload è comunque un doppio in memoria — nessun socket viene aperto.
+_TOKEN_FINTO = "non-e-un-token-vero-solo-per-i-test"   # pragma: allowlist secret
+
+
 class _EntryFinta:
     """Il minimo che `_read` usa: un `.get()`."""
 
@@ -2035,7 +2040,8 @@ class _EntryFinta:
         return self._testo
 
 
-def _fake_con_pubblicazione(gui, tmp_path, *, enabled=True, token="tok-finto"):
+def _fake_con_pubblicazione(gui, tmp_path, *, enabled=True,
+                            token=_TOKEN_FINTO):
     """`self` finto con keypair pronta e pubblicazione configurata (upload FINTO, nessuna rete)."""
     fake = _fake(gui, tmp_path)
     gui.LicenseManagerApp._ensure_keypair(fake)
@@ -2107,8 +2113,8 @@ def test_con_automatico_spento_non_pubblica_ma_lo_DICE(gui, tmp_path):
 
     assert fake._publish_calls == [], "ha pubblicato con l'automatico spento"
     testo = " ".join(fake._msgs)
-    assert "NON" in testo and "attiva" in testo.lower(), (
-        f"il messaggio non avvisa che la revoca non è attiva sui bridge: {testo!r}")
+    assert "NON è ancora attiva sui bridge" in testo, (
+        f"il messaggio non dice CHIARAMENTE che la revoca non è attiva sui bridge: {testo!r}")
 
 
 def test_revoca_con_pubblicazione_gia_in_volo_riprogramma_un_retry(gui, tmp_path):
@@ -2127,3 +2133,85 @@ def test_revoca_con_pubblicazione_gia_in_volo_riprogramma_un_retry(gui, tmp_path
     assert fake._publish_calls == []                    # nessun upload nuovo: era in volo
     assert riprogrammati == [{"retry_soon": True}], (
         "nessun ritentativo riprogrammato: la revoca resterebbe ferma fino al tick pieno")
+
+
+def test_il_retry_dopo_una_revoca_NON_lascia_due_timer(gui, tmp_path):
+    """Rilievo CodeRabbit (Major) e seconda metà del rilievo Fable, arrivati da angoli diversi allo
+    stesso difetto: `_schedule_publish_tick` **sovrascrive** `_publish_after_id` senza annullare il
+    timer precedente.
+
+    `_publish_tick` non ne soffre — azzera l'id in testa, perché il suo timer è appena scattato. Ma
+    `_propaga_revoca` viene chiamata da un click, **mentre** un tick programmato è ancora in coda:
+    senza annullarlo restano due timer vivi, ognuno dei quali ne programma un altro. Non è un
+    dettaglio estetico: sono pubblicazioni ridondanti che si moltiplicano a ogni giro.
+    """
+    fake = _fake_con_pubblicazione(gui, tmp_path)
+    _emetti_e_punta_il_serial(gui, fake)
+    fake._spawn_publish_thread = lambda target: None    # upload ancora in volo
+    assert fake._publish_async() is True
+    annullati = []
+    fake.after_cancel = annullati.append
+    fake._publish_after_id = "tick-gia-in-coda"         # il tick normale programmato da _publish_tick
+
+    fake._on_revoke()
+
+    assert annullati == ["tick-gia-in-coda"], (
+        "il tick già in coda non è stato annullato: restano due timer vivi")
+
+
+def test_propaga_revoca_non_solleva_mai_come_promette(gui, tmp_path):
+    """Rilievo di Fable 5 e Sourcery, indipendenti e concordi: il docstring promette «non solleva
+    mai» ma il `try` copriva solo la lettura della config.
+
+    Se `_publish_async` esplode, l'eccezione esce dall'handler GUI e `_set_msg` non viene MAI
+    chiamato: la revoca è registrata su disco ma l'utente non vede conferma e può crederla fallita —
+    esattamente il difetto che questa PR vuole chiudere, riprodotto per un'altra strada.
+    """
+    fake = _fake_con_pubblicazione(gui, tmp_path)
+    _emetti_e_punta_il_serial(gui, fake)
+
+    def _esplode():
+        raise RuntimeError("boom")
+
+    fake._publish_async = _esplode
+
+    fake._on_revoke()       # NON deve sollevare
+
+    assert registry.read_revocations(directory=str(tmp_path)), "la revoca doveva essere registrata"
+    testo = " ".join(fake._msgs)
+    assert "revocata" in testo.lower(), "l'utente non ha ricevuto conferma della revoca"
+    assert "bridge" in testo.lower(), (
+        f"il messaggio non dice che la propagazione non è avvenuta: {testo!r}")
+
+
+def test_se_l_upload_in_volo_FALLISCE_il_retry_pubblica_comunque_la_revoca(gui, tmp_path):
+    """Rilievo di Fugu Ultra: il caso «già in volo» era testato solo con un upload che va a buon
+    fine. Ma quello in volo è partito PRIMA della revoca e **non la contiene**: se per giunta
+    fallisce, la revoca resterebbe non propagata. Si pretende che il tentativo riprogrammato la
+    pubblichi comunque — con il serial dentro."""
+    fake = _fake_con_pubblicazione(gui, tmp_path)
+    serial = _emetti_e_punta_il_serial(gui, fake)
+
+    # 1) un upload è in volo e FALLIRÀ
+    fake._spawn_publish_thread = lambda target: None
+    assert fake._publish_async() is True
+    fake._publish_upload = lambda content, **kw: {"ok": False, "message": "rete assente"}
+
+    # 2) la revoca cade in quel momento: nessun upload nuovo, ma un retry programmato
+    fake._on_revoke()
+    assert fake._publish_calls == []
+
+    # 3) l'upload in volo termina male e libera il lucchetto, poi scatta il retry con la rete tornata
+    fake._set_publish_inflight = lambda v: setattr(fake, "_publish_inflight", bool(v))
+    fake._set_publish_inflight(False)
+    fake._publish_upload = (lambda content, **kw: (fake._publish_calls.append({"content": content, **kw})
+                                                   or {"ok": True, "action": "updated",
+                                                       "message": "Lista revoche aggiornata."}))
+    fake._spawn_publish_thread = lambda target: target()
+    gui.LicenseManagerApp._publish_tick(fake)
+
+    assert len(fake._publish_calls) == 1, "il retry non ha pubblicato"
+    revlist = revocation.verify_revocation_list(fake._publish_calls[0]["content"].strip(),
+                                                public_key_hex=fake._current_key_state()["public"])
+    assert revlist is not None and serial in revlist.serials, (
+        "il retry ha pubblicato una lista che NON contiene la revoca")

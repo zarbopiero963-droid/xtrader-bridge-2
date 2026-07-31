@@ -1336,11 +1336,22 @@ Il messaggio dopo una revoca dice ora **quale dei tre casi** si è verificato, i
 testo unico «Esporta e ripubblica la lista revoche», che non distingueva fra revoca già in viaggio e
 revoca ferma:
 
-| situazione | messaggio (verbatim) |
+Tutti i messaggi cominciano con «Licenza revocata: `<serial>` (`<nome>`). Diventa attiva sui bridge
+quando la lista è pubblicata.», e proseguono così — **cinque** esiti, non tre (rilievo CodeRabbit
+sulla prima stesura di questa tabella, che ne elencava solo tre e lasciava fuori proprio i due casi
+in cui qualcosa non è andato liscio):
+
+| situazione | coda del messaggio (verbatim) |
 |---|---|
-| automatica **accesa** | «Licenza revocata: … Diventa attiva sui bridge quando la lista è pubblicata. Pubblicazione della lista in corso…» |
-| automatica **spenta** | «… ⚠️ Pubblicazione automatica SPENTA: la revoca NON è ancora attiva sui bridge. Usa «🚀 Pubblica ora» nella scheda «Revoche».» |
-| impostazioni **illeggibili** | «… ⚠️ Impossibile leggere le impostazioni di pubblicazione: la revoca NON è ancora attiva sui bridge. Pubblicala dalla scheda «Revoche».» |
+| automatica **accesa** | «Pubblicazione della lista in corso…» |
+| automatica **spenta** | «⚠️ Pubblicazione automatica SPENTA: la revoca NON è ancora attiva sui bridge. Usa «🚀 Pubblica ora» nella scheda «Revoche».» |
+| impostazioni **illeggibili** | «⚠️ Impossibile leggere le impostazioni di pubblicazione: la revoca NON è ancora attiva sui bridge. Pubblicala dalla scheda «Revoche».» |
+| pubblicazione **già in corso** | «Una pubblicazione era già in corso e non contiene questa revoca: riprovo fra poco.» |
+| avvio **non riuscito** | «⚠️ La revoca è registrata ma la pubblicazione non è partita: NON è ancora attiva sui bridge. Usa «🚀 Pubblica ora» nella scheda «Revoche».» |
+
+Il quarto caso non è teorico: l'upload in corso è partito **prima** di questa revoca, quindi non la
+contiene. Si annulla il tick già in coda e se ne programma uno a breve — annullarlo è necessario,
+altrimenti resterebbero due timer vivi e ognuno ne programmerebbe un altro.
 
 Con l'automatica accesa il messaggio viene poi **sostituito** dall'esito reale dell'upload
 (`✅`/`⚠️`), che arriva dal thread di pubblicazione: l'ultima riga che l'utente legge è sempre quella

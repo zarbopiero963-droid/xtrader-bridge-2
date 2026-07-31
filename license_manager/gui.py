@@ -1370,8 +1370,12 @@ class LicenseManagerApp(ctk.CTk):
         Senza un nuovo tentativo la revoca aspetterebbe l'intervallo pieno → si riprogramma il tick
         a breve, la stessa strada che `_publish_tick` già usa quando salta un giro.
 
-        Non solleva mai: è invocata dentro un handler della GUI, e un errore qui non deve poter far
-        sembrare fallita una revoca che invece è stata registrata."""
+        **Non solleva mai**, e la promessa copre *tutto* il corpo — non solo la lettura della
+        config (rilievo di Fable 5 e Sourcery, indipendenti e concordi). È invocata dentro un
+        handler della GUI: se un'eccezione uscisse di qui, `_set_msg` non verrebbe mai chiamato e
+        l'utente non vedrebbe **alcuna** conferma di una revoca che invece è già su disco — potendo
+        crederla fallita e riprovare. Sarebbe lo stesso difetto che questa funzione esiste per
+        chiudere, entrato da un'altra porta."""
         try:
             abilitata = bool(self._load_publish_config(directory=self._key_dir).get("enabled"))
         except Exception as exc:    # noqa: BLE001 — config illeggibile: non si tace, si avvisa
@@ -1382,9 +1386,21 @@ class LicenseManagerApp(ctk.CTk):
         if not abilitata:
             return ("⚠️ Pubblicazione automatica SPENTA: la revoca NON è ancora attiva sui bridge. "
                     "Usa «🚀 Pubblica ora» nella scheda «Revoche».")
-        if self._publish_async():
-            return "Pubblicazione della lista in corso…"
-        self._schedule_publish_tick(retry_soon=True)
+        try:
+            if self._publish_async():
+                return "Pubblicazione della lista in corso…"
+            # Il tick normale programmato da `_publish_tick` è ancora in coda: va **annullato**
+            # prima di programmare il retry, altrimenti restano due timer vivi e ognuno ne
+            # programma un altro (rilievo CodeRabbit, e seconda metà del rilievo Fable).
+            # `_schedule_publish_tick` sovrascrive `_publish_after_id` senza annullare — non è
+            # idempotente fuori da `_publish_tick`, che invece azzera l'id in testa perché il suo
+            # timer è appena scattato.
+            self._cancel_publish_tick()
+            self._schedule_publish_tick(retry_soon=True)
+        except Exception as exc:    # noqa: BLE001 — vedi «non solleva mai» nel docstring
+            _log.warning("Propagazione della revoca non avviata [%s]", type(exc).__name__)
+            return ("⚠️ La revoca è registrata ma la pubblicazione non è partita: NON è ancora "
+                    "attiva sui bridge. Usa «🚀 Pubblica ora» nella scheda «Revoche».")
         return ("Una pubblicazione era già in corso e non contiene questa revoca: "
                 "riprovo fra poco.")
 
