@@ -1075,9 +1075,14 @@ def test_build_ui_dipinge_l_etichetta_all_apertura(gui):
     **nessun altro test diventa rosso**, quindi senza questa guardia la regressione passerebbe.
 
     Resta un test debole per costruzione: prova che la chiamata c'è, non che dipinga davvero. La
-    verifica vera è lo smoke manuale documentato nel PR body."""
+    verifica vera è lo smoke manuale documentato nel PR body.
+
+    Dal redesign a schede (2026-07-31) si ispeziona l'INTERA classe: `_build_ui` è diventato
+    l'orchestratore e il widget nasce in `_build_scheda_revoche`. L'invariante non è cambiata —
+    all'apertura l'etichetta dev'essere già dipinta — ed è ciò che le due assert continuano a
+    verificare, senza legarsi al metodo che oggi la costruisce."""
     import inspect
-    sorgente = inspect.getsource(gui.LicenseManagerApp._build_ui)
+    sorgente = inspect.getsource(gui.LicenseManagerApp)
     assert "_refresh_publish_status()" in sorgente, (
         "l'etichetta dell'ultima pubblicazione dev'essere dipinta alla costruzione della finestra: "
         "senza, resta vuota finché non capita una pubblicazione — e il caso che conta è proprio "
@@ -1473,9 +1478,15 @@ def test_i_pulsanti_backup_sono_collegati_agli_handler(gui):
     widget customtkinter reali e non è eseguibile headless, quindi non esiste un giunto
     comportamentale. Senza questa guardia gli handler potrebbero esistere ed essere **irraggiungibili
     dalla GUI** — cioè la funzione richiesta non esisterebbe per l'utente — e nessun test lo direbbe.
-    Verificato con mutazione: togliendo i due `CTkButton` nessun altro test diventa rosso."""
+    Verificato con mutazione: togliendo i due `CTkButton` nessun altro test diventa rosso.
+
+    Si ispeziona l'INTERA classe, non il solo `_build_ui`: dal redesign a schede (2026-07-31) i
+    widget vivono nei costruttori `_build_scheda_*`, e una guardia legata a un singolo metodo
+    diventerebbe rossa a ogni riorganizzazione della UI **senza che l'invariante sia violata** —
+    cioè il rumore che porta a disattivare i test. L'invariante vera è «i due handler sono
+    raggiungibili da un pulsante», e non dipende da quale metodo lo crea."""
     import inspect
-    sorgente = inspect.getsource(gui.LicenseManagerApp._build_ui)
+    sorgente = inspect.getsource(gui.LicenseManagerApp)
     assert "command=self._on_export_backup" in sorgente
     assert "command=self._on_restore_backup" in sorgente
 
@@ -1490,3 +1501,209 @@ def test_restore_backup_file_assente_o_rotto(gui, tmp_path):
         f.write("{non-json")
     out = gui.LicenseManagerApp._evaluate_restore_backup(fake, rotto)
     assert out["ok"] is False and "JSON" in out["message"]
+
+
+# ── redesign a schede (2026-07-31): copia, tabella, selezione ───────────────────────────────────
+
+def _fake_clipboard(gui):
+    """`self` finto con gli appunti registrati e la riga messaggi catturata."""
+    fake = types.SimpleNamespace(_appunti=[], _messaggi=[])
+    fake.clipboard_clear = lambda: fake._appunti.clear()
+    fake.clipboard_append = lambda t: fake._appunti.append(t)
+    fake.update_idletasks = lambda: None
+    fake._set_msg = lambda t: fake._messaggi.append(t)
+    fake._copia_negli_appunti = (
+        lambda testo, *, cosa: gui.LicenseManagerApp._copia_negli_appunti(fake, testo, cosa=cosa))
+    fake._testo_widget = gui.LicenseManagerApp._testo_widget
+    return fake
+
+
+def test_copia_negli_appunti_copia_e_conferma(gui):
+    fake = _fake_clipboard(gui)
+    assert fake._copia_negli_appunti("abc123", cosa="La chiave pubblica") is True
+    assert fake._appunti == ["abc123"]
+    assert "✅" in fake._messaggi[-1] and "chiave pubblica" in fake._messaggi[-1].lower()
+
+
+def test_copia_negli_appunti_rifiuta_il_vuoto_invece_di_svuotare(gui):
+    """Copiare «niente» svuoterebbe gli appunti facendo credere all'utente di avere la chiave.
+    Deve dirlo, non fingere il successo."""
+    fake = _fake_clipboard(gui)
+    assert fake._copia_negli_appunti("", cosa="La chiave pubblica") is False
+    assert fake._appunti == [], "gli appunti non vanno toccati se non c'è nulla da copiare"
+    assert "⚠️" in fake._messaggi[-1]
+
+
+def test_copia_dice_la_verita_se_gli_appunti_non_ci_sono(gui):
+    """Headless o clipboard occupata: l'azione non solleva, ma NON deve dichiarare successo —
+    altrimenti l'utente incolla il contenuto vecchio credendo di avere la chiave nuova."""
+    fake = _fake_clipboard(gui)
+    fake.clipboard_append = lambda t: (_ for _ in ()).throw(RuntimeError("no display"))
+    assert fake._copia_negli_appunti("abc123", cosa="La chiave di attivazione") is False
+    assert "⚠️" in fake._messaggi[-1] and "a mano" in fake._messaggi[-1]
+
+
+def test_il_seed_privato_non_ha_nessun_percorso_verso_gli_appunti(gui):
+    """**Guardia di sicurezza.** Gli appunti sono leggibili da qualunque processo e i gestori di
+    clipboard ne conservano lo storico: il seed di firma — l'unico segreto non rigenerabile del
+    sistema — non deve avere alcun pulsante che lo copi. Esce SOLO su file, con permessi.
+
+    La guardia è sul sorgente perché è una proprietà dell'assenza: si verifica che gli unici
+    chiamanti della copia siano la chiave PUBBLICA e il token, mai lo stato che contiene il seed."""
+    import inspect
+    sorgente = inspect.getsource(gui.LicenseManagerApp)
+    chiamanti = [r.strip() for r in sorgente.splitlines() if "_copia_negli_appunti(" in r
+                 and "def " not in r]
+    assert chiamanti, "la guardia non ha trovato nulla da controllare (refactor?)"
+    for riga in chiamanti:
+        assert "seed" not in riga.lower() and "private" not in riga.lower(), (
+            f"un percorso di copia tocca il seed privato: {riga}")
+
+
+def test_on_copy_public_legge_il_widget_della_chiave_pubblica(gui):
+    fake = _fake_clipboard(gui)
+    fake._public_value = _FakeTextbox("59e0c1f8d6860550292a5b1667cec33f")
+    gui.LicenseManagerApp._on_copy_public(fake)
+    assert fake._appunti == ["59e0c1f8d6860550292a5b1667cec33f"]
+
+
+def test_on_copy_token_legge_il_box_del_token(gui):
+    fake = _fake_clipboard(gui)
+    fake._token_box = _FakeTextbox("payload.firma")
+    gui.LicenseManagerApp._on_copy_token(fake)
+    assert fake._appunti == ["payload.firma"]
+
+
+class _FakeTextbox:
+    """Textbox Tk minimo: `get`/`delete`/`insert` come li usa la GUI."""
+
+    def __init__(self, testo=""):
+        self._t = testo
+
+    def get(self, *_a):
+        return self._t
+
+    def delete(self, *_a):
+        self._t = ""
+
+    def insert(self, _pos, testo):
+        self._t = testo
+
+
+class _FakeTabella:
+    """`ttk.Treeview` minimo, fedele all'API vera sui tre punti che contano:
+
+    - `get_children()` ritorna **iid**, non indici, e `delete(iid)` cancella per iid — così
+      cancellare tutte le righe in sequenza funziona (con gli indici scalerebbero sotto i piedi);
+    - `item(iid, "values")` ritorna **la tupla dei valori**, non un dict (con l'opzione esplicita
+      `Treeview.item` ritorna direttamente quel valore).
+
+    Un fake che sbaglia questi punti fa fallire il test su un difetto che nel prodotto non esiste —
+    e, peggio, potrebbe farlo PASSARE su uno che esiste."""
+
+    def __init__(self, selezione=()):
+        self._righe = {}        # iid -> tupla di valori
+        self._prossimo = 0
+        self._sel = selezione
+
+    @property
+    def righe(self):
+        return [self._righe[i] for i in sorted(self._righe)]
+
+    def get_children(self):
+        return sorted(self._righe)
+
+    def delete(self, iid):
+        self._righe.pop(iid, None)
+
+    def insert(self, _p, _pos, values):
+        self._righe[self._prossimo] = values
+        self._prossimo += 1
+
+    def selection(self):
+        return self._sel
+
+    def item(self, iid, _option):
+        return self._righe[iid]
+
+
+def _riga(serial="LIC-AAA111BBB222", nome="Mario Rossi", status="attiva"):
+    return {"status": status, "serial": serial, "name": nome, "hardware_id": "HW1-XYZ",
+            "days_left": 12, "expiry": 1_700_000_000}
+
+
+def test_render_registry_riempie_la_tabella_con_le_colonne_attese(gui):
+    fake = types.SimpleNamespace(_registry_table=_FakeTabella(), _registry_box=None,
+                                 _format_registry_rows=gui.LicenseManagerApp._format_registry_rows)
+    gui.LicenseManagerApp._render_registry(fake, [_riga()])
+    assert len(fake._registry_table.righe) == 1
+    valori = fake._registry_table.righe[0]
+    assert valori[0] == "attiva" and valori[1] == "LIC-AAA111BBB222"
+    assert valori[2] == "Mario Rossi" and valori[3] == "HW1-XYZ"
+    assert valori[4] == "12g" and valori[5] == "2023-11-14"
+
+
+def test_render_registry_ripulisce_prima_di_ridipingere(gui):
+    """Senza il clear, «Cerca» accumulerebbe: l'utente vedrebbe licenze che il filtro esclude."""
+    tabella = _FakeTabella()
+    fake = types.SimpleNamespace(_registry_table=tabella, _registry_box=None,
+                                 _format_registry_rows=gui.LicenseManagerApp._format_registry_rows)
+    gui.LicenseManagerApp._render_registry(fake, [_riga(serial="LIC-1"), _riga(serial="LIC-2")])
+    gui.LicenseManagerApp._render_registry(fake, [_riga(serial="LIC-3")])
+    assert [r[1] for r in tabella.righe] == ["LIC-3"]
+
+
+def test_render_registry_non_solleva_senza_widget(gui):
+    """Gira anche subito dopo un'emissione: il rendering non deve mai far fallire l'azione."""
+    fake = types.SimpleNamespace(_registry_table=None, _registry_box=None,
+                                 _format_registry_rows=gui.LicenseManagerApp._format_registry_rows)
+    gui.LicenseManagerApp._render_registry(fake, [_riga()])   # nessuna eccezione
+
+
+def test_selezionare_una_riga_porta_il_serial_nel_campo(gui):
+    """Prima il serial andava selezionato a mano da un blocco di testo: un `LIC-` sbagliato di un
+    carattere significa revocare la licenza di un ALTRO utente."""
+    tabella = _FakeTabella(selezione=(0,))
+    tabella.insert("", "end", ("attiva", "LIC-AAA111BBB222", "Mario", "HW1", "12g", "2023-11-14"))
+    campo = _FakeEntry()
+    fake = types.SimpleNamespace(_registry_table=tabella, _renew_serial_entry=campo)
+    gui.LicenseManagerApp._on_registry_select(fake)
+    assert campo.testo == "LIC-AAA111BBB222"
+
+
+def test_selezione_vuota_non_cancella_quello_che_hai_scritto(gui):
+    tabella = _FakeTabella(selezione=())
+    campo = _FakeEntry("LIC-SCRITTO-A-MANO")
+    fake = types.SimpleNamespace(_registry_table=tabella, _renew_serial_entry=campo)
+    gui.LicenseManagerApp._on_registry_select(fake)
+    assert campo.testo == "LIC-SCRITTO-A-MANO"
+
+
+class _FakeEntry:
+    def __init__(self, testo=""):
+        self.testo = testo
+
+    def delete(self, *_a):
+        self.testo = ""
+
+    def insert(self, _pos, testo):
+        self.testo = testo
+
+
+def test_la_finestra_ha_una_dimensione_esplicita(gui):
+    """Il difetto che ha innescato il redesign: senza `geometry()` la finestra prende la propria
+    altezza naturale (~40 widget impilati) e su un portatile sfonda lo schermo — i pulsanti di
+    backup, revoca e pubblicazione finivano SOTTO il bordo, irraggiungibili."""
+    import inspect
+    sorgente = inspect.getsource(gui.LicenseManagerApp._build_ui)
+    assert "self.geometry(" in sorgente, "senza geometry la finestra sfonda lo schermo"
+    assert "self.minsize(" in sorgente, "senza minsize si può rimpicciolire fino a nascondere tutto"
+
+
+def test_ogni_scheda_dichiarata_ha_il_suo_costruttore(gui):
+    """Una scheda aggiunta a `_SCHEDE` senza costruttore sarebbe una linguetta VUOTA nella GUI:
+    l'utente ci clicca e non trova nulla, senza alcun errore."""
+    import inspect
+    sorgente = inspect.getsource(gui.LicenseManagerApp._build_ui)
+    for nome in gui.LicenseManagerApp._SCHEDE:
+        assert f'schede.tab("{nome}")' in sorgente, f"la scheda «{nome}» non viene costruita"

@@ -1275,6 +1275,47 @@ riepilogo non può divergere dal comportamento reale. Logica in `config_summary.
 - **Aggiornamento**: al **cambio scheda** nell'hub il pannello si ri-legge (`refresh_options`),
   così riflette modifiche fatte in altre schede senza riaprire la finestra.
 
+### 7.11 🔐 XTrader License Manager (`license_manager/gui.py`) — APPLICAZIONE SEPARATA
+
+> ⚠️ **Fuori dal perimetro di redesign.** Non è una finestra del bridge: è l'**applicazione del
+> proprietario**, con un EXE e un workflow di build propri, che l'utente finale **non vede mai**.
+> È documentata qui solo perché esiste e per **non lasciarla ambigua** al prossimo intervento: le
+> proposte di redesign del bridge non la riguardano, ma una modifica al suo aspetto va comunque
+> annotata in questa sezione.
+
+**A che serve:** genera la keypair Ed25519 che firma **tutte** le licenze, emette le chiavi di
+attivazione, tiene il registro delle licenze emesse, revoca e pubblica la lista di revoche firmata.
+
+**Struttura — a schede dal 2026-07-31.** Prima era una **colonna unica** di ~40 widget impilati e
+**senza `geometry()`**: la finestra prendeva la propria altezza naturale e su un portatile sfondava
+lo schermo. Non era un difetto estetico — «💾 Backup della chiave privata», «🚫 Revoca licenza» e
+tutta la pubblicazione automatica finivano **sotto il bordo, irraggiungibili**: il pulsante che
+salva l'unica chiave non rigenerabile del sistema era invisibile.
+
+Finestra `900×660`, `minsize 780×580`. Intestazione e riga messaggi stanno **fuori** dalle schede
+(un esito non deve poter finire in una scheda che non stai guardando).
+
+| Scheda | Contenuto | Nota |
+|---|---|---|
+| **🔑 Chiave** | chiave pubblica (Textbox selezionabile) · «🔑 Genera / mostra keypair» · «📋 Copia chiave pubblica» · «💾 Backup della chiave privata» | la chiave pubblica è quella da incollare in `license.py` |
+| **✅ Emetti** | Nome · Cognome · Giorni · Hardware ID → «✅ Genera chiave di attivazione» (SUCCESS) · box del token + «📋 Copia chiave di attivazione» | il token è ciò che si manda all'utente |
+| **📋 Registro** | ricerca · **tabella** (`ttk.Treeview`: Stato · Serial · Nome · Hardware ID · Giorni · Scadenza) · campo Serial + Nuovi giorni · «🔄 Rinnova» · «📋 Ri-mostra token» · «🚫 Revoca licenza» (DANGER) | selezionare una riga porta il serial nel campo |
+| **🚫 Revoche** | «📤 Esporta lista revoche firmata» · pubblicazione automatica GitHub (repo/file/branch/ore/token) · «💾 Salva impostazioni» · «🚀 Pubblica ora» · etichetta persistente ultima pubblicazione | il token GitHub è mascherato e vive nel keyring |
+| **📦 Backup** | «📦 Esporta backup completo» · «📥 Ripristina backup completo» + avviso supporto offline | col **solo** seed registro e revoche non migrano (#183) |
+
+**Invarianti di sicurezza di questa finestra — non negoziabili:**
+
+- **il seed privato non ha alcun percorso verso gli appunti.** Gli appunti sono leggibili da
+  qualunque processo e i gestori di clipboard ne conservano lo storico: si copiano solo la chiave
+  **pubblica** e il **token**, che per costruzione sono destinati a uscire. Il seed esce **solo su
+  file**. Un test lo presidia sul sorgente;
+- **la copia non mente**: se gli appunti non sono disponibili l'azione lo **dice** invece di
+  dichiarare successo — altrimenti si incolla il contenuto vecchio credendo di avere la chiave nuova;
+- **la revoca è l'unica azione in `DANGER`** della scheda Registro: dev'essere distinguibile a colpo
+  d'occhio da «Rinnova» e «Ri-mostra», che le stanno accanto;
+- **selezione dalla tabella invece di trascrizione a mano**: un `LIC-` sbagliato di un carattere
+  significa revocare la licenza di un **altro** utente.
+
 ---
 
 ## 8. Stati dinamici e indicatori

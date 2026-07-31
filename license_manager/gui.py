@@ -784,121 +784,339 @@ class LicenseManagerApp(ctk.CTk):
             self._publish_after_id = None
 
     # ── cablaggio Tk (verifica manuale su Windows) ─────────────────────────────────────────────
+    # ── Costruzione della finestra ───────────────────────────────────────────────────────────
+    #
+    # A SCHEDE dal 2026-07-31 (richiesta del proprietario, con screenshot). Prima era una colonna
+    # unica di ~40 widget impilati e **senza `geometry()`**: la finestra prendeva la propria altezza
+    # naturale, che su un portatile sfonda lo schermo. Non era un problema estetico —
+    # «💾 Backup della chiave privata», «🚫 Revoca licenza» e tutta la pubblicazione automatica
+    # finivano **sotto il bordo dello schermo, irraggiungibili**: il pulsante che salva l'unica
+    # chiave non rigenerabile del sistema era invisibile.
+    #
+    # Le schede raggruppano per COMPITO, non per modulo: quello che si fa una volta sola (la chiave)
+    # è separato da quello che si fa ogni giorno (emettere, cercare) e da quello che si fa in
+    # emergenza (revocare). La riga messaggi e l'intestazione restano FUORI dalle schede, sempre
+    # visibili: un esito non deve poter finire in una scheda che non stai guardando.
+    _SCHEDE = ("🔑 Chiave", "✅ Emetti", "📋 Registro", "🚫 Revoche", "📦 Backup")
+
     def _build_ui(self) -> None:
+        # Dimensione esplicita: senza, la finestra si dimensiona sul contenuto e sfonda lo schermo.
+        # `minsize` impedisce di rimpicciolirla fino a nascondere di nuovo i controlli.
+        try:
+            self.geometry("900x660")
+            self.minsize(780, 580)
+        except Exception:       # noqa: BLE001 — headless/Tk assente: la GUI non è il gate
+            pass
+
+        # Intestazione fuori dalle schede: identità del tool sempre visibile.
         ctk.CTkLabel(self, text="🔐 XTrader License Manager",
-                     font=ctk.CTkFont(size=16, weight="bold"), anchor="w").pack(
-                         fill="x", padx=12, pady=(12, 2))
+                     font=ctk.CTkFont(size=16, weight="bold"), anchor="w",
+                     text_color=ui_theme.TITLE_TEXT).pack(fill="x", padx=12, pady=(12, 2))
         ctk.CTkLabel(self, text="Tool del proprietario — genera le chiavi di attivazione. "
                      "La chiave PRIVATA resta solo su questo PC.",
-                     anchor="w").pack(fill="x", padx=12, pady=(0, 8))
+                     anchor="w", text_color=ui_theme.TEXT2).pack(fill="x", padx=12, pady=(0, 6))
 
-        # Chiave pubblica (da incollare nel bridge)
-        ctk.CTkLabel(self, text="Chiave pubblica (incollala in xtrader_bridge/licensing/license.py):",
-                     anchor="w").pack(fill="x", padx=12, pady=(6, 2))
-        self._public_value = ctk.CTkLabel(self, text="—", anchor="w", wraplength=560,
-                                          font=ctk.CTkFont(family=_MONO[0], size=12))
-        self._public_value.pack(fill="x", padx=12, pady=(0, 4))
-        ctk.CTkButton(self, text="🔑 Genera / mostra keypair", command=self._on_generate).pack(
-            anchor="w", padx=12, pady=(0, 10))
+        schede = ctk.CTkTabview(self, corner_radius=ui_theme.RADIUS_CARD)
+        schede.pack(fill="both", expand=True, padx=10, pady=(0, 4))
+        for nome in self._SCHEDE:
+            schede.add(nome)
+        self._build_scheda_chiave(schede.tab("🔑 Chiave"))
+        self._build_scheda_emetti(schede.tab("✅ Emetti"))
+        self._build_scheda_registro(schede.tab("📋 Registro"))
+        self._build_scheda_revoche(schede.tab("🚫 Revoche"))
+        self._build_scheda_backup(schede.tab("📦 Backup"))
 
-        # Emissione licenza
-        ctk.CTkLabel(self, text="Emetti una licenza:", font=ctk.CTkFont(weight="bold"),
-                     anchor="w").pack(fill="x", padx=12, pady=(6, 2))
-        self._nome_entry = ctk.CTkEntry(self, placeholder_text="Nome")
-        self._nome_entry.pack(fill="x", padx=12, pady=2)
-        self._cognome_entry = ctk.CTkEntry(self, placeholder_text="Cognome")
-        self._cognome_entry.pack(fill="x", padx=12, pady=2)
-        self._giorni_entry = ctk.CTkEntry(self, placeholder_text="Giorni (es. 15)")
-        self._giorni_entry.pack(fill="x", padx=12, pady=2)
-        self._hwid_entry = ctk.CTkEntry(self, placeholder_text="Hardware ID dell'utente (HW1-…)")
-        self._hwid_entry.pack(fill="x", padx=12, pady=2)
-        ctk.CTkButton(self, text="✅ Genera chiave di attivazione", command=self._on_issue).pack(
-            anchor="w", padx=12, pady=(6, 6))
+        # Riga messaggi fuori dalle schede: l'esito di un'azione dev'essere visibile qualunque
+        # scheda sia aperta (una revoca si conferma dalla scheda Registro e l'esito arriva qui).
+        self._msg_lbl = ctk.CTkLabel(self, text="", anchor="w")
+        self._msg_lbl.pack(fill="x", padx=12, pady=(2, 10))
 
-        # Token risultante
-        self._token_box = ctk.CTkTextbox(self, height=70)
-        self._token_box.pack(fill="x", padx=12, pady=(0, 6))
+        self._refresh_publish_fields()
+        self._refresh_publish_status()
 
-        # Registro licenze emesse (opzione A): elenco + ricerca (sola lettura, nessun token mostrato)
-        ctk.CTkLabel(self, text="Registro licenze emesse:", font=ctk.CTkFont(weight="bold"),
-                     anchor="w").pack(fill="x", padx=12, pady=(10, 2))
-        self._reg_query_entry = ctk.CTkEntry(self, placeholder_text="Cerca (nome / hardware ID / serial)")
-        self._reg_query_entry.pack(fill="x", padx=12, pady=2)
-        ctk.CTkButton(self, text="🔍 Cerca / 🔄 Aggiorna", command=self._on_registry_refresh).pack(
-            anchor="w", padx=12, pady=(4, 4))
-        self._registry_box = ctk.CTkTextbox(self, height=120)
-        self._registry_box.pack(fill="x", padx=12, pady=(0, 6))
+    # ── scheda: chiave di firma ──────────────────────────────────────────────────────────────
+    def _build_scheda_chiave(self, tab) -> None:
+        ctk.CTkLabel(tab, text="Chiave pubblica — incollala in xtrader_bridge/licensing/license.py",
+                     font=ctk.CTkFont(weight="bold"), anchor="w").pack(fill="x", padx=10, pady=(8, 2))
+        # La chiave sta in un Textbox e non in una Label: da una Label il testo NON è selezionabile,
+        # quindi finora l'unico modo di prenderla era ricopiarla a mano da 64 caratteri esadecimali.
+        self._public_value = ctk.CTkTextbox(tab, height=54, wrap="char",
+                                            font=ctk.CTkFont(family=_MONO[0], size=12))
+        self._public_value.pack(fill="x", padx=10, pady=(0, 4))
+        riga = ctk.CTkFrame(tab, fg_color="transparent")
+        riga.pack(fill="x", padx=10, pady=(0, 10))
+        ctk.CTkButton(riga, text="🔑 Genera / mostra keypair", command=self._on_generate).pack(
+            side="left", padx=(0, 6))
+        ctk.CTkButton(riga, text="📋 Copia chiave pubblica", command=self._on_copy_public,
+                      fg_color=ui_theme.SURFACE3, text_color=ui_theme.TEXT,
+                      hover_color=ui_theme.BORDER).pack(side="left")
 
-        # Rinnovo / ri-emissione da serial (opzione B): riusa nome+hardware del record esistente
-        ctk.CTkLabel(self, text="Rinnova / ri-mostra da serial (copia il serial dall'elenco):",
-                     anchor="w").pack(fill="x", padx=12, pady=(6, 2))
-        self._renew_serial_entry = ctk.CTkEntry(self, placeholder_text="Serial (LIC-…)")
-        self._renew_serial_entry.pack(fill="x", padx=12, pady=2)
-        self._renew_giorni_entry = ctk.CTkEntry(self, placeholder_text="Nuovi giorni per il rinnovo (es. 15)")
-        self._renew_giorni_entry.pack(fill="x", padx=12, pady=2)
-        ctk.CTkButton(self, text="🔄 Rinnova (nuovo token)", command=self._on_renew).pack(
-            anchor="w", padx=12, pady=(4, 2))
-        ctk.CTkButton(self, text="📋 Ri-mostra token esistente", command=self._on_resend).pack(
-            anchor="w", padx=12, pady=(0, 2))
-        ctk.CTkButton(self, text="🚫 Revoca licenza", command=self._on_revoke).pack(
-            anchor="w", padx=12, pady=(0, 6))
+        ctk.CTkLabel(tab, text="La chiave PRIVATA non si copia e non si mostra: si salva su file.",
+                     anchor="w", text_color=ui_theme.TEXT2, wraplength=760).pack(
+                         fill="x", padx=10, pady=(6, 2))
+        # Nessun pulsante «copia il seed»: gli appunti sono leggibili da qualunque processo e i
+        # gestori di clipboard ne conservano lo storico. Il seed esce SOLO su file, con permessi.
+        ctk.CTkButton(tab, text="💾 Backup della chiave privata", command=self._on_export).pack(
+            anchor="w", padx=10, pady=(2, 10))
 
-        # Revoca online (R3b): esporta la lista firmata da caricare sull'URL statico che il bridge controlla
-        ctk.CTkLabel(self, text="Revoca online — esporta la lista firmata da caricare sull'URL:",
-                     anchor="w").pack(fill="x", padx=12, pady=(6, 2))
-        ctk.CTkButton(self, text="📤 Esporta lista revoche firmata",
-                      command=self._on_publish_revocation).pack(anchor="w", padx=12, pady=(0, 6))
+    # ── scheda: emissione ────────────────────────────────────────────────────────────────────
+    def _build_scheda_emetti(self, tab) -> None:
+        ctk.CTkLabel(tab, text="Dati dell'utente", font=ctk.CTkFont(weight="bold"),
+                     anchor="w").pack(fill="x", padx=10, pady=(8, 4))
+        griglia = ctk.CTkFrame(tab, fg_color="transparent")
+        griglia.pack(fill="x", padx=10)
+        griglia.grid_columnconfigure(1, weight=1)
+        campi = (("Nome", "_nome_entry", "Mario"),
+                 ("Cognome", "_cognome_entry", "Rossi"),
+                 ("Giorni", "_giorni_entry", "15"),
+                 ("Hardware ID", "_hwid_entry", "HW1-…  (te lo manda l'utente)"))
+        for r, (etichetta, attributo, esempio) in enumerate(campi):
+            ctk.CTkLabel(griglia, text=etichetta, anchor="w", width=110).grid(
+                row=r, column=0, sticky="w", pady=3)
+            entry = ctk.CTkEntry(griglia, placeholder_text=esempio)
+            entry.grid(row=r, column=1, sticky="ew", pady=3)
+            setattr(self, attributo, entry)
+        ctk.CTkButton(tab, text="✅ Genera chiave di attivazione", command=self._on_issue,
+                      fg_color=ui_theme.SUCCESS, hover_color=ui_theme.SUCCESS_HOV).pack(
+                          anchor="w", padx=10, pady=(10, 6))
 
-        # Pubblicazione automatica su GitHub (#157): ri-firma e ri-carica da sola la lista, così la
-        # finestra di freschezza del bridge non scade mai per dimenticanza.
-        ctk.CTkLabel(self, text="📤 Pubblicazione automatica (GitHub):",
-                     font=ctk.CTkFont(weight="bold"), anchor="w").pack(fill="x", padx=12, pady=(10, 2))
-        ctk.CTkLabel(self, text="Il repo dev'essere PUBBLICO (il bridge lo scarica senza credenziali). "
-                                "Il token resta nel keyring di questo PC, mai su disco.",
-                     anchor="w", wraplength=560).pack(fill="x", padx=12, pady=(0, 4))
-        self._pub_repo_entry = ctk.CTkEntry(self, placeholder_text="Repository (owner/nome, es. tuonome/xtrader-revocation)")
-        self._pub_repo_entry.pack(fill="x", padx=12, pady=2)
-        self._pub_path_entry = ctk.CTkEntry(self, placeholder_text="File nel repo (es. revocation_list.txt)")
-        self._pub_path_entry.pack(fill="x", padx=12, pady=2)
-        self._pub_branch_entry = ctk.CTkEntry(self, placeholder_text="Branch (es. main)")
-        self._pub_branch_entry.pack(fill="x", padx=12, pady=2)
-        self._pub_interval_entry = ctk.CTkEntry(self, placeholder_text="Ogni quante ore (es. 12)")
-        self._pub_interval_entry.pack(fill="x", padx=12, pady=2)
-        self._pub_token_entry = ctk.CTkEntry(self, placeholder_text="Token GitHub (si salva nel keyring)",
-                                             show="*")
-        self._pub_token_entry.pack(fill="x", padx=12, pady=2)
+        ctk.CTkLabel(tab, text="Chiave di attivazione da mandare all'utente",
+                     font=ctk.CTkFont(weight="bold"), anchor="w").pack(
+                         fill="x", padx=10, pady=(6, 2))
+        self._token_box = ctk.CTkTextbox(tab, height=76, wrap="char",
+                                         font=ctk.CTkFont(family=_MONO[0], size=12))
+        self._token_box.pack(fill="x", padx=10, pady=(0, 4))
+        ctk.CTkButton(tab, text="📋 Copia chiave di attivazione", command=self._on_copy_token,
+                      fg_color=ui_theme.SURFACE3, text_color=ui_theme.TEXT,
+                      hover_color=ui_theme.BORDER).pack(anchor="w", padx=10, pady=(0, 10))
+
+    # ── scheda: registro (tabella) ───────────────────────────────────────────────────────────
+    def _build_scheda_registro(self, tab) -> None:
+        cerca = ctk.CTkFrame(tab, fg_color="transparent")
+        cerca.pack(fill="x", padx=10, pady=(8, 4))
+        self._reg_query_entry = ctk.CTkEntry(cerca, placeholder_text="Cerca (nome / hardware ID / serial)")
+        self._reg_query_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ctk.CTkButton(cerca, text="🔍 Cerca / 🔄 Aggiorna", width=170,
+                      command=self._on_registry_refresh).pack(side="left")
+
+        # Tabella vera (ttk.Treeview): prima era un blocco di testo monospaziato, da cui il serial
+        # andava selezionato a mano carattere per carattere.
+        #
+        # `ttk` si importa **qui dentro**, non in testa al modulo. `tkinter` è stdlib ma NON è
+        # sempre installato (Debian lo separa in `python3-tk`), e la suite gira headless stubbando
+        # `customtkinter` — un `from tkinter import ttk` a livello di modulo fa fallire l'import di
+        # `license_manager.gui` e con esso **tutti** i test GUI. È esattamente l'errore già fatto
+        # con PyYAML nella #206: una dipendenza d'ambiente presa a livello di modulo per comodità.
+        # Questo metodo gira solo dentro una sessione GUI reale, dove Tk c'è per definizione.
+        from tkinter import ttk
+
+        self._stila_tabella()
+        colonne = ("stato", "serial", "nome", "hw", "giorni", "scadenza")
+        intestazioni = (("stato", "Stato", 90), ("serial", "Serial", 150), ("nome", "Nome", 170),
+                        ("hw", "Hardware ID", 190), ("giorni", "Giorni", 70),
+                        ("scadenza", "Scadenza", 100))
+        self._registry_table = ttk.Treeview(tab, columns=colonne, show="headings",
+                                            height=11, style="LM.Treeview")
+        for chiave, titolo, larghezza in intestazioni:
+            self._registry_table.heading(chiave, text=titolo)
+            self._registry_table.column(chiave, width=larghezza, anchor="w")
+        self._registry_table.pack(fill="both", expand=True, padx=10, pady=(2, 4))
+        self._registry_table.bind("<<TreeviewSelect>>", self._on_registry_select)
+        # Il textbox legacy non esiste più: `_on_registry_refresh` lo tratta come opzionale, e i
+        # test lo tengono a `None`. L'attributo resta per non rompere quel contratto.
+        self._registry_box = None
+
+        ctk.CTkLabel(tab, text="Seleziona una riga: il serial finisce nel campo qui sotto.",
+                     anchor="w", text_color=ui_theme.TEXT2).pack(fill="x", padx=10, pady=(2, 4))
+        azioni = ctk.CTkFrame(tab, fg_color="transparent")
+        azioni.pack(fill="x", padx=10, pady=(0, 4))
+        azioni.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(azioni, text="Serial", anchor="w", width=110).grid(row=0, column=0, sticky="w", pady=3)
+        self._renew_serial_entry = ctk.CTkEntry(azioni, placeholder_text="LIC-…")
+        self._renew_serial_entry.grid(row=0, column=1, sticky="ew", pady=3)
+        ctk.CTkLabel(azioni, text="Nuovi giorni", anchor="w", width=110).grid(row=1, column=0, sticky="w", pady=3)
+        self._renew_giorni_entry = ctk.CTkEntry(azioni, placeholder_text="15  (solo per il rinnovo)")
+        self._renew_giorni_entry.grid(row=1, column=1, sticky="ew", pady=3)
+
+        bottoni = ctk.CTkFrame(tab, fg_color="transparent")
+        bottoni.pack(fill="x", padx=10, pady=(4, 10))
+        ctk.CTkButton(bottoni, text="🔄 Rinnova (nuovo token)", command=self._on_renew).pack(
+            side="left", padx=(0, 6))
+        ctk.CTkButton(bottoni, text="📋 Ri-mostra token", command=self._on_resend,
+                      fg_color=ui_theme.SURFACE3, text_color=ui_theme.TEXT,
+                      hover_color=ui_theme.BORDER).pack(side="left", padx=(0, 6))
+        # Revoca in DANGER: è l'azione distruttiva di questa scheda e dev'essere distinguibile
+        # a colpo d'occhio dalle altre due (semantica di sicurezza, §13 dell'handoff).
+        ctk.CTkButton(bottoni, text="🚫 Revoca licenza", command=self._on_revoke,
+                      fg_color=ui_theme.DANGER, hover_color=ui_theme.DANGER_HOV).pack(side="left")
+
+    # ── scheda: revoche + pubblicazione ──────────────────────────────────────────────────────
+    def _build_scheda_revoche(self, tab) -> None:
+        ctk.CTkLabel(tab, text="Esporta la lista firmata da caricare sull'URL che il bridge controlla:",
+                     anchor="w", wraplength=780).pack(fill="x", padx=10, pady=(8, 4))
+        ctk.CTkButton(tab, text="📤 Esporta lista revoche firmata",
+                      command=self._on_publish_revocation).pack(anchor="w", padx=10, pady=(0, 10))
+
+        ctk.CTkLabel(tab, text="Pubblicazione automatica (GitHub)",
+                     font=ctk.CTkFont(weight="bold"), anchor="w").pack(fill="x", padx=10, pady=(6, 2))
+        ctk.CTkLabel(tab, text="Il repo dev'essere PUBBLICO (il bridge lo scarica senza credenziali). "
+                               "Il token resta nel keyring di questo PC, mai su disco.",
+                     anchor="w", wraplength=780, text_color=ui_theme.TEXT2).pack(
+                         fill="x", padx=10, pady=(0, 4))
+        griglia = ctk.CTkFrame(tab, fg_color="transparent")
+        griglia.pack(fill="x", padx=10)
+        griglia.grid_columnconfigure(1, weight=1)
+        campi = (("Repository", "_pub_repo_entry", "tuonome/xtrader-revocation", None),
+                 ("File nel repo", "_pub_path_entry", "revocation_list.txt", None),
+                 ("Branch", "_pub_branch_entry", "main", None),
+                 ("Ogni quante ore", "_pub_interval_entry", "12", None),
+                 ("Token GitHub", "_pub_token_entry", "si salva nel keyring", "*"))
+        for r, (etichetta, attributo, esempio, maschera) in enumerate(campi):
+            ctk.CTkLabel(griglia, text=etichetta, anchor="w", width=130).grid(
+                row=r, column=0, sticky="w", pady=3)
+            entry = (ctk.CTkEntry(griglia, placeholder_text=esempio, show=maschera) if maschera
+                     else ctk.CTkEntry(griglia, placeholder_text=esempio))
+            entry.grid(row=r, column=1, sticky="ew", pady=3)
+            setattr(self, attributo, entry)
+
         self._pub_enabled_var = ctk.StringVar(value="off")
-        self._pub_enabled_check = ctk.CTkCheckBox(self, text="Pubblica automaticamente",
+        self._pub_enabled_check = ctk.CTkCheckBox(tab, text="Pubblica automaticamente",
                                                   variable=self._pub_enabled_var,
                                                   onvalue="on", offvalue="off")
-        self._pub_enabled_check.pack(anchor="w", padx=12, pady=(4, 2))
-        ctk.CTkButton(self, text="💾 Salva impostazioni pubblicazione",
-                      command=self._on_save_publish_settings).pack(anchor="w", padx=12, pady=(2, 2))
-        ctk.CTkButton(self, text="🚀 Pubblica ora",
-                      command=self._on_publish_now).pack(anchor="w", padx=12, pady=(0, 6))
+        self._pub_enabled_check.pack(anchor="w", padx=10, pady=(8, 4))
+        bottoni = ctk.CTkFrame(tab, fg_color="transparent")
+        bottoni.pack(fill="x", padx=10, pady=(0, 4))
+        ctk.CTkButton(bottoni, text="💾 Salva impostazioni", command=self._on_save_publish_settings,
+                      fg_color=ui_theme.SURFACE3, text_color=ui_theme.TEXT,
+                      hover_color=ui_theme.BORDER).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(bottoni, text="🚀 Pubblica ora", command=self._on_publish_now).pack(side="left")
         # Etichetta PERSISTENTE dell'ultima pubblicazione riuscita (#157). Non è un messaggio
         # transitorio come `_msg_lbl`: quella riga la sovrascrive qualunque altra azione, e il modo di
         # rottura più probabile della pubblicazione automatica (tick perso dopo una sospensione) non
         # produce **nessun** messaggio. Qui invece lo stato è sempre presente e visibile all'apertura.
-        self._pub_last_lbl = ctk.CTkLabel(self, text="", anchor="w", wraplength=560)
-        self._pub_last_lbl.pack(fill="x", padx=12, pady=(0, 6))
-        self._refresh_publish_fields()
-        self._refresh_publish_status()
+        self._pub_last_lbl = ctk.CTkLabel(tab, text="", anchor="w", wraplength=780)
+        self._pub_last_lbl.pack(fill="x", padx=10, pady=(6, 10))
 
-        # Backup + messaggi
-        ctk.CTkButton(self, text="💾 Backup della chiave privata", command=self._on_export).pack(
-            anchor="w", padx=12, pady=(0, 6))
-        # Backup COMPLETO (#183): il pulsante sopra salva solo il seed — sufficiente a non perdere la
-        # chiave, NON a migrare il tool. Questi due coprono la migrazione (registro + revoche +
-        # impostazioni), che col solo seed ri-attiverebbe in silenzio tutti i revocati.
-        ctk.CTkLabel(self, text="Migrazione su un altro PC (backup completo)", anchor="w").pack(
-            fill="x", padx=12, pady=(4, 0))
-        ctk.CTkButton(self, text="📦 Esporta backup completo",
-                      command=self._on_export_backup).pack(anchor="w", padx=12, pady=(0, 4))
-        ctk.CTkButton(self, text="📥 Ripristina backup completo",
-                      command=self._on_restore_backup).pack(anchor="w", padx=12, pady=(0, 6))
-        self._msg_lbl = ctk.CTkLabel(self, text="", anchor="w")
-        self._msg_lbl.pack(fill="x", padx=12, pady=(2, 12))
+    # ── scheda: backup ───────────────────────────────────────────────────────────────────────
+    def _build_scheda_backup(self, tab) -> None:
+        ctk.CTkLabel(tab, text="Backup completo — migrazione su un altro PC",
+                     font=ctk.CTkFont(weight="bold"), anchor="w").pack(fill="x", padx=10, pady=(8, 2))
+        # Il perché della distinzione, scritto dove serve: col SOLO seed il registro e le revoche
+        # non migrano, e un PC nuovo ri-attiverebbe in silenzio tutti i revocati (#183).
+        ctk.CTkLabel(tab, text="Il backup della sola chiave (scheda «Chiave») salva il seed: basta a non "
+                               "perderlo, NON a migrare il tool. Questo salva anche registro, revoche e "
+                               "impostazioni — senza, un PC nuovo ri-attiverebbe in silenzio tutti i revocati.",
+                     anchor="w", wraplength=780, text_color=ui_theme.TEXT2).pack(
+                         fill="x", padx=10, pady=(0, 8))
+        ctk.CTkButton(tab, text="📦 Esporta backup completo",
+                      command=self._on_export_backup).pack(anchor="w", padx=10, pady=(0, 6))
+        ctk.CTkButton(tab, text="📥 Ripristina backup completo", command=self._on_restore_backup,
+                      fg_color=ui_theme.SURFACE3, text_color=ui_theme.TEXT,
+                      hover_color=ui_theme.BORDER).pack(anchor="w", padx=10, pady=(0, 10))
+        ctk.CTkLabel(tab, text="⚠️ Tienilo su un supporto OFFLINE: contiene il seed di firma. Chi lo "
+                               "ottiene può emettere licenze indistinguibili dalle tue, e su una "
+                               "chiavetta i permessi del file non esistono.",
+                     anchor="w", wraplength=780, text_color=ui_theme.STATUS_WARN).pack(
+                         fill="x", padx=10, pady=(0, 10))
+
+    def _stila_tabella(self) -> None:
+        """Adatta `ttk.Treeview` al tema CustomTkinter (best-effort).
+
+        `ttk` non conosce il tema di CustomTkinter: senza questo la tabella resterebbe bianca in una
+        finestra scura. I colori vengono da `ui_theme`, la fonte unica — indice `[1]` = variante
+        dark, che è il tema in cui gira il tool."""
+        try:
+            from tkinter import ttk       # import LOCALE: vedi `_build_scheda_registro`
+            stile = ttk.Style()
+            stile.theme_use("clam")     # l'unico tema ttk che accetta i colori senza ignorarli
+            stile.configure("LM.Treeview",
+                            background=ui_theme.SURFACE[1], fieldbackground=ui_theme.SURFACE[1],
+                            foreground=ui_theme.TEXT[1], borderwidth=0, rowheight=26)
+            stile.configure("LM.Treeview.Heading",
+                            background=ui_theme.SURFACE3[1], foreground=ui_theme.TEXT[1],
+                            borderwidth=0, relief="flat")
+            stile.map("LM.Treeview", background=[("selected", ui_theme.ACCENT[1])],
+                      foreground=[("selected", "#ffffff")])
+        except Exception:       # noqa: BLE001 — lo stile è cosmetico: se fallisce la tabella resta usabile
+            _log.debug("Stile tabella non applicato")
+
+    def _copia_negli_appunti(self, testo: str, *, cosa: str) -> bool:
+        """Copia `testo` negli appunti e lo conferma nella riga messaggi.
+
+        Il **seed privato non passa mai di qui**: gli appunti sono leggibili da qualunque processo
+        e i gestori di clipboard ne conservano lo storico, quindi la chiave privata esce solo su
+        file (pulsante di backup). Qui passano la chiave PUBBLICA e il token di attivazione, che
+        sono per costruzione destinati a uscire.
+
+        Ritorna `True` se la copia è riuscita. Best-effort come il resto del rendering Tk: senza
+        clipboard (headless) l'azione non solleva, ma **lo dice** invece di fingere il successo."""
+        if not testo:
+            self._set_msg(f"⚠️ Niente da copiare: {cosa} non è ancora disponibile.")
+            return False
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(testo)
+            self.update_idletasks()     # su Windows senza questo il contenuto si perde alla chiusura
+        except Exception as exc:        # noqa: BLE001 — clipboard assente/occupata
+            _log.debug("Copia negli appunti non riuscita [%s]", type(exc).__name__)
+            self._set_msg(f"⚠️ Copia non riuscita: seleziona e copia {cosa} a mano.")
+            return False
+        self._set_msg(f"✅ {cosa} copiata negli appunti.")
+        return True
+
+    @staticmethod
+    def _testo_widget(widget) -> str:
+        """Contenuto di un Textbox Tk, o stringa vuota se assente/headless."""
+        try:
+            return (widget.get("1.0", "end") or "").strip() if widget is not None else ""
+        except Exception:       # noqa: BLE001 — lettura Tk best-effort
+            return ""
+
+    def _on_copy_public(self) -> None:
+        """Copia la chiave PUBBLICA — quella da incollare in `license.py`."""
+        self._copia_negli_appunti(self._testo_widget(self._public_value),
+                                  cosa="La chiave pubblica")
+
+    def _on_copy_token(self) -> None:
+        """Copia la chiave di attivazione appena emessa — quella da mandare all'utente."""
+        self._copia_negli_appunti(self._testo_widget(self._token_box),
+                                  cosa="La chiave di attivazione")
+
+    def _on_registry_select(self, _event=None) -> None:
+        """Riga selezionata nella tabella → il suo serial finisce nel campo delle azioni.
+
+        Prima il serial andava selezionato a mano da un blocco di testo monospaziato e incollato:
+        un `LIC-` sbagliato di un carattere significa rinnovare o **revocare la licenza di un altro
+        utente**, quindi l'errore di trascrizione qui non era cosmetico."""
+        try:
+            selezione = self._registry_table.selection()
+            if not selezione:
+                return
+            serial = self._registry_table.item(selezione[0], "values")[1]
+            if self._renew_serial_entry is not None:
+                self._renew_serial_entry.delete(0, "end")
+                self._renew_serial_entry.insert(0, serial)
+        except Exception as exc:    # noqa: BLE001 — selezione best-effort, non deve mai sollevare
+            _log.debug("Selezione registro non applicata [%s]", type(exc).__name__)
+
+    def _render_registry(self, rows: list) -> None:
+        """Dipinge il registro nella tabella (e nel textbox legacy, se presente).
+
+        Entrambi i widget sono **opzionali**: i test costruiscono l'app senza Tk e li tengono a
+        `None`, e `_on_registry_refresh` gira anche subito dopo un'emissione — il rendering non
+        deve mai far fallire l'azione che l'ha innescato."""
+        tabella = getattr(self, "_registry_table", None)
+        if tabella is not None:
+            for riga in tabella.get_children():
+                tabella.delete(riga)
+            for r in rows:
+                exp = r.get("expiry")
+                scad = _time.strftime("%Y-%m-%d", _time.gmtime(exp)) if isinstance(exp, int) else "?"
+                tabella.insert("", "end", values=(r["status"], r["serial"], r["name"],
+                                                  r["hardware_id"], f"{r['days_left']}g", scad))
+        if getattr(self, "_registry_box", None) is not None:
+            self._registry_box.delete("1.0", "end")
+            self._registry_box.insert("1.0", self._format_registry_rows(rows))
 
     def _set_msg(self, text: str) -> None:
         """Aggiorna la riga messaggi (best-effort: un widget assente/headless non rompe l'handler)."""
@@ -913,7 +1131,10 @@ class LicenseManagerApp(ctk.CTk):
         state = self._current_key_state()
         try:
             if self._public_value is not None:
-                self._public_value.configure(text=state["public"] or "— (nessuna chiave: premi «Genera»)")
+                # È un Textbox (non più una Label): il testo dev'essere SELEZIONABILE, altrimenti
+                # 64 caratteri esadecimali si possono solo ricopiare a mano.
+                self._public_value.delete("1.0", "end")
+                self._public_value.insert("1.0", state["public"] or "— (nessuna chiave: premi «Genera»)")
         except Exception:       # noqa: BLE001 — render Tk best-effort
             pass
         if state["error"]:
@@ -969,10 +1190,7 @@ class LicenseManagerApp(ctk.CTk):
         iniettato/custom che non rispettasse il contratto."""
         try:
             rows = self._registry_view(self._read(self._reg_query_entry))
-            text = self._format_registry_rows(rows)
-            if self._registry_box is not None:
-                self._registry_box.delete("1.0", "end")
-                self._registry_box.insert("1.0", text)
+            self._render_registry(rows)
         except Exception as exc:       # noqa: BLE001 — vista registro best-effort (fetch + render)
             # Non silenzioso (review GLM/GPT-5.5 #152): un errore soppresso resta visibile a livello
             # DEBUG per diagnosi, senza far fallire l'azione (che gira anche dopo l'emissione).
