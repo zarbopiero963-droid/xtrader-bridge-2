@@ -30,7 +30,7 @@
 6. **Notifica al proprietario**: quando tutti i check sono **verdi** e la PR è
    *mergeable*, l'agente segnala lo stato con:
 
-   ```
+   ```text
    CHECKS_GREEN — PR mergeable. Merge MANUALE del proprietario.
    ```
 
@@ -597,7 +597,7 @@ simulazione XTrader superata.
 
 ## Ordine di esecuzione
 
-```
+```text
 PHASE 0  PR-00 baseline · PR-01 csv-contract · PR-02 test-suite
 PHASE 1  PR-03 refactor · PR-04 config-appdata · PR-05 atomic-csv
 PHASE 2  PR-06 recognition · PR-07 markettype · PR-08 selectionname
@@ -3865,7 +3865,7 @@ prezzo vecchio. La perdita è reale e va dichiarata; ma la premessa «la correzi
 scritta **invece** di essere applicata» è sbagliata. Misurato su `main` 6f93165, **prima** di
 questa PR:
 
-```
+```text
                        PRIMA                     DOPO
 OVERWRITE_LAST         1 riga  ['2,10']          1 riga  ['2,10']   ← aggiorna, invariato
 APPEND_ACTIVE          2 righe ['1,85','2,10']   1 riga  ['1,85']
@@ -4304,3 +4304,120 @@ Il presupposto non regge, per due ragioni indipendenti:
    verifica che l'identità non compaia nel file salvato;
 2. **su `main` la normalizzazione non esisteva affatto**, quindi nessuno stato è mai stato scritto
    con la forma intermedia: quella è vissuta solo in un commit di questa PR, mai rilasciato.
+
+---
+
+## Docs — le risposte del supporto XTrader entrano nel repository (luglio 2026)
+
+**Perché.** Le risposte del supporto XTrader su `Points`, riconoscimento, ID per-exchange e
+consumo del CSV vivevano in un ticket e in una chat. Un ticket non è consultabile da chi apre il
+repository fra sei mesi, e la domanda «`Points` serve o no?» era già stata posta due volte.
+
+**Cosa cambia.** Solo documentazione — **nessuna riga sotto `xtrader_bridge/**`**. In
+`docs/xtrader_csv_contract.md` nasce la sezione «Lato XTrader — risposte del supporto (ticket,
+luglio 2026)», che registra il comportamento del **lettore** (che il bridge non può verificare
+coi propri test) e **rimanda** alle sezioni esistenti invece di duplicarle:
+
+- le **automazioni scaricabili non funzionano coi Segnali**: serve l'azione «Piazza Scommessa su
+  Segnali» (la stessa che porta lo `Stake`);
+- **`Points` è un moltiplicatore dello stake solo se** nella strategia è spuntata «Modula lo
+  Stake con dato Points del segnale se disponibile»; senza quella spunta la colonna è inerte.
+  Era l'unico punto in cui il contratto diceva meno del vero: prima leggeva «moltiplicatore
+  stake» senza la condizione;
+- **una riga = un segnale**, e un CSV può contenerne molti (selezioni/mercati/eventi/`Provider`
+  diversi). La riga singola di `OVERWRITE_LAST` è una **scelta del bridge**, non un limite di
+  XTrader — distinzione che il contratto non rendeva esplicita;
+- **`MarketName` non obbligatorio**; **colonne interamente vuote omissibili** — con la nota che il
+  bridge scrive comunque tutte e 14 le colonne, ed è deliberato (forma degli esempi reali,
+  coperta dai test, cambiarla sarebbe breaking);
+- **ID preferibili quando noti**, ma **non portabili tra exchange** (`.it` ≠ `.com` per ID e a
+  volte per nomi) — coerente con slice 5d sopra, qui riportato dove lo cerca chi legge il
+  contratto;
+- il **metodo di riconoscimento si eredita dalla fonte** ed è modificabile per singolo segnale,
+  ⚠️ **con rischio di duplicato al refresh automatico**: è una raccomandazione operativa lato
+  XTrader, il bridge non può prevenirla;
+- ⚠️ **il nome del mercato Over/Under dipende dalla lingua della fonte** (`Over 2,5` per fonte IT,
+  `Over 2.5` per UK) — ma è una colonna **testuale**, che la localizzazione decimale non tocca
+  mai: la forma giusta la decide la regola del parser o il dizionario, e quella sbagliata fa
+  semplicemente **non trovare il mercato** a XTrader;
+- **quote a 2 decimali al massimo** (`1.25` sì, `1.225` mai): registrato perché è l'assunzione di
+  dominio dietro al `{1,2}` di `_VIRGOLA_DECIMALE` (PR-A2b), non un vincolo del CSV.
+
+Nel README entrano le due righe che servono davvero all'utente: la condizione su `Points` e il
+fatto che senza l'azione «Piazza Scommessa su Segnali» XTrader **non legge affatto** il file.
+
+**Test.** Nessuno nuovo: non è cambiata una riga di codice. La suite è stata comunque eseguita
+per intero per dimostrare che la PR è davvero di sole docs. La regola «test fail-first» è **N/A**
+per lo stesso motivo, e va detto invece di lasciarlo intendere.
+
+### Il giro di review: una config sbagliata, trovata da chi leggeva le docs come un utente
+
+GPT-5.5 non ha trovato bloccanti, ma tre ambiguità documentali. Una era un **errore vero**:
+
+> «Il riconoscimento a nomi richiede di dichiarare la lingua della fonte. **Da qui la config
+> `csv_language`**.»
+
+È la config **sbagliata**. `csv_language` governa **solo il separatore decimale** delle colonne
+numeriche (`CSV_DECIMAL_COLS`, `csv_writer.py:58`) e non tocca **mai** una colonna testuale; la
+lingua dei nomi è **`source_language`** (`config_store.py:151`, epica #3 slice 5a), che filtra
+dizionario nomi e dizionario mercati. Un utente che avesse seguito quella riga avrebbe messo
+`csv_language=IT` aspettandosi nomi italiani, ottenendo solo virgole nelle quote e un mercato che
+XTrader **non trova**. Correzione con l'avvertenza esplicita che le due config non sono
+intercambiabili.
+
+**Cercata la classe, non il sito** (regola 2), su due assi:
+
+- *config confusa*: `grep` di «lingua del CSV» ha trovato **altri due siti preesistenti** con la
+  stessa formulazione ambigua (contratto §Modalità di riconoscimento, README §Formato CSV
+  generato). Corretti entrambi: dicevano «la lingua del CSV», che un lettore mappa su
+  `csv_language`, intendendo la lingua dei **nomi**;
+- *«punto e virgola»*: in italiano è anche il nome del carattere `;`, e nel dubbio un utente
+  potrebbe cambiare il separatore di **campo**. `grep` su tutto il repo: 5 siti, 2 già chiari
+  («punto **o** virgola»), 3 ambigui — quello nuovo, uno **preesistente** nel contratto (riga 184)
+  e un commento in `tests/unit/test_validator.py`. Riscritti tutti e tre come «sia il punto `.`
+  sia la virgola `,`», con la nota che il `;` nel CSV non compare mai.
+
+Terza ambiguità, minore: che `BACK`/`LAY` siano accettati **in ingresso** poteva leggersi come
+autorizzazione a emetterli. Reso esplicito che l'output resta canonico `PUNTA`/`BANCA`.
+
+Nota di scope: questo giro tocca **un commento** in `tests/unit/test_validator.py` — nessuna
+asserzione, nessun codice eseguibile. La PR resta di sole docs nella sostanza, ma è più onesto
+dirlo che rivendicare «zero test toccati».
+
+### Secondo giro: il contratto prometteva un meccanismo staccato
+
+GPT-5.5 ha confermato i fix e lasciato un residuo da verificare a mano: *«che eventuali
+riferimenti nel README/contratto non promettano arricchimento ID Betfair nel CSV live quando
+`id_resolver=None`»*.
+
+Verificato, ed **era vero**. Il README porta l'avvertenza **due volte** (§`recognition_mode` e
+§Formato CSV generato); `docs/xtrader_csv_contract.md` **zero volte**: la sezione «Identificazione
+precisa dal dizionario + fallback nomi (PR-P12)» descriveva al **presente** un meccanismo che
+`app.py:3830` passa come `id_resolver=None` dalla rimozione di «Betfair Sync». Chi leggesse solo il
+contratto — cioè chi cerca il formato del CSV — concluderebbe che gli ID vengono riempiti, mentre
+le righe escono a **nomi**.
+
+Aggiunta l'avvertenza in testa alla sezione (contratto ≠ comportamento corrente, staccato in
+**entrambi** i punti per l'invariante «anteprima = runtime») e riformulata la riga nuova della
+sezione «Lato XTrader», che si appoggiava proprio a quella sezione: la preferenza di XTrader per
+gli ID è un vantaggio **non ancora sfruttato**, non una promessa del bridge.
+
+È lo stesso difetto delle risposte del supporto, in direzione opposta: lì il codice faceva più di
+quanto le docs dicessero, qui le docs promettevano più di quanto il codice facesse.
+
+### Terzo giro: la promessa stava nell'introduzione, dove si ferma chi legge
+
+GPT-5.5, sul push precedente: l'avvertenza è corretta, ma *«resta una frase precedente: "quando
+possibile, li arricchisce dal dizionario Betfair locale"»*. Vero, ed è il punto peggiore in cui
+lasciarla: sta nell'**introduzione** alle modalità di riconoscimento, prima della sezione PR-P12 —
+chi legge solo l'introduzione (cioè chi cerca velocemente «gli ID li scrive o no?») trova un
+presente affermativo e smette di leggere. Riscritta al condizionale, con il rimando esplicito
+all'avvertenza.
+
+Secondo rilievo, sullo stile ma con una conseguenza reale: citare **`app.py:3830`** è fragile —
+il numero di riga si sposta al primo commit che tocca il file, e la doc diventa fuorviante pur
+restando semanticamente corretta. Sostituito col **simbolo** (`App._process`,
+`App._preview_id_resolver_factory`), che si sposta insieme al codice. Era l'unico riferimento a
+numero di riga in `docs/xtrader_csv_contract.md` e nel `README.md` (grep di controllo). Nella
+roadmap i riferimenti a riga restano: è un registro **datato**, dove una riga è la fotografia di
+un momento, non un puntatore da seguire.

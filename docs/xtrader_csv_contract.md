@@ -34,7 +34,7 @@ Esempi reali (dal team XTrader):
 | 11 | `MinPrice` | no | può essere vuota |
 | 12 | `MaxPrice` | no | può essere vuota |
 | 13 | `BetType` | sì | **`PUNTA`** (punta/back) o **`BANCA`** (banca/lay) |
-| 14 | `Points` | no | moltiplicatore stake; **vuoto** negli esempi reali (lo gestisce XTrader) |
+| 14 | `Points` | no | moltiplicatore stake, **solo se la strategia lo richiede** (vedi sotto); **vuoto** negli esempi reali |
 
 ## Valori in italiano
 
@@ -44,7 +44,10 @@ Esempi reali (dal team XTrader):
   supporto, epica multilingua #3); mapping interno: `BACK → PUNTA`, `LAY → BANCA` (l'output resta
   canonico e universale). I termini spagnoli `FAVOR`/`CONTRA` non sono ancora supportati e vengono
   **rifiutati fail-closed** (`INVALID_BETTYPE`): un lato ignoto non viene mai indovinato.
-- **`Points`**: lasciato vuoto (gli esempi reali non lo valorizzano).
+- **`Points`**: lasciato vuoto (gli esempi reali non lo valorizzano). Anche se valorizzato,
+  XTrader lo usa **solo** se nella strategia è spuntata l'opzione «Modula lo Stake con dato
+  Points del segnale se disponibile» — altrimenti la colonna viene ignorata (vedi «Lato
+  XTrader»).
 - **`Handicap`**: `0` di default.
 
 ## Cosa NON è nel CSV
@@ -78,12 +81,25 @@ un set, l'altro **può restare vuoto**.
 > errato. Le **config esistenti** mantengono la loro scelta esplicita; un valore malformato ricade su
 > `NAME_ONLY` (fail-safe, invariante A10).
 
-Con i nomi (`NAME_ONLY`/`BOTH`), la **lingua** del CSV deve coincidere con quella della
-fonte Segnali di XTrader (italiano). **Nota:** il messaggio Telegram non contiene gli ID
+Con i nomi (`NAME_ONLY`/`BOTH`), la **lingua dei nomi scritti** nel CSV deve coincidere con
+quella della fonte Segnali di XTrader (italiano) — è la config **`source_language`**, da non
+confondere con `csv_language`, che governa **solo** il separatore decimale (vedi «Lato XTrader»).
+**Nota:** il messaggio Telegram non contiene gli ID
 (`EventId`/`MarketId`/`SelectionId`); il bridge punta sulla modalità a nomi e, quando
-possibile, li **arricchisce dal dizionario Betfair locale** (vedi sotto).
+possibile, **potrebbe arricchirli dal dizionario Betfair locale** — meccanismo descritto qui
+sotto ma **oggi disattivato**, quindi in pratica **le righe restano a nomi** (vedi l'avvertenza
+nella sezione seguente).
 
 ### Identificazione precisa dal dizionario + fallback nomi (PR-P12)
+
+> ⚠️ **Meccanismo OGGI STACCATO — questa sezione descrive il contratto, non il comportamento
+> corrente.** Dopo la rimozione di «Betfair Sync» l'arricchimento ID è **disattivato** sia nel
+> **CSV live** (`App._process` in `app.py` passa `id_resolver=None`) sia nell'**anteprima**
+> «Prova messaggio» (`App._preview_id_resolver_factory`)
+> (invariante «anteprima = runtime»: nessun «Pronto» in GUI su una riga che il live scarterebbe).
+> In pratica **le righe restano a nomi**: gli ID non vengono riempiti finché non popoli a mano il
+> dizionario locale e non riattivi il *seam* in **entrambi** i punti. Vedi README →
+> `recognition_mode`.
 
 Dopo parser e mappature a nomi, il bridge prova a riempire `EventId`/`MarketId`/`SelectionId`
 cercando nel **dizionario Betfair locale** la catena evento→mercato→selezione per lo **sport**
@@ -178,7 +194,8 @@ un parser custom può estrarre testo arbitrario):
   `MaxPrice`, `Points`, `Handicap`) escono con la **virgola** («1,85», «-0,5»); con `EN` col
   **punto**. Le versioni precedenti di XTrader ITA **richiedevano** la virgola; dall'update
   «decimali intelligenti» (confermato dal supporto, #343) XTrader/Betting Toolkit **accetta
-  punto E virgola su tutte le colonne decimali, `Handicap` compreso, per tutte le lingue** —
+  sia il punto `.` sia la virgola `,` su tutte le colonne decimali, `Handicap` compreso, per
+  tutte le lingue** —
   la scelta per-lingua resta come belt-and-suspenders, non è più un requisito critico.
   Valore mancante/malformato → `IT` (fail-closed). Le colonne **testuali** (`SelectionName`
   «Over 2.5 Goals», `MarketName`…) non vengono **mai** toccate.
@@ -243,6 +260,87 @@ esclusiva), il bridge:
   tentativi, e segnala il **recupero** («✅ CSV sbloccato») appena una scrittura torna a
   riuscire. È solo un **indicatore** di stato: non altera scrittura, coda, rollback o retry.
   Il contatore è **per-sessione** (azzerato a START/STOP).
+
+## Lato XTrader — risposte del supporto (ticket, luglio 2026)
+
+> **Fonte:** risposte del supporto XTrader al proprietario, raccolte a **luglio 2026**.
+> Descrivono il comportamento del **lettore** (XTrader), che il bridge non può verificare
+> coi propri test: qui sono registrate perché la prossima domanda su lingue, ID o `Points`
+> abbia una risposta nel repository invece che in un ticket. Dove un punto è già implementato
+> e documentato sopra, questa sezione **rimanda** invece di ripetere.
+
+### Come XTrader consuma il CSV
+
+- **Le automazioni scaricabili dalla community NON funzionano con i Segnali.** Per usare un CSV
+  di segnali serve una strategia con l'azione dedicata **«Piazza Scommessa su Segnali»** — la
+  stessa che porta lo `Stake` (vedi «Cosa NON è nel CSV»). Un'automazione generica scaricata
+  non leggerà il file.
+- **`Points` è un moltiplicatore dello stake, ma solo su richiesta.** XTrader applica la colonna
+  **soltanto** se nella strategia è spuntata l'opzione **«Modula lo Stake con dato Points del
+  segnale se disponibile»**; senza quella spunta la colonna è inerte. Il bridge la lascia vuota
+  di default e la scrive solo se un Parser Personalizzato la valorizza (numero `> 0`).
+- **Un CSV può contenere più segnali insieme**: righe con selezioni, mercati, eventi e persino
+  `Provider` diversi convivono nello stesso file. **Una riga = un segnale.** Il bridge sfrutta
+  questa possibilità solo nelle modalità multi-riga (`APPEND_ACTIVE`/`QUEUE_UNTIL_CONFIRMED`) e
+  nei blocchi multi-riga di un singolo messaggio: in `OVERWRITE_LAST` (default) resta **una sola
+  riga attiva** per scelta di sicurezza del bridge, non per un limite di XTrader.
+
+### Colonne
+
+- **`MarketName` non è obbligatorio** — coerente con la tabella colonne sopra.
+- **Le colonne interamente vuote possono essere omesse** dal file. Il bridge **scrive comunque
+  tutte e 14** le colonne nell'ordine fisso: è la forma degli esempi reali, non richiede logica
+  condizionale ed è quella coperta dai test. Omettere colonne non è un'ottimizzazione che ci
+  interessa, e cambiarla sarebbe un breaking change del contratto.
+- **Separatore decimale**: XTrader accetta ormai **sia il punto `.` sia la virgola `,`** su tutte
+  le colonne decimali, **`Handicap` compreso** (vedi «Regole di scrittura» → `csv_language`).
+  *Nota di lettura:* qui «punto» e «virgola» sono i due **separatori decimali** alternativi, non
+  il carattere punto-e-virgola `;` — che nel CSV non compare mai (il separatore di campo è la
+  virgola, con tutti i valori tra doppi apici).
+- **Le quote hanno al massimo 2 cifre decimali** (`1.25` sì, `1.225` mai): è il listino Betfair,
+  non un limite del CSV. Il bridge non arrotonda né rifiuta per questo motivo — lo registra
+  perché è l'assunzione dietro al riconoscimento della virgola decimale nell'identità di riga.
+
+### Riconoscimento evento / mercato / selezione
+
+- **Quando gli ID sono noti, XTrader preferisce `MarketId`/`SelectionId`**: è il riconoscimento
+  più preciso. È ciò per cui esiste l'arricchimento dal dizionario Betfair (vedi sopra) — che però
+  **oggi è staccato** (`id_resolver=None`) e comunque, quando riattivato, resta **fail-open sui
+  nomi** se il match non è univoco. Allo stato attuale il bridge scrive **righe a nomi**: la
+  preferenza di XTrader per gli ID è un vantaggio **non ancora sfruttato**, non una promessa del
+  bridge.
+- ⚠️ **Gli ID non sono portabili tra exchange.** Lo stesso evento ha `MarketId`/`SelectionId` —
+  e a volte anche **nomi** — **diversi** su Betfair `.it` e `.com`. Un dizionario costruito da un
+  export `.it` non vale per un account `.com`. È una ragione in più per cui il default delle
+  config nuove resta `NAME_ONLY` finché il dizionario non è validato contro un export reale.
+- **Il riconoscimento a nomi richiede di dichiarare la lingua della fonte** in XTrader, e i nomi
+  nel CSV devono essere in quella lingua. Da qui la config **`source_language`** (#3 slice 5a),
+  che filtra dizionario nomi e dizionario mercati.
+  ⚠️ **`source_language` NON è `csv_language`, e confonderle porta a un CSV sbagliato:**
+  `source_language` riguarda la **lingua dei nomi** (`EventName`, `SelectionName`, `MarketType`)
+  usati per il riconoscimento; `csv_language` riguarda **solo il separatore decimale** delle
+  colonne numeriche e **non tocca mai** una colonna testuale. Impostare `csv_language=IT`
+  **non** traduce i nomi, e impostare `source_language=IT` **non** cambia come sono scritte le
+  quote.
+- **Il metodo di riconoscimento si eredita dalla fonte Segnali** ed è modificabile per singolo
+  segnale dentro XTrader; ⚠️ **modificarlo a mano può duplicare il segnale** al refresh
+  automatico della fonte. Non è qualcosa che il bridge possa prevenire: è una raccomandazione
+  operativa lato XTrader.
+- **Struttura e intestazioni sono identiche in tutte le lingue** di XTrader: il file non cambia
+  forma passando IT/EN/ES.
+- **I codici `MarketType` sono identici in tutte le lingue** (es. `MATCH_ODDS`; `CORRECT_SCORE`
+  confermato dal supporto).
+- ⚠️ **Il nome del mercato Over/Under dipende dalla lingua della fonte**: con fonte **italiana**
+  è nella forma con la **virgola** (`Over 2,5`), con fonte **UK** col **punto** (`Over 2.5`).
+  Attenzione: è una colonna **testuale**, che il bridge non tocca mai (vedi «Regole di
+  scrittura» → il separatore decimale si applica solo alle colonne numeriche). La forma corretta
+  la decide chi scrive la regola del Parser Personalizzato o il dizionario: la variante sbagliata
+  per la lingua dichiarata significa che **XTrader non trova il mercato**.
+- **`BetType`**: `PUNTA`/`BANCA`/`BACK`/`LAY` sono accettati **in ingresso** su tutte le versioni
+  BT/XT — ma questo **non** autorizza un CSV con `BACK`/`LAY`: ciò che il bridge **scrive** resta
+  sempre il canonico italiano `PUNTA`/`BANCA` (vedi «Valori in italiano»). Gli equivalenti
+  spagnoli `FAVOR`/`CONTRA` sono **annunciati ma non ancora disponibili**: il bridge li rifiuta
+  **fail-closed**.
 
 ## Stato implementazione (PR-01)
 

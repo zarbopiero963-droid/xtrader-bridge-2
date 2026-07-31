@@ -802,7 +802,11 @@ Note:
   sconosciuto è rifiutato (fail-closed, mai indovinare il lato).
 - **`Stake`** **non** è una colonna del CSV: lo stake è gestito in XTrader.
 - **Non esiste** una colonna `Timestamp`: la deduplica è interna al bridge.
-- **`Points`** è lasciato vuoto; **`Handicap`** vale `0`.
+- **`Points`** è lasciato vuoto; **`Handicap`** vale `0`. Anche valorizzato, XTrader usa `Points`
+  come moltiplicatore dello stake **solo** se nella strategia è spuntata «Modula lo Stake con dato
+  Points del segnale se disponibile».
+- ⚠️ **Perché XTrader legga il CSV serve l'azione «Piazza Scommessa su Segnali»**: le automazioni
+  scaricabili dalla community **non** funzionano con i Segnali (conferma supporto, luglio 2026).
 - **Separatore decimale — lingua CSV (#342)**: il formato dei decimali **scritti nel file**
   (`Price`/`MinPrice`/`MaxPrice`/`Points`/`Handicap`) segue la config **`csv_language`**
   (`IT`/`EN`/`ES`, default **`IT`**): con `IT`/`ES` la **virgola** («1,85» — come richiede
@@ -814,8 +818,9 @@ Note:
   (`INVALID_PRICE`), per non scrivere un prezzo sbagliato ma plausibile.
 - Encoding **UTF-8 con BOM**, tutti i valori tra virgolette (`QUOTE_ALL`).
 - XTrader valida con `MarketId + SelectionId` **oppure** `EventName + MarketType +
-  SelectionName`. Usando i nomi, la lingua del CSV deve coincidere con quella della
-  fonte Segnali di XTrader. Gli ID non arrivano dal messaggio Telegram: con il parser
+  SelectionName`. Usando i nomi, la lingua dei **nomi scritti** nel CSV deve coincidere con quella
+  della fonte Segnali di XTrader: è la config **`source_language`**, **non** `csv_language` (che
+  governa solo il separatore decimale e non tocca mai una colonna testuale). Gli ID non arrivano dal messaggio Telegram: con il parser
   legacy (`build_csv_row`) restano vuoti. Il flusso del Parser Personalizzato **può**
   arricchirli dal **dizionario locale**, ma dopo la rimozione di «Betfair Sync»
   l'arricchimento è **disattivato nel CSV live** (`id_resolver=None`): le righe restano a
