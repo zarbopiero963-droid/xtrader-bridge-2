@@ -4921,3 +4921,32 @@ dei **chiamanti** e per ciascuno si legge *cosa fa del risultato*. E il test fai
 
 È entrata anche nei due gate (`POST_FIX_MICRO_AUDIT` e `FINAL_HARD_VERIFY`) come voce a sé, perché
 una regola che non viene verificata è un promemoria, e i promemoria non hanno funzionato.
+
+### Fugu, terzo giro: la doc che descriveva il comportamento di due commit prima
+
+Tre bloccanti, uno vero.
+
+**Falso — `_norm` perderebbe `normcase`.** `atomic_io.risolvi` lo applica su **tutti e tre** i
+rami di ritorno (`atomic_io.py:54, 59, 61`), quindi `dirty_csv_store._norm` non ha perso nulla:
+su Windows `OUT.CSV` e `out.csv` continuano a dare un solo marker.
+
+**Vero — il contratto CSV era stantio.** Diceva ancora che, quando `samefile` non risponde, la
+guardia «ricade sul confronto dei percorsi e **non scatta**». Era esatto quando l'ho scritto,
+due commit prima; poi il bloccante di Fugu e quello di Fable hanno reso la guardia **fail-closed
+via `os.stat`**, e non sono tornato a rileggere ciò che avevo scritto. Deriva delle docs
+introdotta correggendo il codice — la stessa cosa che ho passato tutta la sessione a correggere
+altrove.
+
+Riscritta come **tabella dei quattro esiti**, che è più difficile da lasciar divergere di un
+paragrafo: `samefile` risponde → si usa; percorsi che risolvono uguali → blocca (è certo);
+dimostrabilmente assente → si può creare; esiste o non ispezionabile → blocca. Aggiunta anche la
+ragione per cui serve `os.stat` e non `os.path.exists`, e le due conseguenze dichiarate (percorso
+malformato che blocca, over-blocking se l'attivo sparisce).
+
+**Terzo rilievo — «i file core non sono ispezionabili».** Non è un difetto del codice ma un limite
+del tool: `app.py`, `atomic_io.py` e `csv_writer.py` sono stati saltati per budget («File non
+inviati al modello»), e sia Fugu sia Fable lo dichiarano. È lo stesso motivo per cui, tre giri
+prima, tutti e tre avevano segnalato un `NameError` inesistente. Non c'è nulla da correggere:
+va risposto con l'evidenza.
+
+Suite: **4326 passed, 14 skipped**.

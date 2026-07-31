@@ -411,16 +411,30 @@ una scommessa malformata invece di una configurazione insolita. Si preferisce la
 al caso raro.
 
 Le **guardie** (es. il rifiuto di «Crea CSV» sul CSV della sessione attiva) riconoscono invece
-anche gli hard link — **ma solo quando possono interrogare il filesystem**. Confrontano
-l'identità reale del file (`os.path.samefile`, che vede gli inode); se quella domanda non ha
-risposta perché un file è **assente o lockato**, ricadono sul confronto dei percorsi risolti, e
-`realpath` **non** unifica gli hard link. In quel ramo due alias hard-link risultano file
-diversi e la guardia non scatta.
+anche gli hard link, e quando non possono stabilirlo **bloccano** invece di indovinare.
+Confrontano l'identità reale del file (`os.path.samefile`, che vede gli inode) e decidono così:
 
-Il residuo è dichiarato e fissato da un test, non risolto: renderlo fail-closed (bloccare quando
-la domanda non ha risposta) impedirebbe di creare un CSV su un percorso **nuovo** — il caso più
-comune, dove `samefile` solleva semplicemente perché il file non esiste ancora — e sarebbe una
-regressione d'uso peggiore del residuo che chiude.
+| situazione | esito |
+|---|---|
+| `samefile` risponde | si usa la sua risposta — gli hard link sono riconosciuti |
+| non risponde, ma i due percorsi **risolvono uguali** | è certo che sia lo stesso file → **blocca** |
+| non risponde, percorsi diversi, il file è **dimostrabilmente assente** | nulla da troncare → **si può creare** |
+| non risponde, percorsi diversi, il file **esiste o non è ispezionabile** | **blocca** (fail-closed) |
+
+L'ultima riga è il caso che conta su Windows: un file tenuto aperto da XTrader o protetto da ACL
+non è ispezionabile, e lì il solo confronto dei percorsi direbbe «file diverso» perché `realpath`
+non unifica gli hard link. Bloccare costa un click (STOP e si riprova); non bloccare può costare
+un segnale.
+
+La distinzione «assente» vs «non ispezionabile» si fa con `os.stat`, **non** con
+`os.path.exists`: `exists()` non solleva mai — assorbe l'errore e risponde `False` — quindi
+tratterebbe un file protetto da ACL come inesistente, e il fail-closed non scatterebbe proprio
+dove serve.
+
+Due conseguenze dichiarate, entrambe pinnate da test: un percorso **malformato** blocca (se non
+si può stabilire che cosa sia, rifiutare è gratuito perché la creazione fallirebbe comunque); e
+se il CSV **attivo** sparisce a sessione viva, la guardia blocca la creazione su qualunque
+percorso esistente — over-blocking voluto, perché a quel punto lo stato è già anomalo.
 
 La matrice vive anche nel sorgente (sopra `init_csv` in `csv_writer.py`) ed è fissata da
 `tests/unit/test_csv_family_a4_69.py`: se i contratti venissero uniformati, quei test
