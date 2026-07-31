@@ -23,6 +23,8 @@ workflow invocano `python -m pytest`. Non è un import fragile: è quello che il
 import ast
 import os
 
+import pytest
+
 from tests.conftest import LICENSE_TEST_SEED_HEX
 
 TESTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -115,3 +117,66 @@ def test_la_fonte_unica_e_un_seed_ed25519_plausibile():
     assert len(LICENSE_TEST_SEED_HEX) == 64
     bytes.fromhex(LICENSE_TEST_SEED_HEX)                      # solleva se non è esadecimale
     assert LICENSE_TEST_SEED_HEX == LICENSE_TEST_SEED_HEX.lower()
+
+
+# ── Robustezza dell'import condiviso (rilievi GPT-5.5 su #209) ─────────────────────────────────
+
+def test_la_guardia_anti_shadowing_riconosce_un_tests_estraneo():
+    """Primo rilievo GPT-5.5: `tests/` è un namespace package e perde contro un package REGOLARE
+    omonimo installato in `site-packages`. Verificato in adversariale — con un
+    `site-packages/tests/__init__.py` finto la collection muore con `ModuleNotFoundError`, e
+    colpisce anche i due file che già usavano questo import prima della #209.
+
+    Qui si esercita la guardia che rende quella diagnosi esplicita: le si passa un percorso atteso
+    diverso da quello a cui `tests` risolve davvero — la stessa condizione dello shadowing — e si
+    pretende che sollevi, nominando la causa. Senza il `percorso_atteso` iniettabile servirebbe
+    installare davvero un package ostile per coprire questo ramo.
+    """
+    import tests.conftest as ct
+
+    ct._verifica_nessuno_shadowing_di_tests()                 # ambiente sano: non solleva
+
+    with pytest.raises(RuntimeError) as errore:
+        ct._verifica_nessuno_shadowing_di_tests(percorso_atteso="/percorso/che/non/e/questo")
+    messaggio = str(errore.value)
+    assert "NON risolve alla cartella dei test" in messaggio
+    assert "`tests/__init__.py`" in messaggio                 # deve dire COSA cercare
+
+
+def test_il_doppio_caricamento_del_conftest_non_diverge(chiave_pubblica_di_test):
+    """Secondo rilievo GPT-5.5: pytest carica `tests/conftest.py` per conto suo, mentre
+    `from tests.conftest import …` ne crea una **seconda** copia sotto il nome `tests.conftest`.
+    Misurato: sono due oggetti distinti (`is` → False), quindi il corpo del modulo viene eseguito
+    due volte.
+
+    Oggi è innocuo — l'unico effetto collaterale all'import è `sys.path.insert`, protetto da
+    `if _REPO_ROOT not in sys.path`, quindi idempotente; fixture e hook della seconda copia non
+    sono registrati come plugin e non girano. Ma «oggi è innocuo» non è una garanzia: il giorno in
+    cui il conftest acquisisse uno stato all'import (un registry, una cartella temporanea, un
+    contatore) la doppia esecuzione sarebbe silenziosa.
+
+    Il confronto NON passa da `sys.modules["conftest"]`, che sembra la strada ovvia e non lo è:
+    `tests/integration/conftest.py` ha lo stesso basename e nel run completo **sovrascrive**
+    quella chiave (misurato — nel run completo l'unica voce che punta a `tests/conftest.py` è
+    `tests.conftest`, cioè l'import di questo file; nel run della sola `tests/unit` è `conftest`).
+    Un test costruito su quel nome passa da solo e fallisce in suite, indicando per giunta la
+    causa sbagliata.
+
+    Si esercita invece la **conseguenza** che conta: la fixture arriva dalla copia caricata da
+    pytest e deriva la pubblica dalla costante di QUELLA copia; qui la si confronta con la
+    pubblica derivata dalla costante della copia **importata**. Se le due divergessero, questo
+    test lo direbbe — che è esattamente il rilievo.
+    """
+    import tests.conftest as importato
+    from xtrader_bridge.licensing import ed25519
+
+    assert os.path.abspath(importato.__file__) == os.path.join(TESTS_DIR, "conftest.py"), (
+        "`tests.conftest` non è il conftest di questo repository: è lo shadowing del package "
+        "`tests` descritto nella guardia di `tests/conftest.py`")
+
+    pub_dalla_copia_importata = ed25519.public_key(
+        bytes.fromhex(importato.LICENSE_TEST_SEED_HEX)).hex()
+    assert chiave_pubblica_di_test == pub_dalla_copia_importata, (
+        "la copia del conftest caricata da pytest e quella importata derivano pubbliche DIVERSE: "
+        "i test firmerebbero con un seed e verificherebbero con l'altro")
+    assert importato.LICENSE_TEST_SEED_HEX == LICENSE_TEST_SEED_HEX

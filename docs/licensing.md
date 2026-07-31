@@ -124,7 +124,15 @@ swap è deliberato e non silenzioso; il gate di release (§ sotto) lo legge e da
   firmerebbe con un seed diverso da quello verificato e il sintomo sarebbe una fila di
   `INVALID_SIGNATURE` che sembra un difetto del prodotto. `tests/safety/test_seed_di_test_fonte_unica.py`
   lo impedisce confrontando il **valore** e non il nome della costante, così vede anche una copia
-  re-introdotta sotto un nome qualsiasi.
+  re-introdotta sotto un nome qualsiasi;
+- l'import condiviso ha una **guardia anti-shadowing** in testa a `tests/conftest.py` (rilievo
+  GPT-5.5 su #209). `tests/` è un *namespace package*, e un namespace **perde** contro un package
+  regolare omonimo trovato più avanti in `sys.path`: se un pacchetto installato esponesse un
+  top-level `tests/__init__.py`, `from tests.conftest import …` leggerebbe le costanti di un altro
+  progetto. Verificato in adversariale — senza la guardia la collection muore con un
+  `ModuleNotFoundError` che non nomina la causa, e colpisce anche i due file che usavano già
+  questo import da prima della #209. La guardia gira **sempre**, perché pytest carica il conftest
+  *per path* e non tramite quell'import.
 
 ### ⚠️ Cambiare di nuovo questa chiave
 

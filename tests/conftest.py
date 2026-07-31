@@ -6,6 +6,7 @@ di PR-03 i moduli testati (`parser`, `csv_writer`, `config_store`) NON importano
 senza GUI e senza token Telegram.
 """
 
+import importlib.util
 import os
 import sys
 import tempfile
@@ -15,6 +16,48 @@ import pytest
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
+
+
+# ── Guardia anti-shadowing di `tests` (rilievo GPT-5.5 su #209) ────────────────────────────────
+#
+# Vari moduli condividono costanti e sonde con `from tests.conftest import …`
+# (`test_path_link_194.py`, `test_path_link_app_194.py`, i sei file di licenza). `tests/` non ha
+# `__init__.py`, quindi è un **namespace package** — e un namespace PERDE contro un package
+# **regolare** con lo stesso nome trovato più avanti in `sys.path`: la ricerca si ferma al primo
+# `__init__.py`, anche se il namespace stava in posizione 0. Se un pacchetto installato portasse
+# un top-level `tests/__init__.py`, quegli import risolverebbero altrove.
+#
+# Misurato: la collection si interrompe con `ModuleNotFoundError: No module named 'tests.conftest'`
+# — un messaggio che non nomina la causa e manda a cercare il problema nel posto sbagliato. Peggio,
+# se il package estraneo avesse a sua volta un `conftest`, l'import riuscirebbe **silenziosamente**
+# con le costanti sbagliate.
+#
+# Questo file lo carica pytest **per path**, non via `import tests.conftest`: la guardia gira
+# sempre, anche quando lo shadowing c'è, ed è l'unico punto in cui può girare.
+def _verifica_nessuno_shadowing_di_tests(percorso_atteso=None):
+    """Solleva `RuntimeError` se il nome `tests` non risolve a QUESTA cartella.
+
+    `percorso_atteso` esiste per poter esercitare la guardia nei test senza dover installare
+    davvero un package ostile; in esercizio si usa il default.
+    """
+    atteso = os.path.abspath(percorso_atteso or os.path.dirname(os.path.abspath(__file__)))
+    try:
+        spec = importlib.util.find_spec("tests")
+    except (ImportError, ValueError) as exc:            # pragma: no cover — ambiente rotto
+        raise RuntimeError(f"impossibile risolvere il nome 'tests': {exc!r}") from exc
+    percorsi = [os.path.abspath(p) for p in (getattr(spec, "submodule_search_locations", None) or ())]
+    if atteso not in percorsi:
+        raise RuntimeError(
+            "il nome 'tests' NON risolve alla cartella dei test di questo repository.\n"
+            f"  atteso:   {atteso}\n"
+            f"  risolve a: {percorsi or (spec.origin if spec else 'nulla')}\n"
+            "Causa tipica: un pacchetto installato espone un top-level `tests/__init__.py`, che "
+            "essendo un package REGOLARE vince sul namespace package di questo repo. Rimuovilo "
+            "dall'ambiente (o installa in un virtualenv pulito): senza, "
+            "`from tests.conftest import …` legge le costanti di un altro progetto.")
+
+
+_verifica_nessuno_shadowing_di_tests()
 
 # Categorie = cartelle sotto tests/. L'auto-marking applica il marker giusto in
 # base alla cartella del test, così i selettori `-m` (es. "unit or safety") e i
