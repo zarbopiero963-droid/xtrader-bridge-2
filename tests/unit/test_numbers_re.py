@@ -52,3 +52,30 @@ def test_consumer_usano_il_frammento_condiviso():
     assert numbers_re.DECIMAL in validator._DECIMAL_PRICE.pattern
     assert numbers_re.SIGNED_DECIMAL in custom_pipeline._HANDICAP_RE.pattern
     assert numbers_re.SIGNED_DECIMAL in csv_writer._NUMERIC_RE.pattern
+
+
+def test_i_frammenti_sono_componibili_con_le_ancore():
+    """I frammenti devono essere sicuri da comporre come `r"^" + FRAMMENTO + r"$"`, che è
+    esattamente come li usano i loro consumer (rilievo Fable 5 + GPT-5.5 su #198).
+
+    Il rischio non è teorico: se un frammento contenesse un'alternanza `|` di primo livello,
+    le ancore si legherebbero a UN SOLO ramo e `^[+-]?[0-9]+…|INF$` accetterebbe «12abc» —
+    un Price/Handicap spurio che supera la validazione ed entra nel CSV letto da XTrader.
+    Fail-OPEN silenzioso, la stessa famiglia di #318 L2-1.
+
+    Per questo i frammenti sono racchiusi in un gruppo non catturante. Questo test lo verifica
+    dal COMPORTAMENTO, non dalla forma: se qualcuno togliesse il gruppo e aggiungesse un ramo,
+    diventerebbe rosso.
+    """
+    for frammento in (numbers_re.DECIMAL, numbers_re.SIGNED_DECIMAL):
+        ancorato = re.compile(r"^" + frammento + r"$")
+        for spurio in ("12abc", "abc12", "1 2", "1.2.3", "--1", "1,"):
+            assert not ancorato.match(spurio), (
+                f"{spurio!r} accettato: il frammento {frammento!r} non è sicuro da ancorare. "
+                "Se hai aggiunto un'alternanza, racchiudila in `(?:…)`, altrimenti le ancore "
+                "si legano a un solo ramo e la validazione diventa fail-OPEN.")
+
+    # e il gruppo non deve catturare: aggiungerne uno catturante sposterebbe la numerazione
+    # dei gruppi in ogni consumer che usa `.group(n)` o riferimenti `\1`.
+    assert re.compile(numbers_re.SIGNED_DECIMAL).groups == 0
+    assert re.compile(numbers_re.DECIMAL).groups == 0

@@ -3997,3 +3997,39 @@ lo scenario che poteva produrre la doppia scommessa) e la **separazione da `csv_
 > caso che non avevo testato, e il `ValueError` l'ha preso il test scritto per rispondere a quella
 > domanda. Nessuno dei due si vede leggendo il diff — e infatti nessuno dei quattro reviewer li
 > aveva visti: avevano visto le *domande giuste*.
+
+### Un fail-open latente su cinque siti, trovato da una domanda sul mio
+
+Fable 5 e GPT-5.5 hanno chiesto la stessa cosa sul secondo push: `re.compile(r"^" +
+numbers_re.SIGNED_DECIMAL + r"$")` è sicuro, se il frammento contenesse un'alternanza di primo
+livello? Verificato: **oggi no**, `SIGNED_DECIMAL` è `[+-]?[0-9]+(?:[.,][0-9]+)?`, nessun `|`.
+Ma la composizione con le ancore non è usata solo dal mio sito — è usata da **cinque**:
+
+```
+signal_dedupe._HANDICAP_NUM       (questa PR)
+custom_pipeline._HANDICAP_RE      x2   validazione handicap
+validator._DECIMAL_PRICE          x2   validazione quota
+```
+
+Il giorno in cui qualcuno aggiungesse un ramo `|` al frammento condiviso, le ancore si
+legherebbero a **un solo ramo** e tutte e cinque diventerebbero fail-**OPEN** insieme:
+
+```
+'^[+-]?[0-9]+(?:[.,][0-9]+)?|INF$'   .match('12abc')  ->  True
+'^(?:[+-]?[0-9]+(?:[.,][0-9]+)?|INF)$' .match('12abc') ->  False
+```
+
+Un Price o un Handicap spurio che supera la validazione ed entra nel CSV letto da XTrader: la
+stessa famiglia di **#318 L2-1** (le cifre Unicode), che questo modulo esiste per aver chiuso.
+
+**Corretto alla fonte**, non nei cinque siti: i frammenti sono ora racchiusi in un gruppo **non
+catturante**, così la composizione è sicura **per costruzione** per ogni consumer presente e
+futuro. Ripetere `(?:…)` in ogni sito sarebbe stata la stessa duplicazione che `numbers_re`
+esiste per eliminare — ed è la regola 3 applicata al rimedio, non solo al difetto.
+
+**Zero cambiamento di comportamento**, verificato in modo differenziale: 38 input × 2 frammenti
+× 2 costruzioni (ancorata e nuda) × 2 metodi (`match` e `fullmatch`) → **0 divergenze**. Il
+gruppo non cattura, quindi nessuna numerazione di gruppi cambia in nessun consumer. Guardia in
+`tests/unit/test_numbers_re.py::test_i_frammenti_sono_componibili_con_le_ancore`, scritta sul
+**comportamento** e non sulla forma: se qualcuno togliesse il gruppo e aggiungesse un ramo,
+diventerebbe rossa.

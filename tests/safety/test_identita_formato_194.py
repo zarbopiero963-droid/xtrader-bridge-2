@@ -174,6 +174,8 @@ def test_handicap_non_numerico_confronta_come_TESTO():
     # possono divergere.
     assert not _stessa_scommessa({"Handicap": ".5"}, {"Handicap": "0.5"})
     assert not _stessa_scommessa({"Handicap": "0."}, {"Handicap": "0"})
+    assert not _stessa_scommessa({"Handicap": "+0,"}, {"Handicap": "0"})   # chiesto da GPT-5.5
+    assert not _stessa_scommessa({"Handicap": "12abc"}, {"Handicap": "12"})
 
 
 def test_valori_non_finiti_non_collassano_su_un_numero():
