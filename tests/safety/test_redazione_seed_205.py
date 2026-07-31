@@ -301,3 +301,95 @@ def test_i_cinque_redattori_coprono_le_stesse_classi():
     for campione in campioni:
         esiti = {w: campione != _redigi(campione, _lista_redazione(w)) for w in REDATTORI}
         assert all(esiti.values()), f"copertura non uniforme su {campione[:40]!r}: {esiti}"
+
+
+# ──────────── il RILEVATORE degli audit e le fixture di test (rilievo CodeRabbit) ────────────
+
+def _funzione_del_workflow(nome: str, funzione: str):
+    """Estrae **e definisce davvero** una funzione dallo script annidato nel workflow.
+
+    Si esegue solo il `def` isolato, in un namespace controllato: eseguire l'intero blocco
+    farebbe partire l'audit (chiamate di rete). Così il test **chiama la funzione vera** invece
+    di ispezionarne il testo — un controllo strutturale («la stringa X compare nel sorgente»)
+    aveva già prodotto un falso PASS nella PR #202, e non si ripete l'errore.
+    """
+    sorgente = _blocco_python(nome)
+    albero = ast.parse(sorgente)
+    nodo = next((n for n in ast.walk(albero)
+                 if isinstance(n, ast.FunctionDef) and n.name == funzione), None)
+    assert nodo is not None, f"{nome}: funzione {funzione} non trovata"
+
+    # Il namespace: i pattern REALI del rilevatore, più gli stub di ciò che la funzione usa.
+    spazio = {
+        "SECRET_PATTERNS": [(n, re.compile(p)) for n, p in
+                            zip(_nomi_del_rilevatore(nome), _lista_rilevamento(nome))],
+        "redact": lambda t: t,
+        "List": list, "Dict": dict, "Any": object,
+    }
+    # Le eventuali costanti/funzioni di supporto definite accanto (es. il marker allowlist).
+    for altro in ast.walk(albero):
+        if isinstance(altro, (ast.Assign, ast.FunctionDef)) and altro is not nodo:
+            testo_nodo = ast.unparse(altro)
+            if "ALLOW" in testo_nodo or "allowlist" in testo_nodo or "_is_test" in testo_nodo:
+                try:
+                    exec(testo_nodo, spazio)
+                except Exception:      # noqa: BLE001 — supporto opzionale, non deve rompere
+                    pass
+    exec(ast.unparse(nodo), spazio)
+    return spazio[funzione]
+
+
+def _nomi_del_rilevatore(nome: str) -> list:
+    """I nomi (primo elemento della tupla) delle voci di `SECRET_PATTERNS` del workflow."""
+    albero = ast.parse(_blocco_python(nome))
+    for nodo in ast.walk(albero):
+        bersaglio = None
+        if isinstance(nodo, ast.Assign) and len(nodo.targets) == 1:
+            bersaglio = nodo.targets[0]
+        elif isinstance(nodo, ast.AnnAssign):
+            bersaglio = nodo.target
+        if isinstance(bersaglio, ast.Name) and bersaglio.id == "SECRET_PATTERNS":
+            return [e.elts[0].value for e in nodo.value.elts]
+    raise AssertionError(f"{nome}: SECRET_PATTERNS non trovato")
+
+
+@pytest.mark.parametrize("workflow,funzione", [
+    ("claude-fable-full-repo-audit.yml", "local_secret_scan"),
+    ("manual-full-repo-ai-audit.yml", "local_secret_findings"),
+])
+def test_le_fixture_marcate_non_diventano_finding_critical(workflow, funzione):
+    """Rilievo **Major** di CodeRabbit, verificato e reale.
+
+    I due audit su tutto il repository hanno un **rilevatore** proprio, separato da
+    `tools/secret_scan.py`. Aggiungendo lì il pattern del seed senza portarci anche la gestione
+    del marker `pragma: allowlist secret`, le tre fixture di test con un seed finto
+    (`tests/unit/test_license_manager_core.py:21`, `tests/integration/test_license_lock_r3c.py:22`,
+    `tests/safety/test_revocation_release_gate_159.py:33`) sarebbero diventate **tre finding
+    `critical` su un repository pulito** — e con `fail_on_critical=true` l'audit fallisce.
+
+    È la Regola 2-bis mancata: ho aggiunto il pattern a un consumatore senza guardare cosa quel
+    consumatore fa dei match. `tools/secret_scan.py` salta le righe marcate nei path di test;
+    questi due rilevatori no.
+    """
+    scan = _funzione_del_workflow(workflow, funzione)
+    riga = ('_TEST_SEED_HEX = "' + "ab" * 32 + '"  # pragma: allowlist secret')
+    trovati = scan("tests/unit/test_qualcosa.py", riga)
+    assert trovati == [], (
+        f"{workflow}: una fixture di test marcata produce {len(trovati)} finding "
+        f"({[f['severity'] for f in trovati]}) — su repo pulito l'audit fallirebbe")
+
+
+@pytest.mark.parametrize("workflow,funzione", [
+    ("claude-fable-full-repo-audit.yml", "local_secret_scan"),
+    ("manual-full-repo-ai-audit.yml", "local_secret_findings"),
+])
+def test_il_marker_non_salva_un_seed_fuori_da_tests(workflow, funzione):
+    """La controprova che impedisce al rimedio di diventare un buco: il marker vale **solo**
+    sotto `tests/`. Un file di produzione non deve poter auto-esentarsi aggiungendolo a un
+    segreto vero — stessa disciplina di `tools/secret_scan.py` (review Fugu #131)."""
+    scan = _funzione_del_workflow(workflow, funzione)
+    riga = ('SEED = "' + "ab" * 32 + '"  # pragma: allowlist secret')
+    trovati = scan("license_manager/core.py", riga)
+    assert trovati, (
+        f"{workflow}: il marker ha esentato un file di PRODUZIONE — "
+        "sarebbe un bypass del rilevatore")

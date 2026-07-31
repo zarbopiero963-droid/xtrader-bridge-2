@@ -346,11 +346,30 @@ jobs:
               normalized = path_str.replace("\\", "/")
               return any(pattern.search(normalized) for pattern in CRITICAL_AREA_PATTERNS)
 
+          # Marker di allowlist per-riga (rilievo Major CodeRabbit sulla #206). Stessa
+          # convenzione E stessa disciplina di `tools/secret_scan.py`: una riga marcata e' un
+          # falso positivo NOTO (una fixture con un segreto finto) e viene saltata, ma **solo**
+          # nei path di test - un file di PRODUZIONE non puo' auto-esentarsi aggiungendo il
+          # marker a un segreto vero (review Fugu #131).
+          #
+          # Senza questo, il pattern del seed introdotto dalla #205 trasformerebbe le tre
+          # fixture `_TEST_SEED_HEX` del repo in tre finding `critical` su un repository
+          # PULITO, e con `fail_on_critical` l'audit fallirebbe a ogni giro. Il rilevatore
+          # NON e' il redattore: qui un match diventa un verdetto, non una maschera.
+          _ALLOW_MARKER = "pragma: allowlist secret"
+
+          def _is_test_path(path_str: str) -> bool:
+              """True se il path ha un componente `tests` (il marker vale solo li')."""
+              return "tests" in str(path_str).replace("\\", "/").split("/")
+
           def local_secret_findings(path_str: str, text: str) -> List[Dict[str, Any]]:
               findings: List[Dict[str, Any]] = []
               lines = text.splitlines()
 
+              _salta_riga = _is_test_path(path_str)
               for idx, line in enumerate(lines, 1):
+                  if _salta_riga and _ALLOW_MARKER in line:
+                      continue          # fixture di test marcata: falso positivo noto
                   for name, pattern in SECRET_PATTERNS:
                       if pattern.search(line):
                           findings.append({
