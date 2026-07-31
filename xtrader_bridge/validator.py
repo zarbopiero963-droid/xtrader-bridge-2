@@ -17,9 +17,11 @@ dalla modalità, verifica due cose safety-critical:
 Un segnale senza prezzo, con prezzo non valido o con lato sconosciuto NON deve
 raggiungere XTrader. Il validatore non modifica la riga: la accetta o la scarta.
 `Points` (moltiplicatore stake) NON va normalizzato a "1" e resta vuoto di default,
-ma se un parser custom lo valorizza deve essere un numero **positivo**; e i limiti
-`MinPrice`/`MaxPrice`, oltre a essere quote valide, non devono essere **incoerenti**
-(intervallo invertito o che esclude `Price`).
+ma se un parser custom lo valorizza deve essere un numero **finito** in `0 < p ≤ 100`;
+`Handicap`, se valorizzato, deve essere **finito** con `|h| ≤ 1000` (B5 #194: il vecchio
+controllo «> 0» diceva VALID all'infinito, perché `float("9"*400)` è `inf` e `inf > 0`);
+e i limiti `MinPrice`/`MaxPrice`, oltre a essere quote valide, non devono essere
+**incoerenti** (intervallo invertito o che esclude `Price`).
 """
 
 import re
@@ -33,6 +35,11 @@ VALID = "VALID"
 # XTrader documenta quote decimali punto-normalizzate, non notazioni arbitrarie.
 # Frammento decimale condiviso (anti-drift, audit L4).
 _DECIMAL_PRICE = re.compile(r"^" + numbers_re.DECIMAL + r"$")
+# Come sopra ma col segno: l'Handicap è l'unico campo del contratto che può essere negativo
+# («-1,5» asiatico). Unico gate del formato Handicap dal B5 (#194) — prima erano due copie in
+# `custom_pipeline`, ora entrambe delegano a `handicap_status`. Composto dallo stesso
+# frammento condiviso — non una seconda scrittura a mano (B5, #194).
+_SIGNED_DECIMAL_RE = re.compile(r"^" + numbers_re.SIGNED_DECIMAL + r"$")
 
 # Tetto superiore della quota (B1 audit #114): 1000.0 è il massimo delle quote
 # decimali Betfair. `_decimal_sep_to_point` (custom_pipeline) interpreta i separatori
@@ -41,11 +48,34 @@ _DECIMAL_PRICE = re.compile(r"^" + numbers_re.DECIMAL + r"$")
 # separatore migliaia) sarebbe finita nella riga di scommessa CSV. Sopra questo tetto
 # → INVALID_PRICE (fail-closed): mai una quota irreale verso XTrader.
 _MAX_PRICE = 1000.0
+
+# Tetti di `Points` e `Handicap` (B5, #194) — decisione del proprietario del 2026-07-31.
+#
+# Il buco chiuso qui NON era «manca un tetto», ma «il tetto che c'era non ferma l'infinito».
+# La regex accetta solo cifre, quindi «inf» non passa per via testuale — ma `float("9"*400)`
+# È `inf`, e `inf <= 0.0` è `False`: il controllo «rifiuta se ≤ 0» diceva VALID all'infinito.
+# Perciò ogni soglia qui sotto è preceduta da `numbers_re.valore_finito`, che è il controllo
+# di FINITEZZA, non un confronto in più.
+#
+# `Points` è il moltiplicatore dello stake quando la strategia XTrader ha spuntato «Modula lo
+# Stake con dato Points del segnale se disponibile» (docs/xtrader_csv_contract.md → «Lato
+# XTrader»): un Points fuori scala è uno STAKE fuori scala. 100 sta ampiamente sopra l'uso
+# reale (i provider usano 1-10) e limita il danno di un valore errato a 100× invece che 1000×.
+_MAX_POINTS = 100.0
+# `Handicap` è la LINEA. 1000 copre ogni linea Betfair reale, comprese quelle grandi dei
+# mercati a punti/run, senza rischiare falsi rifiuti su sport oggi non usati. Il tetto è sul
+# VALORE ASSOLUTO: le linee negative sono legittime quanto le positive («-1,5» asiatico).
+_MAX_HANDICAP = 1000.0
+
 INVALID_MISSING_FIELDS = "INVALID_MISSING_FIELDS"   # campi nome/ID per la modalità
 INVALID_MISSING_PRICE = "INVALID_MISSING_PRICE"
 INVALID_PRICE = "INVALID_PRICE"
 INVALID_BETTYPE = "INVALID_BETTYPE"
-INVALID_POINTS = "INVALID_POINTS"           # Points valorizzato ma non un numero > 0
+INVALID_POINTS = "INVALID_POINTS"           # Points valorizzato ma non un numero > 0 e ≤ _MAX_POINTS
+# Stesso LETTERALE del gemello in `custom_pipeline` (che resta il codice emesso dal pipeline):
+# qui serve perché `validate` gatea l'Handicap anche fuori dal pipeline. I due non divergono
+# perché condividono `handicap_status` — la costante è l'etichetta, il predicato è uno solo.
+INVALID_HANDICAP = "INVALID_HANDICAP"       # Handicap non numerico, o |h| oltre _MAX_HANDICAP
 INVALID_PRICE_BOUNDS = "INVALID_PRICE_BOUNDS"  # Min/Max incoerenti (invertiti o escludono Price)
 
 # Le due forme CANONICHE del contratto CSV (output, in italiano): universali su tutte le versioni
@@ -88,7 +118,13 @@ def _price_status(value) -> str:
     # può estrarre testo arbitrario, es. "1e2"/"inf"/"abc").
     if not _DECIMAL_PRICE.match(s):
         return INVALID_PRICE
-    price = float(s.replace(",", "."))
+    # `valore_finito` invece di `float()` diretto: il prezzo era GIÀ al sicuro (`inf <=
+    # _MAX_PRICE` è False → INVALID_PRICE), ma tenerlo sulla stessa fonte degli altri due
+    # campi impedisce che un domani i tre confronti divergano di nuovo. L'equivalenza col
+    # comportamento precedente è fissata da un test dedicato (B5, #194).
+    price = numbers_re.valore_finito(s)
+    if price is None:
+        return INVALID_PRICE
     return VALID if 1.0 < price <= _MAX_PRICE else INVALID_PRICE
 
 
@@ -113,13 +149,45 @@ def bettype_status(value) -> str:
 
 def points_status(value) -> str:
     """Pubblico: `VALID` se `value` è un Points valido — vuoto (facoltativo) oppure un numero
-    **positivo** (`> 0`) — altrimenti `INVALID_POINTS`. Usato dalla diagnostica per segnalare
-    la colonna Points indipendentemente dagli altri errori."""
+    **finito** con `0 < points ≤ _MAX_POINTS` — altrimenti `INVALID_POINTS`. Usato dalla
+    diagnostica per segnalare la colonna Points indipendentemente dagli altri errori.
+
+    Il tetto e la finitezza sono B5 (#194): prima bastava `> 0`, e `float("9"*400)` è `inf`,
+    che `> 0` è. Un Points infinito arrivava VALID fino al CSV, dove XTrader lo usa come
+    moltiplicatore dello stake.
+    """
     s = str(value).strip()
     if not s:
         return VALID
-    if not _DECIMAL_PRICE.match(s) or float(s.replace(",", ".")) <= 0.0:
+    if not _DECIMAL_PRICE.match(s):
         return INVALID_POINTS
+    points = numbers_re.valore_finito(s)
+    if points is None or not (0.0 < points <= _MAX_POINTS):
+        return INVALID_POINTS
+    return VALID
+
+
+def handicap_status(value) -> str:
+    """Pubblico: `VALID` se `value` è un Handicap valido — vuoto (facoltativo: il default del
+    contratto è `"0"`) oppure un numero **finito** con `|handicap| ≤ _MAX_HANDICAP` —
+    altrimenti `INVALID_HANDICAP`.
+
+    Fonte unica del gate Handicap (B5, #194). Prima il controllo era la sola regex, scritta
+    **due volte** in `custom_pipeline` (riga base e riga multi-riga derivata): correggere il
+    tetto in un solo punto avrebbe lasciato il percorso multi-riga aperto — precisamente il
+    modo in cui sono nati B6, B10 e B17. Entrambi i gate e `validate` chiamano questa.
+
+    Il segno è ammesso e il tetto è sul valore ASSOLUTO: «-1,5» è un handicap asiatico
+    legittimo quanto «+1,5».
+    """
+    s = str(value).strip()
+    if not s:
+        return VALID
+    if not _SIGNED_DECIMAL_RE.match(s):
+        return INVALID_HANDICAP
+    handicap = numbers_re.valore_finito(s)
+    if handicap is None or abs(handicap) > _MAX_HANDICAP:
+        return INVALID_HANDICAP
     return VALID
 
 
@@ -191,6 +259,15 @@ def validate(row: dict, mode: str, require_price: bool = True):
     points_raw = str(row.get("Points", "")).strip()
     if points_status(points_raw) != VALID:
         return (INVALID_POINTS, points_raw)
+
+    # Handicap (B5, #194): finora `validate` NON lo controllava affatto — il gate viveva solo
+    # in `custom_pipeline`, in due copie. Metterlo anche qui lo rende il punto di strozzatura
+    # che OGNI riga attraversa, qualunque percorso l'abbia costruita, invece di dipendere dal
+    # fatto che ogni futuro chiamante si ricordi del gate. Il percorso hardcoded scrive sempre
+    # "0" e i valori del dizionario sono numerici: nessuna riga legittima cambia esito.
+    handicap_raw = str(row.get("Handicap", "")).strip()
+    if handicap_status(handicap_raw) != VALID:
+        return (INVALID_HANDICAP, handicap_raw)
 
     # Coerenza dei limiti di prezzo: oltre a essere singolarmente validi (sopra),
     # Min/Max non devono CONTRADDIRE loro stessi o `Price`. Un intervallo invertito

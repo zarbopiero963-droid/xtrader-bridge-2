@@ -1,7 +1,7 @@
 """Test hard veritieri — Issue #76 P2-2 (audit 2026-07-15).
 
 Virgola non normalizzata su `Handicap`/`Points`: `_normalize_to_contract` convertiva
-virgola→punto solo sulle quote (`_PRICE_COLS`), ma `_HANDICAP_RE` accetta la virgola
+virgola→punto solo sulle quote (`_PRICE_COLS`), ma il gate Handicap accetta la virgola
 («+1,5») e `Handicap` fa parte di `_ROW_KEY_FIELDS` della chiave di deduplica
 (confronto su stringa grezza). Due parser sulla stessa chat che generano la STESSA
 scommessa — uno con Handicap «0.5» e uno con «0,5» — producevano chiavi dedup diverse

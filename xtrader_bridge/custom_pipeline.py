@@ -109,13 +109,23 @@ MAPPING_MISSING = "MAPPING_MISSING"
 # sbagliato). Vedi docs/audit/mercati_mapping_design.md §4-§5.
 MARKET_MAPPING_MISSING = "MARKET_MAPPING_MISSING"
 
-# Handicap: numero con segno opzionale (es. "0", "-1", "0.5", "+1,5").
-_HANDICAP_RE = re.compile(r"^" + numbers_re.SIGNED_DECIMAL + r"$")   # frammento condiviso (L4)
+
+def _handicap_bloccante(row: dict) -> bool:
+    """`True` se l'Handicap della riga la rende NON piazzabile — fonte unica dei due gate
+    (riga base e riga multi derivata) di questo modulo (B5, #194).
+
+    Prima erano due `_HANDICAP_RE.match` scritti a mano, identici e indipendenti: aggiungere
+    il tetto a uno solo avrebbe lasciato il percorso multi-riga aperto. È la stessa omissione
+    che sulla #16 ha prodotto B6, B10 e B17. Il predicato vero sta in `validator`
+    (`handicap_status`), condiviso anche con `validator.validate`: qui c'è solo l'adattamento
+    al `row` e la conversione a booleano.
+    """
+    return validator.handicap_status(row.get("Handicap", "")) != validator.VALID
 
 # Colonne quota: il contratto XTrader usa il punto decimale (es. "1.85").
 _PRICE_COLS = ("Price", "MinPrice", "MaxPrice")
 # Colonne decimali normalizzate virgola→punto al contratto (P2-2 audit #76): oltre alle quote,
-# anche Handicap e Points. `_HANDICAP_RE` accetta la virgola («+1,5») e `Handicap` è parte della
+# anche Handicap e Points. Il gate Handicap accetta la virgola («+1,5») e `Handicap` è parte della
 # chiave di deduplica per-riga (`signal_dedupe._ROW_KEY_FIELDS`, confronto su stringa grezza):
 # senza normalizzazione, la STESSA scommessa da due parser (stile «0.5» vs «0,5») avrebbe chiavi
 # diverse → nessuna dedup → due righe identiche nel CSV localizzato (doppia scommessa).
@@ -363,10 +373,9 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
         # Provider è obbligatorio per il contratto; il runtime lo passa da config.
         return PipelineResult(INVALID_MISSING_PROVIDER, row, list(res.missing_required))
 
-    # Handicap valorizzato dal parser ma non numerico: scartato (il default "0"
-    # e i valori del dizionario sono sempre numerici).
-    hcap = str(row.get("Handicap", "")).strip()
-    if hcap and not _HANDICAP_RE.match(hcap):
+    # Handicap valorizzato dal parser ma non numerico, o fuori scala: scartato (il default
+    # "0" e i valori del dizionario sono sempre numerici e nella scala reale).
+    if _handicap_bloccante(row):
         return PipelineResult(INVALID_HANDICAP, row, list(res.missing_required))
 
     # Mappatura nomi squadra: traduce l'EventName provider nel nome Betfair/XTrader.
@@ -619,12 +628,11 @@ def _validated_multi_row(base_row: dict, rule, mode: str, require_price: bool,
     """Costruisce e VALIDA una singola riga multi derivata dalla base."""
     row = _apply_multi_rule(base_row, rule)
     # Handicap della riga DERIVATA (#192, Codex): l'override multi (`handicap`) NON passa dal gate
-    # `INVALID_HANDICAP` della base (che vede l'Handicap base, non l'override) e `validator.validate`
-    # non controlla l'Handicap → un override malformato (es. "abc") raggiungerebbe il CSV. Si applica
-    # QUI lo stesso controllo di formato della base, così ogni riga derivata è fail-closed come il
+    # `INVALID_HANDICAP` della base (che vede l'Handicap base, non l'override) → un override
+    # malformato (es. "abc") raggiungerebbe il CSV. Si applica QUI lo STESSO controllo della base
+    # (stessa funzione, non una copia — B5 #194), così ogni riga derivata è fail-closed come il
     # single-row (vale sia col rilassamento kyZ sia nel percorso multi normale).
-    hcap = str(row.get("Handicap", "")).strip()
-    if hcap and not _HANDICAP_RE.match(hcap):
+    if _handicap_bloccante(row):
         return PipelineResult(INVALID_HANDICAP, row, [])
     # Arricchimento ID PER RIGA DERIVATA (#192, follow-up review #290): `_apply_multi_rule` azzera
     # gli ID quando la riga multi cambia mercato/selezione; senza ri-risolvere, un MultiSelection in

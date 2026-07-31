@@ -4421,3 +4421,92 @@ restando semanticamente corretta. Sostituito col **simbolo** (`App._process`,
 numero di riga in `docs/xtrader_csv_contract.md` e nel `README.md` (grep di controllo). Nella
 roadmap i riferimenti a riga restano: è un registro **datato**, dove una riga è la fotografia di
 un momento, non un puntatore da seguire.
+
+---
+
+## PR-G (#194 · B5) — il tetto c'era, ma non fermava l'infinito
+
+**Il difetto.** `Points` è il moltiplicatore dello stake quando la strategia XTrader ha spuntato
+«Modula lo Stake con dato Points del segnale se disponibile». Il suo controllo era «deve essere
+> 0». Sembra sufficiente, e non lo è:
+
+```text
+Points = "9" * 400
+  la regex del contratto:  ACCETTA  (sono tutte cifre ASCII, un solo formato)
+  float(...):              inf
+  inf <= 0.0:              False   ← il controllo «rifiuta se ≤ 0» non scatta
+  points_status:           VALID
+  validate(riga intera):   VALID   ← la riga raggiunge il CSV
+```
+
+Non è un buco della regex: la regex fa il suo lavoro, `inf` non può entrare per via *testuale*
+(«inf», «1e400» sono respinti). È che **sole cifre bastano**, e l'infinito attraversa i confronti
+di soglia nel verso sbagliato. Per questo la correzione non è «un tetto in più» ma un controllo di
+**finitezza esplicito** prima di ogni soglia.
+
+Stesso difetto su `Handicap`, dove il gate era la sola regex: nessun tetto affatto.
+
+**I tetti** (decisione del proprietario, 2026-07-31): `Points ≤ 100` — ampiamente sopra l'uso reale
+dei provider (1-10), e limita il danno di un valore errato a 100× invece che 1000×; `|Handicap| ≤
+1000` — copre ogni linea Betfair reale, comprese quelle grandi dei mercati a punti/run, senza
+rischiare falsi rifiuti su sport oggi non usati. Il tetto dell'handicap è sul **valore assoluto**:
+«-1,5» asiatico è legittimo quanto «+1,5».
+
+### Cercata la classe: il gate Handicap era scritto DUE volte
+
+`grep` di `_HANDICAP_RE` ha trovato due gate identici e indipendenti in `custom_pipeline`: uno
+sulla riga base, uno sulla riga **derivata** multi-riga — quest'ultimo aggiunto dalla #192 proprio
+perché l'override multi non passa dal gate base. Aggiungere il tetto a uno solo avrebbe lasciato il
+percorso multi-riga aperto: è **letteralmente** il modo in cui sono nati B6, B10 e B17.
+
+Poiché la correzione andava scritta in due posti, il posto giusto era **zero**: il predicato è
+stato estratto in `validator.handicap_status`, e i due gate ora chiamano `_handicap_bloccante`,
+adattatore di una riga. Un test lo blocca contando definizioni e chiamate: reintrodurre una seconda
+implementazione lo fa diventare rosso.
+
+Con `handicap_status` disponibile, il gate è stato messo **anche in `validator.validate`**, che
+finora l'Handicap non lo controllava affatto. Ora è il punto di strozzatura che ogni riga
+attraversa, qualunque percorso l'abbia costruita, invece di dipendere dal fatto che ogni futuro
+chiamante si ricordi del gate.
+
+### Il sibling trovato dal grep: il resolver del dizionario
+
+`grep` di tutti i `float(` del progetto ha isolato **tre** siti su campi del contratto.
+`signal_dedupe._canonical_handicap` e `local_db._norm_handicap` avevano già `math.isfinite`
+(aggiunto dalle #198 e #76). Il terzo no: `dictionary_resolver._hcap_value`. Lì l'infinito è
+peggio che altrove — due handicap infiniti si confrontano **uguali**, quindi una selezione
+sbagliata risultava combaciante e i suoi ID sarebbero finiti nel CSV. Corretto fail-closed
+(`None` = nessun match = fallback nomi).
+
+`validator.price_bounds_offenders` fa ancora `float()` grezzo ed è stato **lasciato**: entrambi i
+suoi chiamanti lo invocano solo dopo che ogni prezzo presente è `VALID`, e `_price_status` ha già
+respinto l'infinito. La precondizione è nel suo docstring ed è verificata; cambiarlo sarebbe
+rischio senza guadagno.
+
+### Fonte unica: regex e conversione stanno insieme
+
+`numbers_re` conteneva i frammenti regex ma non la **conversione**, ed è esattamente lì che il bug
+è nato: chi componeva la regex dava per scontato che «ha passato la regex» implicasse «è un numero
+utilizzabile». Ora il modulo espone `valore_finito` — che normalizza la virgola *e* controlla la
+finitezza — e i quattro consumer la usano. Il modulo resta foglia (importa solo `math`).
+
+`_price_status` è stato instradato sulla stessa funzione pur essendo **già** al sicuro
+(`inf <= 1000.0` è False → `INVALID_PRICE`): non per correggerlo, ma perché tre campi numerici che
+si controllano in tre modi diversi sono tre occasioni di divergere. L'equivalenza col comportamento
+precedente è fissata da un test che ricalcola a mano la regola originale su dieci valori, incluso
+l'infinito.
+
+### Il test riorientato invece che cancellato
+
+`tests/unit/test_numbers_re.py` asseriva che il frammento condiviso raggiungesse «il consumer
+Handicap reale», identificandolo con `custom_pipeline._HANDICAP_RE`. Dopo questa PR quel consumer
+non esiste più. Lasciare la regex morta perché un test la nominasse sarebbe stato il difetto che
+queste regole vietano: il test è stato puntato sul consumer vero e **rafforzato** — invece del
+pattern asserisce il **gate** (`handicap_status`, `_handicap_bloccante`), che è ciò che decide
+davvero se una riga raggiunge il CSV e resta vero anche se un domani il gate non fosse più una
+regex.
+
+**Test:** `tests/safety/test_tetti_numerici_194.py` (+38). Fail-first verificato **rosso** sul
+commit `86a8a89` su cinque asserzioni indipendenti (`points_status(inf)` → VALID,
+`validate(riga con Points=inf)` → VALID, gate Handicap base che accetta l'infinito,
+`points_status("101")` → VALID, `_hcap_value(inf)` → `inf`). Suite: **4260 passed, 14 skipped**.

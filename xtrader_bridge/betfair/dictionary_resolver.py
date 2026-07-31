@@ -30,6 +30,7 @@ Limiti noti (by-design, sempre **fail-open** ai nomi):
   declassa in silenzio la modalità scelta dall'utente).
 """
 
+from .. import numbers_re
 from .. import sports
 from ..dizionario import normalize
 
@@ -63,13 +64,15 @@ def _hcap_value(v):
     Accetta la **virgola** decimale ("1,5") oltre al punto, perché il parser può fornire
     l'handicap con la virgola mentre SQLite lo memorizza come REAL ("1.5") — un confronto
     testuale fallirebbe (Codex)."""
-    s = str(v if v is not None else "").strip().replace(",", ".")
+    s = str(v if v is not None else "").strip()
     if not s:
         return None
-    try:
-        return float(s)
-    except (TypeError, ValueError):
-        return None
+    # `valore_finito` e non `float()` (B5, #194): senza il controllo di finitezza un handicap
+    # di sole cifre («9»*400) diventava `inf`, e DUE handicap infiniti si confrontano UGUALI
+    # → la selezione sbagliata risultava combaciante e i suoi ID finivano nel CSV. Fail-closed
+    # (`None` = nessun match) è la direzione conservativa: la riga resta a nomi.
+    # La normalizzazione virgola→punto ora vive dentro `valore_finito`, unica per tutti.
+    return numbers_re.valore_finito(s)
 
 
 def _unique(values):

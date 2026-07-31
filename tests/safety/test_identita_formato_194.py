@@ -188,7 +188,7 @@ def test_un_handicap_NUMERICO_non_collide_con_un_TESTO_che_gli_somiglia():
     speculare alla doppia scommessa.
 
     Non è un caso di laboratorio: `0.00001` e `10000000000000000` sono handicap **validi** per
-    `_HANDICAP_RE`, ed è `repr` a portarli in notazione scientifica.
+    `validator.handicap_status`, ed è `repr` a portarli in notazione scientifica.
 
     La correzione marca il RAMO dentro la chiave, su entrambi i domini — con un prefisso sul
     solo ramo numerico, un testo che comincia col prefisso lo imiterebbe e la collisione

@@ -38,11 +38,18 @@ def test_decimal_rifiuta_cifre_non_ascii():
     # Controprova: le cifre ASCII (con ,/. e segno) restano valide.
     assert dec.fullmatch("19") and dec.fullmatch("1,85") and dec.fullmatch("2.10")
     assert sdec.fullmatch("-1") and sdec.fullmatch("+1,5")
-    # Consumer Handicap reale (custom_pipeline._HANDICAP_RE, gate a custom_pipeline.py:302/518):
-    # anche l'Handicap deve rifiutare le cifre non-ASCII (segno + cifre non-ASCII incluso).
-    assert not custom_pipeline._HANDICAP_RE.match("١٩")
-    assert not custom_pipeline._HANDICAP_RE.match("-١٩")
-    assert custom_pipeline._HANDICAP_RE.match("-1") and custom_pipeline._HANDICAP_RE.match("+1,5")
+    # Consumer Handicap reale. Da B5 (#194) il gate NON è più una regex in `custom_pipeline`
+    # (ce n'erano due copie) ma `validator.handicap_status`, condiviso da entrambi i gate del
+    # pipeline e da `validator.validate`. Si asserisce quindi il GATE, non il pattern: è ciò
+    # che decide davvero se una riga raggiunge il CSV, e resta vero anche se un domani il
+    # gate smettesse di essere implementato con una regex.
+    for bad in ("١٩", "-١٩", "１９"):
+        assert validator.handicap_status(bad) == validator.INVALID_HANDICAP, bad
+    assert validator.handicap_status("-1") == validator.VALID
+    assert validator.handicap_status("+1,5") == validator.VALID
+    # E il gate del pipeline è LO STESSO (nessuna seconda implementazione che possa divergere).
+    assert custom_pipeline._handicap_bloccante({"Handicap": "١٩"}) is True
+    assert custom_pipeline._handicap_bloccante({"Handicap": "-1"}) is False
 
 
 def test_consumer_usano_il_frammento_condiviso():
@@ -50,7 +57,9 @@ def test_consumer_usano_il_frammento_condiviso():
     # divergesse, questi pattern non corrisponderebbero più al frammento.
     # (P3-15 #76: il quarto consumer, `parser._NUM`, è stato rimosso col modulo P.Bet.)
     assert numbers_re.DECIMAL in validator._DECIMAL_PRICE.pattern
-    assert numbers_re.SIGNED_DECIMAL in custom_pipeline._HANDICAP_RE.pattern
+    # Il consumer Handicap è passato da `custom_pipeline._HANDICAP_RE` a
+    # `validator._SIGNED_DECIMAL_RE` (B5 #194: le due copie del gate sono diventate una).
+    assert numbers_re.SIGNED_DECIMAL in validator._SIGNED_DECIMAL_RE.pattern
     assert numbers_re.SIGNED_DECIMAL in csv_writer._NUMERIC_RE.pattern
 
 
