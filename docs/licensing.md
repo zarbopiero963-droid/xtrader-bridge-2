@@ -371,7 +371,9 @@ nel repo/EXE.
     metadati); `ValueError` se il record non ha serial (fail-closed).
   - `append_revocation` / `read_revocations` → append + lettura fail-safe.
   - `is_serial_revoked(revocations, serial)` → dedup/stato (normalizza spazi/maiuscole).
-  - `revocation_entries(revocations)` → entry `[{"serial": ..}]` **deduplicate** per la firma.
+  - `revocation_entries(revocations)` → entry `[{"serial": ..}]` **deduplicate** per la firma. Un
+    record che porta **`blacklist_hw` vero** emette anche `{"hw": ..}` — vedi sotto: è opzionale e
+    spento di default.
 - **Azione «🚫 Revoca licenza»** (`gui.py::_evaluate_revoke`): dato un serial dell'elenco, registra la
   revoca nello store. **Fail-closed**: serial non nel registro → niente scrittura; serial già revocato →
   nessun duplicato; store non scrivibile → non dichiarata accettata (best-effort come l'emissione).
@@ -380,6 +382,48 @@ nel repo/EXE.
   (emetti una nuova licenza → serial nuovo, non revocato). L'`hardware_id` è conservato nello store come
   metadato ma **non** emesso nella lista (un blacklist di macchina è un'azione più forte, non il default
   di R3b).
+- ⚠️ **Blacklist della macchina — opzionale, spenta di default** (PR-C del piano #194). Un record di
+  revoca con **`blacklist_hw` vero** fa emettere anche `{"hw": ..}`, che blocca *qualunque* licenza su
+  quella macchina. Serve contro un caso preciso: su un bridge **non aggiornato** il token malleato di
+  B2 è ancora accettato, e lì l'unica difesa che regge è l'Hardware ID, che il padding non cambia.
+
+  Resta **opt-in** perché il default opposto è stato misurato e rompe un caso legittimo — la revoca
+  diventerebbe **irreversibile**:
+
+  | entry emessa | vecchio revocato | NUOVO acquistato, stessa macchina |
+  |---|---|---|
+  | solo `serial` (default) | bloccato | **non** bloccato → può ricomprare |
+  | `serial` + `hw` | bloccato | bloccato → macchina fuori uso per sempre |
+
+  I record già in `revoked.jsonl` non hanno il campo, quindi dopo l'aggiornamento **nessuna macchina
+  finisce in blacklist a sorpresa**: nessuna migrazione, nessun effetto retroattivo.
+- 🔒 **Il token non è più malleabile** (B2, PR-C del piano #194). `verify_license` controlla la
+  **canonicità base64url** delle due parti prima di tutto il resto: si ri-codifica ciò che si è
+  decodificato e si pretende la stringa identica. Prima bastava aggiungere un `=` in fondo al token
+  per cambiarne il **serial** lasciandolo valido — e il serial è ciò con cui la lista di revoche
+  identifica la licenza, quindi un cliente revocato si riattivava da solo. Misurato:
+
+  ```
+  onesto        valid=True   serial=LIC-598B9916DE34
+  token + '='   valid=True   serial=LIC-5EC5A2983E9B   ← la revoca non lo intercettava
+  ```
+
+  **La formula del serial non è stata toccata**, ed è deliberato: calcolarlo sui byte decodificati
+  lo cambierebbe *anche per i token onesti*, e poiché registro, store revoche e liste già pubblicate
+  contengono i serial nella forma attuale, ogni revoca esistente smetterebbe di corrispondere —
+  tutti i clienti già revocati tornerebbero attivi in silenzio.
+
+  ⚠️ **Il secondo vettore: lo whitespace.** Il padding `=` non era l'unico modo. `verify_license` ha
+  sempre fatto `token.strip()` prima di validare, mentre `license_serial` calcolava sulla stringa
+  **grezza**: un token con uno spazio o un a-capo in coda restava valido ma produceva un serial
+  diverso, e la revoca non lo intercettava. Non era nemmeno un vettore solo ostile — la GUI salva il
+  token *esattamente come incollato*, quindi bastava copiarlo da un'email con un a-capo finale.
+
+  La canonicalizzazione sta ora in `license_serial`, cioè **dove il serial nasce**: per un token
+  reale lo strip è un **no-op** (nessun serial esistente cambia) e le varianti con whitespace
+  collassano sul serial vero invece di produrne uno nuovo. Rifiutare gli spazi in `verify_license`
+  sarebbe stato peggio: avrebbe bloccato l'utente legittimo che ha già su disco un token salvato
+  con un a-capo.
 - **Azione «📤 Esporta lista revoche firmata»** (`gui.py::_evaluate_publish_revocation`): firma le entry
   dello store con `revocation.build_revocation_list` (seed privato dal file-chiave) e scrive il file
   `<b64u(payload)>.<b64u(firma)>` da caricare sull'URL. **Fail-closed**: senza percorso o senza chiave non

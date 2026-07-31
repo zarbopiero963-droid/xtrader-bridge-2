@@ -59,8 +59,29 @@ _SERIAL_HEX_LEN = 12
 def license_serial(token: str) -> str:
     """Serial deterministico di una licenza dal suo token firmato: `LIC-` + primi 12 hex di
     sha256(token) (maiuscolo). Stabile: lo stesso token dà sempre lo stesso serial; un token diverso
-    (es. dopo un rinnovo) dà un serial diverso — è una licenza diversa."""
-    digest = hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+    (es. dopo un rinnovo) dà un serial diverso — è una licenza diversa.
+
+    ⚠️ Lo `strip()` **non è cosmetico, è il secondo vettore di B2** (rilievo Fable 5 e Fugu Ultra,
+    indipendenti, sulla PR-C). `verify_license` ha sempre fatto `token.strip()` prima di validare,
+    mentre qui si calcolava sulla stringa **grezza**: un token con uno spazio o un a-capo in coda
+    restava quindi `valid=True` ma produceva un serial **diverso** da quello registrato, e la lista
+    di revoche non lo intercettava — la stessa falla del padding `=`, con un carattere diverso.
+    Misurato prima della correzione:
+
+        onesto         valid=True  serial=LIC-53AC51B63970
+        token + '\\n'   valid=True  serial=LIC-91CC2C1D754F   ← revoca aggirata
+
+    Non è nemmeno un vettore solo ostile: `license_gui._evaluate_activation` salva il token
+    **esattamente come incollato**, quindi bastava copiarlo da un'email con un a-capo finale.
+
+    La canonicalizzazione sta **qui**, dove il serial nasce, e non nella verifica, per due ragioni
+    misurate: (1) per un token reale lo strip è un **no-op**, quindi **nessun serial già scritto**
+    in `licenses.jsonl`/`revoked.jsonl` o in una lista già pubblicata cambia valore — il vincolo
+    che vieta di riattivare in silenzio i clienti revocati; (2) rifiutare gli spazi in
+    `verify_license` avrebbe invece bloccato l'utente legittimo che ha già su disco un token
+    salvato con un a-capo.
+    """
+    digest = hashlib.sha256(str(token).strip().encode("utf-8")).hexdigest()
     return _SERIAL_PREFIX + digest[:_SERIAL_HEX_LEN].upper()
 
 # Tolleranza anti-rollback: quanto indietro può andare l'orologio senza far scattare l'allarme
@@ -91,6 +112,36 @@ def _b64u_decode(text: str) -> bytes:
     """Decodifica base64url ripristinando il padding rimosso da `_b64u_encode`."""
     pad = "=" * (-len(text) % 4)
     return base64.urlsafe_b64decode(text + pad)
+
+
+def _b64u_canonico(text: str) -> bool:
+    """`True` se `text` è **esattamente** la forma che `_b64u_encode` produrrebbe per i suoi byte.
+
+    B2 (#192 H2 · piano #194) — la malleabilità che rendeva la revoca aggirabile. Il serial di una
+    licenza è `sha256` della **stringa** del token, e la lista di revoche identifica una licenza
+    proprio col serial. Aggiungendo un solo `=` in fondo al token il serial cambia, ma il token
+    restava valido: un cliente revocato riattivava la licenza con un'operazione che non richiede
+    alcuna conoscenza tecnica. Misurato prima della correzione:
+
+        onesto        valid=True   serial=LIC-598B9916DE34
+        token + '='   valid=True   serial=LIC-5EC5A2983E9B   ← la revoca non lo intercetta
+
+    La causa è qui sopra: `_b64u_decode` **aggiunge** il padding, quindi con un `=` in più la
+    lunghezza torna valida. Per la stessa ragione `validate=True` **non** chiude il buco (verificato
+    nella #194, contro quanto avevo scritto io nella #192): `=` è padding legittimo, non un
+    carattere fuori alfabeto — `validate` respinge solo l'alfabeto.
+
+    Il round-trip invece distingue: si ri-codifica ciò che si è decodificato e si pretende la
+    stringa identica. Chiude il buco **senza toccare un solo serial esistente**, che è il vincolo
+    decisivo: canonicalizzare il serial lo cambierebbe **anche per i token onesti**, e poiché
+    `licenses.jsonl`, `revoked.jsonl` e ogni lista già pubblicata contengono i serial nella forma
+    attuale, ogni revoca esistente smetterebbe di corrispondere — **tutti i clienti già revocati
+    tornerebbero attivi, in silenzio**.
+    """
+    try:
+        return _b64u_encode(_b64u_decode(text)) == text
+    except Exception:       # noqa: BLE001 — non decodificabile = non canonico (fail-closed)
+        return False
 
 
 def _payload_bytes(name: str, hardware_id: str, issued: int, expiry: int) -> bytes:
@@ -138,6 +189,11 @@ def verify_license(token: str, hardware_id: str, now: int,
         if not token or "." not in token:
             return _invalid(MALFORMED)
         part_payload, part_sig = token.strip().split(".", 1)
+        # B2 — canonicità PRIMA di tutto il resto: una forma non canonica ha un serial diverso da
+        # quello con cui la licenza è stata registrata e revocata, quindi non è «lo stesso token
+        # scritto un po' diversamente» — è un token che sfugge alla revoca. Si rifiuta.
+        if not (_b64u_canonico(part_payload) and _b64u_canonico(part_sig)):
+            return _invalid(MALFORMED)
         payload_bytes = _b64u_decode(part_payload)
         signature = _b64u_decode(part_sig)
         payload = json.loads(payload_bytes.decode("utf-8"))

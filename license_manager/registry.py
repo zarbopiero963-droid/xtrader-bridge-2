@@ -237,13 +237,51 @@ def revocation_entries(revocations: list) -> list:
     il proprietario emette token, quindi non può auto-generarsi un serial nuovo — ed è **reversibile**
     (una nuova licenza = serial nuovo, non revocato). L'`hardware_id` è conservato nello store come
     metadato ma **non** viene emesso nella lista (un blacklist di macchina è un'azione più forte, non il
-    default di R3b). Le entry senza serial valido sono ignorate (fail-safe)."""
-    seen, out = set(), []
+    default di R3b). Le entry senza serial valido sono ignorate (fail-safe).
+
+    **Blacklist della macchina, opzionale** (PR-C del piano #194, decisione del proprietario). Un
+    record che porta `blacklist_hw` vero emette **anche** `{"hw": …}`. Serve contro un caso preciso:
+    su un bridge **non aggiornato** il token malleato di B2 è ancora accettato, e lì l'unica difesa
+    che regge è l'Hardware ID — che il padding non cambia.
+
+    Resta **opzionale e spento di default**, e il motivo è misurato: emetterlo in ogni revoca la
+    renderebbe **irreversibile**. Un cliente revocato che poi RICOMPRA ha un serial nuovo ma la stessa
+    macchina, quindi resterebbe bloccato per sempre:
+
+        entry                    vecchio revocato   NUOVO acquistato
+        solo serial (default)    bloccato           NON bloccato      ← può ricomprare
+        serial + hw              bloccato           bloccato          ← macchina in blacklist
+
+    I record già su disco non hanno il campo, quindi dopo l'aggiornamento **nessuna macchina finisce
+    in blacklist a sorpresa**: nessuna migrazione, nessun cambio di comportamento retroattivo.
+    """
+    per_serial, out = {}, []
     for r in revocations:
         serial = str(r.get("serial", "")).strip().upper()
-        if serial and serial not in seen:
-            seen.add(serial)
-            out.append({"serial": serial})
+        if not serial:
+            continue
+        entry = per_serial.get(serial)
+        if entry is None:
+            entry = {"serial": serial}
+            per_serial[serial] = entry
+            out.append(entry)
+        # `hw` solo se richiesto ESPLICITAMENTE e se c'è davvero un hardware id: una entry con `hw`
+        # vuoto non revocherebbe nulla e verrebbe scartata da `normalize_entries` — meglio non
+        # generarla affatto.
+        #
+        # Il flag si valuta su OGNI record dello stesso serial, non solo sul primo (rilievo Fable 5
+        # sulla PR-C): col dedup precedente, se lo stesso serial compariva prima **senza** e poi
+        # **con** `blacklist_hw`, il secondo record veniva scartato e la blacklist richiesta
+        # esplicitamente spariva **in silenzio**. Chiesta una volta = emessa.
+        #
+        # `is True` e non un `if` generico (rilievo GPT-5.5): la blacklist è **irreversibile** — la
+        # macchina resta fuori uso per sempre — e con la verifica lasca la **stringa** `"false"`,
+        # che in Python è vera, l'avrebbe attivata. Una svista di serializzazione non deve poter
+        # decidere una cosa del genere; il valore che il codice scrive è il booleano vero.
+        if r.get("blacklist_hw") is True and "hw" not in entry:
+            hw = str(r.get("hardware_id", "")).strip()
+            if hw:
+                entry["hw"] = hw
     return out
 
 

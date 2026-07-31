@@ -206,9 +206,13 @@ _ALLOWLIST = {
                              "registro, seriale volume ctypes, MAC) sono best-effort e solo-Windows "
                              "→ sorgente assente/non leggibile = omessa, l'impronta resta stabile "
                              "sulle altre senza crashare"),
-    "licensing/license.py": (2, "verifica licenza (#140 PR 1) FAIL-CLOSED: (1) token corrotto/"
+    "licensing/license.py": (3, "verifica licenza (#140 PR 1) FAIL-CLOSED: (1) token corrotto/"
                                 "incompleto = MALFORMED; (2) chiave pubblica hex malformata = "
-                                "INVALID_SIGNATURE → una licenza non verificabile non sblocca mai"),
+                                "INVALID_SIGNATURE → una licenza non verificabile non sblocca mai; "
+                                "(3) `_b64u_canonico` (B2, PR-C #194): una parte non decodificabile "
+                                "è per definizione non canonica → False, cioè MALFORMED. L'except "
+                                "è ampio di proposito perché il valore arriva da un token non "
+                                "fidato e QUALUNQUE errore deve valere «rifiuta», mai «accetta»"),
     "licensing/revocation.py": (3, "lista di revoche (#140 revoca online) FAIL-CLOSED in "
                                    "verify_revocation_list: (1) envelope corrotto/non decodificabile, "
                                    "(2) chiave pubblica hex malformata, (3) payload non conforme "
