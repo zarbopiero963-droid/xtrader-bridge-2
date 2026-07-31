@@ -102,14 +102,40 @@ def message_hash(text: str) -> str:
 _ROW_KEY_FIELDS = ("Provider", "EventName", "MarketType", "SelectionName", "BetType", "Handicap")
 
 
+def _row_fields(row: dict) -> list:
+    """I campi identificativi della riga, normalizzati. Fonte UNICA usata sia da
+    `row_identity` sia da `row_dedup_key`: se le due leggessero i campi in modo anche
+    solo leggermente diverso, una riga potrebbe risultare «stessa scommessa» per una e
+    «scommessa diversa» per l'altra, e il difetto B1 rientrerebbe dalla finestra."""
+    return [str((row or {}).get(k, "") or "").strip() for k in _ROW_KEY_FIELDS]
+
+
+def row_identity(row: dict) -> str:
+    """Identità della SCOMMESSA, **indipendente dal messaggio** che l'ha prodotta (B1 #194).
+
+    `row_dedup_key` antepone l'hash del messaggio, quindi due testi formulati diversamente per
+    la stessa giocata producono chiavi diverse: ogni guardia anti-duplicato li vede come segnali
+    distinti e in `APPEND_ACTIVE`/`QUEUE_UNTIL_CONFIRMED` accoda **due righe uguali** — la stessa
+    scommessa piazzata due volte (#192 H1). Un canale che ri-pubblica lo stesso pronostico con
+    un'intestazione diversa e' ordinaria amministrazione, non un attacco.
+
+    Questa chiave guarda **solo** i campi che identificano la giocata (`_ROW_KEY_FIELDS`, che
+    includono `BetType`: PUNTA e BANCA sono scommesse opposte e non devono mai collidere), cosi'
+    «e' la stessa scommessa?» smette di dipendere da come e' stato scritto il messaggio.
+
+    NON sostituisce `row_dedup_key`, la affianca: quella resta dipendente dal messaggio perche'
+    serve al percorso multi-riga a non auto-deduplicare le righe diverse di uno STESSO messaggio.
+    Due chiavi, due domande."""
+    return hashlib.sha256("\x1f".join(_row_fields(row)).encode("utf-8")).hexdigest()
+
+
 def row_dedup_key(text: str, row: dict) -> str:
     """Chiave di deduplica PER-RIGA (#192): combina l'hash del messaggio con i campi
     identificativi della riga (`_ROW_KEY_FIELDS`). Così un singolo messaggio che genera più
     mercati/selezioni non auto-dedupa le sue righe diverse, ma lo stesso identico segnale
     (stesso messaggio + stessi campi) resta un duplicato. Per il single-row la chiave dipende
     comunque dal messaggio, quindi un messaggio ripetuto è ancora bloccato come prima."""
-    parts = [message_hash(text)]
-    parts += [str((row or {}).get(k, "") or "").strip() for k in _ROW_KEY_FIELDS]
+    parts = [message_hash(text)] + _row_fields(row)
     return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
 
 

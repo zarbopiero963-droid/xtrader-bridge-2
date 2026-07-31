@@ -3818,3 +3818,81 @@ un intero gigante sono invece **esatti** e non convertono nulla — `min` restit
 > peggio di uno che fallisce: in CI diventa un timeout opaco invece di un messaggio, e costa
 > minuti runner. Ora l'ancora è `threading.TIMEOUT_MAX`, che è **documentata** e varia per
 > piattaforma (Linux ~292 anni, Windows ~49 giorni) — quindi va confrontata, mai ipotizzata.
+
+---
+
+## PR-A (#194 · B1) — l'identità del duplicato è la SCOMMESSA, non il messaggio
+
+**Il difetto (audit #192 H1).** Ogni guardia anti-duplicato del percorso di scrittura usava
+`signal_dedupe.row_dedup_key`, che antepone `message_hash(text)` ai campi identificativi della
+riga. Quella chiave cattura quindi solo il rinvio del **medesimo testo**. Un repost
+**riformulato** — un'intestazione promozionale, una firma diversa, un inoltro — produce una
+chiave diversa mentre la riga resta **identica**; nelle modalità multi-riga
+(`APPEND_ACTIVE`/`QUEUE_UNTIL_CONFIRMED`) venivano scritte **entrambe**: due righe
+byte-identiche nel CSV che XTrader legge, cioè la stessa scommessa piazzata due volte. È
+l'invariante che `CLAUDE.md` nomina per prima, e il commento della guardia stessa descriveva
+già l'esito: «accoderebbe una SECONDA riga uguale → doppia scommessa».
+
+**La correzione.** `signal_dedupe.row_identity(row)` — hash dei soli campi identificativi
+(`Provider`, `EventName`, `MarketType`, `SelectionName`, `BetType`, `Handicap`), **indipendente
+dal messaggio** — confrontato in `commit_signal` e `commit_signals` con le righe **ancora
+attive** in coda. Non sostituisce `row_dedup_key`: lo **affianca** (sono due chiavi con due
+scopi — quella message-dependent serve al multi-riga per distinguere le gambe di uno stesso
+messaggio). Vale solo per le modalità multi-riga: in `OVERWRITE_LAST` la `add` **sostituisce**,
+quindi una seconda riga non può esistere e il reinvio deve poter riscrivere l'ultima istruzione
+(comportamento storico, invariato).
+
+**Fonte unica (regola 3).** `row_identity` e `row_dedup_key` normalizzano gli stessi campi:
+la normalizzazione è stata estratta in `_row_fields()` **prima** di correggere, così le due
+chiavi non possono divergere in futuro.
+
+**Controprove, perché bloccare tutto sarebbe facile quanto inutile.** I test in
+`tests/safety/test_doppia_scommessa_contenuto_194.py` pretendono che giocate **diverse**
+passino entrambe, che l'espansione `A → A+B` resti possibile, che una riga **scaduta** sia
+ripiazzabile, che `OVERWRITE_LAST` sia invariato e che `row_identity` distingua **PUNTA** da
+**BANCA** (scommesse opposte: una collisione ne farebbe scartare una come duplicato).
+
+> **Nota — l'espansione era già rotta.** `test_espansione_A_poi_A_piu_B` falliva **prima**
+> della patch: `A` veniva riscritta una seconda volta, tre righe invece di due. Era B1 anche
+> lì, nel percorso multi-riga. L'identità per contenuto non rompe l'espansione: la corregge.
+
+### Il contratto sulla quota, reso esplicito (review PR #197)
+
+Tre reviewer — GPT-5.5, Fable 5, Fugu Ultra — hanno sollevato lo stesso punto: `_ROW_KEY_FIELDS`
+esclude `Price`, quindi in `APPEND_ACTIVE`/`QUEUE_UNTIL_CONFIRMED` un repost con la **quota
+corretta** ha la stessa identità della riga attiva → `DUPLICATE`, e la riga sul disco resta al
+prezzo vecchio. La perdita è reale e va dichiarata; ma la premessa «la correzione non viene
+scritta **invece** di essere applicata» è sbagliata. Misurato su `main` 6f93165, **prima** di
+questa PR:
+
+```
+                       PRIMA                     DOPO
+OVERWRITE_LAST         1 riga  ['2,10']          1 riga  ['2,10']   ← aggiorna, invariato
+APPEND_ACTIVE          2 righe ['1,85','2,10']   1 riga  ['1,85']
+QUEUE_UNTIL_CONFIRMED  2 righe ['1,85','2,10']   1 riga  ['1,85']
+```
+
+L'alternativa non era l'aggiornamento: era **la stessa giocata piazzata due volte, a due quote
+diverse**. Una scommessa a quota vecchia è meno grave di due scommesse. E l'aggiornamento della
+quota **esiste**: è `OVERWRITE_LAST`, il default, dove la nuova istruzione sostituisce la
+precedente — invariato prima e dopo.
+
+Il comportamento è ora **fissato da test** (`test_correzione_di_quota_in_multiriga_non_raddoppia_la_scommessa`,
+`test_OVERWRITE_LAST_resta_invariato`) e documentato nel README, invece di restare implicito.
+L'aggiornamento **in-place** in multi-riga resta una **decisione del proprietario**: riscrivere
+una riga che XTrader può aver già consumato è un rischio a sé, fuori dallo scopo di PR-A.
+
+### Due rilievi verificati e respinti, con la misura
+
+- **«`queue.active_rows` non esiste → `AttributeError`»** (Fugu Ultra): falso positivo da review
+  sul solo diff. Il metodo è definito in `signal_queue.py` **da prima** di questa PR (è ciò che
+  scrive le righe attive nel CSV) e non compare nel diff proprio perché non è stato toccato.
+- **«due righe con `Handicap` `"0"` vs `"0.0"` nello stesso blocco sfuggono a `seen_in_block` e
+  all'identità»** (Fable 5): il meccanismo descritto non regge — da quando `row_identity` e
+  `row_dedup_key` condividono `_row_fields`, dentro un blocco (testo costante) identità uguale
+  ⟺ chiave di dedup uguale, quindi `seen_in_block` copre esattamente ciò che coprirebbe
+  l'identità (test `test_righe_identiche_nello_stesso_blocco_restano_una`). La **variante di
+  formato** dell'handicap sfugge davvero, ma è **pre-esistente e invariata**: misurata su `main`
+  6f93165 dà **2 righe** esattamente come dopo la patch, e già lì `row_dedup_key` le
+  distingueva. È una classe diversa (normalizzazione debole dei campi identificativi), non la
+  classe di B1 — registrata a parte invece di allargare lo scope di questa PR.
