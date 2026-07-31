@@ -86,13 +86,16 @@ quella della fonte Segnali di XTrader (italiano) — è la config **`source_lang
 confondere con `csv_language`, che governa **solo** il separatore decimale (vedi «Lato XTrader»).
 **Nota:** il messaggio Telegram non contiene gli ID
 (`EventId`/`MarketId`/`SelectionId`); il bridge punta sulla modalità a nomi e, quando
-possibile, li **arricchisce dal dizionario Betfair locale** (vedi sotto).
+possibile, **potrebbe arricchirli dal dizionario Betfair locale** — meccanismo descritto qui
+sotto ma **oggi disattivato**, quindi in pratica **le righe restano a nomi** (vedi l'avvertenza
+nella sezione seguente).
 
 ### Identificazione precisa dal dizionario + fallback nomi (PR-P12)
 
 > ⚠️ **Meccanismo OGGI STACCATO — questa sezione descrive il contratto, non il comportamento
 > corrente.** Dopo la rimozione di «Betfair Sync» l'arricchimento ID è **disattivato** sia nel
-> **CSV live** (`app.py:3830`, `id_resolver=None`) sia nell'**anteprima** «Prova messaggio»
+> **CSV live** (`App._process` in `app.py` passa `id_resolver=None`) sia nell'**anteprima**
+> «Prova messaggio» (`App._preview_id_resolver_factory`)
 > (invariante «anteprima = runtime»: nessun «Pronto» in GUI su una riga che il live scarterebbe).
 > In pratica **le righe restano a nomi**: gli ID non vengono riempiti finché non popoli a mano il
 > dizionario locale e non riattivi il *seam* in **entrambi** i punti. Vedi README →

@@ -4404,3 +4404,20 @@ gli ID è un vantaggio **non ancora sfruttato**, non una promessa del bridge.
 
 È lo stesso difetto delle risposte del supporto, in direzione opposta: lì il codice faceva più di
 quanto le docs dicessero, qui le docs promettevano più di quanto il codice facesse.
+
+### Terzo giro: la promessa stava nell'introduzione, dove si ferma chi legge
+
+GPT-5.5, sul push precedente: l'avvertenza è corretta, ma *«resta una frase precedente: "quando
+possibile, li arricchisce dal dizionario Betfair locale"»*. Vero, ed è il punto peggiore in cui
+lasciarla: sta nell'**introduzione** alle modalità di riconoscimento, prima della sezione PR-P12 —
+chi legge solo l'introduzione (cioè chi cerca velocemente «gli ID li scrive o no?») trova un
+presente affermativo e smette di leggere. Riscritta al condizionale, con il rimando esplicito
+all'avvertenza.
+
+Secondo rilievo, sullo stile ma con una conseguenza reale: citare **`app.py:3830`** è fragile —
+il numero di riga si sposta al primo commit che tocca il file, e la doc diventa fuorviante pur
+restando semanticamente corretta. Sostituito col **simbolo** (`App._process`,
+`App._preview_id_resolver_factory`), che si sposta insieme al codice. Era l'unico riferimento a
+numero di riga in `docs/xtrader_csv_contract.md` e nel `README.md` (grep di controllo). Nella
+roadmap i riferimenti a riga restano: è un registro **datato**, dove una riga è la fotografia di
+un momento, non un puntatore da seguire.
