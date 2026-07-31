@@ -820,11 +820,15 @@ class LicenseManagerApp(ctk.CTk):
         schede.pack(fill="both", expand=True, padx=10, pady=(0, 4))
         for nome in self._SCHEDE:
             schede.add(nome)
-        self._build_scheda_chiave(schede.tab("🔑 Chiave"))
-        self._build_scheda_emetti(schede.tab("✅ Emetti"))
-        self._build_scheda_registro(schede.tab("📋 Registro"))
-        self._build_scheda_revoche(schede.tab("🚫 Revoche"))
-        self._build_scheda_backup(schede.tab("📦 Backup"))
+        # Contenuto SCORREVOLE: le schede da sole non bastano. Misurato alla `minsize` dichiarata
+        # (780×580) restano ~450px utili dentro una scheda, e «Registro» ne chiede ~464 — con lo
+        # scaling di Windows al 125%/150%, normale sui portatili, sforano anche le altre. Senza
+        # scorrimento sarebbe lo stesso difetto di prima, solo spostato dentro le schede.
+        self._build_scheda_chiave(self._area_scorrevole(schede.tab("🔑 Chiave")))
+        self._build_scheda_emetti(self._area_scorrevole(schede.tab("✅ Emetti")))
+        self._build_scheda_registro(schede.tab("📋 Registro"))      # layout suo: vedi il metodo
+        self._build_scheda_revoche(self._area_scorrevole(schede.tab("🚫 Revoche")))
+        self._build_scheda_backup(self._area_scorrevole(schede.tab("📦 Backup")))
 
         # Riga messaggi fuori dalle schede: l'esito di un'azione dev'essere visibile qualunque
         # scheda sia aperta (una revoca si conferma dalla scheda Registro e l'esito arriva qui).
@@ -833,6 +837,18 @@ class LicenseManagerApp(ctk.CTk):
 
         self._refresh_publish_fields()
         self._refresh_publish_status()
+
+    @staticmethod
+    def _area_scorrevole(tab):
+        """Contenitore scorrevole che riempie una scheda — nulla resta irraggiungibile.
+
+        Il difetto originale era «il contenuto è più alto della finestra e la parte sotto non
+        esiste per l'utente». Le schede lo riducono ma non lo eliminano: bastano una finestra
+        rimpicciolita o lo scaling di Windows al 125% perché una scheda torni a tagliare. Qui il
+        contenuto eccedente diventa **scorribile** invece che invisibile."""
+        area = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        area.pack(fill="both", expand=True)
+        return area
 
     # ── scheda: chiave di firma ──────────────────────────────────────────────────────────────
     def _build_scheda_chiave(self, tab) -> None:
@@ -892,6 +908,11 @@ class LicenseManagerApp(ctk.CTk):
 
     # ── scheda: registro (tabella) ───────────────────────────────────────────────────────────
     def _build_scheda_registro(self, tab) -> None:
+        # Questa scheda NON usa `_area_scorrevole`: annidare una tabella che scorre dentro un
+        # pannello che scorre dà due barre verticali sovrapposte e una rotellina che non si sa
+        # quale delle due muove. Qui l'ordine di `pack` fa il lavoro: i comandi si ancorano in
+        # BASSO per primi, poi la tabella prende ciò che resta. Rimpicciolendo la finestra è la
+        # tabella a restringersi — e scorre — invece di spingere i pulsanti fuori dallo schermo.
         cerca = ctk.CTkFrame(tab, fg_color="transparent")
         cerca.pack(fill="x", padx=10, pady=(8, 4))
         self._reg_query_entry = ctk.CTkEntry(cerca, placeholder_text="Cerca (nome / hardware ID / serial)")
@@ -915,31 +936,11 @@ class LicenseManagerApp(ctk.CTk):
         intestazioni = (("stato", "Stato", 90), ("serial", "Serial", 150), ("nome", "Nome", 170),
                         ("hw", "Hardware ID", 190), ("giorni", "Giorni", 70),
                         ("scadenza", "Scadenza", 100))
-        self._registry_table = ttk.Treeview(tab, columns=colonne, show="headings",
-                                            height=11, style="LM.Treeview")
-        for chiave, titolo, larghezza in intestazioni:
-            self._registry_table.heading(chiave, text=titolo)
-            self._registry_table.column(chiave, width=larghezza, anchor="w")
-        self._registry_table.pack(fill="both", expand=True, padx=10, pady=(2, 4))
-        self._registry_table.bind("<<TreeviewSelect>>", self._on_registry_select)
-        # Il textbox legacy non esiste più: `_on_registry_refresh` lo tratta come opzionale, e i
-        # test lo tengono a `None`. L'attributo resta per non rompere quel contratto.
-        self._registry_box = None
-
-        ctk.CTkLabel(tab, text="Seleziona una riga: il serial finisce nel campo qui sotto.",
-                     anchor="w", text_color=ui_theme.TEXT2).pack(fill="x", padx=10, pady=(2, 4))
-        azioni = ctk.CTkFrame(tab, fg_color="transparent")
-        azioni.pack(fill="x", padx=10, pady=(0, 4))
-        azioni.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(azioni, text="Serial", anchor="w", width=110).grid(row=0, column=0, sticky="w", pady=3)
-        self._renew_serial_entry = ctk.CTkEntry(azioni, placeholder_text="LIC-…")
-        self._renew_serial_entry.grid(row=0, column=1, sticky="ew", pady=3)
-        ctk.CTkLabel(azioni, text="Nuovi giorni", anchor="w", width=110).grid(row=1, column=0, sticky="w", pady=3)
-        self._renew_giorni_entry = ctk.CTkEntry(azioni, placeholder_text="15  (solo per il rinnovo)")
-        self._renew_giorni_entry.grid(row=1, column=1, sticky="ew", pady=3)
-
+        # ── comandi ANCORATI IN BASSO (packati per primi, `side="bottom"`) ────────────────────
+        # Vanno prima nel codice ma stanno sotto nella finestra: così restano visibili qualunque
+        # sia l'altezza. È esattamente ciò che mancava nella versione a colonna unica.
         bottoni = ctk.CTkFrame(tab, fg_color="transparent")
-        bottoni.pack(fill="x", padx=10, pady=(4, 10))
+        bottoni.pack(side="bottom", fill="x", padx=10, pady=(4, 10))
         ctk.CTkButton(bottoni, text="🔄 Rinnova (nuovo token)", command=self._on_renew).pack(
             side="left", padx=(0, 6))
         ctk.CTkButton(bottoni, text="📋 Ri-mostra token", command=self._on_resend,
@@ -949,6 +950,46 @@ class LicenseManagerApp(ctk.CTk):
         # a colpo d'occhio dalle altre due (semantica di sicurezza, §13 dell'handoff).
         ctk.CTkButton(bottoni, text="🚫 Revoca licenza", command=self._on_revoke,
                       fg_color=ui_theme.DANGER, hover_color=ui_theme.DANGER_HOV).pack(side="left")
+
+        azioni = ctk.CTkFrame(tab, fg_color="transparent")
+        azioni.pack(side="bottom", fill="x", padx=10, pady=(0, 4))
+        ctk.CTkLabel(tab, text="Seleziona una riga: il serial finisce nel campo qui sotto.",
+                     anchor="w", text_color=ui_theme.TEXT2).pack(
+                         side="bottom", fill="x", padx=10, pady=(2, 4))
+
+        # ── tabella + barre di scorrimento (prende lo spazio che resta) ──────────────────────
+        # Verticale: le righe crescono senza limite: con 20 licenze e 11 righe visibili, le altre
+        # 9 sarebbero IRRAGGIUNGIBILI. Orizzontale: l'Hardware ID è lungo e in una finestra
+        # stretta le colonne «Giorni» e «Scadenza» finirebbero oltre il bordo destro.
+        contenitore = ctk.CTkFrame(tab, fg_color="transparent")
+        contenitore.pack(fill="both", expand=True, padx=10, pady=(2, 0))
+        contenitore.grid_rowconfigure(0, weight=1)
+        contenitore.grid_columnconfigure(0, weight=1)
+        self._registry_table = ttk.Treeview(contenitore, columns=colonne, show="headings",
+                                            height=8, style="LM.Treeview")
+        for chiave, titolo, larghezza in intestazioni:
+            self._registry_table.heading(chiave, text=titolo)
+            self._registry_table.column(chiave, width=larghezza, minwidth=60,
+                                        stretch=False, anchor="w")
+        barra_v = ttk.Scrollbar(contenitore, orient="vertical",
+                                command=self._registry_table.yview)
+        barra_h = ttk.Scrollbar(contenitore, orient="horizontal",
+                                command=self._registry_table.xview)
+        self._registry_table.configure(yscrollcommand=barra_v.set, xscrollcommand=barra_h.set)
+        self._registry_table.grid(row=0, column=0, sticky="nsew")
+        barra_v.grid(row=0, column=1, sticky="ns")
+        barra_h.grid(row=1, column=0, sticky="ew")
+        self._registry_table.bind("<<TreeviewSelect>>", self._on_registry_select)
+        # Il textbox legacy non esiste più: `_on_registry_refresh` lo tratta come opzionale, e i
+        # test lo tengono a `None`. L'attributo resta per non rompere quel contratto.
+        self._registry_box = None
+        azioni.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(azioni, text="Serial", anchor="w", width=110).grid(row=0, column=0, sticky="w", pady=3)
+        self._renew_serial_entry = ctk.CTkEntry(azioni, placeholder_text="LIC-…")
+        self._renew_serial_entry.grid(row=0, column=1, sticky="ew", pady=3)
+        ctk.CTkLabel(azioni, text="Nuovi giorni", anchor="w", width=110).grid(row=1, column=0, sticky="w", pady=3)
+        self._renew_giorni_entry = ctk.CTkEntry(azioni, placeholder_text="15  (solo per il rinnovo)")
+        self._renew_giorni_entry.grid(row=1, column=1, sticky="ew", pady=3)
 
     # ── scheda: revoche + pubblicazione ──────────────────────────────────────────────────────
     def _build_scheda_revoche(self, tab) -> None:

@@ -1707,3 +1707,72 @@ def test_ogni_scheda_dichiarata_ha_il_suo_costruttore(gui):
     sorgente = inspect.getsource(gui.LicenseManagerApp._build_ui)
     for nome in gui.LicenseManagerApp._SCHEDE:
         assert f'schede.tab("{nome}")' in sorgente, f"la scheda «{nome}» non viene costruita"
+
+
+# ── scorrimento: nulla dev'essere irraggiungibile (rilievo del proprietario) ────────────────────
+
+def test_la_tabella_ha_ENTRAMBE_le_barre_di_scorrimento(gui):
+    """Guardia sul sorgente (la GUI non è eseguibile headless), su un difetto misurato.
+
+    **Verticale**: le righe del registro crescono senza limite, la tabella ne mostra 8 — con 20
+    licenze le altre 12 sarebbero *irraggiungibili*, che è lo stesso difetto per cui questa
+    finestra è stata rifatta.
+
+    **Orizzontale**: l'Hardware ID è lungo; in una finestra stretta «Giorni» e «Scadenza»
+    finirebbero oltre il bordo destro senza modo di raggiungerle (le colonne sono a larghezza
+    fissa, `stretch=False`, proprio perché comprimerle renderebbe illeggibile il serial)."""
+    import inspect
+    sorgente = inspect.getsource(gui.LicenseManagerApp._build_scheda_registro)
+    assert 'orient="vertical"' in sorgente and "yscrollcommand" in sorgente, \
+        "senza barra verticale le licenze oltre l'ottava sono irraggiungibili"
+    assert 'orient="horizontal"' in sorgente and "xscrollcommand" in sorgente, \
+        "senza barra orizzontale le ultime colonne escono dal bordo in una finestra stretta"
+
+
+def test_i_comandi_del_registro_sono_ancorati_in_basso(gui):
+    """I pulsanti Rinnova/Ri-mostra/Revoca devono restare visibili anche con la finestra bassa:
+    sono packati `side="bottom"` PRIMA della tabella, così è la tabella a restringersi. Se
+    tornassero al flusso normale, rimpicciolendo la finestra uscirebbero dallo schermo — cioè
+    esattamente il difetto originale, ricreato dentro una scheda."""
+    import inspect
+    sorgente = inspect.getsource(gui.LicenseManagerApp._build_scheda_registro)
+    posizione_bottoni = sorgente.index("🚫 Revoca licenza")
+    posizione_tabella = sorgente.index("ttk.Treeview(")
+    assert posizione_bottoni < posizione_tabella, (
+        "i comandi vanno packati PRIMA della tabella per ancorarsi in basso: dopo, la tabella "
+        "li spingerebbe fuori dalla finestra")
+    assert sorgente.count('side="bottom"') >= 3, \
+        "comandi, campi e didascalia del registro vanno tutti ancorati in basso"
+
+
+@pytest.mark.parametrize("scheda", ["chiave", "emetti", "revoche", "backup"])
+def test_le_schede_lunghe_hanno_il_contenuto_scorrevole(gui, scheda):
+    """Le schede non bastano da sole: misurato, alla `minsize` (780×580) restano ~450px utili e
+    «Revoche» ne chiede ~410 — con lo scaling di Windows al 125%, normale sui portatili, sfora.
+    Senza area scorrevole sarebbe il difetto originale spostato dentro le schede.
+
+    «Registro» è escluso di proposito: ha un layout suo (comandi ancorati + tabella che scorre),
+    perché annidare una tabella scorrevole in un pannello scorrevole darebbe due barre verticali
+    sovrapposte."""
+    import inspect
+    sorgente = inspect.getsource(gui.LicenseManagerApp._build_ui)
+    assert "self._area_scorrevole(schede.tab(" in sorgente
+    costruttore = f"_build_scheda_{scheda}(self._area_scorrevole("
+    assert costruttore in sorgente, f"la scheda «{scheda}» non ha il contenuto scorrevole"
+
+
+def test_il_registro_NON_e_annidato_in_un_area_scorrevole(gui):
+    """Contro-prova del test precedente: due scorrimenti verticali annidati sono peggio di uno
+    mancante — la rotellina muove quello sbagliato e la tabella sembra bloccata."""
+    import inspect
+    sorgente = inspect.getsource(gui.LicenseManagerApp._build_ui)
+    assert "_build_scheda_registro(schede.tab(" in sorgente, \
+        "il registro deve ricevere la scheda NUDA, non un'area scorrevole"
+
+
+def test_area_scorrevole_riempie_ed_espande(gui):
+    """Se non si espande, il contenitore resta alto quanto il contenuto e non scorre nulla."""
+    import inspect
+    sorgente = inspect.getsource(gui.LicenseManagerApp._area_scorrevole)
+    assert "CTkScrollableFrame" in sorgente
+    assert 'fill="both"' in sorgente and "expand=True" in sorgente

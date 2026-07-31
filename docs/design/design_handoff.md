@@ -1295,6 +1295,23 @@ salva l'unica chiave non rigenerabile del sistema era invisibile.
 Finestra `900×660`, `minsize 780×580`. Intestazione e riga messaggi stanno **fuori** dalle schede
 (un esito non deve poter finire in una scheda che non stai guardando).
 
+**Scorrimento — le schede da sole non bastano.** Misurato: alla `minsize` restano ~450px utili
+dentro una scheda, e «Registro» ne chiede ~464; con lo scaling di Windows al 125%/150% (normale sui
+portatili) sforano anche le altre. Senza scorrimento sarebbe lo stesso difetto di prima, spostato
+dentro le schede. Perciò:
+
+- **Chiave · Emetti · Revoche · Backup** → contenuto dentro un `CTkScrollableFrame`: ciò che eccede
+  si scorre invece di sparire;
+- **Registro** → layout proprio, **non** annidato in un pannello scorrevole (due scorrimenti
+  verticali sovrapposti sono peggio di uno mancante: la rotellina muove quello sbagliato). I
+  comandi — didascalia, campi Serial/Giorni, pulsanti — sono **ancorati in basso**
+  (`side="bottom"`, packati per primi) e la tabella prende lo spazio che resta: rimpicciolendo la
+  finestra si restringe la **tabella**, non spariscono i pulsanti;
+- **la tabella ha entrambe le barre.** Verticale perché le righe crescono senza limite (8 visibili:
+  con 20 licenze le altre 12 sarebbero irraggiungibili). Orizzontale perché le colonne sono a
+  larghezza fissa (`stretch=False`, comprimerle renderebbe illeggibile il serial) e in una finestra
+  stretta «Giorni» e «Scadenza» finirebbero oltre il bordo destro.
+
 | Scheda | Contenuto | Nota |
 |---|---|---|
 | **🔑 Chiave** | chiave pubblica (Textbox selezionabile) · «🔑 Genera / mostra keypair» · «📋 Copia chiave pubblica» · «💾 Backup della chiave privata» | la chiave pubblica è quella da incollare in `license.py` |
