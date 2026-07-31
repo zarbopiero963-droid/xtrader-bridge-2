@@ -70,14 +70,16 @@ DEFAULT_MAX_PER_MINUTE = 20     # segnali nuovi ammessi al minuto
 # e blocca quegli hash fino a 24 h — errore nel verso CONSERVATIVO (segnale ripetuto perso, mai
 # una doppia scommessa).
 #
-# SECONDO residuo, accettato esplicitamente (rilievo Fugu Ultra sulla PR #196): un salto
-# all'indietro OLTRE le 24 h — es. il ripristino di uno snapshot VM di piu' giorni — allo START
-# (percorso `load_state`, non fidato) ricade ancora nel comportamento originario: le voci vengono
-# clampate e la deduplica si azzera. Non e' un difetto residuo dell'orizzonte scelto ma della sua
-# esistenza: oltre QUALUNQUE soglia finita non c'e' piu' modo di distinguere «orologio spostato
-# molto» da «file corrotto», e sbagliare nel verso opposto (conservare un timestamp assurdo)
-# bloccherebbe quell'hash per sempre. Il rollback IN-PROCESS non e' interessato: e' `trusted`.
-# Chi ripristina uno snapshot VM vecchio dovrebbe cancellare `dedupe_state.json`, non fidarsene.
+# SECONDO residuo — CHIUSO da B45 (#194), vedi `restore_state`. Era: un salto all'indietro OLTRE
+# le 24 h (ripristino di uno snapshot VM di piu' giorni) allo START ricadeva nel comportamento
+# originario, le voci venivano clampate e la deduplica si azzerava. Lo si era dichiarato come
+# limite dell'ESISTENZA di una soglia — «oltre QUALUNQUE soglia finita non c'e' piu' modo di
+# distinguere orologio spostato molto da file corrotto» — ed era vero solo finche' l'unico dato
+# disponibile era il timestamp della voce. Con `saved_at` nel file la domanda torna decidibile
+# (una voce successiva al salvataggio e' impossibile, quindi corrotta; `now` prima di `saved_at`
+# e' un orologio arretrato, non corruzione) e questa costante resta il fallback per i file
+# LEGACY, che `saved_at` non ce l'hanno. Il rollback IN-PROCESS non e' mai stato interessato:
+# e' `trusted`.
 CORRUPTION_HORIZON_S = 86_400
 
 _WS = re.compile(r"\s+")
@@ -331,7 +333,8 @@ class SignalTracker:
         """Stato serializzabile: lista di [hash, timestamp, real]."""
         return [[h, t, r] for (h, t, r) in self._seen]
 
-    def restore_state(self, data, *, now: float = None, trusted: bool = False) -> None:
+    def restore_state(self, data, *, now: float = None, trusted: bool = False,
+                      saved_at: float = None) -> None:
         """Ripristina lo stato da `state()` (tollerante a voci malformate).
 
         `trusted=True` salta **solo** il clamp anti-corruzione descritto sotto, e va usato
@@ -366,7 +369,28 @@ class SignalTracker:
         finiscono oltre l'orizzonte e vengono riportate al `now` arretrato. Corretto l'orologio in
         avanti, quelle voci risultano troppo vecchie, escono dalla finestra, e lo stesso messaggio
         si ri-registra come `NEW`: **scritto due volte**. Non erano avanti per tempo di
-        elaborazione — era `now` ad essere arretrato sotto di loro."""
+        elaborazione — era `now` ad essere arretrato sotto di loro.
+
+        B45 (#194): PR-B dichiarava un residuo — un ripristino di snapshot VM di **oltre 24 h**
+        ricadeva ancora nel comportamento originario. Il motivo è che l'orizzonte parte da `now`,
+        e dopo un ripristino `now` è proprio ciò che non è attendibile: col solo contenuto del
+        file, «orologio arretrato di molto» e «file corrotto» si presentano entrambi come voci
+        nel futuro. Non era un limite inerente al problema ma al **formato**. `saved_at` — passato
+        da `load_state`, che lo legge dal file — rende la domanda decidibile:
+
+        - una voce con `t > saved_at` è **impossibile** (registrata dopo il salvataggio) → è
+          corruzione a prescindere da quanto disti da `now`, criterio più stretto e più fondato
+          dell'orizzonte a 24 h;
+        - `now < saved_at` significa che l'orologio è **arretrato**: le voci vengono traslate
+          della stessa quantità, così la loro ETÀ resta quella vera e la finestra di deduplica
+          continua a funzionare come configurata.
+
+        Con l'orologio in AVANTI (riavvio normale) i timestamp restano **verbatim**. Ribasare
+        sempre l'età sul momento del caricamento sarebbe un peggioramento: dopo un fermo di due
+        ore una voce salvata 10 s prima dello spegnimento tornerebbe «vecchia di 10 s» e
+        bloccherebbe un segnale legittimo arrivato due ore dopo — si perderebbe un segnale
+        valido, l'errore speculare alla doppia scommessa. `saved_at` assente (file di una
+        versione precedente) → comportamento invariato, orizzonte a 24 h."""
         # `now` assente / non finito / non numerico (chiamante/test futuro con NaN/inf/str) →
         # fallback fail-safe a `time.time()`: il clamp deve restare ATTIVO (un cap non finito lo
         # disabiliterebbe) e la persistenza NON deve MAI crashare lo START (review GPT-5.5/CodeRabbit
@@ -379,6 +403,17 @@ class SignalTracker:
         except (TypeError, ValueError):
             cap = time.time()
         horizon = cap + CORRUPTION_HORIZON_S          # oltre = corruzione, non skew d'orologio
+        # B45: `saved_at` valido → criterio decidibile; altrimenti si resta sull'orizzonte a 24 h.
+        # Non finito / non numerico / assente ricade sul comportamento PRUDENTE, non sulla fiducia:
+        # un file corrotto non deve poter disattivare il clamp dichiarando un `saved_at` sporco.
+        try:
+            sa = float(saved_at)
+            if not math.isfinite(sa):
+                sa = None
+        except (TypeError, ValueError):
+            sa = None
+        # Solo un salto INDIETRO trasla; in avanti (riavvio normale) i timestamp restano verbatim.
+        shift = min(0.0, cap - sa) if sa is not None else 0.0
         restored = []
         for item in data or []:
             try:
@@ -393,33 +428,59 @@ class SignalTracker:
                 continue
             if not math.isfinite(tf):
                 continue                    # NaN/inf da state corrotto/manomesso → scartato
-            if not trusted and tf > horizon:
-                tf = cap                    # SOLO corruzione (oltre l'orizzonte 24 h) → clamp a now
+            if not trusted:
+                if sa is not None:
+                    # Voce registrata DOPO il salvataggio: impossibile → corruzione, riportata a
+                    # `saved_at`. Poi l'eventuale traslazione all'indietro, che conserva l'ETÀ.
+                    tf = min(tf, sa) + shift
+                elif tf > horizon:
+                    tf = cap                # SOLO corruzione (oltre l'orizzonte 24 h) → clamp a now
             restored.append((str(h), tf, r))
         self._seen = restored
 
 
-def save_state(tracker: SignalTracker, path: str) -> bool:
+def save_state(tracker: SignalTracker, path: str, *, now: float = None) -> bool:
     """Salva lo stato del tracker su file JSON **atomicamente** (best-effort) via
     `atomic_io.atomic_write_json`: si scrive un temporaneo e poi `os.replace`. Così
     un'interruzione/errore lascia la history precedente intatta, invece di troncarla
-    e perdere la protezione anti-duplicato dopo un riavvio. True se riuscito."""
+    e perdere la protezione anti-duplicato dopo un riavvio. True se riuscito.
+
+    Formato (B45 #194): oggetto `{"saved_at": <istante del salvataggio>, "entries": [...]}`.
+    `saved_at` è ciò che rende DECIDIBILE, al caricamento, se un timestamp nel futuro è uno
+    skew d'orologio o corruzione — vedi `SignalTracker.restore_state`. Il formato precedente
+    (lista nuda) resta leggibile da `load_state`: i file già su disco continuano a funzionare."""
     try:
-        atomic_io.atomic_write_json(path, tracker.state(), prefix=".dedupe_", suffix=".tmp")
+        stamp = time.time() if now is None else float(now)
+        if not math.isfinite(stamp):
+            stamp = time.time()
+    except (TypeError, ValueError):
+        stamp = time.time()
+    try:
+        atomic_io.atomic_write_json(path, {"saved_at": stamp, "entries": tracker.state()},
+                                    prefix=".dedupe_", suffix=".tmp")
         return True
     except OSError:
         return False
 
 
-def load_state(tracker: SignalTracker, path: str) -> bool:
+def load_state(tracker: SignalTracker, path: str, *, now: float = None) -> bool:
     """Carica lo stato nel tracker da file JSON (best-effort). True se riuscito;
-    file assente/corrotto → lascia il tracker invariato e ritorna False."""
+    file assente/corrotto → lascia il tracker invariato e ritorna False.
+
+    Accetta **entrambi** i formati (B45 #194): l'oggetto con `saved_at`/`entries` scritto da
+    `save_state`, e la **lista nuda** delle versioni precedenti — che non ha `saved_at` e
+    ricade quindi sul comportamento prudente di prima (orizzonte a 24 h). Un `saved_at`
+    malformato non fa eccezione alla regola: viene ignorato, non creduto."""
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError, ValueError):
         return False
+    saved_at = None
+    if isinstance(data, dict):
+        saved_at = data.get("saved_at")
+        data = data.get("entries")
     if not isinstance(data, list):
         return False
-    tracker.restore_state(data)
+    tracker.restore_state(data, now=now, saved_at=saved_at)
     return True

@@ -656,7 +656,12 @@ Tutte queste protezioni sono **attive a runtime**:
      alto mostra quante scommesse sono attive ora.
 4. **Anti-duplicato** — lo stesso messaggio ravvicinato non viene riscritto. Lo
    stato persiste in `dedupe_state.json`, quindi i duplicati recenti restano
-   riconosciuti anche dopo un riavvio. Inoltre, nelle modalità multi-riga
+   riconosciuti anche dopo un riavvio — **anche se nel frattempo l'orologio del PC è
+   tornato indietro** (correzione NTP, ripristino di uno snapshot VM anche di mesi):
+   il file registra l'istante del salvataggio, quindi le voci vengono riallineate
+   conservando la loro **età** invece di essere scambiate per corruzione (audit #194 · B45).
+   Un riavvio normale non è toccato: una voce vecchia di due ore resta vecchia di due
+   ore e scade come deve. Inoltre, nelle modalità multi-riga
    (`APPEND_ACTIVE`/`QUEUE_UNTIL_CONFIRMED`), un segnale **identico a una riga ancora
    attiva** nel CSV è un duplicato **a prescindere dalla finestra temporale**: anche se
    il reinvio arriva oltre la finestra di deduplica (es. `confirmation_timeout` più
@@ -822,7 +827,7 @@ aggiornamenti dell'EXE):
 |---|---|---|
 | Configurazione | `%APPDATA%\XTraderBridge\config.json` | Tutte le impostazioni |
 | Log giornalieri | `%APPDATA%\XTraderBridge\logs\bridge-AAAA-MM-GG.log` | Storico (senza token) |
-| Stato anti-duplicato | `%APPDATA%\XTraderBridge\dedupe_state.json` | Hash dei segnali recenti |
+| Stato anti-duplicato | `%APPDATA%\XTraderBridge\dedupe_state.json` | Hash dei segnali recenti, con l'istante del salvataggio (`saved_at`): serve a distinguere un orologio arretrato da un file corrotto dopo un riavvio |
 | Stato limite giornaliero | `%APPDATA%\XTraderBridge\daily_state.json` | Contatori del giorno |
 | Diario eventi | `%APPDATA%\XTraderBridge\event_journal.jsonl` | Storico strutturato «cosa ha fatto» (vedi sotto) |
 | Parser Personalizzati | `data\parsers\<nome>.json` | Definizioni dei parser |

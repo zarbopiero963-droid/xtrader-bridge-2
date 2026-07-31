@@ -4062,3 +4062,56 @@ col prefisso lo imiterebbe e la collisione tornerebbe — ed è quello che il te
 Nessun problema di migrazione: `row_identity` non è persistita, per la scelta di progetto
 descritta sopra. È il vantaggio concreto di quella separazione — l'identità si può correggere a
 review avanzata senza toccare nulla su disco.
+
+---
+
+## PR-B2 (#194 · B45) — il residuo di PR-B non era inerente, era un limite del formato
+
+**Il residuo dichiarato.** PR-B ha corretto B4 portando l'orizzonte anti-corruzione a 24 h, e ha
+dichiarato onestamente ciò che restava fuori: *un ripristino di snapshot VM di oltre 24 ore ricade
+ancora nel comportamento originario*. La ragione è che l'orizzonte è calcolato a partire da `now`
+— e dopo un ripristino `now` è precisamente ciò che non è attendibile. Col solo contenuto del
+file, «orologio arretrato di molto» e «file corrotto» si presentano **entrambi** come voci nel
+futuro, e non c'è modo di distinguerli.
+
+Detto così sembrava inerente al problema. Non lo era: era un limite del **formato**. Mancava il
+dato che rende la domanda decidibile.
+
+**`saved_at`** — l'istante del salvataggio, scritto nel file — la rende decidibile:
+
+- una voce con `t > saved_at` è **impossibile**, perché sarebbe stata registrata dopo il
+  salvataggio → è corruzione a prescindere da quanto disti da `now`. È un criterio più stretto e
+  più fondato dell'orizzonte a 24 h, che su un `now` arretrato di 30 giorni non poteva funzionare;
+- `now < saved_at` significa che l'orologio è **arretrato** di quella quantità: le voci vengono
+  traslate della stessa, così la loro **età** resta quella vera e la finestra di deduplica
+  continua a funzionare come configurata.
+
+```text
+salto indietro   2 giorni  ->  deduplica INTATTA   (prima: persa)
+salto indietro  30 giorni  ->  deduplica INTATTA   (prima: persa)
+salto indietro 365 giorni  ->  deduplica INTATTA   (prima: persa)
+```
+
+### La scelta che vale più della correzione
+
+**Con l'orologio in avanti i timestamp restano verbatim.** La strada apparentemente più semplice
+— ribasare sempre l'età sul momento del caricamento — sarebbe stata un peggioramento silenzioso:
+dopo un fermo di due ore, una voce salvata 10 s prima dello spegnimento sarebbe tornata «vecchia
+di 10 s» e avrebbe bloccato come duplicato un segnale legittimo arrivato due ore dopo. Si sarebbe
+**perso un segnale valido** — l'errore speculare alla doppia scommessa, e quello che questa PR
+avrebbe introdotto mentre ne correggeva un altro. La traslazione si applica **solo** al salto
+all'indietro; `test_riavvio_normale_lascia_i_timestamp_VERBATIM` la blinda.
+
+### Compatibilità
+
+Il formato passa da lista nuda a `{"saved_at": …, "entries": [...]}`, ma `load_state` **accetta
+entrambi**: un `dedupe_state.json` scritto da una versione precedente non ha `saved_at` e ricade
+sul comportamento prudente di prima (orizzonte a 24 h), invariato. Un `saved_at` malformato — non
+numerico, `NaN`, `inf` — viene **ignorato, non creduto**: un file corrotto non deve poter
+disattivare il clamp dichiarando un istante sporco.
+
+### Regola 2 — la classe, non il sito
+
+L'altro stato persistito del runtime è `daily_state.json` (`safety_guard.DailyLimiter`), ma **non
+è la stessa classe**: memorizza un giorno di calendario e un conteggio, non timestamp assoluti in
+una finestra scorrevole, quindi non ha l'esposizione al salto d'orologio. Verificato, non assunto.
