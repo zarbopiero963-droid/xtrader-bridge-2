@@ -15,12 +15,13 @@ Da dove nascono le due forme — misurato, non ipotizzato:
   in un altro, con la copiatura verbatim e basta.
 
 **Decisione del proprietario** (2026-07-31): normalizzare. La normalizzazione è **chirurgica** —
-solo una virgola **fra due cifre** — e vive **solo** in `row_identity`, cioè nel confronto: nel
-CSV continua a finire il valore prodotto dalla regola del parser.
+solo una virgola **decimale** — e vive **solo** in `row_identity`, cioè nel confronto: nel CSV
+continua a finire il valore prodotto dalla regola del parser.
 
-Perché fra due cifre e non ovunque: le virgole della prosa (`"Inter, primo tempo"`) sono seguite
-da uno **spazio**, non da una cifra, quindi non vengono toccate. È la stessa distinzione che il
-contratto CSV fa già per le colonne decimali, applicata al solo confronto e non alla scrittura.
+Due esclusioni, entrambe per non unire nomi realmente diversi (che costerebbe un segnale valido,
+l'errore speculare alla doppia scommessa): le virgole della **prosa** (`"Inter, primo tempo"`)
+sono seguite da uno spazio, non da una cifra; quelle delle **migliaia** (`"Over 1,000"`) sono
+seguite da tre cifre, mentre un decimale in una linea ne ha una o due.
 """
 
 import json
@@ -78,6 +79,7 @@ def test_la_trasformazione_del_prodotto_genera_la_virgola():
     ("Over 5,5", "Over 6,5"),           # linea diversa
     ("Over 5,5", "Over 5,55"),          # decimale diverso
     ("Over 0,5", "Over 5"),             # non è lo stesso numero
+    ("Over 1,000", "Over 1.000"),       # MIGLIAIA vs decimale: 1000 e 1.0 (rilievo Fable 5 #200)
 ])
 def test_linee_DIVERSE_restano_scommesse_diverse(uno, due):
     """CONTROPROVA. Unire per il separatore non deve unire per il valore: collassare due linee
@@ -147,3 +149,46 @@ def test_la_regola_vale_per_tutti_i_campi_testuali(campo):
     uno = signal_dedupe.row_identity(_riga("X", **{campo: "Linea 2,5"}))
     due = signal_dedupe.row_identity(_riga("X", **{campo: "Linea 2.5"}))
     assert uno == due, f"{campo}: la virgola fra cifre non è normalizzata"
+
+
+def test_la_virgola_delle_MIGLIAIA_non_e_un_decimale():
+    """Rilievo Fable 5 su #200. La prima stesura normalizzava qualunque virgola fra due cifre,
+    quindi «Over 1,000» (mille) e «Over 1.000» (uno) — numeri **diversi** — venivano uniti, e
+    una delle due linee sarebbe stata scartata come duplicato dell'altra: **segnale perso**.
+
+    Fable lo classificava irrilevante per le linee Over/Under reali, ed è vero; ma la direzione
+    è quella che questa PR esiste per non prendere, e distinguerli costa una parentesi: un
+    decimale in una linea ha **una o due** cifre dopo la virgola, le migliaia ne hanno **tre**.
+    """
+    assert not _stessa("Over 1,000", "Over 1.000")
+    assert not _stessa("Over 12,500", "Over 12.500")
+    # e il decimale continua a funzionare, con una o due cifre
+    assert _stessa("Over 5,5", "Over 5.5")
+    assert _stessa("Over 5,25", "Over 5.25")
+
+
+@pytest.mark.parametrize("uno,due", [
+    ("Multigol 1,2", "Multigol 2,3"),
+    ("Multigol 1,2", "Multigol 1,3"),
+    ("Multigol 1,2", "Multigol 3,4"),
+    ("Multigol 2,3", "Multigol 4,6"),
+])
+def test_mercati_a_LISTA_restano_distinti_fra_loro(uno, due):
+    """Rilievo Fugu Ultra su #200: nei mercati italiani a **lista** — `Multigol 1,2` = «1 o 2
+    gol» — la virgola è un separatore, non un decimale. La normalizzazione la tratta comunque
+    come decimale, quindi va dimostrato che non unisce mercati **realmente diversi**.
+
+    Non li unisce: due liste diverse differiscono nelle CIFRE, e le cifre non sono toccate. La
+    sola fusione possibile è fra `Multigol 1,2` e `Multigol 1.2`, che sono la stessa lista
+    scritta in due modi — non due mercati distinti. Il residuo onesto è nell'altro verso:
+    `Multigol 1,2` e `Multigol 1-2` restano distinti (mancata fusione, cioè il comportamento
+    di prima), che è un rischio di duplicato e non di segnale perso.
+    """
+    assert not _stessa(uno, due), f"{uno!r} e {due!r} sono mercati diversi ma la stessa scommessa"
+
+
+def test_il_trattino_resta_una_forma_a_se():
+    """Delimita il residuo dichiarato sopra, invece di lasciarlo implicito: la regola tocca la
+    virgola, non il trattino. `Multigol 1-2` non viene unito a `Multigol 1,2` — comportamento
+    invariato rispetto a prima di questa PR."""
+    assert not _stessa("Multigol 1,2", "Multigol 1-2")

@@ -4228,3 +4228,46 @@ virgola, e uno stato salvato prima dell'aggiornamento continua a combaciare dopo
 Il valore **scritto** non cambia mai: `test_la_normalizzazione_non_tocca_il_valore_SCRITTO`
 verifica che `row_identity` non muti nemmeno la riga che riceve. Nel CSV finisce `Over 5,5` se è
 quello che la regola ha prodotto.
+
+### Il limite della regola, stretto in review
+
+Fable 5 ha notato che la prima stesura normalizzava **qualunque** virgola fra due cifre, quindi
+`Over 1,000` (mille) e `Over 1.000` (uno) — numeri **diversi** — venivano uniti. L'ha classificato
+irrilevante per le linee Over/Under reali, e lo è; ma la direzione è **segnale perso**, cioè
+esattamente ciò che le controprove di questa PR esistono per impedire, e distinguerli costa una
+parentesi: un decimale in una linea ha **una o due** cifre dopo la virgola, le migliaia ne hanno
+**tre**.
+
+```text
+                     prima            dopo
+'over 5,5'      ->   'over 5.5'       'over 5.5'
+'over 5,25'     ->   'over 5.25'      'over 5.25'
+'over 1,000'    ->   'over 1.000'     'over 1,000'    <- non è un decimale
+'inter, primo'  ->   invariato        invariato
+```
+
+La regola non è più «virgola fra cifre» ma «virgola **decimale**», che è ciò che si voleva dire
+fin dall'inizio.
+
+### I mercati a lista, e il residuo dichiarato
+
+Fugu Ultra ha sollevato il caso italiano giusto: nei mercati a **lista** — `Multigol 1,2`, cioè
+«1 o 2 gol» — la virgola è un **separatore**, non un decimale, e la regola la tratta comunque
+come decimale. La domanda è se questo unisca mercati **realmente diversi**. Misurato: no.
+
+```text
+'Multigol 1,2' vs 'Multigol 2,3'  ->  diversi
+'Multigol 1,2' vs 'Multigol 1,3'  ->  diversi
+'Multigol 1,2' vs 'Multigol 3,4'  ->  diversi
+'Multigol 1,2' vs 'Multigol 1.2'  ->  STESSO      (stessa lista, due scritture)
+'Multigol 1,2' vs 'Multigol 1-2'  ->  diversi     (residuo, vedi sotto)
+```
+
+Due liste diverse differiscono nelle **cifre**, e le cifre non vengono toccate: l'unica fusione
+possibile è fra la stessa lista scritta con virgola e con punto. Nessun segnale perso.
+
+**Il residuo, dichiarato invece che nascosto:** `Multigol 1,2` e `Multigol 1-2` sono
+probabilmente lo stesso mercato scritto in due modi, e restano **distinti**. È una fusione
+**mancata**, non una fusione errata — quindi il rischio è un duplicato, non un segnale perso, ed
+è il comportamento che c'era già prima di questa PR. Estendere la regola al trattino sarebbe
+un'altra decisione, con un'altra superficie: `Inter 1-2 Milan` è un punteggio, non una lista.
