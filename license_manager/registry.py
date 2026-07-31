@@ -55,6 +55,16 @@ STATUS_EXPIRED = "SCADUTA"
 # **vederla**, e poteva credere che non avesse funzionato o rinnovare per sbaglio un revocato.
 STATUS_REVOKED = "REVOCATA"
 
+
+def normalize_serial(value) -> str:
+    """Serial normalizzato per il CONFRONTO: spazi ai bordi via, maiuscole.
+
+    Fonte unica della regola (rilievo CodeRabbit): la stessa normalizzazione serviva in quattro
+    punti — ricerca per serial, marcatura dei revocati, stato della riga, lettura dello store nella
+    GUI. Quattro copie oggi sono quattro regole divergenti domani, ed è esattamente la classe di
+    difetto che il repository ha già pagato altrove."""
+    return str(value or "").strip().upper()
+
 # Serializza gli append tra thread del processo (coerente con event_journal).
 _WRITE_LOCK = threading.Lock()
 
@@ -228,7 +238,7 @@ def read_revocations(*, directory: "str | None" = None, path: "str | None" = Non
 def is_serial_revoked(revocations: list, serial: str) -> bool:
     """`True` se `serial` (normalizzato spazi/maiuscole) compare tra i record di revoca. Serve alla GUI
     per non registrare due volte la stessa revoca e per annotare lo stato nella vista."""
-    key = str(serial or "").strip().upper()
+    key = normalize_serial(serial)
     if not key:
         return False
     return any(str(r.get("serial", "")).strip().upper() == key for r in revocations)
@@ -294,11 +304,11 @@ def find_by_serial(records: list, serial: str) -> "dict | None":
     """Primo record col `serial` dato (confronto esatto, spazi/maiuscole normalizzati), o `None`.
     Serve al rinnovo/ri-emissione (opzione B): dato un serial dell'elenco si ritrova la licenza per
     riusarne nome + hardware ID (rinnovo) o ri-mostrarne il token (ri-invio)."""
-    key = str(serial or "").strip().upper()
+    key = normalize_serial(serial)
     if not key:
         return None
     for rec in records:
-        if str(rec.get("serial", "")).strip().upper() == key:
+        if normalize_serial(rec.get("serial")) == key:
             return rec
     return None
 
@@ -342,7 +352,7 @@ def view_rows(records: list, *, query: str = "", now: int, revoked_serials=()) -
     q = str(query or "").strip().casefold()
     # Normalizzati come ovunque nel registro (spazi + maiuscole): un record scritto a mano non deve
     # sfuggire alla marcatura — nel dubbio si mostra revocato, non attivo.
-    revocati = {str(s).strip().upper() for s in (revoked_serials or ())}
+    revocati = {normalize_serial(s) for s in (revoked_serials or ())}
     rows = []
     for rec in records:
         serial = str(rec.get("serial", ""))
@@ -359,7 +369,7 @@ def view_rows(records: list, *, query: str = "", now: int, revoked_serials=()) -
             "expiry": rec.get("expiry"),
             "days": rec.get("days"),
             # La revoca vince su tutto: è uno stato della LICENZA nel mondo, non del suo calendario.
-            "status": (STATUS_REVOKED if serial.strip().upper() in revocati
+            "status": (STATUS_REVOKED if normalize_serial(serial) in revocati
                        else record_status(rec, now=now)),
             "days_left": days_left(rec, now=now),
         })

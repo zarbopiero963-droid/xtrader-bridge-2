@@ -289,10 +289,20 @@ class LicenseManagerApp(ctk.CTk):
         if rec is None:
             return {"accepted": False, "token": "",
                     "message": f"Serial non trovato nel registro: {str(serial).strip()}"}
-        if not conferma_revoca and str(rec.get("serial", "")).strip().upper() in self._revoked_serials():
-            return {"accepted": False, "token": "", "needs_confirm": True,
-                    "message": f"⚠️ La licenza {str(rec.get('serial', '')).strip()} è REVOCATA. "
-                               "Rinnovarla emette un token nuovo che tornerà a funzionare."}
+        if not conferma_revoca:
+            # Lettura STRETTA: qui si autorizza, non si dipinge un elenco. Se lo store non è
+            # leggibile non si può escludere che questa licenza sia revocata → si chiede.
+            try:
+                revocati = self._revoked_serials(strict=True)
+            except Exception as exc:    # noqa: BLE001 — indisponibilità = «non lo so», mai «via libera»
+                _log.debug("Revoche illeggibili durante il rinnovo [%s]", type(exc).__name__)
+                return {"accepted": False, "token": "", "needs_confirm": True,
+                        "message": "⚠️ Impossibile leggere l'elenco delle revoche: non si può "
+                                   "escludere che questa licenza sia REVOCATA."}
+            if registry.normalize_serial(rec.get("serial")) in revocati:
+                return {"accepted": False, "token": "", "needs_confirm": True,
+                        "message": f"⚠️ La licenza {str(rec.get('serial', '')).strip()} è REVOCATA. "
+                                   "Rinnovarla emette un token nuovo che tornerà a funzionare."}
         key, err = self._load_key_or_error()
         if err is not None:
             return err
@@ -419,9 +429,11 @@ class LicenseManagerApp(ctk.CTk):
                             "revoche più recenti) sono stati lasciati invariati. Riavvia il "
                             "License Manager per rileggere lo stato.")}
 
-    def _confirm_backup(self, testo: str) -> bool:
-        """Conferma esplicita per le due azioni **distruttive** del backup (sovrascrivere un file
-        esistente, sostituire una keypair diversa). Seam iniettabile e **fail-closed**: se il dialogo
+    def _conferma(self, testo: str) -> bool:
+        """Conferma esplicita per le azioni **irreversibili o pericolose**: sovrascrivere un backup
+        esistente, sostituire una keypair diversa, riattivare un cliente revocato. (Si chiamava
+        `_confirm_backup` finché serviva solo al backup; il nome mentiva da quando fa da gate anche al
+        rinnovo.) Seam iniettabile e **fail-closed**: se il dialogo
         non è disponibile (headless, Tk rotto) la risposta è «no» — meglio non fare che fare un danno
         irreversibile senza che nessuno l'abbia confermato."""
         try:
@@ -442,7 +454,7 @@ class LicenseManagerApp(ctk.CTk):
         except Exception:       # noqa: BLE001 — dialog Tk best-effort
             dest = ""
         result = self._evaluate_export_backup(dest)
-        if result.get("needs_confirm") and self._confirm_backup(
+        if result.get("needs_confirm") and self._conferma(
                 f"{result['message']}\n\nSovrascriverlo? Se quel file è il backup di un'ALTRA "
                 "keypair, perderesti l'unica copia di quella chiave e non potresti più rinnovare "
                 "le licenze firmate con essa."):
@@ -459,7 +471,7 @@ class LicenseManagerApp(ctk.CTk):
         except Exception:       # noqa: BLE001 — dialog Tk best-effort
             src = ""
         result = self._evaluate_restore_backup(src)
-        if result.get("needs_confirm") and self._confirm_backup(
+        if result.get("needs_confirm") and self._conferma(
                 f"{result['message']}\n\nSostituire comunque la keypair attuale con quella del "
                 "backup?"):
             result = self._evaluate_restore_backup(src, overwrite_key=True)
@@ -505,14 +517,25 @@ class LicenseManagerApp(ctk.CTk):
         return registry.view_rows(records, query=str(query or ""), now=self._now(),
                                   revoked_serials=self._revoked_serials())
 
-    def _revoked_serials(self) -> set:
-        """I serial revocati, per marcarli nella vista. Fail-safe: se lo store non è leggibile
-        l'insieme è vuoto e la tabella mostra gli stati per data — degradare a «non so chi è
-        revocato» è accettabile, far fallire l'elenco no (gira anche dopo un'emissione)."""
+    def _revoked_serials(self, *, strict: bool = False) -> set:
+        """I serial revocati. **Due modi, deliberatamente diversi** (rilievo bloccante di Fable 5 e
+        Fugu Ultra, indipendenti).
+
+        `strict=False` (default, per la **vista**): se lo store non è leggibile l'insieme è vuoto e
+        la tabella mostra gli stati per data. Degradare a «non so chi è revocato» è accettabile per
+        un elenco — che gira anche subito dopo un'emissione e non deve mai far fallire l'azione.
+
+        `strict=True` (per l'**autorizzazione**): l'errore **propaga**. Riusare il degrado
+        best-effort come gate era un fail-OPEN reale: con `revoked.jsonl` illeggibile o lockato —
+        frequente su Windows — un serial revocato saltava la conferma e veniva riemesso in
+        silenzio. Non poter leggere le revoche **non è** «nessuno è revocato»: è «non lo so», e su
+        un gate le due cose non possono coincidere."""
         try:
-            return {str(r.get("serial", "")).strip().upper()
+            return {registry.normalize_serial(r.get("serial"))
                     for r in self._read_revocations(directory=self._key_dir)}
-        except Exception as exc:    # noqa: BLE001 — vista best-effort come il resto del registro
+        except Exception as exc:    # noqa: BLE001 — vista best-effort; il gate passa `strict=True`
+            if strict:
+                raise
             _log.debug("Lettura revoche per la vista non riuscita [%s]", type(exc).__name__)
             return set()
 
@@ -955,10 +978,11 @@ class LicenseManagerApp(ctk.CTk):
         from tkinter import ttk
 
         self._stila_tabella()
-        colonne = ("stato", "serial", "nome", "hw", "giorni", "scadenza")
         intestazioni = (("stato", "Stato", 90), ("serial", "Serial", 150), ("nome", "Nome", 170),
                         ("hw", "Hardware ID", 190), ("giorni", "Giorni", 70),
                         ("scadenza", "Scadenza", 100))
+        # Derivate, non ri-dichiarate: due elenchi separati divergono al primo rinomino.
+        colonne = tuple(chiave for chiave, _titolo, _larghezza in intestazioni)
         # ── comandi ANCORATI IN BASSO (packati per primi, `side="bottom"`) ────────────────────
         # Vanno prima nel codice ma stanno sotto nella finestra: così restano visibili qualunque
         # sia l'altezza. È esattamente ciò che mancava nella versione a colonna unica.
@@ -1156,7 +1180,9 @@ class LicenseManagerApp(ctk.CTk):
             selezione = self._registry_table.selection()
             if not selezione:
                 return
-            serial = self._registry_table.item(selezione[0], "values")[1]
+            # Per NOME, non per indice: `values[1]` si lega all'ordine delle colonne, e il serial
+            # sbagliato revoca o rinnova la licenza di un ALTRO utente.
+            serial = self._registry_table.set(selezione[0], "serial")
             if self._renew_serial_entry is not None:
                 self._renew_serial_entry.delete(0, "end")
                 self._renew_serial_entry.insert(0, serial)
@@ -1197,8 +1223,13 @@ class LicenseManagerApp(ctk.CTk):
             if self._public_value is not None:
                 # È un Textbox (non più una Label): il testo dev'essere SELEZIONABILE, altrimenti
                 # 64 caratteri esadecimali si possono solo ricopiare a mano.
+                # Sbloccata solo per riscrivere, poi RI-BLOCCATA: il testo resta selezionabile e
+                # copiabile, ma non modificabile — una pubblica editata a mano e poi copiata
+                # finirebbe nel bridge e farebbe rifiutare ogni licenza valida.
+                self._public_value.configure(state="normal")
                 self._public_value.delete("1.0", "end")
                 self._public_value.insert("1.0", state["public"] or "— (nessuna chiave: premi «Genera»)")
+                self._public_value.configure(state="disabled")
         except Exception:       # noqa: BLE001 — render Tk best-effort
             pass
         if state["error"]:
@@ -1212,11 +1243,10 @@ class LicenseManagerApp(ctk.CTk):
 
     def _on_generate(self) -> None:
         result = self._ensure_keypair()
-        try:
-            if self._public_value is not None:
-                self._public_value.configure(text=result["public"] or "—")
-        except Exception:       # noqa: BLE001 — render Tk best-effort
-            pass
+        # Fonte UNICA del rendering della pubblica. Qui c'era un `configure(text=…)`, che un
+        # Textbox NON accetta: sollevava, l'except nudo la ingoiava, e dopo «Genera» la casella
+        # mostrava ancora «nessuna chiave» — mentre «Copia» copiava il segnaposto.
+        self._refresh_key_state()
         if result["error"]:
             self._set_msg(result["error"])
         elif result["created"]:
@@ -1277,7 +1307,7 @@ class LicenseManagerApp(ctk.CTk):
         result = self._evaluate_renew(serial, giorni)
         # Riattivazione di un revocato: si chiede, con la conseguenza scritta per esteso. Il dialogo
         # è fail-closed (headless → «no»), quindi nel dubbio non si riattiva nessuno.
-        if result.get("needs_confirm") and self._confirm_backup(
+        if result.get("needs_confirm") and self._conferma(
                 f"{result['message']}\n\nÈ una RIATTIVAZIONE: il cliente che avevi revocato tornerà "
                 "operativo. Il serial vecchio resta revocato, quello nuovo no.\n\nProcedere?"):
             result = self._evaluate_renew(serial, giorni, conferma_revoca=True)

@@ -388,6 +388,12 @@ nel repo/EXE.
   vedeva. Il parametro è **opzionale** — i chiamanti che non lo passano hanno il comportamento di
   prima. La GUI legge i serial da `revoked.jsonl` in modo fail-safe: store illeggibile → insieme
   vuoto e stati per data, mai un elenco che fallisce.
+  ⚠️ **Quel degrado vale SOLO per la vista.** `_revoked_serials(strict=True)` propaga l'errore ed è
+  ciò che usa il gate del rinnovo: riusare la lettura best-effort come autorizzazione era un
+  **fail-open** reale (rilievo bloccante di Fable 5 e Fugu Ultra, indipendenti) — con
+  `revoked.jsonl` lockato, frequente su Windows, un revocato veniva riemesso in silenzio. Non poter
+  leggere le revoche **non è** «nessuno è revocato»: è «non lo so», e su un gate le due cose non
+  possono coincidere.
 - 🔁 **Rinnovare un serial revocato è una RIATTIVAZIONE, e ora si conferma.** Il token nuovo ha un
   serial nuovo, che non è in lista: il cliente torna operativo. È il percorso previsto dal modello
   (la revoca è per emissione, non per persona), ma avveniva **in silenzio**.

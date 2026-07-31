@@ -62,7 +62,9 @@ def _fake(gui, tmp_path, now=_NOW):
     # Marcatura REVOCATA nella vista + conferma sul rinnovo di un revocato: usa il giunto
     # `_read_revocations` già iniettato qui sopra, quindi legge lo store REALE della cartella
     # temporanea invece di uno stub.
-    fake._revoked_serials = lambda: gui.LicenseManagerApp._revoked_serials(fake)
+    # Firma FEDELE a quella reale, `strict` incluso: un fake che non accetta il kwarg farebbe
+    # cadere ogni chiamata del gate nel ramo d'errore, mascherando il comportamento vero.
+    fake._revoked_serials = (lambda **kw: gui.LicenseManagerApp._revoked_serials(fake, **kw))
     fake._key_path = lambda: core.signing_key_path(fake._key_dir)
     fake._current_key_state = lambda: gui.LicenseManagerApp._current_key_state(fake)
     fake._record_issued_safe = lambda token: gui.LicenseManagerApp._record_issued_safe(fake, token)
@@ -79,7 +81,8 @@ def _fake(gui, tmp_path, now=_NOW):
     fake._renew_serial_entry = None
     fake._renew_giorni_entry = None
     fake._show_token = lambda tok: gui.LicenseManagerApp._show_token(fake, tok)
-    fake._evaluate_renew = lambda s, g: gui.LicenseManagerApp._evaluate_renew(fake, s, g)
+    fake._evaluate_renew = (lambda s, g, **kw:
+                            gui.LicenseManagerApp._evaluate_renew(fake, s, g, **kw))
     fake._evaluate_resend = lambda s: gui.LicenseManagerApp._evaluate_resend(fake, s)
     fake._build_signed_revocation_list = lambda: gui.LicenseManagerApp._build_signed_revocation_list(fake)
     fake._record_revocation_safe = lambda rec: gui.LicenseManagerApp._record_revocation_safe(fake, rec)
@@ -119,7 +122,7 @@ def _fake(gui, tmp_path, now=_NOW):
     # si può asserire *che cosa* è stato chiesto all'utente, non solo che qualcosa è stato chiesto.
     fake._confirm_calls = []
     fake._confirm_answer = False
-    fake._confirm_backup = lambda testo: (fake._confirm_calls.append(testo) or fake._confirm_answer)
+    fake._conferma = lambda testo: (fake._confirm_calls.append(testo) or fake._confirm_answer)
     fake._public_value = None
     fake._refresh_key_state = lambda: gui.LicenseManagerApp._refresh_key_state(fake)
     fake._dir_secured = True
@@ -1417,12 +1420,12 @@ def test_on_restore_backup_sostituisce_la_keypair_con_conferma(gui, tmp_path, mo
     assert core.load_signing_key(core.signing_key_path(str(tmp_path / "altra")))["public"] == attesa
 
 
-def test_confirm_backup_e_fail_closed_quando_il_dialogo_non_e_disponibile(gui, tmp_path,
+def test_conferma_e_fail_closed_quando_il_dialogo_non_e_disponibile(gui, tmp_path,
                                                                           monkeypatch):
     """Dialogo non disponibile (Tk assente o rotto) → la risposta è **no**. Un default «sì» farebbe
     passare in silenzio proprio le due azioni irreversibili.
 
-    ⚠️ Il guasto **non è ipotetico**: la prima versione di questo test chiamava `_confirm_backup`
+    ⚠️ Il guasto **non è ipotetico**: la prima versione di questo test chiamava `_conferma`
     senza iniettare nulla, contando sul fatto che in questo ambiente `tkinter` non è installato. Su
     Linux passava; sul runner **Windows** — dove Tk c'è — ha aperto un **messagebox modale vero** e la
     suite si è piantata fino al timeout (`windows-tests` rosso sulla #184). Un test che dipende
@@ -1434,19 +1437,19 @@ def test_confirm_backup_e_fail_closed_quando_il_dialogo_non_e_disponibile(gui, t
         raise RuntimeError("display non disponibile")
     _finto_tkinter(monkeypatch, askyesno=dialogo_rotto)
 
-    assert gui.LicenseManagerApp._confirm_backup(fake, "sovrascrivo?") is False
+    assert gui.LicenseManagerApp._conferma(fake, "sovrascrivo?") is False
 
 
 @pytest.mark.parametrize("risposta, atteso", [(True, True), (False, False)])
-def test_confirm_backup_riporta_la_risposta_dell_utente(gui, tmp_path, monkeypatch, risposta,
+def test_conferma_riporta_la_risposta_dell_utente(gui, tmp_path, monkeypatch, risposta,
                                                         atteso):
-    """Controprova del fail-closed: senza, un `_confirm_backup` che ritorna **sempre** `False`
+    """Controprova del fail-closed: senza, un `_conferma` che ritorna **sempre** `False`
     passerebbe il test qui sopra — e nessuno potrebbe più sovrascrivere un backup o migrare su un PC
     dove ha già generato una chiave."""
     fake = _fake(gui, tmp_path)
     _finto_tkinter(monkeypatch, askyesno=lambda *a, **k: risposta)
 
-    assert gui.LicenseManagerApp._confirm_backup(fake, "sovrascrivo?") is atteso
+    assert gui.LicenseManagerApp._conferma(fake, "sovrascrivo?") is atteso
 
 
 def test_i_giunti_del_backup_sono_iniettabili_dal_COSTRUTTORE(gui):
@@ -1593,6 +1596,9 @@ class _FakeTextbox:
     def insert(self, _pos, testo):
         self._t = testo
 
+    def configure(self, **_kw):
+        """Il widget vero accetta `state="normal"/"disabled"`: il fake non deve sollevare."""
+
 
 class _FakeTabella:
     """`ttk.Treeview` minimo, fedele all'API vera sui tre punti che contano:
@@ -1629,6 +1635,11 @@ class _FakeTabella:
 
     def item(self, iid, _option):
         return self._righe[iid]
+
+    def set(self, iid, colonna):
+        """`Treeview.set(iid, colonna)` — legge UNA cella per NOME di colonna."""
+        self.chiamate_set = getattr(self, "chiamate_set", 0) + 1
+        return self._righe[iid][self.colonne.index(colonna)]
 
 
 def _riga(serial="LIC-AAA111BBB222", nome="Mario Rossi", status="attiva"):
@@ -1669,6 +1680,7 @@ def test_selezionare_una_riga_porta_il_serial_nel_campo(gui):
     carattere significa revocare la licenza di un ALTRO utente."""
     tabella = _FakeTabella(selezione=(0,))
     tabella.insert("", "end", ("attiva", "LIC-AAA111BBB222", "Mario", "HW1", "12g", "2023-11-14"))
+    tabella.colonne = ("stato", "serial", "nome", "hw", "giorni", "scadenza")
     campo = _FakeEntry()
     fake = types.SimpleNamespace(_registry_table=tabella, _renew_serial_entry=campo)
     gui.LicenseManagerApp._on_registry_select(fake)
@@ -1863,15 +1875,14 @@ def test_rinnovare_un_NON_revocato_non_chiede_niente(gui, tmp_path):
 
 def test_on_renew_non_riattiva_se_la_conferma_e_negata(gui, tmp_path):
     """Cablaggio: dialogo che risponde NO → nessuna emissione. Il dialogo è fail-closed, quindi
-    headless (dove `_confirm_backup` ritorna False) il comportamento è lo stesso."""
+    headless (dove `_conferma` ritorna False) il comportamento è lo stesso."""
     fake, serial = _emetti_e_revoca(gui, tmp_path)
     fake._renew_serial_entry, fake._renew_giorni_entry = _FakeEntry(serial), _FakeEntry("30")
     fake._read = lambda e: e.testo
     fake._show_token = lambda t: fake.__dict__.__setitem__("_token_mostrato", t)
     fake._set_msg = lambda t: None
     fake._on_registry_refresh = lambda: None
-    fake._confirm_backup = lambda _testo: False        # l'utente dice NO
-    fake._evaluate_renew = (lambda s, g, **kw: gui.LicenseManagerApp._evaluate_renew(fake, s, g, **kw))
+    fake._conferma = lambda _testo: False        # l'utente dice NO
     gui.LicenseManagerApp._on_renew(fake)
     assert fake.__dict__.get("_token_mostrato") == "", "negando la conferma non deve uscire un token"
 
@@ -1883,8 +1894,7 @@ def test_on_renew_riattiva_se_la_conferma_e_data(gui, tmp_path):
     fake._show_token = lambda t: fake.__dict__.__setitem__("_token_mostrato", t)
     fake._set_msg = lambda t: None
     fake._on_registry_refresh = lambda: None
-    fake._confirm_backup = lambda _testo: True         # l'utente conferma
-    fake._evaluate_renew = (lambda s, g, **kw: gui.LicenseManagerApp._evaluate_renew(fake, s, g, **kw))
+    fake._conferma = lambda _testo: True         # l'utente conferma
     gui.LicenseManagerApp._on_renew(fake)
     assert fake.__dict__.get("_token_mostrato"), "confermando, il token nuovo dev'essere mostrato"
 
@@ -1898,3 +1908,59 @@ def test_la_vista_regge_uno_store_revoche_illeggibile(gui, tmp_path):
     fake._read_revocations = lambda **_kw: (_ for _ in ()).throw(OSError("disco"))
     assert gui.LicenseManagerApp._revoked_serials(fake) == set()
     assert gui.LicenseManagerApp._registry_view(fake), "la tabella deve comunque mostrare le righe"
+
+
+def test_store_revoche_ILLEGGIBILE_non_deve_riattivare_in_silenzio(gui, tmp_path):
+    """**Bloccante trovato da Fable 5 e Fugu Ultra, indipendentemente.** Fail-open reale.
+
+    `_revoked_serials()` degrada a insieme vuoto su qualunque errore: giusto per la VISTA (un
+    elenco non deve fallire), sbagliato come **gate di autorizzazione**. Con `revoked.jsonl`
+    illeggibile o lockato — frequente su Windows — un serial revocato saltava il ramo
+    `needs_confirm` e veniva riemesso **in silenzio**, cioè il contrario del «fail-closed»
+    dichiarato nel docstring e in `docs/licensing.md`.
+
+    Non poter leggere le revoche significa **non poter escludere** che quella licenza sia
+    revocata: nel dubbio si chiede, non si procede."""
+    fake, serial = _emetti_e_revoca(gui, tmp_path)
+    fake._read_revocations = lambda **_kw: (_ for _ in ()).throw(OSError("file lockato"))
+    esito = gui.LicenseManagerApp._evaluate_renew(fake, serial, "30")
+    assert esito.get("needs_confirm") is True, (
+        "store revoche illeggibile: il rinnovo NON deve procedere senza conferma — "
+        "non poter leggere le revoche non è «nessuno è revocato»")
+    assert esito["token"] == "", "nessun token deve uscire finché non c'è una conferma"
+
+
+def test_generare_la_keypair_DIPINGE_davvero_la_chiave(gui, tmp_path):
+    """**Major trovato da CodeRabbit.** `_public_value` è diventato un Textbox, ma `_on_generate`
+    continuava a scriverlo con `configure(text=…)` — che un Textbox non accetta. L'eccezione
+    finiva in un `except` nudo, quindi in silenzio: dopo «Genera keypair» la casella mostrava
+    ancora «nessuna chiave», e «Copia chiave pubblica» copiava **il segnaposto**.
+
+    È il flusso che serve per mettere la chiave nel bridge, quindi il difetto valeva l'intera
+    funzione."""
+    fake = _fake(gui, tmp_path)
+    fake._public_value = _FakeTextbox("— (nessuna chiave: premi «Genera»)")
+    fake._set_msg = lambda t: None
+    fake._ensure_keypair = lambda: gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._refresh_key_state = lambda: gui.LicenseManagerApp._refresh_key_state(fake)
+    gui.LicenseManagerApp._on_generate(fake)
+
+    mostrato = fake._public_value.get("1.0", "end").strip()
+    atteso = gui.LicenseManagerApp._current_key_state(fake)["public"]
+    assert atteso, "premessa: la keypair dev'essere stata generata"
+    assert mostrato == atteso, "la casella deve mostrare la chiave pubblica appena generata"
+    assert "nessuna chiave" not in mostrato
+
+
+def test_il_serial_si_risolve_per_NOME_di_colonna_non_per_posizione(gui, tmp_path):
+    """Il serial veniva preso con `values[1]`, cioè legato all'ORDINE delle colonne. Riordinarle
+    (o cambiare l'ordine di `insert`) farebbe copiare il valore sbagliato — e su questi pulsanti
+    il valore sbagliato significa revocare o rinnovare la licenza di un **altro** utente."""
+    tabella = _FakeTabella(selezione=(0,))
+    tabella.insert("", "end", ("attiva", "LIC-AAA111BBB222", "Mario", "HW1", "12g", "2026-08-12"))
+    tabella.colonne = ("stato", "serial", "nome", "hw", "giorni", "scadenza")
+    campo = _FakeEntry()
+    fake = types.SimpleNamespace(_registry_table=tabella, _renew_serial_entry=campo)
+    gui.LicenseManagerApp._on_registry_select(fake)
+    assert campo.testo == "LIC-AAA111BBB222"
+    assert tabella.chiamate_set, "deve risolvere per nome di colonna (Treeview.set), non per indice"
