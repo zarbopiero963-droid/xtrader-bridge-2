@@ -382,6 +382,19 @@ nel repo/EXE.
   (emetti una nuova licenza → serial nuovo, non revocato). L'`hardware_id` è conservato nello store come
   metadato ma **non** emesso nella lista (un blacklist di macchina è un'azione più forte, non il default
   di R3b).
+- 👁️ **La revoca è VISIBILE nel registro** (2026-07-31). `view_rows` accetta `revoked_serials` e
+  marca quelle righe `REVOCATA`, **anche se scadute**. Prima `record_status` guardava solo `expiry`:
+  una licenza revocata continuava a comparire `ATTIVA`, quindi la revoca funzionava ma non si
+  vedeva. Il parametro è **opzionale** — i chiamanti che non lo passano hanno il comportamento di
+  prima. La GUI legge i serial da `revoked.jsonl` in modo fail-safe: store illeggibile → insieme
+  vuoto e stati per data, mai un elenco che fallisce.
+- 🔁 **Rinnovare un serial revocato è una RIATTIVAZIONE, e ora si conferma.** Il token nuovo ha un
+  serial nuovo, che non è in lista: il cliente torna operativo. È il percorso previsto dal modello
+  (la revoca è per emissione, non per persona), ma avveniva **in silenzio**.
+  `_evaluate_renew(..., conferma_revoca=False)` è ora **fail-closed** su un serial revocato e
+  restituisce `needs_confirm`; la GUI mostra un dialogo esplicito. Sul rinnovo di una licenza non
+  revocata **nessun dialogo**: una conferma che appare sempre si impara a cliccare senza leggere.
+  Il serial **vecchio resta revocato** — non esiste un «annulla revoca».
 - ⚠️ **Blacklist della macchina — opzionale, spenta di default** (PR-C del piano #194). Un record di
   revoca con **`blacklist_hw` vero** fa emettere anche `{"hw": ..}`, che blocca *qualunque* licenza su
   quella macchina. Serve contro un caso preciso: su un bridge **non aggiornato** il token malleato di

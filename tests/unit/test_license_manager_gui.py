@@ -59,6 +59,10 @@ def _fake(gui, tmp_path, now=_NOW):
     )
     fake._reg_query_entry = None
     fake._registry_box = None
+    # Marcatura REVOCATA nella vista + conferma sul rinnovo di un revocato: usa il giunto
+    # `_read_revocations` già iniettato qui sopra, quindi legge lo store REALE della cartella
+    # temporanea invece di uno stub.
+    fake._revoked_serials = lambda: gui.LicenseManagerApp._revoked_serials(fake)
     fake._key_path = lambda: core.signing_key_path(fake._key_dir)
     fake._current_key_state = lambda: gui.LicenseManagerApp._current_key_state(fake)
     fake._record_issued_safe = lambda token: gui.LicenseManagerApp._record_issued_safe(fake, token)
@@ -1776,3 +1780,121 @@ def test_area_scorrevole_riempie_ed_espande(gui):
     sorgente = inspect.getsource(gui.LicenseManagerApp._area_scorrevole)
     assert "CTkScrollableFrame" in sorgente
     assert 'fill="both"' in sorgente and "expand=True" in sorgente
+
+
+# ── revoca visibile + riattivazione consapevole (rilievo del proprietario) ──────────────────────
+
+def _emetti_e_revoca(gui, tmp_path):
+    """Emette una licenza vera e la revoca, sullo store reale della cartella temporanea."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)     # senza chiave l'emissione è fail-closed
+    esito = gui.LicenseManagerApp._evaluate_issue(fake, "Mario", "Rossi", "30", _HW)
+    assert esito["accepted"], esito["message"]
+    serial = registry.license_serial(esito["token"])
+    assert gui.LicenseManagerApp._evaluate_revoke(fake, serial)["accepted"]
+    return fake, serial
+
+
+def test_dopo_la_revoca_la_riga_non_e_piu_ATTIVA(gui, tmp_path):
+    """Il difetto segnalato dal proprietario: la revoca funzionava ma la tabella continuava a
+    mostrare `ATTIVA`, quindi non c'era modo di vedere chi fosse stato revocato."""
+    fake, serial = _emetti_e_revoca(gui, tmp_path)
+    righe = gui.LicenseManagerApp._registry_view(fake)
+    riga = next(r for r in righe if r["serial"] == serial)
+    assert riga["status"] == registry.STATUS_REVOKED
+
+
+def test_una_licenza_non_revocata_resta_ATTIVA(gui, tmp_path):
+    """Controprova: la marcatura non deve colorare di revocato tutto il registro."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    esito = gui.LicenseManagerApp._evaluate_issue(fake, "Anna", "Verdi", "30", _HW)
+    righe = gui.LicenseManagerApp._registry_view(fake)
+    riga = next(r for r in righe if r["serial"] == registry.license_serial(esito["token"]))
+    assert riga["status"] == registry.STATUS_ACTIVE
+
+
+def test_rinnovare_un_revocato_richiede_conferma_e_NON_emette(gui, tmp_path):
+    """Rinnovare un serial revocato è una RIATTIVAZIONE: il token nuovo ha un serial nuovo, che non
+    è nella lista di revoche. Prima avveniva in silenzio."""
+    fake, serial = _emetti_e_revoca(gui, tmp_path)
+    esito = gui.LicenseManagerApp._evaluate_renew(fake, serial, "30")
+    assert esito["needs_confirm"] is True
+    assert esito["accepted"] is False
+    assert esito["token"] == "", "senza conferma non deve uscire NESSUN token"
+    assert "REVOCATA" in esito["message"]
+
+
+def test_col_consenso_esplicito_la_riattivazione_avviene(gui, tmp_path):
+    """La conferma non deve bloccare il caso legittimo: un cliente revocato che ripaga si riattiva.
+
+    L'orologio va avanti prima del rinnovo, ed è **necessario**: il token è una funzione pura di
+    (nome, hardware, giorni, istante). Rinnovando con gli STESSI giorni nello STESSO secondo
+    dell'emissione originale il payload è identico → stesso token → **stesso serial**, che è ancora
+    revocato: la riattivazione non avverrebbe. In produzione `_now` è l'orologio reale e fra
+    emissione, revoca e rinnovo passano minuti o giorni, quindi il caso non si presenta; qui va
+    riprodotto esplicitamente perché il fake ha l'istante congelato.
+
+    Vale come nota registrata: se un domani si volesse rinnovare *programmaticamente* in batch, la
+    collisione di serial diventerebbe raggiungibile e andrebbe gestita."""
+    fake, serial = _emetti_e_revoca(gui, tmp_path)
+    fake._now = lambda: _NOW + 3600          # un'ora dopo, come nella realtà
+    esito = gui.LicenseManagerApp._evaluate_renew(fake, serial, "30", conferma_revoca=True)
+    assert esito["accepted"] is True and esito["token"]
+    nuovo = registry.license_serial(esito["token"])
+    assert nuovo != serial, "la riattivazione passa da un serial NUOVO"
+    assert nuovo not in gui.LicenseManagerApp._revoked_serials(fake), \
+        "il serial nuovo non deve essere nella lista di revoche, altrimenti non riattiva nulla"
+    assert serial in gui.LicenseManagerApp._revoked_serials(fake), \
+        "il serial VECCHIO resta revocato: la revoca non si annulla"
+
+
+def test_rinnovare_un_NON_revocato_non_chiede_niente(gui, tmp_path):
+    """Il flusso normale non deve guadagnare un dialogo: sarebbe una conferma che si impara a
+    cliccare senza leggere, e allora non protegge più nulla."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    esito = gui.LicenseManagerApp._evaluate_issue(fake, "Anna", "Verdi", "15", _HW)
+    serial = registry.license_serial(esito["token"])
+    rinnovo = gui.LicenseManagerApp._evaluate_renew(fake, serial, "30")
+    assert rinnovo["accepted"] is True
+    assert "needs_confirm" not in rinnovo
+
+
+def test_on_renew_non_riattiva_se_la_conferma_e_negata(gui, tmp_path):
+    """Cablaggio: dialogo che risponde NO → nessuna emissione. Il dialogo è fail-closed, quindi
+    headless (dove `_confirm_backup` ritorna False) il comportamento è lo stesso."""
+    fake, serial = _emetti_e_revoca(gui, tmp_path)
+    fake._renew_serial_entry, fake._renew_giorni_entry = _FakeEntry(serial), _FakeEntry("30")
+    fake._read = lambda e: e.testo
+    fake._show_token = lambda t: fake.__dict__.__setitem__("_token_mostrato", t)
+    fake._set_msg = lambda t: None
+    fake._on_registry_refresh = lambda: None
+    fake._confirm_backup = lambda _testo: False        # l'utente dice NO
+    fake._evaluate_renew = (lambda s, g, **kw: gui.LicenseManagerApp._evaluate_renew(fake, s, g, **kw))
+    gui.LicenseManagerApp._on_renew(fake)
+    assert fake.__dict__.get("_token_mostrato") == "", "negando la conferma non deve uscire un token"
+
+
+def test_on_renew_riattiva_se_la_conferma_e_data(gui, tmp_path):
+    fake, serial = _emetti_e_revoca(gui, tmp_path)
+    fake._renew_serial_entry, fake._renew_giorni_entry = _FakeEntry(serial), _FakeEntry("30")
+    fake._read = lambda e: e.testo
+    fake._show_token = lambda t: fake.__dict__.__setitem__("_token_mostrato", t)
+    fake._set_msg = lambda t: None
+    fake._on_registry_refresh = lambda: None
+    fake._confirm_backup = lambda _testo: True         # l'utente conferma
+    fake._evaluate_renew = (lambda s, g, **kw: gui.LicenseManagerApp._evaluate_renew(fake, s, g, **kw))
+    gui.LicenseManagerApp._on_renew(fake)
+    assert fake.__dict__.get("_token_mostrato"), "confermando, il token nuovo dev'essere mostrato"
+
+
+def test_la_vista_regge_uno_store_revoche_illeggibile(gui, tmp_path):
+    """Fail-safe: l'elenco gira anche subito dopo un'emissione. Se lo store revoche non è
+    leggibile si degrada a «non so chi è revocato», non si fa fallire la tabella."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    gui.LicenseManagerApp._evaluate_issue(fake, "Mario", "Rossi", "30", _HW)
+    fake._read_revocations = lambda **_kw: (_ for _ in ()).throw(OSError("disco"))
+    assert gui.LicenseManagerApp._revoked_serials(fake) == set()
+    assert gui.LicenseManagerApp._registry_view(fake), "la tabella deve comunque mostrare le righe"

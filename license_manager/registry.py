@@ -49,6 +49,11 @@ _SECONDS_PER_DAY = 86_400
 # Stati mostrati nella vista (calcolati, mai persistiti: dipendono da "adesso").
 STATUS_ACTIVE = "ATTIVA"
 STATUS_EXPIRED = "SCADUTA"
+# Stato di VISTA, non del record: la revoca vive in `revoked.jsonl`, non dentro la licenza. Prima
+# esistevano solo i due stati sopra, e una licenza revocata continuava a comparire «ATTIVA» — la
+# revoca veniva registrata e pubblicata correttamente, ma il proprietario non aveva modo di
+# **vederla**, e poteva credere che non avesse funzionato o rinnovare per sbaglio un revocato.
+STATUS_REVOKED = "REVOCATA"
 
 # Serializza gli append tra thread del processo (coerente con event_journal).
 _WRITE_LOCK = threading.Lock()
@@ -321,14 +326,23 @@ def days_left(record: dict, *, now: int) -> int:
     return (remaining + _SECONDS_PER_DAY - 1) // _SECONDS_PER_DAY
 
 
-def view_rows(records: list, *, query: str = "", now: int) -> list:
+def view_rows(records: list, *, query: str = "", now: int, revoked_serials=()) -> list:
     """Righe pronte per la tabella, **filtrate** (ricerca) e annotate con stato/giorni.
 
     Filtro **case-insensitive per sottostringa** su `serial`, `name`, `hardware_id` (spazi ai bordi
     ignorati); `query` vuota = tutte. Ogni riga espone SOLO campi non sensibili
     (`serial`/`name`/`hardware_id`/`issued`/`expiry`/`days`/`status`/`days_left`): **il token NON è
-    incluso** (non va mostrato nella vista d'elenco). Le righe più recenti (per `expiry`) prima."""
+    incluso** (non va mostrato nella vista d'elenco). Le righe più recenti (per `expiry`) prima.
+
+    `revoked_serials` = i serial presenti in `revoked.jsonl` (li legge il chiamante). Una licenza in
+    quell'insieme esce `REVOCATA`, **anche se scaduta**: è l'informazione che spiega perché non
+    riattivarla con un rinnovo distratto, e rispetto al fatto che la licenza è stata tolta la
+    scadenza è secondaria. Parametro **opzionale**: i chiamanti che non lo passano si comportano
+    esattamente come prima (nessuna migrazione, nessun cambio di esito)."""
     q = str(query or "").strip().casefold()
+    # Normalizzati come ovunque nel registro (spazi + maiuscole): un record scritto a mano non deve
+    # sfuggire alla marcatura — nel dubbio si mostra revocato, non attivo.
+    revocati = {str(s).strip().upper() for s in (revoked_serials or ())}
     rows = []
     for rec in records:
         serial = str(rec.get("serial", ""))
@@ -344,7 +358,9 @@ def view_rows(records: list, *, query: str = "", now: int) -> list:
             "issued": rec.get("issued"),
             "expiry": rec.get("expiry"),
             "days": rec.get("days"),
-            "status": record_status(rec, now=now),
+            # La revoca vince su tutto: è uno stato della LICENZA nel mondo, non del suo calendario.
+            "status": (STATUS_REVOKED if serial.strip().upper() in revocati
+                       else record_status(rec, now=now)),
             "days_left": days_left(rec, now=now),
         })
 

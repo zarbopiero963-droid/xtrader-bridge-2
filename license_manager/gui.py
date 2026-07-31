@@ -274,14 +274,25 @@ class LicenseManagerApp(ctk.CTk):
         nome_completo = " ".join(p for p in (str(nome).strip(), str(cognome).strip()) if p)
         return self._sign_and_record(nome_completo, giorni, hardware_id, seed=key["seed"])
 
-    def _evaluate_renew(self, serial, giorni_str) -> dict:
+    def _evaluate_renew(self, serial, giorni_str, *, conferma_revoca: bool = False) -> dict:
         """**Rinnovo/ri-emissione** (opzione B): ri-emette una licenza identificata dal `serial`, per
         lo STESSO nome + hardware ID del record, con **nuovi giorni** → nuovo token (nuovo serial; il
-        record vecchio resta nello storico). Fail-closed se il serial non è nel registro."""
+        record vecchio resta nello storico). Fail-closed se il serial non è nel registro.
+
+        **Rinnovo di un serial REVOCATO = riattivazione.** Il token nuovo ha un serial nuovo, che non
+        è nella lista di revoche: il cliente torna operativo. È il percorso di riattivazione previsto
+        dal modello (la revoca è per emissione, non per persona), ma prima avveniva **in silenzio** —
+        e combinato con la vista che non mostrava lo stato revocato si poteva riattivare un cliente
+        tolto, per errore, senza accorgersene. Ora serve `conferma_revoca=True`, che la GUI ottiene
+        da un dialogo esplicito. Fail-closed: senza conferma non si emette nulla."""
         rec = registry.find_by_serial(self._read_records(directory=self._key_dir), serial)
         if rec is None:
             return {"accepted": False, "token": "",
                     "message": f"Serial non trovato nel registro: {str(serial).strip()}"}
+        if not conferma_revoca and str(rec.get("serial", "")).strip().upper() in self._revoked_serials():
+            return {"accepted": False, "token": "", "needs_confirm": True,
+                    "message": f"⚠️ La licenza {str(rec.get('serial', '')).strip()} è REVOCATA. "
+                               "Rinnovarla emette un token nuovo che tornerà a funzionare."}
         key, err = self._load_key_or_error()
         if err is not None:
             return err
@@ -491,7 +502,19 @@ class LicenseManagerApp(ctk.CTk):
         """Righe del **registro licenze** filtrate per `query` (sola lettura, headless-testabile).
         Fail-safe: se la lettura del registro fallisce, `read_records` ritorna `[]` (nessun crash)."""
         records = self._read_records(directory=self._key_dir)
-        return registry.view_rows(records, query=str(query or ""), now=self._now())
+        return registry.view_rows(records, query=str(query or ""), now=self._now(),
+                                  revoked_serials=self._revoked_serials())
+
+    def _revoked_serials(self) -> set:
+        """I serial revocati, per marcarli nella vista. Fail-safe: se lo store non è leggibile
+        l'insieme è vuoto e la tabella mostra gli stati per data — degradare a «non so chi è
+        revocato» è accettabile, far fallire l'elenco no (gira anche dopo un'emissione)."""
+        try:
+            return {str(r.get("serial", "")).strip().upper()
+                    for r in self._read_revocations(directory=self._key_dir)}
+        except Exception as exc:    # noqa: BLE001 — vista best-effort come il resto del registro
+            _log.debug("Lettura revoche per la vista non riuscita [%s]", type(exc).__name__)
+            return set()
 
     @staticmethod
     def _format_registry_rows(rows: list) -> str:
@@ -1249,8 +1272,15 @@ class LicenseManagerApp(ctk.CTk):
 
     def _on_renew(self) -> None:
         """Rinnova (ri-emette) la licenza del serial indicato, con i nuovi giorni → nuovo token."""
-        result = self._evaluate_renew(self._read(self._renew_serial_entry),
-                                      self._read(self._renew_giorni_entry))
+        serial, giorni = (self._read(self._renew_serial_entry),
+                          self._read(self._renew_giorni_entry))
+        result = self._evaluate_renew(serial, giorni)
+        # Riattivazione di un revocato: si chiede, con la conseguenza scritta per esteso. Il dialogo
+        # è fail-closed (headless → «no»), quindi nel dubbio non si riattiva nessuno.
+        if result.get("needs_confirm") and self._confirm_backup(
+                f"{result['message']}\n\nÈ una RIATTIVAZIONE: il cliente che avevi revocato tornerà "
+                "operativo. Il serial vecchio resta revocato, quello nuovo no.\n\nProcedere?"):
+            result = self._evaluate_renew(serial, giorni, conferma_revoca=True)
         self._show_token(result.get("token", ""))
         self._set_msg(result["message"])
         self._on_registry_refresh()

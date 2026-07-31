@@ -1317,6 +1317,24 @@ dentro le schede. Perciò:
 | **🔑 Chiave** | chiave pubblica (Textbox selezionabile) · «🔑 Genera / mostra keypair» · «📋 Copia chiave pubblica» · «💾 Backup della chiave privata» | la chiave pubblica è quella da incollare in `license.py` |
 | **✅ Emetti** | Nome · Cognome · Giorni · Hardware ID → «✅ Genera chiave di attivazione» (SUCCESS) · box del token + «📋 Copia chiave di attivazione» | il token è ciò che si manda all'utente |
 | **📋 Registro** | ricerca · **tabella** (`ttk.Treeview`: Stato · Serial · Nome · Hardware ID · Giorni · Scadenza) · campo Serial + Nuovi giorni · «🔄 Rinnova» · «📋 Ri-mostra token» · «🚫 Revoca licenza» (DANGER) | selezionare una riga porta il serial nel campo |
+
+**Stati nella colonna «Stato»:** `ATTIVA` · `SCADUTA` · `REVOCATA`. Il terzo è stato aggiunto il
+2026-07-31: prima una licenza revocata continuava a comparire **ATTIVA** — la revoca veniva
+registrata e pubblicata correttamente, ma la vista non leggeva `revoked.jsonl`, quindi il
+proprietario non aveva modo di **vedere** chi avesse revocato. La revoca **vince anche sulla
+scadenza**: è l'informazione che spiega perché non riattivare quella licenza per distrazione.
+
+**Non esiste un «annulla revoca».** Il modello è: la revoca è definitiva su *quel* serial, e la
+riattivazione avviene emettendo una licenza nuova (serial nuovo, non in lista). Il **rinnovo di un
+serial revocato è quindi una riattivazione**, e dal 2026-07-31 chiede una **conferma esplicita**
+(«È una RIATTIVAZIONE: il cliente che avevi revocato tornerà operativo…»): prima avveniva in
+silenzio, e combinato con la vista che non mostrava lo stato revocato si poteva riattivare un
+cliente tolto senza accorgersene. Il dialogo è **fail-closed** — headless o annullato = non si
+riattiva nessuno. Sul rinnovo di una licenza **non** revocata non compare alcun dialogo: una
+conferma che appare sempre si impara a cliccare senza leggere, e allora non protegge più nulla.
+
+**Non esiste una «modifica» di licenza.** «🔄 Rinnova» ri-emette con gli stessi nome e hardware ID e
+giorni nuovi; per cambiare nome o macchina si emette una licenza nuova dalla scheda Emetti.
 | **🚫 Revoche** | «📤 Esporta lista revoche firmata» · pubblicazione automatica GitHub (repo/file/branch/ore/token) · «💾 Salva impostazioni» · «🚀 Pubblica ora» · etichetta persistente ultima pubblicazione | il token GitHub è mascherato e vive nel keyring |
 | **📦 Backup** | «📦 Esporta backup completo» · «📥 Ripristina backup completo» + avviso supporto offline | col **solo** seed registro e revoche non migrano (#183) |
 
