@@ -4774,3 +4774,18 @@ davvero a creare un symlink e si salta solo se non riesce. Un runner Windows con
 o `SeCreateSymbolicLinkPrivilege` ora esegue i test invece di saltarli.
 
 Suite: **4315 passed, 14 skipped**.
+
+### I due rilievi sui miei test, entrambi giusti
+
+**Fable 5: la sonda era duplicata identica in due file.** È la regola 3 applicata al mio stesso
+helper, dopo quattro PR passate a predicarla. E il posto peggiore in cui duplicare: un helper che
+decide **se un test si esegue**. Una copia disallineata lì non fallisce — **salta, in silenzio**,
+e la copertura sparisce senza che nessuno se ne accorga. Spostata in `tests/conftest.py`, unica
+per `safety/` e `integration/`.
+
+**Fugu Ultra: la sonda gira in `%TEMP%`, i test in `tmp_path`.** Su Windows possono stare su
+volumi diversi con politiche diverse: la sonda passa, la creazione reale fallisce, e il test non
+salta — **fallisce**, per una ragione che non c'entra con ciò che verifica. Chiuso con
+`crea_symlink`, che degrada a `pytest.skip` esattamente come già facevano i test sugli hard link.
+
+Suite: **4315 passed, 14 skipped**.

@@ -23,47 +23,20 @@ XTrader. Il fallback è coperto qui e in `tests/safety/test_path_link_194.py`.
 """
 
 import os
-import tempfile
 
 import pytest
 
 from xtrader_bridge import csv_writer, dirty_csv_store
 
 
-def _sa_creare_link() -> bool:
-    """Prova DAVVERO a creare un symlink, invece di dare per scontato che su Windows non
-    si possa (rilievo Fable 5 su #203).
-
-    Il salto incondizionato su `os.name == "nt"` lasciava Windows — l'ambiente più critico
-    per il bridge — senza NESSUNA verifica su link e junction, proprio dove il contratto li
-    promette. Con la sonda, un runner Windows che HA il privilegio (Developer Mode, o un
-    account con SeCreateSymbolicLinkPrivilege) esegue i test invece di saltarli, e il salto
-    resta solo dove è davvero inevitabile.
-    """
-    if not hasattr(os, "symlink"):
-        return False
-    with tempfile.TemporaryDirectory() as d:
-        bersaglio = os.path.join(d, "bersaglio")
-        with open(bersaglio, "w", encoding="utf-8") as f:
-            f.write("x")
-        try:
-            os.symlink(bersaglio, os.path.join(d, "link"))
-            return True
-        except (OSError, NotImplementedError, AttributeError):
-            return False
-
-
-richiede_link = pytest.mark.skipif(
-    not _sa_creare_link(),
-    reason="questo filesystem/utente non puo' creare symlink (su Windows serve Developer "
-           "Mode o SeCreateSymbolicLinkPrivilege)")
+from tests.conftest import crea_symlink, richiede_link
 
 
 def _csv_con_link(tmp_path, nome_reale="sessione.csv", nome_link="scorciatoia.csv"):
     reale = str(tmp_path / nome_reale)
     link = str(tmp_path / nome_link)
     csv_writer.init_csv(reale)
-    os.symlink(reale, link)
+    crea_symlink(reale, link)
     return reale, link
 
 
@@ -107,7 +80,7 @@ def test_la_guardia_NON_scatta_su_un_file_davvero_diverso(make_app, tmp_path):
     # «è lo stesso file?», non «è un link?».
     link_ad_altro = str(tmp_path / "link_ad_altro.csv")
     csv_writer.init_csv(altro)
-    os.symlink(altro, link_ad_altro)
+    crea_symlink(altro, link_ad_altro)
     assert a._is_active_session_csv(link_ad_altro) is False
 
 

@@ -21,40 +21,13 @@ aggiornare il file puntato e lasciare il link al suo posto.
 """
 
 import os
-import tempfile
 
 import pytest
 
 from xtrader_bridge import atomic_io, csv_writer
 
 
-def _sa_creare_link() -> bool:
-    """Prova DAVVERO a creare un symlink, invece di dare per scontato che su Windows non
-    si possa (rilievo Fable 5 su #203).
-
-    Il salto incondizionato su `os.name == "nt"` lasciava Windows — l'ambiente più critico
-    per il bridge — senza NESSUNA verifica su link e junction, proprio dove il contratto li
-    promette. Con la sonda, un runner Windows che HA il privilegio (Developer Mode, o un
-    account con SeCreateSymbolicLinkPrivilege) esegue i test invece di saltarli, e il salto
-    resta solo dove è davvero inevitabile.
-    """
-    if not hasattr(os, "symlink"):
-        return False
-    with tempfile.TemporaryDirectory() as d:
-        bersaglio = os.path.join(d, "bersaglio")
-        with open(bersaglio, "w", encoding="utf-8") as f:
-            f.write("x")
-        try:
-            os.symlink(bersaglio, os.path.join(d, "link"))
-            return True
-        except (OSError, NotImplementedError, AttributeError):
-            return False
-
-
-richiede_link = pytest.mark.skipif(
-    not _sa_creare_link(),
-    reason="questo filesystem/utente non puo' creare symlink (su Windows serve Developer "
-           "Mode o SeCreateSymbolicLinkPrivilege)")
+from tests.conftest import crea_symlink, richiede_hardlink, richiede_link
 
 
 def _riga_segnale():
@@ -77,7 +50,7 @@ def test_svuotare_un_csv_raggiunto_da_un_LINK_svuota_il_file_VERO(tmp_path):
     reale = str(tmp_path / "reale.csv")
     link = str(tmp_path / "link.csv")
     csv_writer.write_rows([_riga_segnale()], reale)
-    os.symlink(reale, link)
+    crea_symlink(reale, link)
     assert csv_writer.has_active_row(reale)          # premessa: c'è una riga stantia
 
     assert csv_writer.clear_stale_csv(link) is True
@@ -96,7 +69,7 @@ def test_scrivere_attraverso_un_link_NON_lo_sostituisce_con_un_file(tmp_path):
     reale = str(tmp_path / "reale.csv")
     link = str(tmp_path / "link.csv")
     csv_writer.init_csv(reale)
-    os.symlink(reale, link)
+    crea_symlink(reale, link)
 
     csv_writer.write_rows([_riga_segnale()], link)
 
@@ -112,7 +85,7 @@ def test_scritture_ripetute_attraverso_il_link_restano_sul_file_VERO(tmp_path):
     reale = str(tmp_path / "reale.csv")
     link = str(tmp_path / "link.csv")
     csv_writer.init_csv(reale)
-    os.symlink(reale, link)
+    crea_symlink(reale, link)
 
     for _ in range(3):
         csv_writer.write_rows([_riga_segnale()], link)
@@ -129,7 +102,7 @@ def test_una_cartella_raggiunta_da_un_link_funziona_uguale(tmp_path):
     vera = tmp_path / "vera"
     vera.mkdir()
     collegata = str(tmp_path / "collegata")
-    os.symlink(str(vera), collegata)
+    crea_symlink(str(vera), collegata)
 
     dentro_il_link = os.path.join(collegata, "segnali.csv")
     csv_writer.write_rows([_riga_segnale()], dentro_il_link)
@@ -148,7 +121,7 @@ def test_un_link_a_un_file_ESTRANEO_non_viene_toccato(tmp_path):
     estraneo = tmp_path / "documento_dell_utente.csv"
     estraneo.write_text("colonna1,colonna2\nvalore,importante\n", encoding="utf-8")
     link = str(tmp_path / "link.csv")
-    os.symlink(str(estraneo), link)
+    crea_symlink(str(estraneo), link)
 
     assert csv_writer.clear_stale_csv(link) is False
     assert estraneo.read_text(encoding="utf-8") == "colonna1,colonna2\nvalore,importante\n"
@@ -175,7 +148,7 @@ def test_stesso_file_riconosce_il_link(tmp_path):
     reale = tmp_path / "a.csv"
     reale.write_text("x", encoding="utf-8")
     link = str(tmp_path / "b.csv")
-    os.symlink(str(reale), link)
+    crea_symlink(str(reale), link)
 
     assert atomic_io.stesso_file(link, str(reale)) is True
     assert atomic_io.stesso_file(str(reale), link) is True
@@ -229,11 +202,7 @@ def test_stesso_file_su_input_vuoti_e_falso():
 # dichiarato e non scoperto per caso da chi ci inciampa.
 # ══════════════════════════════════════════════════════════════════════════════════
 
-sa_creare_hardlink = pytest.mark.skipif(
-    not hasattr(os, "link"), reason="hard link non supportati su questo filesystem")
-
-
-@sa_creare_hardlink
+@richiede_hardlink
 def test_LIMITE_gli_hard_link_non_sono_attraversati_dalla_scrittura(tmp_path):
     bridge_scrive = str(tmp_path / "bridge.csv")
     altro_nome = str(tmp_path / "altro_nome.csv")
@@ -257,7 +226,7 @@ def test_LIMITE_gli_hard_link_non_sono_attraversati_dalla_scrittura(tmp_path):
     assert os.stat(bridge_scrive).st_ino != os.stat(altro_nome).st_ino
 
 
-@sa_creare_hardlink
+@richiede_hardlink
 def test_le_GUARDIE_invece_riconoscono_gli_hard_link(tmp_path):
     """L'asimmetria è voluta: il writer non li attraversa, le guardie sì. Bloccano di più,
     e bloccare è la direzione sicura — «Crea CSV» su un hard link al CSV attivo va
