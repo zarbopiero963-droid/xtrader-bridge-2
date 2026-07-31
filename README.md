@@ -660,7 +660,13 @@ Tutte queste protezioni sono **attive a runtime**:
    (`APPEND_ACTIVE`/`QUEUE_UNTIL_CONFIRMED`), un segnale **identico a una riga ancora
    attiva** nel CSV è un duplicato **a prescindere dalla finestra temporale**: anche se
    il reinvio arriva oltre la finestra di deduplica (es. `confirmation_timeout` più
-   lungo), la riga uguale già attiva non viene mai raddoppiata.
+   lungo), la riga uguale già attiva non viene mai raddoppiata. Il confronto guarda la
+   **scommessa**, non il testo che l'ha prodotta (audit #194 · B1): un repost **riformulato**
+   — intestazione promozionale, firma diversa, inoltro — che produce la stessa riga
+   (evento, mercato, selezione, lato, handicap) è riconosciuto come duplicato anche se il
+   messaggio è diverso. Restano invece due scommesse distinte due righe **diverse**, e una
+   riga **scaduta** torna ripiazzabile. In `OVERWRITE_LAST` nulla cambia: lì la nuova
+   istruzione **sostituisce** la precedente, quindi una seconda riga non può esistere.
 5. **Limite al minuto e al giorno** — oltre soglia i segnali in eccesso non scrivono
    (`max_per_day` per il giorno). I limiti contano **istruzioni (messaggi)**, non
    gambe: un messaggio **multi-gamba** (dutching) consuma **una** slot per limite e

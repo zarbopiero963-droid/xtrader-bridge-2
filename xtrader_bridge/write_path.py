@@ -117,7 +117,17 @@ def commit_signal(tracker, daily, queue, cfg, text, row, path, now, write_rows,
         # percorso multi. Oggi `row_dedup_key` non può restituire "" (sha256 hexdigest, sempre 64
         # char), ma se un refactor futuro lo permettesse, una chiave vuota NON deve combaciare con
         # una riga legacy accodata senza chiave ("") e bloccare un segnale nuovo (over-blocking).
-        if tracker.is_seen(key) or (
+        # B1 (#194 / #192 H1): la chiave sopra dipende dal MESSAGGIO, quindi due testi formulati
+        # diversamente per la STESSA giocata non collidono e la riga verrebbe accodata due volte
+        # (doppia scommessa). Si confronta anche l'IDENTITÀ della scommessa — indipendente dal
+        # testo — con le righe ANCORA attive in coda. Solo in APPEND/QUEUE: in OVERWRITE_LAST
+        # `add` SOSTITUISCE, una seconda riga non può esistere, e il reinvio deve poter
+        # riscrivere l'ultima istruzione (comportamento storico invariato).
+        duplicato_per_contenuto = (
+            queue.mode != signal_queue.OVERWRITE_LAST
+            and signal_dedupe.row_identity(row) in {
+                signal_dedupe.row_identity(r) for r in queue.active_rows(now=now)})
+        if tracker.is_seen(key) or duplicato_per_contenuto or (
                 queue.mode != signal_queue.OVERWRITE_LAST and key
                 and key in {k for k in queue.active_keys(now=now) if k}):
             decision = live_guard.DUPLICATE
@@ -308,6 +318,13 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
     # legacy accodate senza `dedup_key` non devono mai bloccare). In OVERWRITE il blocco è già
     # protetto da `active_keys` + `_same_rows_unordered` (reinvio identico = no-op).
     queue_active = set() if overwrite else {k for k in queue.active_keys(now=now) if k}
+    # B1 (#194 / #192 H1): gemello della guardia in `commit_signal`. Le chiavi sopra dipendono dal
+    # MESSAGGIO, quindi un blocco proveniente da un testo riformulato non riconoscerebbe le proprie
+    # righe già attive e le riaccoderebbe. Confrontando l'IDENTITÀ della scommessa, un'espansione
+    # A→A+B mantiene A (già piazzata, resta attiva) e aggiunge solo B, invece di produrre A+A+B.
+    # Vuoto in OVERWRITE_LAST, dove il blocco sostituisce e la riscrittura è voluta.
+    identita_attive = set() if overwrite else {
+        signal_dedupe.row_identity(r) for r in queue.active_rows(now=now)}
 
     decisions = []
     fresh = []             # righe NUOVE (non duplicate) di QUESTO messaggio, in ordine
@@ -327,9 +344,11 @@ def commit_signals(tracker, daily, queue, cfg, text, rows, path, now, write_rows
                 queue.add(row, now=now, force=True)
             continue
         key = signal_dedupe.row_dedup_key(text, row)
-        if key in queue_active:
+        if key in queue_active or signal_dedupe.row_identity(row) in identita_attive:
             # P2-1 #76: riga identica ANCORA attiva (provenienza esatta) → duplicato, senza
             # consumare tracker/daily (nessun `decide_write`): non accodata, non scritta.
+            # B1 #194: vale anche quando la PROVENIENZA differisce ma la SCOMMESSA è la stessa —
+            # un repost riformulato non deve accodare una seconda riga uguale.
             decisions.append(live_guard.DUPLICATE)
             continue
         if key in seen_in_block:
