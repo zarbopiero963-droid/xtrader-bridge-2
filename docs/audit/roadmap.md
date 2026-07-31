@@ -3963,3 +3963,37 @@ trasformazione `score_to_over` produce la virgola, un messaggio può scrivere il
 chiuso qui perché il contratto CSV esclude **esplicitamente** le colonne testuali da ogni
 canonicalizzazione (*«le colonne testuali non vengono mai toccate»*): allargare lì è una decisione
 del proprietario, non una conseguenza di questa correzione.
+
+### Cosa ha cambiato la review (#198)
+
+Tre rilievi hanno modificato la patch, e uno di questi era un **bug mio**:
+
+- **`numbers_re` è la fonte unica, e non l'avevo usata** (a valle di un rilievo GPT-5.5 sulla
+  virgola). La prima stesura aveva una regex dell'handicap scritta a mano — una **quinta copia**
+  del frammento che l'audit L4 aveva già estratto proprio per impedire il drift, e per giunta
+  **più permissiva del validatore**: accettava «.5», che il pipeline **scarta** come
+  `INVALID_HANDICAP`. Su un campo che diventa una scommessa, essere più permissivi del validatore
+  è la direzione sbagliata. Ora `_HANDICAP_NUM` si compone da `numbers_re.SIGNED_DECIMAL`: le due
+  definizioni non possono più divergere, e si guadagna gratis la **virgola** — legittima qui,
+  perché `Handicap` è una colonna **decimale** (a differenza delle testuali di B47).
+- **Il `ValueError` che ne è seguito.** Il frammento condiviso accetta entrambi i separatori ma
+  `float()` capisce solo il punto: la prima stesura sollevava `ValueError` su un handicap con la
+  virgola, **sul percorso di scrittura**. L'ha preso il test che GPT-5.5 aveva chiesto — non la
+  rilettura del codice.
+- **Un test tautologico** (rilievo Fugu Ultra). `test_la_normalizzazione…` confrontava
+  `_stessa_scommessa(a, b)` con `normalize(a) == normalize(b)`: vero per costruzione, visto che
+  l'identità usa proprio `normalize`. Non dimostrava la cosa che conta — che `normalize` faccia
+  **solo** case e spazi e **non** risolva alias, perché se risolvesse alias due scommesse davvero
+  diverse collasserebbero e si perderebbe un segnale valido. Sostituito da un test che verifica
+  gli invarianti carattere per carattere (accenti, trattini, slash, cifre, punti).
+
+Aggiunti anche i due controlli mancanti chiesti in review: l'**aggiornamento con
+`dedupe_state.json` preesistente** (il giro completo salva → riavvio → rilettura → reinvio, cioè
+lo scenario che poteva produrre la doppia scommessa) e la **separazione da `csv_language`**
+(identità invariata in `IT`/`EN`/`ES`).
+
+> **Nota di metodo.** Come per la #166, entrambi i difetti reali di questa PR sono usciti
+> **eseguendo**, non rileggendo: la quinta copia della regex l'ha fatta emergere una domanda su un
+> caso che non avevo testato, e il `ValueError` l'ha preso il test scritto per rispondere a quella
+> domanda. Nessuno dei due si vede leggendo il diff — e infatti nessuno dei quattro reviewer li
+> aveva visti: avevano visto le *domande giuste*.

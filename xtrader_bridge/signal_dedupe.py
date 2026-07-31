@@ -45,7 +45,7 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from . import atomic_io, dizionario, validators
+from . import atomic_io, dizionario, numbers_re, validators
 
 # Stati del ciclo di vita del segnale (vocabolario condiviso; usati appieno in
 # PR-16/PR-17). DUPLICATE/RATE_LIMITED sono gli esiti decisi qui.
@@ -114,10 +114,14 @@ def _row_fields(row: dict) -> list:
     return [str((row or {}).get(k, "") or "").strip() for k in _ROW_KEY_FIELDS]
 
 
-# Handicap: numero con segno e separatore decimale opzionali («0», «+1», «-0.5», «.5»).
-# Cifre ASCII soltanto, come il resto del progetto (#318 L2-1): con `\d` un «٠.٥» verrebbe
-# interpretato come un handicap, e l'handicap finisce nella riga CSV.
-_HANDICAP_NUM = re.compile(r"^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$")
+# Handicap numerico: si COMPONE dal frammento condiviso `numbers_re.SIGNED_DECIMAL` invece di
+# riscriverlo (fonte unica anti-drift, audit L4 — la prima stesura di questa patch aveva una
+# regex a mano, cioè una QUINTA copia, ed era per giunta più permissiva del validatore: accettava
+# «.5», che `_HANDICAP_RE` del pipeline SCARTA come INVALID_HANDICAP. Rilievo GPT-5.5 su #198).
+# Comporlo qui dà gratis anche la VIRGOLA («+1,5»), che il frammento condiviso già accetta:
+# `Handicap` è una colonna DECIMALE, e per quelle il contratto CSV ammette esplicitamente
+# entrambi i separatori — a differenza delle colonne testuali (vedi B47).
+_HANDICAP_NUM = re.compile(r"^" + numbers_re.SIGNED_DECIMAL + r"$")
 
 
 def _canonical_handicap(value: str):
@@ -132,7 +136,10 @@ def _canonical_handicap(value: str):
     l'identità delle scommesse)."""
     if not _HANDICAP_NUM.match(value):
         return None
-    numero = float(value)
+    # `numbers_re` accetta ENTRAMBI i separatori ma `float()` capisce solo il punto: senza
+    # questa riga un handicap con la virgola sollevava `ValueError` sul percorso di scrittura
+    # (bug della prima stesura, preso dal test chiesto da GPT-5.5 su #198).
+    numero = float(value.replace(",", "."))
     if not math.isfinite(numero):        # irraggiungibile via la regex, esplicito per contratto
         return None
     return repr(numero + 0.0)            # «+0.0» e «-0.0» collassano sullo stesso zero

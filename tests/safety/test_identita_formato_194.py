@@ -42,6 +42,7 @@ conseguenza di questa correzione. Registrato a parte come B47.
 import csv as _csv
 import os
 import tempfile
+import time
 
 import pytest
 
@@ -71,12 +72,20 @@ def _stessa_scommessa(a: dict, b: dict) -> bool:
     ("0", "0.0"),        # il caso segnalato in review
     ("0", "+0"),
     ("1", "+1"),
-    ("0.5", ".5"),
     ("0.5", "0.50"),
-    ("-0.5", "-.50"),
+    ("-0.5", "-0.50"),
+    ("0,5", "0.5"),      # virgola: `Handicap` è una colonna DECIMALE (rilievo GPT-5.5 #198)
+    ("0,0", "0"),
+    ("+1,5", "1.5"),
 ])
 def test_handicap_stesso_numero_stessa_scommessa(uno, due):
-    """FAIL-FIRST. Lo stesso handicap scritto in due modi è lo stesso handicap."""
+    """FAIL-FIRST. Lo stesso handicap scritto in due modi è lo stesso handicap.
+
+    La virgola è inclusa perché `Handicap` è una colonna **decimale**, e per quelle il
+    contratto CSV ammette esplicitamente entrambi i separatori — a differenza delle colonne
+    testuali, che il contratto dichiara intoccabili (per quelle vedi B47, fuori scope).
+    A monte il pipeline normalizza già virgola→punto, quindi questo è un presidio di
+    profondità, non l'unica difesa."""
     assert _stessa_scommessa({"Handicap": uno}, {"Handicap": due}), (
         f"handicap {uno!r} e {due!r} sono lo stesso numero ma due scommesse diverse")
 
@@ -157,6 +166,15 @@ def test_handicap_non_numerico_confronta_come_TESTO():
     # e un non-numero non collide mai con uno zero solo perché entrambi «non valgono nulla»
     assert not _stessa_scommessa({"Handicap": "asimmetrico"}, {"Handicap": "0"})
 
+    # `.5` e `0.` NON sono handicap validi per la definizione del progetto
+    # (`numbers_re.SIGNED_DECIMAL`, che il pipeline usa per scartarli come INVALID_HANDICAP):
+    # qui restano testo. La prima stesura di questa patch aveva una regex a mano PIÙ PERMISSIVA
+    # del validatore e li canonicalizzava — direzione sbagliata su un campo che diventa una
+    # scommessa. Ora la regex si compone dal frammento condiviso e le due definizioni non
+    # possono divergere.
+    assert not _stessa_scommessa({"Handicap": ".5"}, {"Handicap": "0.5"})
+    assert not _stessa_scommessa({"Handicap": "0."}, {"Handicap": "0"})
+
 
 def test_valori_non_finiti_non_collassano_su_un_numero():
     """`float("nan")`/`inf` sono parsabili da `float()` ma non sono handicap: devono restare
@@ -203,6 +221,71 @@ def test_row_dedup_key_non_e_cambiata_di_un_byte():
         "silenzio le chiavi già scritte e riapre la doppia scommessa al primo riavvio.")
 
 
+def test_aggiornamento_con_stato_PERSISTITO_preesistente():
+    """Il test che GPT-5.5 ha chiesto su #198, ed è quello giusto da chiedere: non basta che
+    la patch funzioni su stato pulito, deve funzionare su un `dedupe_state.json` **scritto
+    prima** dell'aggiornamento.
+
+    È lo scenario che poteva produrre una doppia scommessa: se la canonicalizzazione avesse
+    toccato `row_dedup_key`, la chiave salvata su disco dalla versione precedente non
+    corrisponderebbe più a quella ricalcolata dopo l'aggiornamento, il reinvio non sarebbe
+    riconosciuto come duplicato e verrebbe scritto una seconda volta.
+
+    Qui si simula il giro completo: chiave calcolata e registrata, stato salvato su disco,
+    processo «riavviato» (tracker nuovo) e stato ricaricato, poi lo stesso segnale reinviato.
+    """
+    percorso = os.path.join(tempfile.mkdtemp(), "dedupe_state.json")
+    riga = _riga()
+    chiave = signal_dedupe.row_dedup_key("MSG", riga)
+
+    # Orologio REALE, non `T0`: `load_state` non accetta un `now` e usa `time.time()`. Con un
+    # timestamp sintetico nel futuro il clamp anti-corruzione di PR-B (B4) lo riporterebbe a
+    # `now`, la voce uscirebbe dalla finestra e il test misurerebbe il clamp invece della
+    # persistenza. Lo scenario vero è comunque questo: salvato un istante fa, riletto adesso.
+    adesso = time.time()
+
+    prima = signal_dedupe.SignalTracker()
+    # `mark_seen` è la via con cui `write_path` registra le chiavi PER-RIGA (`register` prende
+    # il TESTO del messaggio e ne calcola l'hash: è l'altro namespace).
+    prima.mark_seen(chiave, now=adesso)
+    assert prima.is_seen(chiave, now=adesso)
+    assert signal_dedupe.save_state(prima, percorso) is True
+
+    # «riavvio»: processo nuovo, stato riletto dal disco scritto dalla versione precedente
+    dopo = signal_dedupe.SignalTracker()
+    assert signal_dedupe.load_state(dopo, percorso) is True
+
+    assert dopo.is_seen(signal_dedupe.row_dedup_key("MSG", riga), now=adesso + 10), (
+        "la chiave persistita non corrisponde più a quella ricalcolata dopo l'aggiornamento: "
+        "il duplicato non verrebbe riconosciuto e il segnale sarebbe scritto due volte")
+
+    # e la riga equivalente ma RIFORMATTATA: la chiave persistita non la copre (dipende dal
+    # formato, per progetto), ma la copre l'IDENTITÀ, che è calcolata a runtime.
+    riformattata = _riga(SelectionName="INTER", Handicap="0.0")
+    assert not dopo.is_seen(signal_dedupe.row_dedup_key("MSG", riformattata), now=adesso + 10)
+    assert signal_dedupe.row_identity(riformattata) == signal_dedupe.row_identity(riga)
+
+
+def test_csv_language_non_cambia_l_identita():
+    """Altro controllo chiesto da GPT-5.5. La localizzazione del separatore decimale avviene
+    **solo** in `csv_writer` al momento della scrittura (contratto CSV); coda e identità
+    vedono sempre la forma interna col punto. Quindi cambiare la lingua del CSV non può
+    cambiare quali scommesse sono «la stessa» — altrimenti un utente italiano e uno inglese
+    avrebbero comportamenti anti-duplicato diversi.
+    """
+    riga = _riga(Handicap="0.5")
+    identita = signal_dedupe.row_identity(riga)
+
+    for lingua in ("IT", "EN", "ES"):
+        localizzata = csv_writer.localize_row(riga, lingua)
+        # la riga localizzata è ciò che finisce nel FILE, non ciò che entra in coda
+        assert signal_dedupe.row_identity(riga) == identita
+        # e comunque, anche se una riga localizzata rientrasse, l'handicap resta lo stesso
+        assert signal_dedupe.row_identity(localizzata) == identita, (
+            f"lingua {lingua}: la localizzazione ha cambiato l'identità della scommessa "
+            f"(handicap {localizzata['Handicap']!r})")
+
+
 def test_row_dedup_key_resta_sensibile_al_formato():
     """Corollario esplicito del test sopra, perché la differenza fra le due chiavi sia una
     scelta leggibile e non un effetto collaterale: `row_identity` chiede «è la stessa
@@ -213,11 +296,35 @@ def test_row_dedup_key_resta_sensibile_al_formato():
     assert signal_dedupe.row_identity(a) == signal_dedupe.row_identity(b)
 
 
-def test_la_normalizzazione_testuale_e_quella_del_dizionario():
-    """La fonte unica, resa eseguibile. Se qualcuno domani cambiasse `dizionario.normalize`
-    senza pensare all'identità delle scommesse — o viceversa ne scrivesse una copia locale —
-    le due nozioni di «stesso nome» divergerebbero in silenzio: il dizionario risolverebbe
-    due alias allo stesso nome e la deduplica li tratterebbe come scommesse diverse."""
-    for uno, due in [("Inter", "INTER"), ("Over  0.5  HT", "over 0.5 ht"), ("A B", "a  b")]:
-        stesso_nome = dizionario.normalize(uno) == dizionario.normalize(due)
-        assert _stessa_scommessa({"SelectionName": uno}, {"SelectionName": due}) == stesso_nome
+def test_la_normalizzazione_fa_SOLO_case_e_spazi():
+    """La prima stesura di questo test confrontava `_stessa_scommessa(...)` con
+    `normalize(a) == normalize(b)`: **tautologico**, visto che l'identità usa proprio
+    `normalize` (rilievo Fugu Ultra su #198). Non dimostrava la cosa che conta.
+
+    Quella che conta è la **semantica**: `normalize` deve fare solo case-folding e collasso
+    degli spazi, e NON risolvere alias o value-map. Se risolvesse alias, scommesse davvero
+    diverse collasserebbero sulla stessa identità e si **perderebbe un segnale valido** —
+    l'errore opposto e speculare alla doppia scommessa. Qui si verifica carattere per
+    carattere che nulla venga rimosso o tradotto.
+    """
+    invarianti = ["Over 2.5", "Inter-Milan", "U21", "Atlético", "1X2", "Under/Over",
+                  "Team A vs Team B", "Sì", "1-0"]
+    for testo in invarianti:
+        assert dizionario.normalize(testo) == testo.lower(), (
+            f"{testo!r} è stato alterato oltre il case: {dizionario.normalize(testo)!r}. "
+            "Accenti, trattini, slash, cifre e punti devono restare — se la normalizzazione "
+            "diventasse più aggressiva, o risolvesse alias, due scommesse DIVERSE "
+            "collasserebbero sulla stessa identità e un segnale valido andrebbe perso.")
+
+    # e le uniche due cose che DEVE fare
+    assert dizionario.normalize("  Inter  Milan  ") == "inter milan"
+    assert dizionario.normalize("INTER") == dizionario.normalize("inter")
+
+
+def test_alias_diversi_del_dizionario_restano_scommesse_diverse():
+    """Corollario del precedente sul percorso reale: `normalize` è usata dal dizionario per il
+    LOOKUP degli alias, non per tradurli. Due nomi di selezione diversi restano due scommesse
+    diverse anche se il dizionario li conosce entrambi."""
+    assert not _stessa_scommessa({"SelectionName": "Over 2.5"}, {"SelectionName": "Under 2.5"})
+    assert not _stessa_scommessa({"SelectionName": "Over 2.5"}, {"SelectionName": "Over 3.5"})
+    assert not _stessa_scommessa({"MarketType": "MATCH_ODDS"}, {"MarketType": "OVER_UNDER"})
