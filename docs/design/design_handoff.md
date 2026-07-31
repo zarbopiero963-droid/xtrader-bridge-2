@@ -1275,6 +1275,82 @@ riepilogo non può divergere dal comportamento reale. Logica in `config_summary.
 - **Aggiornamento**: al **cambio scheda** nell'hub il pannello si ri-legge (`refresh_options`),
   così riflette modifiche fatte in altre schede senza riaprire la finestra.
 
+### 7.11 🔐 XTrader License Manager (`license_manager/gui.py`) — APPLICAZIONE SEPARATA
+
+> ⚠️ **Fuori dal perimetro di redesign.** Non è una finestra del bridge: è l'**applicazione del
+> proprietario**, con un EXE e un workflow di build propri, che l'utente finale **non vede mai**.
+> È documentata qui solo perché esiste e per **non lasciarla ambigua** al prossimo intervento: le
+> proposte di redesign del bridge non la riguardano, ma una modifica al suo aspetto va comunque
+> annotata in questa sezione.
+
+**A che serve:** genera la keypair Ed25519 che firma **tutte** le licenze, emette le chiavi di
+attivazione, tiene il registro delle licenze emesse, revoca e pubblica la lista di revoche firmata.
+
+**Struttura — a schede dal 2026-07-31.** Prima era una **colonna unica** di ~40 widget impilati e
+**senza `geometry()`**: la finestra prendeva la propria altezza naturale e su un portatile sfondava
+lo schermo. Non era un difetto estetico — «💾 Backup della chiave privata», «🚫 Revoca licenza» e
+tutta la pubblicazione automatica finivano **sotto il bordo, irraggiungibili**: il pulsante che
+salva l'unica chiave non rigenerabile del sistema era invisibile.
+
+Finestra `900×660`, `minsize 780×580`. Intestazione e riga messaggi stanno **fuori** dalle schede
+(un esito non deve poter finire in una scheda che non stai guardando).
+
+**Scorrimento — le schede da sole non bastano.** Misurato: alla `minsize` restano ~450px utili
+dentro una scheda, e «Registro» ne chiede ~464; con lo scaling di Windows al 125%/150% (normale sui
+portatili) sforano anche le altre. Senza scorrimento sarebbe lo stesso difetto di prima, spostato
+dentro le schede. Perciò:
+
+- **Chiave · Emetti · Revoche · Backup** → contenuto dentro un `CTkScrollableFrame`: ciò che eccede
+  si scorre invece di sparire;
+- **Registro** → layout proprio, **non** annidato in un pannello scorrevole (due scorrimenti
+  verticali sovrapposti sono peggio di uno mancante: la rotellina muove quello sbagliato). I
+  comandi — didascalia, campi Serial/Giorni, pulsanti — sono **ancorati in basso**
+  (`side="bottom"`, packati per primi) e la tabella prende lo spazio che resta: rimpicciolendo la
+  finestra si restringe la **tabella**, non spariscono i pulsanti;
+- **la tabella ha entrambe le barre.** Verticale perché le righe crescono senza limite (8 visibili:
+  con 20 licenze le altre 12 sarebbero irraggiungibili). Orizzontale perché le colonne sono a
+  larghezza fissa (`stretch=False`, comprimerle renderebbe illeggibile il serial) e in una finestra
+  stretta «Giorni» e «Scadenza» finirebbero oltre il bordo destro.
+
+| Scheda | Contenuto | Nota |
+|---|---|---|
+| **🔑 Chiave** | chiave pubblica (Textbox selezionabile) · «🔑 Genera / mostra keypair» · «📋 Copia chiave pubblica» · «💾 Backup della chiave privata» | la chiave pubblica è quella da incollare in `license.py` |
+| **✅ Emetti** | Nome · Cognome · Giorni · Hardware ID → «✅ Genera chiave di attivazione» (SUCCESS) · box del token + «📋 Copia chiave di attivazione» | il token è ciò che si manda all'utente |
+| **📋 Registro** | ricerca · **tabella** (`ttk.Treeview`: Stato · Serial · Nome · Hardware ID · Giorni · Scadenza) · campo Serial + Nuovi giorni · «🔄 Rinnova» · «📋 Ri-mostra token» · «🚫 Revoca licenza» (DANGER) | selezionare una riga porta il serial nel campo |
+| **🚫 Revoche** | «📤 Esporta lista revoche firmata» · pubblicazione automatica GitHub (repo/file/branch/ore/token) · «💾 Salva impostazioni» · «🚀 Pubblica ora» · etichetta persistente ultima pubblicazione | il token GitHub è mascherato e vive nel keyring |
+| **📦 Backup** | «📦 Esporta backup completo» · «📥 Ripristina backup completo» + avviso supporto offline | col **solo** seed registro e revoche non migrano (#183) |
+
+**Stati nella colonna «Stato»:** `ATTIVA` · `SCADUTA` · `REVOCATA`. Il terzo è stato aggiunto il
+2026-07-31: prima una licenza revocata continuava a comparire **ATTIVA** — la revoca veniva
+registrata e pubblicata correttamente, ma la vista non leggeva `revoked.jsonl`, quindi il
+proprietario non aveva modo di **vedere** chi avesse revocato. La revoca **vince anche sulla
+scadenza**: è l'informazione che spiega perché non riattivare quella licenza per distrazione.
+
+**Non esiste un «annulla revoca».** Il modello è: la revoca è definitiva su *quel* serial, e la
+riattivazione avviene emettendo una licenza nuova (serial nuovo, non in lista). Il **rinnovo di un
+serial revocato è quindi una riattivazione**, e dal 2026-07-31 chiede una **conferma esplicita**
+(«È una RIATTIVAZIONE: il cliente che avevi revocato tornerà operativo…»): prima avveniva in
+silenzio, e combinato con la vista che non mostrava lo stato revocato si poteva riattivare un
+cliente tolto senza accorgersene. Il dialogo è **fail-closed** — headless o annullato = non si
+riattiva nessuno. Sul rinnovo di una licenza **non** revocata non compare alcun dialogo: una
+conferma che appare sempre si impara a cliccare senza leggere, e allora non protegge più nulla.
+
+**Non esiste una «modifica» di licenza.** «🔄 Rinnova» ri-emette con gli stessi nome e hardware ID e
+giorni nuovi; per cambiare nome o macchina si emette una licenza nuova dalla scheda Emetti.
+
+**Invarianti di sicurezza di questa finestra — non negoziabili:**
+
+- **il seed privato non ha alcun percorso verso gli appunti.** Gli appunti sono leggibili da
+  qualunque processo e i gestori di clipboard ne conservano lo storico: si copiano solo la chiave
+  **pubblica** e il **token**, che per costruzione sono destinati a uscire. Il seed esce **solo su
+  file**. Un test lo presidia sul sorgente;
+- **la copia non mente**: se gli appunti non sono disponibili l'azione lo **dice** invece di
+  dichiarare successo — altrimenti si incolla il contenuto vecchio credendo di avere la chiave nuova;
+- **la revoca è l'unica azione in `DANGER`** della scheda Registro: dev'essere distinguibile a colpo
+  d'occhio da «Rinnova» e «Ri-mostra», che le stanno accanto;
+- **selezione dalla tabella invece di trascrizione a mano**: un `LIC-` sbagliato di un carattere
+  significa revocare la licenza di un **altro** utente.
+
 ---
 
 ## 8. Stati dinamici e indicatori

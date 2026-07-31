@@ -275,3 +275,48 @@ def test_revocation_entries_dedup_serial_only():
     entries = registry.revocation_entries(revs)
     assert entries == [{"serial": "LIC-A"}, {"serial": "LIC-B"}]
     assert all("hw" not in e and "hardware_id" not in e for e in entries)
+
+
+# ── la vista deve dire chi è REVOCATO (difetto trovato dal proprietario) ────────────────────────
+
+def test_una_licenza_revocata_non_risulta_piu_ATTIVA_nella_vista():
+    """Difetto misurato: dopo una revoca la tabella continuava a mostrare `ATTIVA`.
+
+    La revoca veniva registrata e pubblicata correttamente — era la **vista** a non saperlo:
+    `record_status` guarda solo `expiry` e non ha mai visto `revoked.jsonl`. Il proprietario non
+    aveva quindi alcun modo di vedere chi avesse revocato, e poteva credere che la revoca non
+    avesse funzionato — o rinnovare per sbaglio un revocato."""
+    rec = {"serial": "LIC-AAA111BBB222", "name": "Mario", "hardware_id": "HW-1",
+           "expiry": 2_000_000_000, "days": 30}
+    attive = registry.view_rows([rec], now=1_700_000_000)
+    assert attive[0]["status"] == registry.STATUS_ACTIVE, "premessa: senza revoca è attiva"
+
+    righe = registry.view_rows([rec], now=1_700_000_000,
+                               revoked_serials={"LIC-AAA111BBB222"})
+    assert righe[0]["status"] == registry.STATUS_REVOKED
+
+
+def test_la_revoca_vince_anche_su_una_licenza_scaduta():
+    """Una revocata E scaduta va mostrata REVOCATA: è l'informazione che spiega perché non
+    riattivarla con un rinnovo distratto."""
+    rec = {"serial": "LIC-X", "name": "Mario", "hardware_id": "HW-1",
+           "expiry": 1_000, "days": 30}
+    righe = registry.view_rows([rec], now=1_700_000_000, revoked_serials={"LIC-X"})
+    assert righe[0]["status"] == registry.STATUS_REVOKED
+
+
+def test_il_confronto_del_serial_revocato_ignora_spazi_e_maiuscole():
+    """Stessa normalizzazione del resto del registro: un record scritto a mano con spazi o
+    minuscole non deve sfuggire alla marcatura (fail-safe verso «lo mostro revocato»)."""
+    rec = {"serial": " lic-aaa111bbb222 ", "name": "Mario", "hardware_id": "HW-1",
+           "expiry": 2_000_000_000, "days": 30}
+    righe = registry.view_rows([rec], now=1_700_000_000,
+                               revoked_serials={"LIC-AAA111BBB222"})
+    assert righe[0]["status"] == registry.STATUS_REVOKED
+
+
+def test_senza_elenco_revoche_la_vista_si_comporta_come_prima():
+    """Retro-compatibilità: il parametro è opzionale e i chiamanti esistenti non cambiano esito."""
+    rec = {"serial": "LIC-Y", "name": "Mario", "hardware_id": "HW-1",
+           "expiry": 2_000_000_000, "days": 30}
+    assert registry.view_rows([rec], now=1_700_000_000)[0]["status"] == registry.STATUS_ACTIVE
