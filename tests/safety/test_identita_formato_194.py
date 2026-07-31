@@ -187,8 +187,13 @@ def test_un_handicap_NUMERICO_non_collide_con_un_TESTO_che_gli_somiglia():
     identità significano che **una viene persa**, scartata come duplicato dell'altra: l'errore
     speculare alla doppia scommessa.
 
-    Non è un caso di laboratorio: `0.00001` e `10000000000000000` sono handicap **validi** per
-    `_HANDICAP_RE`, ed è `repr` a portarli in notazione scientifica.
+    Non è un caso di laboratorio: `0.00001` è un handicap **valido** per
+    `validator.handicap_status`, ed è `repr` a portarlo a `'1e-05'`. Il secondo campione,
+    `10000000000000000`, dal B5 (#194) supera il tetto `|h| ≤ 1000` e viene **rifiutato a
+    monte** — resta qui deliberatamente: `row_identity` non chiama il validatore e non deve
+    dipendere dal fatto che qualcuno l'abbia chiamato prima. Se un domani il tetto venisse
+    alzato, o l'identità venisse calcolata su un percorso che salta la validazione, la
+    collisione tornerebbe silenziosamente. Il test la tiene chiusa in entrambi i casi.
 
     La correzione marca il RAMO dentro la chiave, su entrambi i domini — con un prefisso sul
     solo ramo numerico, un testo che comincia col prefisso lo imiterebbe e la collisione

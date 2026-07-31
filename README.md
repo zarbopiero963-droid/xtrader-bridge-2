@@ -805,6 +805,13 @@ Note:
 - **`Points`** è lasciato vuoto; **`Handicap`** vale `0`. Anche valorizzato, XTrader usa `Points`
   come moltiplicatore dello stake **solo** se nella strategia è spuntata «Modula lo Stake con dato
   Points del segnale se disponibile».
+- **Tetti sui due campi (#194 B5, fail-closed).** Se un Parser Personalizzato li valorizza,
+  `Points` deve stare in **`0 < Points ≤ 100`** e `Handicap` in **`|Handicap| ≤ 1000`**, entrambi
+  **finiti** — fuori scala il segnale è scartato (`INVALID_POINTS` / `INVALID_HANDICAP`). La
+  finitezza è un controllo a sé e non un tetto in più: una stringa di **sole cifre** abbastanza
+  lunga supera la regex ma `float()` la porta a **infinito**, e l'infinito passa i confronti nel
+  verso sbagliato (`inf > 0` è vero). Senza, un `Points` infinito arrivava al CSV — cioè uno
+  **stake** moltiplicato per infinito.
 - ⚠️ **Perché XTrader legga il CSV serve l'azione «Piazza Scommessa su Segnali»**: le automazioni
   scaricabili dalla community **non** funzionano con i Segnali (conferma supporto, luglio 2026).
 - **Separatore decimale — lingua CSV (#342)**: il formato dei decimali **scritti nel file**

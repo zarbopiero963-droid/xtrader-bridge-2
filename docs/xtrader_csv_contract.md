@@ -29,12 +29,12 @@ Esempi reali (dal team XTrader):
 | 6 | `MarketType` | modalità NAME | codice mercato, es. `MATCH_ODDS` |
 | 7 | `SelectionId` | modalità ID | ID selezione; vuoto se assente |
 | 8 | `SelectionName` | modalità NAME | nome selezione (vedi nota lingua) |
-| 9 | `Handicap` | sì | default `0` |
+| 9 | `Handicap` | sì | default `0`; se valorizzato, numero finito con `\|Handicap\| ≤ 1000` (vedi sotto) |
 | 10 | `Price` | no | quota; può essere vuota; separatore decimale secondo `csv_language` (vedi nota) |
 | 11 | `MinPrice` | no | può essere vuota |
 | 12 | `MaxPrice` | no | può essere vuota |
 | 13 | `BetType` | sì | **`PUNTA`** (punta/back) o **`BANCA`** (banca/lay) |
-| 14 | `Points` | no | moltiplicatore stake, **solo se la strategia lo richiede** (vedi sotto); **vuoto** negli esempi reali |
+| 14 | `Points` | no | moltiplicatore stake, **solo se la strategia lo richiede** (vedi sotto); se valorizzato, numero finito con `0 < Points ≤ 100`; **vuoto** negli esempi reali |
 
 ## Valori in italiano
 
@@ -155,9 +155,21 @@ un parser custom può estrarre testo arbitrario):
   né escludere la quota selezionata (`MinPrice > Price` o `MaxPrice < Price`). I bordi sono
   inclusivi (`MinPrice == Price`/`MaxPrice == Price` sono validi). Un intervallo incoerente
   viene scartato (stato `INVALID_PRICE_BOUNDS`, fail-closed): XTrader non potrebbe usarlo.
-- **`Points`** (moltiplicatore stake): se valorizzato deve essere un **numero positivo**
-  (`> 0`); testo non numerico, negativo o zero viene scartato (stato `INVALID_POINTS`).
-  `Points` non viene normalizzato a "1": resta com'è (vuoto di default).
+- **`Points`** (moltiplicatore stake): se valorizzato deve essere un numero **finito** con
+  **`0 < Points ≤ 100`**; testo non numerico, negativo, zero o oltre il tetto viene scartato
+  (stato `INVALID_POINTS`). `Points` non viene normalizzato a "1": resta com'è (vuoto di
+  default).
+- **`Handicap`**: se valorizzato deve essere un numero **finito** con **`|Handicap| ≤ 1000`**
+  (stato `INVALID_HANDICAP`). Il tetto è sul **valore assoluto** — «-1,5» asiatico è legittimo
+  quanto «+1,5» — e 1000 copre ogni linea Betfair reale, comprese quelle grandi dei mercati a
+  punti/run. Il default del contratto resta `0`.
+- **Finitezza, non solo tetto (`#194` B5, fail-closed).** I due tetti sopra sono preceduti da un
+  controllo di **finitezza esplicito**, e non è ridondanza. La regex del contratto accetta solo
+  cifre ASCII e un separatore, quindi `inf` non può entrare per via *testuale* («inf», «1e400»
+  sono respinti) — ma una stringa di **sole cifre** abbastanza lunga sì: `float("9"·400)` è
+  `inf`. E l'infinito supera i confronti nel verso sbagliato (`inf <= 0.0` è `False`), perciò il
+  vecchio controllo «Points deve essere > 0» rispondeva **valido** all'infinito, e un `Points`
+  infinito raggiungeva il CSV — dove XTrader lo usa come moltiplicatore dello **stake**.
 - **Cifre ASCII soltanto (`#318` L2-1, fail-closed).** Tutti i campi numerici del contratto
   (`Handicap`, `Price`, `MinPrice`, `MaxPrice`, `Points`) sono validati con `[0-9]` — **solo
   cifre ASCII**. Un valore scritto con cifre Unicode non-ASCII (arabo-indiane «١٩», devanagari

@@ -521,8 +521,16 @@ Tutti questi gate devono passare perché una riga venga scritta:
    - `MinPrice`/`MaxPrice` devono essere quote valide e **coerenti** — l'intervallo non può
      essere invertito (`MinPrice > MaxPrice`) né escludere la quota (`MinPrice > Price`,
      `MaxPrice < Price`); bordi inclusivi ammessi → altrimenti `INVALID_PRICE_BOUNDS`;
-   - `Points` (moltiplicatore stake), se valorizzato, deve essere un numero **positivo**
-     (`> 0`) → altrimenti `INVALID_POINTS`.
+   - `Points` (moltiplicatore stake), se valorizzato, deve essere un numero **finito** e
+     compreso in `0 < Points ≤ 100` → altrimenti `INVALID_POINTS`. Il tetto è B5 (#194): una
+     stringa di sole cifre abbastanza lunga (`"9"*400`) supera la regex ma `float()` la porta a
+     **infinito**, e `inf > 0` è vero — il vecchio controllo «positivo» la dichiarava valida.
+     `Points` è il moltiplicatore dello **stake** quando la strategia XTrader ha spuntato
+     «Modula lo Stake con dato Points del segnale se disponibile»;
+   - `Handicap`, se valorizzato, deve essere un numero **finito** con `|Handicap| ≤ 1000` →
+     altrimenti `INVALID_HANDICAP`. Il tetto è sul **valore assoluto**: «-1,5» asiatico è
+     legittimo quanto «+1,5». Vale identico sulla riga base e su ogni riga **derivata**
+     multi-riga (stesso predicato, non due copie).
 3. **Gate di contenuto**: un parser i cui obbligatori sono **tutti `fixed_value`**
    sarebbe "piazzabile" su qualsiasi testo (anche vuoto). Nel live, che bypassa il
    prefiltro marker per i parser custom attivi, questo scriverebbe lo stesso bet
@@ -650,7 +658,8 @@ trasformazione) e `→map` (dopo value-map), più un codice di stato:
 | `VALUE_MAP_MISS` | la value-map non ha trovato il valore (→ vuoto) |
 | `INVALID_PRICE` | `Price` non numerico o ≤ 1.0 |
 | `INVALID_BETTYPE` | `BetType` non è un lato valido (`PUNTA`/`BANCA`/`BACK`/`LAY`) |
-| `INVALID_POINTS` | `Points` valorizzato ma non un numero positivo (`> 0`) |
+| `INVALID_POINTS` | `Points` valorizzato ma non un numero finito in `0 < p ≤ 100` |
+| `INVALID_HANDICAP` | `Handicap` valorizzato ma non numerico, o `\|Handicap\| > 1000` |
 | `INVALID_PRICE_BOUNDS` | limiti incoerenti: `Min > Max`, o l'intervallo esclude `Price` (segnalato solo sul limite che offende) |
 | `MODE_REQUIRED_MISSING` | campo richiesto dalla Modalità di riconoscimento mancante |
 | `NO_CONTENT_MATCH` (messaggio) | nessuna estrazione ha trovato nulla: solo valori fissi / nessun match |
