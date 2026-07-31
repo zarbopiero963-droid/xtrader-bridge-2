@@ -16,17 +16,36 @@ def _token(hw=_HW, exp=_NOW + 15 * _DAY, name="Mario Rossi"):
     return lic.build_license(_TEST_SEED, name, hw, _NOW, exp)
 
 
+# Dal 2026-07-31 il modulo porta la chiave pubblica REALE del proprietario (#12 PARTE 0). Questo
+# file esercita la logica di licenza con una keypair di TEST, quindi qui la chiave "deployata"
+# dev'essere quella di test: senza, si verificherebbero firme che nessun test di questo file può
+# produrre. Un `pytestmark` invece di una fixture autouse ripetuta in ogni file (rilievo Sourcery):
+# una riga sola, e il comportamento non può divergere fra i file.
+pytestmark = pytest.mark.usefixtures("chiave_pubblica_di_test")
 
-@pytest.fixture(autouse=True)
-def _chiave_deployata_e_quella_di_test(chiave_pubblica_di_test):
-    """Dal 2026-07-31 il modulo porta la chiave pubblica REALE del proprietario (#12 PARTE 0).
-    Questo file esercita la logica di licenza con una keypair di TEST, quindi qui la chiave
-    "deployata" dev'essere quella di test: senza, si verificherebbero firme che nessun test di
-    questo file può produrre. Vedi `chiave_pubblica_di_test` in tests/conftest.py."""
 
-def test_placeholder_coerente():
-    # la keypair di TEST corrisponde al placeholder → i token di test verificano col default
-    assert ed25519.public_key(_TEST_SEED).hex() == lic.LICENSE_PUBLIC_KEY_HEX
+# Costante REALE catturata all'IMPORT, prima che il `pytestmark` sostituisca la chiave deployata.
+_CHIAVE_DEPLOYATA_REALE = lic.LICENSE_PUBLIC_KEY_HEX
+
+
+def test_il_contesto_di_test_deploya_la_pubblica_del_seed_di_test():
+    # Prima del 2026-07-31 questa guardia verificava che il PLACEHOLDER del modulo combaciasse col
+    # seed di test. Quel legame non esiste più: il modulo porta la chiave reale del proprietario.
+    #
+    # Il test resta, con lo scopo cambiato e dichiarato: verifica che il contesto di test abbia
+    # davvero deployato la pubblica del seed di TEST. Senza, tutti i round-trip di questo file
+    # fallirebbero con `INVALID_SIGNATURE` e la causa vera — «il `pytestmark` non ha agito» —
+    # sarebbe sepolta sotto venti fallimenti identici.
+    pub_di_test = ed25519.public_key(_TEST_SEED).hex()
+    assert lic.LICENSE_PUBLIC_KEY_HEX == pub_di_test
+
+    # Seconda asserzione (rilievo Sourcery): senza, la guardia diventerebbe cieca il giorno in cui
+    # qualcuno riportasse per errore la chiave REALE al valore di test — passerebbe anche senza
+    # alcuna sostituzione, cioè proprio nel caso peggiore.
+    assert _CHIAVE_DEPLOYATA_REALE != pub_di_test, (
+        "la chiave deployata REALE coincide con quella di TEST: il bridge accetterebbe licenze "
+        "firmate col seed noto a chiunque legga i test")
+
 
 
 def test_nessun_token_e_not_present():

@@ -55,13 +55,13 @@ def _fake_panel(stored=(None, None), hwid=_HW, now=_NOW):
     return fake, saved
 
 
+# Dal 2026-07-31 il modulo porta la chiave pubblica REALE del proprietario (#12 PARTE 0). Questo
+# file esercita la logica di licenza con una keypair di TEST, quindi qui la chiave "deployata"
+# dev'essere quella di test: senza, si verificherebbero firme che nessun test di questo file può
+# produrre. Un `pytestmark` invece di una fixture autouse ripetuta in ogni file (rilievo Sourcery):
+# una riga sola, e il comportamento non può divergere fra i file.
+pytestmark = pytest.mark.usefixtures("chiave_pubblica_di_test")
 
-@pytest.fixture(autouse=True)
-def _chiave_deployata_e_quella_di_test(chiave_pubblica_di_test):
-    """Dal 2026-07-31 il modulo porta la chiave pubblica REALE del proprietario (#12 PARTE 0).
-    Questo file esercita la logica di licenza con una keypair di TEST, quindi qui la chiave
-    "deployata" dev'essere quella di test: senza, si verificherebbero firme che nessun test di
-    questo file può produrre. Vedi `chiave_pubblica_di_test` in tests/conftest.py."""
 
 def test_attivazione_valida_persiste(license_gui):
     fake, saved = _fake_panel()
