@@ -4349,3 +4349,37 @@ fatto che senza l'azione «Piazza Scommessa su Segnali» XTrader **non legge aff
 **Test.** Nessuno nuovo: non è cambiata una riga di codice. La suite è stata comunque eseguita
 per intero per dimostrare che la PR è davvero di sole docs. La regola «test fail-first» è **N/A**
 per lo stesso motivo, e va detto invece di lasciarlo intendere.
+
+### Il giro di review: una config sbagliata, trovata da chi leggeva le docs come un utente
+
+GPT-5.5 non ha trovato bloccanti, ma tre ambiguità documentali. Una era un **errore vero**:
+
+> «Il riconoscimento a nomi richiede di dichiarare la lingua della fonte. **Da qui la config
+> `csv_language`**.»
+
+È la config **sbagliata**. `csv_language` governa **solo il separatore decimale** delle colonne
+numeriche (`CSV_DECIMAL_COLS`, `csv_writer.py:58`) e non tocca **mai** una colonna testuale; la
+lingua dei nomi è **`source_language`** (`config_store.py:151`, epica #3 slice 5a), che filtra
+dizionario nomi e dizionario mercati. Un utente che avesse seguito quella riga avrebbe messo
+`csv_language=IT` aspettandosi nomi italiani, ottenendo solo virgole nelle quote e un mercato che
+XTrader **non trova**. Correzione con l'avvertenza esplicita che le due config non sono
+intercambiabili.
+
+**Cercata la classe, non il sito** (regola 2), su due assi:
+
+- *config confusa*: `grep` di «lingua del CSV» ha trovato **altri due siti preesistenti** con la
+  stessa formulazione ambigua (contratto §Modalità di riconoscimento, README §Formato CSV
+  generato). Corretti entrambi: dicevano «la lingua del CSV», che un lettore mappa su
+  `csv_language`, intendendo la lingua dei **nomi**;
+- *«punto e virgola»*: in italiano è anche il nome del carattere `;`, e nel dubbio un utente
+  potrebbe cambiare il separatore di **campo**. `grep` su tutto il repo: 5 siti, 2 già chiari
+  («punto **o** virgola»), 3 ambigui — quello nuovo, uno **preesistente** nel contratto (riga 184)
+  e un commento in `tests/unit/test_validator.py`. Riscritti tutti e tre come «sia il punto `.`
+  sia la virgola `,`», con la nota che il `;` nel CSV non compare mai.
+
+Terza ambiguità, minore: che `BACK`/`LAY` siano accettati **in ingresso** poteva leggersi come
+autorizzazione a emetterli. Reso esplicito che l'output resta canonico `PUNTA`/`BANCA`.
+
+Nota di scope: questo giro tocca **un commento** in `tests/unit/test_validator.py` — nessuna
+asserzione, nessun codice eseguibile. La PR resta di sole docs nella sostanza, ma è più onesto
+dirlo che rivendicare «zero test toccati».

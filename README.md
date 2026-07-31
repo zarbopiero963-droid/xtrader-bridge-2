@@ -818,8 +818,9 @@ Note:
   (`INVALID_PRICE`), per non scrivere un prezzo sbagliato ma plausibile.
 - Encoding **UTF-8 con BOM**, tutti i valori tra virgolette (`QUOTE_ALL`).
 - XTrader valida con `MarketId + SelectionId` **oppure** `EventName + MarketType +
-  SelectionName`. Usando i nomi, la lingua del CSV deve coincidere con quella della
-  fonte Segnali di XTrader. Gli ID non arrivano dal messaggio Telegram: con il parser
+  SelectionName`. Usando i nomi, la lingua dei **nomi scritti** nel CSV deve coincidere con quella
+  della fonte Segnali di XTrader: è la config **`source_language`**, **non** `csv_language` (che
+  governa solo il separatore decimale e non tocca mai una colonna testuale). Gli ID non arrivano dal messaggio Telegram: con il parser
   legacy (`build_csv_row`) restano vuoti. Il flusso del Parser Personalizzato **può**
   arricchirli dal **dizionario locale**, ma dopo la rimozione di «Betfair Sync»
   l'arricchimento è **disattivato nel CSV live** (`id_resolver=None`): le righe restano a
