@@ -256,3 +256,88 @@ def test_il_salto_indietro_LEGITTIMO_resta_credibile():
     ripristinato = signal_dedupe.SignalTracker()
     signal_dedupe.load_state(ripristinato, percorso, now=T0 - 200 * GIORNO)
     assert ripristinato.register(MSG, now=T0 - 200 * GIORNO + 60).status == signal_dedupe.DUPLICATE
+
+
+def test_saved_at_BOOLEANO_non_e_un_istante():
+    """FAIL-FIRST sulla stesura precedente (rilievo CodeRabbit su #199, riprodotto).
+
+    `float(True)` è `1.0`: un `"saved_at": true` in JSON passava per un istante valido del 1970,
+    trascinava tutte le voci lì e le faceva potare → **deduplica persa, fail-OPEN**. È la stessa
+    trappola già chiusa in `safety_guard.restore_state` per `count` (#184 low-bool-count): un
+    timestamp è un numero, non un booleano.
+    """
+    for valore in (True, False):
+        percorso = _percorso()
+        with open(percorso, "w", encoding="utf-8") as f:
+            json.dump({"saved_at": valore,
+                       "entries": [[signal_dedupe.message_hash(MSG), T0 - 10, True]]}, f)
+
+        ripristinato = signal_dedupe.SignalTracker()
+        signal_dedupe.load_state(ripristinato, percorso, now=T0)
+        assert ripristinato.register(MSG, now=T0).status == signal_dedupe.DUPLICATE, (
+            f"saved_at={valore!r} creduto come istante: deduplica persa")
+
+
+def test_orologio_arretrato_DURANTE_la_sessione():
+    """FAIL-FIRST sulla stesura precedente (rilievo CodeRabbit su #199, riprodotto).
+
+    Se l'orologio arretra MENTRE l'app gira, `_prune` conserva apposta le voci rimaste nel
+    futuro; il salvataggio successivo le stampa con un `saved_at` più basso. Non sono corruzione,
+    sono legittime — ma venivano clampate a `saved_at`, azzerando la loro età. Corretto poi
+    l'orologio in avanti, risultavano scadute e lo stesso segnale tornava **NEW: scritto due
+    volte**.
+
+    Misurato prima della correzione: `DUPLICATE` subito dopo il ripristino, ma `NEW` una volta
+    corretto l'orologio — cioè il buco si apriva **dopo**, quando nessuno lo stava più guardando.
+    """
+    tracker = signal_dedupe.SignalTracker()
+    tracker.register(MSG, now=T0)                       # registrato con l'orologio «giusto»
+    percorso = _percorso()
+    signal_dedupe.save_state(tracker, percorso, now=T0 - 1000)   # orologio arretrato in sessione
+
+    ripristinato = signal_dedupe.SignalTracker()
+    signal_dedupe.load_state(ripristinato, percorso, now=T0 - 1000)
+    assert ripristinato.register(MSG, now=T0 - 1000).status == signal_dedupe.DUPLICATE
+
+    corretto = signal_dedupe.SignalTracker()
+    signal_dedupe.load_state(corretto, percorso, now=T0 - 1000)
+    assert corretto.register(MSG, now=T0).status == signal_dedupe.DUPLICATE, (
+        "con l'orologio poi corretto la voce risulta scaduta: lo stesso segnale verrebbe "
+        "scritto una seconda volta")
+
+
+def test_una_voce_booleana_e_scartata():
+    """Stessa classe sul timestamp della VOCE, non solo su `saved_at`: `float(True)` la
+    porterebbe al 1970 invece di scartarla come malformata."""
+    percorso = _percorso()
+    with open(percorso, "w", encoding="utf-8") as f:
+        json.dump({"saved_at": T0, "entries": [["a" * 8, True, True], ["b" * 8, T0, True]]}, f)
+
+    ripristinato = signal_dedupe.SignalTracker()
+    signal_dedupe.load_state(ripristinato, percorso, now=T0)
+    assert [h for (h, _t, _r) in ripristinato.state()] == ["b" * 8]
+
+
+def test_una_voce_futura_INIETTATA_non_maschera_la_corruzione():
+    """FAIL-FIRST sulla stesura precedente (rilievo Fugu Ultra su #199, riprodotto).
+
+    Il controllo di coerenza confrontava `saved_at` con la voce PIÙ RECENTE — un `max()` globale,
+    quindi **aggirabile**: bastava iniettare nel file una voce futura vicina a un `saved_at`
+    futuro perché il confronto risultasse sano. A quel punto `saved_at` veniva creduto, la
+    traslazione enorme spediva le voci **legittime** in un passato remoto, `_prune` le cancellava
+    e la deduplica spariva. Misurato: `NEW` invece di `DUPLICATE` — doppia scommessa.
+
+    Il controllo è ora **per-voce**: nessuna voce può influenzare il trattamento di un'altra.
+    """
+    percorso = _percorso()
+    with open(percorso, "w", encoding="utf-8") as f:
+        json.dump({"saved_at": T0 + 1e9,
+                   "entries": [["injected", T0 + 1e9, True],                 # maschera
+                               [signal_dedupe.message_hash(MSG), T0 - 10, True]]}, f)   # vittima
+
+    ripristinato = signal_dedupe.SignalTracker()
+    signal_dedupe.load_state(ripristinato, percorso, now=T0)
+
+    assert ripristinato.register(MSG, now=T0).status == signal_dedupe.DUPLICATE, (
+        "una voce futura iniettata ha mascherato la corruzione di saved_at: la voce legittima "
+        "e' stata cancellata e lo stesso segnale verrebbe scritto una seconda volta")

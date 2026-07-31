@@ -4135,14 +4135,48 @@ scommessa** — e per giunta in un punto dove il percorso legacy si comportava *
 correzione peggiorava il caso corruzione mentre migliorava il caso orologio.
 
 **La correzione della correzione** è un controllo di coerenza fra i due dati che ora stanno nel
-file: lo stato viene scritto **mentre l'app gira**, quindi la voce più recente è vicina al
-salvataggio. Un `saved_at` più avanti della voce più recente oltre l'orizzonte non è credibile →
-si ricade sul comportamento prudente. È decidibile perché in un salto all'indietro **vero**
-`saved_at` e le voci vengono dallo **stesso orologio vecchio**: distano entrambi mesi da `now`, ma
-pochi secondi fra loro. Un rifiuto errato non fa danno — quelle voci sarebbero comunque scadute —
-mentre crederci a torto costa una scommessa doppia.
+file: lo stato viene scritto **mentre l'app gira**, quindi ogni voce dista dal salvataggio molto
+meno dell'orizzonte. Se le due date non sono compatibili, `saved_at` non è credibile e si ricade
+sul comportamento prudente. È decidibile perché in un salto all'indietro **vero** `saved_at` e le
+voci vengono dallo **stesso orologio vecchio**: distano entrambi mesi da `now`, ma pochi secondi
+fra loro. Un rifiuto errato non fa danno — quelle voci sarebbero comunque scadute — mentre
+crederci a torto costa una scommessa doppia.
+
+Il controllo è **per-voce** e **a due code**, e nessuna delle due scelte è cosmetica: entrambe
+nascono da un fail-open riprodotto in review, dopo che la prima stesura del controllo ne aveva
+chiuso uno solo.
 
 > **Nota di metodo.** È il quarto difetto di questa serie trovato **eseguendo** invece che
 > rileggendo, e il secondo *introdotto da una correzione* (dopo il `ValueError` di PR-A2). Vale
 > anche al contrario: il rilievo era giusto nel puntare il dito, sbagliato nel diagnosticare il
 > verso — e senza misurarlo si sarebbe archiviato come «accettabile».
+
+### Quattro fail-open, tutti nella stessa correzione
+
+`saved_at` ha reso decidibile la domanda di B45, ma ha anche creato un dato **nuovo di cui
+fidarsi** — e ogni dato di cui ci si fida su un file di disco è una superficie. La review ne ha
+trovati quattro, uno alla volta, ciascuno riprodotto prima di correggerlo:
+
+| # | Caso | Prima | Chi l'ha visto |
+|---|---|---|---|
+| 1 | `saved_at` enorme nel futuro | `NEW` | Fable 5 (con il verso invertito) |
+| 2 | `saved_at` **booleano** (`float(True)` = `1.0`) | `NEW` | CodeRabbit |
+| 3 | orologio arretrato **durante** la sessione, poi corretto | `NEW` | CodeRabbit |
+| 4 | voce futura **iniettata** che maschera il controllo globale | `NEW` | Fugu Ultra |
+
+Tutti e quattro davano `NEW` dove serviva `DUPLICATE`: **doppia scommessa**. E tutti e quattro
+erano regressioni **introdotte dalla correzione**, non difetti preesistenti — il percorso legacy,
+in ciascuno di quei casi, si comportava correttamente.
+
+Il quarto è il più istruttivo. Il controllo di coerenza confrontava `saved_at` con il `max()`
+delle voci: sano in apparenza, **aggirabile** in pratica. Bastava iniettare una voce futura
+vicina al `saved_at` futuro perché il confronto globale risultasse coerente, e da lì la
+traslazione cancellava le voci legittime. La correzione non è stata rendere il confronto più
+severo ma **spostarne il livello**: da globale a per-voce, così nessuna voce può influenzare il
+trattamento di un'altra. Un controllo aggregato su dati che l'attaccante controlla è un controllo
+che non protegge.
+
+> **Nota di metodo.** Nessuno dei quattro era visibile leggendo il diff, e due dei tre reviewer
+> che li hanno segnalati hanno sbagliato la **diagnosi** pur azzeccando il **punto**: Fable ha
+> descritto il #1 come «direzione conservativa, accettabile» quando era l'opposto. Il valore della
+> review non è stato il verdetto — è stato indicare dove misurare.

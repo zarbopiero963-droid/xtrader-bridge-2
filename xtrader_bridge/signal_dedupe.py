@@ -407,6 +407,13 @@ class SignalTracker:
         # Non finito / non numerico / assente ricade sul comportamento PRUDENTE, non sulla fiducia:
         # un file corrotto non deve poter disattivare il clamp dichiarando un `saved_at` sporco.
         try:
+            # `bool` PRIMA di `float`: `float(True)` è `1.0`, quindi un `"saved_at": true` in JSON
+            # passerebbe per un istante valido (1970) e clamperebbe TUTTE le voci lì → potate →
+            # deduplica persa (rilievo CodeRabbit su #199, riprodotto). Stessa trappola già chiusa
+            # in `safety_guard.restore_state` per `count` (#184 low-bool-count): un timestamp è un
+            # numero, non un booleano.
+            if isinstance(saved_at, bool):
+                raise TypeError("saved_at booleano")
             sa = float(saved_at)
             if not math.isfinite(sa):
                 sa = None
@@ -422,6 +429,8 @@ class SignalTracker:
                 # `real` (#192 kyW): assente nei vecchi state a 2 elementi → True (fail-closed: una
                 # voce storica è una registrazione reale, conservativa per il rate-limit).
                 r = bool(item[2]) if len(item) >= 3 else True
+                if isinstance(t, bool):
+                    raise TypeError("timestamp booleano")   # stessa ragione di `saved_at`
                 tf = float(t)
             except (ValueError, TypeError, LookupError):
                 # LookupError = IndexError (lista troppo corta) + KeyError (voce dict `{}` da state
@@ -440,18 +449,32 @@ class SignalTracker:
         # le conserva). Se `saved_at` è più avanti della voce più recente oltre l'orizzonte, non è
         # credibile: si ricade sul comportamento prudente. Un rifiuto errato non fa danno — quelle
         # voci sarebbero comunque scadute — mentre crederci a torto costa una scommessa doppia.
-        if sa is not None and voci and sa - max(tf for (_h, tf, _r) in voci) > CORRUPTION_HORIZON_S:
-            sa = None
         # Solo un salto INDIETRO trasla; in avanti (riavvio normale) i timestamp restano verbatim.
         shift = min(0.0, cap - sa) if sa is not None else 0.0
 
         restored = []
         for (h, tf, r) in voci:
             if not trusted:
-                if sa is not None:
-                    # Voce registrata DOPO il salvataggio: impossibile → corruzione, riportata a
-                    # `saved_at`. Poi l'eventuale traslazione all'indietro, che conserva l'ETÀ.
-                    tf = min(tf, sa) + shift
+                # `saved_at` è credibile PER QUESTA VOCE se le due date sono compatibili: lo stato
+                # è scritto mentre l'app gira, quindi ogni voce dista dal salvataggio molto meno
+                # dell'orizzonte. Il controllo è PER-VOCE e a DUE code, e nessuna delle due scelte
+                # è casuale:
+                #
+                # - per-voce e non globale, perché un controllo sul `max()` delle voci è
+                #   AGGIRABILE: basta iniettare nel file una voce futura vicina a un `saved_at`
+                #   futuro perché il confronto globale risulti sano, e a quel punto la traslazione
+                #   enorme spediva le voci LEGITTIME in un passato remoto, dove `_prune` le
+                #   cancellava → deduplica persa, doppia scommessa (rilievo Fugu Ultra su #199,
+                #   riprodotto: `NEW` invece di `DUPLICATE`). Così invece nessuna voce può
+                #   influenzare il trattamento di un'altra;
+                # - a due code, perché un `saved_at` nel passato remoto (es. l'`1.0` di un
+                #   booleano) trascinerebbe le voci lì e le farebbe potare: stesso fail-open,
+                #   verso opposto.
+                #
+                # Voce non compatibile → si ricade sul ramo prudente di sempre (orizzonte da
+                # `now`), che è fail-CLOSED: conserva la voce invece di perderla.
+                if sa is not None and abs(sa - tf) <= CORRUPTION_HORIZON_S:
+                    tf += shift             # traslazione che conserva l'ETÀ
                 elif tf > horizon:
                     tf = cap                # SOLO corruzione (oltre l'orizzonte 24 h) → clamp a now
             restored.append((h, tf, r))
