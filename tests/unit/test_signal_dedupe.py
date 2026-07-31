@@ -155,8 +155,17 @@ def test_restore_state_clampa_timestamp_futuro_finito():
     # audit #137: un timestamp FINITO ma enorme nel futuro (es. 1e18 da corruzione) NON deve
     # sopravvivere per sempre (`_prune` conserva `t > now`). Al ripristino viene clampato a `now`;
     # le voci nel passato restano invariate.
+    #
+    # B4 (#194): la soglia oltre cui un futuro è «corruzione» è passata da `now + dedupe_window`
+    # (300 s) a `now + CORRUPTION_HORIZON_S` (24 h). Il caso di terza riga usava 1500.0 con
+    # `now=1000.0`, cioè 500 s nel futuro: sotto la nuova regola è skew d'orologio LEGITTIMO e
+    # deve restare invariato — è precisamente il comportamento che B4 correggeva. Spostato oltre
+    # le 24 h per continuare ad asserire ciò che questo test vuole dire («i futuri assurdi vengono
+    # clampati»); che uno skew moderato NON venga clampato è coperto da
+    # tests/safety/test_dedupe_clock_rollback_194.py.
     t = sd.SignalTracker()
-    t.restore_state([["passato", 500.0], ["futuro", 1e18], ["atnow", 1500.0]], now=1000.0)
+    oltre_orizzonte = 1000.0 + sd.CORRUPTION_HORIZON_S + 500.0
+    t.restore_state([["passato", 500.0], ["futuro", 1e18], ["atnow", oltre_orizzonte]], now=1000.0)
     assert t.state() == [["passato", 500.0, True], ["futuro", 1000.0, True],
                          ["atnow", 1000.0, True]]   # futuri clampati a now, passato invariato
 
