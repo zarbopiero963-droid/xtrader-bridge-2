@@ -12,13 +12,15 @@ import stat
 
 import pytest
 
+from tests.conftest import LICENSE_TEST_SEED_HEX
 from license_manager import core
 from xtrader_bridge.licensing import ed25519
 from xtrader_bridge.licensing.hwid import NO_HARDWARE_ID
 from xtrader_bridge.licensing import license as lic
 
-# Seed di TEST (NON una chiave reale): 32 byte esadecimali, noto solo ai test.
-_TEST_SEED_HEX = "a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00"  # pragma: allowlist secret
+# Seed di TEST (NON una chiave reale): 32 byte esadecimali, dalla fonte unica in
+# `tests/conftest.py` (regola 3, rilievo CodeRabbit #209).
+_TEST_SEED_HEX = LICENSE_TEST_SEED_HEX
 _TEST_PUBLIC_HEX = ed25519.public_key(bytes.fromhex(_TEST_SEED_HEX)).hex()
 _HW = "HW1-1234-5678-9ABC-DEF0"
 _NOW = 1_000_000_000

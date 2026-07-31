@@ -93,16 +93,52 @@ vive nel License Manager (PR 3), che gira sul PC del proprietario e può usare u
 Ordine dei controlli: formato → firma → hardware → anti-rollback → scadenza. Qualunque anomalia →
 `valid=False` (fail-closed): una licenza non verificabile **non sblocca mai**.
 
-## Chiave pubblica: placeholder e sostituzione
+## Chiave pubblica: sostituita il 2026-07-31 ✅
 
-`license.LICENSE_PUBLIC_KEY_HEX` è oggi un **placeholder di TEST** (il seed corrispondente è noto
-nei test, così il flusso è esercitabile in sviluppo). **Prima di distribuire copie licenziate**, il
-proprietario genera la keypair reale (via License Manager, PR 3) e **sostituisce quella riga** con
-la propria chiave **pubblica**. La chiave privata resta solo sul suo PC.
+`license.LICENSE_PUBLIC_KEY_HEX` contiene la **chiave pubblica reale del proprietario**, generata
+dal License Manager e messa nel codice il **2026-07-31** (issue #12 PARTE 0). Il seed privato
+corrispondente vive **solo** in `%APPDATA%\XTraderLicenseManager\signing_key.json` sul suo PC: non è,
+e non deve mai essere, nel repository.
 
-Marcatore rilevabile (review #143): `license.LICENSE_PUBLIC_KEY_IS_PLACEHOLDER` è `True` finché è in uso la
-chiave di TEST. Sostituendo la chiave, il proprietario **deve portarlo a `False`** (un test lega i
-due, così lo swap è deliberato e non silenzioso).
+`license.LICENSE_PUBLIC_KEY_IS_PLACEHOLDER` è ora **`False`**. Un test lega i due valori, così lo
+swap è deliberato e non silenzioso; il gate di release (§ sotto) lo legge e da qui in avanti
+**lascia passare** i tag `v*`, che prima bloccava.
+
+### Cosa è cambiato in pratica
+
+- il bridge **non accetta più** licenze firmate col **seed di TEST**: le attivazioni fatte in
+  sviluppo con quel seed vanno rifatte con una licenza emessa dal License Manager reale;
+- i test che esercitano la logica di licenza **non possono più affidarsi al default del modulo**.
+  Dichiarano esplicitamente la keypair di test tramite la fixture `chiave_pubblica_di_test`
+  (`tests/conftest.py`), che patcha `license.LICENSE_PUBLIC_KEY_HEX` **e**
+  `revocation.LICENSE_PUBLIC_KEY_HEX` — quest'ultimo perché `revocation.py` importa la costante
+  **per valore** (`from .license import …`) e patchare il solo `license` lascerebbe la verifica
+  delle liste di revoca sulla chiave reale;
+- la guardia di coerenza chiave↔flag legge le costanti **catturate all'import**, quindi non vede la
+  sostituzione della fixture e continua a sorvegliare ciò che verrà davvero distribuito;
+- il **seed di TEST ha una fonte unica**: `LICENSE_TEST_SEED_HEX` in `tests/conftest.py`. Era
+  ricopiato in **sette** file (rilievo CodeRabbit su #209); ora i sei che firmano lo importano
+  (`from tests.conftest import LICENSE_TEST_SEED_HEX`). Non è pedanteria di stile: finché il
+  default del modulo *era* la pubblica di quel seed, una copia divergente si notava subito; da
+  quando la fixture deploya la pubblica derivata da **questa** costante, una copia divergente
+  firmerebbe con un seed diverso da quello verificato e il sintomo sarebbe una fila di
+  `INVALID_SIGNATURE` che sembra un difetto del prodotto. `tests/safety/test_seed_di_test_fonte_unica.py`
+  lo impedisce confrontando il **valore** e non il nome della costante, così vede anche una copia
+  re-introdotta sotto un nome qualsiasi;
+- l'import condiviso ha una **guardia anti-shadowing** in testa a `tests/conftest.py` (rilievo
+  GPT-5.5 su #209). `tests/` è un *namespace package*, e un namespace **perde** contro un package
+  regolare omonimo trovato più avanti in `sys.path`: se un pacchetto installato esponesse un
+  top-level `tests/__init__.py`, `from tests.conftest import …` leggerebbe le costanti di un altro
+  progetto. Verificato in adversariale — senza la guardia la collection muore con un
+  `ModuleNotFoundError` che non nomina la causa, e colpisce anche i due file che usavano già
+  questo import da prima della #209. La guardia gira **sempre**, perché pytest carica il conftest
+  *per path* e non tramite quell'import.
+
+### ⚠️ Cambiare di nuovo questa chiave
+
+Invaliderebbe **tutte** le licenze già emesse **e** la lista di revoche pubblicata, che è firmata
+con lo stesso seed. Richiederebbe di riemettere ogni licenza e ri-pubblicare la lista. Non si tocca
+senza quel piano.
 
 ### Gate di release (fatto) — la chiave di TEST non può finire in un EXE distribuito
 

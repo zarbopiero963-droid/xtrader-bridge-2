@@ -11,10 +11,12 @@ import types
 
 import pytest
 
+from tests.conftest import LICENSE_TEST_SEED_HEX
 from xtrader_bridge import license_status
 from xtrader_bridge.licensing import license as lic
 
-_TEST_SEED = bytes.fromhex("a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00")
+# Seed di TEST, dalla fonte unica (regola 3, rilievo CodeRabbit #209).
+_TEST_SEED = bytes.fromhex(LICENSE_TEST_SEED_HEX)
 _HW = "HW1-1234-5678-9ABC-DEF0"
 _NOW = 1_000_000_000
 _DAY = 86_400
@@ -53,6 +55,14 @@ def _fake_panel(stored=(None, None), hwid=_HW, now=_NOW):
         _save_state=lambda tok, ls: saved.append((tok, ls)),
     )
     return fake, saved
+
+
+# Dal 2026-07-31 il modulo porta la chiave pubblica REALE del proprietario (#12 PARTE 0). Questo
+# file esercita la logica di licenza con una keypair di TEST, quindi qui la chiave "deployata"
+# dev'essere quella di test: senza, si verificherebbero firme che nessun test di questo file può
+# produrre. Un `pytestmark` invece di una fixture autouse ripetuta in ogni file (rilievo Sourcery):
+# una riga sola, e il comportamento non può divergere fra i file.
+pytestmark = pytest.mark.usefixtures("chiave_pubblica_di_test")
 
 
 def test_attivazione_valida_persiste(license_gui):
