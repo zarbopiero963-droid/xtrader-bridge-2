@@ -1991,3 +1991,28 @@ def test_la_conferma_non_puo_SOSTITUIRE_la_lettura_dello_store(gui, tmp_path):
     assert not esito.get("needs_confirm"), (
         "«non so leggere» non è una domanda da porre all'utente: è un errore da risolvere, "
         "altrimenti il dialogo della riattivazione diventa un tasto per saltare il controllo")
+
+
+def test_store_illeggibile_NON_propone_un_dialogo_che_non_serve(gui, tmp_path):
+    """Rilievo UX di GPT-5.5 sul commit del fix: verificare che il flusso non proponga più
+    «un'azione di conferma non più valida».
+
+    Da quando il caso «store illeggibile» non è più confermabile, `_on_renew` non deve mostrare
+    alcun dialogo: mostrarne uno che non porta da nessuna parte insegnerebbe a cliccare per
+    superare un errore — cioè il difetto che il commit precedente ha appena chiuso."""
+    fake, serial = _emetti_e_revoca(gui, tmp_path)
+    fake._read_revocations = lambda **_kw: (_ for _ in ()).throw(OSError("file lockato"))
+    fake._renew_serial_entry, fake._renew_giorni_entry = _FakeEntry(serial), _FakeEntry("30")
+    fake._read = lambda e: e.testo
+    fake._show_token = lambda t: fake.__dict__.__setitem__("_token_mostrato", t)
+    messaggi = []
+    fake._set_msg = messaggi.append
+    fake._on_registry_refresh = lambda: None
+    dialoghi = []
+    fake._conferma = lambda testo: dialoghi.append(testo) or True   # direbbe SÌ, se apparisse
+
+    gui.LicenseManagerApp._on_renew(fake)
+
+    assert dialoghi == [], "nessun dialogo: non c'è nulla da confermare, c'è un errore da risolvere"
+    assert fake.__dict__.get("_token_mostrato") == "", "e nessun token, nemmeno col dialogo che direbbe sì"
+    assert "revoche" in messaggi[-1].lower(), "l'utente dev'essere informato del perché"
