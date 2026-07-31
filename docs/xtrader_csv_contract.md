@@ -90,6 +90,14 @@ possibile, li **arricchisce dal dizionario Betfair locale** (vedi sotto).
 
 ### Identificazione precisa dal dizionario + fallback nomi (PR-P12)
 
+> ⚠️ **Meccanismo OGGI STACCATO — questa sezione descrive il contratto, non il comportamento
+> corrente.** Dopo la rimozione di «Betfair Sync» l'arricchimento ID è **disattivato** sia nel
+> **CSV live** (`app.py:3830`, `id_resolver=None`) sia nell'**anteprima** «Prova messaggio»
+> (invariante «anteprima = runtime»: nessun «Pronto» in GUI su una riga che il live scarterebbe).
+> In pratica **le righe restano a nomi**: gli ID non vengono riempiti finché non popoli a mano il
+> dizionario locale e non riattivi il *seam* in **entrambi** i punti. Vedi README →
+> `recognition_mode`.
+
 Dopo parser e mappature a nomi, il bridge prova a riempire `EventId`/`MarketId`/`SelectionId`
 cercando nel **dizionario Betfair locale** la catena evento→mercato→selezione per lo **sport**
 del parser (`betfair/dictionary_resolver.py`). La risoluzione è **additiva, conservativa e
@@ -293,8 +301,11 @@ esclusiva), il bridge:
 ### Riconoscimento evento / mercato / selezione
 
 - **Quando gli ID sono noti, XTrader preferisce `MarketId`/`SelectionId`**: è il riconoscimento
-  più preciso. È esattamente ciò che fa l'arricchimento dal dizionario Betfair (vedi sopra), che
-  però resta **fail-open sui nomi** quando il match non è univoco.
+  più preciso. È ciò per cui esiste l'arricchimento dal dizionario Betfair (vedi sopra) — che però
+  **oggi è staccato** (`id_resolver=None`) e comunque, quando riattivato, resta **fail-open sui
+  nomi** se il match non è univoco. Allo stato attuale il bridge scrive **righe a nomi**: la
+  preferenza di XTrader per gli ID è un vantaggio **non ancora sfruttato**, non una promessa del
+  bridge.
 - ⚠️ **Gli ID non sono portabili tra exchange.** Lo stesso evento ha `MarketId`/`SelectionId` —
   e a volte anche **nomi** — **diversi** su Betfair `.it` e `.com`. Un dizionario costruito da un
   export `.it` non vale per un account `.com`. È una ragione in più per cui il default delle

@@ -4383,3 +4383,24 @@ autorizzazione a emetterli. Reso esplicito che l'output resta canonico `PUNTA`/`
 Nota di scope: questo giro tocca **un commento** in `tests/unit/test_validator.py` — nessuna
 asserzione, nessun codice eseguibile. La PR resta di sole docs nella sostanza, ma è più onesto
 dirlo che rivendicare «zero test toccati».
+
+### Secondo giro: il contratto prometteva un meccanismo staccato
+
+GPT-5.5 ha confermato i fix e lasciato un residuo da verificare a mano: *«che eventuali
+riferimenti nel README/contratto non promettano arricchimento ID Betfair nel CSV live quando
+`id_resolver=None`»*.
+
+Verificato, ed **era vero**. Il README porta l'avvertenza **due volte** (§`recognition_mode` e
+§Formato CSV generato); `docs/xtrader_csv_contract.md` **zero volte**: la sezione «Identificazione
+precisa dal dizionario + fallback nomi (PR-P12)» descriveva al **presente** un meccanismo che
+`app.py:3830` passa come `id_resolver=None` dalla rimozione di «Betfair Sync». Chi leggesse solo il
+contratto — cioè chi cerca il formato del CSV — concluderebbe che gli ID vengono riempiti, mentre
+le righe escono a **nomi**.
+
+Aggiunta l'avvertenza in testa alla sezione (contratto ≠ comportamento corrente, staccato in
+**entrambi** i punti per l'invariante «anteprima = runtime») e riformulata la riga nuova della
+sezione «Lato XTrader», che si appoggiava proprio a quella sezione: la preferenza di XTrader per
+gli ID è un vantaggio **non ancora sfruttato**, non una promessa del bridge.
+
+È lo stesso difetto delle risposte del supporto, in direzione opposta: lì il codice faceva più di
+quanto le docs dicessero, qui le docs promettevano più di quanto il codice facesse.
