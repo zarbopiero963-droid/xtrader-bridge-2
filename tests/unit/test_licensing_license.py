@@ -17,13 +17,17 @@ import os
 
 import pytest
 
+from tests.conftest import LICENSE_TEST_SEED_HEX
 from xtrader_bridge.licensing import license as lic
 from xtrader_bridge.licensing import ed25519
 from xtrader_bridge.licensing.hwid import NO_HARDWARE_ID
 
-# Seed di TEST (NON è la chiave reale del proprietario) → la sua pubblica è il placeholder
-# committato in `license.LICENSE_PUBLIC_KEY_HEX`. Il round-trip usa la coppia coerente.
-_TEST_SEED = bytes.fromhex("a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00")
+# Seed di TEST (NON è la chiave reale del proprietario). Fonte UNICA in `tests/conftest.py`
+# (regola 3, rilievo CodeRabbit #209): è lo stesso valore da cui la fixture
+# `chiave_pubblica_di_test` deriva la pubblica deployata qui. Ricopiarlo renderebbe possibile
+# firmare con un seed diverso da quello che si sta verificando — e il sintomo, venti
+# `INVALID_SIGNATURE`, sembrerebbe un difetto del prodotto.
+_TEST_SEED = bytes.fromhex(LICENSE_TEST_SEED_HEX)
 
 # Costanti REALI del modulo, catturate all'IMPORT — cioè prima che la fixture autouse di questo
 # file sostituisca la chiave deployata con quella di TEST. Servono alla guardia di coerenza

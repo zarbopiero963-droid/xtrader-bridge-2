@@ -11,15 +11,18 @@ import types
 
 import pytest
 
+from tests.conftest import LICENSE_TEST_SEED_HEX
 from xtrader_bridge.licensing import license as lic
 from xtrader_bridge.licensing import revocation, revocation_client
 
 _HW = "HW1-1234-5678-9ABC-DEF0"
 _NOW = 1_700_000_000
-# Seed di TEST corrispondente a `LICENSE_PUBLIC_KEY_HEX` incorporata (stesso delle altre suite
-# licenza): serve dove il codice verifica con la chiave DI DEFAULT (il supervisore, che non riceve
-# una public key esplicita).
-_TEST_SEED_HEX = "a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00"  # pragma: allowlist secret
+# Seed di TEST, dalla fonte unica in `tests/conftest.py` (regola 3, rilievo CodeRabbit #209):
+# serve dove il codice verifica con la chiave DI DEFAULT (il supervisore, che non riceve una
+# public key esplicita). Dal 2026-07-31 quel default è la chiave REALE del proprietario, quindi
+# il legame non è più automatico: è il `pytestmark`/la fixture `chiave_pubblica_di_test` a
+# deployare qui la pubblica di QUESTO seed.
+_TEST_SEED_HEX = LICENSE_TEST_SEED_HEX
 
 
 def _signed_default(entries, *, now=_NOW):

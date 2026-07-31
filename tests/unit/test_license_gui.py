@@ -11,10 +11,12 @@ import types
 
 import pytest
 
+from tests.conftest import LICENSE_TEST_SEED_HEX
 from xtrader_bridge import license_status
 from xtrader_bridge.licensing import license as lic
 
-_TEST_SEED = bytes.fromhex("a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00")
+# Seed di TEST, dalla fonte unica (regola 3, rilievo CodeRabbit #209).
+_TEST_SEED = bytes.fromhex(LICENSE_TEST_SEED_HEX)
 _HW = "HW1-1234-5678-9ABC-DEF0"
 _NOW = 1_000_000_000
 _DAY = 86_400

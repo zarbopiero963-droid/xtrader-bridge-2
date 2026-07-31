@@ -21,6 +21,7 @@ import os
 
 import pytest
 
+from tests.conftest import LICENSE_TEST_SEED_HEX
 from xtrader_bridge.licensing import revocation, revocation_client
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,9 +29,11 @@ _BUILD_YAML = os.path.join(_REPO_ROOT, ".github", "workflows", "build.yaml")
 
 _STEP_ID = "revocation-live-gate"
 _NOW = 1_700_000_000
-# Seed di TEST corrispondente alla chiave pubblica incorporata (stesso delle altre suite licenza):
-# serve perché il gate verifica con la chiave DI DEFAULT, come farà in release.
-_TEST_SEED_HEX = "a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00"  # pragma: allowlist secret
+# Seed di TEST, dalla fonte unica in `tests/conftest.py` (regola 3, rilievo CodeRabbit #209):
+# serve perché il gate verifica con la chiave DI DEFAULT, come farà in release. Dal 2026-07-31
+# quel default è la chiave REALE del proprietario: il legame lo ristabilisce la fixture
+# `chiave_pubblica_di_test`, non più una coincidenza fra le due costanti.
+_TEST_SEED_HEX = LICENSE_TEST_SEED_HEX
 
 
 def _corpi_del_gate() -> list:

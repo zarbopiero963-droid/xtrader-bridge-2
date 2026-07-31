@@ -115,7 +115,16 @@ swap è deliberato e non silenzioso; il gate di release (§ sotto) lo legge e da
   **per valore** (`from .license import …`) e patchare il solo `license` lascerebbe la verifica
   delle liste di revoca sulla chiave reale;
 - la guardia di coerenza chiave↔flag legge le costanti **catturate all'import**, quindi non vede la
-  sostituzione della fixture e continua a sorvegliare ciò che verrà davvero distribuito.
+  sostituzione della fixture e continua a sorvegliare ciò che verrà davvero distribuito;
+- il **seed di TEST ha una fonte unica**: `LICENSE_TEST_SEED_HEX` in `tests/conftest.py`. Era
+  ricopiato in **sette** file (rilievo CodeRabbit su #209); ora i sei che firmano lo importano
+  (`from tests.conftest import LICENSE_TEST_SEED_HEX`). Non è pedanteria di stile: finché il
+  default del modulo *era* la pubblica di quel seed, una copia divergente si notava subito; da
+  quando la fixture deploya la pubblica derivata da **questa** costante, una copia divergente
+  firmerebbe con un seed diverso da quello verificato e il sintomo sarebbe una fila di
+  `INVALID_SIGNATURE` che sembra un difetto del prodotto. `tests/safety/test_seed_di_test_fonte_unica.py`
+  lo impedisce confrontando il **valore** e non il nome della costante, così vede anche una copia
+  re-introdotta sotto un nome qualsiasi.
 
 ### ⚠️ Cambiare di nuovo questa chiave
 
