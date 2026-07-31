@@ -32,7 +32,7 @@ import os
 
 import pytest
 
-from tests.conftest import LICENSE_TEST_SEED_HEX
+from tests.conftest import LICENSE_TEST_SEED_HEX, crea_symlink, richiede_link
 
 TESTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -145,22 +145,64 @@ def test_la_guardia_anti_shadowing_riconosce_un_tests_estraneo(monkeypatch):
 
     ct._verifica_nessuno_shadowing_di_tests()                 # ambiente sano: non solleva
 
+    # I percorsi finti si costruiscono con `os.path.join(os.sep, …)` e si confrontano dopo
+    # `os.path.abspath`, mai come stringhe letterali: la guardia normalizza, e su Windows
+    # "/altro/progetto" diventa "C:\\altro\\progetto" (rilievo GPT-5.5 — il test com'era scritto
+    # sarebbe stato rosso solo sul runner Windows). Niente `match=`, che è una regex e sui
+    # backslash di Windows si comporterebbe da sequenza di escape.
+    altrove = os.path.join(os.sep, "percorso", "che", "non", "e", "questo.py")
     with pytest.raises(RuntimeError) as errore:
-        ct._verifica_nessuno_shadowing_di_tests(percorso_atteso="/percorso/che/non/e/questo.py")
+        ct._verifica_nessuno_shadowing_di_tests(percorso_atteso=altrove)
     messaggio = str(errore.value)
     assert "NON risolve al conftest di questo repository" in messaggio
     assert "`tests/__init__.py`" in messaggio                 # deve dire COSA cercare
+    assert os.path.abspath(altrove) in messaggio              # dice QUALE percorso si attendeva
 
     # La guardia interroga `tests.conftest`, non il solo package `tests`: un namespace può avere
     # più porzioni e sapere che la nostra è *fra* quelle non dice che sia la PRIMA, cioè quella che
     # vince. Controprova: una porzione estranea davanti alla nostra deve essere vista.
+    estraneo = os.path.join(os.sep, "altro", "progetto", "tests", "conftest.py")
+
     def _spec_finta(nome):
-        assert nome == "tests.conftest"
-        return importlib.util.spec_from_file_location(nome, "/altro/progetto/tests/conftest.py")
+        # Risponde anche per il package `tests`, che la guardia interroga per la diagnostica:
+        # facendola fallire si otterrebbe «non determinabile» e il messaggio verrebbe esercitato
+        # a metà.
+        if nome == "tests.conftest":
+            return importlib.util.spec_from_file_location(nome, estraneo)
+        return None
 
     monkeypatch.setattr(ct.importlib.util, "find_spec", _spec_finta)
-    with pytest.raises(RuntimeError, match="risolve a: /altro/progetto"):
+    with pytest.raises(RuntimeError) as errore:
         ct._verifica_nessuno_shadowing_di_tests()
+    assert os.path.abspath(estraneo) in str(errore.value)
+
+
+@richiede_link
+def test_la_guardia_non_da_falsi_allarmi_su_percorsi_equivalenti(tmp_path):
+    """L'altra metà del rilievo Windows, ed è la metà pericolosa: la guardia gira all'**import**
+    del conftest, quindi un falso allarme non fa fallire un test — **spegne l'intera suite**.
+
+    Su Windows due percorsi validi per lo stesso file possono differire per maiuscole (`C:\\` vs
+    `c:\\`), per nome corto 8.3 o per un link, e un confronto con `abspath` li direbbe diversi.
+    Per questo la guardia confronta con `normcase(realpath(...))`.
+
+    Il caso si esercita con un **symlink**, non con un `..`: la prima versione di questo test
+    usava `tests/unit/../conftest.py` e passava anche neutralizzando la normalizzazione — perché
+    `abspath` collassa i `..` da sé, quindi non distingueva `realpath` da `abspath`. Era un test
+    decorativo. Un link invece `abspath` non lo risolve e `realpath` sì: è la differenza vera.
+
+    Resta scoperto qui il solo ramo maiuscole/minuscole, che su Linux `normcase` non esercita
+    (è l'identità): quello lo copre il runner Windows.
+    """
+    import tests.conftest as ct
+
+    reale = os.path.join(TESTS_DIR, "conftest.py")
+    link = str(tmp_path / "conftest_via_link.py")
+    crea_symlink(reale, link)
+
+    assert os.path.abspath(link) != os.path.abspath(reale), (
+        "il link non è un percorso distinto: il test non starebbe verificando nulla")
+    ct._verifica_nessuno_shadowing_di_tests(percorso_atteso=link)          # non deve sollevare
 
 
 def test_il_doppio_caricamento_del_conftest_non_diverge(chiave_pubblica_di_test):

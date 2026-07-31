@@ -66,6 +66,14 @@ def _verifica_nessuno_shadowing_di_tests(percorso_atteso=None):
             "dall'ambiente (o installa in un virtualenv pulito): senza, "
             "`from tests.conftest import …` legge le costanti di un altro progetto.")
 
+    def _canonico(percorso):
+        """Forma confrontabile del percorso. Su Windows due path validi possono differire per
+        maiuscole (`C:\\` vs `c:\\`), per nome corto 8.3 (`PROGRA~1`) o per un link: confrontarli
+        con `abspath` darebbe un falso allarme, e questa guardia gira all'import del conftest —
+        un falso allarme qui **spegne l'intera suite**. `realpath` non è strict, quindi non
+        solleva su un percorso inesistente."""
+        return os.path.normcase(os.path.realpath(percorso))
+
     try:
         spec = importlib.util.find_spec("tests.conftest")
     except (ImportError, ValueError, AttributeError) as exc:
@@ -73,7 +81,7 @@ def _verifica_nessuno_shadowing_di_tests(percorso_atteso=None):
             f"il nome `tests.conftest` non è risolvibile ({exc!r}).\n"
             f"  atteso: {atteso}\n" + _spiegazione()) from exc
     origine = os.path.abspath(spec.origin) if spec is not None and spec.origin else None
-    if origine != atteso:
+    if origine is None or _canonico(origine) != _canonico(atteso):
         raise RuntimeError(
             "`tests.conftest` NON risolve al conftest di questo repository.\n"
             f"  atteso:    {atteso}\n"
