@@ -237,13 +237,38 @@ def revocation_entries(revocations: list) -> list:
     il proprietario emette token, quindi non può auto-generarsi un serial nuovo — ed è **reversibile**
     (una nuova licenza = serial nuovo, non revocato). L'`hardware_id` è conservato nello store come
     metadato ma **non** viene emesso nella lista (un blacklist di macchina è un'azione più forte, non il
-    default di R3b). Le entry senza serial valido sono ignorate (fail-safe)."""
+    default di R3b). Le entry senza serial valido sono ignorate (fail-safe).
+
+    **Blacklist della macchina, opzionale** (PR-C del piano #194, decisione del proprietario). Un
+    record che porta `blacklist_hw` vero emette **anche** `{"hw": …}`. Serve contro un caso preciso:
+    su un bridge **non aggiornato** il token malleato di B2 è ancora accettato, e lì l'unica difesa
+    che regge è l'Hardware ID — che il padding non cambia.
+
+    Resta **opzionale e spento di default**, e il motivo è misurato: emetterlo in ogni revoca la
+    renderebbe **irreversibile**. Un cliente revocato che poi RICOMPRA ha un serial nuovo ma la stessa
+    macchina, quindi resterebbe bloccato per sempre:
+
+        entry                    vecchio revocato   NUOVO acquistato
+        solo serial (default)    bloccato           NON bloccato      ← può ricomprare
+        serial + hw              bloccato           bloccato          ← macchina in blacklist
+
+    I record già su disco non hanno il campo, quindi dopo l'aggiornamento **nessuna macchina finisce
+    in blacklist a sorpresa**: nessuna migrazione, nessun cambio di comportamento retroattivo.
+    """
     seen, out = set(), []
     for r in revocations:
         serial = str(r.get("serial", "")).strip().upper()
         if serial and serial not in seen:
             seen.add(serial)
-            out.append({"serial": serial})
+            entry = {"serial": serial}
+            # `hw` solo se richiesto ESPLICITAMENTE e se c'è davvero un hardware id: una entry con
+            # `hw` vuoto non revocherebbe nulla e verrebbe scartata da `normalize_entries` — meglio
+            # non generarla affatto.
+            if r.get("blacklist_hw"):
+                hw = str(r.get("hardware_id", "")).strip()
+                if hw:
+                    entry["hw"] = hw
+            out.append(entry)
     return out
 
 

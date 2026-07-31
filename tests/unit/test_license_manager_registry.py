@@ -29,7 +29,12 @@ def test_license_serial_deterministico_e_formato():
     s2 = registry.license_serial(tok)
     assert s1 == s2, "il serial deve essere deterministico per lo stesso token"
     assert s1.startswith("LIC-") and len(s1) == len("LIC-") + 12
-    assert s1[4:].isalnum() and s1[4:].isupper()
+    # B44 (#194): NON `isupper()`. `str.isupper()` è False quando la stringa non contiene alcun
+    # carattere con maiuscola/minuscola, e il serial è `LIC-` + 12 esadecimali: quando quei 12
+    # caratteri sono TUTTE CIFRE l'assert falliva. Misurato: 730 su 200.000 = 0,365%, contro
+    # l'atteso teorico (10/16)^12 = 0,355%. Era un difetto del TEST, non del prodotto: il serial
+    # era corretto. `== .upper()` è vero anche per una stringa di sole cifre.
+    assert s1[4:].isalnum() and s1[4:] == s1[4:].upper()
 
 
 def test_license_serial_token_diversi_differiscono():

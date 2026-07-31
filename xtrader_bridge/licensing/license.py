@@ -93,6 +93,36 @@ def _b64u_decode(text: str) -> bytes:
     return base64.urlsafe_b64decode(text + pad)
 
 
+def _b64u_canonico(text: str) -> bool:
+    """`True` se `text` è **esattamente** la forma che `_b64u_encode` produrrebbe per i suoi byte.
+
+    B2 (#192 H2 · piano #194) — la malleabilità che rendeva la revoca aggirabile. Il serial di una
+    licenza è `sha256` della **stringa** del token, e la lista di revoche identifica una licenza
+    proprio col serial. Aggiungendo un solo `=` in fondo al token il serial cambia, ma il token
+    restava valido: un cliente revocato riattivava la licenza con un'operazione che non richiede
+    alcuna conoscenza tecnica. Misurato prima della correzione:
+
+        onesto        valid=True   serial=LIC-598B9916DE34
+        token + '='   valid=True   serial=LIC-5EC5A2983E9B   ← la revoca non lo intercetta
+
+    La causa è qui sopra: `_b64u_decode` **aggiunge** il padding, quindi con un `=` in più la
+    lunghezza torna valida. Per la stessa ragione `validate=True` **non** chiude il buco (verificato
+    nella #194, contro quanto avevo scritto io nella #192): `=` è padding legittimo, non un
+    carattere fuori alfabeto — `validate` respinge solo l'alfabeto.
+
+    Il round-trip invece distingue: si ri-codifica ciò che si è decodificato e si pretende la
+    stringa identica. Chiude il buco **senza toccare un solo serial esistente**, che è il vincolo
+    decisivo: canonicalizzare il serial lo cambierebbe **anche per i token onesti**, e poiché
+    `licenses.jsonl`, `revoked.jsonl` e ogni lista già pubblicata contengono i serial nella forma
+    attuale, ogni revoca esistente smetterebbe di corrispondere — **tutti i clienti già revocati
+    tornerebbero attivi, in silenzio**.
+    """
+    try:
+        return _b64u_encode(_b64u_decode(text)) == text
+    except Exception:       # noqa: BLE001 — non decodificabile = non canonico (fail-closed)
+        return False
+
+
 def _payload_bytes(name: str, hardware_id: str, issued: int, expiry: int) -> bytes:
     """Serializzazione canonica del payload (chiavi ordinate, separatori compatti)."""
     obj = {"v": LICENSE_FORMAT_VERSION, "name": name, "hw": hardware_id,
@@ -138,6 +168,11 @@ def verify_license(token: str, hardware_id: str, now: int,
         if not token or "." not in token:
             return _invalid(MALFORMED)
         part_payload, part_sig = token.strip().split(".", 1)
+        # B2 — canonicità PRIMA di tutto il resto: una forma non canonica ha un serial diverso da
+        # quello con cui la licenza è stata registrata e revocata, quindi non è «lo stesso token
+        # scritto un po' diversamente» — è un token che sfugge alla revoca. Si rifiuta.
+        if not (_b64u_canonico(part_payload) and _b64u_canonico(part_sig)):
+            return _invalid(MALFORMED)
         payload_bytes = _b64u_decode(part_payload)
         signature = _b64u_decode(part_sig)
         payload = json.loads(payload_bytes.decode("utf-8"))
