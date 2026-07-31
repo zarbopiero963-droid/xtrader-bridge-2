@@ -4510,3 +4510,93 @@ regex.
 commit `86a8a89` su cinque asserzioni indipendenti (`points_status(inf)` → VALID,
 `validate(riga con Points=inf)` → VALID, gate Handicap base che accetta l'infinito,
 `points_status("101")` → VALID, `_hcap_value(inf)` → `inf`). Suite: **4260 passed, 14 skipped**.
+
+### Il giro di review: un rischio infondato che nascondeva una lacuna vera
+
+GPT-5.5 ha sollevato un rischio sul resolver del dizionario: instradare `_hcap_value` su
+`valore_finito` potrebbe fargli perdere la **notazione scientifica**, «se questa funzione applica
+la regex CSV». Dichiarava anche di non aver ricevuto `numbers_re.py` (diff troncato).
+
+Non la applica: `valore_finito` fa `float()` + `math.isfinite`, nessuna regex. Ma la risposta
+giusta non era «hai letto male» — era **misurarlo**, e la misura ha mostrato che la garanzia non
+era protetta da **nessun test**. Il dizionario legge da SQLite, dove un `REAL` piccolo si
+serializza proprio come `1e-05`: se un domani qualcuno mettesse la regex del contratto davanti a
+quella funzione, **tutti** gli handicap piccoli degraderebbero da ID a nomi in silenzio. Il
+rilievo era infondato nel merito e centrato nel bersaglio.
+
+Aggiunta quindi la matrice di equivalenza col comportamento precedente: si ricalcola a mano la
+regola vecchia su 20 valori e si verifica che l'unica differenza siano i **non finiti** — cioè
+esattamente il fix, e nient'altro. Più 13 casi parametrizzati sui formati che il resolver deve
+continuare ad accettare (scientifica maiuscola/minuscola, segno, float nativo dal driver, virgola,
+spazi).
+
+**E il test end-to-end multi-riga**, che GPT-5.5 chiedeva esplicitamente. Vale la pena riportare
+la misura sul codice pre-patch, perché quantifica il buco che la regola 2 aveva fatto emergere:
+
+```text
+PERCORSO MULTI-RIGA sul codice PRE-PATCH (86a8a89):
+  handicap=1000.01   → 2/2 righe PIAZZABILI, Handicap nel CSV=['1000.01', '1000.01']
+  handicap=-1000.01  → 2/2 righe PIAZZABILI, Handicap nel CSV=['-1000.01', '-1000.01']
+  handicap="9"*400   → 2/2 righe PIAZZABILI, Handicap nel CSV=['99999999999999999999…']
+```
+
+La riga base ha `Handicap="0"` di default e passa il gate; il fuori-scala entra come **override
+della riga derivata** e prima trovava solo la seconda copia del gate, che controllava il formato e
+non la scala. Correggere il gate base e non quello derivato avrebbe lasciato questa tabella
+identica. Il test contiene una **controprova preventiva** (con `-1,5` le righe devono essere
+piazzabili) così non può passare per il motivo sbagliato — un parser rotto.
+
+Fable 5 chiedeva conferma che `validator.price_status` e `INVALID_MISSING_PRICE` esistessero, non
+essendo nel diff: preesistono (`validator.py`, funzione pubblica e costante), non sono introdotti
+da questa PR — è per questo che non compaiono nel range.
+
+Test totali del file: **53** (da 38). Suite: **4275 passed, 14 skipped**.
+
+### Il Major di CodeRabbit: la mia stessa patch aveva aperto un buco
+
+I quattro reviewer veloci avevano detto no-blocker. CodeRabbit, minuti dopo, ha trovato un
+**Major reale** — ed è la ragione per cui il gate event-driven su di lui esiste.
+
+`_hcap_value` reso fail-closed non bastava, perché `_match_selection` **convertiva il suo `None`
+in `0.0`**. Il fail-closed veniva annullato dal chiamante, una riga sotto. Misurato sui due
+commit:
+
+```text
+handicap della riga     PRIMA (86a8a89)        DOPO il primo commit di questa PR
+"9"*400                 None (nessun match)    '22'  ← SelectionId della LINEA 0
+-"9"*400                None                   '22'
+"abc"                   '22'                   '22'  ← difetto preesistente, stessa classe
+```
+
+Prima l'infinito confrontava `inf == 0.0` → `False` → nessun match. Rendendolo `None` è diventato
+`0.0`, cioè **ha iniziato a combaciare** con la selezione a handicap zero, il cui `SelectionId`
+sarebbe finito nel CSV: XTrader avrebbe piazzato sulla linea 0 per un segnale la cui linea non si
+sa quale sia. La mia correzione aveva reso quel caso **peggiore** di com'era.
+
+È esattamente ciò che il proprietario aveva chiesto di evitare all'inizio di queste sei PR:
+*«non facciamo che sistemiamo una cosa e poi nasce il bug nell'altro nello stesso tempo»*. Vale la
+pena registrare **come** è successo: ho cambiato il valore di ritorno di una funzione senza
+leggere che cosa i chiamanti facessero di quel valore. Il grep della regola 2 l'avevo fatto sui
+`float(`, cioè sul luogo del difetto — non sui **consumatori** della funzione che stavo cambiando.
+
+**La correzione** distingue due cose che erano confuse: handicap **assente** (`None`/vuoto) → `0.0`,
+default del contratto, senza cui Match Odds e tutte le selezioni senza linea smetterebbero di
+risolvere gli ID; handicap **valorizzato ma illeggibile** → nessun match. Estratta in
+`_hcap_confrontabile`, fonte unica dei due lati del confronto, perché il difetto stava in **due**
+siti (la riga e la voce di dizionario) e scriverla due volte è come è nato tutto il resto. Il
+criterio è ora lo stesso di `local_db.upsert_selection`, che una voce così la scarta (#76).
+
+Il difetto su `"abc"` era **preesistente** a questa PR: la correzione chiude anche quello.
+
+**Test:** +11, sette dei quali visti rossi prima della correzione. Coprono entrambi i lati del
+confronto, la controprova che l'assenza resta linea 0, e che le linee reali continuano a
+combaciare e a **non** combaciare (l'invariante Codex P1: mai l'ID di un'altra linea).
+
+Gli altri due rilievi di CodeRabbit, entrambi reali e minori: una `|` non escapata dentro una
+cella di tabella markdown (MD056 — spezzava la tabella; `grep` su tutte le docs: un solo sito, nel
+contratto era già escapata), e una frase del test dell'identità che il mio stesso commit
+precedente aveva reso falsa — `10000000000000000` non è più un handicap valido dal B5. Il campione
+resta nel test **deliberatamente**, e ora la frase spiega perché: `row_identity` non chiama il
+validatore e non deve dipendere dal fatto che qualcuno l'abbia chiamato prima.
+
+Suite: **4286 passed, 14 skipped**.

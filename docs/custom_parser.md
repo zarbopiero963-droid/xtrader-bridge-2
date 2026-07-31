@@ -659,7 +659,7 @@ trasformazione) e `→map` (dopo value-map), più un codice di stato:
 | `INVALID_PRICE` | `Price` non numerico o ≤ 1.0 |
 | `INVALID_BETTYPE` | `BetType` non è un lato valido (`PUNTA`/`BANCA`/`BACK`/`LAY`) |
 | `INVALID_POINTS` | `Points` valorizzato ma non un numero finito in `0 < p ≤ 100` |
-| `INVALID_HANDICAP` | `Handicap` valorizzato ma non numerico, o `|Handicap| > 1000` |
+| `INVALID_HANDICAP` | `Handicap` valorizzato ma non numerico, o `\|Handicap\| > 1000` |
 | `INVALID_PRICE_BOUNDS` | limiti incoerenti: `Min > Max`, o l'intervallo esclude `Price` (segnalato solo sul limite che offende) |
 | `MODE_REQUIRED_MISSING` | campo richiesto dalla Modalità di riconoscimento mancante |
 | `NO_CONTENT_MATCH` (messaggio) | nessuna estrazione ha trovato nulla: solo valori fissi / nessun match |

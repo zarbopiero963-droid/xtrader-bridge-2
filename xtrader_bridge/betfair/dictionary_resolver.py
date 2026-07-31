@@ -75,6 +75,26 @@ def _hcap_value(v):
     return numbers_re.valore_finito(s)
 
 
+def _hcap_confrontabile(v):
+    """L'handicap da usare nel confronto, oppure ``None`` se **non è confrontabile**.
+
+    Fonte unica della distinzione **assente ≠ illeggibile** (Major CodeRabbit su #202), che
+    è tutto il punto di questa funzione:
+
+    - **assente** (`None`, vuoto, solo spazi) → ``0.0``, il default del contratto CSV;
+    - **valorizzato e leggibile** → il suo valore finito;
+    - **valorizzato ma illeggibile** («abc», `inf`, `nan`, `9`×400) → ``None``.
+
+    Prima i due chiamanti convertivano il ``None`` di `_hcap_value` in ``0.0``, il che
+    annullava il fail-closed: un handicap illeggibile combaciava con la selezione a linea 0
+    e il suo `SelectionId` finiva nel CSV. Sta qui, e non nei due siti, perché scritta due
+    volte divergerebbe — è la stessa ragione per cui esiste `handicap_status`.
+    """
+    if not str(v if v is not None else "").strip():
+        return 0.0
+    return _hcap_value(v)
+
+
 def _unique(values):
     """L'unico valore della collezione se è esattamente uno (e non vuoto), altrimenti
     ``None`` (zero o ambiguo)."""
@@ -157,22 +177,32 @@ class DictionaryResolver:
         L'handicap deve SEMPRE concordare, anche con una sola selezione omonima (Codex P1):
         altrimenti una riga con `Handicap=0` verrebbe arricchita con la SelectionId della
         linea +1.5 — un ID che punta a un mercato/linea diverso da quello del segnale. Il
-        confronto è numerico (virgola→punto→float); handicap assente/non numerico = 0
-        (default di contratto), così i mercati senza handicap (es. Match Odds, selezioni a
-        0) combaciano normalmente."""
+        confronto è numerico (virgola→punto→float).
+
+        **Assente ≠ illeggibile** (Major CodeRabbit su #202). Un handicap **assente**
+        (`None`/vuoto) vale `0`: è il default del contratto, e senza di esso i mercati senza
+        linea (Match Odds, selezioni a 0) smetterebbero di risolvere gli ID. Un handicap
+        **valorizzato ma non confrontabile** («abc», `inf`, `9`×400) NON vale `0`: se lo
+        coercessimo, un segnale la cui linea non si sa quale sia si aggancerebbe alla
+        SelectionId della **linea 0** e XTrader piazzerebbe sulla selezione sbagliata. Fail-
+        closed: nessun match, la riga resta a nomi.
+
+        Vale su **entrambi** i lati del confronto: anche una voce di *dizionario* con
+        handicap illeggibile viene saltata invece di essere trattata come linea 0 — è lo
+        stesso criterio di `local_db.upsert_selection`, che una riga così la scarta (#76)."""
         target = normalize(selection_name)
         if not target:
             return None
-        row_h = _hcap_value(handicap)
+        row_h = _hcap_confrontabile(handicap)
         if row_h is None:
-            row_h = 0.0
+            return None
         matches = []
         for s in _active(self.db.get_selections(market_id)):
             if normalize(s.get("runner_name", "")) != target:
                 continue
-            sel_h = _hcap_value(s.get("handicap"))
+            sel_h = _hcap_confrontabile(s.get("handicap"))
             if sel_h is None:
-                sel_h = 0.0
+                continue
             if sel_h == row_h:
                 matches.append(s.get("selection_id"))
         return _unique(matches)
