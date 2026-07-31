@@ -363,3 +363,60 @@ def test_una_voce_di_DIZIONARIO_malformata_non_vale_come_linea_zero():
     assert _resolver(INFINITO_DI_SOLE_CIFRE)._match_selection("1.234", "Inter", "0") is None
     # Ma una voce di dizionario VUOTA resta la linea 0 (default di contratto).
     assert _resolver("")._match_selection("1.234", "Inter", "0") == "22"
+
+
+# ══════════════════════════════════════════════════════════════════════════════════
+# Condizione posta da Fable 5 sulla #202, resa eseguibile.
+#
+# Il gate `handicap_status` rifiuta la notazione scientifica (il contratto XTrader
+# vuole decimali semplici). Perché sia sicuro, NESSUN percorso deve riscrivere la
+# colonna `Handicap` della riga in quella forma. Il candidato naturale è
+# `signal_dedupe._canonical_handicap`, che produce `repr(float(...))` — e
+# `repr(float("0.00001"))` è proprio `'1e-05'`.
+#
+# Quel `repr` vive SOLO dentro la stringa d'identità. Ma è un invariante fragile —
+# basterebbe che un domani qualcuno lo scrivesse "per comodità" anche nella riga — e
+# non era protetto da nulla. Se cadesse, un Handicap legittimo diventerebbe
+# `'1e-05'` nella riga e il gate lo scarterebbe: segnale perso, in silenzio.
+# ══════════════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.parametrize("handicap", ["0.00001", "-0.00001", "10000000000000000", "0", "-1.5"])
+def test_calcolare_l_identita_non_riscrive_la_riga(handicap):
+    from xtrader_bridge import signal_dedupe
+
+    riga = _riga(Handicap=handicap)
+    copia = dict(riga)
+
+    signal_dedupe.row_identity(riga)
+
+    assert riga == copia, "row_identity ha MUTATO la riga che ha ricevuto"
+    assert riga["Handicap"] == handicap, (
+        f"l'Handicap e' passato da {handicap!r} a {riga['Handicap']!r}: se fosse finito in "
+        "notazione scientifica, il gate del contratto lo scarterebbe e il segnale sarebbe perso")
+
+
+def test_la_normalizzazione_del_pipeline_non_produce_notazione_scientifica():
+    """L'altro percorso che tocca l'Handicap: `_decimal_sep_to_point` (virgola→punto).
+
+    È manipolazione di stringa, non un giro attraverso `float()` — quindi `0,0000001`
+    resta `0.0000001` e non diventa `1e-07`. Fissato qui perché un rifattore che lo
+    riscrivesse come `str(float(v))` romperebbe il gate su tutti i decimali piccoli.
+    """
+    for grezzo, atteso in [("0,00001", "0.00001"), ("-0,00001", "-0.00001"),
+                           ("0,0000001", "0.0000001"), ("1,5", "1.5"), ("0", "0")]:
+        normalizzato = custom_pipeline._decimal_sep_to_point(grezzo)
+        assert normalizzato == atteso, f"{grezzo!r} → {normalizzato!r}, atteso {atteso!r}"
+        assert "e" not in normalizzato.lower(), \
+            f"{grezzo!r} è diventato notazione scientifica ({normalizzato!r}): il gate lo scarterebbe"
+        assert validator.handicap_status(normalizzato) == validator.VALID
+
+
+def test_il_solo_scrittore_di_Handicap_nel_pipeline_scrive_il_default_del_contratto():
+    """Controprova strutturale: se un giorno comparisse un secondo punto che assegna
+    `row["Handicap"]`, questo test lo fa notare — è lì che il `repr` potrebbe entrare."""
+    import inspect
+    sorgente = inspect.getsource(custom_pipeline)
+    assegnazioni = [r for r in sorgente.splitlines() if '["Handicap"]' in r and "==" not in r
+                    and "=" in r.split('["Handicap"]', 1)[1][:3]]
+    assert len(assegnazioni) == 1, f"attesa UNA sola assegnazione di Handicap, trovate: {assegnazioni}"
+    assert "DEFAULT_HANDICAP" in assegnazioni[0], assegnazioni[0]

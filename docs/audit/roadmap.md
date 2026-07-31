@@ -4600,3 +4600,25 @@ resta nel test **deliberatamente**, e ora la frase spiega perché: `row_identity
 validatore e non deve dipendere dal fatto che qualcuno l'abbia chiamato prima.
 
 Suite: **4286 passed, 14 skipped**.
+
+### La condizione di Fable 5, resa eseguibile
+
+Fable 5, sulla review dell'intera PR: il gate `handicap_status` rifiuta la notazione scientifica,
+quindi *«è essenziale che nessun arricchimento riscriva `Handicap` con `repr(float)` (es.
+`1e-05`)»* — e concludeva da sé che il resolver tocca solo gli ID.
+
+La conclusione è giusta, ma andava **misurata**, perché il candidato naturale esiste davvero:
+`signal_dedupe._canonical_handicap` produce `repr(float(...))`, e `repr(float("0.00001"))` è
+proprio `'1e-05'`. Misurato: `row_identity` **non muta** la riga che riceve, l'unico punto del
+pipeline che assegna `row["Handicap"]` scrive `DEFAULT_HANDICAP` (`"0"`), e
+`_decimal_sep_to_point` è manipolazione di stringa — `0,0000001` resta `0.0000001`, non diventa
+`1e-07`.
+
+L'invariante reggeva, ma **non era protetto da nulla**. Se cadesse — basterebbe che qualcuno
+scrivesse il `repr` anche nella riga «per comodità» — un handicap legittimo diventerebbe `1e-05`
+nella colonna e il gate lo scarterebbe: **segnale perso, in silenzio**, l'errore speculare a
+quello che questa PR chiude. Aggiunti tre test: la non-mutazione su cinque handicap, il fatto che
+la normalizzazione virgola→punto non produca mai una `e`, e una controprova strutturale che
+diventa rossa se comparisse un secondo punto che assegna `Handicap`.
+
+Test totali del file: **71**. Suite: **4293 passed, 14 skipped**.
