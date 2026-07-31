@@ -131,6 +131,16 @@ jobs:
               (re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{30,}\b"), "[REDACTED_GITHUB_TOKEN]"),
               (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED_AWS_ACCESS_KEY]"),
               (re.compile(r"\b\d{8,12}:[A-Za-z0-9_\-]{30,}\b"), "[REDACTED_TELEGRAM_BOT_TOKEN]"),
+              # Issue #205 — il seed Ed25519 (32 byte = 64 hex): la chiave che firma TUTTE le
+              # licenze, e l'unico segreto non sostituibile senza riemetterle. Non aveva alcun
+              # pattern qui, quindi un diff che lo contenesse sarebbe uscito IN CHIARO verso un
+              # modello esterno. Contestuale (la parola `seed` accanto al valore) perche' 64 hex
+              # nudi sono anche uno SHA-256: i lockfile del repo ne contengono 291 righe, e
+              # redigerle svuoterebbe il diff mandato al reviewer. Copre anche la forma del
+              # BACKUP, dove il file-chiave e' annidato come stringa JSON e le virgolette sono
+              # escapate. Stesso pattern di `tools/secret_policy.py` (in str invece che bytes):
+              # la condivisione per import e' impossibile qui, i workflow non fanno checkout.
+              (re.compile(r'(?i)\\?"?seed\\?"?\s*[:=]\s*\\?"?[0-9a-f]{64}'), "[REDACTED_ED25519_SEED]"),
               (re.compile(r"(?i)(api[_-]?key|token|secret|password|passwd|pwd|private[_-]?key|cert)\s*[:=]\s*[\"']?[^\"'\s,;]+"), r"\1=[REDACTED]"),
           ]
 

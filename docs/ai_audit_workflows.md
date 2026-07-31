@@ -194,7 +194,8 @@ mostra scope, range `base...head`, numero di commit e una stima del costo token.
   realmente analizzato**.
 - **Redaction pre-invio**: possibili segreti (token Telegram, chiavi
   OpenAI/OpenRouter, PAT GitHub classici **e fine-grained `github_pat_`**,
-  private key, assegnazioni `password=`/`token=`) vengono offuscati **prima**
+  private key, **il seed Ed25519 del License Manager**, assegnazioni
+  `password=`/`token=`) vengono offuscati **prima**
   dell'invio — inclusi **nomi file/path** e il **ref**, che possono contenere un
   segreto e da cui vengono rimossi anche i control-char (niente iniezione di
   campi nei prompt). Gli audit fanno anche un secret-scan locale che finisce nel
@@ -212,6 +213,24 @@ mostra scope, range `base...head`, numero di commit e una stima del costo token.
   modello può iniettare dati sensibili. I nomi `.env`/`.env.*` e i file
   chiave (`*.pem`/`*.key`/`id_rsa`…) sono trattati come **area critica**
   (`manual-review-required`) anche se binari/senza patch.
+- **Il seed Ed25519 e le cinque copie** (Issue #205). Il pattern del seed è
+  **contestuale** — richiede la parola `seed` accanto al valore — perché 64
+  caratteri esadecimali sono anche la forma di uno SHA-256: i lockfile del repo
+  ne contengono 291 righe, e redigerle manderebbe al reviewer un diff mutilato.
+  Copre anche la forma del **backup completo**, dove il file-chiave è annidato
+  come stringa JSON e le virgolette sono escapate. Volutamente **non** si è
+  aggiunto `seed` all'alternanza generica: misurato, avrebbe redatto 30 righe di
+  codice reale del License Manager (`seed = os.urandom(…)`), oscurando al
+  reviewer proprio il modulo che custodisce la chiave.
+  Questi cinque workflow **non fanno il checkout del repository** — prendono i
+  contenuti dall'API — quindi **non possono importare** `tools/secret_policy.py`,
+  che è la fonte unica dei gate: le liste di redazione restano per forza cinque
+  copie. Il presidio contro la divergenza è
+  `tests/safety/test_redazione_seed_205.py`, che estrae le regex **reali** dai
+  file YAML via AST e le **esegue**, così una copia che perde una classe diventa
+  rossa. Nota: il redattore è deliberatamente **più lasco** del gate (`{30,}`
+  contro `{35}` sul bot-id Telegram) — per la sola redazione l'eccesso è gratis,
+  per un gate sarebbe un falso positivo che blocca.
 - **Prompt-injection hardening**: i prompt dichiarano diff/file come non
   attendibili; negli audit il contenuto è racchiuso tra delimitatori con un
   **nonce casuale per-chunk** (`os.urandom`), così un file che contenesse il
