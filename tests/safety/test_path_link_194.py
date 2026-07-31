@@ -346,3 +346,17 @@ def test_LIMITE_le_guardie_NON_riconoscono_un_hard_link_se_samefile_non_risponde
     assert atomic_io.stesso_file(uno, due) is False, (
         "comportamento cambiato: se ora gli hard link sono riconosciuti anche senza "
         "samefile, aggiornare la documentazione che dichiara questo limite")
+
+
+def test_lo_sweep_NON_solleva_mai_nemmeno_su_un_path_impossibile(tmp_path):
+    """Il suo docstring promette «best-effort: non solleva mai», e con `realpath` non era
+    più vero (domanda di GPT-5.5 su #203, verificata).
+
+    `abspath` non solleva sul NUL, `realpath` sì — quindi risolvendo la destinazione ho
+    reso sollevabile una funzione che il chiamante (`App._sweep_orphan_csv_temps`,
+    all'AVVIO) invoca **senza try/except**, fidandosi della promessa. Un `csv_path` con un
+    NUL in `config.json` — JSON ammette `\\u0000` — avrebbe impedito all'app di partire.
+    """
+    for caso in ["", "   ", "relativo.csv", str(tmp_path / "non" / "esiste" / "mai.csv"),
+                 "/tmp/\x00invalido.csv", "\x00", str(tmp_path)]:
+        assert csv_writer.sweep_orphan_temps(caso) >= 0      # non solleva

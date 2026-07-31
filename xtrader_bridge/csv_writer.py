@@ -446,13 +446,26 @@ def sweep_orphan_temps(path: str) -> int:
     p = str(path or "").strip()
     if not p:
         return 0
+    # `realpath` PUÒ sollevare dove `abspath` non lo faceva (es. `ValueError` su un path con
+    # un NUL, che JSON ammette scritto come escape `\u0000`): senza questa protezione la
+    # promessa «non solleva mai» del docstring sarebbe caduta, e il chiamante
+    # (`App._sweep_orphan_csv_temps`, all'AVVIO) la invoca **senza try/except** fidandosi.
+    # Un csv_path malformato avrebbe impedito all'app di partire — una guardia diventata un
+    # crash, la classe di difetto che questa PR esiste per chiudere.
+    try:
+        risolto = os.path.realpath(p)
+    except (OSError, ValueError):
+        risolto = p
     # `dict.fromkeys` invece di `set`: deduplica mantenendo l'ordine (prima la cartella
     # reale), così il conteggio è stabile e riproducibile nei test.
-    cartelle = dict.fromkeys(
-        (os.path.dirname(os.path.abspath(candidato)) or ".")
-        for candidato in (os.path.realpath(p), p))
+    cartelle = []
+    for candidato in (risolto, p):
+        try:
+            cartelle.append(os.path.dirname(os.path.abspath(candidato)) or ".")
+        except (OSError, ValueError):
+            continue        # candidato inutilizzabile: si prova l'altro, mai si solleva
     return sum(atomic_io.sweep_orphan_temps(d, _CSV_TMP_PREFIX, _CSV_TMP_SUFFIX)
-               for d in cartelle)
+               for d in dict.fromkeys(cartelle))
 
 
 # ── FAMIGLIA «lascia solo l'header» — matrice delle precondizioni (ambiguità A4, #69) ───────────
