@@ -13,6 +13,26 @@ config.json
 signing_key.json
 *signing_key*.json
 
+# Stati del License Manager (B14 · B3 del piano #194). Due ragioni distinte:
+#
+# - `licenses.jsonl` e `revoked.jsonl` contengono i dati dei CLIENTI (nome, contatto, hardware
+#   id). Non sono "segreti" riconoscibili da un pattern, quindi lo scanner dei contenuti non li
+#   vedrebbe mai passare: l'unica difesa possibile è il nome.
+# - I file di BACKUP contengono il **seed Ed25519**, cioè la chiave che firma tutte le licenze.
+#   Il backup completo passava tutte e tre le difese anti-segreto (bug B3, 🔴).
+#
+# Le regole qui sono verificate da `tests/safety/test_presidi_antisegreto_194.py` contro
+# `tools/secret_policy.py`: aggiungere un file lì senza aggiornare questo elenco fa diventare
+# rosso il test, così le due liste non possono divergere in silenzio.
+licenses.jsonl
+revoked.jsonl
+publish_config.json
+publish_state.json
+restore_in_progress.json
+license_state.json
+auto_backup.json
+*backup*.json
+
 # CSV generati dal bridge
 *.csv
 segnali.csv

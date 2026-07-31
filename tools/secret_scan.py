@@ -31,9 +31,22 @@ Uso:
 """
 
 import os
-import re
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    import secret_policy  # noqa: E402  (dopo il sys.path: il modulo vive accanto a questo file)
+except ImportError as exc:   # pragma: no cover — mancata installazione, non un ramo logico
+    # Fail-closed esplicito, coerente col resto del modulo: senza la policy non esistono pattern,
+    # e uno scanner senza pattern direbbe "pulito" su qualsiasi cosa. Meglio un errore leggibile
+    # di un traceback: chi legge un log CI deve capire subito che il gate NON ha scansionato.
+    # Da qui in avanti lo scanner sono DUE file (`secret_scan.py` + `secret_policy.py`): vanno
+    # copiati insieme.
+    print(f"::error::tools/secret_policy.py non importabile (scan non affidabile): {exc}",
+          file=sys.stderr)
+    sys.exit(1)
 
 # Estensioni di ASSET binari ATTESI: un file con questa estensione + byte NUL è normale (immagini,
 # archivi, font, eseguibili) → nessun notice. Un file NON-asset con byte NUL (es. un `.py`/`.md`/
@@ -49,46 +62,27 @@ _KNOWN_BINARY_EXT = frozenset({
 })
 
 
-def _notice_binary_skip(path: str) -> None:
-    """AC-B36 #114: rende VISIBILE (non in silenzio) che un file binario non è stato scansionato,
-    MA solo per i binari INATTESI (non asset noti) — così un `.py`/`.md`/… con byte NUL emerge,
-    senza rumore sui PNG/ICO/… attesi. `::notice::` non fa fallire il gate."""
+def _notice_binary(path: str) -> None:
+    """AC-B36 #114: rende VISIBILE che un file che dovrebbe essere testo contiene byte NUL, MA
+    solo per i binari INATTESI (non asset noti) — così un `.py`/`.md`/… binario emerge, senza
+    rumore sui PNG/ICO/… attesi. `::notice::` non fa fallire il gate: è un segnale, non un
+    verdetto.
+
+    ⚠️ B30 (#192 L3): fino alla #194 questo notice accompagnava un **salto** — il file non veniva
+    scansionato affatto. Bastava quindi **un** byte NUL in testa a un `.py` perché un token
+    GitHub sottostante non venisse mai esaminato, e un `::notice::` non ferma un commit. Ora il
+    file è scansionato lo stesso e il notice resta solo come informazione."""
     if os.path.splitext(path)[1].lower() in _KNOWN_BINARY_EXT:
         return
-    print(f"::notice::file binario INATTESO non scansionato per segreti (byte NUL): {path}",
+    print(f"::notice::file binario INATTESO (byte NUL), scansionato comunque: {path}",
           file=sys.stderr)
 
-# Pattern ad ALTO segnale, scelti per ~zero falsi positivi (verificati a 0 match sul repo).
-# Su BYTES (come `grep -E`): nessun problema di encoding e niente decodifica del segreto.
-# chat-id e path utente NON sono qui: come stringhe sono comuni nei doc/test (falsi positivi)
-# e sono già coperti dal blocco file di `forbidden-files`.
-PATTERNS = [
-    # AC-B37 audit #114: allargato il bot-id a `{8,12}` (prima `{8,10}`) per intercettare i
-    # bot-id più lunghi dei bot Telegram recenti. La parte auth resta `{35}` (formato REALE del
-    # token): NON allargata a `{30,}` come il redactor dei workflow (volutamente lasco per la
-    # sola redazione), così il GATE non blocca falsi positivi — le fixture di test usano 32-34
-    # char, sotto i 35 reali. NESSUN `\b`, né iniziale né finale (review Fable/GLM #131),
-    # INTENZIONALMENTE come il pattern STORICO (`[0-9]{8,10}:…{35}`, che non ne aveva): il match
-    # su substring intercetta anche un token EMBEDDED in una stringa più lunga (il `\b` finale su
-    # `{35}` lo mancherebbe; quello iniziale mancherebbe un token preceduto da altre cifre). Per
-    # un GATE la copertura più ampia è preferibile; la forma resta molto specifica
-    # (`<8-12 cifre>:<35 char>`) → nessun falso positivo su sequenze numeriche nude (repo: 0 FP).
-    ("Telegram bot token", re.compile(rb"[0-9]{8,12}:[A-Za-z0-9_-]{35}")),
-    ("PEM private key", re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
-    # AKIA = chiave permanente; ASIA = credenziale TEMPORANEA STS (entrambe sono AWS access
-    # key id valide e vanno intercettate — review CodeRabbit).
-    ("AWS access key id", re.compile(rb"(?:AKIA|ASIA)[0-9A-Z]{16}")),
-    # AC-M14 audit #114: le chiavi che il repo maneggia DAVVERO (Anthropic/OpenAI/OpenRouter,
-    # GitHub token/PAT) erano redatte nei diff di review ma NON bloccate al commit dal gate.
-    # `sk-…` copre OpenAI (`sk-`/`sk-proj-`), Anthropic (`sk-ant-…`) e OpenRouter (`sk-or-v1-…`).
-    # `\b` INIZIALE mantenuto (evita match dentro parole tipo `disk-`/`task-`/`mask-`+20char =
-    # falsi positivi); `\b` FINALE RIMOSSO (review Fugu #131): una chiave reale che TERMINA con
-    # `-` (la classe include `-`) seguita da `"`/newline NON produrrebbe word-boundary → falso
-    # NEGATIVO (chiave non bloccata). Senza `\b` finale il match su prefisso resta valido.
-    ("OpenAI/Anthropic/OpenRouter API key", re.compile(rb"\bsk-[A-Za-z0-9_-]{20,}")),
-    ("GitHub fine-grained PAT", re.compile(rb"\bgithub_pat_[A-Za-z0-9_]{20,}")),
-    ("GitHub token", re.compile(rb"\bgh[pousr]_[A-Za-z0-9_]{30,}")),
-]
+# I pattern NON vivono più qui: la fonte unica è `tools/secret_policy.py`, condivisa con il gate
+# dei percorsi (`tools/forbidden_paths.py`, invocato dal workflow) — vedi PR-D del piano #194.
+# Prima erano duplicati fra questo file e il YAML del workflow, e le due copie erano già
+# divergiute (`{8,10}` contro `{8,12}` sul bot-id Telegram). Il nome `PATTERNS` resta come alias
+# storico: è usato dai test e citato nelle docs.
+PATTERNS = secret_policy.SECRET_PATTERNS
 
 _UNRELIABLE = "scan non affidabile"
 
@@ -116,13 +110,23 @@ def _is_test_path(path: str) -> bool:
 
 
 def scan_bytes(data: bytes, *, honor_allowlist: bool = False) -> list:
-    """Nomi dei pattern che matchano in `data`. File binario (byte NUL) → saltato (`[]`).
-    Scansione per-riga; se `honor_allowlist` le righe con `_ALLOW_MARKER` (falso positivo noto)
-    sono saltate — il chiamante lo passa True SOLO per i path di test (`_is_test_path`).
-    Default **False = safe-by-default** (review GLM #131): un chiamante che dimentica il flag NON
-    onora i marker → fail-closed, il segreto resta bloccato."""
-    if b"\x00" in data:
-        return []
+    """Nomi dei pattern che matchano in `data`. Scansione per-riga; se `honor_allowlist` le righe
+    con `_ALLOW_MARKER` (falso positivo noto) sono saltate — il chiamante lo passa True SOLO per i
+    path di test (`_is_test_path`). Default **False = safe-by-default** (review GLM #131): un
+    chiamante che dimentica il flag NON onora i marker → fail-closed, il segreto resta bloccato.
+
+    **B30 (#192 L3) — i byte NUL non sono più uno scudo.** Fino alla #194 questa funzione usciva
+    con `[]` appena trovava un `\\x00`, imitando `grep -I`. Il risultato misurato: un `.py` con un
+    NUL in testa e un token GitHub sotto usciva **0**. Non serviva nemmeno malizia — bastava un
+    file di testo corrotto. L'esenzione per estensione era anche peggio, perché rinominare
+    `backup.json` in `logo.png` era una scorciatoia a costo zero.
+
+    Ora si scansiona **tutto**, senza eccezioni per estensione. Il motivo per cui si poteva
+    saltare era il falso positivo sui binari, e non regge alla misura: i pattern sono molto
+    specifici e la probabilità che byte casuali producano `-----BEGIN … PRIVATE KEY-----`, 64 hex
+    preceduti da `seed`, o `sk-` seguito da 20+ caratteri della classe è dell'ordine di 1e-13 per
+    posizione. La controprova non è teorica — `test_il_repository_reale_resta_pulito` scansiona
+    tutti i file tracciati, asset binari inclusi, e resta a zero segnalazioni."""
     hits = []
     for line in data.splitlines():
         if honor_allowlist and _ALLOW_MARKER in line:
@@ -141,12 +145,11 @@ def _scan_path(path: str):
             data = f.read()
     except OSError:
         return [], True
-    # AC-B36 audit #114: un file binario (byte NUL) è saltato come `grep -I`, ma NON più in
-    # SILENZIO: un `::notice::` rende visibile nel log CI che quel file non è stato scansionato
-    # (un segreto nascosto in un binario non passa "invisibile"). Notice = non fa fallire il gate.
+    # AC-B36 audit #114: un file che dovrebbe essere testo ma contiene byte NUL viene segnalato
+    # con un `::notice::` visibile nel log CI. B30 (#194): il notice NON accompagna più un salto —
+    # il file è scansionato comunque (vedi `scan_bytes`), perché un notice non ferma un commit.
     if b"\x00" in data:
-        _notice_binary_skip(path)
-        return [], False
+        _notice_binary(path)
     return scan_bytes(data, honor_allowlist=_is_test_path(path)), False
 
 
@@ -208,9 +211,11 @@ def _scan_staged() -> int:
             print(f"::error::estrazione blob in staging fallita ({_UNRELIABLE}): {path}",
                   file=sys.stderr)
             continue
-        if b"\x00" in blob.stdout:   # AC-B36: binario in staging saltato, notice se inatteso
-            _notice_binary_skip(path)
-            continue
+        # Regola 2 (#194): il salto sul NUL era scritto DUE volte, qui e in `_scan_path`.
+        # Correggerne uno solo avrebbe lasciato scoperto proprio l'hook pre-commit (che usa
+        # `--staged`): il segreto sarebbe stato bloccato in CI ma non al momento del commit.
+        if b"\x00" in blob.stdout:   # AC-B36: notice se il binario è inatteso, ma si scansiona
+            _notice_binary(path)
         if scan_bytes(blob.stdout, honor_allowlist=_is_test_path(path)):
             found = True
             _report(path)

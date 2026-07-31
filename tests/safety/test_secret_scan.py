@@ -20,6 +20,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCANNER = REPO_ROOT / "tools" / "secret_scan.py"
+POLICY = REPO_ROOT / "tools" / "secret_policy.py"
 
 # Segreti fittizi spezzati: a runtime sono validi per il pattern, in sorgente no.
 FAKE_TELEGRAM = "123456789" + ":" + ("A" * 35)
@@ -31,6 +32,7 @@ FAKE_AWS_STS = "ASI" + "A" + ("0" * 16)      # ASIA = credenziale temporanea STS
 # saltando (sarebbe l'opposto del fail-closed che questi test garantiscono) → fallire (review
 # CodeRabbit).
 assert SCANNER.exists(), "tools/secret_scan.py non disponibile (lo scanner canonico deve esistere)"
+assert POLICY.exists(), "tools/secret_policy.py non disponibile (la fonte unica dei pattern)"
 
 
 def _run(*args, cwd=None):
@@ -75,13 +77,27 @@ def test_misto_pulito_e_segreto_fallisce(tmp_path):
     assert FAKE_TELEGRAM not in (r.stdout + r.stderr)
 
 
-def test_file_binario_viene_saltato(tmp_path):
-    """Un file binario (byte NUL) che contiene la sequenza di un pattern viene SALTATO
-    (come `grep -I`): niente falso positivo sui binari."""
+def test_file_binario_con_segreto_ora_blocca(tmp_path):
+    """RIORIENTATO in PR-D (#194, bug B30). Prima questo test asseriva che un file binario
+    venisse **saltato** «come `grep -I`, niente falsi positivi sui binari». Quella regola era il
+    bug: bastava un byte NUL perché il segreto non venisse mai guardato, e il file poteva anche
+    chiamarsi `logo.png`.
+
+    Il test resta, con l'esito invertito: un binario che contiene un segreto in chiaro BLOCCA.
+    La protezione dai falsi positivi che il vecchio test cercava è mantenuta dal test qui sotto
+    (un binario senza segreti resta pulito) e dallo scan del repository reale."""
     f = tmp_path / "blob.bin"
     f.write_bytes(b"\x00\x01" + FAKE_AWS.encode() + b"\x00")
     r = _run(f)
-    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert FAKE_AWS not in (r.stdout + r.stderr), "il valore non si stampa mai"
+
+
+def test_file_binario_senza_segreti_resta_pulito(tmp_path):
+    """La controprova del precedente: scansionare anche i binari non deve produrre rumore."""
+    f = tmp_path / "blob.bin"
+    f.write_bytes(bytes(range(256)) * 64)
+    assert _run(f).returncode == 0
 
 
 def test_nessun_argomento_su_repo_pulito_esce_zero():
@@ -104,7 +120,11 @@ def test_staged_scan_intercetta_il_blob_in_staging(tmp_path):
     con blob pulito invece passa. Eseguito via Python (sys.executable), niente `bash`."""
     repo = tmp_path / "repo"
     (repo / "tools").mkdir(parents=True)
+    # Lo scanner sono DUE file dalla PR-D (#194): `secret_scan.py` legge i pattern da
+    # `secret_policy.py`, che è la fonte unica condivisa col gate dei percorsi. Copiarne
+    # uno solo lo fa uscire 1 con «scan non affidabile» (fail-closed), non 0.
     shutil.copy(SCANNER, repo / "tools" / "secret_scan.py")
+    shutil.copy(POLICY, repo / "tools" / "secret_policy.py")
 
     def git(*args):
         return subprocess.run(["git", *args], cwd=str(repo),
@@ -144,7 +164,11 @@ def test_staged_scan_intercetta_un_rename_con_segreto(tmp_path):
     rinominato viene scansionato (review CodeRabbit). Via Python (sys.executable), niente bash."""
     repo = tmp_path / "repo"
     (repo / "tools").mkdir(parents=True)
+    # Lo scanner sono DUE file dalla PR-D (#194): `secret_scan.py` legge i pattern da
+    # `secret_policy.py`, che è la fonte unica condivisa col gate dei percorsi. Copiarne
+    # uno solo lo fa uscire 1 con «scan non affidabile» (fail-closed), non 0.
     shutil.copy(SCANNER, repo / "tools" / "secret_scan.py")
+    shutil.copy(POLICY, repo / "tools" / "secret_policy.py")
 
     def git(*args):
         return subprocess.run(["git", *args], cwd=str(repo),
@@ -321,17 +345,21 @@ def test_allowlist_confinato_ai_path_di_test(tmp_path):
     assert _run(fixture).returncode == 0, "in un path di test il marker è onorato"
 
 
-def test_binario_inatteso_emette_notice_ma_non_fallisce(tmp_path):
-    """AC-B36: un file NON-asset (es. `.py`) con byte NUL è saltato ma con `::notice::` visibile
-    (non sparisce in silenzio); un asset atteso (`.png`) è saltato SENZA rumore."""
+def test_binario_inatteso_emette_notice_e_ora_blocca(tmp_path):
+    """AC-B36 (#114) + B30 (#194). Il notice sul binario INATTESO resta — segnalare che un `.py`
+    contiene byte NUL è un'informazione utile — ma non accompagna più un salto: il segreto sotto
+    il NUL viene trovato e il gate BLOCCA. Un `::notice::` non ferma un commit; un exit 1 sì.
+
+    L'asset atteso (`.png`) resta senza rumore di notice, ma è scansionato come tutto il resto:
+    l'estensione non esenta più nessuno (rinominare un backup in `.png` era una scorciatoia)."""
     suspicious = tmp_path / "weird.py"
     suspicious.write_bytes(b"\x00" + f"tok = {FAKE_GH_TOKEN}".encode() + b"\x00")
     r = _run(suspicious)
-    assert r.returncode == 0                          # binario saltato: non blocca
+    assert r.returncode == 1, r.stdout + r.stderr     # il NUL non fa più da scudo
     assert "::notice::" in r.stderr and "INATTESO" in r.stderr and "weird.py" in r.stderr
 
     asset = tmp_path / "image.png"
     asset.write_bytes(b"\x00\x89PNG" + FAKE_AWS.encode() + b"\x00")
     r2 = _run(asset)
-    assert r2.returncode == 0
-    assert "::notice::" not in r2.stderr              # asset atteso: nessun rumore
+    assert r2.returncode == 1, r2.stdout + r2.stderr
+    assert "::notice::" not in r2.stderr              # asset atteso: nessun rumore di notice
