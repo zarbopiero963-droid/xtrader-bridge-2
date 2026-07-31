@@ -4180,3 +4180,51 @@ che non protegge.
 > che li hanno segnalati hanno sbagliato la **diagnosi** pur azzeccando il **punto**: Fable ha
 > descritto il #1 come «direzione conservativa, accettabile» quando era l'opposto. Il valore della
 > review non è stato il verdetto — è stato indicare dove misurare.
+
+---
+
+## PR-A2b (#194 · B47) — la virgola dentro il nome della selezione
+
+**Il difetto.** `Over 5,5` e `Over 5.5` sono la stessa linea, e producevano due righe CSV:
+
+```text
+CSV che XTrader legge: 2 righe -> ['Over 5,5', 'Over 5.5']
+  stesso evento, stesso mercato, stessa linea, stessa quota, entrambe PUNTA
+```
+
+PR-A2 aveva canonicalizzato case e spazi nei campi testuali, e il valore numerico dell'handicap —
+che è una colonna **decimale**. Ma `SelectionName` è **testuale**, e il contratto CSV dichiara che
+le testuali «non vengono **mai** toccate»: la virgola restava virgola, il punto restava punto, e
+per il confronto erano due stringhe diverse.
+
+**Da dove nascono le due forme.** Entrambe dal prodotto, il che è ciò che rende il caso reale:
+
+- **la virgola** la scrive il bridge stesso — la trasformazione `score_to_over` (CP-05, l'unica
+  esistente) dal punteggio `2-3` genera letteralmente `"Over 5,5"`, con la virgola nel codice.
+  È opt-in: scatta solo se una regola imposta `transform="score_to_over"`;
+- **il punto** arriva dal messaggio copiato verbatim — e questo percorso **non richiede la
+  trasformazione**: basta un canale italiano che alterna `Over 2,5` e `Over 2.5` fra un post e
+  l'altro.
+
+**Perché non era già in PR-A2.** Perché il contratto CSV esclude esplicitamente le colonne
+testuali da ogni canonicalizzazione: allargare lì non era una conseguenza tecnica della
+correzione ma una **decisione del proprietario**, presa il 2026-07-31.
+
+### Chirurgica, non generale
+
+`_VIRGOLA_FRA_CIFRE = (?<=[0-9]),(?=[0-9])` — solo una virgola **fra due cifre**. Una virgola di
+prosa («Inter, primo tempo») è seguita da uno **spazio**, quindi non viene toccata: unire nomi
+realmente diversi costerebbe un **segnale valido**, l'errore speculare alla doppia scommessa.
+Le controprove lo fissano: `Over 5,5` ≠ `Under 5,5`, ≠ `Over 6,5`, ≠ `Over 5,55`, e
+`"Inter, primo tempo"` ≠ `"Inter. primo tempo"`.
+
+### Dove vive, e perché lì
+
+Solo in `_canonical_fields`, quindi solo in `row_identity` — la stessa separazione di PR-A2 e per
+la stessa ragione: `row_dedup_key` è **persistita**, e cambiarla invaliderebbe le chiavi già su
+disco al primo riavvio dopo l'aggiornamento. Due test lo fissano: la chiave resta sensibile alla
+virgola, e uno stato salvato prima dell'aggiornamento continua a combaciare dopo.
+
+Il valore **scritto** non cambia mai: `test_la_normalizzazione_non_tocca_il_valore_SCRITTO`
+verifica che `row_identity` non muti nemmeno la riga che riceve. Nel CSV finisce `Over 5,5` se è
+quello che la regola ha prodotto.

@@ -676,8 +676,14 @@ Tutte queste protezioni sono **attive a runtime**:
    **sostituisce** la precedente, quindi una seconda riga non può esistere.
    Il confronto ignora anche il **formato** (audit #194 · B46): maiuscole/minuscole e spazi
    doppi nei nomi — `Inter` = `INTER`, il modo più comune in cui un canale ri-pubblica — e le
-   scritture equivalenti dell'handicap (`0` = `0.0` = `+0`, `0.50` = `0.5`). Restano invece
-   scommesse **diverse** handicap davvero diversi (`-1` ≠ `+1`, `0.5` ≠ `1.5`) e un handicap
+   scritture equivalenti dell'handicap (`0` = `0.0` = `+0`, `0.50` = `0.5`). Dal medesimo audit
+   (· B47) anche la **virgola decimale dentro un nome**: `Over 5,5` = `Over 5.5`, perché le due
+   forme nascono entrambe dal prodotto — il calcolo automatico della linea Over scrive la
+   virgola, un messaggio copiato verbatim può portare il punto. La regola è **chirurgica**: solo
+   una virgola **fra due cifre**, quindi le virgole della prosa (`Inter, primo tempo`) non
+   vengono toccate. Restano invece
+   scommesse **diverse** handicap davvero diversi (`-1` ≠ `+1`, `0.5` ≠ `1.5`), linee diverse
+   (`Over 5,5` ≠ `Over 6,5`, `Over` ≠ `Under`) e un handicap
    **non numerico**, che è confrontato come testo senza essere interpretato. La forma canonica
    serve **solo** a decidere se è la stessa scommessa: **non** modifica il valore della riga,
    che resta quello prodotto dal parser. Al momento di scrivere il file, `csv_writer` può
