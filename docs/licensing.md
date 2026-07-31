@@ -418,6 +418,30 @@ nel repo/EXE.
   (emetti una nuova licenza → serial nuovo, non revocato). L'`hardware_id` è conservato nello store come
   metadato ma **non** emesso nella lista (un blacklist di macchina è un'azione più forte, non il default
   di R3b).
+- **La revoca PROPAGA** (`gui.py::_propaga_revoca`, dal 2026-07-31). Registrare non basta: i bridge
+  applicano **solo la lista pubblicata**, quindi finché quella non parte la revoca non esiste per
+  nessuno. Prima `_on_revoke` si fermava alla scrittura e la propagazione dipendeva dal solo tick
+  automatico — **fino a `interval_hours` (default 6)** di finestra in cui il proprietario crede di aver
+  revocato un cliente che continua a lavorare; con la pubblicazione automatica spenta, mai. Ora, dopo
+  una revoca **accettata**:
+  - automatica **accesa** → `_publish_async()` parte subito (in background: la GUI non si blocca);
+  - automatica **spenta** → **non** si pubblica (è una scelta dell'utente: un upload non richiesto
+    sarebbe un effetto collaterale a sorpresa) ma il messaggio dice a chiare lettere che la revoca
+    **non è ancora attiva sui bridge**;
+  - pubblicazione **già in volo** → quella in corso è partita *prima* di questa revoca e **non la
+    contiene**: si **annulla** il tick già in coda (`_cancel_publish_tick`) e se ne programma uno a
+    breve (`retry_soon=True`), invece di aspettare l'intervallo pieno. L'annullamento non è
+    facoltativo: `_schedule_publish_tick` sovrascrive `_publish_after_id` **senza** annullare, quindi
+    senza quel passo resterebbero due timer vivi e ognuno ne programmerebbe un altro — pubblicazioni
+    ridondanti che si moltiplicano a ogni giro (rilievo CodeRabbit + Fable su #210). `_publish_tick`
+    non ne soffre perché azzera l'id in testa: il suo timer è appena scattato.
+
+  `_propaga_revoca` **non solleva mai**, e la promessa copre tutto il corpo: è invocata dentro un
+  handler della GUI, e un'eccezione in uscita impedirebbe di mostrare **qualsiasi** messaggio —
+  l'utente non vedrebbe conferma di una revoca già scritta su disco e potrebbe crederla fallita.
+
+  Una revoca **non** accettata (serial inesistente, o già revocato) **non** pubblica nulla: non si
+  ri-firma e ri-carica una lista per una non-revoca.
 - 👁️ **La revoca è VISIBILE nel registro** (2026-07-31). `view_rows` accetta `revoked_serials` e
   marca quelle righe `REVOCATA`, **anche se scadute**. Prima `record_status` guardava solo `expiry`:
   una licenza revocata continuava a comparire `ATTIVA`, quindi la revoca funzionava ma non si
