@@ -3855,3 +3855,44 @@ ripiazzabile, che `OVERWRITE_LAST` sia invariato e che `row_identity` distingua 
 > **Nota — l'espansione era già rotta.** `test_espansione_A_poi_A_piu_B` falliva **prima**
 > della patch: `A` veniva riscritta una seconda volta, tre righe invece di due. Era B1 anche
 > lì, nel percorso multi-riga. L'identità per contenuto non rompe l'espansione: la corregge.
+
+### Il contratto sulla quota, reso esplicito (review PR #197)
+
+Tre reviewer — GPT-5.5, Fable 5, Fugu Ultra — hanno sollevato lo stesso punto: `_ROW_KEY_FIELDS`
+esclude `Price`, quindi in `APPEND_ACTIVE`/`QUEUE_UNTIL_CONFIRMED` un repost con la **quota
+corretta** ha la stessa identità della riga attiva → `DUPLICATE`, e la riga sul disco resta al
+prezzo vecchio. La perdita è reale e va dichiarata; ma la premessa «la correzione non viene
+scritta **invece** di essere applicata» è sbagliata. Misurato su `main` 6f93165, **prima** di
+questa PR:
+
+```
+                       PRIMA                     DOPO
+OVERWRITE_LAST         1 riga  ['2,10']          1 riga  ['2,10']   ← aggiorna, invariato
+APPEND_ACTIVE          2 righe ['1,85','2,10']   1 riga  ['1,85']
+QUEUE_UNTIL_CONFIRMED  2 righe ['1,85','2,10']   1 riga  ['1,85']
+```
+
+L'alternativa non era l'aggiornamento: era **la stessa giocata piazzata due volte, a due quote
+diverse**. Una scommessa a quota vecchia è meno grave di due scommesse. E l'aggiornamento della
+quota **esiste**: è `OVERWRITE_LAST`, il default, dove la nuova istruzione sostituisce la
+precedente — invariato prima e dopo.
+
+Il comportamento è ora **fissato da test** (`test_correzione_di_quota_in_multiriga_non_raddoppia_la_scommessa`,
+`test_OVERWRITE_LAST_resta_invariato`) e documentato nel README, invece di restare implicito.
+L'aggiornamento **in-place** in multi-riga resta una **decisione del proprietario**: riscrivere
+una riga che XTrader può aver già consumato è un rischio a sé, fuori dallo scopo di PR-A.
+
+### Due rilievi verificati e respinti, con la misura
+
+- **«`queue.active_rows` non esiste → `AttributeError`»** (Fugu Ultra): falso positivo da review
+  sul solo diff. Il metodo è definito in `signal_queue.py` **da prima** di questa PR (è ciò che
+  scrive le righe attive nel CSV) e non compare nel diff proprio perché non è stato toccato.
+- **«due righe con `Handicap` `"0"` vs `"0.0"` nello stesso blocco sfuggono a `seen_in_block` e
+  all'identità»** (Fable 5): il meccanismo descritto non regge — da quando `row_identity` e
+  `row_dedup_key` condividono `_row_fields`, dentro un blocco (testo costante) identità uguale
+  ⟺ chiave di dedup uguale, quindi `seen_in_block` copre esattamente ciò che coprirebbe
+  l'identità (test `test_righe_identiche_nello_stesso_blocco_restano_una`). La **variante di
+  formato** dell'handicap sfugge davvero, ma è **pre-esistente e invariata**: misurata su `main`
+  6f93165 dà **2 righe** esattamente come dopo la patch, e già lì `row_dedup_key` le
+  distingueva. È una classe diversa (normalizzazione debole dei campi identificativi), non la
+  classe di B1 — registrata a parte invece di allargare lo scope di questa PR.

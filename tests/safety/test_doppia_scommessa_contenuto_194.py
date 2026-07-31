@@ -38,10 +38,10 @@ MSG_A1 = "Match: Inter v Milan\nEsito: Inter\nQuota: 1.85\nLato: BACK"
 MSG_A2 = "\U0001F525 VIP \U0001F525\nMatch: Inter v Milan\nEsito: Inter\nQuota: 1.85\nLato: BACK"
 
 
-def _riga(selezione="Inter", evento="Inter v Milan"):
+def _riga(selezione="Inter", evento="Inter v Milan", prezzo="1,85"):
     r = {c: "" for c in csv_writer.CSV_HEADER}
     r.update({"Provider": "TG", "EventName": evento, "MarketType": "MATCH_ODDS",
-              "SelectionName": selezione, "Price": "1,85", "BetType": "PUNTA"})
+              "SelectionName": selezione, "Price": prezzo, "BetType": "PUNTA"})
     return r
 
 
@@ -147,11 +147,69 @@ def test_dopo_la_scadenza_la_stessa_giocata_e_ripiazzabile(mode):
 
 def test_OVERWRITE_LAST_resta_invariato():
     """CONTROPROVA. In `OVERWRITE_LAST` la `add` SOSTITUISCE: una seconda riga non puo' esistere
-    e il reinvio deve poter riscrivere l'ultima istruzione. Comportamento storico, non toccato."""
+    e il reinvio deve poter riscrivere l'ultima istruzione. Comportamento storico, non toccato.
+
+    Il secondo messaggio cambia la QUOTA — un campo NON identificativo (rilievo CodeRabbit sulla
+    PR #197): con due righe identiche `len(...) == 1` sarebbe passato anche se il reinvio fosse
+    stato SOPPRESSO, e il test non avrebbe distinto «sostituisce» da «scarta». Verificando che il
+    prezzo sul disco sia quello NUOVO si prova la sostituzione, non solo l'assenza di append.
+    """
     st = _stack(signal_queue.OVERWRITE_LAST)
-    _commit(st, MSG_A1, _riga(), T0)
-    _commit(st, MSG_A2, _riga(), T0 + 5)
-    assert len(_righe_csv(st["path"])) == 1
+    _commit(st, MSG_A1, _riga(prezzo="1,85"), T0)
+    _commit(st, MSG_A2, _riga(prezzo="2,10"), T0 + 5)
+
+    righe = _righe_csv(st["path"])
+    assert len(righe) == 1, f"OVERWRITE_LAST ha accodato invece di sostituire: {len(righe)} righe"
+    assert righe[0]["Price"] == "2,10", (
+        f"la nuova istruzione non e' stata applicata: prezzo {righe[0]['Price']!r}")
+
+
+@pytest.mark.parametrize("mode", [signal_queue.APPEND_ACTIVE, signal_queue.QUEUE_UNTIL_CONFIRMED])
+def test_correzione_di_quota_in_multiriga_non_raddoppia_la_scommessa(mode):
+    """Il contratto sollevato da GPT-5.5, Fable 5 e Fugu Ultra sulla PR #197, fissato come
+    comportamento invece che lasciato implicito.
+
+    `_ROW_KEY_FIELDS` **non** include `Price`: nelle modalita' multi-riga un repost con la quota
+    corretta ha la stessa identita' della riga gia' attiva, quindi e' `DUPLICATE` e la riga sul
+    disco **resta al prezzo vecchio**. E' una perdita reale — ma l'alternativa NON e'
+    l'aggiornamento: misurato su `main` 6f93165, prima di questa PR lo stesso scenario scriveva
+    **due righe, `['1,85', '2,10']`**, cioe' la stessa giocata piazzata due volte a due quote.
+    Una scommessa a quota vecchia e' meno grave di due scommesse.
+
+    L'aggiornamento della quota esiste, ed e' `OVERWRITE_LAST` (il default): li' la nuova
+    istruzione SOSTITUISCE — lo prova `test_OVERWRITE_LAST_resta_invariato` qui sopra. Se il
+    proprietario vorra' l'aggiornamento in-place anche in multi-riga, sara' una decisione
+    esplicita: riscrivere una riga che XTrader puo' aver gia' consumato e' un rischio a se'.
+    """
+    st = _stack(mode)
+    _commit(st, MSG_A1, _riga(prezzo="1,85"), T0)
+    esito = _commit(st, "QUOTA CORRETTA\nInter v Milan\nInter @ 2.10", _riga(prezzo="2,10"),
+                    T0 + 5)
+
+    righe = _righe_csv(st["path"])
+    assert len(righe) == 1, f"la correzione di quota ha prodotto {len(righe)} scommesse"
+    assert esito.decision == "DUPLICATE", esito.decision
+    assert righe[0]["Price"] == "1,85", "la riga attiva non e' quella originaria"
+
+
+@pytest.mark.parametrize("mode", [signal_queue.APPEND_ACTIVE, signal_queue.QUEUE_UNTIL_CONFIRMED])
+def test_righe_identiche_nello_stesso_blocco_restano_una(mode):
+    """Rilievo Fable 5 sulla PR #197: `identita_attive` e' calcolato PRIMA del loop di
+    `commit_signals` e non viene aggiornato dopo le `queue.add` delle righe nuove — due righe
+    con la stessa identita' nello stesso blocco potrebbero quindi sfuggirgli.
+
+    Gli sfugge davvero, ed e' innocuo: dentro un blocco il testo e' COSTANTE, e da quando
+    `row_identity` e `row_dedup_key` condividono `_row_fields` due righe hanno identita' uguale
+    **se e solo se** hanno chiave di dedup uguale. Il presidio intra-blocco e' `seen_in_block`,
+    che lavora proprio su quella chiave e le copre tutte. Questo test lo rende eseguibile, cosi'
+    se un refactor futuro disallineasse le due chiavi il buco diventerebbe rosso.
+    """
+    st = _stack(mode)
+    st["cfg"]["csv_path"] = st["path"]
+    write_path.commit_signals(st["tracker"], st["daily"], st["queue"], st["cfg"], MSG_A1,
+                              [_riga(), _riga()], st["path"], T0, csv_writer.write_rows)
+
+    assert len(_righe_csv(st["path"])) == 1, "riga duplicata nello stesso blocco"
 
 
 # --------------------------------------------------------------------------------------

@@ -664,9 +664,17 @@ Tutte queste protezioni sono **attive a runtime**:
    **scommessa**, non il testo che l'ha prodotta (audit #194 · B1): un repost **riformulato**
    — intestazione promozionale, firma diversa, inoltro — che produce la stessa riga
    (evento, mercato, selezione, lato, handicap) è riconosciuto come duplicato anche se il
-   messaggio è diverso. Restano invece due scommesse distinte due righe **diverse**, e una
-   riga **scaduta** torna ripiazzabile. In `OVERWRITE_LAST` nulla cambia: lì la nuova
-   istruzione **sostituisce** la precedente, quindi una seconda riga non può esistere.
+   messaggio è diverso. I campi che definiscono l'identità sono **`Provider`**, evento,
+   mercato, selezione, lato (PUNTA/BANCA) e handicap — quindi due righe di **sorgenti
+   diverse** restano distinte. Restano distinte anche due scommesse **diverse**, e una riga
+   **scaduta** torna ripiazzabile. In `OVERWRITE_LAST` nulla cambia: lì la nuova istruzione
+   **sostituisce** la precedente, quindi una seconda riga non può esistere.
+   > **Quota e stake non fanno parte dell'identità.** Nelle modalità multi-riga un repost
+   > con la **quota corretta** è quindi trattato come duplicato: la riga attiva **resta al
+   > prezzo precedente** e la correzione non viene applicata. È deliberato — l'alternativa
+   > non è l'aggiornamento ma **due scommesse**, una per quota. L'aggiornamento della quota
+   > esiste in **`OVERWRITE_LAST`** (il default), dove la nuova istruzione sostituisce la
+   > precedente.
 5. **Limite al minuto e al giorno** — oltre soglia i segnali in eccesso non scrivono
    (`max_per_day` per il giorno). I limiti contano **istruzioni (messaggi)**, non
    gambe: un messaggio **multi-gamba** (dutching) consuma **una** slot per limite e
