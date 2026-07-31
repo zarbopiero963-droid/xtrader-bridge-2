@@ -171,8 +171,15 @@ def _canonical_fields(row: dict) -> list:
     canonici = [dizionario.normalize(v) for v in valori]
     i = _ROW_KEY_FIELDS.index("Handicap")
     numerico = _canonical_handicap(valori[i])
-    if numerico is not None:
-        canonici[i] = numerico
+    # Il ramo (numerico o testo) è marcato NELLA chiave, perché i due domini possono altrimenti
+    # collidere: `repr(float("0.00001"))` è `'1e-05'`, e un handicap TESTUALE `"1e-05"` — che il
+    # validatore scarta ma che qui arriverebbe come testo — produrrebbe la stessa stringa. Due
+    # scommesse diverse con la stessa identità significano che UNA VIENE PERSA, scartata come
+    # duplicato dell'altra: l'errore speculare alla doppia scommessa (rilievo Fable 5 su #198,
+    # verificato riproducibile — `0.00001` è un handicap VALIDO per `_HANDICAP_RE`).
+    # Il marcatore è su ENTRAMBI i rami: con un prefisso sul solo ramo numerico, un testo che
+    # comincia col prefisso lo imiterebbe e la collisione tornerebbe.
+    canonici[i] = ("n" + numerico) if numerico is not None else ("t" + canonici[i])
     return canonici
 
 

@@ -178,6 +178,35 @@ def test_handicap_non_numerico_confronta_come_TESTO():
     assert not _stessa_scommessa({"Handicap": "12abc"}, {"Handicap": "12"})
 
 
+def test_un_handicap_NUMERICO_non_collide_con_un_TESTO_che_gli_somiglia():
+    """Rilievo Fable 5 su #198, verificato riproducibile prima di correggere.
+
+    `_canonical_handicap` produce `repr(float(...))`, e `repr(float("0.00001"))` è `'1e-05'`:
+    un handicap **testuale** `"1e-05"` — che il validatore scarta, ma che qui arriva comunque
+    come testo — produceva la STESSA stringa canonica. Due scommesse diverse con la stessa
+    identità significano che **una viene persa**, scartata come duplicato dell'altra: l'errore
+    speculare alla doppia scommessa.
+
+    Non è un caso di laboratorio: `0.00001` e `10000000000000000` sono handicap **validi** per
+    `_HANDICAP_RE`, ed è `repr` a portarli in notazione scientifica.
+
+    La correzione marca il RAMO dentro la chiave, su entrambi i domini — con un prefisso sul
+    solo ramo numerico, un testo che comincia col prefisso lo imiterebbe e la collisione
+    tornerebbe.
+    """
+    for numerico, testo in [("0.00001", "1e-05"), ("10000000000000000", "1e+16")]:
+        assert not _stessa_scommessa({"Handicap": numerico}, {"Handicap": testo}), (
+            f"l'handicap numerico {numerico!r} collide col testo {testo!r}: una delle due "
+            "scommesse verrebbe scartata come duplicato dell'altra")
+
+    # e il tentativo di imitare il marcatore dal lato testo non deve funzionare
+    assert not _stessa_scommessa({"Handicap": "n1e-05"}, {"Handicap": "0.00001"})
+    assert not _stessa_scommessa({"Handicap": "t1e-05"}, {"Handicap": "1e-05"})
+
+    # controprova: dentro lo stesso ramo la canonicalizzazione continua a funzionare
+    assert _stessa_scommessa({"Handicap": "0.00001"}, {"Handicap": "0.000010"})
+
+
 def test_valori_non_finiti_non_collassano_su_un_numero():
     """`float("nan")`/`inf` sono parsabili da `float()` ma non sono handicap: devono restare
     testo, altrimenti `nan != nan` renderebbe una riga eternamente «nuova» (o `inf` collasserebbe

@@ -673,9 +673,11 @@ Tutte queste protezioni sono **attive a runtime**:
    doppi nei nomi — `Inter` = `INTER`, il modo più comune in cui un canale ri-pubblica — e le
    scritture equivalenti dell'handicap (`0` = `0.0` = `+0`, `0.50` = `0.5`). Restano invece
    scommesse **diverse** handicap davvero diversi (`-1` ≠ `+1`, `0.5` ≠ `1.5`) e un handicap
-   **non numerico**, che è confrontato come testo senza essere interpretato. Nel CSV finisce
-   sempre e comunque **il valore prodotto dalla regola del parser**, byte per byte: la forma
-   canonica serve solo a decidere se è la stessa scommessa.
+   **non numerico**, che è confrontato come testo senza essere interpretato. La forma canonica
+   serve **solo** a decidere se è la stessa scommessa: **non** modifica il valore della riga,
+   che resta quello prodotto dal parser. Al momento di scrivere il file, `csv_writer` può
+   localizzare il separatore decimale secondo `csv_language` — è l'unico passaggio che cambia
+   la forma di un valore, e riguarda la scrittura, non l'identità.
    > **Quota e stake non fanno parte dell'identità.** Nelle modalità multi-riga un repost
    > con la **quota corretta** è quindi trattato come duplicato: la riga attiva **resta al
    > prezzo precedente** e la correzione non viene applicata. È deliberato — l'alternativa

@@ -3906,7 +3906,7 @@ confronto dei campi è rimasto **testuale puro** (`str(...).strip()`). La stessa
 con un formato diverso produceva ancora due identità e, in `APPEND_ACTIVE`/`QUEUE_UNTIL_CONFIRMED`,
 due righe nel CSV:
 
-```
+```text
 'Inter'  vs 'INTER'    -> due scommesse      (repost in maiuscolo)
 '0'      vs '0.0'      -> due scommesse      (stesso handicap)
 '1'      vs '+1'       -> due scommesse
@@ -4005,7 +4005,7 @@ numbers_re.SIGNED_DECIMAL + r"$")` è sicuro, se il frammento contenesse un'alte
 livello? Verificato: **oggi no**, `SIGNED_DECIMAL` è `[+-]?[0-9]+(?:[.,][0-9]+)?`, nessun `|`.
 Ma la composizione con le ancore non è usata solo dal mio sito — è usata da **cinque**:
 
-```
+```text
 signal_dedupe._HANDICAP_NUM       (questa PR)
 custom_pipeline._HANDICAP_RE      x2   validazione handicap
 validator._DECIMAL_PRICE          x2   validazione quota
@@ -4014,7 +4014,7 @@ validator._DECIMAL_PRICE          x2   validazione quota
 Il giorno in cui qualcuno aggiungesse un ramo `|` al frammento condiviso, le ancore si
 legherebbero a **un solo ramo** e tutte e cinque diventerebbero fail-**OPEN** insieme:
 
-```
+```text
 '^[+-]?[0-9]+(?:[.,][0-9]+)?|INF$'   .match('12abc')  ->  True
 '^(?:[+-]?[0-9]+(?:[.,][0-9]+)?|INF)$' .match('12abc') ->  False
 ```
@@ -4033,3 +4033,32 @@ gruppo non cattura, quindi nessuna numerazione di gruppi cambia in nessun consum
 `tests/unit/test_numbers_re.py::test_i_frammenti_sono_componibili_con_le_ancore`, scritta sul
 **comportamento** e non sulla forma: se qualcuno togliesse il gruppo e aggiungesse un ramo,
 diventerebbe rossa.
+
+### Una collisione fra i due domini, trovata a review avanzata
+
+Fable 5, rivedendo l'**intera** PR, ha sollevato un caso che i tre giri precedenti non avevano
+toccato: `_canonical_handicap` produce `repr(float(...))`, e `repr` passa alla **notazione
+scientifica** oltre certe soglie. Verificato riproducibile prima di correggere:
+
+```text
+repr(float("0.00001"))          -> '1e-05'
+repr(float("10000000000000000")) -> '1e+16'
+
+Handicap '0.00001'  vs  '1e-05'  -> stessa scommessa? True   ← collisione
+Handicap '0.00001'  valido per _HANDICAP_RE? True
+Handicap '1e-05'    valido per _HANDICAP_RE? False
+```
+
+Un handicap **numerico e valido** collideva con un handicap **testuale** che gli somigliava dopo
+la conversione. La conseguenza non è la doppia scommessa ma il suo opposto e speculare: due
+scommesse diverse con la stessa identità significano che **una viene persa**, scartata come
+duplicato dell'altra.
+
+Corretto marcando il **ramo** dentro la chiave (`n` per numerico, `t` per testo). Il marcatore è
+su **entrambi** i rami di proposito: con un prefisso sul solo ramo numerico, un testo che comincia
+col prefisso lo imiterebbe e la collisione tornerebbe — ed è quello che il test verifica
+(`"n1e-05"` come testo non deve collidere con `0.00001` numerico).
+
+Nessun problema di migrazione: `row_identity` non è persistita, per la scelta di progetto
+descritta sopra. È il vantaggio concreto di quella separazione — l'identità si può correggere a
+review avanzata senza toccare nulla su disco.
