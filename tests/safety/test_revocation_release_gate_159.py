@@ -30,7 +30,7 @@ _STEP_ID = "revocation-live-gate"
 _NOW = 1_700_000_000
 # Seed di TEST corrispondente alla chiave pubblica incorporata (stesso delle altre suite licenza):
 # serve perché il gate verifica con la chiave DI DEFAULT, come farà in release.
-_TEST_SEED_HEX = "a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00"
+_TEST_SEED_HEX = "a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00"  # pragma: allowlist secret
 
 
 def _corpi_del_gate() -> list:
