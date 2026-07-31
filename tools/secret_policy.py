@@ -77,8 +77,21 @@ SECRET_PATTERNS = [
     #      stringa JSON dentro il backup, quindi le virgolette sono **escapate**: un pattern
     #      scritto sulla sola forma 1 mancherebbe esattamente il file del bug B3)
     # e anche un letterale in codice (`SEED = "<64 hex>"`), con `:` o `=`.
-    # `(?i)` copre le varianti maiuscole. Verificato: 0 match sul repository attuale.
-    ("Ed25519 signing seed", re.compile(rb'(?i)\\?"?seed\\?"?\s*[:=]\s*\\?"?[0-9a-f]{64}')),
+    #
+    # ⚠️ ALLARGATO nella PR che chiude la #205. La prima versione accettava solo le virgolette
+    # **doppie**: `seed = 'ab…'` con gli apici singoli **passava il gate** (misurato). Il rilievo
+    # è nato su una copia diversa di questo pattern — quella dei redattori dei workflow — e la
+    # Regola 2 impone di correggere la CLASSE: il buco era identico qui, dove pesa di più,
+    # perché il redattore protegge un diff che sta partendo mentre questo impedisce al seed di
+    # **entrare** nel repository.
+    #
+    # Coperte ora anche le forme di nome reali: `seed_hex` è ciò che `core.generate_keypair`
+    # ritorna davvero, quindi è il nome più probabile in un incollaggio accidentale; `SEED_HEX`
+    # maiuscolo è la forma delle costanti. Collaterale misurato sul repo: **3 righe**, tutte
+    # fixture di test con un seed finto, marcate con `pragma: allowlist secret` (marker onorato
+    # solo sotto `tests/`). `(?i)` copre le varianti maiuscole.
+    ("Ed25519 signing seed",
+     re.compile(rb'''(?i)\\?['"]?(?:signing[_-]?)?seed(?:[_-]?hex)?\\?['"]?\s*[:=]\s*\\?['"]?[0-9a-f]{64}''')),
 ]
 
 # ── Percorsi vietati ─────────────────────────────────────────────────────────────────────────

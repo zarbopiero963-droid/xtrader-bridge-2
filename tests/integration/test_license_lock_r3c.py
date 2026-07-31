@@ -19,7 +19,7 @@ _NOW = 1_700_000_000
 # Seed di TEST corrispondente a `LICENSE_PUBLIC_KEY_HEX` incorporata (stesso delle altre suite
 # licenza): serve dove il codice verifica con la chiave DI DEFAULT (il supervisore, che non riceve
 # una public key esplicita).
-_TEST_SEED_HEX = "a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00"
+_TEST_SEED_HEX = "a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00"  # pragma: allowlist secret
 
 
 def _signed_default(entries, *, now=_NOW):

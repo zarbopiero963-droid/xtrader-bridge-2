@@ -218,7 +218,12 @@ mostra scope, range `base...head`, numero di commit e una stima del costo token.
   caratteri esadecimali sono anche la forma di uno SHA-256: i lockfile del repo
   ne contengono 291 righe, e redigerle manderebbe al reviewer un diff mutilato.
   Copre anche la forma del **backup completo**, dove il file-chiave è annidato
-  come stringa JSON e le virgolette sono escapate. Volutamente **non** si è
+  come stringa JSON e le virgolette sono escapate, e i nomi con cui il seed
+  compare davvero in codice (`seed`, `seed_hex`, `SEED_HEX`, `signing_seed`) con
+  apici **singoli, doppi o assenti** — la prima versione accettava solo le
+  virgolette doppie, e `seed = 'ab…'` sarebbe uscito in chiaro (rilievo Fable 5).
+  Lo stesso allargamento è stato applicato al pattern gemello del **gate** in
+  `tools/secret_policy.py`, che aveva il buco identico. Volutamente **non** si è
   aggiunto `seed` all'alternanza generica: misurato, avrebbe redatto 30 righe di
   codice reale del License Manager (`seed = os.urandom(…)`), oscurando al
   reviewer proprio il modulo che custodisce la chiave.

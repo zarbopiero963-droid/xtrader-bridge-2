@@ -18,10 +18,11 @@ da una regex presente ma inefficace.
 
 import ast
 import re
+import sys
+import textwrap
 from pathlib import Path
 
 import pytest
-import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
@@ -45,17 +46,27 @@ SHA256_FINTO = "cd" * 32        # stessa forma, ma è un hash: NON deve essere r
 
 
 def _blocco_python(nome: str) -> str:
-    """Il sorgente Python annidato nello step bash del workflow (heredoc ``python3 <<'PY'``)."""
-    doc = yaml.safe_load((WORKFLOWS / nome).read_text(encoding="utf-8"))
-    for job in doc.get("jobs", {}).values():
-        for step in job.get("steps", []):
-            s = step.get("run", "") or ""
-            if "REDACTION" not in s:
-                continue
-            m = re.search(r"python3? <<'PY'\n(.*?)\nPY\n", s, re.S)
-            if m:
-                return m.group(1)
-    raise AssertionError(f"{nome}: nessuno step con una lista di redazione")
+    """Il sorgente Python annidato nello step bash del workflow (heredoc ``python3 <<'PY'``).
+
+    Estrazione dal **testo grezzo**, non via `yaml.safe_load`, seguendo la convenzione già
+    stabilita nel repo da `test_workflow_pins.py` e `test_workflow_concurrency_76.py`:
+    «PyYAML non è tra le dipendenze del progetto (la prima versione con `import yaml` ha rotto
+    la collection in CI: niente nuove dipendenze per un test)». La prima versione di questo
+    file ha ripetuto esattamente quell'errore — `ModuleNotFoundError: No module named 'yaml'`,
+    exit 2, **collection dell'intera suite interrotta**: un test di sicurezza che rompe tutti
+    gli altri è peggio del buco che presidia. Il `dedent` serve perché nel YAML il blocco è
+    indentato sotto `run: |`.
+
+    Se il workflow cambiasse la forma dell'heredoc questa funzione **solleva** invece di
+    saltare: un presidio che non trova più ciò che deve controllare deve diventare rosso, non
+    passare in silenzio (rilievo GPT-5.5 sulla fragilità dell'estrazione — la fragilità è
+    accettata, l'esito silenzioso no).
+    """
+    testo = (WORKFLOWS / nome).read_text(encoding="utf-8")
+    m = re.search(r"python3? <<'PY'\n(.*?)\n[ \t]*PY$", testo, re.S | re.M)
+    if not m:
+        raise AssertionError(f"{nome}: heredoc python non trovato (forma dello step cambiata?)")
+    return textwrap.dedent(m.group(1))
 
 
 def _pattern_della_lista(sorgente: str, nomi: tuple) -> list:
@@ -121,6 +132,52 @@ def test_il_seed_non_esce_mai_in_chiaro(workflow, forma, testo):
     assert SEED_FINTO not in ripulito, (
         f"{workflow}: il seed sopravvive alla redazione nella forma «{forma}» → "
         "finirebbe in chiaro a un modello esterno")
+
+
+# Le forme in cui un seed può essere scritto, oltre alle due canoniche. Rilievo **reale** di
+# Fable 5 sulla prima versione di questa PR: il pattern accettava solo le virgolette DOPPIE, e
+# `seed = 'ab…'` sarebbe uscito in chiaro — proprio la classe di leak che la #205 chiude.
+# Incluso anche `seed_hex`, che è il nome che il License Manager usa davvero in codice
+# (`core.generate_keypair` ritorna `seed_hex`), quindi il più probabile in un incollaggio
+# accidentale.
+FORME_ALTERNATIVE = [
+    ("apici singoli", "seed = '%s'" % SEED_FINTO),
+    ("senza apici", "seed=%s" % SEED_FINTO),
+    ("seed_hex", 'seed_hex = "%s"' % SEED_FINTO),
+    ("SEED_HEX maiuscolo", '_TEST_SEED_HEX = "%s"' % SEED_FINTO),
+    ("signing_seed", "signing_seed: '%s'" % SEED_FINTO),
+]
+
+
+@pytest.mark.parametrize("workflow", REDATTORI)
+@pytest.mark.parametrize("forma,testo", FORME_ALTERNATIVE)
+def test_il_seed_e_redatto_anche_nelle_altre_forme(workflow, forma, testo):
+    """Il buco trovato da Fable 5: coprire solo `"seed": "…"` lascia fuori le forme che un seed
+    assume davvero nel codice Python e nei file di configurazione."""
+    assert SEED_FINTO not in _redigi(testo, _lista_redazione(workflow)), (
+        f"{workflow}: il seed sopravvive nella forma «{forma}»")
+
+
+@pytest.mark.parametrize("forma,testo", FORME_ALTERNATIVE)
+def test_anche_il_GATE_blocca_le_altre_forme(forma, testo):
+    """Regola 2 — la classe, non il sito: lo stesso buco era nel pattern del **gate**
+    (`tools/secret_policy.py`, mergiato con la #204), che Fable non poteva vedere perché fuori
+    dal diff di questa PR.
+
+    Correggere i cinque redattori lasciando il gate scoperto sarebbe stato il difetto peggiore
+    dei due: il redattore protegge un diff che sta partendo, il gate impedisce al seed di
+    entrare nel repository. Misurato prima della correzione: `seed = '<64hex>'` e
+    `seed_hex = "<64hex>"` **passavano** il gate.
+    """
+    sys.path.insert(0, str(REPO_ROOT / "tools"))
+    try:
+        import secret_policy
+    finally:
+        sys.path.pop(0)
+    seed_rx = [rx for nome, rx in secret_policy.SECRET_PATTERNS if "seed" in nome.lower()]
+    assert seed_rx, "il pattern del seed è sparito dalla policy"
+    assert any(rx.search(testo.encode()) for rx in seed_rx), (
+        f"il gate non blocca un seed nella forma «{forma}»")
 
 
 @pytest.mark.parametrize("workflow", RILEVATORI)
