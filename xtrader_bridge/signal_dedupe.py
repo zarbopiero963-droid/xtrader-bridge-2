@@ -147,6 +147,22 @@ def _canonical_handicap(value: str):
     return repr(numero + 0.0)            # «+0.0» e «-0.0» collassano sullo stesso zero
 
 
+# B47: una virgola DECIMALE dentro un nome («Over 5,5»). Le cifre sono ASCII come ovunque nel
+# progetto (#318 L2-1). Due esclusioni deliberate, entrambe per non unire nomi realmente diversi —
+# che costerebbe un segnale valido, l'errore speculare alla doppia scommessa:
+#
+# - le virgole di PROSA («Inter, primo tempo») sono seguite da uno spazio, non da una cifra;
+# - le virgole delle MIGLIAIA («Over 1,000») sono seguite da TRE cifre, mentre un decimale in una
+#   linea ne ha una o due («,5», «,25»). Senza il limite, «Over 1,000» e «Over 1.000» — che sono
+#   1000 e 1.0, numeri diversi — verrebbero uniti (rilievo Fable 5 su #200).
+#
+# Il limite a 1-2 cifre non e' arbitrario: e' il DOMINIO. Confermato dal proprietario il
+# 2026-07-31 — «solo 2 cifre al massimo, 1.25 per esempio, ma mai 1.225». Se un giorno esistesse
+# un mercato a tre decimali, qui va alzato a `{1,3}` e va ripensata l'esclusione delle migliaia,
+# che con tre cifre diventerebbe indistinguibile dal decimale.
+_VIRGOLA_DECIMALE = re.compile(r"(?<=[0-9]),(?=[0-9]{1,2}(?![0-9]))")
+
+
 def _canonical_fields(row: dict) -> list:
     """I campi identificativi in forma **canonica**, per rispondere a «è la stessa SCOMMESSA?».
 
@@ -166,11 +182,19 @@ def _canonical_fields(row: dict) -> list:
     così «è lo stesso nome?» per la deduplica e per il lookup del dizionario restano la stessa
     domanda. Handicap → forma numerica.
 
-    Fuori scope deliberatamente: la virgola DENTRO un nome («Over 5,5» vs «Over 5.5»). È un
-    buco reale (B47) ma il contratto CSV esclude esplicitamente le colonne testuali da ogni
-    canonicalizzazione: allargare lì è una decisione del proprietario, non una conseguenza."""
+    B47 (#194, decisione del proprietario 2026-07-31): anche la **virgola decimale dentro un
+    nome** — «Over 5,5» vs «Over 5.5» — è la stessa linea e quindi la stessa scommessa. Le due
+    forme nascono entrambe dal prodotto: la trasformazione `score_to_over` scrive la virgola,
+    e un messaggio copiato verbatim può portare il punto (o viceversa, per un canale italiano
+    che alterna gli stili). La normalizzazione è **chirurgica** — solo `_VIRGOLA_DECIMALE` —
+    perché una virgola di prosa («Inter, primo tempo») è seguita da uno **spazio**, non da una
+    cifra, e unire nomi realmente diversi farebbe perdere un segnale valido.
+
+    Resta vero, ed è il punto che il contratto CSV impone, che qui non si modifica **nulla** di
+    ciò che viene scritto: la forma canonica serve solo a rispondere alla domanda, la riga che
+    finisce nel CSV è quella prodotta dal parser."""
     valori = _row_fields(row)
-    canonici = [dizionario.normalize(v) for v in valori]
+    canonici = [_VIRGOLA_DECIMALE.sub(".", dizionario.normalize(v)) for v in valori]
     i = _ROW_KEY_FIELDS.index("Handicap")
     numerico = _canonical_handicap(valori[i])
     # Il ramo (numerico o testo) è marcato NELLA chiave, perché i due domini possono altrimenti

@@ -4180,3 +4180,127 @@ che non protegge.
 > che li hanno segnalati hanno sbagliato la **diagnosi** pur azzeccando il **punto**: Fable ha
 > descritto il #1 come «direzione conservativa, accettabile» quando era l'opposto. Il valore della
 > review non è stato il verdetto — è stato indicare dove misurare.
+
+---
+
+## PR-A2b (#194 · B47) — la virgola dentro il nome della selezione
+
+**Il difetto.** `Over 5,5` e `Over 5.5` sono la stessa linea, e producevano due righe CSV:
+
+```text
+CSV che XTrader legge: 2 righe -> ['Over 5,5', 'Over 5.5']
+  stesso evento, stesso mercato, stessa linea, stessa quota, entrambe PUNTA
+```
+
+PR-A2 aveva canonicalizzato case e spazi nei campi testuali, e il valore numerico dell'handicap —
+che è una colonna **decimale**. Ma `SelectionName` è **testuale**, e il contratto CSV dichiara che
+le testuali «non vengono **mai** toccate»: la virgola restava virgola, il punto restava punto, e
+per il confronto erano due stringhe diverse.
+
+**Da dove nascono le due forme.** Entrambe dal prodotto, il che è ciò che rende il caso reale:
+
+- **la virgola** la scrive il bridge stesso — la trasformazione `score_to_over` (CP-05, l'unica
+  esistente) dal punteggio `2-3` genera letteralmente `"Over 5,5"`, con la virgola nel codice.
+  È opt-in: scatta solo se una regola imposta `transform="score_to_over"`;
+- **il punto** arriva dal messaggio copiato verbatim — e questo percorso **non richiede la
+  trasformazione**: basta un canale italiano che alterna `Over 2,5` e `Over 2.5` fra un post e
+  l'altro.
+
+**Perché non era già in PR-A2.** Perché il contratto CSV esclude esplicitamente le colonne
+testuali da ogni canonicalizzazione: allargare lì non era una conseguenza tecnica della
+correzione ma una **decisione del proprietario**, presa il 2026-07-31.
+
+### Chirurgica, non generale
+
+`_VIRGOLA_FRA_CIFRE = (?<=[0-9]),(?=[0-9])` — solo una virgola **fra due cifre**. Una virgola di
+prosa («Inter, primo tempo») è seguita da uno **spazio**, quindi non viene toccata: unire nomi
+realmente diversi costerebbe un **segnale valido**, l'errore speculare alla doppia scommessa.
+Le controprove lo fissano: `Over 5,5` ≠ `Under 5,5`, ≠ `Over 6,5`, ≠ `Over 5,55`, e
+`"Inter, primo tempo"` ≠ `"Inter. primo tempo"`.
+
+### Dove vive, e perché lì
+
+Solo in `_canonical_fields`, quindi solo in `row_identity` — la stessa separazione di PR-A2 e per
+la stessa ragione: `row_dedup_key` è **persistita**, e cambiarla invaliderebbe le chiavi già su
+disco al primo riavvio dopo l'aggiornamento. Due test lo fissano: la chiave resta sensibile alla
+virgola, e uno stato salvato prima dell'aggiornamento continua a combaciare dopo.
+
+Il valore **scritto** non cambia mai: `test_la_normalizzazione_non_tocca_il_valore_SCRITTO`
+verifica che `row_identity` non muti nemmeno la riga che riceve. Nel CSV finisce `Over 5,5` se è
+quello che la regola ha prodotto.
+
+### Il limite della regola, stretto in review
+
+Fable 5 ha notato che la prima stesura normalizzava **qualunque** virgola fra due cifre, quindi
+`Over 1,000` (mille) e `Over 1.000` (uno) — numeri **diversi** — venivano uniti. L'ha classificato
+irrilevante per le linee Over/Under reali, e lo è; ma la direzione è **segnale perso**, cioè
+esattamente ciò che le controprove di questa PR esistono per impedire, e distinguerli costa una
+parentesi: un decimale in una linea ha **una o due** cifre dopo la virgola, le migliaia ne hanno
+**tre**.
+
+```text
+                     prima            dopo
+'over 5,5'      ->   'over 5.5'       'over 5.5'
+'over 5,25'     ->   'over 5.25'      'over 5.25'
+'over 1,000'    ->   'over 1.000'     'over 1,000'    <- non è un decimale
+'inter, primo'  ->   invariato        invariato
+```
+
+La regola non è più «virgola fra cifre» ma «virgola **decimale**», che è ciò che si voleva dire
+fin dall'inizio.
+
+### I mercati a lista, e il residuo dichiarato
+
+Fugu Ultra ha sollevato il caso italiano giusto: nei mercati a **lista** — `Multigol 1,2`, cioè
+«1 o 2 gol» — la virgola è un **separatore**, non un decimale, e la regola la tratta comunque
+come decimale. La domanda è se questo unisca mercati **realmente diversi**. Misurato: no.
+
+```text
+'Multigol 1,2' vs 'Multigol 2,3'  ->  diversi
+'Multigol 1,2' vs 'Multigol 1,3'  ->  diversi
+'Multigol 1,2' vs 'Multigol 3,4'  ->  diversi
+'Multigol 1,2' vs 'Multigol 1.2'  ->  STESSO      (stessa lista, due scritture)
+'Multigol 1,2' vs 'Multigol 1-2'  ->  diversi     (residuo, vedi sotto)
+```
+
+Due liste diverse differiscono nelle **cifre**, e le cifre non vengono toccate: l'unica fusione
+possibile è fra la stessa lista scritta con virgola e con punto. Nessun segnale perso.
+
+**Il residuo, dichiarato invece che nascosto:** `Multigol 1,2` e `Multigol 1-2` sono
+probabilmente lo stesso mercato scritto in due modi, e restano **distinti**. È una fusione
+**mancata**, non una fusione errata — quindi il rischio è un duplicato, non un segnale perso, ed
+è il comportamento che c'era già prima di questa PR. Estendere la regola al trattino sarebbe
+un'altra decisione, con un'altra superficie: `Inter 1-2 Milan` è un punteggio, non una lista.
+
+### Il confine della regola, e i due residui dichiarati
+
+`(?<=[0-9]),(?=[0-9]{1,2}(?![0-9]))` — il confine è la **cifra successiva**, non lo spazio:
+`1,00a` è un decimale seguito da una lettera, `1,000` sono migliaia. Fissato da un test
+parametrizzato (richiesta GPT-5.5), così un ritocco futuro alla regex che spostasse il confine
+diventa rosso invece di cambiare comportamento in silenzio.
+
+**Due residui, entrambi nel verso del duplicato e non del segnale perso** — cioè il comportamento
+che c'era già prima di questa PR, non una regressione:
+
+- **decimali con 3+ cifre**: `5,125` e `5.125` non vengono uniti (la regex li legge come
+  migliaia). **Residuo chiuso**: il proprietario ha confermato il 2026-07-31 che le linee usano
+  *«solo 2 cifre al massimo, 1.25 per esempio, ma mai 1.225»*. Il limite `{1,2}` della regex non
+  è quindi una scelta arbitraria ma il dominio — e se un giorno esistesse un mercato a tre
+  decimali, andrebbe alzato **e** ripensata l'esclusione delle migliaia, che a tre cifre
+  diventerebbe indistinguibile dal decimale;
+- **liste col trattino**: `Multigol 1,2` e `Multigol 1-2` restano distinti. Estendere al trattino
+  sarebbe un'altra decisione con un'altra superficie (`Inter 1-2 Milan` è un punteggio).
+
+### «L'identità cambia → serve una migrazione» — no, e il test lo dimostra
+
+Fable 5 ha segnalato che l'identità di `Over 1,000` cambia fra un commit e l'altro di questa PR,
+quindi «un segnale salvato prima dell'upgrade non combacerebbe più → doppia scommessa».
+
+Il presupposto non regge, per due ragioni indipendenti:
+
+1. **`row_identity` non è persistita.** Ha due soli chiamanti, entrambi in `write_path`, entrambi
+   confronti in memoria contro `queue.active_rows()`. Su disco va `row_dedup_key`, che questa PR
+   non tocca. `test_row_identity_non_e_persistita_da_nessuna_parte` lo rende **eseguibile**:
+   verifica che l'identità non compaia nel file salvato;
+2. **su `main` la normalizzazione non esisteva affatto**, quindi nessuno stato è mai stato scritto
+   con la forma intermedia: quella è vissuta solo in un commit di questa PR, mai rilasciato.
