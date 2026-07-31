@@ -4622,3 +4622,25 @@ la normalizzazione virgola→punto non produca mai una `e`, e una controprova st
 diventa rossa se comparisse un secondo punto che assegna `Handicap`.
 
 Test totali del file: **71**. Suite: **4293 passed, 14 skipped**.
+
+### Un test che poteva passare mentre l'invariante era rotto
+
+GPT-5.5 sull'ultimo push: il test strutturale che contava le assegnazioni di `row["Handicap"]`
+via `inspect.getsource` è **fragile** — sensibile a refactor innocui, e cieco ad apici singoli,
+alias o assegnazioni multi-linea.
+
+Il rilievo è corretto e il difetto era nella direzione **pericolosa**: cercando `["Handicap"]` con
+i doppi apici, un `row['Handicap'] = repr(float(...))` scritto con gli apici singoli sarebbe
+sfuggito e il test avrebbe dato **PASS su un secondo scrittore reale**. Un test che può passare
+mentre l'invariante è rotto è peggio di nessun test — è precisamente ciò che `CLAUDE.md` vieta.
+
+Sostituito con una verifica di **comportamento**: il messaggio passa per il pipeline vero e si
+guarda che cosa finisce nella colonna. Indipendente da come il codice è scritto, e rosso per
+qualunque percorso — presente o futuro — che introduca un giro attraverso `repr(float(...))`.
+
+La guardia è stata **verificata**, non asserita: simulando la regressione (un
+`_decimal_sep_to_point` che ritorna `repr(float(v))`) il pipeline produce
+`Handicap='1e-05'` e `status=INVALID_HANDICAP` — il test la intercetta su entrambe le
+asserzioni.
+
+Suite: **4293 passed, 14 skipped**.

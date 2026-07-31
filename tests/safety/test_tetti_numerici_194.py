@@ -411,12 +411,46 @@ def test_la_normalizzazione_del_pipeline_non_produce_notazione_scientifica():
         assert validator.handicap_status(normalizzato) == validator.VALID
 
 
-def test_il_solo_scrittore_di_Handicap_nel_pipeline_scrive_il_default_del_contratto():
-    """Controprova strutturale: se un giorno comparisse un secondo punto che assegna
-    `row["Handicap"]`, questo test lo fa notare — è lì che il `repr` potrebbe entrare."""
-    import inspect
-    sorgente = inspect.getsource(custom_pipeline)
-    assegnazioni = [r for r in sorgente.splitlines() if '["Handicap"]' in r and "==" not in r
-                    and "=" in r.split('["Handicap"]', 1)[1][:3]]
-    assert len(assegnazioni) == 1, f"attesa UNA sola assegnazione di Handicap, trovate: {assegnazioni}"
-    assert "DEFAULT_HANDICAP" in assegnazioni[0], assegnazioni[0]
+def test_end_to_end_il_pipeline_non_scrive_MAI_notazione_scientifica_in_Handicap():
+    """La stessa garanzia della struttura, ma verificata sul COMPORTAMENTO.
+
+    La prima stesura di questo test ispezionava il sorgente cercando le assegnazioni di
+    `row["Handicap"]`. Era fragile nella direzione **pericolosa** (rilievo GPT-5.5): cercando
+    i doppi apici, un `row['Handicap'] = ...` con apici singoli sarebbe sfuggito e il test
+    avrebbe dato PASS su un secondo scrittore reale. Un test che può passare mentre
+    l'invariante è rotto è peggio di nessun test.
+
+    Qui si fa passare il messaggio per il pipeline vero e si guarda che cosa finisce nella
+    colonna: indipendente da come il codice è scritto, e rosso se un domani un qualsiasi
+    percorso — presente o nuovo — introducesse un giro attraverso `repr(float(...))`.
+    """
+    from xtrader_bridge import custom_parser as cp
+
+    base = [
+        cp.FieldRule(target="Provider", fixed_value="PBet"),
+        cp.FieldRule(target="EventName", start_after="🆚", end_before="\n", required=True),
+        cp.FieldRule(target="MarketType", fixed_value="OVER_UNDER_25", required=True),
+        cp.FieldRule(target="SelectionName", fixed_value="Over 2,5", required=True),
+        cp.FieldRule(target="Price", fixed_value="1.50", required=True),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
+    ]
+    testo = "P.Bet.\n🆚Inter v Milan\n"
+
+    # Valori piccoli e grandi: sono quelli che `repr(float(...))` porterebbe in notazione
+    # scientifica (`repr(float("0.00001"))` è `'1e-05'`).
+    for grezzo, atteso in [("0,00001", "0.00001"), ("0.00001", "0.00001"),
+                           ("-0,00001", "-0.00001"), ("0,0000001", "0.0000001"),
+                           ("1,5", "1.5"), ("0", "0")]:
+        defn = cp.CustomParserDef(
+            name="T", mode="NAME_ONLY",
+            rules=base + [cp.FieldRule(target="Handicap", fixed_value=grezzo)])
+        esito = custom_pipeline.build_validated_row(defn, testo)
+
+        assert esito.status == validator.VALID, f"{grezzo!r} → {esito.status}"
+        scritto = esito.row["Handicap"]
+        assert scritto == atteso, f"{grezzo!r} → {scritto!r}, atteso {atteso!r}"
+        assert "e" not in scritto.lower(), (
+            f"{grezzo!r} è finito in notazione scientifica ({scritto!r}): il gate del contratto "
+            "lo scarterebbe e il segnale andrebbe perso in silenzio")
+        # E la riga così com'è deve ripassare il gate: nessun avvelenamento in uscita.
+        assert validator.handicap_status(scritto) == validator.VALID
