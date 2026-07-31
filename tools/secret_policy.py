@@ -91,7 +91,7 @@ SECRET_PATTERNS = [
     # fixture di test con un seed finto, marcate con `pragma: allowlist secret` (marker onorato
     # solo sotto `tests/`). `(?i)` copre le varianti maiuscole.
     ("Ed25519 signing seed",
-     re.compile(rb'''(?i)\\?['"]?(?:signing[_-]?)?seed(?:[_-]?hex)?\\?['"]?\s*[:=]\s*\\?['"]?[0-9a-f]{64}''')),
+     re.compile(rb'''(?i)\\?['"]?(?:signing[_-]?)?seed(?:[_-]?hex)?\\?['"]?\s*[:=]\s*\\?['"]?[0-9a-f]{64,}''')),
 ]
 
 # ── Percorsi vietati ─────────────────────────────────────────────────────────────────────────

@@ -140,7 +140,7 @@ jobs:
               # BACKUP, dove il file-chiave e' annidato come stringa JSON e le virgolette sono
               # escapate. Stesso pattern di `tools/secret_policy.py` (in str invece che bytes):
               # la condivisione per import e' impossibile qui, i workflow non fanno checkout.
-              (re.compile(r'''(?i)\\?['"]?(?:signing[_-]?)?seed(?:[_-]?hex)?\\?['"]?\s*[:=]\s*\\?['"]?[0-9a-f]{64}'''), "[REDACTED_ED25519_SEED]"),
+              (re.compile(r'''(?i)\\?['"]?(?:signing[_-]?)?seed(?:[_-]?hex)?\\?['"]?\s*[:=]\s*\\?['"]?[0-9a-f]{64,}'''), "[REDACTED_ED25519_SEED]"),
               (re.compile(r"(?i)(api[_-]?key|token|secret|password|passwd|pwd|private[_-]?key|cert)\s*[:=]\s*[\"']?[^\"'\s,;]+"), r"\1=[REDACTED]"),
           ]
 

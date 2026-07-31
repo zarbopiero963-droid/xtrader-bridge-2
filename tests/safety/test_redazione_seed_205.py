@@ -63,10 +63,17 @@ def _blocco_python(nome: str) -> str:
     accettata, l'esito silenzioso no).
     """
     testo = (WORKFLOWS / nome).read_text(encoding="utf-8")
-    m = re.search(r"python3? <<'PY'\n(.*?)\n[ \t]*PY$", testo, re.S | re.M)
-    if not m:
-        raise AssertionError(f"{nome}: heredoc python non trovato (forma dello step cambiata?)")
-    return textwrap.dedent(m.group(1))
+    blocchi = re.findall(r"python3? <<'PY'\n(.*?)\n[ \t]*PY$", testo, re.S | re.M)
+    # Si sceglie il blocco che CONTIENE la lista di redazione, non il primo (rilievo GPT-5.5).
+    # Oggi i workflow hanno un solo heredoc ciascuno — misurato — quindi la differenza non si
+    # vede; ma il giorno in cui ne comparisse uno prima, prendere «il primo» renderebbe questo
+    # presidio rosso per il motivo sbagliato, e un test di sicurezza che fallisce con un
+    # messaggio fuorviante è un test che verrà disattivato invece che capito.
+    for blocco in blocchi:
+        if "REDACTION" in blocco:
+            return textwrap.dedent(blocco)
+    raise AssertionError(f"{nome}: nessun heredoc python con una lista di redazione "
+                         f"({len(blocchi)} heredoc trovati; forma dello step cambiata?)")
 
 
 def _pattern_della_lista(sorgente: str, nomi: tuple) -> list:
@@ -205,6 +212,34 @@ def test_gli_hash_e_le_chiavi_pubbliche_restano_leggibili(workflow):
     assert ripulito.count(SHA256_FINTO) == 3, (
         f"{workflow}: la redazione ha mangiato hash o chiavi pubbliche "
         f"(rimasti {ripulito.count(SHA256_FINTO)}/3)")
+
+
+@pytest.mark.parametrize("workflow", REDATTORI)
+def test_un_valore_piu_lungo_di_64_hex_non_lascia_una_coda_in_chiaro(workflow):
+    """Rilievo di Fable 5 sul boundary — e la ragione per cui NON si è applicata la sua
+    proposta letterale.
+
+    Con `[0-9a-f]{64}` senza quantificatore aperto, un valore **più lungo** di 64 hex viene
+    consumato solo per i primi 64 caratteri: la coda resta in chiaro nel testo spedito al
+    modello. Fable proponeva un boundary finale `(?![0-9a-f])`; misurato, quella versione
+    **peggiora** le cose — su un valore di 80 hex non produce alcun match, quindi non redige
+    **niente** e ne escono 80 caratteri invece di 16:
+
+        valore di 80 hex        residuo in chiaro
+        {64}                    16 caratteri
+        {64}(?![0-9a-f])        80 caratteri   ← la proposta letterale
+        {64,}                   nessuno        ← adottata
+
+    Un seed reale è esattamente 64 hex, quindi il caso è di margine; ma il verso giusto in un
+    redattore è coprire **di più**, non di meno, e `{64,}` costa un carattere.
+    """
+    lungo = "ab" * 32 + "cd" * 8          # 80 hex: più lungo di un seed reale
+    testo = 'seed = "%s"' % lungo
+    ripulito = _redigi(testo, _lista_redazione(workflow))
+    residuo = re.search(r"[0-9a-f]{8,}", ripulito)
+    assert residuo is None, (
+        f"{workflow}: coda in chiaro dopo la redazione ({residuo.group()[:24]}…) — "
+        "un valore più lungo di 64 hex va coperto per intero")
 
 
 @pytest.mark.parametrize("workflow", REDATTORI)
