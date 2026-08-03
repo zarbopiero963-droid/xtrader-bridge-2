@@ -184,7 +184,8 @@ def _canonical_fields(row: dict) -> list:
 
     B47 (#194, decisione del proprietario 2026-07-31): anche la **virgola decimale dentro un
     nome** — «Over 5,5» vs «Over 5.5» — è la stessa linea e quindi la stessa scommessa. Le due
-    forme nascono entrambe dal prodotto: la trasformazione `score_to_over` scrive la virgola,
+    forme nascono entrambe dal prodotto: le trasformazioni Over (`score_to_over` e la variante
+    primo tempo `score_to_over_ht`) scrivono la virgola,
     e un messaggio copiato verbatim può portare il punto (o viceversa, per un canale italiano
     che alterna gli stili). La normalizzazione è **chirurgica** — solo `_VIRGOLA_DECIMALE` —
     perché una virgola di prosa («Inter, primo tempo») è seguita da uno **spazio**, non da una

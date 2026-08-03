@@ -7,8 +7,8 @@ contratto CSV dichiara che le testuali «non vengono **mai** toccate». Quindi l
 
 Da dove nascono le due forme — misurato, non ipotizzato:
 
-- **la virgola** la mette il bridge stesso: la trasformazione `score_to_over` (CP-05, l'unica del
-  prodotto) dal punteggio `2-3` genera letteralmente `"Over 5,5"`, con la virgola scritta a mano
+- **la virgola** la mette il bridge stesso: la trasformazione `score_to_over` (CP-05) dal
+  punteggio `2-3` genera letteralmente `"Over 5,5"`, con la virgola scritta a mano
   in `transforms.py`. È opt-in: scatta solo se una regola imposta `transform="score_to_over"`;
 - **il punto** arriva dal messaggio copiato verbatim — e questo percorso **non richiede la
   trasformazione**. Basta lo stesso canale italiano che scrive `Over 2,5` in un post e `Over 2.5`
@@ -241,3 +241,37 @@ def test_row_identity_non_e_persistita_da_nessuna_parte():
     dopo = signal_dedupe.SignalTracker()
     assert signal_dedupe.load_state(dopo, percorso, now=adesso) is True
     assert identita not in {h for (h, _t, _r) in dopo.state()}
+
+
+# --------------------------------------------------------------------------------------
+# Primo tempo vs tempo pieno — la deduplica DEVE saperli distinguere (2026-08-03)
+# --------------------------------------------------------------------------------------
+
+def test_primo_tempo_e_tempo_pieno_non_sono_la_stessa_scommessa():
+    """Guardia nata con `score_to_over_ht`. Prima di quella trasformazione il primo tempo era
+    IRRAGGIUNGIBILE dal parser personalizzato, quindi due righe non potevano differire solo per
+    il periodo. Ora possono — e il `SelectionName` risolto è **identico** nei due casi
+    (`"Over 1,5 goal"`): a distinguerle resta il solo `MarketType`.
+
+    Se un domani `MarketType` uscisse da `_ROW_KEY_FIELDS`, un segnale di primo tempo e uno di
+    tempo pieno sulla stessa partita diventerebbero «la stessa scommessa» e il secondo verrebbe
+    silenziosamente scartato come duplicato. Questo test lo impedisce."""
+    testo = "Match: Inter v Milan\nRisultato: 0-1\n"   # STESSO messaggio per entrambe le righe
+    base = {"Provider": "TG", "EventName": "Inter v Milan",
+            "SelectionName": "Over 1,5 goal", "BetType": "PUNTA", "Handicap": "0"}
+    primo_tempo = dict(base, MarketType="FIRST_HALF_GOALS_15")
+    tempo_pieno = dict(base, MarketType="OVER_UNDER_15")
+    # Stesso testo di proposito: se le chiavi differissero per l'hash del messaggio il test
+    # passerebbe senza dire nulla sul MarketType, cioè proprio sulla cosa che deve sorvegliare.
+    assert (signal_dedupe.row_dedup_key(testo, primo_tempo)
+            != signal_dedupe.row_dedup_key(testo, tempo_pieno)), (
+        "primo tempo e tempo pieno hanno la STESSA chiave di deduplica: uno dei due segnali "
+        "verrebbe scartato come duplicato")
+
+
+def test_le_due_trasformazioni_over_scrivono_entrambe_la_virgola():
+    """Contro-parte di `test_la_trasformazione_del_prodotto_genera_la_virgola` per la variante
+    primo tempo: anche lei scrive la virgola a mano, quindi anche il suo output deve risultare
+    identico alla forma col punto."""
+    assert transforms.apply("0-1", "score_to_over_ht") == "over 1,5 ht"
+    assert _stessa(transforms.apply("0-1", "score_to_over_ht"), "over 1.5 ht")
