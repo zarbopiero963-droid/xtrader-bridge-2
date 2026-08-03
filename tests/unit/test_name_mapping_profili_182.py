@@ -23,6 +23,8 @@ import types
 
 import pytest
 
+from conftest import leggi_sorgente
+
 from xtrader_bridge import custom_parser, name_mapping_store
 
 
@@ -326,7 +328,7 @@ def test_un_solo_elemento_focusabile_per_riga_ovunque():
     import ast
     import pathlib
     for modulo in ("xtrader_bridge/ui_widgets.py", "xtrader_bridge/custom_parser_gui.py"):
-        albero = ast.parse(pathlib.Path(modulo).read_text(encoding="utf-8"))
+        albero = ast.parse(leggi_sorgente(modulo))
         chiamate = [n for n in ast.walk(albero)
                     if isinstance(n, ast.Call)
                     and (getattr(n.func, "attr", None) == "rendi_attivabile"
@@ -379,7 +381,7 @@ def test_anche_le_righe_del_pannello_PARSER_si_attivano_da_tastiera():
     esiste per rendere deliberata."""
     import ast
     import pathlib
-    sorgente = pathlib.Path("xtrader_bridge/custom_parser_gui.py").read_text(encoding="utf-8")
+    sorgente = leggi_sorgente("xtrader_bridge/custom_parser_gui.py")
     albero = ast.parse(sorgente)
 
     # Risolve UN livello di indirezione: `apri = self._gestore_click(nome, self._open_saved)`

@@ -8,6 +8,7 @@ senza GUI e senza token Telegram.
 
 import importlib.util
 import os
+import pathlib
 import sys
 import tempfile
 
@@ -93,6 +94,18 @@ _verifica_nessuno_shadowing_di_tests()
 # Categorie = cartelle sotto tests/. L'auto-marking applica il marker giusto in
 # base alla cartella del test, così i selettori `-m` (es. "unit or safety") e i
 # profili commit/pr/release funzionano senza decorare ogni singolo test.
+def leggi_sorgente(percorso_relativo: str) -> str:
+    """Legge un file del repo per percorso **relativo alla radice**, non alla cwd.
+
+    I test che ispezionano il sorgente (guardie AST su invarianti strutturali) usavano
+    `pathlib.Path("xtrader_bridge/…")`, che si risolve rispetto alla **working directory**:
+    lanciando `pytest` da `tests/` fallivano con `FileNotFoundError` invece che per il motivo
+    che devono sorvegliare (rilievo GPT-5.5 sulla PR #228, verificato per esecuzione: 2 test
+    rossi da quella cwd). La radice qui è già calcolata da `__file__`, quindi è indipendente
+    da dove si lancia la suite."""
+    return (pathlib.Path(_REPO_ROOT) / percorso_relativo).read_text(encoding="utf-8")
+
+
 _DIR_MARKERS = ("unit", "integration", "safety", "smoke", "e2e", "slow", "manual")
 
 

@@ -19,6 +19,8 @@ import types
 
 import pytest
 
+from conftest import leggi_sorgente
+
 from xtrader_bridge import custom_parser, market_mapping_store, ui_widgets
 
 
@@ -280,7 +282,7 @@ def test_i_due_pannelli_usano_LA_STESSA_funzione_di_disegno():
     pannelli invece di usare la fonte unica, questo test lo intercetta."""
     import ast
     import pathlib
-    albero = ast.parse(pathlib.Path("xtrader_bridge/name_mapping_gui.py").read_text(encoding="utf-8"))
+    albero = ast.parse(leggi_sorgente("xtrader_bridge/name_mapping_gui.py"))
     chiamate = [n for n in ast.walk(albero)
                 if isinstance(n, ast.Call)
                 and getattr(n.func, "attr", None) == "disegna_elenco_profili"]
@@ -288,7 +290,7 @@ def test_i_due_pannelli_usano_LA_STESSA_funzione_di_disegno():
         f"attese 2 chiamate alla fonte unica (⚽ nomi + 🎯 mercati), trovate {len(chiamate)}: "
         f"un pannello ha smesso di usarla")
     # …e nessuno dei due ricrea le righe a mano.
-    sorgente = pathlib.Path("xtrader_bridge/name_mapping_gui.py").read_text(encoding="utf-8")
+    sorgente = leggi_sorgente("xtrader_bridge/name_mapping_gui.py")
     assert "solo riferito" not in sorgente, (
         "il testo dei fantasmi è ricomparso nel pannello: il disegno è stato duplicato")
 
@@ -304,7 +306,7 @@ def test_click_ed_evidenziazione_hanno_UNA_sola_definizione(nmg):
     davvero **lo stesso oggetto funzione** (non due copie che sembrano uguali)."""
     import ast
     import pathlib
-    sorgente = pathlib.Path("xtrader_bridge/name_mapping_gui.py").read_text(encoding="utf-8")
+    sorgente = leggi_sorgente("xtrader_bridge/name_mapping_gui.py")
     albero = ast.parse(sorgente)
     for nome in ("_gestore_click", "_highlight_profiles"):
         definizioni = [n for n in ast.walk(albero)
