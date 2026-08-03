@@ -55,6 +55,13 @@ def import_parser(src_path: str, dir_path: str = None, overwrite: bool = False) 
     return defn
 
 
+# Nome del parser d'esempio. FONTE UNICA (regola 3): era ripetuto alla lettera in
+# `example_parser()` e in piu' punti dei test, quindi una futura rinomina li avrebbe
+# fatti divergere in silenzio — il nome NON e' un dettaglio estetico, e' la chiave con
+# cui `parser_by_chat` risolve il parser.
+EXAMPLE_PARSER_NAME = "Esempio: Match/Esito/Quota/Lato"
+
+
 def example_parser() -> CustomParserDef:
     """Parser d'esempio realistico (valido) per un messaggio tipo:
 
@@ -65,7 +72,7 @@ def example_parser() -> CustomParserDef:
 
     Usa value-map `selectionname`/`bettype`; pronto da personalizzare."""
     return CustomParserDef(
-        name="Esempio P.Bet.",
+        name=EXAMPLE_PARSER_NAME,
         description="Esempio: Match/Esito/Quota/Lato con value-map dizionario.",
         rules=[
             FieldRule(target="Provider", fixed_value="TG_CUSTOM"),
