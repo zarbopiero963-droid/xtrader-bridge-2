@@ -1998,11 +1998,13 @@ def test_process_separatore_non_trovato_non_scrive_nel_csv(make_app, app_mod, mo
     # sarebbe passato anche se `_journal` avesse smesso di emettere `SIGNAL_PARSED`).
     from xtrader_bridge import event_journal
     eventi = event_journal.read_events(diario)
-    parsed = [e for e in eventi if e.get("event") == "SIGNAL_PARSED"
-              or e.get("event_type") == "SIGNAL_PARSED" or e.get("type") == "SIGNAL_PARSED"]
+    # Chiave `type` VERIFICATA sul formato reale di `event_journal` ({id, ts, type, data}) —
+    # una versione precedente ne provava tre in `or`, e due rami erano provatamente morti:
+    # permissivo dove basta essere precisi, e cieco a un cambio di formato.
+    parsed = [e for e in eventi if e.get("type") == "SIGNAL_PARSED"]
     assert parsed, f"nessun SIGNAL_PARSED nel diario: {eventi}"
-    assert any(custom_pipeline.TEAM_SEPARATOR_NOT_FOUND in str(e) for e in parsed), (
-        f"lo scarto non è tracciabile nel diario: {parsed}")
+    assert any((e.get("data") or {}).get("status") == custom_pipeline.TEAM_SEPARATOR_NOT_FOUND
+               for e in parsed), f"lo scarto non è tracciabile nel diario: {parsed}"
 
 
 def test_process_separatore_TROVATO_scrive_ancora(make_app, app_mod, monkeypatch, tmp_path):
