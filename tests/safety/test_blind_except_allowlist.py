@@ -249,9 +249,13 @@ _ALLOWLIST = {
     "licensing/revocation_client.py": (1, "client bridge revoca online (#140 R3c) FAIL-CLOSED in "
                                           "fetch_signed: qualunque errore di scarico dell'URL (rete, "
                                           "DNS, HTTP, timeout, TLS, decodifica, lista troppo grande) → "
-                                          "None; nessuna lista fresca verificata → il gate no-grace "
-                                          "blocca (il bridge deve raggiungere+verificare l'URL per "
-                                          "operare), mai sbloccare per un errore di rete"),
+                                          "None: mai una lista non verificata trattata come buona. "
+                                          "NB la CONSEGUENZA a valle è cambiata il 2026-07-30 e la "
+                                          "motivazione era rimasta stantia (rilievo CodeRabbit #235): "
+                                          "nessuna lista fresca NON blocca più (gate fail-open, "
+                                          "`gate_allows`) — si ferma la propagazione delle revoche, "
+                                          "non il bridge. Fail-closed resta il PARSING qui: un errore "
+                                          "di rete/formato non produce mai una lista valida"),
     "license_store.py": (2, "persistenza licenza (#140 PR 2) FAIL-SAFE: (1) file corrotto/illeggibile "
                             "in load → (None, None) «nessuna licenza», mai crash; (2) rimozione "
                             "best-effort in clear. Coerente col fail-closed della verifica"),

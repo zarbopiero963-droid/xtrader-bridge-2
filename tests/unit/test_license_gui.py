@@ -290,7 +290,7 @@ def test_refresh_non_inghiotte_errori_del_gate(license_gui):
         license_gui.LicensePanel.refresh_options(fake)
 
 
-# ── REVOCA VISIBILE NEL PANNELLO (incidente 2026-08-04) ──────────────────────────────────────
+# ── REVOCA VISIBILE NEL PANNELLO (incidente del collaudo 2026-08-03/04 (notte)) ──────────────────────────────────────
 #
 # Collaudo reale del proprietario: licenza revocata dal fornitore, revoca RILEVATA (il log lo
 # prova) e bridge effettivamente bloccato — ma la scheda «🔑 Licenza» continuava a mostrare in
@@ -331,7 +331,7 @@ def _fake_panel_render(license_gui, *, revoked_provider=None, exp=_NOW + 15 * _D
 
 
 def test_il_pannello_NON_dice_attiva_se_la_revoca_nega(license_gui):
-    """FAIL-FIRST — il difetto del collaudo 2026-08-04.
+    """FAIL-FIRST — il difetto del collaudo 2026-08-03/04 (notte).
 
     Licenza di per sé valida (firma buona, non scaduta) ma NEGATA dal gate revoca: la scheda non
     deve dire «Licenza attiva». Prima della patch diceva esattamente quello, in verde."""
@@ -390,3 +390,11 @@ def test_licenza_gia_invalida_non_viene_mascherata_dalla_revoca(license_gui):
     fake = _fake_panel_render(license_gui, revoked_provider=lambda: True, exp=_NOW - _DAY)
     license_gui.LicensePanel.refresh_options(fake)
     assert "REVOCATA" not in (fake._status_lbl.text or "").upper(), fake._status_lbl.text
+    # …e si asserisce la diagnosi ATTESA, non solo l'assenza dell'altra (rilievo CodeRabbit
+    # #235): col solo `not in` il test passerebbe anche se la scadenza fosse sostituita da un
+    # testo qualunque — verificherebbe «non dice revocata» invece di «dice scaduta».
+    atteso = license_status.status_message(
+        license_status.LicenseStatus(valid=False, reason=license_status.EXPIRED, name=None,
+                                     issued=None, expiry=None, days_left=0))
+    assert fake._status_lbl.text == atteso, (fake._status_lbl.text, atteso)
+    assert fake._status_lbl.color == license_gui._SEVERITY_COLOR["error"]

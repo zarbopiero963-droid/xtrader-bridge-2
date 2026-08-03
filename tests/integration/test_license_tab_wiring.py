@@ -60,3 +60,48 @@ def test_build_license_tab_cabla_i_provider_reali(app_mod, monkeypatch):
                         lambda p, tok, ls: seen.update(save=(p, tok, ls)))
     captured["save_state"]("TOK", 999)
     assert seen["save"] == (license_store.license_state_path(config_dir()), "TOK", 999)
+
+
+def test_revoked_provider_e_cablato_al_gate_REALE_dell_app(app_mod, monkeypatch):
+    """Il pannello deve ricevere ESATTAMENTE il predicato che blocca (rilievo CodeRabbit #235).
+
+    Testare `App._revoca_nega` e il pannello separatamente non dimostra che siano **lo stesso**:
+    i due potrebbero divergere e ogni test resterebbe verde — che è precisamente il difetto
+    corretto da questa PR (scheda e lock che dicevano cose diverse). Qui si cattura il kwarg
+    reale e lo si esercita **attraverso** l'app, coprendo revocato / non revocato / seam guasto."""
+    captured = {}
+
+    class _RecorderPanel:
+        def __init__(self, parent, **kw):
+            captured.update(kw)
+
+        def pack(self, **_k):
+            pass
+
+    import xtrader_bridge
+    fake_lg = types.ModuleType("xtrader_bridge.license_gui")
+    fake_lg.LicensePanel = _RecorderPanel
+    monkeypatch.setitem(sys.modules, "xtrader_bridge.license_gui", fake_lg)
+    monkeypatch.setattr(xtrader_bridge, "license_gui", fake_lg, raising=False)
+
+    app = object.__new__(app_mod.App)
+    app_mod.App._build_license_tab(app, parent=object())
+
+    provider = captured.get("revoked_provider")
+    assert provider is not None, "il pannello non riceve il seam della revoca"
+    # È il metodo dell'App, non una lambda che ne duplica la logica (fonte unica, Regola 3).
+    assert provider.__func__ is app_mod.App._revoca_nega, (
+        f"seam cablato su un predicato DIVERSO dal gate: {provider!r}")
+
+    # …ed è vivo: pilotando il gate dell'app cambia ciò che il pannello vede.
+    app._revocation_enabled = lambda: True
+    app._revocation_gate_ok = lambda: False
+    assert provider() is True, "revoca attiva e gate chiuso: il pannello deve vedere True"
+
+    app._revocation_gate_ok = lambda: True
+    assert provider() is False, "gate aperto: nessuna accusa di revoca"
+
+    def _boom():
+        raise RuntimeError("gate in errore (simulato)")
+    app._revocation_enabled = _boom
+    assert provider() is False, "seam guasto deve fallire in sicurezza, mai accusare"
