@@ -35,9 +35,11 @@ def rendi_attivabile(widget, azione, *, focusabile=True):
     eventi = ("<Button-1>", "<Return>", "<space>") if focusabile else ("<Button-1>",)
     for evento in eventi:
         widget.bind(evento, azione)
-    if not focusabile:
-        return
     try:
-        widget.configure(takefocus=1)
+        # `takefocus=0` ESPLICITO sui figli: oggi `CTkLabel`/`CTkFrame` non prendono il focus
+        # per default, ma affidarsi a quel default significa che un cambio di CustomTkinter (o
+        # un widget diverso passato qui domani) rimetterebbe in silenzio il secondo tab-stop
+        # (rilievo Fable sulla PR #226). L'invariante va scritta, non dedotta.
+        widget.configure(takefocus=1 if focusabile else 0)
     except Exception:        # noqa: BLE001 — widget-spia o distrutto: resta cliccabile col mouse
         pass

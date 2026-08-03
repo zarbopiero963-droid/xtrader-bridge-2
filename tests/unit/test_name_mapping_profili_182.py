@@ -306,7 +306,9 @@ def test_i_figli_cliccabili_non_creano_un_secondo_tab_stop():
     figlio = _Widget()
     ui_widgets.rendi_attivabile(figlio, lambda _e=None: "break", focusabile=False)
     assert set(figlio.legati) == {"<Button-1>"}, "il figlio non deve reagire a Invio/Spazio"
-    assert "takefocus" not in figlio.opzioni, "il figlio non deve essere un secondo tab-stop"
+    assert figlio.opzioni.get("takefocus") == 0, (
+        "il figlio non deve essere un secondo tab-stop, ed è scritto ESPLICITAMENTE: affidarsi "
+        "al default del widget lo rimetterebbe in silenzio a un cambio di CustomTkinter")
 
 
 def test_entrambi_i_pannelli_rendono_focusabile_solo_la_riga():
@@ -318,12 +320,17 @@ def test_entrambi_i_pannelli_rendono_focusabile_solo_la_riga():
         chiamate = [n for n in ast.walk(albero)
                     if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                     and n.func.attr == "rendi_attivabile"]
-        assert len(chiamate) == 2, f"{modulo}: attese 2 chiamate (riga + etichetta), {len(chiamate)}"
-        senza_focus = [c for c in chiamate
-                       if any(k.arg == "focusabile" for k in c.keywords)]
-        assert len(senza_focus) == 1, (
-            f"{modulo}: esattamente UNA delle due deve essere `focusabile=False` (l'etichetta), "
-            f"altrimenti la riga vale due tab-stop")
+        assert chiamate, f"{modulo}: nessuna riga attivabile da tastiera"
+        # L'invariante è «UN solo tab-stop per riga», non «esattamente due chiamate»: fissare il
+        # numero totale renderebbe il test un falso allarme al primo elemento cliccabile in più
+        # (rilievo Fable sulla PR #226). Si conta quindi solo quante chiamate NON passano
+        # `focusabile=False`: dev'essere una, quante che siano le altre.
+        focusabili = [c for c in chiamate
+                      if not any(k.arg == "focusabile" and k.value.value is False
+                                 for k in c.keywords)]
+        assert len(focusabili) == 1, (
+            f"{modulo}: {len(focusabili)} elementi focusabili per riga invece di 1 — "
+            f"ogni riga varrebbe più di un tab-stop")
 
 
 def test_takefocus_e_best_effort_e_non_impedisce_il_disegno():
