@@ -649,6 +649,26 @@ def test_un_TypeError_interno_non_fa_ri_legare_SENZA_add(cpg):
         f"il fallback ha ri-legato senza add='+', sovrascrivendo gli handler di CTkEntry: {chiamate}")
 
 
+@pytest.mark.parametrize("firma, atteso", [
+    (lambda evento, cb: None, False),                       # widget/doppio senza `add`
+    (lambda evento, cb, add=None: None, True),              # widget che lo accetta
+    (lambda sequence=None, func=None, add=None: None, True),  # firma di `tkinter.Misc.bind`
+    (lambda *a, **k: None, True),                           # firma aperta: si prova `add`
+])
+def test_bind_accetta_add_riconosce_la_firma(cpg, firma, atteso):
+    """Test diretto richiesto da GPT-5.5 (#223), che riteneva `bind_accetta_add` sbagliata perché
+    «chiama `Signature.bind`, non il bind del widget, e può tornare sempre True».
+
+    L'osservazione è giusta, la conclusione no: `Signature.bind` è proprio un **binding a vuoto**
+    degli argomenti — verifica se la chiamata sarebbe accettata **senza eseguirla**, che è l'unico
+    modo di sondare il supporto di `add` senza legare davvero un handler. Una firma priva di `add`
+    solleva `TypeError` e la funzione ritorna `False`, come dimostra il primo caso qui sotto.
+
+    Le quattro forme coprono i casi reali: doppio dei test senza `add`, doppio con `add`, la firma
+    vera di `tkinter.Misc.bind` (`sequence, func, add`) e una firma aperta `*a, **k`."""
+    assert cpg.bind_accetta_add(firma) is atteso
+
+
 def test_widget_senza_add_viene_legato_lo_stesso(cpg):
     """Controprova: il caso che il fallback serviva a coprire (widget il cui `bind` NON accetta
     `add`) deve restare agganciato — la firma lo dice, e si usa la forma a due argomenti."""
