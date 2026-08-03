@@ -83,6 +83,7 @@ class LicenseManagerApp(ctk.CTk):
                  record_revocation=None, read_revocations=None,
                  load_publish_config=None, save_publish_config=None,
                  load_publish_token=None, save_publish_token=None, publish_upload=None,
+                 check_access=None,
                  load_last_publish=None, save_last_publish=None,
                  build_backup=None, save_backup=None, load_backup=None,
                  restore_backup=None, auto_backup=None, restore_in_progress=None):
@@ -107,6 +108,7 @@ class LicenseManagerApp(ctk.CTk):
         self._load_publish_token = load_publish_token or publish_store.load_publish_token
         self._save_publish_token = save_publish_token or publish_store.save_publish_token
         self._publish_upload = publish_upload or publisher.publish
+        self._check_access = check_access or publisher.check_access
         # Stato «ultima pubblicazione riuscita» (#157): iniettabili come gli altri accessi a disco,
         # così i test non toccano la cartella reale del License Manager.
         self._load_last_publish = load_last_publish or publish_store.load_last_publish
@@ -759,6 +761,69 @@ class LicenseManagerApp(ctk.CTk):
         except Exception:       # noqa: BLE001 — finestra distrutta: nessuna UI da aggiornare
             self._set_publish_inflight(False)
 
+    def _evaluate_check_access(self) -> dict:
+        """Verifica **preventiva** che la pubblicazione funzionerà. Ritorna ``{"ok","message"}``.
+
+        **Non modifica nulla**, né su GitHub né su disco: la prova di scrittura usa uno `sha` che
+        non può combaciare (vedi `publisher.check_access`), quindi GitHub la rifiuta sempre.
+
+        Fail-safe come `_evaluate_publish_now`: nessuna eccezione verso la GUI, e il **token non
+        compare mai** nel messaggio."""
+        cfg = self._load_publish_config(directory=self._key_dir)
+        problema = publish_store.validate_config(cfg)
+        if problema is not None:
+            return {"ok": False, "message": problema}
+        token = self._load_publish_token()
+        if not token:
+            return {"ok": False,
+                    "message": "Token assente nel keyring: salvalo nelle impostazioni di pubblicazione."}
+        esito = self._check_access(cfg["repo"], cfg["path"], cfg["branch"], token=token)
+        return {"ok": bool(esito.get("ok")), "message": str(esito.get("message", ""))}
+
+    def _check_access_worker(self) -> None:
+        """Corpo del thread della verifica (stessa forma di `_publish_worker`). Non solleva mai."""
+        try:
+            result = self._evaluate_check_access()
+        except Exception as exc:    # noqa: BLE001 — il thread non deve morire in silenzio
+            _log.warning("Verifica accesso non riuscita [%s]", type(exc).__name__)
+            result = {"ok": False, "message": "Verifica non riuscita (errore imprevisto)."}
+        try:
+            self.after(0, lambda: self._check_access_finish(result))
+        except Exception:       # noqa: BLE001 — finestra distrutta: nessuna UI da aggiornare
+            self._set_publish_inflight(False)
+
+    def _check_access_async(self) -> bool:
+        """Avvia la verifica in background. Condivide `_publish_inflight` con la pubblicazione:
+        sono due operazioni di rete con lo **stesso token** verso lo **stesso repo**, e lasciarle
+        accavallare significherebbe che un tick automatico parte mentre l'utente sta diagnosticando
+        — con due esiti che si sovrascrivono nella riga messaggi e nessuno dei due leggibile."""
+        with self._publish_lock():
+            if self.__dict__.get("_publish_inflight"):
+                return False
+            self._publish_inflight = True
+        try:
+            self._spawn_publish_thread(self._check_access_worker)
+        except Exception as exc:    # noqa: BLE001 — thread non avviabile: libera il flag e segnala
+            self._set_publish_inflight(False)
+            _log.warning("Avvio thread verifica accesso non riuscito [%s]", type(exc).__name__)
+            return False
+        return True
+
+    def _check_access_finish(self, result) -> None:
+        """Applica l'esito della verifica sul thread GUI e libera il lucchetto.
+
+        A differenza di `_publish_finish` **non** ridipinge l'etichetta dell'ultima pubblicazione:
+        una verifica non pubblica nulla, e toccare quell'etichetta suggerirebbe il contrario."""
+        self._set_publish_inflight(False)
+        testo = str((result or {}).get("message", ""))
+        # Il prefisso si aggiunge solo se non c'è già (rilievo Fable #215): il messaggio di ANOMALIA
+        # nasce con «⚠️ » proprio perché deve saltare all'occhio anche fuori da questa riga, e
+        # anteporlo di nuovo dava «⚠️ ⚠️ ANOMALIA». GPT-5.5 l'aveva previsto quando ancora nessun
+        # messaggio iniziava così; il caso l'ho introdotto io dopo, senza rimisurare.
+        if not (result or {}).get("ok") and not testo.lstrip().startswith("⚠️"):
+            testo = "⚠️ " + testo
+        self._set_msg(testo)
+
     def _publish_finish(self, result) -> None:
         """Applica l'esito sul thread GUI e libera il lucchetto."""
         self._set_publish_inflight(False)
@@ -1082,6 +1147,9 @@ class LicenseManagerApp(ctk.CTk):
         bottoni = ctk.CTkFrame(tab, fg_color="transparent")
         bottoni.pack(fill="x", padx=10, pady=(0, 4))
         ctk.CTkButton(bottoni, text="💾 Salva impostazioni", command=self._on_save_publish_settings,
+                      fg_color=ui_theme.SURFACE3, text_color=ui_theme.TEXT,
+                      hover_color=ui_theme.BORDER).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(bottoni, text="🔍 Verifica accesso", command=self._on_check_access,
                       fg_color=ui_theme.SURFACE3, text_color=ui_theme.TEXT,
                       hover_color=ui_theme.BORDER).pack(side="left", padx=(0, 6))
         ctk.CTkButton(bottoni, text="🚀 Pubblica ora", command=self._on_publish_now).pack(side="left")
@@ -1469,6 +1537,18 @@ class LicenseManagerApp(ctk.CTk):
             self._set_msg("⏳ Pubblicazione in corso…")
         else:
             self._set_msg("⏳ Una pubblicazione è già in corso: attendi l'esito.")
+
+    def _on_check_access(self) -> None:
+        """Verifica che il token possa davvero pubblicare — **senza modificare nulla** — **in
+        background** (fa rete come la pubblicazione: sul thread Tk congelerebbe la finestra).
+
+        Nasce dal collaudo del proprietario sul secondo PC: fino a ieri l'unico modo di scoprire
+        che il token non aveva i permessi era **tentare una pubblicazione vera** — cioè
+        accorgersene proprio quando serviva, revocando una licenza."""
+        if self._check_access_async():
+            self._set_msg("⏳ Verifica dell'accesso a GitHub in corso…")
+        else:
+            self._set_msg("⏳ Un'operazione di rete è già in corso: attendi l'esito.")
 
     def _on_publish_revocation(self) -> None:
         # Il percorso reale lo sceglie un file-dialog (Tk, verifica manuale); headless resta '' → messaggio.

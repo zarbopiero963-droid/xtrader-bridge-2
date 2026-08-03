@@ -1327,7 +1327,7 @@ dentro le schede. Perciò:
 | **🔑 Chiave** | chiave pubblica (Textbox selezionabile) · «🔑 Genera / mostra keypair» · «📋 Copia chiave pubblica» · «💾 Backup della chiave privata» | la chiave pubblica è quella da incollare in `license.py` |
 | **✅ Emetti** | Nome · Cognome · Giorni · Hardware ID → «✅ Genera chiave di attivazione» (SUCCESS) · box del token + «📋 Copia chiave di attivazione» | il token è ciò che si manda all'utente |
 | **📋 Registro** | ricerca · **tabella** (`ttk.Treeview`: Stato · Serial · Nome · Hardware ID · Giorni · Scadenza) · campo Serial + Nuovi giorni · «🔄 Rinnova» · «📋 Ri-mostra token» · «🚫 Revoca licenza» (DANGER) | selezionare una riga porta il serial nel campo |
-| **🚫 Revoche** | «📤 Esporta lista revoche firmata» · pubblicazione automatica GitHub (repo/file/branch/ore/token) · «💾 Salva impostazioni» · «🚀 Pubblica ora» · etichetta persistente ultima pubblicazione | il token GitHub è mascherato e vive nel keyring |
+| **🚫 Revoche** | «📤 Esporta lista revoche firmata» · pubblicazione automatica GitHub (repo/file/branch/ore/token) · «💾 Salva impostazioni» · «🔍 Verifica accesso» · «🚀 Pubblica ora» · etichetta persistente ultima pubblicazione | il token GitHub è mascherato e vive nel keyring |
 | **📦 Backup** | «📦 Esporta backup completo» · «📥 Ripristina backup completo» + avviso supporto offline | col **solo** seed registro e revoche non migrano (#183) |
 
 **Stati nella colonna «Stato»:** `ATTIVA` · `SCADUTA` · `REVOCATA`. Il terzo è stato aggiunto il
@@ -1358,6 +1358,46 @@ in cui qualcosa non è andato liscio):
 | impostazioni **illeggibili** | «⚠️ Impossibile leggere le impostazioni di pubblicazione: la revoca NON è ancora attiva sui bridge. Pubblicala dalla scheda «Revoche».» |
 | pubblicazione **già in corso** | «Una pubblicazione era già in corso e non contiene questa revoca: riprovo fra poco.» |
 | avvio **non riuscito** | «⚠️ La revoca è registrata ma la pubblicazione non è partita: NON è ancora attiva sui bridge. Usa «🚀 Pubblica ora» nella scheda «Revoche».» |
+
+#### «🔍 Verifica accesso» — sonda che non modifica nulla (collaudo proprietario, 2026-08-03)
+
+Nasce da un guasto reale: installando il License Manager su un **secondo PC**, la pubblicazione
+falliva e l'unico modo di scoprire il perché era **tentare una pubblicazione vera** — cioè
+accorgersene mentre si revoca una licenza, il momento peggiore. Il pulsante sta accanto a «💾 Salva
+impostazioni», prima di «🚀 Pubblica ora», con lo stesso stile secondario di «Salva».
+
+Gira **in background** come la pubblicazione (fa rete: sul thread Tk congelerebbe la finestra) e
+condivide con essa il lucchetto — due operazioni con lo stesso token verso lo stesso repo non si
+accavallano, altrimenti due esiti si sovrascriverebbero nella riga messaggi. **Non** ridipinge
+l'etichetta «ultima pubblicazione»: una verifica non pubblica nulla, e toccarla suggerirebbe il
+contrario.
+
+| esito | messaggio (forma) |
+|---|---|
+| accesso **OK**, scrittura **confermata** | «✅ Accesso OK: il token può scrivere su «*repo*» (branch *X*). Il file «*path*» esiste già e verrà aggiornato. Permesso di scrittura CONFERMATO da GitHub (prova senza modifiche).» |
+| accesso **OK**, scrittura **non provata** | come sopra, ma «… Il permesso di scrittura risulta concesso ma NON è stato verificato con una prova (si può farlo solo su un file esistente, senza crearne uno).» — è il caso della **prima** pubblicazione, quando il file non c'è ancora |
+| prova **ACCETTATA** (anomalia) | «⚠️ ANOMALIA: la prova di scrittura è stata ACCETTATA da GitHub (HTTP *n*) nonostante fosse costruita per fallire. La lista revoche «*path*» è **intatta** — la prova scrive solo su «*path*.xtrader-verifica-accesso». Il file temporaneo è stato rimosso automaticamente. Segnala l'accaduto.» *(se la rimozione fallisce, la coda diventa «… NON è stato rimosso: cancellalo a mano dal repository»)* |
+| esito **incerto** (rete KO · 429 · 5xx) | «⚠️ Verifica NON completata: il token risulta abilitato su «*repo*» e il branch «*X*» esiste, ma la prova del permesso di SCRITTURA non è andata a buon fine (HTTP *n* / rete non disponibile). Non è detto che ci sia un problema di permessi: riprova fra poco.» — **nessuna spunta verde**: incerto non è OK |
+| **401** | «⚠️ Token rifiutato da GitHub (401): non è un problema di permessi, è il token in sé — sbagliato, scaduto o revocato. Rigeneralo e reincollalo, senza spazi ai bordi.» |
+| **403** | «⚠️ Token accettato ma senza permesso di SCRITTURA su «*repo*» (403). Se è un token fine-grained: in «Repository access» dev'esserci questo repository, e in «Permissions → Repository permissions» serve «Contents: Read and write».» |
+| **404** sul repo | «⚠️ Repository «*repo*» non trovato (404): controlla «owner/nome». Con un token fine-grained un repo esistente ma NON concesso al token risponde comunque 404.» |
+| **404** sul branch | «⚠️ Il branch «*X*» non esiste su «*repo*» (404): controlla il nome (spesso è «main» o «master»). Il permesso di scrittura c'è.» |
+| token assente | «⚠️ Token assente nel keyring: salvalo nelle impostazioni di pubblicazione.» |
+| rete KO | «⚠️ Rete non disponibile: impossibile contattare GitHub.» |
+
+**Perché la sonda tenta una scrittura.** `permissions.push` è un'**inferenza**: se un token
+*fine-grained* con «Contents» in sola lettura lo riportasse `true`, la verifica direbbe «Accesso OK»
+proprio nel guasto che deve diagnosticare. L'unica prova certa è chiedere a GitHub — con una `PUT`
+su un **percorso usa-e-getta** (`<file>.xtrader-verifica-accesso`), **mai** sul file delle revoche.
+I permessi sono validati *prima* dello sha: `403` = non può scrivere, `409/422` = poteva, e **nulla
+è stato creato**. Il bersaglio usa-e-getta non è un dettaglio: se quella `PUT` venisse comunque
+applicata da un proxy o un'API compatibile, nascerebbe un file inerte invece di una lista revoche
+sovrascritta — e i bridge scaricano quella. Effetto collaterale positivo: la prova funziona anche
+alla **prima** pubblicazione, quando il file non esiste ancora.
+
+**401 e 403 sono voci separate di proposito.** Prima condividevano una frase sola — «Token non
+valido o senza permessi» — e chi la leggeva non poteva sapere quale dei due fosse, mentre i rimedi
+sono opposti: rigenerare il token contro concedergli un permesso.
 
 Il quarto caso non è teorico: l'upload in corso è partito **prima** di questa revoca, quindi non la
 contiene. Si annulla il tick già in coda e se ne programma uno a breve — annullarlo è necessario,

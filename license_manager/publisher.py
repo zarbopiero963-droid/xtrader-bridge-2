@@ -31,6 +31,11 @@ import urllib.parse
 import urllib.request
 
 GITHUB_API = "https://api.github.com"
+
+# Fonte UNICA del messaggio «manca il token» (rilievo Sourcery #215): `publish` e `check_access`
+# lo dicevano con due frasi diverse per la stessa identica condizione, e due copie oggi sono due
+# copie divergenti domani.
+MSG_TOKEN_MANCANTE = "Token mancante: incollalo nelle impostazioni di pubblicazione e salva."
 DEFAULT_TIMEOUT_S = 20
 
 # Tetto di dimensione della risposta letta (una entry Contents API è piccola; evita di ingoiare un
@@ -68,6 +73,21 @@ def contents_url(repo: str, path: str) -> str:
     rompono l'URL — vedi `_quote_repo`)."""
     quoted = urllib.parse.quote(str(path or "").strip().lstrip("/"))
     return f"{GITHUB_API}/repos/{_quote_repo(repo)}/contents/{quoted}"
+
+
+def branch_url(repo: str, branch: str) -> str:
+    """Endpoint del **branch**. Serve a distinguere «file non ancora presente» da «branch
+    inesistente»: `GET contents?ref=X` risponde 404 in entrambi i casi, e il primo è legittimo."""
+    return f"{repo_url(repo)}/branches/{urllib.parse.quote(str(branch or '').strip())}"
+
+
+def _contents_url_at_ref(repo: str, path: str, branch: str) -> str:
+    """URL Contents API per (repo, path) al `ref` indicato — **fonte unica** (rilievo CodeRabbit
+    #215): `check_access` e `get_file_sha` lo costruivano ognuno per conto suo, in modo identico.
+    Due costruzioni indipendenti dello stesso URL divergono in silenzio il giorno in cui una sola
+    viene aggiornata — ed è la classe di difetto che la regola della fonte unica esiste per
+    impedire."""
+    return contents_url(repo, path) + "?" + urllib.parse.urlencode({"ref": str(branch or "").strip()})
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -116,12 +136,91 @@ def _default_http(method: str, url: str, *, token: str, body=None,
     return status, (payload if isinstance(payload, dict) else None)
 
 
-def _error_message(status: int, action: str) -> str:
+def probe_path(path: str) -> str:
+    """Percorso **usa-e-getta** su cui si fa la prova di scrittura — mai il file delle revoche.
+
+    Bloccante Fugu #215. La prova puntava al file reale, difesa solo dall'ordine
+    «permessi-prima-di-sha» di GitHub: se un proxy o un'API compatibile applicasse comunque la
+    `PUT`, la lista **firmata** verrebbe sovrascritta e i bridge resterebbero senza. Rilevare il
+    danno (ramo ANOMALIA) non è impedirlo, e su un artefatto di sicurezza vivo la differenza conta.
+
+    Il potere diagnostico non cambia: il permesso «Contents» vale per l'intero **repository**, non
+    per singolo file. Cambia il danno peggiore: da «lista revoche sovrascritta» a «un file inerte
+    che nessun bridge legge, cancellabile a mano»."""
+    return f"{str(path or '').strip().lstrip('/')}.xtrader-verifica-accesso"
+
+
+# Sha di prova: forma valida (40 esadecimali) ma riferito a un file che **non esiste**, quindi
+# GitHub risponde «conflitto» invece di scrivere. Costante e innocua: il bersaglio è il percorso
+# usa-e-getta, non le revoche.
+_SHA_PROBE = "0" * 40
+
+
+def _rimuovi_file_di_prova(repo: str, path: str, branch: str, sha: str, *, caller, token,
+                          timeout: int) -> bool:
+    """Cancella il file di prova creato da una `PUT` accettata (ramo ANOMALIA). `True` se rimosso.
+
+    Bloccante Fugu #215: dire «cancellalo a mano» scarica sull'utente la pulizia di un artefatto
+    creato dallo strumento, per giunta in un repository **pubblico** accanto alla lista firmata.
+
+    Guardia di sicurezza esplicita: si cancella **solo** il percorso di prova. Un errore qui
+    cancellerebbe la lista delle revoche, cioè il danno peggiore possibile — quindi la condizione
+    è verificata prima della chiamata, non affidata al fatto che il chiamante passi la cosa
+    giusta. Best-effort: un fallimento non solleva, viene detto nel messaggio."""
+    bersaglio = probe_path(path)
+    if bersaglio == str(path or "").strip().lstrip("/") or not str(sha or "").strip():
+        return False
+    try:
+        status, _ = caller("DELETE", contents_url(repo, bersaglio), token=token,
+                           body={"message": "rimuove il file di verifica accesso",
+                                 "sha": str(sha), "branch": str(branch or "").strip()},
+                           timeout=timeout)
+    except Exception:       # noqa: BLE001 — pulizia best-effort: mai un crash, si dice e basta
+        return False
+    return status is not None and 200 <= status < 300
+
+
+def _is_rate_limited(payload) -> bool:
+    """`True` se il corpo della risposta dice che è un **rate-limit** (rilievo Fable #215).
+
+    GitHub usa `403` sia per «permessi insufficienti» sia per il **rate-limit secondario**, e i due
+    chiedono cose opposte: concedere un permesso contro *aspettare qualche minuto*. Distinguerli è
+    lo stesso problema che questa PR risolve fra 401 e 403, un livello più in là.
+
+    Si cerca **solo un marcatore** nel campo `message`; il corpo **non viene mai ri-emesso** —
+    potrebbe riportare header o dettagli della richiesta. Il messaggio mostrato all'utente è
+    scritto qui.
+
+    **Limite dichiarato** (rilievo GPT-5.5 #215): GitHub segnala il rate-limit anche via header
+    (`retry-after`, `x-ratelimit-remaining`), che il probe HTTP di questo modulo **non espone** —
+    ritorna `(status, payload)`. Se un giorno arrivasse un 403 di rate-limit con un corpo privo del
+    marcatore, l'utente leggerebbe il messaggio sui permessi. Si è preferito non allargare il
+    contratto del probe — che è iniettabile e condiviso da tutte le chiamate — per un caso che
+    GitHub oggi accompagna sempre con un `message` esplicito."""
+    testo = str((payload or {}).get("message", "")).lower() if isinstance(payload, dict) else ""
+    return "rate limit" in testo or "abuse detection" in testo
+
+
+def _error_message(status: int, action: str, repo: str = "", payload=None) -> str:
     """Messaggio leggibile per un codice HTTP di errore. **Non** include mai token né corpo grezzo
-    della risposta (che potrebbe riportare header/credenziali)."""
-    if status in (401, 403):
-        return ("Token non valido o senza permessi sul repository "
-                "(serve «Contents: Read and write» sul repo scelto).")
+    della risposta (che potrebbe riportare header/credenziali).
+
+    401 e 403 hanno messaggi **distinti** (collaudo del proprietario, 2026-08-03). Prima
+    condividevano una frase sola — «Token non valido o senza permessi» — e chi la leggeva non
+    poteva sapere quale dei due fosse, mentre i rimedi sono opposti: rigenerare il token contro
+    concedergli un permesso. Sul secondo PC del proprietario questo è costato una diagnosi a
+    tentativi, con la pubblicazione delle revoche ferma nel frattempo."""
+    if status == 401:
+        return ("Token rifiutato da GitHub (401): non è un problema di permessi, è il token in sé "
+                "— sbagliato, scaduto o revocato. Rigeneralo e reincollalo, senza spazi ai bordi.")
+    if status == 403:
+        if _is_rate_limited(payload):
+            return ("GitHub ha applicato un limite di frequenza (403): non è un problema del token "
+                    "né dei permessi — aspetta qualche minuto e riprova.")
+        dove = f" su «{repo}»" if str(repo or "").strip() else ""
+        return (f"Token accettato ma senza permesso di SCRITTURA{dove} (403). Se è un token "
+                "fine-grained: in «Repository access» dev'esserci questo repository, e in "
+                "«Permissions → Repository permissions» serve «Contents: Read and write».")
     if status == 404:
         return "Repository, branch o percorso non trovati (controlla «owner/nome» e il branch)."
     if status in (409, 422):
@@ -137,6 +236,161 @@ def _error_message(status: int, action: str) -> str:
     return f"Pubblicazione non riuscita ({action}): risposta HTTP {status}."
 
 
+def repo_url(repo: str) -> str:
+    """Endpoint del **repository** (non del file): serve a `check_access` per leggere i permessi
+    dell'utente autenticato senza scrivere nulla."""
+    return f"{GITHUB_API}/repos/{_quote_repo(repo)}"
+
+
+def check_access(repo: str, path: str, branch: str, *, token: str, http=None,
+                 timeout: int = DEFAULT_TIMEOUT_S) -> dict:
+    """Verifica **preventiva** che la pubblicazione funzionerà, **senza modificare nulla**.
+
+    Ritorna ``{"ok", "message", "can_write", "file_exists"}``. **Non modifica mai** il repository:
+    tre `GET` più **una `PUT` su un percorso usa-e-getta** (`probe_path`), **mai** sul file delle
+    revoche, con uno `sha` riferito a un file inesistente. Non è una scrittura: è l'unica domanda a
+    cui GitHub risponde con certezza su «questo token può scrivere?», perché i permessi sono
+    validati **prima** dello sha. E se anche quella `PUT` venisse applicata da un proxy o un'API
+    compatibile, nascerebbe un file inerte che nessun bridge legge — non una lista revoche
+    corrotta (bloccante Fugu #215: rilevare il danno non è impedirlo).
+
+    Perché non basta leggere il file (il caso reale del proprietario, 2026-08-03): il repository
+    delle revoche è **pubblico**, quindi una `GET` riesce con qualunque token valido. Una verifica
+    di sola lettura direbbe «tutto ok» e poi la pubblicazione fallirebbe con 403 — cioè
+    esattamente il guasto che questa funzione dovrebbe prevenire. Per questo si legge
+    ``permissions.push`` da `GET /repos/{owner}/{repo}` — ma è solo il **primo filtro**: è
+    un'inferenza, e la prova vera è la `PUT` che non può riuscire (vedi sopra).
+
+    ⚠️ Chi consuma l'esito deve guardare **`ok`**, non `can_write`. Nel ramo ANOMALIA — la `PUT`
+    accettata nonostante lo sha costruito per fallire — `can_write` è `True` (il token ha
+    dimostrato di poter scrivere: l'ha appena fatto) ma `ok` è `False`, perché il file potrebbe
+    essere stato modificato. Chi si regolasse su `can_write` ignorerebbe il fail-closed
+    (rilievo GPT-5.5 #215).
+
+    Il 404 sul **file** non è un errore: alla prima pubblicazione il file non esiste ancora e
+    verrà creato. Il 404 sul **repository** sì: repo inesistente, oppure — tipico dei token
+    fine-grained — non concesso a questo token.
+
+    Fail-safe come il resto del modulo: nessuna eccezione verso la GUI, e **il token non compare
+    mai** nel risultato."""
+    esito = {"ok": False, "message": "", "can_write": False, "file_exists": False}
+    if not str(token or "").strip():
+        esito["message"] = MSG_TOKEN_MANCANTE
+        return esito
+    caller = http or _default_http
+    try:
+        status, payload = caller("GET", repo_url(repo), token=token, timeout=timeout)
+    except Exception:       # noqa: BLE001 — rete: esito strutturato, mai crash
+        esito["message"] = "Rete non disponibile: impossibile contattare GitHub."
+        return esito
+    if status >= 300:
+        if status == 404:
+            esito["message"] = (f"Repository «{repo}» non trovato (404): controlla «owner/nome». "
+                                "Con un token fine-grained un repo esistente ma NON concesso al "
+                                "token risponde comunque 404.")
+        else:
+            esito["message"] = _error_message(status, "verifica", repo, payload)
+        return esito
+    permessi = (payload or {}).get("permissions") or {}
+    esito["can_write"] = bool(permessi.get("push"))
+    if not esito["can_write"]:
+        esito["message"] = _error_message(403, "verifica", repo)
+        return esito
+
+    # Il branch va SONDATO, non dato per buono (rilievo Fugu #215): `GET contents?ref=X` risponde
+    # 404 sia per «file non ancora presente» (legittimo, si creerà) sia per «branch inesistente»
+    # (errore). Senza questa chiamata un refuso nel nome del branch passava la verifica con un
+    # «✅ Accesso OK» che citava pure il branch sbagliato come se fosse stato controllato — un
+    # falso-OK proprio nella funzione che esiste per evitarli.
+    try:
+        status, _payload = caller("GET", branch_url(repo, branch), token=token, timeout=timeout)
+    except Exception:       # noqa: BLE001 — rete: esito strutturato, mai crash
+        esito["message"] = "Rete non disponibile: impossibile contattare GitHub."
+        return esito
+    if status == 404:
+        esito["message"] = (f"Il branch «{branch}» non esiste su «{repo}» (404): controlla il nome "
+                            "(spesso è «main» o «master»). Il permesso di scrittura c'è.")
+        return esito
+    if status >= 300:
+        esito["message"] = _error_message(status, "verifica", repo, _payload)
+        return esito
+
+    # Repo scrivibile e branch esistente: resta da vedere se il file c'è già (aggiornamento) o no
+    # (creazione). Un errore QUI non invalida quanto già accertato, quindi non ribalta `ok`.
+    url = _contents_url_at_ref(repo, path, branch)
+    try:
+        status, _payload = caller("GET", url, token=token, timeout=timeout)
+    except Exception:       # noqa: BLE001 — rete instabile a metà verifica: si dichiara ciò che si sa
+        status = None
+    esito["file_exists"] = status == 200
+
+    # PROVA DEFINITIVA della scrittura (richiesta del proprietario, 2026-08-03). `permissions.push`
+    # è un'INFERENZA: nessuna chiamata di sola lettura dice con certezza se un token *fine-grained*
+    # può scrivere — se riportasse `push: true` con «Contents» in sola lettura, la sonda direbbe
+    # «Accesso OK» proprio nel guasto che deve diagnosticare (rilievo Fugu #215).
+    #
+    # Si tenta una `PUT` sul percorso USA-E-GETTA (`probe_path`), MAI sul file delle revoche
+    # (bloccante Fugu #215), con uno sha riferito a un file inesistente. GitHub valida i permessi
+    # PRIMA dello sha: 403 = non può scrivere (prova definitiva), 409/422 = poteva, e nulla è
+    # stato creato. Nel caso peggiore — una `PUT` comunque applicata da un proxy o un'API
+    # compatibile — nasce un file inerte che nessun bridge legge, non una lista revoche corrotta.
+    corpo = {"message": "verifica accesso (file temporaneo, ignorare)",
+             "content": base64.b64encode(b"verifica accesso").decode("ascii"),
+             "branch": str(branch or "").strip(), "sha": _SHA_PROBE}
+    try:
+        status_w, payload_w = caller("PUT", contents_url(repo, probe_path(path)), token=token,
+                                     body=corpo, timeout=timeout)
+    except Exception:       # noqa: BLE001 — rete a metà verifica: si dichiara ciò che si sa
+        status_w, payload_w = None, None
+
+    if status_w in (401, 403):
+        esito["can_write"] = False
+        esito["message"] = _error_message(status_w, "verifica", repo, payload_w)
+        return esito
+    if status_w is not None and 200 <= status_w < 300:
+        rimosso = _rimuovi_file_di_prova(
+            repo, path, branch, ((payload_w or {}).get("content") or {}).get("sha"),
+            caller=caller, token=token, timeout=timeout)
+        # Non avrebbe dovuto passare. Il danno è però circoscritto per costruzione: il file creato
+        # NON è la lista revoche. Fail-closed lo stesso, dicendo la cosa che conta davvero.
+        esito["can_write"] = True
+        esito["ok"] = False
+        coda = ("Il file temporaneo è stato rimosso automaticamente."
+                if rimosso else
+                f"Il file temporaneo «{probe_path(path)}» NON è stato rimosso: cancellalo a mano "
+                "dal repository.")
+        esito["message"] = (
+            f"⚠️ ANOMALIA: la prova di scrittura è stata ACCETTATA da GitHub (HTTP {status_w}) "
+            f"nonostante fosse costruita per fallire. La lista revoche «{path}» è **intatta** — la "
+            f"prova scrive solo su «{probe_path(path)}». {coda} Segnala l'accaduto.")
+        return esito
+
+    if status_w not in (409, 422):
+        # ESITO INCERTO — rete KO (`None`), 429, 5xx, o qualunque codice inatteso. Prima si finiva
+        # nel ramo positivo con «✅ Accesso OK … non confermato»: fail-OPEN nel punto che deve
+        # essere il più prudente di tutti (bloccante Fugu #215). Incerto non è OK: il permesso di
+        # scrittura è l'unica cosa che questa sonda esiste per accertare, e se non l'ha accertata
+        # deve dirlo senza spunta verde.
+        esito["message"] = (
+            f"⚠️ Verifica NON completata: il token risulta abilitato su «{repo}» e il branch "
+            f"«{branch}» esiste, ma la prova del permesso di SCRITTURA non è andata a buon fine "
+            + (f"(HTTP {status_w}). " if status_w is not None else "(rete non disponibile). ")
+            + "Non è detto che ci sia un problema di permessi: riprova fra poco.")
+        return esito
+
+    esito["ok"] = True
+    conferma = "Permesso di scrittura CONFERMATO da GitHub (prova senza modifiche)."
+    if status == 200:
+        dettaglio = f"Il file «{path}» esiste già e verrà aggiornato. {conferma}"
+    elif status == 404:
+        dettaglio = f"Il file «{path}» non c'è ancora: la prima pubblicazione lo creerà. {conferma}"
+    else:
+        dettaglio = f"Lo stato del file «{path}» non è stato letto. {conferma}"
+    esito["message"] = (f"✅ Accesso OK: il token può scrivere su «{repo}» (branch {branch}). "
+                        f"{dettaglio}")
+    return esito
+
+
 def get_file_sha(repo: str, path: str, branch: str, *, token: str, http=None,
                  timeout: int = DEFAULT_TIMEOUT_S):
     """`(sha, error)` del file già presente nel repo.
@@ -145,7 +399,7 @@ def get_file_sha(repo: str, path: str, branch: str, *, token: str, http=None,
     - `(None, None)` → **404**: non esiste ancora, si creerà;
     - `(None, messaggio)` → errore vero (credenziali, repo/branch errati, rete)."""
     caller = http or _default_http
-    url = contents_url(repo, path) + "?" + urllib.parse.urlencode({"ref": str(branch or "").strip()})
+    url = _contents_url_at_ref(repo, path, branch)
     try:
         status, payload = caller("GET", url, token=token, timeout=timeout)
     except Exception:       # noqa: BLE001 — qualunque problema di rete: esito strutturato, mai crash
@@ -156,7 +410,7 @@ def get_file_sha(repo: str, path: str, branch: str, *, token: str, http=None,
     # rifiutato di seguire (vedi `_NoRedirectHandler`); trattarlo come «ok» leggerebbe uno `sha`
     # inesistente e poi «pubblicherebbe» nel nulla.
     if status >= 300:
-        return None, _error_message(status, "lettura")
+        return None, _error_message(status, "lettura", repo, payload)
     sha = (payload or {}).get("sha")
     return (str(sha) if sha else None), None
 
@@ -169,7 +423,7 @@ def publish(content: str, *, repo: str, path: str, branch: str, token: str, mess
     **Fail-safe**: nessuna eccezione verso il chiamante; ogni errore diventa `ok=False` con un
     messaggio leggibile. **Il token non compare mai** nel risultato."""
     if not str(token or "").strip():
-        return {"ok": False, "action": "", "message": "Token mancante: salvalo prima di pubblicare."}
+        return {"ok": False, "action": "", "message": MSG_TOKEN_MANCANTE}
     sha, err = get_file_sha(repo, path, branch, token=token, http=http, timeout=timeout)
     if err is not None:
         return {"ok": False, "action": "", "message": err}
@@ -188,7 +442,7 @@ def publish(content: str, *, repo: str, path: str, branch: str, token: str, mess
     except Exception:       # noqa: BLE001 — rete: esito strutturato, mai crash
         return {"ok": False, "action": "", "message": "Rete non disponibile: pubblicazione non riuscita."}
     if status >= 300:      # vedi sopra: un 3xx non è una pubblicazione riuscita
-        return {"ok": False, "action": "", "message": _error_message(status, "scrittura")}
+        return {"ok": False, "action": "", "message": _error_message(status, "scrittura", repo, _payload)}
     verbo = "creata" if action == "created" else "aggiornata"
     return {"ok": True, "action": action,
             "message": f"Lista revoche {verbo} su {repo} ({path}, branch {branch})."}

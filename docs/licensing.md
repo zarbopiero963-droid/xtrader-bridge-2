@@ -677,11 +677,90 @@ non riceve una lista aggiornata (quelle già arrivate restano applicate). Questa
   all'indirizzo *codificato*, quindi un raw URL con caratteri grezzi punterebbe a un file inesistente
   → il bridge smette di scaricare la lista → **lockout fail-closed di tutti i bridge**. Se a quotare
   fosse **uno solo** dei due, la divergenza tornerebbe. Errori
-  mappati per codice (401/403 permessi, 404 repo/branch, 409/422 conflitto, 429, 5xx) — **il token non
-  compare MAI** nei messaggi. HTTP dietro **probe iniettabile** (test senza socket).
+  mappati per codice — **il token non compare MAI** nei messaggi. HTTP dietro **probe iniettabile**
+  (test senza socket).
+  **401 e 403 hanno messaggi distinti** (collaudo 2026-08-03): prima ne condividevano uno solo
+  («Token non valido o senza permessi») e chi lo leggeva non poteva sapere quale dei due fosse,
+  mentre i rimedi sono opposti — **401** = il token in sé è rifiutato (sbagliato/scaduto/revocato,
+  va rigenerato); **403** = il token è buono ma non ha **scrittura** su quel repo (con un token
+  *fine-grained*: «Repository access» deve includerlo e serve «Contents: Read and write»). Il 403
+  nomina anche **su quale** repository manca il permesso. Restano invariati 404 repo/branch,
+  409/422 conflitto, 429 e 5xx.
+- **`check_access()`** — verifica **preventiva** che **non modifica nulla**. Tre `GET` (repo →
+  branch → file) più **una `PUT` che non può riuscire**: porta uno `sha` costante e inesistente
+  (`_SHA_PROBE`, quaranta zeri), e GitHub valida i **permessi prima dello sha**. Quindi `403` = il
+  token non può scrivere (**prova definitiva**), `409/422` = poteva, e **nulla è stato
+  modificato**. Serve perché `permissions.push` è un'**inferenza**: se un token *fine-grained* con
+  «Contents» in sola lettura lo riportasse `true`, la sonda direbbe «Accesso OK» proprio nel guasto
+  da diagnosticare (rilievo Fugu #215). La `PUT` parte **sempre**, anche alla **prima
+  pubblicazione** quando il file delle revoche non esiste ancora: proprio perché il bersaglio è un
+  percorso a parte, uno `sha` che non combacia con nulla è rifiutato a prescindere dall'esistenza
+  del file, e la verifica resta utile esattamente quando serve di più. La `PUT` di prova va su un
+  **percorso usa-e-getta** (`probe_path`:
+  `<file>.xtrader-verifica-accesso`) e **mai** sul file delle revoche — bloccante Fugu #215: la
+  difesa «GitHub valida i permessi prima dello sha» non è garantita su un proxy o un'API
+  compatibile, e rilevare una sovrascrittura della lista **firmata** non è impedirla. Il potere
+  diagnostico non cambia (il permesso «Contents» vale per l'intero repository), il danno peggiore
+  sì: un file inerte invece della lista che i bridge scaricano. Un **2xx dal probe resta trattato
+  come ANOMALIA fail-closed** (bloccante GPT-5.5 #215), col messaggio che dice esplicitamente che
+  le revoche sono intatte; il file temporaneo viene **rimosso automaticamente** (`DELETE`
+  best-effort, con guardia esplicita sul percorso: mai il file delle revoche) e solo se la pulizia
+  fallisce si chiede all'utente di cancellarlo a mano.
+  **Solo `409`/`422` confermano il permesso**: rete KO, `429`, `5xx` o qualunque codice inatteso
+  danno «Verifica NON completata … riprova fra poco», **senza spunta verde** — prima finivano nel
+  ramo positivo, cioè fail-**open** nel punto che deve essere il più prudente (bloccante Fugu
+  #215). Incerto non è OK. Legge `permissions.push` da `GET /repos/{owner}/{repo}`,
+  cioè la capacità di **scrivere**: il repository delle revoche è **pubblico**, quindi una `GET` sul
+  file riesce con qualunque token valido e una verifica di sola lettura direbbe «tutto ok» per poi
+  far fallire la pubblicazione con 403 — esattamente il guasto da prevenire. Un **404 sul file** non
+  è un errore (la prima pubblicazione lo crea); un **404 sul repository** sì, e con un token
+  fine-grained è il sintomo tipico di un repo *esistente ma non concesso al token*.
+  Il **branch viene sondato** (`GET /repos/{owner}/{repo}/branches/{branch}`, rilievo Fugu #215):
+  senza, un refuso nel nome — un «master» al posto di «main» — passava la verifica con un
+  «✅ Accesso OK» che *citava pure il branch sbagliato* come se fosse stato controllato, e la
+  pubblicazione falliva dopo. Causa: `GET contents?ref=X` risponde 404 sia per «file non ancora
+  presente» (legittimo) sia per «branch inesistente» (errore), e i due si distinguono solo così.
+
+#### ⚠️ Smoke manuale del proprietario — la sonda contro GitHub vero (#215)
+
+**Cosa resta non verificato automaticamente.** Tutti i test di `check_access` iniettano un HTTP
+finto: provano la **logica** della sonda (quale codice conferma, quale nega, quale resta incerto),
+non che **GitHub risponda davvero così**. L'invariante su cui poggia l'intera diagnosi — *i permessi
+sono validati prima dello sha* — è un comportamento dell'API reale, e nessun doppio può dimostrarlo.
+Finché questo smoke non è stato eseguito, il 403 è **atteso**, non **osservato**.
+
+**Passi esatti** (5 minuti, sul PC dove il License Manager funziona):
+
+1. GitHub → *Settings* → *Developer settings* → *Personal access tokens* → *Fine-grained tokens* →
+   il token della pubblicazione → **Repository permissions** → porta **Contents** a **Read-only**,
+   salva.
+2. License Manager → «📤 Pubblicazione automatica (GitHub)» → **🔍 Verifica accesso**.
+3. **Atteso:** il messaggio del **403** — «Token accettato ma senza permesso di SCRITTURA su
+   `<repo>`», con l'indicazione di «Contents: Read and write».
+   **Guasto da segnalare:** un «✅ Accesso OK». Significherebbe che la sonda non prova nulla, cioè il
+   difetto esatto che questa PR esiste per chiudere; e che `permissions.push` mente proprio nel caso
+   in cui conta.
+4. Riporta **Contents** a **Read and write** e ripremi **🔍 Verifica accesso** → deve tornare
+   «✅ Accesso OK».
+
+**Anomalia.** Se al punto 4 comparisse «⚠️ ANOMALIA» (la `PUT` di prova *accettata* invece che
+rifiutata), la lista revoche è comunque **intatta** — la prova non la tocca mai — ma va segnalato:
+vuol dire che l'API non si comporta come documentato qui. Il file temporaneo
+`<file>.xtrader-verifica-accesso` viene rimosso da sé; solo se la rimozione fallisce il messaggio
+chiede di cancellarlo a mano.
+
+**Sblocco del secondo PC (indipendente da qualunque PR).** Se «🔍 Verifica accesso» risponde **404
+sul repository** o **403** su un PC dove tutto il resto funziona, la causa tipica non è il token in
+sé ma il suo **perimetro**: un token *fine-grained* vede solo i repository elencati in «Repository
+access». Aggiungi lì `zarbopiero963-droid/xtrader-revocation` con **Contents: Read and write**. È
+anche il passo che manca dopo una **migrazione da backup**: il backup non contiene il token (sta
+solo nel keyring del PC d'origine, mai esportato), quindi sul PC nuovo va re-incollato — e se il
+token è nuovo, va anche concesso su quel repository.
 - **GUI** (`license_manager/gui.py`, sezione «📤 Pubblicazione automatica (GitHub)»): campi repo/path/
   branch/intervallo + token (`show="*"`, svuotato dopo il salvataggio), checkbox on/off, **💾 Salva
-  impostazioni** e **🚀 Pubblica ora**; un **tick** (`_publish_tick`/`_schedule_publish_tick`) ri-firma
+  impostazioni**, **🔍 Verifica accesso** (sonda che non modifica nulla, in background come la
+  pubblicazione: la rete non congela la finestra; non tocca l'etichetta dell'ultima pubblicazione,
+  perché non pubblica nulla) e **🚀 Pubblica ora**; un **tick** (`_publish_tick`/`_schedule_publish_tick`) ri-firma
   e ri-carica alla cadenza scelta, si **ri-arma sempre** (anche dopo un errore) e viene annullato alla
   chiusura (`_on_close`). All'avvio il primo tick è **ravvicinato** (catch-up: se il PC è stato spento
   a lungo la lista è già scaduta e i bridge sono bloccati — attendere l'intero intervallo li terrebbe
@@ -779,6 +858,11 @@ attivi**, senza un errore e senza un avviso. E senza `licenses.jsonl` smettono d
 - **Il token GitHub non entra mai nel backup**: vive nel **keyring** del sistema operativo, che è il
   posto giusto (cifrato, legato all'utente, non copiabile per sbaglio insieme a un file). Sul PC nuovo
   si re-incolla — ed è un segreto **sostituibile** in un minuto, a differenza del seed.
+  Conseguenza pratica, emersa al collaudo su un secondo PC: dopo un **ripristino da backup completo**
+  la configurazione di pubblicazione (repo/path/branch/on-off) torna, **il token no** — va reinserito,
+  e va verificato che *quel* token abbia i permessi su *quel* repository. È il caso che **🔍 Verifica
+  accesso** copre: prima esisteva solo la strada di tentare una pubblicazione vera, cioè accorgersi
+  del problema mentre si revoca una licenza.
 - **Il repository ora si difende da solo dal backup** (bug B3 del piano #194, 🔴). Fino ad allora un
   backup completo salvato per sbaglio dentro la cartella del repo passava **tutte e tre** le difese
   anti-segreto: non era in `.gitignore`, il workflow `forbidden-files` non ne conosceva il nome e lo
@@ -885,12 +969,23 @@ Il bridge **non opera senza licenza valida**. Cablato in `xtrader_bridge/app.py`
 widget senza `state`, STOP a sessione viva, START gated, auto-start gated, tick che rivaluta e si
 ri-arma, no-riarmo in chiusura. Handoff design aggiornato (`docs/design/design_handoff.md`).
 
-## Azione una-tantum del proprietario (NON una PR)
+## Azioni una-tantum del proprietario (NON una PR)
 
-Generare la **keypair Ed25519**: rimandabile (serve un PC). La farà il License Manager (PR 3b, GUI)
-al primo avvio, riusando `generate_keypair()` + `save_signing_key()` sopra. Fino ad allora si
-sviluppa/mergia con le **chiavi di TEST** + placeholder; il PC serve solo **prima di distribuire**
-copie licenziate reali.
+Cose che **nessuna PR può fare al posto suo**: richiedono un PC reale, la GUI, o le impostazioni
+dell'account GitHub. Elencate qui perché non si perdano fra i commenti delle PR.
+
+- **Generare la keypair Ed25519** — rimandabile (serve un PC). La fa il License Manager (PR 3b, GUI)
+  al primo avvio, riusando `generate_keypair()` + `save_signing_key()` sopra. Fino ad allora si
+  sviluppa/mergia con le **chiavi di TEST** + placeholder; il PC serve solo **prima di distribuire**
+  copie licenziate reali.
+- **Collaudare la sonda «🔍 Verifica accesso» contro GitHub vero** (#215) — mettere `Contents` a
+  *Read-only* sul token e verificare che risponda **403**, non «✅ Accesso OK». Passi esatti e
+  criterio di guasto: «⚠️ Smoke manuale del proprietario» nella sezione della pubblicazione
+  automatica. Finché non è stato fatto, la logica della sonda è provata dai test ma il comportamento
+  dell'**API reale** no.
+- **Concedere il repository delle revoche al token** — `zarbopiero963-droid/xtrader-revocation` in
+  «Repository access» del token *fine-grained*, con **Contents: Read and write**. Serve su ogni PC
+  con un token nuovo, e in particolare dopo una migrazione da backup (il token non è nel backup).
 
 ## Test hard (questa PR)
 

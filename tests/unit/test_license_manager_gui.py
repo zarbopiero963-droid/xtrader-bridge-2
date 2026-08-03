@@ -163,6 +163,22 @@ def _fake(gui, tmp_path, now=_NOW):
     fake._publish_tick = lambda: gui.LicenseManagerApp._publish_tick(fake)
     fake._schedule_publish_tick = lambda **kw: gui.LicenseManagerApp._schedule_publish_tick(fake, **kw)
     fake._cancel_publish_tick = lambda: gui.LicenseManagerApp._cancel_publish_tick(fake)
+    # Verifica accesso (collaudo 2026-08-03): stesso schema della pubblicazione — sonda iniettata,
+    # worker eseguito inline, nessun socket. `_check_access_calls` registra le chiamate per poter
+    # asserire che la verifica NON scriva e NON si accavalli con un upload.
+    fake._check_access_calls = []
+    fake._check_access_result = {"ok": True, "message": "OK finto", "can_write": True,
+                                 "file_exists": True}
+
+    def _fake_check_access(repo, path, branch, *, token):
+        fake._check_access_calls.append({"repo": repo, "path": path, "branch": branch,
+                                         "token": token})
+        return dict(fake._check_access_result)
+    fake._check_access = _fake_check_access
+    fake._evaluate_check_access = lambda: gui.LicenseManagerApp._evaluate_check_access(fake)
+    fake._check_access_worker = lambda: gui.LicenseManagerApp._check_access_worker(fake)
+    fake._check_access_async = lambda: gui.LicenseManagerApp._check_access_async(fake)
+    fake._check_access_finish = lambda res: gui.LicenseManagerApp._check_access_finish(fake, res)
     return fake
 
 
@@ -2215,3 +2231,161 @@ def test_se_l_upload_in_volo_FALLISCE_il_retry_pubblica_comunque_la_revoca(gui, 
                                                 public_key_hex=fake._current_key_state()["public"])
     assert revlist is not None and serial in revlist.serials, (
         "il retry ha pubblicato una lista che NON contiene la revoca")
+
+
+# ── «🔍 Verifica accesso» (collaudo del proprietario, 2026-08-03) ────────────────────────────────
+#
+# Installando il License Manager su un secondo PC la pubblicazione falliva, e l'unico modo di
+# scoprire il perché era tentare una pubblicazione VERA — cioè accorgersene revocando una licenza,
+# il momento peggiore. La verifica preventiva chiude quel buco.
+
+def test_verifica_accesso_passa_repo_path_branch_e_token_del_config(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+    out = fake._evaluate_check_access()
+    assert out["ok"] is True
+    chiamata = fake._check_access_calls[-1]
+    assert chiamata["repo"] == _PUB_OK["repo"] and chiamata["branch"] == _PUB_OK["branch"]
+    assert chiamata["token"] == "ghp_ABC"
+
+
+def test_verifica_accesso_senza_token_non_contatta_github(gui, tmp_path):
+    """Fail-closed e senza rete: se il token non c'è nel keyring non ha senso chiamare GitHub.
+
+    Lo scenario è quello REALE del secondo PC: il backup completo ripristina la configurazione di
+    pubblicazione (repo/path/branch/on-off) ma **non** il token, che vive solo nel keyring. Quindi
+    la config è valida e completa, e manca solo il token — per questo il test la salva prima e
+    svuota il keyring dopo, invece di lasciare la config vuota (che si fermerebbe alla validazione,
+    provando tutt'altra cosa)."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+    fake._kr_token = None                     # keyring del PC nuovo: config sì, token no
+    out = fake._evaluate_check_access()
+    assert out["ok"] is False and "token" in out["message"].lower()
+    assert fake._check_access_calls == []
+
+
+def test_verifica_accesso_riporta_il_fallimento_senza_mai_esporre_il_token(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_SEGRETISSIMO"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+    fake._check_access_result = {"ok": False, "can_write": False, "file_exists": False,
+                                 "message": "Token accettato ma senza permesso di SCRITTURA (403)."}
+    out = fake._evaluate_check_access()
+    assert out["ok"] is False and "403" in out["message"]
+    assert "ghp_SEGRETISSIMO" not in out["message"]
+
+
+def test_verifica_accesso_non_tocca_letichetta_dellultima_pubblicazione(gui, tmp_path):
+    """Una verifica NON pubblica. Se ridipingesse l'etichetta «ultima pubblicazione» — come fa
+    `_publish_finish` — suggerirebbe all'utente che qualcosa è stato pubblicato, che è falso."""
+    fake = _fake(gui, tmp_path)
+    prima = list(fake._pub_status_painted)
+    gui.LicenseManagerApp._check_access_finish(fake, {"ok": True, "message": "ok"})
+    assert fake._pub_status_painted == prima
+
+
+def test_verifica_accesso_e_pubblicazione_non_si_accavallano(gui, tmp_path):
+    """Condividono il lucchetto: con un upload in volo la verifica non parte (e viceversa),
+    altrimenti due esiti si sovrascriverebbero nella riga messaggi e non se ne leggerebbe nessuno."""
+    fake = _fake(gui, tmp_path)
+    fake._publish_inflight = True
+    assert fake._check_access_async() is False
+    assert fake._check_access_calls == []
+    fake._publish_inflight = False
+
+
+def test_verifica_accesso_libera_sempre_il_lucchetto(gui, tmp_path):
+    """Anche quando la sonda ESPLODE: un flag lasciato alzato bloccherebbe per sempre sia le
+    verifiche sia la pubblicazione automatica delle revoche — un lockout silenzioso."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+
+    def _esplode(*_a, **_k):
+        raise RuntimeError("sonda rotta")
+    fake._check_access = _esplode
+    assert fake._check_access_async() is True     # worker inline: gira e rientra
+    assert fake._publish_inflight is False, "lucchetto non rilasciato dopo un errore imprevisto"
+    assert any("imprevisto" in m for m in fake._msgs)
+
+
+def test_verifica_accesso_con_config_non_valida_non_contatta_github(gui, tmp_path):
+    """Rilievo Sourcery #215, lacuna vera: la validazione della config deve venire PRIMA di
+    qualunque chiamata di rete. Senza questo test, una regressione che invertisse l'ordine
+    manderebbe a GitHub un repo malformato — e l'utente riceverebbe un 404 da API invece del
+    messaggio che gli dice cosa correggere nel campo."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"                      # token c'è: il fallimento dev'essere la config
+    fake._load_publish_config = lambda directory=None: {"repo": "senza-slash", "path": "l.txt",
+                                                        "branch": "main", "interval_hours": 6,
+                                                        "enabled": True}
+    out = fake._evaluate_check_access()
+    assert out["ok"] is False
+    assert "repository" in out["message"].lower()   # è il messaggio di validate_config, non un 404
+    assert fake._check_access_calls == [], "ha contattato GitHub con una config non valida"
+
+
+def test_verifica_accesso_thread_non_avviabile_libera_il_lucchetto(gui, tmp_path):
+    """Rilievo Sourcery #215: il ramo «thread non avviabile» di `_check_access_async` non era
+    coperto. Se il flag restasse alzato, bloccherebbe per sempre anche la pubblicazione
+    automatica delle revoche — un lockout silenzioso, che è il modo peggiore di rompersi."""
+    fake = _fake(gui, tmp_path)
+
+    def _non_parte(_target):
+        raise RuntimeError("thread non avviabile")
+    fake._spawn_publish_thread = _non_parte
+    assert fake._check_access_async() is False
+    assert fake._publish_inflight is False, "lucchetto non rilasciato dopo un thread non avviato"
+
+
+def test_verifica_accesso_ramo_ANOMALIA_propaga_ok_False_non_can_write(gui, tmp_path):
+    """Rilievo GPT-5.5 #215. Nel ramo anomalo — la PUT di prova ACCETTATA — `can_write` è `True`
+    (il token ha dimostrato di poter scrivere: l'ha appena fatto) mentre `ok` è `False`, perché il
+    file potrebbe essere stato modificato. Chi si regolasse su `can_write` invece che su `ok`
+    ignorerebbe il fail-closed e direbbe all'utente che va tutto bene.
+
+    Oggi la GUI propaga solo `ok` e `message`, e questo test lo blinda: se un domani qualcuno
+    leggesse `can_write` per abilitare qualcosa, l'esito qui cambierebbe e il test cadrebbe."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+    fake._check_access_result = {
+        "ok": False, "can_write": True, "file_exists": True,
+        "message": "⚠️ ANOMALIA: la prova di scrittura è stata ACCETTATA… ripubblica subito."}
+    out = fake._evaluate_check_access()
+    assert out["ok"] is False, "il fail-closed dell'anomalia non è arrivato alla GUI"
+    assert "anomalia" in out["message"].lower()
+
+
+def test_verifica_accesso_non_raddoppia_il_simbolo_di_avviso(gui, tmp_path):
+    """Rilievo Fable #215, riprodotto: «⚠️ ⚠️ ANOMALIA». Il messaggio di anomalia nasce già con il
+    simbolo — deve saltare all'occhio anche fuori da questa riga — e `_check_access_finish` lo
+    anteponeva comunque.
+
+    Vale come promemoria di metodo: GPT-5.5 aveva sollevato il rischio del doppio prefisso quando
+    ancora NESSUN messaggio iniziava così, e la misura di allora diceva «non può accadere». Era
+    vera in quel momento; poi il caso l'ho introdotto io, senza rimisurare. Questo test toglie la
+    verifica dalle mie mani."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._check_access_finish(fake, {"ok": False, "message": "⚠️ ANOMALIA: …"})
+    gui.LicenseManagerApp._check_access_finish(fake, {"ok": False, "message": "Token rifiutato (401)"})
+    gui.LicenseManagerApp._check_access_finish(fake, {"ok": True, "message": "✅ Accesso OK"})
+    anomalia, generico, positivo = fake._msgs[-3:]
+    assert not anomalia.startswith("⚠️ ⚠️"), f"simbolo raddoppiato: {anomalia!r}"
+    assert anomalia.startswith("⚠️ ANOMALIA")
+    assert generico.startswith("⚠️ Token"), "il messaggio senza simbolo deve riceverlo"
+    assert positivo.startswith("✅"), "un esito positivo non deve prendere il simbolo di avviso"
