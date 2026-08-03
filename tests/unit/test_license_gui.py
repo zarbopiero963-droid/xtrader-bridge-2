@@ -409,10 +409,22 @@ def test_init_REALE_memorizza_il_seam_e_refresh_lo_usa(license_gui, monkeypatch)
     **`__init__` che memorizza il kwarg**. Se quell'assegnazione sparisse, ogni altro test
     resterebbe VERDE e la revoca tornerebbe invisibile — il difetto originale, di nuovo.
 
-    Qui si costruisce il pannello VERO: si stubba solo `_build_ui` (pura costruzione di widget
-    Tk, non esercitabile headless), lasciando reali `__init__`, `_revoca_nega` e
-    `refresh_options`."""
+    Qui si esegue il CORPO REALE di `__init__`, lasciando reali anche `_revoca_nega` e
+    `refresh_options`. Si neutralizzano solo le due parti che richiedono un display:
+
+    - `_build_ui` — pura costruzione di widget;
+    - il `super().__init__` di `CTkFrame`.
+
+    **Il secondo non era neutralizzato nella prima stesura e ha fatto ROSSA la CI** (`unit` e
+    `merge-simulation` su `fae13a6`: `TclError: no display name and no $DISPLAY`). La fixture
+    `license_gui` inietta il finto `customtkinter` **solo se quello vero manca**: in questo
+    ambiente manca perfino `tkinter`, quindi il test girava sempre sul fake ed era verde; sulla
+    CI, dove `customtkinter` è installato, `super().__init__` costruiva un `CTkFrame` VERO →
+    `Tk()` → nessun display. Patchando la base il test è indipendente da quale dei due è
+    presente, che è la proprietà che serve davvero."""
     monkeypatch.setattr(license_gui.LicensePanel, "_build_ui", lambda self: None)
+    monkeypatch.setattr(license_gui.ctk.CTkFrame, "__init__",
+                        lambda self, *a, **k: None, raising=False)
     chiamate = []
 
     panel = license_gui.LicensePanel(

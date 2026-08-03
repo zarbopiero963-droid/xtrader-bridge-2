@@ -634,3 +634,33 @@ def test_gate_senza_attributo_dbg_non_solleva(App):
     app._rev_state = (object(), _NOW)
 
     assert App._revocation_gate_ok(app) is True
+
+
+def test_supervisor_marca_la_causa_e_pianifica_il_refresh_del_lock(App, tmp_path):
+    """Il supervisore deve MARCARE la causa e PIANIFICARE la rivalutazione (rilievo CodeRabbit
+    sulla PR #235).
+
+    Il test del banner in `test_license_lock_140.py` imposta `_license_cause_dirty` a mano: prova
+    che `_apply_license_lock` **consuma** il marcatore, non che il supervisore lo **produca**. Se
+    `_revocation_loop` smettesse di impostarlo o di chiamare `_safe_after`, quel test resterebbe
+    verde e una revoca appena scaricata non aggiornerebbe più il banner fino al tick successivo.
+
+    Qui si esercita il ciclo REALE con il probe iniettabile dell'harness esistente."""
+    signed = _signed_default([{"serial": "LIC-Y"}], now=_NOW)
+    stop = threading.Event()
+    pianificati = []
+
+    def fetch(url, *, timeout):
+        stop.set()                      # un solo ciclo, come gli altri test del supervisore
+        return signed
+
+    app = _loop_app(App, tmp_path, fetch=fetch)
+    app.after = lambda _delay, func: pianificati.append(func)
+
+    App._revocation_loop(app, stop)
+
+    assert app._rev_state is not None, "precondizione: il ciclo deve aver aggiornato lo stato"
+    assert getattr(app, "_license_cause_dirty", False) is True, (
+        "il supervisore non marca la causa: una revoca appena scaricata non aggiornerebbe il banner")
+    assert App._apply_license_lock in [getattr(f, "__func__", f) for f in pianificati], (
+        f"il supervisore non pianifica la rivalutazione del lock: {pianificati}")
