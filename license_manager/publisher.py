@@ -230,7 +230,7 @@ def check_access(repo: str, path: str, branch: str, *, token: str, http=None,
                  timeout: int = DEFAULT_TIMEOUT_S) -> dict:
     """Verifica **preventiva** che la pubblicazione funzionerà, **senza modificare nulla**.
 
-    Ritorna ``{"ok", "message", "can_write", "file_exists"}``. **Non scrive mai** sul repository:
+    Ritorna ``{"ok", "message", "can_write", "file_exists"}``. **Non modifica mai** il repository:
     tre `GET` più — quando il file esiste — **una `PUT` che non può andare a buon fine**, perché
     porta uno `sha` diverso *per costruzione* da quello reale (`_sha_che_non_combacia`). Non è una
     scrittura: è l'unica domanda a cui GitHub risponde con certezza su «questo token può scrivere?»,
@@ -240,7 +240,14 @@ def check_access(repo: str, path: str, branch: str, *, token: str, http=None,
     delle revoche è **pubblico**, quindi una `GET` riesce con qualunque token valido. Una verifica
     di sola lettura direbbe «tutto ok» e poi la pubblicazione fallirebbe con 403 — cioè
     esattamente il guasto che questa funzione dovrebbe prevenire. Per questo si legge
-    ``permissions.push`` da `GET /repos/{owner}/{repo}`, che è la capacità di **scrivere**.
+    ``permissions.push`` da `GET /repos/{owner}/{repo}` — ma è solo il **primo filtro**: è
+    un'inferenza, e la prova vera è la `PUT` che non può riuscire (vedi sopra).
+
+    ⚠️ Chi consuma l'esito deve guardare **`ok`**, non `can_write`. Nel ramo ANOMALIA — la `PUT`
+    accettata nonostante lo sha costruito per fallire — `can_write` è `True` (il token ha
+    dimostrato di poter scrivere: l'ha appena fatto) ma `ok` è `False`, perché il file potrebbe
+    essere stato modificato. Chi si regolasse su `can_write` ignorerebbe il fail-closed
+    (rilievo GPT-5.5 #215).
 
     Il 404 sul **file** non è un errore: alla prima pubblicazione il file non esiste ancora e
     verrà creato. Il 404 sul **repository** sì: repo inesistente, oppure — tipico dei token

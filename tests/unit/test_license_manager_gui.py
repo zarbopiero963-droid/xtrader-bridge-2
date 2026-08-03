@@ -2348,3 +2348,24 @@ def test_verifica_accesso_thread_non_avviabile_libera_il_lucchetto(gui, tmp_path
     fake._spawn_publish_thread = _non_parte
     assert fake._check_access_async() is False
     assert fake._publish_inflight is False, "lucchetto non rilasciato dopo un thread non avviato"
+
+
+def test_verifica_accesso_ramo_ANOMALIA_propaga_ok_False_non_can_write(gui, tmp_path):
+    """Rilievo GPT-5.5 #215. Nel ramo anomalo — la PUT di prova ACCETTATA — `can_write` è `True`
+    (il token ha dimostrato di poter scrivere: l'ha appena fatto) mentre `ok` è `False`, perché il
+    file potrebbe essere stato modificato. Chi si regolasse su `can_write` invece che su `ok`
+    ignorerebbe il fail-closed e direbbe all'utente che va tutto bene.
+
+    Oggi la GUI propaga solo `ok` e `message`, e questo test lo blinda: se un domani qualcuno
+    leggesse `can_write` per abilitare qualcosa, l'esito qui cambierebbe e il test cadrebbe."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+    fake._check_access_result = {
+        "ok": False, "can_write": True, "file_exists": True,
+        "message": "⚠️ ANOMALIA: la prova di scrittura è stata ACCETTATA… ripubblica subito."}
+    out = fake._evaluate_check_access()
+    assert out["ok"] is False, "il fail-closed dell'anomalia non è arrivato alla GUI"
+    assert "anomalia" in out["message"].lower()
