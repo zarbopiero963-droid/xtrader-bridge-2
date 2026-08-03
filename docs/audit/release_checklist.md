@@ -15,6 +15,14 @@
 - [ ] `python -m py_compile main.py` → OK.
 - [ ] `python -m pytest -m "not manual"` → tutti verdi (atteso: 536 passed, 2 skipped
       o più, mai fallimenti).
+- [ ] **La suite è offline** — nessun test apre una connessione di rete vera (#211 R1).
+      Due gate in `tests/safety/test_stub_fedeli_211.py`: gli stub dei test devono
+      rispettare la firma del metodo vero, e chi esegue `App._run_bot` deve sostituire
+      `ApplicationBuilder`. Senza, il risultato dipende da COME la rete fallisce — token
+      rifiutato (permanente) → verde; rete assente (`NetworkError` transitorio) → il
+      supervisor entra nel backoff e il test si appende. Controllo diretto, se serve
+      rifarlo a mano: rieseguire la suite con `socket.socket.connect` sostituito da un
+      tripwire che solleva — atteso **zero** connessioni tentate.
 - [ ] Il job CI `contract` è verde (contratto CSV a 14 colonne invariato).
 - [ ] Tutti i check della PR sono **completati e verdi** prima del merge.
 

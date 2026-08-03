@@ -235,7 +235,7 @@ def test_start_supera_gate_con_licenza_valida(App, app_mod):
     # telegram/token, log diverso). Verifica che NON compaia il blocco licenza.
     a = _fake_app(app_mod, valid=True)
     a._cancel_pending_autostart = lambda: None
-    a._resync_token_field = lambda: None
+    a._resync_token_field = lambda *_a, **_k: None   # il vero accetta had_incomplete_load
     a._e_token = types.SimpleNamespace(get=lambda: "")
     a._e_csv = types.SimpleNamespace(get=lambda: "")
     a._e_delay = types.SimpleNamespace(get=lambda: "")

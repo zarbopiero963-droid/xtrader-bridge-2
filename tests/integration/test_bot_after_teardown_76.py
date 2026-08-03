@@ -17,6 +17,8 @@ Fix testato:
   `self._loop` sono garantiti su QUALSIASI uscita, anche eccezioni impreviste."""
 
 import re
+import socket
+import types
 from pathlib import Path
 
 import pytest
@@ -140,15 +142,57 @@ def test_evento_di_stop_pubblicato_prima_del_loop():
 
 # ── comportamento REALE del teardown (_run_bot eseguito davvero, CodeRabbit #95) ─────
 
+class _TgAppFinta:
+    """App Telegram finta: `initialize()` fallisce con un errore PERMANENTE.
+
+    Il resto è teardown inerte, perché `_safe_shutdown_tg` chiama comunque
+    `updater.stop` → `stop` → `shutdown` prima di decidere se ritentare."""
+
+    def __init__(self):
+        self.updater = types.SimpleNamespace(stop=self._niente)
+
+    async def _niente(self):
+        return None
+
+    def add_handler(self, _h):
+        """`_run_bot` registra il MessageHandler: qui irrilevante."""
+
+    def add_error_handler(self, _h):
+        """`_run_bot` registra l'error handler PTB: qui irrilevante."""
+
+    async def initialize(self):
+        # Errore NON transitorio per `reconnect_policy` (non è NetworkError/TimedOut/
+        # RetryAfter) → il supervisor NON riprova e si arriva subito al `finally` sotto
+        # test. Un errore transitorio manderebbe il test nel backoff, cioè in stallo.
+        raise RuntimeError("initialize finta: nessuna rete in questo test")
+
+    async def start(self):
+        return None
+
+    async def stop(self):
+        return None
+
+    async def shutdown(self):
+        return None
+
+
 def _pronta_per_run_bot(make_app, app_mod, monkeypatch, *, running):
-    """App headless pronta a eseguire il VERO `_run_bot` sotto gli stub del conftest:
-    l'`ApplicationBuilder` MagicMock fa fallire `await app.initialize()` con TypeError
-    (permanente per `reconnect_policy` → niente retry). Ritorna (app, loop_creati)."""
+    """App headless pronta a eseguire il VERO `_run_bot` in modo ERMETICO.
+
+    `ApplicationBuilder` è sostituito esplicitamente (#211 R1): senza, `_run_bot`
+    costruiva una `Application` VERA e apriva una connessione di rete: il test finiva
+    per dipendere da COME la rete falliva — token rifiutato (permanente) → passava;
+    rete assente → `NetworkError` transitorio → backoff, cioè stallo. Lo stub del
+    conftest non copre il caso, perché esiste solo se PTB NON è installato.
+
+    Ritorna (app, loop_creati)."""
     a = make_app(running=running)
     a._set_last = lambda *x, **k: None
     a._stop = lambda: None
-    a._set_status_reconnecting = lambda: None
-    a._set_status_connected = lambda: None
+    # i veri accettano epoch=; uno stub a 0 argomenti fa esplodere _run_bot con TypeError
+    # e maschera il comportamento sotto test (#211 R1).
+    a._set_status_reconnecting = lambda *_a, **_k: None
+    a._set_status_connected = lambda *_a, **_k: None
     creati = []
     vero_new_loop = app_mod.asyncio.new_event_loop
 
@@ -158,6 +202,16 @@ def _pronta_per_run_bot(make_app, app_mod, monkeypatch, *, running):
         return loop
 
     monkeypatch.setattr(app_mod.asyncio, "new_event_loop", _registra)
+
+    class _Builder:
+        def token(self, _t):
+            return self
+
+        def build(self):
+            return _TgAppFinta()
+
+    monkeypatch.setattr(app_mod, "ApplicationBuilder", _Builder)
+    monkeypatch.setattr(app_mod, "MessageHandler", lambda *a_, **k_: ("MH", a_, k_))
     return a, creati
 
 
@@ -187,3 +241,39 @@ def test_run_bot_sessione_non_corrente_chiude_comunque(make_app, app_mod, monkey
 
     assert len(creati) == 1 and creati[0].is_closed()
     assert a._loop is None and a._async_stop_event is None
+
+
+def test_run_bot_non_apre_NESSUNA_socket(make_app, app_mod, monkeypatch):
+    """#211 R1 — «un test che verifichi l'assenza di traffico».
+
+    Il gate strutturale in `tests/safety/test_stub_fedeli_211.py` verifica che il
+    builder sia sostituito; questo verifica il FATTO: con un tripwire su
+    `socket.socket.connect`, eseguire il vero `_run_bot` non deve tentare NEMMENO una
+    connessione.
+
+    Fail-first, misurato per mutazione — e con un limite da conoscere:
+
+    - rimuovendo ENTRAMBE le sostituzioni di `_pronta_per_run_bot` (lo stato PRE-fix)
+      il test **fallisce**: `initialize()` va sulla rete vera, il tripwire la fa
+      diventare `NetworkError` → transitorio → il supervisor entra nel backoff e
+      pytest-timeout lo uccide a `app.py:3842`. Fallisce per TIMEOUT, non con un
+      assert pulito: è la natura del difetto, un errore di rete è ritentabile.
+    - rimuovendo SOLO `ApplicationBuilder` il test **passa lo stesso**: lo stub di
+      `MessageHandler` fa fallire `add_handler` con un `TypeError` permanente prima
+      che si arrivi a `initialize()`. Quindi questo test da solo NON pinna la
+      sostituzione del builder — quella la pinna il gate strutturale. I due si
+      coprono a vicenda: non rimuovere l'uno pensando che l'altro basti."""
+    a, creati = _pronta_per_run_bot(make_app, app_mod, monkeypatch, running=True)
+
+    tentate = []
+
+    def _tripwire(self, indirizzo):
+        tentate.append(indirizzo)
+        raise AssertionError(f"connessione di rete VERA verso {indirizzo}")
+
+    monkeypatch.setattr(socket.socket, "connect", _tripwire)
+
+    app_mod.App._run_bot(a, {"bot_token": "finto", "chat_id": "-1"}, 1)
+
+    assert tentate == [], f"il test ha aperto socket reali: {tentate}"
+    assert len(creati) == 1 and creati[0].is_closed()

@@ -710,11 +710,11 @@ def _app_fino_al_nuovo_epoch(app_mod, tmp_path, *, reconnect_attempt):
     a._license_panel = types.SimpleNamespace(
         current_status=lambda: types.SimpleNamespace(valid=True, reason="", detail=""))
     a._cancel_pending_autostart = lambda: None
-    a._resync_token_field = lambda: None
+    a._resync_token_field = lambda *_a, **_k: None   # il vero accetta had_incomplete_load
     a._e_token = types.SimpleNamespace(get=lambda: "123456:" + "A" * 35)
     a._e_csv = types.SimpleNamespace(get=lambda: cfg["csv_path"])
     a._e_delay = types.SimpleNamespace(get=lambda: "90")
-    a._save_config = lambda: cfg
+    a._save_config = lambda *_a, **_k: cfg           # il vero accetta persist=
     a._save_ok = True
     a._adv_errors = []
     a._csv_lock = app_mod.csv_lock_escalation.CsvLockEscalation()

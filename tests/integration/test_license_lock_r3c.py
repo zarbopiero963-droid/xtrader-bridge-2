@@ -446,7 +446,7 @@ def _app_start_con_licenza_valida(App, app_mod, *, gate_aperto):
     a._log = a.logs.append
     a._cancel_pending_autostart = lambda: None
     a._apply_license_lock = lambda: None
-    a._resync_token_field = lambda: None
+    a._resync_token_field = lambda *_a, **_k: None   # il vero accetta had_incomplete_load
     a._e_token = types.SimpleNamespace(get=lambda: "")
     a._e_csv = types.SimpleNamespace(get=lambda: "")
     a._e_delay = types.SimpleNamespace(get=lambda: "")
