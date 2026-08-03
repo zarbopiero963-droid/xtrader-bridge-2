@@ -423,3 +423,74 @@ def test_append_entry_idempotente_su_messaggio_gia_redatto(tmp_path):
     when = datetime(2026, 6, 22, 12, 0, 0)
     line = el.append_entry("Inter v Milan q.1.85", base=str(tmp_path), when=when)
     assert line == "[12:00:00] [INFO] Inter v Milan q.1.85"
+
+
+# ── Token GitHub: il repo li conosceva solo dalla parte sbagliata della barriera ─────────────
+
+def test_redact_secrets_maschera_i_token_github():
+    """Il token GitHub della pubblicazione revoche non deve finire in chiaro in un log.
+
+    Perché serviva: `tools/secret_policy.py` conosce benissimo le shape GitHub — ma è lo
+    scanner dei **commit**. Lo stesso token che veniva bloccato in un commit veniva scritto
+    **in chiaro** in un file di log, cioè proprio nel file che l'utente allega a una
+    segnalazione. Il riconoscimento c'era solo dal lato che non serviva."""
+    for nome, token in (
+        ("classic PAT",  "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"),
+        ("oauth",        "gho_" + "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2"),
+        ("user-to-srv",  "ghu_" + "M4n5B6v7C8x9Z0a1S2d3F4g5H6j7K8l9Q0w1"),
+        ("server-to-srv", "ghs_" + "P0o9I8u7Y6t5R4e3W2q1A9s8D7f6G5h4J3k2"),
+        ("refresh",      "ghr_" + "L1k2J3h4G5f6D7s8A9z0X1c2V3b4N5m6Q7w8"),
+        ("fine-grained", "github_pat_11ABCDEFG0" + "abcdefghijklmnopqrstuvwxyz0123456789"),
+    ):
+        out = el.redact_secrets(f"Errore HTTP: Authorization: token {token} rifiutata")
+        assert token not in out, f"{nome}: token in CHIARO nel log → {out!r}"
+        assert "[REDACTED_TOKEN]" in out, f"{nome}: nessuna maschera → {out!r}"
+        assert out.startswith("Errore HTTP:"), f"{nome}: contesto perso → {out!r}"
+
+
+def test_redact_secrets_github_non_sovra_redige():
+    """La maschera non deve mordere testo legittimo. Contro-prova necessaria: uno SHA git e i
+    nomi che iniziano per «gh» sono ovunque nei log di questo repository."""
+    for innocuo in (
+        "commit 6be68fa5f0c1d2e3a4b5c6d7e8f9a0b1c2d3e4f5",
+        "file github_workflow.yml aggiornato",
+        "ghost.py non trovato",
+        "branch gh-pages allineato",
+        "ghp_corto",                       # sotto la soglia di lunghezza: non è un token
+    ):
+        assert el.redact_secrets(innocuo) == innocuo, f"sovra-redazione su {innocuo!r}"
+
+
+def test_le_due_barriere_conoscono_gli_STESSI_token():
+    """Fonte unica praticabile (regola 3) fra due barriere che NON possono condividere il codice.
+
+    `tools/secret_policy.py` lavora su **bytes** per lo scanner dei commit, `event_log` su
+    **str** per i log; e `xtrader_bridge` non può importare da `tools/`, che non finisce
+    nell'EXE distribuito. Quindi i pattern restano due — ma ciò che una barriera riconosce
+    DEVE essere riconosciuto anche dall'altra, ed è questo test a pretenderlo: è esattamente
+    l'asimmetria che ha lasciato scoperti i log fino ad ora.
+
+    Se un domani qualcuno aggiungesse una shape nuova a `secret_policy` e non a `event_log`,
+    il buco si riaprirebbe in silenzio. Questo test cade."""
+    from tools import secret_policy
+
+    campioni = [
+        "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8",
+        "gho_" + "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2",
+        "ghu_" + "M4n5B6v7C8x9Z0a1S2d3F4g5H6j7K8l9Q0w1",
+        "ghs_" + "P0o9I8u7Y6t5R4e3W2q1A9s8D7f6G5h4J3k2",
+        "ghr_" + "L1k2J3h4G5f6D7s8A9z0X1c2V3b4N5m6Q7w8",
+        "github_pat_11ABCDEFG0" + "abcdefghijklmnopqrstuvwxyz0123456789",
+    ]
+    nomi_github = [n for n, _ in secret_policy.SECRET_PATTERNS if "GitHub" in n]
+    assert nomi_github, "secret_policy non ha più pattern GitHub: questo test non ha più senso"
+
+    for campione in campioni:
+        bloccato_nel_commit = any(
+            rx.search(campione.encode()) for n, rx in secret_policy.SECRET_PATTERNS
+            if "GitHub" in n
+        )
+        redatto_nel_log = "[REDACTED_TOKEN]" in el.redact_secrets(campione)
+        assert bloccato_nel_commit == redatto_nel_log, (
+            f"{campione[:12]}…: commit-scanner={bloccato_nel_commit}, "
+            f"log-redactor={redatto_nel_log} — le due barriere divergono")

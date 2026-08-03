@@ -24,17 +24,17 @@ perdita silenziosa — il chiamante mostra un avviso e la pubblicazione automati
 from __future__ import annotations
 
 import json
-import logging
 import os
 import re
 import time as _time
 
-from xtrader_bridge import atomic_io
+from xtrader_bridge import atomic_io, event_log
 from xtrader_bridge.licensing import revocation_client
 
+from . import log_safe
 from .core import manager_dir
 
-_log = logging.getLogger(__name__)
+_log = log_safe.get_logger(__name__)
 
 # ── Keyring (SOLO il token) ─────────────────────────────────────────────────────────────────────
 # Spazio dei nomi DEDICATO al License Manager: non condivide con `XTraderBridge` (token del bot),
@@ -99,6 +99,20 @@ def keyring_available() -> bool:
         return False
 
 
+def _registra_per_redazione(token) -> None:
+    """Registra il token come literal da mascherare nei log (`event_log.register_secret`).
+
+    Secondo livello di difesa, oltre alle regex di shape: un vecchio token OAuth GitHub è una
+    stringa di **40 caratteri esadecimali**, cioè indistinguibile da uno SHA git — nessuna regex
+    potrebbe mascherarlo senza redigere metà dei log del repository. L'unico modo di coprirlo è
+    conoscere il valore **vivo**, esattamente come il bridge fa col bot token
+    (`app._register_secret_token`).
+
+    Best-effort e silenzioso per costruzione: `register_secret` non solleva e non logga, e qui
+    non si scrive nulla — il token non deve comparire nemmeno in un messaggio di errore."""
+    event_log.register_secret(str(token or "").strip())
+
+
 def save_publish_token(token: str) -> bool:
     """Salva il token di pubblicazione nel keyring. `True` se riuscito. Un token vuoto non si salva
     (usa `delete_publish_token`). **Il token non viene mai scritto su disco né loggato.**"""
@@ -107,13 +121,19 @@ def save_publish_token(token: str) -> bool:
         return False
     try:
         kr.set_password(SERVICE, ACCOUNT_TOKEN, str(token).strip())
-        return True
     except Exception:       # noqa: BLE001 — backend non disponibile: il chiamante avvisa
         return False
+    _registra_per_redazione(token)
+    return True
 
 
 def load_publish_token() -> "str | None":
-    """Il token dal keyring, o `None` se assente/backend non disponibile (fail-safe)."""
+    """Il token dal keyring, o `None` se assente/backend non disponibile (fail-safe).
+
+    Ogni lettura riuscita **registra** il token per la redazione dei log: è il punto in cui il
+    valore vivo entra nel processo, quindi è il punto giusto per coprirlo. Registrare qui (e non
+    solo al salvataggio) copre anche l'avvio normale, in cui il token c'è già nel keyring da una
+    sessione precedente e nessuno lo risalva."""
     kr = _keyring()
     if kr is None:
         return None
@@ -121,11 +141,17 @@ def load_publish_token() -> "str | None":
         value = kr.get_password(SERVICE, ACCOUNT_TOKEN)
     except Exception:       # noqa: BLE001 — lettura fallita = come assente (mai crash)
         return None
-    return value or None
+    if not value:
+        return None
+    _registra_per_redazione(value)
+    return value
 
 
 def delete_publish_token() -> bool:
-    """Rimuove il token dal keyring. `True` se rimosso, `False` se assente/backend non disponibile."""
+    """Rimuove il token dal keyring. `True` se rimosso, `False` se assente/backend non disponibile.
+
+    Non de-registra il valore dalla redazione: non lo conosciamo più dopo la cancellazione, e
+    comunque un segreto **in più** mascherato nei log non fa danno, mentre uno in meno sì."""
     kr = _keyring()
     if kr is None:
         return False

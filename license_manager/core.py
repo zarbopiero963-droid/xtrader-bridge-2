@@ -22,7 +22,6 @@ chiave valida senza `overwrite=True` esplicito.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import subprocess
 import sys
@@ -32,7 +31,9 @@ from xtrader_bridge.licensing import ed25519
 from xtrader_bridge.licensing.hwid import is_identifiable
 from xtrader_bridge.licensing.license import build_license
 
-_log = logging.getLogger(__name__)
+from . import log_safe
+
+_log = log_safe.get_logger(__name__)
 
 # Cartella utente del License Manager (SEPARATA da quella del bridge, `XTraderBridge`), così la
 # chiave privata del proprietario non finisce mai vicino ai dati del bridge distribuito.

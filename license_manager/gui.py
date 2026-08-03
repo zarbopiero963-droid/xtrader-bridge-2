@@ -20,7 +20,6 @@ NB: questo modulo importa `customtkinter` → NON è importato da `license_manag
 
 from __future__ import annotations
 
-import logging
 import os
 import threading
 import time as _time
@@ -30,10 +29,10 @@ import customtkinter as ctk
 from xtrader_bridge import ui_theme
 
 from license_manager import backup as backup_mod
-from license_manager import core, publish_store, publisher, registry
+from license_manager import core, log_safe, publish_store, publisher, registry
 from xtrader_bridge.licensing import revocation
 
-_log = logging.getLogger(__name__)
+_log = log_safe.get_logger(__name__)
 
 _MONO = ("Consolas", "Courier New", "monospace")
 
