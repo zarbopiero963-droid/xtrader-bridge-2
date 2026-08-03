@@ -20,10 +20,22 @@ with open(_APP, encoding="utf-8") as _fh:
     _SRC = _fh.read()
 
 
+def _regione_finestra_principale():
+    """Le righe attorno alla `fit_to_screen(...)` della finestra PRINCIPALE: ancorare qui evita
+    falsi positivi se un domani una finestra secondaria in app.py usasse legittimamente
+    `resizable(False, …)` (suggerimento Sourcery su #212)."""
+    righe = _SRC.splitlines()
+    for i, r in enumerate(righe):
+        if "fit_to_screen(self, _WINDOW_WIDTH" in r:
+            return "\n".join(righe[max(0, i - 3):i + 6])
+    raise AssertionError("chiamata fit_to_screen della finestra principale non trovata in app.py")
+
+
 def test_la_finestra_principale_e_ridimensionabile_in_entrambi_gli_assi():
-    assert re.search(r"self\.resizable\(\s*True\s*,\s*True\s*\)", _SRC), (
+    regione = _regione_finestra_principale()
+    assert re.search(r"self\.resizable\(\s*True\s*,\s*True\s*\)", regione), (
         "la finestra principale non è resizable(True, True)")
-    assert not re.search(r"self\.resizable\(\s*False", _SRC), (
+    assert not re.search(r"self\.resizable\(\s*False", regione), (
         "c'è ancora un resizable(False, …) sulla finestra principale")
 
 

@@ -346,7 +346,10 @@ def test_lock_da_revoca_a_sessione_viva_ferma_e_dice_perche(app_mod, App):
     App._apply_license_lock(app)
     assert app.stop_calls, "listener non fermato su licenza revocata (fail-closed violato)"
     testo = " ".join(app.logs).lower()
+    # Suggerimento Sourcery: non basta «revocata» — il messaggio deve legare la causa all'AZIONE
+    # (listener fermato, fail-closed), o un futuro copy-edit potrebbe slegarle senza test rosso.
     assert "revocata" in testo
+    assert "listener fermato" in testo and "fail-closed" in testo
 
 
 def test_lock_per_licenza_semplicemente_invalida_resta_generico(app_mod, App):
@@ -382,3 +385,18 @@ def test_la_diagnosi_revoca_si_calcola_UNA_volta_su_stop_piu_transizione(app_mod
     app._license_bloccata_da_revoca = lambda: chiamate.append(1) or True
     App._apply_license_lock(app)
     assert len(chiamate) == 1, f"diagnosi calcolata {len(chiamate)} volte invece di 1"
+
+
+def test_diagnosi_revoca_che_ESPLODE_fail_safe_sul_messaggio_generico(app_mod, App):
+    """Suggerimento Sourcery su #212, fondato: il ramo fail-safe della diagnosi era documentato ma
+    non coperto. Pannello che SOLLEVA in `current_status()` + revoca attiva: il lock non deve
+    propagare niente, e il messaggio deve restare il GENERICO — mai un'accusa di revoca costruita
+    su una diagnosi rotta. Guard di comportamento già implementato (verde alla nascita, dichiarato)."""
+    app = _fake_app(app_mod, valid=True, raises=True)      # current_status() solleva
+    app._revocation_enabled = lambda: True
+    app._revocation_gate_ok = lambda: False
+    App._apply_license_lock(app)                           # non deve sollevare
+    testo = " ".join(app.logs)
+    assert "attiva una licenza valida" in testo
+    assert "REVOCATA" not in testo, (
+        "diagnosi rotta ma il log accusa una revoca: il fail-safe non sta reggendo")
