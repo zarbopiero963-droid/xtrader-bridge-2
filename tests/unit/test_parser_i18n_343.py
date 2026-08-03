@@ -124,6 +124,10 @@ def test_format_round_trip_en_ed_es():
     assert i18n.tr("✓ {count} attive").format(count=3) == "✓ 3 active"
     msg = i18n.tr("Nuovo nome per la copia di {src!r}:").format(src="Bet365")
     assert msg == "New name for the copy of 'Bet365':" and "{" not in msg
+    # #182 PR A ⑦ — valore EN ESATTO, non solo «diverso dall'italiano» (rilievo CodeRabbit sulla
+    # PR #225): una traduzione sbagliata sarebbe comunque != dalla chiave, quindi il controllo di
+    # sola non-identità la lascerebbe passare. Qui e sotto in ES si fissa il testo vero.
+    assert i18n.tr("💾 Salva parser") == "💾 Save parser"
     i18n.set_language("ES")
     assert i18n.tr("✓ {count} attive").format(count=2) == "✓ 2 activas"
     # #182 PR A ⑦: la label dice ORA cosa salva. Nell'app esistono quattro «Salva» con oggetti

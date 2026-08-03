@@ -110,13 +110,47 @@ def test_il_comando_del_pulsante_e_ancora__save(cpg):
 
 
 def test_la_label_nuova_e_tradotta():
-    """Ogni label nuova passa da EN/ES (principio comune della #182)."""
+    """Ogni label nuova passa da EN/ES (principio comune della #182).
+
+    Valore **esatto**, non «diverso dall'italiano»: il rilievo di CodeRabbit sulla PR #225 vale
+    per tutta la classe, non solo per la riga che aveva citato — una traduzione sbagliata è
+    comunque diversa dalla chiave, quindi il controllo di sola non-identità la lascia passare."""
     from xtrader_bridge import i18n
     prima = i18n.get_language()
     try:
+        i18n.set_language("EN")
+        assert i18n.tr("💾 Salva parser") == "💾 Save parser"
+        i18n.set_language("ES")
+        assert i18n.tr("💾 Salva parser") == "💾 Guardar parser"
+    finally:
+        i18n.set_language(prima)
+
+
+def test_anche_la_nota_bettype_e_tradotta_col_testo_giusto():
+    """L'altra chiave i18n introdotta da questa PR (#182 PR A ⑧): stessa regola, valore esatto.
+
+    Cercare la CLASSE e non il sito: se si pretende il testo esatto per la label del pulsante,
+    va preteso anche per la nota sotto la griglia, altrimenti la guardia copre metà del lavoro."""
+    from xtrader_bridge import i18n
+    chiave = ("ℹ️ BetType: PUNTA o BANCA sono gli unici valori che il CSV può contenere. "
+              "BACK/LAY sono accettati in ingresso e convertiti automaticamente; "
+              "FAVOR/CONTRA non sono supportati.")
+    prima = i18n.get_language()
+    try:
+        i18n.set_language("EN")
+        assert i18n.tr(chiave) == (
+            "ℹ️ BetType: PUNTA or BANCA are the only values the CSV can contain. "
+            "BACK/LAY are accepted as input and converted automatically; "
+            "FAVOR/CONTRA are not supported.")
+        i18n.set_language("ES")
+        assert i18n.tr(chiave) == (
+            "ℹ️ BetType: PUNTA o BANCA son los únicos valores que el CSV puede contener. "
+            "BACK/LAY se aceptan como entrada y se convierten automáticamente; "
+            "FAVOR/CONTRA no están soportados.")
+        # …e i valori di dominio NON sono tradotti nemmeno dentro la nota che li nomina.
         for lingua in ("EN", "ES"):
             i18n.set_language(lingua)
-            assert i18n.tr("💾 Salva parser") != "💾 Salva parser", lingua
+            assert "PUNTA" in i18n.tr(chiave) and "BANCA" in i18n.tr(chiave)
     finally:
         i18n.set_language(prima)
 
