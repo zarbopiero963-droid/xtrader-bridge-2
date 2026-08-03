@@ -43,6 +43,21 @@ _TELEGRAM_TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{20,}")
 # intercetta la chiave anche se NON registrata (es. incollata in chat prima del salvataggio), così
 # non finisce mai in chiaro nei log né nella cronologia conversazione (#41 PR-2).
 _ANTHROPIC_KEY_RE = re.compile(r"sk-ant-[A-Za-z0-9_-]{16,}")
+# Token GitHub della pubblicazione revoche (License Manager, #157/#215): PAT classico e
+# derivati (`ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_`) più il *fine-grained* (`github_pat_`).
+#
+# Perché mancavano, ed è il punto: `tools/secret_policy.py` (righe 60-61) queste shape le
+# conosce da sempre — ma è lo scanner dei **commit**. Lo stesso token che veniva bloccato in
+# un commit veniva scritto **in chiaro** in un file di log, cioè proprio nel file che l'utente
+# allega a una segnalazione. Il riconoscimento esisteva solo dal lato che non serviva.
+#
+# I due pattern restano DUE e non uno solo perché non possono essere condivisi: lì sono
+# `bytes` per scandire file, qui `str` per redigere testo, e `xtrader_bridge` non può importare
+# da `tools/`, che non finisce nell'EXE distribuito. A tenerli allineati è un test che pretende
+# che ciò che una barriera riconosce sia riconosciuto anche dall'altra
+# (`test_le_due_barriere_conoscono_gli_STESSI_token`).
+_GITHUB_PAT_RE = re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}")
+_GITHUB_TOKEN_RE = re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{30,}")
 _REDACTED = "[REDACTED_TOKEN]"
 
 # Registro di segreti ESATTI da mascherare per-literal, OLTRE alla regex (issue #184 M7).
@@ -135,6 +150,8 @@ def redact_secrets(text: str) -> str:
     di config va registrato (lo fa `app` a load/save)."""
     s = _TELEGRAM_TOKEN_RE.sub(_REDACTED, str(text or ""))
     s = _ANTHROPIC_KEY_RE.sub(_REDACTED, s)   # API key Anthropic (#41), anche non registrata
+    s = _GITHUB_PAT_RE.sub(_REDACTED, s)      # token GitHub pubblicazione revoche (#215),
+    s = _GITHUB_TOKEN_RE.sub(_REDACTED, s)    # anche non registrato
     # Espande ogni literal registrato nelle sue forme derivate (grezzo + URL-encoded), poi
     # sostituisce le più LUNGHE prima: evita che un segreto contenuto in un altro venga
     # mascherato a metà lasciando un frammento dell'altro in chiaro. Ogni forma è matchata in

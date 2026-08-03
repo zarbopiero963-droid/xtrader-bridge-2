@@ -648,9 +648,49 @@ non riceve una lista aggiornata (quelle già arrivate restano applicate). Questa
 | | Dove | Perché |
 |---|---|---|
 | **Seed privato** (firma) | Solo sul PC, `signing_key.json` | Non lascia mai la macchina: la firma avviene **qui** |
-| **Token GitHub** (upload) | Solo nel **keyring** (`SERVICE="XTraderLicenseManager"`) | Credenziale: mai su disco, mai nei log |
+| **Token GitHub** (upload) | Solo nel **keyring** (`SERVICE="XTraderLicenseManager"`) | Credenziale: mai su disco, mai nei log — e da ora **per meccanismo**, vedi «Redazione nei log» |
 | **Impostazioni** (repo/path/branch/intervallo/on-off) | `publish_config.json` in `manager_dir()` | Non segrete, scritte **atomicamente** |
 | **Lista firmata** | Repo GitHub **pubblico** | Il bridge la scarica senza credenziali; è firmata → infalsificabile |
+
+#### Redazione nei log — da convenzione a meccanismo (#215 seguito)
+
+**Il buco che chiude.** `tools/secret_policy.py` conosce da sempre le shape dei token GitHub
+(`ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_`, `github_pat_`) — ma è lo scanner dei **commit**. Il
+redattore dei **log**, `xtrader_bridge.event_log.redact_secrets`, conosceva il bot token Telegram
+e la key Anthropic, **non** GitHub. Quindi lo stesso token che veniva bloccato in un commit
+veniva scritto **in chiaro** in un file di log: il riconoscimento esisteva solo dal lato che non
+serviva. In più i moduli del License Manager loggavano con un `logging.getLogger` **nudo**: la
+redazione del bridge (che passa da `App._log`/`event_log`) lì non arrivava mai.
+
+L'unica difesa era quindi una **convenzione** — loggare solo `type(exc).__name__`, mai il testo
+dell'eccezione — ripetuta a mano in **31 punti**. È corretta e ha retto (nessun token è mai stato
+loggato), ma basta un `_log.warning("... %s", exc)` distratto, o un `exc_info=True` aggiunto in
+buona fede *per rendere diagnosticabile un guasto*, per perderla in silenzio.
+
+**Tre livelli, ora:**
+
+1. **Shape** — `redact_secrets` riconosce le forme GitHub. I pattern restano **due** (bytes per
+   lo scanner, str per i log; e `xtrader_bridge` non può importare da `tools/`, che non finisce
+   nell'EXE): a tenerli allineati è `test_le_due_barriere_conoscono_gli_STESSI_token`, che
+   pretende che ciò che una barriera riconosce sia riconosciuto anche dall'altra. Se un domani
+   qualcuno aggiungesse una shape solo allo scanner, il test cade invece di riaprire il buco.
+2. **Valore vivo** — `load_publish_token`/`save_publish_token` **registrano** il token con
+   `event_log.register_secret`. Copre ciò che nessuna regex può: un vecchio token OAuth GitHub è
+   una stringa di **40 hex**, indistinguibile da uno SHA git. La registrazione avviene alla
+   **lettura**, non solo al salvataggio, perché all'avvio tipico il token è già nel keyring da
+   una sessione precedente e nessuno lo risalva.
+3. **Percorso di log** — `license_manager/log_safe.get_logger` installa un filtro che redige il
+   messaggio formattato **e** il traceback di `exc_info`. Il traceback va trattato esplicitamente
+   perché lo rende l'**handler**, cioè *dopo* i filtri: senza, un `exc_info=True` scriverebbe il
+   token in chiaro proprio mentre si crede di aver solo migliorato la diagnostica. Il filtro non
+   solleva mai (un filtro che esplode farebbe sparire la riga di log) e non tocca il logging
+   globale: agisce solo sui logger dei moduli `license_manager`.
+
+**Cosa NON è cambiato.** I 31 siti continuano a loggare solo `type(exc).__name__`. Questa è la
+rete **sotto** la convenzione, non il suo rimpiazzo: se un domani si volesse loggare di più per
+diagnosticare meglio (rilievo Sourcery #215), ora esiste la difesa che rende quella decisione
+valutabile — ma la decisione resta del proprietario e va presa a parte, non come effetto
+collaterale di questa PR.
 
 - **`license_manager/publish_store.py`** — impostazioni + keyring. `normalize_config` (default
   fail-closed: pubblicazione **spenta**; `enabled` solo su `True` vero; intervallo limitato a

@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import base64
 import json
-import logging
 import os
 import threading
 
@@ -32,9 +31,10 @@ import threading
 # qui come `registry.license_serial` per compatibilità con i chiamanti/test esistenti.
 from xtrader_bridge.licensing.license import license_serial
 
+from . import log_safe
 from .core import manager_dir
 
-_log = logging.getLogger(__name__)
+_log = log_safe.get_logger(__name__)
 
 REGISTRY_FILE = "licenses.jsonl"
 

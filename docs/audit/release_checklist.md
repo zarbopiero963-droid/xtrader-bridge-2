@@ -43,6 +43,10 @@
 
 - [ ] Tutte le GitHub Action nei workflow sono fissate a SHA (test di enforcement verde).
 - [ ] Nessun token Telegram compare nei log (redazione attiva).
+- [ ] Nessun token **GitHub** compare nei log del License Manager. Tre livelli: `redact_secrets`
+      ne conosce le shape, il valore vivo è registrato alla **lettura** dal keyring, e i logger
+      del package redigono messaggio **e** traceback. I due lati della barriera — scanner dei
+      commit e redattore dei log — restano allineati da un test, non da un'abitudine.
 - [ ] **`chat_id` esplicito configurato** prima dell'uso: senza, il filtro chat ammette
       tutte le chat (vedi `archive/final_audit.md` §4 punto 6). Requisito bloccante per l'uso reale.
 - [ ] DRY_RUN (default = simulazione) **agganciato al runtime (PR-21)**: verifica che in
