@@ -1887,13 +1887,13 @@ def _app_fino_agli_avvisi(app_mod, cfg, csv_path):
     a._license_panel = types.SimpleNamespace(
         current_status=lambda: types.SimpleNamespace(valid=True, reason="", detail=""))
     a._cancel_pending_autostart = lambda: None
-    a._resync_token_field = lambda: None
+    a._resync_token_field = lambda *_a, **_k: None   # il vero accetta had_incomplete_load
     # campi GREZZI validati prima del save: token costruito a runtime (nessun letterale
     # che somigli a una credenziale nel repo), path in tmp, delay valido.
     a._e_token = types.SimpleNamespace(get=lambda: "123456:" + "A" * 35)
     a._e_csv = types.SimpleNamespace(get=lambda: str(csv_path))
     a._e_delay = types.SimpleNamespace(get=lambda: "90")
-    a._save_config = lambda: cfg
+    a._save_config = lambda *_a, **_k: cfg           # il vero accetta persist=
     a._save_ok = True
     a._adv_errors = []
     return a

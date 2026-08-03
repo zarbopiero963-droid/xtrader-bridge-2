@@ -335,7 +335,7 @@ def test_app_wizard_finish_applica_al_form_e_salva(app_mod):
     app._logs, app._save_ok = [], True
     app._log = app._logs.append
     saved = []
-    app._save_config = lambda: saved.append(True)
+    app._save_config = lambda *_a, **_k: saved.append(True)   # il vero accetta persist=
     app._wizard_finish({"bot_token": "NUOVO", "chat_id": "-1", "csv_path": ""})
     assert app._e_token.v == "NUOVO" and app._e_chat.v == "-1"
     assert app._e_csv.v == "old.csv"           # valore vuoto dal wizard NON cancella
