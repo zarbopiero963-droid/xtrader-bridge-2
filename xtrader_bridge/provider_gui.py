@@ -22,7 +22,7 @@ coperta da `tests/unit/test_provider_store.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import config_store, gui_utils, i18n, provider_store, ui_theme
+from . import config_store, custom_parser, gui_utils, i18n, provider_store, ui_theme
 
 
 class ProviderPanel(ctk.CTkFrame):
@@ -92,8 +92,38 @@ class ProviderPanel(ctk.CTkFrame):
                 return []
         return provider_store.provider_names(cfg)
 
+    def _provider_usage(self):
+        """`{provider: [parser che lo usano]}` in sola LETTURA, oppure **`None`** se i parser
+        non sono leggibili (#182 PR E).
+
+        ⚠️ La distinzione fra `{}` e `None` è di **sicurezza**, non di stile (rilievo GPT-5.5
+        sulla PR #230). Con la cartella dei parser illeggibile, restituire `{}` avrebbe fatto
+        scrivere **«— non usato» su OGNI riga**: cioè la rassicurazione «puoi rimuoverlo» proprio
+        quando il controllo NON è stato fatto. Un marcatore mancante è accettabile; un marcatore
+        che afferma il falso accanto a un pulsante distruttivo no.
+
+        `{}` = ho guardato, nessun parser fissa quel provider. `None` = non ho potuto guardare."""
+        try:
+            return custom_parser.provider_usage() or {}
+        except Exception:            # noqa: BLE001 — parser illeggibili: stato IGNOTO, mai un falso «non usato»
+            return None
+
+    @staticmethod
+    def _quanti_usano(uso: dict, name: str) -> int:
+        """Quanti parser fissano `name`, confrontando come `provider_store` (senza spazi ai
+        bordi, case-insensitive): un parser che scrive «Bet365 » dipende dalla voce «Bet365»,
+        e dirlo «non usato» sarebbe un falso rassicurante proprio prima di una rimozione."""
+        n = str(name or "").strip().casefold()
+        return sum(len(p) for salvato, p in (uso or {}).items()
+                   if str(salvato).strip().casefold() == n)
+
     def _reload(self, cfg=None):
-        """Ridisegna la lista dei provider (da `cfg` viva se fornita, altrimenti da disco)."""
+        """Ridisegna la lista dei provider (da `cfg` viva se fornita, altrimenti da disco).
+
+        Ogni riga porta un marcatore d'uso (#182 PR E): «🧩 N parser» oppure «— non usato».
+        A differenza dei dizionari, qui lo zero si SCRIVE: un provider non usato è la
+        condizione che rende la rimozione sicura, ed è l'informazione che serve proprio
+        mentre si guarda il pulsante «🗑 Rimuovi» accanto."""
         for child in self._rows_frame.winfo_children():
             child.destroy()
         names = self._load_names(cfg)
@@ -101,14 +131,28 @@ class ProviderPanel(ctk.CTkFrame):
             ctk.CTkLabel(self._rows_frame, text=i18n.tr("Nessun provider salvato."),
                          text_color="gray").pack(anchor="w", padx=6, pady=4)
             return
+        uso = self._provider_usage()
         for name in names:
             row = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
             row.pack(fill="x", pady=2)
             ctk.CTkLabel(row, text=name, anchor="w").pack(side="left", fill="x",
                                                           expand=True, padx=6)
+            # ORDINE DI PACK — il pulsante PRIMA del marcatore. Con `side="right"` Tk mette il
+            # primo impacchettato all'estrema destra, quindi impacchettando prima il marcatore
+            # sarebbe finito DOPO il pulsante: «nome … [🗑 Rimuovi] [🧩 2 parser]» invece di
+            # «nome … [🧩 2 parser] [🗑 Rimuovi]» (rilevato da GPT-5.5 e Fable sulla PR #230).
             ctk.CTkButton(row, text=i18n.tr("🗑  Rimuovi"), width=110, fg_color=ui_theme.DANGER,
                           hover_color=ui_theme.DANGER_HOV,
                           command=lambda n=name: self._remove(n)).pack(side="right", padx=3)
+            if uso is None:
+                testo, colore = i18n.tr("⚠ uso ignoto"), ui_theme.STATUS_ERR
+            else:
+                quanti = self._quanti_usano(uso, name)
+                testo = (i18n.tr("🧩 {n} parser").format(n=quanti) if quanti
+                         else i18n.tr("— non usato"))
+                colore = "gray" if quanti else ui_theme.STATUS_WARN
+            ctk.CTkLabel(row, text=testo, font=ctk.CTkFont(size=11),
+                         text_color=colore).pack(side="right", padx=6)
 
     # ── azioni (persistono subito, come il builder) ─────────────────────────
     def _persist(self, cfg: dict, ok_msg: str, fail_msg: str):
@@ -157,11 +201,33 @@ class ProviderPanel(ctk.CTkFrame):
         # AC-M12 audit #114: rimozione DISTRUTTIVA di un provider — mai a un solo click,
         # come nomi noti/profili/mapping (pattern P3-27). Conferma fail-closed: dialog
         # rotto/headless → NON confermato, la rimozione non parte.
-        if not gui_utils.ask_confirm(
-                i18n.tr("Rimuovi provider"),
-                i18n.tr("Rimuovere il provider «{name}»?\nÈ permanente: i messaggi da quella "
-                        "sorgente non verranno più riconosciuti finché non lo reinserisci.")
-                .format(name=name)):
+        # #182 PR E: dire QUANTI parser dipendono da questo provider, non solo che è permanente.
+        # Il pannello Mapping lo fa già prima di eliminare un profilo in uso
+        # (`parsers_using_mapping_profile`); qui mancava, ed è la stessa domanda — «cosa rompo?» —
+        # posta nel momento in cui conta. Rimuovere il provider NON tocca i parser: continuano a
+        # scrivere quel valore nel CSV, ma la voce sparisce dalla tendina e alla prossima modifica
+        # di quel parser non è più ri-selezionabile. Best-effort: parser illeggibili → nessun
+        # elenco, la conferma resta quella di prima invece di bloccare la rimozione.
+        verificato = True
+        try:
+            usato_da = custom_parser.parsers_using_provider(name)
+        except Exception:                        # noqa: BLE001 — anagrafica gestibile anche senza parser leggibili
+            usato_da, verificato = [], False
+        domanda = i18n.tr("Rimuovere il provider «{name}»?\nÈ permanente: i messaggi da quella "
+                          "sorgente non verranno più riconosciuti finché non lo reinserisci."
+                          ).format(name=name)
+        if not verificato:
+            # Silenzio = l'utente deduce «non lo usa nessuno». Dirlo esplicitamente: il controllo
+            # non è stato fatto, la decisione resta sua ma informata (rilievo GPT-5.5 #230).
+            domanda += "\n\n" + i18n.tr(
+                "⚠️ Non è stato possibile leggere i parser salvati: non so dirti se qualcuno usa "
+                "questo provider.")
+        if usato_da:
+            domanda += "\n\n" + i18n.tr(
+                "⚠️ Usato da {count} parser: {elenco}.\nRestano funzionanti — scrivono comunque "
+                "questo valore nel CSV — ma il nome non sarà più selezionabile quando li modifichi."
+            ).format(count=len(usato_da), elenco=", ".join(usato_da))
+        if not gui_utils.ask_confirm(i18n.tr("Rimuovi provider"), domanda):
             self._status.configure(text=i18n.tr("Rimozione annullata."),
                                    text_color=ui_theme.STATUS_WARN)
             return

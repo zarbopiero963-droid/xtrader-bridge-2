@@ -158,7 +158,11 @@ _ALLOWLIST = {
                             "illeggibile = nessun badge 🧩 ma i profili si aprono comunque) e "
                             "`_highlight_profiles` (widget distrutto durante un refresh); #182 PR C, 1 nuovo: "
                             "il `trace_add` gemello nel pannello 🎯 Mercati, stessa ragione"),
-    "provider_gui.py": (3, "GUI Tk provider: render/azioni best-effort"),
+    "provider_gui.py": (5, "GUI Tk provider: render/azioni best-effort; #182 PR E, 2 nuovi: "
+                        "`_provider_usage` (cartella parser illeggibile → nessun marcatore "
+                        "«🧩 N parser», ma l'anagrafica resta gestibile) e l'elenco dei parser "
+                        "colpiti nella conferma di rimozione (parser illeggibili → conferma "
+                        "senza elenco invece di bloccare la rimozione)"),
     "ui_widgets.py": (2, "#182: `rendi_attivabile` mette la riga-elenco nel giro del Tab; "
                       "`configure(takefocus=1)` è best-effort perché su un widget-spia dei "
                       "test o su un widget distrutto durante un refresh può sollevare, e non "

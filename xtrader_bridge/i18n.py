@@ -654,6 +654,11 @@ _CATALOG = {
         "Eliminare il nome «{name}»?\nÈ permanente e non annullabile: il resolver non riconoscerà più quella squadra finché non la reinserisci.":
             "Delete the name «{name}»?\nIt is permanent and cannot be undone: the resolver will no longer recognize that team until you add it again.",
         "Rimuovi provider": "Remove provider",
+        "🧩 {n} parser": "🧩 {n} parsers",
+        "— non usato": "— not used",
+        "⚠ uso ignoto": "⚠ usage unknown",
+        "⚠️ Non è stato possibile leggere i parser salvati: non so dirti se qualcuno usa questo provider.": "⚠️ Could not read the saved parsers: I cannot tell you whether any of them uses this provider.",
+        "⚠️ Usato da {count} parser: {elenco}.\nRestano funzionanti — scrivono comunque questo valore nel CSV — ma il nome non sarà più selezionabile quando li modifichi.": "⚠️ Used by {count} parsers: {elenco}.\nThey keep working — they still write this value to the CSV — but the name will no longer be selectable when you edit them.",
         "Rimuovere il provider «{name}»?\nÈ permanente: i messaggi da quella sorgente non verranno più riconosciuti finché non lo reinserisci.":
             "Remove provider «{name}»?\nIt is permanent: messages from that source will no longer be recognized until you add it again.",
         "Rimozione annullata.": "Removal cancelled.",
@@ -1371,6 +1376,11 @@ _CATALOG = {
         "Eliminare il nome «{name}»?\nÈ permanente e non annullabile: il resolver non riconoscerà più quella squadra finché non la reinserisci.":
             "¿Eliminar el nombre «{name}»?\nEs permanente y no se puede deshacer: el resolutor ya no reconocerá ese equipo hasta que lo vuelvas a añadir.",
         "Rimuovi provider": "Eliminar proveedor",
+        "🧩 {n} parser": "🧩 {n} parsers",
+        "— non usato": "— sin usar",
+        "⚠ uso ignoto": "⚠ uso desconocido",
+        "⚠️ Non è stato possibile leggere i parser salvati: non so dirti se qualcuno usa questo provider.": "⚠️ No se han podido leer los parsers guardados: no puedo decirte si alguno usa este proveedor.",
+        "⚠️ Usato da {count} parser: {elenco}.\nRestano funzionanti — scrivono comunque questo valore nel CSV — ma il nome non sarà più selezionabile quando li modifichi.": "⚠️ Usado por {count} parsers: {elenco}.\nSiguen funcionando — escriben igualmente este valor en el CSV — pero el nombre ya no será seleccionable cuando los edites.",
         "Rimuovere il provider «{name}»?\nÈ permanente: i messaggi da quella sorgente non verranno più riconosciuti finché non lo reinserisci.":
             "¿Eliminar el proveedor «{name}»?\nEs permanente: los mensajes de esa fuente ya no se reconocerán hasta que lo vuelvas a añadir.",
         "Rimozione annullata.": "Eliminación cancelada.",
