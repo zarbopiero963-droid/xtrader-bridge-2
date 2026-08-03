@@ -84,6 +84,43 @@ def test_la_funzione_storica_resta_identica_dopo_il_refactor(tmp_path):
     assert custom_parser.parsers_using_mapping_profile("  ", d) == []
 
 
+def test_un_parser_che_ripete_lo_stesso_profilo_conta_UNA_volta(tmp_path):
+    """Rilievo Fable/GPT-5.5 sulla PR #226 — **regressione introdotta dal refactor**.
+
+    Il codice storico faceva `if n in profili: out.append(defn.name)`: una sola occorrenza per
+    parser, qualunque cosa contenesse la lista. La prima versione di `_profile_usage` appendeva
+    invece **per occorrenza**, quindi un parser con `["Premier", "Premier"]` compariva due volte.
+
+    Due conseguenze, entrambe misurate: il badge «🧩 2» su **un solo** parser, e — peggio —
+    l'avviso prima di eliminare un profilo in uso che elenca lo stesso parser due volte.
+
+    `CustomParserDef.from_dict` NON deduplica (`profiles = [str(p).strip() for p in raw ...]`),
+    quindi la lista duplicata arriva davvero fin qui: non è un caso teorico.
+
+    Fail-first misurato: `parsers_using_mapping_profile("Premier", d)` ritornava `['A', 'A']`."""
+    d = str(tmp_path)
+    _scrivi_parser(d, "A", ["Premier", "Premier"])
+    _scrivi_parser(d, "B", ["Premier"])
+
+    assert custom_parser.mapping_profile_usage(d) == {"Premier": ["A", "B"]}
+    assert custom_parser.parsers_using_mapping_profile("Premier", d) == ["A", "B"], (
+        "contratto storico violato: un parser deve comparire UNA volta sola")
+
+
+def test_profili_con_spazi_ai_bordi_non_diventano_fantasmi(tmp_path):
+    """Controprova del secondo rilievo di Fable, che sospettava un'asimmetria di `strip()`.
+
+    L'asimmetria non c'è: `name_mapping_store.profile_names` strippa le chiavi della config
+    (`[str(k).strip() for k in ...]`) esattamente come `_profile_usage` strippa i nomi letti dai
+    parser. Un profilo salvato a mano con spazi ai bordi resta quindi confrontabile da entrambi
+    i lati e **non** compare come «solo riferito». Questo test blinda l'invariante: se un domani
+    uno dei due lati smettesse di normalizzare, il falso allarme comparirebbe e il test cade."""
+    d = str(tmp_path)
+    _scrivi_parser(d, "A", ["  Premier  "])
+    assert custom_parser.mapping_profile_usage(d) == {"Premier": ["A"]}
+    assert name_mapping_store.profile_names({"name_mappings": {"  Premier  ": []}}) == ["Premier"]
+
+
 def test_un_parser_corrotto_non_fa_sparire_i_badge_degli_altri(tmp_path):
     """Best-effort: un file illeggibile si salta, non azzera la mappa."""
     d = str(tmp_path)

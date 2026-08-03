@@ -716,16 +716,28 @@ def market_mapping_profile_usage(dir_path: str = None) -> dict:
 
 
 def _profile_usage(attr: str, dir_path: str = None) -> dict:
-    """Nucleo condiviso: ``{profilo: [parser]}`` per ``attr``, una sola passata sui file."""
+    """Nucleo condiviso: ``{profilo: [parser]}`` per ``attr``, una sola passata sui file.
+
+    Un parser compare **una volta sola** per profilo anche se lo elenca più volte:
+    `CustomParserDef.from_dict` pulisce i nomi ma **non deduplica**, quindi un
+    ``["Premier", "Premier"]`` scritto a mano (o prodotto da un merge) arriva davvero fin qui.
+    Senza il dedup il badge «🧩 N» conterebbe due volte lo stesso parser, e — peggio — l'avviso
+    prima di eliminare un profilo in uso lo elencherebbe due volte, dando l'impressione che a
+    dipenderne siano più parser di quanti siano davvero (rilievo Fable/GPT-5.5 sulla PR #226).
+
+    È anche il contratto storico di `_parsers_using_profile`, che testava l'appartenenza con
+    ``if n in profili`` — una occorrenza per parser, qualunque cosa contenesse la lista."""
     out = {}
     for path in list_parser_files(dir_path):
         try:
             defn = load_parser(path)
         except (OSError, ValueError, json.JSONDecodeError):
             continue
+        visti = set()
         for profilo in (getattr(defn, attr, []) or []):   # default [] per robustezza (Sourcery)
             nome = str(profilo or "").strip()
-            if nome:
+            if nome and nome not in visti:
+                visti.add(nome)
                 out.setdefault(nome, []).append(defn.name)
     return out
 
