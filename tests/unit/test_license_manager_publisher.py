@@ -309,8 +309,14 @@ def test_check_access_404_repo_inesistente_o_non_concesso():
 
 def test_check_access_file_non_ancora_presente_resta_OK():
     """404 sul FILE non è un errore: la prima pubblicazione lo crea. Deve restare `ok=True`,
-    altrimenti la verifica spaventerebbe l'utente prima della prima pubblicazione."""
-    http = _FakeHttp((200, {"permissions": {"push": True}}), (404, None))
+    altrimenti la verifica spaventerebbe l'utente prima della prima pubblicazione.
+
+    Le risposte sono TRE da quando il branch viene sondato (rilievo Fugu #215): repo → branch →
+    file. Prima erano due, e il 404 del file era l'ultima — ora quella posizione è del branch, e
+    lasciare due risposte farebbe cadere il 404 sul branch, provando tutt'altro."""
+    http = _FakeHttp((200, {"permissions": {"push": True}}),   # repo scrivibile
+                     (200, {"name": "main"}),                   # branch esiste
+                     (404, None))                               # file no: si creerà
     res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
     assert res["ok"] is True and res["file_exists"] is False
 
@@ -411,3 +417,38 @@ def test_publish_403_senza_rate_limit_resta_il_messaggio_dei_permessi():
                             message="m", http=http)
     assert res["ok"] is False and "contents" in res["message"].lower()
     assert _REPO in res["message"]
+
+
+# ── Il branch dev'essere sondato, non dato per buono (rilievo Fugu #215) ─────────────────────────
+
+def test_check_access_branch_inesistente_NON_dice_accesso_ok():
+    """Un branch sbagliato (un «master» al posto di «main», un refuso) faceva passare la verifica
+    con «✅ Accesso OK … branch <quello sbagliato>», e la pubblicazione poi falliva. È un falso-OK
+    proprio nella funzione che esiste per evitarli, e cita pure il branch inesistente come se fosse
+    stato controllato.
+
+    Causa: `GET contents?ref=X` risponde 404 sia per «file non ancora presente» sia per «branch
+    inesistente», e il primo caso è legittimo. I due si distinguono solo sondando il branch."""
+    http = _FakeHttp((200, {"permissions": {"push": True}}),   # repo scrivibile
+                     (404, None))                              # branch NON esiste
+    res = publisher.check_access(_REPO, _PATH, "branch-che-non-esiste", token=_TOKEN, http=http)
+    assert res["ok"] is False, f"falso «Accesso OK» su un branch inesistente: {res['message']!r}"
+    assert "branch" in res["message"].lower()
+    assert "branch-che-non-esiste" in res["message"]
+
+
+def test_check_access_branch_esistente_e_file_assente_resta_OK():
+    """Contro-prova: branch valido + file non ancora presente resta `ok` — è la prima
+    pubblicazione, e spaventare l'utente lì sarebbe un falso allarme."""
+    http = _FakeHttp((200, {"permissions": {"push": True}}),   # repo
+                     (200, {"name": "main"}),                   # branch c'è
+                     (404, None))                               # file no: si creerà
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is True and res["file_exists"] is False
+
+
+def test_check_access_sonda_il_branch_senza_scrivere():
+    http = _FakeHttp((200, {"permissions": {"push": True}}), (200, {"name": "main"}), (200, {"sha": "x"}))
+    publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert [c["method"] for c in http.calls] == ["GET", "GET", "GET"], "la verifica ha scritto"
+    assert "/branches/" in http.calls[1]["url"]

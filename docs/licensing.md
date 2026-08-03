@@ -693,6 +693,11 @@ non riceve una lista aggiornata (quelle già arrivate restano applicate). Questa
   far fallire la pubblicazione con 403 — esattamente il guasto da prevenire. Un **404 sul file** non
   è un errore (la prima pubblicazione lo crea); un **404 sul repository** sì, e con un token
   fine-grained è il sintomo tipico di un repo *esistente ma non concesso al token*.
+  Il **branch viene sondato** (`GET /repos/{owner}/{repo}/branches/{branch}`, rilievo Fugu #215):
+  senza, un refuso nel nome — un «master» al posto di «main» — passava la verifica con un
+  «✅ Accesso OK» che *citava pure il branch sbagliato* come se fosse stato controllato, e la
+  pubblicazione falliva dopo. Causa: `GET contents?ref=X` risponde 404 sia per «file non ancora
+  presente» (legittimo) sia per «branch inesistente» (errore), e i due si distinguono solo così.
 - **GUI** (`license_manager/gui.py`, sezione «📤 Pubblicazione automatica (GitHub)»): campi repo/path/
   branch/intervallo + token (`show="*"`, svuotato dopo il salvataggio), checkbox on/off, **💾 Salva
   impostazioni**, **🔍 Verifica accesso** (sonda sola-lettura, in background come la

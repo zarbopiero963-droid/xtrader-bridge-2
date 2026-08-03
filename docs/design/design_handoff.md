@@ -1378,6 +1378,7 @@ contrario.
 | **401** | «⚠️ Token rifiutato da GitHub (401): non è un problema di permessi, è il token in sé — sbagliato, scaduto o revocato. Rigeneralo e reincollalo, senza spazi ai bordi.» |
 | **403** | «⚠️ Token accettato ma senza permesso di SCRITTURA su «*repo*» (403). Se è un token fine-grained: in «Repository access» dev'esserci questo repository, e in «Permissions → Repository permissions» serve «Contents: Read and write».» |
 | **404** sul repo | «⚠️ Repository «*repo*» non trovato (404): controlla «owner/nome». Con un token fine-grained un repo esistente ma NON concesso al token risponde comunque 404.» |
+| **404** sul branch | «⚠️ Il branch «*X*» non esiste su «*repo*» (404): controlla il nome (spesso è «main» o «master»). Il permesso di scrittura c'è.» |
 | token assente | «⚠️ Token assente nel keyring: salvalo nelle impostazioni di pubblicazione.» |
 | rete KO | «⚠️ Rete non disponibile: impossibile contattare GitHub.» |
 

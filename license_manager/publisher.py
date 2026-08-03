@@ -75,6 +75,12 @@ def contents_url(repo: str, path: str) -> str:
     return f"{GITHUB_API}/repos/{_quote_repo(repo)}/contents/{quoted}"
 
 
+def branch_url(repo: str, branch: str) -> str:
+    """Endpoint del **branch**. Serve a distinguere «file non ancora presente» da «branch
+    inesistente»: `GET contents?ref=X` risponde 404 in entrambi i casi, e il primo è legittimo."""
+    return f"{repo_url(repo)}/branches/{urllib.parse.quote(str(branch or '').strip())}"
+
+
 def _contents_url_at_ref(repo: str, path: str, branch: str) -> str:
     """URL Contents API per (repo, path) al `ref` indicato — **fonte unica** (rilievo CodeRabbit
     #215): `check_access` e `get_file_sha` lo costruivano ognuno per conto suo, in modo identico.
@@ -235,8 +241,26 @@ def check_access(repo: str, path: str, branch: str, *, token: str, http=None,
         esito["message"] = _error_message(403, "verifica", repo)
         return esito
 
-    # Il repo è scrivibile: resta da vedere se il file c'è già (aggiornamento) o no (creazione).
-    # Un errore QUI non invalida il permesso appena accertato, quindi non ribalta `ok`.
+    # Il branch va SONDATO, non dato per buono (rilievo Fugu #215): `GET contents?ref=X` risponde
+    # 404 sia per «file non ancora presente» (legittimo, si creerà) sia per «branch inesistente»
+    # (errore). Senza questa chiamata un refuso nel nome del branch passava la verifica con un
+    # «✅ Accesso OK» che citava pure il branch sbagliato come se fosse stato controllato — un
+    # falso-OK proprio nella funzione che esiste per evitarli.
+    try:
+        status, _payload = caller("GET", branch_url(repo, branch), token=token, timeout=timeout)
+    except Exception:       # noqa: BLE001 — rete: esito strutturato, mai crash
+        esito["message"] = "Rete non disponibile: impossibile contattare GitHub."
+        return esito
+    if status == 404:
+        esito["message"] = (f"Il branch «{branch}» non esiste su «{repo}» (404): controlla il nome "
+                            "(spesso è «main» o «master»). Il permesso di scrittura c'è.")
+        return esito
+    if status >= 300:
+        esito["message"] = _error_message(status, "verifica", repo, _payload)
+        return esito
+
+    # Repo scrivibile e branch esistente: resta da vedere se il file c'è già (aggiornamento) o no
+    # (creazione). Un errore QUI non invalida quanto già accertato, quindi non ribalta `ok`.
     url = _contents_url_at_ref(repo, path, branch)
     try:
         status, _payload = caller("GET", url, token=token, timeout=timeout)
