@@ -398,3 +398,36 @@ def test_licenza_gia_invalida_non_viene_mascherata_dalla_revoca(license_gui):
                                      issued=None, expiry=None, days_left=0))
     assert fake._status_lbl.text == atteso, (fake._status_lbl.text, atteso)
     assert fake._status_lbl.color == license_gui._SEVERITY_COLOR["error"]
+
+
+def test_init_REALE_memorizza_il_seam_e_refresh_lo_usa(license_gui, monkeypatch):
+    """Chiude l'ultimo anello non coperto (rilievo CodeRabbit sulla PR #235).
+
+    Le altre prove coprono le due metà separate: che l'App **passi** `revoked_provider`
+    (`test_license_tab_wiring.py`) e che il pannello lo **consumi** (i test qui sopra, che però
+    impostano `_revoked_provider` su un `self` finto). Restava scoperto l'anello in mezzo:
+    **`__init__` che memorizza il kwarg**. Se quell'assegnazione sparisse, ogni altro test
+    resterebbe VERDE e la revoca tornerebbe invisibile — il difetto originale, di nuovo.
+
+    Qui si costruisce il pannello VERO: si stubba solo `_build_ui` (pura costruzione di widget
+    Tk, non esercitabile headless), lasciando reali `__init__`, `_revoca_nega` e
+    `refresh_options`."""
+    monkeypatch.setattr(license_gui.LicensePanel, "_build_ui", lambda self: None)
+    chiamate = []
+
+    panel = license_gui.LicensePanel(
+        master=None,
+        hardware_id_provider=lambda: _HW,
+        now_provider=lambda: _NOW,
+        load_state=lambda: (_valid_token(), None),
+        save_state=lambda *_a: None,
+        revoked_provider=lambda: chiamate.append(1) or True)
+
+    assert panel._revoked_provider is not None, (
+        "`__init__` non memorizza il seam: la scheda tornerebbe verde a un revocato")
+
+    panel._hw_value, panel._status_lbl = _LblSpia(), _LblSpia()
+    panel.refresh_options()
+
+    assert chiamate, "il seam è memorizzato ma `refresh_options` non lo chiama mai"
+    assert "REVOCATA" in (panel._status_lbl.text or "").upper(), panel._status_lbl.text
