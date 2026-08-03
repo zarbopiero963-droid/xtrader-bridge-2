@@ -800,7 +800,7 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   `⛔ … formato errato` · `⛔ Orologio spostato indietro: licenza sospesa` · `⛔ Impossibile
   aggiornare lo stato licenza su disco (permessi?)` — solo se la scrittura dell'heartbeat fallisce
   in modo **persistente** (rosso).
-  **Sovrapposizione REVOCA (dal 2026-08-04, rosso):** se la licenza è di per sé valida ma il
+  **Sovrapposizione REVOCA (dal 2026-08-03/04 (notte), rosso):** se la licenza è di per sé valida ma il
   fornitore l'ha **revocata**, la riga NON dice più «Licenza attiva» — dice
   `⛔ Licenza REVOCATA dal fornitore — per tornare operativo serve una nuova licenza dal fornitore.`
   Il rimedio nominato è **il fornitore**, non «riattiva»: la chiave del revocato è valida, e
@@ -819,7 +819,7 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   ID + Copia + campo chiave + Attiva) e il pulsante **■ STOP** (così una sessione eventualmente in
   corso resta interrompibile). Lo **switcher dei tab** resta navigabile (l'utente deve poter
   raggiungere la scheda Licenza).
-  **Finestre figlie già aperte (dal 2026-08-04).** Il blocco **chiude** l'hub **🧰 Strumenti** e il
+  **Finestre figlie già aperte (dal 2026-08-03/04 (notte)).** Il blocco **chiude** l'hub **🧰 Strumenti** e il
   **🧙 Wizard** se erano aperti: i pulsanti che li aprono sono grigi, ma una finestra già viva
   restava pienamente operativa e permetteva di continuare a **configurare** (parser, chat sorgenti,
   provider, dizionari; il Wizard scrive anche token e filtro chat) con licenza negata. *Costo
@@ -840,11 +840,11 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   lock si attiva **solo** quando la licenza risulta **esplicitamente revocata** dal proprietario in una
   lista firmata e verificata. Un supervisore in background scarica periodicamente la lista, la verifica
   (firma Ed25519 + anti-replay) e il gate `_license_is_valid` la legge sincrono. Il lock **disabilita
-  gli stessi controlli** (stessa scheda 🔑 Licenza + ■ STOP sempre attivi), ma **dal 2026-08-04 non è
+  gli stessi controlli** (stessa scheda 🔑 Licenza + ■ STOP sempre attivi), ma **dal 2026-08-03/04 (notte) non è
   più visivamente indistinguibile**: la riga di stato dice «REVOCATA» e il banner rosso qui sotto
   nomina la causa.
 
-  🟥 **BANNER ROSSO DI BLOCCO LICENZA (dal 2026-08-04)** — persistente, larghezza piena, sopra i tab
+  🟥 **BANNER ROSSO DI BLOCCO LICENZA (dal 2026-08-03/04 (notte))** — persistente, larghezza piena, sopra i tab
   (stesso slot e stessa palette `DANGER_BANNER` del banner MODALITÀ REALE), con due testi:
 
   | causa | testo del banner |
@@ -852,7 +852,7 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   | revocata dal fornitore | `⛔ Licenza REVOCATA dal fornitore — per tornare operativo serve una nuova licenza dal fornitore.` |
   | licenza non valida | `🔒 Licenza non valida: bridge bloccato. Attiva una licenza nella scheda «🔑 Licenza».` |
 
-  > **Perché esiste.** Collaudo del proprietario del 2026-08-04: revoca applicata, bridge
+  > **Perché esiste.** Collaudo del proprietario del 2026-08-03/04 (notte): revoca applicata, bridge
   > effettivamente bloccato — ma la scheda Licenza mostrava **verde** «✅ Licenza attiva · scade tra
   > 2 giorni» e l'unico segnale del blocco era **una riga di log**, che scorre via. L'indicatore
   > principale di un controllo di sicurezza diceva l'opposto della verità. Chi disegna la UI **non
