@@ -149,9 +149,14 @@ _ALLOWLIST = {
     "known_teams_gui.py": (2, "GUI Tk ripulitura nomi Betfair (#282 PR 11-bis): lettura e "
                            "eliminazione best-effort (avviso invece di crash; DictionaryBusy "
                            "gestita a parte per il fail-fast durante la sync)"),
-    "name_mapping_gui.py": (7, "GUI Tk mapping: render/azioni best-effort; "
+    "name_mapping_gui.py": (10, "GUI Tk mapping: render/azioni best-effort; "
                             "precompila nomi Betfair best-effort (#282 PR 11: provider "
-                            "che solleva → avviso, nessun crash)"),
+                            "che solleva → avviso, nessun crash); #182 PR B, 3 nuovi nella "
+                            "colonna profili sempre visibile: `_profile_var.trace_add` "
+                            "(variabile non tracciabile = nessuna evidenziazione viva, ma "
+                            "l'elenco resta usabile), `_profile_usage` (cartella parser "
+                            "illeggibile = nessun badge 🧩 ma i profili si aprono comunque) e "
+                            "`_highlight_profiles` (widget distrutto durante un refresh)"),
     "provider_gui.py": (3, "GUI Tk provider: render/azioni best-effort"),
     "reconnect_policy.py": (1, "classificazione errore di reconnect tollerante"),
     "source_chats_gui.py": (2, "GUI Tk sorgenti: best-effort (refresh-options + modal transient/grab_set)"),

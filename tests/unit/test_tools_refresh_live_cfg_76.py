@@ -124,18 +124,27 @@ def test_name_mapping_reload_profiles_usa_la_config_viva(cfg_file, monkeypatch):
     live = name_mapping_store.add_profile({}, "LIVE")
 
     panel = mod.NameMappingPanel.__new__(mod.NameMappingPanel)
-    panel._profile_menu, panel._profile_var, panel._current = _Menu(), _Var(), None
+    # #182 PR B: la tendina profili è diventata un ELENCO sempre visibile. L'invariante sotto
+    # test non cambia — `_reload_profiles` deve usare la config VIVA e propagarla alle righe —
+    # cambia solo dove si legge il risultato: `_profile_rows` invece di `_profile_menu.values`.
+    # Il render vero è sostituito da una spia: qui si testa la propagazione della config, non
+    # il disegno dei widget (che ha i suoi test in `test_name_mapping_profili_182.py`).
+    panel._profile_var, panel._current = _Var(), None
+    resi = []
+    panel._render_profile_rows = lambda names, cfg=None: resi.append((list(names), cfg))
+    panel._highlight_profiles = lambda: None
     seen = []
     panel._reload_rows = lambda cfg=None: seen.append(cfg)
 
     panel._reload_profiles(select_first=True, cfg=live)
-    assert panel._profile_menu.values == ["LIVE"]
+    assert resi[-1] == (["LIVE"], live), (
+        "l'elenco profili deve essere disegnato dalla config VIVA, non riletto dal disco")
     assert panel._current == "LIVE"
     assert seen == [live], "la config viva deve arrivare anche alle RIGHE, non solo ai profili"
 
     panel._current = None
     panel._reload_profiles(select_first=True)                    # storico: dal disco
-    assert panel._profile_menu.values == ["DISK"]
+    assert resi[-1][0] == ["DISK"]
 
 
 def test_market_mapping_reload_profiles_usa_la_config_viva(cfg_file, monkeypatch):

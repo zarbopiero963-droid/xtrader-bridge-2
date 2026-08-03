@@ -1185,7 +1185,29 @@ Sport/Tipo/Lingua e i nomi **Mercato/Selezione del Catalogo** (canonici), i **ta
 guidato** (`guided_mapping_gui.py`, modulo separato — slice futura). La **logica** (persistenza,
 gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia solo il testo mostrato.
 
-- **⚽ Calcio (Dizionario nomi squadra):** profilo (Nuovo/Rinomina/Elimina) + tabella
+- **⚽ Calcio (Dizionario nomi squadra):** **colonna profili SEMPRE VISIBILE** (#182 PR B — prima
+  era una tendina `CTkOptionMenu`, quindi per sapere quali profili esistessero bisognava aprirla).
+  Un riquadro scorrevole con una riga per profilo, ciascuna con:
+  - il **nome**;
+  - **«🧩 N»** = quanti **parser salvati** usano quel profilo (assente quando è zero: «🧩 0» sarebbe
+    rumore — un profilo non ancora collegato a un parser è normale);
+  - **«· N righe»** = quante righe di mappatura contiene.
+
+  **Click singolo = apri** (non doppio, come nel pannello Parser: cambiare profilo **auto-salva**
+  quello che stai lasciando, quindi non serve un gesto di conferma in più). Sotto l'elenco:
+  **«🆕 Nuovo»**, **«✏️ Rinomina»**, **«🗑 Elimina»** e il suggerimento *«(clicca un profilo per
+  aprirlo)»*.
+
+  In **coda** all'elenco, i profili **⚠ «solo riferiti»**: nomi che un parser salvato richiede ma
+  che nel dizionario **non esistono più** (rinominati o eliminati altrove). Sono la causa di
+  `MAPPING_MISSING` a runtime — ogni segnale di quella chat viene **scartato** — e prima nulla nel
+  pannello lo diceva. Si vedono ma **non sono cliccabili**: non esistono, aprirli non avrebbe senso;
+  servono a sapere che vanno ricreati o tolti dalla spunta nel parser.
+
+  ⚠️ **Invariante di sicurezza preservata:** quando un cambio profilo viene **annullato** (config
+  illeggibile o auto-save fallito), l'evidenziazione dell'elenco **torna indietro** insieme allo
+  stato interno. Senza, l'utente crederebbe di essere sul profilo nuovo e scriverebbe le righe
+  sopra quello vecchio. Sotto: la tabella
   **Country · Betfair/XTrader · Come lo scrive il canale · Sport · Tipo · Lingua**. Traduce i nomi del
   canale nei nomi attesi da Betfair/XTrader. La colonna **«Come lo scrive il canale»** (già «Provider»,
   rinominata in **#293** per non collidere con l'anagrafica «Provider» = etichetta CSV; la chiave

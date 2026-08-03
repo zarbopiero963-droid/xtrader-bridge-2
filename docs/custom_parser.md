@@ -131,6 +131,12 @@ provider nei nomi Betfair/XTrader **prima** della scrittura:
 
 - ogni profilo è una tabella a campi liberi `Betfair/XTrader ↔ Provider` (+ `Country`
   organizzativo); entrambe le colonne le compili tu;
+- nel pannello **🗺️ Mapping → ⚽ Calcio** i profili sono in una **colonna sempre visibile**
+  (#182 PR B), non più dentro una tendina da aprire. Ogni riga mostra il nome, **«🧩 N»** =
+  quanti parser lo usano, e **«· N righe»**; **un click** apre il profilo (e **auto-salva**
+  quello che stavi modificando). In coda compaiono i profili **⚠ «solo riferiti»** — richiesti
+  da un parser ma **inesistenti** nel dizionario: sono la causa di `MAPPING_MISSING`, cioè di
+  segnali scartati, e vanno ricreati o tolti dalla spunta nel parser;
 - il parser seleziona uno o più profili (`name_mapping_profiles`) e indica il
   separatore casa/trasferta del canale (`team_separator`, testo libero: `v`, `vs`,
   `-`, `/`; vuoto = default `v`). I separatori **alfabetici** (`v`/`vs`) richiedono
