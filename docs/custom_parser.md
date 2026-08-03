@@ -260,6 +260,31 @@ ha quindi **tre** casi:
    della feature (retro-compatibile). **Nessun** default `v` viene applicato in questo
    percorso: la riformattazione scatta **solo** con separatore esplicito.
 
+**Gli avvisi dicono cosa fare, non solo cosa è successo (#182 PR A ⑨).**
+
+| Campo «Separatore squadre» | Cosa vedi |
+|---|---|
+| **impostato e trovato** | niente: riformatta e basta |
+| **impostato ma non trovato** | ⚠ avviso **azionabile** — al testo storico si aggiunge «*; il messaggio sembra usare «v» — correggi «Separatore squadre» nel parser*», quando un separatore plausibile c'è. In anteprima **e** nel log. La riga resta scritta col nome verbatim |
+| **vuoto**, ma il nome sembra divisibile | 💡 suggerimento **non bloccante** solo in «🧪 Prova messaggio»: «*il messaggio sembra usare «v» fra le squadre: impostando «Separatore squadre» l'EventName diventa «Casa - Trasferta»*» |
+| **vuoto**, nome non divisibile | niente |
+
+Il caso reale che ha motivato il punto: `Al-Kholood Club v Al-Hilal` con il campo impostato a
+`-`. L'avviso diceva solo che non aveva trovato niente, e non che il messaggio usava ` v `.
+
+**Nessun suggerimento inventato.** Il separatore proposto è verificato con la **stessa**
+funzione che poi dividerebbe davvero (`split_event`, con la guardia `spaced_only`): se lo
+scrivi nel campo, funziona. Un `-` **interno** a un nome — «Al-Kholood Club» — non viene mai
+proposto.
+
+⚠️ **Il suggerimento a campo vuoto vive SOLO nell'anteprima**, mai nel log del runtime
+(decisione del proprietario 2026-08-03). Gli avvisi del runtime sono loggati a **ogni
+segnale**: lì una riga identica ripetuta seppellirebbe gli avvisi veri, su parser che
+funzionano benissimo — il campo vuoto è una scelta legittima, non un errore.
+
+**Nessuno dei due cambia il comportamento**: stesse righe scritte, stessi scarti. Il **blocco**
+del caso «impostato ma non trovato» è una modifica separata (PR S della #182), non questa.
+
 **Guardia anti-split (separatori simbolici).** Nel percorso senza-dizionario i separatori
 **simbolici** (`-`, `/`) accettano **solo** la forma **spaziata** (`\ - \`, `\ / \`), senza
 il fallback compatto: così un separatore sbagliato non taglia dentro un nome col trattino/
@@ -317,7 +342,7 @@ nell'area **⚽ Calcio** del Mapping (scheda «🗺️ Mapping» →
 `name_mapping_gui.NameMappingPanel`) il pulsante **«📥 Precompila da Betfair»** aggiunge una
 riga per ogni nome noto: **nome Betfair già scritto** nel campo (nessun menu a tendina —
 resta editabile), **Sport** impostato e **Tipo** `team`; tu scrivi solo l'**alias del
-canale** nel campo **Provider**, poi **💾 Salva**. È **non distruttivo e idempotente**: non
+canale** nel campo **Provider**, poi **💾 Salva profilo**. È **non distruttivo e idempotente**: non
 tocca le righe esistenti e **salta** i nomi già presenti (stesso sport + nome normalizzato).
 Fail-safe: con **dizionario locale vuoto** avvisa e non aggiunge nulla; **se un altro strumento
 tiene il lock del DB** fa fail-fast («⏳ …riprova tra poco») invece di **congelare** la GUI (legge
@@ -622,6 +647,36 @@ Tutti questi gate devono passare perché una riga venga scritta:
 6. **Condizioni di gate** (PR-1, opzionali): se il parser definisce condizioni
    `contiene`/`NON contiene` (con modo `E`/`O`), il messaggio viene processato **solo se**
    le soddisfa; altrimenti è **scartato** (`NO_CONTENT_MATCH`, nessuna riga). Vedi §3ter.
+
+### Come si sceglie il BetType (#182 PR A ⑧)
+
+Nella tabella regole la colonna **BetType** ha in «Valore fisso» una **tendina chiusa** con
+`""` · `PUNTA` · `BANCA` — non è testo libero.
+
+**Perché.** Il lato è **obbligatorio sempre** e non si deduce dal messaggio: la casella
+«Obblig.» non lo governa, quindi lasciarlo vuoto produceva `⛔ INVALID_BETTYPE` con **tutte** le
+altre colonne a `OK` — un errore che non diceva cosa fare. Ora i valori validi sono davanti a te.
+
+| Valore | In tendina? | Perché |
+|---|---|---|
+| `PUNTA` / `BANCA` | ✅ | sono gli **unici** che il CSV può contenere |
+| `BACK` / `LAY` | ❌ | accettati **in ingresso** e convertiti (`BACK`→`PUNTA`, `LAY`→`BANCA`): in tendina mostrerebbero una cosa e ne scriverebbero un'altra |
+| `FAVOR` / `CONTRA` | ❌ | **non supportati**: sceglierli darebbe **sempre** errore |
+
+La conversione vale **anche per i valori fissi**
+(`out["BetType"] = validator.canonical_bettype(bt)`), quindi anche scrivendo `BACK` a mano il
+CSV contiene `PUNTA`.
+
+**Un parser esistente con `BACK` non perde il lato:** un valore salvato fuori elenco viene
+**preservato** in tendina. Senza questa accortezza, aprire il pannello avrebbe cancellato il
+lato di un parser che oggi funziona.
+
+**I due valori NON si traducono** in EN/ES. Sono *value-as-key*: finiscono verbatim nel CSV, e
+il contratto (`docs/xtrader_csv_contract.md`) **non ha un BetType per lingua**. Tradurli
+imporrebbe una ri-traduzione inversa al confine del contratto, col rischio di **invertire il
+lato della scommessa**. È la regola generale della #182: *le label si traducono, i valori di
+dominio no.* Il giorno in cui XTrader abilitasse lo spagnolo si aggiunge `FAVOR`/`CONTRA` alla
+mappa **in ingresso** (`validator._BETTYPE_CANON`); la tendina resta `PUNTA`/`BANCA`.
 
 ---
 

@@ -18,6 +18,7 @@ from . import (
     csv_writer,
     custom_parser,
     dizionario,
+    name_mapping_store,
     parser_diagnostics,
     recognition,
     sports,
@@ -546,9 +547,41 @@ class ParserBuilder:
         return "".join(f" · ⚠ {w}" for w in ordered)
 
     @staticmethod
+    def separator_hint(event_name, separator) -> str:
+        """Suggerimento non bloccante quando «Separatore squadre» è VUOTO ma l'EventName sembra
+        divisibile (#182 PR A ⑨). Stringa vuota = nessun suggerimento.
+
+        Col campo vuoto oggi non viene detto **nulla**: nessuna riformattazione e nessun avviso.
+        È una scelta corretta a runtime — il campo vuoto è legittimo e protegge i parser
+        esistenti — ma mentre CONFIGURI un parser il silenzio nasconde che il nome si potrebbe
+        normalizzare in «Casa - Trasferta».
+
+        ⚠️ **Solo anteprima, mai log live** (decisione del proprietario 2026-08-03). Questo
+        suggerimento NON passa da `PipelineResult.warnings`: quelli finiscono nel log a OGNI
+        segnale (`app.py`, sia sul percorso piazzabile sia sullo scartato), e una riga ripetuta
+        per ogni segnale su parser che funzionano benissimo seppellirebbe gli avvisi veri. Qui
+        compare dove serve: nel verdetto di «🧪 Prova messaggio», con il campo davanti agli occhi.
+
+        Nessun effetto sul comportamento: non cambia il verdetto di piazzabilità né una riga
+        scritta. Pura, testabile headless.
+
+        NB: il tester MULTIPLO (`batch_report`) non passa questo suggerimento, ed è voluto —
+        ripeterebbe la stessa riga per ognuno degli N messaggi, che è il rumore da cui questo
+        punto vuole stare alla larga. Il campo separatore si configura una volta, e il posto
+        dove lo si guarda è la prova singola."""
+        if str(separator or "").strip():
+            return ""                      # campo impostato: se ne occupa l'avviso #38
+        suggerito = name_mapping_store.detect_separator(event_name)
+        if not suggerito:
+            return ""
+        return (f"il messaggio sembra usare «{suggerito}» fra le squadre: impostando "
+                f"«Separatore squadre» l'EventName diventa «Casa - Trasferta»")
+
+    @staticmethod
     def test_verdict(errors: list, preview_rows: list, *, diag_placeable: bool,
                      diag_status: str, res_row: dict, res_missing_required: list,
-                     res_detail, content_ok: bool = True, res_warnings=()) -> str:
+                     res_detail, content_ok: bool = True, res_warnings=(),
+                     res_hint: str = "") -> str:
         """Verdetto sintetico di «Prova messaggio» (single + multi-riga). Logica pura, CI.
 
         Precedenza (Codex #19):
@@ -582,6 +615,11 @@ class ParserBuilder:
         # non ha potuto dividere le squadre → si mostra l'avviso accanto al verdetto (parità con il
         # log del runtime), SENZA cambiare il verdetto di piazzabilità (la riga resta valida).
         warn = ParserBuilder._warnings_suffix(res_warnings, preview_rows)
+        # Suggerimento non bloccante (#182 PR A ⑨), marcatore 💡 e non ⚠: non è successo niente
+        # di anomalo — il campo vuoto è legittimo — è solo un'occasione di normalizzare il nome.
+        # Si accoda DOPO gli avvisi e non altera mai il verdetto di piazzabilità.
+        if res_hint:
+            warn += f" · 💡 {res_hint}"
         if any(getattr(p, "kind", "base") != "base" for p in preview_rows):
             # Gate di contenuto come il runtime (signal_router): un parser a soli valori fissi
             # è piazzabile su qualsiasi testo ma verrebbe scartato con NO_CONTENT_MATCH. Non

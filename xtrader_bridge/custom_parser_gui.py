@@ -36,6 +36,7 @@ from . import (
     recognition,
     sports,
     ui_theme,
+    validator,
 )
 from .custom_parser import Condition, MultiRowRule
 from .parser_builder import ParserBuilder
@@ -685,6 +686,17 @@ class CustomParserPanel(ctk.CTkFrame):
         ctk.CTkButton(riga_anag, text=i18n.tr("🎯 Dizionario mercati"), width=170,
                       command=self._open_market_mapping).pack(side="left", padx=6)
 
+        # #182 PR A ⑧: nota fissa sotto la griglia. Il lato è l'unica colonna obbligatoria che
+        # non si può dedurre dal messaggio, e la tendina non può spiegare da sola perché non
+        # offre BACK/LAY — che pure sono accettati. Testo statico: nessuno stato da mantenere.
+        ctk.CTkLabel(
+            outer,
+            text=i18n.tr("ℹ️ BetType: PUNTA o BANCA sono gli unici valori che il CSV può "
+                         "contenere. BACK/LAY sono accettati in ingresso e convertiti "
+                         "automaticamente; FAVOR/CONTRA non sono supportati."),
+            font=ctk.CTkFont(size=11), text_color="gray",
+            anchor="w", justify="left", wraplength=880).pack(fill="x", padx=16, pady=(0, 2))
+
         # #182 PR A ⑥: avviso NON bloccante sulle righe con valore fisso. Vuoto = invisibile.
         self._fixed_warn_lbl = ctk.CTkLabel(
             outer, text="", font=ctk.CTkFont(size=11), text_color=ui_theme.STATUS_WARN,
@@ -796,7 +808,15 @@ class CustomParserPanel(ctk.CTkFrame):
 
         actions = ctk.CTkFrame(outer, fg_color="transparent")
         actions.pack(fill="x", padx=10, pady=4)
-        ctk.CTkButton(actions, text=i18n.tr("💾 Salva"), command=self._save).pack(side="left", padx=4)
+        # #182 PR A ⑦: «💾 Salva parser», non «💾 Salva». È il primo di quattro pulsanti in fila
+        # con tre comandi di PROVA, quindi si legge come parte di quel gruppo; e nell'app esistono
+        # già «💾 Salva Config» (finestra principale), «💾 Salva profilo» (Dizionario nomi) e
+        # «💾 Salva chiave» (assistente) — quattro «Salva» con oggetti diversi, e solo questo non
+        # diceva il suo. Conseguenza osservata dal proprietario: parser completo configurato e
+        # collaudato con «Parser salvati» su «(nessuno)», cioè lavoro NON persistito.
+        # Solo la label: `_save` non è toccato.
+        ctk.CTkButton(actions, text=i18n.tr("💾 Salva parser"),
+                      command=self._save).pack(side="left", padx=4)
         ctk.CTkButton(actions, text=i18n.tr("🧪 Prova messaggio"), command=self._test).pack(side="left", padx=4)
         # Tester multiplo (#311 §3.2): N messaggi reali separati da righe «---».
         ctk.CTkButton(actions, text=i18n.tr("🧪🧪 Prova più messaggi (separati da ---)"),
@@ -1192,6 +1212,35 @@ class CustomParserPanel(ctk.CTkFrame):
                                               values=vals)
             provider_menu.pack(side="left", padx=2)
             refs["provider_menu"] = provider_menu   # per refresh_options (hub)
+        elif rule.target == "BetType":
+            # #182 PR A ⑧: tendina CHIUSA con i soli valori che il CSV può contenere.
+            # Il lato è obbligatorio SEMPRE e non si indovina mai (`validator`:
+            # `_CANONICAL_BETTYPES = ("PUNTA", "BANCA")`), e la casella «Obblig.» non lo governa
+            # — lasciarlo testo libero produceva `⛔ INVALID_BETTYPE` con tutte le altre colonne
+            # a OK, senza dire cosa scrivere. Conseguenza osservata dal proprietario.
+            #
+            # Perché SOLO "" · PUNTA · BANCA:
+            # - `BACK`/`LAY` sono accettati in INGRESSO e canonicalizzati (`_BETTYPE_CANON`),
+            #   quindi in tendina sarebbero ridondanti e fuorvianti: si sceglie `BACK` e nel CSV
+            #   esce `PUNTA`. La canonicalizzazione vale anche per i valori fissi
+            #   (`custom_pipeline`: `out["BetType"] = validator.canonical_bettype(bt)`).
+            # - `FAVOR`/`CONTRA` non sono supportati: sceglierli darebbe SEMPRE errore.
+            # I valori NON passano da `i18n.tr`: sono value-as-key scritti verbatim nel CSV, e il
+            # contratto non ha un BetType per lingua. Tradurli imporrebbe una ri-traduzione
+            # inversa col rischio di INVERTIRE il lato della scommessa (principio della #182:
+            # le label si traducono, i valori di dominio no).
+            refs["fixed_value"] = ctk.StringVar(value=rule.fixed_value)
+            vals = ["", *validator.CANONICAL_BETTYPES]
+            if rule.fixed_value and rule.fixed_value not in vals:
+                # Un parser salvato può portare `BACK`/`LAY` — VALIDI in ingresso. Una tendina
+                # chiusa che non li preservasse li cancellerebbe alla prima apertura del pannello:
+                # il lato sparirebbe da un parser che oggi funziona. Stesso trattamento del ramo
+                # Provider per un provider non più in anagrafica.
+                vals.append(rule.fixed_value)
+            bettype_menu = ctk.CTkOptionMenu(row, variable=refs["fixed_value"], width=130,
+                                             values=vals)
+            bettype_menu.pack(side="left", padx=2)
+            refs["bettype_menu"] = bettype_menu
         elif rule.target in _BETFAIR_TERM_TARGETS:
             # #283 PR 13: tendina EDITABILE coi valori permanenti Betfair (per sport). È una
             # CTkComboBox (non OptionMenu): suggerisce i valori sincronizzati MA il testo libero
@@ -1819,7 +1868,12 @@ class CustomParserPanel(ctk.CTkFrame):
             diag_placeable=diag.placeable, diag_status=diag.status,
             res_row=res.row, res_missing_required=res.missing_required,
             res_detail=res.detail, content_ok=not diag.message_error,
-            res_warnings=getattr(res, "warnings", ())))
+            res_warnings=getattr(res, "warnings", ()),
+            # #182 PR A ⑨: col campo «Separatore squadre» VUOTO oggi non veniva detto nulla,
+            # nemmeno quando il nome è palesemente divisibile. Il suggerimento vive SOLO qui,
+            # nell'anteprima: NON passa dai `warnings`, che il runtime logga a ogni segnale.
+            res_hint=ParserBuilder.separator_hint(
+                (res.row or {}).get("EventName", ""), self.builder.team_separator)))
         self._last_report = parser_diagnostics.format_report(diag)
         self._render_diag_table(parser_diagnostics.diagnostic_table(diag, defn))
         self._render_preview_table(preview)

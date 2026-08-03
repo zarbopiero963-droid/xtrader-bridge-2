@@ -38,6 +38,10 @@ verifica *dal vivo* che tutto sia a posto, senza attivare nulla di pericoloso:
    «Controlla ora»: il wizard conferma che è arrivato da quella chat.
 3. **Parser su un messaggio reale** — incolli un segnale reale del canale: il wizard mostra
    l'anteprima della riga CSV che verrebbe scritta.
+   > ⚠️ Se più tardi modifichi il parser da **🧰 Strumenti → 🧩 Parser**, ricordati di premere
+   > **«💾 Salva parser»**: l'anteprima «🧪 Prova messaggio» funziona anche su un parser **non
+   > salvato**, quindi si può collaudarlo per intero e poi perderlo chiudendo la finestra. Se in
+   > cima l'elenco «Parser salvati» non mostra il tuo nome, non è ancora su disco.
 4. **CSV** — verifica il percorso e, su tua richiesta, scrive un CSV **di prova a solo header** (non
    sovrascrive mai un file con una riga attiva).
 5. **Checklist finale** — riepilogo prima di partire. **Il wizard non attiva mai la modalità reale.**

@@ -84,7 +84,16 @@ def test_separatore_simbolico_sbagliato_non_taglia_dentro_nome():
     # nel percorso senza-dizionario → nome VERBATIM + avviso (mai "Al" / "Kholood Club v Al-Hilal").
     res = _event_of(_fixed_parser("Al-Kholood Club v Al-Hilal", "-"))
     assert res.row["EventName"] == "Al-Kholood Club v Al-Hilal"    # invariato
-    assert res.warnings == [pipe.WARN_TEAM_SEPARATOR_NOT_FOUND]
+    # #182 PR A ⑨ — è ESATTAMENTE il caso che ha motivato l'avviso azionabile: qui il messaggio
+    # usa « v » e il parser ha « - », quindi l'avviso non si limita più a dire che non ha trovato
+    # niente, ma NOMINA il separatore da mettere nel campo. Il prefisso storico resta invariato
+    # (è cercabile nel log), il suggerimento si aggiunge in coda.
+    assert res.warnings[0].startswith(pipe.WARN_TEAM_SEPARATOR_NOT_FOUND)
+    assert "«v»" in res.warnings[0], res.warnings[0]
+    assert "Separatore squadre" in res.warnings[0]
+    # Il COMPORTAMENTO non cambia: una riga sola, nome verbatim, nessuno scarto (è la PR S,
+    # non questa, a introdurre il blocco). Guardia esplicita contro un cambio involontario.
+    assert len(res.warnings) == 1
 
 
 def test_slash_compatto_non_spezza_senza_forma_spaziata():

@@ -505,6 +505,41 @@ def split_event(event_name: str, separator: str, *, spaced_only: bool = False):
     return home, away
 
 
+# Separatori che un messaggio può plausibilmente usare fra le due squadre, in ordine di
+# preferenza. Ordine deliberato: gli ALFABETICI per primi perché sono i più comuni nei canali
+# e sono i meno ambigui (` v ` non può comparire dentro un nome, un `-` sì). `vs` prima di `v`
+# non serve per correttezza — le due forme spaziate si escludono a vicenda (`\s+v\s+` non
+# combacia con «A vs B», e viceversa) — ma tiene l'ordine leggibile dal più specifico.
+# NB: NON è una lista di separatori "supportati": il campo resta testo libero. Serve solo a
+# SUGGERIRE, e per questo si prova con `split_event` invece di una regex nuova (fonte unica:
+# ciò che si suggerisce è esattamente ciò che poi dividerebbe davvero — #182 PR A ⑨).
+SEPARATORI_PLAUSIBILI = ("vs", "v", "-", "/")
+
+
+def detect_separator(event_name: str):
+    """Il separatore che ``event_name`` sembra usare fra le due squadre, o ``None``.
+
+    Sola LETTURA, pura, nessun effetto: serve a rendere AZIONABILI gli avvisi del pannello
+    Parser («il messaggio sembra usare « v »») invece di dire solo che qualcosa non ha
+    funzionato (#182 PR A ⑨).
+
+    Si prova ogni candidato con `split_event(..., spaced_only=True)`, cioè **la stessa
+    funzione** che poi dividerebbe davvero, con la stessa guardia anti-split del percorso
+    senza dizionario. Conseguenza voluta: non si può mai suggerire un separatore che, una
+    volta scritto nel campo, non dividerebbe. `spaced_only=True` è la scelta prudente — un
+    `-` interno a «Al-Kholood Club» non viene proposto come separatore.
+
+    Ritorna il primo candidato che divide in due nomi non vuoti; ``None`` se nessuno lo fa
+    (nome non divisibile, vuoto, o già in un formato che non usa separatori noti)."""
+    nome = str(event_name or "").strip()
+    if not nome:
+        return None
+    for candidato in SEPARATORI_PLAUSIBILI:
+        if split_event(nome, candidato, spaced_only=True) is not None:
+            return candidato
+    return None
+
+
 def resolve_event_name(event_name: str, separator: str, profiles, sport=None,
                        entity_type=None, language=None) -> str:
     """Traduce un ``EventName`` provider in ``EventName`` Betfair/XTrader, o ``None``.
