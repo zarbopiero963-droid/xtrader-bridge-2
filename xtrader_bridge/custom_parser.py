@@ -694,21 +694,66 @@ def parsers_using_market_mapping_profile(name: str, dir_path: str = None) -> lis
     return _parsers_using_profile("market_mapping_profiles", name, dir_path)
 
 
-def _parsers_using_profile(attr: str, name: str, dir_path: str = None) -> list:
-    """Nucleo condiviso: nomi dei parser salvati che referenziano ``name`` nell'attributo
-    ``attr`` (``name_mapping_profiles`` o ``market_mapping_profiles``). Best-effort."""
-    n = str(name or "").strip()
-    if not n:
-        return []
-    out = []
+def mapping_profile_usage(dir_path: str = None) -> dict:
+    """``{nome_profilo: [nomi parser]}`` per i profili di mappatura **nomi**, in UN solo
+    passaggio sui file dei parser salvati (#182 PR B: badge «🧩 N» della colonna profili).
+
+    Esiste già `parsers_using_mapping_profile`, ma risponde su **un** profilo: usarla per
+    disegnare i badge avrebbe riletto tutti i file una volta per profilo — O(profili × file)
+    di I/O a ogni ridisegno dell'elenco. Qui la mappa completa costa **una** passata.
+
+    Ordine dei parser preservato (quello di `list_parser_files`), così i badge e gli avvisi
+    di eliminazione mostrano sempre la stessa sequenza. Best-effort: i file non caricabili
+    vengono saltati — un parser corrotto non deve far sparire i badge di tutti gli altri."""
+    return _profile_usage("name_mapping_profiles", dir_path)
+
+
+def market_mapping_profile_usage(dir_path: str = None) -> dict:
+    """Come :func:`mapping_profile_usage` ma per i profili **mercati**
+    (``market_mapping_profiles``). Serve alla PR C della #182, e vive qui perché la logica
+    è la stessa: una sola fonte, due attributi."""
+    return _profile_usage("market_mapping_profiles", dir_path)
+
+
+def _profile_usage(attr: str, dir_path: str = None) -> dict:
+    """Nucleo condiviso: ``{profilo: [parser]}`` per ``attr``, una sola passata sui file.
+
+    Un parser compare **una volta sola** per profilo anche se lo elenca più volte:
+    `CustomParserDef.from_dict` pulisce i nomi ma **non deduplica**, quindi un
+    ``["Premier", "Premier"]`` scritto a mano (o prodotto da un merge) arriva davvero fin qui.
+    Senza il dedup il badge «🧩 N» conterebbe due volte lo stesso parser, e — peggio — l'avviso
+    prima di eliminare un profilo in uso lo elencherebbe due volte, dando l'impressione che a
+    dipenderne siano più parser di quanti siano davvero (rilievo Fable/GPT-5.5 sulla PR #226).
+
+    È anche il contratto storico di `_parsers_using_profile`, che testava l'appartenenza con
+    ``if n in profili`` — una occorrenza per parser, qualunque cosa contenesse la lista."""
+    out = {}
     for path in list_parser_files(dir_path):
         try:
             defn = load_parser(path)
         except (OSError, ValueError, json.JSONDecodeError):
             continue
-        if n in (getattr(defn, attr, []) or []):    # default [] per robustezza (Sourcery)
-            out.append(defn.name)
+        visti = set()
+        for profilo in (getattr(defn, attr, []) or []):   # default [] per robustezza (Sourcery)
+            nome = str(profilo or "").strip()
+            if nome and nome not in visti:
+                visti.add(nome)
+                out.setdefault(nome, []).append(defn.name)
     return out
+
+
+def _parsers_using_profile(attr: str, name: str, dir_path: str = None) -> list:
+    """Nucleo condiviso: nomi dei parser salvati che referenziano ``name`` nell'attributo
+    ``attr`` (``name_mapping_profiles`` o ``market_mapping_profiles``). Best-effort.
+
+    Delega a `_profile_usage` (fonte unica, #182 PR B): stesso numero di file letti di
+    prima — una passata — e nessuna possibilità che la mappa dei badge e l'avviso di
+    eliminazione divergano sul chi-usa-cosa. Comportamento invariato: stessa lista, stesso
+    ordine, ``[]`` per nome vuoto o profilo non referenziato."""
+    n = str(name or "").strip()
+    if not n:
+        return []
+    return _profile_usage(attr, dir_path).get(n, [])
 
 
 def delete_parser(name: str, dir_path: str = None) -> bool:

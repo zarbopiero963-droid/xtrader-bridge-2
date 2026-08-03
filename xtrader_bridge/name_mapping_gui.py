@@ -32,6 +32,7 @@ from . import (
     recognition,
     sports,
     ui_theme,
+    ui_widgets,
 )
 
 # Etichetta della tendina Sport per la riga agnostica ("" = vale per tutti gli sport).
@@ -141,19 +142,36 @@ class NameMappingPanel(ctk.CTkFrame):
             font=ctk.CTkFont(size=11), text_color="gray", wraplength=720,
             anchor="w", justify="left").pack(anchor="w", padx=12, pady=(0, 6))
 
-        # Riga profili: selettore + nuovo / rinomina / elimina.
+        # Colonna profili SEMPRE VISIBILE (#182 PR B): prima era un `CTkOptionMenu`, quindi per
+        # sapere quali profili esistessero bisognava aprirlo, e nulla diceva quali parser li
+        # usassero né quante righe avessero.
+        #
+        # ⚠️ `_profile_var` RESTA la fonte della selezione, anche senza più la tendina che lo
+        # mostrava. Non è un residuo: `_on_profile_change` lo usa per ANNULLARE visivamente un
+        # cambio profilo quando la config è illeggibile o il salvataggio fallisce (due
+        # `_profile_var.set(self._current)`). L'evidenziazione dell'elenco lo SEGUE via
+        # `trace_add`, così quei rollback continuano a funzionare senza essere toccati —
+        # altrimenti il codice sarebbe tornato al profilo vecchio mentre l'elenco continuava a
+        # evidenziare quello nuovo (è la classe di difetto della PR N: il consumatore, non il sito).
         prof = ctk.CTkFrame(self, fg_color="transparent")
         prof.pack(fill="x", padx=12, pady=(0, 6))
-        ctk.CTkLabel(prof, text=i18n.tr("Profilo:")).pack(side="left", padx=(6, 4))
+        ctk.CTkLabel(prof, text=i18n.tr("Profilo:"), anchor="w").pack(anchor="w", padx=(6, 4))
         self._profile_var = ctk.StringVar(value=self._NO_PROFILE)
-        self._profile_menu = ctk.CTkOptionMenu(
-            prof, variable=self._profile_var, values=[self._NO_PROFILE], width=220,
-            command=self._on_profile_change)
-        self._profile_menu.pack(side="left", padx=4)
-        ctk.CTkButton(prof, text=i18n.tr("🆕 Nuovo"), width=84, command=self._new_profile).pack(side="left", padx=3)
-        ctk.CTkButton(prof, text=i18n.tr("✏️ Rinomina"), width=96, command=self._rename_profile).pack(side="left", padx=3)
-        ctk.CTkButton(prof, text=i18n.tr("🗑 Elimina"), width=90, fg_color=ui_theme.DANGER,
+        self._profile_list = ctk.CTkScrollableFrame(prof, height=104)
+        self._profile_list.pack(fill="x", padx=4, pady=(2, 4))
+        self._profile_rows = {}          # nome profilo → frame della riga (per l'evidenziazione)
+        try:
+            self._profile_var.trace_add("write", lambda *_a: self._highlight_profiles())
+        except Exception:                # noqa: BLE001 — variabile non tracciabile: nessuna evidenziazione viva
+            pass
+        riga_azioni = ctk.CTkFrame(prof, fg_color="transparent")
+        riga_azioni.pack(fill="x", padx=4)
+        ctk.CTkButton(riga_azioni, text=i18n.tr("🆕 Nuovo"), width=84, command=self._new_profile).pack(side="left", padx=3)
+        ctk.CTkButton(riga_azioni, text=i18n.tr("✏️ Rinomina"), width=96, command=self._rename_profile).pack(side="left", padx=3)
+        ctk.CTkButton(riga_azioni, text=i18n.tr("🗑 Elimina"), width=90, fg_color=ui_theme.DANGER,
                       hover_color=ui_theme.DANGER_HOV, command=self._delete_profile).pack(side="left", padx=3)
+        ctk.CTkLabel(riga_azioni, text=i18n.tr("(clicca un profilo per aprirlo)"),
+                     font=ctk.CTkFont(size=11), text_color="gray").pack(side="left", padx=8)
 
         # Intestazione tabella. Etichette colonna (costanti `_HEADER_COLUMNS`) tradotte alla
         # resa; la chiave dati e i test di regressione usano la costante IT invariata.
@@ -197,13 +215,107 @@ class NameMappingPanel(ctk.CTkFrame):
                                    text_color=ui_theme.STATUS_ERR)
             return None
 
+    def _profile_usage(self) -> dict:
+        """`{profilo: [parser che lo usano]}`, sola LETTURA e best-effort (#182 PR B).
+
+        Una sola passata sui file dei parser (`custom_parser.mapping_profile_usage`), non una
+        per profilo. Se la cartella non è leggibile i badge spariscono ma l'elenco resta
+        usabile: un badge mancante non deve impedire di aprire un profilo."""
+        try:
+            return custom_parser.mapping_profile_usage() or {}
+        except Exception:            # noqa: BLE001 — parser illeggibili: nessun badge, mai un crash
+            return {}
+
+    def _render_profile_rows(self, names, cfg=None):
+        """Disegna una riga per profilo, coi marcatori «🧩 N» (parser che lo usano) e il numero
+        di righe di mappatura. In coda, i profili **⚠ solo riferiti** (#182 PR B).
+
+        «Solo riferiti» = un parser salvato chiede un profilo che nel dizionario **non esiste**
+        (rinominato o eliminato altrove). Sono la causa di `MAPPING_MISSING` a runtime — ogni
+        segnale di quella chat viene scartato — e prima di questa PR nulla nel pannello lo
+        diceva. Si mostrano ma **non sono cliccabili**: non esistono, aprirli non ha senso; li
+        si vede per sapere che vanno ricreati o tolti dalla spunta nel parser."""
+        for figlio in list(getattr(self._profile_list, "winfo_children", lambda: [])()):
+            figlio.destroy()
+        self._profile_rows = {}
+        uso = self._profile_usage()
+        for nome in names:
+            riga = ctk.CTkFrame(self._profile_list, fg_color="transparent")
+            riga.pack(fill="x", pady=1)
+            etichetta = ctk.CTkLabel(riga, text=nome, anchor="w")
+            etichetta.pack(side="left", padx=(4, 6))
+            quanti = len(uso.get(nome, []))
+            if quanti:
+                ctk.CTkLabel(riga, text=i18n.tr("🧩 {n}").format(n=quanti),
+                             font=ctk.CTkFont(size=11), text_color="gray").pack(side="left", padx=3)
+            righe = len(name_mapping_store.get_entries(cfg, nome)) if cfg is not None else 0
+            ctk.CTkLabel(riga, text=i18n.tr("· {n} righe").format(n=righe),
+                         font=ctk.CTkFont(size=11), text_color="gray").pack(side="left", padx=3)
+            self._profile_rows[nome] = riga
+            # Click SINGOLO = apri: cambiare profilo auto-salva quello che stai lasciando
+            # (`_on_profile_change`), quindi non serve il doppio click del pannello Parser.
+            # Il gestore ritorna "break" per non far risalire il click dall'etichetta al frame
+            # ed eseguire l'apertura due volte (stessa trappola della PR A ①).
+            # …e da TASTIERA (Invio/Spazio): un elenco disegnato a mano non prende il focus come
+            # faceva il `CTkOptionMenu` che sostituisce (rilievo CodeRabbit #226). Solo la RIGA
+            # entra nel giro del Tab: focusabile anche l'etichetta, ogni profilo varrebbe due
+            # tab-stop (rilievo Fable #226).
+            gestore = self._gestore_click(nome)
+            ui_widgets.rendi_attivabile(riga, gestore)
+            ui_widgets.rendi_attivabile(etichetta, gestore, focusabile=False)
+        if not names:
+            ctk.CTkLabel(self._profile_list, text=i18n.tr("Nessun profilo. Crea un profilo con «Nuovo»."),
+                         text_color="gray", anchor="w").pack(anchor="w", padx=6, pady=4)
+        for fantasma in sorted(set(uso) - set(names)):
+            riga = ctk.CTkFrame(self._profile_list, fg_color="transparent")
+            riga.pack(fill="x", pady=1)
+            ctk.CTkLabel(riga, text=i18n.tr("⚠ {name} (solo riferito)").format(name=fantasma),
+                         anchor="w", text_color=ui_theme.STATUS_WARN,
+                         font=ctk.CTkFont(size=11)).pack(side="left", padx=(4, 6))
+            ctk.CTkLabel(riga, text=i18n.tr("🧩 {n}").format(n=len(uso.get(fantasma, []))),
+                         font=ctk.CTkFont(size=11), text_color="gray").pack(side="left", padx=3)
+        self._highlight_profiles()
+
+    def _gestore_click(self, nome):
+        """Gestore del click su una riga-profilo: apre il profilo e FERMA la propagazione.
+
+        Metodo normale e non `staticmethod`: Tk invoca l'handler con il **solo evento**, quindi
+        `self` deve arrivare dalla chiusura. Con uno `staticmethod` il primo parametro avrebbe
+        raccolto l'evento credendolo `self`.
+
+        Il `"break"` è incondizionato e non dipende da cosa ritorna `_on_profile_change`:
+        riga ed etichetta sono entrambe legate, quindi senza di esso un click sull'etichetta
+        scatterebbe lì e poi risalirebbe al frame, eseguendo il cambio profilo due volte — e
+        un cambio profilo AUTO-SALVA, quindi non è un no-op innocuo."""
+        def _click(_evento=None):
+            self._on_profile_change(nome)
+            return "break"
+        return _click
+
+    def _highlight_profiles(self):
+        """Evidenzia la riga del profilo selezionato, leggendo `_profile_var`.
+
+        Legata al `trace_add` della variabile: ogni `_profile_var.set(...)` esistente — inclusi
+        i **rollback** di `_on_profile_change` quando la config è illeggibile o il salvataggio
+        fallisce — riallinea l'elenco da solo, senza che quei rami debbano saperne nulla."""
+        # `self.__dict__.get` e non `getattr`: su un `CTkFrame` con lo stato Tk incompleto un
+        # attributo mancante finisce nel `__getattr__` di tkinter, che ricorre invece di
+        # sollevare `AttributeError` (rilievo CodeRabbit sulla PR #223).
+        righe = self.__dict__.get("_profile_rows") or {}
+        corrente = self._profile_var.get() if self.__dict__.get("_profile_var") is not None else ""
+        for nome, riga in righe.items():
+            try:
+                riga.configure(fg_color=(ui_theme.ACCENT if nome == corrente else "transparent"))
+            except Exception:        # noqa: BLE001 — widget distrutto durante un refresh
+                pass
+
     def _reload_profiles(self, select=None, select_first=False, cfg=None):
-        """Ricarica la tendina dei profili da config e seleziona quello indicato.
+        """Ricarica l'elenco dei profili da config e seleziona quello indicato.
         `cfg` fornita = fonte viva (P3-7 #76), propagata anche alle righe; `None` = disco."""
         if cfg is None:
             cfg = self._load_cfg()
         names = name_mapping_store.profile_names(cfg) if cfg is not None else []
-        self._profile_menu.configure(values=names or [self._NO_PROFILE])
+        self._render_profile_rows(names, cfg)
         if select and select in names:
             target = select
         elif self._current in names:

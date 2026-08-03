@@ -1185,7 +1185,39 @@ Sport/Tipo/Lingua e i nomi **Mercato/Selezione del Catalogo** (canonici), i **ta
 guidato** (`guided_mapping_gui.py`, modulo separato — slice futura). La **logica** (persistenza,
 gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia solo il testo mostrato.
 
-- **⚽ Calcio (Dizionario nomi squadra):** profilo (Nuovo/Rinomina/Elimina) + tabella
+- **⚽ Calcio (Dizionario nomi squadra):** **colonna profili SEMPRE VISIBILE** (#182 PR B — prima
+  era una tendina `CTkOptionMenu`, quindi per sapere quali profili esistessero bisognava aprirla).
+  Un riquadro scorrevole con una riga per profilo, ciascuna con:
+  - il **nome**;
+  - **«🧩 N»** = quanti **parser salvati** usano quel profilo (assente quando è zero: «🧩 0» sarebbe
+    rumore — un profilo non ancora collegato a un parser è normale);
+  - **«· N righe»** = quante righe di mappatura contiene.
+
+  L'elenco è **scorrevole**. **Click singolo = apri** (non doppio, come nel pannello Parser:
+  cambiare profilo **auto-salva** quello che stai lasciando, quindi non serve un gesto di conferma
+  in più); da **tastiera** la riga si raggiunge col Tab e si apre con **Invio o Spazio** — **un solo
+  tab-stop per riga**: l'etichetta dentro la riga resta cliccabile col mouse ma non entra nel
+  giro del Tab, altrimenti scorrere dieci profili ne chiederebbe venti. Nel
+  pannello **🧩 Parser** le righe salvate hanno la stessa attivazione da tastiera, dove però
+  Invio/Spazio **selezionano** (equivalente del click singolo) e mai aprono: da tastiera non
+  esiste il «doppio», e aprire salterebbe la conferma di scarto che il doppio click rende
+  deliberata. Sotto l'elenco:
+  **«🆕 Nuovo»**, **«✏️ Rinomina»**, **«🗑 Elimina»** e il suggerimento *«(clicca un profilo per
+  aprirlo)»*.
+
+  In **coda** all'elenco, i profili **⚠ «solo riferiti»**: nomi che un parser salvato richiede ma
+  che nel dizionario **non esistono più** (rinominati o eliminati altrove). A runtime i messaggi
+  intercettati **da quel parser** producono `MAPPING_MISSING` e il relativo segnale viene
+  **scartato**; una chat può avere **più parser** (`parser_list_by_chat`), quindi gli altri
+  continuano a funzionare — il danno è circoscritto al parser che chiede il profilo mancante, non
+  all'intera chat. Prima nulla nel pannello lo diceva. Si vedono ma **non sono cliccabili**: non
+  esistono, aprirli non avrebbe senso; servono a sapere che vanno ricreati o tolti dalla spunta
+  nel parser.
+
+  ⚠️ **Invariante di sicurezza preservata:** quando un cambio profilo viene **annullato** (config
+  illeggibile o auto-save fallito), l'evidenziazione dell'elenco **torna indietro** insieme allo
+  stato interno. Senza, l'utente crederebbe di essere sul profilo nuovo e scriverebbe le righe
+  sopra quello vecchio. Sotto: la tabella
   **Country · Betfair/XTrader · Come lo scrive il canale · Sport · Tipo · Lingua**. Traduce i nomi del
   canale nei nomi attesi da Betfair/XTrader. La colonna **«Come lo scrive il canale»** (già «Provider»,
   rinominata in **#293** per non collidere con l'anagrafica «Provider» = etichetta CSV; la chiave
