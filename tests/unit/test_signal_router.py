@@ -4,7 +4,7 @@ from xtrader_bridge import custom_parser as cp
 from xtrader_bridge import custom_pipeline, parser_io, parser_manager, signal_router
 
 
-def _save_example(dir_path, name="Esempio: Match/Esito/Quota/Lato"):
+def _save_example(dir_path, name=parser_io.EXAMPLE_PARSER_NAME):
     defn = parser_io.example_parser()
     defn.name = name
     return cp.save_parser(defn, dir_path)
@@ -402,9 +402,9 @@ def test_provider_sorgente_vince_su_parser_custom(tmp_path):
     # della sorgente (qui mode LIVE → TG_LIVE) VINCE sul Provider fisso del parser
     # custom (l'esempio fissa TG_CUSTOM). Per una chat NON-sorgente il Provider
     # del parser resta invariato.
-    _save_example(str(tmp_path), "Esempio: Match/Esito/Quota/Lato")
+    _save_example(str(tmp_path), parser_io.EXAMPLE_PARSER_NAME)
     cfg = {"provider": "GLOBAL",
-           "parser_by_chat": {"111": "Esempio: Match/Esito/Quota/Lato", "222": "Esempio: Match/Esito/Quota/Lato"},
+           "parser_by_chat": {"111": parser_io.EXAMPLE_PARSER_NAME, "222": parser_io.EXAMPLE_PARSER_NAME},
            "source_chats": [{"chat_id": "111", "enabled": True, "mode": "LIVE"}]}
     msg = parser_io.fixture_message()
     r_src = signal_router.resolve_row(msg, cfg, chat_id="111", parsers_dir=str(tmp_path))
