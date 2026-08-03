@@ -222,7 +222,12 @@ def test_rollback_su_salvataggio_fallito_riporta_indietro_l_elenco(nmg, monkeypa
     finto = _pannello(nmg)
     finto._profile_var.set("B")
     finto._load_cfg = lambda: {"name_mappings": {"A": [], "B": []}}
-    finto._collect_rows = lambda: []
+    # `lambda: []` e NON `list` (che ruff PIE807 suggerirebbe): come test double dev'essere
+    # STRETTO sull'arita'. `list` accetterebbe un argomento in silenzio, quindi se domani
+    # `_collect_rows` cambiasse firma il test passerebbe lo stesso invece di cadere
+    # (rilievo GPT-5.5 sulla PR #228). Il job lint e' `continue-on-error`, quindi la regola
+    # cosmetica non vale un doppio piu' permissivo.
+    finto._collect_rows = lambda: []  # noqa: PIE807 — arita' stretta voluta
     finto._status = types.SimpleNamespace(configure=lambda **k: None)
     finto._on_saved = None
     finto._reload_rows = lambda cfg=None: pytest.fail("switch annullato: niente reload")
@@ -311,23 +316,39 @@ def test_i_figli_cliccabili_non_creano_un_secondo_tab_stop():
         "al default del widget lo rimetterebbe in silenzio a un cambio di CustomTkinter")
 
 
-def test_entrambi_i_pannelli_rendono_focusabile_solo_la_riga():
-    """La classe, non il sito: la regola del tab-stop singolo vale per tutti e due gli elenchi."""
+def test_un_solo_elemento_focusabile_per_riga_ovunque(leggi_sorgente):
+    """La classe, non il sito: «un solo tab-stop per riga» vale per OGNI elenco cliccabile.
+
+    #182 PR C: i due pannelli Mapping (⚽ nomi e 🎯 mercati) ora condividono
+    `ui_widgets.disegna_elenco_profili`, quindi la regola vive in **un posto solo** e loro la
+    ereditano — questo test non è stato indebolito, la sua invariante si è consolidata. Il
+    pannello 🧩 Parser ha ancora il proprio disegno e viene controllato a parte.
+
+    Il filtro tollera un `focusabile` NON costante (rilievo Fable sulla PR #226, Issue #227):
+    prima `k.value.value` avrebbe sollevato `AttributeError` su un `ast.Name`. Un valore non
+    statico però rende l'invariante non più verificabile leggendo il sorgente, quindi qui è un
+    FALLIMENTO esplicito e non un caso ignorato in silenzio."""
     import ast
-    import pathlib
-    for modulo in ("xtrader_bridge/name_mapping_gui.py", "xtrader_bridge/custom_parser_gui.py"):
-        albero = ast.parse(pathlib.Path(modulo).read_text(encoding="utf-8"))
+    for modulo in ("xtrader_bridge/ui_widgets.py", "xtrader_bridge/custom_parser_gui.py"):
+        albero = ast.parse(leggi_sorgente(modulo))
         chiamate = [n for n in ast.walk(albero)
-                    if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-                    and n.func.attr == "rendi_attivabile"]
+                    if isinstance(n, ast.Call)
+                    and (getattr(n.func, "attr", None) == "rendi_attivabile"
+                         or getattr(n.func, "id", None) == "rendi_attivabile")]
         assert chiamate, f"{modulo}: nessuna riga attivabile da tastiera"
-        # L'invariante è «UN solo tab-stop per riga», non «esattamente due chiamate»: fissare il
-        # numero totale renderebbe il test un falso allarme al primo elemento cliccabile in più
-        # (rilievo Fable sulla PR #226). Si conta quindi solo quante chiamate NON passano
-        # `focusabile=False`: dev'essere una, quante che siano le altre.
-        focusabili = [c for c in chiamate
-                      if not any(k.arg == "focusabile" and k.value.value is False
-                                 for k in c.keywords)]
+
+        focusabili = []
+        for chiamata in chiamate:
+            kw = {k.arg: k.value for k in chiamata.keywords}
+            if "focusabile" not in kw:
+                focusabili.append(chiamata)               # default True
+                continue
+            valore = kw["focusabile"]
+            assert isinstance(valore, ast.Constant), (
+                f"{modulo}: `focusabile` non è una costante ({type(valore).__name__}): "
+                f"l'invariante un-tab-stop-per-riga non è più verificabile dal sorgente")
+            if valore.value is not False:
+                focusabili.append(chiamata)
         assert len(focusabili) == 1, (
             f"{modulo}: {len(focusabili)} elementi focusabili per riga invece di 1 — "
             f"ogni riga varrebbe più di un tab-stop")
@@ -351,7 +372,7 @@ def test_takefocus_e_best_effort_e_non_impedisce_il_disegno():
     assert "<Button-1>" in w.legati
 
 
-def test_anche_le_righe_del_pannello_PARSER_si_attivano_da_tastiera():
+def test_anche_le_righe_del_pannello_PARSER_si_attivano_da_tastiera(leggi_sorgente):
     """**Cercata la classe, non il sito.** Le righe-elenco cliccabili sono DUE: qui e nel
     pannello 🧩 Parser della PR A (già mergiata, #223). Correggere solo la mia avrebbe lasciato
     l'altra irraggiungibile da tastiera — è esattamente il modo in cui, sulla #16, tre siblings
@@ -361,8 +382,7 @@ def test_anche_le_righe_del_pannello_PARSER_si_attivano_da_tastiera():
     non esiste il «doppio click», e aprire salterebbe la conferma di scarto che il doppio click
     esiste per rendere deliberata."""
     import ast
-    import pathlib
-    sorgente = pathlib.Path("xtrader_bridge/custom_parser_gui.py").read_text(encoding="utf-8")
+    sorgente = leggi_sorgente("xtrader_bridge/custom_parser_gui.py")
     albero = ast.parse(sorgente)
 
     # Risolve UN livello di indirezione: `apri = self._gestore_click(nome, self._open_saved)`

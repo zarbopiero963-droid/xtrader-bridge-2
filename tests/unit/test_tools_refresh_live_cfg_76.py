@@ -155,12 +155,20 @@ def test_market_mapping_reload_profiles_usa_la_config_viva(cfg_file, monkeypatch
     live = market_mapping_store.add_profile({}, "LIVE")
 
     panel = mod.MarketMappingPanel.__new__(mod.MarketMappingPanel)
-    panel._profile_menu, panel._profile_var, panel._current = _Menu(), _Var(), None
+    # #182 PR C: come per il pannello nomi, la tendina profili è diventata un ELENCO. L'invariante
+    # sotto test non cambia — `_reload_profiles` deve usare la config VIVA e propagarla alle righe
+    # — cambia solo dove si legge il risultato. Il render vero è una spia: qui si testa la
+    # propagazione della config, non il disegno (che ha i suoi test in test_mapping_profili_182).
+    panel._profile_var, panel._current = _Var(), None
+    resi = []
+    panel._render_profile_rows = lambda names, cfg=None: resi.append((list(names), cfg))
+    panel._highlight_profiles = lambda: None
     seen = []
     panel._reload_rows = lambda cfg=None: seen.append(cfg)
 
     panel._reload_profiles(select_first=True, cfg=live)
-    assert panel._profile_menu.values == ["LIVE"]
+    assert resi[-1] == (["LIVE"], live), (
+        "l'elenco profili mercati deve essere disegnato dalla config VIVA, non riletto dal disco")
     assert seen == [live]
 
 

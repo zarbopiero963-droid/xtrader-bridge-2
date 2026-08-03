@@ -1238,7 +1238,24 @@ gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia so
     **Se un altro strumento tiene il lock del DB** fa fail-fast con «⏳ Dizionario occupato:
     riprova tra poco» (arancione) **senza congelare la finestra**. La riga di stato riporta
     l'esito (es. «📥 Aggiunti N nomi Betfair… ; M già presenti»).
-- **🎯 Mercati (Dizionario mercati):** profilo + tabella **Inizia dopo · Finisce prima ·
+- **🎯 Mercati (Dizionario mercati):** **colonna profili SEMPRE VISIBILE** (#182 PR C), con la
+  **stessa identica presentazione** del Dizionario nomi: riquadro scorrevole, una riga per
+  profilo con **«🧩 N»** (quanti parser salvati lo usano, omesso a zero) e **«· N righe»**;
+  **click singolo = apri** (l'apertura auto-salva il profilo che stai lasciando); da **tastiera**
+  Tab per raggiungerla e **Invio/Spazio** per aprirla, **un solo tab-stop per riga**; sotto,
+  **«🆕 Nuovo» · «✏️ Rinomina» · «🗑 Elimina»** e il suggerimento *«(clicca un profilo per
+  aprirlo)»*; in coda i profili **⚠ «solo riferiti»**, non cliccabili.
+
+  Non è una somiglianza casuale: i due elenchi sono disegnati dalla **stessa funzione**
+  (`ui_widgets.disegna_elenco_profili`) e differiscono solo per quale dizionario conta le righe.
+  Chi rifà il design deve trattarli come **un unico componente**: una modifica all'aspetto di uno
+  cambia automaticamente l'altro, e divergerli richiederebbe di rompere la fonte unica.
+
+  ⚠️ **Invariante di sicurezza preservata**, identica al pannello nomi: quando un cambio profilo
+  viene **annullato** (config illeggibile o auto-save fallito), l'evidenziazione dell'elenco
+  **torna indietro** insieme allo stato interno.
+
+  Sotto la colonna: tabella **Inizia dopo · Finisce prima ·
   Testo mercato · Mercato (catalogo) · Selezione (catalogo) · Lingua**. Legge il mercato da una
   posizione precisa del messaggio e imposta Mercato/Selezione dal catalogo XTrader. La tendina
   **«Lingua»** (epica multilingua **#3 slice 5c**, speculare alla colonna Lingua del Dizionario
