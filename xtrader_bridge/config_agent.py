@@ -21,6 +21,7 @@ lasciano mai la macchina in chiaro.
 
 import json
 import os
+import re
 
 from . import (atomic_io, bridge_mode, config_store, csv_writer, custom_parser,
                diagnostics, dizionario,
@@ -515,9 +516,20 @@ GUIDES = {
                               "Il diario eventi (journal): cosa registra e come consultarlo."),
 }
 
-# Tetto sul contenuto restituito, per non gonfiare il contesto: una guida grande è troncata con nota
-# (l'assistente può leggerne un'altra o chiedere una sezione specifica).
+# Tetto sul contenuto restituito, per non gonfiare il contesto. Il tetto è GIUSTO e non si alza:
+# `design_handoff.md` da solo è 144.683 caratteri e cresce a ogni PR di design — non starà mai in
+# un contesto ragionevole. Sbagliato era COME tagliava (issue #214): dal primo carattere in poi,
+# senza che il modello sapesse cosa mancava. Ora il taglio non è più cieco — vedi `_read_guide`.
 MAX_GUIDE_CHARS = 12000
+
+# Preambolo (testo prima del primo titolo) mostrato insieme all'indice: è la sintesi che il
+# documento dà **di sé**, non un prefisso arbitrario, quindi orienta senza indurre a rispondere.
+MAX_GUIDE_PREAMBLE_CHARS = 1500
+
+# Titoli che formano l'indice: `##` e `###`. Misurato sulle guide reali: 18-48 voci, cioè un
+# indice completo sta comodamente sotto il tetto anche per la guida più grande. Scendere a `####`
+# non ridurrebbe la sezione massima (misurato) e allungherebbe l'indice per nulla.
+_GUIDE_HEADING_RE = re.compile(r"^(#{2,3})\s+(.+?)\s*$")
 
 
 def _guides_base_dir(base_dir=None) -> str:
@@ -525,6 +537,63 @@ def _guides_base_dir(base_dir=None) -> str:
     if base_dir is not None:
         return base_dir
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def guide_sections(text: str) -> list:
+    """Indice dei titoli di `text`: lista di `(livello, titolo, riga_iniziale, riga_finale)`.
+
+    Una sezione si estende fino al titolo successivo di livello **pari o superiore**: chiedere un
+    `##` restituisce anche i suoi `###`, che è il modo in cui un lettore intende «quella sezione».
+    Spezzarla al primo sottotitolo darebbe un frammento peggiore del troncamento che stiamo
+    togliendo di mezzo.
+
+    Funzione pura (nessun I/O): il test la esercita direttamente, senza toccare il filesystem."""
+    righe = (text or "").splitlines(keepends=True)
+    titoli = []
+    for i, riga in enumerate(righe):
+        m = _GUIDE_HEADING_RE.match(riga)
+        if m:
+            titoli.append((len(m.group(1)), m.group(2), i))
+    sezioni = []
+    for k, (livello, titolo, inizio) in enumerate(titoli):
+        fine = len(righe)
+        for livello_dopo, _t, inizio_dopo in titoli[k + 1:]:
+            if livello_dopo <= livello:
+                fine = inizio_dopo
+                break
+        sezioni.append((livello, titolo, inizio, fine))
+    return sezioni
+
+
+def _normalizza_titolo(s: str) -> str:
+    """Forma di confronto di un titolo: senza `#`, numerazione, spazi e maiuscole.
+
+    Il modello cita i titoli come li ha letti nell'indice, ma anche a memoria e in forma
+    abbreviata («gate di sicurezza» per «## 3. Gate di sicurezza (perché non scrive righe
+    sbagliate)»). Un confronto esatto fallirebbe quasi sempre, e il fallimento sarebbe
+    indistinguibile da «sezione inesistente»."""
+    s = re.sub(r"^[#\s]*", "", str(s or ""))
+    s = re.sub(r"^[0-9]+(?:[a-z]+)?[.)]?\s*", "", s, flags=re.IGNORECASE)   # «3.» / «3bis.» / «5-bis»
+    return " ".join(s.casefold().split())
+
+
+def _trova_sezione(sezioni, richiesta):
+    """La sezione che corrisponde a `richiesta`, o `None`. Deterministica.
+
+    Ordine: corrispondenza esatta (normalizzata) → titolo che **inizia** con la richiesta →
+    richiesta contenuta nel titolo. A parità, la prima nell'ordine del documento: mai una scelta
+    che dipende dall'ordine di iterazione di un set."""
+    cercata = _normalizza_titolo(richiesta)
+    if not cercata:
+        return None
+    candidati = [(_normalizza_titolo(sez[1]), sez) for sez in sezioni]
+    for prova in (lambda n: n == cercata,
+                  lambda n: n.startswith(cercata),
+                  lambda n: cercata in n):
+        for normalizzato, sez in candidati:
+            if prova(normalizzato):
+                return sez
+    return None
 
 
 def build_guide_tools(*, base_dir=None) -> list:
@@ -537,8 +606,13 @@ def build_guide_tools(*, base_dir=None) -> list:
             {"guides": [{"name": n, "about": desc} for n, (_p, desc) in sorted(GUIDES.items())]},
             ensure_ascii=False, indent=2)
 
+    def _indice(sezioni) -> str:
+        """L'indice testuale delle sezioni, rientrato per livello."""
+        return "\n".join(f"{'  ' * (liv - 2)}- {tit}" for liv, tit, _i, _f in sezioni)
+
     def _read_guide(inp):
         name = str(inp.get("name", "")).strip()
+        section = str(inp.get("section", "") or "").strip()
         entry = GUIDES.get(name)
         if entry is None:                       # solo i nomi in allowlist: niente path arbitrari
             return (f"Guida «{name}» non trovata. Disponibili: {', '.join(sorted(GUIDES))}. "
@@ -550,9 +624,63 @@ def build_guide_tools(*, base_dir=None) -> list:
         except (OSError, ValueError):           # fail-safe: docs non incluse (es. EXE) → nessun crash
             return (f"Guida «{name}» non disponibile in questa installazione (documentazione non "
                     "inclusa nel pacchetto).")
-        if len(text) > MAX_GUIDE_CHARS:
-            text = text[:MAX_GUIDE_CHARS] + "\n\n[…troncata: chiedi una sezione specifica o un'altra guida]"
-        return text
+
+        righe = text.splitlines(keepends=True)
+        sezioni = guide_sections(text)
+
+        if section:
+            trovata = _trova_sezione(sezioni, section)
+            if trovata is None:
+                return (f"Sezione «{section}» non trovata nella guida «{name}». "
+                        f"Sezioni disponibili:\n{_indice(sezioni)}\n\n"
+                        "Richiama 'read_guide' con uno di questi titoli in `section`.")
+            livello, titolo, inizio, fine = trovata
+            corpo = "".join(righe[inizio:fine])
+            intestazione = f"Guida «{name}» → sezione «{titolo}»\n\n"
+            if len(corpo) > MAX_GUIDE_CHARS:
+                # Anche una sezione può eccedere il tetto (la più grande misurata è 45.873
+                # caratteri). Si tronca, ma DICENDOLO e indicando le sotto-sezioni: il modello
+                # può stringere ancora invece di credere di aver letto tutto.
+                interne = [s for s in sezioni if s[2] > inizio and s[3] <= fine and s[0] > livello]
+                coda = ("\n\n[…sezione troppo lunga, mostrata solo la prima parte."
+                        + (f" Sotto-sezioni che puoi chiedere in `section`:\n{_indice(interne)}"
+                           if interne else " Non ha sotto-sezioni: chiedi all'utente di essere "
+                                           "più specifico su cosa gli serve.")
+                        + "]")
+                disponibili = MAX_GUIDE_CHARS - len(intestazione) - len(coda)
+                corpo = corpo[:max(0, disponibili)] + coda
+            return intestazione + corpo
+
+        if len(text) <= MAX_GUIDE_CHARS:
+            return text                          # guida piccola: invariata, testo intero
+
+        # Guida grande e nessuna sezione chiesta. Prima di #214 qui partiva un taglio cieco ai
+        # primi 12.000 caratteri: il modello riceveva un sesto del manuale e non aveva modo di
+        # sapere che esistessero un «Gate di sicurezza» o metà delle schermate della GUI — e
+        # rispondeva lo stesso, con la sicurezza di chi crede di aver letto tutto.
+        # Ora riceve l'INDICE COMPLETO (tutte le sezioni sono nominate, anche quelle che prima
+        # cadevano oltre il taglio) più il preambolo del documento, e l'istruzione di richiamare
+        # il tool sulla sezione che gli serve.
+        if not sezioni:
+            # Nessun titolo: non c'è indice da dare e `section` non avrebbe nulla da selezionare.
+            # Si torna al taglio classico — ma la nota dice il vero: prima consigliava di «chiedere
+            # una sezione specifica» quando il tool non aveva alcun parametro per farlo, e qui
+            # sezioni non ce ne sono proprio.
+            coda = "\n\n[…troncata: questa guida non ha sezioni, chiedine un'altra con 'list_guides']"
+            return text[:MAX_GUIDE_CHARS - len(coda)] + coda
+
+        prima_sezione = sezioni[0][2]
+        preambolo = "".join(righe[:prima_sezione])[:MAX_GUIDE_PREAMBLE_CHARS].rstrip()
+        quanti = f"{len(text):,}".replace(",", ".")      # separatore migliaia all'italiana
+        testa = (f"Guida «{name}» — {quanti} caratteri: TROPPO GRANDE per essere letta "
+                 f"intera.\n\nRichiama 'read_guide' con `section` per leggere la sezione che ti "
+                 "serve. NON rispondere all'utente basandoti solo su questo indice: qui ci sono i "
+                 "titoli, non il contenuto.\n\n"
+                 f"INDICE COMPLETO ({len(sezioni)} sezioni):\n")
+        blocco = testa + _indice(sezioni)
+        if preambolo:
+            blocco += f"\n\nApertura della guida:\n{preambolo}"
+        return blocco[:MAX_GUIDE_CHARS]
 
     return [
         AgentTool(
@@ -564,11 +692,17 @@ def build_guide_tools(*, base_dir=None) -> list:
         AgentTool(
             "read_guide",
             "Ritorna il contenuto di UNA guida del progetto (per `name`, da 'list_guides') per "
-            "spiegare pulsanti/campi/concetti e COME si fanno le azioni. Legge SOLO le guide in "
-            "elenco, nessun altro file. Sola lettura.",
+            "spiegare pulsanti/campi/concetti e COME si fanno le azioni. Se la guida è troppo "
+            "grande ricevi l'INDICE delle sezioni invece del testo: richiama allora lo stesso "
+            "tool passando `section` col titolo che ti serve. Legge SOLO le guide in elenco, "
+            "nessun altro file. Sola lettura.",
             {"type": "object",
              "properties": {"name": {"type": "string",
-                                     "description": "nome della guida (da 'list_guides')"}},
+                                     "description": "nome della guida (da 'list_guides')"},
+                            "section": {"type": "string",
+                                        "description": "titolo della sezione da leggere (dall'indice "
+                                                       "restituito quando la guida è troppo grande); "
+                                                       "omettilo per l'intera guida o per l'indice"}},
              "required": ["name"], "additionalProperties": False},
             READ_ONLY, _read_guide),
     ]
@@ -1239,6 +1373,11 @@ _SYSTEM_PROMPT_BASE = (
     "eseguono le azioni che TU non puoi fare (avviare il listener live, passare a modalità reale, "
     "impostare token/chat/CSV/parser/limiti): guidi l'utente a farle passo passo, spiegando anche le "
     "conseguenze, ma NON le esegui tu. Basa le spiegazioni sulle guide reali, non inventare. "
+    # #214 — le guide grandi arrivano come indice: leggere la sezione, non tirare a indovinare.
+    "Le guide grandi NON arrivano intere: ricevi l'INDICE delle sezioni. In quel caso richiama "
+    "'read_guide' passando `section` col titolo che serve alla domanda, e solo DOPO rispondi; se "
+    "l'indice nomina una sezione pertinente che non hai ancora letto, leggila invece di rispondere "
+    "a memoria. Se anche la sezione arriva troncata, dillo all'utente invece di completare a intuito. "
     "REGOLA SUI SEGRETI: non chiedere MAI all'utente di incollare token/API key/chat ID nella chat e "
     "non mostrarli — indica soltanto DOVE inserirli nella finestra. "
     # PR-8 Blocco B — prova messaggio: puoi provare un segnale col parser attivo, senza scrivere.

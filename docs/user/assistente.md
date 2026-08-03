@@ -56,6 +56,12 @@ live, passare a modalità reale, impostare token/chat/CSV/parser/limiti): ti **g
 spiegando anche le conseguenze, ma **non le esegue lui**. Basa le risposte sulle guide reali, non
 inventa.
 
+Alcune guide sono molto lunghe (quella dell'interfaccia da sola supera le 140.000 battute). In quei
+casi l'assistente non le legge tutte insieme: prima ne guarda l'**indice**, poi apre la **sezione**
+che serve alla tua domanda. Te ne accorgerai solo perché può impiegare un istante in più. Se anche
+quella sezione fosse troppo lunga, **te lo dice** invece di completare a intuito — prima di questa
+correzione, invece, delle guide più grandi vedeva solo l'inizio e rispondeva lo stesso.
+
 > 🔒 **Segreti:** l'assistente **non ti chiederà mai** di incollare token, API key o chat ID nella
 > chat, e **non li mostra**: ti dice soltanto **dove** inserirli nella finestra.
 

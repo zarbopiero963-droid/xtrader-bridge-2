@@ -965,3 +965,148 @@ def test_why_discarded_redige_segreti_nel_diario(tmp_path):
     reg = ca.build_default_registry(config_loader=lambda: {}, journal_path=p)
     out = reg.dispatch("why_discarded", {}).content
     assert token not in out
+
+
+# ── #214: la guida grande non arriva più amputata in silenzio ────────────────────────────────
+
+_GUIDA_GRANDE = (
+    "Preambolo che spiega di cosa parla la guida.\n\n"
+    "## 1. Introduzione\n" + "a" * 200 + "\n\n"
+    "## 2. Sezione intermedia\n" + "b" * 200 + "\n\n"
+    "### 2.1 Sottosezione\n" + "c" * 200 + "\n\n"
+    "## 3. Gate di sicurezza (perché non scrive righe sbagliate)\n" + "d" * 200 + "\n\n"
+    "## 4. Coda\n" + "riempitivo\n" * 3000        # spinge il totale ben oltre il tetto
+)
+
+
+def _scrivi_guida_grande(tmp_path, testo=_GUIDA_GRANDE):
+    tmp_path.joinpath("docs").mkdir(exist_ok=True)
+    tmp_path.joinpath("docs", "custom_parser.md").write_text(testo, encoding="utf-8")
+    return _guide_registry(tmp_path)
+
+
+def test_guida_grande_nomina_TUTTE_le_sezioni_anche_oltre_il_taglio(tmp_path):
+    """Il cuore della #214. Prima il tool restituiva i primi 12.000 caratteri e basta: le sezioni
+    che cadevano oltre — fra cui «Gate di sicurezza», cioè proprio la parte su cui un utente fa le
+    domande più delicate — erano invisibili, e il modello rispondeva lo stesso perché non sapeva
+    che esistessero. Ora l'indice le nomina tutte."""
+    reg = _scrivi_guida_grande(tmp_path)
+    out = reg.dispatch("read_guide", {"name": "parser_personalizzato"}).content
+    for titolo in ("1. Introduzione", "2. Sezione intermedia", "2.1 Sottosezione",
+                   "3. Gate di sicurezza", "4. Coda"):
+        assert titolo in out, f"sezione «{titolo}» non nominata nell'indice"
+    assert "TROPPO GRANDE" in out
+    assert "Preambolo che spiega" in out, "manca l'apertura della guida"
+    assert len(out) <= ca.MAX_GUIDE_CHARS
+
+
+def test_la_sezione_chiesta_arriva_davvero(tmp_path):
+    """La contropartita dell'indice: se il modello chiede la sezione, deve riceverne il CONTENUTO,
+    non un altro indice. Senza questo, l'indice sarebbe solo un modo più elegante di non rispondere."""
+    reg = _scrivi_guida_grande(tmp_path)
+    out = reg.dispatch("read_guide", {"name": "parser_personalizzato",
+                                      "section": "3. Gate di sicurezza"}).content
+    assert "Gate di sicurezza" in out
+    assert "d" * 200 in out, "il corpo della sezione non è stato restituito"
+    assert "a" * 200 not in out, "ha restituito anche sezioni non richieste"
+
+
+def test_chiedere_una_sezione_MADRE_include_le_figlie(tmp_path):
+    """Una sezione arriva fino al titolo di livello pari o superiore. Chiedere «2. Sezione
+    intermedia» deve dare anche la sua «2.1», che è come un lettore intende quella richiesta:
+    fermarsi al primo sottotitolo restituirebbe un frammento — cioè il difetto che stiamo togliendo."""
+    reg = _scrivi_guida_grande(tmp_path)
+    out = reg.dispatch("read_guide", {"name": "parser_personalizzato",
+                                      "section": "2. Sezione intermedia"}).content
+    assert "b" * 200 in out and "c" * 200 in out, "la sottosezione 2.1 è stata persa"
+    assert "d" * 200 not in out, "ha sconfinato nella sezione 3"
+
+
+def test_il_titolo_si_puo_citare_in_forma_abbreviata(tmp_path):
+    """Il modello cita i titoli anche a memoria e accorciati. Un confronto esatto fallirebbe quasi
+    sempre, e il fallimento sarebbe indistinguibile da «sezione inesistente» — cioè manderebbe
+    l'assistente a dire all'utente che una pagina non c'è quando invece c'è."""
+    reg = _scrivi_guida_grande(tmp_path)
+    for citazione in ("gate di sicurezza", "Gate di sicurezza", "3. Gate di sicurezza",
+                      "## 3. Gate di sicurezza"):
+        out = reg.dispatch("read_guide", {"name": "parser_personalizzato",
+                                          "section": citazione}).content
+        assert "d" * 200 in out, f"citazione {citazione!r} non ha trovato la sezione"
+
+
+def test_sezione_inesistente_non_solleva_e_offre_l_indice(tmp_path):
+    """Fail-safe: mai un'eccezione verso l'assistente, e la risposta dev'essere utile — l'indice,
+    così il modello può correggere il tiro invece di arrendersi."""
+    reg = _scrivi_guida_grande(tmp_path)
+    out = reg.dispatch("read_guide", {"name": "parser_personalizzato",
+                                      "section": "sezione che non esiste"}).content
+    assert "non trovata" in out
+    assert "3. Gate di sicurezza" in out, "non ha offerto l'indice per riprovare"
+
+
+def test_sezione_troppo_grande_lo_DICE_e_offre_le_sottosezioni(tmp_path):
+    """Anche una sola sezione può eccedere il tetto (nel repo reale la più grande è 45.873
+    caratteri). Il troncamento resta, ma non torna a essere cieco: si dichiara e indica dove
+    stringere."""
+    testo = ("## 1. Enorme\n" + "x" * (ca.MAX_GUIDE_CHARS + 5000) + "\n\n"
+             "### 1.1 Prima parte\n" + "y" * 100 + "\n\n"
+             "### 1.2 Seconda parte\n" + "z" * 100 + "\n")
+    reg = _scrivi_guida_grande(tmp_path, testo)
+    out = reg.dispatch("read_guide", {"name": "parser_personalizzato",
+                                      "section": "1. Enorme"}).content
+    assert len(out) <= ca.MAX_GUIDE_CHARS
+    assert "troppo lunga" in out
+    assert "1.1 Prima parte" in out and "1.2 Seconda parte" in out
+
+
+def test_guida_piccola_resta_INTERA(tmp_path):
+    """Non-regressione: sotto il tetto non cambia nulla. Sarebbe un pessimo affare pagare la
+    correzione con una round-trip in più su guide che stavano già bene."""
+    _write_guides(tmp_path)
+    reg = _guide_registry(tmp_path)
+    out = reg.dispatch("read_guide", {"name": "panoramica"}).content
+    assert out.strip() == "PANORAMICA DEL BRIDGE"
+    assert "INDICE" not in out
+
+
+def test_guida_grande_SENZA_titoli_torna_al_taglio_classico(tmp_path):
+    """Se non ci sono titoli non c'è indice da dare e `section` non selezionerebbe nulla: si tronca
+    come prima. La nota però dev'essere VERA — quella vecchia diceva «chiedi una sezione specifica»
+    quando il tool non aveva alcun parametro per farlo."""
+    reg = _scrivi_guida_grande(tmp_path, "X" * (ca.MAX_GUIDE_CHARS + 500))
+    out = reg.dispatch("read_guide", {"name": "parser_personalizzato"}).content
+    assert len(out) <= ca.MAX_GUIDE_CHARS
+    assert "troncata" in out and "non ha sezioni" in out
+
+
+def test_read_guide_con_section_resta_SOLA_LETTURA(tmp_path):
+    """La disciplina di estensione dell'assistente: il parametro nuovo non deve cambiare il
+    permesso del tool né toccare il disco."""
+    reg = _scrivi_guida_grande(tmp_path)
+    prima = sorted(p.name for p in tmp_path.rglob("*"))
+    res = reg.dispatch("read_guide", {"name": "parser_personalizzato", "section": "4. Coda"},
+                       allow_writes=False)
+    assert res.refused is False
+    assert sorted(p.name for p in tmp_path.rglob("*")) == prima, "ha scritto sul disco"
+
+
+def test_section_non_apre_una_strada_fuori_dall_allowlist(tmp_path):
+    """`section` è un TITOLO, non un percorso: non deve poter diventare un modo per leggere file
+    che l'allowlist non contempla. `name` resta l'unica chiave, e resta vincolato a GUIDES."""
+    reg = _scrivi_guida_grande(tmp_path)
+    tmp_path.joinpath("segreto.md").write_text("TOKEN=non-deve-uscire", encoding="utf-8")
+    for tentativo in ("../segreto.md", "/etc/passwd", "segreto"):
+        out = reg.dispatch("read_guide", {"name": "parser_personalizzato",
+                                          "section": tentativo}).content
+        assert "non-deve-uscire" not in out
+    out = reg.dispatch("read_guide", {"name": "../segreto.md"}).content
+    assert "non trovata" in out and "non-deve-uscire" not in out
+
+
+def test_indice_delle_guide_reali_sotto_il_tetto():
+    """Contratto sul repository VERO, non su file sintetici: nessuna guida dell'allowlist deve
+    sforare il tetto, con o senza sezione. È la garanzia che il tool non gonfi il contesto."""
+    tools = {t.name: t for t in ca.build_guide_tools()}
+    for nome in sorted(ca.GUIDES):
+        out = tools["read_guide"].handler({"name": nome})
+        assert len(out) <= ca.MAX_GUIDE_CHARS, f"{nome}: {len(out)} caratteri"
