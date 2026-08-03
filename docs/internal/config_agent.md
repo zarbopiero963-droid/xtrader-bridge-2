@@ -365,7 +365,20 @@ fare (avviare il listener live, passare a modalità reale, impostare token/chat/
     stesso supera il tetto: il clamp ne tagliava la coda mentre l'intestazione continuava ad
     annunciare *«INDICE COMPLETO (N sezioni)»* — misurato **400 annunciate, 69 elencate**. Lo
     stesso difetto della issue, un livello più in su. Ora o l'indice ci sta tutto, o diventa
-    **«INDICE PARZIALE: mostrate X su N»** e invita a chiedere l'argomento all'utente.
+    **«INDICE PARZIALE: mostrate X su N»** e invita a chiedere l'argomento all'utente;
+  - un **fence non chiuso** non nasconde più le sezioni che seguono. Correggendo i code fence
+    avevo introdotto un interruttore che, davanti a un ``` mai chiuso — cosa che capita in una
+    guida scritta a mano — spegneva il riconoscimento fino in fondo al file: **2 sezioni vere
+    perse su 3**, e invisibile, perché il conteggio annunciato viene dallo stesso parse sbagliato.
+    Ora i recinti si calcolano in un primo passaggio e solo quelli **chiusi** contano: nel dubbio
+    si sbaglia nella direzione che lascia la guida raggiungibile. Riconosciuti anche `~~~`, i
+    fence con linguaggio e quelli indentati.
+
+  **`render_index` è la fonte unica** (regola 3) di ogni elenco di titoli — guida troppo grande,
+  sezione non trovata, sotto-sezioni di una sezione troncata. Restituisce anche un booleano
+  `complete`: è quel valore a impedire che un chiamante annunci «completo» ciò che ha tagliato.
+  Il quarto sito della classe (l'indice della *sezione non trovata*) tagliava ancora in silenzio
+  ed è emerso solo dopo, a riprova che «cercare la classe» va fatto sui **rami**, non sui simboli.
 
   Il tetto **non si alza**: `design_handoff.md` è 144.683 caratteri e cresce a ogni PR di design —
   non starà mai in un contesto ragionevole. A cambiare è che il taglio non è più cieco.

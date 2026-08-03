@@ -1107,17 +1107,24 @@ def test_section_non_apre_una_strada_fuori_dall_allowlist(tmp_path):
     provava `../segreto.md`, che da `tmp_path` punta al **padre**: nessun tentativo colpiva il
     file piantato, quindi il test sarebbe passato anche con `section` usata come percorso —
     verificato per mutazione. Ora l'esca sta in **entrambi** i posti che un traversal
-    raggiungerebbe, e ogni tentativo è costruito per centrarne uno."""
-    reg = _scrivi_guida_grande(tmp_path)
+    raggiungerebbe, e ogni tentativo è costruito per centrarne uno.
+
+    La radice delle guide è una **sottocartella** di `tmp_path`, così l'esca «fuori radice» resta
+    comunque dentro la sandbox del test: scriverla in `tmp_path.parent` — il basetemp condiviso da
+    tutti i test della sessione — poteva collidere fra run paralleli e lasciare residui su Windows
+    (rilievo GPT-5.5 e Fable #217)."""
+    radice = tmp_path / "guide"
+    radice.mkdir()
+    reg = _scrivi_guida_grande(radice)
     esca = "chiave-segreta-che-non-deve-uscire"
-    tmp_path.joinpath("segreto.md").write_text(esca, encoding="utf-8")          # dentro la radice
-    tmp_path.parent.joinpath("segreto_fuori.md").write_text(esca, encoding="utf-8")   # fuori
+    radice.joinpath("segreto.md").write_text(esca, encoding="utf-8")        # dentro la radice
+    tmp_path.joinpath("segreto_fuori.md").write_text(esca, encoding="utf-8")  # fuori radice, in sandbox
     tentativi = (
         "segreto.md",                       # relativo alla radice delle guide
         "./segreto.md",
         "docs/../segreto.md",               # traversal che rientra
-        "../segreto_fuori.md",              # traversal che esce davvero
-        f"../{tmp_path.name}/segreto.md",   # esce e rientra
+        "../segreto_fuori.md",              # traversal che esce davvero dalla radice
+        f"../{radice.name}/segreto.md",     # esce e rientra
         "/etc/passwd",                      # assoluto
     )
     for tentativo in tentativi:
@@ -1264,3 +1271,71 @@ def test_indice_che_ci_sta_resta_dichiarato_COMPLETO(tmp_path):
     reg = _scrivi_guida_grande(tmp_path)          # 5 sezioni, indice minuscolo
     out = reg.dispatch("read_guide", {"name": "parser_personalizzato"}).content
     assert "INDICE COMPLETO" in out and "PARZIALE" not in out
+
+
+def test_un_fence_NON_CHIUSO_non_deve_nascondere_le_sezioni_successive(tmp_path):
+    """Regressione che avevo introdotto io correggendo i code fence (rilievo GPT-5.5 + Fable #217).
+
+    Col vecchio interruttore `dentro_codice = not dentro_codice`, un fence rimasto aperto — cosa
+    che capita in una guida scritta a mano — spegneva il riconoscimento fino in fondo al file e
+    faceva sparire dall'indice **tutte** le sezioni successive. Misurato: 2 sezioni vere perse su 3.
+    E sarebbe stato invisibile, perché il conteggio annunciato viene dallo stesso parse sbagliato.
+
+    Nascondere titoli veri è peggio che mostrarne uno falso: nel dubbio si sbaglia nella direzione
+    che lascia la guida raggiungibile. Un fence non chiuso a fine file quindi NON conta."""
+    testo = ("## 1. Prima\nt\n\n"
+             "```\nesempio mai chiuso\n\n"
+             "## 2. Dopo il fence aperto\nt\n\n"
+             "## 3. Anche questa\nt\n")
+    titoli = [t for _l, t, _i, _f in ca.guide_sections(testo)]
+    assert titoli == ["1. Prima", "2. Dopo il fence aperto", "3. Anche questa"], titoli
+
+
+def test_fence_in_tutte_le_forme_markdown(tmp_path):
+    """`~~~` è Markdown valido quanto i backtick: coprire solo i backtick lasciava passare un
+    titolo finto (rilievo Fable #217, verificato eseguendo). Coperti anche il fence con linguaggio
+    e quello indentato, che sono le forme usate davvero in queste guide."""
+    casi = {
+        "backtick":   "```",
+        "linguaggio": "```python",
+        "tilde":      "~~~",
+        "indentato":  "  ```",
+    }
+    for nome, apertura in casi.items():
+        chiusura = apertura.strip()[:3]
+        testo = (f"## 1. Vera\nt\n\n{apertura}\n## FINTA {nome}\n{chiusura}\n\n## 2. Vera\nt\n")
+        titoli = [t for _l, t, _i, _f in ca.guide_sections(testo)]
+        assert not any("FINTA" in t for t in titoli), f"{nome}: titolo finto ammesso → {titoli}"
+        assert titoli == ["1. Vera", "2. Vera"], f"{nome}: {titoli}"
+
+
+def test_anche_l_indice_della_sezione_NON_TROVATA_dichiara_se_e_tagliato(tmp_path):
+    """Bloccante Fugu #217, ed è il QUARTO sito della stessa classe: avevo cercato «promessa di
+    completezza su contenuto tagliato» e ne avevo trovati tre, non quattro. Il ramo «sezione non
+    trovata» costruiva l'indice intero e poi lo tagliava col clamp finale, in silenzio.
+
+    Ora entrambi i rami passano da `render_index`, che è la fonte unica e restituisce anche se
+    l'elenco è integro — così chi lo stampa non può annunciare una completezza non verificata."""
+    testo = "Preambolo.\n\n" + "".join(
+        f"## {i:04d} " + "titolo lungo che gonfia l'indice " * 5 + "\n" + "x" * 30 + "\n\n"
+        for i in range(400))
+    reg = _scrivi_guida_grande(tmp_path, testo)
+    out = reg.dispatch("read_guide", {"name": "parser_personalizzato",
+                                      "section": "una che non esiste"}).content
+    assert len(out) <= ca.MAX_GUIDE_CHARS
+    elencate = out.count("\n- ")
+    if elencate < 400:
+        assert "mostrate" in out, "ha tagliato l'elenco senza dichiararlo"
+        assert "su 400" in out, "non dice quante sezioni esistono davvero"
+
+
+def test_render_index_e_la_fonte_unica_dell_indice():
+    """Regola 3. `render_index` dice sempre se l'elenco è integro: è quel booleano a impedire che
+    un chiamante futuro annunci «completo» ciò che ha tagliato."""
+    sezioni = [(2, f"Sezione {i:03d}", i, i + 1) for i in range(50)]
+    testo, completo = ca.render_index(sezioni, 10_000)
+    assert completo is True and testo.count("\n") == 49
+    testo, completo = ca.render_index(sezioni, 100)
+    assert completo is False and 0 < testo.count("\n") < 49
+    testo, completo = ca.render_index(sezioni, 0)
+    assert completo is False and testo == ""
