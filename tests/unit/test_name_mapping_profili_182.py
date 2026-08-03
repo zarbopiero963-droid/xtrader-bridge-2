@@ -23,8 +23,6 @@ import types
 
 import pytest
 
-from conftest import leggi_sorgente
-
 from xtrader_bridge import custom_parser, name_mapping_store
 
 
@@ -224,7 +222,7 @@ def test_rollback_su_salvataggio_fallito_riporta_indietro_l_elenco(nmg, monkeypa
     finto = _pannello(nmg)
     finto._profile_var.set("B")
     finto._load_cfg = lambda: {"name_mappings": {"A": [], "B": []}}
-    finto._collect_rows = lambda: []
+    finto._collect_rows = list
     finto._status = types.SimpleNamespace(configure=lambda **k: None)
     finto._on_saved = None
     finto._reload_rows = lambda cfg=None: pytest.fail("switch annullato: niente reload")
@@ -313,7 +311,7 @@ def test_i_figli_cliccabili_non_creano_un_secondo_tab_stop():
         "al default del widget lo rimetterebbe in silenzio a un cambio di CustomTkinter")
 
 
-def test_un_solo_elemento_focusabile_per_riga_ovunque():
+def test_un_solo_elemento_focusabile_per_riga_ovunque(leggi_sorgente):
     """La classe, non il sito: «un solo tab-stop per riga» vale per OGNI elenco cliccabile.
 
     #182 PR C: i due pannelli Mapping (⚽ nomi e 🎯 mercati) ora condividono
@@ -326,7 +324,6 @@ def test_un_solo_elemento_focusabile_per_riga_ovunque():
     statico però rende l'invariante non più verificabile leggendo il sorgente, quindi qui è un
     FALLIMENTO esplicito e non un caso ignorato in silenzio."""
     import ast
-    import pathlib
     for modulo in ("xtrader_bridge/ui_widgets.py", "xtrader_bridge/custom_parser_gui.py"):
         albero = ast.parse(leggi_sorgente(modulo))
         chiamate = [n for n in ast.walk(albero)
@@ -370,7 +367,7 @@ def test_takefocus_e_best_effort_e_non_impedisce_il_disegno():
     assert "<Button-1>" in w.legati
 
 
-def test_anche_le_righe_del_pannello_PARSER_si_attivano_da_tastiera():
+def test_anche_le_righe_del_pannello_PARSER_si_attivano_da_tastiera(leggi_sorgente):
     """**Cercata la classe, non il sito.** Le righe-elenco cliccabili sono DUE: qui e nel
     pannello 🧩 Parser della PR A (già mergiata, #223). Correggere solo la mia avrebbe lasciato
     l'altra irraggiungibile da tastiera — è esattamente il modo in cui, sulla #16, tre siblings
@@ -380,7 +377,6 @@ def test_anche_le_righe_del_pannello_PARSER_si_attivano_da_tastiera():
     non esiste il «doppio click», e aprire salterebbe la conferma di scarto che il doppio click
     esiste per rendere deliberata."""
     import ast
-    import pathlib
     sorgente = leggi_sorgente("xtrader_bridge/custom_parser_gui.py")
     albero = ast.parse(sorgente)
 

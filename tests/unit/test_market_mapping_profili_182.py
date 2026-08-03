@@ -19,8 +19,6 @@ import types
 
 import pytest
 
-from conftest import leggi_sorgente
-
 from xtrader_bridge import custom_parser, market_mapping_store, ui_widgets
 
 
@@ -245,7 +243,7 @@ def test_rollback_mercati_su_salvataggio_fallito_riporta_indietro_l_elenco(nmg, 
     finto = _pannello_mercati(nmg)
     finto._profile_var.set("B")
     finto._load_cfg = lambda: {"market_mappings": {"A": [], "B": []}}
-    finto._collect_rows = lambda: []
+    finto._collect_rows = list
     finto._status = types.SimpleNamespace(configure=lambda **k: None)
     finto._on_saved = None
     finto._reload_rows = lambda cfg=None: pytest.fail("switch annullato: niente reload")
@@ -277,11 +275,10 @@ def test_i_badge_mercati_spariscono_se_i_parser_non_sono_leggibili(nmg, monkeypa
     assert nmg.MarketMappingPanel._profile_usage(finto) == {}
 
 
-def test_i_due_pannelli_usano_LA_STESSA_funzione_di_disegno():
+def test_i_due_pannelli_usano_LA_STESSA_funzione_di_disegno(leggi_sorgente):
     """Regola 3 resa verificabile: se un domani qualcuno ricopiasse il disegno dentro uno dei due
     pannelli invece di usare la fonte unica, questo test lo intercetta."""
     import ast
-    import pathlib
     albero = ast.parse(leggi_sorgente("xtrader_bridge/name_mapping_gui.py"))
     chiamate = [n for n in ast.walk(albero)
                 if isinstance(n, ast.Call)
@@ -295,7 +292,7 @@ def test_i_due_pannelli_usano_LA_STESSA_funzione_di_disegno():
         "il testo dei fantasmi è ricomparso nel pannello: il disegno è stato duplicato")
 
 
-def test_click_ed_evidenziazione_hanno_UNA_sola_definizione(nmg):
+def test_click_ed_evidenziazione_hanno_UNA_sola_definizione(nmg, leggi_sorgente):
     """Rilievo CodeRabbit sulla PR #228: `_gestore_click` e `_highlight_profiles` erano rimasti
     duplicati **byte per byte** nei due pannelli, pur avendo estratto il disegno.
 
@@ -305,7 +302,6 @@ def test_click_ed_evidenziazione_hanno_UNA_sola_definizione(nmg):
     contando le definizioni nel sorgente, sia verificando che i due pannelli condividano
     davvero **lo stesso oggetto funzione** (non due copie che sembrano uguali)."""
     import ast
-    import pathlib
     sorgente = leggi_sorgente("xtrader_bridge/name_mapping_gui.py")
     albero = ast.parse(sorgente)
     for nome in ("_gestore_click", "_highlight_profiles"):
