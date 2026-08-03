@@ -207,6 +207,12 @@ provider nei nomi Betfair/XTrader **prima** della scrittura:
 profili (per lo sport del parser), lo stato è `MAPPING_MISSING` → **nessuna riga CSV** (un
 evento sbagliato = scommessa sbagliata). Nessun nome squadra viene mai tradotto "a caso".
 
+> **`MAPPING_MISSING` e `TEAM_SEPARATOR_NOT_FOUND` sono codici DISTINTI**, e la differenza è
+> operativa: nel primo manca la **traduzione** (dizionario incompleto → si corregge il
+> dizionario), nel secondo manca lo **split** (separatore sbagliato → si corregge il campo
+> «Separatore squadre»). Riusare un codice solo manderebbe a cercare il problema nel posto
+> sbagliato. `MAPPING_MISSING` resta l'esito del percorso **con dizionario attivo**, invariato.
+
 **Alias ambiguo (audit #137):** se in uno **stesso profilo/tier** un nome combacia con
 **due o più nomi Betfair diversi** (es. due righe `Inter → Inter Milano` e `Inter → Inter
 Miami`), la traduzione **fail-closa** (nessuna riga CSV) invece di scegliere la prima —
@@ -260,11 +266,20 @@ ha quindi **tre** casi:
 1. **Dizionario nomi attivo** (`name_mapping_profiles` non vuoto) → invariato: traduce i
    nomi **e** ricompone `Casa - Trasferta` (come sopra).
 2. **Nessun dizionario, ma `team_separator` esplicitamente non vuoto** → si **riformatta**:
-   `Milan v Inter` → `Milan - Inter`. Se il separatore **non** si trova tra le due squadre,
-   l'`EventName` resta **verbatim** e compare un **avviso** («separatore non trovato tra le
-   squadre: nome lasciato invariato») in anteprima e nel log — la riga **non** viene scartata
-   (normalizzare un formato non può creare una scommessa errata; un formato non riconosciuto
-   da XTrader al massimo non viene piazzato).
+   `Milan v Inter` → `Milan - Inter`. Se il separatore **non** si trova tra le due squadre →
+   **⛔ nessuna riga CSV**, con esito **`TEAM_SEPARATOR_NOT_FOUND`** (#182 PR S).
+
+   > **Cambiamento di comportamento (#182 PR S).** Prima la riga veniva **scritta** col nome
+   > verbatim più un avviso, con questa motivazione: «normalizzare un formato non può creare una
+   > scommessa errata». Vera in astratto, ma incompleta — se il separatore configurato non
+   > compare, il messaggio **non ha il formato che il parser dichiara di aspettarsi**, e scrivere
+   > lo stesso significa piazzare su un evento che non si è saputo interpretare.
+   >
+   > **Compromesso accettato:** un messaggio con formato occasionalmente diverso dal solito
+   > (`vs` invece di `v`) prima produceva una riga col nome verbatim, ora non produce nulla. È un
+   > **segnale perso**, ed è il prezzo del fail-closed — meno scommesse, mai di più. Per questo
+   > lo scarto è visibile **ovunque**: verdetto dell'anteprima, log e diario eventi, sempre col
+   > separatore che il messaggio sembra usare.
 3. **Nessun dizionario e nessun separatore** → `EventName` **verbatim**, identico a prima
    della feature (retro-compatibile). **Nessun** default `v` viene applicato in questo
    percorso: la riformattazione scatta **solo** con separatore esplicito.
@@ -274,7 +289,7 @@ ha quindi **tre** casi:
 | Campo «Separatore squadre» | Cosa vedi |
 |---|---|
 | **impostato e trovato** | niente: riformatta e basta |
-| **impostato ma non trovato** | ⚠ avviso **azionabile** — al testo storico si aggiunge «*; il messaggio sembra usare «v» — correggi «Separatore squadre» nel parser*», quando un separatore plausibile c'è. In anteprima **e** nel log. La riga resta scritta col nome verbatim |
+| **impostato ma non trovato** | ⛔ **nessuna riga** (`TEAM_SEPARATOR_NOT_FOUND`, #182 PR S). Lo scarto dice *cosa correggere*: «*il messaggio sembra usare «v» — correggi «Separatore squadre» nel parser*», quando un separatore plausibile c'è. Visibile in anteprima, log e diario |
 | **vuoto**, ma il nome sembra divisibile | 💡 suggerimento **non bloccante** solo in «🧪 Prova messaggio»: «*il messaggio sembra usare «v» fra le squadre: impostando «Separatore squadre» l'EventName diventa «Casa - Trasferta»*» |
 | **vuoto**, nome non divisibile | niente |
 
@@ -291,15 +306,17 @@ proposto.
 segnale**: lì una riga identica ripetuta seppellirebbe gli avvisi veri, su parser che
 funzionano benissimo — il campo vuoto è una scelta legittima, non un errore.
 
-**Nessuno dei due cambia il comportamento**: stesse righe scritte, stessi scarti. Il **blocco**
-del caso «impostato ma non trovato» è una modifica separata (PR S della #182), non questa.
+**I due suggerimenti sopra non cambiano il comportamento**: sono solo testo. Il **blocco** del
+caso «impostato ma non trovato» è arrivato con la **PR S** della #182 ed è descritto sopra —
+da lì, quel caso non produce più alcuna riga.
 
 **Guardia anti-split (separatori simbolici).** Nel percorso senza-dizionario i separatori
 **simbolici** (`-`, `/`) accettano **solo** la forma **spaziata** (`\ - \`, `\ / \`), senza
 il fallback compatto: così un separatore sbagliato non taglia dentro un nome col trattino/
 slash interno. Esempio reale: `Al-Kholood Club v Al-Hilal` con separatore `v` → `Al-Kholood
 Club - Al-Hilal` (i trattini interni preservati); lo stesso testo con separatore `-` (che lì
-non esiste spaziato) → **verbatim + avviso**, mai `Al` / `Kholood Club v Al-Hilal`. Il ramo
+non esiste spaziato) → **⛔ nessuna riga** (`TEAM_SEPARATOR_NOT_FOUND`, #182 PR S), e comunque
+mai lo split sbagliato `Al` / `Kholood Club v Al-Hilal`. Il ramo
 col **dizionario** nomi resta invariato (fallback compatto incluso) per non alterare i
 comportamenti esistenti.
 

@@ -39,6 +39,9 @@ MISSING_PROVIDER = "MISSING_PROVIDER"    # Provider assente (contratto)
 MODE_REQUIRED_MISSING = "MODE_REQUIRED_MISSING"  # campo richiesto dalla Modalità mancante
 MAPPING_MISSING = "MAPPING_MISSING"      # EventName non traducibile coi profili di mappatura nomi
 MARKET_MAPPING_MISSING = "MARKET_MAPPING_MISSING"  # mercato non risolvibile (ambiguo o nessun match)
+# Separatore squadre impostato ma non trovato nell'EventName (#182 PR S). DISTINTO da
+# MAPPING_MISSING: lì manca la traduzione (dizionario), qui manca lo split (separatore sbagliato).
+TEAM_SEPARATOR_NOT_FOUND = "TEAM_SEPARATOR_NOT_FOUND"
 
 # ── Codice a livello messaggio ──────────────────────────────────────────────
 NO_CONTENT_MATCH = "NO_CONTENT_MATCH"    # niente estratto: solo valori fissi / nessun match
@@ -63,6 +66,12 @@ _EXPLAIN = {
     MODE_REQUIRED_MISSING: "campo richiesto dalla Modalità di riconoscimento",
     MAPPING_MISSING: "EventName non traducibile: separatore non trovato o squadra non nei profili di mappatura nomi",
     MARKET_MAPPING_MISSING: "mercato non risolvibile: frasi ambigue, o nessuna frase combacia e nessun mercato dalle regole",
+    # #182 PR S — il testo dice COSA FARE, non solo cosa è successo: il campo da correggere è
+    # nominato per esteso, perché è l'unica azione che sblocca il messaggio. Senza questa voce
+    # lo scarto sarebbe arrivato a schermo come sigla, cioè silenzioso nei fatti.
+    TEAM_SEPARATOR_NOT_FOUND: ("separatore squadre impostato ma non trovato nel nome evento: "
+                               "nessuna riga scritta — correggi il campo «Separatore squadre» "
+                               "del parser (o svuotalo per lasciare il nome invariato)"),
     NO_CONTENT_MATCH: "nessun contenuto estratto dal messaggio (solo valori fissi / nessun match)",
 }
 
@@ -180,6 +189,11 @@ def _overlay_validator(result, by_target, fields) -> None:
         _mark(by_target, fields, "Handicap", INVALID_HANDICAP)
     elif status == custom_pipeline.MAPPING_MISSING:
         _mark(by_target, fields, "EventName", MAPPING_MISSING, required=True)
+    elif status == custom_pipeline.TEAM_SEPARATOR_NOT_FOUND:
+        # #182 PR S: si marca EventName, la colonna che il separatore avrebbe dovuto
+        # riformattare. Motivo dedicato e non MAPPING_MISSING, altrimenti l'utente andrebbe a
+        # cercare il problema nel dizionario nomi invece che nel campo «Separatore squadre».
+        _mark(by_target, fields, "EventName", TEAM_SEPARATOR_NOT_FOUND, required=True)
     elif status == custom_pipeline.MARKET_MAPPING_MISSING:
         # Il mercato non è risolvibile: segnala su Mercato e Selezione (le due colonne
         # che la mappatura mercati avrebbe dovuto impostare).

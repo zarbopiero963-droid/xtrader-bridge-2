@@ -962,9 +962,23 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
     invariato.» — il campo separatore ora vale **anche senza** dizionario: da solo riformatta
     il *formato* dell'EventName (verbatim, senza tradurre); col dizionario attivo traduce
     **anche** i nomi. Se col solo separatore le squadre non si dividono, «Prova messaggio» e
-    il log mostrano un **avviso** «⚠ separatore non trovato tra le squadre: nome lasciato
-    invariato» accanto al verdetto (la riga resta valida, EventName invariato).
-    **L'avviso è AZIONABILE** (#182 PR A ⑨): quando il nome sembra usare un separatore diverso,
+    il log mostrano lo **scarto** accanto al verdetto.
+
+    ⛔ **BLOCCO (#182 PR S — cambiamento di comportamento).** Separatore **impostato ma non
+    trovato** → **nessuna riga CSV**, esito **`TEAM_SEPARATOR_NOT_FOUND`**, verdetto **⛔** (non
+    più ⚠ su una riga valida). Il testo dice cosa correggere: *«separatore squadre impostato ma
+    non trovato nel nome evento: nessuna riga scritta — correggi il campo «Separatore squadre»
+    del parser (o svuotalo per lasciare il nome invariato)»*.
+
+    ⚠️ **Il campo VUOTO resta esattamente come prima**: riga scritta, `EventName` verbatim,
+    nessun errore. È l'invariante che protegge tutti i parser esistenti, ed è deliberata — col
+    campo vuoto non c'è alcuna aspettativa di formato da tradire.
+
+    Il codice è **distinto** da `MAPPING_MISSING`: lì manca la *traduzione* (si corregge il
+    dizionario), qui manca lo *split* (si corregge il campo «Separatore squadre»).
+
+    **Il testo dello scarto è AZIONABILE** (dalla #182 PR A ⑨, ora sullo scarto invece che
+    sull'avviso): quando il nome sembra usare un separatore diverso,
     il testo lo **nomina** — «…; il messaggio sembra usare «v» — correggi «Separatore squadre»
     nel parser». Prima diceva solo *cosa* era successo, mai *cosa fare*. Il prefisso storico
     resta invariato (è cercabile nel log). Il caso reale che l'ha motivato è
