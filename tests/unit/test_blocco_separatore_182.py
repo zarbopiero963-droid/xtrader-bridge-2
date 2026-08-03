@@ -188,16 +188,15 @@ def test_il_router_riporta_lo_scarto_col_codice_giusto(tmp_path):
     assert res.row is None, "una riga non piazzabile non deve arrivare valorizzata al chiamante"
 
 
-def test_il_codice_arriva_al_DIARIO_senza_cablaggio_extra(tmp_path):
-    """Il diario registra `SIGNAL_PARSED` con `status=result.status`: il codice nuovo ci arriva
-    perché è uno status come gli altri. Verificato, non dedotto — la #182 chiede esplicitamente
-    che lo scarto sia visibile nel diario."""
-    cp.save_parser(_router_parser("/", "R2"), str(tmp_path))
-    res = signal_router.resolve_row("Match: Marseille/Lyon\nSel: Pareggio",
-                                    _cfg("R2"), chat_id="42", parsers_dir=str(tmp_path))
-    # il valore che `app._journal("SIGNAL_PARSED", status=result.status, …)` scriverebbe
-    assert res.status == pipe.TEAM_SEPARATOR_NOT_FOUND
-    assert isinstance(res.status, str) and res.status, "status non serializzabile nel diario"
+# NOTA — la visibilità nel DIARIO è verificata dove va verificata: in
+# `tests/integration/test_app_runtime_glue.py::test_process_separatore_non_trovato_non_scrive_nel_csv`,
+# che esegue il vero `App._process` e RILEGGE il file del diario con `event_journal.read_events`.
+#
+# Qui c'era una versione che asseriva solo che `resolve_row` tornasse una stringa: sarebbe passata
+# anche se `_journal` avesse smesso di emettere `SIGNAL_PARSED` (rilievo CodeRabbit sulla PR #231,
+# classificato Major — e a ragione: la sua docstring diceva «verificato, non dedotto» mentre non
+# verificava la persistenza). Un test che promette più di quanto controlla è peggio della sua
+# assenza, perché chiude la casella nella checklist.
 
 
 def test_il_router_scrive_ancora_quando_il_separatore_C_E(tmp_path):

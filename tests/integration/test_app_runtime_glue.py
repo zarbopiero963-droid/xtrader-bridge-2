@@ -1954,6 +1954,11 @@ def test_start_non_inventa_avvisi_su_una_config_sana(app_mod, tmp_path):
 
 # ── #182 PR S — il separatore non trovato non deve MAI produrre una riga CSV ─────────────────
 
+def _righe_dati(path):
+    """Righe DATI del CSV (header escluso). Serve ad asserire sul FILE e non su una spia."""
+    with open(path, newline="", encoding="utf-8") as fh:
+        return [r for r in csv.reader(fh)][1:]
+
 def test_process_separatore_non_trovato_non_scrive_nel_csv(make_app, app_mod, monkeypatch, tmp_path):
     """⚠️ La verifica END-TO-END che la #182 PR S promette: **nessuna riga nel CSV**.
 
@@ -1974,10 +1979,30 @@ def test_process_separatore_non_trovato_non_scrive_nel_csv(make_app, app_mod, mo
         detail="separatore non trovato tra le squadre: nome lasciato invariato")
     monkeypatch.setattr(app_mod.signal_router, "resolve_row", lambda *a, **k: scartato)
 
+    diario = str(tmp_path / "diario.jsonl")
+    a._journal_path = diario
+
     app_mod.App._process(a, "msg", {"csv_path": path, "dry_run": False}, chat_id="1")
 
     assert spy["n"] == 0, "una riga è stata scritta per un evento che non si è saputo interpretare"
     assert q.active_rows() == [], "il segnale scartato è finito comunque in coda"
+
+    # …e sul FILE, non solo sulla spia (rilievo GPT-5.5 sulla PR #231): se esistesse un percorso
+    # di scrittura che la spia non intercetta, il conteggio a zero sarebbe una falsa sicurezza.
+    # La promessa della PR è «nessuna riga nel CSV», quindi si guarda il CSV.
+    assert not Path(path).exists() or _righe_dati(path) == [], (
+        "il CSV contiene una riga per un evento non interpretato")
+
+    # …e lo scarto è finito nel DIARIO col codice giusto (rilievo CodeRabbit sulla PR #231:
+    # il test precedente controllava il valore di ritorno del router, non la persistenza —
+    # sarebbe passato anche se `_journal` avesse smesso di emettere `SIGNAL_PARSED`).
+    from xtrader_bridge import event_journal
+    eventi = event_journal.read_events(diario)
+    parsed = [e for e in eventi if e.get("event") == "SIGNAL_PARSED"
+              or e.get("event_type") == "SIGNAL_PARSED" or e.get("type") == "SIGNAL_PARSED"]
+    assert parsed, f"nessun SIGNAL_PARSED nel diario: {eventi}"
+    assert any(custom_pipeline.TEAM_SEPARATOR_NOT_FOUND in str(e) for e in parsed), (
+        f"lo scarto non è tracciabile nel diario: {parsed}")
 
 
 def test_process_separatore_TROVATO_scrive_ancora(make_app, app_mod, monkeypatch, tmp_path):
@@ -1994,3 +2019,4 @@ def test_process_separatore_TROVATO_scrive_ancora(make_app, app_mod, monkeypatch
     app_mod.App._process(a, "msg", {"csv_path": path, "dry_run": False}, chat_id="1")
 
     assert spy["n"] == 1, "il percorso di scrittura è rotto: il test del blocco varrebbe zero"
+    assert len(_righe_dati(path)) == 1, "la riga non è arrivata sul FILE: il test sopra varrebbe zero"

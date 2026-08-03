@@ -57,8 +57,9 @@ def warn_team_separator_not_found(event_name: str) -> str:
     test e compare nel log dell'operatore, quindi il testo storico continua a essere
     riconoscibile e cercabile: si aggiunge in coda, non si riscrive.
 
-    Nessun cambio di comportamento: la riga resta scritta col nome verbatim, esattamente come
-    prima. Cambia solo il testo dell'avviso. Pura, nessun effetto."""
+    ⚠️ Dalla #182 PR S questo testo NON accompagna più una riga scritta: è il `detail` di uno
+    SCARTO (`TEAM_SEPARATOR_NOT_FOUND`, nessuna riga CSV). La funzione resta pura e il testo
+    invariato — cambia chi lo usa, non cosa dice."""
     suggerito = name_mapping_store.detect_separator(event_name)
     if not suggerito:
         return WARN_TEAM_SEPARATOR_NOT_FOUND
@@ -466,9 +467,12 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
         # - split OK → ricompone «Casa - Trasferta» (`compose_event_name`). NON si azzerano gli ID:
         #   è lo STESSO evento, solo col separatore normalizzato (a differenza del ramo dizionario,
         #   dove il nome può CAMBIARE per traduzione → lì gli ID stantii vanno azzerati).
-        # - split FALLITO → EventName VERBATIM + avviso visibile (la riga NON viene scartata:
-        #   normalizzare un formato non può creare una scommessa errata; un formato non
-        #   normalizzato al massimo non è riconosciuto da XTrader).
+        # - split FALLITO → #182 PR S: NESSUNA RIGA (`TEAM_SEPARATOR_NOT_FOUND`, fail-closed).
+        #   La motivazione storica del non-blocco era «normalizzare un formato non può creare
+        #   una scommessa errata»: vera in astratto, incompleta in pratica — se il separatore
+        #   configurato non compare, il messaggio non ha il formato che il parser dichiara di
+        #   aspettarsi. L'`EventName` resta verbatim nella riga di DIAGNOSTICA (per l'anteprima),
+        #   ma quella riga non arriva al CSV.
         # - NESSUN default `v` qui (a differenza del ramo dizionario): la riformattazione scatta
         #   SOLO col separatore esplicito → parser esistenti col campo vuoto restano invariati.
         sep = defn.team_separator.strip()

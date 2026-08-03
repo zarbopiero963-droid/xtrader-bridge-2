@@ -306,15 +306,17 @@ proposto.
 segnale**: lì una riga identica ripetuta seppellirebbe gli avvisi veri, su parser che
 funzionano benissimo — il campo vuoto è una scelta legittima, non un errore.
 
-**Nessuno dei due cambia il comportamento**: stesse righe scritte, stessi scarti. Il **blocco**
-del caso «impostato ma non trovato» è una modifica separata (PR S della #182), non questa.
+**I due suggerimenti sopra non cambiano il comportamento**: sono solo testo. Il **blocco** del
+caso «impostato ma non trovato» è arrivato con la **PR S** della #182 ed è descritto sopra —
+da lì, quel caso non produce più alcuna riga.
 
 **Guardia anti-split (separatori simbolici).** Nel percorso senza-dizionario i separatori
 **simbolici** (`-`, `/`) accettano **solo** la forma **spaziata** (`\ - \`, `\ / \`), senza
 il fallback compatto: così un separatore sbagliato non taglia dentro un nome col trattino/
 slash interno. Esempio reale: `Al-Kholood Club v Al-Hilal` con separatore `v` → `Al-Kholood
 Club - Al-Hilal` (i trattini interni preservati); lo stesso testo con separatore `-` (che lì
-non esiste spaziato) → **verbatim + avviso**, mai `Al` / `Kholood Club v Al-Hilal`. Il ramo
+non esiste spaziato) → **⛔ nessuna riga** (`TEAM_SEPARATOR_NOT_FOUND`, #182 PR S), e comunque
+mai lo split sbagliato `Al` / `Kholood Club v Al-Hilal`. Il ramo
 col **dizionario** nomi resta invariato (fallback compatto incluso) per non alterare i
 comportamenti esistenti.
 
