@@ -1376,6 +1376,7 @@ contrario.
 |---|---|
 | accesso **OK**, scrittura **confermata** | «✅ Accesso OK: il token può scrivere su «*repo*» (branch *X*). Il file «*path*» esiste già e verrà aggiornato. Permesso di scrittura CONFERMATO da GitHub (prova senza modifiche).» |
 | accesso **OK**, scrittura **non provata** | come sopra, ma «… Il permesso di scrittura risulta concesso ma NON è stato verificato con una prova (si può farlo solo su un file esistente, senza crearne uno).» — è il caso della **prima** pubblicazione, quando il file non c'è ancora |
+| prova **ACCETTATA** (anomalia) | «⚠️ ANOMALIA: la prova di scrittura su «*path*» è stata ACCETTATA da GitHub (HTTP *n*) nonostante fosse costruita per fallire. Il file potrebbe essere stato MODIFICATO: usa subito «🚀 Pubblica ora» per ripubblicare la lista firmata, poi segnala l'accaduto.» |
 | **401** | «⚠️ Token rifiutato da GitHub (401): non è un problema di permessi, è il token in sé — sbagliato, scaduto o revocato. Rigeneralo e reincollalo, senza spazi ai bordi.» |
 | **403** | «⚠️ Token accettato ma senza permesso di SCRITTURA su «*repo*» (403). Se è un token fine-grained: in «Repository access» dev'esserci questo repository, e in «Permissions → Repository permissions» serve «Contents: Read and write».» |
 | **404** sul repo | «⚠️ Repository «*repo*» non trovato (404): controlla «owner/nome». Con un token fine-grained un repo esistente ma NON concesso al token risponde comunque 404.» |

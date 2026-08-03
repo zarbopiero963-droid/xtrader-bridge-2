@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -136,6 +137,11 @@ def _default_http(method: str, url: str, *, token: str, body=None,
     return status, (payload if isinstance(payload, dict) else None)
 
 
+# Uno sha Git è 40 esadecimali. Il probe di scrittura parte SOLO con uno sha reale di questa forma:
+# vedi `_sha_che_non_combacia`.
+_SHA_GIT_RE = re.compile(r"[0-9a-fA-F]{40}")
+
+
 def _sha_che_non_combacia(sha_reale: str) -> str:
     """Uno `sha` **diverso per costruzione** da quello reale — l'invariante di sicurezza del probe
     di scrittura.
@@ -149,7 +155,10 @@ def _sha_che_non_combacia(sha_reale: str) -> str:
     all'improbabilità di una collisione — si prende lo sha reale e se ne cambia un carattere,
     così la differenza è **garantita**, non sperata."""
     reale = str(sha_reale or "").strip()
-    if not reale:
+    if not _SHA_GIT_RE.fullmatch(reale):
+        # Sha reale non plausibile (payload anomalo, API non-GitHub, campo mancante): non si può
+        # costruire un «diverso per costruzione» affidabile, e mandare una PUT alla cieca su un
+        # file di revoche è esattamente ciò che non si deve fare. Astenersi (bloccante GPT-5.5).
         return ""
     primo = "0" if reale[0] != "0" else "1"
     return primo + reale[1:]
@@ -317,6 +326,20 @@ def check_access(repo: str, path: str, branch: str, *, token: str, http=None,
             esito["can_write"] = False
             esito["message"] = _error_message(status_w, "verifica", repo, payload_w)
             return esito
+        if status_w is not None and 200 <= status_w < 300:
+            # L'esito PIÙ PERICOLOSO, e va trattato come tale (bloccante GPT-5.5 #215). Lo sha era
+            # diverso per costruzione, quindi GitHub non avrebbe dovuto accettare: se l'ha fatto —
+            # o se ha risposto un proxy/API compatibile — il file **è stato modificato** e la lista
+            # pubblicata non è più quella firmata. Dire «Accesso OK» qui sarebbe la bugia più
+            # dannosa che questa funzione possa raccontare. Fail-closed, e si dice cosa fare.
+            esito["can_write"] = True
+            esito["ok"] = False
+            esito["message"] = (
+                f"⚠️ ANOMALIA: la prova di scrittura su «{path}» è stata ACCETTATA da GitHub "
+                f"(HTTP {status_w}) nonostante fosse costruita per fallire. Il file potrebbe "
+                "essere stato MODIFICATO: usa subito «🚀 Pubblica ora» per ripubblicare la lista "
+                "firmata, poi segnala l'accaduto.")
+            return esito
         if status_w in (409, 422):
             dettaglio = (f"Il file «{path}» esiste già e verrà aggiornato. Permesso di scrittura "
                          "CONFERMATO da GitHub (prova senza modifiche).")
@@ -330,7 +353,12 @@ def check_access(repo: str, path: str, branch: str, *, token: str, http=None,
 
     esito["ok"] = True
     if status == 200:
-        dettaglio = f"Il file «{path}» esiste già e verrà aggiornato."
+        # Si arriva qui col file ESISTENTE solo se il probe si è astenuto (sha reale non
+        # plausibile): il permesso non è stato provato, e va detto — promettere una scrittura non
+        # verificata è la stessa disonestà evitata nel ramo «file non ancora esistente».
+        dettaglio = (f"Il file «{path}» esiste già e verrà aggiornato. Il permesso di scrittura "
+                     "risulta concesso ma NON è stato verificato con una prova (GitHub non ha "
+                     "restituito un identificativo di file utilizzabile).")
     elif status == 404:
         dettaglio = (f"Il file «{path}» non c'è ancora: la prima pubblicazione lo creerà. Il "
                      "permesso di scrittura risulta concesso ma NON è stato verificato con una "

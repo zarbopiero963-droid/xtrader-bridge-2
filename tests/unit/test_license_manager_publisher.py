@@ -454,13 +454,14 @@ def test_check_access_sonda_il_branch_e_non_MODIFICA_nulla():
     deliberatamente, perché è l'unico modo di sapere con certezza se il token può scrivere. Ciò che
     va sorvegliato non è più «non fa PUT» ma «la PUT non può MODIFICARE nulla»: sha diverso per
     costruzione, e una sola."""
+    sha = "abc123" + "0" * 34            # sha PLAUSIBILE: 40 esadecimali (il probe ne pretende uno)
     http = _FakeHttp((200, {"permissions": {"push": True}}), (200, {"name": "main"}),
-                     (200, {"sha": "x" * 40}), (409, None))
+                     (200, {"sha": sha}), (409, None))
     publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
     metodi = [c["method"] for c in http.calls]
     assert metodi == ["GET", "GET", "GET", "PUT"], metodi
     assert "/branches/" in http.calls[1]["url"]
-    assert http.calls[3]["body"]["sha"] != "x" * 40, "la PUT avrebbe MODIFICATO il file"
+    assert http.calls[3]["body"]["sha"] != sha, "la PUT avrebbe MODIFICATO il file"
 
 
 # ── Prova DEFINITIVA della scrittura, senza scrivere (richiesta del proprietario 2026-08-03) ─────
@@ -520,6 +521,57 @@ def test_probe_scrittura_NON_parte_se_il_file_non_esiste_ancora():
     res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
     assert [c["method"] for c in http.calls] == ["GET", "GET", "GET"], "ha scritto senza sha reale"
     assert res["ok"] is True and res["file_exists"] is False
+    testo = res["message"].lower()
+    assert "non è stato verificato" in testo or "non è stato confermato" in testo, \
+        f"promette una scrittura che non ha provato: {res['message']!r}"
+
+
+# ── Il probe dev'essere FAIL-CLOSED sull'esito più pericoloso (bloccanti GPT-5.5 #215) ───────────
+
+@pytest.mark.parametrize("status", [200, 201])
+def test_probe_scrittura_ACCETTATA_e_un_allarme_non_un_ok(status):
+    """Il caso peggiore possibile, e finora finiva nel ramo «ok». Se GitHub accettasse la PUT
+    nonostante lo sha fittizio — o se rispondesse un proxy/API compatibile — il file **è stato
+    modificato**, e dire «Accesso OK» sarebbe la bugia più dannosa che questa funzione possa
+    raccontare: l'utente crederebbe di aver solo verificato, mentre la lista revoche pubblicata
+    non è più quella firmata."""
+    http = _http_fino_al_probe((status, {"content": {}}))
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is False, f"una PUT ACCETTATA riportata come «ok»: {res!r}"
+    testo = res["message"].lower()
+    assert "modificat" in testo or "accettata" in testo, res["message"]
+    assert "ripubblica" in testo, "non dice all'utente come rimettere a posto il file"
+
+
+@pytest.mark.parametrize("sha_anomalo", ["x", "", "   ", "abc", "z" * 40, "a" * 39, "a" * 41, None])
+def test_probe_NON_parte_con_uno_sha_reale_non_plausibile(sha_anomalo):
+    """`_sha_che_non_combacia` accettava qualunque stringa non vuota: con un payload anomalo («x»)
+    avrebbe inviato «0», una richiesta semanticamente diversa da quella attesa. Se lo sha reale non
+    è uno sha Git plausibile (40 esadecimali) non si può costruire un «diverso per costruzione»
+    affidabile → ci si astiene, che è l'unica scelta sicura."""
+    http = _http_fino_al_probe()   # nessuna risposta in coda: se partisse, si vedrebbe la PUT
+    http.responses[2] = (200, {"sha": sha_anomalo})
+    publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert [c["method"] for c in http.calls] == ["GET", "GET", "GET"], \
+        f"probe partito con sha reale {sha_anomalo!r}: {[c['method'] for c in http.calls]}"
+
+
+def test_sha_che_non_combacia_rifiuta_gli_sha_non_plausibili():
+    assert publisher._sha_che_non_combacia("a" * 40) != "a" * 40
+    assert len(publisher._sha_che_non_combacia("a" * 40)) == 40
+    for cattivo in ("x", "", "abc", "z" * 40, "a" * 39, "a" * 41, None):
+        assert publisher._sha_che_non_combacia(cattivo) == "", cattivo
+
+
+def test_astensione_per_sha_anomalo_lo_DICHIARA_invece_di_promettere():
+    """Buco trovato verificando la patch dei bloccanti: con uno sha reale non plausibile il probe
+    si astiene (giusto), ma il messaggio diceva comunque «✅ Accesso OK … verrà aggiornato», senza
+    alcun accenno al fatto che la scrittura NON era stata provata. È la stessa promessa non
+    mantenuta che si era evitata nel caso «file non ancora esistente»: qui va detta uguale."""
+    http = _http_fino_al_probe()
+    http.responses[2] = (200, {"sha": "non-uno-sha"})
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is True
     testo = res["message"].lower()
     assert "non è stato verificato" in testo or "non è stato confermato" in testo, \
         f"promette una scrittura che non ha provato: {res['message']!r}"
