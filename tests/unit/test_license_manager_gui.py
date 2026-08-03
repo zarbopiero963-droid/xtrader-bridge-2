@@ -163,6 +163,22 @@ def _fake(gui, tmp_path, now=_NOW):
     fake._publish_tick = lambda: gui.LicenseManagerApp._publish_tick(fake)
     fake._schedule_publish_tick = lambda **kw: gui.LicenseManagerApp._schedule_publish_tick(fake, **kw)
     fake._cancel_publish_tick = lambda: gui.LicenseManagerApp._cancel_publish_tick(fake)
+    # Verifica accesso (collaudo 2026-08-03): stesso schema della pubblicazione — sonda iniettata,
+    # worker eseguito inline, nessun socket. `_check_access_calls` registra le chiamate per poter
+    # asserire che la verifica NON scriva e NON si accavalli con un upload.
+    fake._check_access_calls = []
+    fake._check_access_result = {"ok": True, "message": "OK finto", "can_write": True,
+                                 "file_exists": True}
+
+    def _fake_check_access(repo, path, branch, *, token):
+        fake._check_access_calls.append({"repo": repo, "path": path, "branch": branch,
+                                         "token": token})
+        return dict(fake._check_access_result)
+    fake._check_access = _fake_check_access
+    fake._evaluate_check_access = lambda: gui.LicenseManagerApp._evaluate_check_access(fake)
+    fake._check_access_worker = lambda: gui.LicenseManagerApp._check_access_worker(fake)
+    fake._check_access_async = lambda: gui.LicenseManagerApp._check_access_async(fake)
+    fake._check_access_finish = lambda res: gui.LicenseManagerApp._check_access_finish(fake, res)
     return fake
 
 
@@ -2215,3 +2231,90 @@ def test_se_l_upload_in_volo_FALLISCE_il_retry_pubblica_comunque_la_revoca(gui, 
                                                 public_key_hex=fake._current_key_state()["public"])
     assert revlist is not None and serial in revlist.serials, (
         "il retry ha pubblicato una lista che NON contiene la revoca")
+
+
+# ── «🔍 Verifica accesso» (collaudo del proprietario, 2026-08-03) ────────────────────────────────
+#
+# Installando il License Manager su un secondo PC la pubblicazione falliva, e l'unico modo di
+# scoprire il perché era tentare una pubblicazione VERA — cioè accorgersene revocando una licenza,
+# il momento peggiore. La verifica preventiva chiude quel buco.
+
+def test_verifica_accesso_passa_repo_path_branch_e_token_del_config(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+    out = fake._evaluate_check_access()
+    assert out["ok"] is True
+    chiamata = fake._check_access_calls[-1]
+    assert chiamata["repo"] == _PUB_OK["repo"] and chiamata["branch"] == _PUB_OK["branch"]
+    assert chiamata["token"] == "ghp_ABC"
+
+
+def test_verifica_accesso_senza_token_non_contatta_github(gui, tmp_path):
+    """Fail-closed e senza rete: se il token non c'è nel keyring non ha senso chiamare GitHub.
+
+    Lo scenario è quello REALE del secondo PC: il backup completo ripristina la configurazione di
+    pubblicazione (repo/path/branch/on-off) ma **non** il token, che vive solo nel keyring. Quindi
+    la config è valida e completa, e manca solo il token — per questo il test la salva prima e
+    svuota il keyring dopo, invece di lasciare la config vuota (che si fermerebbe alla validazione,
+    provando tutt'altra cosa)."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+    fake._kr_token = None                     # keyring del PC nuovo: config sì, token no
+    out = fake._evaluate_check_access()
+    assert out["ok"] is False and "token" in out["message"].lower()
+    assert fake._check_access_calls == []
+
+
+def test_verifica_accesso_riporta_il_fallimento_senza_mai_esporre_il_token(gui, tmp_path):
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_SEGRETISSIMO"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+    fake._check_access_result = {"ok": False, "can_write": False, "file_exists": False,
+                                 "message": "Token accettato ma senza permesso di SCRITTURA (403)."}
+    out = fake._evaluate_check_access()
+    assert out["ok"] is False and "403" in out["message"]
+    assert "ghp_SEGRETISSIMO" not in out["message"]
+
+
+def test_verifica_accesso_non_tocca_letichetta_dellultima_pubblicazione(gui, tmp_path):
+    """Una verifica NON pubblica. Se ridipingesse l'etichetta «ultima pubblicazione» — come fa
+    `_publish_finish` — suggerirebbe all'utente che qualcosa è stato pubblicato, che è falso."""
+    fake = _fake(gui, tmp_path)
+    prima = list(fake._pub_status_painted)
+    gui.LicenseManagerApp._check_access_finish(fake, {"ok": True, "message": "ok"})
+    assert fake._pub_status_painted == prima
+
+
+def test_verifica_accesso_e_pubblicazione_non_si_accavallano(gui, tmp_path):
+    """Condividono il lucchetto: con un upload in volo la verifica non parte (e viceversa),
+    altrimenti due esiti si sovrascriverebbero nella riga messaggi e non se ne leggerebbe nessuno."""
+    fake = _fake(gui, tmp_path)
+    fake._publish_inflight = True
+    assert fake._check_access_async() is False
+    assert fake._check_access_calls == []
+    fake._publish_inflight = False
+
+
+def test_verifica_accesso_libera_sempre_il_lucchetto(gui, tmp_path):
+    """Anche quando la sonda ESPLODE: un flag lasciato alzato bloccherebbe per sempre sia le
+    verifiche sia la pubblicazione automatica delle revoche — un lockout silenzioso."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+
+    def _esplode(*_a, **_k):
+        raise RuntimeError("sonda rotta")
+    fake._check_access = _esplode
+    assert fake._check_access_async() is True     # worker inline: gira e rientra
+    assert fake._publish_inflight is False, "lucchetto non rilasciato dopo un errore imprevisto"
+    assert any("imprevisto" in m for m in fake._msgs)

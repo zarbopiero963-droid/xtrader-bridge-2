@@ -677,11 +677,27 @@ non riceve una lista aggiornata (quelle già arrivate restano applicate). Questa
   all'indirizzo *codificato*, quindi un raw URL con caratteri grezzi punterebbe a un file inesistente
   → il bridge smette di scaricare la lista → **lockout fail-closed di tutti i bridge**. Se a quotare
   fosse **uno solo** dei due, la divergenza tornerebbe. Errori
-  mappati per codice (401/403 permessi, 404 repo/branch, 409/422 conflitto, 429, 5xx) — **il token non
-  compare MAI** nei messaggi. HTTP dietro **probe iniettabile** (test senza socket).
+  mappati per codice — **il token non compare MAI** nei messaggi. HTTP dietro **probe iniettabile**
+  (test senza socket).
+  **401 e 403 hanno messaggi distinti** (collaudo 2026-08-03): prima ne condividevano uno solo
+  («Token non valido o senza permessi») e chi lo leggeva non poteva sapere quale dei due fosse,
+  mentre i rimedi sono opposti — **401** = il token in sé è rifiutato (sbagliato/scaduto/revocato,
+  va rigenerato); **403** = il token è buono ma non ha **scrittura** su quel repo (con un token
+  *fine-grained*: «Repository access» deve includerlo e serve «Contents: Read and write»). Il 403
+  nomina anche **su quale** repository manca il permesso. Restano invariati 404 repo/branch,
+  409/422 conflitto, 429 e 5xx.
+- **`check_access()`** — verifica **preventiva e in sola lettura** (nessun `PUT`: non si sporca il
+  repo delle revoche per fare una prova). Legge `permissions.push` da `GET /repos/{owner}/{repo}`,
+  cioè la capacità di **scrivere**: il repository delle revoche è **pubblico**, quindi una `GET` sul
+  file riesce con qualunque token valido e una verifica di sola lettura direbbe «tutto ok» per poi
+  far fallire la pubblicazione con 403 — esattamente il guasto da prevenire. Un **404 sul file** non
+  è un errore (la prima pubblicazione lo crea); un **404 sul repository** sì, e con un token
+  fine-grained è il sintomo tipico di un repo *esistente ma non concesso al token*.
 - **GUI** (`license_manager/gui.py`, sezione «📤 Pubblicazione automatica (GitHub)»): campi repo/path/
   branch/intervallo + token (`show="*"`, svuotato dopo il salvataggio), checkbox on/off, **💾 Salva
-  impostazioni** e **🚀 Pubblica ora**; un **tick** (`_publish_tick`/`_schedule_publish_tick`) ri-firma
+  impostazioni**, **🔍 Verifica accesso** (sonda sola-lettura, in background come la
+  pubblicazione: la rete non congela la finestra; non tocca l'etichetta dell'ultima pubblicazione,
+  perché non pubblica nulla) e **🚀 Pubblica ora**; un **tick** (`_publish_tick`/`_schedule_publish_tick`) ri-firma
   e ri-carica alla cadenza scelta, si **ri-arma sempre** (anche dopo un errore) e viene annullato alla
   chiusura (`_on_close`). All'avvio il primo tick è **ravvicinato** (catch-up: se il PC è stato spento
   a lungo la lista è già scaduta e i bridge sono bloccati — attendere l'intero intervallo li terrebbe
@@ -779,6 +795,11 @@ attivi**, senza un errore e senza un avviso. E senza `licenses.jsonl` smettono d
 - **Il token GitHub non entra mai nel backup**: vive nel **keyring** del sistema operativo, che è il
   posto giusto (cifrato, legato all'utente, non copiabile per sbaglio insieme a un file). Sul PC nuovo
   si re-incolla — ed è un segreto **sostituibile** in un minuto, a differenza del seed.
+  Conseguenza pratica, emersa al collaudo su un secondo PC: dopo un **ripristino da backup completo**
+  la configurazione di pubblicazione (repo/path/branch/on-off) torna, **il token no** — va reinserito,
+  e va verificato che *quel* token abbia i permessi su *quel* repository. È il caso che **🔍 Verifica
+  accesso** copre: prima esisteva solo la strada di tentare una pubblicazione vera, cioè accorgersi
+  del problema mentre si revoca una licenza.
 - **Il repository ora si difende da solo dal backup** (bug B3 del piano #194, 🔴). Fino ad allora un
   backup completo salvato per sbaglio dentro la cartella del repo passava **tutte e tre** le difese
   anti-segreto: non era in `.gitignore`, il workflow `forbidden-files` non ne conosceva il nome e lo

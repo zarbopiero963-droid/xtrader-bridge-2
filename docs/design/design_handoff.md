@@ -1327,7 +1327,7 @@ dentro le schede. Perciò:
 | **🔑 Chiave** | chiave pubblica (Textbox selezionabile) · «🔑 Genera / mostra keypair» · «📋 Copia chiave pubblica» · «💾 Backup della chiave privata» | la chiave pubblica è quella da incollare in `license.py` |
 | **✅ Emetti** | Nome · Cognome · Giorni · Hardware ID → «✅ Genera chiave di attivazione» (SUCCESS) · box del token + «📋 Copia chiave di attivazione» | il token è ciò che si manda all'utente |
 | **📋 Registro** | ricerca · **tabella** (`ttk.Treeview`: Stato · Serial · Nome · Hardware ID · Giorni · Scadenza) · campo Serial + Nuovi giorni · «🔄 Rinnova» · «📋 Ri-mostra token» · «🚫 Revoca licenza» (DANGER) | selezionare una riga porta il serial nel campo |
-| **🚫 Revoche** | «📤 Esporta lista revoche firmata» · pubblicazione automatica GitHub (repo/file/branch/ore/token) · «💾 Salva impostazioni» · «🚀 Pubblica ora» · etichetta persistente ultima pubblicazione | il token GitHub è mascherato e vive nel keyring |
+| **🚫 Revoche** | «📤 Esporta lista revoche firmata» · pubblicazione automatica GitHub (repo/file/branch/ore/token) · «💾 Salva impostazioni» · «🔍 Verifica accesso» · «🚀 Pubblica ora» · etichetta persistente ultima pubblicazione | il token GitHub è mascherato e vive nel keyring |
 | **📦 Backup** | «📦 Esporta backup completo» · «📥 Ripristina backup completo» + avviso supporto offline | col **solo** seed registro e revoche non migrano (#183) |
 
 **Stati nella colonna «Stato»:** `ATTIVA` · `SCADUTA` · `REVOCATA`. Il terzo è stato aggiunto il
@@ -1358,6 +1358,32 @@ in cui qualcosa non è andato liscio):
 | impostazioni **illeggibili** | «⚠️ Impossibile leggere le impostazioni di pubblicazione: la revoca NON è ancora attiva sui bridge. Pubblicala dalla scheda «Revoche».» |
 | pubblicazione **già in corso** | «Una pubblicazione era già in corso e non contiene questa revoca: riprovo fra poco.» |
 | avvio **non riuscito** | «⚠️ La revoca è registrata ma la pubblicazione non è partita: NON è ancora attiva sui bridge. Usa «🚀 Pubblica ora» nella scheda «Revoche».» |
+
+#### «🔍 Verifica accesso» — sonda sola-lettura (collaudo proprietario, 2026-08-03)
+
+Nasce da un guasto reale: installando il License Manager su un **secondo PC**, la pubblicazione
+falliva e l'unico modo di scoprire il perché era **tentare una pubblicazione vera** — cioè
+accorgersene mentre si revoca una licenza, il momento peggiore. Il pulsante sta accanto a «💾 Salva
+impostazioni», prima di «🚀 Pubblica ora», con lo stesso stile secondario di «Salva».
+
+Gira **in background** come la pubblicazione (fa rete: sul thread Tk congelerebbe la finestra) e
+condivide con essa il lucchetto — due operazioni con lo stesso token verso lo stesso repo non si
+accavallano, altrimenti due esiti si sovrascriverebbero nella riga messaggi. **Non** ridipinge
+l'etichetta «ultima pubblicazione»: una verifica non pubblica nulla, e toccarla suggerirebbe il
+contrario.
+
+| esito | messaggio (forma) |
+|---|---|
+| accesso **OK** | «✅ Accesso OK: il token può scrivere su «*repo*» (branch *X*).» + se il file esiste già («verrà aggiornato») o non ancora («la prima pubblicazione lo creerà») |
+| **401** | «⚠️ Token rifiutato da GitHub (401): non è un problema di permessi, è il token in sé — sbagliato, scaduto o revocato. Rigeneralo e reincollalo, senza spazi ai bordi.» |
+| **403** | «⚠️ Token accettato ma senza permesso di SCRITTURA su «*repo*» (403). Se è un token fine-grained: in «Repository access» dev'esserci questo repository, e in «Permissions → Repository permissions» serve «Contents: Read and write».» |
+| **404** sul repo | «⚠️ Repository «*repo*» non trovato (404): controlla «owner/nome». Con un token fine-grained un repo esistente ma NON concesso al token risponde comunque 404.» |
+| token assente | «⚠️ Token assente nel keyring: salvalo nelle impostazioni di pubblicazione.» |
+| rete KO | «⚠️ Rete non disponibile: impossibile contattare GitHub.» |
+
+**401 e 403 sono voci separate di proposito.** Prima condividevano una frase sola — «Token non
+valido o senza permessi» — e chi la leggeva non poteva sapere quale dei due fosse, mentre i rimedi
+sono opposti: rigenerare il token contro concedergli un permesso.
 
 Il quarto caso non è teorico: l'upload in corso è partito **prima** di questa revoca, quindi non la
 contiene. Si annulla il tick già in coda e se ne programma uno a breve — annullarlo è necessario,

@@ -59,7 +59,11 @@ def test_get_file_sha_404_e_creazione():
 
 
 def test_get_file_sha_errori_mappati():
-    for status, atteso in ((401, "permessi"), (403, "permessi"), (500, "GitHub non disponibile")):
+    """401 e 403 attendevano entrambi la parola «permessi»: era il contratto di quando i due
+    codici condividevano UN messaggio solo. Dal collaudo del 2026-08-03 sono distinti, perché
+    chiedono rimedi opposti — rigenerare il token contro concedergli un permesso — e l'atteso
+    qui diventa il codice HTTP, che è ciò che davvero identifica il guasto."""
+    for status, atteso in ((401, "401"), (403, "403"), (500, "GitHub non disponibile")):
         sha, err = publisher.get_file_sha(_REPO, _PATH, _BRANCH, token=_TOKEN,
                                           http=_FakeHttp((status, None)))
         assert sha is None and err is not None and atteso.lower() in err.lower()
@@ -232,3 +236,100 @@ def test_publish_manda_il_branch_letterale_nel_corpo_json():
     publisher.publish(_SIGNED, repo=_REPO, path=_PATH, branch="feature/x", token=_TOKEN,
                       message="m", http=http)
     assert http.calls[1]["body"]["branch"] == "feature/x"
+
+
+# ── 401 ≠ 403: due guasti opposti, due messaggi (collaudo proprietario 2026-08-03) ───────────────
+#
+# Trovato installando il License Manager su un secondo PC: la pubblicazione falliva e il messaggio
+# diceva «Token non valido o senza permessi sul repository». Il proprietario l'ha letta come DUE
+# diagnosi, mentre era una frase sola che copre due cause che chiedono rimedi opposti:
+#   401 → GitHub rifiuta il token in sé (sbagliato, scaduto, revocato, troncato nell'incollare);
+#   403 → il token è buono ma non ha scrittura su quel repo (fine-grained senza «Contents: R/W»).
+# Senza distinguerle non si può riparare se non per tentativi.
+
+def test_401_dice_che_il_token_e_rifiutato_non_i_permessi():
+    msg = publisher._error_message(401, "scrittura")
+    assert "401" in msg
+    basso = msg.lower()
+    assert "scadut" in basso or "revocat" in basso or "rifiutat" in basso, msg
+    assert "contents" not in basso, (
+        "un 401 non è un problema di permessi: mandare l'utente a cambiare i permessi del token "
+        f"lo fa girare a vuoto — {msg!r}")
+
+
+def test_403_dice_che_mancano_i_permessi_di_scrittura():
+    msg = publisher._error_message(403, "scrittura", repo=_REPO)
+    assert "403" in msg
+    basso = msg.lower()
+    assert "contents" in basso and ("read and write" in basso or "scrittur" in basso), msg
+    assert _REPO in msg, "il messaggio non dice SU QUALE repo mancano i permessi"
+
+
+def test_i_messaggi_401_e_403_sono_diversi():
+    assert publisher._error_message(401, "scrittura") != publisher._error_message(403, "scrittura")
+
+
+def test_nessun_messaggio_di_errore_contiene_mai_il_token():
+    for status in (401, 403, 404, 409, 422, 429, 301, 500):
+        assert _TOKEN not in publisher._error_message(status, "scrittura", repo=_REPO)
+
+
+# ── check_access: la verifica preventiva, in SOLA LETTURA ────────────────────────────────────────
+
+def test_check_access_ok_quando_il_token_puo_scrivere():
+    # GET /repos/... → permissions.push=True ; poi GET contents → 200 (il file esiste già)
+    http = _FakeHttp((200, {"permissions": {"push": True, "pull": True}}), (200, {"sha": "abc"}))
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is True and res["can_write"] is True
+    assert http.calls[0]["method"] == "GET" and http.calls[1]["method"] == "GET", \
+        "la verifica NON deve scrivere nulla sul repository"
+
+
+def test_check_access_su_repo_pubblico_senza_scrittura_NON_dice_va_tutto_bene():
+    """Il caso reale del proprietario. Su un repo PUBBLICO la lettura riesce con qualunque token
+    valido: una verifica di sola lettura direbbe «tutto ok» e poi la pubblicazione fallirebbe con
+    403. Per questo si legge `permissions.push`, che è la capacità di SCRIVERE."""
+    http = _FakeHttp((200, {"permissions": {"push": False, "pull": True}}))
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is False and res["can_write"] is False
+    assert "contents" in res["message"].lower(), res["message"]
+
+
+def test_check_access_401_token_rifiutato():
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=_FakeHttp((401, None)))
+    assert res["ok"] is False and res["can_write"] is False
+    assert "401" in res["message"]
+
+
+def test_check_access_404_repo_inesistente_o_non_concesso():
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=_FakeHttp((404, None)))
+    assert res["ok"] is False
+    assert "404" in res["message"] or "non trovat" in res["message"].lower()
+
+
+def test_check_access_file_non_ancora_presente_resta_OK():
+    """404 sul FILE non è un errore: la prima pubblicazione lo crea. Deve restare `ok=True`,
+    altrimenti la verifica spaventerebbe l'utente prima della prima pubblicazione."""
+    http = _FakeHttp((200, {"permissions": {"push": True}}), (404, None))
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is True and res["file_exists"] is False
+
+
+def test_check_access_senza_token_non_chiama_la_rete():
+    http = _FakeHttp()
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token="", http=http)
+    assert res["ok"] is False and http.calls == [], "ha contattato GitHub senza token"
+
+
+def test_check_access_rete_ko_fail_safe():
+    def esplode(*_a, **_k):
+        raise OSError("dns")
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=esplode)
+    assert res["ok"] is False and "rete" in res["message"].lower()
+
+
+def test_check_access_non_espone_mai_il_token():
+    for risposte in ([(401, None)], [(403, None)], [(404, None)],
+                     [(200, {"permissions": {"push": False}})]):
+        res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=_FakeHttp(*risposte))
+        assert _TOKEN not in json.dumps(res, ensure_ascii=False)
