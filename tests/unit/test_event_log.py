@@ -482,14 +482,22 @@ def test_le_due_barriere_conoscono_gli_STESSI_token():
         "ghr_" + "L1k2J3h4G5f6D7s8A9z0X1c2V3b4N5m6Q7w8",
         "github_pat_11ABCDEFG0" + "abcdefghijklmnopqrstuvwxyz0123456789",
     ]
-    nomi_github = [n for n, _ in secret_policy.SECRET_PATTERNS if "GitHub" in n]
-    assert nomi_github, "secret_policy non ha più pattern GitHub: questo test non ha più senso"
+    github = [(n, rx) for n, rx in secret_policy.SECRET_PATTERNS if "GitHub" in n]
+    assert github, "secret_policy non ha più pattern GitHub: questo test non ha più senso"
+
+    # Ogni pattern dello scanner dev'essere ESERCITATO da almeno un campione (rilievo Sourcery
+    # #216, ed è il rilievo giusto). Senza questa pretesa il confronto qui sotto sarebbe
+    # `False == False` per una shape nuova che nessun campione copre: il test passerebbe
+    # **proprio** sul pattern non allineato, cioè fallirebbe a fare l'unica cosa per cui esiste.
+    # Con la pretesa, chi aggiunge un pattern è costretto ad aggiungere anche il campione — e a
+    # quel punto l'asserzione di allineamento fa il suo mestiere.
+    for nome, rx in github:
+        assert any(rx.search(c.encode()) for c in campioni), (
+            f"nessun campione esercita il pattern {nome!r}: aggiungine uno qui, altrimenti "
+            "l'allineamento fra le due barriere NON è verificato per quella shape")
 
     for campione in campioni:
-        bloccato_nel_commit = any(
-            rx.search(campione.encode()) for n, rx in secret_policy.SECRET_PATTERNS
-            if "GitHub" in n
-        )
+        bloccato_nel_commit = any(rx.search(campione.encode()) for _, rx in github)
         redatto_nel_log = "[REDACTED_TOKEN]" in el.redact_secrets(campione)
         assert bloccato_nel_commit == redatto_nel_log, (
             f"{campione[:12]}…: commit-scanner={bloccato_nel_commit}, "

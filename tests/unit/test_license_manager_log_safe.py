@@ -139,3 +139,52 @@ def test_un_keyring_vuoto_non_registra_nulla(monkeypatch):
     prima = set(event_log._secret_literals)
     assert publish_store.load_publish_token() is None
     assert set(event_log._secret_literals) == prima
+
+
+# ── La rete non deve poter essere aggirata da un modulo futuro ───────────────────────────────
+
+def test_nessun_modulo_del_package_usa_un_logger_NUDO():
+    """Rilievo convergente di GPT-5.5 e Fable 5 sulla #216, ed è il rilievo giusto.
+
+    Il filtro protegge i logger creati da `log_safe.get_logger`. Un modulo nuovo scritto domani
+    con `logging.getLogger(__name__)` — cioè il gesto più naturale del mondo, quello che facevano
+    tutti e quattro i moduli prima di questa PR — nascerebbe **fuori** dalla barriera, e nessuno
+    se ne accorgerebbe finché un token non compare in un log.
+
+    Trasformare la convenzione in un test è esattamente ciò che questa PR fa per il resto: senza,
+    la rete stessa sarebbe protetta solo da un'abitudine. `log_safe.py` è l'unica eccezione
+    ammessa: è il posto dove il logger nudo viene creato **una volta** e subito filtrato."""
+    import pathlib
+
+    pacchetto = pathlib.Path(__file__).resolve().parents[2] / "license_manager"
+    assert pacchetto.is_dir(), f"package non trovato in {pacchetto}"
+
+    colpevoli = []
+    for modulo in sorted(pacchetto.glob("*.py")):
+        if modulo.name == "log_safe.py":
+            continue                       # l'unica sede legittima, per costruzione
+        testo = modulo.read_text(encoding="utf-8")
+        if "logging.getLogger" in testo:
+            colpevoli.append(modulo.name)
+
+    assert not colpevoli, (
+        f"logger NUDO (fuori dalla redazione) in: {', '.join(colpevoli)} — "
+        "usare `log_safe.get_logger(__name__)`")
+
+
+def test_il_test_cross_barriera_non_dipende_dalla_working_directory():
+    """Rilievo GPT-5.5 #216: `from tools import secret_policy` regge solo se la radice del repo è
+    importabile. `tools/` non ha `__init__.py` (è un namespace package), quindi se un domani i
+    test girassero da una cwd diversa quell'import fallirebbe — e con lui la guardia che tiene
+    allineate le due barriere, in modo silenzioso e proprio su Windows, dove la CI è diversa.
+
+    Qui si pretende che l'import sia risolvibile dalla radice del repository, indipendentemente
+    da dove pytest è stato lanciato."""
+    import importlib.util
+    import pathlib
+
+    radice = pathlib.Path(__file__).resolve().parents[2]
+    assert (radice / "tools" / "secret_policy.py").is_file(), \
+        f"tools/secret_policy.py non trovato sotto {radice}"
+    assert importlib.util.find_spec("tools.secret_policy") is not None, \
+        "tools.secret_policy non importabile: il test cross-barriera non girerebbe"
