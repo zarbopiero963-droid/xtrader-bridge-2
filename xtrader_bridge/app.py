@@ -4618,7 +4618,7 @@ class App(ctk.CTk):
                                      market_terms_provider=self._known_market_terms,
                                      is_running=lambda: self._running,
                                      # #182 PR A ④: «📇 Provider» del riquadro anagrafiche porta
-                                     # sulla scheda Provider dell'hub. La lambda risolve
+                                     # sulla scheda Provider dell'hub. `_select_tool_tab` risolve
                                      # `self._tools_win` al CLICK, non alla costruzione: qui la
                                      # finestra non esiste ancora (i pannelli nascono prima).
                                      on_open_tool=self._select_tool_tab)

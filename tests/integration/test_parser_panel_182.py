@@ -74,10 +74,12 @@ def test_carica_e_assorbito_dal_doppio_click(cpg):
         assert atteso in bottoni, f"manca «{atteso}»: {bottoni}"
 
 
-def test_ordine_alfabetico_e_marcatori(cpg):
-    """L'elenco è ordinato case-insensitive e mostra «✓ attivo» / «📡 N».
+def test_ordine_alfabetico_case_insensitive(cpg):
+    """L'elenco è ordinato case-insensitive.
 
-    Esegue il VERO `_refresh_saved` con `saved_parsers` e config finti."""
+    Rilievo CodeRabbit (#223): il nome prometteva anche i marcatori «✓ attivo»/«📡 N», che
+    qui NON sono esercitati perché `_render_saved_rows` è sostituito da uno stub. I marcatori
+    hanno il loro test in `test_parser_usage_*`; questo verifica l'ordine, e ora lo dice."""
     mod = cpg
     disegnate = {}
 
@@ -422,8 +424,76 @@ def test_il_gate_fallisce_APERTO_se_il_widget_solleva(cpg):
 
 def test_i_gestori_del_doppio_click_fermano_la_propagazione(cpg):
     """Rilievo Sourcery (#223): riga ED etichetta erano entrambe legate, quindi un doppio click
-    sull'etichetta scattava lì e poi risaliva al frame — `_open_saved` due volte."""
-    src = inspect.getsource(cpg.CustomParserPanel._render_saved_rows)
-    for evento in ('"<Button-1>"', '"<Double-Button-1>"'):
-        riga = next(r for r in src.splitlines() if evento in r and "bind" in r)
-        assert 'or "break"' in riga, f"il gestore di {evento} non ferma la propagazione: {riga.strip()}"
+    sull'etichetta scattava lì e poi risaliva al frame — `_open_saved` due volte.
+
+    Verifica il VALORE ritornato dal gestore, non la stringa nel sorgente (rilievo CodeRabbit
+    e Fugu sullo stesso punto): la forma precedente era `azione(n) or "break"`, che smetteva di
+    fermare la propagazione appena l'azione avesse iniziato a ritornare qualcosa di truthy —
+    e un test che legge il sorgente non se ne sarebbe accorto."""
+    mod = cpg
+    eseguite = []
+
+    gestore = mod.CustomParserPanel._gestore_click("P1", lambda n: eseguite.append(n))
+    assert gestore(None) == "break", "il gestore non ferma la propagazione"
+    assert eseguite == ["P1"], "l'azione non è stata eseguita"
+
+    # …e continua a fermarla anche se l'azione ritorna un valore TRUTHY
+    gestore_truthy = mod.CustomParserPanel._gestore_click("P2", lambda n: "qualcosa")
+    assert gestore_truthy(None) == "break", (
+        "il «break» dipende ancora da cosa ritorna l'azione: torna il doppio caricamento")
+
+
+def test_il_badge_conta_ANCHE_parser_list_by_chat(cpg):
+    """Rilievo CodeRabbit (#223): `parser_list_by_chat` è una chiave di config SEPARATA.
+
+    Fail-first: prima della correzione una chat instradata solo dal router multi-parser non
+    veniva contata, e il badge «📡 N» diceva «nessuna chat» su un parser in realtà usato."""
+    mod = cpg
+    finto = object.__new__(mod.CustomParserPanel)
+    cfg = {
+        "active_parser": "P1",
+        "parser_by_chat": {"-100": "P1"},
+        "parser_list_by_chat": {"-200": ["P1", "P2"], "-300": ["P2"]},
+    }
+    orig = mod.config_store.load_config
+    try:
+        mod.config_store.load_config = lambda *_a, **_k: cfg
+        attivo, conteggio = mod.CustomParserPanel._parser_usage(finto)
+    finally:
+        mod.config_store.load_config = orig
+    assert attivo == "P1"
+    assert conteggio == {"P1": 2, "P2": 2}, conteggio
+
+
+def test_il_riaggancio_lega_entrambi_gli_eventi_anche_se_il_primo_fallisce(cpg):
+    """Rilievo Fugu (#223): il `return` sul primo evento lasciava «<FocusOut>» non agganciato."""
+    mod = cpg
+    finto = types.SimpleNamespace(_gate_fixed_value=lambda r: None,
+                                  _mostra_avviso_valore_fisso=lambda: None)
+    legati = []
+
+    class _EntryCapricciosa:
+        def bind(self, evento, cb, add=None):
+            legati.append(evento)
+            if evento == "<KeyRelease>":
+                raise RuntimeError("primo evento non legabile")
+
+    mod.CustomParserPanel._segui_valore_fisso(finto, {"fixed_value": _EntryCapricciosa()})
+    assert legati == ["<KeyRelease>", "<FocusOut>"], (
+        f"il secondo evento non è stato tentato: {legati}")
+
+
+def test_il_riaggancio_usa_add_per_non_sostituire_gli_handler_esistenti(cpg):
+    """Rilievo GPT-5.5 (#223): senza `add="+"` il bind SOSTITUISCE gli handler che CTkEntry ha
+    già su quegli eventi — regressione invisibile ai test coi doppi finti."""
+    mod = cpg
+    finto = types.SimpleNamespace(_gate_fixed_value=lambda r: None,
+                                  _mostra_avviso_valore_fisso=lambda: None)
+    visti = []
+
+    class _Entry:
+        def bind(self, evento, cb, add=None):
+            visti.append((evento, add))
+
+    mod.CustomParserPanel._segui_valore_fisso(finto, {"fixed_value": _Entry()})
+    assert visti == [("<KeyRelease>", "+"), ("<FocusOut>", "+")], visti

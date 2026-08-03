@@ -1234,9 +1234,18 @@ class CustomParserPanel(ctk.CTkFrame):
         if callable(lega):
             for evento in ("<KeyRelease>", "<FocusOut>"):
                 try:
-                    lega(evento, _riapplica)
-                except Exception:    # noqa: BLE001 — widget non legabile: nessun ri-aggancio
-                    return
+                    # `add="+"` (rilievo GPT-5.5 #223): senza, il bind SOSTITUISCE gli handler
+                    # che CTkEntry ha già su quegli eventi — regressione invisibile ai test coi
+                    # doppi finti. `continue` e non `return` (rilievo Fugu): un errore sul primo
+                    # evento non deve lasciare il secondo non agganciato.
+                    lega(evento, _riapplica, add="+")
+                except TypeError:
+                    try:
+                        lega(evento, _riapplica)      # doppi/widget che non accettano `add`
+                    except Exception:    # noqa: BLE001 — non legabile: si prova il prossimo
+                        continue
+                except Exception:        # noqa: BLE001 — non legabile: si prova il prossimo
+                    continue
 
     @staticmethod
     def _riga_ha_valore_fisso(refs) -> bool:
@@ -1314,7 +1323,11 @@ class CustomParserPanel(ctk.CTkFrame):
 
     def _mostra_avviso_valore_fisso(self):
         """Mostra/nasconde l'avviso non bloccante sulle righe con valore fisso (#182 PR A ⑥)."""
-        etichetta = getattr(self, "_fixed_warn_lbl", None)
+        # `self.__dict__.get` e non `getattr` (rilievo CodeRabbit #223): su un `CTkFrame` con lo
+        # stato Tk incompleto un attributo mancante finisce nel `__getattr__` di tkinter, che
+        # ricorre invece di sollevare `AttributeError` — il default di `getattr` non lo intercetta.
+        # Stesso schema già usato da `_update_translations_status`.
+        etichetta = self.__dict__.get("_fixed_warn_lbl")
         if etichetta is None:
             return
         testo = self._avviso_valore_fisso()
@@ -1447,13 +1460,24 @@ class CustomParserPanel(ctk.CTkFrame):
             cfg = config_store.load_config(config_store.CONFIG_FILE)
             attivo = parser_manager.active_parser_name(cfg)
             per_chat = parser_manager.parser_by_chat(cfg) or {}
+            # Rilievo CodeRabbit (#223): `parser_list_by_chat` è una chiave di config SEPARATA
+            # (router multi-parser). Una chat instradata solo da lì non comparirebbe nel badge,
+            # che direbbe «nessuna chat» su un parser in realtà usato.
+            liste_per_chat = parser_manager.parser_list_by_chat(cfg) or {}
         except Exception:            # noqa: BLE001 — config illeggibile: nessun marcatore, mai un crash
             return "", {}
         conteggio = {}
-        for nome in per_chat.values():
+
+        def _conta(nome):
             chiave = str(nome or "").strip()
             if chiave:
                 conteggio[chiave] = conteggio.get(chiave, 0) + 1
+
+        for nome in per_chat.values():
+            _conta(nome)
+        for nomi in liste_per_chat.values():
+            for nome in (nomi or []):
+                _conta(nome)
         return attivo, conteggio
 
     def _refresh_saved(self):
@@ -1492,9 +1516,23 @@ class CustomParserPanel(ctk.CTkFrame):
                 # I gestori ritornano "break" (rilievo Sourcery #223): senza, un doppio click
                 # sull'ETICHETTA scatta lì e poi risale al FRAME, eseguendo `_open_saved` DUE
                 # volte — cioè due caricamenti e potenzialmente due conferme di scarto.
-                widget.bind("<Button-1>", lambda _e, n=nome: self._select_saved(n) or "break")
-                widget.bind("<Double-Button-1>", lambda _e, n=nome: self._open_saved(n) or "break")
+                widget.bind("<Button-1>", self._gestore_click(nome, self._select_saved))
+                widget.bind("<Double-Button-1>", self._gestore_click(nome, self._open_saved))
         self._highlight_saved()
+
+    @staticmethod
+    def _gestore_click(nome, azione):
+        """Gestore di click che ferma SEMPRE la propagazione.
+
+        Rilievo Fugu (#223): la forma precedente era `azione(n) or "break"`, che ritorna
+        `"break"` solo finché l'azione ritorna un valore falsy. Bastava che `_select_saved` o
+        `_open_saved` iniziassero a ritornare qualcosa perché la propagazione ripartisse e
+        `_open_saved` tornasse a girare DUE volte (riga + etichetta). Qui `"break"` è
+        incondizionato: non dipende da cosa ritorna l'azione."""
+        def _gestisci(_evento=None):
+            azione(nome)
+            return "break"
+        return _gestisci
 
     def _select_saved(self, nome):
         """Selezione singola: aggiorna `_saved_var` (che duplica/elimina già leggono)."""
