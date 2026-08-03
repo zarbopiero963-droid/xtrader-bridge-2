@@ -243,7 +243,12 @@ def test_rollback_mercati_su_salvataggio_fallito_riporta_indietro_l_elenco(nmg, 
     finto = _pannello_mercati(nmg)
     finto._profile_var.set("B")
     finto._load_cfg = lambda: {"market_mappings": {"A": [], "B": []}}
-    finto._collect_rows = list
+    # `lambda: []` e NON `list` (che ruff PIE807 suggerirebbe): come test double dev'essere
+    # STRETTO sull'arita'. `list` accetterebbe un argomento in silenzio, quindi se domani
+    # `_collect_rows` cambiasse firma il test passerebbe lo stesso invece di cadere
+    # (rilievo GPT-5.5 sulla PR #228). Il job lint e' `continue-on-error`, quindi la regola
+    # cosmetica non vale un doppio piu' permissivo.
+    finto._collect_rows = lambda: []  # noqa: PIE807 — arita' stretta voluta
     finto._status = types.SimpleNamespace(configure=lambda **k: None)
     finto._on_saved = None
     finto._reload_rows = lambda cfg=None: pytest.fail("switch annullato: niente reload")
