@@ -715,6 +715,63 @@ def market_mapping_profile_usage(dir_path: str = None) -> dict:
     return _profile_usage("market_mapping_profiles", dir_path)
 
 
+def provider_usage(dir_path: str = None) -> dict:
+    """``{nome_provider: [nomi parser]}`` in UNA passata sui parser salvati (#182 PR E).
+
+    Il legame non è un attributo-lista come per i profili di mappatura, ma una **regola**: un
+    parser usa un provider quando ha una `FieldRule` con ``target="Provider"`` e quel nome come
+    ``fixed_value`` (nella GUI è una tendina che pesca dall'anagrafica). Le regole che
+    **estraggono** il Provider dal messaggio non contano: non fissano un nome, quindi non
+    dipendono da una voce dell'anagrafica.
+
+    Un parser compare **una volta sola** per provider anche se avesse più regole con lo stesso
+    valore — stessa scelta di `_profile_usage`, per la stessa ragione: il badge conta *quanti
+    parser dipendono*, non quante righe lo nominano.
+
+    Confronto **case-insensitive e senza spazi ai bordi**, come `provider_store`
+    (`remove_provider` deduplica così): altrimenti un parser che scrive «Bet365 » risulterebbe
+    non collegato alla voce «Bet365» e il badge direbbe «non usato» su un provider che invece
+    romperebbe quel parser se eliminato. La chiave del dizionario è il nome **come salvato nel
+    parser**; i chiamanti confrontano normalizzando (vedi `provider_usage_for`).
+
+    Best-effort: i file non caricabili vengono saltati — un parser corrotto non deve far sparire
+    i badge di tutti gli altri."""
+    out = {}
+    for path in list_parser_files(dir_path):
+        try:
+            defn = load_parser(path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        visti = set()
+        for regola in (getattr(defn, "rules", []) or []):
+            if getattr(regola, "target", "") != "Provider":
+                continue
+            nome = str(getattr(regola, "fixed_value", "") or "").strip()
+            chiave = nome.casefold()
+            if nome and chiave not in visti:
+                visti.add(chiave)
+                out.setdefault(nome, []).append(defn.name)
+    return out
+
+
+def parsers_using_provider(name: str, dir_path: str = None) -> list:
+    """Nomi dei parser salvati che fissano il provider ``name`` (confronto come `provider_store`:
+    senza spazi ai bordi, case-insensitive).
+
+    Serve ad **avvisare prima di eliminare** un provider in uso: toglierlo dall'anagrafica non
+    tocca i parser, che continuerebbero a scrivere quel valore nel CSV, ma la voce sparisce dalla
+    tendina — e alla prima modifica di quel parser il lato umano non ha più modo di ri-sceglierla.
+    Stessa funzione informativa di `parsers_using_mapping_profile`."""
+    n = str(name or "").strip().casefold()
+    if not n:
+        return []
+    fuori = []
+    for salvato, parsers in provider_usage(dir_path).items():
+        if salvato.strip().casefold() == n:
+            fuori.extend(parsers)
+    return fuori
+
+
 def _profile_usage(attr: str, dir_path: str = None) -> dict:
     """Nucleo condiviso: ``{profilo: [parser]}`` per ``attr``, una sola passata sui file.
 

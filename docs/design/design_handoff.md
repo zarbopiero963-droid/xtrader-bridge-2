@@ -1142,6 +1142,24 @@ XTrader** nella scheda Conferme (vuota = disattivate resta ammessa).
 Titolo **"📇  Anagrafica Provider"**. Campo nome + **"➕ Aggiungi"**; lista provider salvati
 con **"🗑 Rimuovi"** per riga. Anagrafica riusabile nella colonna Provider dei parser.
 
+**Marcatore d'uso per riga (#182 PR E).** A destra del nome, prima del pulsante Rimuovi:
+- **«🧩 N parser»** (grigio) = quanti parser salvati **fissano** quel provider, cioè hanno una
+  regola con `target="Provider"` e quel nome come valore fisso. Le regole che **estraggono** il
+  Provider dal messaggio non contano: non dipendono da una voce dell'anagrafica;
+- **«— non usato»** (arancio `STATUS_WARN`) quando nessun parser lo fissa.
+
+⚠️ **Qui lo zero si SCRIVE, a differenza dei dizionari** (§7.5, dove «🧩 0» è omesso perché un
+profilo appena creato e non ancora collegato è normale). In questo pannello *non usato* è
+precisamente la condizione che rende la **rimozione sicura**, ed è l'informazione più utile della
+riga — sta accanto al pulsante che la distrugge.
+
+**Conferma di rimozione arricchita (#182 PR E).** Il dialog «Rimuovi provider» elenca ora i
+parser colpiti — come già faceva il pannello Mapping prima di eliminare un profilo in uso — e
+dice il vero sulle conseguenze: i parser **restano funzionanti** e continuano a scrivere quel
+valore nel CSV, ma il nome **non sarà più selezionabile** quando li si modifica. La conferma
+resta **fail-closed** (dialog rotto/headless → non si rimuove nulla); se i parser non sono
+leggibili la domanda torna quella storica invece di bloccare la gestione dell'anagrafica.
+
 ### 7.4 📁 Profili (`profiles_gui.py`)
 Titolo **"📁  Profili impostazioni"**. Salva/ricarica snapshot di configurazione (il **token
 NON** viene salvato nei profili). Campo nome + **"💾 Salva profilo"**; lista con **"↺ Carica"**
