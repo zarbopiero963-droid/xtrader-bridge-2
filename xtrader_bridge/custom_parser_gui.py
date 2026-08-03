@@ -30,6 +30,7 @@ from . import (
     market_mapping_store,
     name_mapping_store,
     parser_diagnostics,
+    parser_manager,
     provider_store,
     recognition,
     sports,
@@ -287,6 +288,21 @@ class CustomParserPanel(ctk.CTkFrame):
             cfg = {}
         return recognition.effective_source_language(cfg, defn)
 
+    def _open_provider_registry(self):
+        """Apre l'anagrafica «📇 Provider» dell'hub Strumenti (#182 PR A ④).
+
+        Fail-safe: senza il callback dell'hub (pannello usato fuori dall'hub, o hub non ancora
+        costruito) ricade sull'aggiunta rapida di un provider — il comportamento storico di
+        «➕ Provider» — invece di non fare nulla. Un pulsante che non risponde è peggio di un
+        pulsante che fa la cosa più piccola."""
+        if self._on_open_tool is None:
+            self._add_provider()
+            return
+        try:
+            self._on_open_tool("📇 Provider")
+        except Exception:            # noqa: BLE001 — navigazione best-effort: mai un crash
+            self._add_provider()
+
     def _open_name_mapping(self):
         """Apre il Dizionario nomi (finestra separata). Alla chiusura/salvataggio
         ricarica le checkbox dei profili così le nuove voci compaiono subito."""
@@ -436,14 +452,19 @@ class CustomParserPanel(ctk.CTkFrame):
 
     def __init__(self, master=None, builder: ParserBuilder = None, provider: str = "",
                  global_mode: str = "", on_saved=None, id_resolver_factory=None,
-                 market_terms_provider=None, is_running=None):
+                 market_terms_provider=None, is_running=None, on_open_tool=None):
         super().__init__(master)
+        # #182 PR A ④: callback OPZIONALE `on_open_tool(titolo_scheda)` per portare l'utente su
+        # un'altra scheda dell'hub Strumenti (l'app la aggancia a `ToolsWindow.select_tab`).
+        # Assente → il pulsante 📇 Provider degrada all'aggiunta rapida di un nome, che è il
+        # comportamento storico: nessun percorso muore se il pannello vive fuori dall'hub.
+        self._on_open_tool = on_open_tool
         # #176: sonda «bridge ATTIVO» per l'avviso post-salvataggio (avvisa, non blocca).
         self._is_running = is_running
         is_new = builder is None
         self.builder = builder or ParserBuilder()
         # P3-28 #76: fotografia dello stato SALVATO del builder — il confronto con lo
-        # stato corrente decide se «🆕 Nuovo»/«📂 Carica» devono chiedere conferma prima
+        # stato corrente decide se «🆕 Nuovo»/il caricamento (doppio click) devono chiedere conferma prima
         # di scartare modifiche non salvate. sync=False: i widget non esistono ancora
         # (e a fine costruzione rispecchiano esattamente il builder).
         self._saved_snapshot = self._builder_snapshot(sync=False)
@@ -487,6 +508,42 @@ class CustomParserPanel(ctk.CTkFrame):
         self._build_ui()
         self._reload_rows_from_builder()
         self._refresh_saved()
+        if is_new:
+            self._autoload_active_parser()
+
+    def _autoload_active_parser(self):
+        """② #182 PR A — all'apertura carica da solo il PARSER ATTIVO (decisione del
+        proprietario, 2026-08-03).
+
+        Prima l'editor si apriva sempre vuoto: per vedere le regole del parser che stai
+        davvero usando servivano due passaggi. È il fastidio che la #182 elenca come
+        motivazione dell'intera slice.
+
+        Vincoli, tutti verificati dai test:
+        - agisce SOLO su un pannello nuovo (`builder is None`), mai su uno già popolato:
+          non deve mai calpestare un parser in costruzione;
+        - è FAIL-SAFE: nessun parser attivo, nome che non risolve a un file, file corrotto
+          → si resta sull'editor vuoto, che è il comportamento storico. Un parser
+          illeggibile non deve impedire di aprire il pannello;
+        - **sola presentazione**: carica nell'editor un parser già salvato. Non cambia quale
+          parser il bridge usa, non scrive config, non tocca il CSV.
+        - NON passa dalla conferma «modifiche non salvate» perché per costruzione non ce ne
+          sono: il pannello è appena nato."""
+        attivo, _ = self._parser_usage()
+        if not attivo or attivo not in self._saved_map:
+            return
+        # `_saved_snapshot` è fotografato nel prologo di `__init__`, PRIMA che
+        # `apply_mode_defaults` tocchi il builder di un parser nuovo: la coppia risulterebbe
+        # quindi "modificata" e `_load_selected` aprirebbe la conferma «modifiche non salvate»
+        # A OGNI APERTURA della scheda. Su un pannello appena nato non c'è lavoro dell'utente da
+        # perdere, quindi si ri-fotografa lo stato corrente come baseline salvata: la guardia
+        # resta intatta per tutti gli altri percorsi (doppio click, 🆕 Nuovo), dove serve davvero.
+        self._saved_snapshot = self._builder_snapshot()
+        try:
+            self._select_saved(attivo)
+            self._load_selected()
+        except Exception:            # noqa: BLE001 — parser attivo illeggibile: editor vuoto
+            return
 
     def refresh_options(self):
         """Aggiorna le LISTE-OPZIONI derivate dal config SENZA toccare il parser in
@@ -560,16 +617,53 @@ class CustomParserPanel(ctk.CTkFrame):
         # gestione parser salvati: lista + nuovo / carica / duplica / elimina
         manage = ctk.CTkFrame(outer, fg_color="transparent")
         manage.pack(fill="x", padx=10, pady=(0, 6))
-        ctk.CTkLabel(manage, text=i18n.tr("Parser salvati:")).pack(side="left", padx=6)
+        # #182 PR A ① — elenco SEMPRE VISIBILE al posto della tendina chiusa. Prima i parser
+        # salvati vivevano dentro un `CTkOptionMenu`: per sapere quali esistevano bisognava
+        # aprirlo, e per vederne le regole servivano due passaggi (apri tendina → «📂 Carica»).
+        # Ora si vedono tutti, in ordine alfabetico, con due marcatori di contesto che prima non
+        # esistevano: «✓ attivo» (il parser che il bridge userebbe di default) e «📡 N» (quante
+        # chat lo puntano esplicitamente). Il DOPPIO CLICK carica — assorbe «📂 Carica», che
+        # sparisce dalla barra — e passa dalla STESSA conferma «modifiche non salvate».
+        # `_saved_var` resta la sorgente della selezione: duplica/elimina/carica non cambiano.
+        ctk.CTkLabel(manage, text=i18n.tr("Parser salvati:"),
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=6)
         self._saved_var = ctk.StringVar(value=self._NONE_SAVED)
-        self._saved_menu = ctk.CTkOptionMenu(
-            manage, variable=self._saved_var, values=[self._NONE_SAVED], width=220)
-        self._saved_menu.pack(side="left", padx=6)
-        ctk.CTkButton(manage, text=i18n.tr("🆕 Nuovo"), width=90, command=self._new).pack(side="left", padx=3)
-        ctk.CTkButton(manage, text=i18n.tr("📂 Carica"), width=90, command=self._load_selected).pack(side="left", padx=3)
-        ctk.CTkButton(manage, text=i18n.tr("📑 Duplica"), width=90, command=self._duplicate_selected).pack(side="left", padx=3)
-        ctk.CTkButton(manage, text=i18n.tr("🗑 Elimina"), width=90, fg_color=ui_theme.DANGER,
+        self._saved_list = ctk.CTkScrollableFrame(manage, height=104)
+        self._saved_list.pack(fill="x", padx=6, pady=(2, 4))
+        self._saved_rows = {}          # nome parser → widget riga (per evidenziare la selezione)
+        bottoni = ctk.CTkFrame(manage, fg_color="transparent")
+        bottoni.pack(fill="x", padx=6)
+        ctk.CTkButton(bottoni, text=i18n.tr("🆕 Nuovo"), width=90, command=self._new).pack(side="left", padx=3)
+        ctk.CTkButton(bottoni, text=i18n.tr("📑 Duplica"), width=90, command=self._duplicate_selected).pack(side="left", padx=3)
+        ctk.CTkButton(bottoni, text=i18n.tr("🗑 Elimina"), width=90, fg_color=ui_theme.DANGER,
                       command=self._delete_selected).pack(side="left", padx=3)
+        ctk.CTkLabel(bottoni, text=i18n.tr("(doppio click su un parser per aprirlo)"),
+                     font=ctk.CTkFont(size=11), text_color="gray").pack(side="left", padx=8)
+
+        # #182 PR A ④ — «🧰 Anagrafiche e dizionari»: le tre anagrafiche che servono mentre si
+        # costruisce un parser, raccolte in un punto solo e visibile. Prima erano sparpagliate:
+        # i due dizionari stavano DENTRO le righe delle Traduzioni (mescolati a separatore e
+        # checkbox profili) e l'anagrafica Provider non era raggiungibile affatto — «➕ Provider»
+        # qui sopra aggiunge un nome al volo, non apre l'elenco.
+        # Sola PRESENTAZIONE: i comandi sono quelli di prima, cambia dove si trovano.
+        anag = ctk.CTkFrame(outer)
+        anag.pack(fill="x", padx=10, pady=(0, 6))
+        ctk.CTkLabel(anag, text=i18n.tr("🧰 Anagrafiche e dizionari"),
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=8, pady=(4, 0))
+        riga_anag = ctk.CTkFrame(anag, fg_color="transparent")
+        riga_anag.pack(fill="x", padx=6, pady=(0, 6))
+        ctk.CTkButton(riga_anag, text=i18n.tr("📇 Provider"), width=160,
+                      command=self._open_provider_registry).pack(side="left", padx=6)
+        ctk.CTkButton(riga_anag, text=i18n.tr("🗺️ Dizionario nomi"), width=160,
+                      command=self._open_name_mapping).pack(side="left", padx=6)
+        ctk.CTkButton(riga_anag, text=i18n.tr("🎯 Dizionario mercati"), width=170,
+                      command=self._open_market_mapping).pack(side="left", padx=6)
+
+        # #182 PR A ⑥: avviso NON bloccante sulle righe con valore fisso. Vuoto = invisibile.
+        self._fixed_warn_lbl = ctk.CTkLabel(
+            outer, text="", font=ctk.CTkFont(size=11), text_color=ui_theme.STATUS_WARN,
+            anchor="w", justify="left", wraplength=880)
+        self._fixed_warn_lbl.pack(fill="x", padx=16, pady=(0, 2))
 
         # Catalogo XTrader (B2): scegli Mercato → Selezione (solo NON dinamici) e
         # inseriscili come regole FISSE, senza digitare i nomi canonici a mano.
@@ -577,11 +671,16 @@ class CustomParserPanel(ctk.CTkFrame):
         cat.pack(fill="x", padx=10, pady=(0, 6))
         ctk.CTkLabel(cat, text=i18n.tr("Catalogo XTrader:")).pack(side="left", padx=6)
         self._markets = self.builder.market_options()
+        # #182 PR A ⑤: le due tendine sono a CASCATA (Mercato -> Selezione) ma avevano una sola
+        # etichetta davanti alla prima, quindi la seconda non diceva cosa fosse. Un'etichetta per
+        # ciascuna, entrambe da `i18n.tr` con traduzioni EN/ES.
+        ctk.CTkLabel(cat, text=i18n.tr("Mercato:")).pack(side="left", padx=(6, 2))
         self._cat_market = ctk.StringVar(value=self._markets[0] if self._markets else "")
         self._cat_market_menu = ctk.CTkOptionMenu(
             cat, variable=self._cat_market, values=self._markets or [""],
             width=240, command=self._on_market_change)
         self._cat_market_menu.pack(side="left", padx=4)
+        ctk.CTkLabel(cat, text=i18n.tr("Selezione:")).pack(side="left", padx=(6, 2))
         self._cat_selection = ctk.StringVar(value="")
         self._cat_selection_menu = ctk.CTkOptionMenu(
             cat, variable=self._cat_selection, values=[""], width=240)
@@ -608,8 +707,6 @@ class CustomParserPanel(ctk.CTkFrame):
         self._separator_var = ctk.StringVar(value=self.builder.team_separator)
         ctk.CTkEntry(nm, textvariable=self._separator_var, width=70,
                      placeholder_text="v").pack(side="left", padx=2)
-        ctk.CTkButton(nm, text=i18n.tr("🗺️ Dizionario nomi"), width=160,
-                      command=self._open_name_mapping).pack(side="left", padx=6)
         self._nm_status_lbl = ctk.CTkLabel(nm, text=i18n.tr("— nessuna"), width=92, anchor="w")
         self._nm_status_lbl.pack(side="left", padx=(8, 2))
         self._profiles_box = ctk.CTkScrollableFrame(nm, height=42, orientation="horizontal")
@@ -632,8 +729,6 @@ class CustomParserPanel(ctk.CTkFrame):
         mm = ctk.CTkFrame(trad, fg_color="transparent")
         mm.pack(fill="x", padx=6, pady=(0, 6))
         ctk.CTkLabel(mm, text=i18n.tr("Mercati:")).pack(side="left", padx=6)
-        ctk.CTkButton(mm, text=i18n.tr("🎯 Dizionario mercati"), width=170,
-                      command=self._open_market_mapping).pack(side="left", padx=6)
         self._mm_status_lbl = ctk.CTkLabel(mm, text=i18n.tr("— nessuna"), width=92, anchor="w")
         self._mm_status_lbl.pack(side="left", padx=(8, 2))
         self._market_profiles_box = ctk.CTkScrollableFrame(mm, height=42, orientation="horizontal")
@@ -1094,14 +1189,67 @@ class CustomParserPanel(ctk.CTkFrame):
         refs["transform"] = ctk.StringVar(value=rule.transform)
         refs["value_map"] = ctk.StringVar(value=rule.value_map)
         if getattr(self, "_show_advanced", False):
-            ctk.CTkOptionMenu(row, variable=refs["transform"], values=self._transforms,
-                              width=150).pack(side="left", padx=2)
-            ctk.CTkOptionMenu(row, variable=refs["value_map"], values=self._value_maps,
-                              width=150).pack(side="left", padx=2)
+            refs["transform_menu"] = ctk.CTkOptionMenu(
+                row, variable=refs["transform"], values=self._transforms, width=150)
+            refs["transform_menu"].pack(side="left", padx=2)
+            refs["value_map_menu"] = ctk.CTkOptionMenu(
+                row, variable=refs["value_map"], values=self._value_maps, width=150)
+            refs["value_map_menu"].pack(side="left", padx=2)
+        # #182 PR A ⑥ — opzione A del proprietario: sulle righe con VALORE FISSO le due tendine
+        # avanzate si DISABILITANO e un avviso lo spiega. Il comportamento reale è l'opposto
+        # dell'intuizione: la trasformazione si applica ANCHE al valore fisso, e una fail-closed
+        # come `score_to_over` lo svuota → riga «⛔ Non pronto» senza dire perché.
+        # NON si tocca `validate_parser_def` (opzione B, SCARTATA): irrigidirla renderebbe
+        # invalidi i parser già salvati, `load_all_parsers` li salterebbe e una chat smetterebbe
+        # di produrre segnali IN SILENZIO. L'avviso resta a video; i dati salvati non cambiano.
+        self._gate_fixed_value(refs)
         refs["required"] = ctk.BooleanVar(value=bool(rule.required))
         ctk.CTkCheckBox(row, text="", variable=refs["required"], width=40).pack(side="left", padx=2)
         refs["frame"] = row
         self._rows.append(refs)
+
+    @staticmethod
+    def _riga_ha_valore_fisso(refs) -> bool:
+        """True se la riga porta un valore fisso non vuoto.
+
+        `fixed_value` è un `StringVar` (menu Provider / combo) oppure un `CTkEntry`: entrambi
+        espongono `.get()`. Illeggibile → False (nessun gate: meglio non disabilitare nulla che
+        disabilitare a sproposito)."""
+        widget = refs.get("fixed_value")
+        try:
+            return bool(str(widget.get()).strip())
+        except Exception:            # noqa: BLE001 — widget assente/distrutto: nessun gate
+            return False
+
+    def _gate_fixed_value(self, refs) -> bool:
+        """Disabilita Trasformazione/Value-map sulla riga se ha un valore fisso (#182 PR A ⑥).
+
+        Ritorna True se il gate è scattato su questa riga (serve al conteggio dell'avviso).
+        Sola PRESENTAZIONE: non modifica `rule.transform`/`rule.value_map`, che restano
+        salvati e riletti — un parser esistente non cambia comportamento per averlo aperto."""
+        fisso = self._riga_ha_valore_fisso(refs)
+        for chiave in ("transform_menu", "value_map_menu"):
+            menu = refs.get(chiave)
+            if menu is None:
+                continue
+            try:
+                menu.configure(state="disabled" if fisso else "normal")
+            except Exception:        # noqa: BLE001 — widget distrutto durante un refresh
+                pass
+        return fisso
+
+    def _avviso_valore_fisso(self) -> str:
+        """Testo dell'avviso non bloccante, o "" se nessuna riga è interessata."""
+        quante = sum(1 for refs in self._rows
+                     if self._riga_ha_valore_fisso(refs)
+                     and (refs["transform"].get() or refs["value_map"].get()))
+        if not quante:
+            return ""
+        return i18n.tr(
+            "⚠️ {n} regola/e ha un VALORE FISSO: Trasformazione e Value-map sono disattivate "
+            "lì, perché verrebbero applicate al valore fisso e potrebbero svuotarlo "
+            "(riga «⛔ Non pronto»). Il valore salvato non è stato modificato."
+        ).format(n=quante)
 
     def _reload_rows_from_builder(self):
         for r in list(self._rows):
@@ -1130,6 +1278,20 @@ class CustomParserPanel(ctk.CTkFrame):
         self._reload_conditions_from_builder()
         for rule in self.builder.rules:
             self._add_row(rule)
+        # #182 PR A ⑥: l'avviso si calcola DOPO che tutte le righe esistono — va contato
+        # l'insieme, non la singola riga appena disegnata.
+        self._mostra_avviso_valore_fisso()
+
+    def _mostra_avviso_valore_fisso(self):
+        """Mostra/nasconde l'avviso non bloccante sulle righe con valore fisso (#182 PR A ⑥)."""
+        etichetta = getattr(self, "_fixed_warn_lbl", None)
+        if etichetta is None:
+            return
+        testo = self._avviso_valore_fisso()
+        try:
+            etichetta.configure(text=testo)
+        except Exception:            # noqa: BLE001 — widget distrutto durante un refresh
+            pass
 
     def _on_mode_change(self, _value=None):
         """Modalità cambiata dal menu. Se concreta → set_mode (auto-Obblig. add-only);
@@ -1245,15 +1407,81 @@ class CustomParserPanel(ctk.CTkFrame):
         self._result.configure(text=i18n.tr("➕ Regole fisse inserite: {market} · {selection}").format(market=market, selection=selection))
 
     # ── gestione parser salvati (lista / nuovo / carica / duplica / elimina) ─
+    def _parser_usage(self):
+        """(nome_attivo, {nome_parser: n_chat}) per i marcatori della lista (#182 PR A ①).
+
+        Sola LETTURA e best-effort: usa le API pubbliche `parser_manager.active_parser_name` /
+        `parser_by_chat`. Se la config non è leggibile i marcatori spariscono ma l'elenco resta
+        — un badge mancante non deve impedire di aprire un parser."""
+        try:
+            cfg = config_store.load_config(config_store.CONFIG_FILE)
+            attivo = parser_manager.active_parser_name(cfg)
+            per_chat = parser_manager.parser_by_chat(cfg) or {}
+        except Exception:            # noqa: BLE001 — config illeggibile: nessun marcatore, mai un crash
+            return "", {}
+        conteggio = {}
+        for nome in per_chat.values():
+            chiave = str(nome or "").strip()
+            if chiave:
+                conteggio[chiave] = conteggio.get(chiave, 0) + 1
+        return attivo, conteggio
+
     def _refresh_saved(self):
-        """Ricarica la tendina dei parser salvati dalla cartella utente."""
+        """Ricostruisce l'elenco SEMPRE VISIBILE dei parser salvati (#182 PR A ①).
+
+        Ordine ALFABETICO (case-insensitive): la cartella utente non garantisce un ordine, e un
+        elenco che cambia posizione fra un'apertura e l'altra è peggio di una tendina."""
         items = ParserBuilder.saved_parsers()
         self._saved_map = {it["name"]: it["path"] for it in items}
-        labels = list(self._saved_map) or [self._NONE_SAVED]
-        self._saved_menu.configure(values=labels)
-        # Mantieni la selezione se ancora valida, altrimenti vai sul primo.
+        labels = sorted(self._saved_map, key=lambda s: s.lower()) or [self._NONE_SAVED]
         if self._saved_var.get() not in labels:
             self._saved_var.set(labels[0])
+        self._render_saved_rows(labels)
+
+    def _render_saved_rows(self, labels):
+        """Disegna una riga per parser, con i marcatori «✓ attivo» e «📡 N»."""
+        for figlio in list(getattr(self._saved_list, "winfo_children", lambda: [])()):
+            figlio.destroy()
+        self._saved_rows = {}
+        attivo, per_chat = self._parser_usage()
+        for nome in labels:
+            riga = ctk.CTkFrame(self._saved_list, fg_color="transparent")
+            riga.pack(fill="x", pady=1)
+            etichetta = ctk.CTkLabel(riga, text=nome, anchor="w")
+            etichetta.pack(side="left", padx=(4, 6))
+            if nome != self._NONE_SAVED and nome == attivo:
+                ctk.CTkLabel(riga, text=i18n.tr("✓ attivo"), text_color=ui_theme.STATUS_OK,
+                             font=ctk.CTkFont(size=11)).pack(side="left", padx=3)
+            quante = per_chat.get(nome, 0)
+            if quante:
+                ctk.CTkLabel(riga, text=i18n.tr("📡 {n}").format(n=quante),
+                             font=ctk.CTkFont(size=11), text_color="gray").pack(side="left", padx=3)
+            self._saved_rows[nome] = riga
+            for widget in (riga, etichetta):
+                # click = seleziona · doppio click = apri (con la conferma di «📂 Carica»)
+                widget.bind("<Button-1>", lambda _e, n=nome: self._select_saved(n))
+                widget.bind("<Double-Button-1>", lambda _e, n=nome: self._open_saved(n))
+        self._highlight_saved()
+
+    def _select_saved(self, nome):
+        """Selezione singola: aggiorna `_saved_var` (che duplica/elimina già leggono)."""
+        self._saved_var.set(nome)
+        self._highlight_saved()
+
+    def _open_saved(self, nome):
+        """Doppio click: seleziona e CARICA, passando dalla guardia «modifiche non salvate»."""
+        self._select_saved(nome)
+        self._load_selected()
+
+    def _highlight_saved(self):
+        """Evidenzia la riga selezionata: senza, con la tendina sparita non si capirebbe su
+        quale parser agiscono «📑 Duplica» e «🗑 Elimina»."""
+        scelto = self._saved_var.get()
+        for nome, riga in self._saved_rows.items():
+            try:
+                riga.configure(fg_color=ui_theme.ACCENT if nome == scelto else "transparent")
+            except Exception:        # noqa: BLE001 — widget distrutto durante un refresh: irrilevante
+                pass
 
     def _selected_path(self):
         """Path del parser selezionato, o None se non c'è selezione valida."""

@@ -314,7 +314,6 @@ _CATALOG = {
         "➕ Aggiungi selezione": "➕ Add selection",
         "🗑 Rimuovi": "🗑 Remove",
         "🆕 Nuovo": "🆕 New",
-        "📂 Carica": "📂 Load",
         "📑 Duplica": "📑 Duplicate",
         "— nessuna": "— none",
         "✓ 1 attiva": "✓ 1 active",
@@ -724,6 +723,14 @@ _CATALOG = {
         # a build-time in tools_gui.build_tool_panels / ToolsWindow. «Provider»/«Parser» = termini
         # prodotto (invariati). {exc}=eccezione (valore di dominio nel segnaposto).
         "🧰 Strumenti": "🧰 Tools",
+        # #182 PR A: riquadro anagrafiche + etichette delle due tendine a cascata del Catalogo.
+        "🧰 Anagrafiche e dizionari": "🧰 Registries and dictionaries",
+        "Mercato:": "Market:",
+        "✓ attivo": "✓ active",
+        "⚠️ {n} regola/e ha un VALORE FISSO: Trasformazione e Value-map sono disattivate lì, perché verrebbero applicate al valore fisso e potrebbero svuotarlo (riga «⛔ Non pronto»). Il valore salvato non è stato modificato.": "⚠️ {n} rule(s) have a FIXED VALUE: Transform and Value-map are disabled there, because they would be applied to the fixed value and could empty it (row «⛔ Not ready»). The saved value was not modified.",
+        "📡 {n}": "📡 {n}",
+        "(doppio click su un parser per aprirlo)": "(double-click a parser to open it)",
+        "Selezione:": "Selection:",
         "📡 Chat sorgenti": "📡 Source chats",
         "📇 Provider": "📇 Provider",
         "🧩 Parser": "🧩 Parser",
@@ -1057,7 +1064,6 @@ _CATALOG = {
         "➕ Aggiungi selezione": "➕ Añadir selección",
         "🗑 Rimuovi": "🗑 Eliminar",
         "🆕 Nuovo": "🆕 Nuevo",
-        "📂 Carica": "📂 Cargar",
         "📑 Duplica": "📑 Duplicar",
         "— nessuna": "— ninguna",
         "✓ 1 attiva": "✓ 1 activa",
@@ -1410,6 +1416,14 @@ _CATALOG = {
         "❌ Auto-salvataggio FALLITO: cambio competizione annullato, alias mantenuti a schermo. Controlla permessi/spazio del file config.": "❌ Auto-guardado FALLIDO: cambio de competición cancelado, alias mantenidos en pantalla. Comprueba permisos/espacio del archivo config.",
         # Hub «🧰 Strumenti» (#343 slice 4x) — vedi nota nel blocco EN. «Provider»/«Parser» invariati.
         "🧰 Strumenti": "🧰 Herramientas",
+        # #182 PR A: riquadro anagrafiche + etichette delle due tendine a cascata del Catalogo.
+        "🧰 Anagrafiche e dizionari": "🧰 Catálogos y diccionarios",
+        "Mercato:": "Mercado:",
+        "✓ attivo": "✓ activo",
+        "⚠️ {n} regola/e ha un VALORE FISSO: Trasformazione e Value-map sono disattivate lì, perché verrebbero applicate al valore fisso e potrebbero svuotarlo (riga «⛔ Non pronto»). Il valore salvato non è stato modificato.": "⚠️ {n} regla(s) tienen un VALOR FIJO: Transformación y Value-map están desactivados ahí, porque se aplicarían al valor fijo y podrían vaciarlo (fila «⛔ No listo»). El valor guardado no se ha modificado.",
+        "📡 {n}": "📡 {n}",
+        "(doppio click su un parser per aprirlo)": "(doble clic en un parser para abrirlo)",
+        "Selezione:": "Selección:",
         "📡 Chat sorgenti": "📡 Chats de origen",
         "📇 Provider": "📇 Proveedor",
         "🧩 Parser": "🧩 Parser",

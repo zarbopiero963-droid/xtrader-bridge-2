@@ -923,9 +923,29 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
 
 - **Intestazione:** `Nome parser`, `Modalità` (`(eredita globale)` + opzioni), `Sport`
   (`(non specificato)` / Calcio / Tennis / Basket / Rugby Union / Football Americano), pulsante **"➕ Provider"**.
-- **Parser salvati:** dropdown `(nessuno)` + **"🆕 Nuovo"**, **"📂 Carica"**, **"📑 Duplica"**,
-  **"🗑 Elimina"**.
-- **Catalogo XTrader:** dropdown Mercato + dropdown Selezione + **"➕ Inserisci regole fisse"**.
+- **Parser salvati (#182 PR A ①):** **elenco SEMPRE VISIBILE** (non più una tendina chiusa),
+  in **ordine alfabetico** case-insensitive, con due marcatori per riga: **«✓ attivo»** (verde
+  `STATUS_OK`) sul parser attivo di default e **«📡 N»** (grigio) col numero di chat che lo
+  puntano esplicitamente. La riga selezionata è evidenziata (`ACCENT`). **Doppio click = apri**,
+  con la stessa conferma «modifiche non salvate»; sotto l'elenco **"🆕 Nuovo"**, **"📑 Duplica"**,
+  **"🗑 Elimina"** e il suggerimento *«(doppio click su un parser per aprirlo)»*.
+  **"📂 Carica" non esiste più**: assorbito dal doppio click.
+- **Autoload (#182 PR A ②):** aprendo la scheda l'editor carica **da solo il parser attivo**.
+  Solo su pannello nuovo; senza parser attivo, o se il file non è leggibile, resta **vuoto**
+  (comportamento storico). Non cambia quale parser il bridge usa.
+- **🧰 Anagrafiche e dizionari (#182 PR A ④):** riquadro etichettato con **tre** pulsanti —
+  **"📇 Provider"** (porta sulla scheda Provider dell'hub; senza hub ricade sull'aggiunta
+  rapida), **"🗺️ Dizionario nomi"**, **"🎯 Dizionario mercati"**. I due dizionari **non stanno
+  più** dentro le righe delle Traduzioni, dove erano mescolati a separatore e checkbox.
+- **Catalogo XTrader:** label **«Mercato:»** + dropdown, label **«Selezione:»** + dropdown
+  (#182 PR A ⑤: prima le due tendine a cascata avevano **una sola** etichetta, davanti alla
+  prima) + **"➕ Inserisci regole fisse"**.
+- **Avviso valore fisso (#182 PR A ⑥):** riga ambra (`STATUS_WARN`), **non bloccante**, che
+  compare quando una o più regole hanno un **Valore fisso** insieme a Trasformazione/Value-map;
+  su quelle righe le due tendine avanzate sono **disabilitate**. Il valore salvato **non** viene
+  modificato e `validate_parser_def` **non** viene toccata (opzione B scartata: irrigidirla
+  renderebbe invalidi i parser già salvati e una chat smetterebbe di produrre segnali in
+  silenzio). Vuoto = invisibile.
 - **🔗 Traduzioni attive per questo parser (#293):** riquadro etichettato che raggruppa le due
   mappature (prima erano righe sciolte), con un **indicatore di stato ✓/—** per tipo:
   - **Separatore squadre:** campo (label «Separatore squadre:», placeholder `v`), **"🗺️
