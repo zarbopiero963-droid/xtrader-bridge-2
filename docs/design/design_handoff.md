@@ -275,6 +275,16 @@ cambio lingua vale dalla successiva riabilitazione). **Non chiede né mostra mai
 trascritto: indica solo **dove** inserirli. **Nessun nuovo controllo UI**: cambia solo il contenuto
 delle risposte nel trascritto.
 
+**Guide grandi: indice poi sezione (#214).** Questo documento supera le 140.000 battute, e prima
+l'assistente ne leggeva solo l'**inizio** (il 9%) rispondendo comunque: metà delle schermate qui
+descritte gli erano invisibili e non lo sapeva. Ora, sulle guide oltre il tetto, legge prima
+l'**indice** e poi la **sezione** pertinente alla domanda. **Nessun impatto sui controlli**: per chi
+usa la finestra l'unico effetto è che una risposta può richiedere un istante in più, e che se una
+sezione risulta comunque troppo lunga l'assistente **lo dichiara nel trascritto** invece di
+completare a intuito. Rilevante per il design solo come promessa da mantenere: **questo handoff è
+una fonte che l'assistente cita**, quindi tenerlo strutturato in sezioni con titoli chiari non è
+cosmesi — è ciò che rende raggiungibile la parte giusta.
+
 **Prova messaggio (PR-8 Blocco B):** l'assistente può **provare** un messaggio del canale col parser
 attivo e rispondere, nel trascritto, se è **riconosciuto**, il **motivo** del verdetto e l'**anteprima
 della riga CSV** che uscirebbe (colonne e valori, col separatore decimale della lingua CSV) —

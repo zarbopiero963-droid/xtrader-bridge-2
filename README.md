@@ -222,7 +222,10 @@ CSV di XTrader, modalità, semafori di salute, sicurezza, diario eventi), e sa s
 eseguono le azioni che lui **non può** fare (avviare l'ascolto live, passare a modalità reale,
 impostare token/chat/CSV/parser/limiti) — **guidandoti** passo passo, **senza** eseguirle. Non
 chiede né mostra mai segreti in chat: indica solo **dove** inserirli. Risponde nella **lingua** che
-hai scelto all'avvio (Italiano / English / Español).
+hai scelto all'avvio (Italiano / English / Español). Delle guide molto lunghe legge prima
+l'**indice** e poi la **sezione** che serve alla domanda (#214): prima vedeva solo l'inizio dei
+documenti più grandi — l'8-9% di quello sull'interfaccia — e rispondeva senza sapere cosa gli
+mancasse.
 
 **🧪 Prova messaggio.** Incolla un messaggio del canale e chiedi «questo va bene?» / «cosa uscirebbe
 nel CSV?»: l'assistente lo **prova col parser attivo** e ti dice se è **riconosciuto**, il **motivo**

@@ -325,8 +325,69 @@ fare (avviare il listener live, passare a modalità reale, impostare token/chat/
   `docs/custom_parser.md`, `docs/xtrader_csv_contract.md`, `docs/design/design_handoff.md`,
   `docs/event_journal.md`). Come per le chiavi scrivibili è una **allowlist**: il modello passa solo
   un `name` (non un path) → **niente path-traversal**, mai `config.json`/sorgenti/segreti. File
-  assente (es. docs non incluse nell'EXE) → messaggio, **nessun crash**; contenuto oltre
-  `MAX_GUIDE_CHARS` → troncato con nota. `base_dir` è iniettabile per i test.
+  assente (es. docs non incluse nell'EXE) → messaggio, **nessun crash**. `base_dir` è iniettabile
+  per i test.
+
+  **Guide grandi: indice, non amputazione (#214).** Fino alla issue #214 una guida oltre
+  `MAX_GUIDE_CHARS` veniva tagliata **dal primo carattere in poi**: l'assistente vedeva il 9-38%
+  di 4 guide su 8 — `interfaccia` al **9%** — e non aveva modo di sapere cosa mancasse, quindi
+  rispondeva lo stesso. Le sezioni perse erano proprio quelle su cui l'utente fa le domande più
+  delicate: «Gate di sicurezza», «Condizioni di gate», «Quale parser è attivo», e metà delle
+  schermate della GUI. La nota di troncamento diceva pure «chiedi una sezione specifica», che il
+  tool **non poteva fare**: lo schema accettava solo `name`.
+
+  Ora `read_guide(name, section=None)`:
+
+  | Caso | Risposta |
+  |---|---|
+  | guida ≤ tetto | testo intero (**invariato**) |
+  | guida > tetto, nessuna `section` | **indice completo** dei titoli `##`/`###` + preambolo del documento + istruzione a richiamare con `section` |
+  | `section` trovata | la sezione, estesa fino al titolo di livello **pari o superiore** (un `##` include i suoi `###`) |
+  | `section` oltre il tetto | troncata **dichiarandolo**, con l'elenco delle sotto-sezioni per stringere |
+  | `section` non trovata | lo dice + indice per riprovare, **nessuna eccezione** |
+  | `section` su guida **senza titoli** | lo dichiara («non ha sezioni indirizzabili»), non offre un elenco vuoto |
+  | guida > tetto **senza titoli** | taglio classico, con nota veritiera («non ha sezioni») |
+
+  **Il tetto vale su ogni ramo, e il taglio non torna mai silenzioso.** Tre correzioni arrivate
+  dalla review della PR #217, tutte con test di regressione:
+  - i titoli dentro i **blocchi di codice** (```) non fanno sezione: un `## …` in un esempio
+    Markdown creerebbe una sezione fasulla e sposterebbe il confine di quella vera, restituendo un
+    pezzo di documentazione **diverso** da quello chiesto. Oggi nelle guide reali non ce ne sono —
+    il bug era latente, e sarebbe comparso in silenzio alla prima PR che documenta il Markdown;
+  - l'elenco delle sotto-sezioni accodato a una sezione troncata è **capato**
+    (`MAX_GUIDE_SUBINDEX_CHARS`): con molte sotto-sezioni dai titoli lunghi cresceva senza limite e
+    l'output sforava il tetto — misurato **64.954 contro 12.000**. L'avviso di troncamento non si
+    perde mai: si accorcia l'elenco dichiarando quante voci restano fuori;
+  - la soglia di «sezione troppo lunga» include l'**intestazione**. Misurata sul solo corpo, una
+    sezione appena sotto il tetto non entrava nel ramo con l'avviso e veniva poi accorciata dal
+    clamp finale: troncamento **silenzioso** reintrodotto proprio dalla rete di sicurezza;
+  - **l'indice non si dichiara mai «COMPLETO» se è stato tagliato.** Con abbastanza titoli l'indice
+    stesso supera il tetto: il clamp ne tagliava la coda mentre l'intestazione continuava ad
+    annunciare *«INDICE COMPLETO (N sezioni)»* — misurato **400 annunciate, 69 elencate**. Lo
+    stesso difetto della issue, un livello più in su. Ora o l'indice ci sta tutto, o diventa
+    **«INDICE PARZIALE: mostrate X su N»** e invita a chiedere l'argomento all'utente;
+  - un **fence non chiuso** non nasconde più le sezioni che seguono. Correggendo i code fence
+    avevo introdotto un interruttore che, davanti a un ``` mai chiuso — cosa che capita in una
+    guida scritta a mano — spegneva il riconoscimento fino in fondo al file: **2 sezioni vere
+    perse su 3**, e invisibile, perché il conteggio annunciato viene dallo stesso parse sbagliato.
+    Ora i recinti si calcolano in un primo passaggio e solo quelli **chiusi** contano: nel dubbio
+    si sbaglia nella direzione che lascia la guida raggiungibile. Riconosciuti anche `~~~`, i
+    fence con linguaggio e quelli indentati.
+
+  **`render_index` è la fonte unica** (regola 3) di ogni elenco di titoli — guida troppo grande,
+  sezione non trovata, sotto-sezioni di una sezione troncata. Restituisce anche un booleano
+  `complete`: è quel valore a impedire che un chiamante annunci «completo» ciò che ha tagliato.
+  Il quarto sito della classe (l'indice della *sezione non trovata*) tagliava ancora in silenzio
+  ed è emerso solo dopo, a riprova che «cercare la classe» va fatto sui **rami**, non sui simboli.
+
+  Il tetto **non si alza**: `design_handoff.md` è 144.683 caratteri e cresce a ogni PR di design —
+  non starà mai in un contesto ragionevole. A cambiare è che il taglio non è più cieco.
+  Il confronto sui titoli è **tollerante** (senza `#`, numerazione, maiuscole e spazi superflui):
+  il modello li cita a memoria e abbreviati, e un confronto esatto avrebbe reso «sezione non
+  trovata» indistinguibile da «pagina inesistente» — mandando l'assistente a negare all'utente
+  documentazione che invece c'è.
+  `section` è un **titolo, non un percorso**: `name` resta l'unica chiave dell'allowlist, quindi
+  non apre alcuna strada fuori da `GUIDES` (test dedicato).
 - **Lingua — `build_system_prompt(app_language)`**. Il system prompt porta la clausola di risposta
   nella lingua scelta all'avvio (`app_language` **IT/EN/ES**, match case-insensitive via
   `language_select.normalize_app_language`); valore mancante/sconosciuto → **italiano** (default
@@ -339,7 +400,12 @@ sempre (anche senza `allow_writes`), e non aprono alcun write-path. Test hard in
 `tests/safety/test_config_agent_41.py` (`build_system_prompt` IT/EN/ES/default; `list_guides` elenca
 l'allowlist; `read_guide` legge da `base_dir` iniettato, rifiuta nomi fuori allowlist e ogni
 tentativo di path-traversal senza leggere `config.json`, fail-safe su file mancante, troncatura,
-read-only; e un test-contratto che ogni path dell'allowlist esiste davvero nel repo).
+read-only; e un test-contratto che ogni path dell'allowlist esiste davvero nel repo). Per #214 si
+aggiungono: indice che nomina **tutte** le sezioni anche oltre il taglio, sezione richiesta
+restituita davvero, sezione madre che include le figlie, titolo citato in forma abbreviata,
+sezione inesistente che non solleva, sezione oltre il tetto che lo dichiara, guida piccola
+invariata, guida senza titoli, `section` che resta sola-lettura e non apre strade fuori
+allowlist, e un contratto sulle guide **reali** del repo (nessuna sfora il tetto).
 
 ## Prova messaggio — `test_message` (PR-8 Blocco B)
 
