@@ -48,6 +48,7 @@ from . import (
     config_store,
     health_check,
     i18n,
+    license_status,
     parser_manager,
     confirmation_reader,
     csv_lock_escalation,
@@ -1297,7 +1298,10 @@ class App(ctk.CTk):
             load_state=lambda: license_store.load_license(_lic_path()),
             save_state=lambda tok, ls: license_store.save_license(_lic_path(), tok, ls),
             now_provider=lambda: int(_time.time()),
-            on_status_change=self._on_license_status)   # #140 PR 4: rivaluta il lock a ogni refresh
+            on_status_change=self._on_license_status,   # #140 PR 4: rivaluta il lock a ogni refresh
+            # Incidente 2026-08-04: la scheda deve mostrare la revoca. Cablata sullo STESSO
+            # predicato che blocca, non su una copia — vedi `_revoca_nega`.
+            revoked_provider=self._revoca_nega)
         self._license_panel.pack(fill="both", expand=True)
 
     # ── LOCK LICENZA (#140 PR 4) ──────────────────────────────────────────────────────────────
@@ -1357,9 +1361,99 @@ class App(ctk.CTk):
         try:
             if not bool(getattr(panel.current_status(), "valid", False)):
                 return False
-            return self._revocation_enabled() and not self._revocation_gate_ok()
+            return self._revoca_nega()
         except Exception:   # noqa: BLE001 — la diagnosi del PERCHÉ non deve rompere il lock
             return False
+
+    def _revoca_nega(self) -> bool:
+        """`True` se **la revoca sta negando** (revoca attiva e gate chiuso). FONTE UNICA della
+        domanda (Regola 3): la usano `_license_bloccata_da_revoca` (scelta del messaggio), il
+        banner della finestra principale e — cablata come seam — l'etichetta della scheda Licenza.
+
+        Prima dell'incidente 2026-08-04 questa domanda esisteva in **un solo posto** e la scheda
+        Licenza non se la poneva affatto: mostrava VERDE «Licenza attiva» a un utente revocato
+        mentre il bridge era bloccato. Estratta qui perché ciò che si MOSTRA e ciò che si FA
+        derivino dallo stesso predicato e non possano più divergere.
+
+        **Fail-safe su `False`**: in dubbio non si accusa di revoca — l'unico blocco legittimo è
+        quello dimostrato da una lista firmata. Non cambia la policy del gate (fail-open,
+        decisione del proprietario 2026-07-30): qui si sceglie solo *cosa dire*."""
+        try:
+            return bool(self._revocation_enabled()) and not bool(self._revocation_gate_ok())
+        except Exception:   # noqa: BLE001 — in dubbio NON si accusa di revoca (fail-safe)
+            return False
+
+    # Finestre OPERATIVE figlie tenute dall'App: vanno chiuse quando la licenza blocca.
+    # Elenco unico (Regola 3) invece di due rami copiati: il difetto trovato nel collaudo era
+    # su `_tools_win`, ma il grep della CLASSE (Regola 2) ha mostrato che `_wizard_win` ha
+    # ESATTAMENTE lo stesso problema — e il Wizard scrive config, incluso il filtro chat.
+    # ESCLUSO di proposito il selettore lingua (`_prompt_language`): non è una superficie
+    # operativa (sceglie solo `app_language`) e appare al primo avvio, prima che la UI sia pronta.
+    _FINESTRE_OPERATIVE = ("_tools_win", "_wizard_win")
+
+    def _chiudi_finestre_operative_per_lock(self) -> None:
+        """Chiude le finestre figlie operative quando la licenza blocca (incidente 2026-08-04).
+
+        I pulsanti «🧰 Strumenti» e «🧙 Wizard» sono fra i widget lockable, quindi da bloccati non
+        si riaprono — ma una finestra **già aperta** non era toccata da nulla e restava pienamente
+        operativa. Da Strumenti
+        non si scommette (nessun pannello scrive il CSV operativo, l'anteprima è read-only e
+        `_start` è gated), però si continuava a CONFIGURARE con licenza negata: superficie
+        fail-open su un gate di licenza.
+
+        Best-effort e idempotente: gira a **ogni** giro da bloccato (il lock si ri-applica sempre,
+        fail-closed), quindi deve tollerare una finestra già distrutta senza sollevare — altrimenti
+        un errore qui romperebbe il lock che deve proteggere.
+
+        **Costo accettato, dichiarato:** una modifica non salvata aperta in Strumenti al momento
+        del blocco va persa. È il prezzo del fail-closed su un gate di licenza; il motivo è scritto
+        nel log e nel banner, così la chiusura non sembra un crash."""
+        for attr in self._FINESTRE_OPERATIVE:
+            win = self.__dict__.get(attr)
+            if win is None:
+                continue
+            try:
+                esiste = win.winfo_exists() if hasattr(win, "winfo_exists") else True
+                if esiste:
+                    win.destroy()
+            except Exception:   # noqa: BLE001 — già distrutta/Tcl giù: il lock non deve rompersi
+                pass
+            setattr(self, attr, None)
+
+    def _mostra_license_banner(self, mostra: bool) -> None:
+        """Impacca/nasconde il banner rosso del blocco licenza, `before=self._tabs` come gli altri
+        due banner. Da bloccati si ri-impacca a **ogni** giro (fail-closed: non ci si fida che sia
+        rimasto visibile); il testo invece si scrive solo sulla transizione (`_set_license_banner`),
+        perché deriva da una diagnosi che legge da disco."""
+        banner = self.__dict__.get("_license_banner")
+        if banner is None:
+            return
+        try:
+            if mostra:
+                tabs = self.__dict__.get("_tabs")
+                if tabs is not None:
+                    banner.pack(fill="x", padx=15, pady=(0, 5), before=tabs)
+                else:
+                    banner.pack(fill="x", padx=15, pady=(0, 5))
+            else:
+                banner.pack_forget()
+        except Exception:   # noqa: BLE001 — render Tk best-effort: il banner non può rompere il lock
+            pass
+
+    def _set_license_banner(self, *, revocata: bool) -> None:
+        """Testo del banner. Distingue **revocata dal fornitore** da **licenza non valida**: i
+        rimedi sono opposti — chiamare il fornitore contro riattivare nella scheda Licenza — e
+        mandare un revocato a «riattivare» gli fa reincollare all'infinito una chiave che è valida.
+        Il testo della revoca viene da `license_status.revoked_message()` (fonte unica, Regola 3:
+        lo stesso che mostra la scheda Licenza)."""
+        banner = self.__dict__.get("_license_banner")
+        if banner is None:
+            return
+        try:
+            banner.configure(text=license_status.revoked_message() if revocata else i18n.tr(
+                "🔒 Licenza non valida: bridge bloccato. Attiva una licenza nella scheda «🔑 Licenza»."))
+        except Exception:   # noqa: BLE001 — render Tk best-effort
+            pass
 
     def _apply_license_lock(self) -> bool:
         """Rivaluta la licenza e (dis)blocca la GUI operativa (#140 PR 4). Fail-closed:
@@ -1411,6 +1505,12 @@ class App(ctk.CTk):
                     btn_start.configure(state="disabled")
                 except Exception:   # noqa: BLE001 — best-effort
                     pass
+            # Hub «🧰 Strumenti» GIÀ APERTO (incidente 2026-08-04): il pulsante è lockable, quindi
+            # non riapribile, ma una finestra già viva sopravviveva al blocco e restava pienamente
+            # operativa — superficie fail-open su un gate di licenza. Si chiude a ogni giro da
+            # bloccato (fail-closed: non ci si fida che resti chiusa).
+            self._chiudi_finestre_operative_per_lock()
+            self._mostra_license_banner(True)
             if was != locked:
                 # Log solo sulla transizione (incluso il primo avvio bloccato, `was is None`): non a
                 # ogni tick. L'utente capisce perché è tutto grigio (review Fable #149). Se la causa
@@ -1421,12 +1521,14 @@ class App(ctk.CTk):
                                   "Per tornare operativo serve una nuova licenza dal fornitore.")
                           if revocata else
                           i18n.tr("🔒 GUI bloccata: attiva una licenza valida nella scheda «🔑 Licenza»."))
+                self._set_license_banner(revocata=revocata)
         else:
             if btn_start is not None and not getattr(self, "_running", False):
                 try:
                     btn_start.configure(state="normal")
                 except Exception:   # noqa: BLE001 — best-effort
                     pass
+            self._mostra_license_banner(False)
             if was is not None:
                 # «Sbloccata» solo su un vero passaggio bloccata→valida (non al primo avvio già valido).
                 self._log(i18n.tr("🔓 Licenza valida: GUI sbloccata."))
@@ -1664,6 +1766,14 @@ class App(ctk.CTk):
         self._collaudo_banner = ctk.CTkLabel(
             self, text="", fg_color=_COLOR_COLLAUDO_BANNER_BG, text_color="white",
             corner_radius=8, font=ctk.CTkFont(size=12, weight="bold"))
+
+        # Banner ROSSO persistente quando la LICENZA blocca il bridge (incidente 2026-08-04).
+        # Prima l'unico segnale del blocco era una riga di log, che scorre via: il proprietario
+        # ha revocato la propria licenza di prova e ha visto la scheda dire «Licenza attiva».
+        # Gestito da `_apply_license_lock`, impaccato `before=self._tabs` come gli altri due.
+        self._license_banner = ctk.CTkLabel(
+            self, text="", fg_color=_COLOR_REAL_BANNER_BG, text_color="white", corner_radius=8,
+            font=ctk.CTkFont(size=12, weight="bold"))
 
         # Config a tab (PR-13): impostazioni base + avanzate. Le avanzate erano prima
         # modificabili solo a mano in config.json; la logica vive nel controller puro
