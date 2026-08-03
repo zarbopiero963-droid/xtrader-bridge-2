@@ -189,14 +189,15 @@ def _retention_label(days: int) -> str:
 
 
 # Layout della riga «⚙️ Generale» con la casella CSV Path (#284/#286). La finestra ha larghezza
-# FISSA (`_WINDOW_WIDTH`, `resizable(False, True)`): la riga CSV Path — che porta DUE pulsanti
+# MINIMA `_WINDOW_WIDTH` (dal collaudo #12 è ridimensionabile: può solo crescere): la riga CSV
+# Path — che porta DUE pulsanti
 # accanto alla casella — deve stare nella larghezza utile del tab, perciò la sua entry è più
 # stretta di quelle senza pulsanti. Le costanti sono esposte per il test di regressione layout
 # (`tests/integration/test_gen_layout_budget.py`): un futuro allargamento che le farebbe sforare
 # fallisce in CI invece di tagliare silenziosamente «Crea CSV» a runtime (CodeRabbit #330).
 logger = logging.getLogger(__name__)   # log di modulo (es. rifiuto seconda istanza, #311-1.1)
 
-_WINDOW_WIDTH = 720                 # larghezza fissa della finestra (vedi fit_to_screen)
+_WINDOW_WIDTH = 720                 # larghezza MINIMA della finestra (vedi fit_to_screen)
 _GEN_LABEL_WIDTH = 140             # etichetta del campo
 _GEN_FIELD_ENTRY_WIDTH = 470       # casella dei campi SENZA pulsanti
 _CSV_PATH_ENTRY_WIDTH = 250        # casella CSV Path: più stretta, la riga porta 2 pulsanti
@@ -289,16 +290,16 @@ class App(ctk.CTk):
         logger.debug("DPI awareness: %s", dpi_awareness.enable_dpi_awareness())
         super().__init__()
         self.title(f"XTrader Signal Bridge v{__version__}")
-        # Altezza contenuta + altezza RIDIMENSIONABILE (larghezza fissa: il layout è
-        # tarato in larghezza). Su schermi bassi (768/800px) il pannello monitoraggio a
-        # schede — unico widget che si espande — si riduce e nulla finisce fuori schermo;
-        # i comandi (START/STOP, config) stanno sopra e restano sempre visibili (finding
-        # Codex). minsize evita un collasso eccessivo.
-        # Clamp dell'altezza allo schermo (720x760 può sforare su display da 768px) +
-        # minsize; la larghezza resta fissa (resizable solo in altezza, layout tarato
-        # in larghezza). Il pannello monitoraggio espandibile assorbe la riduzione.
+        # Finestra RIDIMENSIONABILE in entrambi gli assi (collaudo #12, 2026-08-01: il
+        # proprietario si è trovato una schermata piccola e bloccata — la larghezza fissa
+        # era una scelta di layout, non un vincolo tecnico). La sicurezza del layout sta
+        # nel MINIMO, non nel blocco: `_WINDOW_WIDTH` resta la larghezza minima (sotto,
+        # la riga CSV Path taglierebbe i pulsanti — budget guardato da
+        # `test_gen_layout_budget.py`), 600 l'altezza minima. Oltre il minimo i
+        # contenitori (`fill="x"`/`"both"`) si allargano col ridimensionamento.
+        # Clamp allo schermo invariato (720x760 può sforare su display da 768px).
         gui_utils.fit_to_screen(self, _WINDOW_WIDTH, 760, _WINDOW_WIDTH, 600)
-        self.resizable(False, True)
+        self.resizable(True, True)
 
         # Bot token registrati nel redattore dei log (#184 M7 + #203): un INSIEME, non un singolo
         # valore. Serve a deregistrare i token non più necessari quando il token cambia (così il
@@ -1340,6 +1341,26 @@ class App(ctk.CTk):
             except Exception:   # noqa: BLE001 — widget senza `state`/distrutto: best-effort
                 pass
 
+    def _license_bloccata_da_revoca(self) -> bool:
+        """`True` se il blocco corrente è imputabile alla REVOCA: la licenza del pannello è di per
+        sé valida, ma il gate revoca la nega. Serve SOLO a scegliere il messaggio (collaudo #12,
+        2026-08-01): il proprietario ha revocato la propria licenza di prova, il bridge si è
+        bloccato correttamente, ma il log diceva «attiva una licenza valida» — per un revocato è
+        fuorviante (la sua licenza È valida: è il fornitore ad averla bloccata) e lo manda a
+        «riattivare» invece che dal fornitore. Il lock resta governato da `_license_is_valid`.
+
+        Fail-safe su `False`: in dubbio si mostra il messaggio generico, mai un'accusa di revoca
+        non dimostrata."""
+        panel = getattr(self, "_license_panel", None)
+        if panel is None:
+            return False
+        try:
+            if not bool(getattr(panel.current_status(), "valid", False)):
+                return False
+            return self._revocation_enabled() and not self._revocation_gate_ok()
+        except Exception:   # noqa: BLE001 — la diagnosi del PERCHÉ non deve rompere il lock
+            return False
+
     def _apply_license_lock(self) -> bool:
         """Rivaluta la licenza e (dis)blocca la GUI operativa (#140 PR 4). Fail-closed:
 
@@ -1370,11 +1391,14 @@ class App(ctk.CTk):
         self._set_operational_lock(locked=locked)
         btn_start = getattr(self, "_btn_start", None)
         if locked:
+            revocata = self._license_bloccata_da_revoca()
             if getattr(self, "_running", False):
                 # Licenza invalida ma sessione viva → STOP fail-closed (non lasciare il listener che
                 # scrive CSV senza licenza). Una sola volta: `_stop` azzera `_running`. PRIMA di
                 # disabilitare START, perché `_stop` rimette START a "normal".
-                self._log(i18n.tr("🔒 Licenza non più valida: listener fermato (fail-closed)."))
+                self._log(i18n.tr("🚫 Licenza REVOCATA dal fornitore: listener fermato (fail-closed).")
+                          if revocata else
+                          i18n.tr("🔒 Licenza non più valida: listener fermato (fail-closed)."))
                 self._stop()
             if btn_start is not None:
                 try:
@@ -1383,8 +1407,12 @@ class App(ctk.CTk):
                     pass
             if was != locked:
                 # Log solo sulla transizione (incluso il primo avvio bloccato, `was is None`): non a
-                # ogni tick. L'utente capisce perché è tutto grigio (review Fable #149).
-                self._log(i18n.tr("🔒 GUI bloccata: attiva una licenza valida nella scheda «🔑 Licenza»."))
+                # ogni tick. L'utente capisce perché è tutto grigio (review Fable #149). Se la causa
+                # è la REVOCA, lo si dice: il rimedio è il fornitore, non la scheda Licenza.
+                self._log(i18n.tr("🚫 Licenza REVOCATA dal fornitore: il bridge resta bloccato. "
+                                  "Per tornare operativo serve una nuova licenza dal fornitore.")
+                          if revocata else
+                          i18n.tr("🔒 GUI bloccata: attiva una licenza valida nella scheda «🔑 Licenza»."))
         else:
             if btn_start is not None and not getattr(self, "_running", False):
                 try:
@@ -1663,7 +1691,7 @@ class App(ctk.CTk):
             ctk.CTkLabel(tab_gen, text=i18n.tr(label), width=_GEN_LABEL_WIDTH, anchor="w").grid(
                 row=r, column=0, padx=_GEN_LABEL_PADX, pady=4, sticky="w")
             # La riga CSV Path porta DUE pulsanti (Sfoglia + Crea CSV) accanto alla casella:
-            # entro la larghezza FISSA della finestra (`_WINDOW_WIDTH`, `resizable(False, True)`)
+            # entro la larghezza MINIMA della finestra (`_WINDOW_WIDTH`)
             # l'entry va ristretta, altrimenti i pulsanti sforano/vengono tagliati (CodeRabbit
             # #330). Gli altri campi (senza pulsanti) restano a `_GEN_FIELD_ENTRY_WIDTH`.
             e = ctk.CTkEntry(

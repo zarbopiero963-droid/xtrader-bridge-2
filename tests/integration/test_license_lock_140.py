@@ -312,3 +312,48 @@ def test_scheda_licenza_mai_lockable(App, app_mod):
                       and n.func.attr == "_register_lockable"]
     assert not lockable_calls, \
         "_build_license_tab NON deve registrare widget lockable (lock-out permanente del tab Licenza)"
+
+
+# ── Collaudo #12 blocco H (2026-08-01): la revoca deve DIRSI, non solo agire ────────────────────
+#
+# Trovato dal proprietario al primo collaudo reale: revoca emessa, bridge bloccato correttamente,
+# ma il log diceva solo «GUI bloccata: attiva una licenza valida» — per un utente REVOCATO è
+# impreciso (la sua licenza è tecnicamente valida: è il fornitore ad averla bloccata) e non gli
+# dice l'unica cosa che gli serve: che deve contattare il fornitore, non «riattivare».
+# Il design handoff lo annotava come «affinamento UX previsto»; il collaudo lo ha promosso a difetto.
+
+def _fake_app_revocata(app_mod, *, running=False):
+    """Come `_fake_app(valid=True)` ma con la revoca ATTIVA e il gate CHIUSO: licenza del pannello
+    valida, bloccata dal fornitore. È esattamente lo stato del collaudo H3."""
+    app = _fake_app(app_mod, valid=True, running=running)
+    app._revocation_enabled = lambda: True
+    app._revocation_gate_ok = lambda: False
+    return app
+
+
+def test_lock_da_revoca_dice_REVOCATA_non_il_messaggio_generico(app_mod, App):
+    app = _fake_app_revocata(app_mod)
+    assert App._apply_license_lock(app) is True
+    testo = " ".join(app.logs).lower()
+    assert "revocata" in testo, (
+        f"l'utente revocato non viene informato della revoca: {app.logs!r}")
+    assert "attiva una licenza valida" not in testo, (
+        "il messaggio generico suggerisce di «riattivare», che per un revocato è fuorviante")
+
+
+def test_lock_da_revoca_a_sessione_viva_ferma_e_dice_perche(app_mod, App):
+    app = _fake_app_revocata(app_mod, running=True)
+    App._apply_license_lock(app)
+    assert app.stop_calls, "listener non fermato su licenza revocata (fail-closed violato)"
+    testo = " ".join(app.logs).lower()
+    assert "revocata" in testo
+
+
+def test_lock_per_licenza_semplicemente_invalida_resta_generico(app_mod, App):
+    """Non-regressione: chi NON è revocato (licenza assente/scaduta) deve continuare a ricevere
+    il messaggio che lo manda alla scheda Licenza — quello per lui è giusto."""
+    app = _fake_app(app_mod, valid=False)
+    App._apply_license_lock(app)
+    testo = " ".join(app.logs)
+    assert "attiva una licenza valida" in testo
+    assert "revocata" not in testo.lower()

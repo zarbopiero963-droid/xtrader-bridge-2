@@ -1,6 +1,7 @@
 """Test di regressione del budget di layout della riga CSV Path (#286, CodeRabbit #330).
 
-La finestra ha larghezza **fissa** (`_WINDOW_WIDTH`, `resizable(False, True)`). La riga CSV Path
+La finestra ha larghezza **minima** `_WINDOW_WIDTH` (dal collaudo #12 è ridimensionabile:
+può solo crescere). La riga CSV Path, alla larghezza minima,
 porta DUE pulsanti accanto alla casella (Sfoglia #284 + Crea CSV #286): la somma delle larghezze
 (etichetta + casella ristretta + 2 pulsanti) deve stare nella larghezza utile del tab, altrimenti
 «📄 Crea CSV» viene tagliato a runtime. Questo test blocca un futuro allargamento che rifarebbe

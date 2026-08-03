@@ -33,7 +33,7 @@ _ALLOWLIST = {
                               "lettura su file assente/corrotto/schema inatteso → nessun path; "
                               "mark/clear best-effort — un I/O rotto non deve bloccare STOP/chiusura "
                               "(la marcatura avviene comunque PRIMA di armare il retry, crash-safe)"),
-    "app.py": (47, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+    "app.py": (48, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
                    "gate revoca (#159): la traccia diagnostica del ramo fail-open è essa stessa "
                    "protetta — `_dbg` può sollevare (GUI non costruita, istanza parziale) e "
                    "l'eccezione USCIREBBE dal gate, che `_license_is_valid` non assorbe: una riga "

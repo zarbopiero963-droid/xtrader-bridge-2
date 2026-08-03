@@ -144,7 +144,7 @@ L'app è **una finestra principale** + un **hub "Strumenti"** che apre finestre/
 di configurazione avanzata.
 
 ```text
-FINESTRA PRINCIPALE  (720×760, larghezza fissa, altezza ridimensionabile)
+FINESTRA PRINCIPALE  (720×760, ridimensionabile in entrambi gli assi, min 720×600)
 │
 ├── Header
 │     ├─ Titolo "🤖  XTrader Signal Bridge"
@@ -309,8 +309,10 @@ invariato; cambia solo il contenuto delle risposte nel trascritto.
 
 ## 6. Finestra principale — dettaglio completo
 
-**Titolo:** `XTrader Signal Bridge v0.1.0` · **Geometria:** 720×760, **larghezza fissa**,
-altezza ridimensionabile, min 720×600.
+**Titolo:** `XTrader Signal Bridge v0.1.0` · **Geometria:** 720×760, **ridimensionabile in
+entrambi gli assi** (collaudo #12, 2026-08-01: prima la larghezza era fissa e sul PC del
+proprietario la finestra risultava piccola e bloccata), minimo **720×600**. Il layout è tarato
+sulla larghezza minima: oltre, i contenitori si allargano; sotto non si può scendere.
 
 ### 6.1 Header
 - Titolo grande: **"🤖  XTrader Signal Bridge"** (font ~20, bold), su frame scuro
@@ -716,7 +718,7 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 |---|---|---|
 | 🔑 Bot Token | `bot_token` | campo password (mascherato) |
 | 💬 Chat ID | `chat_id` | testo |
-| 📄 CSV Path | `csv_path` | testo (percorso file, casella **più corta** delle altre) **+ pulsante «📁 Sfoglia…»** (#284) **+ pulsante «📄 Crea CSV»** (#286) — la riga è compatta perché porta due pulsanti e la finestra ha **larghezza fissa** (720px) |
+| 📄 CSV Path | `csv_path` | testo (percorso file, casella **più corta** delle altre) **+ pulsante «📁 Sfoglia…»** (#284) **+ pulsante «📄 Crea CSV»** (#286) — la riga è compatta perché porta due pulsanti e deve stare nella **larghezza minima** (720px) |
 | ⏱️ Timeout (sec) | `clear_delay` | intero **> 0 e ≤ 86400** (24 h — B2 audit #114: un timeout enorme disattiverebbe di fatto lo svuotamento del CSV) |
 | 🏷️ Provider | `provider` | testo |
 
@@ -823,11 +825,19 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   > fermava utenti legittimi — a sessione viva, con posizioni potenzialmente aperte — per un guasto
   > altrui.
 
-  *Nota per il design:* il messaggio di lock è **generico** («attiva una licenza valida»), che per un
-  utente **revocato** (la cui licenza è tecnicamente valida ma bloccata dal fornitore) è impreciso — un
-  **messaggio distinto** «licenza revocata dal fornitore» è un **affinamento UX previsto** in una fetta
-  successiva. Nota che le varianti «lista non raggiungibile / stantia» **non servono più**: quegli stati
-  non producono lock.
+  *Nota per il design:* dal 2026-08-01 (collaudo #12: il proprietario ha revocato la propria licenza
+  di prova e il log diceva solo «attiva una licenza valida») il lock **distingue la revoca**. Messaggi
+  verbatim:
+
+  | causa del blocco | messaggio (log) |
+  |---|---|
+  | licenza assente/scaduta/invalida | «🔒 GUI bloccata: attiva una licenza valida nella scheda «🔑 Licenza».» |
+  | licenza **revocata** dal fornitore | «🚫 Licenza REVOCATA dal fornitore: il bridge resta bloccato. Per tornare operativo serve una nuova licenza dal fornitore.» |
+  | revoca **a sessione viva** | «🚫 Licenza REVOCATA dal fornitore: listener fermato (fail-closed).» |
+
+  La distinzione è **fail-safe**: se la causa non è dimostrabile si usa il messaggio generico — mai
+  un'accusa di revoca in dubbio. Le varianti «lista non raggiungibile / stantia» **non servono**:
+  quegli stati non producono lock (fail-open).
 - La revoca online **è ora ATTIVA**: l'URL reale della lista è impostato nel codice (#157), quindi il lock
   da revoca può scattare anche in sviluppo, non solo nell'EXE distribuito — chi disegna la UI deve
   considerarlo uno stato **raggiungibile qui e ora**, non ipotetico. L'attivazione è **derivata dall'URL
@@ -1738,7 +1748,7 @@ Aree dove un redesign porterebbe più valore (spunti, non requisiti):
   disclosure, anteprima live più chiara, esempi inline, riduzione del carico cognitivo.
 - **Onboarding "primo avvio".** Oggi l'utente deve capire da sé token→chat→csv→parser. Un
   flusso guidato ridurrebbe gli errori di setup (che bloccano AVVIA).
-- **Gerarchia della finestra principale.** Molte tab in poco spazio (larghezza fissa 720).
+- **Gerarchia della finestra principale.** Molte tab in poco spazio (larghezza minima 720).
   Distinguere meglio "operatività quotidiana" (stato, start/stop, log) da "configurazione".
 - **Feedback di stato più ricco.** Timeline/animazione del ciclo di vita del segnale;
   visualizzazione più chiara di "riconnessione" e "CSV bloccato".
