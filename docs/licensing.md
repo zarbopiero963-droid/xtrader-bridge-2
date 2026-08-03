@@ -720,6 +720,42 @@ non riceve una lista aggiornata (quelle già arrivate restano applicate). Questa
   «✅ Accesso OK» che *citava pure il branch sbagliato* come se fosse stato controllato, e la
   pubblicazione falliva dopo. Causa: `GET contents?ref=X` risponde 404 sia per «file non ancora
   presente» (legittimo) sia per «branch inesistente» (errore), e i due si distinguono solo così.
+
+#### ⚠️ Smoke manuale del proprietario — la sonda contro GitHub vero (#215)
+
+**Cosa resta non verificato automaticamente.** Tutti i test di `check_access` iniettano un HTTP
+finto: provano la **logica** della sonda (quale codice conferma, quale nega, quale resta incerto),
+non che **GitHub risponda davvero così**. L'invariante su cui poggia l'intera diagnosi — *i permessi
+sono validati prima dello sha* — è un comportamento dell'API reale, e nessun doppio può dimostrarlo.
+Finché questo smoke non è stato eseguito, il 403 è **atteso**, non **osservato**.
+
+**Passi esatti** (5 minuti, sul PC dove il License Manager funziona):
+
+1. GitHub → *Settings* → *Developer settings* → *Personal access tokens* → *Fine-grained tokens* →
+   il token della pubblicazione → **Repository permissions** → porta **Contents** a **Read-only**,
+   salva.
+2. License Manager → «📤 Pubblicazione automatica (GitHub)» → **🔍 Verifica accesso**.
+3. **Atteso:** il messaggio del **403** — «Token accettato ma senza permesso di SCRITTURA su
+   `<repo>`», con l'indicazione di «Contents: Read and write».
+   **Guasto da segnalare:** un «✅ Accesso OK». Significherebbe che la sonda non prova nulla, cioè il
+   difetto esatto che questa PR esiste per chiudere; e che `permissions.push` mente proprio nel caso
+   in cui conta.
+4. Riporta **Contents** a **Read and write** e ripremi **🔍 Verifica accesso** → deve tornare
+   «✅ Accesso OK».
+
+**Anomalia.** Se al punto 4 comparisse «⚠️ ANOMALIA» (la `PUT` di prova *accettata* invece che
+rifiutata), la lista revoche è comunque **intatta** — la prova non la tocca mai — ma va segnalato:
+vuol dire che l'API non si comporta come documentato qui. Il file temporaneo
+`<file>.xtrader-verifica-accesso` viene rimosso da sé; solo se la rimozione fallisce il messaggio
+chiede di cancellarlo a mano.
+
+**Sblocco del secondo PC (indipendente da qualunque PR).** Se «🔍 Verifica accesso» risponde **404
+sul repository** o **403** su un PC dove tutto il resto funziona, la causa tipica non è il token in
+sé ma il suo **perimetro**: un token *fine-grained* vede solo i repository elencati in «Repository
+access». Aggiungi lì `zarbopiero963-droid/xtrader-revocation` con **Contents: Read and write**. È
+anche il passo che manca dopo una **migrazione da backup**: il backup non contiene il token (sta
+solo nel keyring del PC d'origine, mai esportato), quindi sul PC nuovo va re-incollato — e se il
+token è nuovo, va anche concesso su quel repository.
 - **GUI** (`license_manager/gui.py`, sezione «📤 Pubblicazione automatica (GitHub)»): campi repo/path/
   branch/intervallo + token (`show="*"`, svuotato dopo il salvataggio), checkbox on/off, **💾 Salva
   impostazioni**, **🔍 Verifica accesso** (sonda che non modifica nulla, in background come la
@@ -933,12 +969,23 @@ Il bridge **non opera senza licenza valida**. Cablato in `xtrader_bridge/app.py`
 widget senza `state`, STOP a sessione viva, START gated, auto-start gated, tick che rivaluta e si
 ri-arma, no-riarmo in chiusura. Handoff design aggiornato (`docs/design/design_handoff.md`).
 
-## Azione una-tantum del proprietario (NON una PR)
+## Azioni una-tantum del proprietario (NON una PR)
 
-Generare la **keypair Ed25519**: rimandabile (serve un PC). La farà il License Manager (PR 3b, GUI)
-al primo avvio, riusando `generate_keypair()` + `save_signing_key()` sopra. Fino ad allora si
-sviluppa/mergia con le **chiavi di TEST** + placeholder; il PC serve solo **prima di distribuire**
-copie licenziate reali.
+Cose che **nessuna PR può fare al posto suo**: richiedono un PC reale, la GUI, o le impostazioni
+dell'account GitHub. Elencate qui perché non si perdano fra i commenti delle PR.
+
+- **Generare la keypair Ed25519** — rimandabile (serve un PC). La fa il License Manager (PR 3b, GUI)
+  al primo avvio, riusando `generate_keypair()` + `save_signing_key()` sopra. Fino ad allora si
+  sviluppa/mergia con le **chiavi di TEST** + placeholder; il PC serve solo **prima di distribuire**
+  copie licenziate reali.
+- **Collaudare la sonda «🔍 Verifica accesso» contro GitHub vero** (#215) — mettere `Contents` a
+  *Read-only* sul token e verificare che risponda **403**, non «✅ Accesso OK». Passi esatti e
+  criterio di guasto: «⚠️ Smoke manuale del proprietario» nella sezione della pubblicazione
+  automatica. Finché non è stato fatto, la logica della sonda è provata dai test ma il comportamento
+  dell'**API reale** no.
+- **Concedere il repository delle revoche al token** — `zarbopiero963-droid/xtrader-revocation` in
+  «Repository access» del token *fine-grained*, con **Contents: Read and write**. Serve su ogni PC
+  con un token nuovo, e in particolare dopo una migrazione da backup (il token non è nel backup).
 
 ## Test hard (questa PR)
 

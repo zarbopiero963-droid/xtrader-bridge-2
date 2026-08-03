@@ -54,6 +54,18 @@
 - [ ] **Protezioni NON ancora attive a runtime** (da agganciare prima dell'uso reale):
       coda multi-segnale (`signal_queue`), conferma XTrader (`confirmation_reader`),
       multi-chat (`source_manager`). Vedi `archive/final_audit.md` §4.
+- [ ] **License Manager — «🔍 Verifica accesso» collaudata contro GitHub vero** (#215).
+      Metti `Contents` a *Read-only* sul token *fine-grained* → il pulsante deve rispondere
+      **403** («senza permesso di SCRITTURA»); rimetti *Read and write* → «✅ Accesso OK».
+      Perché è qui e non fra i test automatici: la sonda è provata da 62 test con un HTTP
+      **finto**, che non possono dimostrare come si comporta l'API reale. Un «✅ Accesso OK»
+      al passo *Read-only* è un **guasto bloccante**: la verifica non proverebbe nulla.
+      Passi esatti in `docs/licensing.md` → «Smoke manuale del proprietario».
+- [ ] **Il token vede il repository delle revoche** — `zarbopiero963-droid/xtrader-revocation`
+      in «Repository access» del token, con **Contents: Read and write**. Senza, la lista
+      firmata non si pubblica: una licenza revocata **continua a funzionare** sui bridge già
+      distribuiti, che è il guasto peggiore di tutta la catena. Da rifare su ogni PC nuovo:
+      il token **non** è nel backup completo (sta solo nel keyring).
 
 ## F. Verifica funzionale manuale (Windows + GUI)
 
