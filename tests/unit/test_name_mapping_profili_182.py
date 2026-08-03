@@ -286,6 +286,46 @@ def test_le_righe_si_attivano_anche_da_tastiera():
     assert len(attivazioni) == 3
 
 
+def test_i_figli_cliccabili_non_creano_un_secondo_tab_stop():
+    """Rilievo Fable sulla PR #226. Una riga è un frame con dentro un'etichetta, ed entrambi
+    devono rispondere al MOUSE — ma se entrambi entrassero nel giro del Tab ogni profilo
+    varrebbe due tab-stop, e scorrere dieci profili ne chiederebbe venti. La navigazione da
+    tastiera è proprio ciò che questa funzione esiste per rendere usabile: renderla rumorosa
+    sarebbe una mezza correzione."""
+    from xtrader_bridge import ui_widgets
+
+    class _Widget:
+        def __init__(self):
+            self.legati = {}
+            self.opzioni = {}
+        def bind(self, evento, cb):
+            self.legati[evento] = cb
+        def configure(self, **k):
+            self.opzioni.update(k)
+
+    figlio = _Widget()
+    ui_widgets.rendi_attivabile(figlio, lambda _e=None: "break", focusabile=False)
+    assert set(figlio.legati) == {"<Button-1>"}, "il figlio non deve reagire a Invio/Spazio"
+    assert "takefocus" not in figlio.opzioni, "il figlio non deve essere un secondo tab-stop"
+
+
+def test_entrambi_i_pannelli_rendono_focusabile_solo_la_riga():
+    """La classe, non il sito: la regola del tab-stop singolo vale per tutti e due gli elenchi."""
+    import ast
+    import pathlib
+    for modulo in ("xtrader_bridge/name_mapping_gui.py", "xtrader_bridge/custom_parser_gui.py"):
+        albero = ast.parse(pathlib.Path(modulo).read_text(encoding="utf-8"))
+        chiamate = [n for n in ast.walk(albero)
+                    if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "rendi_attivabile"]
+        assert len(chiamate) == 2, f"{modulo}: attese 2 chiamate (riga + etichetta), {len(chiamate)}"
+        senza_focus = [c for c in chiamate
+                       if any(k.arg == "focusabile" for k in c.keywords)]
+        assert len(senza_focus) == 1, (
+            f"{modulo}: esattamente UNA delle due deve essere `focusabile=False` (l'etichetta), "
+            f"altrimenti la riga vale due tab-stop")
+
+
 def test_takefocus_e_best_effort_e_non_impedisce_il_disegno():
     """Un widget che rifiuta `configure` resta comunque cliccabile: non poter mettere una riga
     nel giro del Tab non deve far saltare il rendering dell'intero elenco."""
@@ -317,15 +357,39 @@ def test_anche_le_righe_del_pannello_PARSER_si_attivano_da_tastiera():
     import pathlib
     sorgente = pathlib.Path("xtrader_bridge/custom_parser_gui.py").read_text(encoding="utf-8")
     albero = ast.parse(sorgente)
+
+    # Risolve UN livello di indirezione: `apri = self._gestore_click(nome, self._open_saved)`
+    # registra `apri` come "alias dell'apertura". Guardare il solo testo della chiamata non
+    # basta — appena il codice usa una variabile locale, `_open_saved` sparisce dal dump e il
+    # controllo diventerebbe verde per il motivo sbagliato.
+    alias_apertura = set()
+    for nodo in ast.walk(albero):
+        if isinstance(nodo, ast.Assign) and "_open_saved" in ast.dump(nodo.value):
+            for bersaglio in nodo.targets:
+                if isinstance(bersaglio, ast.Name):
+                    alias_apertura.add(bersaglio.id)
+
     chiamate = [n for n in ast.walk(albero)
                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                 and n.func.attr == "rendi_attivabile"]
     assert chiamate, "il pannello Parser non usa la fonte unica dell'attivazione da tastiera"
-    # …e l'azione legata è la SELEZIONE, non l'apertura.
-    argomenti = ast.dump(chiamate[0])
-    assert "_select_saved" in argomenti, argomenti
-    assert "_open_saved" not in argomenti, (
-        "Invio/Spazio non devono APRIRE: salterebbero la conferma di scarto")
+    # …su TUTTE le chiamate, non solo la prima (rilievo GPT-5.5 sulla PR #226: con
+    # `chiamate[0]` una seconda chiamata futura che legasse l'apertura sarebbe passata
+    # inosservata).
+    for chiamata in chiamate:
+        passati = {a.id for a in chiamata.args if isinstance(a, ast.Name)}
+        assert not (passati & alias_apertura), (
+            f"Invio/Spazio legati all'APERTURA ({passati & alias_apertura}): salterebbero la "
+            f"conferma di scarto che il doppio click esiste per rendere deliberata")
+        assert "_open_saved" not in ast.dump(chiamata), ast.dump(chiamata)
+
+    # …e l'apertura resta legata al DOPPIO click, che è il gesto che la conferma protegge.
+    doppi = [n for n in ast.walk(albero)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+             and n.func.attr == "bind" and n.args
+             and isinstance(n.args[0], ast.Constant) and n.args[0].value == "<Double-Button-1>"]
+    assert doppi and any("_open_saved" in ast.dump(d) for d in doppi), (
+        "il doppio click non apre più il parser salvato")
 
 
 # ── i badge ─────────────────────────────────────────────────────────────────────────

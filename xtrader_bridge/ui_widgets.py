@@ -11,7 +11,7 @@ posti diventa due comportamenti divergenti al primo ritocco.
 """
 
 
-def rendi_attivabile(widget, azione):
+def rendi_attivabile(widget, azione, *, focusabile=True):
     """Rende una riga-elenco attivabile con il **mouse** e con la **tastiera**.
 
     `CTkFrame` e `CTkLabel` non ricevono il focus e non reagiscono a Invio/Spazio: una riga
@@ -22,11 +22,21 @@ def rendi_attivabile(widget, azione):
     `azione` è il gestore già pronto: riceve l'evento (o nessun argomento) e ritorna
     ``"break"`` per fermare la propagazione riga↔etichetta.
 
+    **`focusabile=False` per i figli cliccabili.** Una riga è di solito un frame con dentro
+    un'etichetta, e *entrambi* devono rispondere al mouse — ma se entrambi entrassero nel giro
+    del Tab ogni riga varrebbe **due tab-stop**, e scorrere dieci profili da tastiera ne
+    chiederebbe venti (rilievo Fable sulla PR #226: rumore di navigazione, non un bug
+    funzionale — ma la navigazione da tastiera è esattamente ciò che questa funzione esiste per
+    rendere usabile). Quindi: `focusabile=True` sul **contenitore**, `False` sui figli.
+
     `takefocus` è best-effort: su un widget-spia dei test, o su un widget già distrutto
     durante un refresh, `configure` può sollevare — e non poter mettere una riga nel giro del
     Tab non deve impedire di **disegnarla**."""
-    for evento in ("<Button-1>", "<Return>", "<space>"):
+    eventi = ("<Button-1>", "<Return>", "<space>") if focusabile else ("<Button-1>",)
+    for evento in eventi:
         widget.bind(evento, azione)
+    if not focusabile:
+        return
     try:
         widget.configure(takefocus=1)
     except Exception:        # noqa: BLE001 — widget-spia o distrutto: resta cliccabile col mouse

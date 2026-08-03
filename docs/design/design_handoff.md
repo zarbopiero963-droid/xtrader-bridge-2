@@ -1195,7 +1195,9 @@ gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia so
 
   L'elenco è **scorrevole**. **Click singolo = apri** (non doppio, come nel pannello Parser:
   cambiare profilo **auto-salva** quello che stai lasciando, quindi non serve un gesto di conferma
-  in più); da **tastiera** la riga si raggiunge col Tab e si apre con **Invio o Spazio**. Nel
+  in più); da **tastiera** la riga si raggiunge col Tab e si apre con **Invio o Spazio** — **un solo
+  tab-stop per riga**: l'etichetta dentro la riga resta cliccabile col mouse ma non entra nel
+  giro del Tab, altrimenti scorrere dieci profili ne chiederebbe venti. Nel
   pannello **🧩 Parser** le righe salvate hanno la stessa attivazione da tastiera, dove però
   Invio/Spazio **selezionano** (equivalente del click singolo) e mai aprono: da tastiera non
   esiste il «doppio», e aprire salterebbe la conferma di scarto che il doppio click rende

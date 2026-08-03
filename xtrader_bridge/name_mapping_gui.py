@@ -252,14 +252,17 @@ class NameMappingPanel(ctk.CTkFrame):
             ctk.CTkLabel(riga, text=i18n.tr("· {n} righe").format(n=righe),
                          font=ctk.CTkFont(size=11), text_color="gray").pack(side="left", padx=3)
             self._profile_rows[nome] = riga
-            for widget in (riga, etichetta):
-                # Click SINGOLO = apri: cambiare profilo auto-salva quello che stai lasciando
-                # (`_on_profile_change`), quindi non serve il doppio click del pannello Parser.
-                # Il gestore ritorna "break" per non far risalire il click dall'etichetta al
-                # frame ed eseguire l'apertura due volte (stessa trappola della PR A ①).
-                # …e da TASTIERA (Invio/Spazio): un elenco disegnato a mano non prende il focus
-                # come faceva il `CTkOptionMenu` che sostituisce (rilievo CodeRabbit #226).
-                ui_widgets.rendi_attivabile(widget, self._gestore_click(nome))
+            # Click SINGOLO = apri: cambiare profilo auto-salva quello che stai lasciando
+            # (`_on_profile_change`), quindi non serve il doppio click del pannello Parser.
+            # Il gestore ritorna "break" per non far risalire il click dall'etichetta al frame
+            # ed eseguire l'apertura due volte (stessa trappola della PR A ①).
+            # …e da TASTIERA (Invio/Spazio): un elenco disegnato a mano non prende il focus come
+            # faceva il `CTkOptionMenu` che sostituisce (rilievo CodeRabbit #226). Solo la RIGA
+            # entra nel giro del Tab: focusabile anche l'etichetta, ogni profilo varrebbe due
+            # tab-stop (rilievo Fable #226).
+            gestore = self._gestore_click(nome)
+            ui_widgets.rendi_attivabile(riga, gestore)
+            ui_widgets.rendi_attivabile(etichetta, gestore, focusabile=False)
         if not names:
             ctk.CTkLabel(self._profile_list, text=i18n.tr("Nessun profilo. Crea un profilo con «Nuovo»."),
                          text_color="gray", anchor="w").pack(anchor="w", padx=6, pady=4)
